@@ -174,9 +174,11 @@ without network access.
   call it erases nothing from, and `composite-fixed-point-pass` over it does
   not converge) and a pull request against llvm main, one commit,
   `llvm.patch`. Before filing: search llvm/llvm-project for
-  `eraseOpResults` and `remove-dead-values` fixed-point issues; run
-  `check-mlir` on then-current main with the patch, and the new test
-  with the `PatternMatch.cpp` change reverted, where it must fail. There is
+  `eraseOpResults` and `remove-dead-values` fixed-point issues; check that
+  the diff applies to then-current main and is clang-format clean, and that
+  the new test fails with the `PatternMatch.cpp` change reverted (shown at
+  the pin, against the toolchain's libraries); `check-mlir` is the pull
+  request's pre-merge CI's (upstream/README.md, **CI decides**). There is
   no `submission.md` yet.
 - Upstream test: `mlir/test/Transforms/remove-dead-values-fixed-point.mlir`.
 - Independent of 06 (`remove-dead-values-unreachable`): neither changes a

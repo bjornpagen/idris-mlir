@@ -93,20 +93,25 @@ accepts, so they are the user's to take. Each is argued where it is cited.
    size are recognized by name, as `Data.Buffer` is, each with one meaning
    behind `rt.platform`. A `File` is the runtime's small integer. Signal
    handlers are `unsupported (signal)`. This clarifies the `%foreign`
-   decision; it does not reopen it.
+   decision; it does not reopen it. Taken with proposal 0002 (owner
+   decision O1, W9 integrated in 327c2e30): `decision-threads-pointers.md`
+   records it.
 3. **The memo is decided per thunk** (`concurrency.md` §2.5): inlined when
    used once, one-shot when exclusive, memoized when shared. A thunk whose
    body forges a world is never memoized: its effects happen as often as
-   its value is demanded.
+   its value is demanded. Taken with proposal 0002 (owner decision O3);
+   a top-level constant's memo is per shard (`decision-shards.md` §6).
 4. **The standard streams belong to shard 0** (`concurrency.md` §4.7).
    Decided otherwise on 2026-10-09: the streams work on every shard, with
    an output buffer per shard and input on shard 0 (`decision-shards.md`
    §3). A program whose output depends on how shards interleave is still
    checked at one shard only (§8).
 5. **Rust bindings are generated primitives**, not `%foreign "rust:"`
-   (`concurrency.md` §5.5). This amends proposal 0001 §9.2.
+   (`concurrency.md` §5.5). This amends proposal 0001 §9.2, which the
+   amendment of 2026-10-09 says, with proposal 0001 still open as a whole.
 6. **The in-place promise becomes the default** once the benchmarks pass it
-   (`substrate.md` §3).
+   (`substrate.md` §3). Open: proposal 0002 keeps it opt-in (owner
+   decision O5) until its qualification's benchmarks run.
 
 ## The ordered work
 

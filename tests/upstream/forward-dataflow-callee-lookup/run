@@ -1,7 +1,8 @@
 #!/bin/sh
 # The pinned mlir-opt, with upstream/05-forward-dataflow-callee-lookup/llvm.patch,
 # no longer shows the bug: sccp over a module of 4 times as many functions,
-# each calling the next, takes about 4 times as long, where llvmorg-23.1.2,
+# each calling the next, takes about 4 times as long, where an unpatched
+# mlir-opt (llvmorg-23.1.2, and main at 7208ba24),
 # which finds each call's callee by a scan of the module, takes about 16
 # times. Each size's time is the best of three runs, so that the load of
 # other tests does not decide the ratio. When the pin's forward analyses

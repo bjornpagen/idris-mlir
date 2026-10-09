@@ -35,8 +35,10 @@ done
 echo "timeout: ${timeout_cmd:-not found: $timeout_missing}"
 # ccache is optional: tools/bootstrap.sh launches the LLVM builds' compilers
 # through it when there is one (IDRIS_MLIR_CCACHE).
-echo "ccache: $(command -v ccache 2> /dev/null || echo 'not found (optional; it caches the LLVM builds)')"
-echo "SHA-256: $(command -v sha256sum 2> /dev/null || command -v shasum 2> /dev/null || echo 'not found: sha256sum (coreutils) or shasum')"
+echo "ccache: $(host_path ccache || echo 'not found (optional; it caches the LLVM builds: sudo port install ccache)')"
+# The SHA-256 tool the scripts use: tools/host.sh's choice, made by running it.
+sha256 < /dev/null > /dev/null 2>&1 || true
+echo "SHA-256: ${sha256_tool:-not found: sha256sum (coreutils) or shasum}"
 case $host_clock in
   date) echo "clock: date's %N" ;;
   perl) echo "clock: perl's Time::HiRes: $(now_ns > /dev/null 2>&1 && echo found || echo 'not found')" ;;

@@ -1546,8 +1546,8 @@ def Idr_NProcessorsOp : Idr_IOOp<"n_processors", [Idr_Primitive]> {
 
 // The operating system the target triple names, in the spelling Idris's
 // Scheme backends share and base tests for: "darwin", "unix", "windows",
-// or "unknown". Folded to that string. The triple is the one the target
-// entry wrote on the runtime.
+// or "unknown". Folded to that string. The triple is the module's
+// #llvm.target, which idr-target writes from the target entry.
 def Idr_OsOp : Idr_Op<"os", [Pure, Idr_Primitive]> {
   let summary = "the operating system the target triple names";
   let results = (outs Idr_StrValue:$result);

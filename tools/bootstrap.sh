@@ -58,8 +58,8 @@
 #                          (PINS.md: stage2-thinlto). A Mach-O stage 2 is not
 #                          LTO, and the variable is refused there
 #   IDRIS_MLIR_CCACHE      the compiler launcher of the LLVM builds: unset,
-#                          ccache on PATH if there is one; a path, that
-#                          ccache; 0, none
+#                          ccache on PATH or MacPorts' if there is one; a
+#                          path, that ccache; 0, none
 #   IDRIS_MLIR_CCACHE_DIR  its cache (default: .toolchain/ccache)
 #   CC, CXX                the host's C and C++ compilers (default: cc, c++)
 #
@@ -268,7 +268,7 @@ esac
 # built, so the times of its headers say nothing, and ccache is told so.
 case ${IDRIS_MLIR_CCACHE-} in
   0) ccache= ;;
-  '') ccache=$(command -v ccache 2> /dev/null) || ccache= ;;
+  '') ccache=$(host_path ccache) || ccache= ;;
   *)
     [ -x "$IDRIS_MLIR_CCACHE" ] || usage "IDRIS_MLIR_CCACHE names no executable: $IDRIS_MLIR_CCACHE"
     ccache=$IDRIS_MLIR_CCACHE

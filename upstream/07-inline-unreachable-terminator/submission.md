@@ -23,7 +23,8 @@ mentions in the issue, the pull request, or a comment. Add `Assisted-by: <tool>`
 also what this repository applies to its LLVM pin. It is one commit
 whose message is the pull request title and body below. It has no
 `From:` line: apply it with `git apply` and commit it as yourself with
-that message. Run `check-mlir` before opening the pull request.
+that message. LLVM's pre-merge CI runs `check-mlir` on the pull request
+(upstream/README.md, **CI decides**).
 
 ## Steps
 

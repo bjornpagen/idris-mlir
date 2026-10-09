@@ -1,7 +1,8 @@
 #!/bin/sh
 # The pinned mlir-opt, with upstream/03-bytecode-deferred-quadratic/llvm.patch,
 # no longer shows the bug: it reads an array attribute nested 4 times as
-# deep from bytecode in about 4 times as long, where llvmorg-23.1.2 takes
+# deep from bytecode in about 4 times as long, where an unpatched mlir-opt
+# (llvmorg-23.1.2, and main at 7208ba24) takes
 # about 16 times. Each depth's time is the best of three reads, so that the
 # load of other tests does not decide the ratio. When the pin's reader
 # resolves deferred entries in linear time, the patch goes, and with it the

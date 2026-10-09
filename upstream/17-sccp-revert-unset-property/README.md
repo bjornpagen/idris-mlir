@@ -147,9 +147,11 @@ both merged, which this follows.
   reproducer. Its title and body are the squash commit message.
 - Upstream test: the new case at the end of
   `mlir/test/Transforms/sccp.mlir`.
-- Before sending: build `mlir-opt` with the diff on then-current main. The
-  new case must pass, and fail with the `ConstantPropagationAnalysis.cpp`
-  change reverted. `check-mlir` must pass.
+- Before sending: with an `mlir-opt` linked from the changed file against
+  the toolchain's libraries at the pin (no LLVM build), the new case must
+  pass, and fail with the `ConstantPropagationAnalysis.cpp` change
+  reverted; the diff must apply to then-current main. `check-mlir` is the pull request's pre-merge CI's
+  (upstream/README.md, **CI decides**).
 - Independent of 02 (`composite-fixed-point-sccp`): 02 changes `SCCP.cpp`
   and `sccp.mlir`'s RUN lines, this the analysis and the end of
   `sccp.mlir`. Either can land first; this diff applies after 02's.

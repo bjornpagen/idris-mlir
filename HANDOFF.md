@@ -24,7 +24,8 @@ says. You are the sending agent it describes. Start with the first row
 of its status table marked "send next". Its rules are absolute: I (Bjorn)
 approve every post one command at a time, everything ends with
 "Assisted-by: Claude Code", you push only to my fork, one submission at
-a time, trunk only, check-mlir green on current llvm main first. Before
+a time, trunk only, the diff applying to current llvm main and
+clang-format clean, check-mlir left to LLVM's pre-merge CI. Before
 anything else, confirm `gh auth status` and git's user.name/user.email,
 and tell me what you found. Do not touch this repository's toolchain or
 code; the only files you change here are upstream/README.md's status

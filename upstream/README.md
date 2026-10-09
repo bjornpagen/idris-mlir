@@ -57,7 +57,9 @@ loops; the ExecutionEngine test does not build without the new option)
 and pass with it. 01's test, run on main as a file of its own, fails
 without a fix and passes with only #208881's change and with 06's. 05
 adds no test. Each directory's `## Testing on main` has the details.
-Re-run `check-mlir` before each pull request, on the then-current main.
+Those runs were scratch builds made before Bjorn ruled out building LLVM
+locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
+(**CI decides** below).
 
 | NN | bug | what goes out | status |
 | -- | --- | ------------- | ------ |
@@ -118,9 +120,12 @@ These are not optional.
   Bjorn says so, normally after its first review. Adjust the rest by what
   that review asked for.
 - **Trunk only.** Every pull request is against llvm main. No backports.
-- **Green first.** No pull request before `check-mlir` passes with it on
-  current main (failures that also happen without the change, checked by
-  re-running those tests without it, are reported, not ignored).
+- **CI decides.** LLVM is not built locally for a submission (Bjorn,
+  2026-10-09). Before a pull request, its diff applies to current main
+  (`git apply --check`) and `git clang-format origin/main` changes nothing;
+  `check-mlir` is LLVM's pre-merge CI's, on the pull request. A CI failure
+  is read before anything else: one that also fails on main without the
+  change is reported in the pull request, not ignored.
 
 ## Sending
 
@@ -133,12 +138,6 @@ Once:
    --filter=blob:none https://github.com/llvm/llvm-project.git`. If Bjorn
    has no fork, ask before `gh repo fork llvm/llvm-project
    --clone=false`; add the fork as remote `fork`.
-2. Configure a test build: `cmake -G Ninja -S llvm -B build
-   -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON
-   -DLLVM_ENABLE_PROJECTS=mlir -DLLVM_TARGETS_TO_BUILD=Native
-   -DBUILD_SHARED_LIBS=ON` (plus `-DLLVM_USE_LINKER=lld` if installed).
-   On macOS the macOS SDK is needed. Build in the background while
-   preparing text.
 
 For the next submission (first row whose status says "send next", or,
 after Bjorn says to go on, the next ready row):
@@ -149,8 +148,8 @@ after Bjorn says to go on, the next ready row):
 4. Commit: subject = PR title, body = PR body, last line
    `Assisted-by: Claude Code`. Leave `#<issue>` (or `#ISSUE`, `#PR`) in
    place until the number exists.
-5. `ninja -C build check-mlir`; report the result exactly.
-   `git clang-format origin/main` must change nothing.
+5. `git clang-format origin/main` must change nothing. No local
+   `check-mlir`: the pull request's pre-merge CI runs it (**CI decides**).
 6. Show Bjorn each text exactly as it will be posted (issue, PR, comment)
    and each command. Take his edits verbatim.
 7. On his approval of each command: file the issue; put its number into
