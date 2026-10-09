@@ -261,13 +261,11 @@ export namespace idr::eval {
 // child of its own: a system that refuses to run what a process wrote
 // kills the process that tries (Darwin's hardened runtime does, with
 // SIGKILL, though mprotect made the pages executable), and every call would
-// otherwise read as killed for want of memory. One probe that ran tells for
-// the whole process. When no child can start, it tells nothing, and the
-// run that follows says why.
+// otherwise read as killed for want of memory. Each JIT's code is probed
+// before it runs: one more child per round, beside the round's own, and
+// nothing to remember between rounds. When no child can start, it tells
+// nothing, and the run that follows says why.
 std::optional<std::string> refusesJitCode(Jit::Entry probe) {
-  static bool runs = false;
-  if (runs)
-    return std::nullopt;
   pid_t pid = fork();
   if (pid == 0) {
     probe(nullptr);
@@ -278,10 +276,8 @@ std::optional<std::string> refusesJitCode(Jit::Entry probe) {
   int status = 0;
   while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
   }
-  if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
-    runs = true;
+  if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
     return std::nullopt;
-  }
   std::string ended = WIFSIGNALED(status)
                           ? "was killed by signal " + std::to_string(WTERMSIG(status))
                           : "exited with status " + std::to_string(WEXITSTATUS(status));
