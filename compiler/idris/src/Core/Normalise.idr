@@ -312,7 +312,13 @@ replace : {auto c : Ref Ctxt Defs} ->
 replace = replace' 0
 
 -- If the term is an application of a primitive conversion (fromInteger etc)
--- and it's applied to a constant, fully normalise the term.
+-- and it's applied to a constant, fully normalise the term. The conversion
+-- runs only the primitives every backend computes alike (sharedOp): any
+-- other primitive it applies, such as the integer a String reads as in a
+-- FromString implementation, is the backend's to compute, and stays applied.
+-- A pattern (all) is matched against the constant, so there a literal
+-- whose conversion needs another primitive is an error: the call left in it
+-- would be unmatchable, and an unmatchable pattern matches anything.
 export
 normalisePrims : {auto c : Ref Ctxt Defs} -> {vs : _} ->
                  -- size heuristic for when to unfold
@@ -341,7 +347,13 @@ normalisePrims boundSafe viewConstant all prims n args tm env
         let True = boundSafe c -- that we should expand
               | _ => pure Nothing
         defs <- get Ctxt
-        tm <- if all
-                 then normaliseAll defs env tm
-                 else normalise defs env tm
-        pure (Just tm)
+        let opts = if all then withAll else defaultOpts
+        tm' <- normaliseOpts ({ sharedPrimsOnly := True } opts) defs env tm
+        when all $
+          do full <- normaliseOpts opts defs env tm
+             when (full /= tm') $
+               throw (GenericMsg (getLoc tm)
+                        ("Can't match on a literal whose value depends on the backend: "
+                         ++ "its conversion applies a primitive other than Integer's "
+                         ++ "arithmetic or a cast from Integer"))
+        pure (Just tm')
