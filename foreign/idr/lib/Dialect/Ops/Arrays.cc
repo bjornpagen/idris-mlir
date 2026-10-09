@@ -2,6 +2,7 @@
 
 #include "idr/Idr.h"
 
+#include "mlir/IR/Matchers.h"
 #include "mlir/IR/OpImplementation.h"
 
 import idr.ops;
@@ -37,12 +38,24 @@ Value unguarded(Value index) {
   return index;
 }
 
+// Whether two indices are one: the same value once seen through their
+// guards, or two constants of the same value, which a pass that puts a
+// constant in place of a value it knows makes once per use.
+bool sameIndex(Value x, Value y) {
+  x = unguarded(x);
+  y = unguarded(y);
+  if (x == y)
+    return true;
+  APInt a, b;
+  return matchPattern(x, m_ConstantInt(&a)) && matchPattern(y, m_ConstantInt(&b)) &&
+         a.getBitWidth() == b.getBitWidth() && a == b;
+}
+
 } // namespace
 
 bool idr::sameElement(Value array, ValueRange indices, Value otherArray, ValueRange otherIndices) {
   return arrayRoot(array) == arrayRoot(otherArray) &&
-         llvm::equal(indices, otherIndices,
-                     [](Value x, Value y) { return unguarded(x) == unguarded(y); });
+         llvm::equal(indices, otherIndices, sameIndex);
 }
 
 LogicalResult ArrayNewOp::verify() {
@@ -53,15 +66,19 @@ LogicalResult ArrayNewOp::verify() {
 
 // A read that moves its element out leaves the element's place empty, so
 // the next IO on its world, its world's one use, is the write that fills
-// that place again, in its block: an element that holds no reference has
-// nothing to move, and anything else between would see the empty place.
+// that place again, in its block: anything else between would see the
+// empty place. A machine word is never counted and is read as a memref's
+// element, which a loop may take over, so it does not move. Whether an
+// element of any other type holds a reference may change as passes run
+// (defunctionalization makes a closure a sum, of captured words only, say),
+// so it is MoveOutBeforeSet's to ask, and a read that moves an element
+// holding none only empties nothing.
 LogicalResult ArrayGetOp::verify() {
   if (failed(verifyCount(*this, getIndices().size(), "indices", getArrayType())))
     return failure();
   if (getMoves()) {
-    SymbolTableCollection symbols;
-    if (!holdsReferences(getArrayType().getElementType(), symbols, *this))
-      return emitOpError("moves out an element that holds no reference");
+    if (getArrayType().getElementType().isIntOrIndexOrFloat())
+      return emitOpError("moves out a machine word, which holds no reference");
     auto set = getNext().hasOneUse() ? dyn_cast<ArraySetOp>(*getNext().getUsers().begin())
                                      : ArraySetOp();
     if (!set || set->getBlock() != (*this)->getBlock() ||

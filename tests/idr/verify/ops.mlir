@@ -58,7 +58,7 @@ func.func @f(%a: memref<?xi64>, %w: !idr.world) -> !idr.world {
 
 // A word holds no reference, so there is nothing to move out.
 func.func @f(%r: memref<i64>, %w: !idr.world) -> !idr.world {
-  // expected-error @+1 {{moves out an element that holds no reference}}
+  // expected-error @+1 {{moves out a machine word, which holds no reference}}
   %x, %w1 = idr.array.get %r[], %w moves : memref<i64> -> i64
   %w2 = idr.array.set %r[], %x, %w1 : memref<i64>, i64
   return %w2 : !idr.world
@@ -94,4 +94,32 @@ func.func @f(%r: memref<!idr.str>, %w: !idr.world) -> !idr.str {
   // expected-error @+1 {{moves its element out, but its world does not go next to a write of that element in its block}}
   %x, %w1 = idr.array.get %r[], %w moves : memref<!idr.str> -> !idr.str
   return %x : !idr.str
+}
+
+// -----
+
+// Two constants of one value are one index: a pass that puts a constant in
+// place of each guard whose range it knows makes one per use, and the
+// write still fills the place the read emptied.
+func.func @f(%a: memref<?x!idr.str>, %s: !idr.str, %w: !idr.world) -> (!idr.str, !idr.world) {
+  %i = arith.constant 0 : i64
+  %j = arith.constant 0 : i64
+  %x, %w1 = idr.array.get %a[%i], %w moves : memref<?x!idr.str> -> !idr.str
+  %w2 = idr.array.set %a[%j], %s, %w1 : memref<?x!idr.str>, !idr.str
+  return %x, %w2 : !idr.str, !idr.world
+}
+
+// -----
+
+// An element that holds no reference but is no word may be read moving:
+// defunctionalization makes the closures of a read that moved into a sum
+// whose labels capture only words, and the read then empties nothing.
+idr.data @Op {
+  idr.ctor @Inc ()
+  idr.ctor @Add (i64)
+}
+func.func @f(%r: memref<!idr.data<@Op>>, %o: !idr.data<@Op>, %w: !idr.world) -> (!idr.data<@Op>, !idr.world) {
+  %x, %w1 = idr.array.get %r[], %w moves : memref<!idr.data<@Op>> -> !idr.data<@Op>
+  %w2 = idr.array.set %r[], %o, %w1 : memref<!idr.data<@Op>>, !idr.data<@Op>
+  return %x, %w2 : !idr.data<@Op>, !idr.world
 }

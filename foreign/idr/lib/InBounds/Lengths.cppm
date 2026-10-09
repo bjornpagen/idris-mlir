@@ -1,6 +1,6 @@
 // idr.inbounds:lengths: which integers are the lengths of which arrays.
 // `related(n, a)` holds when, wherever `n` and `a` are both in scope, the
-// array `a` has `max(n, 0)` elements: what `idr.array.new %n` gives, and
+// array `a` has `max(n, 0)` elements: what `idr.array.new [%n]` gives, and
 // what the program then carries apart.
 //
 // A component of a record — a field read, a field a take yields, an

@@ -281,7 +281,7 @@ mlir::Value arrayRoot(mlir::Value array);
 
 // Whether two accesses name the same element: the same array, seen through
 // arrayRoot, at the same indices, each seen through the in-bounds guard
-// that checked it.
+// that checked it, or constants of the same value.
 bool sameElement(mlir::Value array, mlir::ValueRange indices, mlir::Value otherArray,
                  mlir::ValueRange otherIndices);
 

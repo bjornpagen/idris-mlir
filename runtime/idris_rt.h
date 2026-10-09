@@ -155,7 +155,9 @@ typedef struct idris_rt_bignum {
  * laid out as idr-lower lays out a cell's fields (object slots first), in the
  * same cell. An element is read and written through the array, in the order
  * of the world, so the array itself is never exclusive: the cell holds its
- * elements' references for as long as it lives. An array of rank 0 (an
+ * elements' references for as long as it lives, except that a read whose
+ * next IO writes the same element takes that element's reference over and
+ * leaves its counted slots NULL until the write. An array of rank 0 (an
  * IORef) is this cell with length 1. */
 typedef struct idris_rt_array {
   idris_rt_header header;
