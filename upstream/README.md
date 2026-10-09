@@ -35,10 +35,10 @@ Each `NN-<bug>/` is one bug. `NN` is the order to file in: lower first.
   rules for sending are its own (its CONTRIBUTING.md); the bug's README
   says where it goes.
 - `pull-request.diff`: the pull request for a change this repository does
-  not carry as a patch (08, 17; 18, whose change the fork carries as its
-  own code), which the bootstrap therefore never applies. Apply it with
-  `git apply` (18's to third_party/Idris2's pin); the commit message comes
-  from `submission.md`, never from the file's header.
+  not carry as a patch (08, 17; 18 and 20, whose changes the fork carries
+  as its own code), which the bootstrap therefore never applies. Apply it
+  with `git apply` (18's and 20's to third_party/Idris2's pin); the commit
+  message comes from `submission.md`, never from the file's header.
 - `tests/upstream/<bug>/` (bug name without the number): this repository's
   check that the pinned tools still need the patch, or are fixed by it.
 - `PINS.md`, entry `## <bug>` (or the name it gives): why we carry it and
@@ -82,6 +82,7 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 17 | sccp-revert-unset-property | PR: sccp copies the properties storage around a simulated fold, so it reverts a property the fold set on an op that had none | not ready: not carried (the compiler is not affected); no `mlir-opt` with it built; `check-mlir` not run |
 | 18 | elaboration-primitive-folding | issue + PR on idris-lang/Idris2: elaboration leaves primitives to the backend | carried as fork code (compiler/idris), not as a patch; upstream's suite not run with it; not filed |
 | 19 | pass-timing-dynamic-pipeline | a test, as a comment on #169615 (open; its own test passes without its change) | ready, not posted; carried: #169615's change and our test; still broken on main at 626eeb8e; the toolchain is not yet rebuilt with it |
+| 20 | evaluator-char-text | issue + PR on idris-lang/Idris2: the evaluator's text of a Char is the Char, not its escape | carried as fork code (compiler/idris), not as a patch; upstream's suite not run with it; not filed |
 
 Gone when the pin moved from llvmorg-23.1.2 to main at 7208ba24, each
 with its check and its PINS.md entry: 13 (uplift-final-counter) and 14

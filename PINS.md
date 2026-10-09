@@ -677,12 +677,15 @@ which the top-level CMake configure gate reads.
   (`src/Idris/Package.idr`); `Core.Unify.search` is defined in
   `Core.AutoSearch`, which only the REPL imported, so a driver without the
   REPL compiled it as a hole; and `Libraries.Text.Distance.Levenshtein.compute`
-  crashes ("Badly initialised matrix") when either string is empty, because
-  its loops over `[1..0]` count down (latent: the strings it compares are
-  names, never empty in practice). A fourth upstream bug, found before the fork, is fixed in it
-  too:
-  elaboration folds a primitive applied to constants with Idris's own
-  implementation (elaboration-primitive-folding)
+  crashes ("Badly initialised matrix") when either string is empty,
+  because its loops over `[1..0]` count down (latent: the strings it
+  compares are names, never empty in practice). Two more are fixed in it
+  too: elaboration folds a primitive applied to constants with Idris's
+  own implementation (elaboration-primitive-folding); and where the
+  evaluator still computes a primitive (conversion checking, a type), it
+  computes a Char's text as the escape `show` writes (`cast '\n'` is
+  `"\\n"`), so the proof `cast '\n' = "\n"` is refused
+  (evaluator-char-text)
 - sites: compiler/idris (README.md lists every deviation;
   `tools/extract-idris.sh status` prints the files that differ from the
   gitlink), compiler/idris/src/Idris/Package.idr (the `clean` path),
@@ -690,10 +693,12 @@ which the top-level CMake configure gate reads.
   compiler/idris/src/Libraries/Text/Distance/Levenshtein.idr (filled a row
   at a time, with no matrix to miss),
   compiler/idris/src/Core/{Normalise,Normalise/Eval,Primitives,Value}.idr
-  (elaboration-primitive-folding)
+  (elaboration-primitive-folding), compiler/idris/src/Core/Primitives.idr
+  (every operation the evaluator computes calls the primitive of its
+  name, which fixes the Char's text; tests/upstream/evaluator-char-text)
 - workaround: none; the fork is our code. Its deviations from upstream are
   deliberate (the REPL, IDE mode, every other code generator and the CExp
-  pipeline are out of scope) except the four bug fixes, which upstream
+  pipeline are out of scope) except the five bug fixes, which upstream
   should take
 - retire: never as a whole. Each bug fix goes when an Idris bump brings
   upstream's fix (the re-sync merge in compiler/idris/README.md shows it)
@@ -701,4 +706,6 @@ which the top-level CMake configure gate reads.
   `Core.AutoSearch` and Levenshtein's empty strings are each an issue and
   a pull request (with a test in its `tests/`) on
   idris-lang/Idris2; elaboration's folding is
-  upstream/18-elaboration-primitive-folding
+  upstream/18-elaboration-primitive-folding, and the Char's text
+  upstream/20-evaluator-char-text (the one-line fix; the fork's calls by
+  name are its own)

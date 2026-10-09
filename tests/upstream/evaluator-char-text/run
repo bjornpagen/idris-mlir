@@ -1,0 +1,10 @@
+#!/bin/sh
+# The fork of Idris's compiler (compiler/idris), which carries the change of
+# upstream/20-evaluator-char-text/pull-request.diff, computes a Char's text
+# as the Char itself: each proof of Main.idr checks by computing
+# `prim__cast_CharString` of a Char that `show` escapes. The pinned,
+# unpatched Idris computes the escape (`"\\n"` for '\n') and refuses all
+# four. When a re-sync brings upstream's fix, the report, its PINS.md entry
+# and this test go (upstream/README.md).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+profile_accept .

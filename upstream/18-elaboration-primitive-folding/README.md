@@ -31,7 +31,7 @@ values:
 The last line is a second bug of the evaluator, which the change leaves
 alone: `castString` of a Char is `stripQuotes (show c)`
 (`src/Core/Primitives.idr:42`), the escape `show` writes, not the
-character.
+character. It is upstream/20-evaluator-char-text.
 
 ## Reproduce
 
@@ -152,8 +152,11 @@ computes, so it stays unpatched. The pull request is still one we intend to send
 
 `pull-request.diff` applies to the pin (`git -C third_party/Idris2 apply
 --check`), and its `src/` part is the fork's change, byte for byte: applied
-to the pin's four files it gives compiler/idris's. Upstream's own suite has
-not run with it, nor has a stock Idris been built with it.
+to the pin's four files it gives compiler/idris's, but for
+`Core/Primitives.idr`, where the fork has since made every operation
+`getOp` and `sharedOp` compute call the primitive of its name (which also
+fixes 20) and keeps the structure the diff gives it. Upstream's own suite
+has not run with it, nor has a stock Idris been built with it.
 
 The fork, built with it by the stock Idris on arm64 macOS (2026-10-09),
 built prelude, base, contrib and `libs/mlir-linear` without an error, so
