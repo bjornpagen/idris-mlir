@@ -61,9 +61,17 @@
 // unless no value reaches it, is one the analysis could not convert: the
 // module is left as it was, and `defunctionalize` names each such key with
 // the op where the analysis lost its value.
+//
+// Then every type is in its runtime shape, and no declaration changes after
+// this: a record or closure sum that would make a cell holding it count
+// more references than a header can becomes a box, widest first
+// (idr.layout's fit). A sum of several user constructors is looked
+// through, never boxed, because a field read of it may already run where
+// its constructor is not known.
 export module idr.defunctionalize:sums;
 
 import idr.mlir;
+import idr.layout;
 
 import :analysis;
 import :byname;
@@ -78,10 +86,12 @@ namespace idr::defunctionalize {
 
 // What `defunctionalize` made of the module's keys: the sums, the keys that
 // stay closures because no value reaches them, and the keys it could not
-// convert, which leave the module unchanged.
+// convert, which leave the module unchanged; and the declarations it made
+// boxes so that the cells holding them fit.
 export struct Defunctionalized {
   uint64_t sums = 0;
   uint64_t closures = 0;
+  uint64_t boxed = 0;
   SmallVector<UnknownKey> unknown;
 };
 
@@ -103,6 +113,7 @@ export FailureOr<Defunctionalized> defunctionalize(ModuleOp top) {
     return done;
   converter.rewrite();
   markByName(module);
+  done.boxed = idr::layout::fit(top);
   done.sums = converter.converted.size();
   done.closures = static_cast<uint64_t>(llvm::count_if(converter.keys, [&](const auto &entry) {
     return isClosureType(entry.first.first) && !converter.isConverted(entry.first);

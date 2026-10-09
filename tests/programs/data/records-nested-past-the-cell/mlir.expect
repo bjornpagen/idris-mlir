@@ -1,0 +1,3 @@
+# H would put 3841 counted references in the cell of N, and its 16 M
+# 3840 in its own: idr-defunctionalize boxes H, then M, whose 240 fit.
+idr-defunctionalize: cells-fit

@@ -25,7 +25,9 @@ idr.data @Wide box {
 // -----
 
 // An unboxed sum spreads over the cell that holds it: three counted slots
-// in each of 86 fields are 258.
+// in each of 86 fields are 258. Lowered alone, that is rejected here; in
+// the pipeline, idr-defunctionalize first makes the record @Three a box,
+// and the cell holds 86 references.
 idr.data @Three {
   idr.ctor @P (!idr.str, !idr.str, !idr.str)
 }

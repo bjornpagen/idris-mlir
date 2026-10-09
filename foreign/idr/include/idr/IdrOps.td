@@ -102,7 +102,9 @@ def Idr_DataType : Idr_Type<"Data", "data", [MemRefElementTypeInterface]> {
   let assemblyFormat = "`<` $name `>`";
 }
 
-// A value of a boxed (recursive) type, declared `idr.data @T box`.
+// A value of a boxed type, declared `idr.data @T box`: recursive, or a
+// record whose values would make the cells holding them count more
+// references than a header can (idr-defunctionalize decides those).
 def Idr_BoxType : Idr_Type<"Box", "box", [MemRefElementTypeInterface]> {
   let summary = "a value of the boxed type declared by idr.data ... box";
   let parameters = (ins "::mlir::FlatSymbolRefAttr":$name);
@@ -522,6 +524,11 @@ def Idr_DataOp : Idr_Op<"data", [SymbolName, Idr_PublicSymbol, Symbol, SymbolTab
     IsolatedFromAbove, NoRegionArguments, SingleBlock, NoTerminator,
     HasParent<"::mlir::ModuleOp">]> {
   let summary = "declares a monomorphic data type, unboxed or boxed";
+  // `box`: its values are cells, !idr.box; an unboxed sum's values are its
+  // slots, !idr.data, spread over whatever holds them. A type is a box when
+  // it contains itself, or when it is a record or closure sum whose values
+  // would make the cells holding them count more references than a header
+  // can, which idr-defunctionalize decides once the types are final.
   // `closures`: a sum idr-defunctionalize made of closures, one constructor
   // per label, named after the label's function, whose fields are its
   // captures: a value of it is a closure.

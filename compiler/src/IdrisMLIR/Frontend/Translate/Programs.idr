@@ -97,7 +97,10 @@ translateFrom fc main = do
 
 ||| The program, with each data instance's representation: a box when it
 ||| contains itself, through the fields of any data (not through closures,
-||| which are values of their own), and an unboxed sum otherwise.
+||| which are values of their own), and an unboxed sum otherwise. A record
+||| decided Sop here may still become a box in idr-defunctionalize, when a
+||| cell holding its values would count more references than a header can:
+||| that measure is idr.layout's, not one held here too.
 assemble : {auto s : Ref TState TS} -> FnId -> Core Source
 assemble root = do
   st <- get TState

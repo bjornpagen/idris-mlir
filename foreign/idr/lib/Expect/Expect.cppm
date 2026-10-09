@@ -6,6 +6,7 @@ export module idr.expect;
 
 export import :allocation;
 export import :breaksLast;
+export import :cellsFit;
 export import :clones;
 export import :closures;
 export import :constantStack;

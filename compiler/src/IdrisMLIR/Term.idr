@@ -302,6 +302,10 @@ record Con where
 
 ||| How a data instance is represented: an unboxed sum, or a box when its
 ||| containment is recursive (every cycle passes through a box). Data holding closures is a sum like any other.
+||| This is the Idris side's decision, and recursion its only reason: a
+||| single-constructor Sop may still become a box in idr-defunctionalize, when
+||| a cell holding its values would count more references than a header can,
+||| which only idr.layout measures.
 public export
 data Repr = Sop | Box
 

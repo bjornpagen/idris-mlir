@@ -9,6 +9,11 @@ import idr.mlir;
 
 export namespace idr::layout {
 
+// The most object slots a header counts: its objs field is 8 bits wide.
+// Every test of whether a cell's header can count what the cell holds
+// compares against this one bound.
+inline constexpr unsigned mostObjects = IDRIS_RT_OBJS_LIMIT - 1;
+
 // The info word of a cell's header, which the runtime reads to free the cell
 // (idris_rt_info: the tag, the number of object slots, the kind). A CellInfo
 // exists only for a tag and an object count that fit their fields, so a word
@@ -55,11 +60,11 @@ std::expected<CellInfo, std::string> CellInfo::constructor(uint64_t tag, uint64_
     return std::unexpected(("its tag is " + Twine(tag) + ", and a cell's tag is below " +
                             Twine(IDRIS_RT_TAG_LIMIT))
                                .str());
-  if (objs >= IDRIS_RT_OBJS_LIMIT)
+  if (objs > mostObjects)
     return std::unexpected(("it holds " + Twine(objs) +
                             " counted references (strings, boxed values, closures, "
                             "Integers, Nats), and a cell holds at most " +
-                            Twine(IDRIS_RT_OBJS_LIMIT - 1))
+                            Twine(mostObjects))
                                .str());
   return CellInfo(idris_rt_info(static_cast<uint32_t>(tag), static_cast<uint32_t>(objs), kind));
 }
@@ -78,10 +83,10 @@ std::expected<CellInfo, std::string> CellInfo::array(uint64_t stride, uint64_t o
                             " bytes, and an array's element takes fewer than " +
                             Twine(IDRIS_RT_TAG_LIMIT))
                                .str());
-  if (objs >= IDRIS_RT_OBJS_LIMIT)
+  if (objs > mostObjects)
     return std::unexpected(("an element holds " + Twine(objs) +
                             " counted references, and an array's element holds at most " +
-                            Twine(IDRIS_RT_OBJS_LIMIT - 1))
+                            Twine(mostObjects))
                                .str());
   return CellInfo(idris_rt_info(static_cast<uint32_t>(stride), static_cast<uint32_t>(objs),
                                 IDRIS_RT_KIND_ARRAY));

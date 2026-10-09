@@ -14,6 +14,7 @@
 // CHECK-DAG: (S) {{ *[0-9]+}} idr-loop-breakers.breakers -
 // CHECK-DAG: (S) {{ *[1-9][0-9]*}} rounds - Rounds run
 // CHECK: IdrDefunctionalize
+// CHECK-DAG: (S) {{ *[0-9]+}} boxed - Records and closure sums made boxes so that the cells holding them fit
 // CHECK-DAG: (S) {{ *[0-9]+}} closures - Keys whose closures stay closures
 // CHECK-DAG: (S) {{ *[0-9]+}} sums - Keys whose closures became sums
 // QUIET-NOT: statistics

@@ -1,0 +1,3 @@
+# R would put 257 counted references in the cell of N, and its two S 256
+# in its own: idr-defunctionalize boxes R, then S, until every cell fits.
+idr-defunctionalize: cells-fit

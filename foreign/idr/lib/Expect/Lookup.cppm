@@ -5,6 +5,7 @@ import idr.mlir;
 
 import :allocation;
 import :breaksLast;
+import :cellsFit;
 import :clones;
 import :closures;
 import :constantStack;
@@ -63,6 +64,7 @@ Check lookup(StringRef name) {
       .Case("pure-array-loops", pureArrayLoops)
       .Case("vectorized", vectorized)
       .Case("narrowed-lanes", narrowedLanes)
+      .Case("cells-fit", cellsFit)
       .Default(nullptr);
 }
 
