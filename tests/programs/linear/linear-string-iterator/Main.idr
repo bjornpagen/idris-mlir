@@ -6,6 +6,7 @@
 -- and a U+FFFD from ill-formed input.
 module Main
 
+import Prelude
 import Data.List.Lazy
 import Linear.String.Iterator
 
