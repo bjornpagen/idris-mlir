@@ -31,7 +31,8 @@ SmallVector<Operation *> opsIn(ArrayRef<func::FuncOp> functions,
 
 bool isIndexGuard(Operation *op) { return isa<CheckInBoundsOp>(op); }
 
-// A guard of an index that an array access takes, the access's own check.
+// A guard of an index that an array access takes: the access's own check,
+// or a check against a size whose result that check takes.
 bool isAccessGuard(Operation *op) {
   auto guard = dyn_cast<CheckInBoundsOp>(op);
   return guard && inbounds::accessedArray(guard);

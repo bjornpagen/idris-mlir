@@ -1,6 +1,8 @@
 // idr.inbounds:guards: the guards, idr.check.*. Each gives its operand as
 // its result once its condition held, and a guard of an index is the check
-// of the array access that takes that result as its index.
+// of the array access that takes that result as its index, directly or
+// through the access's own guard: an index checked against a size kept
+// beside the array is checked again against the array's length.
 export module idr.inbounds:guards;
 
 import idr.mlir;
@@ -12,8 +14,10 @@ using namespace mlir;
 
 namespace idr::inbounds {
 
-// The array of the access whose index is `guard`'s result. None when no
-// array access takes it, as for a string's index.
+// The array of the access whose index is `guard`'s result, directly or
+// through the access's own guard, which checks that result again. None
+// when no array access takes it, as for a string's index. Each guard of a
+// chain is defined before the next, so the walk ends.
 export std::optional<Value> accessedArray(CheckInBoundsOp guard) {
   Value checked = guard.getChecked();
   for (Operation *user : checked.getUsers()) {
@@ -21,6 +25,11 @@ export std::optional<Value> accessedArray(CheckInBoundsOp guard) {
       return get.getArray();
     if (auto set = dyn_cast<ArraySetOp>(user); set && set.getIndex() == checked)
       return set.getArray();
+    // Checked against a size before the access's own guard checks it
+    // against the array's length: the access is that guard's.
+    if (auto next = dyn_cast<CheckInBoundsOp>(user); next && next.getIndex() == checked)
+      if (std::optional<Value> array = accessedArray(next))
+        return array;
   }
   return std::nullopt;
 }

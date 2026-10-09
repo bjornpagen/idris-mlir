@@ -4,12 +4,13 @@
 // at the guard, or an array's length, or a witness the encoding needs.
 // Every constraint is true of the run: a value's range (MLIR's integer
 // range analysis, else its type's, within the bounds a loop keeps its
-// carried values in, induction), its definition by a linear op, the
-// condition each enclosing branch took, a Euclidean quotient of a value the
-// system has already proved non-negative by a positive constant, and a
-// masked word `x & (c - 1)` below `c` when `c` is already a positive power
-// of two, doubling included when the double stays below the sign, and the
-// array's length is `c`.
+// carried values in, induction), its definition by a linear op or by a
+// guard, which gives its operand (that the guard held is a fact of the
+// path to it, paths), the condition each enclosing branch took, a
+// Euclidean quotient of a value the system has already proved non-negative
+// by a positive constant, and a masked word `x & (c - 1)` below `c` when
+// `c` is already a positive power of two, doubling included when the
+// double stays below the sign, and the array's length is `c`.
 // A constraint left out only makes the system prove less, so an op the
 // encoding does not know is a column with its range alone.
 //
@@ -298,6 +299,10 @@ private:
     APInt k;
     if (matchPattern(value, m_ConstantInt(&k)))
       return zero(v - Linear::constantOf(DynamicAPInt(k.getSExtValue())));
+    // A guard that returned gave its operand. That its condition held is
+    // the path's fact (paths), stated once there; here it is only the value.
+    if (auto guard = dyn_cast<GuardOpInterface>(def); guard && isColumn(guard.getGuarded()))
+      return zero(v - of(guard.getGuarded()));
     if (auto add = dyn_cast<arith::AddIOp>(def); add && width)
       return wrapped(v, of(add.getLhs()) + of(add.getRhs()), width, noWrap(add), 1);
     if (auto sub = dyn_cast<arith::SubIOp>(def); sub && width)

@@ -11,6 +11,10 @@
 // another constructor's field is not that component, and a record no
 // constructor in scope built pairs nothing.
 //
+// A size measured off the array (its dimension made i64) is its length,
+// however the array was made: a length never changes, and the views of an
+// array share it.
+//
 // A size the array was made from relates when it is that operand, or the
 // same integer clamped at 0, on either side. A branch (a match, an if) or a
 // select or a max has that clamp when every side does, which for a side is
@@ -202,6 +206,8 @@ private:
   std::optional<SmallVector<Pair>> needsOf(Pair pair) {
     auto [size, array] = pair;
     if (array.getDefiningOp<ub::PoisonOp>())
+      return SmallVector<Pair>{};
+    if (std::optional<Value> of = measured(size); of && arrayRoot(*of) == arrayRoot(array))
       return SmallVector<Pair>{};
     if (ComponentPairs parts = componentPairs(calls, dominance, size, array); parts.component)
       return parts.needs;

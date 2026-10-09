@@ -411,7 +411,8 @@ def IdrInBounds : Pass<"idr-in-bounds", "::mlir::ModuleOp"> {
     that is the length
     of an array, clamped at 0, wherever both are in scope. The relation
     starts at `idr.array.new`
-    and `idr.array.generate` and follows the pair through the values bound
+    and `idr.array.generate`, and at a size measured off the array (its
+    dimension made i64), and follows the pair through the values bound
     from several places (region branch arguments and results, the
     parameters of a private function every use of which is a direct call,
     a call's results, a select), as the greatest fixpoint: a pair holds
@@ -425,7 +426,10 @@ def IdrInBounds : Pass<"idr-in-bounds", "::mlir::ModuleOp"> {
     record — a field, a take's field, a match case's argument — has the
     length of the component its constructor stored. A size the array was
     made from also relates when a branch or a max clamps it at 0 to the
-    same integer, from the conditions that choose the side.
+    same integer, from the conditions that choose the side. A guard's
+    result is its operand, so an index checked against a size before the
+    access's own guard checks it is the same integer at both, and the
+    first guard's array is the access's.
 
     A proven guard is erased, its result replaced by its index: a proof is
     the guard's absence, so no later pass can invalidate it unseen, and the
@@ -693,7 +697,8 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
         static data, which holds no count;
       - `in-bounds=@f`: no `idr.check.in_bounds` is left in @f: every
         array access in it was proven within its array, and it has one;
-      - `bounds-checked=@f`: some array access in @f keeps its check;
+      - `bounds-checked=@f`: some array access in @f keeps a check of its
+        index: its own, or one against a size whose result its own takes;
       - `no-guards=@f`: no `idr.check.*` op is left in @f;
       - `tests-nothing=@f`: every take in @f is of an exclusive value and
         every reuse builds in an exclusive cell, so no count or null is
