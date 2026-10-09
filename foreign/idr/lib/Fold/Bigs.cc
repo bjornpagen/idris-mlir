@@ -38,6 +38,41 @@ OpFoldResult BigXorOp::fold(FoldAdaptor adaptor) {
   return bigBinary(getContext(), adaptor.getLhs(), adaptor.getRhs(), idris_rt_big_xor);
 }
 
+namespace {
+
+// Whether shifting the constant `value` by `amount` (left when `left`, the
+// other way when the amount is negative) makes a constant within
+// constantBytes. The runtime computes the fold here, in the compiler, so a
+// result past the budget is never made. A shift toward zero, or of 0,
+// shrinks or keeps its operand. A shift away from zero has at most the
+// operand's bits plus the amount, and a decimal digit is less than 4 bits.
+// An amount past 2^64 is past every budget.
+bool foldable(BigAttr value, BigAttr amount, bool left) {
+  StringRef digits = amount.getValue();
+  bool negative = digits.consume_front('-');
+  if (left == negative || value.getValue() == "0")
+    return true;
+  uint64_t places;
+  if (digits.getAsInteger(10, places))
+    return false;
+  constexpr uint64_t bits = 8 * constantBytes;
+  return places <= bits && 4 * value.getValue().size() <= bits - places;
+}
+
+template <typename OpT>
+OpFoldResult bigShift(OpT op, typename OpT::FoldAdaptor adaptor) {
+  auto value = dyn_cast_or_null<BigAttr>(adaptor.getValue());
+  auto amount = dyn_cast_or_null<BigAttr>(adaptor.getAmount());
+  if (!value || !amount || !foldable(value, amount, OpT::left))
+    return {};
+  return bigBinary(op.getContext(), value, amount, OpT::left ? idris_rt_big_shl : idris_rt_big_shr);
+}
+
+} // namespace
+
+OpFoldResult BigShlOp::fold(FoldAdaptor adaptor) { return bigShift(*this, adaptor); }
+OpFoldResult BigShrOp::fold(FoldAdaptor adaptor) { return bigShift(*this, adaptor); }
+
 // Nothing by a divisor its guard refuses, zero: the program never divides
 // by it, since the guard crashes first.
 OpFoldResult BigDivOp::fold(FoldAdaptor adaptor) {

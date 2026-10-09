@@ -60,11 +60,7 @@ extern "C" idris_rt_big idris_rt_big_pred(idris_rt_big a) {
 // A negative integer is 0, as Idris's integerToNat; any other is itself,
 // with one more reference, since the result is owned.
 extern "C" idris_rt_big idris_rt_nat_from_big(idris_rt_big a) {
-  if (signOf(a) < 0)
-    return small(0);
-  if (!isSmall(a))
-    idris_rt_inc(reinterpret_cast<void *>(a));
-  return a;
+  return signOf(a) < 0 ? small(0) : owned(a);
 }
 
 extern "C" idris_rt_big idris_rt_big_mul(idris_rt_big a, idris_rt_big b) {

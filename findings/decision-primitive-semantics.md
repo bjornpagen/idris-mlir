@@ -217,8 +217,45 @@ A primitive's meaning comes from, in this order:
 - **Tests:** the generated `prim-<type>-shift-0` tables, whose expected
   values `tests/Sem.idr` computes from this meaning, run by this compiler
   with and without compile-time evaluation; `tests/idr/fold/shift.mlir`.
-- **Integer shifts** have no op yet and are refused, `unsupported
-  (primitive)`.
+
+### Shifts of an Integer: Idris's, as Chez runs them
+
+- **Idris:** the evaluator hands the shift to the Chez it runs on
+  (`Core/Primitives.idr`: `shiftl (BI x) (BI y) = pure $ BI
+  (prim__shl_Integer x y)`), whose `blodwen-shl` is `(ash x y)` and
+  `blodwen-shr` is `(ash x (- y))`: Scheme's `ash` on the infinite two's
+  complement, a negative amount shifting the other way.
+- **Ours:** `idr.big.shl` and `idr.big.shr`, the runtime's
+  `idris_rt_big_shl` and `idris_rt_big_shr` (`runtime/Big/Bitwise.cppm`):
+  - a left shift is value * 2^amount, a right shift the floor of
+    value / 2^amount, so it fills with the sign: -7 >> 1 is -4;
+  - a negative amount shifts the other way;
+  - every shift toward zero, and every shift of 0, is defined for every
+    amount, one no word holds included: -1 >> 10^20 is -1;
+  - a shift away from zero whose result no integer can hold (more than
+    2^31 - 1 limbs, GMP's limit) ends the process as exhausted memory does,
+    `idris runtime: out of memory`, unmodelled like every exhaustion.
+  - The amount is an Integer, as Idris types the primitive; base's
+    `Bits Integer` passes its Nat index through `idr.nat.to_big`, so
+    `shiftL`, `shiftR`, `bit`, `testBit`, `setBit`, `clearBit` and
+    `complement` follow.
+  - The folders call the same runtime functions in the compiler. A left
+    shift's result can outgrow its operands, so it is folded only when it
+    stays within the static data a compile-time constant may take
+    (`idr::constantBytes`, idr-eval's budget too); a larger one runs at
+    runtime.
+- **Was:** rejected, `unsupported (primitive): primitive prim__shl_Integer`,
+  which kept base's `Data.Bits` on Integer from compiling.
+- **Unlike RefC:** RefC reads the amount with `mpz_get_ui`, the low word of
+  its magnitude, so a negative amount shifts the same way by its magnitude,
+  and an amount past a word by its low 64 bits.
+- **Tests:** `tests/programs/prelude/integer-bits` (values read at run time,
+  the primitives on every kind of amount and base's `Data.Bits`),
+  `tests/programs/semantics/closed-integer-shift` (folded),
+  `tests/programs/semantics/crash-integer-shift-huge`, the shift lines of
+  the table in `tests/toolchain/runtime-api`, `tests/idr/fold/big-shift.mlir`
+  and `tests/idr/eval/fold-vs-jit.mlir`; their expected values computed
+  from this meaning with unbounded integers.
 
 ### Kept, with their authority
 

@@ -171,11 +171,23 @@ bigPredOp : (value : Value) -> (result : MlirType) -> Op
 bigPredOp value result =
   MkOp "idr.big.pred" [value] [] [] [] [result]
 
+||| `idr.big.shl`: a big shifted left, Integer's shiftL
+export
+bigShlOp : (value : Value) -> (amount : Value) -> (result : MlirType) -> Op
+bigShlOp value amount result =
+  MkOp "idr.big.shl" [value, amount] [] [] [] [result]
+
 ||| `idr.big.show`: the decimal text of a big
 export
 bigShowOp : (value : Value) -> (result : MlirType) -> Op
 bigShowOp value result =
   MkOp "idr.big.show" [value] [] [] [] [result]
+
+||| `idr.big.shr`: a big shifted right, Integer's shiftR, filling with its sign
+export
+bigShrOp : (value : Value) -> (amount : Value) -> (result : MlirType) -> Op
+bigShrOp value amount result =
+  MkOp "idr.big.shr" [value, amount] [] [] [] [result]
 
 ||| `idr.big.small`: the small big or natural of a word that fits
 export
@@ -1067,6 +1079,8 @@ data IdrPrim
   | BigAnd
   | BigOr
   | BigXor
+  | BigShl
+  | BigShr
   | BigDiv
   | BigMod
   | BigNeg
@@ -1186,6 +1200,8 @@ primPerformsIO BigMul = False
 primPerformsIO BigAnd = False
 primPerformsIO BigOr = False
 primPerformsIO BigXor = False
+primPerformsIO BigShl = False
+primPerformsIO BigShr = False
 primPerformsIO BigDiv = False
 primPerformsIO BigMod = False
 primPerformsIO BigNeg = False
@@ -1303,6 +1319,8 @@ primOp BigMul operands results = MkOp "idr.big.mul" operands [] [] [] results
 primOp BigAnd operands results = MkOp "idr.big.and" operands [] [] [] results
 primOp BigOr operands results = MkOp "idr.big.or" operands [] [] [] results
 primOp BigXor operands results = MkOp "idr.big.xor" operands [] [] [] results
+primOp BigShl operands results = MkOp "idr.big.shl" operands [] [] [] results
+primOp BigShr operands results = MkOp "idr.big.shr" operands [] [] [] results
 primOp BigDiv operands results = MkOp "idr.big.div" operands [] [] [] results
 primOp BigMod operands results = MkOp "idr.big.mod" operands [] [] [] results
 primOp BigNeg operands results = MkOp "idr.big.neg" operands [] [] [] results

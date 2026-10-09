@@ -98,10 +98,6 @@ compiler.
   `Data.List.Quantifiers.All.imapProperty`, which is how
   `chez/integers`, `refc/integers` and `node/integers` apply one operation
   across every integer width.
-- `unsupported (primitive): prim__shl_Integer` and `prim__shr_Integer`
-  (`chez/newints`, `chez/chez032`, `idris2/basic/basic055`,
-  `node/newints`, `node/node024`). Fixed-width shifts compile; `chez/integers`
-  also shifts `Integer`.
 - `unsupported (type): Type in a runtime position` (`chez/casts`,
   `chez/bitops`, `chez/chez006`, `chez/chez007`, `chez/chez015`,
   `allbackends/evaluator004`, `refc/basicpatternmatch`,

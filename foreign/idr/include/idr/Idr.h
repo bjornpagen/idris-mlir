@@ -456,6 +456,14 @@ bool isMemo(DataOp data);
 inline constexpr llvm::StringLiteral memoRunning = "running";
 inline constexpr llvm::StringLiteral memoForced = "forced";
 
+// The most static data a constant made at compile time may take: the
+// results of an evaluated call (idr-eval), and a folded op whose result can
+// outgrow its operands (a big shifted left). A larger one would make the
+// executable larger than computing it at runtime does, and the compilation
+// slower, so it stays, to run at runtime, as upstream Idris runs its calls
+// there. The value is never at stake, only the size and the speed.
+inline constexpr uint64_t constantBytes = uint64_t{1} << 20;
+
 // While a SymbolScope is open on a thread, lookupSymbol (and so lookupData,
 // lookupCtor and the effects of a call) answers a lookup in `op`, a symbol
 // table, from `table` instead of scanning `op`'s body, which takes as long
