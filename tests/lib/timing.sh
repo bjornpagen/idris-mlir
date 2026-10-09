@@ -51,3 +51,24 @@ record_time() {
   printf '%s\t%s\t%s\t%s\n' "$record_ms" "$compiled" "$record_what" "$record_module" \
     >> "$timing_dir/$timing_id.tsv"
 }
+
+# timing_rows REPORT: the rows of an execution time report (idris-mlir-cc
+# --timing, MLIR's tree display), in order, each as `<depth> TAB <seconds>
+# TAB <name>`: depth 0 for a row of the report's own (a step of the
+# pipeline, LLVM, Rest, Total), one more for each row it is nested in;
+# seconds the wall time, the last `<seconds> (<percent>%)` of the line.
+timing_rows() {
+  awk '
+    {
+      rest = $0
+      seconds = ""
+      while (match(rest, /-?[0-9]+\.[0-9]+ \( *-?[0-9.]+%\)  /)) {
+        split(substr(rest, RSTART, RLENGTH), pair, " ")
+        seconds = pair[1]
+        rest = substr(rest, RSTART + RLENGTH)
+      }
+      if (seconds == "") next
+      match(rest, /^ */)
+      printf "%d\t%s\t%s\n", RLENGTH / 2, seconds, substr(rest, RLENGTH + 1)
+    }' "$1"
+}

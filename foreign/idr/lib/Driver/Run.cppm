@@ -200,14 +200,14 @@ int run() {
       return usage;
     }
   // Every step is one pass manager, registered the same way: statistics when
-  // they are on, MLIR's own pass-manager options, and this compilation's
-  // timer. The step's text is the pipeline it runs.
-  auto configure = [&](mlir::PassManager &pm) {
+  // they are on, MLIR's own pass-manager options, and the step's timer. The
+  // step's text is the pipeline it runs.
+  auto configure = [&](mlir::PassManager &pm, mlir::TimingScope &stepTiming) {
     if (statistics)
       pm.enableStatistics(mlir::PassDisplayMode::List);
     if (mlir::failed(mlir::applyPassManagerCLOptions(pm)))
       return false;
-    pm.enableTiming(rootTiming);
+    pm.enableTiming(stepTiming);
     return true;
   };
   unsigned index = 0;
@@ -228,8 +228,15 @@ int run() {
     }
     if (stepName(step) == "idr-demand" && !demand.empty())
       text = "idr-demand{promises=in-place}";
+    // MLIR keys a pass's timer by the pass's address, which a later step's
+    // pass may take once this pass manager is gone: under one timer for every
+    // step, its time would add to this pass's row, under this pass's name.
+    // Each step's timer is its own, named for what it ran; the index tells
+    // apart two steps of the same text.
+    mlir::TimingScope stepTiming =
+        rootTiming.nest(("step " + llvm::Twine(index) + ": " + text).str());
     mlir::PassManager pm(&context);
-    if (!configure(pm))
+    if (!configure(pm, stepTiming))
       return usage;
     if (mlir::failed(mlir::parsePassPipeline(text, pm))) {
       Report() << "internal error: bad pipeline step " << text;
@@ -242,6 +249,8 @@ int run() {
                  << (ran ? "reported an error" : "failed");
       return status(verdict);
     }
+    // Printing the dump is not the step's time.
+    stepTiming.stop();
     if (!dump(*module, index, stepName(step)))
       return failure;
   }

@@ -1,0 +1,77 @@
+#!/bin/sh
+# idris-mlir-cc --timing reports where a compilation spent its time: each
+# step of the pipeline that ran has a row of its own, named with its index
+# and the pipeline it ran, in the order the steps ran (as --dump-after=all
+# names them), and no step that did not run has one; the passes a step ran
+# are the rows nested in it; nothing at the top but the steps, LLVM, the
+# Rest and the Total; and no time is counted twice at the top, so the Rest
+# is not negative. MLIR keys a pass's timer by the pass's address, which a
+# step's pass can take after an earlier step's pass manager is gone: under
+# one timer for every step, a later pass's time went to the earlier pass's
+# row, under its name, and the later pass had none.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+
+cat > "$work/main.mlir" << 'EOF'
+module attributes {idr.program} {
+  func.func private @twice(%x: i64) -> i64 attributes {idr.total, idr.effects = #idr.effects<none>} {
+    %y = arith.addi %x, %x : i64
+    return %y : i64
+  }
+  func.func @Prog.main() -> i64 {
+    %c = arith.constant 21 : i64
+    %y = func.call @twice(%c) : (i64) -> i64
+    return %y : i64
+  }
+}
+EOF
+mkdir "$work/dumps"
+if bounded "$idris_mlir_cc" "$work/main.mlir" -o "$work/main.o" --timing \
+    --dump-after=all --dump-dir="$work/dumps" 2> "$work/report"; then
+  say "compile: ok"
+else
+  say "compile: exit $bounded_status"
+  show "$work/report"
+  exit 0
+fi
+timing_rows "$work/report" > "$work/rows"
+
+# The steps that ran, as their dumps name them, `<NN>-<first pass>`; and the
+# steps the report has rows for, named the same way.
+ls "$work/dumps" | sed 's/[.]mlir$//' > "$work/ran"
+awk -F'\t' '$1 == 0 && match($3, /^step [0-9]+: /) {
+    n = substr($3, 6, RLENGTH - 7)
+    first = substr($3, RLENGTH + 1)
+    sub(/[,{].*/, "", first)
+    printf "%02d-%s\n", n, first
+  }' "$work/rows" > "$work/timed"
+if [ -s "$work/ran" ] && cmp -s "$work/ran" "$work/timed"; then
+  say "steps: each that ran has a row of its own, in order, and no other does"
+else
+  say "steps: the rows are not the steps that ran"
+  diff "$work/ran" "$work/timed" | show
+fi
+
+if awk -F'\t' '
+    pending && $1 < 1 { failed = 1 }
+    { pending = $1 == 0 && $3 ~ /^step [0-9]+: / }
+    END { exit failed || pending }' "$work/rows"; then
+  say "steps: each has the rows of its passes nested in it"
+else
+  say "steps: one has no rows nested in it"
+  show "$work/rows"
+fi
+
+outside=$(awk -F'\t' '$1 == 0 && $3 !~ /^step [0-9]+: / && $3 != "LLVM" && $3 != "Rest" &&
+    $3 != "Total" { print $3 }' "$work/rows")
+if [ -z "$outside" ]; then
+  say "top: nothing but the steps, LLVM, the Rest and the Total"
+else
+  say "top: rows outside every step and LLVM: $(printf '%s' "$outside" | paste -sd, -)"
+fi
+
+rest=$(awk -F'\t' '$1 == 0 && $3 == "Rest" { print $2 }' "$work/rows")
+case $rest in
+  '') say "rest: no row" ;;
+  -*) say "rest: negative, $rest s" ;;
+  *) say "rest: not negative" ;;
+esac
