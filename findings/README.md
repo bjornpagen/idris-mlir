@@ -61,6 +61,10 @@ Four rules decide how every design note here is written:
   superseded in part by it). The compiler implements Idris 2 over the
   upstream prelude and base; linear code comes from `libs/mlir-linear`; the
   language does not change.
+- **`decision-no-oracle.md`.** No oracle: a test's committed expected
+  files are its specification. The Chez comparison, its divergence classes
+  and the stock evaluator's `Oracle.idr` proofs go; Chez stays only as the
+  host Idris runs on and as a benchmark baseline.
 - **`decision-threads-pointers.md`.** User threads, collector finalizers,
   raw pointers, `%foreign` and the C ABI are outside the language.
 

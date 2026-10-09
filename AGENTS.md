@@ -46,11 +46,16 @@ numbers.
   contrib for external packages. What they covered comes from the packages
   this compiler ships in `libs/` (today `mlir-linear`: linear arrays and
   linear data), written for this compiler's analyses in plain Idris over
-  base's primitives, so that the stock Chez backend runs them unchanged as
-  the oracle. A trusted library may run an IO action for a pure value
-  (`unsafePerformIO`, a forged world): its effects happen where the value
-  is demanded, in program order with every other effect, as Chez runs
-  them. User code may not.
+  base's primitives. A trusted library may run an IO action for a pure
+  value (`unsafePerformIO`, a forged world): its effects happen where the
+  value is demanded, in program order with every other effect. User code
+  may not.
+- There is no oracle. A test's committed expected files are its
+  specification, and the runtime's documented semantics are the meaning of
+  a primitive (`findings/decision-no-oracle.md`). Do not add a comparison
+  against Idris's Chez backend or stock evaluator, and do not shape a
+  feature so that Chez can run it; Chez is only the host Idris itself runs
+  on.
 - `%foreign` and the C ABI are outside the language, as threads, collector
   finalizers and raw pointers are. Do not implement `%foreign`, `%extern`
   as a C export, a C calling convention, libffi, or declaring or calling a

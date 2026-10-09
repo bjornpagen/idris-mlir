@@ -81,6 +81,19 @@ idr-simplify's fixpoint loop first). Rules:
   Bjorn approving every post. Do not wait for its answer; go on to
   phase 2.
 
+Phase 1b: remove the oracle. Read findings/decision-no-oracle.md; it is
+decided. While Chez still runs (before deleting anything), give every
+fixture whose stdout was checked against Chez alone (`oracle-chez`) an
+`expected-stdout` from this compiler's output on a run that still agrees
+with Chez. Then delete the Chez comparison from the e2e harness
+(chez_agrees, oracle-chez, no-chez), tests/lib/chez.sh,
+tests/lib/chez-doubles.ss, tests/lib/chez-divergences, every `chez:`
+line of the fixtures' expected files, tests/lib/oracle.sh and every
+fixture's Oracle.idr, and every other reference to them (git grep -i
+chez, oracle). Chez stays as the host Idris runs on and as bench/'s
+baseline. Done when `make check`, `make test`, `make test-idr` and
+`make test-mlir-tools` pass with no Chez comparison left. Commit and push.
+
 Phase 2: proposal 0002, the representation cutover, on the new base.
 You are its coordinator: proposals/0002-representation-cutover/
 orchestrator.md is your prompt; follow it exactly, starting with its
@@ -98,6 +111,10 @@ Notes that postdate the packet:
   llvm.patch in substance, record that in 06's README and tell me.
 - U01's toolchain rebuild is the packet's integration tail, as
   work-units.md says, on the trunk pin.
+- There is no oracle any more (phase 1b): in step 1, take every Chez
+  comparison, divergence class and Oracle.idr out of the packet's
+  contracts and dispatches (U22 and U23 write tests against committed
+  expected files only), and rerun validate.sh.
 - Dispatch all 23 lanes at once as Agent subagents, each with the full
   text of its dispatch/U??-*.md. If you cannot run 23 at once, say how
   many you can and stop for my answer; do not serialize quietly.

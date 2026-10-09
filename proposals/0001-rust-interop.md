@@ -18,6 +18,10 @@ Amended 2026-10-09:
 - Rust is part of the runtime, statically linked only, and the open
   questions are decided for the minimum: §1, §5, §7.4, §8.3, §9.5, §14
   and §16.
+- No Chez oracle (`findings/decision-no-oracle.md`): the Chez entries,
+  `C:` specs, the shared library and the divergence classes are gone, and
+  with them the last C ABI path: §1, §2, §4, §6, §7, §8, §9, §13, §14 and
+  §15.
 
 The brief: give programs the Rust ecosystem as their way out to the rest
 of the world (databases, HTTP, crypto, parsers, cloud APIs), and reach C
@@ -71,10 +75,9 @@ package of bindings, and a Rust crate of shims. Each binding is a
 runtime primitive: an Idris declaration in the generated package, plus a
 registry entry the generator writes from the same description, which
 recognizes the definition by its name and origin, as base's foreign
-functions are recognized (`substrate.md` S5.2). The declaration also
-carries a `C:` spec, which is only the stock Chez backend's spelling of
-the same call: Chez loads the shims as a shared library, so the oracle
-runs the same program. This compiler lowers the primitive to a call of a
+functions are recognized (`substrate.md` S5.2). The declaration's
+`%foreign` spec only labels it with the Rust path, since Idris needs a
+spec on a primitive; nothing reads it. This compiler lowers the primitive to a call of a
 runtime-ABI shim, compiled by the pinned rustc to bitcode and joined to
 the program before O3. Rust values live in counted foreign cells.
 Ownership maps onto the existing grades:
@@ -98,10 +101,8 @@ the program and the runtime before O3, as the runtime itself is. There
 is one static image: one allocator (the runtime's), one crash path (a
 panic is a crash), one optimizer pass over Idris, runtime and Rust
 code, and no loader. Rust is only ever linked statically; there is no
-dynamic Rust library, no `dlopen`, and no plugin interface. The one
-exception is test infrastructure: the Chez oracle loads the same shims
-as a shared library, because the stock Chez backend can call nothing
-else, and no program built by this compiler ever does. The design is the
+dynamic Rust library, no `dlopen`, and no plugin interface, in programs
+or in tests. The design is the
 minimum that makes a call into statically linked Rust as cheap and as
 checked as a call into the runtime, and every decision below picks the
 smaller mechanism.
@@ -121,12 +122,12 @@ the design:
    library* code, and user code calls them as ordinary functions.
    Elaborator reflection in user code is unavailable, which rules out
    generating bindings at elaboration time.
-3. **Features are libraries; the registry may make them faster or
-   stricter, never different** (Registry.idr). The bindings must have a
-   meaning the stock Chez backend runs unchanged, and each binding's
-   generated registry entry is a faster lowering of that same meaning.
-4. **Chez is the oracle, not the specification.** Every deliberate
-   difference is a named class in `tests/lib/chez-divergences`.
+3. **The binding's meaning is its shim's.** Each binding's generated
+   registry entry lowers it to a call of its shim; there is no second
+   implementation of a binding, in Idris or anywhere else.
+4. **No oracle** (`findings/decision-no-oracle.md`). The tests' committed
+   expected files are the specification; nothing is shaped so that
+   Idris's Chez backend can run it.
 5. **One thing, one representation.** A crate's interface is described
    once. The Idris bindings, the shims and the compiler's lowering are
    derived from it, and the compiler reads nothing but the Idris types of
@@ -200,17 +201,16 @@ rust.toml ──► idris-mlir-bind ──► rustdoc JSON of each crate (pinned
                ┌────┴──────────────────────────┐
                ▼                               ▼
    build/rust/idris/  Idris package     build/rust/shims/  Rust crate
-   Rust.<Crate>.* modules               two entries per item: the runtime-ABI
-   + generated registry entries         entry and the C entry (Chez's C FFI)
-   %foreign "C:..." (Chez's spelling)
+   Rust.<Crate>.* modules               one runtime-ABI entry per item
+   + generated registry entries
                │                               │
                │                    cargo (pinned, offline, vendored)
-               │                    ┌──────────┴───────────┐
-               ▼                    ▼                      ▼
-   idris-mlir frontend    libidrs.a: every member     libidrs.so / .dylib:
-   (registry: generated)  carries bitcode             the Chez oracle's
-               │                    │
-               ▼                    ▼
+               │                               │
+               ▼                               ▼
+   idris-mlir frontend               libidrs.a: every member
+   (registry: generated)             carries bitcode
+               │                               │
+               ▼                               ▼
    idr dialect ──► idr-rc ──► idr-lower ──► linkRuntime + linkRust ──► O3 ──► link
 ```
 
@@ -329,7 +329,7 @@ of `http` and `url`.
 with the same signature, on every target entry. An item present on one
 target only, or with different signatures, is left out and reported with
 the reason `rust cfg`, naming the targets. This keeps the program's
-meaning the same on both targets and on Chez. A target-only API is
+meaning the same on both targets. A target-only API is
 reached by a separate, target-named binding package when a program
 needs one, which is later work.
 
@@ -353,8 +353,8 @@ needs one, which is later work.
 paths and the graph's digest, and timestamps are never written.
 `tests/determinism` covers the generator as it covers the compiler.
 
-**Symbols.** `idrs_<graph8>_<crate>__<path>__<item>` for the runtime-ABI
-entry, and the same with `__chez` for the C entry. `<graph8>` is eight hex
+**Symbols.** `idrs_<graph8>_<crate>__<path>__<item>` for each item's one
+entry. `<graph8>` is eight hex
 digits of the surface digest. A program has one surface, so its link has
 one set of shim symbols; the digest only keeps a stale archive from
 another surface from linking silently.
@@ -372,13 +372,13 @@ exist, after `Linear.Array`'s `Array` and `IArray` (**decision**):
 ||| it back, so the one object is updated in place.
 export
 data Rust : (t : Type) -> Type where
-  MkRust : GCPtr t -> Rust t
+  MkRust : Foreign t -> Rust t
 
 ||| A Rust value frozen: only its &self methods, shared freely. A borrow
 ||| taken from it holds it, so it lives as long as the borrow.
 export
 data Shared : (t : Type) -> Type where
-  MkShared : GCPtr t -> Shared t
+  MkShared : Foreign t -> Shared t
 
 ||| The linear phase ends.
 export
@@ -389,17 +389,12 @@ freeze (MkRust p) = MkShared p
 - **A type with no `&mut self` method is born `Shared`.** `regex::Regex`
   is an example; the generator never offers `Rust Regex`.
 - **`Shared t` to `Rust t` exists only as a clone**, for `t: Clone`
-  (`thaw : Shared t -> Rust t`, a Rust `clone`). An in-place thaw would
-  need "nobody else holds it". The count could answer that on this
-  compiler, but not on Chez, whose collector frees on its own schedule,
-  so the two backends would differ in which programs crash.
-- **`GCPtr` is upstream's own vocabulary**: PrimIO's "pointer with a
-  finaliser" (PrimIO.idr:59; read). On Chez it is exactly that:
-  `prim__onCollect` registers the Rust drop shim with the collector. On
-  this compiler a `GCPtr` of a Rust type is a counted foreign cell (§9.1)
-  whose last release runs the drop shim. The meaning is the same (the
-  destructor runs once, after the last use). The timing differs, and that
-  is the divergence class `rust-drop-timing` (§13).
+  (`thaw : Shared t -> Rust t`, a Rust `clone`). An in-place thaw, when
+  the count says nobody else holds it, is possible and is later work on a
+  measurement; clone is the one path at first.
+- **A handle is a counted foreign cell** (§9.1), whose last release runs
+  the Rust destructor: once, immediately after the last use, in program
+  order.
 
 ### 7.2 Scalars, strings and bytes, copied or lent without a handle
 
@@ -496,8 +491,7 @@ insert : (1 _ : Rust WordCountsT) -> String -> Int64 -> Res (Maybe Int64) (const
   view : Shared ValueT -> ValueView
   ```
 
-**How compound values cross, on both backends (decision).** Chez's C FFI
-returns only scalars, strings and pointers, and a shim cannot know how
+**How compound values cross (decision).** A shim cannot know how
 idr-lower lays out `Maybe Int64` in a given program: layouts are decided
 per program (Layout/). So the bindings never move Idris data through a
 shim.
@@ -511,7 +505,7 @@ shim.
 - **Arguments:** a compound argument is built as a Rust value first, by a
   builder shim, and passed by value.
 
-This is one path for both backends, with the cost removed by the
+This is one path, with the cost removed by the
 optimizer, not by a second lowering.
 
 ### 7.5 Traits
@@ -570,8 +564,6 @@ generic `F: Fn(A) -> B` takes an Idris function `A -> B` (or
   into sums (`idr-defunctionalize`). For each sum that reaches a Rust
   callback, the compiler exports its apply function under a symbol the
   binding's registry entry names, with the runtime's ABI (§9.2).
-- **On Chez,** a function argument to a C function is a callback the
-  backend already builds (Chez.idr's `callback`; read).
 - **Constraints:**
   - A callback is called only before the Rust call returns. An API that
     stores one (an event handler kept past the call) needs `'static`, and
@@ -597,26 +589,25 @@ trusted code (§2.2). Trust never follows from a name
   generator recorded in `build/rust/surface.digest`, and the frontend
   checks that digest. A hand edit makes the package `Untrusted`, so its
   definitions can be loaded but not reached, with the reason named.
-- **Its `%foreign` definitions** carry a `C:` spec only (Chez's
-  spelling), and each is reachable only through its generated registry
-  entry, which names it by name and origin.
+- **Its `%foreign` definitions** are reachable only through their
+  generated registry entries, which name them by name and origin; the
+  spec string is a label.
 - **`Rust.Core` (`libs/mlir-rust`)** is `InHouse` like `mlir-linear`. It
   joins the table as a row in `moduleOrigin`.
-- **`GCPtr` and `prim__onCollect`, for `Rust` and `InHouse` origins
-  only.**
-  - `PrimIO` admits `GCPtr` (`admittedFromPrimIO`, extended per origin).
-  - `Prelude.IO`'s `%extern prim__onCollect` gets a registry entry, with
-    the hook `ForeignOwn`.
-  - User code still reaches neither: an `%extern` without an entry is
-    rejected where it is reached, as today, and the entry is valid only
-    from those origins.
+- **`Foreign t`, for `Rust` and `InHouse` origins only.** `Rust.Core`
+  declares `Foreign : Type -> Type` as a primitive type with a registry
+  entry: a reference to a counted foreign cell (§9.1) holding a Rust
+  value of type `t`. Its release is the cell kind's own, which runs the
+  drop shim; there is no finalizer, and `onCollect` stays refused
+  everywhere. User code cannot name `Foreign` (the entry is valid only
+  from those origins), so it holds Rust values only through `Rust` and
+  `Shared`.
 
 ### 8.2 What the types guarantee
 
 - **Liveness.** A Rust value lives while any Idris value refers to its
   cell, and a borrow handle refers to its parent's. So no shim ever sees a
-  dangling reference. This holds on both backends: by the count here, and
-  by the collector on Chez.
+  dangling reference: the count guarantees it.
 - **No mutation under a shared borrow.** Borrow handles exist only on
   `Shared`, which has no `&mut` API.
 - **Moves.** A by-value parameter is quantity 1 in the binding. On this
@@ -626,8 +617,8 @@ trusted code (§2.2). Trust never follows from a name
 
 ### 8.3 What is checked at runtime, and named
 
-Three things escape the types. Each is checked in the shim, so Chez and
-this compiler crash alike, with the same message (**decision**):
+Three things escape the types. Each is checked in the shim, and crashes
+with a message naming it (**decision**):
 
 1. **Aliased arguments.** A call with a `&mut` parameter and another
    reference parameter of the same Rust type compares the payload
@@ -641,13 +632,10 @@ this compiler crash alike, with the same message (**decision**):
    - Calls without callbacks do not touch the flag: the program is
      single-threaded and no Idris code runs inside them, so nothing can
      re-enter.
-3. **Moving out of a shared, non-`Clone` value.** On this compiler the
-   test is `idris_rt_is_unique`. On Chez nothing counts, so the shim moves
-   out and leaves the slot empty, and a later access crashes:
-   `rust: the Vec was moved`. A correct program behaves the same on both.
-   A program that moves out of a shared value crashes on this compiler at
-   the move and on Chez at the next use, which is the divergence class
-   `rust-move-shared` (§13).
+3. **Moving out of a shared, non-`Clone` value.** The test is
+   `idris_rt_is_unique`: a move out of a cell another reference still
+   holds crashes at the move, `rust: the Vec is shared and cannot be
+   moved`.
 
 **The compiler removes what it proves.**
 
@@ -658,23 +646,17 @@ this compiler crash alike, with the same message (**decision**):
 
 These are faster lowerings, never different ones. There is one behaviour
 and no mode (**decision**): a check the compiler cannot remove stays in
-the program as a runtime check, on both backends. A flag that turned the
+the program as a runtime check. A flag that turned the
 residual checks into rejections would be a second meaning of the same
 program.
 
 ### 8.4 Panics
 
 The shim crate builds with `panic = "abort"` and installs a panic hook at
-the first call.
-
-- **On this compiler,** the hook calls `idris_rt_crash` with
-  `rust panic: <message>`. That flushes the program's output, writes
-  `idris-mlir: rust panic: ...` and exits with `IDRIS_RT_CRASHED`, as
-  every crash does.
-- **On Chez,** the shared library is built with `panic = "unwind"`. The
-  `__chez` entry catches the panic (`catch_unwind`) and returns an error
-  code, and the binding crashes through the trusted library's crash path
-  with the same message.
+the first call. The hook calls `idris_rt_crash` with
+`rust panic: <message>`. That flushes the program's output, writes
+`idris-mlir: rust panic: ...` and exits with `IDRIS_RT_CRASHED`, as every
+crash does. No unwinding crosses into Idris, and none is built.
 
 A panic is a crash with the panic's message, as an index out of bounds
 is.
@@ -720,7 +702,7 @@ own drop glue, `IdrisValue` included.
 `Idr_CountedValueType`, at every grade like the others. Layout/ gives it
 the cell above, and `idr-stack` may place it in a frame like a box.
 
-**Frontend.** `Ty` gains `ForeignT ForeignId`. `coreType` maps a `GCPtr t`
+**Frontend.** `Ty` gains `ForeignT ForeignId`. `coreType` maps a `Foreign t`
 whose `t` is a binding's `[external]` phantom to it, through a new hook,
 `ForeignType`, which the frontend asks for as it asks `isWordType`.
 
@@ -731,8 +713,7 @@ entry, which `idris-mlir-bind` generates from the surface beside the
 shim (`findings/concurrency.md` §5.5). The entry names the definition
 by its name and its origin (`Library Rust`), as base's foreign functions
 are named (`substrate.md` S5.2), with the hook `RustCall` and the shim's
-symbol. The `C:` spec on the definition is only Chez's spelling, and
-this compiler does not read it. `checkReachable` accepts a definition
+symbol. `checkReachable` accepts a definition
 with an entry and still rejects every other `%foreign`. The generated
 entries live in the program's build directory and are loaded with the
 generated package; they are valid only at definitions of `Library Rust`
@@ -845,7 +826,6 @@ New rules in `Rule.idr`, each with a reject fixture:
 |---|---|---|
 | `rust` | the generator, through the driver | an item cannot be bound; the phrase names the item and the reason (`rust pointer`, `rust send`, `rust lifetime`, `rust async`, `rust cfg`) |
 | `rust graph` | the generator, through the driver | two packages' manifests require versions of one crate that no single version satisfies, naming both packages; or a program's packages bring bindings from more than one surface |
-| `finalizer` | the frontend | `onCollect` with any finalizer other than a registered drop shim (stricter: the finalizer would run inside the release walk) |
 
 ## 10. Brady-style protocols, on top
 
@@ -943,19 +923,14 @@ give bytes out, and the program owns the sockets.
 ## 13. Testing
 
 - **A new pool, `tests/programs/rust/`.** Each fixture has a `rust.toml`,
-  and its `run` script generates bindings, compiles, runs, and diffs
-  against Chez with the shim library on its load path. `tests/lib/chez.sh`
-  learns to pass the library.
+  and its `run` script generates bindings, compiles, runs, and checks the
+  committed expected files, as every e2e fixture does.
 - **Reject fixtures** for each rule of §9.5, named for the rule.
 - **Runtime-check fixtures** (§8.3), with `expected-crash` holding the
-  message, which both backends print.
-- **New divergence classes** in `tests/lib/chez-divergences`:
-  - `rust-drop-timing`: a destructor with a visible effect (a flushed
-    file, a closed socket) runs at the last release here, and when the
-    collector runs on Chez;
-  - `rust-move-shared`: §8.3, case 3;
-  - `rust-str-nul`: Chez passes a string to C as NUL-terminated bytes, so
-    a string with an interior NUL is cut there on Chez, and whole here.
+  message.
+- **Drop timing:** a destructor with a visible effect (a flushed file, a
+  closed socket) runs at the last release, so its effect appears in
+  stdout at a fixed point; a fixture pins that order.
 - **The live-cell count.** `IDRIS_RT_LIVE=1` reports zero live cells at
   the end of every fixture, foreign cells included: every Rust value
   dropped.
@@ -993,11 +968,11 @@ new pool green on both target entries.
     cargo, rustdoc and `rust-src` against the stage-2 LLVM becomes an
     option again once a nightly is on our major; it is not required.
   - **Bitcode linking:** a hand-written binding of one function
-    (`fn add(a: i64, b: i64) -> i64`) with its `C:` spec and a
-    hand-written registry entry, joined by `linkRust`; its `mlir.expect`
+    (`fn add(a: i64, b: i64) -> i64`) with a hand-written registry
+    entry, joined by `linkRust`; its `mlir.expect`
     property is that the call is inlined.
-  - **Exit criterion:** the program runs on both targets and on Chez, and
-    the shim's bitcode reads in the pinned LLVM.
+  - **Exit criterion:** the program runs on both targets, and the shim's
+    bitcode reads in the pinned LLVM.
 - **R1, foreign cells and the generator.**
   - **Runtime and dialect:** `KIND_FOREIGN` and its freeing,
     `!idr.foreign`, `idr.rust.call`, generated registry entries, and
@@ -1100,12 +1075,9 @@ The bootstrap's rustc build adds roughly an hour to `make bootstrap`
   safe crates over them have done that work, reviewed and tested; using
   them is the whole point of this proposal.
 - **A tokio island.** Rejected (§3, §12).
-- **A thaw in place for `Shared` by testing the count.** Rejected for
-  divergence: Chez cannot count, so the two backends would crash on
-  different programs (§7.1).
 - **Shims that build Idris data directly (a `Maybe` in the shim).**
-  Rejected: layouts are decided per program, and Chez's FFI returns no
-  aggregates. Result handles cost nothing after inlining (§7.4).
+  Rejected: layouts are decided per program, so a shim cannot know one.
+  Result handles cost nothing after inlining (§7.4).
 
 ## 16. Decisions on the open questions (2026-10-09)
 
@@ -1116,7 +1088,7 @@ Each picks the smaller mechanism (§1).
    Rust signature, and a wrong `pure` is unsound, so it is an explicit
    claim.
 2. **No `--static-borrows`, and no mode.** A residual borrow or move
-   check stays a runtime check on both backends (§8.3), and the compiler
+   check stays a runtime check (§8.3), and the compiler
    removes every check it proves. The `uniqueness` rule is gone.
 3. **No `[values]` copying.** Every Rust struct and enum is a handle;
    fields are read through accessor shims, which inline after `linkRust`

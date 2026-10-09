@@ -138,7 +138,7 @@ the previous run.
 Prerequisites: Git, Make, a host C/C++ compiler, python3 and m4 (to build
 LLVM and GMP), the Linux UAPI headers and coreutils' `timeout`. Chez Scheme
 does not come from the host: `make bootstrap` builds the pinned release,
-which Idris 2 and the tests' oracle run on, the same on every host. On
+which Idris 2 runs on, the same on every host. On
 Ubuntu 24.04:
 
 ```sh
@@ -172,7 +172,7 @@ make doctor                  # what the host has, and what is built
 make check                   # the repository: pins, commands, source rules; no build
 make bootstrap               # slow: the pinned LLVM/MLIR, musl, GMP, Chez, Idris
 make build                   # the C++ dev preset and the compiler
-make test                    # compiler, profile, e2e (incl. the Chez diff and the dumps' properties), bench
+make test                    # compiler, profile, e2e (expected files and the dumps' properties), bench
 make test-idr                # the idr dialect, with FileCheck
 make test-mlir-tools         # each bug in upstream/ on its reproducer, with the pinned tools
 make bench                   # bench/run.sh
@@ -186,9 +186,9 @@ The runtime is the one meaning of every primitive; constant folding and
 compile-time evaluation call it too. That meaning comes from Idris's own
 definition first, then the standard the primitive implements (Unicode,
 IEEE 754, POSIX), then a decision of ours written down in
-`findings/decision-primitive-semantics.md`. The stock Chez backend is the
-test oracle, not the specification: every deliberate difference from it is
-a named class in `tests/lib/chez-divergences`.
+`findings/decision-primitive-semantics.md`. There is no oracle: each
+test's committed expected files are its specification
+(`findings/decision-no-oracle.md`).
 
 ## Layout
 
