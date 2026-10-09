@@ -69,7 +69,7 @@ unexport IDRIS2_PATH IDRIS2_PACKAGE_PATH IDRIS2_INC_CGS IDRIS2_INC_SRC IDRIS2_DA
 CHECKOUT_PREFIX := $(call toolchain,checkout_prefix)
 HOST_PREFIX := $(call toolchain,host_prefix)
 # idris-mlir and its frontend read no environment: their prefix is an
-# argument, by default the preset's, which is CHECKOUT_PREFIX. What reads
+# argument, by default the one `build` configures, CHECKOUT_PREFIX. What reads
 # Idris's environment is upstream's test scripts, whose compiler
 # (tests/upstream-idris/as-idris) passes it on as arguments.
 export IDRIS2_PREFIX := $(CHECKOUT_PREFIX)
@@ -113,13 +113,15 @@ verify-pins:
 env:
 	@env | grep -E '^(IDRIS2_[A-Z_]*|CHEZ|IDRIS_MLIR_ROOT)=' | sort
 
-# The presets are the only interface for building C++. The frontend is
-# linked beside idris-mlir, where idris-mlir runs it, and its prefix comes
-# after the frontend, which builds it: one make after the other, so that
-# no parallel make builds the prefix with a frontend older than the fork.
+# The presets are the only interface for building C++. idris-mlir's
+# default prefix is CHECKOUT_PREFIX, the one `prefix` and `libs` build,
+# whatever it is set to here. The frontend is linked beside idris-mlir,
+# where idris-mlir runs it, and its prefix comes after the frontend, which
+# builds it: one make after the other, so that no parallel make builds the
+# prefix with a frontend older than the fork.
 build:
 	@$(PINS) cmake ninja llvm sysroot
-	cd $(ROOT) && $(CMAKE) --preset $(DEV_PRESET)
+	cd $(ROOT) && $(CMAKE) --preset $(DEV_PRESET) -DIDRIS_MLIR_IDRIS_PREFIX='$(CHECKOUT_PREFIX)'
 	cd $(ROOT) && $(CMAKE) --build --preset $(DEV_PRESET)
 	@$(PINS) idris
 	$(ROOT)/tools/dialects.sh generate

@@ -271,7 +271,8 @@ target_link_libraries(idris-mlir PRIVATE
 # besides its frontend (which is beside it, wherever it is): the pinned
 # clang, which links every program and is the C compiler of this build (the
 # preset's toolchain file names it), and the Idris prefix the frontend reads
-# its packages from, the preset's.
+# its packages from: the preset's, or what make build gives, the prefix it
+# builds.
 set(IDRIS_MLIR_IDRIS_PREFIX "" CACHE PATH "The Idris prefix idris-mlir's frontend reads its packages from")
 if(IDRIS_MLIR_IDRIS_PREFIX STREQUAL "")
 	message(FATAL_ERROR "IDRIS_MLIR_IDRIS_PREFIX names the Idris prefix the frontend reads; use a preset")

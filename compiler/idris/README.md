@@ -27,7 +27,7 @@ It depends on nothing but prelude and base. Upstream's API package needs
 
 ## What was deleted, and why
 
-- **The REPL, the IDE mode and every code generator but ours.** They are
+- **The REPL, the IDE mode and every code generator.** They are
   out of scope, so they are gone rather than switched off: `Idris.REPL`,
   `Idris.IDEMode.*` (but `Holes`, below), `Protocol.*` (but `Hex`),
   `TTImp.Interactive.*`, `Yaffle.*`, `Idris.Main`, `Idris.Driver` (our
@@ -41,7 +41,9 @@ It depends on nothing but prelude and base. Upstream's API package needs
   is only one a driver registers, known by its name (`CG` is `Other
   String`, and a session no longer carries a default one): `--cg` checks
   that it names one, `--directive` is the session's, and `--exec` is the
-  driver's to run or refuse. The log topics only the deleted modules used
+  driver's to run or refuse. Ours registers none and reads none of these
+  options: the frontend takes the checked definitions from the context
+  Idris built. The log topics only the deleted modules used
   are gone, and `Idris.Env` lists only the variables the fork's code and
   its driver read (not `IDRIS2_CG`, which named the default code
   generator). `Idris.Package` lost `--mkdoc`, `--init`, `--repl` and
