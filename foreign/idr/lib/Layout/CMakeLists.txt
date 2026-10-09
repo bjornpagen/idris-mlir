@@ -5,13 +5,8 @@ idr_library(idr_layout
 		Layout.cppm
 		CellInfo.cppm
 		Cells.cppm
-		CodeName.cppm
-		Labels.cppm
 		Layouts.cppm
 		Sums.cppm
-	UNITS
-		FindLabels.cc
-		PlaceClosures.cc
 	LINKS
 		idr_mlir
 		idr_ods

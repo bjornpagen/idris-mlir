@@ -5,7 +5,8 @@
 // strings, bigs of both sizes, unboxed and boxed constructors, closures with
 // their captures, and the erased value. An application of a constant
 // closure is a closed call of its function with the captures first; a
-// closure made and applied inside the call runs through its code.
+// closure made and applied inside the call is a constructor of its sum
+// there, and its application a call of its function.
 // CHECK-LABEL: func.func @Prog.main()
 // CHECK-NOT: call
 // CHECK-DAG: arith.constant 3628800 : i64
@@ -15,7 +16,7 @@
 // CHECK-DAG: idr.constant #idr.big<"-7"> : !idr.big
 // CHECK-DAG: idr.constant #idr.big<"2432902008176640000"> : !idr.big
 // CHECK-DAG: idr.constant #idr.con<@Shape::@Rect, [2.500000e+00, #idr.erased, "tall"]> : !idr.data<@Shape>
-// CHECK-DAG: idr.constant #idr.con<@List::@Cons, [3, #idr.con<@List::@Cons, [2, #idr.con<@List::@Cons, [1, #idr.con<@List::@Nil, []>]>]>]> : !idr.box<@List>
+// CHECK-DAG: idr.constant #idr.con<@List::@Cons, run 1 {{\[\[}}3], [2], [1]] tail #idr.con<@List::@Nil, []>> : !idr.box<@List>
 // CHECK-DAG: idr.constant #idr.closure<@addTo, [#idr.big<"5">, #idr.con<@Shape::@Dot, []>]> : !idr.fn<(i64) -> (i64)>
 // CHECK-DAG: arith.constant 47 : i64
 // CHECK-DAG: arith.constant -58 : i64

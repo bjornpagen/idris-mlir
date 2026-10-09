@@ -4,7 +4,6 @@ export module idr.ownership:take;
 import idr.mlir;
 import idr.dialect;
 
-import :counting;
 import :fields;
 
 using namespace mlir;
@@ -23,7 +22,8 @@ export TakeOp takeAt(Value box, CtorOp ctor, Block &block, Block::iterator at, B
   Location loc = at == block.end() ? block.getParentOp()->getLoc() : at->getLoc();
   auto name = SymbolRefAttr::get(ctor->getParentOfType<DataOp>().getSymNameAttr(),
                                  {FlatSymbolRefAttr::get(ctor.getSymNameAttr())});
-  Counting counting(ctor->getParentOfType<ModuleOp>());
+  SymbolTableCollection symbols;
+  Operation *scope = block.getParentOp();
   SmallVector<Type> results;
   // A constructor without fields is its atom, which is nobody's to build in.
   if (!ctor.getFieldTypes().empty())
@@ -31,7 +31,7 @@ export TakeOp takeAt(Value box, CtorOp ctor, Block &block, Block::iterator at, B
   for (unsigned index = 0, e = static_cast<unsigned>(ctor.getFieldTypes().size()); index < e;
        ++index) {
     Type field = fieldType(box.getType(), ctor.getFieldType(index));
-    results.push_back(counting.counted(field) ? owned(field) : field);
+    results.push_back(holdsReferences(field, symbols, scope) ? owned(field) : field);
   }
   auto take = TakeOp::create(b, loc, results, box, name);
   eachField(box, ctor, fields, [&](Value field, unsigned index) {

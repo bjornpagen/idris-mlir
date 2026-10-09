@@ -13,7 +13,6 @@ export import :elements;
 export import :gradesyntax;
 export import :inliner;
 export import :ioeffects;
-export import :isbyte;
 export import :linearranges;
 export import :loopbodies;
 export import :matchregions;

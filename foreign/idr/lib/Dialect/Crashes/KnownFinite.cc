@@ -1,4 +1,4 @@
-// A finite Double constant: no cast of it crashes.
+// A finite Double constant: a guard of a cast folds away on it.
 
 #include "idr/Idr.h"
 
@@ -8,6 +8,6 @@ using namespace mlir;
 using namespace idr;
 
 bool idr::knownFinite(Value value) {
-  FloatAttr constant;
-  return matchPattern(value, m_Constant(&constant)) && constant.getValue().isFinite();
+  Attribute constant;
+  return matchPattern(value, m_Constant(&constant)) && checkHolds(CheckKind::Finite, constant);
 }

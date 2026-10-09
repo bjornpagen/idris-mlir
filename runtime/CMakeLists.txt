@@ -72,9 +72,10 @@ add_library(idris_rt STATIC
 )
 # The runtime's modules, each a private file set of the one archive: its
 # memory (rt.alloc), counting (rt.rc), strings (rt.strings), `cast` from
-# String (rt.numerals), bigs (rt.big), doubles (rt.doubles), standard
-# output and input (rt.io), compile-time evaluation's child (rt.eval) and
-# the program's entry (rt.start).
+# String (rt.numerals), bigs (rt.big), doubles (rt.doubles), input and
+# output, the standard streams and base's files, directories, process,
+# terminal, errors and clocks behind the handle table (rt.io), compile-time
+# evaluation's child (rt.eval) and the program's entry (rt.start).
 target_sources(idris_rt
 	PRIVATE
 		FILE_SET rt_alloc TYPE CXX_MODULES FILES
@@ -129,10 +130,20 @@ target_sources(idris_rt
 			Io/Io.cppm
 			Io/Buffer.cppm
 			Io/Bytes.cppm
+			Io/Clock.cppm
+			Io/Directories.cppm
 			Io/Ending.cppm
+			Io/Errors.cppm
+			Io/Files.cppm
+			Io/FileTimes.cppm
+			Io/Handles.cppm
 			Io/Input.cppm
+			Io/Lines.cppm
 			Io/Output.cppm
+			Io/Process.cppm
 			Io/Processors.cppm
+			Io/Scratch.cppm
+			Io/Terminal.cppm
 			Io/Writing.cppm
 	PRIVATE
 		FILE_SET rt_eval TYPE CXX_MODULES FILES
@@ -152,10 +163,15 @@ target_sources(idris_rt
 		FILE_SET rt_platform TYPE CXX_MODULES FILES
 			Platform/Platform.cppm
 			Platform/CpuBits.cppm
+			Platform/Posix/Clocks.cppm
+			Platform/Posix/Directories.cppm
 			Platform/Posix/Faults.cppm
+			Platform/Posix/Files.cppm
 			Platform/Posix/Memory.cppm
+			Platform/Posix/Process.cppm
 			Platform/Posix/Processors.cppm
 			Platform/Posix/Stacks.cppm
+			Platform/Posix/Terminal.cppm
 			${IDRIS_MLIR_RUNTIME_CPU_TEST}
 )
 target_include_directories(idris_rt PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")

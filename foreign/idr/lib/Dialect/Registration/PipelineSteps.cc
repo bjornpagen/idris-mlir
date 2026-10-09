@@ -7,6 +7,10 @@ using namespace mlir;
 // The pipeline's steps, in order. LLVM's own pipeline runs in idris-mlir-cc.
 ArrayRef<StringRef> idr::pipelineSteps() {
   static const StringRef steps[] = {
+      // First: every closure and suspension Emit wrote as a region becomes
+      // a function of its own, its captures leading, so that every later
+      // step sees the symbol form.
+      "idr-isolate",
       // Before the simplify loop, while each case block still has the one
       // call its parent makes: case-of-case would copy that call.
       "idr-contify",
@@ -23,16 +27,20 @@ ArrayRef<StringRef> idr::pipelineSteps() {
       // addition, and the call would no longer be the tail.
       "idr-accumulate",
       "idr-rc",
+      // On the grades counting wrote: a promise the program was asked to
+      // keep, and nothing unless it was asked.
+      "idr-demand",
       "idr-trmc",
       "idr-tail-loops",
       // On loops, which it versions, and after counting, whose counts of
       // the bigs it proves small it removes.
       "idr-narrow",
-      // On the loops and words idr-narrow leaves, and right before the
-      // lowering that reads its claims, which rest on facts nothing
-      // between would check.
+      // On the loops and words idr-narrow leaves, where its index systems
+      // see the most.
       "idr-in-bounds",
       "idr-lower",
+      // The lowered root becomes the program's entry, @main.
+      "idr-entry",
       // The loops over arrays are linalg ops after lowering: each with a
       // parallel dimension is tiled by the target's lanes and vectorized,
       // and upstream makes the loops of those left.

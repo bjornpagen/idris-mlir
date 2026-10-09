@@ -41,7 +41,7 @@
 // CHECK-NEXT: scf.yield %[[W]]
 // CHECK-NOT: llvm.store
 // CHECK: return
-module attributes {idr.program, idr.stage = "owned"} {
+module attributes {idr.program} {
   idr.data @L box {
     idr.ctor @N ()
     idr.ctor @C (i64, !idr.box<@L>)

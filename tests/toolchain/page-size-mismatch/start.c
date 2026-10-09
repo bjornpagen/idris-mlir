@@ -10,8 +10,8 @@ static int64_t body(void) {
   return 0;
 }
 
-int main(void) {
-  int32_t status = idris_rt_start(body, 0);
+int main(int argc, char **argv) {
+  int32_t status = idris_rt_start(body, 0, argc, argv);
   idris_rt_flush();
   return status;
 }

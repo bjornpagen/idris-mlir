@@ -41,7 +41,7 @@ public:
   }
 
   Bounds of(Value value) const {
-    // Poison may be taken to be any value, so a small one.
+    // The program's poison may be taken to be any value, so a small one.
     if (value.getDefiningOp<ub::PoisonOp>())
       return {0, 0};
     if (auto it = made.find(value); it != made.end())
@@ -71,7 +71,9 @@ public:
   Value word(OpBuilder &b, Location loc, Value value) {
     auto i64 = b.getI64Type();
     if (auto poison = value.getDefiningOp<ub::PoisonOp>()) {
-      // The big poison goes once nothing reads it.
+      // The word of the program's poison is poison: no conversion runs on
+      // a path that never reads it. The big poison goes once nothing reads
+      // it.
       converted_.push_back(poison);
       return ub::PoisonOp::create(b, loc, i64);
     }

@@ -20,6 +20,9 @@ struct Loop {
   TypeRange results;
   OpBuilder &b;
 
+  // What a payload carries in the places the path that yields it does not
+  // read: a ub.poison, a value of the program, which may be any value of
+  // its type, as upstream passes one where an operand goes unread.
   SmallVector<Value> poison(Location loc, TypeRange types) {
     return llvm::map_to_vector(types, [&](Type type) -> Value {
       return ub::PoisonOp::create(b, loc, type);

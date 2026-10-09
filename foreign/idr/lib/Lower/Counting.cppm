@@ -1,6 +1,5 @@
 // idr.lower:counting: the patterns of the ops that count references:
-// calls of the runtime, which LTO inlines. In JIT mode every cell is
-// persistent, so counting does nothing, and a take never yields a cell.
+// calls of the runtime, which LTO inlines.
 
 export module idr.lower:counting;
 
@@ -41,13 +40,10 @@ struct LowerDrop : IdrPattern<DropOp> {
   LogicalResult matchAndRewrite(DropOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Type type = op.getValue().getType();
-    if (isa<TokenType>(unrestricted(type))) {
-      if (!runtime.isJit())
-        runtime.call(rewriter, op.getLoc(), "idris_rt_free_cell", Type(),
-                     adaptor.getValue().front());
-    } else {
+    if (isa<TokenType>(unrestricted(type)))
+      runtime.call(rewriter, op.getLoc(), "idris_rt_free_cell", Type(), adaptor.getValue().front());
+    else
       runtime.dec(rewriter, op.getLoc(), adaptor.getValue(), layouts.counted(type));
-    }
     rewriter.eraseOp(op);
     return success();
   }

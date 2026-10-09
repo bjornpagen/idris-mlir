@@ -35,7 +35,7 @@
 // CHECK: func.call @copyLin$trmc(
 // CHECK-LABEL: func.func private @copyLin$trmc(
 // DEPTH: expected constant-stack: the stack grows with the recursion of @depth
-module attributes {idr.program, idr.stage = "owned"} {
+module attributes {idr.program} {
   idr.data @List box {
     idr.ctor @Nil ()
     idr.ctor @Cons (i64, !idr.box<@List>)

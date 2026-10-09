@@ -2,9 +2,9 @@
 export module idr.ownership:wheredies;
 
 import idr.mlir;
+import idr.dialect;
 
 import :arrayloop;
-import :useof;
 import :usersin;
 
 using namespace mlir;
@@ -18,8 +18,9 @@ namespace idr::ownership {
 // last use consumes it: the value moves on, its cell with it, and a take
 // after that use would keep a second reference alive across it, so that
 // whoever receives the value finds its cell shared and copies it. Calls
-// `at` with each point.
-export void whereDies(Value value, Block &block, SymbolTableCollection &symbols,
+// `at` with each point. Outside the owned stage (`ownedStage` false) borrow
+// inference may still be to come, so every call may consume its arguments.
+export void whereDies(Value value, Block &block, bool ownedStage,
                       function_ref<void(Block &, Block::iterator)> at) {
   SmallVector<Operation *> users = usersIn(value, block, nullptr);
   if (users.empty()) {
@@ -29,10 +30,10 @@ export void whereDies(Value value, Block &block, SymbolTableCollection &symbols,
   Operation *last = users.back();
   if (last->hasTrait<OpTrait::IsTerminator>())
     return;
-  // Borrow inference may still be to come, so every call may consume its
-  // arguments here.
+  if (!ownedStage && isa<func::CallOp>(last))
+    return;
   if (llvm::any_of(last->getOpOperands(), [&](OpOperand &operand) {
-        return operand.get() == value && useOf(operand, symbols) == Use::Consume;
+        return operand.get() == value && consumes(operand);
       }))
     return;
   // The body of a loop over an array runs once per element, and a value
@@ -40,7 +41,7 @@ export void whereDies(Value value, Block &block, SymbolTableCollection &symbols,
   if (last->getNumRegions() != 0 && !isArrayLoop(last)) {
     for (Region &region : last->getRegions())
       if (!region.empty())
-        whereDies(value, region.front(), symbols, at);
+        whereDies(value, region.front(), ownedStage, at);
     return;
   }
   at(block, std::next(last->getIterator()));

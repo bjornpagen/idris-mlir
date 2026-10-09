@@ -1,6 +1,7 @@
 ||| What the registry's hooks make of a definition's calls.
 module IdrisMLIR.Frontend.Translate.Hooks
 
+import IdrisMLIR.Dialect.Idr
 import IdrisMLIR.Registry
 import IdrisMLIR.Types
 
@@ -23,18 +24,19 @@ identityOnLast = isJust . firstOf (\h => case h of
   IdentityOnLastArgument => Just ()
   _ => Nothing)
 
-||| The IO operation a definition's calls are.
+||| The primitive a definition's calls are, and the literal operands that
+||| follow the call's own.
 export
-ioCallOf : List Hook -> Maybe IOOp
+ioCallOf : List Hook -> Maybe (IdrPrim, List Lit)
 ioCallOf = firstOf (\h => case h of
-  IOCall op => Just op
+  IOCall p lits => Just (p, lits)
   _ => Nothing)
 
-||| The array operation a definition's calls are.
+||| The array primitive a definition's calls are.
 export
-arrayCallOf : List Hook -> Maybe ArrayOp
+arrayCallOf : List Hook -> Maybe IdrPrim
 arrayCallOf = firstOf (\h => case h of
-  ArrayCall op => Just op
+  ArrayCall p => Just p
   _ => Nothing)
 
 ||| The element of an external type that is an array: `Nothing` when its
@@ -45,12 +47,12 @@ arrayElementOf = firstOf (\h => case h of
   ArrayType e => Just e
   _ => Nothing)
 
-||| The string a definition's calls build from their list, if the registry
-||| says they build one.
+||| The primitive that builds the string a definition's calls build from
+||| their list, if the registry says they build one.
 export
-builderOf : List Hook -> Maybe Builder
+builderOf : List Hook -> Maybe IdrPrim
 builderOf = firstOf (\h => case h of
-  Builds b => Just b
+  Builds p => Just p
   _ => Nothing)
 
 ||| Is a type constructor the external type that is a machine word?
@@ -67,12 +69,19 @@ natOperationOf = firstOf (\h => case h of
   NatOperation m => Just m
   _ => Nothing)
 
-||| The loop over an array's index space a definition is, if the registry
-||| knows it as one.
+||| The region primitive of the loop over an array's index space a
+||| definition is, if the registry knows it as one.
 export
-arrayLoopOf : List Hook -> Maybe ArrayLoop
+arrayLoopOf : List Hook -> Maybe IdrRegionPrim
 arrayLoopOf = firstOf (\h => case h of
-  ArrayLoop l => Just l
+  ArrayLoop p => Just p
+  _ => Nothing)
+
+||| The primitive that ends the program, if a definition's calls do.
+export
+exitOf : List Hook -> Maybe IdrPrim
+exitOf = firstOf (\h => case h of
+  Exits p => Just p
   _ => Nothing)
 
 ||| The string of `System.Info` a definition is, if the registry knows it.
@@ -80,13 +89,6 @@ export
 systemFactOf : List Hook -> Maybe SystemFact
 systemFactOf = firstOf (\h => case h of
   SystemInfo f => Just f
-  _ => Nothing)
-
-||| Whether a definition's calls are the byte length of a string.
-export
-strBytesOf : List Hook -> Bool
-strBytesOf = isJust . firstOf (\h => case h of
-  StrBytes => Just ()
   _ => Nothing)
 
 ||| The replacement a deprecated name names, if the registry rejects it.

@@ -96,7 +96,7 @@ private:
   // a match region does), dies on each path of `block`, the first
   // constructor after that point whose cell fits gets the box's cell.
   void dies(Value box, CtorOp ctor, Block &block, Block *fields) {
-    whereDies(box, block, symbols, [&](Block &where, Block::iterator at) {
+    whereDies(box, block, /*ownedStage=*/false, [&](Block &where, Block::iterator at) {
       reuseAt(ctor, where, at, [&] { return takeAt(box, ctor, where, at, fields).getToken(); });
     });
   }
@@ -148,7 +148,6 @@ private:
 
   func::FuncOp fn;
   layout::Layouts &layouts;
-  SymbolTableCollection symbols;
   unsigned takes = 0, reuses = 0;
 };
 

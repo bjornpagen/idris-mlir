@@ -12,7 +12,6 @@ idr_library(idr_ops
 		GradeSyntax.cppm
 		Inliner.cppm
 		IoEffects.cppm
-		IsByte.cppm
 		LinearRanges.cppm
 		LoopBodies.cppm
 		MatchRegions.cppm

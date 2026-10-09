@@ -6,7 +6,7 @@
 // CHECK: llvm.call @idris_rt_io_put_char
 // CHECK-NOT: world
 // CHECK: return
-module attributes {idr.program, idr.stage = "owned"} {
+module attributes {idr.program} {
   func.func @root(%w: !idr.world) -> !idr.world {
     %c = arith.constant 65 : i32
     func.call @f(%c) : (i32) -> ()

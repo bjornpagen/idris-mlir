@@ -1,0 +1,7 @@
+33
+["first line\n", "second line\n", "no newline"]
+"first"
+" line\nsecond line\nno newline"
+""
+True
+removed

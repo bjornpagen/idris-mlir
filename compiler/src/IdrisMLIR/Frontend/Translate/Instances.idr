@@ -171,6 +171,24 @@ neededShape owner rest shape = go 0
            then go (S d)
            else pure (if d == 0 then Nothing else Just (cutShape (Erased EmptyFC Impossible) d shape))
 
+||| The shape of a runtime argument, as far as it is known at compile time:
+||| the constructors written in it (`skeleton`), or, for an argument that
+||| mentions no runtime value and without which the rest of the type is
+||| stuck, the constructors of what it reduces to. Base's `clockTime` passes
+||| its with block `isClockMandatory clockType`, a closed pure call with no
+||| constructor written, on which the block's type reduces.
+argumentShape : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+                String -> (ClosedTerm -> ClosedTerm) -> ArgValue -> Core (Maybe ClosedTerm)
+argumentShape owner rest arg = do
+  written <- arg.written
+  case skeleton written of
+    Just shape => pure (Just shape)
+    Nothing =>
+      if !(runtimeDependent written) then pure Nothing else do
+        Just _ <- neededShape owner rest (Erased EmptyFC Impossible)
+          | Nothing => pure Nothing
+        skeleton <$> arg.normalised
+
 skip : ArgValues -> ArgValues
 skip = Data.List.drop 1
 
@@ -224,18 +242,22 @@ classify fc owner (S k) (Bind bfc _ (Pi _ rig pinfo a) sc) vals = do
          -- reduces at each one as it does at each call; only as much of it
          -- as the type needs (`neededShape`), so that a recursion that
          -- builds its argument deeper below what the type looks at stays in
-         -- one instance. The shape is read off the argument, never
-         -- computed: a runtime argument is any computation, which the
+         -- one instance. The shape is read off the argument as written; it
+         -- is computed only for a closed argument, one that mentions no
+         -- runtime value, that the type is stuck without (`argumentShape`),
+         -- by normalising it as the type itself is normalised. An argument
+         -- that mentions a runtime value is any computation, which the
          -- compiler must not run. An argument with no constructor at its
-         -- head has no shape, and a parameter the type does not mention, or
-         -- mentions only as an index (`Vect n Int`), keys nothing, so a
-         -- function on naturals has one instance.
+         -- head, written or reduced to, has no shape, and a parameter the
+         -- type does not mention, or mentions only as an index
+         -- (`Vect n Int`), keys nothing, so a function on naturals has one
+         -- instance.
          let (v, vals') = nextStatic vals
          shape <- case (isNothing (shrink sc (Drop Refl)), v) of
            (True, Just arg) => do
-             Just written <- skeleton <$> arg.written
+             Just found <- argumentShape owner (\x => subst x sc) arg
                | Nothing => pure Nothing
-             neededShape owner (\x => subst x sc) written
+             neededShape owner (\x => subst x sc) found
            _ => pure Nothing
          let value = fromMaybe (Erased bfc Placeholder) shape
          (rest, res) <- classify fc owner k !(normaliseClosed (subst value sc)) vals'

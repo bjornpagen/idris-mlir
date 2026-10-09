@@ -370,6 +370,9 @@ mutual
   coreType fc owner rule tm = case spine tm [] of
     (Ref rfc (TyCon _) n, args) => do
       def <- lookupDef fc owner n
+      -- A word type is a machine word whatever its arguments: what a
+      -- `Ptr t` points to names what its handle holds, not its
+      -- representation.
       if !(natLike def)
          then pure NatT
          else if isWordType (hooksOf (fullname def))

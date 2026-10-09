@@ -1,0 +1,34 @@
+C:idris2_openFile broken: exit 1
+C:idris2_openFile broken: the error shows the entry, the shape expected and the shape found
+artifacts: none
+C:idris2_nextDirEntry broken: exit 1
+C:idris2_nextDirEntry broken: the error shows the entry, the shape expected and the shape found
+artifacts: none
+C:getenv broken: exit 1
+C:getenv broken: the error shows the entry, the shape expected and the shape found
+artifacts: none
+C:idris2_getErrno broken: exit 1
+C:idris2_getErrno broken: the error shows the entry, the shape expected and the shape found
+artifacts: none
+scheme:blodwen-clock-time-monotonic broken: exit 1
+scheme:blodwen-clock-time-monotonic broken: the error shows the entry, the shape expected and the shape found
+artifacts: none
+C:idris2_getString broken: exit 1
+C:idris2_getString broken: the error shows the entry, the shape expected and the shape found
+artifacts: none
+PrimIO.prim__castPtr broken: exit 1
+PrimIO.prim__castPtr broken: the error shows the entry, the shape expected and the shape found
+artifacts: none
+System.exitWith broken: exit 1
+System.exitWith broken: the error shows the entry, the shape expected and the shape found
+artifacts: none
+System.Signal.collectSignal broken: exit 1
+System.Signal.collectSignal broken: the error shows the entry, the shape expected and the shape found
+artifacts: none
+System.Concurrency.makeMutex broken: exit 1
+System.Concurrency.makeMutex broken: the error shows the entry, the shape expected and the shape found
+artifacts: none
+System.system broken: exit 1
+System.system broken: the error shows the entry, the shape expected and the shape found
+artifacts: none
+unbroken: exit 0

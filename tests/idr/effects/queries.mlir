@@ -4,8 +4,9 @@
 // RUN: FileCheck %s --check-prefix=WRONG < %t.err
 // What lib/Facts answers about ops, from the facts idr-effects finds: an
 // unused call may be dropped, and an op moved across anything, when it only
-// computes; an op may be delayed when it performs no IO, though it may
-// crash or not return; a closed call may be evaluated when what it runs
+// computes, as a division does once its guard has run; an op may be
+// delayed when it performs no IO, though it may crash, as a guard may, or
+// not return; a closed call may be evaluated when what it runs
 // performs no IO. A closure a call is given counts by its label when it is
 // made where the call is, and as anything when it is not.
 // WRONG: error: expected facts-as-marked: in @main, func.call answers "drop move delay", not "delay"
@@ -20,7 +21,8 @@ func.func private @partial(%x: i64) -> i64 {
   return %r : i64
 }
 func.func private @divides(%x: i64) -> i64 attributes {idr.total} {
-  %r = idr.div signed %x, %x : i64
+  %y = idr.check.nonzero %x, "division by zero" : i64
+  %r = idr.div signed %x, %y : i64
   return %r : i64
 }
 func.func private @writes(%x: i64, %w: !idr.world) -> !idr.world attributes {idr.total} {
@@ -67,7 +69,8 @@ func.func @main(%x: i64, %y: i64, %w: !idr.world, %g: !idr.fn<(i64) -> (i64)>) -
   %l = func.call @applies_once(%lsq, %x) {expect.facts = "drop move delay"} : (!idr.lin<!idr.fn<(i64) -> (i64)>>, i64) -> i64
   %lcr = idr.lin.enter %cr : !idr.lin<!idr.fn<(i64) -> (i64)>>
   %m = func.call @applies_once(%lcr, %x) {expect.facts = "delay"} : (!idr.lin<!idr.fn<(i64) -> (i64)>>, i64) -> i64
-  %q = idr.div signed %x, %y {expect.facts = "delay"} : i64
+  %y1 = idr.check.nonzero %y, "division by zero" {expect.facts = "delay"} : i64
+  %q = idr.div signed %x, %y1 {expect.facts = "move delay"} : i64
   %r = idr.div signed %x, %three {expect.facts = "move delay"} : i64
   %n = idr.match_lit %x : i64 -> (i64) attributes {expect.facts = "delay"} {
   case 0 {

@@ -1,9 +1,12 @@
-// in-bounds and bounds-checked: which of a function's array accesses
-// idr-in-bounds proved within their arrays, as their crash causes say.
+// in-bounds, bounds-checked and no-guards: which guards a function keeps.
+// A proof is the guard's absence: idr-in-bounds and the guards' folders
+// erase a guard whose condition holds where it runs, and lowering checks
+// those left.
 export module idr.expect:inBounds;
 
 import idr.mlir;
 import idr.dialect;
+import idr.inbounds;
 
 import :named;
 import :report;
@@ -14,40 +17,49 @@ namespace idr::expect {
 
 namespace {
 
-// The array accesses in `functions`, each with whether it is proven.
-SmallVector<std::pair<Operation *, bool>> accesses(ArrayRef<func::FuncOp> functions) {
-  SmallVector<std::pair<Operation *, bool>> found;
+// The ops in `functions` that `keep` selects.
+SmallVector<Operation *> opsIn(ArrayRef<func::FuncOp> functions,
+                               function_ref<bool(Operation *)> keep) {
+  SmallVector<Operation *> found;
   for (func::FuncOp fn : functions)
     fn.walk([&](Operation *op) {
-      if (auto get = dyn_cast<ArrayGetOp>(op))
-        found.push_back({op, !get.getCrashCause()});
-      else if (auto set = dyn_cast<ArraySetOp>(op))
-        found.push_back({op, !set.getCrashCause()});
+      if (keep(op))
+        found.push_back(op);
     });
   return found;
 }
 
+bool isIndexGuard(Operation *op) { return isa<CheckInBoundsOp>(op); }
+
+// A guard of an index that an array access takes, the access's own check.
+bool isAccessGuard(Operation *op) {
+  auto guard = dyn_cast<CheckInBoundsOp>(op);
+  return guard && inbounds::accessedArray(guard);
+}
+
+bool isGuard(Operation *op) { return inbounds::asGuard(op).has_value(); }
+
+// Each of `guards` left where it should be gone, one error each.
+LogicalResult noneLeft(ArrayRef<Operation *> guards, StringRef property) {
+  for (Operation *guard : guards)
+    fail(guard->getLoc(), property) << guard->getName() << " is left in " << where(guard);
+  return success(guards.empty());
+}
+
 } // namespace
 
-// Every array access in the function the argument names is proven in
-// bounds, and it has one.
+// The function the argument names keeps no guard of an index: every array
+// access in it was proven within its array, and it has one.
 export LogicalResult inBounds(ModuleOp module, StringRef function) {
   constexpr StringRef property = "in-bounds";
   SmallVector<func::FuncOp> functions = named(module, function, property);
   if (functions.empty())
     return failure();
-  SmallVector<std::pair<Operation *, bool>> found = accesses(functions);
-  if (found.empty()) {
+  if (opsIn(functions, [](Operation *op) { return isa<ArrayGetOp, ArraySetOp>(op); }).empty()) {
     fail(functions.front().getLoc(), property) << "no array access in " << function;
     return failure();
   }
-  bool held = true;
-  for (auto [op, proven] : found)
-    if (!proven) {
-      fail(op->getLoc(), property) << op->getName() << " is checked in " << where(op);
-      held = false;
-    }
-  return success(held);
+  return noneLeft(opsIn(functions, isIndexGuard), property);
 }
 
 // Some array access in the function the argument names keeps its check.
@@ -56,10 +68,20 @@ export LogicalResult boundsChecked(ModuleOp module, StringRef function) {
   SmallVector<func::FuncOp> functions = named(module, function, property);
   if (functions.empty())
     return failure();
-  if (llvm::any_of(accesses(functions), [](auto access) { return !access.second; }))
+  if (!opsIn(functions, isAccessGuard).empty())
     return success();
   fail(functions.front().getLoc(), property) << "no array access is checked in " << function;
   return failure();
+}
+
+// The function the argument names keeps no guard of any kind: every
+// condition its partial primitives need is proven where it runs.
+export LogicalResult noGuards(ModuleOp module, StringRef function) {
+  constexpr StringRef property = "no-guards";
+  SmallVector<func::FuncOp> functions = named(module, function, property);
+  if (functions.empty())
+    return failure();
+  return noneLeft(opsIn(functions, isGuard), property);
 }
 
 } // namespace idr::expect

@@ -1,6 +1,8 @@
 // The ops of the owned stage: what their symbols must name. The hooks are
 // members of the ops TableGen declares; what they check is idr.ownership's
-// (OpChecks.cppm).
+// (OpChecks.cppm). That the module is in the owned stage needs no check of
+// its own: each of these ops has an operand or result ODS declares owned,
+// and an owned value is what puts a module there.
 
 #include "idr/Idr.h"
 
@@ -9,7 +11,6 @@ import idr.ownership;
 using namespace mlir;
 using namespace idr;
 using ownership::ctorOf;
-using ownership::inOwnedStage;
 using ownership::movedField;
 using ownership::movesAs;
 
@@ -18,10 +19,10 @@ LogicalResult DupOp::verify() {
   if (view(getType()) != getValue().getType())
     return emitOpError("has result ") << getType() << ", which is not " << getValue().getType()
                                       << " owned";
-  return inOwnedStage(*this);
+  return success();
 }
-LogicalResult DropOp::verify() { return inOwnedStage(*this); }
-LogicalResult ReuseOp::verify() { return inOwnedStage(*this); }
+LogicalResult DropOp::verify() { return success(); }
+LogicalResult ReuseOp::verify() { return success(); }
 
 // The fields are the constructor's, owned where they hold references. That
 // the cell fits is the owned stage's rule, which knows the take the token
@@ -36,14 +37,14 @@ LogicalResult ReuseOp::verifySymbolUses(SymbolTableCollection &symbols) {
   if (types.size() != getFields().size())
     return emitOpError("expects ") << types.size() << " fields";
   for (auto [field, value] : llvm::zip(types.getAsValueRange<TypeAttr>(), getFields()))
-    if (Type expected = movedField(*this, field); !movesAs(value.getType(), expected))
+    if (Type expected = movedField(*this, symbols, field); !movesAs(value.getType(), expected))
       return emitOpError("field has type ") << value.getType() << ", expected " << expected;
   if (!isOwned(getType()))
     return emitOpError("builds a cell, which holds a reference: the result is owned");
   return success();
 }
 
-LogicalResult TakeOp::verify() { return inOwnedStage(*this); }
+LogicalResult TakeOp::verify() { return success(); }
 
 // A box's take yields its cell as a token, unless the constructor has no
 // fields: that value is the constructor's atom, which is nobody's to build
@@ -67,7 +68,7 @@ LogicalResult TakeOp::verifySymbolUses(SymbolTableCollection &symbols) {
   // A field comes out at the value's grade times its own, as a match
   // binds it.
   for (Type field : ctor.getFieldTypes().getAsValueRange<TypeAttr>())
-    expected.push_back(movedField(*this, fieldType(getValue().getType(), field)));
+    expected.push_back(movedField(*this, symbols, fieldType(getValue().getType(), field)));
   if (expected.size() != getNumResults() ||
       !llvm::all_of(llvm::zip(getResultTypes(), expected),
                     [](auto pair) { return movesAs(std::get<0>(pair), std::get<1>(pair)); }))

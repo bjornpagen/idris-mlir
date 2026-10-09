@@ -11,7 +11,7 @@
 // CHECK: error: 'idr.field' op uses a value whose last reference is gone on this path
 // CHECK: error: 'idr.tag' op uses a value whose last reference is gone on this path
 
-module attributes {idr.stage = "owned"} {
+module attributes {idr.program} {
   idr.data @P box {
     idr.ctor @P (i64, i64)
   }
@@ -30,11 +30,15 @@ module attributes {idr.stage = "owned"} {
     }
     return %r : i64
   }
+  func.func @Prog.main() -> i64 {
+    %z = arith.constant 0 : i64
+    return %z : i64
+  }
 }
 
 // -----
 
-module attributes {idr.stage = "owned"} {
+module attributes {idr.program} {
   idr.data @P box {
     idr.ctor @P (i64, i64)
   }
@@ -52,5 +56,9 @@ module attributes {idr.stage = "owned"} {
     }
     }
     return %r : i64
+  }
+  func.func @Prog.main() -> i64 {
+    %z = arith.constant 0 : i64
+    return %z : i64
   }
 }

@@ -9,7 +9,7 @@ import idr.mlir;
 import idr.dialect;
 
 import :closures;
-import :decided;
+import :declared;
 import :labels;
 import :slots;
 
@@ -20,78 +20,24 @@ namespace idr::defunctionalize {
 
 // The module rewritten as decided: slots retyped, sums declared, values
 // coerced where they move between keys, constants and applies converted,
-// and closures of converted keys made constructors.
-struct Converter : Decided {
-  using Decided::Decided;
+// and closures and suspensions of converted keys made constructors.
+struct Converter : Declared {
+  using Declared::Declared;
 
-  Type sumOf(const Key &key) {
-    return isConverted(key) ? keys.lookup(key) : Type();
-  }
+  // A shared part of a constant, in a slot, is converted once.
+  llvm::DenseMap<std::pair<Attribute, Key>, Attribute> convertedParts;
 
-  // The type of a slot of `key`: its sum, or the closure type unchanged.
-  Type typeOf(const Key &key) {
-    if (Type sum = sumOf(key))
-      return sum;
-    return key.first;
-  }
-
-  // The type of a slot of `key` whose type was `type`: its sum or closure
-  // type, linear when `type` is.
-  Type typeOf(Type type, const Key &key) {
-    if (!key.first)
-      return type;
-    Type slot = typeOf(key);
-    return idr::isLinear(type) ? idr::linear(slot) : slot;
-  }
-
-  // The types of the captures of `label` as a closure of `type`, as
-  // converted.
-  ArrayRef<Type> captureTypes(StringAttr label, idr::FnType type) {
-    return module.function(label).getArgumentTypes().drop_back(arity(type));
-  }
-
-  // A suspension's value may be a closure. `was` is the function's result
-  // type before retype, so the lazy type can follow it to the sum.
-  llvm::DenseMap<StringAttr, Type> suspensionResults();
-  Type adapt(Type type, const llvm::DenseMap<Type, Type> &next);
-  void adaptLazy(const llvm::DenseMap<StringAttr, Type> &was);
-
-  void retype() {
-    for (func::FuncOp fn : module.op.getOps<func::FuncOp>()) {
-      SmallVector<Type> inputs, outputs;
-      for (auto [i, type] : llvm::enumerate(fn.getArgumentTypes()))
-        inputs.push_back(typeOf(type, argument(fn, static_cast<unsigned>(i))));
-      for (auto [i, type] : llvm::enumerate(fn.getResultTypes()))
-        outputs.push_back(typeOf(type, result(fn, static_cast<unsigned>(i))));
-      fn.setFunctionType(FunctionType::get(ctx, inputs, outputs));
-    }
-    for (auto &[value, key] : values)
-      value.setType(typeOf(value.getType(), key));
-    module.op.walk([&](idr::CtorOp ctor) {
-      auto data = ctor->getParentOfType<idr::DataOp>().getSymNameAttr();
-      SmallVector<Type> types;
-      for (auto [i, type] : llvm::enumerate(ctor.getFieldTypes().getAsValueRange<TypeAttr>()))
-        types.push_back(typeOf(type, fields.lookup({data, ctor.getSymNameAttr(), unsigned(i)})));
-      ctor.setFieldTypesAttr(Builder(ctx).getTypeArrayAttr(types));
-    });
-  }
-
-  void declareSums(OpBuilder &b) {
-    b.setInsertionPointToStart(module.op.getBody());
-    for (auto &[key, sum] : keys) {
-      if (!sum)
-        continue;
-      auto data = idr::DataOp::create(b, module.op.getLoc(), idr::getSumName(sum).getAttr(),
-                                      isa<idr::BoxType>(sum) ? b.getUnitAttr() : UnitAttr(),
-                                      b.getUnitAttr());
-      OpBuilder inner = OpBuilder::atBlockEnd(&data.getBody().emplaceBlock());
-      for (auto label : key.second.getAsRange<StringAttr>()) {
-        func::FuncOp fn = module.function(label);
-        // The captures' types carry their quantities into the fields.
-        ArrayRef<Type> types = captureTypes(label, key.first);
-        idr::CtorOp::create(inner, fn.getLoc(), label, b.getTypeArrayAttr(types));
-      }
-    }
+  // Keys every slot and decides which keys become sums.
+  void decideKeys() {
+    keyFields();
+    keyArrays();
+    keyFunctions();
+    keyValues();
+    widen();
+    keyForces();
+    order();
+    connect();
+    decide();
   }
 
   // `label` with `captures` as a value of `key`.
@@ -107,6 +53,7 @@ struct Converter : Decided {
       return idr::ConOp::create(b, loc, sum,
                                 SymbolRefAttr::get(idr::getSumName(sum).getAttr(), {callee}),
                                 held);
+    assert(!isLazy(key) && "idr-defunctionalize: a cell rewritten into a key left lazy");
     return idr::ClosureOp::create(b, loc, key.first, callee, held);
   }
 
@@ -123,7 +70,10 @@ struct Converter : Decided {
   }
 
   // `value` of `from` as a value of `to`: a match that rebuilds each label,
-  // or poison for a value the analysis never reaches.
+  // or poison for a value the analysis never reaches, which is a value of
+  // the program, as any poison is: a value of the empty key, or one moving
+  // into a slot no label reaches, a move that never runs. A cell may be
+  // running or forced as well, and keeps its state in the other sum.
   Value coerce(OpBuilder &b, Location loc, Value value, const Key &from, const Key &to) {
     if (!needsCoercion(from, to))
       return value;
@@ -135,11 +85,16 @@ struct Converter : Decided {
       return idr::LinEnterOp::create(b, loc, idr::linear(moved.getType()), moved);
     }
     assert(canCoerce(from, to) && "idr-defunctionalize: a move it did not decide");
-    if (isEmpty(from))
+    if (isEmpty(from) || isEmpty(to))
       return ub::PoisonOp::create(b, loc, typeOf(to));
+    bool memo = isLazy(from);
     SmallVector<Attribute> cases;
     for (StringAttr label : from.second.getAsRange<StringAttr>())
       cases.push_back(FlatSymbolRefAttr::get(label));
+    if (memo) {
+      cases.push_back(FlatSymbolRefAttr::get(ctx, idr::memoRunning));
+      cases.push_back(FlatSymbolRefAttr::get(ctx, idr::memoForced));
+    }
     OpBuilder::InsertionGuard guard(b);
     auto match = idr::MatchOp::create(b, loc, TypeRange{typeOf(to)}, value, b.getArrayAttr(cases),
                                       unsigned(cases.size()));
@@ -151,12 +106,29 @@ struct Converter : Decided {
       Location at = isConverted(to) ? loc : closureLoc(label, loc);
       idr::YieldOp::create(b, loc, build(b, at, label, to, block->getArguments()));
     }
+    if (!memo)
+      return match.getResult(0);
+    auto state = [&](StringRef ctor) {
+      return SymbolRefAttr::get(idr::getSumName(typeOf(to)).getAttr(),
+                                {FlatSymbolRefAttr::get(ctx, ctor)});
+    };
+    auto labels = static_cast<unsigned>(from.second.size());
+    Region &running = match.getRegions()[labels];
+    b.createBlock(&running, running.end());
+    Value same = idr::ConOp::create(b, loc, typeOf(to), state(idr::memoRunning), ValueRange());
+    idr::YieldOp::create(b, loc, same);
+    Type inside = idr::fieldType(match.getScrutinee().getType(), forcedType(from));
+    Region &forced = match.getRegions()[labels + 1];
+    Block *block = b.createBlock(&forced, forced.end(), TypeRange{inside}, {loc});
+    Value held = idr::heldAs(b, loc, block->getArgument(0), forcedType(to));
+    Value copy = idr::ConOp::create(b, loc, typeOf(to), state(idr::memoForced), held);
+    idr::YieldOp::create(b, loc, copy);
     return match.getResult(0);
   }
 
-  // The types a match on a closure sum of `type` binds the captures of
-  // `label` at: the fields at the sum's grade.
-  SmallVector<Type> boundCaptureTypes(StringAttr label, idr::FnType type, Type scrutinee) {
+  // The types a match on a sum of `type` binds the captures of `label` at:
+  // the fields at the sum's grade.
+  SmallVector<Type> boundCaptureTypes(StringAttr label, Type type, Type scrutinee) {
     SmallVector<Type> types;
     for (Type capture : captureTypes(label, type))
       types.push_back(idr::fieldType(scrutinee, capture));
@@ -196,8 +168,8 @@ struct Converter : Decided {
     }
   }
 
-  // Constant `attr` in a slot of `slot`, with its closures of converted
-  // keys as constructors.
+  // Constant `attr` in a slot of `slot`, with its closures and suspensions
+  // of converted keys as constructors.
   Attribute convert(Attribute attr, const Key &slot) {
     if (!module.holdsClosure(attr))
       return attr;
@@ -221,31 +193,46 @@ struct Converter : Decided {
             ctx, SymbolRefAttr::get(idr::getSumName(sum).getAttr(), {closure.getCallee()}), array);
       return idr::ClosureAttr::get(ctx, closure.getCallee(), array);
     }
-    if (auto con = dyn_cast<idr::ConAttr>(attr)) {
+    auto con = dyn_cast<idr::ConAttr>(attr);
+    if (!con)
+      return attr;
+    SymbolRefAttr ctor = con.getCtor();
+    auto fieldsOf = [&](ArrayAttr cell, function_ref<unsigned(unsigned)> index) {
       SmallVector<Attribute> parts;
-      for (auto [i, value] : llvm::enumerate(con.getFields()))
-        parts.push_back(convert(value, field(con.getCtor(), static_cast<unsigned>(i))));
-      return idr::ConAttr::get(ctx, con.getCtor(), ArrayAttr::get(ctx, parts));
-    }
-    return attr;
+      for (auto [i, value] : llvm::enumerate(cell))
+        parts.push_back(convert(value, field(ctor, index(static_cast<unsigned>(i)))));
+      return ArrayAttr::get(ctx, parts);
+    };
+    if (!con.isRun())
+      return idr::ConAttr::get(ctx, ctor, fieldsOf(con.getFields(), [](unsigned i) { return i; }));
+    // A run is converted cell by cell, its tail in the last cell's spine.
+    unsigned spine = con.getSpine();
+    SmallVector<ArrayAttr> cells;
+    for (ArrayAttr cell : con.getRunCells())
+      cells.push_back(fieldsOf(cell, [&](unsigned i) { return cellField(i, spine); }));
+    return idr::ConAttr::getRun(ctx, ctor, spine, cells, convert(con.getTail(), field(ctor, spine)));
   }
 
   // An apply of a converted key becomes a match over its labels, each
-  // region calling its label with the captures, then the arguments. An
-  // apply of a closure gets closures.
+  // region calling its label with the captures, then the arguments. A key
+  // left a closure is one no label reaches, since the module is rewritten
+  // only when every other key converts: that apply never runs, and what it
+  // gives is poison.
   void rewrite(idr::ApplyOp apply, OpBuilder &b) {
     // The callee is retyped by now, so not getCallee(), which casts it.
     Value closure = apply->getOperand(0);
     Key callee = values.lookup(closure);
-    ArrayRef<Type> inputs = callee.first.getInputs();
+    ArrayRef<Type> inputs = cast<idr::FnType>(callee.first).getInputs();
     b.setInsertionPoint(apply);
     if (!isConverted(callee)) {
-      for (auto [i, type] : llvm::enumerate(inputs)) {
-        if (!isClosureType(type))
-          continue;
-        OpOperand &arg = apply.getArgsMutable()[static_cast<unsigned>(i)];
-        arg.set(coerce(b, apply.getLoc(), arg.get(), values.lookup(arg.get()), unknown(type)));
+      for (OpResult own : apply->getResults()) {
+        // The poison holds the result's slot: an apply of it reads its key.
+        Value poison = ub::PoisonOp::create(b, apply.getLoc(), own.getType());
+        if (auto it = values.find(own); it != values.end())
+          values[poison] = it->second;
+        own.replaceAllUsesWith(poison);
       }
+      apply.erase();
       return;
     }
     SmallVector<Attribute> cases;
@@ -263,7 +250,7 @@ struct Converter : Decided {
       for (auto [capture, type] : llvm::zip(block->getArguments(), captureTypes(label, callee.first)))
         operands.push_back(idr::heldAs(b, apply.getLoc(), capture, type));
       for (auto [i, arg] : llvm::enumerate(apply.getArgs()))
-        operands.push_back(isClosureType(inputs[i])
+        operands.push_back(isKeyed(inputs[i])
                                ? coerce(b, apply.getLoc(), arg, values.lookup(arg),
                                         argument(fn, static_cast<unsigned>(types.size() + i)))
                                : arg);
@@ -284,18 +271,22 @@ struct Converter : Decided {
     apply.erase();
   }
 
-  void run() {
-    keyFields();
-    keyFunctions();
-    keyValues();
-    order();
-    connect();
-    decide();
+  // A closure or a suspension of a converted key is its label's
+  // constructor.
+  void construct(OpBuilder &b, Operation *op, StringAttr label, ValueRange captures) {
+    Key key = values.lookup(op->getResult(0));
+    if (!sumOf(key))
+      return;
+    b.setInsertionPoint(op);
+    Value con = build(b, op->getLoc(), label, key, captures);
+    op->getResult(0).replaceAllUsesWith(con);
+    op->erase();
+  }
 
+  // Rewrites the module as decided.
+  void rewrite() {
     OpBuilder b(ctx);
-    llvm::DenseMap<StringAttr, Type> was = suspensionResults();
     retype();
-    adaptLazy(was);
     declareSums(b);
     coerceCalls(b);
     coerceSinks(b);
@@ -304,15 +295,11 @@ struct Converter : Decided {
     });
     for (idr::ApplyOp apply : module.applies)
       rewrite(apply, b);
-    module.op.walk([&](idr::ClosureOp closure) {
-      Key key = values.lookup(closure->getResult(0));
-      if (!sumOf(key))
-        return;
-      b.setInsertionPoint(closure);
-      Value con = build(b, closure.getLoc(), closure.getCalleeAttr().getAttr(), key,
-                        closure.getCaptures());
-      closure.replaceAllUsesWith(con);
-      closure.erase();
+    module.op.walk([&](Operation *op) {
+      if (auto closure = dyn_cast<idr::ClosureOp>(op))
+        construct(b, op, closure.getCalleeAttr().getAttr(), closure.getCaptures());
+      else if (auto suspend = dyn_cast<idr::SuspendOp>(op))
+        construct(b, op, suspend.getCalleeAttr().getAttr(), suspend.getCaptures());
     });
   }
 };

@@ -1,7 +1,8 @@
 // rt.io:buffer: the address of a span of a byte array, and the copies and
-// strings Data.Buffer builds on it. One check: the span lies in the array,
-// the same one a transfer to a file uses. A machine word is then the
-// target's own load or store of that address.
+// strings Data.Buffer builds on it, and that a transfer to a handle reads or
+// writes. The span lies in the array: the compiler's range check before the
+// call is its one test, and the runtime assumes it. A machine word is then
+// the target's own load or store of that address.
 // PIN(runtime-quarantine) — see PINS.md
 module;
 #include "idris_rt.h"
@@ -11,12 +12,7 @@ module;
 
 export module rt.io:buffer;
 
-extern "C" char *idris_rt_buffer_at(idris_rt_array *buf, int64_t length, int64_t offset,
-                                    int64_t bytes) {
-  if (offset < 0 || bytes < 0 || offset > length || bytes > length - offset) {
-    static constexpr char message[] = "idris-mlir: a byte range outside the buffer\n";
-    idris_rt_crash(message, sizeof message - 1);
-  }
+extern "C" char *idris_rt_buffer_at(idris_rt_array *buf, int64_t, int64_t offset, int64_t) {
   return reinterpret_cast<char *>(buf + 1) + offset;
 }
 

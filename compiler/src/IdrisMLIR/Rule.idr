@@ -1,9 +1,10 @@
 ||| The reasons the compiler gives for a rejection, as data, so a misspelt
 ||| reason is a type error, not a wrong message. Each is shown as the short
 ||| phrase of `unsupported (<phrase>): ...`. The frontend checks most of
-||| them; `CompileBudget` and `Layout` also come back from `idris-mlir-cc`,
-||| which names them by their phrases (`parseRule`). Any other error of
-||| `idris-mlir-cc` is the compiler's own, never a rejection.
+||| them; `CompileBudget`, `Layout`, `Laziness`, `RuntimeClosure`, `Cycle`
+||| and `Uniqueness` also come back from `idris-mlir-cc`, which names them by
+||| their phrases (`parseRule`). Any other error of `idris-mlir-cc` is the
+||| compiler's own, never a rejection.
 module IdrisMLIR.Rule
 
 
@@ -27,9 +28,21 @@ data Rule
   | ||| A collector finalizer (`onCollect`). Release is the counting walk;
     ||| nothing runs at collection.
     Finalizer
-  | ||| A raw pointer, or a value read through one (`getEnv`). References
-    ||| the compiler keeps are heap values it accounts for.
+  | ||| Raw memory (`System.FFI`'s `malloc` and its kin). A pointer of base
+    ||| is a handle of the runtime's, and references the compiler keeps are
+    ||| heap values it accounts for.
     RawPointer
+  | ||| A signal handler, which runs an effect at a time the world does not
+    ||| name.
+    Signal
+  | ||| Process creation (`system`, `popen`), outside the language for now.
+    Process
+  | ||| A mutable cell whose type can reach itself: counting would leak the
+    ||| knot.
+    Cycle
+  | ||| A value passed shared where a promise asked for it exclusive
+    ||| (`--demand in-place`).
+    Uniqueness
   | CompiledModule | IdentityHook | HookShape
   | CompileBudget | Layout
   | ||| A name Idris has deprecated. The message names its replacement.
@@ -58,6 +71,10 @@ Show Rule where
   show Threads = "threads"
   show Finalizer = "finalizer"
   show RawPointer = "raw pointer"
+  show Signal = "signal"
+  show Process = "process"
+  show Cycle = "cycle"
+  show Uniqueness = "uniqueness"
   show CompiledModule = "compiled module"
   show IdentityHook = "identity hook"
   show HookShape = "hook"
@@ -72,6 +89,7 @@ allRules =
   , DependentField, DictionaryField, DataType, DefinitionShape, Match, StaticArgument
   , Polymorphism, Laziness, Primitive, StringPrimitive, RuntimeClosure
   , EscapeHatch, UserPragma, Threads, Finalizer, RawPointer
+  , Signal, Process, Cycle, Uniqueness
   , CompiledModule, IdentityHook, HookShape
   , CompileBudget, Layout, Deprecated ]
 

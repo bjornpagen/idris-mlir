@@ -148,7 +148,9 @@ private:
   // and under `assumed`, the hypotheses on the loop arguments being
   // resolved: a loop argument is the function's argument when its initial
   // value is and what the loop yields for it is too, by that hypothesis.
-  // Poison agrees with anything.
+  // A ub.poison is a value of the program, given where nothing reads it (on
+  // the path of a loop that does not take it, after a crash): it may be
+  // taken to be anything, so it agrees with anything.
   Returned argumentOf(func::FuncOp fn, Value value) {
     if (auto arg = dyn_cast<BlockArgument>(value))
       return argumentOf(fn, arg);

@@ -15,6 +15,7 @@ import Libraries.Text.Bounded
 import Libraries.Text.Lexer.Tokenizer
 import Parser.Lexer.Source
 
+import IdrisMLIR.Dialect.Idr
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate
 import IdrisMLIR.Ids
@@ -44,14 +45,25 @@ forbiddenBy [] = Nothing
 forbiddenBy (Forbidden rule :: _) = Just rule
 forbiddenBy (_ :: hs) = forbiddenBy hs
 
-||| What a refusal of a forbidden definition says. Threads, finalizers and
-||| raw pointers name why they are outside the language; every other
-||| forbidden definition is a use of it.
+||| What a refusal of a forbidden definition says. Threads, finalizers, raw
+||| memory, signals and processes name why they are outside the language;
+||| every other forbidden definition is a use of it.
 exclusion : Rule -> String -> String
-exclusion Threads n = n ++ " starts a thread, which is outside the language this compiler implements"
+exclusion Threads n =
+  n ++ " starts or coordinates threads (a mutex, a channel), which are outside the language" ++
+  " this compiler implements"
 exclusion Finalizer n = n ++ " registers a collector finalizer, which is outside the language this compiler implements"
-exclusion RawPointer n = n ++ " is a raw pointer, which is outside the language this compiler implements"
+exclusion RawPointer n = n ++ " allocates raw memory, which is outside the language this compiler implements"
+exclusion Signal n = n ++ " handles or sends a signal, which is outside the language this compiler implements"
+exclusion Process n = n ++ " runs another process, which is outside the language this compiler implements"
 exclusion _ n = "uses " ++ n
+
+||| Does a hook answer for a definition's body? The identity on the last
+||| argument is never translated, and the exit's `believe_me` is translated
+||| as an action that does not return: the escape hatch in either body is
+||| the hook's, not the program's.
+answersForBody : List Hook -> Bool
+answersForBody hs = identityOnLast hs || isJust (exitOf hs)
 
 ||| The first of the definitions a user definition refers to that the
 ||| registry forbids in the user's code, with its rule.
@@ -169,12 +181,15 @@ treeMentionsWorld (STerm _ t) = mentionsWorld t
 treeMentionsWorld _ = False
 
 ||| What a definition refers to, with the metavariables its body mentions:
-||| the translation follows a solved one to its solution.
-refsOf : GlobalDef -> List Name
-refsOf def =
+||| the translation follows a solved one to its solution. Of a definition
+||| whose hook answers for its body, only the type.
+refsOf : List Hook -> GlobalDef -> List Name
+refsOf hs def =
   let fromType = keys (getRefs (UN (Basic "")) (type def)) in
   case definition def of
-    PMDef _ _ tree _ _ => fromType ++ keys (getRefs (UN (Basic "")) tree) ++ keys (getMetas tree)
+    PMDef _ _ tree _ _ =>
+      if answersForBody hs then fromType
+      else fromType ++ keys (getRefs (UN (Basic "")) tree) ++ keys (getMetas tree)
     TCon _ _ _ _ _ cons _ => fromType ++ fromMaybe [] cons
     _ => fromType
 
@@ -219,14 +234,16 @@ checkReachable fc roots = go empty (map (\r => (r, [], False)) roots)
           Untrusted => reject (userFC path) (maybe key (show . fst) (head' path)) TrustedLibrary
                          (key ++ " is in " ++ show loc.place ++ ", which is not a trusted library module" ++ via path)
           _ => pure ()
-        -- Threads, finalizers and raw pointers are outside the language
-        -- wherever they are reached. The world's forbidden operations are
-        -- not: the program root is one, and user code is refused where it
-        -- names them.
+        -- Threads, finalizers, raw memory, signals and processes are
+        -- outside the language wherever they are reached. The world's
+        -- forbidden operations are not: the program root is one, and user
+        -- code is refused where it names them.
         case forbiddenBy (hooksOf full) of
           Just Threads => reject (userFC here) owner Threads (exclusion Threads key ++ via here)
           Just Finalizer => reject (userFC here) owner Finalizer (exclusion Finalizer key ++ via here)
           Just RawPointer => reject (userFC here) owner RawPointer (exclusion RawPointer key ++ via here)
+          Just Signal => reject (userFC here) owner Signal (exclusion Signal key ++ via here)
+          Just Process => reject (userFC here) owner Process (exclusion Process key ++ via here)
           _ => pure ()
         -- A deprecated name is rejected wherever it is reached. The hook's
         -- text names the replacement.
@@ -263,7 +280,7 @@ checkReachable fc roots = go empty (map (\r => (r, [], False)) roots)
         -- A trusted module admits only some of its definitions.
         when (trusted && not (admits origin (qname (enclosing full)))) $
           reject (userFC here) owner TrustedLibrary (key ++ " is not admitted from its trusted module" ++ via here)
-        refs <- traverse toFullNames (refsOf def)
+        refs <- traverse toFullNames (refsOf (hooksOf full) def)
         -- User code may not use what the registry forbids, nor forge a world.
         unless trusted $ do
           case firstForbidden refs of

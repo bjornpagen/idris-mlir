@@ -7,7 +7,7 @@
 // in the loop of a function that is not total, and nothing asserts forward
 // progress, so neither MLIR nor LLVM deletes it. The program is still
 // running when its time is up, and main does not claim forward progress.
-// CHECK: define {{.*}}@main() {{.*}}#[[A:[0-9]+]] {
+// CHECK: define {{.*}}@main({{.*}}) {{.*}}#[[A:[0-9]+]] {
 // CHECK: attributes #[[A]] = {
 // CHECK-NOT: mustprogress
 // CHECK-SAME: }

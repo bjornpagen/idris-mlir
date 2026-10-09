@@ -65,6 +65,43 @@ export Value arrayRoot(Value array) {
   }
 }
 
+// The array `dim` measures: an array's one dimension is its length.
+export std::optional<Value> dimensionOf(memref::DimOp dim) {
+  std::optional<int64_t> index = dim.getConstantIndex();
+  if (!index || *index != 0 || !isArray(dim.getSource().getType()))
+    return std::nullopt;
+  return dim.getSource();
+}
+
+// What `value` clamps at 0 from below: `x` when it is `max(x, c)`, either
+// way round, for a constant `c` of at most 0, so that its clamp at 0 is
+// `x`'s.
+export std::optional<Value> clampOf(Value value) {
+  auto max = value.getDefiningOp<arith::MaxSIOp>();
+  if (!max)
+    return std::nullopt;
+  auto floor = [](Value side) {
+    APInt k;
+    return matchPattern(side, m_ConstantInt(&k)) && !k.isStrictlyPositive();
+  };
+  if (floor(max.getLhs()))
+    return max.getRhs();
+  if (floor(max.getRhs()))
+    return max.getLhs();
+  return std::nullopt;
+}
+
+// The array whose length `length` is: its one dimension made i64, which is
+// what the guard of an access to it checks the index against. None for any
+// other integer.
+export std::optional<Value> measured(Value length) {
+  auto cast = length.getDefiningOp<arith::IndexCastOp>();
+  if (!cast || !cast.getIn().getType().isIndex() || !length.getType().isInteger(64))
+    return std::nullopt;
+  auto dim = cast.getIn().getDefiningOp<memref::DimOp>();
+  return dim ? dimensionOf(dim) : std::nullopt;
+}
+
 // The calls of each private function whose every use is a direct call: the
 // only places its parameters are bound. A function whose address is taken
 // (a closure of it, a constant) or that is public has no such list, so

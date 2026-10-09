@@ -1,0 +1,3 @@
+Compiled with the in-place promise: every function that rebuilds a linear
+list in its own cells is passed that list exclusive, so the promise holds
+of the program as written, and refuses none of its calls.

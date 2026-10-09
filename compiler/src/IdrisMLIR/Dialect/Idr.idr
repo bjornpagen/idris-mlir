@@ -88,11 +88,6 @@ export
 closureAttr : (callee : String) -> (captures : List MlirAttr) -> MlirAttr
 closureAttr callee captures = MkMlirAttr ("#idr.closure<" ++ (flatSymbolRefAttr callee).text ++ ", " ++ (arrayAttr captures).text ++ ">")
 
-||| `#idr.con`: a constructor of a sum or box, its fields as attributes
-export
-conAttr : (ctor : List String) -> (fields : List MlirAttr) -> MlirAttr
-conAttr ctor fields = MkMlirAttr ("#idr.con<" ++ (symbolRefAttr ctor).text ++ ", " ++ (arrayAttr fields).text ++ ">")
-
 ||| `#idr.erased`: the erased value
 export
 erasedAttr : MlirAttr
@@ -132,11 +127,6 @@ specKeyAttr origin patterns = MkMlirAttr ("#idr.spec_key<" ++ (stringAttr origin
 export
 programDiscardable : NamedAttr
 programDiscardable = ("idr.program", unitAttr)
-
-||| The discardable attribute `idr.stage`.
-export
-stageDiscardable : String -> NamedAttr
-stageDiscardable s = ("idr.stage", stringAttr s)
 
 ||| The discardable attribute `idr.total`.
 export
@@ -226,13 +216,13 @@ bigCmpOp : (predicate : CmpPredicate) -> (lhs : Value) -> (rhs : Value) -> (resu
 bigCmpOp predicate lhs rhs result =
   MkOp "idr.big.cmp" [lhs, rhs] [("predicate", integerAttr (cmpPredicateValue predicate) (integerType 64))] [] [] [result]
 
-||| `idr.big.div`: the quotient of two bigs, as Integer's div and mod; crashes on zero
+||| `idr.big.div`: the quotient of two bigs, as Integer's div and mod, by a divisor that is not zero
 export
 bigDivOp : (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
 bigDivOp lhs rhs result =
   MkOp "idr.big.div" [lhs, rhs] [] [] [] [result]
 
-||| `idr.big.from_double`: a Double truncated to a big; crashes on NaN and the infinities
+||| `idr.big.from_double`: a finite Double truncated to a big
 export
 bigFromDoubleOp : (value : Value) -> (result : MlirType) -> Op
 bigFromDoubleOp value result =
@@ -250,7 +240,7 @@ bigFromStrOp : (str : Value) -> (result : MlirType) -> Op
 bigFromStrOp str result =
   MkOp "idr.big.from_str" [str] [] [] [] [result]
 
-||| `idr.big.mod`: the remainder of two bigs, as Integer's div and mod; crashes on zero
+||| `idr.big.mod`: the remainder of two bigs, as Integer's div and mod, by a divisor that is not zero
 export
 bigModOp : (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
 bigModOp lhs rhs result =
@@ -322,6 +312,42 @@ borrowOp : (value : Value) -> (result : MlirType) -> Op
 borrowOp value result =
   MkOp "idr.borrow" [value] [] [] [] [result]
 
+||| `idr.check.byte`: the value, which must be from 0 to 255, else the program crashes
+export
+checkByteOp : (value : Value) -> (cause : String) -> (checked : MlirType) -> Op
+checkByteOp value cause checked =
+  MkOp "idr.check.byte" [value] [("cause", stringAttr cause)] [] [] [checked]
+
+||| `idr.check.finite`: the value, which must be neither NaN nor infinite, else the program crashes
+export
+checkFiniteOp : (value : Value) -> (cause : String) -> (checked : MlirType) -> Op
+checkFiniteOp value cause checked =
+  MkOp "idr.check.finite" [value] [("cause", stringAttr cause)] [] [] [checked]
+
+||| `idr.check.in_bounds`: the index, which must be at least 0 and below the length, else the program crashes
+export
+checkInBoundsOp : (index : Value) -> (length' : Value) -> (cause : String) -> (checked : MlirType) -> Op
+checkInBoundsOp index length' cause checked =
+  MkOp "idr.check.in_bounds" [index, length'] [("cause", stringAttr cause)] [] [] [checked]
+
+||| `idr.check.nonempty`: the string, which must have at least one byte, else the program crashes
+export
+checkNonemptyOp : (str : Value) -> (cause : String) -> (checked : MlirType) -> Op
+checkNonemptyOp str cause checked =
+  MkOp "idr.check.nonempty" [str] [("cause", stringAttr cause)] [] [] [checked]
+
+||| `idr.check.nonzero`: the value, which must not be zero, else the program crashes
+export
+checkNonzeroOp : (value : Value) -> (cause : String) -> (checked : MlirType) -> Op
+checkNonzeroOp value cause checked =
+  MkOp "idr.check.nonzero" [value] [("cause", stringAttr cause)] [] [] [checked]
+
+||| `idr.check.range`: the offset, whose range of `count` bytes must lie in `size`, else the program crashes
+export
+checkRangeOp : (offset : Value) -> (count : Value) -> (size : Value) -> (cause : String) -> (checked : MlirType) -> Op
+checkRangeOp offset count size cause checked =
+  MkOp "idr.check.range" [offset, count, size] [("cause", stringAttr cause)] [] [] [checked]
+
 ||| `idr.closure`: a closure of a function: its leading parameters are the captures
 export
 closureOp : (callee : String) -> (captures : List Value) -> (result : MlirType) -> Op
@@ -354,15 +380,21 @@ crashStrOp message =
 
 ||| `idr.ctor`: declares one constructor of an idr.data type
 export
-ctorOp : (symName : String) -> (fieldTypes : List MlirType) -> Op
+ctorOp : {default False byName : Bool} -> (symName : String) -> (fieldTypes : List MlirType) -> Op
 ctorOp symName fieldTypes =
-  MkOp "idr.ctor" [] [("sym_name", stringAttr symName), ("field_types", typeArrayAttr fieldTypes)] [] [] []
+  MkOp "idr.ctor" [] ([("sym_name", stringAttr symName), ("field_types", typeArrayAttr fieldTypes)] ++ unitIf "by_name" byName) [] [] []
 
 ||| `idr.data`: declares a monomorphic data type, unboxed or boxed
 export
-dataOp : {default False box : Bool} -> {default False closures : Bool} -> (symName : String) -> (body : Region) -> Op
+dataOp : {default False box : Bool} -> {default False closures : Bool} -> {default False memo : Bool} -> {default Nothing labels : Maybe (List MlirAttr)} -> (symName : String) -> (body : Region) -> Op
 dataOp symName body =
-  MkOp "idr.data" [] ([("sym_name", stringAttr symName)] ++ unitIf "box" box ++ unitIf "closures" closures) [body] [] []
+  MkOp "idr.data" [] ([("sym_name", stringAttr symName)] ++ unitIf "box" box ++ unitIf "closures" closures ++ unitIf "memo" memo ++ attrIf "labels" arrayAttr labels) [body] [] []
+
+||| `idr.delay`: a suspension whose body is its region; its captures are the values it uses from above
+export
+delayOp : (body : Region) -> (result : MlirType) -> Op
+delayOp body result =
+  MkOp "idr.delay" [] [] [body] [] [result]
 
 ||| `idr.dest.of`: the destination that is a pending field of a cell just built
 export
@@ -382,7 +414,7 @@ destWriteOp : (dest : Value) -> (value : Value) -> Op
 destWriteOp dest value =
   MkOp "idr.dest.write" [dest, value] [] [] [] []
 
-||| `idr.div`: Idris div: Euclidean when signed, crashes on zero
+||| `idr.div`: Idris div: Euclidean when signed, of a divisor that is not zero
 export
 divOp : {default False isSigned : Bool} -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
 divOp lhs rhs result =
@@ -418,11 +450,35 @@ forceOp : (suspension : Value) -> (result : MlirType) -> Op
 forceOp suspension result =
   MkOp "idr.force" [suspension] [] [] [] [result]
 
+||| `idr.handle.is_null`: 1 when a handle is null, else 0
+export
+handleIsNullOp : (handle : Value) -> (isNull : MlirType) -> Op
+handleIsNullOp handle isNull =
+  MkOp "idr.handle.is_null" [handle] [] [] [] [isNull]
+
+||| `idr.handle.string`: the string a string handle holds, with a reference of its own
+export
+handleStringOp : (handle : Value) -> (str : MlirType) -> Op
+handleStringOp handle str =
+  MkOp "idr.handle.string" [handle] [] [] [] [str]
+
 ||| `idr.int_head`: the first character of an integer's decimal text
 export
 intHeadOp : {default False isSigned : Bool} -> (value : Value) -> (result : MlirType) -> Op
 intHeadOp value result =
   MkOp "idr.int_head" [value] (unitIf "is_signed" isSigned) [] [] [result]
+
+||| `idr.io.arg`: the program's argument at an index, a new string
+export
+ioArgOp : (index : Value) -> (world : Value) -> (str : MlirType) -> (next : MlirType) -> Op
+ioArgOp index world str next =
+  MkOp "idr.io.arg" [index, world] [] [] [] [str, next]
+
+||| `idr.io.arg_count`: the number of the program's arguments, its name included
+export
+ioArgCountOp : (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioArgCountOp world result next =
+  MkOp "idr.io.arg_count" [world] [] [] [] [result, next]
 
 ||| `idr.io.buffer_copy`: bytes copied from one buffer into another
 export
@@ -454,11 +510,275 @@ ioBufferStoreOp : (buffer : Value) -> (offset : Value) -> (value : Value) -> (wo
 ioBufferStoreOp buffer offset value world next =
   MkOp "idr.io.buffer_store" [buffer, offset, value, world] [] [] [] [next]
 
+||| `idr.io.clock_gc_cpu`: the collector's CPU time: never valid
+export
+ioClockGcCpuOp : (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioClockGcCpuOp world result next =
+  MkOp "idr.io.clock_gc_cpu" [world] [] [] [] [result, next]
+
+||| `idr.io.clock_gc_real`: the collector's real time: never valid
+export
+ioClockGcRealOp : (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioClockGcRealOp world result next =
+  MkOp "idr.io.clock_gc_real" [world] [] [] [] [result, next]
+
+||| `idr.io.clock_monotonic`: a reading of the monotonic clock
+export
+ioClockMonotonicOp : (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioClockMonotonicOp world result next =
+  MkOp "idr.io.clock_monotonic" [world] [] [] [] [result, next]
+
+||| `idr.io.clock_nanosecond`: the nanoseconds of an OSClock
+export
+ioClockNanosecondOp : (clock : Value) -> (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioClockNanosecondOp clock world result next =
+  MkOp "idr.io.clock_nanosecond" [clock, world] [] [] [] [result, next]
+
+||| `idr.io.clock_process`: a reading of the process's CPU time
+export
+ioClockProcessOp : (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioClockProcessOp world result next =
+  MkOp "idr.io.clock_process" [world] [] [] [] [result, next]
+
+||| `idr.io.clock_second`: the seconds of an OSClock
+export
+ioClockSecondOp : (clock : Value) -> (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioClockSecondOp clock world result next =
+  MkOp "idr.io.clock_second" [clock, world] [] [] [] [result, next]
+
+||| `idr.io.clock_thread`: a reading of the thread's CPU time
+export
+ioClockThreadOp : (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioClockThreadOp world result next =
+  MkOp "idr.io.clock_thread" [world] [] [] [] [result, next]
+
+||| `idr.io.clock_utc`: a reading of the real-time clock
+export
+ioClockUtcOp : (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioClockUtcOp world result next =
+  MkOp "idr.io.clock_utc" [world] [] [] [] [result, next]
+
+||| `idr.io.clock_valid`: 1 when an OSClock is valid, else 0
+export
+ioClockValidOp : (clock : Value) -> (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioClockValidOp clock world result next =
+  MkOp "idr.io.clock_valid" [clock, world] [] [] [] [result, next]
+
+||| `idr.io.dir_change`: makes a path the current directory
+export
+ioDirChangeOp : (path : Value) -> (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioDirChangeOp path world result next =
+  MkOp "idr.io.dir_change" [path, world] [] [] [] [result, next]
+
+||| `idr.io.dir_close`: closes a directory, its handle and the entry it last gave
+export
+ioDirCloseOp : (dir : Value) -> (world : Value) -> (next : MlirType) -> Op
+ioDirCloseOp dir world next =
+  MkOp "idr.io.dir_close" [dir, world] [] [] [] [next]
+
+||| `idr.io.dir_create`: creates a directory at a path
+export
+ioDirCreateOp : (path : Value) -> (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioDirCreateOp path world result next =
+  MkOp "idr.io.dir_create" [path, world] [] [] [] [result, next]
+
+||| `idr.io.dir_current`: the current directory's path, as a string handle, or null
+export
+ioDirCurrentOp : (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioDirCurrentOp world result next =
+  MkOp "idr.io.dir_current" [world] [] [] [] [result, next]
+
+||| `idr.io.dir_entry`: the name of a directory's next entry, as a string handle, or null at its end
+export
+ioDirEntryOp : (handle : Value) -> (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioDirEntryOp handle world result next =
+  MkOp "idr.io.dir_entry" [handle, world] [] [] [] [result, next]
+
+||| `idr.io.dir_open`: opens the directory at a path: a directory handle, or null
+export
+ioDirOpenOp : (path : Value) -> (world : Value) -> (dir : MlirType) -> (next : MlirType) -> Op
+ioDirOpenOp path world dir next =
+  MkOp "idr.io.dir_open" [path, world] [] [] [] [dir, next]
+
+||| `idr.io.dir_remove`: removes the directory at a path
+export
+ioDirRemoveOp : (path : Value) -> (world : Value) -> (next : MlirType) -> Op
+ioDirRemoveOp path world next =
+  MkOp "idr.io.dir_remove" [path, world] [] [] [] [next]
+
+||| `idr.io.env_get`: the value of an environment variable, as a string handle, or null
+export
+ioEnvGetOp : (name : Value) -> (world : Value) -> (value : MlirType) -> (next : MlirType) -> Op
+ioEnvGetOp name world value next =
+  MkOp "idr.io.env_get" [name, world] [] [] [] [value, next]
+
+||| `idr.io.env_pair`: the environment's `name=value` at an index, as a string handle, or null past its end
+export
+ioEnvPairOp : (index : Value) -> (world : Value) -> (pair : MlirType) -> (next : MlirType) -> Op
+ioEnvPairOp index world pair next =
+  MkOp "idr.io.env_pair" [index, world] [] [] [] [pair, next]
+
+||| `idr.io.env_set`: sets an environment variable, unless it is set and `overwrite` is 0
+export
+ioEnvSetOp : (name : Value) -> (value : Value) -> (overwrite : Value) -> (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioEnvSetOp name value overwrite world result next =
+  MkOp "idr.io.env_set" [name, value, overwrite, world] [] [] [] [result, next]
+
+||| `idr.io.env_unset`: removes an environment variable
+export
+ioEnvUnsetOp : (name : Value) -> (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioEnvUnsetOp name world result next =
+  MkOp "idr.io.env_unset" [name, world] [] [] [] [result, next]
+
 ||| `idr.io.eof`
 export
 ioEofOp : (handle : Value) -> (world : Value) -> (ended : MlirType) -> (next : MlirType) -> Op
 ioEofOp handle world ended next =
   MkOp "idr.io.eof" [handle, world] [] [] [] [ended, next]
+
+||| `idr.io.errno`: the saved errno of the last failing call
+export
+ioErrnoOp : (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioErrnoOp world result next =
+  MkOp "idr.io.errno" [world] [] [] [] [result, next]
+
+||| `idr.io.exit`: writes pending output and ends the process with a status; does not return
+export
+ioExitOp : (status : Value) -> (world : Value) -> (next : MlirType) -> Op
+ioExitOp status world next =
+  MkOp "idr.io.exit" [status, world] [] [] [] [next]
+
+||| `idr.io.file_atime_nsec`: the nanoseconds of a file time's access time
+export
+ioFileAtimeNsecOp : (handle : Value) -> (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioFileAtimeNsecOp handle world result next =
+  MkOp "idr.io.file_atime_nsec" [handle, world] [] [] [] [result, next]
+
+||| `idr.io.file_atime_sec`: the seconds of a file time's access time
+export
+ioFileAtimeSecOp : (handle : Value) -> (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioFileAtimeSecOp handle world result next =
+  MkOp "idr.io.file_atime_sec" [handle, world] [] [] [] [result, next]
+
+||| `idr.io.file_chmod`: sets the mode of the file at a path
+export
+ioFileChmodOp : (path : Value) -> (mode : Value) -> (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioFileChmodOp path mode world result next =
+  MkOp "idr.io.file_chmod" [path, mode, world] [] [] [] [result, next]
+
+||| `idr.io.file_close`: closes a file and frees its handle
+export
+ioFileCloseOp : (file : Value) -> (world : Value) -> (next : MlirType) -> Op
+ioFileCloseOp file world next =
+  MkOp "idr.io.file_close" [file, world] [] [] [] [next]
+
+||| `idr.io.file_ctime_nsec`: the nanoseconds of a file time's status change time
+export
+ioFileCtimeNsecOp : (handle : Value) -> (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioFileCtimeNsecOp handle world result next =
+  MkOp "idr.io.file_ctime_nsec" [handle, world] [] [] [] [result, next]
+
+||| `idr.io.file_ctime_sec`: the seconds of a file time's status change time
+export
+ioFileCtimeSecOp : (handle : Value) -> (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioFileCtimeSecOp handle world result next =
+  MkOp "idr.io.file_ctime_sec" [handle, world] [] [] [] [result, next]
+
+||| `idr.io.file_errno`: the saved errno of the last failing file operation
+export
+ioFileErrnoOp : (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioFileErrnoOp world result next =
+  MkOp "idr.io.file_errno" [world] [] [] [] [result, next]
+
+||| `idr.io.file_error`: whether a file's stream has an error, as ferror says
+export
+ioFileErrorOp : (handle : Value) -> (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioFileErrorOp handle world result next =
+  MkOp "idr.io.file_error" [handle, world] [] [] [] [result, next]
+
+||| `idr.io.file_flush`: writes what is pending of a file, as fflush does
+export
+ioFileFlushOp : (handle : Value) -> (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioFileFlushOp handle world result next =
+  MkOp "idr.io.file_flush" [handle, world] [] [] [] [result, next]
+
+||| `idr.io.file_is_tty`: whether a file is a terminal
+export
+ioFileIsTtyOp : (handle : Value) -> (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioFileIsTtyOp handle world result next =
+  MkOp "idr.io.file_is_tty" [handle, world] [] [] [] [result, next]
+
+||| `idr.io.file_mtime_nsec`: the nanoseconds of a file time's modification time
+export
+ioFileMtimeNsecOp : (handle : Value) -> (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioFileMtimeNsecOp handle world result next =
+  MkOp "idr.io.file_mtime_nsec" [handle, world] [] [] [] [result, next]
+
+||| `idr.io.file_mtime_sec`: the seconds of a file time's modification time
+export
+ioFileMtimeSecOp : (handle : Value) -> (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioFileMtimeSecOp handle world result next =
+  MkOp "idr.io.file_mtime_sec" [handle, world] [] [] [] [result, next]
+
+||| `idr.io.file_open`: opens the file at a path in a mode, as fopen does: a file handle, or null
+export
+ioFileOpenOp : (path : Value) -> (mode : Value) -> (world : Value) -> (file : MlirType) -> (next : MlirType) -> Op
+ioFileOpenOp path mode world file next =
+  MkOp "idr.io.file_open" [path, mode, world] [] [] [] [file, next]
+
+||| `idr.io.file_poll`: whether a file has input ready to read
+export
+ioFilePollOp : (handle : Value) -> (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioFilePollOp handle world result next =
+  MkOp "idr.io.file_poll" [handle, world] [] [] [] [result, next]
+
+||| `idr.io.file_read_char`: the next character of a file
+export
+ioFileReadCharOp : (handle : Value) -> (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioFileReadCharOp handle world result next =
+  MkOp "idr.io.file_read_char" [handle, world] [] [] [] [result, next]
+
+||| `idr.io.file_read_chars`: at most `max` characters of a file, as a string handle, or null
+export
+ioFileReadCharsOp : (max : Value) -> (file : Value) -> (world : Value) -> (chars : MlirType) -> (next : MlirType) -> Op
+ioFileReadCharsOp max file world chars next =
+  MkOp "idr.io.file_read_chars" [max, file, world] [] [] [] [chars, next]
+
+||| `idr.io.file_read_line`: the next line of a file, as a string handle, or null
+export
+ioFileReadLineOp : (handle : Value) -> (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioFileReadLineOp handle world result next =
+  MkOp "idr.io.file_read_line" [handle, world] [] [] [] [result, next]
+
+||| `idr.io.file_remove`: removes the file at a path
+export
+ioFileRemoveOp : (path : Value) -> (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioFileRemoveOp path world result next =
+  MkOp "idr.io.file_remove" [path, world] [] [] [] [result, next]
+
+||| `idr.io.file_seek_line`: skips a file past its next line
+export
+ioFileSeekLineOp : (handle : Value) -> (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioFileSeekLineOp handle world result next =
+  MkOp "idr.io.file_seek_line" [handle, world] [] [] [] [result, next]
+
+||| `idr.io.file_size`: the size of a file in bytes
+export
+ioFileSizeOp : (handle : Value) -> (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioFileSizeOp handle world result next =
+  MkOp "idr.io.file_size" [handle, world] [] [] [] [result, next]
+
+||| `idr.io.file_time`: the access, modification and status change times of a file, as a file-time handle
+export
+ioFileTimeOp : (handle : Value) -> (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioFileTimeOp handle world result next =
+  MkOp "idr.io.file_time" [handle, world] [] [] [] [result, next]
+
+||| `idr.io.file_write_line`: writes a string to a file
+export
+ioFileWriteLineOp : (file : Value) -> (line : Value) -> (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioFileWriteLineOp file line world result next =
+  MkOp "idr.io.file_write_line" [file, line, world] [] [] [] [result, next]
 
 ||| `idr.io.get_byte`
 export
@@ -472,11 +792,23 @@ ioGetLineOp : (world : Value) -> (str : MlirType) -> (next : MlirType) -> Op
 ioGetLineOp world str next =
   MkOp "idr.io.get_line" [world] [] [] [] [str, next]
 
+||| `idr.io.handle_free`: releases a handle's slot
+export
+ioHandleFreeOp : (handle : Value) -> (world : Value) -> (next : MlirType) -> Op
+ioHandleFreeOp handle world next =
+  MkOp "idr.io.handle_free" [handle, world] [] [] [] [next]
+
 ||| `idr.io.n_processors`
 export
 ioNProcessorsOp : (world : Value) -> (count : MlirType) -> (next : MlirType) -> Op
 ioNProcessorsOp world count next =
   MkOp "idr.io.n_processors" [world] [] [] [] [count, next]
+
+||| `idr.io.pid`: the process's id
+export
+ioPidOp : (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioPidOp world result next =
+  MkOp "idr.io.pid" [world] [] [] [] [result, next]
 
 ||| `idr.io.put_char`
 export
@@ -514,11 +846,71 @@ ioReadBytesOp : (handle : Value) -> (buffer : Value) -> (offset : Value) -> (cou
 ioReadBytesOp handle buffer offset count world read next =
   MkOp "idr.io.read_bytes" [handle, buffer, offset, count, world] [] [] [] [read, next]
 
+||| `idr.io.sleep`: waits a number of seconds
+export
+ioSleepOp : (seconds : Value) -> (world : Value) -> (next : MlirType) -> Op
+ioSleepOp seconds world next =
+  MkOp "idr.io.sleep" [seconds, world] [] [] [] [next]
+
+||| `idr.io.strerror`: the text of an error number, a new string
+export
+ioStrerrorOp : (code : Value) -> (world : Value) -> (str : MlirType) -> (next : MlirType) -> Op
+ioStrerrorOp code world str next =
+  MkOp "idr.io.strerror" [code, world] [] [] [] [str, next]
+
+||| `idr.io.term_cols`: the terminal's number of columns
+export
+ioTermColsOp : (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioTermColsOp world result next =
+  MkOp "idr.io.term_cols" [world] [] [] [] [result, next]
+
+||| `idr.io.term_lines`: the terminal's number of lines
+export
+ioTermLinesOp : (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioTermLinesOp world result next =
+  MkOp "idr.io.term_lines" [world] [] [] [] [result, next]
+
+||| `idr.io.term_raw`: puts the terminal in raw mode: 0 on success
+export
+ioTermRawOp : (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioTermRawOp world result next =
+  MkOp "idr.io.term_raw" [world] [] [] [] [result, next]
+
+||| `idr.io.term_reset`: puts the terminal back in the mode it had before raw mode
+export
+ioTermResetOp : (world : Value) -> (next : MlirType) -> Op
+ioTermResetOp world next =
+  MkOp "idr.io.term_reset" [world] [] [] [] [next]
+
+||| `idr.io.term_setup`: prepares the terminal, as base's setupTerm asks
+export
+ioTermSetupOp : (world : Value) -> (next : MlirType) -> Op
+ioTermSetupOp world next =
+  MkOp "idr.io.term_setup" [world] [] [] [] [next]
+
+||| `idr.io.time`: the seconds since the epoch
+export
+ioTimeOp : (world : Value) -> (result : MlirType) -> (next : MlirType) -> Op
+ioTimeOp world result next =
+  MkOp "idr.io.time" [world] [] [] [] [result, next]
+
+||| `idr.io.usleep`: waits a number of microseconds
+export
+ioUsleepOp : (microseconds : Value) -> (world : Value) -> (next : MlirType) -> Op
+ioUsleepOp microseconds world next =
+  MkOp "idr.io.usleep" [microseconds, world] [] [] [] [next]
+
 ||| `idr.io.write_bytes`
 export
 ioWriteBytesOp : (handle : Value) -> (buffer : Value) -> (offset : Value) -> (count : Value) -> (world : Value) -> (written : MlirType) -> (next : MlirType) -> Op
 ioWriteBytesOp handle buffer offset count world written next =
   MkOp "idr.io.write_bytes" [handle, buffer, offset, count, world] [] [] [] [written, next]
+
+||| `idr.lambda`: a closure whose body is its region; its captures are the values it uses from above
+export
+lambdaOp : (body : Region) -> (result : MlirType) -> Op
+lambdaOp body result =
+  MkOp "idr.lambda" [] [] [body] [] [result]
 
 ||| `idr.lin.enter`: a value handed to a linear position
 export
@@ -550,7 +942,7 @@ mayLoopOp : Op
 mayLoopOp =
   MkOp "idr.may_loop" [] [] [] [] []
 
-||| `idr.mod`: Idris mod: Euclidean when signed, crashes on zero
+||| `idr.mod`: Idris mod: Euclidean when signed, of a divisor that is not zero
 export
 modOp : {default False isSigned : Bool} -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
 modOp lhs rhs result =
@@ -634,13 +1026,13 @@ strFromCharOp : (value : Value) -> (result : MlirType) -> Op
 strFromCharOp value result =
   MkOp "idr.str.from_char" [value] [] [] [] [result]
 
-||| `idr.str.head`: the first character of a string; crashes on ""
+||| `idr.str.head`: the first character of a string that is not empty
 export
 strHeadOp : (str : Value) -> (result : MlirType) -> Op
 strHeadOp str result =
   MkOp "idr.str.head" [str] [] [] [] [result]
 
-||| `idr.str.index`: the character at an index; crashes out of range
+||| `idr.str.index`: the character at an index within the string
 export
 strIndexOp : (str : Value) -> (index : Value) -> (result : MlirType) -> Op
 strIndexOp str index result =
@@ -676,7 +1068,7 @@ strSubstrOp : (str : Value) -> (start : Value) -> (length' : Value) -> (result :
 strSubstrOp str start length' result =
   MkOp "idr.str.substr" [str, start, length'] [] [] [] [result]
 
-||| `idr.str.tail`: a string without its first character; crashes on ""
+||| `idr.str.tail`: a string without its first character, of a string that is not empty
 export
 strTailOp : (str : Value) -> (result : MlirType) -> Op
 strTailOp str result =
@@ -712,7 +1104,7 @@ takeOp : (value : Value) -> (ctor : List String) -> (results : List MlirType) ->
 takeOp value ctor results =
   MkOp "idr.take" [value] [("ctor", symbolRefAttr ctor)] [] [] results
 
-||| `idr.to_byte`: an Int as a byte: itself when 0 to 255, else a crash
+||| `idr.to_byte`: an Int from 0 to 255 as a byte
 export
 toByteOp : (value : Value) -> (result : MlirType) -> Op
 toByteOp value result =
@@ -724,7 +1116,7 @@ toCharOp : {default False isSigned : Bool} -> (value : Value) -> (result : MlirT
 toCharOp value result =
   MkOp "idr.to_char" [value] (unitIf "is_signed" isSigned) [] [] [result]
 
-||| `idr.to_int`: a Double as an integer, truncated and wrapped
+||| `idr.to_int`: a finite Double as an integer, truncated and wrapped
 export
 toIntOp : (value : Value) -> (result : MlirType) -> Op
 toIntOp value result =
@@ -736,14 +1128,391 @@ worldNewOp : (world : MlirType) -> Op
 worldNewOp world =
   MkOp "idr.world.new" [] [] [] [] [world]
 
-||| `idr.yield`: ends a region of a match, or the body of an array loop, with its results
+||| `idr.yield`: ends a region of a match, a lambda or a delay, or the body of an array loop, with its results
 export
 yieldOp : (results : List Value) -> Op
 yieldOp results =
   MkOp "idr.yield" results [] [] [] []
 
+------------------------------------------------------------------------------
+-- Primitives
+------------------------------------------------------------------------------
+
+||| The dialect's primitives (ops with Idr_Primitive and no region), one
+||| constructor each, named after the op's C++ class without `Op`.
+public export
+data IdrPrim
+  = CrashStr
+  | ToByte
+  | ToInt
+  | DoubleHead
+  | StrAppend
+  | StrCons
+  | StrFromChar
+  | StrPack
+  | StrConcat
+  | PutList
+  | StrSubstr
+  | StrReverse
+  | StrTail
+  | StrLength
+  | StrBytesLength
+  | StrIndex
+  | StrHead
+  | StrToDouble
+  | BigAdd
+  | BigSub
+  | BigMul
+  | BigAnd
+  | BigOr
+  | BigXor
+  | BigDiv
+  | BigMod
+  | BigNeg
+  | NatToBig
+  | NatFromBig
+  | BigToInt
+  | BigFromDouble
+  | BigToDouble
+  | BigShow
+  | BigFromStr
+  | PutStr
+  | PutChar
+  | PutDouble
+  | GetByte
+  | GetLine
+  | WriteBytes
+  | ReadBytes
+  | Eof
+  | NProcessors
+  | Os
+  | BufferLoad
+  | BufferStore
+  | BufferCopy
+  | BufferSetString
+  | BufferGetString
+  | WorldNew
+  | ArrayNew
+  | ArrayGet
+  | ArraySet
+  | FileOpen
+  | FileClose
+  | FileError
+  | FileErrno
+  | FileReadLine
+  | FileReadChars
+  | FileReadChar
+  | FileWriteLine
+  | FileFlush
+  | FileSeekLine
+  | FileRemove
+  | FileSize
+  | FilePoll
+  | FileIsTty
+  | FileTime
+  | FileAtimeSec
+  | FileAtimeNsec
+  | FileMtimeSec
+  | FileMtimeNsec
+  | FileCtimeSec
+  | FileCtimeNsec
+  | FileChmod
+  | DirCurrent
+  | DirChange
+  | DirCreate
+  | DirRemove
+  | DirOpen
+  | DirClose
+  | DirEntry
+  | ArgCount
+  | Arg
+  | EnvGet
+  | EnvPair
+  | EnvSet
+  | EnvUnset
+  | Sleep
+  | Usleep
+  | Time
+  | Pid
+  | Exit
+  | TermRaw
+  | TermReset
+  | TermSetup
+  | TermCols
+  | TermLines
+  | Errno
+  | Strerror
+  | ClockMonotonic
+  | ClockUtc
+  | ClockProcess
+  | ClockThread
+  | ClockGcCpu
+  | ClockGcReal
+  | ClockValid
+  | ClockSecond
+  | ClockNanosecond
+  | HandleIsNull
+  | HandleString
+  | HandleFree
+
+||| Whether the primitive performs IO (Idr_PerformsIO). Such a primitive
+||| takes the world as its last operand and gives the next as its last
+||| result, except one without operands, which makes a world: it takes
+||| none and gives one.
+export
+primPerformsIO : IdrPrim -> Bool
+primPerformsIO CrashStr = False
+primPerformsIO ToByte = False
+primPerformsIO ToInt = False
+primPerformsIO DoubleHead = False
+primPerformsIO StrAppend = False
+primPerformsIO StrCons = False
+primPerformsIO StrFromChar = False
+primPerformsIO StrPack = False
+primPerformsIO StrConcat = False
+primPerformsIO PutList = True
+primPerformsIO StrSubstr = False
+primPerformsIO StrReverse = False
+primPerformsIO StrTail = False
+primPerformsIO StrLength = False
+primPerformsIO StrBytesLength = False
+primPerformsIO StrIndex = False
+primPerformsIO StrHead = False
+primPerformsIO StrToDouble = False
+primPerformsIO BigAdd = False
+primPerformsIO BigSub = False
+primPerformsIO BigMul = False
+primPerformsIO BigAnd = False
+primPerformsIO BigOr = False
+primPerformsIO BigXor = False
+primPerformsIO BigDiv = False
+primPerformsIO BigMod = False
+primPerformsIO BigNeg = False
+primPerformsIO NatToBig = False
+primPerformsIO NatFromBig = False
+primPerformsIO BigToInt = False
+primPerformsIO BigFromDouble = False
+primPerformsIO BigToDouble = False
+primPerformsIO BigShow = False
+primPerformsIO BigFromStr = False
+primPerformsIO PutStr = True
+primPerformsIO PutChar = True
+primPerformsIO PutDouble = True
+primPerformsIO GetByte = True
+primPerformsIO GetLine = True
+primPerformsIO WriteBytes = True
+primPerformsIO ReadBytes = True
+primPerformsIO Eof = True
+primPerformsIO NProcessors = True
+primPerformsIO Os = False
+primPerformsIO BufferLoad = True
+primPerformsIO BufferStore = True
+primPerformsIO BufferCopy = True
+primPerformsIO BufferSetString = True
+primPerformsIO BufferGetString = True
+primPerformsIO WorldNew = True
+primPerformsIO ArrayNew = True
+primPerformsIO ArrayGet = True
+primPerformsIO ArraySet = True
+primPerformsIO FileOpen = True
+primPerformsIO FileClose = True
+primPerformsIO FileError = True
+primPerformsIO FileErrno = True
+primPerformsIO FileReadLine = True
+primPerformsIO FileReadChars = True
+primPerformsIO FileReadChar = True
+primPerformsIO FileWriteLine = True
+primPerformsIO FileFlush = True
+primPerformsIO FileSeekLine = True
+primPerformsIO FileRemove = True
+primPerformsIO FileSize = True
+primPerformsIO FilePoll = True
+primPerformsIO FileIsTty = True
+primPerformsIO FileTime = True
+primPerformsIO FileAtimeSec = True
+primPerformsIO FileAtimeNsec = True
+primPerformsIO FileMtimeSec = True
+primPerformsIO FileMtimeNsec = True
+primPerformsIO FileCtimeSec = True
+primPerformsIO FileCtimeNsec = True
+primPerformsIO FileChmod = True
+primPerformsIO DirCurrent = True
+primPerformsIO DirChange = True
+primPerformsIO DirCreate = True
+primPerformsIO DirRemove = True
+primPerformsIO DirOpen = True
+primPerformsIO DirClose = True
+primPerformsIO DirEntry = True
+primPerformsIO ArgCount = True
+primPerformsIO Arg = True
+primPerformsIO EnvGet = True
+primPerformsIO EnvPair = True
+primPerformsIO EnvSet = True
+primPerformsIO EnvUnset = True
+primPerformsIO Sleep = True
+primPerformsIO Usleep = True
+primPerformsIO Time = True
+primPerformsIO Pid = True
+primPerformsIO Exit = True
+primPerformsIO TermRaw = True
+primPerformsIO TermReset = True
+primPerformsIO TermSetup = True
+primPerformsIO TermCols = True
+primPerformsIO TermLines = True
+primPerformsIO Errno = True
+primPerformsIO Strerror = True
+primPerformsIO ClockMonotonic = True
+primPerformsIO ClockUtc = True
+primPerformsIO ClockProcess = True
+primPerformsIO ClockThread = True
+primPerformsIO ClockGcCpu = True
+primPerformsIO ClockGcReal = True
+primPerformsIO ClockValid = True
+primPerformsIO ClockSecond = True
+primPerformsIO ClockNanosecond = True
+primPerformsIO HandleIsNull = False
+primPerformsIO HandleString = False
+primPerformsIO HandleFree = True
+
+||| The operation of a primitive on operands, with its result types
+||| (a primitive has no inherent attribute).
+export
+primOp : IdrPrim -> List Value -> List MlirType -> Op
+primOp CrashStr operands results = MkOp "idr.crash_str" operands [] [] [] results
+primOp ToByte operands results = MkOp "idr.to_byte" operands [] [] [] results
+primOp ToInt operands results = MkOp "idr.to_int" operands [] [] [] results
+primOp DoubleHead operands results = MkOp "idr.double_head" operands [] [] [] results
+primOp StrAppend operands results = MkOp "idr.str.append" operands [] [] [] results
+primOp StrCons operands results = MkOp "idr.str.cons" operands [] [] [] results
+primOp StrFromChar operands results = MkOp "idr.str.from_char" operands [] [] [] results
+primOp StrPack operands results = MkOp "idr.str.pack" operands [] [] [] results
+primOp StrConcat operands results = MkOp "idr.str.concat" operands [] [] [] results
+primOp PutList operands results = MkOp "idr.io.put_list" operands [] [] [] results
+primOp StrSubstr operands results = MkOp "idr.str.substr" operands [] [] [] results
+primOp StrReverse operands results = MkOp "idr.str.reverse" operands [] [] [] results
+primOp StrTail operands results = MkOp "idr.str.tail" operands [] [] [] results
+primOp StrLength operands results = MkOp "idr.str.length" operands [] [] [] results
+primOp StrBytesLength operands results = MkOp "idr.str.bytes_length" operands [] [] [] results
+primOp StrIndex operands results = MkOp "idr.str.index" operands [] [] [] results
+primOp StrHead operands results = MkOp "idr.str.head" operands [] [] [] results
+primOp StrToDouble operands results = MkOp "idr.str.to_double" operands [] [] [] results
+primOp BigAdd operands results = MkOp "idr.big.add" operands [] [] [] results
+primOp BigSub operands results = MkOp "idr.big.sub" operands [] [] [] results
+primOp BigMul operands results = MkOp "idr.big.mul" operands [] [] [] results
+primOp BigAnd operands results = MkOp "idr.big.and" operands [] [] [] results
+primOp BigOr operands results = MkOp "idr.big.or" operands [] [] [] results
+primOp BigXor operands results = MkOp "idr.big.xor" operands [] [] [] results
+primOp BigDiv operands results = MkOp "idr.big.div" operands [] [] [] results
+primOp BigMod operands results = MkOp "idr.big.mod" operands [] [] [] results
+primOp BigNeg operands results = MkOp "idr.big.neg" operands [] [] [] results
+primOp NatToBig operands results = MkOp "idr.nat.to_big" operands [] [] [] results
+primOp NatFromBig operands results = MkOp "idr.nat.from_big" operands [] [] [] results
+primOp BigToInt operands results = MkOp "idr.big.to_int" operands [] [] [] results
+primOp BigFromDouble operands results = MkOp "idr.big.from_double" operands [] [] [] results
+primOp BigToDouble operands results = MkOp "idr.big.to_double" operands [] [] [] results
+primOp BigShow operands results = MkOp "idr.big.show" operands [] [] [] results
+primOp BigFromStr operands results = MkOp "idr.big.from_str" operands [] [] [] results
+primOp PutStr operands results = MkOp "idr.io.put_str" operands [] [] [] results
+primOp PutChar operands results = MkOp "idr.io.put_char" operands [] [] [] results
+primOp PutDouble operands results = MkOp "idr.io.put_double" operands [] [] [] results
+primOp GetByte operands results = MkOp "idr.io.get_byte" operands [] [] [] results
+primOp GetLine operands results = MkOp "idr.io.get_line" operands [] [] [] results
+primOp WriteBytes operands results = MkOp "idr.io.write_bytes" operands [] [] [] results
+primOp ReadBytes operands results = MkOp "idr.io.read_bytes" operands [] [] [] results
+primOp Eof operands results = MkOp "idr.io.eof" operands [] [] [] results
+primOp NProcessors operands results = MkOp "idr.io.n_processors" operands [] [] [] results
+primOp Os operands results = MkOp "idr.os" operands [] [] [] results
+primOp BufferLoad operands results = MkOp "idr.io.buffer_load" operands [] [] [] results
+primOp BufferStore operands results = MkOp "idr.io.buffer_store" operands [] [] [] results
+primOp BufferCopy operands results = MkOp "idr.io.buffer_copy" operands [] [] [] results
+primOp BufferSetString operands results = MkOp "idr.io.buffer_set_string" operands [] [] [] results
+primOp BufferGetString operands results = MkOp "idr.io.buffer_get_string" operands [] [] [] results
+primOp WorldNew operands results = MkOp "idr.world.new" operands [] [] [] results
+primOp ArrayNew operands results = MkOp "idr.array.new" operands [] [] [] results
+primOp ArrayGet operands results = MkOp "idr.array.get" operands [] [] [] results
+primOp ArraySet operands results = MkOp "idr.array.set" operands [] [] [] results
+primOp FileOpen operands results = MkOp "idr.io.file_open" operands [] [] [] results
+primOp FileClose operands results = MkOp "idr.io.file_close" operands [] [] [] results
+primOp FileError operands results = MkOp "idr.io.file_error" operands [] [] [] results
+primOp FileErrno operands results = MkOp "idr.io.file_errno" operands [] [] [] results
+primOp FileReadLine operands results = MkOp "idr.io.file_read_line" operands [] [] [] results
+primOp FileReadChars operands results = MkOp "idr.io.file_read_chars" operands [] [] [] results
+primOp FileReadChar operands results = MkOp "idr.io.file_read_char" operands [] [] [] results
+primOp FileWriteLine operands results = MkOp "idr.io.file_write_line" operands [] [] [] results
+primOp FileFlush operands results = MkOp "idr.io.file_flush" operands [] [] [] results
+primOp FileSeekLine operands results = MkOp "idr.io.file_seek_line" operands [] [] [] results
+primOp FileRemove operands results = MkOp "idr.io.file_remove" operands [] [] [] results
+primOp FileSize operands results = MkOp "idr.io.file_size" operands [] [] [] results
+primOp FilePoll operands results = MkOp "idr.io.file_poll" operands [] [] [] results
+primOp FileIsTty operands results = MkOp "idr.io.file_is_tty" operands [] [] [] results
+primOp FileTime operands results = MkOp "idr.io.file_time" operands [] [] [] results
+primOp FileAtimeSec operands results = MkOp "idr.io.file_atime_sec" operands [] [] [] results
+primOp FileAtimeNsec operands results = MkOp "idr.io.file_atime_nsec" operands [] [] [] results
+primOp FileMtimeSec operands results = MkOp "idr.io.file_mtime_sec" operands [] [] [] results
+primOp FileMtimeNsec operands results = MkOp "idr.io.file_mtime_nsec" operands [] [] [] results
+primOp FileCtimeSec operands results = MkOp "idr.io.file_ctime_sec" operands [] [] [] results
+primOp FileCtimeNsec operands results = MkOp "idr.io.file_ctime_nsec" operands [] [] [] results
+primOp FileChmod operands results = MkOp "idr.io.file_chmod" operands [] [] [] results
+primOp DirCurrent operands results = MkOp "idr.io.dir_current" operands [] [] [] results
+primOp DirChange operands results = MkOp "idr.io.dir_change" operands [] [] [] results
+primOp DirCreate operands results = MkOp "idr.io.dir_create" operands [] [] [] results
+primOp DirRemove operands results = MkOp "idr.io.dir_remove" operands [] [] [] results
+primOp DirOpen operands results = MkOp "idr.io.dir_open" operands [] [] [] results
+primOp DirClose operands results = MkOp "idr.io.dir_close" operands [] [] [] results
+primOp DirEntry operands results = MkOp "idr.io.dir_entry" operands [] [] [] results
+primOp ArgCount operands results = MkOp "idr.io.arg_count" operands [] [] [] results
+primOp Arg operands results = MkOp "idr.io.arg" operands [] [] [] results
+primOp EnvGet operands results = MkOp "idr.io.env_get" operands [] [] [] results
+primOp EnvPair operands results = MkOp "idr.io.env_pair" operands [] [] [] results
+primOp EnvSet operands results = MkOp "idr.io.env_set" operands [] [] [] results
+primOp EnvUnset operands results = MkOp "idr.io.env_unset" operands [] [] [] results
+primOp Sleep operands results = MkOp "idr.io.sleep" operands [] [] [] results
+primOp Usleep operands results = MkOp "idr.io.usleep" operands [] [] [] results
+primOp Time operands results = MkOp "idr.io.time" operands [] [] [] results
+primOp Pid operands results = MkOp "idr.io.pid" operands [] [] [] results
+primOp Exit operands results = MkOp "idr.io.exit" operands [] [] [] results
+primOp TermRaw operands results = MkOp "idr.io.term_raw" operands [] [] [] results
+primOp TermReset operands results = MkOp "idr.io.term_reset" operands [] [] [] results
+primOp TermSetup operands results = MkOp "idr.io.term_setup" operands [] [] [] results
+primOp TermCols operands results = MkOp "idr.io.term_cols" operands [] [] [] results
+primOp TermLines operands results = MkOp "idr.io.term_lines" operands [] [] [] results
+primOp Errno operands results = MkOp "idr.io.errno" operands [] [] [] results
+primOp Strerror operands results = MkOp "idr.io.strerror" operands [] [] [] results
+primOp ClockMonotonic operands results = MkOp "idr.io.clock_monotonic" operands [] [] [] results
+primOp ClockUtc operands results = MkOp "idr.io.clock_utc" operands [] [] [] results
+primOp ClockProcess operands results = MkOp "idr.io.clock_process" operands [] [] [] results
+primOp ClockThread operands results = MkOp "idr.io.clock_thread" operands [] [] [] results
+primOp ClockGcCpu operands results = MkOp "idr.io.clock_gc_cpu" operands [] [] [] results
+primOp ClockGcReal operands results = MkOp "idr.io.clock_gc_real" operands [] [] [] results
+primOp ClockValid operands results = MkOp "idr.io.clock_valid" operands [] [] [] results
+primOp ClockSecond operands results = MkOp "idr.io.clock_second" operands [] [] [] results
+primOp ClockNanosecond operands results = MkOp "idr.io.clock_nanosecond" operands [] [] [] results
+primOp HandleIsNull operands results = MkOp "idr.handle.is_null" operands [] [] [] results
+primOp HandleString operands results = MkOp "idr.handle.string" operands [] [] [] results
+primOp HandleFree operands results = MkOp "idr.io.handle_free" operands [] [] [] results
+
+||| The dialect's region primitives.
+public export
+data IdrRegionPrim
+  = ArrayGenerate
+  | ArrayFold
+
+||| The block arguments a region primitive's body takes.
+public export
+regionArity : IdrRegionPrim -> Nat
+regionArity ArrayGenerate = 1
+regionArity ArrayFold = 3
+
+||| The operation of a region primitive on operands and its body, with
+||| its result types.
+export
+regionOp : IdrRegionPrim -> List Value -> Region -> List MlirType -> Op
+regionOp ArrayGenerate operands body results = MkOp "idr.array.generate" operands [] [body] [] results
+regionOp ArrayFold operands body results = MkOp "idr.array.fold" operands [] [body] [] results
+
 -- Not generated:
 -- type FnType: its syntax is C++
 -- type QType: its parameter `grade` is the C++ `::idr::Grade`
+-- attribute ConAttr: its parameter `cells` is the C++ `::llvm::ArrayRef<::mlir::ArrayAttr>`
 -- attribute EffectAttr: its parameter `value` is the C++ `::idr::Effect`
--- fingerprint: 2463491179-973312 1888143936-29899
+-- fingerprint: 3640616746-1066014 71077187-64346

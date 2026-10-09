@@ -17,8 +17,9 @@ export namespace idr::layout {
 class CellInfo {
 public:
   static std::expected<CellInfo, std::string> box(uint64_t tag, uint64_t objs) noexcept;
-  // A closure's code pointer says what it is, so its tag is 0.
-  static std::expected<CellInfo, std::string> closure(uint64_t objs) noexcept;
+  // A memo cell in the state of the constructor `tag`: laid out and freed
+  // as a box, and of its own kind, which says that a force may write it.
+  static std::expected<CellInfo, std::string> thunk(uint64_t tag, uint64_t objs) noexcept;
   // An array's: the tag is the element's size in bytes, its objs the object
   // slots each element starts with.
   static std::expected<CellInfo, std::string> array(uint64_t stride, uint64_t objs) noexcept;
@@ -31,6 +32,9 @@ public:
 
 private:
   explicit CellInfo(uint32_t word) noexcept;
+  // A box's word or a memo cell's, which differ only in the kind.
+  static std::expected<CellInfo, std::string> constructor(uint64_t tag, uint64_t objs,
+                                                          uint32_t kind) noexcept;
   uint32_t bits;
 };
 
@@ -45,7 +49,8 @@ namespace idr::layout {
 
 CellInfo::CellInfo(uint32_t word) noexcept : bits(word) {}
 
-std::expected<CellInfo, std::string> CellInfo::box(uint64_t tag, uint64_t objs) noexcept {
+std::expected<CellInfo, std::string> CellInfo::constructor(uint64_t tag, uint64_t objs,
+                                                           uint32_t kind) noexcept {
   if (tag >= IDRIS_RT_TAG_LIMIT)
     return std::unexpected(("its tag is " + Twine(tag) + ", and a cell's tag is below " +
                             Twine(IDRIS_RT_TAG_LIMIT))
@@ -56,17 +61,15 @@ std::expected<CellInfo, std::string> CellInfo::box(uint64_t tag, uint64_t objs) 
                             "Integers, Nats), and a cell holds at most " +
                             Twine(IDRIS_RT_OBJS_LIMIT - 1))
                                .str());
-  return CellInfo(idris_rt_info(static_cast<uint32_t>(tag), static_cast<uint32_t>(objs),
-                                IDRIS_RT_KIND_BOX));
+  return CellInfo(idris_rt_info(static_cast<uint32_t>(tag), static_cast<uint32_t>(objs), kind));
 }
 
-std::expected<CellInfo, std::string> CellInfo::closure(uint64_t objs) noexcept {
-  if (objs >= IDRIS_RT_OBJS_LIMIT)
-    return std::unexpected(("its captures hold " + Twine(objs) +
-                            " counted references, and a cell holds at most " +
-                            Twine(IDRIS_RT_OBJS_LIMIT - 1))
-                               .str());
-  return CellInfo(idris_rt_info(0, static_cast<uint32_t>(objs), IDRIS_RT_KIND_CLOSURE));
+std::expected<CellInfo, std::string> CellInfo::box(uint64_t tag, uint64_t objs) noexcept {
+  return constructor(tag, objs, IDRIS_RT_KIND_BOX);
+}
+
+std::expected<CellInfo, std::string> CellInfo::thunk(uint64_t tag, uint64_t objs) noexcept {
+  return constructor(tag, objs, IDRIS_RT_KIND_THUNK);
 }
 
 std::expected<CellInfo, std::string> CellInfo::array(uint64_t stride, uint64_t objs) noexcept {

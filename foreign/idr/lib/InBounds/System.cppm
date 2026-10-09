@@ -1,7 +1,7 @@
-// idr.inbounds:system: what is known of the integers at one access, as a
+// idr.inbounds:system: what is known of the integers at one guard, as a
 // system of linear constraints over the integers that MLIR's Presburger
 // library decides exactly. A column is an SSA integer, as its latest value
-// at the access, or an array's length, or a witness the encoding needs.
+// at the guard, or an array's length, or a witness the encoding needs.
 // Every constraint is true of the run: a value's range (MLIR's integer
 // range analysis, else its type's, within the bounds a loop keeps its
 // carried values in, induction), its definition by a linear op, the
@@ -49,14 +49,19 @@ export using Bounds = std::pair<DynamicAPInt, DynamicAPInt>;
 // none for any other value, or when none is known.
 export using CarriedBounds = std::function<std::optional<Bounds>(Value)>;
 
+// Whether `array` has `max(size, 0)` elements wherever both are in scope at
+// the guard a system is for (lengths).
+export using Related = std::function<bool(Value size, Value array)>;
+
 export class System {
 public:
   System(DataFlowSolver &solver, std::function<bool(Value)> admissible,
-         CarriedBounds carried = nullptr)
-      : solver(solver), admissible(std::move(admissible)), carried(std::move(carried)) {}
+         CarriedBounds carried = nullptr, Related related = nullptr)
+      : solver(solver), admissible(std::move(admissible)), carried(std::move(carried)),
+        related(std::move(related)) {}
 
   // The column of the integer `value`, with its range, and its definition
-  // when it is known at the access (`admissible`).
+  // when it is known at the guard (`admissible`).
   Linear of(Value value) {
     if (auto it = columns.find(value); it != columns.end())
       return Linear::of(it->second);
@@ -69,8 +74,24 @@ public:
     return Linear::of(column);
   }
 
-  // Whether `value`'s definition is known at the access this system is for.
+  // Whether `value`'s definition is known at the guard this system is for.
   bool known(Value value) const { return admissible(value); }
+
+  // The integer a guard of `array` checks an index against: that array's
+  // length column, reached without a column or a definition of its own,
+  // when it is the array's dimension, or the clamp at 0 of a size the
+  // length relation gives the array (what the dimension of an array made
+  // here folds to); else its own column.
+  Linear sizeOf(Value length, std::optional<Value> array) {
+    if (std::optional<Value> measuredArray = measured(length))
+      return lengthOf(*measuredArray);
+    std::optional<Value> size = clampOf(length);
+    if (array && size && related && related(*size, *array)) {
+      lengthIs(*size, *array);
+      return lengthOf(*array);
+    }
+    return of(length);
+  }
 
   // The length of the array `array` (its root's, which views share).
   Linear lengthOf(Value array) {
@@ -170,70 +191,6 @@ public:
     }
   }
 
-  // `value` was each of `literals` (a case taken), or none of them (the
-  // default taken).
-  void assumeCase(Value value, ArrayRef<APInt> literals, bool isOne) {
-    if (!admissible(value))
-      return;
-    Value condition;
-    int64_t whenTrue = 1;
-    if (value.getType().isInteger(1)) {
-      condition = value;
-    } else if (auto ext = value.getDefiningOp<arith::ExtUIOp>(); ext && ext.getIn().getType().isInteger(1)) {
-      condition = ext.getIn();
-    } else if (auto sext = value.getDefiningOp<arith::ExtSIOp>(); sext && sext.getIn().getType().isInteger(1)) {
-      condition = sext.getIn();
-      whenTrue = -1;
-    }
-    if (condition) {
-      // Of the two values a condition stands for, those the case allows.
-      // An i1 literal is the condition itself, true as 1.
-      auto allowed = [&](int64_t v) {
-        bool listed = llvm::any_of(literals, [&](const APInt &k) {
-          return (k.getBitWidth() == 1 ? int64_t(k.getZExtValue()) : k.getSExtValue()) == v;
-        });
-        return isOne ? listed : !listed;
-      };
-      bool t = allowed(whenTrue), f = allowed(0);
-      if (!t && !f)
-        impossible();
-      else if (t != f)
-        assume(condition, t);
-      return;
-    }
-    if (!isColumn(value))
-      return;
-    if (isOne) {
-      zero(of(value) - Linear::constantOf(DynamicAPInt(literals.front().getSExtValue())));
-      return;
-    }
-    // None of the literals: the range loses each at its ends.
-    std::optional<Bounds> bounds = rangeOf(value);
-    if (!bounds)
-      return;
-    auto [lo, hi] = *bounds;
-    auto listed = [&](const DynamicAPInt &v) {
-      return llvm::any_of(literals,
-                          [&](const APInt &k) { return DynamicAPInt(k.getSExtValue()) == v; });
-    };
-    while (lo <= hi && listed(lo))
-      ++lo;
-    while (hi >= lo && listed(hi))
-      --hi;
-    if (lo > hi)
-      return impossible();
-    within(of(value), lo, hi);
-  }
-
-  // An access of `array` at `index` ran: the index is within it.
-  void accessed(Value array, Value index) {
-    if (!isColumn(index))
-      return;
-    Linear i = of(index);
-    atLeastZero(i);
-    atLeastZero((lengthOf(array) - i).plus(-1));
-  }
-
   // The arrays with length columns.
   SmallVector<Value> roots() const {
     SmallVector<std::pair<unsigned, Value>> sorted;
@@ -248,8 +205,11 @@ public:
 
   // The array `array` has `max(size, 0)` elements: its length is the
   // larger of the two, and equal to one, which a witness z in [0, 1]
-  // chooses (no length or size reaches 2^63).
-  void lengthIs(Value size, Value array) { zero(lengthOf(array) - clamped(size)); }
+  // chooses (no length or size reaches 2^63). Said once per pair.
+  void lengthIs(Value size, Value array) {
+    if (stated.insert({size, arrayRoot(array)}).second)
+      zero(lengthOf(array) - clamped(size));
+  }
 
   // Whether `max(a, 0)` and `max(b, 0)` are the same integer.
   bool sameClamp(Value a, Value b) {
@@ -296,8 +256,11 @@ private:
     bool equality;
   };
 
-  // `max(value, 0)`, below 2^63: a length.
+  // `max(value, 0)`, below 2^63: a length. A value whose range is already
+  // at least 0 is its own clamp, and needs no witness.
   Linear clamped(Value value) {
+    if (std::optional<Bounds> range = rangeOf(value); range && range->first >= 0)
+      return of(value);
     DynamicAPInt big = power(63);
     Linear n = of(value);
     Linear length = fresh(DynamicAPInt(0), big);
@@ -361,8 +324,11 @@ private:
     if (auto cast = dyn_cast<arith::IndexCastOp>(def); cast && cast.getIn().getType().isIndex() &&
                                                       value.getType().isInteger(64))
       return zero(v - of(cast.getIn()));
-    if (auto dim = dyn_cast<memref::DimOp>(def))
-      return defineDim(dim, v);
+    if (auto dim = dyn_cast<memref::DimOp>(def)) {
+      if (std::optional<Value> array = dimensionOf(dim))
+        zero(v - lengthOf(*array));
+      return;
+    }
     if (auto max = dyn_cast<arith::MaxSIOp>(def)) {
       atLeastZero(v - of(max.getLhs()));
       atLeastZero(v - of(max.getRhs()));
@@ -374,18 +340,13 @@ private:
     }
   }
 
-  // An array's one dimension is its length.
-  void defineDim(memref::DimOp dim, const Linear &v) {
-    std::optional<int64_t> index = dim.getConstantIndex();
-    if (index && *index == 0 && isArray(dim.getSource().getType()))
-      zero(v - lengthOf(dim.getSource()));
-  }
-
   DataFlowSolver &solver;
   std::function<bool(Value)> admissible;
   CarriedBounds carried;
+  Related related;
   DenseMap<Value, unsigned> columns;
   DenseMap<Value, unsigned> lengths;
+  DenseSet<std::pair<Value, Value>> stated;
   SmallVector<Row> rows;
   unsigned count = 0;
   unsigned definitions = 0;

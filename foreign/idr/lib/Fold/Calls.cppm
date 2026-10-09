@@ -57,16 +57,4 @@ OpFoldResult bigBinary(MLIRContext *ctx, Attribute lhs, Attribute rhs, BigOp op)
   return scope.attr(op(scope.big(a), scope.big(b)));
 }
 
-// Division by zero crashes; the runtime's zero is the word 1.
-OpFoldResult bigDivision(MLIRContext *ctx, Attribute lhs, Attribute rhs, BigOp op) {
-  auto a = dyn_cast_or_null<BigAttr>(lhs), b = dyn_cast_or_null<BigAttr>(rhs);
-  if (!a || !b)
-    return {};
-  Scope scope(ctx);
-  idris_rt_big divisor = scope.big(b);
-  if (idris_rt_big_cmp(divisor, scope.keep(idris_rt_big_from_int_s(0))) == 0)
-    return {};
-  return scope.attr(op(scope.big(a), divisor));
-}
-
 } // namespace idr::fold

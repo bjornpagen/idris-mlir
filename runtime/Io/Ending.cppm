@@ -1,16 +1,21 @@
-// rt.io:ending: how a program ends: returning from main, or a crash.
+// rt.io:ending: how a program ends: returning from main, base's exit, or a
+// crash.
 // PIN(runtime-quarantine) — see PINS.md
 module;
 #include "idris_rt.h"
 
 #include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <unistd.h>
 
 export module rt.io:ending;
 
 import rt.alloc;
+import rt.platform;
+import rt.start;
 import rt.strings;
+import :handles;
 import :writing;
 
 namespace {
@@ -36,15 +41,31 @@ void reportLiveCells() {
 
 } // namespace
 
-extern "C" void idris_rt_release_persistent(void);
-
+// The handle table goes before the count: the strings the runtime keeps for
+// the environment and for directories are its own, not cells the program
+// left live.
 extern "C" void idris_rt_main_return(void) {
   idris_rt_flush();
-  idris_rt_release_persistent();
+  rt::io::releaseHandles();
   reportLiveCells();
 }
 
+// Base's exit: what main's return writes, standard output's buffer and every
+// open file's, and then the end, with no count: a program that exits with
+// cells still live has not leaked them. A status no parent could read is
+// then a crash that names it, as main's return is, after the same output.
+extern "C" void idris_rt_io_exit(int64_t status) {
+  idris_rt_flush();
+  rt::io::releaseHandles();
+  rt::start::checkStatus(status, rt::start::Ending::exited);
+  rt::platform::exitProcess(static_cast<int>(status));
+}
+
 extern "C" void idris_rt_crash(const char *msg, size_t len) {
+  // Lowered code has this one crash entry, in a program and in compile-time
+  // evaluation's child, which reports the crash to the evaluator instead.
+  if (rt::alloc::arenaActive)
+    idris_rt_eval_crash(msg, len);
   idris_rt_flush();
   rt::io::writeAll(2, msg, len);
   _exit(IDRIS_RT_CRASHED);

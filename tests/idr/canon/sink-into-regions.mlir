@@ -78,12 +78,13 @@ func.func @used_after(%n: i64, %a: !idr.str, %b: !idr.str) -> i64 {
   return %t : i64
 }
 
-// A value with an effect (it may crash) stays before the match.
+// A value with an effect (a guard, which may crash) stays before the match.
 // CHECK-LABEL: func.func @may_crash(
-// CHECK: %[[Q:.*]] = idr.div
+// CHECK: idr.check.nonzero
 // CHECK: idr.match_lit
 func.func @may_crash(%n: i64, %x: i64, %y: i64) -> i64 {
-  %q = idr.div signed %x, %y : i64
+  %y1 = idr.check.nonzero %y, "division by zero" : i64
+  %q = idr.div signed %x, %y1 : i64
   %r = idr.match_lit %n : i64 -> (i64) {
   case 0 {
     idr.yield %q : i64

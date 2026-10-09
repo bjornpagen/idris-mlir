@@ -311,6 +311,7 @@ using mlir::LoopLikeOpInterface;
 using mlir::LowerToLLVMOptions;
 using mlir::m_Constant;
 using mlir::m_ConstantInt;
+using mlir::makeRegionIsolatedFromAbove;
 using mlir::matchPattern;
 using mlir::MemoryEffectOpInterface;
 using mlir::MemRefDescriptor;

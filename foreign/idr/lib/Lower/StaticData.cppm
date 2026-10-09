@@ -1,10 +1,12 @@
 // idr.lower:staticData: the constants idr-lower writes as globals of the
 // module, each written once: strings, bigs outside the small range, boxes,
-// closures and the messages of crashes; and the code of closures, which
-// static closures and new ones alike point to. Runtime's, unexported.
+// among them the memo cells of constant thunks, and the messages of
+// crashes; and @__idr_release_cafs, which releases what those memo cells
+// hold. Runtime's, unexported.
 module;
 // The runtime's C ABI: a string's and a big's static form is its cells',
-// and the runtime itself reads a literal's text.
+// the runtime itself reads a literal's text, and a cell's kind is its info
+// word's, as the runtime reads it.
 #include "idris_rt.h"
 
 export module idr.lower:staticData;
@@ -52,8 +54,8 @@ public:
   }
 
   // The components of the constant `value` of type `type`:
-  // scalars as LLVM constants, strings, bigs outside the small range, boxes
-  // and closures as static data. Usable in code and in the initializer of a
+  // scalars as LLVM constants, strings, bigs outside the small range and
+  // boxes as static data. Usable in code and in the initializer of a
   // global.
   SmallVector<Value> constant(OpBuilder &b, Location loc, Attribute value, Type type) {
     // A linear value is the value itself at runtime.
@@ -66,87 +68,132 @@ public:
       return {big(b, loc, number)};
     if (isa<IntegerAttr, FloatAttr>(value))
       return {LLVM::ConstantOp::create(b, loc, type, cast<TypedAttr>(value))};
-    if (auto data = dyn_cast<DataType>(type)) {
-      auto con = cast<ConAttr>(value);
-      const layout::SumLayout &layout = layouts.sum(data.getName().getAttr());
-      auto ctor = symbols.lookupSymbolIn<CtorOp>(module, con.getCtor());
-      SmallVector<Value> slots(layout.slots.size());
-      const auto &fields = layout.fields.find(ctor.getSymName())->second;
-      for (auto [i, field] : llvm::enumerate(con.getFields()))
-        for (auto [slot, component] :
-             llvm::zip_equal(fields[i], constant(b, loc, field, ctor.getFieldType(static_cast<unsigned>(i)))))
-          slots[slot] = component;
-      SmallVector<Value> out;
-      if (layout.tag)
-        out.push_back(LLVM::ConstantOp::create(b, loc, layout.tag,
-                                               b.getIntegerAttr(layout.tag, static_cast<int64_t>(ctor.getTag()))));
-      // A counted slot the constructor does not use is empty, so that
-      // counting the sum counts each of its slots.
-      for (auto [slot, component] : llvm::enumerate(slots))
-        out.push_back(component               ? component
-                      : layout.counted[slot] ? nullComponent(b, loc, layout.slots[slot])
-                                             : LLVM::PoisonOp::create(b, loc, layout.slots[slot]).getResult());
-      return out;
-    }
-    auto key = std::make_pair(value, type);
-    auto it = statics.find(key);
-    if (it == statics.end()) {
-      LLVM::GlobalOp cellGlobal;
-      if (auto con = dyn_cast<ConAttr>(value)) {
-        auto ctor = symbols.lookupSymbolIn<CtorOp>(module, con.getCtor());
-        const layout::Cell &cell = layouts.box(ctor);
-        cellGlobal = staticCell(b, loc, "__idr_box_", cell, /*isConstant=*/true,
-                                [&](OpBuilder &init, unsigned i) {
-          return constant(init, loc, con.getFields()[i], ctor.getFieldType(i));
-        });
-      } else {
-        auto closure = cast<ClosureAttr>(value);
-        const layout::Label &label = layouts.label(layouts.labelId(
-            closure.getCallee(), static_cast<unsigned>(closure.getCaptures().size())));
-        const layout::Cell &cell = layouts.closure(label);
-        // A suspension is written when it is forced. A constant cell is
-        // not: the store would fault.
-        bool frozen = !isa<LazyType>(unrestricted(type));
-        cellGlobal = staticCell(b, loc, "__idr_closure_", cell, frozen,
-                                [&](OpBuilder &init, unsigned i) -> SmallVector<Value> {
-                                  if (i == 0)
-                                    return {code(init, loc, label)};
-                                  return constant(init, loc, closure.getCaptures()[i - 1],
-                                                  label.captureTypes()[i - 1]);
-                                });
-      }
-      it = statics.try_emplace(key, cellGlobal).first;
-    }
-    return {addressOf(b, loc, it->second)};
+    auto con = cast<ConAttr>(value);
+    if (auto data = dyn_cast<DataType>(type))
+      return unboxed(b, loc, con, data);
+    return {addressOf(b, loc, box(b, loc, con, type))};
   }
 
-  // The type of the code of `label`'s closures: a function taking the
-  // closure, then the arguments.
-  FunctionType codeType(const layout::Label &label) {
-    SmallVector<Type> inputs{ptrType(module.getContext())};
-    for (Type input : label.argumentTypes())
-      llvm::append_range(inputs, layouts.components(input));
-    SmallVector<Type> results;
-    for (Type result : label.type.getResults())
-      llvm::append_range(results, layouts.components(result));
-    return FunctionType::get(module.getContext(), inputs, results);
+  // @__idr_release_cafs, which the program's entry calls when the program
+  // ends: idris_rt_caf_release on each static memo cell, which releases
+  // what its first force stored there. A module without one has it too,
+  // empty, so that the entry calls it without asking. Built once, after the
+  // last constant is lowered.
+  void emitReleaseCafs(OpBuilder &b) {
+    OpBuilder::InsertionGuard guard(b);
+    b.setInsertionPointToEnd(module.getBody());
+    Location loc = module.getLoc();
+    auto release = func::FuncOp::create(b, loc, "__idr_release_cafs", b.getFunctionType({}, {}));
+    release.setPrivate();
+    symbols.getSymbolTable(module).insert(release);
+    b.setInsertionPointToStart(release.addEntryBlock());
+    for (LLVM::GlobalOp cell : cafs)
+      LLVM::CallOp::create(b, loc, cafRelease(b), addressOf(b, loc, cell));
+    func::ReturnOp::create(b, loc);
   }
-
-  // The address of that code. The code is a function value until
-  // convert-to-llvm makes it a pointer; the cast between the two disappears
-  // then (reconcile-unrealized-casts).
-  Value code(OpBuilder &b, Location loc, const layout::Label &label) {
-    unsigned id = layouts.labelId(label);
-    usedCode.insert(id);
-    Value function = func::ConstantOp::create(b, loc, codeType(label), layout::codeName(id));
-    return UnrealizedConversionCastOp::create(b, loc, ptrType(b.getContext()), function)
-        .getResult(0);
-  }
-
-  // The labels whose code some closure points to, in the order first met.
-  ArrayRef<unsigned> usedLabels() const { return usedCode.getArrayRef(); }
 
 private:
+  // An unboxed sum: its tag, then its slots.
+  SmallVector<Value> unboxed(OpBuilder &b, Location loc, ConAttr con, DataType data) {
+    const layout::SumLayout &layout = layouts.sum(data.getName().getAttr());
+    auto ctor = symbols.lookupSymbolIn<CtorOp>(module, con.getCtor());
+    SmallVector<Value> slots(layout.slots.size());
+    const auto &fields = layout.fields.find(ctor.getSymName())->second;
+    for (auto [i, field] : llvm::enumerate(con.getFields()))
+      for (auto [slot, component] :
+           llvm::zip_equal(fields[i], constant(b, loc, field, ctor.getFieldType(static_cast<unsigned>(i)))))
+        slots[slot] = component;
+    SmallVector<Value> out;
+    if (layout.tag)
+      out.push_back(LLVM::ConstantOp::create(b, loc, layout.tag,
+                                             b.getIntegerAttr(layout.tag, static_cast<int64_t>(ctor.getTag()))));
+    // A slot the constructor does not use holds zero: empty where the slot
+    // is counted, so that counting the sum counts each of its slots.
+    for (auto [slot, component] : llvm::enumerate(slots))
+      out.push_back(component ? component : LLVM::ZeroOp::create(b, loc, layout.slots[slot]).getResult());
+    return out;
+  }
+
+  // The global of the box `con` of type `type`, written once however many
+  // constants hold it.
+  LLVM::GlobalOp box(OpBuilder &b, Location loc, ConAttr con, Type type) {
+    auto key = std::make_pair(Attribute(con), type);
+    if (auto it = statics.find(key); it != statics.end())
+      return it->second;
+    auto ctor = symbols.lookupSymbolIn<CtorOp>(module, con.getCtor());
+    LLVM::GlobalOp cellGlobal;
+    if (con.isRun()) {
+      cellGlobal = run(b, loc, con, ctor);
+    } else {
+      ArrayAttr fields = con.getFields();
+      cellGlobal = staticCell(b, loc, ctor, [&](OpBuilder &init, unsigned i) {
+        return constant(init, loc, fields[i], ctor.getFieldType(i));
+      });
+    }
+    statics.try_emplace(key, cellGlobal);
+    return cellGlobal;
+  }
+
+  // The cells of a run, written from its tail back to its first cell, each
+  // pointing at the one written before it: however long the list, the
+  // stack holds one cell. The first cell's global.
+  LLVM::GlobalOp run(OpBuilder &b, Location loc, ConAttr con, CtorOp ctor) {
+    unsigned spine = con.getSpine();
+    Type spineType = unrestricted(ctor.getFieldType(spine));
+    ArrayRef<ArrayAttr> cells = con.getRunCells();
+    LLVM::GlobalOp rest = box(b, loc, cast<ConAttr>(con.getTail()), spineType);
+    auto write = [&](ArrayAttr fields) {
+      return staticCell(b, loc, ctor, [&](OpBuilder &init, unsigned i) -> SmallVector<Value> {
+        if (i == spine)
+          return {addressOf(init, loc, rest)};
+        // A run's cell holds its fields without the spine.
+        return constant(init, loc, fields[i < spine ? i : i - 1], ctor.getFieldType(i));
+      });
+    };
+    // A memo cell is one per value, or a force would run and store the same
+    // value twice: a constant that names the run from one of its cells on
+    // must find that cell. So each cell after the first (box keeps the
+    // first) is kept under the run from it, which costs that run's length to
+    // build; only runs of memo labels pay it. A box has no identity to keep,
+    // and its run is written straight.
+    bool memo = isMemoCell(layouts.box(ctor));
+    for (size_t k = cells.size() - 1; k > 0; --k) {
+      if (!memo) {
+        rest = write(cells[k]);
+        continue;
+      }
+      auto from = ConAttr::getRun(b.getContext(), con.getCtor(), spine, cells.drop_front(k),
+                                  con.getTail());
+      auto key = std::make_pair(Attribute(from), spineType);
+      if (auto it = statics.find(key); it != statics.end()) {
+        rest = it->second;
+        continue;
+      }
+      rest = write(cells[k]);
+      statics.try_emplace(key, rest);
+    }
+    return write(cells.front());
+  }
+
+  // Whether a force writes a cell of this layout: a memo cell, by its kind.
+  static bool isMemoCell(const layout::Cell &cell) {
+    return idris_rt_info_kind(cell.info.word()) == IDRIS_RT_KIND_THUNK;
+  }
+
+  // idris_rt_caf_release, declared on first use.
+  LLVM::LLVMFuncOp cafRelease(OpBuilder &b) {
+    StringRef name = "idris_rt_caf_release";
+    if (auto declared = symbols.lookupSymbolIn<LLVM::LLVMFuncOp>(module, b.getStringAttr(name)))
+      return declared;
+    OpBuilder::InsertionGuard guard(b);
+    b.setInsertionPointToStart(module.getBody());
+    MLIRContext *ctx = b.getContext();
+    auto type = LLVM::LLVMFunctionType::get(LLVM::LLVMVoidType::get(ctx), ptrType(ctx));
+    auto declared = LLVM::LLVMFuncOp::create(b, module.getLoc(), name, type);
+    symbols.getSymbolTable(module).insert(declared);
+    return declared;
+  }
+
   LLVM::GlobalOp global(OpBuilder &b, Location loc, StringRef prefix, Type type, bool isConstant,
                         function_ref<Value(OpBuilder &)> init) {
     OpBuilder::InsertionGuard guard(b);
@@ -163,18 +210,25 @@ private:
     return LLVM::AddressOfOp::create(b, loc, global);
   }
 
+  // A struct of `members`, inserted one by one into the zero struct, which
+  // LLVM folds into one constant.
   Value pack(OpBuilder &b, Location loc, Type structType, ValueRange members) {
-    Value value = LLVM::PoisonOp::create(b, loc, structType);
+    Value value = LLVM::ZeroOp::create(b, loc, structType);
     for (auto [i, member] : llvm::enumerate(members))
       value = LLVM::InsertValueOp::create(b, loc, value, member, static_cast<int64_t>(i));
     return value;
   }
 
-  // A cell as static data, count 0: its header, then the components of
-  // each field in the cell's address order.
-  LLVM::GlobalOp staticCell(OpBuilder &b, Location loc, StringRef prefix, const layout::Cell &cell,
-                            bool isConstant,
+  // A box of `ctor` as static data, count 0: its header, then the
+  // components of each field in the cell's address order. A memo cell, whose
+  // kind says a force writes it, is the one static cell that is not
+  // constant, and the release lists it. It is one per process: constant
+  // data holds its address (a stream's tail), which a thread-local global's
+  // is not at link time.
+  LLVM::GlobalOp staticCell(OpBuilder &b, Location loc, CtorOp ctor,
                             function_ref<SmallVector<Value>(OpBuilder &, unsigned field)> components) {
+    const layout::Cell &cell = layouts.box(ctor);
+    bool memo = isMemoCell(cell);
     // A packed struct with the padding as bytes of its own, so that LLVM puts
     // each component at the offset the layout chose, whatever data layout the
     // translation is given.
@@ -200,7 +254,8 @@ private:
     }
     padTo(cell.size);
     auto structType = LLVM::LLVMStructType::getLiteral(ctx, members, /*isPacked=*/true);
-    return global(b, loc, prefix, structType, isConstant, [&](OpBuilder &init) -> Value {
+    LLVM::GlobalOp cellGlobal = global(b, loc, memo ? "__idr_caf_" : "__idr_box_", structType,
+                                       /*isConstant=*/!memo, [&](OpBuilder &init) -> Value {
       SmallVector<SmallVector<Value>> fields;
       for (unsigned field = 0; field < cell.fields.size(); ++field)
         fields.push_back(components(init, field));
@@ -210,6 +265,9 @@ private:
                               : LLVM::ZeroOp::create(init, loc, type).getResult());
       return pack(init, loc, structType, values);
     });
+    if (memo)
+      cafs.push_back(cellGlobal);
+    return cellGlobal;
   }
 
   // A string: the header (count 0: static data), the byte length and the
@@ -289,7 +347,8 @@ private:
   unsigned globals = 0;
   DenseMap<std::pair<Attribute, Type>, LLVM::GlobalOp> statics;
   llvm::StringMap<LLVM::GlobalOp> messages;
-  llvm::SetVector<unsigned> usedCode;
+  // The static memo cells, in the order they were written.
+  SmallVector<LLVM::GlobalOp> cafs;
   SymbolTableCollection symbols;
 };
 

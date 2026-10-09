@@ -7,7 +7,9 @@
 ||| `ZERO`/`SUCC` are not data at all: they are `NatT`.
 module IdrisMLIR.Types
 
+import IdrisMLIR.Dialect.Idr
 import IdrisMLIR.Ids
+import IdrisMLIR.MLIR
 
 %default total
 
@@ -239,51 +241,29 @@ data MathFn = Exp | Log | Pow | Sin | Cos | Tan | ASin | ACos | ATan | Sqrt | Fl
 public export
 data Scalar = SInt IntTy | SChar | SDouble
 
-||| What a string is built from: a list of characters, or of strings.
-public export
-data Builder = Pack | Concat
-
-export
-Show Builder where
-  show Pack = "pack"
-  show Concat = "concat"
-
-||| Idris's primitives as Core has them: on fixed-width
-||| integers, characters and doubles; on strings; on `Integer`.
+||| Idris's primitives as Core has them: an op of the dialect that Idris
+||| names as a primitive (`Op`), which has no attribute; an operation its
+||| types choose, by the signedness and width of fixed-width integers,
+||| characters and doubles, among `arith`'s, `math`'s and the dialect's ops
+||| with an attribute; a comparison, by its predicate; or an array's length.
 public export
 data Prim
   = IntOp ArithOp IntTy | IntShift Shift IntTy | FloatOp FArith | Negate | Math MathFn
   | Compare Cmp Scalar | Cast Scalar Scalar
-  | StrAppend | StrCons | StrLength | StrHead | StrTail | StrIndex | StrReverse | StrSubstr
   | StrCompare Cmp
   | ||| A scalar shown as a string.
     ToStr Scalar
   | ||| A string read as a number.
     FromStr Scalar
-  | BigArith ArithOp | BigNegate | BigCompare Cmp
-  | ToBig Scalar | FromBig Scalar | BigShow | BigRead
-  | ||| The arithmetic of naturals that stays natural: the sum and the
-    ||| product.
-    NatAdd | NatMul
+  | BigCompare Cmp
+  | ToBig Scalar | FromBig Scalar
   | NatCompare Cmp
-  | ||| A natural as the Integer it is.
-    NatToBig
-  | ||| An Integer as a natural, 0 if it is negative.
-    NatFromBig
   | ||| The number of elements of an array of this element type: the
     ||| dimension of its memref.
     ArrayLength Ty
-  | ||| The number of bytes of a string, which is the length of its UTF-8,
-    ||| interior zeros included.
-    StrBytes
-  | ||| A trusted library's `idris_crash` of a string: the program ends with
-    ||| that string, and the operation does not return.
-    CrashStr
-  | ||| A string built once from a list, the Prelude's own `%transform` of
-    ||| `pack` to `fastPack` and of `concat` to `fastConcat`: the string of
-    ||| the list's characters, or the concatenation of its strings. The
-    ||| data instance is the list's.
-    StrBuild Builder DataId
+  | ||| The op of a primitive of the dialect, on its operands in the op's
+    ||| order, each at its own type.
+    Op IdrPrim
 
 export
 Show ArithOp where
@@ -346,33 +326,15 @@ Show Prim where
   show (Math f) = show f ++ "_Double"
   show (Compare op s) = show op ++ "_" ++ show s
   show (Cast a b) = "cast_" ++ show a ++ show b
-  show StrAppend = "strAppend"
-  show StrCons = "strCons"
-  show StrLength = "strLength"
-  show StrHead = "strHead"
-  show StrTail = "strTail"
-  show StrIndex = "strIndex"
-  show StrReverse = "strReverse"
-  show StrSubstr = "strSubstr"
   show (StrCompare op) = show op ++ "_String"
   show (ToStr s) = "cast_" ++ show s ++ "String"
   show (FromStr s) = "cast_String" ++ show s
-  show (BigArith op) = show op ++ "_Integer"
-  show BigNegate = "negate_Integer"
   show (BigCompare op) = show op ++ "_Integer"
   show (ToBig s) = "cast_" ++ show s ++ "Integer"
   show (FromBig s) = "cast_Integer" ++ show s
-  show BigShow = "cast_IntegerString"
-  show BigRead = "cast_StringInteger"
-  show NatAdd = "add_Nat"
-  show NatMul = "mul_Nat"
   show (NatCompare op) = show op ++ "_Nat"
-  show NatToBig = "cast_NatInteger"
-  show NatFromBig = "cast_IntegerNat"
   show (ArrayLength e) = "arraySize<" ++ show e ++ ">"
-  show StrBytes = "strBytes"
-  show CrashStr = "crashStr"
-  show (StrBuild b d) = show b ++ "<" ++ show d ++ ">"
+  show (Op p) = (primOp p [] []).name
 
 public export
 scalarTy : Scalar -> Ty
@@ -380,7 +342,9 @@ scalarTy (SInt t) = IntT t
 scalarTy SChar = CharT
 scalarTy SDouble = DoubleT
 
-||| The operand types of a primitive, in Idris's argument order.
+||| The operand types of a primitive chosen by its types, in Idris's
+||| argument order. The op of the dialect takes its operands at their own
+||| types, so it lists none.
 public export
 primArgs : Prim -> List Ty
 primArgs (IntOp _ t) = [IntT t, IntT t]
@@ -391,119 +355,12 @@ primArgs (Math Pow) = [DoubleT, DoubleT]
 primArgs (Math _) = [DoubleT]
 primArgs (Compare _ s) = [scalarTy s, scalarTy s]
 primArgs (Cast a _) = [scalarTy a]
-primArgs StrAppend = [StrT, StrT]
-primArgs StrCons = [CharT, StrT]
-primArgs StrIndex = [StrT, IntT IdrisInt]
-primArgs StrSubstr = [IntT IdrisInt, IntT IdrisInt, StrT]
 primArgs (StrCompare _) = [StrT, StrT]
 primArgs (ToStr s) = [scalarTy s]
-primArgs StrLength = [StrT]
-primArgs StrHead = [StrT]
-primArgs StrTail = [StrT]
-primArgs StrReverse = [StrT]
 primArgs (FromStr _) = [StrT]
-primArgs (BigArith _) = [BigT, BigT]
-primArgs BigNegate = [BigT]
 primArgs (BigCompare _) = [BigT, BigT]
 primArgs (ToBig s) = [scalarTy s]
 primArgs (FromBig _) = [BigT]
-primArgs BigShow = [BigT]
-primArgs BigRead = [StrT]
-primArgs NatAdd = [NatT, NatT]
-primArgs NatMul = [NatT, NatT]
 primArgs (NatCompare _) = [NatT, NatT]
-primArgs NatToBig = [NatT]
-primArgs NatFromBig = [BigT]
 primArgs (ArrayLength e) = [ArrayT e]
-primArgs StrBytes = [StrT]
-primArgs CrashStr = [StrT]
-primArgs (StrBuild _ d) = [DataT d]
-
-------------------------------------------------------------------------------
--- IO
-------------------------------------------------------------------------------
-
-||| The operations on a mutable array (`Data.IOArray.Prims`): a new array
-||| of a size and a fill, the element at an index, an element written at an
-||| index. An index out of bounds crashes, where Idris's primitives leave
-||| the behaviour undefined.
-public export
-data ArrayOp = NewArray | GetArray | SetArray
-
-export
-Show ArrayOp where
-  show NewArray = "newArray"
-  show GetArray = "arrayGet"
-  show SetArray = "arraySet"
-
-||| The two loops over an array's index space that the in-house array
-||| library writes in Idris and the compiler knows by name (the registry's
-||| `ArrayLoop`): an array generated from its indices, and a left fold over
-||| an array in index order.
-public export
-data ArrayLoop = Generate | Fold
-
-export
-Show ArrayLoop where
-  show Generate = "generate"
-  show Fold = "fold"
-
-||| The IO primitives the registry lists (`IOCall`, `ArrayCall`); an array
-||| operation carries its element type, which its call fixes.
-public export
-data IOOp = PutStr | PutChar
-          | GetByte   -- one byte of input
-          | GetLine   -- a line of input, without its end
-          | Array ArrayOp Ty
-          | BufferNew -- a buffer of zero bytes
-          | ||| A machine word read from a buffer at a byte offset: an integer
-            ||| or a double, in the target's endianness.
-            BufferLoad Ty
-          | ||| A machine word written into a buffer at a byte offset.
-            BufferStore Ty
-          | BufferCopy -- bytes copied from one buffer into another
-          | BufferSetString -- a string's UTF-8 written into a buffer
-          | BufferGetString -- a buffer's bytes read as a string
-          | WriteBytes -- bytes of a buffer to a handle; how many were written
-          | ReadBytes  -- bytes from a handle into a buffer; how many were read
-          | Eof        -- whether a read on the handle met the end of input
-          | NProcessors -- how many processors are online, or -1 when unknown
-
-export
-Show IOOp where
-  show PutStr = "putStr"
-  show PutChar = "putChar"
-  show GetByte = "getByte"
-  show GetLine = "getLine"
-  show (Array op e) = show op ++ "<" ++ show e ++ ">"
-  show BufferNew = "bufferNew"
-  show (BufferLoad t) = "bufferLoad<" ++ show t ++ ">"
-  show (BufferStore t) = "bufferStore<" ++ show t ++ ">"
-  show BufferCopy = "bufferCopy"
-  show BufferSetString = "bufferSetString"
-  show BufferGetString = "bufferGetString"
-  show WriteBytes = "writeBytes"
-  show ReadBytes = "readBytes"
-  show Eof = "eof"
-  show NProcessors = "nProcessors"
-
-||| The operand types of an IO primitive, before the world.
-public export
-ioArgs : IOOp -> List Ty
-ioArgs PutStr = [StrT]
-ioArgs PutChar = [CharT]
-ioArgs GetByte = []
-ioArgs GetLine = []
-ioArgs (Array NewArray e) = [IntT IdrisInt, e]
-ioArgs (Array GetArray e) = [ArrayT e, IntT IdrisInt]
-ioArgs (Array SetArray e) = [ArrayT e, IntT IdrisInt, e]
-ioArgs BufferNew = [IntT IdrisInt]
-ioArgs (BufferLoad _) = [ArrayT (IntT UInt8), IntT IdrisInt]
-ioArgs (BufferStore t) = [ArrayT (IntT UInt8), IntT IdrisInt, t]
-ioArgs BufferCopy = [ArrayT (IntT UInt8), IntT IdrisInt, IntT IdrisInt, ArrayT (IntT UInt8), IntT IdrisInt]
-ioArgs BufferSetString = [ArrayT (IntT UInt8), IntT IdrisInt, StrT]
-ioArgs BufferGetString = [ArrayT (IntT UInt8), IntT IdrisInt, IntT IdrisInt]
-ioArgs WriteBytes = [IntT UInt64, ArrayT (IntT UInt8), IntT IdrisInt, IntT IdrisInt]
-ioArgs ReadBytes = [IntT UInt64, ArrayT (IntT UInt8), IntT IdrisInt, IntT IdrisInt]
-ioArgs Eof = [IntT UInt64]
-ioArgs NProcessors = []
+primArgs (Op _) = []

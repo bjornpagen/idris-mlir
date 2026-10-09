@@ -48,45 +48,6 @@ std::optional<bool> signedness(OpT op) {
   return std::nullopt;
 }
 
-Value stringLength(OpBuilder &b, Location loc, Runtime &runtime, Value s) {
-  return runtime.call(b, loc, "idris_rt_str_length", b.getI64Type(), s);
-}
-
-Value notFinite(OpBuilder &b, Location loc, Value x) {
-  Value finite = math::IsFiniteOp::create(b, loc, x);
-  Value yes = arith::ConstantOp::create(b, loc, b.getBoolAttr(true));
-  return arith::XOrIOp::create(b, loc, finite, yes);
-}
-
-Value emptyString(OpBuilder &b, Location loc, Runtime &runtime, Value s) {
-  return arith::CmpIOp::create(b, loc, arith::CmpIPredicate::eq, stringLength(b, loc, runtime, s),
-                               constantI64(b, loc, 0));
-}
-// Zero is the small word 1.
-Value bigZero(OpBuilder &b, Location loc, Value big) {
-  return arith::CmpIOp::create(b, loc, arith::CmpIPredicate::eq, big, constantI64(b, loc, 1));
-}
-
-// Where the op crashes; checked before the call, whose runtime function
-// assumes it does not. Only these ops have one, so the check is absent for
-// every other call.
-template <typename OpT>
-  requires llvm::is_one_of<OpT, StrIndexOp, StrHeadOp, StrTailOp, BigDivOp, BigModOp,
-                           BigFromDoubleOp, ToIntOp>::value
-Value crashCondition(OpT, OpBuilder &b, Location loc, Runtime &runtime, ArrayRef<Value> args) {
-  if constexpr (std::is_same_v<OpT, StrIndexOp>)
-    return arith::CmpIOp::create(b, loc, arith::CmpIPredicate::uge, args[1],
-                                 stringLength(b, loc, runtime, args[0]));
-  else if constexpr (llvm::is_one_of<OpT, StrHeadOp, StrTailOp>::value)
-    return emptyString(b, loc, runtime, args[0]);
-  else if constexpr (llvm::is_one_of<OpT, BigDivOp, BigModOp>::value)
-    return bigZero(b, loc, args[1]);
-  else {
-    static_assert(llvm::is_one_of<OpT, BigFromDoubleOp, ToIntOp>::value);
-    return notFinite(b, loc, args[0]);
-  }
-}
-
 // The range an op states for its result whatever its operands are, as
 // LLVM's `range`: the runtime keeps the op's meaning, so the call's result
 // is in it too. An op whose range depends on its operands states nothing
@@ -110,6 +71,9 @@ std::optional<LLVM::ConstantRangeAttr> statedRange(Operation *op) {
   return LLVM::ConstantRangeAttr::get(op->getContext(), stated->umin(), stated->umax() + 1);
 }
 
+// An op's precondition (a divisor that is not zero, an index within the
+// string) is its guard's, tested before the op (:checks): the call is all
+// the op lowers to.
 template <typename OpT>
 struct LowerRuntimeCall : IdrPattern<OpT> {
   using IdrPattern<OpT>::IdrPattern;
@@ -130,10 +94,6 @@ struct LowerRuntimeCall : IdrPattern<OpT> {
         }
       }
     }
-    if constexpr (requires { crashCondition(op, rewriter, loc, this->runtime, args); })
-      if (std::optional<StringRef> cause = op.getCrashCause())
-        this->runtime.crashIf(rewriter, loc, crashCondition(op, rewriter, loc, this->runtime, args),
-                              *cause);
     SmallVector<Type> results;
     for (Type type : op->getResultTypes())
       llvm::append_range(results, this->layouts.components(type));

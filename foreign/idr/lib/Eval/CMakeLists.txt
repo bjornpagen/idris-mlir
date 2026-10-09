@@ -14,12 +14,15 @@ idr_library(idr_eval
 		Reify.cppm
 		Round.cppm
 		Scratch.cppm
+	UNITS
+		Boxes.cc
 	GLUE
 		Pass.cc
 	LINKS
 		idr_mlir
 		idr_ods
 		idr_support
+		idr_defunctionalize
 		idr_facts
 		idr_layout
 		idr_target

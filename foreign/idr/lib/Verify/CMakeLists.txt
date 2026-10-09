@@ -3,9 +3,11 @@
 idr_library(idr_verify
 	MODULES
 		Verify.cppm
+		Cycles.cppm
 		Linearity.cppm
 		Program.cppm
 	LINKS
 		idr_mlir
 		idr_ods
+		idr_graph
 )

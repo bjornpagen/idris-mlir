@@ -47,6 +47,7 @@ Check lookup(StringRef name) {
       .Case("counts-nothing", countsNothing)
       .Case("in-bounds", inBounds)
       .Case("bounds-checked", boundsChecked)
+      .Case("no-guards", noGuards)
       .Case("tests-nothing", testsNothing)
       .Case("resets-unshared", resetsUnshared)
       .Case("reuses-every-cell", reusesEveryCell)

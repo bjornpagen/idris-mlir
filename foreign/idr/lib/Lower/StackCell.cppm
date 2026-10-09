@@ -24,11 +24,10 @@ export namespace idr::lower {
 // info with the stack mark (IDRIS_RT_STACK_CELL): counting works on it as on
 // any cell, but when its count reaches 0 its memory is not freed, and it is
 // never exclusive, so no reset reuses it for a value that could outlive the
-// frame. Null when the con is not marked, or in JIT mode, whose arena cells
-// are all persistent.
+// frame. Null when the con is not marked.
 Value stackCell(OpBuilder &b, Location loc, ConOp con, layout::Layouts &layouts,
                 Runtime &runtime) {
-  if (!con->hasAttr(layout::stackMark) || runtime.isJit())
+  if (!con->hasAttr(layout::stackMark))
     return {};
   CtorOp ctor = lookupCtor(con, con.getCtor());
   const layout::Cell &layout = layouts.box(ctor);

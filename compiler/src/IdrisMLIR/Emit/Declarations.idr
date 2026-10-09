@@ -1,5 +1,4 @@
-||| The module's declarations: data instances and functions, each with the
-||| functions lifted from it.
+||| The module's declarations: data instances and functions.
 module IdrisMLIR.Emit.Declarations
 
 import IdrisMLIR.Dialect.Func as Func
@@ -17,7 +16,6 @@ import IdrisMLIR.Types
 
 import Control.Monad.State
 import Data.List
-import Data.SnocList
 import Data.SortedSet
 import Data.Vect
 
@@ -39,12 +37,11 @@ dataDecl ix d = do
       ts <- traverse (binderType ix) c.fields
       pure (MkStatement Nothing (Idr.ctorOp (mangle c.id.name) ts) (Named c.idrisName c.loc))
 
-||| A function, and the functions lifted from it. Only the root is public.
+||| A function. Only the root is public.
 export
-function : Index -> FnId -> TFn -> E (List Statement)
+function : Index -> FnId -> TFn -> E Statement
 function ix root f = do
   let sym = mangle f.id.name
-  modify { lifted := [<] }
   ((params, res), ops) <- inFunction $ do
     params <- traverse (\b => (\n => val n (typeOf b) (binderUse b)) <$> fresh) f.params
     res <- plain' (para alg' f.body (\i => index i params) (Just f.result))
@@ -60,14 +57,12 @@ function ix root f = do
                         noInline = shared} sym
                        (functionType (map (\a : Value => a.type) args) [rt])
                        (MkRegion args body)
-  inner <- gets (.lifted)
-  pure (MkStatement Nothing ({ attributes := attributes (own f) } fn) (Named f.idrisName f.loc)
-        :: (inner <>> []))
+  pure (MkStatement Nothing ({ attributes := attributes (own f) } fn) (Named f.idrisName f.loc))
   where
     lazyResult : Ty -> Bool
     lazyResult (LazyT _) = True
     lazyResult _ = False
     alg' : {0 b : Type} -> TermF (Sub Em) b -> Em b
-    alg' = alg ix (MkOwner (mangle f.id.name) f.idrisName (inherited f))
+    alg' = alg ix
     plain' : E (Maybe Val) -> E (Maybe Val)
     plain' = plain ix f.loc

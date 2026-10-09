@@ -40,7 +40,7 @@ int main(int argc, char **argv) {
   /* A feature no processor has: the entry refuses to run the program. */
   if (strcmp(mode, "cpu") == 0)
     required = UINT64_C(1) << 63;
-  int32_t status = idris_rt_start(body, required);
+  int32_t status = idris_rt_start(body, required, argc, argv);
   idris_rt_flush();
   return status;
 }

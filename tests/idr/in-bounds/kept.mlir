@@ -21,7 +21,11 @@ module {
     %hi = arith.cmpi sle, %i, %n : i64
     %ok = arith.andi %lo, %hi : i1
     %r = scf.if %ok -> !idr.world {
-      %s1 = idr.array.set %a[%i], %i, %w1 : memref<?xi64>, i64
+      %ib1.z = arith.constant 0 : index
+      %ib1.d = memref.dim %a, %ib1.z : memref<?xi64>
+      %ib1.n = arith.index_cast %ib1.d : index to i64
+      %ib1 = idr.check.in_bounds %i, %ib1.n, "array index out of bounds"
+      %s1 = idr.array.set %a[%ib1], %i, %w1 : memref<?xi64>, i64
       scf.yield %s1 : !idr.world
     } else {
       scf.yield %w1 : !idr.world
@@ -34,7 +38,11 @@ module {
     %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
     %ok = arith.cmpi slt, %i, %n : i64
     %r = scf.if %ok -> !idr.world {
-      %s1 = idr.array.set %a[%i], %i, %w1 : memref<?xi64>, i64
+      %ib2.z = arith.constant 0 : index
+      %ib2.d = memref.dim %a, %ib2.z : memref<?xi64>
+      %ib2.n = arith.index_cast %ib2.d : index to i64
+      %ib2 = idr.check.in_bounds %i, %ib2.n, "array index out of bounds"
+      %s1 = idr.array.set %a[%ib2], %i, %w1 : memref<?xi64>, i64
       scf.yield %s1 : !idr.world
     } else {
       scf.yield %w1 : !idr.world
@@ -49,7 +57,11 @@ module {
     %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
     %ok = arith.cmpi sgt, %n, %m5 : i64
     %r = scf.if %ok -> !idr.world {
-      %s1 = idr.array.set %a[%z], %z, %w1 : memref<?xi64>, i64
+      %ib3.z = arith.constant 0 : index
+      %ib3.d = memref.dim %a, %ib3.z : memref<?xi64>
+      %ib3.n = arith.index_cast %ib3.d : index to i64
+      %ib3 = idr.check.in_bounds %z, %ib3.n, "array index out of bounds"
+      %s1 = idr.array.set %a[%ib3], %z, %w1 : memref<?xi64>, i64
       scf.yield %s1 : !idr.world
     } else {
       scf.yield %w1 : !idr.world
@@ -75,7 +87,11 @@ module {
     %hi = arith.cmpi slt, %i, %n : i64
     %ok = arith.andi %lo, %hi : i1
     %r = scf.if %ok -> !idr.world {
-      %s1 = idr.array.set %a[%i], %i, %w : memref<?xi64>, i64
+      %ib4.z = arith.constant 0 : index
+      %ib4.d = memref.dim %a, %ib4.z : memref<?xi64>
+      %ib4.n = arith.index_cast %ib4.d : index to i64
+      %ib4 = idr.check.in_bounds %i, %ib4.n, "array index out of bounds"
+      %s1 = idr.array.set %a[%ib4], %i, %w : memref<?xi64>, i64
       scf.yield %s1 : !idr.world
     } else {
       scf.yield %w : !idr.world
@@ -88,7 +104,11 @@ module {
     %hi = arith.cmpi slt, %i, %n : i64
     %ok = arith.andi %lo, %hi : i1
     %r = scf.if %ok -> !idr.world {
-      %s1 = idr.array.set %a[%i], %i, %w : memref<?xi64>, i64
+      %ib5.z = arith.constant 0 : index
+      %ib5.d = memref.dim %a, %ib5.z : memref<?xi64>
+      %ib5.n = arith.index_cast %ib5.d : index to i64
+      %ib5 = idr.check.in_bounds %i, %ib5.n, "array index out of bounds"
+      %s1 = idr.array.set %a[%ib5], %i, %w : memref<?xi64>, i64
       scf.yield %s1 : !idr.world
     } else {
       scf.yield %w : !idr.world
@@ -101,7 +121,11 @@ module {
     %hi = arith.cmpi slt, %i, %n : i64
     %ok = arith.andi %lo, %hi : i1
     %r = scf.if %ok -> !idr.world {
-      %s1 = idr.array.set %a[%i], %i, %w : memref<?xi64>, i64
+      %ib6.z = arith.constant 0 : index
+      %ib6.d = memref.dim %a, %ib6.z : memref<?xi64>
+      %ib6.n = arith.index_cast %ib6.d : index to i64
+      %ib6 = idr.check.in_bounds %i, %ib6.n, "array index out of bounds"
+      %s1 = idr.array.set %a[%ib6], %i, %w : memref<?xi64>, i64
       scf.yield %s1 : !idr.world
     } else {
       scf.yield %w : !idr.world
@@ -114,7 +138,11 @@ module {
     %hi = arith.cmpi slt, %i, %n : i64
     %ok = arith.andi %lo, %hi : i1
     %r = scf.if %ok -> !idr.world {
-      %s1 = idr.array.set %a[%i], %i, %w : memref<?xi64>, i64
+      %ib7.z = arith.constant 0 : index
+      %ib7.d = memref.dim %a, %ib7.z : memref<?xi64>
+      %ib7.n = arith.index_cast %ib7.d : index to i64
+      %ib7 = idr.check.in_bounds %i, %ib7.n, "array index out of bounds"
+      %s1 = idr.array.set %a[%ib7], %i, %w : memref<?xi64>, i64
       scf.yield %s1 : !idr.world
     } else {
       scf.yield %w : !idr.world
@@ -134,7 +162,11 @@ module {
       scf.condition(%c) %k, %arr, %i, %s : i64, memref<?xi64>, i64, !idr.world
     } do {
     ^bb0(%k: i64, %arr: memref<?xi64>, %i: i64, %s: !idr.world):
-      %s1 = idr.array.set %arr[%i], %i, %s : memref<?xi64>, i64
+      %ib8.z = arith.constant 0 : index
+      %ib8.d = memref.dim %arr, %ib8.z : memref<?xi64>
+      %ib8.n = arith.index_cast %ib8.d : index to i64
+      %ib8 = idr.check.in_bounds %i, %ib8.n, "array index out of bounds"
+      %s1 = idr.array.set %arr[%ib8], %i, %s : memref<?xi64>, i64
       %j = arith.addi %i, %one overflow<nsw> : i64
       %k1 = arith.addi %k, %one overflow<nsw> : i64
       scf.yield %k1, %arr, %j, %s1 : i64, memref<?xi64>, i64, !idr.world
@@ -156,7 +188,11 @@ module {
     %hi = arith.cmpi slt, %i, %k : i64
     %ok = arith.andi %lo, %hi : i1
     %r = scf.if %ok -> !idr.world {
-      %s1 = idr.array.set %a[%i], %i, %w1 : memref<?xi64>, i64
+      %ib9.z = arith.constant 0 : index
+      %ib9.d = memref.dim %a, %ib9.z : memref<?xi64>
+      %ib9.n = arith.index_cast %ib9.d : index to i64
+      %ib9 = idr.check.in_bounds %i, %ib9.n, "array index out of bounds"
+      %s1 = idr.array.set %a[%ib9], %i, %w1 : memref<?xi64>, i64
       scf.yield %s1 : !idr.world
     } else {
       scf.yield %w1 : !idr.world
@@ -172,7 +208,11 @@ module {
     %arr = arith.select %q, %a, %c : memref<?xi64>
     %some = arith.cmpi sgt, %k, %z : i64
     %r = scf.if %some -> !idr.world {
-      %s1 = idr.array.set %arr[%z], %z, %w2 : memref<?xi64>, i64
+      %ib10.z = arith.constant 0 : index
+      %ib10.d = memref.dim %arr, %ib10.z : memref<?xi64>
+      %ib10.n = arith.index_cast %ib10.d : index to i64
+      %ib10 = idr.check.in_bounds %z, %ib10.n, "array index out of bounds"
+      %s1 = idr.array.set %arr[%ib10], %z, %w2 : memref<?xi64>, i64
       scf.yield %s1 : !idr.world
     } else {
       scf.yield %w2 : !idr.world
@@ -185,7 +225,11 @@ module {
     %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
     %ok = arith.cmpi ult, %i, %n : i64
     %r = scf.if %ok -> !idr.world {
-      %s1 = idr.array.set %a[%i], %i, %w1 : memref<?xi64>, i64
+      %ib11.z = arith.constant 0 : index
+      %ib11.d = memref.dim %a, %ib11.z : memref<?xi64>
+      %ib11.n = arith.index_cast %ib11.d : index to i64
+      %ib11 = idr.check.in_bounds %i, %ib11.n, "array index out of bounds"
+      %s1 = idr.array.set %a[%ib11], %i, %w1 : memref<?xi64>, i64
       scf.yield %s1 : !idr.world
     } else {
       scf.yield %w1 : !idr.world
@@ -204,7 +248,11 @@ module {
     %hi = arith.cmpi slt, %j, %n : i64
     %ok = arith.andi %lo, %hi : i1
     %r = scf.if %ok -> !idr.world {
-      %s1 = idr.array.set %a[%i], %i, %w1 : memref<?xi64>, i64
+      %ib12.z = arith.constant 0 : index
+      %ib12.d = memref.dim %a, %ib12.z : memref<?xi64>
+      %ib12.n = arith.index_cast %ib12.d : index to i64
+      %ib12 = idr.check.in_bounds %i, %ib12.n, "array index out of bounds"
+      %s1 = idr.array.set %a[%ib12], %i, %w1 : memref<?xi64>, i64
       scf.yield %s1 : !idr.world
     } else {
       scf.yield %w1 : !idr.world
@@ -224,7 +272,11 @@ module {
       %u = ub.poison : i64
       scf.yield %u, %b : i64, memref<?xi64>
     }
-    %s1 = idr.array.set %arr[%z], %z, %w1 : memref<?xi64>, i64
+    %ib13.z = arith.constant 0 : index
+    %ib13.d = memref.dim %arr, %ib13.z : memref<?xi64>
+    %ib13.n = arith.index_cast %ib13.d : index to i64
+    %ib13 = idr.check.in_bounds %z, %ib13.n, "array index out of bounds"
+    %s1 = idr.array.set %arr[%ib13], %z, %w1 : memref<?xi64>, i64
     return %s1 : !idr.world
   }
 
@@ -241,7 +293,11 @@ module {
     } do {
     ^bb0(%k: i64, %arr: memref<?xi64>, %s: !idr.world):
       %last = arith.subi %k, %one : i64
-      %s1 = idr.array.set %arr[%last], %z, %s : memref<?xi64>, i64
+      %ib14.z = arith.constant 0 : index
+      %ib14.d = memref.dim %arr, %ib14.z : memref<?xi64>
+      %ib14.n = arith.index_cast %ib14.d : index to i64
+      %ib14 = idr.check.in_bounds %last, %ib14.n, "array index out of bounds"
+      %s1 = idr.array.set %arr[%ib14], %z, %s : memref<?xi64>, i64
       %b, %s2 = idr.array.new %k, %z, %s1 : i64 -> memref<?xi64>
       scf.yield %k, %b, %s2 : i64, memref<?xi64>, !idr.world
     }
@@ -260,7 +316,11 @@ module {
     %hi = arith.cmpi slt, %i, %n : i64
     %ok = arith.andi %lo, %hi : i1
     %r = scf.if %ok -> !idr.world {
-      %s1 = idr.array.set %b[%i], %i, %w2 : memref<?xi64>, i64
+      %ib15.z = arith.constant 0 : index
+      %ib15.d = memref.dim %b, %ib15.z : memref<?xi64>
+      %ib15.n = arith.index_cast %ib15.d : index to i64
+      %ib15 = idr.check.in_bounds %i, %ib15.n, "array index out of bounds"
+      %s1 = idr.array.set %b[%ib15], %i, %w2 : memref<?xi64>, i64
       scf.yield %s1 : !idr.world
     } else {
       scf.yield %w2 : !idr.world
@@ -291,7 +351,11 @@ module {
     %hi = arith.cmpi slt, %i, %n : i64
     %ok = arith.andi %lo, %hi : i1
     %r = scf.if %ok -> !idr.world {
-      %s1 = idr.array.set %b[%i], %i, %w2 : memref<?xi64>, i64
+      %ib16.z = arith.constant 0 : index
+      %ib16.d = memref.dim %b, %ib16.z : memref<?xi64>
+      %ib16.n = arith.index_cast %ib16.d : index to i64
+      %ib16 = idr.check.in_bounds %i, %ib16.n, "array index out of bounds"
+      %s1 = idr.array.set %b[%ib16], %i, %w2 : memref<?xi64>, i64
       scf.yield %s1 : !idr.world
     } else {
       scf.yield %w2 : !idr.world
@@ -312,7 +376,11 @@ module {
     %nonneg = arith.cmpi sge, %n, %z : i64
     %r = scf.if %nonneg -> !idr.world {
       %i = idr.div signed %n, %two : i64
-      %s1 = idr.array.set %a[%i], %i, %w1 : memref<?xi64>, i64
+      %ib17.z = arith.constant 0 : index
+      %ib17.d = memref.dim %a, %ib17.z : memref<?xi64>
+      %ib17.n = arith.index_cast %ib17.d : index to i64
+      %ib17 = idr.check.in_bounds %i, %ib17.n, "array index out of bounds"
+      %s1 = idr.array.set %a[%ib17], %i, %w1 : memref<?xi64>, i64
       scf.yield %s1 : !idr.world
     } else {
       scf.yield %w1 : !idr.world
@@ -330,7 +398,11 @@ module {
     %below = arith.cmpi slt, %m, %bound : i64
     %r = scf.if %below -> !idr.world {
       %i = idr.div signed %m, %two : i64
-      %s1 = idr.array.set %a[%i], %i, %w1 : memref<?xi64>, i64
+      %ib18.z = arith.constant 0 : index
+      %ib18.d = memref.dim %a, %ib18.z : memref<?xi64>
+      %ib18.n = arith.index_cast %ib18.d : index to i64
+      %ib18 = idr.check.in_bounds %i, %ib18.n, "array index out of bounds"
+      %s1 = idr.array.set %a[%ib18], %i, %w1 : memref<?xi64>, i64
       scf.yield %s1 : !idr.world
     } else {
       scf.yield %w1 : !idr.world
@@ -346,7 +418,11 @@ module {
     %pos = arith.cmpi sgt, %n, %z : i64
     %r = scf.if %pos -> !idr.world {
       %i = idr.div signed %n, %one : i64
-      %s1 = idr.array.set %a[%i], %i, %w1 : memref<?xi64>, i64
+      %ib19.z = arith.constant 0 : index
+      %ib19.d = memref.dim %a, %ib19.z : memref<?xi64>
+      %ib19.n = arith.index_cast %ib19.d : index to i64
+      %ib19 = idr.check.in_bounds %i, %ib19.n, "array index out of bounds"
+      %s1 = idr.array.set %a[%ib19], %i, %w1 : memref<?xi64>, i64
       scf.yield %s1 : !idr.world
     } else {
       scf.yield %w1 : !idr.world
@@ -362,7 +438,11 @@ module {
     %pos = arith.cmpi sgt, %n, %z : i64
     %r = scf.if %pos -> !idr.world {
       %i = idr.div signed %n, %m2 : i64
-      %s1 = idr.array.set %a[%i], %i, %w1 : memref<?xi64>, i64
+      %ib20.z = arith.constant 0 : index
+      %ib20.d = memref.dim %a, %ib20.z : memref<?xi64>
+      %ib20.n = arith.index_cast %ib20.d : index to i64
+      %ib20 = idr.check.in_bounds %i, %ib20.n, "array index out of bounds"
+      %s1 = idr.array.set %a[%ib20], %i, %w1 : memref<?xi64>, i64
       scf.yield %s1 : !idr.world
     } else {
       scf.yield %w1 : !idr.world
@@ -376,7 +456,11 @@ module {
     %pos = arith.cmpi sgt, %n, %z : i64
     %r = scf.if %pos -> !idr.world {
       %i = idr.div signed %n, %d : i64
-      %s1 = idr.array.set %a[%i], %i, %w1 : memref<?xi64>, i64
+      %ib21.z = arith.constant 0 : index
+      %ib21.d = memref.dim %a, %ib21.z : memref<?xi64>
+      %ib21.n = arith.index_cast %ib21.d : index to i64
+      %ib21 = idr.check.in_bounds %i, %ib21.n, "array index out of bounds"
+      %s1 = idr.array.set %a[%ib21], %i, %w1 : memref<?xi64>, i64
       scf.yield %s1 : !idr.world
     } else {
       scf.yield %w1 : !idr.world
@@ -391,7 +475,11 @@ module {
     %len = memref.dim %a, %c0 : memref<?xi64>
     %l = arith.index_cast %len : index to i64
     %i = idr.div signed %l, %two : i64
-    %s = idr.array.set %a[%i], %i, %w : memref<?xi64>, i64
+    %ib22.z = arith.constant 0 : index
+    %ib22.d = memref.dim %a, %ib22.z : memref<?xi64>
+    %ib22.n = arith.index_cast %ib22.d : index to i64
+    %ib22 = idr.check.in_bounds %i, %ib22.n, "array index out of bounds"
+    %s = idr.array.set %a[%ib22], %i, %w : memref<?xi64>, i64
     return %s : !idr.world
   }
 
@@ -404,7 +492,11 @@ module {
     %pos = arith.cmpi ugt, %n, %z : i64
     %r = scf.if %pos -> !idr.world {
       %i = idr.div signed %n, %two : i64
-      %s1 = idr.array.set %a[%i], %i, %w1 : memref<?xi64>, i64
+      %ib23.z = arith.constant 0 : index
+      %ib23.d = memref.dim %a, %ib23.z : memref<?xi64>
+      %ib23.n = arith.index_cast %ib23.d : index to i64
+      %ib23 = idr.check.in_bounds %i, %ib23.n, "array index out of bounds"
+      %s1 = idr.array.set %a[%ib23], %i, %w1 : memref<?xi64>, i64
       scf.yield %s1 : !idr.world
     } else {
       scf.yield %w1 : !idr.world
@@ -419,7 +511,11 @@ module {
     %hi = arith.cmpi slt, %i, %n : i64
     %ok = arith.andi %lo, %hi : i1
     %r = scf.if %ok -> !idr.world {
-      %s1 = idr.array.set %a[%i], %i, %w1 : memref<?xi64>, i64
+      %ib24.z = arith.constant 0 : index
+      %ib24.d = memref.dim %a, %ib24.z : memref<?xi64>
+      %ib24.n = arith.index_cast %ib24.d : index to i64
+      %ib24 = idr.check.in_bounds %i, %ib24.n, "array index out of bounds"
+      %s1 = idr.array.set %a[%ib24], %i, %w1 : memref<?xi64>, i64
       scf.yield %s1 : !idr.world
     } else {
       scf.yield %w1 : !idr.world

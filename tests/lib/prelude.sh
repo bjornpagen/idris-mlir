@@ -23,8 +23,14 @@
 # what the program's Core shows. Two more kinds are named apart when Core
 # does not name them. An escape hatch, which user code may not write, is
 # asked of the compiler. A decided exclusion is outside the language
-# (threads, collector finalizers, raw pointers): those names are the only
-# ones written down here, and a later export is still asked of the compiler.
+# (threads, collector finalizers). A pointer is a handle of the runtime's,
+# so the prelude's pointer operations are not among them: a program uses
+# them as it uses any other export. Three of them the registry translates
+# to a value, a pointer cast to the handle it is given and the null pointer
+# to the null handle, which leaves no call for Core to name: each is used
+# when the program's own code calls it. The decided exclusions and those
+# three are the only names written down here, and a later export is still
+# asked of the compiler.
 
 # The pinned prelude's source, from which the pinned Idris built the
 # prelude it loads: its IDE mode names a definition's module by the file it
@@ -236,25 +242,57 @@ escape_hatch() {
 }
 
 # decided_exclusion FULL: whether FULL is outside the language, by the
-# decision on threads, collector finalizers and raw pointers. The only
-# names written down in this check. A name that is not one of these is
-# asked of the program and, if Core does not name it, of the compiler.
+# decision on threads and collector finalizers. The only names written
+# down in this check. A name that is not one of these is asked of the
+# program and, if Core does not name it, of the compiler.
 decided_exclusion() {
   case $1 in
     Prelude.IO.fork | Prelude.IO.prim__fork | Prelude.IO.threadWait | Prelude.IO.prim__threadWait | \
-    Prelude.IO.onCollect | Prelude.IO.onCollectAny | Prelude.IO.prim__getString | \
-    PrimIO.prim__castPtr | PrimIO.prim__forgetPtr | PrimIO.prim__nullPtr | \
-    PrimIO.prim__nullAnyPtr | PrimIO.prim__getNullAnyPtr)
+    Prelude.IO.onCollect | Prelude.IO.onCollectAny)
       return 0 ;;
   esac
   return 1
 }
 
-# covers_prelude MODULE CORE: every run-time export of MODULE is used by the
-# program whose Core is CORE.
+# registry_value FULL: whether the registry translates a call of FULL to a
+# value, which leaves no call for Core to name: a pointer cast is the
+# identity on the handle it is given (prim__castPtr, prim__forgetPtr), and
+# the null pointer is the null handle, a literal (prim__getNullAnyPtr). The
+# registry's hooks are the compiler's Idris source, which this check
+# cannot ask, so these names are written down, as the decided exclusions
+# are; an export the registry gives another hook is still asked of Core.
+registry_value() {
+  case $1 in
+    PrimIO.prim__castPtr | PrimIO.prim__forgetPtr | PrimIO.prim__getNullAnyPtr)
+      return 0 ;;
+  esac
+  return 1
+}
+
+# source_calls FULL FIXTURE: whether the program's own code, the Idris files
+# of FIXTURE with comments and strings left out (idris_lex), names the
+# definition of full name FULL, bare or qualified. For a registry value
+# that is a call: one applied to less than all its arguments would be the
+# definition itself, whose body the program cannot run.
+source_calls() {
+  sc_bare=${1##*.}
+  sc_space=$(printf '%s' "${1%.*}" | sed 's/\./\\./g')
+  find "$2" -name build -prune -o -name '*.idr' -print > "$work/covers-sources"
+  while IFS= read -r sc_file; do
+    if idris_lex code "$sc_file" |
+       grep -qE "(^|[^A-Za-z0-9_'.])($sc_space\\.)?$sc_bare([^A-Za-z0-9_']|\$)"; then
+      return 0
+    fi
+  done < "$work/covers-sources"
+  return 1
+}
+
+# covers_prelude MODULE CORE FIXTURE: every run-time export of MODULE is
+# used by the program whose Core is CORE and whose source is FIXTURE's.
 covers_prelude() {
   cp_module=$1
   cp_core=$2
+  cp_fixture=$3
   prelude_exports "$cp_module" > "$work/exports"
   awk -F '\t' '{ print $1 }' "$work/exports" | sort -u > "$work/export-names"
   prelude_definitions "$work/export-names" > "$work/definitions"
@@ -306,15 +344,18 @@ covers_prelude() {
       printf '%s\t%s\n' "$cp_full" "$cp_implicit" >> "$work/unused"
     fi
   done < "$work/own"
-  # What Core does not name may be a decided exclusion or an escape hatch;
-  # anything else is missing. The exclusion is recognized by name, so a
-  # probe is not asked to compile a program that reaches it.
+  # What Core does not name may be a decided exclusion, a registry value
+  # the program's code calls, or an escape hatch; anything else is missing.
+  # The exclusion is recognized by name, so a probe is not asked to compile
+  # a program that reaches it.
   : > "$work/escape-hatches"
   : > "$work/decided"
   : > "$work/missing"
   while IFS="$(printf '\t')" read -r cp_full cp_implicit; do
     if decided_exclusion "$cp_full"; then
       printf '%s\n' "$cp_full" >> "$work/decided"
+    elif registry_value "$cp_full" && source_calls "$cp_full" "$cp_fixture"; then
+      cp_used=$((cp_used + 1))
     elif [ -n "$cp_implicit" ] && escape_hatch "$cp_module" "$cp_full" "$cp_implicit"; then
       printf '%s\n' "$cp_full" >> "$work/escape-hatches"
     else

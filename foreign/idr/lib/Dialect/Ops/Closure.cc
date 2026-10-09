@@ -2,6 +2,8 @@
 
 #include "idr/Idr.h"
 
+import idr.canon;
+
 using namespace mlir;
 using namespace idr;
 
@@ -48,9 +50,13 @@ LogicalResult ClosureOp::verifySymbolUses(SymbolTableCollection &symbols) {
   return success();
 }
 
+// A capture folds only as a constant the dialect builds at its type: a
+// poison capture is the program's value where control never arrives, which
+// no constant holds, so the closure stays an op around it.
 OpFoldResult ClosureOp::fold(FoldAdaptor adaptor) {
-  if (llvm::is_contained(adaptor.getCaptures(), Attribute()))
-    return {};
+  for (auto [capture, operand] : llvm::zip_equal(adaptor.getCaptures(), getCaptures()))
+    if (!capture || !canon::buildable(capture, operand.getType()))
+      return {};
   return ClosureAttr::get(getContext(), getCalleeAttr(),
                           ArrayAttr::get(getContext(), adaptor.getCaptures()));
 }

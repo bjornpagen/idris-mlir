@@ -11,7 +11,7 @@
 // CHECK: error: 'func.return' op returns while a value still holds a reference
 // CHECK: error: 'func.return' op returns while a value still holds a reference
 
-module attributes {idr.stage = "owned"} {
+module attributes {idr.program} {
   func.func private @measure(%s: !idr.own<!idr.str>) -> i64 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %v = idr.borrow %s : !idr.own<!idr.str>
     %n = idr.str.length %v
@@ -23,11 +23,15 @@ module attributes {idr.stage = "owned"} {
     %zero = arith.constant 0 : i64
     return %zero : i64
   }
+  func.func @Prog.main() -> i64 {
+    %z = arith.constant 0 : i64
+    return %z : i64
+  }
 }
 
 // -----
 
-module attributes {idr.stage = "owned"} {
+module attributes {idr.program} {
   idr.data @Box box {
     idr.ctor @Box (!idr.str)
   }
@@ -43,5 +47,9 @@ module attributes {idr.stage = "owned"} {
     %n = func.call @size(%b) : (!idr.own<!idr.box<@Box>>) -> i64
     %zero = arith.constant 0 : i64
     return %zero : i64
+  }
+  func.func @Prog.main() -> i64 {
+    %z = arith.constant 0 : i64
+    return %z : i64
   }
 }

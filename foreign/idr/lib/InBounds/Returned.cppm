@@ -242,6 +242,7 @@ private:
 
   Origin walk(func::FuncOp fn, Value value, ArrayRef<Proj> path) {
     value = peel(value);
+    // The program's poison, given where no run reads it, is any array.
     if (value.getDefiningOp<ub::PoisonOp>())
       return Origin::unknown();
     if (auto arg = dyn_cast<BlockArgument>(value))
@@ -352,6 +353,7 @@ private:
     Origin acc = Origin::unknown();
     bool concrete = false;
     for (Value in : incoming) {
+      // A place that gives the program's poison constrains nothing.
       if (peel(in).getDefiningOp<ub::PoisonOp>())
         continue;
       concrete = true;

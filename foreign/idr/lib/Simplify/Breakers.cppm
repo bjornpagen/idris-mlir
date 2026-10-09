@@ -62,15 +62,6 @@ export unsigned markLoopBreakers(ModuleOp module) {
   for (auto fn : module.getOps<func::FuncOp>())
     order.try_emplace(fn, order.size());
 
-  auto refers = [&](func::FuncOp fn) {
-    SmallVector<func::FuncOp> out;
-    if (std::optional<SymbolTable::UseRange> uses = SymbolTable::getSymbolUses(&fn.getBody()))
-      for (const SymbolTable::SymbolUse &use : *uses)
-        if (auto target = symbols.lookup<func::FuncOp>(use.getSymbolRef().getRootReference()))
-          out.push_back(target);
-    return out;
-  };
-
   unsigned marked = 0;
   for (bool again = true; again;) {
     again = false;
@@ -78,9 +69,10 @@ export unsigned markLoopBreakers(ModuleOp module) {
     for (auto fn : module.getOps<func::FuncOp>())
       if (!fn.isExternal() && !fn.getNoInline())
         inlinable.push_back(fn);
-    for (const SmallVector<func::FuncOp> &cycle :
-         idr::graph::stronglyConnected<func::FuncOp>(inlinable, refers)) {
-      if (cycle.size() == 1 && !llvm::is_contained(refers(cycle.front()), cycle.front()))
+    for (const SmallVector<func::FuncOp> &cycle : idr::graph::stronglyConnected<func::FuncOp>(
+             inlinable, [&](func::FuncOp fn) { return idr::graph::refersTo(fn, symbols); })) {
+      if (cycle.size() == 1 &&
+          !llvm::is_contained(idr::graph::refersTo(cycle.front(), symbols), cycle.front()))
         continue;
       func::FuncOp breaker = choose(cycle, order);
       breaker.setNoInline(true);

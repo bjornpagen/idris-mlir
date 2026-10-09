@@ -9,6 +9,7 @@ import :arrays;
 import :buffers;
 import :bigs;
 import :cells;
+import :checks;
 import :counting;
 import :fields;
 import :runtime;
@@ -20,8 +21,8 @@ using namespace mlir;
 
 export namespace idr::lower {
 
-// Phase 2: the patterns that convert each idr op and type. Those of
-// closures are not among them (:closures).
+// Phase 2: the patterns that convert each idr op and type. That of the
+// force is not among them (:closures).
 void populatePatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                       layout::Layouts &layouts, Runtime &runtime, const Fields &fields) {
   populateCountingPatterns(patterns, converter, layouts, runtime, fields);
@@ -32,6 +33,7 @@ void populatePatterns(RewritePatternSet &patterns, const TypeConverter &converte
   populateCellPatterns(patterns, converter, layouts, runtime);
   populateScalarPatterns(patterns, converter, layouts, runtime);
   populateRuntimeCallPatterns(patterns, converter, layouts, runtime);
+  populateCheckPatterns(patterns, converter, layouts, runtime);
 }
 
 } // namespace idr::lower

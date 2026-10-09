@@ -11,10 +11,6 @@ using namespace idr;
 
 namespace {
 
-// An index is a value the program computed, so it may be out of bounds,
-// unless idr-in-bounds proved the access in bounds.
-constexpr StringRef outOfBounds = "array index out of bounds";
-
 // The body and the loop itself. The body is its own successor, so the
 // region runs again; the loop is a successor too, because an empty array
 // skips the body and a finished iteration leaves. The size is not a
@@ -51,25 +47,19 @@ LogicalResult ArrayNewOp::reifyResultShapes(OpBuilder &b,
   return success();
 }
 
-std::optional<StringRef> ArrayNewOp::getCrashCause() { return std::nullopt; }
-std::optional<StringRef> ArrayGetOp::getCrashCause() {
-  return getInBounds() ? std::nullopt : std::optional(outOfBounds);
-}
-std::optional<StringRef> ArraySetOp::getCrashCause() {
-  return getInBounds() ? std::nullopt : std::optional(outOfBounds);
-}
-
+// IO in the world's order, and for a new array its allocation. An access
+// crashes on no index: the index is its guard's to check.
 void ArrayNewOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  ops::ioEffects(getCrashCause(), getArray(), effects);
+  ops::ioEffects(getArray(), effects);
 }
 void ArrayGetOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  ops::ioEffects(getCrashCause(), Value(), effects);
+  ops::ioEffects(Value(), effects);
 }
 void ArraySetOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  ops::ioEffects(getCrashCause(), Value(), effects);
+  ops::ioEffects(Value(), effects);
 }
 
 // `idr.array.generate %n, %fill, %w : E -> memref<?xE> (%i: i64) {...}`
@@ -145,17 +135,15 @@ LogicalResult ArrayFoldOp::verify() {
   if (unrestricted(getResult().getType()) != acc)
     return emitOpError("gives ") << getResult().getType() << ", but folds an accumulator of "
                                  << acc;
+  // The body's three arguments are its region's constraint, which the
+  // generated verifier checks before this one.
   Block &block = getBody().front();
   TypeRange args = block.getArgumentTypes();
-  if (args.size() != 3 || unrestricted(args[0]) != acc || unrestricted(args[1]) != element ||
-      !args[2].isInteger(64))
+  if (unrestricted(args[0]) != acc || unrestricted(args[1]) != element || !args[2].isInteger(64))
     return emitOpError("expects its body to take the accumulator (")
            << acc << "), the element (" << element << ") and the index (i64), not " << args;
   return ops::verifyLoopBody(*this, getBody(), args, acc);
 }
-
-std::optional<StringRef> ArrayGenerateOp::getCrashCause() { return std::nullopt; }
-std::optional<StringRef> ArrayFoldOp::getCrashCause() { return std::nullopt; }
 
 // As a new array's: its size clamped at 0, as an index.
 LogicalResult ArrayGenerateOp::reifyResultShapes(OpBuilder &b,
@@ -172,11 +160,11 @@ LogicalResult ArrayGenerateOp::reifyResultShapes(OpBuilder &b,
 // new array; its body's ops carry theirs (RecursiveMemoryEffects).
 void ArrayGenerateOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  ops::ioEffects(getCrashCause(), getArray(), effects);
+  ops::ioEffects(getArray(), effects);
 }
 void ArrayFoldOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  ops::ioEffects(getCrashCause(), Value(), effects);
+  ops::ioEffects(Value(), effects);
 }
 
 // RegionBranchOpInterface. From outside and from the body alike: the body

@@ -102,7 +102,6 @@ record Decl where
 public export
 record TS where
   constructor MkTS
-  nextLabel : Nat
   datas : SortedMap DataId Decl
   dataOrder : SnocList DataId
   ||| The instances being registered, which a field may refer to.
@@ -143,18 +142,10 @@ record TS where
 
 export
 initState : FC -> TS
-initState fc = MkTS 0 empty [<] empty empty empty [<] empty [] fc empty empty empty empty empty empty False Nothing empty
+initState fc = MkTS empty [<] empty empty empty [<] empty [] fc empty empty empty empty empty empty False Nothing empty
 
 ||| The state a pass of the translation starts from: nothing of the last
 ||| pass but the dictionaries it found.
 export
 nextPass : TS -> TS
 nextPass st = { dicts := st.dicts } (initState st.moduleFC)
-
-||| A fresh program point for a lambda or `Delay`.
-export
-label : {auto s : Ref TState TS} -> Core Label
-label = do
-  st <- get TState
-  put TState ({ nextLabel $= S } st)
-  pure (MkLabel st.nextLabel)

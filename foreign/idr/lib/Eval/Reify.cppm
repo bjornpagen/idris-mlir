@@ -1,17 +1,16 @@
 // idr.eval:reify: reading a result of compile-time evaluation back as a
-// constant attribute, through the layouts idr-lower built it in.
-// Runs in idr-eval's child, on the memory of the JITed code.
+// constant attribute, through the layouts idr-lower built it in, its boxes
+// by Boxes.cc. Runs in idr-eval's child, on the memory of the JITed code.
 module;
 // The runtime's C ABI: its cells, strings and bignums, as C structs and
-// macros; assert, a macro. No import carries them.
+// macros. No import carries them.
 #include "idris_rt.h"
-
-#include <cassert>
 
 export module idr.eval:reify;
 
 import idr.mlir;
 import idr.dialect;
+import idr.facts;
 import idr.layout;
 
 using namespace mlir;
@@ -23,8 +22,9 @@ struct Unread {
   enum class Why {
     // They take more static data than a result may.
     TooLarge,
-    // A suspension already stored its value over the captures, so the thunk
-    // cannot be rebuilt as a constant. The call stays for runtime.
+    // A suspension was forced: its cell holds the value in place of its
+    // label's captures, so the thunk cannot be rebuilt as a constant. The
+    // call stays for runtime.
     Memoized,
     // The memory holds what no layout describes: an internal error.
     Unreadable,
@@ -35,11 +35,8 @@ struct Unread {
 
 class Reifier {
 public:
-  // `codes` maps the address of the code of each label's closures to the
-  // label's number; the results of one call may take `budget` bytes of
-  // static data.
-  Reifier(layout::Layouts &l, llvm::DenseMap<uint64_t, unsigned> codes, uint64_t budget)
-      : layouts(l), codes(std::move(codes)), budget(budget) {}
+  // The results of one call may take `budget` bytes of static data.
+  Reifier(layout::Layouts &l, uint64_t budget) : layouts(l), budget(budget) {}
 
   // The values of `types` whose components are the words of `slots`, one
   // 8-byte slot each, or why they are not read.
@@ -50,25 +47,58 @@ private:
   // The value of type `type` whose components are the next words of
   // `words`; advances `words`. Null once `unread` says why not.
   mlir::Attribute value(mlir::Type type, llvm::ArrayRef<uint64_t> &words);
+  // The value in the cell or string `word` points to, read once however
+  // many values share it.
+  mlir::Attribute shared(mlir::Type type, uint64_t word);
+  // The value read already at `word` as `type`, or null.
+  mlir::Attribute known(mlir::Type type, uint64_t word);
   // The value in the cell or string `word` points to (or, for a big, the
-  // word itself), read once however many values share it.
+  // word itself).
   mlir::Attribute object(mlir::Type type, uint64_t word);
+  // A box, a list built by one ConAttr::getRun, and a memo cell, read by
+  // Boxes.cc.
+  mlir::Attribute box(mlir::Type type, uint64_t word);
+  mlir::Attribute run(mlir::Type type, mlir::SymbolRefAttr name, CtorOp ctor, unsigned spine,
+                      uint64_t word);
+  mlir::Attribute suspension(CtorOp ctor, uint64_t word);
+  // The constructor of the cell at `word`, a cell of `decl`; null once
+  // `unread` says why not.
+  CtorOp cellCtor(DataOp decl, uint64_t word);
+  // The fields of the cell of `ctor` at `word` that hold another cell of
+  // `ctor`, of type `type`: a list's spine, or a tree's branches.
+  llvm::SmallVector<unsigned> selfFields(mlir::Type type, CtorOp ctor, uint64_t word);
+  // The fields of the cell of `ctor` at `word` but `skip`, counted against
+  // the budget.
+  std::optional<llvm::SmallVector<mlir::Attribute>>
+  cellFields(CtorOp ctor, uint64_t word, std::optional<unsigned> skip = std::nullopt);
+  // The fields of `ctor` but `skip`, each from its components.
+  std::optional<llvm::SmallVector<mlir::Attribute>>
+  fields(CtorOp ctor, llvm::function_ref<llvm::SmallVector<uint64_t>(unsigned field)> components,
+         std::optional<unsigned> skip = std::nullopt);
+  // The constructor `name` of `fields`, or the closure a sum of closures
+  // holds.
+  mlir::Attribute constructor(mlir::SymbolRefAttr name, llvm::ArrayRef<mlir::Attribute> fields);
+  // The label closureLabel names for the constructor `name`, asked once per
+  // constructor.
+  mlir::StringAttr label(mlir::SymbolRefAttr name);
   // The components of `slots` in the cell at `cell`, one word each.
   llvm::SmallVector<uint64_t> read(const char *cell, llvm::ArrayRef<layout::Slot> slots);
-  mlir::Attribute constructor(DataOp data, CtorOp ctor,
-                              llvm::function_ref<llvm::SmallVector<uint64_t>(unsigned field)> fields);
   // Counts `bytes` more of static data against the budget.
   bool spend(uint64_t bytes);
   mlir::Attribute refuse(Unread::Why why, std::string message);
 
   layout::Layouts &layouts;
-  llvm::DenseMap<uint64_t, unsigned> codes;
   uint64_t budget;
   uint64_t spent = 0;
   std::optional<Unread> unread;
   // The values read, by address and type: the results of a round share
   // cells, and so do the constants read from them.
   llvm::DenseMap<std::pair<uint64_t, mlir::Type>, mlir::Attribute> seen;
+  // The cells read inside a run, by address and type, with the run and
+  // their place in it: each is the rest of the run from there, built only
+  // when another value shares it.
+  llvm::DenseMap<std::pair<uint64_t, mlir::Type>, std::pair<ConAttr, unsigned>> suffixes;
+  llvm::DenseMap<mlir::SymbolRefAttr, mlir::StringAttr> labels;
 };
 
 } // namespace idr::eval
@@ -127,22 +157,46 @@ SmallVector<uint64_t> Reifier::read(const char *cell, ArrayRef<layout::Slot> slo
   return words;
 }
 
-// #idr.con<@T::@C, [fields]>, each field from its components.
-Attribute Reifier::constructor(DataOp data, CtorOp ctor,
-                               function_ref<SmallVector<uint64_t>(unsigned)> fields) {
-  MLIRContext *ctx = data.getContext();
+StringAttr Reifier::label(SymbolRefAttr name) {
+  auto [it, fresh] = labels.try_emplace(name);
+  if (fresh)
+    it->second = facts::closureLabel(layouts.getModule(), name);
+  return it->second;
+}
+
+// #idr.con<@T::@C, [fields]>; for a sum of closures, the closure it was made
+// of, #idr.closure<@C, [fields]>: its label is C, its captures the fields.
+Attribute Reifier::constructor(SymbolRefAttr name, ArrayRef<Attribute> fields) {
+  MLIRContext *ctx = name.getContext();
+  if (StringAttr callee = label(name))
+    return ClosureAttr::get(ctx, FlatSymbolRefAttr::get(callee), ArrayAttr::get(ctx, fields));
+  return ConAttr::get(ctx, name, ArrayAttr::get(ctx, fields));
+}
+
+std::optional<SmallVector<Attribute>>
+Reifier::fields(CtorOp ctor, function_ref<SmallVector<uint64_t>(unsigned)> components,
+                std::optional<unsigned> skip) {
   SmallVector<Attribute> values;
   for (unsigned i = 0, e = static_cast<unsigned>(ctor.getFieldTypes().size()); i < e; ++i) {
-    SmallVector<uint64_t> words = fields(i);
+    if (i == skip)
+      continue;
+    SmallVector<uint64_t> words = components(i);
     ArrayRef<uint64_t> rest = words;
     Attribute value = this->value(ctor.getFieldType(i), rest);
     if (!value)
-      return {};
+      return std::nullopt;
     values.push_back(value);
   }
-  auto name = SymbolRefAttr::get(data.getSymNameAttr(),
-                                 {FlatSymbolRefAttr::get(ctor.getSymNameAttr())});
-  return ConAttr::get(ctx, name, ArrayAttr::get(ctx, values));
+  return values;
+}
+
+std::optional<SmallVector<Attribute>> Reifier::cellFields(CtorOp ctor, uint64_t word,
+                                                          std::optional<unsigned> skip) {
+  const layout::Cell &layout = layouts.box(ctor);
+  if (!spend(layout.size))
+    return std::nullopt;
+  return fields(
+      ctor, [&](unsigned field) { return read(pointer<char>(word), layout.fields[field]); }, skip);
 }
 
 Attribute Reifier::value(Type type, ArrayRef<uint64_t> &words) {
@@ -164,12 +218,17 @@ Attribute Reifier::value(Type type, ArrayRef<uint64_t> &words) {
       return refuse(Unread::Why::Unreadable,
                     ("a value of @" + decl.getSymName() + " has tag " + Twine(tag)).str());
     CtorOp ctor = ctors[tag];
-    return constructor(decl, ctor, [&](unsigned field) {
+    std::optional<SmallVector<Attribute>> values = fields(ctor, [&](unsigned field) {
       SmallVector<uint64_t> out;
       for (unsigned slot : layout.fields.find(ctor.getSymName())->second[field])
         out.push_back(mine[layout.offset() + slot]);
       return out;
     });
+    if (!values)
+      return {};
+    return constructor(SymbolRefAttr::get(decl.getSymNameAttr(),
+                                          {FlatSymbolRefAttr::get(ctor.getSymNameAttr())}),
+                       *values);
   }
   uint64_t word = words.front();
   words = words.drop_front();
@@ -181,13 +240,30 @@ Attribute Reifier::value(Type type, ArrayRef<uint64_t> &words) {
   // A small big is its word, which nothing shares.
   if (isa<BigType, NatType>(type) && (word & 1) != 0)
     return object(type, word);
-  auto key = std::make_pair(word, type);
-  if (Attribute known = seen.lookup(key))
-    return known;
+  return shared(type, word);
+}
+
+Attribute Reifier::shared(Type type, uint64_t word) {
+  if (Attribute read = known(type, word))
+    return read;
   Attribute read = object(type, word);
   if (read)
-    seen[key] = read;
+    seen[{word, type}] = read;
   return read;
+}
+
+Attribute Reifier::known(Type type, uint64_t word) {
+  auto key = std::make_pair(word, type);
+  if (Attribute read = seen.lookup(key))
+    return read;
+  auto inside = suffixes.find(key);
+  if (inside == suffixes.end())
+    return {};
+  auto [list, from] = inside->second;
+  Attribute rest = ConAttr::getRun(type.getContext(), list.getCtor(), list.getSpine(),
+                                   list.getRunCells().drop_front(from), list.getTail());
+  seen[key] = rest;
+  return rest;
 }
 
 Attribute Reifier::object(Type type, uint64_t word) {
@@ -208,49 +284,11 @@ Attribute Reifier::object(Type type, uint64_t word) {
     const idris_rt_str *text = idris_rt_big_show(static_cast<idris_rt_big>(word));
     return BigAttr::get(ctx, StringRef(idris_rt_str_bytes(text), text->bytes));
   }
-  const char *cell = pointer<char>(word);
-  const auto *header = pointer<idris_rt_header>(word);
-  if (isa<BoxType>(type)) {
-    DataOp decl = lookupData(layouts.getModule(), type);
-    SmallVector<CtorOp> ctors = decl.getCtors();
-    uint32_t tag = idris_rt_info_tag(header->info);
-    if (tag >= ctors.size())
-      return refuse(Unread::Why::Unreadable,
-                    ("a cell of @" + decl.getSymName() + " has tag " + Twine(tag)).str());
-    CtorOp ctor = ctors[tag];
-    const layout::Cell &layout = layouts.box(ctor);
-    if (!spend(layout.size))
-      return {};
-    return constructor(decl, ctor, [&](unsigned field) { return read(cell, layout.fields[field]); });
-  }
-  // A closure or a suspension: its code says which label it is of. Every
-  // one keeps its code in the same place, right after the header. A
-  // suspension that has run has replaced that code, and the captures with
-  // the value, so there is no thunk to rebuild.
-  uint64_t code = 0;
-  std::memcpy(&code, cell + sizeof(idris_rt_header), sizeof(void *));
-  auto found = codes.find(code);
-  if (found == codes.end()) {
-    if (isa<LazyType>(unrestricted(type)))
-      return refuse(Unread::Why::Memoized, "a suspension has already stored its value");
-    return refuse(Unread::Why::Unreadable, "the code of a closure is no label's");
-  }
-  const layout::Label &label = layouts.label(found->second);
-  const layout::Cell &layout = layouts.closure(label);
-  assert(layout.fields.front().front().offset == sizeof(idris_rt_header));
-  if (!spend(layout.size))
-    return {};
-  SmallVector<Attribute> captures;
-  for (auto [slots, captureType] :
-       llvm::zip_equal(ArrayRef(layout.fields).drop_front(), label.captureTypes())) {
-    SmallVector<uint64_t> components = read(cell, slots);
-    ArrayRef<uint64_t> rest = components;
-    Attribute capture = value(captureType, rest);
-    if (!capture)
-      return {};
-    captures.push_back(capture);
-  }
-  return ClosureAttr::get(ctx, label.callee, ArrayAttr::get(ctx, captures));
+  if (isa<BoxType>(type))
+    return box(type, word);
+  // After idr-defunctionalize every closure and suspension is a sum, and
+  // nothing else a call returns is in a cell.
+  return refuse(Unread::Why::Unreadable, "a value has a type no cell layout describes");
 }
 
 } // namespace idr::eval

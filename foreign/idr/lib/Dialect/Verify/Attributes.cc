@@ -3,8 +3,6 @@
 
 #include "idr/Idr.h"
 
-#include <string_view>
-
 import idr.ownership;
 import idr.verify;
 
@@ -32,20 +30,17 @@ LogicalResult unitOfFunction(Operation *op, NamedAttribute attr) {
 // the dialect about every attribute named `idr.*`, so a name missing here is
 // rejected, not ignored.
 constexpr KnownAttr kKnownAttrs[] = {
+    // A whole program: its own rules, and once idr-rc has made every
+    // reference explicit, the owned stage's, which its grades say it is in
+    // (lib/Ownership).
     {IdrDialect::ProgramAttrHelper::getNameStr(),
      [](Operation *op, NamedAttribute attr) -> LogicalResult {
        if (!isa<ModuleOp>(op) || !isa<UnitAttr>(attr.getValue()))
          return op->emitOpError("expects idr.program as a unit attribute of the module");
-       return idr::verify::program(cast<ModuleOp>(op));
-     }},
-    // After idr-rc every reference is explicit, and consumed exactly once on
-    // every path (lib/Ownership).
-    {IdrDialect::StageAttrHelper::getNameStr(),
-     [](Operation *op, NamedAttribute attr) -> LogicalResult {
-       auto stage = dyn_cast<StringAttr>(attr.getValue());
-       if (!isa<ModuleOp>(op) || !stage || stage.getValue() != ownership::ownedStage)
-         return op->emitOpError("expects idr.stage = \"owned\" on the module");
-       return ownership::verifyOwned(cast<ModuleOp>(op));
+       auto module = cast<ModuleOp>(op);
+       if (failed(idr::verify::program(module)))
+         return failure();
+       return ownership::verifyOwned(module);
      }},
     // The facts of a function (lib/Facts): what Idris proves, whether a
     // cycle breaks at it last, and what idr-effects finds.
@@ -78,10 +73,6 @@ constexpr KnownAttr kKnownAttrs[] = {
        return success();
      }},
 };
-
-// The ownership passes name the attributes they write themselves.
-static_assert(std::string_view(ownership::stageAttr) ==
-              std::string_view(IdrDialect::StageAttrHelper::getNameStr()));
 
 } // namespace
 

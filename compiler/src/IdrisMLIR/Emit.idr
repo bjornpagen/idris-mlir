@@ -9,8 +9,8 @@
 ||| operations and returns its value. The alternatives Idris proved
 ||| impossible are left out, which is why the algebra sees each subterm as it
 ||| was. Control flow is regions: a match is `idr.match` or `idr.match_lit`,
-||| and a lambda or `Delay` is a lifted function whose leading parameters are
-||| its captures.
+||| a lambda `idr.lambda` and a `Delay` `idr.delay`, whose bodies use the
+||| values of their scope where they are.
 |||
 ||| Types are synthesized as they are written, bidirectionally: every
 ||| emitter returns its value's type (TTC drops the types of `let`s), and a
@@ -37,10 +37,10 @@ export
 emit : Source -> Either String String
 emit src = do
   let ix = index src
-  let start = MkES 0 [<] [<]
+  let start = MkES 0 [<]
   (_, statements) <- runStateT start $ do
     datas <- traverse (dataDecl ix) src.datas
     fns <- traverse (function ix src.root) src.fns
-    pure (datas ++ concat fns)
+    pure (datas ++ fns)
   pure (showModule ({ attributes := [Idr.programDiscardable] }
                       (Builtin.moduleOp (MkRegion [] statements))))

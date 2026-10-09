@@ -35,9 +35,10 @@
 // which keeps the loop scalar. Where every array it reads is at least as
 // long as the new one, which one test on entry decides, every index of the
 // loop is within them: there a copy of the generic takes them as inputs,
-// each from the first index the loop runs at, and its body only computes.
-// Otherwise the generic as it was ends the program at the first index
-// outside an array, in index order, as the program does.
+// each from the first index the loop runs at, and its body only computes,
+// since the guard of each such read's index, against its array's length,
+// holds there. Otherwise the generic as it was ends the program at the
+// first index outside an array, in index order, as the program does.
 
 export module idr.lower:loops;
 
@@ -121,21 +122,40 @@ ArrayFoldOp reducedBy(ArrayGenerateOp op) {
 }
 
 // A read of an array from outside a generic at the generic's index: the
-// array, and the index the loop's first iteration reads it at (a
-// generate's loop runs from its element 1 on, `indexOf`).
+// array, the index the loop's first iteration reads it at (a generate's
+// loop runs from its element 1 on, `indexOf`), and the guard of that index
+// against the array's length, unless a proof removed it.
 struct Read {
   Value array;
   int64_t first = 0;
+  CheckInBoundsOp guard;
 };
 
+// Whether `length` is the length of `array` as the guard of an access to it
+// takes it: the array's one dimension, made i64.
+bool isLengthOf(Value length, Value array) {
+  auto word = length.getDefiningOp<arith::IndexCastOp>();
+  auto dim = word ? word.getIn().getDefiningOp<memref::DimOp>() : memref::DimOp();
+  return dim && dim.getConstantIndex() == 0 && viewed(dim.getSource()) == array;
+}
+
 // The read `op` is, a word of an array from outside the generic at
-// linalg.index 0 plus a constant, as the i64 the body takes; none when `op`
-// is no such read.
+// linalg.index 0 plus a constant, as the i64 the body takes, guarded
+// against that array's own length or proved within it; none when `op` is
+// no such read.
 std::optional<Read> readAtIndex(Operation &op, linalg::GenericOp generic) {
   auto get = dyn_cast<ArrayGetOp>(op);
   if (!get)
     return std::nullopt;
-  auto word = get.getIndex().getDefiningOp<arith::IndexCastOp>();
+  Value array = viewed(get.getArray());
+  Value at = get.getIndex();
+  auto guard = at.getDefiningOp<CheckInBoundsOp>();
+  if (guard) {
+    if (!isLengthOf(guard.getLength(), array))
+      return std::nullopt;
+    at = guard.getIndex();
+  }
+  auto word = at.getDefiningOp<arith::IndexCastOp>();
   Value index = word ? word.getIn() : Value();
   int64_t first = 0;
   if (auto plus = index ? index.getDefiningOp<arith::AddIOp>() : arith::AddIOp()) {
@@ -146,12 +166,11 @@ std::optional<Read> readAtIndex(Operation &op, linalg::GenericOp generic) {
     index = plus.getLhs();
   }
   auto loopIndex = index ? index.getDefiningOp<linalg::IndexOp>() : linalg::IndexOp();
-  Value array = viewed(get.getArray());
   Type element = get.getArrayType().getElementType();
   if (!loopIndex || loopIndex.getDim() != 0 || generic.getRegion().isAncestor(array.getParentRegion()) ||
       !element.isIntOrFloat() || get.getValue().getType() != element)
     return std::nullopt;
-  return Read{array, first};
+  return Read{array, first, guard};
 }
 
 // if (every array the body reads at its index has the elements the loop
@@ -159,9 +178,14 @@ std::optional<Read> readAtIndex(Operation &op, linalg::GenericOp generic) {
 void readAsInputs(IRRewriter &rewriter, linalg::GenericOp generic) {
   Block &body = generic.getRegion().front();
   llvm::MapVector<std::pair<Value, int64_t>, unsigned> reads;
+  // The guards of those reads' indices, which the test on entry proves.
+  DenseSet<Operation *> proved;
   for (Operation &op : body.without_terminator())
-    if (std::optional<Read> read = readAtIndex(op, generic))
+    if (std::optional<Read> read = readAtIndex(op, generic)) {
       reads.insert({{read->array, read->first}, reads.size()});
+      if (read->guard)
+        proved.insert(read->guard);
+    }
   if (reads.empty())
     return;
   Location loc = generic.getLoc();
@@ -197,6 +221,11 @@ void readAsInputs(IRRewriter &rewriter, linalg::GenericOp generic) {
         IRMapping mapping;
         mapping.map(body.getArgument(0), args.back());
         for (Operation &op : body) {
+          if (proved.contains(&op)) {
+            auto checked = cast<CheckInBoundsOp>(op);
+            mapping.map(checked.getChecked(), mapping.lookupOrDefault(checked.getIndex()));
+            continue;
+          }
           if (std::optional<Read> read = readAtIndex(op, generic)) {
             auto get = cast<ArrayGetOp>(op);
             mapping.map(get.getValue(), args[reads.lookup({read->array, read->first})]);

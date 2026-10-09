@@ -35,7 +35,7 @@ def IdrTarget : Pass<"idr-target", "::mlir::ModuleOp"> {
     Writes the build's target triple and the CPU on the module as its
     `#llvm.target`, then lets LLVM fill in the CPU's features and the data
     layout (`dlti.dl_spec`). Every later step reads the target there:
-    idr-eval's JIT compiles for it, idr-lower tells the runtime's entry which
+    idr-eval's JIT compiles for it, idr-entry tells the runtime's entry which
     features to test, and idris-mlir-cc compiles the object for it. The
     triple and the default CPU are the build's target entry (CMakeLists.txt).
   }];
@@ -53,16 +53,13 @@ def IdrLower : Pass<"idr-lower", "::mlir::ModuleOp"> {
   let description = [{
     Matches become scf, then a dialect conversion takes every idr type apart
     into its runtime layout and every idr op to arith, scf, llvm and calls of
-    the runtime's C functions. Constants become static data. The root, the
-    only public function, becomes private, and @main runs it. In JIT mode,
-    used by idr-eval, cells come from the evaluation arena, a crash reports
-    to the evaluator, code ticks the evaluator's meter (on entry to every
-    function, and at `idr.may_loop`), and no @main is made.
+    the runtime's C functions. Each guard becomes its comparison and a crash
+    with its cause. Constants become static data, and
+    `@__idr_release_cafs` releases what the static thunks among them hold
+    once forced. It has one mode: a program and compile-time evaluation are
+    lowered alike, and what differs between them is a pass of its own after
+    it, idr-entry for a program and idr-meter for evaluation.
   }];
-  let options = [
-    Option<"jit", "jit", "bool", "false",
-           "Lower for compile-time evaluation: arena cells, crashes reported">,
-  ];
   let dependentDialects = [
     "::mlir::arith::ArithDialect", "::mlir::scf::SCFDialect",
     "::mlir::ub::UBDialect", "::mlir::LLVM::LLVMDialect",
@@ -70,6 +67,33 @@ def IdrLower : Pass<"idr-lower", "::mlir::ModuleOp"> {
     "::mlir::math::MathDialect", "::mlir::memref::MemRefDialect",
     "::mlir::linalg::LinalgDialect"
   ];
+}
+
+def IdrEntry : Pass<"idr-entry", "::mlir::ModuleOp"> {
+  let summary = "Make the lowered root the program's entry: @__idr_main and @main";
+  let description = [{
+    Runs after idr-lower on a program, never in compile-time evaluation.
+    The root, the only public function, becomes private, and its kind comes
+    from its lowered signature: `() -> i64` returns the exit status, and
+    `() -> ()` returns 0. `@__idr_main` calls the root, then
+    `@__idr_release_cafs`, then `idris_rt_main_return`. `@main(i32, ptr)`
+    passes `argc` and `argv`, with the CPU features the target requires, to
+    `idris_rt_start`, which runs `@__idr_main`. Runtime functions are
+    declared where absent.
+  }];
+  let dependentDialects = ["::mlir::LLVM::LLVMDialect", "::mlir::func::FuncDialect"];
+}
+
+def IdrMeter : Pass<"idr-meter", "::mlir::ModuleOp"> {
+  let summary = "Count a tick of the evaluator's meter at every function entry and every loop that may not end";
+  let description = [{
+    Runs after idr-lower in compile-time evaluation only. Every defined
+    function calls `idris_rt_eval_tick` at the start of its entry block, and
+    again right before each `llvm.sideeffect`, which a loop that may not end
+    (`idr.may_loop`) lowers to, so that idr-eval stops a call that does not
+    end within its budget.
+  }];
+  let dependentDialects = ["::mlir::LLVM::LLVMDialect"];
 }
 
 def IdrTailCalls : Pass<"idr-tail-calls", "::mlir::ModuleOp"> {
@@ -104,9 +128,11 @@ def IdrEval : Pass<"idr-eval", "::mlir::ModuleOp"> {
   let description = [{
     Every call whose operands are all constants, of a function that has a
     body and performs no IO (and whose constant operands name only such
-    functions as closures), is run: the round's calls are lowered with
-    idr-lower in JIT mode, compiled once by ORC's LLJIT and run in a child
-    process, and each result replaces its call as constants. Every call runs
+    functions as closures), is run: the round's calls are defunctionalized,
+    lowered with idr-lower as a program is and metered by idr-meter,
+    compiled once by ORC's LLJIT and run in a child process, and each result
+    replaces its call as constants. A round whose closures or suspensions
+    the defunctionalization cannot follow stays for runtime. Every call runs
     metered, within a budget of ticks (counted where code enters a function
     or goes round a loop), arena bytes and stack; a call that reaches only
     total code gets a larger budget than one whose code may diverge
@@ -225,6 +251,24 @@ def IdrInline : Pass<"idr-inline", "::mlir::ModuleOp"> {
   ];
 }
 
+def IdrIsolate : Pass<"idr-isolate", "::mlir::ModuleOp"> {
+  let summary = "Make every idr.lambda and idr.delay an idr.closure or idr.suspend of an outlined function";
+  let description = [{
+    The first step. Innermost first, the region of each `idr.lambda` and
+    `idr.delay` is isolated from above (`makeRegionIsolatedFromAbove`): a
+    constant it uses is cloned into it, and every other value it uses from
+    above becomes a capture. The region becomes the body of a private
+    function named after the enclosing one, `<f>$lam<n>` or `<f>$delay<n>`,
+    whose parameters are the captures, in the order isolation found them,
+    then the lambda's own; its `idr.yield` becomes the return. The function
+    gets `idr.total`, `idr.break_last` when the enclosing function has it,
+    and the location named as the enclosing function's, and the op becomes
+    `idr.closure` or `idr.suspend` of it over the captures. The simplify loop
+    then sees closures and suspensions in their symbol form.
+  }];
+  let dependentDialects = ["::mlir::func::FuncDialect"];
+}
+
 def IdrContify : Pass<"idr-contify", "::mlir::ModuleOp"> {
   let summary = "Inline each function called once from another function";
   let description = [{
@@ -244,7 +288,7 @@ def IdrContify : Pass<"idr-contify", "::mlir::ModuleOp"> {
 }
 
 def IdrDefunctionalize : Pass<"idr-defunctionalize", "::mlir::ModuleOp"> {
-  let summary = "Replace closures of known labels by sums";
+  let summary = "Replace closures and suspensions of known labels by sums";
   let description = [{
     A sparse dataflow analysis finds the labels each `!idr.fn` value may
     hold. Sums are keyed by (closure type, label set): each slot (value,
@@ -254,6 +298,16 @@ def IdrDefunctionalize : Pass<"idr-defunctionalize", "::mlir::ModuleOp"> {
     label's captures: `idr.closure` becomes `idr.con` and `idr.apply` an
     `idr.match` that calls the label. Where a value moves between slots of
     different keys, a match rebuilds it in the other sum, or as a closure.
+
+    A `!idr.lazy` value is followed the same way, through array elements
+    too, and its key becomes a memo sum (`memo`, always a box, its label
+    functions listed in `labels`): a constructor per label, then `running`
+    and `forced` with the value. `idr.suspend` becomes `idr.con` of its
+    label, and `idr.force` takes the box. A label whose function reaches an
+    observable effect is `by_name`, unless a static constant names it. A key
+    left unconverted in a program is the error `unsupported (laziness)` or
+    `unsupported (runtime closure)`, at the op the value flows through where
+    the analysis lost it.
   }];
   let dependentDialects = ["::mlir::ub::UBDialect"];
   let statistics = [
@@ -353,12 +407,12 @@ def IdrNarrow : Pass<"idr-narrow", "::mlir::ModuleOp"> {
 }
 
 def IdrInBounds : Pass<"idr-in-bounds", "::mlir::ModuleOp"> {
-  let summary = "Mark the array accesses proven within their arrays in_bounds";
+  let summary = "Remove every guard whose condition holds where it runs";
   let description = [{
-    An access is proven when no integers satisfy what is known at it and an
-    index below 0 or at least the array's length, as MLIR's Presburger
+    An `idr.check.in_bounds` is proven when no integers satisfy what is
+    known at it and an index below 0 or at least its length, as MLIR's Presburger
     library decides: the conditions of the matches, ifs and loops on its
-    path, the accesses that ran before it, the linear definitions of the
+    path, the guards that held before it, the linear definitions of the
     integers involved (wrapping exactly), the Euclidean quotient of a value
     already proved non-negative divided by a positive constant, a masked
     index below a capacity already proved a positive power of two when the
@@ -386,13 +440,17 @@ def IdrInBounds : Pass<"idr-in-bounds", "::mlir::ModuleOp"> {
     made from also relates when a branch or a max clamps it at 0 to the
     same integer, from the conditions that choose the side.
 
-    A proven access gets `in_bounds`, which drops its crash cause, so that
-    lowering emits no check. The claim rests on facts no local verifier
-    sees, so the pass runs right before lowering.
+    A proven guard is erased, its result replaced by its index: a proof is
+    the guard's absence, so no later pass can invalidate it unseen, and the
+    access it guarded is no longer speculatable. So is any guard that a
+    dominating guard of the same kind and operands already checks, and any
+    that integer range analysis proves where it runs. The pass needs no
+    fixed place in the pipeline: it runs where its index systems see the
+    most.
   }];
   let statistics = [
-    Statistic<"numProved", "proved", "Array accesses proven in bounds">,
-    Statistic<"numChecked", "checked", "Array accesses left checked">,
+    Statistic<"numProved", "proved", "Guards proven and removed">,
+    Statistic<"numChecked", "checked", "Guards left to check at runtime">,
   ];
 }
 
@@ -547,8 +605,9 @@ def IdrRc : Pass<"idr-rc", "::mlir::ModuleOp"> {
         grade `!idr.excl<T>`, on which a take needs no count test and a
         reuse no null test; where it meets an owned position it is shared
         into it (`idr.share`).
-    The module then gets `idr.stage = "owned"`, whose rule the verifier
-    checks after every later pass.
+    The module is then in the owned stage, which its grades say: it holds
+    owned or exclusive values. The verifier checks the stage's rule after
+    every later pass.
   }];
   let options = [
     Option<"reuse", "reuse", "bool", "true", "Reuse the cells of dead boxes">,
@@ -565,6 +624,23 @@ def IdrRc : Pass<"idr-rc", "::mlir::ModuleOp"> {
     Statistic<"numReuses", "reuses", "Constructors built in a taken cell">,
     Statistic<"numBorrowed", "borrowed", "Parameters borrowed">,
     Statistic<"numExclusive", "exclusive", "Values that hold the only reference to their cells">,
+  ];
+}
+
+def IdrDemand : Pass<"idr-demand", "::mlir::ModuleOp"> {
+  let summary = "Reject a program that breaks a promise it was asked to keep";
+  let description = [{
+    Runs after idr-rc, on the grades it wrote, and checks only the promises
+    it is given; with none it does nothing. `in-place`: a parameter of
+    quantity 1 that its function rebuilds in place (an `idr.reuse` takes its
+    token from an `idr.take` of the parameter, or of what a match of it
+    binds) must be passed exclusive (`!idr.excl<T>`) by every call. A call
+    that passes it shared is the error `unsupported (uniqueness)` at the
+    call, with a note at the `idr.dup` that shared it.
+  }];
+  let options = [
+    ListOption<"promises", "promises", "std::string",
+               "The promises to check: in-place">,
   ];
 }
 
@@ -656,9 +732,10 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
         (idr.reuse), and at least one is;
       - `counts-nothing=@f`: no idr.dup or idr.drop in @f, other than a dup of
         static data, which holds no count;
-      - `in-bounds=@f`: every array access in @f is proven within its array
-        (`in_bounds`), and there is at least one;
+      - `in-bounds=@f`: no `idr.check.in_bounds` is left in @f: every
+        array access in it was proven within its array, and it has one;
       - `bounds-checked=@f`: some array access in @f keeps its check;
+      - `no-guards=@f`: no `idr.check.*` op is left in @f;
       - `tests-nothing=@f`: every take in @f is of an exclusive value and
         every reuse builds in an exclusive cell, so no count or null is
         tested; and there is at least one take;

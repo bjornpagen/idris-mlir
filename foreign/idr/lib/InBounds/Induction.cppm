@@ -14,7 +14,7 @@
 // They hold of the first, whose `x` is that operand. Given that they hold
 // of the `x` an iteration starts with, each holds of the value passed back
 // as the next `x` when, on every path that goes round again (what its
-// branches took, the accesses that ran on it, the condition that
+// branches took, the guards that held on it, the condition that
 // continues the loop), the system with that value outside the bound has no
 // integer solution. Wrapping is encoded exactly, so a back edge that may
 // overflow fails the proof unless the path itself excludes the overflow. A

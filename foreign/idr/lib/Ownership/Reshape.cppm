@@ -18,7 +18,6 @@ import :take;
 import :takeatentry;
 import :takefields;
 import :usedafter;
-import :useof;
 import :wheredies;
 
 using namespace mlir;
@@ -27,8 +26,8 @@ namespace idr::ownership {
 
 class Reshape {
 public:
-  Reshape(func::FuncOp fn, Counting &counting, Classes &classes, SymbolTableCollection &symbols)
-      : fn(fn), counting(counting), classes(classes), symbols(symbols) {}
+  Reshape(func::FuncOp fn, Counting &counting, Classes &classes)
+      : fn(fn), counting(counting), classes(classes) {}
 
   // The code this pass counts: blocks of one region each, with matches and
   // the loops over arrays as the only region ops.
@@ -105,10 +104,12 @@ public:
         CtorOp ctor = data ? lookupCtor(data, name.getValue()) : CtorOp();
         if (!ctor || !isa<BoxType>(unrestricted(value.getType())))
           continue;
-        whereDies(value, region.front(), symbols, [&](Block &block, Block::iterator at) {
-          if (!endsInCrash(block) && keepsCountedField(value, ctor, block, at, &region.front()))
-            takeAt(value, ctor, block, at, &region.front());
-        });
+        whereDies(value, region.front(), counting.ownedStage(),
+                  [&](Block &block, Block::iterator at) {
+                    if (!endsInCrash(block) &&
+                        keepsCountedField(value, ctor, block, at, &region.front()))
+                      takeAt(value, ctor, block, at, &region.front());
+                  });
       }
       // The default region has the value itself back, not a view of it to
       // take a reference from while the value drops its own.
@@ -167,8 +168,7 @@ public:
       for (Operation &op : *block)
         if (op.getNumRegions() == 0 && op.getNumResults() != 0 &&
             llvm::any_of(op.getOpOperands(), [&](OpOperand &operand) {
-              return counting.counted(operand.get().getType()) &&
-                     useOf(operand, symbols) == Use::Consume &&
+              return counting.counted(operand.get().getType()) && consumes(operand) &&
                      classes.classOf(operand.get()) == Class::Owned;
             }))
           consumers.push_back(&op);
@@ -187,8 +187,7 @@ public:
         bool reads = false;
         for (Operation *link : chain)
           for (OpOperand &operand : link->getOpOperands()) {
-            if (useOf(operand, symbols) != Use::Consume ||
-                classes.classOf(operand.get()) != Class::Owned)
+            if (!consumes(operand) || classes.classOf(operand.get()) != Class::Owned)
               continue;
             for (OpOperand &other : operand.get().getUses())
               if (Operation *top = block->findAncestorOpInBlock(*other.getOwner());
@@ -270,17 +269,19 @@ private:
       CtorOp ctor = lookupCtor(first, name);
       if (!ctor)
         continue;
-      whereDies(box, *first->getBlock(), symbols, [&](Block &block, Block::iterator at) {
-        if (!endsInCrash(block) && keepsCountedField(box, ctor, block, at, nullptr))
-          takeAt(box, ctor, block, at, nullptr);
-      });
+      whereDies(box, *first->getBlock(), counting.ownedStage(),
+                [&](Block &block, Block::iterator at) {
+                  if (!endsInCrash(block) && keepsCountedField(box, ctor, block, at, nullptr))
+                    takeAt(box, ctor, block, at, nullptr);
+                });
     }
   }
 
   // An op that may move later on its path: one without effects, or one
-  // whose only effect is to be a linear value's one entry or use
+  // whose only effects are to be a linear value's one entry or use
   // (lin.enter, lin.use: an allocation on the linear resource, which no
-  // memory holds).
+  // memory holds) and to take over the owned values it consumes (a free of
+  // their references, which go where it goes).
   static bool movable(Operation *op) {
     if (isMemoryEffectFree(op))
       return true;
@@ -290,8 +291,11 @@ private:
     SmallVector<MemoryEffects::EffectInstance> effects;
     iface.getEffects(effects);
     return llvm::all_of(effects, [](const MemoryEffects::EffectInstance &effect) {
-      return isa<MemoryEffects::Allocate>(effect.getEffect()) &&
-             effect.getResource()->getResourceID() == LinResource::getResourceID();
+      TypeID resource = effect.getResource()->getResourceID();
+      return (isa<MemoryEffects::Allocate>(effect.getEffect()) &&
+              resource == LinResource::getResourceID()) ||
+             (isa<MemoryEffects::Free>(effect.getEffect()) &&
+              resource == ReferenceResource::getResourceID());
     });
   }
 
@@ -313,7 +317,6 @@ private:
   func::FuncOp fn;
   Counting &counting;
   Classes &classes;
-  SymbolTableCollection &symbols;
 };
 
 } // namespace idr::ownership

@@ -3,6 +3,7 @@
 ||| the definition to have, and the hook, what the compiler does with it.
 module IdrisMLIR.Registry.Entry
 
+import IdrisMLIR.Dialect.Idr
 import IdrisMLIR.Registry.Name
 import IdrisMLIR.Rule
 import IdrisMLIR.Types
@@ -160,7 +161,8 @@ showShape = showAt False
 ||| give the Prelude's `Nat` functions instead of their unary recursions.
 public export
 data NatMeaning
-  = ||| The primitive of the arguments: `plus` is `NatAdd`.
+  = ||| The primitive of the arguments: `plus` is `Op BigAdd`, whose sum of
+    ||| naturals is a natural.
     Primitive Prim
   | ||| The primitive of the arguments' Integers, then the natural of its
     ||| Integer: `minus` is the difference, clamped at 0.
@@ -184,14 +186,20 @@ data SystemFact = TargetOs | BackendName
 ||| handler lives with the pass that meets it.
 public export
 data Hook
-  = ||| An IO primitive of Idris's backend contract: its calls are the
-    ||| `idr.io` op of this IO operation. Handler:
-    ||| `Frontend.Translate.application`.
-    IOCall IOOp
+  = ||| A primitive of Idris's backend contract: its calls are the op of
+    ||| this primitive, at the types the call fixes (a buffer's word), on
+    ||| the call's arguments, then the literals listed, the operands the
+    ||| call does not supply (a new buffer's zero byte, `array.new`'s fill).
+    ||| One that performs IO (`primPerformsIO`) is an effect in the world's
+    ||| order, its world after the literals; any other, such as a handle's
+    ||| test for null, is pure.
+    ||| Handler: `Frontend.Translate.application`.
+    IOCall IdrPrim (List Lit)
   | ||| An array primitive of the backend contract, polymorphic in its
-    ||| element: its calls are the `idr.array` op at the element type the
-    ||| call fixes. Handler: `Frontend.Translate.application`.
-    ArrayCall ArrayOp
+    ||| element: its calls are the op of this primitive (`ArrayNew`,
+    ||| `ArrayGet`, `ArraySet`) at the element type the call fixes. Handler:
+    ||| `Frontend.Translate.application`.
+    ArrayCall IdrPrim
   | ||| An external type that is an array: `ArrayData a`, of the element
     ||| its type argument names (`Nothing`), or `Buffer`, of bytes (`Just`
     ||| the element). Handler: `Frontend.Translate.Types.coreType`.
@@ -201,20 +209,22 @@ data Hook
     ||| at the fixed element of an array type without a type argument
     ||| (`Just`). Handler: `Frontend.Translate.application`.
     ArraySize (Maybe Ty)
-  | ||| A standard stream's handle, a foreign constant, as the literal it
-    ||| is: 0 for input, 1 for output, 2 for errors, the one meaning this
-    ||| compiler's runtime gives a `FilePtr`. Handler:
+  | ||| A handle that is a foreign constant, as the literal it is: 0 for
+    ||| input, 1 for output, 2 for errors, all ones for null, the one
+    ||| meaning this compiler's runtime gives a pointer. Handler:
     ||| `Frontend.Translate.application`.
     Handle Lit
-  | ||| An external type that is a machine word: `AnyPtr`, which only the
-    ||| handles inhabit. Handler: `Frontend.Translate.Types.coreType`.
+  | ||| An external type that is a machine word: `AnyPtr` and `Ptr t`, which
+    ||| only the runtime's handles inhabit (`t` names what a handle holds,
+    ||| not how it is represented), and `OSClock`, a clock reading. Handler:
+    ||| `Frontend.Translate.Types.coreType`.
     WordType
-  | ||| A function whose calls build a string from a list once: the
-    ||| Prelude's `pack` and `fastPack` over a `List Char`, its
-    ||| `fastConcat` over a `List String`, which the Prelude's own
-    ||| `%transform` rules make one at runtime. Handler:
-    ||| `Frontend.Translate.application`.
-    Builds Builder
+  | ||| A function whose calls build a string from a list once, by the
+    ||| primitive named: the Prelude's `pack` and `fastPack` over a
+    ||| `List Char` (`StrPack`), its `fastConcat` over a `List String`
+    ||| (`StrConcat`), which the Prelude's own `%transform` rules make one at
+    ||| runtime. Handler: `Frontend.Translate.application`.
+    Builds IdrPrim
   | ||| A `%foreign` definition that stands for a library function of the
     ||| same type and meaning (`fastUnpack` for `unpack`): its calls are
     ||| calls of that function. Handler: `Frontend.Translate.application`.
@@ -233,10 +243,18 @@ data Hook
     NatOperation NatMeaning
   | ||| A library loop over an array's index space (`Linear.Array`'s
     ||| `prim__generate` and `prim__foldl`): its calls at a machine-word
-    ||| element (and accumulator) are the `idr.array` op of that loop, whose
-    ||| body applies the function; at any other instance the definition
-    ||| compiles as written. Handler: `Frontend.Translate.application`.
-    ArrayLoop ArrayLoop
+    ||| element (and accumulator) are the region primitive of that loop
+    ||| (`ArrayGenerate`, `ArrayFold`), whose body applies the function; at
+    ||| any other instance the definition compiles as written. Handler:
+    ||| `Frontend.Translate.application`.
+    ArrayLoop IdrRegionPrim
+  | ||| A library function whose calls end the program with a status: the
+    ||| IO primitive named, after which nothing runs (`ub.unreachable`).
+    ||| `System.exitWith` is one: its body gives the `PrimIO ()` of
+    ||| `prim__exit` any result type by `believe_me`, an escape hatch, sound
+    ||| only because the action does not return. Handler:
+    ||| `Frontend.Translate.application`.
+    Exits IdrPrim
   | ||| A string `System.Info` takes from the compiler: the target's
     ||| operating system, or this backend's name. Handler:
     ||| `Frontend.Translate.application`.
@@ -246,9 +264,6 @@ data Hook
     ||| user's source. Handler:
     ||| `Frontend.Profile.checkReachable`, `Frontend.Profile.checkPragmas`.
     Forbidden Rule
-  | ||| The number of bytes of a string (`stringByteLength`): the length of
-    ||| its UTF-8. Handler: `Frontend.Translate.application`.
-    StrBytes
   | ||| A deprecated name. The text names the replacement, and a program that
     ||| calls the name is rejected. Handler: `Frontend.Profile.checkReachable`.
     Deprecated String
@@ -271,7 +286,7 @@ Show Kind where
 ||| Every hook has exactly one kind, by construction.
 export
 kind : Hook -> Kind
-kind (IOCall _) = Faster
+kind (IOCall _ _) = Faster
 kind (ArrayCall _) = Faster
 kind (ArrayType _) = Faster
 kind (ArraySize _) = Faster
@@ -283,9 +298,9 @@ kind IdentityOnLastArgument = Faster
 kind ProgramRoot = Faster
 kind (NatOperation _) = Faster
 kind (ArrayLoop _) = Faster
+kind (Exits _) = Faster
 kind (SystemInfo _) = Faster
 kind (Forbidden _) = Stricter
-kind StrBytes = Faster
 kind (Deprecated _) = Stricter
 kind LibraryCrash = Faster
 

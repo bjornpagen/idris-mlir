@@ -1,5 +1,5 @@
-// A constant other than zero, an integer or a big: no division by it
-// crashes.
+// A constant other than zero, an integer or a big: a guard of a divisor
+// folds away on it.
 
 #include "idr/Idr.h"
 
@@ -10,11 +10,5 @@ using namespace idr;
 
 bool idr::knownNonZero(Value value) {
   Attribute constant;
-  if (!matchPattern(value, m_Constant(&constant)))
-    return false;
-  if (auto integer = dyn_cast<IntegerAttr>(constant))
-    return !integer.getValue().isZero();
-  if (auto big = dyn_cast<BigAttr>(constant))
-    return big.getValue() != "0";
-  return false;
+  return matchPattern(value, m_Constant(&constant)) && checkHolds(CheckKind::Nonzero, constant);
 }

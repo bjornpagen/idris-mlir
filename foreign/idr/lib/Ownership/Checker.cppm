@@ -20,9 +20,8 @@ namespace idr::ownership {
 
 class Checker final : public Loops {
 public:
-  Checker(Counting &counting, SymbolTableCollection &symbols,
-          function_ref<layout::Layouts *()> layouts)
-      : Loops(counting, symbols), layouts(layouts) {}
+  Checker(Counting &counting, function_ref<layout::Layouts *()> layouts)
+      : Loops(counting), layouts(layouts) {}
 
   LogicalResult check(func::FuncOp fn) {
     Block &entry = fn.getBody().front();
@@ -77,7 +76,7 @@ private:
       Value root = viewRoot(dup.getValue());
       if (isExclusive(root.getType()))
         for (OpOperand &use : root.getUses())
-          if (!isa<ShareOp>(use.getOwner()) && useOf(use, symbols) == Use::Consume)
+          if (!isa<ShareOp>(use.getOwner()) && useOf(use) == Use::Consume)
             return fail(op, root, "takes a reference to a view of an exclusive value, which "
                                   "is then consumed as exclusive (idr.share gives it on as "
                                   "owned)");
@@ -164,7 +163,7 @@ private:
     if (isa<YieldOp>(op) && op->getParentOp() &&
         passedOn.count(op->getParentOp()->getResult(operand.getOperandNumber())))
       return Use::Borrow;
-    return useOf(operand, symbols);
+    return useOf(operand);
   }
 
   // The token of an idr.reuse comes from an idr.take of a cell of the

@@ -6,7 +6,8 @@ module {
   // CHECK-DAG: %[[MIN:.*]] = arith.constant -9223372036854775808 : i64
   // CHECK-DAG: %[[ZERO:.*]] = arith.constant 0 : i64
   // CHECK-DAG: %[[U35:.*]] = arith.constant 35 : i8
-  // A division by zero is not folded: it must crash at runtime.
+  // A division by zero is not folded: its guard crashes before it runs, and
+  // the folder computes nothing a program never reaches.
   // CHECK: %[[Z:.*]] = idr.div signed %{{.*}}, %[[ZERO]] : i64
   // CHECK: return %[[M4]], %[[ONE]], %[[MIN]], %[[ZERO]], %[[U35]], %[[Z]]
   func.func @divfold() -> (i64, i64, i64, i64, i8, i64) {

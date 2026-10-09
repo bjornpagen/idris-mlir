@@ -5,7 +5,6 @@ export module idr.ownership:keepscountedfield;
 import idr.mlir;
 import idr.dialect;
 
-import :counting;
 import :fields;
 
 using namespace mlir;
@@ -22,10 +21,10 @@ namespace idr::ownership {
 // nothing to move.
 export bool keepsCountedField(Value box, CtorOp ctor, Block &block, Block::iterator at,
                               Block *fields) {
-  Counting counting(ctor->getParentOfType<ModuleOp>());
+  SymbolTableCollection symbols;
   bool kept = false;
   eachField(box, ctor, fields, [&](Value field, unsigned) {
-    kept = kept || (counting.counted(field.getType()) &&
+    kept = kept || (holdsReferences(field.getType(), symbols, block.getParentOp()) &&
                     llvm::any_of(field.getUses(),
                                  [&](OpOperand &use) { return fromPoint(block, at, use); }));
   });

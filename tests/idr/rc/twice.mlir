@@ -3,7 +3,7 @@
 // idr-rc counts a module once: in the owned stage its references are
 // explicit already.
 // CHECK: error: idr-rc: the module is already in the owned stage
-module attributes {idr.stage = "owned"} {
+module {
   func.func private @f(%s: !idr.own<!idr.str>) -> !idr.own<!idr.str> {
     return %s : !idr.own<!idr.str>
   }

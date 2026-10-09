@@ -21,6 +21,10 @@ facts::Effects label(Operation *from, StringAttr name) {
 }
 
 // What the closures in a constant may do, through its captures and fields.
+// MLIR's walk reads each sub-attribute once, and a run's cells and its
+// tail as its own, one level deep: never its fields along the spine, which
+// would rebuild the rest of the run at every step. Every cell of a run is
+// its constructor's, so the run's is the one to ask about.
 facts::Effects inConstant(Operation *from, Attribute constant) {
   facts::Effects out;
   constant.walk([&](Attribute nested) {

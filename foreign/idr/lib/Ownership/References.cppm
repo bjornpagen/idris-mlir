@@ -15,8 +15,7 @@ namespace idr::ownership {
 
 class References {
 public:
-  References(Counting &counting, SymbolTableCollection &symbols)
-      : counting(counting), symbols(symbols) {}
+  explicit References(Counting &counting) : counting(counting) {}
 
 protected:
   // The references each value in scope holds, with an undo log so that a
@@ -149,7 +148,6 @@ protected:
   }
 
   Counting &counting;
-  SymbolTableCollection &symbols;
   llvm::DenseMap<Value, int> held;
   llvm::DenseMap<Value, Value> owners;
   SmallVector<Change> log;

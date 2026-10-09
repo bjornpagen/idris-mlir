@@ -62,33 +62,22 @@ struct LowerDivision : IdrPattern<OpT> {
     auto constant = [&](const APInt &value) -> Value {
       return arith::ConstantOp::create(rewriter, loc, IntegerAttr::get(type, value));
     };
-    Value zero = constant(APInt::getZero(width));
-    Value one = constant(APInt(width, 1));
-    auto cause = op.getCrashCause();
-    if (cause)
-      this->runtime.crashIf(
-          rewriter, loc, arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::eq, b, zero),
-          *cause);
     Value result;
+    // The divisor is not zero: a zero one ends the program at its guard.
     if (!op.getIsSigned()) {
-      Value safe = !cause ? b
-                          : arith::SelectOp::create(
-                                rewriter, loc,
-                                arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::eq, b, zero),
-                                one, b);
-      result = OpT::quotient ? Value(arith::DivUIOp::create(rewriter, loc, a, safe))
-                             : Value(arith::RemUIOp::create(rewriter, loc, a, safe));
+      result = OpT::quotient ? Value(arith::DivUIOp::create(rewriter, loc, a, b))
+                             : Value(arith::RemUIOp::create(rewriter, loc, a, b));
     } else {
-      // MIN / -1 and division by zero (already crashed) use divisor 1, which
-      // gives MIN and 0: exactly the wrapped Euclidean results.
+      Value zero = constant(APInt::getZero(width));
+      Value one = constant(APInt(width, 1));
+      // MIN / -1 uses divisor 1, which gives MIN and 0: exactly the wrapped
+      // Euclidean results.
       Value min = constant(APInt::getSignedMinValue(width));
       Value minusOne = constant(APInt::getAllOnes(width));
       Value isMin = arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::eq, a, min);
       Value isM1 = arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::eq, b, minusOne);
       Value overflow = arith::AndIOp::create(rewriter, loc, isMin, isM1);
-      Value isZero = arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::eq, b, zero);
-      Value bad = arith::OrIOp::create(rewriter, loc, overflow, isZero);
-      Value d = arith::SelectOp::create(rewriter, loc, bad, one, b);
+      Value d = arith::SelectOp::create(rewriter, loc, overflow, one, b);
       Value q = arith::DivSIOp::create(rewriter, loc, a, d);
       Value r = arith::RemSIOp::create(rewriter, loc, a, d);
       Value negative = arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::slt, r, zero);
@@ -180,19 +169,12 @@ struct LowerToChar : IdrPattern<ToCharOp> {
   }
 };
 
-// to_byte: a crash unless the value is 0 to 255, then its low byte.
+// to_byte: the low byte of a value from 0 to 255, which its guard checked.
 struct LowerToByte : IdrPattern<ToByteOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(ToByteOp op, OpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-    Value x = adaptor.getValue();
-    if (std::optional<StringRef> cause = op.getCrashCause())
-      runtime.crashIf(rewriter, loc,
-                      arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::ugt, x,
-                                            constantI64(rewriter, loc, 255)),
-                      *cause);
-    rewriter.replaceOpWithNewOp<arith::TruncIOp>(op, rewriter.getI8Type(), x);
+    rewriter.replaceOpWithNewOp<arith::TruncIOp>(op, rewriter.getI8Type(), adaptor.getValue());
     return success();
   }
 };

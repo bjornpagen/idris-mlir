@@ -4,7 +4,7 @@ run: exit status as expected
 stdout: as expected
 stderr: empty
 object: no undefined symbol outside the allowed set
-prelude Prelude.IO: 23 exports, each used (4 compile-time only: HasIO HasLinearIO MkHasIO MkHasLinearIO; 7 decided exclusions, which are outside the language this compiler implements: fork onCollect onCollectAny prim__fork prim__getString prim__threadWait threadWait)
+prelude Prelude.IO: 23 exports, each used (4 compile-time only: HasIO HasLinearIO MkHasIO MkHasLinearIO; 6 decided exclusions, which are outside the language this compiler implements: fork onCollect onCollectAny prim__fork prim__threadWait threadWait)
 budget: kept
 dumps: parse and verify
 simplify: idempotent

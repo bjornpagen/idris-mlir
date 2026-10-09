@@ -2,7 +2,7 @@
 // Taking a record apart yields the components its constructor stored.
 // The size and the array are two fields, or the array is the record's
 // only field and the size is the one it was made with.
-module attributes {idr.stage = "owned"} {
+module {
   idr.data @Pair {
     idr.ctor @MkPair (i64, memref<?xi64>)
   }
@@ -20,7 +20,11 @@ module attributes {idr.stage = "owned"} {
     %hi = arith.cmpi slt, %i, %sz : i64
     %ok = arith.andi %lo, %hi : i1
     %r = scf.if %ok -> !idr.world {
-      %s1 = idr.array.set %view[%i], %i, %w1 : memref<?xi64>, i64
+      %ib1.z = arith.constant 0 : index
+      %ib1.d = memref.dim %view, %ib1.z : memref<?xi64>
+      %ib1.n = arith.index_cast %ib1.d : index to i64
+      %ib1 = idr.check.in_bounds %i, %ib1.n, "array index out of bounds"
+      %s1 = idr.array.set %view[%ib1], %i, %w1 : memref<?xi64>, i64
       scf.yield %s1 : !idr.world
     } else {
       scf.yield %w1 : !idr.world
@@ -39,7 +43,11 @@ module attributes {idr.stage = "owned"} {
     %hi = arith.cmpi slt, %i, %n : i64
     %ok = arith.andi %lo, %hi : i1
     %r = scf.if %ok -> !idr.world {
-      %s1 = idr.array.set %view[%i], %i, %w1 : memref<?xi64>, i64
+      %ib2.z = arith.constant 0 : index
+      %ib2.d = memref.dim %view, %ib2.z : memref<?xi64>
+      %ib2.n = arith.index_cast %ib2.d : index to i64
+      %ib2 = idr.check.in_bounds %i, %ib2.n, "array index out of bounds"
+      %s1 = idr.array.set %view[%ib2], %i, %w1 : memref<?xi64>, i64
       scf.yield %s1 : !idr.world
     } else {
       scf.yield %w1 : !idr.world

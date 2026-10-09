@@ -19,9 +19,11 @@ namespace idr::lower {
 
 namespace {
 
-// An unboxed constructor is its tag and its components in their slots, an
-// empty value in the counted slots it does not use and poison in the
-// others. A boxed one is a new cell holding its tag and components.
+// An unboxed constructor is its tag and its components in their slots, and
+// zero in the slots it does not use: empty where the slot is counted, so
+// that counting the sum counts each of its slots, as static data has it. A
+// boxed one is a new cell holding its tag and components, at its sum's
+// size: a memo cell's fits every state it is written in.
 struct LowerCon : IdrPattern<ConOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(ConOp op, OneToNOpAdaptor adaptor,
@@ -47,10 +49,8 @@ struct LowerCon : IdrPattern<ConOp> {
       out.push_back(arith::ConstantOp::create(
           rewriter, loc, IntegerAttr::get(layout.tag, static_cast<int64_t>(ctor.getTag()))));
     for (auto [slot, value] : llvm::enumerate(slots))
-      out.push_back(value                  ? value
-                    : layout.counted[slot] ? runtime.null(rewriter, loc, layout.slots[slot])
-                                           : ub::PoisonOp::create(rewriter, loc, layout.slots[slot])
-                                                 .getResult());
+      out.push_back(value ? value
+                          : LLVM::ZeroOp::create(rewriter, loc, layout.slots[slot]).getResult());
     rewriter.replaceOpWithMultiple(op, {out});
     return success();
   }
@@ -104,8 +104,8 @@ struct LowerField : IdrPattern<FieldOp> {
   }
 };
 
-// Strings, bigs, boxes and closures are static data; an unboxed
-// constant is its components.
+// Strings, bigs and boxes, memo cells among them, are static data; an
+// unboxed constant is its components.
 struct LowerConstant : IdrPattern<ConstantOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(ConstantOp op, OneToNOpAdaptor,
@@ -116,15 +116,17 @@ struct LowerConstant : IdrPattern<ConstantOp> {
   }
 };
 
-// A pending field is stored as poison: it is written through its
-// destination before anything reads it.
+// A pending field has no value until it is written through its
+// destination, before anything reads it. Until then its components are
+// zero, so that the cell it is stored in is whole: an object slot holds an
+// empty reference.
 struct LowerPending : IdrPattern<PendingOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(PendingOp op, OneToNOpAdaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     SmallVector<Value> out;
     for (Type type : layouts.components(op.getType()))
-      out.push_back(ub::PoisonOp::create(rewriter, op.getLoc(), type));
+      out.push_back(LLVM::ZeroOp::create(rewriter, op.getLoc(), type));
     rewriter.replaceOpWithMultiple(op, {out});
     return success();
   }

@@ -1,10 +1,12 @@
 // idr.eval:round: one round of evaluation: the calls whose outcome is not
-// known yet, lowered together, compiled once by the JIT and run in a
-// child, their results read back into the cache. Nothing here is exported.
+// known yet, lowered together as the program is, compiled once by the JIT
+// and run in a child, their results read back into the cache. Nothing here
+// is exported.
 export module idr.eval:round;
 
 import idr.mlir;
 import idr.dialect;
+import idr.defunctionalize;
 import idr.layout;
 
 import :calls;
@@ -28,11 +30,6 @@ namespace {
 // stake, only the size and the speed.
 constexpr uint64_t resultBytes = uint64_t{1} << 20;
 
-// The table of the address of each label's code, by label number, which the
-// reifier reads a closure's label from: a closure is a code pointer and
-// captures, nothing more.
-constexpr llvm::StringLiteral codesName = "__idr_codes";
-
 // What the child sends for a call: "results" and the results
 // (encodeResults), or "too-large" or "unreadable" and why not.
 constexpr llvm::StringLiteral sentResults = "results";
@@ -41,6 +38,35 @@ constexpr llvm::StringLiteral sentMemoized = "memoized";
 constexpr llvm::StringLiteral sentUnreadable = "unreadable";
 
 std::string runName(size_t i) { return ("__idr_run_" + Twine(i)).str(); }
+
+// Converts the closures and suspensions of `scratch`, the module of a round
+// of `calls` calls, into sums, as idr-defunctionalize converts the
+// program's: what it could not convert, or failure. A function others may
+// call keeps the closures of its signature, so while it runs the wrappers
+// are private, called from one public function, and a closure a call
+// returns becomes a sum like any other. The lowering sees them public
+// again, the entries of the code.
+FailureOr<idr::defunctionalize::Defunctionalized> defunctionalizeCalls(ModuleOp scratch,
+                                                                       size_t calls) {
+  OpBuilder b(scratch.getContext());
+  b.setInsertionPointToEnd(scratch.getBody());
+  Location loc = scratch.getLoc();
+  auto all = func::FuncOp::create(b, loc, "__idr_eval_all", b.getFunctionType({}, {}));
+  b.setInsertionPointToStart(all.addEntryBlock());
+  SmallVector<func::FuncOp> wrappers;
+  for (size_t i = 0; i < calls; ++i) {
+    wrappers.push_back(scratch.lookupSymbol<func::FuncOp>(evalName(i)));
+    wrappers.back().setPrivate();
+    func::CallOp::create(b, loc, wrappers.back(), ValueRange{});
+  }
+  func::ReturnOp::create(b, loc);
+  FailureOr<idr::defunctionalize::Defunctionalized> done =
+      idr::defunctionalize::defunctionalize(scratch);
+  all.erase();
+  for (func::FuncOp wrapper : wrappers)
+    wrapper.setPublic();
+  return done;
+}
 
 } // namespace
 
@@ -54,10 +80,32 @@ LogicalResult evaluateRound(ModuleOp module, ArrayRef<Key> keys,
     site(i).op->emitError("internal error: idr-eval: ") << why;
     return failure();
   };
+  // A call that stays, to run at runtime, with the remark `name` that says
+  // why.
+  auto stay = [&](size_t i, StringRef name, const std::string &why) {
+    Call call = site(i);
+    remark::missed(call.op->getLoc(), remark::RemarkOpts::name(name)
+                                          .category("idr-eval")
+                                          .function(call.callee.getSymName()))
+        << ("the call of @" + call.callee.getSymName() + " stays: " + why).str();
+    cache[keys[i]].stays = true;
+  };
   Phases phases;
   llvm::scope_exit report([&] { phases.report(module.getLoc(), keys.size()); });
   ModuleOp lowered = scratch(module, keys, calls);
   llvm::scope_exit erase([&] { lowered.erase(); });
+  FailureOr<idr::defunctionalize::Defunctionalized> sums =
+      defunctionalizeCalls(lowered, keys.size());
+  if (failed(sums))
+    return internal(0, "defunctionalizing the round's calls failed");
+  // Nothing lowers a closure or a suspension the analysis cannot follow, so
+  // no call of the round can run now: each stays, to run at runtime. That
+  // is no error, only a call left where it was.
+  if (!sums->unknown.empty()) {
+    for (size_t i = 0; i < keys.size(); ++i)
+      stay(i, "Unreadable", "a closure the analysis cannot follow");
+    return success();
+  }
   // The layouts of the values, read before idr-lower takes the types apart.
   // The clone is out of the program, so it takes the program's data layout
   // with it: idr-lower builds the JIT's code in the scratch module, inside
@@ -75,9 +123,10 @@ LogicalResult evaluateRound(ModuleOp module, ArrayRef<Key> keys,
         llvm::to_vector(pristine->lookupSymbol<func::FuncOp>(evalName(i)).getResultTypes()));
 
   phases.lap(phases.prepare);
-  // The executable's own lowering, in JIT mode.
+  // The program's own lowering, metered.
   OpPassManager lower(ModuleOp::getOperationName());
-  lower.addPass(idr::createIdrLower(idr::IdrLowerOptions{/*jit=*/true}));
+  lower.addPass(idr::createIdrLower());
+  lower.addPass(idr::createIdrMeter());
   lower.addPass(createConvertLinalgToLoopsPass());
   lower.addPass(createCanonicalizerPass());
   lower.addPass(createCSEPass());
@@ -118,21 +167,6 @@ LogicalResult evaluateRound(ModuleOp module, ArrayRef<Key> keys,
   toLLVM.addPass(idr::createIdrTailCalls());
   if (failed(runPipeline(toLLVM, lowered)))
     return internal(0, "lowering the round's calls to the LLVM dialect failed");
-  if (unsigned labels = layouts->numLabels()) {
-    SymbolTable symbols(lowered);
-    Location loc = lowered.getLoc();
-    auto type = LLVM::LLVMArrayType::get(ptr, labels);
-    auto table = LLVM::GlobalOp::create(b, loc, type, /*isConstant=*/true, LLVM::Linkage::External,
-                                        codesName, Attribute(), /*alignment=*/8);
-    OpBuilder::InsertionGuard guard(b);
-    b.createBlock(&table.getInitializerRegion());
-    Value codes = LLVM::ZeroOp::create(b, loc, type);
-    for (unsigned id = 0; id < labels; ++id)
-      if (auto code = symbols.lookup<LLVM::LLVMFuncOp>(idr::layout::codeName(id)))
-        codes = LLVM::InsertValueOp::create(b, loc, codes, LLVM::AddressOfOp::create(b, loc, code),
-                                            static_cast<int64_t>(id));
-    LLVM::ReturnOp::create(b, loc, codes);
-  }
   phases.lap(phases.convert);
   std::string why;
   std::unique_ptr<Jit> jit = Jit::compile(lowered, entries, why);
@@ -144,12 +178,7 @@ LogicalResult evaluateRound(ModuleOp module, ArrayRef<Key> keys,
     return module.emitError(*refused);
   phases.lap(phases.jit);
 
-  llvm::DenseMap<uint64_t, unsigned> codes;
-  if (const auto *table = static_cast<const uint64_t *>(jit->address(codesName)))
-    for (unsigned id = 0; id < layouts->numLabels(); ++id)
-      if (table[id] != 0)
-        codes[table[id]] = id;
-  Reifier reifier(*layouts, std::move(codes), resultBytes);
+  Reifier reifier(*layouts, resultBytes);
   auto reify = [&](size_t i, ArrayRef<uint64_t> slots) -> SmallVector<std::string> {
     auto values = reifier.results(resultTypes[i], slots);
     if (!values) {
@@ -173,13 +202,7 @@ LogicalResult evaluateRound(ModuleOp module, ArrayRef<Key> keys,
       if (result.texts.size() != 2)
         return internal(next, "the evaluation child sent no results");
       if (result.texts[0] == sentTooLarge || result.texts[0] == sentMemoized) {
-        remark::missed(call.op->getLoc(), remark::RemarkOpts::name(result.texts[0] == sentTooLarge
-                                                                       ? "TooLarge"
-                                                                       : "Memoized")
-                                              .category("idr-eval")
-                                              .function(call.callee.getSymName()))
-            << ("the call of @" + call.callee.getSymName() + " stays: " + result.texts[1]).str();
-        cache[keys[next++]].stays = true;
+        stay(next++, result.texts[0] == sentTooLarge ? "TooLarge" : "Memoized", result.texts[1]);
         if (result.texts[0] == sentTooLarge)
           ++stats.stayedLarge;
         continue;

@@ -46,6 +46,8 @@ Value viewRoot(Value value) {
 // proves, which its callee's or constructor's type must agree with.
 void shareTainted(ModuleOp module) {
   SymbolTableCollection symbols;
+  // Sharing changes no symbol: the calls find their callees in one table.
+  SymbolScope scope(module, symbols.getSymbolTable(module));
   llvm::SetVector<Value> tainted;
   llvm::DenseMap<Operation *, SmallVector<unsigned>> borrowedRoots;
   module.walk([&](DupOp dup) {
@@ -69,7 +71,7 @@ void shareTainted(ModuleOp module) {
   OpBuilder b(module.getContext());
   for (Value value : tainted)
     for (OpOperand &use : llvm::make_early_inc_range(value.getUses()))
-      if (useOf(use, symbols) == Use::Consume) {
+      if (useOf(use) == Use::Consume) {
         b.setInsertionPoint(use.getOwner());
         use.set(ShareOp::create(b, use.getOwner()->getLoc(), value.getType(), value));
       }

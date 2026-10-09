@@ -4,10 +4,11 @@
 // element layout in its header, and beside the cell its length: an array
 // value is that pair, and memref.dim is the length, no load. A new array
 // writes the fill into every element, each taking a reference, and drops
-// the fill's own. A read checks the index against the length, two
-// registers and no load from the cell, crashes when it is out of bounds,
-// and gives the element a reference of its own. A write checks likewise,
-// drops the old element's reference and stores the new one. An unboxed sum
+// the fill's own. The guard of a read's index tests it against the length,
+// two registers and no load from the cell, and crashes when it is out of
+// bounds; the read then tests nothing, and gives the element a reference of
+// its own. A write's guard tests likewise; the write drops the old
+// element's reference and stores the new one. An unboxed sum
 // element is its slots, counted first. An element of one uncounted word (a
 // double here) is read and written as a memref's element instead: the
 // array's view is a descriptor over the cell, and the load and the store
@@ -27,17 +28,23 @@
 // CHECK-LABEL: func.func private @read(
 // CHECK-SAME: %[[B:[^:]*]]: !llvm.ptr, %[[BL:[^:]*]]: i64, %[[I:[^:]*]]: i64)
 // CHECK-NOT: llvm.load
-// CHECK: %[[OUT:.*]] = llvm.icmp "uge" %[[I]], %[[BL]]
+// CHECK: %[[BD:.*]] = arith.index_cast %[[BL]] : i64 to index
+// CHECK: %[[BN:.*]] = arith.index_cast %[[BD]] : index to i64
+// CHECK: %[[OUT:.*]] = arith.cmpi uge, %[[I]], %[[BN]] : i64
 // CHECK: scf.if %[[OUT]] {
 // CHECK: llvm.call @idris_rt_crash(
 // CHECK: }
+// CHECK-NOT: idris_rt_crash
 // CHECK: %[[P:.*]] = llvm.load %{{.*}} : !llvm.ptr -> !llvm.ptr
 // CHECK: llvm.call @idris_rt_inc(%[[P]])
 // CHECK-LABEL: func.func private @write(
 // CHECK-SAME: %[[C:[^:]*]]: !llvm.ptr, %[[CL:[^:]*]]: i64, %[[J:[^:]*]]: i64,
 // CHECK-NOT: llvm.load
-// CHECK: llvm.icmp "uge" %[[J]], %[[CL]]
+// CHECK: %[[CD:.*]] = arith.index_cast %[[CL]] : i64 to index
+// CHECK: %[[CN:.*]] = arith.index_cast %[[CD]] : index to i64
+// CHECK: arith.cmpi uge, %[[J]], %[[CN]] : i64
 // CHECK: llvm.call @idris_rt_crash(
+// CHECK-NOT: idris_rt_crash
 // CHECK: %[[OLD:.*]] = llvm.load %{{.*}} : !llvm.ptr -> !llvm.ptr
 // CHECK: llvm.call @idris_rt_dec(%[[OLD]])
 // CHECK: llvm.store
@@ -61,16 +68,20 @@
 // CHECK-LABEL: func.func private @readD(
 // CHECK-SAME: %[[E:[^:]*]]: !llvm.ptr, %[[EL:[^:]*]]: i64, %[[K:[^:]*]]: i64)
 // CHECK-NOT: llvm.load
-// CHECK: llvm.icmp "uge" %[[K]], %[[EL]]
+// CHECK: %[[ED:.*]] = arith.index_cast %[[EL]] : i64 to index
+// CHECK: %[[EN:.*]] = arith.index_cast %[[ED]] : index to i64
+// CHECK: arith.cmpi uge, %[[K]], %[[EN]] : i64
 // CHECK: llvm.call @idris_rt_crash(
+// CHECK-NOT: idris_rt_crash
 // CHECK: %[[V:.*]] = builtin.unrealized_conversion_cast %{{.*}} : !llvm.struct<(ptr, ptr, i64, array<1 x i64>, array<1 x i64>)> to memref<?xf64>
 // CHECK: memref.load %[[V]][%{{.*}}] : memref<?xf64>
 // CHECK-NOT: llvm.load
 // CHECK: return
 // CHECK-LABEL: func.func private @writeD(
 // CHECK-NOT: llvm.load
-// CHECK: llvm.icmp "uge"
+// CHECK: arith.cmpi uge
 // CHECK: llvm.call @idris_rt_crash(
+// CHECK-NOT: idris_rt_crash
 // CHECK: memref.store %{{.*}}, %{{.*}}[%{{.*}}] : memref<?xf64>
 // CHECK-NOT: llvm.store
 // CHECK: return
@@ -79,7 +90,7 @@
 // LLVM: llvm.getelementptr
 // LLVM-NOT: unrealized_conversion_cast
 // LLVM-NOT: memref.
-module attributes {idr.program, idr.stage = "owned"} {
+module attributes {idr.program} {
   idr.data @Opt {
     idr.ctor @None ()
     idr.ctor @Some (!idr.str)
@@ -107,11 +118,19 @@ module attributes {idr.program, idr.stage = "owned"} {
     return %a, %w1 : !idr.own<memref<?x!idr.data<@Opt>>>, !idr.world
   }
   func.func private @read(%a: memref<?x!idr.data<@Opt>>, %i: i64, %w: !idr.world) -> (!idr.own<!idr.data<@Opt>>, !idr.world) {
-    %v, %w1 = idr.array.get %a[%i], %w : memref<?x!idr.data<@Opt>> -> !idr.own<!idr.data<@Opt>>
+    %c0 = arith.constant 0 : index
+    %d = memref.dim %a, %c0 : memref<?x!idr.data<@Opt>>
+    %n = arith.index_cast %d : index to i64
+    %j = idr.check.in_bounds %i, %n, "array index out of bounds"
+    %v, %w1 = idr.array.get %a[%j], %w : memref<?x!idr.data<@Opt>> -> !idr.own<!idr.data<@Opt>>
     return %v, %w1 : !idr.own<!idr.data<@Opt>>, !idr.world
   }
   func.func private @write(%a: memref<?x!idr.data<@Opt>>, %i: i64, %y: !idr.own<!idr.data<@Opt>>, %w: !idr.world) -> !idr.world {
-    %w1 = idr.array.set %a[%i], %y, %w : memref<?x!idr.data<@Opt>>, !idr.own<!idr.data<@Opt>>
+    %c0 = arith.constant 0 : index
+    %d = memref.dim %a, %c0 : memref<?x!idr.data<@Opt>>
+    %n = arith.index_cast %d : index to i64
+    %j = idr.check.in_bounds %i, %n, "array index out of bounds"
+    %w1 = idr.array.set %a[%j], %y, %w : memref<?x!idr.data<@Opt>>, !idr.own<!idr.data<@Opt>>
     return %w1 : !idr.world
   }
   func.func private @length(%a: memref<?x!idr.data<@Opt>>) -> index {
@@ -129,11 +148,19 @@ module attributes {idr.program, idr.stage = "owned"} {
     return %a, %w1 : !idr.own<memref<?xf64>>, !idr.world
   }
   func.func private @readD(%a: memref<?xf64>, %i: i64, %w: !idr.world) -> (f64, !idr.world) {
-    %v, %w1 = idr.array.get %a[%i], %w : memref<?xf64> -> f64
+    %c0 = arith.constant 0 : index
+    %d = memref.dim %a, %c0 : memref<?xf64>
+    %n = arith.index_cast %d : index to i64
+    %j = idr.check.in_bounds %i, %n, "array index out of bounds"
+    %v, %w1 = idr.array.get %a[%j], %w : memref<?xf64> -> f64
     return %v, %w1 : f64, !idr.world
   }
   func.func private @writeD(%a: memref<?xf64>, %i: i64, %y: f64, %w: !idr.world) -> !idr.world {
-    %w1 = idr.array.set %a[%i], %y, %w : memref<?xf64>, f64
+    %c0 = arith.constant 0 : index
+    %d = memref.dim %a, %c0 : memref<?xf64>
+    %n = arith.index_cast %d : index to i64
+    %j = idr.check.in_bounds %i, %n, "array index out of bounds"
+    %w1 = idr.array.set %a[%j], %y, %w : memref<?xf64>, f64
     return %w1 : !idr.world
   }
 }

@@ -19,6 +19,7 @@ idr_library(idr_ownership
 		ExclusiveAnalysis.cppm
 		Fields.cppm
 		Followed.cppm
+		InOwnedStage.cppm
 		KeepsCountedField.cppm
 		Loops.cppm
 		NoConstants.cppm
@@ -35,7 +36,6 @@ idr_library(idr_ownership
 		Reuse.cppm
 		ShareTainted.cppm
 		Specialize.cppm
-		Stage.cppm
 		IsStatic.cppm
 		Take.cppm
 		TakeAtEntry.cppm

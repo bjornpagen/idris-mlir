@@ -89,10 +89,12 @@ export namespace idr::canon {
 //
 // A call's result meets the elimination that raising moves into a clone of
 // the callee once the two meet. A string builder meets output that writes
-// it in pieces (writtenInPieces) and the first character, and output meets
-// the empty string, which it does not write. Output of a list meets a
-// constant list, which it writes as its string; not a cell, though it
-// writes one a step at a time where it finds one: moved into the regions
+// it in pieces (writtenInPieces) and the first character, which reads the
+// string through the guard that it is not empty: the guard folds away on a
+// string built with a character or a number in it, and the head after it.
+// Output meets the empty string, which it does not write. Output of a list
+// meets a constant list, which it writes as its string; not a cell, though
+// it writes one a step at a time where it finds one: moved into the regions
 // of a match for a cell, it would follow a chain of choices, each consing
 // onto the list the one before built, into every region of each. A
 // constant, a constructor or a closure meets what reads it and a call it
@@ -101,9 +103,11 @@ export namespace idr::canon {
 //
 // A suspension, built there or constant, meets a force when nothing else
 // uses it, as a closure meets its apply: the force is then the call. A
-// shared suspension does not: the force reads its cell. An `if` takes its
-// branches as suspensions and forces after its match the one the match
-// chose; moved into the match, the force is a call in each region.
+// shared suspension does not: the force reads its cell. Nor does a memo
+// box, which a force takes once suspensions are memo sums: its force reads
+// the cell whatever built it. An `if` takes its branches as suspensions and
+// forces after its match the one the match chose; moved into the match, the
+// force is a call in each region.
 //
 // A box constructor of constants folds into static data, which every
 // holder shares: no take gets its cell as a token, so a consumer that
@@ -134,12 +138,16 @@ bool feeds(Value value, OpOperand &use) {
     auto text = dyn_cast_or_null<StringAttr>(constant);
     return writtenInPieces(value) || (text && text.getValue().empty());
   }
-  if (isa_and_nonnull<StrAppendOp, StrConsOp, StrFromCharOp, StrShowOp>(def))
+  if (isa_and_nonnull<StrAppendOp, StrConsOp, StrFromCharOp, StrShowOp>(def)) {
+    if (auto guard = dyn_cast<CheckNonemptyOp>(consumer))
+      return llvm::any_of(guard->getUsers(), llvm::IsaPred<StrHeadOp>);
     return isa<StrHeadOp>(consumer);
+  }
   if (isa<PutListOp>(consumer))
     return static_cast<bool>(constant);
   if (isa<ForceOp>(consumer))
-    return (constant || isa_and_nonnull<SuspendOp>(def)) && value.hasOneUse();
+    return isa<LazyType>(unrestricted(value.getType())) &&
+           (constant || isa_and_nonnull<SuspendOp>(def)) && value.hasOneUse();
   if (!constant && !isa_and_nonnull<ConOp, ClosureOp>(def))
     return false;
   if (eliminationAt(use) || isa<MatchOp, MatchLitOp, FieldOp, TagOp>(consumer))

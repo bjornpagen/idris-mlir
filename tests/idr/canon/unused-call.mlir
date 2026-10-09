@@ -11,7 +11,8 @@ func.func private @partial(%x: i64) -> i64 {
   return %r : i64
 }
 func.func private @divides(%x: i64) -> i64 attributes {idr.total} {
-  %r = idr.div signed %x, %x : i64
+  %y = idr.check.nonzero %x, "division by zero" : i64
+  %r = idr.div signed %x, %y : i64
   return %r : i64
 }
 func.func private @writes(%x: i64, %w: !idr.world) -> !idr.world attributes {idr.total} {

@@ -28,7 +28,7 @@
 // CHECK: llvm.call @idris_rt_io_put_str(
 // CHECK-NOT: scf.while
 // CHECK-NOT: idris_rt_str_alloc
-module attributes {idr.program, idr.stage = "owned"} {
+module attributes {idr.program} {
   idr.data @Chars box {
     idr.ctor @Nil ()
     idr.ctor @Cons (i32, !idr.box<@Chars>)

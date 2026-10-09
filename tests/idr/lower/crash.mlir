@@ -3,8 +3,9 @@
 // message and location; a function that never returns ends in
 // ub.unreachable after it, and in a match region (now scf) the region
 // yields a value that is never used: poison, or for a reference an empty
-// one. A division
-// by what may be zero crashes first when it is.
+// one. The guard of a division by what may be zero is the same crash, at
+// the division's location, when the divisor is zero, and then gives the
+// divisor to the division, which tests nothing itself.
 // CHECK-DAG: llvm.func @idris_rt_crash(!llvm.ptr, i64) attributes {passthrough = ["noreturn"]}
 // CHECK-DAG: llvm.mlir.constant("idris-mlir: unhandled input for Main.name at Main.idr:3:1\0A")
 // CHECK-DAG: llvm.mlir.constant("idris-mlir: division by zero at Main.idr:9:5\0A")
@@ -22,7 +23,11 @@
 // CHECK: %[[Z:.*]] = arith.cmpi eq, %[[B]], %{{.*}} : i64
 // CHECK: scf.if %[[Z]] {
 // CHECK: llvm.call @idris_rt_crash
+// CHECK: }
+// CHECK-NOT: idris_rt_crash
 // CHECK: arith.divsi
+// CHECK-NOT: idris_rt_crash
+// CHECK: return
 module attributes {idr.program} {
   func.func private @Main.name(%n: i64) -> !idr.str {
     %r = idr.match_lit %n : i64 -> (!idr.str) {
@@ -42,7 +47,8 @@ module attributes {idr.program} {
     ub.unreachable
   }
   func.func private @Main.half(%a: i64, %b: i64) -> i64 {
-    %q = idr.div signed %a, %b : i64 loc("Main.idr":9:5)
+    %c = idr.check.nonzero %b, "division by zero" : i64 loc("Main.idr":9:5)
+    %q = idr.div signed %a, %c : i64 loc("Main.idr":9:5)
     return %q : i64
   }
   func.func @Main.main() -> i64 {

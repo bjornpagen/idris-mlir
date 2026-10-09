@@ -5,7 +5,7 @@
 # form that start a profile fixture; the status is 1 without one.
 header() {
   awk -v field="$2" '
-    !/^--[ \t]*(expect|message|exit|stdout|packages):/ { exit }
+    !/^--[ \t]*(expect|message|exit|stdout|packages|directives):/ { exit }
     {
       key = $0; sub(/^--[ \t]*/, "", key); sub(/:.*$/, "", key)
       if (key == field) { value = $0; sub(/^--[ \t]*[a-z]+:[ \t]*/, "", value); found = 1 }
@@ -32,15 +32,19 @@ profile_prepare() {
 }
 
 # profile_compile: $work/fixture/Main.idr to build/exec/Main, with the
-# packages its header names.
+# packages and the directives its header names: `-- directives:
+# demand-in-place` makes the in-place promise, which a program can break.
 profile_compile() {
   profile_main=$work/fixture/Main.idr
-  profile_packages=
+  profile_options=
   for profile_package in $(header "$profile_main" packages); do
-    profile_packages="$profile_packages -p $profile_package"
+    profile_options="$profile_options -p $profile_package"
   done
-  # shellcheck disable=SC2086 # the packages are words
-  compile_program $profile_packages "$profile_main" Main
+  for profile_directive in $(header "$profile_main" directives); do
+    profile_options="$profile_options --directive $profile_directive"
+  done
+  # shellcheck disable=SC2086 # the packages and directives are words
+  compile_program $profile_options "$profile_main" Main
 }
 
 # profile_reject FIXTURE: `tests/reject/<reason>-<desc>/`, a directory holding
@@ -70,7 +74,12 @@ profile_reject() {
   say "compile: exit $compiled"
   cat "$work/compile.out" "$work/compile.err" > "$work/compile.all"
   reject_count=$(grep -o 'unsupported (' "$work/compile.all" | wc -l | tr -d ' ')
-  if grep -qF "unsupported ($reject_reason)" "$work/compile.all" && [ "$reject_count" -eq 1 ]; then
+  # A rejection is the user's error. An internal error, which may quote a
+  # diagnostic of idris-mlir-cc's that reads the same, is the compiler's.
+  if grep -qF 'internal error' "$work/compile.all"; then
+    say "unsupported ($reject_reason): an internal error, not a rejection"
+    show "$work/compile.all"
+  elif grep -qF "unsupported ($reject_reason)" "$work/compile.all" && [ "$reject_count" -eq 1 ]; then
     say "unsupported ($reject_reason): the only error"
   else
     say "unsupported ($reject_reason): expected once, among $reject_count unsupported errors"

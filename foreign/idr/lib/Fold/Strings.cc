@@ -70,14 +70,13 @@ OpFoldResult StrReverseOp::fold(FoldAdaptor adaptor) {
   });
 }
 
-// Nothing for the empty string: head and tail crash on it, so the op stays.
+// Nothing for a string the guard of head and tail refuses, the empty one:
+// the program never takes its head or tail, since the guard crashes first.
 template <typename Fn>
 OpFoldResult strNonEmpty(MLIRContext *ctx, Attribute operand, Fn fn) {
-  return strUnary(ctx, operand, [&](Scope &scope, const idris_rt_str *s) -> OpFoldResult {
-    if (idris_rt_str_length(s) == 0)
-      return {};
-    return fn(scope, s);
-  });
+  if (!checkHolds(CheckKind::Nonempty, operand))
+    return {};
+  return strUnary(ctx, operand, fn);
 }
 
 OpFoldResult StrTailOp::fold(FoldAdaptor adaptor) {
@@ -100,17 +99,17 @@ OpFoldResult StrBytesLengthOp::fold(FoldAdaptor adaptor) {
   });
 }
 
+// Nothing at an index the guard refuses, outside the string, where the
+// program never reads.
 OpFoldResult StrIndexOp::fold(FoldAdaptor adaptor) {
-  auto i = dyn_cast_or_null<IntegerAttr>(adaptor.getIndex());
-  if (!i)
-    return {};
-  Type type = getType();
+  Attribute index = adaptor.getIndex();
+  Type type = getType(), word = getIndex().getType();
   return strUnary(getContext(), adaptor.getStr(),
                   [&](Scope &, const idris_rt_str *s) -> OpFoldResult {
-                    int64_t index = i.getInt();
-                    if (index < 0 || index >= idris_rt_str_length(s))
+                    Attribute length = wrapped(word, idris_rt_str_length(s));
+                    if (!checkHolds(CheckKind::InBounds, {index, length}))
                       return {};
-                    return wrapped(type, idris_rt_str_index(s, index));
+                    return wrapped(type, idris_rt_str_index(s, cast<IntegerAttr>(index).getInt()));
                   });
 }
 

@@ -3,18 +3,20 @@
 // Raising runs the callee's body where the apply was, so it must not move
 // that body past anything observable. @mk is partial: its body could fail
 // to terminate, so no op with an effect may lie between its call and the
-// apply (output in the first case, a division that may crash in the
-// second), and the apply must be in the call's block (the third: it runs
-// only in one region). A closed call of a pure, total callee is idr-eval's,
-// which runs it to the end (the fourth). A pure and total callee that cannot crash has nothing to
-// observe, so its call is raised even across output (the fifth), and the
-// raised call is where the apply was, after the output.
+// apply (output in the first case, the guard of a division, which may
+// crash, in the second), and the apply must be in the call's block (the
+// third: it runs only in one region). A closed call of a pure, total callee
+// is idr-eval's, which runs it to the end (the fourth). A pure and total
+// callee that cannot crash has nothing to observe, so its call is raised
+// even across output (the fifth), and the raised call is where the apply
+// was, after the output.
 // CHECK-LABEL: func.func @Main.main(
 // CHECK: %[[F1:.*]] = call @mk(
 // CHECK-NEXT: %[[W2:.*]] = idr.io.put_int
 // CHECK-NEXT: %[[R1:.*]] = idr.apply %[[F1]](
 // CHECK-NEXT: %[[F2:.*]] = call @mk(
-// CHECK-NEXT: %[[Q:.*]] = idr.div signed %[[R1]]
+// CHECK-NEXT: %[[G:.*]] = idr.check.nonzero
+// CHECK-NEXT: %[[Q:.*]] = idr.div signed %[[R1]], %[[G]]
 // CHECK-NEXT: %[[R2:.*]] = idr.apply %[[F2]](%[[Q]])
 // CHECK-NEXT: %[[F3:.*]] = call @mk(
 // CHECK-NEXT: idr.match_lit
@@ -50,7 +52,8 @@ module attributes {idr.program} {
     %w2 = idr.io.put_int signed %n, %w1 : i64
     %r1 = idr.apply %f1(%n) : !idr.fn<(i64) -> (i64)>
     %f2 = func.call @mk(%n) : (i64) -> !idr.fn<(i64) -> (i64)>
-    %q = idr.div signed %r1, %n : i64
+    %g = idr.check.nonzero %n, "division by zero" : i64
+    %q = idr.div signed %r1, %g : i64
     %r2 = idr.apply %f2(%q) : !idr.fn<(i64) -> (i64)>
     %f3 = func.call @mk(%n) : (i64) -> !idr.fn<(i64) -> (i64)>
     %r3 = idr.match_lit %n : i64 -> (i64) {

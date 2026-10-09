@@ -158,6 +158,7 @@ foreach(area
 		Canon
 		Canonicalize
 		Defunctionalize
+		Demand
 		Dialect
 		Driver
 		Eval
@@ -167,6 +168,7 @@ foreach(area
 		Graph
 		InBounds
 		Inline
+		Isolate
 		Layout
 		Lower
 		Narrow
@@ -207,10 +209,12 @@ target_link_libraries(idr_dialect
 		idr_expect
 		idr_fold
 		idr_inlining
+		idr_isolate
 		idr_stack
 		idr_specialize
 		idr_eval
 		idr_ownership
+		idr_demand
 		idr_canon
 		idr_ops
 		idr_sharing

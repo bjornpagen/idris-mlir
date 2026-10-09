@@ -23,13 +23,6 @@ record ConId where
   dataId : DataId
   name : String
 
-||| The program point of a lambda or `Delay` in full Core: the identity of a
-||| closure, and of the function lifted from it.
-public export
-record Label where
-  constructor MkLabel
-  index : Nat
-
 ||| An Idris name as it is printed: what the compiler reports, never what it
 ||| compares. It has `Show` and no `Eq`, so code outside the registry can
 ||| name a definition in a message but cannot key behaviour on it.
@@ -55,7 +48,3 @@ export Show DataId where show = (.name)
 export Eq ConId where a == b = a.dataId == b.dataId && a.name == b.name
 export Ord ConId where compare a b = compare (a.dataId, a.name) (b.dataId, b.name)
 export Show ConId where show c = c.name
-
-export Eq Label where a == b = a.index == b.index
-export Ord Label where compare a b = compare a.index b.index
-export Show Label where show l = "lam" ++ show l.index

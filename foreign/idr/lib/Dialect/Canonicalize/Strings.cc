@@ -28,5 +28,6 @@ void PutListOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRCont
 }
 
 void StrHeadOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRContext *context) {
-  results.add<Idr_HeadOfCons, Idr_HeadOfShowInt, Idr_HeadOfShowDouble>(context);
+  results.add<Idr_HeadOfCons, Idr_HeadOfShowInt, Idr_HeadOfShowDouble, Idr_HeadOfCheckedCons,
+              Idr_HeadOfCheckedShowInt, Idr_HeadOfCheckedShowDouble>(context);
 }

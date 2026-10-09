@@ -1,10 +1,15 @@
 // idr.suspend builds a cell and does not run its function. idr.force
 // reads that cell: the first entry computes the value and leaves it there.
+// After idr-defunctionalize the cell is a box of a memo sum, and a force
+// reads its state.
 
 #include "idr/Idr.h"
 
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
+
+import idr.canon;
+import idr.graph;
 
 using namespace mlir;
 using namespace idr;
@@ -29,8 +34,33 @@ struct ForceOfOneUse : OpRewritePattern<ForceOp> {
   }
 };
 
-// A constant suspension used once has nothing to share with. The call is
-// the force, and inlining then sees the body. A second force keeps the
+// Whether `holder` may run while `label` runs: whether the functions bodies
+// refer to lead from `label` to it.
+bool mayRunWithin(func::FuncOp label, func::FuncOp holder) {
+  Operation *table = label->getParentOp();
+  SymbolScope *scope = SymbolScope::of(table);
+  std::optional<SymbolTable> built;
+  if (!scope)
+    built.emplace(table);
+  SymbolTable &symbols = scope ? scope->symbols() : *built;
+  llvm::DenseSet<Operation *> seen{label.getOperation()};
+  SmallVector<func::FuncOp> work{label};
+  while (!work.empty()) {
+    func::FuncOp fn = work.pop_back_val();
+    if (fn == holder)
+      return true;
+    for (func::FuncOp next : graph::refersTo(fn, symbols))
+      if (seen.insert(next.getOperation()).second)
+        work.push_back(next);
+  }
+  return false;
+}
+
+// A constant suspension is a static cell every function that holds it
+// shares. Forced where its label cannot be running, the call is the force,
+// and inlining then sees the body. Where the label may be running, as in a
+// knot whose label holds its own constant, the force must meet the cell's
+// running state, which a call would recurse past. A second force keeps the
 // cell, which is where a pure constant is computed once.
 struct ForceOfOneConstant : OpRewritePattern<ForceOp> {
   using OpRewritePattern::OpRewritePattern;
@@ -46,6 +76,9 @@ struct ForceOfOneConstant : OpRewritePattern<ForceOp> {
       return failure();
     auto fn = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(force, closure.getCallee());
     if (!fn || closure.getCaptures().size() > fn.getNumArguments())
+      return failure();
+    auto holder = force->getParentOfType<func::FuncOp>();
+    if (!holder || mayRunWithin(fn, holder))
       return failure();
     Dialect *dialect = rewriter.getContext()->getLoadedDialect<IdrDialect>();
     SmallVector<Value> operands;
@@ -226,25 +259,53 @@ LogicalResult SuspendOp::verifySymbolUses(SymbolTableCollection &symbols) {
   return success();
 }
 
+// A capture folds only as a constant the dialect builds at its type: a
+// poison capture is the program's value where control never arrives, which
+// no constant holds, so the suspension stays an op around it.
 OpFoldResult SuspendOp::fold(FoldAdaptor adaptor) {
-  if (llvm::is_contained(adaptor.getCaptures(), Attribute()))
-    return {};
+  for (auto [capture, operand] : llvm::zip_equal(adaptor.getCaptures(), getCaptures()))
+    if (!capture || !canon::buildable(capture, operand.getType()))
+      return {};
   return ClosureAttr::get(getContext(), getCalleeAttr(),
                           ArrayAttr::get(getContext(), adaptor.getCaptures()));
 }
 
+// The value a suspension holds, or a memo sum's `forced` state holds.
 LogicalResult ForceOp::verify() {
-  Type value = cast<LazyType>(unrestricted(getSuspension().getType())).getValue();
+  Type cell = unrestricted(getSuspension().getType());
+  Type value;
+  if (auto lazy = dyn_cast<LazyType>(cell)) {
+    value = lazy.getValue();
+  } else {
+    DataOp data = lookupData(*this, cell);
+    if (!data || !isMemo(data))
+      return emitOpError("forces ") << cell << ", which is not a memo sum";
+    CtorOp forced = lookupCtor(data, memoForced);
+    if (!forced || forced.getFieldTypes().size() != 1)
+      return emitOpError("forces ") << cell << ", whose forced state holds no value";
+    value = forced.getFieldType(0);
+  }
   if (unrestricted(getResult().getType()) != unrestricted(value))
     return emitOpError("forces ") << getSuspension().getType() << " to " << getResult().getType();
   return success();
 }
 
-// No effects: an unused force is erased. Not speculatable, so it is not
-// moved onto a path that did not force. The write that shares the value
-// is the lowering of this op, not a second effect.
+// A view of a cell that memoizes has no effects: an unused force is
+// erased. Not speculatable, so it is not moved onto a path that did not
+// force. The write that shares the value is the lowering of this op, not a
+// second effect. A force that takes its cell over, its operand owned, frees
+// it; a force of a sum with a `by_name` label may run that label's output,
+// and stays in order with output.
 void ForceOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &) {}
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
+  Type cell = getSuspension().getType();
+  if (isOwned(cell))
+    effects.emplace_back(MemoryEffects::Free::get(), &getSuspensionMutable(),
+                         ReferenceResource::get());
+  DataOp data = lookupData(*this, cell);
+  if (data && llvm::any_of(data.getCtors(), [](CtorOp ctor) { return ctor.getByName(); }))
+    effects.emplace_back(MemoryEffects::Write::get(), IOResource::get());
+}
 
 void ForceOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRContext *context) {
   results.add<ForceOfOneUse, ForceOfOneConstant, ForceInOneCase, ForceAtCapture>(context);

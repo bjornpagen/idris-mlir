@@ -184,7 +184,7 @@ mutual
   ||| A case tree over its scope's variables, and their types as their
   ||| binders give them (`Typed`).
   export
-  tree : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} -> Ord a =>
+  tree : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
          Ctx -> List (VarInfo a) -> List (Maybe Typed) -> CaseTree vars -> Core (Term a)
   tree ctx env tys (STerm _ tm) = term ctx env tm
   -- Idris proved it cannot be reached. An `Unmatched` leaf of a covering
@@ -253,8 +253,7 @@ mutual
 
   ||| A match on a `Nat`-like value: zero, or a successor binding the
   ||| predecessor. The default stands for whichever the tree leaves out.
-  ||| Each alternative is translated once, so every label stays unique.
-  natCase : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} -> Ord a =>
+  natCase : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
             Ctx -> List (VarInfo a) -> List (Maybe Typed) -> Maybe ClosedTerm -> Loc -> a ->
             List (CaseAlt vars) -> Core (Term a)
   natCase ctx env tys shape loc x alts = do
@@ -269,7 +268,7 @@ mutual
   ||| values), and the default, unless no value takes it (`defaultDead`,
   ||| given as `deadDefault`). The value's shape, if known, rules one of
   ||| the two out, and gives the predecessor its own.
-  natAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} -> Ord a =>
+  natAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                     Ctx -> List (VarInfo a) -> List (Maybe Typed) -> Maybe ClosedTerm -> Bool -> Loc -> a ->
                     List (CaseAlt vars) -> Core (Maybe (Term a), Maybe (Term (Under 1 a)), Maybe (Term a))
   natAlternatives ctx env tys shape deadDefault loc x [] = pure (Nothing, Nothing, Nothing)
@@ -308,7 +307,7 @@ mutual
 
   ||| A match on a compile-time value: the implementation is reduced to its
   ||| constructor, and the alternative's variables stand for its arguments.
-  staticCase : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} -> Ord a =>
+  staticCase : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                Ctx -> List (VarInfo a) -> List (Maybe Typed) -> ClosedTerm -> List (CaseAlt vars) -> Core (Term a)
   staticCase ctx env tys t alts = do
     Just (cn, cargs) <- whnf 64 t
@@ -336,7 +335,7 @@ mutual
   ||| the default, unless no value takes it (`defaultDead`, given as
   ||| `deadDefault`). The value's shape, if known, rules out every other
   ||| constructor and gives the fields their shapes.
-  conAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} -> Ord a =>
+  conAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                     Ctx -> List (VarInfo a) -> List (Maybe Typed) -> Maybe ClosedTerm -> Bool -> DataId ->
                     Maybe Typed -> List (CaseAlt vars) -> Core (List (Alt a), Maybe (Term a))
   conAlternatives ctx env tys shape deadDefault inst scTy [] = pure ([], Nothing)
@@ -376,7 +375,7 @@ mutual
   conAlternatives ctx env tys shape deadDefault inst scTy (ConstCase {} :: _) =
     internal ctx.fc "a constant alternative in a constructor match"
 
-  litAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} -> Ord a =>
+  litAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                     Ctx -> List (VarInfo a) -> List (Maybe Typed) -> List (CaseAlt vars) ->
                     Core (List (Lit, Term a), Maybe (Term a))
   litAlternatives ctx env tys [] = pure ([], Nothing)

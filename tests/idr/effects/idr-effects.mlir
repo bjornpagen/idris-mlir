@@ -25,7 +25,8 @@ func.func private @pure(%x: i64) -> i64 attributes {idr.total} {
   return %r : i64
 }
 
-// A division by a nonzero constant cannot crash; a stale fact goes.
+// A division by a nonzero constant cannot crash, and needs no guard; a
+// stale fact goes.
 // CHECK-LABEL: func.func private @divides_safely(
 // CHECK-SAME: idr.effects = #idr.effects<none>
 func.func private @divides_safely(%x: i64) -> i64 attributes {idr.total, idr.effects = #idr.effects<io, crash>} {
@@ -37,7 +38,8 @@ func.func private @divides_safely(%x: i64) -> i64 attributes {idr.total, idr.eff
 // CHECK-LABEL: func.func private @divides(
 // CHECK-SAME: idr.effects = #idr.effects<crash>
 func.func private @divides(%x: i64) -> i64 attributes {idr.total} {
-  %r = idr.div signed %x, %x : i64
+  %y = idr.check.nonzero %x, "division by zero" : i64
+  %r = idr.div signed %x, %y : i64
   return %r : i64
 }
 
@@ -57,14 +59,19 @@ func.func private @crashes_in_region(%x: i64) -> i64 attributes {idr.total} {
 }
 
 // A byte transfer ends the program when its range lies outside the buffer:
-// io, and the crash.
+// io, and the crash of the guard of its range.
 // CHECK-LABEL: func.func private @transfers(
 // CHECK-SAME: idr.effects = #idr.effects<io, crash>
 func.func private @transfers(%buf: memref<?xi8>, %w: !idr.world) -> !idr.world attributes {idr.total} {
   %zero = arith.constant 0 : i64
   %one = arith.constant 1 : i64
-  %written, %w1 = idr.io.write_bytes %one, %buf[%zero, %one], %w : memref<?xi8>
-  %read, %w2 = idr.io.read_bytes %zero, %buf[%zero, %one], %w1 : memref<?xi8>
+  %c0 = arith.constant 0 : index
+  %d = memref.dim %buf, %c0 : memref<?xi8>
+  %size = arith.index_cast %d : index to i64
+  %at = idr.check.range %zero, %one, %size, "a byte range outside the buffer"
+  %written, %w1 = idr.io.write_bytes %one, %buf[%at, %one], %w : memref<?xi8>
+  %again = idr.check.range %zero, %one, %size, "a byte range outside the buffer"
+  %read, %w2 = idr.io.read_bytes %zero, %buf[%again, %one], %w1 : memref<?xi8>
   return %w2 : !idr.world
 }
 

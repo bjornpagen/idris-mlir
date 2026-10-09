@@ -34,31 +34,62 @@ the prepared runtime needs:
   __gmpz_xor
   _exit
   abort
+  chdir
+  chmod
   clock_gettime
   close
+  closedir
+  environ
+  fclose
+  feof
+  ferror
+  fflush
+  fileno
+  fopen
+  fread
+  fstat
   fsync
+  fwrite
+  getc
+  getcwd
   getenv
+  getpid
   getrlimit
+  ioctl
+  isatty
   ldexp
   madvise
   memcpy
   memmove
   memset
+  mkdir
   mmap
   mprotect
   munmap
+  nanosleep
   open
+  opendir
   pthread_attr_destroy
   pthread_attr_init
   pthread_attr_setstack
   pthread_create
   pthread_join
   read
+  readdir
+  remove
+  rmdir
+  select
+  setenv
   sigaction
   sigaltstack
   sigemptyset
+  strerror
   strlen
   syscall
   sysconf
+  tcgetattr
+  tcsetattr
+  time
+  unsetenv
   write
   writev

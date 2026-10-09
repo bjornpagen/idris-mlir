@@ -12,7 +12,6 @@ using namespace mlir;
 namespace idr {
 
 using fold::bigBinary;
-using fold::bigDivision;
 using fold::bigUnary;
 using fold::compared;
 using fold::extended;
@@ -38,11 +37,18 @@ OpFoldResult BigOrOp::fold(FoldAdaptor adaptor) {
 OpFoldResult BigXorOp::fold(FoldAdaptor adaptor) {
   return bigBinary(getContext(), adaptor.getLhs(), adaptor.getRhs(), idris_rt_big_xor);
 }
+
+// Nothing by a divisor its guard refuses, zero: the program never divides
+// by it, since the guard crashes first.
 OpFoldResult BigDivOp::fold(FoldAdaptor adaptor) {
-  return bigDivision(getContext(), adaptor.getLhs(), adaptor.getRhs(), idris_rt_big_div);
+  if (!checkHolds(CheckKind::Nonzero, adaptor.getRhs()))
+    return {};
+  return bigBinary(getContext(), adaptor.getLhs(), adaptor.getRhs(), idris_rt_big_div);
 }
 OpFoldResult BigModOp::fold(FoldAdaptor adaptor) {
-  return bigDivision(getContext(), adaptor.getLhs(), adaptor.getRhs(), idris_rt_big_mod);
+  if (!checkHolds(CheckKind::Nonzero, adaptor.getRhs()))
+    return {};
+  return bigBinary(getContext(), adaptor.getLhs(), adaptor.getRhs(), idris_rt_big_mod);
 }
 
 OpFoldResult BigNegOp::fold(FoldAdaptor adaptor) {
@@ -116,10 +122,11 @@ OpFoldResult BigToIntOp::fold(FoldAdaptor adaptor) {
   return wrapped(getType(), idris_rt_big_to_int(scope.big(a)));
 }
 
+// Nothing of a Double its guard refuses, one that is not finite.
 OpFoldResult BigFromDoubleOp::fold(FoldAdaptor adaptor) {
-  auto d = dyn_cast_or_null<FloatAttr>(adaptor.getValue());
-  if (!d || !d.getValue().isFinite())
+  if (!checkHolds(CheckKind::Finite, adaptor.getValue()))
     return {};
+  auto d = cast<FloatAttr>(adaptor.getValue());
   Scope scope(getContext());
   return scope.attr(idris_rt_big_from_double(d.getValueAsDouble()));
 }

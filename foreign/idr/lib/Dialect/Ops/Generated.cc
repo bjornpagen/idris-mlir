@@ -181,10 +181,12 @@ concept DivisionOp = requires(Division op) {
   op.getIsSigned();
 };
 
+// Nothing by a divisor its guard refuses: the program never divides by it,
+// since the guard crashes first, and APInt would abort the compiler.
 template <DivisionOp Division>
 OpFoldResult foldDivision(Division op, typename Division::FoldAdaptor adaptor) {
   auto rhs = dyn_cast_or_null<IntegerAttr>(adaptor.getRhs());
-  if (!rhs || rhs.getValue().isZero())
+  if (!rhs || !checkHolds(CheckKind::Nonzero, adaptor.getRhs()))
     return {};
   if (rhs.getValue().isOne())
     return Division::quotient ? OpFoldResult(op.getLhs())

@@ -2,10 +2,11 @@
 // -gen-idris-dialect, which writes a dialect's vocabulary for the Idris side
 // from the dialect's ODS: a builder of each op, over its operands,
 // attributes, regions and results; the enums its attributes take; the
-// dialect's types and attributes whose syntax ODS declares; and its
-// discardable attributes. Emit writes MLIR only through these modules
-// (compiler/src/IdrisMLIR/Dialect/), so what an op is, and how each of its
-// parts is spelled, is said once: in ODS.
+// dialect's types and attributes whose syntax ODS declares; its
+// discardable attributes; and its primitives, the ops Idris names, each a
+// constructor the Idris side builds it from. Emit writes MLIR only through
+// these modules (compiler/src/IdrisMLIR/Dialect/), so what an op is, and how
+// each of its parts is spelled, is said once: in ODS.
 //
 // It is a TableGen backend rather than a program over a dump of the records
 // because it then reads ODS through mlir::tblgen (Operator, Attribute,
@@ -455,6 +456,121 @@ void emitOp(const Operator &op, llvm::raw_ostream &os) {
 }
 
 //===----------------------------------------------------------------------===//
+// Primitives
+//===----------------------------------------------------------------------===//
+
+// An op Idris names as a primitive (Idr_Primitive): one constructor of
+// IdrPrim, or of IdrRegionPrim when it has a body, named after its C++ class
+// without `Op`. The Idris side builds the op from that constructor and its
+// operands alone, so a primitive has no inherent attribute: no constructor
+// could give one its value.
+struct Primitive {
+  std::string constructor;
+  std::string operationName;
+  bool performsIO;
+  // How many arguments a region primitive's body takes; nothing for any
+  // other primitive.
+  std::optional<int64_t> bodyArguments;
+};
+
+// What of `op` its constructor could not give: an inherent attribute, a
+// property, or the segment sizes of its operands or results; or nothing.
+std::optional<std::string> inherent(const Operator &op) {
+  for (int index = 0, e = op.getNumArgs(); index < e; ++index) {
+    mlir::tblgen::Argument arg = op.getArg(index);
+    if (const auto *attribute = llvm::dyn_cast_if_present<NamedAttribute *>(arg)) {
+      if (!attribute->attr.isDerivedAttr())
+        return llvm::formatv("the attribute `{0}`", attribute->name).str();
+    } else if (const auto *property = llvm::dyn_cast_if_present<NamedProperty *>(arg)) {
+      return llvm::formatv("the property `{0}`", property->name).str();
+    }
+  }
+  if (op.getTrait("::mlir::OpTrait::AttrSizedOperandSegments") ||
+      op.getTrait("::mlir::OpTrait::AttrSizedResultSegments"))
+    return std::string("segment sizes");
+  return std::nullopt;
+}
+
+// The primitive `op` is, if Idris names it one.
+std::optional<Primitive> primitiveOf(const Operator &op) {
+  if (!op.getTrait("::idr::Primitive"))
+    return std::nullopt;
+  std::string operationName = op.getOperationName();
+  if (std::optional<std::string> what = inherent(op))
+    llvm::PrintFatalError(op.getLoc(), "the primitive " + operationName + " has " + *what +
+                                           ", which no constructor of a primitive can give");
+  StringRef constructor = op.getCppClassName();
+  constructor.consume_back("Op");
+  Primitive primitive{constructor.str(), operationName, op.getTrait("::idr::PerformsIO") != nullptr,
+                      std::nullopt};
+  if (op.getNumRegions() == 0)
+    return primitive;
+  if (op.getNumRegions() != 1 || op.getRegion(0).isVariadic())
+    llvm::PrintFatalError(op.getLoc(), "the region primitive " + operationName +
+                                           " has more than its one body");
+  // The count is the region constraint's (Idr_BodyRegion), which checks it,
+  // as SizedRegion's `blocks` is the count of blocks it checks.
+  const llvm::Record &body = op.getRegion(0).constraint.getDef();
+  if (!body.getValue("arguments"))
+    llvm::PrintFatalError(op.getLoc(), "the body of the region primitive " + operationName +
+                                           " does not say how many arguments it takes");
+  primitive.bodyArguments = body.getValueAsInt("arguments");
+  return primitive;
+}
+
+// The primitives of the dialect's ops, in the order ODS declares them: the
+// two types of their constructors, and what the Idris side reads of each,
+// its op, whether it performs IO, and a region primitive's arity.
+void emitPrimitives(std::vector<const llvm::Record *> defs, llvm::raw_ostream &os) {
+  llvm::sort(defs, llvm::LessRecordByID());
+  std::vector<Primitive> plain, regions;
+  for (const llvm::Record *def : defs)
+    if (std::optional<Primitive> primitive = primitiveOf(Operator(def)))
+      (primitive->bodyArguments ? regions : plain).push_back(*primitive);
+  auto constructors = [&](const std::vector<Primitive> &primitives) {
+    for (const auto &[index, primitive] : llvm::enumerate(primitives))
+      os << (index == 0 ? "  = " : "  | ") << primitive.constructor << "\n";
+    os << "\n";
+  };
+  if (!plain.empty()) {
+    os << "||| The dialect's primitives (ops with Idr_Primitive and no region), one\n"
+       << "||| constructor each, named after the op's C++ class without `Op`.\n"
+       << "public export\ndata IdrPrim\n";
+    constructors(plain);
+    os << "||| Whether the primitive performs IO (Idr_PerformsIO). Such a primitive\n"
+       << "||| takes the world as its last operand and gives the next as its last\n"
+       << "||| result, except one without operands, which makes a world: it takes\n"
+       << "||| none and gives one.\n"
+       << "export\nprimPerformsIO : IdrPrim -> Bool\n";
+    for (const Primitive &primitive : plain)
+      os << "primPerformsIO " << primitive.constructor << " = "
+         << (primitive.performsIO ? "True" : "False") << "\n";
+    os << "\n||| The operation of a primitive on operands, with its result types\n"
+       << "||| (a primitive has no inherent attribute).\n"
+       << "export\nprimOp : IdrPrim -> List Value -> List MlirType -> Op\n";
+    for (const Primitive &primitive : plain)
+      os << "primOp " << primitive.constructor << " operands results = MkOp "
+         << literal(primitive.operationName) << " operands [] [] [] results\n";
+    os << "\n";
+  }
+  if (!regions.empty()) {
+    os << "||| The dialect's region primitives.\npublic export\ndata IdrRegionPrim\n";
+    constructors(regions);
+    os << "||| The block arguments a region primitive's body takes.\n"
+       << "public export\nregionArity : IdrRegionPrim -> Nat\n";
+    for (const Primitive &primitive : regions)
+      os << "regionArity " << primitive.constructor << " = " << *primitive.bodyArguments << "\n";
+    os << "\n||| The operation of a region primitive on operands and its body, with\n"
+       << "||| its result types.\n"
+       << "export\nregionOp : IdrRegionPrim -> List Value -> Region -> List MlirType -> Op\n";
+    for (const Primitive &primitive : regions)
+      os << "regionOp " << primitive.constructor << " operands body results = MkOp "
+         << literal(primitive.operationName) << " operands [] [body] [] results\n";
+    os << "\n";
+  }
+}
+
+//===----------------------------------------------------------------------===//
 // Types and attributes
 //===----------------------------------------------------------------------===//
 
@@ -667,10 +783,12 @@ bool emitIdrisDialect(const llvm::RecordKeeper &records, llvm::raw_ostream &os) 
   if (!dialect)
     llvm::PrintFatalError("no dialect " + dialectName + " in the records");
 
-  // The dialect's types and attributes, and its ops by name; the enums they
-  // take are found on the way, so the module is written once all are.
-  std::string definitions, ops, enumerations;
-  llvm::raw_string_ostream definitionsOs(definitions), opsOs(ops), enumsOs(enumerations);
+  // The dialect's types and attributes, its ops by name, and its primitives
+  // in the order ODS declares them; the enums they take are found on the
+  // way, so the module is written once all are.
+  std::string definitions, ops, primitives, enumerations;
+  llvm::raw_string_ostream definitionsOs(definitions), opsOs(ops), primitivesOs(primitives),
+      enumsOs(enumerations);
   std::vector<std::string> omitted;
   for (StringRef kind : {"TypeDef", "AttrDef"})
     for (const llvm::Record *def : records.getAllDerivedDefinitionsIfDefined(kind)) {
@@ -683,15 +801,19 @@ bool emitIdrisDialect(const llvm::RecordKeeper &records, llvm::raw_ostream &os) 
                               .str());
     }
   emitDiscardable(*dialect, definitionsOs);
+  std::vector<const llvm::Record *> dialectOps;
   std::vector<std::pair<std::string, const llvm::Record *>> byName;
   for (const llvm::Record *def : records.getAllDerivedDefinitions("Op")) {
     Operator op(def);
-    if (op.getDialectName() == dialectName)
-      byName.emplace_back(op.getOperationName(), def);
+    if (op.getDialectName() != dialectName)
+      continue;
+    dialectOps.push_back(def);
+    byName.emplace_back(op.getOperationName(), def);
   }
   llvm::sort(byName);
   for (const auto &[name, def] : byName)
     emitOp(Operator(def), opsOs);
+  emitPrimitives(dialectOps, primitivesOs);
   for (const auto &[name, used] : enums)
     emitEnum(used, enumsOs);
 
@@ -702,6 +824,7 @@ bool emitIdrisDialect(const llvm::RecordKeeper &records, llvm::raw_ostream &os) 
   section(os, "Enums", enumerations);
   section(os, "Types and attributes", definitions);
   section(os, "Ops", ops);
+  section(os, "Primitives", primitives);
   if (!omitted.empty()) {
     os << "-- Not generated:\n";
     for (const std::string &why : omitted)

@@ -1,0 +1,7 @@
+// The hooks fire: full Core calls none of PrimIO's pointer operations (the
+// null pointer, the test of null, the casts) and not Prelude.IO's read of a
+// string handle, which base's getEnv makes. A name in braces after what a
+// call became is the definition it stands for, not a call.
+// CHECK-NOT: {{(PrimIO.prim__(castPtr|forgetPtr|getNullAnyPtr|nullAnyPtr)|Prelude.IO.prim__getString)[ ([]}}
+// CHECK: Main.nullity (
+// CHECK-NOT: {{(PrimIO.prim__(castPtr|forgetPtr|getNullAnyPtr|nullAnyPtr)|Prelude.IO.prim__getString)[ ([]}}

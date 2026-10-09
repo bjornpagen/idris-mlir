@@ -42,8 +42,6 @@ def Idr_Dialect : Dialect {
   let discardableAttrs = (ins
     // The module is a whole program (verifyProgram).
     "::mlir::UnitAttr":$program,
-    // The ownership stage: "owned" after idr-rc (lib/Ownership).
-    "::mlir::StringAttr":$stage,
     // A function's facts: every loop of its body proved terminating, broken
     // last, its effects.
     "::mlir::UnitAttr":$total,
@@ -101,10 +99,12 @@ def Idr_FnType : Idr_Type<"Fn", "fn", [MemRefElementTypeInterface]> {
   }];
 }
 
-// One cell. Its code pointer is the state: the first force writes the
-// value over the payload and replaces that pointer, and every later force
-// returns what was written. A flag beside the payload could disagree with
-// it; the pointer cannot.
+// One cell, shared by every reference to it. idr-defunctionalize makes each
+// lazy type a memo sum (an idr.data with `memo`, always a box): the
+// constructor the cell holds is its state, one per label until it is
+// forced, `running` while its force runs, and `forced` with the value after.
+// A flag beside the payload could disagree with the state; the constructor
+// cannot.
 def Idr_LazyType : Idr_Type<"Lazy", "lazy", [MemRefElementTypeInterface]> {
   let summary = "a suspension of one value, forced once into this cell";
   let parameters = (ins "::mlir::Type":$value);
@@ -211,16 +211,82 @@ class Idr_Attr<string name, string attrMnemonic, dag params = (ins)>
   let parameters = !con(params, (ins AttributeSelfTypeParameter<"">:$type));
 }
 
+// A constructor with its fields, plain, or a run: n >= 2 cells of one
+// constructor linked through one field, the spine, and ending in a tail,
+// held flat, so that a list constant is one level deep to the printer, the
+// parser, bytecode and every walk, however long it is. A walker that follows
+// the spine steps through getRunCells and then getTail, never through
+// getFields, which builds the rest of the run at each step. One value has one
+// attribute: `get` makes a run exactly where repeated cells form one, and the
+// verifier rejects any other run. What is stored is the cells: a plain con is
+// one cell holding all its fields, with a null tail and spine 0; a run is its
+// cells, each holding its fields without the spine field, then its tail and
+// the spine's index. The generated walk and replace see each cell as an
+// ArrayAttr and the tail as itself, so a run is one level deep to them. A
+// replace rebuilds from the replaced parameters (Base::get) without
+// canonicalizing, so it can make a run that is not canonical, which the
+// verifier rejects.
 def Idr_ConAttr : Idr_Attr<"Con", "con",
-    (ins "::mlir::SymbolRefAttr":$ctor, "::mlir::ArrayAttr":$fields)> {
-  let summary = "a constructor of a sum or box, its fields as attributes";
-  let assemblyFormat = "`<` $ctor `,` $fields `>`";
-  let builders = [
-    AttrBuilder<(ins "::mlir::SymbolRefAttr":$ctor, "::mlir::ArrayAttr":$fields), [{
-      return $_get($_ctxt, ctor, fields, ::mlir::NoneType::get($_ctxt));
-    }]>
-  ];
+    (ins "::mlir::SymbolRefAttr":$ctor, ArrayRefParameter<"::mlir::ArrayAttr">:$cells,
+         OptionalParameter<"::mlir::Attribute">:$tail, "unsigned":$spine)> {
+  let summary = "a constructor of a sum or box, its fields as attributes, a list's cells flat";
+  let hasCustomAssemblyFormat = 1;
   let genVerifyDecl = 1;
+  let skipDefaultBuilders = 1;
+  let builders = [
+    // A run when one field is a run of `ctor` along that field, or the
+    // second cell of one; otherwise the plain con.
+    AttrBuilder<(ins "::mlir::SymbolRefAttr":$ctor, "::mlir::ArrayAttr":$fields)>
+  ];
+  let extraClassDeclaration = [{
+    // What repeated `get` gives for the cells `cells` (each one's fields
+    // without the spine field) linked through field `spine` and ending in
+    // `tail`, built in O(n).
+    static ConAttr getRun(::mlir::MLIRContext *context, ::mlir::SymbolRefAttr ctor,
+                          unsigned spine, ::llvm::ArrayRef<::mlir::ArrayAttr> cells,
+                          ::mlir::Attribute tail);
+    // A run has a tail; a plain con has none.
+    bool isRun() const { return static_cast<bool>(getTail()); }
+    // The number of cells: 1 for a plain con.
+    unsigned getRunLength() const { return static_cast<unsigned>(getCells().size()); }
+    // A run's cells' fields without the spine field; empty for a plain con,
+    // whose one cell is its fields (getFields).
+    ::llvm::ArrayRef<::mlir::ArrayAttr> getRunCells() const {
+      return isRun() ? getCells() : ::llvm::ArrayRef<::mlir::ArrayAttr>();
+    }
+    // Field `index` of the first cell: O(1) off the spine, and on it the run
+    // from the second cell.
+    ::mlir::Attribute getField(unsigned index) const;
+    // The first cell's fields, for both forms: O(n) on a run, which builds
+    // the rest of the run.
+    ::mlir::ArrayAttr getFields() const;
+  private:
+    // The attribute of stored parameters that get, getRun and the parser
+    // have made canonical. ODS completes the storage only in the unit that
+    // registers it, so these reach Base::get and Base::getChecked there.
+    static ConAttr getStored(::mlir::MLIRContext *context, ::mlir::SymbolRefAttr ctor,
+                             ::llvm::ArrayRef<::mlir::ArrayAttr> cells, ::mlir::Attribute tail,
+                             unsigned spine, ::mlir::Type type);
+    static ConAttr getStoredChecked(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+                                    ::mlir::MLIRContext *context, ::mlir::SymbolRefAttr ctor,
+                                    ::llvm::ArrayRef<::mlir::ArrayAttr> cells,
+                                    ::mlir::Attribute tail, unsigned spine, ::mlir::Type type);
+  public:
+  }];
+  let extraClassDefinition = [{
+    $cppClass $cppClass::getStored(::mlir::MLIRContext *context, ::mlir::SymbolRefAttr ctor,
+                                   ::llvm::ArrayRef<::mlir::ArrayAttr> cells,
+                                   ::mlir::Attribute tail, unsigned spine, ::mlir::Type type) {
+      return Base::get(context, ctor, cells, tail, spine, type);
+    }
+    $cppClass $cppClass::getStoredChecked(
+        ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+        ::mlir::MLIRContext *context, ::mlir::SymbolRefAttr ctor,
+        ::llvm::ArrayRef<::mlir::ArrayAttr> cells, ::mlir::Attribute tail, unsigned spine,
+        ::mlir::Type type) {
+      return Base::getChecked(emitError, context, ctor, cells, tail, spine, type);
+    }
+  }];
 }
 
 def Idr_ClosureAttr : Idr_Attr<"Closure", "closure",
@@ -295,6 +361,7 @@ def Idr_CrashResource : Resource<"::idr::CrashResource">;
 def Idr_IOResource : Resource<"::idr::IOResource">;
 def Idr_DivergenceResource : Resource<"::idr::DivergenceResource">;
 def Idr_LinResource : Resource<"::idr::LinResource">;
+def Idr_ReferenceResource : Resource<"::idr::ReferenceResource">;
 
 // Every discardable attribute of an idr op is one the dialect defines, or
 // one our own tools read.
@@ -338,6 +405,39 @@ def Idr_PerformsIO : NativeOpTrait<"PerformsIO"> {
   let cppNamespace = "::idr";
 }
 
+// Where an op takes over the reference an operand holds, said once, here,
+// beside the op: idr-rc places counts by it (idr::consumes), and after idr-rc
+// an op whose only effect is what it takes over reports a Free of what it
+// takes owned (idr::consumedEffects), so that no pass drops it as dead.
+def Idr_ConsumingOpInterface : OpInterface<"ConsumingOpInterface"> {
+  let cppNamespace = "::idr";
+  let description = "An op that takes over the reference an operand holds.";
+  let methods = [
+    InterfaceMethod<"Whether the operand at `number` is taken over.",
+                    "bool", "consumesOperand", (ins "unsigned":$number), "",
+                    [{ return $_op.consumedByTrait(number); }]>,
+  ];
+}
+
+// `groups`: the ODS operand groups the op takes over, as "0" or "0, 2".
+// The trait is ::idr::ConsumesOperands<groups>::Impl: a ParamNativeOpTrait
+// names ::mlir::OpTrait:: unless its class sets the namespace, as
+// Idr_MayCrashTrait does.
+class Idr_ConsumesOperandsTrait<string groups>
+    : ParamNativeOpTrait<"ConsumesOperands", groups> {
+  let cppNamespace = "::idr";
+}
+class Idr_Consumes<string groups>
+    : TraitList<[Idr_ConsumesOperandsTrait<groups>, Idr_ConsumingOpInterface]>;
+
+// An op whose only effect is what it takes over, reported by the trait.
+class Idr_ConsumesOnly<string groups>
+    : TraitList<[Idr_Consumes<groups>, MemoryEffectsOpInterface, AlwaysSpeculatable]>;
+
+// An op Idris names as a primitive: idris-mlir-tblgen generates its
+// constructor of `IdrPrim` (or `IdrRegionPrim`) for the Idris side.
+def Idr_Primitive : NativeOpTrait<"Primitive"> { let cppNamespace = "::idr"; }
+
 //===----------------------------------------------------------------------===//
 // Data declarations
 //===----------------------------------------------------------------------===//
@@ -357,10 +457,20 @@ def Idr_DataOp : Idr_Op<"data", [SymbolName, Idr_PublicSymbol, Symbol, SymbolTab
   // `closures`: a sum idr-defunctionalize made of closures, one constructor
   // per label, named after the label's function, whose fields are its
   // captures: a value of it is a closure.
-  let arguments = (ins SymbolNameAttr:$sym_name, UnitAttr:$box, UnitAttr:$closures);
+  // `memo`: a sum idr-defunctionalize made of a lazy type, always a box, so
+  // that two references see one memo: one constructor per label, as a
+  // closure sum has, then `running` and `forced` with the value. A force
+  // writes its cell from one state into the next. `labels` names the label
+  // functions, here where the module resolves them, so that every
+  // interprocedural analysis before idr-lower sees each one taken by address
+  // and keeps its body.
+  let arguments = (ins SymbolNameAttr:$sym_name, UnitAttr:$box, UnitAttr:$closures,
+                       UnitAttr:$memo, OptionalAttr<FlatSymbolRefArrayAttr>:$labels);
   let regions = (region SizedRegion<1>:$body);
-  let assemblyFormat =
-      "$sym_name (`box` $box^)? (`closures` $closures^)? attr-dict-with-keyword $body";
+  let assemblyFormat = [{
+    $sym_name (`box` $box^)? (`closures` $closures^)? (`memo` $memo^)?
+    (`labels` $labels^)? attr-dict-with-keyword $body
+  }];
   let hasVerifier = 1;
   let extraClassDeclaration = [{
     ::llvm::SmallVector<class CtorOp> getCtors();
@@ -371,12 +481,15 @@ def Idr_DataOp : Idr_Op<"data", [SymbolName, Idr_PublicSymbol, Symbol, SymbolTab
 
 // A field's quantity is its type: !idr.erased, !idr.lin<T> or T. A
 // constructor's tag is its position in its declaration, so no attribute
-// restates it.
+// restates it. `by_name`: a label of a memo sum whose function reaches an
+// observable effect, so that the effect happens where the value is demanded:
+// its cell is never written, and every force runs the function.
 def Idr_CtorOp : Idr_Op<"ctor", [SymbolName, Idr_PublicSymbol, Symbol, HasParent<"DataOp">]> {
   let summary = "declares one constructor of an idr.data type";
-  let arguments = (ins SymbolNameAttr:$sym_name, TypeArrayAttr:$field_types);
+  let arguments = (ins SymbolNameAttr:$sym_name, TypeArrayAttr:$field_types,
+                       UnitAttr:$by_name);
   let assemblyFormat = [{
-    $sym_name custom<FieldTypes>($field_types) attr-dict
+    $sym_name custom<FieldTypes>($field_types) (`by_name` $by_name^)? attr-dict
   }];
   let hasVerifier = 1;
   let extraClassDeclaration = [{
@@ -408,11 +521,13 @@ def Idr_ConstantOp : Idr_Op<"constant", [ConstantLike, Pure,
   }];
 }
 
-// A box's idr.con allocates its result; any other is Pure.
+// A box's idr.con allocates its result; any other is Pure, until idr-rc
+// makes its fields owned, which it takes over.
 def Idr_ConOp : Idr_Op<"con", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     DeclareOpInterfaceMethods<ConditionallySpeculatable>,
-    DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
+    DeclareOpInterfaceMethods<SymbolUserOpInterface>,
+    Idr_Consumes<"0">]> {
   let summary = "builds a constructor value";
   let arguments = (ins SymbolRefAttr:$ctor, Variadic<AnyType>:$fields);
   let results = (outs Idr_SumValue:$result);
@@ -507,7 +622,8 @@ def Idr_DestOfOp : Idr_Op<"dest.of", [Pure,
 def Idr_DestWriteOp : Idr_Op<"dest.write", [
     PredOpTrait<"the value is what the destination holds, owned",
       And<[CPred<"::idr::isOwned($value.getType())">,
-           CPred<"::idr::view($value.getType()) == ::llvm::cast<::idr::DestType>($dest.getType()).getValue()">]>>]> {
+           CPred<"::idr::view($value.getType()) == ::llvm::cast<::idr::DestType>($dest.getType()).getValue()">]>>,
+    Idr_Consumes<"1">]> {
   let summary = "writes the value of a pending field, consuming its reference";
   let arguments = (ins Arg<Idr_DestType, "", [MemWrite]>:$dest, AnyType:$value);
   let assemblyFormat = "$dest `,` $value attr-dict `:` type($dest) `,` type($value)";
@@ -563,11 +679,17 @@ def Idr_MatchLitOp : Idr_MatchOpBase<"match_lit"> {
                        ArrayAttr:$cases);
 }
 
-def Idr_YieldOp : Idr_Op<"yield", [Pure, ReturnLike, Terminator,
-    ParentOneOf<["MatchOp", "MatchLitOp", "ArrayGenerateOp", "ArrayFoldOp"]>,
+// A match and an array loop branch into their regions, and the yield goes on
+// to what its parent says. A lambda or a delay does not: its body runs when
+// the closure is applied or the suspension forced, so the yield that ends it
+// has no region successor (lib/Dialect/Ops/Regions.cc), where the interface's
+// default would ask the parent as a region branch, which it is not.
+def Idr_YieldOp : Idr_Op<"yield", [Idr_ConsumesOnly<"0">, ReturnLike, Terminator,
+    ParentOneOf<["MatchOp", "MatchLitOp", "ArrayGenerateOp", "ArrayFoldOp",
+                 "LambdaOp", "DelayOp"]>,
     DeclareOpInterfaceMethods<RegionBranchTerminatorOpInterface,
-        ["getMutableSuccessorOperands"]>]> {
-  let summary = "ends a region of a match, or the body of an array loop, with its results";
+        ["getMutableSuccessorOperands", "getSuccessorRegions"]>]> {
+  let summary = "ends a region of a match, a lambda or a delay, or the body of an array loop, with its results";
   let arguments = (ins Variadic<AnyType>:$results);
   let assemblyFormat = "attr-dict ($results^ `:` type($results))?";
 }
@@ -576,7 +698,8 @@ def Idr_YieldOp : Idr_Op<"yield", [Pure, ReturnLike, Terminator,
 // Closures
 //===----------------------------------------------------------------------===//
 
-def Idr_ClosureOp : Idr_Op<"closure", [Pure,
+// A closure takes its captures over.
+def Idr_ClosureOp : Idr_Op<"closure", [Idr_ConsumesOnly<"0">,
     DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
   let summary = "a closure of a function: its leading parameters are the captures";
   let arguments = (ins FlatSymbolRefAttr:$callee, Variadic<AnyType>:$captures);
@@ -588,10 +711,11 @@ def Idr_ClosureOp : Idr_Op<"closure", [Pure,
   let hasVerifier = 1;
 }
 
-// Builds the cell. Does not run the function: a force does, and only the
-// first one. Folding to #idr.closure keeps one constant for every use, the
+// Builds the cell, which takes the captures over. Does not run the
+// function: a force does, the first one, or every one for a label that is
+// `by_name`. Folding to #idr.closure keeps one constant for every use, the
 // same attribute a closure uses, at this type.
-def Idr_SuspendOp : Idr_Op<"suspend", [Pure,
+def Idr_SuspendOp : Idr_Op<"suspend", [Idr_ConsumesOnly<"0">,
     DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
   let summary = "a suspension of a function: every parameter is a capture";
   let arguments = (ins FlatSymbolRefAttr:$callee, Variadic<AnyType>:$captures);
@@ -603,28 +727,60 @@ def Idr_SuspendOp : Idr_Op<"suspend", [Pure,
   let hasVerifier = 1;
 }
 
-// Reads the cell. Not a call of a shared suspension: that would run the
-// body at every use. A suspension with this one use is the call, at this
-// point. Memory-effect-free so an unused force is erased, and not
-// speculatable so one is not hoisted into a path that did not force.
+// What Emit writes for a lambda and for a delay: the body is the region, and
+// the captures are the values it uses from above. Building either runs
+// nothing, so the body's effects are not the op's, as they are not an
+// idr.closure's or an idr.suspend's. The lambda's block takes the parameters
+// of its !idr.fn type, the delay's none, and each ends in idr.yield of the
+// result, or in ub.unreachable. idr-isolate, the first step, makes each an
+// idr.closure or idr.suspend of a function of its own, the captures its
+// leading parameters.
+def Idr_LambdaOp : Idr_Op<"lambda", [SingleBlock, Pure,
+    AutomaticAllocationScope]> {
+  let summary = "a closure whose body is its region; its captures are the values it uses from above";
+  let results = (outs Idr_FnType:$result);
+  let regions = (region SizedRegion<1>:$body);
+  let assemblyFormat = "attr-dict `:` qualified(type($result)) $body";
+  let hasVerifier = 1;
+}
+
+def Idr_DelayOp : Idr_Op<"delay", [SingleBlock, Pure]> {
+  let summary = "a suspension whose body is its region; its captures are the values it uses from above";
+  let results = (outs Idr_LazyValue:$result);
+  let regions = (region SizedRegion<1>:$body);
+  let assemblyFormat = "attr-dict `:` type($result) $body";
+  let hasVerifier = 1;
+}
+
+// Reads the cell: a suspension, or, after idr-defunctionalize, the box of a
+// memo sum. Not a call of a shared suspension: that would run the body at
+// every use. A suspension with this one use is the call, at this point. Its
+// effects are the cell's: none for a view of a cell that memoizes, so an
+// unused force is erased; the cell freed when the force takes it over; the
+// IO resource when a label of its sum is `by_name`. Not speculatable, so one
+// is not hoisted into a path that did not force. Whether it takes its cell
+// over is where it is, its operand's last use, as for a match's scrutinee,
+// not a fact of the op, so it does not declare consumption.
 def Idr_ForceOp : Idr_Op<"force", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
   let summary = "the value of a suspension, computed on the first force and shared";
-  let arguments = (ins Idr_LazyValue:$suspension);
+  let arguments = (ins AnyTypeOf<[Idr_LazyValue, Idr_BoxValue]>:$suspension);
   let results = (outs AnyType:$result);
   let assemblyFormat = "$suspension attr-dict `:` type($suspension) `->` type($result)";
   let hasVerifier = 1;
   let hasCanonicalizer = 1;
 }
 
-// The callee is a value, so the effects are unknown.
+// The callee is a value, so the effects are unknown. The arguments are
+// taken over, as a call's are.
 def Idr_ApplyOp : Idr_Op<"apply", [CallOpInterface,
     TypesMatchWith<"callee input types match argument types", "callee", "args",
                    "::llvm::cast<FnType>($_self).getInputs()",
                    "::idr::sameCarriers">,
     TypesMatchWith<"callee result types match result types", "callee", "results",
                    "::llvm::cast<FnType>($_self).getResults()",
-                   "::idr::sameCarriers">]> {
+                   "::idr::sameCarriers">,
+    Idr_Consumes<"1">]> {
   let summary = "applies a closure to arguments";
   let arguments = (ins Idr_FnType:$callee, Variadic<AnyType>:$args,
                        OptionalAttr<DictArrayAttr>:$arg_attrs,
@@ -664,7 +820,7 @@ def Idr_CrashOp : Idr_Op<"crash", [Idr_MayCrash<>]> {
 
 // A trusted library's crash of a string it computed. The message is the
 // string's text. The op does not return; Emit follows it with unreachable.
-def Idr_CrashStrOp : Idr_Op<"crash_str", [Idr_CallsRuntime, Idr_MayCrash<>]> {
+def Idr_CrashStrOp : Idr_Op<"crash_str", [Idr_CallsRuntime, Idr_MayCrash<>, Idr_Primitive]> {
   let summary = "ends the program with a string's text";
   let arguments = (ins Idr_StrType:$message);
   let assemblyFormat = "$message attr-dict";
@@ -675,12 +831,11 @@ def Idr_CrashStrOp : Idr_Op<"crash_str", [Idr_CallsRuntime, Idr_MayCrash<>]> {
   }];
 }
 
-// Created by idr-tail-loops in loops of functions that are
-// not total, and by idr-lower in JIT mode on entry to them, where it is the
-// tick that lets idr-eval stop a call that does not end; never written by
-// Emit. MLIR deletes a region op without effects even if it never finishes;
-// this op's effect keeps such a loop, and orders it with output as a crash
-// is.
+// Created by idr-tail-loops in loops of functions that are not total; never
+// written by Emit. MLIR deletes a region op without effects even if it never
+// finishes; this op's effect keeps such a loop, and orders it with output as
+// a crash is. It lowers to llvm.sideeffect, before which idr-meter counts the
+// tick that lets idr-eval stop a call that does not end.
 def Idr_MayLoopOp : Idr_Op<"may_loop", [MemoryEffects<[
     MemWrite<Idr_DivergenceResource>, MemWrite<Idr_IOResource>]>]> {
   let summary = "marks one iteration of a loop that may not terminate";
@@ -688,11 +843,90 @@ def Idr_MayLoopOp : Idr_Op<"may_loop", [MemoryEffects<[
 }
 
 //===----------------------------------------------------------------------===//
+// Guards
+//===----------------------------------------------------------------------===//
+
+// A partial primitive is a guard and a total op. The guard crashes with its
+// cause, the text of the crash message, when its condition fails, and
+// otherwise gives its operand, which the total op takes in the operand's
+// place: the op stays below its check by data dependence, and a pass that
+// builds the op on an operand nothing proved builds the guard too. A proof
+// is the absence of the guard. A guard folds to its operand where the
+// operand shows its condition holds (lib/Dialect/Ops/Check.cc), and
+// idr-in-bounds erases those it proves where they run. The result of a guard
+// with an integer range is the operand's range clamped by the condition.
+class Idr_CheckOp<string mnemonic, list<Trait> traits = []>
+    : Idr_Op<"check." # mnemonic, !listconcat(traits, [Idr_MayCrash<>])> {
+  // nonzero and nonempty also take their operand's reference over and give
+  // it to their result (Idr_Consumes), whose trait offers getEffects too: a
+  // guard's effects are its crash's alone.
+  let extraClassDeclaration = [{
+    using ::idr::MayCrash<false>::Impl<ConcreteOpType>::getEffects;
+  }];
+  let extraClassDefinition = [{
+    std::optional<::llvm::StringRef> $cppClass::getCrashCause() { return getCause(); }
+  }];
+  let hasFolder = 1;
+}
+
+def Idr_CheckNonzeroOp : Idr_CheckOp<"nonzero", [SameOperandsAndResultType,
+    Idr_Consumes<"0">,
+    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
+  let summary = "the value, which must not be zero, else the program crashes";
+  let arguments = (ins AnyTypeOf<[Idr_Int, Idr_BigValue]>:$value, StrAttr:$cause);
+  let results = (outs AnyTypeOf<[Idr_Int, Idr_BigValue]>:$checked);
+  let assemblyFormat = "$value `,` $cause attr-dict `:` type($value)";
+}
+
+def Idr_CheckInBoundsOp : Idr_CheckOp<"in_bounds", [
+    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
+  let summary = "the index, which must be at least 0 and below the length, else the program crashes";
+  let arguments = (ins I64:$index, I64:$length, StrAttr:$cause);
+  let results = (outs I64:$checked);
+  let assemblyFormat = "$index `,` $length `,` $cause attr-dict";
+}
+
+def Idr_CheckNonemptyOp : Idr_CheckOp<"nonempty", [SameOperandsAndResultType,
+    Idr_Consumes<"0">]> {
+  let summary = "the string, which must have at least one byte, else the program crashes";
+  let arguments = (ins Idr_StrValue:$str, StrAttr:$cause);
+  let results = (outs Idr_StrValue:$checked);
+  let assemblyFormat = "$str `,` $cause attr-dict `:` type($str)";
+}
+
+def Idr_CheckByteOp : Idr_CheckOp<"byte", [
+    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
+  let summary = "the value, which must be from 0 to 255, else the program crashes";
+  let arguments = (ins I64:$value, StrAttr:$cause);
+  let results = (outs I64:$checked);
+  let assemblyFormat = "$value `,` $cause attr-dict";
+}
+
+def Idr_CheckFiniteOp : Idr_CheckOp<"finite"> {
+  let summary = "the value, which must be neither NaN nor infinite, else the program crashes";
+  let arguments = (ins F64:$value, StrAttr:$cause);
+  let results = (outs F64:$checked);
+  let assemblyFormat = "$value `,` $cause attr-dict";
+}
+
+// The bytes [offset, offset + count) of something of `size` bytes: both at
+// least 0, and the end, computed without overflow, at most the size.
+def Idr_CheckRangeOp : Idr_CheckOp<"range", [
+    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
+  let summary = "the offset, whose range of `count` bytes must lie in `size`, else the program crashes";
+  let arguments = (ins I64:$offset, I64:$count, I64:$size, StrAttr:$cause);
+  let results = (outs I64:$checked);
+  let assemblyFormat = "$offset `,` $count `,` $size `,` $cause attr-dict";
+}
+
+//===----------------------------------------------------------------------===//
 // Scalars
 //===----------------------------------------------------------------------===//
 
+// The divisor is not zero: idr.check.nonzero guards it.
 class Idr_DivisionOp<string mnemonic, bit isQuotient>
-    : Idr_Op<mnemonic, [SameOperandsAndResultType, Idr_MayCrash<>]> {
+    : Idr_Op<mnemonic, [SameOperandsAndResultType, NoMemoryEffect,
+                        DeclareOpInterfaceMethods<ConditionallySpeculatable>]> {
   let arguments = (ins UnitAttr:$is_signed, Idr_Int:$lhs, Idr_Int:$rhs);
   let results = (outs Idr_Int:$result);
   let assemblyFormat = [{
@@ -705,19 +939,14 @@ class Idr_DivisionOp<string mnemonic, bit isQuotient>
     ::mlir::OpFoldResult $cppClass::fold(FoldAdaptor adaptor) {
       return foldDivision(*this, adaptor);
     }
-    std::optional<::llvm::StringRef> $cppClass::getCrashCause() {
-      if (knownNonZero(getRhs()))
-        return std::nullopt;
-      return ::llvm::StringRef("division by zero");
-    }
   }];
 }
 
 def Idr_DivOp : Idr_DivisionOp<"div", 1> {
-  let summary = "Idris div: Euclidean when signed, crashes on zero";
+  let summary = "Idris div: Euclidean when signed, of a divisor that is not zero";
 }
 def Idr_ModOp : Idr_DivisionOp<"mod", 0> {
-  let summary = "Idris mod: Euclidean when signed, crashes on zero";
+  let summary = "Idris mod: Euclidean when signed, of a divisor that is not zero";
 }
 
 // Idris's shifts of a fixed-width integer: the value shifted
@@ -761,21 +990,23 @@ def Idr_ToCharOp : Idr_Op<"to_char", [Pure,
   let hasFolder = 1;
 }
 
-// An Int written as a byte of a buffer: itself when 0 to 255, else a
-// crash, as Chez's bytevector-u8-set! refuses it.
-def Idr_ToByteOp : Idr_Op<"to_byte", [Idr_MayCrash<>,
+// An Int written as a byte of a buffer, which is 0 to 255: idr.check.byte
+// guards it, as Chez's bytevector-u8-set! refuses any other.
+def Idr_ToByteOp : Idr_Op<"to_byte", [NoMemoryEffect,
+    DeclareOpInterfaceMethods<ConditionallySpeculatable>, Idr_Primitive,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
-  let summary = "an Int as a byte: itself when 0 to 255, else a crash";
+  let summary = "an Int from 0 to 255 as a byte";
   let arguments = (ins I64:$value);
   let results = (outs I8:$result);
   let assemblyFormat = "$value attr-dict";
   let hasFolder = 1;
 }
 
-// Truncates toward zero and wraps to the result width; crashes on NaN and
-// the infinities.
-def Idr_ToIntOp : Idr_Op<"to_int", [Idr_CallsRuntime, Idr_MayCrash<>]> {
-  let summary = "a Double as an integer, truncated and wrapped";
+// Truncates toward zero and wraps to the result width. The Double is
+// finite: idr.check.finite guards it.
+def Idr_ToIntOp : Idr_Op<"to_int", [Idr_CallsRuntime, NoMemoryEffect,
+    DeclareOpInterfaceMethods<ConditionallySpeculatable>, Idr_Primitive]> {
+  let summary = "a finite Double as an integer, truncated and wrapped";
   let arguments = (ins F64:$value);
   let results = (outs Idr_Int:$result);
   let assemblyFormat = "$value attr-dict `:` type($result)";
@@ -783,7 +1014,7 @@ def Idr_ToIntOp : Idr_Op<"to_int", [Idr_CallsRuntime, Idr_MayCrash<>]> {
 }
 
 // The first character of prim__cast_DoubleString.
-def Idr_DoubleHeadOp : Idr_Op<"double_head", [Pure, Idr_CallsRuntime,
+def Idr_DoubleHeadOp : Idr_Op<"double_head", [Pure, Idr_CallsRuntime, Idr_Primitive,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
@@ -818,19 +1049,19 @@ class Idr_StrBuilderOp<string mnemonic, list<Trait> traits = []>
   let results = (outs Res<Idr_StrValue, "", [MemAlloc]>:$result);
 }
 
-def Idr_StrAppendOp : Idr_StrBuilderOp<"append"> {
+def Idr_StrAppendOp : Idr_StrBuilderOp<"append", [Idr_Primitive]> {
   let summary = "the concatenation of two strings";
   let arguments = (ins Idr_StrType:$lhs, Idr_StrType:$rhs);
   let assemblyFormat = "$lhs `,` $rhs attr-dict custom<StrResult>(type($result))";
 }
 
-def Idr_StrConsOp : Idr_StrBuilderOp<"cons"> {
+def Idr_StrConsOp : Idr_StrBuilderOp<"cons", [Idr_Primitive]> {
   let summary = "a character before a string";
   let arguments = (ins I32:$head, Idr_StrType:$tail);
   let assemblyFormat = "$head `,` $tail attr-dict custom<StrResult>(type($result))";
 }
 
-def Idr_StrFromCharOp : Idr_StrBuilderOp<"from_char"> {
+def Idr_StrFromCharOp : Idr_StrBuilderOp<"from_char", [Idr_Primitive]> {
   let summary = "the string of one character";
   let arguments = (ins I32:$value);
   let assemblyFormat = "$value attr-dict custom<StrResult>(type($result))";
@@ -840,14 +1071,14 @@ def Idr_StrFromCharOp : Idr_StrBuilderOp<"from_char"> {
 // time: pack over a List Char, concat over a List String. The list is a
 // box of a nil without fields and a cons of the element and the rest; the
 // op walks it twice, once for the size of the result and once to write it.
-def Idr_StrPackOp : Idr_StrBuilderOp<"pack"> {
+def Idr_StrPackOp : Idr_StrBuilderOp<"pack", [Idr_Primitive]> {
   let summary = "the string of a list of characters, built once";
   let arguments = (ins Idr_SumValue:$list);
   let assemblyFormat = "$list attr-dict `:` type($list) `->` type($result)";
   let hasVerifier = 1;
 }
 
-def Idr_StrConcatOp : Idr_StrBuilderOp<"concat"> {
+def Idr_StrConcatOp : Idr_StrBuilderOp<"concat", [Idr_Primitive]> {
   let summary = "the concatenation of a list of strings, built once";
   let arguments = (ins Idr_SumValue:$list);
   let assemblyFormat = "$list attr-dict `:` type($list) `->` type($result)";
@@ -863,7 +1094,7 @@ def Idr_StrConcatOp : Idr_StrBuilderOp<"concat"> {
 // the rest, so a cell built only to be written is not built. It is IO, as
 // the idr.io ops are, but calls no runtime function named after it: its
 // lowering walks the list (Lower/Strings.cc).
-def Idr_PutListOp : Idr_Op<"io.put_list", [Idr_PerformsIO,
+def Idr_PutListOp : Idr_Op<"io.put_list", [Idr_PerformsIO, Idr_Primitive,
     MemoryEffects<[MemRead<Idr_IOResource>, MemWrite<Idr_IOResource>]>]> {
   let summary = "writes the characters or the strings of a list, in order";
   let arguments = (ins Idr_SumValue:$list, Idr_WorldType:$world);
@@ -888,35 +1119,30 @@ def Idr_StrShowOp : Idr_StrBuilderOp<"show"> {
   let hasVerifier = 1;
 }
 
-def Idr_StrSubstrOp : Idr_StrBuilderOp<"substr"> {
+def Idr_StrSubstrOp : Idr_StrBuilderOp<"substr", [Idr_Primitive]> {
   let summary = "the characters of a string from a start, at most a length";
   let arguments = (ins Idr_StrType:$str, I64:$start, I64:$length);
   let assemblyFormat = "$str `,` $start `,` $length attr-dict custom<StrResult>(type($result))";
 }
 
-def Idr_StrReverseOp : Idr_StrBuilderOp<"reverse"> {
+def Idr_StrReverseOp : Idr_StrBuilderOp<"reverse", [Idr_Primitive]> {
   let summary = "the characters of a string in reverse order";
   let arguments = (ins Idr_StrType:$str);
   let assemblyFormat = "$str attr-dict custom<StrResult>(type($result))";
 }
 
-def Idr_StrTailOp : Idr_Op<"str.tail", [Idr_CallsRuntime, Idr_MayCrash<1>]> {
+// The string is not empty: idr.check.nonempty guards it. A new string,
+// allocated like a builder's.
+def Idr_StrTailOp : Idr_Op<"str.tail", [Idr_CallsRuntime, Idr_Primitive]> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
-  let summary = "a string without its first character; crashes on \"\"";
+  let summary = "a string without its first character, of a string that is not empty";
   let arguments = (ins Idr_StrType:$str);
-  let results = (outs Idr_StrValue:$result);
+  let results = (outs Res<Idr_StrValue, "", [MemAlloc]>:$result);
   let assemblyFormat = "$str attr-dict custom<StrResult>(type($result))";
-  let extraClassDefinition = [{
-    std::optional<::llvm::StringRef> $cppClass::getCrashCause() {
-      if (knownNonEmpty(getStr()))
-        return std::nullopt;
-      return ::llvm::StringRef("tail of an empty string");
-    }
-  }];
 }
 
-def Idr_StrLengthOp : Idr_Op<"str.length", [Pure, Idr_CallsRuntime,
+def Idr_StrLengthOp : Idr_Op<"str.length", [Pure, Idr_CallsRuntime, Idr_Primitive,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
@@ -928,7 +1154,7 @@ def Idr_StrLengthOp : Idr_Op<"str.length", [Pure, Idr_CallsRuntime,
 
 // The number of bytes of a string, the length of its UTF-8, interior zeros
 // included. Folded by calling the runtime, as str.length is.
-def Idr_StrBytesLengthOp : Idr_Op<"str.bytes_length", [Pure, Idr_CallsRuntime]> {
+def Idr_StrBytesLengthOp : Idr_Op<"str.bytes_length", [Pure, Idr_CallsRuntime, Idr_Primitive]> {
   let hasFolder = 1;
   let summary = "the number of bytes of a string";
   let arguments = (ins Idr_StrType:$str);
@@ -936,30 +1162,28 @@ def Idr_StrBytesLengthOp : Idr_Op<"str.bytes_length", [Pure, Idr_CallsRuntime]> 
   let assemblyFormat = "$str attr-dict";
 }
 
-def Idr_StrIndexOp : Idr_Op<"str.index", [Idr_CallsRuntime, Idr_MayCrash<>]> {
+// The index is at least 0 and below the string's length: idr.check.in_bounds
+// guards it.
+def Idr_StrIndexOp : Idr_Op<"str.index", [Idr_CallsRuntime, NoMemoryEffect,
+    DeclareOpInterfaceMethods<ConditionallySpeculatable>, Idr_Primitive]> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
-  let summary = "the character at an index; crashes out of range";
+  let summary = "the character at an index within the string";
   let arguments = (ins Idr_StrType:$str, I64:$index);
   let results = (outs I32:$result);
   let assemblyFormat = "$str `,` $index attr-dict";
 }
 
-def Idr_StrHeadOp : Idr_Op<"str.head", [Idr_CallsRuntime, Idr_MayCrash<>]> {
+// The string is not empty: idr.check.nonempty guards it.
+def Idr_StrHeadOp : Idr_Op<"str.head", [Idr_CallsRuntime, NoMemoryEffect,
+    DeclareOpInterfaceMethods<ConditionallySpeculatable>, Idr_Primitive]> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
-  let summary = "the first character of a string; crashes on \"\"";
+  let summary = "the first character of a string that is not empty";
   let arguments = (ins Idr_StrType:$str);
   let results = (outs I32:$result);
   let assemblyFormat = "$str attr-dict";
   let hasCanonicalizer = 1;
-  let extraClassDefinition = [{
-    std::optional<::llvm::StringRef> $cppClass::getCrashCause() {
-      if (knownNonEmpty(getStr()))
-        return std::nullopt;
-      return ::llvm::StringRef("head of an empty string");
-    }
-  }];
 }
 
 def Idr_StrCmpOp : Idr_Op<"str.cmp", [Pure, Idr_CallsRuntime]> {
@@ -983,7 +1207,7 @@ def Idr_StrToIntOp : Idr_Op<"str.to_int", [Pure, Idr_CallsRuntime]> {
   }];
 }
 
-def Idr_StrToDoubleOp : Idr_Op<"str.to_double", [Pure, Idr_CallsRuntime]> {
+def Idr_StrToDoubleOp : Idr_Op<"str.to_double", [Pure, Idr_CallsRuntime, Idr_Primitive]> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "a string as a Double, as prim__cast_StringDouble reads it";
@@ -998,7 +1222,7 @@ def Idr_StrToDoubleOp : Idr_Op<"str.to_double", [Pure, Idr_CallsRuntime]> {
 
 // An op that makes a big allocates its result (MemAlloc).
 class Idr_BigBinaryOp<string mnemonic, string what, list<Trait> traits = []>
-    : Idr_Op<"big." # mnemonic, !listconcat([Idr_CallsRuntime], traits)> {
+    : Idr_Op<"big." # mnemonic, !listconcat([Idr_CallsRuntime, Idr_Primitive], traits)> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = what # " of two bigs";
@@ -1011,7 +1235,7 @@ class Idr_BigBinaryOp<string mnemonic, string what, list<Trait> traits = []>
 // Integers or naturals, and give what they take: Nat's plus and mult are
 // these ops. The type is written only for naturals: `: !idr.nat`.
 class Idr_BigNaturalOp<string mnemonic, string what>
-    : Idr_Op<"big." # mnemonic, [Idr_CallsRuntime, AllTypesMatch<["lhs", "rhs"]>,
+    : Idr_Op<"big." # mnemonic, [Idr_CallsRuntime, Idr_Primitive, AllTypesMatch<["lhs", "rhs"]>,
                                  Idr_ResultCarriesOperand,
                                  DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   // Folded by calling the runtime (lib/Fold).
@@ -1034,27 +1258,21 @@ def Idr_BigAndOp : Idr_BigBinaryOp<"and", "the bitwise and">;
 def Idr_BigOrOp : Idr_BigBinaryOp<"or", "the bitwise or">;
 def Idr_BigXorOp : Idr_BigBinaryOp<"xor", "the bitwise xor">;
 
+// The divisor is not zero: idr.check.nonzero guards it.
 class Idr_BigDivisionOp<string mnemonic, string what>
-    : Idr_Op<"big." # mnemonic, [Idr_CallsRuntime, Idr_MayCrash<1>]> {
+    : Idr_Op<"big." # mnemonic, [Idr_CallsRuntime, Idr_Primitive]> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
-  let summary = what # " of two bigs, as Integer's div and mod; crashes on zero";
+  let summary = what # " of two bigs, as Integer's div and mod, by a divisor that is not zero";
   let arguments = (ins Idr_BigType:$lhs, Idr_BigType:$rhs);
-  let results = (outs Idr_BigValue:$result);
+  let results = (outs Res<Idr_BigValue, "", [MemAlloc]>:$result);
   let assemblyFormat = "$lhs `,` $rhs attr-dict custom<BigResult>(type($result))";
-  let extraClassDefinition = [{
-    std::optional<::llvm::StringRef> $cppClass::getCrashCause() {
-      if (knownNonZero(getRhs()))
-        return std::nullopt;
-      return ::llvm::StringRef("division by zero");
-    }
-  }];
 }
 
 def Idr_BigDivOp : Idr_BigDivisionOp<"div", "the quotient">;
 def Idr_BigModOp : Idr_BigDivisionOp<"mod", "the remainder">;
 
-def Idr_BigNegOp : Idr_Op<"big.neg", [Idr_CallsRuntime]> {
+def Idr_BigNegOp : Idr_Op<"big.neg", [Idr_CallsRuntime, Idr_Primitive]> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "the negation of a big";
@@ -1094,7 +1312,7 @@ def Idr_BigCmpOp : Idr_Op<"big.cmp", [Pure, Idr_CallsRuntime,
 // A natural as the Integer it is (Nat's natToInteger): the same big under
 // another type. It costs nothing at runtime, and hands its operand's
 // reference to its result.
-def Idr_NatToBigOp : Idr_Op<"nat.to_big", [Pure,
+def Idr_NatToBigOp : Idr_Op<"nat.to_big", [Idr_ConsumesOnly<"0">, Idr_Primitive,
     TypesMatchWith<"the Integer is the natural at its grade", "value", "result",
                    "::idr::graded(::idr::gradeOf($_self), ::idr::BigType::get($_self.getContext()))">,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
@@ -1108,7 +1326,7 @@ def Idr_NatToBigOp : Idr_Op<"nat.to_big", [Pure,
 // The only op that makes a natural of an Integer, so the one that must
 // keep it non-negative: a negative Integer is 0, as Nat's integerToNat
 // and minus (the difference of the Integers, clamped) say.
-def Idr_NatFromBigOp : Idr_Op<"nat.from_big", [Idr_CallsRuntime, DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
+def Idr_NatFromBigOp : Idr_Op<"nat.from_big", [Idr_CallsRuntime, Idr_Primitive, DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "an Integer as a natural, 0 if it is negative";
@@ -1147,7 +1365,7 @@ def Idr_BigSmallOp : Idr_Op<"big.small", [Pure, DeclareOpInterfaceMethods<InferI
 }
 
 // A natural's value is its Integer's, so both convert alike.
-def Idr_BigToIntOp : Idr_Op<"big.to_int", [Pure, Idr_CallsRuntime, DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
+def Idr_BigToIntOp : Idr_Op<"big.to_int", [Pure, Idr_CallsRuntime, Idr_Primitive, DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "a big or a natural as an integer, wrapped to its width";
@@ -1156,24 +1374,17 @@ def Idr_BigToIntOp : Idr_Op<"big.to_int", [Pure, Idr_CallsRuntime, DeclareOpInte
   let assemblyFormat = "$value attr-dict `:` type($result) custom<Natural>(type($value))";
 }
 
-def Idr_BigFromDoubleOp : Idr_Op<"big.from_double",
-    [Idr_CallsRuntime, Idr_MayCrash<1>]> {
+// The Double is finite: idr.check.finite guards it.
+def Idr_BigFromDoubleOp : Idr_Op<"big.from_double", [Idr_CallsRuntime, Idr_Primitive]> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
-  let summary = "a Double truncated to a big; crashes on NaN and the infinities";
+  let summary = "a finite Double truncated to a big";
   let arguments = (ins F64:$value);
-  let results = (outs Idr_BigValue:$result);
+  let results = (outs Res<Idr_BigValue, "", [MemAlloc]>:$result);
   let assemblyFormat = "$value attr-dict custom<BigResult>(type($result))";
-  let extraClassDefinition = [{
-    std::optional<::llvm::StringRef> $cppClass::getCrashCause() {
-      if (knownFinite(getValue()))
-        return std::nullopt;
-      return ::llvm::StringRef("cast of a non-finite Double");
-    }
-  }];
 }
 
-def Idr_BigToDoubleOp : Idr_Op<"big.to_double", [Pure, Idr_CallsRuntime]> {
+def Idr_BigToDoubleOp : Idr_Op<"big.to_double", [Pure, Idr_CallsRuntime, Idr_Primitive]> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "a big as the nearest Double";
@@ -1182,7 +1393,7 @@ def Idr_BigToDoubleOp : Idr_Op<"big.to_double", [Pure, Idr_CallsRuntime]> {
   let assemblyFormat = "$value attr-dict";
 }
 
-def Idr_BigShowOp : Idr_Op<"big.show", [Idr_CallsRuntime]> {
+def Idr_BigShowOp : Idr_Op<"big.show", [Idr_CallsRuntime, Idr_Primitive]> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "the decimal text of a big";
@@ -1191,7 +1402,7 @@ def Idr_BigShowOp : Idr_Op<"big.show", [Idr_CallsRuntime]> {
   let assemblyFormat = "$value attr-dict custom<StrResult>(type($result))";
 }
 
-def Idr_BigFromStrOp : Idr_Op<"big.from_str", [Idr_CallsRuntime]> {
+def Idr_BigFromStrOp : Idr_Op<"big.from_str", [Idr_CallsRuntime, Idr_Primitive]> {
   // Folded by calling the runtime (lib/Fold).
   let hasFolder = 1;
   let summary = "a string as a big, as prim__cast_StringInteger reads it";
@@ -1213,7 +1424,7 @@ class Idr_IOOp<string mnemonic, list<Trait> traits = []> : Idr_Op<"io." # mnemon
                          MemoryEffects<[MemRead<Idr_IOResource>,
                                         MemWrite<Idr_IOResource>]>])>;
 
-def Idr_PutStrOp : Idr_IOOp<"put_str"> {
+def Idr_PutStrOp : Idr_IOOp<"put_str", [Idr_Primitive]> {
   let arguments = (ins Idr_StrType:$str, Idr_WorldType:$world);
   let results = (outs Idr_WorldType:$next);
   let assemblyFormat = "$str `,` $world attr-dict";
@@ -1223,7 +1434,7 @@ def Idr_PutStrOp : Idr_IOOp<"put_str"> {
 // The UTF-8 encoding of a character, which is a Unicode scalar value: the
 // Prelude's putChar, and what writing a one-character string writes, which
 // output fusion makes of put_str.
-def Idr_PutCharOp : Idr_IOOp<"put_char"> {
+def Idr_PutCharOp : Idr_IOOp<"put_char", [Idr_Primitive]> {
   let arguments = (ins I32:$ch, Idr_WorldType:$world);
   let results = (outs Idr_WorldType:$next);
   let assemblyFormat = "$ch `,` $world attr-dict";
@@ -1237,14 +1448,14 @@ def Idr_PutIntOp : Idr_IOOp<"put_int"> {
   }];
 }
 
-def Idr_PutDoubleOp : Idr_IOOp<"put_double"> {
+def Idr_PutDoubleOp : Idr_IOOp<"put_double", [Idr_Primitive]> {
   let arguments = (ins F64:$value, Idr_WorldType:$world);
   let results = (outs Idr_WorldType:$next);
   let assemblyFormat = "$value `,` $world attr-dict";
 }
 
 // One byte of input, or 255 at its end.
-def Idr_GetByteOp : Idr_IOOp<"get_byte"> {
+def Idr_GetByteOp : Idr_IOOp<"get_byte", [Idr_Primitive]> {
   let arguments = (ins Idr_WorldType:$world);
   let results = (outs I32:$ch, Idr_WorldType:$next);
   let assemblyFormat = "$world attr-dict";
@@ -1254,21 +1465,18 @@ def Idr_GetByteOp : Idr_IOOp<"get_byte"> {
 // the next newline, which is consumed, without it or a carriage return
 // right before it, decoded as UTF-8 (idris_rt_io_get_line); the empty
 // string at the end of input. A new string, allocated like a builder's.
-def Idr_GetLineOp : Idr_IOOp<"get_line"> {
+def Idr_GetLineOp : Idr_IOOp<"get_line", [Idr_Primitive]> {
   let arguments = (ins Idr_WorldType:$world);
   let results = (outs Res<Idr_StrValue, "", [MemAlloc]>:$str, Idr_WorldType:$next);
   let assemblyFormat = "$world attr-dict custom<StrResult>(type($str))";
 }
 
 // A transfer of the bytes [offset, offset + count) of a buffer (an array of
-// i8) between it and a standard stream's handle. The range must lie in the
-// buffer, else the program crashes (the runtime's check, in the function
-// the op calls), so the op's effects are its own, as the array ops' are:
-// the IO resource, and the crash.
+// i8) between it and a handle. The range lies in the buffer: idr.check.range
+// guards the offset. The op's effects are its own, as the array ops' are.
 class Idr_IOTransferOp<string mnemonic> : Idr_Op<"io." # mnemonic,
-    [Idr_PerformsIO, Idr_CallsRuntime,
-     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-     DeclareOpInterfaceMethods<Idr_MayCrashOpInterface>]> {
+    [Idr_PerformsIO, Idr_CallsRuntime, Idr_Primitive,
+     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
   let arguments = (ins I64:$handle, Idr_ArrayValue:$buffer, I64:$offset, I64:$count,
                        Idr_WorldType:$world);
   let assemblyFormat = [{
@@ -1277,24 +1485,24 @@ class Idr_IOTransferOp<string mnemonic> : Idr_Op<"io." # mnemonic,
   let hasVerifier = 1;
 }
 
-// Bytes of a buffer to a standard stream's handle: 1 is standard output,
-// through the output buffer and in order with every other write to it; 2
-// is standard error; any other handle writes nothing and gives 0, as C's
-// fwrite to a stream not open for writing. Gives the count written.
+// Bytes of a buffer to a handle: 1 is standard output, through the output
+// buffer and in order with every other write to it; 2 is standard error; any
+// other is a file the program opened (idr.io.file_open). Gives the count
+// written.
 def Idr_WriteBytesOp : Idr_IOTransferOp<"write_bytes"> {
   let results = (outs I64:$written, Idr_WorldType:$next);
 }
 
-// Bytes from a standard stream's handle into a buffer: 0 is standard
-// input, giving the count read, 0 at the end of input, which it then
-// records (idr.io.eof); any other handle reads nothing and gives 0.
+// Bytes from a handle into a buffer: 0 is standard input, through the
+// runtime's input buffer, and any other a file the program opened. Gives the
+// count read, 0 at the end of input, which it then records (idr.io.eof).
 def Idr_ReadBytesOp : Idr_IOTransferOp<"read_bytes"> {
   let results = (outs I64:$read, Idr_WorldType:$next);
 }
 
-// 1 once a read on the handle met the end of input, as C's feof reports
-// it, else 0; only handle 0 is read.
-def Idr_EofOp : Idr_IOOp<"eof"> {
+// 1 once a read on the handle met the end of its input, as C's feof reports
+// it, else 0: standard input, or a file the program opened.
+def Idr_EofOp : Idr_IOOp<"eof", [Idr_Primitive]> {
   let arguments = (ins I64:$handle, Idr_WorldType:$world);
   let results = (outs I64:$ended, Idr_WorldType:$next);
   let assemblyFormat = "$handle `,` $world attr-dict";
@@ -1303,7 +1511,7 @@ def Idr_EofOp : Idr_IOOp<"eof"> {
 // How many processors are online, read when the program asks
 // (idris_rt_io_n_processors). A system that does not say gives -1, which
 // System.Info.getNProcessors turns into Nothing.
-def Idr_NProcessorsOp : Idr_IOOp<"n_processors"> {
+def Idr_NProcessorsOp : Idr_IOOp<"n_processors", [Idr_Primitive]> {
   let arguments = (ins Idr_WorldType:$world);
   let results = (outs I64:$count, Idr_WorldType:$next);
   let assemblyFormat = "$world attr-dict";
@@ -1313,7 +1521,7 @@ def Idr_NProcessorsOp : Idr_IOOp<"n_processors"> {
 // Scheme backends share and base tests for: "darwin", "unix", "windows",
 // or "unknown". Folded to that string. The triple is the one the target
 // entry wrote on the runtime.
-def Idr_OsOp : Idr_Op<"os", [Pure]> {
+def Idr_OsOp : Idr_Op<"os", [Pure, Idr_Primitive]> {
   let summary = "the operating system the target triple names";
   let results = (outs Idr_StrValue:$result);
   let assemblyFormat = "attr-dict custom<StrResult>(type($result))";
@@ -1321,16 +1529,15 @@ def Idr_OsOp : Idr_Op<"os", [Pure]> {
 }
 
 // A machine word in a buffer of bytes, at a byte offset. The span is
-// `sizeof` the word. It must lie in the buffer, else the program crashes
-// (idris_rt_buffer_at, the same check a byte transfer uses). The load and
-// the store are the target's own, at alignment 1, so the endianness is the
-// machine's and an offset need not be aligned. Not a runtime call: the
-// value's width is the op's type.
+// `sizeof` the word, and it lies in the buffer: idr.check.range guards the
+// offset, as it guards a byte transfer's. The load and the store are the
+// target's own, at alignment 1, so the endianness is the machine's and an
+// offset need not be aligned. Not a runtime call: the value's width is the
+// op's type.
 class Idr_BufferAccessOp<string mnemonic, list<Trait> traits = []>
     : Idr_Op<"io." # mnemonic, !listconcat(traits, [
-        Idr_PerformsIO,
-        DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-        DeclareOpInterfaceMethods<Idr_MayCrashOpInterface>])>;
+        Idr_PerformsIO, Idr_Primitive,
+        DeclareOpInterfaceMethods<MemoryEffectsOpInterface>])>;
 
 def Idr_BufferLoadOp : Idr_BufferAccessOp<"buffer_load"> {
   let summary = "a machine word read from a buffer at a byte offset";
@@ -1353,8 +1560,9 @@ def Idr_BufferStoreOp : Idr_BufferAccessOp<"buffer_store"> {
   let hasVerifier = 1;
 }
 
-// Bytes copied from one buffer into another. The two spans must each lie in
-// their buffer. Overlap is allowed: the copy is memmove.
+// Bytes copied from one buffer into another. The two spans each lie in
+// their buffer, each guarded by idr.check.range. Overlap is allowed: the
+// copy is memmove.
 def Idr_BufferCopyOp : Idr_BufferAccessOp<"buffer_copy", [Idr_CallsRuntime]> {
   let summary = "bytes copied from one buffer into another";
   let arguments = (ins Idr_ArrayValue:$src, I64:$src_offset, I64:$len,
@@ -1368,7 +1576,7 @@ def Idr_BufferCopyOp : Idr_BufferAccessOp<"buffer_copy", [Idr_CallsRuntime]> {
 }
 
 // A string's UTF-8 written at an offset. The span is the string's byte
-// length, interior zeros included, and must lie in the buffer.
+// length, interior zeros included, and lies in the buffer.
 def Idr_BufferSetStringOp : Idr_BufferAccessOp<"buffer_set_string", [Idr_CallsRuntime]> {
   let summary = "a string's bytes written into a buffer";
   let arguments = (ins Idr_ArrayValue:$buffer, I64:$offset, Idr_StrType:$str,
@@ -1400,7 +1608,7 @@ def Idr_BufferGetStringOp : Idr_BufferAccessOp<"buffer_get_string", [Idr_CallsRu
 // moves one past an IO op, or deletes one, and every function that reaches
 // one performs IO (idr-effects), which keeps compile-time evaluation off
 // it. It has no runtime form.
-def Idr_WorldNewOp : Idr_Op<"world.new", [Idr_PerformsIO,
+def Idr_WorldNewOp : Idr_Op<"world.new", [Idr_PerformsIO, Idr_Primitive,
     MemoryEffects<[MemWrite<Idr_IOResource>]>]> {
   let summary = "a forged world, the first of a chain of its own";
   let results = (outs Idr_WorldType:$world);
@@ -1422,20 +1630,19 @@ def Idr_ArrayType : Type<CPred<"::idr::isArray($_self)">,
 // The array ops are IO: each takes the world and gives the next, and
 // reads or writes the array's cell in that order. Their effects are their
 // own (not Idr_IOOp's, whose runtime call they do not make): the IO
-// resource, a crash where an index may be out of bounds, an allocation
-// for a new array.
+// resource, and an allocation for a new array. An element moves in with its
+// reference, which the op takes over.
 class Idr_ArrayOp<string mnemonic, list<Trait> traits = []>
-    : Idr_Op<"array." # mnemonic, !listconcat(traits, [Idr_PerformsIO,
-        DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-        DeclareOpInterfaceMethods<Idr_MayCrashOpInterface>])>;
+    : Idr_Op<"array." # mnemonic, !listconcat(traits, [Idr_PerformsIO, Idr_Primitive,
+        DeclareOpInterfaceMethods<MemoryEffectsOpInterface>])>;
 
 // A new array of `size` elements, each the value `fill`, which moves in
 // (one reference, held by each element: the fill takes the others). A
 // negative size is an empty array. The array's shape is known from its
 // size (ReifyRankedShapedTypeOpInterface), so `memref.dim` of it folds, as
 // upstream folds the dimension of a `memref.alloc`.
-def Idr_ArrayNewOp : Idr_ArrayOp<"new", [DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface,
-                                                                   ["reifyResultShapes"]>]> {
+def Idr_ArrayNewOp : Idr_ArrayOp<"new", [Idr_Consumes<"1">,
+    DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>]> {
   let summary = "a new array of `size` copies of `fill`";
   let arguments = (ins I64:$size, AnyType:$fill, Idr_WorldType:$world);
   let results = (outs Idr_ArrayValue:$array, Idr_WorldType:$next);
@@ -1448,27 +1655,20 @@ def Idr_ArrayNewOp : Idr_ArrayOp<"new", [DeclareOpInterfaceMethods<ReifyRankedSh
   }];
 }
 
-// An access (get, set) checks its index against the array's length and
-// crashes outside it, unless it is `in_bounds`: a claim, made by
-// idr-in-bounds alone, that the index is within the array whenever the
-// access runs, so that the lowering emits no check. It is part of the op,
-// not a discardable attribute, so that no pass drops a proof unseen and a
-// rewrite that builds a new access starts unproven; like an arith overflow
-// flag it stays true under any rewrite that keeps the program's meaning,
-// since an access is never speculated (it is IO in the world's order).
-// What it rests on (the conditions on the path, the length every caller
-// passes beside the array) no local verifier sees, so the pass runs right
-// before the lowering that reads it.
+// An access (get, set) reads its index within the array: an
+// idr.check.in_bounds of the index against the array's length guards it,
+// and is the access's own check. A proof is the guard's absence:
+// idr-in-bounds erases the guards it proves, and a rewrite that builds a new
+// access on an index nothing proved builds the guard too, so no pass can
+// leave an access that rests on a fact it did not keep.
 
-// The element at `index`, which must be in bounds, else the program
-// crashes.
+// The element at `index`, which is within the array.
 def Idr_ArrayGetOp : Idr_ArrayOp<"get"> {
   let summary = "the element of an array at an index";
-  let arguments = (ins Idr_ArrayValue:$array, I64:$index, Idr_WorldType:$world,
-                       UnitProp:$in_bounds);
+  let arguments = (ins Idr_ArrayValue:$array, I64:$index, Idr_WorldType:$world);
   let results = (outs AnyType:$value, Idr_WorldType:$next);
   let assemblyFormat = [{
-    (`in_bounds` $in_bounds^)? $array `[` $index `]` `,` $world attr-dict `:` type($array) `->` type($value)
+    $array `[` $index `]` `,` $world attr-dict `:` type($array) `->` type($value)
   }];
   let hasVerifier = 1;
   let extraClassDeclaration = [{
@@ -1478,15 +1678,14 @@ def Idr_ArrayGetOp : Idr_ArrayOp<"get"> {
   }];
 }
 
-// Writes `value`, which moves in, over the element at `index`, which must
-// be in bounds, else the program crashes; the old element is released.
-def Idr_ArraySetOp : Idr_ArrayOp<"set"> {
+// Writes `value`, which moves in, over the element at `index`, which is
+// within the array; the old element is released.
+def Idr_ArraySetOp : Idr_ArrayOp<"set", [Idr_Consumes<"2">]> {
   let summary = "writes an element of an array at an index";
-  let arguments = (ins Idr_ArrayValue:$array, I64:$index, AnyType:$value, Idr_WorldType:$world,
-                       UnitProp:$in_bounds);
+  let arguments = (ins Idr_ArrayValue:$array, I64:$index, AnyType:$value, Idr_WorldType:$world);
   let results = (outs Idr_WorldType:$next);
   let assemblyFormat = [{
-    (`in_bounds` $in_bounds^)? $array `[` $index `]` `,` $value `,` $world attr-dict `:` type($array) `,` type($value)
+    $array `[` $index `]` `,` $value `,` $world attr-dict `:` type($array) `,` type($value)
   }];
   let hasVerifier = 1;
   let extraClassDeclaration = [{
@@ -1511,6 +1710,18 @@ def Idr_ArraySetOp : Idr_ArrayOp<"set"> {
 // each a linalg.generic over the array's memory (Lower/Loops.cc), and a
 // generate whose body is a fold one generic of two dimensions.
 
+// The body of a region primitive: one block, whose entry block takes
+// `numArguments` arguments, as SizedRegion's `blocks` counts the blocks it
+// checks. idris-mlir-tblgen reads `arguments` for the Idris side's
+// regionArity.
+class Idr_BodyRegion<int numArguments> : Region<
+    And<[CPred<"::llvm::hasNItems($_self, 1)">,
+         CPred<"$_self.front().getNumArguments() == " # numArguments>]>,
+    "region with 1 block of " # numArguments # " arguments"> {
+  int blocks = 1;
+  int arguments = numArguments;
+}
+
 // A new array of `size` elements: element 0 is `fill`, and element `i` from
 // 1 on the body at `i` (an i64). So the library's loop makes it: base's
 // primitive fills the new array with the function at 0, and the loop
@@ -1518,13 +1729,13 @@ def Idr_ArraySetOp : Idr_ArrayOp<"set"> {
 // moves in as array.new's does. A negative size, the least included, is an
 // empty array, and the array's shape is known from its size, as
 // array.new's.
-def Idr_ArrayGenerateOp : Idr_ArrayOp<"generate", [RecursiveMemoryEffects, SingleBlock,
+def Idr_ArrayGenerateOp : Idr_ArrayOp<"generate", [Idr_Consumes<"1">, RecursiveMemoryEffects, SingleBlock,
     DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getEntrySuccessorOperands"]>,
     DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>]> {
   let summary = "a new array of the body's value at each index";
   let arguments = (ins I64:$size, AnyType:$fill, Idr_WorldType:$world);
   let results = (outs Idr_ArrayValue:$array, Idr_WorldType:$next);
-  let regions = (region SizedRegion<1>:$body);
+  let regions = (region Idr_BodyRegion<1>:$body);
   let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;
   let extraClassDeclaration = [{
@@ -1538,13 +1749,13 @@ def Idr_ArrayGenerateOp : Idr_ArrayOp<"generate", [RecursiveMemoryEffects, Singl
 // accumulator (`init` first, which moves in), the element (as array.get
 // gives it) and the index (an i64), and yields the next accumulator; the
 // result is the last.
-def Idr_ArrayFoldOp : Idr_ArrayOp<"fold", [RecursiveMemoryEffects, SingleBlock,
+def Idr_ArrayFoldOp : Idr_ArrayOp<"fold", [Idr_Consumes<"1">, RecursiveMemoryEffects, SingleBlock,
     DeclareOpInterfaceMethods<RegionBranchOpInterface, [
         "getEntrySuccessorOperands", "getSuccessorInputs", "areTypesCompatible"]>]> {
   let summary = "an array folded from the left in index order";
   let arguments = (ins Idr_ArrayValue:$array, AnyType:$init, Idr_WorldType:$world);
   let results = (outs AnyType:$result, Idr_WorldType:$next);
-  let regions = (region SizedRegion<1>:$body);
+  let regions = (region Idr_BodyRegion<3>:$body);
   let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;
   let extraClassDeclaration = [{
@@ -1564,10 +1775,11 @@ def Idr_ArrayFoldOp : Idr_ArrayOp<"fold", [RecursiveMemoryEffects, SingleBlock,
 // use on every path consumes; or it is a view, plain T, which holds none
 // and lives while what it was read from does: a borrowed parameter, a
 // field, a match's case argument, an `idr.borrow`, or static data, which
-// no count reaches. The module is marked `idr.stage = "owned"`, and the
-// verifier checks the rule (lib/Ownership/Verify.cc). The ops below read
-// and write the counts in cell headers and may free cells, so no pass
-// reorders, merges or drops them.
+// no count reaches. A module that holds an owned or exclusive value is in
+// the owned stage, which its grades say and no attribute restates, and the
+// verifier checks the stage's rule there, under idr.program (lib/Ownership/Verify.cppm). The ops
+// below read and write the counts in cell headers and may free cells, so no
+// pass reorders, merges or drops them.
 
 def Idr_TokenType : Idr_Type<"Token", "token"> {
   let summary = "the memory of a cell whose fields idr.take moved out, or null";
@@ -1619,7 +1831,7 @@ def Idr_DupOp : Idr_OwnedOp<"dup"> {
   }];
 }
 
-def Idr_DropOp : Idr_OwnedOp<"drop"> {
+def Idr_DropOp : Idr_OwnedOp<"drop", [Idr_Consumes<"0">]> {
   let summary = "consumes a reference, and frees the value with its last";
   let description = [{
     Freeing a cell drops its fields' references in turn. The drop of a
@@ -1647,7 +1859,7 @@ def Idr_BorrowOp : Idr_Op<"borrow", [Pure,
 // exclusive value (`!idr.excl<T>`, which idr-rc proves) given to a position
 // that takes an owned one, or a value some view of which took a reference
 // of its own (idr.dup) before this, its consuming use. Nothing at runtime.
-def Idr_ShareOp : Idr_Op<"share", [Pure,
+def Idr_ShareOp : Idr_Op<"share", [Idr_ConsumesOnly<"0">,
     TypesMatchWith<"the result is the value with its exclusivity forgotten", "value", "result",
                    "::idr::owned(::idr::view($_self))">]> {
   let summary = "gives an owned value on as owned, whatever it alone reached";
@@ -1664,7 +1876,8 @@ def Idr_OwnedToken : Type<And<[CPred<"::idr::isOwned($_self)">,
   let builderCall = "::idr::owned(::idr::TokenType::get($_builder.getContext()))";
 }
 
-def Idr_ReuseOp : Idr_OwnedOp<"reuse", [DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
+def Idr_ReuseOp : Idr_OwnedOp<"reuse", [Idr_Consumes<"0, 1">,
+    DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
   let summary = "builds a boxed constructor in a token's cell, or in a new one when it is null";
   let arguments = (ins Arg<Idr_OwnedToken, "", [MemWrite]>:$token, SymbolRefAttr:$ctor,
                        Variadic<AnyType>:$fields);
@@ -1676,7 +1889,8 @@ def Idr_ReuseOp : Idr_OwnedOp<"reuse", [DeclareOpInterfaceMethods<SymbolUserOpIn
 
 // Where a match's scrutinee dies in one of its case regions, which knows
 // the constructor: the fields move out of it, so none is counted twice.
-def Idr_TakeOp : Idr_OwnedOp<"take", [DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
+def Idr_TakeOp : Idr_OwnedOp<"take", [Idr_Consumes<"0">,
+    DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
   let summary = "consumes a constructor value, each of its fields keeping a reference of its own";
   let description = [{
     The results are the fields of `ctor`, which built the value, each with
@@ -1782,7 +1996,7 @@ def Idr_CloneAttr : AttrDef<Idr_Dialect, "Clone"> {
 // from then on.
 // Neither hides the value from an analysis: the integer range of what
 // enters is that of what is used.
-def Idr_LinEnterOp : Idr_Op<"lin.enter", [
+def Idr_LinEnterOp : Idr_Op<"lin.enter", [Idr_Consumes<"0">,
     TypesMatchWith<"the operand is the value at any quantity", "result", "value",
                    "::idr::atQuantity($_self, ::idr::Quantity::Many)">,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRangesFromOptional"]>]> {
@@ -1794,7 +2008,7 @@ def Idr_LinEnterOp : Idr_Op<"lin.enter", [
 }
 
 // The one use of a linear value, where it becomes an ordinary one.
-def Idr_LinUseOp : Idr_Op<"lin.use", [
+def Idr_LinUseOp : Idr_Op<"lin.use", [Idr_Consumes<"0">,
     TypesMatchWith<"the result is the value at any quantity", "linear", "result",
                    "::idr::atQuantity($_self, ::idr::Quantity::Many)">,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRangesFromOptional"]>]> {
@@ -1804,5 +2018,9 @@ def Idr_LinUseOp : Idr_Op<"lin.use", [
   let assemblyFormat = "$linear attr-dict `:` qualified(type($linear))";
   let hasFolder = 1;
 }
+
+// Base's surface beyond the Prelude's: files, directories, the process, the
+// terminal, errors, clocks, and the handles that stand for pointers.
+include "idr/IdrPlatformOps.td"
 
 #endif // IDR_OPS

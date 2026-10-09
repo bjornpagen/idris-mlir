@@ -1,0 +1,10 @@
+#!/bin/sh
+# The compilations run on an 8 MiB stack, the usual default, set here so
+# that a larger one cannot hide a step that takes a frame per element of
+# the constant.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+if ! ulimit -s 8192 2> /dev/null; then
+  say "stack: cannot be set to 8 MiB"
+  exit 0
+fi
+e2e_io .

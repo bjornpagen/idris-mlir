@@ -5,8 +5,6 @@ export module idr.ownership:takeatentry;
 import idr.mlir;
 import idr.dialect;
 
-import :counting;
-
 using namespace mlir;
 
 namespace idr::ownership {
@@ -18,13 +16,13 @@ export TakeOp takeAtEntry(MatchOp match, unsigned index) {
   Value value = match.getScrutinee();
   auto data = getSumName(value.getType());
   auto ctor = SymbolRefAttr::get(data.getAttr(), {cast<FlatSymbolRefAttr>(match.getCases()[index])});
-  Counting counting(match->getParentOfType<ModuleOp>());
+  SymbolTableCollection symbols;
   SmallVector<Type> results;
   // A constructor without fields is its atom, which is nobody's to build in.
   if (isa<BoxType>(unrestricted(value.getType())) && block.getNumArguments() != 0)
     results.push_back(owned(TokenType::get(match.getContext())));
   for (Type field : block.getArgumentTypes())
-    results.push_back(counting.counted(field) ? owned(field) : field);
+    results.push_back(holdsReferences(field, symbols, match) ? owned(field) : field);
   OpBuilder b = OpBuilder::atBlockBegin(&block);
   auto take = TakeOp::create(b, match.getLoc(), results, value, ctor);
   for (auto [field, taken] : llvm::zip_equal(block.getArguments(), take.getFields()))

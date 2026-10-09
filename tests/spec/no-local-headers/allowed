@@ -4,6 +4,6 @@
 # X-macro: __builtin_cpu_supports takes each name as a string literal, which
 # no import can carry.
 foreign/idr/lib/Driver/NativeRuns.cppm: cpu_features.h
-foreign/idr/lib/Lower/Lowering.cppm: cpu_features.h
+foreign/idr/lib/Lower/Entry.cppm: cpu_features.h
 runtime/Platform/CpuBits.cppm: cpu_features.h
 runtime/Start/Entry.cppm: cpu_features.h

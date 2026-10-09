@@ -75,10 +75,15 @@ FlatSymbolRefAttr labelOf(Value value, FieldOp field) {
       constant = {};
       (void)matchPattern(value, m_Constant(&constant));
     } else if (auto data = dyn_cast_or_null<ConAttr>(constant)) {
-      if (data.getCtor().getLeafReference() != ctor || index >= data.getFields().size())
+      // A run's cells leave out the spine, so its constructor has one field
+      // more than a cell holds. The one field is read on its own, which off
+      // the spine builds nothing of the rest of the run.
+      size_t arity =
+          data.isRun() ? data.getRunCells().front().size() + 1 : data.getFields().size();
+      if (data.getCtor().getLeafReference() != ctor || index >= arity)
         return {};
       value = {};
-      constant = data.getFields()[static_cast<unsigned>(index)];
+      constant = data.getField(static_cast<unsigned>(index));
     } else {
       return {};
     }

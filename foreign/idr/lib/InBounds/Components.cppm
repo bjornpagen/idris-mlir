@@ -74,6 +74,7 @@ std::optional<SmallVector<Pair>> pairFields(const Calls &calls, Value record, Va
                                             const Proj &sizeProj, const Proj &arrayProj, Value size,
                                             Value array, DenseSet<Value> &seen) {
   record = arrayRoot(record);
+  // The program's poison is a record no run reads a component of.
   if (record.getDefiningOp<ub::PoisonOp>())
     return SmallVector<Pair>{};
   if (seen.contains(record))
@@ -102,8 +103,8 @@ std::optional<SmallVector<Pair>> pairFields(const Calls &calls, Value record, Va
 }
 
 // The pairs `(size, array)` holds by, when `array` is the component
-// `proj` of a record. Empty when the record is poison. None when some
-// construction does not show the component.
+// `proj` of a record. Empty when the record is the program's poison, which
+// no run reads. None when some construction does not show the component.
 std::optional<SmallVector<Pair>> expand(const Calls &calls, DominanceInfo &dominance, Value size,
                                         Value record, Value array, const Proj &proj,
                                         DenseSet<Value> &seen) {

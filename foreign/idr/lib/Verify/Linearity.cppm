@@ -100,11 +100,13 @@ export namespace idr::verify {
 // on every path. Its types say where it may go; this says how often.
 LogicalResult linearity(FunctionOpInterface fn) {
   auto check = [&](Value value) -> LogicalResult {
-    // A poison is no value: it stands where a path that is never taken
-    // needs one (the payload a loop yields on the path that does not use
-    // it), so taking it twice takes nothing. Constant hoisting may put one
-    // outside a loop, where every use inside repeats.
-    if (quantityOf(value.getType()) != Quantity::One || value.getDefiningOp<ub::PoisonOp>())
+    // A constant holds nothing a use could take: the folder materializes
+    // one wherever it is needed, merges equal ones and hoists them out of
+    // loops, so its uses repeat however the program was written. A
+    // constant of quantity 1 stands for a value nothing reads: the payload
+    // a loop yields on the path that does not use it, or an argument its
+    // callee never reads.
+    if (quantityOf(value.getType()) != Quantity::One || matchPattern(value, m_Constant()))
       return success();
     if (Operation *op = LinearUses(value).secondUse())
       return op->emitOpError(isWorld(value.getType())

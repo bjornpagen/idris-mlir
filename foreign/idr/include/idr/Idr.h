@@ -72,6 +72,23 @@ struct LinResource : mlir::SideEffects::Resource::Base<LinResource> {
   llvm::StringRef getName() const final { return "idr.lin"; }
 };
 
+// The resource a consumed reference is freed from.
+struct ReferenceResource : mlir::SideEffects::Resource::Base<ReferenceResource> {
+  llvm::StringRef getName() const final { return "idr.reference"; }
+};
+
+// Whether `operand`'s position takes over the reference its value holds:
+// an idr op says so by ConsumingOpInterface; a return, a yield of scf, a
+// condition's carried values and a while's inits do; a call does unless
+// the callee borrows the parameter (lib/Dialect/Effects/Consumed.cc).
+bool consumes(mlir::OpOperand &operand);
+
+// A Free of ReferenceResource on each operand of `op` that `consumes`
+// names and whose grade is own or excl; nothing before idr-rc (the same
+// file).
+void consumedEffects(mlir::Operation *op,
+    llvm::SmallVectorImpl<mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>> &effects);
+
 // The traits below carry what IdrOps.td declares about an op, so that each
 // fact is written once, next to the op, and every pass derives from it. A
 // trait exists only as a base of its op: the op's mlir::Op base constructs
@@ -140,6 +157,16 @@ private:
   template <typename, template <typename> class...> friend class mlir::Op;
 };
 
+// An op Idris names as a primitive (`Idr_Primitive`), what
+// idris-mlir-tblgen generates the Idris side's primitive set from.
+template <typename ConcreteType>
+class Primitive : public mlir::OpTrait::TraitBase<ConcreteType, Primitive> {
+private:
+  Primitive() = default;
+  friend ConcreteType;
+  template <typename, template <typename> class...> friend class mlir::Op;
+};
+
 // An op that may crash writes the crash resource and the IO
 // resource, and is speculatable exactly when it can neither crash nor
 // allocate. All of it follows from the op's `getCrashCause` and from whether
@@ -174,6 +201,26 @@ template <bool Allocates> struct MayCrash {
   };
 };
 
+// The trait behind Idr_Consumes: the ODS operand groups an op takes over.
+template <unsigned... Groups>
+struct ConsumesOperands {
+  template <typename ConcreteType>
+  class Impl : public mlir::OpTrait::TraitBase<ConcreteType, Impl> {
+  public:
+    bool consumedByTrait(unsigned number) {
+      auto *op = static_cast<ConcreteType *>(this);
+      return ((number >= op->getODSOperandIndexAndLength(Groups).first &&
+               number < op->getODSOperandIndexAndLength(Groups).first +
+                            op->getODSOperandIndexAndLength(Groups).second) || ...);
+    }
+    // Used by ops whose only effect is what they take over (Idr_ConsumesOnly).
+    void getEffects(llvm::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>> &effects) {
+      consumedEffects(this->getOperation(), effects);
+    }
+  };
+};
+
 // The facts that rule out a crash: a constant other than zero
 // (an integer or a big), a finite Double constant, and a string that cannot
 // be empty (a non-empty constant, or a string built with a character or a
@@ -181,6 +228,23 @@ template <bool Allocates> struct MayCrash {
 bool knownNonZero(mlir::Value value);
 bool knownFinite(mlir::Value value);
 bool knownNonEmpty(mlir::Value value);
+
+// The condition a guard (idr.check.*) checks.
+enum class CheckKind { Nonzero, InBounds, Nonempty, Byte, Finite, Range };
+
+// Whether the condition of a guard of `kind` holds of `constants`, the
+// guard's operands in order: what a guard's folder and every total op's
+// folder ask before computing. A null one is not a constant, and the
+// condition does not hold of it.
+bool checkHolds(CheckKind kind, mlir::ArrayRef<mlir::Attribute> constants);
+
+// Whether the pure total op `op` may run before the condition that guards
+// it: each of its operands that `guarded` numbers is the result of its
+// guard (for an index, the guard against the length of the op's own
+// string), or a constant the guard's condition holds of. A guard proved
+// away by the path that reaches the op so leaves the op below that path.
+mlir::Speculation::Speculatability checkSpeculatability(mlir::Operation *op,
+                                                       mlir::ArrayRef<unsigned> guarded);
 
 // Whether output of `str` writes the pieces it is built from and never the
 // string (the output fusion of Canonicalize.td): a concatenation, a
@@ -277,6 +341,12 @@ bool isExclusive(mlir::Type type);
 // Idris's product of quantities: 0 absorbs, 1 is the unit, and ω·ω is ω.
 Quantity times(Quantity a, Quantity b);
 
+// Whether a value of `type` holds a reference a count accounts for. An
+// unboxed sum answers through its declaration, found from `scope`
+// (lib/Dialect/Types/Counted.cc).
+bool holdsReferences(mlir::Type type, mlir::SymbolTableCollection &symbols,
+                     mlir::Operation *scope);
+
 // The type at which a region of a match binds a field of its scrutinee:
 // the field's value at the product of the scrutinee's quantity and the
 // field's, as Idris binds a pattern variable (a linear field of a value
@@ -348,6 +418,16 @@ CtorOp lookupCtor(DataOp data, llvm::StringRef ctor);
 
 // The constructor `@T::@C` names, or null.
 CtorOp lookupCtor(mlir::Operation *from, mlir::SymbolRefAttr ctor);
+
+// Whether `data` is a memo sum: what idr-defunctionalize makes of a lazy
+// type (lib/Dialect/Ops/Data.cc).
+bool isMemo(DataOp data);
+
+// The two constructors every memo sum has besides its labels: a suspension
+// whose force is running, and a forced one, which holds its value. Every
+// pass that builds or reads them names them by these.
+inline constexpr llvm::StringLiteral memoRunning = "running";
+inline constexpr llvm::StringLiteral memoForced = "forced";
 
 // While a SymbolScope is open on a thread, lookupSymbol (and so lookupData,
 // lookupCtor and the effects of a call) answers a lookup in `op`, a symbol

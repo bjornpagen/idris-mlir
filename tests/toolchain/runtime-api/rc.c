@@ -1,6 +1,7 @@
 /* Reference counting against cells built by hand as idr-lower lays them out:
  * counts, saturation, freeing (a structure of any depth, under the small
- * stack the run script gives), reuse, stack cells, and the live-cell count.
+ * stack the run script gives, and arrays whose elements hold objects),
+ * reuse, stack cells, and the live-cell count.
  * A failed check prints a line to standard error. The summary goes through
  * the runtime's output buffer, which idris_rt_main_return must flush; then
  * main returns as @main does.
@@ -176,39 +177,76 @@ static void trees(void) {
   check(live() == before, "a node referenced from two slots is freed once, after both");
 }
 
-static int64_t code(int64_t x) { return x; }
-
-/* A closure: the header, the code pointer, `objs` object captures, then one
- * plain capture. */
-static void *closure(uint32_t label, uint32_t objs, void *const *captures) {
-  void *cell = idris_rt_cell(16 + 8 * (size_t)objs + 8,
-                             idris_rt_info(label, objs, IDRIS_RT_KIND_CLOSURE));
-  int64_t (*fn)(int64_t) = code;
-  memcpy((char *)cell + 8, &fn, sizeof fn);
+/* A thunk in the state of one of its labels, laid out as a box is: the
+ * header (kind thunk, the state's tag), `objs` object captures, then one
+ * plain capture. No code address: the force calls the label's function. */
+static void *thunk(uint32_t state, uint32_t objs, void *const *captures) {
+  void *cell = idris_rt_cell(8 + 8 * (size_t)objs + 8,
+                             idris_rt_info(state, objs, IDRIS_RT_KIND_THUNK));
   for (uint32_t i = 0; i < objs; ++i)
-    *slot(cell, 16 + 8 * (size_t)i) = captures[i];
+    *slot(cell, 8 + 8 * (size_t)i) = captures[i];
   double plain = 2.5;
-  memcpy((char *)cell + 16 + 8 * (size_t)objs, &plain, sizeof plain);
+  memcpy((char *)cell + 8 + 8 * (size_t)objs, &plain, sizeof plain);
   return cell;
 }
 
-static void closures(void) {
+static void thunks(void) {
   uint64_t before = live();
   void *shared = cons(1, NULL);
   idris_rt_inc(shared);
   void *captures[] = {(void *)text("captured"), shared, cons(2, NULL), word(9)};
-  void *c = closure(5, 4, captures);
-  check(live() == before + 4, "a closure and what it captures are live");
-  idris_rt_dec(c);
-  check(live() == before + 1, "a closure releases its captures, the code pointer is none");
+  void *t = thunk(5, 4, captures);
+  check(live() == before + 4, "a thunk and what it captures are live");
+  idris_rt_dec(t);
+  check(live() == before + 1, "a thunk releases its captures as a box releases its fields");
   check(count(shared) == 1, "a shared capture loses one reference");
   idris_rt_dec(shared);
 
   void *chain = NULL;
   for (int i = 0; i < 1000000; ++i)
-    chain = closure(6, 1, &chain);
+    chain = thunk(6, 1, &chain);
   idris_rt_dec(chain);
-  check(live() == before, "one dec frees a chain of 10^6 closures");
+  check(live() == before, "one dec frees a chain of 10^6 thunks");
+}
+
+/* An array of five elements, each a box in its one object slot and a plain
+ * word after it, so 16 bytes: the array's tag is that size and its objs the
+ * one slot. Element i holds cons(i), but element 2 holds `shared`. */
+static idris_rt_array *boxes(void *shared) {
+  idris_rt_array *a = idris_rt_array_new(5, idris_rt_info(16, 1, IDRIS_RT_KIND_ARRAY));
+  for (int64_t i = 0; i < 5; ++i) {
+    char *element = (char *)a + sizeof(idris_rt_array) + 16 * (size_t)i;
+    *(void **)element = i == 2 ? shared : cons(i, NULL);
+    memcpy(element + 8, &i, sizeof i);
+  }
+  return a;
+}
+
+/* Freeing an array releases each element's object slots, read at the
+ * element size its tag gives, whether the array dies alone or in the
+ * worklist of a cell that held it. */
+static void arrays(void) {
+  uint64_t before = live();
+  void *shared = cons(9, NULL);
+  idris_rt_inc(shared);
+  idris_rt_array *a = boxes(shared);
+  check(live() == before + 6, "an array and the five boxes its elements hold are live");
+  idris_rt_dec(a);
+  check(live() == before + 1 && count(shared) == 1,
+        "an array freed directly releases each element's box, a shared one once");
+  idris_rt_dec(shared);
+  check(live() == before, "nothing of the array is left");
+
+  shared = cons(9, NULL);
+  idris_rt_inc(shared);
+  void *held = boxes(shared);
+  void *holder = con(7, 1, &held, 0);
+  check(live() == before + 7, "a box holding an array, the array and its boxes are live");
+  idris_rt_dec(holder);
+  check(live() == before + 1 && count(shared) == 1,
+        "an array freed inside a dying box releases each element's box, a shared one once");
+  idris_rt_dec(shared);
+  check(live() == before, "nothing of the box or its array is left");
 }
 
 static void stringsAndBignums(void) {
@@ -360,7 +398,8 @@ int main(int argc, char **argv) {
   saturation();
   lists();
   trees();
-  closures();
+  thunks();
+  arrays();
   stringsAndBignums();
   tokens();
   stackCells();

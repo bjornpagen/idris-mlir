@@ -1,8 +1,8 @@
 // RUN: idris-mlir-opt %s --idr-eval --remarks-filter=idr-eval 2> %t.remarks | FileCheck %s
 // RUN: FileCheck %s --check-prefix=REMARK < %t.remarks
-// A total call can still crash (division by zero). The crash leaves the call
-// in place, to crash at runtime, with a Missed remark naming it; the calls
-// after it in the round still run, in a new child.
+// A total call can still crash: the guard of a division, by zero. The
+// crash leaves the call in place, to crash at runtime, with a Missed remark
+// naming it; the calls after it in the round still run, in a new child.
 // CHECK-LABEL: func.func @Prog.main()
 // CHECK: %[[Q:.*]] = call @half(%{{.*}}) : (i64) -> i64
 // CHECK: %[[R:.*]] = arith.constant 7 : i64
@@ -14,7 +14,8 @@
 module {
   func.func private @half(%x: i64) -> i64 attributes {idr.total, idr.effects = #idr.effects<none>} {
     %c = arith.constant 14 : i64
-    %q = idr.div signed %c, %x : i64
+    %y = idr.check.nonzero %x, "division by zero" : i64
+    %q = idr.div signed %c, %y : i64
     return %q : i64
   }
   func.func @Prog.main() -> (i64, i64) {

@@ -1,12 +1,10 @@
 // RUN: idris-mlir-opt %s --idr-stack --idr-lower > %t.mlir
 // RUN: FileCheck %s < %t.mlir
-// RUN: idris-mlir-opt %s --idr-stack --idr-lower=jit=true | FileCheck %s --check-prefix=JIT
 // A cell idr-stack marks lives in a slot of its function's entry block and
 // never comes from the allocator; its header, written where the con runs,
 // has count 1 and the stack mark, bit 31 of the info word (so the word is
 // negative as an i32). In a loop the slot is allocated once, before the
-// loop. A cell that escapes comes from idris_rt_cell. In JIT mode every
-// cell comes from the evaluation arena, marked or not.
+// loop. A cell that escapes comes from idris_rt_cell.
 
 // CHECK-LABEL: func.func private @local(
 // CHECK-NEXT: llvm.mlir.constant(1 : i64)
@@ -31,10 +29,6 @@
 // CHECK-NOT: llvm.alloca
 // CHECK: idris_rt_cell
 // CHECK: return
-
-// JIT-LABEL: func.func private @local(
-// JIT-NOT: llvm.alloca
-// JIT: idris_rt_arena_alloc
 module attributes {idr.program} {
   idr.data @List box {
     idr.ctor @Nil ()

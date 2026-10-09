@@ -15,27 +15,34 @@ namespace idr::narrow {
 
 // Whether `value` is `arg` or a predecessor of it, within one trip round the
 // loop: through predecessors, the condition's forwarding, and every region
-// of a merge.
-bool descends(Value value, BlockArgument arg, scf::WhileOp loop, unsigned depth = 0) {
+// of a merge. `again` decides on this path whether the loop goes round
+// again, none where it always does: a path on which it is false leaves the
+// loop, and what that path yields never comes back.
+bool descends(Value value, Value again, BlockArgument arg, scf::WhileOp loop,
+              unsigned depth = 0) {
   if (depth > 64)
     return false;
   if (value == arg)
     return true;
-  // What is yielded on the path out of the loop, and never comes back.
-  if (value.getDefiningOp<ub::PoisonOp>())
+  APInt goes;
+  if (again && matchPattern(again, m_ConstantInt(&goes)) && goes.isZero())
     return true;
   if (auto pred = value.getDefiningOp<BigPredOp>())
-    return descends(pred.getValue(), arg, loop, depth + 1);
+    return descends(pred.getValue(), again, arg, loop, depth + 1);
   if (auto forwarded = dyn_cast<BlockArgument>(value)) {
     if (forwarded.getOwner() != &loop.getAfter().front())
       return false;
-    return descends(loop.getConditionOp().getArgs()[forwarded.getArgNumber()], arg, loop,
-                    depth + 1);
+    scf::ConditionOp condition = loop.getConditionOp();
+    return descends(condition.getArgs()[forwarded.getArgNumber()], condition.getCondition(), arg,
+                    loop, depth + 1);
   }
   auto result = cast<OpResult>(value);
   Operation *merge = result.getOwner();
   if (merge->getNumRegions() == 0 || !isa<RegionBranchOpInterface>(merge))
     return false;
+  // A merge that gives the decision with the value decides in each region.
+  auto decided = dyn_cast_or_null<OpResult>(again);
+  bool together = decided && decided.getOwner() == merge;
   return llvm::all_of(merge->getRegions(), [&](Region &region) {
     if (region.empty())
       return true;
@@ -43,7 +50,9 @@ bool descends(Value value, BlockArgument arg, scf::WhileOp loop, unsigned depth 
     // A region that ends the program yields nothing.
     if (terminator->getNumOperands() != merge->getNumResults())
       return !isa<RegionBranchTerminatorOpInterface>(terminator);
-    return descends(terminator->getOperand(result.getResultNumber()), arg, loop, depth + 1);
+    Value decision = together ? terminator->getOperand(decided.getResultNumber()) : again;
+    return descends(terminator->getOperand(result.getResultNumber()), decision, arg, loop,
+                    depth + 1);
   });
 }
 
@@ -59,7 +68,7 @@ std::optional<unsigned> descendingArgument(scf::WhileOp loop, const Facts &facts
   auto yield = cast<scf::YieldOp>(loop.getAfter().front().getTerminator());
   for (BlockArgument arg : before.getArguments())
     if (isa<NatType>(arg.getType()) && !facts.fits(arg) &&
-        descends(yield.getOperand(arg.getArgNumber()), arg, loop))
+        descends(yield.getOperand(arg.getArgNumber()), Value(), arg, loop))
       return arg.getArgNumber();
   return std::nullopt;
 }

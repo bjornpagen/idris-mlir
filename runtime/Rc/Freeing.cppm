@@ -22,18 +22,32 @@ namespace {
 #endif
 constexpr unsigned stackAddressBits = IDRIS_RT_STACK_ADDRESS_BITS;
 
-// The next cell's address occupies the count and the tag field of info.
-// objs, kind and the stack bit stay, which is all releasing the cell reads.
-// The tag field is the header's (IDRIS_RT_TAG_LIMIT), not a second width.
+// The count holds the low 32 bits of the next cell's address, and the tag
+// field of info its high bits; objs, kind and the stack bit stay. An array
+// whose elements hold objects keeps its tag, the element size its release
+// steps by, and its length holds the high bits instead (steppedLength). The
+// tag field is the header's (IDRIS_RT_TAG_LIMIT), not a second width.
 constexpr unsigned addressLowBits = 32;
 constexpr unsigned addressHighBits = 16;
 static_assert(IDRIS_RT_TAG_LIMIT == (1u << addressHighBits));
 constexpr uint32_t tagField = IDRIS_RT_TAG_LIMIT - 1u;
+constexpr unsigned lengthBits = 64 - addressHighBits;
+constexpr uint64_t lengthField = (uint64_t{1} << lengthBits) - 1u;
+
+// The length of an array whose elements hold objects, or null. Each element
+// is then at least a word and the array lies in the address space, so the
+// top addressHighBits bits of its length are 0 while it lives.
+uint64_t *steppedLength(idris_rt_header *cell) {
+  if (idris_rt_info_kind(cell->info) != IDRIS_RT_KIND_ARRAY || idris_rt_info_objs(cell->info) == 0)
+    return nullptr;
+  return &reinterpret_cast<idris_rt_array *>(cell)->length;
+}
 
 // The cells whose count reached 0 and whose references are still to be
-// released: a stack threaded through the cells. A dying cell's count and
-// tag are dead, addressLowBits + addressHighBits bits, which hold the next
-// cell's address: a heap cell's has no more bits than the allocator's
+// released: a stack threaded through the cells. A dying cell's count is
+// dead, and so is its tag, or for an array whose elements hold objects the
+// top of its length: addressLowBits + addressHighBits bits, which hold the
+// next cell's address. A heap cell's has no more bits than the allocator's
 // pagemap covers (rt.alloc), and a stack cell's no more than the target's
 // stacks (above).
 class Dying {
@@ -41,20 +55,31 @@ class Dying {
                 "a heap address fits a count and a tag");
   static_assert(stackAddressBits <= addressLowBits + addressHighBits,
                 "a stack address fits a count and a tag");
+  static_assert(rt::alloc::heapAddressBits <= lengthBits && stackAddressBits <= lengthBits,
+                "an array's length leaves the top bits free");
 
 public:
   bool empty() const { return top == nullptr; }
 
   void push(idris_rt_header *cell) {
     auto next = reinterpret_cast<uintptr_t>(top);
+    auto high = static_cast<uint32_t>(next >> addressLowBits);
     cell->count = static_cast<uint32_t>(next);
-    cell->info = (cell->info & ~tagField) | static_cast<uint32_t>(next >> addressLowBits);
+    if (uint64_t *length = steppedLength(cell))
+      *length |= uint64_t{high} << lengthBits;
+    else
+      cell->info = (cell->info & ~tagField) | high;
     top = cell;
   }
 
   idris_rt_header *pop() {
     idris_rt_header *cell = top;
-    uintptr_t next = uintptr_t{cell->count} | uintptr_t{cell->info & tagField} << addressLowBits;
+    uint64_t high = cell->info & tagField;
+    if (uint64_t *length = steppedLength(cell)) {
+      high = *length >> lengthBits;
+      *length &= lengthField;
+    }
+    uintptr_t next = uintptr_t{cell->count} | static_cast<uintptr_t>(high) << addressLowBits;
     top = reinterpret_cast<idris_rt_header *>(next);
     return cell;
   }
@@ -63,13 +88,10 @@ private:
   idris_rt_header *top = nullptr;
 };
 
-// A cell's object slots: after the header, and in a closure after its code
-// pointer too, one word each. Strings and bignums have none.
+// A cell's object slots: right after the header, one word each, in a thunk
+// as in a box. Strings and bignums have none.
 void **slotsOf(idris_rt_header *cell) {
-  size_t offset = IDRIS_RT_WORD_BYTES;
-  if (idris_rt_info_kind(cell->info) == IDRIS_RT_KIND_CLOSURE)
-    offset += IDRIS_RT_WORD_BYTES;
-  return static_cast<void **>(static_cast<void *>(reinterpret_cast<char *>(cell) + offset));
+  return static_cast<void **>(static_cast<void *>(cell + 1));
 }
 
 void releaseSlots(void **slots, uint32_t objs, Dying &dying) {
@@ -123,9 +145,9 @@ namespace rt::rc {
   releaseAll(dying);
 }
 
-// What a persistent cell stored, released without freeing the cell: its
+// What a persistent cell holds, released without freeing the cell: its
 // memory is the program's, and its header stays.
-void releaseKept(idris_rt_header *cell) {
+void releaseHeld(idris_rt_header *cell) {
   Dying dying;
   releaseOwned(cell, dying);
   releaseAll(dying);

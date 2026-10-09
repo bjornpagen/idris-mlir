@@ -99,8 +99,10 @@ int run() {
   });
   mlir::OwningOpRef<mlir::ModuleOp> module =
       mlir::parseSourceFile<mlir::ModuleOp>(inputPath, sources, &context);
+  // The parsed module is verified, and some of the verifier's rules are the
+  // user's (a type that can reach itself through an array).
   if (!module || verdict.errors)
-    return failure;
+    return status(verdict);
   mlir::DialectRegistry everything;
   mlir::registerAllDialects(everything);
   mlir::registerAllExtensions(everything);
@@ -108,8 +110,9 @@ int run() {
   mlir::registerLLVMDialectTranslation(everything);
   context.appendDialectRegistry(everything);
   if (mlir::failed(setTarget(*module, *cpu)) || verdict.errors) {
-    Report() << "internal error: the module's target could not be set";
-    return failure;
+    if (!verdict.rejected)
+      Report() << "internal error: the module's target could not be set";
+    return status(verdict);
   }
 
   // --remarks prints the remarks of its categories, of every kind;
@@ -189,6 +192,13 @@ int run() {
     }
     omitted.insert(name);
   }
+  // --demand: in-place is the one promise idr-demand checks, and a
+  // misspelled one would check nothing by accident.
+  for (const std::string &promise : demand)
+    if (promise != "in-place") {
+      Report() << "--demand names " << promise << ", which is not in-place, the one promise";
+      return usage;
+    }
   // Every step is one pass manager, registered the same way: statistics when
   // they are on, MLIR's own pass-manager options, and this compilation's
   // timer. The step's text is the pipeline it runs.
@@ -216,6 +226,8 @@ int run() {
       if (!options.empty())
         text = "idr-rc{" + llvm::join(options, " ") + "}";
     }
+    if (stepName(step) == "idr-demand" && !demand.empty())
+      text = "idr-demand{promises=in-place}";
     mlir::PassManager pm(&context);
     if (!configure(pm))
       return usage;
@@ -265,8 +277,9 @@ int run() {
   llvm::LLVMContext llvmContext;
   std::unique_ptr<llvm::Module> llvmModule = mlir::translateModuleToLLVMIR(*module, llvmContext);
   if (!llvmModule || verdict.errors) {
-    Report() << "internal error: translation to LLVM IR failed";
-    return failure;
+    if (!verdict.rejected)
+      Report() << "internal error: translation to LLVM IR failed";
+    return status(verdict);
   }
   llvmModule->setTargetTriple(triple);
   llvmModule->setDataLayout(machine->createDataLayout());

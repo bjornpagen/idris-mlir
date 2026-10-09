@@ -1,4 +1,5 @@
-// idr.ownership:counting: which types hold references.
+// idr.ownership:counting: which values hold references, as one run over a
+// module counts them.
 export module idr.ownership:counting;
 
 import idr.mlir;
@@ -10,51 +11,33 @@ using namespace mlir;
 
 namespace idr::ownership {
 
-// Which types hold references. An unboxed sum does when a field of one of
-// its constructors does; the answers are computed once per module.
+// Which values of a module hold references: a type's answer is
+// idr::holdsReferences, asked once per type, and the stage is the one the
+// run is in. idr-rc grades as it goes, so it says which side of grading
+// the signatures it is on; the verifier runs in the owned stage only.
 export class Counting {
 public:
-  explicit Counting(Operation *module) : module(module) {}
+  Counting(Operation *module, bool ownedStage) : module(module), graded(ownedStage) {}
 
   bool counted(Type type) {
-    // A linear value is counted as the value it is; its quantity decides
-    // only how it is used.
-    type = unrestricted(type);
-    if (isa<StrType, BigType, NatType, BoxType, FnType, LazyType, TokenType>(type) ||
-        isArray(type))
-      return true;
-    auto data = dyn_cast<DataType>(type);
-    if (!data)
-      return false;
-    if (datas.empty())
-      for (Region &region : module->getRegions())
-        for (Block &block : region)
-          for (auto decl : block.getOps<DataOp>())
-            datas[decl.getSymNameAttr()] = decl;
-    Attribute name = data.getName().getAttr();
-    auto known = sums.find(name);
-    if (known != sums.end())
-      return known->second;
-    // Containment through unboxed sums is acyclic; the provisional answer
-    // only guards a module the verifier has yet to reject.
-    sums[name] = false;
-    DataOp decl = datas.lookup(name);
-    bool any = false;
-    if (decl)
-      for (CtorOp ctor : decl.getCtors())
-        for (Type field : ctor.getFieldTypes().getAsValueRange<TypeAttr>())
-          any = any || counted(field);
-    sums[name] = any;
-    return any;
+    auto [known, fresh] = answers.try_emplace(type, false);
+    if (fresh)
+      known->second = holdsReferences(type, symbols, module);
+    return known->second;
   }
 
   // Whether `value` holds references: its type does, and it is not static.
   bool tracked(Value value) { return counted(value.getType()) && !isStatic(value); }
 
+  // Whether the signatures are graded: a parameter is then owned, or a
+  // view the function borrows (isBorrowed).
+  bool ownedStage() const { return graded; }
+
 private:
   Operation *module;
-  llvm::DenseMap<Attribute, DataOp> datas;
-  llvm::DenseMap<Attribute, bool> sums;
+  bool graded;
+  SymbolTableCollection symbols;
+  llvm::DenseMap<Type, bool> answers;
 };
 
 } // namespace idr::ownership

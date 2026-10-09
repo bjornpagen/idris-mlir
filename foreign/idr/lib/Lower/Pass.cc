@@ -20,7 +20,7 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
   using IdrLowerBase::IdrLowerBase;
 
   void runOnOperation() override {
-    if (mlir::failed(idr::lower::lowerModule(getOperation(), jit)))
+    if (mlir::failed(idr::lower::lowerModule(getOperation())))
       signalPassFailure();
   }
 };

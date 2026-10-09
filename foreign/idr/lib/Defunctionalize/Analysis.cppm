@@ -1,9 +1,10 @@
-// idr.defunctionalize:analysis: the labels each closure value may hold, a
-// sparse forward dataflow analysis on MLIR's framework, interprocedural,
-// that joins itself what the framework does not follow: the captures of
-// closures and the arguments of applies into a function's entry, the
-// results of each label an apply may call into the apply's, and the fields
-// of constructors.
+// idr.defunctionalize:analysis: the labels each closure or suspension may
+// hold, a sparse forward dataflow analysis on MLIR's framework,
+// interprocedural, that joins itself what the framework does not follow: the
+// captures of closures and suspensions and the arguments of applies into a
+// function's entry, the results of each label an apply may call into the
+// apply's, and those of each label a force may run into the force's, the
+// fields of constructors and the elements of arrays.
 export module idr.defunctionalize:analysis;
 
 import idr.mlir;
@@ -28,21 +29,22 @@ public:
   LabelAnalysis(DataFlowSolver &dataflow, Module &closures)
       : SparseForwardDataFlowAnalysis(dataflow), module(closures) {
     registerAnchorKind<FieldAnchor>();
+    registerAnchorKind<ElementsAnchor>();
   }
 
-  // Closures stored in constants reach their fields before anything runs.
+  // Closures and suspensions stored in constants reach their fields before
+  // anything runs.
   LogicalResult initialize(Operation *top) override {
     top->walk([&](idr::ConstantOp constant) {
       constant.getValue().walk([&](idr::ConAttr con) {
-        for (auto [i, field] : llvm::enumerate(con.getFields())) {
+        eachField(con, [&](Attribute field, unsigned i) {
           auto closure = dyn_cast<idr::ClosureAttr>(field);
           if (!closure)
-            continue;
-          Type declared = module.fieldType(con.getCtor(), static_cast<unsigned>(i));
-          if (declared && isClosureType(declared))
-            joinField(con.getCtor(), static_cast<unsigned>(i),
-                      Labels::of(closure.getCallee().getAttr()));
-        }
+            return;
+          Type declared = module.fieldType(con.getCtor(), i);
+          if (declared && isKeyed(declared))
+            joinField(con.getCtor(), i, Labels::of(closure.getCallee().getAttr()));
+        });
       });
     });
     return SparseForwardDataFlowAnalysis::initialize(top);
@@ -52,34 +54,51 @@ public:
                                ArrayRef<LabelLattice *> results) override {
     if (auto closure = dyn_cast<idr::ClosureOp>(op))
       return set(results[0], Labels::of(closure.getCalleeAttr().getAttr()));
+    if (auto suspend = dyn_cast<idr::SuspendOp>(op))
+      return set(results[0], Labels::of(suspend.getCalleeAttr().getAttr()));
     if (auto constant = dyn_cast<idr::ConstantOp>(op)) {
       if (auto closure = dyn_cast<idr::ClosureAttr>(constant.getValue());
-          closure && isClosureType(constant.getType()))
+          closure && isKeyed(constant.getType()))
         return set(results[0], Labels::of(closure.getCallee().getAttr()));
       return success();
     }
+    // A poison is no value the program computes, so it holds no label.
+    if (isa<ub::PoisonOp>(op))
+      return success();
     if (auto con = dyn_cast<idr::ConOp>(op)) {
       for (auto [i, field] : llvm::enumerate(operands))
-        if (isClosureType(con.getFields()[i].getType()))
+        if (isKeyed(con.getFields()[i].getType()))
           joinField(con.getCtor(), static_cast<unsigned>(i), field->getValue());
       return success();
     }
     // Entering or using a linear value keeps what it holds.
     if (isa<idr::LinEnterOp, idr::LinUseOp>(op)) {
-      if (isClosureType(op->getResult(0).getType()))
+      if (isKeyed(op->getResult(0).getType()))
         return set(results[0], operands[0]->getValue());
       return success();
     }
     if (auto field = dyn_cast<idr::FieldOp>(op)) {
-      if (!isClosureType(field.getType()))
+      if (!isKeyed(field.getType()))
         return success();
       auto ref = SymbolRefAttr::get(dataName(field.getValue().getType()),
                                     {field.getCtorAttr()});
       return set(results[0], readField(getProgramPointAfter(op), ref,
                                        static_cast<unsigned>(field.getIndex())));
     }
+    if (auto force = dyn_cast<idr::ForceOp>(op))
+      return visitForce(force, operands[0]->getValue(), results[0]);
+    if (auto made = dyn_cast<idr::ArrayNewOp>(op))
+      return joinElements(made.getArrayType(), made.getFill().getType(), operands[1]->getValue());
+    if (auto stored = dyn_cast<idr::ArraySetOp>(op))
+      return joinElements(stored.getArrayType(), stored.getValue().getType(),
+                          operands[2]->getValue());
+    if (auto read = dyn_cast<idr::ArrayGetOp>(op)) {
+      if (!isKeyed(read.getValue().getType()))
+        return success();
+      return set(results[0], readElements(getProgramPointAfter(op), read.getArrayType()));
+    }
     for (auto [result, lattice] : llvm::zip(op->getResults(), results))
-      if (isClosureType(result.getType()))
+      if (isKeyed(result.getType()))
         setToEntryState(lattice);
     return success();
   }
@@ -111,8 +130,8 @@ public:
     return success();
   }
 
-  // The entry arguments of a function: from its calls, its closures, and the
-  // idr.apply ops that may call it.
+  // The entry arguments of a function: from its calls, its closures and
+  // suspensions, and the idr.apply ops that may call it.
   void visitCallableOperation(CallableOpInterface callable,
                               ArrayRef<AbstractSparseLattice *> arguments) override {
     auto fn = dyn_cast<func::FuncOp>(callable.getOperation());
@@ -159,19 +178,40 @@ public:
   }
 
   // The arguments of a case region of idr.match are the fields of its
-  // constructor.
+  // constructor, and the element a fold's body takes is one of the array's.
+  // A generate stores its fill and what its body yields as elements, which
+  // its results, an array and a world, do not carry.
   void visitNonControlFlowArguments(Operation *op, const RegionSuccessor &successor,
                                     ValueRange inputs,
                                     ArrayRef<LabelLattice *> lattices) override {
-    auto match = dyn_cast<idr::MatchOp>(op);
+    if (auto generate = dyn_cast<idr::ArrayGenerateOp>(op)) {
+      ProgramPoint *point = getProgramPointAfter(op);
+      SmallVector<Value> stored{generate.getFill()};
+      if (!generate.getBody().empty())
+        llvm::append_range(stored, generate.getBody().front().getTerminator()->getOperands());
+      for (Value element : stored)
+        (void)joinElements(generate.getArrayType(), element.getType(),
+                           getLatticeElementFor(point, element)->getValue());
+      return setAllToEntryStates(lattices);
+    }
     Region *region = successor.getSuccessor();
+    if (auto fold = dyn_cast<idr::ArrayFoldOp>(op); fold && region) {
+      ProgramPoint *point = getProgramPointBefore(&region->front());
+      for (auto [input, lattice] : llvm::zip(inputs, lattices))
+        if (isKeyed(input.getType()) && cast<BlockArgument>(input).getArgNumber() == 1)
+          propagateIfChanged(lattice, lattice->join(readElements(point, fold.getArrayType())));
+        else
+          setToEntryState(lattice);
+      return;
+    }
+    auto match = dyn_cast<idr::MatchOp>(op);
     if (!match || !region || region->getRegionNumber() >= match.getCases().size())
       return setAllToEntryStates(lattices);
     auto ctor = cast<FlatSymbolRefAttr>(match.getCases()[region->getRegionNumber()]);
     auto ref = SymbolRefAttr::get(dataName(match.getScrutinee().getType()), {ctor});
     ProgramPoint *point = getProgramPointBefore(&region->front());
     for (auto [input, lattice] : llvm::zip(inputs, lattices))
-      if (isClosureType(input.getType()))
+      if (isKeyed(input.getType()))
         propagateIfChanged(lattice, lattice->join(readField(
                                         point, ref, cast<BlockArgument>(input).getArgNumber())));
   }
@@ -183,6 +223,25 @@ public:
 private:
   LogicalResult set(LabelLattice *lattice, const Labels &labels) {
     propagateIfChanged(lattice, lattice->join(labels));
+    return success();
+  }
+
+  // A force gives what one of the labels its cell may hold returns.
+  LogicalResult visitForce(idr::ForceOp force, const Labels &cell, LabelLattice *result) {
+    if (!isKeyed(force.getType()))
+      return success();
+    if (cell.unknown)
+      return set(result, Labels::top());
+    ProgramPoint *point = getProgramPointAfter(force);
+    for (StringAttr label : cell.names) {
+      func::FuncOp fn = module.function(label);
+      if (!fn || fn.isExternal())
+        return set(result, Labels::top());
+      fn.walk([&](func::ReturnOp ret) {
+        if (ret.getNumOperands() == 1)
+          join(result, *getLatticeElementFor(point, ret.getOperand(0)));
+      });
+    }
     return success();
   }
 
@@ -198,6 +257,20 @@ private:
 
   const Labels &readField(ProgramPoint *point, SymbolRefAttr ctor, unsigned index) {
     return getOrCreateFor<FieldLabels>(point, anchor(ctor, index))->value;
+  }
+
+  // An element of `type` stored in an array of `array`'s element type.
+  LogicalResult joinElements(MemRefType array, Type type, const Labels &labels) {
+    if (!isKeyed(type))
+      return success();
+    auto *state = getOrCreate<FieldLabels>(getLatticeAnchor<ElementsAnchor>(array.getElementType()));
+    propagateIfChanged(state, state->join(labels));
+    return success();
+  }
+
+  const Labels &readElements(ProgramPoint *point, MemRefType array) {
+    return getOrCreateFor<FieldLabels>(point, getLatticeAnchor<ElementsAnchor>(array.getElementType()))
+        ->value;
   }
 
   Module &module;

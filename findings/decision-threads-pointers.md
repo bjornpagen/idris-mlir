@@ -20,16 +20,26 @@ raw pointers and a foreign calling convention are not in that subset.
   world, and which does not call back into the program. A finalizer would
   be an effect at a time the world does not name. They are rejected with
   `unsupported (finalizer)`.
-- **Raw pointers.** `prim__castPtr`, `prim__forgetPtr`, `prim__nullPtr`,
-  `prim__nullAnyPtr`, `prim__getNullAnyPtr` and `prim__getString` are
-  addresses the runtime does not account for: untyped, nullable, free to
-  alias any heap value. `System.getEnv` is the same, because it returns
-  the environment through `prim__getString` of a pointer. References this
+- **Raw pointers.** An address the runtime does not account for is
+  untyped, nullable and free to alias any heap value. References this
   compiler keeps are heap values it allocated and counts. A raw pointer
   has no count, so exclusivity and the acyclic-heap check would be guesses.
-  They are rejected with `unsupported (raw pointer)`. `AnyPtr` stays, as
-  the type of the three standard-stream handles, which are the runtime's
-  own small integers, not addresses.
+  So no address reaches a program: raw memory, `System.FFI`'s
+  `prim__malloc` and `malloc`, is rejected with `unsupported (raw
+  pointer)`, which names nothing else.
+- **Base's pointers are runtime handles** (proposal 0002, owner decision
+  O1). With `%foreign` outside user code, every `Ptr t` or `AnyPtr` a
+  program holds comes from a primitive the compiler recognizes, so it is a
+  handle, never an address: an `i64` slot of the runtime's handle table,
+  which holds an open file, an open directory, a file's times or a string.
+  `0`, `1` and `2` are the standard streams, as before, and `-1` is null,
+  since `0` is standard input. Base's pointer operations are handle
+  operations: `prim__castPtr` and `prim__forgetPtr` are the identity,
+  `prim__getNullAnyPtr` is the null handle, `prim__nullAnyPtr` and
+  `prim__nullPtr` test for it, `prim__getString` reads a string handle's
+  string with a reference of its own, and `System.FFI`'s `prim__free`
+  frees a handle. So `getEnv`, `currentDir`, `nextDirEntry`, `fGetLine`
+  and `fGetChars` compile as base writes them.
 - **`%foreign` and the C ABI.** A `%foreign` spec names another language's
   calling convention and a symbol in it. `%extern` as a C export, a C
   calling convention, libffi, and a C symbol declared or called from user

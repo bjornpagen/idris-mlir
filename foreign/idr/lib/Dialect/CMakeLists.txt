@@ -16,6 +16,7 @@ target_sources(idr_dialect PRIVATE
 	Dialect/Constants.cc
 	Dialect/Initialize.cc
 	Dialect/Patterns.cc
+	Types/Counted.cc
 	Types/DestType.cc
 	Types/FnType.cc
 	Types/QType.cc
@@ -51,6 +52,7 @@ target_sources(idr_dialect PRIVATE
 	Symbols/LookupSymbol.cc
 	Verify/Attributes.cc
 	Verify/DiscardableAttrs.cc
+	Effects/Consumed.cc
 	Effects/OnlyAllocates.cc
 	Effects/PerformsIO.cc
 	Crashes/KnownFinite.cc
@@ -60,6 +62,7 @@ target_sources(idr_dialect PRIVATE
 	Ops/Bigs.cc
 	Ops/Buffer.cc
 	Ops/Bytes.cc
+	Ops/Check.cc
 	Ops/Closure.cc
 	Ops/Con.cc
 	Ops/Constant.cc
@@ -72,6 +75,7 @@ target_sources(idr_dialect PRIVATE
 	Ops/Lin.cc
 	Ops/Matches.cc
 	Ops/Os.cc
+	Ops/Regions.cc
 	Ops/Scalars.cc
 	Ops/Strings.cc
 	Ops/Tag.cc

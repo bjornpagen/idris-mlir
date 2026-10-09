@@ -1,4 +1,6 @@
-// idr.io.write_bytes and idr.io.read_bytes: IO of the bytes of a buffer.
+// idr.io.write_bytes and idr.io.read_bytes: IO of the bytes of a buffer. The
+// range is what the program computed; idr.check.range checks it before the
+// op.
 
 #include "idr/Idr.h"
 
@@ -10,23 +12,11 @@ using namespace idr;
 LogicalResult WriteBytesOp::verify() { return ops::verifyByteBuffer(*this); }
 LogicalResult ReadBytesOp::verify() { return ops::verifyByteBuffer(*this); }
 
-namespace {
-
-// The range is what the program computed, so it may lie outside the
-// buffer; the runtime checks it in the function the op calls, and crashes
-// with this message.
-constexpr StringRef outsideBuffer = "a byte range outside the buffer";
-
-} // namespace
-
-std::optional<StringRef> WriteBytesOp::getCrashCause() { return outsideBuffer; }
-std::optional<StringRef> ReadBytesOp::getCrashCause() { return outsideBuffer; }
-
 void WriteBytesOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  ops::ioEffects(getCrashCause(), Value(), effects);
+  ops::ioEffects(Value(), effects);
 }
 void ReadBytesOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  ops::ioEffects(getCrashCause(), Value(), effects);
+  ops::ioEffects(Value(), effects);
 }

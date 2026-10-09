@@ -1,5 +1,5 @@
-// idr-in-bounds: the array accesses proven within their arrays are marked
-// `in_bounds`, as idr.inbounds proves them.
+// idr-in-bounds: every guard that can never crash is erased, as
+// idr.inbounds proves it.
 
 #include "idr/Idr.h"
 

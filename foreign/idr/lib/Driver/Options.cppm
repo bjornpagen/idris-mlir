@@ -26,6 +26,12 @@ cl::list<std::string> without(
     "without", cl::CommaSeparated,
     cl::desc("Leave out these steps of the pipeline (an idr-* pass other than idr-lower) or these "
              "mechanisms of idr-rc (reuse, borrow, sink), to measure what each one is worth"));
+// The promises idr-demand checks: a program that breaks one is rejected.
+// Without any, it checks none.
+cl::list<std::string> demand(
+    "demand", cl::CommaSeparated,
+    cl::desc("Reject a program that breaks these promises: in-place (every call passes a "
+             "parameter of quantity 1 that its function rebuilds in place exclusive)"));
 cl::opt<std::string> remarks("remarks",
                              cl::desc("Print the remarks (passed, missed, failed and analysis) "
                                       "of these categories (a regex), e.g. idr-eval"),

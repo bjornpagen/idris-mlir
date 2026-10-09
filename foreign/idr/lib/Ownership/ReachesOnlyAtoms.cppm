@@ -14,7 +14,10 @@ namespace {
 // Whether the constant `attr` reaches no cell but atoms: a box constructor
 // without fields, a constructor of an unboxed sum whose fields reach none
 // either, or a value that is no box or sum at all (a number, a static
-// string or big, which nothing takes apart). A closure is a cell.
+// string or big, which nothing takes apart). A closure is a cell. A run is
+// read cell by cell and then its tail, never field by field along its
+// spine, which would rebuild the rest of the run at every step: its cells
+// hold every field but the one that links them.
 bool onlyAtoms(Operation *from, Attribute attr) {
   if (isa<ClosureAttr>(attr))
     return false;
@@ -25,9 +28,15 @@ bool onlyAtoms(Operation *from, Attribute attr) {
       from, FlatSymbolRefAttr::get(con.getCtor().getRootReference()));
   if (!data)
     return false;
+  // The cells of a run have at least the field that links them. A memo
+  // cell is written by its first force, so it is never an atom, even in a
+  // state without fields.
   if (data.getBox())
-    return con.getFields().empty();
-  return llvm::all_of(con.getFields(), [&](Attribute field) { return onlyAtoms(from, field); });
+    return !isMemo(data) && !con.isRun() && con.getFields().empty();
+  auto atoms = [&](ArrayAttr fields) {
+    return llvm::all_of(fields, [&](Attribute field) { return onlyAtoms(from, field); });
+  };
+  return llvm::all_of(con.getCells(), atoms) && (!con.isRun() || onlyAtoms(from, con.getTail()));
 }
 
 } // namespace

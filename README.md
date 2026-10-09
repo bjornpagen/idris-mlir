@@ -10,9 +10,11 @@ backend.
 
 ```text
 Idris frontend (pinned) → checked TT → Core (Idris: types, monomorphisation, representations)
-  → idr dialect (C++) → the simplify loop: inline, specialize, evaluate at compile time
+  → idr dialect (C++): lambdas and delays as regions, outlined by idr-isolate
+  → the simplify loop: inline, specialize, evaluate at compile time
     by running the program's own code in a JIT, to a fixpoint
-  → defunctionalize, reference counting, loops → idr-lower → LLVM O3 with the runtime
+  → defunctionalize (closures and memo sums), reference counting, loops
+  → idr-lower, idr-entry → LLVM O3 with the runtime
   → object → linked as the target entry says (static PIE on musl today)
 ```
 
@@ -56,9 +58,14 @@ That promise, more than dependent types alone, is why this compiler exists.
 Idris 2 programs over the stock Prelude and base, with `main : IO ()`,
 imported explicitly (`--no-prelude` plus `import Prelude`): interfaces
 resolved at compile time, `Integer`, `Nat`, `Double`, strings, lists,
-`Data.Vect`, base's `IOArray` and `Buffer`, and `System.File` on the
-standard streams. Linear arrays and lists come from the compiler's own
-`libs/mlir-linear`, plain Idris over base's primitives. Values
+`Data.Vect`, base's `IOArray` and `Buffer`, `System.File` and
+`System.Directory` on files, directories and the standard streams, the
+environment and the program's arguments, `System.Clock` and `exitWith`. A
+pointer of base's is a handle of the runtime's, never an address. Signals,
+threads and other processes are refused with a named rule. A suspension is
+a memo cell, which its first force writes. Linear arrays and lists come
+from the compiler's own `libs/mlir-linear`, plain Idris over base's
+primitives. Values
 that remain after the pipeline live in counted cells: `idr-rc` reuses the
 cell of a value that dies, borrows what a function only reads, and the
 verifier checks after every pass that every reference is consumed exactly

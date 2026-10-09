@@ -2,10 +2,13 @@ module Main
 
 -- Every run-time export of Prelude.IO the compiler admits, each used
 -- (covers): console input and output, in IO and in a monad of the
--- program's own through its HasIO, and running a primitive action, each
--- result printed so that what it computes is checked.
+-- program's own through its HasIO, running a primitive action, and
+-- reading a string the runtime holds (prim__getString, which base's getEnv
+-- reads a variable's value with), each result printed so that what it
+-- computes is checked.
 
 import Prelude
+import System
 
 record App a where
   constructor MkApp
@@ -51,3 +54,6 @@ main = do
   five <- primIO (toPrim (pure (the Int 5)))
   printLn five
   primIO1 (toPrim (putStrLn "primIO1"))
+  ignore (setEnv "IDRIS_MLIR_IO" "held" True)
+  held <- getEnv "IDRIS_MLIR_IO"
+  printLn held

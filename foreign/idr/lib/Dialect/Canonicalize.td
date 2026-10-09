@@ -55,4 +55,17 @@ def Idr_HeadOfShowInt : Pat<(Idr_StrHeadOp (Idr_StrShowOp $isSigned, $x)),
 def Idr_HeadOfShowDouble : Pat<(Idr_StrHeadOp (Idr_StrShowOp $isSigned, $x)),
                                (Idr_DoubleHeadOp $x), [(Idr_IsDouble $x)]>;
 
+// Emit guards the string a head reads (idr.check.nonempty). These read the
+// head off the builder while the guard is still there; the patterns above
+// read it once the guard has folded away, as it does on these builders.
+def Idr_HeadOfCheckedCons : Pat<
+    (Idr_StrHeadOp (Idr_CheckNonemptyOp (Idr_StrConsOp $c, $s), $_)),
+    (replaceWithValue $c)>;
+def Idr_HeadOfCheckedShowInt : Pat<
+    (Idr_StrHeadOp (Idr_CheckNonemptyOp (Idr_StrShowOp $isSigned, $x), $_)),
+    (Idr_IntHeadOp $isSigned, $x), [(Idr_IsInteger $x)]>;
+def Idr_HeadOfCheckedShowDouble : Pat<
+    (Idr_StrHeadOp (Idr_CheckNonemptyOp (Idr_StrShowOp $isSigned, $x), $_)),
+    (Idr_DoubleHeadOp $x), [(Idr_IsDouble $x)]>;
+
 #endif // IDR_CANONICALIZE

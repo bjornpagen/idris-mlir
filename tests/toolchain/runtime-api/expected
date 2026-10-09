@@ -8,7 +8,7 @@ live cells once every result is released: 0
 3061 operations: the results expected-operations holds
 rc: exit 0
 stack: 256 KiB
-rc: 64 of 64 checks as idris_rt.h defines them
+rc: 70 of 70 checks as idris_rt.h defines them
 idris-rt: live cells 0
 rc leak, IDRIS_RT_LIVE=1: exit 0
   stderr | idris-rt: live cells 1

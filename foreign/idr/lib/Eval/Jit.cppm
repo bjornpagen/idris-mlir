@@ -50,8 +50,6 @@ public:
   // A function of the same code that does nothing: what runs first, to see
   // that this process may run the code its JIT wrote.
   Entry getProbe() const { return probe; }
-  // The address of the global `name` defines, or null when it defines none.
-  const void *address(llvm::StringRef name) const;
 
 private:
   // What the JIT's session reported while it linked (a failed mapping or
@@ -79,21 +77,54 @@ using Binary = double (*)(double, double);
 // What lowered code may call: the runtime's entry points, the libm functions
 // idr-lower calls (and fmod), and the memory functions LLVM emits on every
 // target. What else LLVM emits for the target is the target entry's
-// (libraryCalls).
+// (libraryCalls). The IO functions are among them though no evaluated call
+// performs IO: pure code builds IO actions, and the code of each is
+// compiled, and linked, with the code that builds it.
 llvm::SmallVector<std::pair<llvm::StringRef, llvm::orc::ExecutorAddr>> symbols() {
 #define IDRIS_RT_BIND(name) bind(#name, &name)
   return {
-      IDRIS_RT_BIND(idris_rt_cell), IDRIS_RT_BIND(idris_rt_arena_alloc),
-      IDRIS_RT_BIND(idris_rt_array_new),
-      IDRIS_RT_BIND(idris_rt_eval_crash), IDRIS_RT_BIND(idris_rt_eval_tick),
-      IDRIS_RT_BIND(idris_rt_crash), IDRIS_RT_BIND(idris_rt_flush),IDRIS_RT_BIND(idris_rt_io_put_str),
+      IDRIS_RT_BIND(idris_rt_cell), IDRIS_RT_BIND(idris_rt_array_new),
+      IDRIS_RT_BIND(idris_rt_inc), IDRIS_RT_BIND(idris_rt_dec),
+      IDRIS_RT_BIND(idris_rt_free_cell), IDRIS_RT_BIND(idris_rt_caf_release),
+      IDRIS_RT_BIND(idris_rt_eval_tick), IDRIS_RT_BIND(idris_rt_crash),
+      IDRIS_RT_BIND(idris_rt_io_put_str),
       IDRIS_RT_BIND(idris_rt_io_put_char), IDRIS_RT_BIND(idris_rt_io_put_int_s),
       IDRIS_RT_BIND(idris_rt_io_put_int_u), IDRIS_RT_BIND(idris_rt_io_put_double),
       IDRIS_RT_BIND(idris_rt_io_get_byte), IDRIS_RT_BIND(idris_rt_io_get_line),
       IDRIS_RT_BIND(idris_rt_io_write_bytes), IDRIS_RT_BIND(idris_rt_io_read_bytes),
       IDRIS_RT_BIND(idris_rt_io_eof), IDRIS_RT_BIND(idris_rt_io_n_processors),
-      IDRIS_RT_BIND(idris_rt_buffer_at), IDRIS_RT_BIND(idris_rt_io_buffer_copy),
+      IDRIS_RT_BIND(idris_rt_io_buffer_copy),
       IDRIS_RT_BIND(idris_rt_io_buffer_set_string), IDRIS_RT_BIND(idris_rt_io_buffer_get_string),
+      IDRIS_RT_BIND(idris_rt_io_file_open), IDRIS_RT_BIND(idris_rt_io_file_close),
+      IDRIS_RT_BIND(idris_rt_io_file_error), IDRIS_RT_BIND(idris_rt_io_file_errno),
+      IDRIS_RT_BIND(idris_rt_io_file_read_line), IDRIS_RT_BIND(idris_rt_io_file_read_chars),
+      IDRIS_RT_BIND(idris_rt_io_file_read_char), IDRIS_RT_BIND(idris_rt_io_file_write_line),
+      IDRIS_RT_BIND(idris_rt_io_file_flush), IDRIS_RT_BIND(idris_rt_io_file_seek_line),
+      IDRIS_RT_BIND(idris_rt_io_file_remove), IDRIS_RT_BIND(idris_rt_io_file_size),
+      IDRIS_RT_BIND(idris_rt_io_file_poll), IDRIS_RT_BIND(idris_rt_io_file_is_tty),
+      IDRIS_RT_BIND(idris_rt_io_file_time), IDRIS_RT_BIND(idris_rt_io_file_atime_sec),
+      IDRIS_RT_BIND(idris_rt_io_file_atime_nsec), IDRIS_RT_BIND(idris_rt_io_file_mtime_sec),
+      IDRIS_RT_BIND(idris_rt_io_file_mtime_nsec), IDRIS_RT_BIND(idris_rt_io_file_ctime_sec),
+      IDRIS_RT_BIND(idris_rt_io_file_ctime_nsec), IDRIS_RT_BIND(idris_rt_io_file_chmod),
+      IDRIS_RT_BIND(idris_rt_io_dir_current), IDRIS_RT_BIND(idris_rt_io_dir_change),
+      IDRIS_RT_BIND(idris_rt_io_dir_create), IDRIS_RT_BIND(idris_rt_io_dir_remove),
+      IDRIS_RT_BIND(idris_rt_io_dir_open), IDRIS_RT_BIND(idris_rt_io_dir_close),
+      IDRIS_RT_BIND(idris_rt_io_dir_entry), IDRIS_RT_BIND(idris_rt_io_arg_count),
+      IDRIS_RT_BIND(idris_rt_io_arg), IDRIS_RT_BIND(idris_rt_io_env_get),
+      IDRIS_RT_BIND(idris_rt_io_env_pair), IDRIS_RT_BIND(idris_rt_io_env_set),
+      IDRIS_RT_BIND(idris_rt_io_env_unset), IDRIS_RT_BIND(idris_rt_io_sleep),
+      IDRIS_RT_BIND(idris_rt_io_usleep), IDRIS_RT_BIND(idris_rt_io_time),
+      IDRIS_RT_BIND(idris_rt_io_pid), IDRIS_RT_BIND(idris_rt_io_exit),
+      IDRIS_RT_BIND(idris_rt_io_term_raw), IDRIS_RT_BIND(idris_rt_io_term_reset),
+      IDRIS_RT_BIND(idris_rt_io_term_setup), IDRIS_RT_BIND(idris_rt_io_term_cols),
+      IDRIS_RT_BIND(idris_rt_io_term_lines), IDRIS_RT_BIND(idris_rt_io_errno),
+      IDRIS_RT_BIND(idris_rt_io_strerror), IDRIS_RT_BIND(idris_rt_io_clock_monotonic),
+      IDRIS_RT_BIND(idris_rt_io_clock_utc), IDRIS_RT_BIND(idris_rt_io_clock_process),
+      IDRIS_RT_BIND(idris_rt_io_clock_thread), IDRIS_RT_BIND(idris_rt_io_clock_gc_cpu),
+      IDRIS_RT_BIND(idris_rt_io_clock_gc_real), IDRIS_RT_BIND(idris_rt_io_clock_valid),
+      IDRIS_RT_BIND(idris_rt_io_clock_second), IDRIS_RT_BIND(idris_rt_io_clock_nanosecond),
+      IDRIS_RT_BIND(idris_rt_io_handle_free), IDRIS_RT_BIND(idris_rt_handle_is_null),
+      IDRIS_RT_BIND(idris_rt_handle_string),
       IDRIS_RT_BIND(idris_rt_crash_str),
       IDRIS_RT_BIND(idris_rt_to_int),
       IDRIS_RT_BIND(idris_rt_double_head), IDRIS_RT_BIND(idris_rt_int_head_s),
@@ -282,15 +313,6 @@ std::unique_ptr<Jit> Jit::compile(mlir::ModuleOp module, llvm::ArrayRef<std::str
   }
   result->probe = probe->toPtr<Entry>();
   return result;
-}
-
-const void *Jit::address(llvm::StringRef name) const {
-  auto found = jit->lookup(name);
-  if (!found) {
-    llvm::consumeError(found.takeError());
-    return nullptr;
-  }
-  return found->toPtr<const void *>();
 }
 
 } // namespace idr::eval

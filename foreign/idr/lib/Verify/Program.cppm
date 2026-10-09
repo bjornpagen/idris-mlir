@@ -5,6 +5,7 @@ export module idr.verify:program;
 import idr.mlir;
 import idr.dialect;
 
+import :cycles;
 import :linearity;
 
 using namespace mlir;
@@ -15,7 +16,8 @@ export namespace idr::verify {
 // One root, the only public function, of type () -> i64 or
 // (!idr.world) -> (...); every attribute read by someone; every sum or box
 // type naming a declaration of its kind; containment through unboxed sums
-// acyclic; and the linearity of every function. Runs before the ops inside the module are verified, so it
+// acyclic; no array that can hold a reference to itself; and the linearity
+// of every function. Runs before the ops inside the module are verified, so it
 // assumes nothing that their verifiers check.
 LogicalResult program(ModuleOp module) {
   // One root, which is the only public function, of one of the two kinds.
@@ -141,6 +143,8 @@ LogicalResult program(ModuleOp module) {
   for (auto data : module.getOps<DataOp>())
     if (failed(visit(data)))
       return failure();
+  if (failed(cycles(module)))
+    return failure();
   for (auto fn : module.getOps<FunctionOpInterface>())
     if (failed(linearity(fn)))
       return failure();

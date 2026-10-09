@@ -1,7 +1,8 @@
-// input: emitted
-// main is not total; each function lifted from it is, since its own body
-// has no loop: whether a call of it may diverge is what it reaches
-// (idr-effects).
-// CHECK: func.func private @Main.main() -> !idr.data<{{[^>]*}}> {
-// CHECK: func.func private @Main.main$lam{{[0-9]+}}({{.*}}) -> !idr.data<{{[^>]*}}> attributes {idr.total} {
-// CHECK: func.func private @Main.main$lam{{[0-9]+}}({{.*}}) -> !idr.data<{{[^>]*}}> attributes {idr.total} {
+// input: after idr-isolate
+// main is not total; each function idr-isolate outlines from it is, since
+// its own body has no loop: whether a call of it may diverge is what it
+// reaches (idr-effects). The outlined functions are found by name, in
+// whatever order the pass inserts them.
+// CHECK-DAG: func.func private @Main.main() -> !idr.data<{{[^>]*}}> {
+// CHECK-DAG: func.func private @Main.main$lam{{[0-9]+}}({{.*}}) -> !idr.data<{{[^>]*}}> attributes {idr.total} {
+// CHECK-DAG: func.func private @Main.main$lam{{[0-9]+}}({{.*}}) -> !idr.data<{{[^>]*}}> attributes {idr.total} {

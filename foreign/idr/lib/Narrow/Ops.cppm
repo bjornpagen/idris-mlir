@@ -134,6 +134,22 @@ bool narrowOp(RewriterBase &rewriter, Facts &facts, Operation *op) {
         rewriter.replaceOp(op, value);
         return true;
       })
+      // A guard's result is its operand, so the guard of a big divisor that
+      // fits guards its word, and the divisor is the big of the checked
+      // word. The guard took the big's reference; the word takes none, so
+      // the big drops it.
+      .Case([&](CheckNonzeroOp check) {
+        Value divisor = check.getValue();
+        if (!isBig(divisor.getType()))
+          return false;
+        Value value = word(divisor);
+        Value checked = CheckNonzeroOp::create(rewriter, loc, value.getType(), value,
+                                               check.getCauseAttr());
+        if (facts.owned(divisor))
+          DropOp::create(rewriter, loc, divisor);
+        replaceBig(rewriter, facts, op, checked);
+        return true;
+      })
       // A big the pass made of a word holds no count. Any other big
       // proved small keeps its count ops: counting still tracks it (a call's
       // result, a parameter), and on a small they do nothing at runtime.

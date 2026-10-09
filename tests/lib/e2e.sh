@@ -37,7 +37,9 @@ stdout_within_a_few_ulp() {
 # which says why, on the one programs get. With `constant-stack` its input
 # is its stdin many times over (`repeated`), so long that a loop growing
 # the stack by a frame per iteration exhausts the 1 MiB: both compilations
-# run the long input.
+# run the long input. With `demand-in-place` both compilations make the
+# in-place promise: a call passes what its callee rebuilds in place
+# exclusive, or the program is refused.
 e2e_io() {
   io_fixture=$(cd "$1" && pwd)
   io_stdin=/dev/null
@@ -59,10 +61,12 @@ e2e_io() {
     io_stdin=$work/long-stdin
   fi
   io_directives=$(module_directives "$io_fixture")
+  io_promise=
+  [ -f "$io_fixture/demand-in-place" ] && io_promise='--directive demand-in-place'
 
   mkdir "$work/ours"
   copy_fixture "$io_fixture" "$work/ours"
-  compile_program $io_packages $io_directives "$work/ours/Main.idr" prog
+  compile_program $io_packages $io_promise $io_directives "$work/ours/Main.idr" prog
   say "compile: exit $compiled"
   if [ "$compiled" -ne 0 ]; then
     show "$work/compile.out" "$work/compile.err"
@@ -159,11 +163,11 @@ module_directives() {
 # modules that the fixture holds: translate.check, FileChecked on full Core
 # (01-translate.core); mlir.check (check_mlir); mlir.expect (check_expect);
 # covers, the prelude module whose every export the program uses
-# (covers_prelude, on the program's Core).
+# (covers_prelude, on the program's Core and its source).
 module_checks() {
   [ -f "$1/translate.check" ] && filecheck "$1/translate.check" "$3/01-translate.core"
   [ -f "$1/mlir.check" ] && check_mlir "$1/mlir.check" "$2" "$3"
   [ -f "$1/mlir.expect" ] && check_expect "$1/mlir.expect" "$2" "$3"
-  [ -f "$1/covers" ] && covers_prelude "$(first_word "$1/covers")" "${2%.mlir}.core"
+  [ -f "$1/covers" ] && covers_prelude "$(first_word "$1/covers")" "${2%.mlir}.core" "$1"
   return 0
 }

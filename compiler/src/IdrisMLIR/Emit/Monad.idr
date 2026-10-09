@@ -1,8 +1,7 @@
-||| The emission monad: the operations of the region being written, the
-||| functions lifted so far, and fresh SSA names.
+||| The emission monad: the operations of the region being written, and
+||| fresh SSA names.
 module IdrisMLIR.Emit.Monad
 
-import IdrisMLIR.Emit.Attributes
 import IdrisMLIR.Ids
 import IdrisMLIR.MLIR
 import IdrisMLIR.Types
@@ -12,16 +11,6 @@ import Data.SnocList
 
 %default total
 
-||| The function being written: its symbol (which names the functions
-||| lifted from it), its Idris name and what the functions lifted from it
-||| state as it does.
-public export
-record Owner where
-  constructor MkOwner
-  symbol : String
-  idrisName : Shown
-  inherited : List FnAttr
-
 public export
 record ES where
   constructor MkES
@@ -29,8 +18,6 @@ record ES where
   next : Nat
   ||| The operations of the region being written.
   ops : SnocList Statement
-  ||| The functions lifted so far from the function being written.
-  lifted : SnocList Statement
 
 public export
 E : Type -> Type

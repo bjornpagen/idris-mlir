@@ -10,6 +10,7 @@ idr_library(idr_graph
 		ModuloAt.cppm
 		PassesOnPrevious.cppm
 		References.cppm
+		RefersTo.cppm
 		Scc.cppm
 		SymbolUses.cppm
 		Trips.cppm

@@ -1,4 +1,4 @@
-// RUN: idris-mlir-opt %s --idr-lower=jit=true --canonicalize --convert-scf-to-cf --convert-to-llvm --reconcile-unrealized-casts \
+// RUN: idris-mlir-opt %s --idr-lower --canonicalize --convert-scf-to-cf --convert-to-llvm --reconcile-unrealized-casts \
 // RUN:   | mlir-translate --mlir-to-llvmir | opt -O2 -S | FileCheck %s
 // The small case of every big and natural op is inline, and the runtime is
 // called only on the cold path. Stated through LLVM: where the operands are

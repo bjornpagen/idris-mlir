@@ -1,6 +1,6 @@
-// idr.defunctionalize:closures: the module's closures, gathered once: the
-// closure ops and constants of each label, the applies, and the functions
-// that escape.
+// idr.defunctionalize:closures: the module's closures and suspensions,
+// gathered once: the closure and suspension ops and constants of each label,
+// the applies, and the functions that escape.
 export module idr.defunctionalize:closures;
 
 import idr.mlir;
@@ -21,6 +21,35 @@ StringAttr dataName(Type type) {
 // whose linearity the pass keeps on everything it rewrites.
 bool isClosureType(Type type) { return isa<idr::FnType>(idr::unrestricted(type)); }
 
+// Whether a slot of `type` holds a suspension, at any quantity.
+bool isLazyType(Type type) { return isa<idr::LazyType>(idr::unrestricted(type)); }
+
+// Whether the analysis follows the labels of a slot of `type`: a closure or
+// a suspension, both of which name a function.
+bool isKeyed(Type type) { return isClosureType(type) || isLazyType(type); }
+
+// The index in its constructor of field `i` of a run's cell, which holds
+// every field but the spine.
+unsigned cellField(unsigned i, unsigned spine) { return i < spine ? i : i + 1; }
+
+// Calls `visit(field, index)` for each field of `con` with its index in the
+// constructor: a plain con's fields, or a run's cells, each without its
+// spine field, which is the next cell, and then its tail, which fills the
+// last cell's spine. A run is walked by its cells, never through its spine,
+// which builds the rest of the run at each step.
+void eachField(idr::ConAttr con, function_ref<void(Attribute, unsigned)> visit) {
+  if (!con.isRun()) {
+    for (auto [i, field] : llvm::enumerate(con.getFields()))
+      visit(field, static_cast<unsigned>(i));
+    return;
+  }
+  unsigned spine = con.getSpine();
+  for (ArrayAttr cell : con.getRunCells())
+    for (auto [i, field] : llvm::enumerate(cell))
+      visit(field, cellField(static_cast<unsigned>(i), spine));
+  visit(con.getTail(), spine);
+}
+
 struct Module {
   explicit Module(ModuleOp top) : op(top), symbols(top) {}
 
@@ -29,9 +58,9 @@ struct Module {
   // The closure ops and closure constants (their captures) of each label.
   llvm::DenseMap<StringAttr, SmallVector<idr::ClosureOp>> closures;
   llvm::DenseMap<StringAttr, SmallVector<ArrayAttr>> constantClosures;
-  // Suspensions name a function the way a closure does, but the cell is not
-  // a sum: the captures still flow into the function, and the function is
-  // not a label an apply may call.
+  // Suspensions name a function the way a closure does, and their captures
+  // flow into it, but the function is not a label an apply may call: a
+  // force calls it.
   llvm::DenseMap<StringAttr, SmallVector<idr::SuspendOp>> suspends;
   llvm::DenseMap<StringAttr, SmallVector<ArrayAttr>> suspendConstants;
   SmallVector<idr::ApplyOp> applies;
@@ -66,7 +95,8 @@ struct Module {
     auto [it, inserted] = closureFree.try_emplace(attr, false);
     if (!inserted)
       return it->second;
-    bool holds = llvm::any_of(con.getFields(), [&](Attribute field) { return holdsClosure(field); });
+    bool holds = false;
+    eachField(con, [&](Attribute field, unsigned) { holds = holds || holdsClosure(field); });
     closureFree[attr] = holds;
     return holds;
   }
@@ -86,9 +116,10 @@ struct Module {
       return;
     }
     if (auto con = dyn_cast<idr::ConAttr>(attr))
-      for (auto [i, field] : llvm::enumerate(con.getFields()))
-        if (Type declared = fieldType(con.getCtor(), static_cast<unsigned>(i)))
+      eachField(con, [&](Attribute field, unsigned i) {
+        if (Type declared = fieldType(con.getCtor(), i))
           closuresIn(field, declared, visit);
+      });
   }
 
   void gather() {
@@ -101,8 +132,7 @@ struct Module {
         applies.push_back(apply);
       else if (auto constant = dyn_cast<idr::ConstantOp>(inner))
         closuresIn(constant.getValue(), constant.getType(), [&](idr::ClosureAttr c, Type type) {
-          auto &into = isa<idr::LazyType>(idr::unrestricted(type)) ? suspendConstants
-                                                                  : constantClosures;
+          auto &into = isLazyType(type) ? suspendConstants : constantClosures;
           into[c.getCallee().getAttr()].push_back(c.getCaptures());
         });
     });

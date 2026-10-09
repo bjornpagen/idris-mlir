@@ -12,11 +12,12 @@ namespace idr::specialize {
 
 namespace {
 
-// A constant that stands for a value: poison stands for none, and erased is
-// not constant.
+// A constant the clone builds again as it was built here: the value of an
+// op the dialect materializes, as rebuild does. Erased is not constant.
 bool constant(Value value, Attribute &out) {
-  return !isErased(value.getType()) && matchPattern(value, m_Constant(&out)) &&
-         !isa<ub::PoisonAttrInterface>(out);
+  return !isErased(value.getType()) &&
+         isa_and_nonnull<ConstantOp, arith::ConstantOp>(value.getDefiningOp()) &&
+         matchPattern(value, m_Constant(&out));
 }
 
 } // namespace
@@ -26,9 +27,9 @@ bool constant(Value value, Attribute &out) {
 export namespace idr::specialize {
 
 // The pattern of `value`: its runtime leaves are appended to `leaves`, and
-// its holes numbered from the size `leaves` had. Poison is no value, so it
-// is a leaf, as is a value of erased type (erased is not constant) and a
-// linear value, whose shape its one use keeps.
+// its holes numbered from the size `leaves` had. A constant the clone would
+// not build again is a leaf, as is a value of erased type (erased is not
+// constant) and a linear value, whose shape its one use keeps.
 Pattern shapeOf(mlir::Value value, llvm::SmallVectorImpl<mlir::Value> &leaves) {
   auto shapesOf = [&](ValueRange values) {
     std::vector<Pattern> out;

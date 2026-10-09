@@ -19,10 +19,12 @@ func.func @heads(%c: i32, %s: !idr.str, %x: i64, %b: i16, %d: f64) -> (i32, i32,
   return %h0, %h1, %h2, %h3 : i32, i32, i32, i32
 }
 
-// The head of any other string stays, and may crash.
+// The head of any other string stays, after its guard, which may crash.
 // CHECK-LABEL: func.func @other(
-// CHECK: idr.str.head
+// CHECK: %[[G:.*]] = idr.check.nonempty
+// CHECK: idr.str.head %[[G]]
 func.func @other(%s: !idr.str) -> i32 {
-  %h = idr.str.head %s
+  %g = idr.check.nonempty %s, "head of an empty string" : !idr.str
+  %h = idr.str.head %g
   return %h : i32
 }

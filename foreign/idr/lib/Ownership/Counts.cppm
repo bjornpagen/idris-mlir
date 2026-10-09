@@ -49,9 +49,8 @@ namespace idr::ownership {
 // incs and decs added, or failure after reporting what it cannot count.
 export FailureOr<std::pair<unsigned, unsigned>> insertCounts(func::FuncOp fn, Counting &counting,
                                                              bool sink) {
-  SymbolTableCollection symbols;
   Classes classes(fn, counting);
-  Reshape reshape(fn, counting, classes, symbols);
+  Reshape reshape(fn, counting, classes);
   if (failed(reshape.check()))
     return failure();
   reshape.rewriteSelects();
@@ -59,7 +58,7 @@ export FailureOr<std::pair<unsigned, unsigned>> insertCounts(func::FuncOp fn, Co
   unsigned incs = reshape.ownFields();
   if (sink)
     reshape.sinkConsumers();
-  auto [placedIncs, decs] = Placement(fn, classes, symbols).run();
+  auto [placedIncs, decs] = Placement(fn, classes).run();
   return std::make_pair(incs + placedIncs, decs);
 }
 

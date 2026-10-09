@@ -1,9 +1,9 @@
-# idr.inbounds: the array accesses proven within their arrays, whose bounds
-# checks lowering then leaves out; the pass glue of idr-in-bounds is a plain
-# unit that imports it.
+# idr.inbounds: the guards proven never to crash, which it erases; the pass
+# glue of idr-in-bounds is a plain unit that imports it.
 idr_library(idr_inbounds
 	MODULES
 		Components.cppm
+		Guards.cppm
 		InBounds.cppm
 		Induction.cppm
 		Joins.cppm

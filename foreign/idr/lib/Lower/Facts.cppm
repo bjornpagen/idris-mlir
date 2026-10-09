@@ -61,20 +61,44 @@ componentFacts(Type type, bool mayBeNull, layout::Layouts &layouts,
 export class Facts {
 public:
   // Reads each function's idr signature, and the parameters some call
-  // passes poison, before the conversion takes the types apart.
+  // passes poison, before the conversion takes the types apart. A force
+  // calls a memo label's function directly, its captures in order as its
+  // parameters, but that call is made by the conversion: before it, the
+  // call is the label's constructor, built new or in a reused cell, whose
+  // fields are the captures. The memo sum's other two states, running and
+  // forced, have no function.
   explicit Facts(ModuleOp m) : module(m) {
     for (auto fn : module.getOps<func::FuncOp>())
       signatures[fn] = fn.getFunctionType();
-    for (auto data : module.getOps<DataOp>())
+    DenseSet<StringAttr> memos;
+    for (auto data : module.getOps<DataOp>()) {
       constructors[data.getSymNameAttr()] = static_cast<uint64_t>(data.getCtors().size());
+      if (isMemo(data))
+        memos.insert(data.getSymNameAttr());
+    }
     SymbolTable symbols(module);
-    module.walk([&](func::CallOp call) {
-      auto callee = symbols.lookup<func::FuncOp>(call.getCallee());
+    module.walk([&](Operation *op) {
+      func::FuncOp callee;
+      OperandRange passed = op->getOperands();
+      SymbolRefAttr label;
+      if (auto call = dyn_cast<func::CallOp>(op)) {
+        callee = symbols.lookup<func::FuncOp>(call.getCallee());
+      } else if (auto con = dyn_cast<ConOp>(op)) {
+        label = con.getCtor();
+        passed = con.getFields();
+      } else if (auto reuse = dyn_cast<ReuseOp>(op)) {
+        label = reuse.getCtor();
+        passed = reuse.getFields();
+      }
+      if (label && memos.contains(label.getRootReference()) &&
+          label.getLeafReference().getValue() != memoRunning &&
+          label.getLeafReference().getValue() != memoForced)
+        callee = symbols.lookup<func::FuncOp>(label.getLeafReference());
       if (!callee)
         return;
-      for (OpOperand &operand : call->getOpOperands())
-        if (operand.get().getDefiningOp<ub::PoisonOp>())
-          poisoned.insert({callee, operand.getOperandNumber()});
+      for (auto [index, value] : llvm::enumerate(passed))
+        if (value.getDefiningOp<ub::PoisonOp>())
+          poisoned.insert({callee, static_cast<unsigned>(index)});
     });
   }
 

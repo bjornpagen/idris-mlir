@@ -39,8 +39,8 @@ export struct Narrowed {
 export FailureOr<Narrowed> narrow(ModuleOp module) {
   Narrowed done;
   IRRewriter rewriter(module.getContext());
-  auto stage = module->getAttrOfType<StringAttr>(ownership::stageAttr);
-  bool counted = stage && stage.getValue() == ownership::ownedStage;
+  // Whether counting ran, which its grades say: one walk, for the pass.
+  bool counted = ownership::inOwnedStage(module);
   {
     DataFlowSolver solver(DataFlowConfig().setInterprocedural(true));
     if (failed(runSolver(solver, module)))
@@ -67,7 +67,7 @@ export FailureOr<Narrowed> narrow(ModuleOp module) {
     if (isa<scf::WhileOp, scf::ForOp, scf::IfOp, scf::IndexSwitchOp, MatchOp, MatchLitOp>(op))
       joints.push_back(op);
     if (isa<MatchLitOp, BigAddOp, BigSubOp, BigMulOp, BigPredOp, BigCmpOp, NatFromBigOp, NatToBigOp,
-                 BigToIntOp, DupOp, DropOp>(op))
+                 BigToIntOp, CheckNonzeroOp, DupOp, DropOp>(op))
       ops.push_back(op);
   });
   for (Operation *op : joints)

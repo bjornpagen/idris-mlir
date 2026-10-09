@@ -38,7 +38,7 @@ public:
         result = Class::Borrowed;
     } else if (auto arg = dyn_cast<BlockArgument>(value);
                arg && arg.getOwner()->getParentOp() == fn.getOperation()) {
-      if (isBorrowed(fn, arg.getArgNumber()))
+      if (isBorrowed(fn, arg.getArgNumber(), counting.ownedStage()))
         result = Class::Borrowed;
     }
     classes[value] = result;

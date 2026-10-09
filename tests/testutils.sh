@@ -28,6 +28,10 @@
 #                     stack it runs on; the file says what loops (e2e.sh)
 #     covers          the program uses every run-time export of the prelude
 #                     module the file names, as its Core shows (prelude.sh)
+#     demand-in-place both compilations make the in-place promise
+#                     (--directive demand-in-place): a call passes what its
+#                     callee rebuilds in place exclusive, or the program is
+#                     refused (e2e.sh)
 #
 # The helpers are in tests/lib, one file per concern, sourced below after
 # the limits, each after what it uses:

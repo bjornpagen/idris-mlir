@@ -1,0 +1,8 @@
+#!/bin/sh
+# The program makes and removes directories where it runs: both
+# compilations' programs run in a directory of their own, made for the
+# test and removed with the rest of its work.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+scratch=$(mktemp -d "$work/cwd.XXXXXX") || exit 1
+cd "$scratch" || exit 1
+e2e_io "$here"

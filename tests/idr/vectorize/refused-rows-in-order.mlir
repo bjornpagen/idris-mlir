@@ -7,12 +7,13 @@
 // A generate whose body is a fold over an array from outside is one loop
 // over rows and columns. Its fold step here divides twice, each division
 // by a value that is zero at one place: the first at row 1, column 1, the
-// second at row 2, column 0. A division by what may be zero crashes first,
-// so the step is no body the vectorizer takes: idr-vectorize decides that
-// before it changes anything and leaves the loop whole, still reading the
-// whole array, and convert-linalg-to-loops runs it row by row, as the
-// program does. The program ends at the first division. Tiled four rows at
-// a time, it would run column 0 of the rows first and end at the second.
+// second at row 2, column 0. The guard of a division by what may be zero
+// crashes first, so the step is no body the vectorizer takes:
+// idr-vectorize decides that before it changes anything and leaves the
+// loop whole, still reading the whole array, and convert-linalg-to-loops
+// runs it row by row, as the program does. The program ends at the first
+// division. Tiled four rows at a time, it would run column 0 of the rows
+// first and end at the second.
 // CHECK-LABEL: func.func private @rows(
 // CHECK: linalg.generic
 // CHECK-SAME: iterator_types = ["parallel", "reduction"]
@@ -42,8 +43,10 @@ module attributes {idr.program} {
         %ij = arith.addi %i10, %j : i64
         %d1 = arith.subi %ij, %eleven : i64
         %d2 = arith.subi %ij, %twenty : i64
-        %q1 = idr.div signed %x, %d1 : i64 loc("Rows.idr":1:1)
-        %q2 = idr.div signed %x, %d2 : i64 loc("Rows.idr":2:1)
+        %g1 = idr.check.nonzero %d1, "division by zero" : i64 loc("Rows.idr":1:1)
+        %q1 = idr.div signed %x, %g1 : i64 loc("Rows.idr":1:1)
+        %g2 = idr.check.nonzero %d2, "division by zero" : i64 loc("Rows.idr":2:1)
+        %q2 = idr.div signed %x, %g2 : i64 loc("Rows.idr":2:1)
         %q = arith.addi %q1, %q2 : i64
         %t = arith.addi %acc, %q : i64
         idr.yield %t : i64

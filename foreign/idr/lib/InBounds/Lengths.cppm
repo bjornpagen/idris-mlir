@@ -12,13 +12,13 @@
 // constructor in scope built pairs nothing.
 //
 // A size the array was made from relates when it is that operand, or the
-// same integer clamped at 0. A branch (a match, an if) or a select or a
-// max has that clamp when every side does, which for a side is either the
-// values themselves or what the conditions choosing that side force. Those
-// conditions are how the value was built, so the equality holds wherever
-// the value is in scope, not only on the path that built it. A loop's own
-// guard is not part of it: a fact that holds only while the loop runs is
-// not a length everywhere the values are in scope.
+// same integer clamped at 0, on either side. A branch (a match, an if) or a
+// select or a max has that clamp when every side does, which for a side is
+// either the values themselves or what the conditions choosing that side
+// force. Those conditions are how the value was built, so the equality
+// holds wherever the value is in scope, not only on the path that built
+// it. A loop's own guard is not part of it: a fact that holds only while
+// the loop runs is not a length everywhere the values are in scope.
 //
 // The relation of a pair is decided by where its values come from. An
 // array made of a size relates to that size. A pair bound at one join (two
@@ -145,20 +145,17 @@ private:
     APInt a, b;
     if (matchPattern(size, m_ConstantInt(&a)) && matchPattern(made, m_ConstantInt(&b)))
       return clampedConst(a) == clampedConst(b);
+    // A size already clamped at 0 has the clamp of what it clamps: the
+    // dimension of an array made here folds to its size clamped so.
+    if (std::optional<Value> clamps = clampOf(size))
+      return agrees(*clamps, made, seen);
     if (seen.size() >= walkLimit || !seen.insert(made).second)
       return false;
     Forget forget(seen, made);
-    if (auto max = made.getDefiningOp<arith::MaxSIOp>()) {
-      auto floor = [](Value value) {
-        APInt k;
-        return matchPattern(value, m_ConstantInt(&k)) && !k.isStrictlyPositive();
-      };
-      if (floor(max.getLhs()))
-        return agrees(size, max.getRhs(), seen);
-      if (floor(max.getRhs()))
-        return agrees(size, max.getLhs(), seen);
+    if (std::optional<Value> clamps = clampOf(made))
+      return agrees(size, *clamps, seen);
+    if (auto max = made.getDefiningOp<arith::MaxSIOp>())
       return agrees(size, max.getLhs(), seen) && agrees(size, max.getRhs(), seen);
-    }
     if (auto select = made.getDefiningOp<arith::SelectOp>();
         select && select.getCondition().getType().isInteger(1))
       return atPoint(select, select.getCondition(), true, size, select.getTrueValue(), seen) &&

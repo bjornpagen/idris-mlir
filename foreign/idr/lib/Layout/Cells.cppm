@@ -19,17 +19,18 @@ struct Slot {
   unsigned offset;
 };
 
-// A box or a closure: a cell is the header (idris_rt_header: the count,
-// then the info word, IDRIS_RT_WORD_BYTES together), then its components.
-// The counted components come first, one pointer-sized word each, as the
-// runtime's object slots: right after the header in a box, after the code
-// pointer in a closure. The others follow, each at the size and alignment
-// the target's data layout gives its type. A cell starts and ends on a
-// word boundary.
+// A box, or a memo cell in one of its states: a cell is the header
+// (idris_rt_header: the count, then the info word, IDRIS_RT_WORD_BYTES
+// together), then its components. The counted components come first, one
+// pointer-sized word each, right after the header, as the runtime's object
+// slots. The others follow, each at the size and alignment the target's
+// data layout gives its type. A cell starts and ends on a word boundary,
+// and holds no code address.
 struct Cell {
-  // For each field (of a constructor) or capture (of a closure, the code
-  // pointer first), the slots of its components.
+  // For each field of the constructor, the slots of its components.
   llvm::SmallVector<llvm::SmallVector<Slot>> fields;
+  // The bytes allocated for the cell: a memo cell's are its largest
+  // state's, whichever state it is built in.
   unsigned size = IDRIS_RT_WORD_BYTES;
   // The number of object slots.
   unsigned objs = 0;

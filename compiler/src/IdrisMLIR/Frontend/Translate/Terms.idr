@@ -3,10 +3,12 @@
 ||| calls.
 module IdrisMLIR.Frontend.Translate.Terms
 
+import Core.Case.CaseTree
 import Core.Context
 import Core.Core
 import Core.TT
 
+import IdrisMLIR.Dialect.Idr
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Dictionaries
@@ -58,20 +60,17 @@ constantLit _ = Nothing
 bestFC : Ctx -> FC -> FC
 bestFC ctx fc = if isEmptyFC fc then ctx.fc else fc
 
-||| A closure-converted lambda (`Term.lam`).
-closure : {auto s : Ref TState TS} -> Ord a => FC -> Loc -> Binder -> Term (Under 1 a) -> Core (Term a)
-closure fc loc b body = do
-  lbl <- label
-  maybe (internal fc "a lambda body that is not well scoped") pure (lam loc lbl b body)
+||| The number of arguments a type takes, as its binders say.
+binders : TT vars -> Nat
+binders (Bind _ _ (Pi {}) sc) = S (binders sc)
+binders _ = Z
 
 ||| Eta-expands a known head applied to too few arguments:
 ||| `\x.. => head(args ++ xs)`.
-etaExpand : {auto s : Ref TState TS} -> Ord a => FC -> Loc -> List Binder ->
-            ({0 b : Type} -> List (Term b) -> Term b) -> List (Term a) -> Core (Term a)
-etaExpand fc loc [] mk given = pure (mk given)
-etaExpand fc loc (b :: rest) mk given = do
-  body <- etaExpand fc loc rest mk (map (map Free) given ++ [argument b])
-  closure fc loc b body
+etaExpand : {0 a : Type} -> Loc -> List Binder -> ({0 b : Type} -> List (Term b) -> Term b) -> List (Term a) -> Term a
+etaExpand loc [] mk given = mk given
+etaExpand loc (b :: rest) mk given =
+  Lam loc b (etaExpand loc rest mk (map (map Free) given ++ [argument b]))
   where
     argument : Binder -> Term (Under 1 a)
     argument Gone = Erased loc
@@ -88,25 +87,27 @@ succArg kinds = case mapMaybe runtime (zip [0 .. length kinds] kinds) of
     runtime (i, ValueParam (Held _ _) _) = Just i
     runtime _ = Nothing
 
-||| The term of an array loop's op over its runtime operands (`Hook.ArrayLoop`):
-||| a generated array of `n` elements, the function at the index, and at 0
-||| as the fill base's primitive needs, which the library's definition
-||| applies first too; a fold of `arr` from `z`, the function at the
-||| accumulator, the index and the element. The operands are as `finish`
-||| gives them, one per runtime parameter.
-loopTerm : Loc -> ArrayLoop -> List Ty -> DataId -> {0 b : Type} -> List (Term b) -> Term b
-loopTerm loc Generate [el] res [n, f, w] =
-  ArrayGen loc el n (App loc f (Literal loc (LInt IdrisInt 0))) w
-           (App loc (map Free f) (Var loc (Bound FZ))) res
-loopTerm loc Fold [el, acc] res [arr, z, f, w] =
-  ArrayFold loc el acc arr z w
-            (App loc (App loc (App loc (map Free f) (Var loc (Bound FZ))) (Var loc (Bound (FS (FS FZ)))))
-                 (Var loc (Bound (FS FZ)))) res
+||| The term of an array loop's op over its runtime operands (`Hook.ArrayLoop`),
+||| at the types its call fixes: a generated array of `n` elements, the
+||| function at the index (`Bound 0`), and at 0 as the fill base's
+||| primitive needs, which the library's definition applies first too; a
+||| fold of `arr` from `z`, the function at the accumulator, the index and
+||| the element (`Bound 0`, `Bound 2`, `Bound 1`). The operands are as
+||| `finish` gives them, one per runtime parameter, the world last.
+loopTerm : Loc -> IdrRegionPrim -> List Ty -> DataId -> {0 b : Type} -> List (Term b) -> Term b
+loopTerm loc ArrayGenerate tys res [n, f, w] =
+  Region {k = regionArity ArrayGenerate} loc ArrayGenerate tys
+         [n, App loc f (Literal loc (LInt IdrisInt 0)), w]
+         (App loc (map Free f) (Var loc (Bound FZ))) res
+loopTerm loc ArrayFold tys res [arr, z, f, w] =
+  Region {k = regionArity ArrayFold} loc ArrayFold tys [arr, z, w]
+         (App loc (App loc (App loc (map Free f) (Var loc (Bound FZ))) (Var loc (Bound (FS (FS FZ)))))
+              (Var loc (Bound (FS FZ)))) res
 loopTerm loc _ _ _ _ = Unreachable loc
 
 mutual
   export
-  term : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} -> Ord a =>
+  term : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
          Ctx -> List (VarInfo a) -> TT vars -> Core (Term a)
   term ctx env (Local fc _ idx _) = do
     loc <- toLoc (bestFC ctx fc)
@@ -143,7 +144,7 @@ mutual
     loc <- toLoc (bestFC ctx fc)
     b <- binderOf rig (coreType (bestFC ctx fc) ctx.owner ValueType !(closeNormalise fc env ty))
     body <- term ctx (under [Runtime (Bound FZ) (Just (typeOf b))] env) sc
-    closure fc loc b body
+    pure (Lam loc b body)
   term ctx env (TDelay fc _ _ arg) = suspend ctx env fc arg
   term ctx env (TForce fc _ arg) = Resume <$> toLoc (bestFC ctx fc) <*> term ctx env arg
   term ctx env (TDelayed fc _ _) = Erased <$> toLoc (bestFC ctx fc)
@@ -156,15 +157,14 @@ mutual
   term ctx env tm@(Ref fc _ _) = application ctx env fc tm []
   term ctx env (Bind fc _ _ _) = internal (bestFC ctx fc) "a binder in a runtime position"
 
-  suspend : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} -> Ord a =>
+  suspend : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
             Ctx -> List (VarInfo a) -> FC -> TT vars -> Core (Term a)
   suspend ctx env fc arg = do
     loc <- toLoc (bestFC ctx fc)
     body <- term ctx env arg
-    lbl <- label
-    maybe (internal fc "a delayed term that is not well scoped") pure (delay loc lbl body)
+    pure (Suspend loc body)
 
-  application : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} -> Ord a =>
+  application : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                 Ctx -> List (VarInfo a) -> FC -> TT vars -> List (TT vars) -> Core (Term a)
   application ctx env afc (Ref rfc nt name) args = do
     let fc = bestFC ctx rfc
@@ -175,41 +175,46 @@ mutual
     -- registry's entry it applied.
     let lowered = Just (shown (show full))
     case definition def of
-      -- A hook for the identity on the one runtime argument, the
-      -- last (`replace`, and `rewrite__impl`, which `rewrite` elaborates
-      -- to); the rest are proofs and types.
+      -- A hook for the identity on the one runtime argument, the last its
+      -- type takes (`replace`, `rewrite__impl`, which `rewrite` elaborates
+      -- to, and the pointer casts); the rest are proofs and types. By the
+      -- type, not the clause: `prim__castPtr = believe_me` binds only its
+      -- erased type.
       PMDef _ params _ _ _ => case deprecatedOf (hooksOf full) of
         Just msg => reject fc ctx.owner Deprecated msg
         Nothing => case (natOperationOf (hooksOf full), builderOf (hooksOf full),
                          arrayLoopOf (hooksOf full)) of
           (Just m, _, _) => natOperation fc loc lowered m (length params) (type def) args
-          (_, Just b, _) => builderCall fc loc lowered (length params) b (type def) args
+          (_, Just p, _) => builderCall fc loc lowered (length params) p (type def) args
           (_, _, Just loop) => arrayLoop fc loc loop full (length params) (type def) args
           _ =>
-            if identityOnLast (hooksOf full) && length args >= length params
+            if identityOnLast (hooksOf full) && length args >= binders (type def)
                then do
-                 let (now, rest) = splitAt (length params) args
+                 let (now, rest) = splitAt (binders (type def)) args
                  v <- maybe (pure (Erased loc)) (term ctx env) (last' now)
                  applyAll loc v rest
-               else call fc loc full Nothing (length params) (type def) args
+               else do
+                 exiting <- exitCast def
+                 if exiting
+                    then exitAction fc loc (length params) (type def) args
+                    else call fc loc full Nothing (length params) (type def) args
       DCon tag arity _ => constructor fc loc def arity args
       TCon {} => pure (Erased loc)
-      Builtin {arity} op => primitive fc loc full arity op args
+      Builtin {arity} op => primitive fc loc full arity op (type def) args
       -- An IO primitive the registry lists, a `%foreign` one by
       -- its spec and an `%extern` one by its name.
       ForeignDef arity specs => case foreignHookOf full specs of
-        Just (Right (IOCall op)) => ioCall fc loc arity op (type def) args
+        Just (Right (IOCall p lits)) => ioCall fc loc lowered arity p lits (type def) args
         Just (Right (ArraySize fixed)) => arraySize fc loc lowered arity fixed (type def) args
         Just (Right (Handle h)) => applyAll loc (Literal loc h) args
-        Just (Right (Builds b)) => builderCall fc loc lowered arity b (type def) args
+        Just (Right (Builds p)) => builderCall fc loc lowered arity p (type def) args
         Just (Right (Alias q)) => aliasCall fc loc lowered q args
-        Just (Right StrBytes) => strBytes fc loc lowered arity (type def) args
         Just (Right (Deprecated msg)) => reject fc ctx.owner Deprecated msg
         Just (Left wrong) => reject fc (show full) HookShape wrong
         _ => reject fc ctx.owner EscapeHatch ("foreign function " ++ show full)
       ExternDef arity => case (ioCallOf (hooksOf full), arrayCallOf (hooksOf full),
                               systemFactOf (hooksOf full)) of
-        (Just op, _, _) => ioCall fc loc arity op (type def) args
+        (Just (p, lits), _, _) => ioCall fc loc lowered arity p lits (type def) args
         (_, Just op, _) => arrayCall fc loc arity op (type def) args
         (_, _, Just TargetOs) => applyAll loc (SystemOs loc) args
         (_, _, Just BackendName) => applyAll loc (Literal loc (LStr codegenName)) args
@@ -250,7 +255,7 @@ mutual
            else do
              when (any isStatic missing) $
                reject afc ctx.owner StaticArgument "a partially applied type parameter or implementation"
-             etaExpand afc loc (map runtimeBinder missing) mk given
+             pure (etaExpand loc (map runtimeBinder missing) mk given)
         where
           isStatic : PKind -> Bool
           isStatic (ValueParam _ _) = False
@@ -262,6 +267,53 @@ mutual
         inst <- request fc ctx.owner name kinds
         given <- arguments loc kinds (take arity xs)
         finish loc kinds given (Call loc inst lowered) (drop arity xs)
+
+      -- Is the definition being translated one whose calls end the program
+      -- (`Hook.Exits`, `System.exitWith`)? Its `believe_me` gives the
+      -- exit's `PrimIO ()` any result, which is sound only because that
+      -- action does not return; anywhere else `believe_me` stays an escape
+      -- hatch.
+      exiting : Core Bool
+      exiting = do
+        st <- get TState
+        let Just r = st.current >>= \i => lookup i st.requesters
+          | Nothing => pure False
+        owner <- lookupDef afc ctx.owner r.name
+        pure (isJust (exitOf (hooksOf (fullname owner))))
+
+      -- Is a definition `believe_me`, whose body is the `BelieveMe`
+      -- primitive?
+      believeMe : GlobalDef -> Core Bool
+      believeMe def = do
+        let PMDef _ _ (STerm _ tm) _ _ = definition def
+          | _ => pure False
+        let (Ref _ _ n, _) = spine tm []
+          | _ => pure False
+        defs <- get Ctxt
+        Just prim <- lookupCtxtExact n (gamma defs)
+          | Nothing => pure False
+        let Builtin BelieveMe = definition prim
+          | _ => pure False
+        pure True
+
+      exitCast : GlobalDef -> Core Bool
+      exitCast def = do
+        wrapper <- believeMe def
+        if wrapper then exiting else pure False
+
+      -- The exit's `believe_me`, on the action: the action applied to the
+      -- world, after which nothing runs.
+      exitAction : FC -> Loc -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term a)
+      exitAction fc loc arity ty xs = do
+        (kinds, _) <- classify fc ctx.owner arity ty (argValues (take arity xs))
+        given <- arguments loc kinds (take arity xs)
+        finish loc kinds given exits (drop arity xs)
+        where
+          exits : {0 b : Type} -> List (Term b) -> Term b
+          exits ns = case last' ns of
+            Just act => Lam loc (Held Once WorldT)
+                          (Let loc Many (App loc (map Free act) (Var loc (Bound FZ))) (Unreachable loc))
+            Nothing => Unreachable loc
 
       -- A call of a monomorphic library function the registry names, on
       -- runtime arguments: saturated, and the ones past its arity applied.
@@ -292,15 +344,15 @@ mutual
           Primitive p => finish loc kinds given (PrimApp loc p lowered) (drop arity xs)
           Clamped p =>
             finish loc kinds given
-                   (\ns => PrimApp loc NatFromBig lowered
-                             [PrimApp loc p lowered (map (\n => PrimApp loc NatToBig lowered [n]) ns)])
+                   (\ns => PrimApp loc (Op NatFromBig) lowered
+                             [PrimApp loc p lowered (map (\n => PrimApp loc (Op NatToBig) lowered [n]) ns)])
                    (drop arity xs)
           Tested c q => do
             toBool <- libraryCall fc loc q
             finish loc kinds given (\ns => toBool [PrimApp loc (NatCompare c) lowered ns]) (drop arity xs)
           OnIntegers q => do
             f <- libraryCall fc loc q
-            finish loc kinds given (\ns => f (map (\n => PrimApp loc NatToBig lowered [n]) ns)) (drop arity xs)
+            finish loc kinds given (\ns => f (map (\n => PrimApp loc (Op NatToBig) lowered [n]) ns)) (drop arity xs)
 
       -- A constructor of a `Nat`-like type is a natural: zero is 0, a
       -- successor adds 1.
@@ -312,7 +364,7 @@ mutual
         let Just i = succArg kinds
           | Nothing => internal fc "a successor without one runtime argument"
         finish loc kinds given
-               (\xs => PrimApp loc NatAdd Nothing (Data.List.take 1 (drop i xs) ++ [Literal loc (LNat 1)])) extra
+               (\xs => PrimApp loc (Op BigAdd) Nothing (Data.List.take 1 (drop i xs) ++ [Literal loc (LNat 1)])) extra
 
       constructor : FC -> Loc -> GlobalDef -> Nat -> List (TT vars) -> Core (Term a)
       constructor fc loc def arity xs = do
@@ -341,9 +393,12 @@ mutual
                 _ => pure ()
             finish loc fieldKinds (fieldsOnly info.layout given) (ConApp loc cid) (drop arity xs)
 
-      primitive : FC -> Loc -> Name -> Nat -> PrimFn ar -> List (TT vars) -> Core (Term a)
-      primitive fc loc name arity op xs = case op of
-        BelieveMe => reject fc ctx.owner EscapeHatch "believe_me"
+      primitive : FC -> Loc -> Name -> Nat -> PrimFn ar -> ClosedTerm -> List (TT vars) -> Core (Term a)
+      primitive fc loc name arity op ty xs = case op of
+        BelieveMe => do
+          exit <- exiting
+          if exit then exitAction fc loc arity ty xs
+                  else reject fc ctx.owner EscapeHatch "believe_me"
         -- A user's crash is rejected. A trusted library's is the string it
         -- is given: the program ends with that string and does not return.
         Crash => do
@@ -352,7 +407,7 @@ mutual
             then case last' (take arity xs) of
               Just m => do
                 s <- term ctx env m
-                pure (PrimApp loc CrashStr Nothing [s])
+                pure (PrimApp loc (Op CrashStr) Nothing [s])
               Nothing => reject fc ctx.owner EscapeHatch "idris_crash"
             else reject fc ctx.owner EscapeHatch "idris_crash"
         Neg DoubleType => supported
@@ -360,23 +415,25 @@ mutual
         Neg _ => reject fc ctx.owner Primitive "negate"
         _ => supported
         where
+          -- The primitive on the arguments its type takes, in the order its
+          -- op takes them.
           supported : Core (Term a)
           supported = case primOp op of
             Nothing => reject fc ctx.owner Primitive ("primitive " ++ show name)
             Just p => do
-              args' <- traverse (term ctx env) (take arity xs)
-              let kinds = map (\t => ValueParam (Held Many t) Nothing) (primArgs p)
-              finish loc kinds args' (PrimApp loc p Nothing) (drop arity xs)
+              (kinds, _) <- classify fc ctx.owner arity ty []
+              given <- arguments loc kinds (take arity xs)
+              finish loc kinds given (PrimApp loc p Nothing . opOrder op) (drop arity xs)
 
-      -- A string built once from a list: the primitive at the list's
-      -- instance, which the one parameter's type names.
-      builderCall : FC -> Loc -> Maybe Shown -> Nat -> Builder -> ClosedTerm -> List (TT vars) -> Core (Term a)
-      builderCall fc loc lowered arity b ty xs = do
+      -- A string built once from a list: the primitive of the one
+      -- parameter, a list, which it takes at the list's own instance.
+      builderCall : FC -> Loc -> Maybe Shown -> Nat -> IdrPrim -> ClosedTerm -> List (TT vars) -> Core (Term a)
+      builderCall fc loc lowered arity p ty xs = do
         (kinds, _) <- classify fc ctx.owner arity ty []
-        let [ValueParam (Held _ (DataT d)) _] = kinds
+        let [ValueParam (Held _ (DataT _)) _] = kinds
           | _ => internal fc "a string built from something other than a list"
         given <- arguments loc kinds (take arity xs)
-        finish loc kinds given (PrimApp loc (StrBuild b d) lowered) (drop arity xs)
+        finish loc kinds given (PrimApp loc (Op p) lowered) (drop arity xs)
 
       -- A call of the library function a foreign definition stands for.
       aliasCall : FC -> Loc -> Maybe Shown -> QName -> List (TT vars) -> Core (Term a)
@@ -386,13 +443,69 @@ mutual
           | _ => internal fc (show q ++ " is not a function to stand for")
         call fc loc (fullname target) lowered (length params) (type target) xs
 
-      ioCall : FC -> Loc -> Nat -> IOOp -> ClosedTerm -> List (TT vars) -> Core (Term a)
-      ioCall fc loc arity op ty xs = do
+      -- A primitive the registry lists, on the call's arguments and then
+      -- the literals the call does not supply (a new buffer's zero byte,
+      -- `array.new`'s fill). One that performs IO is an effect, whose
+      -- world stays its last operand, at the type its call fixes: a buffer
+      -- word's, the word a load gives (its result's) or a store takes (its
+      -- argument before the world), or an array's element, of the array
+      -- among its operands or in its result. One that does not has no
+      -- world and no `IORes` in its type, and is pure.
+      ioCall : FC -> Loc -> Maybe Shown -> Nat -> IdrPrim -> List Lit -> ClosedTerm -> List (TT vars) ->
+               Core (Term a)
+      ioCall fc loc lowered arity p lits ty xs = do
         (kinds, resTy) <- classify fc ctx.owner arity ty []
-        DataT res <- coreType fc ctx.owner ValueType !(normaliseClosed resTy)
-          | _ => internal fc "an IO primitive with an unexpected type"
-        given <- arguments loc kinds (take arity xs)
-        finish loc kinds given (\ys => Effect loc op ys res) (drop arity xs)
+        if primPerformsIO p
+           then do
+             result <- normaliseClosed resTy
+             DataT res <- coreType fc ctx.owner ValueType result
+               | _ => internal fc "an IO primitive with an unexpected type"
+             tys <- wordOf p kinds result
+             given <- arguments loc kinds (take arity xs)
+             finish loc kinds given (\ys => Effect loc p tys (beforeWorld ys) res) (drop arity xs)
+           else do
+             given <- arguments loc kinds (take arity xs)
+             finish loc kinds given (\ys => PrimApp loc (Op p) lowered (ys ++ map (Literal loc) lits))
+                    (drop arity xs)
+        where
+          beforeWorld : {0 b : Type} -> List (Term b) -> List (Term b)
+          beforeWorld ys = case reverse ys of
+            w :: own => reverse own ++ map (Literal loc) lits ++ [w]
+            [] => map (Literal loc) lits
+
+          -- What an IO primitive's result holds besides the world.
+          held : ClosedTerm -> Core (List Ty)
+          held result = case spine result [] of
+            (_, [t]) => (\w => [w]) <$> coreType fc ctx.owner ValueType t
+            _ => pure []
+
+          operandType : PKind -> Maybe Ty
+          operandType (ValueParam (Held _ t) _) = Just t
+          operandType _ = Nothing
+
+          arrayElement : Ty -> Maybe Ty
+          arrayElement (ArrayT e) = Just e
+          arrayElement _ = Nothing
+
+          element : List PKind -> ClosedTerm -> Core (List Ty)
+          element kinds result = do
+            outs <- held result
+            case mapMaybe arrayElement (mapMaybe operandType kinds ++ outs) of
+              e :: _ => pure [e]
+              [] => internal fc "an array primitive without an array"
+
+          wordOf : IdrPrim -> List PKind -> ClosedTerm -> Core (List Ty)
+          wordOf BufferLoad _ result = do
+            [t] <- held result
+              | _ => internal fc "a buffer load whose result holds no one word"
+            pure [t]
+          wordOf BufferStore kinds _ = case reverse kinds of
+            (_ :: ValueParam (Held _ t) _ :: _) => pure [t]
+            _ => internal fc "a buffer store without the word it stores"
+          wordOf ArrayNew kinds result = element kinds result
+          wordOf ArrayGet kinds result = element kinds result
+          wordOf ArraySet kinds result = element kinds result
+          wordOf _ _ _ = pure []
 
       isRuntime : PKind -> Bool
       isRuntime (ValueParam (Held _ _) _) = True
@@ -421,13 +534,13 @@ mutual
           typeParams [] = []
 
       -- An array operation: IO, in the world's order.
-      arrayCall : FC -> Loc -> Nat -> ArrayOp -> ClosedTerm -> List (TT vars) -> Core (Term a)
-      arrayCall fc loc arity op ty xs = do
+      arrayCall : FC -> Loc -> Nat -> IdrPrim -> ClosedTerm -> List (TT vars) -> Core (Term a)
+      arrayCall fc loc arity p ty xs = do
         (kinds, [el], given, resTy) <- arrayOperands fc loc arity ty xs
           | _ => internal fc "an array primitive without its one element type"
         DataT res <- coreType fc ctx.owner ValueType !(normaliseClosed resTy)
           | _ => internal fc "an array primitive with an unexpected type"
-        finish loc kinds given (\ys => Effect loc (Array op el) ys res) (drop arity xs)
+        finish loc kinds given (\ys => Effect loc p [el] ys res) (drop arity xs)
 
       -- A library loop over an array's index space (the registry's
       -- `ArrayLoop`): the op of that loop, its body applying the function,
@@ -435,7 +548,7 @@ mutual
       -- a memref holds and a vector lane computes; at any other instance a
       -- call of the library's definition, the same loop in Idris. IO, in
       -- the world's order, like the array primitives.
-      arrayLoop : FC -> Loc -> ArrayLoop -> Name -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term a)
+      arrayLoop : FC -> Loc -> IdrRegionPrim -> Name -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term a)
       arrayLoop fc loc loop name arity ty xs = do
         (kinds, tys, given, resTy) <- arrayOperands fc loc arity ty xs
         DataT res <- coreType fc ctx.owner ValueType !(normaliseClosed resTy)
@@ -449,13 +562,6 @@ mutual
           word CharT = True
           word DoubleT = True
           word _ = False
-
-      -- The number of bytes of a string: pure, the length of its UTF-8.
-      strBytes : FC -> Loc -> Maybe Shown -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term a)
-      strBytes fc loc lowered arity ty xs = do
-        (kinds, _) <- classify fc ctx.owner arity ty []
-        given <- arguments loc kinds (take arity xs)
-        finish loc kinds given (PrimApp loc StrBytes lowered) (drop arity xs)
 
       -- The length of an array: at the element its type argument fixes, or
       -- at the fixed element of a type that has none (a buffer's bytes).

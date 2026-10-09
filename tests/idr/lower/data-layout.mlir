@@ -14,11 +14,11 @@
 // CHECK: arith.extsi %[[B0]]
 // CHECK: default {
 // CHECK: scf.yield %[[P0]] : i64
-// CHECK-LABEL: func.func private @Prog.main() -> i64
+// CHECK-LABEL: func.func @Prog.main() -> i64
 // CHECK-DAG: %[[FIVE:.*]] = arith.constant 5 : i32
 // CHECK-DAG: %[[ONE:.*]] = arith.constant 1 : i8
-// CHECK-DAG: %[[U1:.*]] = ub.poison : i64
-// CHECK-DAG: %[[U2:.*]] = ub.poison : i8
+// CHECK-DAG: %[[U1:.*]] = llvm.mlir.zero : i64
+// CHECK-DAG: %[[U2:.*]] = llvm.mlir.zero : i8
 // CHECK: call @f(%[[ONE]], %[[FIVE]], %[[U1]], %[[U2]])
 module attributes {idr.program} {
   idr.data @P {

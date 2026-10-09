@@ -1,9 +1,11 @@
 ||| Idris's primitives as Core's: each has one meaning, the runtime's, so
-||| this only names them.
+||| this only names them: the op of the dialect each is, or the operation
+||| its types choose.
 module IdrisMLIR.Frontend.Translate.Primitives
 
 import Core.TT
 
+import IdrisMLIR.Dialect.Idr as Idr
 import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Types
 
@@ -63,14 +65,21 @@ comparison _ = Nothing
 
 ||| Integer primitives: `idr.big.*`.
 integer : PrimFn k -> Maybe Prim
-integer (Neg IntegerType) = Just BigNegate
-integer (Cast IntegerType StringType) = Just BigShow
-integer (Cast StringType IntegerType) = Just BigRead
+integer (Add IntegerType) = Just (Op BigAdd)
+integer (Sub IntegerType) = Just (Op BigSub)
+integer (Mul IntegerType) = Just (Op BigMul)
+integer (Div IntegerType) = Just (Op BigDiv)
+integer (Mod IntegerType) = Just (Op BigMod)
+integer (BAnd IntegerType) = Just (Op BigAnd)
+integer (BOr IntegerType) = Just (Op BigOr)
+integer (BXOr IntegerType) = Just (Op BigXor)
+integer (Neg IntegerType) = Just (Op BigNeg)
+integer (Cast IntegerType StringType) = Just (Op BigShow)
+integer (Cast StringType IntegerType) = Just (Op BigFromStr)
 integer (Cast IntegerType to) = FromBig <$> scalar to
 integer (Cast from IntegerType) = ToBig <$> scalar from
-integer p = case (arith p, comparison p) of
-  (Just (op, IntegerType), _) => Just (BigArith op)
-  (_, Just (op, IntegerType)) => Just (BigCompare op)
+integer p = case comparison p of
+  Just (op, IntegerType) => Just (BigCompare op)
   _ => Nothing
 
 ||| A cast from a string: to a number. A string has no `Char` cast.
@@ -91,12 +100,20 @@ primOp p = case (integer p, double p, arith p, comparison p, p) of
   (_, _, _, _, Cast StringType to) => fromString to
   (_, _, _, _, Cast from StringType) => ToStr <$> scalar from
   (_, _, _, _, Cast from to) => join (runtimeCast <$> scalar from <*> scalar to)
-  (_, _, _, _, StrLength) => Just StrLength
-  (_, _, _, _, StrHead) => Just StrHead
-  (_, _, _, _, StrTail) => Just StrTail
-  (_, _, _, _, StrIndex) => Just StrIndex
-  (_, _, _, _, StrCons) => Just StrCons
-  (_, _, _, _, StrAppend) => Just StrAppend
-  (_, _, _, _, StrReverse) => Just StrReverse
-  (_, _, _, _, StrSubstr) => Just StrSubstr
+  (_, _, _, _, StrLength) => Just (Op Idr.StrLength)
+  (_, _, _, _, StrHead) => Just (Op Idr.StrHead)
+  (_, _, _, _, StrTail) => Just (Op Idr.StrTail)
+  (_, _, _, _, StrIndex) => Just (Op Idr.StrIndex)
+  (_, _, _, _, StrCons) => Just (Op Idr.StrCons)
+  (_, _, _, _, StrAppend) => Just (Op Idr.StrAppend)
+  (_, _, _, _, StrReverse) => Just (Op Idr.StrReverse)
+  (_, _, _, _, StrSubstr) => Just (Op Idr.StrSubstr)
   _ => Nothing
+
+||| Idris's arguments of a primitive in the order its op takes them:
+||| `prim__strSubstr` takes the start, the length and then the string,
+||| which `idr.str.substr` takes first.
+export
+opOrder : PrimFn k -> List a -> List a
+opOrder StrSubstr [start, len, s] = [s, start, len]
+opOrder _ xs = xs

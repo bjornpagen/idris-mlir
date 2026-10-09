@@ -10,7 +10,6 @@ import :arrayloop;
 import :classes;
 import :readfrom;
 import :regions;
-import :useof;
 import :usersin;
 
 using namespace mlir;
@@ -23,8 +22,7 @@ struct Changes {
 
 class Placement {
 public:
-  Placement(func::FuncOp fn, Classes &classes, SymbolTableCollection &symbols)
-      : fn(fn), classes(classes), symbols(symbols) {}
+  Placement(func::FuncOp fn, Classes &classes) : fn(fn), classes(classes) {}
 
   // Places every value of the function and materializes the counts.
   // Returns the numbers of incs and decs added.
@@ -84,8 +82,14 @@ private:
     unsigned consumes = 0, borrows = 0;
     for (OpOperand &operand : op->getOpOperands())
       if (operand.get() == value)
-        ++(useOf(operand, symbols) == Use::Consume ? consumes : borrows);
+        ++(takes(operand) ? consumes : borrows);
     return {consumes, borrows};
+  }
+
+  // Whether `operand` takes over the reference its value holds: where its
+  // op declares so, and at a force this placement gives its cell owned.
+  bool takes(OpOperand &operand) {
+    return consumes(operand) || forced.contains(operand.getOwner());
   }
 
   // The changes right after `def` in `block`, or at its start when null.
@@ -155,6 +159,13 @@ private:
         incBeforeOp(user, value, consumes);
         continue;
       }
+      // A force reads its cell, except where the cell dies: there it takes
+      // the cell over, owned, so that a cell nothing else holds is forced
+      // once and freed instead of keeping a memo no one will read.
+      if (isa<ForceOp>(user)) {
+        forced.insert(user);
+        return;
+      }
       if (borrows == 0 && consumes > 0) {
         incBeforeOp(user, value, consumes - 1);
       } else {
@@ -202,7 +213,7 @@ private:
         for (OpOperand &operand : op->getOpOperands()) {
           if (count == 0)
             break;
-          if (operand.get() != value || useOf(operand, symbols) != Use::Consume)
+          if (operand.get() != value || !takes(operand))
             continue;
           operand.set(DupOp::create(b, loc, owned(seen.getType()), seen).getResult());
           --count;
@@ -217,7 +228,7 @@ private:
       if (isa<BorrowOp>(op))
         return;
       for (OpOperand &operand : op->getOpOperands()) {
-        if (!isOwned(operand.get().getType()) || useOf(operand, symbols) != Use::Borrow)
+        if (!isOwned(operand.get().getType()) || takes(operand))
           continue;
         b.setInsertionPoint(op);
         operand.set(BorrowOp::create(b, op->getLoc(), operand.get()).getResult());
@@ -227,7 +238,8 @@ private:
 
   func::FuncOp fn;
   Classes &classes;
-  SymbolTableCollection &symbols;
+  // The forces that take their cells over, where the cells die.
+  llvm::SmallPtrSet<Operation *, 4> forced;
   // What goes right before each op.
   llvm::MapVector<Operation *, Changes> changes;
   unsigned incs = 0, decs = 0;

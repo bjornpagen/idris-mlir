@@ -12,7 +12,6 @@ import idr.dialect;
 
 import :cellinfo;
 import :cells;
-import :labels;
 import :sums;
 
 export namespace idr::layout {
@@ -33,9 +32,11 @@ public:
   unsigned alignmentOf(mlir::Type component) const;
 
   // The runtime components of a value type: none for !idr.erased and
-  // !idr.world, the slots of an unboxed sum, one pointer for strings, boxes,
-  // closures and reuse tokens, one i64 for bigs, the type itself for
-  // scalars.
+  // !idr.world, the slots of an unboxed sum, one pointer for strings, boxes
+  // (memo cells included) and reuse tokens, one i64 for bigs, the type
+  // itself for scalars. A !idr.fn that idr-defunctionalize leaves is a
+  // value the program never reaches, and it is still lowered, as one
+  // pointer.
   llvm::SmallVector<mlir::Type> components(mlir::Type type);
   // For each of those components, whether it is counted: a pointer to a
   // cell, a big's word, or a counted slot of a sum.
@@ -49,36 +50,24 @@ public:
   // cannot hold.
   std::expected<Element, std::string> element(mlir::Type element);
 
-  // The cell of a boxed constructor, and of a closure of `label`.
+  // The cell of a boxed constructor. A memo sum's constructor gives the
+  // cell in that state, at the size of the sum's largest state, which every
+  // cell of the sum is allocated at.
   const Cell &box(CtorOp ctor) const;
-  const Cell &closure(const Label &label) const;
-  // The cell a forced suspension of label `id` reads: the code pointer and
-  // the value. Null when the label is not a suspension.
-  const Cell *forced(unsigned id) const;
 
-  // The labels closures of this module use (idr.closure ops and
-  // #idr.closure constants, nested ones included), numbered in the order a
-  // walk of the module meets them: idr-lower and idr-eval compute the same
-  // numbers from the same module. A closure of a function the module lacks
-  // names no label; the verifier rejects it.
-  unsigned labelId(mlir::FlatSymbolRefAttr callee, unsigned captures) const;
-  unsigned labelId(const Label &label) const;
-  const Label &label(unsigned id) const;
-  unsigned numLabels() const;
+  // Whether `type` is a box of a memo sum, whose cell a force may write.
+  bool isMemo(mlir::Type type) const;
 
   mlir::ModuleOp getModule() const;
 
 private:
-  explicit Layouts(mlir::ModuleOp m);
+  explicit Layouts(mlir::ModuleOp m) : module(m), target(m) {}
 
-  // A cell whose first `leading` fields come first, before the object
-  // slots, with the header `info` gives for its number of object slots.
+  // A cell of `fieldTypes`, object slots first, with the header `info`
+  // gives for its number of object slots.
   std::expected<Cell, std::string>
-  cellOf(llvm::ArrayRef<mlir::Type> fieldTypes, unsigned leading,
+  cellOf(llvm::ArrayRef<mlir::Type> fieldTypes,
          llvm::function_ref<std::expected<CellInfo, std::string>(unsigned objs)> info);
-
-  // Capture cells, and a second cell of a suspension's stored value.
-  bool placeClosures(mlir::Type pointer);
 
   mlir::ModuleOp module;
   mlir::DataLayout target;
@@ -86,10 +75,6 @@ private:
   // valid while others are computed.
   llvm::DenseMap<mlir::StringAttr, std::unique_ptr<SumLayout>> sums;
   llvm::DenseMap<mlir::Operation *, std::unique_ptr<Cell>> boxes;
-  llvm::SmallVector<Label> labels;
-  llvm::DenseMap<std::pair<mlir::Attribute, unsigned>, unsigned> labelIds;
-  llvm::DenseMap<unsigned, std::unique_ptr<Cell>> closures;
-  llvm::DenseMap<unsigned, std::unique_ptr<Cell>> forcedCells;
 };
 
 } // namespace idr::layout
@@ -135,30 +120,40 @@ FailureOr<Layouts> Layouts::of(ModuleOp m) {
       fits = false;
       continue;
     }
+    // A memo cell is allocated in one state and written into another, the
+    // value a force stores over the captures it took, so every state's
+    // cell is as large as the largest.
+    bool memo = idr::isMemo(data);
+    unsigned size = 0;
     for (auto [tag, ctor] : llvm::enumerate(ctors)) {
       SmallVector<Type> fields;
       for (Attribute field : ctor.getFieldTypes())
         fields.push_back(cast<TypeAttr>(field).getValue());
-      std::expected<Cell, std::string> cell =
-          layouts.cellOf(fields, 0, [&](unsigned objs) { return CellInfo::box(tag, objs); });
+      std::expected<Cell, std::string> cell = layouts.cellOf(fields, [&](unsigned objs) {
+        return memo ? CellInfo::thunk(tag, objs) : CellInfo::box(tag, objs);
+      });
       if (!cell) {
         ctor.emitError() << "unsupported (layout): a cell of the constructor @" << ctor.getSymName()
                          << " cannot be built: " << cell.error();
         fits = false;
         continue;
       }
+      size = std::max(size, cell->size);
       layouts.boxes[ctor] = std::make_unique<Cell>(std::move(*cell));
     }
+    if (memo)
+      for (CtorOp ctor : ctors)
+        if (auto it = layouts.boxes.find(ctor); it != layouts.boxes.end())
+          it->second->size = size;
   }
-  if (!layouts.placeClosures(pointer))
-    fits = false;
   if (!fits)
     return failure();
   return layouts;
 }
 
-unsigned Layouts::labelId(FlatSymbolRefAttr callee, unsigned captures) const {
-  return labelIds.lookup(std::make_pair(Attribute(callee), captures));
+bool Layouts::isMemo(Type type) const {
+  DataOp data = lookupData(module, type);
+  return data && idr::isMemo(data);
 }
 
 const SumLayout &Layouts::sum(StringAttr name) {
@@ -211,7 +206,7 @@ SmallVector<Type> Layouts::components(Type type) {
     return {};
   type = unrestricted(type);
   // A destination is the address of a field's word.
-  if (isa<StrType, BoxType, FnType, LazyType, TokenType, DestType>(type))
+  if (isa<StrType, BoxType, FnType, TokenType, DestType>(type))
     return {LLVM::LLVMPointerType::get(ctx)};
   // An array is its cell and its length, the memref's dimension: a bounds
   // check compares two registers, so the one a program's own test made
@@ -230,7 +225,7 @@ SmallVector<bool> Layouts::counted(Type type) {
   if (isErased(type) || isWorld(type))
     return {};
   type = unrestricted(type);
-  if (isa<StrType, BoxType, FnType, LazyType, TokenType, BigType, NatType>(type))
+  if (isa<StrType, BoxType, FnType, TokenType, BigType, NatType>(type))
     return {true};
   if (isArray(type))
     return {true, false};
@@ -253,7 +248,7 @@ SmallVector<bool> Layouts::counted(Type type) {
 // bytes are contiguous; an element with an object slot takes whole words.
 std::expected<Element, std::string> Layouts::element(Type type) {
   std::expected<Cell, std::string> cell =
-      cellOf(type, 0, [](unsigned objs) { return CellInfo::box(0, objs); });
+      cellOf(type, [](unsigned objs) { return CellInfo::box(0, objs); });
   if (!cell)
     return std::unexpected(std::move(cell.error()));
   constexpr unsigned header = sizeof(idris_rt_header);
@@ -272,7 +267,7 @@ std::expected<Element, std::string> Layouts::element(Type type) {
 }
 
 std::expected<Cell, std::string>
-Layouts::cellOf(ArrayRef<Type> fieldTypes, unsigned leading,
+Layouts::cellOf(ArrayRef<Type> fieldTypes,
                 function_ref<std::expected<CellInfo, std::string>(unsigned objs)> info) {
   SmallVector<SmallVector<Slot>> fields;
   SmallVector<SmallVector<bool>> countedness;
@@ -294,11 +289,8 @@ Layouts::cellOf(ArrayRef<Type> fieldTypes, unsigned leading,
     order.push_back({field, component});
   };
   auto count = static_cast<unsigned>(fieldTypes.size());
-  for (unsigned f = 0; f < std::min(leading, count); ++f)
-    for (unsigned c = 0; c < fields[f].size(); ++c)
-      place(f, c);
   // The object slots, each a word, so contiguous.
-  for (unsigned f = leading; f < count; ++f)
+  for (unsigned f = 0; f < count; ++f)
     for (unsigned c = 0; c < fields[f].size(); ++c)
       if (countedness[f][c]) {
         place(f, c);
@@ -308,7 +300,7 @@ Layouts::cellOf(ArrayRef<Type> fieldTypes, unsigned leading,
   // (the tags of unboxed sums, characters, booleans) share a word instead
   // of each taking one: the order of fields in the source is not a layout.
   SmallVector<std::pair<unsigned, unsigned>> others;
-  for (unsigned f = leading; f < count; ++f)
+  for (unsigned f = 0; f < count; ++f)
     for (unsigned c = 0; c < fields[f].size(); ++c)
       if (!countedness[f][c])
         others.push_back({f, c});
@@ -325,23 +317,6 @@ Layouts::cellOf(ArrayRef<Type> fieldTypes, unsigned leading,
 }
 
 const Cell &Layouts::box(CtorOp ctor) const { return *boxes.find(ctor)->second; }
-
-const Cell &Layouts::closure(const Label &label) const {
-  return *closures.find(labelId(label))->second;
-}
-
-const Cell *Layouts::forced(unsigned id) const {
-  auto it = forcedCells.find(id);
-  return it == forcedCells.end() ? nullptr : it->second.get();
-}
-
-unsigned Layouts::labelId(const Label &label) const {
-  return labelId(label.callee, label.captures);
-}
-
-const Label &Layouts::label(unsigned id) const { return labels[id]; }
-
-unsigned Layouts::numLabels() const { return static_cast<unsigned>(labels.size()); }
 
 ModuleOp Layouts::getModule() const { return module; }
 

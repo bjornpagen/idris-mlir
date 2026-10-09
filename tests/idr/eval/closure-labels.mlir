@@ -1,10 +1,11 @@
 // RUN: idris-mlir-opt %s --idr-eval --remarks-filter=idr-eval 2> %t.remarks | FileCheck %s
 // RUN: FileCheck %s --check-prefix=REMARK --implicit-check-not=[Missed] < %t.remarks
-// A closure read back from compile-time evaluation is known by its code:
-// each function and number of captures has code of its own, and the cell
-// holds nothing else that says which, so no count of labels can make one
-// read as another. Closures of one function with different captures, and
-// of different functions, all come back as what they were.
+// A closure read back from compile-time evaluation is known by its
+// constructor: evaluation makes each closure a constructor of its sum, named
+// after its function, and reads each one back by its tag, so nothing holds
+// code and no closure reads as another. Closures of one function with
+// different captures, and of different functions, all come back as what
+// they were.
 // CHECK-LABEL: func.func @Prog.main()
 // CHECK-NOT: call
 // CHECK-DAG: idr.constant #idr.closure<@f, []> : !idr.fn<(i64, i64, i64) -> (i64)>

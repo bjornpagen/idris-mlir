@@ -1,6 +1,7 @@
 // idr.defunctionalize:labels: the lattice of the analysis, the set of
-// labels (functions) a closure value may hold, or unknown, and the anchor of
-// a field of a constructor, which closures reach and are read from.
+// labels (functions) a closure or a suspension may hold, or unknown, and the
+// anchors values reach and are read from without an SSA edge: a field of a
+// constructor, and the elements of the arrays of one element type.
 export module idr.defunctionalize:labels;
 
 import idr.mlir;
@@ -80,6 +81,21 @@ struct FieldAnchor
   }
 };
 
+// The elements of every array whose element type is this one: an array has
+// one slot, as a constructor has one per field, and its element type, not
+// the array value, names it, since a value of the type may be any array.
+struct ElementsAnchor : GenericLatticeAnchorBase<ElementsAnchor, Type> {
+  // Its identity, which MLIR's TypeID finds by this name.
+  static TypeID resolveTypeID() {
+    static SelfOwningTypeID id;
+    return id;
+  }
+  using Base::Base;
+  Location getLoc() const override { return UnknownLoc::get(getValue().getContext()); }
+  void print(raw_ostream &os) const override { os << "elements of " << getValue(); }
+};
+
+// The labels a field, or the elements of arrays, may hold.
 struct FieldLabels : AnalysisState {
   // Its identity, which MLIR's TypeID finds by this name.
   static TypeID resolveTypeID() {

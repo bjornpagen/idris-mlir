@@ -35,7 +35,8 @@ func.func private @boxes(%x: i64) -> !idr.data<@Box> attributes {idr.total} {
   return %b : !idr.data<@Box>
 }
 func.func private @crashes(%x: i64) -> i64 attributes {idr.total} {
-  %r = idr.div signed %x, %x : i64
+  %y = idr.check.nonzero %x, "division by zero" : i64
+  %r = idr.div signed %x, %y : i64
   return %r : i64
 }
 func.func private @partial(%x: i64) -> i64 {

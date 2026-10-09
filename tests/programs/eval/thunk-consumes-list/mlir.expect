@@ -1,0 +1,3 @@
+# The list the suspension captured is the forcer's once it is forced: the
+# walk takes each of its cells apart and builds the next element there.
+idr-rc: reuses-in-place=@Main.bumpOnto

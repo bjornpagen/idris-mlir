@@ -13,7 +13,7 @@
 // CHECK: scf.if
 // CHECK: idris_rt_inc
 // CHECK: idris_rt_cell
-module attributes {idr.program, idr.stage = "owned"} {
+module attributes {idr.program} {
   idr.data @L box {
     idr.ctor @N ()
     idr.ctor @C (i64, !idr.box<@L>)

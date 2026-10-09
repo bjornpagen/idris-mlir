@@ -1,5 +1,5 @@
 // rt.start:entry: the program's entry, idris_rt_start: the processor test,
-// the program's stack, and its exit status.
+// the program's arguments, its stack, and its exit status.
 // PIN(runtime-quarantine) — see PINS.md
 module;
 #include "cpu_features.h"
@@ -12,11 +12,16 @@ module;
 
 export module rt.start:entry;
 
-import rt.io;
+// rt.io reads the program's arguments from here, so rt.start does not import it.
 import rt.platform;
 import rt.strings;
 
 namespace {
+
+// The arguments main received, which idris_rt_start keeps before the
+// program runs.
+int argumentTotal = 0;
+char **argumentText = nullptr;
 
 // A program's stack: the number of bytes IDRIS_RT_STACK says, when it is
 // set; else a gibibyte, which lets a non-tail recursion go tens of millions
@@ -43,15 +48,6 @@ size_t programStack() {
   if (limit == SIZE_MAX)
     return size_t{1} << 44;
   return limit > gibibyte ? limit : gibibyte;
-}
-
-// What the program's runner does when its stack runs out: what a crash does,
-// from the fault handler, where writing and exiting are safe.
-[[noreturn]] void programExhausted() {
-  static constexpr char message[] = "idris-mlir: stack exhausted\n";
-  idris_rt_flush();
-  rt::io::writeAll(2, message, sizeof message - 1);
-  _exit(IDRIS_RT_CRASHED);
 }
 
 struct Program {
@@ -105,21 +101,39 @@ void runProgram(void *argument) {
   _exit(IDRIS_RT_CRASHED);
 }
 
+// What the program's runner does when its stack runs out: what a crash does,
+// from the fault handler, where writing and exiting are safe.
+[[noreturn]] void programExhausted() {
+  static constexpr char message[] = "idris-mlir: stack exhausted\n";
+  idris_rt_flush();
+  say(message, sizeof message - 1);
+  _exit(IDRIS_RT_CRASHED);
+}
+
+} // namespace
+
+export namespace rt::start {
+
+// What ended the program with a status, which its crash names.
+enum class Ending { mainReturned, exited };
+
 // A parent sees only the low 8 bits of an exit status, so 256 would read as
 // success and -1 as 255. A status outside 0 to 255 is one the process
-// cannot report, and ends it as a crash that says so.
-void checkStatus(int64_t status) {
+// cannot report, whether main returned it or the program exited with it, and
+// ends it as a crash that says so.
+void checkStatus(int64_t status, Ending ending) {
   if (status >= 0 && status <= 255)
     return;
-  static constexpr char prefix[] = "idris-mlir: main returned ";
+  static constexpr char mainReturned[] = "idris-mlir: main returned ";
+  static constexpr char exited[] = "idris-mlir: exit with ";
+  static_assert(sizeof exited <= sizeof mainReturned, "the message has room for either");
   static constexpr char suffix[] = ", which is not an exit status (0 to 255)\n";
-  char message[sizeof prefix - 1 + rt::strings::intTextMax + sizeof suffix - 1];
+  char message[sizeof mainReturned - 1 + rt::strings::intTextMax + sizeof suffix - 1];
   char number[rt::strings::intTextMax];
   char *digits = rt::strings::formatSigned(status, number + sizeof number);
   size_t n = 0;
-  for (char c : prefix)
-    if (c != '\0')
-      message[n++] = c;
+  for (const char *c = ending == Ending::mainReturned ? mainReturned : exited; *c != '\0'; ++c)
+    message[n++] = *c;
   for (char *d = digits; d != number + sizeof number; ++d)
     message[n++] = *d;
   for (char c : suffix)
@@ -128,20 +142,31 @@ void checkStatus(int64_t status) {
   idris_rt_crash(message, n);
 }
 
-} // namespace
+int64_t argumentCount() { return argumentTotal; }
 
-extern "C" [[gnu::noinline, clang::annotate("idris-rt-baseline")]] int32_t
-idris_rt_start(int64_t (*body)(void), uint64_t cpu) {
+// A new string of argument i, whose bytes are decoded as any bytes from
+// outside the program are; the empty string when there is no argument i.
+const idris_rt_str *argument(int64_t i) {
+  const char *text = i >= 0 && i < argumentTotal ? argumentText[i] : "";
+  return idris_rt_str_from_bytes(text, length(text));
+}
+
+} // namespace rt::start
+
+extern "C" [[gnu::noinline, clang::annotate("idris-rt-baseline")]] int
+idris_rt_start(int64_t (*body)(void), uint64_t cpu, int argc, char **argv) {
   // Before the processor test and before any reservation: a runtime built
   // for another page size than this system's must not run at all.
   rt::platform::checkPageSize();
   checkCpu(cpu);
+  argumentTotal = argc;
+  argumentText = argv;
   Program program{body, 0};
   if (idris_rt_run_on_stack(runProgram, &program, programStack(), size_t{1} << 20,
                             programExhausted) != 0) {
     static constexpr char message[] = "idris-mlir: no stack could be reserved for the program\n";
     idris_rt_crash(message, sizeof message - 1);
   }
-  checkStatus(program.status);
-  return static_cast<int32_t>(program.status);
+  rt::start::checkStatus(program.status, rt::start::Ending::mainReturned);
+  return static_cast<int>(program.status);
 }

@@ -107,13 +107,16 @@ middle fc dir src = do
 ||| The directives idris-mlir-cc takes as options. `--directive no-eval`:
 ||| `--no-eval`, which leaves every closed call to run at runtime (every e2e
 ||| test compiles its program both ways: tests/lib/properties.sh,
-||| without_evaluation). `--directive without=STEPS`: `--without=STEPS`,
-||| which leaves those pipeline steps or idr-rc mechanisms out, to measure
-||| what each is worth.
+||| without_evaluation). `--directive demand-in-place`: `--demand in-place`,
+||| which rejects a call that passes a shared value to a parameter of
+||| quantity 1 that its function rebuilds in place. `--directive
+||| without=STEPS`: `--without=STEPS`, which leaves those pipeline steps or
+||| idr-rc mechanisms out, to measure what each is worth.
 ccOptions : {auto c : Ref Ctxt Defs} -> Core (List String)
 ccOptions = do
   ds <- getDirectives (Other "mlir")
   pure ((if elem "no-eval" ds then ["--no-eval"] else []) ++
+        (if elem "demand-in-place" ds then ["--demand", "in-place"] else []) ++
         mapMaybe without ds)
   where
     without : String -> Maybe String

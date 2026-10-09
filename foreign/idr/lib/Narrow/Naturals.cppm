@@ -1,5 +1,6 @@
 // idr.narrow:naturals: MLIR's integer range analysis, seeing a natural as
-// at least 0 and poison as no value, and the solver that runs it.
+// at least 0 and the program's poison as any value, and the solver that
+// runs it.
 export module idr.narrow:naturals;
 
 import idr.mlir;
@@ -31,8 +32,10 @@ public:
     IntegerRangeAnalysis::setToEntryState(lattice);
   }
 
-  // Poison is no value: every range holds of it, so it adds nothing to the
-  // range of a merge it flows into, as on the path out of a loop.
+  // A ub.poison is a value of the program, given where nothing reads it (as
+  // idr-tail-loops passes it on the path that does not take it), and may be
+  // any value: every range holds of it, so it adds nothing to the range of
+  // a merge it flows into.
   LogicalResult visitOperation(Operation *op, ArrayRef<const IntegerValueRangeLattice *> operands,
                                ArrayRef<IntegerValueRangeLattice *> results) override {
     if (isa<ub::PoisonOp>(op))

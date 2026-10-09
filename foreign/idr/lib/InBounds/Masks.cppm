@@ -212,17 +212,17 @@ std::optional<Value> capacityMinusOne(Value mask) {
 
 // When `index` is `x & (c - 1)`, `c` is a positive power of two the system
 // already knows, and `array`'s length is `c`: `0 <= index < c`.
-export void relateMask(System &system, Lengths &lengths, DominanceInfo &dominance, Operation *access,
+export void relateMask(System &system, Lengths &lengths, DominanceInfo &dominance, Operation *at,
                        Value array, Value index) {
   auto masked = index.getDefiningOp<arith::AndIOp>();
   if (!masked)
     return;
   Value root = arrayRoot(array);
-  if (!dominance.properlyDominates(root, access))
+  if (!dominance.properlyDominates(root, at))
     return;
   auto consider = [&](Value operand) {
     std::optional<Value> cap = capacityMinusOne(operand);
-    if (!cap || !dominance.properlyDominates(*cap, access))
+    if (!cap || !dominance.properlyDominates(*cap, at))
       return;
     std::optional<unsigned> width = widthOf(cap->getType());
     if (!width || *width < 2 || !provedPowerOfTwo(system, *cap, *width))

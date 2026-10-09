@@ -13,7 +13,8 @@
 // arrays from outside at its own index (zipWith over frozen arrays) is two
 // generics under one test that the arrays have the elements the loop
 // reads: the first reads them as inputs, from element 1 as the loop does,
-// and only computes; the other reads them with their bounds checks. No idr
+// and only computes, since that test proves each read's guard; the other
+// reads them as written, each after its guard. No idr
 // op is left; convert-linalg-to-loops then makes the loops of what is
 // left, and the whole lowers to the LLVM dialect alone.
 // CHECK-LABEL: func.func private @squares(
@@ -131,9 +132,16 @@ module attributes {idr.program} {
     %zero = arith.constant 0.0 : f64
     %r, %w1 = idr.array.generate %n, %zero, %w : f64 -> memref<?xf64> (%i: i64) {
       %w0 = idr.world.new
-      %x, %w2 = idr.array.get %u[%i], %w0 : memref<?xf64> -> f64
+      %c0 = arith.constant 0 : index
+      %du = memref.dim %u, %c0 : memref<?xf64>
+      %nu = arith.index_cast %du : index to i64
+      %iu = idr.check.in_bounds %i, %nu, "array index out of bounds"
+      %x, %w2 = idr.array.get %u[%iu], %w0 : memref<?xf64> -> f64
       %w3 = idr.world.new
-      %y, %w4 = idr.array.get %v[%i], %w3 : memref<?xf64> -> f64
+      %dv = memref.dim %v, %c0 : memref<?xf64>
+      %nv = arith.index_cast %dv : index to i64
+      %iv = idr.check.in_bounds %i, %nv, "array index out of bounds"
+      %y, %w4 = idr.array.get %v[%iv], %w3 : memref<?xf64> -> f64
       %p = arith.mulf %x, %y : f64
       idr.yield %p : f64
     }

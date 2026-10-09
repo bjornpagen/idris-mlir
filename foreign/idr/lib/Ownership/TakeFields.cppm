@@ -4,8 +4,6 @@ export module idr.ownership:takefields;
 import idr.mlir;
 import idr.dialect;
 
-import :counting;
-
 using namespace mlir;
 
 namespace idr::ownership {
@@ -19,10 +17,12 @@ export TakeOp takeFields(Value value, SymbolRefAttr ctor, ArrayRef<Type> fieldTy
     b.setInsertionPointAfter(def);
   else
     b.setInsertionPointToStart(cast<BlockArgument>(value).getOwner());
-  Counting counting(value.getParentRegion()->getParentOfType<ModuleOp>());
+  SymbolTableCollection symbols;
   SmallVector<Type> results;
   for (Type field : fieldTypes)
-    results.push_back(counting.counted(field) ? owned(field) : field);
+    results.push_back(holdsReferences(field, symbols, value.getParentRegion()->getParentOp())
+                          ? owned(field)
+                          : field);
   auto take = TakeOp::create(b, value.getLoc(), results, value, ctor);
   for (OpOperand &use : llvm::make_early_inc_range(value.getUses())) {
     auto read = dyn_cast<FieldOp>(use.getOwner());

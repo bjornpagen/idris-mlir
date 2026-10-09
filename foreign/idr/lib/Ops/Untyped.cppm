@@ -10,11 +10,17 @@ using namespace idr;
 export namespace idr::ops {
 
 // A value without the type that MLIR's parser reads into it (Idr_Attr): the
-// form in which values are stored.
+// form in which values are stored. A run is rebuilt from its cells and its
+// tail in one step, not a cell at a time.
 Attribute untyped(Attribute value) {
   MLIRContext *ctx = value.getContext();
   return TypeSwitch<Attribute, Attribute>(value)
-      .Case([&](ConAttr con) { return ConAttr::get(ctx, con.getCtor(), con.getFields()); })
+      .Case([&](ConAttr con) {
+        if (con.isRun())
+          return ConAttr::getRun(ctx, con.getCtor(), con.getSpine(), con.getRunCells(),
+                                 con.getTail());
+        return ConAttr::get(ctx, con.getCtor(), con.getFields());
+      })
       .Case([&](ClosureAttr closure) {
         return ClosureAttr::get(ctx, closure.getCallee(), closure.getCaptures());
       })

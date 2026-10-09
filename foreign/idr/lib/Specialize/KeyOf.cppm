@@ -13,22 +13,34 @@ namespace idr::specialize {
 namespace {
 
 // A constant as a key: constructors and closures as the nodes they fold
-// from. Each shared part is keyed once, in `keys`.
+// from. Each shared part is keyed once, in `keys`. A run is keyed as the
+// constructors it stands for, from its tail back to its first cell, so that
+// each cell is read once.
 Attribute keyOfConstant(Attribute value, llvm::DenseMap<Attribute, Attribute> &keys) {
   if (Attribute known = keys.lookup(value))
     return known;
   MLIRContext *ctx = value.getContext();
   auto keysOf = [&](ArrayAttr parts) {
-    return ArrayAttr::get(ctx, llvm::map_to_vector(parts, [&](Attribute part) {
-                            return keyOfConstant(part, keys);
-                          }));
+    return llvm::map_to_vector(parts, [&](Attribute part) { return keyOfConstant(part, keys); });
   };
   Attribute key = value;
-  if (auto con = dyn_cast<ConAttr>(value))
-    key = KeyConAttr::get(ctx, con.getCtor().getRootReference(), con.getCtor().getLeafReference(),
-                          keysOf(con.getFields()));
-  else if (auto closure = dyn_cast<ClosureAttr>(value))
-    key = KeyClosureAttr::get(ctx, closure.getCallee().getAttr(), keysOf(closure.getCaptures()));
+  if (auto con = dyn_cast<ConAttr>(value)) {
+    StringAttr data = con.getCtor().getRootReference();
+    StringAttr ctor = con.getCtor().getLeafReference();
+    if (!con.isRun()) {
+      key = KeyConAttr::get(ctx, data, ctor, ArrayAttr::get(ctx, keysOf(con.getFields())));
+    } else {
+      key = keyOfConstant(con.getTail(), keys);
+      for (ArrayAttr cell : llvm::reverse(con.getRunCells())) {
+        auto fields = keysOf(cell);
+        fields.insert(fields.begin() + con.getSpine(), key);
+        key = KeyConAttr::get(ctx, data, ctor, ArrayAttr::get(ctx, fields));
+      }
+    }
+  } else if (auto closure = dyn_cast<ClosureAttr>(value)) {
+    key = KeyClosureAttr::get(ctx, closure.getCallee().getAttr(),
+                              ArrayAttr::get(ctx, keysOf(closure.getCaptures())));
+  }
   return keys[value] = key;
 }
 

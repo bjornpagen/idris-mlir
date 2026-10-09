@@ -18,21 +18,27 @@ namespace {
 constexpr unsigned aliasFrom = 256;
 
 // Whether `value` has more than `budget` constructors and closures, counted
-// as a tree, in at most `budget` steps however much of it is shared.
+// as a tree, in at most `budget` steps however much of it is shared. A run
+// is one constructor per cell, counted along its cells and then its tail:
+// its fields along the spine would rebuild the rest of the run at each cell.
 bool larger(Attribute value, unsigned &budget) {
-  ArrayAttr parts;
-  if (auto con = dyn_cast<ConAttr>(value))
-    parts = con.getFields();
-  else if (auto closure = dyn_cast<ClosureAttr>(value))
-    parts = closure.getCaptures();
-  else
-    return false;
-  if (budget == 0)
-    return true;
-  --budget;
-  for (Attribute part : parts)
-    if (larger(part, budget))
+  // One constructor or closure, then its parts.
+  auto node = [&](ArrayAttr parts) {
+    if (budget == 0)
       return true;
+    --budget;
+    return llvm::any_of(parts, [&](Attribute part) { return larger(part, budget); });
+  };
+  if (auto con = dyn_cast<ConAttr>(value)) {
+    if (!con.isRun())
+      return node(con.getFields());
+    for (ArrayAttr cell : con.getRunCells())
+      if (node(cell))
+        return true;
+    return larger(con.getTail(), budget);
+  }
+  if (auto closure = dyn_cast<ClosureAttr>(value))
+    return node(closure.getCaptures());
   return false;
 }
 

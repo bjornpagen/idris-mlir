@@ -19,7 +19,9 @@ constexpr uint64_t countless = uint64_t(1) << 32;
 
 // The size of `value` as a tree, up to countless. A constant that
 // compile-time evaluation made shares its parts, so each part is measured
-// once, in `sizes`, however often it occurs.
+// once, in `sizes`, however often it occurs. A run measures as the
+// constructors it stands for, each cell read once: its tail, and each cell
+// one with its fields.
 uint64_t constantSize(Attribute value, llvm::DenseMap<Attribute, uint64_t> &sizes) {
   if (auto known = sizes.find(value); known != sizes.end())
     return known->second;
@@ -30,7 +32,11 @@ uint64_t constantSize(Attribute value, llvm::DenseMap<Attribute, uint64_t> &size
     return size;
   };
   uint64_t size = 0;
-  if (auto con = dyn_cast<ConAttr>(value)) {
+  if (auto con = dyn_cast<ConAttr>(value); con && con.isRun()) {
+    size = constantSize(con.getTail(), sizes);
+    for (ArrayAttr cell : con.getRunCells())
+      size = std::min(countless, size + sum(cell));
+  } else if (con) {
     size = sum(con.getFields());
   } else if (auto closure = dyn_cast<ClosureAttr>(value)) {
     size = sum(closure.getCaptures());

@@ -1,9 +1,7 @@
-// The string ops: the builders that walk a list, and the rules, ranges and
-// crashes of the others.
+// The string ops: the builders that walk a list, the rules and ranges of
+// the others, and when an index or a head may run before its guard.
 
 #include "idr/Idr.h"
-
-#include "mlir/IR/Matchers.h"
 
 import idr.ops;
 
@@ -45,16 +43,13 @@ void StrLengthOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn s
   setResultRange(getResult(), ops::nonNegative(64, 0, INT64_MAX));
 }
 
-// In range when both operands are constants and the index is below the
-// number of characters (UTF-8 lead bytes).
-std::optional<StringRef> StrIndexOp::getCrashCause() {
-  StringAttr str;
-  APInt index;
-  if (matchPattern(getStr(), m_Constant(&str)) && matchPattern(getIndex(), m_ConstantInt(&index))) {
-    auto characters = static_cast<uint64_t>(
-        llvm::count_if(str.getValue(), [](char c) { return (c & 0xC0) != 0x80; }));
-    if (!index.isNegative() && index.getZExtValue() < characters)
-      return std::nullopt;
-  }
-  return StringRef("string index out of range");
+// An index past the string's end reads outside it, so it stays below its
+// guard against this string's length, or below the path that proved the
+// guard away.
+Speculation::Speculatability StrIndexOp::getSpeculatability() {
+  return checkSpeculatability(*this, getIndexMutable().getOperandNumber());
+}
+
+Speculation::Speculatability StrHeadOp::getSpeculatability() {
+  return checkSpeculatability(*this, getStrMutable().getOperandNumber());
 }

@@ -1,16 +1,17 @@
-// idr.inbounds:paths: what the path to an access says of its integers. Each
-// op enclosing the access ran the region it is in for a reason: a match
+// idr.inbounds:paths: what the path to a guard says of its integers. Each
+// op enclosing the guard ran the region it is in for a reason: a match
 // took the case of its scrutinee's value, an scf.if its condition's side, a
 // loop's body runs while its condition held and at an index within its
-// bounds. And an access before it on every path (earlier in its block, or
-// in an enclosing one) ran without crashing, so its index was within its
-// array. The facts are of the values as they are at the access: each
-// enclosing op's operands, and the values it forwards, dominate it.
+// bounds. And a guard of an index before it on every path (earlier in its
+// block, or in an enclosing one) ran without crashing, so that index was
+// within its length. The facts are of the values as they are at the guard:
+// each enclosing op's operands, and the values it forwards, dominate it.
 export module idr.inbounds:paths;
 
 import idr.mlir;
 import idr.dialect;
 
+import :guards;
 import :linear;
 import :system;
 
@@ -21,17 +22,79 @@ namespace idr::inbounds {
 
 namespace {
 
-// The accesses among `block`'s ops before `end` (all of them when null)
-// ran, each checked or proven.
-void accessesBefore(Block &block, Operation *end, System &system) {
+// The guards of an index among `block`'s ops before `end` (all of them
+// when null) held: each crashes the run where its index is outside its
+// length, whether it is left to check or proven and erased. Its array's
+// length is one the sizes in scope may be.
+void guardsBefore(Block &block, Operation *end, System &system) {
   for (Operation &op : block) {
     if (&op == end)
       return;
-    if (auto get = dyn_cast<ArrayGetOp>(op))
-      system.accessed(get.getArray(), get.getIndex());
-    else if (auto set = dyn_cast<ArraySetOp>(op))
-      system.accessed(set.getArray(), set.getIndex());
+    auto guard = dyn_cast<CheckInBoundsOp>(op);
+    if (!guard)
+      continue;
+    std::optional<Value> array = guardedArray(guard);
+    Linear i = system.of(guard.getIndex());
+    system.atLeastZero(i);
+    system.atLeastZero((system.sizeOf(guard.getLength(), array) - i).plus(-1));
+    if (array)
+      system.lengthOf(*array);
   }
+}
+
+// `value` was each of `literals` (a case taken), or none of them (the
+// default taken).
+void assumeCase(System &system, Value value, ArrayRef<APInt> literals, bool isOne) {
+  if (!system.known(value))
+    return;
+  Value condition;
+  int64_t whenTrue = 1;
+  if (value.getType().isInteger(1)) {
+    condition = value;
+  } else if (auto ext = value.getDefiningOp<arith::ExtUIOp>(); ext && ext.getIn().getType().isInteger(1)) {
+    condition = ext.getIn();
+  } else if (auto sext = value.getDefiningOp<arith::ExtSIOp>(); sext && sext.getIn().getType().isInteger(1)) {
+    condition = sext.getIn();
+    whenTrue = -1;
+  }
+  if (condition) {
+    // Of the two values a condition stands for, those the case allows.
+    // An i1 literal is the condition itself, true as 1.
+    auto allowed = [&](int64_t v) {
+      bool listed = llvm::any_of(literals, [&](const APInt &k) {
+        return (k.getBitWidth() == 1 ? int64_t(k.getZExtValue()) : k.getSExtValue()) == v;
+      });
+      return isOne ? listed : !listed;
+    };
+    bool t = allowed(whenTrue), f = allowed(0);
+    if (!t && !f)
+      system.impossible();
+    else if (t != f)
+      system.assume(condition, t);
+    return;
+  }
+  if (!isColumn(value))
+    return;
+  if (isOne) {
+    system.zero(system.of(value) - Linear::constantOf(DynamicAPInt(literals.front().getSExtValue())));
+    return;
+  }
+  // None of the literals: the range loses each at its ends.
+  std::optional<Bounds> bounds = system.rangeOf(value);
+  if (!bounds)
+    return;
+  auto [lo, hi] = *bounds;
+  auto listed = [&](const DynamicAPInt &v) {
+    return llvm::any_of(literals,
+                        [&](const APInt &k) { return DynamicAPInt(k.getSExtValue()) == v; });
+  };
+  while (lo <= hi && listed(lo))
+    ++lo;
+  while (hi >= lo && listed(hi))
+    --hi;
+  if (lo > hi)
+    return system.impossible();
+  system.within(system.of(value), lo, hi);
 }
 
 void caseTaken(MatchLitOp match, Region &region, System &system) {
@@ -44,9 +107,9 @@ void caseTaken(MatchLitOp match, Region &region, System &system) {
   }
   unsigned number = region.getRegionNumber();
   if (number < literals.size())
-    system.assumeCase(match.getScrutinee(), literals[number], true);
+    assumeCase(system, match.getScrutinee(), literals[number], true);
   else
-    system.assumeCase(match.getScrutinee(), literals, false);
+    assumeCase(system, match.getScrutinee(), literals, false);
 }
 
 // The after region of `loop` runs on what its condition forwarded, once
@@ -57,7 +120,7 @@ void whileBody(scf::WhileOp loop, System &system) {
     if (isColumn(arg))
       system.zero(system.of(arg) - system.of(forwarded));
   system.assume(condition.getCondition(), true);
-  accessesBefore(loop.getBefore().front(), nullptr, system);
+  guardsBefore(loop.getBefore().front(), nullptr, system);
 }
 
 // An scf.for's body runs at lb, lb + step, ... below ub, for a step above 0.
@@ -113,11 +176,11 @@ export std::function<bool(Value)> knownAt(Operation *op, DominanceInfo &dominanc
   };
 }
 
-// Adds what the path from its function's entry to `access` says.
-export void pathFacts(Operation *access, System &system) {
-  Operation *op = access;
+// Adds what the path from its function's entry to `at` says.
+export void pathFacts(Operation *at, System &system) {
+  Operation *op = at;
   while (Operation *parent = op->getParentOp()) {
-    accessesBefore(*op->getBlock(), op, system);
+    guardsBefore(*op->getBlock(), op, system);
     if (isa<FunctionOpInterface>(parent))
       return;
     bodyFacts(parent, *op->getParentRegion(), system);

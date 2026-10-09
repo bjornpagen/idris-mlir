@@ -2,7 +2,8 @@
 # glue (the TableGen-declared base of idr-expect) is a plain unit that
 # imports it. folds-balanced reads the runtime's count of live cells
 # (idris_rt.h), whose include directory idris_rt gives; resets-unshared
-# reads what idr.ownership says a value was read from.
+# reads what idr.ownership says a value was read from; the guard properties
+# read idr.inbounds's list of guards.
 idr_library(idr_expect
 	MODULES
 		Expect.cppm
@@ -40,6 +41,7 @@ idr_library(idr_expect
 		idr_ods
 		idr_facts
 		idr_graph
+		idr_inbounds
 		idr_ownership
 		idris_rt
 )

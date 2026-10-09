@@ -102,12 +102,13 @@ quantities_kept() {
 # program did (in $work/ours.out and $ours_status), within its budgets. A
 # fixture that --no-eval rejects with a user error (a value the profile
 # forbids at runtime, which only evaluation removes) says so with the
-# reason instead. STACK is `small` or empty, as the first run had it.
+# reason instead. STACK is `small` or empty, as the first run had it. The
+# packages and the in-place promise are the first compilation's.
 without_evaluation() {
   mkdir "$work/noeval"
   copy_fixture "$1" "$work/noeval"
-  # shellcheck disable=SC2086 # the packages are words
-  compile_program $io_packages --directive no-eval "$work/noeval/Main.idr" prog
+  # shellcheck disable=SC2086 # the packages and the promise are words
+  compile_program $io_packages $io_promise --directive no-eval "$work/noeval/Main.idr" prog
   we_exe=$work/noeval/build/exec/prog
   if [ "$compiled" -ne 0 ]; then
     we_reason=$(rejection_reason)

@@ -26,10 +26,11 @@ extern "C" {
 /* Every heap object starts with this header.
  *
  * count is how many owned references the object has, or one of two marks:
- * - 0: persistent. Static data (constants in .rodata and .data), the results
- *   of compile-time evaluation and the cells of its arena are never counted
- *   and never freed, and everything a persistent object points to is
- *   persistent too, so a persistent object needs no count at all.
+ * - 0: persistent. Static data, the results of compile-time evaluation and
+ *   the cells of its arena are never counted and never freed. Everything a
+ *   persistent object points to is persistent, except a static memo cell
+ *   (kind IDRIS_RT_KIND_THUNK), which its first force writes once and whose
+ *   forced value is counted and released by idris_rt_caf_release.
  * - 1 to UINT32_MAX - 1: owned references, counted with plain arithmetic,
  *   since a program is single-threaded.
  * - UINT32_MAX: saturated. A count that would overflow stops there, and the
@@ -37,17 +38,17 @@ extern "C" {
  *   instead of freeing it while it is still in use.
  *
  * info is tag | objs << 16 | kind << 24, with bit 31 marking a stack cell.
- * Freeing reads only objs, kind and bit 31, so the runtime frees any cell
- * without knowing its type.
- * - tag (bits 0-15): a box's constructor tag, a string's ASCII flag in bit 0
+ * Freeing reads only objs, kind and bit 31, and an array's tag and length
+ * when its elements hold objects, so the runtime frees any cell without
+ * knowing its type.
+ * - tag (bits 0-15): a box's constructor tag, a thunk's state (the
+ *   constructor of its memo sum it holds), a string's ASCII flag in bit 0
  *   (set only when every byte is ASCII), an array's element size in bytes;
- *   0 for a closure, whose code pointer says what it is, and for a bignum.
+ *   0 for a bignum.
  * - objs (bits 16-23): the number of object slots, one word
- *   (IDRIS_RT_WORD_BYTES) each. A box's are the first objs slots right after
- *   the header; a closure's are the first objs slots after its code pointer,
- *   which is right after the header.
- *   Strings and bignums have none. An array's are per element: its first
- *   objs words (idris_rt_array).
+ *   (IDRIS_RT_WORD_BYTES) each. A box's and a thunk's are the first objs
+ *   slots right after the header. Strings and bignums have none. An array's
+ *   are per element: its first objs words (idris_rt_array).
  * - kind (bits 24-30): one of the IDRIS_RT_KIND_ values.
  * - bit 31: a stack cell, which the compiler builds in a frame; its memory
  *   belongs to that frame and it is never a live cell (idris_rt_live_cells).
@@ -92,7 +93,11 @@ IDRIS_RT_STATIC_ASSERT(sizeof(idris_rt_header) == IDRIS_RT_WORD_BYTES,
 #undef IDRIS_RT_STATIC_ASSERT
 
 #define IDRIS_RT_KIND_BOX 0u
-#define IDRIS_RT_KIND_CLOSURE 1u
+/* A thunk cell is laid out as a box: tag, objs and object slots first. The
+ * tag says which state it is in, and freeing reads it as it reads a box.
+ * Only the kind tells a memo cell, which may be written, from a box, which
+ * may not. */
+#define IDRIS_RT_KIND_THUNK 1u
 #define IDRIS_RT_KIND_STRING 2u
 #define IDRIS_RT_KIND_BIGNUM 3u
 #define IDRIS_RT_KIND_ARRAY 4u
@@ -157,9 +162,10 @@ typedef struct idris_rt_array {
 } idris_rt_array;
 
 /* A box is the header (kind IDRIS_RT_KIND_BOX, the constructor's tag), then
- * the constructor's fields, object slots first. A closure is the header (kind
- * IDRIS_RT_KIND_CLOSURE, tag 0), then the code pointer, then the captures,
- * object slots first. Their field layouts are idr-lower's. */
+ * the constructor's fields, object slots first. A thunk is the same with kind
+ * IDRIS_RT_KIND_THUNK: the tag of the state it is in, then that state's
+ * fields, in a cell as large as its largest state. A cell holds no code
+ * address. Their field layouts are idr-lower's. */
 
 /* Allocation of raw memory, which is not a cell: nothing counts it. The size
  * classes with an allocate and a free entry
@@ -190,7 +196,7 @@ void idris_rt_free(void *block);
  * false): an object slot may hold any of them, so callers
  * need no test first. */
 
-/* A new cell of `size` bytes, a box or a closure that idr-lower builds (or,
+/* A new cell of `size` bytes, a box or a thunk that idr-lower builds (or,
  * with the matching info, anything else the runtime frees): its header is
  * count 1 and `info`, and it counts as a live cell. Exhausted memory ends
  * the process with a crash. In compile-time evaluation's arena the cell is
@@ -208,19 +214,18 @@ idris_rt_array *idris_rt_array_new(int64_t length, uint32_t info);
 void idris_rt_inc(void *o);
 
 /* One owned reference less. At 0 the object is released: a box's or a
- * closure's object slots lose a reference each, and then its memory is freed
+ * thunk's object slots lose a reference each, and then its memory is freed
  * (a stack cell's is not). Objects that reach 0
  * in turn are released the same way, from a worklist that runs through the
  * dying cells themselves: no recursion and no allocation, so freeing takes
  * constant stack however deep the structure is. */
 void idris_rt_dec(void *o);
 
-/* A persistent suspension (count 0, not a stack cell) has stored the value
- * of its first force. The value stays reachable from that cell for the rest
- * of the run, and idris_rt_main_return releases it, so the memo is not a
- * live cell at exit. A counted cell needs no note: freeing it releases
- * what it stored. */
-void idris_rt_lazy_kept(void *cell);
+/* Releases what a persistent memo cell holds (its object slots), once,
+ * when the program ends: @__idr_release_cafs calls it on each of the
+ * module's static thunks. A cell that was never forced holds only
+ * persistent captures, and then nothing is released. */
+void idris_rt_caf_release(void *cell);
 
 /* Whether o is exclusive: count 1, and not a stack cell. */
 bool idris_rt_is_unique(const void *o);
@@ -248,11 +253,14 @@ uint64_t idris_rt_live_cells(void);
  * Output goes through one static buffer, flushed when it fills, before every
  * read, before a crash's message, and when main returns. */
 void idris_rt_flush(void);
-/* What @main calls right before it returns: writes pending output, then,
- * when the environment variable IDRIS_RT_LIVE is exactly "1", the line
- * "idris-rt: live cells N\n" (N in decimal, idris_rt_live_cells) to standard
- * error, so a test can check that a program frees every cell it allocates.
- * A crash reports nothing, and neither does compile-time evaluation. */
+/* What @main calls right before it returns: writes pending output and
+ * releases the handle table (its files, directories, and the strings the
+ * runtime holds for environment and directory handles, which are then not
+ * counted as live), then, when the environment variable IDRIS_RT_LIVE is
+ * exactly "1", writes the line "idris-rt: live cells N\n" (N in decimal,
+ * idris_rt_live_cells) to standard error, so a test can check that a program
+ * frees every cell it allocates. A crash reports nothing, and neither does
+ * compile-time evaluation, nor idris_rt_io_exit. */
 void idris_rt_main_return(void);
 void idris_rt_io_put_str(const idris_rt_str *s);
 /* The UTF-8 encoding of the character c: the Prelude's putChar, and what
@@ -286,30 +294,31 @@ int32_t idris_rt_io_get_byte(void);
  * the end of input. The bytes are decoded as idris_rt_str_from_bytes
  * decodes them. A new string. */
 const idris_rt_str *idris_rt_io_get_line(void);
-/* Bytes [offset, offset + count) of a byte array to a standard stream:
- * handle 1 is standard output, through the output buffer and in order with
- * every other write to it; 2 is standard error; any other handle writes
- * nothing and gives 0. A range outside the array's `length` bytes is a
- * crash. Gives the count written. */
+/* Bytes [offset, offset + count) of a byte array to a handle: 1 is standard
+ * output, through the output buffer and in order with every other write to
+ * it; 2 is standard error; any other is a file the program opened
+ * (idris_rt_io_file_open). The range lies in the array's `length` bytes:
+ * idr.check.range tests it before the call. Gives the count written. */
 int64_t idris_rt_io_write_bytes(int64_t handle, idris_rt_array *bytes, int64_t length,
                                 int64_t offset, int64_t count);
-/* Bytes from a standard stream into [offset, offset + count) of a byte
- * array: handle 0 is standard input, giving the count read, 0 at the end of
- * input; any other handle reads nothing and gives 0. A range outside the
- * array is a crash. */
+/* Bytes from a handle into [offset, offset + count) of a byte array: 0 is
+ * standard input, through the input buffer idris_rt_io_get_line reads too,
+ * and any other a file the program opened. Gives the count read, 0 at the
+ * end of input. The range lies in the array: idr.check.range tests it before
+ * the call. */
 int64_t idris_rt_io_read_bytes(int64_t handle, idris_rt_array *bytes, int64_t length,
                                int64_t offset, int64_t count);
-/* 1 once a read on the handle met the end of input, as C's feof reports it,
- * else 0; only handle 0 is read. */
+/* 1 once a read on the handle met the end of its input, as C's feof reports
+ * it, else 0: standard input, or a file the program opened. */
 int64_t idris_rt_io_eof(int64_t handle);
 /* How many processors are online, read when asked. -1 when the system does
  * not say, which System.Info.getNProcessors turns into Nothing. */
 int64_t idris_rt_io_n_processors(void);
-/* The address of [offset, offset + bytes) in a byte array, or a crash when
- * the span does not lie in the array's `length` bytes. A zero-length span
- * at `length` is in range. The pointer is the first byte of the span, which
- * need not be aligned: a load or a store through it uses the target's own
- * endianness. */
+/* The address of [offset, offset + bytes) in a byte array, a span that lies
+ * in the array's `length` bytes: idr.check.range tests it before the call.
+ * A zero-length span at `length` is in range. The pointer is the first byte
+ * of the span, which need not be aligned: a load or a store through it uses
+ * the target's own endianness. */
 char *idris_rt_buffer_at(idris_rt_array *buf, int64_t length, int64_t offset, int64_t bytes);
 /* Copies `n` bytes from one byte array to another. Each span must lie in
  * its array. The ranges may overlap. */
@@ -324,8 +333,94 @@ void idris_rt_io_buffer_set_string(idris_rt_array *buf, int64_t length, int64_t 
  * The span must lie in the array. */
 const idris_rt_str *idris_rt_io_buffer_get_string(idris_rt_array *buf, int64_t length,
                                                   int64_t offset, int64_t n);
+
+/* Base's files, directories, process, terminal, errors and clocks
+ * (System.File, System.Directory, System, System.Term, System.Errno,
+ * System.Clock): each is the op idr.io.<name> or idr.handle.<name>, whose
+ * one meaning is documented beside its definition, the same on both
+ * targets. Their arguments are borrowed, and a string they return is new.
+ *
+ * A pointer of base is a handle, an int64_t: 0, 1 and 2 are the standard
+ * streams, -1 is null, and any other is a slot of the runtime's handle table,
+ * which holds a file, a directory, a file time or a string. A string handle
+ * read from a file (idris_rt_io_file_read_line, idris_rt_io_file_read_chars)
+ * or naming the current directory (idris_rt_io_dir_current) is the
+ * program's, which frees it (idris_rt_io_handle_free); one from
+ * idris_rt_io_env_get, idris_rt_io_env_pair or idris_rt_io_dir_entry is the
+ * runtime's, as getenv's and readdir's bytes are the C library's: the next
+ * call of its kind, or closing its directory, releases it, and freeing its
+ * handle does nothing. An OSClock is seconds << 30 | nanoseconds, or -1 when
+ * it is not valid. A failing call sets the runtime's saved errno, which
+ * idris_rt_io_errno and idris_rt_io_file_errno read. */
+int64_t idris_rt_io_file_open(const idris_rt_str *path, const idris_rt_str *mode);
+void idris_rt_io_file_close(int64_t file);
+int64_t idris_rt_io_file_error(int64_t file);
+int64_t idris_rt_io_file_errno(void);
+int64_t idris_rt_io_file_read_line(int64_t file);
+int64_t idris_rt_io_file_read_chars(int64_t max, int64_t file);
+int64_t idris_rt_io_file_read_char(int64_t file);
+int64_t idris_rt_io_file_write_line(int64_t file, const idris_rt_str *line);
+int64_t idris_rt_io_file_flush(int64_t file);
+int64_t idris_rt_io_file_seek_line(int64_t file);
+int64_t idris_rt_io_file_remove(const idris_rt_str *path);
+int64_t idris_rt_io_file_size(int64_t file);
+int64_t idris_rt_io_file_poll(int64_t file);
+int64_t idris_rt_io_file_is_tty(int64_t file);
+int64_t idris_rt_io_file_time(int64_t file);
+int64_t idris_rt_io_file_atime_sec(int64_t time);
+int64_t idris_rt_io_file_atime_nsec(int64_t time);
+int64_t idris_rt_io_file_mtime_sec(int64_t time);
+int64_t idris_rt_io_file_mtime_nsec(int64_t time);
+int64_t idris_rt_io_file_ctime_sec(int64_t time);
+int64_t idris_rt_io_file_ctime_nsec(int64_t time);
+int64_t idris_rt_io_file_chmod(const idris_rt_str *path, int64_t mode);
+int64_t idris_rt_io_dir_current(void);
+int64_t idris_rt_io_dir_change(const idris_rt_str *path);
+int64_t idris_rt_io_dir_create(const idris_rt_str *path);
+void idris_rt_io_dir_remove(const idris_rt_str *path);
+int64_t idris_rt_io_dir_open(const idris_rt_str *path);
+void idris_rt_io_dir_close(int64_t dir);
+int64_t idris_rt_io_dir_entry(int64_t dir);
+int64_t idris_rt_io_arg_count(void);
+const idris_rt_str *idris_rt_io_arg(int64_t index);
+int64_t idris_rt_io_env_get(const idris_rt_str *name);
+int64_t idris_rt_io_env_pair(int64_t index);
+int64_t idris_rt_io_env_set(const idris_rt_str *name, const idris_rt_str *value, int64_t overwrite);
+int64_t idris_rt_io_env_unset(const idris_rt_str *name);
+void idris_rt_io_sleep(int64_t seconds);
+void idris_rt_io_usleep(int64_t microseconds);
+int64_t idris_rt_io_time(void);
+int64_t idris_rt_io_pid(void);
+/* Writes pending output and ends the process with the status, reporting no
+ * live cells. */
+IDRIS_RT_NORETURN void idris_rt_io_exit(int64_t status);
+int64_t idris_rt_io_term_raw(void);
+void idris_rt_io_term_reset(void);
+void idris_rt_io_term_setup(void);
+int64_t idris_rt_io_term_cols(void);
+int64_t idris_rt_io_term_lines(void);
+int64_t idris_rt_io_errno(void);
+const idris_rt_str *idris_rt_io_strerror(int64_t code);
+int64_t idris_rt_io_clock_monotonic(void);
+int64_t idris_rt_io_clock_utc(void);
+int64_t idris_rt_io_clock_process(void);
+int64_t idris_rt_io_clock_thread(void);
+int64_t idris_rt_io_clock_gc_cpu(void);
+int64_t idris_rt_io_clock_gc_real(void);
+int64_t idris_rt_io_clock_valid(int64_t clock);
+int64_t idris_rt_io_clock_second(int64_t clock);
+int64_t idris_rt_io_clock_nanosecond(int64_t clock);
+/* 1 when the handle is null (-1), else 0. */
+int64_t idris_rt_handle_is_null(int64_t handle);
+/* The string a string handle holds, with one more reference. */
+const idris_rt_str *idris_rt_handle_string(int64_t handle);
+void idris_rt_io_handle_free(int64_t handle);
 /* Writes pending output, then the len bytes of msg to standard error, then
- * ends the process with status IDRIS_RT_CRASHED. */
+ * ends the process with status IDRIS_RT_CRASHED. Inside an evaluation child
+ * (idris_rt_eval_begin) it ends the child as idris_rt_eval_crash does,
+ * with the same report on the report descriptor and the same status: lowered
+ * code crashes through it alone, in a program and in compile-time
+ * evaluation. */
 IDRIS_RT_NORETURN void idris_rt_crash(const char *msg, size_t len);
 /* Ends the program with "idris-mlir: " and the string's bytes. */
 IDRIS_RT_NORETURN void idris_rt_crash_str(const idris_rt_str *s);
@@ -336,8 +431,10 @@ IDRIS_RT_NORETURN void idris_rt_crash_str(const idris_rt_str *s);
  * page size is not the one the runtime is built for. */
 #define IDRIS_RT_CRASHED 1
 
-/* The program's entry, which @main calls with the program and the
- * IDRIS_RT_CPU_FEATURES bits its target enables (cpu_features.h). First,
+/* The program's entry, which @main calls with the program, the
+ * IDRIS_RT_CPU_FEATURES bits its target enables (cpu_features.h), and its
+ * own argc and argv, which the runtime keeps for idris_rt_io_arg_count and
+ * idris_rt_io_arg. First,
  * when the system's page size is not the target's the runtime is built for,
  * it names both and ends the process with IDRIS_RT_CRASHED. When the
  * CPU lacks one of them, it names them and ends the process with
@@ -350,7 +447,7 @@ IDRIS_RT_NORETURN void idris_rt_crash_str(const idris_rt_str *s);
  * process ends with IDRIS_RT_CRASHED. What body returns is the exit status:
  * it returns a status from 0 to 255, and ends the process as a crash that
  * names any other value, which no parent could tell from its low 8 bits. */
-int32_t idris_rt_start(int64_t (*body)(void), uint64_t cpu);
+int idris_rt_start(int64_t (*body)(void), uint64_t cpu_features, int argc, char **argv);
 
 /* The reserved-stack runner, which programs, idris-mlir-cc and compile-time
  * evaluation's child share: runs fn(arg) on a new thread whose stack is
@@ -495,31 +592,31 @@ double idris_rt_parse_double(const char *p, size_t n);
  * big operations call it themselves before GMP first allocates. */
 void idris_rt_gmp_init(void);
 
-/* Compile-time evaluation. idr-eval runs the calls of a
- * round in a child process, whose JITed code idr-lower wrote in JIT mode:
- * cells come from idris_rt_arena_alloc and a crash is idris_rt_eval_crash.
- * idris_rt_eval_begin, called once in the child, makes every other
- * allocation of the runtime use the arena too, and every cell the runtime
- * makes there (idris_rt_cell, strings, bignums) persistent: count 0, not a
- * live cell, so counting does nothing in the child. A cell JIT-mode code
- * takes from idris_rt_arena_alloc itself must be written with count 0 too.
- * The arena is never freed: the child ends with the round, and memory
- * management is not observable. Only the compiler calls these, natively,
+/* Compile-time evaluation. idr-eval runs the calls of a round in a child
+ * process, whose code idr-lower wrote as it writes a program's and idr-meter
+ * metered. idris_rt_eval_begin, called once in the child, makes every
+ * allocation of the runtime use the arena (idris_rt_arena_alloc), and every
+ * cell the runtime makes there (idris_rt_cell, strings, bignums) persistent:
+ * count 0, not a live cell, so counting does nothing in the child, and a
+ * crash (idris_rt_crash) reports to the evaluator. The arena is never freed:
+ * the child ends with the round, and memory management is not
+ * observable. Only the compiler calls these, natively,
  * never a program (rt.eval annotates them so); the runtime idris-mlir-cc
  * prepares for programs has no entry for them. */
 void idris_rt_eval_begin(int report_fd);
 void *idris_rt_arena_alloc(size_t size);
 /* Writes msg to the report descriptor, then ends the child with
- * IDRIS_RT_EVAL_CRASHED. */
+ * IDRIS_RT_EVAL_CRASHED. The evaluator's own runtime code calls it; lowered
+ * code never does. */
 IDRIS_RT_NORETURN void idris_rt_eval_crash(const char *msg, size_t len);
 
 /* A call of code Idris does not prove terminating runs metered: from
  * idris_rt_eval_meter until idris_rt_eval_unmetered, it may take `ticks`
  * ticks, allocate `bytes` bytes of arena and use `stack` bytes of stack
  * below the caller of idris_rt_eval_meter, or the child ends with
- * IDRIS_RT_EVAL_OVER_BUDGET. idris_rt_eval_tick, which JIT-mode code calls
- * where such code may loop or recurse, counts a tick and checks the stack;
- * unmetered it does nothing. */
+ * IDRIS_RT_EVAL_OVER_BUDGET. idris_rt_eval_tick, whose calls idr-meter
+ * inserts at every function's entry and before every loop that may not end,
+ * counts a tick and checks the stack; unmetered it does nothing. */
 void idris_rt_eval_meter(uint64_t ticks, uint64_t bytes, uint64_t stack);
 void idris_rt_eval_unmetered(void);
 void idris_rt_eval_tick(void);

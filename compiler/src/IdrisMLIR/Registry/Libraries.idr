@@ -98,15 +98,16 @@ moduleOrigin _ _ = Untrusted
 -- Policy by definition
 ------------------------------------------------------------------------------
 
-||| What `PrimIO` admits: the IO types and their operations, and `AnyPtr`,
-||| the type of a file handle. Threads, collector finalizers and raw
-||| pointers are outside the language, refused by name; anything else of
-||| `PrimIO` is not admitted.
+||| What `PrimIO` admits: the IO types and their operations, and the
+||| pointers, which are the runtime's handles, with their operations.
+||| Threads and collector finalizers are outside the language, refused by
+||| name; anything else of `PrimIO` is not admitted.
 admittedFromPrimIO : List String
 admittedFromPrimIO =
   [ "IORes", "MkIORes", "PrimIO", "IO", "MkIO", "prim__io_pure", "io_pure"
   , "prim__io_bind", "io_bind", "fromPrim", "toPrim", "unsafePerformIO"
-  , "unsafeCreateWorld", "unsafeDestroyWorld", "AnyPtr" ]
+  , "unsafeCreateWorld", "unsafeDestroyWorld", "AnyPtr", "Ptr", "prim__nullAnyPtr"
+  , "prim__getNullAnyPtr", "prim__castPtr", "prim__forgetPtr", "prim__nullPtr" ]
 
 ||| Is a definition of this origin admitted? The name is the
 ||| definition's own, or for a case or with block its parent's. `Builtin`'s

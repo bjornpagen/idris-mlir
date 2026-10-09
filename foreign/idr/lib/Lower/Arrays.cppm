@@ -2,9 +2,8 @@
 // (idris_rt_array) of a length and its elements, and beside the cell its
 // length, the memref's dimension (layout::Layouts::components). The
 // runtime allocates and frees the cell; the elements are read and written
-// here, with a bounds check before each, since an index is a value the
-// program computed: the index against the length, two registers. An access
-// idr-in-bounds proved (`in_bounds`, which its crash cause reads) has none.
+// here, at an index the access's guard found below the length, or a proof
+// did where it removed the guard: the access tests nothing itself.
 //
 // Two element layouts. An element of one uncounted machine word (an
 // integer, a double, a character, a byte, the tag of an enumeration) is
@@ -69,14 +68,6 @@ Value elementAt(OpBuilder &b, Location loc, Value cell, Value index, const layou
 // The index as memref ops take it.
 Value asIndex(OpBuilder &b, Location loc, Value index) {
   return arith::IndexCastOp::create(b, loc, b.getIndexType(), index);
-}
-
-// Ends the program unless `index` is below `length`; a negative index is a
-// large unsigned one.
-void checkBounds(OpBuilder &b, Location loc, Runtime &runtime, Value length, Value index,
-                 StringRef cause) {
-  Value outside = LLVM::ICmpOp::create(b, loc, LLVM::ICmpPredicate::uge, index, length);
-  runtime.crashIf(b, loc, outside, cause);
 }
 
 // The runtime's cell, then every element written with the fill: a word
@@ -152,8 +143,6 @@ struct LowerArrayAccess : IdrPattern<OpT> {
       return failure();
     ValueRange array = adaptor.getArray();
     Value index = adaptor.getIndex().front();
-    if (std::optional<StringRef> cause = op.getCrashCause())
-      checkBounds(rewriter, loc, this->runtime, array[1], index, *cause);
     if (MemRefType view = wordView(op.getArrayType().getElementType(), *element, this->layouts)) {
       Value elements = arrayView(rewriter, loc, this->runtime, view, array[0], array[1]);
       if constexpr (reading) {

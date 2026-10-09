@@ -10,6 +10,7 @@ export import :isselfcall;
 export import :moduloat;
 export import :passesonprevious;
 export import :references;
+export import :refersto;
 export import :scc;
 export import :symboluses;
 export import :trips;

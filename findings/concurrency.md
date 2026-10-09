@@ -192,8 +192,11 @@ references, so ownership stays one op's contract (view, owned or `excl`).
 An `idr.lazy.settle` op with a write on a memo resource, so that no pass
 reorders it with a read of the same cell, comes with phase 2, when passes
 that reason about references see the protocol. The constructor fields reserve the larger of the captures and the
-value. The `Layout/` code that sizes a suspension today stays, for the sum
-(read: `Layout/PlaceClosures.cc`).
+value. In the first cut the sum is sized once: every cell of a memo sum is
+allocated at the size of its largest state, with the thunk kind
+(`IDRIS_RT_KIND_THUNK`) in its header (`Layout/Layouts.cppm`,
+`Layouts::of`); the closure placement that sized a suspension before went
+with the code pointer.
 
 ### 2.4 Static thunks are per-shard copies of an immutable template
 
@@ -891,7 +894,9 @@ Collapsing any column into another is a mistake:
 
 The distinctions that were accidents, and go:
 
-- the closure and the thunk sharing a cell layout (`Layout/PlaceClosures`);
+- the closure and the thunk sharing a cell layout: a thunk is now a box of
+  its key's memo sum (`Defunctionalize/Sums.cppm`), laid out with that sum
+  (`Layout/Layouts.cppm`);
 - code pointers in the heap;
 - the hand-written enter/done pair;
 - one suspend against many (a generator is fusion's fallback);

@@ -1,8 +1,8 @@
 // idr.ownership:rc: idr-rc's pipeline: every reference made explicit, in
 // Lean's order: reset/reuse insertion, borrow inference, then the incs and
-// decs. The module is then in the owned stage, which the verifier checks
-// after every later pass. The pass itself is a plain unit (Rc.cc), since
-// its base is TableGen's; it runs this.
+// decs. The module is then in the owned stage, which its grades say and the
+// verifier checks after every later pass. The pass itself is a plain unit
+// (Rc.cc), since its base is TableGen's; it runs this.
 export module idr.ownership:rc;
 
 import idr.mlir;
@@ -13,9 +13,9 @@ import :borrow;
 import :counting;
 import :counts;
 import :exclusive;
+import :inownedstage;
 import :ownsignatures;
 import :reuse;
-import :stage;
 
 using namespace mlir;
 
@@ -33,16 +33,14 @@ export struct RcCounts {
   unsigned takes = 0, reuses = 0, borrowed = 0, dups = 0, drops = 0, exclusive = 0;
 };
 
-// Runs idr-rc on `module` as `options` say, adding what it did to
-// `counts`; failure after reporting what it cannot do.
-export LogicalResult rc(ModuleOp module, RcOptions options, RcCounts &counts) {
-  if (module->hasAttr(stageAttr))
-    return module.emitError("idr-rc: the module is already in the owned stage");
-  Counting counting(module);
-  SmallVector<func::FuncOp> functions;
-  for (auto fn : module.getOps<func::FuncOp>())
-    if (!fn.isExternal())
-      functions.push_back(fn);
+namespace {
+
+// The references made explicit, up to exclusivity: no symbol changes on the
+// way, so the calls find their callees in one table.
+LogicalResult place(ModuleOp module, ArrayRef<func::FuncOp> functions, RcOptions options,
+                    RcCounts &counts) {
+  SymbolTable table(module);
+  SymbolScope scope(module, table);
   if (options.reuse) {
     FailureOr<layout::Layouts> layouts = layout::Layouts::of(module);
     if (failed(layouts))
@@ -53,12 +51,14 @@ export LogicalResult rc(ModuleOp module, RcOptions options, RcCounts &counts) {
       counts.reuses += reuses;
     }
   }
+  // Borrow inference decides the signatures, which nothing has graded yet.
+  Counting deciding(module, /*ownedStage=*/false);
   if (options.borrow)
-    counts.borrowed += inferBorrows(module, counting);
+    counts.borrowed += inferBorrows(module, deciding);
   else
-    ownSignatures(module, counting);
+    ownSignatures(module, deciding);
   // The signatures are graded from here on: counting reads them.
-  module->setAttr(stageAttr, StringAttr::get(module.getContext(), ownedStage));
+  Counting counting(module, /*ownedStage=*/true);
   for (func::FuncOp fn : functions) {
     FailureOr<std::pair<unsigned, unsigned>> placed = insertCounts(fn, counting, options.sink);
     if (failed(placed))
@@ -66,6 +66,22 @@ export LogicalResult rc(ModuleOp module, RcOptions options, RcCounts &counts) {
     counts.dups += placed->first;
     counts.drops += placed->second;
   }
+  return success();
+}
+
+} // namespace
+
+// Runs idr-rc on `module` as `options` say, adding what it did to
+// `counts`; failure after reporting what it cannot do.
+export LogicalResult rc(ModuleOp module, RcOptions options, RcCounts &counts) {
+  if (inOwnedStage(module))
+    return module.emitError("idr-rc: the module is already in the owned stage");
+  SmallVector<func::FuncOp> functions;
+  for (auto fn : module.getOps<func::FuncOp>())
+    if (!fn.isExternal())
+      functions.push_back(fn);
+  if (failed(place(module, functions, options, counts)))
+    return failure();
   // With every reference explicit, which values hold the only one to
   // their cells is provenance.
   FailureOr<unsigned> exclusive = inferExclusive(module);

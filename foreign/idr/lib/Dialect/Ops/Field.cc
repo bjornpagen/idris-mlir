@@ -55,7 +55,14 @@ OpFoldResult FieldOp::fold(FoldAdaptor adaptor) {
   auto con = dyn_cast_or_null<ConAttr>(adaptor.getValue());
   if (!con)
     matchPattern(source, m_Constant(&con));
-  if (con && con.getCtor().getLeafReference() == getCtorAttr().getAttr())
-    return con.getFields()[index];
+  if (con && con.getCtor().getLeafReference() == getCtorAttr().getAttr()) {
+    // One field of the first cell, read in place: off a run's spine that
+    // costs nothing however long the run is, where listing every field
+    // would build the rest of the run. A run's cells hold all the fields
+    // but the spine.
+    size_t count = con.getCells().front().size() + (con.isRun() ? 1u : 0u);
+    if (index < count)
+      return con.getField(index);
+  }
   return {};
 }

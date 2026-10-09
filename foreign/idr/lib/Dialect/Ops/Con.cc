@@ -8,29 +8,32 @@ using namespace idr;
 // A box's constructor allocates its cell, so CSE never merges two of them;
 // an unused one is still dead code (wouldOpBeTriviallyDead). A cell
 // idr-stack keeps in its frame (`idr.stack`) is stack memory, the resource
-// MLIR's allocas use. In the owned stage the constructor also consumes its
-// fields' references, which no effect says. Its result is owned there, and
-// the verifier, which runs after every pass, has it consumed on every path:
-// a constructor goes unused only once a pass erased what consumed it, and
-// erasing it then leaves its fields' references held, which the verifier
-// refuses.
+// MLIR's allocas use. In the owned stage the constructor also takes over
+// the references of the fields it is given owned, which it reports as a
+// free of each: no pass drops or merges it then, since that would leave
+// those references held where nothing consumes them.
 void ConOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  if (!isa<BoxType>(unrestricted(getType())))
-    return;
-  SideEffects::DefaultResource *memory =
-      (*this)->hasAttr("idr.stack") ? SideEffects::AutomaticAllocationScopeResource::get()
-                                    : SideEffects::DefaultResource::get();
-  effects.emplace_back(MemoryEffects::Allocate::get(), getOperation()->getOpResult(0), memory);
+  if (isa<BoxType>(unrestricted(getType()))) {
+    SideEffects::DefaultResource *memory =
+        (*this)->hasAttr("idr.stack") ? SideEffects::AutomaticAllocationScopeResource::get()
+                                      : SideEffects::DefaultResource::get();
+    effects.emplace_back(MemoryEffects::Allocate::get(), getOperation()->getOpResult(0), memory);
+  }
+  consumedEffects(getOperation(), effects);
 }
 
 // A box is a cell: building one allocates, and reading a field of one
 // loads from a cell only as large as its own constructor. A sum is its
 // slots, all there whatever its constructor: building or reading it is
-// computing, which may run anywhere.
+// computing, which may run anywhere, unless it takes an owned field over:
+// hoisted out of a branch, it would take a reference on a path that never
+// gave it one.
 Speculation::Speculatability ConOp::getSpeculatability() {
-  return isa<BoxType>(unrestricted(getType())) ? Speculation::NotSpeculatable
-                                               : Speculation::Speculatable;
+  if (isa<BoxType>(unrestricted(getType())) ||
+      llvm::any_of(getFields(), [](Value field) { return isOwned(field.getType()); }))
+    return Speculation::NotSpeculatable;
+  return Speculation::Speculatable;
 }
 
 LogicalResult ConOp::verifySymbolUses(SymbolTableCollection &symbols) {

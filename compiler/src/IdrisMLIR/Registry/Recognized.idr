@@ -5,6 +5,7 @@
 ||| programs are rejected, never a program's result.
 module IdrisMLIR.Registry.Recognized
 
+import IdrisMLIR.Dialect.Idr
 import IdrisMLIR.Registry.Entry
 import IdrisMLIR.Registry.Name
 import IdrisMLIR.Registry.Primitives
@@ -65,12 +66,12 @@ natural ns name shape m = MkEntry (Def (MkQName ns name)) (Typed shape) (NatOper
 ||| The functions on naturals.
 naturals : List Entry
 naturals =
-  [ natural types "natToInteger" (Pi QW nat (Prim IntegerP)) (Primitive NatToBig)
-  , natural types "integerToNat" (Pi QW (Prim IntegerP) nat) (Primitive NatFromBig)
-  , natural types "prim__integerToNat" (Pi QW (Prim IntegerP) nat) (Primitive NatFromBig)
-  , natural types "plus" (binary nat) (Primitive NatAdd)
-  , natural types "mult" (binary nat) (Primitive NatMul)
-  , natural types "minus" (binary nat) (Clamped (BigArith Sub))
+  [ natural types "natToInteger" (Pi QW nat (Prim IntegerP)) (Primitive (Op NatToBig))
+  , natural types "integerToNat" (Pi QW (Prim IntegerP) nat) (Primitive (Op NatFromBig))
+  , natural types "prim__integerToNat" (Pi QW (Prim IntegerP) nat) (Primitive (Op NatFromBig))
+  , natural types "plus" (binary nat) (Primitive (Op BigAdd))
+  , natural types "mult" (binary nat) (Primitive (Op BigMul))
+  , natural types "minus" (binary nat) (Clamped (Op BigSub))
   , natural types "equalNat" (binary bool) (Tested CEq intToBool)
   , natural types "compareNat" (binary (Head (Def (MkQName ["Prelude", "EqOrd"] "Ordering")) []))
             (OnIntegers (MkQName ["Prelude", "EqOrd"] "compareInteger"))
@@ -89,9 +90,9 @@ naturals =
 ||| A loop over an array's index space, by its name in `Linear.Array`: the
 ||| library's definition is the loop in Idris, and the compiler's op is the
 ||| same loop as one linalg operation.
-indexSpace : String -> Shape -> ArrayLoop -> Entry
-indexSpace name shape loop =
-  MkEntry (Def (MkQName ["Linear", "Array"] name)) (Typed shape) (ArrayLoop loop) [HookShape]
+indexSpace : String -> Shape -> IdrRegionPrim -> Entry
+indexSpace name shape p =
+  MkEntry (Def (MkQName ["Linear", "Array"] name)) (Typed shape) (ArrayLoop p) [HookShape]
 
 ||| The two loops: `prim__generate : forall a . Int -> (Int -> a) -> PrimIO
 ||| (ArrayData a)` and `prim__foldl : forall a, b . ArrayData a -> b -> (b
@@ -100,12 +101,34 @@ indexSpaces : List Entry
 indexSpaces =
   [ indexSpace "prim__generate"
       (Pi Q0 TypeOfTypes (Pi QW int (Pi QW (Pi QW int Hole) (Pi Q1 world (ioRes (arrayData Hole))))))
-      Generate
+      ArrayGenerate
   , indexSpace "prim__foldl"
       (Pi Q0 TypeOfTypes (Pi Q0 TypeOfTypes
         (Pi QW (arrayData Hole) (Pi QW Hole (Pi QW (Pi QW Hole (Pi QW int (Pi QW Hole Hole)))
           (Pi Q1 world (ioRes Hole)))))))
-      Fold ]
+      ArrayFold ]
+
+------------------------------------------------------------------------------
+-- Pointers and the exit
+------------------------------------------------------------------------------
+
+||| A cast between pointers, `prim__castPtr : AnyPtr -> Ptr t` or
+||| `prim__forgetPtr : Ptr t -> AnyPtr`: a pointer is a handle whatever it
+||| points to, so the cast is the identity on its one runtime argument.
+pointerCast : String -> Shape -> Entry
+pointerCast name shape =
+  MkEntry (Def (MkQName ["PrimIO"] name)) (Typed (Pi Q0 TypeOfTypes shape)) IdentityOnLastArgument [IdentityHook]
+
+||| `exitWith : HasIO io => ExitCode -> io a`, at its two erased types, its
+||| `HasIO` and the status. Its body gives the action of `prim__exit` any
+||| result by `believe_me`; its calls are the exit, which does not return.
+exitWith : Entry
+exitWith = MkEntry (Def (MkQName ["System"] "exitWith"))
+                   (Typed (Pi Q0 Hole (Pi Q0 Hole (Pi QW Hole (Pi QW exitCode Hole)))))
+                   (Exits Exit) [IOPrimitive]
+  where
+    exitCode : Shape
+    exitCode = Head (Def (MkQName ["System"] "ExitCode")) []
 
 ------------------------------------------------------------------------------
 -- Outside the language
@@ -118,21 +141,66 @@ ruledOut : List String -> String -> Rule -> Entry
 ruledOut ns name rule =
   MkEntry (Def (MkQName ns name)) (Typed Hole) (Forbidden rule) [rule]
 
-||| Threads (`fork`, `threadWait` and the primitives they call), collector
-||| finalizers, and raw pointers. `getEnv` reads an environment variable
-||| through a raw pointer.
-outsideLanguage : List Entry
-outsideLanguage =
+||| Threads: `Prelude.IO`'s `fork` and `threadWait` and the primitives they
+||| call, and all of `System.Concurrency`, whose every public function calls
+||| the primitive of its name (`makeMutex` calls `prim__makeMutex`).
+threads : List Entry
+threads =
   map (\n => ruledOut ["Prelude", "IO"] n Threads)
       ["fork", "prim__fork", "threadWait", "prim__threadWait"] ++
+  concatMap (\n => [ruledOut concurrency n Threads, ruledOut concurrency ("prim__" ++ n) Threads])
+      [ "setThreadData", "getThreadData", "getThreadId"
+      , "makeMutex", "mutexAcquire", "mutexRelease"
+      , "makeCondition", "conditionWait", "conditionWaitTimeout", "conditionSignal", "conditionBroadcast"
+      , "makeSemaphore", "semaphorePost", "semaphoreWait"
+      , "makeBarrier", "barrierWait"
+      , "makeChannel", "channelGet", "channelGetNonBlocking", "channelGetWithTimeout", "channelPut" ]
+  where
+    concurrency : List String
+    concurrency = ["System", "Concurrency"]
+
+||| Signal handlers: `System.Signal`'s primitives (the signal numbers, and
+||| the handling and sending of signals) and its public functions.
+signals : List Entry
+signals =
+  map (\n => ruledOut signal ("prim__" ++ n) Signal)
+      [ "sighup", "sigint", "sigabrt", "sigquit", "sigill", "sigsegv", "sigtrap", "sigfpe"
+      , "sigusr1", "sigusr2", "ignoreSignal", "defaultSignal", "collectSignal"
+      , "handleNextCollectedSignal", "sendSignal", "raiseSignal" ] ++
+  map (\n => ruledOut signal n Signal)
+      [ "signalCode", "toSignal", "ignoreSignal", "defaultSignal", "collectSignal"
+      , "handleNextCollectedSignal", "handleManyCollectedSignals", "raiseSignal" ] ++
+  [ruledOut (signal ++ ["Posix"]) "sendSignal" Signal]
+  where
+    signal : List String
+    signal = ["System", "Signal"]
+
+||| Process creation: `System`'s `system` and the functions that run a
+||| command, and `System.File.Process`'s pipes, `popen` and `popen2`, with
+||| the primitives they call. The module's `fflush` is a file's.
+processes : List Entry
+processes =
+  map (\n => ruledOut ["System"] n Process) ["prim__system", "system", "run", "runProcessingOutput"] ++
+  map (\n => ruledOut ["System", "Escaped"] n Process) ["system", "run", "runProcessingOutput"] ++
+  map (\n => ruledOut pipes n Process)
+      [ "prim__popen", "prim__pclose", "prim__popen2", "prim__popen2WaitByPid"
+      , "prim__popen2WaitByHandler", "prim__popen2ChildPid", "prim__popen2ChildHandler"
+      , "prim__popen2FileIn", "prim__popen2FileOut", "popen", "pclose", "popen2", "popen2Wait" ] ++
+  map (\n => ruledOut (pipes ++ ["Escaped"]) n Process) ["popen", "popen2"]
+  where
+    pipes : List String
+    pipes = ["System", "File", "Process"]
+
+||| What the language this compiler implements does not include, by name, so
+||| that a program is refused where it uses it: threads, collector
+||| finalizers, raw memory (`System.FFI`'s `malloc`), signal handlers and
+||| process creation.
+outsideLanguage : List Entry
+outsideLanguage =
+  threads ++
   map (\n => ruledOut ["Prelude", "IO"] n Finalizer) ["onCollect", "onCollectAny"] ++
-  [ ruledOut ["Prelude", "IO"] "prim__getString" RawPointer
-  , ruledOut ["PrimIO"] "prim__castPtr" RawPointer
-  , ruledOut ["PrimIO"] "prim__forgetPtr" RawPointer
-  , ruledOut ["PrimIO"] "prim__nullPtr" RawPointer
-  , ruledOut ["PrimIO"] "prim__nullAnyPtr" RawPointer
-  , ruledOut ["PrimIO"] "prim__getNullAnyPtr" RawPointer
-  , ruledOut ["System"] "getEnv" RawPointer ]
+  map (\n => ruledOut ["System", "FFI"] n RawPointer) ["prim__malloc", "malloc"] ++
+  signals ++ processes
 
 ||| The table.
 export
@@ -141,6 +209,9 @@ recognized =
   naturals ++ indexSpaces ++ outsideLanguage ++
   [ identity "replace"
   , identity "rewrite__impl"
+  , pointerCast "prim__castPtr" (Pi QW anyPtr (ptr Hole))
+  , pointerCast "prim__forgetPtr" (Pi QW (ptr Hole) anyPtr)
+  , exitWith
   , rootOnly "unsafePerformIO" (Pi Q0 TypeOfTypes (Pi QW (Head (Def (MkQName ["PrimIO"] "IO")) [Hole]) Hole))
   , rootOnly "unsafeCreateWorld" (Pi Q0 TypeOfTypes (Pi Q1 (Pi Q1 (Prim WorldP) Hole) Hole))
   , rootOnly "unsafeDestroyWorld" (Pi Q0 TypeOfTypes (Pi Q1 (Prim WorldP) (Pi QW Hole Hole)))
