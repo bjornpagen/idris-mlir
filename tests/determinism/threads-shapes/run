@@ -1,0 +1,5 @@
+#!/bin/sh
+# tests/programs/data/shapes's contract module through idr-pipeline under one
+# thread and under the pool, byte for byte.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+determinism_threads "$root/tests/programs/data/shapes"

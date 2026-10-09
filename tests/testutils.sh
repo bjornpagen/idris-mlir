@@ -48,7 +48,8 @@
 #                      generated semantics tests
 #     properties.sh    what holds of every compilation, off its dumps
 #     profile.sh       the profile's accept and reject fixtures
-#     determinism.sh   two compilations, byte for byte
+#     determinism.sh   two compilations, and one thread against the pool,
+#                      byte for byte
 #     lit.sh           the dialect tests' RUN lines
 #     fuzz.sh          the fuzzer
 #     two-levels.sh    closed terms, compiled, against their recorded values
