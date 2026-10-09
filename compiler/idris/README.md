@@ -92,11 +92,41 @@ and restores it, harmlessly.
   `Idris.Doc.Display`).
 - `Protocol.Hex`: hexadecimal digits, which the lexer
   (`Parser.Lexer.Source`) and `TTImp.PartialEval` use.
-- `Libraries.Data.String.Iterator`, unchanged, with its `%foreign`
-  declarations: the fork is Idris code that the stock Idris compiles and
-  runs on Chez Scheme, and string iteration (`Core.Hash`) is a Chez
-  primitive there. The declarations are the host's, not a language
-  feature of this compiler.
+
+### Honest code
+
+This compiler compiles the fork, and refuses `believe_me`, `%unsafe`
+definitions and `%foreign` without a primitive, so the fork has none of
+them, and no `idris_crash`. Where upstream coerced, the fork does what the
+coercion claimed, with the same results; `assert_total` and
+`assert_smaller` stay (158 and 31 uses).
+
+- A scope coercion is a traversal that rebuilds every node from the same
+  fields, an identity once scopes are erased: `FreelyEmbeddable` has no
+  default (`embed = believe_me`); `Term`'s is `embedTerm`, a functor's is
+  `map embed`, and the unused instances for `CaseTree` and `CExp` are
+  gone. `compatTerm` is the traversal upstream left in a comment, its
+  proof erased.
+- Reading a local variable from a TTC decides the `IsVar` proof from the
+  scope (`isVarAt` in `Core.TTC`) instead of forging it (`mkPrf`); a case
+  tree's stored variable name must be the scope's name at its index, or
+  the TTC is corrupt.
+- `Cast (Doc Void) (Doc ann)` rebuilds the document (`annotateVoid`), as
+  `reAnnotate absurd` would.
+- `OperatorBindingMismatch` holds its use site and right-hand side as the
+  documents its message prints (`Doc ()`), not a value of a hidden type
+  with its printer.
+- The shunting yard (`Libraries.Utils.Shunting`) threads its output stack
+  as a value; there is no mutable cell.
+- `Core.Hash` hashes a string over `unpack` (the same characters in the
+  same order, so the same hashes), and `Libraries.Data.String.Iterator`,
+  with its `%foreign` declarations, is deleted.
+- `Libraries.Text.Distance.Levenshtein` fills its table a row at a time
+  in lists, so no lookup can miss, and `Libraries.Data.IOMatrix` is
+  deleted. `Parser.Unlit` drops the empty string before each candidate
+  extension's leading dot rather than crashing on its absence.
+- Unused and not expressible honestly, deleted: `VarSet.unsafeToList` and
+  `Libraries.System.Directory.Tree`'s `Tree.toRelative`.
 
 ### Ours
 

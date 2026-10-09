@@ -621,7 +621,7 @@ perrorRaw (GenericMsgSol fc header solutionHeader solutions)
        <+> line
        <+> fromString "\{solutionHeader}:" <+> line
        <+> indent 1 (vsep (map (\s => "-" <++> pretty0 s) solutions))
-perrorRaw (OperatorBindingMismatch fc {print=p} expected actual opName rhs candidates)
+perrorRaw (OperatorBindingMismatch fc expected actual opName rhs candidates)
     = pure $ "Operator" <++> pretty0 !(getFullName (fromEither opName)) <++> "is"
        <++> printBindingInfo expected-- .bindingInfo
        <++> "operator, but is used as" <++> printBindingModifier actual.getBinder
@@ -661,8 +661,8 @@ perrorRaw (OperatorBindingMismatch fc {print=p} expected actual opName rhs candi
       displayFixityInfo (MkFixityInfo _ vis _ fix precedence) usedBinder
         = byShow vis <++> byShow usedBinder <++> byShow fix <++> byShow precedence <++> pretty0 (fromEither opName)
 
-      printE : ? -> Doc IdrisAnn
-      printE x = reAnnotate (const Code) (p x)
+      printE : Doc () -> Doc IdrisAnn
+      printE x = reAnnotate (const Code) x
 
       expressionDiagnositc : List (Doc IdrisAnn)
       expressionDiagnositc = case expected of

@@ -68,13 +68,6 @@ export
 emptyTree : Tree root
 emptyTree = MkTree [] []
 
-namespace Tree
-  ||| No run time information is changed,
-  ||| so we assert the identity.
-  export
-  toRelative : Tree root -> Tree (parse "")
-  toRelative x = believe_me x
-
 ||| Filter out files and directories that do not satisfy a given predicate.
 export
 filter : (filePred, dirPred : {root : _} -> FileName root -> Bool) ->

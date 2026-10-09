@@ -9,6 +9,7 @@ import Core.TT.Binder
 import Core.TT.Primitive
 import Core.TT.Var
 
+import Data.DPair
 import Data.List
 
 import Libraries.Data.List.SizeOf
@@ -155,31 +156,84 @@ insertNames out ns (Erased fc Placeholder) = Erased fc Placeholder
 insertNames out ns (Erased fc (Dotted t)) = Erased fc (Dotted (insertNames out ns t))
 insertNames out ns (TType fc u) = TType fc u
 
-export
-compatTerm : CompatibleVars xs ys -> Term xs -> Term ys
-compatTerm compat tm = believe_me tm -- no names in term, so it's identity
--- This is how we would define it:
--- compatTerm CompatPre tm = tm
--- compatTerm prf (Local fc r idx vprf)
---     = let MkVar vprf' = compatIsVar prf vprf in
---           Local fc r _ vprf'
--- compatTerm prf (Ref fc x name) = Ref fc x name
--- compatTerm prf (Meta fc n i args)
---     = Meta fc n i (map (compatTerm prf) args)
--- compatTerm prf (Bind fc x b scope)
---     = Bind fc x (map (compatTerm prf) b) (compatTerm (CompatExt prf) scope)
--- compatTerm prf (App fc fn arg)
---     = App fc (compatTerm prf fn) (compatTerm prf arg)
--- compatTerm prf (As fc s as tm)
---     = As fc s (compatTerm prf as) (compatTerm prf tm)
--- compatTerm prf (TDelayed fc r ty) = TDelayed fc r (compatTerm prf ty)
--- compatTerm prf (TDelay fc r ty tm)
---     = TDelay fc r (compatTerm prf ty) (compatTerm prf tm)
--- compatTerm prf (TForce fc r x) = TForce fc r (compatTerm prf x)
--- compatTerm prf (PrimVal fc c) = PrimVal fc c
--- compatTerm prf (Erased fc i) = Erased fc i
--- compatTerm prf (TType fc) = TType fc
+-- Embedding a term in a larger scope adds the new variables at the far
+-- end, where no de Bruijn index reaches, so every node is rebuilt from the
+-- same fields: once the scope proofs are erased, an identity.
+mutual
+  embedPi : PiInfo (Term vars) -> PiInfo (Term (vars ++ outer))
+  embedPi Implicit = Implicit
+  embedPi Explicit = Explicit
+  embedPi AutoImplicit = AutoImplicit
+  embedPi (DefImplicit t) = DefImplicit (embedTerm t)
 
+  embedBinder : Binder (Term vars) -> Binder (Term (vars ++ outer))
+  embedBinder (Lam fc c p ty) = Lam fc c (embedPi p) (embedTerm ty)
+  embedBinder (Let fc c val ty) = Let fc c (embedTerm val) (embedTerm ty)
+  embedBinder (Pi fc c p ty) = Pi fc c (embedPi p) (embedTerm ty)
+  embedBinder (PVar fc c p ty) = PVar fc c (embedPi p) (embedTerm ty)
+  embedBinder (PLet fc c val ty) = PLet fc c (embedTerm val) (embedTerm ty)
+  embedBinder (PVTy fc c ty) = PVTy fc c (embedTerm ty)
+
+  embedTerms : List (Term vars) -> List (Term (vars ++ outer))
+  embedTerms [] = []
+  embedTerms (t :: ts) = embedTerm t :: embedTerms ts
+
+  embedTerm : Term vars -> Term (vars ++ outer)
+  embedTerm (Local fc r idx p) = Local fc r idx (embedIsVar p)
+  embedTerm (Ref fc nt name) = Ref fc nt name
+  embedTerm (Meta fc name i args) = Meta fc name i (embedTerms args)
+  embedTerm (Bind fc x b scope) = Bind fc x (embedBinder b) (embedTerm scope)
+  embedTerm (App fc fn arg) = App fc (embedTerm fn) (embedTerm arg)
+  embedTerm (As fc s as pat) = As fc s (embedTerm as) (embedTerm pat)
+  embedTerm (TDelayed fc r ty) = TDelayed fc r (embedTerm ty)
+  embedTerm (TDelay fc r ty arg) = TDelay fc r (embedTerm ty) (embedTerm arg)
+  embedTerm (TForce fc r tm) = TForce fc r (embedTerm tm)
+  embedTerm (PrimVal fc c) = PrimVal fc c
+  embedTerm (Erased fc Placeholder) = Erased fc Placeholder
+  embedTerm (Erased fc Impossible) = Erased fc Impossible
+  embedTerm (Erased fc (Dotted t)) = Erased fc (Dotted (embedTerm t))
+  embedTerm (TType fc u) = TType fc u
+
+-- Renaming the variables of a scope keeps every de Bruijn index, so, as
+-- embedding does, it rebuilds every node from the same fields; the
+-- compatibility proof only retypes the variables, and is erased.
+mutual
+  compatPi : (0 _ : CompatibleVars xs ys) -> PiInfo (Term xs) -> PiInfo (Term ys)
+  compatPi prf Implicit = Implicit
+  compatPi prf Explicit = Explicit
+  compatPi prf AutoImplicit = AutoImplicit
+  compatPi prf (DefImplicit t) = DefImplicit (compatTerm prf t)
+
+  compatBinder : (0 _ : CompatibleVars xs ys) -> Binder (Term xs) -> Binder (Term ys)
+  compatBinder prf (Lam fc c p ty) = Lam fc c (compatPi prf p) (compatTerm prf ty)
+  compatBinder prf (Let fc c val ty) = Let fc c (compatTerm prf val) (compatTerm prf ty)
+  compatBinder prf (Pi fc c p ty) = Pi fc c (compatPi prf p) (compatTerm prf ty)
+  compatBinder prf (PVar fc c p ty) = PVar fc c (compatPi prf p) (compatTerm prf ty)
+  compatBinder prf (PLet fc c val ty) = PLet fc c (compatTerm prf val) (compatTerm prf ty)
+  compatBinder prf (PVTy fc c ty) = PVTy fc c (compatTerm prf ty)
+
+  compatTerms : (0 _ : CompatibleVars xs ys) -> List (Term xs) -> List (Term ys)
+  compatTerms prf [] = []
+  compatTerms prf (t :: ts) = compatTerm prf t :: compatTerms prf ts
+
+  export
+  compatTerm : (0 _ : CompatibleVars xs ys) -> Term xs -> Term ys
+  compatTerm prf (Local fc r idx p) = Local fc r idx (renamedIsVar prf p).snd
+  compatTerm prf (Ref fc nt name) = Ref fc nt name
+  compatTerm prf (Meta fc name i args) = Meta fc name i (compatTerms prf args)
+  compatTerm prf (Bind fc x b scope)
+      = Bind fc x (compatBinder prf b) (compatTerm (Ext prf) scope)
+  compatTerm prf (App fc fn arg) = App fc (compatTerm prf fn) (compatTerm prf arg)
+  compatTerm prf (As fc s as pat) = As fc s (compatTerm prf as) (compatTerm prf pat)
+  compatTerm prf (TDelayed fc r ty) = TDelayed fc r (compatTerm prf ty)
+  compatTerm prf (TDelay fc r ty arg)
+      = TDelay fc r (compatTerm prf ty) (compatTerm prf arg)
+  compatTerm prf (TForce fc r tm) = TForce fc r (compatTerm prf tm)
+  compatTerm prf (PrimVal fc c) = PrimVal fc c
+  compatTerm prf (Erased fc Placeholder) = Erased fc Placeholder
+  compatTerm prf (Erased fc Impossible) = Erased fc Impossible
+  compatTerm prf (Erased fc (Dotted t)) = Erased fc (Dotted (compatTerm prf t))
+  compatTerm prf (TType fc u) = TType fc u
 
 mutual
   export
@@ -272,12 +326,13 @@ WeakenTerm = GenWeakenWeakens
 
 export
 FreelyEmbeddable Term where
+  embed = embedTerm
 
 export
 IsScoped Term where
   shrink = shrinkTerm
   thin = thinTerm
-  compatNs = compatTerm
+  compatNs prf = compatTerm prf
 
 ------------------------------------------------------------------------
 -- Smart constructors

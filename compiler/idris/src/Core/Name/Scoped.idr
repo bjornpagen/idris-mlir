@@ -188,16 +188,17 @@ export
 strengthen : Strengthen tm => tm (nm :: vars) -> Maybe (tm vars)
 strengthen = strengthenNs (suc zero)
 
+-- Embedding is free for nameless representations: the outer variables come
+-- after every index already in use, so an implementation rebuilds each node
+-- from the same fields, which is the identity once scopes are erased.
 public export
 interface FreelyEmbeddable (0 tm : Scoped) where
   constructor MkFreelyEmbeddable
-  -- this is free for nameless representations
   embed : Embeddable tm
-  embed = believe_me
 
 export
 FunctorFreelyEmbeddable : Functor f => FreelyEmbeddable tm => FreelyEmbeddable (f . tm)
-FunctorFreelyEmbeddable = MkFreelyEmbeddable believe_me
+FunctorFreelyEmbeddable = MkFreelyEmbeddable (map embed)
 
 export
 ListFreelyEmbeddable : FreelyEmbeddable tm => FreelyEmbeddable (List . tm)

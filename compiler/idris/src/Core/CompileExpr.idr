@@ -477,9 +477,6 @@ mutual
                         CConstAlt (outer ++ (ns ++ inner))
   insertNamesConstAlt outer ns (MkConstAlt x sc) = MkConstAlt x (insertNames outer ns sc)
 
-export
-FreelyEmbeddable CExp where
-
 mutual
   -- Shrink the scope of a compiled expression, replacing any variables not
   -- in the remaining set with Erased

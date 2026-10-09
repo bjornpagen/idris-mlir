@@ -69,22 +69,15 @@ hasLitFileExt fname =
      let (bn, exts) = splitExtensions fname
      flip choiceMap listOfExtensionsLiterate $ \ candidate =>
        do -- take candidate apart e.g. ".org.lidr" becomes ["org", "lidr"]
-          -- we assume the candidate starts with a "." and so the first string
-          -- should be empty
-          let ("" ::: chunks) = map pack $ split ('.' ==) (unpack candidate)
-            | _ => err
+          -- every candidate starts with a "." (each style's extensions
+          -- do), so the first string, the empty one before it, is dropped
+          let chunks = tail $ map pack $ split ('.' ==) (unpack candidate)
           -- check ["org", "lidr"] is a suffix of the files' extensions and get
           -- back (["shared"], ["org", "lidr"])
           (nm, exts) <- suffixOfBy (\ v, w => v <$ guard (v == w)) chunks exts
           -- return the basename extended with the leftover extensions, paired with the match
           -- e.g. ("Cool.shared", ".org.lidr")
           pure (bn ++ toExtension nm, toExtension exts)
-
-  where
-
-    err : a
-    err = assert_total
-        $ idris_crash #"Internal error: all literate extensions should start with a ".""#
 
 ||| Are we dealing with a valid literate file name, if so return the identified style.
 export

@@ -174,10 +174,12 @@ data Error : Type where
      GenericMsg : FC -> String -> Error
      GenericMsgSol : FC -> (message : String) ->
                            (solutionHeader : String) -> (solutions : List String) -> Error
-     OperatorBindingMismatch : {a : Type} -> {print : a -> Doc ()} ->
-         FC -> (expectedFixity : FixityDeclarationInfo) -> (use_site : OperatorLHSInfo a) ->
+     -- The use site's expressions are kept as the documents an error
+     -- prints, rendered where the error is raised.
+     OperatorBindingMismatch :
+         FC -> (expectedFixity : FixityDeclarationInfo) -> (use_site : OperatorLHSInfo (Doc ())) ->
          -- left: backticked, right: op symbolds
-         (opName : Either Name Name) -> (rhs : a) -> (candidates : List String) -> Error
+         (opName : Either Name Name) -> (rhs : Doc ()) -> (candidates : List String) -> Error
      TTCError : TTCErrorMsg -> Error
      FileErr : String -> FileError -> Error
      CantFindPackage : String -> Error
@@ -601,8 +603,8 @@ killErrorLoc (InLHS fc x err) = InLHS emptyFC x (killErrorLoc err)
 killErrorLoc (InRHS fc x err) = InRHS emptyFC x (killErrorLoc err)
 killErrorLoc (MaybeMisspelling err xs) = MaybeMisspelling (killErrorLoc err) xs
 killErrorLoc (WarningAsError wrn) = WarningAsError (killWarningLoc wrn)
-killErrorLoc (OperatorBindingMismatch {print} fc expected actual opName rhs candidates)
-             = OperatorBindingMismatch {print} emptyFC expected actual opName rhs candidates
+killErrorLoc (OperatorBindingMismatch fc expected actual opName rhs candidates)
+             = OperatorBindingMismatch emptyFC expected actual opName rhs candidates
 
 
 -- Core is a wrapper around IO that is specialised for efficiency.

@@ -7,6 +7,7 @@ import Core.Context
 import Core.Env
 import Core.Options
 
+import Data.DPair
 import Data.IOArray
 import Data.List1
 import Data.Vect
@@ -288,15 +289,15 @@ TTC NameType where
              3 => do y <- fromBuf; pure (TyCon y)
              _ => corrupt "NameType"
 
--- Assumption is that it was type safe when we wrote it out, so believe_me
--- to rebuild proofs is fine.
--- We're just making up the implicit arguments - this is only fine at run
--- time because those arguments get erased!
--- (Indeed, we're expecting the whole IsVar proof to be erased because
--- we have the idx...)
-mkPrf : (idx : Nat) -> IsVar n idx ns
-mkPrf {n} {ns} Z = believe_me (First {n} {ns = n :: ns})
-mkPrf {n} {ns} (S k) = believe_me (Later {m=n} (mkPrf {n} {ns} k))
+-- A TTC stores a local variable as its de Bruijn index; reading it back
+-- decides the proof the variable carries from the scope it is read in.
+-- The proof is erased, so what is built at run time is only the name.
+isVarAt : (idx : Nat) -> (vars : List a) -> Maybe (Subset a (\ n => IsVar n idx vars))
+isVarAt Z (n :: _) = Just (Element n First)
+isVarAt (S k) (_ :: vs)
+    = do Element n p <- isVarAt k vs
+         Just (Element n (Later p))
+isVarAt _ [] = Nothing
 
 mutual
   export
@@ -382,9 +383,9 @@ mutual
         = case !getTag of
                0 => do c <- fromBuf
                        idx <- fromBuf
-                       name <- maybe (corrupt "Term") pure
-                                     (getAt idx vars)
-                       pure (Local {name} emptyFC c idx (mkPrf idx))
+                       Element name p <- maybe (corrupt "Term") pure
+                                               (isVarAt idx vars)
+                       pure (Local {name} emptyFC c idx p)
                1 => do nt <- fromBuf; name <- fromBuf
                        pure (Ref emptyFC nt name)
                2 => do n <- fromBuf
@@ -414,9 +415,9 @@ mutual
                         pure (apply emptyFC fn args)
                idxp => do c <- fromBuf
                           let idx : Nat = fromInteger (cast (idxp - 13))
-                          let Just name = getAt idx vars
+                          let Just (Element name p) = isVarAt idx vars
                               | Nothing => corrupt "Term"
-                          pure (Local {name} emptyFC c idx (mkPrf idx))
+                          pure (Local {name} emptyFC c idx p)
 
 export
 TTC Pat where
@@ -479,7 +480,12 @@ mutual
         = case !getTag of
                0 => do name <- fromBuf; idx <- fromBuf
                        xs <- fromBuf
-                       pure (Case {name} idx (mkPrf idx) (Erased emptyFC Placeholder) xs)
+                       -- the name stored is the scope's at that index
+                       let Just (Element name' p) = isVarAt idx vars
+                           | Nothing => corrupt "CaseTree"
+                       let Just Refl = nameEq name name'
+                           | Nothing => corrupt "CaseTree"
+                       pure (Case {name} idx p (Erased emptyFC Placeholder) xs)
                1 => do x <- fromBuf
                        pure (STerm 0 x)
                2 => do msg <- fromBuf
