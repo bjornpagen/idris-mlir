@@ -21,7 +21,26 @@ module attributes {idr.program} {
   func.func private @grow(%node: !idr.box<@Node>, %w: !idr.world) -> !idr.world {
     %one = arith.constant 1 : i64
     // expected-error @+1 {{unsupported (cycle): an array of Node can hold a reference to itself through Node -> array of Node -> Node}}
-    %a, %w1 = idr.array.new %one, %node, %w : !idr.box<@Node> -> memref<?x!idr.box<@Node>>
+    %a, %w1 = idr.array.new [%one], %node, %w : !idr.box<@Node> -> memref<?x!idr.box<@Node>>
+    return %w1 : !idr.world
+  }
+  func.func @Prog.main() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
+}
+
+// -----
+
+// An IORef is an array of rank 0: a node that holds one can be written
+// into it.
+module attributes {idr.program} {
+  idr.data @Node box {
+    idr.ctor @MkNode (memref<!idr.box<@Node>>)
+  }
+  func.func private @knot(%node: !idr.box<@Node>, %w: !idr.world) -> !idr.world {
+    // expected-error @+1 {{unsupported (cycle): an IORef of Node can hold a reference to itself through Node -> IORef of Node -> Node}}
+    %r, %w1 = idr.array.new [], %node, %w : !idr.box<@Node> -> memref<!idr.box<@Node>>
     return %w1 : !idr.world
   }
   func.func @Prog.main() -> i64 {
@@ -44,7 +63,7 @@ module attributes {idr.program} {
     %zero = arith.constant 0 : i64
     %leaf = idr.con @B::@Leaf() : () -> !idr.box<@B>
     // expected-error @+1 {{unsupported (cycle): an array of B can hold a reference to itself through B -> A -> array of B -> B}}
-    %a, %w1 = idr.array.new %zero, %leaf, %w : !idr.box<@B> -> memref<?x!idr.box<@B>>
+    %a, %w1 = idr.array.new [%zero], %leaf, %w : !idr.box<@B> -> memref<?x!idr.box<@B>>
     return %w1 : !idr.world
   }
 }
@@ -62,8 +81,8 @@ module attributes {idr.program} {
   func.func @Prog.main(%w: !idr.world) -> !idr.world {
     %two = arith.constant 2 : i64
     %zero = arith.constant 0 : i64
-    %row, %w1 = idr.array.new %two, %zero, %w : i64 -> memref<?xi64>
-    %rows, %w2 = idr.array.new %two, %row, %w1 : memref<?xi64> -> memref<?xmemref<?xi64>>
+    %row, %w1 = idr.array.new [%two], %zero, %w : i64 -> memref<?xi64>
+    %rows, %w2 = idr.array.new [%two], %row, %w1 : memref<?xi64> -> memref<?xmemref<?xi64>>
     %g = idr.con @Grid::@MkGrid(%rows) : (memref<?xmemref<?xi64>>) -> !idr.box<@Grid>
     %l = idr.constant #idr.con<@List::@Cons, [1, #idr.con<@List::@Nil, []>]> : !idr.box<@List>
     return %w2 : !idr.world
@@ -114,7 +133,7 @@ module attributes {idr.program} {
     %one = arith.constant 1 : i64
     %z = arith.constant 0 : i64
     %k = idr.closure @zero() : () -> !idr.fn<() -> (i64)>
-    %a, %w1 = idr.array.new %one, %k, %w : !idr.fn<() -> (i64)> -> memref<?x!idr.fn<() -> (i64)>>
+    %a, %w1 = idr.array.new [%one], %k, %w : !idr.fn<() -> (i64)> -> memref<?x!idr.fn<() -> (i64)>>
     %c = idr.closure @first(%a) : (memref<?x!idr.fn<() -> (i64)>>) -> !idr.fn<() -> (i64)>
     %c0 = arith.constant 0 : index
     %d = memref.dim %a, %c0 : memref<?x!idr.fn<() -> (i64)>>

@@ -27,7 +27,7 @@ module attributes {idr.program} {
     %n = arith.constant 4 : i64
     %m = arith.constant 3 : i64
     %one = arith.constant 1 : i64
-    %v, %w1 = idr.array.new %m, %one, %w : i64 -> memref<?xi64>
+    %v, %w1 = idr.array.new [%m], %one, %w : i64 -> memref<?xi64>
     %r, %w2 = func.call @rows(%n, %v, %w1) : (i64, memref<?xi64>, !idr.world) -> (memref<?xi64>, !idr.world)
     return %w2 : !idr.world
   }

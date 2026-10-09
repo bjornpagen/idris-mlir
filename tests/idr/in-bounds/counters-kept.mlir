@@ -9,7 +9,7 @@
 module {
   func.func @mayShrink(%n: i64, %k: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %r:2 = scf.while (%i = %z, %s = %w1) : (i64, !idr.world) -> (i64, !idr.world) {
       %c = arith.cmpi slt, %i, %n : i64
       scf.condition(%c) %i, %s : i64, !idr.world
@@ -29,7 +29,7 @@ module {
   func.func @wraps(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %two = arith.constant 2 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %r:2 = scf.while (%i = %z, %s = %w1) : (i64, !idr.world) -> (i64, !idr.world) {
       %c = arith.cmpi slt, %i, %n : i64
       scf.condition(%c) %i, %s : i64, !idr.world
@@ -49,7 +49,7 @@ module {
   func.func @unsignedGuard(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %r:2 = scf.while (%i = %z, %s = %w1) : (i64, !idr.world) -> (i64, !idr.world) {
       %c = arith.cmpi ult, %i, %n : i64
       scf.condition(%c) %i, %s : i64, !idr.world
@@ -70,7 +70,7 @@ module {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %m1 = arith.constant -1 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %r:2 = scf.while (%i = %m1, %s = %w1) : (i64, !idr.world) -> (i64, !idr.world) {
       %c = arith.cmpi slt, %i, %n : i64
       scf.condition(%c) %i, %s : i64, !idr.world
@@ -90,7 +90,7 @@ module {
   func.func @stepsDown(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %m1 = arith.constant -1 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %r:2 = scf.while (%i = %z, %s = %w1) : (i64, !idr.world) -> (i64, !idr.world) {
       %c = arith.cmpi slt, %i, %n : i64
       scf.condition(%c) %i, %s : i64, !idr.world
@@ -110,7 +110,7 @@ module {
   func.func @goesBackNegative(%n: i64, %again: i1, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %m1 = arith.constant -1 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %r:3 = scf.while (%i = %z, %s = %w1) : (i64, !idr.world) -> (i64, !idr.world, !idr.world) {
       %c = arith.cmpi slt, %i, %n : i64
       %e = arith.extui %c : i1 to i64
@@ -142,7 +142,7 @@ module {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %two = arith.constant 2 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %r:2 = scf.while (%i = %one, %s = %w1) : (i64, !idr.world) -> (i64, !idr.world) {
       %c = arith.cmpi slt, %i, %n : i64
       scf.condition(%c) %i, %s : i64, !idr.world

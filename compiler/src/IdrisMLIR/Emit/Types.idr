@@ -34,7 +34,7 @@ mutual
     Nothing => internal ("unknown data " ++ show d)
   mlirType ix (FunT a r) = pure (Idr.fnType [!(binderType ix a)] [!(mlirType ix r)])
   mlirType ix (LazyT r) = Idr.lazyType <$> mlirType ix r
-  mlirType ix (ArrayT e) = memRefType <$> mlirType ix e
+  mlirType ix (ArrayT r e) = memRefType (dimensions r) <$> mlirType ix e
 
   ||| The contract type of what a binder binds: its quantity is in the
   ||| type, where no pass can lose it.

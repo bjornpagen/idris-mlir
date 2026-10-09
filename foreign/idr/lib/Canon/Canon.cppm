@@ -16,6 +16,7 @@ export import :feeds;
 export import :matchpatterns;
 export import :meets;
 export import :merge;
+export import :moveout;
 export import :putlist;
 export import :putstr;
 export import :rebuild;

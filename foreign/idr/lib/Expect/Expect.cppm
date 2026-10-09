@@ -17,6 +17,7 @@ export import :everyCycleHasBreaker;
 export import :facts;
 export import :folds;
 export import :lookup;
+export import :movesOut;
 export import :named;
 export import :narrowedLanes;
 export import :output;

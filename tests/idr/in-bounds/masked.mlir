@@ -15,7 +15,7 @@ module {
     %ok = arith.andi %lo, %hi : i1
     %r = scf.if %ok -> !idr.world {
       %cap = idr.shl signed %one, %k : i64
-      %a, %w1 = idr.array.new %cap, %z, %w : i64 -> memref<?xi64>
+      %a, %w1 = idr.array.new [%cap], %z, %w : i64 -> memref<?xi64>
       %mask = arith.subi %cap, %one : i64
       %j = arith.addi %x, %one : i64
       %i = arith.andi %j, %mask : i64
@@ -35,7 +35,7 @@ module {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %cap = arith.constant 8 : i64
-    %a, %w1 = idr.array.new %cap, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%cap], %z, %w : i64 -> memref<?xi64>
     %mask = arith.subi %cap, %one : i64
     %i = arith.andi %mask, %x : i64
     %ib2.z = arith.constant 0 : index
@@ -49,7 +49,7 @@ module {
   func.func @any(%n: i64, %x: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %pos = arith.cmpi sgt, %n, %z : i64
     %r = scf.if %pos -> !idr.world {
       %mask = arith.subi %n, %one : i64
@@ -77,7 +77,7 @@ module {
     %ok = arith.andi %lo, %hi : i1
     %r = scf.if %ok -> !idr.world {
       %cap = idr.shl signed %one, %k : i64
-      %a, %w1 = idr.array.new %cap, %z, %w : i64 -> memref<?xi64>
+      %a, %w1 = idr.array.new [%cap], %z, %w : i64 -> memref<?xi64>
       %mask = arith.subi %cap, %one : i64
       %i = arith.andi %x, %mask : i64
       %ib4.z = arith.constant 0 : index
@@ -96,7 +96,7 @@ module {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %cap = arith.constant 6 : i64
-    %a, %w1 = idr.array.new %cap, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%cap], %z, %w : i64 -> memref<?xi64>
     %mask = arith.subi %cap, %one : i64
     %i = arith.andi %x, %mask : i64
     %ib5.z = arith.constant 0 : index

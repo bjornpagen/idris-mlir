@@ -24,21 +24,25 @@ Value elementsOf(OpBuilder &b, Location loc, Value cell) {
 }
 
 // The memref view of an array of words: the descriptor convert-to-llvm
-// reads for a memref of `view`'s type, built over the cell and its length.
+// reads for a memref of `view`'s type, built over the array's components,
+// its cell and then its size in each dimension (none for an IORef's).
 // Phase 2 gives it to every legal op that still holds the array.
 //
 // The descriptor's allocated pointer is the cell, which only the runtime
 // frees, through the count; its aligned pointer the first element; its
-// offset 0, its size the length, its stride 1. The cast to the memref
+// offset 0, each size the array's, each stride 1. The cast to the memref
 // meets its inverse in convert-to-llvm.
-export Value arrayView(OpBuilder &b, Location loc, Runtime &runtime, MemRefType view, Value cell,
-                       Value length) {
+export Value arrayView(OpBuilder &b, Location loc, Runtime &runtime, MemRefType view,
+                       ValueRange array) {
+  Value cell = array.front();
   auto descriptor = MemRefDescriptor::poison(b, loc, runtime.llvmTypeConverter().convertType(view));
   descriptor.setAllocatedPtr(b, loc, cell);
   descriptor.setAlignedPtr(b, loc, elementsOf(b, loc, cell));
   descriptor.setConstantOffset(b, loc, 0);
-  descriptor.setSize(b, loc, 0, length);
-  descriptor.setConstantStride(b, loc, 0, 1);
+  for (auto [dim, size] : llvm::enumerate(array.drop_front())) {
+    descriptor.setSize(b, loc, static_cast<unsigned>(dim), size);
+    descriptor.setConstantStride(b, loc, static_cast<unsigned>(dim), 1);
+  }
   return UnrealizedConversionCastOp::create(b, loc, view, Value(descriptor)).getResult(0);
 }
 

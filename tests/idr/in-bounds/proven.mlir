@@ -26,7 +26,7 @@ module {
   func.func @count(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %r:2 = scf.while (%i = %z, %s = %w1) : (i64, !idr.world) -> (i64, !idr.world) {
       %lo = arith.cmpi sge, %i, %z : i64
       %hi = arith.cmpi slt, %i, %n : i64
@@ -47,9 +47,9 @@ module {
 
   func.func @pairs(%n: i64, %m: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %w2 = func.call @related(%n, %a, %i, %w1) : (i64, memref<?xi64>, i64, !idr.world) -> !idr.world
-    %c, %w3 = idr.array.new %m, %z, %w2 : i64 -> memref<?xi64>
+    %c, %w3 = idr.array.new [%m], %z, %w2 : i64 -> memref<?xi64>
     %w4 = func.call @related(%m, %c, %i, %w3) : (i64, memref<?xi64>, i64, !idr.world) -> !idr.world
     return %w4 : !idr.world
   }
@@ -105,7 +105,7 @@ module {
   func.func @positive(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %some = arith.cmpi slt, %z, %n : i64
     %r = scf.if %some -> !idr.world {
       %ib4.z = arith.constant 0 : index
@@ -131,7 +131,7 @@ module {
   func.func @carried(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %r:4 = scf.while (%k = %n, %arr = %a, %i = %z, %s = %w1) : (i64, memref<?xi64>, i64, !idr.world) -> (i64, memref<?xi64>, i64, !idr.world) {
       %lo = arith.cmpi sge, %i, %z : i64
       %hi = arith.cmpi slt, %i, %k : i64
@@ -152,7 +152,7 @@ module {
 
   func.func private @make(%n: i64, %w: !idr.world) -> (i64, memref<?xi64>, !idr.world) {
     %z = arith.constant 0 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     return %n, %a, %w1 : i64, memref<?xi64>, !idr.world
   }
   func.func @made(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
@@ -176,8 +176,8 @@ module {
 
   func.func @sameSide(%p: i1, %n: i64, %m: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
-    %c, %w2 = idr.array.new %m, %z, %w1 : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
+    %c, %w2 = idr.array.new [%m], %z, %w1 : i64 -> memref<?xi64>
     %k = arith.select %p, %n, %m : i64
     %arr = arith.select %p, %a, %c : memref<?xi64>
     %some = arith.cmpi sgt, %k, %z : i64
@@ -232,7 +232,7 @@ module {
   func.func @emptyNegative(%i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %n = arith.constant -3 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %lo = arith.cmpi sge, %i, %z : i64
     %hi = arith.cmpi slt, %i, %n : i64
     %ok = arith.andi %lo, %hi : i1
@@ -254,7 +254,7 @@ module {
   }
   func.func @givenBack(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %b = func.call @handBack(%a) : (memref<?xi64>) -> memref<?xi64>
     %lo = arith.cmpi sge, %i, %z : i64
     %hi = arith.cmpi slt, %i, %n : i64
@@ -278,7 +278,7 @@ module {
   }
   func.func @givenUse(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %e = idr.lin.enter %a : !idr.lin<memref<?xi64>>
     %b = func.call @useBack(%e) : (!idr.lin<memref<?xi64>>) -> memref<?xi64>
     %lo = arith.cmpi sge, %i, %z : i64
@@ -302,8 +302,8 @@ module {
   }
   func.func @givenSecond(%n: i64, %m: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
-    %c, %w2 = idr.array.new %m, %z, %w1 : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
+    %c, %w2 = idr.array.new [%m], %z, %w1 : i64 -> memref<?xi64>
     %b = func.call @handSecond(%a, %c) : (memref<?xi64>, memref<?xi64>) -> memref<?xi64>
     %lo = arith.cmpi sge, %i, %z : i64
     %hi = arith.cmpi slt, %i, %m : i64
@@ -340,7 +340,7 @@ module {
   }
   func.func @givenAgain(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %b = func.call @againBack(%a, %n) : (memref<?xi64>, i64) -> memref<?xi64>
     %lo = arith.cmpi sge, %i, %z : i64
     %hi = arith.cmpi slt, %i, %n : i64
@@ -362,7 +362,7 @@ module {
   func.func @half(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %two = arith.constant 2 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %pos = arith.cmpi sgt, %n, %z : i64
     %r = scf.if %pos -> !idr.world {
       %i = idr.div signed %n, %two : i64
@@ -382,7 +382,7 @@ module {
   func.func @quarter(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %two = arith.constant 2 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %pos = arith.cmpi sgt, %n, %z : i64
     %r = scf.if %pos -> !idr.world {
       %h = idr.div signed %n, %two : i64
@@ -403,7 +403,7 @@ module {
   func.func @part(%n: i64, %k: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %two = arith.constant 2 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %lo = arith.cmpi sge, %k, %z : i64
     %hi = arith.cmpi slt, %k, %n : i64
     %ok = arith.andi %lo, %hi : i1
@@ -448,7 +448,7 @@ module {
   func.func @unsignedHalf(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %two = arith.constant 2 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %pos = arith.cmpi sgt, %n, %z : i64
     %r = scf.if %pos -> !idr.world {
       %i = idr.div %n, %two : i64
@@ -467,7 +467,7 @@ module {
   func.func @halfBack(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %two = arith.constant 2 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %b = func.call @handBack(%a) : (memref<?xi64>) -> memref<?xi64>
     %pos = arith.cmpi sgt, %n, %z : i64
     %r = scf.if %pos -> !idr.world {

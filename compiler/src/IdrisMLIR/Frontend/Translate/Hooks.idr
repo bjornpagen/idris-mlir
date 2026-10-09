@@ -39,12 +39,12 @@ arrayCallOf = firstOf (\h => case h of
   ArrayCall p => Just p
   _ => Nothing)
 
-||| The element of an external type that is an array: `Nothing` when its
-||| type argument names it, `Just` a fixed one.
+||| The rank and the element of an external type that is an array: the
+||| element `Nothing` when its type argument names it, `Just` a fixed one.
 export
-arrayElementOf : List Hook -> Maybe (Maybe Ty)
+arrayElementOf : List Hook -> Maybe (Rank, Maybe Ty)
 arrayElementOf = firstOf (\h => case h of
-  ArrayType e => Just e
+  ArrayType r e => Just (r, e)
   _ => Nothing)
 
 ||| The primitive that builds the string a definition's calls build from

@@ -30,7 +30,7 @@ module attributes {idr.program} {
     }
     %w4 = idr.io.put_int signed %s, %w3 : i64
     %w5 = idr.io.put_char %nl, %w4
-    %ones, %w6 = idr.array.new %n, %one, %w5 : i64 -> memref<?xi64>
+    %ones, %w6 = idr.array.new [%n], %one, %w5 : i64 -> memref<?xi64>
     %rows, %w7 = idr.array.generate %n, %seven, %w6 : i64 -> memref<?xi64> (%i: i64) {
       %w0 = idr.world.new
       %row, %w8 = idr.array.fold %ones, %zero, %w0 : memref<?xi64>, i64 -> i64 (%acc: i64, %x: i64, %j: i64) {

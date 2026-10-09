@@ -20,30 +20,77 @@ void arrayLoopSuccessors(Operation *op, Region &body, SmallVectorImpl<RegionSucc
   regions.push_back(RegionSuccessor(op));
 }
 
+// An access takes one index per dimension of its array, and a new array one
+// size: what memref.load and memref.alloc ask of theirs.
+LogicalResult verifyCount(Operation *op, size_t count, StringRef what, MemRefType array) {
+  if (count != static_cast<size_t>(array.getRank()))
+    return op->emitOpError("takes ") << count << " " << what << " for an array of rank "
+                                     << array.getRank();
+  return success();
+}
+
+// An index as its access's guard was given it: the guard's result is the
+// value it checked.
+Value unguarded(Value index) {
+  if (auto guard = index.getDefiningOp<CheckInBoundsOp>())
+    return guard.getIndex();
+  return index;
+}
+
 } // namespace
 
+bool idr::sameElement(Value array, ValueRange indices, Value otherArray, ValueRange otherIndices) {
+  return arrayRoot(array) == arrayRoot(otherArray) &&
+         llvm::equal(indices, otherIndices,
+                     [](Value x, Value y) { return unguarded(x) == unguarded(y); });
+}
+
 LogicalResult ArrayNewOp::verify() {
+  if (failed(verifyCount(*this, getSizes().size(), "sizes", getArrayType())))
+    return failure();
   return ops::verifyElement(*this, "the fill", getFill().getType(), getArrayType());
 }
 
+// A read that moves its element out leaves the element's place empty, so
+// the next IO on its world, its world's one use, is the write that fills
+// that place again, in its block: an element that holds no reference has
+// nothing to move, and anything else between would see the empty place.
 LogicalResult ArrayGetOp::verify() {
+  if (failed(verifyCount(*this, getIndices().size(), "indices", getArrayType())))
+    return failure();
+  if (getMoves()) {
+    SymbolTableCollection symbols;
+    if (!holdsReferences(getArrayType().getElementType(), symbols, *this))
+      return emitOpError("moves out an element that holds no reference");
+    auto set = getNext().hasOneUse() ? dyn_cast<ArraySetOp>(*getNext().getUsers().begin())
+                                     : ArraySetOp();
+    if (!set || set->getBlock() != (*this)->getBlock() ||
+        !sameElement(getArray(), getIndices(), set.getArray(), set.getIndices()))
+      return emitOpError("moves its element out, but its world does not go next to a write of "
+                         "that element in its block");
+  }
   return ops::verifyElement(*this, "the result", getValue().getType(), getArrayType());
 }
 
 LogicalResult ArraySetOp::verify() {
+  if (failed(verifyCount(*this, getIndices().size(), "indices", getArrayType())))
+    return failure();
   return ops::verifyElement(*this, "the value", getValue().getType(), getArrayType());
 }
 
-// The one dimension of the new array is its size clamped at 0, as an
-// index: the length idris_rt_array_new gives a negative size. The world
-// result has no shape.
+// Each dimension of the new array is its size clamped at 0, as an index:
+// the length idris_rt_array_new gives a negative size. An array of rank 0
+// has none. The world result has no shape.
 LogicalResult ArrayNewOp::reifyResultShapes(OpBuilder &b,
                                             ReifiedRankedShapedTypeDims &shapes) {
   Location loc = getLoc();
-  Value zero = arith::ConstantOp::create(b, loc, b.getI64IntegerAttr(0));
-  Value length = arith::MaxSIOp::create(b, loc, getSize(), zero);
-  Value index = arith::IndexCastOp::create(b, loc, b.getIndexType(), length);
-  shapes.push_back({OpFoldResult(index)});
+  SmallVector<OpFoldResult> dims;
+  for (Value size : getSizes()) {
+    Value zero = arith::ConstantOp::create(b, loc, b.getI64IntegerAttr(0));
+    Value length = arith::MaxSIOp::create(b, loc, size, zero);
+    dims.push_back(arith::IndexCastOp::create(b, loc, b.getIndexType(), length).getResult());
+  }
+  shapes.push_back(std::move(dims));
   return success();
 }
 

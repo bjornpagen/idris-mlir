@@ -102,6 +102,24 @@ signed _ = True
 -- Types
 ------------------------------------------------------------------------------
 
+||| The rank of an array, the dimensions of its memref, each dynamic: `Rank0`
+||| holds one element (`Data.IORef`'s `Mut`, an IORef), `Rank1` as many as
+||| it was made with (`ArrayData`, `Buffer`).
+public export
+data Rank = Rank0 | Rank1
+
+public export
+Eq Rank where
+  Rank0 == Rank0 = True
+  Rank1 == Rank1 = True
+  _ == _ = False
+
+||| The dimensions of an array of a rank.
+public export
+dimensions : Rank -> Nat
+dimensions Rank0 = 0
+dimensions Rank1 = 1
+
 mutual
   ||| The types of Core. `BigT` is `Integer`; `NatT` is `Nat` and every
   ||| `Nat`-like type, an integer that is never negative, the same
@@ -109,14 +127,15 @@ mutual
   ||| does; `LazyT` is a suspension, one cell whose value is shared by every
   ||| force; `DataT` is a data instance, whose declaration says
   ||| whether it is an unboxed sum or a box; `ArrayT` is a mutable array of
-  ||| its element type, `Data.IOArray.Prims.ArrayData`, read and written
-  ||| through the world.
+  ||| its element type at a rank, read and written through the world: of
+  ||| rank 1 `Data.IOArray.Prims.ArrayData` and `Buffer`, of rank 0 the
+  ||| one cell of an IORef.
   public export
   data Ty = IntT IntTy | CharT | DoubleT | StrT | BigT | NatT | WorldT | ErasedT
           | DataT DataId
           | FunT Binder Ty
           | LazyT Ty
-          | ArrayT Ty
+          | ArrayT Rank Ty
 
   ||| What a parameter, a lambda, an arrow or a constructor field binds:
   ||| nothing at runtime (multiplicity 0), or a value of a type, used as
@@ -143,7 +162,7 @@ mutual
   sameTy (DataT a) (DataT b) = a == b
   sameTy (FunT a r) (FunT a' r') = sameBinder a a' && sameTy r r'
   sameTy (LazyT a) (LazyT b) = sameTy a b
-  sameTy (ArrayT a) (ArrayT b) = sameTy a b
+  sameTy (ArrayT r a) (ArrayT s b) = r == s && sameTy a b
   sameTy _ _ = False
 
   sameBinder : Binder -> Binder -> Bool
@@ -172,7 +191,8 @@ mutual
   showTy (DataT d) = show d
   showTy (FunT a r) = "((" ++ showBinder a ++ ") -> " ++ showTy r ++ ")"
   showTy (LazyT a) = "Lazy (" ++ showTy a ++ ")"
-  showTy (ArrayT a) = "Array (" ++ showTy a ++ ")"
+  showTy (ArrayT Rank1 a) = "Array (" ++ showTy a ++ ")"
+  showTy (ArrayT Rank0 a) = "Mut (" ++ showTy a ++ ")"
 
   ||| `0 Erased`, `1 T` or `w T`, as the Core dump writes a binder.
   showBinder : Binder -> String
@@ -362,5 +382,5 @@ primArgs (BigCompare _) = [BigT, BigT]
 primArgs (ToBig s) = [scalarTy s]
 primArgs (FromBig _) = [BigT]
 primArgs (NatCompare _) = [NatT, NatT]
-primArgs (ArrayLength e) = [ArrayT e]
+primArgs (ArrayLength e) = [ArrayT Rank1 e]
 primArgs (Op _) = []

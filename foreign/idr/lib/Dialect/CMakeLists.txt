@@ -22,6 +22,7 @@ target_sources(idr_dialect PRIVATE
 	Types/QType.cc
 	Attrs/BigAttr.cc
 	Attrs/ConAttr.cc
+	Grades/ArrayRoot.cc
 	Grades/AtQuantity.cc
 	Grades/Erased.cc
 	Grades/FieldReadOnce.cc
@@ -85,6 +86,7 @@ target_sources(idr_dialect PRIVATE
 	Registration/RegisterIdr.cc
 	Registration/RegisterIdrPipeline.cc
 	Canonicalize/Apply.cc
+	Canonicalize/Arrays.cc
 	Canonicalize/Con.cc
 	Canonicalize/Field.cc
 	Canonicalize/Matches.cc

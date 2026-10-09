@@ -17,9 +17,9 @@ namespace idr::inbounds {
 export std::optional<Value> accessedArray(CheckInBoundsOp guard) {
   Value checked = guard.getChecked();
   for (Operation *user : checked.getUsers()) {
-    if (auto get = dyn_cast<ArrayGetOp>(user); get && get.getIndex() == checked)
+    if (auto get = dyn_cast<ArrayGetOp>(user); get && llvm::is_contained(get.getIndices(), checked))
       return get.getArray();
-    if (auto set = dyn_cast<ArraySetOp>(user); set && set.getIndex() == checked)
+    if (auto set = dyn_cast<ArraySetOp>(user); set && llvm::is_contained(set.getIndices(), checked))
       return set.getArray();
   }
   return std::nullopt;

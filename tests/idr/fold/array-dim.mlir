@@ -14,7 +14,7 @@
 // CHECK: return %[[L]]
 func.func @of_size(%n: i64, %w: !idr.world) -> i64 {
   %fill = arith.constant 7 : i64
-  %a, %w1 = idr.array.new %n, %fill, %w : i64 -> memref<?xi64>
+  %a, %w1 = idr.array.new [%n], %fill, %w : i64 -> memref<?xi64>
   %c0 = arith.constant 0 : index
   %d = memref.dim %a, %c0 : memref<?xi64>
   %len = arith.index_cast %d : index to i64
@@ -29,7 +29,7 @@ func.func @of_size(%n: i64, %w: !idr.world) -> i64 {
 func.func @of_constant(%w: !idr.world) -> i64 {
   %n = arith.constant 5 : i64
   %fill = arith.constant 7 : i64
-  %a, %w1 = idr.array.new %n, %fill, %w : i64 -> memref<?xi64>
+  %a, %w1 = idr.array.new [%n], %fill, %w : i64 -> memref<?xi64>
   %c0 = arith.constant 0 : index
   %d = memref.dim %a, %c0 : memref<?xi64>
   %len = arith.index_cast %d : index to i64
@@ -44,7 +44,7 @@ func.func @of_constant(%w: !idr.world) -> i64 {
 func.func @of_negative(%w: !idr.world) -> i64 {
   %n = arith.constant -3 : i64
   %fill = arith.constant 7 : i64
-  %a, %w1 = idr.array.new %n, %fill, %w : i64 -> memref<?xi64>
+  %a, %w1 = idr.array.new [%n], %fill, %w : i64 -> memref<?xi64>
   %c0 = arith.constant 0 : index
   %d = memref.dim %a, %c0 : memref<?xi64>
   %len = arith.index_cast %d : index to i64

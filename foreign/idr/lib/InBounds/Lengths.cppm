@@ -224,8 +224,9 @@ private:
       return needs;
     }
     Value made;
-    if (auto fresh = array.getDefiningOp<ArrayNewOp>())
-      made = fresh.getSize();
+    // A guarded array has one dimension, so one size.
+    if (auto fresh = array.getDefiningOp<ArrayNewOp>(); fresh && fresh.getSizes().size() == 1)
+      made = fresh.getSizes().front();
     else if (auto generated = array.getDefiningOp<ArrayGenerateOp>())
       made = generated.getSize();
     if (!made)

@@ -25,7 +25,7 @@ module {
 
   func.func @fields(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %rec = idr.con @Pair::@MkPair(%n, %a) : (i64, memref<?xi64>) -> !idr.data<@Pair>
     %sz = idr.field %rec[@MkPair, 0] : !idr.data<@Pair> -> i64
     %arr = idr.field %rec[@MkPair, 1] : !idr.data<@Pair> -> memref<?xi64>
@@ -47,7 +47,7 @@ module {
 
   func.func @matched(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %rec = idr.con @Pair::@MkPair(%n, %a) : (i64, memref<?xi64>) -> !idr.data<@Pair>
     %r = idr.match %rec : !idr.data<@Pair> -> (!idr.world) {
     case @MkPair(%sz: i64, %arr: memref<?xi64>) {
@@ -72,8 +72,8 @@ module {
 
   func.func @chosen(%c: i1, %n: i64, %m: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
-    %b, %w2 = idr.array.new %m, %z, %w1 : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
+    %b, %w2 = idr.array.new [%m], %z, %w1 : i64 -> memref<?xi64>
     %p = idr.con @Pair::@MkPair(%n, %a) : (i64, memref<?xi64>) -> !idr.data<@Pair>
     %q = idr.con @Pair::@MkPair(%m, %b) : (i64, memref<?xi64>) -> !idr.data<@Pair>
     %rec = arith.select %c, %p, %q : !idr.data<@Pair>
@@ -107,7 +107,7 @@ module {
       idr.yield %z : i64
     }
     }
-    %a, %w1 = idr.array.new %made, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%made], %z, %w : i64 -> memref<?xi64>
     %lo = arith.cmpi sge, %i, %z : i64
     %hi = arith.cmpi slt, %i, %n : i64
     %ok = arith.andi %lo, %hi : i1
@@ -127,7 +127,7 @@ module {
   func.func @maxsi(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %made = arith.maxsi %n, %z : i64
-    %a, %w1 = idr.array.new %made, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%made], %z, %w : i64 -> memref<?xi64>
     %lo = arith.cmpi sge, %i, %z : i64
     %hi = arith.cmpi slt, %i, %n : i64
     %ok = arith.andi %lo, %hi : i1
@@ -156,7 +156,7 @@ module {
       idr.yield %z : i64
     }
     }
-    %a, %w1 = idr.array.new %made, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%made], %z, %w : i64 -> memref<?xi64>
     %rec = idr.con @Arr::@MkArr(%a) : (memref<?xi64>) -> !idr.data<@Arr>
     %r = func.call @fill(%n, %rec, %w1) : (i64, !idr.data<@Arr>, !idr.world) -> !idr.world
     return %r : !idr.world
@@ -208,7 +208,7 @@ module {
       idr.yield %z : i64
     }
     }
-    %a, %w1 = idr.array.new %made, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%made], %z, %w : i64 -> memref<?xi64>
     %rec = idr.con @Arr::@MkArr(%a) : (memref<?xi64>) -> !idr.data<@Arr>
     %nonneg = arith.cmpi sge, %n, %z : i64
     %r = scf.if %nonneg -> !idr.world {
@@ -243,7 +243,7 @@ module {
   // The size stored beside the array is not the size the array was made with.
   func.func @apart(%n: i64, %m: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %rec = idr.con @Pair::@MkPair(%m, %a) : (i64, memref<?xi64>) -> !idr.data<@Pair>
     %sz = idr.field %rec[@MkPair, 0] : !idr.data<@Pair> -> i64
     %arr = idr.field %rec[@MkPair, 1] : !idr.data<@Pair> -> memref<?xi64>
@@ -286,7 +286,7 @@ module {
   func.func @grown(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %rec = idr.con @Arr::@MkArr(%a) : (memref<?xi64>) -> !idr.data<@Arr>
     %r:4 = scf.while (%k = %n, %b = %rec, %i = %z, %s = %w1) : (i64, !idr.data<@Arr>, i64, !idr.world) -> (i64, !idr.data<@Arr>, i64, !idr.world) {
       %lo = arith.cmpi sge, %i, %z : i64
@@ -321,7 +321,7 @@ module {
       idr.yield %z : i64
     }
     }
-    %a, %w1 = idr.array.new %made, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%made], %z, %w : i64 -> memref<?xi64>
     %rec = idr.con @Arr::@MkArr(%a) : (memref<?xi64>) -> !idr.data<@Arr>
     %arr = idr.field %rec[@MkArr, 0] : !idr.data<@Arr> -> memref<?xi64>
     %last = arith.subi %n, %one : i64
@@ -354,7 +354,7 @@ module {
       idr.yield %z : i64
     }
     }
-    %a, %w1 = idr.array.new %made, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%made], %z, %w : i64 -> memref<?xi64>
     %rec = idr.con @Arr::@MkArr(%a) : (memref<?xi64>) -> !idr.data<@Arr>
     %arr = idr.field %rec[@MkArr, 0] : !idr.data<@Arr> -> memref<?xi64>
     %last = arith.subi %n, %one : i64
@@ -400,7 +400,7 @@ module {
         idr.yield %z : i64
       }
       }
-      %a, %s1 = idr.array.new %made, %z, %s : i64 -> memref<?xi64>
+      %a, %s1 = idr.array.new [%made], %z, %s : i64 -> memref<?xi64>
       %rec = idr.con @Arr::@MkArr(%a) : (memref<?xi64>) -> !idr.data<@Arr>
       %s2 = func.call @predecessor(%i, %rec, %s1) : (i64, !idr.data<@Arr>, !idr.world) -> !idr.world
       %j = arith.addi %i, %one : i64
@@ -415,7 +415,7 @@ module {
   }
   func.func @rebuilt(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %rec = idr.con @Arr::@MkArr(%a) : (memref<?xi64>) -> !idr.data<@Arr>
     %back = func.call @rewrap(%rec) : (!idr.data<@Arr>) -> !idr.data<@Arr>
     %arr = idr.field %back[@MkArr, 0] : !idr.data<@Arr> -> memref<?xi64>
@@ -443,7 +443,7 @@ module {
   }
   func.func @packed(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %rec = idr.con @Arr::@MkArr(%a) : (memref<?xi64>) -> !idr.data<@Arr>
     %back = func.call @pack(%rec) : (!idr.data<@Arr>) -> !idr.data<@Pair>
     %arr = idr.field %back[@MkPair, 1] : !idr.data<@Pair> -> memref<?xi64>
@@ -478,7 +478,7 @@ module {
   // array the caller passed.
   func.func @passed(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %rec = idr.con @Arr::@MkArr(%a) : (memref<?xi64>) -> !idr.data<@Arr>
     %back = func.call @outer(%rec) : (!idr.data<@Arr>) -> !idr.data<@Pair>
     %arr = idr.field %back[@MkPair, 1] : !idr.data<@Pair> -> memref<?xi64>

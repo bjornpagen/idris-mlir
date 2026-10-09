@@ -15,6 +15,7 @@ import :inBounds;
 import :everyCycleHasBreaker;
 import :facts;
 import :folds;
+import :movesOut;
 import :narrowedLanes;
 import :output;
 import :pureArrayLoops;
@@ -44,6 +45,7 @@ Check lookup(StringRef name) {
       .Case("one-clone", oneClone)
       .Case("quantities-kept", quantitiesKept)
       .Case("reuses-in-place", reusesInPlace)
+      .Case("moves-out", movesOut)
       .Case("counts-nothing", countsNothing)
       .Case("in-bounds", inBounds)
       .Case("bounds-checked", boundsChecked)

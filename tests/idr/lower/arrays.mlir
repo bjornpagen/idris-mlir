@@ -85,6 +85,28 @@
 // CHECK: memref.store %{{.*}}, %{{.*}}[%{{.*}}] : memref<?xf64>
 // CHECK-NOT: llvm.store
 // CHECK: return
+// An IORef is an array of rank 0: the cell of one element, and nothing
+// beside it, since it has no size to carry.
+// CHECK-LABEL: func.func private @makeRef(
+// CHECK: %[[ONE:.*]] = arith.constant 1 : i64
+// CHECK: %[[R:.*]] = llvm.call @idris_rt_array_new(%[[ONE]], %{{.*}}) : (i64, i32) -> {{.*}}!llvm.ptr
+// CHECK: return %[[R]] : !llvm.ptr
+// A read takes a reference of its own.
+// CHECK-LABEL: func.func private @readRef(
+// CHECK: llvm.call @idris_rt_inc(
+// A read that moves the element out takes the array's reference instead,
+// and leaves its place null for the write that follows.
+// CHECK-LABEL: func.func private @takeRef(
+// CHECK-NOT: idris_rt_inc
+// CHECK: %[[Z:.*]] = llvm.mlir.zero : !llvm.ptr
+// CHECK-NOT: idris_rt_inc
+// CHECK: llvm.store %[[Z]], %
+// CHECK-NOT: idris_rt_inc
+// CHECK: return
+// A word is read through the view of the one element, with no index.
+// CHECK-LABEL: func.func private @readRefD(
+// CHECK: memref.load %{{.*}}[] : memref<f64>
+// CHECK: return
 // LLVM-NOT: unrealized_conversion_cast
 // LLVM-NOT: memref.
 // LLVM: llvm.getelementptr
@@ -114,7 +136,7 @@ module attributes {idr.program} {
     return %w6 : !idr.world
   }
   func.func private @make(%n: i64, %x: !idr.own<!idr.data<@Opt>>, %w: !idr.world) -> (!idr.own<memref<?x!idr.data<@Opt>>>, !idr.world) {
-    %a, %w1 = idr.array.new %n, %x, %w : !idr.own<!idr.data<@Opt>> -> !idr.own<memref<?x!idr.data<@Opt>>>
+    %a, %w1 = idr.array.new [%n], %x, %w : !idr.own<!idr.data<@Opt>> -> !idr.own<memref<?x!idr.data<@Opt>>>
     return %a, %w1 : !idr.own<memref<?x!idr.data<@Opt>>>, !idr.world
   }
   func.func private @read(%a: memref<?x!idr.data<@Opt>>, %i: i64, %w: !idr.world) -> (!idr.own<!idr.data<@Opt>>, !idr.world) {
@@ -140,11 +162,11 @@ module attributes {idr.program} {
   }
   func.func private @bytes(%n: i64, %w: !idr.world) -> (!idr.own<memref<?xi8>>, !idr.world) {
     %z = arith.constant 0 : i8
-    %a, %w1 = idr.array.new %n, %z, %w : i8 -> !idr.own<memref<?xi8>>
+    %a, %w1 = idr.array.new [%n], %z, %w : i8 -> !idr.own<memref<?xi8>>
     return %a, %w1 : !idr.own<memref<?xi8>>, !idr.world
   }
   func.func private @makeD(%n: i64, %x: f64, %w: !idr.world) -> (!idr.own<memref<?xf64>>, !idr.world) {
-    %a, %w1 = idr.array.new %n, %x, %w : f64 -> !idr.own<memref<?xf64>>
+    %a, %w1 = idr.array.new [%n], %x, %w : f64 -> !idr.own<memref<?xf64>>
     return %a, %w1 : !idr.own<memref<?xf64>>, !idr.world
   }
   func.func private @readD(%a: memref<?xf64>, %i: i64, %w: !idr.world) -> (f64, !idr.world) {
@@ -162,5 +184,22 @@ module attributes {idr.program} {
     %j = idr.check.in_bounds %i, %n, "array index out of bounds"
     %w1 = idr.array.set %a[%j], %y, %w : memref<?xf64>, f64
     return %w1 : !idr.world
+  }
+  func.func private @makeRef(%x: !idr.own<!idr.data<@Opt>>, %w: !idr.world) -> (!idr.own<memref<!idr.data<@Opt>>>, !idr.world) {
+    %r, %w1 = idr.array.new [], %x, %w : !idr.own<!idr.data<@Opt>> -> !idr.own<memref<!idr.data<@Opt>>>
+    return %r, %w1 : !idr.own<memref<!idr.data<@Opt>>>, !idr.world
+  }
+  func.func private @readRef(%r: memref<!idr.data<@Opt>>, %w: !idr.world) -> (!idr.own<!idr.data<@Opt>>, !idr.world) {
+    %v, %w1 = idr.array.get %r[], %w : memref<!idr.data<@Opt>> -> !idr.own<!idr.data<@Opt>>
+    return %v, %w1 : !idr.own<!idr.data<@Opt>>, !idr.world
+  }
+  func.func private @takeRef(%r: memref<!idr.data<@Opt>>, %y: !idr.own<!idr.data<@Opt>>, %w: !idr.world) -> (!idr.own<!idr.data<@Opt>>, !idr.world) {
+    %v, %w1 = idr.array.get %r[], %w moves : memref<!idr.data<@Opt>> -> !idr.own<!idr.data<@Opt>>
+    %w2 = idr.array.set %r[], %y, %w1 : memref<!idr.data<@Opt>>, !idr.own<!idr.data<@Opt>>
+    return %v, %w2 : !idr.own<!idr.data<@Opt>>, !idr.world
+  }
+  func.func private @readRefD(%r: memref<f64>, %w: !idr.world) -> (f64, !idr.world) {
+    %v, %w1 = idr.array.get %r[], %w : memref<f64> -> f64
+    return %v, %w1 : f64, !idr.world
   }
 }

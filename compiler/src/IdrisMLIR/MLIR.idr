@@ -137,10 +137,11 @@ export
 indexType : MlirType
 indexType = MkMlirType "index"
 
-||| An array of elements of a type: a memref of one dynamic dimension.
+||| An array of elements of a type: a memref of `dynamic` dimensions, each
+||| dynamic; of none, the memref of one element.
 export
-memRefType : MlirType -> MlirType
-memRefType e = MkMlirType ("memref<?x" ++ e.text ++ ">")
+memRefType : (dynamic : Nat) -> MlirType -> MlirType
+memRefType dynamic e = MkMlirType ("memref<" ++ concat (replicate dynamic "?x") ++ e.text ++ ">")
 
 ||| A function type, `(i64, !idr.str) -> i64`: its results in parentheses,
 ||| unless it has one that is not itself a function type.
