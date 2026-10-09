@@ -274,8 +274,8 @@ pureOp ix l p vs t = do
   value ix l t (\r => primOp p args [r])
 
 ||| What a pure primitive of the dialect gives, at Core's type: a string, an
-||| Integer or a natural as itself, a character a `Char`, a length or a
-||| handle's test an `Int`; Integer arithmetic gives what it takes,
+||| Integer or a natural as itself, a character a `Char`, a length, a byte
+||| offset or a handle's test an `Int`; Integer arithmetic gives what it takes,
 ||| Integers or naturals. A conversion whose result its types name is a
 ||| `Cast`, `ToStr`, `FromStr`, `ToBig` or `FromBig`, which gives that type.
 resultOf : IdrPrim -> List Val -> E Ty
@@ -289,12 +289,15 @@ resultOf p _ = case p of
   StrSubstr => pure StrT
   StrPack => pure StrT
   StrConcat => pure StrT
+  StrDropBytes => pure StrT
   BigShow => pure StrT
   HandleString => pure StrT
   StrHead => pure CharT
   StrIndex => pure CharT
+  StrScalarAt => pure CharT
   StrLength => pure (IntT IdrisInt)
   StrBytesLength => pure (IntT IdrisInt)
+  StrScalarEnd => pure (IntT IdrisInt)
   HandleIsNull => pure (IntT IdrisInt)
   BigSub => pure BigT
   BigAnd => pure BigT

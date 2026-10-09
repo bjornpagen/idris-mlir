@@ -99,6 +99,41 @@ OpFoldResult StrBytesLengthOp::fold(FoldAdaptor adaptor) {
   });
 }
 
+// `fn` of a constant string and a constant byte offset. Every offset has a
+// meaning, so there is no guard to consult.
+template <typename Fn>
+OpFoldResult strAtOffset(MLIRContext *ctx, Attribute str, Attribute offset, Fn fn) {
+  auto at = dyn_cast_or_null<IntegerAttr>(offset);
+  if (!at)
+    return {};
+  return strUnary(ctx, str, [&](Scope &scope, const idris_rt_str *s) -> OpFoldResult {
+    return fn(scope, s, at.getInt());
+  });
+}
+
+OpFoldResult StrScalarAtOp::fold(FoldAdaptor adaptor) {
+  Type type = getType();
+  return strAtOffset(getContext(), adaptor.getStr(), adaptor.getOffset(),
+                     [&](Scope &, const idris_rt_str *s, int64_t at) -> OpFoldResult {
+                       return wrapped(type, idris_rt_str_scalar_at(s, at));
+                     });
+}
+
+OpFoldResult StrScalarEndOp::fold(FoldAdaptor adaptor) {
+  Type type = getType();
+  return strAtOffset(getContext(), adaptor.getStr(), adaptor.getOffset(),
+                     [&](Scope &, const idris_rt_str *s, int64_t at) -> OpFoldResult {
+                       return wrapped(type, idris_rt_str_scalar_end(s, at));
+                     });
+}
+
+OpFoldResult StrDropBytesOp::fold(FoldAdaptor adaptor) {
+  return strAtOffset(getContext(), adaptor.getStr(), adaptor.getOffset(),
+                     [](Scope &scope, const idris_rt_str *s, int64_t at) -> OpFoldResult {
+                       return scope.attr(idris_rt_str_drop_bytes(s, at));
+                     });
+}
+
 // Nothing at an index the guard refuses, outside the string, where the
 // program never reads.
 OpFoldResult StrIndexOp::fold(FoldAdaptor adaptor) {

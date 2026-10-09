@@ -265,7 +265,20 @@ static void stringsAndBignums(void) {
         "appending the empty string returns the other one, with a reference for the caller");
   const idris_rt_str *r = idris_rt_str_reverse(empty);
   check(r == empty && count(empty) == 0, "reversing the empty string returns it, still persistent");
-  const idris_rt_str *strings[] = {ae, ea, ab, a, b, ascii, empty, r};
+  const idris_rt_str *whole = idris_rt_str_drop_bytes(a, 0);
+  check(whole == a && count(a) == 4,
+        "dropping no bytes returns the string, with a reference for the caller");
+  const idris_rt_str *none = idris_rt_str_drop_bytes(a, 100);
+  check(none == empty && count(empty) == 0,
+        "dropping every byte returns the persistent empty string");
+  /* Offset 2 is inside the two bytes of the e with an acute accent, so the
+   * rest starts with it. */
+  const idris_rt_str *rest = idris_rt_str_drop_bytes(a, 2);
+  check(rest != a && count(rest) == 1 && rest->bytes == 5 && rest->scalars == 4 &&
+            memcmp(idris_rt_str_bytes(rest), "\xC3\xA9llo", 5) == 0 &&
+            header(rest)->info == header(a)->info,
+        "dropping some bytes returns a new string with the flag of its source");
+  const idris_rt_str *strings[] = {ae, ea, ab, a, b, ascii, empty, r, whole, none, rest};
   for (size_t i = 0; i < sizeof strings / sizeof strings[0]; ++i)
     idris_rt_dec((void *)strings[i]);
   check(live() == before, "strings are freed by dec");

@@ -503,6 +503,19 @@ const idris_rt_str *idris_rt_str_tail(const idris_rt_str *s);
  * passes, counts as 0. */
 const idris_rt_str *idris_rt_str_substr(const idris_rt_str *s, int64_t start, int64_t len);
 const idris_rt_str *idris_rt_str_reverse(const idris_rt_str *s);
+/* A string by byte offset, as the linear string iterator walks it. Every
+ * offset has a meaning: it is clamped to [0, bytes], and one inside a
+ * scalar's encoding stands for the start of that scalar.
+ * - idris_rt_str_scalar_at: the scalar that starts there; 0 at the end.
+ * - idris_rt_str_scalar_end: the offset after that scalar, which is
+ *   greater than the offset when the offset is below the end; the byte
+ *   length at the end.
+ * - idris_rt_str_drop_bytes: the scalars from there on: the string itself
+ *   (one more reference) from 0, the persistent empty one at the end, and
+ *   otherwise a new string, which keeps the ASCII flag of `s`. */
+int32_t idris_rt_str_scalar_at(const idris_rt_str *s, int64_t offset);
+int64_t idris_rt_str_scalar_end(const idris_rt_str *s, int64_t offset);
+const idris_rt_str *idris_rt_str_drop_bytes(const idris_rt_str *s, int64_t offset);
 /* Negative, zero or positive as a is before, equal to or after b in the
  * order of their scalar values, Unicode's code point order, which is the
  * byte order of their UTF-8. */

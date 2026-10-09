@@ -1189,6 +1189,34 @@ def Idr_StrBytesLengthOp : Idr_Op<"str.bytes_length", [Pure, Idr_CallsRuntime, I
   let assemblyFormat = "$str attr-dict";
 }
 
+// A string by byte offset, as the linear string iterator walks it. Every
+// offset has a meaning, so these ops need no guard: it is clamped to the
+// string's bytes, and an offset inside a character's encoding stands for
+// the start of that character. Folded by calling the runtime.
+def Idr_StrScalarAtOp : Idr_Op<"str.scalar_at", [Pure, Idr_CallsRuntime, Idr_Primitive,
+    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
+  let hasFolder = 1;
+  let summary = "the character that starts at a byte offset, 0 at the end";
+  let arguments = (ins Idr_StrType:$str, I64:$offset);
+  let results = (outs I32:$result);
+  let assemblyFormat = "$str `,` $offset attr-dict";
+}
+
+def Idr_StrScalarEndOp : Idr_Op<"str.scalar_end", [Pure, Idr_CallsRuntime, Idr_Primitive,
+    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
+  let hasFolder = 1;
+  let summary = "the byte offset after the character at a byte offset";
+  let arguments = (ins Idr_StrType:$str, I64:$offset);
+  let results = (outs I64:$result);
+  let assemblyFormat = "$str `,` $offset attr-dict";
+}
+
+def Idr_StrDropBytesOp : Idr_StrBuilderOp<"drop_bytes", [Idr_Primitive]> {
+  let summary = "the characters of a string from a byte offset on";
+  let arguments = (ins Idr_StrType:$str, I64:$offset);
+  let assemblyFormat = "$str `,` $offset attr-dict custom<StrResult>(type($result))";
+}
+
 // The index is at least 0 and below the string's length: idr.check.in_bounds
 // guards it.
 def Idr_StrIndexOp : Idr_Op<"str.index", [Idr_CallsRuntime, NoMemoryEffect,
