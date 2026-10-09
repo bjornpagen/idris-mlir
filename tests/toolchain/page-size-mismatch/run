@@ -10,7 +10,7 @@
 # leaves out: the program is the build's runtime, built for that page size.
 step_limit=120
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-build=${idris_mlir_cc%/foreign/idr/idris-mlir-cc}
+build=${idris_mlir%/foreign/idr/idris-mlir}
 runtime=$build/runtime/libidris_rt.a
 page=$(cat "$build/runtime/page-size" 2> /dev/null)
 case $page in
@@ -18,7 +18,7 @@ case $page in
     say "the build records no page size ($build/runtime/page-size)"
     exit 0 ;;
 esac
-target=$("$idris_mlir_cc" --print-target-triple)
+target=$("$idris_mlir" --print-target-triple)
 
 # program NAME PAGE: start.c with rt.platform:memory built for PAGE, then the
 # build's runtime, into $work/NAME.

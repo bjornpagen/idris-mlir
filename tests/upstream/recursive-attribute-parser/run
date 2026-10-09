@@ -5,7 +5,7 @@
 # same limit, so the crash is the depth's. How the overflow ends differs by
 # system (SIGSEGV with LLVM's stack dump on Linux, SIGILL with none on
 # arm64 macOS), so only that a signal ends it is checked. When this fails,
-# the bug is fixed: idris-mlir-cc may drop its reserved stack, and the
+# the bug is fixed: idris-mlir may drop its reserved stack, and the
 # PINS.md entry mlir-recursion, the report and this test go
 # (upstream/README.md).
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"

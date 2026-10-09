@@ -97,7 +97,7 @@ quantities_kept() {
 }
 
 # without_evaluation FIXTURE STDIN STACK: the fixture compiled again
-# with `--directive no-eval`, which leaves every closed call to runtime,
+# with `--no-eval`, which leaves every closed call to runtime,
 # must print the stdout and exit with the status the first compilation's
 # program did (in $work/ours.out and $ours_status), within its budgets. A
 # fixture that --no-eval rejects with a user error (a value the profile
@@ -108,11 +108,11 @@ without_evaluation() {
   mkdir "$work/noeval"
   copy_fixture "$1" "$work/noeval"
   # shellcheck disable=SC2086 # the packages and the promise are words
-  compile_program $io_packages $io_promise --directive no-eval "$work/noeval/Main.idr" prog
+  compile_program $io_packages $io_promise --no-eval "$work/noeval/Main.idr" prog
   we_exe=$work/noeval/build/exec/prog
   if [ "$compiled" -ne 0 ]; then
     we_reason=$(rejection_reason)
-    if [ "$compiled" -eq 1 ] && [ -n "$we_reason" ]; then
+    if [ "$compiled" -eq 3 ] && [ -n "$we_reason" ]; then
       say "no-eval: compiles only with evaluation: $we_reason"
     else
       say "no-eval: compile exit $compiled"

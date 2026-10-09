@@ -1,9 +1,9 @@
 #!/bin/sh
 # Runs the benchmarks (make bench): each program built by this compiler, by
 # the stock Idris Chez backend (the same source), and by the pinned clang -O2
-# (bench/c; linked as our programs are, with the flags idris-mlir-cc
+# (bench/c; linked as our programs are, with the flags idris-mlir
 # --print-link-flags names for the target), on the same input. clang
-# compiles for the CPU this compiler targets (idris-mlir-cc
+# compiles for the CPU this compiler targets (idris-mlir
 # --print-target-cpu), and without floating-point contraction, which this
 # compiler never does:
 # the columns compare compilers, not instruction sets or rounding. Prints
@@ -81,16 +81,16 @@ bounded() {
   return "$bounded_status"
 }
 
-# The CPU is decided in one place, idris-mlir-cc, and clang is told it as
+# The CPU is decided in one place, idris-mlir, and clang is told it as
 # LLVM's target CPU, which every target takes; the driver's spellings
 # differ by architecture (-march on x86-64, -mcpu on arm64).
-target_cpu=$("$idris_mlir_cc" --print-target-cpu) || die "idris-mlir-cc names no target CPU; run make build"
-target_triple=$("$idris_mlir_cc" --print-target-triple) || die "idris-mlir-cc names no target triple; run make build"
+target_cpu=$("$idris_mlir" --print-target-cpu) || die "idris-mlir names no target CPU; run make build"
+target_triple=$("$idris_mlir" --print-target-triple) || die "idris-mlir names no target triple; run make build"
 # How the target links a program (a static PIE on musl, a dynamic
 # executable on Darwin) is decided there too; the C programs and the input
 # generators are linked so, as this compiler's programs are.
-link_flags=$("$idris_mlir_cc" --print-link-flags) ||
-  die "idris-mlir-cc --print-link-flags names no link flags for the target; run make build"
+link_flags=$("$idris_mlir" --print-link-flags) ||
+  die "idris-mlir --print-link-flags names no link flags for the target; run make build"
 # The stack every program runs with: as large as the system allows.
 stack=$(stack_max && ulimit -s) || die "cannot raise the stack limit"
 
@@ -167,7 +167,7 @@ build() {
       # shellcheck disable=SC2086 # the packages are words
       bounded "$root/tools/compile.sh" $packages "$work/ours/Main.idr" prog > "$work/build.log" 2>&1 &&
         cmd=$work/ours/build/exec/prog
-      # The whole chain's wall time: idris-mlir, idris-mlir-cc and the link.
+      # The whole command's wall time: idris-mlir (frontend, pipeline and link).
       printf '%s\t%s\n' "$name" "$(( $(now_ns) - compile_start ))" >> "$record/compile.tsv"
       ;;
     'Idris Chez')

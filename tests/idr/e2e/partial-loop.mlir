@@ -1,4 +1,4 @@
-// RUN: idris-mlir-cc %s -o %t.o --no-eval
+// RUN: idris-mlir -c %s -o %t.o --no-eval
 // RUN: %cc %t.o -o %t
 // RUN: %status 20 %t
 // A self tail call of a function that is not total becomes a loop that

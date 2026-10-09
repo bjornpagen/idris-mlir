@@ -1,4 +1,4 @@
-compile: exit 1
+compile: exit 3
 unsupported (uniqueness): the only error
 line: as the header says
 message: as the header says

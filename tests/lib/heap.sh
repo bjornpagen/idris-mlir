@@ -40,7 +40,7 @@ c_names() {
 # runtime_symbols: what the runtime object every program links defines
 # and imports (its native half: the bitcode in it names the same symbols).
 runtime_symbols() {
-  "$llvm_bin/llvm-nm" --no-llvm-bc --format=just-symbols "$("$idris_mlir_cc" --print-runtime)" 2> /dev/null |
+  "$llvm_bin/llvm-nm" --no-llvm-bc --format=just-symbols "$("$idris_mlir" --print-runtime)" 2> /dev/null |
     sort -u | c_names
 }
 

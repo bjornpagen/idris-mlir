@@ -1,6 +1,6 @@
 // idris-mlir-opt: mlir-opt with the idr dialect, passes and pipeline
-// registered. Like idris-mlir-cc, it runs on the runtime's reserved-stack
-// runner, on a stack of 2^40 bytes as idris-mlir-cc's (RunOnLargeStack), so
+// registered. Like idris-mlir, it runs on the runtime's reserved-stack
+// runner, on a stack of 2^40 bytes as idris-mlir's (RunOnLargeStack), so
 // the nested constants MLIR's parser and printer recurse over are bounded
 // by memory, not by the process's stack.
 // PIN(mlir-recursion) — see PINS.md

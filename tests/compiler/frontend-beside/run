@@ -1,0 +1,36 @@
+#!/bin/sh
+# idris-mlir runs the frontend beside its own real path, idris-mlir-front,
+# and no other: a copy of idris-mlir alone compiles no Idris source, says
+# which frontend it could not run, and leaves no artifact. A module needs
+# no frontend, so the copy still compiles one.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+mkdir "$work/bin"
+cp "$idris_mlir" "$work/bin/idris-mlir"
+cat > "$work/Main.idr" <<'IDRIS'
+module Main
+
+import Prelude
+
+main : IO ()
+main = putStrLn "hello"
+IDRIS
+(cd "$work" && mkdir -p build/exec && bounded "$work/bin/idris-mlir" --no-prelude Main.idr -o build/exec/prog) \
+  > "$work/compile.log" 2>&1
+say "compile without a frontend beside it: exit $?"
+# getMainExecutable is the real path, and a temporary directory may be
+# reached through a link (macOS's /var).
+if grep -qF "$(cd "$work/bin" && pwd -P)/idris-mlir-front" "$work/compile.log"; then
+  say "the error names <bin>/idris-mlir-front"
+else
+  say "the error does not name <bin>/idris-mlir-front"
+  show "$work/compile.log"
+fi
+if [ -n "$(find "$work/build/exec" -type f)" ]; then
+  say "artifacts: $(cd "$work/build/exec" && find . -type f | sort | tr '\n' ' ')"
+else
+  say "artifacts: none"
+fi
+bounded "$work/bin/idris-mlir" -c "$root/tests/idr/e2e/exit-42.mlir" -o "$work/m.o" > "$work/module.log" 2>&1
+module_status=$?
+say "a module needs no frontend: exit $module_status"
+[ "$module_status" -eq 0 ] || show "$work/module.log"

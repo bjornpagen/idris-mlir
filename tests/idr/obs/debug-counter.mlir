@@ -1,12 +1,12 @@
 // RUN: mkdir -p %t.kept %t.evaluated
-// RUN: idris-mlir-cc %s -o %t.kept.o --dump-dir=%t.kept -mlir-debug-counter=idr-eval-call-count=0 -mlir-print-debug-counter 2> %t.kept.err
+// RUN: idris-mlir -c %s -o %t.kept.o --dump-dir=%t.kept -mlir-debug-counter=idr-eval-call-count=0 -mlir-print-debug-counter 2> %t.kept.err
 // RUN: cat %t.kept/*-idr-simplify.mlir | FileCheck %s --check-prefix=KEPT
 // RUN: FileCheck %s --check-prefix=COUNTED < %t.kept.err
-// RUN: idris-mlir-cc %s -o %t.evaluated.o --dump-dir=%t.evaluated
+// RUN: idris-mlir -c %s -o %t.evaluated.o --dump-dir=%t.evaluated
 // RUN: cat %t.evaluated/*-idr-simplify.mlir | FileCheck %s --check-prefix=EVALUATED
-// RUN: idris-mlir-cc %s -o %t.no-eval.o --no-eval -mlir-debug-counter=idr-eval-call-count=0 -mlir-print-debug-counter 2> %t.no-eval.err
+// RUN: idris-mlir -c %s -o %t.no-eval.o --no-eval -mlir-debug-counter=idr-eval-call-count=0 -mlir-print-debug-counter 2> %t.no-eval.err
 // RUN: FileCheck %s --check-prefix=NOEVAL < %t.no-eval.err
-// RUN: idris-mlir-cc %s -o %t.o -mlir-debug-counter=idr-eval-call-count=0
+// RUN: idris-mlir -c %s -o %t.o -mlir-debug-counter=idr-eval-call-count=0
 // RUN: %cc %t.o -o %t
 // RUN: %t | FileCheck %s --check-prefix=OUT
 // Replacing a closed call by its results is the action idr-eval-call. With

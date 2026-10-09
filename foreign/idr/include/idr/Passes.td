@@ -35,7 +35,7 @@ def IdrTarget : Pass<"idr-target", "::mlir::ModuleOp"> {
     `#llvm.target`, then lets LLVM fill in the CPU's features and the data
     layout (`dlti.dl_spec`). Every later step reads the target there:
     idr-eval's JIT compiles for it, idr-entry tells the runtime's entry which
-    features to test, and idris-mlir-cc compiles the object for it. The
+    features to test, and idris-mlir compiles the object for it. The
     triple and the CPU are the build's target entry (CMakeLists.txt).
   }];
   let dependentDialects = ["::mlir::LLVM::LLVMDialect", "::mlir::DLTIDialect"];

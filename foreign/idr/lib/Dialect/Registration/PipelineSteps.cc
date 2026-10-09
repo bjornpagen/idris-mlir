@@ -4,7 +4,7 @@
 
 using namespace mlir;
 
-// The pipeline's steps, in order. LLVM's own pipeline runs in idris-mlir-cc.
+// The pipeline's steps, in order. LLVM's own pipeline runs in idris-mlir.
 ArrayRef<StringRef> idr::pipelineSteps() {
   static const StringRef steps[] = {
       // First: every closure and suspension Emit wrote as a region becomes

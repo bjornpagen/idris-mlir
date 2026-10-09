@@ -1013,10 +1013,10 @@ through a compiler cache, as the LLVM builds go through ccache
 
 ## 15. Alternatives considered
 
-- **Embedding `rustc_driver` in idris-mlir-cc and querying `layout_of`
+- **Embedding `rustc_driver` in idris-mlir and querying `layout_of`
   and `fn_abi_of_instance`, to call the unstable Rust ABI directly.**
   Rejected. The driver links only from Rust built by the same nightly, so
-  idris-mlir-cc (C++, statically linked with LLVM) would host a second LLVM in one
+  idris-mlir (C++, statically linked with LLVM) would host a second LLVM in one
   process. `rustc_private` also changes every six weeks. And it would buy
   nothing: with every value crossing as a word through an `extern "C"`
   shim that LTO inlines, there is no Rust ABI left to compute. rustc

@@ -94,6 +94,13 @@ moduleOrigin (Installed "base") _ = Library Base
 moduleOrigin (Installed "mlir-linear") _ = Library InHouse
 moduleOrigin _ _ = Untrusted
 
+||| The packages every program sees, whether it asks for them or not, as
+||| Idris adds them: their directories are found under the prefix or on the
+||| package search path.
+export
+defaultPackages : List String
+defaultPackages = ["prelude", "base"]
+
 ------------------------------------------------------------------------------
 -- Policy by definition
 ------------------------------------------------------------------------------

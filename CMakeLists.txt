@@ -63,7 +63,7 @@ foreach(lang C CXX)
 endforeach()
 # The target programs are compiled for is decided here and nowhere else. The
 # preset names its triple (CMAKE_CXX_COMPILER_TARGET), which the runtime is
-# built for too, and selects one entry below. idris-mlir-cc writes the
+# built for too, and selects one entry below. idris-mlir writes the
 # triple and CPU on every module as its #llvm.target, with LLVM's data
 # layout, and every later step reads them there; every other fact of the
 # target is one of the entry's, which the build hands to whatever needs it.
@@ -73,7 +73,7 @@ endforeach()
 #                                       an LLVM name
 #   IDRIS_MLIR_RUNTIME_BASELINE         the flags of the CPU runtime code is
 #                                       compiled for, which every machine of
-#                                       the target has (idris-mlir-cc raises
+#                                       the target has (idris-mlir raises
 #                                       it to the program's CPU)
 #   IDRIS_MLIR_RUNTIME_CPU_TEST         the runtime's test of the processor
 #                                       at a program's entry, rt.platform's
@@ -133,7 +133,7 @@ endforeach()
 #                                       as dropping unused sections
 #
 # A program's link line is the pinned C compiler with its object, the
-# runtime and -o, then idris-mlir-cc --print-link-flags: --target with the
+# runtime and -o, then idris-mlir --print-link-flags: --target with the
 # triple, the executable flags, the program link flags and GMP.
 if(CMAKE_CXX_COMPILER_TARGET MATCHES "^x86_64-[^-]+-linux-musl$")
 	# x86-64-v3 (AVX2, BMI2, FMA) runs on every x86-64 CPU since Haswell

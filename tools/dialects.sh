@@ -31,7 +31,7 @@ usage() {
 [ $# -eq 1 ] || usage
 case $1 in generate | check) ;; *) usage ;; esac
 
-# The contract's dialects (idris-mlir-cc parses a module of these and
+# The contract's dialects (idris-mlir parses a module of these and
 # builtin's ops), each with its module's name and the ODS file of its ops:
 # ours, or the pinned MLIR's.
 dialects() {

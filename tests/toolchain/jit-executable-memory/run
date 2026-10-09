@@ -6,7 +6,7 @@
 # mprotect has said yes; then only the entitlement
 # com.apple.security.cs.allow-unsigned-executable-memory lets it, and
 # com.apple.security.cs.allow-jit, which is for MAP_JIT memory, does not.
-# idris-mlir-cc, copied and signed each way, compiles tests/idr/e2e/eval.mlir
+# idris-mlir, copied and signed each way, compiles tests/idr/e2e/eval.mlir
 # (whose closed calls idr-eval evaluates): as the build signs it, and with
 # that entitlement, it evaluates them; under the hardened runtime without
 # it, it rejects the compilation with an error that names the entitlement,
@@ -18,7 +18,7 @@
 step_limit=120
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 source=$root/tests/idr/e2e/eval.mlir
-runtime=$("$idris_mlir_cc" --print-runtime)
+runtime=$("$idris_mlir" --print-runtime)
 
 # entitlements NAME KEY...: a property list that grants each KEY.
 entitlements() {
@@ -35,11 +35,11 @@ entitlements() {
   } > "$work/$entitlements_name.plist"
 }
 
-# signed NAME [ENTITLEMENTS]: idris-mlir-cc copied to $work/NAME, signed ad
+# signed NAME [ENTITLEMENTS]: idris-mlir copied to $work/NAME, signed ad
 # hoc under the hardened runtime with ENTITLEMENTS' property list, or as
 # the build signed it when none is named.
 signed() {
-  cp "$idris_mlir_cc" "$work/$1"
+  cp "$idris_mlir" "$work/$1"
   [ $# -gt 1 ] || return 0
   if ! bounded codesign --force --sign - --options runtime --entitlements "$work/$2.plist" \
       "$work/$1" > "$work/codesign.log" 2>&1; then
@@ -57,7 +57,7 @@ signed() {
 compile() {
   compile_name=$1
   shift
-  bounded "$work/$compile_name" "$source" -o "$work/$compile_name.o" \
+  bounded "$work/$compile_name" -c "$source" -o "$work/$compile_name.o" \
     -mlir-debug-counter=idr-eval-call-skip=-1 -mlir-print-debug-counter "$@" \
     > "$work/$compile_name.log" 2>&1
   compile_status=$?
@@ -90,7 +90,7 @@ compile() {
 }
 
 # What the build's own compiler makes of it, the reference.
-if ! bounded "$idris_mlir_cc" "$source" -o "$work/reference.o" > "$work/reference.log" 2>&1 ||
+if ! bounded "$idris_mlir" -c "$source" -o "$work/reference.o" > "$work/reference.log" 2>&1 ||
    ! link_program "$work/reference.o" "$runtime" -o "$work/reference" > "$work/ld.log" 2>&1; then
   say "reference: does not compile or link"
   show "$work/reference.log" "$work/ld.log"

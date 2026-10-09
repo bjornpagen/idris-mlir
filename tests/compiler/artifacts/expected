@@ -1,4 +1,4 @@
 compile: exit 0
 artifacts: build/exec/Main build/exec/Main.core build/exec/Main.mlir build/exec/Main.o
-compile an unsupported change: exit 1
+compile an unsupported change: exit 3
 artifacts after the failure: none

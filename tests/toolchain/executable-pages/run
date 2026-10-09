@@ -7,7 +7,7 @@
 # segment at address 0 that the Mach-O linkers give a 64-bit executable,
 # at least 4 GiB, so that no 32-bit value read as an address is mapped.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-build=${idris_mlir_cc%/foreign/idr/idris-mlir-cc}
+build=${idris_mlir%/foreign/idr/idris-mlir}
 runtime=$build/runtime/libidris_rt.a
 page=$(cat "$build/runtime/page-size" 2> /dev/null)
 case $page in

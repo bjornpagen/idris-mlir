@@ -1,91 +1,130 @@
 #!/bin/sh
-# The compiler an upstream run script receives as $1. Check, REPL and -o
-# go to idris-mlir. --exec is how upstream runs a program; this compiler
-# has no --exec, so that becomes -o and the program, which is what
-# tools/compile.sh does. --cg names whichever backend the script runs;
-# the one under test is mlir.
+# The compiler an upstream run script receives as $1, taking Idris 2's
+# command line. What upstream's tests ask of a compiler, this one does
+# with idris-mlir and its frontend:
+#
+#   -o NAME FILE      FILE compiled by idris-mlir into build/exec/NAME, as
+#                     Idris's -o leaves it
+#   --exec main FILE  the same, into build/exec/upstream-exec unless -o
+#                     names it, and then run: this compiler writes
+#                     programs and does not run them, so --exec of any
+#                     other function is refused
+#   --check FILE      FILE built and checked by the frontend, which runs
+#                     Idris's own elaboration
+#
+# Every other mode (the REPL, a package's --build or --install) is not
+# this compiler's and is refused: Idris's own would run the program on
+# Chez Scheme, and its result is not this compiler's. --no-prelude and -p
+# pass on. What only shapes Idris's printing (--no-banner, --no-color,
+# --console-width N, -q) and --cg are dropped: the frontend prints as
+# Idris does with them, and its code generator is this compiler. Any other
+# option is a usage error. idris-mlir reads no environment, so the prefix
+# and the package path upstream's scripts set in IDRIS2_PREFIX and
+# IDRIS2_PACKAGE_PATH become its --prefix and --package-path.
 root=${IDRIS_MLIR_ROOT:?IDRIS_MLIR_ROOT must name the repository}
-idris_mlir=$root/compiler/build/exec/idris-mlir
-[ -x "$idris_mlir" ] || {
-  printf '%s\n' "Error: $idris_mlir is missing; run make build"
-  exit 1
+. "$root/tools/toolchain.sh"
+
+# refused MESSAGE: the program's error, as this compiler reports one.
+refused() {
+  printf '%s\n' "Error: unsupported (program): $1"
+  exit 3
 }
 
-args=$(mktemp "${TMPDIR:-/tmp}/idris-mlir-as-idris.XXXXXX") || exit 1
-trap 'rm -f "$args"' EXIT
+# usage MESSAGE: a command line this script does not take.
+usage() {
+  printf '%s\n' "as-idris: $1" >&2
+  exit 2
+}
+
+mode=repl
 exec_fn=
-cg_next=no
+out_name=
+file=
+no_prelude=no
+packages=
 while [ $# -gt 0 ]; do
-  if [ "$cg_next" = yes ]; then
-    printf '%s\n' mlir >> "$args"
-    cg_next=no
-    shift
-    continue
-  fi
-  if [ "$exec_fn" = pending ]; then
-    exec_fn=$1
-    shift
-    continue
-  fi
   case $1 in
-    --cg) printf '%s\n' --cg >> "$args"; cg_next=yes ;;
-    --exec) exec_fn=pending ;;
-    *) printf '%s\n' "$1" >> "$args" ;;
+    --no-banner | --no-color | -q | --quiet) ;;
+    --cg | --codegen | --console-width)
+      [ $# -gt 1 ] || usage "$1 takes a value"
+      shift
+      ;;
+    --no-prelude) no_prelude=yes ;;
+    -p | --package)
+      [ $# -gt 1 ] || usage "$1 takes a value"
+      packages="$packages $2"
+      shift
+      ;;
+    -o | --output)
+      [ $# -gt 1 ] || usage "$1 takes a value"
+      out_name=$2
+      [ "$mode" = repl ] && mode=compile
+      shift
+      ;;
+    -x | --exec)
+      [ $# -gt 1 ] || usage "$1 takes a value"
+      exec_fn=$2
+      mode=exec
+      shift
+      ;;
+    -c | --check) mode=check ;;
+    --build | --install | --install-with-src | --typecheck | --clean | --mkdoc | --repl)
+      refused "$1 is not this compiler's"
+      ;;
+    -*) usage "unknown option $1" ;;
+    *)
+      [ -z "$file" ] || usage "more than one input file: $file, $1"
+      file=$1
+      ;;
   esac
   shift
 done
 
+# The options idris-mlir's frontend takes, from the command line and from
+# the environment upstream's scripts set.
 set --
-while IFS= read -r arg || [ -n "$arg" ]; do
-  set -- "$@" "$arg"
-done < "$args"
-
-if [ -z "$exec_fn" ] || [ "$exec_fn" = pending ]; then
-  exec "$idris_mlir" "$@"
-  exit 127
-fi
-if [ "$exec_fn" != main ]; then
-  printf '%s\n' "Error: mlir backend: unsupported (program): --exec $exec_fn is not supported"
-  exit 1
-fi
-
-out_name=
-prev=
-for arg in "$@"; do
-  if [ "$prev" = -o ]; then
-    out_name=$arg
-    prev=
-    continue
-  fi
-  case $arg in
-    -o) prev=-o ;;
-  esac
-done
-if [ -z "$out_name" ]; then
-  out_name=upstream-exec
-  set -- "$@" -o "$out_name"
-fi
-has_cg=no
-prev=
-for arg in "$@"; do
-  if [ "$prev" = --cg ]; then
-    has_cg=yes
-  fi
-  prev=$arg
-done
-if [ "$has_cg" = no ]; then
-  set -- --cg mlir "$@"
+[ "$no_prelude" = yes ] && set -- "$@" --no-prelude
+for package in $packages; do set -- "$@" -p "$package"; done
+[ -n "${IDRIS2_PREFIX-}" ] && set -- "$@" --prefix "$IDRIS2_PREFIX"
+if [ -n "${IDRIS2_PACKAGE_PATH-}" ]; then
+  rest=$IDRIS2_PACKAGE_PATH
+  while [ -n "$rest" ]; do
+    directory=${rest%%:*}
+    case $rest in *:*) rest=${rest#*:} ;; *) rest= ;; esac
+    [ -n "$directory" ] && set -- "$@" --package-path "$directory"
+  done
 fi
 
+case $mode in
+  repl)
+    refused "the REPL is not this compiler's"
+    ;;
+  check)
+    [ -n "$file" ] || usage "--check takes an input file"
+    [ -x "$idris_mlir_front" ] || { printf '%s\n' "Error: $idris_mlir_front is missing; run make build"; exit 1; }
+    # The frontend takes the prefix every run, by default the checkout's.
+    case " $* " in *" --prefix "*) ;; *) set -- "$@" --prefix "$checkout_prefix" ;; esac
+    exec "$idris_mlir_front" "$@" --check "$file"
+    ;;
+esac
+[ -n "$file" ] || usage "no input file"
+if [ "$mode" = exec ] && [ "$exec_fn" != main ]; then
+  refused "--exec $exec_fn is not supported"
+fi
+[ -x "$idris_mlir" ] || { printf '%s\n' "Error: $idris_mlir is missing; run make build"; exit 1; }
+[ -n "$out_name" ] || out_name=upstream-exec
+mkdir -p build/exec || exit 1
+if [ "$mode" = compile ]; then
+  exec "$idris_mlir" "$@" "$file" -o "build/exec/$out_name"
+fi
+
+# --exec main: what compiling printed is shown only when it failed, as a
+# program Idris runs prints only its own output.
 log=$(mktemp "${TMPDIR:-/tmp}/idris-mlir-as-idris.XXXXXX") || exit 1
-"$idris_mlir" "$@" < /dev/null > "$log" 2>&1
+"$idris_mlir" "$@" "$file" -o "build/exec/$out_name" < /dev/null > "$log" 2>&1
 status=$?
-if [ "$status" -ne 0 ] || [ ! -x "build/exec/$out_name" ]; then
+if [ "$status" -ne 0 ]; then
   cat "$log"
-  if [ "$status" -eq 0 ]; then
-    printf '%s\n' "Error: compiling produced no executable build/exec/$out_name"
-    status=1
-  fi
   rm -f "$log"
   exit "$status"
 fi

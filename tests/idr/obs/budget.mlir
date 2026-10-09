@@ -6,7 +6,7 @@
 // RUN: FileCheck %s --check-prefix=NONE < %t.0.err
 // The rounds of the simplify loop are bounded by construction, and the
 // round budget asserts it: a module that still changes after max-rounds
-// rounds is a user error that names the budget, at the module (idris-mlir-cc
+// rounds is a user error that names the budget, at the module (idris-mlir
 // exits 3, as for every `unsupported` reason), and the only error. This one
 // needs more than one round, as the first inlines @twice; the default
 // budget is enough. A budget of no rounds is spent before the first.

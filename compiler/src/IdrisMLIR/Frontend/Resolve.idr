@@ -212,27 +212,21 @@ data Validation
   | ||| An entry whose definition is present and wrong: where, the name the
     ||| entry resolves, and the message.
     Wrong FC String String
-  | ||| The test directive names no entry with a definition.
+  | ||| `--break-shape=<key>` names no entry with a definition.
     NoSuchEntry String
-
-||| The test hook: `--directive break-shape=<key>` breaks that entry's shape.
-breakDirective : String -> Maybe String
-breakDirective d =
-  let flag = "break-shape=" in
-  if isPrefixOf flag d then Just (substr (length flag) (length d) d) else Nothing
 
 ||| Every entry, resolved against the loaded context once per
 ||| compilation, before anything uses the registry. An entry whose module the
 ||| program does not load is not checked; one whose definition is present
 ||| must be what the entry expects. There is no fallback: a mismatch stops
-||| the compilation.
+||| the compilation. The test hook `--break-shape=<key>` breaks the shape
+||| of the entry it names first.
 export
-validate : {auto c : Ref Ctxt Defs} -> Core Validation
-validate = do
-  ds <- getDirectives (Other "mlir")
-  case mapMaybe breakDirective ds of
-    [] => check entries
-    (name :: _) => maybe (pure (NoSuchEntry name)) check (breaking name entries)
+validate : {auto c : Ref Ctxt Defs} -> (breakShape : Maybe String) -> Core Validation
+validate breakShape =
+  case breakShape of
+    Nothing => check entries
+    Just name => maybe (pure (NoSuchEntry name)) check (breaking name entries)
   where
     check : List Entry -> Core Validation
     check [] = pure Valid

@@ -11,7 +11,7 @@ run while the other runs, share one timer, which then adds up the wrong
 intervals. Upstream, the inliner (its default pipeline on each callable)
 and `composite-fixed-point-pass` show it. Here, idr-simplify, idr-eval,
 idr-inline, idr-target and idr-canonicalize run pipelines that way, so
-`idris-mlir-cc --mlir-timing` shows it inside those steps' rows: a step's rows
+`idris-mlir --mlir-timing` shows it inside those steps' rows: a step's rows
 add up to more than the step.
 
 Reported upstream as llvm/llvm-project#169443 (2025-11-25). The fix is

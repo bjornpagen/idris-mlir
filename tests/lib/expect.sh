@@ -14,7 +14,7 @@ expect_holds() {
 }
 
 # An mlir.expect file lists, one line each, `<step>: <property>...`: the
-# properties that hold of the module after that step of idris-mlir-cc's
+# properties that hold of the module after that step of idris-mlir's
 # pipeline, or of the module Emit wrote for the step `emitted`. Lines that
 # start with `#` explain.
 

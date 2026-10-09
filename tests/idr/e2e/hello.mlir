@@ -1,4 +1,4 @@
-// RUN: idris-mlir-cc %s -o %t.o
+// RUN: idris-mlir -c %s -o %t.o
 // RUN: llvm-nm --no-llvm-bc --format=just-symbols %runtime | sort -u > %t.runtime
 // RUN: llvm-nm --undefined-only --format=just-symbols %t.o | sort -u | comm -23 - %t.runtime | count 0
 // RUN: %cc %t.o -o %t

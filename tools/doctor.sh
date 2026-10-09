@@ -84,8 +84,8 @@ for name in cmake ninja chez llvm sysroot; do
     echo "Pinned $name: $(problem "$name")"
   fi
 done
-for path in compiler/build/exec/idris-mlir \
-            "${dev_prefix#"$root"/}/foreign/idr/idris-mlir-cc" \
+for path in "${dev_prefix#"$root"/}/foreign/idr/idris-mlir" \
+            "${dev_prefix#"$root"/}/foreign/idr/idris-mlir-front" \
             "${dev_prefix#"$root"/}/foreign/idr/idris-mlir-opt"; do
   if [ -f "$root/$path" ]; then echo "$path: built"; else echo "$path: not built (make build)"; fi
 done

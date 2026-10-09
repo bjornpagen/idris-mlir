@@ -1,0 +1,29 @@
+#!/bin/sh
+# The module is at main's location, the user's code, so that whatever the
+# pipeline reports about the whole program (a compile-time budget spent,
+# a cycle with no smaller place) points there: the module's own location
+# is the line of main's declaration.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+cat > "$work/Main.idr" <<'IDRIS'
+module Main
+
+import Prelude
+
+main : IO ()
+main = putStrLn "hello"
+IDRIS
+compile_program "$work/Main.idr" Main
+say "compile: exit $compiled"
+if [ "$compiled" -ne 0 ]; then
+  show "$work/compile.out" "$work/compile.err"
+  exit 0
+fi
+bounded "$idris_mlir_opt" "$work/build/exec/Main.mlir" --mlir-print-debuginfo --mlir-print-local-scope \
+  -o - > "$work/module.mlir" 2> "$work/opt.err"
+if tail -n 1 "$work/module.mlir" | grep -qF '"Main.idr":5:'; then
+  say "the module is at Main.idr line 5, main's"
+else
+  say "the module is not at main's line"
+  tail -n 1 "$work/module.mlir"
+  show "$work/opt.err"
+fi

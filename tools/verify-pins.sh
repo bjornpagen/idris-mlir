@@ -153,8 +153,8 @@ check() {
       if [ "$1" = chez ]; then patched chez "$toolchain/chez/provenance.json" chez; fi
       ;;
     built)
-      for path in compiler/build/exec/idris-mlir \
-                  "${dev_prefix#"$root"/}/foreign/idr/idris-mlir-cc" \
+      for path in "${dev_prefix#"$root"/}/foreign/idr/idris-mlir" \
+                  "${dev_prefix#"$root"/}/foreign/idr/idris-mlir-front" \
                   "${dev_prefix#"$root"/}/foreign/idr/idris-mlir-opt"; do
         [ -f "$root/$path" ] || fail "$path is missing; run: make build"
       done

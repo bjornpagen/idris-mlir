@@ -1,7 +1,8 @@
 # The harness every run script stands on: the pinned tools, the work
 # directory, bounded commands, the test's output and the fixture files.
 
-# The pinned tools: $llvm_bin, $pinned_cc, $idris_mlir_cc, $idris_mlir_opt,
+# The pinned tools: $llvm_bin, $pinned_cc, $idris_mlir (the compiler under
+# test, with its frontend $idris_mlir_front beside it), $idris_mlir_opt,
 # and $idris2, the pinned stock Idris 2, which the frontend is built by
 # and which a test asks about the prelude it checked (pinned_idris).
 . "$root/tools/toolchain.sh"

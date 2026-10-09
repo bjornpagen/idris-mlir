@@ -1,7 +1,7 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics --idr-lower -o /dev/null
 // RUN: not idris-mlir-opt %s -split-input-file --idr-lower -o /dev/null 2>&1 | FileCheck %s
 // What no Idris program reaches is the compiler's error, never a rejection
-// (`unsupported (<reason>)`, which idris-mlir-cc reports as the user's):
+// (`unsupported (<reason>)`, which idris-mlir reports as the user's):
 // the module's data layout is the target entry's, the one the runtime is
 // built for, and Emit asks an array only for its dimension 0.
 // CHECK-NOT: unsupported (

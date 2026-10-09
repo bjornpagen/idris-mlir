@@ -1,4 +1,4 @@
-// RUN: idris-mlir-cc %s -o %t.o --no-eval
+// RUN: idris-mlir -c %s -o %t.o --no-eval
 // RUN: %cc %t.o -o %t
 // RUN: %status 149 env IDRIS_RT_LIVE=1 %t 2> %t.err
 // RUN: grep -qx 'idris-rt: live cells 0' %t.err

@@ -14,7 +14,7 @@ import rt.platform;
 namespace {
 
 // The runner's state, which the fault handler reads. One runner runs at a
-// time in a process: the program's, idris-mlir-cc's, or, after a fork, the
+// time in a process: the program's, idris-mlir's, or, after a fork, the
 // evaluation child's, which replaces its parent's.
 uintptr_t guardLow = 0;
 uintptr_t guardHigh = 0;
@@ -30,7 +30,7 @@ void onFault(uintptr_t address) {
 // The signal handler's own stack, below the guard, so that the stack it
 // reports on cannot have grown over it. A megabyte of address space, of
 // which a handler touches a few pages; the action a fault had before, LLVM's
-// crash report in idris-mlir-cc, runs on it too. It is far above what any
+// crash report in idris-mlir, runs on it too. It is far above what any
 // system asks of one (MINSIGSTKSZ and SIGSTKSZ: 32 and 128 KiB on Darwin
 // arm64, a few KiB on Linux x86-64), and a whole number of pages on each.
 constexpr size_t alternateSize = size_t{1} << 20;

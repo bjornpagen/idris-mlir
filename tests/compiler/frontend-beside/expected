@@ -1,0 +1,4 @@
+compile without a frontend beside it: exit 1
+the error names <bin>/idris-mlir-front
+artifacts: none
+a module needs no frontend: exit 0

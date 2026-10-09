@@ -5,7 +5,7 @@
 // reports, no wrapper for each function, and no symbol of the process
 // linked by default, which a static executable has no dynamic loader to
 // find. Nothing is linked from the process by name: the
-// runtime's entry points, which idris-mlir-cc links natively, and the libc
+// runtime's entry points, which idris-mlir links natively, and the libc
 // functions LLVM may call are bound through an absolute-symbol table, so the
 // JITed code runs the same runtime and libm as executables.
 //
@@ -41,7 +41,7 @@ public:
   using Entry = void (*)(void *);
 
   // Translates `module` (LLVM dialect) to LLVM IR, optimizes it as
-  // idris-mlir-cc optimizes executables for the host CPU,
+  // idris-mlir optimizes executables for the host CPU,
   // compiles it once, and finds `entries`. On failure, says why in `error`.
   static std::unique_ptr<Jit> compile(mlir::ModuleOp module, llvm::ArrayRef<std::string> entries,
                                       std::string &error);

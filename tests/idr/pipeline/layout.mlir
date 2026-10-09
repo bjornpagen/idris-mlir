@@ -1,4 +1,4 @@
-// RUN: idris-mlir-cc %s -o %t.o
+// RUN: idris-mlir -c %s -o %t.o
 // RUN: llvm-nm --defined-only --radix=d %t.o > %t.symbols
 // RUN: awk '$2 ~ /^[Tt]$/ && $1 % 64 { bad = 1 } END { exit bad }' %t.symbols
 // RUN: FileCheck %s < %t.symbols

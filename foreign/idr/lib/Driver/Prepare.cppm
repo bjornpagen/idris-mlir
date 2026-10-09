@@ -121,7 +121,7 @@ int prepare(const llvm::Target &target, const llvm::Triple &triple) {
     llvm::embedBufferInModule(*runtime, llvm::MemoryBufferRef(bitcode, "idris_rt"),
                               runtimeBitcodeSection);
   }
-  if (!emit(*runtime, *machine))
+  if (!emit(*runtime, *machine, outputPath))
     return failure;
   if (beside)
     beside->keep();

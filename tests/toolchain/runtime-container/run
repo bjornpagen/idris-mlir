@@ -10,14 +10,14 @@
 # bitcode.
 step_limit=300
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-runtime=$("$idris_mlir_cc" --print-runtime)
+runtime=$("$idris_mlir" --print-runtime)
 archive=$dev_prefix/runtime/libidris_rt.a
 
 # prepare NAME [OPTION...]: the archive prepared into $work/NAME.o.
 prepare() {
   prepare_name=$1
   shift
-  bounded "$idris_mlir_cc" --prepare-runtime --runtime="$archive" "$@" -o "$work/$prepare_name.o" \
+  bounded "$idris_mlir" --prepare-runtime --runtime="$archive" "$@" -o "$work/$prepare_name.o" \
     > "$work/prepare.log" 2>&1 && return 0
   say "$prepare_name: --prepare-runtime failed"
   show "$work/prepare.log"
@@ -100,9 +100,9 @@ program() {
   program_runtime=$2
   program=$work/program-$program_name
   shift 2
-  if ! bounded "$idris_mlir_cc" "$work/sum.mlir" -o "$program.o" --no-eval \
+  if ! bounded "$idris_mlir" -c "$work/sum.mlir" -o "$program.o" --no-eval \
       --runtime="$program_runtime" "$@" > "$work/cc.log" 2>&1; then
-    say "$program_name: idris-mlir-cc failed"
+    say "$program_name: idris-mlir failed"
     show "$work/cc.log"
     return 1
   fi

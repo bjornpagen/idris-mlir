@@ -246,7 +246,10 @@ mutual
     indent d :: named result (length op.results) ::
     opText d op (" " :: location at :: "\n" :: rest)
 
-||| A module: its op, in the generic form too, with what it holds.
+||| A module: its op, in the generic form too, with what it holds, at its
+||| location. MLIR reads a location after the top-level op as it reads one
+||| after any other, and the module keeps it: a diagnostic about the whole
+||| module is reported there.
 export
-showModule : Op -> String
-showModule m = fastConcat (opText 0 m ["\n"])
+showModule : Location -> Op -> String
+showModule at m = fastConcat (opText 0 m [" ", location at, "\n"])

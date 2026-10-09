@@ -1,5 +1,6 @@
-// idr.driver:run: one compilation, the idr pipeline, step by step, then LLVM,
-// into the output; or --prepare-runtime.
+// idr.driver:run: the in-process part of a compilation, the idr pipeline,
+// step by step, then LLVM, from a module to an object; or
+// --prepare-runtime.
 export module idr.driver:run;
 
 import idr.mlir;
@@ -27,8 +28,9 @@ std::string stepName(llvm::StringRef step) {
 // Which errors were reported. Any error fails the compilation, whether or
 // not what reported it failed: an error from a step that then goes on is an
 // error all the same. A rejection (`unsupported (<reason>): ...`) is the
-// user's, at the location of the user's code the frontend reports; any
-// other error is internal.
+// user's, printed at the location of the user's code the module carries
+// (MLIR's diagnostic handler, which shows the source line); any other
+// error is internal.
 struct Verdict {
   bool errors = false;
   bool rejected = false;
@@ -42,9 +44,10 @@ int status(const Verdict &verdict) { return verdict.rejected ? rejected : failur
 
 export namespace idr::driver {
 
-// The compilation: the pipeline, LLVM and the output, or --prepare-runtime;
-// an exit status.
-int run() {
+// The module at `modulePath` through the pipeline and LLVM into the object
+// at `objectPath`, each step timed under `rootTiming`; or --prepare-runtime.
+// An exit status.
+int run(llvm::StringRef modulePath, llvm::StringRef objectPath, mlir::TimingScope &rootTiming) {
   mlir::registerAllPasses();
   idr::registerIdrPipeline();
   // The program is parsed with exactly the contract's
@@ -72,12 +75,6 @@ int run() {
   if (prepareRuntime)
     return prepare(*target, triple);
 
-  // -mlir-timing, MLIR's own option, times the parse (with the verification
-  // that follows it), each step and LLVM's stages.
-  mlir::DefaultTimingManager timings;
-  mlir::applyDefaultTimingManagerCLOptions(timings);
-  mlir::TimingScope rootTiming = timings.getRootScope();
-
   llvm::SourceMgr sources;
   mlir::SourceMgrDiagnosticHandler diagnostics(sources, &context);
   Verdict verdict;
@@ -90,9 +87,12 @@ int run() {
     }
     return mlir::failure();
   });
+  // -mlir-timing, MLIR's own option, times the parse (with the verification
+  // that follows it), each step and LLVM's stages, under the compilation's
+  // root.
   mlir::TimingScope parseTiming = rootTiming.nest("parse");
   mlir::OwningOpRef<mlir::ModuleOp> module =
-      mlir::parseSourceFile<mlir::ModuleOp>(inputPath, sources, &context);
+      mlir::parseSourceFile<mlir::ModuleOp>(modulePath, sources, &context);
   parseTiming.stop();
   // The parsed module is verified, and some of the verifier's rules are the
   // user's (a type that can reach itself through an array).
@@ -161,6 +161,12 @@ int run() {
     }
     omitted.insert(name);
   }
+  // --dump-dir: the directory the dumps go into, made here.
+  if (!dumpDir.empty())
+    if (std::error_code made = llvm::sys::fs::create_directories(dumpDir)) {
+      cannotWrite(dumpDir, made);
+      return failure;
+    }
   // Every step is one pass manager, registered the same way: statistics when
   // they are on, MLIR's own pass-manager options, and the step's timer. The
   // step's text is the pipeline it runs.
@@ -260,7 +266,7 @@ int run() {
   stage = llvmTiming.nest("optimize");
   idr::target::optimize(*llvmModule, *machine);
   stage = llvmTiming.nest("codegen");
-  return emit(*llvmModule, *machine) ? ok : failure;
+  return emit(*llvmModule, *machine, objectPath) ? ok : failure;
 }
 
 } // namespace idr::driver

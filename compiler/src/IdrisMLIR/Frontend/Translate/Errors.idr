@@ -23,18 +23,20 @@ isEmptyFC : FC -> Bool
 isEmptyFC EmptyFC = True
 isEmptyFC _ = False
 
-||| A user error, never at an empty location.
+||| A user error, never at an empty location: `<owner>: unsupported
+||| (<reason>): <what>`, which Idris prints at its location.
 export
 reject : {auto s : Ref TState TS} -> FC -> String -> Rule -> String -> Core a
 reject fc owner rule what = do
   st <- get TState
   let fc' = if isEmptyFC fc then st.moduleFC else fc
-  throw (GenericMsg fc' ("mlir backend: " ++ owner ++ ": unsupported (" ++ show rule ++ "): " ++ what))
+  throw (GenericMsg fc' (owner ++ ": unsupported (" ++ show rule ++ "): " ++ what))
 
-||| A compiler bug, not the user's.
+||| A compiler bug, not the user's: Idris's own error for one, which the
+||| frontend's exit status tells apart from every error of the program.
 export
 internal : FC -> String -> Core a
-internal fc msg = throw (GenericMsg fc ("mlir backend: internal error: " ++ msg))
+internal fc msg = throw (InternalError (show fc ++ ": internal error: " ++ msg))
 
 ||| An Idris location as a Core location, with the source file resolved and
 ||| the origin the registry gives its module. A package file is in no module.

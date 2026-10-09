@@ -25,11 +25,11 @@ filecheck() {
 #
 #     // input: emitted              the .mlir Emit wrote, as MLIR prints it
 #     // input: after <step>         the module after that step of
-#                                    idris-mlir-cc's pipeline
+#                                    idris-mlir's pipeline
 #
 # and without either, the module after `idr-simplify`, the simplify loop,
 # where the eliminations are done and nothing is lowered yet. A step's
-# module is the file `<NN>-<step>.mlir` that idris-mlir-cc --dump-dir
+# module is the file `<NN>-<step>.mlir` that idris-mlir --dump-dir
 # writes, found by the step's name and not by its number, so it survives
 # steps added before it; of two dumps of a step (canonicalize runs more
 # than once) the first is taken. A step that left no dump fails the check,

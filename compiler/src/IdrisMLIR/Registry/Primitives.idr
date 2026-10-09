@@ -23,8 +23,14 @@ export
 mainModule : List String
 mainModule = ["Main"]
 
-||| The name this backend is registered under, which `System.Info.codegen`
-||| reports.
+||| The function a program runs: the user's `main`, which the root runs
+||| under `unsafePerformIO` (`programRoot`).
+export
+programEntry : String
+programEntry = "main"
+
+||| The code generator a program is compiled by, as `System.Info.codegen`
+||| reports it.
 export
 codegenName : String
 codegenName = "mlir"
@@ -57,8 +63,9 @@ ioType (a :: as) r = Pi Quantity.Many a (ioType as r)
 -- The table
 ------------------------------------------------------------------------------
 
-||| `unsafePerformIO : {0 a : Type} -> IO a -> a`: Idris hands an IO backend
-||| `unsafePerformIO main`.
+||| `unsafePerformIO : {0 a : Type} -> IO a -> a`: the root of a program is
+||| its code, `unsafePerformIO programEntry`, which translateIOProgram
+||| writes.
 programRoot : Entry
 programRoot = MkEntry (Def (MkQName ["PrimIO"] "unsafePerformIO"))
                       (Typed (Pi Zero TypeOfTypes (Pi Quantity.Many (io Hole) Hole)))

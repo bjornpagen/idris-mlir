@@ -1,7 +1,7 @@
 #!/bin/sh
 # Emit writes ops of the contract's dialects only, each through the builder
 # generated from the op's ODS (IdrisMLIR.Dialect.*, tools/dialects.sh):
-# idris-mlir-cc parses with a registry of exactly idr, func, arith, math,
+# idris-mlir parses with a registry of exactly idr, func, arith, math,
 # ub, memref and builtin. So
 #   - each generated module builds ops of one dialect of the contract, and
 #     the contract's dialects each have one;

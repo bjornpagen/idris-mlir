@@ -12,7 +12,6 @@ import idr.mlir;
 
 import :options;
 import :report;
-import :run;
 
 namespace idr::driver {
 
@@ -25,17 +24,22 @@ namespace {
 // bytes, more than the memory of a machine that compiles, so memory runs
 // out first; no more, since reserving costs time in proportion to the
 // size, at the start, at the exit and at every fork of compile-time
-// evaluation. PIN(mlir-recursion) — see PINS.md
+// evaluation. The frontend and the link are spawned from this thread,
+// which posix_spawn allows. PIN(mlir-recursion) — see PINS.md
 struct Compilation {
+  llvm::function_ref<int()> body;
   int status = failure;
 };
 
-void compile(void *argument) { static_cast<Compilation *>(argument)->status = run(); }
+void enter(void *argument) {
+  auto *compilation = static_cast<Compilation *>(argument);
+  compilation->status = compilation->body();
+}
 
 // From the signal handler: only write and _exit.
 [[noreturn]] void compilationExhausted() {
   static constexpr char message[] =
-      "idris-mlir-cc: internal error: the compilation exhausted its stack\n";
+      "idris-mlir: internal error: the compilation exhausted its stack\n";
   (void)!write(2, message, sizeof message - 1);
   _exit(failure);
 }
@@ -46,10 +50,10 @@ void compile(void *argument) { static_cast<Compilation *>(argument)->status = ru
 
 export namespace idr::driver {
 
-// Runs `run` on the runtime's reserved-stack runner; its exit status.
-int runOnLargeStack() {
-  Compilation compilation;
-  if (idris_rt_run_on_stack(compile, &compilation, size_t{1} << 40, size_t{1} << 20,
+// Runs `body` on the runtime's reserved-stack runner; its exit status.
+int runOnLargeStack(llvm::function_ref<int()> body) {
+  Compilation compilation{body};
+  if (idris_rt_run_on_stack(enter, &compilation, size_t{1} << 40, size_t{1} << 20,
                             compilationExhausted) != 0) {
     Report() << "no stack could be reserved for the compilation";
     return failure;

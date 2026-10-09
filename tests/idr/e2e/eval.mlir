@@ -1,17 +1,17 @@
 // RUN: idris-mlir-opt %s --mlir-disable-threading --idr-target --idr-simplify --remarks-filter=idr-eval -o /dev/null 2> %t.remarks
 // RUN: FileCheck %s --check-prefix=REMARK < %t.remarks
 // RUN: rm -rf %t.dumps && mkdir -p %t.dumps
-// RUN: idris-mlir-cc %s -o %t.o --dump-dir=%t.dumps
+// RUN: idris-mlir -c %s -o %t.o --dump-dir=%t.dumps
 // RUN: sh -c 'for dump in %t.dumps/*; do last=$dump; done; cat "$last"' > %t.mlir
 // RUN: FileCheck %s --check-prefix=EVALUATED < %t.mlir
 // RUN: %cc %t.o -o %t
 // RUN: %t | FileCheck %s
-// RUN: idris-mlir-cc %s -o %t-no-eval.o --no-eval
+// RUN: idris-mlir -c %s -o %t-no-eval.o --no-eval
 // RUN: %cc %t-no-eval.o -o %t-no-eval
 // RUN: %t-no-eval | FileCheck %s
 // A closed call of a pure, total function is evaluated at compile time: the
 // program's own lowering runs in the JIT, and the results, among them a
-// string built by the runtime, are static data in the module idris-mlir-cc
+// string built by the runtime, are static data in the module idris-mlir
 // ends with, and in the executable, which prints them. With --no-eval
 // nothing is evaluated, and the string is built at runtime, on the heap:
 // the program prints the same.

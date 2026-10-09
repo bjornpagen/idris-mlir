@@ -16,7 +16,7 @@ determinism() {
   for det_round in 1 2; do
     rm -rf "$work/det/build"
     # shellcheck disable=SC2086 # the packages are words
-    compile_program $det_packages --directive dump-mlir "$work/det/Main.idr" prog
+    compile_program $det_packages --dump-dir="$work/det/build/exec/prog.dump" "$work/det/Main.idr" prog
     det_core=$work/det/build/exec/prog.core
     det_mlir=$work/det/build/exec/prog.mlir
     det_object=$work/det/build/exec/prog.o
@@ -73,7 +73,7 @@ determinism_threads() {
     for det_package in $(cat "$1/packages"); do det_packages="$det_packages -p $det_package"; done
   fi
   # shellcheck disable=SC2086 # the packages are words
-  compile_program $det_packages --directive dump-mlir "$work/det/Main.idr" prog
+  compile_program $det_packages --dump-dir="$work/det/build/exec/prog.dump" "$work/det/Main.idr" prog
   say "compile: exit $compiled"
   if [ "$compiled" -ne 0 ]; then
     show "$work/compile.out" "$work/compile.err"

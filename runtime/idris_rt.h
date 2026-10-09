@@ -2,7 +2,7 @@
  *
  * Every helper that idr-lower calls is here. A program inlines the
  * runtime's bitcode where that pays and links the rest natively, so what a
- * program does not call is not in its executable. idris-mlir-cc links the
+ * program does not call is not in its executable. idris-mlir links the
  * same code natively: the folders of the string and big ops call it, and so
  * does the code idr-eval JITs, so a primitive has one implementation at
  * compile time and at runtime.
@@ -242,7 +242,7 @@ void idris_rt_free_cell(void *o);
 
 /* The heap cells the runtime allocated (idris_rt_cell, strings and bignums)
  * and has not freed yet, counted by the calling thread: a program is
- * single-threaded, and idris-mlir-cc reads it before and after each fold, on
+ * single-threaded, and idris-mlir reads it before and after each fold, on
  * the thread that folds, with no atomic operation on the allocation path. */
 uint64_t idris_rt_live_cells(void);
 
@@ -441,7 +441,7 @@ IDRIS_RT_NORETURN void idris_rt_crash_str(const idris_rt_str *s);
  * when the system's page size is not the target's the runtime is built for,
  * it names both and ends the process with IDRIS_RT_CRASHED. When the
  * CPU lacks one of them, it names them and ends the process with
- * IDRIS_RT_CRASHED before the program runs; it is compiled for the target's baseline, and idris-mlir-cc
+ * IDRIS_RT_CRASHED before the program runs; it is compiled for the target's baseline, and idris-mlir
  * keeps it there. Otherwise it runs body on a reserved stack
  * (idris_rt_run_on_stack) of the number of bytes the environment variable
  * IDRIS_RT_STACK says, or else of a gibibyte, or of the stack limit when
@@ -452,7 +452,7 @@ IDRIS_RT_NORETURN void idris_rt_crash_str(const idris_rt_str *s);
  * names any other value, which no parent could tell from its low 8 bits. */
 int idris_rt_start(int64_t (*body)(void), uint64_t cpu_features, int argc, char **argv);
 
-/* The reserved-stack runner, which programs, idris-mlir-cc and compile-time
+/* The reserved-stack runner, which programs, idris-mlir and compile-time
  * evaluation's child share: runs fn(arg) on a new thread whose stack is
  * reserved address space, committed as it is touched, of the largest size
  * from `most` bytes down by halves to 64 MiB (or `most`, when smaller)
@@ -625,7 +625,7 @@ void idris_rt_gmp_init(void);
  * crash (idris_rt_crash) reports to the evaluator. The arena is never freed:
  * the child ends with the round, and memory management is not
  * observable. Only the compiler calls these, natively,
- * never a program (rt.eval annotates them so); the runtime idris-mlir-cc
+ * never a program (rt.eval annotates them so); the runtime idris-mlir
  * prepares for programs has no entry for them. */
 void idris_rt_eval_begin(int report_fd);
 void *idris_rt_arena_alloc(size_t size);

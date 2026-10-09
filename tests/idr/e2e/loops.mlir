@@ -1,4 +1,4 @@
-// RUN: idris-mlir-cc %s -o %t.o --no-eval
+// RUN: idris-mlir -c %s -o %t.o --no-eval
 // RUN: %cc %t.o -o %t
 // RUN: %t > %t.out
 // RUN: FileCheck %s < %t.out

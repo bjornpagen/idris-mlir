@@ -1,5 +1,5 @@
 #!/bin/sh
-# The runtime idris-mlir-cc prepares for programs (--print-runtime) is one
+# The runtime idris-mlir prepares for programs (--print-runtime) is one
 # object that every executable links. Its native half defines the C ABI
 # programs call and behaves as the archive it was prepared from: the
 # runtime-api programs, built against it, print what they print against the
@@ -8,7 +8,7 @@
 # needs nothing beyond the runtime's symbols and this list (tests/lib/heap.sh
 # checks each e2e program for that).
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-runtime=$("$idris_mlir_cc" --print-runtime)
+runtime=$("$idris_mlir" --print-runtime)
 archive=$dev_prefix/runtime/libidris_rt.a
 if [ ! -f "$runtime" ]; then
   say "prepared runtime: missing ($runtime)"

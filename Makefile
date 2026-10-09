@@ -21,6 +21,7 @@
 #   make test-mlir-tools   tests/upstream, each upstream bug on its reproducer with the
 #                          pinned tools; after changing upstream MLIR usage
 #   make compile SRC=Main.idr OUT=prog
+#                          idris-mlir, through tools/compile.sh
 #   make bench             bench/run.sh; ARGS='--runs 3 fib' passes arguments
 #
 # The test commands run tests/Main.idr, a golden runner that runs each test
@@ -39,13 +40,14 @@ toolchain = $(shell root='$(ROOT)'; . '$(ROOT)/tools/toolchain.sh'; printf '%s' 
 IDRIS_PREFIX := $(call toolchain,idris_prefix)
 IDRIS2 := $(call toolchain,idris2)
 CMAKE := $(call toolchain,cmake)
-PINNED_CC := $(call toolchain,pinned_cc)
-IDRIS_MLIR_CC := $(call toolchain,idris_mlir_cc)
 # The C++ build's configure preset (CMakePresets.json, through
 # tools/toolchain.sh), the same on every host.
 DEV_PRESET := $(call toolchain,dev_preset)
-COMPILER := $(ROOT)/compiler/build/exec/idris-mlir
-PATHS_MODULE := $(ROOT)/compiler/src/IdrisMLIR/Frontend/Paths.idr
+# idris-mlir, the one command, which the tests run; it runs the frontend
+# beside it, which `build` links there from where Idris builds it.
+COMPILER := $(call toolchain,idris_mlir)
+IDRIS_MLIR_FRONT := $(call toolchain,idris_mlir_front)
+FRONTEND := $(ROOT)/compiler/build/exec/idris-mlir-front
 RUNNER := $(ROOT)/tests/build/exec/runtests
 PINS := $(ROOT)/tools/verify-pins.sh
 
@@ -57,15 +59,19 @@ PINS := $(ROOT)/tools/verify-pins.sh
 # checkout builds for it into HOST_PREFIX: the fork of its compiler
 # (compiler/idris), which it builds the frontend against, and the packages
 # of libs/, which the benchmarks' Chez baseline uses; it finds them there
-# beside its own prelude and base. The frontend (COMPILER) runs on
+# beside its own prelude and base. The frontend (FRONTEND) reads
 # CHECKOUT_PREFIX, which holds only what it built itself: the packages of
-# the pinned Idris source (`prefix`) and those of libs/ (`libs`). Every command inherits no package path from another
-# installation, and CHEZ is the pinned Chez Scheme the pinned Idris was
-# built with (tools/verify-pins.sh idris checks that), never one on PATH.
+# the pinned Idris source (`prefix`) and those of libs/ (`libs`). Every
+# command inherits no package path from another installation, and CHEZ is
+# the pinned Chez Scheme the pinned Idris was built with
+# (tools/verify-pins.sh idris checks that), never one on PATH.
 unexport IDRIS2_PATH IDRIS2_PACKAGE_PATH IDRIS2_INC_CGS IDRIS2_INC_SRC IDRIS2_DATA IDRIS2_LIBS IDRIS2_CG IDRIS2_BOOT
 CHECKOUT_PREFIX := $(call toolchain,checkout_prefix)
 HOST_PREFIX := $(call toolchain,host_prefix)
-# What the tests and `compile` run is the frontend, on its prefix.
+# idris-mlir and its frontend read no environment: their prefix is an
+# argument, by default the preset's, which is CHECKOUT_PREFIX. What reads
+# Idris's environment is upstream's test scripts, whose compiler
+# (tests/upstream-idris/as-idris) passes it on as arguments.
 export IDRIS2_PREFIX := $(CHECKOUT_PREFIX)
 export PATH := $(IDRIS_PREFIX)/bin:$(PATH)
 export IDRIS_MLIR_ROOT := $(ROOT)
@@ -87,7 +93,7 @@ TIMEOUT_MISSING := $(call toolchain,timeout_missing)
 RUN_TESTS = $(or $(TIMEOUT),$(error $(TIMEOUT_MISSING))) -k 10 14400 $(RUNNER) $(COMPILER)
 
 .PHONY: help bootstrap doctor verify-pins env check build fork frontend prefix libs host-libs \
-        paths test test-idr test-mlir-tools runner compile bench
+        test test-idr test-mlir-tools runner compile bench
 .DEFAULT_GOAL := help
 
 # `make` alone lists the commands: the comment that starts this file.
@@ -107,18 +113,18 @@ verify-pins:
 env:
 	@env | grep -E '^(IDRIS2_[A-Z_]*|CHEZ|IDRIS_MLIR_ROOT)=' | sort
 
-# The presets are the only interface for building C++. The frontend comes
-# after the paths it records, and its prefix after the frontend, which
-# builds it: one make after the other, so that no parallel make builds the
-# prefix with a frontend older than the fork.
+# The presets are the only interface for building C++. The frontend is
+# linked beside idris-mlir, where idris-mlir runs it, and its prefix comes
+# after the frontend, which builds it: one make after the other, so that
+# no parallel make builds the prefix with a frontend older than the fork.
 build:
 	@$(PINS) cmake ninja llvm sysroot
 	cd $(ROOT) && $(CMAKE) --preset $(DEV_PRESET)
 	cd $(ROOT) && $(CMAKE) --build --preset $(DEV_PRESET)
 	@$(PINS) idris
-	@$(MAKE) --no-print-directory paths
 	$(ROOT)/tools/dialects.sh generate
 	@$(MAKE) --no-print-directory frontend
+	ln -sfn '$(FRONTEND)' '$(IDRIS_MLIR_FRONT)'
 	@$(MAKE) --no-print-directory libs
 
 # The pinned Idris's directory of packages under a prefix, where it installs
@@ -157,9 +163,9 @@ $(FORK_STAMP): $(FORK_SOURCES) $(wildcard $(IDRIS_PREFIX)/provenance.json)
 	@touch $@
 
 # The frontend, by the pinned Idris, against the fork (HOST_PREFIX) and the
-# pinned prelude and base; it runs the tools that `paths` records. Beside
-# it, syntax-samples (base only), which writes one sample of every type and
-# attribute of the generated syntax for tests/compiler/dialect-syntax.
+# pinned prelude and base. Beside it, syntax-samples (base only), which
+# writes one sample of every type and attribute of the generated syntax for
+# tests/compiler/dialect-syntax.
 frontend: fork
 	@$(PINS) idris
 	cd $(ROOT)/compiler && export IDRIS2_PREFIX='$(IDRIS_PREFIX)' IDRIS2_PACKAGE_PATH="$(call libdir,$(HOST_PREFIX))" && \
@@ -177,10 +183,10 @@ PREFIX_STAMP := $(CHECKOUT_PREFIX)/$(call toolchain,prefix_stamp)
 prefix: $(PREFIX_STAMP)
 $(PREFIX_STAMP): $(FORK_STAMP)
 	@$(PINS) source
-	@[ '$(COMPILER)' -nt '$(FORK_STAMP)' ] || \
-	  { echo 'error: $(COMPILER) was not built since the fork was installed; run: make build' >&2; exit 1; }
+	@[ '$(FRONTEND)' -nt '$(FORK_STAMP)' ] || \
+	  { echo 'error: $(FRONTEND) was not built since the fork was installed; run: make build' >&2; exit 1; }
 	@rm -rf '$(CHECKOUT_PREFIX)' '$(CHECKOUT_PREFIX)-src' && mkdir -p '$(CHECKOUT_PREFIX)'
-	$(call install,IDRIS2_PREFIX='$(CHECKOUT_PREFIX)' '$(COMPILER)',$(CHECKOUT_PREFIX),$(addprefix $(IDRIS_SOURCE)/libs/,$(IDRIS_LIBS)))
+	$(call install,'$(FRONTEND)' --prefix '$(CHECKOUT_PREFIX)',$(CHECKOUT_PREFIX),$(addprefix $(IDRIS_SOURCE)/libs/,$(IDRIS_LIBS)))
 	@touch $@
 
 # The packages this compiler ships (libs/), installed by the frontend into
@@ -190,7 +196,7 @@ SHIPPED_SOURCES := $(shell find $(SHIPPED) -name build -prune -o \( -name '*.idr
 LIBS_STAMP := $(CHECKOUT_PREFIX)/$(call toolchain,libs_stamp)
 libs: $(LIBS_STAMP)
 $(LIBS_STAMP): $(PREFIX_STAMP) $(SHIPPED_SOURCES)
-	$(call install,IDRIS2_PREFIX='$(CHECKOUT_PREFIX)' '$(COMPILER)',$(CHECKOUT_PREFIX),$(SHIPPED))
+	$(call install,'$(FRONTEND)' --prefix '$(CHECKOUT_PREFIX)',$(CHECKOUT_PREFIX),$(SHIPPED))
 	@touch $@
 
 # The packages of libs/ for the pinned Idris too, installed into
@@ -203,25 +209,6 @@ $(HOST_LIBS_STAMP): $(wildcard $(IDRIS_PREFIX)/provenance.json) $(SHIPPED_SOURCE
 	@mkdir -p '$(HOST_PREFIX)'
 	$(call install,IDRIS2_PREFIX='$(HOST_PREFIX)' IDRIS2_PACKAGE_PATH="$(call libdir,$(IDRIS_PREFIX))" '$(IDRIS2)',$(HOST_PREFIX),$(SHIPPED))
 	@touch $@
-
-# The -o path runs the tools recorded here, never PATH, links the runtime
-# idris-mlir-cc reads, and links for the target it compiles for with the
-# arguments it prints (--print-link-flags), each an Idris string.
-paths:
-	@runtime=$$('$(IDRIS_MLIR_CC)' --print-runtime) && \
-	printed=$$('$(IDRIS_MLIR_CC)' --print-link-flags) && \
-	flags=$$(printf '%s\n' "$$printed" | sed 's/[\\"]/\\&/g; s/.*/"&"/' | paste -sd, -) && { printf '%s\n' \
-	    '||| Generated by make build: the pinned tools the -o path runs, the' \
-	    '||| runtime idris-mlir-cc reads, which every executable links, and what' \
-	    '||| links an executable for the target it compiles for, after its object,' \
-	    '||| the runtime and -o. Do not edit.' \
-	    'module IdrisMLIR.Frontend.Paths' '' \
-	    'export' 'idrisMlirCc : String' 'idrisMlirCc = "$(IDRIS_MLIR_CC)"' '' \
-	    'export' 'pinnedCc : String' 'pinnedCc = "$(PINNED_CC)"' '' \
-	    'export' 'runtime : String' "runtime = \"$$runtime\"" '' \
-	    'export' 'linkFlags : List String' "linkFlags = [$$flags]"; } > '$(PATHS_MODULE).new'
-	@if cmp -s '$(PATHS_MODULE).new' '$(PATHS_MODULE)'; then \
-	    rm '$(PATHS_MODULE).new'; else mv '$(PATHS_MODULE).new' '$(PATHS_MODULE)'; fi
 
 # Every test command rebuilds the runner while other runs may be using it.
 # So it is built aside, in build/stage, one build at a time (a mkdir

@@ -36,29 +36,29 @@ lit_status() {
 
 # lit_cc ARG... (`%cc`): the pinned C compiler, which links a program with
 # what every program needs, as tools/compile.sh links one: the runtime
-# idris-mlir-cc reads, where what a program did not inline resolves, and
+# idris-mlir reads, where what a program did not inline resolves, and
 # what links a program for the target, GMP among it, since the runtime
 # frees a big's limbs (link_program).
 lit_cc() {
-  link_program "$@" "$("$idris_mlir_cc" --print-runtime)"
+  link_program "$@" "$("$idris_mlir" --print-runtime)"
 }
 
 # lit FILE: the `// RUN:` lines of a dialect test, run as lit's internal
 # shell ran them, with no lit and no Python: %s is FILE, %t a path in the
 # work directory, %cc the pinned C compiler linking a program as the chain
-# does (lit_cc), %runtime the runtime object idris-mlir-cc reads and every
+# does (lit_cc), %runtime the runtime object idris-mlir reads and every
 # program links, and `%status N CMD` checks that CMD exits with status N. A
 # line fails when any command of its pipelines fails (pipefail); a trailing
-# \ continues it on the next RUN line. idris-mlir-opt, idris-mlir-cc and the
+# \ continues it on the next RUN line. idris-mlir-opt, idris-mlir and the
 # pinned LLVM's FileCheck, not and count come first on PATH, `echo -n`
 # omits the newline, and `timeout` is coreutils' (tools/host.sh), which
 # bounds itself.
 lit() {
   lit_file=$(cd "$(dirname "$1")" && pwd)/${1##*/}
-  # The runtime is idris-mlir-cc's (make build), asked for only by a test
+  # The runtime is idris-mlir's (make build), asked for only by a test
   # that names it.
   lit_runtime=
-  if grep -q '%runtime' "$lit_file"; then lit_runtime=$("$idris_mlir_cc" --print-runtime); fi
+  if grep -q '%runtime' "$lit_file"; then lit_runtime=$("$idris_mlir" --print-runtime); fi
   sed -n 's/^[[:space:]]*\/\/[[:space:]]*RUN:[[:space:]]*//p' "$lit_file" |
     awk '{ sub(/[ \t]+$/, "") }
          /\\$/ { sub(/\\$/, ""); joined = joined $0; next }

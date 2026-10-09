@@ -29,18 +29,24 @@ import IdrisMLIR.MLIR
 import IdrisMLIR.Term
 
 import Control.Monad.State
+import Data.List
 
 %default total
 
-||| The contract text of a program: the `idr` module `idris-mlir-cc` reads.
+||| The contract text of a program: the `idr` module idris-mlir reads. The
+||| module is at the root's location, which is main's, so that whatever the
+||| pipeline reports about the whole program is at the user's code.
 export
 emit : Source -> Either String String
 emit src = do
+  let Just root = find (\f => f.id == src.root) src.fns
+    | Nothing => Left "the root function is missing"
   let ix = index src
   let start = MkES 0 [<]
   (_, statements) <- runStateT start $ do
     datas <- traverse (dataDecl ix) src.datas
     fns <- traverse (function ix src.root) src.fns
     pure (datas ++ fns)
-  pure (showModule ({ attributes := [Idr.programDiscardable] }
+  pure (showModule (At root.loc)
+                   ({ attributes := [Idr.programDiscardable] }
                       (Builtin.moduleOp (MkRegion [] statements))))

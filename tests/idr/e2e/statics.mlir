@@ -1,4 +1,4 @@
-// RUN: idris-mlir-cc %s -o %t.o --mlir-timing 2> %t.timing
+// RUN: idris-mlir -c %s -o %t.o --mlir-timing 2> %t.timing
 // RUN: FileCheck %s --check-prefix=TIMING < %t.timing
 // RUN: %cc %t.o -o %t
 // RUN: %t | FileCheck %s

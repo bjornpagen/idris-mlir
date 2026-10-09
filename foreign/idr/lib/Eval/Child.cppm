@@ -1,5 +1,5 @@
 // idr.eval:child: running a round's calls in a child process.
-// idris-mlir-cc runs MLIR single-threaded; elsewhere a module pass runs
+// idris-mlir runs MLIR single-threaded; elsewhere a module pass runs
 // alone, so any threads of MLIR's pool wait idle, holding no lock the child
 // needs, when it forks. The child runs the calls on a stack reserved as large
 // as the address space allows, with a guard below it, and writes what it
@@ -291,7 +291,7 @@ std::optional<std::string> refusesJitCode(Jit::Entry probe) {
     why += ". Under macOS's hardened runtime, a process may run such code only with the "
            "entitlement com.apple.security.cs.allow-unsigned-executable-memory "
            "(com.apple.security.cs.allow-jit covers MAP_JIT memory, which LLVM's JIT does not "
-           "map): sign idris-mlir-cc without the hardened runtime, or with that entitlement";
+           "map): sign idris-mlir without the hardened runtime, or with that entitlement";
   return why + " (or compile with --no-eval)";
 }
 

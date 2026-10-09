@@ -1,10 +1,12 @@
 # Compiling a program with the compiler under test, and the artifacts a
 # compilation leaves or must not leave.
 
-# compile_program [-p PACKAGE]... [--directive D]... SOURCE OUTPUT: SOURCE,
-# an IO program, compiled through tools/compile.sh, the one copy of the
-# chain. Its output is in $work/compile.out and $work/compile.err, its exit
-# status in $compiled; its wall time goes to the timing record.
+# compile_program [OPTION]... SOURCE OUTPUT: SOURCE, an IO program,
+# compiled with idris-mlir's OPTION... (-p PACKAGE, --no-eval,
+# --demand-in-place, --dump-dir=DIR, --break-shape=KEY) through
+# tools/compile.sh, the one copy of how idris-mlir runs. Its output is in
+# $work/compile.out and $work/compile.err, its exit status in $compiled;
+# its wall time goes to the timing record.
 compile_program() {
   compile_started=$(now_ms)
   bounded "$compile_sh" "$@" > "$work/compile.out" 2> "$work/compile.err"
@@ -14,10 +16,10 @@ compile_program() {
 
 # link_program ARG...: the pinned C compiler with ARG... (sources or objects,
 # the runtime, -o and any option), then what links a program for the
-# target, one argument per line of idris-mlir-cc --print-link-flags, as the
-# -o flow links one.
+# target, one argument per line of idris-mlir --print-link-flags, as
+# idris-mlir links one.
 link_program() {
-  link_program_flags=$("$idris_mlir_cc" --print-link-flags) || return 1
+  link_program_flags=$("$idris_mlir" --print-link-flags) || return 1
   while IFS= read -r link_program_flag; do
     set -- "$@" "$link_program_flag"
   done << EOF

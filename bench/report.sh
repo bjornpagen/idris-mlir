@@ -78,7 +78,7 @@ best "$run" > "$run/best.tsv"
     }' "$run/best.tsv"
   if [ -s "$run/compile.tsv" ]; then
     echo
-    echo "Compile time of this compiler, wall-clock seconds, once: idris-mlir, idris-mlir-cc and the link."
+    echo "Compile time of this compiler, wall-clock seconds, once: idris-mlir (frontend, pipeline and link)."
     echo
     echo "| benchmark | compile |"
     echo "| --- | ---: |"

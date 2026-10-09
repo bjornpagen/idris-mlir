@@ -32,7 +32,7 @@ constexpr size_t roundUp(size_t n, size_t unit) noexcept { return (n + unit - 1)
 // process, so a runtime built for another page size refuses to start. It
 // allocates nothing and writes with write(2), not rt.io, which is above it.
 // It runs before the processor test, so it stays compiled for the target's
-// baseline (idris-rt-baseline), with no call that idris-mlir-cc could raise.
+// baseline (idris-rt-baseline), with no call that idris-mlir could raise.
 [[clang::annotate("idris-rt-baseline")]] void checkPageSize() noexcept {
   size_t system = static_cast<size_t>(sysconf(_SC_PAGESIZE));
   if (system == pageSize())

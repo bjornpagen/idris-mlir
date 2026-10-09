@@ -31,7 +31,7 @@ fuzz_agree() {
 
 # fuzz SEED: the fuzzer (tests/Fuzz.idr). For each part, `runtime` and
 # `static`, its program of SEED is compiled with evaluation and with
-# --directive no-eval (the runtime part only: the static part's values
+# --no-eval (the runtime part only: the static part's values
 # cannot exist at runtime); each runs on empty stdin, exits 0 and writes
 # nothing on stderr. Then:
 #   - each case prints one value on all its lines: the folders' (d), the one
@@ -74,7 +74,7 @@ fuzz_check() {
     cp "$fuzz_dir/Main.idr" "$fuzz_dir/$fuzz_mode/Main.idr"
     case $fuzz_mode in
       eval) compile_program "$fuzz_dir/eval/Main.idr" prog ;;
-      noeval) compile_program --directive no-eval "$fuzz_dir/noeval/Main.idr" prog ;;
+      noeval) compile_program --no-eval "$fuzz_dir/noeval/Main.idr" prog ;;
     esac
     if [ "$compiled" -ne 0 ]; then
       printf '%s\n' "$fuzz_seed: $fuzz_mode: compile exit $compiled" >> "$work/fuzz.compiled"

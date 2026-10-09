@@ -6,7 +6,7 @@
 # which is the one a clock declares, a pointer operation by its spec or as
 # the identity on its handle, the exit by name, and a definition outside
 # the language by name (a signal, a thread, a process). The test hook
-# `--directive break-shape=<key>` breaks one entry's shape at a time; the
+# `--break-shape=<key>` breaks one entry's shape at a time; the
 # compilation must then fail with a shape mismatch that shows the entry,
 # the shape expected and the shape found, and leave no artifact. Unbroken,
 # the program compiles.
@@ -15,7 +15,7 @@
 broken() {
   mkdir "$work/$2"
   copy_fixture . "$work/$2"
-  compile_program --directive "break-shape=$1" "$work/$2/Main.idr" prog
+  compile_program --break-shape="$1" "$work/$2/Main.idr" prog
   say "$1 broken: exit $compiled"
   if grep -qF "unsupported (hook): the registry's entry $1 (" "$work/compile.out" "$work/compile.err" &&
      grep -q "expects .* : (_ : %World) -> .*, but found " "$work/compile.out" "$work/compile.err"; then

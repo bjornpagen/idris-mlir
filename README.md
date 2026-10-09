@@ -81,7 +81,8 @@ none. What the compiler cannot compile it rejects with a named rule
 [bench/](bench/README.md).
 
 ```sh
-idris-mlir --no-prelude --cg mlir -o prog Main.idr
+idris-mlir --no-prelude Main.idr -o prog
+idris-mlir prog.mlir -c -o prog.o
 make compile SRC=Main.idr OUT=prog
 ```
 

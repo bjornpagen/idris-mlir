@@ -3,7 +3,7 @@
 #
 #     tools/bisect.sh SOURCE TAG [STDIN]
 #
-# SOURCE is the contract text idris-mlir-cc compiles (a .mlir file), or an
+# SOURCE is the contract text idris-mlir compiles (a .mlir file), or an
 # Idris program, which tools/compile.sh compiles first, in a copy of the
 # .idr files of its directory, for the text it emits. TAG names a kind of
 # action (idr-eval-call, idr-specialize-clone, idr-raise, or MLIR's own,
@@ -20,8 +20,10 @@
 # N - 1 before it. That action's IR unit, the op it transforms, comes from a
 # compilation that logs the actions of TAG (-log-actions-to).
 #
-# Every compilation, link and run is bounded by 300 seconds. The
-# idris-mlir-cc it bisects is the one `make build` makes. Exit status: 0
+# Every compilation (with its link) and run is bounded by 300 seconds. The
+# idris-mlir it bisects is the one `make build` makes. A diagnostic does not
+# print the op it is about unless asked: to see it while debugging, run the
+# reproducing command with --mlir-print-op-on-diagnostic. Exit status: 0
 # when the action is found; 1 when there is none to find (the program
 # behaves as the reference, or already differs with no action of TAG); 2 on
 # a usage error or when the reference cannot be built.
@@ -43,7 +45,7 @@ input=${3:-/dev/null}
 case $tag in
   '' | *[!a-z0-9-]*) echo "bisect: $tag is not an action tag" >&2; exit 2 ;;
 esac
-[ -x "$idris_mlir_cc" ] || { echo "bisect: no $idris_mlir_cc; run make build" >&2; exit 2; }
+[ -x "$idris_mlir" ] || { echo "bisect: no $idris_mlir; run make build" >&2; exit 2; }
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/idris-mlir-bisect.XXXXXX") || exit 2
 trap 'rm -rf "$work"' EXIT
@@ -78,35 +80,17 @@ case $source in
     ;;
 esac
 
-# link ARG...: the pinned C compiler with ARG... (the object, the runtime and
-# -o), then what links a program for the target, one argument per line of
-# idris-mlir-cc --print-link-flags: as the -o flow links it.
-link() {
-  link_flags=$("$idris_mlir_cc" --print-link-flags) || return 1
-  while IFS= read -r link_flag; do
-    set -- "$@" "$link_flag"
-  done << EOF
-$link_flags
-EOF
-  bounded "$pinned_cc" "$@"
-}
-
-# outcome NAME FLAG...: the contract text compiled by idris-mlir-cc with
-# FLAGs and linked as the -o flow links it, run on STDIN; in NAME.outcome,
-# its exit status and what it printed, or how its compilation failed.
+# outcome NAME FLAG...: the contract text compiled and linked by idris-mlir
+# with FLAGs, run on STDIN; in NAME.outcome, its exit status and what it
+# printed, or how its compilation failed.
 outcome() {
   outcome_name=$1
   shift
-  bounded "$idris_mlir_cc" "$mlir" -o "$work/$outcome_name.o" "$@" > "$work/$outcome_name.cc" 2>&1
+  bounded "$idris_mlir" "$mlir" -o "$work/$outcome_name" "$@" > "$work/$outcome_name.log" 2>&1
   outcome_status=$?
   if [ "$outcome_status" -ne 0 ]; then
-    printf 'idris-mlir-cc exits %s: %s\n' "$outcome_status" \
-      "$(grep -m 1 'error' "$work/$outcome_name.cc")" > "$work/$outcome_name.outcome"
-    return
-  fi
-  if ! link "$work/$outcome_name.o" "$("$idris_mlir_cc" --print-runtime)" -o "$work/$outcome_name" \
-      > "$work/$outcome_name.ld" 2>&1; then
-    printf 'the link fails\n' > "$work/$outcome_name.outcome"
+    printf 'idris-mlir exits %s: %s\n' "$outcome_status" \
+      "$(grep -m 1 'error' "$work/$outcome_name.log")" > "$work/$outcome_name.outcome"
     return
   fi
   bounded "$work/$outcome_name" < "$input" > "$work/$outcome_name.out" 2> /dev/null
@@ -134,17 +118,17 @@ case $(first reference) in
   exit*) ;;
   *)
     echo "bisect: with --no-eval, $(first reference); there is no reference" >&2
-    sed 's/^/  | /' "$work/reference.cc" >&2
+    sed 's/^/  | /' "$work/reference.log" >&2
     exit 2
     ;;
 esac
 
 # Compiled normally, every action happens, and the counter counts them.
 outcome all "-mlir-debug-counter=$tag-skip=-1" -mlir-print-debug-counter
-total=$(sed -n "s/^$tag *: {\\([0-9][0-9]*\\),.*/\\1/p" "$work/all.cc" | tail -n 1)
+total=$(sed -n "s/^$tag *: {\\([0-9][0-9]*\\),.*/\\1/p" "$work/all.log" | tail -n 1)
 if [ -z "$total" ]; then
-  echo "bisect: idris-mlir-cc reported no count of $tag:" >&2
-  sed 's/^/  | /' "$work/all.cc" >&2
+  echo "bisect: idris-mlir reported no count of $tag:" >&2
+  sed 's/^/  | /' "$work/all.log" >&2
   exit 2
 fi
 echo "bisect: $total actions of $tag; with --no-eval: $(first reference)"
@@ -180,12 +164,12 @@ echo "bisect: action $bad of $tag changes the program"
 echo "  with --no-eval, and with the first $good actions: $(first reference)"
 echo "  with the first $bad actions: $(first bad)"
 diff "$work/reference.outcome" "$work/bad.outcome" | head -n 20 | sed 's/^/  | /'
-echo "  reproduce: idris-mlir-cc $mlir -o program.o $(counter "$bad")"
+echo "  reproduce: idris-mlir $mlir -o program $(counter "$bad")"
 
 # The IR unit of that action: the one op it transforms, in a log of the
 # actions of TAG only, each op printed in its function, with its location.
-bounded "$idris_mlir_cc" "$mlir" -o "$work/logged.o" "-log-actions-to=$work/actions.log" \
-  "--log-actions-tags=$tag" -mlir-print-local-scope -mlir-print-debuginfo > "$work/logged.cc" 2>&1
+bounded "$idris_mlir" -c "$mlir" -o "$work/logged.o" "-log-actions-to=$work/actions.log" \
+  "--log-actions-tags=$tag" -mlir-print-local-scope -mlir-print-debuginfo > "$work/logged.log" 2>&1
 echo "action $bad of $tag:"
 awk -v n="$bad" '
   /^\[thread [^]]*\] (begins|skipping) / { k++; on = (k == n) }

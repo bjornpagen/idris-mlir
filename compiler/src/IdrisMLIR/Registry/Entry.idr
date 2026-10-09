@@ -242,9 +242,9 @@ data Hook
     ||| rest are proofs and types. Handler:
     ||| `Frontend.Translate.application`.
     IdentityOnLastArgument
-  | ||| The head of the term Idris hands an IO backend, `unsafePerformIO
-    ||| main`, which the compiler writes as world-passing code. Handler:
-    ||| `Frontend.Main.compileIO`.
+  | ||| The head of a program's root, `unsafePerformIO main`, which the
+    ||| compiler writes as world-passing code. Handler:
+    ||| `Frontend.Translate.Programs.translateIOProgram`.
     ProgramRoot
   | ||| A function on naturals whose calls compute what it means on the
     ||| representation of `Nat`, in constant time and stack, instead of its

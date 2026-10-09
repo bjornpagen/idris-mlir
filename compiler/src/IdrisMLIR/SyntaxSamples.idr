@@ -13,6 +13,7 @@
 module IdrisMLIR.SyntaxSamples
 
 import IdrisMLIR.Dialect.Builtin as Builtin
+import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
 import IdrisMLIR.Syntax.Arith
 import IdrisMLIR.Syntax.UB
@@ -134,6 +135,8 @@ main : IO ()
 main = do
   let missed = unsampled
   unless (null missed) $ die ("syntax-samples: no sample of " ++ joinBy ", " missed)
-  putStr (showModule ({ attributes := named "sample.t" (map TypeAttr types)
+  -- The samples are no program's, so the module is at no location.
+  putStr (showModule (At noLoc)
+                     ({ attributes := named "sample.t" (map TypeAttr types)
                                       ++ named "sample.a" attrs }
                         (Builtin.moduleOp (MkRegion [] []))))

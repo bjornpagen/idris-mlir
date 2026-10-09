@@ -1,0 +1,24 @@
+#!/bin/sh
+# Neither idris-mlir nor its frontend reads Idris's environment: the
+# prefix and the package directories are their arguments. With every
+# variable Idris reads naming a directory that does not exist, a program
+# compiles and runs as it does without them.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+IDRIS2_PREFIX=/nonexistent IDRIS2_PACKAGE_PATH=/nonexistent IDRIS2_PATH=/nonexistent
+export IDRIS2_PREFIX IDRIS2_PACKAGE_PATH IDRIS2_PATH
+cat > "$work/Main.idr" <<'IDRIS'
+module Main
+
+import Prelude
+
+main : IO ()
+main = putStrLn "hello"
+IDRIS
+compile_program "$work/Main.idr" prog
+say "compile: exit $compiled"
+if [ "$compiled" -ne 0 ]; then
+  show "$work/compile.out" "$work/compile.err"
+  exit 0
+fi
+bounded "$work/build/exec/prog" > "$work/prog.out" 2>&1
+say "run: exit $?, printed $(cat "$work/prog.out")"

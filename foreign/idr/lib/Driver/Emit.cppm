@@ -1,4 +1,4 @@
-// idr.driver:emit: object code for a module, into the output file.
+// idr.driver:emit: object code for a module, into a file.
 export module idr.driver:emit;
 
 import idr.mlir;
@@ -8,9 +8,9 @@ import :writeoutput;
 
 export namespace idr::driver {
 
-// Object code for the module, into the output file.
-bool emit(llvm::Module &module, llvm::TargetMachine &machine) {
-  return writeOutput([&](llvm::raw_ostream &os) {
+// Object code for the module, into the file at `path`.
+bool emit(llvm::Module &module, llvm::TargetMachine &machine, llvm::StringRef path) {
+  return writeOutput(path, [&](llvm::raw_ostream &os) {
     auto *pwrite = static_cast<llvm::raw_pwrite_stream *>(&os);
     llvm::legacy::PassManager codegen;
     if (machine.addPassesToEmitFile(codegen, *pwrite, nullptr, llvm::CodeGenFileType::ObjectFile)) {

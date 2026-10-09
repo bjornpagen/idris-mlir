@@ -152,12 +152,14 @@ module;
 #include "llvm/Support/CheckedArithmetic.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/FileUtilities.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/MemoryBufferRef.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/Program.h"
 #include "llvm/Support/SHA1.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetSelect.h"
@@ -762,6 +764,7 @@ using llvm::failed;
 using llvm::failure;
 using llvm::FailureOr;
 using llvm::file_magic;
+using llvm::FileRemover;
 using llvm::fill;
 using llvm::find;
 using llvm::find_if;
@@ -942,6 +945,7 @@ export namespace llvm::cl {
 using llvm::cl::CommaSeparated;
 using llvm::cl::desc;
 using llvm::cl::getRegisteredOptions;
+using llvm::cl::Hidden;
 using llvm::cl::init;
 using llvm::cl::list;
 using llvm::cl::NotHidden;
@@ -963,16 +967,22 @@ using llvm::object::SectionRef;
 } // namespace llvm::object
 
 export namespace llvm::sys {
+using llvm::sys::ExecuteAndWait;
 using llvm::sys::getHostCPUFeatures;
 using llvm::sys::getProcessTriple;
 } // namespace llvm::sys
 
 export namespace llvm::sys::fs {
+using llvm::sys::fs::create_directories;
+using llvm::sys::fs::equivalent;
+using llvm::sys::fs::getMainExecutable;
 using llvm::sys::fs::OF_None;
 } // namespace llvm::sys::fs
 
 export namespace llvm::sys::path {
 using llvm::sys::path::append;
+using llvm::sys::path::extension;
+using llvm::sys::path::parent_path;
 using llvm::sys::path::replace_extension;
 } // namespace llvm::sys::path
 

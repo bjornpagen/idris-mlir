@@ -1,16 +1,17 @@
 #!/bin/sh
-# idris-mlir-cc --mlir-timing reports where a compilation spent its time:
+# idris-mlir --mlir-timing reports where a compilation spent its time:
 # the parse, with the verification that follows it, has a row of its own
 # before the steps; each step of the pipeline that ran has a row of its own,
 # named with its index and the pipeline it ran, in the order the steps ran
 # (as --dump-dir names them), and no step that did not run has one; the
 # passes a step ran are the rows nested in it; nothing at the top but the
 # parse, the steps, LLVM, the Rest and the Total; and no time is counted
-# twice at the top, so the Rest is not negative. MLIR keys a pass's timer
-# by the pass's address, which a step's pass can take after an earlier
-# step's pass manager is gone: under one timer for every step, a later
-# pass's time went to the earlier pass's row, under its name, and the later
-# pass had none.
+# twice at the top, so the Rest is not negative. With a module and -c,
+# neither the frontend nor the link runs, so neither has a row. MLIR keys a
+# pass's timer by the pass's address, which a step's pass can take after an
+# earlier step's pass manager is gone: under one timer for every step, a
+# later pass's time went to the earlier pass's row, under its name, and the
+# later pass had none.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 
 cat > "$work/main.mlir" << 'EOF'
@@ -27,7 +28,7 @@ module attributes {idr.program} {
 }
 EOF
 mkdir "$work/dumps"
-if bounded "$idris_mlir_cc" "$work/main.mlir" -o "$work/main.o" --mlir-timing \
+if bounded "$idris_mlir" -c "$work/main.mlir" -o "$work/main.o" --mlir-timing \
     --dump-dir="$work/dumps" 2> "$work/report"; then
   say "compile: ok"
 else

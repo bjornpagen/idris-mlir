@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-target --idr-lower --idr-vectorize --remarks-filter=idr-vectorize 2> %t.remarks | FileCheck %s
 // RUN: FileCheck %s --check-prefix=REMARK --implicit-check-not=error < %t.remarks
-// RUN: idris-mlir-cc %s -o %t.o
+// RUN: idris-mlir -c %s -o %t.o
 // RUN: %cc %t.o -o %t
 // RUN: %status 1 %t 2> %t.err
 // RUN: FileCheck %s --check-prefix=CRASH < %t.err

@@ -1,4 +1,4 @@
-// RUN: idris-mlir-cc %s -o %t.o
+// RUN: idris-mlir -c %s -o %t.o
 // RUN: %cc %t.o -o %t
 // RUN: echo -n "x" | %status 1 %t > %t.out 2> %t.err
 // RUN: FileCheck %s --check-prefix=OUT < %t.out

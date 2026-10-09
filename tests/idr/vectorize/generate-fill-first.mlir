@@ -1,5 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-target --idr-lower --idr-vectorize --idr-expect=holds=vectorized -o /dev/null
-// RUN: idris-mlir-cc %s -o %t.o
+// RUN: idris-mlir -c %s -o %t.o
 // RUN: %cc %t.o -o %t
 // RUN: echo 10 | %t | FileCheck %s
 // A generate's element 0 is its fill, and its body runs at every other

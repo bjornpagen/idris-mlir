@@ -1,6 +1,7 @@
 #!/bin/sh
-# A program Idris's type checker rejects: -o stops at Idris's error, with
-# status 1, and the backend neither runs nor adds an error of its own.
+# A program Idris's type checker rejects: idris-mlir stops at Idris's error,
+# with status 3, the program's, and the pipeline neither runs nor adds an
+# error of its own.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 cat > "$work/Main.idr" <<'IDRIS'
 module Main
@@ -13,7 +14,7 @@ lz = zip' [1, 2] [3, 4]
 main : IO ()
 main = printLn lz
 IDRIS
-(cd "$work" && bounded "$idris_mlir" --no-banner --no-color --cg mlir -o prog Main.idr) \
+(cd "$work" && mkdir -p build/exec && bounded "$idris_mlir" Main.idr -o build/exec/prog) \
   > "$work/compile.log" 2>&1
 say "compile: exit $?"
 if grep -qF "Undefined name zip'" "$work/compile.log"; then
@@ -22,13 +23,14 @@ else
   say "Idris's error: not reported"
   show "$work/compile.log"
 fi
-if grep -qF 'mlir backend' "$work/compile.log"; then
-  say "backend: ran"
+if [ -e "$work/build/exec/prog.mlir" ] || grep -qF 'unsupported (' "$work/compile.log"; then
+  say "pipeline: ran"
   show "$work/compile.log"
 else
-  say "backend: did not run"
+  say "pipeline: did not run"
 fi
-if [ -e "$work/build/exec/prog" ] || [ -e "$work/build/exec/prog.mlir" ]; then
+if [ -e "$work/build/exec/prog" ] || [ -e "$work/build/exec/prog.o" ] ||
+   [ -e "$work/build/exec/prog.core" ]; then
   say "artifacts: written"
 else
   say "artifacts: none"

@@ -60,13 +60,16 @@ e2e_io() {
     repeated "$io_stdin" "$(first_word "$io_fixture/constant-stack")" "$work/long-stdin" || return
     io_stdin=$work/long-stdin
   fi
-  io_directives=$(module_directives "$io_fixture")
   io_promise=
-  [ -f "$io_fixture/demand-in-place" ] && io_promise='--directive demand-in-place'
+  [ -f "$io_fixture/demand-in-place" ] && io_promise='--demand-in-place'
 
+  # Every compilation dumps the module after each step: the checks of the
+  # fixture's modules read the dumps, and so do the properties of every
+  # compilation (compilation_properties).
   mkdir "$work/ours"
   copy_fixture "$io_fixture" "$work/ours"
-  compile_program $io_packages $io_promise $io_directives "$work/ours/Main.idr" prog
+  compile_program $io_packages $io_promise --dump-dir="$work/ours/build/exec/prog.dump" \
+    "$work/ours/Main.idr" prog
   say "compile: exit $compiled"
   if [ "$compiled" -ne 0 ]; then
     show "$work/compile.out" "$work/compile.err"
@@ -148,24 +151,13 @@ MAIN
   e2e_io "$work/sem"
 }
 
-# module_directives FIXTURE: the directives the fixture's compilation
-# needs, one per line. Every compilation dumps the module after each step:
-# the checks of the fixture's modules read the dumps, and so do the
-# properties of every compilation (compilation_properties).
-module_directives() {
-  {
-    say '--directive dump-mlir'
-    [ -f "$1/translate.check" ] && say '--directive dump-core'
-  } | sort -u
-}
-
 # module_checks FIXTURE EMITTED DUMPS: every check of the compilation's
 # modules that the fixture holds: translate.check, FileChecked on full Core
-# (01-translate.core); mlir.check (check_mlir); mlir.expect (check_expect);
-# covers, the prelude module whose every export the program uses
-# (covers_prelude, on the program's Core and its source).
+# (the .core beside the module); mlir.check (check_mlir); mlir.expect
+# (check_expect); covers, the prelude module whose every export the program
+# uses (covers_prelude, on the program's Core and its source).
 module_checks() {
-  [ -f "$1/translate.check" ] && filecheck "$1/translate.check" "$3/01-translate.core"
+  [ -f "$1/translate.check" ] && filecheck "$1/translate.check" "${2%.mlir}.core"
   [ -f "$1/mlir.check" ] && check_mlir "$1/mlir.check" "$2" "$3"
   [ -f "$1/mlir.expect" ] && check_expect "$1/mlir.expect" "$2" "$3"
   [ -f "$1/covers" ] && covers_prelude "$(first_word "$1/covers")" "${2%.mlir}.core" "$1"

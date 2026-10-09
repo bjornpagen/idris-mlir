@@ -1,6 +1,7 @@
 # Where the pinned tools are, in one place: sourced, with $root
-# set to the repository, by the Makefile, tools/compile.sh,
-# tools/verify-pins.sh, tools/doctor.sh, bench/run.sh and tests/testutils.sh.
+# set to the repository, by the Makefile, tools/compile.sh, tools/bisect.sh,
+# tools/verify-pins.sh, tools/doctor.sh, bench/run.sh, tests/testutils.sh and
+# tests/upstream-idris/as-idris.
 # IDRIS_MLIR_TOOLCHAIN stands for .toolchain (the spec tests use it).
 
 toolchain=${IDRIS_MLIR_TOOLCHAIN:-$root/.toolchain}
@@ -41,17 +42,20 @@ llvm_bin=$llvm_prefix/bin
 # directory it builds into, build/<preset>.
 dev_preset=dev
 dev_prefix=$root/build/$dev_preset
-# The C compiler that links programs (both compile flows, the benchmarks): the
-# stage-2 clang, whose configuration file, read for the target its callers
-# name, gives the target's C library, the runtimes, lld and the kind of
-# executable.
+# The C compiler that links programs (idris-mlir, whose build records it, the
+# benchmarks' C, the tests that link by hand): the stage-2 clang, whose
+# configuration file, read for the target its callers name, gives the
+# target's C library, the runtimes, lld and the kind of executable.
 pinned_cc=$llvm_bin/clang
 # The sysroot programs link against: the target's C library where it is
 # built (musl), and GMP.
 sysroot=$toolchain/sysroot
 cmake=$toolchain/cmake/bin/cmake
-# What `make build` makes.
-idris_mlir_cc=$dev_prefix/foreign/idr/idris-mlir-cc
+# What `make build` makes: idris-mlir, the one command, with its frontend
+# beside it, where idris-mlir runs it (a link to the frontend Idris
+# builds, compiler/build/exec/idris-mlir-front), and the dialect's tools.
+idris_mlir=$dev_prefix/foreign/idr/idris-mlir
+idris_mlir_front=$dev_prefix/foreign/idr/idris-mlir-front
 idris_mlir_opt=$dev_prefix/foreign/idr/idris-mlir-opt
 idris_mlir_tblgen=$dev_prefix/foreign/idr/idris-mlir-tblgen
 

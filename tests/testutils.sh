@@ -3,7 +3,8 @@
 #
 #     . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 #
-# and gets the idris-mlir under test as $1 (tests/Main.idr). Each check
+# and gets the idris-mlir under test as $idris_mlir, tools/toolchain.sh's,
+# which is also the $1 the runner passes (tests/Main.idr). Each check
 # prints one line, the same on every successful run, and more lines only when
 # it fails, so `expected` holds the successful output and a failure shows as
 # a difference. Expectations are read from the fixtures in place (headers,
@@ -29,7 +30,7 @@
 #     covers          the program uses every run-time export of the prelude
 #                     module the file names, as its Core shows (prelude.sh)
 #     demand-in-place both compilations make the in-place promise
-#                     (--directive demand-in-place): a call passes what its
+#                     (--demand-in-place): a call passes what its
 #                     callee rebuilds in place exclusive, or the program is
 #                     refused (e2e.sh)
 #
@@ -57,7 +58,6 @@
 #     bench.sh         the benchmarks, built and run on small inputs
 #     upstream.sh      clang bugs a unit of ours reproduces, compiled in place
 
-idris_mlir=$1
 root=${IDRIS_MLIR_ROOT:?IDRIS_MLIR_ROOT must name the repository}
 
 # No test can hang. Every command a test runs is bounded (`bounded`, in

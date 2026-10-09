@@ -32,7 +32,7 @@ set(LLVM_TARGET_DEFINITIONS ${CMAKE_CURRENT_SOURCE_DIR}/lib/Dialect/Canonicalize
 mlir_tablegen(include/idr/IdrCanonicalize.inc -gen-rewriters)
 add_public_tablegen_target(idr_tablegen)
 
-# idris-mlir-cc links the runtime's bitcode into the program (Linker,
+# idris-mlir links the runtime's bitcode into the program (Linker,
 # BitReader, Object), internalizes it (IPO) and writes the runtime it
 # prepared (BitWriter); idr-eval compiles with ORC's LLJIT (OrcJIT) and the
 # same pipeline (Passes). The runtime's bitcode carries inline assembly (CPU
@@ -44,7 +44,7 @@ llvm_map_components_to_libnames(IDR_LLVM_CODEGEN_LIBS nativecodegen ${LLVM_NATIV
 # MLIR's and LLVM's as system headers, so that the project's warnings apply
 # to our code and not to theirs; LLVM's definitions; and the target entry's
 # triple and CPU (CMakeLists.txt), which idr-target writes on every
-# module and idris-mlir-cc prints. Programs are compiled for the triple the
+# module and idris-mlir prints. Programs are compiled for the triple the
 # runtime is built for.
 add_library(idr_build INTERFACE)
 target_include_directories(idr_build SYSTEM INTERFACE
@@ -65,8 +65,8 @@ target_compile_definitions(idr_build INTERFACE
 # The target entry's lists, as X-macros of C strings in a generated header
 # (idr/TargetEntry.h): what links a program after its object, the runtime
 # and -o (--target with the triple, the executable flags, the program link
-# flags, GMP), which idris-mlir-cc --print-link-flags prints, and the
-# library calls idr-eval's JIT binds from the process.
+# flags, GMP), which idris-mlir links with and --print-link-flags prints,
+# and the library calls idr-eval's JIT binds from the process.
 function(idr_strings out)
 	set(text "")
 	foreach(item IN LISTS ARGN)
@@ -248,10 +248,10 @@ target_link_libraries(idris-mlir-opt PRIVATE
 	idris_mlir_language_profile
 )
 
-add_executable(idris-mlir-cc tools/idris-mlir-cc.cc)
+add_executable(idris-mlir tools/idris-mlir.cc)
 # idr_driver: the driver, whose pipeline is idr_dialect's; MLIRDebug: the
 # action handlers (debug counters, action logging).
-target_link_libraries(idris-mlir-cc PRIVATE
+target_link_libraries(idris-mlir PRIVATE
 	idr_driver
 	idr_dialect
 	MLIRDebug
@@ -260,20 +260,30 @@ target_link_libraries(idris-mlir-cc PRIVATE
 	MLIRRegisterAllPasses
 	idris_mlir_language_profile
 )
-# The runtime every program links: the archive, checked before idris-mlir-cc
-# is built, then prepared once by idris-mlir-cc itself (--prepare-runtime)
+# The runtime every program links: the archive, checked before idris-mlir
+# is built, then prepared once by idris-mlir itself (--prepare-runtime)
 # into one object, native code for every executable's link line with the
 # same functions as bitcode for inlining, kept as the target entry's
 # container says (CMakeLists.txt), which is the runtime the driver links by
 # default (--runtime overrides the path, with the archive itself if need be;
 # --print-runtime tells the link line where it is). The driver's options
-# read where it is.
+# read where it is. So do the two other things idris-mlir runs or reads
+# besides its frontend (which is beside it, wherever it is): the pinned
+# clang, which links every program and is the C compiler of this build (the
+# preset's toolchain file names it), and the Idris prefix the frontend reads
+# its packages from, the preset's.
+set(IDRIS_MLIR_IDRIS_PREFIX "" CACHE PATH "The Idris prefix idris-mlir's frontend reads its packages from")
+if(IDRIS_MLIR_IDRIS_PREFIX STREQUAL "")
+	message(FATAL_ERROR "IDRIS_MLIR_IDRIS_PREFIX names the Idris prefix the frontend reads; use a preset")
+endif()
 set(IDRIS_MLIR_RUNTIME_PREPARED "${CMAKE_CURRENT_BINARY_DIR}/idris_rt.o")
 target_compile_definitions(idr_driver PRIVATE
 	"IDRIS_MLIR_RUNTIME=\"${IDRIS_MLIR_RUNTIME_PREPARED}\""
 	"IDRIS_MLIR_RUNTIME_BITCODE_SECTION=\"${IDRIS_MLIR_RUNTIME_BITCODE_SECTION}\""
+	"IDRIS_MLIR_PINNED_CC=\"${CMAKE_C_COMPILER}\""
+	"IDRIS_MLIR_IDRIS_PREFIX=\"${IDRIS_MLIR_IDRIS_PREFIX}\""
 )
-add_dependencies(idris-mlir-cc idris_rt_check)
+add_dependencies(idris-mlir idris_rt_check)
 set(IDRIS_MLIR_RUNTIME_PREPARED_FILES "${IDRIS_MLIR_RUNTIME_PREPARED}")
 if(IDRIS_MLIR_RUNTIME_BITCODE_SECTION STREQUAL "")
 	# The bitcode, beside the object.
@@ -281,9 +291,9 @@ if(IDRIS_MLIR_RUNTIME_BITCODE_SECTION STREQUAL "")
 endif()
 add_custom_command(
 	OUTPUT ${IDRIS_MLIR_RUNTIME_PREPARED_FILES}
-	COMMAND idris-mlir-cc --prepare-runtime "--runtime=${IDRIS_MLIR_RUNTIME_ARCHIVE}"
+	COMMAND idris-mlir --prepare-runtime "--runtime=${IDRIS_MLIR_RUNTIME_ARCHIVE}"
 		-o "${IDRIS_MLIR_RUNTIME_PREPARED}"
-	DEPENDS idris-mlir-cc idris_rt idris_rt_check
+	DEPENDS idris-mlir idris_rt idris_rt_check
 	COMMENT "Optimizing and compiling the runtime once, for every program"
 	VERBATIM
 )
@@ -313,9 +323,9 @@ target_link_libraries(idris-mlir-tblgen PRIVATE
 )
 target_compile_definitions(idris-mlir-tblgen PRIVATE ${IDR_LLVM_DEFINITIONS})
 
-# The tools are plain translation units; idris-mlir-cc imports idr.driver.
-set_target_properties(idris-mlir-opt idris-mlir-cc idris-mlir-reduce idris-mlir-tblgen PROPERTIES
+# The tools are plain translation units; idris-mlir imports idr.driver.
+set_target_properties(idris-mlir-opt idris-mlir idris-mlir-reduce idris-mlir-tblgen PROPERTIES
 	CXX_MODULE_STD OFF
 	CXX_SCAN_FOR_MODULES OFF
 )
-set_target_properties(idris-mlir-cc PROPERTIES CXX_SCAN_FOR_MODULES ON)
+set_target_properties(idris-mlir PROPERTIES CXX_SCAN_FOR_MODULES ON)

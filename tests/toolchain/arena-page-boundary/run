@@ -6,7 +6,7 @@
 # block is 16-byte aligned. The page size is the build's (runtime/page-size,
 # the target entry's), never a constant of the test.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-build=${idris_mlir_cc%/foreign/idr/idris-mlir-cc}
+build=${idris_mlir%/foreign/idr/idris-mlir}
 runtime=$build/runtime/libidris_rt.a
 page=$(cat "$build/runtime/page-size" 2> /dev/null)
 case $page in

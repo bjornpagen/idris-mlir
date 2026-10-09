@@ -1,10 +1,10 @@
 # The runtime:
 # C++ with no exceptions, no RTTI and no C++ library at link time, built into
 # one archive of objects that carry their bitcode as the target entry says
-# (fat LTO objects on ELF). idris-mlir-cc prepares their bitcode once
+# (fat LTO objects on ELF). idris-mlir prepares their bitcode once
 # (--prepare-runtime, foreign/idr/CMakeLists.txt) into the object every
 # executable links, whose bitcode joins every program's module for inlining;
-# their native code links into idris-mlir-cc itself, where the folders and
+# their native code links into idris-mlir itself, where the folders and
 # idr-eval's JIT call it.
 # It includes the vendored libraries' headers, so like foreign/idr it is
 # quarantine code.
@@ -23,10 +23,10 @@ endforeach()
 
 # The runtime's profile, in every configuration:
 # - optimized, since optnone bitcode would stay unoptimized in programs;
-# - the target's baseline (its entry in CMakeLists.txt): idris-mlir-cc
+# - the target's baseline (its entry in CMakeLists.txt): idris-mlir
 #   raises every runtime function to the program's CPU;
 # - bitcode with the native code, as the target's entry carries it: bitcode
-#   for programs, native code for idris-mlir-cc;
+#   for programs, native code for idris-mlir;
 # - each function and datum in its own section, so the linker drops the
 #   unused ones (the target entry's IDRIS_MLIR_RUNTIME_SECTIONS, which is
 #   empty where the object's bitcode forbids them);
@@ -176,7 +176,7 @@ target_sources(idris_rt
 )
 target_include_directories(idris_rt PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 # The target entry's list of the processor features programs may be compiled
-# to use (cpu_features.h), which idr-lower and idris-mlir-cc read too.
+# to use (cpu_features.h), which idr-lower and idris-mlir read too.
 target_compile_definitions(idris_rt PUBLIC
 	"IDRIS_RT_CPU_FEATURES_FILE=\"${IDRIS_MLIR_RUNTIME_CPU_FEATURES}\""
 )
@@ -244,14 +244,14 @@ set_target_properties(idris_rt_simdutf PROPERTIES CXX_CLANG_TIDY "")
 set_target_properties(idris_rt_ryu PROPERTIES C_CLANG_TIDY "")
 set_target_properties(idris_rt PROPERTIES ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 
-# idris-mlir-cc reads the runtime's bitcode from here.
+# idris-mlir reads the runtime's bitcode from here.
 set(IDRIS_MLIR_RUNTIME_ARCHIVE "${CMAKE_CURRENT_BINARY_DIR}/libidris_rt.a" PARENT_SCOPE)
 
 # The link check. Every member of the archive is linked into one
 # executable of the target with no C++ library and no unwinder, so a
 # reference to the C++ runtime is an undefined symbol and fails the link.
 # The archive check then refuses weak references to it, which a link
-# accepts, and static constructors, which idris-mlir-cc refuses.
+# accepts, and static constructors, which idris-mlir refuses.
 add_executable(idris_rt_link_check link_check.c)
 target_link_libraries(idris_rt_link_check PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,idris_rt>" ${IDRIS_MLIR_GMP})
 target_link_options(idris_rt_link_check PRIVATE ${IDRIS_MLIR_EXECUTABLE_FLAGS} ${IDRIS_MLIR_NO_UNWINDER})

@@ -1,16 +1,16 @@
 #!/bin/sh
-# idris-mlir-cc takes a runtime member compiled for the target's triple
+# idris-mlir takes a runtime member compiled for the target's triple
 # however clang spells it, and refuses one compiled for another vendor or
 # environment: it compares what the triples name (clang writes a Darwin
 # triple with its OS version normalized, arm64-apple-macosx14.0 as
 # arm64-apple-macosx14.0.0), not their text. Each member is bitcode, as
 # the runtime's members carry theirs, prepared alone (--prepare-runtime).
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-target=$("$idris_mlir_cc" --print-target-triple)
+target=$("$idris_mlir" --print-target-triple)
 arch=${target%%-*}
 
 # prepare NAME TRIPLE: a member compiled for TRIPLE, in an archive of its
-# own, prepared; the exit status and what idris-mlir-cc said, with the
+# own, prepared; the exit status and what idris-mlir said, with the
 # work directory's path, TRIPLE and the target's triple taken out, each
 # however clang normalized its OS version (a trailing .0).
 prepare() {
@@ -23,7 +23,7 @@ prepare() {
   fi
   rm -f "$work/$1.a"
   bounded "$llvm_bin/llvm-ar" rcs "$work/$1.a" "$work/$1.o"
-  bounded "$idris_mlir_cc" --prepare-runtime --runtime="$work/$1.a" -o "$work/$1.prepared.o" \
+  bounded "$idris_mlir" --prepare-runtime --runtime="$work/$1.a" -o "$work/$1.prepared.o" \
     > "$work/prepare.log" 2>&1
   say "$1: exit $?"
   sed "s|$work/||g; s|$2\\(\\.0\\)*|TRIPLE|g; s|$target\\(\\.0\\)*|TARGET|g; s/^/  | /" "$work/prepare.log"

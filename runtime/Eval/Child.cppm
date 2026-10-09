@@ -4,8 +4,8 @@
 // machine refuses is reported as exhaustion.
 //
 // Only the compiler calls these entry points, natively (the child is
-// idris-mlir-cc itself, and the code it JITs binds them by address); no
-// program does. Each is annotated so, and idris-mlir-cc keeps them out of
+// idris-mlir itself, and the code it JITs binds them by address); no
+// program does. Each is annotated so, and idris-mlir keeps them out of
 // the runtime it prepares for programs, where the arena is then never
 // active and every allocation knows it.
 // PIN(runtime-quarantine) — see PINS.md

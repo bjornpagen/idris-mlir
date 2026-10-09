@@ -3,7 +3,7 @@
 # AArch64 target entry names, read by the pinned clang's frontend, which
 # knows AArch64 without its code generator: each feature's two names are
 # one feature, function multiversioning's (which __builtin_cpu_supports
-# tests) and LLVM's (which idr-lower and idris-mlir-cc look for), since a
+# tests) and LLVM's (which idr-lower and idris-mlir look for), since a
 # function versioned for the first is compiled with the second; the bits
 # are 0 up, each once, under 64; and the processor test
 # (runtime/Platform/Aarch64/Cpu.cppm, a partition of rt.platform) compiles

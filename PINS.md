@@ -44,7 +44,7 @@ their check, as for any change. Retired with the one recipe
 libraries are native code that every build of our tools links as it is,
 a rebuild through the compiler cache relinks without optimizing LLVM
 again, and the tools' few percent of speed is not worth the bootstrap's
-hours. What programs gain from LTO is untouched: idris-mlir-cc joins the
+hours. What programs gain from LTO is untouched: idris-mlir joins the
 runtime's bitcode with each program's module, and our own code's Release
 build is full LTO.
 
@@ -269,7 +269,7 @@ which the top-level CMake configure gate reads.
 - sites: foreign/idr/lib/Driver/RunOnLargeStack.cppm (`runOnLargeStack`),
   foreign/idr/tools/idris-mlir-opt.cc, foreign/idr/lib/Eval/Child.cppm,
   runtime/start.cc (`idris_rt_run_on_stack`)
-- workaround: idris-mlir-cc runs the whole compilation, idris-mlir-opt
+- workaround: idris-mlir runs the whole compilation, idris-mlir-opt
   its run, and the evaluation child its calls, on the runtime's
   reserved-stack runner: up to 2^40, 2^40 and (the child, whose calls have
   stack budgets) twice its calls' largest stack budget of address space,
@@ -443,9 +443,9 @@ which the top-level CMake configure gate reads.
   counted twice, and two pipelines on one op name, one run inside the
   other, share one timer. idr-simplify, idr-eval, idr-inline, idr-target
   and idr-canonicalize run pipelines so: without the patch, in
-  `idris-mlir-cc --mlir-timing`, their pipelines are rows of the step beside
+  `idris-mlir --mlir-timing`, their pipelines are rows of the step beside
   the pass that runs them, and a step's rows add up to more than the step
-- sites: none in our code; the patch. Each step of `idris-mlir-cc` has a
+- sites: none in our code; the patch. Each step of `idris-mlir` has a
   timer of its own (foreign/idr/lib/Driver/Run.cppm), which is the root of
   the step's pass timing, so the misplaced rows stay inside the step
 - workaround: `upstream/19-pass-timing-dynamic-pipeline/llvm.patch`:
@@ -606,7 +606,7 @@ which the top-level CMake configure gate reads.
 - symptom: snmalloc requires CMPXCHG16B, which the x86-64 baseline lacks
 - sites: CMakeLists.txt, the x86_64 target entry — `-march=x86-64 -mcx16`
 - workaround: the runtime is compiled for the baseline plus CMPXCHG16B;
-  idris-mlir-cc raises every runtime function to the program's CPU
+  idris-mlir raises every runtime function to the program's CPU
   (x86-64-v3, which has it)
 - retire: never; every x86-64 CPU since 2006 has it
 - upstream: none

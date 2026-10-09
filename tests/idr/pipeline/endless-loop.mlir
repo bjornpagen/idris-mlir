@@ -1,4 +1,4 @@
-// RUN: idris-mlir-cc %s -o %t.o
+// RUN: idris-mlir -c %s -o %t.o
 // RUN: %cc %t.o -o %t
 // RUN: %status 124 timeout 2 %t
 // An endless loop without effects is kept: idr-tail-loops puts idr.may_loop

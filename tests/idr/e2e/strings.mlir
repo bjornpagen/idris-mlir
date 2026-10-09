@@ -1,4 +1,4 @@
-// RUN: idris-mlir-cc %s -o %t.o
+// RUN: idris-mlir -c %s -o %t.o
 // RUN: %cc %t.o -o %t
 // RUN: echo -n "b" | %t > %t.out
 // RUN: FileCheck %s < %t.out

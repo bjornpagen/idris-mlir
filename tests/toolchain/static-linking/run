@@ -3,9 +3,12 @@
 # third party: an ELF executable names no shared library and no interpreter
 # (a static PIE); a Mach-O executable names only the operating system's own
 # libraries (/usr/lib, /System/Library: libSystem and the like), and never a
-# shared libc++, since the pinned libc++ is static.
+# shared libc++, since the pinned libc++ is static. idris-mlir-front, the
+# frontend idris-mlir runs, is not among them: until the frontend compiles
+# itself it is Idris's own executable, run by Chez Scheme, the host side
+# the rule excepts.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-build=${idris_mlir_cc%/foreign/idr/idris-mlir-cc}
+build=${idris_mlir%/foreign/idr/idris-mlir}
 program=$work/start
 if ! link_program -O1 -I"$root/runtime" "$root/tests/toolchain/page-size-mismatch/start.c" \
     "$build/runtime/libidris_rt.a" -o "$program" > "$work/cc.log" 2>&1; then
@@ -29,7 +32,7 @@ shared() {
   fi
 }
 
-for file in "$idris_mlir_cc" "$idris_mlir_opt" "$program"; do
+for file in "$idris_mlir" "$idris_mlir_opt" "$program"; do
   shared "$file" > "$work/shared"
   if [ -s "$work/shared" ]; then
     say "${file##*/}: needs $(paste -sd, "$work/shared")"

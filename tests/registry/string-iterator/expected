@@ -1,10 +1,10 @@
-Linear.String.Iterator.prim__scalarAt broken: exit 1
+Linear.String.Iterator.prim__scalarAt broken: exit 3
 Linear.String.Iterator.prim__scalarAt broken: the error shows the entry, the shape expected and the shape found
 artifacts: none
-Linear.String.Iterator.prim__scalarEnd broken: exit 1
+Linear.String.Iterator.prim__scalarEnd broken: exit 3
 Linear.String.Iterator.prim__scalarEnd broken: the error shows the entry, the shape expected and the shape found
 artifacts: none
-Linear.String.Iterator.prim__dropBytes broken: exit 1
+Linear.String.Iterator.prim__dropBytes broken: exit 3
 Linear.String.Iterator.prim__dropBytes broken: the error shows the entry, the shape expected and the shape found
 artifacts: none
 unbroken: exit 0

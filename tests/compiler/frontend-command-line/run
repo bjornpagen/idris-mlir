@@ -1,0 +1,66 @@
+#!/bin/sh
+# idris-mlir-front's own command line, which idris-mlir gives it: the
+# prefix is required, the program's Core and module are written where
+# --core and -o say and nowhere else, and the exit status is idris-mlir's:
+# 2 for a usage error, 3 for the program's error, 1 for the compiler's own.
+# Idris prints its errors on stdout, so what it printed is read from both
+# streams.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+cat > "$work/Main.idr" <<'IDRIS'
+module Main
+
+import Prelude
+
+main : IO ()
+main = putStrLn "hello"
+IDRIS
+mkdir "$work/bad"
+cat > "$work/bad/Main.idr" <<'IDRIS'
+module Main
+
+import Prelude
+
+main : IO ()
+main = putStrLn (greeting 1)
+IDRIS
+
+# front NAME DIRECTORY ARG...: idris-mlir-front run in DIRECTORY with
+# ARG..., its exit status and what it printed in $work/NAME.status and
+# $work/NAME.log.
+front() {
+  front_name=$1
+  front_directory=$2
+  shift 2
+  (cd "$front_directory" && bounded "$idris_mlir_front" "$@") > "$work/$front_name.log" 2>&1
+  echo $? > "$work/$front_name.status"
+}
+
+# says NAME TEXT: whether what NAME printed holds TEXT.
+says() {
+  if grep -qF -- "$2" "$work/$1.log"; then
+    say "$1: exit $(cat "$work/$1.status"), says $2"
+  else
+    say "$1: exit $(cat "$work/$1.status"), does not say $2"
+    show "$work/$1.log"
+  fi
+}
+
+front no-arguments "$work"
+says no-arguments 'usage: idris-mlir-front'
+front no-prefix "$work" --no-prelude --core m.core -o m.mlir Main.idr
+says no-prefix 'no --prefix'
+front hello "$work" --prefix "$checkout_prefix" --no-prelude --core m.core -o m.mlir Main.idr
+if [ -s "$work/m.core" ] && [ -s "$work/m.mlir" ]; then
+  say "hello: exit $(cat "$work/hello.status"), the Core and the module written"
+else
+  say "hello: exit $(cat "$work/hello.status"), the Core or the module missing"
+  show "$work/hello.log"
+fi
+if [ -e "$work/build/exec" ]; then say "hello: build/exec made"; else say "hello: nothing else written"; fi
+front undefined "$work/bad" --prefix "$checkout_prefix" --no-prelude --core m.core -o m.mlir Main.idr
+says undefined 'Undefined name'
+front no-entry "$work" --prefix "$checkout_prefix" --no-prelude --break-shape no.such.Key \
+  --core m.core -o m.mlir Main.idr
+says no-entry 'internal error'
+front idris-option "$work" --prefix "$checkout_prefix" --cg mlir --core m.core -o m.mlir Main.idr
+says idris-option 'unknown option --cg'

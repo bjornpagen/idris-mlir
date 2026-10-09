@@ -13,11 +13,14 @@ header() {
     END { if (found) { print value; exit 0 } exit 1 }' "$1"
 }
 
-# reported_line FILE: the first line number of the first Idris location,
-# `<file>:<line>:<col>--<line>:<col>`, in FILE.
+# reported_line FILE: the line number of the first error's location in
+# FILE, as either side prints one at the start of a line: Idris on a line of
+# its own, `<module>:<line>:<col>--<line>:<col>`, after the message (which
+# may itself name locations); MLIR before the message,
+# `<file>:<line>:<col>: error: ...`.
 reported_line() {
-  grep -oE '(^|[[:space:]])[A-Za-z0-9_/.-]+:[0-9]+:[0-9]+--[0-9]+:[0-9]+([^A-Za-z0-9_]|$)' "$1" |
-    head -n 1 | sed 's/^[[:space:]]*[A-Za-z0-9_/.-]*:\([0-9]*\):.*/\1/'
+  grep -E '^[A-Za-z0-9_/.-]+:[0-9]+:[0-9]+(--[0-9]+:[0-9]+[[:space:]]*$|: error:)' "$1" |
+    head -n 1 | sed 's/^[A-Za-z0-9_/.-]*:\([0-9]*\):.*/\1/'
 }
 
 # profile_prepare FIXTURE: the fixture in $work/fixture, a single file as
@@ -41,7 +44,7 @@ profile_compile() {
       profile_options="$profile_options -p $profile_package"
     done
   fi
-  [ -f "$work/fixture/demand-in-place" ] && profile_options="$profile_options --directive demand-in-place"
+  [ -f "$work/fixture/demand-in-place" ] && profile_options="$profile_options --demand-in-place"
   # shellcheck disable=SC2086 # the packages and the promise are words
   compile_program $profile_options "$work/fixture/Main.idr" Main
 }
@@ -51,7 +54,7 @@ profile_compile() {
 # line is `-- expect: <reason>, line <n>` (and then, optionally,
 # `-- message: <text>`), <reason> being the phrase the compiler gives and the
 # name starting with it, words joined by dashes. It is rejected with exit
-# status 1 and exactly one `unsupported (<reason>)`, reported on line n, and
+# status 3 and exactly one `unsupported (<reason>)`, reported on line n, and
 # leaves no artifact.
 profile_reject() {
   if [ -d "$1" ]; then reject_main=$1/Main.idr; else reject_main=$1; fi
@@ -74,7 +77,7 @@ profile_reject() {
   cat "$work/compile.out" "$work/compile.err" > "$work/compile.all"
   reject_count=$(grep -o 'unsupported (' "$work/compile.all" | wc -l | tr -d ' ')
   # A rejection is the user's error. An internal error, which may quote a
-  # diagnostic of idris-mlir-cc's that reads the same, is the compiler's.
+  # diagnostic of idris-mlir's that reads the same, is the compiler's.
   if grep -qF 'internal error' "$work/compile.all"; then
     say "unsupported ($reject_reason): an internal error, not a rejection"
     show "$work/compile.all"

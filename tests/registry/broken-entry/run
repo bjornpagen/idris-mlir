@@ -1,6 +1,6 @@
 #!/bin/sh
 # The registry validates every entry against the loaded context before
-# anything uses it. The test hook `--directive break-shape=<key>` gives one
+# anything uses it. The test hook `--break-shape=<key>` gives one
 # entry a shape no definition has; the compilation must then fail with a
 # shape mismatch, showing the entry, the shape expected and the shape found,
 # and leave no artifact. An entry keyed
@@ -11,7 +11,7 @@
 broken() {
   mkdir "$work/$2"
   copy_fixture . "$work/$2"
-  compile_program --directive "break-shape=$1" "$work/$2/Main.idr" prog
+  compile_program --break-shape="$1" "$work/$2/Main.idr" prog
   say "$1 broken: exit $compiled"
   if grep -qF "unsupported (hook): the registry's entry $1 (" "$work/compile.out" "$work/compile.err" &&
      grep -q "expects .* : (_ : %World) -> .*, but found " "$work/compile.out" "$work/compile.err"; then

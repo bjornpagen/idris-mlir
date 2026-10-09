@@ -9,7 +9,8 @@
       "toolchainFile": "${sourceDir}/.toolchain/llvm/toolchain.cmake",
       "cacheVariables": {
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-        "CMAKE_MAKE_PROGRAM": "${sourceDir}/.toolchain/ninja/bin/ninja"
+        "CMAKE_MAKE_PROGRAM": "${sourceDir}/.toolchain/ninja/bin/ninja",
+        "IDRIS_MLIR_IDRIS_PREFIX": "${sourceDir}/build/idris2"
       }
     },
     {

@@ -9,7 +9,7 @@ There is no option to leave the process out.
 
 No `mlir-opt` command shows this: it takes a statically linked program that
 creates an `ExecutionEngine`. Built with the pinned toolchain against musl
-as a static PIE (as `idris-mlir-cc` is):
+as a static PIE (as `idris-mlir` is):
 
 ```cpp
 #include "mlir/ExecutionEngine/ExecutionEngine.h"

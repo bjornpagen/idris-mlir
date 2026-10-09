@@ -1,7 +1,7 @@
 #!/bin/sh
 # The compile times the golden tests recorded (tests/lib/timing.sh,
 # `record_time`): the ten slowest compilations, each broken down by
-# idris-mlir-cc's --mlir-timing into JIT compilation, evaluation and
+# idris-mlir's --mlir-timing into JIT compilation, evaluation and
 # everything else; with --against, what slowed down since an earlier
 # record. It reports; it gates nothing.
 #
@@ -13,7 +13,7 @@
 # the .mlir Emit wrote, kept so that it can be compiled again here.
 #
 # The breakdown compiles each of the ten slowest modules again with
-# `idris-mlir-cc MODULE -o OBJECT --mlir-timing` (and --no-eval if the recorded
+# `idris-mlir -c MODULE -o OBJECT --mlir-timing` (and --no-eval if the recorded
 # compilation had it), and reads MLIR's execution time report: a row is
 # `<seconds> (<percent>%) <name>`, and with several columns the last is the
 # wall time. Rows whose name contains "JIT" (any case) are JIT compilation;
@@ -21,8 +21,8 @@
 # running the calls); the rest of the total is everything else: parsing, the
 # other passes, LLVM and the object file. The names are those idr-eval gives
 # its nested timers; a report without such rows shows n/a. The wall time of
-# the whole compilation (the frontend, idris-mlir-cc and the link) is the
-# recorded one.
+# the whole compilation (the whole idris-mlir command: the frontend, the
+# pipeline and the link) is the recorded one.
 #
 # --against OLD-DIR compares with the records of an earlier run (a copy of
 # tests/build/timing taken before `make test` writes it again): a
@@ -88,13 +88,13 @@ total=$(awk -F'\t' '{ s += $1 } END { printf "%.1f", s / 1000 }' "$tmp/all")
 echo "$count compilations recorded in $dir, $total s in all."
 echo
 
-# timing MODULE WHAT: idris-mlir-cc's report on MODULE, as
+# timing MODULE WHAT: the report of idris-mlir -c on MODULE, as
 # `<total> <jit> <eval>` in seconds, or nothing.
 timing() {
   timing_flags=--mlir-timing
   case $2 in *no-eval*) timing_flags="$timing_flags --no-eval" ;; esac
   # shellcheck disable=SC2086 # the flags are words
-  "$idris_mlir_cc" "$1" -o "$tmp/object.o" $timing_flags > "$tmp/timing.out" 2> "$tmp/timing.err" || return 0
+  "$idris_mlir" -c "$1" -o "$tmp/object.o" $timing_flags > "$tmp/timing.out" 2> "$tmp/timing.err" || return 0
   cat "$tmp/timing.out" "$tmp/timing.err" | awk '
     /Total Execution Time:/ { for (i = 1; i <= NF; i++) if ($i ~ /^[0-9.]+$/) total = $i }
     {
@@ -123,12 +123,12 @@ timing() {
 
 echo "The $top slowest:"
 echo
-echo "| test | compilation | exit | wall s | idris-mlir-cc s | JIT compilation s | evaluation s | everything else s |"
+echo "| test | compilation | exit | wall s | idris-mlir -c s | JIT compilation s | evaluation s | everything else s |"
 echo "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |"
 head -n "$top" "$tmp/all" | while IFS="$(printf '\t')" read -r ms test status what module; do
   wall=$(awk -v ms="$ms" 'BEGIN { printf "%.3f", ms / 1000 }')
   cc=n/a; jit=n/a; evaluation=n/a; rest=n/a
-  if [ "$module" != - ] && [ -f "$module" ] && [ -x "$idris_mlir_cc" ]; then
+  if [ "$module" != - ] && [ -f "$module" ] && [ -x "$idris_mlir" ]; then
     report=$(timing "$module" "$what")
     if [ -n "$report" ]; then
       set -- $report

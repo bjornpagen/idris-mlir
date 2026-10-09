@@ -41,7 +41,6 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Emit.Bodies
         , IdrisMLIR.Emit.Declarations
         , IdrisMLIR.Emit
-        , IdrisMLIR.Frontend.Paths
         , IdrisMLIR.Frontend.Resolve
         , IdrisMLIR.Frontend.Translate.State
         , IdrisMLIR.Frontend.Translate.Errors
@@ -57,7 +56,7 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Frontend.Translate.Programs
         , IdrisMLIR.Frontend.Translate
         , IdrisMLIR.Frontend.Profile
-        , IdrisMLIR.Frontend.Backend
+        , IdrisMLIR.Frontend.Program
         , IdrisMLIR.Frontend.Driver
-main = IdrisMLIR.Frontend.Main
-executable = idris-mlir
+main = IdrisMLIR.Frontend.Driver
+executable = idris-mlir-front

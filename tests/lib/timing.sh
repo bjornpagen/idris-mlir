@@ -11,7 +11,7 @@ now_ms() {
 # The timing record of this test: tests/build/timing/<test path, / as __>.tsv,
 # one line per compilation, `<ms> TAB <exit> TAB <what> TAB <module>`, where
 # <module> is the emitted .mlir kept next to it (or -), so that
-# tests/compile-times.sh can run idris-mlir-cc --mlir-timing on it again.
+# tests/compile-times.sh can run idris-mlir --mlir-timing on it again.
 timing_dir=$root/tests/build/timing
 case $here in
   "$root/tests/"*) timing_id=$(printf '%s' "${here#"$root/tests/"}" | sed 's|/|__|g') ;;
@@ -19,15 +19,18 @@ case $here in
 esac
 timing_count=0
 
-# record_time MS COMPILE-ARGUMENTS...: one line of the timing record.
+# record_time MS COMPILE-ARGUMENTS...: one line of the timing record. What
+# was compiled is named by the options that change the compilation: not the
+# packages, nor where the dumps go.
 record_time() {
   record_ms=$1
   shift
   record_what=compile
   while [ $# -gt 2 ]; do
     case $1 in
-      --directive) record_what="$record_what --directive $2"; shift ;;
       -p) shift ;;
+      --dump-dir=*) ;;
+      *) record_what="$record_what $1" ;;
     esac
     shift
   done
@@ -52,7 +55,7 @@ record_time() {
     >> "$timing_dir/$timing_id.tsv"
 }
 
-# timing_rows REPORT: the rows of an execution time report (idris-mlir-cc
+# timing_rows REPORT: the rows of an execution time report (idris-mlir
 # --mlir-timing, MLIR's tree display), in order, each as `<depth> TAB <seconds>
 # TAB <name>`: depth 0 for a row of the report's own (the parse, a step of
 # the pipeline, LLVM, Rest, Total), one more for each row it is nested in;

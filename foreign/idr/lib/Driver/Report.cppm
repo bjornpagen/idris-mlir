@@ -1,4 +1,4 @@
-// idr.driver:report: every diagnostic idris-mlir-cc prints. One shape: the
+// idr.driver:report: every diagnostic idris-mlir prints of its own. One shape: the
 // tool's name, the message, a newline. The exit status is the caller's; a
 // signal handler cannot use this, and writes the same words itself.
 export module idr.driver:report;
@@ -7,10 +7,10 @@ import idr.mlir;
 
 export namespace idr::driver {
 
-// `idris-mlir-cc: <what is streamed>`, then a newline. A temporary lives for
+// `idris-mlir: <what is streamed>`, then a newline. A temporary lives for
 // the whole statement, so the newline follows the last piece.
 struct Report {
-  Report() { llvm::errs() << "idris-mlir-cc: "; }
+  Report() { llvm::errs() << "idris-mlir: "; }
   ~Report() { llvm::errs() << '\n'; }
   Report(const Report &) = delete;
   Report &operator=(const Report &) = delete;
@@ -22,7 +22,7 @@ struct Report {
   }
 };
 
-// `idris-mlir-cc: cannot write <path>: <reason>`. `path` is whatever the
+// `idris-mlir: cannot write <path>: <reason>`. `path` is whatever the
 // call streamed before: a string, a path, the output option.
 template <typename Path>
 void cannotWrite(const Path &path, const std::error_code &error) {

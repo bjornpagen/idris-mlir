@@ -6,7 +6,7 @@ this compiler on `bench/<name>/Main.idr` (ordinary Idris over the stock
 Prelude and base, or over `Linear.Array` of `libs/mlir-linear` where
 `bench/<name>/packages` says so); the same source through the stock Chez
 backend; and the pinned clang at `-O2` on `bench/c/<name>.c`, linked
-as `idris-mlir-cc --print-link-flags` says the target links a program (a
+as `idris-mlir --print-link-flags` says the target links a program (a
 static PIE on musl, a dynamic executable on Darwin), for this
 compiler's target CPU without floating-point contraction, as our programs
 are built. Every program runs
@@ -44,7 +44,7 @@ and slower on 6 (fasta, fib, k-nucleotide, reverse-complement,
 spectral-norm and unionfind); regex-redux has no C version. Against Idris
 on Chez Scheme it is faster on 25 of the 26, from 2.25x (rbtree) to 252x
 (ack), and 1.2x slower on regex-redux. Compiling a program takes 1.8 to
-11.2 seconds (idris-mlir, idris-mlir-cc and the link); k-nucleotide,
+11.2 seconds (idris-mlir: frontend, pipeline and link); k-nucleotide,
 spectral-norm-linear and regex-redux are the slow ones.
 
 Since the record before it (2026-10-02, 903d127): fannkuch-redux went from
@@ -219,7 +219,7 @@ The sizes were not shrunk.
   `ioarray-fannkuch` fixtures state those properties). There is no
   copying array to turn off: a linear array is mutable by construction on
   every backend. What can be turned off is each compiler mechanism:
-- **Ablation.** `idris-mlir-cc --without=STEP,...` leaves pipeline steps
+- **Ablation.** `idris-mlir --without=STEP,...` leaves pipeline steps
   out, or idr-rc's mechanisms (`reuse`, `sink`). fannkuch-linear and
   unionfind, best of 3, each variant compiled and run alone (2026-10-01):
 
