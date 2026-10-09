@@ -258,8 +258,12 @@ bool writtenInPieces(mlir::Value str);
 // The types a field of a constructor may have.
 bool isFieldType(mlir::Type type);
 
-// An array: `memref<?xE>` of a field type E at no grade (Idr_ArrayType).
+// An array: `memref<?xE>`, or `memref<E>` (an IORef), of a field type E at
+// no grade (Idr_ArrayType).
 bool isArray(mlir::Type type);
+
+// An array of one dimension, `memref<?xE>`: one that has a length.
+bool isRank1Array(mlir::Type type);
 
 // How often a value may be used, as its type says: never (!idr.erased),
 // exactly once (!idr.lin<T> and the world), or any number of times.
@@ -273,6 +277,16 @@ mlir::Type unrestricted(mlir::Type type);
 // is (its constructor, a field) does not change on the way; whether a read
 // may take a linear part of it is the reader's to decide.
 mlir::Value throughLinear(mlir::Value value);
+
+// The array an access reads or writes: a view or a share of an owned array
+// is that array, and so is the array a linear position was entered with.
+mlir::Value arrayRoot(mlir::Value array);
+
+// Whether two accesses name the same element: the same array, seen through
+// arrayRoot, at the same indices, each seen through the in-bounds guard
+// that checked it, or constants of the same value.
+bool sameElement(mlir::Value array, mlir::ValueRange indices, mlir::Value otherArray,
+                 mlir::ValueRange otherIndices);
 
 // Whether the field at `index` of a constructor value is read exactly once,
 // and the value is read no other way: through its grade changes every use

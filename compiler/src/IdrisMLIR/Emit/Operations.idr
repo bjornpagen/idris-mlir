@@ -181,30 +181,39 @@ nonFinite = "cast of a non-finite Double"
 outOfBounds = "array index out of bounds"
 outsideBuffer = "a byte range outside the buffer"
 
-||| The guards of a partial primitive, each with the index of the operand it
-||| guards and the cause its crash reports; none for a total one.
-guardOf : Prim -> List (Guard, Nat, String)
-guardOf (IntOp Div _) = [(Nonzero, 1, divisionByZero)]
-guardOf (IntOp Mod _) = [(Nonzero, 1, divisionByZero)]
-guardOf (Op BigDiv) = [(Nonzero, 1, divisionByZero)]
-guardOf (Op BigMod) = [(Nonzero, 1, divisionByZero)]
-guardOf (Op ToByte) = [(Byte, 0, "a byte outside 0 to 255")]
-guardOf (Op ToInt) = [(Finite, 0, nonFinite)]
-guardOf (Op BigFromDouble) = [(Finite, 0, nonFinite)]
-guardOf (Op StrIndex) = [(IndexIn 0, 1, "string index out of range")]
-guardOf (Op StrHead) = [(Nonempty, 0, "head of an empty string")]
-guardOf (Op StrTail) = [(Nonempty, 0, "tail of an empty string")]
-guardOf (Op ArrayGet) = [(IndexIn 0, 1, outOfBounds)]
-guardOf (Op ArraySet) = [(IndexIn 0, 1, outOfBounds)]
-guardOf (Op WriteBytes) = [(RangeIn (CountAt 3) 1, 2, outsideBuffer)]
-guardOf (Op ReadBytes) = [(RangeIn (CountAt 3) 1, 2, outsideBuffer)]
-guardOf (Op BufferGetString) = [(RangeIn (CountAt 2) 0, 1, outsideBuffer)]
-guardOf (Op BufferLoad) = [(RangeIn WordSize 0, 1, outsideBuffer)]
-guardOf (Op BufferStore) = [(RangeIn WordSize 0, 1, outsideBuffer)]
-guardOf (Op BufferSetString) = [(RangeIn (BytesOf 2) 0, 1, outsideBuffer)]
-guardOf (Op BufferCopy) =
+||| An array access's guard: its index below the length of the array before
+||| it, for an array of rank 1. An IORef's one element has no index.
+indexGuards : List Val -> List (Guard, Nat, String)
+indexGuards (a :: _) = case a.type of
+  ArrayT Rank1 _ => [(IndexIn 0, 1, outOfBounds)]
+  _ => []
+indexGuards [] = []
+
+||| The guards of a partial primitive on its operands, each with the index of
+||| the operand it guards and the cause its crash reports; none for a total
+||| one.
+guardOf : Prim -> List Val -> List (Guard, Nat, String)
+guardOf (IntOp Div _) _ = [(Nonzero, 1, divisionByZero)]
+guardOf (IntOp Mod _) _ = [(Nonzero, 1, divisionByZero)]
+guardOf (Op BigDiv) _ = [(Nonzero, 1, divisionByZero)]
+guardOf (Op BigMod) _ = [(Nonzero, 1, divisionByZero)]
+guardOf (Op ToByte) _ = [(Byte, 0, "a byte outside 0 to 255")]
+guardOf (Op ToInt) _ = [(Finite, 0, nonFinite)]
+guardOf (Op BigFromDouble) _ = [(Finite, 0, nonFinite)]
+guardOf (Op StrIndex) _ = [(IndexIn 0, 1, "string index out of range")]
+guardOf (Op StrHead) _ = [(Nonempty, 0, "head of an empty string")]
+guardOf (Op StrTail) _ = [(Nonempty, 0, "tail of an empty string")]
+guardOf (Op ArrayGet) vs = indexGuards vs
+guardOf (Op ArraySet) vs = indexGuards vs
+guardOf (Op WriteBytes) _ = [(RangeIn (CountAt 3) 1, 2, outsideBuffer)]
+guardOf (Op ReadBytes) _ = [(RangeIn (CountAt 3) 1, 2, outsideBuffer)]
+guardOf (Op BufferGetString) _ = [(RangeIn (CountAt 2) 0, 1, outsideBuffer)]
+guardOf (Op BufferLoad) _ = [(RangeIn WordSize 0, 1, outsideBuffer)]
+guardOf (Op BufferStore) _ = [(RangeIn WordSize 0, 1, outsideBuffer)]
+guardOf (Op BufferSetString) _ = [(RangeIn (BytesOf 2) 0, 1, outsideBuffer)]
+guardOf (Op BufferCopy) _ =
   [(RangeIn (CountAt 2) 0, 1, outsideBuffer), (RangeIn (CountAt 2) 3, 4, outsideBuffer)]
-guardOf _ = []
+guardOf _ _ = []
 
 ||| The bytes of a machine word a buffer stores or loads.
 wordSize : Ty -> Maybe Integer
@@ -223,7 +232,7 @@ setAt _ _ [] = []
 ||| result in place of the operand it guards. `types` are an effect's type
 ||| arguments, which give a stored or loaded word its size.
 guarded : Index -> Loc -> Prim -> List Ty -> List Val -> E (List Val)
-guarded ix l p types vs = foldlM checkOne vs (guardOf p)
+guarded ix l p types vs = foldlM checkOne vs (guardOf p vs)
   where
     operandAt : List Val -> Nat -> E Val
     operandAt ws i =
@@ -232,7 +241,7 @@ guarded ix l p types vs = foldlM checkOne vs (guardOf p)
     lengthOf : Val -> E Val
     lengthOf s = case s.type of
       StrT => value ix l (IntT IdrisInt) (Idr.strLengthOp !(operand ix s))
-      ArrayT _ => arrayLength ix l s
+      ArrayT _ _ => arrayLength ix l s
       t => internal ("the length of a value of type " ++ show t)
 
     countOf : List Val -> Count -> E Val

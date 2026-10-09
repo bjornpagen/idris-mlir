@@ -493,8 +493,8 @@ void emitOp(const Operator &op, llvm::raw_ostream &os) {
     const auto *attribute = llvm::dyn_cast_if_present<NamedAttribute *>(arg);
     if (!attribute) {
       // A property that is no attribute and has a default is a pass's own
-      // claim (an access's in_bounds): the Idris side cannot make it, and
-      // writes the op at its default.
+      // claim (a read that moves its element out): the Idris side cannot
+      // make it, and writes the op at its default.
       const auto *property = llvm::dyn_cast_if_present<NamedProperty *>(arg);
       if (property && property->prop.hasDefaultValue())
         continue;
@@ -571,7 +571,9 @@ struct Primitive {
 };
 
 // What of `op` its constructor could not give: an inherent attribute, a
-// property, or the segment sizes of its operands or results; or nothing.
+// property without a default, or the segment sizes of its operands or
+// results; or nothing. A property with a default is a pass's own claim,
+// which the constructor leaves at its default, as emitOp does.
 std::optional<std::string> inherent(const Operator &op) {
   for (int index = 0, e = op.getNumArgs(); index < e; ++index) {
     mlir::tblgen::Argument arg = op.getArg(index);
@@ -579,7 +581,8 @@ std::optional<std::string> inherent(const Operator &op) {
       if (!attribute->attr.isDerivedAttr())
         return llvm::formatv("the attribute `{0}`", attribute->name).str();
     } else if (const auto *property = llvm::dyn_cast_if_present<NamedProperty *>(arg)) {
-      return llvm::formatv("the property `{0}`", property->name).str();
+      if (!property->prop.hasDefaultValue())
+        return llvm::formatv("the property `{0}`", property->name).str();
     }
   }
   if (op.getTrait("::mlir::OpTrait::AttrSizedOperandSegments") ||

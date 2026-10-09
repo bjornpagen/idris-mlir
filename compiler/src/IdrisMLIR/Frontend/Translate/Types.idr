@@ -378,9 +378,9 @@ mutual
          else if isWordType (hooksOf (fullname def))
            then pure (IntT UInt64)
          else case arrayElementOf (hooksOf (fullname def)) of
-           Just (Just e) => pure (ArrayT e)
-           Just Nothing => case args of
-             [a] => ArrayT <$> coreType fc owner rule !(normaliseClosed a)
+           Just (r, Just e) => pure (ArrayT r e)
+           Just (r, Nothing) => case args of
+             [a] => ArrayT r <$> coreType fc owner rule !(normaliseClosed a)
              _ => internal fc "the array type without its one element type"
            Nothing => DataT <$> dataInstance fc owner n !(traverse normaliseClosed args)
     (TType _ _, _) => reject fc owner rule "Type in a runtime position"

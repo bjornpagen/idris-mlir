@@ -2,10 +2,10 @@
 // strict and its data immutable, so a new object only points at objects
 // that exist before it, and the heap is acyclic: what lets counting free
 // everything, with a release walk that marks nothing and a count of one
-// that means nobody else. An array is the one cell written after it
-// exists, so a knot needs an array whose element type can reach the array
-// again, and whether one can is a question of types, answered once for the
-// module.
+// that means nobody else. An array, of any rank (an IORef is one of rank
+// 0), is the one cell written after it exists, so a knot needs an array
+// whose element type can reach the array again, and whether one can is a
+// question of types, answered once for the module.
 export module idr.verify:cycles;
 
 import idr.mlir;
@@ -126,10 +126,10 @@ private:
 };
 
 // A type as the message names it: a declaration by its symbol, an array by
-// what it holds.
+// what it holds, an array of rank 0 as the IORef it is.
 void describe(InFlightDiagnostic &out, Type type) {
   if (auto array = dyn_cast<MemRefType>(type)) {
-    out << "array of ";
+    out << (array.getRank() == 0 ? "IORef of " : "array of ");
     describe(out, array.getElementType());
   } else if (auto data = dyn_cast<DataType>(type)) {
     out << data.getName().getValue();
@@ -179,8 +179,11 @@ LogicalResult cycles(ModuleOp module) {
   for (auto [members, op, array] : llvm::zip_equal(knots, made, named)) {
     SmallVector<unsigned> cycle = graph.cycle(array, members);
     InFlightDiagnostic error = op ? op->emitError() : module.emitError();
-    error << "unsupported (cycle): an array of ";
-    describe(error, graph.type(cycle.front()));
+    // The lead names the array itself, by its rank: the path after it runs
+    // from what the array holds, through any types between, to the array
+    // and back.
+    error << "unsupported (cycle): an ";
+    describe(error, graph.type(array));
     error << " can hold a reference to itself through ";
     for (auto [step, at] : llvm::enumerate(cycle)) {
       if (step != 0)

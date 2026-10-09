@@ -145,10 +145,10 @@ bool isLengthOf(Value length, Value array) {
 // no such read.
 std::optional<Read> readAtIndex(Operation &op, linalg::GenericOp generic) {
   auto get = dyn_cast<ArrayGetOp>(op);
-  if (!get)
+  if (!get || get.getIndices().size() != 1)
     return std::nullopt;
   Value array = viewed(get.getArray());
-  Value at = get.getIndex();
+  Value at = get.getIndices().front();
   auto guard = at.getDefiningOp<CheckInBoundsOp>();
   if (guard) {
     if (!isLengthOf(guard.getLength(), array))
@@ -247,7 +247,7 @@ void lowerGenerate(IRRewriter &rewriter, ArrayGenerateOp op) {
   MLIRContext *ctx = op.getContext();
   rewriter.setInsertionPoint(op);
   auto made = ArrayNewOp::create(rewriter, loc, op.getArray().getType(), op.getNext().getType(),
-                                 op.getSize(), op.getFill(), op.getWorld());
+                                 ValueRange{op.getSize()}, op.getFill(), op.getWorld());
   Value out = fromSecond(rewriter, loc, asMemref(rewriter, loc, made.getArray()), op.getSize());
   Block &body = op.getBody().front();
   Type element = op.getArrayType().getElementType();

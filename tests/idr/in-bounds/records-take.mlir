@@ -12,7 +12,7 @@ module {
 
   func.func @taken(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
-    %o, %w1 = idr.array.new %n, %z, %w : i64 -> !idr.own<memref<?xi64>>
+    %o, %w1 = idr.array.new [%n], %z, %w : i64 -> !idr.own<memref<?xi64>>
     %rec = idr.con @Pair::@MkPair(%n, %o) : (i64, !idr.own<memref<?xi64>>) -> !idr.own<!idr.data<@Pair>>
     %sz, %arr = idr.take %rec @Pair::@MkPair : !idr.own<!idr.data<@Pair>> -> (i64, !idr.own<memref<?xi64>>)
     %view = idr.borrow %arr : !idr.own<memref<?xi64>>
@@ -35,7 +35,7 @@ module {
 
   func.func @takenArr(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
-    %o, %w1 = idr.array.new %n, %z, %w : i64 -> !idr.own<memref<?xi64>>
+    %o, %w1 = idr.array.new [%n], %z, %w : i64 -> !idr.own<memref<?xi64>>
     %rec = idr.con @Arr::@MkArr(%o) : (!idr.own<memref<?xi64>>) -> !idr.own<!idr.data<@Arr>>
     %arr = idr.take %rec @Arr::@MkArr : !idr.own<!idr.data<@Arr>> -> (!idr.own<memref<?xi64>>)
     %view = idr.borrow %arr : !idr.own<memref<?xi64>>

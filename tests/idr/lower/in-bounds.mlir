@@ -15,7 +15,7 @@ module attributes {idr.program} {
   func.func @root(%w: !idr.world) -> !idr.world {
     %n = arith.constant 3 : i64
     %i = arith.constant 0 : i64
-    %o, %w0 = idr.array.new %n, %i, %w : i64 -> !idr.own<memref<?xi64>>
+    %o, %w0 = idr.array.new [%n], %i, %w : i64 -> !idr.own<memref<?xi64>>
     %a = idr.borrow %o : !idr.own<memref<?xi64>>
     %w1 = func.call @proven(%a, %i, %w0) : (memref<?xi64>, i64, !idr.world) -> !idr.world
     %w2 = func.call @checked(%a, %i, %w1) : (memref<?xi64>, i64, !idr.world) -> !idr.world

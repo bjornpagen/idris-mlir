@@ -38,7 +38,7 @@ mutual
   mlirType ix (FunT a r) =
     pure (Idr (FnType (MkSignature [!(binderType ix a)] [!(mlirType ix r)])))
   mlirType ix (LazyT r) = (\t => Idr (LazyType t)) <$> mlirType ix r
-  mlirType ix (ArrayT e) = MemRefType <$> mlirType ix e
+  mlirType ix (ArrayT r e) = MemRefType (dimensions r) <$> mlirType ix e
 
   ||| The contract type of what a binder binds: its quantity is in the
   ||| type, where no pass can lose it.

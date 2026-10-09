@@ -171,8 +171,8 @@ deferred ix l what params expected body = do
 ||| a fold's accumulator, element and index), the type its body yields,
 ||| and its result's besides the next world.
 regionSignature : IdrRegionPrim -> List Ty -> Maybe (List Ty, List Ty, Ty, Ty)
-regionSignature ArrayGenerate [e] = Just ([IntT IdrisInt, e, WorldT], [IntT IdrisInt], e, ArrayT e)
-regionSignature ArrayFold [e, t] = Just ([ArrayT e, t, WorldT], [t, e, IntT IdrisInt], t, t)
+regionSignature ArrayGenerate [e] = Just ([IntT IdrisInt, e, WorldT], [IntT IdrisInt], e, ArrayT Rank1 e)
+regionSignature ArrayFold [e, t] = Just ([ArrayT Rank1 e, t, WorldT], [t, e, IntT IdrisInt], t, t)
 regionSignature _ _ = Nothing
 
 ||| The algebra: one layer of `Term` to its emitter.

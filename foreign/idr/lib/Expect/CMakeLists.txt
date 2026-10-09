@@ -20,6 +20,7 @@ idr_library(idr_expect
 		Folds.cppm
 		InBounds.cppm
 		Lookup.cppm
+		MovesOut.cppm
 		Named.cppm
 		NarrowedLanes.cppm
 		Output.cppm

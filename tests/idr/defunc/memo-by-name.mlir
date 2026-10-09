@@ -20,7 +20,7 @@ module attributes {idr.program} {
   func.func private @sized(%n: i64) -> i64 attributes {idr.total} {
     %w = idr.world.new
     %z = arith.constant 0 : i64
-    %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %c0 = arith.constant 0 : index
     %d = memref.dim %a, %c0 : memref<?xi64>
     %l = arith.index_cast %d : index to i64

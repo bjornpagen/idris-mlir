@@ -80,11 +80,25 @@ export
 arrayData : Shape -> Shape
 arrayData a = Head (Def (MkQName arrayPrims "ArrayData")) [a]
 
-||| An array primitive, `forall a . ... -> PrimIO r`: its element type is
-||| erased, and its world is the last argument.
+||| A primitive on the mutable cells of the module `space` declares,
+||| `forall a . ... -> PrimIO r`: its element type is erased, and its world
+||| is the last argument.
+cellPrimitive : List String -> String -> Shape -> IdrPrim -> Entry
+cellPrimitive space name shape p =
+  MkEntry (Def (MkQName space name)) (Typed (Pi Zero TypeOfTypes shape)) (ArrayCall p) [IOPrimitive]
+
+||| An array primitive of base's `Data.IOArray.Prims`.
 arrayPrimitive : String -> Shape -> IdrPrim -> Entry
-arrayPrimitive name shape p =
-  MkEntry (Def (MkQName arrayPrims name)) (Typed (Pi Zero TypeOfTypes shape)) (ArrayCall p) [IOPrimitive]
+arrayPrimitive = cellPrimitive arrayPrims
+
+||| The module of base's references, which declares their primitives
+||| `%extern`: a backend implements them by name.
+iorefModule : List String
+iorefModule = ["Data", "IORef"]
+
+||| `Mut a`, the external type of a reference's one cell.
+mut : Shape -> Shape
+mut a = Head (Def (MkQName iorefModule "Mut")) [a]
 
 export
 int : Shape
@@ -375,13 +389,23 @@ primitives =
   , ioPrimitive (MkSpec "C" "idris2_getStr") "prim__getStr"
                 (Pi One world (ioRes (Prim StringP))) GetLine
   , MkEntry (Def (MkQName arrayPrims "ArrayData")) (Typed (Pi Quantity.Many TypeOfTypes TypeOfTypes))
-            (ArrayType Nothing) [IOPrimitive]
+            (ArrayType Rank1 Nothing) [IOPrimitive]
   , arrayPrimitive "prim__newArray"
                    (Pi Quantity.Many int (Pi Quantity.Many Hole (Pi One world (ioRes (arrayData Hole))))) ArrayNew
   , arrayPrimitive "prim__arrayGet"
                    (Pi Quantity.Many (arrayData Hole) (Pi Quantity.Many int (Pi One world (ioRes Hole)))) ArrayGet
   , arrayPrimitive "prim__arraySet"
                    (Pi Quantity.Many (arrayData Hole) (Pi Quantity.Many int (Pi Quantity.Many Hole (Pi One world (ioRes unit))))) ArraySet
+  -- An IORef is an array of rank 0: `Mut a` is `memref<E>`, its one
+  -- element the value, made, read and written through the world as an
+  -- array's elements are, with no size and no index. Control.Monad.ST's
+  -- references are IORefs, run by base's unsafePerformIO.
+  , MkEntry (Def (MkQName iorefModule "Mut")) (Typed (Pi Quantity.Many TypeOfTypes TypeOfTypes))
+            (ArrayType Rank0 Nothing) [IOPrimitive]
+  , cellPrimitive iorefModule "prim__newIORef" (Pi Quantity.Many Hole (Pi One world (ioRes (mut Hole)))) ArrayNew
+  , cellPrimitive iorefModule "prim__readIORef" (Pi Quantity.Many (mut Hole) (Pi One world (ioRes Hole))) ArrayGet
+  , cellPrimitive iorefModule "prim__writeIORef"
+                  (Pi Quantity.Many (mut Hole) (Pi Quantity.Many Hole (Pi One world (ioRes unit)))) ArraySet
   -- The length of an array, which the backend contract lacks: the in-house
   -- linear array library declares it by Chez's spec, `vector-length` of the
   -- vector `ArrayData` is there (after the erased type argument Chez passes
@@ -399,7 +423,7 @@ primitives =
   -- and bufferData are deprecated names: a program that calls one is
   -- rejected, and the message names the replacement. They share Chez's
   -- byte spec with the Bits8 operations; the declared name picks the entry.
-  , MkEntry (Def (MkQName bufferModule "Buffer")) (Typed TypeOfTypes) (ArrayType (Just byte)) [IOPrimitive]
+  , MkEntry (Def (MkQName bufferModule "Buffer")) (Typed TypeOfTypes) (ArrayType Rank1 (Just byte)) [IOPrimitive]
   , MkEntry (Foreign (MkSpec "scheme" "blodwen-new-buffer"))
             (Declared (MkQName bufferModule "prim__newBuffer") (Pi Quantity.Many int (Pi One world (ioRes buffer))))
             (IOCall ArrayNew [LInt UInt8 0]) [IOPrimitive]

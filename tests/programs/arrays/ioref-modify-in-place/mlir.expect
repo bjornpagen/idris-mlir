@@ -1,0 +1,3 @@
+# modifyIORef reads the record and writes it back: the read moves it out
+# of the cell, in whichever function the inliner leaves the pair.
+idr-rc: moves-out

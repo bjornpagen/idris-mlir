@@ -1,0 +1,4 @@
+# The record is read out of its IORef, rebuilt with one field changed and
+# written back in the loop: the read moves the record out of the cell, so
+# the rebuild holds its one reference and builds in that cell.
+idr-rc: moves-out=@Main.loop reuses-in-place=@Main.loop

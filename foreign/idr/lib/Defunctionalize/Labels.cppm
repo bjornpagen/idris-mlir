@@ -84,6 +84,8 @@ struct FieldAnchor
 // The elements of every array whose element type is this one: an array has
 // one slot, as a constructor has one per field, and its element type, not
 // the array value, names it, since a value of the type may be any array.
+// Its rank does not: an IORef's one element and the elements of an array
+// of the same type share the slot.
 struct ElementsAnchor : GenericLatticeAnchorBase<ElementsAnchor, Type> {
   // Its identity, which MLIR's TypeID finds by this name.
   static TypeID resolveTypeID() {

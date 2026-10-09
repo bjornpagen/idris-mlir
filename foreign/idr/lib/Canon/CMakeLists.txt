@@ -13,6 +13,7 @@ idr_library(idr_canon
 		MatchPatterns.cppm
 		Meets.cppm
 		Merge.cppm
+		MoveOut.cppm
 		PutList.cppm
 		PutStr.cppm
 		Rebuild.cppm

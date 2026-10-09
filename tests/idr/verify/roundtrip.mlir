@@ -317,6 +317,19 @@ module attributes {idr.program} {
     return
   }
 
+  // An IORef is an array of rank 0: made, read and written with no size and
+  // no index. The read that moves its element out says so.
+  // CHECK-LABEL: func.func private @ref
+  func.func private @ref(%v: !idr.str, %s: !idr.str, %w0: !idr.world) -> (!idr.str, !idr.world) {
+    // CHECK: idr.array.new [], %{{.*}}, %{{.*}} : !idr.str -> memref<!idr.str>
+    %r, %w1 = idr.array.new [], %v, %w0 : !idr.str -> memref<!idr.str>
+    // CHECK: idr.array.get %{{.*}}[], %{{.*}} moves : memref<!idr.str> -> !idr.str
+    %x, %w2 = idr.array.get %r[], %w1 moves : memref<!idr.str> -> !idr.str
+    // CHECK: idr.array.set %{{.*}}[], %{{.*}}, %{{.*}} : memref<!idr.str>, !idr.str
+    %w3 = idr.array.set %r[], %s, %w2 : memref<!idr.str>, !idr.str
+    return %x, %w3 : !idr.str, !idr.world
+  }
+
   // CHECK-LABEL: func.func @Main.main
   func.func @Main.main(%w0: !idr.world) -> !idr.world attributes {idr.total} {
     %s = idr.constant "hi" : !idr.str

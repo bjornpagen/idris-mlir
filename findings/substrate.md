@@ -566,8 +566,8 @@ stated today; two are enforced.
 
 - **What it is:** the decided rule, as the decision states it: the type
   reachability graph after idr-defunctionalize, and a cycle through a
-  mutable cell (`IOArray` today, `IORef` and `Buffer` when they land) is
-  `unsupported (cycle)`, naming the types.
+  mutable cell (an array: `IOArray`, `Buffer`, and `IORef`, the array of
+  rank 0) is `unsupported (cycle)`, naming the types.
 - **Who runs it:** the `idr.program` verifier, so every pass after
   defunctionalization is checked. The frontend cannot run it, because the
   closure sums do not exist before idr-defunctionalize.

@@ -484,7 +484,7 @@ mutual
           operandType _ = Nothing
 
           arrayElement : Ty -> Maybe Ty
-          arrayElement (ArrayT e) = Just e
+          arrayElement (ArrayT _ e) = Just e
           arrayElement _ = Nothing
 
           element : List PKind -> ClosedTerm -> Core (List Ty)

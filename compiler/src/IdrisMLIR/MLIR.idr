@@ -31,14 +31,15 @@ import Data.String
 namespace MlirType
   ||| A type: a builtin one, or a dialect's, which holds types of its own.
   ||| A signless integer type, `i64`, is read as an op that reads it says;
-  ||| an array of elements of a type is a memref of one dynamic dimension.
+  ||| an array of elements of a type is a memref of as many dimensions as
+  ||| it has, each dynamic: of none, the memref of one element.
   public export
   data MlirType
     = IntegerType Nat
     | F64Type
     | IndexType
     | NoneType
-    | MemRefType MlirType
+    | MemRefType Nat MlirType
     | FunctionType (Signature MlirType)
     | Idr (IdrType MlirType)
 
@@ -50,7 +51,7 @@ typeText (IntegerType w) = "i" ++ show w
 typeText F64Type = "f64"
 typeText IndexType = "index"
 typeText NoneType = "none"
-typeText (MemRefType e) = "memref<?x" ++ typeText e ++ ">"
+typeText (MemRefType dynamic e) = "memref<" ++ concat (replicate dynamic "?x") ++ typeText e ++ ">"
 typeText (FunctionType s) = signature (\v => typeText (assert_smaller s v)) s
 typeText (Idr x) = idrTypeText (\v => typeText (assert_smaller x v)) x
 

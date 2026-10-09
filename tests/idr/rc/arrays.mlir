@@ -11,7 +11,7 @@
 // CHECK-LABEL: func.func private @make(
 // CHECK: %[[X:.*]] = idr.con @Opt::@Some(%{{.*}}) {{.*}} -> !idr.{{own|excl}}<!idr.data<@Opt>>
 // CHECK-NOT: idr.dup
-// CHECK: %[[A:.*]], %{{.*}} = idr.array.new %{{.*}}, %[[X]], %{{.*}} : !idr.{{own|excl}}<!idr.data<@Opt>> -> !idr.own<memref<?x!idr.data<@Opt>>>
+// CHECK: %[[A:.*]], %{{.*}} = idr.array.new [%{{.*}}], %[[X]], %{{.*}} : !idr.{{own|excl}}<!idr.data<@Opt>> -> !idr.own<memref<?x!idr.data<@Opt>>>
 // CHECK-NEXT: return %[[A]]
 // CHECK-LABEL: func.func private @read(
 // CHECK-SAME: %[[B:[^:]*]]: memref<?x!idr.data<@Opt>>
@@ -43,7 +43,7 @@ module attributes {idr.program} {
   }
   func.func private @make(%n: i64, %s: !idr.str, %w: !idr.world) -> (memref<?x!idr.data<@Opt>>, !idr.world) {
     %x = idr.con @Opt::@Some(%s) : (!idr.str) -> !idr.data<@Opt>
-    %a, %w1 = idr.array.new %n, %x, %w : !idr.data<@Opt> -> memref<?x!idr.data<@Opt>>
+    %a, %w1 = idr.array.new [%n], %x, %w : !idr.data<@Opt> -> memref<?x!idr.data<@Opt>>
     return %a, %w1 : memref<?x!idr.data<@Opt>>, !idr.world
   }
   func.func private @read(%a: memref<?x!idr.data<@Opt>>, %i: i64, %w: !idr.world) -> (!idr.data<@Opt>, !idr.world) {

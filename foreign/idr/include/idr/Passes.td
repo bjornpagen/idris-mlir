@@ -689,6 +689,8 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
         function;
       - `reuses-in-place=@f`: in @f every box is built in a reused cell
         (idr.reuse), and at least one is;
+      - `moves-out`, `moves-out=@f`: anywhere or in @f, some
+        `idr.array.get` moves its element out for the write that follows;
       - `counts-nothing=@f`: no idr.dup or idr.drop in @f, other than a dup of
         static data, which holds no count;
       - `in-bounds=@f`: no `idr.check.in_bounds` is left in @f: every

@@ -83,21 +83,21 @@ arrayGenerateOp size fill world body array' next =
 
 ||| `idr.array.get`: the element of an array at an index
 export
-arrayGetOp : (array' : Value) -> (index : Value) -> (world : Value) -> (value : MlirType) -> (next : MlirType) -> Op
-arrayGetOp array' index world value next =
-  MkOp "idr.array.get" [array', index, world] [] [] [] [value, next]
+arrayGetOp : (array' : Value) -> (indices : List Value) -> (world : Value) -> (value : MlirType) -> (next : MlirType) -> Op
+arrayGetOp array' indices world value next =
+  MkOp "idr.array.get" (concat [[array'], indices, [world]]) [] [] [] [value, next]
 
-||| `idr.array.new`: a new array of `size` copies of `fill`
+||| `idr.array.new`: a new array of the given sizes, each element `fill`
 export
-arrayNewOp : (size : Value) -> (fill : Value) -> (world : Value) -> (array' : MlirType) -> (next : MlirType) -> Op
-arrayNewOp size fill world array' next =
-  MkOp "idr.array.new" [size, fill, world] [] [] [] [array', next]
+arrayNewOp : (sizes : List Value) -> (fill : Value) -> (world : Value) -> (array' : MlirType) -> (next : MlirType) -> Op
+arrayNewOp sizes fill world array' next =
+  MkOp "idr.array.new" (concat [sizes, [fill], [world]]) [] [] [] [array', next]
 
 ||| `idr.array.set`: writes an element of an array at an index
 export
-arraySetOp : (array' : Value) -> (index : Value) -> (value : Value) -> (world : Value) -> (next : MlirType) -> Op
-arraySetOp array' index value world next =
-  MkOp "idr.array.set" [array', index, value, world] [] [] [] [next]
+arraySetOp : (array' : Value) -> (indices : List Value) -> (value : Value) -> (world : Value) -> (next : MlirType) -> Op
+arraySetOp array' indices value world next =
+  MkOp "idr.array.set" (concat [[array'], indices, [value], [world]]) [] [] [] [next]
 
 ||| `idr.big.add`: the sum of two bigs or two naturals
 export

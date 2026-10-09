@@ -275,6 +275,7 @@ using mlir::GenericLatticeAnchorBase;
 using mlir::get;
 using mlir::getAffineDimExpr;
 using mlir::getConstantIntValue;
+using mlir::getEffectsRecursively;
 using mlir::getType;
 using mlir::getUsedValuesDefinedAbove;
 using mlir::GreedyRewriteConfig;

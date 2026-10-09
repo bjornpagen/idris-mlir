@@ -4,7 +4,8 @@
 // captures of closures and suspensions and the arguments of applies into a
 // function's entry, the results of each label an apply may call into the
 // apply's, and those of each label a force may run into the force's, the
-// fields of constructors and the elements of arrays.
+// fields of constructors and the elements of arrays of any rank (an
+// IORef's one element among them).
 export module idr.defunctionalize:analysis;
 
 import idr.mlir;
@@ -87,11 +88,14 @@ public:
     }
     if (auto force = dyn_cast<idr::ForceOp>(op))
       return visitForce(force, operands[0]->getValue(), results[0]);
+    // The sizes and indices before the fill and the value are one per
+    // dimension, so the operand's lattice is found by its number.
     if (auto made = dyn_cast<idr::ArrayNewOp>(op))
-      return joinElements(made.getArrayType(), made.getFill().getType(), operands[1]->getValue());
+      return joinElements(made.getArrayType(), made.getFill().getType(),
+                          operands[made.getFillMutable().getOperandNumber()]->getValue());
     if (auto stored = dyn_cast<idr::ArraySetOp>(op))
       return joinElements(stored.getArrayType(), stored.getValue().getType(),
-                          operands[2]->getValue());
+                          operands[stored.getValueMutable().getOperandNumber()]->getValue());
     if (auto read = dyn_cast<idr::ArrayGetOp>(op)) {
       if (!isKeyed(read.getValue().getType()))
         return success();

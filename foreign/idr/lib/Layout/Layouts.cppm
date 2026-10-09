@@ -208,12 +208,16 @@ SmallVector<Type> Layouts::components(Type type) {
   // A destination is the address of a field's word.
   if (isa<StrType, BoxType, FnType, TokenType, DestType>(type))
     return {LLVM::LLVMPointerType::get(ctx)};
-  // An array is its cell and its length, the memref's dimension: a bounds
-  // check compares two registers, so the one a program's own test made
-  // redundant folds away, where a load of the length from the cell, which
-  // the stores into the cell may alias, would stay in every loop.
-  if (isArray(type))
-    return {LLVM::LLVMPointerType::get(ctx), IntegerType::get(ctx, 64)};
+  // An array is its cell and its size in each dimension, the memref's: an
+  // array of rank 1 its length, an IORef's nothing more. A bounds check
+  // compares two registers, so the one a program's own test made redundant
+  // folds away, where a load of the length from the cell, which the stores
+  // into the cell may alias, would stay in every loop.
+  if (isArray(type)) {
+    SmallVector<Type> out{LLVM::LLVMPointerType::get(ctx)};
+    out.append(static_cast<size_t>(cast<MemRefType>(type).getRank()), IntegerType::get(ctx, 64));
+    return out;
+  }
   if (isa<BigType, NatType>(type))
     return {IntegerType::get(ctx, 64)};
   if (auto data = dyn_cast<DataType>(type))
@@ -227,8 +231,11 @@ SmallVector<bool> Layouts::counted(Type type) {
   type = unrestricted(type);
   if (isa<StrType, BoxType, FnType, TokenType, BigType, NatType>(type))
     return {true};
-  if (isArray(type))
-    return {true, false};
+  if (isArray(type)) {
+    SmallVector<bool> out{true};
+    out.append(static_cast<size_t>(cast<MemRefType>(type).getRank()), false);
+    return out;
+  }
   if (isa<DestType>(type))
     return {false};
   if (auto data = dyn_cast<DataType>(type)) {

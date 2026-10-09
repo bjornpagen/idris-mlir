@@ -10,8 +10,8 @@ The user agreed to this decision on 2026-10-01.
   with no deferred-reference caveat. GHC cannot have this (thunk updates
   make old objects point at new ones; recursive `let` makes real cycles),
   and MLton chose tracing in the 1990s with refs everywhere.
-- **The one way to make a cycle is a mutable cell:** `IOArray` today,
-  `IORef` and `Buffer` when they land. Measured: `data Node = MkNode
+- **The one way to make a cycle is a mutable cell:** an array: `IOArray`,
+  `Buffer`, and `IORef`, which is the array of rank 0. Measured: `data Node = MkNode
   (IOArray Node)` with `writeArray arr 0 (MkNode arr)` leaves one live
   cell per knot (1000 knots, `idris-rt: live cells 1000`). Chez's
   collector frees them; counting never will.
@@ -33,5 +33,6 @@ The user agreed to this decision on 2026-10-01.
   told why.
 - **Work:** task #102. The knot program is the reject fixture with its
   message; an array-of-arrays program with its expected output is the
-  passing one; the same rule covers `IORef` as a 0-d memref when it
-  lands.
+  passing one. `IORef` landed as the array of rank 0 (`memref<E>`), so
+  the same edge covers it: the knot through an IORef is refused as
+  `unsupported (cycle): an IORef of ...` (tests/reject/cycle-ioref-knot).

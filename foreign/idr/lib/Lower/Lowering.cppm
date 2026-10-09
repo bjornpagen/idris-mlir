@@ -104,12 +104,12 @@ export LogicalResult lowerModule(ModuleOp module) {
         return success();
       });
   // A legal op that still holds an array of words (a linalg op over it,
-  // :loops) gets the array's view of its cell and length (:arrayView).
+  // :loops) gets the array's view of its cell and sizes (:arrayView).
   converter.addSourceMaterialization(
       [&](OpBuilder &b, Type type, ValueRange inputs, Location loc) -> Value {
-        if (!isArray(type) || inputs.size() != 2)
+        if (!isArray(type) || inputs.size() != layouts->components(type).size())
           return nullptr;
-        return arrayView(b, loc, runtime, cast<MemRefType>(type), inputs[0], inputs[1]);
+        return arrayView(b, loc, runtime, cast<MemRefType>(type), inputs);
       });
 
   ConversionTarget target(*ctx);

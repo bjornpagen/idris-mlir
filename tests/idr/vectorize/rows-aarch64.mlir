@@ -67,7 +67,7 @@ module attributes {idr.program} {
   }
   func.func private @ones(%n: i64, %w: !idr.world) -> (memref<?xf64>, !idr.world) {
     %one = arith.constant 1.0 : f64
-    %a, %w1 = idr.array.new %n, %one, %w : f64 -> memref<?xf64>
+    %a, %w1 = idr.array.new [%n], %one, %w : f64 -> memref<?xf64>
     return %a, %w1 : memref<?xf64>, !idr.world
   }
   func.func private @rows(%n: i64, %v: memref<?xf64>, %w: !idr.world) -> (memref<?xf64>, !idr.world) {

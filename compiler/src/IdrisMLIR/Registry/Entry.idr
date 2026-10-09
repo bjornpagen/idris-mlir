@@ -199,13 +199,16 @@ data Hook
     IOCall IdrPrim (List Lit)
   | ||| An array primitive of the backend contract, polymorphic in its
     ||| element: its calls are the op of this primitive (`ArrayNew`,
-    ||| `ArrayGet`, `ArraySet`) at the element type the call fixes. Handler:
-    ||| `Frontend.Translate.application`.
+    ||| `ArrayGet`, `ArraySet`) at the element type the call fixes, and at
+    ||| the rank of the array its types name, one size or index per
+    ||| dimension: an IORef's primitives are the array ops on its `Mut`,
+    ||| of rank 0, with none. Handler: `Frontend.Translate.application`.
     ArrayCall IdrPrim
-  | ||| An external type that is an array: `ArrayData a`, of the element
-    ||| its type argument names (`Nothing`), or `Buffer`, of bytes (`Just`
-    ||| the element). Handler: `Frontend.Translate.Types.coreType`.
-    ArrayType (Maybe Ty)
+  | ||| An external type that is an array of a rank: `ArrayData a`, of rank
+    ||| 1, or an IORef's `Mut a`, of rank 0, of the element its type
+    ||| argument names (`Nothing`), or `Buffer`, of rank 1 and of bytes
+    ||| (`Just` the element). Handler: `Frontend.Translate.Types.coreType`.
+    ArrayType Rank (Maybe Ty)
   | ||| The length of an array: its calls are the array's dimension
     ||| (`ArrayLength`) at the element type the call fixes (`Nothing`), or
     ||| at the fixed element of an array type without a type argument
@@ -290,7 +293,7 @@ export
 kind : Hook -> Kind
 kind (IOCall _ _) = Faster
 kind (ArrayCall _) = Faster
-kind (ArrayType _) = Faster
+kind (ArrayType _ _) = Faster
 kind (ArraySize _) = Faster
 kind (Handle _) = Faster
 kind (Builds _) = Faster

@@ -49,26 +49,10 @@ export std::optional<Component> componentOf(Value value) {
   return Component{match.getScrutinee(), ctor.getAttr(), arg.getArgNumber()};
 }
 
-// The array an access reads or writes: a view or a share of an owned
-// array is that array, of its length, and so is the array a linear
-// position was entered with.
-export Value arrayRoot(Value array) {
-  while (true) {
-    Value next = ::idr::throughLinear(array);
-    if (auto borrow = next.getDefiningOp<BorrowOp>())
-      next = borrow.getValue();
-    else if (auto share = next.getDefiningOp<ShareOp>())
-      next = share.getValue();
-    if (next == array)
-      return array;
-    array = next;
-  }
-}
-
 // The array `dim` measures: an array's one dimension is its length.
 export std::optional<Value> dimensionOf(memref::DimOp dim) {
   std::optional<int64_t> index = dim.getConstantIndex();
-  if (!index || *index != 0 || !isArray(dim.getSource().getType()))
+  if (!index || *index != 0 || !isRank1Array(dim.getSource().getType()))
     return std::nullopt;
   return dim.getSource();
 }

@@ -72,7 +72,7 @@ func.func @wide(%x: i64) -> i8 {
 func.func @after(%n: i64, %w: !idr.world) -> (i64, !idr.world) {
   %z = arith.constant 0 : i64
   %one = arith.constant 1 : i64
-  %a, %w1 = idr.array.new %n, %z, %w : i64 -> memref<?xi64>
+  %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
   %r:2 = scf.while (%i = %z, %s = %w1) : (i64, !idr.world) -> (i64, !idr.world) {
     %lo = arith.cmpi sge, %i, %z : i64
     %hi = arith.cmpi slt, %i, %n : i64

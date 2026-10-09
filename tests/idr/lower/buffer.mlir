@@ -28,7 +28,7 @@ module attributes {idr.program} {
   func.func @root(%w: !idr.world) -> !idr.world {
     %n = arith.constant 8 : i64
     %z = arith.constant 0 : i8
-    %buf, %w1 = idr.array.new %n, %z, %w : i8 -> !idr.own<memref<?xi8>>
+    %buf, %w1 = idr.array.new [%n], %z, %w : i8 -> !idr.own<memref<?xi8>>
     %b = idr.borrow %buf : !idr.own<memref<?xi8>>
     %i = arith.constant 1 : i64
     %v, %w2 = func.call @load(%b, %i, %w1) : (memref<?xi8>, i64, !idr.world) -> (i16, !idr.world)
