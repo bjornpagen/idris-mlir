@@ -1,0 +1,4 @@
+# Every closure and suspension is a sum after defunctionalization, the
+# action of a cell no label reaches too: its apply never runs, so it is
+# poison, and no closure is left for the lowering.
+idr-defunctionalize: no-closures
