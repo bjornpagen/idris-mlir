@@ -1,13 +1,20 @@
-||| MLIR's textual form, as `Emit` writes it. A type or an attribute is its
-||| text: the builtin ones are made here, and each dialect's by the module
-||| generated from the dialect's ODS (IdrisMLIR.Dialect.*), which also
-||| builds its ops. An op is written in MLIR's generic form, which every op
-||| has and which ODS says whole: its name, operands, inherent attributes
-||| (its properties), regions, discardable attributes, types and location.
-||| An op's custom syntax is C++ (custom directives, hand-written parsers),
-||| which nothing generated from ODS can know.
+||| MLIR's textual form, as `Emit` writes it. A type and an attribute are
+||| data: the builtin ones the frontend uses are constructors here, and each
+||| dialect's are the constructors of the sums generated from the dialect's
+||| ODS (IdrisMLIR.Syntax.*), which this module's types and attributes hold;
+||| each is written in the syntax ODS declares for it, which the dialect's
+||| generated C++ parser reads. An op is written in MLIR's generic form,
+||| which every op has and which ODS says whole: its name, operands,
+||| inherent attributes (its properties), regions, discardable attributes,
+||| types and location; the generated builders make them
+||| (IdrisMLIR.Dialect.*). An op's custom syntax is C++ (custom directives,
+||| hand-written parsers), which nothing generated from ODS can know.
 module IdrisMLIR.MLIR
 
+import public IdrisMLIR.MLIR.Text
+import public IdrisMLIR.Syntax.Idr
+import IdrisMLIR.Syntax.Arith
+import IdrisMLIR.Syntax.UB
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 
@@ -18,212 +25,86 @@ import Data.String
 %default total
 
 ------------------------------------------------------------------------------
--- Names
-------------------------------------------------------------------------------
-
-||| Injective mangling into MLIR symbol text. Characters outside
-||| `[A-Za-z0-9_.]`, `$` included, are written `$<code point>$`.
-export
-mangle : String -> String
-mangle s = concatMap escape (unpack s)
-  where
-    escape : Char -> String
-    escape c = if isAlphaNum c || c == '_' || c == '.'
-                  then singleton c
-                  else "$" ++ show (ord c) ++ "$"
-
-hex : Int -> String
-hex n = let digits = unpack "0123456789ABCDEF" in
-        pack [ fromMaybe '0' (getAt (cast (n `div` 16)) digits)
-             , fromMaybe '0' (getAt (cast (n `mod` 16)) digits) ]
-
-||| A string literal with MLIR's escapes, for text that is ASCII.
-export
-quoted : String -> String
-quoted s = "\"" ++ concatMap esc (unpack s) ++ "\""
-  where
-    esc : Char -> String
-    esc '"' = "\\\""
-    esc '\\' = "\\\\"
-    esc c = if ord c < 32 || ord c == 127 then "\\" ++ hex (ord c) else singleton c
-
-||| A string as the UTF-8 bytes of a string attribute.
-export
-utf8 : String -> String
-utf8 s = "\"" ++ concatMap enc (unpack s) ++ "\""
-  where
-    byte : Int -> String
-    byte b = if b >= 32 && b < 127 && b /= 34 && b /= 92 then singleton (chr b) else "\\" ++ hex b
-    enc : Char -> String
-    enc c =
-      let n = ord c in
-      if n < 0x80 then byte n
-      else if n < 0x800 then byte (0xC0 + n `div` 64) ++ byte (0x80 + n `mod` 64)
-      else if n < 0x10000 then byte (0xE0 + n `div` 4096) ++ byte (0x80 + (n `div` 64) `mod` 64)
-                               ++ byte (0x80 + n `mod` 64)
-      else byte (0xF0 + n `div` 262144) ++ byte (0x80 + (n `div` 4096) `mod` 64)
-           ++ byte (0x80 + (n `div` 64) `mod` 64) ++ byte (0x80 + n `mod` 64)
-
-||| A symbol reference, `@name`, for mangled text. A name that is not an
-||| MLIR bare identifier (one starting with a digit or `$`) is quoted.
-export
-symbol : String -> String
-symbol m = case unpack m of
-  (c :: _) => if isAlpha c || c == '_' then "@" ++ m else "@" ++ quoted m
-  [] => "@\"\""
-
-||| Texts separated by commas.
-export
-commaSeparated : List String -> String
-commaSeparated = joinBy ", "
-
-------------------------------------------------------------------------------
--- Literals
-------------------------------------------------------------------------------
-
-||| An exact MLIR float literal: the shortest decimal that reads back as the
-||| same double (the compiler runs on Chez Scheme, whose `number->string`
-||| prints that), with a point as MLIR requires, and hexadecimal bits for
-||| NaN and the infinities.
-export
-floatLiteral : Double -> String
-floatLiteral d =
-  if d /= d then "0x7FF8000000000000"
-  else if d > 1.7976931348623157e308 then "0x7FF0000000000000"
-  else if d < -1.7976931348623157e308 then "0xFFF0000000000000"
-  else decimal (prim__cast_DoubleString d)
-  where
-    -- Chez marks subnormals with a precision suffix, `5e-324|1`.
-    decimal : String -> String
-    decimal s =
-      let s' = fst (break (== '|') s)
-          (mant, ex) = break (== 'e') s'
-          mant' = if any (== '.') (unpack mant) then mant else mant ++ ".0"
-      in mant' ++ ex
-
-||| The two's complement bit pattern of `n` in `w` bits, read as signed:
-||| how an integer attribute of that width is written.
-export
-twos : Nat -> Integer -> Integer
-twos w n = let m = pow w
-               r = n `mod` m
-               r' = if r < 0 then r + m else r
-           in if r' >= m `div` 2 then r' - m else r'
-  where
-    pow : Nat -> Integer
-    pow Z = 1
-    pow (S k) = 2 * pow k
-
-------------------------------------------------------------------------------
 -- Types
 ------------------------------------------------------------------------------
 
-||| A type, by its text.
-public export
-record MlirType where
-  constructor MkMlirType
-  text : String
+namespace MlirType
+  ||| A type: a builtin one, or a dialect's, which holds types of its own.
+  ||| A signless integer type, `i64`, is read as an op that reads it says;
+  ||| an array of elements of a type is a memref of one dynamic dimension.
+  public export
+  data MlirType
+    = IntegerType Nat
+    | F64Type
+    | IndexType
+    | NoneType
+    | MemRefType MlirType
+    | FunctionType (Signature MlirType)
+    | Idr (IdrType MlirType)
 
-||| A signless integer type, `i64`: an op that reads an integer says how.
+||| A type's text. A dialect's type writes the types it holds by this
+||| function, so each is a part of the type it is in.
 export
-integerType : Nat -> MlirType
-integerType w = MkMlirType ("i" ++ show w)
-
-export
-f64Type : MlirType
-f64Type = MkMlirType "f64"
-
-export
-indexType : MlirType
-indexType = MkMlirType "index"
-
-||| An array of elements of a type: a memref of one dynamic dimension.
-export
-memRefType : MlirType -> MlirType
-memRefType e = MkMlirType ("memref<?x" ++ e.text ++ ">")
-
-||| A function type, `(i64, !idr.str) -> i64`: its results in parentheses,
-||| unless it has one that is not itself a function type.
-export
-functionType : List MlirType -> List MlirType -> MlirType
-functionType ins outs =
-  MkMlirType ("(" ++ commaSeparated (map (.text) ins) ++ ") -> " ++ results outs)
-  where
-    results : List MlirType -> String
-    results [r] = if isPrefixOf "(" r.text then "(" ++ r.text ++ ")" else r.text
-    results rs = "(" ++ commaSeparated (map (.text) rs) ++ ")"
+typeText : MlirType -> String
+typeText (IntegerType w) = "i" ++ show w
+typeText F64Type = "f64"
+typeText IndexType = "index"
+typeText NoneType = "none"
+typeText (MemRefType e) = "memref<?x" ++ typeText e ++ ">"
+typeText (FunctionType s) = signature (\v => typeText (assert_smaller s v)) s
+typeText (Idr x) = idrTypeText (\v => typeText (assert_smaller x v)) x
 
 ------------------------------------------------------------------------------
 -- Attributes
 ------------------------------------------------------------------------------
 
-||| An attribute, by its text.
-public export
-record MlirAttr where
-  constructor MkMlirAttr
-  text : String
+namespace MlirAttr
+  ||| An attribute: a builtin one, or a dialect's, which holds types and
+  ||| attributes of its own. An integer is of an integer type or of `index`,
+  ||| a float of a float type; a string is written as its UTF-8 bytes; the
+  ||| dense array of `i32` is the number of values in each group of an op's
+  ||| operands or results, where more than one group may vary in length.
+  public export
+  data MlirAttr
+    = UnitAttr
+    | BoolAttr Bool
+    | IntegerAttr Integer MlirType
+    | FloatAttr Double MlirType
+    | StringAttr String
+    | SymbolRefAttr SymbolRef
+    | TypeAttr MlirType
+    | ArrayAttr (List MlirAttr)
+    | DenseI32ArrayAttr (List Nat)
+    | Idr (IdrAttr MlirType MlirAttr)
+    | Arith (ArithAttr MlirType MlirAttr)
+    | UB (UBAttr MlirType MlirAttr)
+
+||| An attribute's text, each attribute it holds written by this function.
+export
+attrText : MlirAttr -> String
+attrText UnitAttr = "unit"
+attrText (BoolAttr b) = if b then "true" else "false"
+attrText (IntegerAttr n t) = show n ++ " : " ++ typeText t
+attrText (FloatAttr d t) = floatLiteral d ++ " : " ++ typeText t
+attrText (StringAttr s) = utf8 s
+attrText (SymbolRefAttr r) = symbolRef r
+attrText (TypeAttr t) = typeText t
+attrText (ArrayAttr as) = array (\v => attrText (assert_smaller as v)) as
+attrText (DenseI32ArrayAttr []) = "array<i32>"
+attrText (DenseI32ArrayAttr ns) = "array<i32: " ++ commaSeparated (map show ns) ++ ">"
+attrText (Idr x) = idrAttrText typeText (\v => attrText (assert_smaller x v)) x
+attrText (Arith x) = arithAttrText typeText (\v => attrText (assert_smaller x v)) x
+attrText (UB x) = ubAttrText typeText (\v => attrText (assert_smaller x v)) x
 
 ||| An attribute of an op's: its name, and itself.
 public export
 NamedAttr : Type
 NamedAttr = (String, MlirAttr)
 
-export
-unitAttr : MlirAttr
-unitAttr = MkMlirAttr "unit"
-
-export
-boolAttr : Bool -> MlirAttr
-boolAttr b = MkMlirAttr (if b then "true" else "false")
-
-||| An integer of an integer type, or of `index`.
-export
-integerAttr : Integer -> MlirType -> MlirAttr
-integerAttr n t = MkMlirAttr (show n ++ " : " ++ t.text)
-
-||| A float of a float type.
-export
-floatAttr : Double -> MlirType -> MlirAttr
-floatAttr d t = MkMlirAttr (floatLiteral d ++ " : " ++ t.text)
-
-||| A string, as its UTF-8 bytes.
-export
-stringAttr : String -> MlirAttr
-stringAttr s = MkMlirAttr (utf8 s)
-
-||| A symbol, by its mangled name.
-export
-flatSymbolRefAttr : String -> MlirAttr
-flatSymbolRefAttr m = MkMlirAttr (symbol m)
-
-||| A symbol nested in others, by the mangled name of each: `@T::@C`.
-export
-symbolRefAttr : List String -> MlirAttr
-symbolRefAttr ms = MkMlirAttr (joinBy "::" (map symbol ms))
-
-export
-typeAttr : MlirType -> MlirAttr
-typeAttr t = MkMlirAttr t.text
-
-export
-arrayAttr : List MlirAttr -> MlirAttr
-arrayAttr as = MkMlirAttr ("[" ++ commaSeparated (map (.text) as) ++ "]")
-
-export
-typeArrayAttr : List MlirType -> MlirAttr
-typeArrayAttr ts = arrayAttr (map typeAttr ts)
-
-||| The number of values in each group of an op's operands or results, where
-||| more than one group may vary in length.
-export
-segmentSizes : List Nat -> MlirAttr
-segmentSizes [] = MkMlirAttr "array<i32>"
-segmentSizes ns = MkMlirAttr ("array<i32: " ++ commaSeparated (map show ns) ++ ">")
-
 ||| A unit attribute, there when `set`.
 export
 unitIf : String -> Bool -> List NamedAttr
-unitIf name set = if set then [(name, unitAttr)] else []
+unitIf name set = if set then [(name, UnitAttr)] else []
 
 ||| An attribute ODS lets an op leave out, there when given.
 export
@@ -308,11 +189,12 @@ dictionary opening closing [] = ""
 dictionary opening closing as = " " ++ opening ++ commaSeparated (map entry as) ++ closing
   where
     entry : NamedAttr -> String
-    entry (name, a) = if a.text == "unit" then name else name ++ " = " ++ a.text
+    entry (name, UnitAttr) = name
+    entry (name, a) = name ++ " = " ++ attrText a
 
 ||| A block argument or an operand with its type: `%3: i64`.
 typed : Value -> String
-typed v = v.name ++ ": " ++ v.type.text
+typed v = v.name ++ ": " ++ typeText v.type
 
 ||| The name of an op's results, as its statement binds them.
 named : Maybe String -> Nat -> String
@@ -331,7 +213,7 @@ mutual
   opText : Nat -> Op -> List String -> List String
   opText d (MkOp name operands properties regions attributes results) rest =
     let after = dictionary "{" "}" attributes :: " : " ::
-                (functionType (map (.type) operands) results).text :: rest
+                signature typeText (MkSignature (map (.type) operands) results) :: rest
     in quoted name :: "(" :: commaSeparated (map (.name) operands) :: ")" ::
        dictionary "<{" "}>" properties ::
        (case regions of

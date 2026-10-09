@@ -17,6 +17,14 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Facts
         , IdrisMLIR.Graph
         , IdrisMLIR.Term
+        , IdrisMLIR.MLIR.Text
+        , IdrisMLIR.Syntax.Idr
+        , IdrisMLIR.Syntax.Builtin
+        , IdrisMLIR.Syntax.Func
+        , IdrisMLIR.Syntax.Arith
+        , IdrisMLIR.Syntax.Math
+        , IdrisMLIR.Syntax.UB
+        , IdrisMLIR.Syntax.MemRef
         , IdrisMLIR.MLIR
         , IdrisMLIR.Dialect.Idr
         , IdrisMLIR.Dialect.Builtin
@@ -25,7 +33,6 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Dialect.Math
         , IdrisMLIR.Dialect.UB
         , IdrisMLIR.Dialect.MemRef
-        , IdrisMLIR.CustomSyntax
         , IdrisMLIR.Emit.Attributes
         , IdrisMLIR.Emit.Index
         , IdrisMLIR.Emit.Monad

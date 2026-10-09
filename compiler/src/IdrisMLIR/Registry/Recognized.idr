@@ -10,6 +10,7 @@ import IdrisMLIR.Registry.Entry
 import IdrisMLIR.Registry.Name
 import IdrisMLIR.Registry.Primitives
 import IdrisMLIR.Rule
+import IdrisMLIR.Syntax.Idr
 import IdrisMLIR.Types
 
 %default total
@@ -23,7 +24,7 @@ equal = Head (Def (MkQName ["Builtin"] "Equal")) [Hole, Hole, Hole, Hole]
 ||| predicate, an erased proof that the values are equal, and the value to
 ||| rewrite, the one runtime argument, which it returns.
 rewriting : Shape
-rewriting = Pi Q0 TypeOfTypes (Pi Q0 Hole (Pi Q0 Hole (Pi Q0 Hole (Pi Q0 equal (Pi Q1 Hole Hole)))))
+rewriting = Pi Zero TypeOfTypes (Pi Zero Hole (Pi Zero Hole (Pi Zero Hole (Pi Zero equal (Pi One Hole Hole)))))
 
 ||| `replace` and `rewrite__impl`, which `rewrite` elaborates to.
 identity : String -> Entry
@@ -50,7 +51,7 @@ bool : Shape
 bool = Head (Def (MkQName ["Prelude", "Basics"] "Bool")) []
 
 binary : Shape -> Shape
-binary result = Pi QW nat (Pi QW nat result)
+binary result = Pi Quantity.Many nat (Pi Quantity.Many nat result)
 
 ||| The library function that makes a `Bool` of an `Int`.
 intToBool : QName
@@ -66,9 +67,9 @@ natural ns name shape m = MkEntry (Def (MkQName ns name)) (Typed shape) (NatOper
 ||| The functions on naturals.
 naturals : List Entry
 naturals =
-  [ natural types "natToInteger" (Pi QW nat (Prim IntegerP)) (Primitive (Op NatToBig))
-  , natural types "integerToNat" (Pi QW (Prim IntegerP) nat) (Primitive (Op NatFromBig))
-  , natural types "prim__integerToNat" (Pi QW (Prim IntegerP) nat) (Primitive (Op NatFromBig))
+  [ natural types "natToInteger" (Pi Quantity.Many nat (Prim IntegerP)) (Primitive (Op NatToBig))
+  , natural types "integerToNat" (Pi Quantity.Many (Prim IntegerP) nat) (Primitive (Op NatFromBig))
+  , natural types "prim__integerToNat" (Pi Quantity.Many (Prim IntegerP) nat) (Primitive (Op NatFromBig))
   , natural types "plus" (binary nat) (Primitive (Op BigAdd))
   , natural types "mult" (binary nat) (Primitive (Op BigMul))
   , natural types "minus" (binary nat) (Clamped (Op BigSub))
@@ -100,12 +101,12 @@ indexSpace name shape p =
 indexSpaces : List Entry
 indexSpaces =
   [ indexSpace "prim__generate"
-      (Pi Q0 TypeOfTypes (Pi QW int (Pi QW (Pi QW int Hole) (Pi Q1 world (ioRes (arrayData Hole))))))
+      (Pi Zero TypeOfTypes (Pi Quantity.Many int (Pi Quantity.Many (Pi Quantity.Many int Hole) (Pi One world (ioRes (arrayData Hole))))))
       ArrayGenerate
   , indexSpace "prim__foldl"
-      (Pi Q0 TypeOfTypes (Pi Q0 TypeOfTypes
-        (Pi QW (arrayData Hole) (Pi QW Hole (Pi QW (Pi QW Hole (Pi QW int (Pi QW Hole Hole)))
-          (Pi Q1 world (ioRes Hole)))))))
+      (Pi Zero TypeOfTypes (Pi Zero TypeOfTypes
+        (Pi Quantity.Many (arrayData Hole) (Pi Quantity.Many Hole (Pi Quantity.Many (Pi Quantity.Many Hole (Pi Quantity.Many int (Pi Quantity.Many Hole Hole)))
+          (Pi One world (ioRes Hole)))))))
       ArrayFold ]
 
 ------------------------------------------------------------------------------
@@ -117,14 +118,14 @@ indexSpaces =
 ||| points to, so the cast is the identity on its one runtime argument.
 pointerCast : String -> Shape -> Entry
 pointerCast name shape =
-  MkEntry (Def (MkQName ["PrimIO"] name)) (Typed (Pi Q0 TypeOfTypes shape)) IdentityOnLastArgument [IdentityHook]
+  MkEntry (Def (MkQName ["PrimIO"] name)) (Typed (Pi Zero TypeOfTypes shape)) IdentityOnLastArgument [IdentityHook]
 
 ||| `exitWith : HasIO io => ExitCode -> io a`, at its two erased types, its
 ||| `HasIO` and the status. Its body gives the action of `prim__exit` any
 ||| result by `believe_me`; its calls are the exit, which does not return.
 exitWith : Entry
 exitWith = MkEntry (Def (MkQName ["System"] "exitWith"))
-                   (Typed (Pi Q0 Hole (Pi Q0 Hole (Pi QW Hole (Pi QW exitCode Hole)))))
+                   (Typed (Pi Zero Hole (Pi Zero Hole (Pi Quantity.Many Hole (Pi Quantity.Many exitCode Hole)))))
                    (Exits Exit) [IOPrimitive]
   where
     exitCode : Shape
@@ -209,12 +210,12 @@ recognized =
   naturals ++ indexSpaces ++ outsideLanguage ++
   [ identity "replace"
   , identity "rewrite__impl"
-  , pointerCast "prim__castPtr" (Pi QW anyPtr (ptr Hole))
-  , pointerCast "prim__forgetPtr" (Pi QW (ptr Hole) anyPtr)
+  , pointerCast "prim__castPtr" (Pi Quantity.Many anyPtr (ptr Hole))
+  , pointerCast "prim__forgetPtr" (Pi Quantity.Many (ptr Hole) anyPtr)
   , exitWith
-  , rootOnly "unsafePerformIO" (Pi Q0 TypeOfTypes (Pi QW (Head (Def (MkQName ["PrimIO"] "IO")) [Hole]) Hole))
-  , rootOnly "unsafeCreateWorld" (Pi Q0 TypeOfTypes (Pi Q1 (Pi Q1 (Prim WorldP) Hole) Hole))
-  , rootOnly "unsafeDestroyWorld" (Pi Q0 TypeOfTypes (Pi Q1 (Prim WorldP) (Pi QW Hole Hole)))
+  , rootOnly "unsafePerformIO" (Pi Zero TypeOfTypes (Pi Quantity.Many (Head (Def (MkQName ["PrimIO"] "IO")) [Hole]) Hole))
+  , rootOnly "unsafeCreateWorld" (Pi Zero TypeOfTypes (Pi One (Pi One (Prim WorldP) Hole) Hole))
+  , rootOnly "unsafeDestroyWorld" (Pi Zero TypeOfTypes (Pi One (Prim WorldP) (Pi Quantity.Many Hole Hole)))
   , spelling "prim__believe_me"
   , spelling "prim__crash"
   , spelling "believe_me"

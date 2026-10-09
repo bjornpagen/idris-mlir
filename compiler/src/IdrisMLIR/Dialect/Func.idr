@@ -4,6 +4,7 @@
 module IdrisMLIR.Dialect.Func
 
 import IdrisMLIR.MLIR
+import IdrisMLIR.Syntax.Func
 
 %default total
 
@@ -15,25 +16,25 @@ import IdrisMLIR.MLIR
 export
 callOp : {default Nothing argAttrs : Maybe (List MlirAttr)} -> {default Nothing resAttrs : Maybe (List MlirAttr)} -> {default False noInline : Bool} -> (callee : String) -> (operands : List Value) -> (result0 : List MlirType) -> Op
 callOp callee operands result0 =
-  MkOp "func.call" operands ([("callee", flatSymbolRefAttr callee)] ++ attrIf "arg_attrs" arrayAttr argAttrs ++ attrIf "res_attrs" arrayAttr resAttrs ++ unitIf "no_inline" noInline) [] [] result0
+  MkOp "func.call" operands ([("callee", SymbolRefAttr (MkSymbolRef callee []))] ++ attrIf "arg_attrs" ArrayAttr argAttrs ++ attrIf "res_attrs" ArrayAttr resAttrs ++ unitIf "no_inline" noInline) [] [] result0
 
 ||| `func.call_indirect`: indirect call operation
 export
 callIndirectOp : {default Nothing argAttrs : Maybe (List MlirAttr)} -> {default Nothing resAttrs : Maybe (List MlirAttr)} -> (callee : Value) -> (calleeOperands : List Value) -> (results : List MlirType) -> Op
 callIndirectOp callee calleeOperands results =
-  MkOp "func.call_indirect" (concat [[callee], calleeOperands]) (attrIf "arg_attrs" arrayAttr argAttrs ++ attrIf "res_attrs" arrayAttr resAttrs) [] [] results
+  MkOp "func.call_indirect" (concat [[callee], calleeOperands]) (attrIf "arg_attrs" ArrayAttr argAttrs ++ attrIf "res_attrs" ArrayAttr resAttrs) [] [] results
 
 ||| `func.constant`: constant
 export
 constantOp : (value : String) -> (result0 : MlirType) -> Op
 constantOp value result0 =
-  MkOp "func.constant" [] [("value", flatSymbolRefAttr value)] [] [] [result0]
+  MkOp "func.constant" [] [("value", SymbolRefAttr (MkSymbolRef value []))] [] [] [result0]
 
 ||| `func.func`: An operation with a name containing a single `SSACFG` region
 export
 funcOp : {default Nothing symVisibility : Maybe String} -> {default Nothing argAttrs : Maybe (List MlirAttr)} -> {default Nothing resAttrs : Maybe (List MlirAttr)} -> {default False noInline : Bool} -> (symName : String) -> (functionType : MlirType) -> (body : Region) -> Op
 funcOp symName functionType body =
-  MkOp "func.func" [] ([("sym_name", stringAttr symName), ("function_type", typeAttr functionType)] ++ attrIf "sym_visibility" stringAttr symVisibility ++ attrIf "arg_attrs" arrayAttr argAttrs ++ attrIf "res_attrs" arrayAttr resAttrs ++ unitIf "no_inline" noInline) [body] [] []
+  MkOp "func.func" [] ([("sym_name", StringAttr symName), ("function_type", TypeAttr functionType)] ++ attrIf "sym_visibility" StringAttr symVisibility ++ attrIf "arg_attrs" ArrayAttr argAttrs ++ attrIf "res_attrs" ArrayAttr resAttrs ++ unitIf "no_inline" noInline) [body] [] []
 
 ||| `func.return`: Function return operation
 export

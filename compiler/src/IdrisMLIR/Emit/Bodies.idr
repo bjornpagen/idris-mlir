@@ -2,7 +2,6 @@
 ||| matches, lambdas, delays and loops as regions.
 module IdrisMLIR.Emit.Bodies
 
-import IdrisMLIR.CustomSyntax as Idr
 import IdrisMLIR.Dialect.Func as Func
 import IdrisMLIR.Dialect.Idr as Idr
 import IdrisMLIR.Dialect.UB as UB
@@ -124,12 +123,12 @@ match ix l build arms = do
 
 ||| A literal as a key of `idr.match_lit`.
 key : Lit -> MlirAttr
-key (LInt t n) = integerAttr (twos (width t) n) (integerType (width t))
-key (LChar c) = integerAttr c (integerType 32)
-key (LStr s) = stringAttr s
-key (LBig n) = Idr.bigAttr (show n)
-key (LNat n) = Idr.bigAttr (show n)
-key (LDouble d) = floatAttr d f64Type
+key (LInt t n) = IntegerAttr (twos (width t) n) (IntegerType (width t))
+key (LChar c) = IntegerAttr c (IntegerType 32)
+key (LStr s) = StringAttr s
+key (LBig n) = Idr (BigAttr (show n))
+key (LNat n) = Idr (BigAttr (show n))
+key (LDouble d) = FloatAttr d F64Type
 
 ||| Starts a function: its own SSA numbers and operations.
 export
@@ -261,7 +260,7 @@ alg ix (CaseF l x alts def) env expected = do
         then (\k => matched before (MkVal k scrut.type Many (Just (c, toList vals))) env) <$> fresh
         else pure env
       (res, ops) <- collect (plain ix l (body.result (bind vals inner) expected))
-      pure (MkArm (Just (flatSymbolRefAttr (mangle c.name))) args res ops)
+      pure (MkArm (Just (SymbolRefAttr (MkSymbolRef (mangle c.name) []))) args res ops)
 alg ix (CaseLitF l x alts def) env expected = do
   let live = filter (not . excluded . snd) alts
   -- A default Idris proved impossible is left out: the last possible

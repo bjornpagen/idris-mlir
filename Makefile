@@ -103,6 +103,7 @@ build: libs
 	@$(MAKE) --no-print-directory paths
 	$(ROOT)/tools/dialects.sh generate
 	cd $(ROOT)/compiler && $(IDRIS2) --build idris-mlir.ipkg
+	cd $(ROOT)/compiler && $(IDRIS2) --build syntax-samples.ipkg
 
 # This checkout's Idris prefix, build/idris2: every entry of the pinned
 # prefix linked, except the packages this compiler ships (libs/), which

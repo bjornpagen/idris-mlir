@@ -5,7 +5,6 @@
 ||| guard's result in the operand's place, so it stays below its check.
 module IdrisMLIR.Emit.Operations
 
-import IdrisMLIR.CustomSyntax as Idr
 import IdrisMLIR.Dialect.Arith as Arith
 import IdrisMLIR.Dialect.Idr as Idr
 import IdrisMLIR.Dialect.Math as Math
@@ -16,6 +15,7 @@ import IdrisMLIR.Emit.Types
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
+import IdrisMLIR.Syntax.Arith
 import IdrisMLIR.Term
 import IdrisMLIR.Types
 
@@ -66,21 +66,21 @@ coerce ix l use v = case (linear v.use v.type, linear use v.type) of
 export
 literal : Index -> Loc -> Lit -> E Val
 literal ix l (LInt t n) = value ix l (IntT t)
-  (Arith.constantOp (integerAttr (twos (width t) n) (integerType (width t))))
-literal ix l (LChar c) = value ix l CharT (Arith.constantOp (integerAttr c (integerType 32)))
-literal ix l (LDouble d) = value ix l DoubleT (Arith.constantOp (floatAttr d f64Type))
-literal ix l (LStr s) = value ix l StrT (Idr.constantOp (stringAttr s))
-literal ix l (LBig n) = value ix l BigT (Idr.constantOp (Idr.bigAttr (show n)))
-literal ix l (LNat n) = value ix l NatT (Idr.constantOp (Idr.bigAttr (show n)))
+  (Arith.constantOp (IntegerAttr (twos (width t) n) (IntegerType (width t))))
+literal ix l (LChar c) = value ix l CharT (Arith.constantOp (IntegerAttr c (IntegerType 32)))
+literal ix l (LDouble d) = value ix l DoubleT (Arith.constantOp (FloatAttr d F64Type))
+literal ix l (LStr s) = value ix l StrT (Idr.constantOp (StringAttr s))
+literal ix l (LBig n) = value ix l BigT (Idr.constantOp (Idr (BigAttr (show n))))
+literal ix l (LNat n) = value ix l NatT (Idr.constantOp (Idr (BigAttr (show n))))
 
 ||| The erased value.
 export
 erasedValue : Index -> Loc -> E Val
-erasedValue ix l = value ix l ErasedT (Idr.constantOp Idr.erasedAttr)
+erasedValue ix l = value ix l ErasedT (Idr.constantOp (Idr ErasedAttr))
 
 ||| A comparison's result.
 bool : MlirType
-bool = integerType 1
+bool = IntegerType 1
 
 ||| The `arith.cmpi` predicate: `Char`s compare as code points.
 cmpi : Cmp -> Bool -> CmpIPredicate
@@ -160,8 +160,8 @@ intLike SDouble = Nothing
 ||| The length of an array: its memref's dimension, an index, as an `Int`.
 arrayLength : Index -> Loc -> Val -> E Val
 arrayLength ix l a = do
-  zero <- mlirValue l indexType (Arith.constantOp (integerAttr 0 indexType))
-  n <- mlirValue l indexType (MemRef.dimOp !(operand ix a) zero)
+  zero <- mlirValue l IndexType (Arith.constantOp (IntegerAttr 0 IndexType))
+  n <- mlirValue l IndexType (MemRef.dimOp !(operand ix a) zero)
   value ix l (IntT IdrisInt) (Arith.indexCastOp n)
 
 ||| How many bytes from an offset a buffer operation touches: the operand at
@@ -240,7 +240,7 @@ guarded ix l p types vs = foldlM checkOne vs (guardOf p)
     countOf ws (BytesOf i) =
       value ix l (IntT IdrisInt) (Idr.strBytesLengthOp !(operand ix !(operandAt ws i)))
     countOf ws WordSize = case map wordSize types of
-      [Just n] => value ix l (IntT IdrisInt) (Arith.constantOp (integerAttr n (integerType 64)))
+      [Just n] => value ix l (IntT IdrisInt) (Arith.constantOp (IntegerAttr n (IntegerType 64)))
       _ => internal (show p ++ " at the types " ++ show types)
 
     checkOne : List Val -> (Guard, Nat, String) -> E (List Val)
@@ -376,9 +376,9 @@ prim ix l (FromBig SChar) [b] = do
   ge <- mlirValue l bool (Idr.bigCmpOp CmpPredicate.Gte big !(operand ix lo))
   le <- mlirValue l bool (Idr.bigCmpOp CmpPredicate.Lte big !(operand ix hi))
   inRange <- mlirValue l bool (Arith.andiOp ge le)
-  n <- mlirValue l (integerType 64) (Idr.bigToIntOp big)
+  n <- mlirValue l (IntegerType 64) (Idr.bigToIntOp big)
   outside <- literal ix l (LInt IdrisInt (-1))
-  m <- mlirValue l (integerType 64) (Arith.selectOp inRange n !(operand ix outside))
+  m <- mlirValue l (IntegerType 64) (Arith.selectOp inRange n !(operand ix outside))
   value ix l CharT (Idr.toCharOp {isSigned = True} m)
 prim ix l (NatCompare c) [a, b] =
   extend ix l !(mlirValue l bool (Idr.bigCmpOp (predicate c) !(operand ix a) !(operand ix b)))
@@ -391,7 +391,8 @@ con : Index -> Loc -> Con -> List Val -> E Val
 con ix l c vs0 = do
   vs <- traverse (\(f, v) => coerce ix l (binderUse f) v) (zip c.fields vs0)
   value ix l (DataT c.id.dataId)
-        (Idr.conOp [mangle c.id.dataId.name, mangle c.id.name] !(traverse (operand ix) vs))
+        (Idr.conOp (MkSymbolRef (mangle c.id.dataId.name) [mangle c.id.name])
+                   !(traverse (operand ix) vs))
 
 mutual
   ||| The value a variable names: itself, or the constructor a match took

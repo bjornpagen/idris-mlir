@@ -4,17 +4,13 @@
 module IdrisMLIR.Dialect.Math
 
 import IdrisMLIR.MLIR
+import IdrisMLIR.Syntax.Math
 
 %default total
 
 ------------------------------------------------------------------------------
 -- Enums
 ------------------------------------------------------------------------------
-
-namespace RoundingMode
-  ||| Floating point rounding mode
-  public export
-  data RoundingMode = ToNearestEven | Downward | Upward | TowardZero | ToNearestAway
 
 -- The value that stands for a RoundingMode, as the ops below write it.
 roundingModeValue : RoundingMode -> Integer
@@ -174,9 +170,9 @@ floorOp operand result =
 
 ||| `math.fma`: floating point fused multipy-add operation
 export
-fmaOp : {default Nothing fastmath : Maybe MlirAttr} -> {default Nothing roundingmode : Maybe RoundingMode} -> (a : Value) -> (b : Value) -> (c : Value) -> (result : MlirType) -> Op
-fmaOp a b c result =
-  MkOp "math.fma" [a, b, c] (attrIf "fastmath" id fastmath ++ attrIf "roundingmode" (\v => integerAttr (roundingModeValue v) (integerType 32)) roundingmode) [] [] [result]
+fmaOp : {default Nothing fastmath : Maybe MlirAttr} -> {default Nothing roundingmode : Maybe RoundingMode} -> (a' : Value) -> (b : Value) -> (c : Value) -> (result : MlirType) -> Op
+fmaOp a' b c result =
+  MkOp "math.fma" [a', b, c] (attrIf "fastmath" id fastmath ++ attrIf "roundingmode" (\v => IntegerAttr (roundingModeValue v) (IntegerType 32)) roundingmode) [] [] [result]
 
 ||| `math.fpowi`: floating point raised to the signed integer power
 export

@@ -4,17 +4,13 @@
 module IdrisMLIR.Dialect.MemRef
 
 import IdrisMLIR.MLIR
+import IdrisMLIR.Syntax.MemRef
 
 %default total
 
 ------------------------------------------------------------------------------
 -- Enums
 ------------------------------------------------------------------------------
-
-namespace AtomicRMWKind
-  ||| allowed 64-bit signless integer cases: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
-  public export
-  data AtomicRMWKind = Addf | Addi | Andi | Assign | Maximumf | Maxnumf | Maxs | Maxu | Minimumf | Minnumf | Mins | Minu | Mulf | Muli | Ori | Xori
 
 -- The value that stands for a AtomicRMWKind, as the ops below write it.
 atomicRMWKindValue : AtomicRMWKind -> Integer
@@ -43,13 +39,13 @@ atomicRMWKindValue AtomicRMWKind.Xori = 15
 export
 allocOp : {default Nothing alignment : Maybe Integer} -> (dynamicSizes : List Value) -> (symbolOperands : List Value) -> (memref : MlirType) -> Op
 allocOp dynamicSizes symbolOperands memref =
-  MkOp "memref.alloc" (concat [dynamicSizes, symbolOperands]) (attrIf "alignment" (\v => integerAttr v (integerType 64)) alignment ++ [("operandSegmentSizes", segmentSizes [length dynamicSizes, length symbolOperands])]) [] [] [memref]
+  MkOp "memref.alloc" (concat [dynamicSizes, symbolOperands]) (attrIf "alignment" (\v => IntegerAttr v (IntegerType 64)) alignment ++ [("operandSegmentSizes", DenseI32ArrayAttr [length dynamicSizes, length symbolOperands])]) [] [] [memref]
 
 ||| `memref.alloca`: stack memory allocation operation
 export
 allocaOp : {default Nothing alignment : Maybe Integer} -> (dynamicSizes : List Value) -> (symbolOperands : List Value) -> (memref : MlirType) -> Op
 allocaOp dynamicSizes symbolOperands memref =
-  MkOp "memref.alloca" (concat [dynamicSizes, symbolOperands]) (attrIf "alignment" (\v => integerAttr v (integerType 64)) alignment ++ [("operandSegmentSizes", segmentSizes [length dynamicSizes, length symbolOperands])]) [] [] [memref]
+  MkOp "memref.alloca" (concat [dynamicSizes, symbolOperands]) (attrIf "alignment" (\v => IntegerAttr v (IntegerType 64)) alignment ++ [("operandSegmentSizes", DenseI32ArrayAttr [length dynamicSizes, length symbolOperands])]) [] [] [memref]
 
 ||| `memref.alloca_scope`: explicitly delimited scope for stack allocation
 export
@@ -67,13 +63,13 @@ allocaScopeReturnOp results =
 export
 assumeAlignmentOp : (memref : Value) -> (alignment : Integer) -> (result : MlirType) -> Op
 assumeAlignmentOp memref alignment result =
-  MkOp "memref.assume_alignment" [memref] [("alignment", integerAttr alignment (integerType 32))] [] [] [result]
+  MkOp "memref.assume_alignment" [memref] [("alignment", IntegerAttr alignment (IntegerType 32))] [] [] [result]
 
 ||| `memref.atomic_rmw`: atomic read-modify-write operation
 export
 atomicRmwOp : (kind : AtomicRMWKind) -> (value : Value) -> (memref : Value) -> (indices : List Value) -> (result : MlirType) -> Op
 atomicRmwOp kind value memref indices result =
-  MkOp "memref.atomic_rmw" (concat [[value], [memref], indices]) [("kind", integerAttr (atomicRMWKindValue kind) (integerType 64))] [] [] [result]
+  MkOp "memref.atomic_rmw" (concat [[value], [memref], indices]) [("kind", IntegerAttr (atomicRMWKindValue kind) (IntegerType 64))] [] [] [result]
 
 ||| `memref.atomic_yield`: yield operation for GenericAtomicRMWOp
 export
@@ -91,7 +87,7 @@ castOp source dest =
 export
 collapseShapeOp : (src : Value) -> (reassociation : List MlirAttr) -> (result : MlirType) -> Op
 collapseShapeOp src reassociation result =
-  MkOp "memref.collapse_shape" [src] [("reassociation", arrayAttr reassociation)] [] [] [result]
+  MkOp "memref.collapse_shape" [src] [("reassociation", ArrayAttr reassociation)] [] [] [result]
 
 ||| `memref.copy`
 export
@@ -133,7 +129,7 @@ dmaWaitOp tagMemRef tagIndices numElements =
 export
 expandShapeOp : (src : Value) -> (reassociation : List MlirAttr) -> (outputShape : List Value) -> (staticOutputShape : MlirAttr) -> (result : MlirType) -> Op
 expandShapeOp src reassociation outputShape staticOutputShape result =
-  MkOp "memref.expand_shape" (concat [[src], outputShape]) [("reassociation", arrayAttr reassociation), ("static_output_shape", staticOutputShape)] [] [] [result]
+  MkOp "memref.expand_shape" (concat [[src], outputShape]) [("reassociation", ArrayAttr reassociation), ("static_output_shape", staticOutputShape)] [] [] [result]
 
 ||| `memref.extract_aligned_pointer_as_index`: Extracts a memref's underlying aligned pointer as an index
 export
@@ -157,19 +153,19 @@ genericAtomicRmwOp memref indices atomicBody result =
 export
 getGlobalOp : (name : String) -> (result : MlirType) -> Op
 getGlobalOp name result =
-  MkOp "memref.get_global" [] [("name", flatSymbolRefAttr name)] [] [] [result]
+  MkOp "memref.get_global" [] [("name", SymbolRefAttr (MkSymbolRef name []))] [] [] [result]
 
 ||| `memref.global`: declare or define a global memref variable
 export
 globalOp : {default Nothing symVisibility : Maybe String} -> {default Nothing initialValue : Maybe MlirAttr} -> {default False constant : Bool} -> {default Nothing alignment : Maybe Integer} -> (symName : String) -> (type : MlirType) -> Op
 globalOp symName type =
-  MkOp "memref.global" [] ([("sym_name", stringAttr symName)] ++ attrIf "sym_visibility" stringAttr symVisibility ++ [("type", typeAttr type)] ++ attrIf "initial_value" id initialValue ++ unitIf "constant" constant ++ attrIf "alignment" (\v => integerAttr v (integerType 64)) alignment) [] [] []
+  MkOp "memref.global" [] ([("sym_name", StringAttr symName)] ++ attrIf "sym_visibility" StringAttr symVisibility ++ [("type", TypeAttr type)] ++ attrIf "initial_value" id initialValue ++ unitIf "constant" constant ++ attrIf "alignment" (\v => IntegerAttr v (IntegerType 64)) alignment) [] [] []
 
 ||| `memref.load`: load operation
 export
 loadOp : {default Nothing nontemporal : Maybe Bool} -> {default Nothing alignment : Maybe Integer} -> {default Nothing invariant : Maybe Bool} -> (memref : Value) -> (indices : List Value) -> (result : MlirType) -> Op
 loadOp memref indices result =
-  MkOp "memref.load" (concat [[memref], indices]) (attrIf "nontemporal" boolAttr nontemporal ++ attrIf "alignment" (\v => integerAttr v (integerType 64)) alignment ++ attrIf "invariant" boolAttr invariant) [] [] [result]
+  MkOp "memref.load" (concat [[memref], indices]) (attrIf "nontemporal" BoolAttr nontemporal ++ attrIf "alignment" (\v => IntegerAttr v (IntegerType 64)) alignment ++ attrIf "invariant" BoolAttr invariant) [] [] [result]
 
 ||| `memref.memory_space_cast`: memref memory space cast operation
 export
@@ -181,7 +177,7 @@ memorySpaceCastOp source dest =
 export
 prefetchOp : (memref : Value) -> (indices : List Value) -> (isWrite : Bool) -> (localityHint : Integer) -> (isDataCache : Bool) -> Op
 prefetchOp memref indices isWrite localityHint isDataCache =
-  MkOp "memref.prefetch" (concat [[memref], indices]) [("isWrite", boolAttr isWrite), ("localityHint", integerAttr localityHint (integerType 32)), ("isDataCache", boolAttr isDataCache)] [] [] []
+  MkOp "memref.prefetch" (concat [[memref], indices]) [("isWrite", BoolAttr isWrite), ("localityHint", IntegerAttr localityHint (IntegerType 32)), ("isDataCache", BoolAttr isDataCache)] [] [] []
 
 ||| `memref.rank`: rank operation
 export
@@ -193,13 +189,13 @@ rankOp memref result0 =
 export
 reallocOp : {default Nothing alignment : Maybe Integer} -> (source : Value) -> (dynamicResultSize : Maybe Value) -> (result0 : MlirType) -> Op
 reallocOp source dynamicResultSize result0 =
-  MkOp "memref.realloc" (concat [[source], toList dynamicResultSize]) (attrIf "alignment" (\v => integerAttr v (integerType 64)) alignment) [] [] [result0]
+  MkOp "memref.realloc" (concat [[source], toList dynamicResultSize]) (attrIf "alignment" (\v => IntegerAttr v (IntegerType 64)) alignment) [] [] [result0]
 
 ||| `memref.reinterpret_cast`: memref reinterpret cast operation
 export
 reinterpretCastOp : (source : Value) -> (offsets : List Value) -> (sizes : List Value) -> (strides : List Value) -> (staticOffsets : MlirAttr) -> (staticSizes : MlirAttr) -> (staticStrides : MlirAttr) -> (result : MlirType) -> Op
 reinterpretCastOp source offsets sizes strides staticOffsets staticSizes staticStrides result =
-  MkOp "memref.reinterpret_cast" (concat [[source], offsets, sizes, strides]) [("static_offsets", staticOffsets), ("static_sizes", staticSizes), ("static_strides", staticStrides), ("operandSegmentSizes", segmentSizes [1, length offsets, length sizes, length strides])] [] [] [result]
+  MkOp "memref.reinterpret_cast" (concat [[source], offsets, sizes, strides]) [("static_offsets", staticOffsets), ("static_sizes", staticSizes), ("static_strides", staticStrides), ("operandSegmentSizes", DenseI32ArrayAttr [1, length offsets, length sizes, length strides])] [] [] [result]
 
 ||| `memref.reshape`: memref reshape operation
 export
@@ -211,13 +207,13 @@ reshapeOp source shape result =
 export
 storeOp : {default Nothing nontemporal : Maybe Bool} -> {default Nothing alignment : Maybe Integer} -> (value : Value) -> (memref : Value) -> (indices : List Value) -> Op
 storeOp value memref indices =
-  MkOp "memref.store" (concat [[value], [memref], indices]) (attrIf "nontemporal" boolAttr nontemporal ++ attrIf "alignment" (\v => integerAttr v (integerType 64)) alignment) [] [] []
+  MkOp "memref.store" (concat [[value], [memref], indices]) (attrIf "nontemporal" BoolAttr nontemporal ++ attrIf "alignment" (\v => IntegerAttr v (IntegerType 64)) alignment) [] [] []
 
 ||| `memref.subview`: memref subview operation
 export
 subviewOp : (source : Value) -> (offsets : List Value) -> (sizes : List Value) -> (strides : List Value) -> (staticOffsets : MlirAttr) -> (staticSizes : MlirAttr) -> (staticStrides : MlirAttr) -> (result : MlirType) -> Op
 subviewOp source offsets sizes strides staticOffsets staticSizes staticStrides result =
-  MkOp "memref.subview" (concat [[source], offsets, sizes, strides]) [("static_offsets", staticOffsets), ("static_sizes", staticSizes), ("static_strides", staticStrides), ("operandSegmentSizes", segmentSizes [1, length offsets, length sizes, length strides])] [] [] [result]
+  MkOp "memref.subview" (concat [[source], offsets, sizes, strides]) [("static_offsets", staticOffsets), ("static_sizes", staticSizes), ("static_strides", staticStrides), ("operandSegmentSizes", DenseI32ArrayAttr [1, length offsets, length sizes, length strides])] [] [] [result]
 
 ||| `memref.transpose`: `transpose` produces a new strided memref (metadata-only)
 export

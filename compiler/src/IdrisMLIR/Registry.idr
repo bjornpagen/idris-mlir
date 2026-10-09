@@ -17,6 +17,7 @@ import public IdrisMLIR.Registry.Entry
 import public IdrisMLIR.Registry.Name
 import public IdrisMLIR.Registry.Primitives
 import IdrisMLIR.Registry.Recognized
+import IdrisMLIR.Syntax.Idr
 import IdrisMLIR.Types
 
 import Data.List
@@ -79,7 +80,7 @@ breaking name es = if any named es then Just (map (\e => if named e then broken 
     named : Entry -> Bool
     named e = show e.key == name && isJust (site e)
     wrong : Shape -> Shape
-    wrong = Pi QW (Prim WorldP)
+    wrong = Pi Quantity.Many (Prim WorldP)
     break : (k : Key) -> Expect k -> Expect k
     break (Def _) (Typed s) = Typed (wrong s)
     break (Foreign _) (Declared q s) = Declared q (wrong s)

@@ -4,17 +4,9 @@
 module IdrisMLIR.Dialect.UB
 
 import IdrisMLIR.MLIR
+import IdrisMLIR.Syntax.UB
 
 %default total
-
-------------------------------------------------------------------------------
--- Types and attributes
-------------------------------------------------------------------------------
-
-||| `#ub.poison`
-export
-poisonAttr : MlirAttr
-poisonAttr = MkMlirAttr "#ub.poison"
 
 ------------------------------------------------------------------------------
 -- Ops

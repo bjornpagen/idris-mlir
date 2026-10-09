@@ -19,6 +19,7 @@ import Libraries.Utils.Path
 
 import IdrisMLIR.Registry
 import IdrisMLIR.Registry.Libraries
+import IdrisMLIR.Syntax.Idr
 import IdrisMLIR.Types
 
 import Data.List
@@ -180,7 +181,7 @@ primTy IntegerType = Just IntegerP
 primTy StringType = Just StringP
 primTy CharType = Just CharP
 primTy DoubleType = Just DoubleP
-primTy WorldType = Just WorldP
+primTy Primitive.WorldType = Just WorldP
 
 spine : Term vars -> List (Term vars) -> (Term vars, List (Term vars))
 spine (App _ f a) as = spine f (a :: as)
@@ -193,7 +194,7 @@ shapeOf : Term vars -> Shape
 shapeOf (Bind _ _ (Pi _ rig _ a) sc) = Pi (multiplicity rig) (shapeOf a) (shapeOf sc)
   where
     multiplicity : RigCount -> Quantity
-    multiplicity rig = if isErased rig then Q0 else if isLinear rig then Q1 else QW
+    multiplicity rig = if isErased rig then Zero else if isLinear rig then One else Quantity.Many
 shapeOf (PrimVal _ (PrT t)) = maybe Hole Prim (primTy t)
 shapeOf (TType _ _) = TypeOfTypes
 shapeOf tm = case spine tm [] of

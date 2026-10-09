@@ -6,6 +6,7 @@ module IdrisMLIR.Registry.Entry
 import IdrisMLIR.Dialect.Idr
 import IdrisMLIR.Registry.Name
 import IdrisMLIR.Rule
+import IdrisMLIR.Syntax.Idr
 import IdrisMLIR.Types
 
 import Data.List
@@ -129,8 +130,9 @@ mutual
   showAt arg (Pi q a b) = parens arg ("(" ++ quantity q ++ "_ : " ++ showAt False a ++ ") -> " ++ showAt False b)
     where
       quantity : Quantity -> String
-      quantity QW = ""
-      quantity q = show q ++ " "
+      quantity Quantity.Many = ""
+      quantity Zero = "0 "
+      quantity One = "1 "
   showAt arg (Head k []) = show k
   showAt arg (Head k as@(_ :: _)) = parens arg (show k ++ showArguments as)
   showAt arg (Prim p) = show p
