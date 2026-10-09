@@ -69,20 +69,16 @@ foldl op acc0 str = withString str (go acc0)
       EOF => acc
       Character c next => go (op acc c) (assert_smaller it next)
 
-||| The characters of a string, read at once. A linear iterator cannot wait
-||| in a delayed tail, so the walk is eager.
+||| The characters of a string, each read when the list reaches it.
 export
 unpack : String -> LazyList Char
-unpack str = withString str go
+unpack str = from 0
   where
-    -- `c` before a tail already read. The tail is taken at quantity 1, so
-    -- the call that reads it consumes the iterator once; matching it gives
-    -- its parts unrestricted, which a delayed tail may then hold.
-    before : Char -> (1 rest : LazyList Char) -> LazyList Char
-    before c [] = [c]
-    before c (x :: xs) = c :: x :: xs
-
-    go : (1 it : StringIterator str) -> LazyList Char
-    go it = case uncons str it of
-      EOF => []
-      Character c next => before c (go (assert_smaller it next))
+    -- A delayed tail holds the next offset, not an iterator: a suspension
+    -- may never be forced, and an iterator must be used once. Each step
+    -- moves the offset strictly forward, toward the end.
+    from : Int -> LazyList Char
+    from offset =
+      if offset < stringByteLength str
+         then prim__scalarAt str offset :: from (assert_smaller offset (prim__scalarEnd str offset))
+         else []
