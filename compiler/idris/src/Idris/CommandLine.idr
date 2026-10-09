@@ -1,0 +1,418 @@
+module Idris.CommandLine
+
+import Idris.Env
+import Idris.Version
+import Idris.Doc.Display
+import Idris.Doc.String
+import Idris.Pretty
+
+import Core.Options
+
+import Data.Maybe
+import Data.String
+import Data.Either
+
+import System
+
+%default total
+
+public export
+data PkgCommand
+      = Build
+      | Install
+      | InstallWithSrc
+      | Typecheck
+      | Clean
+      | DumpInstallDir
+
+export
+Show PkgCommand where
+  show Build = "--build"
+  show Install = "--install"
+  show InstallWithSrc = "--install-with-src"
+  show Typecheck = "--typecheck"
+  show Clean = "--clean"
+  show DumpInstallDir = "--dump-installdir"
+
+public export
+data DirCommand
+      = LibDir | -- show top level package directory
+         ||| Show the installation prefix
+        Prefix |
+        BlodwenPaths
+
+export
+Show DirCommand where
+  show LibDir = "--libdir"
+  show Prefix = "--prefix"
+  show BlodwenPaths = "--paths"
+
+||| Help topics
+public export
+data HelpTopic
+  = ||| Interactive debugging topics
+    HelpLogging
+  | ||| The various pragmas
+    HelpPragma
+
+recogniseHelpTopic : String -> Maybe HelpTopic
+recogniseHelpTopic "logging"   = pure HelpLogging
+recogniseHelpTopic "pragma" = pure HelpPragma
+recogniseHelpTopic _ = Nothing
+
+||| CLOpt - possible command line options
+public export
+data CLOpt
+  =
+   ||| Only typecheck the given file
+  CheckOnly |
+   ||| The output file from the code generator
+  OutputFile String |
+   ||| Don't implicitly import Prelude
+  NoPrelude |
+   ||| Set source directory
+  SourceDir String |
+   ||| Set build directory
+  BuildDir String |
+   ||| Set output directory
+  OutputDir String |
+   ||| Display Idris version
+  Version |
+   ||| Display the TTC version currently used
+  TTCVersion |
+   ||| Display help text
+  Help (Maybe HelpTopic) |
+   ||| Suppress the banner
+  NoBanner |
+   ||| Run Idris 2 in quiet mode
+  Quiet |
+   ||| Show implicits when pretty printing
+  ShowImplicits |
+   ||| Show machine names when pretty printing
+  ShowMachineNames |
+   ||| Show namespaces when pretty printing
+  ShowNamespaces |
+   ||| Run Idris 2 in verbose mode (cancels quiet if it's the default)
+  Verbose |
+   ||| Set the console width for messages
+  ConsoleWidth (Maybe Nat) |
+   ||| Whether to use color in the console output
+  Color Bool |
+   ||| Set the log level globally
+  Logging LogLevel |
+   ||| Add a package as a dependency
+  PkgPath String |
+   ||| List installed packages
+  ListPackages |
+   ||| Build or install a given package, depending on PkgCommand
+  Package PkgCommand (Maybe String) |
+   ||| Show locations of data/library directories
+  Directory DirCommand |
+   ||| The input Idris file
+  InputFile String |
+  IgnoreMissingIPKG |
+  FindIPKG |
+  Timing (Maybe Nat) |
+  DebugElabCheck |
+  AltErrorCount Nat |
+   ||| Treat warnings as errors
+  WarningsAsErrors |
+   ||| Do not print shadowing warnings
+  IgnoreShadowingWarnings |
+   ||| Apply experimental heuristics to case tree generation that
+   ||| sometimes improves performance and reduces compiled code
+   ||| size.
+  CaseTreeHeuristics |
+   ||| Turn on %default total globally
+  Total
+
+data OptType
+  = Required String
+   | Optional String
+   | RequiredNat String
+   | AutoNat String
+   | RequiredLogLevel String
+
+Show OptType where
+  show (Required a) = "<" ++ a ++ ">"
+  show (RequiredNat a) = "<" ++ a ++ ">"
+  show (RequiredLogLevel a) = "<" ++ a ++ ">"
+  show (Optional a) = "[" ++ a ++ "]"
+  show (AutoNat a) = "<" ++ a ++ ">"
+
+ActType : List OptType -> Type
+ActType [] = List CLOpt
+ActType (Required a :: as) = String -> ActType as
+ActType (RequiredNat a :: as) = Nat -> ActType as
+ActType (RequiredLogLevel a :: as) = LogLevel -> ActType as
+ActType (Optional a :: as) = Maybe String -> ActType as
+ActType (AutoNat a :: as) = Maybe Nat -> ActType as
+
+record OptDesc where
+  constructor MkOpt
+  flags : List String
+  argdescs : List OptType
+  action : ActType argdescs
+  help : Maybe String
+
+optSeparator : OptDesc
+optSeparator = MkOpt [] [] [] Nothing
+
+showDefault : Show a => a -> String
+showDefault x = "(default " ++ show x ++ ")"
+
+options : List OptDesc
+options = [MkOpt ["--check", "-c"] [] [CheckOnly]
+              (Just "Exit after checking source file"),
+           MkOpt ["--output", "-o"] [Required "file"] (\f => [OutputFile f, Quiet])
+              (Just "Specify output file"),
+           MkOpt ["--no-prelude"] [] [NoPrelude]
+              (Just "Don't implicitly import Prelude"),
+           MkOpt ["--package", "-p"] [Required "package"] (\f => [PkgPath f])
+              (Just "Add a package as a dependency"),
+           MkOpt ["--source-dir"] [Required "dir"] (\d => [SourceDir d])
+              (Just $ "Set source directory"),
+           MkOpt ["--build-dir"] [Required "dir"] (\d => [BuildDir d])
+              (Just $ "Set build directory"),
+           MkOpt ["--output-dir"] [Required "dir"] (\d => [OutputDir d])
+              (Just $ "Set output directory"),
+
+           optSeparator,
+           MkOpt ["--total"] [] [Total]
+              (Just "Require functions to be total by default"),
+           MkOpt ["-Werror"] [] [WarningsAsErrors]
+              (Just "Treat warnings as errors"),
+           MkOpt ["-Wno-shadowing"] [] [IgnoreShadowingWarnings]
+              (Just "Do not print shadowing warnings"),
+
+           optSeparator,
+           MkOpt ["-Xcase-tree-opt"] [] [CaseTreeHeuristics]
+              (Just "Apply experimental optimizations to case tree generation"),
+
+           optSeparator,
+           MkOpt ["--prefix"] [] [Directory Prefix]
+              (Just "Show installation prefix"),
+           MkOpt ["--paths"] [] [Directory BlodwenPaths]
+              (Just "Show paths"),
+           MkOpt ["--libdir"] [] [Directory LibDir]
+              (Just "Show library directory"),
+           MkOpt ["--list-packages"] [] [ListPackages]
+              (Just "List installed packages"),
+
+           optSeparator,
+           MkOpt ["--dump-installdir"] [Optional "package file"]
+              (\ f => [Package DumpInstallDir f])
+              (Just "Dump the location where the given package will be installed"),
+           MkOpt ["--build"] [Optional "package file"]
+               (\f => [Package Build f])
+              (Just "Build modules/executable for the given package"),
+           MkOpt ["--install"] [Optional "package file"]
+              (\f => [Package Install f])
+              (Just "Install the given package"),
+           MkOpt ["--install-with-src"] [Optional "package file"]
+              (\f => [Package InstallWithSrc f])
+              (Just "Install the given package"),
+           MkOpt ["--typecheck"] [Optional "package file"]
+              (\f => [Package Typecheck f])
+              (Just "Typechecks the given package without code generation"),
+           MkOpt ["--clean"] [Optional "package file"] (\f => [Package Clean f])
+              (Just "Clean intermediate files/executables for the given package"),
+           MkOpt ["--find-ipkg"] [] [FindIPKG]
+              (Just "Find and use an .ipkg file in a parent directory."),
+           MkOpt ["--ignore-missing-ipkg"] [] [IgnoreMissingIPKG]
+              (Just "Fail silently if a dependency is missing."),
+
+           optSeparator,
+           MkOpt ["--timing"] [AutoNat "level"] (\ n => [Timing n])
+              (Just "Display timing logs"),
+
+           optSeparator,
+           MkOpt ["--no-banner"] [] [NoBanner]
+              (Just "Suppress the banner"),
+           MkOpt ["--quiet", "-q"] [] [Quiet]
+              (Just "Quiet mode; display fewer messages"),
+           MkOpt ["--console-width"] [AutoNat "console width"] (\l => [ConsoleWidth l])
+              (Just "Width for console output (0 for unbounded) (auto by default)"),
+          MkOpt ["--show-implicits"] [] [ShowImplicits]
+              (Just "Show implicits when pretty printing"),
+           MkOpt ["--show-machine-names"] [] [ShowMachineNames]
+              (Just "Show machine names when pretty printing"),
+           MkOpt ["--show-namespaces"] [] [ShowNamespaces]
+              (Just "Show namespaces when pretty printing"),
+           MkOpt ["--color", "--colour"] [] ([Color True])
+              (Just "Forces colored console output (enabled by default)"),
+           MkOpt ["--no-color", "--no-colour"] [] ([Color False])
+              (Just "Disables colored console output"),
+           MkOpt ["--verbose"] [] [Verbose]
+              (Just "Verbose mode (default)"),
+           MkOpt ["--log"] [RequiredLogLevel "log level"] (\l => [Logging l])
+              (Just "Global log level (0 by default)"),
+
+           optSeparator,
+           MkOpt ["--version", "-v"] [] [Version]
+              (Just "Display version string"),
+           MkOpt ["--ttc-version"] [] [TTCVersion]
+              (Just "Display TTC version string"),
+           MkOpt ["--help", "-h", "-?"] [Optional "topic"] (\ tp => [Help (tp >>= recogniseHelpTopic)])
+              (Just "Display help text"),
+
+           -- Internal debugging options
+           MkOpt ["--debug-elab-check"] [] [DebugElabCheck]
+              Nothing, -- do more elaborator checks (currently conversion in LinearCheck)
+           MkOpt ["--alt-error-count"] [RequiredNat "alternative count"] (\c => [AltErrorCount c])
+              (Just "Outputs errors for the given number of alternative parsing attempts.")
+           ]
+
+optShow : OptDesc -> (String, Maybe String)
+optShow (MkOpt [] _ _ _) = ("", Just "")
+optShow (MkOpt flags argdescs action help) = (showSep ", " flags ++ " " ++
+                                              showSep " " (map show argdescs),
+                                              help)
+  where
+    showSep : String -> List String -> String
+    showSep sep [] = ""
+    showSep sep [x] = x
+    showSep sep (x :: xs) = x ++ sep ++ showSep sep xs
+
+firstColumnWidth : Nat
+firstColumnWidth = let maxOpt = foldr max 0 $ map (length . fst . optShow) options
+                       maxEnv = foldr max 0 $ map (length . .name) envs in
+                       max maxOpt maxEnv
+
+makeTextFromOptionsOrEnvs : List (String, Maybe String) -> String
+makeTextFromOptionsOrEnvs rows = concatMap (optUsage firstColumnWidth) rows
+  where
+    optUsage : Nat -> (String, Maybe String) -> String
+    optUsage maxOpt (optshow, help) = maybe ""  -- Don't show anything if there's no help string (that means
+                                                -- it's an internal option)
+                                      (\h => "  " ++ optshow ++
+                                             pack (List.replicate (minus (maxOpt + 2) (length optshow)) ' ') ++
+                                             h ++ "\n")
+                                      help
+
+optsUsage : String
+optsUsage = makeTextFromOptionsOrEnvs $ map optShow options
+
+envsUsage : String
+envsUsage = makeTextFromOptionsOrEnvs $ map (\e => (e.name, Just e.help)) envs
+
+export
+versionMsg : String
+versionMsg = "Idris 2, version " ++ show version
+
+export
+usage : String
+usage = """
+  \{ versionMsg }
+  Usage: idris2 [options] [input file]
+
+  Available options:
+  \{ optsUsage }
+  Environment variables:
+  \{ envsUsage }
+  """
+
+checkNat : Integer -> Maybe Nat
+checkNat n = toMaybe (n >= 0) (integerToNat n)
+
+processArgs : String -> (args : List OptType) -> List String -> ActType args ->
+              Either String (List CLOpt, List String)
+processArgs flag [] xs f = Right (f, xs)
+-- Missing required arguments
+processArgs flag (opt@(Required _) :: as) [] f =
+  Left $ "Missing required argument " ++ show opt ++ " for flag " ++ flag
+processArgs flag (opt@(RequiredNat _) :: as) [] f =
+  Left $ "Missing required argument " ++ show opt ++ " for flag " ++ flag
+processArgs flag (opt@(RequiredLogLevel _) :: as) [] f =
+  Left $ "Missing required argument " ++ show opt ++ " for flag " ++ flag
+processArgs flag (Optional a :: as) [] f =
+  processArgs flag as [] (f Nothing)
+processArgs flag (opt@(AutoNat _) :: as) [] f =
+  Left $ "Missing required argument " ++ show opt ++ " for flag " ++ flag
+-- Happy cases
+processArgs flag (RequiredNat a :: as) (x :: xs) f =
+  do arg <- maybeToEither ("Expected Nat argument " ++ show x ++ " for flag " ++ flag)
+                          (parseInteger x >>= checkNat)
+     processArgs flag as xs (f arg)
+processArgs flag (RequiredLogLevel a :: as) (x :: xs) f =
+  do arg <- maybeToEither ("Expected LogLevel argument " ++ show x ++ " for flag " ++ flag)
+                          (parseLogLevel x)
+     processArgs flag as xs (f arg)
+processArgs flag (AutoNat a :: as) ("auto" :: xs) f =
+  processArgs flag as xs (f Nothing)
+processArgs flag (AutoNat a :: as) (x :: xs) f =
+  do arg <- maybeToEither ("Expected Nat or \"auto\" argument " ++ show x ++ " for flag " ++ flag)
+                          (parseInteger x >>= checkNat)
+     processArgs flag as xs (f (Just arg))
+processArgs flag (Required a :: as) (x :: xs) f =
+  processArgs flag as xs (f x)
+processArgs flag (Optional a :: as) (x :: xs) f =
+  if isPrefixOf "-" x
+    then processArgs flag as (x :: xs) (f Nothing)
+    else processArgs flag as xs (f $ Just x)
+
+matchFlag : (d : OptDesc) -> List String ->
+            Either String (Maybe (List CLOpt, List String))
+matchFlag d [] = Right Nothing -- Nothing left to match
+matchFlag d (x :: xs)
+    = if x `elem` flags d
+         then do args <- processArgs x (argdescs d) xs (action d)
+                 Right (Just args)
+         else Right Nothing
+
+findMatch : List OptDesc -> List String ->
+            Either String (List CLOpt, List String)
+findMatch [] [] = Right ([], [])
+findMatch [] (f :: args) = case unpack f of
+  '-' :: '-' :: _ => Left "Unknown flag \{f}"
+  _ => Right ([InputFile f], args)
+findMatch (d :: ds) args
+    = case !(matchFlag d args) of
+           Nothing => findMatch ds args
+           Just res => Right res
+
+parseOpts : List OptDesc -> List String -> Either String (List CLOpt)
+parseOpts opts [] = Right []
+parseOpts opts args
+   = do (cl, rest) <- findMatch opts args
+        cls <- assert_total (parseOpts opts rest) -- 'rest' smaller than 'args'
+        pure (cl ++ cls)
+
+export
+getOpts : List String -> Either String (List CLOpt)
+getOpts opts = parseOpts options opts
+
+export covering
+getCmdOpts : IO (Either String (List CLOpt))
+getCmdOpts = do (_ :: opts) <- getArgs
+                    | _ => pure (Left "Invalid command line")
+                pure $ getOpts opts
+
+||| Find an opt that would have matched if only the user had prefixed it with
+||| double-dashes. It is common to see the user error of specifying a command
+||| like "idris2 build ..." when they mean to write "idris2 --build ..."
+export
+findNearMatchOpt : String -> Maybe String
+findNearMatchOpt arg =
+  let argWithDashes = "--\{arg}"
+  in
+  case (getOpts [argWithDashes]) of
+       Right [(InputFile _)] => Nothing
+       Right [_] => Just argWithDashes
+       _ => Nothing
+
+||| Suggest an opt that would have matched if only the user had prefixed it with
+||| double-dashes. It is common to see the user error of specifying a command
+||| like "idris2 build ..." when they mean to write "idris2 --build ..."
+export
+nearMatchOptSuggestion : String -> Maybe (Doc IdrisAnn)
+nearMatchOptSuggestion arg =
+    findNearMatchOpt arg <&>
+      \opt =>
+        (reflow "Did you mean to type" <++>
+          (dquotes . meta $ pretty0 opt) <+> "?")
+
+||| List of all command line option flags.
+export
+optionFlags : List String
+optionFlags = options >>= flags

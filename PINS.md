@@ -682,3 +682,30 @@ which the top-level CMake configure gate reads.
 - retire: when Chez Scheme itself is built on the pinned toolchain for the
   host
 - upstream: none
+
+## idris-fork
+
+- symptom: the frontend needs upstream Idris 2's elaborator, TTC and
+  package code as its own source, so that this compiler can compile it,
+  but third_party/Idris2 stays unmodified (it supplies prelude, base and
+  stage 0). Two upstream bugs and one Chez-only dependency surfaced while
+  forking: `--clean` looked for TTCs one `ttc` directory too deep and
+  removed nothing (`src/Idris/Package.idr`); `Core.Unify.search` is
+  defined in `Core.AutoSearch`, which only the REPL imported, so a driver
+  without the REPL compiled it as a hole; and `Libraries.Data.String.Iterator`
+  binds `scheme:` foreign functions that base has no counterpart for
+- sites: compiler/idris (README.md lists every deviation;
+  `tools/extract-idris.sh status` prints the files that differ from the
+  gitlink), compiler/idris/src/Idris/Package.idr (the `clean` path),
+  compiler/idris/src/Idris/ProcessIdr.idr (imports `Core.AutoSearch`),
+  compiler/idris/src/Libraries/Data/String/Iterator.idr
+- workaround: none; the fork is our code. Its deviations from upstream are
+  deliberate (the REPL, IDE mode, every other code generator and the CExp
+  pipeline are out of scope) except the two bug fixes, which upstream
+  should take. The iterator's `scheme:` specs stay while the fork runs on
+  Chez as stage 0, and go when string iteration is a runtime primitive
+- retire: never as a whole. Each bug fix goes when an Idris bump brings
+  upstream's fix (the re-sync merge in compiler/idris/README.md shows it)
+- upstream: not filed; the `clean` path and the unimported
+  `Core.AutoSearch` are each an issue and a pull request on
+  idris-lang/Idris2
