@@ -89,13 +89,31 @@ void ArrayGenerateOp::print(OpAsmPrinter &printer) {
   ops::printLoopBody(printer, getBody());
 }
 
+// The body takes the index, an i64.
 LogicalResult ArrayGenerateOp::verify() {
   Type element = getArrayType().getElementType();
   if (failed(ops::verifyWord(*this, "the element", element)) ||
       failed(ops::verifyElement(*this, "the fill", getFill().getType(), getArrayType())))
     return failure();
-  return ops::verifyLoopBody(*this, getBody(), TypeRange{IntegerType::get(getContext(), 64)},
-                             element);
+  Type index = IntegerType::get(getContext(), 64);
+  TypeRange args = getBody().front().getArgumentTypes();
+  if (args != TypeRange(index))
+    return emitOpError("expects its body to take ") << TypeRange(index) << ", not " << args;
+  return success();
+}
+
+// The body yields the element at its index, at any grade. The loop stores
+// it and forwards nothing, so no RegionBranchOpInterface edge checks it.
+LogicalResult ArrayGenerateOp::verifyRegions() {
+  if (failed(ops::verifyLoopEnd(*this, getBody())))
+    return failure();
+  Type element = getArrayType().getElementType();
+  auto yield = dyn_cast<YieldOp>(getBody().front().getTerminator());
+  if (yield &&
+      (yield.getNumOperands() != 1 || unrestricted(yield.getOperand(0).getType()) != element))
+    return yield.emitOpError("yields ")
+           << yield.getOperandTypes() << ", but the loop's body gives " << element;
+  return success();
 }
 
 // `idr.array.fold %a, %init, %w : memref<?xE>, T -> T (%acc: T, %x: E, %i: i64) {...}`
@@ -142,8 +160,12 @@ LogicalResult ArrayFoldOp::verify() {
   if (unrestricted(args[0]) != acc || unrestricted(args[1]) != element || !args[2].isInteger(64))
     return emitOpError("expects its body to take the accumulator (")
            << acc << "), the element (" << element << ") and the index (i64), not " << args;
-  return ops::verifyLoopBody(*this, getBody(), args, acc);
+  return success();
 }
+
+// The body yields the next accumulator, which RegionBranchOpInterface
+// checks along the yield's edges, back into the body and out to the result.
+LogicalResult ArrayFoldOp::verifyRegions() { return ops::verifyLoopEnd(*this, getBody()); }
 
 // As a new array's: its size clamped at 0, as an index.
 LogicalResult ArrayGenerateOp::reifyResultShapes(OpBuilder &b,

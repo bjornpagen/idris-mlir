@@ -1515,4 +1515,4 @@ regionOp ArrayFold operands body results = MkOp "idr.array.fold" operands [] [bo
 -- type QType: its parameter `grade` is the C++ `::idr::Grade`
 -- attribute ConAttr: its parameter `cells` is the C++ `::llvm::ArrayRef<::mlir::ArrayAttr>`
 -- attribute EffectAttr: its parameter `value` is the C++ `::idr::Effect`
--- fingerprint: 3640616746-1066014 71077187-64346
+-- fingerprint: 58335236-1069435 71077187-64346

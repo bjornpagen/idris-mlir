@@ -22,15 +22,11 @@ bool idr::isMemo(DataOp data) { return data.getMemo(); }
 
 namespace {
 
-// A memo sum is a box, so that every reference sees one memo. Its
-// constructors are its labels, each named after its function, which
-// `labels` names, and the two states a force writes a cell into: `running`,
-// with no field, and `forced`, with the value. Only a label runs at a
-// force, so only a label is `by_name`.
+// A memo sum's constructors are its labels, each named after its function,
+// which `labels` names, and the two states a force writes a cell into:
+// `running`, with no field, and `forced`, with the value. Only a label runs
+// at a force, so only a label is `by_name`.
 LogicalResult verifyMemo(DataOp data) {
-  if (!data.getBox())
-    return data.emitOpError("is a memo sum, which must be a box: a cell has one memo, "
-                            "which every reference to it sees");
   llvm::SmallDenseSet<StringAttr> labels;
   if (ArrayAttr named = data.getLabelsAttr())
     for (auto label : named.getAsRange<FlatSymbolRefAttr>())
@@ -69,14 +65,22 @@ LogicalResult verifyMemo(DataOp data) {
 
 } // namespace
 
+// A memo sum is a box, so that every reference sees one memo.
 LogicalResult DataOp::verify() {
+  if (getMemo() && !getBox())
+    return emitOpError("is a memo sum, which must be a box: a cell has one memo, "
+                       "which every reference to it sees");
+  if (!getMemo() && getLabels())
+    return emitOpError("names labels, which only a memo sum has");
+  return success();
+}
+
+LogicalResult DataOp::verifyRegions() {
   for (Operation &op : getBody().front())
     if (!isa<CtorOp>(op))
       return op.emitOpError("is not allowed inside idr.data");
   if (getMemo())
     return verifyMemo(*this);
-  if (getLabels())
-    return emitOpError("names labels, which only a memo sum has");
   for (CtorOp ctor : getCtors())
     if (ctor.getByName())
       return ctor.emitOpError("is by_name, which only a label of a memo sum is");

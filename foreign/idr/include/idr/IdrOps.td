@@ -369,6 +369,12 @@ def Idr_KnownAttributes : NativeOpTrait<"KnownAttributes"> {
   let cppNamespace = "::idr";
 }
 
+// An op's verify() runs before the ops of its regions are verified, when one
+// of them may still hold a null operand or lack an attribute: a tool that
+// drops uses, as idris-mlir-reduce does, leaves such ops behind. So a check
+// that reads an op of a region is in verifyRegions (hasRegionVerifier),
+// which runs after them, and verify() reads only the op and the arguments
+// of its regions' blocks.
 class Idr_Op<string mnemonic, list<Trait> traits = []>
     : Op<Idr_Dialect, mnemonic, !listconcat(traits, [Idr_KnownAttributes])>;
 
@@ -472,6 +478,7 @@ def Idr_DataOp : Idr_Op<"data", [SymbolName, Idr_PublicSymbol, Symbol, SymbolTab
     (`labels` $labels^)? attr-dict-with-keyword $body
   }];
   let hasVerifier = 1;
+  let hasRegionVerifier = 1;
   let extraClassDeclaration = [{
     ::llvm::SmallVector<class CtorOp> getCtors();
     // The type of a value of this declaration: !idr.box or !idr.data.
@@ -644,6 +651,7 @@ class Idr_MatchOpBase<string mnemonic, list<Trait> traits = []>
   let regions = (region VariadicRegion<SizedRegion<1>>:$regions);
   let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;
+  let hasRegionVerifier = 1;
   let hasCanonicalizer = 1;
   let extraClassDeclaration = [{
     // The region of case `index`, and the default region, if any.
@@ -742,6 +750,7 @@ def Idr_LambdaOp : Idr_Op<"lambda", [SingleBlock, Pure,
   let regions = (region SizedRegion<1>:$body);
   let assemblyFormat = "attr-dict `:` qualified(type($result)) $body";
   let hasVerifier = 1;
+  let hasRegionVerifier = 1;
 }
 
 def Idr_DelayOp : Idr_Op<"delay", [SingleBlock, Pure]> {
@@ -750,6 +759,7 @@ def Idr_DelayOp : Idr_Op<"delay", [SingleBlock, Pure]> {
   let regions = (region SizedRegion<1>:$body);
   let assemblyFormat = "attr-dict `:` type($result) $body";
   let hasVerifier = 1;
+  let hasRegionVerifier = 1;
 }
 
 // Reads the cell: a suspension, or, after idr-defunctionalize, the box of a
@@ -1755,6 +1765,7 @@ def Idr_ArrayGenerateOp : Idr_ArrayOp<"generate", [Idr_Consumes<"1">, RecursiveM
   let regions = (region Idr_BodyRegion<1>:$body);
   let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;
+  let hasRegionVerifier = 1;
   let extraClassDeclaration = [{
     ::mlir::MemRefType getArrayType() {
       return ::llvm::cast<::mlir::MemRefType>(::idr::unrestricted(getArray().getType()));
@@ -1775,6 +1786,7 @@ def Idr_ArrayFoldOp : Idr_ArrayOp<"fold", [Idr_Consumes<"1">, RecursiveMemoryEff
   let regions = (region Idr_BodyRegion<3>:$body);
   let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;
+  let hasRegionVerifier = 1;
   let extraClassDeclaration = [{
     ::mlir::MemRefType getArrayType() {
       return ::llvm::cast<::mlir::MemRefType>(::idr::unrestricted(getArray().getType()));

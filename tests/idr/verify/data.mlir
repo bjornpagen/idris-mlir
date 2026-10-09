@@ -57,3 +57,13 @@ func.func @f() {
   }
   return
 }
+
+// -----
+
+// A memo sum's checks read its constructors, so they wait until each is
+// verified: this one lacks its field types, and is rejected for that before
+// the memo sum reads them.
+idr.data @M box memo {
+  // expected-error @+1 {{requires attribute 'field_types'}}
+  "idr.ctor"() <{sym_name = "running"}> : () -> ()
+}

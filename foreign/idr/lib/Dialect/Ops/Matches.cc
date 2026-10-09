@@ -60,8 +60,10 @@ LogicalResult MatchOp::verify() {
       return emitOpError("expects a default region without arguments, or one that takes the "
                          "scrutinee back at its type");
   }
-  return ops::verifyMatchRegions(*this);
+  return success();
 }
+
+LogicalResult MatchOp::verifyRegions() { return ops::verifyMatchRegions(*this); }
 
 // Each case is a constructor of the scrutinee's type, and its region's
 // arguments are that constructor's fields at the scrutinee's grade.
@@ -183,8 +185,10 @@ LogicalResult MatchLitOp::verify() {
   for (Region &region : getRegions())
     if (region.getNumArguments())
       return emitOpError("expects regions without arguments");
-  return ops::verifyMatchRegions(*this);
+  return success();
 }
+
+LogicalResult MatchLitOp::verifyRegions() { return ops::verifyMatchRegions(*this); }
 
 // The literal itself, else what an enclosing match on the same value
 // established.

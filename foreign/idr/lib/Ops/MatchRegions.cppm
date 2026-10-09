@@ -9,23 +9,15 @@ using namespace idr;
 
 export namespace idr::ops {
 
-// Every region ends in idr.yield with the match's result types, or in
-// ub.unreachable after a crash. Each region is one block that is not empty
-// (SingleBlock), so it has an op to end in.
+// Every region ends in idr.yield, or in ub.unreachable after a crash. Each
+// region is one block that is not empty (SingleBlock), so it has an op to
+// end in. What a yield gives is the match's results, which
+// RegionBranchOpInterface checks along the edge from the yield to the match.
 LogicalResult verifyMatchRegions(Operation *op) {
-  for (auto [index, region] : llvm::enumerate(op->getRegions())) {
-    Operation *terminator = &region.front().back();
-    if (isa<ub::UnreachableOp>(terminator))
-      continue;
-    auto yield = dyn_cast<YieldOp>(terminator);
-    if (!yield)
+  for (auto [index, region] : llvm::enumerate(op->getRegions()))
+    if (!isa<YieldOp, ub::UnreachableOp>(region.front().back()))
       return op->emitOpError("region #")
              << index << " must end in idr.yield or ub.unreachable";
-    if (yield.getResults().getTypes() != op->getResultTypes())
-      return yield.emitOpError("yields ")
-             << yield.getResults().getTypes() << " but the match has results "
-             << op->getResultTypes();
-  }
   return success();
 }
 

@@ -53,10 +53,11 @@ idr.data @T {
   idr.ctor @A (i64)
 }
 func.func @f(%v: !idr.data<@T>) -> i64 {
+  // expected-error @+1 {{along control flow edge from Operation idr.yield to Operation idr.match: successor operand type #0 'i32' should match successor input type #0 'i64'}}
   %r = idr.match %v : !idr.data<@T> -> (i64) {
   case @A(%x: i64) {
     %y = arith.trunci %x : i64 to i32
-    // expected-error @+1 {{yields 'i32' but the match has results 'i64'}}
+    // expected-note @+1 {{region branch point}}
     idr.yield %y : i32
   }
   }
@@ -72,7 +73,7 @@ func.func @f(%v: !idr.data<@T>) {
   // expected-error @+1 {{region #0 must end in idr.yield or ub.unreachable}}
   idr.match %v : !idr.data<@T> -> () {
   case @A(%x: i64) {
-    func.return
+    llvm.unreachable
   }
   }
   return

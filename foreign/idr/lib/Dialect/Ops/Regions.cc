@@ -13,7 +13,8 @@ namespace {
 
 // The body ends in idr.yield of `results`, or in ub.unreachable after a
 // crash. The block is not empty (SingleBlock), so it has an op to end in;
-// the yields of the matches inside it are theirs.
+// the yields of the matches inside it are theirs. Neither op is a region
+// branch, so no RegionBranchOpInterface edge checks what the yield gives.
 LogicalResult verifyEnd(Operation *op, Block &body, TypeRange results) {
   Operation *end = &body.back();
   if (isa<ub::UnreachableOp>(end))
@@ -37,7 +38,11 @@ LogicalResult LambdaOp::verify() {
   if (body.getArgumentTypes() != type.getInputs())
     return emitOpError("takes ") << body.getArgumentTypes() << ", but its type " << type
                                  << " takes " << type.getInputs();
-  return verifyEnd(getOperation(), body, type.getResults());
+  return success();
+}
+
+LogicalResult LambdaOp::verifyRegions() {
+  return verifyEnd(getOperation(), getBody().front(), getType().getResults());
 }
 
 // A force passes nothing, so the block takes nothing, and yields the
@@ -48,8 +53,12 @@ LogicalResult DelayOp::verify() {
   if (body.getNumArguments() != 0)
     return emitOpError("takes ") << body.getArgumentTypes()
                                  << ", but a suspension's body takes nothing";
+  return success();
+}
+
+LogicalResult DelayOp::verifyRegions() {
   Type value = cast<LazyType>(unrestricted(getType())).getValue();
-  if (failed(verifyEnd(getOperation(), body, value)))
+  if (failed(verifyEnd(getOperation(), getBody().front(), value)))
     return failure();
   bool worldAbove = false;
   visitUsedValuesDefinedAbove(getBody(), getBody(), [&](OpOperand *use) {

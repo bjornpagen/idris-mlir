@@ -10,24 +10,12 @@ using namespace idr;
 
 export namespace idr::ops {
 
-// The body of a loop over an array: one block whose arguments are `args`,
-// ending in an idr.yield of one value of `yields` (at any grade) or in
-// ub.unreachable after a crash.
-LogicalResult verifyLoopBody(Operation *op, Region &body, TypeRange args, Type yields) {
-  Block &block = body.front();
-  if (block.getArgumentTypes() != args)
-    return op->emitOpError("expects its body to take ")
-           << args << ", not " << block.getArgumentTypes();
-  Operation *terminator = block.getTerminator();
-  if (isa<ub::UnreachableOp>(terminator))
+// The body of a loop over an array ends in idr.yield, or in ub.unreachable
+// after a crash.
+LogicalResult verifyLoopEnd(Operation *op, Region &body) {
+  if (isa<YieldOp, ub::UnreachableOp>(body.front().getTerminator()))
     return success();
-  auto yield = dyn_cast<YieldOp>(terminator);
-  if (!yield)
-    return op->emitOpError("expects its body to end in idr.yield or ub.unreachable");
-  if (yield.getNumOperands() != 1 || unrestricted(yield.getOperand(0).getType()) != yields)
-    return yield.emitOpError("yields ")
-           << yield.getOperandTypes() << ", but the loop's body gives " << yields;
-  return success();
+  return op->emitOpError("expects its body to end in idr.yield or ub.unreachable");
 }
 
 // `(%x: T, ...)` and the region they are the arguments of.
