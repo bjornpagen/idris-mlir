@@ -1,0 +1,40 @@
+#!/bin/sh
+# The program runs the main Idris resolves in the main file, the one
+# visible there. Another module's private main is not seen: the program
+# compiles and runs the main module's. When the other module exports its
+# main too, the two are ambiguous, and the program is refused with status 3,
+# the program's.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+
+# program NAME VISIBILITY: Main.idr, whose main prints "main", importing
+# Helper.idr, whose main, with VISIBILITY (none, or export), prints
+# "helper"; compiled in $work/NAME.
+program() {
+  mkdir "$work/$1"
+  {
+    printf '%s\n' 'module Helper' '' 'import Prelude' ''
+    [ -n "$2" ] && printf '%s\n' "$2"
+    printf '%s\n' 'main : IO ()' 'main = putStrLn "helper"'
+  } > "$work/$1/Helper.idr"
+  printf '%s\n' 'module Main' '' 'import Prelude' 'import Helper' '' \
+    'main : IO ()' 'main = putStrLn "main"' > "$work/$1/Main.idr"
+  compile_program "$work/$1/Main.idr" prog
+}
+
+program private ''
+say "private: compile exit $compiled"
+if [ "$compiled" -eq 0 ]; then
+  bounded "$work/private/build/exec/prog" > "$work/private.out" 2>&1
+  say "private: run exit $?, printed $(cat "$work/private.out")"
+else
+  show "$work/compile.out" "$work/compile.err"
+fi
+
+program exported export
+say "exported: compile exit $compiled"
+if grep -qF 'unsupported (program): main is ambiguous' "$work/compile.out" "$work/compile.err"; then
+  say "exported: main is ambiguous"
+else
+  say "exported: not refused as ambiguous"
+  show "$work/compile.out" "$work/compile.err"
+fi

@@ -1,0 +1,4 @@
+private: compile exit 0
+private: run exit 0, printed main
+exported: compile exit 3
+exported: main is ambiguous
