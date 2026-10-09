@@ -295,11 +295,20 @@ def IdrDefunctionalize : Pass<"idr-defunctionalize", "::mlir::ModuleOp"> {
     left unconverted in a program is the error `unsupported (laziness)` or
     `unsupported (runtime closure)`, at the op the value flows through where
     the analysis lost it.
+
+    Then every type is final, and an unboxed sum spreads its slots over
+    every cell that holds it: a record (a declaration of one constructor)
+    or a closure sum that makes a box's cell, or an array's element, count
+    more references than a header can becomes a box, the one of the most
+    references first, ties by name, until none does. A sum of several user
+    constructors is looked through to the records it holds, never boxed:
+    a field read of it may already run where its constructor is not known.
   }];
   let dependentDialects = ["::mlir::ub::UBDialect"];
   let statistics = [
     Statistic<"numSums", "sums", "Keys whose closures became sums">,
     Statistic<"numClosures", "closures", "Keys whose closures stay closures">,
+    Statistic<"numBoxed", "boxed", "Records and closure sums made boxes so that the cells holding them fit">,
   ];
 }
 
@@ -739,7 +748,9 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
         in 32: the else region of an `scf.if` whose then region holds one;
       - `folds-balanced`: the folders released every reference they took
         from the runtime, which holds no live cell (on the calling thread,
-        so run single-threaded).
+        so run single-threaded);
+      - `cells-fit`: no box constructor's cell and no array element holds
+        more counted references than a header counts.
   }];
   let options = [
     ListOption<"holds", "holds", "std::string", "The properties that must hold">,

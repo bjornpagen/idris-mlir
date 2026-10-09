@@ -5,6 +5,8 @@ idr_library(idr_layout
 		Layout.cppm
 		CellInfo.cppm
 		Cells.cppm
+		Components.cppm
+		Fit.cppm
 		Layouts.cppm
 		Sums.cppm
 	LINKS

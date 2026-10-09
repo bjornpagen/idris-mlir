@@ -31,6 +31,7 @@ struct Defunctionalize : idr::impl::IdrDefunctionalizeBase<Defunctionalize> {
       return signalPassFailure();
     numSums += done->sums;
     numClosures += done->closures;
+    numBoxed += done->boxed;
   }
 };
 

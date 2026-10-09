@@ -1,11 +1,11 @@
--- expect: layout, line 11
+-- expect: layout, line 9
 module Main
 
 import Prelude
 
--- A cell's header counts its object slots in 8 bits. A record is unboxed,
--- so its 256 strings, each a counted reference, go into the cell of N,
--- which then does not fit, and says so.
+-- A cell's header counts its object slots in 8 bits. R's 256 strings are
+-- its constructor's own fields, so a box of R, which leaves N one reference,
+-- still has a cell that does not fit them, and says so, at R.
 data R = MkR String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String
 
 data T = E | N R T
