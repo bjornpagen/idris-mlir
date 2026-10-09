@@ -26,21 +26,24 @@
 #include <optional>
 #include <string>
 
+// The enums come first: a grade is a pair of two of them (IdrOps.td), and
+// the dialect's helpers for its discardable attributes read the others.
+// The generated file opens its own namespaces.
+#include "idr/IdrEnums.h.inc"
+
 namespace idr {
 
 // A grade: what Idris proved of a value, kept in its type where no pass
-// can drop it. The quantity is the number of uses Idris allows, 0, 1 or
-// ω (Quantity); the permission is what the value owns, nothing to say (·),
-// a borrow, one reference of its own, or an exclusive cell graph, which the
-// owned stage decides. A plain type T is the grade (ω, ·).
-enum class Quantity : uint8_t { Zero, One, Many };
-enum class Permission : uint8_t { None, Borrow, Own, Excl };
-
+// can drop it. The quantity is the number of uses Idris allows, zero, one
+// or many (Quantity); the permission is what the value owns, plain
+// (nothing to say), a borrow, one reference of its own, or an exclusive
+// cell graph, which the owned stage decides. A plain type T is the grade
+// (many, plain).
 struct Grade {
   Quantity quantity = Quantity::Many;
-  Permission permission = Permission::None;
+  Permission permission = Permission::Plain;
   bool operator==(const Grade &) const = default;
-  bool plain() const { return quantity == Quantity::Many && permission == Permission::None; }
+  bool plain() const { return quantity == Quantity::Many && permission == Permission::Plain; }
 };
 
 inline llvm::hash_code hash_value(Grade grade) {
@@ -292,8 +295,6 @@ bool takenOnce(mlir::Value value);
 
 // The attributes come first: the dialect's helpers for its discardable
 // attributes read them by their types.
-#include "idr/IdrEnums.h.inc"
-
 #define GET_ATTRDEF_CLASSES
 #include "idr/IdrAttrs.h.inc"
 
@@ -306,7 +307,7 @@ bool takenOnce(mlir::Value value);
 
 namespace idr {
 
-// The grade of a type: its own for !idr.q, (ω, ·) for a plain type.
+// The grade of a type: its own for !idr.q, (many, plain) for a plain type.
 Grade gradeOf(mlir::Type type);
 
 // An application compares a closure's declared types with the values it is
@@ -320,7 +321,7 @@ bool sameCarriers(Expected &&expected, Actual &&actual) {
 }
 
 // The type `value` at `grade`, in canonical form: `value` itself at
-// (ω, ·), and never a grade of a graded type.
+// (many, plain), and never a grade of a graded type.
 mlir::Type graded(Grade grade, mlir::Type value);
 
 // The spellings: !idr.lin<T>, !idr.erased and !idr.world.
@@ -349,7 +350,8 @@ mlir::Type atQuantity(mlir::Type type, Quantity quantity);
 // type: taking it apart needs no count test, and its cells no null test.
 bool isExclusive(mlir::Type type);
 
-// Idris's product of quantities: 0 absorbs, 1 is the unit, and ω·ω is ω.
+// Idris's product of quantities: zero absorbs, one is the unit, and many times
+// many is many.
 Quantity times(Quantity a, Quantity b);
 
 // Whether a value of `type` holds a reference a count accounts for. An

@@ -21,7 +21,8 @@ def Idr_Dialect : Dialect {
   let name = "idr";
   let cppNamespace = "::idr";
   let summary = "Monomorphic Idris programs: data, closures, matches, strings and bigs";
-  // The types are printed and parsed by hand: the grades have spellings.
+  // The dialect reads and writes its types: the common grades have
+  // spellings, one table of them over the generated syntax (Initialize.cc).
   let useDefaultTypePrinterParser = 0;
   let extraClassDeclaration = [{
     ::mlir::Type parseType(::mlir::DialectAsmParser &parser) const override;
@@ -62,6 +63,28 @@ def Idr_Dialect : Dialect {
 }
 
 //===----------------------------------------------------------------------===//
+// Grades
+//===----------------------------------------------------------------------===//
+
+// A grade's halves (idr::Grade), enums so that their spellings are said
+// once: read by the generated parser, written by the generated printers in
+// C++ and in Idris. The quantity is spelled in words: an enum parameter is
+// read as a keyword, which `0` and `1` are not.
+def Idr_Quantity : I32EnumAttr<"Quantity", "the number of uses Idris proved of a value", [
+    I32EnumAttrCase<"Zero", 0, "zero">, I32EnumAttrCase<"One", 1, "one">,
+    I32EnumAttrCase<"Many", 2, "many">]> {
+  let cppNamespace = "::idr";
+  let genSpecializedAttr = 0;
+}
+
+def Idr_Permission : I32EnumAttr<"Permission", "what a value owns", [
+    I32EnumAttrCase<"Plain", 0, "plain">, I32EnumAttrCase<"Borrow", 1, "borrow">,
+    I32EnumAttrCase<"Own", 2, "own">, I32EnumAttrCase<"Excl", 3, "excl">]> {
+  let cppNamespace = "::idr";
+  let genSpecializedAttr = 0;
+}
+
+//===----------------------------------------------------------------------===//
 // Types
 //===----------------------------------------------------------------------===//
 
@@ -86,16 +109,25 @@ def Idr_BoxType : Idr_Type<"Box", "box", [MemRefElementTypeInterface]> {
   let assemblyFormat = "`<` $name `>`";
 }
 
-// `!idr.fn<(A...) -> (R...)>`. A suspension is `!idr.lazy<T>`, not a
-// function: defunctionalization would turn a function into a sum and the
-// cell would no longer be the one that was forced.
+// `!idr.fn<(A...) -> R>`: the closure's signature is a function type, held
+// as one and written as MLIR writes one (a single result without
+// parentheses, which the parser reads either way). A suspension is
+// `!idr.lazy<T>`, not a function: defunctionalization would turn a
+// function into a sum and the cell would no longer be the one that was
+// forced.
 def Idr_FnType : Idr_Type<"Fn", "fn", [MemRefElementTypeInterface]> {
   let summary = "a closure";
-  let parameters = (ins ArrayRefParameter<"::mlir::Type">:$inputs,
-                        ArrayRefParameter<"::mlir::Type">:$results);
-  let hasCustomAssemblyFormat = 1;
+  let parameters = (ins "::mlir::FunctionType":$function_type);
+  let assemblyFormat = "`<` $function_type `>`";
+  let builders = [
+    TypeBuilder<(ins "::llvm::ArrayRef<::mlir::Type>":$inputs,
+                     "::llvm::ArrayRef<::mlir::Type>":$results), [{
+      return $_get($_ctxt, ::mlir::FunctionType::get($_ctxt, inputs, results));
+    }]>
+  ];
   let extraClassDeclaration = [{
-    ::mlir::FunctionType getFunctionType() const;
+    ::llvm::ArrayRef<::mlir::Type> getInputs() const { return getFunctionType().getInputs(); }
+    ::llvm::ArrayRef<::mlir::Type> getResults() const { return getFunctionType().getResults(); }
   }];
 }
 
@@ -141,26 +173,39 @@ def Idr_NatType : Idr_Type<"Nat", "nat", [MemRefElementTypeInterface]> {
 def Idr_BigOrNat : AnyTypeOf<[Idr_BigType, Idr_NatType]>;
 
 // The carrier of the world: the IO world token, which only ever appears
-// at grade (1, ·), spelled !idr.world.
-def Idr_WorldCarrier : Idr_Type<"World", "world"> {
+// at grade (one, plain), the type spelled !idr.world. The carrier itself
+// is !idr.world_carrier.
+def Idr_WorldCarrier : Idr_Type<"World", "world_carrier"> {
   let summary = "the IO world token";
 }
 
 // A grade lives in the type, where no pass can drop it. It is a pair
-// (u, p) (idr::Grade): u is the quantity Idris proved, 0, 1 or ω, and p is
-// what the value owns, · (nothing to say), borrow, own or excl. A plain
-// type T is (ω, ·) and is never written as !idr.q. The spellings:
-// !idr.erased is (0, ·) of no carrier (the value has no runtime
-// representation), !idr.lin<T> is (1, ·) of T, and !idr.world is (1, ·)
-// of the world. A value of quantity 1 is used at most once on every path;
-// its one use is idr.lin.use, or a position that is linear itself (a
-// parameter, a field, a capture or a result of the same type).
+// (u, p) (idr::Grade): u is the quantity Idris proved, zero, one or many,
+// and p is what the value owns, plain (nothing to say), borrow, own or
+// excl. A plain type T is (many, plain) and is never written as !idr.q.
+// The type is `!idr.q<quantity, permission, value>`, and the common grades
+// have spellings, which the dialect reads and writes from one table
+// (Initialize.cc): !idr.erased is (zero, plain) of no carrier, `none` (the
+// value has no runtime representation), !idr.lin<T> is (one, plain) of T,
+// !idr.own<T> and !idr.excl<T> are (many, own) and (many, excl) of T, and
+// !idr.world is (one, plain) of the world. A value of quantity one is used
+// at most once on every path; its one use is idr.lin.use, or a position
+// that is linear itself (a parameter, a field, a capture or a result of
+// the same type).
 def Idr_QType : Idr_Type<"Q", "q"> {
   let summary = "a value at a grade: its quantity and what it owns";
-  let parameters = (ins TypeParameter<"::idr::Grade", "the grade">:$grade,
-                        "::mlir::Type":$value);
+  let parameters = (ins EnumParameter<Idr_Quantity>:$quantity,
+                        EnumParameter<Idr_Permission>:$permission, "::mlir::Type":$value);
+  let assemblyFormat = "`<` $quantity `,` $permission `,` $value `>`";
   let genVerifyDecl = 1;
-  let hasCustomAssemblyFormat = 1;
+  let builders = [
+    TypeBuilder<(ins "::idr::Grade":$grade, "::mlir::Type":$value), [{
+      return $_get($_ctxt, grade.quantity, grade.permission, value);
+    }]>
+  ];
+  let extraClassDeclaration = [{
+    ::idr::Grade getGrade() const { return {getQuantity(), getPermission()}; }
+  }];
 }
 
 // The positions that take a grade: the world, and a linear value other
@@ -226,11 +271,21 @@ class Idr_Attr<string name, string attrMnemonic, dag params = (ins)>
 // replace rebuilds from the replaced parameters (Base::get) without
 // canonicalizing, so it can make a run that is not canonical, which the
 // verifier rejects.
+//
+// It is written as it is stored: a plain constructor as its one cell,
+// `<@T::@C, [fields]>`, and a run as its cells, its tail and the field it
+// runs along, `<@T::@C, [a], [b] tail t along 1>`, `along 0` left out. Each
+// optional group starts with its keyword, so the parser tries the keyword
+// and not the attribute after it, and the cells, a list without brackets,
+// end at it. The generated parser builds through the getChecked below,
+// which gives the attribute `get` gives for the same value, however it was
+// written.
 def Idr_ConAttr : Idr_Attr<"Con", "con",
     (ins "::mlir::SymbolRefAttr":$ctor, ArrayRefParameter<"::mlir::ArrayAttr">:$cells,
-         OptionalParameter<"::mlir::Attribute">:$tail, "unsigned":$spine)> {
+         OptionalParameter<"::mlir::Attribute">:$tail,
+         DefaultValuedParameter<"unsigned", "0">:$spine)> {
   let summary = "a constructor of a sum or box, its fields as attributes, a list's cells flat";
-  let hasCustomAssemblyFormat = 1;
+  let assemblyFormat = "`<` $ctor `,` $cells (`tail` $tail^)? (`along` $spine^)? `>`";
   let genVerifyDecl = 1;
   let skipDefaultBuilders = 1;
   let builders = [
@@ -260,6 +315,13 @@ def Idr_ConAttr : Idr_Attr<"Con", "con",
     // The first cell's fields, for both forms: O(n) on a run, which builds
     // the rest of the run.
     ::mlir::ArrayAttr getFields() const;
+    // The attribute of a constructor written as its stored parameters, as
+    // the generated parser reads them: what `get` gives for the value they
+    // say, a run where its cells form one, or null after an error.
+    static ConAttr getChecked(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+                              ::mlir::MLIRContext *context, ::mlir::SymbolRefAttr ctor,
+                              ::llvm::ArrayRef<::mlir::ArrayAttr> cells, ::mlir::Attribute tail,
+                              unsigned spine, ::mlir::Type type);
   private:
     // The attribute of stored parameters that get, getRun and the parser
     // have made canonical. ODS completes the storage only in the unit that
@@ -1800,7 +1862,7 @@ def Idr_ArrayFoldOp : Idr_ArrayOp<"fold", [Idr_Consumes<"1">, RecursiveMemoryEff
 
 // idr-rc makes every reference explicit, in the grades: from then on a
 // value that holds references is owned, `!idr.own<T>` (the grade
-// (ω, own) of T), and holds one reference of its own, which exactly one
+// (many, own) of T), and holds one reference of its own, which exactly one
 // use on every path consumes; or it is a view, plain T, which holds none
 // and lives while what it was read from does: a borrowed parameter, a
 // field, a match's case argument, an `idr.borrow`, or static data, which

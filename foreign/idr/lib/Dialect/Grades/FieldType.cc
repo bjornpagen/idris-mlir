@@ -8,6 +8,6 @@ using namespace idr;
 Type idr::fieldType(Type scrutinee, Type field) {
   if (isWorld(field))
     return field;
-  return graded({times(quantityOf(scrutinee), quantityOf(field)), Permission::None},
+  return graded({times(quantityOf(scrutinee), quantityOf(field)), Permission::Plain},
                 unrestricted(field));
 }

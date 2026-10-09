@@ -18,7 +18,6 @@ target_sources(idr_dialect PRIVATE
 	Dialect/Patterns.cc
 	Types/Counted.cc
 	Types/DestType.cc
-	Types/FnType.cc
 	Types/QType.cc
 	Attrs/BigAttr.cc
 	Attrs/ConAttr.cc

@@ -1,11 +1,10 @@
 // #idr.con: a constant constructor, named @T::@C, held plain or, for a list
 // or any other chain of one constructor through one field, as a flat run of
 // its cells, so that a constant as long as the data it is stays one level
-// deep to MLIR's printer, parser, bytecode and walks.
+// deep to MLIR's printer, parser, bytecode and walks. It is written as it
+// is held: `<@T::@C, [fields]>`, or `<@T::@C, [a], [b] tail t along 1>`.
 
 #include "idr/Idr.h"
-
-#include "mlir/IR/DialectImplementation.h"
 
 using namespace mlir;
 using namespace idr;
@@ -229,52 +228,31 @@ LogicalResult ConAttr::verify(function_ref<InFlightDiagnostic()> emitError, Symb
   return success();
 }
 
-// `<@T::@C, [fields]>`, or a run, `<@T::@C, run spine [[cell], ...] tail
-// value>`. Either is read into the one form `get` builds, so a value has one
-// attribute however it is written.
-Attribute ConAttr::parse(AsmParser &parser, Type type) {
-  SMLoc loc = parser.getCurrentLocation();
-  MLIRContext *ctx = parser.getContext();
-  auto emitError = [&] { return parser.emitError(loc); };
-  SymbolRefAttr ctor;
-  if (parser.parseLess() || parser.parseAttribute(ctor) || parser.parseComma() ||
-      failed(verifyCtor(emitError, ctor)))
+// The stored parameters, as written: a plain constructor's one cell, or a
+// run's cells, its tail and the field it runs along. Either is read into the
+// one form `get` builds, so a value has one attribute however it is
+// written: nested plain constructors that form a run become one, and a run
+// that is one cell is a plain constructor.
+ConAttr ConAttr::getChecked(function_ref<InFlightDiagnostic()> emitError, MLIRContext *context,
+                            SymbolRefAttr ctor, ArrayRef<ArrayAttr> cells, Attribute tail,
+                            unsigned spine, Type type) {
+  if (failed(verifyCtor(emitError, ctor)))
     return {};
   ConAttr con;
-  if (succeeded(parser.parseOptionalKeyword("run"))) {
-    unsigned spine = 0;
-    SmallVector<ArrayAttr> cells;
-    Attribute tail;
-    if (parser.parseInteger(spine) ||
-        parser.parseCommaSeparatedList(
-            AsmParser::Delimiter::Square,
-            [&] { return parser.parseAttribute(cells.emplace_back()); }) ||
-        parser.parseKeyword("tail") || parser.parseAttribute(tail) || parser.parseGreater() ||
-        failed(verifyCells(emitError, spine, cells)))
+  if (tail) {
+    if (failed(verifyCells(emitError, spine, cells)))
       return {};
-    con = getRun(ctx, ctor, spine, cells, tail);
+    con = getRun(context, ctor, spine, cells, tail);
+  } else if (cells.size() != 1 || spine != 0) {
+    emitError() << "expects a constructor without a tail to be one cell, along spine 0";
+    return {};
   } else {
-    ArrayAttr fields;
-    if (parser.parseAttribute(fields) || parser.parseGreater())
-      return {};
-    con = getChecked(emitError, ctx, ctor, fields);
+    con = getChecked(emitError, context, ctor, cells.front());
   }
   // MLIR's parser hands the type after an attribute to the attribute; the
   // constant that holds it takes it from there.
   if (!con || !type || isa<NoneType>(type))
     return con;
-  return getStoredChecked(emitError, ctx, con.getCtor(), con.getCells(), con.getTail(),
+  return getStoredChecked(emitError, context, con.getCtor(), con.getCells(), con.getTail(),
                           con.getSpine(), type);
-}
-
-void ConAttr::print(AsmPrinter &printer) const {
-  printer << '<' << getCtor() << ", ";
-  if (isRun()) {
-    printer << "run " << getSpine() << " [";
-    llvm::interleaveComma(getCells(), printer);
-    printer << "] tail " << getTail();
-  } else {
-    printer << getCells().front();
-  }
-  printer << '>';
 }
