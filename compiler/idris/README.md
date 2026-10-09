@@ -159,11 +159,15 @@ merge; each says what changed in its interface.
   `blockEntries` (`Parser.Rule.Source`) is `assert_total`, each after a
   grammar that consumes, as upstream's `doParse` asserted its own
   recursion. (`Idris.Parser` and `TTImp.Parser` are `covering`.)
-- `Libraries.Text.Lexer.Tokenizer`: a composed tokenizer (`Compose`,
-  `compose`) makes its middle tokenizer and its end lexer from the begin
-  lexeme itself, a `String`. Upstream's took a `tagger` to a tag type the
-  constructor hid; `Parser.Lexer.Source` now applies its taggers (the
-  string's hashes) itself.
+- `Libraries.Text.Lexer.Tokenizer`: the `Compose` constructor makes its
+  middle tokenizer and its end lexer from the begin lexeme itself, a
+  `String`; upstream's held a `tagger` to a tag type the constructor hid.
+  `compose` keeps upstream's type, tagger included, and applies the tagger
+  before building the constructor, so its callers (`Parser.Lexer.Source`)
+  are upstream's. It is `public export %tcinline` rather than `export`
+  (upstream's was `Compose` itself, point-free), so that the totality
+  checker still sees the recursion of `rawTokens` and `stringTokens`
+  through it guarded by the constructor.
 
 ## tools/extract-idris.sh
 

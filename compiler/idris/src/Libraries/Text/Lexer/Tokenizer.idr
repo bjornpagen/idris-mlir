@@ -33,16 +33,21 @@ match : Lexer -> (String -> a) -> Tokenizer a
 match = Match
 
 ||| Compose other tokenizer. Language composition should be quoted between
-||| a begin lexer and a end lexer. The begin token is used to generate
+||| a begin lexer and a end lexer. The begin token can be used to generate
 ||| the composition tokenizer and the end lexer.
-export %inline
+-- The tag is applied here, so that no constructor holds a value of a type
+-- it does not name. The totality checker inlines this (`%tcinline`), and so
+-- sees the recursion through `middle` guarded by `Compose`.
+public export %inline %tcinline
 compose : (begin : Lexer) ->
           (mapBegin : String -> a) ->
-          (middle : Inf (String -> Tokenizer a)) ->
-          (end : String -> Lexer) ->
+          (tagger : String -> tag) ->
+          (middle : Inf (tag -> Tokenizer a)) ->
+          (end : tag -> Lexer) ->
           (mapEnd : String -> a) ->
           Tokenizer a
-compose = Compose
+compose begin mapBegin tagger middle end mapEnd
+    = Compose begin mapBegin (\b => middle (tagger b)) (\b => end (tagger b)) mapEnd
 
 ||| Stop reason why tokenizer can't make more progress.
 ||| @ ComposeNotClosing carries the span of composition begin token in the
