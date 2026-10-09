@@ -59,7 +59,7 @@ stay byte-identical. Both outcomes are mandatory.
   | `nonempty` | byte length `== 0` (`emptyString`) |
   | `byte` | outside `0..255` (`LowerToByte`) |
   | `finite` | `notFinite` |
-  | `range` | today's buffer test (`Buffers.cppm:33`) |
+  | `range` | today's buffer test (`Buffers.cppm:32`) |
 
 - **The message.** Built by `runtime.crashIf(b, loc, condition, op.getCause())`
   at the guard's own location, which Emit and the creators set to the
@@ -108,9 +108,9 @@ stay byte-identical. Both outcomes are mandatory.
 
 ## Acceptance
 
-- `T/programs/basic/guards-messages` prints the same crash message, at
-  the same line and column, with the same exit status as at ee4ce8e for
-  each of the six cases. U23 writes it.
+- `T/programs/basic/guards-messages-*` print the same crash message, at
+  the same line and column, with the same exit status as at the launch
+  base for each of the six cases. U23 writes them.
 - `grep -n getCrashCause foreign/idr/lib/Lower` finds nothing.
 - **Tempting partial:** keeping the per-op checks and also lowering the
   guards. Rejected: that is two checks per access, and the proof that
@@ -151,7 +151,8 @@ checks. Return the changed paths, the partition name for U13,
     `make test-idr`, `make test-mlir-tools`, cmake, ninja, the Idris
     compiler, or any suite. `make check` builds the test runner, and it
     is red mid-swarm by design (C13); do not fix what it shows.
-  - You may run the one spec test your acceptance names, and only it:
+  - You may run the one spec test your acceptance names, and only it
+    (U01 also runs its own check and reproducers, C13):
     `cd tests/spec/<name> && IDRIS_MLIR_ROOT=<repository root> sh run | diff - expected`.
   - Write against the packet text.
   - Report `Verification: NotRun (swarm policy)` for what you did not
@@ -178,6 +179,10 @@ checks. Return the changed paths, the partition name for U13,
   - What the compiler cannot compile is rejected with
     `unsupported (<rule>)`. Never miscompile silently.
   - No pass drops a quantity, erasure or linearity.
+  - There is no oracle. A test's committed expected files are its
+    specification, and the runtime's documented semantics are a
+    primitive's meaning. Never justify a meaning, a rule or a test by
+    what Idris's Chez backend or stock evaluator does.
   - Every `.cc` or `.cppm` stays at 400 lines or fewer unless
     `T/spec/file-size/allowed` already lists it; split a unit in your
     lane rather than grow it.
@@ -186,7 +191,7 @@ checks. Return the changed paths, the partition name for U13,
   - No new dependency, and no Python.
 - **No new numbers.** Do not add a limit, budget, threshold or retry
   count. Existing ones keep their values and their comments.
-- **No tests outside U22, U23 and U01's `tests/upstream` dirs.** Your
+- **No tests outside U22, U23 and U01's `tests/upstream` dir.** Your
   lane describes the evidence its change needs in the handoff, and U22
   or U23 writes it from C12.
 - **Concurrent work.** Twenty-two other lanes and the coordinator write

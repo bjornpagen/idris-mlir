@@ -12,7 +12,7 @@ coordinator's checklist. The roots are as in `ownership.json`:
 
 | Unit | Outcome | Writes | Mandatory findings |
 |---|---|---|---|
-| U01 | Patches for the two clang crashes and the dead-values rebuild; the workarounds deleted | `upstream/{clang-module-layout-forward-declaration,clang-module-predeclared-new,remove-dead-values-unreachable}`, the same three under `T/upstream/`, `IDR/Stack/Escape.cppm`, `IDR/Driver/Retarget.cppm`, `IDR/Simplify` | F-up-1..3 |
+| U01 | A patch of its own for the calls `remove-dead-values` rebuilds; `idr-dead-values` deleted; written in the shared checkout, set aside at integration until the rebuild (C13) | `upstream/16-remove-dead-values-unchanged-call`, `T/upstream/remove-dead-values-unchanged-call`, `IDR/Simplify` | F-up-3 |
 | U02 | The cycle check (C10.1); the linearity verifier's sentinel; `idr-canonicalize` on upstream's constructor | `IDR/Verify`, `IDR/Canonicalize` | F-prom-1, F-own-5, F-poison-7 |
 | U03 | Consumption in ODS; `consumes` and `consumedEffects`; the stage derived (`inOwnedStage`); `idr.stage` gone; `holdsReferences`; the force's and the guards' grades; the walk rule | `IDR/{Ownership,Facts}`, `IDR/Dialect/{Grades,Types,Effects,Verify}`, `IDR/Dialect/Dialect/Initialize.cc`, `IDR/Dialect/Ops/{Lin,Dest,Con}.cc` | F-own-1..3, F-poison-5 |
 | U04 | The guards' folders (on the `known*` predicates), speculation and `checkHolds`; total ops without causes; creators build guards; rewrites see through `nonempty`; constants by the walk rule | `IDR/Dialect/Ops/{Check,Scalars,Strings,Bigs,Arrays,Buffer,Bytes,Crash,Generated}.cc`, `IDR/Dialect/Crashes`, `IDR/Fold`, `IDR/Ops`, `IDR/Canon` | F-guard-1, F-guard-6 |
@@ -34,7 +34,7 @@ coordinator's checklist. The roots are as in `ownership.json`:
 | U20 | `idr-demand{promises=in-place}`; `--demand`; `--directive demand-in-place` | `IDR/Demand`, `IDR/Driver/{Options,Run}.cppm`, `CS/Frontend/Main.idr` | F-prom-2 |
 | U21 | Narrow, Tail and Specialize without sentinels and on the derived stage; guards on narrowed divisions; the walk rule | `IDR/{Narrow,Tail,Specialize}` | F-poison-1 |
 | U22 | `T/idr` discriminators of C12; retired mechanisms out of the suite | `T/idr` | none (discriminators) |
-| U23 | Program, reject, accept and registry discriminators of C12; `gc-clock`; removed rejections rewritten; the runtime's C clients | `T/{programs,accept,reject,properties,lib,registry,compiler,toolchain}`, `T/Main.idr` | none (discriminators) |
+| U23 | Program, reject, accept and registry discriminators of C12, against committed expected files; removed rejections rewritten; the runtime's C clients | `T/{programs,accept,reject,lib,registry,compiler,toolchain}`, `T/Main.idr` | none (discriminators) |
 
 ## The coordinator's own work
 
@@ -54,7 +54,8 @@ the text is given:
   - `Idr_Primitive` on the C8.1 ops;
   - the include of `INC/IdrPlatformOps.td`.
 - `INC/IdrPlatformOps.td`: the C9.2 and C9.3 ops.
-- `INC/Passes.td`: C1.2.
+- `INC/Passes.td`: C1.2, except its `idr-dead-values` lines, which go in
+  with U01's held-out group (C13).
 - `INC/Idr.h`: C1.4.
 - `RT/idris_rt.h`: C1.5.
 - `CS/Rule.idr`: C1.6.
@@ -80,29 +81,110 @@ the text is given:
 
 1. When all 23 have handed off, audit every diff against its dispatch:
    the permitted outcome, the exclusive writes, the NOT TO DO and
-   Delete lists. Reject extras through the same lane.
+   Delete lists. Reject extras through the same lane. Check that no
+   existing `expected-stdout`, `expected-exit` or `expected-crash`
+   changed outside a test C12 restates (C0), and read every new one
+   against its C12 row.
 2. `tools/dialects.sh generate`.
-3. `make check`, then `make build` on today's toolchain. U01's two clang
-   hunks (C11.1) and its `IDR/Simplify` change (C11.2) stay out of the
-   tree until step 5 (C13): both need the patched toolchain.
+3. If U01 added a patch, set its group aside first (C13): U01 wrote it
+   in the shared checkout, and a new `llvm.patch` in the tree makes
+   `tools/verify-pins.sh llvm`, and so `make build`, refuse today's
+   toolchain. Two stashes, from the repository root, so that the patch
+   comes back first:
+
+   ```sh
+   git stash push --include-untracked -m u01-rest -- \
+     tests/upstream/remove-dead-values-unchanged-call foreign/idr/lib/Simplify
+   git stash push --include-untracked -m u01-patch -- \
+     upstream/16-remove-dead-values-unchanged-call
+   ```
+
+   C1.2's `idr-dead-values` lines are not written yet: `Passes.td`
+   carries the rest of C1, and a stash takes whole files. Then
+   `make check`, then `make build` on today's toolchain
+   (`.toolchain/llvm-macos`: llvm main 7208ba24 with the `llvm.patch` of
+   02 to 07, 09 and 15).
 4. `make test`, `make test-idr` and `make test-mlir-tools`. Repair
    through the owning lane, and rerun from the first step that failed.
-5. `make bootstrap`, the patched LLVM: hours, the one serialization.
-   Then apply U01's held-out changes, `make build`, and rerun the four
-   suites.
-6. **Sensitivity.** Run each C12 discriminator once against ee4ce8e's
-   build, and record that it fails or shows the old mechanism.
+   A program whose output disagrees with its expected file is settled
+   from C9's meaning and the C12 row, never by accepting the output.
+
+   **Between steps 4 and 5, on today's toolchain.** The launch base's
+   build, kept at orchestrator step 1, runs only here: after step 5,
+   `tools/verify-pins.sh` refuses the rebuilt toolchain for a tree
+   without U01's patch. It was kept before the hubs were applied, after
+   a green `make test` at ccc3e1dc: `build/dev-darwin`,
+   `compiler/build/exec` and `tests/build/timing`, in
+   `/private/tmp/claude-501/-Users-bjorn-Documents-idris-mlir/5885df12-b5c5-432d-ad84-4829b14959f5/scratchpad/launch-base`
+   (orchestrator step 1, "Done at launch").
+   - **Compile times.** Copy `tests/build/timing`, which step 4's
+     `make test` wrote, and run `tests/compile-times.sh --against` the
+     launch base's copy (orchestrator step 1) on it. Record the totals
+     and the largest ratios (README Qualification 3).
+   - **The launch base's bench record.** With the kept
+     `build/dev-darwin` swapped in, as for the sensitivity runs below
+     (steps 1 and 4 there), run `bench/run.sh --record <dir>` on this Mac
+     with `IDRIS_MLIR` naming the kept compiler (the copy of
+     `compiler/build/exec/idris-mlir`; `tools/compile.sh` runs the one
+     `IDRIS_MLIR` names), and keep the record: it is what README
+     Qualification 3 compares this tree's `bench/run.sh` with. It is
+     made here, not at orchestrator step 1, because the hubs were
+     applied right after the build was kept.
+   - **Sensitivity.** Run each C12 discriminator once against the launch
+     base's build (README, Engagement contract), with this tree's test
+     files and runner, which compare with no other backend:
+     1. move this tree's `build/dev-darwin` aside and put the kept one in
+        its place. The harness runs the tools in `$dev_prefix/foreign/idr`
+        (`tests/lib/lit.sh`), and the launch base's compiler names that
+        directory's `idris-mlir-cc` and runtime (`Frontend/Paths.idr`, as
+        its `make build` generated it);
+     2. from `tests/`, run the runner directly, as `make`'s test recipes
+        do (`Makefile` `RUN_TESTS`: its timeout and the variables the
+        `Makefile` exports), with the kept compiler, the copy of
+        `compiler/build/exec/idris-mlir`, in place of this tree's:
+        `build/exec/runtests <kept idris-mlir> --suite test --only '<the C12 program, reject and accept rows>'`,
+        and `--suite test-idr` with the C12 `idr/` rows;
+     3. record each row: it fails, or shows the old mechanism;
+     4. put this tree's `build/dev-darwin` back.
+5. If U01 added a patch: pop `u01-patch`, then `make bootstrap`
+   (`tools/bootstrap.sh` applies every `upstream/*/llvm.patch` present),
+   which rebuilds stage 2 with it and the steps built with stage 2, on
+   arm64 macOS (the cutover's run took 0h30m for stage 2 and 0h05m for
+   GMP, `.toolchain/bootstrap.trunk.log`): the one serialization.
+   `make test-mlir-tools` does not run `check-mlir`, so run the patch's
+   `mlir/test` RUN line by hand, with the rebuilt
+   `.toolchain/llvm-macos/bin/mlir-opt` and `FileCheck`, on a scratch
+   copy of its test file with the patches applied in order (bootstrap
+   deletes its patched tree after stage 2). Then pop `u01-rest`, write
+   C1.2's `idr-dead-values` lines, `make build`, run
+   `tests/upstream/remove-dead-values-unchanged-call`, and rerun the four
+   suites. If U01's fix was ours, there is no step 5: nothing was set
+   aside, and its change went in at step 3.
 
 **After integration:**
 
 - **Docs:**
   - `PINS.md` (C1.8; U01's text);
+  - the sentences of `upstream/06-…/README.md` and
+    `upstream/02-…/README.md` that name `idr-dead-values` (C1.8; U01's
+    text), then tell the owner: 06 and 02 are pending LLVM submissions,
+    and `upstream/16-…` is new for `upstream/README.md`'s table;
   - `findings/decision-threads-pointers.md`, the paragraph of O1;
   - the root `README.md`'s pipeline and "What compiles today", for the
     base surface;
-  - `findings/README.md`: W1 to W10 marked done, by commit.
+  - `findings/README.md`: W1 to W10 marked done, by commit;
+  - `findings/substrate.md` §4 and §6, stale since 20fcfadb, from C11;
+    its S2.5, which still reads `RemoveDeadValues.cpp:278` and "a public
+    function only" where 7208ba24 has `:280-281` (public, external, or
+    with users outside the pass root, F-own-4); and its §1 row 18, which
+    still counts two clang workarounds where one remains (C11.1) (README
+    "Rulings at launch", L26 and L32).
 - **Commits:** to `main`, a few commits, each staging only this packet's
-  paths. Then push `main` and force the session branch to it.
+  paths. U01's group, its `PINS.md` text, C1.2's `idr-dead-values` lines
+  and the sentences of 02's and 06's READMEs go in one commit (C1.8).
+  Before pushing, `git fetch` and rebase onto `origin/main`: another
+  agent pushes `upstream/README.md`, the `upstream/NN` READMEs and
+  `PINS.md`. Then push `main` and force the session branch to it.
 - **Qualification:** README "Qualification".
 - **Proposal hygiene:** update this packet's status line once it is
   implemented. It stays as the record of the reasoning

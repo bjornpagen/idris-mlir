@@ -16,6 +16,10 @@ Mandatory findings: F-clo-6 F-prim-2
 3. **`Term.Effect` over `IdrPrim`** (C8.3, review R10). It becomes
    `Effect : Loc -> IdrPrim -> List Ty -> List (Term a) -> DataId -> Term a`,
    and the frontend fills its `List Ty` from the call. Mandatory.
+4. **The primitives that became `Op`** (C8.3). `Terms.idr` builds
+   `Op NatToBig`, `Op NatFromBig` and `Op StrPack` or `Op StrConcat`
+   where it built `NatToBig`, `NatFromBig` and `StrBuild`, which leave
+   `Prim` (U17). Mandatory.
 
 ## Owner / exclusive writes
 
@@ -27,6 +31,10 @@ Mandatory findings: F-clo-6 F-prim-2
 - `CS/Frontend/Translate/Terms.idr`
 - `CS/Frontend/Translate/Closed.idr`
 - `CS/Emit/Attributes.idr`
+- `CS/Emit.idr`, `CS/Frontend/Translate/State.idr` and
+  `CS/Frontend/Translate/Cases.idr`, for what closure conversion leaves
+  there: `Emit.idr`'s lifted functions, `State.idr`'s labels, and
+  `Cases.idr`'s `Ord a` constraints and label comment (README S6)
 
 **Excluded:**
 
@@ -102,6 +110,8 @@ Mandatory findings: F-clo-6 F-prim-2
 - `IdrRegionPrim`, `regionArity` and `regionOp` (generated, C8.2).
 - `IdrPrim` (generated) and `effect` from `Emit/Operations.idr` (U17,
   C8.3).
+- `Prim`'s `Op IdrPrim` (U17), and U18's `Hook.Builds`, which carries
+  the `IdrPrim` of the string it builds (C8.3).
 - `Idr.lambdaOp` and `Idr.delayOp` from the generated mirror (C1.1
   item 4).
 
@@ -128,6 +138,13 @@ Mandatory findings: F-clo-6 F-prim-2
 - **`Effect`.** Change the constructor, `EffectF`, and their cases in
   `Term.idr`. `Terms.idr` builds `Effect l p tys args d` from the hook's
   `IdrPrim` (U18) and the call's type arguments.
+- **`Op` for what left `Prim`.** In `Terms.idr`'s `natOperation`
+  (`:285-303`), `NatToBig` and `NatFromBig` become `Op NatToBig` and
+  `Op NatFromBig`. `builderCall` (`:373-379`) takes the hook's `IdrPrim`
+  (`Builds p`, from `builderOf`, U18) in place of a `Builder`, and builds
+  `PrimApp loc (Op p) lowered`. It still checks that the one parameter
+  is a list, and no longer passes the list's `DataId`: a pure `Op p`
+  takes its operand at the operand's own type (U17).
 
 ## Delete
 
@@ -139,6 +156,10 @@ Mandatory findings: F-clo-6 F-prim-2
 - `Label`, if it has no other reader.
 - `Emit/Attributes.idr`'s `lifted` and `inherited`.
 - `Effect`'s `IOOp` payload, and every `IOOp` pattern in your files.
+- Every use in your files of the `Prim` constructors `NatToBig`,
+  `NatFromBig` and `StrBuild`, and of `Builder`. The generated `IdrPrim`
+  constructors `NatToBig`, `NatFromBig`, `StrPack` and `StrConcat`, under
+  `Op`, replace them.
 
 ## NOT TO DO
 
@@ -199,7 +220,8 @@ the Delete list is empty of survivors. Return the changed paths,
     `make test-idr`, `make test-mlir-tools`, cmake, ninja, the Idris
     compiler, or any suite. `make check` builds the test runner, and it
     is red mid-swarm by design (C13); do not fix what it shows.
-  - You may run the one spec test your acceptance names, and only it:
+  - You may run the one spec test your acceptance names, and only it
+    (U01 also runs its own check and reproducers, C13):
     `cd tests/spec/<name> && IDRIS_MLIR_ROOT=<repository root> sh run | diff - expected`.
   - Write against the packet text.
   - Report `Verification: NotRun (swarm policy)` for what you did not
@@ -226,6 +248,10 @@ the Delete list is empty of survivors. Return the changed paths,
   - What the compiler cannot compile is rejected with
     `unsupported (<rule>)`. Never miscompile silently.
   - No pass drops a quantity, erasure or linearity.
+  - There is no oracle. A test's committed expected files are its
+    specification, and the runtime's documented semantics are a
+    primitive's meaning. Never justify a meaning, a rule or a test by
+    what Idris's Chez backend or stock evaluator does.
   - Every `.cc` or `.cppm` stays at 400 lines or fewer unless
     `T/spec/file-size/allowed` already lists it; split a unit in your
     lane rather than grow it.
@@ -234,7 +260,7 @@ the Delete list is empty of survivors. Return the changed paths,
   - No new dependency, and no Python.
 - **No new numbers.** Do not add a limit, budget, threshold or retry
   count. Existing ones keep their values and their comments.
-- **No tests outside U22, U23 and U01's `tests/upstream` dirs.** Your
+- **No tests outside U22, U23 and U01's `tests/upstream` dir.** Your
   lane describes the evidence its change needs in the handoff, and U22
   or U23 writes it from C12.
 - **Concurrent work.** Twenty-two other lanes and the coordinator write

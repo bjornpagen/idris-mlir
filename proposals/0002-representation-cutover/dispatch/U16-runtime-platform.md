@@ -7,11 +7,13 @@ Mandatory findings: F-base-2 F-base-7
 
 1. **One runtime function per op.** Every op of C9.2 and C9.3 has one
    runtime function, `idris_rt_io_<name>` or `idris_rt_handle_<name>`,
-   with C1.5's signature. Its meaning is C9.2's: the C support
-   function's, and for the clocks, which have only `scheme:` and `RefC:`
-   specs, Chez's `blodwen-clock-*` (C9.4). It works on x86_64 Linux and
-   arm64 macOS, and every OS call goes through `RT/Platform/Posix`.
-   Mandatory.
+   defined to the declaration the hub wrote in `idris_rt.h` (C1.5): a
+   string is `const idris_rt_str *`, and `idris_rt_io_exit` is
+   `IDRIS_RT_NORETURN`. Its meaning is C9.2's, documented beside the
+   function: the C support function's, and for the clocks, which name no
+   C function, base's `ClockType` read through `clock_gettime` (C9.4).
+   It works on x86_64 Linux and arm64 macOS, and every OS call goes
+   through `RT/Platform/Posix`. Mandatory.
 2. **The handle table.** It holds files, directories, file times and
    strings, behind the `i64` handles of C9.1: 0, 1 and 2 are the
    standard streams, -1 is null, and every other value is a slot.
@@ -24,7 +26,9 @@ Mandatory findings: F-base-2 F-base-7
    `rt::start::argumentCount()` and `rt::start::argument(i)` (U15).
    Mandatory.
 6. **Who owns a string handle, and the end** (C9.1, review R11).
-   Strings from `env_get`, `env_pair` and `dir_entry` are the runtime's;
+   Strings from `file_read_line`, `file_read_chars` and `dir_current`
+   are the program's; strings from `env_get`, `env_pair` and `dir_entry`
+   are the runtime's;
    `rt::io::releaseHandles()` releases the whole table before the
    live-cell count; `exit` reports no count. Mandatory.
 
@@ -46,8 +50,13 @@ Mandatory findings: F-base-2 F-base-7
 
 - `contracts.md` C9 (all), C1.5 and C13.
 - `review.md` R11.
-- `third_party/Idris2/support/chez/support-sep.ss`, the
-  `blodwen-clock-*` definitions.
+- `third_party/Idris2/libs/base/System/Clock.idr`: `ClockType`'s
+  documentation, and `isClockMandatory`, which makes the two GC clocks
+  optional.
+- `findings/decision-primitive-semantics.md` and
+  `findings/decision-no-oracle.md`: a primitive's meaning is the
+  runtime's, documented there, and no test compares it with another
+  backend.
 - `findings.md` F-base-1, F-base-2 and F-base-7.
 - `third_party/Idris2/support/c/idris_file.c`, `idris_directory.c`,
   `idris_support.c`, `idris_term.c` and `idris_clock.c` (or the files
@@ -73,9 +82,10 @@ Mandatory findings: F-base-2 F-base-7
     the C library's. Each call of its kind replaces the slot's string;
     `dir_close` releases the directory's. `handle_free` of such a handle
     does nothing, since base never frees them.
-  - **Program-owned strings.** `file_read_line` and `file_read_chars`
-    give a fresh slot that base frees (`getStringAndFree`) through
-    `handle_free`.
+  - **Program-owned strings.** `file_read_line`, `file_read_chars` and
+    `dir_current` give a fresh slot that base frees through
+    `handle_free`: `getStringAndFree` for a file's, and `currentDir`'s
+    `free` for the current directory's (`System/Directory.idr:82-89`).
   - **`rt::io::releaseHandles()`**, exported from `RT/Io`, releases every
     slot and its string. `idris_rt_main_return` calls it before it
     writes the live-cell count, so a program that reads its environment
@@ -98,9 +108,11 @@ Mandatory findings: F-base-2 F-base-7
   returns `NULL`.
 - **`OSClock`** is `seconds << 30 | nanoseconds` from `clock_gettime`
   (`CLOCK_MONOTONIC`, `CLOCK_REALTIME`, `CLOCK_PROCESS_CPUTIME_ID`,
-  `CLOCK_THREAD_CPUTIME_ID`), the clocks `blodwen-clock-*` read. It is -1
-  when that fails, and -1 always for the two GC clocks. `clock_valid`,
-  `clock_second` and `clock_nanosecond` unpack it.
+  `CLOCK_THREAD_CPUTIME_ID`), for `ClockType`'s `Monotonic`, `UTC`,
+  `Process` and `Thread`. It is -1 when that fails, and -1 always for
+  the two GC clocks, since no collector runs (C9.4, O2), and the
+  function's comment says why. `clock_valid`, `clock_second` and
+  `clock_nanosecond` unpack it.
 - **The target-specific parts** are one function each in
   `RT/Platform/Posix/` (C9.6):
   - the `stat` time fields;
@@ -116,7 +128,7 @@ Mandatory findings: F-base-2 F-base-7
 
 ## Inputs
 
-- C1.5's declarations.
+- C1.5's declarations, as the hub wrote them in `RT/idris_rt.h`.
 - `rt::start::argumentCount` and `rt::start::argument` (U15).
 - The runtime string API (`RT/Strings`).
 
@@ -155,8 +167,11 @@ Mandatory findings: F-base-2 F-base-7
 ## Acceptance
 
 - U23's `files-roundtrip`, `directory-listing`, `environment-arguments`
-  and `clock-monotonic` match Chez where C12 says so. The coordinator
-  runs them.
+  and `clock-monotonic` pass against their committed expected files, on
+  both targets. The coordinator runs them: on arm64 macOS at
+  integration, and on x86_64 Linux once its toolchain is built at the
+  pin. Until then your Linux branches (C9.6) are written but NotRun
+  (README "Qualification"); write them all the same.
 - `fGetLine stdin` and `getLine` interleave on one input without loss.
 - A program that opens and closes 10^6 files in a loop keeps a bounded
   handle table, because slots are reused.
@@ -171,9 +186,10 @@ Mandatory findings: F-base-2 F-base-7
 
 ## Escalate if
 
-- A C support function's meaning depends on Chez-only behaviour that
-  C9.2 does not settle. Report the function, and Chez's output against
-  the C one.
+- A C support function's meaning is not settled by C9.2, base's
+  documentation or POSIX, or differs between Linux's and macOS's C
+  library in what a program can print. Report the function and the
+  candidate meanings; the coordinator settles it in C9.2.
 - A primitive needs a platform facility macOS lacks. Report it.
 
 ## Stop and return
@@ -206,7 +222,8 @@ C1.5, `Verification: NotRun (swarm policy)`, and seams.
     `make test-idr`, `make test-mlir-tools`, cmake, ninja, the Idris
     compiler, or any suite. `make check` builds the test runner, and it
     is red mid-swarm by design (C13); do not fix what it shows.
-  - You may run the one spec test your acceptance names, and only it:
+  - You may run the one spec test your acceptance names, and only it
+    (U01 also runs its own check and reproducers, C13):
     `cd tests/spec/<name> && IDRIS_MLIR_ROOT=<repository root> sh run | diff - expected`.
   - Write against the packet text.
   - Report `Verification: NotRun (swarm policy)` for what you did not
@@ -233,6 +250,10 @@ C1.5, `Verification: NotRun (swarm policy)`, and seams.
   - What the compiler cannot compile is rejected with
     `unsupported (<rule>)`. Never miscompile silently.
   - No pass drops a quantity, erasure or linearity.
+  - There is no oracle. A test's committed expected files are its
+    specification, and the runtime's documented semantics are a
+    primitive's meaning. Never justify a meaning, a rule or a test by
+    what Idris's Chez backend or stock evaluator does.
   - Every `.cc` or `.cppm` stays at 400 lines or fewer unless
     `T/spec/file-size/allowed` already lists it; split a unit in your
     lane rather than grow it.
@@ -241,7 +262,7 @@ C1.5, `Verification: NotRun (swarm policy)`, and seams.
   - No new dependency, and no Python.
 - **No new numbers.** Do not add a limit, budget, threshold or retry
   count. Existing ones keep their values and their comments.
-- **No tests outside U22, U23 and U01's `tests/upstream` dirs.** Your
+- **No tests outside U22, U23 and U01's `tests/upstream` dir.** Your
   lane describes the evidence its change needs in the handoff, and U22
   or U23 writes it from C12.
 - **Concurrent work.** Twenty-two other lanes and the coordinator write

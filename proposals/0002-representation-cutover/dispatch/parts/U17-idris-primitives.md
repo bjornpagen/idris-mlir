@@ -9,8 +9,12 @@ Mandatory findings: F-prim-1 F-guard-4
    `primOp` and `regionOp` from the `Idr_Primitive` trait (C8.2). It
    fails on an `Idr_Primitive` op with an inherent attribute. Mandatory.
 2. **`Types.idr`.**
-   - `Prim` keeps only constructors that are not one op, and gains
-     `Op IdrPrim`.
+   - `Prim` keeps only what `IdrPrim` does not cover, the constructors
+     that are not one attribute-free op, and gains `Op IdrPrim`. An op
+     that is an `IdrPrim` constructor is never also a `Prim`
+     constructor: `NatToBig`, `NatFromBig` and `StrBuild` leave `Prim`
+     for `Op NatToBig`, `Op NatFromBig`, `Op StrPack` and `Op StrConcat`,
+     and `Builder` goes (C8.3);
    - the hand-written IO primitive type, its operand table and
      `ArrayLoop` are gone (C8.3).
 
@@ -58,12 +62,14 @@ Mandatory findings: F-prim-1 F-guard-4
 - **The constructor names** are the op's C++ class name without `Op`,
   in declaration order: `StrAppendOp` gives `StrAppend`, and
   `FileOpenOp` gives `FileOpen`.
-- **`primPerformsIO p`** holds iff the op has `Idr_PerformsIO`. Then
-  `primOp` takes the world as its last operand and gives the next world
-  as its last result.
+- **`primPerformsIO p`** holds iff the op has `Idr_PerformsIO`. The
+  world convention: an op with `Idr_PerformsIO` takes the world as its
+  last operand, except `world.new`, which makes one and takes none. Every
+  one gives the next world as its last result (`world.new` its only
+  one). The hub's ops all follow it; `primOp` and `effect` rely on it.
 - **`regionArity`** is the op's region's entry-block argument count, as
   its ODS states: 1 for `ArrayGenerate`, 3 for `ArrayFold`.
-- **`guardOf : Prim -> Maybe (Guard, Nat, String)`** lives in
+- **`guardOf : Prim -> List (Guard, Nat, String)`** lives in
   `Emit/Operations.idr`. It gives the guard kind, the index of the
   guarded operand, and the cause text, per C3.1's table. For `in_bounds`
   and `range`, Emit builds the length operand as `ArrayLength` builds it
@@ -72,6 +78,13 @@ Mandatory findings: F-prim-1 F-guard-4
   are never `IdrPrim`s.
 - **The cause texts** are today's, copied exactly from the C++ crash
   causes C3.1 cites.
+- **`Prim`'s constructors** (C8.3): `IntOp`, `IntShift`, `FloatOp`,
+  `Negate`, `Math`, `Compare` and `Cast` (to `arith` and `math`),
+  `ArrayLength` (`memref.dim` and an index cast), and the ops with an
+  inherent attribute (C8.1). `str.pack`, `str.concat`, `nat.to_big` and
+  `nat.from_big` are attribute-free and emitted one-to-one, so they are
+  `IdrPrim`s. `StrBuild`'s `DataId` was its list operand's type, which a
+  pure `Op p` takes from its operand.
 - **An effect's type arguments** come from `Term.Effect`'s `List Ty`
   (U07, C8.3): `[e]` for an array primitive, `[t]` for `BufferLoad t`
   and `BufferStore t`, `[]` otherwise. `effect` reads them; nothing
@@ -114,7 +127,10 @@ Mandatory findings: F-prim-1 F-guard-4
 ## Delete
 
 - `IOOp`, `ioArgs`, `ArrayLoop`, and each 1:1 `Prim` constructor, with
-  their `Show` cases.
+  their `Show` cases. That includes `NatToBig`, `NatFromBig` and
+  `StrBuild`, with their `primArgs` cases, `Builder` with its `Show`
+  instance, and `ArrayOp` with its `Show` instance (the registry's
+  `ArrayCall` carries the `IdrPrim`, C8.3).
 - Each per-op emission case the generic `Op p` case replaces.
 
 ## NOT TO DO
@@ -129,8 +145,8 @@ Mandatory findings: F-prim-1 F-guard-4
 ## Acceptance
 
 - `tools/dialects.sh check` passes once the coordinator regenerates.
-- `T/programs/` emit the same ops as at ee4ce8e, plus guards before
-  partial primitives. The coordinator compares the dumps' properties
+- `T/programs/` emit the same ops as at the launch base, plus guards
+  before partial primitives. The coordinator compares the dumps' properties
   (U23's suites).
 - `grep -rn 'IOOp\|ArrayLoop' compiler/src/IdrisMLIR --include=*.idr`
   finds nothing outside `Dialect/`.

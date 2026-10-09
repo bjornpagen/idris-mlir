@@ -3,7 +3,10 @@
 One entry per finding, in groups. Each entry gives:
 
 - the claim;
-- the evidence, at ee4ce8e, as `path:line` or a symbol;
+- the evidence, at ee4ce8e, as `path:line` or a symbol (in a file
+  20fcfadb or 1677b8cb changed, the line at 1677b8cb; where 08a065e4 or
+  ccc3e1dc moved it since, the line at ccc3e1dc, the launch base; README
+  "Rulings at launch");
 - the selected correction, as a contract section.
 
 The owner is in README's finding map. `ownership.json` is the authority
@@ -11,7 +14,9 @@ for it.
 
 Paths are relative to `foreign/idr/lib` unless they start with `runtime/`,
 `compiler/`, `tests/`, `include/` or a top-level file. Counts are
-**measured** with `grep` at ee4ce8e. Everything else is **read** there.
+**measured** with `grep` at ee4ce8e. Everything else is **read** there,
+and every anchor was read again at 1677b8cb when the swarm launched, and
+those in files changed since, again at ccc3e1dc.
 
 ## The evaluation mode
 
@@ -20,7 +25,7 @@ Paths are relative to `foreign/idr/lib` unless they start with `runtime/`,
 - **Claim:** `lowerModule(module, jit)` threads one flag through the
   lowering, and it is read in five files.
 - **Evidence:**
-  - `Lower/Lowering.cppm:151`, `:155`, `:175`, `:242`, `:270`;
+  - `Lower/Lowering.cppm:155`, `:159`, `:179`, `:246`, `:274`;
   - `Lower/Runtime.cppm:25-32`;
   - `Lower/Counting.cppm:45`;
   - `Lower/StackCell.cppm:31`;
@@ -49,7 +54,7 @@ Paths are relative to `foreign/idr/lib` unless they start with `runtime/`,
 - **Evidence:**
   - `Lower/Runtime.cppm:91-104`: `mayLoop` calls `idris_rt_eval_tick` or
     emits `llvm.sideeffect`;
-  - `Lower/Lowering.cppm:171-180`: an `idr.may_loop` at every function
+  - `Lower/Lowering.cppm:175-184`: an `idr.may_loop` at every function
     entry in JIT mode.
 - **Correction:** C6.2 (`idr-meter`).
 
@@ -57,7 +62,7 @@ Paths are relative to `foreign/idr/lib` unless they start with `runtime/`,
 
 - **Claim:** The lowering builds the program's entry.
 - **Evidence:** `Lower/Lowering.cppm:32-104` (`findRoot`,
-  `requiredCpuFeatures`, `emitMain`) and `:155-169`, `:268-273`. `@main`
+  `requiredCpuFeatures`, `emitMain`) and `:159-173`, `:272-277`. `@main`
   takes no `argc`/`argv`, so base's `getArgs` has nothing to read.
 - **Correction:** C6.3 (`idr-entry`).
 
@@ -65,7 +70,7 @@ Paths are relative to `foreign/idr/lib` unless they start with `runtime/`,
 
 - **Claim:** The facts are skipped only because evaluated closures call
   through pointers.
-- **Evidence:** `Lower/Lowering.cppm:268-273`.
+- **Evidence:** `Lower/Lowering.cppm:272-277`.
 - **Correction:** C6.1, since evaluated code holds no closure.
 
 ## Closures
@@ -77,7 +82,7 @@ Paths are relative to `foreign/idr/lib` unless they start with `runtime/`,
   - `Lower/Closures.cppm:1-4`, `:110-118`: "Only idr-eval's lowering meets
     a closure";
   - `Lower/Runtime.cppm`: `code`, `codeType`, `emitCode`, `emitClosure`;
-  - `Lower/Lowering.cppm:242-243`.
+  - `Lower/Lowering.cppm:246-247`.
 - **Correction:** C6.1, C6.4.
 
 ## F-clo-2 Reify recognizes a closure by its code address
@@ -104,7 +109,10 @@ Paths are relative to `foreign/idr/lib` unless they start with `runtime/`,
   - `Layout/Labels.cppm`, `Layout/CodeName.cppm`,
     `Layout/PlaceClosures.cc`;
   - `Layout/Layouts.cppm:54-57` (`closure`, `forced`) and `:92`
-    (`forcedCells`).
+    (`forcedCells`);
+  - the label table (`Layouts.cppm:89-90`), which the constructor in
+    `Layout/FindLabels.cc:13-68` fills by walking every constant
+    (1677b8cb moved it there from `Layouts.cppm`).
 - **Correction:** C5.2.
 
 ## F-clo-5 The runtime has a closure kind
@@ -128,9 +136,9 @@ Paths are relative to `foreign/idr/lib` unless they start with `runtime/`,
 ## F-clo-7 Upstream's region isolation is unused
 
 - **Claim:** The pinned MLIR provides isolation, and we do not use it.
-- **Evidence:** `.toolchain/llvm-project/mlir/include/mlir/Transforms/RegionUtils.h:66-71`
-  (`makeRegionIsolatedFromAbove`). No `idr` op has a body region that
-  becomes a function.
+- **Evidence:** `.toolchain/llvm-project/mlir/include/mlir/Transforms/RegionUtils.h:69-72`
+  at 7208ba24 (`makeRegionIsolatedFromAbove`). No `idr` op has a body
+  region that becomes a function.
 - **Correction:** C4.3 (`idr-isolate`).
 
 ## Thunks
@@ -213,12 +221,22 @@ Paths are relative to `foreign/idr/lib` unless they start with `runtime/`,
   and reach only array and buffer ops, or none.
 - **Correction:** C5.1 (`by_name` when the label reaches an observable
   effect, never for a static constant's label; O3), C5.3.
+- **Since (no oracle, README "Rulings at launch"):** the Chez reading
+  above is the record of how upstream's backend evaluates `Delay`, not a
+  yardstick. The claim stands on AGENTS.md's rule that a trusted
+  library's effect happens where its value is demanded, which a memo
+  breaks at every force after the first. The exception for a static
+  constant's label stands on Idris's meaning of a top-level definition:
+  a top-level constant names one value of the program, evaluated once,
+  so a `trace` in it observes that one evaluation, and its cell
+  memoizes (O3).
 
 ## F-lazy-9 A suspension's cell is sized per label for the code-pointer protocol
 
 - **Claim:** The suspension cell's size comes from the code-pointer
   protocol.
-- **Evidence:** `Layout/PlaceClosures.cc`; `Layout/Layouts.cppm:381-388`.
+- **Evidence:** `Layout/PlaceClosures.cc`; `Layout/Layouts.cppm:329-336`
+  (`:381-388` at ee4ce8e).
 - **Correction:** C5.2 (one size per memo sum).
 
 ## Ownership
@@ -242,7 +260,7 @@ Paths are relative to `foreign/idr/lib` unless they start with `runtime/`,
   - it is declared besides: the dialect's discardable attribute
     (`include/idr/IdrOps.td:45`), the generated Idris helper
     `stageDiscardable` (`compiler/src/IdrisMLIR/Dialect/Idr.idr:136-139`),
-    and the docs at `include/idr/Passes.td:550` and `IdrOps.td:1550`;
+    and the docs at `include/idr/Passes.td:550` and `IdrOps.td:1567`;
   - 14 files under `tests/idr` write `module attributes {idr.stage = "owned"}`.
 - **Correction:** C2.2 (O6): the stage is derived from the grades, true
   when any value has `own` or `excl`; views stay plain. A `borrow` grade
@@ -263,13 +281,18 @@ Paths are relative to `foreign/idr/lib` unless they start with `runtime/`,
 
 - **Claim:** `substrate.md` S2.5 says a clone's "callers to come" can be
   said with `nested` visibility. Refuted: `remove-dead-values` keeps the
-  parameters of a public function only (`isPublic()`). The verifier
-  allows exactly one public function, the root.
+  parameters of a function only when it is public or external, or has
+  users outside the pass root, and in the program's module, the root, a
+  `nested` function has none. The verifier allows exactly one public
+  function, the root.
 - **Evidence:**
-  - `.toolchain/llvm-project/mlir/lib/Transforms/RemoveDeadValues.cpp:278`;
+  - `.toolchain/llvm-project/mlir/lib/Transforms/RemoveDeadValues.cpp:280-281`
+    and `mlir/lib/IR/SymbolTable.cpp:1050-1083`, at 7208ba24 (`:278`,
+    `isPublic()` alone, at ee4ce8e's 23.1.2);
   - `Verify/Program.cppm:22-31`.
-- **Correction:** refuted. `Idr_CloneAttr` stays, and the coordinator
-  corrects `substrate.md`.
+- **Correction:** refuted. `Idr_CloneAttr` stays. `substrate.md` S2.5
+  was corrected in 1b4549ba, and went stale with 20fcfadb
+  (README "Rulings at launch", L26).
 
 ## F-own-5 `idr-canonicalize` copies canonicalize's options
 
@@ -328,7 +351,7 @@ Every entry in this group has the same correction: C2.4.
 - **Claim:** The precondition is stated by the crash cause, by the
   lowering's check and by the folder's guard.
 - **Evidence:**
-  - 17 ops with `Idr_MayCrash` (`include/idr/IdrOps.td:319-337`);
+  - 17 ops with `Idr_MayCrash` (`include/idr/IdrOps.td:317-335`);
   - `getCrashCause` in `Dialect/Ops/{Scalars,Strings,Bigs,Arrays,Buffer,Bytes,Crash}.cc`
     (45 mentions);
   - the folders in `Fold/`.
@@ -341,7 +364,7 @@ Every entry in this group has the same correction: C2.4.
   - `Lower/RuntimeCalls.cppm:70-87` (`crashCondition`) and `:133-136`;
   - `Lower/Scalars.cppm:67-69`, `:183-191`;
   - `Lower/Arrays.cppm:79`, `:155`;
-  - `Lower/Buffers.cppm:33`.
+  - `Lower/Buffers.cppm:32`.
 - **Correction:** C3.6.
 
 ## F-guard-3 `in_bounds` is a claim that only pipeline order makes sound
@@ -350,7 +373,7 @@ Every entry in this group has the same correction: C2.4.
   the lowering reads. It rests on facts no verifier sees, so
   `idr-in-bounds` must run right before `idr-lower`.
 - **Evidence:**
-  - `include/idr/IdrOps.td:1435-1447`, the comment above
+  - `include/idr/IdrOps.td:1451-1464`, the comment above
     `Idr_ArrayGetOp`;
   - `Dialect/Ops/Arrays.cc:55-60`;
   - `Dialect/Registration/PipelineSteps.cc` (the comment on
@@ -374,7 +397,8 @@ Every entry in this group has the same correction: C2.4.
   that is missing is `finite`, for `ToIntOp` and `BigFromDoubleOp`.
 - **Evidence:** `Dialect/Ops/Scalars.cc:57-61`. The audit at 4cfce76
   listed `finite`.
-- **Correction:** C1.1 item 2. The coordinator corrects `substrate.md`.
+- **Correction:** C1.1 item 2. `substrate.md` S2.3 was corrected in
+  1b4549ba.
 
 ## F-guard-6 A total op made speculatable would escape the proof that removed its guard
 
@@ -383,9 +407,9 @@ Every entry in this group has the same correction: C2.4.
   so `licm` would move it, which is an out-of-bounds read.
   `substrate.md` S2.3 says the total op is "speculatable", which is
   unsound as written.
-- **Evidence:** `include/idr/IdrOps.td:923` (`str.index` is not IO). An
+- **Evidence:** `include/idr/IdrOps.td:939` (`str.index` is not IO). An
   array access is safe only because it is world-ordered
-  (`IdrOps.td:1435-1447`).
+  (`IdrOps.td:1451-1464`).
 - **Correction:** C3.3.
 
 ## Constants
@@ -478,7 +502,7 @@ Every entry in this group has the same correction: C2.4.
 
 ## F-base-7 A file handle other than the standard streams reads and writes nothing
 
-- **Evidence:** `include/idr/IdrOps.td:1265-1290` (`write_bytes`,
+- **Evidence:** `include/idr/IdrOps.td:1281-1306` (`write_bytes`,
   `read_bytes`, `eof`: "any other handle reads nothing and gives 0").
 - **Correction:** C9.2.
 
@@ -503,24 +527,35 @@ Every entry in this group has the same correction: C2.4.
 
 - **Claim:** `clang-module-layout-forward-declaration` is avoided by
   typing the escape analysis's sets as `func::FuncOp`.
-- **Evidence:** `Stack/Escape.cppm`; `PINS.md`
-  `clang-module-layout-forward-declaration`.
-- **Correction:** C11.1.
+- **Evidence:** `Stack/Escape.cppm:164`; `PINS.md`
+  `clang-module-layout-forward-declaration` (`:366-384` at 1677b8cb: not
+  re-tested at 7208ba24). The crash is the x86_64 Linux build's:
+  `tests/upstream/clang-module-layout-forward-declaration/targets` is
+  `linux`, and on arm64 macOS the clangs of 23.1.2 and 7208ba24 compile
+  the unit (`upstream/11-…/README.md`, `## Upstreaming plan`).
+- **Correction:** C11.1: deferred to an x86_64 Linux host at the pin,
+  the only build it crashes.
 
 ## F-up-2 A second clang crash is worked around in our code
 
 - **Claim:** `clang-module-predeclared-new` is avoided with an
   `llvm::SmallString` feature string.
-- **Evidence:** `Driver/Retarget.cppm`; `PINS.md`
-  `clang-module-predeclared-new`.
-- **Correction:** C11.1.
+- **Evidence:** at ee4ce8e, `Driver/Retarget.cppm`; `PINS.md`
+  `clang-module-predeclared-new`. At 1677b8cb both are gone:
+  `Retarget.cppm:18` builds a `std::string`, and `PINS.md`'s header
+  records the retirement (verified on arm64 macOS only).
+- **Correction:** done by the pin move (20fcfadb), C11.1.
 
 ## F-up-3 `idr-dead-values` works around upstream behaviour without a report
 
 - **Claim:** It runs `remove-dead-values` on a copy and keeps the module
   when the copy hashes the same.
-- **Evidence:** `include/idr/Passes.td:479-490`;
-  `Simplify/DeadValues.cppm`; `findings/substrate.md` §6.
+- **Evidence:** `include/idr/Passes.td:479-489`;
+  `Simplify/DeadValues.cppm`; `findings/substrate.md` §6. At 7208ba24
+  the behaviour is unchanged (`findings/llvm-trunk-mechanisms.md`,
+  "Every other entry, at 7208ba24"), and 06's patch leaves it as it is
+  (`upstream/06-remove-dead-values-unreachable/README.md`, the last
+  paragraph of `## Patch`).
 - **Correction:** C11.2.
 
 ## Rules

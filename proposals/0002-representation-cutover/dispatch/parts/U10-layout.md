@@ -11,8 +11,12 @@ Mandatory findings: F-clo-4 F-lazy-9
    constructor, as boxes do. Mandatory.
 2. **No labels or code.** Layout keeps no label table, no code names
    and no closure or forced-suspension cells. Mandatory.
-3. **The walk rule** (C7.2). `Layouts.cppm` follows a list constant's
-   spine through `getRunCells()` and `getTail()`. Mandatory.
+3. **The walk rule** (C7.2). Layout's one constant walk is
+   `FindLabels.cc`'s `noteValue`, which builds the label table (1677b8cb
+   moved it out of `Layouts.cppm`); it goes with the table (outcome 2).
+   A constant walk left in `IDR/Layout` follows a list's spine through
+   `getRunCells()` and `getTail()`, and reads a shared value once.
+   Mandatory.
 
 ## Owner / exclusive writes
 
@@ -30,7 +34,9 @@ Mandatory findings: F-clo-4 F-lazy-9
 - `review.md` R12 (the unit size).
 - `findings.md` F-clo-4 and F-lazy-9.
 - `IDR/Layout/*`, all of it, especially:
-  - `Layouts.cppm:40-100` and `:230-400`;
+  - `Layouts.cppm:40-100` and `:178-348`;
+  - `FindLabels.cc`: the constructor `Layouts::Layouts(ModuleOp)` and
+    the label walk, since 1677b8cb;
   - `PlaceClosures.cc`;
   - `Labels.cppm` and `CodeName.cppm`;
   - `CellInfo.cppm` (the info word).
@@ -72,16 +78,21 @@ Mandatory findings: F-clo-4 F-lazy-9
 - **Write the kind** into the info word per the fixed decisions.
 - **Remove every label and closure path.** Nothing lowers closures, and
   nothing reads code.
-- **Split `Layouts.cppm`.** It is at exactly 400 lines today. Split it by
-  concept as you edit (boxes, sums, constants), so that no unit passes
-  400 and `T/spec/file-size/allowed` gains no line.
-- **Walkers.** Wherever `Layouts.cppm` walks a constant's fields along a
-  list, it walks the run's cells and tail.
+- **Unit size.** `Layouts.cppm` is 348 lines since 1677b8cb moved its
+  constructor to `FindLabels.cc`. Keep every unit at 400 lines or fewer,
+  splitting by concept (boxes, sums, constants) only if an edit would
+  pass that, and `T/spec/file-size/allowed` gains no line.
+- **Walkers.** Wherever `IDR/Layout` still walks a constant's fields
+  along a list, it walks the run's cells and tail, and reads a shared
+  value once.
 
 ## Delete
 
 - `Labels.cppm`, `CodeName.cppm`, and `PlaceClosures.cc`, or its
   closure half if a memo-sum part is left.
+- `FindLabels.cc` and its line in `IDR/Layout/CMakeLists.txt`. The
+  constructor `Layouts::Layouts(ModuleOp)` keeps only
+  `module(m), target(m)`, back in `Layouts.cppm`.
 - From `Layouts`: `Layouts::label`, `labelId`, `numLabels`,
   `Layouts::closure`, `Layouts::forced`, `forcedCells`, `codeName` and
   `lazyDoneName`.

@@ -12,8 +12,12 @@ Mandatory findings: F-clo-4 F-lazy-9
    constructor, as boxes do. Mandatory.
 2. **No labels or code.** Layout keeps no label table, no code names
    and no closure or forced-suspension cells. Mandatory.
-3. **The walk rule** (C7.2). `Layouts.cppm` follows a list constant's
-   spine through `getRunCells()` and `getTail()`. Mandatory.
+3. **The walk rule** (C7.2). Layout's one constant walk is
+   `FindLabels.cc`'s `noteValue`, which builds the label table (1677b8cb
+   moved it out of `Layouts.cppm`); it goes with the table (outcome 2).
+   A constant walk left in `IDR/Layout` follows a list's spine through
+   `getRunCells()` and `getTail()`, and reads a shared value once.
+   Mandatory.
 
 ## Owner / exclusive writes
 
@@ -31,7 +35,9 @@ Mandatory findings: F-clo-4 F-lazy-9
 - `review.md` R12 (the unit size).
 - `findings.md` F-clo-4 and F-lazy-9.
 - `IDR/Layout/*`, all of it, especially:
-  - `Layouts.cppm:40-100` and `:230-400`;
+  - `Layouts.cppm:40-100` and `:178-348`;
+  - `FindLabels.cc`: the constructor `Layouts::Layouts(ModuleOp)` and
+    the label walk, since 1677b8cb;
   - `PlaceClosures.cc`;
   - `Labels.cppm` and `CodeName.cppm`;
   - `CellInfo.cppm` (the info word).
@@ -73,16 +79,21 @@ Mandatory findings: F-clo-4 F-lazy-9
 - **Write the kind** into the info word per the fixed decisions.
 - **Remove every label and closure path.** Nothing lowers closures, and
   nothing reads code.
-- **Split `Layouts.cppm`.** It is at exactly 400 lines today. Split it by
-  concept as you edit (boxes, sums, constants), so that no unit passes
-  400 and `T/spec/file-size/allowed` gains no line.
-- **Walkers.** Wherever `Layouts.cppm` walks a constant's fields along a
-  list, it walks the run's cells and tail.
+- **Unit size.** `Layouts.cppm` is 348 lines since 1677b8cb moved its
+  constructor to `FindLabels.cc`. Keep every unit at 400 lines or fewer,
+  splitting by concept (boxes, sums, constants) only if an edit would
+  pass that, and `T/spec/file-size/allowed` gains no line.
+- **Walkers.** Wherever `IDR/Layout` still walks a constant's fields
+  along a list, it walks the run's cells and tail, and reads a shared
+  value once.
 
 ## Delete
 
 - `Labels.cppm`, `CodeName.cppm`, and `PlaceClosures.cc`, or its
   closure half if a memo-sum part is left.
+- `FindLabels.cc` and its line in `IDR/Layout/CMakeLists.txt`. The
+  constructor `Layouts::Layouts(ModuleOp)` keeps only
+  `module(m), target(m)`, back in `Layouts.cppm`.
 - From `Layouts`: `Layouts::label`, `labelId`, `numLabels`,
   `Layouts::closure`, `Layouts::forced`, `forcedCells`, `codeName` and
   `lazyDoneName`.
@@ -143,7 +154,8 @@ gone. Return the changed paths, the names of any accessor beyond `isMemo`,
     `make test-idr`, `make test-mlir-tools`, cmake, ninja, the Idris
     compiler, or any suite. `make check` builds the test runner, and it
     is red mid-swarm by design (C13); do not fix what it shows.
-  - You may run the one spec test your acceptance names, and only it:
+  - You may run the one spec test your acceptance names, and only it
+    (U01 also runs its own check and reproducers, C13):
     `cd tests/spec/<name> && IDRIS_MLIR_ROOT=<repository root> sh run | diff - expected`.
   - Write against the packet text.
   - Report `Verification: NotRun (swarm policy)` for what you did not
@@ -170,6 +182,10 @@ gone. Return the changed paths, the names of any accessor beyond `isMemo`,
   - What the compiler cannot compile is rejected with
     `unsupported (<rule>)`. Never miscompile silently.
   - No pass drops a quantity, erasure or linearity.
+  - There is no oracle. A test's committed expected files are its
+    specification, and the runtime's documented semantics are a
+    primitive's meaning. Never justify a meaning, a rule or a test by
+    what Idris's Chez backend or stock evaluator does.
   - Every `.cc` or `.cppm` stays at 400 lines or fewer unless
     `T/spec/file-size/allowed` already lists it; split a unit in your
     lane rather than grow it.
@@ -178,7 +194,7 @@ gone. Return the changed paths, the names of any accessor beyond `isMemo`,
   - No new dependency, and no Python.
 - **No new numbers.** Do not add a limit, budget, threshold or retry
   count. Existing ones keep their values and their comments.
-- **No tests outside U22, U23 and U01's `tests/upstream` dirs.** Your
+- **No tests outside U22, U23 and U01's `tests/upstream` dir.** Your
   lane describes the evidence its change needs in the handoff, and U22
   or U23 writes it from C12.
 - **Concurrent work.** Twenty-two other lanes and the coordinator write

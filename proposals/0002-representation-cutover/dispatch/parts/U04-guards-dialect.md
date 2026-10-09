@@ -9,12 +9,21 @@ Mandatory findings: F-guard-1 F-guard-6
 2. **The total ops.** Every op C1.1 item 3 makes total:
    - has no crash cause;
    - folds only where its guard's predicate holds;
-   - is speculatable only by C3.3's rule.
+   - if it is one of the six pure ones the hub makes `NoMemoryEffect`
+     and `ConditionallySpeculatable` (`idr.div`, `idr.mod`,
+     `idr.to_byte`, `idr.to_int`, `idr.str.index`, `idr.str.head`), is
+     speculatable only by C3.3's rule. The allocating ones
+     (`idr.str.tail`, `idr.big.div`, `idr.big.mod`,
+     `idr.big.from_double`) and the IO, buffer and array ones keep their
+     effects and declare no speculatability.
 3. **Guards built where needed.** Every C++ pass in your files that
    builds one of those ops on an unproved operand builds its guard first
    (C3.2).
-4. **The array ops' consumption.** The array ops report consumption
-   (C2.1 table).
+4. **The array ops' effects.** The array ops declare consumption by
+   the hub's `Idr_Consumes` (C2.1 table), the trait and the interface
+   only. Their own `getEffects` in `Arrays.cc` report today's effects
+   without the crash, and do not call `consumedEffects` (C2.1, review
+   R2): an IO op is impure anyway.
 5. **Constants as runs.** Folders and builders build `#idr.con` lists
    with `ConAttr::getRun`, and walkers follow the walk rule (C7.2).
 6. **Rewrites that matched a partial op** look through a `nonempty`
@@ -37,6 +46,10 @@ All six are mandatory.
 - `IDR/Ops`
 - `IDR/Dialect/Ops/Generated.cc`
 - `IDR/Canon`
+- `IDR/Dialect/Ops/Field.cc`, whose folder reads one field of a constant
+  (README S7)
+- `IDR/Dialect/Canonicalize/Con.cc` and `IDR/Dialect/Ops/Closure.cc`, whose
+  folders build a constant of their fields (README S17)
 
 **Excluded:**
 
@@ -88,15 +101,16 @@ All six are mandatory.
   No folder reads an analysis.
 - **`idr::checkSpeculatability(Operation *op, ArrayRef<unsigned> guarded)`**
   returns `Speculatable` iff each guarded operand is either:
-  - the result of a guard whose length or size operand is the length of
-    the op's own string, array or buffer: `idr.str.length` of the op's
-    string operand, or `arith.index_cast` of `memref.dim` of its array
-    or buffer operand. For `nonzero`, `nonempty`, `byte` and `finite`
-    it is that operand's own guard;
+  - the result of a guard whose length operand is the length of the
+    op's own string: `idr.str.length` of `idr.str.index`'s string
+    operand, the one speculatable total op whose guard takes a length.
+    For `nonzero`, `nonempty`, `byte` and `finite` it is that operand's
+    own guard;
   - or a constant for which `checkHolds` holds.
 
-  Otherwise `NotSpeculatable` (C3.3). Every total op's
-  `getSpeculatability` calls it, with the operand indices C3.1 guards.
+  Otherwise `NotSpeculatable` (C3.3). The `getSpeculatability` of each
+  of the six pure total ops calls it, with the operand indices C3.1
+  guards. No other total op has one.
 - **A total op's folder** computes nothing where `checkHolds` fails on
   its constant operands. That includes `foldDivision` in
   `Generated.cc`, the total `div` and `mod` folder: APInt division by
@@ -110,9 +124,8 @@ All six are mandatory.
 ## Inputs
 
 - The C1.1 items 2 and 3 ODS (guards; total ops without `Idr_MayCrash`).
-- `idr::consumedEffects` (C1.4).
-- `ConAttr::getRun`, `getRunCells`, `getTail` and `getField` (C7.2),
-  U19's.
+- `ConAttr::getRun` and `getField` (C7.2), U19's, and `getRunCells`
+  and `getTail`, the hub's (C1.1 item 6).
 
 ## Outputs
 
@@ -130,9 +143,16 @@ All six are mandatory.
 - **The total ops.**
   - Delete each `getCrashCause` of a now-total op, and its
     `Idr_MayCrashOpInterface` use.
-  - Add `getSpeculatability` calling `checkSpeculatability`.
+  - Add `getSpeculatability` calling `checkSpeculatability` to exactly
+    the six the hub makes `NoMemoryEffect` and
+    `ConditionallySpeculatable`: `DivOp` and `ModOp` (`Generated.cc` or
+    `Scalars.cc`), `ToByteOp`, `ToIntOp`, `StrIndexOp` and `StrHeadOp`.
+    The ODS declares the method on those six only, so a definition on
+    any other op does not compile.
   - Keep each op's other effects: IO and array resources, and
-    `MemAlloc` on allocating results.
+    `MemAlloc` on allocating results. The allocating total ops
+    (`StrTailOp`, `BigDivOp`, `BigModOp`, `BigFromDoubleOp`) have their
+    `MemAlloc` from ODS and need no code.
   - `ops::ioEffects(getCrashCause(), ...)` becomes `ioEffects` without
     the crash part, in `IDR/Ops/IoEffects.cppm`.
 - **`IDR/Dialect/Crashes`.** Keep the three predicates. Delete only
@@ -141,8 +161,13 @@ All six are mandatory.
   through `checkHolds`. `StringOfList.cc` and `Lists.cppm` build lists
   with `ConAttr::getRun`.
 - **`IDR/Canon`.** `Feeds.cppm`'s consumer test sees through a
-  `nonempty` guard to the `str.head` behind it. `MatchPatterns.cppm`
-  keeps calling `knownNonEmpty`.
+  `nonempty` guard to the `str.head` behind it (`Feeds.cppm:137-138`).
+  Its two rules from 1677b8cb stay (C3.4, C4.4): a force meets a
+  suspension nothing else uses (`:141-142`), which you keep to
+  `!idr.lazy` operands now that `idr.force` also takes a memo box; and a
+  box constructor is never folded with constants into static data
+  (`:149-150`).
+  `MatchPatterns.cppm` keeps calling `knownNonEmpty`.
 - **`IDR/Ops`.** `Constants.cppm`, the constant verifier that runs after
   every pass, walks a run's cells and tail, never `getFields()[s]`.
   `Untyped.cppm` rebuilds a list constant with `getRun`.
@@ -152,12 +177,19 @@ All six are mandatory.
   `ArrayGetOp`, `ArraySetOp`, the buffer and transfer ops). In your
   files, build the guard first unless the operand is proved there. List
   the rest.
-- **`Arrays.cc`.** The array ops' `getEffects` call
-  `idr::consumedEffects(*this, effects)` too.
+- **`Arrays.cc`.** The five array ops' `getEffects` report today's
+  effects without the crash, through `ioEffects` without its crash part;
+  none calls `consumedEffects` (C2.1). The hub's `Idr_ArrayOp` no longer
+  declares the crash interface, so all five lose `getCrashCause`. That
+  of `new`, `generate` and `fold` always returned nothing (C1.1 item 3),
+  so their effects do not change.
 
 ## Delete
 
-- `getCrashCause` of every op C1.1 item 3 lists.
+- `getCrashCause` of every op C1.1 item 3 lists, and of
+  `ArrayNewOp`, `ArrayGenerateOp` and `ArrayFoldOp`
+  (`Arrays.cc:54`, `:157-158`), which lost the interface with their
+  class and never had a cause.
 - The `in_bounds` property's reads in `Arrays.cc` (`getInBounds()`).
 - The crash halves of `ops::ioEffects`.
 - Any constant walk in your files that steps a list by
@@ -166,7 +198,8 @@ All six are mandatory.
 ## NOT TO DO
 
 - Do not change any crash text.
-- Do not make a total op `AlwaysSpeculatable`.
+- Do not make a total op `AlwaysSpeculatable`, and do not give an
+  allocating, IO, buffer or array total op a speculatability.
 - Do not fold a failing guard.
 - Do not fold a guard by an analysis (range, dominance): that is
   `idr-in-bounds`'s (U06).
@@ -174,6 +207,9 @@ All six are mandatory.
 - Do not add a guard kind beyond the six.
 - Do not change `idr.crash` or `idr.crash_str`: they keep their causes.
 - Do not write the lowering (U05) or the proofs (U06).
+- Do not drop `Feeds.cppm`'s force and box-constructor rules:
+  `T/idr/canon/force-of-choice` and `T/idr/canon/held-not-read` state
+  them.
 
 ## Acceptance
 
@@ -189,7 +225,12 @@ All six are mandatory.
 - **Folders.** `idr.div` of constants `7, 0` does not fold, and the
   compiler does not abort on it.
 - **Search.** `grep -rn getCrashCause foreign/idr/lib/Dialect/Ops`
-  finds only `Crash.cc` and the guards.
+  finds only `Crash.cc` (`CrashOp`'s; `crash_str`'s and the guards'
+  are defined in ODS).
+- **Arrays.** `idr.array.new`, `idr.array.generate` and
+  `idr.array.fold` report the effects they reported at the launch base,
+  and `idr.array.get` and `idr.array.set` those effects without the
+  crash.
 - **Tempting partial:** keeping `getCrashCause` on the total ops,
   returning nothing "for compatibility". Rejected: it leaves two homes
   for the precondition.
@@ -201,8 +242,9 @@ All six are mandatory.
 
 ## Escalate if
 
-- An op not in C1.1 item 3 crashes today (has `Idr_MayCrash` and is not
-  `crash` or `crash_str`). Report it.
+- An op not in C1.1 item 3 crashes today (has `Idr_MayCrash`, or a
+  crash interface whose cause is not always nothing, and is not `crash`,
+  `crash_str` or a guard). Report it.
 - A creator cannot know the cause text. Report the site.
 - A total op's length operand is not reachable as C3.3 states. Report
   the op.

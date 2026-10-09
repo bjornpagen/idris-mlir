@@ -72,11 +72,14 @@ Mandatory findings: F-clo-2 F-clo-3 F-const-2
 - **The JIT's runtime symbols.** `IDR/Eval/Jit.cppm`'s `symbols()` binds
   every runtime function that lowered pure code may call. It gains
   `idris_rt_inc` and `idris_rt_dec` (C6.1 emits them in every lowering;
-  today's table at `Jit.cppm:85-122` has neither, because JIT mode never
+  today's table at `Jit.cppm:85-130` has neither, because JIT mode never
   emitted them), `idris_rt_caf_release` (`@__idr_release_cafs` is emitted
   in every module, C5.5), `idris_rt_free_cell` (the `excl` force),
   `idris_rt_handle_is_null` and `idris_rt_handle_string`. It loses each entry that lowered code no
-  longer names: grep the lowering for each one before you remove it.
+  longer names: grep the lowering for each one before you remove it. It
+  keeps `idris_rt_array_new`, which 1677b8cb bound: a forced constant
+  suspension reaches an array allocation at compile time
+  (`T/programs/arrays/buffer-ops`).
 - **Lists.** A list reads as a run: Reify collects the cells of one
   constructor along its spine into a vector, then calls
   `ConAttr::getRun` once. A list with one cell reads as a plain
@@ -88,7 +91,8 @@ Mandatory findings: F-clo-2 F-clo-3 F-const-2
   `Passes.td` (the coordinator).
 - Memo sums and closure sums (U09), and U10's layouts, with
   `Layouts::isMemo(Type)`.
-- `ConAttr::getRun` and the C7.2 accessors (U19).
+- `ConAttr::getRun` and the C7.2 accessors (U19's, and the hub's
+  generated and inline ones, C1.1 item 6).
 - `idr::defunctionalize::defunctionalize` and its unknown keys (U09).
 
 ## Outputs
@@ -167,7 +171,8 @@ and runs, and the code table is gone. Return the changed paths,
     `make test-idr`, `make test-mlir-tools`, cmake, ninja, the Idris
     compiler, or any suite. `make check` builds the test runner, and it
     is red mid-swarm by design (C13); do not fix what it shows.
-  - You may run the one spec test your acceptance names, and only it:
+  - You may run the one spec test your acceptance names, and only it
+    (U01 also runs its own check and reproducers, C13):
     `cd tests/spec/<name> && IDRIS_MLIR_ROOT=<repository root> sh run | diff - expected`.
   - Write against the packet text.
   - Report `Verification: NotRun (swarm policy)` for what you did not
@@ -194,6 +199,10 @@ and runs, and the code table is gone. Return the changed paths,
   - What the compiler cannot compile is rejected with
     `unsupported (<rule>)`. Never miscompile silently.
   - No pass drops a quantity, erasure or linearity.
+  - There is no oracle. A test's committed expected files are its
+    specification, and the runtime's documented semantics are a
+    primitive's meaning. Never justify a meaning, a rule or a test by
+    what Idris's Chez backend or stock evaluator does.
   - Every `.cc` or `.cppm` stays at 400 lines or fewer unless
     `T/spec/file-size/allowed` already lists it; split a unit in your
     lane rather than grow it.
@@ -202,7 +211,7 @@ and runs, and the code table is gone. Return the changed paths,
   - No new dependency, and no Python.
 - **No new numbers.** Do not add a limit, budget, threshold or retry
   count. Existing ones keep their values and their comments.
-- **No tests outside U22, U23 and U01's `tests/upstream` dirs.** Your
+- **No tests outside U22, U23 and U01's `tests/upstream` dir.** Your
   lane describes the evidence its change needs in the handoff, and U22
   or U23 writes it from C12.
 - **Concurrent work.** Twenty-two other lanes and the coordinator write

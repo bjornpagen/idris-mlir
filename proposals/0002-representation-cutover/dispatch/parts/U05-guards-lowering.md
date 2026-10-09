@@ -58,7 +58,7 @@ stay byte-identical. Both outcomes are mandatory.
   | `nonempty` | byte length `== 0` (`emptyString`) |
   | `byte` | outside `0..255` (`LowerToByte`) |
   | `finite` | `notFinite` |
-  | `range` | today's buffer test (`Buffers.cppm:33`) |
+  | `range` | today's buffer test (`Buffers.cppm:32`) |
 
 - **The message.** Built by `runtime.crashIf(b, loc, condition, op.getCause())`
   at the guard's own location, which Emit and the creators set to the
@@ -107,9 +107,9 @@ stay byte-identical. Both outcomes are mandatory.
 
 ## Acceptance
 
-- `T/programs/basic/guards-messages` prints the same crash message, at
-  the same line and column, with the same exit status as at ee4ce8e for
-  each of the six cases. U23 writes it.
+- `T/programs/basic/guards-messages-*` print the same crash message, at
+  the same line and column, with the same exit status as at the launch
+  base for each of the six cases. U23 writes them.
 - `grep -n getCrashCause foreign/idr/lib/Lower` finds nothing.
 - **Tempting partial:** keeping the per-op checks and also lowering the
   guards. Rejected: that is two checks per access, and the proof that

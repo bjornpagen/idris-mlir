@@ -12,7 +12,10 @@ Mandatory findings: F-own-1 F-own-2 F-own-3 F-poison-5
      `ReferenceResource` for owned operands after `idr-rc`.
 
    `useOf`'s `isa` list is gone. `idr.con`'s own effects and
-   speculation call `consumedEffects` (C2.1). Mandatory.
+   speculation call `consumedEffects` (C2.1). No other hand-written
+   `getEffects` calls it: an op whose effects ODS declares, and the array
+   ops, get the hub's `Idr_Consumes` (the trait and the interface) and
+   nothing else (C2.1, review R2). Mandatory.
 2. **The owned stage is derived** (C2.2, O6).
    `bool ownership::inOwnedStage(ModuleOp)` replaces `idr.stage`. Views
    stay plain `T`. `idr.stage` and `IDR/Ownership/Stage.cppm` are gone.
@@ -47,8 +50,8 @@ Mandatory findings: F-own-1 F-own-2 F-own-3 F-poison-5
 
 - `INC/` (the coordinator applies C1.1 item 1, C1.4, and the removal of
   `idr.stage` from `IdrOps.td`).
-- `IDR/Dialect/Ops/Arrays.cc` (U04 adds `consumedEffects` to the array
-  ops' effects).
+- `IDR/Dialect/Ops/Arrays.cc` (U04's: the array ops keep their own
+  `getEffects`, which do not call `consumedEffects`, C2.1).
 - `IDR/Dialect/Ops/Check.cc` (U04's guards).
 - `IDR/Dialect/Ops/Lazy.cc` (U09: `ForceOp::getEffects`).
 - `IDR/Narrow/Words.cppm`, U21's, which asks `inOwnedStage` (C2.2).
@@ -116,8 +119,8 @@ Mandatory findings: F-own-1 F-own-2 F-own-3 F-poison-5
   `ConsumingOpInterface`, `Idr_Consumes` and `Idr_ConsumesOnly`.
 - The C1.4 declarations.
 - The C2.1 table.
-- `ConAttr`'s C7.2 accessors (`getRunCells`, `getTail`, `getField`),
-  U19's.
+- `ConAttr`'s C7.2 accessors: `getRunCells` and `getTail` (the hub's,
+  inline and generated, C1.1 item 6) and `getField` (U19's).
 
 ## Outputs
 
@@ -125,8 +128,8 @@ Mandatory findings: F-own-1 F-own-2 F-own-3 F-poison-5
   `idr::consumedEffects`.
 - `IDR/Dialect/Types/Counted.cc`, defining `idr::holdsReferences`.
 - `inOwnedStage`, exported from the `idr.ownership` module.
-- The `consumedEffects` calls in `Con.cc`, `Lin.cc`, `Dest.cc` and
-  `IDR/Ownership/Ops.cc`'s `getEffects`.
+- The `consumedEffects` call in `Con.cc`'s `getEffects`, the only one
+  (C2.1).
 
 ## Implement
 
@@ -160,9 +163,17 @@ Mandatory findings: F-own-1 F-own-2 F-own-3 F-poison-5
   list's spine through `getRunCells()` and `getTail()`, never
   `getFields()[s]` (C7.2).
 - **`Initialize.cc`.** Change it only if a new interface or resource
-  needs registering; ODS-declared ones do not.
-- **`Lin.cc`, `Dest.cc`, `IDR/Ownership/Ops.cc`.** Their ops' existing
-  `getEffects` call `idr::consumedEffects(*this, effects)` too.
+  needs registering; ODS-declared ones do not. `#idr.con`'s storage is
+  generated (C1.1 item 6) and complete here through `IdrAttrs.cc.inc`,
+  as every other attribute's is, so it needs nothing for it.
+- **`Lin.cc`, `Dest.cc`, `IDR/Ownership/Ops.cc`.** No effect changes.
+  The effects of `idr.lin.enter`, `idr.lin.use`, `idr.dest.write`,
+  `idr.take`, `idr.reuse` and `idr.drop` are ODS's, generated from their
+  `Res` and `Arg` declarations, and the hub gives them `Idr_Consumes`
+  only: today's ODS effects, unchanged (C2.1, review R2). No file has a
+  `getEffects` of theirs to extend, and you write none. `Ownership/Ops.cc`
+  changes for the stage (above). `Lin.cc` and `Dest.cc` stay in your
+  write set only for a repair the hub's trait may need to compile.
 - **Sentinels.** Apply C2.4 to the five sites in your files.
 
 ## Delete
@@ -185,6 +196,8 @@ Mandatory findings: F-own-1 F-own-2 F-own-3 F-poison-5
 - Do not change `Layouts::counted`.
 - Do not add a type interface for holds-references (C2.3 refutes it).
 - Do not add effects to ops outside the C2.1 table.
+- Do not call `consumedEffects` from any `getEffects` but `Con.cc`'s,
+  and do not write a `getEffects` for an op whose effects ODS declares.
 - Do not edit the array, guard or lazy ops' files.
 
 ## Acceptance
@@ -249,7 +262,8 @@ and seams.
     `make test-idr`, `make test-mlir-tools`, cmake, ninja, the Idris
     compiler, or any suite. `make check` builds the test runner, and it
     is red mid-swarm by design (C13); do not fix what it shows.
-  - You may run the one spec test your acceptance names, and only it:
+  - You may run the one spec test your acceptance names, and only it
+    (U01 also runs its own check and reproducers, C13):
     `cd tests/spec/<name> && IDRIS_MLIR_ROOT=<repository root> sh run | diff - expected`.
   - Write against the packet text.
   - Report `Verification: NotRun (swarm policy)` for what you did not
@@ -276,6 +290,10 @@ and seams.
   - What the compiler cannot compile is rejected with
     `unsupported (<rule>)`. Never miscompile silently.
   - No pass drops a quantity, erasure or linearity.
+  - There is no oracle. A test's committed expected files are its
+    specification, and the runtime's documented semantics are a
+    primitive's meaning. Never justify a meaning, a rule or a test by
+    what Idris's Chez backend or stock evaluator does.
   - Every `.cc` or `.cppm` stays at 400 lines or fewer unless
     `T/spec/file-size/allowed` already lists it; split a unit in your
     lane rather than grow it.
@@ -284,7 +302,7 @@ and seams.
   - No new dependency, and no Python.
 - **No new numbers.** Do not add a limit, budget, threshold or retry
   count. Existing ones keep their values and their comments.
-- **No tests outside U22, U23 and U01's `tests/upstream` dirs.** Your
+- **No tests outside U22, U23 and U01's `tests/upstream` dir.** Your
   lane describes the evidence its change needs in the handoff, and U22
   or U23 writes it from C12.
 - **Concurrent work.** Twenty-two other lanes and the coordinator write

@@ -16,9 +16,11 @@ Mandatory findings: F-base-1 F-base-3 F-base-4 F-base-5 F-base-6
 
    Mandatory, under O1's default.
 3. **The hooks carry generated primitives** (C8.3, review R10).
-   `Hook.IOCall` carries an `IdrPrim`, and `Hook.ArrayLoop` an
-   `IdrRegionPrim` (`Registry/Entry.idr`). `Frontend/Translate/Hooks.idr`
-   (`ioCallOf`, `arrayLoopOf`) follows. Mandatory.
+   `Hook.IOCall` carries an `IdrPrim`, `Hook.ArrayLoop` an
+   `IdrRegionPrim`, and `Hook.Builds` the `IdrPrim` of the string it
+   builds, `StrPack` or `StrConcat`, in place of a `Builder`
+   (`Registry/Entry.idr`). `Frontend/Translate/Hooks.idr` (`ioCallOf`,
+   `arrayLoopOf`, `builderOf`) follows. Mandatory.
 4. **`OSClock` and `exitWith`** (C9.1, C9.4, review R11).
    `System.Clock.OSClock` gets a `WordType` entry; the clock primitives
    are recognized by their `scheme:` spec; `System.exitWith` is
@@ -38,6 +40,10 @@ Mandatory findings: F-base-1 F-base-3 F-base-4 F-base-5 F-base-6
 - `CS/Registry.idr`
 - `CS/Frontend/Translate/Types.idr`
 - `CS/Frontend/Translate/Hooks.idr`
+- `CS/Frontend/Profile.idr`, whose reach walk and trusted-reach rules
+  meet the new hooks and rules (README S11)
+- `CS/Frontend/Translate/Instances.idr`, whose shapes decide an
+  instance of base's `clockTime` (README S15)
 
 **Excluded:**
 
@@ -81,17 +87,26 @@ Mandatory findings: F-base-1 F-base-3 F-base-4 F-base-5 F-base-6
 - **`OSClock`.** `System.Clock.OSClock` (`data OSClock : Type where
   [external]`) gets a `WordType` entry beside `AnyPtr`'s and `Ptr`'s.
   Its values are immediate (C9.4).
-- **Clocks by `scheme:` spec.** The clock primitives have only `scheme:`
-  and `RefC:` specs (`Clock.idr:119-121`), so they are recognized by the
-  `scheme:` one.
+- **Clocks by `scheme:` spec.** The clock primitives have `scheme:`,
+  `RefC:` and `javascript:` specs and no `C:` spec (base's
+  `System/Clock.idr:119-204`), so you recognize them by their `scheme:`
+  spec (C9.4).
 - **`exitWith`.** Base's `exitWith` is
   `primIO . believe_me . prim__exit . cast`, and `believe_me` is
   rejected. So `System.exitWith` is recognized by name, as `idr.io.exit`
   followed by `ub.unreachable`. This is the one wrapper recognized by
   name; `exitFailure` and `exitSuccess` reach it through base's code.
-- **The hooks.** `Hook.IOCall` carries an `IdrPrim` and
-  `Hook.ArrayLoop` an `IdrRegionPrim`, both generated (C8.2). `ioCallOf`
-  and `arrayLoopOf` return them.
+- **The hooks.** `Hook.IOCall` carries an `IdrPrim`, `Hook.ArrayLoop`
+  an `IdrRegionPrim`, `Hook.ArrayCall` (and the registry's `ArrayCall`)
+  an `IdrPrim` (`ArrayNew`, `ArrayGet`, `ArraySet`, as C8.2 generates
+  them; `ArrayOp` leaves `Types.idr`, U17), and `Hook.Builds` an `IdrPrim` (`StrPack` for
+  `fastPack`, `StrConcat` for `fastConcat`), all generated (C8.2).
+  `ioCallOf`, `arrayLoopOf` and `builderOf` return them. `Builder`
+  leaves `Types.idr` (U17): it named `str.pack` and `str.concat` a second
+  time.
+- **What left `Prim`** (C8.3). The natural entries that name
+  `NatToBig` and `NatFromBig` (`Recognized.idr:68-70`) name
+  `Op NatToBig` and `Op NatFromBig`, the generated constructors.
 - **The exclusions** are `ruledOut` entries naming each module's
   `prim__` definitions and the public functions a program calls, with
   the rule C9.5 gives. A program that reaches one gets
@@ -118,16 +133,18 @@ Mandatory findings: F-base-1 F-base-3 F-base-4 F-base-5 F-base-6
 
 - Per the fixed decisions. Group the new entries by base module, as
   `Primitives.idr` groups today's.
-- **`Entry.idr` and `Hooks.idr`.** Change `Hook.IOCall` and
-  `Hook.ArrayLoop`'s payloads and their readers in your files.
+- **`Entry.idr` and `Hooks.idr`.** Change `Hook.IOCall`,
+  `Hook.ArrayLoop`, `Hook.ArrayCall` and `Hook.Builds`' payloads (and
+  `Entry.idr`'s `ArrayCall`) and their readers in your files, and `Primitives.idr`'s `Builds Pack` and `Builds Concat`
+  entries to `Builds StrPack` and `Builds StrConcat`.
 
 ## Delete
 
 - The six `ruledOut ... RawPointer` entries listed above.
 - Each `IOCall` or `Prim` mapping that U17's `Op p` replaces. Rewrite
   it; never keep both.
-- The `IOOp` and `ArrayLoop` payloads of `Hook`, and every pattern on
-  them in `Hooks.idr`.
+- The `IOOp`, `ArrayLoop` and `Builder` payloads of `Hook`, and every
+  pattern on them in `Hooks.idr`.
 
 ## NOT TO DO
 
@@ -191,7 +208,8 @@ survivors. Return the changed paths,
     `make test-idr`, `make test-mlir-tools`, cmake, ninja, the Idris
     compiler, or any suite. `make check` builds the test runner, and it
     is red mid-swarm by design (C13); do not fix what it shows.
-  - You may run the one spec test your acceptance names, and only it:
+  - You may run the one spec test your acceptance names, and only it
+    (U01 also runs its own check and reproducers, C13):
     `cd tests/spec/<name> && IDRIS_MLIR_ROOT=<repository root> sh run | diff - expected`.
   - Write against the packet text.
   - Report `Verification: NotRun (swarm policy)` for what you did not
@@ -218,6 +236,10 @@ survivors. Return the changed paths,
   - What the compiler cannot compile is rejected with
     `unsupported (<rule>)`. Never miscompile silently.
   - No pass drops a quantity, erasure or linearity.
+  - There is no oracle. A test's committed expected files are its
+    specification, and the runtime's documented semantics are a
+    primitive's meaning. Never justify a meaning, a rule or a test by
+    what Idris's Chez backend or stock evaluator does.
   - Every `.cc` or `.cppm` stays at 400 lines or fewer unless
     `T/spec/file-size/allowed` already lists it; split a unit in your
     lane rather than grow it.
@@ -226,7 +248,7 @@ survivors. Return the changed paths,
   - No new dependency, and no Python.
 - **No new numbers.** Do not add a limit, budget, threshold or retry
   count. Existing ones keep their values and their comments.
-- **No tests outside U22, U23 and U01's `tests/upstream` dirs.** Your
+- **No tests outside U22, U23 and U01's `tests/upstream` dir.** Your
   lane describes the evidence its change needs in the handoff, and U22
   or U23 writes it from C12.
 - **Concurrent work.** Twenty-two other lanes and the coordinator write

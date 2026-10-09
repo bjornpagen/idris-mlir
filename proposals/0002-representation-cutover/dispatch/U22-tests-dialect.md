@@ -33,6 +33,10 @@ Mandatory findings: none
 
 ## Fixed decisions
 
+- **The committed files are the specification.** A test's `CHECK`
+  lines, `idr-expect` properties and `name/expected` state what it
+  checks. No test compares with Idris's Chez backend or stock evaluator
+  (AGENTS.md: there is no oracle).
 - **Each test states a property** (AGENTS.md "Tests check behaviour").
   - Use `CHECK-NOT` for what must be gone, and `CHECK` for what must
     be there. Use `idr-expect` properties where a test is about a
@@ -50,6 +54,22 @@ Mandatory findings: none
   - and the restated `in-bounds/` tests.
 - **The new ops' syntax** is C1.1's assembly formats. Where a format is
   open, write the generic op form (`"idr.check.nonzero"(%x) {cause = "..."}`).
+  In the custom form an inherent attribute (`cause`, `memo`, `labels`,
+  `by_name`) goes where the op's format binds it, never in a trailing
+  `{...}`: at the pin the generated parser rejects it there (20fcfadb).
+- **Tests the cutover keeps as they are.** `T/idr/canon/force-of-choice`
+  (new at 1677b8cb) and `T/idr/canon/held-not-read` (its `@all_constant`
+  restated there) run `canonicalize` on the symbol form, which C4.4
+  keeps. `T/idr/obs/budget` and `T/idr/obs/round-failure` (20fcfadb)
+  test `idr-simplify`'s budget on upstream's composite pass, which U01
+  does not change. An `idr.suspend` in a test of `canonicalize` or the
+  simplify loop is not the retired code-pointer suspension.
+  `T/idr/specialize/breaker-clones` and the raised-clone case of
+  `T/idr/specialize/binding-times.mlir` (`@loop$raise$1`), new at
+  ccc3e1dc, test that a clone of a loop breaker stays a breaker, which
+  the cutover keeps (C2.4, C12). `T/idr/stack/hot-loop`'s
+  `expected-stdout`, which phase 1b (08a065e4) wrote where the oracle
+  was, is its specification (C0). Leave them all.
 
 ## Inputs
 
@@ -70,9 +90,9 @@ Mandatory findings: none
   so an op inside an `scf.if` would prove nothing (C12).
 - For `ownership/owned-stage`, write a module with no `idr.stage` and
   an `!idr.own` value that is never consumed, and check with
-  `-verify-diagnostics` that the owned-stage rule rejects it. At ee4ce8e
-  it passes, since the rule runs only under the attribute. Check also
-  that `idr-rc`'s output carries no `idr.stage`.
+  `-verify-diagnostics` that the owned-stage rule rejects it. At the
+  launch base it passes, since the rule runs only under the attribute.
+  Check also that `idr-rc`'s output carries no `idr.stage`.
 - For `constants/run`, check that a list written cell by cell in text and
   the same list written as a run print the same, and that both
   round-trip through bytecode.
@@ -93,8 +113,8 @@ Mandatory findings: none
 ## Acceptance
 
 - Every C12 `idr/` row has a test.
-- At integration, each new test fails against ee4ce8e's tools, or shows
-  the old mechanism, and passes after. The coordinator runs both once.
+- At integration, each new test fails against the launch base's tools,
+  or shows the old mechanism, and passes after. The coordinator runs both once.
 - `grep -rn 'in_bounds \|idr.stage\|jit=' tests/idr` finds nothing.
 - **Tempting partial:** a test that greps for the new op's name.
   Rejected: that tests that a name exists, not the property C12 states.
@@ -134,7 +154,8 @@ and seams.
     `make test-idr`, `make test-mlir-tools`, cmake, ninja, the Idris
     compiler, or any suite. `make check` builds the test runner, and it
     is red mid-swarm by design (C13); do not fix what it shows.
-  - You may run the one spec test your acceptance names, and only it:
+  - You may run the one spec test your acceptance names, and only it
+    (U01 also runs its own check and reproducers, C13):
     `cd tests/spec/<name> && IDRIS_MLIR_ROOT=<repository root> sh run | diff - expected`.
   - Write against the packet text.
   - Report `Verification: NotRun (swarm policy)` for what you did not
@@ -161,6 +182,10 @@ and seams.
   - What the compiler cannot compile is rejected with
     `unsupported (<rule>)`. Never miscompile silently.
   - No pass drops a quantity, erasure or linearity.
+  - There is no oracle. A test's committed expected files are its
+    specification, and the runtime's documented semantics are a
+    primitive's meaning. Never justify a meaning, a rule or a test by
+    what Idris's Chez backend or stock evaluator does.
   - Every `.cc` or `.cppm` stays at 400 lines or fewer unless
     `T/spec/file-size/allowed` already lists it; split a unit in your
     lane rather than grow it.
@@ -169,7 +194,7 @@ and seams.
   - No new dependency, and no Python.
 - **No new numbers.** Do not add a limit, budget, threshold or retry
   count. Existing ones keep their values and their comments.
-- **No tests outside U22, U23 and U01's `tests/upstream` dirs.** Your
+- **No tests outside U22, U23 and U01's `tests/upstream` dir.** Your
   lane describes the evidence its change needs in the handoff, and U22
   or U23 writes it from C12.
 - **Concurrent work.** Twenty-two other lanes and the coordinator write

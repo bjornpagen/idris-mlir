@@ -15,15 +15,20 @@ Path roots, as `ownership.json` spells them:
 - `T` is `tests`.
 
 The evidence is `findings/substrate.md` (S1 to S6, §3) and
-`findings/concurrency.md` §2, read at ee4ce8e. Where this file disagrees
+`findings/concurrency.md` §2, read at ee4ce8e and rechecked at 1677b8cb
+and at ccc3e1dc, the launch base (README "Rulings at launch"). Where this file disagrees
 with them, this file is the newer decision, and README "Rulings" says why.
 
 ## C0. What does not change
 
 - **The semantics.** Every program prints, exits and crashes exactly as
   before: the same bytes, the same status, the same crash message at the
-  same location. Chez stays the oracle, and `tests/lib/chez-divergences`
-  gains no class except `gc-clock` (C9.6).
+  same location, as every fixture's committed expected files state.
+  Those files are the specification (`findings/decision-no-oracle.md`):
+  no existing `expected-stdout`, `expected-exit` or `expected-crash`
+  changes, except in a test C12 restates, and no test is compared with
+  Idris's Chez backend or stock evaluator. What C9 adds means what the
+  runtime documents (C9.2, C9.4).
 - **Quantities and erasure.** Every quantity and erasure stays in the
   types (`!idr.erased`, `!idr.lin<T>`, `!idr.q`), and the verifier keeps
   checking it after every pass.
@@ -33,7 +38,10 @@ with them, this file is the newer decision, and README "Rulings" says why.
 - **The closure symbol form inside the simplify loop.** `idr.closure`,
   `idr.suspend`, `#idr.closure`, `idr.apply` and `idr.force`, and the
   four `ForceOf*` patterns in `IDR/Dialect/Ops/Lazy.cc`, stay as they are
-  (C4.4).
+  (C4.4), except that `idr.force`'s operand may also be a memo box after
+  `idr-defunctionalize` (C1.1 item 5, C5.1). `IDR/Canon/Feeds.cppm`'s rule that a force meets a suspension
+  nothing else uses (1677b8cb) is kept, restricted to `!idr.lazy`
+  operands (C3.4).
 - **The unit size.** Every `.cc` or `.cppm` under `foreign/idr` or
   `runtime` stays at 400 lines or fewer, unless it is already listed in
   `T/spec/file-size/allowed`. A unit that grows past 400 is split in the
@@ -42,7 +50,16 @@ with them, this file is the newer decision, and README "Rulings" says why.
 ## C1. The hubs the coordinator writes
 
 The coordinator applies C1 to the hub files at dispatch, from this text.
-Lanes import the names below as if the hubs had already landed.
+Lanes import the names below as if the hubs had already landed. The one
+exception is C1.2's `idr-dead-values` lines, which go in with U01's
+held-out group at integration step 5 (C13).
+
+At the pin (llvm main 7208ba24, 20fcfadb) ODS formats are strict: a
+declarative assembly format binds every inherent attribute (or has
+`prop-dict`, which no `idr` op uses), `attr-dict` carries discardable
+attributes only, and mlir-tblgen rejects a format that leaves one out
+(`findings/llvm-trunk-mechanisms.md`, mechanism 2). Every format below
+obeys it.
 
 ### C1.1 `INC/IdrOps.td`
 
@@ -103,7 +120,8 @@ Lanes import the names below as if the hubs had already landed.
    }
    ```
 
-   The other five follow the same pattern:
+   The other five follow the same pattern, each binding `$cause` in its
+   format as `nonzero`'s does:
 
    | Op | Operands | Result | Holds when |
    |---|---|---|---|
@@ -117,7 +135,23 @@ Lanes import the names below as if the hubs had already landed.
    except `finite` and `nonempty`. Its result's range is the operand's
    range clamped by the condition.
 
-3. **The total ops.** `Idr_MayCrash` is removed from these ops:
+   `nonzero` and `nonempty` also have `Idr_Consumes<"0">` (C2.1). The
+   trait behind it offers a `getEffects` (C1.4), as `Idr_MayCrash`'s
+   does, and two bases' `getEffects` are ambiguous. So `Idr_CheckOp`'s
+   `extraClassDeclaration` names the one a guard has, its crash's:
+
+   ```tablegen
+   let extraClassDeclaration = [{
+     using ::idr::MayCrash<false>::Impl<ConcreteOpType>::getEffects;
+   }];
+   ```
+
+   It is on all six, and changes nothing for the four that do not
+   consume. A guard's effects are its crash's alone, as C2.1's row says.
+
+3. **The total ops.** `Idr_MayCrash` is removed from these ops (from
+   the IO, buffer and array classes, the crash interface they declared,
+   `DeclareOpInterfaceMethods<Idr_MayCrashOpInterface>`):
 
    - `Idr_DivisionOp` (`idr.div`, `idr.mod`);
    - `Idr_ToByteOp`, `Idr_ToIntOp`;
@@ -131,12 +165,30 @@ Lanes import the names below as if the hubs had already landed.
 
    Each one's other effects stay as they are:
 
-   - an allocating total op keeps `MemAlloc` on its result, as
-     `Idr_MayCrash<1>` gave it;
-   - a pure one becomes `NoMemoryEffect` with
-     `DeclareOpInterfaceMethods<ConditionallySpeculatable>`; its
-     speculatability is C3.3's rule;
-   - an IO, array or buffer op keeps its IO and array effects.
+   - **Pure:** `idr.div`, `idr.mod`, `idr.to_byte`, `idr.to_int`,
+     `idr.str.index` and `idr.str.head` become `NoMemoryEffect` with
+     `DeclareOpInterfaceMethods<ConditionallySpeculatable>`. Their
+     speculatability is C3.3's rule. These six are the only total ops
+     with a `getSpeculatability`.
+   - **Allocating:** `idr.str.tail`, `idr.big.div`, `idr.big.mod` and
+     `idr.big.from_double` keep `MemAlloc` on their result, as
+     `Idr_MayCrash<1>` gave it. They declare no speculatability: an op
+     that allocates was never speculatable, and is not now.
+   - **IO, buffer and array:** `idr.io.write_bytes`, `idr.io.read_bytes`,
+     the five `buffer_*` ops, `idr.array.get` and `idr.array.set` keep
+     their IO and array effects, reported by their own `getEffects`
+     without the crash. They declare no speculatability.
+
+   The array ops' crash interface was declared on their class,
+   `Idr_ArrayOp`, so `idr.array.new`, `idr.array.generate` and
+   `idr.array.fold` lose it with `get` and `set`. That changes nothing.
+   At the launch base none of the three had `Idr_MayCrash` or a crash
+   cause: each `getCrashCause` returned nothing (`IDR/Dialect/Ops/Arrays.cc:54`,
+   `:157-158`, at ccc3e1dc), since a negative size is an empty array,
+   clamped where the array is made; the lowering checks an index only for
+   `get` and `set` (`IDR/Lower/Arrays.cppm:155`); and the interface's one
+   generic reader (`IDR/Facts/Infer.cppm:51`) asks for the cause, which
+   was always absent.
 
    `UnitProp:$in_bounds` goes from `idr.array.get` and `idr.array.set`,
    with its `in_bounds` assembly keyword. `Idr_CrashOp` and
@@ -168,37 +220,83 @@ Lanes import the names below as if the hubs had already landed.
    lambda's block takes the parameters of its `!idr.fn` type. The
    delay's block takes none. Each region ends in `idr.yield` of the
    result. `Idr_YieldOp`'s `ParentOneOf` gains `"LambdaOp"` and
-   `"DelayOp"`.
+   `"DelayOp"`, and its `RegionBranchTerminatorOpInterface` methods
+   declare `getSuccessorRegions` beside `getMutableSuccessorOperands`, so
+   that a yield in a lambda or a delay does not ask its parent as a
+   region branch (C4.3):
+
+   ```tablegen
+   DeclareOpInterfaceMethods<RegionBranchTerminatorOpInterface,
+       ["getMutableSuccessorOperands", "getSuccessorRegions"]>
+   ```
 
 5. **Memo sums** (C5):
 
-   - `Idr_DataOp` gains `UnitAttr:$memo`, printed `memo` after
-     `closures`.
-   - It also gains `OptionalAttr<FlatSymbolRefArrayAttr>:$labels`. On a
-     memo sum it lists the label functions, so that every
+   - `Idr_DataOp` gains `UnitAttr:$memo` and
+     `OptionalAttr<FlatSymbolRefArrayAttr>:$labels`, and its format binds
+     both after `closures` (strict formats, C1):
+
+     ```tablegen
+     let assemblyFormat = [{
+       $sym_name (`box` $box^)? (`closures` $closures^)? (`memo` $memo^)?
+       (`labels` $labels^)? attr-dict-with-keyword $body
+     }];
+     ```
+
+   - On a memo sum `labels` lists the label functions, so that every
      interprocedural analysis between `idr-defunctionalize` and
      `idr-lower` sees each one as address-taken and keeps its body live.
      The attribute is on the module-level `idr.data`, whose attributes'
      symbol references resolve in the module. A reference inside the
      constructor would resolve in the data op's own table (review R12).
-   - `Idr_CtorOp` gains `UnitAttr:$by_name`.
+   - `Idr_CtorOp` gains `UnitAttr:$by_name`, bound after the field types:
+
+     ```tablegen
+     let assemblyFormat = [{
+       $sym_name custom<FieldTypes>($field_types) (`by_name` $by_name^)? attr-dict
+     }];
+     ```
+
+   - `idr.data` and `idr.ctor` are `Idr_PublicSymbol` (20fcfadb): a memo
+     sum is public, as every declaration is, and no pass sets its
+     visibility (a request to hide one is a fatal internal error).
    - `Idr_ForceOp`'s operand becomes
      `AnyTypeOf<[Idr_LazyValue, Idr_BoxValue]>:$suspension`. It gets no
      consumption trait (C2.1), and keeps its own `getEffects`.
 
-6. **Flat constants** (C7). `Idr_ConAttr` gets custom storage; its
-   parameters are:
+6. **Flat constants** (C7). ODS generates `Idr_ConAttr`'s storage, as
+   it does every other attribute's, from these parameters (C7.1):
 
-   ```
-   (ins "::mlir::SymbolRefAttr":$ctor, "::mlir::ArrayAttr":$stored,
-        "::mlir::Attribute":$tail, "unsigned":$spine)
+   ```tablegen
+   (ins "::mlir::SymbolRefAttr":$ctor, ArrayRefParameter<"::mlir::ArrayAttr">:$cells,
+        OptionalParameter<"::mlir::Attribute">:$tail, "unsigned":$spine)
    ```
 
-   It also gets `hasCustomAssemblyFormat = 1`, `genVerifyDecl = 1`,
-   `skipDefaultBuilders = 1`, and the builders and accessors of C7.2.
-   ODS does not generate `getFields()`, `getTail()` or `getSpine()`;
-   C7.2 declares them. The existing builder, `get(ctor, fields)`, keeps
-   its signature.
+   `Idr_Attr` appends the self type, `AttributeSelfTypeParameter<"">:$type`,
+   which is `NoneType` as for every `idr` constant. The storage is
+   complete in `IDR/Dialect/Dialect/Initialize.cc`, which includes
+   `IdrAttrs.cc.inc` and registers the attributes, so nothing is written
+   by hand for it, and `Idr.h` declares no storage. The attribute keeps
+   `hasCustomAssemblyFormat = 1`, `genVerifyDecl = 1` and
+   `skipDefaultBuilders = 1`, and gets C7.2's builders and accessors:
+
+   - ODS generates `getCtor()`, `getCells()`, `getTail()`, `getSpine()`
+     and `getType()`, and the storage, whose key gives the generated
+     `walkImmediateSubElements` and `replaceImmediateSubElements` over
+     the parameters (MLIR's defaults for an ODS storage, C7.2);
+   - `get(ctx, ctor, fields)` is the one `AttrBuilder`, declared without
+     a body, and keeps its signature. ODS declares its `getChecked` twin
+     beside it (`genVerifyDecl`);
+   - `getRun`, `getField` and `getFields` are declared in
+     `extraClassDeclaration` (ODS names every `AttrBuilder` `get`);
+   - `isRun()`, `getRunLength()` and `getRunCells()` are defined there,
+     inline, over the generated accessors: `getRunCells()` is a thin
+     alias of `getCells()` for a run, and empty for a plain con.
+
+   U19 defines the rest in `IDR/Dialect/Attrs/ConAttr.cc`: `get`,
+   `getChecked`, `getRun`, `getField`, `getFields`, `parse`, `print` and
+   `verify`. The two builders reach the storage through `Base::get` on
+   canonical parameters.
 
 7. **Primitives** (C8). A marker trait is added:
 
@@ -208,7 +306,9 @@ Lanes import the names below as if the hubs had already landed.
    def Idr_Primitive : NativeOpTrait<"Primitive"> { let cppNamespace = "::idr"; }
    ```
 
-   It goes on exactly the ops C8.1 lists.
+   It goes on exactly the ops C8.1 lists. Its C++ trait,
+   `idr::Primitive`, is a marker with no member, declared in `Idr.h`
+   beside `idr::PerformsIO` (C1.4).
 
 8. **Base's surface** (C9). A new file, `INC/IdrPlatformOps.td`, holds
    the ops of C9.2 and C9.3, and `IdrOps.td` includes it at the end. Each
@@ -220,7 +320,11 @@ Lanes import the names below as if the hubs had already landed.
 ### C1.2 `INC/Passes.td`
 
 - `IdrLower` loses its `jit` option.
-- `IdrDeadValues` is removed (C11.2).
+- `IdrDeadValues` is removed, and `IdrSimplify`'s description names
+  `remove-dead-values` where it names `idr-dead-values` (C11.2). These
+  lines go in with U01's held-out group at integration step 5, not at
+  dispatch: `IDR/Simplify/DeadValues/Pass.cc` defines the pass until then
+  (C13). If U01's fix is ours (C11.2), they go in at step 3.
 - New passes:
 
   | Pass | Def | Anchor | Options | Summary |
@@ -321,10 +425,21 @@ bool holdsReferences(mlir::Type type, mlir::SymbolTableCollection &symbols,
 
 // Whether `data` is a memo sum (C5.1). U09, IDR/Dialect/Ops/Data.cc.
 bool isMemo(DataOp data);
+
+// The trait behind Idr_Primitive (C1.1 item 7): a marker with no member,
+// which idris-mlir-tblgen reads from the records, written as PerformsIO is.
+template <typename ConcreteType>
+class Primitive : public mlir::OpTrait::TraitBase<ConcreteType, Primitive> {
+private:
+  Primitive() = default;
+  friend ConcreteType;
+  template <typename, template <typename> class...> friend class mlir::Op;
+};
 ```
 
 `ConsumesOperands` names `consumedEffects` before its declaration. The
-coordinator orders the declarations so that it compiles.
+coordinator orders the declarations so that it compiles. `Idr.h` declares
+no storage class: `#idr.con`'s is generated (C1.1 item 6).
 
 ### C1.5 `RT/idris_rt.h`
 
@@ -384,7 +499,12 @@ coordinator orders the declarations so that it compiles.
 - There is one declaration per op of C9.2 and C9.3. The name is
   `idris_rt_<mnemonic with dots as underscores>`, and the parameters and
   result are the op's operands and results without the world.
-  `!idr.str` is `idris_rt_str *` and `i64` is `int64_t`.
+  `!idr.str` is `const idris_rt_str *`, as for the header's existing
+  string functions (`idris_rt_io_put_str`, `idris_rt_io_get_line`): a
+  string operand is borrowed, and a string result is new. `i64` is
+  `int64_t`, and an op whose only result is the world returns `void`.
+  `idris_rt_io_exit` is `IDRIS_RT_NORETURN`, as `idris_rt_crash` is.
+  U16 defines each function to its declaration as the header gives it.
 
 ### C1.6 `CS/Rule.idr`
 
@@ -419,15 +539,43 @@ Four rules are added to `Rule`, `Show Rule` and `allRules`:
   - `mlir::SideEffects::EffectInstance`;
   - `mlir::OpTrait::TraitBase`.
 
+  Already exported, and the one to call for an internal error:
+  `llvm::reportFatalInternalError` (20fcfadb). `report_fatal_error` is
+  not exported.
+
 ### C1.8 Generated and pinned files
 
 - `CS/Dialect/Idr.idr` is regenerated by `tools/dialects.sh generate`
   after `IdrOps.td` and `idris-mlir-tblgen` change.
 - `PINS.md` changes:
-  - the two clang entries retire;
+  - `clang-module-predeclared-new` already retired with the pin
+    (20fcfadb); `clang-module-layout-forward-declaration`, the one clang
+    entry left, stays as it is (C11.1);
   - `mlir-recursion` and `bytecode-deferred-quadratic` lose their list
     cases;
-  - `remove-dead-values-unreachable` names its new fixpoint hunk.
+  - U01's bug gets an entry of its own, in U01's text: no site in our
+    code, the workaround
+    `upstream/16-remove-dead-values-unchanged-call/llvm.patch`, retired
+    when the pin has the fix;
+  - `remove-dead-values-unreachable` loses its `idr-dead-values` site
+    and the retire clause about it, and `simplify-structural-fixpoint`
+    names the new patch where it names `idr-dead-values`.
+
+  If U01's fix is ours (C11.2), there is no new entry, and the two
+  entries say that the round runs `remove-dead-values` itself.
+- `upstream/06-remove-dead-values-unreachable/README.md` (the last
+  paragraph of its `## Patch`) and
+  `upstream/02-composite-fixed-point-sccp/README.md` (its
+  `## Our workaround`) stop naming `idr-dead-values`, in U01's sentences. Both
+  are pending LLVM submissions that another agent sends. The coordinator
+  applies the sentences at integration, changes nothing else there, and
+  tells the owner, together with the new `upstream/16-…` for
+  `upstream/README.md`'s status table, which that agent keeps.
+- U01's group, its `PINS.md` text, C1.2's `idr-dead-values` lines and
+  the sentences of 02's and 06's READMEs go in one commit: AGENTS.md
+  puts a patch's directory, its check, its `PINS.md` entry and the
+  deletion of the workaround it replaces in the same change (README,
+  Commit policy).
 - `T/spec/file-size/allowed` follows the split units.
 
 ## C2. Ownership is declared where ops are defined (U03)
@@ -459,11 +607,25 @@ it, an op whose only effect is consumption is no longer dead to
 | `idr.lin.enter`, `idr.lin.use` | `0` | `Idr_Consumes<"0">` | today's ODS effects, unchanged |
 | `idr.dest.write` | the value's group | `Idr_Consumes<...>` | today's ODS effects, unchanged |
 | `idr.take`, `idr.reuse`, `idr.drop` | every group | `Idr_Consumes<...>` | today's ODS effects, unchanged |
-| `idr.array.new` (fill), `idr.array.set` (value), `idr.array.generate` (fill), `idr.array.fold` (init) | that group | `Idr_Consumes<...>` | today's, unchanged |
+| `idr.array.new` (fill), `idr.array.set` (value), `idr.array.generate` (fill), `idr.array.fold` (init) | that group | `Idr_Consumes<...>` | their own `getEffects` in `IDR/Dialect/Ops/Arrays.cc` (U04): today's, `set`'s without its crash (C1.1 item 3) |
 | `idr.check.nonzero`, `idr.check.nonempty` | `0` | `Idr_Consumes<"0">` | the guard's crash effect. The guard takes the operand's reference, and its result holds it (review R5). `SameOperandsAndResultType` makes the result's type the operand's, so `idr-rc` grades the result exactly as it graded the operand (U03). |
 
 The coordinator fills in the exact group index of each `...` when it
 applies the table to `IdrOps.td`.
+
+Only two kinds of row report the `Free`: `Idr_ConsumesOnly`'s, through
+the trait, and `idr.con`'s, through `Con.cc`. Every other `Idr_Consumes`
+row gets the trait and the interface and nothing else: its op already
+reports effects, so it is impure anyway and no pass drops it as dead
+(review R2). No `getEffects` but `Con.cc`'s calls `consumedEffects`:
+
+- the effects of `idr.lin.enter`, `idr.lin.use`, `idr.dest.write`,
+  `idr.take`, `idr.reuse` and `idr.drop` are ODS's, generated from their
+  `Res<..., [MemAlloc<...>]>` and `Arg<..., [MemWrite]>` declarations.
+  `IDR/Dialect/Ops/Lin.cc`, `Dest.cc` and `IDR/Ownership/Ops.cc` have
+  no `getEffects` to extend;
+- the array ops' `getEffects` stay their own, in `Arrays.cc`;
+- `idr.apply`'s effects stay unknown.
 
 **`idr.force` is not in the table.** Whether a force takes its cell over
 is placement, as for a match's scrutinee (which `idr-rc` turns into an
@@ -542,8 +704,16 @@ A `ub.poison` that is a value of the program is left alone. That covers:
 - the operand the `remove-dead-values-unreachable` patch passes;
 - a poison an upstream pass made.
 
-Each lane applies this rule to the sites in its own files. The sites at
-ee4ce8e:
+An IR operand a terminator needs where control never arrives (a yield
+after a crash that does not return) is a value of the program too: the
+op requires one, and no C++ tests it. A "placeholder" above is C++'s,
+a value standing for "not computed yet".
+
+Each lane applies this rule to the sites in its own files. A row counts
+the sites to examine under it, not sentinels to delete: a site that
+reads or builds the program's poison stays, with a comment where the
+reason is not plain (README S5). The sites at ee4ce8e, the same at
+1677b8cb and at ccc3e1dc:
 
 | File | Sites | Lane |
 |---|---|---|
@@ -572,6 +742,13 @@ ee4ce8e:
 | `IDR/Defunctionalize/Sums.cppm` | 1 | U09 |
 | `IDR/Defunctionalize/Converter.cppm` | 1 | U09 |
 
+The sentinel in `IDR/Specialize/ShapeOf.cppm` goes without changing what
+Specialize decides: U21 keeps `CloneTable::settleBreaker` and the
+binding-time join for raised clones (ccc3e1dc: a clone of a loop breaker
+is a breaker, so `idr-simplify` ends), which
+`T/idr/specialize/breaker-clones` and `T/programs/eval/latent-loop`,
+`latent-loop-delay` and `latent-loop-accumulator` pin.
+
 ## C3. A partial op is a guard and a total op (U04, U05, U06, U17)
 
 ### C3.1 Which guard each partial op takes
@@ -593,7 +770,13 @@ ee4ce8e:
 A total op has no `getCrashCause`. The runtime functions they call keep
 assuming their preconditions, as they do today
 (`IDR/Lower/RuntimeCalls.cppm`: "checked before the call, whose runtime
-function assumes it does not").
+function assumes it does not"). The one exception at the launch base is
+`idris_rt_buffer_at` (`RT/Io/Buffer.cppm`), which tests the byte range
+itself for `buffer_copy`, `buffer_set_string`, `buffer_get_string`,
+`read_bytes` and `write_bytes`. It computes only the address after the
+cutover: `check.range` is the one test (U16). A guard crashes at its
+own location, so a range crash now ends `at <file>:<line>:<column>`
+after the unchanged cause, as every other guard's does (U05).
 
 ### C3.2 Who builds guards
 
@@ -609,14 +792,21 @@ function assumes it does not").
 
 ### C3.3 Speculation
 
-A total op is speculatable only while each operand it guards is one of:
+The rule is for the six pure total ops of C1.1 item 3: `idr.div`,
+`idr.mod`, `idr.to_byte`, `idr.to_int`, `idr.str.index` and
+`idr.str.head`, the only ones that declare `ConditionallySpeculatable`.
+The allocating, IO, buffer and array total ops declare no
+speculatability, so they are never speculatable, as they were not
+before.
 
-- the result of a guard whose length or size operand is the length of
-  the op's own string, array or buffer (review R6). That length is
-  `idr.str.length` of the op's string operand, or the
-  `arith.index_cast` of `memref.dim` of its array or buffer operand. For
-  `nonzero`, `nonempty`, `byte` and `finite`, which take no length, it
-  is the guard of that operand;
+One of the six is speculatable only while each operand it guards is one
+of:
+
+- the result of a guard whose length operand is the length of the op's
+  own string (review R6): for `idr.str.index`, the one whose guard takes
+  a length, that length is `idr.str.length` of the op's string operand.
+  For `nonzero`, `nonempty`, `byte` and `finite`, which take no length,
+  it is the guard of that operand;
 - a constant for which the guard's condition holds.
 
 Otherwise it is `NotSpeculatable`. So when a guard is removed because a
@@ -625,7 +815,7 @@ guard is present, the data dependence keeps the op below it.
 
 The rule is written once, in `IDR/Dialect/Ops/Check.cc`, as
 `idr::checkSpeculatability(Operation *, ArrayRef<unsigned> guardedOperands)`,
-and every total op's `getSpeculatability` calls it (U04).
+and the `getSpeculatability` of each of the six calls it (U04).
 
 ### C3.4 Folding
 
@@ -653,8 +843,16 @@ folders now, not crash causes.
 `nonempty` guard:
 
 - the `HeadOfCons` and `HeadOfShow*` patterns of
-  `IDR/Dialect/Canonicalize.td` (the coordinator's);
-- `IDR/Canon/Feeds.cppm`'s consumer test (U04).
+  `IDR/Dialect/Canonicalize.td`, with their `HeadOfChecked*` twins
+  registered in `IDR/Dialect/Canonicalize/Strings.cc` (both the
+  coordinator's, README S7);
+- `IDR/Canon/Feeds.cppm`'s consumer test (U04): its string-builder case
+  (`Feeds.cppm:137-138`) sees the guard and the `str.head` behind it.
+  The two rules 1677b8cb added stay. A force meets a suspension nothing
+  else uses (`:141-142`; the symbol form, C4.4), kept to `!idr.lazy`
+  operands now that `idr.force` also takes a memo box (C1.1 item 5),
+  whose force reads its cell and meets nothing. A box constructor is
+  never folded with constants into static data (`:149-150`).
 
 **One predicate per kind for constants.** It is
 `idr::checkHolds(CheckKind, ArrayRef<Attribute>)` in `Check.cc`. The
@@ -678,8 +876,15 @@ It also erases any guard that:
 - `IntegerRangeAnalysis` proves at its point.
 
 `idr-expect`'s `in-bounds=@f` property becomes "no `idr.check.in_bounds`
-is left in `@f`" (`IDR/Expect/InBounds.cppm`). There is a new property,
-`no-guards=@f`: no `idr.check.*` op is left in `@f`.
+is left in `@f`, and `@f` has an array access (`idr.array.get` or
+`idr.array.set`)" (`IDR/Expect/InBounds.cppm`): the second half is
+today's, and keeps a test from passing because its access was
+simplified away. There is a new property, `no-guards=@f`: no
+`idr.check.*` op is left in `@f`.
+
+The `ub.poison` reads of C2.4's `IDR/InBounds` rows
+(`Returned.cppm`, `Components.cppm`, `Lengths.cppm`) read the program's
+poison (a value no run reads, which constrains nothing), so they stay.
 
 ### C3.6 Lowering (U05)
 
@@ -786,12 +991,41 @@ each op (U08, `IDR/Dialect/Ops/Regions.cc`) checks:
 - for `idr.delay`, no value of world type is used from above, as
   `SuspendOp::verify` checks for captures today.
 
+**The yield that ends a lambda or a delay.** `idr.yield` is a
+`RegionBranchTerminatorOpInterface` for its other parents, a match and
+an array loop, which are region branches. A lambda and a delay are not:
+the body runs when the closure is applied or the suspension forced, not
+when the op runs. The interface's default `getSuccessorRegions` casts
+the yield's parent to `RegionBranchOpInterface`, which would fail for
+them. Decided: the yield declares `getSuccessorRegions` (C1.1 item 4),
+and U08 defines it in `IDR/Dialect/Ops/Regions.cc`:
+
+- when the parent is an `idr.lambda` or an `idr.delay`, it gives no
+  successor;
+- otherwise it gives what the parent's `getSuccessorRegions` gives for
+  the yield, as the default did.
+
+The region ops' verifiers and `idr-isolate` read the body's terminator
+directly, as an `idr.yield` or a `ub.unreachable`. They never ask a
+lambda or a delay, or its yield, as a region branch.
+`YieldOp::getMutableSuccessorOperands` stays in `Arrays.cc` (U04),
+unchanged: with no successor, nothing asks it for a lambda's or a
+delay's yield.
+
 ### C4.4 What phase 1 does not do
 
 The simplify loop still sees the symbol form, so these stay:
 
 - `ForceOfOneUse`, `ForceOfOneConstant`, `ForceInOneCase` and
   `ForceAtCapture`;
+- `IDR/Canon/Feeds.cppm`'s rule that a force meets a suspension nothing
+  else uses, built by `idr.suspend` or a `#idr.closure` constant, as an
+  apply meets a closure (1677b8cb), kept to `!idr.lazy` operands (C3.4).
+  An `if` passes its branches as
+  suspensions, and with the force moved into the match each region
+  calls its branch (`T/idr/canon/force-of-choice`,
+  `T/programs/eval/lazy-branch-loop`). `idr-isolate` runs first, so a
+  delay is an `idr.suspend` when `canonicalize` meets it;
 - closure specialization for captured constants. Isolation already
   clones constants into the body, so most of its cases are gone before
   it runs.
@@ -816,8 +1050,9 @@ there is one per constructor field:
 - read by `idr.array.get`'s result and `idr.array.fold`'s element block
   argument.
 
-**The memo sum.** Each lazy key with a known, non-empty label set
-becomes one:
+**The memo sum.** Each lazy key with a known label set becomes one. An
+empty set, a key the analysis never reaches, becomes a memo sum with no
+label, only `@running` and `@forced`, so that no `!idr.lazy` is left:
 
 ```mlir
 idr.data @lazy$<n> box memo labels [@<label fn>, ...] {
@@ -853,14 +1088,18 @@ function reaches, through direct calls after conversion, an op with
 `Idr_PerformsIO` other than an array or buffer op. That is an
 observable effect: output, input, a file, a clock. `trace`'s forged
 world reaches `put_str`, so it is `by_name`. `Linear.Array`, `runST`
-and `strerror` forge worlds but reach only array and buffer ops, or
-none, so they keep their memo.
+and `strerror` forge worlds but reach only array and buffer ops,
+`idr.world.new` (forging a world is no effect) or `idr.io.strerror`
+(which reads the runtime's text of an errno and nothing else), so they
+keep their memo.
 
 Two more rules go with it:
 
-- **A label that a static constant names is never `by_name`.** Chez
-  memoizes a top-level `Delay` (`schDef` gives `(define n (delay …))`),
-  and a static thunk is our nearest equivalent.
+- **A label that a static constant names is never `by_name`** (O3). A
+  top-level constant names one value of the program, evaluated once, as
+  Idris defines a top-level definition. A `trace` in it observes that one
+  evaluation, so its cell memoizes: written once, by its first force, and
+  read by every later force (C5.5).
 - **`ForceOp::getEffects` reports `MemWrite` on `Idr_IOResource`** when
   its operand's sum has a `by_name` constructor, so a force that may run
   output stays in order with output.
@@ -908,7 +1147,8 @@ attribute is set. `DataOp`'s verifier checks:
 - **Deleted from Layout:**
   - `Layouts::closure(label)`;
   - `Layouts::forced(id)` and the `forcedCells` map;
-  - the label table and `numLabels`;
+  - the label table and `numLabels`, with `IDR/Layout/FindLabels.cc`,
+    the walk that builds it (1677b8cb moved it out of `Layouts.cppm`);
   - `codeName` and `lazyDoneName`;
   - every closure-only path of `PlaceClosures.cc`.
 
@@ -968,6 +1208,14 @@ last use, and `excl` when `ExclusiveAnalysis` proves it, as it does for
 `idr.take`. Otherwise the operand is a view. `idr.force` is not in the
 C2.1 table: `consumes` is false for it, and this rule is the one place
 that makes it an owned use.
+
+**Static memo cells are never `excl`.** The force trusts its grade, as
+`LowerTake` does, and the one-shot protocol frees the cell and moves
+the value out. A memo-sum constant is static data written by its first
+force, never an atom: `IDR/Ownership/ReachesOnlyAtoms.cppm`'s
+`onlyAtoms` counts a field-free box constructor as an atom only when
+its declaration is not a memo sum, so a dup of a capture-free static
+memo cell is a view, never `excl` (U03).
 
 ### C5.5 Static thunks (U12, `IDR/Lower/StaticData.cppm`)
 
@@ -1086,7 +1334,14 @@ The pass runs after `idr-lower` on the program pipeline only. It moves
 
 - **Crashes.** `idris_rt_crash` checks whether the process is an
   evaluation child; `rt::alloc::arenaActive` says so. If it is, it does
-  what `idris_rt_eval_crash` does.
+  what `idris_rt_eval_crash` does. `idris_rt_crash` and
+  `idris_rt_main_return` are defined in `RT/Io/Ending.cppm`, which is
+  U16's, so U16 writes both changes there: `idris_rt_crash` calls
+  `idris_rt_eval_crash(msg, len)` first when `rt::alloc::arenaActive`
+  (`rt.io` cannot import `rt.eval`, which imports it, so the call goes
+  through the C entry), and `idris_rt_main_return` no longer declares or
+  calls `idris_rt_release_persistent`, which U15 deleted with the kept
+  list. `idris_rt_crash_str` is unchanged.
 - **Arguments.** `idris_rt_start` stores `argc` and `argv` where
   `rt.start` exports them, as `rt::start::argumentCount()` and
   `rt::start::argument(int64_t)`. They are read by U16's
@@ -1102,14 +1357,20 @@ A `#idr.con` is stored in one of two ways:
 - **run:** `n >= 2` cells of one constructor `C`, linked through one
   field index `s` (the spine), ending in a tail.
 
-The run form stores the constructor, the `n` cells' non-spine fields
-(one `ArrayAttr` per cell), the tail and `s`.
+ODS generates the storage (C1.1 item 6), and both forms store the same
+parameters: the constructor, the cells (one `ArrayAttr` each), the tail
+and the spine.
+
+- **Plain:** one cell, holding all the fields; a null tail; spine 0.
+- **Run:** the `n` cells, each holding its fields without the spine
+  field; the tail; `s`.
 
 **The canonical form** (review R3). One value has exactly one attribute,
 so equality and uniquing still mean value equality:
 
-1. A run has at least two cells. Every cell has the constructor `C` and
-   the spine `s`.
+1. A run has at least two cells, and a tail. Every cell has the
+   constructor `C` and the spine `s`. A plain con has one cell, no tail
+   and spine 0, so that the storage of one plain value is one storage.
 2. `ConAttr::get(ctor, fields)` builds a run exactly when one field `i`
    is a `#idr.con` of `ctor`, and that field is either:
    - a run with spine `i`, which this cell is prepended to; or
@@ -1126,29 +1387,51 @@ so equality and uniquing still mean value equality:
    - a tail that is a plain con of `ctor` with no same-constructor field
      becomes the last cell.
 4. The default ODS builder is skipped (`skipDefaultBuilders = 1`), and
-   the verifier rejects a non-canonical run.
+   the verifier rejects a non-canonical run, and a plain con with a
+   spine other than 0 or more than one cell.
 
 ### C7.2 The API (U19, `IDR/Dialect/Attrs/ConAttr.cc`)
 
 ```cpp
+// U19 defines these, in ConAttr.cc.
 static ConAttr get(MLIRContext *, SymbolRefAttr ctor, ArrayAttr fields);  // canonicalizes, as above
 static ConAttr getRun(MLIRContext *, SymbolRefAttr ctor, unsigned spine,
                       ArrayRef<ArrayAttr> cells, Attribute tail);         // O(n)
-SymbolRefAttr getCtor() const;
-bool isRun() const;
-unsigned getRunLength() const;        // 1 for a plain con
-ArrayRef<ArrayAttr> getRunCells() const;  // a run's cells' non-spine fields; empty for a plain con
-Attribute getTail() const;            // a run's tail; null for a plain con
-unsigned getSpine() const;            // a run's spine index
 Attribute getField(unsigned i) const; // O(1) for i != spine; the run from the second cell for i == spine
 ArrayAttr getFields() const;          // correct for both forms; O(n) on a run, which builds its suffix
+
+// ODS generates these, from the parameters.
+SymbolRefAttr getCtor() const;
+ArrayRef<ArrayAttr> getCells() const; // a plain con's one cell, or a run's cells
+Attribute getTail() const;            // a run's tail; null for a plain con
+unsigned getSpine() const;            // a run's spine index; 0 for a plain con
+
+// The hub defines these inline, over the generated ones.
+bool isRun() const;                       // the tail is not null
+unsigned getRunLength() const;            // getCells().size(): 1 for a plain con
+ArrayRef<ArrayAttr> getRunCells() const;  // a run's cells' non-spine fields; empty for a plain con
 ```
+
+`getRunCells()` is a thin alias of the generated `getCells()`, not the
+generated accessor itself: it keeps its meaning, empty for a plain con,
+whose one cell is its fields. Both builders reach the storage through
+`Base::get(ctx, ctor, cells, tail, spine, NoneType::get(ctx))` on
+canonical parameters. `getChecked`, which ODS declares beside `get`
+(`genVerifyDecl`), is `get` with the verifier's diagnostics.
 
 **The walk rule.** A walker that follows a list's spine walks
 `getRunCells()` and then `getTail()` in a loop. It never steps by
 `getFields()[s]`, which costs O(n) per step on a run: about 5·10^9
 pointers for the 10^5-element test. Reading one field of the head uses
 `getField(i)`.
+
+A walker that recurses into a constant's fields also reads a shared
+sub-attribute once. A constant is a graph, not a tree:
+`T/programs/eval/shared-result` computes one of 41 nodes with 2^41
+paths, and a walk per path never ends. So 1677b8cb gave
+`functionClosure` and Layout's label walk a set of the (attribute, type)
+pairs they have read. A walker adapted to runs keeps such a set where it
+has one.
 
 **The builders.** A builder that conses cell by cell builds the list
 with `getRun` instead:
@@ -1166,13 +1449,13 @@ with `getRun` instead:
 | Walker | Lane |
 |---|---|
 | `IDR/Ops/Constants.cppm` (the constant verifier, after every pass) | U04 |
-| `IDR/Lower/Lowering.cppm` `functionClosure` | U13 |
+| `IDR/Lower/Lowering.cppm` `functionClosure` (it keeps its `seen` set) | U13 |
 | `IDR/Eval/Encoding.cppm` (encode and decode) | U14 |
 | `IDR/Defunctionalize/{Closures,Analysis,Converter,Slots}.cppm` | U09 |
-| `IDR/Specialize/{KeyOf,Specialization,ShapeOf,UnrollSize}.cppm` | U21 |
+| `IDR/Specialize/{KeyOf,Specialization,ShapeOf,UnrollSize}.cppm` (it keeps `CloneTable::settleBreaker` and the binding-time join for raised clones, ccc3e1dc) | U21 |
 | `IDR/Sharing/Aliases.cppm` | U19 |
 | `IDR/Ownership/ReachesOnlyAtoms.cppm`, `IDR/Facts/Passed.cppm` | U03 |
-| `IDR/Layout/Layouts.cppm` | U10 |
+| `IDR/Layout/FindLabels.cc` (`noteValue`, moved out of `Layouts.cppm` by 1677b8cb; it goes with the label table, C5.2) | U10 |
 | `IDR/Lower/StaticData.cppm` (lowers a run's cells with a loop) | U12 |
 
 **Printing, parsing and walking.**
@@ -1185,10 +1468,24 @@ with `getRun` instead:
 
   The parser reads both forms and canonicalizes.
 
-- `walkImmediateSubElements` and `replaceImmediateSubElements` visit the
-  cells' fields and the tail directly, never a nested run. A run of any
-  length is therefore one level deep to MLIR's printer, parser, bytecode
-  and walks.
+- `walkImmediateSubElements` and `replaceImmediateSubElements` are the
+  generated ones over the parameters, MLIR's defaults over the generated
+  storage's key (`AttrTypeSubElements.h`). They see the constructor, each
+  cell as an `ArrayAttr`, the tail directly, and the self type; a cell's
+  fields are its `ArrayAttr`'s. A canonical run holds no run of its own
+  constructor and spine, so a run of any length is one level deep to
+  MLIR's printer, parser, bytecode and walks.
+- A replace rebuilds through `Base::get` on the replaced parameters,
+  without canonicalizing (MLIR prefers a `get` of exactly those
+  parameters, and `ConAttr` has none). So a replace can produce a
+  non-canonical run: for example, the tail replaced by a run of the same
+  constructor and spine, which `getRun` would merge, or a cell's field
+  replaced by a con of the run's constructor, which makes that cell one
+  `get` keeps plain. The verifier rejects it, and `Base::get` asserts the
+  verifier where assertions are on, as in the build. A pass that would
+  make one rebuilds the constant with `get` or `getRun`.
+- U19 checks that the printer, the parser and bytecode round-trip a
+  10^4-cell run, as C12's `idr/constants/run` states.
 
 `IDR/Dialect/Dialect/Constants.cc` keeps materializing it, since it is a
 `ConAttr`.
@@ -1207,8 +1504,11 @@ deep data. The coordinator edits their PINS entries.
 that the Idris side emits one-to-one for an Idris primitive. The
 candidates:
 
-- **Strings:** the `str.*` ops;
-- **Bigs and naturals:** the `big.*` and `nat.*` ops;
+- **Strings:** the `str.*` ops, `str.pack` and `str.concat` among them:
+  each is attribute-free, and Emit writes each one-to-one for one Idris
+  primitive, the Prelude's `fastPack` and `fastConcat`;
+- **Bigs and naturals:** the `big.*` and `nat.*` ops, `nat.to_big` and
+  `nat.from_big` among them (`natToInteger`, `integerToNat`);
 - **IO:** `put_str`, `put_char`, `put_double`, `get_byte`, `get_line`,
   `write_bytes`, `read_bytes`, `eof` and `n_processors`;
 - **Arrays:** `array.new`, `array.get` and `array.set`;
@@ -1231,6 +1531,18 @@ These do not get it:
   with the op's generated builder, as today.
 - The six guards: Emit builds them with their generated builders
   (`Idr.checkNonzeroOp` and the rest) from `guardOf` (C8.3).
+- `big.small` and `big.pred`, though attribute-free. Each has a
+  precondition that no guard checks: `big.small`'s word fits the small
+  range, which `idr-narrow` proved where it writes the op, and
+  `big.pred`'s natural is not zero, which the match on a natural that
+  Emit writes it in found. So no primitive may build either. Emit keeps
+  writing `big.pred` in that match with its generated builder
+  (`Idr.bigPredOp`, `Emit/Bodies.idr`), as today. The hub as applied
+  left the trait off both, and that is accepted.
+
+**One representation.** An op that is an `IdrPrim` constructor is never
+also a `Prim` constructor (C8.3): the generated constructor is its one
+name on the Idris side.
 
 `idris-mlir-tblgen` fails on an `Idr_Primitive` op that has an
 inherent attribute. That keeps the rule true.
@@ -1253,7 +1565,10 @@ data IdrRegionPrim = ArrayGenerate | ArrayFold
 public export
 regionArity : IdrRegionPrim -> Nat
 
-||| Whether the primitive takes and gives the world (Idr_PerformsIO).
+||| Whether the primitive performs IO (Idr_PerformsIO). Such a primitive
+||| takes the world as its last operand and gives the next as its last
+||| result, except WorldNew, which makes a world: it takes none and gives
+||| one.
 export
 primPerformsIO : IdrPrim -> Bool
 
@@ -1272,15 +1587,31 @@ The names follow the C++ class names, so for example
 
 ### C8.3 `CS/Types.idr`, `Term.Effect` and the hooks (U17, U07, U18)
 
-**`Prim`** (U17). It keeps the constructors that are not one op:
+**`Prim`** (U17). It keeps only what `IdrPrim` does not cover, the
+constructors that are not one attribute-free `idr` op:
 
 - `IntOp`, `IntShift`, `FloatOp`, `Negate`, `Math`, `Compare` and `Cast`
   map to `arith` and `math`, choosing by signedness and width;
-- `NatFromBig`, `NatToBig`, `StrBuild` and `ArrayLength`;
+- `ArrayLength`, which is `memref.dim` of the array and an
+  `arith.index_cast`, no `idr` op;
 - every op with an inherent attribute (C8.1).
 
 Every constructor that is exactly one attribute-free `idr` op becomes
-`Op IdrPrim`. U17 lists the mapping in its handoff.
+`Op IdrPrim`, and leaves `Prim`. U17 lists the mapping in its handoff.
+Among them:
+
+- `NatToBig` and `NatFromBig` are `Op NatToBig` and `Op NatFromBig`;
+- `StrBuild Pack d` and `StrBuild Concat d` are `Op StrPack` and
+  `Op StrConcat`. The `DataId` was the list operand's type, which a pure
+  `Op p` takes from the operand itself (U17), and the frontend still
+  reads it from the call (`Terms.idr`'s `builderCall`, U07). `Builder`
+  (`Pack | Concat`) goes with `StrBuild`: it named the two ops a second
+  time.
+- `ArrayOp` (`NewArray | GetArray | SetArray`, `Types.idr:431`) goes the
+  same way: it names `array.new`, `array.get` and `array.set`, which are
+  primitives, a second time. The registry's `ArrayCall` and
+  `Hook.ArrayCall` carry the `IdrPrim` (U18); U17 deletes `ArrayOp`, its
+  `Show` instance and `Array`'s `ioArgs` case.
 
 **`IOOp` and `ArrayLoop` go** (review R10), and so does the table of
 operand types that went with them:
@@ -1301,9 +1632,37 @@ The frontend reads them from the call, as it does today
 (`Frontend/Translate/Terms.idr` `ioCall` and the array case). They are
 not looked up in a table.
 
-**The hooks** (U18): `Hook.IOCall` carries an `IdrPrim`, and
-`Hook.ArrayLoop` an `IdrRegionPrim` (`Registry/Entry.idr`).
-`Frontend/Translate/Hooks.idr` (`ioCallOf`, `arrayLoopOf`) joins U18.
+**The hooks** (U18): `Hook.IOCall` carries an `IdrPrim`,
+`Hook.ArrayLoop` an `IdrRegionPrim`, and `Hook.Builds` the `IdrPrim` of
+the string it builds, `StrPack` or `StrConcat` (`Registry/Entry.idr`).
+`Frontend/Translate/Hooks.idr` (`ioCallOf`, `arrayLoopOf`, `builderOf`)
+joins U18.
+
+**What a call does not supply** (README S11). `Hook.IOCall` carries the
+primitive and the literal operands the call does not supply, which go
+after its runtime arguments and before the world, which stays an IO
+op's last operand: `IOCall IdrPrim (List Lit)`.
+`prim__newBuffer` is `IOCall ArrayNew [LInt UInt8 0]`, since a new
+buffer is zero bytes; every other entry carries `[]` (U18).
+`Frontend/Translate/Terms.idr` (U07) reads them:
+
+- the literals become operands after the call's own;
+- an `IOCall` of a primitive without `Idr_PerformsIO` (`HandleIsNull`,
+  `HandleString`) has no world and no `IORes`, and is `PrimApp (Op p)`;
+- an array primitive's `[e]` is the element of the `ArrayT` among its
+  operands or its result, as for `getBits8` and `setBits8`, whose buffer
+  is an array of bytes.
+
+**`exitWith` and the identity hooks** (U18's `Hook.Exits`, read by U07).
+U07 translates `exitWith`'s body as written, with its one `believe_me`
+(`PrimIO ()` to `PrimIO a`) as the action applied to the world followed
+by `Unreachable`. `IdentityOnLastArgument` is the definition's last
+runtime argument by its type, not its clause's last pattern:
+`prim__castPtr` and `prim__forgetPtr` are point-free, binding only the
+erased `t`. `Frontend/Profile.idr` (U18) walks only the type of a
+definition with either hook, so their `believe_me` is not reached as an
+escape hatch, and names `Signal` and `Process` where a trusted reach
+meets them.
 
 **Emit.** `Emit/Operations.idr` (U17) exports one function for an
 effect:
@@ -1316,15 +1675,18 @@ It does four things:
 
 - it emits the guard of C3.1 for a partial primitive (`guardOf`);
 - it emits the op with `primOp`;
-- it threads the world when `primPerformsIO p`;
+- it threads the world when `primPerformsIO p`: the world is the op's
+  last operand and the next its last result, except for `WorldNew`,
+  which takes none and gives one (C8.2);
 - it builds the `IORes` instance named by the `DataId`.
 
 `Emit/Bodies.idr`'s `EffectF` case (U07) calls it. Pure `Op p`
 primitives go through the function Bodies already calls for `PrimAppF`,
 which U17 keeps.
 
-`guardOf : Prim -> Maybe (Guard, Nat, String)` lives in
-`Emit/Operations.idr` too. It is the one place the Idris side knows a
+`guardOf : Prim -> List (Guard, Nat, String)` lives in
+`Emit/Operations.idr` too: a list, since `buffer_copy` takes two range
+guards (C3.1). It is the one place the Idris side knows a
 guard.
 
 ### C8.4 The registry (U18)
@@ -1366,6 +1728,10 @@ adapts `Frontend/Translate/Types.idr`'s `WordType` handler to an applied
 - **A string read from a file** (`file_read_line`, `file_read_chars`)
   is the program's. Base frees it (`getStringAndFree`), and
   `handle_free` releases it.
+- **The current directory's path** (`dir_current`) is the program's
+  too. Base's `currentDir` reads it and frees it
+  (`free $ prim__forgetPtr res`, `System/Directory.idr:82-89`), and
+  `handle_free` releases it.
 - **A string from `env_get`, `env_pair` or `dir_entry`** is the
   runtime's, as `getenv`'s and `readdir`'s bytes are in C, and base never
   frees it. The runtime keeps one string slot for the environment
@@ -1396,10 +1762,12 @@ Every op below is `idr.io.<name>`, and its runtime function is
 `Ptr String` result is a string handle, or null. Unless a row says
 otherwise, an `Int` result is the C support function's value.
 
-The meaning of each is the C support function its `%foreign` spec names
-(`third_party/Idris2/support/c/`). Chez is the test oracle. A failing
-call sets the runtime's saved errno, which `idr.io.errno` and
-`idr.io.file_errno` read.
+The meaning of each is the runtime's, documented beside its runtime
+function (U16). It is written from the C support function its `%foreign`
+spec names (`third_party/Idris2/support/c/`) and from POSIX, and C12's
+tests state it in committed expected files. A failing call sets the
+runtime's saved errno, which `idr.io.errno` and `idr.io.file_errno`
+read.
 
 **Files** (`System.File.*`):
 
@@ -1436,7 +1804,7 @@ The existing file ops change in two ways:
 
 | Idris primitive | Op | Operands -> results |
 |---|---|---|
-| `prim__currentDir` | `dir_current` | `-> h` (a string handle) |
+| `prim__currentDir` | `dir_current` | `-> h` (a string handle the program owns, or null; C9.1) |
 | `prim__changeDir` | `dir_change` | `s -> i64` |
 | `prim__createDir` | `dir_create` | `s -> i64` |
 | `prim__removeDir` | `dir_remove` | `s -> ()` |
@@ -1484,6 +1852,34 @@ The existing file ops change in two ways:
 | `prim__clockTimeMonotonic`, `prim__clockTimeUtc`, `prim__clockTimeProcess`, `prim__clockTimeThread`, `prim__clockTimeGcCpu`, `prim__clockTimeGcReal` | `clock_monotonic`, `clock_utc`, `clock_process`, `clock_thread`, `clock_gc_cpu`, `clock_gc_real` | `-> i64`, an `OSClock` (C9.4) |
 | `prim__osClockValid`, `prim__osClockSecond`, `prim__osClockNanosecond` | `clock_valid`, `clock_second`, `clock_nanosecond` | `i64 -> i64` |
 
+**Meanings settled during the swarm** (U16; README S10), where the C
+support function, base's documentation and POSIX left a choice:
+
+- `file_read_line`: null when the read fails before any byte, `""` at
+  the end of the file, and a line a failure cuts short as it was read.
+  Linux's and macOS's C libraries disagree on the first; the runtime
+  gives one answer on both.
+- `file_read_chars` reads bytes, as `idris2_readChars` does; a UTF-8
+  sequence cut at the end becomes U+FFFD, as every string the runtime
+  makes from bytes does.
+- `exit` with a status outside 0 to 255 ends the program as a main
+  return outside that range does: a crash that names the status, never
+  the low 8 bits, which would make `ExitFailure 256` a success. U15
+  exports the check from `rt.start` and U16's `exit` calls it.
+- `file_write_line` writes every byte of its string; a path or an
+  environment name handed to the C library ends at an embedded NUL.
+- Closing handle 0, 1 or 2 flushes and leaves the stream open, since the
+  runtime writes those descriptors itself.
+- A failing `fclose` or `closedir` saves errno and frees the handle.
+- `dir_entry` saves errno on every call, so it is 0 at the end of the
+  directory, which base's `nextDirEntry` reads to tell the end from a
+  failure.
+- `prim__fPoll` names `idris2_fileSize` in its `%foreign`, as
+  `prim__fileSize` does (base's `System/File/Meta.idr:22`), so the
+  registry tells the two apart by their declared names: `fPoll` is
+  `file_poll`, whether the file has input ready (`idris2_fpoll`'s
+  meaning, which base's documentation states), waiting at most a second.
+
 ### C9.3 The handle ops
 
 | Op | Operands -> results | Effects |
@@ -1496,12 +1892,17 @@ The existing file ops change in two ways:
 
 An `OSClock` is `seconds << 30 | nanoseconds`, with `seconds < 2^33`.
 That covers every clock until the year 2242. An invalid clock is `-1`.
-The clock primitives have only `scheme:` and `RefC:` specs, so their
-meaning is Chez's `blodwen-clock-*`, and U18 recognizes them by their
-`scheme:` spec.
-The two GC clocks are always invalid, since no collector runs, so
-`clockTime GcCpu` and `clockTime GcReal` give `Nothing`. This is the
-divergence class `gc-clock`, which U23 adds.
+The clock primitives have `scheme:`, `RefC:` and `javascript:` specs
+and no `C:` spec (`System/Clock.idr:119-204` in base), so U18 recognizes
+them by their `scheme:` spec. Their meaning is the runtime's: base's
+`ClockType` read through POSIX `clock_gettime`: `UTC` is `CLOCK_REALTIME`,
+`Monotonic` is `CLOCK_MONOTONIC`, `Process` is
+`CLOCK_PROCESS_CPUTIME_ID` and `Thread` is `CLOCK_THREAD_CPUTIME_ID`. A
+reading that fails is invalid.
+The two GC clocks are always invalid: no collector runs, and base makes
+both optional (`isClockMandatory`). So `clockTime GCCPU` and
+`clockTime GCReal` give `Nothing`. That is their documented meaning
+(O2), and `programs/io/clock-monotonic` states it.
 
 Because the value is immediate, a clock reading never allocates and no
 handle leaks.
@@ -1592,62 +1993,131 @@ promise the default, later.
 
 ## C11. Upstream patches instead of workarounds (U01)
 
-### C11.1 The two clang crashes
+### C11.1 The clang crashes
 
-For each of `clang-module-layout-forward-declaration` and
-`clang-module-predeclared-new`, U01:
+Neither is U01's in this packet.
 
-1. reduces the report's unit with the pinned clang;
-2. finds the fix: a backport (the predeclared-new case is likely #189252)
-   or a patch of its own;
-3. writes it as `upstream/<bug>/llvm.patch`;
-4. completes the README's `## Patch` and `## Upstreaming plan`;
-5. makes `tests/upstream/<bug>/run` report "no longer crashes" against
-   the patched clang;
-6. writes `IDR/Stack/Escape.cppm`'s sets as `SetVector<Operation *>` and
-   `IDR/Driver/Retarget.cppm`'s feature string as `std::string`, with
-   their `PIN` markers gone.
+- **`clang-module-predeclared-new`** retired with the pin (20fcfadb).
+  Main's clang compiles its unit on arm64 macOS,
+  `IDR/Driver/Retarget.cppm` builds its feature string as `std::string`,
+  and `PINS.md` and `upstream/README.md` record it. F-up-2 is done. The
+  retirement is rechecked on x86_64 Linux when that toolchain is rebuilt
+  at the pin (README "Qualification").
+- **`clang-module-layout-forward-declaration`**
+  (`upstream/11-clang-module-layout-forward-declaration`) crashes only
+  the x86_64 Linux build. Its check has `targets` `linux`, and the clangs
+  of 23.1.2 and of 7208ba24 both compile the report's unit on arm64
+  macOS. This swarm runs on arm64 macOS, and no x86_64 Linux toolchain
+  exists at the pin, so nothing here can reproduce, reduce or retire it.
+  `IDR/Stack/Escape.cppm` keeps its `func::FuncOp` sets and its
+  `PIN(clang-module-layout-forward-declaration)` marker. F-up-1 is the
+  coordinator's, recorded NotRun with x86_64 Linux. Its README's plan
+  stands for a Linux host: rerun the check at the pin, reduce, then
+  either the pin moves past a fix on main (there are no backports) or a
+  patch of ours goes in its directory.
 
 ### C11.2 `idr-dead-values`
 
-U01 reduces "remove-dead-values rebuilds a call when nothing is erased"
-to upstream ops and `mlir-opt`. If it reproduces, the fix is a hunk in
-`upstream/06-remove-dead-values-unreachable/llvm.patch`: the pass leaves an
-op untouched when it erases none of its operands or results. Its
-reproducer is added beside the others, and a check goes in
-`tests/upstream/remove-dead-values-unreachable`. `IDR/Simplify`'s round
-then runs upstream `remove-dead-values`, and
-`IDR/Simplify/DeadValues.cppm` and `DeadValues/Pass.cc` go.
+The behaviour is upstream's, read at 7208ba24
+(`findings/llvm-trunk-mechanisms.md`, "Every other entry, at 7208ba24").
+`remove-dead-values` lists every call of a private function that
+returns a value and calls `RewriterBase::eraseOpResults` on it
+(`RemoveDeadValues.cpp:733`, through `dropUsesAndEraseResults`,
+`:201-209`), which builds a new op even for an empty set
+(`PatternMatch.cpp:278-314`). The patch of
+`upstream/06-remove-dead-values-unreachable` leaves this as it is; its
+README calls it a separate matter.
+
+U01 reduces it to upstream ops and `mlir-opt`. If it reproduces, the
+fix is a bug directory of its own,
+`upstream/16-remove-dead-values-unchanged-call/`: a README with the
+report, `## Patch` and `## Upstreaming plan` (not filed), the
+reproducer, and `llvm.patch`, a `git diff` against 7208ba24 with its
+test in `mlir/test`. It applies after 15 in name order, and alone too
+(`tests/spec/upstream-patches`), so its hunks stay out of the lines 06's
+patch changes. Its test hunk included: 06's patch appends its cases to
+the end of `mlir/test/Transforms/remove-dead-values.mlir`
+(`@@ -918,3 +918,100 @@`), and a hunk that appends there too has no
+trailing context, so `git apply` anchors it to the end of the file: it
+applies alone and fails after 06. The case goes before that file's last
+split (the `// -----` at `:899`, before `@callee_with_dead_return`), or
+in a test file of its own in `mlir/test/Transforms`. It tests a
+fingerprint property, and `upstream/02-composite-fixed-point-sccp/llvm.patch`
+is the model: its second RUN line of `mlir/test/Transforms/sccp.mlir`
+runs `composite-fixed-point-pass{pipeline=sccp max-iterations=2}` under
+`-verify-diagnostics`, so the test fails unless the pass's output is its
+own fixed point. Its check is
+`tests/upstream/remove-dead-values-unchanged-call`. The number is the
+next free one: 12 to 14 are retired names that `PINS.md` and
+`upstream/README.md` still cite.
+
+06's `llvm.patch` is a pending LLVM pull request that another agent
+sends, and the owner is told before it changes in substance. U01 edits
+nothing under 06 or 02. The sentences of their READMEs that name
+`idr-dead-values` change at integration (C1.8). If the fix can only be
+made in 06's patch, U01 escalates with the diff, and the coordinator
+tells the owner before anything under 06 changes, and records it in
+06's README.
+
+`IDR/Simplify`'s round then runs `remove-dead-values{canonicalize=false}`
+where it ran `idr-dead-values`, after `idr-eval` and before
+`symbol-dce`. Its canonicalization stays off, as `idr-dead-values` runs
+it today, for the reason `IDR/Simplify/DeadValues.cppm` gives.
+`IDR/Simplify/DeadValues.cppm` and `DeadValues/Pass.cc` go. Nothing else
+in the loop changes: `IDR/Simplify/Pass.cc` builds it as upstream's
+`composite-fixed-point-pass`, silent at its budget, between the two
+passes that open and close a round, and its fixpoint test is that
+pass's `OperationFingerPrint`. Nor do its loop breakers
+(`IDR/Simplify/Breakers.cppm`), which end it: since ccc3e1dc a clone of
+a breaker keeps `no_inline` through `idr-specialize`'s
+`CloneTable::settleBreaker`, as `Breakers.cppm`'s header says, and
+`T/idr/specialize/breaker-clones` and `T/programs/eval/latent-loop*`
+pin it.
 
 If it does not reproduce upstream, the bug is ours. U01 fixes it in
-`IDR/Simplify`, says so, and the pass still goes.
+`IDR/Simplify`, says so, writes no `upstream/` directory, and the pass
+still goes.
 
 ## C12. The discriminators (U22, U23)
 
-Every row below must fail against the tree at ee4ce8e, or show the old
-mechanism, and pass after the cutover. Names are directories under `T/`.
+Every row below must fail against the launch base (README, Engagement
+contract; ee4ce8e does not build on the pinned toolchain), or show the
+old mechanism, and pass after the cutover. The coordinator runs them
+against the launch base's kept build between integration steps 4 and 5,
+on today's toolchain (`work-units.md` "Integration"). Names are
+directories under `T/`.
+
+A `program` row is a fixture of `T/templates/program`, and its committed
+expected files are its specification (C0): `expected-stdout`, and
+`expected-exit`, `expected-crash` or `stdin` where the row names one.
+U23 writes them from the row and the documented meaning of what the
+program calls (C9), not from any run. They hold on both targets, so a
+row prints nothing that C9 leaves to the C library or the host: no
+`strerror` text, no unsorted directory order, no clock reading, no
+`argv[0]`, no host variable's value. No row is compared with Idris's
+Chez backend or stock evaluator.
 
 | Test | Kind | What it shows | Proves |
 |---|---|---|---|
 | `reject/cycle-array-knot` | reject | `data Node = MkNode (IOArray Node)`, a knot written: `unsupported (cycle)`, naming `Node` | C10.1 |
-| `programs/arrays/array-of-arrays` | program, Chez | `IOArray (IOArray Int)` compiles and runs | C10.1 is not too strong |
+| `programs/arrays/array-of-arrays` | program | `IOArray (IOArray Int)` compiles and runs | C10.1 is not too strong |
 | `reject/signal-handler` | reject | `System.Signal.collectSignal`: `unsupported (signal)` | C9.5 |
 | `reject/threads-concurrency` | reject | `System.Concurrency.makeMutex`: `unsupported (threads)` | C9.5 |
 | `reject/process-system` | reject | `System.system "true"`: `unsupported (process)` | C9.5 |
 | `reject/uniqueness-shared-rebuild` | reject, `--directive demand-in-place` | a shared list passed to a quantity-1 `map` that rebuilds in place: `unsupported (uniqueness)` naming the call | C10.2 |
 | `programs/linear/leet-*` | program | every leet fixture compiles with `demand-in-place` and still `tests-nothing` | C10.2 is not too strong |
-| `programs/io/files-roundtrip` | program, Chez | write a file, read it back by line and by chars, `fileSize`, `removeFile` | C9.2 |
-| `programs/io/directory-listing` | program, Chez, `IDRIS_RT_LIVE=1` | `createDir`, `openDir`, `nextDirEntry` until `Nothing` (sorted), `closeDir`, `removeDir`; ends with 0 live cells | C9.2 |
-| `programs/io/environment-arguments` | program, Chez, `IDRIS_RT_LIVE=1` | prints `length !getArgs` and never `argv[0]` (review R9); `setEnv "IDRIS_MLIR_T" "1"`, then `getEnv` of it twice; `getEnv` of an unset name gives `Nothing`; ends with 0 live cells | C9.1, C9.2 |
-| `programs/io/clock-monotonic` | program | two monotonic readings, the second not earlier; `GcCpu` gives `Nothing` | C9.4 |
-| `programs/eval/memo-shared-stream` | program, Chez, `IDRIS_RT_LIVE=1` | observes memoization without an effect (review R9): a top-level and a local `fibs` (`Stream` of exponential-cost cells), each shared by two consumers, sized so that recomputation exceeds the test's timeout, as `eval/lazy-double` is; ends with 0 live cells | C5.1, C5.3 |
+| `programs/io/files-roundtrip` | program | write a file, read it back by line and by chars, `fileSize`, `removeFile` | C9.2 |
+| `programs/io/directory-listing` | program, `IDRIS_RT_LIVE=1` | `createDir`, `openDir`, `nextDirEntry` until `Nothing` (sorted), `closeDir`, `removeDir`; ends with 0 live cells | C9.2 |
+| `programs/io/environment-arguments` | program, `IDRIS_RT_LIVE=1` | prints `length !getArgs` and never `argv[0]` (review R9); `setEnv "IDRIS_MLIR_T" "1"`, then `getEnv` of it twice; `getEnv` of an unset name gives `Nothing`; ends with 0 live cells | C9.1, C9.2 |
+| `programs/io/clock-monotonic` | program | two monotonic readings, printed only as whether the second is not earlier; `clockTime GCCPU` and `clockTime GCReal` give `Nothing` | C9.4, O2 |
+| `programs/eval/memo-shared-stream` | program, `IDRIS_RT_LIVE=1` | observes memoization without an effect (review R9): a top-level and a local `fibs` (`Stream` of exponential-cost cells), each shared by two consumers, sized so that recomputation exceeds the test's timeout, as `eval/lazy-double` is; ends with 0 live cells | C5.1, C5.3 |
 | `programs/eval/thunk-consumes-list` | program, `IDRIS_RT_LIVE=1` | a thunk that consumes a 10^6-element list: peak live cells bounded, list reused in place (`reuses-in-place`) | C5.3 (captures moved) |
-| `programs/arrays/lazy-elements` | program, Chez | an `IOArray (Lazy Int)` written with suspensions and forced twice, which compiles today, still compiles and runs (review R7) | C5.1 (arrays in Slots) |
+| `programs/arrays/lazy-elements` | program | an `IOArray (Lazy Int)` written with suspensions and forced twice, which compiles today, still compiles and runs (review R7) | C5.1 (arrays in Slots) |
 | `programs/io/exit-with` | program, `expected-exit 3` | `exitWith (ExitFailure 3)` after output: the output is written, the status is 3, no live-cell report (review R11) | C9.1 |
 | `programs/partial/self-forcing-caf` | program, `expected-crash` | a top-level lazy value that forces itself ends with `a suspension forced itself` | C5.3 |
-| `programs/eval/closure-result-roundtrip` | program, Chez | a compile-time result holding a closure (a partially applied function in a list) is reified and run | C6.4, C5.7 |
+| `programs/eval/closure-result-roundtrip` | program | a compile-time result holding a closure (a partially applied function in a list) is reified and run | C6.4, C5.7 |
 | `programs/eval/deep-list-constant` | program | a computed 10^5-element list constant on an 8 MiB compile stack | C7 |
-| `programs/basic/guards-messages` | program, `expected-crash` × 6 | each of div by zero, `strIndex` out of range, `strHead ""`, `cast` of NaN to Int, a byte out of range, an array index out of bounds: the same message and location as at ee4ce8e | C3 |
+| `programs/basic/guards-messages-*` | five programs, one `expected-crash` each (a program crashes once), and `idr/guards/byte-message`, a lit test, for the byte no program reaches (README S13) | each of div by zero, `strIndex` out of range, `strHead ""`, `cast` of NaN to Int, a byte out of range, an array index out of bounds: the same message and location as at the launch base, each cause taken from an existing `expected-crash` or, where none covers it, from the launch base's source, at a location in `semantics/crash-location`'s format | C3 |
 | `idr/guards/fold-*` | lit | each guard folds on a proving constant, does not on a failing one, folds under a dominating identical guard | C3.4 |
 | `idr/guards/speculation` | lit | an `scf.while` whose condition is `%i < idr.str.length %s`, with `%s` and `%i` loop-invariant and `idr.str.index %s, %i` (its guard proved away) at the top level of the after region: `loop-invariant-code-motion` leaves the index in the loop. (`licm` visits only a loop body's top-level ops, `LoopInvariantCodeMotionUtils.cpp:75-87`, so an op inside an `scf.if` is never a discriminator.) | C3.3 |
 | `idr/in-bounds/*` | lit | restated as "no `idr.check.in_bounds` left"; no `in_bounds` keyword anywhere | C3.5 |
@@ -1659,7 +2129,7 @@ mechanism, and pass after the cutover. Names are directories under `T/`.
 | `idr/lower/no-mode` | lit | `idr-lower` has no `jit` option (`--idr-lower=jit=1` is an unknown option) | C6.1 |
 | `idr/lower/entry`, `idr/lower/meter` | lit | `@main(i32, ptr)`; ticks at entry and before each `llvm.sideeffect` | C6.2, C6.3 |
 | `idr/ownership/consumed-effects` | lit | after `idr-rc`, `remove-dead-values` keeps an unused `idr.con` of owned fields; before it, `canonicalize` erases an unused `idr.con` | C2.1 |
-| `idr/ownership/owned-stage` | lit, `-verify-diagnostics` | `idr-rc`'s output carries no `idr.stage`; a module with no `idr.stage` whose `!idr.own` value is never consumed is rejected by the owned-stage rule (at ee4ce8e it passes, since the rule runs only under the attribute) | C2.2 |
+| `idr/ownership/owned-stage` | lit, `-verify-diagnostics` | `idr-rc`'s output carries no `idr.stage`; a module with no `idr.stage` whose `!idr.own` value is never consumed is rejected by the owned-stage rule (at the launch base it passes, since the rule runs only under the attribute) | C2.2 |
 | `idr/constants/run` | lit | a 10^4-cell run prints flat and round-trips through text and bytecode; a list built cell by cell and one built with `getRun` are the same attribute | C7 |
 | `idr/verify/cycle` | lit | the verifier rejects the knot's types after defunctionalization | C10.1 |
 
@@ -1667,6 +2137,26 @@ Existing tests that name a retired mechanism are restated in the new
 terms or deleted by U22 or U23. "Retired mechanism" means any name in
 README's retired list. A test whose only purpose was the retired
 mechanism is deleted, never kept as a red test.
+
+Tests the cutover keeps as they are, with their committed files, since
+they test what it keeps:
+
+- those new at 20fcfadb and 1677b8cb (README L22);
+- those new at ccc3e1dc, which pin the loop breakers that end
+  `idr-simplify` (C2.4, C11.2): `T/idr/specialize/breaker-clones`, the
+  raised-clone case of `T/idr/specialize/binding-times.mlir`, and
+  `T/programs/eval/latent-loop`, `latent-loop-delay` and
+  `latent-loop-accumulator`, whose `mlir.expect` reads
+  `idr-simplify: every-cycle-has-breaker`;
+- the expected files phase 1b (08a065e4) wrote where the oracle was, which
+  are those tests' specification (C0): the `expected-stdout` of
+  `T/idr/stack/hot-loop`, `T/programs/arrays/buffer-ops`,
+  `arrays/linarray-bubble`, `stack/forever-until-crash` and
+  `stack/io-loop-through-helper`;
+  `T/toolchain/double-print/expected-doubles`;
+  `T/toolchain/runtime-api/expected-operations`. Phase 1b also took
+  every line for another backend out of the `expected` transcripts; a
+  transcript a lane writes or restates keeps that form.
 
 ## C13. Verification
 
@@ -1690,14 +2180,63 @@ mechanism is deleted, never kept as a red test.
 
     No spec test builds anything. A lane whose acceptance names none runs
     none.
-  - U01 also runs the pinned clang and `mlir-opt` on its own reproducers.
-- **Held out** (review R13): U01's two C++ hunks (C11.1) and its
-  `IDR/Simplify` change (C11.2) are held out of the tree until
-  integration step 5. Both need the rebuilt toolchain: the clang fix for
-  the first, and the patched `remove-dead-values` for the second. On
-  today's MLIR a call rebuilt every round defeats the simplify round's
-  fingerprint fixpoint (`PINS.md` `simplify-structural-fixpoint`), so
-  deleting `idr-dead-values` early would run the loop to its budget.
+  - U01 also runs the pinned `mlir-opt` and `idris-mlir-reduce` on its
+    own reproducers, and its own check.
+  - U01 may build a scratch `mlir-opt` to check that its patch compiles
+    and that its `mlir/test` RUN line passes: it compiles the upstream
+    files its patch changes (the pinned source with the patches before
+    16 applied, 06's included, then its own) in a scratch directory
+    outside the repository, and links them with an `mlir-opt` main
+    against the static `libMLIR*.a` installed in
+    `.toolchain/llvm-macos/lib`, as 06's README records its own check.
+    Such a build has no test dialect, so a case that uses it does not
+    parse there. It builds neither the tree nor the toolchain, and
+    nothing of it enters the tree.
+- **Held out** (review R13, restated for the pin of 20fcfadb). Lanes
+  share one checkout, and U01 writes its work there as usual. All of it
+  (C11.2), and C1.2's `idr-dead-values` lines, are out of the tree from
+  integration step 3 until step 5, because each needs the rebuilt
+  toolchain:
+  - U01's new `llvm.patch`: `make build` runs `tools/verify-pins.sh
+    llvm`, which refuses a toolchain whose stamp records other patches
+    than `upstream/` carries;
+  - its check, which expects the patched `mlir-opt`;
+  - its `IDR/Simplify` change. At 7208ba24, with 02 to 07, 09 and 15,
+    `remove-dead-values` still builds a new call for every call of a
+    private function that returns a value (`RemoveDeadValues.cpp:733`;
+    `RewriterBase::eraseOpResults`, `PatternMatch.cpp:278-314`, has no
+    early return for an empty set). So the module's
+    `OperationFingerPrint`, which upstream's `composite-fixed-point-pass`
+    compares after each round (`CompositePass.cpp:69-103`;
+    `IDR/Simplify/Pass.cc:114-128`), never repeats. Without
+    `idr-dead-values` the loop would run `max-rounds` + 1 rounds, and
+    `idr-simplify` would report `unsupported (compile-time budget)` for
+    every program with such a call (`Pass.cc:134`, `:163-166`; `PINS.md`
+    `simplify-structural-fixpoint`);
+  - the removal of `idr-dead-values` from `Passes.td`, since
+    `DeadValues/Pass.cc` defines it until then.
+
+  At step 3, before `make check` and `make build`, the coordinator sets
+  U01's group aside in two stashes, from the repository root, so that
+  the patch comes back first:
+
+  ```sh
+  git stash push --include-untracked -m u01-rest -- \
+    tests/upstream/remove-dead-values-unchanged-call foreign/idr/lib/Simplify
+  git stash push --include-untracked -m u01-patch -- \
+    upstream/16-remove-dead-values-unchanged-call
+  ```
+
+  C1.2's `idr-dead-values` lines are not in `Passes.td` then: a stash
+  takes whole files, and `Passes.td` carries the rest of C1, so the
+  coordinator writes those lines at step 5 and not before. At step 5 it
+  pops `u01-patch`, runs `make bootstrap` (`tools/bootstrap.sh` applies
+  every `upstream/*/llvm.patch` present), pops `u01-rest`, writes C1.2's
+  lines, and runs `make build` (`work-units.md` "Integration").
+
+  If U01's fix is ours (C11.2), nothing is held out and there is no
+  rebuild. `IDR/Stack/Escape.cppm` is not held out: C11.1 leaves it as it
+  is.
 - **Integration** is the coordinator's, in the order of `work-units.md`
   "Integration". Repairs go through the owning lane.
 - **Qualification:** README "Qualification".

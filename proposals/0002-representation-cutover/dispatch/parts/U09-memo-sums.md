@@ -33,6 +33,8 @@ Mandatory findings: F-lazy-6 F-lazy-8 F-poison-8
 - `IDR/Defunctionalize`
 - `IDR/Dialect/Ops/Lazy.cc`
 - `IDR/Dialect/Ops/Data.cc`
+- `IDR/Graph`, for the functions a body refers to, which the loop
+  breakers and `ForceOfOneConstant` share (README S16)
 
 **Excluded:**
 
@@ -77,7 +79,9 @@ Mandatory findings: F-lazy-6 F-lazy-8 F-poison-8
   closure sums name theirs. The two protocol constructors come last.
   `labels` lists exactly the label functions, so that every
   interprocedural solver between `idr-defunctionalize` and `idr-lower`
-  sees them as address-taken and keeps their bodies live.
+  sees them as address-taken and keeps their bodies live. The formats
+  bind `memo`, `labels` and `by_name` (C1.1 item 5), and an `idr.data` is
+  always public: set no visibility on a memo sum.
 - **Numbering.** `n` numbers memo sums by first appearance, separately
   from `@fn$<n>`.
 - **The rewrites:**
@@ -100,9 +104,11 @@ Mandatory findings: F-lazy-6 F-lazy-8 F-poison-8
     (output, input, a file, a clock). `trace` reaches `put_str`, so it
     is `by_name`. `Linear.Array`, `runST` and `strerror` reach only
     array and buffer ops, or none, so they keep their memo;
-  - no static constant names the label. A top-level `Delay` is memoized
-    by Chez (`(define n (delay …))`), and a static thunk is our nearest
-    equivalent.
+  - no static constant names the label. A top-level constant names one
+    value of the program, evaluated once, as Idris defines a top-level
+    definition: a `trace` in it observes that one evaluation, so its
+    cell memoizes, written once by its first force and read by every
+    later one (C5.5, O3).
 
   Compute it by a walk over the label's call graph with a visited set.
 - **Unknown keys.**

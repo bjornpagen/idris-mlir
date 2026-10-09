@@ -34,6 +34,8 @@ Mandatory findings: F-lazy-6 F-lazy-8 F-poison-8
 - `IDR/Defunctionalize`
 - `IDR/Dialect/Ops/Lazy.cc`
 - `IDR/Dialect/Ops/Data.cc`
+- `IDR/Graph`, for the functions a body refers to, which the loop
+  breakers and `ForceOfOneConstant` share (README S16)
 
 **Excluded:**
 
@@ -78,7 +80,9 @@ Mandatory findings: F-lazy-6 F-lazy-8 F-poison-8
   closure sums name theirs. The two protocol constructors come last.
   `labels` lists exactly the label functions, so that every
   interprocedural solver between `idr-defunctionalize` and `idr-lower`
-  sees them as address-taken and keeps their bodies live.
+  sees them as address-taken and keeps their bodies live. The formats
+  bind `memo`, `labels` and `by_name` (C1.1 item 5), and an `idr.data` is
+  always public: set no visibility on a memo sum.
 - **Numbering.** `n` numbers memo sums by first appearance, separately
   from `@fn$<n>`.
 - **The rewrites:**
@@ -101,9 +105,11 @@ Mandatory findings: F-lazy-6 F-lazy-8 F-poison-8
     (output, input, a file, a clock). `trace` reaches `put_str`, so it
     is `by_name`. `Linear.Array`, `runST` and `strerror` reach only
     array and buffer ops, or none, so they keep their memo;
-  - no static constant names the label. A top-level `Delay` is memoized
-    by Chez (`(define n (delay …))`), and a static thunk is our nearest
-    equivalent.
+  - no static constant names the label. A top-level constant names one
+    value of the program, evaluated once, as Idris defines a top-level
+    definition: a `trace` in it observes that one evaluation, so its
+    cell memoizes, written once by its first force and read by every
+    later one (C5.5, O3).
 
   Compute it by a walk over the label's call graph with a visited set.
 - **Unknown keys.**
@@ -246,7 +252,8 @@ changed paths, `Verification: NotRun (swarm policy)`, and seams.
     `make test-idr`, `make test-mlir-tools`, cmake, ninja, the Idris
     compiler, or any suite. `make check` builds the test runner, and it
     is red mid-swarm by design (C13); do not fix what it shows.
-  - You may run the one spec test your acceptance names, and only it:
+  - You may run the one spec test your acceptance names, and only it
+    (U01 also runs its own check and reproducers, C13):
     `cd tests/spec/<name> && IDRIS_MLIR_ROOT=<repository root> sh run | diff - expected`.
   - Write against the packet text.
   - Report `Verification: NotRun (swarm policy)` for what you did not
@@ -273,6 +280,10 @@ changed paths, `Verification: NotRun (swarm policy)`, and seams.
   - What the compiler cannot compile is rejected with
     `unsupported (<rule>)`. Never miscompile silently.
   - No pass drops a quantity, erasure or linearity.
+  - There is no oracle. A test's committed expected files are its
+    specification, and the runtime's documented semantics are a
+    primitive's meaning. Never justify a meaning, a rule or a test by
+    what Idris's Chez backend or stock evaluator does.
   - Every `.cc` or `.cppm` stays at 400 lines or fewer unless
     `T/spec/file-size/allowed` already lists it; split a unit in your
     lane rather than grow it.
@@ -281,7 +292,7 @@ changed paths, `Verification: NotRun (swarm policy)`, and seams.
   - No new dependency, and no Python.
 - **No new numbers.** Do not add a limit, budget, threshold or retry
   count. Existing ones keep their values and their comments.
-- **No tests outside U22, U23 and U01's `tests/upstream` dirs.** Your
+- **No tests outside U22, U23 and U01's `tests/upstream` dir.** Your
   lane describes the evidence its change needs in the handoff, and U22
   or U23 writes it from C12.
 - **Concurrent work.** Twenty-two other lanes and the coordinator write

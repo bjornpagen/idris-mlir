@@ -11,6 +11,13 @@ Mandatory findings: F-clo-7
    `makeRegionIsolatedFromAbove` (C4.3). Mandatory.
 2. **The verifiers.** The two region ops' verifiers live in
    `IDR/Dialect/Ops/Regions.cc`. Mandatory.
+3. **The yield in a lambda or a delay** (C4.3). `YieldOp::getSuccessorRegions`,
+   which the hub declares (C1.1 item 4), is defined in `Regions.cc`: no
+   successor when the yield's parent is an `idr.lambda` or an
+   `idr.delay`, and otherwise what the parent's `getSuccessorRegions`
+   gives for the yield, as the interface's default did. The verifiers
+   and the pass never ask a lambda, a delay or their yield as a region
+   branch. Mandatory.
 
 ## Owner / exclusive writes
 
@@ -36,6 +43,11 @@ Mandatory findings: F-clo-7
   argument order.
 - `IDR/Dialect/Ops/Lazy.cc`'s `SuspendOp::verify`, the world-capture
   rule.
+- `.toolchain/llvm-project/mlir/include/mlir/Interfaces/ControlFlowInterfaces.td:415-483`
+  (`RegionBranchTerminatorOpInterface`, whose default
+  `getSuccessorRegions` casts the parent to `RegionBranchOpInterface`),
+  and `IDR/Dialect/Ops/Arrays.cc`'s `YieldOp::getMutableSuccessorOperands`
+  (U04's, unchanged).
 - An existing small area's `CMakeLists.txt` and `Pass.cc`, for example
   `IDR/Stack/`.
 
@@ -70,6 +82,16 @@ Mandatory findings: F-clo-7
   `idr.yield` yields the lazy value's type. No value of world type
   defined above is used inside, which is the existing rule for a
   suspension's captures.
+- **Reading a body's yield.** Both verifiers and the pass read the
+  body's terminator directly (`body.front().getTerminator()`, an
+  `idr.yield` or a `ub.unreachable`). Neither calls
+  `RegionBranchOpInterface` or `RegionBranchTerminatorOpInterface`
+  methods on a lambda, a delay or the yield that ends one: neither op is
+  a region branch.
+- **`YieldOp::getSuccessorRegions(operands, regions)`.** When the
+  parent is a `LambdaOp` or a `DelayOp`, it adds nothing. Otherwise it
+  calls `cast<RegionBranchOpInterface>(parent).getSuccessorRegions(...)`
+  for the yield, exactly as the default it replaces.
 
 ## Inputs
 
@@ -80,13 +102,15 @@ Mandatory findings: F-clo-7
 ## Outputs
 
 - `idr_isolate`, containing the pass.
-- The two verifiers.
+- The two verifiers, and `YieldOp::getSuccessorRegions`.
 
 ## Implement
 
 - **The pass**, per the fixed decisions, in `Isolate.cppm`, with the
   glue in `Pass.cc`, as other areas split them.
 - **The verifiers** in `Regions.cc`.
+- **`YieldOp::getSuccessorRegions`** in `Regions.cc`, per the fixed
+  decision.
 
 ## Delete
 
@@ -101,6 +125,8 @@ replaces is U07's to delete.
 - Do not specialize, inline or simplify while isolating.
 - Do not capture a constant.
 - Do not change `idr.closure`, `idr.suspend` or `idr.apply`.
+- Do not make `idr.lambda` or `idr.delay` a `RegionBranchOpInterface`:
+  their bodies do not run when they do.
 
 ## Acceptance
 
@@ -112,6 +138,12 @@ replaces is U07's to delete.
 - A lambda inside a lambda is outlined first, and its closure is a
   capture of the outer one's body only if the outer body uses it.
 - Running the pass twice changes nothing the second time.
+- `YieldOp::getSuccessorRegions` gives no successor for the yield that
+  ends an `idr.lambda` or an `idr.delay`, and for a match's or an array
+  loop's yield what the parent gives, as before. Upstream's analyses ask
+  a terminator only under a `RegionBranchOpInterface` parent, so no
+  suite discriminates this: the coordinator reads it at review. A
+  module with both region ops, each ending in `idr.yield`, verifies.
 - U22 writes `T/idr/isolate/*` from C12.
 - **Tempting partial:** outlining with `outlineSingleBlockRegion`, which
   makes a call in place of the body. Rejected: a lambda is a value, not
@@ -151,7 +183,8 @@ paths, the hub text if C1.1 item 4 needs adjusting,
     `make test-idr`, `make test-mlir-tools`, cmake, ninja, the Idris
     compiler, or any suite. `make check` builds the test runner, and it
     is red mid-swarm by design (C13); do not fix what it shows.
-  - You may run the one spec test your acceptance names, and only it:
+  - You may run the one spec test your acceptance names, and only it
+    (U01 also runs its own check and reproducers, C13):
     `cd tests/spec/<name> && IDRIS_MLIR_ROOT=<repository root> sh run | diff - expected`.
   - Write against the packet text.
   - Report `Verification: NotRun (swarm policy)` for what you did not
@@ -178,6 +211,10 @@ paths, the hub text if C1.1 item 4 needs adjusting,
   - What the compiler cannot compile is rejected with
     `unsupported (<rule>)`. Never miscompile silently.
   - No pass drops a quantity, erasure or linearity.
+  - There is no oracle. A test's committed expected files are its
+    specification, and the runtime's documented semantics are a
+    primitive's meaning. Never justify a meaning, a rule or a test by
+    what Idris's Chez backend or stock evaluator does.
   - Every `.cc` or `.cppm` stays at 400 lines or fewer unless
     `T/spec/file-size/allowed` already lists it; split a unit in your
     lane rather than grow it.
@@ -186,7 +223,7 @@ paths, the hub text if C1.1 item 4 needs adjusting,
   - No new dependency, and no Python.
 - **No new numbers.** Do not add a limit, budget, threshold or retry
   count. Existing ones keep their values and their comments.
-- **No tests outside U22, U23 and U01's `tests/upstream` dirs.** Your
+- **No tests outside U22, U23 and U01's `tests/upstream` dir.** Your
   lane describes the evidence its change needs in the handoff, and U22
   or U23 writes it from C12.
 - **Concurrent work.** Twenty-two other lanes and the coordinator write

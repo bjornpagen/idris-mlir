@@ -9,11 +9,14 @@ Mandatory findings: F-const-1
    constructor, linked through one spine field, as one flat attribute
    (C7). Mandatory:
    - the canonical form of C7.1, so that one value has one attribute;
-   - the C7.2 API: `get`, `getRun`, `isRun`, `getRunLength`,
-     `getRunCells`, `getTail`, `getSpine`, `getField` and `getFields`;
+   - the part of the C7.2 API that is yours: `get` (and the `getChecked`
+     ODS declares beside it), `getRun`, `getField` and `getFields`. ODS
+     generates `getCtor`, `getCells`, `getTail` and `getSpine`, and the
+     hub defines `isRun`, `getRunLength` and `getRunCells` inline;
    - the flat print and parse;
-   - the sub-element walk and replace;
-   - the verifier, which rejects a non-canonical run.
+   - the verifier, which rejects a non-canonical run;
+   - the round trip of a 10^4-cell run through the printer, the parser
+     and bytecode, over the sub-element walk and replace ODS generates.
 2. **`IDR/Sharing/Aliases.cppm`** follows the walk rule (C7.2).
    Mandatory.
 
@@ -25,7 +28,8 @@ Mandatory findings: F-const-1
 **Excluded:**
 
 - `INC/IdrOps.td`, where the coordinator writes `ConAttr`'s parameters,
-  `skipDefaultBuilders` and declarations (C1.1 item 6).
+  `skipDefaultBuilders`, declarations and the inline `isRun`,
+  `getRunLength` and `getRunCells` (C1.1 item 6).
 - Every other walker and builder of C7.2's tables: each lane adapts its
   own (U03, U04, U09, U10, U12, U13, U14, U21).
 
@@ -37,21 +41,29 @@ Mandatory findings: F-const-1
 - `PINS.md` `mlir-recursion` and `bytecode-deferred-quadratic`.
 - `IDR/Dialect/Attrs/ConAttr.cc`.
 - `IDR/Sharing/Aliases.cppm`.
-- `INC/IdrOps.td:208-235` (`Idr_Attr`, `Idr_ConAttr`).
-- The pinned `mlir/include/mlir/IR/AttributeSupport.h` and
-  `StorageUniquer.h` (custom storage), and `mlir/IR/SubElementInterfaces`
-  / `AttrTypeSubElements.h` (`walkImmediateSubElements`,
-  `replaceImmediateSubElements`).
+- `INC/IdrOps.td:204-264` (`Idr_Attr`, `Idr_ConAttr`, as the hub
+  applied them), and the `ConAttr` class and `ConAttrStorage` that
+  `mlir-tblgen -gen-attrdef-decls` and `-gen-attrdef-defs` make of them.
+- The pinned `mlir/include/mlir/IR/StorageUniquerSupport.h` (`Base::get`,
+  which asserts the verifier) and `mlir/IR/AttrTypeSubElements.h`
+  (`walkImmediateSubElements`, `replaceImmediateSubElements`, and
+  `constructSubElementReplacement`, which rebuilds through `Base::get`
+  when the attribute has no `get` of exactly its parameters).
 
 ## Fixed decisions
 
-- **The stored parameters** are `(ctor, stored, tail, spine)` (C1.1
-  item 6).
-  - **Plain:** `stored` is the fields, `tail` is null, and `spine` is
-    unused.
-  - **Run:** `stored` is an `ArrayAttr` of `n` `ArrayAttr`s, each one
-    cell's fields without the spine field. `tail` is the attribute after
-    the last cell, and `spine` is the spine field's index.
+- **The stored parameters** are `(ctor, cells, tail, spine)` and the
+  self type, `NoneType` (C1.1 item 6). ODS generates the storage, which
+  `Initialize.cc` completes through `IdrAttrs.cc.inc`; you write none.
+  - **Plain:** `cells` is one `ArrayAttr`, the fields; `tail` is null;
+    `spine` is 0.
+  - **Run:** `cells` is `n >= 2` `ArrayAttr`s, each one cell's fields
+    without the spine field. `tail` is the attribute after the last
+    cell, and `spine` is the spine field's index.
+- **The builders** reach the storage through
+  `Base::get(ctx, ctor, cells, tail, spine, NoneType::get(ctx))`, on
+  canonical parameters only. `get` hides `Base::get` by name, so call it
+  as `Base::get`.
 - **The canonical form** is C7.1's, exactly:
   - a run has at least two cells, all of constructor `C` and spine `s`;
   - `get(ctx, ctor, fields)` builds a run exactly when one field `i` is
@@ -65,11 +77,13 @@ Mandatory findings: F-const-1
     run of the same constructor and spine is merged; a tail that is a
     plain con of `ctor` with no same-constructor field becomes the last
     cell.
-- **The accessors** (C7.2):
+- **The accessors** (C7.2). The hub's and ODS's:
   - `getRunCells()`: a run's cells' non-spine fields; empty for a plain
-    con;
+    con (a thin alias of the generated `getCells()`);
   - `getTail()`: a run's tail; null for a plain con;
-  - `getSpine()`: a run's spine index;
+  - `getSpine()`: a run's spine index; 0 for a plain con.
+
+  Yours:
   - `getField(i)`: O(1) for `i != spine`; for `i == spine`, the run from
     the second cell;
   - `getFields()`: correct for both forms, O(n) on a run, which builds
@@ -82,9 +96,11 @@ Mandatory findings: F-const-1
   ```
 
   The parser accepts both and canonicalizes.
-- **Sub-elements.** `walkImmediateSubElements` visits every cell's
-  fields and the tail, never a nested run. `replaceImmediateSubElements`
-  rebuilds with `getRun`.
+- **Sub-elements.** ODS generates `walkImmediateSubElements` and
+  `replaceImmediateSubElements` over the parameters: each cell as an
+  `ArrayAttr`, the tail directly, never a nested run. You write neither.
+  A replace rebuilds through `Base::get` without canonicalizing, so it
+  can produce a non-canonical run, which your verifier rejects (C7.2).
 - **`Aliases.cppm`** walks a list constant's spine with `getRunCells()`
   and `getTail()` in a loop, never by `getFields()[s]`.
 
@@ -94,8 +110,8 @@ Mandatory findings: F-const-1
 
 ## Outputs
 
-- `ConAttr`'s C7.2 API, its custom parse and print, the sub-element
-  hooks, and the verifier, which every other lane's walker uses.
+- `ConAttr`'s C7.2 builders and field accessors, its custom parse and
+  print, and the verifier, which every other lane's walker uses.
 
 ## Implement
 
@@ -107,7 +123,9 @@ Mandatory findings: F-const-1
 
 ## Delete
 
-- Nothing else. The old `get` keeps its signature.
+- `ConAttr::verify`'s old signature, `(ctor, ArrayAttr, Type)`: the
+  generated declaration takes `(ctor, cells, tail, spine, type)`.
+  Nothing else. The old `get` keeps its signature.
 
 ## NOT TO DO
 
@@ -127,6 +145,8 @@ Mandatory findings: F-const-1
   `getRun` are pointer-equal attributes. So are a zig-zag tree written
   in text and the same tree built by `get`.
 - `getField(i)` for a non-spine field does not build the suffix.
+- A plain con has one cell, a null tail and spine 0, and the verifier
+  rejects a run that `Base::get` built non-canonical.
 - U22 writes `T/idr/constants/run`.
 - **Tempting partial:** a new `#idr.list` attribute that readers must
   learn. Rejected: thirty readers would each need a second case, and
@@ -137,8 +157,9 @@ Mandatory findings: F-const-1
 
 ## Escalate if
 
-- An `Idr_Attr` cannot carry a custom storage class with the ODS shape
-  of C1.1 item 6. Report the ODS text that works, for the coordinator.
+- The generated storage, walk or replace cannot hold C7.1's form with
+  the parameters of C1.1 item 6. Report the ODS text that works, for
+  the coordinator.
 
 ## Stop and return
 
@@ -170,7 +191,8 @@ and seams.
     `make test-idr`, `make test-mlir-tools`, cmake, ninja, the Idris
     compiler, or any suite. `make check` builds the test runner, and it
     is red mid-swarm by design (C13); do not fix what it shows.
-  - You may run the one spec test your acceptance names, and only it:
+  - You may run the one spec test your acceptance names, and only it
+    (U01 also runs its own check and reproducers, C13):
     `cd tests/spec/<name> && IDRIS_MLIR_ROOT=<repository root> sh run | diff - expected`.
   - Write against the packet text.
   - Report `Verification: NotRun (swarm policy)` for what you did not
@@ -197,6 +219,10 @@ and seams.
   - What the compiler cannot compile is rejected with
     `unsupported (<rule>)`. Never miscompile silently.
   - No pass drops a quantity, erasure or linearity.
+  - There is no oracle. A test's committed expected files are its
+    specification, and the runtime's documented semantics are a
+    primitive's meaning. Never justify a meaning, a rule or a test by
+    what Idris's Chez backend or stock evaluator does.
   - Every `.cc` or `.cppm` stays at 400 lines or fewer unless
     `T/spec/file-size/allowed` already lists it; split a unit in your
     lane rather than grow it.
@@ -205,7 +231,7 @@ and seams.
   - No new dependency, and no Python.
 - **No new numbers.** Do not add a limit, budget, threshold or retry
   count. Existing ones keep their values and their comments.
-- **No tests outside U22, U23 and U01's `tests/upstream` dirs.** Your
+- **No tests outside U22, U23 and U01's `tests/upstream` dir.** Your
   lane describes the evidence its change needs in the handoff, and U22
   or U23 writes it from C12.
 - **Concurrent work.** Twenty-two other lanes and the coordinator write

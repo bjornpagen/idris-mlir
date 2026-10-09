@@ -30,9 +30,13 @@ Mandatory findings: F-mode-1 F-mode-4 F-mode-5 F-mode-6 F-poison-2
    Mandatory.
 5. **The sentinels.** The C2.4 sites in `Lower/{Lowering,TailPosition,Matches,Loops,Facts}.cppm`
    use no sentinel. Mandatory.
-6. **The walk rule** (C7.2). `Lowering.cppm`'s `functionClosure`, which
-   collects the functions a constant names, walks a run's cells and
-   tail, never `getFields()[s]`. Mandatory.
+6. **The walk rule** (C7.2). `Lowering.cppm`'s `functionClosure`
+   (`:101-129`), which tells whether a constant holds a closure, walks a
+   run's cells and tail, never `getFields()[s]`. It keeps the `seen` set
+   1677b8cb gave it, so a shared value is read once
+   (`T/programs/eval/shared-result`). Its `!idr.lazy` exception goes:
+   after `idr-defunctionalize` no suspension is a `#idr.closure` (C5.1),
+   so any `#idr.closure` left is a closure. Mandatory.
 
 ## Owner / exclusive writes
 
@@ -124,7 +128,8 @@ Mandatory findings: F-mode-1 F-mode-4 F-mode-5 F-mode-6 F-poison-2
   `TailCalls/Pass.cc`.
 - **`Lower.cppm`, `Patterns.cppm` and `CMakeLists.txt`** per outcome 4.
 - **Sentinels.** Apply C2.4 to the six sites.
-- **`functionClosure`.** Walk constants by C7.2's walk rule.
+- **`functionClosure`.** Walk constants by C7.2's walk rule, keep its
+  `seen` set, and drop its `!idr.lazy` exception (outcome 6).
 
 ## Delete
 
@@ -195,7 +200,8 @@ list is empty of survivors. Return the changed paths,
     `make test-idr`, `make test-mlir-tools`, cmake, ninja, the Idris
     compiler, or any suite. `make check` builds the test runner, and it
     is red mid-swarm by design (C13); do not fix what it shows.
-  - You may run the one spec test your acceptance names, and only it:
+  - You may run the one spec test your acceptance names, and only it
+    (U01 also runs its own check and reproducers, C13):
     `cd tests/spec/<name> && IDRIS_MLIR_ROOT=<repository root> sh run | diff - expected`.
   - Write against the packet text.
   - Report `Verification: NotRun (swarm policy)` for what you did not
@@ -222,6 +228,10 @@ list is empty of survivors. Return the changed paths,
   - What the compiler cannot compile is rejected with
     `unsupported (<rule>)`. Never miscompile silently.
   - No pass drops a quantity, erasure or linearity.
+  - There is no oracle. A test's committed expected files are its
+    specification, and the runtime's documented semantics are a
+    primitive's meaning. Never justify a meaning, a rule or a test by
+    what Idris's Chez backend or stock evaluator does.
   - Every `.cc` or `.cppm` stays at 400 lines or fewer unless
     `T/spec/file-size/allowed` already lists it; split a unit in your
     lane rather than grow it.
@@ -230,7 +240,7 @@ list is empty of survivors. Return the changed paths,
   - No new dependency, and no Python.
 - **No new numbers.** Do not add a limit, budget, threshold or retry
   count. Existing ones keep their values and their comments.
-- **No tests outside U22, U23 and U01's `tests/upstream` dirs.** Your
+- **No tests outside U22, U23 and U01's `tests/upstream` dir.** Your
   lane describes the evidence its change needs in the handoff, and U22
   or U23 writes it from C12.
 - **Concurrent work.** Twenty-two other lanes and the coordinator write

@@ -36,6 +36,10 @@ Mandatory findings: F-poison-1
 - `IDR/Narrow/{Words,Facts,Versions,Naturals}.cppm`.
 - `IDR/Tail/{Returned,Loop}.cppm`.
 - `IDR/Specialize/{KeyOf,Specialization,ShapeOf,UnrollSize}.cppm`.
+- `IDR/Specialize/Clones.cppm` (`CloneTable::settleBreaker`) and
+  `IDR/Specialize/BindingTimes.cppm` (the join for raised clones), new
+  at ccc3e1dc, and `T/idr/specialize/breaker-clones.mlir`, which states
+  what they keep.
 - `grep -rn 'create<\|::create(' foreign/idr/lib/Narrow foreign/idr/lib/Tail foreign/idr/lib/Specialize`,
   for the creators of partial ops.
 
@@ -63,7 +67,9 @@ Mandatory findings: F-poison-1
 ## Implement
 
 - Per the fixed decisions.
-- **Walkers.** The four `Specialize` units follow a list constant's
+- **Walkers.** The four `Specialize` units (`KeyOf.cppm:29`,
+  `Specialization.cppm:107`, `ShapeOf.cppm:43`, `UnrollSize.cppm:34`,
+  review R3; the same lines at ccc3e1dc) follow a list constant's
   spine through `getRunCells()` and `getTail()`, never `getFields()[s]`.
   A key or a shape computed from a run is the same as from the nested
   form, since the attribute is the same value.
@@ -77,12 +83,22 @@ Mandatory findings: F-poison-1
 
 - Do not change what Narrow narrows, what Tail makes into loops, or
   what Specialize clones.
+- Do not change which clone is a loop breaker. Keep
+  `CloneTable::settleBreaker` and the binding-time join for raised
+  clones (ccc3e1dc): without them `idr-simplify` never ends on
+  `T/programs/eval/latent-loop*` (C2.4, C7.2).
 - Do not touch `Idr_CloneAttr`: F-own-4 refutes changing it.
 
 ## Acceptance
 
 - `T/idr/narrow`, `T/idr/tail` and `T/idr/specialize` (U22 keeps them)
   and all programs pass at integration.
+- Among them, `T/idr/specialize/breaker-clones`, the raised-clone case
+  of `T/idr/specialize/binding-times.mlir`, and
+  `T/programs/eval/latent-loop`, `latent-loop-delay` and
+  `latent-loop-accumulator` (ccc3e1dc) pass: the lane keeps
+  `CloneTable::settleBreaker` and the binding-time join for raised
+  clones.
 - `grep -rn 'PoisonOp' foreign/idr/lib/Narrow foreign/idr/lib/Tail foreign/idr/lib/Specialize`
   shows only IR values of the program, each with a comment saying so.
 - **Tempting partial:** replacing a sentinel with a different sentinel
@@ -121,7 +137,8 @@ You are done when the four outcomes hold. Return the changed paths,
     `make test-idr`, `make test-mlir-tools`, cmake, ninja, the Idris
     compiler, or any suite. `make check` builds the test runner, and it
     is red mid-swarm by design (C13); do not fix what it shows.
-  - You may run the one spec test your acceptance names, and only it:
+  - You may run the one spec test your acceptance names, and only it
+    (U01 also runs its own check and reproducers, C13):
     `cd tests/spec/<name> && IDRIS_MLIR_ROOT=<repository root> sh run | diff - expected`.
   - Write against the packet text.
   - Report `Verification: NotRun (swarm policy)` for what you did not
@@ -148,6 +165,10 @@ You are done when the four outcomes hold. Return the changed paths,
   - What the compiler cannot compile is rejected with
     `unsupported (<rule>)`. Never miscompile silently.
   - No pass drops a quantity, erasure or linearity.
+  - There is no oracle. A test's committed expected files are its
+    specification, and the runtime's documented semantics are a
+    primitive's meaning. Never justify a meaning, a rule or a test by
+    what Idris's Chez backend or stock evaluator does.
   - Every `.cc` or `.cppm` stays at 400 lines or fewer unless
     `T/spec/file-size/allowed` already lists it; split a unit in your
     lane rather than grow it.
@@ -156,7 +177,7 @@ You are done when the four outcomes hold. Return the changed paths,
   - No new dependency, and no Python.
 - **No new numbers.** Do not add a limit, budget, threshold or retry
   count. Existing ones keep their values and their comments.
-- **No tests outside U22, U23 and U01's `tests/upstream` dirs.** Your
+- **No tests outside U22, U23 and U01's `tests/upstream` dir.** Your
   lane describes the evidence its change needs in the handoff, and U22
   or U23 writes it from C12.
 - **Concurrent work.** Twenty-two other lanes and the coordinator write

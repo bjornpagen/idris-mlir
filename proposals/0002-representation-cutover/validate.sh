@@ -34,6 +34,8 @@ IDR/Lower/Meter.cppm
 IDR/Lower/Meter
 IDR/Isolate
 IDR/Demand
+upstream/16-remove-dead-values-unchanged-call
+T/upstream/remove-dead-values-unchanged-call
 EOF
 
 expand() {

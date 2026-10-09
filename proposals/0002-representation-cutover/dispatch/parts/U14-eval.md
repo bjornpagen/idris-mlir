@@ -71,11 +71,14 @@ Mandatory findings: F-clo-2 F-clo-3 F-const-2
 - **The JIT's runtime symbols.** `IDR/Eval/Jit.cppm`'s `symbols()` binds
   every runtime function that lowered pure code may call. It gains
   `idris_rt_inc` and `idris_rt_dec` (C6.1 emits them in every lowering;
-  today's table at `Jit.cppm:85-122` has neither, because JIT mode never
+  today's table at `Jit.cppm:85-130` has neither, because JIT mode never
   emitted them), `idris_rt_caf_release` (`@__idr_release_cafs` is emitted
   in every module, C5.5), `idris_rt_free_cell` (the `excl` force),
   `idris_rt_handle_is_null` and `idris_rt_handle_string`. It loses each entry that lowered code no
-  longer names: grep the lowering for each one before you remove it.
+  longer names: grep the lowering for each one before you remove it. It
+  keeps `idris_rt_array_new`, which 1677b8cb bound: a forced constant
+  suspension reaches an array allocation at compile time
+  (`T/programs/arrays/buffer-ops`).
 - **Lists.** A list reads as a run: Reify collects the cells of one
   constructor along its spine into a vector, then calls
   `ConAttr::getRun` once. A list with one cell reads as a plain
@@ -87,7 +90,8 @@ Mandatory findings: F-clo-2 F-clo-3 F-const-2
   `Passes.td` (the coordinator).
 - Memo sums and closure sums (U09), and U10's layouts, with
   `Layouts::isMemo(Type)`.
-- `ConAttr::getRun` and the C7.2 accessors (U19).
+- `ConAttr::getRun` and the C7.2 accessors (U19's, and the hub's
+  generated and inline ones, C1.1 item 6).
 - `idr::defunctionalize::defunctionalize` and its unknown keys (U09).
 
 ## Outputs

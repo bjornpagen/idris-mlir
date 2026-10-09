@@ -29,9 +29,13 @@ Mandatory findings: F-mode-1 F-mode-4 F-mode-5 F-mode-6 F-poison-2
    Mandatory.
 5. **The sentinels.** The C2.4 sites in `Lower/{Lowering,TailPosition,Matches,Loops,Facts}.cppm`
    use no sentinel. Mandatory.
-6. **The walk rule** (C7.2). `Lowering.cppm`'s `functionClosure`, which
-   collects the functions a constant names, walks a run's cells and
-   tail, never `getFields()[s]`. Mandatory.
+6. **The walk rule** (C7.2). `Lowering.cppm`'s `functionClosure`
+   (`:101-129`), which tells whether a constant holds a closure, walks a
+   run's cells and tail, never `getFields()[s]`. It keeps the `seen` set
+   1677b8cb gave it, so a shared value is read once
+   (`T/programs/eval/shared-result`). Its `!idr.lazy` exception goes:
+   after `idr-defunctionalize` no suspension is a `#idr.closure` (C5.1),
+   so any `#idr.closure` left is a closure. Mandatory.
 
 ## Owner / exclusive writes
 
@@ -123,7 +127,8 @@ Mandatory findings: F-mode-1 F-mode-4 F-mode-5 F-mode-6 F-poison-2
   `TailCalls/Pass.cc`.
 - **`Lower.cppm`, `Patterns.cppm` and `CMakeLists.txt`** per outcome 4.
 - **Sentinels.** Apply C2.4 to the six sites.
-- **`functionClosure`.** Walk constants by C7.2's walk rule.
+- **`functionClosure`.** Walk constants by C7.2's walk rule, keep its
+  `seen` set, and drop its `!idr.lazy` exception (outcome 6).
 
 ## Delete
 

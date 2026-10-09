@@ -20,31 +20,38 @@
     "compiler/idris-mlir.ipkg",
     "T/spec",
     "PINS.md",
+    "upstream/02-composite-fixed-point-sccp/README.md",
+    "upstream/06-remove-dead-values-unreachable/README.md",
     "README.md",
     "AGENTS.md",
     "findings",
-    "proposals"
+    "proposals",
+    "IDR/Dialect/Canonicalize/Strings.cc",
+    "T/testutils.sh"
   ],
   "lanes": {
     "U01": {
-      "title": "Upstream patches instead of workarounds",
+      "title": "An upstream patch instead of idr-dead-values",
       "writes": [
-        "upstream/11-clang-module-layout-forward-declaration",
-        "upstream/12-clang-module-predeclared-new",
-        "upstream/06-remove-dead-values-unreachable",
-        "T/upstream/clang-module-layout-forward-declaration",
-        "T/upstream/clang-module-predeclared-new",
-        "T/upstream/remove-dead-values-unreachable",
-        "IDR/Stack/Escape.cppm",
-        "IDR/Driver/Retarget.cppm",
+        "upstream/16-remove-dead-values-unchanged-call",
+        "T/upstream/remove-dead-values-unchanged-call",
         "IDR/Simplify"
       ],
-      "findings": ["F-up-1", "F-up-2", "F-up-3"]
+      "findings": [
+        "F-up-3"
+      ]
     },
     "U02": {
       "title": "The cycle check, the linearity verifier's sentinel, idr-canonicalize on upstream's pass",
-      "writes": ["IDR/Verify", "IDR/Canonicalize"],
-      "findings": ["F-prom-1", "F-own-5", "F-poison-7"]
+      "writes": [
+        "IDR/Verify",
+        "IDR/Canonicalize"
+      ],
+      "findings": [
+        "F-prom-1",
+        "F-own-5",
+        "F-poison-7"
+      ]
     },
     "U03": {
       "title": "Ownership declared on ops and grades: consumption, the borrow grade, one holds-references",
@@ -60,7 +67,12 @@
         "IDR/Dialect/Ops/Dest.cc",
         "IDR/Dialect/Ops/Con.cc"
       ],
-      "findings": ["F-own-1", "F-own-2", "F-own-3", "F-poison-5"]
+      "findings": [
+        "F-own-1",
+        "F-own-2",
+        "F-own-3",
+        "F-poison-5"
+      ]
     },
     "U04": {
       "title": "Guards and total ops in the dialect: folders, speculation, causes",
@@ -77,9 +89,15 @@
         "IDR/Fold",
         "IDR/Ops",
         "IDR/Dialect/Ops/Generated.cc",
-        "IDR/Canon"
+        "IDR/Canon",
+        "IDR/Dialect/Ops/Field.cc",
+        "IDR/Dialect/Canonicalize/Con.cc",
+        "IDR/Dialect/Ops/Closure.cc"
       ],
-      "findings": ["F-guard-1", "F-guard-6"]
+      "findings": [
+        "F-guard-1",
+        "F-guard-6"
+      ]
     },
     "U05": {
       "title": "Guards lowered once; the total ops' lowering checks nothing",
@@ -93,12 +111,20 @@
         "IDR/Lower/Words.cppm",
         "IDR/Lower/RuntimeCalls.cppm"
       ],
-      "findings": ["F-guard-2"]
+      "findings": [
+        "F-guard-2"
+      ]
     },
     "U06": {
       "title": "Guards proved away: idr-in-bounds as the guards' prover, the expect properties",
-      "writes": ["IDR/InBounds", "IDR/Expect"],
-      "findings": ["F-guard-3", "F-poison-6"]
+      "writes": [
+        "IDR/InBounds",
+        "IDR/Expect"
+      ],
+      "findings": [
+        "F-guard-3",
+        "F-poison-6"
+      ]
     },
     "U07": {
       "title": "The Idris side writes regions: lambdas, delays and region primitives",
@@ -110,28 +136,49 @@
         "CS/Emit/Monad.idr",
         "CS/Frontend/Translate/Terms.idr",
         "CS/Frontend/Translate/Closed.idr",
-        "CS/Emit/Attributes.idr"
+        "CS/Emit/Attributes.idr",
+        "CS/Emit.idr",
+        "CS/Frontend/Translate/State.idr",
+        "CS/Frontend/Translate/Cases.idr"
       ],
-      "findings": ["F-clo-6", "F-prim-2"]
+      "findings": [
+        "F-clo-6",
+        "F-prim-2"
+      ]
     },
     "U08": {
       "title": "idr-isolate: closure conversion on upstream's isolation",
-      "writes": ["IDR/Isolate", "IDR/Dialect/Ops/Regions.cc"],
-      "findings": ["F-clo-7"]
+      "writes": [
+        "IDR/Isolate",
+        "IDR/Dialect/Ops/Regions.cc"
+      ],
+      "findings": [
+        "F-clo-7"
+      ]
     },
     "U09": {
       "title": "Thunks become memo sums in idr-defunctionalize",
       "writes": [
         "IDR/Defunctionalize",
         "IDR/Dialect/Ops/Lazy.cc",
-        "IDR/Dialect/Ops/Data.cc"
+        "IDR/Dialect/Ops/Data.cc",
+        "IDR/Graph"
       ],
-      "findings": ["F-lazy-6", "F-lazy-8", "F-poison-8"]
+      "findings": [
+        "F-lazy-6",
+        "F-lazy-8",
+        "F-poison-8"
+      ]
     },
     "U10": {
       "title": "Layout without labels or code: memo sums sized once",
-      "writes": ["IDR/Layout"],
-      "findings": ["F-clo-4", "F-lazy-9"]
+      "writes": [
+        "IDR/Layout"
+      ],
+      "findings": [
+        "F-clo-4",
+        "F-lazy-9"
+      ]
     },
     "U11": {
       "title": "The lowering's runtime side: no mode, no closures, the force as a small evaluator",
@@ -142,12 +189,26 @@
         "IDR/Lower/BuildBox.cppm",
         "IDR/Lower/Fields.cppm"
       ],
-      "findings": ["F-mode-2", "F-clo-1", "F-lazy-1", "F-lazy-2", "F-lazy-3", "F-lazy-7", "F-poison-3"]
+      "findings": [
+        "F-mode-2",
+        "F-clo-1",
+        "F-lazy-1",
+        "F-lazy-2",
+        "F-lazy-3",
+        "F-lazy-7",
+        "F-poison-3"
+      ]
     },
     "U12": {
       "title": "Static data marked and flat: static memo cells by kind, runs lowered by a loop",
-      "writes": ["IDR/Lower/StaticData.cppm"],
-      "findings": ["F-lazy-4", "F-poison-4", "F-const-3"]
+      "writes": [
+        "IDR/Lower/StaticData.cppm"
+      ],
+      "findings": [
+        "F-lazy-4",
+        "F-poison-4",
+        "F-const-3"
+      ]
     },
     "U13": {
       "title": "One lowering for both pipelines: idr-entry, idr-meter",
@@ -168,22 +229,50 @@
         "IDR/Lower/Meter.cppm",
         "IDR/Lower/Meter"
       ],
-      "findings": ["F-mode-1", "F-mode-4", "F-mode-5", "F-mode-6", "F-poison-2"]
+      "findings": [
+        "F-mode-1",
+        "F-mode-4",
+        "F-mode-5",
+        "F-mode-6",
+        "F-poison-2"
+      ]
     },
     "U14": {
       "title": "The evaluator runs the program's own pipeline: defunctionalized scratch, reify of sums",
-      "writes": ["IDR/Eval"],
-      "findings": ["F-clo-2", "F-clo-3", "F-const-2"]
+      "writes": [
+        "IDR/Eval"
+      ],
+      "findings": [
+        "F-clo-2",
+        "F-clo-3",
+        "F-const-2"
+      ]
     },
     "U15": {
       "title": "The runtime's core: one crash entry, arguments, no closure kind, no kept list",
-      "writes": ["RT/Rc", "RT/Start", "RT/Eval", "RT/Alloc"],
-      "findings": ["F-mode-3", "F-clo-5", "F-lazy-5"]
+      "writes": [
+        "RT/Rc",
+        "RT/Start",
+        "RT/Eval",
+        "RT/Alloc"
+      ],
+      "findings": [
+        "F-mode-3",
+        "F-clo-5",
+        "F-lazy-5"
+      ]
     },
     "U16": {
       "title": "Base's surface in the runtime: files, directories, clocks, environment, terminal, handles",
-      "writes": ["RT/Platform", "RT/Io", "RT/CMakeLists.txt"],
-      "findings": ["F-base-2", "F-base-7"]
+      "writes": [
+        "RT/Platform",
+        "RT/Io",
+        "RT/CMakeLists.txt"
+      ],
+      "findings": [
+        "F-base-2",
+        "F-base-7"
+      ]
     },
     "U17": {
       "title": "One primitive set: generated IdrPrim, guards emitted by Emit",
@@ -193,17 +282,38 @@
         "CS/Frontend/Translate/Primitives.idr",
         "foreign/idr/tools/idris-mlir-tblgen.cc"
       ],
-      "findings": ["F-prim-1", "F-guard-4"]
+      "findings": [
+        "F-prim-1",
+        "F-guard-4"
+      ]
     },
     "U18": {
       "title": "The registry: base's surface recognized, pointers as handles, exclusions by name",
-      "writes": ["CS/Registry", "CS/Registry.idr", "CS/Frontend/Translate/Types.idr", "CS/Frontend/Translate/Hooks.idr"],
-      "findings": ["F-base-1", "F-base-3", "F-base-4", "F-base-5", "F-base-6"]
+      "writes": [
+        "CS/Registry",
+        "CS/Registry.idr",
+        "CS/Frontend/Translate/Types.idr",
+        "CS/Frontend/Translate/Hooks.idr",
+        "CS/Frontend/Profile.idr",
+        "CS/Frontend/Translate/Instances.idr"
+      ],
+      "findings": [
+        "F-base-1",
+        "F-base-3",
+        "F-base-4",
+        "F-base-5",
+        "F-base-6"
+      ]
     },
     "U19": {
       "title": "Flat constants: #idr.con runs",
-      "writes": ["IDR/Dialect/Attrs", "IDR/Sharing"],
-      "findings": ["F-const-1"]
+      "writes": [
+        "IDR/Dialect/Attrs",
+        "IDR/Sharing"
+      ],
+      "findings": [
+        "F-const-1"
+      ]
     },
     "U20": {
       "title": "The in-place promise: idr-demand and its flag",
@@ -213,25 +323,34 @@
         "IDR/Driver/Run.cppm",
         "CS/Frontend/Main.idr"
       ],
-      "findings": ["F-prom-2"]
+      "findings": [
+        "F-prom-2"
+      ]
     },
     "U21": {
       "title": "Narrow, Tail and Specialize on the new grades, without sentinels",
-      "writes": ["IDR/Narrow", "IDR/Tail", "IDR/Specialize"],
-      "findings": ["F-poison-1"]
+      "writes": [
+        "IDR/Narrow",
+        "IDR/Tail",
+        "IDR/Specialize"
+      ],
+      "findings": [
+        "F-poison-1"
+      ]
     },
     "U22": {
       "title": "The dialect suite: discriminators in tests/idr",
-      "writes": ["T/idr"],
+      "writes": [
+        "T/idr"
+      ],
       "findings": []
     },
     "U23": {
-      "title": "The program suites: discriminators, rejections, divergences",
+      "title": "The program suites: discriminators and rejections",
       "writes": [
         "T/programs",
         "T/accept",
         "T/reject",
-        "T/properties",
         "T/lib",
         "T/Main.idr",
         "T/registry",
