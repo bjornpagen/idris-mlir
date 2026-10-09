@@ -30,7 +30,7 @@ linear, we may just want to have our better in-house implementation").
   of mutable-buffers.md §5 and §9 (W1/W2) is for value-semantic data,
   `Vect` as a value (representation.md R12), when that lands. What the
   types keep is quantity 1 on the handle, which the verifier checks after
-  every pass; what the compiler proves is exclusivity (`!idr.q<1 excl,
+  every pass; what the compiler proves is exclusivity (`!idr.q<one, excl,
   ...>` on every array thread of the fixtures), and the properties the
   fixtures state are `counts-nothing` and `no-heap-allocation` on the
   loops.

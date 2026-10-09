@@ -11,7 +11,7 @@ func.func @f(%d: f64) {
 
 func.func private @g(%a: i64, %b: f64) -> i64
 func.func @f(%x: i64) {
-  // expected-error @+1 {{has type '!idr.fn<(f64) -> ()>', but a closure of @g with these captures is '!idr.fn<(f64) -> (i64)>'}}
+  // expected-error @+1 {{has type '!idr.fn<(f64) -> ()>', but a closure of @g with these captures is '!idr.fn<(f64) -> i64>'}}
   %c = idr.closure @g(%x) : (i64) -> !idr.fn<(f64) -> ()>
   return
 }

@@ -196,7 +196,7 @@ func.func @f() {
 
 func.func private @g(%a: i64, %b: i64) -> i64
 func.func @f() {
-  // expected-error @+1 {{has a closure of @g, of type '!idr.fn<(i64) -> (i64)>', where '!idr.fn<(i64, i64) -> (i64)>' is expected}}
+  // expected-error @+1 {{has a closure of @g, of type '!idr.fn<(i64) -> i64>', where '!idr.fn<(i64, i64) -> i64>' is expected}}
   %c = idr.constant #idr.closure<@g, [1 : i64]> : !idr.fn<(i64, i64) -> (i64)>
   return
 }
