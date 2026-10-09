@@ -1,5 +1,5 @@
-// RUN: idris-mlir-opt %s --idr-effects --idr-identity --symbol-dce | FileCheck %s --implicit-check-not=@weaken --implicit-check-not=@same --implicit-check-not=@carry
-// RUN: idris-mlir-opt %s --idr-effects --idr-identity --idr-expect=holds=not-called=@weaken,not-called=@weakenTerm,not-called=@weakenUnder,not-called=@weakenTree,not-called=@weakenForest,not-called=@same,not-called=@carry -o /dev/null
+// RUN: idris-mlir-opt %s --idr-effects --idr-identity --symbol-dce | FileCheck %s --implicit-check-not=@weaken --implicit-check-not=@same --implicit-check-not=@carry --implicit-check-not=@second
+// RUN: idris-mlir-opt %s --idr-effects --idr-identity --idr-expect=holds=not-called=@weaken,not-called=@weakenTerm,not-called=@weakenUnder,not-called=@weakenTree,not-called=@weakenForest,not-called=@same,not-called=@carry,not-called=@second -o /dev/null
 // RUN: idris-mlir-opt %s --idr-effects --idr-identity -o %t.once.mlir
 // RUN: idris-mlir-opt %t.once.mlir --idr-identity -o %t.twice.mlir
 // RUN: idris-mlir-opt %t.once.mlir -o %t.again.mlir
@@ -12,17 +12,21 @@
 // never gives back; a tree and a forest weakened by mutual recursion, a
 // region Idris proved is never taken among them; a function of a linear
 // argument, whose call becomes the argument's one use; and one that passes
-// its argument on whole, counting down another, which Idris proved ends.
-// A function that calls itself on its whole argument without that proof,
-// counting down or not, is not known to return and keeps its calls, as do
-// one that crashes on a path, one that gives back zero whatever it gets,
-// and one that swaps a node's children. Run again on what it leaves, the
-// pass changes nothing.
+// its argument on whole, counting down another, which Idris proved ends;
+// and one of two arguments of the type it gives back, whose calls become
+// that argument and not the other. A function that calls itself on its
+// whole argument without that proof, counting down or not, is not known to
+// return and keeps its calls, as do one that crashes on a path, one that
+// gives back zero whatever it gets, one that swaps a node's children, and
+// one that gives back its argument only if the swapping one did: the
+// assumption about the swapping one goes, and the one that rests on it
+// goes with it. Run again on what it leaves, the pass changes nothing.
 // CHECK-LABEL: func.func private @loops(
 // CHECK-LABEL: func.func private @drift(
 // CHECK-LABEL: func.func private @crashes(
 // CHECK-LABEL: func.func private @zero(
 // CHECK-LABEL: func.func private @flip(
+// CHECK-LABEL: func.func private @leans(
 // CHECK-LABEL: func.func @main(
 // CHECK-SAME: %[[T:[^:]*]]: !idr.box<@Term>, %[[F:[^:]*]]: !idr.box<@Forest>, %[[I:[^:]*]]: !idr.nat, %[[D:[^:]*]]: !idr.nat, %[[K:[^:]*]]: i64)
 // CHECK: %[[FL:.*]] = idr.lin.enter %[[F]]
@@ -32,7 +36,8 @@
 // CHECK: %[[Z:.*]] = {{(func.)?}}call @zero(%[[I]])
 // CHECK: %[[S:.*]] = {{(func.)?}}call @flip(%[[T]])
 // CHECK: %[[R:.*]] = {{(func.)?}}call @drift(%[[K]], %[[F]])
-// CHECK: return %[[T]], %[[T]], %[[F]], %[[I]], %[[FU]], %[[F3]], %[[F4]], %[[Z]], %[[S]], %[[F]], %[[R]] :
+// CHECK: %[[L:.*]] = {{(func.)?}}call @leans(%[[T]])
+// CHECK: return %[[T]], %[[T]], %[[F]], %[[I]], %[[FU]], %[[F3]], %[[F4]], %[[Z]], %[[S]], %[[F]], %[[R]], %[[L]], %[[F]] :
 module {
   idr.data @Term box {
     idr.ctor @Var (!idr.erased, !idr.nat)
@@ -251,7 +256,28 @@ module {
     }
     return %r : !idr.box<@Term>
   }
-  func.func @main(%t: !idr.box<@Term>, %f: !idr.box<@Forest>, %i: !idr.nat, %d: !idr.nat, %k: i64) -> (!idr.box<@Term>, !idr.box<@Term>, !idr.box<@Forest>, !idr.nat, !idr.box<@Forest>, !idr.box<@Forest>, !idr.box<@Forest>, !idr.nat, !idr.box<@Term>, !idr.box<@Forest>, !idr.box<@Forest>) {
+  // Gives back its argument only if @flip does, on a part below it: in
+  // whatever order the functions are checked, it keeps its call once @flip
+  // is found not to.
+  func.func private @leans(%t: !idr.box<@Term>) -> !idr.box<@Term> attributes {idr.total} {
+    %e = idr.constant #idr.erased : !idr.erased
+    %r = idr.match %t : !idr.box<@Term> -> (!idr.box<@Term>) {
+    case @App(%m: !idr.erased, %f: !idr.box<@Term>, %a: !idr.box<@Term>) {
+      %f2 = func.call @flip(%f) : (!idr.box<@Term>) -> !idr.box<@Term>
+      %c = idr.con @Term::@App(%e, %f2, %a) : (!idr.erased, !idr.box<@Term>, !idr.box<@Term>) -> !idr.box<@Term>
+      idr.yield %c : !idr.box<@Term>
+    }
+    default {
+      idr.yield %t : !idr.box<@Term>
+    }
+    }
+    return %r : !idr.box<@Term>
+  }
+  // Two arguments of the type it gives back; it gives back the second.
+  func.func private @second(%x: !idr.box<@Forest>, %y: !idr.box<@Forest>) -> !idr.box<@Forest> attributes {idr.total} {
+    return %y : !idr.box<@Forest>
+  }
+  func.func @main(%t: !idr.box<@Term>, %f: !idr.box<@Forest>, %i: !idr.nat, %d: !idr.nat, %k: i64) -> (!idr.box<@Term>, !idr.box<@Term>, !idr.box<@Forest>, !idr.nat, !idr.box<@Forest>, !idr.box<@Forest>, !idr.box<@Forest>, !idr.nat, !idr.box<@Term>, !idr.box<@Forest>, !idr.box<@Forest>, !idr.box<@Term>, !idr.box<@Forest>) {
     %e = idr.constant #idr.erased : !idr.erased
     %t1 = func.call @weakenTerm(%e, %t) : (!idr.erased, !idr.box<@Term>) -> !idr.box<@Term>
     %t2 = func.call @weakenUnder(%d, %e, %t1) : (!idr.nat, !idr.erased, !idr.box<@Term>) -> !idr.box<@Term>
@@ -265,6 +291,8 @@ module {
     %s = func.call @flip(%t) : (!idr.box<@Term>) -> !idr.box<@Term>
     %c = func.call @carry(%k, %f) : (i64, !idr.box<@Forest>) -> !idr.box<@Forest>
     %r = func.call @drift(%k, %f) : (i64, !idr.box<@Forest>) -> !idr.box<@Forest>
-    return %t1, %t2, %f1, %j, %f2, %f3, %f4, %z, %s, %c, %r : !idr.box<@Term>, !idr.box<@Term>, !idr.box<@Forest>, !idr.nat, !idr.box<@Forest>, !idr.box<@Forest>, !idr.box<@Forest>, !idr.nat, !idr.box<@Term>, !idr.box<@Forest>, !idr.box<@Forest>
+    %l = func.call @leans(%t) : (!idr.box<@Term>) -> !idr.box<@Term>
+    %g = func.call @second(%f4, %f) : (!idr.box<@Forest>, !idr.box<@Forest>) -> !idr.box<@Forest>
+    return %t1, %t2, %f1, %j, %f2, %f3, %f4, %z, %s, %c, %r, %l, %g : !idr.box<@Term>, !idr.box<@Term>, !idr.box<@Forest>, !idr.nat, !idr.box<@Forest>, !idr.box<@Forest>, !idr.box<@Forest>, !idr.nat, !idr.box<@Term>, !idr.box<@Forest>, !idr.box<@Forest>, !idr.box<@Term>, !idr.box<@Forest>
   }
 }

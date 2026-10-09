@@ -284,10 +284,11 @@ def IdrIdentity : Pass<"idr-identity", "::mlir::ModuleOp"> {
     that constructor (by the case of a match around the return, or as the
     one constructor of its type), each field that holds something at
     runtime the same field of x rebuilt, whatever an erased field holds; a
-    constant where x is known to be that literal, or a constructor of
-    erased fields alone; the successor of x's predecessor; a match whose
-    every region that returns yields x rebuilt; or a call assumed to give
-    back what it is passed, passed x rebuilt. The function must also only
+    constant where x is known to be that literal, or to be that constructor
+    with erased fields alone; the successor of x's predecessor; a match
+    whose every region that returns yields x rebuilt; or a call assumed to
+    give back what it is passed, passed x itself (a rebuilt x is a new
+    value, not a part of x). The function must also only
     compute: every other op only allocates its results (a call as its
     callee's `idr.effects` says), a region that does not return ends in
     ub.unreachable, which Idris proved is never taken, and every call
