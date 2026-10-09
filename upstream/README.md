@@ -67,6 +67,7 @@ Re-run `check-mlir` before each pull request, on the then-current main.
 | 10 | recursive-attribute-parser | an RFC on Discourse first | not ready; no patch; still reproduces at 7208ba24 (arm64 macOS) |
 | 11 | clang-module-layout-forward-declaration | nothing until reduced | not ready; rerun on x86_64 Linux at the pin (it does not reproduce on arm64 macOS), then reduce, compare with #219926 |
 | 15 | ld64-lld-unknown-tapi-target | never | carried, the local skip only (the pin has `arm64e.x1`, b8007a8e4) |
+| 16 | remove-dead-values-unchanged-call | issue + PR: `eraseOpResults` keeps an op it erases no result of, as `eraseOperands` does | carried (0451b1b8); not filed; `check-mlir` not run on main; the toolchain is not yet rebuilt with it |
 
 Gone when the pin moved from llvmorg-23.1.2 to main at 7208ba24, each
 with its check and its PINS.md entry: 13 (uplift-final-counter) and 14
