@@ -135,7 +135,7 @@ and restores it, harmlessly.
   unchanged; `Core.TTC` (and `TTImp.TTImp.TTC` for `WithNameOpts`, whose
   `DataOpt` is defined there) writes each one. Upstream's
   `DocBindFC`, `.bind`, `HasDefault`, `MkDef` and the generic
-  `get`/`set`/`update`/`getAt`/`drop` had no use left and are gone, as is
+  `get`/`set`/`update`/`getAt`/`drop` had no use left and are gone, as are
   the public re-exports of `Data.List.Quantifiers`, `Data.List` and
   `Data.Maybe` that came with `Libraries.Data.WithData`
   (`Core.Normalise.Eval` imports `Data.List.Quantifiers` itself).
