@@ -13,13 +13,9 @@ import Libraries.Data.IMaybe
 import Libraries.Text.PrettyPrint.Prettyprinter
 import Libraries.Text.PrettyPrint.Prettyprinter.Util
 import Libraries.Data.Tap
-import Libraries.Data.WithData
 
 import public Data.IORef
 import System.File
-
-%hide Libraries.Data.Record.KeyVal.label
-%hide Libraries.Data.Record.LabelledValue.label
 
 %default covering
 
@@ -869,10 +865,77 @@ namespace SnocList
   traverse_ : (a -> Core b) -> SnocList a -> Core ()
   traverse_ f xs = traverse_' f (reverse xs)
 
-namespace WithData
+-- The payload of a combination of metadata, traversed; the metadata stays.
+-- Each combination has a `traverse` of its own, so that the name resolves
+-- by the type it is applied to, as it does for a list.
+%inline
+traverseVal : Functor w => (w ty -> ty) -> (ty -> Core sy) -> w ty -> Core (w sy)
+traverseVal val f x = (\v => map (const v) x) <$> f (val x)
+
+namespace WithFC
   %inline export
-  traverse : (ty -> Core sy) -> WithData fs ty -> Core (WithData fs sy)
-  traverse f (MkWithData extra val) = MkWithData extra <$> f val
+  traverse : (ty -> Core sy) -> WithFC ty -> Core (WithFC sy)
+  traverse = traverseVal (.val)
+
+namespace WithName
+  %inline export
+  traverse : (ty -> Core sy) -> WithName ty -> Core (WithName sy)
+  traverse = traverseVal (.val)
+
+namespace WithFCTyName
+  %inline export
+  traverse : (ty -> Core sy) -> WithFCTyName ty -> Core (WithFCTyName sy)
+  traverse = traverseVal (.val)
+
+namespace WithFCNameArity
+  %inline export
+  traverse : (ty -> Core sy) -> WithFCNameArity ty -> Core (WithFCNameArity sy)
+  traverse = traverseVal (.val)
+
+namespace WithRigName
+  %inline export
+  traverse : (ty -> Core sy) -> WithRigName ty -> Core (WithRigName sy)
+  traverse = traverseVal (.val)
+
+namespace WithFCRigName
+  %inline export
+  traverse : (ty -> Core sy) -> WithFCRigName ty -> Core (WithFCRigName sy)
+  traverse = traverseVal (.val)
+
+namespace WithNameOpts
+  %inline export
+  traverse : (ty -> Core sy) -> WithNameOpts ty -> Core (WithNameOpts sy)
+  traverse = traverseVal (.val)
+
+namespace WithRigMName
+  %inline export
+  traverse : (ty -> Core sy) -> WithRigMName ty -> Core (WithRigMName sy)
+  traverse = traverseVal (.val)
+
+namespace WithFCRigMName
+  %inline export
+  traverse : (ty -> Core sy) -> WithFCRigMName ty -> Core (WithFCRigMName sy)
+  traverse = traverseVal (.val)
+
+namespace WithDocFC
+  %inline export
+  traverse : (ty -> Core sy) -> WithDocFC ty -> Core (WithDocFC sy)
+  traverse = traverseVal (.val)
+
+namespace WithDocRigNames
+  %inline export
+  traverse : (ty -> Core sy) -> WithDocRigNames ty -> Core (WithDocRigNames sy)
+  traverse = traverseVal (.val)
+
+namespace WithFCDocRigNames
+  %inline export
+  traverse : (ty -> Core sy) -> WithFCDocRigNames ty -> Core (WithFCDocRigNames sy)
+  traverse = traverseVal (.val)
+
+namespace WithNameRigTot
+  %inline export
+  traverse : (ty -> Core sy) -> WithNameRigTot ty -> Core (WithNameRigTot sy)
+  traverse = traverseVal (.val)
 
 namespace PiInfo
   export

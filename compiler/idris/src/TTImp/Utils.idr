@@ -468,13 +468,13 @@ mutual
   substLocData : FC -> ImpData -> ImpData
   substLocData fc' (MkImpData fc n con opts dcons)
       = MkImpData fc' n (map (substLoc fc') con) opts
-                        (map (map (substLoc fc') . set "fc" fc') dcons)
+                        (map (map (substLoc fc') . { fc := fc' }) dcons)
   substLocData fc' (MkImpLater fc n con)
       = MkImpLater fc' n (substLoc fc' con)
 
   substLocDecl : FC -> ImpDecl -> ImpDecl
   substLocDecl fc' (IClaim (MkWithData _ $ MkIClaimData r vis opts td))
-      = IClaim (MkFCVal fc' $ MkIClaimData r vis opts (map (substLoc fc') (set "fc" fc' td)))
+      = IClaim (MkFCVal fc' $ MkIClaimData r vis opts (map (substLoc fc') ({ fc := fc' } td)))
   substLocDecl fc' (IDef fc n cs)
       = IDef fc' n (map (substLocClause fc') cs)
   substLocDecl fc' (IData fc vis mbtot d)

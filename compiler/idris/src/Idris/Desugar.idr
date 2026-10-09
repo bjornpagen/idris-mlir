@@ -896,7 +896,7 @@ mutual
       = flip Core.traverse (forget names) $ \(doc, n) : (String, WithFC Name) =>
           do addDocString n.val (d ++ doc)
              syn <- get Syn
-             pure $ Mk [pty.fc, n] !(bindTypeNames pty.fc (usingImpl syn)
+             pure $ MkWithFCTyName pty.fc n !(bindTypeNames pty.fc (usingImpl syn)
                                                  ps !(desugar AnyExpr ps ty))
 
   -- Attempt to get the function name from a function pattern. For example,
@@ -1013,7 +1013,7 @@ mutual
            syn <- get Syn
            p' <- traverse (desugar AnyExpr ps) field.val.info
            ty' <- bindTypeNames field.fc (usingImpl syn) ps !(desugar AnyExpr ps field.val.boundType)
-           pure (Mk [field.fc, field.rig, n] (MkPiBindData p' ty'))
+           pure (MkWithFCRigName field.fc field.rig n (MkPiBindData p' ty'))
 
         where
           toRF : Name -> Name
@@ -1131,7 +1131,7 @@ mutual
              $ for (map (boundType . val) paramList)
              $ findUniqueBindableNames pp.fc True (ps ++ paramNames) []
 
-           let paramsb = map {f = List1} (map {f = WithData _} (mapType (doBind pnames))) params'
+           let paramsb = map {f = List1} (map {f = WithRigName} (mapType (doBind pnames))) params'
            pure [IParameters pp.fc paramsb (concat pds')]
       where
         getArgs : Either (List1 PlainBinder)
@@ -1140,12 +1140,12 @@ mutual
         getArgs (Left params)
           = traverseList1 (\ty => do
               ty' <- desugar AnyExpr ps ty.val
-              pure (Mk [top, ty.name] (MkPiBindData Explicit ty'))) params
+              pure (MkWithRigName top ty.name (MkPiBindData Explicit ty'))) params
         getArgs (Right params)
           = join <$> traverseList1 (\(MkPBinder info (MkBasicMultiBinder rig n ntm)) => do
               tm' <- desugar AnyExpr ps ntm
               i' <- traverse (desugar AnyExpr ps) info
-              let allbinders = map (\nn => Mk [rig, nn] (MkPiBindData i' tm')) n
+              let allbinders = map (\nn => MkWithRigName rig nn (MkPiBindData i' tm')) n
               pure allbinders) params
 
   desugarDecl ps use@(MkWithData _ $ PUsing uimpls uds)
@@ -1257,7 +1257,7 @@ mutual
               map concat $ for params $ \ (MkPBinder info (MkBasicMultiBinder rig names tm)) =>
                  do tm' <- desugar AnyExpr ps tm
                     p'  <- mapDesugarPiInfo ps info
-                    let allBinders = map (\nm => Mk [rig, nm] (MkPiBindData p' tm')) (forget names)
+                    let allBinders = map (\nm => MkWithRigName rig nm (MkPiBindData p' tm')) (forget names)
                     pure allBinders
            let fnames : List Name = concatMap getfname fields
            let paramNames : List Name = concatMap (map val . forget . names . bind) params
@@ -1274,9 +1274,9 @@ mutual
            fields' : List (List IField) <- for fields (desugarField (ps ++ fnames ++ paramNames)
                                                                     (mkNamespace recName))
            let conname : Name = maybe (mkConName tn) val conname_in
-           whenJust (get "doc" <$> conname_in) (addDocString conname)
+           whenJust ((.doc) <$> conname_in) (addDocString conname)
            pure [IRecord rec.fc (Just recName)
-                         vis mbtot (Mk [rec.fc] $ MkImpRecord (Mk [NoFC tn] paramsb) (Mk [NoFC conname, opts] (concat fields')))]
+                         vis mbtot (MkWithData rec.fc $ MkImpRecord (MkWithName (NoFC tn) paramsb) (MkWithNameOpts (NoFC conname) opts (concat fields')))]
     where
       getfname : PField -> List Name
       getfname x = map val x.names

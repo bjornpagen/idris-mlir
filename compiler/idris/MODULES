@@ -109,7 +109,6 @@ Libraries/Data/List01/Quantifiers.idr
 Libraries/Data/NameMap.idr
 Libraries/Data/NatSet.idr
 Libraries/Data/Ordering/Extra.idr
-Libraries/Data/Record.idr
 Libraries/Data/SnocList/HasLength.idr
 Libraries/Data/SnocList/SizeOf.idr
 Libraries/Data/Span.idr
@@ -123,7 +122,6 @@ Libraries/Data/UserNameMap.idr
 Libraries/Data/VarSet.idr
 Libraries/Data/VarSet/Core.idr
 Libraries/Data/Version.idr
-Libraries/Data/WithData.idr
 Libraries/Data/WithDefault.idr
 Libraries/Decidable/Equality.idr
 Libraries/System/Directory/Tree.idr

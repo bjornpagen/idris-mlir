@@ -281,6 +281,16 @@ mutual
                4 => pure NoNewtype
                _ => corrupt "DataOpt"
 
+  -- Written as Core.TTC writes every payload with metadata.
+  export
+  TTC a => TTC (WithNameOpts a) where
+    toBuf (MkWithNameOpts n opts x) = do metaField n; lastMetaField opts; toBuf x
+    fromBuf
+      = do n <- readMetaField
+           opts <- readLastMetaField
+           x <- fromBuf
+           pure (MkWithNameOpts n opts x)
+
   export
   TTC ImpData where
     toBuf (MkImpData fc n tycon opts cons)

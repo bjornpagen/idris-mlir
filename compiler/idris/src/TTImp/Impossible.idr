@@ -66,9 +66,9 @@ badClause fn exps autos named
    = throw (GenericMsg (getLoc fn)
             ("Badly formed impossible clause "
                ++ show (!(toFullNames fn),
-                        (.val) <$> exps,
-                        (.val) <$> autos,
-                        mapSnd (.val) <$> named)))
+                        WithFC.val <$> exps,
+                        WithFC.val <$> autos,
+                        mapSnd WithFC.val <$> named)))
 
 mutual
   processArgs : {auto c : Ref Ctxt Defs} ->
