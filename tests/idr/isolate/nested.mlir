@@ -12,10 +12,10 @@
 // definition makes the middle one's closure of a.
 // OUTER-LABEL: func.func private @Main.add3(
 // OUTER-SAME: %[[A:[^:]*]]: i64)
-// OUTER-NEXT: %[[F:.*]] = idr.closure @Main.add3$lam{{[0-9]+}}(%[[A]]) : (i64) -> !idr.fn<(i64) -> (!idr.fn<(i64) -> (i64)>)>
+// OUTER-NEXT: %[[F:.*]] = idr.closure @Main.add3$lam{{[0-9]+}}(%[[A]]) : (i64) -> !idr.fn<(i64) -> !idr.fn<(i64) -> i64>>
 // OUTER-NEXT: return %[[F]]
-// MIDDLE: func.func private @Main.add3$lam{{[0-9]+}}(%[[A:[^:]*]]: i64, %[[B:[^:]*]]: i64) -> !idr.fn<(i64) -> (i64)>
-// MIDDLE-NEXT: %[[G:.*]] = idr.closure @Main.add3$lam{{[0-9]+}}(%[[A]], %[[B]]) : (i64, i64) -> !idr.fn<(i64) -> (i64)>
+// MIDDLE: func.func private @Main.add3$lam{{[0-9]+}}(%[[A:[^:]*]]: i64, %[[B:[^:]*]]: i64) -> !idr.fn<(i64) -> i64>
+// MIDDLE-NEXT: %[[G:.*]] = idr.closure @Main.add3$lam{{[0-9]+}}(%[[A]], %[[B]]) : (i64, i64) -> !idr.fn<(i64) -> i64>
 // MIDDLE-NEXT: return %[[G]]
 // INNER: func.func private @Main.add3$lam{{[0-9]+}}(%[[A:[^:]*]]: i64, %[[B:[^:]*]]: i64, %[[C:[^:]*]]: i64) -> i64
 // INNER-NEXT: %[[AB:.*]] = arith.addi %[[A]], %[[B]] : i64

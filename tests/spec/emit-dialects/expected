@@ -7,3 +7,7 @@ memref: built by IdrisMLIR.Dialect.MemRef
 ub: built by IdrisMLIR.Dialect.UB
 places that build an op by hand: 0
 op names spelled by hand: 0
+types and attributes not generated: 0
+types and attributes spelled by hand: 0
+sums not held by MLIR.idr: 0
+sums not sampled: 0

@@ -1,0 +1,35 @@
+#!/bin/sh
+# What the frontend writes of the dialects' types and attributes, by the
+# printers generated from their ODS (IdrisMLIR.Syntax.*), is what the
+# dialects' C++ parsers read: syntax-samples writes one sample of every
+# type and attribute of the generated sums, in the long forms the frontend
+# writes, and idris-mlir-opt reads them and prints them back. The
+# transcript is how each reads back: in the spellings the dialect prints,
+# a closure's one result without parentheses, nested constructors as the
+# run they form, the empty set of effects as `none`. The printed module
+# reads back to the same text.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+bounded "$root/compiler/build/exec/syntax-samples" > "$work/samples.mlir" 2> "$work/samples.err"
+status=$?
+say "samples: exit $status"
+[ "$status" -eq 0 ] || show "$work/samples.err"
+
+bounded "$idris_mlir_opt" --mlir-disable-threading "$work/samples.mlir" -o "$work/printed.mlir" \
+  > "$work/parse.err" 2>&1
+status=$?
+say "parse: exit $status"
+if [ "$status" -eq 0 ]; then
+  cat "$work/printed.mlir"
+else
+  show "$work/parse.err"
+fi
+
+bounded "$idris_mlir_opt" --mlir-disable-threading "$work/printed.mlir" -o "$work/reprinted.mlir" \
+  > "$work/reprint.err" 2>&1
+if cmp -s "$work/printed.mlir" "$work/reprinted.mlir"; then
+  say "reprint: same"
+else
+  say "reprint: differs"
+  show "$work/reprint.err"
+  diff "$work/printed.mlir" "$work/reprinted.mlir" | head -n 20
+fi

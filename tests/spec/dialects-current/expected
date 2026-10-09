@@ -1,24 +1,45 @@
 the checked-in modules: exit 0
+IdrisMLIR.Syntax.Idr: current
 IdrisMLIR.Dialect.Idr: current
+IdrisMLIR.Syntax.Builtin: current
 IdrisMLIR.Dialect.Builtin: current
+IdrisMLIR.Syntax.Func: current
 IdrisMLIR.Dialect.Func: current
+IdrisMLIR.Syntax.Arith: current
 IdrisMLIR.Dialect.Arith: current
+IdrisMLIR.Syntax.Math: current
 IdrisMLIR.Dialect.Math: current
+IdrisMLIR.Syntax.UB: current
 IdrisMLIR.Dialect.UB: current
+IdrisMLIR.Syntax.MemRef: current
 IdrisMLIR.Dialect.MemRef: current
 a module edited by hand: exit 1
+IdrisMLIR.Syntax.Idr: current
 IdrisMLIR.Dialect.Idr: current
+IdrisMLIR.Syntax.Builtin: current
 IdrisMLIR.Dialect.Builtin: current
+IdrisMLIR.Syntax.Func: current
 IdrisMLIR.Dialect.Func: current
+IdrisMLIR.Syntax.Arith: current
 IdrisMLIR.Dialect.Arith: current
+IdrisMLIR.Syntax.Math: current
 IdrisMLIR.Dialect.Math: current
+IdrisMLIR.Syntax.UB: current
 IdrisMLIR.Dialect.UB: edited by hand (make build writes it again)
+IdrisMLIR.Syntax.MemRef: current
 IdrisMLIR.Dialect.MemRef: current
 a changed generator: exit 1
+IdrisMLIR.Syntax.Idr: stale (make build writes it again)
 IdrisMLIR.Dialect.Idr: stale (make build writes it again)
+IdrisMLIR.Syntax.Builtin: stale (make build writes it again)
 IdrisMLIR.Dialect.Builtin: stale (make build writes it again)
+IdrisMLIR.Syntax.Func: stale (make build writes it again)
 IdrisMLIR.Dialect.Func: stale (make build writes it again)
+IdrisMLIR.Syntax.Arith: stale (make build writes it again)
 IdrisMLIR.Dialect.Arith: stale (make build writes it again)
+IdrisMLIR.Syntax.Math: stale (make build writes it again)
 IdrisMLIR.Dialect.Math: stale (make build writes it again)
+IdrisMLIR.Syntax.UB: stale (make build writes it again)
 IdrisMLIR.Dialect.UB: stale (make build writes it again)
+IdrisMLIR.Syntax.MemRef: stale (make build writes it again)
 IdrisMLIR.Dialect.MemRef: stale (make build writes it again)

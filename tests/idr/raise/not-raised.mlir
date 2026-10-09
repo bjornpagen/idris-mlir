@@ -22,7 +22,7 @@
 // CHECK-NEXT: idr.match_lit
 // CHECK-NEXT: case 0 {
 // CHECK-NEXT: idr.apply %[[F3]](
-// CHECK: %[[F4:.*]] = call @pmk(%{{.*}}) : (i64) -> !idr.fn<(i64) -> (i64)>
+// CHECK: %[[F4:.*]] = call @pmk(%{{.*}}) : (i64) -> !idr.fn<(i64) -> i64>
 // CHECK-NEXT: %[[R4:.*]] = idr.apply %[[F4]](
 // CHECK-NEXT: %[[W3:.*]] = idr.io.put_int signed %[[R4]], %[[W2]]
 // CHECK-NEXT: %[[R5:.*]] = call @[[PMK:pmk\$raise\$[0-9]+]](%{{.*}}, %[[R2]]) : (i64, i64) -> i64

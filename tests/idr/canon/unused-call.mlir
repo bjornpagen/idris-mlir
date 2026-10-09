@@ -30,7 +30,7 @@ func.func private @crashes(%x: i64) -> i64 attributes {idr.total} {
 }
 
 // CHECK-LABEL: func.func @main(
-// CHECK-SAME: %[[X:.*]]: i64, %[[W:.*]]: !idr.world, %[[G:.*]]: !idr.fn<(i64) -> (i64)>)
+// CHECK-SAME: %[[X:.*]]: i64, %[[W:.*]]: !idr.world, %[[G:.*]]: !idr.fn<(i64) -> i64>)
 // CHECK-NEXT: %[[C:.*]] = idr.constant #idr.closure<@crashes, []>
 // CHECK-NEXT: call @partial(%[[X]])
 // CHECK-NEXT: call @divides(%[[X]])

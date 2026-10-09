@@ -16,8 +16,8 @@
 // CHECK-DAG: idr.constant #idr.big<"-7"> : !idr.big
 // CHECK-DAG: idr.constant #idr.big<"2432902008176640000"> : !idr.big
 // CHECK-DAG: idr.constant #idr.con<@Shape::@Rect, [2.500000e+00, #idr.erased, "tall"]> : !idr.data<@Shape>
-// CHECK-DAG: idr.constant #idr.con<@List::@Cons, run 1 {{\[\[}}3], [2], [1]] tail #idr.con<@List::@Nil, []>> : !idr.box<@List>
-// CHECK-DAG: idr.constant #idr.closure<@addTo, [#idr.big<"5">, #idr.con<@Shape::@Dot, []>]> : !idr.fn<(i64) -> (i64)>
+// CHECK-DAG: idr.constant #idr.con<@List::@Cons, [3], [2], [1] tail #idr.con<@List::@Nil, []> along 1> : !idr.box<@List>
+// CHECK-DAG: idr.constant #idr.closure<@addTo, [#idr.big<"5">, #idr.con<@Shape::@Dot, []>]> : !idr.fn<(i64) -> i64>
 // CHECK-DAG: arith.constant 47 : i64
 // CHECK-DAG: arith.constant -58 : i64
 // CHECK: return
