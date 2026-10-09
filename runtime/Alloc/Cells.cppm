@@ -13,8 +13,9 @@ import :blocks;
 namespace {
 
 // The calling thread's live cells. Per thread, so that counting stays plain
-// arithmetic without a data race: a program has one thread, and the folders
-// may run on several in the compiler's tools, which never read the count.
+// arithmetic without a data race: a program has one thread, and the
+// compiler's folders, which may run on several, read it around each fold,
+// on their own thread.
 thread_local uint64_t liveCells = 0;
 
 } // namespace

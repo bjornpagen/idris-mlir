@@ -1,10 +1,10 @@
 # idr.expect: the properties idr-expect checks, one partition each; the pass
 # glue (the TableGen-declared base of idr-expect) is a plain unit that
-# imports it. folds-balanced reads the runtime's count of live cells
-# (idris_rt.h), whose include directory idris_rt gives; resets-unshared
-# reads what idr.ownership says a value was read from; the guard properties
-# read idr.inbounds's list of guards; cells-fit measures cells as
-# idr.layout does.
+# imports it. folds-balanced reads the count of cells the folders left
+# live, which the idr dialect keeps per context; resets-unshared reads what
+# idr.ownership says a value was read from; the guard properties read
+# idr.inbounds's list of guards; cells-fit measures cells as idr.layout
+# does.
 idr_library(idr_expect
 	MODULES
 		Expect.cppm
@@ -47,5 +47,4 @@ idr_library(idr_expect
 		idr_inbounds
 		idr_layout
 		idr_ownership
-		idris_rt
 )

@@ -1,5 +1,6 @@
 compile: ok
+parse: a row of its own, before the steps
 steps: each that ran has a row of its own, in order, and no other does
 steps: each has the rows of its passes nested in it
-top: nothing but the steps, LLVM, the Rest and the Total
+top: nothing but the parse, the steps, LLVM, the Rest and the Total
 rest: not negative

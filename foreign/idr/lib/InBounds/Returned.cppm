@@ -2,7 +2,9 @@
 // array when every return is the argument the caller passed: the same
 // value, or a borrow, a share, a linear enter, a linear use, or a
 // constructor rebuilt from it, including that value read out of the record
-// the call returns. A return that can be some other array is not.
+// the call returns. A return that can be some other array is not. The
+// arrays are judged on the module as it is, by whoever owns the Lengths
+// that asks.
 export module idr.inbounds:returned;
 
 import idr.mlir;
@@ -21,8 +23,6 @@ export struct GivenBack {
   func::CallOp call;
   Value value;
 };
-
-namespace {
 
 constexpr unsigned originLimit = 64;
 
@@ -65,6 +65,8 @@ struct Origin {
     return none();
   }
 };
+
+namespace {
 
 struct Forget {
   DenseSet<Value> *set = nullptr;
@@ -128,23 +130,21 @@ Value peel(Value value) {
   return value;
 }
 
+} // namespace
+
+// What each function's results are, solved on construction. Whoever holds
+// it keeps the module's functions, their calls and their returns as they
+// are while it asks; `calls` is that owner's, of the same module.
 class ReturnedArrays {
 public:
-  explicit ReturnedArrays(ModuleOp module) : module(module), calls(module) {
+  ReturnedArrays(ModuleOp module, const Calls &calls) : calls(calls), symbols(module) {
     for (auto fn : module.getOps<func::FuncOp>()) {
       if (fn.isExternal() || fn.empty() || fn.getNumResults() == 0)
         continue;
       functions.push_back(fn);
       known[fn].assign(fn.getNumResults(), Origin::unknown());
     }
-  }
-
-  void solve() {
-    if (solved)
-      return;
-    solved = true;
-    bool changed = true;
-    while (changed) {
+    for (bool changed = true; changed;) {
       changed = false;
       for (func::FuncOp fn : functions) {
         SmallVector<Origin> now(fn.getNumResults(), Origin::unknown());
@@ -191,7 +191,7 @@ public:
 
 private:
   std::optional<GivenBack> fromCall(func::CallOp call, unsigned slot, ArrayRef<Proj> path) {
-    auto callee = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(call, call.getCalleeAttr());
+    auto callee = symbols.lookup<func::FuncOp>(call.getCalleeAttr().getAttr());
     if (!callee || !known.contains(callee) || slot >= callee.getNumResults())
       return std::nullopt;
     Origin acc = Origin::unknown();
@@ -317,7 +317,7 @@ private:
   // A result the table has not constrained is left so: a recursive call
   // still in the fixpoint, and walking it again is not a smaller question.
   Origin callOrigin(func::FuncOp fn, func::CallOp call, unsigned slot, ArrayRef<Proj> path) {
-    auto callee = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(call, call.getCalleeAttr());
+    auto callee = symbols.lookup<func::FuncOp>(call.getCalleeAttr().getAttr());
     auto it = callee ? known.find(callee) : known.end();
     if (!callee || it == known.end() || slot >= it->second.size())
       return Origin::none();
@@ -362,8 +362,8 @@ private:
     return concrete ? acc : Origin::unknown();
   }
 
-  ModuleOp module;
-  Calls calls;
+  const Calls &calls;
+  SymbolTable symbols;
   SmallVector<func::FuncOp> functions;
   DenseMap<Operation *, SmallVector<Origin>> known;
   DenseMap<Value, Origin> assumed;
@@ -371,29 +371,6 @@ private:
   DenseSet<Value> chasing;
   DenseSet<Operation *> rewalking;
   unsigned depth = 0;
-  bool solved = false;
 };
-
-ReturnedArrays &returnedArrays(ModuleOp module) {
-  static ModuleOp cached;
-  static ReturnedArrays *arrays = nullptr;
-  if (cached != module) {
-    delete arrays;
-    arrays = new ReturnedArrays(module);
-    cached = module;
-  }
-  return *arrays;
-}
-
-} // namespace
-
-export std::optional<GivenBack> arrayGivenBack(Value value) {
-  auto module = value.getParentRegion() ? value.getParentRegion()->getParentOfType<ModuleOp>() : ModuleOp();
-  if (!module)
-    return std::nullopt;
-  ReturnedArrays &arrays = returnedArrays(module);
-  arrays.solve();
-  return arrays.given(value);
-}
 
 } // namespace idr::inbounds

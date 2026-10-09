@@ -1,14 +1,16 @@
 #!/bin/sh
 # idris-mlir-cc --mlir-timing reports where a compilation spent its time:
-# each step of the pipeline that ran has a row of its own, named with its
-# index and the pipeline it ran, in the order the steps ran (as --dump-dir
-# names them), and no step that did not run has one; the passes a step ran
-# are the rows nested in it; nothing at the top but the steps, LLVM, the
-# Rest and the Total; and no time is counted twice at the top, so the Rest
-# is not negative. MLIR keys a pass's timer by the pass's address, which a
-# step's pass can take after an earlier step's pass manager is gone: under
-# one timer for every step, a later pass's time went to the earlier pass's
-# row, under its name, and the later pass had none.
+# the parse, with the verification that follows it, has a row of its own
+# before the steps; each step of the pipeline that ran has a row of its own,
+# named with its index and the pipeline it ran, in the order the steps ran
+# (as --dump-dir names them), and no step that did not run has one; the
+# passes a step ran are the rows nested in it; nothing at the top but the
+# parse, the steps, LLVM, the Rest and the Total; and no time is counted
+# twice at the top, so the Rest is not negative. MLIR keys a pass's timer
+# by the pass's address, which a step's pass can take after an earlier
+# step's pass manager is gone: under one timer for every step, a later
+# pass's time went to the earlier pass's row, under its name, and the later
+# pass had none.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 
 cat > "$work/main.mlir" << 'EOF'
@@ -34,6 +36,18 @@ else
   exit 0
 fi
 timing_rows "$work/report" > "$work/rows"
+
+# The tree shows a scope's rows in the order they began, which is the order
+# they ran.
+if awk -F'\t' '
+    $1 == 0 && $3 == "parse" { parses++; if (steps) late = 1 }
+    $1 == 0 && $3 ~ /^step [0-9]+: / { steps++ }
+    END { exit parses != 1 || late }' "$work/rows"; then
+  say "parse: a row of its own, before the steps"
+else
+  say "parse: not one row before the steps"
+  show "$work/rows"
+fi
 
 # The steps that ran, as their dumps name them, `<NN>-<first pass>`; and the
 # steps the report has rows for, named the same way.
@@ -61,10 +75,10 @@ else
   show "$work/rows"
 fi
 
-outside=$(awk -F'\t' '$1 == 0 && $3 !~ /^step [0-9]+: / && $3 != "LLVM" && $3 != "Rest" &&
-    $3 != "Total" { print $3 }' "$work/rows")
+outside=$(awk -F'\t' '$1 == 0 && $3 !~ /^step [0-9]+: / && $3 != "parse" && $3 != "LLVM" &&
+    $3 != "Rest" && $3 != "Total" { print $3 }' "$work/rows")
 if [ -z "$outside" ]; then
-  say "top: nothing but the steps, LLVM, the Rest and the Total"
+  say "top: nothing but the parse, the steps, LLVM, the Rest and the Total"
 else
   say "top: rows outside every step and LLVM: $(printf '%s' "$outside" | paste -sd, -)"
 fi

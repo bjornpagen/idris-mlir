@@ -587,8 +587,10 @@ def IdrRc : Pass<"idr-rc", "::mlir::ModuleOp"> {
     Option<"sink", "sink", "bool", "true",
            "Move an op that consumes an owned value down to its result's first use">,
   ];
-  // The sizes of cells, for reuse, are those of their LLVM layouts.
-  let dependentDialects = ["::mlir::LLVM::LLVMDialect"];
+  // The sizes of cells, for reuse, are those of their LLVM layouts. The
+  // scopes that hold the module's symbols while references are placed and
+  // shared are held by the context's idr dialect.
+  let dependentDialects = ["::mlir::LLVM::LLVMDialect", "::idr::IdrDialect"];
   let statistics = [
     Statistic<"numDups", "dups", "idr.dup added">,
     Statistic<"numDrops", "drops", "idr.drop added">,
@@ -754,8 +756,7 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
         once is the 64-bit version beside a loop that computes its lanes
         in 32: the else region of an `scf.if` whose then region holds one;
       - `folds-balanced`: the folders released every reference they took
-        from the runtime, which holds no live cell (on the calling thread,
-        so run single-threaded);
+        from the runtime: no fold, on any thread, left a cell live;
       - `cells-fit`: no box constructor's cell and no array element holds
         more counted references than a header counts.
   }];
@@ -765,7 +766,10 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
   // `quantities-kept` parses the emitted module, which holds ops of every
   // dialect of the contract, whether or not the module under test still
   // does: a dimension read that folded away still loads memref there.
+  // `folds-balanced` reads the context's count, which the idr dialect
+  // holds.
   let dependentDialects = [
+    "::idr::IdrDialect",
     "::mlir::func::FuncDialect", "::mlir::arith::ArithDialect",
     "::mlir::math::MathDialect", "::mlir::ub::UBDialect",
     "::mlir::memref::MemRefDialect"

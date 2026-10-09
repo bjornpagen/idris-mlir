@@ -166,7 +166,8 @@ LogicalResult evaluateRound(ModuleOp module, ArrayRef<Key> keys,
   if (!jit)
     return internal(0, "the JIT: " + why);
   // A system that will not run the JIT's code rejects compile-time
-  // evaluation as a whole, before any call is taken to have failed.
+  // evaluation as a whole, before any call is taken to have failed. It is
+  // asked of this round's JIT, whose code is what the round runs.
   if (std::optional<std::string> refused = refusesJitCode(jit->getProbe()))
     return module.emitError(*refused);
   phases.lap(phases.jit);

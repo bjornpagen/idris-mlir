@@ -54,8 +54,8 @@ record_time() {
 
 # timing_rows REPORT: the rows of an execution time report (idris-mlir-cc
 # --mlir-timing, MLIR's tree display), in order, each as `<depth> TAB <seconds>
-# TAB <name>`: depth 0 for a row of the report's own (a step of the
-# pipeline, LLVM, Rest, Total), one more for each row it is nested in;
+# TAB <name>`: depth 0 for a row of the report's own (the parse, a step of
+# the pipeline, LLVM, Rest, Total), one more for each row it is nested in;
 # seconds the wall time, the last `<seconds> (<percent>%)` of the line.
 timing_rows() {
   awk '

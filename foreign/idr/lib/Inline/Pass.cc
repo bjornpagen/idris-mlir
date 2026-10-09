@@ -70,19 +70,22 @@ struct Inline : idr::impl::IdrInlineBase<Inline> {
       return region && decisions.inlined.contains(region->getParentOp());
     };
     CallGraph &graph = getAnalysis<CallGraph>();
-    // The module's symbols, for the pipeline it runs on each function
-    // (idr-canonicalize): inlining adds none and erases the dead functions
-    // only after the last pipeline has run.
-    (void)getAnalysis<SymbolTable>();
+    // The module's symbols, for every pipeline the inliner runs on a
+    // function, on whichever thread: inlining adds none and erases the dead
+    // functions only after the last pipeline has run (eraseDeadCallables),
+    // when nothing looks one up.
+    idr::SymbolScope symbols(module, getAnalysis<SymbolTable>());
     Inliner inliner(module, graph, *this, getAnalysisManager(), runPipelineHelper, config,
                     profitable);
     if (failed(inliner.doInlining()))
       signalPassFailure();
   }
 
-  // A pipeline that does not parse loads nothing, and initialize reports
-  // it.
+  // The scope around the inliner is held by the context's idr dialect,
+  // which must be loaded before the pass manager runs. A pipeline that does
+  // not parse loads nothing more, and initialize reports it.
   void getDependentDialects(DialectRegistry &registry) const override {
+    registry.insert<idr::IdrDialect>();
     OpPassManager pm(func::FuncOp::getOperationName());
     if (succeeded(parsePassPipeline(simplifyEach, pm, llvm::nulls())))
       pm.getDependentDialects(registry);

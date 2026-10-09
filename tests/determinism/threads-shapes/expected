@@ -1,0 +1,4 @@
+compile: exit 0
+module: identical under one thread and under many
+module: identical under many, again
+statistics: identical under one thread and under many

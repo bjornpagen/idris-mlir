@@ -72,6 +72,12 @@ int run() {
   if (prepareRuntime)
     return prepare(*target, triple);
 
+  // -mlir-timing, MLIR's own option, times the parse (with the verification
+  // that follows it), each step and LLVM's stages.
+  mlir::DefaultTimingManager timings;
+  mlir::applyDefaultTimingManagerCLOptions(timings);
+  mlir::TimingScope rootTiming = timings.getRootScope();
+
   llvm::SourceMgr sources;
   mlir::SourceMgrDiagnosticHandler diagnostics(sources, &context);
   Verdict verdict;
@@ -84,8 +90,10 @@ int run() {
     }
     return mlir::failure();
   });
+  mlir::TimingScope parseTiming = rootTiming.nest("parse");
   mlir::OwningOpRef<mlir::ModuleOp> module =
       mlir::parseSourceFile<mlir::ModuleOp>(inputPath, sources, &context);
+  parseTiming.stop();
   // The parsed module is verified, and some of the verifier's rules are the
   // user's (a type that can reach itself through an array).
   if (!module || verdict.errors)
@@ -135,10 +143,6 @@ int run() {
       next(transform, action);
     });
   }
-  // -mlir-timing, MLIR's own option, times each step and LLVM's stages.
-  mlir::DefaultTimingManager timings;
-  mlir::applyDefaultTimingManagerCLOptions(timings);
-  mlir::TimingScope rootTiming = timings.getRootScope();
   // --stats, LLVM's own option: the statistics of every pass manager too.
   bool statistics = llvm::AreStatisticsEnabled();
 
