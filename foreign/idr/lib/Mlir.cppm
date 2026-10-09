@@ -362,6 +362,7 @@ using mlir::populateRegionBranchOpInterfaceCanonicalizationPatterns;
 using mlir::populateRegionBranchOpInterfaceInliningPattern;
 using mlir::populateReturnOpTypeConversionPattern;
 using mlir::ProgramPoint;
+using mlir::PropertyRef;
 using mlir::RankedTensorType;
 using mlir::raw_ostream;
 using mlir::readBytecodeFile;

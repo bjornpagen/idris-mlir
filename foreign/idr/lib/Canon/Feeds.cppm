@@ -51,8 +51,13 @@ bool closedWith(OpOperand &use) {
 
 // Whether the op holding `use` folds with `constant` there and the
 // constants its other operands are, as constant propagation simulates a
-// fold: an op with regions is not tried, and one that would fold in place
-// is put back as it was, since the constant is not what the op holds.
+// fold: an op with regions is not tried, and the op is put back as it was
+// whatever the fold returned, since the constant is not what the op holds
+// and a folder may change its op in place and still return a result. The
+// operands are set again only if the fold changed them, since setting them
+// relinks their uses. The properties are copied whole and copied back, as
+// the conversion driver rolls back an op it modified: set again from their
+// attribute form, a property the fold set where the op had none would stay.
 bool foldsWith(OpOperand &use, Attribute constant) {
   Operation *op = use.getOwner();
   if (op->getNumRegions() != 0)
@@ -67,16 +72,25 @@ bool foldsWith(OpOperand &use, Attribute constant) {
     operands.push_back(known);
   }
   SmallVector<Value> original(op->getOperands());
-  DictionaryAttr attributes = op->getAttrDictionary();
-  SmallVector<OpFoldResult> results;
-  if (failed(op->fold(operands, results)))
-    return false;
-  if (results.empty()) {
-    op->setOperands(original);
-    op->setAttrs(attributes);
-    return false;
+  DictionaryAttr attributes = op->getDiscardableAttrDictionary();
+  OperationName name = op->getName();
+  void *properties = nullptr;
+  if (PropertyRef storage = op->getPropertiesStorage()) {
+    properties = operator new(static_cast<size_t>(op->getPropertiesStorageSize()));
+    name.initOpProperties(PropertyRef(name.getOpPropertiesTypeID(), properties), storage);
   }
-  return true;
+  SmallVector<OpFoldResult> results;
+  bool folded = succeeded(op->fold(operands, results)) && !results.empty();
+  if (!llvm::equal(op->getOperands(), original))
+    op->setOperands(original);
+  op->setDiscardableAttrs(attributes);
+  if (properties) {
+    PropertyRef saved(name.getOpPropertiesTypeID(), properties);
+    op->copyProperties(saved);
+    name.destroyOpProperties(saved);
+    operator delete(properties);
+  }
+  return folded;
 }
 
 } // namespace

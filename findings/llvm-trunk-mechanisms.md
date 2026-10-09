@@ -335,18 +335,46 @@ Some workarounds carry no PIN marker. Checked against the same diff:
 The survey also found two items that do not depend on the bump. They are
 listed because the diff showed them:
 
-- **`Canon/Feeds.cppm:55-79` (`foldsWith`) copies upstream's fold
-  simulation from before upstream fixed it.** Upstream's fix (read:
+- **`Canon/Feeds.cppm` (`foldsWith`) copied upstream's fold simulation
+  from before upstream fixed it.** Upstream's fix (read:
   `mlir/lib/Analysis/DataFlow/ConstantPropagationAnalysis.cpp:69-98`) says
   that "`fold` can mutate the operation in place and still return an
   out-of-place result". So it restores the operands (only if changed), the
   discardable attributes and the properties, whatever `fold` returned.
-  Ours restores only after an in-place fold, and through
+  Ours restored only after an in-place fold, and through
   `setAttrs(getAttrDictionary())`, which cannot clear a property that the
-  fold set. Whether a folder of ours mutates and also returns a result is
-  not known (conjecture). Every call the fix needs exists at 23.1.2.
-  **Not in the cutover:** it is a gap in our copy, not a trunk mechanism,
-  so it is separate work (below, "Adopted in the cutover").
+  fold set. **Not in the cutover:** it is a gap in our copy, not a trunk
+  mechanism, so it was separate work (below, "Adopted in the cutover").
+  - **Done, after the cutover.** `foldsWith` puts the op back whatever
+    `fold` returned: the operands only if changed and the discardable
+    attributes, as upstream does. It copies the properties whole and
+    copies them back, as the conversion driver rolls back an op it
+    modified (read: `mlir/lib/Transforms/Utils/DialectConversion.cpp:681-745`,
+    `rollback` at `:723`). It does not set them again from
+    `getPropertiesAsAttribute` as upstream's fix does. That form cannot
+    clear a property that was absent: `detail::setAttributeProperty` leaves
+    a property whose attribute is missing as it was (read:
+    `mlir/include/mlir/IR/OperationSupport.h:82-96`), and upstream skips the
+    restore entirely when the op had no property set.
+  - **Upstream's fix has the same hole** (run, pinned `mlir-opt --sccp`):
+    on `%b = arith.extui %a : i8 to i16` of `%a = arith.extui %x nneg`,
+    the folder sets `nneg` on `%b` in place
+    (read: `mlir/lib/Dialect/Arith/IR/ArithOps.cpp:1813`) and `sccp`
+    leaves it there. That is harmless in this case, since `%b`'s operand
+    is a zero extension and so is never negative. Reporting it upstream is
+    separate work.
+  - **The gap was not a live bug** (read, at 0451b1b8). No folder of ours
+    changes its op at all: each folder in `Dialect/Ops`,
+    `Dialect/Canonicalize/Con.cc` and `Fold` reads its op and returns a
+    value, an attribute or nothing. Some upstream folders change their op
+    in place and can meet `foldsWith` before `idr-lower`: `arith.cmpi`
+    moving a constant to the right, `arith.extui`, `extsi`, `trunci` and
+    `truncf` through a cast, and the `Commutative` trait. Each returns its
+    own result, so each is an in-place fold, which the old code already put
+    back. Upstream's case of a change with a result is `vector.extract`,
+    and vector ops appear only after `idr-lower`. By then no match is left
+    for case-of-case or sinking to ask about. So there is no folder to test
+    the change with.
 - **`Lower/Runtime.cppm:61` declares `noreturn` through `passthrough`.**
   `llvm.func` has a `noreturn` unit attribute at 23.1.2 and at 7208ba24
   (read: `mlir/include/mlir/Dialect/LLVMIR/LLVMOps.td:2147`).
@@ -463,8 +491,9 @@ still `resolveEntry` (read).
 - **`Canon/Feeds.cppm` restores after every simulated fold**, as upstream's
   constant propagation does: not in the cutover. It is no upstream
   mechanism we can call (the fix is inside `ConstantPropagationAnalysis.cpp`)
-  but a gap in our own copy of the pattern, so it is separate work, with a
-  test of a folder that both changes its op and returns a result.
+  but a gap in our own copy of the pattern, so it was separate work. Done
+  since (above): no folder exists to test it with, since none of ours
+  changes its op.
 - **`clang-module-predeclared-new`:** retired, fixed on main. Its check
   crashed the clang of 23.1.2 on arm64 macOS as on x86_64 Linux; the clang
   of 7208ba24 compiles the report's `Retarget.cppm` in place on arm64
