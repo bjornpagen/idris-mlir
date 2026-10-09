@@ -771,9 +771,9 @@ std::optional<Field> fieldOf(const AttrOrTypeParameter &param, size_t index, std
 // One element of a declarative syntax.
 struct Element {
   enum Form { Literal, Parameter, Group } form;
-  std::string text;           // the literal, or the parameter's name
-  bool anchor = false;        // a parameter marked `^`
-  std::vector<Element> group; // an optional group's elements
+  std::string text;                // the literal, or the parameter's name
+  bool anchor = false;             // a parameter marked `^`
+  std::vector<Element> group = {}; // an optional group's elements
 };
 
 // A parameter's name after `$`.
