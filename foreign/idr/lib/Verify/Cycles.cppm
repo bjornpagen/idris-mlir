@@ -179,9 +179,11 @@ LogicalResult cycles(ModuleOp module) {
   for (auto [members, op, array] : llvm::zip_equal(knots, made, named)) {
     SmallVector<unsigned> cycle = graph.cycle(array, members);
     InFlightDiagnostic error = op ? op->emitError() : module.emitError();
-    // The cycle starts at what the array holds, then the array.
+    // The lead names the array itself, by its rank: the path after it runs
+    // from what the array holds, through any types between, to the array
+    // and back.
     error << "unsupported (cycle): an ";
-    describe(error, graph.type(cycle[1]));
+    describe(error, graph.type(array));
     error << " can hold a reference to itself through ";
     for (auto [step, at] : llvm::enumerate(cycle)) {
       if (step != 0)
