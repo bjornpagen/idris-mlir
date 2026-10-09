@@ -1288,10 +1288,12 @@ def Idr_BigXorOp : Idr_BigBinaryOp<"xor", "the bitwise xor">;
 // Integer's shifts: the value's infinite two's complement moved by the
 // amount, left or right, the other way when the amount is negative. A left
 // shift is value * 2^amount and a right shift the floor of value / 2^amount,
-// so every amount is defined. The amount is an Integer, as Idris types the
-// primitive; base's Bits Integer passes a Nat's. A left shift's result may
-// be far larger than its operands, so its folder folds only a constant
-// within idr::constantBytes.
+// so every amount has a value, and a shift toward zero or of 0 has one for
+// any amount; one too large to hold is exhausted memory, unmodelled as it is
+// for idr.big.mul, so the ops get no Idr_MayCrash. The amount is an Integer,
+// as Idris types the primitive; base's Bits Integer passes a Nat's. A left
+// shift's result may be far larger than its operands, so its folder folds
+// only a constant within idr::constantBytes.
 class Idr_BigShiftOp<string mnemonic, bit isLeft>
     : Idr_Op<"big." # mnemonic, [Idr_CallsRuntime, Idr_Primitive]> {
   // Folded by calling the runtime (lib/Fold).

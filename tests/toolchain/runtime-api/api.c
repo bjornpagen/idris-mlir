@@ -226,7 +226,7 @@ int main(void) {
   idris_rt_big huge = idris_rt_big_from_str(hugeDigits);
   release(hugeDigits);
   idris_rt_big hugeNeg = idris_rt_big_neg(huge);
-  static const char *const names[] ={"add", "sub", "mul", "div", "mod", "and", "or", "xor"};
+  static const char *const names[] = {"add", "sub", "mul", "div", "mod", "and", "or", "xor"};
   idris_rt_big (*const ops[])(idris_rt_big, idris_rt_big) = {
       idris_rt_big_add, idris_rt_big_sub, idris_rt_big_mul, idris_rt_big_div,
       idris_rt_big_mod, idris_rt_big_and, idris_rt_big_or,  idris_rt_big_xor};
