@@ -8,6 +8,9 @@ module Main
 import Prelude
 import Data.IORef
 
+-- A record that can hold another of its type is a box, a cell of its own,
+-- which the IORef holds a reference to; a record that cannot is an unboxed
+-- sum, stored in the IORef's cell itself. `parent` makes State a box.
 record State where
   constructor MkState
   f1 : Int
@@ -41,18 +44,18 @@ record State where
   f29 : Int
   f30 : Int
   f31 : Int
-  f32 : Int
+  parent : Maybe State
 
 initial : State
-initial = MkState 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32
+initial = MkState 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 Nothing
 
-||| The sum of every field.
+||| The sum of every Int field.
 fieldSum : State -> Int
 fieldSum s =
   s.f1 + s.f2 + s.f3 + s.f4 + s.f5 + s.f6 + s.f7 + s.f8
   + s.f9 + s.f10 + s.f11 + s.f12 + s.f13 + s.f14 + s.f15 + s.f16
   + s.f17 + s.f18 + s.f19 + s.f20 + s.f21 + s.f22 + s.f23 + s.f24
-  + s.f25 + s.f26 + s.f27 + s.f28 + s.f29 + s.f30 + s.f31 + s.f32
+  + s.f25 + s.f26 + s.f27 + s.f28 + s.f29 + s.f30 + s.f31
 
 loop : IORef State -> Int -> IO ()
 loop ref n =

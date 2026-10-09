@@ -9,10 +9,13 @@ module Main
 import Prelude
 import Data.IORef
 
+-- `next` makes Pair a box, a cell of its own, which the IORef holds a
+-- reference to, so there is a cell a rebuild could take.
 record Pair where
   constructor MkPair
   left : Int
   right : Int
+  next : Maybe Pair
 
 readInt : IO Int
 readInt = go 0
@@ -25,7 +28,7 @@ readInt = go 0
 main : IO ()
 main = do
   n <- readInt
-  ref <- newIORef (MkPair n (n * 2))
+  ref <- newIORef (MkPair n (n * 2) Nothing)
   old <- readIORef ref
   writeIORef ref ({ left := old.left + 10 } old)
   new <- readIORef ref
