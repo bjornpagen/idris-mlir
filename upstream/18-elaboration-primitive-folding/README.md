@@ -28,8 +28,8 @@ these constants came out as Chez's values:
 | `prim__cast_StringInt "12.7"` | `12` | `0` |
 | `prim__cast_CharString '\233'` | `"\\233"`, four characters | `é` |
 
-The last line is a second bug of the evaluator, which the patch does not
-change: `castString` of a Char is `stripQuotes (show c)`
+The last line is a second bug of the evaluator, which the change leaves
+alone: `castString` of a Char is `stripQuotes (show c)`
 (`src/Core/Primitives.idr:42`), the escape `show` writes, not the
 character.
 
@@ -57,7 +57,7 @@ whose `fromDouble` is `prim__cast_DoubleString` checks
 
 `infinity` must be `partial`: `prim__div_Double` is not covering. At the
 pin the fold removes the call before the coverage check, so the same
-definition without `partial` is accepted; with the patch it is not, as
+definition without `partial` is accepted; with the change it is not, as
 the same division of a variable is not.
 
 ## Expected
@@ -87,9 +87,9 @@ A literal of a primitive type is still the constant it denotes (`small =
   constant with `normalise` or `normaliseAll`, which run every primitive
   the conversion reaches, including those of a user's implementation.
 
-## Patch
+## The fix
 
-`idris.patch`, against the pin, is the pull request:
+`pull-request.diff`, against the pin, is the pull request:
 
 - `evalDef` reduces a primitive under the condition the evaluator already
   applies to `let`: not in `holesOnly` or `argHolesOnly` mode, unless
@@ -97,6 +97,15 @@ A literal of a primitive type is still the constant it denotes (`small =
   normalisation then leaves a primitive applied, as it leaves a function.
   `nf`, `normalise` and `normaliseAll` reduce primitives as before, so
   type checking, conversion and the REPL's evaluation are unchanged.
+- The exception is `believe_me` (`coercionOp`, `Core.Primitives`), which
+  computes nothing: it is its argument on every backend. Those modes still
+  reduce it, as they did. A `Fin` literal whose bound is not known when it
+  is elaborated (`index 1 v`) keeps base's conversion applied, with the
+  proof of the bound forged by `believe_me` from an auto-implicit hole
+  (`Data.Fin.fromInteger`'s `lemma`); where the hole is solved by the
+  elaborator's last normalisation, that turns `believe_me Oh` into `Oh`.
+  Left applied, the escape hatch would stay in the checked term of every
+  such literal.
 - `EvalOpts` gets `sharedPrimsOnly`, False in every named set of options.
   With it, a primitive reduces only through `sharedOp`
   (`Core.Primitives`), which computes Integer's arithmetic and
@@ -104,7 +113,8 @@ A literal of a primitive type is still the constant it denotes (`small =
   from Integer to Double when it is exact (|x| ≤ 2^53). Those mean the
   same on every backend: Integer is unbounded, its division and remainder
   are Euclidean on every backend (upstream's `integers` tests), and the
-  casts wrap or are exact. Every other primitive stays applied.
+  casts wrap or are exact, and `believe_me`. Every other primitive stays
+  applied.
 - `normalisePrims` evaluates with `sharedPrimsOnly`. The Prelude's and
   base's conversions use only those primitives (`prim__cast_Integer<T>`,
   `integerToNat`'s `prim__lte_Integer` and `prim__sub_Integer`, `Fin`'s
@@ -121,31 +131,49 @@ A literal of a primitive type is still the constant it denotes (`small =
   or `Fin` is unchanged. An Integer literal pattern of type Double beyond
   2^53 is refused too, since its rounding is the backend's.
 
-Upstream test: `tests/idris2/evaluator/evaluator006` (in the patch),
+Upstream test: `tests/idris2/evaluator/evaluator006` (in the diff),
 `:printdef` of a primitive applied to constants, a literal through a
 `FromString` with a primitive, and literals of `Int` and `Nat`.
 
+## Why there is no patch
+
+There is no `idris.patch`. The Idris that elaborates what this compiler
+consumes, programs, prelude, base and contrib alike, is the fork of
+Idris's compiler in compiler/idris, and the fork carries the change of
+`pull-request.diff` to its `src/` as its own code (its README lists it;
+PINS.md `idris-fork` and `elaboration-primitive-folding`). The stock Idris
+the bootstrap builds only builds stage 0, the fork, the frontend and the
+test runner, which do not depend on what elaboration folds, and the
+benchmarks' Chez baseline, which runs on the Chez whose meaning the fold
+computes, so it stays unpatched. The pull request is still one we intend to send, drafted as
+`pull-request.diff`, which the bootstrap does not apply.
+
 ## Testing at the pin
 
-Not yet built. The patch applies to the pin
-(`git -C third_party/Idris2 apply --check`, and
-`tests/spec/upstream-patches`). Neither the patched Idris, its own test
-suite, nor this repository's tests have run with it. Before it is relied
-on:
+`pull-request.diff` applies to the pin (`git -C third_party/Idris2 apply
+--check`), and its `src/` part is the fork's change, byte for byte: applied
+to the pin's four files it gives compiler/idris's. Upstream's own suite has
+not run with it, nor has a stock Idris been built with it.
 
-- `tools/bootstrap.sh idris` builds Idris and its libraries with the
-  patch (the libraries are built by the patched compiler, so the
-  installed prelude and base hold the unfolded calls);
-- `make test-mlir-tools only=elaboration-primitive-folding` runs the
-  check; `make check`, `make build`, `make test`;
-- upstream's suite (`make test` in a copy of third_party/Idris2 with the
-  patch): its expected files that print a definition folded by elaboration
-  will change, and `evaluator006`'s expected file was written by hand from
-  how the unpatched compiler prints the same forms.
+The fork, built with it by the stock Idris on arm64 macOS (2026-10-09),
+built prelude, base, contrib and `libs/mlir-linear` without an error, so
+no literal pattern in them needs a backend's primitive. Over this
+repository's 702 test programs (the frontend's Core and MLIR, compiled
+with the stub tools), against the same fork without the change: 525 are
+byte-identical; in the other 177 compilations (90 programs, each with and
+without compile-time evaluation where the suite does both) every
+difference is a constant that is now the primitive call written in the
+source (`12:Int` is `cast_StringInt("12.7")`, `"+inf.0"` is
+`cast_DoubleString(div_Double(1.0, 0.0))`, `3:Int` is `add_Int(1, 2)`),
+and no exit status or message changed. Without the `believe_me`
+exception, `tests/programs/data/vect` was refused (`unsupported (escape
+hatch): believe_me`), its `index 1 v` keeping the forged proof.
+`tests/upstream/elaboration-primitive-folding` checks the reproducer
+through the frontend.
 
 ## What it changes here
 
-With the patch, the program this compiler consumes keeps every primitive
+With the change, the program this compiler consumes keeps every primitive
 call the user wrote, and the runtime computes it, at compile time or at
 run time. The test generators no longer hide literals behind an identity
 (`tests/Sem.idr`'s `litInt`, the `lit<T>` of `tests/TwoLevels.idr` and
@@ -155,14 +183,16 @@ runtime's documented meaning.
 
 ## Upstreaming plan
 
-Status: not filed; the patch has not been built.
+Status: not filed; carried as the fork's code, not yet run through
+upstream's suite.
 
 - Where: an issue on idris-lang/Idris2 (the reproducer, with RefC's
   `0.100000` against the checked `"0.1"` for `prim__cast_DoubleString 0.1`,
   and Node's `Infinity` against `"+inf.0"`), and a pull request against
-  `main`, one commit, `idris.patch`, with a CHANGELOG_NEXT.md entry.
+  `main`, one commit, `pull-request.diff`, with a CHANGELOG_NEXT.md
+  entry.
   Before filing: search the tracker for elaboration constant folding and
-  `normaliseArgHoles`; build the patch on then-current `main` and run its
+  `normaliseArgHoles`; build the change on then-current `main` and run its
   suite, updating the expected files whose printed definitions keep their
   calls, and say which in the pull request.
 - The change review may question: a left-hand-side literal whose
@@ -171,5 +201,6 @@ Status: not filed; the patch has not been built.
   value is the host's; the pull request names both.
 - Separately, an issue for `castString` of a Char (`show`'s escape for
   a non-ASCII character), which the REPL's evaluation still shows.
-- The patch is dropped when the pin includes the fix; then this
-  directory, its check and its `PINS.md` entry go.
+- The fork's change goes when a re-sync of compiler/idris brings
+  upstream's fix (compiler/idris/README.md); then this directory, its
+  check and its `PINS.md` entry go.

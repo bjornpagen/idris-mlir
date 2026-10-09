@@ -89,6 +89,19 @@ for path in compiler/build/exec/idris-mlir \
             "${dev_prefix#"$root"/}/foreign/idr/idris-mlir-opt"; do
   if [ -f "$root/$path" ]; then echo "$path: built"; else echo "$path: not built (make build)"; fi
 done
+# The prefixes `make build` makes: what the pinned Idris installs for this
+# checkout (the fork, and libs/ for the benchmarks' Chez baseline), and
+# the frontend's own, every package of it built by the frontend.
+if [ -f "$host_prefix/$fork_stamp" ]; then
+  echo "${host_prefix#"$root"/}: the fork installed for the pinned Idris"
+else
+  echo "${host_prefix#"$root"/}: the fork not installed (make build)"
+fi
+if "$pins" prefix 2> /dev/null; then
+  echo "${checkout_prefix#"$root"/}: the pinned Idris source's packages and libs/, built by the frontend"
+else
+  echo "${checkout_prefix#"$root"/}: $(problem prefix)"
+fi
 if [ -f "${llvm_bin%/bin}/provenance.json" ]; then
   echo "Local LLVM tools: built at $(stamp_field "${llvm_bin%/bin}" llvm_revision)"
   for tool in clang ld.lld clang-tidy mlir-opt mlir-translate mlir-tblgen opt llc llvm-nm FileCheck \

@@ -2,7 +2,7 @@ package idris-mlir
 version = 0.1.0
 brief = "Compiler from checked Idris 2 TT to MLIR"
 
-depends = idris2, network
+depends = idris-compiler
 sourcedir = "src"
 modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Registry.Libraries
@@ -50,5 +50,7 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Frontend.Translate.Programs
         , IdrisMLIR.Frontend.Translate
         , IdrisMLIR.Frontend.Profile
+        , IdrisMLIR.Frontend.Backend
+        , IdrisMLIR.Frontend.Driver
 main = IdrisMLIR.Frontend.Main
 executable = idris-mlir

@@ -283,6 +283,20 @@ preOptions (CheckOnly :: opts)
     = do setSession ({ nobanner := True} !getSession)
          update PostS {checkOnly := True}
          preOptions opts
+-- A session has no default code generator to set: the driver registers
+-- the ones there are, and this only checks the name is one of them.
+preOptions (SetCG e :: opts)
+    = do defs <- get Ctxt
+         case getCG (options defs) e of
+            Just _ => preOptions opts
+            Nothing =>
+              throw $ UserError $ """
+                No such code generator
+                Code generators available: \{joinBy ", " (map fst (availableCGs (options defs)))}
+                """
+preOptions (Directive d :: opts)
+    = do setSession ({ directives $= (d::) } !getSession)
+         preOptions opts
 preOptions (Quiet :: opts)
     = do setVerbosity ErrorLvl
          preOptions opts

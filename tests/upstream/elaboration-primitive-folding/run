@@ -1,30 +1,67 @@
 #!/bin/sh
-# The pinned Idris, with upstream/18-elaboration-primitive-folding/idris.patch,
-# no longer shows the bug: a definition that applies a primitive to
-# constants keeps the call in its checked form, and so does a literal whose
-# FromString applies one, while a literal of a primitive type is still a
-# constant. An unpatched Idris checks `plain` to 12, its own evaluator's
-# reading of "12.7", and `viaLiteral` to `MkN 12`. When the pin's
-# evaluator leaves primitives applied where it leaves definitions, the
-# patch goes, and with it the PINS.md entry elaboration-primitive-folding,
-# the report and this test (upstream/README.md).
+# The fork of Idris's compiler (compiler/idris), which carries the change of
+# upstream/18-elaboration-primitive-folding/pull-request.diff, does not show
+# the bug: a definition that applies a primitive to constants keeps the call
+# in its checked form, and so does a literal whose FromString applies one,
+# while a literal of a primitive type is still a constant. The checked
+# definitions are read from the Core the frontend prints of them, which
+# translates each and computes nothing. The pinned, unpatched Idris checks
+# `plain` to 12, its own evaluator's reading of "12.7", and `viaLiteral` to
+# `MkN 12`. When a re-sync brings upstream's fix, the report, its PINS.md
+# entry and this test go (upstream/README.md).
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-cp "$root/upstream/18-elaboration-primitive-folding/Fold.idr" "$work/" || exit 1
-cd "$work" || exit 1
-printf ':printdef plain\n:printdef infinity\n:printdef eAcute\n:printdef viaLiteral\n:printdef small\n:q\n' |
-  bounded "$idris2" --no-banner --no-color Fold.idr > out 2> err
-say "idris2: exit $?"
-# kept NAME CLAUSE: the definition NAME is checked to CLAUSE.
-kept() {
-  if grep -qxF -- "$2" out; then
-    say "$1: $2"
-  else
-    say "$1: not checked to $2"
-    show out err
-  fi
+{
+  printf 'module Main\n\nimport Prelude\n\n'
+  cat "$root/upstream/18-elaboration-primitive-folding/Fold.idr"
+  cat <<'IDRIS'
+
+partial
+main : IO ()
+main = do
+  printLn plain
+  putStrLn infinity
+  putStrLn eAcute
+  let MkN n = viaLiteral
+  printLn n
+  printLn small
+IDRIS
+} > "$work/Main.idr" || exit 1
+compile_program "$work/Main.idr" prog
+say "compile: exit $compiled"
+[ "$compiled" -eq 0 ] || show "$work/compile.out" "$work/compile.err"
+core=$work/build/exec/prog.core
+
+# body NAME: the Core of the definition Main.NAME, its lines after the
+# header up to the blank line that ends it, on one line.
+body() {
+  awk -v name="Main.$1 " '
+    index($0, name) == 1 && / =$/ { inside = 1; next }
+    inside && /^$/ { exit }
+    inside { sub(/^ +/, ""); printf "%s ", $0 }' "$core" 2> /dev/null
 }
-kept plain 'plain = prim__cast_StringInt "12.7"'
-kept infinity 'infinity = prim__cast_DoubleString (prim__div_Double 1.0 0.0)'
-kept eAcute "eAcute = prim__cast_CharString '\\233'"
-kept viaLiteral 'viaLiteral = MkN (prim__cast_StringInt "12.7")'
-kept small 'small = 42'
+
+# kept NAME ARG: NAME is checked to a call that still has its argument ARG,
+# not to the value the evaluator computes from it.
+kept() {
+  kept_body=$(body "$1")
+  case $kept_body in
+    *"("*"$2"*) say "$1: the call stays, applied to $2" ;;
+    *) say "$1: not a call applied to $2: $kept_body" ;;
+  esac
+}
+
+# constant NAME VALUE: NAME is checked to the constant VALUE, no call.
+constant() {
+  constant_body=$(body "$1")
+  case $constant_body in
+    *"("*) say "$1: a call, not the constant $2: $constant_body" ;;
+    "$2"*) say "$1: the constant $2" ;;
+    *) say "$1: not the constant $2: $constant_body" ;;
+  esac
+}
+
+kept plain '"12.7"'
+kept infinity '1.0'
+kept eAcute '233'
+kept viaLiteral '"12.7"'
+constant small 42

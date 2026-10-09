@@ -68,6 +68,12 @@ data CLOpt
   CheckOnly |
    ||| The output file from the code generator
   OutputFile String |
+   ||| Execute a given function after checking the source file
+  ExecFn String |
+   ||| Use a specific code generator
+  SetCG String |
+   ||| Pass a directive to the code generator
+  Directive String |
    ||| Don't implicitly import Prelude
   NoPrelude |
    ||| Set source directory
@@ -166,8 +172,14 @@ options = [MkOpt ["--check", "-c"] [] [CheckOnly]
               (Just "Exit after checking source file"),
            MkOpt ["--output", "-o"] [Required "file"] (\f => [OutputFile f, Quiet])
               (Just "Specify output file"),
+           MkOpt ["--exec", "-x"] [Required "name"] (\f => [ExecFn f, Quiet])
+              (Just "Execute expression"),
            MkOpt ["--no-prelude"] [] [NoPrelude]
               (Just "Don't implicitly import Prelude"),
+           MkOpt ["--codegen", "--cg"] [Required "backend"] (\f => [SetCG f])
+              (Just "Set code generator"),
+           MkOpt ["--directive"] [Required "directive"] (\d => [Directive d])
+              (Just $ "Pass a directive to the current code generator"),
            MkOpt ["--package", "-p"] [Required "package"] (\f => [PkgPath f])
               (Just "Add a package as a dependency"),
            MkOpt ["--source-dir"] [Required "dir"] (\d => [SourceDir d])

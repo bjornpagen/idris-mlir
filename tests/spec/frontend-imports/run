@@ -1,32 +1,59 @@
 #!/bin/sh
-# Only IdrisMLIR.Frontend.* imports the Idris compiler: no other module of
+# The fork of Idris's compiler (compiler/idris) and this compiler meet in
+# one place: only IdrisMLIR.Frontend.* imports the fork. No other module of
 # compiler/src, or of the tests, imports a module whose root is a root of
-# the Idris API (third_party/Idris2/idris2api.ipkg).
+# the fork's modules (compiler/idris/idris-compiler.ipkg), and nothing
+# under compiler/idris imports IdrisMLIR.*.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+fork=$root/compiler/idris
 roots=$(awk 'found { print; next } /modules/ { found = 1; sub(/^.*modules/, ""); print }' \
-          "$root/third_party/Idris2/idris2api.ipkg" |
+          "$fork/idris-compiler.ipkg" |
         grep -oE '^[[:space:]]*,?[[:space:]]*[A-Z][A-Za-z0-9]*([.,[:space:]]|$)' |
         sed 's/^[[:space:]]*,\{0,1\}[[:space:]]*\([A-Z][A-Za-z0-9]*\).*/\1/' | sort -u | tr '\n' ' ')
 case " $roots " in
-  *" Core "*) say "the Idris API's module roots include Core" ;;
-  *) say "the Idris API's module roots lack Core: $roots" ;;
+  *" Core "*) say "the fork's module roots include Core" ;;
+  *) say "the fork's module roots lack Core: $roots" ;;
 esac
+case " $roots " in
+  *" IdrisMLIR "*) say "the fork's module roots include IdrisMLIR" ;;
+esac
+
+# imports FILE: the modules FILE imports, one a line.
+imports() {
+  sed -n 's/^import[[:space:]]\{1,\}\(public[[:space:]]\{1,\}\)\{0,1\}\([A-Za-z0-9_.][A-Za-z0-9_.]*\).*/\2/p' "$1"
+}
+
 # The test programs too.
 { find "$root/compiler/src" -path "$root/compiler/src/IdrisMLIR/Frontend" -prune -o -name '*.idr' -print
   find "$root/tests" -name build -prune -o -name '*.idr' -print
 } | sort > "$work/sources"
 : > "$work/imports"
 while IFS= read -r file; do
-  sed -n 's/^import[[:space:]]\{1,\}\(public[[:space:]]\{1,\}\)\{0,1\}\([A-Za-z0-9_.][A-Za-z0-9_.]*\).*/\2/p' "$file" |
-    while IFS= read -r module; do
-      case " $roots " in
-        *" ${module%%.*} "*) say "${file#"$root"/} imports $module" >> "$work/imports" ;;
-      esac
-    done
+  imports "$file" | while IFS= read -r module; do
+    case " $roots " in
+      *" ${module%%.*} "*) say "${file#"$root"/} imports $module" >> "$work/imports" ;;
+    esac
+  done
 done < "$work/sources"
 if [ -s "$work/imports" ]; then
-  say "modules outside IdrisMLIR.Frontend that import the Idris compiler:"
+  say "modules outside IdrisMLIR.Frontend that import the fork:"
   cat "$work/imports"
 else
-  say "only IdrisMLIR.Frontend imports the Idris compiler"
+  say "only IdrisMLIR.Frontend imports the fork"
+fi
+
+find "$fork" -name build -prune -o -name '*.idr' -print | sort > "$work/fork"
+: > "$work/ours"
+while IFS= read -r file; do
+  imports "$file" | while IFS= read -r module; do
+    case $module in
+      IdrisMLIR | IdrisMLIR.*) say "${file#"$root"/} imports $module" >> "$work/ours" ;;
+    esac
+  done
+done < "$work/fork"
+if [ -s "$work/ours" ]; then
+  say "modules of the fork that import IdrisMLIR:"
+  cat "$work/ours"
+else
+  say "the fork imports nothing of IdrisMLIR"
 fi

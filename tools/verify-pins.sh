@@ -21,6 +21,8 @@
 # stamp records other patches than upstream/*/<project>.patch carry now
 # (tools/patches.sh).
 #   built       the tools `make build` makes exist
+#   prefix      the frontend's prefix is built: the pinned Idris source's
+#               packages and those of libs/, each by the frontend (make build)
 #   test-tools  the pinned LLVM has FileCheck, not and count
 #
 #     tools/verify-pins.sh lock TOOL KEY    prints a string of the lock
@@ -155,6 +157,12 @@ check() {
                   "${dev_prefix#"$root"/}/foreign/idr/idris-mlir-cc" \
                   "${dev_prefix#"$root"/}/foreign/idr/idris-mlir-opt"; do
         [ -f "$root/$path" ] || fail "$path is missing; run: make build"
+      done
+      ;;
+    prefix)
+      for stamp in "$prefix_stamp" "$libs_stamp"; do
+        [ -f "$checkout_prefix/$stamp" ] ||
+          fail "the frontend's prefix is not built; run: make build"
       done
       ;;
     test-tools)

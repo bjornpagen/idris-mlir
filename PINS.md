@@ -179,22 +179,36 @@ which the top-level CMake configure gate reads.
   value instead of the call: `prim__cast_StringInt "12.7"` is 12 where the
   runtime reads 0, a Double's text is `+inf.0` or `5e-324|1`, a Char's
   string is its escape. A literal's conversion (`normalisePrims`) runs a
-  user's `fromString` the same way
-- sites: none in our code; the patch. The test generators write literals
-  as they are (tests/Sem.idr, tests/TwoLevels.idr, tests/Fuzz.idr), where
-  they hid each behind an identity that Idris does not reduce
-- workaround: `upstream/18-elaboration-primitive-folding/idris.patch`, the
-  pull request: a primitive reduces where a definition would, not in the
-  holes-only modes, and a literal's conversion runs only the primitives
-  every backend computes alike (Integer's arithmetic and comparisons, a
-  wrapping cast from Integer, an exact cast to Double). The installed
-  prelude and base are built by the patched compiler, so they keep their
-  calls too
-- retire: drop the patch when the pin includes the fix; the generators
-  stay as they are
-- upstream: upstream/18-elaboration-primitive-folding (not filed; not yet
-  built); plan in its README: an issue and a pull request on
-  idris-lang/Idris2
+  user's `fromString` the same way. The fork inherited the bug with the
+  code
+- sites: the fork, compiler/idris/src/Core/Normalise/Eval.idr (`evalDef`
+  of a `Builtin`), compiler/idris/src/Core/Normalise.idr
+  (`normalisePrims`), compiler/idris/src/Core/Primitives.idr (`sharedOp`)
+  and compiler/idris/src/Core/Value.idr (`sharedPrimsOnly`). The test
+  generators write literals as they are (tests/Sem.idr,
+  tests/TwoLevels.idr, tests/Fuzz.idr), where they hid each behind an
+  identity that Idris does not reduce
+- workaround: none; the fork carries the fix as its own code, the change
+  of `upstream/18-elaboration-primitive-folding/pull-request.diff` (the
+  pull request against the pin): a primitive reduces where a definition
+  would, not in the holes-only modes, but for `believe_me`, which computes
+  nothing (without it a `Fin` literal keeps base's forged proof, and
+  tests/programs/data/vect is refused as an escape hatch), and a literal's
+  conversion runs only the primitives every backend computes alike
+  (Integer's arithmetic and comparisons, a wrapping cast from Integer, an
+  exact cast to Double, `believe_me`).
+  The frontend's prelude, base and the other packages Idris ships are
+  built by the fork, so they keep their calls too. The stock Idris is not
+  patched: it builds only stage 0 (the fork, the frontend and the test
+  runner), which does not depend on what elaboration folds, and the
+  benchmarks' Chez baseline, whose programs run on the Chez whose meaning
+  the fold computes
+- retire: when a re-sync of the fork brings upstream's fix, the fork's
+  change is upstream's; then the report, its check and this entry go; the
+  generators stay as they are
+- upstream: upstream/18-elaboration-primitive-folding (not filed; upstream's
+  own suite not run with the change); plan in its README: an issue and a
+  pull request on idris-lang/Idris2
 
 ## remove-dead-values-address-taken
 
@@ -693,19 +707,25 @@ which the top-level CMake configure gate reads.
   removed nothing (`src/Idris/Package.idr`); `Core.Unify.search` is
   defined in `Core.AutoSearch`, which only the REPL imported, so a driver
   without the REPL compiled it as a hole; and `Libraries.Data.String.Iterator`
-  binds `scheme:` foreign functions that base has no counterpart for
+  binds `scheme:` foreign functions that base has no counterpart for. A
+  third upstream bug, found before the fork, is fixed in it too:
+  elaboration folds a primitive applied to constants with Idris's own
+  implementation (elaboration-primitive-folding)
 - sites: compiler/idris (README.md lists every deviation;
   `tools/extract-idris.sh status` prints the files that differ from the
   gitlink), compiler/idris/src/Idris/Package.idr (the `clean` path),
   compiler/idris/src/Idris/ProcessIdr.idr (imports `Core.AutoSearch`),
-  compiler/idris/src/Libraries/Data/String/Iterator.idr
+  compiler/idris/src/Libraries/Data/String/Iterator.idr,
+  compiler/idris/src/Core/{Normalise,Normalise/Eval,Primitives,Value}.idr
+  (elaboration-primitive-folding)
 - workaround: none; the fork is our code. Its deviations from upstream are
   deliberate (the REPL, IDE mode, every other code generator and the CExp
-  pipeline are out of scope) except the two bug fixes, which upstream
+  pipeline are out of scope) except the three bug fixes, which upstream
   should take. The iterator's `scheme:` specs stay while the fork runs on
   Chez as stage 0, and go when string iteration is a runtime primitive
 - retire: never as a whole. Each bug fix goes when an Idris bump brings
   upstream's fix (the re-sync merge in compiler/idris/README.md shows it)
 - upstream: not filed; the `clean` path and the unimported
   `Core.AutoSearch` are each an issue and a pull request on
-  idris-lang/Idris2
+  idris-lang/Idris2; elaboration's folding is
+  upstream/18-elaboration-primitive-folding

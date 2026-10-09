@@ -1,6 +1,6 @@
-idris2: exit 0
-plain: plain = prim__cast_StringInt "12.7"
-infinity: infinity = prim__cast_DoubleString (prim__div_Double 1.0 0.0)
-eAcute: eAcute = prim__cast_CharString '\233'
-viaLiteral: viaLiteral = MkN (prim__cast_StringInt "12.7")
-small: small = 42
+compile: exit 0
+plain: the call stays, applied to "12.7"
+infinity: the call stays, applied to 1.0
+eAcute: the call stays, applied to 233
+viaLiteral: the call stays, applied to "12.7"
+small: the constant 42

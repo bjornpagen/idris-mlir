@@ -15,6 +15,13 @@ Idris 2 the toolchain installs:
 cd compiler/idris && idris2 --build idris-compiler.ipkg
 ```
 
+`make fork` installs it for that Idris into the checkout's
+`build/idris2-host`, where the frontend's build finds it (`depends =
+idris-compiler`). The frontend's driver, `IdrisMLIR.Frontend.Driver`,
+replaces upstream's `Idris.Driver`; the TTCs the fork writes are read by
+nothing else, so the frontend builds the packages Idris ships itself, into
+`build/idris2` (`make prefix`).
+
 It depends on nothing but prelude and base. Upstream's API package needs
 `network` for the IDE mode's socket; nothing here does.
 
@@ -28,13 +35,16 @@ It depends on nothing but prelude and base. Upstream's API package needs
   `Compiler.RefC` and `Compiler.Interpreter`, with the Scheme evaluator
   (`Core.SchemeEval.*`, `Libraries.Utils.Scheme`) and a `GlobalDef`'s
   `schemeExpr`. The command line lost the options that only served them
-  (`--repl`, `--ide-mode`, `--cg`, `--inc`, `--exec`, `--dumpcases` and the
-  like), and so did a session's options; the REPL's command syntax went
-  from `Idris.Syntax`, `Idris.Parser` and `TTImp` (Yaffle's). A code
-  generator is only one a driver registers, known by its name (`CG` is
-  `Other String`, and a session no longer carries a default one), the log
-  topics only the deleted modules used are gone, and `Idris.Env` lists
-  only the variables the fork's code and its driver read. `Idris.Package` lost `--mkdoc`, `--init`, `--repl` and
+  (`--repl`, `--ide-mode`, `--inc`, `--dumpcases` and the like), and so
+  did a session's options; the REPL's command syntax went from
+  `Idris.Syntax`, `Idris.Parser` and `TTImp` (Yaffle's). A code generator
+  is only one a driver registers, known by its name (`CG` is `Other
+  String`, and a session no longer carries a default one): `--cg` checks
+  that it names one, `--directive` is the session's, and `--exec` is the
+  driver's to run or refuse. The log topics only the deleted modules used
+  are gone, and `Idris.Env` lists only the variables the fork's code and
+  its driver read (not `IDRIS2_CG`, which named the default code
+  generator). `Idris.Package` lost `--mkdoc`, `--init`, `--repl` and
   `--dump-ipkg-json` with the modules behind them.
 - **The CExp pipeline.** The frontend consumes checked TT and its
   definition context, never CExp, so `Compiler.ANF`, `CaseOpts`,
@@ -96,6 +106,18 @@ and restores it, harmlessly.
   the definition rather than a hole.
 - `clean` (`Idris.Package`) removes the package's TTCs. Upstream's looks
   for them under one `ttc` directory too many, and removes nothing.
+- Elaboration leaves a primitive applied to constants, as it leaves a
+  function applied (`evalDef` of a `Builtin`, `Core.Normalise.Eval`), but
+  for `believe_me`, which computes nothing (`coercionOp`), and a literal's
+  conversion runs only the primitives every backend computes alike,
+  Integer's arithmetic and comparisons, the exact or wrapping casts from
+  Integer and `believe_me` (`sharedOp` in `Core.Primitives`, the
+  evaluator's `sharedPrimsOnly`, `normalisePrims` in `Core.Normalise`).
+  Upstream folds any such call with its own implementation, which is
+  Chez's meaning of the primitive, not the runtime's; the checked term now
+  holds the call.
+  A literal pattern whose conversion needs another primitive is refused,
+  since the call left in it would match anything.
 - `IdrisPaths`, which upstream's build generates, is written here: the
   version, tagged with the pinned commit. It has no install prefix; the
   driver passes one.

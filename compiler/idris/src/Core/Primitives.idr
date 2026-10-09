@@ -612,6 +612,60 @@ getOp BelieveMe = believeMe
 
 getOp _ = const Nothing
 
+-- A cast from Integer to Double, when the Integer is a Double exactly (no
+-- more than 2^53 in magnitude), so that no rounding is involved.
+exactDouble : Vect 1 (NF vars) -> Maybe (NF vars)
+exactDouble [NPrimVal fc (BI i)]
+    = if abs i <= 9007199254740992
+         then Just (NPrimVal fc (Db (cast i)))
+         else Nothing
+exactDouble _ = Nothing
+
+||| The primitive that computes nothing: `believe_me` gives a value
+||| another type, and is that value on every backend. Elaboration reduces
+||| it wherever it reduces a hole, so that a proof a library forges with it
+||| (the bound of a `Fin` literal) is the constructor it stands for once the
+||| hole it was applied to is solved.
+export
+coercionOp : {0 arity : Nat} -> PrimFn arity ->
+             {vars : Scope} -> Vect arity (NF vars) -> Maybe (NF vars)
+coercionOp BelieveMe = believeMe
+coercionOp _ = const Nothing
+
+||| The primitives whose result is the same on every backend, which the
+||| elaborator may compute when it reduces a literal to a constant:
+||| Integer's arithmetic and comparisons (its division and remainder are
+||| Euclidean on every backend), a cast from Integer to a fixed-width
+||| integer, which wraps, or to a Double that is exactly that Integer, and
+||| `believe_me` (coercionOp). Any other primitive, such as the text of a
+||| Double or the number a String reads as, means what the backend that
+||| runs the program computes, so it stays applied.
+export
+sharedOp : {0 arity : Nat} -> PrimFn arity ->
+           {vars : Scope} -> Vect arity (NF vars) -> Maybe (NF vars)
+sharedOp (Add IntegerType) = binOp add
+sharedOp (Sub IntegerType) = binOp sub
+sharedOp (Mul IntegerType) = binOp mul
+sharedOp (Div IntegerType) = binOp div
+sharedOp (Mod IntegerType) = binOp mod
+sharedOp (Neg IntegerType) = unaryOp neg
+sharedOp (LT IntegerType) = binOp lt
+sharedOp (LTE IntegerType) = binOp lte
+sharedOp (EQ IntegerType) = binOp eq
+sharedOp (GTE IntegerType) = binOp gte
+sharedOp (GT IntegerType) = binOp gt
+sharedOp (Cast IntegerType IntType) = castInt
+sharedOp (Cast IntegerType Int8Type) = castInt8
+sharedOp (Cast IntegerType Int16Type) = castInt16
+sharedOp (Cast IntegerType Int32Type) = castInt32
+sharedOp (Cast IntegerType Int64Type) = castInt64
+sharedOp (Cast IntegerType Bits8Type) = castBits8
+sharedOp (Cast IntegerType Bits16Type) = castBits16
+sharedOp (Cast IntegerType Bits32Type) = castBits32
+sharedOp (Cast IntegerType Bits64Type) = castBits64
+sharedOp (Cast IntegerType DoubleType) = exactDouble
+sharedOp op = coercionOp op
+
 prim : String -> Name
 prim str = UN $ Basic $ "prim__" ++ str
 

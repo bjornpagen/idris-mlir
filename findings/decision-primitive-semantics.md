@@ -50,7 +50,8 @@ A primitive's meaning comes from, in this order:
 
   The generated tests hid every literal behind an identity Idris does not
   reduce, so none of them saw it.
-- **Now:** Idris carries `upstream/18-elaboration-primitive-folding`:
+- **Now:** the fork of Idris's compiler (compiler/idris) carries the fix
+  of `upstream/18-elaboration-primitive-folding` as its own code:
   elaboration leaves a primitive applied, as it leaves a function, and
   compile-time evaluation computes it with the runtime.
 - **Except:** a literal's conversion still runs Integer's arithmetic and
@@ -64,7 +65,8 @@ A primitive's meaning comes from, in this order:
     module, and a literal through a `FromString` and a `FromDouble`;
   - the generated tests, whose literals are now as written
     (`tests/Sem.idr`, `tests/TwoLevels.idr`, `tests/Fuzz.idr`);
-  - `tests/upstream/elaboration-primitive-folding`, the pinned Idris.
+  - `tests/upstream/elaboration-primitive-folding`, the checked
+    definitions as the frontend's Core shows them.
 
 ### Bytes from outside, as text: Unicode
 

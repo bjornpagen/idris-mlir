@@ -2,8 +2,8 @@
 # directory, bounded commands, the test's output and the fixture files.
 
 # The pinned tools: $llvm_bin, $pinned_cc, $idris_mlir_cc, $idris_mlir_opt,
-# and $idris2, the pinned stock Idris 2, which the frontend is built from
-# and which a test asks about the prelude it checked.
+# and $idris2, the pinned stock Idris 2, which the frontend is built by
+# and which a test asks about the prelude it checked (pinned_idris).
 . "$root/tools/toolchain.sh"
 runtests=$root/tests/build/exec/runtests
 compile_sh=$root/tools/compile.sh
@@ -25,6 +25,13 @@ bounded() {
       return 124 ;;
   esac
   return "$bounded_status"
+}
+
+# pinned_idris ARG...: the pinned Idris, bounded, on its own prefix, whose
+# prelude and base it checked. The environment's prefix is the frontend's,
+# whose TTCs are of another format.
+pinned_idris() {
+  (IDRIS2_PREFIX=$idris_prefix && export IDRIS2_PREFIX && bounded "$idris2" "$@")
 }
 
 # say TEXT...: one line of the test's output, printed as is.

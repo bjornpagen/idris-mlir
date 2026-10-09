@@ -204,12 +204,15 @@ test's committed expected files are its specification
 
 ## Layout
 
-- `compiler/`: the Idris side: frontend, Core, `Emit`.
+- `compiler/`: the Idris side: frontend, Core, `Emit`; `compiler/idris`
+  is the fork of Idris's compiler the frontend runs on, whose TTCs only
+  it reads, so the packages Idris ships are built by the frontend into
+  this checkout's prefix, `build/idris2`.
 - `foreign/idr/`: the `idr` dialect, its passes, the JIT and the tools.
 - `runtime/`: the runtime every program links, and that folding and
   compile-time evaluation call.
 - `libs/`: the Idris packages this compiler ships (`mlir-linear`: linear
-  arrays and lists), installed per checkout under `build/idris2`.
+  arrays and lists), installed by the frontend into `build/idris2` too.
 - `tests/`: golden tests (`tests/Main.idr`, `tests/README.md`); `bench/`:
   benchmarks against C and Chez.
 - `findings/`: decisions taken (`decision-*.md`) and the design notes

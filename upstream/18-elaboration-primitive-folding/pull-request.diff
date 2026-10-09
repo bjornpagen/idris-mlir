@@ -36,34 +36,36 @@ index e64610a..d2caeb8 100644
 +                         ++ "arithmetic or a cast from Integer"))
 +        pure (Just tm')
 diff --git a/src/Core/Normalise/Eval.idr b/src/Core/Normalise/Eval.idr
-index 0ab608a..91ab5c5 100644
+index 0ab608a..00ac1d3 100644
 --- a/src/Core/Normalise/Eval.idr
 +++ b/src/Core/Normalise/Eval.idr
-@@ -545,8 +545,18 @@ parameters (defs : Defs) (topopts : EvalOpts)
+@@ -545,8 +545,20 @@ parameters (defs : Defs) (topopts : EvalOpts)
                       --                  , "  rigd        : \{show rigd}"
                       --                  ]
                       pure def
-+    -- A primitive is reduced where a definition would be: a mode that
-+    -- evaluates only holes leaves it applied, as it leaves a function or a
-+    -- 'let', so that elaboration does not replace a primitive applied to
-+    -- constants in the term it checks with this compiler's own result,
-+    -- which need not be what the backend computes. Where only the
-+    -- primitives every backend computes alike may run (a literal's
-+    -- conversion, normalisePrims), the others stay applied too.
++    -- A primitive that computes something is reduced where a definition
++    -- would be: a mode that evaluates only holes leaves it applied, as it
++    -- leaves a function or a 'let', so that elaboration does not replace a
++    -- primitive applied to constants in the term it checks with this
++    -- compiler's own result, which need not be what the backend computes.
++    -- Such a mode still reduces believe_me, which computes nothing
++    -- (coercionOp). Where only the primitives every backend computes alike
++    -- may run (a literal's conversion, normalisePrims), the others stay
++    -- applied too.
      evalDef env opts meta fc rigd (Builtin op) flags stk def
 -        = evalOp (getOp op) stk def
-+        = if (holesOnly opts || argHolesOnly opts) && not (tcInline opts)
-+             then pure def
-+             else evalOp (if sharedPrimsOnly opts then sharedOp op else getOp op)
-+                         stk def
++        = evalOp (if (holesOnly opts || argHolesOnly opts) && not (tcInline opts)
++                     then coercionOp op
++                     else if sharedPrimsOnly opts then sharedOp op else getOp op)
++                 stk def
      -- All other cases, use the default value, which is already applied to
      -- the stack
      evalDef env opts meta fc rigd def flags stk orig = do
 diff --git a/src/Core/Primitives.idr b/src/Core/Primitives.idr
-index 1fe1a2a..2bafef9 100644
+index 1fe1a2a..5c33ebe 100644
 --- a/src/Core/Primitives.idr
 +++ b/src/Core/Primitives.idr
-@@ -612,6 +612,49 @@ getOp BelieveMe = believeMe
+@@ -612,6 +612,60 @@ getOp BelieveMe = believeMe
  
  getOp _ = const Nothing
  
@@ -76,14 +78,25 @@ index 1fe1a2a..2bafef9 100644
 +         else Nothing
 +exactDouble _ = Nothing
 +
++||| The primitive that computes nothing: `believe_me` gives a value
++||| another type, and is that value on every backend. Elaboration reduces
++||| it wherever it reduces a hole, so that a proof a library forges with it
++||| (the bound of a `Fin` literal) is the constructor it stands for once the
++||| hole it was applied to is solved.
++export
++coercionOp : {0 arity : Nat} -> PrimFn arity ->
++             {vars : Scope} -> Vect arity (NF vars) -> Maybe (NF vars)
++coercionOp BelieveMe = believeMe
++coercionOp _ = const Nothing
++
 +||| The primitives whose result is the same on every backend, which the
 +||| elaborator may compute when it reduces a literal to a constant:
 +||| Integer's arithmetic and comparisons (its division and remainder are
-+||| Euclidean on every backend), and a cast from Integer to a fixed-width
-+||| integer, which wraps, or to a Double that is exactly that Integer. Any
-+||| other primitive, such as the text of a Double or the number a String
-+||| reads as, means what the backend that runs the program computes, so it
-+||| stays applied.
++||| Euclidean on every backend), a cast from Integer to a fixed-width
++||| integer, which wraps, or to a Double that is exactly that Integer, and
++||| `believe_me` (coercionOp). Any other primitive, such as the text of a
++||| Double or the number a String reads as, means what the backend that
++||| runs the program computes, so it stays applied.
 +export
 +sharedOp : {0 arity : Nat} -> PrimFn arity ->
 +           {vars : Scope} -> Vect arity (NF vars) -> Maybe (NF vars)
@@ -108,7 +121,7 @@ index 1fe1a2a..2bafef9 100644
 +sharedOp (Cast IntegerType Bits32Type) = castBits32
 +sharedOp (Cast IntegerType Bits64Type) = castBits64
 +sharedOp (Cast IntegerType DoubleType) = exactDouble
-+sharedOp _ = const Nothing
++sharedOp op = coercionOp op
 +
  prim : String -> Name
  prim str = UN $ Basic $ "prim__" ++ str

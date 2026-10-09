@@ -1,2 +1,3 @@
-the Idris API's module roots include Core
-only IdrisMLIR.Frontend imports the Idris compiler
+the fork's module roots include Core
+only IdrisMLIR.Frontend imports the fork
+the fork imports nothing of IdrisMLIR

@@ -18,6 +18,8 @@ record EvalOpts where
   removeAs : Bool -- reduce 'as' patterns (don't do this on LHS)
   evalAll : Bool -- evaluate everything, including private names
   tcInline : Bool -- inline for totality checking
+  sharedPrimsOnly : Bool -- reduce only the primitives every backend computes
+                         -- alike (Core.Primitives.sharedOp)
   fuel : Maybe Nat -- Limit for recursion depth
   reduceLimit : List (Name, Nat) -- reduction limits for given names. If not
                      -- present, no limit
@@ -31,6 +33,7 @@ defaultOpts = MkEvalOpts
     , removeAs = True
     , evalAll = False
     , tcInline = False
+    , sharedPrimsOnly = False
     , fuel = Nothing
     , reduceLimit = []
     , strategy = CBN
@@ -44,6 +47,7 @@ withHoles = MkEvalOpts
     , removeAs = False
     , evalAll = False
     , tcInline = False
+    , sharedPrimsOnly = False
     , fuel = Nothing
     , reduceLimit = []
     , strategy = CBN
@@ -57,6 +61,7 @@ withAll = MkEvalOpts
     , removeAs = True
     , evalAll = True
     , tcInline = False
+    , sharedPrimsOnly = False
     , fuel = Nothing
     , reduceLimit = []
     , strategy = CBN
@@ -70,6 +75,7 @@ withArgHoles = MkEvalOpts
     , removeAs = False
     , evalAll = False
     , tcInline = False
+    , sharedPrimsOnly = False
     , fuel = Nothing
     , reduceLimit = []
     , strategy = CBN

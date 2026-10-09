@@ -5,9 +5,12 @@
 #   make verify-pins       the Idris submodule is at its staged gitlink, unmodified
 #   make check             tests/spec: the pins, the commands and the layout;
 #                          always, without a build
-#   make build             the C++ dev preset, the packages in libs/, the Idris
-#                          side's modules of the dialects (tools/dialects.sh)
-#                          and the Idris compiler; after any code change
+#   make build             the C++ dev preset, the Idris side's modules of the
+#                          dialects (tools/dialects.sh), the fork of Idris's
+#                          compiler (compiler/idris), the frontend, and the
+#                          frontend's prefix: the packages the pinned Idris
+#                          source ships and those in libs/; after any code
+#                          change
 #   make test              tests/compiler, accept, reject, programs (each program twice: with
 #                          its dumps checked, and without compile-time
 #                          evaluation), determinism, registry, toolchain, fuzz,
@@ -46,13 +49,23 @@ PATHS_MODULE := $(ROOT)/compiler/src/IdrisMLIR/Frontend/Paths.idr
 RUNNER := $(ROOT)/tests/build/exec/runtests
 PINS := $(ROOT)/tools/verify-pins.sh
 
-# Every command runs the pinned Idris, and no package path inherited from
-# another installation. Its prefix is this checkout's own (`prefix`), so
-# that the packages of libs/ it finds are this checkout's. CHEZ is the
-# pinned Chez Scheme it was built with (tools/verify-pins.sh idris checks
-# that), never one on PATH.
+# Two Idris compilers run here, each on its own prefix, never one of
+# another's: a TTC is read only by the compiler whose format it is, so a
+# prefix is the packages one compiler built. The pinned Idris (IDRIS2) runs
+# on its own prefix, IDRIS_PREFIX, which the bootstrap built and every
+# checkout shares, where it builds the tests' runner. It installs what this
+# checkout builds for it into HOST_PREFIX: the fork of its compiler
+# (compiler/idris), which it builds the frontend against, and the packages
+# of libs/, which the benchmarks' Chez baseline uses; it finds them there
+# beside its own prelude and base. The frontend (COMPILER) runs on
+# CHECKOUT_PREFIX, which holds only what it built itself: the packages of
+# the pinned Idris source (`prefix`) and those of libs/ (`libs`). Every command inherits no package path from another
+# installation, and CHEZ is the pinned Chez Scheme the pinned Idris was
+# built with (tools/verify-pins.sh idris checks that), never one on PATH.
 unexport IDRIS2_PATH IDRIS2_PACKAGE_PATH IDRIS2_INC_CGS IDRIS2_INC_SRC IDRIS2_DATA IDRIS2_LIBS IDRIS2_CG IDRIS2_BOOT
 CHECKOUT_PREFIX := $(call toolchain,checkout_prefix)
+HOST_PREFIX := $(call toolchain,host_prefix)
+# What the tests and `compile` run is the frontend, on its prefix.
 export IDRIS2_PREFIX := $(CHECKOUT_PREFIX)
 export PATH := $(IDRIS_PREFIX)/bin:$(PATH)
 export IDRIS_MLIR_ROOT := $(ROOT)
@@ -73,8 +86,8 @@ TIMEOUT := $(call toolchain,timeout_cmd)
 TIMEOUT_MISSING := $(call toolchain,timeout_missing)
 RUN_TESTS = $(or $(TIMEOUT),$(error $(TIMEOUT_MISSING))) -k 10 14400 $(RUNNER) $(COMPILER)
 
-.PHONY: help bootstrap doctor verify-pins env check build prefix libs paths test test-idr \
-        test-mlir-tools runner compile bench
+.PHONY: help bootstrap doctor verify-pins env check build fork frontend prefix libs host-libs \
+        paths test test-idr test-mlir-tools runner compile bench
 .DEFAULT_GOAL := help
 
 # `make` alone lists the commands: the comment that starts this file.
@@ -94,48 +107,99 @@ verify-pins:
 env:
 	@env | grep -E '^(IDRIS2_[A-Z_]*|CHEZ|IDRIS_MLIR_ROOT)=' | sort
 
-# The presets are the only interface for building C++.
-build: libs
+# The presets are the only interface for building C++. The frontend comes
+# after the paths it records, and its prefix after the frontend, which
+# builds it: one make after the other, so that no parallel make builds the
+# prefix with a frontend older than the fork.
+build:
 	@$(PINS) cmake ninja llvm sysroot
 	cd $(ROOT) && $(CMAKE) --preset $(DEV_PRESET)
 	cd $(ROOT) && $(CMAKE) --build --preset $(DEV_PRESET)
 	@$(PINS) idris
 	@$(MAKE) --no-print-directory paths
 	$(ROOT)/tools/dialects.sh generate
-	cd $(ROOT)/compiler && $(IDRIS2) --build idris-mlir.ipkg
+	@$(MAKE) --no-print-directory frontend
+	@$(MAKE) --no-print-directory libs
 
-# This checkout's Idris prefix, build/idris2: every entry of the pinned
-# prefix linked, except the packages this compiler ships (libs/), which
-# `libs` installs here. The pinned prefix is shared by every checkout of the
-# repository (a worktree links .toolchain), so a package installed there
-# would be whichever checkout installed last. Made again after a bootstrap.
-SHIPPED := $(notdir $(patsubst %/,%,$(wildcard $(ROOT)/libs/*/)))
-PREFIX_STAMP := $(CHECKOUT_PREFIX)/.linked
-prefix: $(PREFIX_STAMP)
-$(PREFIX_STAMP): $(wildcard $(IDRIS_PREFIX)/provenance.json)
-	@$(PINS) idris
-	@rm -rf '$(CHECKOUT_PREFIX)' && mkdir -p '$(CHECKOUT_PREFIX)' && \
-	for top in '$(IDRIS_PREFIX)'/*; do \
-	  case $${top##*/} in \
-	    idris2-*) mkdir '$(CHECKOUT_PREFIX)'/"$${top##*/}" || exit 1; \
-	      for entry in "$$top"/*; do \
-	        shipped=no; \
-	        for lib in $(SHIPPED); do case $${entry##*/} in "$$lib"-*) shipped=yes ;; esac; done; \
-	        [ $$shipped = yes ] || ln -s "$$entry" '$(CHECKOUT_PREFIX)'/"$${top##*/}"/ || exit 1; \
-	      done ;; \
-	    *) ln -s "$$top" '$(CHECKOUT_PREFIX)'/ || exit 1 ;; \
-	  esac; \
+# The pinned Idris's directory of packages under a prefix, where it installs
+# a package and finds one (<prefix>/idris2-<version>), in a recipe's shell.
+libdir = $$(IDRIS2_PREFIX='$(1)' '$(IDRIS2)' --libdir)
+
+# install COMMAND,PREFIX,SOURCES: each package directory of SOURCES, named
+# as its .ipkg, installed into PREFIX by COMMAND (a compiler with its
+# environment), in order, as each may need the ones before. Each is built
+# from nothing in a copy beside the prefix, PREFIX-src: the sources it is
+# built from are only read, and a build directory beside them may hold
+# another compiler's TTCs, or the same compiler's from before the fork
+# changed. A package's earlier installation is removed first, so that no
+# module it has dropped stays installed.
+install = packages=$$($(1) --libdir) && mkdir -p '$(2)-src' && \
+	for source in $(3); do \
+	  name=$$(basename "$$source") && copy='$(2)-src'/"$$name" && \
+	  rm -rf "$$packages/$$name"-[0-9]* "$$copy" && \
+	  cp -R "$$source" "$$copy" && rm -rf "$$copy/build" && \
+	  (cd "$$copy" && $(1) --install "$$name.ipkg") || exit 1; \
 	done
+
+# The fork of Idris's compiler, built by the pinned Idris and installed for
+# it into HOST_PREFIX, never into the pinned prefix, which every checkout
+# shares; its prelude and base are the pinned prefix's. Again whenever a
+# file of the fork changes, its package removed first, so that no module
+# the fork has dropped stays installed.
+FORK_SOURCES := $(ROOT)/compiler/idris/idris-compiler.ipkg $(shell find '$(ROOT)/compiler/idris/src' -name '*.idr' 2> /dev/null)
+FORK_STAMP := $(HOST_PREFIX)/$(call toolchain,fork_stamp)
+fork: $(FORK_STAMP)
+$(FORK_STAMP): $(FORK_SOURCES) $(wildcard $(IDRIS_PREFIX)/provenance.json)
+	@$(PINS) idris
+	@mkdir -p '$(HOST_PREFIX)' && packages="$(call libdir,$(HOST_PREFIX))" && rm -rf "$$packages"/idris-compiler-*
+	cd $(ROOT)/compiler/idris && export IDRIS2_PREFIX='$(HOST_PREFIX)' IDRIS2_PACKAGE_PATH="$(call libdir,$(IDRIS_PREFIX))" && \
+	  $(IDRIS2) --install idris-compiler.ipkg
 	@touch $@
 
-# The packages this compiler ships (libs/), installed into this checkout's
-# prefix, where the pinned Idris's backend and this compiler find them alike
-# (-p mlir-linear), again whenever one of their sources changes.
-LIBS_STAMP := $(CHECKOUT_PREFIX)/.libs-installed
-libs: $(LIBS_STAMP)
-$(LIBS_STAMP): $(PREFIX_STAMP) $(wildcard $(ROOT)/libs/mlir-linear/*.ipkg $(ROOT)/libs/mlir-linear/Linear/*.idr)
+# The frontend, by the pinned Idris, against the fork (HOST_PREFIX) and the
+# pinned prelude and base; it runs the tools that `paths` records.
+frontend: fork
 	@$(PINS) idris
-	cd $(ROOT)/libs/mlir-linear && $(IDRIS2) --install mlir-linear.ipkg
+	cd $(ROOT)/compiler && export IDRIS2_PREFIX='$(IDRIS_PREFIX)' IDRIS2_PACKAGE_PATH="$(call libdir,$(HOST_PREFIX))" && \
+	  $(IDRIS2) --build idris-mlir.ipkg
+
+# The frontend's prefix, CHECKOUT_PREFIX: the packages the pinned Idris
+# source ships (its Makefile's IDRIS2_LIBRARIES, in their order: prelude,
+# base, and the others, which a program that asks for one is refused by
+# name), each built and installed by the frontend. The fork decides what a
+# TTC holds, so the prefix is made again from nothing when the fork
+# changes, by a frontend built since.
+IDRIS_SOURCE := $(ROOT)/third_party/Idris2
+IDRIS_LIBS := $(shell sed -n 's/^IDRIS2_LIBRARIES[[:space:]]*=//p' '$(IDRIS_SOURCE)/Makefile' 2> /dev/null)
+PREFIX_STAMP := $(CHECKOUT_PREFIX)/$(call toolchain,prefix_stamp)
+prefix: $(PREFIX_STAMP)
+$(PREFIX_STAMP): $(FORK_STAMP)
+	@$(PINS) source
+	@[ '$(COMPILER)' -nt '$(FORK_STAMP)' ] || \
+	  { echo 'error: $(COMPILER) was not built since the fork was installed; run: make build' >&2; exit 1; }
+	@rm -rf '$(CHECKOUT_PREFIX)' '$(CHECKOUT_PREFIX)-src' && mkdir -p '$(CHECKOUT_PREFIX)'
+	$(call install,IDRIS2_PREFIX='$(CHECKOUT_PREFIX)' '$(COMPILER)',$(CHECKOUT_PREFIX),$(addprefix $(IDRIS_SOURCE)/libs/,$(IDRIS_LIBS)))
+	@touch $@
+
+# The packages this compiler ships (libs/), installed by the frontend into
+# its prefix (-p mlir-linear), again whenever one of their sources changes.
+SHIPPED := $(patsubst %/,%,$(wildcard $(ROOT)/libs/*/))
+SHIPPED_SOURCES := $(shell find $(SHIPPED) -name build -prune -o \( -name '*.idr' -o -name '*.ipkg' \) -print 2> /dev/null)
+LIBS_STAMP := $(CHECKOUT_PREFIX)/$(call toolchain,libs_stamp)
+libs: $(LIBS_STAMP)
+$(LIBS_STAMP): $(PREFIX_STAMP) $(SHIPPED_SOURCES)
+	$(call install,IDRIS2_PREFIX='$(CHECKOUT_PREFIX)' '$(COMPILER)',$(CHECKOUT_PREFIX),$(SHIPPED))
+	@touch $@
+
+# The packages of libs/ for the pinned Idris too, installed into
+# HOST_PREFIX, for the benchmarks' Chez baseline, which compiles the
+# programs that use them; again whenever one of their sources changes.
+HOST_LIBS_STAMP := $(HOST_PREFIX)/$(call toolchain,host_libs_stamp)
+host-libs: $(HOST_LIBS_STAMP)
+$(HOST_LIBS_STAMP): $(wildcard $(IDRIS_PREFIX)/provenance.json) $(SHIPPED_SOURCES)
+	@$(PINS) idris
+	@mkdir -p '$(HOST_PREFIX)'
+	$(call install,IDRIS2_PREFIX='$(HOST_PREFIX)' IDRIS2_PACKAGE_PATH="$(call libdir,$(IDRIS_PREFIX))" '$(IDRIS2)',$(HOST_PREFIX),$(SHIPPED))
 	@touch $@
 
 # The -o path runs the tools recorded here, never PATH, links the runtime
@@ -163,11 +227,12 @@ paths:
 # one: a running runner keeps the files it started with, which rewriting
 # them in place would corrupt under it. The files are the launcher and
 # whatever the Chez backend put beside it, its support library named as
-# the host names one (.so, .dylib).
-runner: prefix
+# the host names one (.so, .dylib). The pinned Idris builds it on its own
+# prefix, whose contrib and test it uses.
+runner:
 	@$(PINS) idris
 	cd $(ROOT)/tests && mkdir -p build/exec/runtests_app && . $(ROOT)/tools/host.sh && \
-	with_lock build/.runner.mutex sh -c ' \
+	export IDRIS2_PREFIX='$(IDRIS_PREFIX)' && with_lock build/.runner.mutex sh -c ' \
 	  $(IDRIS2) --build-dir build/stage --build tests.ipkg || exit 1; \
 	  cd build/stage/exec && for file in runtests runtests_app/*; do \
 	    cp -p $$file ../../exec/$$file.new.$$$$ && \
@@ -185,15 +250,17 @@ test-idr: runner
 	@$(PINS) built llvm test-tools sysroot
 	cd $(ROOT)/tests && $(RUN_TESTS) --suite test-idr $(GOLDEN)
 
-test-mlir-tools: runner
-	@$(PINS) llvm sysroot
+# Idris's bug is checked through the frontend, whose fork of Idris's
+# compiler carries the fix, so the suite needs it and its prefix.
+test-mlir-tools: runner libs
+	@$(PINS) built llvm sysroot
 	cd $(ROOT)/tests && $(RUN_TESTS) --suite test-mlir-tools $(GOLDEN)
 
 compile:
 	@test -n '$(SRC)' && test -n '$(OUT)' || { echo 'usage: make compile SRC=Main.idr OUT=prog' >&2; exit 2; }
-	@$(PINS) built idris sysroot
+	@$(PINS) built idris prefix sysroot
 	@$(ROOT)/tools/compile.sh '$(abspath $(SRC))' '$(abspath $(OUT))'
 
-bench: libs
-	@$(PINS) built idris sysroot
+bench: libs host-libs
+	@$(PINS) built idris prefix sysroot
 	$(ROOT)/bench/run.sh $(ARGS)

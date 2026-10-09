@@ -34,8 +34,9 @@ numbers.
   run on Chez Scheme, which loads Idris's support library (PINS.md
   `idris-support-host-cc`).
 - Idris does types; MLIR does programs. The Idris side (`compiler/`: the
-  frontend and `Emit`) checks what the compiler accepts, monomorphises and
-  decides representations. The `idr` dialect and its passes
+  frontend and `Emit`, on the fork of Idris's compiler in `compiler/idris`)
+  checks what the compiler accepts, monomorphises and decides
+  representations. The `idr` dialect and its passes
   (specialization, compile-time evaluation, defunctionalization, loops, the
   heap-free check, lowering) are C++ in `foreign/idr/`, following
   bjornpagen/cpp-starter; `PINS.md` records every deliberate deviation from
@@ -81,7 +82,8 @@ numbers.
   is no C interop now or later: the one foreign world planned is Rust
   (proposal 0001), and a C library is reached only through a Rust `-sys`
   crate and the safe crate over it.
-- Only `IdrisMLIR.Frontend.*` may import upstream Idris compiler modules.
+- Only `IdrisMLIR.Frontend.*` may import the fork of Idris's compiler
+  (`compiler/idris`), and the fork never imports `IdrisMLIR.*`.
 - third_party/Idris2 is unmodified and pinned by its gitlink. Do not edit it
   or move the pin as a side effect of other work; a patch to Idris applies
   to the copy the bootstrap builds, never to the checkout.
@@ -109,7 +111,13 @@ numbers.
   `PINS.md` entry in the same change, and delete the workaround it
   replaces. Every patch has a written plan to upstream it (where it goes,
   the upstream test, its status); sending it is separate work. A patch goes
-  when the pin moves past upstream's fix (see upstream/README.md).
+  when the pin moves past upstream's fix (see upstream/README.md). The fork
+  of Idris's compiler (`compiler/idris`) is ours: a bug in its upstream
+  code is fixed there, as its own code, recorded in `PINS.md` with its
+  plan to upstream (a pull request drafted against the pin goes in
+  `upstream/<bug>/pull-request.diff`), and the fix goes when a re-sync of
+  the fork brings upstream's. A patch to the stock Idris is only for what
+  it still builds (the fork, the frontend, the test runner).
 - Tests check behaviour: exit status, produced artifacts, the property a
   pass guarantees. Not clone numbers, function order or SSA names. A test
   that goes stale on an unrelated change was a bad test; fix or delete it.

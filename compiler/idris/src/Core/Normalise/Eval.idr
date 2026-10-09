@@ -545,8 +545,20 @@ parameters (defs : Defs) (topopts : EvalOpts)
                      --                  , "  rigd        : \{show rigd}"
                      --                  ]
                      pure def
+    -- A primitive that computes something is reduced where a definition
+    -- would be: a mode that evaluates only holes leaves it applied, as it
+    -- leaves a function or a 'let', so that elaboration does not replace a
+    -- primitive applied to constants in the term it checks with this
+    -- compiler's own result, which need not be what the backend computes.
+    -- Such a mode still reduces believe_me, which computes nothing
+    -- (coercionOp). Where only the primitives every backend computes alike
+    -- may run (a literal's conversion, normalisePrims), the others stay
+    -- applied too.
     evalDef env opts meta fc rigd (Builtin op) flags stk def
-        = evalOp (getOp op) stk def
+        = evalOp (if (holesOnly opts || argHolesOnly opts) && not (tcInline opts)
+                     then coercionOp op
+                     else if sharedPrimsOnly opts then sharedOp op else getOp op)
+                 stk def
     -- All other cases, use the default value, which is already applied to
     -- the stack
     evalDef env opts meta fc rigd def flags stk orig = do

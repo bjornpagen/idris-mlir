@@ -23,9 +23,11 @@
 # Times come from now_ns (tools/host.sh). Every program runs with the
 # largest stack the system allows (stack_max: unlimited on Linux, the hard
 # limit of about 64 MiB on macOS). The Idris environment is the Makefile's,
-# set here too, so that a direct run builds against this checkout's libs/
-# (`make build` makes its prefix). Every build and run is killed after 300
-# seconds, and a benchmark that times out fails.
+# set here too, so that a direct run builds against this checkout's libs/:
+# this compiler on its own prefix, the stock Idris on the pinned prefix and
+# what this checkout installed for it (`make bench` makes both). Every
+# build and run is killed after 300 seconds, and a benchmark that times out
+# fails.
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 . "$root/tools/toolchain.sh"
@@ -35,6 +37,8 @@ if [ -z "${CHEZ-}" ]; then
   CHEZ=$(stamp_field "$idris_prefix" scheme)
   [ -z "$CHEZ" ] || export CHEZ
 fi
+# Where the stock Idris finds the packages of libs/ in its own format.
+host_packages=$(IDRIS2_PREFIX=$host_prefix "$idris2" --libdir) || exit 1
 bench=$root/bench
 labels='this compiler|Idris Chez|clang -O2'
 
@@ -169,7 +173,8 @@ build() {
     'Idris Chez')
       idris_sources "$work/chez"
       # shellcheck disable=SC2086 # the packages are words
-      (cd "$work/chez" && bounded "$idris2" --no-banner --no-color --no-prelude $packages --cg chez -o prog Main.idr) \
+      (cd "$work/chez" && export IDRIS2_PREFIX="$idris_prefix" IDRIS2_PACKAGE_PATH="$host_packages" &&
+        bounded "$idris2" --no-banner --no-color --no-prelude $packages --cg chez -o prog Main.idr) \
         > "$work/build.log" 2>&1 && cmd=$work/chez/build/exec/prog
       ;;
     'clang -O2')

@@ -54,7 +54,7 @@ prelude_exports() {
 # browsed: the pinned Idris's REPL on the commands on stdin, the lines of
 # their :browse as `name<TAB>type`.
 browsed() {
-  (cd "$work" && bounded "$idris2" --no-banner --no-color) 2> "$work/browse.err" |
+  (cd "$work" && pinned_idris --no-banner --no-color) 2> "$work/browse.err" |
     awk -v FS=' : ' '
       { sub(/^(Main> )+/, "") }
       NF >= 2 && $1 !~ / / {
@@ -84,7 +84,7 @@ prelude_definitions() {
       gsub(/"/, "\\\"", n)
       printf "((:name-at \"%s\") %d)\n", n, NR
     }' "$1" |
-    (cd "$work" && bounded "$idris2" --ide-mode --source-dir "$prelude_source") 2> "$work/name-at.err" |
+    (cd "$work" && pinned_idris --ide-mode --source-dir "$prelude_source") 2> "$work/name-at.err" |
     awk -v source="$prelude_source/" '
       /^[0-9a-f]+\(:return \(:ok \(/ {
         s = $0
@@ -105,7 +105,7 @@ prelude_definitions() {
         }
       }' > "$work/named-at"
   grep '^(\.' "$1" | awk '{ print ":di " $0 } END { print ":q" }' |
-    (cd "$work" && bounded "$idris2" --no-banner --no-color) 2> /dev/null |
+    (cd "$work" && pinned_idris --no-banner --no-color) 2> /dev/null |
     awk -v names="$1" -v named="$work/named-at" '
       function space(full,    k) {
         if (substr(full, length(full), 1) == ")") k = index(full, ".(")
@@ -199,7 +199,7 @@ compile_time_only() {
 # interface's namespace), all asked of one session of the pinned Idris.
 interface_constructors() {
   { for ic_name in "$@"; do printf ':doc %s\n' "$ic_name"; done; printf ':q\n'; } |
-    (cd "$work" && bounded "$idris2" --no-banner --no-color) 2> /dev/null |
+    (cd "$work" && pinned_idris --no-banner --no-color) 2> /dev/null |
     awk -v names="$*" '
       BEGIN { n = split(names, asked, " ") }
       /^Main> / {
@@ -314,7 +314,7 @@ covers_prelude() {
     # --check exits 0 on an error too, so an error is told by what it
     # prints.
     printf 'module Imports\nimport %s\n' "$cp_module" > "$work/Imports.idr"
-    (cd "$work" && bounded "$idris2" --no-banner --no-color --check Imports.idr) > "$work/import.out" 2>&1
+    (cd "$work" && pinned_idris --no-banner --no-color --check Imports.idr) > "$work/import.out" 2>&1
     if grep -q '^Error:' "$work/import.out"; then
       say "prelude $cp_module: the pinned Idris neither lists an export nor imports the module"
       show "$work/import.out" "$work/browse.err"

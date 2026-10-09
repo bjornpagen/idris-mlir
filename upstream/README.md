@@ -26,15 +26,20 @@ Directory 15 is never filed (see the table).
   `upstream/*/llvm.patch` in name order to a copy of the pinned
   llvm-project when it builds the toolchain; `tests/spec/upstream-patches`
   checks they apply.
-- `idris.patch` (18): the same for Idris 2, against third_party/Idris2's
-  gitlink, which the bootstrap's `idris` step applies to its copy of the
-  checkout (the checkout itself stays unmodified). Idris's rules for
-  sending are its own (its CONTRIBUTING.md); the bug's README says where
-  it goes.
+- `idris.patch`: the same for Idris 2, against third_party/Idris2's
+  gitlink, which the bootstrap's `idris` step would apply to its copy of
+  the checkout (the checkout itself stays unmodified). None is carried:
+  the stock Idris only builds stage 0 (the fork, the frontend and the test
+  runner) and the benchmarks' Chez baseline, and the Idris that elaborates
+  programs, prelude and base is the fork in compiler/idris, whose fixes are
+  its own code (its README). Idris's
+  rules for sending are its own (its CONTRIBUTING.md); the bug's README
+  says where it goes.
 - `pull-request.diff`: the pull request for a change this repository does
-  not carry (08, 17), which the bootstrap therefore never applies. Apply
-  either file with `git apply`; the commit message comes from
-  `submission.md`, never from the file's header.
+  not carry as a patch (08, 17; 18, whose change the fork carries as its
+  own code), which the bootstrap therefore never applies. Apply it with
+  `git apply` (18's to third_party/Idris2's pin); the commit message comes
+  from `submission.md`, never from the file's header.
 - `tests/upstream/<bug>/` (bug name without the number): this repository's
   check that the pinned tools still need the patch, or are fixed by it.
 - `PINS.md`, entry `## <bug>` (or the name it gives): why we carry it and
@@ -77,7 +82,7 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 15 | ld64-lld-unknown-tapi-target | never | carried, the local skip only (the pin has `arm64e.x1`, b8007a8e4) |
 | 16 | remove-dead-values-unchanged-call | issue + PR: `eraseOpResults` keeps an op it erases no result of, as `eraseOperands` does | carried (0451b1b8); not filed; `check-mlir` not run on main; the toolchain is not yet rebuilt with it |
 | 17 | sccp-revert-unset-property | PR: sccp copies the properties storage around a simulated fold, so it reverts a property the fold set on an op that had none | not ready: not carried (the compiler is not affected); no `mlir-opt` with it built; `check-mlir` not run |
-| 18 | elaboration-primitive-folding | issue + PR on idris-lang/Idris2: elaboration leaves primitives to the backend | carried; not built yet; not filed |
+| 18 | elaboration-primitive-folding | issue + PR on idris-lang/Idris2: elaboration leaves primitives to the backend | carried as fork code (compiler/idris), not as a patch; upstream's suite not run with it; not filed |
 | 19 | pass-timing-dynamic-pipeline | a test, as a comment on #169615 (open; its own test passes without its change) | ready, not posted; carried: #169615's change and our test; still broken on main at 626eeb8e; the toolchain is not yet rebuilt with it |
 
 Gone when the pin moved from llvmorg-23.1.2 to main at 7208ba24, each
@@ -192,6 +197,6 @@ library, the runtimes and stage 2, into `.toolchain/llvm`) applies every
 SHA-256. The pin was first built on arm64 macOS, with 02-07, 09 and 15,
 by the bootstrap's earlier one-stage Darwin recipe. No toolchain is built
 yet with the patches the tree carries now (02-07, 09, 15, 16 and 19 for
-LLVM; 18 for Idris), on either target, and `make build` refuses until one
+LLVM; none for Idris), on either target, and `make build` refuses until one
 is. That is this repository's build, not a precondition for sending
 anything upstream.
