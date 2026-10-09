@@ -9,8 +9,6 @@ using namespace mlir;
 
 namespace idr::expect {
 
-namespace {
-
 // Whether `loc` names `name`: a NameLoc of it, itself or inside the fused
 // and call-site locations the passes wrap around it.
 bool locationNames(Location loc, StringRef name) {
@@ -22,8 +20,6 @@ bool locationNames(Location loc, StringRef name) {
     return locationNames(site.getCallee(), name);
   return false;
 }
-
-} // namespace
 
 // Every function Emit writes carries the Idris name of its definition as its
 // location (a NameLoc), and a clone of it keeps that location whatever the

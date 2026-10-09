@@ -19,6 +19,7 @@ export import :folds;
 export import :lookup;
 export import :named;
 export import :narrowedLanes;
+export import :notCalled;
 export import :output;
 export import :pureArrayLoops;
 export import :quantities;

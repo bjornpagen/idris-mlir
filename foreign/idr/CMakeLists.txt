@@ -166,6 +166,7 @@ foreach(area
 		Facts
 		Fold
 		Graph
+		Identity
 		InBounds
 		Inline
 		Isolate
@@ -208,6 +209,7 @@ target_link_libraries(idr_dialect
 		idr_canonicalize
 		idr_expect
 		idr_fold
+		idr_identity
 		idr_inlining
 		idr_isolate
 		idr_stack

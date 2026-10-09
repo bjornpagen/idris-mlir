@@ -87,6 +87,7 @@ using idr::createIdrEffects;
 using idr::createIdrEntry;
 using idr::createIdrEval;
 using idr::createIdrExpect;
+using idr::createIdrIdentity;
 using idr::createIdrInline;
 using idr::createIdrIsolate;
 using idr::createIdrLoopBreakers;

@@ -1,0 +1,4 @@
+# Each of these only rebuilds its argument once the indices are erased, so
+# the simplify loop leaves no call of any of them: each became the argument
+# it gives back. The emitted module calls every one.
+idr-simplify: not-called=@Main.weakenTerm not-called=@Main.weakenUnder not-called=@Main.weakenTree not-called=@Main.weakenForest not-called=@Data.Fin.weaken not-called=@Data.Fin.finToNat not-called=@Data.Fin.last

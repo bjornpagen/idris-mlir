@@ -26,6 +26,11 @@ export SmallVector<std::string> simplifyRound() {
   return {
       "idr-loop-breakers",
       "idr-effects",
+      // On the effects just computed, which say whether a call it assumes
+      // nothing of only computes; and before inlining, so that a call of a
+      // function that only rebuilds its argument is gone before the
+      // inliner weighs it or copies a level of the rebuild into its caller.
+      "idr-identity",
       "idr-inline",
       "idr-specialize",
       "sccp",
