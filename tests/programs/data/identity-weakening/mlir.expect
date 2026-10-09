@@ -1,0 +1,8 @@
+# Each of these only rebuilds its argument once the indices are erased, so
+# the simplify loop leaves no call of any of them: each became the argument
+# it gives back. not-called holds of a function the module never had, so
+# the emitted module is held to calling each one (one-clone fails on a
+# function nothing calls), and a name that is not the function's would fail
+# there instead of holding by default.
+emitted: one-clone=@Main.weakenTerm one-clone=@Main.weakenUnder one-clone=@Main.weakenTree one-clone=@Main.weakenForest one-clone=@Data.Fin.weaken one-clone=@Data.Fin.finToNat one-clone=@Data.Fin.last
+idr-simplify: not-called=@Main.weakenTerm not-called=@Main.weakenUnder not-called=@Main.weakenTree not-called=@Main.weakenForest not-called=@Data.Fin.weaken not-called=@Data.Fin.finToNat not-called=@Data.Fin.last

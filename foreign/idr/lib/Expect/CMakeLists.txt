@@ -25,6 +25,7 @@ idr_library(idr_expect
 		MovesOut.cppm
 		Named.cppm
 		NarrowedLanes.cppm
+		NotCalled.cppm
 		Output.cppm
 		PureArrayLoops.cppm
 		Quantities.cppm

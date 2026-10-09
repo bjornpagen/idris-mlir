@@ -274,6 +274,44 @@ def IdrContify : Pass<"idr-contify", "::mlir::ModuleOp"> {
   ];
 }
 
+def IdrIdentity : Pass<"idr-identity", "::mlir::ModuleOp"> {
+  let summary = "Make every call of a function that gives back one of its arguments that argument";
+  let description = [{
+    Once Idris's indices are erased, a function may only rebuild its
+    argument: Data.Fin's weaken, finToNat and last, a term's weakening to a
+    larger scope. Such a function gives back an argument x when every
+    return is x rebuilt: x itself; a constructor where x is known to be
+    that constructor (by the case of a match around the return, or as the
+    one constructor of its type), each field that holds something at
+    runtime the same field of x rebuilt, whatever an erased field holds; a
+    constant where x is known to be that literal, or to be that constructor
+    with erased fields alone; the successor of x's predecessor; a match
+    whose every region that returns yields x rebuilt; or a call assumed to
+    give back what it is passed, passed x itself (a rebuilt x is a new
+    value, not a part of x). The function must also only
+    compute: every other op only allocates its results (a call as its
+    callee's `idr.effects` says), a region that does not return ends in
+    ub.unreachable, which Idris proved is never taken, and every call
+    assumed to give back what it is passed either passes a part strictly
+    below the function's argument (a field of a constructor of it, or the
+    predecessor of a natural) or calls a function whose `idr.effects` say
+    it returns, so that every chain of such calls ends: values are finite.
+    Its other arguments may be anything. The assumptions are the greatest
+    fixpoint over the module, so the functions of a mutual recursion are
+    found together. Every call of such a function becomes its argument, at
+    the quantity of the call's result, and symbol-dce erases the function
+    once nothing names it. A function in the owned stage, or one that takes
+    a world, gives back nothing.
+  }];
+  let statistics = [
+    Statistic<"numFunctions", "functions", "Functions that give back one of their arguments">,
+    Statistic<"numCalls", "calls", "Calls made the argument they give back">,
+  ];
+  // The scope that holds the module's symbols while the fixpoint looks
+  // callees up is held by the context's idr dialect.
+  let dependentDialects = ["::idr::IdrDialect"];
+}
+
 def IdrDefunctionalize : Pass<"idr-defunctionalize", "::mlir::ModuleOp"> {
   let summary = "Replace closures and suspensions of known labels by sums";
   let description = [{
@@ -525,9 +563,9 @@ def IdrCanonicalize : Pass<"idr-canonicalize"> {
 def IdrSimplify : Pass<"idr-simplify", "::mlir::ModuleOp"> {
   let summary = "Repeat the simplify round until it changes nothing";
   let description = [{
-    Runs idr-loop-breakers, idr-effects, inline, idr-specialize, sccp,
-    int-range-optimizations, idr-canonicalize, cse, idr-eval,
-    remove-dead-values and symbol-dce, again and again, until a round
+    Runs idr-loop-breakers, idr-effects, idr-identity, inline,
+    idr-specialize, sccp, int-range-optimizations, idr-canonicalize, cse,
+    idr-eval, remove-dead-values and symbol-dce, again and again, until a round
     leaves every operation where it is. Every member
     of the round is finite, so the rounds end; `max-rounds` asserts it: a
     module that still changes after that many rounds is the error
@@ -702,6 +740,8 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
         it is), is on a cycle of `idr.break_last` functions alone;
       - `one-clone=@f`: every call of @f or of a clone of it calls one
         function;
+      - `not-called=@f`: no call of @f or of a clone of it is left (a
+        function the module never had is not called either);
       - `reuses-in-place=@f`: in @f every box is built in a reused cell
         (idr.reuse), and at least one is;
       - `moves-out`, `moves-out=@f`: anywhere or in @f, some

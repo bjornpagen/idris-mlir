@@ -18,6 +18,7 @@ import :facts;
 import :folds;
 import :movesOut;
 import :narrowedLanes;
+import :notCalled;
 import :output;
 import :pureArrayLoops;
 import :quantities;
@@ -44,6 +45,7 @@ Check lookup(StringRef name) {
       .Case("every-cycle-has-breaker", everyCycleHasBreaker)
       .Case("breaks-last", breaksLast)
       .Case("one-clone", oneClone)
+      .Case("not-called", notCalled)
       .Case("quantities-kept", quantitiesKept)
       .Case("reuses-in-place", reusesInPlace)
       .Case("moves-out", movesOut)
