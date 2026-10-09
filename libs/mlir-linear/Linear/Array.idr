@@ -37,9 +37,10 @@ prim__arraySize : forall a . ArrayData a -> Int
 
 ||| `i`, when it is at least 0 and below `n`; else the program crashes, as
 ||| at an index outside an array. Each index is checked with it against its
-||| array's size, which is below the backing's length once the array has
-||| grown. idris-mlir makes it the guard of an index against `n`
-||| (`idr.check.in_bounds`), which its proofs erase as they erase an
+||| array's size, which is at most the backing's length, and below it once
+||| the backing has room. `n` is a size, so never negative: idris-mlir
+||| makes it the guard of an index against `n` as against an array's
+||| length (`idr.check.in_bounds`), which its proofs erase as they erase an
 ||| access's own. Idris's Chez backend compiles at Chez's unsafe level,
 ||| where a `vector-ref` outside its vector is not checked, so the spec
 ||| raises the error itself.

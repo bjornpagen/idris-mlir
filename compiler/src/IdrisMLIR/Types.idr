@@ -264,7 +264,9 @@ data Prim
     ArrayLength Ty
   | ||| An index, once it is at least 0 and below the bound: the guard of an
     ||| index against an integer (`idr.check.in_bounds`), which crashes as
-    ||| an access outside an array does.
+    ||| an access outside an array does. The bound is a size, never negative
+    ||| (the one caller, Linear.Array, keeps it so), since the guard checks
+    ||| it as it checks a length.
     IndexBelow
   | ||| The op of a primitive of the dialect, on its operands in the op's
     ||| order, each at its own type.
