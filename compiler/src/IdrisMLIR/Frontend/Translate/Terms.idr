@@ -205,7 +205,8 @@ mutual
       -- its spec and an `%extern` one by its name.
       ForeignDef arity specs => case foreignHookOf full specs of
         Just (Right (IOCall p lits)) => ioCall fc loc lowered arity p lits (type def) args
-        Just (Right (ArraySize fixed)) => arraySize fc loc lowered arity fixed (type def) args
+        Just (Right ArraySize) => arraySize fc loc lowered arity (type def) args
+        Just (Right (PrimCall p)) => primCall fc loc lowered arity p (type def) args
         Just (Right (Handle h)) => applyAll loc (Literal loc h) args
         Just (Right (Builds p)) => builderCall fc loc lowered arity p (type def) args
         Just (Right (Alias q)) => aliasCall fc loc lowered q args
@@ -563,17 +564,20 @@ mutual
           word DoubleT = True
           word _ = False
 
-      -- The length of an array: at the element its type argument fixes, or
-      -- at the fixed element of a type that has none (a buffer's bytes).
-      arraySize : FC -> Loc -> Maybe Shown -> Nat -> Maybe Ty -> ClosedTerm -> List (TT vars) -> Core (Term a)
-      arraySize fc loc lowered arity Nothing ty xs = do
+      -- The length of an array, at the element its type argument fixes.
+      arraySize : FC -> Loc -> Maybe Shown -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term a)
+      arraySize fc loc lowered arity ty xs = do
         (kinds, [el], given, _) <- arrayOperands fc loc arity ty xs
           | _ => internal fc "an array's length without its one element type"
         finish loc kinds given (PrimApp loc (ArrayLength el) lowered) (drop arity xs)
-      arraySize fc loc lowered arity (Just el) ty xs = do
+
+      -- A pure primitive on the call's runtime arguments, which its type
+      -- fixes: a buffer's length, an index checked against a bound.
+      primCall : FC -> Loc -> Maybe Shown -> Nat -> Prim -> ClosedTerm -> List (TT vars) -> Core (Term a)
+      primCall fc loc lowered arity p ty xs = do
         (kinds, _) <- classify fc ctx.owner arity ty []
         given <- arguments loc kinds (take arity xs)
-        finish loc kinds given (PrimApp loc (ArrayLength el) lowered) (drop arity xs)
+        finish loc kinds given (PrimApp loc p lowered) (drop arity xs)
   application ctx env afc fn args = case headStep fn args of
     Just (h, as) => let (h', as') = spine h [] in application ctx env afc h' (as' ++ as)
     Nothing => do

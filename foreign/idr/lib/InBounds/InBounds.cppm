@@ -4,15 +4,19 @@
 // access's guard checks it again; once a record of the two is taken apart,
 // only the knowledge that the size is the array's length (lengths, over
 // the values bound at joins and the components a constructor stored,
-// joins) lets the first check prove the second. The proof is a
-// system of linear constraints over the integers (system, of linear
-// expressions, linear), from the path to the guard (paths), a Euclidean
-// quotient of a non-negative value (quotients), a masked index below a
-// capacity already proved a positive power of two, doubling included when
-// the double stays below the sign (masks), and the bounds
-// its loops keep their counters in (induction), decided exactly (prove).
-// A guard of any kind also goes when an identical one runs before it, or
-// when the ranges of its integers show its condition (prove).
+// joins) lets the first check prove the second. An index may be checked
+// twice: first against a size a library keeps beside the array, by a
+// guard of its own, then by the access. The first guard's result is its
+// index (system), and its array is the access's (guards), so the length
+// relation reaches both. The proof is a system of linear constraints over
+// the integers (system, of linear expressions, linear), from the path to
+// the guard (paths), a Euclidean quotient of a non-negative value
+// (quotients), a masked index below a capacity already proved a positive
+// power of two, doubling included when the double stays below the sign
+// (masks), and the bounds its loops keep their counters in (induction),
+// decided exactly (prove). A guard of any kind also goes when an identical
+// one runs before it, or when the ranges of its integers show its
+// condition (prove).
 export module idr.inbounds;
 
 export import :components;

@@ -247,7 +247,8 @@ data Scalar = SInt IntTy | SChar | SDouble
 ||| names as a primitive (`Op`), which has no attribute; an operation its
 ||| types choose, by the signedness and width of fixed-width integers,
 ||| characters and doubles, among `arith`'s, `math`'s and the dialect's ops
-||| with an attribute; a comparison, by its predicate; or an array's length.
+||| with an attribute; a comparison, by its predicate; or an array's length,
+||| or an index checked against a bound.
 public export
 data Prim
   = IntOp ArithOp IntTy | IntShift Shift IntTy | FloatOp FArith | Negate | Math MathFn
@@ -263,6 +264,12 @@ data Prim
   | ||| The number of elements of an array of this element type: the
     ||| dimension of its memref.
     ArrayLength Ty
+  | ||| An index, once it is at least 0 and below the bound: the guard of an
+    ||| index against an integer (`idr.check.in_bounds`), which crashes as
+    ||| an access outside an array does. The bound is a size, never negative
+    ||| (the one caller, Linear.Array, keeps it so), since the guard checks
+    ||| it as it checks a length.
+    IndexBelow
   | ||| The op of a primitive of the dialect, on its operands in the op's
     ||| order, each at its own type.
     Op IdrPrim
@@ -336,6 +343,7 @@ Show Prim where
   show (FromBig s) = "cast_Integer" ++ show s
   show (NatCompare op) = show op ++ "_Nat"
   show (ArrayLength e) = "arraySize<" ++ show e ++ ">"
+  show IndexBelow = "indexBelow"
   show (Op p) = (primOp p [] []).name
 
 public export
@@ -365,4 +373,5 @@ primArgs (ToBig s) = [scalarTy s]
 primArgs (FromBig _) = [BigT]
 primArgs (NatCompare _) = [NatT, NatT]
 primArgs (ArrayLength e) = [ArrayT Rank1 e]
+primArgs IndexBelow = [IntT IdrisInt, IntT IdrisInt]
 primArgs (Op _) = []

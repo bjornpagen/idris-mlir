@@ -171,9 +171,10 @@ data Count = CountAt Nat | WordSize | BytesOf Nat
 
 ||| What a guard (`idr.check.*`) checks of the operand it guards, with the
 ||| other operands it reads by their index among the primitive's: an index
-||| below the length of the string or array at an index, or an offset whose
-||| bytes lie in the buffer at an index.
-data Guard = Nonzero | Nonempty | Byte | Finite | IndexIn Nat | RangeIn Count Nat
+||| below the length of the string or array at an index, an index below the
+||| integer at an index, or an offset whose bytes lie in the buffer at an
+||| index.
+data Guard = Nonzero | Nonempty | Byte | Finite | IndexIn Nat | Below Nat | RangeIn Count Nat
 
 divisionByZero, nonFinite, outOfBounds, outsideBuffer : String
 divisionByZero = "division by zero"
@@ -213,6 +214,7 @@ guardOf (Op BufferStore) _ = [(RangeIn WordSize 0, 1, outsideBuffer)]
 guardOf (Op BufferSetString) _ = [(RangeIn (BytesOf 2) 0, 1, outsideBuffer)]
 guardOf (Op BufferCopy) _ =
   [(RangeIn (CountAt 2) 0, 1, outsideBuffer), (RangeIn (CountAt 2) 3, 4, outsideBuffer)]
+guardOf IndexBelow _ = [(Below 1, 0, outOfBounds)]
 guardOf _ _ = []
 
 ||| The bytes of a machine word a buffer stores or loads.
@@ -264,6 +266,7 @@ guarded ix l p types vs = foldlM checkOne vs (guardOf p vs)
         IndexIn s => do
           n <- lengthOf !(operandAt ws s)
           pure (Idr.checkInBoundsOp x !(operand ix n) cause)
+        Below s => pure (Idr.checkInBoundsOp x !(operand ix !(operandAt ws s)) cause)
         RangeIn c b => do
           n <- countOf ws c
           size <- arrayLength ix l !(operandAt ws b)
@@ -397,6 +400,11 @@ prim ix l (FromBig SChar) [b] = do
 prim ix l (NatCompare c) [a, b] =
   extend ix l !(mlirValue l bool (Idr.bigCmpOp (predicate c) !(operand ix a) !(operand ix b)))
 prim ix l (ArrayLength _) [a] = arrayLength ix l a
+-- The index, checked: what the guard gives is the primitive's value.
+prim ix l IndexBelow vs = do
+  [i, _] <- guarded ix l IndexBelow [] vs
+    | _ => internal "an index checked against a bound without its index and bound"
+  pure i
 prim ix l p vs = internal ("the primitive " ++ show p ++ " with " ++ show (length vs) ++ " operands")
 
 ||| A constructor application (`idr.con`); a box's allocates.

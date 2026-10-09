@@ -31,7 +31,8 @@ SmallVector<Operation *> opsIn(ArrayRef<func::FuncOp> functions,
 
 bool isIndexGuard(Operation *op) { return isa<CheckInBoundsOp>(op); }
 
-// A guard of an index that an array access takes, the access's own check.
+// A guard of an index that an array access takes: the access's own check,
+// or a check against a size whose result that check takes.
 bool isAccessGuard(Operation *op) {
   auto guard = dyn_cast<CheckInBoundsOp>(op);
   return guard && inbounds::accessedArray(guard);
@@ -62,7 +63,8 @@ export LogicalResult inBounds(ModuleOp module, StringRef function) {
   return noneLeft(opsIn(functions, isIndexGuard), property);
 }
 
-// Some array access in the function the argument names keeps its check.
+// Some array access in the function the argument names keeps a check of
+// its index: its own, or one against a size whose result its own takes.
 export LogicalResult boundsChecked(ModuleOp module, StringRef function) {
   constexpr StringRef property = "bounds-checked";
   SmallVector<func::FuncOp> functions = named(module, function, property);

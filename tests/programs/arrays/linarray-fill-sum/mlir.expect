@@ -1,3 +1,7 @@
 # The fill and the sum are loops of stores and loads: nothing is allocated
 # in them, and no count changes, since the array is moved along its thread.
 idr-rc: counts-nothing=@Main.fill counts-nothing=@Main.sumTo no-heap-allocation=@Main.fill no-heap-allocation=@Main.sumTo
+# Every read and write is below n, the size the array was made with:
+# neither the check against the array's size nor the access's own
+# against its backing is left.
+idr-in-bounds: in-bounds=@Main.fill in-bounds=@Main.sumTo
