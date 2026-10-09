@@ -116,7 +116,7 @@ namespace {
 // The boxable declarations of two or more object slots that a holder
 // holds by `type`, looking through the unboxed sums that are not boxable,
 // whose slots it holds too. Boxing one of fewer slots shrinks no cell.
-void candidates(Components &parts, Type type, MapVector<DataOp, unsigned> &out,
+void candidates(Components &parts, Type type, llvm::MapVector<DataOp, unsigned> &out,
                 DenseSet<DataOp> &seen) {
   auto data = dyn_cast<DataType>(unrestricted(type));
   if (!data)
@@ -160,7 +160,7 @@ unsigned fit(ModuleOp module) {
   while (true) {
     // Measured afresh: the last box changed the shapes.
     Components parts(module);
-    MapVector<DataOp, unsigned> wide;
+    llvm::MapVector<DataOp, unsigned> wide;
     DenseSet<DataOp> seen;
     holders.overflows(parts, [&](Operation *, ArrayRef<Type> held, unsigned) {
       for (Type type : held)
