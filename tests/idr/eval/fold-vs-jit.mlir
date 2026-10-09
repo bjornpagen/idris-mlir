@@ -8,8 +8,9 @@
 // CHECK lines hold. The cases cover both signednesses, the widths that wrap,
 // Doubles printed with ties, subnormals, the infinities and NaN, the small
 // and large bigs and their boundary, Euclidean division of negative bigs,
-// correctly rounded casts, casts from String of literals and of what is no
-// literal of the type, and non-ASCII strings.
+// shifts of bigs both ways by negative and huge amounts, correctly rounded
+// casts, casts from String of literals and of what is no literal of the
+// type, and non-ASCII strings.
 module {
   func.func private @append(%a0: !idr.str, %a1: !idr.str) -> !idr.str attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.str.append %a0, %a1
@@ -117,6 +118,14 @@ module {
   }
   func.func private @big_xor(%a0: !idr.big, %a1: !idr.big) -> !idr.big attributes {idr.total, idr.effects = #idr.effects<none>} {
     %r = idr.big.xor %a0, %a1
+    return %r : !idr.big
+  }
+  func.func private @big_shl(%a0: !idr.big, %a1: !idr.big) -> !idr.big attributes {idr.total, idr.effects = #idr.effects<none>} {
+    %r = idr.big.shl %a0, %a1
+    return %r : !idr.big
+  }
+  func.func private @big_shr(%a0: !idr.big, %a1: !idr.big) -> !idr.big attributes {idr.total, idr.effects = #idr.effects<none>} {
+    %r = idr.big.shr %a0, %a1
     return %r : !idr.big
   }
   func.func private @big_neg(%a0: !idr.big) -> !idr.big attributes {idr.total, idr.effects = #idr.effects<none>} {
@@ -1217,6 +1226,87 @@ module {
     %x0 = idr.constant "12.7" : !idr.str
     %r = func.call @to_int16(%x0) : (!idr.str) -> i16
     return %r : i16
+  }
+  // CHECK-LABEL: func.func @case121(
+  // CHECK-NEXT: %[[V:[^ ]+]] = idr.constant #idr.big<"-4"> : !idr.big
+  // CHECK-NEXT: return %[[V]] : !idr.big
+  func.func @case121() -> !idr.big {
+    %x0 = idr.constant #idr.big<"-7"> : !idr.big
+    %x1 = idr.constant #idr.big<"-1"> : !idr.big
+    %r = func.call @big_shl(%x0, %x1) : (!idr.big, !idr.big) -> !idr.big
+    return %r : !idr.big
+  }
+  // CHECK-LABEL: func.func @case122(
+  // CHECK-NEXT: %[[V:[^ ]+]] = idr.constant #idr.big<"18446744073709551616"> : !idr.big
+  // CHECK-NEXT: return %[[V]] : !idr.big
+  func.func @case122() -> !idr.big {
+    %x0 = idr.constant #idr.big<"1"> : !idr.big
+    %x1 = idr.constant #idr.big<"64"> : !idr.big
+    %r = func.call @big_shl(%x0, %x1) : (!idr.big, !idr.big) -> !idr.big
+    return %r : !idr.big
+  }
+  // CHECK-LABEL: func.func @case123(
+  // CHECK-NEXT: %[[V:[^ ]+]] = idr.constant #idr.big<"9223372036854775806"> : !idr.big
+  // CHECK-NEXT: return %[[V]] : !idr.big
+  func.func @case123() -> !idr.big {
+    %x0 = idr.constant #idr.big<"4611686018427387903"> : !idr.big
+    %x1 = idr.constant #idr.big<"1"> : !idr.big
+    %r = func.call @big_shl(%x0, %x1) : (!idr.big, !idr.big) -> !idr.big
+    return %r : !idr.big
+  }
+  // CHECK-LABEL: func.func @case124(
+  // CHECK-NEXT: %[[V:[^ ]+]] = idr.constant #idr.big<"0"> : !idr.big
+  // CHECK-NEXT: return %[[V]] : !idr.big
+  func.func @case124() -> !idr.big {
+    %x0 = idr.constant #idr.big<"0"> : !idr.big
+    %x1 = idr.constant #idr.big<"100000000000000000000"> : !idr.big
+    %r = func.call @big_shl(%x0, %x1) : (!idr.big, !idr.big) -> !idr.big
+    return %r : !idr.big
+  }
+  // CHECK-LABEL: func.func @case125(
+  // CHECK-NEXT: %[[V:[^ ]+]] = idr.constant #idr.big<"-4"> : !idr.big
+  // CHECK-NEXT: return %[[V]] : !idr.big
+  func.func @case125() -> !idr.big {
+    %x0 = idr.constant #idr.big<"-7"> : !idr.big
+    %x1 = idr.constant #idr.big<"1"> : !idr.big
+    %r = func.call @big_shr(%x0, %x1) : (!idr.big, !idr.big) -> !idr.big
+    return %r : !idr.big
+  }
+  // CHECK-LABEL: func.func @case126(
+  // CHECK-NEXT: %[[V:[^ ]+]] = idr.constant #idr.big<"-2"> : !idr.big
+  // CHECK-NEXT: return %[[V]] : !idr.big
+  func.func @case126() -> !idr.big {
+    %x0 = idr.constant #idr.big<"-18446744073709551617"> : !idr.big
+    %x1 = idr.constant #idr.big<"64"> : !idr.big
+    %r = func.call @big_shr(%x0, %x1) : (!idr.big, !idr.big) -> !idr.big
+    return %r : !idr.big
+  }
+  // CHECK-LABEL: func.func @case127(
+  // CHECK-NEXT: %[[V:[^ ]+]] = idr.constant #idr.big<"-1"> : !idr.big
+  // CHECK-NEXT: return %[[V]] : !idr.big
+  func.func @case127() -> !idr.big {
+    %x0 = idr.constant #idr.big<"-1"> : !idr.big
+    %x1 = idr.constant #idr.big<"100000000000000000000"> : !idr.big
+    %r = func.call @big_shr(%x0, %x1) : (!idr.big, !idr.big) -> !idr.big
+    return %r : !idr.big
+  }
+  // CHECK-LABEL: func.func @case128(
+  // CHECK-NEXT: %[[V:[^ ]+]] = idr.constant #idr.big<"898266364037013255"> : !idr.big
+  // CHECK-NEXT: return %[[V]] : !idr.big
+  func.func @case128() -> !idr.big {
+    %x0 = idr.constant #idr.big<"123456789012345678901234567890"> : !idr.big
+    %x1 = idr.constant #idr.big<"37"> : !idr.big
+    %r = func.call @big_shr(%x0, %x1) : (!idr.big, !idr.big) -> !idr.big
+    return %r : !idr.big
+  }
+  // CHECK-LABEL: func.func @case129(
+  // CHECK-NEXT: %[[V:[^ ]+]] = idr.constant #idr.big<"28"> : !idr.big
+  // CHECK-NEXT: return %[[V]] : !idr.big
+  func.func @case129() -> !idr.big {
+    %x0 = idr.constant #idr.big<"7"> : !idr.big
+    %x1 = idr.constant #idr.big<"-2"> : !idr.big
+    %r = func.call @big_shr(%x0, %x1) : (!idr.big, !idr.big) -> !idr.big
+    return %r : !idr.big
   }
 }
 

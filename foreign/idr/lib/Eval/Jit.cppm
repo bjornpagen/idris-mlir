@@ -143,6 +143,7 @@ llvm::SmallVector<std::pair<llvm::StringRef, llvm::orc::ExecutorAddr>> symbols()
       IDRIS_RT_BIND(idris_rt_big_mul), IDRIS_RT_BIND(idris_rt_big_div),
       IDRIS_RT_BIND(idris_rt_big_mod), IDRIS_RT_BIND(idris_rt_big_and),
       IDRIS_RT_BIND(idris_rt_big_or), IDRIS_RT_BIND(idris_rt_big_xor),
+      IDRIS_RT_BIND(idris_rt_big_shl), IDRIS_RT_BIND(idris_rt_big_shr),
       IDRIS_RT_BIND(idris_rt_big_neg), IDRIS_RT_BIND(idris_rt_big_pred),
       IDRIS_RT_BIND(idris_rt_nat_from_big), IDRIS_RT_BIND(idris_rt_big_cmp),
       IDRIS_RT_BIND(idris_rt_big_from_int_s), IDRIS_RT_BIND(idris_rt_big_from_int_u),

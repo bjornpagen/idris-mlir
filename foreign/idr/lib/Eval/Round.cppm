@@ -23,13 +23,6 @@ namespace idr::eval {
 
 namespace {
 
-// A result is worth its call when its constants take at most this much
-// static data. A larger one would make the executable larger than running
-// the call does, and its compilation slower: the call stays, to run at
-// runtime, as upstream Idris runs its calls there. The value is never at
-// stake, only the size and the speed.
-constexpr uint64_t resultBytes = uint64_t{1} << 20;
-
 // What the child sends for a call: "results" and the results
 // (encodeResults), or "too-large" or "unreadable" and why not.
 constexpr llvm::StringLiteral sentResults = "results";
@@ -178,7 +171,7 @@ LogicalResult evaluateRound(ModuleOp module, ArrayRef<Key> keys,
     return module.emitError(*refused);
   phases.lap(phases.jit);
 
-  Reifier reifier(*layouts, resultBytes);
+  Reifier reifier(*layouts, constantBytes);
   auto reify = [&](size_t i, ArrayRef<uint64_t> slots) -> SmallVector<std::string> {
     auto values = reifier.results(resultTypes[i], slots);
     if (!values) {

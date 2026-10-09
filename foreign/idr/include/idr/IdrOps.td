@@ -1285,6 +1285,31 @@ def Idr_BigAndOp : Idr_BigBinaryOp<"and", "the bitwise and">;
 def Idr_BigOrOp : Idr_BigBinaryOp<"or", "the bitwise or">;
 def Idr_BigXorOp : Idr_BigBinaryOp<"xor", "the bitwise xor">;
 
+// Integer's shifts: the value's infinite two's complement moved by the
+// amount, left or right, the other way when the amount is negative. A left
+// shift is value * 2^amount and a right shift the floor of value / 2^amount,
+// so every amount is defined. The amount is an Integer, as Idris types the
+// primitive; base's Bits Integer passes a Nat's. A left shift's result may
+// be far larger than its operands, so its folder folds only a constant
+// within idr::constantBytes.
+class Idr_BigShiftOp<string mnemonic, bit isLeft>
+    : Idr_Op<"big." # mnemonic, [Idr_CallsRuntime, Idr_Primitive]> {
+  // Folded by calling the runtime (lib/Fold).
+  let hasFolder = 1;
+  let arguments = (ins Idr_BigType:$value, Idr_BigType:$amount);
+  let results = (outs Res<Idr_BigValue, "", [MemAlloc]>:$result);
+  let assemblyFormat = "$value `,` $amount attr-dict custom<BigResult>(type($result))";
+  let extraClassDeclaration = "static constexpr bool left = "
+                              # !if(isLeft, "true", "false") # ";";
+}
+
+def Idr_BigShlOp : Idr_BigShiftOp<"shl", 1> {
+  let summary = "a big shifted left, Integer's shiftL";
+}
+def Idr_BigShrOp : Idr_BigShiftOp<"shr", 0> {
+  let summary = "a big shifted right, Integer's shiftR, filling with its sign";
+}
+
 // The divisor is not zero: idr.check.nonzero guards it.
 class Idr_BigDivisionOp<string mnemonic, string what>
     : Idr_Op<"big." # mnemonic, [Idr_CallsRuntime, Idr_Primitive]> {
