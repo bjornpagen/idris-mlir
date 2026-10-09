@@ -21,6 +21,15 @@ numbers.
   behind the runtime's platform layer. Heap references stay raw, untagged
   addresses, which is what Apple's data-memory-dependent prefetcher
   follows.
+- Everything we build is linked statically: our tools, every program, and
+  the toolchain's LLVM. The one shared library any of it links is macOS's
+  C library, libSystem, which has no static form; nothing else is a shared
+  library, is loaded at run time, or is looked up with dlopen.
+  `tools/bootstrap.sh` refuses an executable that breaks this, and
+  `tests/toolchain/static-linking` checks our tools and programs. The
+  exception is the host side of the frontend: Idris 2 and the test runner
+  run on Chez Scheme, which loads Idris's support library (PINS.md
+  `idris-support-host-cc`).
 - Idris does types; MLIR does programs. The Idris side (`compiler/`: the
   frontend and `Emit`) checks what the compiler accepts, monomorphises and
   decides representations. The `idr` dialect and its passes

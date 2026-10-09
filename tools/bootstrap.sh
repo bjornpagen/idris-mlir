@@ -582,18 +582,19 @@ arm64_only() {
 }
 
 # check_executable PREFIX FILE: FILE is an executable as the target's
-# programs are, read by PREFIX's tools: on ELF a static PIE; on Mach-O a PIE
-# of arm64 code alone that links no shared libc++, since the pinned libc++
-# is static.
+# programs are, read by PREFIX's tools, and links no shared library but the
+# C library where the target has no static one: on ELF a static PIE; on
+# Mach-O a PIE of arm64 code alone whose one shared library is libSystem.
 check_executable() {
   case $object_format in
     elf) static_pie "$1/bin/llvm-readelf" "$2" ;;
     macho)
       mh_pie "$1/bin/llvm-objdump" "$2"
       arm64_only "$1/bin/llvm-objdump" "$2"
-      check_executable_dylibs=$("$1/bin/llvm-objdump" --macho --dylibs-used "$2") ||
-        die "$1/bin/llvm-objdump cannot read $2"
-      case $check_executable_dylibs in *libc++*) die "$2 links a shared libc++, not the pinned static one" ;; esac
+      check_executable_dylibs=$("$1/bin/llvm-objdump" --macho --dylibs-used "$2" |
+        sed -n 's/^[[:space:]]*\([^ ]*\) (compatibility.*/\1/p' | grep -vx /usr/lib/libSystem.B.dylib) || true
+      [ -z "$check_executable_dylibs" ] ||
+        die "$2 links shared libraries beyond libSystem: $(echo $check_executable_dylibs)"
       ;;
   esac
 }
@@ -900,10 +901,10 @@ stage1_tools() {
 }
 
 # LLVM's optional host dependencies, all off: the tools depend on nothing
-# of the host.
+# of the host, and link no shared library (liblzma is one in the SDK).
 llvm_without_host_libraries() {
   printf '%s\n' -DLLVM_ENABLE_BINDINGS=OFF -DLLVM_ENABLE_LIBEDIT=OFF -DLLVM_ENABLE_LIBXML2=OFF \
-    -DLLVM_ENABLE_ZLIB=OFF -DLLVM_ENABLE_ZSTD=OFF -DLLVM_ENABLE_LIBPFM=OFF \
+    -DLLVM_ENABLE_ZLIB=OFF -DLLVM_ENABLE_ZSTD=OFF -DLLVM_ENABLE_LZMA=OFF -DLLVM_ENABLE_LIBPFM=OFF \
     -DLLVM_ENABLE_CURL=OFF -DLLVM_ENABLE_HTTPLIB=OFF -DLLVM_INCLUDE_TESTS=OFF \
     -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_DOCS=OFF
 }

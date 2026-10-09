@@ -1,0 +1,3 @@
+idris-mlir-cc: static, but for libSystem on macOS
+idris-mlir-opt: static, but for libSystem on macOS
+start: static, but for libSystem on macOS
