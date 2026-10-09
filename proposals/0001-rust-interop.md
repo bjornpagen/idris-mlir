@@ -858,9 +858,13 @@ new pool green on both target entries.
   - **Pins:** a `rust` entry in `toolchain.lock.json` (the nightly's date,
     its `rustc-nightly-src` tarball and SHA-256, and the LLVM major it is
     built against) and a `rust` step in `tools/bootstrap.sh`.
-  - **One LLVM:** the step builds rustc, cargo, rustdoc and `rust-src`
-    against the stage-2 LLVM (`llvm-config` of `.toolchain/llvm-musl` or
-    `llvm-macos`). `verify-pins` checks that the LLVM majors match.
+  - **LLVM:** the LLVM pin is a trunk commit (proposal 0003), which
+    rustc does not build against (it supports external LLVM 22 and 23,
+    rust-lang/rust#163572). The step pins an official nightly with its
+    bundled LLVM, and `verify-pins` checks that rustc's LLVM major is not
+    newer than ours, so that our LLVM reads its bitcode. Building rustc,
+    cargo, rustdoc and `rust-src` against the stage-2 LLVM becomes an
+    option again once a nightly is on our major; it is not required.
   - **Bitcode linking:** a hand-written binding of one function
     (`fn add(a: i64, b: i64) -> i64`) with both specs, called through
     `rust:` and joined by `linkRust`; its `mlir.expect` property is that
@@ -911,13 +915,13 @@ The bootstrap's rustc build adds roughly an hour to `make bootstrap`
   stays in the toolchain as a tool. It is pinned and built against our
   LLVM, and it decides every Rust layout and calling convention itself.
 - **Building MLIR from Rust's LLVM fork instead.** Rejected for now. The
-  toolchain's LLVM is upstream `llvmorg-23.1.2`, and PINS.md's MLIR
-  workarounds and `upstream/`'s reproducers are pinned to it. rustc
-  supports building against an external upstream LLVM of a recent major
-  (recalled), so the dependency runs the other way: we pick the nightly
-  whose LLVM major is ours. If no such nightly exists at a bump, LTO
-  still works as long as rustc's major is not newer than ours, since
-  newer LLVM reads older bitcode. `verify-pins` enforces that bound.
+  toolchain's LLVM is an upstream trunk commit (proposal 0003), and
+  PINS.md's MLIR workarounds and `upstream/`'s reproducers are pinned to
+  it. rustc ships its own release LLVM (23 since July 2026,
+  rust-lang/rust#158734). LTO works as long as rustc's major is not
+  newer than ours, since newer LLVM reads older bitcode, and
+  `verify-pins` enforces that bound; rustc built against our LLVM is
+  possible only when a nightly is on our major.
 - **A library-level `ST`: a context of named resources in an indexed
   monad, with lifetimes as regions.** Rejected as the ownership layer.
   - It would represent ownership a second time, beside the grades the
