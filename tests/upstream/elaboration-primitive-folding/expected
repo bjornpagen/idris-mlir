@@ -1,0 +1,6 @@
+idris2: exit 0
+plain: plain = prim__cast_StringInt "12.7"
+infinity: infinity = prim__cast_DoubleString (prim__div_Double 1.0 0.0)
+eAcute: eAcute = prim__cast_CharString '\233'
+viaLiteral: viaLiteral = MkN (prim__cast_StringInt "12.7")
+small: small = 42

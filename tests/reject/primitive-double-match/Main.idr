@@ -7,5 +7,7 @@ isHalf : Double -> Int
 isHalf 0.5 = 1
 isHalf _ = 0
 
+-- The division is not covering, so main is partial.
+partial
 main : IO ()
 main = putStrLn (prim__cast_IntString (isHalf (prim__div_Double 1.0 2.0)))

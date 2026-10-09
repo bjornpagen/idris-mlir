@@ -1,7 +1,8 @@
 # upstream/
 
 Bugs this repository found in the upstreams it pins (LLVM/MLIR, clang,
-lld), the patches it carries for them, and what to send upstream. If you
+lld, Idris 2), the patches it carries for them, and what to send
+upstream. If you
 are an agent pointed at this file with no other instructions, this file
 is your task: read it all, then follow **Sending** from the first
 directory whose status says "send next".
@@ -25,6 +26,11 @@ Directory 15 is never filed (see the table).
   `upstream/*/llvm.patch` in name order to a copy of the pinned
   llvm-project when it builds the toolchain; `tests/spec/upstream-patches`
   checks they apply.
+- `idris.patch` (18): the same for Idris 2, against third_party/Idris2's
+  gitlink, which the bootstrap's `idris` step applies to its copy of the
+  checkout (the checkout itself stays unmodified). Idris's rules for
+  sending are its own (its CONTRIBUTING.md); the bug's README says where
+  it goes.
 - `pull-request.diff`: the pull request for a change this repository does
   not carry (08, 17), which the bootstrap therefore never applies. Apply
   either file with `git apply`; the commit message comes from
@@ -69,6 +75,7 @@ Re-run `check-mlir` before each pull request, on the then-current main.
 | 15 | ld64-lld-unknown-tapi-target | never | carried, the local skip only (the pin has `arm64e.x1`, b8007a8e4) |
 | 16 | remove-dead-values-unchanged-call | issue + PR: `eraseOpResults` keeps an op it erases no result of, as `eraseOperands` does | carried (0451b1b8); not filed; `check-mlir` not run on main; the toolchain is not yet rebuilt with it |
 | 17 | sccp-revert-unset-property | PR: sccp copies the properties storage around a simulated fold, so it reverts a property the fold set on an op that had none | not ready: not carried (the compiler is not affected); no `mlir-opt` with it built; `check-mlir` not run |
+| 18 | elaboration-primitive-folding | issue + PR on idris-lang/Idris2: elaboration leaves primitives to the backend | carried; not built yet; not filed |
 
 Gone when the pin moved from llvmorg-23.1.2 to main at 7208ba24, each
 with its check and its PINS.md entry: 13 (uplift-final-counter) and 14

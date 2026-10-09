@@ -1,0 +1,233 @@
+diff --git a/src/Core/Normalise.idr b/src/Core/Normalise.idr
+index e64610a..d2caeb8 100644
+--- a/src/Core/Normalise.idr
++++ b/src/Core/Normalise.idr
+@@ -312,7 +312,13 @@ replace : {auto c : Ref Ctxt Defs} ->
+ replace = replace' 0
+ 
+ -- If the term is an application of a primitive conversion (fromInteger etc)
+--- and it's applied to a constant, fully normalise the term.
++-- and it's applied to a constant, fully normalise the term. The conversion
++-- runs only the primitives every backend computes alike (sharedOp): any
++-- other primitive it applies, such as the integer a String reads as in a
++-- FromString implementation, is the backend's to compute, and stays applied.
++-- A pattern (all) is matched against the constant, so there a literal
++-- whose conversion needs another primitive is an error: the call left in it
++-- would be unmatchable, and an unmatchable pattern matches anything.
+ export
+ normalisePrims : {auto c : Ref Ctxt Defs} -> {vs : _} ->
+                  -- size heuristic for when to unfold
+@@ -341,7 +347,13 @@ normalisePrims boundSafe viewConstant all prims n args tm env
+         let True = boundSafe c -- that we should expand
+               | _ => pure Nothing
+         defs <- get Ctxt
+-        tm <- if all
+-                 then normaliseAll defs env tm
+-                 else normalise defs env tm
+-        pure (Just tm)
++        let opts = if all then withAll else defaultOpts
++        tm' <- normaliseOpts ({ sharedPrimsOnly := True } opts) defs env tm
++        when all $
++          do full <- normaliseOpts opts defs env tm
++             when (full /= tm') $
++               throw (GenericMsg (getLoc tm)
++                        ("Can't match on a literal whose value depends on the backend: "
++                         ++ "its conversion applies a primitive other than Integer's "
++                         ++ "arithmetic or a cast from Integer"))
++        pure (Just tm')
+diff --git a/src/Core/Normalise/Eval.idr b/src/Core/Normalise/Eval.idr
+index 0ab608a..91ab5c5 100644
+--- a/src/Core/Normalise/Eval.idr
++++ b/src/Core/Normalise/Eval.idr
+@@ -545,8 +545,18 @@ parameters (defs : Defs) (topopts : EvalOpts)
+                      --                  , "  rigd        : \{show rigd}"
+                      --                  ]
+                      pure def
++    -- A primitive is reduced where a definition would be: a mode that
++    -- evaluates only holes leaves it applied, as it leaves a function or a
++    -- 'let', so that elaboration does not replace a primitive applied to
++    -- constants in the term it checks with this compiler's own result,
++    -- which need not be what the backend computes. Where only the
++    -- primitives every backend computes alike may run (a literal's
++    -- conversion, normalisePrims), the others stay applied too.
+     evalDef env opts meta fc rigd (Builtin op) flags stk def
+-        = evalOp (getOp op) stk def
++        = if (holesOnly opts || argHolesOnly opts) && not (tcInline opts)
++             then pure def
++             else evalOp (if sharedPrimsOnly opts then sharedOp op else getOp op)
++                         stk def
+     -- All other cases, use the default value, which is already applied to
+     -- the stack
+     evalDef env opts meta fc rigd def flags stk orig = do
+diff --git a/src/Core/Primitives.idr b/src/Core/Primitives.idr
+index 1fe1a2a..2bafef9 100644
+--- a/src/Core/Primitives.idr
++++ b/src/Core/Primitives.idr
+@@ -612,6 +612,49 @@ getOp BelieveMe = believeMe
+ 
+ getOp _ = const Nothing
+ 
++-- A cast from Integer to Double, when the Integer is a Double exactly (no
++-- more than 2^53 in magnitude), so that no rounding is involved.
++exactDouble : Vect 1 (NF vars) -> Maybe (NF vars)
++exactDouble [NPrimVal fc (BI i)]
++    = if abs i <= 9007199254740992
++         then Just (NPrimVal fc (Db (cast i)))
++         else Nothing
++exactDouble _ = Nothing
++
++||| The primitives whose result is the same on every backend, which the
++||| elaborator may compute when it reduces a literal to a constant:
++||| Integer's arithmetic and comparisons (its division and remainder are
++||| Euclidean on every backend), and a cast from Integer to a fixed-width
++||| integer, which wraps, or to a Double that is exactly that Integer. Any
++||| other primitive, such as the text of a Double or the number a String
++||| reads as, means what the backend that runs the program computes, so it
++||| stays applied.
++export
++sharedOp : {0 arity : Nat} -> PrimFn arity ->
++           {vars : Scope} -> Vect arity (NF vars) -> Maybe (NF vars)
++sharedOp (Add IntegerType) = binOp add
++sharedOp (Sub IntegerType) = binOp sub
++sharedOp (Mul IntegerType) = binOp mul
++sharedOp (Div IntegerType) = binOp div
++sharedOp (Mod IntegerType) = binOp mod
++sharedOp (Neg IntegerType) = unaryOp neg
++sharedOp (LT IntegerType) = binOp lt
++sharedOp (LTE IntegerType) = binOp lte
++sharedOp (EQ IntegerType) = binOp eq
++sharedOp (GTE IntegerType) = binOp gte
++sharedOp (GT IntegerType) = binOp gt
++sharedOp (Cast IntegerType IntType) = castInt
++sharedOp (Cast IntegerType Int8Type) = castInt8
++sharedOp (Cast IntegerType Int16Type) = castInt16
++sharedOp (Cast IntegerType Int32Type) = castInt32
++sharedOp (Cast IntegerType Int64Type) = castInt64
++sharedOp (Cast IntegerType Bits8Type) = castBits8
++sharedOp (Cast IntegerType Bits16Type) = castBits16
++sharedOp (Cast IntegerType Bits32Type) = castBits32
++sharedOp (Cast IntegerType Bits64Type) = castBits64
++sharedOp (Cast IntegerType DoubleType) = exactDouble
++sharedOp _ = const Nothing
++
+ prim : String -> Name
+ prim str = UN $ Basic $ "prim__" ++ str
+ 
+diff --git a/src/Core/Value.idr b/src/Core/Value.idr
+index a0c034b..0d2ff2c 100644
+--- a/src/Core/Value.idr
++++ b/src/Core/Value.idr
+@@ -18,6 +18,8 @@ record EvalOpts where
+   removeAs : Bool -- reduce 'as' patterns (don't do this on LHS)
+   evalAll : Bool -- evaluate everything, including private names
+   tcInline : Bool -- inline for totality checking
++  sharedPrimsOnly : Bool -- reduce only the primitives every backend computes
++                         -- alike (Core.Primitives.sharedOp)
+   fuel : Maybe Nat -- Limit for recursion depth
+   reduceLimit : List (Name, Nat) -- reduction limits for given names. If not
+                      -- present, no limit
+@@ -31,6 +33,7 @@ defaultOpts = MkEvalOpts
+     , removeAs = True
+     , evalAll = False
+     , tcInline = False
++    , sharedPrimsOnly = False
+     , fuel = Nothing
+     , reduceLimit = []
+     , strategy = CBN
+@@ -44,6 +47,7 @@ withHoles = MkEvalOpts
+     , removeAs = False
+     , evalAll = False
+     , tcInline = False
++    , sharedPrimsOnly = False
+     , fuel = Nothing
+     , reduceLimit = []
+     , strategy = CBN
+@@ -57,6 +61,7 @@ withAll = MkEvalOpts
+     , removeAs = True
+     , evalAll = True
+     , tcInline = False
++    , sharedPrimsOnly = False
+     , fuel = Nothing
+     , reduceLimit = []
+     , strategy = CBN
+@@ -70,6 +75,7 @@ withArgHoles = MkEvalOpts
+     , removeAs = False
+     , evalAll = False
+     , tcInline = False
++    , sharedPrimsOnly = False
+     , fuel = Nothing
+     , reduceLimit = []
+     , strategy = CBN
+diff --git a/tests/idris2/evaluator/evaluator006/Fold.idr b/tests/idris2/evaluator/evaluator006/Fold.idr
+new file mode 100644
+index 0000000..6561a3f
+--- /dev/null
++++ b/tests/idris2/evaluator/evaluator006/Fold.idr
+@@ -0,0 +1,28 @@
++-- A checked definition keeps a primitive applied to constants: what the
++-- primitive computes is the backend's to say (the text of a Double, the
++-- number a String reads as). A literal's conversion is reduced to a
++-- constant as it is elaborated, running only the primitives every backend
++-- computes alike, so `small` and `nat` are constants, and the conversion
++-- of `viaLiteral` keeps its cast from String.
++
++plain : Int
++plain = prim__cast_StringInt "12.7"
++
++text : String
++text = prim__cast_DoubleString 0.1
++
++public export
++data N = MkN Int
++
++public export
++FromString N where
++  fromString s = MkN (prim__cast_StringInt s)
++
++viaLiteral : N
++viaLiteral = "12.7"
++
++small : Int
++small = 42
++
++nat : Nat
++nat = 3
+diff --git a/tests/idris2/evaluator/evaluator006/expected b/tests/idris2/evaluator/evaluator006/expected
+new file mode 100644
+index 0000000..61121ca
+--- /dev/null
++++ b/tests/idris2/evaluator/evaluator006/expected
+@@ -0,0 +1,12 @@
++1/1: Building Fold (Fold.idr)
++Main> Main.plain : Int
++plain = prim__cast_StringInt "12.7"
++Main> Main.text : String
++text = prim__cast_DoubleString 0.1
++Main> Main.viaLiteral : N
++viaLiteral = MkN (prim__cast_StringInt "12.7")
++Main> Main.small : Int
++small = 42
++Main> Main.nat : Nat
++nat = 3
++Main> Bye for now!
+diff --git a/tests/idris2/evaluator/evaluator006/input b/tests/idris2/evaluator/evaluator006/input
+new file mode 100644
+index 0000000..c62bf2a
+--- /dev/null
++++ b/tests/idris2/evaluator/evaluator006/input
+@@ -0,0 +1,6 @@
++:printdef plain
++:printdef text
++:printdef viaLiteral
++:printdef small
++:printdef nat
++:q
+diff --git a/tests/idris2/evaluator/evaluator006/run b/tests/idris2/evaluator/evaluator006/run
+new file mode 100644
+index 0000000..d44d5c4
+--- /dev/null
++++ b/tests/idris2/evaluator/evaluator006/run
+@@ -0,0 +1,3 @@
++. ../../../testutils.sh
++
++idris2 Fold.idr < input

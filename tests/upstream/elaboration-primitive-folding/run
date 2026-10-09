@@ -1,0 +1,30 @@
+#!/bin/sh
+# The pinned Idris, with upstream/18-elaboration-primitive-folding/idris.patch,
+# no longer shows the bug: a definition that applies a primitive to
+# constants keeps the call in its checked form, and so does a literal whose
+# FromString applies one, while a literal of a primitive type is still a
+# constant. An unpatched Idris checks `plain` to 12, its own evaluator's
+# reading of "12.7", and `viaLiteral` to `MkN 12`. When the pin's
+# evaluator leaves primitives applied where it leaves definitions, the
+# patch goes, and with it the PINS.md entry elaboration-primitive-folding,
+# the report and this test (upstream/README.md).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+cp "$root/upstream/18-elaboration-primitive-folding/Fold.idr" "$work/" || exit 1
+cd "$work" || exit 1
+printf ':printdef plain\n:printdef infinity\n:printdef eAcute\n:printdef viaLiteral\n:printdef small\n:q\n' |
+  bounded "$idris2" --no-banner --no-color Fold.idr > out 2> err
+say "idris2: exit $?"
+# kept NAME CLAUSE: the definition NAME is checked to CLAUSE.
+kept() {
+  if grep -qxF -- "$2" out; then
+    say "$1: $2"
+  else
+    say "$1: not checked to $2"
+    show out err
+  fi
+}
+kept plain 'plain = prim__cast_StringInt "12.7"'
+kept infinity 'infinity = prim__cast_DoubleString (prim__div_Double 1.0 0.0)'
+kept eAcute "eAcute = prim__cast_CharString '\\233'"
+kept viaLiteral 'viaLiteral = MkN (prim__cast_StringInt "12.7")'
+kept small 'small = 42'

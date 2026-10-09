@@ -161,6 +161,33 @@ which the top-level CMake configure gate reads.
   `check-mlir` not run on main); plan in its README: an issue and a pull
   request
 
+## elaboration-primitive-folding
+
+- symptom: at the pinned Idris, elaboration normalises every checked term
+  with `normaliseArgHoles`, whose holes-only mode leaves definitions
+  applied but reduces any primitive applied to constants
+  (`src/Core/Normalise/Eval.idr:548`), with Idris's own implementation on
+  Chez. The checked definition this compiler consumes then holds Chez's
+  value instead of the call: `prim__cast_StringInt "12.7"` is 12 where the
+  runtime reads 0, a Double's text is `+inf.0` or `5e-324|1`, a Char's
+  string is its escape. A literal's conversion (`normalisePrims`) runs a
+  user's `fromString` the same way
+- sites: none in our code; the patch. The test generators write literals
+  as they are (tests/Sem.idr, tests/TwoLevels.idr, tests/Fuzz.idr), where
+  they hid each behind an identity that Idris does not reduce
+- workaround: `upstream/18-elaboration-primitive-folding/idris.patch`, the
+  pull request: a primitive reduces where a definition would, not in the
+  holes-only modes, and a literal's conversion runs only the primitives
+  every backend computes alike (Integer's arithmetic and comparisons, a
+  wrapping cast from Integer, an exact cast to Double). The installed
+  prelude and base are built by the patched compiler, so they keep their
+  calls too
+- retire: drop the patch when the pin includes the fix; the generators
+  stay as they are
+- upstream: upstream/18-elaboration-primitive-folding (not filed; not yet
+  built); plan in its README: an issue and a pull request on
+  idris-lang/Idris2
+
 ## remove-dead-values-address-taken
 
 - symptom: at llvmorg-23.1.2 and on main at 7208ba24, `remove-dead-values`

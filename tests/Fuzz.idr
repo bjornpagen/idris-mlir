@@ -8,10 +8,9 @@
 |||
 ||| prints the program. Every case is one expression, written three ways:
 |||
-||| - `d<n>`, directly: its leaves are literals behind `lit<T>`, an identity
-|||   the compiler inlines, so the folders compute it. (A primitive applied
-|||   to literals themselves would be folded by Idris's elaborator before the
-|||   compiler sees it.)
+||| - `d<n>`, directly: its leaves are literals, which the primitives are
+|||   applied to as written, so the folders compute it (Idris leaves the
+|||   calls in the checked term: upstream/18-elaboration-primitive-folding).
 ||| - `j<n>`, in a function of its leaves, total and self recursive over a
 |||   list of units, called with the literals: a closed call of a total
 |||   function, which idr-eval runs at compile time, and which --no-eval
@@ -102,12 +101,12 @@ leaves : Expr -> List (Ty, String)
 leaves (Leaf t s) = [(t, s)]
 leaves (App _ as) = concatMap leaves as
 
-||| How a leaf is written: `D`, behind lit<T>; `R`, behind hide<T> 1; `J`,
+||| How a leaf is written: `D`, as the literal; `R`, behind hide<T> 1; `J`,
 ||| as the next parameter.
 data Mode = D | R | J
 
 render : Mode -> Expr -> State Nat String
-render D (Leaf t s) = pure ("(lit" ++ tyName t ++ " " ++ s ++ ")")
+render D (Leaf _ s) = pure s
 render R (Leaf t s) = pure ("(hide" ++ tyName t ++ " 1 " ++ s ++ ")")
 render J (Leaf _ _) = do
   n <- get
@@ -496,8 +495,8 @@ genCase p n = do
                   Static => []
   pure (MkCase fn ([line ("d" ++ tag) t d, line ("j" ++ tag) t call] ++ runtime) (map fst ls))
 
-||| The helpers every program has: lit<T> and hide<T> for every type, and the
-||| small sum type.
+||| The helpers every program has: hide<T> for every type, and the small sum
+||| type.
 helpers : List String
 helpers = concatMap helper (intTys ++ [TDbl, TChr, TStr, TBig]) ++
   [ "data S = SA Int | SB Double Int | SC", ""
@@ -515,9 +514,7 @@ helpers = concatMap helper (intTys ++ [TDbl, TChr, TStr, TBig]) ++
     helper : Ty -> List String
     helper t =
       let n = tyName t in
-      [ "lit" ++ n ++ " : " ++ n ++ " -> " ++ n
-      , "lit" ++ n ++ " x = x", ""
-      , "hide" ++ n ++ " : Int -> " ++ n ++ " -> " ++ n
+      [ "hide" ++ n ++ " : Int -> " ++ n ++ " -> " ++ n
       , "hide" ++ n ++ " 0 x = x"
       , "hide" ++ n ++ " k x = hide" ++ n ++ " (prim__sub_Int k 1) x", "" ]
 

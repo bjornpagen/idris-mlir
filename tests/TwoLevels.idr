@@ -9,9 +9,10 @@
 ||| `Main.idr`, which prints each as `t<n> <value>`, the lines of the
 ||| expected file.
 |||
-||| Every literal is behind `lit<T>`, an identity: Idris's elaborator folds a
-||| primitive applied to literals itself, so without it the program would
-||| print the elaborator's value, not this compiler's.
+||| A primitive is applied to literals as they are: Idris leaves the call in
+||| the checked term (upstream/18-elaboration-primitive-folding), so the
+||| value printed is this compiler's. The corpus of Prelude functions gives
+||| a literal its type with `the`, where nothing else would.
 |||
 ||| Values are printed as the programs print them: integers in decimal, a
 ||| Char as its code point, a String as itself, a Double as Idris's `show`.
@@ -63,14 +64,12 @@ bounds "Bits32" = (0, 4294967295)
 bounds "Bits64" = (0, 18446744073709551615)
 bounds _ = (-9223372036854775808, 9223372036854775807)
 
-lit : String -> String -> String
-lit t v = "(lit" ++ t ++ " " ++ v ++ ")"
+||| A literal of a type that nothing around it says.
+typed : String -> String -> String
+typed t v = "(the " ++ t ++ " " ++ v ++ ")"
 
 num : Integer -> String
 num n = if n < 0 then "(" ++ show n ++ ")" else show n
-
-intLit : String -> Integer -> String
-intLit t v = lit t (num v)
 
 app : String -> List String -> String
 app f as = "(" ++ f ++ concatMap (" " ++) as ++ ")"
@@ -88,7 +87,7 @@ intTerms t =
   let (lo, hi) = bounds t
       a = hi
       b = if signed t then -7 else 7
-      l = intLit t
+      l = num
   in [ term t (app (prim op t) [l a, l b]) | op <- ["add", "sub", "mul", "and", "or", "xor"] ]
   ++ [ term t (app (prim op t) [l x, l y])
      | op <- ["div", "mod"]
@@ -99,8 +98,8 @@ intTerms t =
   ++ [ term "Double" (app ("prim__cast_" ++ t ++ "Double") [l hi])
      , term "String" (app ("prim__cast_" ++ t ++ "String") [l lo])
      , term "Integer" (app ("prim__cast_" ++ t ++ "Integer") [l lo])
-     , term t (app ("prim__cast_Integer" ++ t) [lit "Integer" "340282366920938463463374607431768211457"])
-     , term t (app ("prim__cast_Double" ++ t) [lit "Double" "(-2.75)"])
+     , term t (app ("prim__cast_Integer" ++ t) ["340282366920938463463374607431768211457"])
+     , term t (app ("prim__cast_Double" ++ t) ["(-2.75)"])
      ]
 
 doubles : List String
@@ -109,29 +108,29 @@ doubles = ["0.1", "(-2.5)", "1.0e300", "4.9e-324", "2.2250738585072014e-308", "0
 ||| NaN, the infinities and -0.0, made by the terms' own arithmetic.
 specials : List String
 specials =
-  [ app "prim__div_Double" [lit "Double" "0.0", lit "Double" "0.0"]
-  , app "prim__div_Double" [lit "Double" "1.0", lit "Double" "0.0"]
-  , app "prim__div_Double" [lit "Double" "(-1.0)", lit "Double" "0.0"]
-  , app "prim__negate_Double" [lit "Double" "0.0"] ]
+  [ app "prim__div_Double" ["0.0", "0.0"]
+  , app "prim__div_Double" ["1.0", "0.0"]
+  , app "prim__div_Double" ["(-1.0)", "0.0"]
+  , app "prim__negate_Double" ["0.0"] ]
 
 libm : List String
 libm = ["Exp", "Log", "Sin", "Cos", "Tan", "ASin", "ACos", "ATan"]
 
 doubleTerms : List Term
 doubleTerms =
-  let ds = map (lit "Double") doubles ++ specials in
+  let ds = doubles ++ specials in
   [ term "Double" (app (prim op "Double") [x, y])
   | op <- ["add", "sub", "mul", "div"], (x, y) <- zip ds (drop 1 ds ++ take 1 ds) ]
   ++ [ term "Double" (app "prim__negate_Double" [x]) | x <- ds ]
   ++ [ term "Int" (app (prim op "Double") [x, y])
      | op <- ["lt", "lte", "eq", "gte", "gt"], (x, y) <- zip ds (reverse ds) ]
   ++ [ term "Double" (app ("prim__double" ++ f) [x]) | f <- ["Sqrt", "Floor", "Ceiling"], x <- ds ]
-  ++ [ hostTerm ("prim__double" ++ f ++ ": libm") "Double" (app ("prim__double" ++ f) [lit "Double" "0.5"])
+  ++ [ hostTerm ("prim__double" ++ f ++ ": libm") "Double" (app ("prim__double" ++ f) ["0.5"])
      | f <- libm ]
-  ++ [ hostTerm "prim__doublePow: libm" "Double" (app "prim__doublePow" [lit "Double" "2.5", lit "Double" "3.5"])
-     , term "String" (app "prim__cast_DoubleString" [lit "Double" "0.1"])
-     , term "Integer" (app "prim__cast_DoubleInteger" [lit "Double" "1.0e20"])
-     , term "Double" (app "prim__cast_StringDouble" [lit "String" "\"2.5e-3\""])
+  ++ [ hostTerm "prim__doublePow: libm" "Double" (app "prim__doublePow" ["2.5", "3.5"])
+     , term "String" (app "prim__cast_DoubleString" ["0.1"])
+     , term "Integer" (app "prim__cast_DoubleInteger" ["1.0e20"])
+     , term "Double" (app "prim__cast_StringDouble" ["\"2.5e-3\""])
      ]
   ++ [ term "String" (app "prim__cast_DoubleString" [x]) | x <- ds ]
 
@@ -140,34 +139,34 @@ strings = ["\"hello\"", "\"h\\233llo\"", "\"\\955x.x\"", "\"\\128512!\""]
 
 charTerms : List Term
 charTerms =
-  let cs = map (lit "Char") ["'a'", "'\\233'", "'\\8364'", "'\\128512'"] in
+  let cs = ["'a'", "'\\233'", "'\\8364'", "'\\128512'"] in
   [ term "Int" (app (prim op "Char") [x, y])
   | op <- ["lt", "lte", "eq", "gte", "gt"], (x, y) <- zip cs (reverse cs) ]
   ++ [ term "Int" (app "prim__cast_CharInt" [c]) | c <- cs ]
   ++ [ term "String" (app "prim__cast_CharString" [c]) | c <- cs ]
-  ++ [ term "Char" (app "prim__cast_IntChar" [intLit "Int" v]) | v <- [65, 955, 128512, 1114111] ]
+  ++ [ term "Char" (app "prim__cast_IntChar" [num v]) | v <- [65, 955, 128512, 1114111] ]
 
 stringTerms : List Term
 stringTerms =
-  let ss = map (lit "String") strings
-      l = intLit "Int" in
+  let ss = strings
+      l = num in
   [ term "Int" (app "prim__strLength" [s]) | s <- ss ]
   ++ [ term "Char" (app "prim__strHead" [s]) | s <- ss ]
   ++ [ term "String" (app "prim__strTail" [s]) | s <- ss ]
   ++ [ term "Char" (app "prim__strIndex" [s, l 1]) | s <- ss ]
-  ++ [ term "String" (app "prim__strCons" [lit "Char" "'\\955'", s]) | s <- ss ]
+  ++ [ term "String" (app "prim__strCons" ["'\\955'", s]) | s <- ss ]
   ++ [ term "String" (app "prim__strAppend" [s, s']) | (s, s') <- zip ss (reverse ss) ]
   ++ [ term "String" (app "prim__strReverse" [s]) | s <- ss ]
   ++ [ term "String" (app "prim__strSubstr" [l 1, l 3, s]) | s <- ss ]
   ++ [ term "Int" (app (prim op "String") [x, y])
      | op <- ["lt", "lte", "eq", "gte", "gt"], (x, y) <- zip ss (reverse ss) ]
-  ++ [ term "Int" (app "prim__cast_StringInt" [lit "String" "\"-1234\""])
-     , term "Integer" (app "prim__cast_StringInteger" [lit "String" "\"123456789012345678901234567890\""])
+  ++ [ term "Int" (app "prim__cast_StringInt" ["\"-1234\""])
+     , term "Integer" (app "prim__cast_StringInteger" ["\"123456789012345678901234567890\""])
      ]
 
 bigTerms : List Term
 bigTerms =
-  let l = intLit "Integer"
+  let l = num
       a = 340282366920938463463374607431768211457
       b = -98765432109876543210 in
   [ term "Integer" (app (prim op "Integer") [l a, l b])
@@ -188,11 +187,11 @@ primitiveTerms =
 
 preludeTerms : List Term
 preludeTerms =
-  let i = intLit "Int"
-      d = lit "Double"
-      s = lit "String"
-      c = lit "Char"
-      big = intLit "Integer"
+  let i = typed "Int" . num
+      d = typed "Double"
+      s = typed "String"
+      c = typed "Char"
+      big = typed "Integer" . num
       xs = "[" ++ joinBy ", " (map i [3, -1, 4, 1, -5, 9]) ++ "]" in
   [ term "Int" ("sum " ++ xs)
   , term "Int" ("product " ++ xs)
@@ -248,9 +247,6 @@ preludeTerms =
 -- The programs
 ------------------------------------------------------------------------------
 
-allTys : List String
-allTys = intTys ++ ["Double", "Char", "String", "Integer"]
-
 ||| How a value of a type is printed.
 printer : String -> String -> String
 printer "String" e = e
@@ -265,8 +261,6 @@ termsModule ts =
     , "-- Generated by tests/TwoLevels.idr.", ""
     , "import Prelude", ""
     , "%default partial", "" ]
-    ++ concatMap (\t => [ "public export", "lit" ++ t ++ " : " ++ t ++ " -> " ++ t
-                        , "lit" ++ t ++ " x = x", "" ]) allTys
     ++ concatMap (\(n, t) =>
                     maybe [] (\r => ["-- host-dependent: t" ++ show n ++ " " ++ r]) t.host
                     ++ [ "public export", "t" ++ show n ++ " : " ++ t.ty

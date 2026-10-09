@@ -32,6 +32,40 @@ A primitive's meaning comes from, in this order:
 
 ## The runtime's behaviours
 
+### A primitive on constants: the runtime's, as on values
+
+- **Was:** Idris's elaborator replaced a primitive applied to constants
+  with its own evaluator's result, computed on the Chez it runs on, in the
+  checked definition this compiler consumes, with or without
+  `--directive no-eval`. A literal's conversion went the same way, a
+  user's `fromString` included. So a closed call printed Chez's value:
+
+  | right-hand side | printed | the runtime |
+  | --- | --- | --- |
+  | `prim__cast_DoubleString (prim__div_Double 1.0 0.0)` | `+inf.0` | `inf` |
+  | `prim__cast_DoubleString 4.9e-324` | `5e-324\|1` | `5e-324` |
+  | `prim__cast_DoubleString 12.886856079101562` | `...563` | `...562` |
+  | `prim__cast_StringInt "12.7"` | `12` | `0` |
+  | `prim__cast_CharString '\233'` | `\233` | `é` |
+
+  The generated tests hid every literal behind an identity Idris does not
+  reduce, so none of them saw it.
+- **Now:** Idris carries `upstream/18-elaboration-primitive-folding`:
+  elaboration leaves a primitive applied, as it leaves a function, and
+  compile-time evaluation computes it with the runtime.
+- **Except:** a literal's conversion still runs Integer's arithmetic and
+  comparisons and the casts from Integer, which Idris needs to make a
+  literal a constant (a pattern must be one). Those are exact and wrap
+  alike everywhere, so they agree with the runtime. A literal pattern
+  whose conversion needs any other primitive is no pattern, and Idris
+  refuses the clause.
+- **Tests:**
+  - `tests/programs/semantics/closed-*`, each example as a constant of a
+    module, and a literal through a `FromString` and a `FromDouble`;
+  - the generated tests, whose literals are now as written
+    (`tests/Sem.idr`, `tests/TwoLevels.idr`, `tests/Fuzz.idr`);
+  - `tests/upstream/elaboration-primitive-folding`, the pinned Idris.
+
 ### Bytes from outside, as text: Unicode
 
 - **Authority:** the Unicode Standard, chapter 3, its recommended practice
