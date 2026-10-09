@@ -607,7 +607,8 @@ blockEntries : ValidIndent -> (IndentInfo -> Rule ty) ->
 blockEntries valid rule
      = do eoi; pure []
    <|> do res <- blockEntry valid rule
-          ts <- blockEntries (snd res) rule
+          -- after an entry, which consumes: on a shorter input
+          ts <- assert_total $ blockEntries (snd res) rule
           pure (fst res :: ts)
    <|> pure []
 

@@ -15,46 +15,103 @@ import public Libraries.Text.Bounded
 -- e.g. perhaps set a string to state what we're currently trying to
 -- parse, or to say what the next expected token is in words
 
+public export
+data ParsingError tok = Error String (Maybe Bounds)
+
+public export
+ParsingWarnings : Type
+ParsingWarnings = List (Maybe Bounds, String)
+
+-- What a grammar's actions and warnings have made so far: how to add an
+-- action to the state, the state, and the warnings.
+record Made state where
+  constructor MkMade
+  append : state -> state -> state
+  st : state
+  warnings : ParsingWarnings
+
+-- What a grammar runs on: what has been made, whether the enclosing
+-- alternative has committed, and the tokens left. Most steps change only
+-- the last two, so they are copied without the rest.
+record Input state tok where
+  constructor MkInput
+  made : Made state
+  committed : Bool
+  tokens : List (WithBounds tok)
+
+data ParseResult : Type -> Type -> Type -> Type where
+     Failure : (committed : Bool) -> (fatal : Bool) ->
+               List1 (ParsingError tok) -> ParseResult state tok ty
+     Res : (rest : Input state tok) -> (val : WithBounds ty) ->
+           ParseResult state tok ty
+
 ||| Description of a language's grammar. The `tok` parameter is the type
 ||| of tokens, and the `consumes` flag is True if the language is guaranteed
 ||| to be non-empty - that is, successfully parsing the language is guaranteed
 ||| to consume some input.
+|||
+||| A grammar is the parser itself, a function from its input to its result.
+||| The result type is a parameter, so a sequence's intermediate result is
+||| held by the closure of the sequence rather than hidden in a constructor.
+|||
+||| It is a box around the function, not a newtype: a grammar defined
+||| without arguments is then a constant, built once, rather than a function
+||| that builds its parts again each time it runs.
 export
-data Grammar : (state : Type) -> (tok : Type) -> (consumes : Bool) -> Type -> Type where
-     Empty : (val : ty) -> Grammar state tok False ty
-     Terminal : String -> (tok -> Maybe a) -> Grammar state tok True a
-     NextIs : String -> (tok -> Bool) -> Grammar state tok False tok
-     EOF : Grammar state tok False ()
+data Grammar : (state : Type) -> (tok : Type) -> (consumes : Bool) -> (ty : Type) -> Type where
+  [noNewtype]
+  MkGrammar : (Input state tok -> ParseResult state tok ty) -> Grammar state tok consumes ty
 
-     Fail : (location : Maybe Bounds) -> (fatal : Bool) -> String -> Grammar state tok c ty
-     Warning : (location : Maybe Bounds) -> String -> Grammar state tok False ()
+%inline
+runGrammar : Grammar state tok c ty -> Input state tok -> ParseResult state tok ty
+runGrammar (MkGrammar run) = run
 
-     Try : Grammar state tok c ty -> Grammar state tok c ty
+mergeWith : WithBounds ty -> ParseResult state tok sy -> ParseResult state tok sy
+mergeWith x (Res inp val) = Res inp (mergeBounds x val)
+mergeWith x v = v
 
-     Commit : Grammar state tok False ()
-     MustWork : Grammar state tok c a -> Grammar state tok c a
+firstBounds : List (WithBounds tok) -> Maybe Bounds
+firstBounds [] = Nothing
+firstBounds (x :: _) = Just x.bounds
 
-     SeqEat : {c2 : Bool} ->
-              Grammar state tok True a -> Inf (a -> Grammar state tok c2 b) ->
-              Grammar state tok True b
-     SeqEmpty : {c1, c2 : Bool} ->
-                Grammar state tok c1 a -> (a -> Grammar state tok c2 b) ->
-                Grammar state tok (c1 || c2) b
+withCommitted : Bool -> Input state tok -> Input state tok
+withCommitted com inp
+    = if inp.committed
+         then if com then inp else { committed := False } inp
+         else if com then { committed := True } inp else inp
 
-     ThenEat : {c2 : Bool} ->
-               Grammar state tok True () -> Inf (Grammar state tok c2 a) ->
-               Grammar state tok True a
-     ThenEmpty : {c1, c2 : Bool} ->
-                 Grammar state tok c1 () -> Grammar state tok c2 a ->
-                 Grammar state tok (c1 || c2) a
+-- Run `act`, then the grammar `next` makes of its value, on the rest of the
+-- input.
+bindGrammar : Grammar state tok c1 a -> (a -> Grammar state tok c2 b) ->
+              Grammar state tok c3 b
+bindGrammar act next
+    = MkGrammar $ \inp =>
+        case runGrammar act inp of
+             Failure com fatal errs => Failure com fatal errs
+             Res inp v => mergeWith v $ runGrammar (next v.val) inp
 
-     Alt : {c1, c2 : Bool} ->
-           Grammar state tok c1 ty -> Lazy (Grammar state tok c2 ty) ->
-           Grammar state tok (c1 && c2) ty
-     Bounds : Grammar state tok c ty -> Grammar state tok c (WithBounds ty)
-     Position : Grammar state tok False Bounds
+-- Run `act`, then `next` on the rest of the input.
+thenGrammar : Grammar state tok c1 () -> Grammar state tok c2 a ->
+              Grammar state tok c3 a
+thenGrammar act next
+    = MkGrammar $ \inp =>
+        case runGrammar act inp of
+             Failure com fatal errs => Failure com fatal errs
+             Res inp v => mergeWith v $ runGrammar next inp
 
-     Act : state -> Grammar state tok False ()
+-- As `thenGrammar`, with `next` delayed until `act` has succeeded.
+thenLater : Grammar state tok c1 () -> Inf (Grammar state tok c2 a) ->
+            Grammar state tok c3 a
+thenLater act next
+    = MkGrammar $ \inp =>
+        case runGrammar act inp of
+             Failure com fatal errs => Failure com fatal errs
+             Res inp v => mergeWith v $ runGrammar next inp
+
+warning : (location : Maybe Bounds) -> String -> Grammar state tok False ()
+warning mb msg
+    = MkGrammar $ \inp =>
+        Res ({ made.warnings $= ((mb, msg) ::) } inp) (irrelevantBounds ())
 
 ||| Sequence two grammars. If either consumes some input, the sequence is
 ||| guaranteed to consume some input. If the first one consumes input, the
@@ -65,20 +122,21 @@ export %inline
         Grammar state tok c1 a ->
         inf c1 (a -> Grammar state tok c2 b) ->
         Grammar state tok (c1 || c2) b
-(>>=) {c1 = False} = SeqEmpty
-(>>=) {c1 = True}  = SeqEat
+(>>=) {c1 = False} act next = bindGrammar act next
+-- `next` is forced each time `act` has succeeded, never before.
+(>>=) {c1 = True}  act next = bindGrammar act (\x => next x)
 
 ||| Sequence two grammars. If either consumes some input, the sequence is
 ||| guaranteed to consume some input. If the first one consumes input, the
 ||| second is allowed to be recursive (because it means some input has been
 ||| consumed and therefore the input is smaller)
-public export %inline %tcinline
+export %inline
 (>>) : {c1, c2 : Bool} ->
         Grammar state tok c1 () ->
         inf c1 (Grammar state tok c2 a) ->
         Grammar state tok (c1 || c2) a
-(>>) {c1 = False} = ThenEmpty
-(>>) {c1 = True} = ThenEat
+(>>) {c1 = False} act next = thenGrammar act next
+(>>) {c1 = True} act next = thenLater act next
 
 ||| Sequence two grammars. If either consumes some input, the sequence is
 ||| guaranteed to consume input. This is an explicitly non-infinite version
@@ -88,49 +146,58 @@ seq : {c1,c2 : Bool} ->
       Grammar state tok c1 a ->
       (a -> Grammar state tok c2 b) ->
       Grammar state tok (c1 || c2) b
-seq = SeqEmpty
+seq act next = bindGrammar act next
 
 ||| Sequence a grammar followed by the grammar it returns.
 export %inline
 join : {c1,c2 : Bool} ->
        Grammar state tok c1 (Grammar state tok c2 a) ->
        Grammar state tok (c1 || c2) a
-join {c1 = False} p = SeqEmpty p id
-join {c1 = True} p = SeqEat p id
+join p = bindGrammar p id
 
 ||| Allows the result of a grammar to be mapped to a different value.
 export
 {c : _} ->
 Functor (Grammar state tok c) where
-  map f (Empty val)  = Empty (f val)
-  map f (Fail bd fatal msg) = Fail bd fatal msg
-  map f (Try g) = Try (map f g)
-  map f (MustWork g) = MustWork (map f g)
-  map f (Terminal msg g) = Terminal msg (map f . g)
-  map f (Alt x y)    = Alt (map f x) (map f y)
-  map f (SeqEat act next)
-      = SeqEat act (\val => map f (next val))
-  map f (SeqEmpty act next)
-      = SeqEmpty act (\ val => map f (next val))
-  map f (ThenEat act next)
-      = ThenEat act (map f next)
-  map f (ThenEmpty act next)
-      = ThenEmpty act (map f next)
-  map {c} f (Bounds act)
-    = rewrite sym $ orFalseNeutral c in
-      SeqEmpty (Bounds act) (Empty . f) -- Bounds (map f act)
-  -- The remaining constructors (NextIs, EOF, Commit) have a fixed type,
-  -- so a sequence must be used.
-  map {c = False} f p = SeqEmpty p (Empty . f)
+  -- The value keeps the bounds of what was parsed; an irrelevant one stays
+  -- irrelevant, with no bounds (as `mergeBounds v (irrelevantBounds (f v.val))`).
+  map f p
+      = MkGrammar $ \inp =>
+          case runGrammar p inp of
+               Failure com fatal errs => Failure com fatal errs
+               Res inp v =>
+                 Res inp (if v.isIrrelevant
+                             then irrelevantBounds (f v.val)
+                             else map f v)
 
 ||| Give two alternative grammars. If both consume, the combination is
 ||| guaranteed to consume.
-export %inline
+export
 (<|>) : {c1,c2 : Bool} ->
         Grammar state tok c1 ty ->
         Lazy (Grammar state tok c2 ty) ->
         Grammar state tok (c1 && c2) ty
-(<|>) = Alt
+(<|>) x y
+    = MkGrammar $ \inp =>
+        let com = inp.committed
+            inp0 = withCommitted False inp in
+        case runGrammar x inp0 of
+             Failure com' fatal errs
+                => if com' || fatal
+                          -- If the alternative had committed, don't try the
+                          -- other branch (and reset commit flag)
+                     then Failure com fatal errs
+                     else case runGrammar y inp0 of
+                               Failure com'' fatal' errs' =>
+                                 if com'' || fatal'
+                                    -- Only add the errors together if the
+                                    -- second branch is also non-committed
+                                    -- and non-fatal.
+                                    then Failure com'' fatal' errs'
+                                    else Failure com False (errs ++ errs')
+                               Res inp val => Res (withCommitted com inp) val
+             -- Successfully parsed the first option, so use the outer commit flag
+             Res inp val => Res (withCommitted com inp) val
 
 export infixr 2 <||>
 ||| Take the tagged disjunction of two grammars. If both consume, the
@@ -146,12 +213,12 @@ export
 ||| with value type `a`. If both succeed, apply the function
 ||| from the first grammar to the value from the second grammar.
 ||| Guaranteed to consume if either grammar consumes.
-export %inline
+export
 (<*>) : {c1, c2 : Bool} ->
         Grammar state tok c1 (a -> b) ->
         Grammar state tok c2 a ->
         Grammar state tok (c1 || c2) b
-(<*>) x y = SeqEmpty x (\f => map f y)
+(<*>) x y = bindGrammar x (\f => map f y)
 
 ||| Sequence two grammars. If both succeed, use the value of the first one.
 ||| Guaranteed to consume if either grammar consumes.
@@ -171,99 +238,111 @@ export %inline
        Grammar state tok (c1 || c2) b
 (*>) x y = map (const id) x <*> y
 
-export %inline
-act : state -> Grammar state tok False ()
-act = Act
-
-||| Produce a grammar that can parse a different type of token by providing a
-||| function converting the new token type into the original one.
 export
-mapToken : (a -> b) -> Grammar state b c ty -> Grammar state a c ty
-mapToken f (Empty val) = Empty val
-mapToken f (Terminal msg g) = Terminal msg (g . f)
-mapToken f (NextIs msg g) = SeqEmpty (NextIs msg (g . f)) (Empty . f)
-mapToken f EOF = EOF
-mapToken f (Warning bd msg) = Warning bd msg
-mapToken f (Fail bd fatal msg) = Fail bd fatal msg
-mapToken f (Try g) = Try (mapToken f g)
-mapToken f (MustWork g) = MustWork (mapToken f g)
-mapToken f Commit = Commit
-mapToken f (SeqEat act next)
-  = SeqEat (mapToken f act) (\x => mapToken f (next x))
-mapToken f (SeqEmpty act next)
-  = SeqEmpty (mapToken f act) (\x => mapToken f (next x))
-mapToken f (ThenEat act next)
-  = ThenEat (mapToken f act) (mapToken f next)
-mapToken f (ThenEmpty act next)
-  = ThenEmpty (mapToken f act) (mapToken f next)
-mapToken f (Alt x y) = Alt (mapToken f x) (mapToken f y)
-mapToken f (Bounds act) = Bounds (mapToken f act)
-mapToken f Position = Position
-mapToken f (Act action) = Act action
+act : state -> Grammar state tok False ()
+act action
+    = MkGrammar $ \inp =>
+        Res ({ made.st := inp.made.append inp.made.st action } inp) (irrelevantBounds ())
 
 ||| Always succeed with the given value.
-export %inline
+export
 pure : (val : ty) -> Grammar state tok False ty
-pure = Empty
+pure val = MkGrammar $ \inp => Res inp (irrelevantBounds val)
 
 ||| Check whether the next token satisfies a predicate
-export %inline
+export
 nextIs : String -> (tok -> Bool) -> Grammar state tok False tok
-nextIs = NextIs
+nextIs err f
+    = MkGrammar $ \inp =>
+        case inp.tokens of
+             [] => Failure inp.committed False (Error "End of input" Nothing ::: Nil)
+             (x :: xs) =>
+               if f x.val
+                  then Res inp (removeIrrelevance x)
+                  else Failure inp.committed False (Error err (Just x.bounds) ::: Nil)
 
 ||| Look at the next token in the input
-export %inline
+export
 peek : Grammar state tok False tok
 peek = nextIs "Unrecognised token" (const True)
 
 ||| Succeeds if running the predicate on the next token returns Just x,
 ||| returning x. Otherwise fails.
-export %inline
+export
 terminal : String -> (tok -> Maybe a) -> Grammar state tok True a
-terminal = Terminal
+terminal err f
+    = MkGrammar $ \inp =>
+        case inp.tokens of
+             [] => Failure inp.committed False (Error "End of input" Nothing ::: Nil)
+             (x :: xs) =>
+               case f x.val of
+                    Nothing => Failure inp.committed False (Error err (Just x.bounds) ::: Nil)
+                    Just a => Res ({ tokens := xs } inp) (const a <$> x)
+
+-- Fail with a message, at the given location or else at the next token.
+failWith : (location : Maybe Bounds) -> (fatal : Bool) -> String ->
+           Grammar state tok c ty
+failWith location fatal str
+    = MkGrammar $ \inp =>
+        Failure inp.committed fatal
+                (Error str (location <|> firstBounds inp.tokens) ::: Nil)
 
 ||| Always fail with a message
 export %inline
 fail : String -> Grammar state tok c ty
-fail = Fail Nothing False
+fail = failWith Nothing False
 
 ||| Always fail with a message and a location
 export %inline
 failLoc : Bounds -> String -> Grammar state tok c ty
-failLoc b = Fail (Just b) False
+failLoc b = failWith (Just b) False
 
 ||| Fail with no possibility for recovery (i.e.
 ||| no alternative parsing can succeed).
 export %inline
 fatalError : String -> Grammar state tok c ty
-fatalError = Fail Nothing True
+fatalError = failWith Nothing True
 
 ||| Fail with no possibility for recovery (i.e.
 ||| no alternative parsing can succeed).
 export %inline
 fatalLoc : Bounds -> String -> Grammar state tok c ty
-fatalLoc b = Fail (Just b) True
+fatalLoc b = failWith (Just b) True
 
 ||| Catch a fatal error
-export %inline
+export
 try : Grammar state tok c ty -> Grammar state tok c ty
-try = Try
+try g
+    = MkGrammar $ \inp =>
+        case runGrammar g inp of
+             -- recover from fatal match but still propagate the 'commit'
+             Failure com _ errs => Failure com False errs
+             res => res
 
 ||| Succeed if the input is empty
-export %inline
+export
 eof : Grammar state tok False ()
-eof = EOF
+eof = MkGrammar $ \inp =>
+        case inp.tokens of
+             [] => Res inp (irrelevantBounds ())
+             (x :: xs) =>
+               Failure inp.committed False
+                       (Error "Expected end of input" (Just x.bounds) ::: Nil)
 
 ||| Commit to an alternative; if the current branch of an alternative
 ||| fails to parse, no more branches will be tried
-export %inline
+export
 commit : Grammar state tok False ()
-commit = Commit
+commit = MkGrammar $ \inp => Res (withCommitted True inp) (irrelevantBounds ())
 
 ||| If the parser fails, treat it as a fatal error
-export %inline
+export
 mustWork : {c : Bool} -> Grammar state tok c ty -> Grammar state tok c ty
-mustWork = MustWork
+mustWork g
+    = MkGrammar $ \inp =>
+        case runGrammar g inp of
+             Failure com' _ errs => Failure com' True errs
+             res => res
 
 ||| If the parser fails, treat it as a fatal error and explain why
 export
@@ -274,9 +353,13 @@ mustWorkBecause {c} loc msg p
   = rewrite sym (andSameNeutral c) in
     p <|> fatalLoc loc msg
 
-export %inline
+export
 bounds : Grammar state tok c ty -> Grammar state tok c (WithBounds ty)
-bounds = Bounds
+bounds act
+    = MkGrammar $ \inp =>
+        case runGrammar act inp of
+             Failure com fatal errs => Failure com fatal errs
+             Res inp v => Res inp (const v <$> v)
 
 export
 mustFailBecause :
@@ -285,116 +368,22 @@ mustFailBecause :
 mustFailBecause msg p
   = (bounds p >>= \res => fatalLoc {c=False} res.bounds msg) <|> pure ()
 
-export %inline
+export
 position : Grammar state tok False Bounds
-position = Position
+position
+    = MkGrammar $ \inp =>
+        case inp.tokens of
+             [] => Failure inp.committed False (Error "End of input" Nothing ::: Nil)
+             (x :: xs) => Res inp (irrelevantBounds x.bounds)
 
 ||| Warn the user
-export %inline
+export
 withWarning : {c : _} -> String -> Grammar state tok c ty -> Grammar state tok c ty
 withWarning warn p
     = rewrite sym $ orFalseNeutral c in
-      SeqEmpty (bounds p) $ \ res =>
-      do Warning (Just res.bounds) warn
+      seq (bounds p) $ \ res =>
+      do warning (Just res.bounds) warn
          pure res.val
-
-public export
-data ParsingError tok = Error String (Maybe Bounds)
-
-public export
-ParsingWarnings : Type
-ParsingWarnings = List (Maybe Bounds, String)
-
-data ParseResult : Type -> Type -> Type -> Type where
-     Failure : (committed : Bool) -> (fatal : Bool) ->
-               List1 (ParsingError tok) -> ParseResult state tok ty
-     Res : state ->
-           (ws : ParsingWarnings) ->
-           (committed : Bool) ->
-           (val : WithBounds ty) ->
-           (more : List (WithBounds tok)) ->
-           ParseResult state tok ty
-
-mergeWith : WithBounds ty -> ParseResult state tok sy -> ParseResult state tok sy
-mergeWith x (Res s ws committed val more) = Res s ws committed (mergeBounds x val) more
-mergeWith x v = v
-
-doParse : Semigroup state =>
-          state -> (ws : ParsingWarnings) ->
-          (commit : Bool) ->
-          (act : Grammar state tok c ty) ->
-          (xs : List (WithBounds tok)) ->
-          ParseResult state tok ty
-doParse s ws com (Empty val) xs = Res s ws com (irrelevantBounds val) xs
-doParse s ws com (Warning mb msg) xs = Res s ((mb, msg) :: ws) com (irrelevantBounds ()) xs
-doParse s ws com (Fail location fatal str) xs
-    = Failure com fatal (Error str (location <|> (bounds <$> head' xs)) ::: Nil)
-doParse s ws com (Try g) xs = case doParse s ws com g xs of
-  -- recover from fatal match but still propagate the 'commit'
-  Failure com _ errs => Failure com False errs
-  res => res
-doParse s ws com Commit xs = Res s ws True (irrelevantBounds ()) xs
-doParse s ws com (MustWork g) xs =
-  case doParse s ws com g xs of
-       Failure com' _ errs => Failure com' True errs
-       res => res
-doParse s ws com (Terminal err f) [] = Failure com False (Error "End of input" Nothing ::: Nil)
-doParse s ws com (Terminal err f) (x :: xs) =
-  case f x.val of
-       Nothing => Failure com False (Error err (Just x.bounds) ::: Nil)
-       Just a => Res s ws com (const a <$> x) xs
-doParse s ws com EOF [] = Res s ws com (irrelevantBounds ()) []
-doParse s ws com EOF (x :: xs) = Failure com False (Error "Expected end of input" (Just x.bounds) ::: Nil)
-doParse s ws com (NextIs err f) [] = Failure com False (Error "End of input" Nothing ::: Nil)
-doParse s ws com (NextIs err f) (x :: xs)
-      = if f x.val
-           then Res s ws com (removeIrrelevance x) (x :: xs)
-           else Failure com False (Error err (Just x.bounds) ::: Nil)
-doParse s ws com (Alt {c1} {c2} x y) xs
-    = case doParse s ws False x xs of
-           Failure com' fatal errs
-              => if com' || fatal
-                        -- If the alternative had committed, don't try the
-                        -- other branch (and reset commit flag)
-                   then Failure com fatal errs
-                   else case doParse s ws False y xs of
-                             (Failure com'' fatal' errs') => if com'' || fatal'
-                                                                     -- Only add the errors together if the second branch
-                                                                     -- is also non-committed and non-fatal.
-                                                             then Failure com'' fatal' errs'
-                                                             else Failure com False (errs ++ errs')
-                             (Res s ws _ val xs) => Res s ws com val xs
-           -- Successfully parsed the first option, so use the outer commit flag
-           Res s ws _ val xs => Res s ws com val xs
-doParse s ws com (SeqEmpty act next) xs
-    = case doParse s ws com act xs of
-           Failure com fatal errs => Failure com fatal errs
-           Res s ws com v xs =>
-             mergeWith v $ doParse s ws com (next v.val) xs
-doParse s ws com (SeqEat act next) xs
-    = case doParse s ws com act xs of
-           Failure com fatal errs => Failure com fatal errs
-           Res s ws com v xs =>
-             mergeWith v $ assert_total doParse s ws com (next v.val) xs
-doParse s ws com (ThenEmpty act next) xs
-    = case doParse s ws com act xs of
-           Failure com fatal errs => Failure com fatal errs
-           Res s ws com v xs =>
-             mergeWith v $ doParse s ws com next xs
-doParse s ws com (ThenEat act next) xs
-    = case doParse s ws com act xs of
-           Failure com fatal errs => Failure com fatal errs
-           Res s ws com v xs =>
-             mergeWith v $ assert_total doParse s ws com next xs
-doParse s ws com (Bounds act) xs
-    = case doParse s ws com act xs of
-           Failure com fatal errs => Failure com fatal errs
-           Res s ws com v xs => Res s ws com (const v <$> v) xs
-doParse s ws com Position [] = Failure com False (Error "End of input" Nothing ::: Nil)
-doParse s ws com Position (x :: xs)
-    = Res s ws com (irrelevantBounds x.bounds) (x :: xs)
-doParse s ws com (Act action) xs
-  = Res (s <+> action) ws com (irrelevantBounds ()) xs
 
 ||| Parse a list of tokens according to the given grammar. If successful,
 ||| returns a pair of the parse result and the unparsed tokens (the remaining
@@ -404,15 +393,15 @@ parse : {c : Bool} -> (act : Grammar () tok c ty) -> (xs : List (WithBounds tok)
         Either (List1 (ParsingError tok))
                (ParsingWarnings, ty, List (WithBounds tok))
 parse act xs
-    = case doParse neutral [] False act xs of
+    = case runGrammar act (MkInput (MkMade (<+>) neutral []) False xs) of
            Failure _ _ errs => Left errs
-           Res _ ws _ v rest => Right (ws, v.val, rest)
+           Res inp v => Right (inp.made.warnings, v.val, inp.tokens)
 
 export
 parseWith : Monoid state => {c : Bool} -> (act : Grammar state tok c ty) -> (xs : List (WithBounds tok)) ->
         Either (List1 (ParsingError tok))
                (state, ParsingWarnings, ty, List (WithBounds tok))
 parseWith act xs
-    = case doParse neutral [] False act xs of
+    = case runGrammar act (MkInput (MkMade (<+>) neutral []) False xs) of
            Failure _ _ errs => Left errs
-           Res s ws _ v rest => Right (s, ws, v.val, rest)
+           Res inp v => Right (inp.made.st, inp.made.warnings, v.val, inp.tokens)

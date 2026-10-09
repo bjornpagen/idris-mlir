@@ -201,6 +201,51 @@ below); `assert_total` and `assert_smaller` stay.
 - `ttcVersion` (`Core.Binary`) has eleven digits where stock Idris's have
   ten, so a TTC either one writes is refused by the other when read.
 
+### Rewritten so that this compiler can compile it
+
+These keep upstream's interfaces where they can, so that a re-sync stays a
+merge; each says what changed in its interface.
+
+- `Libraries.Text.Parser.Core`: a `Grammar` is the parser itself, a
+  function from the parser's input (the state, the warnings, whether the
+  enclosing alternative has committed, the tokens left) to its result,
+  boxed in a constructor (`noNewtype`, so that a grammar without arguments
+  stays a constant built once). Upstream's was a deep embedding read by
+  `doParse`, whose `SeqEat` and `SeqEmpty` hid the type of the first
+  grammar's result and whose `Bounds`, `NextIs`, `EOF` and `Position` fixed
+  the result type per constructor; here the result type is a parameter and
+  a sequence's intermediate result lives in its closure. Each combinator
+  is `doParse`'s clause for its constructor, so commits, backtracking,
+  fatal errors, the merging of the errors of two failed alternatives and
+  the bounds of every result are upstream's; `map` gives what upstream's
+  structural `map` gave for every grammar over tokens that are not
+  irrelevant (a lexer's never are). The combinators keep their names,
+  types, operators and `Inf` and `Lazy` arguments, and the `consumes`
+  index still decides where `>>=` and `>>` take an `Inf` continuation.
+  Interface changes: `mapToken`, which nothing used and which a function
+  cannot be mapped through, is gone; `>>` is `export %inline` rather than
+  `public export %tcinline`, which only served the totality checker; and
+  the combinators that build a closure are no longer `%inline`, since
+  inlining one moves the building of its arguments into the closure, to be
+  repeated each time it runs. The totality checker took a recursive
+  grammar to be guarded because upstream's `>>=` and `>>` normalised to a
+  constructor holding the `Inf` continuation; a function is not one. The
+  recursions whose termination that hid are now marked: one call in each
+  cycle of `some` and `many`, `count1` and `count`, `someTill` and
+  `manyTill`, `afterSome` and `afterMany` (`Libraries.Text.Parser`) and
+  `blockEntries` (`Parser.Rule.Source`) is `assert_total`, each after a
+  grammar that consumes, as upstream's `doParse` asserted its own
+  recursion. (`Idris.Parser` and `TTImp.Parser` are `covering`.)
+- `Libraries.Text.Lexer.Tokenizer`: the `Compose` constructor makes its
+  middle tokenizer and its end lexer from the begin lexeme itself, a
+  `String`; upstream's held a `tagger` to a tag type the constructor hid.
+  `compose` keeps upstream's type, tagger included, and applies the tagger
+  before building the constructor, so its callers (`Parser.Lexer.Source`)
+  are upstream's. It is `public export %tcinline` rather than `export`
+  (upstream's was `Compose` itself, point-free), so that the totality
+  checker still sees the recursion of `rawTokens` and `stringTokens`
+  through it guarded by the constructor.
+
 ## tools/extract-idris.sh
 
 `MODULES` lists the kept upstream files, relative to `src/`. The script
