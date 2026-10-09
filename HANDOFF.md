@@ -65,6 +65,21 @@ idr-simplify's fixpoint loop first). Rules:
   upstream/README.md say what was retired and why, and findings/ lists
   the trunk mechanisms you checked and what was adopted. A failure is a
   real failure: find its cause.
+- When phase 1 is green and pushed, hand the two queued clang bugs,
+  upstream/11-clang-module-layout-forward-declaration and
+  upstream/12-clang-module-predeclared-new, to the bug-filing agent.
+  First run their tests/upstream/<bug>/ checks on the new pin. If a bug
+  is fixed on trunk, retire it as 0003 says and say so. If it still
+  reproduces, record the result in its README's "Upstreaming plan".
+  Then find the local Claude Code session named "Bug filing assistance"
+  with ListAgents and send it one message with SendMessage, standing on
+  its own: the commit you pushed, which of 11 and 12 still reproduce on
+  llvm main 7208ba24 and with what error, the exact commands to
+  reproduce each from a clean clone of this repository, and the task:
+  reduce each (cvise or by hand, against llvm main as the README plans),
+  then prepare it for filing under upstream/README.md's rules, with
+  Bjorn approving every post. Do not wait for its answer; go on to
+  phase 2.
 
 Phase 2: proposal 0002, the representation cutover, on the new base.
 You are its coordinator: proposals/0002-representation-cutover/
