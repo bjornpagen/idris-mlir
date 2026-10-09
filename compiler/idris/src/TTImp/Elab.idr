@@ -89,6 +89,7 @@ elabTermSub : {inner, vars : _} ->
               {auto c : Ref Ctxt Defs} ->
               {auto m : Ref MD Metadata} ->
               {auto u : Ref UST UState} ->
+              {auto dl : Ref DLY DelayedElabs} ->
               {auto s : Ref Syn SyntaxInfo} ->
               {auto o : Ref ROpts REPLOpts} ->
               Int -> ElabMode -> List ElabOpt ->
@@ -106,9 +107,8 @@ elabTermSub {vars} defining mode opts nest env env' sub tm ty
          oldhs <- if not incase
                      then saveHoles
                      else pure empty
-         ust <- get UST
-         let olddelayed = delayedElab ust
-         put UST ({ delayedElab := [] } ust)
+         olddelayed <- get DLY
+         put DLY (the DelayedElabs [])
          constart <- getNextEntry
 
          defs <- get Ctxt
@@ -125,14 +125,14 @@ elabTermSub {vars} defining mode opts nest env env' sub tm ty
                               _ => inTerm
          solveConstraints solvemode Normal
          logTerm "elab" 5 "Looking for delayed in " chktm
-         ust <- get UST
+         delayed <- get DLY
          catch (retryDelayed solvemode
                              (sortBy (\x, y => compare (fst x) (fst y))
-                                       (delayedElab ust)))
+                                       delayed))
                  (\err =>
-                    do update UST { delayedElab := olddelayed }
+                    do put DLY olddelayed
                        throw err)
-         update UST { delayedElab := olddelayed }
+         put DLY olddelayed
          solveConstraintsAfter constart solvemode MatchArgs
 
          -- As long as we're not in the RHS of a case block,
@@ -208,6 +208,7 @@ elabTerm : {vars : _} ->
            {auto c : Ref Ctxt Defs} ->
            {auto m : Ref MD Metadata} ->
            {auto u : Ref UST UState} ->
+           {auto dl : Ref DLY DelayedElabs} ->
            {auto s : Ref Syn SyntaxInfo} ->
            {auto o : Ref ROpts REPLOpts} ->
            Int -> ElabMode -> List ElabOpt ->
@@ -222,6 +223,7 @@ checkTermSub : {inner, vars : _} ->
                {auto c : Ref Ctxt Defs} ->
                {auto m : Ref MD Metadata} ->
                {auto u : Ref UST UState} ->
+               {auto dl : Ref DLY DelayedElabs} ->
                {auto s : Ref Syn SyntaxInfo} ->
                {auto o : Ref ROpts REPLOpts} ->
                Int -> ElabMode -> List ElabOpt ->
@@ -235,6 +237,7 @@ checkTermSub defining mode opts nest env env' sub tm ty
                                        -- a case in the type
                       _ => get Ctxt
          ust <- get UST
+         dls <- get DLY
          mv <- get MD
          res <-
             catch {t = Error}
@@ -244,6 +247,7 @@ checkTermSub defining mode opts nest env env' sub tm ty
                     TryWithImplicits loc benv ns
                       => do put Ctxt defs
                             put UST ust
+                            put DLY dls
                             put MD mv
                             tm' <- bindImps loc benv ns tm
                             elabTermSub defining mode opts nest
@@ -274,6 +278,7 @@ checkTerm : {vars : _} ->
             {auto c : Ref Ctxt Defs} ->
             {auto m : Ref MD Metadata} ->
             {auto u : Ref UST UState} ->
+            {auto dl : Ref DLY DelayedElabs} ->
             {auto s : Ref Syn SyntaxInfo} ->
             {auto o : Ref ROpts REPLOpts} ->
             Int -> ElabMode -> List ElabOpt ->

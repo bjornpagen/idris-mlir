@@ -19,6 +19,7 @@ checkDelayed : {vars : _} ->
                {auto c : Ref Ctxt Defs} ->
                {auto m : Ref MD Metadata} ->
                {auto u : Ref UST UState} ->
+               {auto dl : Ref DLY DelayedElabs} ->
                {auto e : Ref EST (EState vars)} ->
                {auto s : Ref Syn SyntaxInfo} ->
                {auto o : Ref ROpts REPLOpts} ->
@@ -36,6 +37,7 @@ checkDelay : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
              {auto m : Ref MD Metadata} ->
              {auto u : Ref UST UState} ->
+             {auto dl : Ref DLY DelayedElabs} ->
              {auto e : Ref EST (EState vars)} ->
              {auto s : Ref Syn SyntaxInfo} ->
              {auto o : Ref ROpts REPLOpts} ->
@@ -56,11 +58,11 @@ checkDelay rig elabinfo nest env fc tm mexpected
          -- Can only check if we know the expected type already because we
          -- need to infer the delay reason
          delayOnFailure fc rig env (Just expected) delayError LazyDelay
-            (\delayed =>
+            (\dl, delayed =>
                  case !(getNF expected) of
                       NDelayed _ r expnf =>
                          do defs <- get Ctxt
-                            (tm', gty) <- check rig elabinfo nest env tm
+                            (tm', gty) <- check {dl} rig elabinfo nest env tm
                                                 (Just (glueBack defs env expnf))
                             tynf <- getNF gty
                             ty <- getTerm gty
@@ -78,6 +80,7 @@ checkForce : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
              {auto m : Ref MD Metadata} ->
              {auto u : Ref UST UState} ->
+             {auto dl : Ref DLY DelayedElabs} ->
              {auto e : Ref EST (EState vars)} ->
              {auto s : Ref Syn SyntaxInfo} ->
              {auto o : Ref ROpts REPLOpts} ->

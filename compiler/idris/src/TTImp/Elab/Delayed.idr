@@ -50,23 +50,26 @@ deeper elab
 
 -- Try the given elaborator; if it fails, and the error matches the
 -- predicate, make a hole and try it again later when more holes might
--- have been resolved
+-- have been resolved.
+-- The elaborator is given the cell of delayed elaborators, the first time
+-- and when it is retried, rather than capturing it (see DelayedElab).
 export
 delayOnFailure : {vars : _} ->
                  {auto c : Ref Ctxt Defs} ->
                  {auto m : Ref MD Metadata} ->
                  {auto u : Ref UST UState} ->
+                 {auto dl : Ref DLY DelayedElabs} ->
                  {auto e : Ref EST (EState vars)} ->
                  FC -> RigCount -> Env Term vars ->
                  (expected : Maybe (Glued vars)) ->
                  (Error -> Bool) ->
                  (pri : DelayReason) ->
-                 (Bool -> Core (Term vars, Glued vars)) ->
+                 (Ref DLY DelayedElabs -> Bool -> Core (Term vars, Glued vars)) ->
                  Core (Term vars, Glued vars)
 delayOnFailure fc rig env exp pred pri elab
     = do ust <- get UST
          let nos = noSolve ust -- remember the holes we shouldn't solve
-         handle (elab False)
+         handle (elab dl False)
           (\err =>
               do est <- get EST
                  expected <- mkExpected exp
@@ -79,17 +82,18 @@ delayOnFailure fc rig env exp pred pri elab
                                       " for") env expected
                          log "elab.delay" 10 ("Due to error " ++ show err)
                          defs <- get Ctxt
-                         update UST { delayedElab $=
+                         update DLY
                                  ((pri, ci, localHints defs,
+                                   MkDelayedElab $ \dl =>
                                    mkClosedElab fc env
                                       (deeper
                                         (do ust <- get UST
                                             let nos' = noSolve ust
                                             put UST ({ noSolve := nos } ust)
-                                            res <- elab True
+                                            res <- elab dl True
                                             ust <- get UST
                                             put UST ({ noSolve := nos' } ust)
-                                            pure res))) :: ) }
+                                            pure res))) :: )
                          pure (dtm, expected)
                     else throw err)
   where
@@ -106,11 +110,12 @@ delayElab : {vars : _} ->
             {auto c : Ref Ctxt Defs} ->
             {auto m : Ref MD Metadata} ->
             {auto u : Ref UST UState} ->
+            {auto dl : Ref DLY DelayedElabs} ->
             {auto e : Ref EST (EState vars)} ->
             FC -> RigCount -> Env Term vars ->
             (expected : Maybe (Glued vars)) ->
             (pri : DelayReason) ->
-            Core (Term vars, Glued vars) ->
+            (Ref DLY DelayedElabs -> Core (Term vars, Glued vars)) ->
             Core (Term vars, Glued vars)
 delayElab {vars} fc rig env exp pri elab
     = do ust <- get UST
@@ -121,15 +126,17 @@ delayElab {vars} fc rig env exp pri elab
          logGlueNF "elab.delay" 5 ("Postponing elaborator " ++ show nm ++
                       " for") env expected
          defs <- get Ctxt
-         update UST { delayedElab $=
-                 ((pri, ci, localHints defs, mkClosedElab fc env
+         update DLY
+                 ((pri, ci, localHints defs,
+                   MkDelayedElab $ \dl =>
+                                 mkClosedElab fc env
                                               (do ust <- get UST
                                                   let nos' = noSolve ust
                                                   put UST ({ noSolve := nos } ust)
-                                                  res <- elab
+                                                  res <- elab dl
                                                   ust <- get UST
                                                   put UST ({ noSolve := nos' } ust)
-                                                  pure res)) :: ) }
+                                                  pure res)) :: )
          pure (dtm, expected)
   where
     mkExpected : Maybe (Glued vars) -> Core (Glued vars)
@@ -230,12 +237,13 @@ retryDelayed' : {vars : _} ->
                 {auto c : Ref Ctxt Defs} ->
                 {auto m : Ref MD Metadata} ->
                 {auto u : Ref UST UState} ->
+                {auto dl : Ref DLY DelayedElabs} ->
                 {auto e : Ref EST (EState vars)} ->
                 RetryError ->
                 (progress : Bool) ->
-                List (DelayReason, Int, NameMap (), Core ClosedTerm) ->
-                List (DelayReason, Int, NameMap (), Core ClosedTerm) ->
-                Core (Bool, List (DelayReason, Int, NameMap (), Core ClosedTerm))
+                DelayedElabs ->
+                DelayedElabs ->
+                Core (Bool, DelayedElabs)
 retryDelayed' errmode p acc [] = pure (p, reverse acc)
 retryDelayed' errmode p acc (d@(_, i, hints, elab) :: ds)
     = do defs <- get Ctxt
@@ -245,12 +253,12 @@ retryDelayed' errmode p acc (d@(_, i, hints, elab) :: ds)
            (do est <- get EST
                logC "elab.retry" 5 $ do pure $ show (delayDepth est) ++ ": Retrying delayed hole " ++ show !(getFullName (Resolved i))
                -- elab itself might have delays internally, so keep track of them
-               update UST { delayedElab := [] }
+               put DLY (the DelayedElabs [])
                update Ctxt { localHints := hints }
 
-               tm <- elab
-               ust <- get UST
-               let ds' = reverse (delayedElab ust) ++ ds
+               tm <- runDelayedElab elab
+               nested <- get DLY
+               let ds' = reverse nested ++ ds
 
                updateDef (Resolved i) (const (Just
                     (PMDef (MkPMDefInfo NotHole True False)
@@ -283,8 +291,9 @@ retryDelayed : {vars : _} ->
                {auto c : Ref Ctxt Defs} ->
                {auto m : Ref MD Metadata} ->
                {auto u : Ref UST UState} ->
+               {auto dl : Ref DLY DelayedElabs} ->
                {auto e : Ref EST (EState vars)} ->
-               UnifyInfo -> List (DelayReason, Int, NameMap (), Core ClosedTerm) ->
+               UnifyInfo -> DelayedElabs ->
                Core ()
 retryDelayed mode ds
     = do (p, ds) <- retryDelayed' RecoverableErrors False [] ds -- try everything again
@@ -299,20 +308,22 @@ runDelays : {vars : _} ->
             {auto c : Ref Ctxt Defs} ->
             {auto m : Ref MD Metadata} ->
             {auto u : Ref UST UState} ->
+            {auto dl : Ref DLY DelayedElabs} ->
             {auto e : Ref EST (EState vars)} ->
             (DelayReason -> Bool) -> Core a -> Core a
 runDelays pri elab
-    = do ust <- get UST
-         let olddelayed = delayedElab ust
-         put UST ({ delayedElab := [] } ust)
+    = do olddelayed <- get DLY
+         put DLY (the DelayedElabs [])
          tm <- elab
          ust <- get UST
+         delayed <- get DLY
          log "elab.delay" 2 $ "Rerunning delayed in elaborator"
          handle (do ignore $ retryDelayed' AllErrors False []
-                       (reverse (filter hasPri (delayedElab ust))))
-                (\err => do put UST ({ delayedElab := olddelayed } ust)
+                       (reverse (filter hasPri delayed)))
+                (\err => do put UST ust
+                            put DLY olddelayed
                             throw err)
-         update UST { delayedElab $= (++ olddelayed) }
+         update DLY (++ olddelayed)
          pure tm
   where
     hasPri : (DelayReason, d) -> Bool

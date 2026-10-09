@@ -275,6 +275,7 @@ export
 elabInterface : {vars : _} ->
                 {auto c : Ref Ctxt Defs} ->
                 {auto u : Ref UST UState} ->
+                {auto dl : Ref DLY DelayedElabs} ->
                 {auto s : Ref Syn SyntaxInfo} ->
                 {auto m : Ref MD Metadata} ->
                 {auto o : Ref ROpts REPLOpts} ->

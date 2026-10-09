@@ -36,6 +36,7 @@ import System.File
 
 processDecls : {auto c : Ref Ctxt Defs} ->
                {auto u : Ref UST UState} ->
+               {auto dl : Ref DLY DelayedElabs} ->
                {auto s : Ref Syn SyntaxInfo} ->
                {auto m : Ref MD Metadata} ->
                {auto o : Ref ROpts REPLOpts} ->
@@ -43,6 +44,7 @@ processDecls : {auto c : Ref Ctxt Defs} ->
 
 processDecl : {auto c : Ref Ctxt Defs} ->
               {auto u : Ref UST UState} ->
+              {auto dl : Ref DLY DelayedElabs} ->
               {auto s : Ref Syn SyntaxInfo} ->
               {auto m : Ref MD Metadata} ->
               {auto o : Ref ROpts REPLOpts} ->
@@ -231,6 +233,7 @@ isTTCOutdated ttcFile sourceFiles
 ||| Returns 'Nothing' if it didn't reload anything
 processMod : {auto c : Ref Ctxt Defs} ->
              {auto u : Ref UST UState} ->
+             {auto dl : Ref DLY DelayedElabs} ->
              {auto s : Ref Syn SyntaxInfo} ->
              {auto m : Ref MD Metadata} ->
              {auto o : Ref ROpts REPLOpts} ->
@@ -341,6 +344,7 @@ export
 process : {auto c : Ref Ctxt Defs} ->
           {auto m : Ref MD Metadata} ->
           {auto u : Ref UST UState} ->
+          {auto dl : Ref DLY DelayedElabs} ->
           {auto s : Ref Syn SyntaxInfo} ->
           {auto o : Ref ROpts REPLOpts} ->
           (msgPrefix : Doc IdrisAnn) ->

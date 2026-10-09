@@ -3,6 +3,7 @@ module TTImp.TTImp
 import Core.Context.Log
 import Core.Env
 import Core.Normalise
+import Core.UnifyState
 import Core.Value
 
 import public Data.List1
@@ -479,7 +480,11 @@ mutual
        IPragma : FC -> List Name -> -- pragmas might define names that wouldn't
                                     -- otherwise be spotted in 'definedInBlock' so they
                                     -- can be flagged here.
-                 ({vars : _} ->
+                 -- The action is given the cell of delayed elaborators
+                 -- rather than capturing it: a delayed elaborator holds
+                 -- terms, whose local blocks hold pragmas, so a captured
+                 -- cell would reach itself (see DelayedElab).
+                 ({vars : _} -> Ref DLY DelayedElabs ->
                   NestedNames vars -> Env Term vars -> Core ()) ->
                  ImpDecl' nm
        ILog : Maybe (List String, Nat) -> ImpDecl' nm

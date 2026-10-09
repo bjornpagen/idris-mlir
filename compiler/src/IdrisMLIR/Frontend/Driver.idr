@@ -237,6 +237,7 @@ built source = do
     | Left err => throw (FileErr source err)
   mainModule <- ctxtPathToNS source
   u <- newRef UST initUState
+  dl <- newRef DLY (the DelayedElabs [])
   m <- newRef MD (initMetadata (PhysicalIdrSrc mainModule))
   resetContext (PhysicalIdrSrc mainModule)
   [] <- buildDeps source

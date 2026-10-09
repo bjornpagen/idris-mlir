@@ -603,32 +603,45 @@ killErrorLoc (OperatorBindingMismatch fc expected actual opName rhs candidates)
              = OperatorBindingMismatch emptyFC expected actual opName rhs candidates
 
 
--- Core is a wrapper around IO that is specialised for efficiency.
+-- Core is the elaborator's monad: a function of the world that ends with
+-- an error or a result, not an IO action wrapped in a record. Its
+-- combinators below are the only code that sees the world.
 export
 record Core t where
   constructor MkCore
-  runCore : IO (Either Error t)
+  runCore : PrimIO (Either Error t)
+
+-- One computation, then another given its result. The world the second
+-- runs in is the one the first was given, as the prelude's io_bind passes
+-- it: a world matched out of an IORes is erased in the code the stock
+-- compiler generates, so a computation applied to it would be a closed
+-- term, which common subexpression elimination lifts to the top level and
+-- runs once, when the program loads.
+%inline
+seqCore : PrimIO a -> (a -> PrimIO b) -> PrimIO b
+seqCore act k = toPrim (io_bind (fromPrim act) (\x => fromPrim (k x)))
 
 export
 coreRun : Core a ->
           (Error -> IO b) -> (a -> IO b) -> IO b
-coreRun (MkCore act) err ok
-    = either err ok !act
+coreRun (MkCore act) err ok = fromPrim (seqCore act (\r => toPrim (either err ok r)))
 
 export
 coreFail : Error -> Core a
-coreFail e = MkCore (pure (Left e))
+coreFail e = MkCore (\w => MkIORes (Left e) w)
 
 export
 wrapError : (Error -> Error) -> Core a -> Core a
-wrapError fe (MkCore prog) = MkCore $ mapFst fe <$> prog
+wrapError fe (MkCore prog)
+    = MkCore (\w => case prog w of
+                      MkIORes r w' => MkIORes (mapFst fe r) w')
 
 -- This would be better if we restrict it to a limited set of IO operations
 export
 %inline
 coreLift : IO a -> Core a
-coreLift op = MkCore (do op' <- op
-                         pure (Right op'))
+coreLift op = MkCore (\w => case toPrim op w of
+                              MkIORes a w' => MkIORes (Right a) w')
 
 {- Monad, Applicative, Traversable are specialised by hand for Core.
 In theory, this shouldn't be necessary, but it turns out that Idris 1 doesn't
@@ -642,11 +655,15 @@ in the next version (i.e., in this project...)! -}
 -- Functor (specialised)
 export %inline
 map : (a -> b) -> Core a -> Core b
-map f (MkCore a) = MkCore (map (map f) a)
+map f (MkCore a)
+    = MkCore (\w => case a w of
+                      MkIORes r w' => MkIORes (map f r) w')
 
 export %inline
 (<$>) : (a -> b) -> Core a -> Core b
-(<$>) f (MkCore a) = MkCore (map (map f) a)
+(<$>) f (MkCore a)
+    = MkCore (\w => case a w of
+                      MkIORes r w' => MkIORes (map f r) w')
 
 export %inline
 (<$) : b -> Core a -> Core b
@@ -666,10 +683,9 @@ coreLift_ op = ignore (coreLift op)
 export %inline
 (>>=) : Core a -> (a -> Core b) -> Core b
 (>>=) (MkCore act) f
-    = MkCore (act >>=
-                   \case
-                     Left err => pure $ Left err
-                     Right val => runCore $ f val)
+    = MkCore (seqCore act (\case
+                             Left err => \w => MkIORes (Left err) w
+                             Right val => runCore (f val)))
 
 export %inline
 (>>) : Core () -> Core a -> Core a
@@ -693,19 +709,24 @@ export %inline
 -- Applicative (specialised)
 export %inline
 pure : a -> Core a
-pure x = MkCore (pure (pure x))
+pure x = MkCore (\w => MkIORes (Right x) w)
 
+-- The applicative combinators run both computations, whether or not the
+-- first fails, and then combine the results, the first error winning.
 export
 (<*>) : Core (a -> b) -> Core a -> Core b
-(<*>) (MkCore f) (MkCore a) = MkCore [| f <*> a |]
+(<*>) (MkCore f) (MkCore a)
+    = MkCore (seqCore f (\rf => seqCore a (\ra, w => MkIORes (rf <*> ra) w)))
 
 export
 (*>) : Core a -> Core b -> Core b
-(*>) (MkCore a) (MkCore b) = MkCore [| a *> b |]
+(*>) (MkCore a) (MkCore b)
+    = MkCore (seqCore a (\ra => seqCore b (\rb, w => MkIORes (ra *> rb) w)))
 
 export
 (<*) : Core a -> Core b -> Core a
-(<*) (MkCore a) (MkCore b) = MkCore [| a <* b |]
+(<*) (MkCore a) (MkCore b)
+    = MkCore (seqCore a (\ra => seqCore b (\rb, w => MkIORes (ra <* rb) w)))
 
 export %inline
 when : Bool -> Lazy (Core ()) -> Core ()
@@ -748,11 +769,12 @@ interface Catchable m t | m where
 export
 Catchable Core Error where
   catch (MkCore prog) h
-      = MkCore ( do p' <- prog
-                    case p' of
-                         Left e => let MkCore he = h e in he
-                         Right val => pure (Right val))
-  breakpoint (MkCore prog) = MkCore (pure <$> prog)
+      = MkCore (seqCore prog (\case
+                                Left e => runCore (h e)
+                                Right val => \w => MkIORes (Right val) w))
+  breakpoint (MkCore prog)
+      = MkCore (\w => case prog w of
+                        MkIORes r w' => MkIORes (Right r) w')
   throw = coreFail
 
 -- Prelude.Monad.foldlM hand specialised for Core

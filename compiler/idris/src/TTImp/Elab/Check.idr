@@ -485,10 +485,12 @@ tryError : {vars : _} ->
            {auto c : Ref Ctxt Defs} ->
            {auto m : Ref MD Metadata} ->
            {auto u : Ref UST UState} ->
+           {auto dl : Ref DLY DelayedElabs} ->
            {auto e : Ref EST (EState vars)} ->
            Core a -> Core (Either Error a)
 tryError elab
     = do ust <- get UST
+         dls <- get DLY
          est <- get EST
          md <- get MD
          defs <- branch
@@ -496,6 +498,7 @@ tryError elab
                    commit
                    pure (Right res))
                (\err => do put UST ust
+                           put DLY dls
                            put EST est
                            put MD md
                            defs' <- get Ctxt
@@ -507,6 +510,7 @@ try : {vars : _} ->
       {auto c : Ref Ctxt Defs} ->
       {auto m : Ref MD Metadata} ->
       {auto u : Ref UST UState} ->
+      {auto dl : Ref DLY DelayedElabs} ->
       {auto e : Ref EST (EState vars)} ->
       Core a -> Core a -> Core a
 try elab1 elab2
@@ -519,6 +523,7 @@ handle : {vars : _} ->
          {auto c : Ref Ctxt Defs} ->
          {auto m : Ref MD Metadata} ->
          {auto u : Ref UST UState} ->
+         {auto dl : Ref DLY DelayedElabs} ->
          {auto e : Ref EST (EState vars)} ->
          Core a -> (Error -> Core a) -> Core a
 handle elab1 elab2
@@ -530,14 +535,16 @@ successful : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
              {auto m : Ref MD Metadata} ->
              {auto u : Ref UST UState} ->
+             {auto dl : Ref DLY DelayedElabs} ->
              {auto e : Ref EST (EState vars)} ->
              Bool -> -- constraints allowed
              List (Maybe Name, Core a) ->
              Core (List (Either (Maybe Name, Error)
-                                (Nat, a, Defs, UState, EState vars, Metadata)))
+                                (Nat, a, Defs, (UState, DelayedElabs), EState vars, Metadata)))
 successful allowCons [] = pure []
 successful allowCons ((tm, elab) :: elabs)
     = do ust <- get UST
+         dls <- get DLY
          let ncons = if allowCons
                         then 0
                         else length (toList (guesses ust))
@@ -552,6 +559,7 @@ successful allowCons ((tm, elab) :: elabs)
                    res <- elab
                    -- Record post-elaborator state
                    ust' <- get UST
+                   dls' <- get DLY
                    let ncons' = if allowCons
                                    then 0
                                    else length (toList (guesses ust'))
@@ -562,6 +570,7 @@ successful allowCons ((tm, elab) :: elabs)
 
                    -- Reset to previous state and try the rest
                    put UST ust
+                   put DLY dls
                    put EST est
                    put MD md
                    put Ctxt defs
@@ -574,8 +583,9 @@ successful allowCons ((tm, elab) :: elabs)
                    elabs' <- successful allowCons elabs
                    -- Record success, and the state we ended at
                    pure (Right (minus ncons' ncons,
-                                res, defs', ust', est', md') :: elabs'))
+                                res, defs', (ust', dls'), est', md') :: elabs'))
                (\err => do put UST ust
+                           put DLY dls
                            put EST est
                            put MD md
                            put Ctxt defs
@@ -599,6 +609,7 @@ exactlyOne' : {vars : _} ->
               {auto c : Ref Ctxt Defs} ->
               {auto m : Ref MD Metadata} ->
               {auto u : Ref UST UState} ->
+              {auto dl : Ref DLY DelayedElabs} ->
               {auto e : Ref EST (EState vars)} ->
               Bool -> FC -> Env Term vars ->
               List (Maybe Name, Core (Term vars, Glued vars)) ->
@@ -607,8 +618,9 @@ exactlyOne' allowCons fc env [(tm, elab)] = elab
 exactlyOne' {vars} allowCons fc env all
     = do elabs <- successful allowCons all
          case getRight elabs of
-              Right (res, defs, ust, est, md) =>
+              Right (res, defs, (ust, dls), est, md) =>
                     do put UST ust
+                       put DLY dls
                        put EST est
                        put MD  md
                        put Ctxt defs
@@ -652,6 +664,7 @@ exactlyOne : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
              {auto m : Ref MD Metadata} ->
              {auto u : Ref UST UState} ->
+             {auto dl : Ref DLY DelayedElabs} ->
              {auto e : Ref EST (EState vars)} ->
              FC -> Env Term vars ->
              List (Maybe Name, Core (Term vars, Glued vars)) ->
@@ -663,6 +676,7 @@ anyOne : {vars : _} ->
          {auto c : Ref Ctxt Defs} ->
          {auto m : Ref MD Metadata} ->
          {auto u : Ref UST UState} ->
+         {auto dl : Ref DLY DelayedElabs} ->
          {auto e : Ref EST (EState vars)} ->
          FC -> List (Maybe Name, Core (Term vars, Glued vars)) ->
          Core (Term vars, Glued vars)
@@ -682,6 +696,7 @@ check : {vars : _} ->
         {auto c : Ref Ctxt Defs} ->
         {auto m : Ref MD Metadata} ->
         {auto u : Ref UST UState} ->
+        {auto dl : Ref DLY DelayedElabs} ->
         {auto e : Ref EST (EState vars)} ->
         {auto s : Ref Syn SyntaxInfo} ->
         {auto o : Ref ROpts REPLOpts} ->
@@ -696,6 +711,7 @@ checkImp : {vars : _} ->
            {auto c : Ref Ctxt Defs} ->
            {auto m : Ref MD Metadata} ->
            {auto u : Ref UST UState} ->
+           {auto dl : Ref DLY DelayedElabs} ->
            {auto e : Ref EST (EState vars)} ->
            {auto s : Ref Syn SyntaxInfo} ->
            {auto o : Ref ROpts REPLOpts} ->
@@ -709,6 +725,7 @@ processDecl : {vars : _} ->
               {auto c : Ref Ctxt Defs} ->
               {auto m : Ref MD Metadata} ->
               {auto u : Ref UST UState} ->
+              {auto dl : Ref DLY DelayedElabs} ->
               {auto s : Ref Syn SyntaxInfo} ->
               {auto o : Ref ROpts REPLOpts} ->
               List ElabOpt -> NestedNames vars ->

@@ -283,6 +283,7 @@ checkLHS : {vars : _} ->
            {auto c : Ref Ctxt Defs} ->
            {auto m : Ref MD Metadata} ->
            {auto u : Ref UST UState} ->
+           {auto dl : Ref DLY DelayedElabs} ->
            {auto s : Ref Syn SyntaxInfo} ->
            {auto o : Ref ROpts REPLOpts} ->
            Bool -> -- in transform
@@ -381,6 +382,7 @@ checkClause : {vars : _} ->
               {auto c : Ref Ctxt Defs} ->
               {auto m : Ref MD Metadata} ->
               {auto u : Ref UST UState} ->
+              {auto dl : Ref DLY DelayedElabs} ->
               {auto s : Ref Syn SyntaxInfo} ->
               {auto o : Ref ROpts REPLOpts} ->
               (mult : RigCount) -> (vis : Visibility) ->
@@ -389,7 +391,7 @@ checkClause : {vars : _} ->
               ImpClause -> Core (Either RawImp Clause)
 checkClause mult vis totreq hashit n opts nest env (ImpossibleClause fc lhs)
     = do lhs_raw <- lhsInCurrentNS nest lhs
-         handleUnify
+         handleUnifyElab
            (do autoimp <- isUnboundImplicits
                setUnboundImplicits True
                (_, lhs) <- bindNames False lhs_raw
@@ -692,6 +694,7 @@ calcRefs rt at fn
 mkRunTime : {auto c : Ref Ctxt Defs} ->
             {auto m : Ref MD Metadata} ->
             {auto u : Ref UST UState} ->
+            {auto dl : Ref DLY DelayedElabs} ->
             {auto s : Ref Syn SyntaxInfo} ->
             {auto o : Ref ROpts REPLOpts} ->
             FC -> Name -> Core ()
@@ -796,6 +799,7 @@ mkRunTime fc n
 compileRunTime : {auto c : Ref Ctxt Defs} ->
                  {auto m : Ref MD Metadata} ->
                  {auto u : Ref UST UState} ->
+                 {auto dl : Ref DLY DelayedElabs} ->
                  {auto s : Ref Syn SyntaxInfo} ->
                  {auto o : Ref ROpts REPLOpts} ->
                  FC -> Name -> Core ()
@@ -827,6 +831,7 @@ lookupOrAddAlias : {vars : _} ->
                    {auto m : Ref MD Metadata} ->
                    {auto c : Ref Ctxt Defs} ->
                    {auto u : Ref UST UState} ->
+                   {auto dl : Ref DLY DelayedElabs} ->
                    {auto s : Ref Syn SyntaxInfo} ->
                    {auto o : Ref ROpts REPLOpts} ->
                    List ElabOpt -> NestedNames vars -> Env Term vars -> FC ->
@@ -882,6 +887,7 @@ processDef : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
              {auto m : Ref MD Metadata} ->
              {auto u : Ref UST UState} ->
+             {auto dl : Ref DLY DelayedElabs} ->
              {auto s : Ref Syn SyntaxInfo} ->
              {auto o : Ref ROpts REPLOpts} ->
              List ElabOpt -> NestedNames vars -> Env Term vars -> FC ->
@@ -1001,7 +1007,7 @@ processDef opts nest env fc n_in cs_in
     checkImpossible n mult tm
         = do itm <- unelabNoPatvars Env.empty tm
              let itm = map rawName itm
-             handleUnify
+             handleUnifyElab
                (do ctxt <- get Ctxt
                    log "declare.def.impossible" 3 $ "Checking for impossibility: " ++ show itm
                    autoimp <- isUnboundImplicits

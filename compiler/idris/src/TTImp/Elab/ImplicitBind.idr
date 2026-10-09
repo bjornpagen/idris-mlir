@@ -413,6 +413,7 @@ checkBindVar : {vars : _} ->
                {auto c : Ref Ctxt Defs} ->
                {auto m : Ref MD Metadata} ->
                {auto u : Ref UST UState} ->
+               {auto dl : Ref DLY DelayedElabs} ->
                {auto e : Ref EST (EState vars)} ->
                {auto s : Ref Syn SyntaxInfo} ->
                {auto o : Ref ROpts REPLOpts} ->
@@ -528,6 +529,7 @@ checkBindHere : {vars : _} ->
                 {auto c : Ref Ctxt Defs} ->
                 {auto m : Ref MD Metadata} ->
                 {auto u : Ref UST UState} ->
+                {auto dl : Ref DLY DelayedElabs} ->
                 {auto e : Ref EST (EState vars)} ->
                 {auto s : Ref Syn SyntaxInfo} ->
                 {auto o : Ref ROpts REPLOpts} ->
@@ -555,10 +557,10 @@ checkBindHere rig elabinfo nest env fc bindmode tm exp
                               _ => inTerm
          solveConstraints solvemode Normal
 
-         ust <- get UST
-         catch (retryDelayed solvemode (delayedElab ust))
+         delayed <- get DLY
+         catch (retryDelayed solvemode delayed)
                (\err =>
-                  do update UST { delayedElab := [] }
+                  do put DLY (the DelayedElabs [])
                      throw err)
 
          -- Check all the patterns standing for polymorphic variables are
