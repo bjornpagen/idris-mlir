@@ -1,0 +1,56 @@
+#!/bin/sh
+# The pinned mlir-opt, with upstream/19-pass-timing-dynamic-pipeline/llvm.patch,
+# no longer shows the bug: -mlir-timing times a dynamic pipeline, one a pass
+# runs through Pass::runPipeline, within the timer of the pass that runs it.
+# An unpatched mlir-opt (main at 7208ba24) times it at the top of the report,
+# beside the pass, so that its time is counted twice, and a pipeline run from
+# inside another on the same op name shares that one's timer. When the pin
+# has #169615's change, the patch goes, and with it the PINS.md entry
+# pass-timing-dynamic-pipeline, the report and this test (upstream/README.md).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+input=$root/upstream/19-pass-timing-dynamic-pipeline/inline.mlir
+
+# rows NAME PIPELINE: the rows of the timing tree of PIPELINE on the input
+# (timing_rows), in $work/NAME.rows; fails, saying so, when mlir-opt does.
+rows() {
+  bounded "$llvm_bin/mlir-opt" "$input" -mlir-disable-threading -pass-pipeline="$2" \
+    -mlir-timing -mlir-timing-display=tree -o /dev/null 2> "$work/$1.report"
+  if [ "$bounded_status" -ne 0 ]; then
+    say "$1: mlir-opt exits $bounded_status, which is not this bug"
+    show "$work/$1.report"
+    return 1
+  fi
+  timing_rows "$work/$1.report" > "$work/$1.rows"
+}
+
+# nested ROWS PASS PIPELINE: a PIPELINE row is nested directly in the row of
+# PASS (the first, when the name is used twice).
+nested() {
+  awk -F'\t' -v pass="$2" -v pipeline="$3" '
+    inside && $1 <= depth { inside = 0; done = 1 }
+    inside && $1 == depth + 1 && $3 == pipeline { found = 1 }
+    !done && !inside && $3 == pass { inside = 1; depth = $1 }
+    END { exit !found }' "$1"
+}
+
+# The inliner runs its default pipeline (canonicalize) on each callable.
+if rows inliner 'builtin.module(inline)'; then
+  if nested "$work/inliner.rows" InlinerPass "'func.func' Pipeline"; then
+    say "inliner: fixed (its pipeline is timed within InlinerPass)"
+  else
+    say "inliner: still reproduces (its pipeline is timed outside InlinerPass)"
+    show "$work/inliner.report"
+  fi
+fi
+
+# A composite pass in a composite pass: two op-agnostic pipelines, the inner
+# one run while the outer one runs.
+if rows composite 'builtin.module(composite-fixed-point-pass{name=Outer pipeline="composite-fixed-point-pass{name=Inner pipeline=canonicalize}"})'; then
+  if nested "$work/composite.rows" Outer "'any' Pipeline" &&
+     nested "$work/composite.rows" Inner "'any' Pipeline"; then
+    say "composite in composite: fixed (each pipeline is timed within its pass)"
+  else
+    say "composite in composite: still reproduces (a pipeline is timed outside its pass)"
+    show "$work/composite.report"
+  fi
+fi

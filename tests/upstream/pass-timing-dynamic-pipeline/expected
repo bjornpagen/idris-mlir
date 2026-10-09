@@ -1,0 +1,2 @@
+inliner: fixed (its pipeline is timed within InlinerPass)
+composite in composite: fixed (each pipeline is timed within its pass)

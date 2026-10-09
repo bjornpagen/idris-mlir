@@ -13,7 +13,9 @@
 # So nothing may turn the verifier off: no code gives enableVerifier or
 # verifyPasses anything but true, and no command, script or RUN line sets
 # -verify-each to false or turns the verifier off on parsing. Documents,
-# golden output and this test are not searched.
+# golden output and this test are not searched. A patch carried for a
+# pinned upstream (upstream/) is searched in the lines it adds: the lines
+# around them quote upstream's source, which this repository does not run.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 cd "$root" || exit 1
 searched() {
@@ -21,12 +23,19 @@ searched() {
             -o -name .claude -o -path ./tests/spec/verifier-every-pass \) -prune \
      -o -type f ! -name '*.md' ! -name output "$@"
 }
+call='(enableVerifier|verifyPasses)[[:space:]]*\('
+on='(enableVerifier|verifyPasses)[[:space:]]*\([[:space:]]*(true)?[[:space:]]*\)'
+off_flag='verify-each=(false|0)|disable-verifier'
 searched -print | sort > "$work/files"
 grep -q '^\./foreign/.*\.cc$' "$work/files" && say "C++ sources searched: yes" || say "C++ sources searched: no"
 grep -q '^\./tests/idr/.*\.mlir$' "$work/files" && say "RUN lines searched: yes" || say "RUN lines searched: no"
-searched -exec grep -HnIE '(enableVerifier|verifyPasses)[[:space:]]*\(' {} + |
-  grep -vE '(enableVerifier|verifyPasses)[[:space:]]*\([[:space:]]*(true)?[[:space:]]*\)' > "$work/off"
-searched -exec grep -HniIE 'verify-each=(false|0)|disable-verifier' {} + >> "$work/off"
+searched ! -name '*.patch' ! -name '*.diff' -exec grep -HnIE "$call" {} + |
+  grep -vE "$on" > "$work/off"
+searched ! -name '*.patch' ! -name '*.diff' -exec grep -HniIE "$off_flag" {} + >> "$work/off"
+searched \( -name '*.patch' -o -name '*.diff' \) -exec awk '
+  /^\+/ && !/^\+\+\+ / { print FILENAME ":" FNR ":" $0 }' {} + > "$work/added"
+grep -E "$call" "$work/added" | grep -vE "$on" >> "$work/off"
+grep -iE "$off_flag" "$work/added" >> "$work/off"
 if [ -s "$work/off" ]; then
   say "the verifier is turned off at:"
   sed 's|^\./||' "$work/off" | sort

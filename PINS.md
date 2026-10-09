@@ -412,6 +412,30 @@ which the top-level CMake configure gate reads.
 - upstream: upstream/05-forward-dataflow-callee-lookup (not yet filed; still
   present on main at 7208ba24); plan in its README: a pull request
 
+## pass-timing-dynamic-pipeline
+
+- symptom: on main at 7208ba24, MLIR's pass timing nests a pipeline that a
+  pass runs through `Pass::runPipeline` under the root of the report, not
+  under the pass: `PassTiming::runBeforePipeline` looks for its parent in
+  `parentTimerIndices`, where `runBeforePass` records adaptors alone
+  (`mlir/lib/Pass/PassTiming.cpp:63-67`, `:93-94`). The pipeline's time is
+  counted twice, and two pipelines on one op name, one run inside the
+  other, share one timer. idr-simplify, idr-eval, idr-inline, idr-target
+  and idr-canonicalize run pipelines so: without the patch, in
+  `idris-mlir-cc --timing`, their pipelines are rows of the step beside the
+  pass that runs them, and a step's rows add up to more than the step
+- sites: none in our code; the patch. Each step of `idris-mlir-cc` has a
+  timer of its own (foreign/idr/lib/Driver/Run.cppm), which is the root of
+  the step's pass timing, so the misplaced rows stay inside the step
+- workaround: `upstream/19-pass-timing-dynamic-pipeline/llvm.patch`:
+  #169615's change, under which every pass records its timer for the
+  pipelines it runs, and a test of ours that fails without it
+- retire: drop the patch when the pin has #169615 (or another fix the
+  patch's test passes with)
+- upstream: upstream/19-pass-timing-dynamic-pipeline (#169443; open pull
+  request #169615, whose own test passes without its change); plan in its
+  README: our test as a comment on #169615, not posted yet
+
 ## clang-module-layout-forward-declaration
 
 - symptom: at llvmorg-23.1.2, clang aborts ("Cannot get layout of forward

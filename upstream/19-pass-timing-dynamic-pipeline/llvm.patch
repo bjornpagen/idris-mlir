@@ -1,0 +1,66 @@
+diff --git a/mlir/lib/Pass/PassTiming.cpp b/mlir/lib/Pass/PassTiming.cpp
+index dab56f0..c67f994 100644
+--- a/mlir/lib/Pass/PassTiming.cpp
++++ b/mlir/lib/Pass/PassTiming.cpp
+@@ -90,8 +90,8 @@ struct PassTiming : public PassInstrumentation {
+     auto &activeTimers = activeThreadTimers[tid];
+     auto &parentScope = activeTimers.empty() ? rootScope : activeTimers.back();
+ 
++    parentTimerIndices[{tid, pass}] = activeTimers.size();
+     if (auto *adaptor = dyn_cast<OpToOpPassAdaptor>(pass)) {
+-      parentTimerIndices[{tid, pass}] = activeTimers.size();
+       auto scope =
+           parentScope.nest(pass->getThreadingSiblingOrThis(),
+                            [adaptor]() { return adaptor->getAdaptorName(); });
+@@ -107,8 +107,7 @@ struct PassTiming : public PassInstrumentation {
+ 
+   void runAfterPass(Pass *pass, Operation *) override {
+     auto tid = llvm::get_threadid();
+-    if (isa<OpToOpPassAdaptor>(pass))
+-      parentTimerIndices.erase({tid, pass});
++    parentTimerIndices.erase({tid, pass});
+     auto &activeTimers = activeThreadTimers[tid];
+     assert(!activeTimers.empty() && "expected active timer");
+     activeTimers.pop_back();
+diff --git a/mlir/test/Pass/pass-timing.mlir b/mlir/test/Pass/pass-timing.mlir
+index a383d01..437b3b5 100644
+--- a/mlir/test/Pass/pass-timing.mlir
++++ b/mlir/test/Pass/pass-timing.mlir
+@@ -5,6 +5,8 @@
+ // RUN: mlir-opt %s -mlir-disable-threading=false -verify-each=true -pass-pipeline='builtin.module(func.func(cse,canonicalize,cse))' -mlir-timing -mlir-timing-display=list 2>&1 | FileCheck -check-prefix=MT_LIST %s
+ // RUN: mlir-opt %s -mlir-disable-threading=false -verify-each=true -pass-pipeline='builtin.module(func.func(cse,canonicalize,cse))' -mlir-timing -mlir-timing-display=tree 2>&1 | FileCheck -check-prefix=MT_PIPELINE %s
+ // RUN: mlir-opt %s -mlir-disable-threading=true -verify-each=false -test-pm-nested-pipeline -mlir-timing -mlir-timing-display=tree 2>&1 | FileCheck -check-prefix=NESTED_PIPELINE %s
++// RUN: mlir-opt %s -mlir-disable-threading=true -verify-each=true -pass-pipeline='builtin.module(func.func(cse,canonicalize,cse),inline)' -mlir-timing -mlir-timing-display=tree 2>&1 | FileCheck -check-prefix=DYNAMIC-PIPELINE --strict-whitespace %s
++// RUN: mlir-opt %s -mlir-disable-threading=false -verify-each=true -pass-pipeline='builtin.module(func.func(cse,canonicalize,cse),inline)' -mlir-timing -mlir-timing-display=tree 2>&1 | FileCheck -check-prefix=DYNAMIC-PIPELINE --strict-whitespace %s
+ 
+ // LIST: Execution time report
+ // LIST: Total Execution Time:
+@@ -95,6 +97,28 @@
+ // NESTED_PIPELINE-NEXT: Rest
+ // NESTED_PIPELINE-NEXT: Total
+ 
++// The inliner runs its default pipeline on each callable as a dynamic pipeline,
++// which is timed within the inliner's timer. FileCheck compares the nesting
++// only with --strict-whitespace: each check starts at the "%)" that ends the
++// time column, so that the indentation of the name is matched exactly.
++// DYNAMIC-PIPELINE: Execution time report
++// DYNAMIC-PIPELINE: Total Execution Time:
++// DYNAMIC-PIPELINE: Name
++// DYNAMIC-PIPELINE-NEXT: %)  Parser
++// DYNAMIC-PIPELINE-NEXT: %)  'func.func' Pipeline
++// DYNAMIC-PIPELINE-NEXT: %)    CSE
++// DYNAMIC-PIPELINE-NEXT: %)      (A) DominanceInfo
++// DYNAMIC-PIPELINE-NEXT: %)    Canonicalizer
++// DYNAMIC-PIPELINE-NEXT: %)    CSE
++// DYNAMIC-PIPELINE-NEXT: %)      (A) DominanceInfo
++// DYNAMIC-PIPELINE-NEXT: %)  Inliner
++// DYNAMIC-PIPELINE-NEXT: %)    (A) CallGraph
++// DYNAMIC-PIPELINE-NEXT: %)    'func.func' Pipeline
++// DYNAMIC-PIPELINE-NEXT: %)      Canonicalizer
++// DYNAMIC-PIPELINE-NEXT: %)  Output
++// DYNAMIC-PIPELINE-NEXT: %)  Rest
++// DYNAMIC-PIPELINE-NEXT: %)  Total
++
+ func.func @foo() {
+   return
+ }
