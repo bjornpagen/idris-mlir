@@ -32,7 +32,7 @@ main = do
   putChar '\n'
   -- A Double's first character is the printer's own. The fixtures
   -- double-infinities-nan and double-subnormals show the infinities, NaN
-  -- and subnormals, whose text is not Chez's.
+  -- and subnormals.
   let x = the Double (cast n)
   putStrLn (show (Just (x / 2.0)))
   putStrLn (show (Just (negate x / 2.0)))

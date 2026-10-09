@@ -238,11 +238,11 @@ program's meaning, and the compiler may choose it per thunk:
 | forces in disjoint arms of one match | the body in each arm | S1 rule 2 |
 | a force of an `excl` cell at its last use | take the captures, call, free the cell; no `Running`, no `Forced`, no write | idr-rc's grade (STG's update flag `n`, read: STG §4.2) |
 | shared (ω) | the memo protocol of §2.3 | default |
-| a body that forges a world (a trusted `unsafePerformIO`) | never memoized: every force runs it, as Chez does | the body's `io` effect |
+| a body that forges a world (a trusted `unsafePerformIO`) | never memoized: every force runs it | the body's `io` effect |
 
-The last row keeps Chez and this compiler agreeing on a trusted library's
-effects, which happen where the value is demanded, as often as it is
-demanded.
+The last row keeps a trusted library's effects where the value is
+demanded, as often as it is demanded, in program order with every other
+effect.
 
 ### 2.6 Streams and generators
 
@@ -474,8 +474,8 @@ waits on a measurement, open question 2.
 ### 4.4 The type of a hop
 
 **decision** The surface is a new in-house package, `libs/mlir-shard`, in
-plain Idris over base, as `mlir-linear` is. The stock Chez backend runs it as
-ordinary sequential IO, which keeps Chez the oracle:
+plain Idris over base, as `mlir-linear` is. Read as written, its
+definitions are ordinary sequential IO:
 
 - a fork runs its computation to completion at once;
 - a join returns the stored result;
@@ -573,18 +573,19 @@ The rejection is `unsupported (send)`, naming the type and the path to it.
 A linear array (`mlir-linear`) is exclusive by type, so it moves. Sending an
 array and getting it back is the data-parallel case.
 
-### 4.7 Effects, order and the oracle
+### 4.7 Effects and order
 
-- **Fork-join of pure work is deterministic,** and equal to Chez's
-  sequential run.
-- **Effects on different shards interleave,** which Chez never does.
+- **Fork-join of pure work is deterministic,** and equal to the
+  sequential run its definitions describe (§4.4).
+- **Effects on different shards interleave,** which that run never does.
   **decision**: the standard streams belong to shard 0's world, and another
   shard writes them by hopping to shard 0. Their order is then the order
   shard 0 handles messages. A program whose output depends on that order
-  gets a named divergence class, `shard-interleaving`.
-- **The harness matches Chez exactly** because the core count is a runtime
-  fact: every fixture runs with `IDRIS_RT_SHARDS=1` against Chez, and with
-  more shards against the one-shard run where the program is deterministic.
+  is checked at one shard only.
+- **One set of expected files serves every core count,** because the core
+  count is a runtime fact: every fixture runs with `IDRIS_RT_SHARDS=1`
+  against its expected files, and with more shards against the one-shard
+  run where the program is deterministic.
 - **The standard streams stay blocking calls on shard 0.** The batch
   programs this compiler is measured on read standard input in a loop.
   Making that a wait would colour every one of them for nothing, and a
@@ -846,8 +847,9 @@ surface. `idris-mlir-bind` writes one registry entry per binding from the
 same description as the shim, recognized by the definition's name and
 origin, as base's foreign functions are (`substrate.md` S5.2).
 
-- **The Chez spec is the oracle's spelling**, not a convention this compiler
-  implements.
+- **The `%foreign` spec is a label**, the Rust path, which Idris needs on
+  a primitive; nothing reads it, and a binding has no Chez or `C:`
+  spelling.
 - **A foreign cell's drop entry is the kind's release** in the counting
   walk. It is not a user finalizer, so `onCollect` stays refused in user
   code.

@@ -14,8 +14,9 @@ linear, we may just want to have our better in-house implementation").
   array threaded at quantity 1, filled at creation so a read gives the
   element and not a `Maybe`, an index out of bounds a crash as for base's
   primitive underneath) and `Linear.Notation` (`-@`, `!*`). It is plain
-  Idris over base's `Data.IOArray.Prims` and `unsafePerformIO`, so the
-  stock Chez backend runs the same program as the oracle. This supersedes
+  Idris over base's `Data.IOArray.Prims` and `unsafePerformIO`, which the
+  stock Chez backend then ran as the oracle; since `decision-no-oracle.md`
+  nothing requires that. This supersedes
   `decision-linear-libraries.md`'s "no library of our own"; that
   decision's other points stand (no language change, soundness never
   rests on a library signature).

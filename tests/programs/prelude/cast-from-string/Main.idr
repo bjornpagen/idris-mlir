@@ -8,8 +8,7 @@ module Main
 -- inf, infinity and nan, in any case. The lines of stdin are cast at run
 -- time, the constants at the end by the compiler, through the same runtime.
 -- Each line: the string, then it as an Int, a Bits8, an Integer and a
--- Double, NaN and the infinities by name. Chez reads a string as a Scheme
--- number and truncates it to an integer (chez-differs).
+-- Double, NaN and the infinities by name.
 
 import Prelude
 

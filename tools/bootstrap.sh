@@ -16,7 +16,7 @@
 #   gmp       GMP (third_party/gmp), static, built with the -> .toolchain/sysroot
 #             stage-2 clang
 #   chez      Chez Scheme, threaded, with the host's C      -> .toolchain/chez
-#             compiler: it runs Idris 2 and the test oracle
+#             compiler: it runs Idris 2 and bench/'s baseline
 #   idris     Idris 2 and its API (third_party/Idris2), on  -> .toolchain/idris2
 #             the pinned Chez Scheme
 #   llvm     stage1, musl, runtimes and stage2 (Linux)
@@ -34,7 +34,7 @@
 #   gmp       GMP (third_party/gmp), static, built with the -> .toolchain/sysroot
 #             pinned clang
 #   chez      Chez Scheme, threaded, with the host's C      -> .toolchain/chez
-#             compiler: it runs Idris 2 and the test oracle
+#             compiler: it runs Idris 2 and bench/'s baseline
 #   idris     Idris 2 and its API (third_party/Idris2), on  -> .toolchain/idris2
 #             the pinned Chez Scheme
 #   llvm     stage2
@@ -1434,9 +1434,9 @@ step_gmp() {
   finish
 }
 
-# Chez Scheme, with the host's C compiler. Idris 2 runs on it and the tests
-# run Idris's Chez backend as their oracle, so it is one pinned release on
-# every host, not whichever the host packages. Idris's support library is
+# Chez Scheme, with the host's C compiler. Idris 2 runs on it and bench/
+# times Idris's Chez backend on it, so it is one pinned release on every
+# host, not whichever the host packages. Idris's support library is
 # loaded into its process. PIN(idris-support-host-cc) — see PINS.md
 step_chez() {
   begin chez "Chez Scheme $chez_tag, with the host's C compiler" || return 0

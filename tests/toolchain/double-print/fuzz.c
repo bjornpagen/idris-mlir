@@ -1,11 +1,10 @@
-/* The runtime's Double printer against Chez's number->string. `fuzz N BITS`
- * writes N bit patterns to the file BITS, one per line in hex, and prints
- * each double with idris_rt_io_put_double, one per line; chez.ss prints the
- * same doubles from BITS. The patterns: any bits, exponents near 1023,
- * subnormals, and doubles whose decimal expansion ends in a 5, where the
- * shortest digits may be a tie (Ryu rounds a tie to even, Chez up). */
+/* The runtime's Double printer: `fuzz N` prints N doubles with
+ * idris_rt_io_put_double, one per line. The patterns: any bits, exponents
+ * near 1023, subnormals, and doubles whose decimal expansion ends in a 5,
+ * where the shortest digits may be a tie, which goes to the even digit. The
+ * patterns are a fixed sequence, so line i of the output is always the same
+ * double. */
 #include <inttypes.h>
-#include <stdio.h>
 #include <stdlib.h>
 
 #include "idris_rt.h"
@@ -64,21 +63,17 @@ static uint64_t pattern(uint64_t i) {
 }
 
 int main(int argc, char **argv) {
-  if (argc != 3)
+  if (argc != 2)
     return 2;
   uint64_t n = strtoull(argv[1], NULL, 10);
-  FILE *bits = fopen(argv[2], "w");
-  if (bits == NULL)
-    return 2;
   for (uint64_t i = 0; i < n; ++i) {
     uint64_t b = pattern(i);
     double x;
     union { uint64_t u; double d; } v = {b};
     x = v.d;
-    fprintf(bits, "%016" PRIx64 "\n", b);
     idris_rt_io_put_double(x);
     idris_rt_io_put_char('\n');
   }
   idris_rt_flush();
-  return fclose(bits) == 0 ? 0 : 1;
+  return 0;
 }

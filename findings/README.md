@@ -57,7 +57,8 @@ Four rules decide how every design note here is written:
   plain `i64`; otherwise it is the tagged small value or a GMP cell. Heap
   references stay untagged addresses.
 - **`decision-primitive-semantics.md`.** A primitive's one meaning is the
-  runtime's. Chez is the oracle, not the specification.
+  runtime's, from Idris's own definition, then the standard it implements,
+  then a decision written down there.
 - **`decision-inhouse-linear.md`** (and `decision-linear-libraries.md`,
   superseded in part by it). The compiler implements Idris 2 over the
   upstream prelude and base; linear code comes from `libs/mlir-linear`; the
@@ -88,10 +89,11 @@ accepts, so they are the user's to take. Each is argued where it is cited.
    decision; it does not reopen it.
 3. **The memo is decided per thunk** (`concurrency.md` §2.5): inlined when
    used once, one-shot when exclusive, memoized when shared. A thunk whose
-   body forges a world is never memoized, as on Chez.
+   body forges a world is never memoized: its effects happen as often as
+   its value is demanded.
 4. **The standard streams belong to shard 0** (`concurrency.md` §4.7). A
-   program whose output depends on how shards interleave gets the
-   divergence class `shard-interleaving`.
+   program whose output depends on how shards interleave is checked
+   against its expected files at one shard only.
 5. **Rust bindings are generated primitives**, not `%foreign "rust:"`
    (`concurrency.md` §5.5). This amends proposal 0001 §9.2.
 6. **The in-place promise becomes the default** once the benchmarks pass it
@@ -127,7 +129,7 @@ can run at once.
 - **Proof:**
   - the knot program of `decision-acyclic-heap.md` is rejected with the
     types named;
-  - an array of arrays passes against Chez;
+  - an array of arrays passes, its output committed;
   - a reject fixture for each new name.
 
 **W3. Ownership and effects on operands and types**
@@ -154,7 +156,7 @@ can run at once.
 - **Change:** the `idr.check.*` ops; total consumers; `idr-in-bounds`
   becomes a folder of the guard; the `in_bounds` attribute goes.
 - **Proof:**
-  - the semantics fixtures against Chez;
+  - the semantics fixtures pass with their expected files unchanged;
   - crash messages, locations and exit status unchanged;
   - `in-bounds=@f` restated as "no guard is left in @f".
 
@@ -212,7 +214,7 @@ can run at once.
 
 - **Change:** the primitives behind `rt.platform` on both targets.
 - **Proof:** the upstream tests that fail on them today (`ReadDir`, `Time`,
-  `NumProcessors`, `TermSize`, the file tests) pass against Chez.
+  `NumProcessors`, `TermSize`, the file tests) pass.
 
 **W10. The in-place promise** (`substrate.md` §3).
 
@@ -258,7 +260,8 @@ can run at once.
   - shard 0 owning the standard streams;
   - `scf.forall` lowered to fork and join.
 - **Proof:**
-  - every shard fixture at `IDRIS_RT_SHARDS=1` against Chez;
+  - every shard fixture at `IDRIS_RT_SHARDS=1` against its expected
+    files;
   - at more shards against the one-shard run;
   - parallel binary-trees, spectral-norm and mandelbrot measured against
     one shard.
@@ -267,7 +270,8 @@ can run at once.
 beside everything else.
 
 - **Change:** proposal 0001 R0–R3, re-based on generated primitives.
-- **Proof:** the proposal's fixtures against Chez.
+- **Proof:** the proposal's fixtures against their committed expected
+  files.
 
 **W16. Asynchronous Rust** (`concurrency.md` §5.3–5.4). It follows W13.
 

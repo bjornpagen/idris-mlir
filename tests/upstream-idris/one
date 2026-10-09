@@ -2,11 +2,12 @@
 # One upstream test. Prints one result line:
 #   pass|fail|skip <tab> GROUP/NAME <tab> detail
 # Usage: one GROUP/NAME
-# The detail of a failure is the first error, or the first line of output
-# that disagrees with the oracle. Threads, finalizers, raw pointers,
-# unsafePerformIO, network and packages this compiler does not implement
-# are skipped. A program's oracle is the stock Chez backend; a check or a
-# REPL session's oracle is the stock compiler's transcript.
+# The test passes when its run script, given this compiler, prints the
+# test's expected file, as upstream's own runner decides. The detail of a
+# failure is the first error, or the first line of output that disagrees
+# with expected. Threads, finalizers, raw pointers, unsafePerformIO,
+# network, packages this compiler does not implement and other backends
+# are skipped.
 root=${IDRIS_MLIR_ROOT:?IDRIS_MLIR_ROOT must name the repository}
 . "$root/tools/toolchain.sh"
 . "$root/tests/lib/idris-lex.sh"
@@ -30,49 +31,21 @@ if [ -n "$reason" ]; then
   exit 0
 fi
 
-# A program the script runs, as opposed to a check or a REPL transcript.
-# Chez's double text is rewritten only for the former (tests/lib/chez-doubles.ss),
-# and for a REPL that :execs, whose transcript holds that program's output.
-kind=check
-if sed 's/[[:space:]]*#.*//' "$src/run" |
-   grep -qE '(^|[[:space:]])(run|idris2)[[:space:]].*(-o[[:space:]]|--exec)|(^|[[:space:]])run([[:space:]]|$)'; then
-  kind=run
-fi
-inputs=$(mktemp "${TMPDIR:-/tmp}/idris-mlir-upstream.XXXXXX") || exit 1
-find "$src" -name input -type f > "$inputs"
-if [ "$kind" = check ] && [ -s "$inputs" ]; then
-  while IFS= read -r input; do
-    if grep -q '^:exec' "$input"; then
-      kind=run
-      break
-    fi
-  done < "$inputs"
-fi
-rm -f "$inputs"
-
 limit=$(( ${UPSTREAM_TEST_LIMIT:-240} * ${IDRIS_MLIR_TIME_SCALE:-1} ))
 as_idris=$root/tests/upstream-idris/as-idris
 
 # prepare DEST: the upstream tests tree, so a script's `../../testutils.sh`
-# resolves, with lines that run some other backend removed. The oracle for
-# what remains is Chez.
+# resolves. A script may write its own expected file before it compares.
 prepare() {
   prep=$1/tests/$name
   mkdir -p "$prep"
   cp -R "$src/." "$prep/"
   cp "$upstream/testutils.sh" "$1/tests/testutils.sh"
-  awk '
-    /^[[:space:]]*#/ { print; next }
-    /--cg[[:space:]]+(node|javascript|racket|refc|gambit)/ { next }
-    /^[[:space:]]*node[[:space:]]/ { next }
-    { print }
-  ' "$src/run" > "$prep/run"
 }
 
+# run_compiler DEST: the test's run script in DEST, given this compiler,
+# its stdout, stderr and exit status beside DEST.
 run_compiler() {
-  run_out=$2
-  run_err=$3
-  run_status=$4
   (
     cd "$1/tests/$name" || exit 97
     unset PREFIX_CHANGED IDRIS2_PACKAGE_PATH IDRIS2_LIBS IDRIS2_DATA IDRIS2_CG IDRIS2_PATH
@@ -85,42 +58,28 @@ run_compiler() {
       IDRIS2_VERSION=${NAME_VERSION#idris2-}
     fi
     export NAME_VERSION IDRIS2_VERSION
-    export CHEZ=$chez_scheme
-    export PATH="$chez_prefix/bin:$idris_prefix/bin:$PATH"
-    "$timeout_cmd" -k 10 "$limit" sh ./run "$5" > "$run_out" 2> "$run_err"
+    "$timeout_cmd" -k 10 "$limit" sh ./run "$as_idris" > "$1.out" 2> "$1.err"
   )
-  printf '%s\n' $? > "$run_status"
+  printf '%s\n' $? > "$1.status"
 }
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/idris-mlir-upstream.XXXXXX") || exit 1
 trap 'rm -rf "$work"' EXIT
-prepare "$work/stock"
 prepare "$work/ours"
-run_compiler "$work/stock" "$work/stock.out" "$work/stock.err" "$work/stock.status" "$idris2"
-run_compiler "$work/ours" "$work/ours.out" "$work/ours.err" "$work/ours.status" "$as_idris"
-stock_status=$(cat "$work/stock.status")
+run_compiler "$work/ours"
 ours_status=$(cat "$work/ours.status")
+expected=$work/ours/tests/$name/expected
 
 # Cap what a comparison reads. A longer transcript is a failure either way.
-for side in stock ours; do
-  if [ "$(wc -c < "$work/$side.out" | tr -d ' ')" -gt 262144 ]; then
-    head -c 262144 "$work/$side.out" > "$work/$side.cut"
-    mv "$work/$side.cut" "$work/$side.out"
-    printf '\n%s\n' "output cut at 256 KiB" >> "$work/$side.out"
-  fi
-done
-
-if [ "$kind" = run ] && [ -x "$chez_scheme" ]; then
-  if ! "$chez_scheme" --script "$root/tests/lib/chez-doubles.ss" < "$work/stock.out" > "$work/stock.doubles"; then
-    cp "$work/stock.out" "$work/stock.doubles"
-  fi
-else
-  cp "$work/stock.out" "$work/stock.doubles"
+if [ "$(wc -c < "$work/ours.out" | tr -d ' ')" -gt 262144 ]; then
+  head -c 262144 "$work/ours.out" > "$work/ours.cut"
+  mv "$work/ours.cut" "$work/ours.out"
+  printf '\n%s\n' "output cut at 256 KiB" >> "$work/ours.out"
 fi
+
 normalize() {
   sed -e 's/\r$//' -e '/^With codegen for:/d' -e 's/[[:space:]]*$//' "$1"
 }
-normalize "$work/stock.doubles" > "$work/stock.norm"
 normalize "$work/ours.out" > "$work/ours.norm"
 
 ours_text=$(cat "$work/ours.out" "$work/ours.err")
@@ -130,42 +89,30 @@ if [ -n "$refused" ]; then
   exit 0
 fi
 
-if [ "$stock_status" -eq 124 ] && [ "$ours_status" -eq 124 ]; then
-  printf 'skip\t%s\t%s\n' "$name" "timed out on both"
-  exit 0
-fi
-if [ "$stock_status" -eq 124 ]; then
-  printf 'skip\t%s\t%s\n' "$name" "stock compiler timed out"
-  exit 0
-fi
-
 detail=
 if [ "$ours_status" -eq 124 ]; then
   detail="timed out after ${limit}s"
-elif ! cmp -s "$work/stock.norm" "$work/ours.norm"; then
-  err=$(printf '%s\n' "$ours_text" | grep -m 1 -E 'unsupported \(|^Error:|Uncaught error:|internal error:' || true)
-  if [ -n "$err" ] && ! grep -qxF "$err" "$work/stock.norm"; then
-    detail=$err
-  else
-    mismatch=$(awk '
-      NR == FNR { stock[NR] = $0; n = NR; next }
-      { if ($0 != stock[FNR]) {
-          printf "stdout mismatch: line %d: stock \"%s\" / ours \"%s\"\n", FNR, stock[FNR], $0
-          found = 1
-          exit
+elif [ ! -f "$expected" ]; then
+  detail="no expected file"
+else
+  normalize "$expected" > "$work/expected.norm"
+  if ! cmp -s "$work/expected.norm" "$work/ours.norm"; then
+    err=$(printf '%s\n' "$ours_text" | grep -m 1 -E 'unsupported \(|^Error:|Uncaught error:|internal error:' || true)
+    if [ -n "$err" ] && ! grep -qxF "$err" "$work/expected.norm"; then
+      detail=$err
+    else
+      detail=$(awk '
+        NR == FNR { expected[NR] = $0; n = NR; next }
+        { if ($0 != expected[FNR]) {
+            printf "stdout mismatch: line %d: expected \"%s\" / ours \"%s\"\n", FNR, expected[FNR], $0
+            found = 1
+            exit
+          }
+          m = FNR
         }
-        m = FNR
-      }
-      END { if (!found && n != m) printf "stdout mismatch: %d lines against %d\n", n + 0, m + 0 }
-    ' "$work/stock.norm" "$work/ours.norm")
-    detail=$mismatch
-  fi
-elif [ "$ours_status" != "$stock_status" ]; then
-  err=$(printf '%s\n' "$ours_text" | grep -m 1 -E 'unsupported \(|^Error:|Uncaught error:|internal error:' || true)
-  if [ -n "$err" ]; then
-    detail=$err
-  else
-    detail="exit $ours_status, stock $stock_status"
+        END { if (!found && n != m) printf "stdout mismatch: %d lines against %d\n", n + 0, m + 0 }
+      ' "$work/expected.norm" "$work/ours.norm")
+    fi
   fi
 fi
 

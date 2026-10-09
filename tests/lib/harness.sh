@@ -2,7 +2,8 @@
 # directory, bounded commands, the test's output and the fixture files.
 
 # The pinned tools: $llvm_bin, $pinned_cc, $idris_mlir_cc, $idris_mlir_opt,
-# and $idris2, stock Idris 2, the reference implementation.
+# and $idris2, the pinned stock Idris 2, which the frontend is built from
+# and which a test asks about the prelude it checked.
 . "$root/tools/toolchain.sh"
 runtests=$root/tests/build/exec/runtests
 compile_sh=$root/tools/compile.sh

@@ -11,7 +11,7 @@ module Main
 -- (show is the default), one show only (showPrec is the default), one
 -- built with MkShow. Show Void is used where a Void cannot arrive. The
 -- interface's constructor is compile-time only. Each line is printed so
--- that Chez checks what it computes.
+-- that what it computes is checked.
 
 import Prelude
 

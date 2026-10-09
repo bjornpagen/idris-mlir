@@ -4,7 +4,7 @@
 ||| the compiler has privileged knowledge of a fixed, registered set of them,
 ||| which it may make faster or stricter, but never different. Removing any
 ||| hook may change speed or add a rejection; it never changes a program's
-||| result, and the Chez oracle is the check.
+||| result, which the tests' expected files pin.
 |||
 ||| This module and the files under `Registry/` are the only code that names
 ||| an Idris definition: one file per category (`Primitives`, Idris's backend

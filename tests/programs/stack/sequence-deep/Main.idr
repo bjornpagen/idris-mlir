@@ -3,8 +3,8 @@ module Main
 -- sequence_ over a list of a million actions. It is the Prelude's foldr of
 -- (*>), which builds the whole action before any of it runs: the fold of
 -- the rest is the argument of (*>), not a call in tail position, so the
--- building goes a million calls deep, on Chez as here. Running what it
--- built takes constant stack.
+-- building goes a million calls deep. Running what it built takes constant
+-- stack.
 
 import Prelude
 

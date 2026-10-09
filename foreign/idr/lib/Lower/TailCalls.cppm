@@ -1,9 +1,9 @@
 // idr.lower:tailCalls: idr-tail-calls: every call the program makes in
 // tail position on a cycle of calls is a guaranteed tail call, so that a
-// recursion through such calls runs in constant stack. Scheme mandates proper tail calls, so Idris's Chez
-// backend has them, and an IO loop or a mutual recursion in tail position
-// must not grow the stack here either; idr-tail-loops makes only a
-// function's calls of itself loops.
+// recursion through such calls runs in constant stack. Idris has no loop
+// but recursion: an IO loop or a mutual recursion in tail position must
+// not grow the stack; idr-tail-loops makes only a function's calls of
+// itself loops.
 //
 // The pass runs last, on the LLVM dialect, where the control flow is final.
 //

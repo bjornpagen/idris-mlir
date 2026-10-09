@@ -3,16 +3,19 @@
 ||| Each generated program is the `Prog` module of an ordinary end-to-end
 ||| fixture, whose Main.idr prints `Prog.result`: 0 when every case agrees
 ||| with the table, and otherwise the number of the first case that
-||| disagrees. `Oracle.idr` proves `Prog.result = 0` with `Refl`, so the
-||| stock evaluator agrees with the same table. The table itself is computed
-||| here, from what each primitive means, not from the compiler.
+||| disagrees. The table is computed here, from what each primitive means,
+||| not from the compiler; this compiler computes every case, with
+||| compile-time evaluation and without it.
 |||
 ||| The tests are `tests/programs/semantics/prim-<type>-<table>-<part>/`, the type in
 ||| lower case. Their `run` asks the test runner for the program:
 |||
 |||     runtests --sem-program prim-<type>-<table>-<part>
 |||
-||| and `runtests --sem-list` names every test the tables make.
+||| `runtests --sem-expected <name>` prints the stdout a test's program must
+||| print, the value `result` ends with when every case agrees, so that the
+||| value is stated once, here; and `runtests --sem-list` names every test the
+||| tables make.
 module Sem
 
 import Data.Bits
@@ -99,8 +102,8 @@ bitwise t op a b = wrap t (op (modulo a (pow2 t.width)) (modulo b (pow2 t.width)
 floorDiv : Integer -> Integer -> Integer
 floorDiv n m = if n >= 0 then n `div` m else negate ((negate n + m - 1) `div` m)
 
-||| A shift as Scheme's `ash` and then wrapped to the type: `a` moved `s`
-||| places, left or right, the other way when `s` is negative.
+||| A shift: `a`, as an integer of unbounded width, moved `s` places, left or
+||| right, the other way when `s` is negative, then wrapped to the type.
 shifted : IntType -> (left : Bool) -> Integer -> Integer -> Integer
 shifted t left a s =
   let places = if left then s else negate s
@@ -108,21 +111,24 @@ shifted t left a s =
                     else wrap t (floorDiv a (pow2 (cast (negate places))))
 
 ||| The shift amounts of a type: within its width, at it and past it, and a
-||| signed type's negative ones for a left shift. A negative amount of a
-||| signed right shift is left out: Chez's result there leaves the type's
-||| range, which this compiler wraps (tests/lib/chez-divergences).
-shiftAmounts : IntType -> (left : Bool) -> List Integer
-shiftAmounts t left =
+||| signed type's negative ones, which shift the other way.
+shiftAmounts : IntType -> List Integer
+shiftAmounts t =
   let w = cast {to = Integer} t.width
       within = [0, 1, 3, w - 1, w, w + 1]
-  in if t.signed && left then within ++ [-1, -3] else within
+  in if t.signed then within ++ [-1, -3] else within
 
-||| An Idris expression of type t with value v, built from an Int literal.
+||| An Idris expression of type t with value v: an Int literal behind
+||| `litInt`, an identity, cast to t. Idris's elaborator folds a primitive
+||| applied to literals itself, before this compiler sees the program, so
+||| without it every case would hold the elaborator's arithmetic to the
+||| table, not this compiler's.
 lit : IntType -> Integer -> String
 lit t v =
   let asInt = wrap int v
       text = if asInt >= 0 then show asInt else "(" ++ show asInt ++ ")"
-  in if t.name == "Int" then text else "(prim__cast_Int" ++ t.name ++ " " ++ text ++ ")"
+      hidden = "(litInt " ++ text ++ ")"
+  in if t.name == "Int" then hidden else "(prim__cast_Int" ++ t.name ++ " " ++ hidden ++ ")"
 
 ||| An expression, the type of its result and the value it must have.
 Case : Type
@@ -153,7 +159,7 @@ tables t =
       mods = [(binary t "mod" a b, t, remainder t a b) | (a, b) <- ds]
       bits = [(binary t op a b, t, bitwise t f a b) | (op, f) <- logical, (a, b) <- pairs vs]
       shifts = [(binary t op a s, t, shifted t left a s)
-               | (op, left) <- [("shl", True), ("shr", False)], a <- vs, s <- shiftAmounts t left]
+               | (op, left) <- [("shl", True), ("shr", False)], a <- vs, s <- shiftAmounts t]
       cmp = [(binary t op a b, int, if f a b then 1 else 0) | (op, f) <- comparisons, (a, b) <- pairs vs]
       casts = [("(prim__cast_" ++ t.name ++ u.name ++ " " ++ lit t a ++ ")", u, wrap u a)
               | u <- types, u.name /= t.name, a <- vs]
@@ -164,6 +170,11 @@ chunks : Nat -> List a -> List (List a)
 chunks n [] = []
 chunks n xs = take n xs :: chunks n (drop n xs)
 
+||| What `result` is when every case agrees: no case is numbered 0, so it
+||| cannot be mistaken for the number of one that disagrees.
+agreed : Nat
+agreed = 0
+
 ||| The Prog module that checks the given cases.
 program : List Case -> String
 program cases =
@@ -171,10 +182,13 @@ program cases =
       body = foldr (\(i, (expr, ty, expected)), rest =>
                       "chk (prim__eq_" ++ ty.name ++ " " ++ expr ++ " " ++ lit ty expected ++ ") "
                         ++ show i ++ "\n  (" ++ rest ++ ")")
-                   "0" numbered
+                   (show agreed) numbered
   in unlines
        [ "module Prog", ""
        , "-- Generated by tests/Sem.idr.", ""
+       , "public export"
+       , "litInt : Int -> Int"
+       , "litInt x = x", ""
        , "public export"
        , "chk : Int -> Int -> Int -> Int"
        , "chk 1 _ rest = rest"
@@ -202,3 +216,9 @@ names = map fst tests
 export
 programOf : (name : String) -> Maybe String
 programOf name = program <$> lookup name tests
+
+||| The stdout of a test's program, by its name: Main.idr prints `result`
+||| with printLn, and every case agrees.
+export
+expectedOf : (name : String) -> Maybe String
+expectedOf name = (\_ => show agreed ++ "\n") <$> lookup name tests

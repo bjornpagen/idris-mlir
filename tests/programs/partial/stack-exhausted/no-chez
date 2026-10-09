@@ -1,2 +1,0 @@
-Chez grows its stack on the heap: going a billion calls deep would take it
-tens of gigabytes before it could fail.

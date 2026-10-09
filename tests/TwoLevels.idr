@@ -1,36 +1,31 @@
-||| The two levels: closed terms, over every
-||| primitive and over a corpus of total Prelude functions, normalised by the
-||| pinned Idris's own evaluator and computed by the compiled program, must
-||| give the same values.
+||| The two levels: closed terms, over every primitive and over a corpus of
+||| total Prelude functions, each with its value as an Idris term, which the
+||| corpus's expected file records (tests/two-levels/terms/expected-<corpus>),
+||| and as the compiled program computes it, which must be the same.
 |||
 |||     runtests --two-levels-program primitives|prelude terms|main
 |||
 ||| prints `Terms.idr`, the terms `t1`, `t2`, ... (`public export`), or
-||| `Main.idr`, which prints each as `t<n> <value>`. The helper
-||| tests/two-levels/evaluator (IdrisMLIR.Frontend.TwoLevels) prints the same lines from
-||| Idris's evaluator, `normaliseAll` by value, as the REPL's
-||| `:set eval normalise_all` does.
+||| `Main.idr`, which prints each as `t<n> <value>`, the lines of the
+||| expected file.
 |||
 ||| Every literal is behind `lit<T>`, an identity: Idris's elaborator folds a
-||| primitive applied to literals itself, so without it both levels would
-||| print the elaborator's value.
+||| primitive applied to literals itself, so without it the program would
+||| print the elaborator's value, not this compiler's.
 |||
 ||| Values are printed as the programs print them: integers in decimal, a
 ||| Char as its code point, a String as itself, a Double as Idris's `show`.
-||| The evaluator runs on Chez, so it writes a Double, and makes the String
-||| of one, with Chez's number->string, as the Chez build does; the test
-||| reads both as this compiler writes Doubles (tests/lib/chez-doubles.ss)
-||| where tests/lib/chez-divergences says the two printers differ.
 |||
-||| Terms whose value depends on the host by design are marked in Terms.idr
-||| with `-- host-dependent: t<n> <reason>`, and are not compared: the libm
-||| functions (Idris's evaluator runs the host's, the compiled program
-||| musl's). Terms
-||| the pinned Idris's evaluator computes differently from Idris's own
-||| backends are marked `-- idris-differs: t<n> <reason>`: they are compared
-||| with Chez, not with the evaluator. Terms Idris's evaluator leaves stuck
-||| are listed by the test. A cast from String reads a literal of its type
-||| alike everywhere, so the casts here, of literals, are compared.
+||| Terms whose value depends on the target by design are marked in Terms.idr
+||| with `-- host-dependent: t<n> <reason>`, and are listed but not compared:
+||| the libm functions, which are not correctly rounded, so that the last
+||| places of their values are the platform libm's, while the expected files
+||| are every target's. A cast from String reads a literal of its type alike
+||| everywhere, so the casts here, of literals, are compared.
+|||
+||| A change to the terms, or to their order, changes the expected files,
+||| which are then written again from the program's output, the
+||| host-dependent terms aside, and reviewed as any expected output.
 module TwoLevels
 
 import Data.List
@@ -44,18 +39,12 @@ record Term where
   ty : String
   text : String
   host : Maybe String
-  differs : Maybe String
 
 term : String -> String -> Term
-term t e = MkTerm t e Nothing Nothing
+term t e = MkTerm t e Nothing
 
 hostTerm : String -> String -> String -> Term
-hostTerm reason t e = MkTerm t e (Just reason) Nothing
-
-||| A term the pinned Idris's evaluator computes differently from its own
-||| backends, which this compiler follows.
-differsTerm : String -> String -> String -> Term
-differsTerm reason t e = MkTerm t e Nothing (Just reason)
+hostTerm reason t e = MkTerm t e (Just reason)
 
 intTys : List String
 intTys = ["Int", "Int8", "Int16", "Int32", "Int64", "Bits8", "Bits16", "Bits32", "Bits64"]
@@ -117,7 +106,7 @@ intTerms t =
 doubles : List String
 doubles = ["0.1", "(-2.5)", "1.0e300", "4.9e-324", "2.2250738585072014e-308", "0.0", "123456.789"]
 
-||| NaN, the infinities and -0.0, made at the level of each side.
+||| NaN, the infinities and -0.0, made by the terms' own arithmetic.
 specials : List String
 specials =
   [ app "prim__div_Double" [lit "Double" "0.0", lit "Double" "0.0"]
@@ -155,11 +144,7 @@ charTerms =
   [ term "Int" (app (prim op "Char") [x, y])
   | op <- ["lt", "lte", "eq", "gte", "gt"], (x, y) <- zip cs (reverse cs) ]
   ++ [ term "Int" (app "prim__cast_CharInt" [c]) | c <- cs ]
-  ++ [ term "String" (app "prim__cast_CharString" [lit "Char" "'a'"]) ]
-  ++ [ differsTerm ("prim__cast_CharString: Idris's evaluator writes a non-ASCII character "
-                    ++ "escaped, as `show` does (third_party/Idris2/src/Core/Primitives.idr:42)")
-                   "String" (app "prim__cast_CharString" [c])
-     | c <- drop 1 cs ]
+  ++ [ term "String" (app "prim__cast_CharString" [c]) | c <- cs ]
   ++ [ term "Char" (app "prim__cast_IntChar" [intLit "Int" v]) | v <- [65, 955, 128512, 1114111] ]
 
 stringTerms : List Term
@@ -284,7 +269,6 @@ termsModule ts =
                         , "lit" ++ t ++ " x = x", "" ]) allTys
     ++ concatMap (\(n, t) =>
                     maybe [] (\r => ["-- host-dependent: t" ++ show n ++ " " ++ r]) t.host
-                    ++ maybe [] (\r => ["-- idris-differs: t" ++ show n ++ " " ++ r]) t.differs
                     ++ [ "public export", "t" ++ show n ++ " : " ++ t.ty
                        , "t" ++ show n ++ " = " ++ t.text, "" ])
                  numbered
@@ -292,8 +276,8 @@ termsModule ts =
 ||| The statements of `main` in groups of this many, each group a function
 ||| of its own. Idris elaborates a `do` block in time that grows faster than
 ||| its length: one block of the 662 primitive terms took 42 s to check,
-||| most of the time a test command has, before either side compiled
-||| anything, and the same statements in groups of 32 take 2 s.
+||| most of the time a test command has, before anything was compiled, and
+||| the same statements in groups of 32 take 2 s.
 groupSize : Nat
 groupSize = 32
 

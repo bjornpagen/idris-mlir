@@ -1,3 +1,0 @@
-Chez runs the library at optimize level 3, where a bytevector access
-checks no index and reads past the buffer's end. This compiler ends the
-program, explicitly, when the word does not lie in the buffer.

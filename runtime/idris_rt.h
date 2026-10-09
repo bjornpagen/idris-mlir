@@ -258,8 +258,7 @@ void idris_rt_io_put_str(const idris_rt_str *s);
 /* The UTF-8 encoding of the character c: the Prelude's putChar, and what
  * writing a one-character string writes. A Char is a Unicode scalar value,
  * so c is written whole, where both stock backends call C's putchar, as the
- * Prelude declares putChar, and write its low byte (put-char-utf8 in
- * tests/lib/chez-divergences). */
+ * Prelude declares putChar, and write its low byte. */
 void idris_rt_io_put_char(int32_t c);
 /* The decimal text of a signed or an unsigned integer, which idr-lower
  * extends to 64 bits as its type's signedness says. */

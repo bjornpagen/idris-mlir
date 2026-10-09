@@ -4,7 +4,8 @@
 # computes 64-bit lanes is the 64-bit version beside one computing them in
 # 32 bits, under a bound on n and the offset that this fixture's input is
 # below (linarray-lanes-narrow) or above (linarray-lanes-wide), a negative
-# offset above it either way: both versions must give Chez's numbers.
+# offset above it either way: both versions must give the numbers of
+# 64-bit lanes.
 idr-rc: pure-array-loops
 idr-vectorize: vectorized
 idr-narrow-lanes: narrowed-lanes

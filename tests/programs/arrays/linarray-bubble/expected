@@ -1,7 +1,7 @@
 compile: exit 0
 artifacts: prog.core prog.mlir prog.o prog
 run: exit status as expected
-stdout: compared with Chez's alone (oracle-chez)
+stdout: as expected
 stderr: empty
 object: no undefined symbol outside the allowed set
 mlir.expect: holds
@@ -9,7 +9,5 @@ budget: kept
 dumps: parse and verify
 simplify: idempotent
 quantities: kept
-chez: compile exit 0
-chez: same stdout and exit status
 no-eval budget: kept
 no-eval: same stdout and exit status

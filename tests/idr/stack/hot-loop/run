@@ -1,7 +1,7 @@
 #!/bin/sh
 # A program whose hot loop builds boxes and hands them to a function that
 # only reads them: after idr-stack nothing in the loop allocates on the heap
-# (mlir.expect), the program prints what Chez prints, and it ends with no
+# (mlir.expect), the program prints expected-stdout, and it ends with no
 # cell live.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 e2e_io .

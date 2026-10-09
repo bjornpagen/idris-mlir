@@ -108,8 +108,8 @@ narrowing pass, the same inline fast path and the same loop versioning.
 
 ## Proved by
 
-- `tri 500` and `acc+2` match Chez, and are timed against a C `uint64_t`
-  loop.
+- `tri 500` and `acc+2` print their expected output, which matched Chez's
+  when it was committed, and are timed against a C `uint64_t` loop.
 - The ir property holds: a counted-down loop has no tag test inside.
 - A Nat past 2^62 still prints right, through GMP.
 - Integer's proofs match Nat's: an Integer loop from `cast` of an `Int` bound runs

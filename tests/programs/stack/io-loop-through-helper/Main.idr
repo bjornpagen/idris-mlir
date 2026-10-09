@@ -4,10 +4,9 @@ module Main
 -- helper, push, whose body is an `if` over two actions, with an argument
 -- that is itself a case (comp c). Each character goes round through push's
 -- action and the continuation of its bind, which calls body: in tail
--- position all the way, through the closures of the binds. Chez runs it in
--- constant stack, as Scheme's proper tail calls do, and so must this
--- compiler, on an input long enough that a frame kept per character would
--- exhaust the 1 MiB stack the harness gives the program.
+-- position all the way, through the closures of the binds, so it runs in
+-- constant stack, on an input long enough that a frame kept per character
+-- would exhaust the 1 MiB stack the harness gives the program.
 
 import Prelude
 import Data.IOArray.Prims

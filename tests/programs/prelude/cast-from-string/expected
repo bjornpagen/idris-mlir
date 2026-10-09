@@ -8,7 +8,5 @@ budget: kept
 dumps: parse and verify
 simplify: idempotent
 quantities: kept
-chez: compile exit 0
-chez: stdout differs as cast-string-literal says, and the exit status is the same
 no-eval budget: kept
 no-eval: same stdout and exit status

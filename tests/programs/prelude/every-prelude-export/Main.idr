@@ -5,7 +5,7 @@ module Main
 -- export where it is defined, so what it gives a program is the
 -- re-exports themselves (covers). This program imports Prelude alone and
 -- reaches, unqualified, definitions of the modules it re-exports, each
--- line printed so that Chez checks what it computes.
+-- line printed so that what it computes is checked.
 
 import Prelude
 

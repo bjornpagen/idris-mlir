@@ -3,8 +3,7 @@ module Main
 -- A subnormal double is written as any other, with the fewest significant
 -- digits that read back as it: the least is 5e-324. Its text reads back
 -- through `cast`, and `show` puts a negative one in parentheses. Values
--- made from stdin, so that the runtime computes them. Chez ends a
--- subnormal's text with its precision in bits, 5e-324|1 (chez-differs).
+-- made from stdin, so that the runtime computes them.
 
 import Builtin
 import Prelude

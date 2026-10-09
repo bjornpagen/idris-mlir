@@ -1,8 +1,8 @@
 ||| The fuzzer: programs of closed pure expressions
 ||| over every primitive, each printed from `main`, which the harness
-||| compiles three ways, with evaluation, with `--no-eval` and with the stock
-||| Chez backend, and whose outputs must agree (tests/fuzz,
-||| `fuzz` in tests/lib/fuzz.sh).
+||| compiles with evaluation and with `--no-eval`, and whose outputs must
+||| agree with each other and with the values their seed's expected files
+||| record (tests/fuzz, `fuzz` in tests/lib/fuzz.sh).
 |||
 |||     runtests --fuzz-program <seed> <cases> runtime|static
 |||
@@ -22,22 +22,28 @@
 |||   leaves to runtime.
 |||
 ||| The three lines of a case must print the same value, in every build, and
-||| each line the same as Chez prints. A case whose value goes through the
-||| libm functions that the two C libraries may round differently (exp, log,
-||| pow and the trigonometric functions) has lines
-||| labelled `L...`; those are compared among this compiler's builds only.
+||| the value the seed's expected file records. A case whose value goes
+||| through the libm functions (exp, log, pow and the trigonometric
+||| functions), which are not correctly rounded, so that the last places of
+||| their results are the platform's, has lines labelled `L...`; those are
+||| compared among this compiler's builds only, since the expected files are
+||| every target's.
 |||
 ||| The `runtime` part holds what may exist at runtime: the integer types,
 ||| Double, Char, a small sum type, and strings that are only written or
 ||| taken apart without allocating. The `static` part holds Integer and
 ||| every string builder, which may allocate and so exist at compile time
-||| only: it has `d` and `j` lines, and is compiled with evaluation and by
-||| Chez.
+||| only: it has `d` and `j` lines, and is compiled with evaluation only.
 |||
 ||| Division has a divisor that is a nonzero leaf; casts from Double to an
 ||| integer, from Int to Char and from String take leaves in their domain;
 ||| strings are taken apart within their bounds. Everything else is any value
 ||| of its type, NaN, the infinities, -0.0 and subnormals included.
+|||
+||| A seed's expected files are the output of its programs: a change to what
+||| this module draws, or in what order, changes the programs of every seed,
+||| and the files are then written again from the build with evaluation, its
+||| `L` lines aside, and reviewed as any expected output.
 module Fuzz
 
 import Control.Monad.State
@@ -249,7 +255,8 @@ prim op t = "prim__" ++ op ++ "_" ++ tyName t
 cast : Ty -> Ty -> String
 cast from to = "prim__cast_" ++ tyName from ++ tyName to
 
-||| libm functions whose results the two C libraries may round differently.
+||| The libm functions: not correctly rounded, so the last places of their
+||| results are the platform libm's.
 hostDependent : List String
 hostDependent =
   [ "prim__doubleExp", "prim__doubleLog", "prim__doublePow", "prim__doubleSin"

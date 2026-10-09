@@ -32,5 +32,6 @@ The user agreed to this decision on 2026-10-01.
   on. Programs that need cyclic mutable structures are rare, and they are
   told why.
 - **Work:** task #102. The knot program is the reject fixture with its
-  message; an array-of-arrays program against Chez is the passing one; the
-  same rule covers `IORef` as a 0-d memref when it lands.
+  message; an array-of-arrays program with its expected output is the
+  passing one; the same rule covers `IORef` as a 0-d memref when it
+  lands.

@@ -7,8 +7,8 @@ module Main
 -- concat [interpolate "a ", interpolate x, interpolate " b"]; and at a
 -- program's own types, one implementation declared and one built with
 -- MkInterpolation, nested in one another's strings. The interface's
--- constructor is compile-time only. Each line is printed so that Chez
--- checks what it computes.
+-- constructor is compile-time only. Each line is printed so that what
+-- it computes is checked.
 
 import Prelude
 

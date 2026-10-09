@@ -3,10 +3,10 @@ module Main
 -- Where a double is exactly halfway between the two shortest texts that
 -- read back as it, the one whose last digit is even is written, as IEEE
 -- 754's default rounding breaks a tie: 12.8868560791015625 is
--- 12.886856079101562, in either layout and of either sign. Chez writes the
--- one larger in magnitude, 12.886856079101563 (chez-differs), and the two
--- agree where that one is even, as for 1125899906842624.75. Values made
--- from stdin, so that the runtime computes them.
+-- 12.886856079101562, in either layout and of either sign, and
+-- 1125899906842624.75 is 1.1258999068426248e15, the larger, whose last
+-- digit is the even one. Values made from stdin, so that the runtime
+-- computes them.
 
 import Builtin
 import Prelude

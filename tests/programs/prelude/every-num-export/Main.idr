@@ -7,8 +7,8 @@ module Main
 -- defaultInteger, the hint that types an unconstrained literal, used
 -- implicitly and explicitly. The interfaces' constructors are
 -- compile-time only. A fixed-width result wraps modulo the type's width;
--- div and mod are taken at each sign. Each line is printed so that Chez
--- checks what it computes.
+-- div and mod are taken at each sign. Each line is printed so that what
+-- it computes is checked.
 
 import Prelude
 

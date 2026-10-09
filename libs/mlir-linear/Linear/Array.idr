@@ -10,10 +10,8 @@
 ||| array returns an unrestricted value (`!*`), so the array itself cannot
 ||| escape it.
 |||
-||| In plain Idris over base's `Data.IOArray.Prims`, which every backend
-||| implements, so the stock Chez backend runs the same program; idris-mlir
-||| compiles the array to one runtime cell and each operation to a load or
-||| a store.
+||| In plain Idris over base's `Data.IOArray.Prims`; idris-mlir compiles
+||| the array to one runtime cell and each operation to a load or a store.
 module Linear.Array
 
 import Data.IOArray.Prims
@@ -21,10 +19,10 @@ import Linear.Notation
 
 %default total
 
-||| The number of elements, which every backend keeps with the array: on
-||| Chez the array is a vector (and a Scheme foreign function is passed its
-||| erased type argument too), and idris-mlir gives this spec the array's
-||| dimension.
+||| The number of elements, which base's primitives do not give. The spec
+||| is Chez's because bench/ also times these programs on Idris's Chez
+||| backend, where the array is a vector (and a Scheme foreign function is
+||| passed its erased type argument too); idris-mlir gives it the array's size.
 %foreign "scheme:(lambda (ty v) (vector-length v))"
 prim__arraySize : forall a . ArrayData a -> Int
 
@@ -97,14 +95,14 @@ isize (MkIArray arr) = prim__arraySize arr
 ------------------------------------------------------------------------------
 
 -- The two loops over an array's index space, in plain Idris over the
--- primitives, which every backend runs as written. idris-mlir knows these
--- two by name: when the element (and a fold's accumulator) is a machine
--- word, an `Int`, a `Double`, a `Char` or one of the fixed widths, each
--- loop is one operation of its own, which it lowers to a linalg
--- operation over the array's memory, tiled and vectorized; any other
--- instance compiles as written. A fold reads a frozen array, and a loop
--- that makes an array makes a new one, linear: the arrays it reads are
--- frozen, so that its function may read them at any index.
+-- primitives. idris-mlir knows these two by name: when the element (and a
+-- fold's accumulator) is a machine word, an `Int`, a `Double`, a `Char` or
+-- one of the fixed widths, each loop is one operation of its own, which it
+-- lowers to a linalg operation over the array's memory, tiled and
+-- vectorized; any other instance compiles as written. A fold reads a
+-- frozen array, and a loop that makes an array makes a new one, linear:
+-- the arrays it reads are frozen, so that its function may read them at
+-- any index.
 
 ||| A new array of `n` elements, element `i` being `f i`: base's primitive
 ||| makes it of a fill, `f 0`, which is element 0, and `f i` is then written

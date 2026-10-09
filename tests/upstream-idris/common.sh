@@ -1,10 +1,9 @@
 # Shared by tests/upstream-idris/run and tests/upstream-idris/one.
 # The upstream suite is third_party/Idris2/tests: each test is a directory
 # with a run script that receives the compiler as $1 (upstream's own
-# testutils.sh). This compiler is that compiler for the groups that are
-# programs over the prelude and base. Chez, invoked as the stock idris2,
-# is the oracle for a program's output. A check or a REPL session is the
-# same frontend, so the oracle there is the stock compiler's transcript.
+# testutils.sh) and the file the script must print, `expected`, which is
+# the test's specification. This compiler is that compiler for the groups
+# that are programs over the prelude and base.
 
 # language_group NAME: NAME is a group whose tests are that language
 # (prelude, base, the language checks under idris2/, and the programs
@@ -69,7 +68,9 @@ ident_in() {
 # Threads, collector finalizers, raw pointers, unsafePerformIO in the
 # test's own source, network, and the packages this compiler does not
 # implement. The scan is the source with comments and strings removed
-# (tests/lib/idris-lex.sh) plus the run script's package flags.
+# (tests/lib/idris-lex.sh) plus the run script's package flags. A script
+# that also runs another backend expects that backend's output too, which
+# this compiler does not print.
 skip_reason() {
   skip_dir=$1
   skip_code=$(mktemp "${TMPDIR:-/tmp}/idris-mlir-upstream.XXXXXX") || return 1
@@ -103,6 +104,9 @@ skip_reason() {
   elif grep -qE '(^|[^A-Za-z0-9_])-p[[:space:]]+(contrib|linear|test)([^A-Za-z0-9_]|$)' "$skip_code" ||
        grep -qE 'import[[:space:]]+(public[[:space:]]+)?(Contrib|Linear)([^A-Za-z0-9_.]|$)' "$skip_code"; then
     skip_found="not a commitment"
+  elif sed 's/[[:space:]]*#.*//' "$skip_dir/run" |
+       grep -qE -e '--cg[[:space:]]+(node|javascript|racket|refc|gambit)' -e '^[[:space:]]*node[[:space:]]'; then
+    skip_found="other backend"
   fi
   rm -f "$skip_code"
   printf '%s\n' "$skip_found"

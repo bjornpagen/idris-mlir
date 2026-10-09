@@ -5,7 +5,7 @@
 
 toolchain=${IDRIS_MLIR_TOOLCHAIN:-$root/.toolchain}
 # The pinned Chez Scheme: Idris 2 runs on it, and so do the programs of
-# Idris's Chez backend, the tests' oracle.
+# Idris's Chez backend, the tests' runner and bench/'s baseline.
 chez_prefix=$toolchain/chez
 chez_scheme=$chez_prefix/bin/scheme
 # Idris 2 and its libraries, built from third_party/Idris2 on that Chez.

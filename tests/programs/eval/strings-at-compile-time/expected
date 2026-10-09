@@ -1,4 +1,3 @@
-oracle: stock idris2 checks Oracle.idr
 compile: exit 0
 artifacts: prog.core prog.mlir prog.o prog
 run: exit status as expected
@@ -9,7 +8,5 @@ budget: kept
 dumps: parse and verify
 simplify: idempotent
 quantities: kept
-chez: compile exit 0
-chez: same stdout and exit status
 no-eval budget: kept
 no-eval: same stdout and exit status

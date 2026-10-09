@@ -5,8 +5,8 @@ module Main
 -- Bits64. The remainder reads its operand unsigned, so at the first two
 -- indices it reads -2 and -1 as 2^64 - 2 and 2^64 - 1 (residues 0 and 1);
 -- a 32-bit remainder would read 2^32 - 2 and 2^32 - 1 (residues 2 and 3).
--- The compiler vectorizes the loop and keeps its lanes 64-bit; the numbers
--- are Chez's.
+-- The compiler vectorizes the loop and keeps its lanes 64-bit, so the
+-- numbers are the 64-bit residues.
 
 import Prelude
 import Linear.Notation

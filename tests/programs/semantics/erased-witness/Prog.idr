@@ -13,10 +13,10 @@ public export
 linearId : (1 x : Int) -> Int
 linearId x = x
 
--- A loop on an Int, which Idris does not prove terminating. Idris's
--- evaluator reduces it all the same (Oracle.idr), and so does compile-time
--- evaluation; mlir.check reads the module as emitted, before either, where
--- clamp and linearId have their erased and linear parameters.
+-- A loop on an Int, which Idris does not prove terminating. Compile-time
+-- evaluation reduces it all the same; mlir.check reads the module as
+-- emitted, before that, where clamp and linearId have their erased and
+-- linear parameters.
 public export
 countdown : Int -> Int
 countdown 0 = 7

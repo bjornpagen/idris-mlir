@@ -2,8 +2,7 @@
 // array cell and its length. The address of the word is idris_rt_buffer_at,
 // which crashes unless the word's bytes lie in that length. The load and
 // the store are the target's own, at alignment 1: the endianness is the
-// machine's, and the offset need not be aligned, as Chez's
-// native-endianness bytevector access is.
+// machine's, and the offset need not be aligned.
 
 export module idr.lower:buffers;
 

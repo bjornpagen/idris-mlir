@@ -7,8 +7,8 @@
 # prints one line, the same on every successful run, and more lines only when
 # it fails, so `expected` holds the successful output and a failure shows as
 # a difference. Expectations are read from the fixtures in place (headers,
-# stdin, expected-stdout, expected-exit, expected-crash, Oracle.idr and the
-# *.check files), so each has one source of truth. Everything is built in a
+# stdin, expected-stdout, expected-exit, expected-crash and the *.check
+# files), so each has one source of truth. Everything is built in a
 # temporary directory, removed on exit. The Idris environment is the
 # Makefile's.
 #
@@ -16,13 +16,9 @@
 #
 #     heap-free       no op of the lowered module allocates a heap cell
 #                     (heap.sh)
-#     oracle-chez     Chez's stdout is the only oracle of stdout (e2e.sh)
-#     no-chez         Chez is not run; the file says why (e2e.sh)
-#     chez-differs    Chez knowingly prints something else: the file names a
-#                     class of tests/lib/chez-divergences, and chez-stdout
-#                     is what Chez prints (chez.sh)
-#     libm-lines      the numbered output lines are libm results, which may
-#                     differ from Chez's in the last place (chez.sh)
+#     libm-lines      the numbered output lines are libm results, whose last
+#                     places are the platform libm's and may differ from
+#                     expected-stdout's (e2e.sh)
 #     default-stack   the program runs on the default stack instead of the
 #                     1 MiB one; the file says why (e2e.sh)
 #     constant-stack  the program loops in constant stack on a long input:
@@ -43,17 +39,15 @@
 #     heap.sh          the C library calls an e2e program's object may make
 #     mlir.sh          FileCheck, and the module an mlir.check reads
 #     expect.sh        properties of a module by name (idr-expect), mlir.expect
-#     oracle.sh        Oracle.idr, and the generated semantics tests
-#     chez.sh          the stock Chez backend as an oracle, and its text of a
-#                      Double read as this compiler's (chez-doubles.ss)
 #     prelude.sh       a prelude module whose every export a program uses
-#     e2e.sh           the end-to-end programs, each compiled twice
+#     e2e.sh           the end-to-end programs, each compiled twice, and the
+#                      generated semantics tests
 #     properties.sh    what holds of every compilation, off its dumps
 #     profile.sh       the profile's accept and reject fixtures
 #     determinism.sh   two compilations, byte for byte
 #     lit.sh           the dialect tests' RUN lines
 #     fuzz.sh          the fuzzer
-#     two-levels.sh    Idris's evaluator against the compiled program
+#     two-levels.sh    closed terms, compiled, against their recorded values
 #     idris-lex.sh     Idris source, code told from comments and strings
 #     bench.sh         the benchmarks, built and run on small inputs
 #     upstream.sh      clang bugs a unit of ours reproduces, compiled in place
@@ -66,7 +60,7 @@ root=${IDRIS_MLIR_ROOT:?IDRIS_MLIR_ROOT must name the repository}
 # test_limit seconds: the first time this file is sourced, it runs the script
 # again under `timeout` and, if the script is killed, prints that it timed
 # out, which no expected output holds, so the test fails. A run script that
-# does many compilations (fuzz, two levels) sets a larger
+# does many compilations (the fuzzer) sets a larger
 # test_limit before sourcing this file. IDRIS_MLIR_TIME_SCALE (make's
 # time_scale) multiplies both, for a slower machine; a limit never passes a
 # test, it only ends one. coreutils' timeout is $timeout_cmd
@@ -102,7 +96,7 @@ if [ -z "${IDRIS_MLIR_TEST_DEADLINE-}" ]; then
   exit "$deadline_status"
 fi
 
-for lib_file in harness timing compile run heap mlir expect oracle chez prelude properties e2e \
+for lib_file in harness timing compile run heap mlir expect prelude properties e2e \
                 profile determinism lit fuzz two-levels idris-lex bench upstream; do
   . "$root/tests/lib/$lib_file.sh"
 done

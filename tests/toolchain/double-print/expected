@@ -1,7 +1,3 @@
 fuzz: built
 fuzz: exit 0
-chez: exit 0
-176000 doubles: the same text as Chez's, read as ours
-read as double-subnormal-suffix: seen
-read as double-special-text: seen
-read as double-tie-even: seen
+176000 doubles: the text expected-doubles holds

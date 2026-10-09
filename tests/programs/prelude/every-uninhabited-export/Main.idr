@@ -7,8 +7,8 @@ module Main
 -- refutations of True = False and False = True kept in the No of a
 -- decision; and implementations at a program's own empty types, one
 -- declared and one built with MkUninhabited. The interface's constructor
--- is compile-time only. Each line is printed so that Chez checks what it
--- computes.
+-- is compile-time only. Each line is printed so that what it computes is
+-- checked.
 
 import Prelude
 

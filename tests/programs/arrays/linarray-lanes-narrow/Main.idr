@@ -12,7 +12,7 @@ module Main
 -- linarray-lanes-narrow, with n below every bound, and linarray-lanes-wide,
 -- with n above them all; each sums the squares at a positive and at a
 -- negative offset, and neither n is a multiple of the lanes, so that the
--- last tile runs too. The numbers are Chez's either way.
+-- last tile runs too. Either way the numbers are those of 64-bit lanes.
 
 import Prelude
 import Data.List

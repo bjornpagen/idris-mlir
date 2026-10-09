@@ -6,8 +6,7 @@ module Main
 -- of stdin: a truncated three-byte and four-byte sequence (one each), an
 -- overlong C0 80 (two), an encoded surrogate ED A0 80 (three), a lone lead
 -- byte (one), then well-formed text of two-, three- and four-byte
--- sequences, read whole. Chez replaces the overlong form and the surrogate
--- with one U+FFFD each (chez-differs).
+-- sequences, read whole.
 
 import Prelude
 

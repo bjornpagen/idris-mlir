@@ -3,7 +3,7 @@ module Main
 -- Every run-time export of Prelude.IO the compiler admits, each used
 -- (covers): console input and output, in IO and in a monad of the
 -- program's own through its HasIO, and running a primitive action, each
--- result printed so that Chez checks what it computes.
+-- result printed so that what it computes is checked.
 
 import Prelude
 

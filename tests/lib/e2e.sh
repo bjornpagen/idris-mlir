@@ -1,4 +1,4 @@
-# The end-to-end programs: compiled, run, and held to their oracles.
+# The end-to-end programs: compiled, run, and held to their expected files.
 #
 # Each fixture is compiled once with every module of the pipeline dumped,
 # and everything that holds of a compilation is read off that one
@@ -28,18 +28,16 @@ stdout_within_a_few_ulp() {
 }
 
 # e2e_io FIXTURE: an IO program, Main.idr and its other modules, run on its
-# stdin against its expected-stdout and expected-exit or expected-crash,
-# with the checks of its modules (module_checks). The stock Chez
-# backend compiles the same program, and must print the same stdout and
-# exit with the same status (chez_agrees); with `oracle-chez` it is the only
-# oracle of stdout, and with `no-chez`, which says why, it is not run.
-# `packages` names installed packages it uses. It runs on a 1 MiB stack,
-# or with `default-stack`, which says why, on the one programs get. With
-# `constant-stack` its input is its stdin many times over (`repeated`), so
-# long that a loop growing the stack by a frame per iteration exhausts the
-# 1 MiB: both compilers run the long input. With an Oracle.idr, stock
-# Idris's evaluator is an oracle too: it proves `Prog.result = <literal>`,
-# and that literal is the expected stdout.
+# stdin against its expected-stdout (an empty stdout when there is none) and
+# its expected-exit or expected-crash, with the checks of its modules
+# (module_checks). The expected files are the program's specification:
+# what it must print is written down beside it and reviewed when it
+# changes, so no other implementation is asked. `packages` names installed
+# packages it uses. It runs on a 1 MiB stack, or with `default-stack`,
+# which says why, on the one programs get. With `constant-stack` its input
+# is its stdin many times over (`repeated`), so long that a loop growing
+# the stack by a frame per iteration exhausts the 1 MiB: both compilations
+# run the long input.
 e2e_io() {
   io_fixture=$(cd "$1" && pwd)
   io_stdin=/dev/null
@@ -61,10 +59,6 @@ e2e_io() {
     io_stdin=$work/long-stdin
   fi
   io_directives=$(module_directives "$io_fixture")
-  if [ -f "$io_fixture/Oracle.idr" ]; then
-    check_oracle "$io_fixture"
-    oracle_matches_stdout "$io_fixture"
-  fi
 
   mkdir "$work/ours"
   copy_fixture "$io_fixture" "$work/ours"
@@ -89,23 +83,19 @@ e2e_io() {
       say "run: exit $ran, expected $io_expected_exit"
     fi
   fi
-  if [ -f "$io_fixture/oracle-chez" ]; then
-    say "stdout: compared with Chez's alone (oracle-chez)"
+  io_expected_stdout=$io_fixture/expected-stdout
+  if [ ! -f "$io_expected_stdout" ]; then
+    io_expected_stdout=$work/expected-stdout
+    : > "$io_expected_stdout"
+  fi
+  if cmp -s "$io_expected_stdout" "$work/ours.out"; then
+    say "stdout: as expected"
+  elif [ -f "$io_fixture/libm-lines" ] &&
+       stdout_within_a_few_ulp "$io_expected_stdout" "$work/ours.out" "$io_fixture/libm-lines"; then
+    say "stdout: as expected"
   else
-    io_expected_stdout=$io_fixture/expected-stdout
-    if [ ! -f "$io_expected_stdout" ]; then
-      io_expected_stdout=$work/expected-stdout
-      : > "$io_expected_stdout"
-    fi
-    if cmp -s "$io_expected_stdout" "$work/ours.out"; then
-      say "stdout: as expected"
-    elif [ -f "$io_fixture/libm-lines" ] &&
-         stdout_within_a_few_ulp "$io_expected_stdout" "$work/ours.out" "$io_fixture/libm-lines"; then
-      say "stdout: as expected"
-    else
-      say "stdout: differs from expected-stdout"
-      diff "$io_expected_stdout" "$work/ours.out" | head -n 20 | sed 's/^/  | /'
-    fi
+    say "stdout: differs from expected-stdout"
+    diff "$io_expected_stdout" "$work/ours.out" | head -n 20 | sed 's/^/  | /'
   fi
   if [ -z "$io_crash" ]; then
     empty stderr "$work/ours.err"
@@ -117,17 +107,41 @@ e2e_io() {
   fi
 
   object_imports "$work/ours/build/exec/prog.o" "$here"
-  heap_free "$here" "$work/ours/build/exec/prog.dump"
+  heap_free "$io_fixture" "$work/ours/build/exec/prog.dump"
   module_checks "$io_fixture" "$work/ours/build/exec/prog.mlir" "$work/ours/build/exec/prog.dump"
   compilation_properties "$work/ours/build/exec/prog.mlir" "$work/ours/build/exec/prog.dump"
 
-  if [ -f "$io_fixture/no-chez" ]; then
-    say "chez: not compared (no-chez)"
-  else
-    # shellcheck disable=SC2086 # the packages are words
-    chez_agrees "$io_fixture" "$io_stdin" "$io_crash" "$ours_status" $io_packages
-  fi
   without_evaluation "$io_fixture" "$io_stdin" $io_stack
+}
+
+# sem_case NAME: the generated semantics test NAME, an e2e fixture built in
+# the work directory: its Prog.idr and its expected-stdout are the runner's
+# (tests/Sem.idr), which computes every case's value from what the
+# primitive means and states once what the program prints when all agree,
+# and its Main.idr prints Prog.result. Main is partial: Prog.result may
+# divide, and Idris does not hold a primitive division covering, since its
+# divisor may be 0. Its cases are comparisons of fixed-width integers, which
+# never need a heap cell (heap-free).
+sem_case() {
+  mkdir "$work/sem"
+  if ! "$runtests" --sem-program "$1" > "$work/sem/Prog.idr" 2> "$work/sem.err" ||
+     ! "$runtests" --sem-expected "$1" > "$work/sem/expected-stdout" 2>> "$work/sem.err"; then
+    say "no semantics program $1"
+    show "$work/sem.err"
+    return
+  fi
+  cat > "$work/sem/Main.idr" <<'MAIN'
+module Main
+
+import Prelude
+import Prog
+
+partial
+main : IO ()
+main = printLn Prog.result
+MAIN
+  : > "$work/sem/heap-free"
+  e2e_io "$work/sem"
 }
 
 # module_directives FIXTURE: the directives the fixture's compilation

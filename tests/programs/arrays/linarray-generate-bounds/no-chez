@@ -1,4 +1,0 @@
-Chez runs the library at optimize level 3, where vector-ref checks no
-index and reads past the vector's end; Linear.Array only assumes the index
-is within the array. This compiler ends the program, explicitly, at the
-first index outside it.

@@ -720,12 +720,12 @@ def Idr_ModOp : Idr_DivisionOp<"mod", 0> {
   let summary = "Idris mod: Euclidean when signed, crashes on zero";
 }
 
-// Idris's shifts of a fixed-width integer, as its Chez backend has them:
-// the value shifted arithmetically (Scheme's ash) by the amount, then
-// wrapped to the type's width. So a left shift by the width or more is 0,
-// a right shift by it or more is the sign (0 or -1; 0 when unsigned), and
-// a negative amount shifts the other way. Defined for every amount, unlike
-// arith's shifts, which are poison from the width up.
+// Idris's shifts of a fixed-width integer: the value shifted
+// arithmetically by the amount, then wrapped to the type's width. So a
+// left shift by the width or more is 0, a right shift by it or more is the
+// sign (0 or -1; 0 when unsigned), and a negative amount shifts the other
+// way. Defined for every amount, unlike arith's shifts, which are poison
+// from the width up.
 class Idr_ShiftOp<string mnemonic, bit isLeft>
     : Idr_Op<mnemonic, [Pure, SameOperandsAndResultType]> {
   let arguments = (ins UnitAttr:$is_signed, Idr_Int:$lhs, Idr_Int:$rhs);
@@ -1309,9 +1309,10 @@ def Idr_NProcessorsOp : Idr_IOOp<"n_processors"> {
   let assemblyFormat = "$world attr-dict";
 }
 
-// The operating system the target triple names, in the spelling Chez uses:
-// "darwin", "unix", "windows", or "unknown". Folded to that string. The
-// triple is the one the target entry wrote on the runtime.
+// The operating system the target triple names, in the spelling Idris's
+// Scheme backends share and base tests for: "darwin", "unix", "windows",
+// or "unknown". Folded to that string. The triple is the one the target
+// entry wrote on the runtime.
 def Idr_OsOp : Idr_Op<"os", [Pure]> {
   let summary = "the operating system the target triple names";
   let results = (outs Idr_StrValue:$result);

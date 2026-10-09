@@ -54,9 +54,7 @@ labels='this compiler|Idris Chez|clang -O2'
 #               reference (fannkuch-linear's is fannkuch-redux);
 #   rejected    the reason this compiler gives for rejecting the program
 #               today; its column then reads n/a and the C version's output
-#               is the reference;
-#   differs     why this compiler's output differs from Chez's today (a
-#               decided divergence); its column reads n/a likewise.
+#               is the reference.
 # The C version is bench/c/<name>.c; a missing one is skipped. Every input
 # is large enough that start-up does not matter.
 all=$(cd "$bench" && for d in */; do [ -f "$d/Main.idr" ] && { [ -f "$d/input" ] || [ -f "$d/input-from" ]; } && echo "${d%/}"; done | LC_ALL=C sort | tr '\n' ' ')
@@ -160,7 +158,7 @@ build() {
   missing=
   case $1 in
     'this compiler')
-      if [ -f "$bench/$name/rejected" ] || [ -f "$bench/$name/differs" ]; then missing=yes; return; fi
+      if [ -f "$bench/$name/rejected" ]; then missing=yes; return; fi
       idris_sources "$work/ours"
       compile_start=$(now_ns)
       # shellcheck disable=SC2086 # the packages are words
@@ -283,9 +281,9 @@ for name in $names; do
       cmp -s "$out" "$reference" ||
         die "$name: $label's output differs from the reference: $(cmp "$out" "$reference" | head -n 1)"
     else
-      if [ "$label" = 'Idris Chez' ] && ! cmp -s "$out" "$reference"; then
-        die "$name: $label's output differs from the reference: $(cmp "$out" "$reference" | head -n 1)"
-      fi
+      # Every compiler is held to the numbers alone: a run needs programs
+      # that compute the same thing, and whether a text is right is for
+      # the tests to say.
       agree "$out" "$reference" ||
         die "$name: $label printed $(head -c 200 "$out"), the reference $(head -c 200 "$reference")"
     fi

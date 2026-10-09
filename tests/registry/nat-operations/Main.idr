@@ -4,10 +4,9 @@ module Main
 -- (natToInteger, integerToNat, plus, mult, minus, equalNat, compareNat)
 -- and Data.Nat's lte, gte, lt and gt compute on Nat's representation, a
 -- big that is never negative, as Idris's own backends compute them.
--- translate.check finds none of them translated in full Core; the output
--- is the Chez backend's. The values come from the input, so they are
--- computed at runtime, and are large enough that a unary recursion over
--- them would not finish.
+-- translate.check finds none of them translated in full Core. The values
+-- come from the input, so they are computed at runtime, and are large
+-- enough that a unary recursion over them would not finish.
 
 import Prelude
 import Data.Nat

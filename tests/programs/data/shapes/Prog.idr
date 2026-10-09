@@ -12,9 +12,9 @@ public export
 keep : (0 witness : Int) -> Int -> Int
 keep witness v = v
 
--- A loop on an Int, which Idris does not prove terminating. Idris's
--- evaluator reduces it all the same (Oracle.idr), and so does compile-time
--- evaluation; mlir.check reads the module as emitted, before either.
+-- A loop on an Int, which Idris does not prove terminating. Compile-time
+-- evaluation reduces it all the same; mlir.check reads the module as
+-- emitted, before that.
 public export
 countdown : Int -> Int
 countdown 0 = 6

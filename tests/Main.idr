@@ -22,6 +22,7 @@
 ||| It also answers the `run` scripts that need Idris:
 |||
 |||     runtests --sem-program <name>   the program of a semantics test
+|||     runtests --sem-expected <name>  the stdout its program must print
 |||     runtests --sem-list             the names of the semantics tests
 |||     runtests --fuzz-program <seed> <cases> runtime|static
 |||                                     a program of the fuzzer (Fuzz.idr)
@@ -143,14 +144,14 @@ suites =
       [ pool "compiler: Idris-side units and artifact rules" ["compiler"]
       , pool "accept: programs the profile accepts" ["accept"]
       , pool "reject: programs rejected with a named rule" ["reject"]
-      , pool "programs/semantics: the meaning of primitives, matches and crashes, against Idris's evaluator and Chez" ["programs/semantics"]
+      , pool "programs/semantics: the meaning of primitives, matches and crashes" ["programs/semantics"]
       , pool "programs/basic: language features" ["programs/basic"]
       , pool "programs/io: input and output through the Prelude, System.File, System.Info and Buffer" ["programs/io"]
       , pool "programs/prelude: the Prelude and base over strings, lists and doubles" ["programs/prelude"]
       , pool "programs/interfaces: interfaces resolved at compile time" ["programs/interfaces"]
       , pool "programs/eval: compile-time evaluation and specialization" ["programs/eval"]
       , pool "programs/partial: partial functions, crashes and the stack" ["programs/partial"]
-      , pool "programs/stack: loops through calls in tail position in constant stack on long inputs, and recursions as deep as on Chez" ["programs/stack"]
+      , pool "programs/stack: loops through calls in tail position in constant stack on long inputs, and recursions a million calls deep" ["programs/stack"]
       , pool "programs/nat: natural numbers" ["programs/nat"]
       , pool "programs/data: data and records at runtime" ["programs/data"]
       , pool "programs/linear: linear values and the linear library's lists" ["programs/linear"]
@@ -158,8 +159,8 @@ suites =
       , pool "determinism: byte-identical artifacts" ["determinism"]
       , pool "registry: privileged knowledge of library definitions" ["registry"]
       , pool "toolchain: the pinned toolchain and what it builds" ["toolchain"]
-      , pool "fuzz: closed expressions over every primitive, three ways" ["fuzz"]
-      , pool "two levels: Idris's evaluator against the compiled program" ["two-levels"]
+      , pool "fuzz: closed expressions over every primitive, each written three ways, against their recorded values" ["fuzz"]
+      , pool "two levels: closed terms over every primitive and the Prelude, compiled, against their recorded values" ["two-levels"]
       , pool "bench: every benchmark builds and prints its recorded output" ["bench"]
       ])
   , ("test-idr", subpools "idr" "the idr dialect and its passes")
@@ -186,7 +187,7 @@ takeOwn [] = (Nothing, False, [])
 runnerUsage : String
 runnerUsage = unlines
   [ "usage: runtests <idris-mlir> [--suite " ++ joinBy "|" (map fst suites) ++ "] [--list] [Test.Golden options]"
-  , "       runtests --sem-program <name> | --sem-list | --lock"
+  , "       runtests --sem-program <name> | --sem-expected <name> | --sem-list | --lock"
   , "       runtests --fuzz-program <seed> <cases> runtime|static"
   , "       runtests --two-levels-program primitives|prelude terms|main"
   , Test.Golden.usage
@@ -228,6 +229,8 @@ main = do
   case drop 1 args of
     ["--sem-program", name] =>
       maybe (die ("no semantics test " ++ name)) putStr (programOf name)
+    ["--sem-expected", name] =>
+      maybe (die ("no semantics test " ++ name)) putStr (expectedOf name)
     ["--sem-list"] => traverse_ putStrLn names
     ("--fuzz-program" :: fuzz) =>
       maybe (die "usage: runtests --fuzz-program <seed> <cases> runtime|static") putStr

@@ -3,8 +3,9 @@
 # run-time exports: a fixture under tests/programs marked `covers MODULE`
 # (tests/lib/prelude.sh), whose check, in make test, reads the module's
 # exports from the pinned Idris and the program's use of them from its Core,
-# and whose output Chez checks. The modules are the pinned prelude's own
-# list (its prelude.ipkg), so a module the pin adds is asked for at once.
+# and whose expected files fix its output. The modules are the pinned
+# prelude's own list (its prelude.ipkg), so a module the pin adds is asked
+# for at once.
 #
 # A ratchet: `uncovered` lists the modules with no such fixture today, and
 # only shrinks. A module with no fixture that is not listed fails, and so

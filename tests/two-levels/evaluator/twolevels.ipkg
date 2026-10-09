@@ -1,8 +1,0 @@
-package twolevels
-version = 0.1.0
-brief = "Idris's own evaluator on the terms of the two-level test (tests/TwoLevels.idr)"
-
-depends = idris2
-sourcedir = "."
-main = IdrisMLIR.Frontend.TwoLevels
-executable = twolevels

@@ -6,9 +6,9 @@
 // with the fewest significant digits that read back as it; of those, the
 // nearest to it, and of two equally near, the even one, as IEEE 754's
 // default rounding breaks a tie. Those are Ryu's digits (third_party/ryu,
-// unmodified). The layout is the stock Chez backend's, so that the oracle
-// compares every text: positional from 1e-3 up to 1e10, with a digit after
-// the point, else `d.ddde-x`. Every text reads back through `cast` from
+// unmodified). The layout is the one Idris programs print on the stock
+// Chez backend: positional from 1e-3 up to 1e10, with a digit after the
+// point, else `d.ddde-x`. Every text reads back through `cast` from
 // String. A NaN is `nan` whatever its sign, which IEEE 754 gives no meaning
 // and which x86-64 and arm64 set differently for the same operation.
 // The text is written through a volatile pointer, so that LLVM makes no

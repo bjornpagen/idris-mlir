@@ -1,8 +1,7 @@
-/* The runtime's string and big operations against Chez: `api` prints one
- * line per operation, and chez.ss prints what Chez computes for the same
- * operations, which the run script compares. Then the casts from String,
- * whose grammar is ours (idris_rt.h), and the decoding of bytes from
- * outside the program, are checked against tables.
+/* The runtime's string and big operations: `api` prints one line per
+ * operation, which the run script compares with expected-operations. Then
+ * the casts from String, whose grammar is ours (idris_rt.h), and the
+ * decoding of bytes from outside the program, are checked against tables.
  *
  * Every operation borrows its arguments and returns an owned result, so
  * each result is released once, when it has been printed, and each argument

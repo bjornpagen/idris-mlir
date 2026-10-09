@@ -1,11 +1,11 @@
 #!/bin/sh
-# The runtime's big and string operations print what Chez computes, its
-# Doubles read as this compiler writes them (chez_doubles); the casts from
-# String follow the grammar of idris_rt.h, every double's text reads back as
-# it, bytes from outside become a string as idris_rt.h says, and every
-# operation returns a result its caller owns. Reference counting frees what
-# it counts, a structure of any depth on a small stack, and a program that
-# returns reports its live cells when IDRIS_RT_LIVE is 1.
+# The runtime's big and string operations print the results
+# expected-operations holds; the casts from String follow the grammar of
+# idris_rt.h, every double's text reads back as it, bytes from outside
+# become a string as idris_rt.h says, and every operation returns a result
+# its caller owns. Reference counting frees what it counts, a structure of
+# any depth on a small stack, and a program that returns reports its live
+# cells when IDRIS_RT_LIVE is 1.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 # The runtime archive the build made, linked natively with GMP.
 runtime=$dev_prefix/runtime/libidris_rt.a
@@ -23,6 +23,12 @@ build_test "$here/rc.c" "$work/rc" || exit 0
 bounded "$work/api" > "$work/ours" 2> "$work/api.err"
 say "api: exit $?"
 cat "$work/api.err"
+if cmp -s "$here/expected-operations" "$work/ours"; then
+  say "$(wc -l < "$work/ours" | tr -d ' ') operations: the results expected-operations holds"
+else
+  say "results differ (< expected-operations, > runtime):"
+  diff "$here/expected-operations" "$work/ours" | head -n 20 | sed 's/^/  | /'
+fi
 
 # 256 KiB of stack: freeing the list of 10^7 cells by recursion would need
 # hundreds of megabytes.
@@ -50,14 +56,3 @@ rc_mode leak
 rc_mode leak yes
 rc_mode leak 11
 rc_mode crash 1
-
-if [ -z "$chez_scheme" ]; then say "chez: not found"; exit 0; fi
-"$chez_scheme" --script "$here/chez.ss" > "$work/chez" 2> "$work/chez.err"
-say "chez: exit $?"
-chez_doubles "$work/chez" > "$work/chez.read"
-if cmp -s "$work/ours" "$work/chez.read"; then
-  say "$(wc -l < "$work/ours" | tr -d ' ') operations: the same results as Chez, its Doubles read as ours"
-else
-  say "results differ (< runtime, > Chez, its Doubles read as ours):"
-  diff "$work/ours" "$work/chez.read" | head -n 20 | sed 's/^/  | /'
-fi

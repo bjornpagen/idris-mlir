@@ -13,7 +13,7 @@ module Main
 -- of SnocList; Functor of Stream; Semigroup and Monoid of String; and the
 -- Pair implementations. The types, Range's constructor and the
 -- equivalence type former are compile-time only. Each line is printed so
--- that Chez checks what it computes.
+-- that what it computes is checked.
 
 import Prelude
 

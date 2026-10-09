@@ -2,7 +2,7 @@ module Main
 
 -- Every run-time export of Prelude.Basics, each used (covers): its
 -- combinators, Bool's operators, and the constructors of List and
--- SnocList, each line printed so that Chez checks what it computes.
+-- SnocList, each line printed so that what it computes is checked.
 
 import Prelude
 

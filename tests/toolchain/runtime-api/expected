@@ -5,6 +5,7 @@ casts from String: 74 of 74 as idris_rt.h defines them
 doubles read back from their text: 30013 of 30013
 bytes as a string: 16 of 16 as idris_rt.h defines them
 live cells once every result is released: 0
+3061 operations: the results expected-operations holds
 rc: exit 0
 stack: 256 KiB
 rc: 64 of 64 checks as idris_rt.h defines them
@@ -16,5 +17,3 @@ rc leak, IDRIS_RT_LIVE=yes: exit 0
 rc leak, IDRIS_RT_LIVE=11: exit 0
 rc crash, IDRIS_RT_LIVE=1: exit 1
   stderr | crashed
-chez: exit 0
-3061 operations: the same results as Chez, its Doubles read as ours

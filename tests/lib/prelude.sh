@@ -8,10 +8,10 @@
 # a constructor after its type, as Prelude.Types.(<=>)[...]::MkEquivalence(,
 # and a definition the compiler's registry lowers another way in braces
 # after what its call became, as add_Nat{Prelude.Types.plus}(. And the
-# program's output is compared with Chez's as every e2e program's is, so
-# what it uses is also what it computes right. A module's exports are the
-# definitions it makes itself: one it re-exports is covered in the module
-# that defines it.
+# program's output is held to its expected-stdout as every e2e program's
+# is, so what it uses is also what it computes right. A module's exports
+# are the definitions it makes itself: one it re-exports is covered in the
+# module that defines it.
 #
 # A type, and a definition whose result is a type or an equality (a
 # proof), has no run time: it is named apart, as compile-time only, and

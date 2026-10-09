@@ -3,8 +3,10 @@
 The user took this decision on 2026-10-02, on finding the runtime
 justifying behaviour by "as Chez does it". The runtime (`runtime/`) is
 the one meaning of every primitive, which the folders and compile-time
-evaluation call too. The stock Chez backend is the oracle that catches our
-bugs, not the specification.
+evaluation call too. The stock Chez backend was then kept as the oracle
+that catches our bugs, not the specification. Since 2026-10-09 there is no
+oracle (`decision-no-oracle.md`): each test's committed expected files are
+its specification.
 
 ## The order
 
@@ -12,27 +14,19 @@ A primitive's meaning comes from, in this order:
 
 1. **Idris's own definition**, where the language defines it: the
    Prelude's documented meaning, and the compiler's evaluator where it is
-   backend-independent. `tests/TwoLevels.idr` compares our compiled
-   programs with the evaluator.
+   backend-independent. The two-levels terms (`tests/TwoLevels.idr`) were
+   compared with the evaluator when their values were committed.
 2. **The standard the primitive implements**: Unicode for text, IEEE 754
    for Double, POSIX and C for I/O.
 3. **Only then a decision of ours**, written down here.
 
-## Chez is the oracle
+## Chez, then and now
 
-- Where we differ from Chez on purpose, `tests/lib/chez-divergences` names
-  the class and the reason. A fixture that shows it carries `chez-differs`
-  (the class) and `chez-stdout` (what Chez prints); `tests/testutils.sh`
-  lists the marks.
-- Idris's evaluator runs on Chez itself. Where it computes a value through
-  a Chez quirk, the two-levels corpus marks the term `-- idris-differs:`
-  with the reason. Where it only writes a Double through Chez's printer, the
-  test reads its output as it reads the Chez build's.
-- That reading is `tests/lib/chez-doubles.ss`: Chez's text of a double
-  becomes ours, where a `double-*` class says the printers differ. The
-  comparisons of whole outputs line by line use it: the fuzzer, the two
-  levels, the runtime's printer and its API test. A fixture that shows a
-  class names it instead.
+- Until 2026-10-09 every difference from Chez on purpose was a named
+  divergence class, and the outputs compared with Chez's, or with Idris's
+  evaluator running on Chez, were read through those classes. Now no test
+  compares with Chez: where this runtime differs from it, the behaviour
+  below says so, and the fixtures' expected files hold ours.
 - Where we claim the backends disagree, we checked upstream's other
   backend, RefC (`third_party/Idris2/support/refc`), and say so below.
 
@@ -62,8 +56,8 @@ A primitive's meaning comes from, in this order:
   conversion of bytes or C strings goes through it. simdutf still
   validates the well-formed runs. The new code is only the table of
   well-formed byte ranges, which yields each maximal subpart.
-- **Divergence:** `utf8-maximal-subparts`, for the overlong form and the
-  surrogate.
+- **Unlike Chez:** the overlong form and the surrogate, where Chez writes
+  one U+FFFD.
 - **Tests:**
   - `tests/programs/io/getline-ill-formed`: the five lines and
     well-formed text;
@@ -84,8 +78,7 @@ A primitive's meaning comes from, in this order:
   call it. Node's getLine keeps the `'\n'`.
 - **Now:** only a trailing `'\n'` or `"\r\n"` is removed. A line at the end
   of input without one is read whole.
-- **Divergence:** `getline-carriage-return`, from both upstream C-backed
-  backends.
+- **Unlike Chez and RefC:** both call upstream's C.
 - **Test:** `tests/programs/io/prelude-getline`.
 
 ### The text of a Double: IEEE 754, then ours
@@ -103,8 +96,8 @@ A primitive's meaning comes from, in this order:
   - Digits: the fewest significant digits that read back, the nearest of
     those, and of two equally near the even one. These are Ryu's digits.
   - Layout: positional from 1e-3 up to 1e10 with a digit after the point,
-    else `d.ddde-x`. It is the Chez backend's layout, so that the oracle
-    compares every other text.
+    else `d.ddde-x`. It is the Chez backend's layout, taken while Chez was
+    the oracle so that it compared every other text.
   - Specials: `inf`, `-inf` and `nan`. A NaN's sign is not written:
     IEEE 754 gives it no meaning, and x86-64 and arm64 make NaNs of
     opposite sign for the same operation.
@@ -119,9 +112,9 @@ A primitive's meaning comes from, in this order:
 - **Tests:**
   - `tests/programs/prelude/double-subnormals`, `double-ties` and
     `double-infinities-nan`; `double-basics` and `show-values` keep their
-    other lines, compared with Chez;
-  - `tests/toolchain/double-print`: 176,000 doubles, equal to Chez's text
-    read through the classes, each class seen;
+    other lines;
+  - `tests/toolchain/double-print`: 176,000 doubles, each text the one
+    its `expected-doubles` holds;
   - `tests/toolchain/runtime-api`: 30,013 doubles read back from their
     text;
   - `tests/idr/eval/fold-vs-jit.mlir` and `tests/idr/e2e/doubles.mlir`.
@@ -153,14 +146,15 @@ A primitive's meaning comes from, in this order:
   - Double also reads IEEE 754's `inf`, `infinity` and `nan`, in any case.
 - **So:** 12.7 is 0 as an Int, being no literal of one, and `.5`, `5.`,
   `1E3` and surrounding spaces are no number.
-- **Divergence:** `cast-string-literal`.
+- **Unlike Chez and RefC:** each reads its own syntax, as above.
 - **Tests:**
   - `tests/programs/prelude/cast-from-string`, with accepted and refused
     strings, cast at run time and folded;
   - the table in `tests/toolchain/runtime-api`;
   - `tests/idr/eval/fold-vs-jit.mlir`.
-- **Also:** the two-levels casts of literals are compared with Idris's
-  evaluator again, no longer set aside as host-dependent.
+- **Also:** the two-levels casts of literals were compared with Idris's
+  evaluator again, no longer set aside as host-dependent, and their values
+  committed.
 
 ### Shifts of a fixed-width integer: Idris's, as Chez runs them
 
@@ -182,11 +176,11 @@ A primitive's meaning comes from, in this order:
     is ever poison.
 - **Was:** rejected, `unsupported (primitive): shift left`, which kept
   base's `Data.Bits` on Int from compiling.
-- **Divergence:** `shift-wrapped`, a signed right shift by a negative
-  amount, the one shift Chez does not wrap.
-- **Tests:** the generated `prim-<type>-shift-0` tables, checked against
-  Idris's evaluator, Chez and this compiler with and without compile-time
-  evaluation; `tests/idr/fold/shift.mlir`.
+- **Unlike Chez:** a signed right shift by a negative amount, the one
+  shift Chez does not wrap.
+- **Tests:** the generated `prim-<type>-shift-0` tables, whose expected
+  values `tests/Sem.idr` computes from this meaning, run by this compiler
+  with and without compile-time evaluation; `tests/idr/fold/shift.mlir`.
 - **Integer shifts** have no op yet and are refused, `unsupported
   (primitive)`.
 
@@ -216,8 +210,8 @@ A primitive's meaning comes from, in this order:
   - A negative start or length, which only a call of the primitive itself
     passes, counts as 0: ours.
   - RefC's `strSubstr` neither clamps nor counts characters, only bytes.
-- **putChar writes UTF-8** (`put-char-utf8`). The decision predates this
-  policy; see below.
+- **putChar writes UTF-8.** The decision predates this policy; see
+  below.
 
 ## Left for the user
 
@@ -227,15 +221,14 @@ A primitive's meaning comes from, in this order:
     `putCharLn` for a multi-byte one.
   - By the order above, that makes its meaning the low byte, which both
     stock backends write.
-  - This compiler writes UTF-8 (`put-char-utf8`), a decision taken
-    before this policy. Reversing it needs a byte-writing op for putChar
-    beside `idr.io.put_char`, which output fusion uses for the characters
-    of strings.
+  - This compiler writes UTF-8, a decision taken before this policy.
+    Reversing it needs a byte-writing op for putChar beside
+    `idr.io.put_char`, which output fusion uses for the characters of
+    strings.
 - **Casting NaN or an infinity to an integer crashes** (`idr.to_int`), as
   Chez's `exact-truncate` raises. Idris's casts are total. IEEE 754 makes
   the conversion invalid, with a result it leaves to the language.
 - **Outside the runtime:** the compiler still cites Chez for a buffer
   write of an Int outside 0 to 255, which crashes "as Chez's
-  bytevector-u8-set! refuses it" (`IdrOps.td`,
-  `Registry/Primitives.idr`). Its authority is base's `Data.Buffer`,
-  which this audit did not cover.
+  bytevector-u8-set! refuses it" (`IdrOps.td`). Its authority is base's
+  `Data.Buffer`, which this audit did not cover.

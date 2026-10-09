@@ -3,10 +3,10 @@ module Main
 import Prelude
 
 -- A Char is a Unicode scalar value, and putChar writes its UTF-8 encoding,
--- as putStr writes a string's: 'È' (200) is c3 88 and 'λ' (955) is ce bb.
--- The stock Chez backend writes the low byte instead (chez-differs). The
--- byte ca on stdin is read back as the character 202, and characters
--- computed at runtime from it are written the same way.
+-- as putStr writes a string's: 'È' (200) is c3 88 and 'λ' (955) is ce bb,
+-- where upstream's backends write the low byte. The byte ca on stdin is
+-- read back as the character 202, and characters computed at runtime from
+-- it are written the same way.
 main : IO ()
 main = do
   putChar (chr 128)

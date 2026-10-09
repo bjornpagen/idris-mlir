@@ -7,7 +7,7 @@ module Main
 -- types; values out of a fixed-width target's range wrap modulo its
 -- width, a Double truncates towards zero, and a negative number is 0 as
 -- a Nat. Then Cast a a, and cast passed through a constraint. Each line
--- is printed so that Chez checks what it computes.
+-- is printed so that what it computes is checked.
 
 import Prelude
 

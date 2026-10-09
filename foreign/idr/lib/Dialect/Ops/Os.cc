@@ -9,8 +9,9 @@ using namespace idr;
 
 namespace {
 
-// Chez's spelling of the operating system, from the target triple: Linux
-// and the BSDs are "unix", Apple's is "darwin", Windows is "windows".
+// The operating system as Idris's Scheme backends spell it, from the
+// target triple: Linux and the BSDs are "unix", Apple's is "darwin",
+// Windows is "windows".
 llvm::StringRef osName() {
   llvm::StringRef triple = IDRIS_MLIR_TARGET_TRIPLE;
   if (triple.contains("apple") || triple.contains("darwin"))

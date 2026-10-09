@@ -1,6 +1,6 @@
 # The residues' loop computes from the index alone, so its body only
 # computes, and after idr-vectorize it runs on the target's lanes; that
-# idr-narrow-lanes leaves those lanes 64-bit is what the output shows,
-# against Chez's.
+# idr-narrow-lanes leaves those lanes 64-bit is what the output shows: the
+# 64-bit residues expected-stdout holds.
 idr-rc: pure-array-loops
 idr-vectorize: vectorized

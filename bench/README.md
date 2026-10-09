@@ -15,11 +15,11 @@ limit (about 64 MiB) on macOS. Only cfold needs a deep one: its programs
 recurse 48 to 56 MiB on x86-64, which fits. The output starts with what it
 ran on: the host, its CPU, that stack limit and each compiler's version.
 
-The script checks that the two Idris backends print the same text and that
-every program prints the same numbers (to 1e-9), or the same bytes where
-the game compares bytes, and reports the best of the runs in wall-clock
-seconds, process start included (about a millisecond). The last column is
-clang's time over this compiler's: above 1, this compiler is faster.
+The script checks that every program prints the same numbers (to 1e-9),
+or the same bytes where the game compares bytes, and reports the best of
+the runs in wall-clock seconds, process start included (about a
+millisecond). The last column is clang's time over this compiler's: above
+1, this compiler is faster.
 
 ## Results
 

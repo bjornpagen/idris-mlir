@@ -4,7 +4,7 @@ module Main
 -- (covers): the constructors of the pairs, dependent pairs and Unit,
 -- their projections, laziness, the literal interfaces' methods and
 -- default implementations and transport along an equality, each line
--- printed so that Chez checks what it computes. The rest, assert_total,
+-- printed so that what it computes is checked. The rest, assert_total,
 -- assert_smaller, assert_linear, believe_me and idris_crash, are what
 -- Idris marks %unsafe: escape hatches, which user code may not write.
 

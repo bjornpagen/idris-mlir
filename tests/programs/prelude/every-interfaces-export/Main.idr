@@ -10,8 +10,8 @@ module Main
 -- only foldr, These gives Bifunctor only bimap and Bifoldable only
 -- bifoldr, Tagged gives Bifunctor only mapFst and mapSnd, State gives
 -- Monad only (>>=) and Box only join. The interfaces' constructors are
--- compile-time only. Each line is printed so that Chez checks what it
--- computes.
+-- compile-time only. Each line is printed so that what it computes is
+-- checked.
 
 import Prelude
 

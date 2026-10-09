@@ -2,9 +2,8 @@
 # The compiler an upstream run script receives as $1. Check, REPL and -o
 # go to idris-mlir. --exec is how upstream runs a program; this compiler
 # has no --exec, so that becomes -o and the program, which is what
-# tools/compile.sh does. --cg names whichever backend the script was
-# comparing; the one under test is mlir. Chez is run separately, as the
-# stock idris2, and is not reached through here.
+# tools/compile.sh does. --cg names whichever backend the script runs;
+# the one under test is mlir.
 root=${IDRIS_MLIR_ROOT:?IDRIS_MLIR_ROOT must name the repository}
 idris_mlir=$root/compiler/build/exec/idris-mlir
 [ -x "$idris_mlir" ] || {

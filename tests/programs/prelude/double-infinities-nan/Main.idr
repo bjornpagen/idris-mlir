@@ -4,8 +4,7 @@ module Main
 -- and nan, a NaN whatever its sign. They read back through `cast`, and
 -- `show` puts -inf in parentheses, as any negative number. Values made from
 -- stdin, so that the runtime computes them, and 1.0 / 0.0, which the
--- compiler folds through the same runtime. Chez writes Scheme's +inf.0,
--- -inf.0 and +nan.0 (chez-differs).
+-- compiler folds through the same runtime.
 
 import Builtin
 import Prelude

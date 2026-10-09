@@ -1,7 +1,7 @@
 module Main
 
 -- Numerical methods written against a user numeric interface, on a value
--- read at run time, diffed against the stock Chez backend.
+-- read at run time.
 
 import Arith
 import Complex

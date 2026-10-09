@@ -5,8 +5,8 @@ module Main
 -- unbracketed beside one of a different precedence and beside itself,
 -- at values where any other grouping computes something else, and
 -- <=>, which the prelude declares but does not define, at a definition
--- of the program's own. Each line is printed so that Chez checks what it
--- computes.
+-- of the program's own. Each line is printed so that what it computes is
+-- checked.
 
 import Prelude
 

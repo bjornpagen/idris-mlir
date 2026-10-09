@@ -4,7 +4,7 @@ module Main
 -- Ord's methods at the prelude's types and at Suit, whose implementations
 -- are built with MkEq and MkOrd; the constructors of Ordering, contra,
 -- comparing, compareInteger and the Reverse implementation. Each line is
--- printed so that Chez checks what it computes.
+-- printed so that what it computes is checked.
 
 import Prelude
 

@@ -4,8 +4,7 @@
 
 # bench_smoke DIR: every benchmark, bench/<name>/Main.idr with bench/lib's
 # modules as bench/run.sh builds it, run on DIR/<name>.in, prints
-# DIR/<name>.out, exits 0 and writes nothing on stderr. The recorded
-# outputs are the stock Chez backend's.
+# DIR/<name>.out, exits 0 and writes nothing on stderr.
 bench_smoke() {
   for bs_name in $(cd "$root/bench" && ls | LC_ALL=C sort); do
     bs_main=$root/bench/$bs_name/Main.idr
@@ -24,12 +23,6 @@ bench_smoke() {
         say "$bs_name: not rejected as recorded (compile exit $compiled)"
         show "$work/compile.err"
       fi
-      continue
-    fi
-    # A benchmark whose output differs from Chez's for a decided reason is
-    # not compared with Chez's output.
-    if [ -f "$root/bench/$bs_name/differs" ]; then
-      say "$bs_name: output differs from Chez's, as recorded"
       continue
     fi
     if [ ! -f "$1/$bs_name.in" ] || [ ! -f "$1/$bs_name.out" ]; then

@@ -195,10 +195,10 @@ primitives =
   -- base's Data.Buffer is an array of bytes. Its size is the array's
   -- length. A byte is that element (setBits8, getBits8). A wider value is
   -- the target's own load or store of those bytes, so the endianness is
-  -- the machine's, as Chez's native-endianness is. setByte, getByte and
-  -- bufferData are deprecated names: a program that calls one is rejected,
-  -- and the message names the replacement. They share Chez's byte spec
-  -- with the Bits8 operations; the declared name picks the entry.
+  -- the machine's. setByte, getByte and bufferData are deprecated names: a
+  -- program that calls one is rejected, and the message names the
+  -- replacement. They share Chez's byte spec with the Bits8 operations;
+  -- the declared name picks the entry.
   , MkEntry (Def (MkQName bufferModule "Buffer")) (Typed TypeOfTypes) (ArrayType (Just byte)) [IOPrimitive]
   , bufferPrimitive "blodwen-new-buffer" "prim__newBuffer"
                     (Pi QW int (Pi Q1 world (ioRes buffer))) BufferNew

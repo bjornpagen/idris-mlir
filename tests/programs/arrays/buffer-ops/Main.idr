@@ -1,7 +1,8 @@
 module Main
 
--- A buffer is a sized block of bytes. Wider values are the machine's own
--- load and store of those bytes, so this program's text is Chez's.
+-- A buffer is a sized block of bytes. Wider values are the target's own
+-- load and store of those bytes, in the target's byte order: expected-stdout
+-- is a little-endian target's, as both targets are.
 
 import Prelude
 import Data.Buffer

@@ -2,16 +2,18 @@
 
 `tests/upstream-idris/run GROUP` runs one group under
 `third_party/Idris2/tests` against this compiler. `--list` prints the
-groups that are programs over the prelude and base. A program's output is
-compared with the stock Chez backend. A check or a REPL session is
-compared with the stock compiler's transcript. `threads=N` is how many
-tests run at once.
+groups that are programs over the prelude and base. A test passes when
+its run script, given this compiler, prints the test's `expected` file, as
+upstream's own runner decides. `threads=N` is how many tests run at once.
 
 `results` is one line per test, tab-separated: `pass`, `fail` or `skip`,
-the test, and for a failure the first error or the output mismatch.
+the test, and for a failure the first error or the output mismatch. The
+`results` committed here are from a run that compared with the stock
+compiler's own transcript instead, which is what `stock` names in them.
 Threads, collector finalizers, raw pointers, `unsafePerformIO` in the
-test's own source, network, and the packages this compiler does not
-implement are skipped, with that reason.
+test's own source, network, the packages this compiler does not
+implement, and a script that also runs another backend are skipped, with
+that reason.
 
 The groups `--list` names, run here: 567 passed, 47 failed, 28 skipped.
 Of the skips, 10 are not a commitment, 7 are threads, 10 are raw pointers
@@ -25,8 +27,8 @@ one fails or skips for that reason.
 
 The programs under `third_party/Idris2/tests` that compile here and stay
 inside the language were run against the stock Chez backend. Where both
-produced a result, the text and the exit status matched, except the
-differences `tests/lib/chez-divergences` already names.
+produced a result, the text and the exit status matched, except where this
+compiler differs on purpose (`decision-primitive-semantics.md`).
 
 ## Matched
 
@@ -60,15 +62,16 @@ compile; see below.
 ## Already decided
 
 - `prelude/double001`, `allbackends/evaluator005` and
-  `allschemes/scheme001` differ by `double-special-text` (`inf` / `-inf` /
-  `nan` against Chez's `+inf.0` / `-inf.0` / `+nan.0`). In `scheme001` the
-  further numeric lines are `cast-string-literal`: `-1.`, `.1`, `+.1`,
-  `+nan.0` and `+inf.0` are not Idris literals, so `cast` is 0.
+  `allschemes/scheme001` differ in the text of the infinities and NaN
+  (`inf` / `-inf` / `nan` against Chez's `+inf.0` / `-inf.0` / `+nan.0`).
+  In `scheme001` the further numeric lines are the cast from String: `-1.`,
+  `.1`, `+.1`, `+nan.0` and `+inf.0` are not Idris literals, so `cast` is
+  0.
 - `chez/reg001` and `node/reg001` match through `cast {to = Double} "5.9"`.
   The last line is `cast {to = Int} "6.6" \`div\` cast "3.9"`. Chez's
   `string->number` truncates those to 6 and 3. This compiler's cast is 0,
-  and `0 \`div\` 0` stops in `Prelude.Num.div`. That is
-  `cast-string-literal`.
+  and `0 \`div\` 0` stops in `Prelude.Num.div`. That is the cast from
+  String.
 - `allbackends/issue2362` prints a negative zero as `-0.0` and a positive
   zero as `0.0`. Equality holds and `show` differs. The printer keeps the
   sign.

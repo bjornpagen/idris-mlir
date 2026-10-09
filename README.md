@@ -58,14 +58,14 @@ imported explicitly (`--no-prelude` plus `import Prelude`): interfaces
 resolved at compile time, `Integer`, `Nat`, `Double`, strings, lists,
 `Data.Vect`, base's `IOArray` and `Buffer`, and `System.File` on the
 standard streams. Linear arrays and lists come from the compiler's own
-`libs/mlir-linear`, plain Idris the stock backend runs unchanged. Values
+`libs/mlir-linear`, plain Idris over base's primitives. Values
 that remain after the pipeline live in counted cells: `idr-rc` reuses the
 cell of a value that dies, borrows what a function only reads, and the
 verifier checks after every pass that every reference is consumed exactly
 once; cells that never leave their frame are on the stack. A call in tail
 position that goes round a cycle of calls is a guaranteed tail call, so a
 loop through such calls (a mutual recursion, an IO loop through its binds)
-runs in constant stack, as on Chez. With
+runs in constant stack. With
 `IDRIS_RT_LIVE=1` a program reports how many cells are live when it ends:
 none. What the compiler cannot compile it rejects with a named rule
 (`unsupported (<rule>)`), never miscompiles. The measurements are in

@@ -1,7 +1,7 @@
 module Main
 
--- A word that does not lie in the buffer ends the program, as Chez's
--- bytevector access does.
+-- A word that does not lie in the buffer ends the program, explicitly, at
+-- the access, after the output before it.
 
 import Prelude
 import Data.Buffer

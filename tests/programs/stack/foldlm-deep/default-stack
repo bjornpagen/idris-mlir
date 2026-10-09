@@ -1,4 +1,4 @@
 foldlM runs a chain of binds nested to the left, each of which runs the
 one inside it before its own continuation, so the stack goes as deep as
-the list is long, in Chez too, whose stack grows on the heap: a million
-frames need more than the 1 MiB stack, and fit the one programs get.
+the list is long: a million frames need more than the 1 MiB stack, and
+fit the one programs get.

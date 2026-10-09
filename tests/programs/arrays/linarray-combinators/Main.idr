@@ -2,9 +2,9 @@ module Main
 
 -- The loops over an array's index space of Linear.Array (generate, imap,
 -- map, zipWith, ifoldl, foldl, sum), each over an array of words, which
--- this compiler runs as one linalg operation, against the stock Chez
--- backend running the library's own definitions. The last one, over an
--- array of pairs, compiles as the library writes it: the same loop in Idris.
+-- this compiler runs as one linalg operation, and which must compute what
+-- the library's own definitions compute. The last one, over an array of
+-- pairs, compiles as the library writes it: the same loop in Idris.
 
 import Prelude
 import Data.List
