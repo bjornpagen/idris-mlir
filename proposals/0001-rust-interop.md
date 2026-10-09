@@ -4,6 +4,17 @@ Status: proposed, 2026-10-04, at 6fda6d8. Nothing here changes the
 compiler. Once the user decides on it, it becomes a
 `findings/decision-*.md` note and a staged plan (§14).
 
+Amended 2026-10-09:
+
+- A binding is a generated runtime primitive, not a `%foreign "rust:"`
+  convention (`findings/concurrency.md` §5.5): §1, §2, §4, §8.1 and §9.2.
+- The LLVM pin is a trunk commit (proposal 0003), and rustc keeps its own
+  LLVM: §14 R0 and §15.
+- One crate graph and one surface per program, from the union of every
+  package's manifest; selection and slicing of what is bound; the surface
+  is the intersection of both targets' APIs: §5, §6, §9.3, §13 and §14.
+  These come from reading hs-bindgen (§15).
+
 The brief: give programs the Rust ecosystem as their way out to the rest
 of the world (databases, HTTP, crypto, parsers, cloud APIs), and reach C
 only through Rust (`libc`, the `-sys` crates and the safe wrappers already
@@ -52,11 +63,14 @@ but never reached).
 The design in one paragraph. A project names the crates it uses in
 `rust.toml`. A generator, `idris-mlir-bind`, reads each crate's public API
 from rustdoc's JSON and writes two things from one description: an Idris
-package of bindings, and a Rust crate of shims. The bindings are plain
-Idris over `%foreign` definitions, each with two specs: `rust:` for this
-compiler and `C:` for the stock Chez backend. Chez loads the shims as a
-shared library, so the oracle runs the same program. This compiler gives
-the `rust:` convention one meaning through the registry: a call of a
+package of bindings, and a Rust crate of shims. Each binding is a
+runtime primitive: an Idris declaration in the generated package, plus a
+registry entry the generator writes from the same description, which
+recognizes the definition by its name and origin, as base's foreign
+functions are recognized (`substrate.md` S5.2). The declaration also
+carries a `C:` spec, which is only the stock Chez backend's spelling of
+the same call: Chez loads the shims as a shared library, so the oracle
+runs the same program. This compiler lowers the primitive to a call of a
 runtime-ABI shim, compiled by the pinned rustc to bitcode and joined to
 the program before O3. Rust values live in counted foreign cells.
 Ownership maps onto the existing grades:
@@ -91,8 +105,8 @@ the design:
    generating bindings at elaboration time.
 3. **Features are libraries; the registry may make them faster or
    stricter, never different** (Registry.idr). The bindings must have a
-   meaning the stock Chez backend runs unchanged, and the registry's
-   `rust:` hook is a faster lowering of that same meaning.
+   meaning the stock Chez backend runs unchanged, and each binding's
+   generated registry entry is a faster lowering of that same meaning.
 4. **Chez is the oracle, not the specification.** Every deliberate
    difference is a named class in `tests/lib/chez-divergences`.
 5. **One thing, one representation.** A crate's interface is described
@@ -148,33 +162,37 @@ the design:
 rust.toml ──► idris-mlir-bind ──► rustdoc JSON of each crate (pinned rustdoc)
                     │
                     ▼
-              the surface (one description per crate graph)
+              the surface (one description per program, both targets)
                ┌────┴──────────────────────────┐
                ▼                               ▼
    build/rust/idris/  Idris package     build/rust/shims/  Rust crate
-   Rust.<Crate>.* modules               two entries per item: rust: (runtime ABI)
-   %foreign "rust:..." "C:..."          and C: (Chez's C FFI)
+   Rust.<Crate>.* modules               two entries per item: the runtime-ABI
+   + generated registry entries         entry and the C entry (Chez's C FFI)
+   %foreign "C:..." (Chez's spelling)
                │                               │
                │                    cargo (pinned, offline, vendored)
                │                    ┌──────────┴───────────┐
                ▼                    ▼                      ▼
    idris-mlir frontend    libidrs.a: every member     libidrs.so / .dylib:
-   (registry: rust: hook) carries bitcode             the Chez oracle's
+   (registry: generated)  carries bitcode             the Chez oracle's
                │                    │
                ▼                    ▼
    idr dialect ──► idr-rc ──► idr-lower ──► linkRuntime + linkRust ──► O3 ──► link
 ```
 
-- **`rust.toml`** is the project's manifest (§5). It sits beside the
-  project's `.ipkg`, since Idris's ipkg has no field for it.
+- **`rust.toml`** is a package's manifest (§5), an application's or a
+  library's. It sits beside the package's `.ipkg`, since Idris's ipkg has
+  no field for it. A program's build reads the manifests of every package
+  it depends on.
 - **`idris-mlir-bind`** is the generator (§6). It is a Rust program
   in `foreign/rust/bind/`, built by the pinned cargo, because the
   interface it reads is Rust's and `rustdoc-types` is the reader rustdoc
   publishes (recalled).
 - **The surface** is the generator's one intermediate description: per
-  crate graph, every bound item with its Idris type, the ownership mode
-  of each parameter and result, and the shim symbols. The two outputs are
-  printed from it and nothing else, so they cannot disagree.
+  program, every bound item with its Idris type, the ownership mode of
+  each parameter and result, and the shim symbols. Its outputs (the
+  binding package, the registry entries and the shim crate) are printed
+  from it and nothing else, so they cannot disagree.
 - **`libs/mlir-rust`** is a new in-house package, `Rust.Core`. It is plain
   Idris over base and PrimIO: the handle types (`Rust`, `Shared`),
   `freeze`, the result-handle helpers, and `IdrisValue`. Every binding
@@ -206,22 +224,45 @@ WordCounts = "std::collections::HashMap<String, i64>"
 # plain structs and enums whose fields are all copyable across (§7.4).
 [values]
 "regex::Match" = { fields = ["start", "end"] }
+
+# What to bind of a crate: "all" (its whole public API, the default for
+# a small crate) or path patterns. Types the selected items mention are
+# bound too (slicing, §6), from whichever crate they live in.
+[select]
+serde_json = "all"
+rusqlite   = ["rusqlite::Connection::*", "rusqlite::Statement::*"]
 ```
 
+- **One crate graph per program.** A library package that uses Rust ships
+  its `rust.toml`, never generated bindings. A program's build takes the
+  union of the manifests of the program and of every package it depends
+  on, and resolves one crate graph from it. Every Rust type then has one
+  Idris type in the program, and the link holds one shim archive and one
+  `std` (§9.3). Two manifests whose requirements on a crate cannot be met
+  by one version are rejected, naming both packages; Cargo's own
+  duplicate versions of a crate (two semver-incompatible majors in one
+  graph) stay distinct Rust types and get distinct Idris types. A
+  library's binding modules are generated at the program's build, under
+  the program's `build/rust/`, so a library compiles against the surface
+  of the program that uses it.
 - Cargo resolves the crate graph once, at generation, into `rust.lock` (a
-  Cargo.lock), which the project commits. `cargo vendor` then puts every
-  source under `build/rust/vendor/`, and every later build is offline.
-  Generation is the one step that reaches crates.io.
-- Nothing is bound that the manifest does not name. The default for a
-  crate is every public item whose types §7 can map; an item that cannot
-  be mapped is listed in the generator's report with its reason, never
-  silently dropped.
+  Cargo.lock), which the application commits. `cargo vendor` then puts
+  every source under `build/rust/vendor/`, and every later build is
+  offline. Generation is the one step that reaches crates.io.
+- **What is bound** is what `[select]` names in a named crate, plus
+  everything slicing pulls in (§6). The default for a named crate is its
+  whole public API. An item that is selected but cannot be mapped is
+  listed in the generator's report with its reason, never silently
+  dropped.
 
 ## 6. The generator
 
 **Input.** `rustdoc --output-format json` (nightly, `-Z
-unstable-options`; recalled) of each named crate, run by the pinned
-toolchain. That JSON carries:
+unstable-options`; recalled) of each crate in the graph, run by the
+pinned toolchain once per target entry
+(`x86_64-unknown-linux-musl`, `aarch64-apple-darwin`): a crate's public
+API depends on its `#[cfg]`s, so it is a per-target fact. That JSON
+carries:
 
 - public items, signatures with lifetimes and generics, and where-clauses;
 - trait impls, including the auto-trait impls rustdoc synthesizes for
@@ -243,16 +284,39 @@ format fails at the build of the generator, not at runtime.
 - **destructor:** whether the type needs drop (`std::mem::needs_drop`,
   evaluated in the shim crate, not guessed).
 
-**Output, per crate graph:**
+**Selection and slicing.** The generator starts from the items
+`[select]` names, then adds, transitively, every type their signatures
+mention (parameters, results, the receiver's type, trait bounds that
+§7.5 maps), from whichever crate of the graph defines it, whether or not
+the manifest names that crate. A type pulled in this way is bound as an
+opaque handle (§7.1) with its §7.5 traits, and its own methods only if
+they are selected. So `reqwest::Client::get` brings `RequestBuilder`,
+`http::Method` and `url::Url` with it, as handles, without binding all
+of `http` and `url`.
+
+**Both targets, one surface.** The surface holds only items that exist,
+with the same signature, on every target entry. An item present on one
+target only, or with different signatures, is left out and reported with
+the reason `rust cfg`, naming the targets. This keeps the program's
+meaning the same on both targets and on Chez. A target-only API is
+reached by a separate, target-named binding package when a program
+needs one, which is later work.
+
+**Output, per program:**
 
 - `build/rust/idris/rust-<graph>.ipkg` and `Rust/<Crate>/*.idr`: the
   binding package, compiled and installed per project as `libs/` is per
   checkout;
 - `build/rust/shims/`: the shim crate, with `Cargo.toml` and one source
   file per bound crate;
-- `build/rust/report.txt`: every public item not bound, with its reason;
+- `build/rust/report.txt`: every selected item not bound, with its reason;
 - `build/rust/surface.digest`: the digest of the surface, which trust
-  checks (§8.1).
+  checks (§8.1);
+- `rust.surface`: a readable listing of the surface (each bound item's
+  Rust path, Idris type and modes, in path order), which the application
+  commits beside `rust.lock`, so that a crate bump or a manifest change
+  shows its API change in review. The build regenerates it and fails if
+  it differs from the committed one, as a lock file does.
 
 **Determinism.** Items are emitted in path order, symbols are derived from
 paths and the graph's digest, and timestamps are never written.
@@ -260,8 +324,9 @@ paths and the graph's digest, and timestamps are never written.
 
 **Symbols.** `idrs_<graph8>_<crate>__<path>__<item>` for the runtime-ABI
 entry, and the same with `__chez` for the C entry. `<graph8>` is eight hex
-digits of the surface digest, so two projects' shims never collide in one
-link.
+digits of the surface digest. A program has one surface, so its link has
+one set of shim symbols; the digest only keeps a stale archive from
+another surface from linking silently.
 
 ## 7. The surface: how Rust types become Idris types
 
@@ -472,7 +537,7 @@ generic `F: Fn(A) -> B` takes an Idris function `A -> B` (or
 - **The compiler side.** Closures of known labels are defunctionalized
   into sums (`idr-defunctionalize`). For each sum that reaches a Rust
   callback, the compiler exports its apply function under a symbol the
-  `rust:` hook names, with the runtime's ABI (§9.2).
+  binding's registry entry names, with the runtime's ABI (§9.2).
 - **On Chez,** a function argument to a C function is a callback the
   backend already builds (Chez.idr's `callback`; read).
 - **Constraints:**
@@ -500,8 +565,9 @@ trusted code (§2.2). Trust never follows from a name
   generator recorded in `build/rust/surface.digest`, and the frontend
   checks that digest. A hand edit makes the package `Untrusted`, so its
   definitions can be loaded but not reached, with the reason named.
-- **Its `%foreign` definitions** may use the `rust:` and `C:` conventions,
-  and nothing else.
+- **Its `%foreign` definitions** carry a `C:` spec only (Chez's
+  spelling), and each is reachable only through its generated registry
+  entry, which names it by name and origin.
 - **`Rust.Core` (`libs/mlir-rust`)** is `InHouse` like `mlir-linear`. It
   joins the table as a row in `moduleOrigin`.
 - **`GCPtr` and `prim__onCollect`, for `Rust` and `InHouse` origins
@@ -627,14 +693,20 @@ whose `t` is a binding's `[external]` phantom to it, through a new hook,
 
 ### 9.2 The call
 
-**Registry.** A new kind of key, `Convention String`, matches every spec
-of a convention. It is valid only at definitions whose origin is
-`Library Rust` or `Library InHouse`. One entry, `Convention "rust"`, has
-the hook `RustCall`. `checkReachable` accepts a `ForeignDef` with that
-hook, and still rejects every other unregistered `%foreign`.
+**Registry.** Each binding is a runtime primitive with its own registry
+entry, which `idris-mlir-bind` generates from the surface beside the
+shim (`findings/concurrency.md` §5.5). The entry names the definition
+by its name and its origin (`Library Rust`), as base's foreign functions
+are named (`substrate.md` S5.2), with the hook `RustCall` and the shim's
+symbol. The `C:` spec on the definition is only Chez's spelling, and
+this compiler does not read it. `checkReachable` accepts a definition
+with an entry and still rejects every other `%foreign`. The generated
+entries live in the program's build directory and are loaded with the
+generated package; they are valid only at definitions of `Library Rust`
+origin, so no user module can claim one.
 
 **The convention is the runtime's own C ABI** (**decision**). A
-`rust:<symbol>` shim is called exactly as idr-lower calls an
+binding's shim is called exactly as idr-lower calls an
 `idris_rt_*` function (Lower/RuntimeCalls.cppm), and it follows the same
 ownership rule: it borrows its arguments and returns an owned result.
 
@@ -675,6 +747,15 @@ with every other effect, and it keeps compile-time evaluation off them
 the shim archive's members to the program's module with
 `LinkOnlyNeeded`, before O3, so a binding's call and the Rust code under
 it optimize as one function.
+
+**One archive per program.** The program's one surface (§5) gives one
+shim crate and one archive, with one copy of `std`, one
+`#[global_allocator]` (§9.4) and one panic runtime. This is what makes
+the static link sound: two archives built from two graphs would each
+bring their own `std`, and their symbols would collide or, worse, two
+allocators would share one heap. The driver refuses a program whose
+packages bring generated bindings from more than one surface, naming
+them.
 
 - **What the archive contains.** It is built as the runtime's archive is
   for the target entry, with every member carrying its bitcode with its
@@ -726,7 +807,8 @@ New rules in `Rule.idr`, each with a reject fixture:
 
 | Rule | Who rejects | When |
 |---|---|---|
-| `rust` | the generator, through the driver | an item cannot be bound; the phrase names the item and the reason (`rust pointer`, `rust send`, `rust lifetime`, `rust async`) |
+| `rust` | the generator, through the driver | an item cannot be bound; the phrase names the item and the reason (`rust pointer`, `rust send`, `rust lifetime`, `rust async`, `rust cfg`) |
+| `rust graph` | the generator, through the driver | two packages' manifests require versions of one crate that no single version satisfies, naming both packages; or a program's packages bring bindings from more than one surface |
 | `uniqueness` | idr-rc, under `--static-borrows` | a residual borrow or move check |
 | `finalizer` | the frontend | `onCollect` with any finalizer other than a registered drop shim (stricter: the finalizer would run inside the release walk) |
 
@@ -848,6 +930,16 @@ give bytes out, and the program owns the sockets.
   properties, never as op sequences.
 - **The generator's own tests:** determinism, the report's contents, and
   the trust digest (a hand edit makes the package untrusted).
+- **The surface's rules**, each a fixture:
+  - slicing: a selected method whose result type is in an unnamed crate
+    binds that type as a handle, and nothing else of that crate;
+  - both targets: a crate with a `#[cfg(target_os = "macos")]` item
+    reports it as `rust cfg` and binds the rest, on both targets;
+  - one graph: a library package's manifest plus the application's give
+    one surface and one archive; conflicting requirements are a
+    `rust graph` reject fixture naming both packages;
+  - `rust.surface` drift: a manifest change without regenerating the
+    committed listing fails the build with the diff.
 
 ## 14. Plan
 
@@ -866,18 +958,23 @@ new pool green on both target entries.
     cargo, rustdoc and `rust-src` against the stage-2 LLVM becomes an
     option again once a nightly is on our major; it is not required.
   - **Bitcode linking:** a hand-written binding of one function
-    (`fn add(a: i64, b: i64) -> i64`) with both specs, called through
-    `rust:` and joined by `linkRust`; its `mlir.expect` property is that
-    the call is inlined.
+    (`fn add(a: i64, b: i64) -> i64`) with its `C:` spec and a
+    hand-written registry entry, joined by `linkRust`; its `mlir.expect`
+    property is that the call is inlined.
   - **Exit criterion:** the program runs on both targets and on Chez, and
     the shim's bitcode reads in the pinned LLVM.
 - **R1, foreign cells and the generator.**
   - **Runtime and dialect:** `KIND_FOREIGN` and its freeing,
-    `!idr.foreign`, `idr.rust.call`, the registry's `Convention` key, and
+    `!idr.foreign`, `idr.rust.call`, generated registry entries, and
     `Generated` trust.
   - **Generator v0:** free functions, opaque `Shared` types, §7.2, and
-    `Option`/`Result` through result handles.
-  - **Fixtures:** `regex` and `sha2`.
+    `Option`/`Result` through result handles; `[select]` and slicing;
+    rustdoc per target entry and the intersection, with `rust cfg` in the
+    report; `rust.surface`.
+  - **One graph per program:** manifests from dependencies unioned, one
+    archive, the conflict rejection.
+  - **Fixtures:** `regex` and `sha2`, and a library package with a
+    manifest used by an application that binds a second crate.
 - **R2, mutation and ownership.** `Rust t`, `freeze`, `&mut`, by-value
   moves, `&mut` borrows, the slot flag and §8.3 with its fixtures, value
   types and enum views, inline foreign cells, and the `idr-stack`
@@ -922,6 +1019,34 @@ The bootstrap's rustc build adds roughly an hour to `make bootstrap`
   newer than ours, since newer LLVM reads older bitcode, and
   `verify-pins` enforces that bound; rustc built against our LLVM is
   possible only when a nightly is on our major.
+- **Generating bindings from C headers, as hs-bindgen does for Haskell**
+  (well-typed/hs-bindgen, read 2026-10-09: its manual on binding
+  specifications, portability, and selection and slicing). Not
+  applicable: this design reaches C only through Rust, and no C header is
+  read. Its portability problem does not arise either. hs-bindgen freezes
+  sizes and offsets that libclang reports at generation time into the
+  bindings, which its manual says "are not portable in general, and
+  cannot be"; here only words cross a call (§9.2), Idris layouts are
+  decided per program (§7.4), and the one layout table (R2's inline
+  slots) comes from the same rustc build as the shim, for its target.
+  Static LTO also removes its wrapper and shared-library concerns
+  (§9.3). Three of its ideas are taken, in the form a static, two-target
+  build needs:
+  - its external binding specifications, which let separately generated
+    bindings share a type, become one crate graph and one surface per
+    program from the union of every package's manifest (§5), since a
+    static link must hold one `std`;
+  - its selection predicates and program slicing become `[select]` and
+    slicing by the types a selected item mentions (§6);
+  - its advice to keep the specification as a record of the public API,
+    so that regeneration shows API changes, becomes the committed
+    `rust.surface` (§6).
+
+  Its per-target question, answered for layouts there, is answered for
+  the API here: rustdoc per target entry, and the intersection (§6).
+  rust-bindgen (C to Rust; `-sys` crates use it, and `idris-rt` is
+  generated by it) and cxx (a shared bridge description between two
+  languages, which is the shape of the surface) are the closer relatives.
 - **A library-level `ST`: a context of named resources in an indexed
   monad, with lifetimes as regions.** Rejected as the ownership layer.
   - It would represent ownership a second time, beside the grades the
@@ -956,7 +1081,11 @@ The bootstrap's rustc build adds roughly an hour to `make bootstrap`
    every plain `Copy` struct?
 4. **`Rust.<Crate>` as the namespace of every binding,** or the crate's
    own path (`Regex`, `SerdeJson`)?
-5. **The generator in Rust.** It brings a third language into the
+5. **Selection's default:** a named crate's whole public API (as now), or
+   nothing until `[select]` names it? The first is easier for small
+   crates; the second keeps a large crate from binding thousands of items
+   no program calls. Slicing makes either work.
+6. **The generator in Rust.** It brings a third language into the
    repository's own sources, with its own profile, recorded in PINS.md as
    a deviation from cpp-starter. The alternative, a C++ reader of
    rustdoc's JSON, would re-implement `rustdoc-types` and follow its
