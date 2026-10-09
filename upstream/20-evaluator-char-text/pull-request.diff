@@ -1,0 +1,52 @@
+diff --git a/src/Core/Primitives.idr b/src/Core/Primitives.idr
+--- a/src/Core/Primitives.idr
++++ b/src/Core/Primitives.idr
+@@ -2,7 +2,6 @@
+ 
+ import Core.TT
+ import Core.Value
+-import Libraries.Utils.String
+ 
+ import Data.Vect
+ 
+@@ -39,7 +38,7 @@
+ castString [NPrimVal fc (B16 i)] = Just (NPrimVal fc (Str (show i)))
+ castString [NPrimVal fc (B32 i)] = Just (NPrimVal fc (Str (show i)))
+ castString [NPrimVal fc (B64 i)] = Just (NPrimVal fc (Str (show i)))
+-castString [NPrimVal fc (Ch i)] = Just (NPrimVal fc (Str (stripQuotes (show i))))
++castString [NPrimVal fc (Ch i)] = Just (NPrimVal fc (Str (prim__cast_CharString i)))
+ castString [NPrimVal fc (Db i)] = Just (NPrimVal fc (Str (show i)))
+ castString _ = Nothing
+ 
+diff --git a/tests/idris2/evaluator/evaluator007/CharText.idr b/tests/idris2/evaluator/evaluator007/CharText.idr
+new file mode 100644
+--- /dev/null
++++ b/tests/idris2/evaluator/evaluator007/CharText.idr
+@@ -0,0 +1,13 @@
++-- The text of a Char is the Char, not the escape `show` writes for it.
++
++newline : cast '\n' = "\n"
++newline = Refl
++
++backslash : cast '\\' = "\\"
++backslash = Refl
++
++quote : cast '\'' = "'"
++quote = Refl
++
++eAcute : cast '\233' = "\233"
++eAcute = Refl
+diff --git a/tests/idris2/evaluator/evaluator007/expected b/tests/idris2/evaluator/evaluator007/expected
+new file mode 100644
+--- /dev/null
++++ b/tests/idris2/evaluator/evaluator007/expected
+@@ -0,0 +1 @@
++1/1: Building CharText (CharText.idr)
+diff --git a/tests/idris2/evaluator/evaluator007/run b/tests/idris2/evaluator/evaluator007/run
+new file mode 100644
+--- /dev/null
++++ b/tests/idris2/evaluator/evaluator007/run
+@@ -0,0 +1,3 @@
++. ../../../testutils.sh
++
++check CharText.idr

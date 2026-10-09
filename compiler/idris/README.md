@@ -118,6 +118,22 @@ and restores it, harmlessly.
   holds the call.
   A literal pattern whose conversion needs another primitive is refused,
   since the call left in it would match anything.
+- Where the evaluator does compute a primitive (`getOp`, `sharedOp` in
+  `Core.Primitives`), it calls the primitive of the same name
+  (`prim__add_Int`, `prim__cast_CharString`, ...), so the result is what
+  the runtime that runs the compiler computes, not an Idris program
+  written to agree with it: Chez's at stage 0, this compiler's runtime
+  once the fork compiles itself. Upstream computes each with Idris code
+  (`x + y`, `cast`, `show`); the two differ only for a Char's text,
+  which upstream writes as `show`'s escape (`cast '\n'` is `"\\n"`,
+  upstream/20-evaluator-char-text). Which calls reduce is unchanged
+  (a division by zero, an empty string's head and the casts to a
+  fixed-width integer from a Double, Char or String still stay applied),
+  but for two: a fixed-width integer's negation stays applied, since
+  Chez's `prim__negate_Bits8` does not wrap and this compiler's runtime
+  has no such primitive (base negates by subtraction, which upstream's
+  evaluator used for it), and the cases for adding and subtracting Chars,
+  which no primitive has, are gone.
 - `IdrisPaths`, which upstream's build generates, is written here: the
   version, tagged with the pinned commit. It has no install prefix; the
   driver passes one.

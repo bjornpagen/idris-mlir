@@ -710,17 +710,23 @@ which the top-level CMake configure gate reads.
   binds `scheme:` foreign functions that base has no counterpart for. A
   third upstream bug, found before the fork, is fixed in it too:
   elaboration folds a primitive applied to constants with Idris's own
-  implementation (elaboration-primitive-folding)
+  implementation (elaboration-primitive-folding). And a fourth: where the
+  evaluator still computes a primitive (conversion checking, a type), it
+  computes a Char's text as the escape `show` writes (`cast '\n'` is
+  `"\\n"`), so the proof `cast '\n' = "\n"` is refused
+  (upstream/20-evaluator-char-text)
 - sites: compiler/idris (README.md lists every deviation;
   `tools/extract-idris.sh status` prints the files that differ from the
   gitlink), compiler/idris/src/Idris/Package.idr (the `clean` path),
   compiler/idris/src/Idris/ProcessIdr.idr (imports `Core.AutoSearch`),
   compiler/idris/src/Libraries/Data/String/Iterator.idr,
   compiler/idris/src/Core/{Normalise,Normalise/Eval,Primitives,Value}.idr
-  (elaboration-primitive-folding)
+  (elaboration-primitive-folding), compiler/idris/src/Core/Primitives.idr
+  (every operation the evaluator computes calls the primitive of its
+  name, which fixes the Char's text; tests/upstream/evaluator-char-text)
 - workaround: none; the fork is our code. Its deviations from upstream are
   deliberate (the REPL, IDE mode, every other code generator and the CExp
-  pipeline are out of scope) except the three bug fixes, which upstream
+  pipeline are out of scope) except the four bug fixes, which upstream
   should take. The iterator's `scheme:` specs stay while the fork runs on
   Chez as stage 0, and go when string iteration is a runtime primitive
 - retire: never as a whole. Each bug fix goes when an Idris bump brings
@@ -728,4 +734,6 @@ which the top-level CMake configure gate reads.
 - upstream: not filed; the `clean` path and the unimported
   `Core.AutoSearch` are each an issue and a pull request on
   idris-lang/Idris2; elaboration's folding is
-  upstream/18-elaboration-primitive-folding
+  upstream/18-elaboration-primitive-folding, and the Char's text
+  upstream/20-evaluator-char-text (the one-line fix; the fork's calls by
+  name are its own)

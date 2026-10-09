@@ -2,11 +2,18 @@ module Core.Primitives
 
 import Core.TT
 import Core.Value
-import Libraries.Utils.String
 
 import Data.Vect
 
 %default covering
+
+-- A primitive the evaluator computes is the primitive itself, called by
+-- its name: what `prim__add_Int` means while the compiler runs is what the
+-- runtime that runs the compiler gives it, not an Idris program written to
+-- agree with it. So each operation below applies `prim__...` of the same
+-- name to the constants, and decides only whether it applies: a partial
+-- primitive (division by zero, the head of an empty string) and a cast the
+-- compiler has never folded stay applied.
 
 public export
 record Prim where
@@ -29,132 +36,217 @@ unaryOp fn [NPrimVal fc x]
 unaryOp _ _ = Nothing
 
 castString : Vect 1 (NF vars) -> Maybe (NF vars)
-castString [NPrimVal fc (I i)] = Just (NPrimVal fc (Str (show i)))
-castString [NPrimVal fc (I8 i)] = Just (NPrimVal fc (Str (show i)))
-castString [NPrimVal fc (I16 i)] = Just (NPrimVal fc (Str (show i)))
-castString [NPrimVal fc (I32 i)] = Just (NPrimVal fc (Str (show i)))
-castString [NPrimVal fc (I64 i)] = Just (NPrimVal fc (Str (show i)))
-castString [NPrimVal fc (BI i)] = Just (NPrimVal fc (Str (show i)))
-castString [NPrimVal fc (B8 i)] = Just (NPrimVal fc (Str (show i)))
-castString [NPrimVal fc (B16 i)] = Just (NPrimVal fc (Str (show i)))
-castString [NPrimVal fc (B32 i)] = Just (NPrimVal fc (Str (show i)))
-castString [NPrimVal fc (B64 i)] = Just (NPrimVal fc (Str (show i)))
-castString [NPrimVal fc (Ch i)] = Just (NPrimVal fc (Str (stripQuotes (show i))))
-castString [NPrimVal fc (Db i)] = Just (NPrimVal fc (Str (show i)))
-castString _ = Nothing
+castString = unaryOp go
+  where
+    go : Constant -> Maybe Constant
+    go (I i) = Just (Str (prim__cast_IntString i))
+    go (I8 i) = Just (Str (prim__cast_Int8String i))
+    go (I16 i) = Just (Str (prim__cast_Int16String i))
+    go (I32 i) = Just (Str (prim__cast_Int32String i))
+    go (I64 i) = Just (Str (prim__cast_Int64String i))
+    go (BI i) = Just (Str (prim__cast_IntegerString i))
+    go (B8 i) = Just (Str (prim__cast_Bits8String i))
+    go (B16 i) = Just (Str (prim__cast_Bits16String i))
+    go (B32 i) = Just (Str (prim__cast_Bits32String i))
+    go (B64 i) = Just (Str (prim__cast_Bits64String i))
+    go (Ch i) = Just (Str (prim__cast_CharString i))
+    go (Db i) = Just (Str (prim__cast_DoubleString i))
+    go _ = Nothing
 
 castInteger : Vect 1 (NF vars) -> Maybe (NF vars)
-castInteger [NPrimVal fc (I i)] = Just (NPrimVal fc (BI (cast i)))
-castInteger [NPrimVal fc (I8 i)] = Just (NPrimVal fc (BI (cast i)))
-castInteger [NPrimVal fc (I16 i)] = Just (NPrimVal fc (BI (cast i)))
-castInteger [NPrimVal fc (I32 i)] = Just (NPrimVal fc (BI (cast i)))
-castInteger [NPrimVal fc (I64 i)] = Just (NPrimVal fc (BI (cast i)))
-castInteger [NPrimVal fc (B8 i)] = Just (NPrimVal fc (BI (cast i)))
-castInteger [NPrimVal fc (B16 i)] = Just (NPrimVal fc (BI (cast i)))
-castInteger [NPrimVal fc (B32 i)] = Just (NPrimVal fc (BI (cast i)))
-castInteger [NPrimVal fc (B64 i)] = Just (NPrimVal fc (BI (cast i)))
-castInteger [NPrimVal fc (Ch i)] = Just (NPrimVal fc (BI (cast (cast {to=Int} i))))
-castInteger [NPrimVal fc (Db i)] = Just (NPrimVal fc (BI (cast i)))
-castInteger [NPrimVal fc (Str i)] = Just (NPrimVal fc (BI (cast i)))
-castInteger _ = Nothing
+castInteger = unaryOp go
+  where
+    go : Constant -> Maybe Constant
+    go (I i) = Just (BI (prim__cast_IntInteger i))
+    go (I8 i) = Just (BI (prim__cast_Int8Integer i))
+    go (I16 i) = Just (BI (prim__cast_Int16Integer i))
+    go (I32 i) = Just (BI (prim__cast_Int32Integer i))
+    go (I64 i) = Just (BI (prim__cast_Int64Integer i))
+    go (B8 i) = Just (BI (prim__cast_Bits8Integer i))
+    go (B16 i) = Just (BI (prim__cast_Bits16Integer i))
+    go (B32 i) = Just (BI (prim__cast_Bits32Integer i))
+    go (B64 i) = Just (BI (prim__cast_Bits64Integer i))
+    go (Ch i) = Just (BI (prim__cast_CharInteger i))
+    go (Db i) = Just (BI (prim__cast_DoubleInteger i))
+    go (Str i) = Just (BI (prim__cast_StringInteger i))
+    go _ = Nothing
 
 castInt : Vect 1 (NF vars) -> Maybe (NF vars)
-castInt [NPrimVal fc (I8 i)] = Just (NPrimVal fc (I (cast i)))
-castInt [NPrimVal fc (I16 i)] = Just (NPrimVal fc (I (cast i)))
-castInt [NPrimVal fc (I32 i)] = Just (NPrimVal fc (I (cast i)))
-castInt [NPrimVal fc (I64 i)] = Just (NPrimVal fc (I (cast i)))
-castInt [NPrimVal fc (BI i)] = Just (NPrimVal fc (I (cast i)))
-castInt [NPrimVal fc (B8 i)] = Just (NPrimVal fc (I (cast i)))
-castInt [NPrimVal fc (B16 i)] = Just (NPrimVal fc (I (cast i)))
-castInt [NPrimVal fc (B32 i)] = Just (NPrimVal fc (I (cast i)))
-castInt [NPrimVal fc (B64 i)] = Just (NPrimVal fc (I (cast i)))
-castInt [NPrimVal fc (Db i)] = Just (NPrimVal fc (I (cast i)))
-castInt [NPrimVal fc (Ch i)] = Just (NPrimVal fc (I (cast i)))
-castInt [NPrimVal fc (Str i)] = Just (NPrimVal fc (I (cast i)))
-castInt _ = Nothing
+castInt = unaryOp go
+  where
+    go : Constant -> Maybe Constant
+    go (I8 i) = Just (I (prim__cast_Int8Int i))
+    go (I16 i) = Just (I (prim__cast_Int16Int i))
+    go (I32 i) = Just (I (prim__cast_Int32Int i))
+    go (I64 i) = Just (I (prim__cast_Int64Int i))
+    go (BI i) = Just (I (prim__cast_IntegerInt i))
+    go (B8 i) = Just (I (prim__cast_Bits8Int i))
+    go (B16 i) = Just (I (prim__cast_Bits16Int i))
+    go (B32 i) = Just (I (prim__cast_Bits32Int i))
+    go (B64 i) = Just (I (prim__cast_Bits64Int i))
+    go (Db i) = Just (I (prim__cast_DoubleInt i))
+    go (Ch i) = Just (I (prim__cast_CharInt i))
+    go (Str i) = Just (I (prim__cast_StringInt i))
+    go _ = Nothing
 
-constantIntegerValue : Constant -> Maybe Integer
-constantIntegerValue (I i)   = Just $ cast i
-constantIntegerValue (I8 i)   = Just $ cast i
-constantIntegerValue (I16 i)   = Just $ cast i
-constantIntegerValue (I32 i)   = Just $ cast i
-constantIntegerValue (I64 i)   = Just $ cast i
-constantIntegerValue (BI i)  = Just i
-constantIntegerValue (B8 i)  = Just $ cast i
-constantIntegerValue (B16 i) = Just $ cast i
-constantIntegerValue (B32 i) = Just $ cast i
-constantIntegerValue (B64 i) = Just $ cast i
-constantIntegerValue _       = Nothing
+-- The casts to a fixed-width integer below fold from an integer only, as
+-- they always have; one from a Double, a Char or a String stays applied.
 
 castBits8 : Vect 1 (NF vars) -> Maybe (NF vars)
-castBits8 [NPrimVal fc constant] =
-    NPrimVal fc . B8 . cast <$> constantIntegerValue constant
-castBits8 _ = Nothing
+castBits8 = unaryOp go
+  where
+    go : Constant -> Maybe Constant
+    go (I i) = Just (B8 (prim__cast_IntBits8 i))
+    go (I8 i) = Just (B8 (prim__cast_Int8Bits8 i))
+    go (I16 i) = Just (B8 (prim__cast_Int16Bits8 i))
+    go (I32 i) = Just (B8 (prim__cast_Int32Bits8 i))
+    go (I64 i) = Just (B8 (prim__cast_Int64Bits8 i))
+    go (BI i) = Just (B8 (prim__cast_IntegerBits8 i))
+    go (B16 i) = Just (B8 (prim__cast_Bits16Bits8 i))
+    go (B32 i) = Just (B8 (prim__cast_Bits32Bits8 i))
+    go (B64 i) = Just (B8 (prim__cast_Bits64Bits8 i))
+    go _ = Nothing
 
 castBits16 : Vect 1 (NF vars) -> Maybe (NF vars)
-castBits16 [NPrimVal fc constant] =
-    NPrimVal fc . B16 . cast <$> constantIntegerValue constant
-castBits16 _ = Nothing
+castBits16 = unaryOp go
+  where
+    go : Constant -> Maybe Constant
+    go (I i) = Just (B16 (prim__cast_IntBits16 i))
+    go (I8 i) = Just (B16 (prim__cast_Int8Bits16 i))
+    go (I16 i) = Just (B16 (prim__cast_Int16Bits16 i))
+    go (I32 i) = Just (B16 (prim__cast_Int32Bits16 i))
+    go (I64 i) = Just (B16 (prim__cast_Int64Bits16 i))
+    go (BI i) = Just (B16 (prim__cast_IntegerBits16 i))
+    go (B8 i) = Just (B16 (prim__cast_Bits8Bits16 i))
+    go (B32 i) = Just (B16 (prim__cast_Bits32Bits16 i))
+    go (B64 i) = Just (B16 (prim__cast_Bits64Bits16 i))
+    go _ = Nothing
 
 castBits32 : Vect 1 (NF vars) -> Maybe (NF vars)
-castBits32 [NPrimVal fc constant] =
-    NPrimVal fc . B32 . cast <$> constantIntegerValue constant
-castBits32 _ = Nothing
+castBits32 = unaryOp go
+  where
+    go : Constant -> Maybe Constant
+    go (I i) = Just (B32 (prim__cast_IntBits32 i))
+    go (I8 i) = Just (B32 (prim__cast_Int8Bits32 i))
+    go (I16 i) = Just (B32 (prim__cast_Int16Bits32 i))
+    go (I32 i) = Just (B32 (prim__cast_Int32Bits32 i))
+    go (I64 i) = Just (B32 (prim__cast_Int64Bits32 i))
+    go (BI i) = Just (B32 (prim__cast_IntegerBits32 i))
+    go (B8 i) = Just (B32 (prim__cast_Bits8Bits32 i))
+    go (B16 i) = Just (B32 (prim__cast_Bits16Bits32 i))
+    go (B64 i) = Just (B32 (prim__cast_Bits64Bits32 i))
+    go _ = Nothing
 
 castBits64 : Vect 1 (NF vars) -> Maybe (NF vars)
-castBits64 [NPrimVal fc constant] =
-    NPrimVal fc . B64 . cast <$> constantIntegerValue constant
-castBits64 _ = Nothing
+castBits64 = unaryOp go
+  where
+    go : Constant -> Maybe Constant
+    go (I i) = Just (B64 (prim__cast_IntBits64 i))
+    go (I8 i) = Just (B64 (prim__cast_Int8Bits64 i))
+    go (I16 i) = Just (B64 (prim__cast_Int16Bits64 i))
+    go (I32 i) = Just (B64 (prim__cast_Int32Bits64 i))
+    go (I64 i) = Just (B64 (prim__cast_Int64Bits64 i))
+    go (BI i) = Just (B64 (prim__cast_IntegerBits64 i))
+    go (B8 i) = Just (B64 (prim__cast_Bits8Bits64 i))
+    go (B16 i) = Just (B64 (prim__cast_Bits16Bits64 i))
+    go (B32 i) = Just (B64 (prim__cast_Bits32Bits64 i))
+    go _ = Nothing
 
 castInt8 : Vect 1 (NF vars) -> Maybe (NF vars)
-castInt8 [NPrimVal fc constant] =
-    NPrimVal fc . I8 . cast <$> constantIntegerValue constant
-castInt8 _ = Nothing
+castInt8 = unaryOp go
+  where
+    go : Constant -> Maybe Constant
+    go (I i) = Just (I8 (prim__cast_IntInt8 i))
+    go (I16 i) = Just (I8 (prim__cast_Int16Int8 i))
+    go (I32 i) = Just (I8 (prim__cast_Int32Int8 i))
+    go (I64 i) = Just (I8 (prim__cast_Int64Int8 i))
+    go (BI i) = Just (I8 (prim__cast_IntegerInt8 i))
+    go (B8 i) = Just (I8 (prim__cast_Bits8Int8 i))
+    go (B16 i) = Just (I8 (prim__cast_Bits16Int8 i))
+    go (B32 i) = Just (I8 (prim__cast_Bits32Int8 i))
+    go (B64 i) = Just (I8 (prim__cast_Bits64Int8 i))
+    go _ = Nothing
 
 castInt16 : Vect 1 (NF vars) -> Maybe (NF vars)
-castInt16 [NPrimVal fc constant] =
-    NPrimVal fc . I16 . cast <$> constantIntegerValue constant
-castInt16 _ = Nothing
+castInt16 = unaryOp go
+  where
+    go : Constant -> Maybe Constant
+    go (I i) = Just (I16 (prim__cast_IntInt16 i))
+    go (I8 i) = Just (I16 (prim__cast_Int8Int16 i))
+    go (I32 i) = Just (I16 (prim__cast_Int32Int16 i))
+    go (I64 i) = Just (I16 (prim__cast_Int64Int16 i))
+    go (BI i) = Just (I16 (prim__cast_IntegerInt16 i))
+    go (B8 i) = Just (I16 (prim__cast_Bits8Int16 i))
+    go (B16 i) = Just (I16 (prim__cast_Bits16Int16 i))
+    go (B32 i) = Just (I16 (prim__cast_Bits32Int16 i))
+    go (B64 i) = Just (I16 (prim__cast_Bits64Int16 i))
+    go _ = Nothing
 
 castInt32 : Vect 1 (NF vars) -> Maybe (NF vars)
-castInt32 [NPrimVal fc constant] =
-    NPrimVal fc . I32 . cast <$> constantIntegerValue constant
-castInt32 _ = Nothing
+castInt32 = unaryOp go
+  where
+    go : Constant -> Maybe Constant
+    go (I i) = Just (I32 (prim__cast_IntInt32 i))
+    go (I8 i) = Just (I32 (prim__cast_Int8Int32 i))
+    go (I16 i) = Just (I32 (prim__cast_Int16Int32 i))
+    go (I64 i) = Just (I32 (prim__cast_Int64Int32 i))
+    go (BI i) = Just (I32 (prim__cast_IntegerInt32 i))
+    go (B8 i) = Just (I32 (prim__cast_Bits8Int32 i))
+    go (B16 i) = Just (I32 (prim__cast_Bits16Int32 i))
+    go (B32 i) = Just (I32 (prim__cast_Bits32Int32 i))
+    go (B64 i) = Just (I32 (prim__cast_Bits64Int32 i))
+    go _ = Nothing
 
 castInt64 : Vect 1 (NF vars) -> Maybe (NF vars)
-castInt64 [NPrimVal fc constant] =
-    NPrimVal fc . I64 . cast <$> constantIntegerValue constant
-castInt64 _ = Nothing
+castInt64 = unaryOp go
+  where
+    go : Constant -> Maybe Constant
+    go (I i) = Just (I64 (prim__cast_IntInt64 i))
+    go (I8 i) = Just (I64 (prim__cast_Int8Int64 i))
+    go (I16 i) = Just (I64 (prim__cast_Int16Int64 i))
+    go (I32 i) = Just (I64 (prim__cast_Int32Int64 i))
+    go (BI i) = Just (I64 (prim__cast_IntegerInt64 i))
+    go (B8 i) = Just (I64 (prim__cast_Bits8Int64 i))
+    go (B16 i) = Just (I64 (prim__cast_Bits16Int64 i))
+    go (B32 i) = Just (I64 (prim__cast_Bits32Int64 i))
+    go (B64 i) = Just (I64 (prim__cast_Bits64Int64 i))
+    go _ = Nothing
 
 castDouble : Vect 1 (NF vars) -> Maybe (NF vars)
-castDouble [NPrimVal fc (I i)] = Just (NPrimVal fc (Db (cast i)))
-castDouble [NPrimVal fc (I8 i)] = Just (NPrimVal fc (Db (cast i)))
-castDouble [NPrimVal fc (I16 i)] = Just (NPrimVal fc (Db (cast i)))
-castDouble [NPrimVal fc (I32 i)] = Just (NPrimVal fc (Db (cast i)))
-castDouble [NPrimVal fc (I64 i)] = Just (NPrimVal fc (Db (cast i)))
-castDouble [NPrimVal fc (B8 i)] = Just (NPrimVal fc (Db (cast i)))
-castDouble [NPrimVal fc (B16 i)] = Just (NPrimVal fc (Db (cast i)))
-castDouble [NPrimVal fc (B32 i)] = Just (NPrimVal fc (Db (cast i)))
-castDouble [NPrimVal fc (B64 i)] = Just (NPrimVal fc (Db (cast i)))
-castDouble [NPrimVal fc (BI i)] = Just (NPrimVal fc (Db (cast i)))
-castDouble [NPrimVal fc (Str i)] = Just (NPrimVal fc (Db (cast i)))
-castDouble _ = Nothing
+castDouble = unaryOp go
+  where
+    go : Constant -> Maybe Constant
+    go (I i) = Just (Db (prim__cast_IntDouble i))
+    go (I8 i) = Just (Db (prim__cast_Int8Double i))
+    go (I16 i) = Just (Db (prim__cast_Int16Double i))
+    go (I32 i) = Just (Db (prim__cast_Int32Double i))
+    go (I64 i) = Just (Db (prim__cast_Int64Double i))
+    go (B8 i) = Just (Db (prim__cast_Bits8Double i))
+    go (B16 i) = Just (Db (prim__cast_Bits16Double i))
+    go (B32 i) = Just (Db (prim__cast_Bits32Double i))
+    go (B64 i) = Just (Db (prim__cast_Bits64Double i))
+    go (BI i) = Just (Db (prim__cast_IntegerDouble i))
+    go (Str i) = Just (Db (prim__cast_StringDouble i))
+    go _ = Nothing
 
 castChar : Vect 1 (NF vars) -> Maybe (NF vars)
-castChar [NPrimVal fc (I i)] = Just (NPrimVal fc (Ch (cast i)))
-castChar [NPrimVal fc (I8 i)] = Just (NPrimVal fc (Ch (cast i)))
-castChar [NPrimVal fc (I16 i)] = Just (NPrimVal fc (Ch (cast i)))
-castChar [NPrimVal fc (I32 i)] = Just (NPrimVal fc (Ch (cast i)))
-castChar [NPrimVal fc (I64 i)] = Just (NPrimVal fc (Ch (cast i)))
-castChar [NPrimVal fc (B8 i)] = Just (NPrimVal fc (Ch (cast i)))
-castChar [NPrimVal fc (B16 i)] = Just (NPrimVal fc (Ch (cast i)))
-castChar [NPrimVal fc (B32 i)] = Just (NPrimVal fc (Ch (cast i)))
-castChar [NPrimVal fc (B64 i)] = Just (NPrimVal fc (Ch (cast i)))
-castChar [NPrimVal fc (BI i)] = Just (NPrimVal fc (Ch (cast i)))
-castChar _ = Nothing
+castChar = unaryOp go
+  where
+    go : Constant -> Maybe Constant
+    go (I i) = Just (Ch (prim__cast_IntChar i))
+    go (I8 i) = Just (Ch (prim__cast_Int8Char i))
+    go (I16 i) = Just (Ch (prim__cast_Int16Char i))
+    go (I32 i) = Just (Ch (prim__cast_Int32Char i))
+    go (I64 i) = Just (Ch (prim__cast_Int64Char i))
+    go (B8 i) = Just (Ch (prim__cast_Bits8Char i))
+    go (B16 i) = Just (Ch (prim__cast_Bits16Char i))
+    go (B32 i) = Just (Ch (prim__cast_Bits32Char i))
+    go (B64 i) = Just (Ch (prim__cast_Bits64Char i))
+    go (BI i) = Just (Ch (prim__cast_IntegerChar i))
+    go _ = Nothing
 
 strLength : Vect 1 (NF vars) -> Maybe (NF vars)
-strLength [NPrimVal fc (Str s)] = Just (NPrimVal fc (I (cast (length s))))
+strLength [NPrimVal fc (Str s)] = Just (NPrimVal fc (I (prim__strLength s)))
 strLength _ = Nothing
 
 strHead : Vect 1 (NF vars) -> Maybe (NF vars)
@@ -178,17 +270,17 @@ strIndex _ = Nothing
 
 strCons : Vect 2 (NF vars) -> Maybe (NF vars)
 strCons [NPrimVal fc (Ch x), NPrimVal _ (Str y)]
-    = Just (NPrimVal fc (Str (strCons x y)))
+    = Just (NPrimVal fc (Str (prim__strCons x y)))
 strCons _ = Nothing
 
 strAppend : Vect 2 (NF vars) -> Maybe (NF vars)
 strAppend [NPrimVal fc (Str x), NPrimVal _ (Str y)]
-    = Just (NPrimVal fc (Str (x ++ y)))
+    = Just (NPrimVal fc (Str (prim__strAppend x y)))
 strAppend _ = Nothing
 
 strReverse : Vect 1 (NF vars) -> Maybe (NF vars)
 strReverse [NPrimVal fc (Str x)]
-    = Just (NPrimVal fc (Str (reverse x)))
+    = Just (NPrimVal fc (Str (prim__strReverse x)))
 strReverse _ = Nothing
 
 strSubstr : Vect 3 (NF vars) -> Maybe (NF vars)
@@ -198,94 +290,92 @@ strSubstr _ = Nothing
 
 
 add : Constant -> Constant -> Maybe Constant
-add (BI x) (BI y) = pure $ BI (x + y)
-add (I x) (I y) = pure $ I (x + y)
-add (I8 x) (I8 y) = pure $ I8 (x + y)
-add (I16 x) (I16 y) = pure $ I16 (x + y)
-add (I32 x) (I32 y) = pure $ I32 (x + y)
-add (I64 x) (I64 y) = pure $ I64 (x + y)
-add (B8 x) (B8 y) = pure $ B8 (x + y)
-add (B16 x) (B16 y) = pure $ B16 (x + y)
-add (B32 x) (B32 y) = pure $ B32 (x + y)
-add (B64 x) (B64 y) = pure $ B64 (x + y)
-add (Ch x) (Ch y) = pure $ Ch (cast (cast {to=Int} x + cast y))
-add (Db x) (Db y) = pure $ Db (x + y)
+add (BI x) (BI y) = pure $ BI (prim__add_Integer x y)
+add (I x) (I y) = pure $ I (prim__add_Int x y)
+add (I8 x) (I8 y) = pure $ I8 (prim__add_Int8 x y)
+add (I16 x) (I16 y) = pure $ I16 (prim__add_Int16 x y)
+add (I32 x) (I32 y) = pure $ I32 (prim__add_Int32 x y)
+add (I64 x) (I64 y) = pure $ I64 (prim__add_Int64 x y)
+add (B8 x) (B8 y) = pure $ B8 (prim__add_Bits8 x y)
+add (B16 x) (B16 y) = pure $ B16 (prim__add_Bits16 x y)
+add (B32 x) (B32 y) = pure $ B32 (prim__add_Bits32 x y)
+add (B64 x) (B64 y) = pure $ B64 (prim__add_Bits64 x y)
+add (Db x) (Db y) = pure $ Db (prim__add_Double x y)
 add _ _ = Nothing
 
 sub : Constant -> Constant -> Maybe Constant
-sub (BI x) (BI y) = pure $ BI (x - y)
-sub (I x) (I y) = pure $ I (x - y)
-sub (I8 x) (I8 y) = pure $ I8 (x - y)
-sub (I16 x) (I16 y) = pure $ I16 (x - y)
-sub (I32 x) (I32 y) = pure $ I32 (x - y)
-sub (I64 x) (I64 y) = pure $ I64 (x - y)
-sub (B8 x) (B8 y) = pure $ B8 (x - y)
-sub (B16 x) (B16 y) = pure $ B16 (x - y)
-sub (B32 x) (B32 y) = pure $ B32 (x - y)
-sub (B64 x) (B64 y) = pure $ B64 (x - y)
-sub (Ch x) (Ch y) = pure $ Ch (cast (cast {to=Int} x - cast y))
-sub (Db x) (Db y) = pure $ Db (x - y)
+sub (BI x) (BI y) = pure $ BI (prim__sub_Integer x y)
+sub (I x) (I y) = pure $ I (prim__sub_Int x y)
+sub (I8 x) (I8 y) = pure $ I8 (prim__sub_Int8 x y)
+sub (I16 x) (I16 y) = pure $ I16 (prim__sub_Int16 x y)
+sub (I32 x) (I32 y) = pure $ I32 (prim__sub_Int32 x y)
+sub (I64 x) (I64 y) = pure $ I64 (prim__sub_Int64 x y)
+sub (B8 x) (B8 y) = pure $ B8 (prim__sub_Bits8 x y)
+sub (B16 x) (B16 y) = pure $ B16 (prim__sub_Bits16 x y)
+sub (B32 x) (B32 y) = pure $ B32 (prim__sub_Bits32 x y)
+sub (B64 x) (B64 y) = pure $ B64 (prim__sub_Bits64 x y)
+sub (Db x) (Db y) = pure $ Db (prim__sub_Double x y)
 sub _ _ = Nothing
 
 mul : Constant -> Constant -> Maybe Constant
-mul (BI x) (BI y) = pure $ BI (x * y)
-mul (B8 x) (B8 y) = pure $ B8 (x * y)
-mul (B16 x) (B16 y) = pure $ B16 (x * y)
-mul (B32 x) (B32 y) = pure $ B32 (x * y)
-mul (B64 x) (B64 y) = pure $ B64 (x * y)
-mul (I x) (I y) = pure $ I (x * y)
-mul (I8 x) (I8 y) = pure $ I8 (x * y)
-mul (I16 x) (I16 y) = pure $ I16 (x * y)
-mul (I32 x) (I32 y) = pure $ I32 (x * y)
-mul (I64 x) (I64 y) = pure $ I64 (x * y)
-mul (Db x) (Db y) = pure $ Db (x * y)
+mul (BI x) (BI y) = pure $ BI (prim__mul_Integer x y)
+mul (B8 x) (B8 y) = pure $ B8 (prim__mul_Bits8 x y)
+mul (B16 x) (B16 y) = pure $ B16 (prim__mul_Bits16 x y)
+mul (B32 x) (B32 y) = pure $ B32 (prim__mul_Bits32 x y)
+mul (B64 x) (B64 y) = pure $ B64 (prim__mul_Bits64 x y)
+mul (I x) (I y) = pure $ I (prim__mul_Int x y)
+mul (I8 x) (I8 y) = pure $ I8 (prim__mul_Int8 x y)
+mul (I16 x) (I16 y) = pure $ I16 (prim__mul_Int16 x y)
+mul (I32 x) (I32 y) = pure $ I32 (prim__mul_Int32 x y)
+mul (I64 x) (I64 y) = pure $ I64 (prim__mul_Int64 x y)
+mul (Db x) (Db y) = pure $ Db (prim__mul_Double x y)
 mul _ _ = Nothing
 
 div : Constant -> Constant -> Maybe Constant
 div (BI x) (BI 0) = Nothing
-div (BI x) (BI y) = pure $ BI (assert_total (x `div` y))
+div (BI x) (BI y) = pure $ BI (assert_total (prim__div_Integer x y))
 div (I x) (I 0) = Nothing
-div (I x) (I y) = pure $ I (assert_total (x `div` y))
+div (I x) (I y) = pure $ I (assert_total (prim__div_Int x y))
 div (I8 x) (I8 0) = Nothing
-div (I8 x) (I8 y) = pure $ I8 (assert_total (x `div` y))
+div (I8 x) (I8 y) = pure $ I8 (assert_total (prim__div_Int8 x y))
 div (I16 x) (I16 0) = Nothing
-div (I16 x) (I16 y) = pure $ I16 (assert_total (x `div` y))
+div (I16 x) (I16 y) = pure $ I16 (assert_total (prim__div_Int16 x y))
 div (I32 x) (I32 0) = Nothing
-div (I32 x) (I32 y) = pure $ I32 (assert_total (x `div` y))
+div (I32 x) (I32 y) = pure $ I32 (assert_total (prim__div_Int32 x y))
 div (I64 x) (I64 0) = Nothing
-div (I64 x) (I64 y) = pure $ I64 (assert_total (x `div` y))
+div (I64 x) (I64 y) = pure $ I64 (assert_total (prim__div_Int64 x y))
 div (B8 x) (B8 0) = Nothing
-div (B8 x) (B8 y) = pure $ B8 (assert_total (x `div` y))
+div (B8 x) (B8 y) = pure $ B8 (assert_total (prim__div_Bits8 x y))
 div (B16 x) (B16 0) = Nothing
-div (B16 x) (B16 y) = pure $ B16 (assert_total (x `div` y))
+div (B16 x) (B16 y) = pure $ B16 (assert_total (prim__div_Bits16 x y))
 div (B32 x) (B32 0) = Nothing
-div (B32 x) (B32 y) = pure $ B32 (assert_total (x `div` y))
+div (B32 x) (B32 y) = pure $ B32 (assert_total (prim__div_Bits32 x y))
 div (B64 x) (B64 0) = Nothing
-div (B64 x) (B64 y) = pure $ B64 (assert_total (x `div` y))
-div (Db x) (Db y) = pure $ Db (x / y)
+div (B64 x) (B64 y) = pure $ B64 (assert_total (prim__div_Bits64 x y))
+div (Db x) (Db y) = pure $ Db (assert_total (prim__div_Double x y))
 div _ _ = Nothing
 
 mod : Constant -> Constant -> Maybe Constant
 mod (BI x) (BI 0) = Nothing
-mod (BI x) (BI y) = pure $ BI (assert_total (x `mod` y))
+mod (BI x) (BI y) = pure $ BI (assert_total (prim__mod_Integer x y))
 mod (I x) (I 0) = Nothing
-mod (I x) (I y) = pure $ I (assert_total (x `mod` y))
+mod (I x) (I y) = pure $ I (assert_total (prim__mod_Int x y))
 mod (I8 x) (I8 0) = Nothing
-mod (I8 x) (I8 y) = pure $ I8 (assert_total (x `mod` y))
+mod (I8 x) (I8 y) = pure $ I8 (assert_total (prim__mod_Int8 x y))
 mod (I16 x) (I16 0) = Nothing
-mod (I16 x) (I16 y) = pure $ I16 (assert_total (x `mod` y))
+mod (I16 x) (I16 y) = pure $ I16 (assert_total (prim__mod_Int16 x y))
 mod (I32 x) (I32 0) = Nothing
-mod (I32 x) (I32 y) = pure $ I32 (assert_total (x `mod` y))
+mod (I32 x) (I32 y) = pure $ I32 (assert_total (prim__mod_Int32 x y))
 mod (I64 x) (I64 0) = Nothing
-mod (I64 x) (I64 y) = pure $ I64 (assert_total (x `mod` y))
+mod (I64 x) (I64 y) = pure $ I64 (assert_total (prim__mod_Int64 x y))
 mod (B8 x) (B8 0) = Nothing
-mod (B8 x) (B8 y) = pure $ B8 (assert_total (x `mod` y))
+mod (B8 x) (B8 y) = pure $ B8 (assert_total (prim__mod_Bits8 x y))
 mod (B16 x) (B16 0) = Nothing
-mod (B16 x) (B16 y) = pure $ B16 (assert_total (x `mod` y))
+mod (B16 x) (B16 y) = pure $ B16 (assert_total (prim__mod_Bits16 x y))
 mod (B32 x) (B32 0) = Nothing
-mod (B32 x) (B32 y) = pure $ B32 (assert_total (x `mod` y))
+mod (B32 x) (B32 y) = pure $ B32 (assert_total (prim__mod_Bits32 x y))
 mod (B64 x) (B64 0) = Nothing
-mod (B64 x) (B64 y) = pure $ B64 (assert_total (x `mod` y))
+mod (B64 x) (B64 y) = pure $ B64 (assert_total (prim__mod_Bits64 x y))
 mod _ _ = Nothing
 
 shiftl : Constant -> Constant -> Maybe Constant
@@ -308,7 +398,7 @@ shiftr (I16 x) (I16 y) = pure $ I16 (prim__shr_Int16 x y)
 shiftr (I32 x) (I32 y) = pure $ I32 (prim__shr_Int32 x y)
 shiftr (I64 x) (I64 y) = pure $ I64 (prim__shr_Int64 x y)
 shiftr (BI x) (BI y) = pure $ BI (prim__shr_Integer x y)
-shiftr (B8 x) (B8 y) = pure $ B8 $ (prim__shr_Bits8 x y)
+shiftr (B8 x) (B8 y) = pure $ B8 (prim__shr_Bits8 x y)
 shiftr (B16 x) (B16 y) = pure $ B16 (prim__shr_Bits16 x y)
 shiftr (B32 x) (B32 y) = pure $ B32 (prim__shr_Bits32 x y)
 shiftr (B64 x) (B64 y) = pure $ B64 (prim__shr_Bits64 x y)
@@ -353,102 +443,94 @@ bxor (I64 x) (I64 y) = pure $ I64 (prim__xor_Int64 x y)
 bxor (BI x) (BI y) = pure $ BI (prim__xor_Integer x y)
 bxor _ _ = Nothing
 
+-- A fixed-width integer's negation stays applied: there is no one meaning
+-- to call. The Chez backend's does not wrap (the negation of a Bits8 is
+-- negative, and of the least Int8 is 128, neither a value of its type),
+-- and a backend need not have the primitive at all; base negates with
+-- subtraction from zero instead.
 neg : Constant -> Maybe Constant
-neg (BI x) = pure $ BI (-x)
-neg (I x) = pure $ I (-x)
-neg (I8 x) = pure $ I8 (-x)
-neg (I16 x) = pure $ I16 (-x)
-neg (I32 x) = pure $ I32 (-x)
-neg (I64 x) = pure $ I64 (-x)
-neg (B8 x) = pure $ B8 (-x)
-neg (B16 x) = pure $ B16 (-x)
-neg (B32 x) = pure $ B32 (-x)
-neg (B64 x) = pure $ B64 (-x)
-neg (Db x) = pure $ Db (-x)
+neg (BI x) = pure $ BI (prim__negate_Integer x)
+neg (Db x) = pure $ Db (prim__negate_Double x)
 neg _ = Nothing
 
-toInt : Bool -> Constant
-toInt True = I 1
-toInt False = I 0
-
 lt : Constant -> Constant -> Maybe Constant
-lt (I x) (I y) = pure $ toInt (x < y)
-lt (I8 x) (I8 y) = pure $ toInt (x < y)
-lt (I16 x) (I16 y) = pure $ toInt (x < y)
-lt (I32 x) (I32 y) = pure $ toInt (x < y)
-lt (I64 x) (I64 y) = pure $ toInt (x < y)
-lt (BI x) (BI y) = pure $ toInt (x < y)
-lt (B8 x) (B8 y) = pure $ toInt (x < y)
-lt (B16 x) (B16 y) = pure $ toInt (x < y)
-lt (B32 x) (B32 y) = pure $ toInt (x < y)
-lt (B64 x) (B64 y) = pure $ toInt (x < y)
-lt (Str x) (Str y) = pure $ toInt (x < y)
-lt (Ch x) (Ch y) = pure $ toInt (x < y)
-lt (Db x) (Db y) = pure $ toInt (x < y)
+lt (I x) (I y) = pure $ I (prim__lt_Int x y)
+lt (I8 x) (I8 y) = pure $ I (prim__lt_Int8 x y)
+lt (I16 x) (I16 y) = pure $ I (prim__lt_Int16 x y)
+lt (I32 x) (I32 y) = pure $ I (prim__lt_Int32 x y)
+lt (I64 x) (I64 y) = pure $ I (prim__lt_Int64 x y)
+lt (BI x) (BI y) = pure $ I (prim__lt_Integer x y)
+lt (B8 x) (B8 y) = pure $ I (prim__lt_Bits8 x y)
+lt (B16 x) (B16 y) = pure $ I (prim__lt_Bits16 x y)
+lt (B32 x) (B32 y) = pure $ I (prim__lt_Bits32 x y)
+lt (B64 x) (B64 y) = pure $ I (prim__lt_Bits64 x y)
+lt (Str x) (Str y) = pure $ I (prim__lt_String x y)
+lt (Ch x) (Ch y) = pure $ I (prim__lt_Char x y)
+lt (Db x) (Db y) = pure $ I (prim__lt_Double x y)
 lt _ _ = Nothing
 
 lte : Constant -> Constant -> Maybe Constant
-lte (I x) (I y) = pure $ toInt (x <= y)
-lte (I8 x) (I8 y) = pure $ toInt (x <= y)
-lte (I16 x) (I16 y) = pure $ toInt (x <= y)
-lte (I32 x) (I32 y) = pure $ toInt (x <= y)
-lte (I64 x) (I64 y) = pure $ toInt (x <= y)
-lte (BI x) (BI y) = pure $ toInt (x <= y)
-lte (B8 x) (B8 y) = pure $ toInt (x <= y)
-lte (B16 x) (B16 y) = pure $ toInt (x <= y)
-lte (B32 x) (B32 y) = pure $ toInt (x <= y)
-lte (B64 x) (B64 y) = pure $ toInt (x <= y)
-lte (Str x) (Str y) = pure $ toInt (x <= y)
-lte (Ch x) (Ch y) = pure $ toInt (x <= y)
-lte (Db x) (Db y) = pure $ toInt (x <= y)
+lte (I x) (I y) = pure $ I (prim__lte_Int x y)
+lte (I8 x) (I8 y) = pure $ I (prim__lte_Int8 x y)
+lte (I16 x) (I16 y) = pure $ I (prim__lte_Int16 x y)
+lte (I32 x) (I32 y) = pure $ I (prim__lte_Int32 x y)
+lte (I64 x) (I64 y) = pure $ I (prim__lte_Int64 x y)
+lte (BI x) (BI y) = pure $ I (prim__lte_Integer x y)
+lte (B8 x) (B8 y) = pure $ I (prim__lte_Bits8 x y)
+lte (B16 x) (B16 y) = pure $ I (prim__lte_Bits16 x y)
+lte (B32 x) (B32 y) = pure $ I (prim__lte_Bits32 x y)
+lte (B64 x) (B64 y) = pure $ I (prim__lte_Bits64 x y)
+lte (Str x) (Str y) = pure $ I (prim__lte_String x y)
+lte (Ch x) (Ch y) = pure $ I (prim__lte_Char x y)
+lte (Db x) (Db y) = pure $ I (prim__lte_Double x y)
 lte _ _ = Nothing
 
 eq : Constant -> Constant -> Maybe Constant
-eq (I x) (I y) = pure $ toInt (x == y)
-eq (I8 x) (I8 y) = pure $ toInt (x == y)
-eq (I16 x) (I16 y) = pure $ toInt (x == y)
-eq (I32 x) (I32 y) = pure $ toInt (x == y)
-eq (I64 x) (I64 y) = pure $ toInt (x == y)
-eq (BI x) (BI y) = pure $ toInt (x == y)
-eq (B8 x) (B8 y) = pure $ toInt (x == y)
-eq (B16 x) (B16 y) = pure $ toInt (x == y)
-eq (B32 x) (B32 y) = pure $ toInt (x == y)
-eq (B64 x) (B64 y) = pure $ toInt (x == y)
-eq (Str x) (Str y) = pure $ toInt (x == y)
-eq (Ch x) (Ch y) = pure $ toInt (x == y)
-eq (Db x) (Db y) = pure $ toInt (x == y)
+eq (I x) (I y) = pure $ I (prim__eq_Int x y)
+eq (I8 x) (I8 y) = pure $ I (prim__eq_Int8 x y)
+eq (I16 x) (I16 y) = pure $ I (prim__eq_Int16 x y)
+eq (I32 x) (I32 y) = pure $ I (prim__eq_Int32 x y)
+eq (I64 x) (I64 y) = pure $ I (prim__eq_Int64 x y)
+eq (BI x) (BI y) = pure $ I (prim__eq_Integer x y)
+eq (B8 x) (B8 y) = pure $ I (prim__eq_Bits8 x y)
+eq (B16 x) (B16 y) = pure $ I (prim__eq_Bits16 x y)
+eq (B32 x) (B32 y) = pure $ I (prim__eq_Bits32 x y)
+eq (B64 x) (B64 y) = pure $ I (prim__eq_Bits64 x y)
+eq (Str x) (Str y) = pure $ I (prim__eq_String x y)
+eq (Ch x) (Ch y) = pure $ I (prim__eq_Char x y)
+eq (Db x) (Db y) = pure $ I (prim__eq_Double x y)
 eq _ _ = Nothing
 
 gte : Constant -> Constant -> Maybe Constant
-gte (I x) (I y) = pure $ toInt (x >= y)
-gte (I8 x) (I8 y) = pure $ toInt (x >= y)
-gte (I16 x) (I16 y) = pure $ toInt (x >= y)
-gte (I32 x) (I32 y) = pure $ toInt (x >= y)
-gte (I64 x) (I64 y) = pure $ toInt (x >= y)
-gte (BI x) (BI y) = pure $ toInt (x >= y)
-gte (B8 x) (B8 y) = pure $ toInt (x >= y)
-gte (B16 x) (B16 y) = pure $ toInt (x >= y)
-gte (B32 x) (B32 y) = pure $ toInt (x >= y)
-gte (B64 x) (B64 y) = pure $ toInt (x >= y)
-gte (Str x) (Str y) = pure $ toInt (x >= y)
-gte (Ch x) (Ch y) = pure $ toInt (x >= y)
-gte (Db x) (Db y) = pure $ toInt (x >= y)
+gte (I x) (I y) = pure $ I (prim__gte_Int x y)
+gte (I8 x) (I8 y) = pure $ I (prim__gte_Int8 x y)
+gte (I16 x) (I16 y) = pure $ I (prim__gte_Int16 x y)
+gte (I32 x) (I32 y) = pure $ I (prim__gte_Int32 x y)
+gte (I64 x) (I64 y) = pure $ I (prim__gte_Int64 x y)
+gte (BI x) (BI y) = pure $ I (prim__gte_Integer x y)
+gte (B8 x) (B8 y) = pure $ I (prim__gte_Bits8 x y)
+gte (B16 x) (B16 y) = pure $ I (prim__gte_Bits16 x y)
+gte (B32 x) (B32 y) = pure $ I (prim__gte_Bits32 x y)
+gte (B64 x) (B64 y) = pure $ I (prim__gte_Bits64 x y)
+gte (Str x) (Str y) = pure $ I (prim__gte_String x y)
+gte (Ch x) (Ch y) = pure $ I (prim__gte_Char x y)
+gte (Db x) (Db y) = pure $ I (prim__gte_Double x y)
 gte _ _ = Nothing
 
 gt : Constant -> Constant -> Maybe Constant
-gt (I x) (I y) = pure $ toInt (x > y)
-gt (I8 x) (I8 y) = pure $ toInt (x > y)
-gt (I16 x) (I16 y) = pure $ toInt (x > y)
-gt (I32 x) (I32 y) = pure $ toInt (x > y)
-gt (I64 x) (I64 y) = pure $ toInt (x > y)
-gt (BI x) (BI y) = pure $ toInt (x > y)
-gt (B8 x) (B8 y) = pure $ toInt (x > y)
-gt (B16 x) (B16 y) = pure $ toInt (x > y)
-gt (B32 x) (B32 y) = pure $ toInt (x > y)
-gt (B64 x) (B64 y) = pure $ toInt (x > y)
-gt (Str x) (Str y) = pure $ toInt (x > y)
-gt (Ch x) (Ch y) = pure $ toInt (x > y)
-gt (Db x) (Db y) = pure $ toInt (x > y)
+gt (I x) (I y) = pure $ I (prim__gt_Int x y)
+gt (I8 x) (I8 y) = pure $ I (prim__gt_Int8 x y)
+gt (I16 x) (I16 y) = pure $ I (prim__gt_Int16 x y)
+gt (I32 x) (I32 y) = pure $ I (prim__gt_Int32 x y)
+gt (I64 x) (I64 y) = pure $ I (prim__gt_Int64 x y)
+gt (BI x) (BI y) = pure $ I (prim__gt_Integer x y)
+gt (B8 x) (B8 y) = pure $ I (prim__gt_Bits8 x y)
+gt (B16 x) (B16 y) = pure $ I (prim__gt_Bits16 x y)
+gt (B32 x) (B32 y) = pure $ I (prim__gt_Bits32 x y)
+gt (B64 x) (B64 y) = pure $ I (prim__gt_Bits64 x y)
+gt (Str x) (Str y) = pure $ I (prim__gt_String x y)
+gt (Ch x) (Ch y) = pure $ I (prim__gt_Char x y)
+gt (Db x) (Db y) = pure $ I (prim__gt_Double x y)
 gt _ _ = Nothing
 
 doubleOp : (Double -> Double) -> Vect 1 (NF vars) -> Maybe (NF vars)
@@ -456,43 +538,43 @@ doubleOp f [NPrimVal fc (Db x)] = Just (NPrimVal fc (Db (f x)))
 doubleOp f _ = Nothing
 
 doubleExp : Vect 1 (NF vars) -> Maybe (NF vars)
-doubleExp = doubleOp exp
+doubleExp = doubleOp (\x => prim__doubleExp x)
 
 doubleLog : Vect 1 (NF vars) -> Maybe (NF vars)
-doubleLog = doubleOp log
+doubleLog = doubleOp (\x => prim__doubleLog x)
 
 doublePow : {vars : _ } -> Vect 2 (NF vars) -> Maybe (NF vars)
 doublePow = binOp pow'
     where pow' : Constant -> Constant -> Maybe Constant
-          pow' (Db x) (Db y) = pure $ Db (pow x y)
+          pow' (Db x) (Db y) = pure $ Db (prim__doublePow x y)
           pow' _ _ = Nothing
 
 doubleSin : Vect 1 (NF vars) -> Maybe (NF vars)
-doubleSin = doubleOp sin
+doubleSin = doubleOp (\x => prim__doubleSin x)
 
 doubleCos : Vect 1 (NF vars) -> Maybe (NF vars)
-doubleCos = doubleOp cos
+doubleCos = doubleOp (\x => prim__doubleCos x)
 
 doubleTan : Vect 1 (NF vars) -> Maybe (NF vars)
-doubleTan = doubleOp tan
+doubleTan = doubleOp (\x => prim__doubleTan x)
 
 doubleASin : Vect 1 (NF vars) -> Maybe (NF vars)
-doubleASin = doubleOp asin
+doubleASin = doubleOp (\x => prim__doubleASin x)
 
 doubleACos : Vect 1 (NF vars) -> Maybe (NF vars)
-doubleACos = doubleOp acos
+doubleACos = doubleOp (\x => prim__doubleACos x)
 
 doubleATan : Vect 1 (NF vars) -> Maybe (NF vars)
-doubleATan = doubleOp atan
+doubleATan = doubleOp (\x => prim__doubleATan x)
 
 doubleSqrt : Vect 1 (NF vars) -> Maybe (NF vars)
-doubleSqrt = doubleOp sqrt
+doubleSqrt = doubleOp (\x => prim__doubleSqrt x)
 
 doubleFloor : Vect 1 (NF vars) -> Maybe (NF vars)
-doubleFloor = doubleOp floor
+doubleFloor = doubleOp (\x => prim__doubleFloor x)
 
 doubleCeiling : Vect 1 (NF vars) -> Maybe (NF vars)
-doubleCeiling = doubleOp ceiling
+doubleCeiling = doubleOp (\x => prim__doubleCeiling x)
 
 -- Only reduce for concrete values
 believeMe : Vect 3 (NF vars) -> Maybe (NF vars)
@@ -617,7 +699,7 @@ getOp _ = const Nothing
 exactDouble : Vect 1 (NF vars) -> Maybe (NF vars)
 exactDouble [NPrimVal fc (BI i)]
     = if abs i <= 9007199254740992
-         then Just (NPrimVal fc (Db (cast i)))
+         then Just (NPrimVal fc (Db (prim__cast_IntegerDouble i)))
          else Nothing
 exactDouble _ = Nothing
 
