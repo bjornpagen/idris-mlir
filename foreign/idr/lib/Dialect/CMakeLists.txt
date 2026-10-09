@@ -29,6 +29,7 @@ target_sources(idr_dialect PRIVATE
 	Grades/GradeOf.cc
 	Grades/Graded.cc
 	Grades/HeldAs.cc
+	Grades/HoldsLinear.cc
 	Grades/IsArray.cc
 	Grades/IsErased.cc
 	Grades/IsExclusive.cc
@@ -39,6 +40,7 @@ target_sources(idr_dialect PRIVATE
 	Grades/Linear.cc
 	Grades/Owned.cc
 	Grades/QuantityOf.cc
+	Grades/TakenOnce.cc
 	Grades/ThroughLinear.cc
 	Grades/Times.cc
 	Grades/Unrestricted.cc

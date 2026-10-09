@@ -139,10 +139,8 @@ bool feeds(Value value, OpOperand &use) {
   // A closure holding a linear value has one use, which applies it or
   // enters it into a linear type (its verifier's rule): moved to where the
   // closure is made, such a use is not a profit but its place.
-  if (auto closure = dyn_cast_or_null<ClosureOp>(def);
-      closure && isa<LinEnterOp, ApplyOp>(use.getOwner()) &&
-      llvm::any_of(closure.getCaptures().getTypes(),
-                   [](Type type) { return quantityOf(type) == Quantity::One; }))
+  if (isa_and_nonnull<ClosureOp>(def) && holdsLinear(value) &&
+      isa<LinEnterOp, ApplyOp>(use.getOwner()))
     return true;
   OpOperand &read = reader(use);
   Operation *consumer = read.getOwner();

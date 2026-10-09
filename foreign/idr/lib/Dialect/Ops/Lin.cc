@@ -9,11 +9,15 @@ using namespace mlir;
 using namespace idr;
 
 // The value an entry used at once held, and the linear value a use entered
-// at once was.
+// at once was. A closure or a suspension holding a linear value is used
+// once (holdsLinear), and the pair is that use: the ordinary value the use
+// makes may be read many times, as a field of a shared constructor is, and
+// the value takes its place only where it is taken once too.
 OpFoldResult LinUseOp::fold(FoldAdaptor) {
-  if (auto enter = getLinear().getDefiningOp<LinEnterOp>())
-    return enter.getValue();
-  return {};
+  auto enter = getLinear().getDefiningOp<LinEnterOp>();
+  if (!enter || (holdsLinear(enter.getValue()) && !takenOnce(getResult())))
+    return {};
+  return enter.getValue();
 }
 
 // Only when the entry is the use's one reader: a match that read the used

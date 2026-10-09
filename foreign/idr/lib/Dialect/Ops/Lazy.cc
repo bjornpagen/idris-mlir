@@ -222,18 +222,8 @@ LogicalResult SuspendOp::verify() {
   if (llvm::any_of(getCaptures().getTypes(), isWorld))
     return emitOpError("captures a world; a world passes only as an argument or result");
   // A suspension holding a linear value is used once as well: forced
-  // where it is made, or entered into a linear type. Any other use could
-  // force it twice and use the linear capture twice.
-  if (llvm::none_of(getCaptures().getTypes(),
-                    [](Type type) { return quantityOf(type) == Quantity::One; }))
-    return success();
-  if (getResult().use_empty())
-    return success();
-  OpOperand &use = *getResult().getUses().begin();
-  auto force = dyn_cast<ForceOp>(use.getOwner());
-  bool linear = getResult().hasOneUse() &&
-                (isa<LinEnterOp>(use.getOwner()) || (force && force.getSuspension() == getResult()));
-  if (!linear)
+  // where it is made, or entered into a linear type (holdsLinear).
+  if (holdsLinear(getResult()) && !takenOnce(getResult()))
     return emitOpError("captures a linear value, so its one use must force it or enter it "
                        "into a linear type");
   return success();

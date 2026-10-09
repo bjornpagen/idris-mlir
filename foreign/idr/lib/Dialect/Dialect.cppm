@@ -276,6 +276,8 @@ using idr::PutStrOp;
 using idr::Quantity;
 using idr::quantityOf;
 using idr::fieldReadOnce;
+using idr::holdsLinear;
+using idr::takenOnce;
 using idr::registerIdr;
 using idr::registerIdrPasses;
 using idr::registerIdrPipeline;

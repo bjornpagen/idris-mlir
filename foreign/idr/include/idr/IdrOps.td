@@ -2006,8 +2006,11 @@ def Idr_CloneAttr : AttrDef<Idr_Dialect, "Clone"> {
 // is removed when unused. Both lower to nothing. An entry used at once, or
 // a use entered at once, is the value itself: nothing ran in the linear
 // position, and each value that remains keeps its type, so the fold loses
-// no quantity. What is left of a binder once inlining has joined its two
-// sides is such a pair, and it would hide the value from every fold.
+// no quantity. A closure or a suspension holding a linear value is the
+// exception: its type does not say that it is used once, so the pair it
+// passed stays unless what takes the use takes it once. What is left of a
+// binder once inlining has joined its two sides is such a pair, and it
+// would hide the value from every fold.
 
 // Idris lets any value fill a quantity-1 binder: what enters is used once
 // from then on.

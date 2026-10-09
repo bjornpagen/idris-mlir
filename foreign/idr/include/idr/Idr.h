@@ -277,6 +277,17 @@ mlir::Value throughLinear(mlir::Value value);
 // that index moves into its one read.
 bool fieldReadOnce(mlir::Value value, unsigned index);
 
+// A closure or a suspension that captures a linear value is used once, as
+// what it holds is: by the op that runs it where it is made (an apply of
+// the closure, a force of the suspension), or by entering a linear type,
+// whose one use the linearity check then follows. Any other use could run
+// it twice and use the capture twice. Whether `value` is such a closure or
+// suspension, and whether the uses of `value` are none or such a one. A
+// rewrite that would give one the uses of another value asks it of that
+// value.
+bool holdsLinear(mlir::Value value);
+bool takenOnce(mlir::Value value);
+
 } // namespace idr
 
 // The attributes come first: the dialect's helpers for its discardable
