@@ -22,9 +22,12 @@ numbers.
   addresses, which is what Apple's data-memory-dependent prefetcher
   follows.
 - Everything we build is linked statically: our tools, every program, and
-  the toolchain's LLVM. The one shared library any of it links is macOS's
-  C library, libSystem, which has no static form; nothing else is a shared
-  library, is loaded at run time, or is looked up with dlopen.
+  the toolchain's LLVM. On macOS it may also link the operating system's
+  own shared libraries (/usr/lib, /System/Library: libSystem and the like),
+  which is the only form macOS ships them in; never a shared library of
+  ours or of a third party, and never the system's libc++, since the
+  pinned libc++ is static. Nothing of ours is loaded at run time or looked
+  up with dlopen. On Linux every executable is a static PIE.
   `tools/bootstrap.sh` refuses an executable that breaks this, and
   `tests/toolchain/static-linking` checks our tools and programs. The
   exception is the host side of the frontend: Idris 2 and the test runner

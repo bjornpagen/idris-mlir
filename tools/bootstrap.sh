@@ -582,9 +582,10 @@ arm64_only() {
 }
 
 # check_executable PREFIX FILE: FILE is an executable as the target's
-# programs are, read by PREFIX's tools, and links no shared library but the
-# C library where the target has no static one: on ELF a static PIE; on
-# Mach-O a PIE of arm64 code alone whose one shared library is libSystem.
+# programs are, read by PREFIX's tools: on ELF a static PIE; on Mach-O a PIE
+# of arm64 code alone whose shared libraries are the operating system's own
+# (/usr/lib, /System/Library), never another's, and never the system's
+# libc++, since the pinned libc++ is static.
 check_executable() {
   case $object_format in
     elf) static_pie "$1/bin/llvm-readelf" "$2" ;;
@@ -592,9 +593,11 @@ check_executable() {
       mh_pie "$1/bin/llvm-objdump" "$2"
       arm64_only "$1/bin/llvm-objdump" "$2"
       check_executable_dylibs=$("$1/bin/llvm-objdump" --macho --dylibs-used "$2" |
-        sed -n 's/^[[:space:]]*\([^ ]*\) (compatibility.*/\1/p' | grep -vx /usr/lib/libSystem.B.dylib) || true
-      [ -z "$check_executable_dylibs" ] ||
-        die "$2 links shared libraries beyond libSystem: $(echo $check_executable_dylibs)"
+        sed -n 's/^[[:space:]]*\([^ ]*\) (compatibility.*/\1/p' |
+        grep -v -e '^/usr/lib/' -e '^/System/Library/' -e 'libc++') || true
+      check_executable_cxx=$("$1/bin/llvm-objdump" --macho --dylibs-used "$2" | grep 'libc++') || true
+      [ -z "$check_executable_dylibs$check_executable_cxx" ] ||
+        die "$2 links shared libraries that are not the system's, or a shared libc++: $(echo $check_executable_dylibs $check_executable_cxx)"
       ;;
   esac
 }
@@ -901,7 +904,7 @@ stage1_tools() {
 }
 
 # LLVM's optional host dependencies, all off: the tools depend on nothing
-# of the host, and link no shared library (liblzma is one in the SDK).
+# of the host, the same on every target (musl has no liblzma to link).
 llvm_without_host_libraries() {
   printf '%s\n' -DLLVM_ENABLE_BINDINGS=OFF -DLLVM_ENABLE_LIBEDIT=OFF -DLLVM_ENABLE_LIBXML2=OFF \
     -DLLVM_ENABLE_ZLIB=OFF -DLLVM_ENABLE_ZSTD=OFF -DLLVM_ENABLE_LZMA=OFF -DLLVM_ENABLE_LIBPFM=OFF \

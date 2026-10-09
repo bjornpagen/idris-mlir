@@ -1,9 +1,9 @@
 #!/bin/sh
-# Nothing this repository builds links a shared library: our tools and every
-# program are static, but for macOS's C library, libSystem, which Darwin
-# ships only as a shared library. An ELF executable names no shared library
-# and no interpreter (a static PIE); a Mach-O executable names libSystem
-# alone.
+# Nothing this repository builds links a shared library of its own or of a
+# third party: an ELF executable names no shared library and no interpreter
+# (a static PIE); a Mach-O executable names only the operating system's own
+# libraries (/usr/lib, /System/Library: libSystem and the like), and never a
+# shared libc++, since the pinned libc++ is static.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 build=${idris_mlir_cc%/foreign/idr/idris-mlir-cc}
 program=$work/start
@@ -14,13 +14,15 @@ if ! link_program -O1 -I"$root/runtime" "$root/tests/toolchain/page-size-mismatc
   exit 0
 fi
 
-# shared FILE: what FILE needs of a dynamic loader, one per line: an ELF
-# file's interpreter and shared libraries, a Mach-O file's shared libraries
-# other than libSystem.
+# shared FILE: what FILE needs of a dynamic loader beyond what the rule
+# allows, one per line: an ELF file's interpreter and shared libraries; a
+# Mach-O file's shared libraries that are not the system's, and a shared
+# libc++.
 shared() {
   if "$llvm_bin/llvm-objdump" --file-headers "$1" 2> /dev/null | grep -q 'file format mach-o'; then
     "$llvm_bin/llvm-objdump" --macho --dylibs-used "$1" |
-      sed -n 's/^[[:space:]]*\([^ ]*\) (compatibility.*/\1/p' | grep -vx /usr/lib/libSystem.B.dylib
+      sed -n 's/^[[:space:]]*\([^ ]*\) (compatibility.*/\1/p' |
+      awk '$0 ~ /libc\+\+/ || ($0 !~ /^\/usr\/lib\// && $0 !~ /^\/System\/Library\//)'
   else
     "$llvm_bin/llvm-readelf" --program-headers --dynamic "$1" |
       awk '$1 == "INTERP" { print "an interpreter" } /\(NEEDED\)/ { print $NF }'
@@ -32,6 +34,6 @@ for file in "$idris_mlir_cc" "$idris_mlir_opt" "$program"; do
   if [ -s "$work/shared" ]; then
     say "${file##*/}: needs $(paste -sd, "$work/shared")"
   else
-    say "${file##*/}: static, but for libSystem on macOS"
+    say "${file##*/}: static, but for the system's own libraries on macOS"
   fi
 done
