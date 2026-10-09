@@ -20,6 +20,11 @@ static const char *const bigs[] = {
     "340282366920938463463374607431768211457"};
 enum { bigCount = sizeof bigs / sizeof bigs[0] };
 
+/* The amounts every big is shifted by, each way: around 0, around the
+ * width of a small big and of a word, and past both. */
+static const int64_t amounts[] = {-200, -65, -64, -63, -62, -1, 0, 1, 2, 61, 62, 63, 64, 65, 200};
+enum { amountCount = sizeof amounts / sizeof amounts[0] };
+
 static const char *const strings[] = {"", "a", "hello", "héllo wörld", "日本語", "\xF0\x9F\x98\x80x", "ab"};
 enum { stringCount = sizeof strings / sizeof strings[0] };
 
@@ -216,7 +221,12 @@ int main(void) {
     made[i] = countOf((void *)(uintptr_t)values[i]);
     releaseArgument(digits, digitsMade, bigs[i]);
   }
-  static const char *const names[] = {"add", "sub", "mul", "div", "mod", "and", "or", "xor"};
+  /* An amount no word holds, which moves any big toward zero to its sign. */
+  const idris_rt_str *hugeDigits = make("100000000000000000000");
+  idris_rt_big huge = idris_rt_big_from_str(hugeDigits);
+  release(hugeDigits);
+  idris_rt_big hugeNeg = idris_rt_big_neg(huge);
+  static const char *const names[] ={"add", "sub", "mul", "div", "mod", "and", "or", "xor"};
   idris_rt_big (*const ops[])(idris_rt_big, idris_rt_big) = {
       idris_rt_big_add, idris_rt_big_sub, idris_rt_big_mul, idris_rt_big_div,
       idris_rt_big_mod, idris_rt_big_and, idris_rt_big_or,  idris_rt_big_xor};
@@ -241,7 +251,31 @@ int main(void) {
     text(" to_double ");
     idris_rt_io_put_double(idris_rt_big_to_double(values[i]));
     line();
+    /* Shifted left and right by each amount, then toward zero by the huge
+     * one, the directions it is defined in for every big. */
+    text("shift");
+    for (int k = 0; k < amountCount; ++k) {
+      idris_rt_big n = idris_rt_big_from_int_s(amounts[k]);
+      text(" ");
+      big(idris_rt_big_shl(values[i], n));
+      text("/");
+      big(idris_rt_big_shr(values[i], n));
+      idris_rt_big_release(n);
+    }
+    text(" huge ");
+    big(idris_rt_big_shr(values[i], huge));
+    text("/");
+    big(idris_rt_big_shl(values[i], hugeNeg));
+    line();
   }
+  /* 0 moved away from zero by the huge amount is still 0; values[0] is 0. */
+  text("shift 0 huge ");
+  big(idris_rt_big_shl(values[0], huge));
+  text("/");
+  big(idris_rt_big_shr(values[0], hugeNeg));
+  line();
+  idris_rt_big_release(huge);
+  idris_rt_big_release(hugeNeg);
   for (int i = 0; i < doubleCount; ++i) {
     text("from_double ");
     big(idris_rt_big_from_double(doubles[i]));

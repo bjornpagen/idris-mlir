@@ -539,10 +539,10 @@ const char *idris_rt_str_bytes(const idris_rt_str *s);
 /* Bigs: Integer, and the Nat-like types. Each operation borrows its
  * arguments and returns an owned result: a small word, or a new bignum.
  * Division and modulus are Euclidean, the remainder in [0, |b|), and the
- * bitwise operations are those of the infinite two's complement
- * representation, as upstream Idris's test suite requires of every backend
- * (its integers test of Chez, RefC and Node); the divisor is nonzero
- * (idr-lower checks it first). */
+ * bitwise operations and the shifts are those of the infinite two's
+ * complement representation, as upstream Idris's test suite requires of
+ * every backend (its integers test of Chez, RefC and Node); the divisor is
+ * nonzero (idr-lower checks it first). */
 idris_rt_big idris_rt_big_add(idris_rt_big a, idris_rt_big b);
 idris_rt_big idris_rt_big_sub(idris_rt_big a, idris_rt_big b);
 idris_rt_big idris_rt_big_mul(idris_rt_big a, idris_rt_big b);
@@ -551,6 +551,14 @@ idris_rt_big idris_rt_big_mod(idris_rt_big a, idris_rt_big b);
 idris_rt_big idris_rt_big_and(idris_rt_big a, idris_rt_big b);
 idris_rt_big idris_rt_big_or(idris_rt_big a, idris_rt_big b);
 idris_rt_big idris_rt_big_xor(idris_rt_big a, idris_rt_big b);
+/* a moved n places, left (idr.big.shl) or right (idr.big.shr), the other
+ * way when n is negative, as Scheme's ash moves it: a left shift is
+ * a * 2^n, a right shift the floor of a / 2^n, so it fills with the sign.
+ * A shift toward zero, and any shift of 0, is defined for every amount. A
+ * left shift whose result no integer can hold (more than 2^31 - 1 limbs)
+ * ends the process as exhausted memory does. */
+idris_rt_big idris_rt_big_shl(idris_rt_big a, idris_rt_big n);
+idris_rt_big idris_rt_big_shr(idris_rt_big a, idris_rt_big n);
 idris_rt_big idris_rt_big_neg(idris_rt_big a);
 /* a - 1, for a natural that is not zero (idr.big.pred). */
 idris_rt_big idris_rt_big_pred(idris_rt_big a);

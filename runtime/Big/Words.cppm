@@ -50,6 +50,14 @@ int32_t signOf(idris_rt_big a) {
   return size < 0 ? -1 : size > 0 ? 1 : 0;
 }
 
+// A reference to `a` itself that the caller owns: a small big is its word,
+// and a large one gets one more reference.
+idris_rt_big owned(idris_rt_big a) {
+  if (!isSmall(a))
+    idris_rt_inc(reinterpret_cast<void *>(a));
+  return a;
+}
+
 } // namespace rt::big
 
 extern "C" void idris_rt_big_release(idris_rt_big a) {

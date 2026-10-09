@@ -9,22 +9,19 @@ module;
 
 export module rt.alloc:blocks;
 
-namespace {
-
-[[noreturn]] void outOfMemory() {
-  static constexpr char message[] = "idris runtime: out of memory\n";
-  idris_rt_crash(message, sizeof message - 1);
-}
-
-} // namespace
-
 export namespace rt::alloc {
 
 // True in an evaluation child once idris_rt_eval_begin ran: every allocation
 // then comes from the arena, every cell is persistent, and nothing is freed.
 inline bool arenaActive = false;
 
-// Exhausted memory is a crash.
+// Exhausted memory is a crash: the allocator's, and any request for more
+// than an integer can hold, which no allocation could meet.
+[[noreturn]] void outOfMemory() {
+  static constexpr char message[] = "idris runtime: out of memory\n";
+  idris_rt_crash(message, sizeof message - 1);
+}
+
 void *allocate(size_t size) {
   if (arenaActive)
     return idris_rt_arena_alloc(size);
