@@ -133,6 +133,48 @@ below); `assert_total` and `assert_smaller` stay.
 - Unused and not expressible honestly, deleted: `VarSet.unsafeToList` and
   `Libraries.System.Directory.Tree`'s `Tree.toRelative`.
 
+### Rewritten so that this compiler can compile it
+
+- **Metadata records.** Upstream attaches metadata to a payload with one
+  extensible record, `WithData fields a` (`Libraries.Data.WithData`, over
+  `Libraries.Data.Record`): `fields` is a list of labels paired with
+  types, a `KeyVal` holds a `Type` at run time, each value's type is
+  computed from that list, and building one takes the list at run time.
+  This compiler refuses a `Type` stored at run time and a field whose type
+  is computed from an index, so both modules are gone. `Core.WithData`
+  instead declares one record per combination of metadata that is used,
+  named by its fields in their order (`WithFC`, `WithName`,
+  `WithFCTyName`, `WithFCNameArity`, `WithRigName`, `WithFCRigName`,
+  `WithNameOpts`, `WithRigMName`, `WithFCRigMName`, `WithDocFC`,
+  `WithDocRigNames`, `WithFCDocRigNames`, `WithNameRigTot`), each with
+  fixed field types and a `Functor` on its payload. The fields keep
+  upstream's projection names (`.fc`, `.val`, `.name`, `.rig`, `.doc`,
+  `.names`, `.mName`, `.tyName`, `.arity`, `.opts`, `.totReq`), so
+  `x.fc` and `{ val := v } x` read as upstream's do; they resolve by the
+  record's type. `WithFC`'s constructor keeps upstream's `MkWithData`,
+  which call sites match on, and `MkFCVal`, `NoFC`, `.withFC`, `setFC`,
+  `.nameVal`, `:+`, `AddDef`, `distribData` and `Core.Core`'s
+  `traverse` keep their names, at the types they are used. What changed
+  at call sites: the type-level combinators (`AddFC`, `WithRig`,
+  `WithDoc`, `AddMetadata`, ...) are replaced by the record they built
+  (`Constructor'` is `WithFCNameArity`, `ImpTy'` is `WithFCTyName`,
+  `ImpParameter'` is `WithRigName`, `IField'` is `WithFCRigName`,
+  `RecordField'` is `WithDocRigNames`, `PField'` is
+  `WithFCDocRigNames`, `Method` is `WithNameRigTot`); `Mk [x, y] v`
+  becomes the record's constructor applied to `x y v`; `get "doc"`,
+  `set "fc"` and `update "name"` become a projection or a record update;
+  and `TTImp.Impossible` names `WithFC.val`, where fourteen records'
+  `.val` exceed the elaborator's ambiguity depth. A TTC holds these
+  records as upstream's extensible record wrote them (each metadata field
+  after a 1, in order, then a 0, then the payload), so its bytes are
+  unchanged; `Core.TTC` (and `TTImp.TTImp.TTC` for `WithNameOpts`, whose
+  `DataOpt` is defined there) writes each one. Upstream's
+  `DocBindFC`, `.bind`, `HasDefault`, `MkDef` and the generic
+  `get`/`set`/`update`/`getAt`/`drop` had no use left and are gone, as are
+  the public re-exports of `Data.List.Quantifiers`, `Data.List` and
+  `Data.Maybe` that came with `Libraries.Data.WithData`
+  (`Core.Normalise.Eval` imports `Data.List.Quantifiers` itself).
+
 ### Ours
 
 - `Core.Unify` declares `search` and `Core.AutoSearch` defines it, which

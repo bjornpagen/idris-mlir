@@ -99,7 +99,7 @@ mkIfaceData {vars} ifc def_vis env constraints n conName ps dets meths
           conty = mkTy vfc Implicit (map jname ps) $
                   mkTy vfc AutoImplicit (map bhere constraints) $
                   mkTy vfc Explicit (map bname meths) retty
-          con = Mk [vfc, NoFC conName] !(bindTypeNames ifc [] (pNames ++ map fst meths ++ toList vars) conty)
+          con = MkWithFCTyName vfc (NoFC conName) !(bindTypeNames ifc [] (pNames ++ map fst meths ++ toList vars) conty)
           bound = pNames ++ map fst meths ++ toList vars in
 
           pure $ IData vfc def_vis Nothing {- ?? -}
@@ -167,7 +167,7 @@ getMethToplevel {vars} env vis iname cname allmeths bindNames params (mname, sig
          cn <- traverse inCurrentNS sig.name
          let tydecl = IClaim (MkFCVal vfc $ MkIClaimData sig.count vis (if sig.isData then [Inline, Invertible]
                                             else [Inline])
-                                      (Mk [vfc, cn] ty_imp))
+                                      (MkWithFCTyName vfc cn ty_imp))
          let conapp = apply (IVar vfc cname) (map (IBindVar EmptyFC) bindNames)
 
          let lhs = INamedApp vfc
@@ -219,7 +219,7 @@ getConstraintHint {vars} fc env vis iname cname constraints meths params (cn, co
                            (UN (Basic $ "__" ++ show iname ++ "_" ++ show con))
 
          let tydecl = IClaim (MkFCVal fc $ MkIClaimData top vis [Inline, Hint False]
-                             (Mk [EmptyFC, NoFC hintname] ty_imp))
+                             (MkWithFCTyName EmptyFC (NoFC hintname) ty_imp))
 
          let conapp = apply (impsBind (IVar fc cname) constraints)
                             (map (const (Implicit fc True)) meths)
@@ -262,7 +262,7 @@ updateIfaceSyn iname cn impps ps cs ms ds
     totMeth : Signature -> Core Method
     totMeth decl
         = do let treq = findTotality decl.flags
-             pure $ Mk [decl.name, decl.count, treq] decl.type
+             pure $ MkWithNameRigTot decl.name decl.count treq decl.type
 
 -- Read the implicitly added parameters from an interface type, so that we
 -- know to substitute an implicit in when defining the implementation
@@ -284,7 +284,7 @@ elabInterface : {vars : _} ->
                 Name ->
                 (params : List (Name, (RigCount, RawImp))) ->
                 (dets : Maybe (List1 Name)) ->
-                (conName : Maybe (WithDoc $ AddFC Name)) ->
+                (conName : Maybe (WithDocFC Name)) ->
                 List ImpDecl ->
                 Core ()
 elabInterface {vars} ifc def_vis env nest constraints iname params dets mcon body
@@ -293,7 +293,7 @@ elabInterface {vars} ifc def_vis env nest constraints iname params dets mcon bod
          let conName_in = maybe (mkCon vfc fullIName) val mcon
          -- Machine generated names need to be qualified when looking them up
          conName <- inCurrentNS conName_in
-         whenJust (get "doc" <$> mcon) (addDocString conName)
+         whenJust ((.doc) <$> mcon) (addDocString conName)
          let meth_sigs = mapMaybe getSig body
          let meth_decls = meth_sigs
          let meth_names = map (val . name) meth_decls
@@ -400,7 +400,7 @@ elabInterface {vars} ifc def_vis env nest constraints iname params dets mcon bod
 
              let dtydecl = IClaim $ MkFCVal vdfc
                                   $ MkIClaimData rig (collapseDefault def_vis) []
-                                  $ Mk [EmptyFC, NoFC dn] dty_imp
+                                  $ MkWithFCTyName EmptyFC (NoFC dn) dty_imp
 
              processDecl [] nest env dtydecl
 

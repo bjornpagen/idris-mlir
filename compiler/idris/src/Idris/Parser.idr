@@ -24,7 +24,7 @@ import Idris.Parser.Let
 fcBounds : OriginDesc => Rule a -> Rule (WithFC a)
 fcBounds a = (.withFC) <$> bounds a
 
-addFCBounds : OriginDesc => Rule (WithData ls a) -> Rule (WithData (FC' :: ls) a)
+addFCBounds : OriginDesc => Rule (WithDocRigNames a) -> Rule (WithFCDocRigNames a)
 addFCBounds a = (.addFC) <$> bounds a
 
 decorate : {a : Type} -> OriginDesc -> Decoration -> Rule a -> Rule a
@@ -1203,7 +1203,7 @@ plainBinder : (fname : OriginDesc) => (indents : IndentInfo) => Rule PlainBinder
 plainBinder = do name <- fcBounds (decoratedSimpleBinderUName fname)
                  decoratedSymbol fname ":"
                  ty <- typeExpr pdef fname indents
-                 pure $ Mk [name] ty
+                 pure $ MkWithName name ty
 
 ||| A binder with multiple names and one type
 ||| BNF:
@@ -1671,7 +1671,7 @@ getVisibility (Just vis) (Left x :: xs)
    = fatalError "Multiple visibility modifiers"
 getVisibility v (_ :: xs) = getVisibility v xs
 
-recordConstructor : OriginDesc -> Rule (WithDoc $ AddFC Name)
+recordConstructor : OriginDesc -> Rule (WithDocFC Name)
 recordConstructor fname
   = do doc <- optDocumentation fname
        decorate fname Keyword $ exactIdent "constructor"
@@ -1705,10 +1705,10 @@ constraints fname indents
   <|> pure []
 
 implBinds : OriginDesc -> IndentInfo -> (namedImpl : Bool) ->
-            EmptyRule (List (AddFC (ImpParameter' PTerm)))
+            EmptyRule (List (WithFCRigName (PiBindData PTerm)))
 implBinds fname indents namedImpl = concatMap (map adjust) <$> go where
 
-  adjust : ImpParameter' PTerm -> AddFC (ImpParameter' PTerm)
+  adjust : ImpParameter' PTerm -> WithFCRigName (PiBindData PTerm)
   adjust param = virtualiseFC param.name.fc :+ param
 
   isDefaultImplicit : PiInfo a -> Bool
@@ -1720,7 +1720,7 @@ implBinds fname indents namedImpl = concatMap (map adjust) <$> go where
           piInfo <- bounds $ option Implicit $ defImplicitField fname indents
           when (not namedImpl && isDefaultImplicit piInfo.val) $
             fatalLoc piInfo.bounds "Default implicits are allowed only for named implementations"
-          ns <- map (\case (MkBasicMultiBinder rig names type) => map (\nm => Mk [rig, nm] (MkPiBindData piInfo.val type)) (forget names))
+          ns <- map (\case (MkBasicMultiBinder rig names type) => map (\nm => MkWithRigName rig nm (MkPiBindData piInfo.val type)) (forget names))
                     (pibindListName fname indents)
           let ns = the (List (ImpParameter' PTerm)) ns
           commitSymbol fname "}"
@@ -1753,7 +1753,7 @@ fieldDecl indents
                                 fatalLoc {c = True} b.bounds "Fields have to be named")))
              decoratedSymbol fname ":"
              ty <- typeExpr pdef fname indents
-             pure (Mk [doc, rig, forget ns] (MkPiBindData p ty))
+             pure (MkWithDocRigNames doc rig (forget ns) (MkPiBindData p ty))
 
 parameters {auto fname : OriginDesc} {auto indents : IndentInfo}
 

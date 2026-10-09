@@ -23,9 +23,6 @@ import Libraries.Data.WithDefault
 import Libraries.Data.SparseMatrix
 import Libraries.Utils.Binary
 
-%hide LabelledValue.label
-%hide KeyVal.label
-
 public export
 data Ref : (l : label) -> Type -> Type where
      [search l]
@@ -175,7 +172,7 @@ Show Def where
 
 public export
 Constructor' : Type -> Type
-Constructor' = AddFC . WithName . WithArity
+Constructor' = WithFCNameArity
 
 public export
 Constructor : Type

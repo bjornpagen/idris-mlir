@@ -304,7 +304,7 @@ mutual
 
   public export
   ImpTy' : Type -> Type
-  ImpTy' = AddMetadata FC' . AddMetadata TyName' . RawImp'
+  ImpTy' = WithFCTyName . RawImp'
 
   export
   covering
@@ -343,7 +343,7 @@ mutual
 
   public export
   IField' : Type -> Type
-  IField' nm = AddFC $ ImpParameter' (RawImp' nm)
+  IField' nm = WithFCRigName $ PiBindData (RawImp' nm)
 
   public export
   ImpParameter : Type
@@ -351,7 +351,7 @@ mutual
 
   public export
   ImpParameter' : Type -> Type
-  ImpParameter' nm = WithRig $ WithName $ PiBindData nm
+  ImpParameter' nm = WithRigName $ PiBindData nm
 
   -- old datatype for ImpParameter, used for elabreflection compatibility
   public export
@@ -364,7 +364,7 @@ mutual
 
   public export
   fromOldParams : OldParameters' nm -> ImpParameter' (RawImp' nm)
-  fromOldParams (nm, rig, info,type) = Mk [rig, NoFC nm] (MkPiBindData info type)
+  fromOldParams (nm, rig, info,type) = MkWithRigName rig (NoFC nm) (MkPiBindData info type)
 
   export
   Show nm => Show (ImpParameter' nm) where
@@ -372,7 +372,7 @@ mutual
 
   public export 0
   ImpRecord : Type
-  ImpRecord = AddFC $ ImpRecordData Name
+  ImpRecord = WithFC $ ImpRecordData Name
 
   public export 0
   DataHeader : Type -> Type -- the name is the type constructor's name
@@ -380,7 +380,7 @@ mutual
 
   public export 0
   RecordBody : Type -> Type -- The name is the data constructor's name
-  RecordBody nm = WithName $ WithOpts $ List (IField' nm)
+  RecordBody nm = WithNameOpts $ List (IField' nm)
 
   ||| A record is defined by its header containing the name and parameters, and its body
   ||| containing the constructor name, options, and a list of fields
@@ -393,8 +393,8 @@ mutual
   export
   covering
   Show nm => Show (IField' nm) where
-    show f@(MkWithData _ (MkPiBindData Explicit ty)) = show f.name.val ++ " : " ++ show ty
-    show f@(MkWithData _ ty) = "{" ++ show f.name.val ++ " : " ++ show ty.boundType ++ "}"
+    show f@(MkWithFCRigName _ _ _ (MkPiBindData Explicit ty)) = show f.name.val ++ " : " ++ show ty
+    show f@(MkWithFCRigName _ _ _ ty) = "{" ++ show f.name.val ++ " : " ++ show ty.boundType ++ "}"
 
   export
   covering
@@ -471,7 +471,7 @@ mutual
                  Maybe String -> -- nested namespace
                  WithDefault Visibility Private ->
                  Maybe TotalReq ->
-                 AddFC (ImpRecordData nm) -> ImpDecl' nm
+                 WithFC (ImpRecordData nm) -> ImpDecl' nm
        IFail : FC -> Maybe String -> List (ImpDecl' nm) -> ImpDecl' nm
        INamespace : FC -> Namespace -> List (ImpDecl' nm) -> ImpDecl' nm
        ITransform : FC -> Name -> RawImp' nm -> RawImp' nm -> ImpDecl' nm

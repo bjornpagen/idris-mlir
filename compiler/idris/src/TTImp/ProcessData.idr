@@ -121,7 +121,7 @@ checkCon {vars} opts nest env vis tn_in tn ty_raw
                            addHashWithNames fullty
                            log "module.hash" 15 "Adding hash for data constructor: \{show cn}"
               _ => pure ()
-         pure (Mk [fc, NoFC cn, !(getArity defs Env.empty fullty)] fullty)
+         pure (MkWithFCNameArity fc (NoFC cn) !(getArity defs Env.empty fullty) fullty)
 
 -- Get the indices of the constructor type (with non-constructor parts erased)
 getIndexPats : {auto c : Ref Ctxt Defs} ->
@@ -526,7 +526,7 @@ processData {vars} eopts nest env fc def_vis mbtot (MkImpData dfc n_in mty_raw o
          let cvis = if vis == Export then Private else vis
          cons <- traverse (checkCon eopts nest env cvis n_in (Resolved tidx)) cons_raw
 
-         let ddef = MkData (Mk [dfc, NoFC n, arity] fullty) cons
+         let ddef = MkData (MkWithFCNameArity dfc (NoFC n) arity fullty) cons
          ignore $ addData vars vis tidx ddef
 
          -- Flag data type as a newtype, if possible (See `findNewtype` for criteria).

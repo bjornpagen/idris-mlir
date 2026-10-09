@@ -6,6 +6,7 @@ import Core.Env
 import Core.Primitives
 import Core.Value
 
+import Data.List.Quantifiers
 import Data.Vect
 
 import Libraries.Data.WithDefault
