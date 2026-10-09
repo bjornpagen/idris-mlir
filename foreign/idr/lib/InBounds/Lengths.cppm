@@ -86,7 +86,8 @@ struct Forget {
 
 export class Lengths {
 public:
-  explicit Lengths(ModuleOp module, DataFlowSolver &solver) : calls(module), solver(solver) {}
+  explicit Lengths(ModuleOp module, DataFlowSolver &solver)
+      : module(module), calls(module), solver(solver) {}
 
   // Whether the array `array` has `size` clamped at 0 elements wherever
   // both are in scope.
@@ -96,10 +97,10 @@ public:
     // operand of the call, and past the bound the pair stays unrelated.
     array = arrayRoot(array);
     for (unsigned hop = 0; hop < 64; ++hop) {
-      std::optional<GivenBack> back = arrayGivenBack(array);
+      std::optional<GivenBack> back = givenBack(array);
       if (!back || back->value == array)
         break;
-      if (std::optional<GivenBack> sizeBack = arrayGivenBack(size);
+      if (std::optional<GivenBack> sizeBack = givenBack(size);
           sizeBack && sizeBack->call == back->call)
         size = sizeBack->value;
       array = arrayRoot(back->value);
@@ -118,6 +119,14 @@ private:
     SmallVector<unsigned> needs;
     SmallVector<unsigned> neededBy;
   };
+
+  // The arrays the module's calls give back, solved the first time a pair
+  // asks: a module whose guards never ask about a length never pays for it.
+  std::optional<GivenBack> givenBack(Value value) {
+    if (!returned)
+      returned.emplace(module, calls);
+    return returned->given(value);
+  }
 
   // Whether `max(size, 0)` and `max(made, 0)` are the same integer, from
   // how `made` is built. A side that already is agrees without the
@@ -292,7 +301,10 @@ private:
         nodes[id].state = State::Held;
   }
 
+  ModuleOp module;
   Calls calls;
+  // Refers to `calls`, so it is declared after it.
+  std::optional<ReturnedArrays> returned;
   DataFlowSolver &solver;
   DominanceInfo dominance;
   DenseMap<Pair, unsigned> index;
