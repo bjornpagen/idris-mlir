@@ -87,8 +87,8 @@ bool provenInBounds(CheckInBoundsOp guard, DataFlowSolver &solver, DominanceInfo
 // Whether a guard of the same kind on the same operands runs before `guard`
 // on every path to it. The operands are the same values there, so that one
 // checked this one's condition and did not crash.
-bool checkedBefore(Operation *guard, DominanceInfo &dominance) {
-  for (Operation *other : guard->getOperand(0).getUsers())
+bool checkedBefore(GuardOpInterface guard, DominanceInfo &dominance) {
+  for (Operation *other : guard.getGuarded().getUsers())
     if (other != guard && other->getName() == guard->getName() &&
         llvm::equal(other->getOperands(), guard->getOperands()) &&
         dominance.properlyDominates(other, guard))
@@ -149,26 +149,24 @@ export FailureOr<Proved> prove(ModuleOp module) {
   DominanceInfo dominance(module);
   Lengths lengths(module, solver);
   Induction induction(solver, dominance);
-  SmallVector<Operation *> proven;
+  SmallVector<GuardOpInterface> proven;
   Proved done;
-  module.walk([&](Operation *op) {
-    if (!asGuard(op))
-      return;
+  module.walk([&](GuardOpInterface guard) {
+    Operation *op = guard;
     auto index = dyn_cast<CheckInBoundsOp>(op);
     auto proves = [&](CarriedBounds carried) {
       return provenInBounds(index, solver, dominance, lengths, std::move(carried));
     };
     // The bounds the loops keep their counters in cost a system per back
     // edge, so they are proven only for a guard that needs them.
-    bool holds = checkedBefore(op, dominance) || provenByRanges(op, solver) ||
+    bool holds = checkedBefore(guard, dominance) || provenByRanges(op, solver) ||
                  (index && (proves(nullptr) || proves(induction.asCarried())));
     if (holds)
-      proven.push_back(op);
+      proven.push_back(guard);
     ++(holds ? done.proved : done.checked);
   });
-  for (Operation *guard : proven) {
-    Guard given = *asGuard(guard);
-    given.checked.replaceAllUsesWith(given.operand);
+  for (GuardOpInterface guard : proven) {
+    guard->getResult(0).replaceAllUsesWith(guard.getGuarded());
     guard->erase();
   }
   return done;

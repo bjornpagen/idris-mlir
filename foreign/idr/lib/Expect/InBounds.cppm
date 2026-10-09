@@ -37,7 +37,7 @@ bool isAccessGuard(Operation *op) {
   return guard && inbounds::accessedArray(guard);
 }
 
-bool isGuard(Operation *op) { return inbounds::asGuard(op).has_value(); }
+bool isGuard(Operation *op) { return isa<GuardOpInterface>(op); }
 
 // Each of `guards` left where it should be gone, one error each.
 LogicalResult noneLeft(ArrayRef<Operation *> guards, StringRef property) {

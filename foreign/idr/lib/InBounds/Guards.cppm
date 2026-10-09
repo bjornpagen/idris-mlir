@@ -12,26 +12,6 @@ using namespace mlir;
 
 namespace idr::inbounds {
 
-// A guard's result and the operand it gives, which every use of the result
-// may take instead once the guard can never crash.
-export struct Guard {
-  Value checked;
-  Value operand;
-};
-
-// `op` as a guard; none for any other op. The one list of the guard kinds
-// that idr-in-bounds and idr-expect read.
-export std::optional<Guard> asGuard(Operation *op) {
-  return TypeSwitch<Operation *, std::optional<Guard>>(op)
-      .Case([](CheckNonzeroOp g) { return Guard{g.getChecked(), g.getValue()}; })
-      .Case([](CheckInBoundsOp g) { return Guard{g.getChecked(), g.getIndex()}; })
-      .Case([](CheckNonemptyOp g) { return Guard{g.getChecked(), g.getStr()}; })
-      .Case([](CheckByteOp g) { return Guard{g.getChecked(), g.getValue()}; })
-      .Case([](CheckFiniteOp g) { return Guard{g.getChecked(), g.getValue()}; })
-      .Case([](CheckRangeOp g) { return Guard{g.getChecked(), g.getOffset()}; })
-      .Default([](Operation *) { return std::nullopt; });
-}
-
 // The array of the access whose index is `guard`'s result. None when no
 // array access takes it, as for a string's index.
 export std::optional<Value> accessedArray(CheckInBoundsOp guard) {

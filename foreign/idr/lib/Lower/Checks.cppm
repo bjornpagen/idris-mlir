@@ -94,7 +94,7 @@ struct LowerCheck : IdrPattern<OpT> {
     Location loc = op.getLoc();
     this->runtime.crashIf(rewriter, loc, fails(op, adaptor, rewriter, loc, this->runtime),
                           op.getCause());
-    // The checked operand is the first.
+    // The operand the guard guards, its first, is its result.
     rewriter.replaceOpWithMultiple(op, {SmallVector<Value>(adaptor.getOperands().front())});
     return success();
   }

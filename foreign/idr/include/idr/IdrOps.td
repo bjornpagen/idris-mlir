@@ -846,6 +846,18 @@ def Idr_MayLoopOp : Idr_Op<"may_loop", [MemoryEffects<[
 // Guards
 //===----------------------------------------------------------------------===//
 
+// What a pass asks of any guard, so that none lists the guards: the
+// condition it checks, and the operand it guards.
+def Idr_GuardOpInterface : OpInterface<"GuardOpInterface"> {
+  let cppNamespace = "::idr";
+  let description = "A guard: crashes unless its condition holds, else gives its operand.";
+  let methods = [
+    InterfaceMethod<"The condition the guard checks.", "::idr::CheckKind", "getKind">,
+    InterfaceMethod<"The operand whose value the guard's result passes on.",
+                    "::mlir::Value", "getGuarded">,
+  ];
+}
+
 // A partial primitive is a guard and a total op. The guard crashes with its
 // cause, the text of the crash message, when its condition fails, and
 // otherwise gives its operand, which the total op takes in the operand's
@@ -855,8 +867,11 @@ def Idr_MayLoopOp : Idr_Op<"may_loop", [MemoryEffects<[
 // operand shows its condition holds (lib/Dialect/Ops/Check.cc), and
 // idr-in-bounds erases those it proves where they run. The result of a guard
 // with an integer range is the operand's range clamped by the condition.
-class Idr_CheckOp<string mnemonic, list<Trait> traits = []>
-    : Idr_Op<"check." # mnemonic, !listconcat(traits, [Idr_MayCrash<>])> {
+// `kind` is the guard's ::idr::CheckKind. The operand a guard guards is its
+// first, which its folder and its lowering give as its result.
+class Idr_CheckOp<string mnemonic, string kind, list<Trait> traits = []>
+    : Idr_Op<"check." # mnemonic, !listconcat(traits, [Idr_MayCrash<>,
+        DeclareOpInterfaceMethods<Idr_GuardOpInterface>])> {
   // nonzero and nonempty also take their operand's reference over and give
   // it to their result (Idr_Consumes), whose trait offers getEffects too: a
   // guard's effects are its crash's alone.
@@ -865,11 +880,13 @@ class Idr_CheckOp<string mnemonic, list<Trait> traits = []>
   }];
   let extraClassDefinition = [{
     std::optional<::llvm::StringRef> $cppClass::getCrashCause() { return getCause(); }
+    ::idr::CheckKind $cppClass::getKind() { return ::idr::CheckKind::}] # kind # [{; }
+    ::mlir::Value $cppClass::getGuarded() { return getOperation()->getOperand(0); }
   }];
   let hasFolder = 1;
 }
 
-def Idr_CheckNonzeroOp : Idr_CheckOp<"nonzero", [SameOperandsAndResultType,
+def Idr_CheckNonzeroOp : Idr_CheckOp<"nonzero", "Nonzero", [SameOperandsAndResultType,
     Idr_Consumes<"0">,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   let summary = "the value, which must not be zero, else the program crashes";
@@ -878,7 +895,7 @@ def Idr_CheckNonzeroOp : Idr_CheckOp<"nonzero", [SameOperandsAndResultType,
   let assemblyFormat = "$value `,` $cause attr-dict `:` type($value)";
 }
 
-def Idr_CheckInBoundsOp : Idr_CheckOp<"in_bounds", [
+def Idr_CheckInBoundsOp : Idr_CheckOp<"in_bounds", "InBounds", [
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   let summary = "the index, which must be at least 0 and below the length, else the program crashes";
   let arguments = (ins I64:$index, I64:$length, StrAttr:$cause);
@@ -886,7 +903,7 @@ def Idr_CheckInBoundsOp : Idr_CheckOp<"in_bounds", [
   let assemblyFormat = "$index `,` $length `,` $cause attr-dict";
 }
 
-def Idr_CheckNonemptyOp : Idr_CheckOp<"nonempty", [SameOperandsAndResultType,
+def Idr_CheckNonemptyOp : Idr_CheckOp<"nonempty", "Nonempty", [SameOperandsAndResultType,
     Idr_Consumes<"0">]> {
   let summary = "the string, which must have at least one byte, else the program crashes";
   let arguments = (ins Idr_StrValue:$str, StrAttr:$cause);
@@ -894,7 +911,7 @@ def Idr_CheckNonemptyOp : Idr_CheckOp<"nonempty", [SameOperandsAndResultType,
   let assemblyFormat = "$str `,` $cause attr-dict `:` type($str)";
 }
 
-def Idr_CheckByteOp : Idr_CheckOp<"byte", [
+def Idr_CheckByteOp : Idr_CheckOp<"byte", "Byte", [
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   let summary = "the value, which must be from 0 to 255, else the program crashes";
   let arguments = (ins I64:$value, StrAttr:$cause);
@@ -902,7 +919,7 @@ def Idr_CheckByteOp : Idr_CheckOp<"byte", [
   let assemblyFormat = "$value `,` $cause attr-dict";
 }
 
-def Idr_CheckFiniteOp : Idr_CheckOp<"finite"> {
+def Idr_CheckFiniteOp : Idr_CheckOp<"finite", "Finite"> {
   let summary = "the value, which must be neither NaN nor infinite, else the program crashes";
   let arguments = (ins F64:$value, StrAttr:$cause);
   let results = (outs F64:$checked);
@@ -911,7 +928,7 @@ def Idr_CheckFiniteOp : Idr_CheckOp<"finite"> {
 
 // The bytes [offset, offset + count) of something of `size` bytes: both at
 // least 0, and the end, computed without overflow, at most the size.
-def Idr_CheckRangeOp : Idr_CheckOp<"range", [
+def Idr_CheckRangeOp : Idr_CheckOp<"range", "Range", [
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   let summary = "the offset, whose range of `count` bytes must lie in `size`, else the program crashes";
   let arguments = (ins I64:$offset, I64:$count, I64:$size, StrAttr:$cause);

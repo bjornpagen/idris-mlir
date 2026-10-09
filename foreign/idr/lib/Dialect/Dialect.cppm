@@ -163,6 +163,7 @@ using idr::GetLineOp;
 using idr::Grade;
 using idr::gradeOf;
 using idr::graded;
+using idr::GuardOpInterface;
 using idr::HandleFreeOp;
 using idr::HandleIsNullOp;
 using idr::HandleStringOp;

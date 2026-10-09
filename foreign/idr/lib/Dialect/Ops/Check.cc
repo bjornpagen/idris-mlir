@@ -84,10 +84,9 @@ namespace {
 
 // Whether the value `op` checks is the result of a guard identical to it,
 // of its kind and with its other operands, which has checked it already.
-template <typename Check>
-bool checkedBefore(Check op) {
-  auto before = op->getOperand(0).template getDefiningOp<Check>();
-  return before &&
+bool checkedBefore(GuardOpInterface op) {
+  auto before = op.getGuarded().getDefiningOp<GuardOpInterface>();
+  return before && before.getKind() == op.getKind() &&
          llvm::equal(before->getOperands().drop_front(), op->getOperands().drop_front());
 }
 
@@ -96,39 +95,38 @@ bool checkedBefore(Check op) {
 // says it holds of the operand, or where an identical guard checked it.
 // Nothing otherwise: a guard that would crash keeps its crash, and what
 // only an analysis proves is idr-in-bounds's to remove.
-template <typename Check>
-OpFoldResult foldCheck(Check op, CheckKind kind, ArrayRef<Attribute> constants, bool known) {
-  if (known || checkHolds(kind, constants) || checkedBefore(op))
-    return op->getOperand(0);
+OpFoldResult foldCheck(GuardOpInterface op, ArrayRef<Attribute> constants, bool known) {
+  if (known || checkHolds(op.getKind(), constants) || checkedBefore(op))
+    return op.getGuarded();
   return {};
 }
 
 } // namespace
 
 OpFoldResult CheckNonzeroOp::fold(FoldAdaptor adaptor) {
-  return foldCheck(*this, CheckKind::Nonzero, adaptor.getOperands(), knownNonZero(getValue()));
+  return foldCheck(*this, adaptor.getOperands(), knownNonZero(getValue()));
 }
 
 OpFoldResult CheckInBoundsOp::fold(FoldAdaptor adaptor) {
-  return foldCheck(*this, CheckKind::InBounds, adaptor.getOperands(), false);
+  return foldCheck(*this, adaptor.getOperands(), false);
 }
 
 // A string built with a character or a number in it is not empty, which
 // lets a head read the character off the string it was built from.
 OpFoldResult CheckNonemptyOp::fold(FoldAdaptor adaptor) {
-  return foldCheck(*this, CheckKind::Nonempty, adaptor.getOperands(), knownNonEmpty(getStr()));
+  return foldCheck(*this, adaptor.getOperands(), knownNonEmpty(getStr()));
 }
 
 OpFoldResult CheckByteOp::fold(FoldAdaptor adaptor) {
-  return foldCheck(*this, CheckKind::Byte, adaptor.getOperands(), false);
+  return foldCheck(*this, adaptor.getOperands(), false);
 }
 
 OpFoldResult CheckFiniteOp::fold(FoldAdaptor adaptor) {
-  return foldCheck(*this, CheckKind::Finite, adaptor.getOperands(), knownFinite(getValue()));
+  return foldCheck(*this, adaptor.getOperands(), knownFinite(getValue()));
 }
 
 OpFoldResult CheckRangeOp::fold(FoldAdaptor adaptor) {
-  return foldCheck(*this, CheckKind::Range, adaptor.getOperands(), false);
+  return foldCheck(*this, adaptor.getOperands(), false);
 }
 
 //===----------------------------------------------------------------------===//
@@ -219,32 +217,19 @@ std::optional<CheckKind> guardOf(Operation *op) {
       .Default(std::nullopt);
 }
 
-// The kind of the guard `op`, or nothing when it is no guard.
-std::optional<CheckKind> kindOf(Operation *op) {
-  if (!op)
-    return std::nullopt;
-  return TypeSwitch<Operation *, std::optional<CheckKind>>(op)
-      .Case([](CheckNonzeroOp) { return CheckKind::Nonzero; })
-      .Case([](CheckInBoundsOp) { return CheckKind::InBounds; })
-      .Case([](CheckNonemptyOp) { return CheckKind::Nonempty; })
-      .Case([](CheckByteOp) { return CheckKind::Byte; })
-      .Case([](CheckFiniteOp) { return CheckKind::Finite; })
-      .Case([](CheckRangeOp) { return CheckKind::Range; })
-      .Default(std::nullopt);
-}
-
 // Whether `value`, the operand of `op` that its guard of `kind` checks, is
 // that guard's result. An index counts only past the guard against the
 // length of the op's own string: one against another string's length
 // proves nothing of this one.
 bool passedGuard(Operation *op, CheckKind kind, Value value) {
-  Operation *guard = value.getDefiningOp();
-  if (kindOf(guard) != kind)
+  auto guard = value.getDefiningOp<GuardOpInterface>();
+  if (!guard || guard.getKind() != kind)
     return false;
   if (kind != CheckKind::InBounds)
     return true;
   auto index = dyn_cast<StrIndexOp>(op);
-  auto length = cast<CheckInBoundsOp>(guard).getLength().getDefiningOp<StrLengthOp>();
+  auto length =
+      cast<CheckInBoundsOp>(guard.getOperation()).getLength().getDefiningOp<StrLengthOp>();
   return index && length && length.getStr() == index.getStr();
 }
 
