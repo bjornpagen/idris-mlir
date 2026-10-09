@@ -103,8 +103,11 @@ accepts, so they are the user's to take. Each is argued where it is cited.
 
 Each step is a research conclusion made concrete: what changes, and what
 proves it. Every step runs AGENTS.md's checks. W1 to W10 are compiled into
-one swarm packet, `proposals/0002-representation-cutover/`. It narrows W6
-to its first phase (closure conversion leaves Idris; regions do not yet
+one swarm packet, `proposals/0002-representation-cutover/`. They are done: the
+packet was integrated in 327c2e30 and 0451b1b8 (upstream/16 retires
+`idr-dead-values`), green on arm64 macOS before its last two changes;
+x86_64 Linux is NotRun, and the packet's qualification is still open.
+It narrows W6 to its first phase (closure conversion leaves Idris; regions do not yet
 live through the simplify loop), and records the corrections it made to
 `substrate.md` and `concurrency.md`. W0 is this restructure. The
 steps are ordered by what each needs; steps on separate lines of the graph

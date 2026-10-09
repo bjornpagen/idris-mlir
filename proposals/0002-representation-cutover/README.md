@@ -1,7 +1,10 @@
 # 0002: the representation cutover
 
-**Status:** proposed. This is a swarm packet, not yet launched. Its
-adversarial review (`review.md`) is folded in: see "Rulings on the
+**Status:** accepted in part: launched and integrated in 93f5d9c9, 327c2e30
+and 0451b1b8; "Rulings on the swarm" records what changed while it ran.
+Qualification is open: the suites with upstream/16 in the toolchain, the
+bench against the launch base, `tests/upstream-idris` and x86_64 Linux are
+NotRun. Its adversarial review (`review.md`) is folded in: see "Rulings on the
 adversarial review". What changed between authoring and launch is
 folded in too: see "Rulings at launch".
 
