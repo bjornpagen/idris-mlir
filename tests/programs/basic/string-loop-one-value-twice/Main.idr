@@ -2,9 +2,10 @@ module Main
 
 -- A loop decided by a string literal, which goes round again passing one
 -- value as two arguments and ends returning its string unchanged: the loop
--- whose condition forwards one result of the decision twice
--- (upstream/14-while-move-if-down-duplicates). The second argument decides
--- what the next string is, so a wrong value there changes the output.
+-- whose condition forwards one result of the decision twice, which
+-- scf.while's WhileMoveIfDown canonicalization once rewrote wrongly. The
+-- second argument decides what the next string is, so a wrong value there
+-- changes the output.
 
 import Prelude
 

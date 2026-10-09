@@ -101,8 +101,8 @@ use by one of the ops above is left null. The three ways in:
 
 ## Patch
 
-`llvm.patch` (for the pin) and `pull-request.diff` (for llvm main) make
-the same change to `RemoveDeadValues.cpp`: one helper,
+`llvm.patch` is the pull request, against llvm main at 7208ba24, the
+pin. It changes `RemoveDeadValues.cpp`: one helper,
 `replaceUsesWithPoison`, replaces the uses of a value about to be erased
 with a `ub.poison` at its definition (the start of the block for an
 argument, before the op for a result) and does nothing for an unused
@@ -112,7 +112,7 @@ result cleanup (`dropUsesAndEraseResults`, renamed
 the pass drops no use any more. Poison that ends up unused is already
 removed at the end of the cleanup.
 
-Both append to `mlir/test/Transforms/remove-dead-values.mlir`, with
+It appends to `mlir/test/Transforms/remove-dead-values.mlir`, with
 `CHECK` and `CHECK-CANONICALIZE` lines that check the property (the kept
 call takes a `ub.poison` of the type), not the order:
 
@@ -122,21 +122,22 @@ call takes a `ub.poison` of the type), not the order:
 - `@dead_block_argument_used_in_unreachable_code`, from
   `dead-block-arg.mlir`.
 
-`llvm.patch` also carries two modules that are not part of the pull
+While the pin was llvmorg-23.1.2, `llvm.patch` was a version for it
+whose test hunk also carried two modules that are not part of the pull
 request: `@unreachable_func_with_for_loops`, the test of the open pull
 request #208881 (the same fix for function arguments alone), and
 `@address_taken_callee`, as `remove-dead-values-address-taken` posts it.
-The trunk test file has a module appended at the end since the pin, so
-the two diffs differ in their test hunk and are kept as two files.
-`uncalled.mlir` is the case #208881's test covers;
-`tests/upstream/remove-dead-values-unreachable` checks all four
-reproducers.
+Neither is carried now. `uncalled.mlir` is the case #208881's test
+covers; `tests/upstream/remove-dead-values-unreachable` checks all four
+reproducers, and `tests/upstream/remove-dead-values-address-taken` the
+address-taken one.
 
-Checked against llvmorg-23.1.2 with an `mlir-opt` linked from the pinned
-libraries plus the patched `RemoveDeadValues.cpp`. Each of the five
-appended modules passes FileCheck under both prefixes. With #208881 alone
-the first three pass and the dead-result and dead-block-argument modules
-fail with `null operand found`. The pinned `mlir-opt` fails all five.
+Checked against llvmorg-23.1.2, with that version, in an `mlir-opt`
+linked from its libraries plus the patched `RemoveDeadValues.cpp`. Each
+of the five appended modules passes FileCheck under both prefixes. With
+#208881 alone the first three pass and the dead-result and
+dead-block-argument modules fail with `null operand found`. The
+unpatched 23.1.2 `mlir-opt` fails all five.
 Every module already in the file gives byte-identical output with and
 without the patch (the two that use the test dialect fail to parse in
 this build either way). The changed lines are clang-format clean under
@@ -165,8 +166,8 @@ region the constant selects.
 ## Testing on main
 
 On llvm main at 7208ba24 (2026-10-08), with the seven code diffs of
-01-08 applied together (each directory's `pull-request.diff`, else its
-`llvm.patch`), a Release build with assertions
+01-08 applied together (02-07's `llvm.patch` and 08's
+`pull-request.diff`), a Release build with assertions
 (`-DLLVM_ENABLE_PROJECTS=mlir -DLLVM_TARGETS_TO_BUILD=Native
 -DBUILD_SHARED_LIBS=ON -DLLVM_ENABLE_ASSERTIONS=ON`, clang 18, x86_64
 Linux) builds without errors and passes `ninja check-mlir`: 4102 passed,
@@ -182,7 +183,7 @@ Status: file upstream.
 
 - Where: a new issue (the block-argument and result cases; #206920 and
   #203226 cover function arguments), a pull request against llvm main
-  (`pull-request.diff`), and a short comment on the open pull request
+  (`llvm.patch`), and a short comment on the open pull request
   [#208881](https://github.com/llvm/llvm-project/pull/208881), which
   fixes function arguments alone and has been approved but not merged
   since 2026-07-18. A review suggestion on #208881 would reopen an

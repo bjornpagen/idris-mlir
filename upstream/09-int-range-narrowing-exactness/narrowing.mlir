@@ -1,17 +1,7 @@
-// Three ops whose operands and results fit 32 bits, which
-// arith-int-range-narrowing narrows to i32 forms that compute something
-// else. The clamps (minui, maxsi, minsi) are what the analysis bounds.
-
-// x in [0, 2^20], s in [0, 40]: x >> s fits, but a shift by 32 or more is
-// poison on i32.
-func.func @shift(%x: i64, %s: i64) -> i64 {
-  %xmax = arith.constant 1048576 : i64
-  %smax = arith.constant 40 : i64
-  %a = arith.minui %x, %xmax : i64
-  %b = arith.minui %s, %smax : i64
-  %r = arith.shrui %a, %b : i64
-  return %r : i64
-}
+// Two ops whose operands and results fit 32 bits, which
+// arith-int-range-narrowing at llvmorg-23.1.2 narrows to i32 forms that
+// compute something else. The clamps (maxsi, minsi) are what the analysis
+// bounds.
 
 // x in [-2^31, 0], y in [-2, -1]: x rem y fits, but INT32_MIN rem -1
 // overflows on i32 (llvm.srem: undefined behaviour), where it is 0 on i64.

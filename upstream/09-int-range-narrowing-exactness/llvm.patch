@@ -1,12 +1,10 @@
-Subject: [PATCH] [mlir][arith] Don't narrow shifts and remainders whose narrow form differs
+Subject: [PATCH] [mlir][arith] Don't narrow remainders whose narrow form differs
 
 arith-int-range-narrowing rewrites an elementwise op on a narrower type
-when the ranges of its operands and results fit it. For three kinds of op
-the narrow op then computes something else:
+when the ranges of its operands and results fit it. Main's 44a4dbf32a6b
+(#218495) stopped it for shifts whose amount can reach the narrow width;
+two kinds of op still compute something else narrowed:
 
-- a shift whose amount can reach the narrow width (poison there): this is
-  main's 44a4dbf32a6b ("[MLIR][Arith] Don't narrow shifts whose amount can
-  exceed the target width", #218495), backported unchanged;
 - remsi whose dividend can be the narrow signed minimum while its divisor
   can be -1: 0 in the wide type, an overflow in the narrow one (undefined
   behaviour once it is llvm.srem);
@@ -18,15 +16,15 @@ the narrow op then computes something else:
 
 Tests for each case in int-range-narrowing.mlir.
 ---
- .../Transforms/IntRangeOptimizations.cpp      | 24 ++++++-
- .../Dialect/Arith/int-range-narrowing.mlir    | 67 +++++++++++++++++++
- 2 files changed, 90 insertions(+), 1 deletion(-)
+  .../Arith/Transforms/IntRangeOptimizations.cpp    | 19 +++++++++-
+  mlir/test/Dialect/Arith/int-range-narrowing.mlir  | 40 +++++++++++++++++++++
+  2 files changed, 58 insertions(+), 1 deletion(-)
 
 diff --git a/mlir/lib/Dialect/Arith/Transforms/IntRangeOptimizations.cpp b/mlir/lib/Dialect/Arith/Transforms/IntRangeOptimizations.cpp
-index 298c0dc2f3bdaf84edec3bd0144fbc864b7e9604..8a1f93d0046c8afea1114e57927c4128705a0e24 100644
+index 583f75be2072459ed1972fc95fc329aee1bbe2c3..7ad372522a6edebbc24a776b77a9e47e0da4a125 100644
 --- a/mlir/lib/Dialect/Arith/Transforms/IntRangeOptimizations.cpp
 +++ b/mlir/lib/Dialect/Arith/Transforms/IntRangeOptimizations.cpp
-@@ -385,16 +385,38 @@ struct NarrowElementwise final : OpTraitRewritePattern<OpTrait::Elementwise> {
+@@ -392,12 +392,17 @@ struct NarrowElementwise final : OpTraitRewritePattern<OpTrait::Elementwise> {
        }
        // For operations that explicitly treat the values as signed, we should
        // only do signed casts, if those are deemed possible as such based on the
@@ -45,12 +43,10 @@ index 298c0dc2f3bdaf84edec3bd0144fbc864b7e9604..8a1f93d0046c8afea1114e57927c4128
                .Default(CastKind::Both);
        castKind = mergeCastKinds(castKind, castKindForOp);
        if (castKind == CastKind::None)
+@@ -407,6 +412,18 @@ struct NarrowElementwise final : OpTraitRewritePattern<OpTrait::Elementwise> {
+       if (isa<arith::ShLIOp, arith::ShRSIOp, arith::ShRUIOp>(op) &&
+           !ranges[1].umax().ult(targetBitwidth))
          continue;
-+      // A shift by an amount >= the bitwidth is poison, so only narrow shifts
-+      // when the shift amount (second operand) stays below the target width.
-+      if (isa<arith::ShLIOp, arith::ShRSIOp, arith::ShRUIOp>(op) &&
-+          !ranges[1].umax().ult(targetBitwidth))
-+        continue;
 +      // The signed minimum of the target width remainder -1 is 0 in the wide
 +      // type but overflows in the narrow one (undefined behaviour once
 +      // lowered to `llvm.srem`), and the result range cannot rule it out.
@@ -67,40 +63,13 @@ index 298c0dc2f3bdaf84edec3bd0144fbc864b7e9604..8a1f93d0046c8afea1114e57927c4128
        if (targetType == srcType)
          continue;
 diff --git a/mlir/test/Dialect/Arith/int-range-narrowing.mlir b/mlir/test/Dialect/Arith/int-range-narrowing.mlir
-index 5938f24868cb959b4ef591c9756b335daa3f54c7..7ec47b0266bfe119861ba3120a66f9a3df8f6006 100644
+index 780e4a918d15977d9774d982f3297b6e31e9eba1..268b94d4ec4187dcccde5bc74e660deef8c66065 100644
 --- a/mlir/test/Dialect/Arith/int-range-narrowing.mlir
 +++ b/mlir/test/Dialect/Arith/int-range-narrowing.mlir
-@@ -321,6 +321,73 @@ func.func @unsigned_ops_out_of_narrowed_signed_range() -> (i64, i64, i64, i64, i
-   return %3, %4, %5, %6, %7, %8 : i64, i64, i64, i64, i64, i64
+@@ -348,6 +348,46 @@ func.func @shrui_amount_in_narrowed_range() -> i64 {
+   return %2 : i64
  }
  
-+//===----------------------------------------------------------------------===//
-+// Shift ops must not be narrowed when the shift amount can reach the target
-+// bitwidth, since a shift >= the bitwidth is poison. Here the value fits in
-+// i32 but the amount [0, 63] does not, so narrowing must be skipped.
-+//===----------------------------------------------------------------------===//
-+
-+// CHECK-LABEL: func.func @shrsi_amount_out_of_narrowed_range
-+// CHECK: arith.shrsi {{.*}} : i64
-+// CHECK-NOT: arith.shrsi {{.*}} : i32
-+func.func @shrsi_amount_out_of_narrowed_range() -> i64 {
-+  %0 = test.with_bounds { umin = 0 : i64, umax = 4 : i64, smin = 0 : i64, smax = 4 : i64 } : i64
-+  %1 = test.with_bounds { umin = 0 : i64, umax = 63 : i64, smin = 0 : i64, smax = 63 : i64 } : i64
-+  %2 = arith.shrsi %0, %1 : i64
-+  return %2 : i64
-+}
-+
-+// When the amount is provably below the target bitwidth, narrowing is safe.
-+//
-+// CHECK-LABEL: func.func @shrui_amount_in_narrowed_range
-+// CHECK: arith.shrui {{.*}} : i32
-+func.func @shrui_amount_in_narrowed_range() -> i64 {
-+  %0 = test.with_bounds { umin = 0 : i64, umax = 4 : i64, smin = 0 : i64, smax = 4 : i64 } : i64
-+  %1 = test.with_bounds { umin = 0 : i64, umax = 31 : i64, smin = 0 : i64, smax = 31 : i64 } : i64
-+  %2 = arith.shrui %0, %1 : i64
-+  return %2 : i64
-+}
-+
 +//===----------------------------------------------------------------------===//
 +// arith.remsi must not be narrowed when the dividend can be the target
 +// width's signed minimum while the divisor can be -1: that remainder is 0 in
@@ -110,8 +79,8 @@ index 5938f24868cb959b4ef591c9756b335daa3f54c7..7ec47b0266bfe119861ba3120a66f9a3
 +// CHECK-LABEL: func.func @remsi_narrow_min_by_minus_one
 +// CHECK: arith.remsi {{.*}} : i64
 +func.func @remsi_narrow_min_by_minus_one() -> i64 {
-+  %0 = test.with_bounds { umin = 0 : i64, umax = -1 : i64, smin = -2147483648 : i64, smax = 0 : i64 } : i64
-+  %1 = test.with_bounds { umin = -2 : i64, umax = -1 : i64, smin = -2 : i64, smax = -1 : i64 } : i64
++  %0 = test.with_bounds < umin = 0 : i64, umax = -1 : i64, smin = -2147483648 : i64, smax = 0 : i64 > : i64
++  %1 = test.with_bounds < umin = -2 : i64, umax = -1 : i64, smin = -2 : i64, smax = -1 : i64 > : i64
 +  %2 = arith.remsi %0, %1 : i64
 +  return %2 : i64
 +}
@@ -121,8 +90,8 @@ index 5938f24868cb959b4ef591c9756b335daa3f54c7..7ec47b0266bfe119861ba3120a66f9a3
 +// CHECK-LABEL: func.func @remsi_above_narrow_min
 +// CHECK: arith.remsi {{.*}} : i32
 +func.func @remsi_above_narrow_min() -> i64 {
-+  %0 = test.with_bounds { umin = 0 : i64, umax = -1 : i64, smin = -2147483647 : i64, smax = 0 : i64 } : i64
-+  %1 = test.with_bounds { umin = -2 : i64, umax = -1 : i64, smin = -2 : i64, smax = -1 : i64 } : i64
++  %0 = test.with_bounds < umin = 0 : i64, umax = -1 : i64, smin = -2147483647 : i64, smax = 0 : i64 > : i64
++  %1 = test.with_bounds < umin = -2 : i64, umax = -1 : i64, smin = -2 : i64, smax = -1 : i64 > : i64
 +  %2 = arith.remsi %0, %1 : i64
 +  return %2 : i64
 +}
@@ -135,8 +104,8 @@ index 5938f24868cb959b4ef591c9756b335daa3f54c7..7ec47b0266bfe119861ba3120a66f9a3
 +// CHECK-LABEL: func.func @remui_of_negative
 +// CHECK: arith.remui {{.*}} : i64
 +func.func @remui_of_negative() -> i64 {
-+  %0 = test.with_bounds { umin = 0 : i64, umax = -1 : i64, smin = -2 : i64, smax = 0 : i64 } : i64
-+  %1 = test.with_bounds { umin = 7 : i64, umax = 7 : i64, smin = 7 : i64, smax = 7 : i64 } : i64
++  %0 = test.with_bounds < umin = 0 : i64, umax = -1 : i64, smin = -2 : i64, smax = 0 : i64 > : i64
++  %1 = test.with_bounds < umin = 7 : i64, umax = 7 : i64, smin = 7 : i64, smax = 7 : i64 > : i64
 +  %2 = arith.remui %0, %1 : i64
 +  return %2 : i64
 +}

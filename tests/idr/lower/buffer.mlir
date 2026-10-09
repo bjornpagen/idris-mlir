@@ -3,10 +3,10 @@
 // target's own load or store at alignment 1. A copy is the runtime's.
 // CHECK-LABEL: func.func private @load(
 // CHECK: llvm.call @idris_rt_buffer_at({{.*}}) : (!llvm.ptr, i64, i64, i64) -> !llvm.ptr
-// CHECK: llvm.load %{{.*}} {alignment = 1 : i64} : !llvm.ptr -> i16
+// CHECK: llvm.load %{{.*}} <alignment = 1> : !llvm.ptr -> i16
 // CHECK-LABEL: func.func private @store(
 // CHECK: llvm.call @idris_rt_buffer_at({{.*}}) : (!llvm.ptr, i64, i64, i64) -> !llvm.ptr
-// CHECK: llvm.store %{{.*}}, %{{.*}} {alignment = 1 : i64} : i32, !llvm.ptr
+// CHECK: llvm.store %{{.*}}, %{{.*}} <alignment = 1> : i32, !llvm.ptr
 // CHECK-LABEL: func.func private @copy(
 // CHECK: llvm.call @idris_rt_io_buffer_copy({{.*}}) : (!llvm.ptr, i64, i64, i64, !llvm.ptr, i64, i64) -> ()
 module attributes {idr.program, idr.stage = "owned"} {

@@ -1,7 +1,16 @@
 # 0003: pin LLVM to a trunk commit
 
-**Status:** decided (2026-10-09), not yet carried out. Agent 2 of
-`HANDOFF.md` carries it out, before proposal 0002.
+**Status:** decided (2026-10-09); carried out on arm64 macOS on
+2026-10-09: the pin is llvm main 7208ba24, and `.toolchain/llvm-macos`
+is built with `upstream/` 02-07, 09 and 15. There `make build`,
+`make check`, `make test`, `make test-idr` and `make test-mlir-tools`
+pass, once five failures that were bugs of ours from the lazy-streams
+merge (2726706c), which 23.1.2 shows too, were fixed in their own
+commit. Open: `.toolchain/llvm-musl` is not
+rebuilt at the pin, so step 5 is not done on x86_64 Linux, and 11's
+Linux-only check has not run there. `idr-simplify` runs
+`composite-fixed-point-pass` with `on-convergence-failure=silent`, not
+`error` (step 4; PINS.md `simplify-structural-fixpoint`).
 
 ## Decision
 

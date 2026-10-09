@@ -189,6 +189,7 @@ using idr::NatToBigOp;
 using idr::OsOp;
 using idr::NatType;
 using idr::PerformsIO;
+using idr::PublicSymbol;
 using idr::pipelineSteps;
 using idr::PutCharOp;
 using idr::PutDoubleOp;

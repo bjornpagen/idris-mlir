@@ -1,6 +1,5 @@
 # idr.support: actions, the counts of a pattern driver and the statistics of
-# a pass's own pipeline. EnableStatistics.h is no part of it: every unit is
-# compiled with it first (PIN(llvm-force-enable-stats)).
+# a pass's own pipeline.
 idr_library(idr_support
 	MODULES
 		Support.cppm

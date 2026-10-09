@@ -89,11 +89,9 @@ spelling there); the code involved is the same on main at 7208ba24.
 ## Pull request
 
 - Repository: https://github.com/llvm/llvm-project, base `main`.
-- One commit; its diff is `pull-request.diff` in this directory, which
-  applies to main at 7208ba24 (`git apply pull-request.diff`).
-  `llvm.patch` is the same change for llvmorg-23.1.2, which this
-  repository builds; it differs only in the test's
-  `transform.get_parent_op` spelling, `{isolated_from_above}` there.
+- One commit; its diff is `llvm.patch` in this directory, which applies
+  to main at 7208ba24 (`git apply llvm.patch`) and is what this
+  repository builds, since its LLVM pin is that commit.
 - Set the title and body below; GitHub squash-merges them as the commit
   message. Replace `<issue>` with the issue's number once it is filed.
 

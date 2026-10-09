@@ -107,14 +107,13 @@ it is a note here, not sent (see the plan).
 ## Our workaround
 
 `PINS.md`: `simplify-structural-fixpoint`. `idr-simplify`
-(`foreign/idr/lib/Simplify/Pass.cc`) is its own loop over the round and
-decides the fixpoint by `OperationFingerPrint`. The patch stops `sccp`
-remaking constants. `idr-dead-values` leaves a call `remove-dead-values`
-would rebuild without erasing a result, so a round at the fixpoint keeps
-the fingerprint (`tests/idr/canon/upstream-passes`,
-`tests/idr/loops/tail-loop`). The loop stays: this pass warns and goes on
-at its budget, and the round's statistics and remarks are the loop's. Over
-its round budget the loop fails with a named error.
+(`foreign/idr/lib/Simplify/Pass.cc`) runs `composite-fixed-point-pass` over
+its round, so the fixpoint is that pass's `OperationFingerPrint`. The patch
+stops `sccp` remaking constants. `idr-dead-values` leaves a call
+`remove-dead-values` would rebuild without erasing a result, so a round at
+the fixpoint keeps the fingerprint (`tests/idr/canon/upstream-passes`,
+`tests/idr/loops/tail-loop`). Without the patch every module would run to
+the round budget and fail.
 
 ## Patch
 
@@ -147,14 +146,15 @@ lines check that wrapping `sccp` does not change its output.
 `sccp.mlir`, `sccp-structured.mlir` and `sccp-callgraph.mlir` are the
 only tests in the tree that run `sccp`.
 
-Verified with an `mlir-opt` linked from the pinned static libraries and the
-patched pinned `SCCP.cpp`: `sccp-structured.mlir` and `sccp-callgraph.mlir`
-pass as they are; the patched pin `sccp.mlir` and the patched main
-`sccp.mlir` pass both RUN lines, and the new line fails with the unpatched
-`mlir-opt` (a warning on 11 of 16 functions). Cases the pinned `mlir-opt`
-cannot run were removed from the local copies: the three test-dialect cases
-(`@simple_produced_operand`, `@inplace_fold`, `@op_with_region`), and from
-the main copy `@no_crash_acc_kernel_environment` (newer syntax) and
+Verified while the pin was llvmorg-23.1.2, with an `mlir-opt` linked from
+its static libraries and its patched `SCCP.cpp`: `sccp-structured.mlir`
+and `sccp-callgraph.mlir` pass as they are; the patched 23.1.2 `sccp.mlir`
+and the patched main `sccp.mlir` pass both RUN lines, and the new line
+fails with the unpatched `mlir-opt` (a warning on 11 of 16 functions).
+Cases the 23.1.2 `mlir-opt` cannot run were removed from the local copies:
+the three test-dialect cases (`@simple_produced_operand`, `@inplace_fold`,
+`@op_with_region`), and from the main copy
+`@no_crash_acc_kernel_environment` (newer syntax) and
 `@no_inplace_extract_fold_of_speculative_constant` (needs #213933). The
 patched `SCCP.cpp` from main passes `clang-format` and `-fsyntax-only`
 against main's headers. `one.mlir` converges with `max-iterations=1`,
@@ -165,8 +165,8 @@ the reproducer.
 ## Testing on main
 
 On llvm main at 7208ba24 (2026-10-08), with the seven code diffs of
-01-08 applied together (each directory's `pull-request.diff`, else its
-`llvm.patch`), a Release build with assertions
+01-08 applied together (02-07's `llvm.patch` and 08's
+`pull-request.diff`), a Release build with assertions
 (`-DLLVM_ENABLE_PROJECTS=mlir -DLLVM_TARGETS_TO_BUILD=Native
 -DBUILD_SHARED_LIBS=ON -DLLVM_ENABLE_ASSERTIONS=ON`, clang 18, x86_64
 Linux) builds without errors and passes `ninja check-mlir`: 4102 passed,
@@ -182,16 +182,16 @@ ones included.
 
 Status: file upstream. Still broken on llvm main at 7208ba24 (2026-10-08):
 `SCCP.cpp`, `FoldUtils.cpp` and the composite pass's fingerprint check are
-unchanged from the pin, and no issue or pull request addresses it (searched
-llvm/llvm-project for sccp, insertKnownConstant and
-composite-fixed-point-pass; the nearest are #213933, which reverts in-place
-folds during the analysis, and #218394, which makes the composite pass's
-convergence failure configurable).
+unchanged from llvmorg-23.1.2, and no issue or pull request addresses it
+(searched llvm/llvm-project for sccp, insertKnownConstant and
+composite-fixed-point-pass; the nearest are #213933, which reverts
+in-place folds during the analysis, and #218394, which makes the composite
+pass's convergence failure configurable).
 
 - Where: a GitHub issue and a pull request to llvm/llvm-project. Not
   Bugzilla. The text to paste is `submission.md`. The issue is the `sccp`
   bug only; the pull request is one commit, `llvm.patch`, which applies
-  unchanged to main and to the pin, and its body is the squash commit
+  unchanged to main (the pin), and its body is the squash commit
   message, ending `Fixes #<issue>`. Part 2 is not in the issue: with
   `sccp` fixed, nothing in the tree is known to need it, and it changes
   what a public utility promises; it would be its own RFC if a pass is

@@ -834,7 +834,7 @@ using llvm::raw_ostream;
 using llvm::raw_pwrite_stream;
 using llvm::raw_string_ostream;
 using llvm::replace;
-using llvm::report_fatal_error;
+using llvm::reportFatalInternalError;
 using llvm::reverse;
 using llvm::scc_begin;
 using llvm::scope_exit;
@@ -910,10 +910,6 @@ export namespace llvm::CallingConv {
 using llvm::CallingConv::ID;
 using llvm::CallingConv::Tail;
 } // namespace llvm::CallingConv
-
-export namespace llvm::FPOpFusion {
-using llvm::FPOpFusion::Strict;
-} // namespace llvm::FPOpFusion
 
 export namespace llvm::ISD {
 using llvm::ISD::OutputArg;

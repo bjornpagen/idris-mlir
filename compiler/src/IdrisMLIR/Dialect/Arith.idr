@@ -214,6 +214,12 @@ maximumfOp : {default Nothing fastmath : Maybe MlirAttr} -> (lhs : Value) -> (rh
 maximumfOp lhs rhs result =
   MkOp "arith.maximumf" [lhs, rhs] (attrIf "fastmath" id fastmath) [] [] [result]
 
+||| `arith.maximumnumf`: floating-point maximumNumber operation
+export
+maximumnumfOp : {default Nothing fastmath : Maybe MlirAttr} -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
+maximumnumfOp lhs rhs result =
+  MkOp "arith.maximumnumf" [lhs, rhs] (attrIf "fastmath" id fastmath) [] [] [result]
+
 ||| `arith.maxnumf`: floating-point maximum operation
 export
 maxnumfOp : {default Nothing fastmath : Maybe MlirAttr} -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
@@ -237,6 +243,12 @@ export
 minimumfOp : {default Nothing fastmath : Maybe MlirAttr} -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
 minimumfOp lhs rhs result =
   MkOp "arith.minimumf" [lhs, rhs] (attrIf "fastmath" id fastmath) [] [] [result]
+
+||| `arith.minimumnumf`: floating-point minimumNumber operation
+export
+minimumnumfOp : {default Nothing fastmath : Maybe MlirAttr} -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
+minimumnumfOp lhs rhs result =
+  MkOp "arith.minimumnumf" [lhs, rhs] (attrIf "fastmath" id fastmath) [] [] [result]
 
 ||| `arith.minnumf`: floating-point minimum operation
 export
@@ -397,4 +409,4 @@ xoriOp lhs rhs result =
 -- Not generated:
 -- attribute FastMathFlagsAttr: its parameter `value` is the C++ `::mlir::arith::FastMathFlags`
 -- attribute IntegerOverflowFlagsAttr: its parameter `value` is the C++ `::mlir::arith::IntegerOverflowFlags`
--- fingerprint: 1644867415-887166 3342362764-18046
+-- fingerprint: 1253639017-898706 790948507-18668

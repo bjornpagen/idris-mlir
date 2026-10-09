@@ -55,11 +55,12 @@ another platform, and links the file for the architectures it does know.
 `TextAPIReader` takes a `SkipUnknownTriples` option and skips a target it
 cannot parse when it is set (`llvm/lib/TextAPI/TextStub.cpp:402-405`, and
 `:317` for the target traits). It defaults to false
-(`llvm/include/llvm/TextAPI/TextAPIReader.h:41`), and `ld64.lld` never sets
-it: the one place that reads a `.tbd` (`macho::loadDylib`,
-`lld/MachO/DriverUtils.cpp:270`) passes the buffer alone. So a target the
-pinned LLVM does not know is a hard error, and the toolchain cannot read a
-stub from a newer SDK. LLVM's own tests read such files with the option on
+(`llvm/include/llvm/TextAPI/TextAPIReader.h:41`), and `ld64.lld` never
+sets it: the one place that reads a `.tbd` (`macho::loadDylib`,
+`lld/MachO/DriverUtils.cpp:270` at 23.1.2, `:267` on main) passes the
+buffer alone. So a target the pinned LLVM does not know is a hard error,
+and the toolchain cannot read a stub from a newer SDK. LLVM's own tests
+read such files with the option on
 (`llvm/unittests/TextAPI/TextStubV4Tests.cpp:1191`), so the mechanism
 exists and is exercised.
 
@@ -80,10 +81,10 @@ The macOS 27 symptom is fixed: main teaches LLVM
 support", [#222721](https://github.com/llvm/llvm-project/pull/222721)),
 backported to `release/23.x` as 532fa5afb
 ([#224185](https://github.com/llvm/llvm-project/pull/224185)) after the
-`llvmorg-23.1.2` tag, so in 23.1.3 if there is one. The general bug is
-not: main (checked at ed390ca4, October 2026) still reads a `.tbd` without
-`SkipUnknownTriples`, in the same call (`DriverUtils.cpp:267` there), and
-still refuses `unknown.tbd`. That skip stays local.
+`llvmorg-23.1.2` tag. The pin, main at 7208ba24, has it. The general bug
+is not fixed: main still reads a `.tbd` without `SkipUnknownTriples`, in
+the same call (`DriverUtils.cpp:267` at 7208ba24), and at ed390ca4
+(October 2026) still refused `unknown.tbd`. That skip stays local.
 
 ## Our workaround
 
@@ -95,25 +96,25 @@ Before the patch, those links were made by the host's `ld64`.
 
 ## Patch
 
-`llvm.patch` is `release/23.x`'s 532fa5afb (#224185, main's b8007a8e4:
-LLVM knows `arm64e.x1`) backported unchanged, and the proposed fix on
-top: `macho::loadDylib` reads a stub with `SkipUnknownTriples = true`.
+`llvm.patch` is the proposed fix alone, against main at 7208ba24, the
+pin: `macho::loadDylib` reads a stub with `SkipUnknownTriples = true`.
 Test: `lld/test/MachO/tapi-unknown-target.s`, a link against a stub that
-lists `unknown-macos`. Built into the pinned toolchain, unchanged from the
-draft: its `ld64.lld` links `unknown.tbd`
-(`tests/upstream/ld64-lld-unknown-tapi-target`) and every Darwin program
-against the macOS 27 SDK. lld's lit tests have not been run (the pinned
-build has no test targets).
+lists `unknown-macos`. While the pin was llvmorg-23.1.2, the patch also
+carried `release/23.x`'s 532fa5afb (main's b8007a8e4, which the pin now
+has), and it was built into that toolchain: its `ld64.lld` linked
+`unknown.tbd` (`tests/upstream/ld64-lld-unknown-tapi-target`) and every
+Darwin program against the macOS 27 SDK. lld's lit tests have not been
+run (the pinned build has no test targets).
 
 ## Upstreaming plan
 
-Status: carried backport, not filed.
+Status: carried, not filed.
 
 The unknown-triple skip is ours and stays local. `macho::loadDylib`
 reading a stub with `SkipUnknownTriples` is not sent. The `arm64e.x1`
-part is already on main (b8007a8e4, #222721) and on `release/23.x` after
-23.1.2 (532fa5afb, #224185).
+part is main's b8007a8e4 (#222721), which the pin has, so it left the
+patch when the pin moved to main.
 
-- Where: nothing to send. The patch is carried until the pin moves past
-  532fa5afb (23.1.3, if there is one).
+- Where: nothing to send. The patch is carried until the pin's
+  `ld64.lld` reads a stub with an unknown target.
 - Upstream test: `tapi-unknown-target.s`, kept with the local skip.

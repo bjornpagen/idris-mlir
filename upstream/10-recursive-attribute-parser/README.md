@@ -76,7 +76,14 @@ agreement before code.
 
 ## Upstreaming plan
 
-Status: not ready.
+Status: not ready. Still reproduces on the pin, llvm main at 7208ba24:
+on arm64 macOS, with `.toolchain/llvm-macos` built at that commit
+(2026-10-09), `tests/upstream/recursive-attribute-parser` printed
+`nested: still reproduces`: on an 8 MiB stack the array nested 1,000
+deep parses, and the one nested 100,000 deep ends `mlir-opt` with a
+signal. `Parser::parseAttribute` still parses an array's elements by
+calling itself (`AttributeParser.cpp:74-85` at 7208ba24, as at
+23.1.2). Not rerun on x86_64 Linux at the pin.
 
 - Where: an RFC on LLVM Discourse (MLIR) first, for iterative parsing,
   printing and sub-element walking of nested attributes, citing the

@@ -236,13 +236,31 @@ lock_value() {
   printf '%s\n' "$lock_value_out"
 }
 
+# lock_name_key TOOL: the key that names TOOL's pinned revision for people:
+# `tag` for a release, `describe` for a commit no tag names.
+lock_name_key() {
+  if lock_get "$1" tag > /dev/null; then
+    echo tag
+  elif lock_get "$1" describe > /dev/null; then
+    echo describe
+  else
+    die "toolchain.lock.json has neither $1.tag nor $1.describe"
+  fi
+}
+
 [ -f "$lock" ] || die "$lock is missing"
 schema=$(sed -n 's/^[[:space:]]*"schema_version"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$lock")
 [ "$schema" = 4 ] || die "toolchain.lock.json has schema ${schema:-none}; tools/bootstrap.sh reads schema 4"
 llvm_revision=$(lock_value llvm revision) || exit 1
-llvm_tag=$(lock_value llvm tag) || exit 1
+# LLVM is pinned to a commit of main, which has no tag: the lock names it
+# by `git describe` instead.
+llvm_name_key=$(lock_name_key llvm) || exit 1
+llvm_name=$(lock_value llvm "$llvm_name_key") || exit 1
 llvm_version=$(lock_value llvm version) || exit 1
 llvm_major=${llvm_version%%.*}
+# lld names its version without the `git` suffix a commit of main gives
+# LLVM's (24.0.0git): `LLD 24.0.0 (<repository> <revision>)`.
+lld_version=${llvm_version%git}
 cmake_revision=$(lock_value cmake revision) || exit 1
 cmake_tag=$(lock_value cmake tag) || exit 1
 cmake_version=$(lock_value cmake version) || exit 1
@@ -502,15 +520,36 @@ arm64_only() {
   [ "$arm64_only_cpus" = ARM64 ] || die "$2 is not arm64 alone (CPU types: $(echo $arm64_only_cpus))"
 }
 
-# clone_pinned TOOL DEST: a shallow clone of the lock's tag, at the lock's
-# revision, unmodified.
+# clone_pinned TOOL DEST: a shallow clone of the lock's revision,
+# unmodified: by its tag when the lock names one, which must name that
+# revision, else by the commit itself, fetched alone, whose `git describe`
+# the lock records. A checkout of an earlier pin fetches the new one.
 clone_pinned() {
   clone_repository=$(lock_value "$1" repository) || exit 1
-  clone_tag=$(lock_value "$1" tag) || exit 1
   clone_revision=$(lock_value "$1" revision) || exit 1
+  clone_key=$(lock_name_key "$1") || exit 1
+  clone_name=$(lock_value "$1" "$clone_key") || exit 1
+  if [ "$clone_key" = describe ]; then
+    case $clone_revision in
+      "${clone_name##*-g}"*) ;;
+      *) die "toolchain.lock.json: $1's describe $clone_name does not name its revision $clone_revision" ;;
+    esac
+  fi
   if [ ! -e "$2/.git" ]; then
     rm -rf "$2"
-    run "clone $1 $clone_tag" git clone --depth 1 --branch "$clone_tag" "$clone_repository" "$2"
+    if [ "$clone_key" = tag ]; then
+      run "clone $1 $clone_name" git clone --depth 1 --branch "$clone_name" "$clone_repository" "$2"
+      clone_head=$(git -C "$2" rev-parse HEAD) || die "$2 is not a git checkout"
+      [ "$clone_head" = "$clone_revision" ] ||
+        die "$1's tag $clone_name is $clone_head; toolchain.lock.json pins $1 at $clone_revision"
+    else
+      run "init $1" git init -q "$2"
+    fi
+  fi
+  if [ "$(git -C "$2" rev-parse HEAD 2> /dev/null)" != "$clone_revision" ]; then
+    git -C "$2" cat-file -e "$clone_revision^{commit}" 2> /dev/null ||
+      run "fetch $1 $clone_name" git -C "$2" fetch --depth 1 "$clone_repository" "$clone_revision"
+    run "check out $1 $clone_name" git -C "$2" checkout -q --detach "$clone_revision"
   fi
   clone_head=$(git -C "$2" rev-parse HEAD) || die "$2 is not a git checkout"
   [ "$clone_head" = "$clone_revision" ] || die "$2 is at $clone_head; toolchain.lock.json pins $1 at $clone_revision"
@@ -895,7 +934,9 @@ recipe_stage2() {
 # no shared libraries or plugins, LTO with fat objects: their bitcode serves
 # the Release build of our tools, their native code every other build. A
 # ThinLTO link runs two backend threads, so that it and two compile jobs fit
-# in 15 GB of memory.
+# in 15 GB of memory. Statistics are forced on, so that llvm-config.h says
+# they count to every includer, as they do in an LLVM with assertions:
+# a pass statistic's layout follows it, and our Release build defines NDEBUG.
 # PIN(stage2-thinlto): ThinLTO unless IDRIS_MLIR_STAGE2_LTO=Full — see PINS.md
 args_stage2_linux() {
   printf '%s\n' -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -904,7 +945,7 @@ args_stage2_linux() {
     "-DCMAKE_INSTALL_PREFIX=$llvm_musl" \
     '-DLLVM_ENABLE_PROJECTS=clang;lld;mlir;clang-tools-extra' -DLLVM_TARGETS_TO_BUILD=X86 \
     "-DLLVM_HOST_TRIPLE=$triple" "-DLLVM_DEFAULT_TARGET_TRIPLE=$triple" \
-    -DLLVM_ENABLE_ASSERTIONS=ON -DLLVM_ENABLE_RTTI=OFF -DLLVM_ENABLE_EH=OFF \
+    -DLLVM_ENABLE_ASSERTIONS=ON -DLLVM_FORCE_ENABLE_STATS=ON -DLLVM_ENABLE_RTTI=OFF -DLLVM_ENABLE_EH=OFF \
     -DLLVM_ENABLE_LIBCXX=ON -DLLVM_ENABLE_PIC=OFF -DLLVM_BUILD_STATIC=ON \
     "-DLLVM_ENABLE_LTO=$lto" -DLLVM_ENABLE_FATLTO=ON -DLLVM_INSTALL_UTILS=ON \
     -DMLIR_INSTALL_AGGREGATE_OBJECTS=OFF -DCLANG_PLUGIN_SUPPORT=OFF \
@@ -931,7 +972,7 @@ stage2_components_darwin='clang;clang-scan-deps;clang-resource-headers;lld;clang
 # assertions on. It is not statically linked to musl and libc++: the
 # pinned runtimes are built after it and installed beside it and into its
 # resource directory (step_stage2), where its configuration file and its
-# driver find them.
+# driver find them. Statistics are forced on, as on Linux.
 args_stage2_darwin() {
   printf '%s\n' -G Ninja -DCMAKE_BUILD_TYPE=Release \
     "-DCMAKE_C_COMPILER=$host_cc" "-DCMAKE_CXX_COMPILER=$host_cxx" \
@@ -941,7 +982,7 @@ args_stage2_darwin() {
     '-DLLVM_ENABLE_PROJECTS=clang;lld;mlir;clang-tools-extra' \
     '-DLLVM_TARGETS_TO_BUILD=AArch64;X86' \
     "-DLLVM_HOST_TRIPLE=$triple" "-DLLVM_DEFAULT_TARGET_TRIPLE=$triple" \
-    -DLLVM_ENABLE_ASSERTIONS=ON -DLLVM_ENABLE_RTTI=OFF -DLLVM_ENABLE_EH=OFF \
+    -DLLVM_ENABLE_ASSERTIONS=ON -DLLVM_FORCE_ENABLE_STATS=ON -DLLVM_ENABLE_RTTI=OFF -DLLVM_ENABLE_EH=OFF \
     -DLLVM_ENABLE_LIBCXX=ON -DLLVM_ENABLE_PIC=ON -DLLVM_BUILD_STATIC=OFF \
     -DLLVM_ENABLE_LTO=OFF -DLLVM_INSTALL_UTILS=ON \
     -DMLIR_INSTALL_AGGREGATE_OBJECTS=OFF -DCLANG_PLUGIN_SUPPORT=OFF \
@@ -1082,7 +1123,7 @@ step_ninja() {
 
 # Stage 1, the host compiler's clang and lld; nothing else.
 step_stage1() {
-  begin stage1 "clang and lld $llvm_tag, with the host's C++ compiler" || return 0
+  begin stage1 "clang and lld $llvm_name, with the host's C++ compiler" || return 0
   require cmake ninja
   need git python3 "$host_cc" "$host_cxx"
   clone_pinned llvm "$llvm_source"
@@ -1102,10 +1143,10 @@ step_stage1() {
   stop_sampling
   config_file > "$stage1/bin/$triple.cfg"
   version_is "$stage1/bin/clang" "clang version $llvm_version"
-  version_is "$stage1/bin/ld.lld" "LLD $llvm_version"
+  version_is "$stage1/bin/ld.lld" "LLD $lld_version"
   [ "$("$stage1/bin/clang" -print-resource-dir)" = "$stage1/lib/clang/$llvm_major" ] ||
     die "stage 1's resource directory is not $stage1/lib/clang/$llvm_major"
-  write_stamp "$(stamp_of stage1)" step stage1 revision "$llvm_revision" tag "$llvm_tag" \
+  write_stamp "$(stamp_of stage1)" step stage1 revision "$llvm_revision" "$llvm_name_key" "$llvm_name" \
     version "$llvm_version" inputs "$step_inputs" \
     host_compiler "$("$host_cxx" --version 2>&1 | head -n 1)" jobs "$jobs" \
     seconds "$(($(date +%s) - started))" peak_memory_mib "$((peak_kib / 1024))" \
@@ -1189,7 +1230,7 @@ CC
   run "check: a static-PIE C++ program with exceptions" "$stage1/bin/clang++" -std=c++20 -O2 "$build/check.cc" -o "$build/check"
   [ "$("$build/check")" = "libc++ on musl ok" ] || die "the C++ check program did not print its line"
   static_pie "$stage1/bin/llvm-readelf" "$build/check"
-  write_stamp "$(stamp_of runtimes)" step runtimes revision "$llvm_revision" tag "$llvm_tag" \
+  write_stamp "$(stamp_of runtimes)" step runtimes revision "$llvm_revision" "$llvm_name_key" "$llvm_name" \
     inputs "$step_inputs" patches "$(patch_stamp llvm)" built "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   finish
 }
@@ -1200,7 +1241,7 @@ CC
 # runtimes are part of the stage, so its one stamp records them too; its
 # build directory resumes on the LLVM build's inputs alone.
 step_stage2_darwin() {
-  begin stage2 "LLVM/MLIR, clang, lld and clang-tidy $llvm_tag, one stage with Apple clang, plus compiler-rt and libc++" || return 0
+  begin stage2 "LLVM/MLIR, clang, lld and clang-tidy $llvm_name, one stage with Apple clang, plus compiler-rt and libc++" || return 0
   require cmake ninja
   need git python3 "$host_cc" "$host_cxx"
   # One snapshot serves both the compiler and its runtimes.
@@ -1251,7 +1292,7 @@ step_stage2_darwin() {
     [ -e "$llvm_macos/$stage2_file" ] || die "stage 2 installed no $stage2_file"
   done
   version_is "$llvm_macos/bin/clang" "clang version $llvm_version"
-  version_is "$llvm_macos/bin/ld64.lld" "LLD $llvm_version"
+  version_is "$llvm_macos/bin/ld64.lld" "LLD $lld_version"
   version_is "$llvm_macos/bin/mlir-opt" "LLVM version $llvm_version"
   version_is "$llvm_macos/bin/FileCheck" "LLVM version $llvm_version"
   mh_pie "$llvm_macos/bin/llvm-objdump" "$llvm_macos/bin/clang"
@@ -1280,7 +1321,7 @@ step_stage2_darwin() {
     arm64_only "$llvm_macos/bin/llvm-objdump" "$build/check/$stage2_file"
   done
   write_stamp "$(stamp_of stage2)" step stage2 revision "$llvm_revision" llvm_revision "$llvm_revision" \
-    tag "$llvm_tag" version "$llvm_version" triple "$triple" sdk "$sdk" sdk_version "$sdk_version" \
+    "$llvm_name_key" "$llvm_name" version "$llvm_version" triple "$triple" sdk "$sdk" sdk_version "$sdk_version" \
     page_size "$page_size" inputs "$step_inputs" patches "$(patch_stamp llvm)" jobs "$jobs" \
     seconds "$(($(date +%s) - started))" peak_memory_mib "$((peak_kib / 1024))" \
     baseline_memory_mib "$((baseline_kib / 1024))" build_dir_mib "$build_mib" \
@@ -1295,7 +1336,7 @@ step_stage2() {
     step_stage2_darwin
     return 0
   fi
-  begin stage2 "LLVM/MLIR, clang, lld and clang-tidy $llvm_tag, with stage 1 ($lto LTO)" || return 0
+  begin stage2 "LLVM/MLIR, clang, lld and clang-tidy $llvm_name, with stage 1 ($lto LTO)" || return 0
   require cmake ninja stage1 musl runtimes
   need git python3
   # Objects that carry bitcode and native code, then one copy of
@@ -1331,7 +1372,7 @@ step_stage2() {
   cp -R "$stage1/lib/clang/$llvm_major/lib/$triple" "$llvm_musl/lib/clang/$llvm_major/lib/"
   config_file > "$llvm_musl/bin/$triple.cfg"
   version_is "$llvm_musl/bin/clang" "clang version $llvm_version"
-  version_is "$llvm_musl/bin/ld.lld" "LLD $llvm_version"
+  version_is "$llvm_musl/bin/ld.lld" "LLD $lld_version"
   version_is "$llvm_musl/bin/mlir-opt" "LLVM version $llvm_version"
   version_is "$llvm_musl/bin/FileCheck" "LLVM version $llvm_version"
   static_pie "$llvm_musl/bin/llvm-readelf" "$llvm_musl/bin/clang"
@@ -1345,7 +1386,7 @@ step_stage2() {
   [ "$("$build/check/cc")" = "c++ ok 2" ] || die "the C++ check program did not print its line"
   static_pie "$llvm_musl/bin/llvm-readelf" "$build/check/cc"
   write_stamp "$(stamp_of stage2)" step stage2 revision "$llvm_revision" llvm_revision "$llvm_revision" \
-    tag "$llvm_tag" version "$llvm_version" lto "$lto" fat_lto_objects yes inputs "$step_inputs" \
+    "$llvm_name_key" "$llvm_name" version "$llvm_version" lto "$lto" fat_lto_objects yes inputs "$step_inputs" \
     patches "$(patch_stamp llvm)" \
     jobs "$jobs" seconds "$(($(date +%s) - started))" peak_memory_mib "$((peak_kib / 1024))" \
     baseline_memory_mib "$((baseline_kib / 1024))" build_dir_mib "$build_mib" \

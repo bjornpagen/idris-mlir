@@ -62,12 +62,6 @@ target_compile_definitions(idr_build INTERFACE
 	"IDRIS_MLIR_TARGET_TRIPLE=\"${CMAKE_CXX_COMPILER_TARGET}\""
 	"IDRIS_MLIR_TARGET_CPU=\"${IDRIS_MLIR_TARGET_CPU}\""
 )
-# PIN(llvm-force-enable-stats): every translation unit, the tools' too,
-# starts with this header, so that a pass statistic has the layout the MLIR
-# library gives it in every build type.
-target_compile_options(idr_build INTERFACE
-	"SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/lib/Support/EnableStatistics.h"
-)
 # The target entry's lists, as X-macros of C strings in a generated header
 # (idr/TargetEntry.h): what links a program after its object, the runtime
 # and -o (--target with the triple, the executable flags, the program link
@@ -316,10 +310,6 @@ target_link_libraries(idris-mlir-tblgen PRIVATE
 	idris_mlir_language_profile
 )
 target_compile_definitions(idris-mlir-tblgen PRIVATE ${IDR_LLVM_DEFINITIONS})
-# PIN(llvm-force-enable-stats)
-target_compile_options(idris-mlir-tblgen PRIVATE
-	"SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/lib/Support/EnableStatistics.h"
-)
 
 # The tools are plain translation units; idris-mlir-cc imports idr.driver.
 set_target_properties(idris-mlir-opt idris-mlir-cc idris-mlir-reduce idris-mlir-tblgen PROPERTIES

@@ -9,6 +9,7 @@ decisions the user has taken, and one directory of test output.
 | `substrate.md` | How the compiler holds what it knows: six representation moves (S1–S6), the promises that become checks, the upstream mechanisms used and rejected, and the requirements deleted. |
 | `concurrency.md` | Thunks, task frames, shards and futures, built on the substrate: what a suspended computation is, the runtime that runs it on many cores, and the future Rust is polled on. |
 | `decision-*.md` | Decisions the user took. They stand unless a decision of the user's changes them. |
+| `llvm-trunk-mechanisms.md` | What MLIR and LLVM changed between `llvmorg-23.1.2` and the trunk pin 7208ba24 for each PINS.md entry and workaround here, the trunk mechanisms that could replace one, and what proposal 0003's cutover adopted. |
 | `upstream-idris/` | The output of `tests/upstream-idris/run`: which upstream Idris 2 tests this compiler passes, and why the others fail. |
 
 The notes cb65104 wrote (`frame.md`, `copies.md`, `future.md`,

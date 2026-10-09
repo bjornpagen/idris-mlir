@@ -1,40 +1,30 @@
-# [mlir][arith] `arith-int-range-narrowing` makes shifts and remainders compute something else
+# [mlir][arith] `arith-int-range-narrowing` makes remainders compute something else
 
 At `llvmorg-23.1.2`, the narrowing patterns (`arith-int-range-narrowing`,
 `arith::populateIntRangeNarrowingPatterns`) rewrite an elementwise op on a
 narrower type when integer range analysis proves that its operands and
-results fit that type. For three kinds of op that is not enough, and the
+results fit that type. For two kinds of op that is not enough, and the
 narrowed op computes something else than the op it replaces:
 
-1. A shift (`shli`, `shrsi`, `shrui`) whose amount can reach the narrow
-   width. Amount and result fit, but on the narrow type a shift by its
-   width or more is poison.
-2. `remsi` whose dividend can be the narrow type's minimum while its
+1. `remsi` whose dividend can be the narrow type's minimum while its
    divisor can be -1. On `i64`, `-2^31 rem -1` is 0; on `i32` it
    overflows, and `arith-to-llvm` makes it `llvm.srem`, for which that is
    undefined behaviour (x86's `idiv` traps).
-3. `remui` narrowed with a sign truncation. The signed ops are restricted
+2. `remui` narrowed with a sign truncation. The signed ops are restricted
    to signed casts, but the unsigned ones may take either; an operand whose
    signed range fits but may be negative is truncated, and the narrow op
    reads -2 as 2^32 - 2 where the wide one read 2^64 - 2:
    (2^64 - 2) % 7 = 0, but (2^32 - 2) % 7 = 2.
 
+This report had a third case, a shift whose amount can reach the narrow
+width (poison there); main fixed it in 44a4dbf32, and the pin has it.
+
 ## Reproduce
 
-`narrowing.mlir` bounds the operands with `minui`, `maxsi` and `minsi`,
-which the analysis reads:
+`narrowing.mlir` bounds the operands with `maxsi` and `minsi`, which the
+analysis reads:
 
 ```mlir
-// x in [0, 2^20], s in [0, 40]
-func.func @shift(%x: i64, %s: i64) -> i64 {
-  %xmax = arith.constant 1048576 : i64
-  %smax = arith.constant 40 : i64
-  %a = arith.minui %x, %xmax : i64
-  %b = arith.minui %s, %smax : i64
-  %r = arith.shrui %a, %b : i64
-  return %r : i64
-}
-
 // x in [-2^31, 0], y in [-2, -1]
 func.func @rem(%x: i64, %y: i64) -> i64 {
   %xmin = arith.constant -2147483648 : i64
@@ -71,10 +61,9 @@ func.func @remu_of_minus_two() -> i64 {
 mlir-opt --arith-int-range-narrowing="int-bitwidths-supported=32" narrowing.mlir
 ```
 
-All three ops become `i32` ops:
+Both ops become `i32` ops:
 
 ```mlir
-    %4 = arith.shrui %2, %3 : i32        // %3 up to 40
     %6 = arith.remsi %4, %5 : i32        // %4 may be -2^31 while %5 is -1
     %3 = arith.remui %2, %c7_i32 : i32   // %2 = trunci of a value in [-2, 0]
 ```
@@ -84,49 +73,67 @@ The wrong remainder shows once the call is inlined and folded:
 `@remu_of_minus_two` return `arith.constant 0 : i64`; after the narrowing,
 the same pipeline makes it return `arith.constant 2 : i64`.
 
-We expected each of the three ops to stay on `i64`: the ranges admit the
-inputs on which the narrow form differs.
+We expected both ops to stay on `i64`: the ranges admit the inputs on
+which the narrow form differs.
 
 ## Cause
 
-`mlir/lib/Dialect/Arith/Transforms/IntRangeOptimizations.cpp:378-397`
-(`NarrowElementwise::matchAndRewrite`): for each target width the pattern
-merges the cast kinds that the operand and result ranges allow
-(`checkTruncatability`) and restricts the signed ops (`divsi`,
+`mlir/lib/Dialect/Arith/Transforms/IntRangeOptimizations.cpp:378-397` at
+llvmorg-23.1.2 (`NarrowElementwise::matchAndRewrite`): for each target
+width the pattern merges the cast kinds that the operand and result
+ranges allow (`checkTruncatability`) and restricts the signed ops (`divsi`,
 `ceildivsi`, `floordivsi`, `remsi`, `maxsi`, `minsi`, `shrsi`) to
-`CastKind::Signed`. Nothing else about the op is asked: not the shift's
-amount, not the remainder's overflow in the narrow type, and the unsigned
-ops keep `CastKind::Both`, so a sign truncation is allowed for them.
+`CastKind::Signed`. Nothing else about the op is asked: not the
+remainder's overflow in the narrow type, and the unsigned ops keep
+`CastKind::Both`, so a sign truncation is allowed for them. Main at
+7208ba24 adds only the check of a shift's amount (44a4dbf32); its cast
+kinds are at `IntRangeOptimizations.cpp:396-402`.
 
 ## Proposed fix
 
 In `NarrowElementwise`, for a target width `w`:
 
-- a shift narrows only when its amount's `umax` is below `w`;
 - `remsi` does not narrow when the dividend's range holds the signed
   minimum of `w` bits and the divisor's holds -1 (for `divsi` the result's
   fit already excludes that case);
 - the unsigned ops (`divui`, `ceildivui`, `remui`, `shrui`, `maxui`,
   `minui`) get `CastKind::Unsigned`, as the signed ones get `Signed`.
 
-Add the three functions of `narrowing.mlir` to
-`mlir/test/Dialect/Arith/int-range-narrowing.mlir`, expecting their ops to
-stay on `i64`.
+Add a test for each to `mlir/test/Dialect/Arith/int-range-narrowing.mlir`,
+expecting its op to stay on `i64`.
 
 ## Status upstream
 
-The shift (case 1) is fixed on main by 44a4dbf32 ("[MLIR][Arith] Don't
-narrow shifts whose amount can exceed the target width",
-[#218495](https://github.com/llvm/llvm-project/pull/218495)), for
-[#218191](https://github.com/llvm/llvm-project/issues/218191); it is not
-on `release/23.x`. The remainders are not (checked at 161d9dca, October
-2026): `remsi` still has no check for the narrow minimum rem -1, and the
-unsigned ops still allow either cast
-(`IntRangeOptimizations.cpp:396-402` there). The remainder cases are
-tests the shift fix did not include, and they have not been run on
-trunk. When the pin moves past 44a4dbf32, drop the shift from this
-report, `narrowing.mlir`, its check and `exact`, and keep the rest
-until that retest decides them.
+The shift, this report's third case, is fixed on main by 44a4dbf32
+("[MLIR][Arith] Don't narrow shifts whose amount can exceed the target
+width", [#218495](https://github.com/llvm/llvm-project/pull/218495)),
+for [#218191](https://github.com/llvm/llvm-project/issues/218191); the
+pin, main at 7208ba24, has it, so this report, `narrowing.mlir` and its
+check no longer carry it. The remainders are not fixed: at 7208ba24
+`remsi` still has no check for the narrow minimum rem -1, and the
+unsigned ops still allow either cast (`IntRangeOptimizations.cpp:396-402`
+there). Both still reproduce there (below, "Testing on main").
+
+## Testing on main
+
+On main at 7208ba24 without this patch (an `mlir-opt` of `llvm` and
+`mlir` alone, Release with assertions, test dialect included, arm64
+macOS), the three functions of the patch's lit test, run as
+`int-range-narrowing.mlir` runs them
+(`--arith-int-range-narrowing="int-bitwidths-supported=1,8,16,24,32"`):
+
+- `@remsi_narrow_min_by_minus_one`: the `remsi` becomes `i32`, where it
+  must stay `i64`. Still broken.
+- `@remsi_above_narrow_min`: the `remsi` becomes `i32`, as it may.
+- `@remui_of_negative`: the `remui` becomes `i8`, where it must stay
+  `i64`. Still broken.
+
+`narrowing.mlir` shows the wrong value: `mlir-opt --inline
+--canonicalize` makes `@remu_of_minus_two` return 0, and the same after
+`--arith-int-range-narrowing="int-bitwidths-supported=32"` makes it
+return 2. With the patch applied to the same tree, all of
+`int-range-narrowing.mlir` passes (FileCheck), the three new functions
+included.
 
 ## Our workaround
 
@@ -140,26 +147,29 @@ narrowing's own decision.
 
 ## Patch
 
-`llvm.patch` is main's 44a4dbf32 (#218495, the shift) backported
-unchanged, and the proposed fix for the remainders on top: `remsi` does
-not narrow when the dividend's range holds the target width's signed
-minimum and the divisor's holds -1, and the ops that read their operands
-unsigned get `CastKind::Unsigned`. Tests for each in
-`mlir/test/Dialect/Arith/int-range-narrowing.mlir`. Built into the pinned
-toolchain; `tests/upstream/int-range-narrowing-exactness` checks the
-reproducer. The lit test uses the test dialect's `test.with_bounds`,
-which the pinned build does not have, so it has not been run.
+`llvm.patch` is the proposed fix for the remainders, against main at
+7208ba24, the pin, which already has 44a4dbf32's shift check: `remsi`
+does not narrow when the dividend's range holds the target width's
+signed minimum and the divisor's holds -1, and the ops that read their
+operands unsigned get `CastKind::Unsigned`. Tests for each in
+`mlir/test/Dialect/Arith/int-range-narrowing.mlir`
+(`@remsi_narrow_min_by_minus_one`, `@remsi_above_narrow_min`,
+`@remui_of_negative`), written with main's `test.with_bounds <...>`
+syntax. `tests/upstream/int-range-narrowing-exactness` checks the
+reproducer with the pinned tools; the lit test ran on main as "Testing on
+main" says (the pinned build has no test dialect).
 
 ## Upstreaming plan
 
-Status: backport, retest on trunk.
+Status: reproduced on main at 7208ba24; not yet filed.
 
-The shift fix is the backport. The two remainder cases are tests that
-fix did not include. Rerun `@remsi_narrow_min_by_minus_one`,
-`@remsi_above_narrow_min` and `@remui_of_negative` on trunk, and only
-then decide whether they deserve a patch.
+The pin has the shift fix, 44a4dbf32, and the patch no longer carries
+it. The remainders are still broken on main (`@remsi_narrow_min_by_minus_one`
+and `@remui_of_negative` narrow there), so the patch stays and goes
+upstream.
 
-- Where: nothing to send until that retest.
-- Upstream test: those three functions in `int-range-narrowing.mlir`.
-- When the pin moves past 44a4dbf32, the backported shift leaves the
-  patch; the remainder cases stay until the retest decides them.
+- Where: an issue with `narrowing.mlir`'s wrong value, and a pull request
+  against main with `llvm.patch`, after the bugs before it in
+  `upstream/README.md`'s order.
+- Upstream test: the three functions in `int-range-narrowing.mlir`.
+- Dropped when the pin has the merged fix.

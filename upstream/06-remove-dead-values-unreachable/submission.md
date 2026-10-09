@@ -4,7 +4,7 @@ Approach changed: the old patch added three inline poison loops at the three era
 
 Status: file. Three texts, in this order: a new issue, a short comment on
 the open pull request https://github.com/llvm/llvm-project/pull/208881,
-and a pull request whose diff is `pull-request.diff` (against llvm main,
+and a pull request whose diff is `llvm.patch` (against llvm main,
 checked with `git apply --check` at 7208ba24, 2026-10-08).
 
 Author: Bjorn, as an individual; the work was done outside any employer.

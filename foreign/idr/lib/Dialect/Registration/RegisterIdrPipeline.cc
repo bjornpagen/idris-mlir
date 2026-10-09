@@ -14,6 +14,6 @@ void idr::registerIdrPipeline() {
       [](OpPassManager &pm) {
         for (StringRef step : pipelineSteps())
           if (failed(parsePassPipeline(step, pm)))
-            llvm::report_fatal_error("idr-pipeline: bad step");
+            llvm::reportFatalInternalError("idr-pipeline: bad step");
       });
 }

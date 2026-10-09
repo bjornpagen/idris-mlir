@@ -201,6 +201,10 @@ std::string enumName(const EnumInfo &info) { return info.getEnumClassName().str(
 // An enum stored as an integer attribute, which the generic form writes as
 // its value: an op attribute of ODS's integer enums.
 std::optional<Kind> integerEnum(const mlir::tblgen::Attribute &base) {
+  // An EnumAttr is an attribute of its own around the enum, not an integer:
+  // only an enum that is itself the attribute is stored as one.
+  if (!base.getDef().isSubClassOf("EnumInfo"))
+    return std::nullopt;
   EnumInfo info(&base.getDef());
   if (info.isBitEnum())
     return std::nullopt;

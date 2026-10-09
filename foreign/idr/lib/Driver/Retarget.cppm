@@ -15,27 +15,21 @@ export namespace idr::driver {
 // it asked for in its marks, which the archive's functions still carry as
 // their attributes; the marks are read off here.
 void retarget(llvm::Module &module, const llvm::TargetMachine &machine) {
-  llvm::StringRef cpuFeatures = machine.getTargetFeatureString();
+  std::string cpuFeatures = machine.getTargetFeatureString().str();
   for (llvm::Function &function : module) {
     if (function.isDeclaration() || !function.hasFnAttribute("target-cpu"))
       continue;
-    // PIN(clang-module-predeclared-new) — see PINS.md
-    llvm::SmallString<256> features(
+    std::string features =
         function.getFnAttribute(function.hasFnAttribute(featuresMark) ? featuresMark
                                                                       : "target-features")
-            .getValueAsString());
+            .getValueAsString()
+            .str();
     function.removeFnAttr(cpuMark);
     function.removeFnAttr(featuresMark);
     if (function.hasFnAttribute(baselineMark))
       continue;
-    if (!cpuFeatures.empty()) {
-      llvm::SmallString<256> own = features;
-      features = cpuFeatures;
-      if (!own.empty()) {
-        features += ",";
-        features += own;
-      }
-    }
+    if (!cpuFeatures.empty())
+      features = features.empty() ? cpuFeatures : cpuFeatures + "," + features;
     function.addFnAttr("target-cpu", machine.getTargetCPU());
     function.removeFnAttr("tune-cpu");
     if (features.empty())

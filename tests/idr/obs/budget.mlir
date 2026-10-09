@@ -2,14 +2,21 @@
 // RUN: FileCheck %s --check-prefix=BUDGET < %t.1.err
 // RUN: idris-mlir-opt %s --idr-simplify --remarks-filter-passed=idr-simplify -o %t.2.mlir 2> %t.2.err
 // RUN: FileCheck %s --check-prefix=FIXPOINT < %t.2.err
+// RUN: %status 1 idris-mlir-opt %s --idr-simplify=max-rounds=0 -o %t.0.mlir 2> %t.0.err
+// RUN: FileCheck %s --check-prefix=NONE < %t.0.err
 // The rounds of the simplify loop are bounded by construction, and the
 // round budget asserts it: a module that still changes after max-rounds
 // rounds is a user error that names the budget, at the module (idris-mlir-cc
-// exits 3, as for every `unsupported` reason). This one needs more than one
-// round, as the first inlines @twice; the default budget is enough.
-// BUDGET: budget.mlir:[[@LINE+4]]:1: error: unsupported (compile-time budget): idr-simplify did not reach a fixpoint in 1 rounds
+// exits 3, as for every `unsupported` reason), and the only error. This one
+// needs more than one round, as the first inlines @twice; the default
+// budget is enough. A budget of no rounds is spent before the first.
+// BUDGET-NOT: error:
+// NONE-NOT: error:
+// BUDGET: budget.mlir:[[@LINE+6]]:1: error: unsupported (compile-time budget): idr-simplify did not reach a fixpoint in 1 rounds
+// NONE: budget.mlir:[[@LINE+5]]:1: error: unsupported (compile-time budget): idr-simplify did not reach a fixpoint in 0 rounds
 // FIXPOINT: fixpoint: round {{[2-9]|[1-9][0-9]}} changed nothing
 // BUDGET-NOT: error
+// NONE-NOT: error
 // FIXPOINT-NOT: error
 module attributes {idr.program} {
   func.func private @twice(%x: i64) -> i64 attributes {idr.total} {

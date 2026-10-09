@@ -31,8 +31,9 @@ $ for n in 500 1000 2000 4000 8000 16000 32000 64000; do
   done
 ```
 
-Best of three runs on a shared 4-core x86_64 Linux machine. Both
-`mlir-opt` builds link the pinned toolchain's static libraries with
+Best of three runs on a shared 4-core x86_64 Linux machine, while the
+pin was llvmorg-23.1.2, whose `BytecodeReader.cpp` is main's. Both
+`mlir-opt` builds link that toolchain's static libraries with
 `BytecodeReader.cpp` compiled the same way (clang 18, `-O2`), once as
 pinned and once with `llvm.patch`; "text" is the pinned build reading
 `n$n.mlir` with the same flags.
@@ -119,10 +120,11 @@ a chain of arrays then tuple types 80 deep, and
 `invalid/invalid_attr_type_section.mlir` reads the cyclic file above.
 
 The same file is the pull request: `BytecodeReader.cpp` and both test
-files are identical on llvm-project main at 7208ba24 (2026-10-08), and
-the patch applies there and to the pin.
+files are identical on llvm-project main at 7208ba24 (2026-10-08), the
+pin, and the patch applies there as it did to llvmorg-23.1.2.
 
-Checked here: the patch applies to the pinned tree and to main; the
+Checked here while the pin was llvmorg-23.1.2, whose reader is the same
+file: the patch applies to the pinned tree and to main; the
 patched file compiles against main's headers and is clang-format clean on
 the changed lines; with the patched reader linked into the pinned
 toolchain (assertions on), both lit cases and the file's existing
@@ -143,8 +145,8 @@ change.
 ## Testing on main
 
 On llvm main at 7208ba24 (2026-10-08), with the seven code diffs of
-01-08 applied together (each directory's `pull-request.diff`, else its
-`llvm.patch`), a Release build with assertions
+01-08 applied together (02-07's `llvm.patch` and 08's
+`pull-request.diff`), a Release build with assertions
 (`-DLLVM_ENABLE_PROJECTS=mlir -DLLVM_TARGETS_TO_BUILD=Native
 -DBUILD_SHARED_LIBS=ON -DLLVM_ENABLE_ASSERTIONS=ON`, clang 18, x86_64
 Linux) builds without errors and passes `ninja check-mlir`: 4102 passed,

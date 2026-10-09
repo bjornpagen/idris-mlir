@@ -302,6 +302,27 @@ public:
   }
 };
 
+// The visibility of a declaration that is public, always
+// (`Idr_PublicSymbol`): the op stores none. No pass of ours hides a
+// declaration, so a request to is a broken invariant, which ends the run
+// rather than leaving an error the pass that asked cannot see.
+template <typename ConcreteType>
+class PublicSymbol : public mlir::OpTrait::TraitBase<ConcreteType, PublicSymbol> {
+public:
+  mlir::SymbolTable::Visibility getVisibility() { return mlir::SymbolTable::Visibility::Public; }
+  void setVisibility(mlir::SymbolTable::Visibility visibility) {
+    if (visibility != mlir::SymbolTable::Visibility::Public)
+      llvm::reportFatalInternalError(llvm::Twine("a pass asked to hide '") +
+                                     ConcreteType::getOperationName() +
+                                     "', a declaration, which is public, always");
+  }
+
+private:
+  PublicSymbol() = default;
+  friend ConcreteType;
+  template <typename, template <typename> class...> friend class mlir::Op;
+};
+
 } // namespace idr
 
 #define GET_OP_CLASSES

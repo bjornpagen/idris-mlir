@@ -9,7 +9,7 @@ directory whose status says "send next".
 ## Layout
 
 Each `NN-<bug>/` is one bug. `NN` is the order to file in: lower first.
-Directories 13-15 are never filed (see the table).
+Directory 15 is never filed (see the table).
 
 - `README.md`: the local report: symptom, reproducer, cause, what the
   patch does, when it is dropped. Its `## Upstreaming plan` says the
@@ -19,15 +19,16 @@ Directories 13-15 are never filed (see the table).
 - `submission.md`: the exact texts to post, in LLVM's review language:
   the issue (when one is needed), the pull request title and body, any
   comment, and which file is the diff.
-- `llvm.patch`: the change applied to the pinned source
-  (llvmorg-23.1.2). `tools/bootstrap.sh` applies every
+- `llvm.patch`: the change applied to the pinned source, a commit of
+  llvm main (`toolchain.lock.json`), so for a bug we send it is the pull
+  request itself. `tools/bootstrap.sh` applies every
   `upstream/*/llvm.patch` in name order to a copy of the pinned
   llvm-project when it builds the toolchain; `tests/spec/upstream-patches`
   checks they apply.
-- `pull-request.diff`: the change against llvm main, when it differs from
-  `llvm.patch`. The pull request is this file when present, else
-  `llvm.patch`. Apply either with `git apply`; the commit message comes
-  from `submission.md`, never from the file's header.
+- `pull-request.diff`: the pull request for a change this repository does
+  not carry (08), which the bootstrap therefore never applies. Apply
+  either file with `git apply`; the commit message comes from
+  `submission.md`, never from the file's header.
 - `tests/upstream/<bug>/` (bug name without the number): this repository's
   check that the pinned tools still need the patch, or are fixed by it.
 - `PINS.md`, entry `## <bug>` (or the name it gives): why we carry it and
@@ -37,13 +38,13 @@ Directories 13-15 are never filed (see the table).
 
 All of 01-08 are still broken on llvm main at
 7208ba24ca2894729cd394475a00d2a7b605e642. With the seven code diffs of
-01-08 applied to that commit (02-08's `pull-request.diff`, else
-`llvm.patch`), a Release build with assertions (`-DLLVM_ENABLE_PROJECTS=mlir
--DLLVM_TARGETS_TO_BUILD=Native -DBUILD_SHARED_LIBS=ON
--DLLVM_ENABLE_ASSERTIONS=ON`, clang 18, x86_64 Linux) passes `ninja
-check-mlir`: 4102 passed, 630 unsupported, 1 expectedly failed, 0 failed;
-each patch's own tests ran and passed, as did the ExecutionEngine unit
-test. On the same build, each patch's own tests were then run with that
+01-08 applied to that commit (02-07's `llvm.patch` and 08's
+`pull-request.diff`), a Release build with assertions
+(`-DLLVM_ENABLE_PROJECTS=mlir -DLLVM_TARGETS_TO_BUILD=Native
+-DBUILD_SHARED_LIBS=ON -DLLVM_ENABLE_ASSERTIONS=ON`, clang 18, x86_64
+Linux) passes `ninja check-mlir`: 4102 passed, 630 unsupported, 1
+expectedly failed, 0 failed; each patch's own tests ran and passed, as
+did the ExecutionEngine unit test. On the same build, each patch's own tests were then run with that
 patch's source change alone reverted: they fail without it (sccp,
 vectorize, remove-dead-values and inline fail; the bytecode cycle test
 loops; the ExecutionEngine test does not build without the new option)
@@ -62,13 +63,18 @@ Re-run `check-mlir` before each pull request, on the then-current main.
 | 06 | remove-dead-values-unreachable | issue + PR + comment on #208881: poison for every erased value | ready, but only after #208881 lands or its author answers 01's comment |
 | 07 | inline-unreachable-terminator | issue + PR: the hook is asked of the terminator's dialect | ready |
 | 08 | execution-engine-process-symbols | PR: process symbols optional, one JITDylib | ready |
-| 09 | int-range-narrowing-exactness | nothing yet | carried backport of 44a4dbf32; rerun its three remainder tests on main, then decide |
-| 10 | recursive-attribute-parser | an RFC on Discourse first | not ready; no patch |
-| 11 | clang-module-layout-forward-declaration | nothing until reduced | not ready; reduce, compare with #219926 |
-| 12 | clang-module-predeclared-new | nothing until reduced | not ready; reduce, likely #189252 |
-| 13 | uplift-final-counter | never | carried backport of 6e714c8d9 |
-| 14 | while-move-if-down-duplicates | never | carried backport of a65eb8723 |
-| 15 | ld64-lld-unknown-tapi-target | never | backport of 532fa5afb plus a local skip |
+| 09 | int-range-narrowing-exactness | issue + PR: remsi and the unsigned ops keep their width when narrowing changes them | carried, the remainders only (the pin has 44a4dbf32, the shift); both still broken on main at 7208ba24; no submission.md text yet |
+| 10 | recursive-attribute-parser | an RFC on Discourse first | not ready; no patch; still reproduces at 7208ba24 (arm64 macOS) |
+| 11 | clang-module-layout-forward-declaration | nothing until reduced | not ready; rerun on x86_64 Linux at the pin (it does not reproduce on arm64 macOS), then reduce, compare with #219926 |
+| 15 | ld64-lld-unknown-tapi-target | never | carried, the local skip only (the pin has `arm64e.x1`, b8007a8e4) |
+
+Gone when the pin moved from llvmorg-23.1.2 to main at 7208ba24, each
+with its check and its PINS.md entry: 13 (uplift-final-counter) and 14
+(while-move-if-down-duplicates), backports of fixes main has, and 12
+(clang-module-predeclared-new), whose report's unit main's clang
+compiles on arm64 macOS, where 23.1.2's crashed (verified on arm64 macOS
+only; rechecked on x86_64 Linux when `.toolchain/llvm-musl` is rebuilt at
+the pin); the commit that fixed it is not identified.
 
 The order runs from least to most arguable. 01 is no code of ours and
 helps a PR a maintainer approved. 02-04 are each one function in one
@@ -128,8 +134,8 @@ For the next submission (first row whose status says "send next", or,
 after Bjorn says to go on, the next ready row):
 1. Read its `README.md` and `submission.md` in full.
 2. `git fetch origin main`; `git switch -c <bug> origin/main`.
-3. `git apply` the diff. If it does not apply, stop and show the
-   conflict; do not resolve it alone.
+3. `git apply` its `llvm.patch` (08: `pull-request.diff`). If it does
+   not apply, stop and show the conflict; do not resolve it alone.
 4. Commit: subject = PR title, body = PR body, last line
    `Assisted-by: Claude Code`. Leave `#<issue>` (or `#ISSUE`, `#PR`) in
    place until the number exists.
@@ -168,8 +174,12 @@ entry in one change, and a `submission.md` once it is ready to send.
 
 ## This repository's toolchain
 
-The installed toolchain (`.toolchain/llvm-musl`) was built before the
-2026-10-08 changes to these patches, so `tools/verify-pins.sh llvm`
-fails and `make build` refuses until `tools/bootstrap.sh llvm` rebuilds
-it (about 3.6 hours on 4 cores, about 10 GB of disk). That is this
+The LLVM pin is llvm main at 7208ba24ca2894729cd394475a00d2a7b605e642
+(LLVM 24.0.0git, `toolchain.lock.json`), moved from `llvmorg-23.1.2` as
+`proposals/0003-llvm-trunk.md` decides. The arm64 macOS toolchain
+(`.toolchain/llvm-macos`) is built at that commit with every
+`upstream/*/llvm.patch` (02-07, 09 and 15; its stamp records each by
+SHA-256): one stage with Apple clang, about half an hour on 12 cores.
+The x86_64 Linux toolchain (`.toolchain/llvm-musl`) has not been rebuilt
+at this pin yet; `tools/bootstrap.sh llvm` builds it there. That is this
 repository's build, not a precondition for sending anything upstream.

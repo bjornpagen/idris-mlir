@@ -2,10 +2,10 @@
   "schema_version": 4,
   "llvm": {
     "repository": "https://github.com/llvm/llvm-project.git",
-    "revision": "85ac560262434c9ccfc0c183ec22d4138ed647fb",
-    "tag": "llvmorg-23.1.2",
-    "version": "23.1.2",
-    "accept": "23"
+    "revision": "7208ba24ca2894729cd394475a00d2a7b605e642",
+    "describe": "llvmorg-24-init-13225-g7208ba24ca28",
+    "version": "24.0.0git",
+    "accept": "24"
   },
   "cmake": {
     "repository": "https://github.com/Kitware/CMake.git",

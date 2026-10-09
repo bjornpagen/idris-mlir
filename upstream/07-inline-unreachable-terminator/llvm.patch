@@ -35,13 +35,13 @@ func.func.
 ---
  .../Transforms/DialectInlinerInterface.td     |  6 ++-
  mlir/lib/Dialect/UB/IR/UBOps.cpp              | 10 +++++
- mlir/lib/Transforms/Utils/Inliner.cpp         | 17 +++++---
+ mlir/lib/Transforms/Utils/Inliner.cpp         | 19 +++++---
  mlir/lib/Transforms/Utils/InliningUtils.cpp   | 12 +++---
  mlir/test/Transforms/inlining.mlir            | 43 +++++++++++++++++++
- 5 files changed, 75 insertions(+), 13 deletions(-)
+ 5 files changed, 76 insertions(+), 14 deletions(-)
 
 diff --git a/mlir/include/mlir/Transforms/DialectInlinerInterface.td b/mlir/include/mlir/Transforms/DialectInlinerInterface.td
-index 0975b84179d3c9aa95ad3dbc0f568d9a7ff00a19..158568d4d68150fddf2701cd8c3b25cc9958d812 100644
+index e675e0165c26af52ca4495b47b552eed7314fdfb..dbda0bf1652ea13dcccf3d20c21808462ff1ec24 100644
 --- a/mlir/include/mlir/Transforms/DialectInlinerInterface.td
 +++ b/mlir/include/mlir/Transforms/DialectInlinerInterface.td
 @@ -181,7 +181,11 @@ def DialectInlinerInterface : DialectInterface<"DialectInlinerInterface"> {
@@ -79,11 +79,11 @@ index ee523f9522953db3712e9960eaf8266be612d7ed..41441a31624c64dc1f4105ad2c7097c3
  } // namespace
  
 diff --git a/mlir/lib/Transforms/Utils/Inliner.cpp b/mlir/lib/Transforms/Utils/Inliner.cpp
-index 40950312d566f57c4ed17c854f1358c841d5c464..28139c2a57e4cad837fd13660161dbba0b72f19e 100644
+index 293789cf5873abdf3788eb29455d761b9d83f8ee..02625aac44a4b7e907d267eb6265bfd19403ab1a 100644
 --- a/mlir/lib/Transforms/Utils/Inliner.cpp
 +++ b/mlir/lib/Transforms/Utils/Inliner.cpp
-@@ -456,7 +456,8 @@ private:
-                                  CGUseList &useList, CallGraphSCC &currentSCC);
+@@ -461,7 +461,8 @@ private:
+                                  BlockedEdges &blockedEdges);
  
    /// Returns true if the given call should be inlined.
 -  bool shouldInline(ResolvedCall &resolvedCall);
@@ -92,16 +92,18 @@ index 40950312d566f57c4ed17c854f1358c841d5c464..28139c2a57e4cad837fd13660161dbba
  
  private:
    Inliner &inliner;
-@@ -629,7 +630,7 @@ Inliner::Impl::inlineCallsInSCC(InlinerInterfaceImpl &inlinerIface,
-     InlineHistoryT inlineHistoryID = callHistory[i];
-     bool inHistory =
-         inlineHistoryIncludes(it.targetNode, inlineHistoryID, inlineHistory);
--    bool doInline = !inHistory && shouldInline(it);
-+    bool doInline = !inHistory && shouldInline(inlinerIface, it);
+@@ -642,8 +643,8 @@ Inliner::Impl::inlineCallsInSCC(InlinerInterfaceImpl &inlinerIface,
+     auto edge = std::make_pair(it.sourceNode, it.targetNode);
+     if (inHistory)
+       newlyBlockedEdges.insert(edge);
+-    bool doInline =
+-        !inHistory && !blockedEdges.contains(edge) && shouldInline(it);
++    bool doInline = !inHistory && !blockedEdges.contains(edge) &&
++                    shouldInline(inlinerIface, it);
      CallOpInterface call = it.call;
      LLVM_DEBUG({
        if (doInline)
-@@ -700,7 +701,8 @@ Inliner::Impl::inlineCallsInSCC(InlinerInterfaceImpl &inlinerIface,
+@@ -716,7 +717,8 @@ Inliner::Impl::inlineCallsInSCC(InlinerInterfaceImpl &inlinerIface,
  }
  
  /// Returns true if the given call should be inlined.
@@ -111,7 +113,7 @@ index 40950312d566f57c4ed17c854f1358c841d5c464..28139c2a57e4cad837fd13660161dbba
    // Don't allow inlining terminator calls. We currently don't support this
    // case.
    if (resolvedCall.call->hasTrait<OpTrait::IsTerminator>())
-@@ -723,9 +725,12 @@ bool Inliner::Impl::shouldInline(ResolvedCall &resolvedCall) {
+@@ -739,9 +741,12 @@ bool Inliner::Impl::shouldInline(ResolvedCall &resolvedCall) {
  
    // Don't allow inlining if the callee has multiple blocks (unstructured
    // control flow) but we cannot be sure that the caller region supports that.
@@ -126,7 +128,7 @@ index 40950312d566f57c4ed17c854f1358c841d5c464..28139c2a57e4cad837fd13660161dbba
      // If both parent ops have the same type, it is safe to inline. Otherwise,
      // decide based on whether the op has the SingleBlock trait or not.
      // Note: This check does currently not account for
-@@ -736,7 +741,7 @@ bool Inliner::Impl::shouldInline(ResolvedCall &resolvedCall) {
+@@ -752,7 +757,7 @@ bool Inliner::Impl::shouldInline(ResolvedCall &resolvedCall) {
               !resolvedCall.call->getParentOp()
                    ->mightHaveTrait<OpTrait::SingleBlock>();
      };
@@ -136,7 +138,7 @@ index 40950312d566f57c4ed17c854f1358c841d5c464..28139c2a57e4cad837fd13660161dbba
    }
  
 diff --git a/mlir/lib/Transforms/Utils/InliningUtils.cpp b/mlir/lib/Transforms/Utils/InliningUtils.cpp
-index 73107cfc36ea9d5cf480589abe971561d00a39b7..774e483846a06fa963abb8468dd4d7fad93b2d32 100644
+index ce4d6ad71b6d3aad9461fd723b2e2f61d64eb257..c3fee82447f5fabd99d8d7f6ba6fc45d61d04390 100644
 --- a/mlir/lib/Transforms/Utils/InliningUtils.cpp
 +++ b/mlir/lib/Transforms/Utils/InliningUtils.cpp
 @@ -143,15 +143,15 @@ void InlinerInterface::handleTerminator(Operation *op,
@@ -162,7 +164,7 @@ index 73107cfc36ea9d5cf480589abe971561d00a39b7..774e483846a06fa963abb8468dd4d7fa
  
  Value InlinerInterface::handleArgument(OpBuilder &builder, Operation *call,
 diff --git a/mlir/test/Transforms/inlining.mlir b/mlir/test/Transforms/inlining.mlir
-index da3f1a28deaacd221cd0bc8f32600d8f130a8b96..ec1dfa9390fc16d1c537123463ef1c88cdc2cbd0 100644
+index 5b3b1d8cd211f461715328082518beb74dc09643..fb1a7992c7bcaade4bf855ddbf22a001d8faad3c 100644
 --- a/mlir/test/Transforms/inlining.mlir
 +++ b/mlir/test/Transforms/inlining.mlir
 @@ -319,6 +319,49 @@ func.func @func_with_multiple_blocks_callee2(%arg0 : i32, %c : i1) {

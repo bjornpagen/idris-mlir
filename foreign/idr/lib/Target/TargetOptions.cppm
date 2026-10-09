@@ -6,11 +6,14 @@ import idr.mlir;
 
 export namespace idr::target {
 
-// No fast-math and no FP contraction anywhere:
-// `+` and `*` are IEEE operations, never fused.
+// No fast-math and no FP contraction anywhere: `+` and `*` are IEEE
+// operations, never fused. LLVM fuses a multiply and an add only where the
+// IR allows it, an operation with the `contract` flag or a call of
+// llvm.fmuladd (which the vector dialect makes of vector.fma), and neither
+// the lowering nor the runtime (-ffp-contract=off) writes either, so no
+// option says it.
 llvm::TargetOptions targetOptions() {
   llvm::TargetOptions options;
-  options.AllowFPOpFusion = llvm::FPOpFusion::Strict;
   options.FunctionSections = true;
   options.DataSections = true;
   return options;

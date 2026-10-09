@@ -120,35 +120,35 @@ instead of leaving the region two blocks.
 
 ## Patch
 
-`llvm.patch` against `llvmorg-23.1.2`, which `tools/bootstrap.sh`
-applies, and `pull-request.diff`, the same change against `main` at
-7208ba24, which this repository does not apply. They differ only in the
-call of `shouldInline` in `inlineCallsInSCC`, which `main` also gates on
-`blockedEdges` (#211377). `InliningUtils.cpp` asks the terminator's
-dialect; `Inliner.cpp` passes the inliner interface to `shouldInline`
-and counts a declined fast path as needing new blocks; `UBOps.cpp`
-declines it for `ub.unreachable` and keeps the op in the multi-block
-hook; `DialectInlinerInterface.td` documents which dialect the hook is
-asked of. Tests in `mlir/test/Transforms/inlining.mlir`.
+`llvm.patch` is the pull request, against `main` at 7208ba24, the pin,
+which `tools/bootstrap.sh` applies. Its call of `shouldInline` in
+`inlineCallsInSCC` keeps the gate on `blockedEdges` that `main` has
+(#211377) and llvmorg-23.1.2 did not; the version for 23.1.2, carried
+while that was the pin, differed from it only there. `InliningUtils.cpp`
+asks the terminator's dialect; `Inliner.cpp` passes the inliner interface
+to `shouldInline` and counts a declined fast path as needing new blocks;
+`UBOps.cpp` declines it for `ub.unreachable` and keeps the op in the
+multi-block hook; `DialectInlinerInterface.td` documents which dialect the
+hook is asked of. Tests in `mlir/test/Transforms/inlining.mlir`.
 `tests/upstream/inline-unreachable-terminator` checks `never.mlir`.
 
-Verified: `llvm.patch` applies to the pinned tree and
-`pull-request.diff` to `main` (`git apply --check`). Against the pin,
-the three changed `.cpp` files compiled and linked into an `mlir-opt`
-with the test dialect: the patched `Transforms/inlining.mlir` passes all
-five RUN lines (the unpatched `mlir-opt` aborts on it), and every other
-`-inline` test in `mlir/test` gives the same result as the unpatched
-build. Against `main`'s headers (generated files from the pinned
+Verified while the pin was llvmorg-23.1.2: the 23.1.2 version applied
+to that tree and this diff to `main` (`git apply --check`). Against
+23.1.2, the three changed `.cpp` files compiled and linked into an
+`mlir-opt` with the test dialect: the patched `Transforms/inlining.mlir`
+passes all five RUN lines (the unpatched `mlir-opt` aborts on it), and
+every other `-inline` test in `mlir/test` gives the same result as the
+unpatched build. Against `main`'s headers (generated files from 23.1.2's
 `mlir-tblgen`), `Inliner.cpp` and `InliningUtils.cpp` pass
 `-fsyntax-only`; `UBOps.cpp` fails only in `ub.poison`'s generated code,
-which the pinned `mlir-tblgen` cannot produce for `main`. Changed lines
+which 23.1.2's `mlir-tblgen` cannot produce for `main`. Changed lines
 are clang-format clean. On `main` itself, see Testing on main.
 
 ## Testing on main
 
 On llvm main at 7208ba24 (2026-10-08), with the seven code diffs of
-01-08 applied together (each directory's `pull-request.diff`, else its
-`llvm.patch`), a Release build with assertions
+01-08 applied together (02-07's `llvm.patch` and 08's
+`pull-request.diff`), a Release build with assertions
 (`-DLLVM_ENABLE_PROJECTS=mlir -DLLVM_TARGETS_TO_BUILD=Native
 -DBUILD_SHARED_LIBS=ON -DLLVM_ENABLE_ASSERTIONS=ON`, clang 18, x86_64
 Linux) builds without errors and passes `ninja check-mlir`: 4102 passed,
@@ -166,7 +166,7 @@ Status: file a new issue and a pull request, with the text in
 (https://llvm.org/docs/GitHub.html), not Bugzilla.
 
 - Where: a new issue with `never.mlir` and `llvm-unreachable.mlir`, and a
-  pull request of one commit, `pull-request.diff`, against `main`. The
+  pull request of one commit, `llvm.patch`, against `main`. The
   pull request title and body are the squash commit message; the body
   ends `Fixes #<issue>`.
 - Upstream test: the three cases the patch adds to

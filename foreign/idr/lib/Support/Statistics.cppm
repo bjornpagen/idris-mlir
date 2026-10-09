@@ -51,9 +51,10 @@ private:
 
 using namespace mlir;
 
-// PIN(llvm-force-enable-stats): a pass statistic must have the layout the
-// MLIR library gives it, which holds the count.
-static_assert(LLVM_ENABLE_STATS, "pass statistics need LLVM_FORCE_ENABLE_STATS (PINS.md)");
+// A pass statistic must have the layout the MLIR library gives it, which
+// holds the count: the pinned LLVM is built with LLVM_FORCE_ENABLE_STATS,
+// so its llvm-config.h says statistics count in our Release build too.
+static_assert(LLVM_ENABLE_STATS, "pass statistics need an LLVM built with LLVM_FORCE_ENABLE_STATS");
 
 idr::support::PipelineStatistics::PipelineStatistics(const PipelineStatistics &) {}
 

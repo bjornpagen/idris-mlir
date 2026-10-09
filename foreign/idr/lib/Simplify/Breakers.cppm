@@ -8,15 +8,17 @@
 // sccp, a function that returns a closure constant of itself (an IO loop
 // whose action is a constant: `echo = getChar >>= \c => ... echo`, where
 // `echo` returns the action that `\c` closes over, so `\c` refers to
-// itself). The inliner sees only calls and refuses only self-recursion and
-// a callee that calls its caller back (Inliner.cpp:709-715), so it would
-// unroll such a cycle once per round, forever. A function refers to what it
-// calls and to the functions its closures and closure constants name. In
-// each cycle without a breaker (two or more functions, or one that refers
-// to itself), the newest clone becomes `no_inline`, or else the first
-// function in module order that does not break last (`idr.break_last`,
-// which Emit writes from the registry's column), or else the first; then
-// the rest of the cycle is cut the same way.
+// itself). The inliner sees only calls. It refuses only self-recursion and
+// a callee that calls its caller back (`Inliner::Impl::shouldInline`), and
+// it blocks a recursive call edge, once inlining has unrolled it, only for
+// the rest of that inliner run; each round's run starts afresh, so it
+// would unroll such a cycle once per round, forever. A function refers to
+// what it calls and to the functions its closures and closure constants
+// name. In each cycle without a breaker (two or more functions, or one
+// that refers to itself), the newest clone becomes `no_inline`, or else
+// the first function in module order that does not break last
+// (`idr.break_last`, which Emit writes from the registry's column), or
+// else the first; then the rest of the cycle is cut the same way.
 export module idr.simplify:breakers;
 
 import idr.mlir;

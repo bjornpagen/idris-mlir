@@ -1,19 +1,5 @@
-Subject: [PATCH] [mlir][RemoveDeadValues] Replace uses of erased values with poison
-
-remove-dead-values drops the uses of a dead function argument, block
-argument or op result before erasing it. The liveness analysis marks every
-value in code it finds unreachable as dead, but the pass keeps calls and
-region branch ops with side effects there, so such an op could be left with
-a null operand. One helper, replaceUsesWithPoison, now retires every value
-the pass erases.
-
-This is the change in pull-request.diff (the pull request against llvm
-main), plus two test modules that are not in it: #208881's
-@unreachable_func_with_for_loops and @address_taken_callee from
-remove-dead-values-address-taken.
----
 diff --git a/mlir/lib/Transforms/RemoveDeadValues.cpp b/mlir/lib/Transforms/RemoveDeadValues.cpp
-index 6e55bc3..06483cd 100644
+index 0b9321a..bb6cc4d 100644
 --- a/mlir/lib/Transforms/RemoveDeadValues.cpp
 +++ b/mlir/lib/Transforms/RemoveDeadValues.cpp
 @@ -196,15 +196,33 @@ static void collectNonLiveValues(DenseSet<Value> &nonLiveSet, ValueRange range,
@@ -55,7 +41,7 @@ index 6e55bc3..06483cd 100644
    rewriter.eraseOpResults(op, toErase);
  }
  
-@@ -594,7 +612,7 @@ static void cleanUpDeadVals(MLIRContext *ctx, RDVFinalCleanupList &list) {
+@@ -606,7 +624,7 @@ static void cleanUpDeadVals(MLIRContext *ctx, RDVFinalCleanupList &list) {
      for (int i = b.nonLiveArgs.size() - 1; i >= 0; --i) {
        if (!b.nonLiveArgs[i])
          continue;
@@ -64,7 +50,7 @@ index 6e55bc3..06483cd 100644
        b.b->eraseArgument(i);
      }
    }
-@@ -640,9 +658,8 @@ static void cleanUpDeadVals(MLIRContext *ctx, RDVFinalCleanupList &list) {
+@@ -652,9 +670,8 @@ static void cleanUpDeadVals(MLIRContext *ctx, RDVFinalCleanupList &list) {
        llvm::interleaveComma(f.nonLiveRets.set_bits(), os);
        os << "]";
      });
@@ -75,7 +61,7 @@ index 6e55bc3..06483cd 100644
      // Some functions may not allow erasing arguments or results. These calls
      // return failure in such cases without modifying the function, so it's okay
      // to proceed.
-@@ -718,7 +735,7 @@ static void cleanUpDeadVals(MLIRContext *ctx, RDVFinalCleanupList &list) {
+@@ -730,7 +747,7 @@ static void cleanUpDeadVals(MLIRContext *ctx, RDVFinalCleanupList &list) {
           << OpWithFlags(r.op,
                          OpPrintingFlags().skipRegions().printGenericOpForm());
      });
@@ -84,7 +70,7 @@ index 6e55bc3..06483cd 100644
    }
  
    // 7. Operations
-@@ -742,19 +759,8 @@ static void cleanUpDeadVals(MLIRContext *ctx, RDVFinalCleanupList &list) {
+@@ -754,19 +771,8 @@ static void cleanUpDeadVals(MLIRContext *ctx, RDVFinalCleanupList &list) {
      // it's a poison value which will be cleaned up later if it can be cleaned
      // up. This keeps the IR valid for further simplification and
      // canonicalization.
@@ -107,94 +93,13 @@ index 6e55bc3..06483cd 100644
    }
  
 diff --git a/mlir/test/Transforms/remove-dead-values.mlir b/mlir/test/Transforms/remove-dead-values.mlir
-index 390a448..32afaa3 100644
+index 863a0d4..2644a9c 100644
 --- a/mlir/test/Transforms/remove-dead-values.mlir
 +++ b/mlir/test/Transforms/remove-dead-values.mlir
-@@ -895,3 +895,181 @@ module @func_with_non_call_users {
-   }
-   spirv.EntryPoint "GLCompute" @callee
+@@ -918,3 +918,100 @@ func.func @main() -> i1 {
+   %status, %non_live = test.call_and_produce @callee_with_dead_return() : () -> (i1, i32)
+   return %status : i1
  }
-+
-+// -----
-+
-+// Verify that the upper bound of a for loop inside an unreachable
-+// function is correctly replaced with a poison value.
-+// CHECK-LABEL: module @unreachable_func_with_for_loops
-+// CHECK-NEXT:    func.func private @main_func() {
-+// CHECK-NEXT:      %[[ARG3:.*]] = ub.poison : index
-+// CHECK-NEXT:      %[[C0:.*]] = ub.poison : index
-+// CHECK-NEXT:      %[[C1:.*]] = ub.poison : index
-+// CHECK-NEXT:      %[[C10:.*]] = ub.poison : index
-+// CHECK-NEXT:      scf.for %{{.*}} = %[[C0]] to %[[C10]] step %[[C1]] {
-+// CHECK-NEXT:        gpu.barrier
-+// CHECK-NEXT:      }
-+// CHECK-NEXT:      scf.for %{{.*}} = %[[C0]] to %[[ARG3]] step %[[C1]] {
-+// CHECK-NEXT:        gpu.barrier
-+// CHECK-NEXT:      }
-+// CHECK-NEXT:      return
-+
-+// CHECK-CANONICALIZE-LABEL: module @unreachable_func_with_for_loops
-+// CHECK-CANONICALIZE-NEXT:    func.func private @main_func() {
-+// CHECK-CANONICALIZE-NEXT:      %[[ARG3:.*]] = ub.poison : index
-+// CHECK-CANONICALIZE-NEXT:      %[[C0:.*]] = ub.poison : index
-+// CHECK-CANONICALIZE-NEXT:      %[[C1:.*]] = ub.poison : index
-+// CHECK-CANONICALIZE-NEXT:      %[[C10:.*]] = ub.poison : index
-+// CHECK-CANONICALIZE-NEXT:      scf.for %{{.*}} = %[[C0]] to %[[C10]] step %[[C1]] {
-+// CHECK-CANONICALIZE-NEXT:        gpu.barrier
-+// CHECK-CANONICALIZE-NEXT:      }
-+// CHECK-CANONICALIZE-NEXT:      scf.for %{{.*}} = %[[C0]] to %[[ARG3]] step %[[C1]] {
-+// CHECK-CANONICALIZE-NEXT:        gpu.barrier
-+// CHECK-CANONICALIZE-NEXT:      }
-+// CHECK-CANONICALIZE-NEXT:      return
-+module @unreachable_func_with_for_loops {
-+  func.func private @main_func(%arg0: index, %arg1: memref<?xf32>, %arg2: index, %arg3: index) {
-+    %cst = arith.constant 0.000000e+00 : f32
-+    %c0 = arith.constant 0 : index
-+    %c1 = arith.constant 1 : index
-+    %c10 = arith.constant 10 : index
-+    scf.for %arg4 = %c0 to %c10 step %c1 {
-+      %0 = memref.load %arg1[%arg4] : memref<?xf32>
-+      gpu.barrier
-+    }
-+    scf.for %arg4 = %c0 to %arg3 step %c1 {
-+      %0 = memref.load %arg1[%arg4] : memref<?xf32>
-+      gpu.barrier
-+    }
-+    return
-+  }
-+}
-+
-+// -----
-+
-+// Verify that a call of a function referenced by a non-call op (func.constant)
-+// keeps all its operands: the callee's signature is preserved, so an argument
-+// of the caller that the pass erases because the callee never reads it is
-+// passed as poison.
-+// CHECK-LABEL: module @address_taken_callee
-+// CHECK:         func.func private @ignores(%{{.*}}: i64) -> i64
-+// CHECK:         func.func private @caller() -> i64
-+// CHECK:           %[[P:.*]] = ub.poison : i64
-+// CHECK:           call @ignores(%[[P]]) : (i64) -> i64
-+// CHECK-CANONICALIZE-LABEL: module @address_taken_callee
-+// CHECK-CANONICALIZE:         func.func private @ignores(%{{.*}}: i64) -> i64
-+// CHECK-CANONICALIZE:         func.func private @caller() -> i64
-+// CHECK-CANONICALIZE:           %[[P:.*]] = ub.poison : i64
-+// CHECK-CANONICALIZE:           call @ignores(%[[P]]) : (i64) -> i64
-+module @address_taken_callee {
-+  func.func private @ignores(%x: i64) -> i64 {
-+    %c = arith.constant 7 : i64
-+    return %c : i64
-+  }
-+  func.func private @caller(%b: i64) -> i64 {
-+    %t = func.call @ignores(%b) : (i64) -> i64
-+    return %t : i64
-+  }
-+  func.func @main(%a: i64) -> (i64, (i64) -> i64) {
-+    %f = func.constant @ignores : (i64) -> i64
-+    %t = func.call @caller(%a) : (i64) -> i64
-+    return %t, %f : i64, (i64) -> i64
-+  }
-+}
 +
 +// -----
 +

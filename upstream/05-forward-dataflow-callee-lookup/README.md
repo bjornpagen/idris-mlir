@@ -35,8 +35,8 @@ $ for n in 4000 16000; do
 
 Best of three, on a loaded 4-core x86_64 machine, with an mlir-opt
 whose data-flow sources and three passes are built at `-O2` from the
-pinned sources with and without `llvm.patch` and linked against the
-pinned Release libraries:
+llvmorg-23.1.2 sources, the pin then, with and without `llvm.patch` and
+linked against its Release libraries:
 
 | functions | pass | llvmorg-23.1.2 | with `llvm.patch` |
 | --- | --- | --- | --- |
@@ -127,16 +127,17 @@ every round, and the scans were 8 to 9 percent of a compile of
 
 ## Patch
 
-`llvm.patch` is the pull request as one commit, generated against
-`main` at `7208ba24`; it applies to both `main` and the pin, so there is
-no separate trunk diff. `DataFlowSolver` points at the run's
-`SymbolTableCollection` while `initializeAndRun` runs,
-`DataFlowAnalysis::getSymbolTables()` returns it, and the forward
-analyses and `DeadCodeAnalysis` resolve through it. It adds a pointer
-to `DataFlowSolver` and removes a member from `DeadCodeAnalysis`, so
+`llvm.patch` is the pull request as one commit, generated against `main`
+at `7208ba24`, the pin; it applied unchanged to llvmorg-23.1.2 too, so
+there never was a separate trunk diff. `DataFlowSolver` points at the
+run's `SymbolTableCollection` while `initializeAndRun` runs,
+`DataFlowAnalysis::getSymbolTables()` returns it, and the forward analyses
+and `DeadCodeAnalysis` resolve through it. It adds a pointer to
+`DataFlowSolver` and removes a member from `DeadCodeAnalysis`, so
 everything that includes `DataFlowFramework.h` rebuilds.
 
-Checked against the pin: an mlir-opt linked with the patched data-flow
+Checked against llvmorg-23.1.2, the pin then: an mlir-opt linked with
+the patched data-flow
 sources and the three passes gives byte-for-byte the same output and
 exit status as the unpatched one on every RUN line of the `sccp`,
 `int-range-optimizations` and `remove-dead-values` tests in
@@ -152,8 +153,8 @@ differ). On `main` itself, see Testing on main.
 ## Testing on main
 
 On llvm main at 7208ba24 (2026-10-08), with the seven code diffs of
-01-08 applied together (each directory's `pull-request.diff`, else its
-`llvm.patch`), a Release build with assertions
+01-08 applied together (02-07's `llvm.patch` and 08's
+`pull-request.diff`), a Release build with assertions
 (`-DLLVM_ENABLE_PROJECTS=mlir -DLLVM_TARGETS_TO_BUILD=Native
 -DBUILD_SHARED_LIBS=ON -DLLVM_ENABLE_ASSERTIONS=ON`, clang 18, x86_64
 Linux) builds without errors and passes `ninja check-mlir`: 4102 passed,

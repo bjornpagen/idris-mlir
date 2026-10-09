@@ -22,7 +22,10 @@ else
   echo "Idris source: problem: $(problem source)"
 fi
 llvm_version=$(lock_field llvm version)
-echo "LLVM pin: $(lock_field llvm tag) $(lock_field llvm revision)"
+# A release is named by its tag, a commit of main by `git describe`.
+llvm_name=$(lock_field llvm tag)
+[ -n "$llvm_name" ] || llvm_name=$(lock_field llvm describe)
+echo "LLVM pin: $llvm_name $(lock_field llvm revision)"
 # What the host provides, only to build the pinned tools, and what the
 # scripts run on it (tools/host.sh): coreutils' timeout, SHA-256 and, where
 # date has no nanoseconds (macOS), perl's clock.
@@ -91,7 +94,8 @@ if [ -f "${llvm_bin%/bin}/provenance.json" ]; then
         if [ -f "$llvm_bin/$tool" ]; then echo "  $tool: present"; else echo "  $tool: MISSING"; fi
         ;;
       ld.lld)
-        if "$llvm_bin/$tool" --version 2> /dev/null | grep -qF "LLD $llvm_version"; then
+        # lld's version has no `git` suffix where LLVM's has one.
+        if "$llvm_bin/$tool" --version 2> /dev/null | grep -qF "LLD ${llvm_version%git}"; then
           echo "  $tool: matches lock"
         else
           echo "  $tool: VERSION MISMATCH"

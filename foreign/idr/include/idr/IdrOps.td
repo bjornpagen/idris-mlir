@@ -285,9 +285,7 @@ def Idr_Effect : I32BitEnumAttr<"Effect", "what a call of a function may do", [
   let genSpecializedAttr = 0;
 }
 
-def Idr_EffectAttr : EnumAttr<Idr_Dialect, Idr_Effect, "effects"> {
-  let assemblyFormat = "`<` $value `>`";
-}
+def Idr_EffectAttr : EnumAttr<Idr_Dialect, Idr_Effect, "effects">;
 
 //===----------------------------------------------------------------------===//
 // What an op declares once, for every pass to derive from (Idr.h)
@@ -344,8 +342,17 @@ def Idr_PerformsIO : NativeOpTrait<"PerformsIO"> {
 // Data declarations
 //===----------------------------------------------------------------------===//
 
-def Idr_DataOp : Idr_Op<"data", [Symbol, SymbolTable, IsolatedFromAbove,
-    NoRegionArguments, SingleBlock, NoTerminator, HasParent<"::mlir::ModuleOp">]> {
+// A declaration that is public, always: an idr.data, which the types of
+// values name, and no type of a value counts as a use of a symbol; and its
+// constructors, whose positions are their tags. No pass may take one for
+// unused, so none may make one private.
+def Idr_PublicSymbol : NativeOpTrait<"PublicSymbol"> {
+  let cppNamespace = "::idr";
+}
+
+def Idr_DataOp : Idr_Op<"data", [SymbolName, Idr_PublicSymbol, Symbol, SymbolTable,
+    IsolatedFromAbove, NoRegionArguments, SingleBlock, NoTerminator,
+    HasParent<"::mlir::ModuleOp">]> {
   let summary = "declares a monomorphic data type, unboxed or boxed";
   // `closures`: a sum idr-defunctionalize made of closures, one constructor
   // per label, named after the label's function, whose fields are its
@@ -365,7 +372,7 @@ def Idr_DataOp : Idr_Op<"data", [Symbol, SymbolTable, IsolatedFromAbove,
 // A field's quantity is its type: !idr.erased, !idr.lin<T> or T. A
 // constructor's tag is its position in its declaration, so no attribute
 // restates it.
-def Idr_CtorOp : Idr_Op<"ctor", [Symbol, HasParent<"DataOp">]> {
+def Idr_CtorOp : Idr_Op<"ctor", [SymbolName, Idr_PublicSymbol, Symbol, HasParent<"DataOp">]> {
   let summary = "declares one constructor of an idr.data type";
   let arguments = (ins SymbolNameAttr:$sym_name, TypeArrayAttr:$field_types);
   let assemblyFormat = [{
@@ -623,7 +630,16 @@ def Idr_ApplyOp : Idr_Op<"apply", [CallOpInterface,
                        OptionalAttr<DictArrayAttr>:$arg_attrs,
                        OptionalAttr<DictArrayAttr>:$res_attrs);
   let results = (outs Variadic<AnyType>:$results);
-  let assemblyFormat = "$callee `(` $args `)` attr-dict `:` qualified(type($callee))";
+  // The parameter and result attributes are written as func.call_indirect
+  // writes its own.
+  let assemblyFormat = [{
+    $callee `(` $args `)`
+    oilist<`,`>(
+        `arg_attrs` `=` $arg_attrs
+      | `res_attrs` `=` $res_attrs
+    )
+    attr-dict `:` qualified(type($callee))
+  }];
   let hasCanonicalizeMethod = 1;
   let extraClassDeclaration = [{
     ::mlir::CallInterfaceCallable getCallableForCallee() { return getCallee(); }

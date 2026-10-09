@@ -19,14 +19,11 @@ mentions in the issue, the pull request, or a comment. Add `Assisted-by: <tool>`
 
 ## Diff
 
-`pull-request.diff` in this directory, against `main` at 7208ba24. It is
-one commit whose message is the pull request title and body below. It
-has no `From:` line: apply it with `git apply` and commit it as yourself
-with that message. It is the same
-change as `llvm.patch`, which this repository applies to
-`llvmorg-23.1.2`; only the call of `shouldInline` in `inlineCallsInSCC`
-differs, because `main` also checks `blockedEdges` there. Run
-`check-mlir` before opening the pull request.
+`llvm.patch` in this directory, against `main` at 7208ba24, which is
+also what this repository applies to its LLVM pin. It is one commit
+whose message is the pull request title and body below. It has no
+`From:` line: apply it with `git apply` and commit it as yourself with
+that message. Run `check-mlir` before opening the pull request.
 
 ## Steps
 

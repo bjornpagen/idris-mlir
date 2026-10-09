@@ -1,5 +1,6 @@
 #!/bin/sh
-# toolchain.lock.json (schema 3) pins every tool by revision, repository, tag
-# and version, within the series the configure gate accepts (tests/Lock.idr).
+# toolchain.lock.json (schema 4) pins every tool by revision, repository,
+# version, and a tag or a `git describe`, within the series the configure
+# gate accepts (tests/Lock.idr).
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 "$runtests" --lock

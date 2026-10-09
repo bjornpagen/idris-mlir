@@ -61,12 +61,20 @@ fix is known. A patch would be a guess.
 
 ## Upstreaming plan
 
-Status: not ready.
+Status: not ready; not rerun on the pin, llvm main at 7208ba24.
+
+The crash is the x86_64 Linux build's. On arm64 macOS the clang of
+23.1.2 compiled the report's unit, and so does the clang of 7208ba24
+(2026-10-08, in place with the build's own command, and from a copy of
+the units with `-fmodule-output=` per unit). The pin moved on arm64
+macOS, where the check does not run (`targets`), so whether main still
+crashes on x86_64 Linux is open: rerun the check there first.
 
 - Where: reduce it first (cvise or by hand, over a copy of the units the
   check compiles, keeping `-fmodule-output=` per unit); run the reduction
   against main and against 08eb97dea (#219926), which may be related.
-  If a commit fixes it, backport that commit as `llvm.patch`. Nothing is
-  sent until it is reduced.
+  If a commit on main fixes it, the pin moves past that commit: the pin
+  is a commit of main, so there is no backport. Nothing is sent until it
+  is reduced.
 - Upstream test: the reduction, as a `clang/test/Modules` test in
   `split-file` form.

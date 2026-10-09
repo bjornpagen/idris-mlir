@@ -67,21 +67,24 @@ uses (`:657`). See Testing on main.
 replaces the remaining uses of a dead function argument with `ub.poison`
 instead of dropping them. That covers this call: the fix sits where the
 use is lost, not in why the use survives, so the call of `@ignores` takes
-`ub.poison : i64`. Checked with the pinned `RemoveDeadValues.cpp` plus
-only #208881's source change, linked into an `mlir-opt`: the reproducer
-and the public variant exit 0 and verify, and the test in `submission.md`
-passes under both of the file's RUN lines as a standalone file. As a
-diff appending it to trunk's `remove-dead-values.mlir`, it passes
-`git apply --check`.
+`ub.poison : i64`. Checked with llvmorg-23.1.2's `RemoveDeadValues.cpp`
+(the pin then) plus only #208881's source change, linked into an
+`mlir-opt`: the reproducer and the public variant exit 0 and verify, and
+the test in `submission.md` passes under both of the file's RUN lines as a
+standalone file. As a diff appending it to trunk's
+`remove-dead-values.mlir`, it passes `git apply --check`.
 
-The carried fix is `upstream/06-remove-dead-values-unreachable/llvm.patch`, which
-includes #208881's function-argument change and this test.
+The carried fix is `upstream/06-remove-dead-values-unreachable/llvm.patch`,
+whose one helper poisons the uses of a dead function argument as #208881
+does. It does not carry this test: it is 06's pull request, which leaves
+the test to #208881. `tests/upstream/remove-dead-values-address-taken`
+checks the reproducer against the pinned tools.
 
 ## Testing on main
 
 On llvm main at 7208ba24 (2026-10-08), with the seven code diffs of
-01-08 applied together (each directory's `pull-request.diff`, else its
-`llvm.patch`), a Release build with assertions
+01-08 applied together (02-07's `llvm.patch` and 08's
+`pull-request.diff`), a Release build with assertions
 (`-DLLVM_ENABLE_PROJECTS=mlir -DLLVM_TARGETS_TO_BUILD=Native
 -DBUILD_SHARED_LIBS=ON -DLLVM_ENABLE_ASSERTIONS=ON`, clang 18, x86_64
 Linux) builds without errors and passes `ninja check-mlir`: 4102 passed,
@@ -96,10 +99,12 @@ under both with 06's change.
 ## Why there is no patch
 
 The fix is #208881's function-argument change, which
-`remove-dead-values-unreachable/llvm.patch` already carries. This case adds
-a test, not code, and the test goes in that patch: a second patch
-appending to `mlir/test/Transforms/remove-dead-values.mlir` would not
-apply after the first.
+`remove-dead-values-unreachable/llvm.patch` makes too. This case adds a
+test, not code, and the test is not carried: that patch is 06's pull
+request, which does not include it, and a second patch appending to
+`mlir/test/Transforms/remove-dead-values.mlir` would not apply after it.
+`tests/upstream/remove-dead-values-address-taken` checks the
+reproducer.
 
 ## Upstreaming plan
 

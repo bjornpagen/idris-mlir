@@ -41,14 +41,14 @@ sources/
 │                      TeX source exists (51 papers)
 ├── code/<project>/    selected source excerpts at a pinned revision, each with SNAPSHOT.md
 │   ├── idris2/        Core, Compiler and TTImp sources at the submodule pin
-│   ├── mlir/          headers and TableGen interfaces at llvmorg-23.1.2
+│   ├── mlir/          headers and TableGen interfaces at the LLVM pin (main 7208ba24)
 │   ├── mlton/         closure-convert, SSA and RSSA pass sources
 │   └── tinygrad/      the Thread A modules and the BEAM search module
 └── docs/<project>/    documentation snapshots, each with SNAPSHOT.md
     ├── ghc/           GHC commentary wiki (raw .md) and selected users-guide pages
     ├── idris2/        Idris 2 docs at the submodule pin
-    ├── llvm/          selected LLVM docs at llvmorg-23.1.2
-    ├── mlir/          MLIR docs at llvmorg-23.1.2
+    ├── llvm/          selected LLVM docs at the LLVM pin (main 7208ba24)
+    ├── mlir/          MLIR docs at the LLVM pin (main 7208ba24)
     ├── mlton/         selected MLton guide pages
     ├── ssa-book/      SSA-based Compiler Design (free PDF)
     └── tinygrad/      tinygrad docs and README
@@ -192,18 +192,21 @@ downloaded.
 
 ## Snapshots
 
-All fetched on 2026-09-26. File counts exclude `SNAPSHOT.md`.
+All fetched on 2026-09-26; the three LLVM snapshots (`code/mlir/`, `docs/llvm/`,
+`docs/mlir/`) were re-taken on 2026-10-08 at the new LLVM pin, each from the same file list
+(`docs/llvm/`'s five `.rst` files are now their `.md` successors). File counts exclude
+`SNAPSHOT.md`.
 
 | Snapshot | Upstream | Revision | Files | Threads | Manifest rows |
 | --- | --- | --- | --- | --- | --- |
 | [`code/idris2/`](code/idris2/SNAPSHOT.md) | `idris-lang/Idris2` | `1c630e67c386629a0fbbc6b78a59176fde7f0a76` (submodule pin) | 30 | E, D, I, cross-cutting | `code-idris2`, `code-idris-transform` |
-| [`code/mlir/`](code/mlir/SNAPSHOT.md) | `llvm/llvm-project`, `mlir/` | tag `llvmorg-23.1.2` = `2d56740342c3bd86a7525fb4c147252757589e30` | 94 | F, B, I | `code-mlir` |
+| [`code/mlir/`](code/mlir/SNAPSHOT.md) | `llvm/llvm-project`, `mlir/` | main at `7208ba24ca2894729cd394475a00d2a7b605e642` | 94 | F, B, I | `code-mlir` |
 | [`code/mlton/`](code/mlton/SNAPSHOT.md) | `MLton/mlton` | `aa2fd1ad9b91375903a4253cfcf1ea5ef2754f37` | 16 | D, G | `code-mlton` |
 | [`code/tinygrad/`](code/tinygrad/SNAPSHOT.md) | `tinygrad/tinygrad` | `b1a9b35bdd89ed2ed3fa69e0786210fbd268b33a` | 19 | A, G, H | `code-tinygrad` |
 | [`docs/ghc/`](docs/ghc/SNAPSHOT.md) | GHC commentary wiki; GHC users guide | none: live hosts (users guide `latest` = the 9.14.1 series) | 22 | D, E, cross-cutting | `docs-ghc`, `docs-ghc-stg-cmm-rts`, `docs-ghc-specialise-specConstr`, `pointers-ghc` |
 | [`docs/idris2/`](docs/idris2/SNAPSHOT.md) | `idris-lang/Idris2` | `1c630e67c386629a0fbbc6b78a59176fde7f0a76` (submodule pin) | 71 | E, D | `docs-idris2` |
-| [`docs/llvm/`](docs/llvm/SNAPSHOT.md) | `llvm/llvm-project`, `llvm/` | tag `llvmorg-23.1.2` | 11 | F, B, I | `docs-mlir-llvm` |
-| [`docs/mlir/`](docs/mlir/SNAPSHOT.md) | `llvm/llvm-project`, `mlir/` | tag `llvmorg-23.1.2` | 100 | F, B, I | `docs-mlir-llvm` |
+| [`docs/llvm/`](docs/llvm/SNAPSHOT.md) | `llvm/llvm-project`, `llvm/` | main at `7208ba24ca2894729cd394475a00d2a7b605e642` | 11 | F, B, I | `docs-mlir-llvm` |
+| [`docs/mlir/`](docs/mlir/SNAPSHOT.md) | `llvm/llvm-project`, `mlir/` | main at `7208ba24ca2894729cd394475a00d2a7b605e642` | 100 | F, B, I | `docs-mlir-llvm` |
 | [`docs/mlton/`](docs/mlton/SNAPSHOT.md) | `MLton/mlton` | `aa2fd1ad9b91375903a4253cfcf1ea5ef2754f37` | 16 | D, G | `docs-mlton` |
 | [`docs/ssa-book/`](docs/ssa-book/SNAPSHOT.md) | `ssabook.gforge.inria.fr` (dead) | Wayback snapshot `20210621194509` | 1 | F, B | `docs-ssa-book`, `book-ssa-compiler-design` |
 | [`docs/tinygrad/`](docs/tinygrad/SNAPSHOT.md) | `tinygrad/tinygrad`; `docs.tinygrad.org` | `b1a9b35bdd89ed2ed3fa69e0786210fbd268b33a`; the live site index | 29 | A, G | `docs-tinygrad` |
@@ -213,7 +216,8 @@ The Idris 2 snapshots were fetched from the pinned raw GitHub URLs because
 
 ## Pins
 
-Resolved on 2026-09-26. Raw bases: `https://raw.githubusercontent.com/<repo>/<pin>/<path>`.
+Resolved on 2026-09-26, the `llvm/llvm-project` row on 2026-10-08. Raw bases:
+`https://raw.githubusercontent.com/<repo>/<pin>/<path>`.
 
 | Component | Pin | Resolved SHA | Source of truth command | In the library |
 | --- | --- | --- | --- | --- |
@@ -222,7 +226,7 @@ Resolved on 2026-09-26. Raw bases: `https://raw.githubusercontent.com/<repo>/<pi
 | local working HEAD, at access time (matched `origin/main`) | `main` | `e37040ac93c9ad244097868e16db482a02fd23ef` | `git rev-parse HEAD` | — |
 | `tinygrad/tinygrad` | `master` | `b1a9b35bdd89ed2ed3fa69e0786210fbd268b33a` | `git ls-remote https://github.com/tinygrad/tinygrad.git refs/heads/master` | `code/tinygrad/`, `docs/tinygrad/` |
 | `MLton/mlton` | `master` | `aa2fd1ad9b91375903a4253cfcf1ea5ef2754f37` | `git ls-remote https://github.com/MLton/mlton.git refs/heads/master` | `code/mlton/`, `docs/mlton/` |
-| `llvm/llvm-project` | tag `llvmorg-23.1.2` | `2d56740342c3bd86a7525fb4c147252757589e30`; `mlir` subtree `ca7b652dc7f3c9b48dc57f408c70f5229dc39363` | `git ls-remote https://github.com/llvm/llvm-project.git refs/tags/llvmorg-23.1.2` | `code/mlir/`, `docs/mlir/`, `docs/llvm/` |
+| `llvm/llvm-project` | main at a pinned commit (`toolchain.lock.json`) | `7208ba24ca2894729cd394475a00d2a7b605e642`; `mlir` subtree `ec52aa1c2a6f38a131b8edffc6390e1c60cbc4e0` | `tools/verify-pins.sh lock llvm revision` | `code/mlir/`, `docs/mlir/`, `docs/llvm/` |
 | `egraphs-good/egg` | `main` | `2f31b28e3f9d78e02273b6c6d4201b5b0720b343` | `git ls-remote https://github.com/egraphs-good/egg refs/heads/main` | not vendored |
 | `egraphs-good/egglog` | `main` | `90635860397ce710f8c0a4eeb04154a8ebc3ac05` | `git ls-remote https://github.com/egraphs-good/egglog refs/heads/main` | not vendored |
 | `HigherOrderCO/HVM` | `master` | `7365a56cca56a5853c979755891cb86aa343c42d` | `git ls-remote https://github.com/HigherOrderCO/HVM refs/heads/master` | not vendored |
@@ -232,10 +236,14 @@ Resolved on 2026-09-26. Raw bases: `https://raw.githubusercontent.com/<repo>/<pi
 | GHC | not vendored (live docs) | — | pointer only: `docs/ghc/SNAPSHOT.md` | `docs/ghc/` |
 | SSA book | Wayback snapshot `20210621194509` | — | `docs/ssa-book/SNAPSHOT.md` | `docs/ssa-book/` |
 
-The LLVM pin is a **tag**, not a branch; the resolved SHA is the commit the annotated tag
-dereferences to for the archive tree. Raw fetches should use the tag name `llvmorg-23.1.2`
-(stable) or this SHA. The pinned-repository SHAs should be re-verified before vendoring
-(commands in [Fetch commands](#fetch-commands), §4.9).
+The LLVM pin is a **commit of llvm main**, not a tag or a branch. Until 2026-10-08 it was
+the tag `llvmorg-23.1.2`: this library recorded `2d56740342c3bd86a7525fb4c147252757589e30`
+for it, which is the annotated tag object, and the commit the tag dereferences to is
+`85ac560262434c9ccfc0c183ec22d4138ed647fb` (`mlir` subtree
+`ca7b652dc7f3c9b48dc57f408c70f5229dc39363`). Raw fetches use the commit SHA, and the
+bootstrap's clone, `.toolchain/llvm-project`, holds its objects. The pinned-repository
+SHAs should be re-verified before vendoring (commands in
+[Fetch commands](#fetch-commands), §4.9).
 
 ## Access record
 
@@ -408,8 +416,8 @@ among the stored or link-only papers with a note of the earlier status.
 | Source | Canonical base URL | Pin |
 | --- | --- | --- |
 | MLIR docs | https://mlir.llvm.org/docs/ | rendered; canonical tree `mlir/docs/**` |
-| LLVM/MLIR raw tree | https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-23.1.2/ | tag `llvmorg-23.1.2` (= `2d567403…`) |
-| LLVM/MLIR GitHub tree API | https://api.github.com/repos/llvm/llvm-project/git/trees/llvmorg-23.1.2?recursive=1 | tag |
+| LLVM/MLIR raw tree | https://raw.githubusercontent.com/llvm/llvm-project/7208ba24ca2894729cd394475a00d2a7b605e642/ | the LLVM pin, main at `7208ba24` ([Pins](#pins)); the 2026-09-26 record used tag `llvmorg-23.1.2` (= `2d567403…`) |
+| LLVM/MLIR GitHub tree API | https://api.github.com/repos/llvm/llvm-project/git/trees/7208ba24ca2894729cd394475a00d2a7b605e642?recursive=1 | the LLVM pin; on 2026-09-26, the tag |
 | Idris 2 docs | https://raw.githubusercontent.com/idris-lang/Idris2/1c630e67c386629a0fbbc6b78a59176fde7f0a76/docs/source/ | submodule pin |
 | GHC commentary wiki | https://gitlab.haskell.org/ghc/ghc/-/wikis/commentary/compiler | live wiki |
 | GHC users guide | https://downloads.haskell.org/ghc/latest/docs/users_guide/ | `latest` |
@@ -476,17 +484,21 @@ curl -sG "https://api.openalex.org/works" \
   --data-urlencode "per-page=50" --data-urlencode "mailto=research@example.org"
 ```
 
-#### 4.4 LLVM / MLIR raw fetch at the pinned tag
+#### 4.4 LLVM / MLIR raw fetch at the pinned commit
+
+The 2026-09-26 pass fetched at the then pin, tag `llvmorg-23.1.2`; the pin is now a commit
+of llvm main ([Pins](#pins)), and the 2026-10-08 re-take read the bootstrap's clone instead
+(`code/mlir/SNAPSHOT.md`).
 
 ```bash
-tag=llvmorg-23.1.2
-base="https://raw.githubusercontent.com/llvm/llvm-project/${tag}"
+rev=7208ba24ca2894729cd394475a00d2a7b605e642   # toolchain.lock.json, llvm.revision
+base="https://raw.githubusercontent.com/llvm/llvm-project/${rev}"
 
 # Single file
 curl -L --fail -o /tmp/PatternMatch.h "${base}/mlir/include/mlir/IR/PatternMatch.h"
 
 # Full tree listing (to enumerate mlir/docs/**), then fetch each path
-curl -s "https://api.github.com/repos/llvm/llvm-project/git/trees/${tag}?recursive=1" \
+curl -s "https://api.github.com/repos/llvm/llvm-project/git/trees/${rev}?recursive=1" \
   > /tmp/llvm-tree.json
 ```
 
@@ -699,7 +711,7 @@ The manifest's code, documentation and pointer rows that were planned and not co
 
 | Shortname | What | Threads | Harvest method (planned) | Would go in | Licence | Outcome |
 | --- | --- | --- | --- | --- | --- | --- |
-| `code-eqsat-dialects` | DialEgg and the MLIR `eqsat` dialect source | B, F | pinned LLVM @ `llvmorg-23.1.2`; DialEgg repo | `code/mlir-eqsat/` | Apache-2.0 WITH LLVM-exception / DialEgg verify | not collected |
+| `code-eqsat-dialects` | DialEgg and the MLIR `eqsat` dialect source | B, F | pinned LLVM (planned at `llvmorg-23.1.2`; the pin is now main `7208ba24`); DialEgg repo | `code/mlir-eqsat/` | Apache-2.0 WITH LLVM-exception / DialEgg verify | not collected |
 | `code-egg-repos` | egg / egglog repositories | B | pinned GitHub `2f31b28e…` (egg), `90635860…` (egglog) | `code/egg/`, `code/egglog/` | MIT | not collected |
 | `book-pe-jones-gomard-sestoft` | *Partial Evaluation and Automatic Program Generation* (book) | C | author-hosted free PDF → pointer | `docs/pe-book/` (pointer) | author-hosted free | not collected |
 | `book-gc-handbook` | Garbage Collection Handbook | D | no OA; pointer only | `docs/gc-handbook/` (pointer) | book © | not collected |

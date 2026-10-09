@@ -71,12 +71,13 @@ off it, too, sees only the symbols the engine is given. Libraries in
 reached only through the process (they are opened `RTLD_GLOBAL`), which
 the option's documentation states.
 
-Verified: the diff applies to llvm main (7208ba24) and to the pin
-(`git apply --check`); the patched `ExecutionEngine.cpp` and `Invoke.cpp`
-of llvm main pass `-fsyntax-only` against llvm main's headers. Against
-the pin: the `Invoke.cpp` unit tests and the new `WithoutProcessSymbols`
-(9 tests) pass when built against the patched `ExecutionEngine.cpp` with
-the pinned googletest and the installed static libraries, and the test's
+Verified: the diff applies to llvm main (7208ba24) and to
+llvmorg-23.1.2, the pin then (`git apply --check`); the patched
+`ExecutionEngine.cpp` and `Invoke.cpp` of llvm main pass `-fsyntax-only`
+against llvm main's headers. Against 23.1.2: the `Invoke.cpp` unit
+tests and the new `WithoutProcessSymbols` (9 tests) pass when built
+against the patched `ExecutionEngine.cpp` with that toolchain's
+googletest and static libraries, and the test's
 `lookup` check fails against a `lookup` that searches main alone; a
 static-PIE musl program creates an engine with the option off, calls a
 registered function, gets an error (not an abort) for an unregistered
@@ -85,8 +86,8 @@ one, and gets an error from `create` with the option on.
 ## Testing on main
 
 On llvm main at 7208ba24 (2026-10-08), with the seven code diffs of
-01-08 applied together (each directory's `pull-request.diff`, else its
-`llvm.patch`), a Release build with assertions
+01-08 applied together (02-07's `llvm.patch` and 08's
+`pull-request.diff`), a Release build with assertions
 (`-DLLVM_ENABLE_PROJECTS=mlir -DLLVM_TARGETS_TO_BUILD=Native
 -DBUILD_SHARED_LIBS=ON -DLLVM_ENABLE_ASSERTIONS=ON`, clang 18, x86_64
 Linux) builds without errors and passes `ninja check-mlir`: 4102 passed,
@@ -119,9 +120,9 @@ The report is still a pull request we intend to send, drafted as
 ## Upstreaming plan
 
 Status: file upstream. Upstream `main` (7208ba24, 2026-10-08) has not
-changed this code (`ExecutionEngine.cpp` differs from the pin only in
-unrelated data-layout and IRBuilder lines), and no issue or pull request
-on llvm/llvm-project covers it.
+changed this code (`ExecutionEngine.cpp` differs from llvmorg-23.1.2 only
+in unrelated data-layout and IRBuilder lines), and no issue or pull
+request on llvm/llvm-project covers it.
 
 - Where: one pull request to llvm/llvm-project (MLIR ExecutionEngine), as
   `submission.md` says. No issue, and not a Bugzilla bug. The pull

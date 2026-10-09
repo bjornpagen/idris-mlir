@@ -2,9 +2,10 @@
 # The pinned mlir-opt, with upstream/02-composite-fixed-point-sccp/llvm.patch,
 # no longer shows the bug: composite-fixed-point-pass over sccp converges
 # after one run on a module sccp leaves as it is, as it does over
-# canonicalize, where llvmorg-23.1.2 warns at max-iterations. When the pin's
-# sccp keeps the constants the IR holds, the patch goes, and with it the
-# report and this test (upstream/README.md).
+# canonicalize, where an unpatched mlir-opt (llvmorg-23.1.2, and main at
+# 7208ba24) warns at max-iterations. When the pin's sccp keeps the
+# constants the IR holds, the patch goes, and with it the report and this
+# test (upstream/README.md).
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 input=$root/upstream/02-composite-fixed-point-sccp/one.mlir
 # The module is at sccp's fixpoint: a second run prints what the first did.
