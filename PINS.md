@@ -209,6 +209,37 @@ which the top-level CMake configure gate reads.
   own suite not run with the change); plan in its README: an issue and a
   pull request on idris-lang/Idris2
 
+## termination-closure
+
+- symptom: at the pinned Idris, a termination check (`calcTerminating`,
+  `src/Core/Termination/SizeChange.idr`) closes the size-change graphs over
+  every path between every pair of the unchecked functions the checked one
+  reaches, and records only that one's verdict. A `total` function calling
+  into a large `covering` part of a program pays for all of it, and every
+  other caller pays again: `Reach.idr` (a chain of 160) takes 33.8 s. The
+  translator asks for the termination of each definition it translates,
+  and the fork's own sources are `covering`, so the self-compile stalled
+  at `Core.Context.prettyName`. The fork inherited the bug with the code
+- sites: the fork, compiler/idris/src/Core/Termination/SizeChange.idr
+  (`insideComponents`, `settle`, `addCases`, `calcTerminating`)
+- workaround: none; the fork carries the fix as its own code, the change
+  of `upstream/21-termination-closure/pull-request.diff` (the pull request
+  against the pin): the closure runs over the calls inside strongly
+  connected components, which gives the same graphs from each function to
+  its own component in the same order, so every verdict and message is
+  unchanged; and a successful search records as terminating every function
+  it visited whose verdict no later check could change. The stock Idris is
+  not patched: it builds only stage 0 and the benchmarks' Chez baseline.
+  The translator itself no longer asks this check (it decides whether every
+  loop through a definition terminates per component, `Recursion`); the
+  elaborator's checks of `total` code still do
+- retire: when a re-sync of the fork brings upstream's fix, the fork's
+  change is upstream's; then the report, `tests/upstream/termination-closure`
+  and this entry go
+- upstream: upstream/21-termination-closure (not filed; upstream's own suite
+  not run with the change); plan in its README: an issue and a pull request
+  on idris-lang/Idris2
+
 ## remove-dead-values-address-taken
 
 - symptom: at llvmorg-23.1.2 and on main at 7208ba24, `remove-dead-values`

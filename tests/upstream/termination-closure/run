@@ -1,0 +1,12 @@
+#!/bin/sh
+# The fork of Idris's compiler (compiler/idris) carries the change of
+# upstream/21-termination-closure/pull-request.diff: a termination check
+# closes the size-change graphs over the calls inside strongly connected
+# components only, and records as terminating every function a successful
+# search settles. Main.idr's 25 total functions each reach a chain of 240
+# covering functions with no loop; the fork checks them in about a second
+# (arm64 macOS), and the pinned, unpatched checker takes minutes, past the
+# step limit. When a re-sync brings upstream's fix, the report, its PINS.md
+# entry and this test go (upstream/README.md).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+profile_accept .

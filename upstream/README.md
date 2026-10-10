@@ -83,6 +83,7 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 18 | elaboration-primitive-folding | issue + PR on idris-lang/Idris2: elaboration leaves primitives to the backend | carried as fork code (compiler/idris), not as a patch; upstream's suite not run with it; not filed |
 | 19 | pass-timing-dynamic-pipeline | a test, as a comment on #169615 (open; its own test passes without its change) | ready, not posted; carried: #169615's change and our test; still broken on main at 626eeb8e; the toolchain is not yet rebuilt with it |
 | 20 | evaluator-char-text | issue + PR on idris-lang/Idris2: the evaluator's text of a Char is the Char, not its escape | carried as fork code (compiler/idris), not as a patch; upstream's suite not run with it; not filed |
+| 21 | termination-closure | issue + PR on idris-lang/Idris2: a termination check closes over the calls inside components and records what it settles | carried as fork code (compiler/idris), not as a patch; upstream's suite not run with it; not filed |
 
 Gone when the pin moved from llvmorg-23.1.2 to main at 7208ba24, each
 with its check and its PINS.md entry: 13 (uplift-final-counter) and 14

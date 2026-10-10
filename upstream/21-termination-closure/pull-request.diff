@@ -1,0 +1,950 @@
+diff -ruN a/src/Core/Termination/SizeChange.idr b/src/Core/Termination/SizeChange.idr
+--- a/src/Core/Termination/SizeChange.idr	2026-10-10 01:37:51
++++ b/src/Core/Termination/SizeChange.idr	2026-10-10 01:37:51
+@@ -299,6 +299,158 @@
+            Core (Either Terminating (WorkList, NameMap (FC, Name)))
+ initWork defs def = addFunctions defs [def] (insert def.fullname (def.location, def.fullname) empty) empty
+ 
++||| The strongly connected components of the graph of the calls in a work
++||| list, as each function's component (Tarjan's algorithm). A path from a
++||| function back to itself never leaves its component, so every loop is
++||| among the calls inside components; a call between two components is on
++||| no loop, and closing over it only makes paths that no loop is on.
++record Components where
++  constructor MkComponents
++  next : Nat
++  index : NameMap Nat
++  low : NameMap Nat
++  stack : List Name
++  onStack : NameMap ()
++  component : NameMap Nat
++  count : Nat
++
++lowOf : Components -> Name -> Nat
++lowOf st v = fromMaybe 0 (lookup v st.low)
++
++||| Pops the component whose first visited function is `v`.
++popComponent : Name -> Components -> Components
++popComponent v st = go st.stack st
++  where
++    go : List Name -> Components -> Components
++    go [] st = { stack := [] } st
++    go (w :: ws) st
++        = let st' = { onStack $= delete w, component $= insert w st.count } st in
++          if w == v then { stack := ws, count $= S } st' else go ws st'
++
++mutual
++  connect : NameMap (List Name) -> Components -> Name -> Components
++  connect calls st v
++      = let i = st.next
++            st1 = { next $= S, index $= insert v i, low $= insert v i,
++                    stack $= (v ::), onStack $= insert v () } st
++            st2 = foldl (connectCall calls v) st1 (fromMaybe [] (lookup v calls)) in
++        if lowOf st2 v == i then popComponent v st2 else st2
++
++  connectCall : NameMap (List Name) -> Name -> Components -> Name -> Components
++  connectCall calls v st w
++      = case lookup w st.index of
++             Nothing => let st' = connect calls st w in
++                        { low $= insert v (min (lowOf st' v) (lowOf st' w)) } st'
++             Just j => if isJust (lookup w st.onStack)
++                          then { low $= insert v (min (lowOf st v) j) } st
++                          else st
++
++||| The calls of a work list that are inside a component. The closure over
++||| them holds exactly the graphs from a function to one of its own
++||| component that the closure over every call holds, found in the same
++||| order: a call that leaves a component never composes into a path that
++||| comes back to it.
++insideComponents : WorkList -> WorkList
++insideComponents work
++    = let calls = foldl (\m, (f, g, _) => insert f (g :: fromMaybe [] (lookup f m)) m)
++                        (the (NameMap (List Name)) empty) (Prelude.toList work)
++          st = foldlNames (\st, v, _ => if isJust (lookup v st.index) then st else connect calls st v)
++                          (MkComponents 0 empty empty [] empty empty 0) calls
++          same = \f, g => lookup f st.component == lookup g st.component in
++      fromList (filter (\(f, g, _) => same f g) (Prelude.toList work))
++
++||| The names a definition refers to, with those of its case blocks, which
++||| are checked as part of it.
++addCases : {auto c : Ref Ctxt Defs} -> Defs -> List Name -> Core (List Name)
++addCases defs ns = go empty ns
++  where
++    go : NameMap () -> List Name -> Core (List Name)
++    go all [] = pure (keys all)
++    go all (n :: ns)
++        = case lookup n all of
++             Just _ => go all ns
++             Nothing =>
++               if caseFn !(getFullName n)
++                  then case !(lookupCtxtExact n (gamma defs)) of
++                            Just def => go (insert n () all) (keys (refersTo def) ++ ns)
++                            Nothing => go (insert n () all) ns
++                  else go (insert n () all) ns
++
++||| Records as terminating the functions a successful search visited whose
++||| verdict no later check could change, so that no later check searches
++||| them again. A visited function's own check would search a part of this
++||| search's graph, which has no loop, and would find each name it refers
++||| to as it is then. That is the same verdict when every such name is
++||| settled: terminating already, a primitive, which has no calls, or
++||| settled here. Settled here are the visited functions and their case
++||| blocks (a case block is checked inline, as part of the function that
++||| matches, so no call reaches one and none is on a loop) whose names are
++||| all settled. A function that is not defined yet, a constructor whose
++||| type's positivity is not checked yet, or a reference to an unchecked
++||| function outside the search (under `assert_total`, or a guarded `Delay`)
++||| may still become non-terminating, and so does everything that refers to
++||| one.
++settle : {auto c : Ref Ctxt Defs} -> Defs -> List Name -> Core ()
++settle defs visited
++    = do let seen = Libraries.Data.NameMap.fromList (map (\n => (n, ())) visited)
++         deps <- explore seen visited empty
++         let users = foldlNames (\m, n, ds => foldl (\m, d => insert d (n :: fromMaybe [] (lookup d m)) m) m
++                                                    (fromMaybe [] ds))
++                                (the (NameMap (List Name)) empty) deps
++         let unsettled = spread users empty (keys (filterBy (\n => maybe False isNothing (lookup n deps)) deps))
++         traverse_ (\n => when (isNothing (lookup n unsettled)) $
++                             setTerminating EmptyFC n IsTerminating)
++                   (keys deps)
++  where
++    primitive : Def -> Bool
++    primitive (Builtin _) = True
++    primitive (ExternDef _) = True
++    primitive _ = False
++
++    -- The functions and case blocks a function's verdict depends on, or
++    -- Nothing when it depends on a name that is not settled.
++    dependencies : NameMap () -> Name -> Core (Maybe (List Name))
++    dependencies seen n
++        = do Just def <- lookupCtxtExact n (gamma defs)
++               | Nothing => pure Nothing
++             let PMDef {} = definition def
++               | d => pure (if primitive d then Just [] else Nothing)
++             refs <- addCases defs (keys (refersTo def) ++ map (\(MkSCCall g _ _) => g) def.sizeChange)
++             go refs []
++      where
++        go : List Name -> List Name -> Core (Maybe (List Name))
++        go [] acc = pure (Just acc)
++        go (r :: rs) acc
++            = do Just d <- lookupCtxtExact r (gamma defs)
++                   | Nothing => go rs acc
++                 case isTerminating (totality d) of
++                      IsTerminating => go rs acc
++                      NotTerminating _ => pure Nothing
++                      Unchecked =>
++                        if isJust (lookup d.fullname seen) || caseFn d.fullname
++                           then go rs (d.fullname :: acc)
++                           else if primitive (definition d)
++                                   then go rs acc
++                                   else pure Nothing
++
++    -- Every function and case block reached, with what it depends on.
++    explore : NameMap () -> List Name -> NameMap (Maybe (List Name)) ->
++              Core (NameMap (Maybe (List Name)))
++    explore seen [] acc = pure acc
++    explore seen (n :: ns) acc
++        = case lookup n acc of
++               Just _ => explore seen ns acc
++               Nothing => do
++                 ds <- dependencies seen n
++                 explore seen (fromMaybe [] ds ++ ns) (insert n ds acc)
++
++    spread : NameMap (List Name) -> NameMap () -> List Name -> NameMap ()
++    spread users acc [] = acc
++    spread users acc (n :: ns)
++        = case lookup n acc of
++               Just _ => spread users acc ns
++               Nothing => spread users (insert n () acc) (fromMaybe [] (lookup n users) ++ ns)
++
+ export
+ calcTerminating : {auto c : Ref Ctxt Defs} ->
+                   FC -> Name -> Core Terminating
+@@ -311,7 +463,7 @@
+            | bad => pure bad
+          Right (work, pred) <- initWork defs def
+            | Left bad => pure bad
+-         let s = transitiveClosure work initSCSet
++         let s = transitiveClosure (insideComponents work) initSCSet
+          let Nothing = findNonTerminatingLoop s
+            | Just (g, loop) =>
+                ifThenElse (def.fullname == g)
+@@ -320,20 +472,5 @@
+                      let init = prefixCallSeq pred g
+                      setPrefixTerminating init g
+                      pure $ NotTerminating (BadPath init g))
++         settle defs (keys pred)
+          pure IsTerminating
+-  where
+-    addCases' : Defs -> NameMap () -> List Name -> Core (List Name)
+-    addCases' defs all [] = pure (keys all)
+-    addCases' defs all (n :: ns)
+-        = case lookup n all of
+-             Just _ => addCases' defs all ns
+-             Nothing =>
+-               if caseFn !(getFullName n)
+-                  then case !(lookupCtxtExact n (gamma defs)) of
+-                            Just def => addCases' defs (insert n () all)
+-                                                  (keys (refersTo def) ++ ns)
+-                            Nothing => addCases' defs (insert n () all) ns
+-                  else addCases' defs (insert n () all) ns
+-
+-    addCases : Defs -> List Name -> Core (List Name)
+-    addCases defs ns = addCases' defs empty ns
+diff -ruN a/tests/idris2/total/total032/Reach.idr b/tests/idris2/total/total032/Reach.idr
+--- a/tests/idris2/total/total032/Reach.idr	1969-12-31 18:00:00
++++ b/tests/idris2/total/total032/Reach.idr	2026-10-10 01:37:51
+@@ -0,0 +1,741 @@
++module Reach
++
++%default covering
++
++f0 : Nat -> Nat -> Nat -> Nat
++f1 : Nat -> Nat -> Nat -> Nat
++f2 : Nat -> Nat -> Nat -> Nat
++f3 : Nat -> Nat -> Nat -> Nat
++f4 : Nat -> Nat -> Nat -> Nat
++f5 : Nat -> Nat -> Nat -> Nat
++f6 : Nat -> Nat -> Nat -> Nat
++f7 : Nat -> Nat -> Nat -> Nat
++f8 : Nat -> Nat -> Nat -> Nat
++f9 : Nat -> Nat -> Nat -> Nat
++f10 : Nat -> Nat -> Nat -> Nat
++f11 : Nat -> Nat -> Nat -> Nat
++f12 : Nat -> Nat -> Nat -> Nat
++f13 : Nat -> Nat -> Nat -> Nat
++f14 : Nat -> Nat -> Nat -> Nat
++f15 : Nat -> Nat -> Nat -> Nat
++f16 : Nat -> Nat -> Nat -> Nat
++f17 : Nat -> Nat -> Nat -> Nat
++f18 : Nat -> Nat -> Nat -> Nat
++f19 : Nat -> Nat -> Nat -> Nat
++f20 : Nat -> Nat -> Nat -> Nat
++f21 : Nat -> Nat -> Nat -> Nat
++f22 : Nat -> Nat -> Nat -> Nat
++f23 : Nat -> Nat -> Nat -> Nat
++f24 : Nat -> Nat -> Nat -> Nat
++f25 : Nat -> Nat -> Nat -> Nat
++f26 : Nat -> Nat -> Nat -> Nat
++f27 : Nat -> Nat -> Nat -> Nat
++f28 : Nat -> Nat -> Nat -> Nat
++f29 : Nat -> Nat -> Nat -> Nat
++f30 : Nat -> Nat -> Nat -> Nat
++f31 : Nat -> Nat -> Nat -> Nat
++f32 : Nat -> Nat -> Nat -> Nat
++f33 : Nat -> Nat -> Nat -> Nat
++f34 : Nat -> Nat -> Nat -> Nat
++f35 : Nat -> Nat -> Nat -> Nat
++f36 : Nat -> Nat -> Nat -> Nat
++f37 : Nat -> Nat -> Nat -> Nat
++f38 : Nat -> Nat -> Nat -> Nat
++f39 : Nat -> Nat -> Nat -> Nat
++f40 : Nat -> Nat -> Nat -> Nat
++f41 : Nat -> Nat -> Nat -> Nat
++f42 : Nat -> Nat -> Nat -> Nat
++f43 : Nat -> Nat -> Nat -> Nat
++f44 : Nat -> Nat -> Nat -> Nat
++f45 : Nat -> Nat -> Nat -> Nat
++f46 : Nat -> Nat -> Nat -> Nat
++f47 : Nat -> Nat -> Nat -> Nat
++f48 : Nat -> Nat -> Nat -> Nat
++f49 : Nat -> Nat -> Nat -> Nat
++f50 : Nat -> Nat -> Nat -> Nat
++f51 : Nat -> Nat -> Nat -> Nat
++f52 : Nat -> Nat -> Nat -> Nat
++f53 : Nat -> Nat -> Nat -> Nat
++f54 : Nat -> Nat -> Nat -> Nat
++f55 : Nat -> Nat -> Nat -> Nat
++f56 : Nat -> Nat -> Nat -> Nat
++f57 : Nat -> Nat -> Nat -> Nat
++f58 : Nat -> Nat -> Nat -> Nat
++f59 : Nat -> Nat -> Nat -> Nat
++f60 : Nat -> Nat -> Nat -> Nat
++f61 : Nat -> Nat -> Nat -> Nat
++f62 : Nat -> Nat -> Nat -> Nat
++f63 : Nat -> Nat -> Nat -> Nat
++f64 : Nat -> Nat -> Nat -> Nat
++f65 : Nat -> Nat -> Nat -> Nat
++f66 : Nat -> Nat -> Nat -> Nat
++f67 : Nat -> Nat -> Nat -> Nat
++f68 : Nat -> Nat -> Nat -> Nat
++f69 : Nat -> Nat -> Nat -> Nat
++f70 : Nat -> Nat -> Nat -> Nat
++f71 : Nat -> Nat -> Nat -> Nat
++f72 : Nat -> Nat -> Nat -> Nat
++f73 : Nat -> Nat -> Nat -> Nat
++f74 : Nat -> Nat -> Nat -> Nat
++f75 : Nat -> Nat -> Nat -> Nat
++f76 : Nat -> Nat -> Nat -> Nat
++f77 : Nat -> Nat -> Nat -> Nat
++f78 : Nat -> Nat -> Nat -> Nat
++f79 : Nat -> Nat -> Nat -> Nat
++f80 : Nat -> Nat -> Nat -> Nat
++f81 : Nat -> Nat -> Nat -> Nat
++f82 : Nat -> Nat -> Nat -> Nat
++f83 : Nat -> Nat -> Nat -> Nat
++f84 : Nat -> Nat -> Nat -> Nat
++f85 : Nat -> Nat -> Nat -> Nat
++f86 : Nat -> Nat -> Nat -> Nat
++f87 : Nat -> Nat -> Nat -> Nat
++f88 : Nat -> Nat -> Nat -> Nat
++f89 : Nat -> Nat -> Nat -> Nat
++f90 : Nat -> Nat -> Nat -> Nat
++f91 : Nat -> Nat -> Nat -> Nat
++f92 : Nat -> Nat -> Nat -> Nat
++f93 : Nat -> Nat -> Nat -> Nat
++f94 : Nat -> Nat -> Nat -> Nat
++f95 : Nat -> Nat -> Nat -> Nat
++f96 : Nat -> Nat -> Nat -> Nat
++f97 : Nat -> Nat -> Nat -> Nat
++f98 : Nat -> Nat -> Nat -> Nat
++f99 : Nat -> Nat -> Nat -> Nat
++f100 : Nat -> Nat -> Nat -> Nat
++f101 : Nat -> Nat -> Nat -> Nat
++f102 : Nat -> Nat -> Nat -> Nat
++f103 : Nat -> Nat -> Nat -> Nat
++f104 : Nat -> Nat -> Nat -> Nat
++f105 : Nat -> Nat -> Nat -> Nat
++f106 : Nat -> Nat -> Nat -> Nat
++f107 : Nat -> Nat -> Nat -> Nat
++f108 : Nat -> Nat -> Nat -> Nat
++f109 : Nat -> Nat -> Nat -> Nat
++f110 : Nat -> Nat -> Nat -> Nat
++f111 : Nat -> Nat -> Nat -> Nat
++f112 : Nat -> Nat -> Nat -> Nat
++f113 : Nat -> Nat -> Nat -> Nat
++f114 : Nat -> Nat -> Nat -> Nat
++f115 : Nat -> Nat -> Nat -> Nat
++f116 : Nat -> Nat -> Nat -> Nat
++f117 : Nat -> Nat -> Nat -> Nat
++f118 : Nat -> Nat -> Nat -> Nat
++f119 : Nat -> Nat -> Nat -> Nat
++f120 : Nat -> Nat -> Nat -> Nat
++f121 : Nat -> Nat -> Nat -> Nat
++f122 : Nat -> Nat -> Nat -> Nat
++f123 : Nat -> Nat -> Nat -> Nat
++f124 : Nat -> Nat -> Nat -> Nat
++f125 : Nat -> Nat -> Nat -> Nat
++f126 : Nat -> Nat -> Nat -> Nat
++f127 : Nat -> Nat -> Nat -> Nat
++f128 : Nat -> Nat -> Nat -> Nat
++f129 : Nat -> Nat -> Nat -> Nat
++f130 : Nat -> Nat -> Nat -> Nat
++f131 : Nat -> Nat -> Nat -> Nat
++f132 : Nat -> Nat -> Nat -> Nat
++f133 : Nat -> Nat -> Nat -> Nat
++f134 : Nat -> Nat -> Nat -> Nat
++f135 : Nat -> Nat -> Nat -> Nat
++f136 : Nat -> Nat -> Nat -> Nat
++f137 : Nat -> Nat -> Nat -> Nat
++f138 : Nat -> Nat -> Nat -> Nat
++f139 : Nat -> Nat -> Nat -> Nat
++f140 : Nat -> Nat -> Nat -> Nat
++f141 : Nat -> Nat -> Nat -> Nat
++f142 : Nat -> Nat -> Nat -> Nat
++f143 : Nat -> Nat -> Nat -> Nat
++f144 : Nat -> Nat -> Nat -> Nat
++f145 : Nat -> Nat -> Nat -> Nat
++f146 : Nat -> Nat -> Nat -> Nat
++f147 : Nat -> Nat -> Nat -> Nat
++f148 : Nat -> Nat -> Nat -> Nat
++f149 : Nat -> Nat -> Nat -> Nat
++f150 : Nat -> Nat -> Nat -> Nat
++f151 : Nat -> Nat -> Nat -> Nat
++f152 : Nat -> Nat -> Nat -> Nat
++f153 : Nat -> Nat -> Nat -> Nat
++f154 : Nat -> Nat -> Nat -> Nat
++f155 : Nat -> Nat -> Nat -> Nat
++f156 : Nat -> Nat -> Nat -> Nat
++f157 : Nat -> Nat -> Nat -> Nat
++f158 : Nat -> Nat -> Nat -> Nat
++f159 : Nat -> Nat -> Nat -> Nat
++
++f0 x y z = case x of
++  Z => f1 y z x
++  S _ => f2 z x y
++f1 x y z = case x of
++  Z => f2 y z x
++  S _ => f3 z x y
++f2 x y z = case x of
++  Z => f3 y z x
++  S _ => f4 z x y
++f3 x y z = case x of
++  Z => f4 y z x
++  S _ => f5 z x y
++f4 x y z = case x of
++  Z => f5 y z x
++  S _ => f6 z x y
++f5 x y z = case x of
++  Z => f6 y z x
++  S _ => f7 z x y
++f6 x y z = case x of
++  Z => f7 y z x
++  S _ => f8 z x y
++f7 x y z = case x of
++  Z => f8 y z x
++  S _ => f9 z x y
++f8 x y z = case x of
++  Z => f9 y z x
++  S _ => f10 z x y
++f9 x y z = case x of
++  Z => f10 y z x
++  S _ => f11 z x y
++f10 x y z = case x of
++  Z => f11 y z x
++  S _ => f12 z x y
++f11 x y z = case x of
++  Z => f12 y z x
++  S _ => f13 z x y
++f12 x y z = case x of
++  Z => f13 y z x
++  S _ => f14 z x y
++f13 x y z = case x of
++  Z => f14 y z x
++  S _ => f15 z x y
++f14 x y z = case x of
++  Z => f15 y z x
++  S _ => f16 z x y
++f15 x y z = case x of
++  Z => f16 y z x
++  S _ => f17 z x y
++f16 x y z = case x of
++  Z => f17 y z x
++  S _ => f18 z x y
++f17 x y z = case x of
++  Z => f18 y z x
++  S _ => f19 z x y
++f18 x y z = case x of
++  Z => f19 y z x
++  S _ => f20 z x y
++f19 x y z = case x of
++  Z => f20 y z x
++  S _ => f21 z x y
++f20 x y z = case x of
++  Z => f21 y z x
++  S _ => f22 z x y
++f21 x y z = case x of
++  Z => f22 y z x
++  S _ => f23 z x y
++f22 x y z = case x of
++  Z => f23 y z x
++  S _ => f24 z x y
++f23 x y z = case x of
++  Z => f24 y z x
++  S _ => f25 z x y
++f24 x y z = case x of
++  Z => f25 y z x
++  S _ => f26 z x y
++f25 x y z = case x of
++  Z => f26 y z x
++  S _ => f27 z x y
++f26 x y z = case x of
++  Z => f27 y z x
++  S _ => f28 z x y
++f27 x y z = case x of
++  Z => f28 y z x
++  S _ => f29 z x y
++f28 x y z = case x of
++  Z => f29 y z x
++  S _ => f30 z x y
++f29 x y z = case x of
++  Z => f30 y z x
++  S _ => f31 z x y
++f30 x y z = case x of
++  Z => f31 y z x
++  S _ => f32 z x y
++f31 x y z = case x of
++  Z => f32 y z x
++  S _ => f33 z x y
++f32 x y z = case x of
++  Z => f33 y z x
++  S _ => f34 z x y
++f33 x y z = case x of
++  Z => f34 y z x
++  S _ => f35 z x y
++f34 x y z = case x of
++  Z => f35 y z x
++  S _ => f36 z x y
++f35 x y z = case x of
++  Z => f36 y z x
++  S _ => f37 z x y
++f36 x y z = case x of
++  Z => f37 y z x
++  S _ => f38 z x y
++f37 x y z = case x of
++  Z => f38 y z x
++  S _ => f39 z x y
++f38 x y z = case x of
++  Z => f39 y z x
++  S _ => f40 z x y
++f39 x y z = case x of
++  Z => f40 y z x
++  S _ => f41 z x y
++f40 x y z = case x of
++  Z => f41 y z x
++  S _ => f42 z x y
++f41 x y z = case x of
++  Z => f42 y z x
++  S _ => f43 z x y
++f42 x y z = case x of
++  Z => f43 y z x
++  S _ => f44 z x y
++f43 x y z = case x of
++  Z => f44 y z x
++  S _ => f45 z x y
++f44 x y z = case x of
++  Z => f45 y z x
++  S _ => f46 z x y
++f45 x y z = case x of
++  Z => f46 y z x
++  S _ => f47 z x y
++f46 x y z = case x of
++  Z => f47 y z x
++  S _ => f48 z x y
++f47 x y z = case x of
++  Z => f48 y z x
++  S _ => f49 z x y
++f48 x y z = case x of
++  Z => f49 y z x
++  S _ => f50 z x y
++f49 x y z = case x of
++  Z => f50 y z x
++  S _ => f51 z x y
++f50 x y z = case x of
++  Z => f51 y z x
++  S _ => f52 z x y
++f51 x y z = case x of
++  Z => f52 y z x
++  S _ => f53 z x y
++f52 x y z = case x of
++  Z => f53 y z x
++  S _ => f54 z x y
++f53 x y z = case x of
++  Z => f54 y z x
++  S _ => f55 z x y
++f54 x y z = case x of
++  Z => f55 y z x
++  S _ => f56 z x y
++f55 x y z = case x of
++  Z => f56 y z x
++  S _ => f57 z x y
++f56 x y z = case x of
++  Z => f57 y z x
++  S _ => f58 z x y
++f57 x y z = case x of
++  Z => f58 y z x
++  S _ => f59 z x y
++f58 x y z = case x of
++  Z => f59 y z x
++  S _ => f60 z x y
++f59 x y z = case x of
++  Z => f60 y z x
++  S _ => f61 z x y
++f60 x y z = case x of
++  Z => f61 y z x
++  S _ => f62 z x y
++f61 x y z = case x of
++  Z => f62 y z x
++  S _ => f63 z x y
++f62 x y z = case x of
++  Z => f63 y z x
++  S _ => f64 z x y
++f63 x y z = case x of
++  Z => f64 y z x
++  S _ => f65 z x y
++f64 x y z = case x of
++  Z => f65 y z x
++  S _ => f66 z x y
++f65 x y z = case x of
++  Z => f66 y z x
++  S _ => f67 z x y
++f66 x y z = case x of
++  Z => f67 y z x
++  S _ => f68 z x y
++f67 x y z = case x of
++  Z => f68 y z x
++  S _ => f69 z x y
++f68 x y z = case x of
++  Z => f69 y z x
++  S _ => f70 z x y
++f69 x y z = case x of
++  Z => f70 y z x
++  S _ => f71 z x y
++f70 x y z = case x of
++  Z => f71 y z x
++  S _ => f72 z x y
++f71 x y z = case x of
++  Z => f72 y z x
++  S _ => f73 z x y
++f72 x y z = case x of
++  Z => f73 y z x
++  S _ => f74 z x y
++f73 x y z = case x of
++  Z => f74 y z x
++  S _ => f75 z x y
++f74 x y z = case x of
++  Z => f75 y z x
++  S _ => f76 z x y
++f75 x y z = case x of
++  Z => f76 y z x
++  S _ => f77 z x y
++f76 x y z = case x of
++  Z => f77 y z x
++  S _ => f78 z x y
++f77 x y z = case x of
++  Z => f78 y z x
++  S _ => f79 z x y
++f78 x y z = case x of
++  Z => f79 y z x
++  S _ => f80 z x y
++f79 x y z = case x of
++  Z => f80 y z x
++  S _ => f81 z x y
++f80 x y z = case x of
++  Z => f81 y z x
++  S _ => f82 z x y
++f81 x y z = case x of
++  Z => f82 y z x
++  S _ => f83 z x y
++f82 x y z = case x of
++  Z => f83 y z x
++  S _ => f84 z x y
++f83 x y z = case x of
++  Z => f84 y z x
++  S _ => f85 z x y
++f84 x y z = case x of
++  Z => f85 y z x
++  S _ => f86 z x y
++f85 x y z = case x of
++  Z => f86 y z x
++  S _ => f87 z x y
++f86 x y z = case x of
++  Z => f87 y z x
++  S _ => f88 z x y
++f87 x y z = case x of
++  Z => f88 y z x
++  S _ => f89 z x y
++f88 x y z = case x of
++  Z => f89 y z x
++  S _ => f90 z x y
++f89 x y z = case x of
++  Z => f90 y z x
++  S _ => f91 z x y
++f90 x y z = case x of
++  Z => f91 y z x
++  S _ => f92 z x y
++f91 x y z = case x of
++  Z => f92 y z x
++  S _ => f93 z x y
++f92 x y z = case x of
++  Z => f93 y z x
++  S _ => f94 z x y
++f93 x y z = case x of
++  Z => f94 y z x
++  S _ => f95 z x y
++f94 x y z = case x of
++  Z => f95 y z x
++  S _ => f96 z x y
++f95 x y z = case x of
++  Z => f96 y z x
++  S _ => f97 z x y
++f96 x y z = case x of
++  Z => f97 y z x
++  S _ => f98 z x y
++f97 x y z = case x of
++  Z => f98 y z x
++  S _ => f99 z x y
++f98 x y z = case x of
++  Z => f99 y z x
++  S _ => f100 z x y
++f99 x y z = case x of
++  Z => f100 y z x
++  S _ => f101 z x y
++f100 x y z = case x of
++  Z => f101 y z x
++  S _ => f102 z x y
++f101 x y z = case x of
++  Z => f102 y z x
++  S _ => f103 z x y
++f102 x y z = case x of
++  Z => f103 y z x
++  S _ => f104 z x y
++f103 x y z = case x of
++  Z => f104 y z x
++  S _ => f105 z x y
++f104 x y z = case x of
++  Z => f105 y z x
++  S _ => f106 z x y
++f105 x y z = case x of
++  Z => f106 y z x
++  S _ => f107 z x y
++f106 x y z = case x of
++  Z => f107 y z x
++  S _ => f108 z x y
++f107 x y z = case x of
++  Z => f108 y z x
++  S _ => f109 z x y
++f108 x y z = case x of
++  Z => f109 y z x
++  S _ => f110 z x y
++f109 x y z = case x of
++  Z => f110 y z x
++  S _ => f111 z x y
++f110 x y z = case x of
++  Z => f111 y z x
++  S _ => f112 z x y
++f111 x y z = case x of
++  Z => f112 y z x
++  S _ => f113 z x y
++f112 x y z = case x of
++  Z => f113 y z x
++  S _ => f114 z x y
++f113 x y z = case x of
++  Z => f114 y z x
++  S _ => f115 z x y
++f114 x y z = case x of
++  Z => f115 y z x
++  S _ => f116 z x y
++f115 x y z = case x of
++  Z => f116 y z x
++  S _ => f117 z x y
++f116 x y z = case x of
++  Z => f117 y z x
++  S _ => f118 z x y
++f117 x y z = case x of
++  Z => f118 y z x
++  S _ => f119 z x y
++f118 x y z = case x of
++  Z => f119 y z x
++  S _ => f120 z x y
++f119 x y z = case x of
++  Z => f120 y z x
++  S _ => f121 z x y
++f120 x y z = case x of
++  Z => f121 y z x
++  S _ => f122 z x y
++f121 x y z = case x of
++  Z => f122 y z x
++  S _ => f123 z x y
++f122 x y z = case x of
++  Z => f123 y z x
++  S _ => f124 z x y
++f123 x y z = case x of
++  Z => f124 y z x
++  S _ => f125 z x y
++f124 x y z = case x of
++  Z => f125 y z x
++  S _ => f126 z x y
++f125 x y z = case x of
++  Z => f126 y z x
++  S _ => f127 z x y
++f126 x y z = case x of
++  Z => f127 y z x
++  S _ => f128 z x y
++f127 x y z = case x of
++  Z => f128 y z x
++  S _ => f129 z x y
++f128 x y z = case x of
++  Z => f129 y z x
++  S _ => f130 z x y
++f129 x y z = case x of
++  Z => f130 y z x
++  S _ => f131 z x y
++f130 x y z = case x of
++  Z => f131 y z x
++  S _ => f132 z x y
++f131 x y z = case x of
++  Z => f132 y z x
++  S _ => f133 z x y
++f132 x y z = case x of
++  Z => f133 y z x
++  S _ => f134 z x y
++f133 x y z = case x of
++  Z => f134 y z x
++  S _ => f135 z x y
++f134 x y z = case x of
++  Z => f135 y z x
++  S _ => f136 z x y
++f135 x y z = case x of
++  Z => f136 y z x
++  S _ => f137 z x y
++f136 x y z = case x of
++  Z => f137 y z x
++  S _ => f138 z x y
++f137 x y z = case x of
++  Z => f138 y z x
++  S _ => f139 z x y
++f138 x y z = case x of
++  Z => f139 y z x
++  S _ => f140 z x y
++f139 x y z = case x of
++  Z => f140 y z x
++  S _ => f141 z x y
++f140 x y z = case x of
++  Z => f141 y z x
++  S _ => f142 z x y
++f141 x y z = case x of
++  Z => f142 y z x
++  S _ => f143 z x y
++f142 x y z = case x of
++  Z => f143 y z x
++  S _ => f144 z x y
++f143 x y z = case x of
++  Z => f144 y z x
++  S _ => f145 z x y
++f144 x y z = case x of
++  Z => f145 y z x
++  S _ => f146 z x y
++f145 x y z = case x of
++  Z => f146 y z x
++  S _ => f147 z x y
++f146 x y z = case x of
++  Z => f147 y z x
++  S _ => f148 z x y
++f147 x y z = case x of
++  Z => f148 y z x
++  S _ => f149 z x y
++f148 x y z = case x of
++  Z => f149 y z x
++  S _ => f150 z x y
++f149 x y z = case x of
++  Z => f150 y z x
++  S _ => f151 z x y
++f150 x y z = case x of
++  Z => f151 y z x
++  S _ => f152 z x y
++f151 x y z = case x of
++  Z => f152 y z x
++  S _ => f153 z x y
++f152 x y z = case x of
++  Z => f153 y z x
++  S _ => f154 z x y
++f153 x y z = case x of
++  Z => f154 y z x
++  S _ => f155 z x y
++f154 x y z = case x of
++  Z => f155 y z x
++  S _ => f156 z x y
++f155 x y z = case x of
++  Z => f156 y z x
++  S _ => f157 z x y
++f156 x y z = case x of
++  Z => f157 y z x
++  S _ => f158 z x y
++f157 x y z = case x of
++  Z => f158 y z x
++  S _ => f159 z x y
++f158 x y z = f159 y z x
++f159 x y z = x + y + z
++
++total
++top0 : Nat -> Nat
++top0 n = f0 n 0 n
++
++total
++top1 : Nat -> Nat
++top1 n = f0 n 1 n
++
++total
++top2 : Nat -> Nat
++top2 n = f0 n 2 n
++
++total
++top3 : Nat -> Nat
++top3 n = f0 n 3 n
++
++total
++top4 : Nat -> Nat
++top4 n = f0 n 4 n
++
++total
++top5 : Nat -> Nat
++top5 n = f0 n 5 n
++
++total
++top6 : Nat -> Nat
++top6 n = f0 n 6 n
++
++total
++top7 : Nat -> Nat
++top7 n = f0 n 7 n
++
++total
++top8 : Nat -> Nat
++top8 n = f0 n 8 n
++
++total
++top9 : Nat -> Nat
++top9 n = f0 n 9 n
++
++total
++top10 : Nat -> Nat
++top10 n = f0 n 10 n
++
++total
++top11 : Nat -> Nat
++top11 n = f0 n 11 n
++
++total
++top12 : Nat -> Nat
++top12 n = f0 n 12 n
++
++total
++top13 : Nat -> Nat
++top13 n = f0 n 13 n
++
++total
++top14 : Nat -> Nat
++top14 n = f0 n 14 n
++
++total
++top15 : Nat -> Nat
++top15 n = f0 n 15 n
++
++total
++top16 : Nat -> Nat
++top16 n = f0 n 16 n
++
++total
++top17 : Nat -> Nat
++top17 n = f0 n 17 n
++
++total
++top18 : Nat -> Nat
++top18 n = f0 n 18 n
++
++total
++top19 : Nat -> Nat
++top19 n = f0 n 19 n
++
++total
++top20 : Nat -> Nat
++top20 n = f0 n 20 n
++
++total
++top21 : Nat -> Nat
++top21 n = f0 n 21 n
++
++total
++top22 : Nat -> Nat
++top22 n = f0 n 22 n
++
++total
++top23 : Nat -> Nat
++top23 n = f0 n 23 n
++
++total
++top24 : Nat -> Nat
++top24 n = f0 n 24 n
+diff -ruN a/tests/idris2/total/total032/expected b/tests/idris2/total/total032/expected
+--- a/tests/idris2/total/total032/expected	1969-12-31 18:00:00
++++ b/tests/idris2/total/total032/expected	2026-10-10 01:37:51
+@@ -0,0 +1 @@
++1/1: Building Reach (Reach.idr)
+diff -ruN a/tests/idris2/total/total032/run b/tests/idris2/total/total032/run
+--- a/tests/idris2/total/total032/run	1969-12-31 18:00:00
++++ b/tests/idris2/total/total032/run	2026-10-10 01:37:51
+@@ -0,0 +1,3 @@
++. ../../../testutils.sh
++
++check Reach.idr
