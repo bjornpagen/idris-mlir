@@ -155,9 +155,11 @@ join : {c1,c2 : Bool} ->
        Grammar state tok (c1 || c2) a
 join p = bindGrammar p id
 
-||| Allows the result of a grammar to be mapped to a different value.
+||| Allows the result of a grammar to be mapped to a different value. Whether
+||| the grammar consumes is no part of mapping its result, so the
+||| implementation is one for every grammar, not one chosen by it at runtime.
 export
-{c : _} ->
+{0 c : _} ->
 Functor (Grammar state tok c) where
   -- The value keeps the bounds of what was parsed; an irrelevant one stays
   -- irrelevant, with no bounds (as `mergeBounds v (irrelevantBounds (f v.val))`).

@@ -297,6 +297,12 @@ outsideIndices picks owner (Bind bfc _ (Pi _ _ _ a) sc) = do
 -- A suspension of a type depends on what the type depends on: `coreType`
 -- represents `Lazy t` as a suspension of `t`'s representation.
 outsideIndices picks owner (TDelayed _ _ t) = outsideIndices picks owner t
+-- A type family, at a type parameter (`DPair a (\x => Vect x Int)`,
+-- `SortedDMap k (\_ => v)`): its values have its body's representation,
+-- whatever its argument, so the body is what may depend on something, as
+-- a function type's result is.
+outsideIndices picks owner (Bind bfc _ (Lam {}) sc) =
+  outsideIndices picks owner (subst (Erased bfc Placeholder) sc)
 outsideIndices picks owner tm = case spine tm [] of
   (Ref _ (TyCon _) n, args) => do
     Just (_, ps) <- paramPositions owner n
