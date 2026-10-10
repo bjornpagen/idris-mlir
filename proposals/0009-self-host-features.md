@@ -100,8 +100,8 @@ boxed.
 
 Roughly in order of cost (conjecture). Each lands in the Idris side
 (classification, instances) and in the `idr` dialect's passes
-(`foreign/idr/`), which already specialize, evaluate at compile time and
-defunctionalize.
+(`foreign/idr/`), which already specialize and defunctionalize; the
+static part of the program is normalized in the frontend (0013).
 
 1. **An erased match forced by a runtime value.** A match on an erased
    proof (`First`, `Later`) that a runtime index determines is compiled as
@@ -124,9 +124,10 @@ defunctionalize.
    - Where the value is known at the call (a literal kind, a constructor
      in the argument's shape), the instance is specialized on it, as
      `neededShape` already specializes on a parameter's shape: the result
-     type reduces and the call is monomorphic. The `idr` specialization
-     pass extends this across calls after compile-time evaluation has
-     found more of the value.
+     type reduces and the call is monomorphic. Static normalization
+     (0013) finds more of the value in the frontend, where the instance is
+     decided, and the `idr` specialization pass extends this across
+     calls.
    - Where it is not, the type is the closed sum of the type's whole-
      program image: `TokType` over the kinds the program can construct is
      a finite set of types, so the result is a sum with one variant per

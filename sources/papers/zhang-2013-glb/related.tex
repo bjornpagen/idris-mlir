@@ -1,0 +1,92 @@
+\section{Related work}
+
+There is extensive prior work on dynamic load balancing for
+shared-memory systems.  The Cilk~\cite{FrigoLeRa98} system was the
+first to provide efficient load balancing for a wide variety of
+irregular applications.  Load balancing in Cilk applications is
+achieved by a scheduler that follows the \textit{depth-first work,
+  breadth-first steal} principle~\cite{blumofe:94}. Cilk's scheduling
+strategy, in which each worker maintains its own set of
+tasks and steals from other workers when it has nothing to do, is
+often referred to as \textit{work-stealing}.  
+%
+Following Cilk, many runtimes for shared memory task parallelism
+utilize work-stealing schedulers. 
+%
+Of these, OpenMP 3.0~\cite{openmp30:08}, Intel's Threading
+Building Blocks (TBB)~\cite{reinders:07}, 
+Java Fork-Join~\cite{DL2000}, Microsoft's Parallel Patterns
+Library (PPL), and Task Parallel Library (TPL) are the most popular.
+% Several implementations of X10's async-finish programming model have
+utilized work-stealing schedulers including X10's
+\textit{breadth-first}~\cite{cong:08} and
+\textit{compiler-supported}~\cite{TOWH2012} and Guo et
+al.'s~\cite{sarkar:09} hybrid model for work stealing.
+
+The techniques for dynamic load balancing in shared-memory
+environments are not directly applicable to distributed-memory
+machines because of a variety of issues such as network latency and
+bandwidth, and termination detection. 
+%
+Various bodies of work have addressed the problem of dynamic load balancing on
+distributed-memory machines.
+% 
+Grama et al.~\cite{vipin:94,grama:99} discuss various load balancing 
+strategies for distributed parallel searches that are independent of the 
+specific search technique.
+%
+Blumofe et al.~\cite{blumofe:97} adapt the Cilk work-stealing model to 
+distributed shared memory by limiting the scope of the programs to be purely 
+functional.
+%
+ATLAS~\cite{baldeschwieler:96} and Satin~\cite{nieuwport:01} both use 
+hierarchical work-steal to acheive global load balancing.
+%
+\Charmpp{}~\cite{sinha:93,kale:93} monitors the execution of its distributed
+programs for load imbalance and migrates computation objects to low-load places
+to correct the load imbalance.
+%
+Global load balancing for message passing environments has been researched 
+for specific problems by Batoukov and Sorevik~\cite{batoukov:99}.
+
+UTS, an excellent example of an irregular application, was first described by
+Prins et al.~\cite{prins:03}.  It has since been widely used as a
+benchmark for dynamic load balancing. 
+%
+Olivier and Prins~\cite{olivier:08} provided the first scalable implementation
+of UTS on clusters that provided up to 80\% efficiency on 1024 nodes.
+%
+To this end, they employed a custom application-level load balancer along with
+optimizations such as one-sided communications and novel termination detection
+techniques.
+% 
+Dinan et al.~\cite{dinan:09} provide a framework for
+global load balancing, which was used to achieve speedups on UTS on 8196
+processors. Global load balancing and termination detection facilities
+were provided to express irregular applications.
+%
+By reserving one core per compute node on the cluster exclusively for lock and
+unlock operations, this framework allowed threads to steal work asynchronously
+without disrupting the victim threads. However, the cost paid was a static
+allocation (one core out of every eight) for communication. This results in
+lower throughput because the thread is not available for user-level
+computations.
+% 
+Saraswat et al.~\cite{glb} introduced lifeline-based global load
+balancing and showed 87\% efficiency on 2048 nodes. Later work by the
+X10 team demonstrated 98\% parallel efficiency with 55,680 Power7
+cores~\cite{tardieu-petascale}.  An implementation of the life-line
+algorithm in Co-Array Fortran achieved 58\% efficiency at 8192
+nodes~\cite{CAF-HPCC2011}. A more recent UTS code using CAF 2.0 {\tt
+  finish} construct achieves a 74\% parallel efficiency on 32,768
+Jaguar cores~\cite{Chaoran:2013}.
+
+%% Dave: Leaving this point out since we're tight on space and short
+%%  on time...
+%
+% More broadly, the approach to programming taken by our GLB library
+% in which the end-user of a framework provides snippets of
+%sequential code that mesh with an underlying distributed framework is
+% a commonly applied paradigm. Systems such as J2EE and MapReduce...
+
+

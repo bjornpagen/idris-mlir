@@ -1,0 +1,35 @@
+\section{Structured Declarative Reasoning}
+\label{sec:intro}
+%
+Effective programming languages permit their user to write high-performance code in a manner that is as close to the shape of her own thinking as possible. 
+A long-standing dream of our field has been to develop especially high-level \emph{declarative} languages that help bridge this gap between specification and implementation. Declarative programming permits a user to provide a set of high-level rules and declarations that offer the sought-after solution as a latent implication to be materialized automatically by the computer. 
+The semantics of a declarative language does the heavy lifting in operationalizing this specification for a target computational substrate---one with its own low-level constraints and biases. Modern computers provide many threads of parallel computation, may be networked to further increase available parallelism, and are increasingly virtualized within ``cloud'' services. To enable scalable cloud-based reasoning, the future of high-performance declarative languages must refine their suitability on both sides of this gulf: becoming both more tailored to human-level reasoning and to modern, massively-parallel, multi-node machines.
+
+Logic-programming languages that extend Datalog have seen repeated resurgences in interest since their inception, each coinciding with new advances in their design and implementation.
+For example, Bddbddb~\cite{whaley2005using} suggested that binary decision diagrams (BDDs) could be used to compress relational data while permitting fast algebraic operations such as relational join, but required \emph{a priori} knowledge of efficient BDD-variable orderings to enable its compression, which proved to be a significant constraint.
+LogicBlox and Souffl\'e~\cite{antoniadis2017porting,10.1007/978-3-319-41540-6} have since turned research attention back to semi-na\"ive evaluation over extensional representations of relations, using compression techniques sparingly (i.e., compressed prefix trees) and focusing on the development of high-performance shared-memory data structures.
+Souffl\'e represents the current state of the art at a low thread count, but struggles to scale well due to internal locking and its coarse-grained approach to parallelism.
+RadLog (i.e., BigDatalog)~\cite{bigdl} has proposed scaling deduction to many-thread machines and clusters using Hadoop and the map-reduce paradigm for distributed programming. Unfortunately, map-reduce algorithms suffer from a (hierarchical) many-to-one collective communication bottleneck and are increasingly understood to be insufficient for leading high-performance parallel-computing environments~\cite{Anderson:2017,SparkBadMPIGood}.
+
+Most modern Datalogs are Turing-equivalent extensions, not simply finite-domain first-order HornSAT, offering stratified negation, abstract data-types (ADTs), ad hoc polymorphism, aggregation, and various operations on primitive values.
+Oracle's Souffl\'e has added flexible pattern matching for ADTs, and Formulog~\cite{formulog-bembenek2020} shows how these capabilities can be used to perform deductive inference of formulas; it seems likely future (extended) Datalogs will be used to implement symbolic execution and formal verification in a scalable, parallel manner.    
+
+In this paper, we introduce a new approach to simultaneously improve the expressiveness and data-parallelism of such deductive logic-programming languages. Our approach has three main parts: (1) a key semantic extension to Datalog, \emph{subfacts} and a \emph{subfact-closure property}, that is (2) implemented uniformly via ubiquitous fact interning, supported within relational algebra operations that are (3) designed from the ground-up to automatically balance their workload across available threads, using MPI to address the available data-parallelism directly. We show how our extension to Datalog permits deduction of structured facts, defunctionalization and higher-order relations, and more direct implementations of abstract machines (CEK, Krivine's, CESK), rich program analyses ($k$-CFA, $m$-CFA), and type systems. We detail our implementation approach and evaluate it against the best current Datalog systems, showing improved scalability and performance.
+
+We offer the following contributions to the literature:
+%
+\begin{enumerate}
+\item An architecture for extending Datalog to structured recursive data and higher-order relations, uniform with respect to parallelism, allowing inference of tree-shaped facts which are indexed and data-parallel both horizontally (across facts) and vertically (over subfacts).
+\item A formalism of our core language, relationship to Datalog, and equivalence of its model theoretic and fixed-point semantics, mechanized in Isabelle/HOL.
+\item A high-performance implementation of our system, \slog{}, with a compiler, REPL, and runtime written in Racket (10.6kloc), Python (2.5kloc), and \CC{} (8.5kloc).
+\item An exploration of \slog{}'s applications in the engineering of formal systems, including program analyses and type systems. We include a
+%an end-to-end
+  presentation of the systematic development of program analyses from corresponding abstract-machine interpreters---the abstracting abstract machines (AAM) methodology---where
+  %showing
+  each intermediate step in the AAM process may also be written using \slog{}.
+\item An evaluation comparing \slog{}'s performance against Souffl\'e and RadLog on EC2 and Azure, along with a strong-scaling study on the ALCF's Theta supercomputer which shows promising strong scaling up to 800 threads. We observe improved scaling efficiency and performance at-scale, compared with both Souffl\'e and RadLog, and better single-thread performance vs. Souffl\'e when comparing \slog{} subfacts to Souffl\'e ADTs.
+\end{enumerate}
+
+
+
+

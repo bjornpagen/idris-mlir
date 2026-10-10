@@ -1,0 +1,120 @@
+
+\renewcommand{\multicolsep}{3pt plus 1pt minus 1pt}
+
+% https://tex.stackexchange.com/questions/24886/which-package-can-be-used-to-write-bnf-grammars
+% https://mirrors.rit.edu/CTAN/macros/latex/contrib/mdwtools/syntax.pdf
+\renewcommand{\ulitleft}{\bf\ttfamily\frenchspacing}
+\renewcommand{\ulitright}{}
+
+\subsection{Key extensions to the core language}
+\label{sec:semantics:extensions}
+%
+With subfacts, a common idiom becomes for a subfact to appear in the body of a rule, while its surrounding fact and any associated values are meant to appear in the head. For these cases, we use a ? clause, an s-expression marked with a ``?'' at the front to indicate that although it may appear to be a head clause, it is actually a body clause and the rule does not fire without this fact present to trigger it. The following rule says that if a \texttt{(\rtag{ref} x)} AST exists, then x is a free variable with respect to it.
+%
+\begin{Verbatim}[baselinestretch=0.75,commandchars=\\\{\}]
+(\rtag{free} \huhclause{?(\rtag{ref} x)} x)
+\end{Verbatim}
+%
+which desugars to the rule
+%
+\begin{Verbatim}[baselinestretch=0.75,commandchars=\\\{\}]
+[(= e-id (\rtag{ref} x)) --> (\rtag{free} e-id x)]
+\end{Verbatim}
+%
+exposing that the ? clause is an implicit body clause. But if there are
+no body clauses apart from the ? clauses, the rule may be written without
+square braces and an arrow to show direction.
+
+\begin{wrapfigure}{r}{6cm}
+\vspace{-0.25cm}
+\begin{Verbatim}[baselinestretch=0.75,commandchars=\\\{\}]
+[(=/= x y) (\rtag{free} Eb y)
+ --> (\rtag{free} \huhclause{?(\rtag{lam} x Eb)} y)]
+[(or (\rtag{free} Ef x) (\rtag{free} Ea x))
+ --> (\rtag{free} \huhclause{?(\rtag{app} Ef Ea)} x)
+\end{Verbatim}
+\end{wrapfigure}
+%
+Two more rules are needed to define a free-variables analysis.
+%
+The second of these shows another extension: disjunction in the body of
+a rule is pulled to the top level and splits the rule into multiple rules.
+In this case, there is both a rule saying that a free variable in \texttt{Ef}
+is free in the application and a rule saying that a free variable in \texttt{Ea}
+is free in the application.
+
+Another core mechanism in \slog{} is to put head clauses in position where a body clause is expected.
+%
+Especially because an inner clause can be \emph{responded to} by a fact surrounding it, or by rules producing that fact,
+being able to emit a fact on-the-way to computing a larger rule is what permits natural-deduction-style rules through a kind of rule
+splitting, closely related to continuation-passing-style (CPS) conversion~\cite{appel2007compiling}.
+A ! clause, under a ? clause or otherwise in the position of a body clause,
+is a clause that will be deduced as the surrounding rule is evaluated, so long as any ? clauses are satisfied and any subexpressions
+are ground (any clauses it depends on have been matched already). These ! clauses are intermediate head clauses; technically the head clauses of subrules, which they are compiled into internally. 
+
+Consider the example in Figure~\ref{fig:natural-deduction-plus}, which lets us prove an arithmetic statement like\newline\texttt{(plus (plus (nat 1) (nat 2)) (nat 1)) $\Downarrow$ 4}.
+We can construe this rule in a few ways, as written. It could be that both the expression and value should be provided and are proved according to these rules, or it could be treated as a calculator, with the expression provided as input.
+
+\vspace{-0.4cm}
+\begin{figure*}[h]
+\begin{multicols}{2}
+\begin{Verbatim}[baselinestretch=0.75,commandchars=\\\{\}]
+(\rtag{interp} \huhclause{?(\rtag{do-interp} (\rtag{nat} n))} n)
+
+  
+[(\rtag{interp} \bangclause{!(\rtag{do-interp} e0)} v0)
+ (\rtag{interp} \bangclause{!(\rtag{do-interp} e1)} v1)
+ (+ v0 v1 v) 
+ --> \comm{;-------- [plus]}
+ (\rtag{interp} \huhclause{?(\rtag{do-interp} (\rtag{plus} e0 e1))} v)]
+\end{Verbatim}
+\columnbreak
+\[
+  \frac{\ }{\texttt{(nat $n$)} \Downarrow n}\text{\small[nat]}
+\]
+  \vspace{0.75cm}
+\[
+ \frac{e_0 \Downarrow v_0 \hspace{1cm} e_1 \Downarrow v_1 \hspace{1cm} v=v_0+v_1}{(\texttt{plus}\ e_0\ e_1) \Downarrow v} \text{\small[plus]}
+\]
+\end{multicols}
+\caption{Natural-deduction-style reasoning with ! clauses in \slog{}.}
+\label{fig:natural-deduction-plus}
+\end{figure*}
+\vspace{-0.4cm}
+
+\begin{wrapfigure}{r}{5.75cm}
+\vspace{-0.3cm}
+\begin{Verbatim}[baselinestretch=0.75,commandchars=\\\{\}]
+
+[(\rtag{interp} \bangclause{!(\rtag{do-interp} e0)} v0)
+ (\rtag{interp} \bangclause{!(\rtag{do-interp} e1)} v1) 
+ --> \comm{;-------- [plus]}
+ (\rtag{interp} \huhclause{?(\rtag{do-interp} (\rtag{plus} e0 e1))}
+         \{+ v0 v1\})]
+
+
+
+
+(\rtag{append} \huhclause{?(\rtag{do-append} [] ls)} ls)
+
+[(\rtag{append} \bangclause{!(\rtag{do-append} ls0 ls1)} ls')
+ -->
+ (\rtag{append} \huhclause{?(\rtag{do-append} [x ls0 ...] ls1)}
+         [x ls' ...])]
+
+\comm{; or ind. case could even be written:}
+(\rtag{append} \huhclause{?(\rtag{do-append} [x ls0 ...] ls1)}
+        [x
+         \{\rtag{append} \bangclause{!(\rtag{do-append} ls0 ls1)}\}
+         ...])
+\end{Verbatim}
+\end{wrapfigure}
+%
+Subclauses, written with parentheses, are treated as top-level clauses whose id column value is unified at the position of the subclause. Another common use for a relation is as a function, or with a designated output column, deterministic or not, so \slog{} also supports this type of access via \{ \!\} inner clauses, which have their final-column value unified at the position of the curly-brace subclause. For example, the rule in Figure~\ref{fig:natural-deduction-plus} could also have been written as below, with the clause \texttt{\{+ v0 v1\}} in place of variable \texttt{v}.
+This example illustrates that this syntax can also be used for built-in relations like \texttt{+}.
+
+Putting this all together and adding \slog{}'s built-in list syntax---currently implemented as linked-lists of \slog{} facts in the natural way---we can implement rules for appending lists, a naturally direct-recursive task due to a linked list naturally having its first element at its front, so a second list can only be appended to the back of the first list, and the front element onto the front of that.
+%
+
+
+

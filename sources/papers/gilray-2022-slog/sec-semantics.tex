@@ -1,0 +1,176 @@
+\section{Structurally Recursive Datalog}
+\label{sec:semantics}
+%\lstset{language=Slog}
+%
+The core semantic difference between \slog{} and Datalog is to allow
+structurally recursive, first-class facts.  This relatively minor
+semantic change enables both enhanced expressivity (naturally
+supporting a wide range of Turing-equivalent idioms, as we demonstrate
+in Section~\ref{sec:apps}) and anticipates compilation to parallel
+relational algebra (which interns all facts and distributes facts via
+their intern key). In this section, we present the formal semantics of
+a language we call Structurally Recursive Datalog (henceforth
+\core{}), the core language extending Datalog to which \slog{}
+programs compile. All of the definitions related to \core{} have been
+formalized, and all of the lemmas and theorems presented in this
+section have been formally proven in Isabelle.
+
+\paragraph*{Syntax}
+%
+\begin{wrapfigure}{r}{6cm}
+\vspace{-0.5cm}
+\begin{grammar}
+  <Prog>   ::= <Rule>*
+  
+  <Rule>   ::= <Clause> $\leftarrow$ <Clause>*
+  
+  <Clause> ::= (tag <Subcl>*)
+  
+  <Subcl>  ::= (tag <Subcl>*) | <Var> | <Lit>
+  
+  <Lit>    ::= <Number> | <String> | ...
+\end{grammar}
+\caption{Syntax of \core{}: \textit{tag} is a relation name.}
+\label{fig:dls-syntax}
+\end{wrapfigure}
+%
+The syntax of \core{} is shown in Figure~\ref{fig:dls-syntax}. As in
+Datalog, a \core{} program is a collection of Horn clauses. Each
+rule $R$ contains a set of body clauses and a head clause, denoted by
+$\textit{Body}(R)$ and $\textit{Head}(R)$ respectively. \core{} (and
+\slog{}) programs must also be well-scoped: variables appearing in a
+head clause must also be contained in the body.
+  
+We define a strict syntactic subset of \core{}, \textit{DL} as the
+restriction of \core{} to clauses whose arguments are literals (i.e.,
+${\langle\textit{Subcl}\rangle}_{\textit{DL}} ::= \langle\textit{Var}\rangle \mid
+\langle\textit{Lit}\rangle$). This subset (and its semantics) corresponds to
+Datalog.
+
+\paragraph*{Fixed-Point Semantics}
+
+The fixed-point semantics of a \core{} program $P$ is given via the
+least fixed point of an \emph{immediate consequence} operator
+$\textit{IC}_P : \textit{DB} \rightarrow \textit{DB}$. Intuitively,
+this immediate consequence operator derives all of the immediate
+implications of the set of rules in $P$. A
+database $\textit{db}$ is a set of facts ($\textit{db} \in \textit{DB}
+= \mathcal{P}(\textit{Fact})$). A fact is a clause without variables:
+\begin{align*}
+\textit{Fact} &::= (\textit{tag}\ \textit{Val}^*) & \quad
+\textit{Val}  &::= (\textit{tag}\ \textit{Val}^*)\ \mid \textit{Lit}
+\end{align*}
+
+In Datalog, $\textit{Val}$s are restricted to a finite set of atoms
+($\textit{Val}_{\textit{DL}} ::= \textit{Lit}$). To define $IC_P$, we
+first define the immediate consequence of a rule $IC_R : DB
+\rightarrow DB$, which supplements the provided database with all the
+facts that can be derived directly from the rule given the available
+facts in the database:
+
+\begin{align*}    
+\textit{IC}_R(db) \triangleq\ & db\ \cup \bigcup \bigl\{ \textit{unroll}(\textit{Head}(R)\big[\overrightarrow{v_i\backslash x_i}\big]) | \\
+& \{\overrightarrow{x_i \rightarrow v_i}\} \subseteq (\textit{Var} \times \textit{Val})\ \wedge
+\textit{Body}(R)\big[\overrightarrow{v_i \backslash x_i}\big] \subseteq db \bigr\}
+\end{align*}
+
+The $unroll$ function has the following definition:
+
+\begin{centering}
+  {\centering$\begin{array}{rcl}
+\quad\quad\quad \textit{unroll}\bigl((\textit{tag}\ \textit{item}_1\ ...\ \textit{item}_n)\bigr) &\triangleq&
+\{(\textit{tag}\ \textit{item}_1\ ...\ \textit{item}_n)\} \cup \bigcup_{i \in {1 ... n}} \textit{unroll}(\textit{item}_i)   \\
+\textit{unroll}(v)_{v \in \textit{Lit}} &\triangleq& \{\}
+    \end{array}$}
+\end{centering}
+
+The purpose of the unroll function is to ensure that all nested facts are included in the database as well, a property we call \emph{subfact-closure}. This property is crucial to the semantics of \core{} (and \slog{}), because in \core{}, each nested fact is a fact in own right, and not merely a carrier of structured data. Later sections (starting in section~\ref{sec:semantics:extensions}) illustrate the importance of subfact closure by demonstrating how  we utilize this behavior to construct idioms that make programming in \slog{} more convenient.
+
+The immediate consequence of a program is the union of the immediate
+consequence of each of its constituent rules, $
+\textit{IC}_P(\textit{db}) \triangleq \textit{db} \cup \bigcup_{R \in
+  P} \textit{IC}_R(\textit{db})$. Observe that $\textit{IC}_P$ is
+monotonic over the the lattice of databases whose bottom element is
+the empty database. Therefore, if $\textit{IC}_P$ has any fixed
+points, it also has a least fixed point \cite{tarski1955lattice}.
+Iterating to this least fixed point directly gives us a na\"ive, incomputable
+fixed-point semantics for \core{} programs.
+Unlike pure Datalog, existence of a finite fixed point is not guaranteed in
+\core{}. This is indeed a reflection of the fact that \core{} is
+Turing-complete. The \core{} programs whose immediate consequence
+operators have no finite fixed points are non-terminating.
+
+As discussed earlier, all \slog{} databases must be subfact-closed (i.e. all subfacts are first-class facts). We can show that the least fixed point of the immediate consequence operator has the property that it is subfact-closed.
+\begin{lemma}
+(Formalized in Isabelle.) The least fixed point of $\textit{IC}_P$ is subfact-closed. 
+\end{lemma}
+
+It is worth pointing out that the fixed point semantics of Datalog is similar, the only difference being that the $\textit{unroll}$ function is not required, as Datalog clauses do not contain subclauses.
+
+\paragraph*{Model Theoretic Semantics}
+
+The model theoretic semantics of \core{} closely follows the model
+theoretic semantics of Datalog, as presented in, e.g.,
+\cite{ceri1989you-datalog}. The \emph{Herbrand universe} of a \core{}
+program is the set of all of the facts that can be constructed from
+the relation symbols appearing in the program. Because \core{} facts
+can be nested, the Herbrand universe of any nontrivial \core{} program
+is infinite. One could for example represent natural numbers in
+\core{} using the zero-arity relation \lstinline{Zero} and the unary
+relation \lstinline{Succ}. The Herbrand universe produced by just
+these two relations, one zero arity and one unary, is inductively infinite.
+
+A \emph{Herbrand Interpretation} of a \core{} program is any subset of its Herbrand universe that is subfact-closed. In other words, if $I$ is a Herbrand Interpretation, then $I = \bigcup \{\textit{unroll}(f) \linebreak |\ f \in I\}$. For Datalog, the Herbrand Interpretation is defined similarly, with the difference that subfact-closure is not a requirement for Datalog, as Datalog facts do not contain subfacts.
+
+Given a Herbrand Interpretation $I$ of a \core{} program $P$, and a rule $R$ in $P$, we say that $R$ is true in $I$ ($I \models R$) iff for every substitution of variables in $R$ with facts in $I$, if all the body clauses with those substitutions are in $I$, so is the head clause of $R$ with the same substitutions of variables.
+\begin{align*}  
+& I \models R\ ~\textrm{iff} ~
+ \forall \{\overrightarrow{x_i \rightarrow v_i}\}\ .\ \textit{Body}(R)\big[\overrightarrow{v_i\backslash x_i}\big] \subseteq I \longrightarrow \textit{Head}(R)\big[\overrightarrow{v_i\backslash x_i}\big] \in I 
+\end{align*}
+
+If every rule in $P$ is true in $I$, then $I$ is a \emph{Herbrand model} for $P$. The denotation of $P$ is the intersection of all Herbrand models of $P$. We define $\mathbf{M}(P)$ to be the set of all Herbrand models of $P$, and $D(P)$ to be the denotation of $P$. We then have $D(P) \triangleq \!\!\!\!\!\!\bigcap\limits_{I\in\ \mathbf{M}(P)}\!\!\!\!\! I$. It can be shown that such an intersection is a Herbrand model itself:
+\begin{lemma}
+The intersection of a set of Herbrand models is also a Herbrand model.
+\end{lemma}
+
+Unlike Datalog, nontrivial \core{} programs have Herbrand universes
+that are infinite. Thus, a \core{} program may have only infinite
+Herbrand models. If a \core{} program has no finite Herbrand models,
+its denotation is infinite and so no fixed-point may be finitely
+calculated using the fixed-point semantics. We now relate the operational
+semantics of \core{} to its model-theoretic semantics.
+
+\paragraph*{Equivalence of Model-Theoretic and Fixed-Point Semantics}
+
+To show that the model-theoretic and fixed-point semantics of \core{}
+compute the same Herbrand model, we need to show that the least fixed
+point of the immediate consequence operator is equal to the
+intersection of all the Herbrand models for any program. We start by
+proving the following lemmas (proved in Isabelle; proofs elided for
+space).
+
+\begin{lemma}
+Herbrand models of a \core{} program are fixed points of the immediate consequence operator.    
+\end{lemma}
+
+\begin{lemma}
+Fixed points of the immediate consequence operator of a \core{} program that are subfact-closed are Herbrand models of the program.    
+\end{lemma}
+
+\input{grammar}
+By proving that the Herbrand models and subfact-closed fixed points of
+the immediate consequence operator are the same, we conclude that the
+least fixed point of the immediate consequence operator
+$\textit{IC}_P$ (a subfact-closed database) is equal to the
+intersection of all its Herbrand models.
+
+\begin{theorem}
+The model theoretic semantics and fixed point semantics of \core{} are equivalent.
+\end{theorem}
+
+Proof sketch: Form the lemma that all Herbrand models are fixed points of $\textit{IC}_P$, we conclude that $D(P)$ is a superset of the intersection of all the fixed points. We know that the least fixed point of $\textit{IC}_P$ (which we'll call $\textit{LFP}_P$) is a subset of the intersection of all the fixed points. We therefore have $\textit{LFP}_P \subseteq D(P)$. From the fact the $\textit{LFP}_P$ is a Herbrand model, we conclude that $D(P) \subseteq \textit{LFP}_P$. Putting these facts together, we conclude that $\textit{LFP}_P = D(P)$.
+% From these lemmas, we know that Herbrand models and fixed points of the immediate consequence operator are the same. We therefore need to show that the intersection of all the fixed points of the immediate consequence operator is the least fixed point of the operator. From the definition of the least fixed point, it immediately follows that if $db_1$ and $db_2$ are fixed points of the operator, $IC_P(db_1 \cap db_2) \subseteq db_1 \cap db_2$. Conversely, from the definition of $IC_P$, it follows that for all $db$, $db \subseteq IC_P(db)$. Putting these two facts together, we have: for all fixed points $db_1$ and $db_2$ of $IC_P$, $IC_P(db_1 \cap db_2) = db_1 \cap db_2$.
+
+\input{sec-semantics-extended}
+
+

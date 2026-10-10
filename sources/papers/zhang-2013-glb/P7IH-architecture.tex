@@ -1,0 +1,18 @@
+\paragraph{Power-775}
+We gathered performance results on a small Power~775 systems with two drawers.
+A Power~775 octant (or host or compute node) is composed of a quad-chip module
+containing four eight-core 3.84 Ghz Power7 processors, one optical
+connect controller chip (codenamed {\em Torrent}), and 128 GB of
+memory (in our current configuration). A single octant has a peak performance of 982 GFLOPS; a peak
+memory bandwidth of 512 GB/s; and a peak bi-directional interconnect
+bandwidth of 192 GB/s. %Each octant forms a single SMP node running an
+operating system image. Eight octants are grouped together into a drawer.
+
+Each octant runs RedHat Enterprise Linux 6.2 and uses IBM's PE MPI for network communication (over PAMI).  
+
+We compiled the benchmark programs using Native X10 version 2.4.0 with \texttt{-NO\_CHECKS}, \texttt{-O} options, and compiled the resulting
+C++ files with xlC 12.1 with the \texttt{-qinline} \texttt{-qhot} \texttt{-O3}
+\texttt{-q64} \texttt{-qarch=auto} \texttt{-qtune=auto} compiler options.
+
+We allocated 32 places per octant when we use multiple octants.
+We used regular 64 KB pages for all the programs.

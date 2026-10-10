@@ -118,10 +118,10 @@ Each move names the data that changes and the branches it deletes.
 - **The contract's dialects** are idr, builtin, arith, func, math, memref
   and ub, each with Idris builders generated from its ODS (read:
   `tools/dialects.sh`).
-- **Compile-time evaluation** runs closed pure calls in a child process
-  with ORC's LLJIT against the runtime linked into the compiler, and keeps
-  results up to 1 MiB as constants (read: `Passes.td`, `idr-eval`;
-  `foreign/idr/lib/Eval/Child.cppm`).
+- **Static normalization** (0013): the frontend normalizes the static part
+  of the program on the type checker's interpreter; closed calls of total
+  code become values, and partial code is never normalized. At c50d176d
+  the C++ `idr-eval` still runs closed calls on a JIT; 0013 replaces it.
 - **User code may not use `believe_me`**: it is `unsupported (escape
   hatch)` (read: `tests/reject/escape-hatch-believe-me`).
 
@@ -791,8 +791,9 @@ through Idris's evaluator or Chez (D13). A line is an expression in the
 scope of the loaded modules: Idris elaborates it, and its type, shape
 included, is printed (`:t` stops there); the frontend translates it as a
 program whose root displays the value; the pipeline compiles it exactly
-as it compiles a program, and it runs in a child process on the JIT, as
-compile-time evaluation runs its calls (read: `foreign/idr/lib/Eval/Child.cppm`).
+as it compiles a program, and it runs in a child process; whether through
+an LLJIT inside the driver or a linked executable is the loop's choice,
+settled by the latency rule below (0013 §7).
 The meaning of every primitive is then the runtime's, which AGENTS.md
 requires, and the loop shows what the compiled program would print.
 
@@ -825,7 +826,7 @@ subterm (a variable, or a call that does not reduce, such as `replicate k
 2` with `k` a variable) a **segment**: `f ++ g` is two segments, `[<n] ++
 f` a dimension and a segment. An array whose shape has `k`
 components is a ranked tensor of rank `k`, each dimension `?` unless
-compile-time evaluation made it constant. A segment is one dimension
+static normalization (0013) made it constant. A segment is one dimension
 whose size is the product of its axes (the dissertation's collapse to
 products; read: `sources/papers/slepak-2020-dissertation/Dissertation.pdf`,
 §11.2; `sources/code/remorac/src/remora-internal/map_replicate_ast.ml:129-156`),
@@ -1138,14 +1139,18 @@ thread finds every write in place; a read-after-write conflict, where
 the library's one-object meaning and the tensor's differ, keeps the
 memref ops. A thread bound at quantity 1 never conflicts.
 
-### 3.12 Compile-time evaluation
+### 3.12 Static normalization
 
-A closed array expression is a closed pure call, so `idr-eval` runs it
-and its result becomes a dense constant (`arith.constant dense<...>`), up
-to its 1 MiB limit (read: `Passes.td`, `idr-eval`). A shape that compile-
-time evaluation makes constant makes static dimensions, and every loop
-over them a known trip count. Evaluation lowers through the same
-pipeline as a program, `idr-tensorize` and `idr-bufferize` included.
+A closed array expression of total code is a closed total call, so the
+frontend normalizes it (0013): its result becomes a dense constant
+(`arith.constant dense<...>`), up to the static-data cap. The interpreter
+runs each array operation as one whole-array primitive of the runtime, so a
+table built by array operations normalizes at close to native speed; one
+built element by element through a lambda is interpreted per element, and
+past the counted budget it is a startup constant, computed once at native
+speed (0005 D6). A shape that normalization makes constant makes static
+dimensions, and every loop over them a known trip count. Partial array code
+is never normalized.
 
 ### 3.13 Multicore
 
@@ -1206,8 +1211,9 @@ rounded up to a power of two and kept in the target's entry.
   `reduceBlocked`'s fan-out is the program's, not a target's.
 - **Only `IdrisMLIR.Frontend.*` imports Idris's modules; `third_party`
   is unmodified.** The error-message fix is a patch under `upstream/`.
-- **Static linking.** The interactive loop's JIT is `idr-eval`'s, in the
-  statically linked compiler; nothing of ours is loaded at run time.
+- **Static linking.** If the interactive loop runs lines on an LLJIT, it
+  is the loop's own, in the statically linked driver (0013 §7); nothing of
+  ours is loaded at run time.
 
 ## 6. Staged plan
 

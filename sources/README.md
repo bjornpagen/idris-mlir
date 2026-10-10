@@ -17,6 +17,14 @@ addenda to existing ones. [INDEX.md](INDEX.md) files them under [Array languages
 array programming](INDEX.md#array-languages-and-typed-array-programming); this file records
 their provenance alongside the rest, in the sections below, each part marked with that date.
 
+On 2026-10-10 the `sharded-compilation` pass added the prior art for proposal 0012
+(`proposals/0012-sharded-whole-program-compiler.md`): 12 papers, two new documentation
+snapshots (`docs/rustc-dev-guide/`, `docs/gcc-lto/`) and an addendum to `docs/llvm/`, with the
+owner's approval of exactly these items. [INDEX.md](INDEX.md) files them under [Sharded and
+incremental compilation](INDEX.md#sharded-and-incremental-compilation), with six folders that
+were already stored but had no row; this file records their provenance in the sections below,
+each part marked with that date.
+
 - [Layout](#layout)
 - [Where the old files went](#where-the-old-files-went)
 - [How to use the library](#how-to-use-the-library)
@@ -27,7 +35,8 @@ their provenance alongside the rest, in the sections below, each part marked wit
 - [Access record](#access-record): [reachability](#reachability),
   [identifier resolution](#identifier-resolution),
   [non-paper source URLs](#non-paper-source-urls), [fetch commands](#fetch-commands),
-  [array-languages passes (2026-10-09)](#array-languages-passes-2026-10-09)
+  [array-languages passes (2026-10-09)](#array-languages-passes-2026-10-09),
+  [sharded-compilation pass (2026-10-10)](#sharded-compilation-pass-2026-10-10)
 - [How the papers were collected](#how-the-papers-were-collected)
 - [Open-access acquisition](#open-access-acquisition)
 - [Papers not stored](#papers-not-stored)
@@ -43,11 +52,11 @@ their provenance alongside the rest, in the sections below, each part marked wit
 sources/
 ├── README.md          this file: provenance, licences, access, pins, gaps
 ├── INDEX.md           the papers by topic, with the snapshots each topic draws on
-├── bibliography.bib   one BibTeX file for the library (697 entries)
+├── bibliography.bib   one BibTeX file for the library (765 entries)
 ├── papers/<author>-<year>-<slug>/
 │                      README.md (provenance) plus the TeX source, or the PDF when no
 │                      TeX source exists, or a web edition or text extraction when
-│                      neither does (93 papers indexed in INDEX.md)
+│                      neither does (111 papers indexed in INDEX.md)
 ├── code/<project>/    selected source excerpts at a pinned revision, each with SNAPSHOT.md
 │   ├── co-dfns/       the Co-dfns APL compiler's passes (AGPL-3.0, study only)
 │   ├── dex/           Dex prelude, simplifier, linearization, lowering
@@ -71,20 +80,23 @@ sources/
     ├── agda/          Agda manual: with-abstraction, rewriting, without-K
     ├── bqn/           BQN docs: the array model, leading axis, rank, under
     ├── futhark/       Futhark language reference and performance guide
+    ├── gcc-lto/       GCC's LTO partitioner and the -flto options (excerpt)
     ├── ghc/           GHC commentary wiki (raw .md) and selected users-guide pages
     ├── idris2/        Idris 2 docs at the submodule pin
     ├── j/             the J Dictionary: rank, verbs, adverbs and conjunctions
     ├── jax/           JAX shape polymorphism and export
-    ├── llvm/          selected LLVM docs at the LLVM pin (main 7208ba24)
+    ├── llvm/          selected LLVM docs at the LLVM pin (main 7208ba24), plus clang's
+    │                  ThinLTO page (addendum)
     ├── mlir/          MLIR docs at the LLVM pin (main 7208ba24)
     ├── mlton/         selected MLton guide pages
     ├── mojo/          Mojo docs on inline MLIR and parameters
     ├── rocq/          Rocq manual: equality, rewriting, ring and micromega
+    ├── rustc-dev-guide/  rustc queries, incremental compilation, monomorphization
     ├── ssa-book/      SSA-based Compiler Design (free PDF)
     └── tinygrad/      tinygrad docs and README
 ```
 
-The tree omits nineteen paper folders and six documentation snapshots (`docs/go-scheduler/`,
+The tree omits seventeen paper folders and six documentation snapshots (`docs/go-scheduler/`,
 `docs/idris-effects/`, `docs/rust-rc/`, `docs/seastar/`, `docs/swift-rc/`, `docs/tokio/`)
 added on 2026-10-07 (commit `cb65104d`), which this file and [INDEX.md](INDEX.md) do not
 record yet (see [Known holes](#known-holes)).
@@ -188,10 +200,17 @@ facts were merged.
   repository roots (`code/futhark/src/Futhark/Passes.hs`, `docs/mojo/Mojo/docs/...`,
   `docs/rocq/doc/sphinx/...`); `docs/j/` is relative to `https://www.jsoftware.com/`
   (`docs/j/help/dictionary/d600n.htm`). The `code/mlir/` addendum adds one file under
-  `python/mlir/`, still relative to `llvm-project/mlir/`.
+  `python/mlir/`, still relative to `llvm-project/mlir/`. The snapshots of 2026-10-10 are
+  relative to their repository roots (`docs/rustc-dev-guide/src/query.md`,
+  `docs/gcc-lto/gcc/lto/lto-partition.cc`); the `docs/llvm/` addendum's one file is
+  `clang/docs/ThinLTO.md`, relative to the `llvm-project/` root, since a `clang/` file has no
+  path under `llvm/`. A stored excerpt of an upstream file carries a suffix that says so
+  (`docs/gcc-lto/gcc/doc/invoke.texi.lto-excerpt`), and its `SNAPSHOT.md` gives the line range
+  and the whole file's SHA-256.
 - **Addenda.** Files added to an existing snapshot at the same revision are described in an
   addendum next to its `SNAPSHOT.md` (`code/mlir/SNAPSHOT.addendum.md`,
-  `code/idris2/SNAPSHOT.dependent-equality.md`), to be merged into it.
+  `code/idris2/SNAPSHOT.dependent-equality.md`, `docs/llvm/SNAPSHOT.sharded-compilation.md`),
+  to be merged into it.
 - **Revisions.** Every snapshot records its resolved commit or tag (its `SNAPSHOT.md` and
   [Pins](#pins)); every stored paper records its source URL and fetch date.
 - **Statuses.** Papers are `stored`, `link-only` (identifier known, no copy stored) or
@@ -231,6 +250,8 @@ facts were merged.
 | `docs/j/` | © Jsoftware Inc., all rights reserved (verify) |
 | `docs/mojo/` | Apache-2.0 WITH LLVM-exception (the Modular repository's `LICENSE`) |
 | `docs/rocq/` | Open Publication License v1.0 (`doc/LICENSE`; options A and B not elected) |
+| `docs/rustc-dev-guide/` (2026-10-10) | MIT OR Apache-2.0 (the repository's `LICENSE-MIT`, `LICENSE-APACHE`) |
+| `docs/gcc-lto/` (2026-10-10) | `lto-partition.cc` GPL-3.0-or-later; the `invoke.texi` excerpt GFDL-1.3-or-later with Invariant Sections and Cover Texts; study only, never copied into this repository's code |
 
 **Papers**, by the licence recorded for the stored copies (each README has the details):
 
@@ -260,6 +281,16 @@ Papers added on 2026-10-09:
 | publisher ©, author or project copy, no licence stated (verify) | ACM: `bailly-2023-size-dependent`, `chakravarty-2011-accelerate`, `henriksen-2013-t2-fusion`, `henriksen-2019-incremental-flattening`, `henriksen-2021-size-types`, `mcdonell-2013-accelerate-optimising`, `slepak-2018-constraint`, `steuwer-2015-lift`, `tillet-2019-triton`, `xi-1998-dml-bounds`; Springer: `cockx-2014-overlapping-patterns`, `gibbons-2017-naperian`, `goguen-2006-eliminating-dependent-pattern-matching`, `grelck-2006-sac`, `mcbride-2000-elimination-motive`, `slepak-2014-remora`; CUP: `mcbride-2004-view-from-left`, `xi-2007-dependent-ml`; IEEE: `munksgaard-2022-memory-optimizations` |
 | none stated on the web edition (verify) | `iverson-1962-programming-language` (© Wiley/Iverson), `iverson-1980-notation-tool-of-thought` and `iverson-1987-dictionary-of-apl` and `hui-1995-rank-uniformity` (ACM © for the proceedings versions), `bernecky-1980-operators-enclosed-arrays`, `bernecky-1983-satn45-rank-operator`, `hui-2009-rank-operator`; `henriksen-2017-futhark-thesis` (PDF) |
 
+Papers added or first indexed on 2026-10-10:
+
+| Licence | Papers |
+| --- | --- |
+| arXiv non-exclusive licence | `glek-2010-gcc-lto`, `zhang-2013-glb` (ACM © for the PPAA version), `gilray-2022-slog` |
+| CC-BY 4.0 | `mokhov-2018-build-systems` (Crossref; the copy says "Copyright held by the owner/author(s)"); `sun-2025-gpu-datalog` (the ACM version; the stored TeX states none) |
+| CC-BY 3.0 (stated on the copy) | `mcsherry-2013-differential-dataflow` |
+| publisher ©, author, project or course copy, no licence stated (verify) | IEEE: `johnson-2017-thinlto`; ACM: `blumofe-1999-work-stealing` (a third-party course copy), `le-2013-weak-memory-work-stealing`, `kuper-2014-freeze-after-writing`, `blelloch-2012-internally-deterministic`, `shun-2014-phase-concurrent-hash`, `jordan-2019-concurrent-btree`, `michael-1996-concurrent-queues`; Springer: `jordan-2016-souffle` |
+| none stated (verify) | `weeks-2006-mlton-whole-program` (slides in the MLton repository), `newton-2016-parallel-type-checking` (draft), `kivity-2019-seastar` (slides) |
+
 The 2026-10-09 passes used the same sources as before: arXiv, publisher open access,
 green-OA repositories (IUScholarWorks, UvA-DARE, Glasgow eprints, Dagstuhl DROPS), author,
 lab and project sites, and the Wayback Machine for one dead author page. No paywall was
@@ -282,7 +313,8 @@ All fetched on 2026-09-26; the three LLVM snapshots (`code/mlir/`, `docs/llvm/`,
 `docs/mlir/`) were re-taken on 2026-10-08 at the new LLVM pin, each from the same file list
 (`docs/llvm/`'s five `.rst` files are now their `.md` successors). The rows after
 `docs/tinygrad/` were fetched on 2026-10-09, as were the addenda to `code/idris2/` (8 files)
-and `code/mlir/` (38 files, read from the bootstrap's clone at the LLVM pin). File counts
+and `code/mlir/` (38 files, read from the bootstrap's clone at the LLVM pin). The last two
+rows, and the `docs/llvm/` addendum (1 file), were fetched on 2026-10-10. File counts
 exclude `SNAPSHOT.md` and the addenda's own `.md` files; the `code/idris2/` and `code/mlir/`
 counts include the files the addenda add.
 
@@ -294,7 +326,7 @@ counts include the files the addenda add.
 | [`code/tinygrad/`](code/tinygrad/SNAPSHOT.md) | `tinygrad/tinygrad` | `b1a9b35bdd89ed2ed3fa69e0786210fbd268b33a` | 19 | A, G, H | `code-tinygrad` |
 | [`docs/ghc/`](docs/ghc/SNAPSHOT.md) | GHC commentary wiki; GHC users guide | none: live hosts (users guide `latest` = the 9.14.1 series) | 22 | D, E, cross-cutting | `docs-ghc`, `docs-ghc-stg-cmm-rts`, `docs-ghc-specialise-specConstr`, `pointers-ghc` |
 | [`docs/idris2/`](docs/idris2/SNAPSHOT.md) | `idris-lang/Idris2` | `1c630e67c386629a0fbbc6b78a59176fde7f0a76` (submodule pin) | 71 | E, D | `docs-idris2` |
-| [`docs/llvm/`](docs/llvm/SNAPSHOT.md) | `llvm/llvm-project`, `llvm/` | main at `7208ba24ca2894729cd394475a00d2a7b605e642` | 11 | F, B, I | `docs-mlir-llvm` |
+| [`docs/llvm/`](docs/llvm/SNAPSHOT.md) | `llvm/llvm-project`, `llvm/` (and `clang/docs/ThinLTO.md`) | main at `7208ba24ca2894729cd394475a00d2a7b605e642` | 12 (11, and 1 in the [2026-10-10 addendum](docs/llvm/SNAPSHOT.sharded-compilation.md)) | F, B, I, sharded-compilation | `docs-mlir-llvm` |
 | [`docs/mlir/`](docs/mlir/SNAPSHOT.md) | `llvm/llvm-project`, `mlir/` | main at `7208ba24ca2894729cd394475a00d2a7b605e642` | 100 | F, B, I | `docs-mlir-llvm` |
 | [`docs/mlton/`](docs/mlton/SNAPSHOT.md) | `MLton/mlton` | `aa2fd1ad9b91375903a4253cfcf1ea5ef2754f37` | 16 | D, G | `docs-mlton` |
 | [`docs/ssa-book/`](docs/ssa-book/SNAPSHOT.md) | `ssabook.gforge.inria.fr` (dead) | Wayback snapshot `20210621194509` | 1 | F, B | `docs-ssa-book`, `book-ssa-compiler-design` |
@@ -318,6 +350,8 @@ counts include the files the addenda add.
 | [`docs/jax/`](docs/jax/SNAPSHOT.md) | `jax-ml/jax` | `40a35abdd67b2298decb7d14e89adf4d120f1902` (main) | 2 | mlir-stack, G | `apl-mlir-stack` |
 | [`docs/mojo/`](docs/mojo/SNAPSHOT.md) | `modular/modular` | `135c332fec9b326cab8e2f3951a0b2f31d017a5d` (main) | 5 | mlir-stack, F, G | `apl-mlir-stack`, `docs-mojo` (in part) |
 | [`code/triton/`](code/triton/SNAPSHOT.md) | `triton-lang/triton` | `11523f38065f52a8117dc3c4d74a2ac59936c19e` (main) | 3 | mlir-stack, G | `apl-mlir-stack` |
+| [`docs/rustc-dev-guide/`](docs/rustc-dev-guide/SNAPSHOT.md) | `rust-lang/rustc-dev-guide` | `20a4fdd79ed91d0e04f7d48919423d799e3375f0` (main) | 4 | sharded-compilation | — |
+| [`docs/gcc-lto/`](docs/gcc-lto/SNAPSHOT.md) | `gcc-mirror/gcc` | `575b8ec6ec455504622d9ad3ac7a8c555c5bcedf` (master) | 2 (one an excerpt) | sharded-compilation | — |
 
 The Idris 2 snapshots were fetched from the pinned raw GitHub URLs because
 `third_party/Idris2` was not checked out at the time; it is now, at the same pin.
@@ -325,7 +359,7 @@ The Idris 2 snapshots were fetched from the pinned raw GitHub URLs because
 ## Pins
 
 Resolved on 2026-09-26, the `llvm/llvm-project` row on 2026-10-08, the rows after
-`ssa-book` on 2026-10-09. Raw bases:
+`ssa-book` on 2026-10-09, except the last two, resolved on 2026-10-10. Raw bases:
 `https://raw.githubusercontent.com/<repo>/<pin>/<path>`.
 
 | Component | Pin | Resolved SHA | Source of truth command | In the library |
@@ -334,7 +368,7 @@ Resolved on 2026-09-26, the `llvm/llvm-project` row on 2026-10-08, the rows afte
 | this repo `origin/main` HEAD, at access time | `main` | `e37040ac93c9ad244097868e16db482a02fd23ef` | `git ls-remote https://github.com/bjornpagen/idris-mlir.git refs/heads/main` | — |
 | local working HEAD, at access time (matched `origin/main`) | `main` | `e37040ac93c9ad244097868e16db482a02fd23ef` | `git rev-parse HEAD` | — |
 | `tinygrad/tinygrad` | `master` | `b1a9b35bdd89ed2ed3fa69e0786210fbd268b33a` | `git ls-remote https://github.com/tinygrad/tinygrad.git refs/heads/master` | `code/tinygrad/`, `docs/tinygrad/` |
-| `MLton/mlton` | `master` | `aa2fd1ad9b91375903a4253cfcf1ea5ef2754f37` | `git ls-remote https://github.com/MLton/mlton.git refs/heads/master` | `code/mlton/`, `docs/mlton/` |
+| `MLton/mlton` | `master` | `aa2fd1ad9b91375903a4253cfcf1ea5ef2754f37` (`master` was `5fe943391e539a502699327a6266b6e8e97939e1` on 2026-10-10; the pin was kept) | `git ls-remote https://github.com/MLton/mlton.git refs/heads/master` | `code/mlton/`, `docs/mlton/`, `papers/weeks-2006-mlton-whole-program/` |
 | `llvm/llvm-project` | main at a pinned commit (`toolchain.lock.json`) | `7208ba24ca2894729cd394475a00d2a7b605e642`; `mlir` subtree `ec52aa1c2a6f38a131b8edffc6390e1c60cbc4e0` | `tools/verify-pins.sh lock llvm revision` | `code/mlir/`, `docs/mlir/`, `docs/llvm/` |
 | `egraphs-good/egg` | `main` | `2f31b28e3f9d78e02273b6c6d4201b5b0720b343` | `git ls-remote https://github.com/egraphs-good/egg refs/heads/main` | not vendored |
 | `egraphs-good/egglog` | `main` | `90635860397ce710f8c0a4eeb04154a8ebc3ac05` | `git ls-remote https://github.com/egraphs-good/egglog refs/heads/main` | not vendored |
@@ -357,6 +391,8 @@ Resolved on 2026-09-26, the `llvm/llvm-project` row on 2026-10-08, the rows afte
 | `jax-ml/jax` | `main` | `40a35abdd67b2298decb7d14e89adf4d120f1902` | `git ls-remote https://github.com/jax-ml/jax.git HEAD` | `code/jax/`, `docs/jax/` |
 | `modular/modular` | `main` | `135c332fec9b326cab8e2f3951a0b2f31d017a5d` | `git ls-remote https://github.com/modular/modular.git HEAD` | `docs/mojo/` |
 | `triton-lang/triton` | `main` | `11523f38065f52a8117dc3c4d74a2ac59936c19e` | `git ls-remote https://github.com/triton-lang/triton.git refs/heads/main` | `code/triton/` |
+| `rust-lang/rustc-dev-guide` | `main` | `20a4fdd79ed91d0e04f7d48919423d799e3375f0` | `git ls-remote https://github.com/rust-lang/rustc-dev-guide.git HEAD` | `docs/rustc-dev-guide/` |
+| `gcc-mirror/gcc` | `master` (= `trunk`) | `575b8ec6ec455504622d9ad3ac7a8c555c5bcedf` | `git ls-remote https://github.com/gcc-mirror/gcc.git HEAD` | `docs/gcc-lto/` |
 | GHC | not vendored (live docs) | — | pointer only: `docs/ghc/SNAPSHOT.md` | `docs/ghc/` |
 | SSA book | Wayback snapshot `20210621194509` | — | `docs/ssa-book/SNAPSHOT.md` | `docs/ssa-book/` |
 
@@ -376,7 +412,9 @@ The reproducible access record of the sources pass (plan step `access`, formerly
 of every paper candidate, and the exact fetch commands for the collection steps. All probes
 and API lookups were run on **2026-09-26**. Section numbers §1–§4 are that record's; the
 paper READMEs cite them. The array-languages passes of **2026-10-09** add §1b, §3e, §3f, §3g
-and §4.10–§4.14, gathered in [their own subsection](#array-languages-passes-2026-10-09).
+and §4.10–§4.14, gathered in [their own subsection](#array-languages-passes-2026-10-09); the
+sharded-compilation pass of **2026-10-10** adds §1c, §3h, §3i and §4.15, in
+[the subsection after it](#sharded-compilation-pass-2026-10-10).
 
 ### Reachability
 
@@ -936,6 +974,118 @@ for p in include/triton/Dialect/Triton/IR/TritonOps.td include/triton/Dialect/Tr
 git -C .toolchain/llvm-project cat-file blob 7208ba24ca2894729cd394475a00d2a7b605e642:mlir/<path>
 ```
 
+### Sharded-compilation pass (2026-10-10)
+
+The owner approved fetching exactly the fifteen items of the two notes' snapshot tables
+(`notes/sharded-compilation/whole-program-at-scale.md` §10,
+`notes/sharded-compilation/deterministic-fixpoints.md` §8); nothing else was downloaded. Every
+item was stored. Each download went into its own new, empty folder; nothing was built, run or
+imported from a download, and PDFs were read only with `pdftotext`.
+
+§1c. **Reachability**, observed 2026-10-10 with
+`curl -sL --fail --max-time 180 -w "%{http_code} %{content_type} %{size_download} %{url_effective}"`.
+
+| Host | Status | What it serves | Notes |
+| --- | --- | --- | --- |
+| `storage.googleapis.com` (`/gweb-research2023-media/pubtools/`) | 200 | Google Research publication PDFs | ThinLTO. |
+| `arxiv.org` (`/e-print/<id>`) | 200 `application/gzip` | redirects to `/src/<id>` | Three e-prints. |
+| `export.arxiv.org` (`/api/query`) | 200 | arXiv Atom API | Metadata and title searches; no rate limiting seen. |
+| `www.microsoft.com/en-us/research/uploads/prod/` | 403 with `-A "Mozilla/5.0"`; 200 without | redirects to `/wp-content/uploads/` | The User-Agent, not the URL, was refused. |
+| `raw.githubusercontent.com` | 200 | files at a pinned commit | MLton, rustc-dev-guide, LLVM, GCC. `clang/docs/ThinLTO.rst` at the LLVM pin: 404 (now `ThinLTO.md`). |
+| `api.github.com` | 200 | trees, commits, directory contents | Commit dates, the rustc-dev-guide tree, the MLton file's history, GCC directory listings. |
+| `klasses.cs.uchicago.edu` | 200 | a course reading list | Blumofe–Leiserson (third-party course copy). |
+| `fzn.fr` | 200 | Zappa Nardelli's papers | Author host. |
+| `www.cl.cam.ac.uk/~nk480/` | 200 | Krishnaswami's papers | Author host. |
+| `jshun.csail.mit.edu` | 200 | Shun's papers | Author host. |
+| `www.cidrdb.org` | 200 | CIDR proceedings | `http` redirects to `https`. |
+| `api.crossref.org` | 200 | DOI metadata | Every DOI below. |
+
+§3h. **Identifier resolution**, papers stored or first indexed on 2026-10-10:
+
+| Shortname | Canonical link | Fetch used | Licence recorded | Status |
+| --- | --- | --- | --- | --- |
+| `johnson-2017-thinlto` | https://doi.org/10.1109/CGO.2017.7863733 | https://storage.googleapis.com/gweb-research2023-media/pubtools/4743.pdf | IEEE © | resolved (Crossref) |
+| `glek-2010-gcc-lto` | https://arxiv.org/abs/1010.2196 (no DOI) | https://arxiv.org/e-print/1010.2196 | arXiv non-exclusive | resolved (arXiv API; journal reference "Proceedings of the 2010 GCC Developers' Summit") |
+| `mokhov-2018-build-systems` | https://doi.org/10.1145/3236774 | https://www.microsoft.com/en-us/research/uploads/prod/2018/03/build-systems-a-la-carte.pdf | CC-BY 4.0 | resolved (Crossref) |
+| `weeks-2006-mlton-whole-program` | https://doi.org/10.1145/1159876.1159877 (one-page proceedings entry) | MLton repository at `aa2fd1ad`, `doc/guide/src/References.attachments/060916-mlton.pdf` | none stated | resolved (Crossref; already in the bibliography) |
+| `blumofe-1999-work-stealing` | https://doi.org/10.1145/324133.324234 | https://klasses.cs.uchicago.edu/archive/2011/winter/32102-1/reading/steal.pdf | ACM © | resolved (Crossref) |
+| `le-2013-weak-memory-work-stealing` | https://doi.org/10.1145/2442516.2442524 | https://fzn.fr/readings/ppopp13.pdf | ACM © | resolved (Crossref) |
+| `zhang-2013-glb` | https://arxiv.org/abs/1312.5691 (DOI 10.1145/2567634.2567639) | https://arxiv.org/e-print/1312.5691 | arXiv non-exclusive | resolved (arXiv API; the PPAA 2014 DOI by Crossref, matched by title and authors) |
+| `kuper-2014-freeze-after-writing` | https://doi.org/10.1145/2535838.2535842 | https://www.cl.cam.ac.uk/~nk480/lvish-popl.pdf | ACM © | resolved (Crossref) |
+| `blelloch-2012-internally-deterministic` | https://doi.org/10.1145/2145816.2145840 | https://jshun.csail.mit.edu/determ.pdf | ACM © | resolved (Crossref) |
+| `shun-2014-phase-concurrent-hash` | https://doi.org/10.1145/2612669.2612687 | https://jshun.csail.mit.edu/hash.pdf | ACM © | resolved (Crossref) |
+| `gilray-2022-slog` | https://arxiv.org/abs/2211.11573 | https://arxiv.org/e-print/2211.11573 | arXiv non-exclusive | resolved (arXiv API; no journal reference) |
+| `mcsherry-2013-differential-dataflow` | http://www.cidrdb.org/cidr2013/Papers/CIDR13_Paper111.pdf (no DOI) | same | CC-BY 3.0 | URL only (CIDR has no DOIs) |
+| `jordan-2016-souffle` | https://doi.org/10.1007/978-3-319-41540-6_23 | not recorded (stored before this pass) | Springer © | resolved (Crossref) |
+| `jordan-2019-concurrent-btree` | https://doi.org/10.1145/3293883.3295719 | not recorded | ACM © | resolved (Crossref) |
+| `newton-2016-parallel-type-checking` | none for the draft; related published version https://doi.org/10.1145/2851141.2851142 | not recorded | none stated | resolved-corrected: the folder holds Fogg, Tobin-Hochstadt, Newton, "Parallel Type-checking with Saturating LVars" (draft); the published PPoPP 2016 version has a different title |
+| `sun-2025-gpu-datalog` | https://doi.org/10.1145/3669940.3707274 (arXiv 2311.02206) | not recorded | CC-BY 4.0 (ACM version) | resolved (Crossref; arXiv API) |
+
+An arXiv title search found no TeX version of the nine PDF papers of this pass.
+
+§3i. **Non-paper source URLs** of 2026-10-10:
+
+| Source | Canonical base URL | Pin |
+| --- | --- | --- |
+| rustc-dev-guide | https://raw.githubusercontent.com/rust-lang/rustc-dev-guide/20a4fdd79ed91d0e04f7d48919423d799e3375f0/ (rendered: https://rustc-dev-guide.rust-lang.org/) | `20a4fdd7…` |
+| clang docs | https://raw.githubusercontent.com/llvm/llvm-project/7208ba24ca2894729cd394475a00d2a7b605e642/clang/docs/ | the LLVM pin |
+| GCC (mirror) | https://raw.githubusercontent.com/gcc-mirror/gcc/575b8ec6ec455504622d9ad3ac7a8c555c5bcedf/ | `575b8ec6…` |
+| MLton attachments | https://raw.githubusercontent.com/MLton/mlton/aa2fd1ad9b91375903a4253cfcf1ea5ef2754f37/doc/guide/src/References.attachments/ | the library's MLton pin |
+
+#### 4.15 Sharded compilation: PDFs, arXiv e-prints, rustc-dev-guide, clang ThinLTO, GCC LTO
+
+```bash
+# pins
+git ls-remote https://github.com/rust-lang/rustc-dev-guide.git HEAD
+git ls-remote https://github.com/gcc-mirror/gcc.git HEAD
+git ls-remote https://github.com/MLton/mlton.git HEAD   # master moved; the library pin aa2fd1ad was used
+
+# PDFs, one new folder each
+fetch() { mkdir "papers/$1" && curl -sL --fail --max-time 180 -A "Mozilla/5.0" -o "papers/$1/$2" "$3"; }
+fetch johnson-2017-thinlto paper.pdf https://storage.googleapis.com/gweb-research2023-media/pubtools/4743.pdf
+fetch weeks-2006-mlton-whole-program slides.pdf https://raw.githubusercontent.com/MLton/mlton/aa2fd1ad9b91375903a4253cfcf1ea5ef2754f37/doc/guide/src/References.attachments/060916-mlton.pdf
+fetch blumofe-1999-work-stealing paper.pdf https://klasses.cs.uchicago.edu/archive/2011/winter/32102-1/reading/steal.pdf
+fetch le-2013-weak-memory-work-stealing paper.pdf https://fzn.fr/readings/ppopp13.pdf
+fetch kuper-2014-freeze-after-writing paper.pdf https://www.cl.cam.ac.uk/~nk480/lvish-popl.pdf
+fetch blelloch-2012-internally-deterministic paper.pdf https://jshun.csail.mit.edu/determ.pdf
+fetch shun-2014-phase-concurrent-hash paper.pdf https://jshun.csail.mit.edu/hash.pdf
+fetch mcsherry-2013-differential-dataflow paper.pdf http://www.cidrdb.org/cidr2013/Papers/CIDR13_Paper111.pdf
+mkdir papers/mokhov-2018-build-systems   # Microsoft refuses the browser User-Agent (403); without it:
+curl -sL --fail -o papers/mokhov-2018-build-systems/paper.pdf https://www.microsoft.com/en-us/research/uploads/prod/2018/03/build-systems-a-la-carte.pdf
+
+# arXiv e-prints (§4.2), each unpacked into a new folder
+for p in 1010.2196:glek-2010-gcc-lto 1312.5691:zhang-2013-glb 2211.11573:gilray-2022-slog; do
+  id=${p%%:*}; d=papers/${p#*:}; mkdir -p /tmp/arxiv-$id "$d"
+  curl -L --fail -o /tmp/arxiv-$id/src https://arxiv.org/e-print/$id && tar -xzf /tmp/arxiv-$id/src -C "$d"
+done
+rm papers/zhang-2013-glb/glbx10.bbl     # orphan: x10.bib not shipped
+rm papers/gilray-2022-slog/toplas.out   # generated
+
+# rustc-dev-guide chapters
+rdg=20a4fdd79ed91d0e04f7d48919423d799e3375f0
+for p in src/query.md src/queries/incremental-compilation.md \
+         src/queries/incremental-compilation-in-detail.md src/backend/monomorph.md; do
+  mkdir -p "docs/rustc-dev-guide/$(dirname $p)"
+  curl -sL --fail -o "docs/rustc-dev-guide/$p" "https://raw.githubusercontent.com/rust-lang/rustc-dev-guide/$rdg/$p"; done
+
+# clang ThinLTO page at the LLVM pin (ThinLTO.rst is 404 at this revision)
+mkdir -p docs/llvm/clang/docs
+curl -sL --fail -o docs/llvm/clang/docs/ThinLTO.md \
+  https://raw.githubusercontent.com/llvm/llvm-project/7208ba24ca2894729cd394475a00d2a7b605e642/clang/docs/ThinLTO.md
+
+# GCC: the partitioner whole, invoke.texi fetched outside the library and excerpted
+gcc=575b8ec6ec455504622d9ad3ac7a8c555c5bcedf
+mkdir -p docs/gcc-lto/gcc/lto docs/gcc-lto/gcc/doc
+curl -sL --fail -o docs/gcc-lto/gcc/lto/lto-partition.cc https://raw.githubusercontent.com/gcc-mirror/gcc/$gcc/gcc/lto/lto-partition.cc
+curl -sL --fail -o /tmp/invoke.texi https://raw.githubusercontent.com/gcc-mirror/gcc/$gcc/gcc/doc/invoke.texi
+sed -n 16003,16343p /tmp/invoke.texi > docs/gcc-lto/gcc/doc/invoke.texi.lto-excerpt
+
+# metadata
+curl -s "https://api.crossref.org/works/<doi>"
+curl -s "https://export.arxiv.org/api/query?id_list=1010.2196,1312.5691,2211.11573"
+curl -s "https://api.github.com/repos/<owner>/<repo>/commits/<sha>"
+```
+
 ## How the papers were collected
 
 All on 2026-09-26, recorded in commits `4d95feb` and `ae672fe` (the passes overlapped: the
@@ -979,6 +1129,14 @@ counts.
   (`henriksen-thesis`, `sac-language`, `dex-papers`), 19 new snapshots and the `code/idris2/`
   and `code/mlir/` addenda; `code-dex` and `code-futhark` moved from
   [Planned sources not collected](#planned-sources-not-collected) into the library.
+- **Sharded-compilation pass** (2026-10-10), for proposal 0012: the cluster read its
+  sources online and wrote the two notes in `notes/sharded-compilation/`; once the owner
+  approved the notes' snapshot tables, this pass fetched exactly those fifteen items into new
+  folders and recorded them here, in [INDEX.md](INDEX.md) and in
+  [bibliography.bib](bibliography.bib).
+  Outcomes: 12 papers stored (3 arXiv TeX, 9 PDF, one of them talk slides), 2 new snapshots
+  (`docs/rustc-dev-guide/`, `docs/gcc-lto/`) and the `docs/llvm/` addendum, nothing left
+  unstored; six folders already stored were indexed for the first time.
 
 ## Open-access acquisition
 
@@ -1105,6 +1263,10 @@ rows, the shortname used here, as the manifest planned) and moves to the stored 
 | `cockx-2018-proof-relevant-unification` | 10.1017/S095679681800014X | yes | https://jesper.cx/files/proof-relevant-unification.pdf | author site | author version | CUP © | author page | fetched, **not stored**: revised as chapter 3 of the thesis | nothing; store it if wanted |
 | `gregoire-2005-ring` | 10.1007/11541868_7 | HAL (Anubis) | — | HAL | — | Springer © | Frex related work | **not attempted** beyond identification | a browser session for HAL |
 
+**2026-10-10.** The sharded-compilation pass stored every item it was approved to fetch;
+it adds no row here. Its notes cite further sources read online and not stored (each marked
+there); they are not targets until approved.
+
 The rest have no canonical target to fetch and are in [INDEX.md](INDEX.md)'s "Unresolved"
 tables: the rows the plan gave no author or title for (warm and shortcut fusion,
 destination-passing style, SaC, MLGO/CompilerGym, autotuning surveys, e-graph extraction
@@ -1179,6 +1341,11 @@ entries added to cover the catalogued papers, de-duplicated by citation key
   entries were completed in place: `DMLBoundsChecking` (doi), `trojahner2009dependently` (the
   mis-encoded apostrophe of "don't", doi), `Slepak:PhD` (the note "In preparation" replaced
   by month and url), `APL` (url), `RingSolver` (doi).
+- **Sharded-compilation pass (2026-10-10):** 13 entries appended in a final section, keyed by
+  the library shortnames (eleven papers and the two new snapshots) → 765 entries, no two
+  sharing a key or DOI. The count before it, 752, includes the entries the 2026-10-09
+  additions appended after the array-languages section. `weeks-2006-mlton-whole-program`
+  already had an entry (`Weeks:2006:WCM:1159876.1159877`) and was not entered twice.
 - **Sources:** the 13 per-paper files are `bhat-2022-lambda-ultimate-ssa/references.bib`,
   `brady-2021-idris2-qtt/idris-qtt.bib`, `koehler-2021-sketch-eqsat/reference.bib`,
   `lattner-2020-mlir/references.bib`, `shivers-2019-remora/refs.bib`,
@@ -1327,6 +1494,18 @@ found while fetching"):
   a subdirectory; it is kept as shipped, and the top-level files are the ones `ms.tex`
   inputs.
 
+**From the sharded-compilation pass** (2026-10-10):
+- `clang/docs/ThinLTO.rst`, as the pass named it, is 404 at the LLVM pin: the page is
+  `clang/docs/ThinLTO.md` (converted to Markdown, like five `docs/llvm/` files before it).
+- `papers/newton-2016-parallel-type-checking/` holds Fogg, Tobin-Hochstadt, Newton, "Parallel
+  Type-checking with Saturating LVars", a draft; the folder name is misleading and was kept.
+  Its published short version is "Parallel type-checking with Haskell using saturating LVars
+  and stream generators" (PPoPP 2016, 10.1145/2851141.2851142).
+- `weeks-2006-mlton-whole-program` was proposed as slides with no DOI; the talk has a one-page
+  entry in the ML '06 proceedings (10.1145/1159876.1159877), already in the bibliography.
+- Microsoft Research refused the browser User-Agent (403) used for the other fetches, and
+  served the same URL without it.
+
 ## Known holes
 
 - **Empty `third_party/Idris2` at collection time.** The Idris 2 material came from pinned
@@ -1354,6 +1533,7 @@ found while fetching"):
 - **Addenda not merged.** `code/mlir/SNAPSHOT.addendum.md` and
   `code/idris2/SNAPSHOT.dependent-equality.md` describe files added on 2026-10-09; their
   text is to be merged into the two `SNAPSHOT.md` files (counts 94 → 132 and 30 → 38).
+  Likewise `docs/llvm/SNAPSHOT.sharded-compilation.md` (2026-10-10; 11 → 12).
 - **Hosts behind challenges (2026-10-09):** `code.jsoftware.com` (NuVoc) and `aplwiki.com`
   answer scripted fetches with a Cloudflare challenge, and HAL with Anubis; none was solved
   or evaded, so NuVoc, the APL Wiki, `cockx-2021-taming-rew` and `gregoire-2005-ring` are
@@ -1365,9 +1545,17 @@ found while fetching"):
   transcribed (the preface, Chapter 1 and part of Chapter 3).
 - **Personal-use copies:** `trojahner-2009-qube` and `cockx-2016-unifiers-as-equivalences`
   must not be redistributed.
-- **Not yet indexed:** nineteen paper folders and six documentation snapshots added on
+- **Not yet indexed:** seventeen paper folders and six documentation snapshots added on
   2026-10-07 (commit `cb65104d`; listed in [INDEX.md](INDEX.md#summary) and under
-  [Layout](#layout)) have no rows in [INDEX.md](INDEX.md) or in this file's tables.
+  [Layout](#layout)) have no rows in [INDEX.md](INDEX.md) or in this file's tables
+  (`kivity-2019-seastar` and `michael-1996-concurrent-queues` were indexed on 2026-10-10).
+- **Folders without provenance:** `papers/jordan-2016-souffle/`,
+  `papers/jordan-2019-concurrent-btree/`, `papers/newton-2016-parallel-type-checking/`,
+  `papers/sun-2025-gpu-datalog/` and `papers/pacak-2020-incremental-type-checkers/`
+  (commit `96156233`, 2026-10-09) have no `README.md`, so their source URLs and fetch dates are
+  unknown; the first four are indexed since 2026-10-10 from their content and Crossref, and
+  `pacak-2020-incremental-type-checkers` is not indexed. `docs/rustc-parallel/` (same commit)
+  has no `SNAPSHOT.md` and no recorded revision.
 
 ## Open questions at handoff
 

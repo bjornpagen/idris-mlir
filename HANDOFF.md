@@ -76,7 +76,9 @@ reproduce them, and refreshes their fingerprints.
 - 0008: OpenTelemetry;
 - 0009: the compiler features self-hosting asked for;
 - 0010: a data-oriented, array-first frontend;
-- 0011: the relational core, shared by the compiler and bumbledb.
+- 0011: the relational core, shared by the compiler and bumbledb;
+- 0012: a sharded whole-program compiler, after 0004 and 0005;
+- 0013: static normalization on the type checker's interpreter; no compile-time evaluation feature (decided, not built).
 
 The research behind 0004, 0006 and 0007 is in `sources/`, with reading
 notes in `sources/notes/`. Contiguous runs (one run cell for strings,

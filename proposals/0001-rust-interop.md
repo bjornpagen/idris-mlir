@@ -142,8 +142,8 @@ the design:
 9. **Two first-class targets**, x86_64 Linux (musl, static PIE) and arm64
    macOS, decided in one place, the target entry in CMakeLists.txt.
 10. **No primitive has an implementation in Idris.** A shim is the one
-    meaning of its Rust call at runtime. Compile-time evaluation reaches
-    it only through the JIT (§11), never through an Idris re-implementation.
+    meaning of its Rust call at runtime. No Rust call runs at compile
+    time (§11).
 11. **No C** (**decision**, 2026-10-09). Rust is the one foreign world.
     Nothing here reads a C header, binds a C function, or lets a program
     or a library declare or call a C symbol, and nothing is planned to:
@@ -188,7 +188,6 @@ the design:
 
 - async Rust driven by the Idris runtime's own futures, once that runtime
   has them (§12);
-- compile-time evaluation of calls the manifest declares pure (§11);
 - protocol overlays in Brady's style (§10).
 
 ## 4. The pieces
@@ -695,8 +694,8 @@ own drop glue, `IdrisValue` included.
   call `idris_rt_dec` recursively. It pushes onto the current dying list
   through a new runtime entry, `idris_rt_release_deferred`, so freeing
   still takes constant stack however Rust and Idris objects interleave.
-- **Persistent foreign cells never exist.** Compile-time evaluation never
-  makes one (§11), so static data never holds one.
+- **Persistent foreign cells never exist.** No foreign call runs at
+  compile time (§11), so static data never holds one.
 
 **Dialect.** A counted type `!idr.foreign<"path::Type">`, a member of
 `Idr_CountedValueType`, at every grade like the others. Layout/ gives it
@@ -752,7 +751,7 @@ the shim is ordinary Rust that rustc lowers as it lowers any Rust.
 
 The world: pure bindings run their calls under `unsafePerformIO` inside
 the trusted package, as `Linear.Array` does. The forged world orders them
-with every other effect, and it keeps compile-time evaluation off them.
+with every other effect.
 
 ### 9.3 Linking
 
@@ -811,8 +810,6 @@ and `idris_rt_free`, plus new `idris_rt_alloc_aligned` and
 
 - Rust and Idris share one heap and one set of size classes, and any
   block may be freed from any thread (`idris_rt.h`).
-- In compile-time evaluation's child, the runtime's allocations go to the
-  arena already (`idris_rt_eval_begin`), so Rust's would too (§11).
 - The allocator entries carry LLVM's allocation attributes
   (`allockind`, `alloc-family`), so that after `linkRust` LLVM can delete
   an allocation and free pair it sees whole.
@@ -866,29 +863,11 @@ rollback : (1 _ : Tx Open) -> IO ()
 
 ## 11. Compile-time evaluation
 
-In v1, no Rust call runs at compile time. Every binding's call threads a
-world, so every function that reaches one performs IO, and `idr-eval`
-leaves it alone (Passes.td: "functions that perform no IO"; read).
-
-**Later (R4).** Items the manifest declares `pure` would get a pure op,
-`idr.rust.call_pure`, with no world, and `idr-eval` would run them. The
-JIT (Eval/Jit.cppm) binds nothing by name: every symbol comes from an
-absolute table. So the shim's bitcode and the `std` it reaches would be
-compiled into the round's JIT module along with the runtime's. Four
-problems are open:
-
-1. **Allocation:** solved already. Rust's allocator is the runtime's, and
-   the runtime's is the arena in the child.
-2. **Reification:** results must be of Idris types (§7.2).
-   A result that is a foreign cell cannot be reified (`Reifier` has no
-   layout for one), so the call stays for runtime, as a result too large
-   stays.
-3. **libc:** `std` calls libc beyond the JIT's table (`write`,
-   `pthread_*`). Either a pure item's call graph reaches none of them,
-   which can be checked at the bitcode level, or the call stays.
-4. **Budget:** pure Rust code is metered as partial Idris code is, through
-   `idris_rt_eval_tick` at loop heads that idr-lower cannot insert into
-   Rust code. Under a wall-clock budget instead, the call stays.
+No Rust call runs at compile time. The compiler has no compile-time
+evaluation feature; it normalizes the static part of the program on the
+type checker's interpreter (0013), which has no foreign world to call
+into: a binding's call is stuck there and runs at run time. The stage that
+would have run calls the manifest declares `pure` is withdrawn.
 
 ## 12. Async, later, with the Idris runtime as the executor
 
@@ -993,7 +972,7 @@ new pool green on both target entries.
 - **R3, generics and callbacks.** `IdrisValue` containers and the
   cycle-check edge, callbacks through exported apply entries, and
   `i128`.
-- **R4, pure calls at compile time** (§11).
+- **R4** is withdrawn: no call runs at compile time (§11, 0013).
 - **R5, async on the Idris executor** (§12), when the runtime has one.
 
 **Size (conjecture):**

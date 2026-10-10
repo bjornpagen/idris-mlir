@@ -690,7 +690,7 @@ thaw       : Array s a -> ((1 _ : LArray s a) -> Ur b) -> b
   is in place, and under `--demand-in-place` a write that is not is
   `unsupported (uniqueness)` naming One-Shot's conflict (§5.4).
 
-### 3.9 Totality and compile-time evaluation
+### 3.9 Totality and static normalization
 
 - **Total by construction.** Every core operation is total when its
   function arguments are. Rank recursion is structural recursion on the
@@ -704,11 +704,11 @@ thaw       : Array s a -> ((1 _ : LArray s a) -> Ur b) -> b
 
   It is total at every rank, a shape variable's included (measured:
   `Core2.idr`).
-- **Evaluated when closed.** Compile-time evaluation follows upstream
-  Idris (AGENTS.md): every closed call of pure code is evaluated. A
-  closed computation of an array of words becomes a dense constant,
-  `arith.constant dense<...> : tensor<...>`, within idr-eval's budget
-  and its 1 MiB limit on results (read: Passes.td:119-157) (decision
+- **Normalized when closed and total.** The frontend normalizes every
+  closed call of total code (0013). A closed total computation of an array
+  of words becomes a dense constant, `arith.constant dense<...> :
+  tensor<...>`, within the counted budget and the static-data cap, and a
+  startup constant beyond them; partial code is never normalized (decision
   D13).
 - **Finitely many instances.** Rank recursion calls the instance of a
   shorter skeleton; a skeleton that grows at each call is collapsed
@@ -1292,9 +1292,8 @@ changes the types bring.
 - **Readers that change with it.** `isArrayLoop` answers for every
   `linalg` structured op; `pure-array-loops` states its property of the
   generics.
-- **Order.** The frontend's tensors, the simplify loop (idr-eval lowers a
-  closed array call through idr-tensorize and idr-bufferize in its own
-  pipeline), idr-defunctionalize, idr-tensorize, fusion, sharding and
+- **Order.** The frontend's tensors, the simplify loop,
+  idr-defunctionalize, idr-tensorize, fusion, sharding and
   partition, tiling, idr-bufferize, idr-rc, idr-tail-loops, idr-stack,
   idr-lower, idr-vectorize.
 
@@ -1339,9 +1338,9 @@ The library's plain definitions are the meaning of the array type and
 its core; the compiler's representation is a faster lowering of that
 meaning, the registry's rule for every hook. (decision D5) Every test of
 the array library runs three ways against one set of expected files:
-with compile-time evaluation and without it, as every program test runs
-(read: `tests/README.md`), and with the registry's array hooks off, so
-that the plain definitions run. "Faster, never different" is then a test.
+with static normalization and without it, as every program test runs
+(read: `tests/README.md`; kept by 0013 D5), and with the registry's array
+hooks off, so that the plain definitions run. "Faster, never different" is then a test.
 No other implementation is asked.
 
 ## 6. Rules of AGENTS.md it keeps
@@ -1671,7 +1670,7 @@ map is the structure itself.
 
 ### D5. The meaning, tested three ways
 
-Every typed-array test runs with and without compile-time evaluation
+Every typed-array test runs with and without static normalization
 and with the array hooks off, against one set of expected files (§5.6).
 Reason: the registry's rule, "faster, never different", becomes a
 checked property, with no implementation but this repository's.
@@ -1753,12 +1752,12 @@ is boxed. Reason: §5.2; Futhark, Dex and SaC make the first two moves
 (read: §5.2's sources), and counting through bufferization's copy hook
 keeps every other element on the tensor path.
 
-### D13. Closed arrays are constants
+### D13. Closed total arrays are constants
 
-A closed computation of an array of words is evaluated at compile time
-into a dense tensor constant, within idr-eval's budget and its 1 MiB
-limit on results. Reason: AGENTS.md's compile-time evaluation applies to
-every closed call of pure code; a dense constant is what `linalg`
+A closed total computation of an array of words is normalized in the
+frontend into a dense tensor constant, within the counted budget and the
+static-data cap, and is a startup constant beyond them. Reason: 0013's
+static normalization covers total code; a dense constant is what `linalg`
 consumers fold.
 
 ## 10. Upstream used

@@ -1,0 +1,9 @@
+GCC has a new infrastructure to support a link time optimization (LTO). The
+infrastructure is designed to allow linking of large applications
+using a special mode (WHOPR) which support parallelization of the compilation process.
+In this paper we present overview of the design and
+implementation of WHOPR and present test results of its behavior when optimizing large applications. We
+give numbers on compile time, memory usage and code quality comparisons to the
+classical file by file based optimization model. In particular we focus on Firefox web
+browser. We show main problems seen only when compiling a large
+application, such as startup time and code size growth.

@@ -1,0 +1,19 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+%Datalog is an increasingly-popular implementation language for static
+%analyses and other formal systems due to its balance of expressivity
+%and performance.
+In this work we extended Datalog with subfacts,
+explicating a core language, \core{}, which supports subfacts as
+first-class facts, values, and threads. This straightforward semantic extension enables
+several key innovations, including the expression of higher-order
+functions via defunctionalization, subfact indexing,
+and a rich connection to constructive logic via the proofs-as-programs
+interpretation. We have implemented these ideas in \slog{}, a fully featured language
+for data-parallel structured deduction, using a new MPI-based relational algebra backend,
+and we demonstrate its application to operational semantics, abstract interpreters, and
+formal systems broadly. Our experiments show that \slog{} is competitive with,
+or (when programming with structured heap data) orders-of-magnitude faster
+than state-of-the-art systems, showing improved data-parallelism and scaling
+up to hundreds of cores on large unified machines and high-performance clusters.

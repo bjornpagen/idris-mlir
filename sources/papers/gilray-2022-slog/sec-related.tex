@@ -1,0 +1,134 @@
+\section{Related and Future Work}
+\label{sec:related}
+
+\paragraph*{Distributed Datalog}
+
+There have been significant implementation efforts to scale
+Datalog-like languages to large clusters of machines. For example,
+BigDatalog~\cite{bigdl}, Distributed SociaLite~\cite{Seo:2013},
+Myria~\cite{Halperin:2014}, and Radlog~\cite{Gu:2019} all run on
+Apache Spark clusters (servers networked together via commodity
+switches within a datacenter). Extending Spark's architecture with
+recursive queries (and aggregates), these frameworks scale to large
+datasets typical of Spark queries. \slog{} differs from these systems
+in two primary ways. First, compared to \slog{}'s MPI-based
+implementation, Apache Spark's framework-imposed overhead is
+increasingly understood to be a bottleneck in scalable data analytics
+applications, with several authors noting order-of-magnitude
+improvements when switching from Spark to
+MPI~\cite{SparkBadMPIGood,Kumar:2017,Anderson:2017}. Second,
+none of the aforementioned systems support first-class subfacts; for
+example, while Radlog can compute the length of the shortest path from
+a specific point, it cannot materialize the path per-se. Recently,
+Radlog's authors have created DCDatalog, a parallel Datalog which
+targets shared-memory SMP architectures and demonstrate a $10\times$
+runtime speedup compared to Souffl\'e on a machine with four
+eight-core processors and 256GB of RAM. Unfortunately, DCDatalog is
+not open-source, and we have not been able to obtain a copy for
+evaluation; we believe it is difficult to interpret DCDatalog's
+results compared to \slog{} and Souffl\'e, as their paper notes
+``Souffl\'e does not allow aggregates in recursion, and thus it must
+use a stratified query that results in very poor performance'' for
+several evaluation queries. Last, Nexus (also closed-source) has
+claimed a significant performance boost (up to $4\times$) compared to
+BigDatalog by using Apache Flink, a data-flow processing
+language~\cite{Muhammad:2022}.
+
+\paragraph*{Datalog Extensions}
+
+Noting the first-order nature of vanilla Datalog---and often inspired
+by Datalog's efficient semi-na\"ive evaluation strategy---there has
+been extensive work in extending Datalog with additional expressive
+power~\cite{flix-madsen2016,Madsen:2018,formulog-bembenek2020,Arntzenius:2016,Arntzenius:2019}. Flix
+augments Datalog with lattices~\cite{flix-madsen2016,Madsen:2018}, but
+is not specifically focused on efficient compilation; recently, Ascent
+is a macro-based implementation of Datalog in Rust which includes
+lattices and shows orders-of-magnitude runtime improvements versus
+Flix~\cite{Sahebolamri:2022}. Similarly, Datafun is a pure functional
+language which computes fixed points of monotone maps on
+semilattices~\cite{Arntzenius:2016,Arntzenius:2019}. Compared to
+\slog{}, Datafun's evaluation strategy is top-down and based on the
+$\lambda$-calculus; the authors have recently studied semi-na\:ive
+evaluation of Datafun upon work on the incremental
+$\lambda$-calculus~\cite{Giarrusso:2019,Yufei:2014}. \slog{}'s primary
+difference from this work is that it is based on \core{} rather than
+the $\lambda$-calculus; because of this, semi-na\"ive evaluation for
+functions in \slog{} (using defunctionalization) requires no extra
+logic.
+
+\paragraph*{Datalog + Constraints}
+
+An increasingly-popular semantic extension to Datalog is adding
+first-class
+constraints~\cite{formulog-bembenek2020,Madsen:2020,Emina:2013,Torlak:2014}. These
+constraints typically allow interfacing with an SMT solver,
+potentially in a loop with subsequent
+analysis~\cite{formulog-bembenek2020}.  Formulog includes ADTs and
+first-order functions over ADTs, allowing Turing-equivalent to build
+formulas of arbitrary size to be checked by
+Z3~\cite{formulog-bembenek2020}; we anticipate \slog{} will perform
+well compared to Formulog when subfact-indexing is of concern, though
+by Amdahl's law this effect will be smaller in code whose computation
+is dominated by calls to Z3. Similarly, Rosette efficiently compiles
+solver-aided queries to efficient implementations using host language
+constructs and a symbolic virtual machine
+(SVM)~\cite{Emina:2013,Torlak:2014}. \slog{} is largely orthogonal to
+these systems, which focus on shared-memory implementations and are
+not primarily concerned with parallelization. We have transliterated
+proof-of-concept examples from both of these projects into \slog{},
+but it is currently impossible to call Z3 from \slog{} as doing so
+would require all facts be resident on a single node. Semantically,
+\slog{} is more directly comparable to constrained HornSAT or
+existential fixed-point logic, which have attracted recent interest
+for their application to program
+verification~\cite{Fedyukovich:2018,Blass1987,Bjorner:2015,Arie:2022}. \core{}
+can express constrained HornSAT problems as long as a decision
+procedure for the background logic is available; we plan to study
+usage of \slog{} for CHCs in subsequent work.
+
+%% \paragraph*{Implementation Languages for Formal Systems}
+
+%% There have been many efforts to design languages that allow
+%% expressing, reasoning about, and implementing formal
+%% systems~\cite{,ROSU2010397,Matthias:2009,
+
+
+%% \paragraph*{Equality Saturation and Congruence Closure}
+
+%% Like our implementation of \lf{}, many other formal systems rely upon
+%% congruence closure. Tate et al. introduced the concept of equality
+%% saturation, which simultaneously applies rewriting to each relevant
+%% term~\cite{Tate:2009}. Equality saturation was further improved and
+%% implemented in the modern Rust library Egg~\cite{Willsey:2021}. We
+%% believe \slog{} will be an ideal fit for congruence closure, because
+%% we believe applying rewriting will parallelize very well given
+%% \slog{}'s design. Recent success in SMT solving also relies upon
+%% equality saturation, and we believe successful parallelization of
+%% equality saturation will represent a first step towards
+%% massively-parallel SMT solving~\cite{smtz3}.
+
+\paragraph*{Parallel Program Analyses}
+
+Given the algorithmic complexity intrinstic to large-scale program
+analyses, there has been significant interest in its
+parallelization~\cite{Stefan:2011,Aiken:2007,Xie:2007,Siddiqui:2010,antoniadis2017porting,Bravenboer:2009}
+or implementation using special-purpose
+datastructures~\cite{Whaley:2005,Prabhu:2011,Kramer:1994,Lee:90,MendezLojo:2010}. There
+are a variety of fundamental approaches to scalability; for example,
+summarization-based analyses (such as
+Saturn~\cite{Aiken:2007,Xie:2007}) are attractive due to the
+task-level parallelism they expose. Much work in scaling program
+analysis has focused on context-insensitive analyses---wherein
+task-level parallelism is more directly exploitable. The goals of
+\slog{} are most closely related to current efforts on scaling rich,
+whole-program context-sensitive analyses using deductive
+inference~\cite{antoniadis2017porting,10.1007/978-3-319-41540-6,Scholz:2016:FLP:2892208.2892226}.
+
+\paragraph*{Parallel Relational Algebra}
+
+\slog{}'s backend builds upon recent successes in balanced, parallel
+relational algebra (BPRA) and follow-up work on compilation of vanilla
+Datalog to parallel relational algebra
+kernels~\cite{loadbalancingra,hipc,cc}. However, that work focuses
+mainly on the low-level implementation of relational algebra kernels
+rather than a unified programming language, compiler, and runtime.

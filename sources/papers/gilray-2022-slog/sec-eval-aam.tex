@@ -1,0 +1,127 @@
+\subsection{AAMs and CFAs}
+\label{sec:eval:aam}
+\label{sec:eval:pb2}
+
+\input{aam-table-old}
+
+Next, we sought to benchmark the analyses described in
+Section~\ref{sec:apps}, at scale, versus an equivalent
+implementation using ADTs in Souffl\'e (we ignore Radlog in this
+comparison due to its lack of support for ADTs). We developed a
+\slog{} analysis for each of six different polyvariance choices: three
+$k$-CFA ($k$=3,4,5) and three $m$-CFA ($m$=10,12,15)
+implementations. We then systematically derived six different
+Souffl\'e-based variants. We tested each of these on six different
+term sizes, drawn from a family of worst-case terms identified in
+David Van Horn's thesis~\cite{VanHorn:diss}. We then benchmark both \slog{} and Souffl\'e on each of these instances and report on their results,
+scalability, and broad trends which we observed. Our
+Souffl\'e code is an exact port of the \slog{} code we used (see Figure~\ref{fig:cesk-machine}), except
+that \$-ADT values are used in place of subfacts and the analysis was
+designed in the first place to avoid the need for these subfacts to
+trigger rule evaluation as they can in \slog{}.
+
+\paragraph*{Experimental Setup}
+
+The experiments described in this subsection were run on a
+\textsf{c6a.metal} instance rented from Amazon Web Services (AWS),
+including 192 hardware threads (when run using the \textsf{.metal}
+instance types) and 384 GiB of RAM. Because both \slog{} and Souffl\'e
+are designed to enable parallelism, we ran each experiment at two
+distinct scales: 8 and 64 processes (threads). \slog{} was invoked
+using \textsf{mpirun}, and Souffl\'e's compiled mode was used to
+produce a binary which was subsequently run and timed using GNU
+\textsf{time}. We did not systematically measure memory usage; recent
+microbenchmarks for TC report $3-5\times$ memory blowup versus Souffl\'e. We
+record and report the best of three runs for each experiment (imposing
+a four hour cutoff). To avoid an unfair comparison to Souffl\'e with
+respect to on-disc ADT materialization (which may explode due to
+linearization of linked data), our Souffl\'e implementation does not
+output control-flow points or store directly---instead we measure and
+report their size using the \textsf{sum} aggregate (built in to
+Souffl\'e).
+
+\paragraph*{Results}
+
+We report our results in Table~\ref{tab:results-aam}. Each of six
+distinct analysis choices is shown along the left side. Along rows of
+the table, we show experiments for a specific combination of analysis,
+precision, and term size. We detail the total number of iterations
+taken by the \slog{} backend, along with control-flow points, store
+size, and runtime at both $8$ and $64$ threads for \slog{} and
+Souffl\'e. Times are reported in minutes / seconds form; several runs
+of Souffl\'e took under 1 second (which we mark with $<$0:01), and
+\timeout{} indicates that the run timed out after four hours.
+
+Inspecting our results, we observed several broad trends. First, as
+problem size increases, \slog{}'s runtime grows less-rapidly than
+Souffl\'e's.
+%
+This point may be observed by inspecting runtimes for a specific
+set of experiments. For example, 10-$m$-CFA with term size 200 took
+\slog{} 26 seconds, while Souffl\'e's run took 56 seconds. Doubling
+the term size to 400 takes 104 seconds in \slog{}, but 398 seconds in
+Souffl\'e---a slowdown of $4\times$ in \slog{}, compared to a slowdown
+of $7\times$ in Souffl\'e. A similar trend happens in many other
+experiments, e.g., 15 minutes to over three hours for Souffl\'e
+($13\times$ slowdown) vs. 2 to 4 seconds ($2\times$ slowdown) in
+\slog{}'s runtime on 5-$k$-CFA. Inspecting the output of Souffl\'e's
+compiled \CC{} code for each experiment helped us identify the source
+of the slowdown. For example, the rule for returning a value to a continuation address \texttt{\$KAddr(e,env)}, in Figure~\ref{fig:kcfa-mcfa}, must
+join a return state using this address with an entry in the continuation store for this address. Because Souffl\'e does not index subfacts, a scan-then-filter approach is used. In this case, as the subfact is an exact match, it could be optimized but in cases where a single variable in a subfact matches another, Souffle's scan-and-filter implementation cannot be avoided.
+
+\begin{figure}
+\small
+\begin{Verbatim}[baselinestretch=.8]
+// ret(av, k) :- ret(av, $KAddr(e, env)), kont_map($KAddr(e, env), k).
+//        env0[0] ---^  env2[0]-^  ^--- env2[1]       env3[1] -----^      
+
+if(!(rel_13_delta_ret->empty()) && !(rel_18_kont_map->empty())) {
+  for(const auto& env0 : *rel_13_delta_ret) {
+    RamDomain const ref = env0[1];
+    if (ref == 0) continue;
+    const RamDomain *env1 = recordTable.unpack(ref,2);
+    {
+      if( (ramBitCast<RamDomain>(env1[0]) == ramBitCast<RamDomain>(RamSigned(3)))) {
+	RamDomain const ref = env1[1];
+	if (ref == 0) continue;
+	const RamDomain *env2 = recordTable.unpack(ref,2);
+	{
+	  for(const auto& env3 : *rel_18_kont_map) {
+	    // On this line we've ommitted bitcasts and Tuple ctors:
+	    if( !(rel_19_delta_kont_map->contains({{ {{ env2[0], env2[1] }}, env3[1] }}))
+		&& !(rel_12_ret->contains({{env0[0], env3[1]}}))) {
+	      // Omitted: null checks and insertion of {{ env0[0], env3[1] }} into ret
+  }}}}}}}}}}
+\end{Verbatim}
+\caption{Example \CC{} code generated by Souffl\'e.}
+\label{fig:souffle-cpp}
+\end{figure}
+
+This return rule and its compiled \CC{} code is shown
+in Figure~\ref{fig:souffle-cpp}. Note that it uses two nested for loops to iterate over the entire \rtag{ref} relation, then iterate over the entire \rtag{kont\_map} relation, and finally check if there is a match for all possible combinations. In this way, Souffl\'e's lack of indices for structured values leaves it no other option but to materialize (in time) the entire Cartesian product as it checks for matches---rather than efficiently looking up relevant tuples in an appropriate index as would normally be the case for top-level relations.
+
+For a fixed problem size, we found that Souffl\'e and \slog{} both
+scaled fairly well. Souffl\'e consistently performed well on small
+input sizes; additional processes did not incur slowdowns, and
+Soufll\'e's efficiency was generally reasonable (roughly 50\%) when
+algorithmic scalability did not incur slowdowns. For example, in
+3-$k$-CFA (n=$8$), Souffl\'e took 67 seconds at 8 processes, and 15
+seconds at 64 processes. \slog{}'s parallelism doesn't outweigh
+communication overhead on smaller problems, particularly on problems
+with high iteration count and low per-iteration work. As problem size
+increases, our \slog{} implementations show healthy scalability;
+efficiency grows as problem size grows (e.g., 24:10 to 6:45 on
+15-$m$-CFA/384, 22:46 to 7:28 on 12-$m$-CFA/800).
+
+We found that extracting optimal efficiency
+from \slog{} was facilitated by increasing per-iteration work and
+avoiding long sequences of sequential work with comparatively lower
+throughput. Because each iteration represents a synchronization point, greater numbers of iterations will decrease opportunities for parallelism. As an example of this principle, our 10-$m$-CFA uses a
+flat \rtag{ctx} fact to represent the context; a previous version used
+a linked list $10$ elements deep, however this design achieved poorer
+scaling efficiency due to these $10$-iteration-long sequences of work necessary to
+extend the instrumentation at each call-site.
+In our experiments scaling efficiency improved as polyvariance increased; e.g., improving by $2\times$ for 10-$m$-CFA, but $3.5\times$ for 15-$m$-CFA. We believe this is because of the relatively higher per-iteration work available with increased polyvariance.
+
+
+

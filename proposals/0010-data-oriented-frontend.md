@@ -158,6 +158,9 @@ representation (*conjecture*, sized by 0007's T1 and T2 targets):
   the matches wake. No rescans of a worklist.
 - **Meta-to-meta unification as union-find;** batched conversion dedups
   `(id, id)` pairs before any normalisation.
+- **One evaluator.** Normalization runs on the term arena by NbE, with
+  array operations as whole-array runtime primitives; the same interpreter
+  serves the program's static normalization (0013).
 - **Shape arithmetic as a group-by.** A polynomial is a sparse column of
   `(monomial, coefficient)`; normalising it is a sort and a segmented
   sum (0004's theory, 0007 §2.4).

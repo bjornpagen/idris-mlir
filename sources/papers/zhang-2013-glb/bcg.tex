@@ -1,0 +1,115 @@
+% BC-G
+
+BC-G implements dynamic load-balancing by using the GLB library. Note
+that this is a new capability (over what is supported by BC) -- therefore it is not surprising that
+new code needs to be written and the line count is actually higher
+than for BC. Specifically, \code{BCTaskFrame} and \code{BCTaskBag}
+needs to be implemented, together with the invocation of the
+\code{GLB} framework. A task captures a (start, end) range of
+vertices. The code for \code{BCTaskFrame} is
+straightforward -- it pops tasks from the \code{BCTaskBag} and for
+each task executes it by calling \code{bfsShortestPaths} already
+implemented in BC. The reducer takes two betweenness maps (vectors) and sums
+them up pointwise.
+
+We now consider the implementation of \code{BCTaskBag}. Our current
+implementation (reported in this submission) is preliminary and in
+need of further work. It is designed to satisfy the following
+properties. It should be possible to find the ``mid point'' fast so
+that the bag can be split in two quickly. The cost of a merge should
+be low. 
+
+The current implementation uses an array, a head pointer and a tail
+pointer. The head pointer is moved forward whenever the task frame
+retrieves an item and works on it. The tail pointer is used during
+splitting, so it can move to the split point, copy the latter half of
+the data and send it out. 
+
+When merging, we create a new array and copy the local taskbag and the
+incoming taskbag to the new array and set up the head and tail pointer
+properly. We believe this copy is expensive and should be eliminated.
+
+We believe a more careful design for this data-structure will improve
+performance. Basically we need to design a data-structure that
+represents a set of intervals such that two such sets can be combined
+quickly and split quickly, where the split ensures that the sum of the
+sizes of intervals in each half are roughly equal.  We believe that
+improving the design of this data-structure will significantly improve
+performance. {\em We expect to work on this in the next few
+  weeks, before SuperComputing.}
+
+\subsection{Peformance measurement}
+
+Section~\ref{sec:bc} presents the background for the Betweenness
+Centrality benchmark. There it was pointed out that the static
+partitioning of the work across the given number of places may not be
+ideal.  
+
+As described in the benchmark, the application metric traversed edges
+per second (TEPS) is measured as:
+
+$$ TEPS = (8\times N \times N)/t$$
+
+\noindent where $N$ is the number of vertices.
+
+We now discuss results. 
+All tests were run with particular parameters $(1=0.8, b=c=0.05,
+d=0.1)$. This gives rise to a significantly unbalanced graph.
+
+For Power~775 we had access to a small number of cores, and the machine was
+in heavy demand, so we were unable to run long jobs.  So we chose to
+vary $n$ (the log of the number of vertices) as we varied $p$. The
+data is presented in a table form in Table~\ref{table:perf:bc-p7ih} to
+show that $n$ varies as $P$ varies. The data shows that at these
+scales, and on this architecture BC-G is quite effective in reducing
+the runtime (for a given $P$ and $n$), e.g. achieving a $2x$ speed-up
+for BC-G over BC.
+
+For Blue Gene/Q and K, we show charts for a fixed $n=19$ 
+(Figure~\ref{fig:perf:bc-bgq} and Figure~\ref{fig:perf:bc-k}). 
+ For Blue
+Gene/Q the data shows that BC-G is able to achieve around a 2x speedup
+for most values of $P$. For $P=2048$, however, the performance is
+somewhat comparable. For K, BC-G is generally better than BC, but with
+a smaller constant. 
+
+We believe that the representation of \code{BCTaskBag} can be
+improved. The \code{split} and \code{merge} operations are expensive
+and this may account for why the speedup worsens with larger $P$
+because there is more contention and stealing.  {\em We expect to work
+  on improving these numbers for the presentation at SC, if selected.}
+
+
+\begin{figure}
+\centering
+
+$$
+\begin{array}{|l|l|l|l|}
+\hline
+\mbox{P}&\mbox{n}&\mbox{BC (s)}&\mbox{BC-G (s)}\\ \hline \hline
+1 & 16 & 78 & 109 \\ \hline
+2 & 16 & 32 & 34  \\ \hline
+4 & 16 & 21 & 17 \\ \hline
+8 & 16 & 13 & 9 \\ \hline
+16 & 17 & 35 & 19 \\ \hline
+32 & 17 & 21 & 11 \\ \hline 
+64 & 18 & 67 & 34 \\ \hline 
+128 & 18 & 41 & 20 \\ \hline 
+256 & 19 & 70 & 55 \\ \hline
+\end{array}
+$$
+\caption{X10 Performance for BC (on Power~775)}
+\label{table:perf:bc-p7ih}
+
+\includegraphics[width=3.25in]{figures/bgq/bc-bgq.eps}
+\caption{X10 Performance for BC (on Blue~Gene/Q)}
+\label{fig:perf:bc-bgq}
+
+\includegraphics[width=3.25in]{figures/k/bc-k.eps}
+\caption{X10 Performance for BC (on K)}
+\label{fig:perf:bc-k}
+\end{figure}
+
+
+
+

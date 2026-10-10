@@ -1,0 +1,19 @@
+\paragraph{K}
+The K computer is a supercomputer at RIKEN 
+Advanced Institute for Computational Science.
+It consists of 82944 compute nodes, and 
+each node has one scalar CPU (SPARC64\textsuperscript{\texttrademark}VIIIfx, 8 cores, 128 GFLOPS)
+and 16 GB memory.
+These compute nodes are connected by Tofu interconnect,
+which is 6D mesh/torus network having 10 links (5 GB/s x 2 bandwidth per link) on each node.
+
+Each node runs Linux-based OS, and developers can use MPI-2.1 for network communication.
+
+We compiled the benchmark programs using Native X10 version 2.4.0
+with \texttt{-NO\_CHECKS}, \texttt{-O}, and \texttt{-FLATTEN\_EXPRESSIONS} options,
+and compiled the resulting C++ files with Fujitsu C/C++ Compiler version K-1.2.0-14 
+with \texttt{-Xg} and \texttt{-Kfast} options. 
+
+We allocated 8 places per node when we use multiple compute nodes.
+The memory page sizes were set as 32 MB for all the programs.
+

@@ -9360,3 +9360,131 @@ numpages = {14}
   year   = {2012},
   url    = {http://adam.gundry.co.uk/pub/pattern-unify/}
 }
+
+% --- Sharded and incremental compilation (2026-10-10): papers and snapshots of
+% --- that INDEX.md topic stored by the sharded-compilation pass. Keys are the
+% --- library shortnames. Metadata from the paper READMEs, Crossref and the arXiv
+% --- records.
+% --- Already present under another key, so not entered again:
+% ---   weeks-2006-mlton-whole-program -> Weeks:2006:WCM:1159876.1159877
+
+@inproceedings{johnson-2017-thinlto,
+  title = {{ThinLTO}: Scalable and Incremental {LTO}},
+  author = {Johnson, Teresa and Amini, Mehdi and Li, Xinliang David},
+  booktitle = {2017 IEEE/ACM International Symposium on Code Generation and Optimization (CGO)},
+  pages = {111--121},
+  year = {2017},
+  doi = {10.1109/CGO.2017.7863733}
+}
+
+@inproceedings{glek-2010-gcc-lto,
+  title = {Optimizing real-world applications with {GCC} Link Time Optimization},
+  author = {Glek, Taras and Hubi{\v{c}}ka, Jan},
+  booktitle = {Proceedings of the 2010 GCC Developers' Summit},
+  year = {2010},
+  eprint = {1010.2196},
+  archivePrefix = {arXiv},
+  url = {https://arxiv.org/abs/1010.2196}
+}
+
+@article{mokhov-2018-build-systems,
+  title = {Build Systems {\`a} la Carte},
+  author = {Mokhov, Andrey and Mitchell, Neil and Peyton Jones, Simon},
+  journal = {Proceedings of the ACM on Programming Languages},
+  volume = {2},
+  number = {ICFP},
+  pages = {79:1--79:29},
+  year = {2018},
+  doi = {10.1145/3236774}
+}
+
+@article{blumofe-1999-work-stealing,
+  title = {Scheduling Multithreaded Computations by Work Stealing},
+  author = {Blumofe, Robert D. and Leiserson, Charles E.},
+  journal = {Journal of the ACM},
+  volume = {46},
+  number = {5},
+  pages = {720--748},
+  year = {1999},
+  doi = {10.1145/324133.324234}
+}
+
+@inproceedings{le-2013-weak-memory-work-stealing,
+  title = {Correct and Efficient Work-Stealing for Weak Memory Models},
+  author = {L{\^e}, Nhat Minh and Pop, Antoniu and Cohen, Albert and Zappa Nardelli, Francesco},
+  booktitle = {Proceedings of the 18th ACM SIGPLAN Symposium on Principles and Practice of Parallel Programming (PPoPP '13)},
+  pages = {69--80},
+  year = {2013},
+  doi = {10.1145/2442516.2442524}
+}
+
+@inproceedings{zhang-2013-glb,
+  title = {{GLB}: Lifeline-based Global Load Balancing Library in {X10}},
+  author = {Zhang, Wei and Tardieu, Olivier and Grove, David and Herta, Benjamin and Kamada, Tomio and Saraswat, Vijay and Takeuchi, Mikio},
+  booktitle = {Proceedings of the First Workshop on Parallel Programming for Analytics Applications (PPAA '14)},
+  pages = {31--40},
+  year = {2014},
+  doi = {10.1145/2567634.2567639},
+  eprint = {1312.5691},
+  archivePrefix = {arXiv}
+}
+
+@inproceedings{kuper-2014-freeze-after-writing,
+  title = {Freeze After Writing: Quasi-Deterministic Parallel Programming with {LVars}},
+  author = {Kuper, Lindsey and Turon, Aaron and Krishnaswami, Neelakantan R. and Newton, Ryan R.},
+  booktitle = {Proceedings of the 41st ACM SIGPLAN-SIGACT Symposium on Principles of Programming Languages (POPL '14)},
+  pages = {257--270},
+  year = {2014},
+  doi = {10.1145/2535838.2535842}
+}
+
+@inproceedings{blelloch-2012-internally-deterministic,
+  title = {Internally Deterministic Parallel Algorithms Can Be Fast},
+  author = {Blelloch, Guy E. and Fineman, Jeremy T. and Gibbons, Phillip B. and Shun, Julian},
+  booktitle = {Proceedings of the 17th ACM SIGPLAN Symposium on Principles and Practice of Parallel Programming (PPoPP '12)},
+  pages = {181--192},
+  year = {2012},
+  doi = {10.1145/2145816.2145840}
+}
+
+@inproceedings{shun-2014-phase-concurrent-hash,
+  title = {Phase-Concurrent Hash Tables for Determinism},
+  author = {Shun, Julian and Blelloch, Guy E.},
+  booktitle = {Proceedings of the 26th ACM Symposium on Parallelism in Algorithms and Architectures (SPAA '14)},
+  pages = {96--107},
+  year = {2014},
+  doi = {10.1145/2612669.2612687}
+}
+
+@misc{gilray-2022-slog,
+  author        = {Gilray, Thomas and Sahebolamri, Arash and Kumar, Sidharth and Micinski, Kristopher},
+  title         = {Higher-Order, Data-Parallel Structured Deduction},
+  year          = {2022},
+  eprint        = {2211.11573},
+  archivePrefix = {arXiv},
+  url           = {https://arxiv.org/abs/2211.11573}
+}
+
+@inproceedings{mcsherry-2013-differential-dataflow,
+  title = {Differential Dataflow},
+  author = {McSherry, Frank and Murray, Derek G. and Isaacs, Rebecca and Isard, Michael},
+  booktitle = {Sixth Biennial Conference on Innovative Data Systems Research (CIDR '13)},
+  year = {2013},
+  url = {http://www.cidrdb.org/cidr2013/Papers/CIDR13_Paper111.pdf}
+}
+
+@misc{rustc-dev-guide,
+  title = {Rust Compiler Development Guide: queries, incremental compilation, monomorphization},
+  author = {{The Rust Project Developers}},
+  howpublished = {\url{https://github.com/rust-lang/rustc-dev-guide/tree/20a4fdd79ed91d0e04f7d48919423d799e3375f0/src}},
+  note = {Revision 20a4fdd79ed91d0e04f7d48919423d799e3375f0, fetched 2026-10-10},
+  year = {2026}
+}
+
+@misc{gcc-lto,
+  title = {{GCC} link-time optimization: lto-partition.cc and the -flto options of invoke.texi},
+  author = {{Free Software Foundation}},
+  howpublished = {\url{https://github.com/gcc-mirror/gcc/tree/575b8ec6ec455504622d9ad3ac7a8c555c5bcedf/gcc}},
+  note = {Revision 575b8ec6ec455504622d9ad3ac7a8c555c5bcedf, fetched 2026-10-10},
+  year = {2026}
+}

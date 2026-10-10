@@ -5,7 +5,8 @@ snapshots each topic draws on. Topics: [Memory](#memory),
 [Specialization](#specialization), [Rewriting](#rewriting), [MLIR](#mlir),
 [Arrays and scheduling](#arrays-and-scheduling), [Verification](#verification),
 [Types and quantities](#types-and-quantities),
-[Array languages and typed array programming](#array-languages-and-typed-array-programming).
+[Array languages and typed array programming](#array-languages-and-typed-array-programming),
+[Sharded and incremental compilation](#sharded-and-incremental-compilation).
 
 Each paper appears once, under its main topic; a topic's "Also" line names papers filed
 elsewhere that serve it too. Per entry: the folder (or shortname when nothing is stored),
@@ -24,13 +25,14 @@ confirm before redistributing.
 
 | Outcome | Count |
 | --- | --- |
-| Stored as TeX source (arXiv e-prints) | 26 |
+| Stored as TeX source (arXiv e-prints) | 29 |
 | Stored as TeX source (author repository) | 1 |
-| Stored as PDF | 55 |
+| Stored as TeX source (provenance not recorded) | 1 |
+| Stored as PDF | 69 |
 | Stored as PostScript | 3 |
 | Stored as HTML (author or project web edition) | 7 |
 | Stored as repository text extraction (the PDF is over the cap) | 1 |
-| **Papers stored** | **93** |
+| **Papers stored** | **111** |
 | Book stored as a documentation snapshot (`docs/ssa-book/`) | 1 |
 | Link only (identifier known, no copy stored) | 36 |
 | Unresolved (no identifier or copy located, or no canonical reference chosen) | 23 rows |
@@ -40,19 +42,27 @@ The array-languages passes of 2026-10-09 added 42 stored papers (6 arXiv TeX, 1 
 unresolved rows (`henriksen-thesis`, `sac-language`, `dex-papers`); all are under
 [Array languages and typed array programming](#array-languages-and-typed-array-programming).
 
+The sharded-compilation pass of 2026-10-10 added 12 stored papers (3 arXiv TeX, 9 PDF, one of
+them talk slides) and indexed six folders that were already stored but had no row
+(`jordan-2016-souffle`, `jordan-2019-concurrent-btree`, `newton-2016-parallel-type-checking`
+and `sun-2025-gpu-datalog`, committed on 2026-10-09 without READMEs, and
+`kivity-2019-seastar` and `michael-1996-concurrent-queues` of 2026-10-07: 5 PDF and 1 TeX of
+unrecorded provenance); all are under
+[Sharded and incremental compilation](#sharded-and-incremental-compilation).
+
 Six paper folders hold two copies that differ (other host or version):
 `adams-2019-halide-learning`, `ikarashi-2022-exo`, `kjolstad-2017-taco`,
 `leroy-2009-compcert`, `marshall-2022-linearity-uniqueness`, `slepak-2014-remora` (the LNCS
 version and the full version with appendices).
 
-These counts are of the papers this index lists. Nineteen folders added to `papers/` on
+These counts are of the papers this index lists. Seventeen folders added to `papers/` on
 2026-10-07 (commit `cb65104d`) are not indexed yet: `atkey-2009-parameterised-notions`,
 `atkey-2018-qtt`, `axboe-2019-io-uring`, `bacon-2004-unified-gc`, `belay-2014-ix`,
 `brady-2014-resource-effects`, `choi-2018-biased-rc`, `clebsch-2015-deny-capabilities`,
 `clebsch-2015-pony-orca`, `clebsch-2017-orca`, `deutsch-bobrow-1976`, `dominiak-2024-p2300`,
-`fahndrich-2006-singularity`, `johansson-2002-heap-architectures`, `kivity-2019-seastar`,
-`lemon-2001-kqueue`, `lietar-2019-snmalloc`, `mcbride-2011-kleisli`,
-`michael-1996-concurrent-queues`.
+`fahndrich-2006-singularity`, `johansson-2002-heap-architectures`, `lemon-2001-kqueue`,
+`lietar-2019-snmalloc`, `mcbride-2011-kleisli` (`kivity-2019-seastar` and
+`michael-1996-concurrent-queues`, of the same commit, were indexed on 2026-10-10).
 
 ## Threads
 
@@ -77,9 +87,11 @@ optimization study; the "Threads" column keeps that filing.
 | `dataparallel` | Data-parallel functional array compilers (Futhark, Dex, Accelerate, SaC, Lift/RISE) | Array languages and typed array programming |
 | `dependent-equality` | Dependent equality, `with` and `rewrite`, unification, arithmetic decision procedures | Array languages and typed array programming |
 | `mlir-stack` | MLIR's array dialects as the lowering target; JAX, Mojo and Triton on MLIR | Array languages and typed array programming |
+| `sharded-compilation` | Whole-program compilation at scale, incremental and sharded backends, deterministic parallel fixpoints and scheduling | Sharded and incremental compilation |
 
-The last five threads are the passes of 2026-10-09 (proposal 0004); their rows also carry the
-letter threads they serve.
+The five threads before the last are the passes of 2026-10-09 (proposal 0004); their rows also
+carry the letter threads they serve. `sharded-compilation` is the pass of 2026-10-10 (proposal
+0012).
 
 ## Memory
 
@@ -783,6 +795,89 @@ decides symbolic-dimension constraints at export; how Mojo and Triton expose MLI
 language with shape parameters.
 
 
+## Sharded and incremental compilation
+
+Prior art for compiling a whole program without holding it in one process: summary-based
+link-time optimization with parallel, cached backends (ThinLTO, GCC's WHOPR), whole-program
+compilation as MLton does it, rustc's query system and codegen-unit partitioning, build systems
+as incremental computations, and the parallel machinery such a compiler runs on: work
+stealing, deterministic parallelism, monotone (LVar) state, and parallel and incremental
+Datalog. Collected on 2026-10-10 for proposal 0012
+(`proposals/0012-sharded-whole-program-compiler.md`) by the `sharded-compilation` pass, whose
+reading notes are `notes/sharded-compilation/whole-program-at-scale.md` and
+`notes/sharded-compilation/deterministic-fixpoints.md`. The rows marked "indexed 2026-10-10"
+were already stored and are listed here for the first time.
+
+**Read first, for the topic as a whole:** `johnson-2017-thinlto` with
+`docs/llvm/clang/docs/ThinLTO.md` (summaries, a thin link, parallel cached backends);
+`glek-2010-gcc-lto` with `docs/gcc-lto/gcc/lto/lto-partition.cc` (partitioning the whole
+program); `docs/rustc-dev-guide/src/queries/incremental-compilation-in-detail.md` (red-green
+and stable hashing); `mokhov-2018-build-systems`; `blelloch-2012-internally-deterministic`
+and `kuper-2014-freeze-after-writing` (determinism by construction); `gilray-2022-slog`.
+
+### Whole-program compilation at scale
+
+| Paper | Title | Authors | Venue / year | Link | Stored | Threads | Licence | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| [`johnson-2017-thinlto`](papers/johnson-2017-thinlto/) | ThinLTO: Scalable and Incremental LTO | Johnson, Amini, Li | CGO 2017, pp. 111–121 | https://doi.org/10.1109/CGO.2017.7863733 | PDF (Google Research copy) | sharded-compilation | IEEE ©; no licence stated on the copy (verify) | stored |
+| [`glek-2010-gcc-lto`](papers/glek-2010-gcc-lto/) | Optimizing real-world applications with GCC Link Time Optimization | Glek, Hubička | GCC Developers' Summit 2010 | https://arxiv.org/abs/1010.2196 | TeX (arXiv 1010.2196) | sharded-compilation | arXiv non-exclusive | stored |
+| [`mokhov-2018-build-systems`](papers/mokhov-2018-build-systems/) | Build Systems à la Carte | Mokhov, Mitchell, Peyton Jones | ICFP 2018 (PACMPL 2(ICFP), Article 79) | https://doi.org/10.1145/3236774 | PDF (Microsoft Research copy, published version) | sharded-compilation | CC-BY 4.0 (Crossref) | stored |
+| [`weeks-2006-mlton-whole-program`](papers/weeks-2006-mlton-whole-program/) | Whole-Program Compilation in MLton | Weeks | ML Workshop 2006 (talk) | https://doi.org/10.1145/1159876.1159877 (one-page proceedings entry) | PDF (talk slides, MLton repository at `aa2fd1ad`) | sharded-compilation, D, G | none stated on the slides (verify) | stored |
+
+**Also:** `wenzel-2009-parallel-isabelle`, `barras-2015-async-coq` (parallel and asynchronous
+proof checking); `pacak-2020-incremental-type-checkers` (stored, not indexed);
+`filliatre-2006-hash-consing` (Flattened data) for content-derived identity.
+
+**Snapshots.**
+- `docs/rustc-dev-guide/src/{query.md, queries/incremental-compilation.md,
+  queries/incremental-compilation-in-detail.md, backend/monomorph.md}` (`rust-lang/rustc-dev-guide`
+  at `20a4fdd7`; MIT OR Apache-2.0) ([SNAPSHOT](docs/rustc-dev-guide/SNAPSHOT.md)), with
+  `docs/rustc-parallel/` (parallel rustc; no SNAPSHOT.md).
+- `docs/llvm/clang/docs/ThinLTO.md` (the LLVM pin `7208ba24`)
+  ([addendum](docs/llvm/SNAPSHOT.sharded-compilation.md), to merge into `docs/llvm/SNAPSHOT.md`).
+- `docs/gcc-lto/gcc/lto/lto-partition.cc` and `docs/gcc-lto/gcc/doc/invoke.texi.lto-excerpt`
+  (`gcc-mirror/gcc` at `575b8ec6`; GPL-3.0-or-later and GFDL-1.3-or-later)
+  ([SNAPSHOT](docs/gcc-lto/SNAPSHOT.md)).
+- MLton: `code/mlton/` and `docs/mlton/` (the passes the Weeks talk describes).
+
+**Claims these settle:** what a per-module summary must hold for a thin link to make
+whole-program decisions; how GCC and rustc partition a program for parallel backends and keep
+partitions stable under edits; how rustc decides what an edit invalidates (red-green, stable
+hashes); what MLton gains from never compiling separately.
+
+### Deterministic parallel fixpoints and scheduling
+
+| Paper | Title | Authors | Venue / year | Link | Stored | Threads | Licence | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| [`blumofe-1999-work-stealing`](papers/blumofe-1999-work-stealing/) | Scheduling Multithreaded Computations by Work Stealing | Blumofe, Leiserson | JACM 46(5), pp. 720–748, 1999 | https://doi.org/10.1145/324133.324234 | PDF (University of Chicago course copy) | sharded-compilation | ACM ©; the copy states none (verify) | stored |
+| [`le-2013-weak-memory-work-stealing`](papers/le-2013-weak-memory-work-stealing/) | Correct and Efficient Work-Stealing for Weak Memory Models | Lê, Pop, Cohen, Zappa Nardelli | PPoPP 2013, pp. 69–80 | https://doi.org/10.1145/2442516.2442524 | PDF (author site) | sharded-compilation | ACM © (author copy, verify) | stored |
+| [`zhang-2013-glb`](papers/zhang-2013-glb/) | GLB: Lifeline-based Global Load Balancing Library in X10 | Zhang, Tardieu, Grove, Herta, Kamada, Saraswat, Takeuchi | arXiv 2013; PPAA 2014, pp. 31–40 | https://arxiv.org/abs/1312.5691 (DOI 10.1145/2567634.2567639) | TeX (arXiv 1312.5691) | sharded-compilation | arXiv non-exclusive; ACM © for the published version | stored |
+| [`kuper-2014-freeze-after-writing`](papers/kuper-2014-freeze-after-writing/) | Freeze After Writing: Quasi-Deterministic Parallel Programming with LVars | Kuper, Turon, Krishnaswami, Newton | POPL 2014, pp. 257–270 | https://doi.org/10.1145/2535838.2535842 | PDF (author site, Cambridge) | sharded-compilation | ACM © (author copy, verify) | stored |
+| [`blelloch-2012-internally-deterministic`](papers/blelloch-2012-internally-deterministic/) | Internally Deterministic Parallel Algorithms Can Be Fast | Blelloch, Fineman, Gibbons, Shun | PPoPP 2012, pp. 181–192 | https://doi.org/10.1145/2145816.2145840 | PDF (author site) | sharded-compilation | ACM © (author copy, verify) | stored |
+| [`shun-2014-phase-concurrent-hash`](papers/shun-2014-phase-concurrent-hash/) | Phase-Concurrent Hash Tables for Determinism | Shun, Blelloch | SPAA 2014, pp. 96–107 | https://doi.org/10.1145/2612669.2612687 | PDF (author site) | sharded-compilation | ACM © (author copy, verify) | stored |
+| [`gilray-2022-slog`](papers/gilray-2022-slog/) | Higher-Order, Data-Parallel Structured Deduction | Gilray, Sahebolamri, Kumar, Micinski | arXiv 2022 | https://arxiv.org/abs/2211.11573 | TeX (arXiv 2211.11573) | sharded-compilation | arXiv non-exclusive | stored |
+| [`mcsherry-2013-differential-dataflow`](papers/mcsherry-2013-differential-dataflow/) | Differential Dataflow | McSherry, Murray, Isaacs, Isard | CIDR 2013 | http://www.cidrdb.org/cidr2013/Papers/CIDR13_Paper111.pdf | PDF (CIDR proceedings) | sharded-compilation | CC-BY 3.0 (stated on the copy) | stored |
+| [`jordan-2016-souffle`](papers/jordan-2016-souffle/) | Soufflé: On Synthesis of Program Analyzers | Jordan, Scholz, Subotić | CAV 2016, LNCS, pp. 422–430 | https://doi.org/10.1007/978-3-319-41540-6_23 | PDF (`paper.pdf`, 206,893 bytes, SHA-256 `07a57d23…`; source not recorded: the folder has no README) | sharded-compilation | Springer © (verify) | stored (committed 2026-10-09, `96156233`); indexed 2026-10-10 |
+| [`jordan-2019-concurrent-btree`](papers/jordan-2019-concurrent-btree/) | A Specialized B-tree for Concurrent Datalog Evaluation | Jordan, Subotić, Zhao, Scholz | PPoPP 2019, pp. 327–339 | https://doi.org/10.1145/3293883.3295719 | PDF (`paper.pdf`, 774,236 bytes, SHA-256 `acbab785…`; source not recorded: no README) | sharded-compilation | ACM © (verify) | stored (committed 2026-10-09, `96156233`); indexed 2026-10-10 |
+| [`newton-2016-parallel-type-checking`](papers/newton-2016-parallel-type-checking/) | Parallel Type-checking with Saturating LVars | **Fogg**, Tobin-Hochstadt, Newton (the folder name says Newton 2016; it holds this draft, and was not renamed) | draft, venue unverified; the published short version is "Parallel type-checking with Haskell using saturating LVars and stream generators", PPoPP 2016, https://doi.org/10.1145/2851141.2851142 | no DOI for the draft | PDF (`parallel-typecheck-draft.pdf`, 445,856 bytes, SHA-256 `a79ecd13…`; source not recorded: no README) | sharded-compilation | none stated on the draft (verify) | stored (committed 2026-10-09, `96156233`); indexed 2026-10-10 |
+| [`sun-2025-gpu-datalog`](papers/sun-2025-gpu-datalog/) | Optimizing Datalog for the GPU | Sun, Shovon, Gilray, Kumar, Micinski | ASPLOS 2025, pp. 762–776 | https://doi.org/10.1145/3669940.3707274 (arXiv 2311.02206) | TeX (`main.tex`, `main.bib`, `main.bbl`, figures, `Makefile`, as committed; source not recorded: no README, not checked against the arXiv e-print) | sharded-compilation | CC-BY 4.0 for the ACM version (Crossref); the TeX copy states none (verify) | stored (committed 2026-10-09, `96156233`); indexed 2026-10-10 |
+| [`kivity-2019-seastar`](papers/kivity-2019-seastar/) | Building efficient I/O intensive applications with Seastar | Kivity | Core C++ 2019, Tel Aviv (talk slides) | https://www.scylladb.com/wp-content/uploads/Avi_Building_efficient_IO_intensive_applications_with_Seastar.pdf | PDF (`slides.pdf`) | sharded-compilation | not stated on the copy (unknown–verify) | stored (2026-10-07); indexed 2026-10-10 |
+| [`michael-1996-concurrent-queues`](papers/michael-1996-concurrent-queues/) | Simple, Fast, and Practical Non-Blocking and Blocking Concurrent Queue Algorithms | Michael, Scott | PODC 1996 | https://doi.org/10.1145/248052.248106 | PDF (author site, Rochester) | sharded-compilation | ACM © (unknown–verify) | stored (2026-10-07); indexed 2026-10-10 |
+
+**Also:** `wenzel-2009-parallel-isabelle`, `barras-2015-async-coq` (parallel elaboration);
+`filliatre-2006-hash-consing`.
+
+**Snapshots.** `docs/seastar/`, `docs/tokio/`, `docs/go-scheduler/` (schedulers, recorded
+2026-10-07, not yet in [README.md](README.md)'s tables).
+
+**Claims these settle:** the time and space bounds of randomized work stealing and what a
+correct deque needs on weak memory; how load balancing works without a shared heap
+(lifelines); which parallel algorithms can be deterministic at little cost, and with which
+data structures; what monotone, threshold-read state guarantees; how a Datalog engine
+parallelizes and indexes relations on CPUs and GPUs; how differential dataflow maintains a
+fixpoint under input changes.
+
+
 ## Additions of 2026-10-09: flattened data, type checking, Swift
 
 ### Flattened data: packed, columnar and nested layouts — columnar
@@ -1138,4 +1233,4 @@ why unification belongs outside the kernel.
 
 ## Reading notes
 
-`notes/` holds the deep-dive notes written while these sources were read (array-languages, flattened-data, type-checking): what each source says and what idris-mlir should take from it, cited to the stored files. Proposals 0004, 0006 and 0007 build on them.
+`notes/` holds the deep-dive notes written while these sources were read (array-languages, flattened-data, type-checking, sharded-compilation): what each source says and what idris-mlir should take from it, cited to the stored files. Proposals 0004, 0006, 0007 and 0012 build on them.

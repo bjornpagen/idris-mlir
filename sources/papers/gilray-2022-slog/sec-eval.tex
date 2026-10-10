@@ -1,0 +1,35 @@
+\section{Evaluation}
+\label{sec:eval}
+
+We aimed to measure and evaluate \slog{}'s
+improved indexing and data parallelism, using
+three sets of performance benchmarks (PBs):
+
+\begin{description}
+\item[\textbf{PB1}] (Section~\ref{sec:eval:pb1}) How does \slog{} compare against other systems
+  designed for performance and parallelism on traditional Datalog
+  workloads (without ADTs): Souffl\'e and RadLog?
+\item[\textbf{PB2}] (Section~\ref{sec:eval:pb2}) How do \slog{} subfacts perform against Souffl\'e ADTs
+  in the context of the $m$-CFA and $k$-CFA benchmarks developed in Section~4.
+\item[\textbf{PB3}] (Section~\ref{sec:eval:pb3}) How well can \slog{} scale to many threads on a supercomputer?
+\end{description}
+
+We evaluated \textbf{PB1} and \textbf{PB2} by running a set of
+experiments on large cloud machines from Amazon AWS and Microsoft
+Azure. For \textbf{PB1}, we ran a set of strong scaling experiments of
+transitive closure on large graphs, picking transitive closure as an
+exemplary problem to measure end-to-end throughput of deductive
+inference at scale. For \textbf{PB2}, we measure the performance of
+the implementation of our $k$ and $m$-CFA analyses from
+Section~\ref{sec:apps} compared to an equivalent implementation in
+Souffl\'e using abstract datatypes (ADTs). We answer \textbf{PB3} by
+running experiments on the Theta supercomputer at Argonne National
+Supercomputing Lab, scaling a control-flow analysis for the
+$\lambda$-calculus to $1000$ threads on Argonne's Theta.
+
+\input{sec-eval-tc}
+
+\input{sec-eval-aam}
+
+\input{sec-eval-theta}
+

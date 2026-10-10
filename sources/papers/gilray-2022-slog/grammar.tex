@@ -1,0 +1,58 @@
+\begin{wrapfigure}{l}{6.75cm}
+%\begin{tabular}{ c c }
+
+\setlength{\grammarindent}{7em} % increase separation between LHS/RHS 
+% \begin{minipage}{.50\textwidth}
+\begin{grammar}
+<toplvl-rule> ::= <rule> | <hclause> 
+
+<rule> ::= "[" <hd-item>* "<--" <bd-item>* "]"
+      \alt "[" <bd-item>* "-->" <hd-item>* "]" 
+
+<bd-item> ::= <rule> | <bclause> 
+
+<hd-item> ::= <rule> | <hclause> 
+
+<bclause> ::= "("<tag> <ibclause>*")"  
+         \alt "(=" <var> "("<tag> <ibclause>*"))"
+
+<hclause> ::= "("<tag> <ihclause>*")" 
+         \alt "(=" <var> "("<tag> <ihclause>*"))"
+
+<atom> ::= <var> | <lit>
+
+<lit> ::= <string> | <number>
+
+% \end{grammar}
+% \end{minipage}
+% \begin{minipage}{.45\textwidth}
+% \begin{grammar}
+<ihclause> ::= "("<tag> <ihclause>*")" 
+          \alt "?("<tag> <ibclause>*")"
+          \alt "{"<tag> <ibclause>*"}" 
+          \alt "["<hlist-item>*"]" 
+          \alt "?["<blist-item>*"]"
+          \alt <atom>
+
+<ibclause> ::= "("<tag> <ibclause>*")" 
+          \alt "!("<tag> <ihclause>*")" 
+          \alt "{"<tag> <ibclause>*"}" 
+          \alt "["<blist-item>*"]" 
+          \alt "!["<hlist-item>*"]"
+          \alt <atom>
+
+% TODO remove list-related grammar if lists are taken out of the prose.
+<hlist-item> ::= <ihclause> | <ihclause> "…"
+
+<blist-item> ::= <ibclause> | <ibclause> "…"
+\end{grammar}
+% \end{minipage}
+
+%&
+%\\
+%\end{tabular}
+\caption{The syntax of \slog{}. \synt{var} is the set of variables, and \synt{tag} is the set of relation names. A few syntactic forms, including disjunction, have been elided.}
+\label{fig:syntax}
+\vspace{-1.5cm}
+\end{wrapfigure}
+%

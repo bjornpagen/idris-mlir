@@ -496,8 +496,9 @@ error, and every proof erases.
 Erased: the shard index on `Here`, `Shard`, `Join` and `Local`; `Here`
 itself; every proof that a `Fin` is in range. Runtime: the `Fin` that
 selects a queue (an `i64` after Nat narrowing),
-`k`, and the message's bytes. Compile-time evaluation folds a closed
-placement function, never the core count, which is IO.
+`k`, and the message's bytes. Static normalization folds a closed
+placement function of total code (0013), never the core count, which is
+IO.
 
 #### 7.3 The hop in MLIR and the send check
 
@@ -617,8 +618,8 @@ the `wait` bit and tail await, a reactor with its wake queue, kick and
 platform wait, runtime-owned sockets and timers behind Rust's async I/O
 traits (proposal 0001 §12 names them), the waker, and cancellation as
 destroy. More shards, lending, taking unstarted messages and io_uring can
-wait. Compile-time evaluation never runs anything that waits: waiting is
-IO.
+wait. Static normalization covers only total, pure code (0013); waiting
+is IO, so nothing that waits is normalized.
 
 #### 10.4 Blocking calls offloaded
 

@@ -1,0 +1,85 @@
+\newcolumntype{C}[1]{>{\centering}m{#1}}
+ \begin{table*}
+ \centering
+\footnotesize
+\caption{Control-Flow Analysis Experimental Results: Slog vs. Souffl\'e}\label{tab:results-aam}
+ \begin{tabular}{m{.1cm}C{.35cm}C{.5cm}C{.7cm}C{.6cm}cccc | m{.1cm}C{.5cm}C{.75cm}C{.6cm}C{.65cm}cccc}
+   \toprule 
+ & \multirow{2}{*}{Size}&\multirow{2}{*}{Iters}& \multirow{2}{*}{Cf. Pts}& \multirow{2}{*}{Sto. Sz.}& \multicolumn{2}{c}{$8$ Processes} & \multicolumn{2}{c|}{$64$ Processes} 
+ & 
+ & \multirow{2}{*}{Size}&\multirow{2}{*}{Iters}& \multirow{2}{*}{Cf. Pts}& \multirow{2}{*}{Sto. Sz.}& \multicolumn{2}{c}{$8$ Processes} & \multicolumn{2}{c}{$64$ Processes} 
+\\
+ & & & & & \multicolumn{1}{c|}{Slog} & \multicolumn{1}{c||}{Souffl\'e}& \multicolumn{1}{c|}{Slog}& \multicolumn{1}{c|}{Souffl\'e}
+ & 
+ & & & & & \multicolumn{1}{c|}{Slog} & \multicolumn{1}{c||}{Souffl\'e}& \multicolumn{1}{c|}{Slog}& \multicolumn{1}{c}{Souffl\'e}
+\\
+ \midrule 
+ \parbox[t]{2mm}{\multirow{6}{*}{\rotatebox[origin=c]{90}{3-$k$-CFA}}}
+ & 8 & 1,193 & 98.1k & 23.4k & 00:01 & 01:07 & 0:02 & 00:15 
+&
+ \parbox[t]{2mm}{\multirow{6}{*}{\rotatebox[origin=c]{90}{10-$m$-CFA}}}
+ & 50 & 6,120 & 21k & 656k & 00:02  & 00:02 & 00:10 & 00:01
+\\
+ & 9 & 1,312 & 371k & 79.8k & 00:02 & 14:47 & 0:03 & 02:56 &
+ & 100 & 11,670 & 42k & 2.78M & 00:07 & 00:09 & 00:20 & 00:04 
+ \\
+ & 10 & 1,431 & 1.44M & 291k & 00:06 & \timeout{} & 0:05 & 45:49 &
+ & 200 & 22,770 & 86.5k & 11.4M & 00:26 & 00:56 &  00:42 & 00:23
+\\
+ & 11 & 1,550 & 5.68M &  1.11M & 00:27 & \timeout{} & 0:16 & \timeout{} & 
+ & 400 & 44,970 & 173k & 46.4M  & 01:44 & 06:26 & 01:38 & 01:56 
+\\ 
+ & 12 & 1,669 & 22.5M & 4.32M & 02:14 & \timeout{} & 1:07 & \timeout{} &
+ & 800 & 89,370 & 348k & 187M & 07:35 & 45:22 &  04:21 & 09:33
+\\
+ & 13 & 1,788 & 89.8M & 17.0M & 12:17 & \timeout{} & 5:08 & \timeout{} &
+ & 1600 & 178,170 & 698k & 750M & 32:56 & \timeout{} & 14:36 & 1:02:35
+ \\
+
+ \midrule 
+ \parbox[t]{2mm}{\multirow{6}{*}{\rotatebox[origin=c]{90}{4-$k$-CFA}}}
+ & 9 & 1,363 & 312k & 65k & 00:01 & 14:38 & 00:03 & 02:08
+&
+ \parbox[t]{2mm}{\multirow{6}{*}{\rotatebox[origin=c]{90}{12-$m$-CFA}}}
+ & 25  & 3,559  & 17k  & 385k    & 00:01 & $<$ \!\!\!\! :01 & 0:06 & $<$ \!\!\!\! :01  \\
+
+ & 10 & 1,482 & 1.2M & 229k & 00:05 & \timeout{} & 00:05 & 40:30 &
+ & 50  & 6,434  & 36k  & 1.89M  & 00:04 &00:03 &  0:11 & 00:03 \\
+
+ & 11 & 1,601 & 4.69M & 853k & 00:20 & \timeout{} & 00:13 & \timeout{} &
+ & 100 & 12,184 & 74k  & 8.82M  & 00:16 & 00:24 & 0:23 & 00:10 \\
+
+ & 12 & 1,720 & 18.5M & 3.28M & 01:40 & \timeout{} & 00:53 & \timeout{} &
+ & 200 & 23,684 & 151k & 34.6M & 01:10 & 02:37 & 0:53 & 00:55 \\
+
+ & 13 & 1,839 & 73.8M & 12.9M & 08:44 & \timeout{} & 03:58 & \timeout{} &
+ & 400 & 46,684 & 305k & 142M & 05:04 & 18:39 & 2:23 & 04:12 \\
+
+ & 14 & 1,958 & 294M & 50.8M & 60:53 & \timeout{} & 35:46 & \timeout{} &
+ & 800 & 92,684 & 611k  & 574M & 22:46 & 2:38:22 & 7:28 & 24:58 \\
+ \midrule 
+
+ \parbox[t]{2mm}{\multirow{6}{*}{\rotatebox[origin=c]{90}{5-$k$-CFA}}}
+ & 9 & 1,429 & 203k & 50.7k & 00:02 & 05:30 & 0:03 & 01:15
+&
+ \parbox[t]{2mm}{\multirow{6}{*}{\rotatebox[origin=c]{90}{15-$m$-CFA}}}
+ & 12  & 2,211  & 14.4k  & 137k &  00:01 & $<$ \!\!\!\! :01  & 0:04 & $<$ \!\!\!\! :01 
+\\
+ & 10 & 1,548 & 757k & 167k & 00:04 & 65:20 & 0:04 & 015:08  &
+ & 24  & 3,591  & 35.9k  & 1.44M   &  00:03 & 00:02 & 0:06 & 00:01 
+ \\
+ & 11 & 1,667 & 2.91M  & 597k & 00:13 & \timeout{} &  0:08 & 196:06 &
+ & 48  & 6,351  & 78.6k  & 8.29M   &  00:14 & 00:15 & 0:14 &  00:07
+\\
+ & 12 & 1,786 & 11.4M & 2.24M & 00:56 &  \timeout{}& 0:27 & \timeout{} &
+  & 96  & 11,871 & 164k & 38.9M  &  01:08 & 01:41 & 0:36 & 00:36 
+\\ 
+ & 13 & 1,905 & 45.2M & 8.69M & 04:38 &  \timeout{}& 2:00 & \timeout{} &
+ & 192 & 22,911 & 335k & 168M &  05:15 & 12:10 & 1:49 & 02:51 
+\\
+ & 14 & 2,024 & 180M & 34.2M & 25:14 & \timeout{}& 9:58 & \timeout{} &
+ & 384 & 44,991 & 678k & 697M & 24:10 & 1:32:35 & 6:45 & 16:30 
+ \\
+ \bottomrule
+ \end{tabular}
+ \end{table*}

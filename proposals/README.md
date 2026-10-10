@@ -45,8 +45,9 @@ keeps only what remains.
   arrays of records, with one reference count per region and packed data
   as the shard message format. Proposed.
 - [0007](0007-typechecker.md): a state-of-the-art type checker for the fork.
-  Flat, hash-consed terms, glued evaluation, compiled reduction through
-  idris-mlir, tabled search, shape arithmetic and a rewrite ladder, solvers
+  Flat, hash-consed terms, glued evaluation on one interpreter made fast
+  by array math (shared with 0013's static normalization), tabled search,
+  shape arithmetic and a rewrite ladder, solvers
   that search while the kernel checks, a separate small kernel, and
   parallel elaboration, each stage measured against a baseline. Proposed.
 - [0008](0008-otel.md): OpenTelemetry for Idris, after Mercury's
@@ -80,3 +81,20 @@ keeps only what remains.
   the database and the compiler converged, and which MLIR mechanisms it
   reuses (sparse tensors as tries, bufferization as linearity, range
   analysis, the JIT, sharding) with their limits. Proposed.
+- [0012](0012-sharded-whole-program-compiler.md): a sharded whole-program
+  compiler, for after 0004 and 0005. The whole program stays the unit of
+  meaning and stops being the unit of work: per-module summaries, global
+  facts computed by deterministic sharded semi-naive fixpoints (monotone
+  sets, frozen reads, complements of monotone duals, scan-labelled ids),
+  units that carry only their fact slice, one MLIR context per worker, a
+  three-level cache with early cutoff, and byte-identical output for every
+  shard count and schedule. Proposed.
+- [0013](0013-static-normalization.md): static normalization, and no
+  compile-time evaluation feature. The compiler normalizes the static part
+  of the program on the type checker's interpreter, with array operations
+  as whole-array primitives: closed calls of total code become values or,
+  past a counted budget, startup constants; partly static calls specialize
+  on the arguments that steer control, of which monomorphisation is the
+  type case; partial and covering code is never normalized. No JIT, no
+  WebAssembly, no fork; the C++ `idr-eval` goes and MLIR threading can be
+  on. Decided (2026-10-10); not built.

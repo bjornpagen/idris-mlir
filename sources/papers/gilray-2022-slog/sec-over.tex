@@ -1,0 +1,45 @@
+\section{Slog: Declarative Parallel Deduction of Structured Data}
+\label{sec:over}
+%
+For Datalogs used in program analysis, manipulation of abstract syntax trees (ASTs) is among the most routine tasks.
+%
+Normally, to provide such ASTs as input to a modern Datalog engine, one first requires an external flattening tool that walks the richly structured syntax tree and produces a stream of flat, first-order facts to be provided as an input database. For example, the Datalog-based Java-analysis framework DOOP~\cite{Bravenboer:2009, 10.1145/1639949.1640108}, ported to Souffl\'e~\cite{antoniadis2017porting} in 2017, has a substantial preprocessor (written in Java) to be run on a target JAR to produce an input database of AST facts for analysis.
+
+A key observation that initially motivated our work into this subject was that although this preparatory
+transformation is required to provide an AST as a database of first-order facts,
+the same work could not be done from within these Datalogs because it required
+generating unique identities (i.e., pointers to intern values) for inductively defined terms. In fact, any work generating ASTs as facts can not be
+done within Datalog itself but must be an extension to the language. Consider the pair of nested expressions
+that form an identity function:
+
+%\vspace{-0.65cm}
+\begin{multicols}{3}
+  \colorbox{white}{\texttt{(\rtag{lam} "x" (\rtag{ref} "x"))}}
+
+  \hspace{0.5cm} $\overset{\text{flattens}}{\longrightarrow}$ %\hspace{-0.5cm}
+  
+  \begin{minipage}{\linewidth}
+  \texttt{(= lam-id (\rtag{lam} "x" ref-id))}
+  
+  \texttt{(= ref-id (\rtag{ref} "x"))}
+  \end{minipage}
+\end{multicols}
+
+Supplying unique intern values \texttt{lam-id} and \texttt{ref-id} as an extra column for those relations, and thus permitting them to be linked together, is the substance of this preparatory transformation. Our language, \slog{}, proposes this interning behavior for facts be ubiquitous, accounted for at every iteration of relational algebra used to implement the underlying HornSAT fixed point. 
+
+In Souffl\'e, the language has more recently provided abstract data-type (ADT) declarations and struct/record types for heap-allocated values which can be built up into ASTs
+or other such structured data. These datatypes must be declared and can then be used as \$ expressions within rules; e.g., \texttt{\$lam("x",\$ref("x"))}.
+The downside of these ADTs in Souffl\'e is that they are not treated as facts for the purposes of triggering rules and are
+not indexed as facts, which would permit more efficient access patterns.
+
+Our language, \slog{}, respects a \emph{subfact closure property}: every subfact is itself a first-class fact in the language and every top-level fact (and subfact) is a first-class value and has a unique identity (as an automatic column-$0$ value added to the relation). A clause \texttt{(\rtag{foo} x y)} in \slog{}, always has an implied identity column and is interpreted the same as \texttt{(= \_ (\rtag{foo} x y))} if it's missing (where underscore is a wildcard variable). A nested pair of linked facts like \texttt{(\rtag{foo} x (\rtag{bar} y) z)} is desugared as \texttt{(= \_ (\rtag{foo} x id z))} and \texttt{(= id (\rtag{bar} y))}. Thus we can represent an identity function's AST in \slog{} as the directly nested fact and subfact \texttt{(\rtag{lam} "x" (\rtag{ref} "x"))}; under the hood this will be equivalent to two flat facts with a 0-column id provided by an interning process that occurs at the discovery of each new \slog{} fact.
+
+\begin{itemize}
+\item In \slog{}, each structurally unique fact/subfact has a unique intern-id stored in its 0 column so it may be referenced as another fact's subfact and treated as a first-class value.
+\item In \slog{}, all data is at once a first-class fact (able to trigger rule evaluation), a first-class value (able to be referenced by other facts/values), and a first-class thread of execution (treated uniformly by a data-parallel MPI backend that dynamically distributes the workload spatially within, and temporally across, fixed-point iterations).
+\end{itemize}
+
+With subfacts as first-class citizens of the language (see Section~\ref{sec:semantics} for details), able to trigger rules, various useful idioms emerge in which a subfact triggers a response from another rule via an enclosing fact (see Section~\ref{sec:semantics:extensions} for extensions and idioms). Using these straightforward syntactic extensions enables a wide range of deduction and reasoning systems (see Section~\ref{sec:apps} for a discussion of applications in program analyses and type systems). Because subfacts are first-class in \slog{}, rules that use them will naturally force the compiler to include appropriate indices enabling efficient access patterns, and represent thread joins in the natural data-parallelism \slog{} exposes. As a result, we are able to show a deep algorithmic improvement and parallelism over current state-of-art systems in the implementations of analyses we generate (see Section~\ref{sec:eval} for our evaluation with apples-to-apples comparisons against Souffl\'e and RadLog). In some experiments, \slog{} finishes in 4--8 seconds with Souffl\'e taking 1--3 hours---attesting to the importance of subfact indices. In others, we observe efficient strong-scaling on up to hundreds of threads, showing the value of our data-parallel backend. 
+
+
+

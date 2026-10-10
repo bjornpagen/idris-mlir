@@ -1,0 +1,52 @@
+
+R version 3.0.2 (2013-09-25) -- "Frisbee Sailing"
+Copyright (C) 2013 The R Foundation for Statistical Computing
+Platform: x86_64-unknown-linux-gnu (64-bit)
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+[Previously saved workspace restored]
+
+> # load data
+> #p7ih_dist<-scan("~/hpcc13/assembla/trunk/ppopp14_workshop/data/bc/p7ih_dist_256.data")
+> #p7ih_glb<-scan("~/hpcc13/assembla/trunk/ppopp14_workshop/data/bc/p7ih_glb_256.data")
+> 
+> p7ih_dist<-scan("~/hpcc13/assembla/trunk/ppopp14_workshop/data/bc/p7ih_dist_256_n17.data")
+Read 256 items
+> p7ih_glb<-scan("~/hpcc13/assembla/trunk/ppopp14_workshop/data/bc/p7ih_glb_256_n17.data")
+Read 256 items
+> 
+> 
+> pdf("../p7ih_workload.pdf");
+> par(mfrow=c(1,2));
+> # draw dist workload
+> mean_dist=mean(p7ih_dist);
+> sd_dist=sd(p7ih_dist);
+> xlab_txt=sprintf("Places(0..255), mean:%.3f, sd:%.3f", mean_dist, sd_dist);
+> barplot(p7ih_dist, main="BC", xlab=xlab_txt, ylab="Execution time per place", xlim=c(0,255), ylim=c(0,30));
+> # draw glb workload
+> mean_glb=mean(p7ih_glb)
+> sd_glb=sd(p7ih_glb)
+> xlab_txt=sprintf("Places(0..255), mean:%.3f, sd:%.3f", mean_glb, sd_glb);
+> barplot(p7ih_glb, main="BC-G", xlab=xlab_txt, ylab="Execution time per place", xlim=c(0,255), ylim=c(0,30));
+> dev.off()
+null device 
+          1 
+> 
+>  
+> 
+> proc.time()
+   user  system elapsed 
+  0.196   0.011   0.213 

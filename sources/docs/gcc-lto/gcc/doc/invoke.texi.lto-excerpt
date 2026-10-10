@@ -1,0 +1,341 @@
+@opindex flto
+@opindex fno-lto
+@item -flto[=@var{n}]
+This option runs the standard link-time optimizer.  When invoked
+with source code, it generates GIMPLE (one of GCC's internal
+representations) and writes it to special ELF sections in the object
+file.  When the object files are linked together, all the function
+bodies are read from these ELF sections and instantiated as if they
+had been part of the same translation unit.
+
+To use the link-time optimizer, @option{-flto} and optimization
+options should be specified at compile time and during the final link.
+It is recommended that you compile all the files participating in the
+same link with the same options and also specify those options at
+link time.
+For example:
+
+@smallexample
+gcc -c -O2 -flto foo.c
+gcc -c -O2 -flto bar.c
+gcc -o myprog -flto -O2 foo.o bar.o
+@end smallexample
+
+The first two invocations to GCC save a bytecode representation
+of GIMPLE into special ELF sections inside @file{foo.o} and
+@file{bar.o}.  The final invocation reads the GIMPLE bytecode from
+@file{foo.o} and @file{bar.o}, merges the two files into a single
+internal image, and compiles the result as usual.  Since both
+@file{foo.o} and @file{bar.o} are merged into a single image, this
+causes all the interprocedural analyses and optimizations in GCC to
+work across the two files as if they were a single one.  This means,
+for example, that the inliner is able to inline functions in
+@file{bar.o} into functions in @file{foo.o} and vice-versa.
+
+Another (simpler) way to enable link-time optimization is:
+
+@smallexample
+gcc -o myprog -flto -O2 foo.c bar.c
+@end smallexample
+
+The above generates bytecode for @file{foo.c} and @file{bar.c},
+merges them together into a single GIMPLE representation and optimizes
+them as usual to produce @file{myprog}.
+
+The important thing to keep in mind is that to enable link-time
+optimizations you need to use the GCC driver to perform the link step.
+GCC automatically performs link-time optimization if any of the
+objects involved were compiled with the @option{-flto} command-line option.
+You can always override
+the automatic decision to do link-time optimization
+by passing @option{-fno-lto} to the link command.
+
+To make whole-program optimization effective, it is necessary to make
+certain assumptions.  The compiler needs to know
+what functions and variables can be accessed by libraries and runtime
+outside of the link-time optimized unit.  When supported by the linker,
+the linker plugin (see @option{-fuse-linker-plugin}) passes information
+to the compiler about used and externally visible symbols.  When
+the linker plugin is not available, @option{-fwhole-program} should be
+used to allow the compiler to make these assumptions, which leads
+to more aggressive optimization decisions.
+
+When a file is compiled with @option{-flto} without
+@option{-fuse-linker-plugin}, the generated object file is larger than
+a regular object file because it contains GIMPLE bytecodes and the usual
+final code (see @option{-ffat-lto-objects}).  This means that
+object files with LTO information can be linked as normal object
+files; if @option{-fno-lto} is passed to the linker, no
+interprocedural optimizations are applied.  Note that when
+@option{-fno-fat-lto-objects} is enabled the compile stage is faster
+but you cannot perform a regular, non-LTO link on them.
+
+When producing the final binary, GCC only
+applies link-time optimizations to those files that contain bytecode.
+Therefore, you can mix and match object files and libraries with
+GIMPLE bytecodes and final object code.  GCC automatically selects
+which files to optimize in LTO mode and which files to link without
+further processing.
+
+Generally, options specified at link time override those
+specified at compile time, although in some cases GCC attempts to infer
+link-time options from the settings used to compile the input files.
+
+If you do not specify an optimization level option @option{-O} at
+link time, then GCC uses the highest optimization level
+used when compiling the object files.  Note that it is generally
+ineffective to specify an optimization level option only at link time and
+not at compile time, for two reasons.  First, compiling without
+optimization suppresses compiler passes that gather information
+needed for effective optimization at link time.  Second, some early
+optimization passes can be performed only at compile time and
+not at link time.
+
+There are some code generation flags preserved by GCC when
+generating bytecodes, as they need to be used during the final link.
+Currently, the following options and their settings are taken from
+the first object file that explicitly specifies them:
+@option{-fcommon}, @option{-fexceptions}, @option{-fnon-call-exceptions},
+@option{-fgnu-tm} and all the @option{-m} target flags.
+
+The following options @option{-fPIC}, @option{-fpic}, @option{-fpie} and
+@option{-fPIE} are combined based on the following scheme:
+
+@smallexample
+@option{-fPIC} + @option{-fpic} = @option{-fpic}
+@option{-fPIC} + @option{-fno-pic} = @option{-fno-pic}
+@option{-fpic/-fPIC} + (no option) = (no option)
+@option{-fPIC} + @option{-fPIE} = @option{-fPIE}
+@option{-fpic} + @option{-fPIE} = @option{-fpie}
+@option{-fPIC/-fpic} + @option{-fpie} = @option{-fpie}
+@end smallexample
+
+Certain ABI-changing flags are required to match in all compilation units,
+and trying to override this at link time with a conflicting value
+is ignored.  This includes options such as @option{-freg-struct-return}
+and @option{-fpcc-struct-return}.
+
+Other options such as @option{-ffp-contract}, @option{-fno-strict-overflow},
+@option{-fwrapv}, @option{-fno-trapv} or @option{-fno-strict-aliasing}
+are passed through to the link stage and merged conservatively for
+conflicting translation units.  Specifically
+@option{-fno-strict-overflow}, @option{-fwrapv} and @option{-fno-trapv} take
+precedence; and for example @option{-ffp-contract=off} takes precedence
+over @option{-ffp-contract=fast}.  You can override them at link time.
+
+Diagnostic options such as @option{-Wstringop-overflow} are passed
+through to the link stage and their setting matches that of the
+compile-step at function granularity.  Note that this matters only
+for diagnostics emitted during optimization.  Note that code
+transforms such as inlining can lead to warnings being enabled
+or disabled for regions if code not consistent with the setting
+at compile time.
+
+When you need to pass options to the assembler via @option{-Wa} or
+@option{-Xassembler} make sure to either compile such translation
+units with @option{-fno-lto} or consistently use the same assembler
+options on all translation units.  You can alternatively also
+specify assembler options at LTO link time.
+
+To enable debug info generation you need to supply @option{-g} at
+compile time.  If any of the input files at link time were built
+with debug info generation enabled the link will enable debug info
+generation as well.  Any elaborate debug info settings
+like the dwarf level @option{-gdwarf-5} need to be explicitly repeated
+at the linker command line and mixing different settings in different
+translation units is discouraged.
+
+If LTO encounters objects with C linkage declared with incompatible
+types in separate translation units to be linked together (undefined
+behavior according to ISO C99 6.2.7), a non-fatal diagnostic may be
+issued.  The behavior is still undefined at run time.  Similar
+diagnostics may be raised for other languages.
+
+Another feature of LTO is that it is possible to apply interprocedural
+optimizations on files written in different languages:
+
+@smallexample
+gcc -c -flto foo.c
+g++ -c -flto bar.cc
+gfortran -c -flto baz.f90
+g++ -o myprog -flto -O3 foo.o bar.o baz.o -lgfortran
+@end smallexample
+
+Notice that the final link is done with @command{g++} to get the C++
+runtime libraries and @option{-lgfortran} is added to get the Fortran
+runtime libraries.  In general, when mixing languages in LTO mode, you
+should use the same link command options as when mixing languages in a
+regular (non-LTO) compilation.
+
+If object files containing GIMPLE bytecode are stored in a library archive, say
+@file{libfoo.a}, it is possible to extract and use them in an LTO link if you
+are using a linker with plugin support.  To create static libraries suitable
+for LTO, use @command{gcc-ar} and @command{gcc-ranlib} instead of @command{ar}
+and @command{ranlib};
+to show the symbols of object files with GIMPLE bytecode, use
+@command{gcc-nm}.  Those commands require that @command{ar}, @command{ranlib}
+and @command{nm} have been compiled with plugin support.  At link time, use the
+flag @option{-fuse-linker-plugin} to ensure that the library participates in
+the LTO optimization process:
+
+@smallexample
+gcc -o myprog -O2 -flto -fuse-linker-plugin a.o b.o -lfoo
+@end smallexample
+
+With the linker plugin enabled, the linker extracts the needed
+GIMPLE files from @file{libfoo.a} and passes them on to the running GCC
+to make them part of the aggregated GIMPLE image to be optimized.
+
+If you are not using a linker with plugin support and/or do not
+enable the linker plugin, then the objects inside @file{libfoo.a}
+are extracted and linked as usual, but they do not participate
+in the LTO optimization process.  In order to make a static library suitable
+for both LTO optimization and usual linkage, compile its object files with
+@option{-flto} @option{-ffat-lto-objects}.
+
+Link-time optimizations do not require the presence of the whole program to
+operate.  If the program does not require any symbols to be exported, it is
+possible to combine @option{-flto} and @option{-fwhole-program} to allow
+the interprocedural optimizers to use more aggressive assumptions which may
+lead to improved optimization opportunities.
+Use of @option{-fwhole-program} is not needed when linker plugin is
+active (see @option{-fuse-linker-plugin}).
+
+The current implementation of LTO makes no
+attempt to generate bytecode that is portable between different
+types of hosts.  The bytecode files are versioned and there is a
+strict version check, so bytecode files generated in one version of
+GCC do not work with an older or newer version of GCC.
+
+Link-time optimization does not work well with generation of debugging
+information on systems other than those using a combination of ELF and
+DWARF.
+
+If you specify the optional @var{n}, the optimization and code
+generation done at link time is executed in parallel using @var{n}
+parallel jobs by utilizing an installed @command{make} program.  The
+environment variable @env{MAKE} may be used to override the program
+used.
+
+You can also specify @option{-flto=jobserver} to use GNU make's
+job server mode to determine the number of parallel jobs. This
+is useful when the Makefile calling GCC is already executing in parallel.
+You must prepend a @samp{+} to the command recipe in the parent Makefile
+for this to work.  This option likely only works if @env{MAKE} is
+GNU make.  Even without the option value, GCC tries to automatically
+detect a running GNU make's job server.
+
+Use @option{-flto=auto} to use GNU make's job server, if available,
+or otherwise fall back to autodetection of the number of CPU threads
+present in your system.
+
+@opindex flto-partition
+@opindex fno-lto-partition
+@item -flto-partition=@var{alg}
+Specify the partitioning algorithm used by the link-time optimizer.
+The value is either @samp{1to1} to specify a partitioning mirroring
+the original source files or @samp{balanced} to specify partitioning
+into equally sized chunks (whenever possible) or @samp{max} to create
+new partition for every symbol where possible or @samp{cache} to
+balance chunk sizes while keeping related symbols together for better
+caching in incremental LTO.  Specifying @samp{none} as an algorithm
+disables partitioning and streaming completely.
+The default value is @samp{balanced}. While @samp{1to1} can be used
+as an workaround for various code ordering issues, the @samp{max}
+partitioning is intended for internal testing only.
+The value @samp{one} specifies that exactly one partition should be
+used while the value @samp{none} bypasses partitioning and executes
+the link-time optimization step directly from the WPA phase.
+
+@opindex flto-incremental
+@opindex fno-lto-incremental
+@item -flto-incremental=@var{path}
+Enable incremental LTO, with its cache in given existing directory.
+Can significantly shorten edit-compile cycles with LTO.
+
+When used with LTO (@option{-flto}), the output of translation units
+inside LTO is cached. Cached translation units are likely to be
+encountered again when recompiling with small code changes, leading to
+recompile time reduction.
+
+Multiple GCC instances can use the same cache in parallel.
+
+@opindex flto-incremental-cache-size
+@opindex fno-lto-incremental-cache-size
+@item -flto-incremental-cache-size=@var{n}
+Specifies number of cache entries in incremental LTO after which to prune
+old entries. This is a soft limit, temporarily there may be more entries.
+
+@opindex flto-compression-level
+@item -flto-compression-level=@var{n}
+This option specifies the level of compression used for intermediate
+language written to LTO object files, and is only meaningful in
+conjunction with LTO mode (@option{-flto}).  GCC currently supports two
+LTO compression algorithms. For zstd, valid values are 0 (no compression)
+to 19 (maximum compression), while zlib supports values from 0 to 9.
+Values outside this range are clamped to either minimum or maximum
+of the supported values.  If the option is not given,
+a default balanced compression setting is used.
+
+@opindex flto-toplevel-asm-heuristics
+@item -flto-toplevel-asm-heuristics
+Enables heuristics to find symbols used in top-level basic @code{asm}.
+This will restrict link-time optimizations that could cause renaming
+or deletion of such symbols which would result in missing symbol errors by
+linker.
+
+This flag is intended for projects that have not converted to using top-level
+extended @code{asm} (@pxref{Extended Asm}), which specify the usage directly
+without any false positives.
+
+The heuristics are simple and do not parse the assembly.
+The heuristics scan through top-level assembly for all possible identifiers;
+if an identifier is found among declared symbols, the symbol will be marked to
+restrict link-time optimizations.  Static symbols disable more optimizations.
+Identifiers followed by ':' disable more optimizations as well, because they
+might be a locally defined symbol in assembly, even when the declaration
+is marked 'extern'.
+
+@opindex fuse-linker-plugin
+@item -fuse-linker-plugin
+Enables the use of a linker plugin during link-time optimization.  This
+option relies on plugin support in the linker, which is available in gold
+or in GNU ld 2.21 or newer.
+
+This option enables the extraction of object files with GIMPLE bytecode out
+of library archives. This improves the quality of optimization by exposing
+more code to the link-time optimizer.  This information specifies what
+symbols can be accessed externally (by non-LTO object or during dynamic
+linking).  Resulting code quality improvements on binaries (and shared
+libraries that use hidden visibility) are similar to @option{-fwhole-program}.
+See @option{-flto} for a description of the effect of this flag and how to
+use it.
+
+This option is enabled by default when LTO support in GCC is enabled
+and GCC was configured for use with
+a linker supporting plugins (GNU ld 2.21 or newer or gold).
+
+@opindex ffat-lto-objects
+@opindex fno-fat-lto-objects
+@item -ffat-lto-objects
+Fat LTO objects are object files that contain both the intermediate language
+and the object code. This makes them usable for both LTO linking and normal
+linking. This option is effective only when compiling with @option{-flto}
+and is ignored at link time.
+
+@option{-fno-fat-lto-objects} improves compilation time over plain LTO, but
+requires the complete toolchain to be aware of LTO. It requires a linker with
+linker plugin support for basic functionality.  Additionally,
+@command{nm}, @command{ar} and @command{ranlib}
+need to support linker plugins to allow a full-featured build environment
+(capable of building static libraries etc).  GCC provides the @command{gcc-ar},
+@command{gcc-nm}, @command{gcc-ranlib} wrappers to pass the right options
+to these tools. With non fat LTO makefiles need to be modified to use them.
+
+Note that modern binutils provide plugin auto-load mechanism.
+Installing the linker plugin into @file{$libdir/bfd-plugins} has the same
+effect as usage of the command wrappers (@command{gcc-ar}, @command{gcc-nm} and
+@command{gcc-ranlib}).
+
+The default is @option{-fno-fat-lto-objects} on targets with linker plugin
+support.

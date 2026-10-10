@@ -1,0 +1,90 @@
+\subsection{Transitive Closure}
+\label{sec:eval:tc}
+\label{sec:eval:pb1}
+
+We sought to compare \slog{}'s full-system throughput on vanilla
+Datalog against two comparable production systems: Souffl\'e and
+Radlog. Souffl\'e is engineered to achieve the best-known performance
+on unified-memory architectures, and supports parallelism via
+OpenMP. Radlog is a Hadoop-based successor to the BigDatalog deductive
+inference system, which uses Apache Spark to perform distributed joins
+at scale~\cite{rasql}. We originally sought to compare \slog{}
+directly against BigDatalog, but found it does not support recent
+versions of either Spark or Java (being built to target Java
+1.5). Under direction of BigDatalog's authors, we instead used Radlog,
+which is currently under active development and runs on current
+versions of Apache Spark.
+
+We performed comparisons on an \textsf{Standard\_M128s} instance
+rented from Microsoft Azure~\cite{mseries}. The node used in our
+experiments has 64 physical cores (128 threads) running Intel Xeon
+processors with a base clock speed of 2.7GHz and 2,048GB of RAM. To
+directly compare \slog{}, Souffl\'e, and Radlog, we ran each on the
+same machine using 15, 30, 60, and 120 threads. We ran \slog{} using
+OpenMPI version 4.1.1 and controlled core counts via
+\texttt{mpirun}. We compiled Souffl\'e from its Git repository, using
+Souffl\'e's compiled mode to compile each benchmark separately to use
+the requisite number of threads before execution. Radlog runs natively
+on Apache Spark, which subsequently runs on Hadoop. To achieve a fair
+comparison against Souffl\'e and \slog{}, we ran Radlog using Apache
+Spark configured in local mode; Spark's local mode circumvents the
+network stack and runs the application directly in the JVM. We used
+three large graphs shown the first column of Table~\ref{tab:single-results}:
+\textsc{fb-media} is media-related pages on Facebook,
+\textsc{ring10000} is ring graph of 10,000 nodes, and
+\textsc{suitesparse} is from the UF Sparse Matrix
+Collection~\cite{Davis:2011:UFS:2049662.2049663}. We configured Radlog
+according the directions on its website, experimenting with a variety
+of partitions (used for shuffling data between phases) to achieve the
+best performance we could. Ultimately, we used three times as many
+partitions as available threads, except for \textsc{ring10000}, for
+which we found higher partition counts caused significantly lower
+performance.
+
+\begin{table}
+\centering
+\caption{Single-node TC Experiments}
+\begin{tabular}{m{1.7cm}m{1cm}m{2cm}|cm{.5cm}m{.5cm}m{.5cm}m{.5cm}}
+\toprule
+\multicolumn{3}{c}{Graph Properties}&& \multicolumn{4}{c}{Time (s) at Process Count} \\
+Name & Edges & {\quad$\mid$TC$\mid$} & System & 15 & 30 & 60 & 120 \\
+\midrule
+\multirow{3}{*}{\textsc{fb-media}} & \multirow{3}{*}{206k} & \multirow{3}{*}{96,652,228} & \slog & 62 & 40 & 21 & \textbf{18} \\
+ &&& Souffl\'e & 35 & 33 & 34 & 37 \\
+ &&& Radlog & 254 & 295 & 340 & 164 \\
+\midrule \midrule
+\multirow{3}{*}{\textsc{ring10000}} & \multirow{3}{*}{10k} & \multirow{3}{*}{100,020,001} & \slog & 363 & 218 & 177 & \textbf{115} \\
+ &&& Souffl\'e & 149 & 143 & 140 & 141 \\
+ &&& Radlog & 464 & 646 & 852 & 1292 \\
+\midrule \midrule
+\multirow{3}{*}{\textsc{suitesparse}} & \multirow{3}{*}{412k} & \multirow{3}{*}{3,354,219,810} & \slog & -- & 1,593 & 908 & \textbf{671} \\
+ &&& Souffl\'e & 1,417 & 1,349 & 1,306 & 1,282 \\
+ &&& Radlog & -- & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\label{tab:single-results}
+\end{table}
+
+Table~\ref{tab:single-results} details the results of our single-node
+performance comparisons in seconds for each thread count, where each
+datapoint represents the best of three runs (lower is
+better). Experiments were cut off after 30 minutes. In every case, we
+found that \slog{} produced the best performance overall at 120
+threads, even compared to Souffl\'e's best time. However, as expected,
+our results indicate that Souffl\'e outperforms \slog{} at lower core
+counts (below 60). Souffl\'e implements joins with tight loops in
+\CC{}, and (coupled with its superior single-node datastructures) this
+allows Souffl\'e to achieve better performance than either \slog{} or
+Radlog at lower core counts. We found that Radlog did not scale nearly
+as well as either Souffl\'e or \slog{}. We expected this would be the
+case: both \slog{} and Souffl\'e compile to \CC{}. By comparison,
+Radlog's Spark-based architecture incurs significant sequential
+overhead due to the fact that it is implemented on top of the JVM and
+pays a per-iteration penalty by using Hadoop's aggregation and
+shuffling phase. \slog{} also incurs sequential overhead compared to
+Souffl\'e due to its distributing results after every iteration,
+though results indicate that our MPI-based implementation helps
+ameliorate this compared to Radlog.
+
+
+

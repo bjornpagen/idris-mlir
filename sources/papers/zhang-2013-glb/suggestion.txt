@@ -1,0 +1,28 @@
+Dave: easily load balanced via static scheduling vs. hard/impossible to statically load balance"
+
+Olivier: We need to emphasize early (intro) what GLB is flexible about vs. inflexible about so as to characterize the domain of application.
+
+GLB is flexible about:
+- nature of the work
+- amount of unbalance/predictability,
+- granularity to a point (cf. probing in BC).
+- architecture
+- concurrently running code (not under GLB)
+
+GLB is inflexible about:
+- locality-insensitive tasks
+- cooperative scheduling (for now)
+
+We also need in the intro a high-level description of the needed delta over the seq code (sec 2.2 preview):
+- rough progress metric (for cooperation), split & merge task lists.
+
+Rather than an hint from programmer EP vs. non-EP, we just say that the programmer can provide an initial distribution of the work items (optional).
+
+We need to emphasize the fact that some of the req parts can be provided by the lib or by the user code (for better specialization).
+For instance, we permit describing TaskBags and TaskQueues to enable more efficient serialization of TaskQueues but we should make this optional.
+We can/should provide default queues (default split/merge).
+
+We should discuss logging capabilities (-> tuning work granularity, cooperation, tuning for diff architectures).
+
+
+I guess "embarrassingly parallel vs. non-embarrassingly parallel" maybe maps to "easily load balanced via static scheduling vs. hard/impossible to statically load balance"?   If so, maybe try to define some scheduling continuum early in the paper?

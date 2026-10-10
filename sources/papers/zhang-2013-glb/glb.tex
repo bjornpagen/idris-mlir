@@ -1,0 +1,191 @@
+% GLB
+% Here we describe the basic API. This is now quite simple. user has
+% to write a TaskFrame, and optionally a TaskBag, supply some
+% parameters, and run the darn thing. We illustrate in running text 
+% with a Fib example.
+
+\subsection{The GLB Framework Design}
+The GLB (Global Load-Balancing) framework is applicable for {\em
+  tree-structured problems}. 
+
+Such problems can be characterized thus. There is an initial
+bag (multiset) of {\em tasks} (may be of size one). A task usually has a
+small amount of associated state, but is permitted to access
+(immutable) ``reference state''  that can be replicated across all
+places. Consequently, tasks are {\em relocatable}: they can be
+executed at any place. 
+
+Tasks can be executed. Executing a task may only involve local,
+self-contained work (no communication). During execution, a task is
+permitted to create zero or more tasks, and produce a result of a given
+(pre-specified) type \code{Z}. The user is required to specify a
+reduction operator of type \code{Z}. 
+
+The GLB framework is responsible for distributing the generated
+collection of tasks across all nodes. Once no more tasks are left to
+be executed, the single value of type \code{Z} (obtained by reducing
+the results produced by all tasks) is returned.  
+
+Since the execution of each task depends only on the state of the
+task (and on immutable external state), the set of results produced on
+execution will be the same from one run to another, regardless of
+how the tasks are distributed across places. Since the user supplied
+reduction operator is assumed to be associative and commutative, the
+result of execution of the problem is determinate. Thus GLB is a
+determinate application library that requires the user to provide a
+few sequential pieces of code and handles concurrency, distribution
+and communication automatically. 
+
+The GLB framework is applicable to a wide variety of tasks. For a
+simple example, consider the problem of computing the $n$'th Fibonacci
+number in the naive recursive way. Here the state of the task can be
+summarized by just one number (long), i.e.{} $n$. Execution of the
+task yields either a result (for $n < 2$), or two tasks (for $n-1$ and
+$n-2$). The results from all tasks need to be reduced through
+arithmetic addition. 
+
+All {\em state space search algorithms} from AI fall in this
+category. Such algorithms are characterized by a space of states, an
+initial state, and a generator function which given a state generates
+zero or more states. The task is to enumerate all states (perhaps with
+a cutoff), apply some function, and combine the results. An example of
+such an application is the famous $N$-Queens problem.
+
+Another example of this problem is the Unbalanced Tree Search (UTS)
+benchmark. Indeed, it was our attempt to solve the UTS problem that
+led to the creation of the GLB framework.
+
+\subsection{The GLB API}
+The GLB framework works by distributing bags of tasks from busy places
+to idle places automatically. In special cases, the application
+programmer may improve overall performance by specifying a custom
+implementation of \code{TaskBag}. The implementation must support a
+\code{split} operation which permits the current task bag to be split
+into two (so the other piece can be distributed to another place) and
+a \code{merge} operation which permits incoming work to be included in
+the task bag at the current place. 
+
+Thus in summary, the application programmer provides the following
+pieces of code:
+\begin{enumerate}
+\item A \code{TaskFrame[Z]} class. This class is expected to maintain a
+  reference to a \code{TaskBag} (the {\em local task bag}). The user
+  must supply implementations for the following methods:
+  \begin{enumerate}
+  \item   \code{getTaskBag():TaskBag}: should return the local task bag.
+  \item \code{getReducer():Reducible[Z]}: should return the reducer
+    associated with this job.
+  \item \code{getResult():Z}: This returns the accumulated result for all
+    tasks that were completed at this place. 
+  \item \code{initTask():void}: This is called once, when this task
+    frame is set up at the current place. It should initialize the
+    local task bag appropriately. 
+
+    If the problem has a single root task, then the user should choose
+    one place (e.g. place zero) as the place at which to add this
+    task. If the problem has many initial tasks then more than one
+    place may start out with non-empty task bags. 
+  \item \code{runAtMostNTasks(n:Long):Boolean}: This method must run at most
+    \code{n} tasks from the task bag at the current place, and return
+    \code{true} if there is still work left to do in the local task
+    bag. During the execution of this method, user code may manipulate
+    the local task bag freely (removing and adding tasks to it). The
+    framework guarantees that no other worker will concurrently access
+    the task bag. For tasks which have completed and produced a result
+    of type \code{Z}, the method must accumulate the result in local
+    state, using the supplied reducer.
+\end{enumerate}
+\item Optionally, a custom class extending \code{TaskBag} and
+  appropriately implementing \code{split} and \code{merge} methods. 
+\end{enumerate}
+
+The framework is invoked in a fairly simple way:
+
+{\footnotesize
+\begin{verbatim}
+val r = new GlobalLoadBalancer[T](parameters);
+val result = g.run(()=> new TaskFrameImp[T]());
+\end{verbatim}}
+
+\noindent First an instance of \code{GlobalLoadBalancer} is created
+with a specification of parameters for controlling various aspects of
+global load-balancing. Next the framework is invoked, supplying a
+function that generates an instance of the user-specified
+\code{TaskFrame} class, with the appropriate result type. This method
+returns the result of running the user's problem, balanced across all
+places. 
+
+The code in Figure~\ref{table:fib} illustrates the use of this
+framework with a simple Fibonacci computation. 
+
+%% Add Fibonacci code in totality.
+
+\begin{table}
+{\footnotesize
+\begin{verbatim}
+package fib;
+
+import glb.TaskBag;
+import glb.TaskFrame;
+import glb.GlobalLoadBalancer;
+import glb.ArrayListTaskBag;
+import glb.GLBParameters;
+
+public class Fib(n:Long) {
+    class FibFrame extends TaskFrame[Long] {
+        val bag = new ArrayListTaskBag[Long]();
+        val reducer = Reducible.SumReducer[Long]();
+        var result:Long=0;
+        public def getTaskBag()=bag;
+        public def getReducer()=reducer;
+        public def getResult()= result;
+        public def initTask() {
+            if (here.id==0) bag.bag().add(n);
+        }
+        public def runAtMostNTasks(n:Long) {
+            val b = bag.bag();
+            for (1..n) {
+                if (b.size()<=0) break;
+                val x = b.removeLast(); // constant time
+                if (x < 2) result += x;
+                else {
+                    b.add(x-1); // constant time
+                    b.add(x-2);
+                }
+            }
+            return b.size()>0;
+        }
+    }
+    public def run():Long {
+        val g = new GlobalLoadBalancer[Long](GLBParameters.Default);
+        return g.run(()=>new FibFrame());
+    }
+    static def fib(n:Long):Long=n<2? n: fib(n-1)+fib(n-2);
+    public static def main(args:Rail[String]) {
+        val N = args.size < 1 ? 10 : Long.parseLong(args(0));
+        val result = new Fib(N).run();
+        
+        Console.OUT.println("fib(" + N + ")=" 
+           + result + " (actual=" + fib(N)+")");
+    }
+}
+\end{verbatim}}
+\caption{Fibonacci, with GLB}\label{table:fib}
+\end{table}
+
+\subsection{Implementation}
+
+GLB is essentially a library form of UTS. Hence the basic structure of
+the code is the same as for UTS. 
+
+
+\subsection{Validation}
+We have implemented three benchmarks using this framework --
+Fibonacci, UTS and BC. In each case, for various input sizes we
+checked the result obtained for these benchmarks with results obtained
+through alternative means (e.g. running the benchmarks directly), and
+verified the results were the same.
+
+\subsection{Performance} Performance is reported in the UTS-G
+and BC-G sections, through the performance of those benchmarks
+compared with UTS and BC, respectively.

@@ -1,0 +1,39 @@
+\subsection{Abstract Machines}
+\label{sec:apps:am}
+%
+Next, instead of using terms alone to represent intermediate points in evaluation, we may wish to explicitly represent facets of evaluation such as the environment, the stack, and the heap. Instead of representing environments through substitution, we may want to represent them explicitly in a higher-order way. As shown in Figure~\ref{fig:defun-env}, with first-class facts and ad hoc polymorphic rules, we can use defunctionalization to implement first-class relations, providing a global \rtag{env-map} relation, we can read with an \texttt{\{\rtag{env-map} env x\}} expression (assuming ground variables \texttt{env} and \texttt{x}), along with a \texttt{(ext-env env x val)} facility for deriving an extended environment.
+%
+\begin{figure*}[h]
+\begin{Verbatim}[baselinestretch=0.8,commandchars=\\\{\}]
+\comm{; environments (defunctionalized)}
+(\rtag{env-map} \huhclause{?(\rtag{ext-env} env x val)} x val)
+[(=/= x y) --> (\rtag{env-map} \huhclause{?(\rtag{ext-env} env x _)} y \{\rtag{env-map} env y\})]
+\end{Verbatim}
+\caption{Defunctionalized environments; extension via \texttt{(ext-env env x v)}, lookup via \texttt{\{env-map env x\}}.}
+\label{fig:defun-env}
+\end{figure*}
+
+
+On the left of Figure~\ref{fig:ce-machines} shows an abstract machine for CBN evaluation, and on the right, an abstract machine for CBV evaluation.
+%
+At the top, the rules for reference use \texttt{\{\rtag{env-map} env x\}} to access the value from the defunctionalized
+\rtag{env-map} relation. In the CBN version, we cannot count on the stored closure to be a lambda closure, so we continue
+interpretation, using another \{ \!\} expression to drop-in the transitive reduction of the stored argument closure.
+%
+Lambda closures are the base case which \rtag{interp} as themselves.
+%
+Finally, application closures trigger a closure to evaluate \texttt{Ef} via a ! clause, \texttt{\bangclause{!(clo Ef env)}}, and the lambda closure that finally results has its body evaluated under its environment, extended with parameter mapped to argument.
+%
+In the CBN interpreter, \texttt{(ext-env env' x (clo Ea env))} puts the argument expression \texttt{Ea} in the environment, closed with the current environment. In the CBV interpreter, \texttt{(ext-env env' x Eav)} puts the argument value \texttt{Eav} in the environment (after first evaluating it). In both these interpreters, the \rtag{app}-handling rules use ! clauses to implicitly create handling rules and a chain of continuation facts so \rtag{interp} maybe be utilized in a direct-recursive manner. The ! syntax introduces a CPS-like transformation that provides a stack in the interpretation of \slog{} rules for these CE interpreters to map their stack onto.
+%
+\input{sec-apps-am-ce}
+
+\input{sec-apps-am-cek}
+%
+We can also implement the stack ourselves within our interpreter, thereby eliminating its need for our interpreter itself, by applying a stack-passing transformation.
+On the left, Figure~\ref{fig:cek-machines} shows Krivine's machine~\cite{krivine:2007:cbn}, a tail-recursive abstract machine for CBN evaluation, and on the right, a tail-recursive abstract machine for CBV evaluation. Each of these machines incrementally constructs and passes a stack. In the CBN stack-passing interpreter, each application reached pushes a closure for the argument expression onto the stack. When a lambda is reached, this continuation is handled by popping its latest closure, the argument value. In the CBV stack-passing interpreter, each application reached pushes an \rtag{ar-k} continuation frame on the stack to save the argument value and environment. Whan a lambda is reached, this continuation is handled by swapping it for a \rtag{fn-k} continuation that saves the function value while the argument expression is evaluated (before application). Finally, when a lambda is reached, the \rtag{fn-k} continuation is handled by applying the saved closure. Now that the stack is entirely maintained by the interpreter itself, you may note that all recursive uses of \texttt{\{interp (cek ...)\}} are in tail position for the result column of relation \rtag{interp}. 
+
+
+
+
+

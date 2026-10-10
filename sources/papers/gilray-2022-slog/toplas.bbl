@@ -1,0 +1,547 @@
+\begin{thebibliography}{10}
+
+\bibitem{parallelcluster}
+{AWS ParallelCluster}.
+\newblock https://aws.amazon.com/hpc/parallelcluster/.
+\newblock Accessed: 2022-06-01.
+
+\bibitem{Aiken:2007}
+Alex Aiken, Suhabe Bugrara, Isil Dillig, Thomas Dillig, Brian Hackett, and
+  Peter Hawkins.
+\newblock An overview of the saturn project.
+\newblock In {\em Proceedings of the 7th ACM SIGPLAN-SIGSOFT Workshop on
+  Program Analysis for Software Tools and Engineering}, PASTE '07, page
+  43–48, New York, NY, USA, 2007. Association for Computing Machinery.
+
+\bibitem{Anderson:2017}
+Michael Anderson, Shaden Smith, Narayanan Sundaram, Mihai Capot\u{a}, Zheguang
+  Zhao, Subramanya Dulloor, Nadathur Satish, and Theodore~L. Willke.
+\newblock Bridging the gap between hpc and big data frameworks.
+\newblock {\em Proc. VLDB Endow.}, 10(8):901–912, apr 2017.
+
+\bibitem{antoniadis2017porting}
+Tony Antoniadis, Konstantinos Triantafyllou, and Yannis Smaragdakis.
+\newblock Porting {DOOP} to souffl{\'e}: a tale of inter-engine portability for
+  datalog-based analyses.
+\newblock In {\em Proceedings of the 6th ACM SIGPLAN International Workshop on
+  State Of the Art in Program Analysis}, pages 25--30. ACM, 2017.
+
+\bibitem{appel2007compiling}
+Andrew~W Appel.
+\newblock {\em Compiling with continuations}.
+\newblock Cambridge university press, 2007.
+
+\bibitem{Arntzenius:2019}
+Michael Arntzenius and Neel Krishnaswami.
+\newblock Semina\"{\i}ve evaluation for a higher-order functional language.
+\newblock {\em Proc. ACM Program. Lang.}, 4(POPL), dec 2019.
+
+\bibitem{Arntzenius:2016}
+Michael Arntzenius and Neelakantan~R. Krishnaswami.
+\newblock Datafun: A functional datalog.
+\newblock In {\em Proceedings of the 21st ACM SIGPLAN International Conference
+  on Functional Programming}, ICFP 2016, page 214–227, New York, NY, USA,
+  2016. Association for Computing Machinery.
+
+\bibitem{barendregt2013lambda}
+H.~Barendregt, W.~Dekkers, R.~Statman, and Association for Symbolic~Logic.
+\newblock {\em Lambda Calculus with Types}.
+\newblock Lambda Calculus with Types. Cambridge University Press, 2013.
+
+\bibitem{formulog-bembenek2020}
+Aaron Bembenek, Michael Greenberg, and Stephen Chong.
+\newblock Formulog: Datalog for smt-based static analysis.
+\newblock {\em Proceedings of the ACM on Programming Languages},
+  4(OOPSLA):1--31, 2020.
+
+\bibitem{Bjorner:2015}
+Nikolaj Bj{\o}rner, Arie Gurfinkel, Ken McMillan, and Andrey Rybalchenko.
+\newblock {\em Horn Clause Solvers for Program Verification}, volume Fields of
+  Logic and Computation II (pp.24-51), pages 24--51.
+\newblock Springer LNCS, 09 2015.
+
+\bibitem{Blass1987}
+Andreas Blass and Yuri Gurevich.
+\newblock {\em Existential fixed-point logic}, pages 20--36.
+\newblock Springer Berlin Heidelberg, Berlin, Heidelberg, 1987.
+
+\bibitem{Bravenboer:2009}
+Martin Bravenboer and Yannis Smaragdakis.
+\newblock Strictly declarative specification of sophisticated points-to
+  analyses.
+\newblock In {\em Proceedings of the 24th ACM SIGPLAN Conference on Object
+  Oriented Programming Systems Languages and Applications}, OOPSLA '09, pages
+  243--262, New York, NY, USA, 2009. ACM.
+
+\bibitem{10.1145/1639949.1640108}
+Martin Bravenboer and Yannis Smaragdakis.
+\newblock Strictly declarative specification of sophisticated points-to
+  analyses.
+\newblock {\em SIGPLAN Not.}, 44(10):243–262, October 2009.
+
+\bibitem{bruck1997efficient}
+Jehoshua Bruck, Ching-Tien Ho, Shlomo Kipnis, Eli Upfal, and Derrick
+  Weathersby.
+\newblock Efficient algorithms for all-to-all communications in multiport
+  message-passing systems.
+\newblock {\em IEEE Transactions on parallel and distributed systems},
+  8(11):1143--1156, 1997.
+
+\bibitem{Stefan:2011}
+Stefan Bucur, Vlad Ureche, Cristian Zamfir, and George Candea.
+\newblock Parallel symbolic execution for automated real-world software
+  testing.
+\newblock In {\em Proceedings of the Sixth Conference on Computer Systems},
+  EuroSys '11, page 183–198, New York, NY, USA, 2011. Association for
+  Computing Machinery.
+
+\bibitem{azure-august2019}
+Evan Burness.
+\newblock Introducing the new hbv2 azure virtual machines for high-performance
+  computing.
+\newblock 2019.
+\newblock
+  {\footnotesize\url{https://azure.microsoft.com/en-us/blog/introducing-the-new-hbv2-azure-virtual-machines-for-high-performance-computing/}};
+  accessed August 11, 2019.
+
+\bibitem{Yufei:2014}
+Yufei Cai, Paolo~G. Giarrusso, Tillmann Rendel, and Klaus Ostermann.
+\newblock A theory of changes for higher-order languages: Incrementalizing
+  $\lambda$-calculi by static differentiation.
+\newblock In {\em Proceedings of the 35th ACM SIGPLAN Conference on Programming
+  Language Design and Implementation}, PLDI '14, page 145–155, New York, NY,
+  USA, 2014. Association for Computing Machinery.
+
+\bibitem{ceri1989you-datalog}
+Stefano Ceri, Georg Gottlob, Letizia Tanca, et~al.
+\newblock What you always wanted to know about datalog(and never dared to ask).
+\newblock {\em IEEE transactions on knowledge and data engineering},
+  1(1):146--166, 1989.
+
+\bibitem{cousot1996abstract}
+Patrick Cousot.
+\newblock Abstract interpretation.
+\newblock {\em ACM Computing Surveys (CSUR)}, 28(2):324--328, 1996.
+
+\bibitem{cousot77unifiedmodel}
+Patrick Cousot and Radhia Cousot.
+\newblock Abstract interpretation: A unified lattice model for static analysis
+  of programs by construction or approximation of fixpoints.
+\newblock In {\em Proceedings of the 4th ACM SIGACT-SIGPLAN Symposium on
+  Principles of Programming Languages}, POPL '77, pages 238--252, New York, NY,
+  USA, 1977. ACM.
+
+\bibitem{cousot1979systematic}
+Patrick Cousot and Radhia Cousot.
+\newblock Systematic design of program analysis frameworks.
+\newblock In {\em Proceedings of the 6th ACM SIGACT-SIGPLAN symposium on
+  Principles of programming languages}, pages 269--282, 1979.
+
+\bibitem{Curry:1934}
+H.~B. Curry.
+\newblock Functionality in combinatory logic.
+\newblock {\em Proceedings of the National Academy of Sciences of the United
+  States of America}, 20(11):584--590, 1934.
+
+\bibitem{Davis:2011:UFS:2049662.2049663}
+Timothy~A. Davis and Yifan Hu.
+\newblock The university of florida sparse matrix collection.
+\newblock {\em ACM Trans. Math. Softw.}, 38(1):1:1--1:25, December 2011.
+
+\bibitem{fan2022optimizing}
+Ke~Fan, Thomas Gilray, Valerio Pascucci, Xuan Huang, Kristopher Micinski, and
+  Sidharth Kumar.
+\newblock Optimizing the bruck algorithm for non-uniform all-to-all
+  communication.
+\newblock In {\em Proceedings of the 31st International Symposium on
+  High-Performance Parallel and Distributed Computing}, pages 172--184, 2022.
+
+\bibitem{Fedyukovich:2018}
+Grigory Fedyukovich, Sumanth Prabhu, Kumar Madhukar, and Aarti Gupta.
+\newblock Solving constrained horn clauses using syntax and data.
+\newblock In Nikolaj~S. Bj{\o}rner and Arie Gurfinkel, editors, {\em 2018
+  Formal Methods in Computer Aided Design, {FMCAD} 2018, Austin, TX, USA,
+  October 30 - November 2, 2018}, pages 1--9. {IEEE}, 2018.
+
+\bibitem{forum1994mpi}
+Message~P Forum.
+\newblock Mpi: A message-passing interface standard, 1994.
+
+\bibitem{Giarrusso:2019}
+Paolo~G. Giarrusso, Yann R{\'e}gis-Gianas, and Philipp Schuster.
+\newblock Incremental $\lambda$-calculus in cache-transfer style.
+\newblock In Lu{\'i}s Caires, editor, {\em Programming Languages and Systems},
+  pages 553--580, Cham, 2019. Springer International Publishing.
+
+\bibitem{gilray2016poly}
+Thomas Gilray, Michael~D. Adams, and Matthew Might.
+\newblock Allocation characterizes polyvariance: A unified methodology for
+  polyvariant control-flow analysis.
+\newblock In {\em Proceedings of the 21st ACM SIGPLAN International Conference
+  on Functional Programming}, ICFP '16, pages 407--420, New York, NY, USA,
+  2016. ACM.
+
+\bibitem{hipc}
+Thomas Gilray and Sidharth Kumar.
+\newblock Distributed relational algebra at scale.
+\newblock In {\em 2019 IEEE 26th International Conference on High Performance
+  Computing, Data, and Analytics (HiPC)}, pages 12--22, 2019.
+
+\bibitem{cc}
+Thomas Gilray, Sidharth Kumar, and Kristopher Micinski.
+\newblock Compiling data-parallel datalog.
+\newblock In {\em Proceedings of the 30th ACM SIGPLAN International Conference
+  on Compiler Construction}, CC 2021, page 23–35, New York, NY, USA, 2021.
+  Association for Computing Machinery.
+
+\bibitem{gilray2016p4f}
+Thomas Gilray, Steven Lyde, Michael~D. Adams, Matthew Might, and David
+  Van~Horn.
+\newblock Pushdown control-flow analysis for free.
+\newblock In {\em Proceedings of the 43rd Annual ACM SIGPLAN-SIGACT Symposium
+  on Principles of Programming Languages}, POPL '16, pages 691--704, New York,
+  NY, USA, 2016. ACM.
+
+\bibitem{rasql}
+Jiaqi Gu, Yugo~H. Watanabe, William~A. Mazza, Alexander Shkapsky, Mohan Yang,
+  Ling Ding, and Carlo Zaniolo.
+\newblock Rasql: Greater power and performance for big data analytics with
+  recursive-aggregate-sql on spark.
+\newblock In {\em Proceedings of the 2019 International Conference on
+  Management of Data}, SIGMOD '19, page 467–484, New York, NY, USA, 2019.
+  Association for Computing Machinery.
+
+\bibitem{Gu:2019}
+Jiaqi Gu, Yugo~H. Watanabe, William~A. Mazza, Alexander Shkapsky, Mohan Yang,
+  Ling Ding, and Carlo Zaniolo.
+\newblock Rasql: Greater power and performance for big data analytics with
+  recursive-aggregate-sql on spark.
+\newblock In {\em Proceedings of the 2019 International Conference on
+  Management of Data}, SIGMOD '19, page 467–484, New York, NY, USA, 2019.
+  Association for Computing Machinery.
+
+\bibitem{Arie:2022}
+Arie Gurfinkel.
+\newblock Program verification with constrained horn clauses (invited paper).
+\newblock In Sharon Shoham and Yakir Vizel, editors, {\em Computer Aided
+  Verification}, pages 19--29, Cham, 2022. Springer International Publishing.
+
+\bibitem{Halperin:2014}
+Daniel Halperin, Victor Teixeira~de Almeida, Lee~Lee Choo, Shumo Chu, Paraschos
+  Koutris, Dominik Moritz, Jennifer Ortiz, Vaspol Ruamviboonsuk, Jingjing Wang,
+  Andrew Whitaker, Shengliang Xu, Magdalena Balazinska, Bill Howe, and Dan
+  Suciu.
+\newblock Demonstration of the myria big data management service.
+\newblock In {\em Proceedings of the 2014 ACM SIGMOD International Conference
+  on Management of Data}, SIGMOD '14, page 881–884, New York, NY, USA, 2014.
+  Association for Computing Machinery.
+
+\bibitem{Harper:93}
+Robert Harper, Furio Honsell, and Gordon Plotkin.
+\newblock A framework for defining logics.
+\newblock {\em J. ACM}, 40(1):143–184, jan 1993.
+
+\bibitem{harper:2007}
+Robert Harper and Daniel~R. Licata.
+\newblock Mechanizing metatheory in a logical framework.
+\newblock {\em Journal of Functional Programming}, 17(4-5):613–673, 2007.
+
+\bibitem{VanHorn:diss}
+David~Van Horn.
+\newblock {\em The Complexity of Flow Analysis in Higher-Order Languages}.
+\newblock PhD thesis, Brandeis University, 2009.
+
+\bibitem{Muhammad:2022}
+Muhammad Imran, G\'{a}bor~E. G\'{e}vay, Jorge-Arnulfo Quian\'{e}-Ruiz, and
+  Volker Markl.
+\newblock Fast datalog evaluation for batch and stream graph processing.
+\newblock {\em World Wide Web}, 25(2):971–1003, mar 2022.
+
+\bibitem{10.1007/978-3-319-41540-6}
+Herbert Jordan, Bernhard Scholz, and Pavle Suboti{\'{c}}.
+\newblock Souffl{\'e}: On synthesis of program analyzers.
+\newblock In Swarat Chaudhuri and Azadeh Farzan, editors, {\em Computer Aided
+  Verification}, pages 422--430, Cham, 2016. Springer International Publishing.
+
+\bibitem{nanopass}
+Andrew~W. Keep and R.~Kent Dybvig.
+\newblock A nanopass framework for commercial compiler development.
+\newblock In {\em Proceedings of the 18th ACM SIGPLAN International Conference
+  on Functional Programming}, ICFP '13, page 343–350, New York, NY, USA,
+  2013. Association for Computing Machinery.
+
+\bibitem{Kramer:1994}
+R.~Kramer, R.~Gupta, and M.L. Soffa.
+\newblock The combining dag: a technique for parallel data flow analysis.
+\newblock {\em IEEE Transactions on Parallel and Distributed Systems},
+  5(8):805--813, 1994.
+
+\bibitem{krivine:2007:cbn}
+Jean-Louis Krivine.
+\newblock A call-by-name lambda-calculus machine.
+\newblock {\em Higher-order and symbolic computation}, 20(3):199--207, 2007.
+
+\bibitem{Kumar:2017}
+Deepa~S Kumar and M~Abdul Rahman.
+\newblock Performance evaluation of apache spark vs mpi: A practical case study
+  on twitter sentiment analysis.
+\newblock {\em Journal of Computer Science}, 13(12):781--794, Dec 2017.
+
+\bibitem{4536141}
+R.~{Kumar}, A.~{Mamidala}, and D.~K. {Panda}.
+\newblock Scaling alltoall collective on multi-core systems.
+\newblock In {\em 2008 IEEE International Symposium on Parallel and Distributed
+  Processing}, pages 1--8, April 2008.
+
+\bibitem{kumar:hipc:2019}
+Sidharth Kumar and Thomas Gilray.
+\newblock Distributed relational algebra at scale.
+\newblock In {\em International Conference on High Performance Computing, Data,
+  and Analytics (HiPC)}. IEEE, 2019.
+
+\bibitem{Kumar:2020}
+Sidharth Kumar and Thomas Gilray.
+\newblock Load-balancing parallel relational algebra.
+\newblock In Ponnuswamy Sadayappan, Bradford~L. Chamberlain, Guido Juckeland,
+  and Hatem Ltaief, editors, {\em High Performance Computing}, pages 288--308,
+  Cham, 2020. Springer International Publishing.
+
+\bibitem{loadbalancingra}
+Sidharth Kumar and Thomas Gilray.
+\newblock Load-balancing parallel relational algebra.
+\newblock In Ponnuswamy Sadayappan, Bradford~L. Chamberlain, Guido Juckeland,
+  and Hatem Ltaief, editors, {\em High Performance Computing}, pages 288--308,
+  Cham, 2020. Springer International Publishing.
+
+\bibitem{Lee:90}
+Yong-fong Lee, Thomas~J. Marlowe, and Barbara~G. Ryder.
+\newblock Performing data flow analysis in parallel.
+\newblock In {\em Proceedings of the 1990 ACM/IEEE Conference on
+  Supercomputing}, Supercomputing '90, page 942–951, Washington, DC, USA,
+  1990. IEEE Computer Society Press.
+
+\bibitem{Madsen:2018}
+Magnus Madsen and Ond\v{r}ej Lhot\'{a}k.
+\newblock Safe and sound program analysis with flix.
+\newblock In {\em Proceedings of the 27th ACM SIGSOFT International Symposium
+  on Software Testing and Analysis}, ISSTA 2018, page 38–48, New York, NY,
+  USA, 2018. Association for Computing Machinery.
+
+\bibitem{Madsen:2020}
+Magnus Madsen and Ond\v{r}ej Lhot\'{a}k.
+\newblock Fixpoints for the masses: Programming with first-class datalog
+  constraints.
+\newblock {\em Proc. ACM Program. Lang.}, 4(OOPSLA), nov 2020.
+
+\bibitem{flix-madsen2016}
+Magnus Madsen, Ming-Ho Yee, and Ond{\v{r}}ej Lhot{\'a}k.
+\newblock From datalog to flix: A declarative language for fixed points on
+  lattices.
+\newblock {\em ACM SIGPLAN Notices}, 51(6):194--208, 2016.
+
+\bibitem{Martin-Lof1996}
+Per Martin{-}L\"{o}f.
+\newblock On the meanings of the logical constants and the justifications of
+  the logical laws.
+\newblock {\em Nordic Journal of Philosophical Logic}, 1(1):11--60, 1996.
+
+\bibitem{MendezLojo:2010}
+Mario M\'{e}ndez-Lojo, Augustine Mathew, and Keshav Pingali.
+\newblock Parallel inclusion-based points-to analysis.
+\newblock In {\em Proceedings of the ACM International Conference on Object
+  Oriented Programming Systems Languages and Applications}, OOPSLA '10, page
+  428–443, New York, NY, USA, 2010. Association for Computing Machinery.
+
+\bibitem{mseries}
+Microsoft.
+\newblock Azure --- m-series.
+\newblock
+  \url{https://docs.microsoft.com/en-us/azure/virtual-machines/m-series}.
+\newblock Accessed: 2021-11-19.
+
+\bibitem{midtgaard2012control}
+Jan Midtgaard.
+\newblock Control-flow analysis of functional programs.
+\newblock {\em ACM computing surveys (CSUR)}, 44(3):1--33, 2012.
+
+\bibitem{might2010abstract}
+Matthew Might.
+\newblock Abstract interpreters for free.
+\newblock In {\em International Static Analysis Symposium}, SAS '10, pages
+  407--421. Springer, 2010.
+
+\bibitem{might2010resolving}
+Matthew Might, Yannis Smaragdakis, and David Van~Horn.
+\newblock Resolving and exploiting the k-cfa paradox: illuminating functional
+  vs. object-oriented program analysis.
+\newblock In {\em Proceedings of the 31st ACM SIGPLAN Conference on Programming
+  Language Design and Implementation}, pages 305--315, 2010.
+
+\bibitem{parker2017early}
+Scott Parker, Vitali Morozov, Sudheer Chunduri, Kevin Harms, Chris Knight, and
+  Kalyan Kumaran.
+\newblock Early evaluation of the cray xc40 xeon phi system ‘theta’at
+  argonne.
+\newblock Technical report, Argonne National Lab.(ANL), Argonne, IL (United
+  States), 2017.
+
+\bibitem{pfenning1998twelf}
+Frank Pfenning and Carsten Schuermann.
+\newblock Twelf user’s guide.
+\newblock Technical report, version 1.2. Technical Report CMU-CS-98-173,
+  Carnegie Mellon University, 1998.
+
+\bibitem{tapl}
+Benjamin~C. Pierce.
+\newblock {\em Types and Programming Languages}.
+\newblock The MIT Press, 1st edition, 2002.
+
+\bibitem{atapl}
+Benjamin~C. Pierce.
+\newblock {\em Advanced Topics in Types and Programming Languages}.
+\newblock The MIT Press, 2004.
+
+\bibitem{Prabhu:2011}
+Tarun Prabhu, Shreyas Ramalingam, Matthew Might, and Mary Hall.
+\newblock Eigencfa: Accelerating flow analysis with gpus.
+\newblock In {\em Proceedings of the 38th Annual ACM SIGPLAN-SIGACT Symposium
+  on Principles of Programming Languages}, POPL '11, page 511–522, New York,
+  NY, USA, 2011. Association for Computing Machinery.
+
+\bibitem{SparkBadMPIGood}
+Jorge~L. Reyes-Ortiz, Luca Oneto, and Davide Anguita.
+\newblock Big data analytics in the cloud: Spark on hadoop vs mpi/openmp on
+  beowulf.
+\newblock {\em Procedia Computer Science}, 53:121--130, 2015.
+\newblock INNS Conference on Big Data 2015 Program San Francisco, CA, USA 8-10
+  August 2015.
+
+\bibitem{Sahebolamri:2022}
+Arash Sahebolamri, Thomas Gilray, and Kristopher Micinski.
+\newblock Seamless deductive inference via macros.
+\newblock In {\em Proceedings of the 31st ACM SIGPLAN International Conference
+  on Compiler Construction}, CC 2022, page 77–88, New York, NY, USA, 2022.
+  Association for Computing Machinery.
+
+\bibitem{Scholz:2016:FLP:2892208.2892226}
+Bernhard Scholz, Herbert Jordan, Pavle Suboti\'{c}, and Till Westmann.
+\newblock On fast large-scale program analysis in datalog.
+\newblock In {\em Proceedings of the 25th International Conference on Compiler
+  Construction}, CC 2016, pages 196--206, New York, NY, USA, 2016. ACM.
+
+\bibitem{scott1991efficient}
+David~S Scott.
+\newblock Efficient all-to-all communication patterns in hypercube and mesh
+  topologies.
+\newblock In {\em The Sixth Distributed Memory Computing Conference, 1991.
+  Proceedings}, pages 398--399. IEEE Computer Society, 1991.
+
+\bibitem{Seo:2013}
+Jiwon Seo, Jongsoo Park, Jaeho Shin, and Monica~S. Lam.
+\newblock Distributed socialite: A datalog-based language for large-scale graph
+  analysis.
+\newblock {\em Proc. VLDB Endow.}, 6(14):1906–1917, sep 2013.
+
+\bibitem{bigdl}
+Alexander Shkapsky, Mohan Yang, Matteo Interlandi, Hsuan Chiu, Tyson Condie,
+  and Carlo Zaniolo.
+\newblock Big data analytics with datalog queries on spark.
+\newblock In {\em Proceedings of the 2016 International Conference on
+  Management of Data}, SIGMOD '16, page 1135–1149, New York, NY, USA, 2016.
+  Association for Computing Machinery.
+
+\bibitem{Siddiqui:2010}
+J.~H. {Siddiqui} and S.~{Khurshid}.
+\newblock Parsym: Parallel symbolic execution.
+\newblock In {\em 2010 2nd International Conference on Software Technology and
+  Engineering}, volume~1, pages V1--405--V1--409, 2010.
+
+\bibitem{Subotic:2018:AIS:3282495.3302538}
+Pavle Suboti\'{c}, Herbert Jordan, Lijun Chang, Alan Fekete, and Bernhard
+  Scholz.
+\newblock Automatic index selection for large-scale datalog computation.
+\newblock {\em Proc. VLDB Endow.}, 12(2):141--153, October 2018.
+
+\bibitem{tarski1955lattice}
+Alfred Tarski.
+\newblock A lattice-theoretical fixpoint theorem and its applications.
+\newblock {\em Pacific journal of Mathematics}, 5(2):285--309, 1955.
+
+\bibitem{soufflesips}
+Souffle Team.
+\newblock Souffl\'e --- tuning (sideways information-passing strategy).
+\newblock
+  \url{https://souffle-lang.github.io/tuning\#sideways-information-passing-strategy}.
+\newblock Accessed: 2021-11-19.
+
+\bibitem{thakur2005optimization}
+Rajeev Thakur, Rolf Rabenseifner, and William Gropp.
+\newblock Optimization of collective communication operations in mpich.
+\newblock {\em The International Journal of High Performance Computing
+  Applications}, 19(1):49--66, 2005.
+
+\bibitem{Emina:2013}
+Emina Torlak and Rastislav Bodik.
+\newblock Growing solver-aided languages with rosette.
+\newblock In {\em Proceedings of the 2013 ACM International Symposium on New
+  Ideas, New Paradigms, and Reflections on Programming and Software}, Onward!
+  2013, page 135–152, New York, NY, USA, 2013. Association for Computing
+  Machinery.
+
+\bibitem{Torlak:2014}
+Emina Torlak and Rastislav Bodik.
+\newblock A lightweight symbolic virtual machine for solver-aided host
+  languages.
+\newblock {\em SIGPLAN Not.}, 49(6):530–541, jun 2014.
+
+\bibitem{traff2014implementing}
+Jesper~Larsson Tr{\"a}ff, Antoine Rougier, and Sascha Hunold.
+\newblock Implementing a classic: Zero-copy all-to-all communication with mpi
+  datatypes.
+\newblock In {\em Proceedings of the 28th ACM international conference on
+  Supercomputing}, pages 135--144, 2014.
+
+\bibitem{Valduriez:1988:PET:54616.54618}
+Patrick Valduriez and Setrag Khoshafian.
+\newblock Parallel evaluation of the transitive closure of a database relation.
+\newblock {\em Int. J. Parallel Program.}, 17(1):19--42, February 1988.
+
+\bibitem{VanHorn:2010}
+David Van~Horn and Matthew Might.
+\newblock Abstracting abstract machines.
+\newblock In {\em Proceedings of the 15th ACM SIGPLAN International Conference
+  on Functional Programming}, ICFP '10, pages 51--62, New York, NY, USA, 2010.
+  ACM.
+
+\bibitem{whaley2005using}
+John Whaley, Dzintars Avots, Michael Carbin, and Monica~S Lam.
+\newblock Using datalog with binary decision diagrams for program analysis.
+\newblock In {\em Asian Symposium on Programming Languages and Systems}, pages
+  97--118. Springer, 2005.
+
+\bibitem{Whaley:2005}
+John Whaley, Dzintars Avots, Michael Carbin, and Monica~S. Lam.
+\newblock Using datalog with binary decision diagrams for program analysis.
+\newblock In {\em Proceedings of the Third Asian Conference on Programming
+  Languages and Systems}, APLAS'05, page 97–118, Berlin, Heidelberg, 2005.
+  Springer-Verlag.
+
+\bibitem{wright1998polymorphic}
+Andrew~K Wright and Suresh Jagannathan.
+\newblock Polymorphic splitting: An effective polyvariant flow analysis.
+\newblock {\em ACM Transactions on Programming Languages and Systems (TOPLAS)},
+  20(1):166--207, 1998.
+
+\bibitem{Xie:2007}
+Yichen Xie and Alex Aiken.
+\newblock Saturn: A scalable framework for error detection using boolean
+  satisfiability.
+\newblock {\em ACM Trans. Program. Lang. Syst.}, 29(3):16–es, may 2007.
+
+\bibitem{zambre2021logically}
+Rohit Zambre, Damodar Sahasrabudhe, Hui Zhou, Martin Berzins, Aparna
+  Chandramowlishwaran, and Pavan Balaji.
+\newblock Logically parallel communication for fast mpi+ threads applications.
+\newblock {\em IEEE Transactions on Parallel and Distributed Systems}, 2021.
+
+\end{thebibliography}

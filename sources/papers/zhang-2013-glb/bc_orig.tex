@@ -1,0 +1,89 @@
+% BC
+
+\subsubsection{Problem description}
+The Betweenness Centrality benchmark is taken from the SSCA2 (Scalable
+Synthetic Compact Application 2) v2.2 benchmark \cite{SSCA2};
+specifically, we implement the ``fourth'' kernel in this benchmark,
+the computation of {\em betweenness centrality}:
+
+\begin{quotation}
+The intent of this kernel is to identify the set of vertices in the
+graph with the highest betweenness centrality score. Betweenness
+Centrality is a shortest paths enumeration-based centrality
+metric, introduced by Freeman (1977). This is done using a betweenness
+centrality algorithm that computes this metric for every vertex in the
+graph. Let $\sigma_{st}$ denote the number of shortest paths between
+vertices $s$ and $t$, and $\sigma_{st}(v)$ the number of those paths
+passing through $v$. Betweenness Centrality of a vertex $v$ is defined
+as $BC(v) = \Sigma_{s\not=v\not=t \in V} \sigma_{st}(v)/\sigma_{st}$.
+
+The output of this kernel is a betweenness centrality score for each
+vertex in the graph and the set of vertices the highest betweenness
+centrality score.
+\end{quotation}
+
+We implement the Brandes' algorithm described in the benchmark,
+augmenting Dijkstra's single-source shortest paths (SSSP) algorithm,
+for unweighted graphs. We have implemented the exact variant of the benchmark
+(\code{K4approx=SCALE}). 
+
+The solution we implement makes one very strong assumption: that the
+graph is ``small'' enough to fit in the memory of a single
+place. Since the graph itself is not modified during the execution of
+this benchmark, it thus becomes possible to implement this benchmark
+by replicating the graph across all places. Now effectively the
+computation can be performed in an embarrassingly parallel fashion. The
+set of $N$ vertices is statically partitioned among $P$ places; each place is
+responsible for performing the computation for the {\em source}
+vertices assigned to it (for all $N$ target vertices) and computes its
+local \code{betweennessMap}. After this is
+done an \code{allReduce} collective performs an \code{AND} summation
+    across all local \code{betweennessMaps}. 
+
+Clearly, statically partitioning the work amongst all places in this
+way is not ideal. The amount of work associated with one source node
+$v$ vs another $w$ could be dramatically different. Consider for
+instance a degenerate case: a graph of $N$ vertices, labeled $1\ldots
+N$, with an edge $(i,j)$ if $i < j$. Clearly the work associated with
+vertex $1$ is much more than the work associated with vertex $N$. 
+
+Section~\ref{sec:bcg} discusses how to dynamically load-balance these
+tasks across all places using the GLB framework (Section~\ref{sec:glb}). 
+
+\subsubsection{Structure of the code}
+The multi-place structure of this code is quite straightforward. We
+use the standard at-scale X10 idiom for SPMD code:
+\begin{enumerate}
+\item Create a distributed data structure, accessed through a
+  \code{PlaceLocalHandle} which points to an instance of a ``host''
+  object (an instance of \code{SSCA2}) at each node. (Invocation of
+  \code{makeFlat}.) 
+\item Run the actual computation (invocation of \code{broadcastFlat}
+  with the closure specifying the work to be done at each place.
+
+  The work done in each place is the computation of a
+  \code{bfsShortestPaths} for a slice of vertices from
+  \code{startVertex} to \code{endVertex}. This loops through the
+  vertices in the given range, computing the betweennessMap
+  locally. 
+
+  Note this computation is single threaded. It is not difficult to
+  make this multi-threaded. 
+
+\item Once the local computation has been done, and the local
+  contribution to the betweennessMap computed, a
+  \code{Team.WORLD.allreduce} ensures that the results are reduced and
+  made available at place $0$. 
+\end{enumerate}
+
+%% \subsection{Validation.}
+%% The benchmark calls for validating the algorithms by running it on a
+%% graph (a torus)  with known analytical results for the betweenness
+%% centrality.  Because of lack of time, we have not been able to do
+%% this. If our submission is selected for presentation, we plan to
+%% validate the algorithm by the time of the presentation.
+
+
+%% \subsection{Performance measurement.}
+%% We discuss the performance together with BC-G in Section~\ref{sec:bcg}.
+

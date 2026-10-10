@@ -1,0 +1,44 @@
+\subsection{Abstracting Abstract Machines}
+\label{sec:apps:aam}
+%
+\input{sec-apps-aam-ceskc}
+%
+The \emph{abstracting abstract machines} (AAM) methodology \cite{might2010abstract,VanHorn:2010} proscribes a particular systematic application of abstract interpretation \cite{cousot77unifiedmodel,cousot1996abstract,cousot1979systematic} on abstract-machine operational semantics like those we've just built in \slog{}.
+%
+AAM proposes key preparatory refactorings of an abstract machine, to remove direct sources of unboundedness through recursion, before more straightforward structural abstraction can be applied.
+%
+In particular, there are two main sources of unboundedness in the CEK machines: environments and continuations. Environments contain closures which themselves contain environments; continuations are a stack of closures formed inductively in the CBV CEK machine and formed using \slog{}'s list syntax in the CBN CEK machine to more closely follow the usual presentation of Krivine's machine~\cite{krivine:2007:cbn}. 
+%
+AAM proposes threading each such fundamental source of unboundedness through a store, added in a normal store-passing transformation of the interpreter that might be used to add direct mutation or other effects to the language. Environments will map variables to addresses in the store, not to closures directly, and the stack will be store allocated at least once per function application so the stack may not grow indefinitely without the store likewise growing without bound. These two changes will permit us to place a bound on the addresses allocated, and thereby finitize the machine's state space as a whole.
+
+
+Figure~\ref{fig:cesk-machine} shows the CBV CEK machine of Figure~\ref{fig:cek-machines} modified in a few key ways, yielding a CESKT machine with control expression, environment, store, continuation, and timestamp/contour components:
+%
+\begin{itemize}
+\item
+  \emph{abstract-machine states have been factored} into \rtag{eval}, \rtag{apply}, and \rtag{ret} configurations; an \rtag{eval} state has a control expression, environment (mapping variables to addresses), store (mapping addresses to closures and continuations), current continuation, and timestamp (tracking the size of the store, and thus the next address); an \texttt{apply} state has a closure being applied, argument value, store, continuation, and timestamp; and a \texttt{ret} state has a value being returned, a store, a continuation, and a timestamp;  
+\item
+  \emph{state transitions have been written as small-step rules} that always terminate; previously, our CEK machines were written to take a big-step from \rtag{cek}-state to the final, denoted value as logged in the \texttt{(\rtag{interp} e v)} relation, but in tail-recursive fashion, using ! clauses); Figure~\ref{fig:cesk-machine} has no explicit small-step relation, but simply says, for example, that the existence of a \rtag{ret} state permits us to deduce to existence of an \rtag{apply} state; if we were to want an explicit \rtag{step} relation, we could again give this rule a presentation with an implied body via a ? clause; for example:
+\begin{Verbatim}[baselinestretch=.75,commandchars=\\\{\}]
+(\rtag{step} \huhclause{?(\rtag{ret} va sto (\rtag{fn-k} vf k) c)}
+      (\rtag{apply} vf va sto k c))
+\end{Verbatim}
+\item
+  \emph{states have been subjected to a store-passing transformation} which has added a store \texttt{sto} and timestamp (stored-value count) \texttt{c} to each state; environments now bind variables to addresses and the current store binds those addresses to values; we perform a variable lookup with \texttt{\{\rtag{sto-map} sto \{\rtag{env-map} env x\}\}}; at an \rtag{apply} state, we use the store count \texttt{c} to generate a fresh address \texttt{(\rtag{addr} c)} for the parameter \texttt{x}; we also store-allocate the current continuation at a continuation address \texttt{(\rtag{kaddr} c)}, in preparation for modeling the stack finitely as well; when returning to a \texttt{(\rtag{kaddr} c)}, the continuation is simply fetched from the store as in the fourth rule down (ret to kaddr).
+\end{itemize}
+
+From here it suffices to pick a finite set from which to draw addresses. To instantiate a monovariant control-flow analysis from this CESKT interpreter, it would be enough to use the variable name itself as the address or to generate an address \texttt{(\rtag{addr} x)}. When the environment and store become finite, so does the number of possible states. Consider what happens, as the naturally relational \rtag{sto-map} relation encoding stores conflates multiple values at a single address for the same variable. Conflation in the store would lead naturally to nondeterminism in any \rtag{step} relation. When looking up a variable, two distinct \rtag{ret} states could result, leading to two distinct \rtag{apply} states after some further steps.
+
+A (potentially) more precise, though (potentially) more costly analysis would be to specialize all control-flow points and store points by a finite history of recent or enclosing calls. Such a \emph{$k$-call-sensitive} analysis can be instantiated using a specific instrumentation and allocation policy, as can many others~\cite{gilray2016poly}. It requires an instrumentation to track a history of $k$ enclosing calls, and then an \emph{abstract allocation policy} that specializes variables by this call history at binding time. Such context-sensitive techniques are a gambit that the distinction drawn between variable \texttt{x} when bound at one call-site vs another will prove meaningful---in that it may correlate with its distinct values. Increasing the polyvariance allows for greater precision while also increasing the upper-bound on analysis cost. In a well known paradox of programming analyses, greater precision sometimes goes hand-in-hand with lower cost in practice because values that are simpler and fewer are simpler to represent~\cite{wright1998polymorphic}. At the same time, we use the polyvariant entry point of each function, its body and abstract contour---\texttt{(\rtag{kaddr} Eb c')}---to store allocate continuations as suggested by previous literature on selecting this address~\cite{gilray2016p4f} so as to adapt to the value polyvariance chosen.
+
+The per-state store by itself is a source of exponential blowup for any polyvariant control-flow analysis~\cite{midtgaard2012control}. Instead, it is standard to use a global store and compute the least-upper-bound of all per-state stores. In \slog{} this is as simple as using a single global \texttt{(\rtag{store} addr val)} relation instead of a defunictionalized \texttt{(\rtag{sto-map} sto addr val)} relation that approximates all per-state stores in one. The left side of Figure~\ref{fig:kcfa-mcfa} shows a version of the CESKT machine with a global store and a tunable instrumentation that can be varied by changing the \rtag{tick} function rule. Currently, \rtag{tick} instantiates this to a $3$-$k$-CFA: at each function application, the current call site (now saved in the \rtag{ar-k} and \rtag{fn-k} continuation frames to provide to the apply state) is saved in front of the current call history and the fourth-oldest call is dropped.
+
+This is the classic $k$-CFA, except perhaps that the original $k$-CFA, formulated for CPS as it was, also tracked returns positively instead of reverting the timestamp as functions return like we do here. The original $k$-CFA used true higher-order environments, unlike equivalent analyses written for object oriented languages which implicitly had flat environments (objects)~\cite{might2010resolving}. The corresponding CFA for functional languages is called $m$-CFA and is shown on the right side of Figure~\ref{fig:kcfa-mcfa}. $m$-CFA has only the latest call history as a flat context. Instead of having a per-variable address with a per-variable history tracked by a per-state environment, $m$-CFA stores a variable \texttt{x} at abstract contour \texttt{c} (i.e., abstract timestamp, instrumentation, 3-limited call-history) in the store at the address \texttt{(\rtag{addr} x c)}. This means at every update to the current flat context \texttt{c}, now taking the place of the environment, all free variables must be propagated into an address \texttt{(\rtag{addr} x c)}.
+
+
+
+
+
+\input{sec-apps-aam-kcfa}
+
+

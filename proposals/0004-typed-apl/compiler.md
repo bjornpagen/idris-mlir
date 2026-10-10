@@ -105,9 +105,8 @@ deletes.
   "primitives" are library functions recognized by name, as
   `Linear.Array`'s loops are today; sorting words is the runtime's
   (§4.4).
-- **Compile-time evaluation follows upstream Idris.** Pure array code is
-  pure, so its closed calls are evaluated (§4.6), which today they are
-  not.
+- **Static normalization** (0013). A closed call of total array code is
+  normalized in the frontend (§4.6); partial array code is not.
 - **No oracle.** Expected files are the specification. C and Futhark are
   performance baselines only; their outputs agreeing with ours to 1e-9 is
   the benchmark's sanity check, as for C and Chez today (Performance
@@ -429,7 +428,7 @@ parse of a program's module then admits (read:
 | `reverse`, `rotate` | a `linalg.generic` whose body reads at a computed index |
 | `append` | `tensor.concat` |
 | `pad`, `fill` | `tensor.pad`, `linalg.fill` |
-| a literal array; a result of compile-time evaluation | `idr.array.constant` (§4.6) |
+| a literal array; a result of static normalization | `idr.array.constant` (§4.6) |
 | `Linear.Array`'s `freeze`, and `thaw` of a value into it | `bufferization.to_tensor … restrict`, `idr.array.thaw` (§4.5) |
 | `LArray`'s `freeze` and `thaw` | `idr.lin.use`, `idr.lin.enter` (§9.2) |
 | sorting words | `idr.array.sort`, the runtime's |
@@ -558,26 +557,24 @@ ShardingInterfaceImpl.cpp:46-73).
   so the test on entry `readAsInputs` makes today (read: Loops.cppm:176-243)
   is gone.
 
-### 4.6 Compile-time evaluation and constants
+### 4.6 Static normalization and constants
 
 **decision (D19).**
 
-- **Pure array code is evaluated.** Value-array code has no world, so a
-  closed call of it is evaluated at compile time, as AGENTS.md requires
-  of pure code; today none is, because array code performs IO through
-  forged worlds and `idr-eval` runs only calls that perform none (read:
-  Passes.td:119-157). Evaluation lowers alike: its round runs `idr-soa`,
-  `idr-batch` and `idr-bufferize` before `idr-lower`, as a program does;
-  it skips `idr-fuse` and `idr-schedule`, which change speed and never
-  meaning (D7, D8).
-- **Constants are cells.** A result array comes back as
+- **Total array code is normalized.** Value-array code has no world, so a
+  closed call of total array code is normalized at compile time by the
+  type checker's interpreter (0013), which runs each array operation as a
+  whole-array primitive of the runtime. Past the counted budget the result
+  is a startup constant. Array code that performs IO through forged worlds
+  (`Linear.Array`) is stuck and runs at run time, as are partial calls.
+- **Constants are cells.** A literal array or an evaluated result is
   `idr.array.constant` (a word array as a dense elements attribute, any
   other as one attribute per element) and lowers to a persistent static
   cell, count 0 (read: `runtime/idris_rt.h`:26-36). Upstream's constant
   bufferization makes a `memref.global` (read: Arith
   BufferizableOpInterfaceImpl.cpp:48-53), which has no header, while an
   array must be a cell to be stored, sent or counted. Results over the
-  existing 1 MiB limit stay for run time.
+  static-data cap stay for run time.
 
 ## 5. The pipeline
 
@@ -1051,7 +1048,7 @@ per loop.
 | **Interfaces they implement** | `DestinationStyleOpInterface`; `TilingInterface` (lift: frame dimensions parallel; scan and scatter: batch dimensions parallel, the sequential dimension tiled in order with its state carried); `BufferizableOpInterface`, also for `idr.lin.enter` and `use` (casts keeping the buffer) and for `idr.con` and closures with tensor operands (releases); `ShardingInterface` at stage 9 |
 | **Attributes** | `#idr.shards`, a device mapping for `scf.forall`, on which 0005's lowering keys; `#idr.grade`, a tensor encoding made of the grade's two enums, which exists only inside `idr-bufferize` (§9.2) |
 | **Passes added** | `idr-soa`, `idr-batch`, `idr-fuse`, `idr-schedule`, `idr-bufferize` |
-| **Passes changed** | `idr-vectorize` (§11), `idr-rc` and `idr-stack` (§10), `idr-demand` (§9.5), `idr-in-bounds` (the length relation also starts at `idr.array.alloc` and every dimension), `idr-eval` (its round, §4.6), `idr-target` (§8.4) |
+| **Passes changed** | `idr-vectorize` (§11), `idr-rc` and `idr-stack` (§10), `idr-demand` (§9.5), `idr-in-bounds` (the length relation also starts at `idr.array.alloc` and every dimension), `idr-target` (§8.4); `idr-eval` is replaced by static normalization in the frontend (0013) |
 | **Properties of `idr-expect`** | `batched=@f` (no frame loop is left from a lift in @f), `fused=@f` (§7), `in-place=@f` (no copy of an array in @f), `program-order` (no reduction dimension anywhere has more than one lane or a partition), `partitioned=@f` (§12.1) |
 | **Deleted** | `idr.array.generate` and `fold`; `Idr_Rank1ArrayValue` as a loop's operand type; `Loops.cppm`'s memref half; the `ArrayLoop` hook and its region signatures; `Rank0 | Rank1`; `vectorBits`'s test of x86 |
 
@@ -1364,8 +1361,8 @@ Each decision's reason or measurement is in the section it points to.
   under transposition (§15).
 - **D18** Futhark is pinned for the bench and its C committed (Performance
   goals).
-- **D19** Pure array code is evaluated at compile time; constants are
-  static cells (§4.6).
+- **D19** Total array code is normalized in the frontend (0013); constants
+  are static cells (§4.6).
 - **D20** The in-place promise has an array clause, checked under
   `--demand-in-place` (§9.5).
 

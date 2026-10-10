@@ -1,0 +1,177 @@
+The Unbalanced Tree Search benchmark measures the rate of traversal of
+a tree generated on the fly using a splittable random number
+generator. For this submission, we used a \emph{fixed geometric law}
+for the random number generator with branching factor $b_0=4$, seed
+$r=19$, and tree depth $d$ varying from 13 to 20 depending on core counts and architecture.
+
+\begin{quote}
+The nodes in a geometric tree have a branching factor that follows a
+geometric distribution with an expected value that is specified by the  
+parameter $b_0 > 1$. The parameter $d$ specifies its maximum depth
+cut-off, beyond which the tree is not allowed to grow ... The expected
+size of these trees is $(b_0)^d$, but since the geometric distribution
+has a long tail, some nodes will have significantly more than $b_0$
+children, yielding unbalanced trees. 
+\end{quote}
+
+The depth cut-off makes it possible to estimate the size of the trees
+and shoot for a target execution time. To be fair, the distance from
+the root to a particular node is never used in our benchmark
+implementation to predict the size of a subtree. In other words, all
+nodes are treated equally, irrespective of the current depth.  
+
+%% \subsubsection{Design}
+
+%% The material in this section is excerpted from \cite{glb}, and
+%% unchanged from our 2012 HPCC submission.
+
+%% One common way to load balance is to use {\em work-stealing}. For
+%% shared memory system this technique has been pioneered in the Cilk
+%% system.  Each worker maintains a double ended queue (deque) of tasks. When a
+%% worker encounters a new task, it pushes its continuation onto the
+%% bottom of the deque, and descends into the task. On completion of the task, it
+%% checks to see if its deque has any work, if so it pops a task (from the
+%% bottom) and continues with the work. Else (its deque is empty) it
+%% looks for work on other workers' deques. It randomly determines a {\em
+%%   victim} worker, checks if its queue is non-empty, and if so, pops a
+%% task from the top of the deque (the end other than the one being
+%% operated on by the owner of the deque).  If the queue is empty, it
+%% guesses again and continues until it finds work. Work-stealing systems
+%% are optimized for the case in which the number of steals is much
+%% smaller than the total amount of work. This is called the ``work
+%% first'' principle -- the work of performing a steal is incurred by the
+%% thief (which has no work), and not the victim (which is busy
+%% performing its work). 
+
+%% Distributed work-stealing must deal with some additional
+%% complications. First, the cost of stealing is usually significantly
+%% higher than in the shared memory case. For many systems, the target
+%% CPU must be involved in processing a steal attempt. Additionally, one
+%% must solve the distributed termination detection problem. The system
+%% must detect when all workers have finished their work, and there is no
+%% more work. At this point all workers should be shut down, and the
+%% computation should terminate. 
+
+%% X10 already offers a mechanism for distributed termination detection
+%% -- \texttt{finish}. Thus, in principle it should be possible to spawn
+%% an activity at each place, and let each look for work. To trigger
+%% \texttt{finish} based termination detection however, these workers
+%% must eventually terminate. But when? One simple idea is that a worker
+%% should terminate after $k$ steal attempts have failed. However this
+%% leaves open the possibility that a worker may terminate too early --
+%% just because it happened to be unlucky in its first $k$ guesses. If
+%% there is work somewhere else in the network then this work
+%% can no longer be shared with these terminated workers, thereby
+%% affecting parallel efficiency. (In an extreme case this could lead to
+%% sequentialize significant portion of the work.) 
+
+%% Therefore there must be a way by which a new activity can be launched 
+%% at a place whose worker has already terminated. This leads to the idea
+%% of a {\em lifeline graph}. For each place $p$ we pre-determine a set of
+%% other places, called {\em buddies}. Once the worker at $p$ has
+%% performed $k$ successive (unsuccessful) steals, it examines its
+%% buddies in turn. At each buddy it determines whether there is some
+%% work, and if so, steals a portion. However, if there is no work, it
+%% records at the buddy that $p$ is waiting for work. If $p$ cannot find
+%% any work after it has examined all its buddies, it dies -- the place $p$
+%% now becomes quiescent.  
+
+%% But if $P$ went to a buddy $B$, and $B$ did not have any work, then
+%% it must itself be out looking for work -- hence it is possible that it
+%% will soon acquire work. In this case we require that $B$ {\em
+%%   distribute} a portion of the work to those workers that attempted to
+%% buddy steal from it but failed. Work must be spawned on its own
+%% \texttt{async} -- using the \texttt{at (p) async S} idiom. If $P$ had
+%%  no activity left, it now will have a fresh activity. Thus, unlike
+%%  pure work-stealing based systems, a system with lifeline graphs will
+%%  see its nodes moving from a state of processing work (the active state), to a state in
+%%  which they are stealing to a state in which they are dead, to a state
+%%  (optionally) in which they are woken up again with more work (and are
+%%  hence back in the active state).  
+
+%% Note that when there is no work in the system, all places will be dead,
+%% there will be no active \texttt{async} in the system and hence the
+%% top-level \texttt{finish} can terminate. 
+
+%% The only question left is to determine the assignment of buddies to a
+%% place. We are looking for a directed graph that is fully connected (so
+%% work can flow from any vertex to any other vertex) and that has a low
+%% diameter (so latency for work distribution is low) and has a low
+%% degree (so the number of buddies potentially sending work to a dead
+%% vertex is low).  $z$-dimensional hyper-cubes  satisfy these properties
+%% and have been implemented. 
+
+%% \subsubsection{Implementation}\label{sec:uts-inline}
+%% Our implementation follows from \cite{glb} and includes the
+%% performance improvements described in our HPCC 2012 submission
+%% (using \code{FINISH\_DENSE} to reduce the overhead of termination
+%% detection), using \code{@Uncounted} asyncs,  and using a compact
+%% representation of the active nodes in a place using an implicit (lower,
+%% upper) bounds representation rather than an explicit enumeration.
+
+%% We have made a change in how the native SHA1 code is integrated into
+%% X10. Consequently we replaced all of the 169 lines of very complex C++ wrapper code
+%% with 3 native annotations (i.e., 3 lines of C code embedded into X10) as for instance in:
+
+%% {\small
+%% \begin{verbatim}
+%% def this(seed:Int, depth:Int) {
+%%   @Native("c++", "rng_init((RNG_state*)this, seed);") {}
+%%   this.depth = depth;
+%% }
+%% \end{verbatim}
+%% }
+
+%% We fixed a nasty deadlock condition when using multi-dimensional lifeline graphs.
+
+
+%% \subsubsection{Verification}
+%% The code was validated by checking the results for specific
+%% configurations against pre-computed numbers. 
+
+
+%% % Runs on MPI now ... were there any issues here?
+%% \subsubsection{UTS-GLB}\label{sec:utsg}
+%% UTS-G is a variant of UTS written using the GLB library. The code for
+%% \code{GlobalLoadBalancer} and \code{LocalJobRunner} is no longer
+%% needed, since they are part of the library. The code for managing bags
+%% of tasks is refactored into a \code{UTSTaskBag} class. Similarly the
+%% code for executing a UTS task \code{runATMostNTasks} in
+%% \code{UTSTaskFrame} is similarly very straightforward.  The native
+%% code (for SHA1 hashes) remains unchanged -- it belongs in the
+%% application and not the library.
+
+%% Thanks to the GLB library the number of X10 LOCs drops from 493 for UTS to 225 for UTS-G.
+
+%% %% \subsection{Performance}
+%% %% \begin{figure}
+%% %% \centering
+%% %% \includegraphics[width=3.25in]{figures/p7ih/uts-p7ih.eps}
+%% %% \caption{X10 Performance for UTS (on Power~775)}
+%% %% \label{fig:perf:uts-p7ih}
+
+%% %% \includegraphics[width=3.25in]{figures/bgq/uts-bgq.eps}
+%% %% \caption{X10 Performance for UTS (on Blue~Gene/Q)}
+%% %% \label{fig:perf:uts-bgq}
+
+%% %% \includegraphics[width=3.25in]{figures/k/uts-k.eps}
+%% %% \caption{X10 Performance for UTS (on K)}
+%% %% \label{fig:perf:uts-k}
+%% %% \end{figure}
+
+%% %% We report performance for UTS and UTS-G.
+
+%% %% On Power~775, as we demonstrated in our 2012 HPCC Submission, UTS achieves linear speedup up to 50,000 cores. UTS-G is only marginally slower.
+
+%% %% On Blue~Gene/Q and K however, we ran the code ``as is'' without having the time to tune the main parameters of the load balancer to the specifics of the architecture. These parameters include the mapping of the lifeline graph onto the network axes (especially the dimensionality) as well as the frequency of network probes. With proper tuning, we believe we can redress the curves dramatically. In essence, with our implementation and our 2012 runs at scale on Power~775, we established that the benchmark (for this family of trees at least) is compute bound.
+
+%% %% On Blue~Gene/Q, the sequential performance of the UTS-G code is 15\% less than the UTS code: the higher-order implementation confuses the optimizer of the backend compiler (xlC). This is not the case on other platforms. As a result, UTS-G appears to scale better than UTS, but this is misleading.
+%% %% At scale, they are more or less on par as UTS only achieves 60\% efficiency for now. Hence the sequential inefficiency of UTS-G can hide behind the latency of the load balancer.
+
+%% %% The measurements on K are very preliminary. The code runs and computes correct results. The performance is under investigation.
+
+
+
+%% %We discuss the performance together with UTS-G in Section~\ref{sec:utsg}.
+%% %\todo{Performance analysis. Why are numbers bad for the K. Is
+%% %  there some basic operation that is slow on the K?}

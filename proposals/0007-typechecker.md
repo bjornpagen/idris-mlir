@@ -49,19 +49,20 @@ benchmark.
     Lean and Idris on elaboration benchmarks (*read* `code/smalltt`, whose
     README holds the comparison).
 
-### 2.2 Evaluation: glued normalisation by evaluation, then compiled (adopted)
+### 2.2 Evaluation: glued normalisation by evaluation, one interpreter (adopted)
 
 - **Evaluation.** NbE with glued values: an unfolded value plus a cheap
   delayed form, so conversion can decide without unfolding. Approximate
   conversion is tried first, and metacontext operations are cheap (*read*
   `code/smalltt`, `code/elaboration-zoo`).
-- **Compiled reduction.** For heavy evaluation (proofs by reflection,
-  compile-time evaluation, large `decide`), terms are compiled to native
-  code through idris-mlir's own MLIR backend, Coq's `native_compute` done
-  with our compiler (*read* `papers/gregoire-2002-strong-reduction`,
-  `papers/boespflug-2011-full-throttle`). idris-mlir already JIT-compiles
-  closed calls for compile-time evaluation (idr-eval's LLJIT); the
-  elaborator reuses that path.
+- **One interpreter, fast by array math.** Heavy evaluation (proofs by
+  reflection, large `decide`) stays on the same interpreter: there is no
+  compiled tier. Array operations run as whole-array primitives of the
+  runtime, so interpretive overhead is paid per array, not per element
+  (the APL insight). This evaluator is also the program's static
+  normalization (0013): one evaluator for types, proofs and constants.
+  Coq's `native_compute` (*read* `papers/gregoire-2002-strong-reduction`,
+  `papers/boespflug-2011-full-throttle`) is rejected (§5).
 
 ### 2.3 Unification and instance search (adopted)
 
@@ -175,7 +176,7 @@ the kernel checks.
 | T3 | tabled instance search, bounded | instance-heavy files ≥ 2× over T2; no regression elsewhere |
 | T4 | Nat normalisation in conversion; the rewrite ladder | 0004's shape-equality corpus never blocks; upstream's rewrite failures listed in tests become passes |
 | T5 | separate kernel and an independent re-checker in tests | every TTC of base re-checked |
-| T6 | compiled reduction through idris-mlir | reflection benchmarks ≥ 10× over T2's interpreter |
+| T6 | the interpreter's array path: array operations as whole-array runtime primitives, on 0004's arrays | reflection benchmarks ≥ 10× over T2 where they use arrays; 0013's 10⁶-word table fixture within budget |
 | T7 | parallel elaboration (processes, then shards) | wall time on base ≤ (1 / cores × 1.5) of T6's |
 | T8 | certificates from SAT/SMT, checked as terms | a fixture where the search succeeds and the kernel checks the result |
 
@@ -191,11 +192,16 @@ are comparable.
 - **Rewriting the elaborator from scratch:** it would break Idris 2
   compatibility and lose the corpus proofs. The fork is changed stage by
   stage, each stage proved by identical TTCs.
+- **Compiled reduction** (Coq's `native_compute`, a JIT inside the type
+  checker): a second compiler inside the first. The interpreter's array
+  path (T6) is the answer to heavy evaluation (0013 D3).
 
 ## 6. Decisions
 
 - D1. Measure first (T0); every target is a ratio to a recorded baseline.
-- D2. Flat, hash-consed terms and glued NbE are the core representation.
+- D2. Flat, hash-consed terms and glued NbE are the core representation;
+  one interpreter, with array operations as whole-array primitives, serves
+  types, proofs and static normalization (0013).
 - D3. Solvers search; the kernel checks; nothing is trusted.
 - D4. A separate small kernel, re-checked in tests.
 - D5. Parallelism by independent definitions and modules; GPU deferred

@@ -1,0 +1,59 @@
+\begin{figure*}[h]
+\vspace{-0.75cm}
+\hspace{-0.95cm}  
+\begin{minipage}{0.98\linewidth}
+\begin{multicols}{2}
+\begin{Verbatim}[baselinestretch=.75,commandchars=\\\{\}]
+    
+\comm{; eval ref}
+(\rtag{interp} \huhclause{?(\rtag{cek} (\rtag{clo} (\rtag{ref} x) env) k)}
+        \{\rtag{interp} \bangclause{!(\rtag{cek} {\rtag{env-map} env x} k)}\})
+
+      
+\comm{; eval lam (apply)}
+(\rtag{interp} \huhclause{?(\rtag{cek} (\rtag{clo} (\rtag{lam} x Eb) env)}
+              \huhclause{[aclo k ...])}
+        \{\rtag{interp} \bangclause{!(\rtag{cek} (\rtag{clo} Eb}
+                       \bangclause{(\rtag{ext-env} env x aclo))}
+                  \bangclause{k)}\})
+
+                  
+
+                  
+\comm{; eval app}
+(\rtag{interp} \huhclause{?(\rtag{cek} (\rtag{clo} (\rtag{app} Ef Ea) env) k)}
+        \{\rtag{interp} \bangclause{!(\rtag{cek} (\rtag{clo} Ef env)}
+                      \bangclause{[(\rtag{clo} Ea env) k ...])}\})
+\comm{; return / halt}
+(\rtag{interp} \huhclause{?(\rtag{cek} (\rtag{clo} (\rtag{lam} x Eb) env) [])}
+        (\rtag{clo} (\rtag{lam} x Eb) env))
+
+\columnbreak
+\comm{; eval ref}
+(\rtag{interp} \huhclause{?(\rtag{cek} (\rtag{clo} (\rtag{ref} x) env) k)}
+        \{\rtag{interp} \bangclause{!(\rtag{cek} {\rtag{env-map} env x} k)}\})
+\comm{; eval lam (ret to ar-k)}
+(\rtag{interp} \huhclause{?(\rtag{cek} (\rtag{clo} (\rtag{lam} x Eb) env)}
+              \huhclause{(\rtag{ar-k} aclo k))}
+        \{\rtag{interp} \bangclause{!(\rtag{cek} aclo}
+                      \bangclause{(\rtag{fn-k} (\rtag{clo} (\rtag{lam} x Eb) env)}
+                            \bangclause{k))}\})
+\comm{; eval lam (ret to fn-k)}
+(\rtag{interp} \huhclause{?(\rtag{cek} (= aclo (\rtag{clo} (\rtag{lam} _ _) _))}
+              \huhclause{(\rtag{fn-k} (\rtag{clo} (\rtag{lam} x Eb) env) k))}
+        \{\rtag{interp} \bangclause{!(\rtag{cek} (\rtag{clo} Eb}
+                           \bangclause{(\rtag{ext-env} env x aclo))}
+                      \bangclause{k)}\})
+\comm{; eval app}
+(\rtag{interp} \huhclause{?(\rtag{cek} (\rtag{clo} (\rtag{app} Ef Ea) env) k)}
+        \{\rtag{interp} \bangclause{!(\rtag{cek} (\rtag{clo} Ef env)}
+                      \bangclause{(\rtag{ar-k} (\rtag{clo} Ea env) k))}\})
+\comm{; return to (halt-k)}
+(\rtag{interp} \huhclause{?(\rtag{cek} (\rtag{clo} (\rtag{lam} x Eb) env) (\rtag{halt-k}))}
+        (\rtag{clo} (\rtag{lam} x Eb) env))
+\end{Verbatim}
+\end{multicols}
+\end{minipage}
+\caption{Two CEK (stack-passing) interpreters in \slog{}; for CBN eval. (left) and CBV eval. (right).}
+\label{fig:cek-machines}
+\end{figure*}

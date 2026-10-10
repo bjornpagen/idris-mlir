@@ -1,0 +1,36 @@
+\begin{figure*}[h]
+\begin{multicols}{2}
+\vspace{-0.3cm}
+\begin{Verbatim}[baselinestretch=.75,commandchars=\\\{\}]
+\comm{; ref}
+(\rtag{interp} \huhclause{?(\rtag{clo} (\rtag{ref} x) env)}
+        \{\rtag{interp} \{\rtag{env-map} env x\}\})
+\comm{; lam}
+(\rtag{interp} \huhclause{?(\rtag{clo} (\rtag{lam} x Eb) env)}
+        (\rtag{clo} (\rtag{lam} x Eb) env))
+\comm{; app}
+[(\rtag{interp} \bangclause{!(\rtag{clo} Ef env)}
+         (\rtag{clo} (\rtag{lam} x Eb) env'))
+ (= env'' (\rtag{ext-env} env' x (\rtag{clo} Ea env)))       
+ (\rtag{interp} \bangclause{!(\rtag{clo} Eb env'')} v)
+ -->
+ (\rtag{interp} \huhclause{?(\rtag{clo} (\rtag{app} Ef Ea) env)} v)]  
+\columnbreak
+\comm{; ref }
+(\rtag{interp} \huhclause{?(\rtag{clo} (\rtag{ref} x) env)}
+        \{\rtag{env-map} env x\})
+\comm{; lam}
+(\rtag{interp} \huhclause{?(\rtag{clo} (\rtag{lam} x Eb) env)}
+        (\rtag{clo} (\rtag{lam} x Eb) env))
+\comm{; app}
+[(\rtag{interp} \bangclause{!(\rtag{clo} Ef env)}
+         (\rtag{clo} (\rtag{lam} x Eb) env'))
+ (\rtag{interp} \bangclause{!(\rtag{clo} Ea env)} Eav)
+ (\rtag{interp} \bangclause{!(\rtag{clo} Eb (\rtag{ext-env} env' x Eav))} v)
+ -->
+ (\rtag{interp} \huhclause{?(\rtag{clo} (\rtag{app} Ef Ea) env)} v)]
+\end{Verbatim}
+\end{multicols}
+\caption{Two CE (closure-creating) interpreters in \slog{}; for CBN eval. (left) and CBV eval. (right).}
+\label{fig:ce-machines}
+\end{figure*}

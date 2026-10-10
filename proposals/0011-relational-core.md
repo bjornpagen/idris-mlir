@@ -110,11 +110,13 @@ is the functional and array core, and the shell belongs to consumers.
 
 **Prepared queries are specialized, not compiled by a query compiler.** A
 query known at compile time is a closed call of the interpreter on a
-constant plan: planning runs at compile time, `idr-specialize` clones the
-executor for the plan, defunctionalization and inlining remove dispatch,
-and `linalg` fusion merges each pipeline into one loop nest. Ad-hoc
-queries run the interpreter or go through the same pipeline in the LLJIT
-that compile-time evaluation already uses.
+constant query. The planner is total, so static normalization (0013)
+computes the plan in the frontend; `idr-specialize` clones the
+executor for it, defunctionalization and inlining remove dispatch, and
+`linalg` fusion merges each pipeline into one loop nest: the first Futamura
+projection. Ad-hoc queries run the interpreter, which is batched and
+vectorized; there is no JIT in a program (it would link LLVM into every
+program).
 
 **Decision (D1):** the interpreter is written to be specialized. Only the
 plan is static; COLT forcing, exact-versus-estimated key counts and the
@@ -156,7 +158,7 @@ Inventory, each with its limit:
 | `linalg`, `vector`, LLVM backends | The tail of a query compiler: fusion, tiling, vectorization to NEON, SVE, AVX-512 and wasm SIMD128. The scalar twin is the same source at width 1; hand NEON and runtime dispatch go. | Hash probes and data-dependent control are weak in `linalg`. |
 | One-Shot Bufferize | Tensors have value semantics and bufferization decides in-place writes: Idris's "functional but in place" at the array level. 0004 carries `!idr.lin` into the tensor encoding (*read*: 0004 `compiler.md` §9). Images immutable, arenas and aggregation state in place, by one mechanism. | |
 | `IntegerRangeAnalysis` | `idr-in-bounds` proves pool and table indices in range, so COLT's pools need no `unsafe` and no per-access check (*read*: 0004 `compiler.md` names it). | Indices it cannot prove keep a guard. |
-| LLJIT | The ad-hoc-query fallback is the compile-time evaluator's path. | |
+| `idr-specialize` on constant arguments | A plan computed by static normalization specializes the executor. | The planner must be total: only total code is normalized (0013). |
 | The verifier | Erased plan proofs and grades survive lowering because they are re-checked after every pass. | |
 | `shard` | Hash-partitioned relations are a sharding annotation; where to reshuffle is propagation (*read*: 0004 `compiler.md`'s SPMD row). | Upstream propagates over parallel array dimensions, not joins. A join whose atoms are not co-partitioned on a shared variable needs a shuffle or HyperCube-style partitioning (*recalled*); this is open. |
 | Greedy pattern rewriting | A fixpoint rewrite engine, destructive. | Layer 3 is the non-destructive version. |

@@ -1,0 +1,83 @@
+\documentclass[twocolumn,DIV=20,letterpaper,9pt]{scrartcl}
+\usepackage[toc,page]{appendix}
+\usepackage{ifpdf}
+\usepackage{listings}
+\ifpdf
+\usepackage{graphicx}
+\else
+\usepackage[dvipdfmx]{graphicx}
+\fi
+
+\usepackage{url}
+
+\newcommand{\todo}[1]{{\rm$[\![$\textbf{todo:} \emph{#1}$]\!]$}}
+\newcommand{\code}[1]{\texttt{\textup{#1}}}
+
+\newcommand{\Charmpp}{Charm\kern-0.05em\texttt{+\kern-0.03em+}}
+
+\begin{document}
+
+\title{GLB: Lifeline-based Global Load Balancing library in X10}
+\author{Wei Zhang, Olivier Tardieu, David Grove, Benjamin Herta, Tomio Kamada (Kobe U/{\sc RIKEN}) \\ Vijay Saraswat,  Mikio Takeuchi\\
+~\\ (Besides Tomio Kamada, the other authors are at IBM Research) 
+}
+\date{December 9, 2013}
+
+\maketitle
+
+\begin{abstract}
+\input{abstract}
+\end{abstract}
+\input{intro} 
+\input{design}
+\input{eval}
+\input{future}
+\input{related} 
+
+
+\section*{Acknowledgments}
+The code for BC was developed in collaboration with Anju
+Kambadur. Earlier versions of the code presented here were worked on
+by Sreedhar Kodali, Ganesh Bikshandi, David Cunningham, Pradeep Varma,
+Krishna Venkat and other colleagues.  
+
+This material is based upon work supported by the Defense Advanced
+Research Projects Agency under its Agreement No.~HR0011-07-9-0002, 
+by the Department of Energy and by the Air Force Office of Scientific
+Research. 
+
+Some of the results were obtained by using the K computer at the RIKEN
+Advanced Institute for Computational Science.  This research was
+partially supported by JST, CREST.
+
+This research used resources of the Argonne Leadership Computing
+Facility at Argonne National Laboratory, which is supported by the
+Office of Science of the U.S. Department of Energy under contract
+DE-AC02-06CH11357.
+
+\bibliographystyle{abbrv}
+\bibliography{x10}
+
+%\appendix
+%\section{Selected Code Fragments}
+\begin{appendices}
+%% \subsection{A pedagogical use case via Fibonacci}
+%% \label{sec:design:fib}
+\begin{figure}
+  \centering
+   \mbox{\lstinputlisting[numbers=left, mathescape,basicstyle=\ttfamily\tiny, firstline=1, lastline=100]{./ppaa2014_figures/fib.java}}
+   \caption{GLB-Fibonacci example}
+  \label{fig:design:fib}
+\end{figure}
+We demonstrate how to use GLB via a Fibonacci example. We show the complete code in Figure~\ref{fig:design:fib}. 
+Specifically, We apply GLB to Fibonacci($n$) in the following way: 
+\begin{enumerate}
+\item \textit{TaskBag} We use the default GLB Arraylist-based Taskbag, as shown at line 3. A task is an integer $i$ whose Fibonacci number should be computed. One can split/merge the TaskBag by calling the \code{merge} and \code{split} methods in the default TaskBag, as shown in Line22 -- Line 27. 
+\item \textit{TaskQueue} Each TaskQueue keeps a $result$ of Long type, as shown at line 4.  To process each task item $i$, we first judge if it is less than 2, if so, add $i$ to $result$; if not, remove $i$ from the TaskBag and add $i-1$ and $i-2$ to the TaskBag. When its TaskBag becomes empty, TaskQueue's $result$ is the Fibonacci number of $n$. The \code{process} method is shown in line 10 -- line 21. The reduce function is a simple add function, as shown in line 28  -- line 30. 
+\item \textit{Invoke GLB} Since it is difficult to statically schedule tasks among places for the Fibonacci problem, users can invoke GLB by calling the \code{run} method with an \code{initialize} method to use at the root place, as shown in line 35 and line 36. Were it easy to statically load balance, users could call the \code{run} method without providing the initialization method. 
+\end{enumerate} 
+
+Note that only these three pieces of code are required from the users and users are oblivious to any synchronization mechanism in X10. 
+
+\end{appendices}
+\end{document}

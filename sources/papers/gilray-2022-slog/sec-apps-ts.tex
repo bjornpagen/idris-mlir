@@ -1,0 +1,452 @@
+\subsection{Type Systems}
+\label{sec:apps:ts}
+
+Along with operational semantics and program analyses, \slog{}
+naturally enables the realization of structural type systems based on
+constructive logics~\cite{tapl,atapl}.  These systems are often
+specified via an inductively-defined typing judgment, whose
+derivations may be represented in \slog{} via (sub)facts and whose
+typing rules may be realized as rules in \slog{} (providing their
+evaluation may be operationalized via \slog{}'s idioms). For example,
+the rules for the simply-typed $\lambda$-calculus (STLC) in
+Figure~\ref{fig:stlc} define the judgment $\Gamma \vdash e
+:\tau$---under typing environment $\Gamma$, $e$ has been proven to
+have type $\tau$. Proofs of this judgment are represented via \slog{}
+facts of the form \texttt{(\rtag{:} (\rtag{ck} $\Gamma$ e) T)}; each
+rule in the type system is then mirrored by a corresponding rule in
+\slog{}.
+
+When implementing a type system in \slog{}, it is crucial to consider
+some important differences between \slog{} and natural deduction
+per-se. First, equivalence in \slog{} is intensional, via fact
+interning (as in type theories such as Coq's Calculus of Inductive
+Constructions). For example, while our type checker for STLC decides
+$\Gamma \vdash e :\tau$ via structural recursion on $e$, there are
+infinitely many $\Gamma' \supseteq \Gamma$ for which $\Gamma' \vdash e
+:\tau$ also holds---materializing these (infinite) $\Gamma'$
+would result in nontermination.
+
+Here, we focus on the presentation of algorithmic (i.e.,
+syntax-directed) type checking procedures. The decidability of these
+systems follows immediately from their structurally-recursive nature,
+a property inherited by their \slog{} counterparts. We expect
+enumerating terms in other theories which enjoy strong normalization
+will readily follow. We anticipate \slog{}'s declarative style may
+also be a natural fit for type synthesis, by bounding (potentially
+infinite) rewritings using a decreasing ``fuel'' parameter. However,
+we leave this, along with explorations of other (bidirectional,
+substructrural, etc...)  type systems in \slog{} to future work.
+
+\paragraph*{Simply-typed $\lambda$-calculus}
+
+\begin{figure}
+\begin{displaymath}
+\begin{tabular}{lrcllrcl}
+\textit{STLC Terms}& $e$ & $::=$ & $\big(\lambda (x\!:\!\tau)\,e\big)$ & \textit{STLC Types}& $\tau \in T$ & $::=$& $\tau \rightarrow \tau$ \\
+&     &  $\mid$ & $(e_0 ~ e_1)$ & && $\mid$& \textsf{nat} \\
+&     &  $\mid$ & $x$ & & & $\mid$ & $...$ \\
+\end{tabular}
+\end{displaymath}
+
+\begin{flushleft}
+\fbox{$\Gamma \vdash e : \tau$}
+\end{flushleft}
+\begin{tabular}{c|c}
+%\toprule \\
+ {{\small\textsc{T-Var}}\quad\quad{\LARGE ${ \frac{x : T \, \in\, \Gamma}{\Gamma\, \vdash\, x : T}}$}} \quad&
+\begin{minipage}{2.5in}
+\begin{Verbatim}[baselinestretch=.8,commandchars=\\\{\},codes={\catcode`$=3\catcode`^=7}]
+[-->;-------- T-Var \\
+ (\rtag{:} \huhclause{?(\rtag{ck} $\Gamma$ (\rtag{ref} x))} \{\rtag{env-map} $\Gamma$ x\})]
+\end{Verbatim}
+\end{minipage}
+\\
+\\
+{{\small\textsc{T-Abs}}\quad\quad{\LARGE ${ \frac{\Gamma, x\, : \,T_1 \, \vdash \, e \, : \, T_2}{(\lambda\,(x\,:\, T_1)\,e)\, : T_1 \rightarrow \,T_2}}$}} \quad& 
+\begin{minipage}{2.5in}
+\begin{Verbatim}[baselinestretch=.8,commandchars=\\\{\},codes={\catcode`$=3\catcode`^=7}]
+[(\rtag{:} \bangclause{!(\rtag{ck} (\rtag{ext-env} $\Gamma$ x T1) e)} T2)
+ -->;-------- T-Abs
+ (\rtag{:} \huhclause{?(\rtag{ck} $\Gamma$ (\rtag{$\lambda$} x T1 e))} (\rtag{->} T1 T2))]
+\end{Verbatim}
+\end{minipage}
+\\
+\\
+ 
+{{\small\textsc{T-App}}\quad\quad{\LARGE ${ \frac{{\Gamma \, \vdash \, e_0\,:\,T_0\, \rightarrow\, T_1}\quad e_1\,:\,T_0}{\Gamma \, \vdash \, (e_0~e_1)\,:\,T_1}}$ }}\quad& 
+\begin{minipage}{2.5in}
+\begin{Verbatim}[baselinestretch=.8,commandchars=\\\{\},codes={\catcode`$=3\catcode`^=7}]
+[(\rtag{:} \bangclause{!(ck $\Gamma$ e0)} (\rtag{->} T0 T1))
+ (\rtag{:} \bangclause{!(ck $\Gamma$ e1)} T0)
+ -->;-------- T-App
+ (\rtag{:} \huhclause{?(\rtag{ck} $\Gamma$ (\rtag{app} e0 e1))} T1)]
+\end{Verbatim}
+\end{minipage} \\
+%\bottomrule
+\end{tabular}
+
+\caption{Syntax (top) and semantics (left) of STLC; equivalent \slog{} (right).}
+\label{fig:stlc}
+\end{figure}
+
+%% \begin{figure}
+%% \begin{displaymath}
+%% \begin{tabular}{lrcllrcl}
+%% \textit{STLC Terms}& $e$ & $::=$ & $\big(\lambda (x\!:\!\tau)\,e\big)$ & \textit{STLC Types}& $\tau \in T$ & $::=$& $\tau \rightarrow \tau$ \\
+%% &     &  $\mid$ & $(e_0 ~ e_1)$ & && $\mid$& $...$ \\
+%% &     &  $\mid$ & $x$ & & &  \\
+%% \textit{\lf{} Contexts}& $\Gamma$ & $::=$ & $\varnothing$ &\textit{\lf{} Types} & $\tau \in T$ & $::=$& $X$ \\
+%% &     &  $\mid$ & $\Gamma, x \! : \! T$ & && $\mid$& $\Pi x \! : \! T.~ T$ \\
+%% &     &  $\mid$ & $\Gamma, x \! ::\!  K$ & &&$\mid$& $(T~ e)$ \\
+%% \textit{\lf{} Kinds} & $K$ & $::=$ & $\Pi x \! : \! T. K \mid \ast$ \\ 
+%% \end{tabular}
+%% \end{displaymath}
+%% \caption{Syntax of STLC and \lf{}.}
+%% \label{fig:syntax}
+%% \end{figure}
+
+
+%% \begin{figure}
+%% \begin{flushleft}
+%% \fbox{$\Gamma \vdash e : \tau$}
+%% \end{flushleft}
+%% \begin{tabular}{c|c}
+%% %\toprule \\
+%%  {{\small\textsc{T-Var}}\quad\quad{\LARGE ${ \frac{x : T \, \in\, \Gamma}{\Gamma\, \vdash\, x : T}}$}} \quad&
+%% \begin{minipage}{2.5in}
+%% \begin{Verbatim}[baselinestretch=.8,commandchars=\\\{\},codes={\catcode`$=3\catcode`^=7}]
+%% [-->;-------- T-Var \\
+%%  (\rtag{:} \huhclause{?(\rtag{ck} $\Gamma$ (\rtag{ref} x))} \{\rtag{env-map} $\Gamma$ x\})]
+%% \end{Verbatim}
+%% \end{minipage}
+%% \\
+%% \\
+%% {{\small\textsc{T-Abs}}\quad\quad{\LARGE ${ \frac{\Gamma, x\, : \,T_1 \, \vdash \, e \, : \, T_2}{(\lambda\,(x\,:\, T_1)\,e)\, : T_1 \rightarrow \,T_2}}$}} \quad& 
+%% \begin{minipage}{2.5in}
+%% \begin{Verbatim}[baselinestretch=.8,commandchars=\\\{\},codes={\catcode`$=3\catcode`^=7}]
+%% [(\rtag{:} \bangclause{!(\rtag{ck} (\rtag{ext-env} $\Gamma$ x T1) e)} T2)
+%%  -->;-------- T-Abs
+%%  (\rtag{:} \huhclause{?(\rtag{ck} $\Gamma$ (\rtag{$\lambda$} x T1 e))} (\rtag{->} T1 T2))]
+%% \end{Verbatim}
+%% \end{minipage}
+%% \\
+%% \\
+ 
+%% {{\small\textsc{T-App}}\quad\quad{\LARGE ${ \frac{{\Gamma \, \vdash \, e_0\,:\,T_0\, \rightarrow\, T_1}\quad e_1\,:\,T_0}{\Gamma \, \vdash \, (e_0~e_1)\,:\,T_1}}$ }}\quad& 
+%% \begin{minipage}{2.5in}
+%% \begin{Verbatim}[baselinestretch=.8,commandchars=\\\{\},codes={\catcode`$=3\catcode`^=7}]
+%% [(\rtag{:} \bangclause{!(ck $\Gamma$ e0)} (\rtag{->} T0 T1))
+%%  (\rtag{:} \bangclause{!(ck $\Gamma$ e1)} T0)
+%%  -->;-------- T-App
+%%  (\rtag{:} \huhclause{?(\rtag{ck} $\Gamma$ (\rtag{app} e0 e1))} T1)]
+%% \end{Verbatim}
+%% \end{minipage} \\
+%% %\bottomrule
+%% \end{tabular}
+%% \caption{Simply-Typed Lambda Calculus (TAPL Fig. 9.1) and \slog{} Equivalent}
+%% \label{fig:stlc}
+%% \end{figure}
+
+
+We begin with the simply-typed
+$\lambda$-calculus~\cite{barendregt2013lambda,tapl}.  The syntax of
+STLC terms and types is shown at the top of Figure~\ref{fig:stlc}. Our
+presentation roughly follows Chapter~9 of Benjamin Pierce's
+\textit{Types and Programming Languages}~\cite{tapl}; we use
+Scheme-style syntax to more closely mirror the \slog{}
+presentation. STLC extends the untyped $\lambda$-calculus:
+$\lambda$-abstractions are annotated with types, and variable typing
+defers to a typing environment which assigns types to type variables
+and is subsequently extended at callsites.  STLC defines a notion of
+``simple'' types including (always) arrow types between simple types
+and (sometimes) base types (e.g., \textsf{nat}), depending on the
+presentation.
+ 
+The key creative challenge in translating a type system into \slog{}
+lies in the operationalization of its control flow. For example,
+consider the \textsc{T-Var} rule on the left side of
+Figure~\ref{fig:stlc}: the rule is parametric over the typing
+environment $\Gamma$, however a terminating analysis necessarily
+inspects only a finite number of typing environments. The solution is
+interpret the rules in a demand-driven way, using subfacts to defer
+type checking until necessary. Operationally, each type rule is
+predicated upon a message \texttt{\huhclause{?(\rtag{ck} $\Gamma$
+    e)}}, which triggers type synthesis for \texttt{e} under the
+typing environment $\Gamma$.  Using this technique, we may invoke the
+analysis by including a fact \texttt{(\rtag{ck} $\Gamma$ e)}. Using
+stratified negation, we may treat \texttt{(\rtag{:} (\rtag{ck}
+  $\Gamma$ e) $\tau$)} as a decision procedure, like so:
+
+\begin{Verbatim}[baselinestretch=1,commandchars=\\\{\},codes={\catcode`$=3\catcode`^=7}]
+[(\rtag{success} $\Gamma$ e $\tau$) <-- (\rtag{typecheck} $\Gamma$ e $\tau$) (\rtag{:} \bangclause{!(\rtag{ck} $\Gamma$ e)} $\tau$)]
+[(\rtag{failure} $\Gamma$ e $\tau$) <-- ~(\rtag{success} $\Gamma$ e $\tau$)]
+\end{Verbatim}
+
+Here, the inclusion of \texttt{(\rtag{typecheck} $\Gamma$ e $\tau$)}
+forces the materialization of \texttt{\bangclause{!(\rtag{ck} $\Gamma$
+    e)}}, and subsequently the enumeration of the type of each of its
+subexpressions. Once the resulting type is materialized, we force its
+unification with $\tau$ (implicitly using \slog{}'s intensional notion
+of equality) and, when successful, generate \texttt{(\rtag{success}
+  $\Gamma$ e $\tau$)}. The resulting \slog{} implementation
+necessarily terminates because the analysis enumerates at most a
+finite number of \texttt{(\rtag{ck} $\Gamma$ e)} facts (because of the
+structural recursion on $e$ done by \rtag{:}), which in-turn forces
+materialization of a finite number of \texttt{(\rtag{ext-env}
+  $\Gamma$ x T)} facts, each of which forces a bounded
+materialization of \rtag{env-map}.
+
+\paragraph*{Natural Deduction and Per Martin-L\"of's Type Theory}
+
+The well-known Curry-Howard isomorphism relates terms in pure
+functional languages to proofs in an appropriate constructive
+logic~\cite{Curry:1934}. For STLC, the Curry-Howard isomorphism tells
+us that we may read our type checker as a decision procedure for
+intuitionistic propositional logic. As an alternative (but equivalent)
+perspective, we now consider how \slog{} may represent proofs in Per
+Martin-L\"of's intuitionistic type theory (ITT)~\cite{Martin-Lof1996}.
+
+By design, ITT cleanly separates propositions from their associated
+derivations (proof objects). In \slog{}, we may represent derivations
+as structured facts, obtaining the nested structure of derivations via
+\slog{}'s subfacts. Adopting this perspective, checking a
+natural-deduction proof in ITT involves propagating assumptions to
+their usages (akin to the propagation achieved using maps in STLC).
+
+\begin{figure}[h!]
+
+\begin{tabular}{c|c}
+{{\textsc{$\land$I}}\quad{\LARGE  ${ \frac{A \textit{ true} \quad \quad B \textit{ true}}{A \land B \textit{ true}}}$}} \quad& 
+\begin{minipage}{2.5in}
+{
+\begin{Verbatim}[baselinestretch=.8,commandchars=\\\{\},codes={\catcode`$=3\catcode`^=7}]
+[(\rtag{true} \bangclause{!(\rtag{ck} A-pf A)})
+ (\rtag{true} \bangclause{!(\rtag{ck} B-pf B)})
+ -->
+ (\rtag{true} \huhclause{?(\rtag{ck} (\rtag{$\land$I} A-pf B-pf (\rtag{$\land$I} A B)) (\rtag{$\land$I} A B))})]
+\end{Verbatim}
+}
+\end{minipage}
+\end{tabular}
+\caption{The introduction rule for $\land$ in ITT.}
+\label{fig:itt}
+\end{figure}
+
+Figure~\ref{fig:itt} shows the introduction form for $\land$
+(left) and its corresponding \slog{} transliteration (right). Checking
+a derivation of $\land$I forces the checking of each sub-derivation,
+and (upon success) populates the \rtag{true} relation with the
+appropriate derivation.
+
+Implication in ITT is managed by introducing, and then discharging,
+assumptions: $A \supset B$ holds whenever $B$ may be proven by
+assuming $A$. Figure~\ref{fig:impl} details the implication rule in
+ITT (left) and \slog{} (right): the introduced hypothesis (named $u$
+in $\supset{}\!I$) is subsequently discharged to produce an
+assumption-free proof of $A \supset B~\textit{true}$. In \slog{}, the
+rule for $\supset{}\!I$ introduces an assumption by forcing the
+materialization of \texttt{(\rtag{assuming} A pf-B)}---other rules
+then ``push down'' the assumption $A~\textit{true}$ to their eventual
+uses (top right of Figure~\ref{fig:impl}), performing transitive
+closure of assumptions to their usages in an on-demand fashion.
+
+\begin{figure}[h!]
+\begin{tabular}{c|c}
+%% -- u
+%% A  
+%% ..
+%% B 
+%% -- 
+%% A -> B
+
+${\supset{}\!I}\quad \frac { \frac{}{\begin{array}{c}A~\textit{true}\\\vdots\\ B~\textit{true}\end{array}}~u } {\begin{array}{c}A \supset B~\textit{true}\end{array}}$
+
+&
+\begin{minipage}{2.5in}
+{
+\vspace{-.5in}
+\begin{Verbatim}[baselinestretch=.8,commandchars=\\\{\},codes={\catcode`$=3\catcode`^=7}]
+;; Propagate assumptions
+(\rtag{true} \huhclause{?(\rtag{ck} (\rtag{assuming} P (\rtag{assumption} P)) P)} P)
+...
+
+[(\rtag{true} \bangclause{!(\rtag{ck} (\rtag{assuming} A pf-B) B)})
+ -->
+ (\rtag{true} \huhclause{?(\rtag{ck} (\rtag{$\supset$I} (\rtag{$\supset$} A B) pf-B) (\rtag{$\supset$} A B))})]
+\end{Verbatim}
+}
+\end{minipage}
+\end{tabular}
+\caption{Implication in ITT and \slog{}}
+\label{fig:impl}
+\end{figure}
+
+
+\paragraph*{First-Order Dependent Types: \lf{}}
+
+\begin{figure}
+\begin{displaymath}
+\begin{tabular}{lrcllrcl}
+\textit{\lf{} Contexts}& $\Gamma$ & $::=$ & $\varnothing$ &\textit{\lf{} Types} & $\tau \in T$ & $::=$& $X$ \\
+&     &  $\mid$ & $\Gamma, x \! : \! T$ & && $\mid$& $\Pi x \! : \! T.~ T$ \\
+&     &  $\mid$ & $\Gamma, x \! ::\!  K$ & &&$\mid$& $(T~ e)$ \\
+\textit{\lf{} Kinds} & $K$ & $::=$ & $\Pi x \! : \! T. K \mid \ast$ \\ 
+\end{tabular}
+\end{displaymath}
+\begin{tabular}{c|c}
+%\toprule \\
+{{\small\textsc{TA-Abs}}\quad\quad{\LARGE ${ \frac{\Gamma\, \vdash\, S\, ::\, \ast \quad \Gamma, \,x\, :\, S\, \vdash\, t\, : \,T}{\Gamma\, \vdash \, (\lambda (x\,:\,S) t) \,:\, \Pi x\, :\, S. T}}$}} \quad& 
+\begin{minipage}{2.5in}
+{\footnotesize
+\begin{Verbatim}[baselinestretch=.8,commandchars=\\\{\},codes={\catcode`$=3\catcode`^=7}]
+[(\rtag{::} \bangclause{!(\rtag{ck-k} $\Gamma$ S)} (\rtag{$\ast$}))
+ (\rtag{:} \bangclause{!(\rtag{ck-t} (ext-env $\Gamma$ x S) t)} T)
+ -->;------
+ (\rtag{:} \bangclause{?(\rtag{ck-t} $\Gamma$ (\rtag{$\lambda$} x S t))} (\rtag{$\Pi$} x S T))]
+\end{Verbatim}
+}\end{minipage}
+\\
+\\
+  {{\small\textsc{TA-App}}\quad\quad{\LARGE ${ \frac{\Gamma \, \vdash \, t_1 \,:\, \Pi x : S_1 . \, T \quad \Gamma \, \vdash \, t_2\, : \,S_2 \quad \Gamma\, \vdash\, S_1\, \equiv\, S_2}{\Gamma\, \vdash\, (t_1~t_2)\, : \,[ x \,\mapsto\, t_2 ] \, T}}$}}\quad&
+\begin{minipage}{2.5in}
+{\footnotesize
+\begin{Verbatim}[baselinestretch=.8,commandchars=\\\{\},codes={\catcode`$=3\catcode`^=7}]
+[(\rtag{:} \bangclause{!(\rtag{ck-t} $\Gamma$ t1)} (\rtag{$\Pi$} x S1 T))
+ (\rtag{:} \bangclause{!(\rtag{ck-t} $\Gamma$ t2)} S2)
+ (\rtag{true} \bangclause{!(\rtag{===} $\Gamma$ S1 S2)})
+ -->;------
+ (\rtag{:} \huhclause{?(\rtag{ck-t} $\Gamma$ (\rtag{app} t1 t2))}
+   \{\rtag{subst} \bangclause{!(\rtag{do-subst} T x t2)}\})]
+\end{Verbatim}
+}\end{minipage} \\
+\\
+  {{\small\textsc{KA-App}}\quad\quad{\LARGE ${ \frac{\Gamma \, \vdash \, S \,::\, \Pi x : T_1 . \, K \quad \Gamma \, \vdash \, t\, : \,T_2 \quad \Gamma\, \vdash\, T_1\, \equiv\, T_2}{\Gamma\, \vdash\, (S~t)\, : \,[ x \,\mapsto\, t ] \, K}}$}}\quad&
+\begin{minipage}{2.5in}
+{\footnotesize
+\begin{Verbatim}[baselinestretch=.8,commandchars=\\\{\},codes={\catcode`$=3\catcode`^=7}]
+[(\rtag{::} \bangclause{!(\rtag{ch-k} $\Gamma$ S)} (\rtag{$\Pi$} x T1 K))
+ (\rtag{:} \bangclause{!(\rtag{ck-t} $\Gamma$ t)} T2)
+ (\rtag{true} \bangclause{!(\rtag{===} $\Gamma$ T1 T2)})
+ -->;------
+ (\rtag{:} \huhclause{?(\rtag{ch-t} $\Gamma$ (\rtag{type-app} S t))}
+   \{subst !(do-subst K x t)\})]
+\end{Verbatim}
+}\end{minipage} \\
+\\
+%\bottomrule
+\begin{minipage}{2.75in}
+{\small
+\begin{Verbatim}[baselinestretch=.8,commandchars=\\\{\},codes={\catcode`$=3\catcode`^=7}]
+[(\rtag{->wh} \bangclause{!(\rtag{do->wh} t1)} t1')
+ -->;------
+ (\rtag{->wh} \huhclause{?(\rtag{do->wh} (\rtag{app} t1 t2))} (\rtag{app} t1' t2))]
+\end{Verbatim}
+}
+\end{minipage}
+&
+\quad
+\quad
+\begin{minipage}{2.75in}
+{\small
+\begin{Verbatim}[baselinestretch=.8,commandchars=\\\{\},codes={\catcode`$=3\catcode`^=7}]
+(\rtag{->wh} \huhclause{?(\rtag{do->wh} (\rtag{app} ($\lambda$ x T1 t1) t2))}
+  \{subst \bangclause{!(do-subst t1 x t2)}\})
+\end{Verbatim}
+}\end{minipage} 
+\end{tabular}
+
+\caption{\lf{}: Syntax (top), selected rules (left) and \slog{} (right).}
+\label{fig:lf}
+\end{figure}
+
+The Edinburgh Logical Framework (\lf{}) is a dependently-typed
+$\lambda$-calculus~\cite{Harper:93}. It is a first-order dependent
+type system, in the sense that it stratifies its objects into kinds, types
+(families), and terms (values)---kinds may quantify over types, but
+% Todo: Why put this idea here right up front?
+not over other kinds. The syntax of \lf{} is detailed at the bottom of
+Figure~\ref{fig:lf}---it extends STLC with kinds, which are either
+$\ast$ or (type families) $\Pi x : T. K$, where $T$ is a simple type
+(of kind $\ast$). \lf{} generalizes the arrow type to the dependent
+product: $\Pi x: T. T$. System \lf{} enjoys several decidability
+properties which make it particularly amenable to implementation in
+\slog{}. The first is strong normalization, which implies that
+reduction sequences for well-typed terms in our implementation will be
+finite. The second is \lf{}'s focus on canonical forms and hereditary
+substitution~\cite{harper:2007}. In \lf{}, terms are canonicalized to
+weak-head normal form (WHNF); this choice enables inductive reasoning
+on these canonical forms, and this methodology forms the basis for
+% Todo: Say a bit more about Twelf? It's meant for theorem proving or programming?
+Twelf~\cite{pfenning1998twelf}.
+
+The \textit{judgments-as-types} principle interprets type checking for
+\lf{} as proving theorems in intuitionstic predicate logic; Using this
+principle, we may define traditional constructive connectives (such as
+$\land$, $\lor$, and $\exists$) via type families and their associated
+rules. For example, including in $\Gamma$ a binding $\land \mapsto
+\Pi\, P : \textit{prop}.~ \Pi\, Q : \textit{prop}.~ \ast$ allows using
+the constructor $\land$, though $\land$ must be instantiated with a
+suitable $P$ and $Q$, which must necessarily be of some sort (e.g.,
+\textit{prop}) also bound in $\Gamma$.
+
+We have performed a transliteration of \lf{} as formalized in Chapter
+2 of \textit{Advanced Topics in Types and Programming Languages
+  (ATAPL)}~\cite{atapl}. Our transliteration (from pages 57--58)
+consists of roughly 150 lines of \slog{}
+code. Figure~\ref{fig:lf} details several of the key
+rules. \textsc{TA-Abs} introduces a $\Pi$ type, generalizing the
+\textsc{T-Abs} rule in Figure~\ref{fig:stlc}. The \textsc{TA-App}
+applies a term $t_1$, of a dependent product type $\Pi x :S_1 ~.~T$,
+whenever the input $t_2$ shares an equivalent type, $S_2$. The notion
+of equality here is worth mentioning: $\equiv$ demands reduction of
+its arguments to WHNF---\lf{} is constructed to identify terms under
+WHNF, thus ensuring $\equiv$ will terminate as long as the term is
+typeable. Reduction to WHNF is readily implemented in \slog{}; two
+exemplary rules detailed at the bottom of Figure~\ref{fig:lf}
+% Todo: I changed this from fig:lf-example; correct?
+outline the key invariant in WHNF: reduce down the leftmost spine,
+eliminating $\beta$-redexes via application. Equality checks are
+demanded by the \textsc{TA-App} and \textsc{KA-App} rules, and force
+normalization of their arguments to WHNF before comparison of
+canonical forms, generating a witness in \rtag{true} before triggering
+the head of the rule.
+
+
+%% \begin{tabular}{c|c|c}
+%% \begin{align}
+%% \forall \, Q,&\, \forall\, P.& \\
+%%   &\,Q \land P \rightarrow P \land Q
+%% \end{align}
+%% &
+%% \begin{minipage}{2.75in}
+%% {\small
+%% \begin{Verbatim}[baselinestretch=.6,commandchars=\\\{\},codes={\catcode`$=3\catcode`^=7}]
+%% (tcheck
+%%  (extend
+%%   (extend (bot) (var (prop)) (star))
+%%   (var (land)) (PiK (x) (var (prop))
+%%                     (PiK (y) (var (prop)) (star))))
+%%  (lam (x) (var (prop))
+%%       (lam (y) (var (prop))
+%%            (type-app (var (land)) (ref (x))))))
+%% \end{Verbatim}
+%% }
+%% \end{minipage}
+%% &
+%% \quad
+%% \quad
+%% \begin{minipage}{2.75in}
+%% {\small
+%% \begin{Verbatim}[baselinestretch=.6,commandchars=\\\{\},codes={\catcode`$=3\catcode`^=7}]
+%% (tcheck
+%%  (extend
+%%   (extend (bot) (var (prop)) (star))
+%%   (var (land)) (PiK (x) (var (prop))
+%%                     (PiK (y) (var (prop)) (star))))
+%%  (lam (x) (var (prop))
+%%       (lam (y) (var (prop))
+%%            (type-app (var (land)) (ref (x))))))
+%% \end{Verbatim}
+%% }\end{minipage} 
+%% \end{tabular}
+

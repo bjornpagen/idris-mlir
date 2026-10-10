@@ -1,0 +1,88 @@
+The code in Figure~\ref{table:fib} illustrates the use of this
+framework with a simple Fibonacci computation. 
+
+%% Add Fibonacci code in totality.
+
+\begin{table}
+{\footnotesize
+\begin{verbatim}
+public class FibG(n:Long) {
+	static def fib(n:Long):Long=n<2? n: fib(n-1)+fib(n-2);
+	
+	class FibTQ implements TaskQueue{
+		val bag = new ArrayListTaskBag[Long]();
+		var result:Long=0;
+		public def getTaskBag()=bag;
+		public def getResult()= result;
+		public def init(n:Long) {
+			bag.bag().add(n);
+		}
+		public def process(var n:Long):Boolean {
+			val b = bag.bag();
+			for (var i:Long=0; bag.size() > 0 && i < n; i++) {
+				val x = b.removeLast(); // constant time
+				if (x < 2) result += x;
+				else {
+					b.add(x-1); // constant time
+					b.add(x-2);
+				}
+			}
+			return b.size()>0;
+			
+		}
+		
+	
+		
+		public def count() {
+		
+			return 0L;
+		}
+		
+		public def merge(var _tb:glb.TaskBag):void {
+			this.bag.merge(_tb as ArrayListTaskBag[Long]);
+		}
+		
+	
+		public def split():glb.TaskBag {
+			return this.bag.split();
+		}
+		
+		public def reduce():void {
+			result= Team.WORLD.allreduce(result,Team.ADD); 
+		}
+		
+		
+	}
+	//var finalResult:Long;
+	public def run(n:Long):Long {
+		
+		val init = ()=>{ return new FibTQ(); };
+		val glb = new GLB[FibTQ](init, GLBParameters.Default, true);
+		
+		Console.OUT.println("Starting...");
+		var time:Long = System.nanoTime();
+		val start = ()=>{ (glb.taskQueue()).init(n); };
+		glb.run(start);
+	
+		 PlaceGroup.WORLD.broadcastFlat(()=>{
+			(glb.taskQueue()).reduce();
+		  
+		});
+		
+		time = System.nanoTime() - time;
+		Console.OUT.println("Finished.");
+		Console.OUT.println("finalResult:" + glb.taskQueue().result);
+		return glb.taskQueue().result;
+
+	}
+	public static def main(args:Rail[String]) {
+		val N = args.size < 1 ? 10 : Long.parseLong(args(0));
+		val result = new FibG(N).run(N);
+		Console.OUT.println("fib(" + N + ")" + fib(N));
+		Console.OUT.println("fib-glb(" + N + ")" + result);
+		
+	}
+}
+\end{verbatim}}
+\caption{Fibonacci, with GLB}\label{table:fib}
+\end{table}

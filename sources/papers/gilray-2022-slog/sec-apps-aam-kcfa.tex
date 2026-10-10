@@ -1,0 +1,85 @@
+\begin{figure*}
+%\vspace{-0.5cm}
+\begin{multicols}{2}
+\begin{Verbatim}[baselinestretch=.75,commandchars=\\\{\}]
+\comm{;; Eval states}
+[(\rtag{eval} (\rtag{ref} x) env k _)
+ -->
+ (\rtag{ret} \{\rtag{store} \{\rtag{env-map} env x\}\} k)]
+[(\rtag{eval} (\rtag{lam} x body) env k _)
+ -->
+ (\rtag{ret} (\rtag{clo} (\rtag{lam} x body) env) k)]
+[(\rtag{eval} (\rtag{app} ef ea) env k c)
+ -->
+ (\rtag{eval} ef env
+         (\rtag{ar-k} ea env (\rtag{app} ef ea) c k)
+         c)]
+\comm{;; Ret states}
+[(\rtag{ret} vf (\rtag{ar-k} ea env call c k))
+ -->
+ (\rtag{eval} ea env (\rtag{fn-k} vf call c k) c)]
+[(\rtag{ret} va (\rtag{fn-k} vf call c k))
+ -->
+ (\rtag{apply} call vf va k c)]
+[(\rtag{ret} v (\rtag{kaddr} e env))
+ (\rtag{store} (\rtag{kaddr} e env) k)
+  --> 
+ (\rtag{ret} v k)]
+\comm{;; Apply states}
+[(\rtag{apply} call (\rtag{clo} (\rtag{lam} x Eb) env) va k c)
+ -->
+ (\rtag{eval} Eb env' (\rtag{kaddr} Eb env') c')
+ (\rtag{store} (\rtag{kaddr} Eb env') k)
+ (\rtag{store} (\rtag{addr} x c') va)
+ (= env' (\rtag{ext-env} env x (\rtag{addr} x c')))
+ (= c' \{\rtag{tick} \bangclause{!(\rtag{do-tick} call c)}\})]
+
+\comm{;; tick (tuning for 3-k-CFA)}
+(\rtag{tick} \huhclause{?(\rtag{do-tick} call [h0 h1 _])}
+      [call h0 h1])
+
+\columnbreak
+\comm{;; Eval states}
+[(\rtag{eval} (\rtag{ref} x) k c)
+ -->
+ (\rtag{ret} \{\rtag{store} (\rtag{addr} x c)\} k)]
+[(\rtag{eval} (\rtag{lam} x body) k c)
+ -->
+ (\rtag{ret} (\rtag{clo} (\rtag{lam} x body) c) k)]
+[(\rtag{eval} (\rtag{app} ef ea) k c)
+ -->
+ (\rtag{eval} ef (\rtag{ar-k} ea (\rtag{app} ef ea) c k) c)]
+
+
+\comm{;; Ret states}
+[(\rtag{ret} vf (\rtag{ar-k} ea call c k))
+ -->
+ (\rtag{eval} ea (\rtag{fn-k} vf call c k) c)]
+[(\rtag{ret} va (\rtag{fn-k} vf call c k))
+ -->
+ (\rtag{apply} call vf va k c)]
+[(\rtag{ret} v (\rtag{kaddr} e c))
+ (\rtag{store} (\rtag{kaddr} e c) k)
+ -->
+ (\rtag{ret} v k)]
+\comm{;; Apply states}
+[(\rtag{apply} call (\rtag{clo} (\rtag{lam} x Eb) _) va k c)
+ -->
+ (\rtag{eval} Eb (\rtag{kaddr} Eb c') c')
+ (\rtag{store} (\rtag{kaddr} Eb c') k)
+ (\rtag{store} (\rtag{addr} x c') va)
+ (= c' \{\rtag{tick} \bangclause{!(\rtag{do-tick} call c)}\})]
+\comm{; Propagate free vars}
+[(\rtag{free} y (lam x body))
+ (\rtag{apply} call (\rtag{clo} (\rtag{lam} x body) clam) _ _ c)
+ -->
+ (\rtag{store} (\rtag{addr} y \{\rtag{tick} \bangclause{!(\rtag{do-tick} call c)}\})
+        \{\rtag{store} (\rtag{addr} y clam)\})]
+\end{Verbatim}
+\end{multicols}
+\caption{An AAM for global-store $k$-CFA (left) and $m$-CFA (right) in \slog{}. These are evaluated in Section~\ref{sec:eval}.}
+\label{fig:kcfa-mcfa}
+\end{figure*}
+
+
+

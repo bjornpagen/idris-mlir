@@ -1,0 +1,138 @@
+\section{Design principle}
+
+\subsection{What type of problems are GLB applicable to}
+GLB is applicable to problems described as following. There is an initial
+bag (multiset) of {\em tasks} (may be of size one). A task usually has a
+small amount of associated state, but is permitted to access
+(immutable) ``reference state''  that can be replicated across all
+places. Consequently, tasks are {\em relocatable}: they can be
+executed at any place. 
+
+Tasks can be executed. Executing a task may only involve local,
+self-contained work (no communication). During execution, a task is
+permitted to create zero or more tasks, and produce a result of a given
+(pre-specified) type \code{Z}. The user is required to specify a
+reduction operator of type \code{Z}. 
+
+The GLB framework is responsible for distributing the generated
+collection of tasks across all nodes. Once no more tasks are left to
+be executed, the single value of type \code{Z} (obtained by reducing
+the results produced by all tasks) is returned.  
+
+Since the execution of each task depends only on the state of the
+task (and on immutable external state), the set of results produced on
+execution will be the same from one run to another, regardless of
+how the tasks are distributed across places. Since the user supplied
+reduction operator is assumed to be associative and commutative, the
+result of execution of the problem is determinate. Thus GLB is a
+determinate application library that requires the user to provide a
+few sequential pieces of code and handles concurrency, distribution
+and communication automatically. 
+
+The GLB framework is applicable to a wide variety of tasks. For a
+simple example, consider the problem of computing the $n$'th Fibonacci
+number in the naive recursive way. Here the state of the task can be
+summarized by just one number (long), i.e.{} $n$. Execution of the
+task yields either a result (for $n < 2$), or two tasks (for $n-1$ and
+$n-2$). The results from all tasks need to be reduced through
+arithmetic addition. 
+
+All {\em state space search algorithms} from AI fall in the GLB problem domain. Such algorithms are characterized by a space of states, an
+initial state, and a generator function which given a state generates
+zero or more states. The task is to enumerate all states (perhaps with
+a cutoff), apply some function, and combine the results. An example of
+such an application is the famous $N$-Queens problem.
+
+\subsection{Execution overview}
+Figure ~\ref{fig:design:glb} shows the overall flow of GLB. 
+For each GLB program, users need to provide two pieces of sequential code \textit{TaskQueue} and \textit{TaskBag}. In addition, users can also provide an \textit{Initialization} method that tells GLB how to initialize the workload at a root place if the workload cannot be statically scheduled among all places. 
+
+\textit{TaskQueue} embodies the sequential computation for this problem and a result reduction function. \textit{TaskBag} embodies the task container's data structure and its split/merge method.    
+
+Given the \textit{TaskQueue} and \textit{TaskBag} implementation, GLB initializes the workload for each \textit{Worker}. Workers are GLB internal computing/load-balancing engines and they are transparent to GLB users. \textit{Workers} process task items by call the \code{process} method provided by \textit{TaskQueue}. \textit{Workers} balance workload using the lifeline based work-stealing algorithm. GLB splits \textit{TaskBag}s from victim \textit{Worker} and merges them to thief \textit{Worker} by calling the \code{split/merge}  methods provided by \textit{TaskBag}. Once all workers finish working, GLB invokes the \code{reducer} function, provided by \textit{TaskQueue}, to return the final result.
+
+\begin{figure}
+\centering
+%% \includegraphics[width=3.25in]{./ppaa2014_figures/glb_overview.eps}
+\includegraphics[scale=0.3]{./ppaa2014_figures/glb_overview.eps}
+\caption{GLB overview}
+\label{fig:design:glb}
+\end{figure}
+
+
+In the following sections, Section~\ref{sec:design:user} discusses what are required from users, Section~\ref{sec:design:internals} discusses the GLB internals, Section~\ref{sec:design:uts} discusses how to apply GLB to the UTS problem, Section~\ref{sec:design:bc} discusses how to apply GLB to the BC problem.
+
+
+\subsection{What do users need to provide}
+\label{sec:design:user}
+\textbf{TaskQueue} Users need to provide an implementation of following methods:
+\begin{enumerate}
+\item \code{process(n:Long):Boolean} This method describes the sequential computation of the problem. It iterates over \textit{n} items in its TaskBag and computes each one of them. It processes $n$ items if available and returns true; otherwise it processes all available ($<n$) items and returns false. When GLB sees a Worker's process(n) returns false, it will schedule this Worker to steal from others.
+ \item \code{split():TaskBag} Split its TaskBag and returns the split half. This method returns null if the TaskBag is too small to split.  
+\item \code{merge(TaskBag)} Merge the incoming TaskBag to its own TaskBag.
+Both split and merge method functions are wrapper functions that will call TaskBag's split/merge functions. 
+\item \code{getResult()} Returns local result.
+\item \code{reduce()} Result reduction function. Applying this function to each Worker's result yields the final result.
+\end{enumerate}
+\textbf{TaskBag} Users need to provide a custom class extending \textit{TaskBag} and appropriately implementing \code{split} and \code{merge} methods. They provide the functionalities that \textit{TaskQueue}'s \code{split/merge} methods need. GLB provides a default ArrayList-based TaskBag implementation. In this default implementation, split method is implemented by removing half of the elements from the end of the ArrayList and returning this removed half ArrayList; merge method is implemented by adding all the elements from the incoming ArrayList to the local ArrayList.  
+
+
+Once the customized TaskQueue and TaskBag are implemented, it is fairly easy for
+users to invoke GLB library by calling GLB's \code{run} method. If the workload cannot be statically scheduled across places, users need to provide an \code{initialize} method so that GLB will initialize this root task at place 0.  
+
+\subsection{GLB internals}
+\label{sec:design:internals}
+GLB implements the lifeline work-stealing algorithm described in \cite{glb}. We summarize the algorithm here:
+\begin{enumerate}
+\item
+Each Worker repeatedly calls \code{process(n)} method until it is running out of work. Between each process(n) call, Worker probes the network and responds to the stealing requests from other Workers. 
+\item
+When running out of work, a Worker conducts two rounds of work-stealing. It first chooses at most \textit{w} random victims. If none of the random victims has work to share, then Worker goes to the second round of work-stealing by stealing from its life-line buddies/victims. The topology of life-line communication graph is a $z$-dimensional hyper-cube. Such a topology satisfies these properties: it is a fully connected directed graph (so
+work can flow from any vertex to any other vertex) and it has a low
+diameter (so latency for work distribution is low) and has a low
+degree (so the number of buddies potentially sending work to a dead
+vertex is low). If a lifeline buddy cannot satisfy the stealing request due to its lack of work, it will still remember the request and try to satisfy the request when it gets work from others.   
+\item
+When all Workers run out of work, GLB terminates and applies the reduce function to each Worker's result to yield the final result.
+\end{enumerate}
+
+Users can tune the GLB performance by changing these parameters:
+\textit{w}, \textit{z}, and \textit{n}. It is more likely to steal
+work from a random victim with a larger $w$. It is more likely to
+steal work from a lifeline buddy when $z$ is larger. However, when $w$
+and $z$ get larger, each worker spends more time probing the network and less time in processing tasks. Alternatively, users can make a Worker spend more time on processing tasks by increasing $n$. The larger $n$ is, the more tasks a Worker needs to finish before it can respond to the stealing requests. However, a large $n$ can sometimes hurt the performance if stealing requests need be responded fast. We will see an extreme case in which even $n=1$ is too large a task-granularity in Section~\ref{sec:design:bc}.
+
+To help users understand and tune GLB program performance, GLB also provides logging functionalities to record (1) how much time each Worker spent on processing and distributing work (2) how many (random/lifeline) stealing requests each Worker sent and received. (3) how many (random/lifeline) stealings each Worker perpetrated. (4) How much workload has each Worker received/sent.
+
+To better illustrate how to use GLB, we show a pedagogical use case via the Fibonacci problem in the Appendix.
+
+
+
+\subsection{UTS}
+\label{sec:design:uts}
+\subsubsection{Problem statement}
+\input{uts}
+Clearly, UTS is a case that static load-balancing does not work.  Assume the sequential implementation of UTS is available (i.e., the code to grow the UTS tree and count the nodes), we now discuss how to apply GLB to it.
+\subsubsection{UTS TaskBag and TaskQueue }
+\textbf{UTS TaskBag} The internal representation of a UTS tree node is a triple(descriptor, low, high). Descriptor represents the hashed value of the node, low represents the smallest index of un-explored children, high represents the largest index of its un-explored children. The representation of a UTS tree is thus an array of UTS tree nodes.
+ A UTS TaskBag is essentially a UTS tree. To split a UTS TaskBag, we evenly split each UTS node $n(d,l,h)$ to two nodes $n1(d,l,h1)$ and $n2(d,h2,h)$, where $h1$ and $h2$ are the middle points of $(l,h)$.  If none of the UTS tree node has more than one child node, then we do not split the tree, as it is cheaper to count the node locally than move it to a remote place and count it there. To merge a UTS TaskBag, we simply concatenate the incoming TaskBag's UTS node array to the local one.
+
+\textbf{UTS TaskQueue} \code{process(n)} method counts at most $n$ UTS tree nodes. \code{reduce()} is a straightforward sum-reduction method on each place's UTS tree node count.
+
+Finally, GLB initializes the workload by initializing the root UTS tree node at Place 0.
+
+\subsection{BC}
+\label{sec:design:bc}
+\subsubsection{Problem statement}
+\input{bc}
+\subsubsection{BC TaskBag and TaskQueue}
+\textbf{TaskBag} Each vertex interval is a task item. We use a tuple(low, high) to represent a vertex interval. Each task bag is an array of such tuples. To split a TaskBag, we divide each tuple evenly. To merge a BC taskbag, we simply concatenate the incoming TaskBag's array to the local one.  
+
+\textbf{TaskQueue} \code{process(n)}  method iterates over the taskbag and calculates the first n vertices. 
+\textbf{reduce()} method is a simple betweenness-map (a vector) element-wise add function.
+
+This implementation achieves linear speedup and perfect scalability on
+small-scale machines (i.e., 256 cores on Power) for smaller
+graph. However, it does not yield equally impressive performance on larger machines for larger graphs. After examining the GLB log, we realized that on large scale machines, Workers are less responsive to the stealing requests thus workload cannot be distributed fast. Therefore, we tried to maximize $w$ and $z$ and minimize $n$. (Please refer to Section~\ref{sec:design:internals} for the rationale of turning these parameters). The performance only improved slightly.
+We then realized that it took a Worker too long before it responded to the work stealing requests even when its task granularity is \textbf{one} vertex. So we changed the code that computes each vertex to an interruptable state machine. In this way, a Worker can respond to stealing requests without completing one vertex computation. Alternatively, we can help users to minimize the code change by providing a yielding functionality in the GLB library. Users can insert yield points in the their code to increase its probing frequency and responsiveness to stealing requests. We plan to provide such functionality in GLB in the future work.
+

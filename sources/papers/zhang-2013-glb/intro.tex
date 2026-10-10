@@ -1,0 +1,43 @@
+\section{Introduction}
+\label{sec:intro}
+
+\subsection{Why do we need GLB}
+Parallel programming is significantly more challenging than sequential programming.  Given the same input, a sequential program always produces the same result. That is not true for parallel programs. Programmers need to ensure that given the same input, a parallel program can produce the same result under any possible interleaving. In addition, programmers also need to design intricate synchronization schemes to balance the workload among computing resources so that the deployed program can achieve good performance. 
+
+Facing these challenges, many programmers desire a programming model that can can hide the synchronization details from them. Many such programming models have been proposed. Among them, MapReduce~\cite{dean-mr} is one of the most widely used. Programmers only need to provide the sequential mapper and reducer function and the MapReduce framework takes care of input partition, scheduling, inter-machine communication and fault tolerance. While effective for many problems, MapReduce is not applicable to highly-irregular workload. One heavily loaded mapper or reducer can severely downgrade the whole system's performance. Work-stealing~\cite{FrigoLeRa98} is among the first works that handle the irregular workload on shared-memory machine. However, many such techniques are not directly applicable to distributed-memory machines, which are the de-facto programming environment for scale-out computing.
+
+We propose GLB, a Global Load Balancing framework, based on lifeline graph work-stealing algorithm~\cite{glb}. GLB can handle highly irregular problems, where workload on each computing node can be widely different and unpredictable. GLB works on distributed-memory system and can deliver linear speedup and perfect scaling up to 16K cores. In addition, GLB provides a number of parameters for users to tune. Programmers can control the number of random/lifeline victims and task granularity to increase computation throughput or decrease work-stealing response latency, without knowing the underlying complicated synchronization scheme.
+    
+
+\subsection{Why do we choose X10}
+
+X10 is a high-performance, high-productivity programming language for
+scale out computing being developed at IBM. It is a class-based,
+strongly-typed, garbage-collected, object-oriented
+language~\cite{x10-concur05,x10}.  To support concurrency and
+distribution, X10 uses the Asynchronous Partitioned Global Address
+Space programming model (APGAS~\cite{Saraswat:AMP10}). This model
+introduces two key concepts -- places and asynchronous tasks -- and a
+few mechanisms for coordination ({\tt finish}, {\tt async},
+{\tt at}, {\tt atomic}).  With these, APGAS can express both
+regular and irregular parallelism, message-passing-style and
+active-message-style computations, fork-join and bulk-synchronous
+parallelism.  In contrast to hybrid models like MPI+OpenMP, the same
+constructs underpin both intra- and inter-place concurrency.
+
+The X10 language is implemented via source-to-source compilation to
+either Java ({\em Managed X10}) or C++ ({\em Native X10}) and is
+available on a wide range of operating systems and hardware platforms
+ranging from laptops, to commodity clusters, to supercomputers.
+
+Using X10 to implement GLB simplified both the internal implementation
+of the library and its end-user API.  X10's high-level support for
+distribution and concurrency allowed a concise and efficient
+specification of the library and enabled rapid prototyping and
+experimentation with design choices.  The X10 language's intrinsic
+support for distributed computing, specifically for data serialization
+between nodes, simplifies the end-user programming task. Users can
+simply specify sequential, single-place data structures and the GLB
+implementation can rely on X10 language support to efficiently transmit
+user-defined data types between across nodes without requiring any
+explicit data serialization code to be written by the user.

@@ -1,0 +1,21 @@
+\paragraph{Blue~Gene/Q}
+Our Blue~Gene/Q numbers were gathered on Vesta, a small Blue~Gene/Q
+system located at Argonne National Laboratory.
+Each compute node of the
+Blue~Gene/Q is a 64-bit PowerPC A2 processor with 16 1.6 Ghz compute
+cores and 16 GB of DRAM. The compute notes are grouped into drawers
+(32 compute nodes per drawer), which are grouped into midplanes (16
+compute drawers, 512 compute nodes).  Within the midplane, nodes are
+electrically connected in a 5-D torus (4x4x4x4x2). Beyond the
+midplane, an optical interconnect is used.  
+
+All benchmarks were compiled using Native X10 version 2.4.0 with \texttt{-NO\_CHECKS}, \texttt{-O} options. The
+generated C++ code was then compiled for Blue~Gene/Q using xlC v11.1
+with
+the \texttt{-O3} \texttt{-qinline} \texttt{-qhot} \texttt{-qtune=qp} \texttt{-qsimd=auto} \texttt{-qarch=qp}
+command line arguments.
+
+To maximize the number of X10 Places, all experiments with 16 Places or
+more were run using the \texttt{c16} mode, which creates one MPI
+process (i.e., one X10 Place) per Blue~Gene/Q compute core.  Thus each
+X10 Place has 1 A2 core and 1 GB of DRAM available to it.  

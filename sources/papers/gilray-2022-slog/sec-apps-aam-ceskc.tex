@@ -1,0 +1,41 @@
+\begin{wrapfigure}{r}{6.8cm}
+\vspace{-0.75cm}
+\begin{Verbatim}[baselinestretch=.75,commandchars=\\\{\}]
+\comm{; eval ref -> ret}
+[(\rtag{eval} (\rtag{ref} x) env sto k c)
+ --> 
+ (\rtag{ret} \{\rtag{sto-map} sto \{\rtag{env-map} env x\}\} sto k c)] 
+\comm{; eval lam -> ret}
+[(\rtag{eval} (\rtag{lam} x Eb) env sto k c)
+ --> 
+ (\rtag{ret} (\rtag{clo} (\rtag{lam} x Eb) env) sto k c)]
+\comm{; eval app -> eval}
+[(\rtag{eval} (\rtag{app} Ef Ea) env sto k c)
+ --> 
+ (\rtag{eval} Ef env sto (\rtag{ar-k} Ea env k) c)]
+\comm{; ret to kaddr -> ret}
+[(\rtag{ret} vf sto (\rtag{kaddr} c') c)
+ -->
+ (\rtag{ret} vf sto \{\rtag{sto-map} sto (\rtag{kaddr} c')\} c)]
+\comm{; ret to ar-k -> eval}
+[(\rtag{ret} vf sto (\rtag{ar-k} Ea env k) c)
+ --> 
+ (\rtag{eval} Ea env sto (\rtag{fn-k} vf k) c)]
+\comm{; ret to fn-k -> apply}
+[(\rtag{ret} va sto (\rtag{fn-k} vf k) c)
+ --> 
+ (\rtag{apply} vf va sto k c)]
+\comm{; apply -> eval}
+[(\rtag{apply} (\rtag{clo} (\rtag{lam} x Eb) env) va sto k c)
+ --> 
+ (\rtag{eval} Eb
+       (\rtag{ext-env} env x (\rtag{addr} c))
+       (\rtag{ext-sto} (\rtag{ext-sto} sto (\rtag{kaddr} c) k)
+                (\rtag{addr} c) va)
+       k
+       \{+ 1 c\})]
+\end{Verbatim}
+\caption{A CESKT (control, environment, store, kontinuation, timestamp) interpreter in \slog{}.}
+\label{fig:cesk-machine}
+\vspace{-0.25cm}
+\end{wrapfigure}

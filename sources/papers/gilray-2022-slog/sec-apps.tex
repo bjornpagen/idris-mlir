@@ -1,0 +1,106 @@
+\section{Applications}
+\label{sec:apps}
+%
+In this section, we will examine several related applications of \slog{}: implementing reduction systems, natural deduction systems, AAM-based program analyses, and natural-deduction-style type systems. 
+
+We start with a $\lambda$-calculus interpreter. Let's observe how $\beta$-reduction can be defined via capture-avoiding substitution. If a \textbf{do-subst} fact is emitted where a reference to variable \texttt{x} is being substituted with expression \texttt{E}, associate it in the \textbf{subst} relation with \texttt{E}:
+%
+\begin{Verbatim}[baselinestretch=0.8,commandchars=\\\{\}]
+(\rtag{subst} \huhclause{?(\rtag{do-subst} (\rtag{ref} x) x E)} E)
+\end{Verbatim}
+%
+However, if \texttt{x} and \texttt{y} are distinct variables, the substitution yields expression \texttt{(ref x)} unchanged:
+%
+\begin{Verbatim}[baselinestretch=0.8,commandchars=\\\{\}]
+[(=/= x y) --> (\rtag{subst} \huhclause{?(\rtag{do-subst} (\rtag{ref} x) y E)} (\rtag{ref} x))]
+\end{Verbatim}
+%
+Recall that ?-clauses are body clauses, so these rules could also have been written more verbosely:
+%
+\begin{Verbatim}[baselinestretch=0.8,commandchars=\\\{\}]
+[(= d (\rtag{do-subst} (\rtag{ref} x) x E)) --> (\rtag{subst} d E)]
+[(=/= x y) (= d (\rtag{do-subst} (\rtag{ref} x) y E)) --> (\rtag{subst} d (\rtag{ref} x))]
+\end{Verbatim}
+
+At a lambda, where the formal parameter shadows the variable being substituted, its scope ends and substitution stops:
+%
+\begin{Verbatim}[baselinestretch=0.8,commandchars=\\\{\}]
+(\rtag{subst} \huhclause{?(\rtag{do-subst} (\rtag{lam} x Ebody) x E)} (\rtag{lam} x Ebody))
+\end{Verbatim}
+%
+If the variable does not match and is not free in the (argument) expression \texttt{E}, substitution may continue under the lambda, triggered by a ! clause:
+%
+\begin{Verbatim}[baselinestretch=0.8,commandchars=\\\{\}]
+[(=/= x y)  ~(free E x)   
+ --> (\rtag{subst} \huhclause{?(\rtag{do-subst} (\rtag{lam} x Ebody) y E)}
+            (\rtag{lam} x \{\rtag{subst} \bangclause{!(\rtag{do-subst} Ebody y E)}\}))]
+\end{Verbatim}
+%
+Three further syntactic extensions are being used in this rule. First off, the negated \texttt{\textasciitilde{}(free E x)} clause in the body requires that the compiler stratify computation of \texttt{free}, as normal when adding otherwise nonmonotonic rule dependance to Datalog programs.
+
+Second, the process of rewriting the lambda body is triggered by the establishment of a \textbf{\texttt{do-subst}} fact via a ! clause. These ! clauses generate facts on-the-fly during rule evaluation, allowing other rules to hook-in by generating a fact to trigger them (using a ! clause) and expecting a response in the surrounding body clauses. These ! clauses are implemented by generating a subrule whose head clause is the intermediate ! clause and whose body contains all body clauses the ! clause depends upon, along with and any ? clauses in the rule (which are always required to trigger any rule). In this case, term-substitution rules respond to the \rtag{do-subst} request via the \textbf{\texttt{subst}} relation, as queried here by the \{ \!\} expression in \texttt{\{\rtag{subst} \bangclause{!(\rtag{do-subst} Ebody y E})}\}.
+
+Third, this \{ \!\} syntax allows for looking up the final column of a relation by providing all but the final-column value. \texttt{(foo x \{bar y\})} desugars into \texttt{(and (foo x z) (bar y z))}, allowing for the looked-up value to be unified with the position of the \{ \!\} expression in a natural way. Do note that the relation need not actually be functional and could just as easily associate multiple values with any input.
+%
+\{ \!\} expressions and ! clauses are especially expressive when used together in this way for direct recursion.
+
+If we were to desugar the \{ \!\} syntax, ? clause, and ! clause in this rule, we would obtain two rules.
+%
+The rule below on the left emits a \rtag{do-subst} fact for the body of the lambda, if it qualifies for rewriting, and a \rtag{ruleXX-midpoint} fact saving pertinent details of the rule needed in its second half. Below on the right, the second half of the rule requires that the first half of the rule triggered and that the \rtag{subst} relation has responded with a rewritten lambda body for the \rtag{do-subst} fact \texttt{do'}.
+%
+\begin{multicols}{2}
+\begin{Verbatim}[baselinestretch=0.8,commandchars=\\\{\}]
+[(=/= x y)  ~(free E x)
+ (= do (\rtag{do-subst} (\rtag{lam} x Ebody) y E)) 
+ -->
+ (= do' (\rtag{do-subst} Ebody y E)) 
+ (\rtag{ruleXX-midpoint} do do' x)]
+\columnbreak
+[(\rtag{ruleXX-midpoint} do do' x)
+ (\rtag{subst} do' Ebody')
+ --> 
+ (\rtag{subst} do (\rtag{lam} x Ebody'))]]
+\end{Verbatim}
+\end{multicols}
+%
+Finally, in the case of an application, substitution is performed down both subexpressions.
+%
+If one ! clause were nested under the other, they would need to be ordered. In this case, the compiler will detect that both !-clause facts can be emitted in parallel, so this rule will also split into two rules as in the rule above. The first rule will generate both !-clause facts and the second rule will await a response for both.
+%
+In this way, \slog{}'s semantics for ! clauses assists to naturally enable exposure of parallelism in semantics it models.
+
+\begin{wrapfigure}{l}{6.5cm}
+\begin{Verbatim}[baselinestretch=0.8,commandchars=\\\{\}]
+(\rtag{subst} \huhclause{?(\rtag{do-subst} (\rtag{app} Ef Ea) x E)}
+       (\rtag{app} \{\rtag{subst} \bangclause{!(\rtag{do-subst} Ef x E)}\}
+	    \{\rtag{subst} \bangclause{!(\rtag{do-subst} Ea x E)}\}))
+\end{Verbatim}
+\end{wrapfigure}
+%
+With a substitution function defined, we can define evaluation using a pair of relations: \rtag{interp} and \rtag{do-interp}. A lambda \texttt{(\rtag{lam} x body)} is already fully reduced. An application reduces its left-hand subexpression to a lambda, substitutes the argument for the formal parameter, and reduces the body. 
+
+\begin{wrapfigure}{r}{6cm}
+\vspace{-0.15cm}
+\begin{Verbatim}[baselinestretch=0.8,commandchars=\\\{\}]
+\comm{; values}
+(\rtag{interp} \huhclause{?(\rtag{do-interp} (\rtag{lam} x body))}
+        (\rtag{lam} x body))
+
+\comm{; application}
+[(\rtag{interp} \bangclause{!(\rtag{do-interp} fun)} (\rtag{lam} x body))
+ (\rtag{subst} \bangclause{!(\rtag{do-subst} body x arg)} body')
+ -->
+ (\rtag{interp} \huhclause{?(\rtag{do-interp} (\rtag{app} fun arg))}
+         \{\rtag{interp} \bangclause{!(\rtag{do-interp} body')}\})]
+\end{Verbatim}
+\end{wrapfigure}
+%
+The compiler will detect in this case that the \rtag{do-subst} !-clause fact depends on variable \texttt{body}, and the \rtag{do-interp} ! clause in the head depends on \texttt{body'}, but that the first \rtag{do-interp} !-clause fact only depends on the variable fun from the original ?-clause fact kicking off the rule. These three sequential ! clauses split the rule into four parts during compilation, just as a continuation-passing-style (CPS) tranformation~\cite{appel2007compiling} would explicitly break a traditional functional implementation of this recursive, substitution-based interpreter into one function entry point and three continuation entry points. Unlike traditional CPS translation of functional programs however, ! clauses in \slog{} will naturally emit multiple facts for parallel processing in a nonblocking manner when variable dependence allows for parallelism. 
+
+\input{sec-apps-am}
+
+\input{sec-apps-aam}
+
+\input{sec-apps-ts}
+
+
