@@ -7,6 +7,7 @@ import Data.List1
 import Data.Maybe
 import Data.Nat
 import Data.String
+import Libraries.Utils.String
 
 import Libraries.Data.String.Extra
 import Libraries.Text.Token
@@ -244,7 +245,7 @@ parsePath =
     root <- optional (some bodySeparator)
     body <- sepBy (some bodySeparator) parseBody
     trailSep <- optional (some bodySeparator)
-    let body = filter (\case Normal s => ltrim s /= ""; _ => True) body
+    let body = filter (\case Normal s => trimStart s /= ""; _ => True) body
     let body = case body of
                 [] => []
                 (x::xs) => x :: delete CurDir xs

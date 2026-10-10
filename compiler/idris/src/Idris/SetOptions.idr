@@ -18,6 +18,7 @@ import Idris.Version
 
 import Data.List1
 import Data.String
+import Libraries.Utils.String
 
 import System
 import System.Directory
@@ -66,7 +67,7 @@ pkgDir dirName ttcDirs =
   where
     toVersion : String -> Maybe PkgVersion
     toVersion = map MkPkgVersion
-              . traverse parsePositive
+              . traverse parseNatural
               . split (== '.')
 
 listDirOrEmpty : String -> IO (List String)
@@ -78,7 +79,7 @@ getPackageDirs dname = do
   traverse (\d => pkgDir d <$> ttcVersions d) packageDirNames
   where
     ttcVersions : String -> IO (List Int)
-    ttcVersions dir = catMaybes . map parsePositive <$> listDirOrEmpty (dname </> dir)
+    ttcVersions dir = catMaybes . map parseNatural <$> listDirOrEmpty (dname </> dir)
 
 ||| Get a list of all the candidate directories that match a package spec
 ||| in a given path. Return an empty list on file error (e.g. path not existing)

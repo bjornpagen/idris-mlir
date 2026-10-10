@@ -15,6 +15,9 @@ import Libraries.Data.WithDefault
 
 %default covering
 
+-- At the result of its one use, a term's elaboration, which elaborating
+-- the local declarations reaches again: a result type it passed along
+-- would be a type that cycle does not have.
 export
 localHelper : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
@@ -25,8 +28,8 @@ localHelper : {vars : _} ->
              {auto s : Ref Syn SyntaxInfo} ->
              {auto o : Ref ROpts REPLOpts} ->
              NestedNames vars -> Env Term vars ->
-             List ImpDecl -> (NestedNames vars -> Core a) ->
-             Core a
+             List ImpDecl -> (NestedNames vars -> Core (Term vars, Glued vars)) ->
+             Core (Term vars, Glued vars)
 localHelper {vars} nest env nestdecls_in func
     = do est <- get EST
          let f = defining est

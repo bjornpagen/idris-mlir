@@ -236,7 +236,7 @@ mutual
        getArgPos Z (c :: cs) = pure c
        getArgPos (S k) (c :: cs) = getArgPos k cs
 
-       convertMatches : {vs, vs' : _} ->
+       convertMatches : {vs, vs' : Scope} ->
                         List (Var vs, Var vs') ->
                         Core Bool
        convertMatches [] = pure True

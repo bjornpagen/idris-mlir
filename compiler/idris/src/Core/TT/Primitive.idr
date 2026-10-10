@@ -8,7 +8,6 @@ import Data.Vect
 import Idris.Pretty.Annotations
 
 import Libraries.Data.Ordering.Extra
-import Libraries.Decidable.Equality as L
 import Libraries.Text.PrettyPrint.Prettyprinter
 
 %default total
@@ -110,26 +109,6 @@ primTypeEq CharType CharType = Just Refl
 primTypeEq DoubleType DoubleType = Just Refl
 primTypeEq WorldType WorldType = Just Refl
 primTypeEq _ _ = Nothing
-
-export
-constantEq : (x, y : Constant) -> Maybe (x = y)
-constantEq (I x) (I y) = L.maybeCong I (L.maybeEq x y)
-constantEq (I8 x) (I8 y) = L.maybeCong I8 (L.maybeEq x y)
-constantEq (I16 x) (I16 y) = L.maybeCong I16 (L.maybeEq x y)
-constantEq (I32 x) (I32 y) = L.maybeCong I32 (L.maybeEq x y)
-constantEq (I64 x) (I64 y) = L.maybeCong I64 (L.maybeEq x y)
-constantEq (B8 x) (B8 y) = L.maybeCong B8 (L.maybeEq x y)
-constantEq (B16 x) (B16 y) = L.maybeCong B16 (L.maybeEq x y)
-constantEq (B32 x) (B32 y) = L.maybeCong B32 (L.maybeEq x y)
-constantEq (B64 x) (B64 y) = L.maybeCong B64 (L.maybeEq x y)
-constantEq (BI x) (BI y) = L.maybeCong BI (L.maybeEq x y)
-constantEq (Str x) (Str y) = L.maybeCong Str (L.maybeEq x y)
-constantEq (Ch x) (Ch y) = L.maybeCong Ch (L.maybeEq x y)
-constantEq (Db x) (Db y) = Nothing -- no DecEq for Doubles!
-constantEq (PrT x) (PrT y) = L.maybeCong PrT (primTypeEq x y)
-constantEq WorldVal WorldVal = Just Refl
-
-constantEq _ _ = Nothing
 
 export
 Show PrimType where

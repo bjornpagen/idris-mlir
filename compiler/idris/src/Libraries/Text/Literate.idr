@@ -28,6 +28,7 @@ import Libraries.Text.Lexer
 import Data.List1
 import Data.List.Views
 import Data.String
+import Libraries.Utils.String
 
 %default total
 
@@ -59,8 +60,8 @@ rawTokens : (delims  : List (String, String))
          -> (markers : List String)
          -> TokenMap LitToken
 rawTokens delims ls =
-          map (\(l,r) => (block l r, CodeBlock (trim l) (trim r))) delims
-       ++ map (\m => (line m, CodeLine (trim m))) ls
+          map (\(l,r) => (block l r, CodeBlock (trimSpace l) (trimSpace r))) delims
+       ++ map (\m => (line m, CodeLine (trimSpace m))) ls
        ++ [(notCodeLine, Any)]
 
 ||| Merge the tokens into a single source file.
@@ -73,7 +74,7 @@ reduce (MkBounded (Any x) _ _ :: rest) acc =
   else reduce rest acc
 
 reduce (MkBounded (CodeLine m src) _ _ :: rest) acc =
-    if m == trim src
+    if m == trimSpace src
     then reduce rest ("\n"::acc)
     else reduce rest ((substr (length m + 1) -- remove space to right of marker.
                               (length src)

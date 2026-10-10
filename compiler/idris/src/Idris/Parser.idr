@@ -385,7 +385,7 @@ mutual
   opExpr q fname indents = autobindOp q fname indents
                        <|> opExprBase q fname indents
 
-  dpairType : OriginDesc -> WithBounds t -> IndentInfo -> Rule PTerm
+  dpairType : OriginDesc -> WithBounds () -> IndentInfo -> Rule PTerm
   dpairType fname start indents
       = do loc <- bounds (do x <- decoratedSimpleBinderUName fname
                              decoratedSymbol fname ":"
@@ -393,14 +393,14 @@ mutual
                              pure (x, ty))
            (x, ty) <- pure loc.val
            op <- bounds (symbol "**")
-           rest <- bounds (nestedDpair fname loc indents <|> typeExpr pdef fname indents)
+           rest <- bounds (nestedDpair fname (ignore loc) indents <|> typeExpr pdef fname indents)
            pure (PDPair (boundToFC fname (mergeBounds start rest))
                         (boundToFC fname op)
                         (PRef (boundToFC fname loc) x)
                         ty
                         rest.val)
 
-  nestedDpair : OriginDesc -> WithBounds t -> IndentInfo -> Rule PTerm
+  nestedDpair : OriginDesc -> WithBounds () -> IndentInfo -> Rule PTerm
   nestedDpair fname start indents
       = dpairType fname start indents
     <|> do l <- expr pdef fname indents
@@ -412,7 +412,7 @@ mutual
                         (PImplicit (boundToFC fname (mergeBounds start rest)))
                         rest.val)
 
-  bracketedExpr : OriginDesc -> WithBounds t -> IndentInfo -> Rule PTerm
+  bracketedExpr : OriginDesc -> WithBounds () -> IndentInfo -> Rule PTerm
   bracketedExpr fname s indents
       -- left section. This may also be a prefix operator, but we'll sort
       -- that out when desugaring: if the operator is infix, treat it as a
@@ -465,7 +465,7 @@ mutual
   getInitRange [x,y] = pure (x.val, Just y.val)
   getInitRange _ = fatalError "Invalid list range syntax"
 
-  listRange : OriginDesc -> WithBounds t -> IndentInfo -> List (WithBounds PTerm) -> Rule PTerm
+  listRange : OriginDesc -> WithBounds () -> IndentInfo -> List (WithBounds PTerm) -> Rule PTerm
   listRange fname s indents xs
       = do b <- bounds (decoratedSymbol fname "]")
            let fc = boundToFC fname (mergeBounds s b)
@@ -521,7 +521,7 @@ mutual
                  nilFC = ifThenElse (null xs) fc (boundToFC fname s)
              in PSnocList fc nilFC (map (\ t => (boundToFC fname t, t.val)) xs) --)
 
-  nonEmptyTuple : OriginDesc -> WithBounds t -> IndentInfo -> PTerm -> Rule PTerm
+  nonEmptyTuple : OriginDesc -> WithBounds () -> IndentInfo -> PTerm -> Rule PTerm
   nonEmptyTuple fname s indents e
       = do vals <- some $ do b <- bounds (symbol ",")
                              exp <- optional (typeExpr pdef fname indents)
@@ -557,7 +557,7 @@ mutual
             (var ++ vars, PPair (fst exp) t ts)
 
   -- A pair, dependent pair, or just a single expression
-  tuple : OriginDesc -> WithBounds t -> IndentInfo -> PTerm -> Rule PTerm
+  tuple : OriginDesc -> WithBounds () -> IndentInfo -> PTerm -> Rule PTerm
   tuple fname s indents e
      =   nonEmptyTuple fname s indents e
      <|> do end <- bounds (continueWithDecorated fname indents ")")
@@ -866,9 +866,9 @@ mutual
   caseAlt : OriginDesc -> IndentInfo -> Rule PClause
   caseAlt fname indents
       = do lhs <- bounds (opExpr plhs fname indents)
-           caseRHS fname lhs indents lhs.val
+           caseRHS fname (ignore lhs) indents lhs.val
 
-  caseRHS : OriginDesc -> WithBounds t -> IndentInfo -> PTerm -> Rule PClause
+  caseRHS : OriginDesc -> WithBounds () -> IndentInfo -> PTerm -> Rule PClause
   caseRHS fname start indents lhs
       = do rhs <- bounds $ do
                     decoratedSymbol fname "=>"
@@ -1248,7 +1248,7 @@ withProblem fname col indents
 
 mutual
   parseRHS : (withArgs : Nat) ->
-             OriginDesc -> WithBounds t -> Int ->
+             OriginDesc -> WithBounds () -> Int ->
              IndentInfo -> (lhs : (PTerm, List (FC, PTerm))) -> Rule PClause
   parseRHS withArgs fname start col indents lhs
        = do b <- bounds $ do
@@ -1296,7 +1296,7 @@ mutual
               (fatalError $ "Wrong number of 'with' arguments:"
                          ++ " expected " ++ show withArgs
                          ++ " but got " ++ show (length extra))
-              (parseRHS withArgs fname b col indents lhs)
+              (parseRHS withArgs fname (ignore b) col indents lhs)
     where
 
       clauseLHS : OriginDesc -> IndentInfo ->
@@ -1350,7 +1350,7 @@ simpleCon fname ret indents
          atEnd indents
          pure b.withFC
 
-simpleData : OriginDesc -> WithBounds t ->
+simpleData : OriginDesc -> WithBounds () ->
              WithBounds Name -> IndentInfo -> Rule PDataDecl
 simpleData fname start tyName indents
     = do b <- bounds (do params <- many (bounds $ decorate fname Bound name)
@@ -1384,7 +1384,7 @@ dataOpts fname = option [] $ do
   decoratedSymbol fname "]"
   pure (forget opts)
 
-dataBody : OriginDesc -> Int -> WithBounds t -> Name -> IndentInfo -> Maybe PTerm ->
+dataBody : OriginDesc -> Int -> WithBounds () -> Name -> IndentInfo -> Maybe PTerm ->
           EmptyRule PDataDecl
 dataBody fname mincol start n indents ty
     = do ty <- maybe (fail "Telescope is not optional in forward declaration") pure ty
@@ -1397,7 +1397,7 @@ dataBody fname mincol start n indents ty
          (opts, cs) <- pure b.val
          pure (MkPData (boundToFC fname (mergeBounds start b)) n ty opts cs)
 
-gadtData : OriginDesc -> Int -> WithBounds t ->
+gadtData : OriginDesc -> Int -> WithBounds () ->
            WithBounds Name -> IndentInfo -> EmptyRule PDataDecl
 gadtData fname mincol start tyName indents
     = do ty <- optional $
@@ -1413,7 +1413,7 @@ dataDeclBody fname indents
                          n <- mustWork (bounds $ decoratedDataTypeName fname)
                          pure (col, n))
          (col, n) <- pure b.val
-         simpleData fname b n indents <|> gadtData fname col b n indents
+         simpleData fname (ignore b) n indents <|> gadtData fname col (ignore b) n indents
 
 -- a data declaration can have a visibility and an optional totality (#1404)
 dataVisOpt : OriginDesc -> EmptyRule (WithDefault Visibility Private, Maybe TotalReq)
@@ -1925,7 +1925,7 @@ cgDirectiveDecl
   = (>>=) {c1 = True, c2 = False} cgDirective $ \dir =>
       let (cg1, cg2) = span isAlphaNum dir
       in the (EmptyRule PDeclNoFC) $ pure $
-            PDirective (CGAction cg1 (stripBraces (trim cg2)))
+            PDirective (CGAction cg1 (stripBraces (trimSpace cg2)))
 
 -- Declared at the top
 -- topDecl : OriginDesc -> IndentInfo -> Rule (List PDecl)

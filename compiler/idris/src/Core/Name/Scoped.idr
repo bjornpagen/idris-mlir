@@ -59,18 +59,6 @@ Scoped : Type
 Scoped = Scope -> Type
 
 ------------------------------------------------------------------------
--- Semi-decidable equality
-
-export
-scopeEq : (xs, ys : Scope) -> Maybe (xs = ys)
-scopeEq [] [] = Just Refl
-scopeEq (x :: xs) (y :: ys)
-    = do Refl <- nameEq x y
-         Refl <- scopeEq xs ys
-         Just Refl
-scopeEq _ _ = Nothing
-
-------------------------------------------------------------------------
 -- Generate a fresh name (for a given scope)
 
 export

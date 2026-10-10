@@ -196,7 +196,7 @@ data FixityDeclarationInfo = UndeclaredFixity | DeclaredFixity FixityInfo
 -- - binding both types and expression such that
 --   `(nm : ty := exp) =@ fn nm` desugars into `(=@) exp (\(nm : ty) => fn nm)`
 public export
-data OperatorLHSInfo : tm -> Type where
+data OperatorLHSInfo : Type -> Type where
   -- Traditional operator wihtout binding, carries the lhs
   NoBinder : (lhs : tm) -> OperatorLHSInfo tm
   -- (nm : ty) =@ fn x
@@ -467,9 +467,7 @@ refToLocal x new tm = refsToLocals (Add new x None) tm
 export
 substName : Name -> Term vars -> Term vars -> Term vars
 substName x new (Ref fc nt name)
-    = case nameEq x name of
-           Nothing => Ref fc nt name
-           Just Refl => new
+    = if x == name then new else Ref fc nt name
 substName x new (Meta fc n i xs)
     = Meta fc n i (map (substName x new) xs)
 -- ASSUMPTION: When we substitute under binders, the name has always been

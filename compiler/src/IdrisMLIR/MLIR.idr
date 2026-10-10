@@ -44,16 +44,18 @@ namespace MlirType
     | Idr (IdrType MlirType)
 
 ||| A type's text. A dialect's type writes the types it holds by this
-||| function, so each is a part of the type it is in.
-export
+||| function, so each is a part of the type it is in: a recursion through a
+||| function the dialect's syntax is given, which the totality checker does
+||| not follow, so this and what prints with it are covering.
+export covering
 typeText : MlirType -> String
 typeText (IntegerType w) = "i" ++ show w
 typeText F64Type = "f64"
 typeText IndexType = "index"
 typeText NoneType = "none"
 typeText (MemRefType dynamic e) = "memref<" ++ concat (replicate dynamic "?x") ++ typeText e ++ ">"
-typeText (FunctionType s) = signature (\v => typeText (assert_smaller s v)) s
-typeText (Idr x) = idrTypeText (\v => typeText (assert_smaller x v)) x
+typeText (FunctionType s) = signature typeText s
+typeText (Idr x) = idrTypeText typeText x
 
 ------------------------------------------------------------------------------
 -- Attributes
@@ -81,7 +83,7 @@ namespace MlirAttr
     | UB (UBAttr MlirType MlirAttr)
 
 ||| An attribute's text, each attribute it holds written by this function.
-export
+export covering
 attrText : MlirAttr -> String
 attrText UnitAttr = "unit"
 attrText (BoolAttr b) = if b then "true" else "false"
@@ -90,12 +92,12 @@ attrText (FloatAttr d t) = floatLiteral d ++ " : " ++ typeText t
 attrText (StringAttr s) = utf8 s
 attrText (SymbolRefAttr r) = symbolRef r
 attrText (TypeAttr t) = typeText t
-attrText (ArrayAttr as) = array (\v => attrText (assert_smaller as v)) as
+attrText (ArrayAttr as) = array attrText as
 attrText (DenseI32ArrayAttr []) = "array<i32>"
 attrText (DenseI32ArrayAttr ns) = "array<i32: " ++ commaSeparated (map show ns) ++ ">"
-attrText (Idr x) = idrAttrText typeText (\v => attrText (assert_smaller x v)) x
-attrText (Arith x) = arithAttrText typeText (\v => attrText (assert_smaller x v)) x
-attrText (UB x) = ubAttrText typeText (\v => attrText (assert_smaller x v)) x
+attrText (Idr x) = idrAttrText typeText attrText x
+attrText (Arith x) = arithAttrText typeText attrText x
+attrText (UB x) = ubAttrText typeText attrText x
 
 ||| An attribute of an op's: its name, and itself.
 public export
@@ -185,6 +187,7 @@ indent d = replicate (2 * d) ' '
 
 ||| An attribute dictionary between `opening` and `closing`, if it has any
 ||| entries; a unit attribute is its name alone.
+covering
 dictionary : String -> String -> List NamedAttr -> String
 dictionary opening closing [] = ""
 dictionary opening closing as = " " ++ opening ++ commaSeparated (map entry as) ++ closing
@@ -194,6 +197,7 @@ dictionary opening closing as = " " ++ opening ++ commaSeparated (map entry as) 
     entry (name, a) = name ++ " = " ++ attrText a
 
 ||| A block argument or an operand with its type: `%3: i64`.
+covering
 typed : Value -> String
 typed v = v.name ++ ": " ++ typeText v.type
 
@@ -211,6 +215,7 @@ named Nothing _ = ""
 mutual
   ||| `"dialect.op"(operands) <{properties}> (regions) {attributes} : type`,
   ||| its regions indented by `d`.
+  covering
   opText : Nat -> Op -> List String -> List String
   opText d (MkOp name operands properties regions attributes results) rest =
     let after = dictionary "{" "}" attributes :: " : " ::
@@ -221,6 +226,7 @@ mutual
           [] => after
           _ => " (" :: regionsText d regions (")" :: after))
 
+  covering
   regionsText : Nat -> List Region -> List String -> List String
   regionsText d [] rest = rest
   regionsText d [r] rest = regionText d r rest
@@ -229,6 +235,7 @@ mutual
   ||| The block is labelled even when it has no arguments: the generic form
   ||| reads `{}` as a region of no blocks, and a block of no ops is one
   ||| only by its label.
+  covering
   regionText : Nat -> Region -> List String -> List String
   regionText d (MkRegion arguments statements) rest =
     "{\n" :: indent d :: "^bb0" ::
@@ -237,10 +244,12 @@ mutual
        _ => "(" ++ commaSeparated (map typed arguments) ++ ")") :: ":\n" ::
     statementsText (S d) statements (indent d :: "}" :: rest)
 
+  covering
   statementsText : Nat -> List Statement -> List String -> List String
   statementsText d [] rest = rest
   statementsText d (s :: ss) rest = statementText d s (statementsText d ss rest)
 
+  covering
   statementText : Nat -> Statement -> List String -> List String
   statementText d (MkStatement result op at) rest =
     indent d :: named result (length op.results) ::
@@ -250,6 +259,6 @@ mutual
 ||| location. MLIR reads a location after the top-level op as it reads one
 ||| after any other, and the module keeps it: a diagnostic about the whole
 ||| module is reported there.
-export
+export covering
 showModule : Location -> Op -> String
 showModule at m = fastConcat (opText 0 m [" ", location at, "\n"])

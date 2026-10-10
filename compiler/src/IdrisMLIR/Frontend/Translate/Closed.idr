@@ -17,6 +17,7 @@ import IdrisMLIR.Rule
 import IdrisMLIR.Term
 import IdrisMLIR.Types
 
+import Data.Fin
 import Data.List
 
 %default covering
@@ -57,8 +58,9 @@ Functor VarInfo where
 
 ||| An environment under a binder of `k` variables, which come first.
 export
-under : List (VarInfo (Under k a)) -> List (VarInfo a) -> List (VarInfo (Under k a))
-under bound env = bound ++ map (map Free) env
+under : {k : Nat} -> List (VarInfo (Fin (Under k n))) -> List (VarInfo (Fin n)) ->
+        List (VarInfo (Fin (Under k n)))
+under bound env = bound ++ map (map (Free {k})) env
 
 export
 spine : TT vars -> List (TT vars) -> (TT vars, List (TT vars))

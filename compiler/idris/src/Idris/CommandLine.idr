@@ -10,6 +10,7 @@ import Core.Options
 
 import Data.Maybe
 import Data.String
+import Libraries.Utils.String
 import Data.Either
 
 import System
@@ -344,7 +345,7 @@ processArgs flag (opt@(AutoNat _) :: as) [] f =
 -- Happy cases
 processArgs flag (RequiredNat a :: as) (x :: xs) f =
   do arg <- maybeToEither ("Expected Nat argument " ++ show x ++ " for flag " ++ flag)
-                          (parseInteger x >>= checkNat)
+                          (parseSigned x >>= checkNat)
      processArgs flag as xs (f arg)
 processArgs flag (RequiredLogLevel a :: as) (x :: xs) f =
   do arg <- maybeToEither ("Expected LogLevel argument " ++ show x ++ " for flag " ++ flag)
@@ -354,7 +355,7 @@ processArgs flag (AutoNat a :: as) ("auto" :: xs) f =
   processArgs flag as xs (f Nothing)
 processArgs flag (AutoNat a :: as) (x :: xs) f =
   do arg <- maybeToEither ("Expected Nat or \"auto\" argument " ++ show x ++ " for flag " ++ flag)
-                          (parseInteger x >>= checkNat)
+                          (parseSigned x >>= checkNat)
      processArgs flag as xs (f (Just arg))
 processArgs flag (Required a :: as) (x :: xs) f =
   processArgs flag as xs (f x)

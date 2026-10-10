@@ -621,11 +621,15 @@ StripNamespace GlobalDef where
   trimNS ns def = { definition $= trimNS ns } def
   restoreNS ns def = { definition $= restoreNS ns } def
 
-HasNames (NameMap a) where
+-- The one map whose names are resolved is a definition's references
+-- (`refersToM`), and resolving a name may decode a definition and resolve
+-- its names in turn: the instance is used inside that cycle, so it is at
+-- that map's type rather than at whatever type the cycle passes along.
+HasNames (NameMap Bool) where
   full gam nmap
       = insertAll empty (toList nmap)
     where
-      insertAll : NameMap a -> List (Name, a) -> Core (NameMap a)
+      insertAll : NameMap Bool -> List (Name, Bool) -> Core (NameMap Bool)
       insertAll ms [] = pure ms
       insertAll ms ((k, v) :: ns)
           = insertAll (insert !(full gam k) v ms) ns
@@ -633,7 +637,7 @@ HasNames (NameMap a) where
   resolved gam nmap
       = insertAll empty (toList nmap)
     where
-      insertAll : NameMap a -> List (Name, a) -> Core (NameMap a)
+      insertAll : NameMap Bool -> List (Name, Bool) -> Core (NameMap Bool)
       insertAll ms [] = pure ms
       insertAll ms ((k, v) :: ns)
           = insertAll (insert !(resolved gam k) v ms) ns

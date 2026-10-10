@@ -74,21 +74,23 @@ getErased env = go env [<] where
          then mkVarChiply p :: go bs (p :< _)
          else go bs (p :< _)
 
+||| A variable of the scope, with the multiplicity of its binder. Its name
+||| is the scope's, found equal as a value to the one looked for.
 public export
-data IsDefined : Name -> Scope -> Type where
-  MkIsDefined : {idx : Nat} -> RigCount -> (0 p : IsVar n idx vars) ->
-                IsDefined n vars
+data IsDefined : Scope -> Type where
+  MkIsDefined : {idx : Nat} -> {0 n : Name} -> RigCount -> (0 p : IsVar n idx vars) ->
+                IsDefined vars
 
 export
 defined : {vars : _} ->
           (n : Name) -> Env Term vars ->
-          Maybe (IsDefined n vars)
+          Maybe (IsDefined vars)
 defined n [] = Nothing
 defined {vars = x :: xs} n (b :: env)
-    = case nameEq n x of
-           Nothing => do MkIsDefined rig prf <- defined n env
-                         pure (MkIsDefined rig (Later prf))
-           Just Refl => Just (MkIsDefined (multiplicity b) First)
+    = if n == x
+         then Just (MkIsDefined (multiplicity b) First)
+         else do MkIsDefined rig prf <- defined n env
+                 pure (MkIsDefined rig (Later prf))
 
 -- Bind additional pattern variables in an LHS, when checking an LHS in an
 -- outer environment

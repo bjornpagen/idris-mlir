@@ -160,17 +160,17 @@ extendEnv : {vars : _} ->
                     (Thin inner vars',
                      Env Term vars', NestedNames vars',
                      Term vars', Term vars'))
-extendEnv env p nest (Bind _ n (PVar fc c pi tmty) sc) (Bind _ n' (PVTy {}) tysc) with (nameEq n n')
-  extendEnv env p nest (Bind _ n (PVar fc c pi tmty) sc) (Bind _ n' (PVTy {}) tysc) | Nothing
-      = throw (InternalError "Can't happen: names don't match in pattern type")
-  extendEnv env p nest (Bind _ n (PVar fc c pi tmty) sc) (Bind _ n (PVTy {}) tysc) | (Just Refl)
-      = extendEnv (PVar fc c pi tmty :: env) (Drop p) (weaken (dropName n nest)) sc tysc
-extendEnv env p nest (Bind _ n (PLet fc c tmval tmty) sc) (Bind _ n' (PLet {}) tysc) with (nameEq n n')
-  extendEnv env p nest (Bind _ n (PLet fc c tmval tmty) sc) (Bind _ n' (PLet {}) tysc) | Nothing
-      = throw (InternalError "Can't happen: names don't match in pattern type")
-  -- PLet on the left becomes Let on the right, to give it computational force
-  extendEnv env p nest (Bind _ n (PLet fc c tmval tmty) sc) (Bind _ n (PLet {}) tysc) | (Just Refl)
-      = extendEnv (Let fc c tmval tmty :: env) (Drop p) (weaken (dropName n nest)) sc tysc
+-- The type's binder has the pattern's name, so its scope is the pattern's
+-- with the top variable renamed to the name it already has.
+extendEnv env p nest (Bind _ n (PVar fc c pi tmty) sc) (Bind _ n' (PVTy {}) tysc)
+    = if n == n'
+         then extendEnv (PVar fc c pi tmty :: env) (Drop p) (weaken (dropName n nest)) sc (compat tysc)
+         else throw (InternalError "Can't happen: names don't match in pattern type")
+-- PLet on the left becomes Let on the right, to give it computational force
+extendEnv env p nest (Bind _ n (PLet fc c tmval tmty) sc) (Bind _ n' (PLet {}) tysc)
+    = if n == n'
+         then extendEnv (Let fc c tmval tmty :: env) (Drop p) (weaken (dropName n nest)) sc (compat tysc)
+         else throw (InternalError "Can't happen: names don't match in pattern type")
 extendEnv env p nest tm ty
       = pure (_ ** (p, env, nest, tm, ty))
 
@@ -731,10 +731,13 @@ mkRunTime fc n
            log "compile.casetree" 10 $ show tree_rt
            log "compile.casetree.measure" 15 $ show (measure tree_rt)
 
-           let Just Refl = scopeEq cargs rargs
+           -- Both trees bind the clauses' arguments, by the same names.
+           let True = cargs == rargs
+                   | False => throw (InternalError "WAT")
+           let Just compatible = areCompatibleVars cargs rargs
                    | Nothing => throw (InternalError "WAT")
            ignore $ addDef n $
-                       { definition := PMDef r rargs tree_ct tree_rt pats
+                       { definition := PMDef r rargs (compatCaseTree compatible tree_ct) tree_rt pats
                        } gdef
            -- If it's a case block, and not already set as inlinable or forced
            -- to not be inlinable, check if it's safe to inline

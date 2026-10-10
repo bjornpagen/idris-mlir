@@ -538,9 +538,9 @@ mutual
                        -- the name stored is the scope's at that index
                        let Just (Element name' p) = isVarAt idx vars
                            | Nothing => corrupt "CaseTree"
-                       let Just Refl = nameEq name name'
-                           | Nothing => corrupt "CaseTree"
-                       pure (Case {name} idx p (Erased emptyFC Placeholder) xs)
+                       let True = name == name'
+                           | False => corrupt "CaseTree"
+                       pure (Case {name = name'} idx p (Erased emptyFC Placeholder) xs)
                1 => do x <- fromBuf
                        pure (STerm 0 x)
                2 => do msg <- fromBuf

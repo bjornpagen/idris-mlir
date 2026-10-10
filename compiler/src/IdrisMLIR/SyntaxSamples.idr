@@ -131,6 +131,7 @@ named : String -> List MlirAttr -> List NamedAttr
 named stem samples =
   zipWith (\i, a => (stem ++ padLeft 2 '0' (show i), a)) [0 .. length samples] samples
 
+covering
 main : IO ()
 main = do
   let missed = unsampled

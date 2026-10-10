@@ -318,9 +318,9 @@ encloseSep l r s [d] = l <+> d <+> r
 encloseSep l r s ds  = cat (zipWith (<+>) (l :: replicate (length ds `minus` 1) s) ds) <+> r
 
 unsafeTextWithoutNewLines : String -> Doc ann
-unsafeTextWithoutNewLines str = case strM str of
-  StrNil => Empty
-  StrCons c cs => if cs == ""
+unsafeTextWithoutNewLines str = case strUncons str of
+  Nothing => Empty
+  Just (c, cs) => if cs == ""
                      then Chara c
                      else Text (cast $ length str) str
 

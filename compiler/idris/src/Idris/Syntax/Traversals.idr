@@ -4,6 +4,8 @@ import Idris.Syntax
 
 import TTImp.TTImp
 
+import Data.SnocList
+
 %default covering
 
 export
@@ -139,10 +141,10 @@ mapPTermM f = goPTerm where
       PIdiom fc ns <$> goPTerm x
       >>= f
     goPTerm (PList fc nilFC xs) =
-      PList fc nilFC <$> goPairedPTerms xs
+      PList fc nilFC <$> traverse (\(a, t) => MkPair a <$> goPTerm t) xs
       >>= f
     goPTerm (PSnocList fc nilFC xs) =
-      PSnocList fc nilFC <$> goPairedSnocPTerms xs
+      PSnocList fc nilFC <$> traverseSnocList (\(a, t) => MkPair a <$> goPTerm t) xs
       >>= f
     goPTerm (PPair fc x y) =
       PPair fc <$> goPTerm x
@@ -270,10 +272,10 @@ mapPTermM f = goPTerm where
                              (\x => Right <$> traverseList1 goPBinder x) nts
                   <*> goPDecls ps
     goPDecl (PUsing mnts ps) =
-      PUsing <$> goPairedPTerms mnts
+      PUsing <$> traverse (\(a, t) => MkPair a <$> goPTerm t) mnts
              <*> goPDecls ps
     goPDecl (PInterface v mnts n doc nrts ns mn ps) =
-      PInterface v <$> goPairedPTerms mnts
+      PInterface v <$> traverse (\(a, t) => MkPair a <$> goPTerm t) mnts
                    <*> pure n
                    <*> pure doc
                    <*> traverse goBasicMultiBinder nrts
@@ -282,7 +284,7 @@ mapPTermM f = goPTerm where
                    <*> goPDecls ps
     goPDecl (PImplementation v opts p is cs n ts mn ns mps) =
       PImplementation v opts p <$> traverse (traverse (traverse goPTerm)) is
-                               <*> goPairedPTerms cs
+                               <*> traverse (\(a, t) => MkPair a <$> goPTerm t) cs
                                <*> pure n
                                <*> goPTerms ts
                                <*> pure mn
@@ -332,18 +334,6 @@ mapPTermM f = goPTerm where
     goPTerms : List (PTerm' nm) -> Core (List $ PTerm' nm)
     goPTerms []        = pure []
     goPTerms (t :: ts) = (::) <$> goPTerm t <*> goPTerms ts
-
-    goPairedPTerms : List (x, PTerm' nm) -> Core (List (x, PTerm' nm))
-    goPairedPTerms []             = pure []
-    goPairedPTerms ((a, t) :: ts) =
-       (::) . MkPair a <$> goPTerm t
-                       <*> goPairedPTerms ts
-
-    goPairedSnocPTerms : SnocList (x, PTerm' nm) -> Core (SnocList (x, PTerm' nm))
-    goPairedSnocPTerms [<]            = pure [<]
-    goPairedSnocPTerms (ts :< (a, t)) =
-       (:<) <$> goPairedSnocPTerms ts
-            <*> MkPair a <$> goPTerm t
 
     go3TupledPTerms : List (x, y, PTerm' nm) -> Core (List (x, y, PTerm' nm))
     go3TupledPTerms [] = pure []
@@ -479,9 +469,9 @@ mapPTerm f = goPTerm where
     goPTerm (PIdiom fc ns x)
       = f $ PIdiom fc ns $ goPTerm x
     goPTerm (PList fc nilFC xs)
-      = f $ PList fc nilFC $ goPairedPTerms xs
+      = f $ PList fc nilFC $ map (map goPTerm) xs
     goPTerm (PSnocList fc nilFC xs)
-      = f $ PSnocList fc nilFC $ goPairedSnocPTerms xs
+      = f $ PSnocList fc nilFC $ map (map goPTerm) xs
     goPTerm (PPair fc x y)
       = f $ PPair fc (goPTerm x) (goPTerm y)
     goPTerm (PDPair fc opFC x y z)
@@ -550,11 +540,11 @@ mapPTerm f = goPTerm where
     goPDecl (PParameters nts ps)
       = PParameters (bimap (map (map goPTerm)) (map goPBinder) nts) (map goPDecl <$> ps)
     goPDecl (PUsing mnts ps)
-      = PUsing (goPairedPTerms mnts) (map goPDecl <$> ps)
+      = PUsing (map (map goPTerm) mnts) (map goPDecl <$> ps)
     goPDecl (PInterface v mnts n doc nrts ns mn ps)
-      = PInterface v (goPairedPTerms mnts) n doc (goBasicMultiBinder <$> nrts) ns mn (map goPDecl <$> ps)
+      = PInterface v (map (map goPTerm) mnts) n doc (goBasicMultiBinder <$> nrts) ns mn (map goPDecl <$> ps)
     goPDecl (PImplementation v opts p is cs n ts mn ns mps)
-      = PImplementation v opts p (map (map (map goPTerm)) is) (goPairedPTerms cs)
+      = PImplementation v opts p (map (map (map goPTerm)) is) (map (map goPTerm) cs)
            n (goPTerm <$> ts) mn ns (map (map goPDecl <$>) mps)
     goPDecl (PRecord doc v tot (MkPRecord n nts opts mn fs))
       = PRecord doc v tot
@@ -597,14 +587,6 @@ mapPTerm f = goPTerm where
     goPFnOpt o@(IFnOpt {}) = o
     goPFnOpt (PForeign ts) = PForeign $ goPTerm <$> ts
     goPFnOpt (PForeignExport ts) = PForeignExport $ goPTerm <$> ts
-
-    goPairedPTerms : List (x, PTerm' nm) -> List (x, PTerm' nm)
-    goPairedPTerms [] = []
-    goPairedPTerms ((a, t) :: ts) = (a, goPTerm t) :: goPairedPTerms ts
-
-    goPairedSnocPTerms : SnocList (x, PTerm' nm) -> SnocList (x, PTerm' nm)
-    goPairedSnocPTerms [<] = [<]
-    goPairedSnocPTerms (ts :< (a, t)) = goPairedSnocPTerms ts :< (a, goPTerm t)
 
     goImplicits : List (x, ImpParameter' (PTerm' nm)) -> List (x, ImpParameter' (PTerm' nm))
     goImplicits [] = []

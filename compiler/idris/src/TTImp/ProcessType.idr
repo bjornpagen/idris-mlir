@@ -16,6 +16,7 @@ import TTImp.ProcessFnOpt
 import TTImp.TTImp
 
 import Data.String
+import Libraries.Utils.String
 import Libraries.Data.NameMap
 import Libraries.Data.NatSet
 import Libraries.Data.StringMap
@@ -80,7 +81,7 @@ initDef fc n env ty (ForeignExport cs :: opts)
     getConvention c
         = do let (lang ::: fname :: []) = split (== ':') c
                  | _ => throw (GenericMsg fc "Invalid calling convention")
-             pure (trim lang, trim fname)
+             pure (trimSpace lang, trimSpace fname)
 initDef fc n env ty (_ :: opts) = initDef fc n env ty opts
 
 -- Find the inferrable argument positions in a type. This is useful for

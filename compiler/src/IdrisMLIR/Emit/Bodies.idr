@@ -16,6 +16,7 @@ import IdrisMLIR.Term
 import IdrisMLIR.Types
 
 import Control.Monad.State
+import Data.Fin
 import Data.List
 import Data.Maybe
 import Data.SnocList
@@ -26,22 +27,23 @@ import Data.Vect
 
 %default total
 
-||| What the fold makes of a term in scope `b`: given the values of its
+||| What the fold makes of a term in scope `nv`: given the values of its
 ||| variables and the type its context expects, if known, it appends the
 ||| term's operations and returns its value, or `Nothing` when the term
 ||| never returns (its region then ends in `ub.unreachable`).
 public export
-Em : Type -> Type
-Em b = (b -> Val) -> Maybe Ty -> E (Maybe Val)
+Em : Nat -> Type
+Em nv = (Fin nv -> Val) -> Maybe Ty -> E (Maybe Val)
 
 ||| The values of a binder's variables, over those outside.
-bind : Vect k Val -> (b -> Val) -> Under k b -> Val
-bind vs env (Bound i) = index i vs
-bind vs env (Free x) = env x
+bind : {k : Nat} -> Vect k Val -> (Fin nv -> Val) -> Fin (Under k nv) -> Val
+bind vs env v = case splitUnder {k} v of
+  Left i => index i vs
+  Right x => env x
 
 ||| Operands, left to right, each checked against the type its position
 ||| expects and held as it binds them; `Nothing` once one never returns.
-operands : Index -> Loc -> (b -> Val) -> List (Sub Em b) -> List Binder -> E (Maybe (List Val))
+operands : Index -> Loc -> (Fin nv -> Val) -> List (Sub Em nv) -> List Binder -> E (Maybe (List Val))
 operands ix l env [] _ = pure (Just [])
 operands ix l env (a :: as) slots = do
   Just v <- a.result env (typeOf <$> head' slots)
@@ -81,7 +83,7 @@ matched : Val -> Val -> (b -> Val) -> b -> Val
 matched before after env y = renamed before after (env y)
 
 ||| Is a term a branch Idris proved impossible? It is left out.
-excluded : Sub Em b -> Bool
+excluded : Sub Em nv -> Bool
 excluded s = case s.term of
   Unreachable _ => True
   _ => False
@@ -177,7 +179,7 @@ regionSignature _ _ = Nothing
 
 ||| The algebra: one layer of `Term` to its emitter.
 export
-alg : {0 b : Type} -> Index -> TermF (Sub Em) b -> Em b
+alg : {0 nv : Nat} -> Index -> TermF (Sub Em) nv -> Em nv
 alg ix (VarF l x) env _ = Just <$> force ix l (env x)
 alg ix (LiteralF l x) env _ = Just <$> literal ix l x
 alg ix (ErasedF l) env _ = Just <$> erasedValue ix l
@@ -233,7 +235,7 @@ alg ix (CaseF l x alts def) env expected = do
   cases <- traverse (alternative before scrut) (filter (\(MkAltF _ _ b) => not (excluded b)) alts)
   dflt <- case def of
     Just e => if excluded e then pure [] else do
-      (args, inner) <- the (E (List Value, b -> Val)) $ if takenApart
+      (args, inner) <- the (E (List Value, Fin nv -> Val)) $ if takenApart
         then do
           back <- (\r => val r scrut.type Once) <$> fresh
           arg <- operand ix back
@@ -248,7 +250,7 @@ alg ix (CaseF l x alts def) env expected = do
       pure Nothing
     arms => match ix l (Idr.matchOp !(operand ix scrut)) arms
   where
-    alternative : Val -> Val -> AltF (Sub Em) b -> E Arm
+    alternative : Val -> Val -> AltF (Sub Em) nv -> E Arm
     alternative before scrut (MkAltF c fs body) = do
       let takenApart = linear scrut.use scrut.type
       let use = if takenApart then binderUse else const Many

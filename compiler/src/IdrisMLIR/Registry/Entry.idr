@@ -38,9 +38,15 @@ export
 parseSpec : String -> Maybe Spec
 parseSpec s = case break (== ':') (unpack s) of
   (conv@(_ :: _), _ :: rest) =>
-    let fn = trim (pack (takeWhile (/= ',') rest)) in
+    let fn = pack (stripped (takeWhile (/= ',') rest)) in
     if fn == "" then Nothing else Just (MkSpec (pack conv) fn)
   _ => Nothing
+  where
+    -- The whitespace around the function dropped, from its characters:
+    -- base's `trim` sees a string through `strM`, whose `believe_me` this
+    -- compiler refuses wherever a program reaches it.
+    stripped : List Char -> List Char
+    stripped = reverse . dropWhile isSpace . reverse . dropWhile isSpace
 
 ||| How the compiler names library knowledge.
 public export

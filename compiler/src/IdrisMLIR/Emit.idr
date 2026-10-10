@@ -36,7 +36,7 @@ import Data.List
 ||| The contract text of a program: the `idr` module idris-mlir reads. The
 ||| module is at the root's location, which is main's, so that whatever the
 ||| pipeline reports about the whole program is at the user's code.
-export
+export covering
 emit : Source -> Either String String
 emit src = do
   let Just root = find (\f => f.id == src.root) src.fns

@@ -200,8 +200,11 @@ typeParams def = case definition def of
   TCon arity _ _ _ _ cons _ => do
     params <- dataParams def
     defs <- get Ctxt
-    -- A record's parameter kinds may be solved metavariables.
-    ty <- normaliseHoles defs [] (type def)
+    -- A record's parameter kinds may be solved metavariables, and a type
+    -- may be declared through a definition of its kind (`data CaseTree :
+    -- Scoped`, where `Scoped = Scope -> Type`): its binders are those of
+    -- the normal form.
+    ty <- normaliseClosed (type def)
     let values = kinds ty
     let types = filter (\i => elem i params && not (fromMaybe False (getAt i values))) [0 .. minus arity 1]
     tys <- traverse (\n => map (map type) (lookupCtxtExact n (gamma defs))) (fromMaybe [] cons)

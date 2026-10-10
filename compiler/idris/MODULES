@@ -121,7 +121,6 @@ Libraries/Data/VarSet.idr
 Libraries/Data/VarSet/Core.idr
 Libraries/Data/Version.idr
 Libraries/Data/WithDefault.idr
-Libraries/Decidable/Equality.idr
 Libraries/System/Directory/Tree.idr
 Libraries/Text/Bounded.idr
 Libraries/Text/Distance/Levenshtein.idr

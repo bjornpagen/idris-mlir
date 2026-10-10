@@ -388,31 +388,37 @@ covering
   show (DelayGroup cs) = "Delay: " ++ show cs
   show (ConstGroup c cs) = "Const " ++ show c ++ ": " ++ show cs
 
+-- A match is found by comparing names, tags and constants as values; the
+-- group it is found in keeps its own.
 data GroupMatch : ConType -> List Pat -> Group todo vars -> Type where
-     ConMatch : {tag : Int} -> LengthMatch ps newargs ->
+     ConMatch : LengthMatch ps newargs ->
                 GroupMatch (CName n tag) ps
-                  (ConGroup {newargs} n tag (MkPatClause pvs pats pid rhs :: rest))
+                  (ConGroup {newargs} n' tag' (MkPatClause pvs pats pid rhs :: rest))
      DelayMatch : GroupMatch CDelay []
                     (DelayGroup {tyarg} {valarg} (MkPatClause pvs pats pid rhs :: rest))
      ConstMatch : GroupMatch (CConst c) []
-                    (ConstGroup c (MkPatClause pvs pats pid rhs :: rest))
+                    (ConstGroup c' (MkPatClause pvs pats pid rhs :: rest))
      NoMatch : GroupMatch ct ps g
+
+-- Two constants' clauses are one group when the constants are equal, but
+-- doubles never are, and of the primitive types only those `primTypeEq`
+-- relates.
+sameConstant : Constant -> Constant -> Bool
+sameConstant (Db _) (Db _) = False
+sameConstant (PrT x) (PrT y) = isJust (primTypeEq x y)
+sameConstant c c' = c == c'
 
 checkGroupMatch : (c : ConType) -> (ps : List Pat) -> (g : Group todo vars) ->
                   GroupMatch c ps g
 checkGroupMatch (CName x tag) ps (ConGroup {newargs} x' tag' (MkPatClause pvs pats pid rhs :: rest))
     = case checkLengthMatch ps newargs of
            Nothing => NoMatch
-           Just prf => case (nameEq x x', decEq tag tag') of
-                            (Just Refl, Yes Refl) => ConMatch prf
-                            _ => NoMatch
+           Just prf => if x == x' && tag == tag' then ConMatch prf else NoMatch
 checkGroupMatch (CName x tag) ps _ = NoMatch
 checkGroupMatch CDelay [] (DelayGroup (MkPatClause pvs pats pid rhs :: rest))
     = DelayMatch
 checkGroupMatch (CConst c) [] (ConstGroup c' (MkPatClause pvs pats pid rhs :: rest))
-    = case constantEq c c' of
-           Nothing => NoMatch
-           Just Refl => ConstMatch
+    = if sameConstant c c' then ConstMatch else NoMatch
 checkGroupMatch _ _ _ = NoMatch
 
 data PName : Type where
@@ -529,7 +535,7 @@ groupCons fc fn pvars (x :: xs) {isCons = p :: ps}
              pure [ConGroup n tag [clause]]
     addConG n tag pargs pats pid rhs (g :: gs) with (checkGroupMatch (CName n tag) pargs g)
       addConG n tag pargs pats pid rhs
-              (ConGroup n tag (MkPatClause pvars ps tid tm :: rest) :: gs) | ConMatch {newargs} lprf
+              (ConGroup n' tag' (MkPatClause pvars ps tid tm :: rest) :: gs) | ConMatch {newargs} lprf
         = do let newps = newPats pargs lprf ps
              let l = mkSizeOf newargs
              let pats' = updatePatNames (updateNames (zip newargs pargs))
@@ -537,7 +543,7 @@ groupCons fc fn pvars (x :: xs) {isCons = p :: ps}
              let newclause = MkPatClause pvars (newps ++ pats') pid (weakenNs l rhs)
              -- put the new clause at the end of the group, since we
              -- match the clauses top to bottom.
-             pure $ ConGroup n tag (MkPatClause pvars ps tid tm :: rest ++ [newclause]) :: gs
+             pure $ ConGroup n' tag' (MkPatClause pvars ps tid tm :: rest ++ [newclause]) :: gs
       addConG n tag pargs pats pid rhs (g :: gs) | NoMatch
         = (g ::) <$> addConG n tag pargs pats pid rhs gs
 
@@ -586,9 +592,9 @@ groupCons fc fn pvars (x :: xs) {isCons = p :: ps}
           = pure [ConstGroup c [MkPatClause pvars pats pid rhs]]
     addConstG c pats pid rhs (g :: gs) with (checkGroupMatch (CConst c) [] g)
       addConstG c pats pid rhs
-              (ConstGroup c (MkPatClause pvars ps tid tm :: rest) :: gs) | ConstMatch
+              (ConstGroup c' (MkPatClause pvars ps tid tm :: rest) :: gs) | ConstMatch
         = do let newclause = MkPatClause pvars pats pid rhs
-             pure $ ConstGroup c (MkPatClause pvars ps tid tm :: rest ++ [newclause]) :: gs
+             pure $ ConstGroup c' (MkPatClause pvars ps tid tm :: rest ++ [newclause]) :: gs
       addConstG c pats pid rhs (g :: gs) | NoMatch
         = (g ::) <$> addConstG c pats pid rhs gs
 

@@ -158,11 +158,11 @@ translateIOProgram fc main = do
     | _ => notIO
   loc <- toLoc (location !(lookupDef fc owner main))
   -- w is the parameter; `m` is main's value, and `f` its action.
-  let body : Term (Fin 1)
+  let body : Term 1
       body = Let loc Many (Call loc inst Nothing [])                          -- m
-               (Case loc (Bound FZ)
+               (Case loc FZ
                   [MkAlt mkIO.id [action]                                    -- f
-                     (App loc (Var loc (Bound FZ)) (Var loc (Free (Free FZ))))]
+                     (App loc (Var loc FZ) (Var loc (FS (FS FZ))))]
                   Nothing)
   let rootId = MkFnId "$idris-mlir.root"
   src <- assemble rootId

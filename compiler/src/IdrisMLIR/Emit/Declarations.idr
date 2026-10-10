@@ -62,7 +62,7 @@ function ix root f = do
     lazyResult : Ty -> Bool
     lazyResult (LazyT _) = True
     lazyResult _ = False
-    alg' : {0 b : Type} -> TermF (Sub Em) b -> Em b
+    alg' : {0 nv : Nat} -> TermF (Sub Em) nv -> Em nv
     alg' = alg ix
     plain' : E (Maybe Val) -> E (Maybe Val)
     plain' = plain ix f.loc

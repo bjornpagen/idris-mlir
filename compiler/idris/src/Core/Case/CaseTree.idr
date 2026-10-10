@@ -2,6 +2,7 @@ module Core.Case.CaseTree
 
 import Core.TT
 
+import Data.DPair
 import Data.List
 import Data.So
 import Data.String
@@ -242,6 +243,26 @@ mutual
 export
 Weaken CaseTree where
   weakenNs ns t = insertCaseNames zero ns t
+
+mutual
+  ||| A case tree in a scope of the same length, by other names: the same
+  ||| tree, each variable at its index, a case's under the new name.
+  export
+  compatCaseTree : {ys : _} -> CompatibleVars xs ys -> CaseTree xs -> CaseTree ys
+  compatCaseTree prf (Case idx p scTy alts)
+      = let Element name p' = renamedVarAt prf p in
+            Case {name} idx p' (compatNs prf scTy) (map (compatCaseAlt prf) alts)
+  compatCaseTree prf (STerm i x) = STerm i (compatNs prf x)
+  compatCaseTree _ (Unmatched msg) = Unmatched msg
+  compatCaseTree _ Impossible = Impossible
+
+  compatCaseAlt : {ys : _} -> CompatibleVars xs ys -> CaseAlt xs -> CaseAlt ys
+  compatCaseAlt prf (ConCase x tag args ct)
+      = ConCase x tag args (compatCaseTree (extendCompats args prf) ct)
+  compatCaseAlt prf (DelayCase ty arg ct)
+      = DelayCase ty arg (compatCaseTree (Ext (Ext prf)) ct)
+  compatCaseAlt prf (ConstCase c ct) = ConstCase c (compatCaseTree prf ct)
+  compatCaseAlt prf (DefaultCase ct) = DefaultCase (compatCaseTree prf ct)
 
 total
 getNames : (forall vs . NameMap Bool -> Term vs -> NameMap Bool) ->

@@ -321,9 +321,9 @@ isCapitalisedIdent str =
       loc = str.bounds
       err : EmptyRule ()
           = failLoc loc ("Expected a capitalised identifier, got: \{val}")
-  in case strM val of
-       StrNil => err
-       StrCons c _ => if (isUpper c || c > chr 160) then pure () else err
+  in case strUncons val of
+       Nothing => err
+       Just (c, _) => if (isUpper c || c > chr 160) then pure () else err
 
 export
 namespaceId : Rule Namespace

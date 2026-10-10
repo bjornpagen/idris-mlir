@@ -2,7 +2,6 @@ module Core.Name.Namespace
 
 import Data.List
 import Data.String
-import Decidable.Equality
 import Libraries.Data.String.Extra
 import Libraries.Text.PrettyPrint.Prettyprinter
 import Libraries.Utils.Path
@@ -198,13 +197,6 @@ Ord Namespace where
 export
 Ord ModuleIdent where
     compare (MkMI ms) (MkMI ns) = compare ms ns
-
-Injective MkNS where
-  injective Refl = Refl
-
-export
-DecEq Namespace where
-  decEq (MkNS ms) (MkNS ns) = decEqCong (decEq ms ns)
 
 -- TODO: move somewhere more appropriate
 export

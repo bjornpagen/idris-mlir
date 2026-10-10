@@ -6,6 +6,7 @@ import public Data.Maybe
 import Libraries.Data.StringMap
 import Libraries.Data.StringTrie
 import Data.String
+import Libraries.Utils.String
 import Data.These
 import Libraries.Text.PrettyPrint.Prettyprinter
 import Libraries.Text.PrettyPrint.Prettyprinter.Util
@@ -276,7 +277,7 @@ parseLogLevel str = do
                      [] => pure (MkLogLevel [], n)
                      [ns] => pure (mkUnverifiedLogLevel n, ns)
                      _ => Nothing
-  lvl <- parsePositive n
+  lvl <- parseNatural n
   pure $ c (fromInteger lvl)
 
 ----------------------------------------------------------------------------------

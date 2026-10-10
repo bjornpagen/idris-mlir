@@ -181,7 +181,7 @@ cgDirective
          <|> many (isNot '\n'))
 
 mkDirective : String -> Token
-mkDirective str = CGDirective (trim (substr 3 (length str) str))
+mkDirective str = CGDirective (trimSpace (substr 3 (length str) str))
 
 public export
 fixityKeywords : List String
@@ -356,8 +356,8 @@ mutual
       countHashtag = count (== '#') . unpack
 
       removeOptionalLeadingSpace : String -> String
-      removeOptionalLeadingSpace str = case strM str of
-                                            StrCons ' ' tail => tail
+      removeOptionalLeadingSpace str = case strUncons str of
+                                            Just (' ', tail) => tail
                                             _ => str
 
       removeUnderscores : String -> String

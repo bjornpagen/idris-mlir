@@ -80,8 +80,8 @@ enclosing : Name -> Name
 enclosing (NS ns (CaseBlock outer _)) = NS ns (UN (Basic (strip outer)))
   where
     strip : String -> String
-    strip s = if isPrefixOf "case block in " s then strip (assert_smaller s (substr 14 (length s) s))
-              else if isPrefixOf "with block in " s then strip (assert_smaller s (substr 14 (length s) s))
+    strip s = if isPrefixOf "case block in " s then strip (substr 14 (length s) s)
+              else if isPrefixOf "with block in " s then strip (substr 14 (length s) s)
               else s
 enclosing (NS ns (WithBlock outer _)) = NS ns (UN (Basic outer))
 enclosing n = n

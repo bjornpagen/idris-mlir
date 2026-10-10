@@ -119,8 +119,8 @@ below); `assert_total` and `assert_smaller` stay.
   proof erased.
 - Reading a local variable from a TTC decides the `IsVar` proof from the
   scope (`isVarAt` in `Core.TTC`) instead of forging it (`mkPrf`); a case
-  tree's stored variable name must be the scope's name at its index, or
-  the TTC is corrupt.
+  tree's stored variable name must equal the scope's name at its index,
+  which the tree then takes, or the TTC is corrupt.
 - `Cast (Doc Void) (Doc ann)` rebuilds the document (`annotateVoid`), as
   `reAnnotate absurd` would.
 - `OperatorBindingMismatch` holds its use site and right-hand side as the
@@ -141,6 +141,26 @@ below); `assert_total` and `assert_smaller` stay.
   crashing on its absence.
 - Unused and not expressible honestly, deleted: `VarSet.unsafeToList` and
   `Libraries.System.Directory.Tree`'s `Tree.toRelative`.
+- Names, constants and scopes are compared as values. Upstream decided
+  their equality with proofs (`nameEq`, `namesEq`, `userNameEq`,
+  `scopeEq`, `constantEq`, `Namespace`'s `DecEq`) built on base's `DecEq`
+  for strings and integers, which coerces with `believe_me`; all are gone,
+  with `Libraries.Decidable.Equality`, which only they used. Where a proof
+  retyped a term, the term is built at the type it needs: `isVar` finds a
+  variable by `==` (`isNVar`, whose one use forgot the name, is gone);
+  `IsDefined` hides the name of the variable it found; `extendEnv` renames the type's top variable to the
+  pattern's, which has the same name (`compat`); the compile-time tree of
+  a definition is renamed into the runtime tree's scope, whose names are
+  the same (`compatCaseTree`, over `renamedVarAt`); and the case builder
+  groups clauses by comparing constructor names and tags, and constants
+  as upstream's semi-decision did (never two doubles, and primitive types
+  as `primTypeEq` relates them). `substName` compares.
+- Base's `strM` view coerces its proof with `believe_me`, and its `ltrim`,
+  `trim`, `parsePositive` and `parseInteger` see a string through it. The
+  fork matches on `strUncons`, and trims and parses numbers with
+  `trimStart`, `trimSpace`, `parseNatural` and `parseSigned`
+  (`Libraries.Utils.String`), which see the characters and give base's
+  results.
 
 ### Rewritten so that this compiler can compile it
 
@@ -225,6 +245,29 @@ merge; each says what changed in its interface.
   (upstream's was `Compose` itself, point-free), so that the totality
   checker still sees the recursion of `rawTokens` and `stringTokens`
   through it guarded by the constructor.
+
+- **Recursion at the types it is given.** This compiler makes an instance
+  of a definition for each type and implementation it is given, so a
+  group of definitions that call each other passes those on only as it
+  got them. Where upstream's did not: each `map` of `TTImp.TTImp.Functor`
+  is a function of its own (`mapRawImp`, `mapClause`, `mapDecl`, ...),
+  which its `Functor` implementation is, where upstream's methods called
+  `map` through the implementation, which applies them to types it binds
+  itself; `Idris.Syntax.Traversals` traverses a list of paired terms
+  (`PList`, `PUsing`, ...) with a function on the pair, where upstream's
+  `goPairedPTerms` took the first component's type from each use;
+  `Idris.Parser`'s rules that take the bounds of where they start take a
+  `WithBounds ()` (`ignore` where the bounds hold a value), not any
+  `WithBounds t`; `localHelper` (`TTImp.Elab.Local`) returns its one
+  use's result, a term and its type; `Core.Context`'s `HasNames` for a
+  `NameMap` is at `NameMap Bool`, a definition's references, the one map
+  whose names are resolved; and `convertMatches` in
+  `Core.Normalise.Convert` binds its scopes as `Scope`, where upstream's
+  `_` made them lists of any type.
+- `OperatorLHSInfo` (`Core.TT`) is a family over `Type`, as its
+  constructors use it. Upstream declared it over a value of an implicit
+  type (`tm -> Type`), which this compiler reads as a parameter that is a
+  value, not a type, on which its fields' types then depend.
 
 ### Ours
 

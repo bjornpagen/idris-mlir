@@ -539,8 +539,8 @@ mutual
   export
   resolveNames : (vars : Scope) -> Term vars -> Term vars
   resolveNames vars (Ref fc Bound name)
-      = case isNVar name vars of
-             Just (MkNVar prf) => Local fc (Just False) _ prf
+      = case isVar name vars of
+             Just (MkVar prf) => Local fc (Just False) _ prf
              _ => Ref fc Bound name
   resolveNames vars (Meta fc n i xs)
       = Meta fc n i (resolveNamesTerms vars xs)

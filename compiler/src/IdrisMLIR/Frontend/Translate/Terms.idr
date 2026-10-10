@@ -67,14 +67,14 @@ binders _ = Z
 
 ||| Eta-expands a known head applied to too few arguments:
 ||| `\x.. => head(args ++ xs)`.
-etaExpand : {0 a : Type} -> Loc -> List Binder -> ({0 b : Type} -> List (Term b) -> Term b) -> List (Term a) -> Term a
+etaExpand : {0 nv : Nat} -> Loc -> List Binder -> ({0 m : Nat} -> List (Term m) -> Term m) -> List (Term nv) -> Term nv
 etaExpand loc [] mk given = mk given
 etaExpand loc (b :: rest) mk given =
-  Lam loc b (etaExpand loc rest mk (map (map Free) given ++ [argument b]))
+  Lam loc b (etaExpand loc rest mk (map (weakenUnder 1) given ++ [argument b]))
   where
-    argument : Binder -> Term (Under 1 a)
+    argument : Binder -> Term (Under 1 nv)
     argument Gone = Erased loc
-    argument (Held _ _) = Var loc (Bound FZ)
+    argument (Held _ _) = Var loc FZ
 
 ||| The position of a `Nat`-like successor's argument: its one argument of
 ||| runtime quantity (the others are erased indices, as `FS`'s).
@@ -94,21 +94,21 @@ succArg kinds = case mapMaybe runtime (zip [0 .. length kinds] kinds) of
 ||| fold of `arr` from `z`, the function at the accumulator, the index and
 ||| the element (`Bound 0`, `Bound 2`, `Bound 1`). The operands are as
 ||| `finish` gives them, one per runtime parameter, the world last.
-loopTerm : Loc -> IdrRegionPrim -> List Ty -> DataId -> {0 b : Type} -> List (Term b) -> Term b
+loopTerm : Loc -> IdrRegionPrim -> List Ty -> DataId -> {0 m : Nat} -> List (Term m) -> Term m
 loopTerm loc ArrayGenerate tys res [n, f, w] =
   Region {k = regionArity ArrayGenerate} loc ArrayGenerate tys
          [n, App loc f (Literal loc (LInt IdrisInt 0)), w]
-         (App loc (map Free f) (Var loc (Bound FZ))) res
+         (App loc (weakenUnder 1 f) (Var loc FZ)) res
 loopTerm loc ArrayFold tys res [arr, z, f, w] =
   Region {k = regionArity ArrayFold} loc ArrayFold tys [arr, z, w]
-         (App loc (App loc (App loc (map Free f) (Var loc (Bound FZ))) (Var loc (Bound (FS (FS FZ)))))
-              (Var loc (Bound (FS FZ)))) res
+         (App loc (App loc (App loc (weakenUnder 3 f) (Var loc FZ)) (Var loc (FS (FS FZ))))
+              (Var loc (FS FZ))) res
 loopTerm loc _ _ _ _ = Unreachable loc
 
 mutual
   export
   term : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-         Ctx -> List (VarInfo a) -> TT vars -> Core (Term a)
+         Ctx -> List (VarInfo (Fin nv)) -> TT vars -> Core (Term nv)
   term ctx env (Local fc _ idx _) = do
     loc <- toLoc (bestFC ctx fc)
     case getAt idx env of
@@ -136,14 +136,14 @@ mutual
     -- TTC does not keep the types of lets (Core.TTC, `Let` binders): `Emit`
     -- synthesizes them.
     loc <- toLoc (bestFC ctx fc)
-    let env' = under [Runtime (Bound FZ) Nothing] env
+    let env' = under {k = 1} [Runtime FZ Nothing] env
     if isErased rig
        then Let loc Many (Erased loc) <$> term ctx env' sc
        else Let loc (useOf rig) <$> term ctx env val <*> term ctx env' sc
   term ctx env (Bind fc x (Lam lfc rig _ ty) sc) = do
     loc <- toLoc (bestFC ctx fc)
     b <- binderOf rig (coreType (bestFC ctx fc) ctx.owner ValueType !(closeNormalise fc env ty))
-    body <- term ctx (under [Runtime (Bound FZ) (Just (typeOf b))] env) sc
+    body <- term ctx (under {k = 1} [Runtime FZ (Just (typeOf b))] env) sc
     pure (Lam loc b body)
   term ctx env (TDelay fc _ _ arg) = suspend ctx env fc arg
   term ctx env (TForce fc _ arg) = Resume <$> toLoc (bestFC ctx fc) <*> term ctx env arg
@@ -158,14 +158,14 @@ mutual
   term ctx env (Bind fc _ _ _) = internal (bestFC ctx fc) "a binder in a runtime position"
 
   suspend : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-            Ctx -> List (VarInfo a) -> FC -> TT vars -> Core (Term a)
+            Ctx -> List (VarInfo (Fin nv)) -> FC -> TT vars -> Core (Term nv)
   suspend ctx env fc arg = do
     loc <- toLoc (bestFC ctx fc)
     body <- term ctx env arg
     pure (Suspend loc body)
 
   application : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-                Ctx -> List (VarInfo a) -> FC -> TT vars -> List (TT vars) -> Core (Term a)
+                Ctx -> List (VarInfo (Fin nv)) -> FC -> TT vars -> List (TT vars) -> Core (Term nv)
   application ctx env afc (Ref rfc nt name) args = do
     let fc = bestFC ctx rfc
     loc <- toLoc fc
@@ -223,15 +223,15 @@ mutual
       Hole {} => reject fc ctx.owner EscapeHatch ("the hole " ++ show full)
       _ => internal fc ("a reference to " ++ show full)
     where
-      applyAll : Loc -> Term a -> List (TT vars) -> Core (Term a)
+      applyAll : Loc -> Term nv -> List (TT vars) -> Core (Term nv)
       applyAll loc f [] = pure f
       applyAll loc f (x :: xs) = applyAll loc (App loc f !(term ctx env x)) xs
 
       -- Arguments: values of type parameters, erased ones, runtime ones.
-      arguments : Loc -> List PKind -> List (TT vars) -> Core (List (Term a))
+      arguments : Loc -> List PKind -> List (TT vars) -> Core (List (Term nv))
       arguments loc kinds xs = traverse arg (zip kinds xs)
         where
-          arg : (PKind, TT vars) -> Core (Term a)
+          arg : (PKind, TT vars) -> Core (Term nv)
           arg (ValueParam (Held _ _) _, x) = term ctx env x
           arg _ = pure (Erased loc)
 
@@ -247,8 +247,8 @@ mutual
       argValues : List (TT vars) -> ArgValues
       argValues = map argValue
 
-      finish : Loc -> List PKind -> List (Term a) ->
-               ({0 b : Type} -> List (Term b) -> Term b) -> List (TT vars) -> Core (Term a)
+      finish : Loc -> List PKind -> List (Term nv) ->
+               ({0 m : Nat} -> List (Term m) -> Term m) -> List (TT vars) -> Core (Term nv)
       finish loc kinds given mk extra = do
         let missing = drop (length given) kinds
         if null missing
@@ -262,7 +262,7 @@ mutual
           isStatic (ValueParam _ _) = False
           isStatic _ = True
 
-      call : FC -> Loc -> Name -> Maybe Shown -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term a)
+      call : FC -> Loc -> Name -> Maybe Shown -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term nv)
       call fc loc name lowered arity ty xs = do
         (kinds, _) <- classify fc ctx.owner arity ty (argValues (take arity xs))
         inst <- request fc ctx.owner name kinds
@@ -304,21 +304,21 @@ mutual
 
       -- The exit's `believe_me`, on the action: the action applied to the
       -- world, after which nothing runs.
-      exitAction : FC -> Loc -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term a)
+      exitAction : FC -> Loc -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term nv)
       exitAction fc loc arity ty xs = do
         (kinds, _) <- classify fc ctx.owner arity ty (argValues (take arity xs))
         given <- arguments loc kinds (take arity xs)
         finish loc kinds given exits (drop arity xs)
         where
-          exits : {0 b : Type} -> List (Term b) -> Term b
+          exits : {0 m : Nat} -> List (Term m) -> Term m
           exits ns = case last' ns of
             Just act => Lam loc (Held Once WorldT)
-                          (Let loc Many (App loc (map Free act) (Var loc (Bound FZ))) (Unreachable loc))
+                          (Let loc Many (App loc (weakenUnder 1 act) (Var loc FZ)) (Unreachable loc))
             Nothing => Unreachable loc
 
       -- A call of a monomorphic library function the registry names, on
       -- runtime arguments: saturated, and the ones past its arity applied.
-      libraryCall : FC -> Loc -> QName -> Core ({0 b : Type} -> List (Term b) -> Term b)
+      libraryCall : FC -> Loc -> QName -> Core ({0 m : Nat} -> List (Term m) -> Term m)
       libraryCall fc loc q = do
         def <- lookupDef fc ctx.owner (toName q)
         let PMDef _ params _ _ _ = definition def
@@ -337,7 +337,7 @@ mutual
 
       -- A function on naturals, as the primitives it means (the registry's
       -- `NatOperation`); partially applied, it is eta-expanded like a call.
-      natOperation : FC -> Loc -> Maybe Shown -> NatMeaning -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term a)
+      natOperation : FC -> Loc -> Maybe Shown -> NatMeaning -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term nv)
       natOperation fc loc lowered m arity ty xs = do
         (kinds, _) <- classify fc ctx.owner arity ty (argValues (take arity xs))
         given <- arguments loc kinds (take arity xs)
@@ -357,8 +357,8 @@ mutual
 
       -- A constructor of a `Nat`-like type is a natural: zero is 0, a
       -- successor adds 1.
-      natConstructor : FC -> Loc -> NatRole -> List PKind -> List (Term a) ->
-                       List (TT vars) -> Core (Term a)
+      natConstructor : FC -> Loc -> NatRole -> List PKind -> List (Term nv) ->
+                       List (TT vars) -> Core (Term nv)
       natConstructor fc loc Zero kinds given extra =
         finish loc kinds given (\_ => Literal loc (LNat 0)) extra
       natConstructor fc loc Succ kinds given extra = do
@@ -367,7 +367,7 @@ mutual
         finish loc kinds given
                (\xs => PrimApp loc (Op BigAdd) Nothing (Data.List.take 1 (drop i xs) ++ [Literal loc (LNat 1)])) extra
 
-      constructor : FC -> Loc -> GlobalDef -> Nat -> List (TT vars) -> Core (Term a)
+      constructor : FC -> Loc -> GlobalDef -> Nat -> List (TT vars) -> Core (Term nv)
       constructor fc loc def arity xs = do
         (kinds, resTy) <- classify fc ctx.owner arity (type def) (argValues (take arity xs))
         given <- arguments loc kinds (take arity xs)
@@ -394,7 +394,7 @@ mutual
                 _ => pure ()
             finish loc fieldKinds (fieldsOnly info.layout given) (ConApp loc cid) (drop arity xs)
 
-      primitive : FC -> Loc -> Name -> Nat -> PrimFn ar -> ClosedTerm -> List (TT vars) -> Core (Term a)
+      primitive : FC -> Loc -> Name -> Nat -> PrimFn ar -> ClosedTerm -> List (TT vars) -> Core (Term nv)
       primitive fc loc name arity op ty xs = case op of
         BelieveMe => do
           exit <- exiting
@@ -418,7 +418,7 @@ mutual
         where
           -- The primitive on the arguments its type takes, in the order its
           -- op takes them.
-          supported : Core (Term a)
+          supported : Core (Term nv)
           supported = case primOp op of
             Nothing => reject fc ctx.owner Primitive ("primitive " ++ show name)
             Just p => do
@@ -428,7 +428,7 @@ mutual
 
       -- A string built once from a list: the primitive of the one
       -- parameter, a list, which it takes at the list's own instance.
-      builderCall : FC -> Loc -> Maybe Shown -> Nat -> IdrPrim -> ClosedTerm -> List (TT vars) -> Core (Term a)
+      builderCall : FC -> Loc -> Maybe Shown -> Nat -> IdrPrim -> ClosedTerm -> List (TT vars) -> Core (Term nv)
       builderCall fc loc lowered arity p ty xs = do
         (kinds, _) <- classify fc ctx.owner arity ty []
         let [ValueParam (Held _ (DataT _)) _] = kinds
@@ -437,7 +437,7 @@ mutual
         finish loc kinds given (PrimApp loc (Op p) lowered) (drop arity xs)
 
       -- A call of the library function a foreign definition stands for.
-      aliasCall : FC -> Loc -> Maybe Shown -> QName -> List (TT vars) -> Core (Term a)
+      aliasCall : FC -> Loc -> Maybe Shown -> QName -> List (TT vars) -> Core (Term nv)
       aliasCall fc loc lowered q xs = do
         target <- lookupDef fc ctx.owner (toName q)
         let PMDef _ params _ _ _ = definition target
@@ -453,7 +453,7 @@ mutual
       -- among its operands or in its result. One that does not has no
       -- world and no `IORes` in its type, and is pure.
       ioCall : FC -> Loc -> Maybe Shown -> Nat -> IdrPrim -> List Lit -> ClosedTerm -> List (TT vars) ->
-               Core (Term a)
+               Core (Term nv)
       ioCall fc loc lowered arity p lits ty xs = do
         (kinds, resTy) <- classify fc ctx.owner arity ty []
         if primPerformsIO p
@@ -469,7 +469,7 @@ mutual
              finish loc kinds given (\ys => PrimApp loc (Op p) lowered (ys ++ map (Literal loc) lits))
                     (drop arity xs)
         where
-          beforeWorld : {0 b : Type} -> List (Term b) -> List (Term b)
+          beforeWorld : {0 m : Nat} -> List (Term m) -> List (Term m)
           beforeWorld ys = case reverse ys of
             w :: own => reverse own ++ map (Literal loc) lits ++ [w]
             [] => map (Literal loc) lits
@@ -512,7 +512,7 @@ mutual
       isRuntime (ValueParam (Held _ _) _) = True
       isRuntime _ = False
 
-      runtimeOnly : List PKind -> List (Term a) -> List (Term a)
+      runtimeOnly : List PKind -> List (Term nv) -> List (Term nv)
       runtimeOnly (k :: ks) (g :: gs) = if isRuntime k then g :: runtimeOnly ks gs else runtimeOnly ks gs
       runtimeOnly _ _ = []
 
@@ -522,7 +522,7 @@ mutual
       -- operands: those parameters, the instances of the type parameters
       -- in order, the arguments given for them, and the result type.
       arrayOperands : FC -> Loc -> Nat -> ClosedTerm -> List (TT vars) ->
-                      Core (List PKind, List Ty, List (Term a), ClosedTerm)
+                      Core (List PKind, List Ty, List (Term nv), ClosedTerm)
       arrayOperands fc loc arity ty xs = do
         (kinds, resTy) <- classify fc ctx.owner arity ty (argValues (take arity xs))
         tys <- traverse (coreType fc ctx.owner ValueType) (typeParams kinds)
@@ -535,7 +535,7 @@ mutual
           typeParams [] = []
 
       -- An array operation: IO, in the world's order.
-      arrayCall : FC -> Loc -> Nat -> IdrPrim -> ClosedTerm -> List (TT vars) -> Core (Term a)
+      arrayCall : FC -> Loc -> Nat -> IdrPrim -> ClosedTerm -> List (TT vars) -> Core (Term nv)
       arrayCall fc loc arity p ty xs = do
         (kinds, [el], given, resTy) <- arrayOperands fc loc arity ty xs
           | _ => internal fc "an array primitive without its one element type"
@@ -549,7 +549,7 @@ mutual
       -- a memref holds and a vector lane computes; at any other instance a
       -- call of the library's definition, the same loop in Idris. IO, in
       -- the world's order, like the array primitives.
-      arrayLoop : FC -> Loc -> IdrRegionPrim -> Name -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term a)
+      arrayLoop : FC -> Loc -> IdrRegionPrim -> Name -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term nv)
       arrayLoop fc loc loop name arity ty xs = do
         (kinds, tys, given, resTy) <- arrayOperands fc loc arity ty xs
         DataT res <- coreType fc ctx.owner ValueType !(normaliseClosed resTy)
@@ -565,7 +565,7 @@ mutual
           word _ = False
 
       -- The length of an array, at the element its type argument fixes.
-      arraySize : FC -> Loc -> Maybe Shown -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term a)
+      arraySize : FC -> Loc -> Maybe Shown -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term nv)
       arraySize fc loc lowered arity ty xs = do
         (kinds, [el], given, _) <- arrayOperands fc loc arity ty xs
           | _ => internal fc "an array's length without its one element type"
@@ -573,7 +573,7 @@ mutual
 
       -- A pure primitive on the call's runtime arguments, which its type
       -- fixes: a buffer's length, an index checked against a bound.
-      primCall : FC -> Loc -> Maybe Shown -> Nat -> Prim -> ClosedTerm -> List (TT vars) -> Core (Term a)
+      primCall : FC -> Loc -> Maybe Shown -> Nat -> Prim -> ClosedTerm -> List (TT vars) -> Core (Term nv)
       primCall fc loc lowered arity p ty xs = do
         (kinds, _) <- classify fc ctx.owner arity ty []
         given <- arguments loc kinds (take arity xs)
@@ -606,6 +606,6 @@ mutual
            then pure (Just (subst a sc, as)) else pure Nothing
       headStep _ _ = pure Nothing
 
-      applyAll : Loc -> Term a -> List (TT vars) -> Core (Term a)
+      applyAll : Loc -> Term nv -> List (TT vars) -> Core (Term nv)
       applyAll loc f [] = pure f
       applyAll loc f (x :: xs) = applyAll loc (App loc f !(term ctx env x)) xs

@@ -133,7 +133,6 @@ modules =
     Libraries.Data.VarSet.Core,
     Libraries.Data.Version,
     Libraries.Data.WithDefault,
-    Libraries.Decidable.Equality,
     Libraries.System.Directory.Tree,
     Libraries.Text.Bounded,
     Libraries.Text.Distance.Levenshtein,
