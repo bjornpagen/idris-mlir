@@ -68,12 +68,15 @@ translateInstance p = do
     info i (ValueParam b Nothing) = Runtime i (Just (typeOf b))
     info i (ValueParam b (Just shape)) = shaped i (typeOf b) shape
 
-||| Translates every instance requested, until none is left or a
-||| construction site voids the pass (`Dictionaries`). A rejected instance
-||| is recorded and leaves the state as it was before it, the instances it
-||| requested included, but for the rejections and what they refused: what
-||| it would have reached is reported once it is fixed, and every
-||| rejection the translation reports is independent.
+||| Translates every instance requested, until none is left. A rejected
+||| instance is recorded and leaves the state as it was before it, the
+||| instances it requested included, but for the rejections and what they
+||| refused: what it would have reached is reported once it is fixed, and
+||| every rejection the translation reports is independent. A pass that a
+||| construction site voids (`Dictionaries`) still goes on to the end: an
+||| assumption it made only left alternatives out, so all it translates is
+||| in the program, and every construction site it finds is one the next
+||| pass starts from, not only the first.
 drain : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Core ()
 drain = do
   st <- get TState
@@ -83,9 +86,7 @@ drain = do
       let before = { queue := rest } st
       put TState before
       Nothing <- noting (translateInstance p)
-        | Just () => do
-            st' <- get TState
-            unless st'.restart drain
+        | Just () => drain
       after <- get TState
       put TState ({ rejected := after.rejected, refused := after.refused, places := after.places
                   , params := after.params } before)
