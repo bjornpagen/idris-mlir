@@ -25,6 +25,7 @@ import Data.List1
 import Data.Maybe
 import Data.SortedSet
 import Data.String
+import System.Clock
 import System.File
 
 import Libraries.Data.ANameMap
@@ -48,6 +49,18 @@ write path text = do
   Right () <- coreLift (writeFile path text)
     | Left err => throw (InternalError ("cannot write " ++ path ++ ": " ++ show err))
   pure ()
+
+||| Nanoseconds on the monotonic clock.
+now : Core Integer
+now = toNano <$> coreLift (clockTime Monotonic)
+
+||| The compilation's phases and their milliseconds, one `phase<TAB>ms` line
+||| each, written at the path `--timing` names: what a compilation spends
+||| where, measured rather than guessed.
+reportTimes : Maybe String -> List (String, Integer) -> Core ()
+reportTimes Nothing _ = pure ()
+reportTimes (Just path) times =
+  write path (concatMap (\(name, ns) => name ++ "\t" ++ show (ns `div` 1000000) ++ "\n") times)
 
 ||| The registry's entries against the loaded context, once, before
 ||| anything uses them; `--break-shape` breaks the one it names.
@@ -111,8 +124,9 @@ entryPoint = do
 export
 program : {auto c : Ref Ctxt Defs} -> {auto syn : Ref Syn SyntaxInfo} ->
           (mainFile : ModuleIdent) -> (breakShape : Maybe String) ->
-          (corePath, mlirPath : String) -> Core (List Error)
-program mainFile breakShape corePath mlirPath = do
+          (timing : Maybe String) -> (corePath, mlirPath : String) -> Core (List Error)
+program mainFile breakShape timing corePath mlirPath = do
+  t0 <- now
   -- The interfaces of every module Idris loaded for the program, which
   -- Idris keeps with their syntax rather than with their definitions.
   interfaces <- SortedSet.fromList . map fst . ANameMap.toList . (.ifaces) <$> get Syn
@@ -151,10 +165,20 @@ program mainFile breakShape corePath mlirPath = do
     Just p => checkPragmas m p
     Nothing => reject fc programEntry ProgramShape
                  ("loads " ++ show m ++ ", a module of the project whose source is missing")
+  t1 <- now
   checkReachable fc [main]
+  t2 <- now
   Just prog <- translateIOProgram fc main
-    | Nothing => rejections
+    | Nothing => do
+        t3 <- now
+        reportTimes timing [("checks", t1 - t0), ("reachable", t2 - t1), ("translate", t3 - t2)]
+        rejections
+  t3 <- now
   (core, mlir) <- middle fc prog
+  t4 <- now
   write corePath core
   write mlirPath mlir
+  t5 <- now
+  reportTimes timing [ ("checks", t1 - t0), ("reachable", t2 - t1), ("translate", t3 - t2)
+                     , ("print", t4 - t3), ("write", t5 - t4) ]
   pure []
