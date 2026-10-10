@@ -49,3 +49,9 @@ keeps only what remains.
   idris-mlir, tabled search, shape arithmetic and a rewrite ladder, solvers
   that search while the kernel checks, a separate small kernel, and
   parallel elaboration, each stage measured against a baseline. Proposed.
+- [0008](0008-otel.md): OpenTelemetry for Idris, after Mercury's
+  hs-opentelemetry. Linear spans that must end exactly once, attributes
+  typed by key and generated from the semantic-conventions registry,
+  task-local context carried across fork/join and messages, a no-op
+  provider removed at compile time, per-shard buffers and metrics with no
+  atomics, and the compiler tracing its own phases. Proposed.
