@@ -195,8 +195,8 @@ mentionsMarker _ _ = False
 
 ||| The positions of a type constructor's arguments that are types and that
 ||| a value of it represents: its parameters whose kind is a universe, and
-||| which some constructor holds at runtime or names in the type of one of
-||| its arguments. Only they tell instances apart; every other argument (an
+||| which some constructor holds at runtime or names in the type of an
+||| argument it holds at runtime. Only they tell instances apart; every other argument (an
 ||| index, or a value parameter such as `Equal`'s `x`) is compile-time
 ||| information. A parameter no constructor names is a phantom (the state
 ||| thread `s` of base's `ST s a` and `STRef s a`): every type it is given
@@ -229,15 +229,17 @@ typeParams def params = case definition def of
     binders i t = ([], t)
     -- Does a constructor represent the parameter at position `p` of the
     -- type it returns: does it hold the binder there at runtime, or name it
-    -- in the type of any of its arguments? Anything but a binder there
-    -- counts.
+    -- in the type of an argument it holds at runtime? An erased argument
+    -- has no representation, whatever its type names (`Subset`'s
+    -- predicate, the type of its erased proof). Anything but a binder
+    -- there counts.
     represents : Nat -> ClosedTerm -> Bool
     represents p conTy =
       let (bs, ret) = binders 0 conTy in
       case getAt p (snd (spine ret [])) of
         Just (Ref _ _ (MN "idris-mlir-binder" k)) =>
           maybe True (not . isErased . fst) (getAt (cast k) bs) ||
-          any (mentionsMarker (cast k) . snd) bs
+          any (\(rig, a) => not (isErased rig) && mentionsMarker (cast k) a) bs
         _ => True
     -- Is a kind certainly the type of values, not a universe: a variable
     -- (`x : a`) or a data type (`n : Nat`)?
@@ -311,7 +313,7 @@ paramPositions owner n = do
 export
 outsideIndices : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                  (ClosedTerm -> Bool) -> String -> ClosedTerm -> Core Bool
-outsideIndices picks owner (Bind bfc _ (Pi _ _ _ a) sc) = do
+outsideIndices picks owner (Bind bfc _ (Pi _ rig _ a) sc) = do
   -- The argument is erased in the result: a dependency on it is one on an
   -- erased value, unless it is only an index. A quantity-0 binder of kind
   -- Type, `{0 s : Type} -> ST s Int` (the argument of base's runST), is
@@ -322,7 +324,9 @@ outsideIndices picks owner (Bind bfc _ (Pi _ _ _ a) sc) = do
   -- representation needs it, as an index or a phantom parameter
   -- (`typeParams`); anywhere else (`{0 s : Type} -> List s`) the
   -- representation would depend on it, and the type is refused.
-  inA <- outsideIndices picks owner a
+  -- An argument taken with quantity 0 is not passed: its type has no
+  -- representation, whatever it mentions (`(0 _ : IsConClause p) -> ...`).
+  inA <- if isErased rig then pure False else outsideIndices picks owner a
   inB <- outsideIndices picks owner (subst (Erased bfc Placeholder) sc)
   pure (inA || inB)
 -- A suspension of a type depends on what the type depends on: `coreType`

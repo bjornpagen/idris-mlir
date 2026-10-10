@@ -1,4 +1,4 @@
-# Handoff (2026-10-09)
+# Handoff (2026-10-10)
 
 Two independent agents, each started locally in Claude Code in a clone of
 bjornpagen/idris-mlir at `main`. Paste the prompt under each heading as
@@ -30,53 +30,40 @@ generator's format; the first `make build` regenerates them, must
 reproduce them, and refreshes their fingerprints.
 
 **Self-hosting.**
-- **Done:**
-  - the fork is in (compiler/idris, BSD-3), pruned and rewritten so the
-    compiler can compile it: no `believe_me`, `%unsafe`, `%foreign` or
-    existentials; concrete records; a function-based parser; the
-    delayed-elaboration knot cut; base-backed primitives; the context table
-    on `Linear.Array`;
-  - the frontend runs on it with byte-identical output over the 702-program
-    corpus;
-  - the frontend reports every independent rejection in one run.
-- **The first self-compile:** stage 0 (the frontend on Chez) compiling its
-  own sources gave 44 rejections:
-  - 37 "polymorphism";
-  - 6 escape hatches, in our own frontend code (`believe_me` in
-    Frontend/Driver.idr and Program.idr, `assert_smaller` in MLIR.idr and
-    Profile.idr);
-  - 1 dependent field (`CaseTree args` in Core.Context.Context).
-- **Fix round 1 is in the working tree, uncommitted** (about 44 files). Our
-  `IdrisMLIR.Term` moves from a nested datatype (`Term a` with `Under k a`)
-  to `Term n` with `Fin n` variables: still well scoped, but monomorphic.
-  The fork's traversals and Functor instances follow. Stage 0 builds with
-  it.
-- **Next:**
-  1. re-run the self-compile and the 702-program corpus comparison
-     (scratch scripts are not kept; the commands are `make fork frontend
-     prefix libs host-libs PINS=true CHECKOUT_PREFIX=<p> HOST_PREFIX=<h>`,
-     then the frontend's package mode to install compiler/idris into the
-     prefix, then `idris-mlir-front -p idris-compiler -p mlir-linear` on
-     compiler/src/IdrisMLIR/Frontend/Driver.idr);
-  2. commit what holds;
-  3. continue by cause, in this order, decided:
-     - a "polymorphism" or "dependent field" whose differing arguments are
-       only indices the representation does not depend on is fixed in the
-       compiler (instances and field types keyed by representation:
-       generalise the runST/phantom fix in
-       Frontend/Translate/{Instances,Types,Recursion}.idr);
-     - recursion through other implementations with a finite instance set
-       is fixed in the compiler (the closure computed as a fixpoint, within
-       the budgets);
-     - only genuinely growing polymorphic recursion is refactored in code;
-     - our own escape hatches are rewritten honestly.
-- **Then:**
-  - the stage chain (stage 1, 2 and 3 with the fixpoint stage 2 = stage 3 on
-    both targets);
-  - the test runner off Chez (orchestration in sh, generators compiled by
-    idris-mlir, an `--exports` query instead of the stock REPL);
-  - `tests/toolchain/static-linking` covering `idris-mlir-front`;
-  - AGENTS.md's Chez exception narrowed to stage 0 and bench.
+- **Stage 0 compiles itself (2026-10-10).** The frontend, built by the
+  stock Idris and running on Chez, compiles its own sources
+  (`IdrisMLIR/Frontend/Driver.idr` with `-p idris-compiler -p
+  mlir-linear`) with no rejection and no error: a 405 MB MLIR module of
+  58,305 functions and 7,664 data types, and its 74 MB Core, in 137 s at
+  9.1 GB peak (arm64 macOS; phases: checks 0.4 s, reachable 4.2 s,
+  translate 81 s, print 40 s, write 0.9 s). The fork installs in about
+  75 s. The 702-program corpus's outputs are byte-identical before and
+  after each change but one, by design (a type parameter named only in
+  erased fields keys no data instance: `Equal`'s).
+- **How to run it:** `make fork frontend prefix libs host-libs PINS=true
+  CHECKOUT_PREFIX=<p> HOST_PREFIX=<h>`, then the frontend's package mode
+  installs `compiler/idris` into `<p>` (`idris-mlir-front --prefix <p>
+  --install idris-compiler.ipkg` from a copy of it), then
+  `idris-mlir-front --prefix <p> -p idris-compiler -p mlir-linear
+  --timing <t> --core <c> -o <m> IdrisMLIR/Frontend/Driver.idr` from a
+  copy of `compiler/src`. Cap the Chez process's memory when running it by
+  hand: a translator bug shows as unbounded growth, not as an error.
+- **Not run:** the emitted module has not been parsed, verified or lowered:
+  that needs the C++ toolchain built with the patches the tree carries
+  (`make bootstrap`), which is not built here. So stage 1 (a native,
+  static `idris-mlir-front`), stage 2 and stage 3 (the fixpoint, stage 2 =
+  stage 3 on both targets) are next, and the new tests'
+  end-to-end runs and FileCheck with them.
+- **Then:** the test runner off Chez (orchestration in sh, generators
+  compiled by idris-mlir, an `--exports` query instead of the stock
+  REPL); `tests/toolchain/static-linking` covering `idris-mlir-front`;
+  AGENTS.md's Chez exception narrowed to stage 0 and bench; every
+  rejection message made precise (named in the user's request of
+  2026-10-10: what was found, where, why, and what form compiles);
+  emission's memory (9.1 GB for a 405 MB text module: the print-write
+  patch in the scratch audit, and R7's bytecode rule, now measurable).
+- The rewrites self-hosting forced, and the compiler features that would
+  replace the regressions among them, are proposal 0009.
 
 **Proposals** (`proposals/README.md`):
 - 0001: Rust;
@@ -85,7 +72,9 @@ reproduce them, and refreshes their fingerprints.
 - 0004: a typed APL;
 - 0005: shards;
 - 0006: flattened data;
-- 0007: the type checker.
+- 0007: the type checker;
+- 0008: OpenTelemetry;
+- 0009: the compiler features self-hosting asked for.
 
 The research behind 0004, 0006 and 0007 is in `sources/`, with reading
 notes in `sources/notes/`. Contiguous runs (one run cell for strings,

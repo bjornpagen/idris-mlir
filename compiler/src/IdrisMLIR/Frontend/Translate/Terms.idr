@@ -311,10 +311,16 @@ mutual
                   held <- packedType hs.types
                   pure (Just (fillHoles projections t, [(Just v, held, pure (Var loc v))]))
                 _ => pure Nothing
+              -- A variable that holds an implementation function
+              -- (`{y : a} -> TTC (p y)`, which `TTC (DPair a p)` takes),
+              -- applied to values: the function as written, applied.
+              (Local lfc _ idx _, args@(_ :: _)) => case getAt idx env of
+                Just (Static t Nothing) => walk next (foldl (App lfc) (embedClosed t) args)
+                _ => closedOver next x
               (Ref rfc nt n, args) => do
                 def <- lookupDef rfc ctx.owner n
                 True <- gives def
-                  | False => closedOver next x
+                  | False => reduced next rfc (Ref rfc nt n) args
                 Just (vs, found) <- parts next (type def) args
                   | Nothing => pure Nothing
                 pure (Just (foldl (App rfc) (Ref rfc nt n) vs, found))
@@ -329,6 +335,28 @@ mutual
                   | Nothing => pure Nothing
                 walk next (foldl (App mfc) tm args)
               _ => closedOver next x
+
+            -- A head applied first to compile-time values (`snd c`, a
+            -- projection of a tuple of constraints, then applied to a
+            -- runtime value): that closed part reduced as an implementation
+            -- is (`implementationOf`), and what it reduces to walked,
+            -- applied to the rest.
+            reduced : Nat -> FC -> TT vars -> List (TT vars) -> Core (Maybe (ClosedTerm, Found nv))
+            reduced next rfc h args = do
+              closedArgs <- closedPrefix args
+              let k = length closedArgs
+              let whole = foldl (App rfc) h args
+              if k == 0 || k == length args then closedOver next whole else do
+                let prefixTm = foldl (App rfc) (closeWritten afc env h) closedArgs
+                r <- implementationOf 64 prefixTm
+                if r == prefixTm then closedOver next whole
+                   else walk next (foldl (App rfc) (embedClosed r) (drop k args))
+              where
+                closedPrefix : List (TT vars) -> Core (List ClosedTerm)
+                closedPrefix [] = pure []
+                closedPrefix (a :: as) = do
+                  w <- solved (closeWritten afc env a)
+                  if !(runtimeDependent w) then pure [] else (w ::) <$> closedPrefix as
 
             -- Anything else written of implementations that close over
             -- values and of compile-time values (a projection of a tuple
@@ -795,8 +823,25 @@ mutual
     Nothing => do
       loc <- toLoc (bestFC ctx afc)
       f <- term ctx env fn
-      applyAll loc f args
+      applyTyped loc f (headType fn) args
     where
+      -- The type of a variable at the head: what its binder says.
+      headType : TT vars -> Maybe Ty
+      headType (Local _ _ idx _) = case getAt idx env of
+        Just (Runtime _ t) => t
+        Just (Shaped _ t _) => Just t
+        _ => Nothing
+      headType _ = Nothing
+
+      -- An argument the head's type takes with quantity 0 is passed
+      -- erased, not translated: it may be a proof with no runtime value
+      -- (`uncurry f s = f s.fst s.snd`, where `f` takes `(0 _ : p x)`).
+      applyTyped : Loc -> Term nv -> Maybe Ty -> List (TT vars) -> Core (Term nv)
+      applyTyped loc f _ [] = pure f
+      applyTyped loc f (Just (FunT Gone rest)) (_ :: xs) = applyTyped loc (App loc f (Erased loc)) (Just rest) xs
+      applyTyped loc f (Just (FunT _ rest)) (x :: xs) = applyTyped loc (App loc f !(term ctx env x)) (Just rest) xs
+      applyTyped loc f _ (x :: xs) = applyTyped loc (App loc f !(term ctx env x)) Nothing xs
+
       ||| An implementation applied to arguments is used as written; its type
       ||| arguments are substituted, so its body is translated at the types of
       ||| this use.

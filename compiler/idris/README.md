@@ -271,6 +271,9 @@ merge; each says what changed in its interface.
   `updateLocal` match on the variable's position, which they have at
   runtime, and not on its proof (`First`, `Later`), which is erased:
   `updateLocal` takes the proof of the next position with `dropLater`.
+  `TTImp.Elab.Check`'s `removeArgVars` drops the arguments that are the
+  first variable, by its position, and shrinks the others, which is what
+  upstream's clause for a later variable did by hand.
 
 - **Recursion at the types it is given.** This compiler makes an instance
   of a definition for each type and implementation it is given, so a

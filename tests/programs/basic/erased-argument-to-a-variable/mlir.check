@@ -1,0 +1,5 @@
+// input: emitted
+// The subset's proof is passed erased: no instance of its projection is
+// made, so nothing computes the proof at runtime.
+// CHECK-NOT: Subset.Subset.$40$.snd
+// CHECK: {idr.program}

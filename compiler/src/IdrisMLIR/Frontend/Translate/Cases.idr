@@ -21,6 +21,7 @@ import IdrisMLIR.Types
 
 import Data.Fin
 import Data.List
+import Data.String
 import Data.SortedMap
 import Data.Vect
 
@@ -193,7 +194,7 @@ mutual
   -- them, and crashes.
   tree ctx env tys (Unmatched msg) = missingCase ctx <$> toLoc ctx.fc
   tree ctx env tys Impossible = Unreachable <$> toLoc ctx.fc
-  tree ctx env tys (Case idx _ _ alts) = do
+  tree ctx env tys (Case {name} idx _ _ alts) = do
     loc <- toLoc ctx.fc
     -- What is known of the value's shape rules alternatives out.
     let shape = case getAt idx env of
@@ -249,7 +250,18 @@ mutual
         tree ctx (map (const (TypeValue (Erased ctx.fc Placeholder))) args ++ env)
              !(alternativeTypes cn (length args) tys) rhs
       forced [DefaultCase rhs] = tree ctx env tys rhs
-      forced _ = reject ctx.fc ctx.owner Match "a match on an erased value with more than one alternative"
+      forced _ = do
+        cons <- traverse altName alts
+        reject ctx.fc ctx.owner Match
+               ("a match on `" ++ show name ++ "`, which is erased (quantity 0, or an index or proof " ++
+                "with no runtime value), between " ++ joinBy ", " cons ++ ": only a runtime value can " ++
+                "choose an alternative; match on the runtime value that determines it instead")
+        where
+          altName : CaseAlt vars -> Core String
+          altName (ConCase cn _ _ _) = show <$> toFullNames cn
+          altName (ConstCase c _) = pure (show c)
+          altName (DelayCase {}) = pure "Delay"
+          altName (DefaultCase _) = pure "the default"
 
   ||| A match on a `Nat`-like value: zero, or a successor binding the
   ||| predecessor. The default stands for whichever the tree leaves out.
