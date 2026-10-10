@@ -189,17 +189,23 @@ record TS where
   ||| the module's name: facts of the module, found once each
   ||| (`Errors.toLoc`), which no pass and no rejection changes.
   places : SortedMap String (Origin, String)
+  ||| Each type constructor's parameters and the type parameters among
+  ||| them a value represents (`Types.paramsOf`), by `nameKey`: facts of
+  ||| its definition, found once each.
+  params : SortedMap String (List Nat, List Nat)
 
 export
 initState : SortedSet Name -> FC -> TS
-initState ifaces fc = MkTS empty [<] empty empty empty [<] empty emptyQueue fc empty empty empty empty empty empty False Nothing empty ifaces [<] empty empty empty
+initState ifaces fc = MkTS empty [<] empty empty empty [<] empty emptyQueue fc empty empty empty empty empty empty False Nothing empty ifaces [<] empty empty empty empty
 
 ||| The state a pass of the translation starts from: nothing of the last
 ||| pass but the dictionaries it found, the interfaces, the rejections and
-||| what they refused, and the modules' places. A void pass's rejections
+||| what they refused, and what it found of modules and type constructors
+||| (`places`, `params`). A void pass's rejections
 ||| stay: the first one found is the one the program is refused with,
 ||| whichever pass found it.
 export
 nextPass : TS -> TS
-nextPass st = { dicts := st.dicts, rejected := st.rejected, refused := st.refused, places := st.places }
+nextPass st = { dicts := st.dicts, rejected := st.rejected, refused := st.refused, places := st.places
+               , params := st.params }
                 (initState st.interfaces st.moduleFC)

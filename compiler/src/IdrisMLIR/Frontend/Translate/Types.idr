@@ -203,10 +203,9 @@ mentionsMarker _ _ = False
 ||| has values of one representation, so one instance serves them all, and
 ||| a type abstraction over it, `{0 s : Type} -> ST s Int`, is a value of
 ||| that one instance once applied to whatever type.
-typeParams : {auto c : Ref Ctxt Defs} -> GlobalDef -> Core (List Nat)
-typeParams def = case definition def of
+typeParams : {auto c : Ref Ctxt Defs} -> GlobalDef -> List Nat -> Core (List Nat)
+typeParams def params = case definition def of
   TCon arity _ _ _ _ cons _ => do
-    params <- dataParams def
     defs <- get Ctxt
     -- A record's parameter kinds may be solved metavariables, and a type
     -- may be declared through a definition of its kind (`data CaseTree :
@@ -252,13 +251,27 @@ typeParams def = case definition def of
     kinds (Bind _ _ (Pi _ _ _ a) sc) = valueKind a :: kinds sc
     kinds _ = []
 
+||| A type constructor's parameters (`dataParams`) and the type parameters
+||| among them (`typeParams`), found once per type constructor (`params`).
+paramsOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+             GlobalDef -> Core (List Nat, List Nat)
+paramsOf def = do
+  let key = nameKey (fullname def)
+  case lookup key (!(get TState)).params of
+    Just known => pure known
+    Nothing => do
+      ps <- dataParams def
+      ts <- typeParams def ps
+      update TState { params $= insert key (ps, ts) }
+      pure (ps, ts)
+
 ||| The type arguments of a type constructor, and its arity.
 paramPositions : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                  String -> Name -> Core (Maybe (Nat, List Nat))
 paramPositions owner n = do
   def <- lookupDef EmptyFC owner n
   case definition def of
-    TCon arity _ _ _ _ _ _ => pure (Just (arity, !(typeParams def)))
+    TCon arity _ _ _ _ _ _ => pure (Just (arity, snd !(paramsOf def)))
     _ => pure Nothing
 
 ||| Does a type mention what the test picks other than as an index of an
@@ -474,7 +487,7 @@ mutual
     let tname = show (fullname def)
     -- An index is compile-time information; instances differ by
     -- their parameters only.
-    keep <- typeParams def
+    (params, keep) <- paramsOf def
     args <- traverse (\(i, a) => if elem i keep then eraseIndices owner a
                                   else pure (Erased EmptyFC Placeholder))
                      (zip [0 .. length args0] args0)
@@ -485,7 +498,6 @@ mutual
     if isJust (lookup inst st.datas) || contains inst st.building then pure inst else do
       TCon arity _ _ _ _ datacons _ <- pure (definition def)
         | _ => reject fc owner ValueType (tname ++ " is not a data type")
-      params <- dataParams def
       let Just datacons = datacons
         | Nothing => reject fc owner DataType (tname ++ " has no known constructors")
       put TState ({ building $= insert inst } st)
