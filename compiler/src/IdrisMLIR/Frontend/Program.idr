@@ -8,6 +8,7 @@ import Core.Context
 import Core.Core
 import Core.Directory
 import Core.TT
+import Idris.Syntax
 
 import IdrisMLIR.Emit
 import IdrisMLIR.Ids
@@ -22,9 +23,11 @@ import IdrisMLIR.Registry.Primitives
 import Data.List
 import Data.List1
 import Data.Maybe
+import Data.SortedSet
 import Data.String
 import System.File
 
+import Libraries.Data.ANameMap
 import Libraries.Data.WithDefault
 import Libraries.Utils.Path
 
@@ -101,18 +104,21 @@ entryPoint = do
 ||| names the module `mainFile`, into the Core at `corePath` and the module
 ||| at `mlirPath`.
 export
-program : {auto c : Ref Ctxt Defs} ->
+program : {auto c : Ref Ctxt Defs} -> {auto syn : Ref Syn SyntaxInfo} ->
           (mainFile : ModuleIdent) -> (breakShape : Maybe String) ->
           (corePath, mlirPath : String) -> Core ()
 program mainFile breakShape corePath mlirPath = do
+  -- The interfaces of every module Idris loaded for the program, which
+  -- Idris keeps with their syntax rather than with their definitions.
+  interfaces <- SortedSet.fromList . map fst . ANameMap.toList . (.ifaces) <$> get Syn
   -- Until main is found, an error is at the main file.
-  s <- newRef TState (initState (MkFC (PhysicalIdrSrc mainFile) (0, 0) (0, 0)))
+  s <- newRef TState (initState interfaces (MkFC (PhysicalIdrSrc mainFile) (0, 0) (0, 0)))
   (main, mainIdent) <- entryPoint
   defs <- get Ctxt
   Just mainDef <- lookupCtxtExact main (gamma defs)
     | Nothing => internal EmptyFC "main has no definition"
   let fc = location mainDef
-  put TState (initState fc)
+  put TState (initState interfaces fc)
   validated breakShape fc
   -- Every module of the project's is one with source, whose pragmas are
   -- checked. The main file's module is loaded from its TTC as the module of

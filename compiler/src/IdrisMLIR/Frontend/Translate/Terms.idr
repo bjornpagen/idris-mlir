@@ -578,7 +578,7 @@ mutual
         (kinds, _) <- classify fc ctx.owner arity ty []
         given <- arguments loc kinds (take arity xs)
         finish loc kinds given (PrimApp loc p lowered) (drop arity xs)
-  application ctx env afc fn args = case headStep fn args of
+  application ctx env afc fn args = case !(headStep fn args) of
     Just (h, as) => let (h', as') = spine h [] in application ctx env afc h' (as' ++ as)
     Nothing => do
       loc <- toLoc (bestFC ctx afc)
@@ -594,16 +594,17 @@ mutual
         _ => False
       staticArg _ = False
 
-      headStep : TT vars -> List (TT vars) -> Maybe (TT vars, List (TT vars))
+      headStep : TT vars -> List (TT vars) -> Core (Maybe (TT vars, List (TT vars)))
       headStep (Local _ _ idx _) as = case getAt idx env of
-        Just (Static t) => Just (embedClosed t, as)
-        _ => Nothing
+        Just (Static t) => pure (Just (embedClosed t, as))
+        _ => pure Nothing
       -- A lambda over an implementation (`\@{m} => ...`, as a dictionary's
       -- polymorphic method field is written) takes it as written, like a
       -- type: it is a compile-time value.
-      headStep (Bind _ _ (Lam _ rig pinfo _) sc) (a :: as) =
-        if isErased rig || isAuto pinfo || staticArg a then Just (subst a sc, as) else Nothing
-      headStep _ _ = Nothing
+      headStep (Bind _ _ (Lam _ rig _ ty) sc) (a :: as) =
+        if isErased rig || staticArg a || !(dictionaryBinder rig ty)
+           then pure (Just (subst a sc, as)) else pure Nothing
+      headStep _ _ = pure Nothing
 
       applyAll : Loc -> Term a -> List (TT vars) -> Core (Term a)
       applyAll loc f [] = pure f

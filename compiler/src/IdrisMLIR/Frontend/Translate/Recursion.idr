@@ -92,7 +92,7 @@ mutual
 
 ||| The positions of a definition's type or implementation arguments, which
 ||| key its instances.
-staticPositions : {auto c : Ref Ctxt Defs} -> Name -> Core (List Nat)
+staticPositions : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> Core (List Nat)
 staticPositions n = do
   defs <- get Ctxt
   Just def <- lookupCtxtExact n (gamma defs)
@@ -100,11 +100,11 @@ staticPositions n = do
   go 0 (type def)
   where
     go : Nat -> TT vars -> Core (List Nat)
-    go i (Bind _ _ (Pi _ rig pinfo a) sc) = do
+    go i (Bind _ _ (Pi _ rig _ a) sc) = do
       -- As `classify` decides: an erased argument is a compile-time value
-      -- only when it is a type.
-      static <- if isErased rig then pure (isTypeLike a)
-                else if isAuto pinfo then pure True else interfaceType a
+      -- only when it is a type, any other only when it is an
+      -- implementation.
+      static <- if isErased rig then pure (isTypeLike a) else dictionaryBinder rig a
       rest <- go (S i) sc
       pure (if static then i :: rest else rest)
     go _ _ = pure []

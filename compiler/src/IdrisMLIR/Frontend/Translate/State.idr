@@ -18,9 +18,9 @@ import Data.SortedSet
 %default covering
 
 ||| Parameter classification after instantiation (`Instances.classify`). A
-||| type parameter and an implementation (an auto-implicit argument, such as
-||| an interface constraint) are compile-time values: they key the instance
-||| and are erased at runtime. Any other parameter binds as its binder says;
+||| type parameter and an implementation (a value of an interface's type,
+||| such as an interface constraint) are compile-time values: they key the
+||| instance and are erased at runtime. Any other parameter binds as its binder says;
 ||| when the rest of the type depends on its value, the shape of its
 ||| argument keys the instance too.
 public export
@@ -139,13 +139,19 @@ record TS where
   ||| How each instance came to be: the chain back to the user definition
   ||| it serves, and to the instances of its own definition it comes from.
   requesters : SortedMap FnId Request
+  ||| The type constructors of the interfaces the program loaded, by full
+  ||| name: Idris's own table of them, read once, since nothing the
+  ||| translation does declares one. An implementation is a value of one
+  ||| of these types, or of a pair of or a function to such values
+  ||| (`Types.implementationType`).
+  interfaces : SortedSet Name
 
 export
-initState : FC -> TS
-initState fc = MkTS empty [<] empty empty empty [<] empty [] fc empty empty empty empty empty empty False Nothing empty
+initState : SortedSet Name -> FC -> TS
+initState ifaces fc = MkTS empty [<] empty empty empty [<] empty [] fc empty empty empty empty empty empty False Nothing empty ifaces
 
 ||| The state a pass of the translation starts from: nothing of the last
-||| pass but the dictionaries it found.
+||| pass but the dictionaries it found, and the interfaces.
 export
 nextPass : TS -> TS
-nextPass st = { dicts := st.dicts } (initState st.moduleFC)
+nextPass st = { dicts := st.dicts } (initState st.interfaces st.moduleFC)

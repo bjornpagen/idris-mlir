@@ -199,7 +199,7 @@ classify : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
            FC -> String -> Nat -> ClosedTerm -> ArgValues ->
            Core (List PKind, ClosedTerm)
 classify fc owner Z ty _ = pure ([], ty)
-classify fc owner (S k) (Bind bfc _ (Pi _ rig pinfo a) sc) vals = do
+classify fc owner (S k) (Bind bfc _ (Pi _ rig _ a) sc) vals = do
   a' <- normaliseClosed a
   if isErased rig && isTypeLike a'
      then do
@@ -212,7 +212,7 @@ classify fc owner (S k) (Bind bfc _ (Pi _ rig pinfo a) sc) vals = do
        then do
          (rest, res) <- classify fc owner k (subst (Erased bfc Placeholder) sc) (skip vals)
          pure (ValueParam Gone Nothing :: rest, res)
-     else if !(dictionaryBinder rig pinfo a') || maybe False (.dictionary) (fst (nextStatic vals))
+     else if !(dictionaryBinder rig a') || maybe False (.dictionary) (fst (nextStatic vals))
        then do
          let (Just v, vals') = nextStatic vals
            | _ => reject fc owner StaticArgument "an implementation that is not known statically"

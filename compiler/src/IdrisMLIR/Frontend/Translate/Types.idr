@@ -363,37 +363,51 @@ natLike def = case definition def of
     pure (not (null roles) && all isJust roles)
   _ => pure False
 
+||| Is a type the type of implementations, whatever binds a value of it?
+||| Idris passes a function's constraints to its `where` functions and its
+||| case and with blocks as explicit arguments, so the binder does not say.
+||| An implementation is a value of an interface, which is what Idris
+||| declared as one, in its table of interfaces (`TS.interfaces`); of a
+||| pair of implementations, which is how Idris gives a tuple of
+||| constraints (`(Show a, Show b) => Show (a, b)`), each one found by
+||| search: its pair type (`%pair`) is the one Idris's search takes apart;
+||| or of a function to an implementation, a constraint over the values of
+||| its arguments (`{y : a} -> Show (p y)`, which `Show (DPair a p)` takes).
+||| A type whose values Idris finds by search is not an interface for that:
+||| an auto-implicit argument of any other type (`{auto c : Ref Ctxt
+||| Defs}`, a proof Idris searches for) is an ordinary argument, and any
+||| data type may ask for the unique search an interface's record has
+||| (`[uniqueSearch]`).
 export
-isAuto : PiInfo t -> Bool
-isAuto AutoImplicit = True
-isAuto _ = False
-
-||| Is a type an interface, whatever binds a value of it? Idris declares an
-||| interface's record with unique search (`uniqueAuto`), and passes a
-||| function's constraints to its `where` functions and its case and with
-||| blocks as explicit arguments.
-export
-interfaceType : {auto c : Ref Ctxt Defs} -> TT vars -> Core Bool
-interfaceType ty = case spine ty [] of
-  (Ref _ (TyCon _) n, _) => do
+implementationType : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+                     TT vars -> Core Bool
+implementationType (Bind _ _ (Pi {}) sc) = implementationType sc
+implementationType ty = case spine ty [] of
+  (Ref _ (TyCon _) n, args) => do
     defs <- get Ctxt
     Just def <- lookupCtxtExact n (gamma defs)
       | Nothing => pure False
-    case definition def of
-      TCon _ _ _ flags _ _ _ => pure flags.uniqueAuto
-      _ => pure False
+    st <- get TState
+    if contains (fullname def) st.interfaces then pure True else
+      case args of
+        [a, b] => do
+          False <- isPairType (fullname def)
+            | True => do
+                first <- implementationType a
+                if first then implementationType b else pure False
+          pure False
+        _ => pure False
   _ => pure False
 
-||| Does a binder of this quantity, kind and (normalised) type bind an
-||| implementation: a value found by search (an interface constraint, a
-||| proof Idris searches for) or of an interface's type? The same answer
-||| classifies a function's parameters (`classify`) and a constructor's
-||| fields (`dataInstance`), so that what a construction site passes as a
+||| Does a binder of this quantity and (normalised) type bind an
+||| implementation (`implementationType`)? The same answer classifies a
+||| function's parameters (`classify`) and a constructor's fields
+||| (`dataInstance`), so that what a construction site passes as a
 ||| compile-time value, the constructor holds as one.
 export
-dictionaryBinder : {auto c : Ref Ctxt Defs} -> RigCount -> PiInfo (TT vars) -> TT vars -> Core Bool
-dictionaryBinder rig pinfo ty =
-  if isErased rig then pure False else if isAuto pinfo then pure True else interfaceType ty
+dictionaryBinder : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+                   RigCount -> TT vars -> Core Bool
+dictionaryBinder rig ty = if isErased rig then pure False else implementationType ty
 
 mutual
   ||| The Core type of a closed, normalised type. A type that has no runtime
@@ -479,12 +493,12 @@ mutual
              Core (List (Binder, Maybe ClosedTerm))
       walk cname dfc targs (Just p :: ls) (Bind bfc _ (Pi {}) sc) =
         walk cname dfc targs ls (subst (fromMaybe (Erased bfc Placeholder) (getAt p targs)) sc)
-      walk cname dfc targs (Nothing :: ls) (Bind bfc _ (Pi _ rig pinfo a) sc) = do
+      walk cname dfc targs (Nothing :: ls) (Bind bfc _ (Pi _ rig _ a) sc) = do
         field <- if isErased rig then pure (Gone, Nothing) else do
           a' <- normaliseClosed a
           -- An implementation is a compile-time value of the instance, not
           -- a runtime field (`Dictionaries`).
-          if !(dictionaryBinder rig pinfo a') then pure (Gone, Just a') else do
+          if !(dictionaryBinder rig a') then pure (Gone, Just a') else do
             when !(erasedOutsideIndices cname a') $
               reject dfc cname DependentField ("a field type that depends on another field: " ++ !(showTT a'))
             t <- coreType dfc cname DependentField a'
