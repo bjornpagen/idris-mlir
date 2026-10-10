@@ -226,9 +226,10 @@ jobs=$((memory_kib / 5242880))
 if [ "$jobs" -gt "$cores" ]; then jobs=$cores; fi
 if [ "$jobs" -lt 1 ]; then jobs=1; fi
 
-# ccache, the compiler launcher of every CMake build of LLVM's code (stage
-# 1, the runtimes, stage 2), when there is one: a rebuild after a patch, a
-# pin move or a failed run recompiles only what changed. It is no input of
+# ccache, the compiler launcher of every C and C++ compile the steps run
+# (CMake, Ninja, stage 1, musl, the runtimes, stage 2, GMP, Chez), when
+# there is one: a rebuild after a patch, a pin move or a failed run
+# recompiles only what changed. It is no input of
 # any step, since it does not change what a step builds. Its cache lives
 # with the toolchain, and paths under the toolchain directory are hashed
 # relative to it. The patched llvm-project is written just before it is
@@ -250,6 +251,14 @@ fi
 ccache_flags() {
   [ -z "$ccache" ] ||
     printf '%s\n' "-DCMAKE_C_COMPILER_LAUNCHER=$ccache" "-DCMAKE_CXX_COMPILER_LAUNCHER=$ccache"
+}
+
+# ccache_cc VARIABLE COMPILER: the launcher, for a configure that names its
+# compiler in a variable (VARIABLE=COMPILER, as the step's recipe gives
+# it): the same assignment behind ccache, which, coming after the recipe's,
+# is the one the configure keeps. Nothing without ccache.
+ccache_cc() {
+  [ -z "$ccache" ] || printf '%s\n' "$1=$ccache $2"
 }
 # lock_get TOOL KEY: a string of toolchain.lock.json (one field per line).
 lock_get() {
@@ -1122,7 +1131,7 @@ step_cmake() {
   need git make "$host_cc" "$host_cxx"
   build_dir
   clone_pinned cmake "$build/src"
-  eval "set -- $(args_cmake | quote_lines)"
+  eval "set -- $({ args_cmake; ccache_flags; } | quote_lines)"
   run configure in_dir "$build/src" env "CC=$host_cc" "CXX=$host_cxx" ./bootstrap "--parallel=$jobs" "$@"
   run build in_dir "$build/src" make -j "$jobs"
   rm -rf "$cmake_prefix"
@@ -1140,7 +1149,7 @@ step_ninja() {
   need git make "$host_cc" "$host_cxx"
   build_dir
   clone_pinned ninja "$build/src"
-  eval "set -- $(args_ninja | quote_lines)"
+  eval "set -- $({ args_ninja; ccache_flags; } | quote_lines)"
   run configure "$cmake" -S "$build/src" -B "$build/out" "$@"
   run build "$cmake" --build "$build/out" --parallel "$jobs"
   rm -rf "$ninja_prefix"
@@ -1224,7 +1233,7 @@ libc_musl() {
   fi
   export_source "$root/third_party/musl" "$build/src"
   mkdir -p "$build/out"
-  eval "set -- $(args_musl | quote_lines)"
+  eval "set -- $({ args_musl; ccache_cc CC "$stage1/bin/clang"; } | quote_lines)"
   run configure in_dir "$build/out" "$build/src/configure" "$@"
   run build in_dir "$build/out" make -j "$jobs"
   run install in_dir "$build/out" make install "DESTDIR=$sysroot"
@@ -1392,7 +1401,7 @@ step_gmp() {
   build_dir
   export_source "$root/third_party/gmp" "$build/src"
   mkdir -p "$build/out"
-  eval "set -- $(args_gmp | quote_lines)"
+  eval "set -- $({ args_gmp; ccache_cc CC "$llvm_prefix/bin/clang --target=$triple"; } | quote_lines)"
   run configure in_dir "$build/out" "$build/src/configure" "$@"
   run build in_dir "$build/out" make -j "$jobs"
   run "check (GMP's tests)" in_dir "$build/out" make -j "$jobs" check
@@ -1423,7 +1432,7 @@ step_chez() {
   chez_changes=$(git -C "$build/src" status --porcelain --untracked-files=no) || die "git status failed in $build/src"
   [ -z "$chez_changes" ] || die "$build/src or its submodules differ from the pinned commit's gitlinks"
   apply_patches chez "$build/src"
-  eval "set -- $(args_chez | quote_lines)"
+  eval "set -- $({ args_chez; ccache_cc CC "$host_cc"; } | quote_lines)"
   run configure in_dir "$build/src" ./configure "$@" "--installprefix=$chez_prefix"
   run build in_dir "$build/src" make -j "$jobs"
   rm -rf "$chez_prefix"
