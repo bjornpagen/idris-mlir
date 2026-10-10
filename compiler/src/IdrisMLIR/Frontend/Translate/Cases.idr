@@ -225,7 +225,7 @@ mutual
         if any isConCase alts then natCase ctx env tys shape loc i alts else literals loc i
       Just (Runtime i (Just _)) => literals loc i
       -- A match on an implementation selects its alternative now.
-      Just (Static t) => staticCase ctx env tys t alts
+      Just (Static t hole) => staticCase ctx env tys t hole alts
       _ => internal ctx.fc "a match on a compile-time value"
     where
       -- A shaped value is matched as a runtime value of its type.
@@ -307,9 +307,12 @@ mutual
 
   ||| A match on a compile-time value: the implementation is reduced to its
   ||| constructor, and the alternative's variables stand for its arguments.
+  ||| An argument that mentions the runtime value the implementation closes
+  ||| over closes over it too.
   staticCase : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-               Ctx -> List (VarInfo (Fin nv)) -> List (Maybe Typed) -> ClosedTerm -> List (CaseAlt vars) -> Core (Term nv)
-  staticCase ctx env tys t alts = do
+               Ctx -> List (VarInfo (Fin nv)) -> List (Maybe Typed) -> ClosedTerm -> Maybe (Fin nv, Holes) ->
+               List (CaseAlt vars) -> Core (Term nv)
+  staticCase ctx env tys t hole alts = do
     Just (cn, cargs) <- whnf 64 t
       | Nothing => do reject ctx.fc ctx.owner RuntimeClosure
                         ("an implementation that does not reduce to its constructor: " ++ !(showTT t))
@@ -319,7 +322,7 @@ mutual
     where
       info : Bool -> ClosedTerm -> VarInfo (Fin nv)
       info True v = TypeValue v
-      info False v = Static v
+      info False v = Static v (if mentionsHole v then hole else Nothing)
       pick : Name -> List (VarInfo (Fin nv)) -> List (CaseAlt vars) -> Core (Term nv)
       pick cn infos (ConCase k _ args rhs :: rest) = do
         k <- toFullNames k
@@ -358,7 +361,7 @@ mutual
       Just impls => if dead then Unreachable <$> toLoc ctx.fc else do
         let shapes = fieldsOnly info.layout (shapeArgs shape)
         let fields = zipWith (\i, f => case (Data.List.lookup i impls, f, getAt i shapes) of
-                                         (Just impl, _, _) => Static impl
+                                         (Just impl, _, _) => Static impl Nothing
                                          (Nothing, Runtime x (Just t), Just s) => shaped x t s
                                          _ => f)
                              [0 .. length bs] (fieldInfos {nv} bs)

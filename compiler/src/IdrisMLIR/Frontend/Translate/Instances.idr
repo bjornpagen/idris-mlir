@@ -116,19 +116,22 @@ request fc owner n kinds = do
 ||| type, as written for an implementation. `dictionary` says the argument is
 ||| an implementation known at compile time, whatever binds it: Idris passes
 ||| an enclosing function's constraints to its case and with blocks as
-||| explicit arguments.
+||| explicit arguments. `holed` is the argument as an implementation that
+||| closes over runtime values (`Terms.holed`): its form with a marker for
+||| each value (`holeMarker`), and the values' types, by marker.
 public export
 record ArgValue where
   constructor MkArgValue
   normalised : Core ClosedTerm
   written : Core ClosedTerm
   dictionary : Bool
+  holed : Core (Maybe (ClosedTerm, List ClosedTerm))
 
 ||| A compile-time argument as the instance's call classified it: the
 ||| value, and whether it is an implementation.
 export
 known : ClosedTerm -> Bool -> ArgValue
-known t dict = MkArgValue (pure t) (pure t) dict
+known t dict = MkArgValue (pure t) (pure t) dict (pure Nothing)
 
 ||| The arguments of a call by position: `Nothing` for a runtime argument of
 ||| an instance.
@@ -144,7 +147,8 @@ givenArgs = map given
   where
     given : PKind -> Maybe ArgValue
     given (TypeParam t) = Just (known t False)
-    given (DictParam t) = Just (known t True)
+    given (DictParam t Nothing) = Just (known t True)
+    given (DictParam t (Just h)) = Just ({ holed := pure (Just (t, h.types)) } (known t True))
     given (ValueParam _ shape) = (\t => known t False) <$> shape
 
 nextStatic : ArgValues -> (Maybe ArgValue, ArgValues)
@@ -225,12 +229,25 @@ classify fc owner (S k) (Bind bfc _ (Pi _ rig _ a) sc) vals = do
          -- once the projections and applications that lead to it are
          -- reduced; one that still needs the value is chosen at runtime.
          val <- if !(runtimeDependent written) then implementationOf 64 written else pure written
+         -- One that a definition gives without matching on a runtime value
+         -- it closes over (`{vars : _} -> Show (Term vars)`) is chosen now
+         -- all the same, and only the value is passed at runtime.
+         dependent <- runtimeDependent val
+         hole <- the (Core (Maybe (ClosedTerm, List ClosedTerm))) (if dependent then v.holed else pure Nothing)
          -- The message is made in its own `do`: a `!` lifts to its
          -- statement, and would make it whether or not it is needed.
-         when !(runtimeDependent val) $ do
+         when (dependent && isNothing hole) $ do
            reject fc owner RuntimeClosure ("an implementation chosen at runtime: " ++ !(showTT val))
-         (rest, res) <- classify fc owner k !(normaliseClosed (subst val sc)) vals'
-         pure (DictParam val :: rest, res)
+         key <- case hole of
+                  Just (shape, _) => implementationOf 64 shape
+                  Nothing => pure val
+         holes <- case hole of
+                    Just (_, tys) => do
+                      held <- coreType fc owner ValueType !(normaliseClosed !(packedType tys))
+                      pure (Just (MkHoles tys (Held Many held)))
+                    Nothing => pure Nothing
+         (rest, res) <- classify fc owner k !(normaliseClosed (subst key sc)) vals'
+         pure (DictParam key holes :: rest, res)
        else do
          when !(erasedOutsideIndices owner a') $ do
            reject fc owner ValueType ("a parameter type that depends on another argument: " ++ !(showTT a'))

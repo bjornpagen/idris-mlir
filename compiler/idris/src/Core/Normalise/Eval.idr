@@ -253,10 +253,10 @@ parameters (defs : Defs) (topopts : EvalOpts)
                   (idx : Nat) -> (0 p : IsVar nm idx (vars ++ free)) ->
                   LocalEnv free vars -> NF free ->
                   LocalEnv free vars
-    updateLocal opts env Z First (x :: locs) nf
+    updateLocal opts env Z _ (x :: locs) nf
         = MkNFClosure opts env nf :: locs
-    updateLocal opts env (S idx) (Later p) (x :: locs) nf
-        = x :: updateLocal opts env idx p locs nf
+    updateLocal opts env (S idx) p (x :: locs) nf
+        = x :: updateLocal opts env idx (dropLater p) locs nf
     updateLocal _ _ _ _ locs nf = locs
 
     evalMeta : {auto c : Ref Ctxt Defs} ->
@@ -299,13 +299,22 @@ parameters (defs : Defs) (topopts : EvalOpts)
                   | Nothing => do logC "eval.stuck.outofscope" 5 $ do n' <- toFullNames n
                                                                       pure $ "Stuck function: " ++ show n'
                                   pure def
-             let redok1 = evalAll topopts || (evalTypes topopts && computesType (type res))
+             redok1 <- if evalAll topopts then pure True
+                          else if evalTypes topopts then computesType 8 (type res)
+                          else pure False
              let redok2 = reducibleInAny (currentNS defs :: nestedNS defs)
                                          (fullname res)
                                          (collapseDefault $ visibility res)
              -- want to shortcut that second check, if we're evaluating
              -- everything, so don't let bind unless we need that log!
-             let redok = redok1 || redok2
+             -- Normalising a type, an implementation stays as it is
+             -- written, which is the value a type holds: unfolded, it is a
+             -- record of its methods, each quoting every implementation it
+             -- is built of unfolded again, which multiplies at each level of
+             -- nesting. A match that takes it apart unfolds it (`evalTree`).
+             folded <- if evalTypes topopts && not (evalAll topopts) && (redok1 || redok2)
+                          then implementationDef res else pure False
+             let redok = (redok1 || redok2) && not folded
              checkTimer -- If we're going to time out anywhere, it'll be
                         -- when evaluating something recursive, so this is a
                         -- good place to check
@@ -324,12 +333,38 @@ parameters (defs : Defs) (topopts : EvalOpts)
                    pure nf
                 else pure def
 
+    -- Is a definition an implementation: is its type, after its
+    -- arguments, an interface's, the record type declared with a unique
+    -- search?
+    implementationDef : {auto c : Ref Ctxt Defs} -> GlobalDef -> Core Bool
+    implementationDef res = case resultType (type res) of
+        Just tn => do
+          Just tdef <- lookupCtxtExact tn (gamma defs)
+            | Nothing => pure False
+          case definition tdef of
+            TCon _ _ _ flags _ _ _ => pure (uniqueAuto flags)
+            _ => pure False
+        Nothing => pure False
+      where
+        resultType : Term vs -> Maybe Name
+        resultType (Bind _ _ (Pi {}) sc) = resultType sc
+        resultType tm = case getFn tm of
+          Ref _ (TyCon _) tn => Just tn
+          _ => Nothing
+
     -- Is a definition's type a universe, after its arguments: does it
-    -- compute a type?
-    computesType : Term vs -> Bool
-    computesType (TType _ _) = True
-    computesType (Bind _ _ (Pi {}) sc) = computesType sc
-    computesType _ = False
+    -- compute a type? Through the names the type is written with, as far
+    -- as a depth: `VarSet : Scoped` is `Scope -> Type`.
+    computesType : {auto c : Ref Ctxt Defs} -> Nat -> Term vs -> Core Bool
+    computesType _ (TType _ _) = pure True
+    computesType d (Bind _ _ (Pi {}) sc) = computesType d sc
+    computesType (S d) (Ref _ Func n) = do
+      Just def <- lookupCtxtExact n (gamma defs)
+        | Nothing => pure False
+      case definition def of
+        PMDef _ [] (STerm _ tm) _ _ => computesType d tm
+        _ => pure False
+    computesType _ _ = pure False
 
     -- TODO note the list of closures is stored RTL
     getCaseBound : List (Closure free) ->
@@ -446,7 +481,7 @@ parameters (defs : Defs) (topopts : EvalOpts)
                Stack free -> CaseTree args ->
                Core (CaseResult (TermWithEnv free))
     evalTree env loc opts fc stk (Case {name} idx x _ alts)
-      = do xval <- evalLocal env fc Nothing idx (embedIsVar x) [] loc
+      = do xval <- unfolded env !(evalLocal env fc Nothing idx (embedIsVar x) [] loc)
            -- we have not defined quote yet (it depends on eval itself) so we show the NF
            -- i.e. only the top-level constructor.
            logC "eval.casetree" 5 $ do
@@ -457,6 +492,21 @@ parameters (defs : Defs) (topopts : EvalOpts)
     evalTree env loc opts fc stk (STerm _ tm)
           = pure (Result $ MkTermEnv loc $ embed tm)
     evalTree env loc opts fc stk _ = pure GotStuck
+
+    -- An implementation that normalising a type keeps folded (`evalRef`),
+    -- unfolded where a match takes it apart, as `evalRef` would otherwise.
+    unfolded : {auto c : Ref Ctxt Defs} -> {free : _} -> Env Term free -> NF free -> Core (NF free)
+    unfolded env val@(NApp fc (NRef Func n) args)
+      = if not (evalTypes topopts) || evalAll topopts then pure val else do
+          Just res <- lookupCtxtExact n (gamma defs)
+            | Nothing => pure val
+          True <- implementationDef res
+            | False => pure val
+          let True = reducibleInAny (currentNS defs :: nestedNS defs) (fullname res)
+                                    (collapseDefault $ visibility res)
+            | False => pure val
+          evalDef env topopts False fc (multiplicity res) (definition res) (flags res) args val
+    unfolded env val = pure val
 
     -- Take arguments from the stack, as long as there's enough.
     -- Returns the arguments, and the rest of the stack

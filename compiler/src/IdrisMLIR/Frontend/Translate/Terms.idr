@@ -105,6 +105,22 @@ loopTerm loc ArrayFold tys res [arr, z, f, w] =
               (Var loc (FS FZ))) res
 loopTerm loc _ _ _ _ = Unreachable loc
 
+||| The runtime values an implementation closes over, as `holed` finds them:
+||| the variable that holds each, when one does, its type, and its
+||| translation.
+Found : Nat -> Type
+Found nv = List (Maybe (Fin nv), ClosedTerm, Core (Term nv))
+
+||| A value `holed` found, by the order it found them in, before the values
+||| one variable holds are made one.
+foundMarker : Nat -> ClosedTerm
+foundMarker i = Ref EmptyFC Bound (MN "idris-mlir-hole-found" (cast i))
+
+||| The parameter that holds the values an implementation closes over, where
+||| the implementation is translated.
+heldName : Name
+heldName = MN "idris-mlir-held" 0
+
 mutual
   export
   term : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
@@ -115,7 +131,14 @@ mutual
       Just (Runtime x _) => pure (Var loc x)
       Just (Shaped x _ _) => pure (Var loc x)
       Just (TypeValue _) => pure (Erased loc)
-      Just (Static t) => term {vars} ctx env (embedClosed {vars} t)
+      Just (Static t Nothing) => term {vars} ctx env (embedClosed {vars} t)
+      -- An implementation that closes over runtime values, translated with
+      -- each value where it stands: the variable that holds them, or its
+      -- projections when it holds more than one.
+      Just (Static t (Just (x, hs))) => do
+        values <- unpacked hs.types (Ref EmptyFC Bound heldName)
+        term {vars = heldName :: vars} ctx (Runtime x (Just (typeOf hs.binder)) :: env)
+             (refToLocal heldName heldName (embedClosed {vars} (fillHoles values t)))
       Nothing => internal (bestFC ctx fc) "a variable out of scope"
   term ctx env (PrimVal fc c) = do
     loc <- toLoc (bestFC ctx fc)
@@ -228,21 +251,206 @@ mutual
       applyAll loc f (x :: xs) = applyAll loc (App loc f !(term ctx env x)) xs
 
       -- Arguments: values of type parameters, erased ones, runtime ones.
+      -- An implementation that closes over runtime values: a definition
+      -- that gives an implementation without matching on its arguments,
+      -- applied to the values, or to implementations that close over them
+      -- (`TTC (List (Term vars))` is the implementation for lists given
+      -- `TTC (Term vars)`), or a variable that holds one. Which
+      -- implementation it is is known now: its form with a marker for each
+      -- value (`holeMarker`), which keys the callee's instance, with the
+      -- values' types. The values themselves are what the callee's
+      -- parameter holds at runtime. Two places that one variable holds are
+      -- one value. A value of an implementation's own type is an
+      -- implementation chosen at runtime, and no such value.
+      holed : TT vars -> Core (Maybe (ClosedTerm, List ClosedTerm, List (Core (Term nv))))
+      holed x = do
+        Just (shape, found@(_ :: _)) <- walk 0 x
+          | _ => pure Nothing
+        let numbered = zip [0 .. length found] found
+        let distinct = keep [] numbered
+        let finals = map (\(j, (key, _, _)) => position (same j key) distinct) numbered
+        let shape' = foldl (\t, (j, f) => substName (MN "idris-mlir-hole-found" (cast j)) (holeMarker f) t)
+                           shape (zip [0 .. length finals] finals)
+        pure (Just (shape', map (\(_, (_, ty, _)) => ty) distinct, map (\(_, (_, _, v)) => v) distinct))
+        where
+          -- The values, the first place each variable holds.
+          keep : List (Nat, (Maybe (Fin nv), ClosedTerm, Core (Term nv))) ->
+                 List (Nat, (Maybe (Fin nv), ClosedTerm, Core (Term nv))) ->
+                 List (Nat, (Maybe (Fin nv), ClosedTerm, Core (Term nv)))
+          keep acc [] = reverse acc
+          keep acc (h@(_, (Just k, _, _)) :: hs) =
+            if any (\(_, (k', _, _)) => k' == Just k) acc then keep acc hs else keep (h :: acc) hs
+          keep acc (h :: hs) = keep (h :: acc) hs
+
+          same : Nat -> Maybe (Fin nv) -> (Nat, (Maybe (Fin nv), ClosedTerm, Core (Term nv))) -> Bool
+          same j (Just k) (_, (k', _, _)) = k' == Just k
+          same j Nothing (j', _) = j == j'
+
+          position : (a -> Bool) -> List a -> Nat
+          position p [] = 0
+          position p (y :: ys) = if p y then 0 else S (position p ys)
+
+          variable : TT vars -> Maybe (Fin nv)
+          variable (Local _ _ idx _) = case getAt idx env of
+            Just (Runtime v _) => Just v
+            Just (Shaped v _ _) => Just v
+            _ => Nothing
+          variable _ = Nothing
+
+          mutual
+            -- The form and the values found, numbered from `next`.
+            walk : Nat -> TT vars -> Core (Maybe (ClosedTerm, Found nv))
+            walk next x = case spine x [] of
+              -- A variable that holds an implementation that closes over
+              -- values holds them as one value: its markers become that
+              -- value's projections.
+              (Local lfc _ idx _, []) => case getAt idx env of
+                Just (Static t (Just (v, hs))) => do
+                  loc <- toLoc (bestFC ctx lfc)
+                  projections <- unpacked hs.types (foundMarker next)
+                  held <- packedType hs.types
+                  pure (Just (fillHoles projections t, [(Just v, held, pure (Var loc v))]))
+                _ => pure Nothing
+              (Ref rfc nt n, args) => do
+                def <- lookupDef rfc ctx.owner n
+                True <- gives def
+                  | False => closedOver next x
+                Just (vs, found) <- parts next (type def) args
+                  | Nothing => pure Nothing
+                pure (Just (foldl (App rfc) (Ref rfc nt n) vs, found))
+              -- A `let` around it, as Idris elaborates a case block's, and
+              -- an applied lambda are substituted, as its written form is.
+              (Bind bfc _ (Let _ _ v _) sc, args) => walk next (foldl (App bfc) (subst v sc) args)
+              (Bind bfc _ (Lam {}) sc, a :: args) => walk next (foldl (App bfc) (subst a sc) args)
+              -- Idris leaves a constraint it solved later as a solved
+              -- metavariable.
+              (Meta mfc n _ margs, args) => do
+                Just tm <- solution mfc n margs
+                  | Nothing => pure Nothing
+                walk next (foldl (App mfc) tm args)
+              _ => closedOver next x
+
+            -- Anything else written of implementations that close over
+            -- values and of compile-time values (a projection of a tuple
+            -- of constraints, `fst c`): each variable that holds one is one
+            -- value, its markers that value's projections, and nothing
+            -- else may be a runtime value.
+            closedOver : Nat -> TT vars -> Core (Maybe (ClosedTerm, Found nv))
+            closedOver next x = do
+              env' <- traverse filled (zip [0 .. length env] env)
+              w <- solved (closeWritten afc env' x)
+              let used = filter (\(i, _) => mentions (named (envName i)) w) (holders 0 env)
+              let w' = foldl (\t, (k, (i, _)) => substName (envName i) (foundMarker (next + k)) t)
+                             w (zip [0 .. length used] used)
+              if !(runtimeDependent w') then pure Nothing else do
+                loc <- toLoc afc
+                found <- traverse (\(_, (v, hs)) => do
+                                     held <- packedType hs.types
+                                     pure (Just v, held, pure (Var loc v))) used
+                pure (Just (w', found))
+              where
+                envName : Nat -> Name
+                envName i = MN "idris-mlir-hole-held" (cast i)
+
+                named : Name -> TT vs -> Bool
+                named nm (Ref _ _ n) = n == nm
+                named _ _ = False
+
+                filled : (Nat, VarInfo (Fin nv)) -> Core (VarInfo (Fin nv))
+                filled (i, Static t (Just (_, hs))) = do
+                  projections <- unpacked hs.types (Ref EmptyFC Bound (envName i))
+                  pure (Static (fillHoles projections t) Nothing)
+                filled (_, info) = pure info
+
+                holders : Nat -> List (VarInfo (Fin nv)) -> List (Nat, (Fin nv, Holes))
+                holders i (Static _ (Just h) :: rest) = (i, h) :: holders (S i) rest
+                holders i (_ :: rest) = holders (S i) rest
+                holders _ [] = []
+
+            -- Does a definition give an implementation without matching on
+            -- its arguments: one with one right-hand side, or the pair that
+            -- holds a tuple of constraints?
+            gives : GlobalDef -> Core Bool
+            gives def = case definition def of
+              PMDef _ _ (STerm {}) _ _ => pure True
+              DCon {} => case resultOf (type def) of
+                Just tn => isPairType !(toFullNames tn)
+                Nothing => pure False
+              _ => pure False
+              where
+                resultOf : TT vs -> Maybe Name
+                resultOf (Bind _ _ (Pi {}) sc) = resultOf sc
+                resultOf tm = case spine tm [] of
+                  (Ref _ (TyCon _) tn, _) => Just tn
+                  _ => Nothing
+
+            parts : Nat -> ClosedTerm -> List (TT vars) -> Core (Maybe (List ClosedTerm, Found nv))
+            parts _ _ [] = pure (Just ([], []))
+            parts next ty (a :: as) = do
+              w <- solved (closeWritten afc env a)
+              dependent <- runtimeDependent w
+              ty' <- normaliseClosed ty
+              let (erased, typed, aty, rest) = binder ty'
+              here <- if erased || not dependent
+                         then pure (Just (w, the (Found nv) []))
+                         else part next typed aty a
+              let Just (v, found) = here
+                | Nothing => pure Nothing
+              Just (vs, after) <- parts (next + length found) (rest v) as
+                | Nothing => pure Nothing
+              pure (Just (v :: vs, found ++ after))
+
+            -- Whether a binder is erased, whether the type shows it, its
+            -- type and the rest; an argument past the binders the type
+            -- shows is a runtime value.
+            binder : ClosedTerm -> (Bool, Bool, ClosedTerm, ClosedTerm -> ClosedTerm)
+            binder (Bind _ _ (Pi _ rig _ aty) sc) = (isErased rig, True, aty, \v => subst v sc)
+            binder ty = (False, False, Erased afc Placeholder, const ty)
+
+            -- An implementation is walked in turn; any other argument
+            -- is a value.
+            part : Nat -> Bool -> ClosedTerm -> TT vars -> Core (Maybe (ClosedTerm, Found nv))
+            part next typed aty a = do
+              let True = typed
+                | False => pure Nothing
+              aty' <- normaliseClosed aty
+              if !(implementationType aty') then walk next a
+                 else pure (Just (foundMarker next, [(variable a, aty', term ctx env a)]))
+
+      -- An implementation that closes over runtime values passes them, as
+      -- one value (`packedType`).
       arguments : Loc -> List PKind -> List (TT vars) -> Core (List (Term nv))
       arguments loc kinds xs = traverse arg (zip kinds xs)
         where
+          pack : List ClosedTerm -> List (Term nv) -> Core (Term nv)
+          pack [_] [v] = pure v
+          pack tys@(_ :: ts) (v :: vs) = do
+            DataT inst <- coreType afc ctx.owner ValueType !(normaliseClosed !(packedType tys))
+              | _ => internal afc "the values an implementation closes over, held in no pair"
+            (pair, _, _) <- pairNames
+            pairDef <- lookupDef afc ctx.owner pair
+            let TCon _ _ _ _ _ (Just [con]) _ = definition pairDef
+              | _ => internal afc "a pair type without its one constructor"
+            pure (ConApp loc (MkConId inst (shortName !(toFullNames con))) [v, !(pack ts vs)])
+          pack _ _ = internal afc "as many values as types, an implementation closes over"
+
           arg : (PKind, TT vars) -> Core (Term nv)
           arg (ValueParam (Held _ _) _, x) = term ctx env x
+          arg (DictParam _ (Just hs), x) = do
+            Just (_, _, values) <- holed x
+              | Nothing => internal afc "the values an implementation closes over are gone"
+            pack hs.types !(sequence values)
           arg _ = pure (Erased loc)
 
       isImplementation : TT vars -> Bool
       isImplementation (Local _ _ idx _) = case getAt idx env of
-        Just (Static _) => True
+        Just (Static _ _) => True
         _ => False
       isImplementation _ = False
 
       argValue : TT vars -> Maybe ArgValue
-      argValue x = Just (MkArgValue (closeNormalise afc env x) (solved (closeWritten afc env x)) (isImplementation x))
+      argValue x = Just (MkArgValue (closeNormalise afc env x) (solved (closeWritten afc env x)) (isImplementation x)
+                                    (map (\(shape, tys, _) => (shape, tys)) <$> holed x))
 
       argValues : List (TT vars) -> ArgValues
       argValues = map argValue
@@ -388,9 +596,13 @@ mutual
             -- field holds, for the whole program.
             for_ (zip [0 .. length fieldKinds] fieldKinds) $ \(i, kind) =>
               case (Data.List.lookup i info.dicts, kind) of
-                (Just ty, DictParam t) => recordDictionary fc ctx.owner cid ty i t
+                (Just ty, DictParam t Nothing) => recordDictionary fc ctx.owner cid ty i t
+                -- A field holds one implementation for the whole program.
+                (Just _, DictParam t (Just _)) => do
+                  impl <- showTT t
+                  reject fc ctx.owner RuntimeClosure ("an implementation chosen at runtime: " ++ impl)
                 (Just _, _) => internal fc ("a runtime value for a dictionary field of " ++ cid.name)
-                (Nothing, DictParam _) => internal fc ("an implementation for a runtime field of " ++ cid.name)
+                (Nothing, DictParam _ _) => internal fc ("an implementation for a runtime field of " ++ cid.name)
                 _ => pure ()
             finish loc fieldKinds (fieldsOnly info.layout given) (ConApp loc cid) (drop arity xs)
 
@@ -590,13 +802,13 @@ mutual
       ||| this use.
       staticArg : TT vars -> Bool
       staticArg (Local _ _ idx _) = case getAt idx env of
-        Just (Static _) => True
+        Just (Static _ _) => True
         _ => False
       staticArg _ = False
 
       headStep : TT vars -> List (TT vars) -> Core (Maybe (TT vars, List (TT vars)))
       headStep (Local _ _ idx _) as = case getAt idx env of
-        Just (Static t) => pure (Just (embedClosed t, as))
+        Just (Static t Nothing) => pure (Just (embedClosed t, as))
         _ => pure Nothing
       -- A lambda over an implementation (`\@{m} => ...`, as a dictionary's
       -- polymorphic method field is written) takes it as written, like a

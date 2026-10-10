@@ -27,13 +27,13 @@ fcBounds a = (.withFC) <$> bounds a
 addFCBounds : OriginDesc => Rule (WithDocRigNames a) -> Rule (WithFCDocRigNames a)
 addFCBounds a = (.addFC) <$> bounds a
 
-decorate : {a : Type} -> OriginDesc -> Decoration -> Rule a -> Rule a
+decorate : {0 a : Type} -> OriginDesc -> Decoration -> Rule a -> Rule a
 decorate fname decor rule = do
   res <- bounds rule
   actD (decorationFromBounded fname decor res)
   pure res.val
 
-dependentDecorate : {a : Type} -> OriginDesc -> Rule a -> (a -> Decoration) -> Rule a
+dependentDecorate : {0 a : Type} -> OriginDesc -> Rule a -> (a -> Decoration) -> Rule a
 dependentDecorate fname rule decor = do
   res <- bounds rule
   actD (decorationFromBounded fname (decor res.val) res)
@@ -42,7 +42,7 @@ dependentDecorate fname rule decor = do
 decoratedKeyword : OriginDesc -> String -> Rule ()
 decoratedKeyword fname kwd = decorate fname Keyword (keyword kwd)
 
-decorateKeywords : {a : Type} -> OriginDesc -> List (WithBounds a) -> EmptyRule ()
+decorateKeywords : {0 a : Type} -> OriginDesc -> List (WithBounds a) -> EmptyRule ()
 decorateKeywords fname xs
   = act $ MkState (cast (map (decorationFromBounded fname Keyword) xs)) []
 

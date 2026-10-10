@@ -864,8 +864,8 @@ moveFirst el nps = getPat el nps :: dropPat el nps
 
 shuffleVars : {idx : Nat} -> (0 el : IsVar nm idx todo) -> PatClause todo vars ->
               PatClause (nm :: dropIsVar todo el) vars
-shuffleVars First orig@(MkPatClause pvars lhs pid rhs) = orig -- no-op
-shuffleVars el (MkPatClause pvars lhs pid rhs)
+shuffleVars {idx = Z} First orig = orig -- no-op
+shuffleVars {idx = S _} el (MkPatClause pvars lhs pid rhs)
     = MkPatClause pvars (moveFirst el lhs) pid rhs
 
 mutual

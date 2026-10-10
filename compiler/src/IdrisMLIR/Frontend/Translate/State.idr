@@ -18,26 +18,41 @@ import Data.SortedSet
 
 %default covering
 
+||| The runtime values an implementation closes over (`DictParam`,
+||| `Closed.Static`): their types, in the order of the markers that stand
+||| for them in its compile-time form (`Closed.holeMarker`), and the one
+||| parameter that holds them: the value itself, or, for more than one, a
+||| pair of the first and the rest (`Closed.packedType`).
+public export
+record Holes where
+  constructor MkHoles
+  types : List ClosedTerm
+  binder : Binder
+
 ||| Parameter classification after instantiation (`Instances.classify`). A
 ||| type parameter and an implementation (a value of an interface's type,
 ||| such as an interface constraint) are compile-time values: they key the
-||| instance and are erased at runtime. Any other parameter binds as its binder says;
-||| when the rest of the type depends on its value, the shape of its
-||| argument keys the instance too.
+||| instance and are erased at runtime. An implementation may close over
+||| runtime values (`{vars : _} -> Show (Term vars)` at the scope a term
+||| has): which implementation it is stays a compile-time value, the values
+||| replaced by markers, and the parameter holds the values (`Holes`). Any
+||| other parameter binds as its binder says; when the rest of the type
+||| depends on its value, the shape of its argument keys the instance too.
 public export
-data PKind = TypeParam ClosedTerm | DictParam ClosedTerm | ValueParam Binder (Maybe ClosedTerm)
+data PKind = TypeParam ClosedTerm | DictParam ClosedTerm (Maybe Holes) | ValueParam Binder (Maybe ClosedTerm)
 
 ||| What a parameter binds at runtime: nothing for a compile-time value.
 export
 runtimeBinder : PKind -> Binder
 runtimeBinder (ValueParam b _) = b
+runtimeBinder (DictParam _ (Just h)) = h.binder
 runtimeBinder _ = Gone
 
 ||| The compile-time value that keys an instance at this parameter, if any.
 export
 staticOf : PKind -> Maybe ClosedTerm
 staticOf (TypeParam t) = Just t
-staticOf (DictParam t) = Just t
+staticOf (DictParam t _) = Just t
 staticOf (ValueParam _ shape) = shape
 
 ||| How a function instance came to be: its definition (with the full name

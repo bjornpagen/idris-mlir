@@ -119,7 +119,8 @@ opaqueFor impl = case spine impl [] of
         | Nothing => pure rest
       -- Only a definition that computes a type is unfolded here where
       -- Idris keeps it opaque.
-      pure (if collapseDefault (visibility def) == Public || not (isTypeLike (type def))
+      typeLevel <- computesType def
+      pure (if collapseDefault (visibility def) == Public || not typeLevel
                then rest else x :: rest)
 
 ||| A construction site gives field `i` of a constructor the implementation

@@ -8,6 +8,7 @@ import Core.Context
 import Core.Core
 import Core.Env
 import Core.Normalise
+import Core.Options
 import Core.TT
 import Libraries.Data.List.SizeOf
 
@@ -36,7 +37,9 @@ TTBinder = Core.TT.Binder.Binder
 ||| a type argument's value, or an implementation's value. Types and
 ||| implementations are compile-time values, closed TT terms: types are
 ||| erased at runtime, and an implementation is used by translating it where
-||| it is needed.
+||| it is needed. An implementation that closes over runtime values holds
+||| markers for them (`holeMarker`), with the variable that holds them and
+||| what it holds (`Holes`).
 public export
 data VarInfo : Type -> Type where
   Runtime : a -> Maybe Ty -> VarInfo a
@@ -47,14 +50,14 @@ data VarInfo : Type -> Type where
   ||| value of that shape can.
   Shaped : a -> Ty -> ClosedTerm -> VarInfo a
   TypeValue : ClosedTerm -> VarInfo a
-  Static : ClosedTerm -> VarInfo a
+  Static : ClosedTerm -> Maybe (a, Holes) -> VarInfo a
 
 export
 Functor VarInfo where
   map f (Runtime x t) = Runtime (f x) t
   map f (Shaped x t s) = Shaped (f x) t s
   map f (TypeValue t) = TypeValue t
-  map f (Static t) = Static t
+  map f (Static t h) = Static t (map (\(x, hs) => (f x, hs)) h)
 
 ||| An environment under a binder of `k` variables, which come first.
 export
@@ -145,7 +148,7 @@ closeWritten fc env tm = zeta (betaAll (wrapLams fc tm) (reverse (map value env)
   where
     value : VarInfo a -> ClosedTerm
     value (TypeValue t) = t
-    value (Static t) = t
+    value (Static t _) = t
     -- A shape is what is known of the value at compile time; its holes
     -- are the runtime parts (`skeleton`).
     value (Shaped _ _ s) = s
@@ -213,7 +216,8 @@ quantities n = do
 
 ||| Does a written implementation depend on a runtime value: does a part
 ||| that stands for one (`Erased` with reason `Impossible`: a runtime
-||| variable, or a part of a runtime value its shape does not say) stand
+||| variable, or a part of a runtime value its shape does not say; or
+||| `holeMarker`, the value an implementation closes over) stand
 ||| where a value exists at runtime? A type does not (a binder's type, a
 ||| type constructor's arguments), nor does an argument a definition or a
 ||| constructor takes with quantity 0, which Idris has checked is never
@@ -230,6 +234,7 @@ runtimeDependent = go
     mutual
       go : TT vs -> Core Bool
       go (Erased _ Impossible) = pure True
+      go (Ref _ _ (MN "idris-mlir-hole" _)) = pure True
       go (Erased _ (Dotted t)) = go t
       go (Bind _ _ (Pi {}) _) = pure False
       go (Bind _ _ (Let _ _ v _) sc) = if !(go v) then pure True else go sc
@@ -432,6 +437,80 @@ export
 unknownPart : ClosedTerm
 unknownPart = Ref EmptyFC Func (MN "idris-mlir-unknown" 0)
 
+||| A runtime value an implementation closes over, where its compile-time
+||| form stands (`PKind.DictParam`, `VarInfo.Static`), by its number among
+||| the values (`Holes`): a bound name that no binder binds, which
+||| reduction treats as the variable it stands for, and which a translation
+||| of the implementation replaces with the value (`Terms.term`).
+export
+holeMarker : Nat -> ClosedTerm
+holeMarker i = Ref EmptyFC Bound (MN "idris-mlir-hole" (cast i))
+
+||| Replaces each marker of the values an implementation closes over with
+||| the term for its value, by number.
+export
+fillHoles : List ClosedTerm -> ClosedTerm -> ClosedTerm
+fillHoles values tm = foldl fill tm (zip [0 .. length values] values)
+  where
+    fill : ClosedTerm -> (Nat, ClosedTerm) -> ClosedTerm
+    fill t (i, v) = substName (MN "idris-mlir-hole" (cast i)) v t
+
+||| A reference to a definition, as Idris writes one: with its kind.
+export
+refTo : {auto c : Ref Ctxt Defs} -> FC -> Name -> Core ClosedTerm
+refTo fc n = do
+  defs <- get Ctxt
+  Just def <- lookupCtxtExact n (gamma defs)
+    | Nothing => throw (InternalError ("no definition of " ++ show n))
+  pure (Ref fc (kind (definition def)) (fullname def))
+  where
+    kind : Def -> NameType
+    kind (DCon tag arity _) = DataCon tag arity
+    kind (TCon arity _ _ _ _ _ _) = TyCon arity
+    kind _ = Func
+
+||| The pair Idris's `%pair` names: its type, its projections.
+export
+pairNames : {auto c : Ref Ctxt Defs} -> Core (Name, Name, Name)
+pairNames = do
+  defs <- get Ctxt
+  let Just ns = pairnames (options defs)
+    | Nothing => throw (InternalError "no pair type")
+  pure (pairType ns, fstName ns, sndName ns)
+
+||| The type of the one value that holds the values an implementation closes
+||| over: the one type, or a pair of the first and the rest.
+export
+packedType : {auto c : Ref Ctxt Defs} -> List ClosedTerm -> Core ClosedTerm
+packedType [t] = pure t
+packedType (t :: ts) = do
+  (pair, _, _) <- pairNames
+  p <- refTo EmptyFC pair
+  pure (App EmptyFC (App EmptyFC p t) !(packedType ts))
+packedType [] = throw (InternalError "no value to hold")
+
+||| The values the one value holds (`packedType`), as projections of it.
+export
+unpacked : {auto c : Ref Ctxt Defs} -> List ClosedTerm -> ClosedTerm -> Core (List ClosedTerm)
+unpacked [_] v = pure [v]
+unpacked (t :: ts) v = do
+  (_, first, second) <- pairNames
+  f <- refTo EmptyFC first
+  s <- refTo EmptyFC second
+  rest <- packedType ts
+  let proj = \p => App EmptyFC (App EmptyFC (App EmptyFC p t) rest) v
+  (proj f ::) <$> unpacked ts (proj s)
+unpacked [] _ = pure []
+
+||| Does a term mention `holeMarker`?
+export
+mentionsHole : TT vars -> Bool
+mentionsHole = mentions hole
+  where
+    hole : TT vs -> Bool
+    hole (Ref _ _ (MN "idris-mlir-hole" _)) = True
+    hole _ = False
+
 ||| Does a term mention `unknownPart`?
 export
 mentionsUnknown : TT vars -> Bool
@@ -462,6 +541,15 @@ lookupDef fc owner n = do
     | Nothing => reject fc owner CompiledModule ("missing definition " ++ show n)
   pure def
 
+||| Does a definition compute a type: is its type, normalised, a universe
+||| after its arguments? Normalised, since a type may be written with a
+||| name for one: `VarSet : Scoped` is `Scope -> Type`.
+export
+computesType : {auto c : Ref Ctxt Defs} -> GlobalDef -> Core Bool
+computesType def = do
+  defs <- get Ctxt
+  pure (isTypeLike !(normaliseTypes defs [] (type def)))
+
 ||| A runtime variable in a term closed for normalisation: a reference to a
 ||| definition that does not exist, which no reduction looks into.
 runtimeVariable : ClosedTerm
@@ -478,40 +566,68 @@ isRuntimeVariable _ = False
 ||| shape is read (`skeleton`). A computation on a value nothing is known of
 ||| can only be stuck, or never end: a parser's, built of closures that call
 ||| one another, unfolds without end once normalised under them. A function
+||| that does not match on its arguments runs nothing on the value
+||| (`(PiInfo . Term) vars`): it is unfolded, as far as a depth, and what it
+||| calls is cut in turn. A function
 ||| whose result is a type (`IsNothing m = m = Nothing`) is no such
 ||| computation: the type it gives is needed whatever the value, and is cut
 ||| inside instead. Nor is a lambda applied to one, a type family at a
 ||| value (`(\m => Vect m Int) n`), which is substituted. A value whose
 ||| constructors are known (`Shaped`) is no runtime variable, and a type
 ||| still reduces on it.
-cutRuntime : {auto c : Ref Ctxt Defs} -> TT vars -> Core (TT vars)
-cutRuntime tm =
-  if not (mentions isRuntimeVariable tm) then pure tm else case spine tm [] of
-    (Bind fc _ (Lam {}) sc, a :: as) => cutRuntime (foldl (App fc) (subst a sc) as)
-    (Bind fc x b sc, []) => Bind fc x <$> binder b <*> cutRuntime sc
-    (TDelayed fc r t, []) => TDelayed fc r <$> cutRuntime t
-    (h@(Ref fc (DataCon _ _) _), args) => foldl (App fc) h <$> traverse cutRuntime args
-    (h@(Ref fc (TyCon _) _), args) => foldl (App fc) h <$> traverse cutRuntime args
-    (h@(Ref fc Func n), args) =>
-      if !(computesType n)
-         then foldl (App fc) h <$> traverse cutRuntime args
-         else pure (Erased fc Placeholder)
-    _ => pure (Erased EmptyFC Placeholder)
+cutRuntime : {auto c : Ref Ctxt Defs} -> {vars : Scope} -> TT vars -> Core (TT vars)
+cutRuntime = cut 64
   where
-    computesType : Name -> Core Bool
-    computesType n = do
+    typeFunction : Name -> Core Bool
+
+    -- The definition of a function that does not match on its arguments,
+    -- as lambdas over them, and how many it takes.
+    plain : Name -> Core (Maybe (ClosedTerm, Nat))
+
+    binder : {vs : Scope} -> Nat -> TTBinder (TT vs) -> Core (TTBinder (TT vs))
+
+    cut : {vs : Scope} -> Nat -> TT vs -> Core (TT vs)
+    cut fuel tm =
+      if not (mentions isRuntimeVariable tm) then pure tm else case spine tm [] of
+        (Bind fc _ (Lam {}) sc, a :: as) => cut fuel (foldl (App fc) (subst a sc) as)
+        (Bind fc x b sc, []) => Bind fc x <$> binder fuel b <*> cut fuel sc
+        (TDelayed fc r t, []) => TDelayed fc r <$> cut fuel t
+        (h@(Ref fc (DataCon _ _) _), args) => foldl (App fc) h <$> traverse (cut fuel) args
+        (h@(Ref fc (TyCon _) _), args) => foldl (App fc) h <$> traverse (cut fuel) args
+        (h@(Ref fc Func n), args) =>
+          if !(typeFunction n)
+             then foldl (App fc) h <$> traverse (cut fuel) args
+             -- A function that does not match on its arguments runs
+             -- nothing on the value (`(.)` in `(PiInfo . Term) vars`): it
+             -- is unfolded, and what it calls is cut in turn.
+             else case (fuel, !(plain n)) of
+               (S fuel', Just (body, arity)) =>
+                 if length args < arity then pure (Erased fc Placeholder)
+                 else cut fuel' (foldl (App fc) (embedClosed body)
+                                       (reverse (take arity args) ++ drop arity args))
+               _ => pure (Erased fc Placeholder)
+        _ => pure (Erased EmptyFC Placeholder)
+
+    typeFunction n = do
       defs <- get Ctxt
       Just def <- lookupCtxtExact n (gamma defs)
         | Nothing => pure False
-      pure (isTypeLike (type def))
+      computesType def
 
-    binder : TTBinder (TT vs) -> Core (TTBinder (TT vs))
-    binder (Lam bfc r p ty) = Lam bfc r p <$> cutRuntime ty
-    binder (Let bfc r val ty) = Let bfc r <$> cutRuntime val <*> cutRuntime ty
-    binder (Pi bfc r p ty) = Pi bfc r p <$> cutRuntime ty
-    binder (PVar bfc r p ty) = PVar bfc r p <$> cutRuntime ty
-    binder (PLet bfc r val ty) = PLet bfc r <$> cutRuntime val <*> cutRuntime ty
-    binder (PVTy bfc r ty) = PVTy bfc r <$> cutRuntime ty
+    plain n = do
+      defs <- get Ctxt
+      Just def <- lookupCtxtExact n (gamma defs)
+        | Nothing => pure Nothing
+      case definition def of
+        PMDef _ pargs (STerm _ body) _ _ => pure (Just (wrapLams EmptyFC body, length pargs))
+        _ => pure Nothing
+
+    binder fuel (Lam bfc r p ty) = Lam bfc r p <$> cut fuel ty
+    binder fuel (Let bfc r val ty) = Let bfc r <$> cut fuel val <*> cut fuel ty
+    binder fuel (Pi bfc r p ty) = Pi bfc r p <$> cut fuel ty
+    binder fuel (PVar bfc r p ty) = PVar bfc r p <$> cut fuel ty
+    binder fuel (PLet bfc r val ty) = PLet bfc r <$> cut fuel val <*> cut fuel ty
+    binder fuel (PVTy bfc r ty) = PVTy bfc r <$> cut fuel ty
 
 ||| The closed normal form of a term in scope, with type variables replaced by
 ||| their known values and every runtime variable by `Erased`, once every
@@ -535,7 +651,7 @@ closeNormalise fc env tm = do
   where
     value : VarInfo a -> ClosedTerm
     value (TypeValue t) = t
-    value (Static t) = t
+    value (Static t _) = t
     value (Shaped _ _ s) = s
     -- A quantity-0 variable (a length, a proof) is no runtime value.
     value (Runtime _ (Just ErasedT)) = Erased fc Placeholder

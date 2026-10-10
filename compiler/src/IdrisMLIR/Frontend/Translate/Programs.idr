@@ -64,7 +64,7 @@ translateInstance p = do
   where
     info : Fin k -> PKind -> VarInfo (Fin k)
     info i (TypeParam t) = TypeValue t
-    info i (DictParam t) = Static t
+    info i (DictParam t h) = Static t ((i,) <$> h)
     info i (ValueParam b Nothing) = Runtime i (Just (typeOf b))
     info i (ValueParam b (Just shape)) = shaped i (typeOf b) shape
 

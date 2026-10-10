@@ -104,9 +104,7 @@ documentation' = terminal "Expected documentation comment" $
                             _ => Nothing
 
 export
-decorationFromBounded : {a : Type} -> OriginDesc -> Decoration -> WithBounds a -> ASemanticDecoration
-decorationFromBounded {a = Name} fname decor bnds
-   = ((fname, start bnds, end bnds), decor, Just bnds.val)
+decorationFromBounded : {0 a : Type} -> OriginDesc -> Decoration -> WithBounds a -> ASemanticDecoration
 decorationFromBounded fname decor bnds
    = ((fname, start bnds, end bnds), decor, Nothing)
 

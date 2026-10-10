@@ -246,6 +246,32 @@ merge; each says what changed in its interface.
   checker still sees the recursion of `rawTokens` and `stringTokens`
   through it guarded by the constructor.
 
+- `Libraries.Text.Token`: the `TokenKind` interface, whose `tokValue`
+  converted a token's text to a type computed from its kind, is gone, with
+  `value`. `Libraries.Text.Parser.match` gives the text recognised, and its
+  two users convert it where they match (`Libraries.Data.Version` reads its
+  numbers with `stringToNatOrZ`; `Libraries.Utils.Path` ignores
+  punctuation).
+- `Idris.CommandLine`: an option's argument and its action are one value,
+  `OptArg`, a constructor per kind of argument holding a function of that
+  argument's value; upstream's `OptDesc` held a list of argument
+  descriptions and an action whose type `ActType` computed from that list.
+  No option takes more than one argument. The usage text and the errors are
+  upstream's.
+- `Idris.Syntax`: `StartExpr` holds a `PTerm' Name`, which the parser
+  builds; upstream's was over any name type, which the constructor hid.
+
+- `Parser.Rule.Source.decorationFromBounded`: a parser's semantic
+  decoration holds no name. Upstream's matched on the type of what the
+  decorated rule parsed, and kept it when it was a `Name`, for the IDE's
+  metadata, whose adders are no-ops here; `decorate`, `dependentDecorate`
+  and `decorateKeywords` (`Idris.Parser`) take that type erased.
+
+- `Core.Case.CaseBuilder.shuffleVars` and `Core.Normalise.Eval`'s
+  `updateLocal` match on the variable's position, which they have at
+  runtime, and not on its proof (`First`, `Later`), which is erased:
+  `updateLocal` takes the proof of the next position with `dropLater`.
+
 - **Recursion at the types it is given.** This compiler makes an instance
   of a definition for each type and implementation it is given, so a
   group of definitions that call each other passes those on only as it
@@ -290,6 +316,19 @@ merge; each says what changed in its interface.
   upstream wrote it into the array it had read before, where a write
   after a growth was lost and the definition decoded again on the next
   lookup.
+- `normaliseTypes` (`Core.Normalise`, the evaluator's `evalTypes`) is the
+  normal form this compiler's translator gives a type. It unfolds, besides
+  what Idris's own normalisation unfolds, any definition that computes a
+  type (its type is a universe after its arguments, seen through the names
+  that type is written with: `VarSet : Scoped`), whatever its visibility,
+  so that a private type-level function of another module reduces. It
+  keeps an implementation as it is written, which is the value a type
+  holds: unfolded, an implementation is a record of its methods, each
+  quoting the implementations it is built of unfolded again, so the
+  normal form multiplies at each level of nesting (`Ord (a, b)` over
+  `Ord (List (Nat, List (Nat, Nat)))`). A match that takes an implementation
+  apart unfolds it (`unfolded`, in `evalTree`), so a type computed from an
+  implementation's method still reduces.
 - `Core.Unify` declares `search` and `Core.AutoSearch` defines it, which
   nothing kept imported (upstream's driver reached it through the REPL):
   `Idris.ProcessIdr` imports it, so every program that elaborates links

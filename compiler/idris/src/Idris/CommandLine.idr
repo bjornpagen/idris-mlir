@@ -133,154 +133,150 @@ data CLOpt
    ||| Turn on %default total globally
   Total
 
-data OptType
-  = Required String
-   | Optional String
-   | RequiredNat String
-   | AutoNat String
-   | RequiredLogLevel String
+||| An option's argument, if it takes one, with what the option means given
+||| the argument's value: every option takes at most one. Upstream's was a
+||| list of argument descriptions and an action whose type that list
+||| computed, which this compiler refuses as a field.
+data OptArg
+  = NoArg (List CLOpt)
+   | Required String (String -> List CLOpt)
+   | Optional String (Maybe String -> List CLOpt)
+   | RequiredNat String (Nat -> List CLOpt)
+   | AutoNat String (Maybe Nat -> List CLOpt)
+   | RequiredLogLevel String (LogLevel -> List CLOpt)
 
-Show OptType where
-  show (Required a) = "<" ++ a ++ ">"
-  show (RequiredNat a) = "<" ++ a ++ ">"
-  show (RequiredLogLevel a) = "<" ++ a ++ ">"
-  show (Optional a) = "[" ++ a ++ "]"
-  show (AutoNat a) = "<" ++ a ++ ">"
-
-ActType : List OptType -> Type
-ActType [] = List CLOpt
-ActType (Required a :: as) = String -> ActType as
-ActType (RequiredNat a :: as) = Nat -> ActType as
-ActType (RequiredLogLevel a :: as) = LogLevel -> ActType as
-ActType (Optional a :: as) = Maybe String -> ActType as
-ActType (AutoNat a :: as) = Maybe Nat -> ActType as
+||| How the usage text shows an option's argument.
+showArg : OptArg -> String
+showArg (NoArg _) = ""
+showArg (Required a _) = "<" ++ a ++ ">"
+showArg (RequiredNat a _) = "<" ++ a ++ ">"
+showArg (RequiredLogLevel a _) = "<" ++ a ++ ">"
+showArg (Optional a _) = "[" ++ a ++ "]"
+showArg (AutoNat a _) = "<" ++ a ++ ">"
 
 record OptDesc where
   constructor MkOpt
   flags : List String
-  argdescs : List OptType
-  action : ActType argdescs
+  arg : OptArg
   help : Maybe String
 
 optSeparator : OptDesc
-optSeparator = MkOpt [] [] [] Nothing
+optSeparator = MkOpt [] (NoArg []) Nothing
 
 showDefault : Show a => a -> String
 showDefault x = "(default " ++ show x ++ ")"
 
 options : List OptDesc
-options = [MkOpt ["--check", "-c"] [] [CheckOnly]
+options = [MkOpt ["--check", "-c"] (NoArg [CheckOnly])
               (Just "Exit after checking source file"),
-           MkOpt ["--output", "-o"] [Required "file"] (\f => [OutputFile f, Quiet])
+           MkOpt ["--output", "-o"] (Required "file" (\f => [OutputFile f, Quiet]))
               (Just "Specify output file"),
-           MkOpt ["--exec", "-x"] [Required "name"] (\f => [ExecFn f, Quiet])
+           MkOpt ["--exec", "-x"] (Required "name" (\f => [ExecFn f, Quiet]))
               (Just "Execute expression"),
-           MkOpt ["--no-prelude"] [] [NoPrelude]
+           MkOpt ["--no-prelude"] (NoArg [NoPrelude])
               (Just "Don't implicitly import Prelude"),
-           MkOpt ["--codegen", "--cg"] [Required "backend"] (\f => [SetCG f])
+           MkOpt ["--codegen", "--cg"] (Required "backend" (\f => [SetCG f]))
               (Just "Set code generator"),
-           MkOpt ["--directive"] [Required "directive"] (\d => [Directive d])
+           MkOpt ["--directive"] (Required "directive" (\d => [Directive d]))
               (Just $ "Pass a directive to the current code generator"),
-           MkOpt ["--package", "-p"] [Required "package"] (\f => [PkgPath f])
+           MkOpt ["--package", "-p"] (Required "package" (\f => [PkgPath f]))
               (Just "Add a package as a dependency"),
-           MkOpt ["--source-dir"] [Required "dir"] (\d => [SourceDir d])
+           MkOpt ["--source-dir"] (Required "dir" (\d => [SourceDir d]))
               (Just $ "Set source directory"),
-           MkOpt ["--build-dir"] [Required "dir"] (\d => [BuildDir d])
+           MkOpt ["--build-dir"] (Required "dir" (\d => [BuildDir d]))
               (Just $ "Set build directory"),
-           MkOpt ["--output-dir"] [Required "dir"] (\d => [OutputDir d])
+           MkOpt ["--output-dir"] (Required "dir" (\d => [OutputDir d]))
               (Just $ "Set output directory"),
 
            optSeparator,
-           MkOpt ["--total"] [] [Total]
+           MkOpt ["--total"] (NoArg [Total])
               (Just "Require functions to be total by default"),
-           MkOpt ["-Werror"] [] [WarningsAsErrors]
+           MkOpt ["-Werror"] (NoArg [WarningsAsErrors])
               (Just "Treat warnings as errors"),
-           MkOpt ["-Wno-shadowing"] [] [IgnoreShadowingWarnings]
+           MkOpt ["-Wno-shadowing"] (NoArg [IgnoreShadowingWarnings])
               (Just "Do not print shadowing warnings"),
 
            optSeparator,
-           MkOpt ["-Xcase-tree-opt"] [] [CaseTreeHeuristics]
+           MkOpt ["-Xcase-tree-opt"] (NoArg [CaseTreeHeuristics])
               (Just "Apply experimental optimizations to case tree generation"),
 
            optSeparator,
-           MkOpt ["--prefix"] [] [Directory Prefix]
+           MkOpt ["--prefix"] (NoArg [Directory Prefix])
               (Just "Show installation prefix"),
-           MkOpt ["--paths"] [] [Directory BlodwenPaths]
+           MkOpt ["--paths"] (NoArg [Directory BlodwenPaths])
               (Just "Show paths"),
-           MkOpt ["--libdir"] [] [Directory LibDir]
+           MkOpt ["--libdir"] (NoArg [Directory LibDir])
               (Just "Show library directory"),
-           MkOpt ["--list-packages"] [] [ListPackages]
+           MkOpt ["--list-packages"] (NoArg [ListPackages])
               (Just "List installed packages"),
 
            optSeparator,
-           MkOpt ["--dump-installdir"] [Optional "package file"]
-              (\ f => [Package DumpInstallDir f])
+           MkOpt ["--dump-installdir"] (Optional "package file"
+              (\ f => [Package DumpInstallDir f]))
               (Just "Dump the location where the given package will be installed"),
-           MkOpt ["--build"] [Optional "package file"]
-               (\f => [Package Build f])
+           MkOpt ["--build"] (Optional "package file"
+               (\f => [Package Build f]))
               (Just "Build modules/executable for the given package"),
-           MkOpt ["--install"] [Optional "package file"]
-              (\f => [Package Install f])
+           MkOpt ["--install"] (Optional "package file"
+              (\f => [Package Install f]))
               (Just "Install the given package"),
-           MkOpt ["--install-with-src"] [Optional "package file"]
-              (\f => [Package InstallWithSrc f])
+           MkOpt ["--install-with-src"] (Optional "package file"
+              (\f => [Package InstallWithSrc f]))
               (Just "Install the given package"),
-           MkOpt ["--typecheck"] [Optional "package file"]
-              (\f => [Package Typecheck f])
+           MkOpt ["--typecheck"] (Optional "package file"
+              (\f => [Package Typecheck f]))
               (Just "Typechecks the given package without code generation"),
-           MkOpt ["--clean"] [Optional "package file"] (\f => [Package Clean f])
+           MkOpt ["--clean"] (Optional "package file" (\f => [Package Clean f]))
               (Just "Clean intermediate files/executables for the given package"),
-           MkOpt ["--find-ipkg"] [] [FindIPKG]
+           MkOpt ["--find-ipkg"] (NoArg [FindIPKG])
               (Just "Find and use an .ipkg file in a parent directory."),
-           MkOpt ["--ignore-missing-ipkg"] [] [IgnoreMissingIPKG]
+           MkOpt ["--ignore-missing-ipkg"] (NoArg [IgnoreMissingIPKG])
               (Just "Fail silently if a dependency is missing."),
 
            optSeparator,
-           MkOpt ["--timing"] [AutoNat "level"] (\ n => [Timing n])
+           MkOpt ["--timing"] (AutoNat "level" (\ n => [Timing n]))
               (Just "Display timing logs"),
 
            optSeparator,
-           MkOpt ["--no-banner"] [] [NoBanner]
+           MkOpt ["--no-banner"] (NoArg [NoBanner])
               (Just "Suppress the banner"),
-           MkOpt ["--quiet", "-q"] [] [Quiet]
+           MkOpt ["--quiet", "-q"] (NoArg [Quiet])
               (Just "Quiet mode; display fewer messages"),
-           MkOpt ["--console-width"] [AutoNat "console width"] (\l => [ConsoleWidth l])
+           MkOpt ["--console-width"] (AutoNat "console width" (\l => [ConsoleWidth l]))
               (Just "Width for console output (0 for unbounded) (auto by default)"),
-          MkOpt ["--show-implicits"] [] [ShowImplicits]
+          MkOpt ["--show-implicits"] (NoArg [ShowImplicits])
               (Just "Show implicits when pretty printing"),
-           MkOpt ["--show-machine-names"] [] [ShowMachineNames]
+           MkOpt ["--show-machine-names"] (NoArg [ShowMachineNames])
               (Just "Show machine names when pretty printing"),
-           MkOpt ["--show-namespaces"] [] [ShowNamespaces]
+           MkOpt ["--show-namespaces"] (NoArg [ShowNamespaces])
               (Just "Show namespaces when pretty printing"),
-           MkOpt ["--color", "--colour"] [] ([Color True])
+           MkOpt ["--color", "--colour"] (NoArg ([Color True]))
               (Just "Forces colored console output (enabled by default)"),
-           MkOpt ["--no-color", "--no-colour"] [] ([Color False])
+           MkOpt ["--no-color", "--no-colour"] (NoArg ([Color False]))
               (Just "Disables colored console output"),
-           MkOpt ["--verbose"] [] [Verbose]
+           MkOpt ["--verbose"] (NoArg [Verbose])
               (Just "Verbose mode (default)"),
-           MkOpt ["--log"] [RequiredLogLevel "log level"] (\l => [Logging l])
+           MkOpt ["--log"] (RequiredLogLevel "log level" (\l => [Logging l]))
               (Just "Global log level (0 by default)"),
 
            optSeparator,
-           MkOpt ["--version", "-v"] [] [Version]
+           MkOpt ["--version", "-v"] (NoArg [Version])
               (Just "Display version string"),
-           MkOpt ["--ttc-version"] [] [TTCVersion]
+           MkOpt ["--ttc-version"] (NoArg [TTCVersion])
               (Just "Display TTC version string"),
-           MkOpt ["--help", "-h", "-?"] [Optional "topic"] (\ tp => [Help (tp >>= recogniseHelpTopic)])
+           MkOpt ["--help", "-h", "-?"] (Optional "topic" (\ tp => [Help (tp >>= recogniseHelpTopic)]))
               (Just "Display help text"),
 
            -- Internal debugging options
-           MkOpt ["--debug-elab-check"] [] [DebugElabCheck]
+           MkOpt ["--debug-elab-check"] (NoArg [DebugElabCheck])
               Nothing, -- do more elaborator checks (currently conversion in LinearCheck)
-           MkOpt ["--alt-error-count"] [RequiredNat "alternative count"] (\c => [AltErrorCount c])
+           MkOpt ["--alt-error-count"] (RequiredNat "alternative count" (\c => [AltErrorCount c]))
               (Just "Outputs errors for the given number of alternative parsing attempts.")
            ]
 
 optShow : OptDesc -> (String, Maybe String)
-optShow (MkOpt [] _ _ _) = ("", Just "")
-optShow (MkOpt flags argdescs action help) = (showSep ", " flags ++ " " ++
-                                              showSep " " (map show argdescs),
-                                              help)
+optShow (MkOpt [] _ _) = ("", Just "")
+optShow (MkOpt flags arg help) = (showSep ", " flags ++ " " ++ showArg arg, help)
   where
     showSep : String -> List String -> String
     showSep sep [] = ""
@@ -328,48 +324,39 @@ usage = """
 checkNat : Integer -> Maybe Nat
 checkNat n = toMaybe (n >= 0) (integerToNat n)
 
-processArgs : String -> (args : List OptType) -> List String -> ActType args ->
+processArgs : String -> OptArg -> List String ->
               Either String (List CLOpt, List String)
-processArgs flag [] xs f = Right (f, xs)
+processArgs flag (NoArg f) xs = Right (f, xs)
 -- Missing required arguments
-processArgs flag (opt@(Required _) :: as) [] f =
-  Left $ "Missing required argument " ++ show opt ++ " for flag " ++ flag
-processArgs flag (opt@(RequiredNat _) :: as) [] f =
-  Left $ "Missing required argument " ++ show opt ++ " for flag " ++ flag
-processArgs flag (opt@(RequiredLogLevel _) :: as) [] f =
-  Left $ "Missing required argument " ++ show opt ++ " for flag " ++ flag
-processArgs flag (Optional a :: as) [] f =
-  processArgs flag as [] (f Nothing)
-processArgs flag (opt@(AutoNat _) :: as) [] f =
-  Left $ "Missing required argument " ++ show opt ++ " for flag " ++ flag
+processArgs flag (Optional a f) [] = Right (f Nothing, [])
+processArgs flag opt [] =
+  Left $ "Missing required argument " ++ showArg opt ++ " for flag " ++ flag
 -- Happy cases
-processArgs flag (RequiredNat a :: as) (x :: xs) f =
+processArgs flag (RequiredNat a f) (x :: xs) =
   do arg <- maybeToEither ("Expected Nat argument " ++ show x ++ " for flag " ++ flag)
                           (parseSigned x >>= checkNat)
-     processArgs flag as xs (f arg)
-processArgs flag (RequiredLogLevel a :: as) (x :: xs) f =
+     Right (f arg, xs)
+processArgs flag (RequiredLogLevel a f) (x :: xs) =
   do arg <- maybeToEither ("Expected LogLevel argument " ++ show x ++ " for flag " ++ flag)
                           (parseLogLevel x)
-     processArgs flag as xs (f arg)
-processArgs flag (AutoNat a :: as) ("auto" :: xs) f =
-  processArgs flag as xs (f Nothing)
-processArgs flag (AutoNat a :: as) (x :: xs) f =
+     Right (f arg, xs)
+processArgs flag (AutoNat a f) ("auto" :: xs) = Right (f Nothing, xs)
+processArgs flag (AutoNat a f) (x :: xs) =
   do arg <- maybeToEither ("Expected Nat or \"auto\" argument " ++ show x ++ " for flag " ++ flag)
                           (parseSigned x >>= checkNat)
-     processArgs flag as xs (f (Just arg))
-processArgs flag (Required a :: as) (x :: xs) f =
-  processArgs flag as xs (f x)
-processArgs flag (Optional a :: as) (x :: xs) f =
+     Right (f (Just arg), xs)
+processArgs flag (Required a f) (x :: xs) = Right (f x, xs)
+processArgs flag (Optional a f) (x :: xs) =
   if isPrefixOf "-" x
-    then processArgs flag as (x :: xs) (f Nothing)
-    else processArgs flag as xs (f $ Just x)
+    then Right (f Nothing, x :: xs)
+    else Right (f $ Just x, xs)
 
 matchFlag : (d : OptDesc) -> List String ->
             Either String (Maybe (List CLOpt, List String))
 matchFlag d [] = Right Nothing -- Nothing left to match
 matchFlag d (x :: xs)
     = if x `elem` flags d
-         then do args <- processArgs x (argdescs d) xs (action d)
+         then do args <- processArgs x (arg d) xs
                  Right (Just args)
          else Right Nothing
 
