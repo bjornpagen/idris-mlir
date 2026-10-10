@@ -55,9 +55,9 @@
 #
 # The builds run as many compile jobs as there are cores, at most one per
 # 5 GiB of memory, and one link at a time. ccache on PATH, or MacPorts' if
-# there is one, is the compiler launcher of the LLVM builds, with its cache
-# in .toolchain/ccache, capped at 500G: room for many pins and patch sets of
-# LLVM, MLIR and clang.
+# there is one, is the compiler launcher of every C and C++ compile, with
+# its cache in .toolchain/ccache, capped at 1T: room for many pins and
+# patch sets of LLVM, MLIR and clang.
 #
 # The host provides: a C and C++ compiler (cc and c++), make, git, python3
 # (LLVM's configure), m4 (GMP), tar, sha256sum, and curl to check release
@@ -229,28 +229,34 @@ if [ "$jobs" -lt 1 ]; then jobs=1; fi
 # ccache, the compiler launcher of every C and C++ compile the steps run
 # (CMake, Ninja, stage 1, musl, the runtimes, stage 2, GMP, Chez), when
 # there is one: a rebuild after a patch, a pin move or a failed run
-# recompiles only what changed. It is no input of
-# any step, since it does not change what a step builds. Its cache lives
-# with the toolchain, and paths under the toolchain directory are hashed
-# relative to it. The patched llvm-project is written just before it is
-# built, so the times of its headers say nothing, and ccache is told so.
+# recompiles only what changed. It is no input of any step, since it does
+# not change what a step builds. The cache is .toolchain/ccache, and its
+# settings are its own configuration file, which every run of ccache on it
+# reads (ours, our CMake build's, `ccache -s`), so that the one thing a
+# user of the cache names is CCACHE_DIR: a 1T cap; paths under the
+# repository hashed relative to it; and the times of headers ignored, since
+# the patched llvm-project is written just before it is built.
 ccache=$(host_path ccache) || ccache=
 if [ -n "$ccache" ]; then
   CCACHE_DIR=$toolchain/ccache
-  CCACHE_BASEDIR=$toolchain
-  CCACHE_SLOPPINESS=include_file_ctime,include_file_mtime
-  CCACHE_MAXSIZE=500G
-  export CCACHE_DIR CCACHE_BASEDIR CCACHE_SLOPPINESS CCACHE_MAXSIZE
+  export CCACHE_DIR
+  mkdir -p "$CCACHE_DIR"
+  printf '%s\n' 'max_size = 1T' "base_dir = $root" 'sloppiness = include_file_ctime,include_file_mtime' \
+    > "$CCACHE_DIR/ccache.conf"
   ccache_state="ccache $CCACHE_DIR"
 else
   ccache_state="no ccache"
 fi
 
 # ccache_flags: the launcher, for a CMake configure. Like the job count, it
-# is passed beside a step's recipe, not in it.
+# is passed beside a step's recipe, not in it. ccache cannot cache a
+# compile that uses a precompiled header (LLVM's builds make them by
+# default), so with ccache there are none: they only speed a compile up,
+# and change nothing it produces.
 ccache_flags() {
   [ -z "$ccache" ] ||
-    printf '%s\n' "-DCMAKE_C_COMPILER_LAUNCHER=$ccache" "-DCMAKE_CXX_COMPILER_LAUNCHER=$ccache"
+    printf '%s\n' "-DCMAKE_C_COMPILER_LAUNCHER=$ccache" "-DCMAKE_CXX_COMPILER_LAUNCHER=$ccache" \
+      -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON
 }
 
 # ccache_cc VARIABLE COMPILER: the launcher, for a configure that names its
