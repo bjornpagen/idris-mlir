@@ -8,7 +8,6 @@ import Core.Env
 import Core.Options
 
 import Data.DPair
-import Data.IOArray
 import Data.List1
 import Data.Vect
 import Libraries.Data.NameMap
@@ -1088,9 +1087,9 @@ TTC Transform where
 Core.Context.decode gam idx update (Coded ns bin)
     = do b <- newRef Bin bin
          def <- fromBuf
-         let a = getContent gam
-         arr <- get Arr
          def' <- resolved gam (restoreNS ns def)
-         when update $ coreLift_ $ writeArray arr idx (Decoded def')
+         -- Into the table as it is now: resolving may have claimed slots,
+         -- and so grown it.
+         when update $ setEntry gam idx (Decoded def')
          pure def'
 Core.Context.decode gam idx update (Decoded def) = pure def

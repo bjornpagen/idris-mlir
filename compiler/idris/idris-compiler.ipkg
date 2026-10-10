@@ -3,6 +3,8 @@ version = 0.8.0
 brief = "Upstream Idris 2's compiler, forked and pruned for idris-mlir"
 license = "BSD-3-Clause (see LICENSE)"
 
+depends = mlir-linear
+
 sourcedir = "src"
 
 modules =
@@ -124,6 +126,7 @@ modules =
     Libraries.Data.String.Extra,
     Libraries.Data.StringMap,
     Libraries.Data.StringTrie,
+    Libraries.Data.Table,
     Libraries.Data.Tap,
     Libraries.Data.UserNameMap,
     Libraries.Data.VarSet,

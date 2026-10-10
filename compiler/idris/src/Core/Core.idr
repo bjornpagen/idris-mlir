@@ -1061,6 +1061,19 @@ update x f
   = do v <- get x
        put x (f v)
 
+||| The value moved out of the reference into a function that uses it once,
+||| and the value it gives back put in its place, with nothing reading the
+||| reference in between: a linear structure held there (a growable table)
+||| is threaded as one object, and updated in place.
+export %inline
+threadRef : (0 x : label) -> {auto ref : Ref x a} ->
+            ((1 _ : a) -> Res b (const a)) -> Core b
+threadRef x f
+  = do v <- get x
+       let r # v' = f v
+       put x v'
+       pure r
+
 export
 wrapRef : (0 x : label) -> {auto ref : Ref x a} ->
           (a -> Core ()) ->

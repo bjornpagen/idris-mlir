@@ -10,7 +10,6 @@ import public Core.WithData
 
 import public Algebra.SizeChange
 
-import Data.IOArray
 import Data.IORef
 import Data.List1
 import Data.String
@@ -21,6 +20,7 @@ import Libraries.Data.NatSet
 import Libraries.Data.UserNameMap
 import Libraries.Data.WithDefault
 import Libraries.Data.SparseMatrix
+import Libraries.Data.Table
 import Libraries.Utils.Binary
 
 public export
@@ -392,8 +392,11 @@ record Context where
     resolvedAs : NameMap Int
     -- Map from usernames to all the possible names in all namespaces
     possibles : UserNameMap (List PossibleName)
-    -- Reference to the actual content, indexed by Int
-    content : Ref Arr (IOArray ContextEntry)
+    -- Reference to the actual content, indexed by Int. Its size is the
+    -- high-water mark of nextEntry: restoring a saved Defs rolls nextEntry
+    -- back while the table keeps its slots, and the indices from there on
+    -- are handed out again.
+    content : Ref Arr (Table ContextEntry)
     -- Branching depth, in a backtracking elaborator. 0 is top level; at lower
     -- levels we need to stage updates rather than add directly to the
     -- 'content' store

@@ -17,13 +17,13 @@ import Libraries.Text.PrettyPrint.Prettyprinter
 import Idris.Syntax.Pragmas
 
 import Data.Either
-import Data.IOArray
 import Data.List1
 import Data.Nat
 import Libraries.Data.IntMap
 import Libraries.Data.NameMap
 import Libraries.Data.NatSet
 import Libraries.Data.StringMap
+import Libraries.Data.Table
 import Libraries.Data.UserNameMap
 import Libraries.Data.WithDefault
 import Libraries.Text.Distance.Levenshtein
@@ -32,10 +32,6 @@ import System.Clock
 import System.Directory
 
 %default covering
-
-export
-getContent : Context -> Ref Arr (IOArray ContextEntry)
-getContent = content
 
 export
 namesResolvedAs : Context -> NameMap Name
@@ -49,14 +45,10 @@ decode : Context -> Int -> (update : Bool) -> ContextEntry -> Core GlobalDef
 initSize : Int
 initSize = 10000
 
-Grow : Int
-Grow = initSize
-
 export
 initCtxtS : Int -> Core Context
 initCtxtS s
-    = do arr <- coreLift $ newArray s
-         aref <- newRef Arr arr
+    = do aref <- newRef Arr (newTable s)
          pure $ MkContext
             { firstEntry = 0
             , nextEntry = 0
@@ -100,15 +92,25 @@ export
 newEntry : Name -> Context -> Core (Int, Context)
 newEntry n ctxt
     = do let idx = nextEntry ctxt
-         let a = content ctxt
-         arr <- get Arr
-         when (idx >= max arr) $
-                 do arr' <- coreLift $ newArrayCopy (max arr + Grow) arr
-                    put Arr arr'
+         -- An index a restored Defs hands out again keeps its slot; a
+         -- fresh one is one past the last.
+         threadRef Arr @{content ctxt} (\t => () # claimSlot idx t)
          pure (idx, { nextEntry := idx + 1,
                       resolvedAs $= insert n idx,
                       possibles $= addPossible n idx
                     } ctxt)
+
+||| The entry at `idx`: none for an index the context never made, nor for
+||| one made and not yet written.
+export
+entryAt : Context -> Int -> Core (Maybe ContextEntry)
+entryAt ctxt idx = threadRef Arr @{content ctxt} (lookupSlot idx)
+
+||| `entry` at `idx`, an index the context has made.
+export
+setEntry : Context -> Int -> ContextEntry -> Core ()
+setEntry ctxt idx entry
+    = threadRef Arr @{content ctxt} (\t => () # setSlot idx entry t)
 
 -- Get the position of the next entry in the context array, growing the
 -- array if it's out of bounds.
@@ -140,9 +142,7 @@ addCtxt : Name -> GlobalDef -> Context -> Core (Int, Context)
 addCtxt n val ctxt_in
     = if branchDepth ctxt_in == 0
          then do (idx, ctxt) <- getPosition n ctxt_in
-                 let a = content ctxt
-                 arr <- get Arr
-                 coreLift_ $ writeArray arr idx (Decoded val)
+                 setEntry ctxt idx (Decoded val)
                  pure (idx, ctxt)
          else do (idx, ctxt) <- getPosition n ctxt_in
                  pure (idx, { staging $= insert idx (Decoded val) } ctxt)
@@ -152,9 +152,7 @@ addEntry : Name -> ContextEntry -> Context -> Core (Int, Context)
 addEntry n entry ctxt_in
     = if branchDepth ctxt_in == 0
          then do (idx, ctxt) <- getPosition n ctxt_in
-                 let a = content ctxt
-                 arr <- get Arr
-                 coreLift_ $ writeArray arr idx entry
+                 setEntry ctxt idx entry
                  pure (idx, ctxt)
          else do (idx, ctxt) <- getPosition n ctxt_in
                  pure (idx, { staging $= insert idx entry } ctxt)
@@ -176,8 +174,7 @@ lookupCtxtExactI (Resolved idx) ctxt
            Just val =>
                  pure $ returnDef (inlineOnly ctxt) idx !(decode ctxt idx True val)
            Nothing =>
-              do arr <- get Arr @{content ctxt}
-                 Just def <- coreLift (readArray arr idx)
+              do Just def <- entryAt ctxt idx
                       | Nothing => pure Nothing
                  pure $ returnDef (inlineOnly ctxt) idx !(decode ctxt idx True def)
 lookupCtxtExactI n ctxt
@@ -194,8 +191,7 @@ lookupCtxtExact (Resolved idx) ctxt
                    pure $ map (\(_, def) => def) $
                      returnDef (inlineOnly ctxt) idx def
            Nothing =>
-              do arr <- get Arr @{content ctxt}
-                 Just res <- coreLift (readArray arr idx)
+              do Just res <- entryAt ctxt idx
                       | Nothing => pure Nothing
                  def <- decode ctxt idx True res
                  pure $ map (\(_, def) => def) $
@@ -211,9 +207,7 @@ lookupContextEntry (Resolved idx) ctxt
     = case lookup idx (staging ctxt) of
            Just res => pure (Just (idx, res))
            Nothing =>
-              do let a = content ctxt
-                 arr <- get Arr
-                 Just res <- coreLift (readArray arr idx)
+              do Just res <- entryAt ctxt idx
                       | Nothing => pure Nothing
                  pure (Just (idx, res))
 lookupContextEntry n ctxt
@@ -295,21 +289,14 @@ commitCtxt : Context -> Core Context
 commitCtxt ctxt
     = case branchDepth ctxt of
            Z => pure ctxt
-           S Z => -- add all the things from 'staging' to the real array
-                  do let a = content ctxt
-                     arr <- get Arr
-                     coreLift $ commitStaged (toList (staging ctxt)) arr
+           S Z => -- add all the things from 'staging' to the real array,
+                  -- which has every staged index: each was made in the
+                  -- branch
+                  do traverse_ (\(idx, val) => setEntry ctxt idx val)
+                               (toList (staging ctxt))
                      pure ({ staging := empty,
                              branchDepth := Z } ctxt)
            S k => pure ({ branchDepth := k } ctxt)
-  where
-    -- We know the array must be big enough, because it will have been resized
-    -- if necessary in the branch to fit the index we've been given here
-    commitStaged : List (Int, ContextEntry) -> IOArray ContextEntry -> IO ()
-    commitStaged [] arr = pure ()
-    commitStaged ((idx, val) :: rest) arr
-        = do ignore $ writeArray arr idx val
-             commitStaged rest arr
 
 ||| Produce a new global definition with a lot of default values
 ||| @fc   definition site
@@ -2065,11 +2052,6 @@ getNextEntry : {auto c : Ref Ctxt Defs} ->
 getNextEntry
     = do defs <- get Ctxt
          pure (nextEntry (gamma defs))
-
-export
-setNextEntry : {auto c : Ref Ctxt Defs} ->
-               Int -> Core ()
-setNextEntry i = update Ctxt { gamma->nextEntry := i }
 
 -- Set the 'first entry' index (i.e. the first entry in the current file)
 -- to the place we currently are in the context

@@ -8,22 +8,23 @@ installing packages from `.ipkg` files (prelude, base and
 `libs/mlir-linear`). It is distributed under upstream's BSD-3 licence,
 in LICENSE here; the rest of the repository is under its own licence.
 
-It is built standalone, as the package `idris-compiler`, by the stock
-Idris 2 the toolchain installs:
+It is built as the package `idris-compiler`, by the stock Idris 2 the
+toolchain installs, once that Idris has `libs/mlir-linear` (below):
+`make fork` installs `mlir-linear` (`make host-libs`) and then the fork
+for that Idris into the checkout's `build/idris2-host`, where the
+frontend's build finds it (`depends = idris-compiler`). The frontend's
+driver, `IdrisMLIR.Frontend.Driver`, replaces upstream's `Idris.Driver`;
+the TTCs the fork writes are read by nothing else, so the frontend builds
+the packages Idris ships itself, into `build/idris2` (`make prefix`).
 
-```sh
-cd compiler/idris && idris2 --build idris-compiler.ipkg
-```
-
-`make fork` installs it for that Idris into the checkout's
-`build/idris2-host`, where the frontend's build finds it (`depends =
-idris-compiler`). The frontend's driver, `IdrisMLIR.Frontend.Driver`,
-replaces upstream's `Idris.Driver`; the TTCs the fork writes are read by
-nothing else, so the frontend builds the packages Idris ships itself, into
-`build/idris2` (`make prefix`).
-
-It depends on nothing but prelude and base. Upstream's API package needs
-`network` for the IDE mode's socket; nothing here does.
+It depends on prelude, base and `mlir-linear`, this compiler's own
+package of linear data (`libs/`), for its growing tables. Upstream's API
+package needs `network` for the IDE mode's socket; nothing here does.
+Built by this compiler's frontend, the fork finds `mlir-linear` in the
+frontend's prefix, which `make libs` installs it into; a program over the
+fork (the frontend compiled by itself) names both packages, `-p
+mlir-linear -p idris-compiler`, since `-p` adds the package it names and
+not the packages that one depends on, as in Idris.
 
 To this compiler the fork is a trusted library of its own, as base is
 (`Compiler` in `IdrisMLIR.Registry.Libraries`): a module whose TTC is
@@ -227,6 +228,25 @@ merge; each says what changed in its interface.
 
 ### Ours
 
+- The context's definitions (`content` of `Core.Context.Context`) are a
+  `Table` (`Libraries.Data.Table`) on `mlir-linear`'s growable
+  `Linear.Array`, the one module that imports it. Upstream's was base's
+  `IOArray`, made with 10000 slots and moved to a copy 10000 slots longer
+  each time it filled. The table starts with room for as many, grows to
+  at least twice its capacity, and is threaded through its `Ref` as one
+  object (`threadRef` in `Core.Core`: moved out, used once, put back), so
+  every read and write is in place. Its size is the high-water mark of
+  `nextEntry`: restoring a saved `Defs` lowers `nextEntry` and the table
+  keeps its slots, as upstream's array did, so `newEntry` claims the slot
+  past the last only for an index never handed out. A lookup outside the
+  table, or of a slot not yet written, finds nothing, as upstream's
+  `readArray` did. `getContent` and `setNextEntry`, which nothing called,
+  are gone (the latter was the one way to raise `nextEntry` past the
+  table). Decoding a definition from its TTC writes it into the table as
+  it is after resolving the definition's names, which may grow it;
+  upstream wrote it into the array it had read before, where a write
+  after a growth was lost and the definition decoded again on the next
+  lookup.
 - `Core.Unify` declares `search` and `Core.AutoSearch` defines it, which
   nothing kept imported (upstream's driver reached it through the REPL):
   `Idris.ProcessIdr` imports it, so every program that elaborates links

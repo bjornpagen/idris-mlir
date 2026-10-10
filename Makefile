@@ -58,8 +58,8 @@ PINS := $(ROOT)/tools/verify-pins.sh
 # checkout shares, where it builds the tests' runner. It installs what this
 # checkout builds for it into HOST_PREFIX: the fork of its compiler
 # (compiler/idris), which it builds the frontend against, and the packages
-# of libs/, which the benchmarks' Chez baseline uses; it finds them there
-# beside its own prelude and base. The frontend (FRONTEND) reads
+# of libs/, which the fork (mlir-linear) and the benchmarks' Chez baseline
+# use; it finds them there beside its own prelude and base. The frontend (FRONTEND) reads
 # CHECKOUT_PREFIX, which holds only what it built itself: the packages of
 # the pinned Idris source (`prefix`) and those of libs/ (`libs`). Every
 # command inherits no package path from another installation, and CHEZ is
@@ -151,13 +151,16 @@ install = packages=$$($(1) --libdir) && mkdir -p '$(2)-src' && \
 
 # The fork of Idris's compiler, built by the pinned Idris and installed for
 # it into HOST_PREFIX, never into the pinned prefix, which every checkout
-# shares; its prelude and base are the pinned prefix's. Again whenever a
-# file of the fork changes, its package removed first, so that no module
-# the fork has dropped stays installed.
+# shares; its prelude and base are the pinned prefix's, and its
+# mlir-linear (the growable arrays of its tables) the one `host-libs`
+# installs beside it. Again whenever a file of the fork or of those
+# packages changes, its package removed first, so that no module the fork
+# has dropped stays installed.
 FORK_SOURCES := $(ROOT)/compiler/idris/idris-compiler.ipkg $(shell find '$(ROOT)/compiler/idris/src' -name '*.idr' 2> /dev/null)
 FORK_STAMP := $(HOST_PREFIX)/$(call toolchain,fork_stamp)
+HOST_LIBS_STAMP := $(HOST_PREFIX)/$(call toolchain,host_libs_stamp)
 fork: $(FORK_STAMP)
-$(FORK_STAMP): $(FORK_SOURCES) $(wildcard $(IDRIS_PREFIX)/provenance.json)
+$(FORK_STAMP): $(FORK_SOURCES) $(HOST_LIBS_STAMP) $(wildcard $(IDRIS_PREFIX)/provenance.json)
 	@$(PINS) idris
 	@mkdir -p '$(HOST_PREFIX)' && packages="$(call libdir,$(HOST_PREFIX))" && rm -rf "$$packages"/idris-compiler-*
 	cd $(ROOT)/compiler/idris && export IDRIS2_PREFIX='$(HOST_PREFIX)' IDRIS2_PACKAGE_PATH="$(call libdir,$(IDRIS_PREFIX))" && \
@@ -202,9 +205,9 @@ $(LIBS_STAMP): $(PREFIX_STAMP) $(SHIPPED_SOURCES)
 	@touch $@
 
 # The packages of libs/ for the pinned Idris too, installed into
-# HOST_PREFIX, for the benchmarks' Chez baseline, which compiles the
-# programs that use them; again whenever one of their sources changes.
-HOST_LIBS_STAMP := $(HOST_PREFIX)/$(call toolchain,host_libs_stamp)
+# HOST_PREFIX: the fork depends on mlir-linear, and the benchmarks' Chez
+# baseline compiles the programs that use them. Again whenever one of
+# their sources changes.
 host-libs: $(HOST_LIBS_STAMP)
 $(HOST_LIBS_STAMP): $(wildcard $(IDRIS_PREFIX)/provenance.json) $(SHIPPED_SOURCES)
 	@$(PINS) idris
