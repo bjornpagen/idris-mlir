@@ -27,6 +27,7 @@ import IdrisMLIR.Types
 
 import Data.List
 import Data.Maybe
+import Data.SnocList
 import Data.SortedMap
 import Data.SortedSet
 import Data.String
@@ -199,7 +200,7 @@ refsOf hs def =
 export
 checkReachable : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                  FC -> List Name -> Core ()
-checkReachable fc roots = go empty (map (\r => (r, [], False)) roots)
+checkReachable fc roots = go empty (map (\r => (r, [], False)) roots) [<]
   where
     userFC : List (Name, FC) -> FC
     userFC [] = fc
@@ -209,15 +210,20 @@ checkReachable fc roots = go empty (map (\r => (r, [], False)) roots)
     via [] = ""
     via path = " (reached through " ++ joinBy " -> " (map (show . fst) (reverse path)) ++ ")"
 
-    go : SortedSet String -> List (Name, List (Name, FC), Bool) -> Core ()
-    go seen [] = pure ()
-    go seen ((n, path, fromTrusted) :: rest) = do
+    -- The definitions to visit, breadth first, so that a path in a message
+    -- is a shortest one: a queue, the next ones first and those found
+    -- since at the back, which become the front when the front runs out.
+    go : SortedSet String -> List (Name, List (Name, FC), Bool) ->
+         SnocList (Name, List (Name, FC), Bool) -> Core ()
+    go seen [] [<] = pure ()
+    go seen [] back = go seen (back <>> []) [<]
+    go seen ((n, path, fromTrusted) :: rest) back = do
       defs <- get Ctxt
       Just def <- lookupCtxtExact n (gamma defs)
-        | Nothing => go seen rest
+        | Nothing => go seen rest back
       let full = fullname def
       let key = show full
-      if contains key seen then go seen rest else do
+      if contains key seen then go seen rest back else do
         -- Where the definition comes from, as the registry classifies it.
         loc <- toLoc (location def)
         let origin = loc.origin
@@ -292,4 +298,4 @@ checkReachable fc roots = go empty (map (\r => (r, [], False)) roots)
             _ => pure ()
         -- A library's own totality assertions are trusted.
         let refs' = if trusted then filter (not . assertion . qname) refs else refs
-        go (insert key seen) (rest ++ map (\r => (r, here, trusted)) refs')
+        go (insert key seen) rest (back <>< map (\r => (r, here, trusted)) refs')
