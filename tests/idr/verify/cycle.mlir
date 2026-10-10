@@ -51,6 +51,27 @@ module attributes {idr.program} {
 
 // -----
 
+// A library's code has no place in a source file, only its name: the
+// prefix installs no library sources. A knot whose array only a library
+// makes, as base's newIORef makes an IORef, is reported at the program's
+// own type on the cycle, which closes the knot.
+module attributes {idr.program} {
+  // expected-error @+1 {{unsupported (cycle): an IORef of Node can hold a reference to itself through Node -> IORef of Node -> Node}}
+  idr.data @Node box {
+    idr.ctor @MkNode (memref<!idr.box<@Node>>)
+  }
+  func.func private @newIORef(%node: !idr.box<@Node>, %w: !idr.world) -> (memref<!idr.box<@Node>>, !idr.world) {
+    %r, %w1 = idr.array.new [], %node, %w : !idr.box<@Node> -> memref<!idr.box<@Node>> loc(unknown)
+    return %r, %w1 : memref<!idr.box<@Node>>, !idr.world
+  } loc("Data.IORef.newIORef")
+  func.func @Prog.main() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
+}
+
+// -----
+
 module attributes {idr.program} {
   idr.data @A box {
     idr.ctor @MkA (memref<?x!idr.box<@B>>)

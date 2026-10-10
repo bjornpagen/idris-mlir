@@ -54,6 +54,8 @@ public:
 
   Type type(unsigned at) const { return types[at]; }
   bool isArray(unsigned at) const { return isa<MemRefType>(types[at]); }
+  // The declaration of a node, null for an array.
+  DataOp declaration(unsigned at) const { return declarations[at]; }
 
   // The sets of types that reach one another through an array. An array
   // cannot hold itself, so a strongly connected component with an array in
@@ -125,6 +127,12 @@ private:
   llvm::DenseMap<Type, unsigned> index;
 };
 
+// Whether a location is a place in a source file. The program's own code
+// has one; a library's has only its name, since the prefix installs no
+// library sources, and a diagnostic there would point nowhere the user can
+// look.
+bool inSource(Location loc) { return static_cast<bool>(loc->findInstanceOf<FileLineColLoc>()); }
+
 // A type as the message names it: a declaration by its symbol, an array by
 // what it holds, an array of rank 0 as the IORef it is.
 void describe(InFlightDiagnostic &out, Type type) {
@@ -145,9 +153,12 @@ void describe(InFlightDiagnostic &out, Type type) {
 export namespace idr::verify {
 
 // No array can hold a reference to itself: no cycle of types passes
-// through an array. Each cycle is reported once, with the types on it, at
-// the first idr.array.new that makes one of its arrays, or else at the
-// module.
+// through an array. Each cycle is reported once, with the types on it,
+// where the program's source shows it: at the first idr.array.new in the
+// program's own code that makes one of its arrays; or else, when only a
+// library makes them (an IORef that base's newIORef makes), at a type on
+// the cycle that the program declares, which is what closes the knot; or
+// else at the module.
 LogicalResult cycles(ModuleOp module) {
   TypeGraph graph(module);
   SmallVector<SmallVector<unsigned>> knots = graph.knots();
@@ -155,7 +166,7 @@ LogicalResult cycles(ModuleOp module) {
     return success();
 
   // The array each message names: the one the first idr.array.new of the
-  // knot makes, else the knot's first. This runs before the ops are
+  // knot in the program's own code makes, else the knot's first. This runs before the ops are
   // verified, so an array.new is read by the type of its result alone.
   llvm::DenseMap<Type, std::pair<unsigned, unsigned>> knotOf;
   SmallVector<unsigned> named;
@@ -167,7 +178,7 @@ LogicalResult cycles(ModuleOp module) {
     named.push_back(*llvm::find_if(members, [&](unsigned at) { return graph.isArray(at); }));
   }
   module.walk([&](Operation *op) {
-    if (!isa<ArrayNewOp>(op) || op->getNumResults() == 0)
+    if (!isa<ArrayNewOp>(op) || op->getNumResults() == 0 || !inSource(op->getLoc()))
       return;
     auto found = knotOf.find(unrestricted(op->getResult(0).getType()));
     if (found == knotOf.end() || made[found->second.first])
@@ -175,6 +186,15 @@ LogicalResult cycles(ModuleOp module) {
     made[found->second.first] = op;
     named[found->second.first] = found->second.second;
   });
+  for (auto [knot, members] : llvm::enumerate(knots)) {
+    if (made[knot])
+      continue;
+    for (unsigned at : members)
+      if (DataOp data = graph.declaration(at); data && inSource(data.getLoc())) {
+        made[knot] = data;
+        break;
+      }
+  }
 
   for (auto [members, op, array] : llvm::zip_equal(knots, made, named)) {
     SmallVector<unsigned> cycle = graph.cycle(array, members);
