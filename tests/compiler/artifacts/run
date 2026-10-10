@@ -1,5 +1,6 @@
 #!/bin/sh
-# Artifacts exist after success, and are removed when the same module later
+# Artifacts exist after success, in build/exec, which does not exist before
+# and which idris-mlir makes, and are removed when the same module later
 # fails.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 

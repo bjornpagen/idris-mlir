@@ -14,7 +14,7 @@ lz = zip' [1, 2] [3, 4]
 main : IO ()
 main = printLn lz
 IDRIS
-(cd "$work" && mkdir -p build/exec && bounded "$idris_mlir" Main.idr -o build/exec/prog) \
+(cd "$work" && bounded "$idris_mlir" Main.idr -o build/exec/prog) \
   > "$work/compile.log" 2>&1
 say "compile: exit $?"
 if grep -qF "Undefined name zip'" "$work/compile.log"; then

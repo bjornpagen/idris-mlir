@@ -8,7 +8,7 @@
 # with --no-prelude and OPTION... as given (-p PACKAGE, --no-eval,
 # --demand-in-place, --dump-dir=DIR, --break-shape=KEY). It leaves the
 # executable in build/exec/<name of OUTPUT> there, with its .core, .mlir
-# and .o beside it. Its output passes through, and the exit status is
+# and .o beside it; idris-mlir makes build/exec. Its output passes through, and the exit status is
 # idris-mlir's (3 for an error of the program's); on success the
 # executable's path is printed last. The idris-mlir it runs is the one
 # `make build` makes.
@@ -33,7 +33,7 @@ shift "$n"
 [ -f "$source" ] || { echo "error: $source: no such file" >&2; exit 1; }
 directory=$(cd "$(dirname "$source")" && pwd)
 name=${output##*/}
-cd "$directory" && mkdir -p build/exec || exit 1
+cd "$directory" || exit 1
 "$idris_mlir" --no-prelude "$@" "${source##*/}" -o "build/exec/$name"
 status=$?
 [ "$status" -eq 0 ] || { echo "error: compiling $source failed" >&2; exit "$status"; }

@@ -13,7 +13,7 @@ IDRIS
     printf '%s\n%s\n' 'module Main' "$(cat "$work/$named")" > "$work/$named.body"
     mv "$work/$named.body" "$work/$named"
   fi
-  (cd "$work" && mkdir -p build/exec && bounded "$idris_mlir" "$named" -o build/exec/prog) \
+  (cd "$work" && bounded "$idris_mlir" "$named" -o build/exec/prog) \
     > "$work/compile.log" 2>&1
   say "$named: compile exit $?"
   if [ -x "$work/build/exec/prog" ]; then

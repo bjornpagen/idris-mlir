@@ -113,7 +113,6 @@ if [ "$mode" = exec ] && [ "$exec_fn" != main ]; then
 fi
 [ -x "$idris_mlir" ] || { printf '%s\n' "Error: $idris_mlir is missing; run make build"; exit 1; }
 [ -n "$out_name" ] || out_name=upstream-exec
-mkdir -p build/exec || exit 1
 if [ "$mode" = compile ]; then
   exec "$idris_mlir" "$@" "$file" -o "build/exec/$out_name"
 fi

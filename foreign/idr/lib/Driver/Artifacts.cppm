@@ -5,6 +5,8 @@ export module idr.driver:artifacts;
 
 import idr.mlir;
 
+import :writeoutput;
+
 export namespace idr::driver {
 
 // A module is MLIR's, text or bytecode, and goes straight to the pipeline.
@@ -48,6 +50,17 @@ public:
     llvm::StringSet<> seen;
     for (const std::string &path : paths)
       if (!seen.insert(path).second || path == input || llvm::sys::fs::equivalent(path, input))
+        return false;
+    return true;
+  }
+
+  // The directories of every file the compilation writes, made before
+  // anything runs: the frontend, the pipeline and the link each write
+  // where they are told, and none of them finds a directory missing after
+  // the steps before it have run.
+  bool makeDirectories() const {
+    for (const std::string &path : paths)
+      if (!makeDirectoryOf(path))
         return false;
     return true;
   }

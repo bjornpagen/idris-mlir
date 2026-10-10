@@ -14,7 +14,7 @@ import Prelude
 main : IO ()
 main = putStrLn "hello"
 IDRIS
-(cd "$work" && mkdir -p build/exec && bounded "$work/bin/idris-mlir" --no-prelude Main.idr -o build/exec/prog) \
+(cd "$work" && bounded "$work/bin/idris-mlir" --no-prelude Main.idr -o build/exec/prog) \
   > "$work/compile.log" 2>&1
 say "compile without a frontend beside it: exit $?"
 # getMainExecutable is the real path, and a temporary directory may be

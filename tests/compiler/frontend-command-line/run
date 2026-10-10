@@ -1,7 +1,8 @@
 #!/bin/sh
 # idris-mlir-front's own command line, which idris-mlir gives it: the
 # prefix is required, the program's Core and module are written where
-# --core and -o say and nowhere else, and the exit status is idris-mlir's:
+# --core and -o say and nowhere else, in directories made for them when
+# they do not exist, and the exit status is idris-mlir's:
 # 2 for a usage error, 3 for the program's error, 1 for the compiler's own.
 # Idris prints its errors on stdout, so what it printed is read from both
 # streams.
@@ -57,6 +58,13 @@ else
   show "$work/hello.log"
 fi
 if [ -e "$work/build/exec" ]; then say "hello: build/exec made"; else say "hello: nothing else written"; fi
+front nested "$work" --prefix "$checkout_prefix" --no-prelude --core out/a/m.core -o out/b/m.mlir Main.idr
+if [ -s "$work/out/a/m.core" ] && [ -s "$work/out/b/m.mlir" ]; then
+  say "nested: exit $(cat "$work/nested.status"), the directories made and both written"
+else
+  say "nested: exit $(cat "$work/nested.status"), the Core or the module missing"
+  show "$work/nested.log"
+fi
 front undefined "$work/bad" --prefix "$checkout_prefix" --no-prelude --core m.core -o m.mlir Main.idr
 says undefined 'Undefined name'
 front no-entry "$work" --prefix "$checkout_prefix" --no-prelude --break-shape no.such.Key \

@@ -13,6 +13,7 @@ import :options;
 import :report;
 import :run;
 import :runonlargestack;
+import :writeoutput;
 
 export namespace idr::driver {
 
@@ -75,6 +76,8 @@ int main(int argc, char **argv) {
       Report() << "no output file (-o)";
       return usage;
     }
+    if (!makeDirectoryOf(outputPath))
+      return failure;
     return runOnLargeStack([] {
       mlir::DefaultTimingManager timings;
       mlir::applyDefaultTimingManagerCLOptions(timings);
@@ -102,6 +105,8 @@ int main(int argc, char **argv) {
     Report() << "-o names outputs that collide with each other or with the input";
     return usage;
   }
+  if (!artifacts.makeDirectories())
+    return failure;
   artifacts.arm();
   std::string frontendPath = frontendBeside(argv[0]);
   return runOnLargeStack([&] { return compile(frontendPath, kind, artifacts); });

@@ -26,13 +26,22 @@ import Data.String
 import System.File
 
 import Libraries.Data.WithDefault
+import Libraries.Utils.Path
 
 %default covering
 
-||| A file of the compilation's. Not being able to write it is the
-||| compiler's failure, as idris-mlir's own outputs are, not the program's.
+||| A file of the compilation's, in its directory, made first with those it
+||| is in when it does not exist, as Idris's own -o makes its output's.
+||| Not being able to write it is the compiler's failure, as idris-mlir's
+||| own outputs are, not the program's.
 write : String -> String -> Core ()
 write path text = do
+  case Libraries.Utils.Path.parent path of
+    Just dir => do
+      Right () <- coreLift (mkdirAll dir)
+        | Left err => throw (InternalError ("cannot write " ++ path ++ ": " ++ show err))
+      pure ()
+    Nothing => pure ()
   Right () <- coreLift (writeFile path text)
     | Left err => throw (InternalError ("cannot write " ++ path ++ ": " ++ show err))
   pure ()
