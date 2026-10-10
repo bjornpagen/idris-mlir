@@ -50,6 +50,32 @@ record Request where
   parent : Maybe FnId
   kinds : List PKind
 
+||| Instances waiting to be translated, first in first out: the front in
+||| order and the back as requested. Requesting is constant time, and
+||| taking the next is amortised constant, since the back is reversed into
+||| the front only when the front is empty. A list appended at its end
+||| would copy every waiting instance at every request.
+public export
+record Queue a where
+  constructor MkQueue
+  front : List a
+  back : SnocList a
+
+export
+emptyQueue : Queue a
+emptyQueue = MkQueue [] [<]
+
+export
+enqueue : a -> Queue a -> Queue a
+enqueue x q = { back $= (:< x) } q
+
+export
+dequeue : Queue a -> Maybe (a, Queue a)
+dequeue (MkQueue (x :: xs) b) = Just (x, MkQueue xs b)
+dequeue (MkQueue [] b) = case b <>> [] of
+  [] => Nothing
+  (x :: xs) => Just (x, MkQueue xs [<])
+
 ||| A function instance waiting to be translated.
 public export
 record Pending where
@@ -110,7 +136,7 @@ record TS where
   fns : SortedMap FnId TFn
   fnOrder : SnocList FnId
   seen : SortedSet FnId
-  queue : List Pending
+  queue : Queue Pending
   moduleFC : FC
   ||| Instances per definition, which only an assertion bounds.
   perName : SortedMap String Nat
@@ -160,7 +186,7 @@ record TS where
 
 export
 initState : SortedSet Name -> FC -> TS
-initState ifaces fc = MkTS empty [<] empty empty empty [<] empty [] fc empty empty empty empty empty empty False Nothing empty ifaces [<] empty empty
+initState ifaces fc = MkTS empty [<] empty empty empty [<] empty emptyQueue fc empty empty empty empty empty empty False Nothing empty ifaces [<] empty empty
 
 ||| The state a pass of the translation starts from: nothing of the last
 ||| pass but the dictionaries it found, the interfaces, and the rejections

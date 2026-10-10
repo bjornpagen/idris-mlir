@@ -84,9 +84,9 @@ translateInstance p = do
 drain : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Core ()
 drain = do
   st <- get TState
-  case st.queue of
-    [] => pure ()
-    (p :: rest) => do
+  case dequeue st.queue of
+    Nothing => pure ()
+    Just (p, rest) => do
       let before = { queue := rest } st
       put TState before
       Nothing <- noting (translateInstance p)

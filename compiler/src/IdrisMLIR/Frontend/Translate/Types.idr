@@ -6,6 +6,7 @@ import Core.CompileExpr
 import Core.Context
 import Core.Core
 import Core.Env
+import Core.Hash
 import Core.Normalise
 import Core.TT
 import Libraries.Data.NatSet
@@ -64,17 +65,24 @@ instanceName n args = do
   args' <- traverse (\a => case a of
                              Just t => Just <$> toFullNames t
                              Nothing => pure Nothing) args
-  shown <- traverse showTT (catMaybes args')
-  let printed = nameKey n' ++ (if null shown then "" else "[" ++ joinBy ", " shown ++ "]")
   st <- get TState
-  let same = fromMaybe [] (lookup (nameKey n') st.named)
+  -- Instances are bucketed by a hash of their arguments, so a request
+  -- compares its arguments with the few instances in its bucket, not with
+  -- every instance of the definition.
+  let key = nameKey n' ++ "#" ++ show (hash args')
+  let same = fromMaybe [] (lookup key st.named)
+  -- An instance already named is found by its arguments; only a new one
+  -- is printed, since printing a dictionary's normal form is the costly
+  -- part and most requests are repeats.
   case find ((== args') . fst) same of
     Just (_, name) => pure name
     Nothing => do
+      shown <- traverse showTT (catMaybes args')
+      let printed = nameKey n' ++ (if null shown then "" else "[" ++ joinBy ", " shown ++ "]")
       let owners = fromMaybe [] (lookup printed st.owners)
       let name = suffixed printed (length owners)
       put TState ({ owners $= insert printed (owners ++ [(n', args')])
-                  , named $= insert (nameKey n') ((args', name) :: same) } st)
+                  , named $= insert key ((args', name) :: same) } st)
       pure name
   where
     suffixed : String -> Nat -> String

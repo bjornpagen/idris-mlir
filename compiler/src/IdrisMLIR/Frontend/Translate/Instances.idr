@@ -109,7 +109,7 @@ request fc owner n kinds = do
     update TState { seen $= insert inst
                   , perName $= insert base (S count)
                   , requesters $= insert inst (MkRequest n base st.current kinds)
-                  , queue $= (++ [MkPending n inst kinds]) }
+                  , queue $= enqueue (MkPending n inst kinds) }
   pure inst
 
 ||| A compile-time value of an argument, computed on demand: normalised for a
