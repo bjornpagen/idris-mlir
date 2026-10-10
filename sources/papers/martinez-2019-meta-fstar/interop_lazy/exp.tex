@@ -1,0 +1,253 @@
+%% COLORS
+\definecolor{dkblue}{rgb}{0,0.1,0.5}
+\definecolor{dkgreen}{rgb}{0,0.5,0}
+\definecolor{dkred}{rgb}{0.7,0,0}
+\definecolor{dkpurple}{rgb}{0.7,0,0.4}
+
+\newcommand{\highlight}[1]{%
+  \colorbox{dkpurple}{$\displaystyle#1$}}
+
+\newcommand{\blue}[1]{{\textcolor{dkblue}{#1}}}
+\newcommand{\red}[1]{{\textcolor{dkpurple}{#1}}}
+
+
+%% SOURCE
+\newcommand{\source}[1]{\blue{#1}}
+\newcommand{\sourcelk}[1]{\blue{\lk{#1}}}
+\newcommand{\sexp}{\source{e}}
+\newcommand{\sexpp}{\source{e'}}
+\newcommand{\sexpi}{\source{e_1}}
+\newcommand{\sexpii}{\source{e_2}}
+\newcommand{\sexpip}{\source{e_1'}}
+\newcommand{\sexpiip}{\source{e_2'}}
+
+\newcommand{\sval}{\source{v}}
+\newcommand{\svali}{\source{v_1}}
+\newcommand{\svalii}{\source{v_2}}
+\newcommand{\sctxeq}{\cong_{ctx}}
+%%% TYPES
+\newcommand{\stau}{\source{\tau}}
+\newcommand{\ssig}{\source{\sigma}}
+\newcommand{\staui}{\source{\tau_1}}
+\newcommand{\stauii}{\source{\tau_2}}
+\newcommand{\staup}{\source{\tau'}}
+\newcommand{\sdelta}{\source{\delta}}
+\newcommand{\sdeltai}{\source{\delta_1}}
+\newcommand{\sdeltaii}{\source{\delta_2}}
+\newcommand{\sdeltap}{\source{\delta'}}
+\newcommand{\stunit}{\sourcelk{unit}}
+\newcommand{\snat}{\sourcelk{nat}}
+\newcommand{\sttop}{\source{\top}}
+\newcommand{\sarrow}[2]{#1\source{\rightarrow}#2}
+\newcommand{\sprod}[2]{#1\source{\times}#2}
+\newcommand{\ssum}[2]{#1\source{+}#2}
+\newcommand{\sall}[2]{\source{\forall}#1\source{.}#2}
+
+
+%%% ENV
+\newcommand{\senv}{\source{\Gamma}}
+\newcommand{\stenv}{\source{\Delta}}
+\newcommand{\senvemp}{\source{\cdot}}
+\newcommand{\shastyp}[2]{#1 : #2}
+\newcommand{\senvext}[3]{#1,\shastyp{#2}{#3}}
+\newcommand{\senvtext}[2]{#1,#2}
+
+\newcommand{\tenv}{\target{\Gamma}}
+\newcommand{\tenvemp}{\target{\cdot}}
+\newcommand{\tenvext}[2]{#1,#2}
+
+%%% SUBST
+\newcommand{\sesubst}{\source{\delta}}
+\newcommand{\sesubstemp}{\source{\cdot}}
+\newcommand{\sesubstsingl}[2]{\source{[}{#1}\source{\mapsto}{#2}\source{]}}
+\newcommand{\sesubsttwo}[4]{\source{[}{#1}\source{\mapsto}{#2},{#3}\source{\mapsto}{#4}\source{]}}
+\newcommand{\sesubstlist}[1]{\source{[}{#1}\source{]}}
+\newcommand{\bind}[2]{{#1}\source{\mapsto}{#2}}
+\newcommand{\sesubstext}[3]{#1\source{[}{#2}\source{\mapsto}{#3}\source{]}}
+
+\newcommand{\ssubst}[2]{\source{[}#2\source{/}#1\source{]}}
+\newcommand{\tsubst}[2]{\target{[}#2\target{/}#1\target{]}}
+\newcommand{\tesubstsingl}[2]{\target{[}{#1}\target{\mapsto}{#2}\target{]}}
+
+%%% EXPRESSIONS
+% unit
+\newcommand{\sunit}{\sourcelk{()}}
+% var
+\newcommand{\svar}[1]{\source{#1}}
+% abstractions
+\newcommand{\sabs}[3]{\source{\lambda} #1 \source{:} #2 \source{.} #3}
+\newcommand{\sapp}[2]{#1~#2}
+% type abstractions
+\newcommand{\stabs}[2]{\source{\Lambda #1\source{.} #2}}
+\newcommand{\stapp}[2]{#1~#2}
+% pairs
+\newcommand{\spair}[2]{\source{(}#1 \source{,} #2\source{)}}
+\newcommand{\sproj}[2]{#1\source{.}#2}
+\newcommand{\sproji}[1]{#1\source{.i}}
+\newcommand{\sfst}[1]{\sproj{#1}{\source{1}}}
+\newcommand{\ssnd}[1]{\sproj{#1}{\source{2}}}
+% sums
+\newcommand{\sinl}[1]{\sourcelk{inl}~#1}
+\newcommand{\sinr}[1]{\sourcelk{inr}~#1}
+\newcommand{\scasex}[5]{\sourcelk{case}\source{(} #1  \source{,x:#2.} #3  \source{,x:#4.} #5 \source{)}}
+\newcommand{\scasey}[5]{\sourcelk{case}\source{(} #1  \source{,y:#2.} #3  \source{,y:#4.} #5 \source{)}}
+\newcommand{\scase}[5]{\sourcelk{case}\source{(} #1  \source{,} #2 \source{.} #3  \source{,} #4 \source{.} #5 \source{)}}
+% alien
+\newcommand{\salien}[3]{\source{\{}#1 \source{\}}_{#2}^{#3}}
+\newcommand{\sopaque}[1]{\source{\langle}#1 \source{\rangle}}
+% parentheses
+\newcommand{\spar}[1]{\source{(}#1\source{)}} 
+
+%% TARGET
+\newcommand{\target}[1]{\red{#1}}
+\newcommand{\targetlk}[1]{\red{\lk{#1}}}
+
+%%% EXPRESSIONS
+\newcommand{\texp}{\target{e}}
+\newcommand{\texpp}{\target{e'}}
+\newcommand{\tval}{\target{v}}
+\newcommand{\tvali}{\target{v_1}}
+\newcommand{\tvalii}{\target{v_2}}
+\newcommand{\texpi}{\target{e_1}}
+\newcommand{\texpii}{\target{e_2}}
+\newcommand{\texpip}{\target{e_1'}}
+\newcommand{\texpiip}{\target{e_2'}}
+
+% unit
+\newcommand{\tunit}{\targetlk{()}}
+% var
+\newcommand{\tvar}[1]{\target{#1}}
+% abstractions
+\newcommand{\tabs}[2]{\target{\lambda} #1 \target{.} #2}
+\newcommand{\tapp}[2]{#1~#2}
+% pairs
+\newcommand{\tpair}[2]{\target{(}#1 \target{,} #2\target{)}}
+\newcommand{\tproj}[2]{#1\target{.}#2}
+\newcommand{\tproji}[1]{#1\target{.i}}
+\newcommand{\tfst}[1]{\sproj{#1}{\target{1}}}
+\newcommand{\tsnd}[1]{\sproj{#1}{\target{2}}}
+% sums
+\newcommand{\tinl}[1]{\targetlk{inl}~#1}
+\newcommand{\tinr}[1]{\targetlk{inr}~#1}
+\newcommand{\tcasex}[3]{\targetlk{case}\target{(}#1  \target{,x.} #2  \target{,x.} #3 \target{)}}
+\newcommand{\tcasey}[3]{\targetlk{case}\target{(}#1  \target{,y.} #2  \target{,y.} #3 \target{)}}
+\newcommand{\tcase}[6]{\targetlk{case}\target{(}  \target{,} #2 \target{.} #3  \target{,} #4 \target{.} #5 \target{)}}
+% alien
+\newcommand{\talien}[3]{\target{[}#1 \target{]}_{#2}^{#3}}
+\newcommand{\topaque}[1]{\target{\langle}#1 \target{\rangle}}
+% parentheses
+\newcommand{\tpar}[1]{\target{(}#1\target{)}} 
+
+% TYPING
+\newcommand{\iswf}[2]{#1 \vdash #2 ~\lk{wf}}
+\newcommand{\hastyp}[4]{#1;~#2 \vdash #3 : #4}
+\newcommand{\isok}[3]{#1;~#2 \vdash #3 ~\lk{ok}}
+
+%% COERSIONS
+\newcommand{\kap}[4]{\mathcal{K}_{#1}^{#2}(#3,#4)}
+\newcommand{\mfun}[2]{\lk{fun}~#1\Rightarrow#2}
+\newcommand{\tcoerce}[3]{\mathcal{\target{C}}_{#1}^{#2}(#3)}
+\newcommand{\scoerce}[3]{\mathcal{\source{C}}_{#1}^{#2}(#3)}
+\newcommand{\prot}[3]{\mathcal{P}_{#2}^{#3}(#1)}
+
+%% SEMANTICS
+\newcommand{\seval}{\source{~\rightarrow~}}
+\newcommand{\sevals}{\source{~\rightarrow^{*}~}}
+\newcommand{\sevalm}[1]{\source{~\rightarrow}^{#1}~}
+\newcommand{\teval}{\target{~\rightarrow~}}
+\newcommand{\tevals}{\target{~\rightarrow^{*}~}}
+\newcommand{\tevalm}[1]{\target{~\rightarrow}^{#1}~}
+\newcommand{\sevalr}[1]{\source{~\xrightarrow{\textsc{#1}}~}}
+\newcommand{\tevalr}[1]{\target{~\xrightarrow{\textsc{#1}}~}}
+\newcommand{\sevalrs}[1]{\source{~\xrightarrow{\textsc{#1}}^{*}~}}
+\newcommand{\tevalrs}[1]{\target{~\xrightarrow{\textsc{#1}}^{*}~}}
+\newcommand{\isval}[1]{\lk{is\_val}~#1}
+% CONTEXT
+\newcommand{\scon}[1]{\source{E[}#1\source{]}}
+\newcommand{\tcon}[1]{\target{E[}#1\target{]}}
+
+% TRANSLATION
+\newcommand{\trans}{~\source{\rightsquigarrow}~}
+
+% FREQUENTLY USED TERMS
+%% SOURCE
+\newcommand{\sdup}{\stabs{\svar{B}}{\sabs{\svar{x}}{\svar{B}}{\spair{\svar{x}}{\svar{x}}}}}
+\newcommand{\sduptyp}{\sall{\svar{B}}{\sarrow{\svar{B}}{\sprod{\svar{B}}{\svar{B}}}}}
+\newcommand{\sapptyp}{\sall{\svar{A}}{\sarrow{\spar{\sduptyp}}{\sarrow{\svar{A}}{\sprod{\svar{A}}{\svar{A}}}}}}
+\newcommand{\sapptypfree}{\sarrow{\spar{\sduptyp}}{\sarrow{\svar{A}}{\sprod{\svar{A}}{\svar{A}}}}}
+
+\newcommand{\sarith}{\source{(1 + 2 + \dots)}}
+\newcommand{\sinctyp}{\sarrow{\snat}{\snat}}
+
+\newcommand{\sapptypalt}
+{\sall{\svar{A}}
+  {\sall{\svar{B}}
+    {\sarrow{\spar{\sarrow{\svar{A}}{\svar{B}}}}{\sarrow{\svar{A}}{\svar{B}}}}}}
+\newcommand{\sapptypaltf}
+{\sall{\svar{B}}
+     {\sarrow{\spar{\sarrow{\svar{A}}{\svar{B}}}}{\sarrow{\svar{A}}{\svar{B}}}}}
+\newcommand{\sapptypaltff}
+   {\sarrow{\spar{\sarrow{\svar{A}}{\svar{B}}}}{\sarrow{\svar{A}}{\svar{B}}}}
+
+\newcommand{\sidf}[1]{\sabs{\svar{y}}{#1}{\svar{y}}}
+
+\newcommand{\sappid}
+{ \stabs
+    {\svar{A}}
+    {\sabs{\svar{x}}{\svar{A}}
+    {\sabs{\svar{f}}
+      {\sarrow{\svar{A}}{\svar{A}}}
+      {{\sapp{\svar{f}}{\spar{\sapp{\spar{\sidf{\svar{A}}}}{\svar{x}}}}}}
+    }}
+}
+\newcommand{\sappidf}
+{\sabs{\svar{x}}{\svar{A}}
+  {\sabs{\svar{f}}
+      {\sarrow{\svar{A}}{\svar{A}}}
+      {{\sapp{\svar{f}}{\spar{\sapp{\spar{\sidf{\svar{A}}}}{\svar{x}}}}}}}}
+\newcommand{\sappidarg}[1]
+{\sabs{\svar{f}}
+      {\sarrow{\svar{A}}{\svar{A}}}
+      {{\sapp{\svar{f}}{\spar{\sapp{\spar{\sidf{\svar{A}}}}{#1}}}}}}
+\newcommand{\sappidargs}[2]
+{\sapp{#2}{\spar{\sapp{\spar{\sidf{\svar{A}}}}{#1}}}}
+
+
+\newcommand{\sappidtyp}
+  {\sall{\svar{A}}
+      {\sarrow{\svar{A}}{\sarrow{\spar{\sarrow{\svar{A}}{\svar{A}}}}{\svar{A}}}}}
+\newcommand{\sappidtypf}
+  {\sarrow{\svar{A}}{\sarrow{\spar{\sarrow{\svar{A}}{\svar{A}}}}{\svar{A}}}}
+\newcommand{\sappidtypff}
+  {\sarrow{\spar{\sarrow{\svar{A}}{\svar{A}}}}{\svar{A}}}
+
+%% TARGET
+\newcommand{\tfapp}{\tabs{\tvar{f}}{\tabs{\tvar{x}}{\sapp{\tvar{f}}{\tvar{x}}}}}
+\newcommand{\tfapparg}[1]{\tabs{\tvar{x}}{\sapp{#1}{\tvar{x}}}}
+\newcommand{\tfappargs}[2]{\sapp{#1}{#2}}
+\newcommand{\tinc}{\tabs{\tvar{x}}{\target{x+1}}}
+\newcommand{\tid}{\tabs{\tvar{x}}{\tvar{x}}}
+
+
+%% Logical relation
+\newcommand{\rexp}[3]{#2 \source{\lesssim}_{#1} #3}
+\newcommand{\rval}[3]{#2 \source{\leq}_{#1} #3}
+\newcommand{\renv}[2]{\source{\mathcal{G}\llbracket} #1 \source{\rrbracket}_{#2}}
+\newcommand{\inrenv}[4]{(#1,#2) \in \renv{#3}{#4}}
+\newcommand{\rtypenv}[1]{\source{\mathcal{D}\llbracket} #1 \source{\rrbracket}}
+\newcommand{\inrtypenv}[2]{#1 \in \rtypenv{#2}}
+
+\newcommand{\rtexp}[3]{#2 \target{\lesssim}_{#1} #3}
+\newcommand{\rtval}[3]{#2 \target{\leq}_{#1} #3}
+\newcommand{\rtenv}[2]{\target{\mathcal{G}{\llbracket}} #1 \target{\rrbracket}_{#2}}
+\newcommand{\inrtenv}[4]{(#1,#2) \in \rtenv{#3}{#4}}
+
+
+\newcommand{\setst}[3]{ \{ (#1, #2) ~|~ #3 \}}
+\newcommand{\setsingl}[1]{ \{\}}
+\newcommand{\setsto}[2]{ \{ #1 ~|~ #2 \}}
+
+\newcommand\defeq{\mathrel{\overset{\makebox[0pt]{\mbox{\normalfont\tiny\sffamily def}}}{=}}}
+
+\newcommand{\sforce}[1]{\source{\mathit{force}}(#1)}
+\newcommand{\tforce}[1]{\target{\mathit{force}(#1)}}

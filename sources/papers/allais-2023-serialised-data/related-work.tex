@@ -1,0 +1,242 @@
+\subsection{Related Work}
+
+This work sits at the intersection of many domains:
+data-generic programming,
+the efficient runtime representation of functional data,
+programming over serialised values,
+and the design of serialisation formats.
+%
+Correspondingly, a lot of related work is worth discussing.
+In many cases the advantage of our approach is precisely that it is
+at the intersection of all of these strands of research:
+we do it generically, seamlessly, in a correct-by-construction manner,
+and use actual buffers.
+
+\subsubsection{Data-Generic Programming}
+
+There is a long tradition of data-generic
+programming~\citep{DBLP:conf/ssdgp/Gibbons06} and we will mostly focus here
+on the approach based on the careful reification of a precise universe of
+discourse as an inductive family in a host type theory,
+and the definition of generic programs by induction over this family.
+
+One early such instance is Pfeifer and Rue{\ss}'
+`polytypic proof construction'~\citeyearpar{DBLP:conf/tphol/PfeiferR99}
+meant to replace unsafe meta-programs deriving recursors
+(be they built-in support, or user-written tactics).
+%
+Their approach requires the definition of an entirely new core language
+to support polytypic function definitions while ours is completely
+non-invasive.
+%
+It would be interesting to port some of their motivating examples to our
+setting such as their generic data compression scheme for serialised
+tree representations.
+
+In his PhD thesis, Morris~\citeyearpar{DBLP:phd/ethos/Morris07} declares
+various universes for strictly positive types and families and defines by
+generic programming further types (the type of one-hole contexts),
+modalities (the universal and existential predicate lifting over the functors
+he considers), and functions (map, boolean equality).
+%
+We reuse some of these constructions already (e.g. the universal predicate
+lifting over functors is the \IdrisType{All} type family we used to define
+serialisation combinators in \Cref{sec:serialising}) and the other ones are
+obvious candidates for future work.
+%
+The type of one-hole contexts is in particular extremely useful to implement
+tail-recursive operations traversing a data structure.
+
+L{\"{o}}h and Magalh{\~{a}}es~\citeyearpar{DBLP:conf/icfp/LohM11} define a more
+expressive universe over indexed functors that is closed under composition
+and fixpoints.
+%
+They also detail how to define additional generic construction such as a
+proof of decidable equality, various recursion schemes, and zippers.
+%
+This work, quite similar to our own in its presentation, offers a natural
+candidate universe for us to use to extend our library.
+
+Recent efforts by Escot and Cockx~\citeyearpar{DBLP:journals/pacmpl/EscotC22}
+have demonstrated that it is possible, through reflection, to offer
+a neater user interface by transporting constructions between (a subset of)
+the native Agda inductive types and their rich universe of descriptions.
+%
+This could potentially provide a more convenient way to program using
+our library: instead of having to define the functions in the specification
+layer over \IdrisType{Data.Mu} trees, users could program against bona fide
+host language datatypes while still benefiting from the proven-correct
+generic programs.
+
+\subsubsection{Efficient Runtime Representation of Inductive Values}
+
+Although not dealing explicitly with programming over serialised data,
+Monnier's work~\citeyearpar{DBLP:conf/icfp/Monnier19} with its focus on performance and
+in particular on the layout of inductive values at runtime,
+partially motivated our endeavour.
+%
+Provided that we find a way to get the specialisation and partial evaluation
+of the generically defined views, we ought to be able to achieve --purely in
+user code-- Monnier's vision of a representation where $n$-ary tuples have
+constant-time access to each of their component.
+
+Baudon, Radanne, and Gonnord~\citeyearpar{ACM:conf/icfp/Baudon23} adopted
+a radically different approach to ours: we provide users with a
+uniform representation that requires no setup on their part,
+while \textsc{Ribbit} instead gives power users absolute freedom
+to define their own data layouts.
+%
+The project provides seamless integration: users annotate their
+data declarations with the data layout they want.
+%
+The programming experience is left unchanged: users write nested
+pattern-matching programs without ever needing to explicitly talk
+about the layout.
+%
+They cover a universe of monomorphic immutable algebraic datatypes
+fairly similar to ours, however the annotations language is expressive
+enough to talk about e.g. principled struct packing, bit stealing,
+unboxing, untagged unions, or word alignment.
+%
+Their approach is really impressive but requires modifying the
+whole compiler pipeline down to producing LLVM IR while ours
+lives purely in userland.
+
+\textsc{Dargent}~\citep{DBLP:journals/pacmpl/ChenLOKMJR23} is a similar
+high-level framework empowering users to dictate the data layout
+that the generated C code shall use.
+%
+This means that, just like in our project, users do not need to
+deserialise a value before being able to process it.
+%
+This work has the added benefit, compared to \textsc{Ribbit}, that
+it automatically generates an Isabelle/HOL correctness proof that
+the generated C code is a refinement of the original program.
+
+
+Allais~\citeyearpar{DBLP:conf/esop/Allais23}
+demonstrates how one can encode an
+invariant-rich inductive type using builtin types
+in \idris{} and recover high level programming principles
+by using views.
+%
+They rely heavily on Quantitative Type Theory to precisely
+control what parts of the encoding are to be erased during
+compilation.
+%
+Their approach, dealing with a single inductive family in a
+tutorial-style paper, is ad-hoc but complementary to ours
+and shows how to use bit packing in a certified way.
+
+\subsubsection{Working on Serialised Data}
+
+Swierstra and van Geest~\citeyearpar{DBLP:conf/icfp/GeestS17}
+define in \agda{} a rich universe of data descriptions
+and generically implement serialising and deserialising,
+proving that the latter is a left inverse to the former.
+%
+Their universe is powerful enough that later parts of a
+description can be constrained using the \emph{value}
+associated to ealier ones.
+%
+We will be able to rely on this work when extending our
+current universe to one for type families.
+%
+In turn, our approach could be ported to their setting
+to avoid the need to fully deserialise the data in order
+to process it.
+
+
+LoCal~\citep{DBLP:conf/pldi/VollmerKRS0N19} is the work that originally
+motivated the design of this library.
+%
+We have demonstrated that generic programming within a dependently typed
+language can yield the sort of benefits other language can only achieve
+by inventing entirely new intermediate languages and compilation schemes.
+
+LoCal was improved upon with a re-thinking of the serialisation scheme
+making the approach compatible with parallel
+programming~\citep{DBLP:journals/pacmpl/KoparkarRVKN21}.
+This impressive improvement is a natural candidate for future work on our
+part: the authors demonstrate it is possible to reap the benefits of
+both programming over serialised data
+and dividing up the work over multiple processors
+with almost no additional cost in the case of a purely sequential execution.
+
+\subsubsection{Serialisation Formats}
+
+The PADS project~\citep{DBLP:conf/popl/MandelbaumFWFG07} aims to let users
+quickly, correctly, and compositionally describe existing formats they
+have no control over.
+%
+As they remind us, ad-hoc serialisation formats abound be it in
+networking, logging, billing, or as output of measurement equipments
+in e.g. gene sequencing or molecular biology.
+%
+Our current project is not offering this kind of versatility as we have
+decided to focus on a specific serialisation format with strong
+guarantees about the efficient access to subtrees.
+%
+But our approach to defining correct-by-construction components could
+be leveraged in that setting too and bring users strong guarantees about
+the traversals they write.
+
+ASN.1~\citep{MANUAL:book/larmouth1999} gives users the ability to define
+a high-level specification of the exchange format (the `abstract syntax')
+to be used in communications without the need to concern themselves with
+the actual encoding as bit patterns (the `transfer syntax').
+%
+This separation between specification and implementation means that parsing
+and encoding can be defined once and for all by generic programming
+(here, a compiler turning specifications into code in the user's host
+language of choice).
+%
+The main difference is once again our ability to program in a
+correct-by-construction manner over the values thus represented.
+
+
+Yallop's automatic derivation of serialisers using an OCaml
+preprocessor~\citep{DBLP:conf/ml/Yallop07} highlights the importance
+of empowering domain experts to take advantage of the specifics of
+the problem they are solving to minimise the size of the encoded data.
+%
+By detecting sharing using a custom equality function respecting
+$\alpha$-equivalence instead of the default one, he was able to
+serialise large lambda terms using only
+a quarter of the bytes required
+by the OCaml's standard library marshaller.
+
+\subsubsection{Type Theory for Data Layout}
+
+Petersen, Robert, Crary, and Pfenning~\citeyearpar{DBLP:conf/popl/PetersenHCP03}
+design an elegant type theory based on ordered linear logic
+to describe the memory layout and an effectful functional
+language in the style of Moggy's
+metalanguage~\citeyearpar{DBLP:journals/iandc/Moggi91}.
+This empowers users to carefully control their data's memory
+layout.
+%
+This logic-based approach supports the explicit reservation,
+initialisation, and allocation of new memory locations all
+without needing to explicitly talk about an underlying
+heap-based memory model.
+%
+Their language's intended semantics shares our economic flat
+structure but only for non-recursive data: components of a
+pair are stored contiguously, and values of the unit type are
+absent at runtime.
+%
+In their extended technical report~\citeyearpar{MANUAL:report/cmu/PetersenHCP03}
+they describe support for sum types, both tagged and untagged
+(through an internalised notion of distinguishable types).
+They also describe a simple scheme to support iso-recursive types
+by giving up on a flat memory representation and insisting that
+every node is behind a pointer indirection.
+%
+Their appproach requires a dedicated language implementation
+while our definitions live purely in client code, defining
+an embedded domain specific language as a library.
+%
+They support destructive memory updates but do not offer any
+support for internally proving the properties of the programs
+one defines.

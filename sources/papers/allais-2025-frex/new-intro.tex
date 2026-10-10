@@ -1,0 +1,231 @@
+\section{Introduction}
+Algebraic simplification involves using algebraic laws to normalise
+expressions with unknowns. For example, the commutative monoid
+axioms---associativity, neutrality, and commutativity---over
+integers with addition serve to
+simplify the left hand expression to the right hand expression below:
+%
+\[-6 + (x+3)+(y+x)
+\;{}\xmapsto{\text{simplify}}{}\;
+-3+2x+y
+\]
+%
+%% Despite the suggestive name, simplification does not always make
+%% terms simpler; rather, it chooses a canonical representative.
+Many application domains make use of this kind of simplification.
+%
+For example, algebraic simplification is often a useful first step in
+a program optimiser, to avoid the need to analyse and transform
+distinct but equivalent programs.
+%
+The present work focuses on another application domain: theorem
+provers and programming languages based on type theory.
+%
+In these systems, users often need to prove to a type checker that
+terms are equivalent, but constructing the proofs often involves rote
+algebraic simplification steps that users resent having to produce
+manually.
+
+To free users from the need to construct rote algebraic proofs,
+de\-pen\-dent\-ly ty\-ped languages and their ecosystems often
+include simplifiers for common algebraic structures such as
+monoids, semi-rings, and rings.
+%
+With these simplifiers, users need only establish the structures'
+axioms, such as neutrality, associativity and commutativity, and can
+then call the simplifiers to discharge rote simplification steps.
+%
+Implementation strategies for simplifiers vary:  some,
+such as the Rocq ring solver~\cite{coq-ref-man-8:ring-solver},
+use tactics to simplify  algebraic terms in typing goals,
+while others, such as the Agda ring solver~\cite{kidney:ring-solver},
+use proof-by-reflection to construct propositions to discharge
+equations.
+Some simplifiers, such as the Rocq ring solver, group together several algebraic
+structures, while others, such as the system by \citet{gregoire-mahboubi:commutative-ring-done-right}, generalise several distinct structures to one
+structure.
+The
+state-of-the-art are standalone simplifiers that, through heuristics
+and long-term development, can deal with common cases.
+
+\subsection{Representation Theorems}
+
+Universal algebra has a long tradition concerning algebraic
+simplification under the collective name `representation
+theorems'. Each such representation theorem characterises canonical
+representatives of algebraic expressions in terms of (typically inductive)
+constructions such as reduced-words and formal polynomials. Such
+characterisations often
+reuse existing representation theorems of simpler algebraic
+structures or familiar algebraic structures such as the integers or
+the natural numbers.
+
+The present work makes use of two kinds of representation theorems.
+%
+For a free algebra (abbreviated \emph{fral}), a representation theorem
+amounts to an algebraic structure that interprets the algebraic
+operations to produce a single canonical representative for all input
+terms that are equivalent according to the algebraic laws.
+%
+For a free extension (abbreviated \emph{frex}), a representation
+theorem chooses a canonical representative using the algebraic laws
+while also evaluating concrete elements.
+%
+Free algebras and free extensions are related: each free extension is
+also a free algebra of a theory specialised to a concrete algebra by
+adding axioms over the concrete elements.
+
+For example, for commutative monoids the fral representation theorem
+states that the free commutative monoid over $n$ variables is
+represented by the set of $n$-tuples of naturals $\naturals^n$.
+We simplify with this representation by evaluating
+a term in the fral and then reifying it back as a term:
+\[
+-6 + (x+3) + (y+x)
+{}\xmapsto{\text{evaluate}(x_0 + (x_2 + x_1) + (x_3 + x_2))}{}
+(1, 1, 2, 1)
+{}\xmapsto{\text{reify}(x_0 \mapsto -6, x_1 \mapsto 3, x_2 \mapsto x, x_3 \mapsto y)}{}
+-6 +3 + 2x + y
+\]\label{new-intro fral example}
+%
+In the fral there is no concept of concrete elements, so fral
+simplification must treat constants such as $-6$ and $3$ in the same
+way as variables such as $x$ and $y$, as abstract and distinct
+indeterminates.
+
+The frex representation theorem for commutative monoids
+states that the free extension of a commutative monoid over $C$ by $n$
+variables is represented by the set $C \times \naturals^n$, where
+the element $(c, a_1,
+\ldots, a_n)$ represents the expression $c + a_1x_1 + \ldots +
+a_nx_n$.
+%
+Simplifying a term using the frex representation involves evaluating a
+term in the frex and then reifying it back as a term:
+\[
+-6 + (x+3) + (y+x)
+{}\xmapsto{\text{evaluate}_{\integers}}{}
+(-3, 2, 1)
+{}\xmapsto{\text{reify}}{}
+-3 + 2x + y
+\]
+The frex representation distinguishes variables from concrete
+elements, gathering the latter together and evaluating them using the
+operations of the concrete commutative monoid in use.
+
+Both kinds of representation theorem allow us to choose a unique
+syntactic representative, i.e., a normal form.
+Such normalization by evaluation and then reification
+also applies to more sophisticated notions of algebra that include the
+equational theories of $\lambda$-calculi, and is familiar in those
+settings as \emph{normalization-by-evaluation}~\cite{berger:nbe}.  Its first systematic
+applications were in the formal study of various simply typed
+calculi~\cite{altenkirch-et-al:cat-reconstruction,%
+  cubric-dybjer-scott:normalization-and-the-yoneda-embedding,%
+  altenkirch-et-al:nbe-stlc-sums}
+and category theoretic
+constructions~\cite{beylin-dybjer:extracting-coherence-for-monoidal-cats}.
+It has served as a conversion-checking technique during the
+type-checking of dependently typed calculi from their
+inception~\cite{martin-lof:an-intuitionistic-theory-of-types},
+gaining adoption after the seminal works
+of~\citet{abel-aehlig-dybjer:nbe-ml-tt-universe,abel-coquand-dybjer:nbe-mltt-eq},
+even for sophisticated
+calculi~\cite{DBLP:journals/pacmpl/0001VW17,sterling-angiuli:normalization-for-cubical-type-theory,DBLP:journals/jfp/HuJP23}.
+
+This article describes an extensible dependently typed library for
+algebraic simplifiers based on fral and frex representation theorems,
+building on our previous work on free extensions for
+partial evaluation~\cite{yallop-et-al:partially-static-data-as-frex}.
+%
+Current implementations of algebraic simplifiers,
+even in dependently typed settings, are restricted to
+implementing the computational representation---i.e.~the data-structures
+needed for the normal form together with the
+normalisation-by-evaluation algorithm---alongside a formalisation of
+the soundness proofs.
+%
+This work investigates what can be gained by encoding, in addition,
+the full meta-theory of these representation
+theorems, including generic representations of theories, their
+algebras and algebra homomorphisms, and the universal properties of
+the fral and frex.
+%
+For simplicity of development and exposition we apply this generic
+machinery to a handful of familiar monoid varieties.
+%
+Moreover, we ensure all of these concepts remain computational by avoiding
+the temptation of postulating axioms that could hinder reduction of closed
+terms.
+This last task is challenging to combine with
+interactive performance, as formalising universal properties tends to
+produce large terms that slow
+type-checkers~\cite{gross-chlipala-spivak:performant-cat-theory-in-coq}.
+
+
+\subsection{Paper Outline and Contributions}
+
+\secref{new-overview} present background material: a
+review of the mathematical foundation for \Frexlib{},
+and a brief \idris{} tutorial that reviews
+setoid-based equational reasoning.
+
+\secsref{frexlib}{core} present our central contribution, a
+fundamentally new approach to building algebraic simplifiers.
+%
+The standard existing approach is to write an ad-hoc simplifier for
+some particular algebraic structure such as rings.
+We take a different approach, teaching the implementation the basic concepts of
+universal algebra --- signatures, theories and models, homomorphisms,
+and universal properties (\secref{frexlib}) --- then build a
+completely generic solver based on free algebras and free extensions
+that can be instantiated with a particular algebra to discharge
+concrete proof obligations (\secref{core}).  This new approach is
+inherently modular and extensible, and delivers solvers that are sound
+and complete by construction.  We have created implementations of our design in
+two dependently typed languages: \Fragmentlib{} in \agda{},
+and \Frexlib{}
+in \idris{}\footnote{
+{Available here:
+  \url{https://github.com/frex-project/agda-fragment}
+and here:
+  \url{https://github.com/frex-project/idris-frex}}}.
+
+\secref{certification} explains the completeness guarantees of the
+library, and covers proof extraction, simplification, pretty-printing
+and certification. The technical \secsref{core}{certification}
+are aimed at library designers, and may be skimmed or skipped at
+first reading.
+
+\secref{reflection} considers a natural question: can one use
+reflection to invoke \Frexlib{} automatically? The answer is a
+qualified `yes', requiring much library-developer effort, but leading
+to real advantages in \agda{} and limited advantages in \idris{}.
+
+\secref{evaluation} reports some supplementary evaluation of
+\Frexlib{}.  The key properties of our design are guaranteed by the
+type theories of the languages in which we realise it: it delivers
+sound and complete solvers in a completely generic way, with support
+for proof extraction, certification, etc.  However, the practical
+questions of usability and viability for interactive development
+cannot be established by theorems and so we have also carried out some
+experiments.  These experiments focus on the varieties of monoids that
+also serve as our running example, and establish that the generic
+solver is comfortably fast enough for interactive use, and can be
+extended with new algebras in a modular way and without enormous
+effort.
+
+\secref{lessons} discusses system design issues that we encountered
+with \Frexlib{}, and \secsref{related}{conclusion} conclude with
+related and further work.
+
+Appendices~\ref{app:first-appendix}--\ref{app:last-appendix}
+have more information about \Frexlib's
+\FrexlibLoC{}-line \idris{} codebase, and example code extraction.
+%%
+%% We include only code excerpts that convey the
+%% key ideas; we refer to the implementation for full
+%% details.
+
+% Short contributions.
+% Structure of paper

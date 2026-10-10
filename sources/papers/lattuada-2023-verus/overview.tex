@@ -1,0 +1,277 @@
+% !TEX root = paper.tex
+
+
+\section{\verus by example} \label{sec:design}
+
+This section introduces the basic features of \verus
+by walking through a simple example that computes Fibonacci numbers,
+shown in \autoref{listing:fibonacci}.
+The example consists of a set of functions written in Rust.
+Each function is annotated with an attribute,
+using Rust's \verb`#[...]` attribute syntax,
+to indicate whether the function is executable code (\verb`#[exec]`),
+proof code (\verb`#[proof]`),
+or specification code (\verb`#[spec]`).
+We refer to \verb`exec`, \verb`proof`, and \verb`spec` as modes;
+\autoref{fig:modes} summarizes the properties of these three modes.
+
+\begin{figure}
+
+\noindent\begin{minipage}{.5\textwidth}
+
+\begin{lstlisting}[language=Verus,style=VerusLineNos]
+#[spec] fn fibo(n: nat) -> nat {
+    decreases(n); %*\clnum\label{clnum:fibo:fibo-decreases}*
+    if n == 0 { 0 }
+    else if n == 1 { 1 }
+    else { fibo(n - 2) + fibo(n - 1) }
+}
+
+#[proof] fn lemma_fibo_is_monotonic(i:nat, j:nat) { 
+    requires(i <= j); %*\clnum\label{clnum:fibo:requires-clause}*       %* \codemarker{spec}*
+    ensures(fibo(i) <= fibo(j)); %*\clnum\label{clnum:fibo:ensures-clause}*       %* \codemarker{spec}*
+    decreases(j - i); %*\clnum\label{clnum:fibo:decreases-clause}*       %* \codemarker{spec}*
+
+    if (i < 2 && j < 2) || i == j {
+    } else if i == j - 1 {
+        reveal_with_fuel(fibo, 2); %*\clnum\label{clnum:fibo:reveal}*
+        lemma_fibo_is_monotonic(i, j - 1); %*\clnum\label{clnum:fibo:lemma-monotonic-induct}*
+    } else {
+        lemma_fibo_is_monotonic(i, j - 1);
+        lemma_fibo_is_monotonic(i, j - 2);
+    }
+}
+
+#[spec] fn fibo_fits_u64(n: nat) -> bool {
+    fibo(n) <= u64::MAX
+} 
+\end{lstlisting}
+\end{minipage}\hfill
+\noindent\begin{minipage}{.5\textwidth}
+
+\begin{lstlisting}[language=Verus,style=VerusLineNos,firstnumber=26]
+#[exec] fn fibo_impl(n: u64) -> u64 {
+    requires(fibo_fits_u64(n)); %*\clnum\label{clnum:fibo:requires-clause-impl}*       %* \codemarker{spec}* 
+    ensures(|result: u64| result == fibo(n));%*\clnum\label{clnum:fibo:ensures-clause-impl}*       %* \codemarker{spec}* 
+
+    if n == 0 { return 0; } 
+    let mut prev: u64 = 0;
+    let mut cur: u64 = 1;
+    let mut i: u64 = 1;
+    while i < n {
+        invariant([ %*\clnum\label{clnum:fibo:invariant-clause}*       %* \codemarker{spec}* 
+            0 < i && i <= n,
+            fibo_fits_u64(n as nat),
+            fibo_fits_u64(i as nat),
+            cur == fibo(i),
+            prev == fibo(i as nat - 1),
+        ]);
+        let new_cur = cur + prev;
+        prev = cur;
+        cur = new_cur;
+        assert(prev == fibo(i as nat)); %*\clnum\label{clnum:fibo:fibo-impl-assert}*       %* \codemarker{proof}*
+        i = i + 1;
+        lemma_fibo_is_monotonic(i, n); %*\clnum\label{clnum:fibo:fibo-impl-lemma}*       %* \codemarker{proof}*
+    }
+    cur
+}
+\end{lstlisting}
+\end{minipage}
+\caption{A proof of correctness of a function computing the n-th
+Fibonacci number. We use circled letters, similar to \protect\circled{Z},
+to mark points of interest in the code. The markers \protect\inlinecodemarker{spec} and
+\protect\inlinecodemarker{proof} indicate specification and proof mode code respectively
+when it differs from the mode of the function.}
+\label{listing:fibonacci}
+\end{figure}
+
+In \verus, specifications and proofs are simply Rust code,
+parsed with Rust's parser and checked with Rust's type checker.
+This avoids the need for systems programmers to learn a separate verification language,
+making verification more accessible and convenient.
+It also allows specifications and proofs to take advantage of Rust's features,
+such as recursive functions, arithmetic, algebraic datatypes,
+pattern matching, modules, closures, traits, etc.
+For soundness's sake, \verus places some limits
+on the features that specifications and proofs can use.
+In particular, specifications must be deterministic,
+and recursive \verb`spec` functions and recursive \verb`proof` functions must terminate.
+
+The \verus tool, which extends the Rust compiler,
+erases all ghost code (all specifications and proofs) before the code is compiled to machine code.
+In the example, \verb`lemma_fibo_is_monotonic`, \verb`fibo`, and \verb`fibo_fits_u64`
+are all erased before compilation.
+Furthermore, the executable function \verb`fibo_impl` contains small bits of specification and proof
+inside its body
+(\clref{clnum:fibo:requires-clause-impl},
+\clref{clnum:fibo:ensures-clause-impl},
+\clref{clnum:fibo:invariant-clause},
+\clref{clnum:fibo:fibo-impl-assert},
+\clref{clnum:fibo:fibo-impl-lemma}),
+and this ghost code is also erased.
+
+\verus encodes preconditions and postconditions as calls to \verus library functions
+named \verb`requires` and \verb`ensures`.
+Postconditions may refer to the return value;
+for this, the ensures function accepts a Rust closure that declares a name for the return value.
+(In Rust, first-class functions are called closures and have the syntax ``\verb`|...parameters...| body`''.)
+The example uses a postcondition to prove that the executable function \verb`fibo_impl`
+computes the same result as the mathematical definition of the $n$\textsuperscript{th} Fibonacci number in the
+\verb`fibo` function: the \verb`ensures` clause~\clref{clnum:fibo:ensures-clause-impl}
+establishes this postcondition for \verb`fibo_impl`. Because the return value is a bounded 64-bit unsigned
+integer, \verb`fibo_impl` can only accept a parameter \verb`n` such that the n-th Fibonacci number fits
+in the type of the return value: this is established by the \verb`requires` clause~\clref{clnum:fibo:requires-clause-impl}.
+Note that \verus extends Rust's type system with two new integer types,
+\verb`int` (mathematical integers $\mathbb{Z}$), and \verb`nat` (natural numbers $\mathbb{N}$),
+so that specifications and proofs can talk about arbitrary integers.
+Executable code, however, is limited to Rust's finite-width integer types like \verb`u64`,
+since \verb`int` and \verb`nat` aren't compilable to machine code.
+
+To help prove the postcondition,
+the \verb`fibo_impl` function uses a loop invariant \clref{clnum:fibo:invariant-clause}
+containing a list of clauses that must be true before and after each loop iteration.
+Given preconditions, postconditions, and loop invariants,
+\verus uses standard weakest precondition reasoning~\cite{DBLP:journals/cacm/Dijkstra75}
+to generate a verification condition for \verb`fibo_impl`.
+It then sends this verification condition to the Z3 SMT solver~\cite{z3}.
+
+In many cases, the SMT solver can prove the verification condition completely automatically.
+In other cases, the proof may require reasoning beyond the SMT solver's abilities.
+For example, to prove the absence of 64-bit integer overflow,
+\verb`fibo_impl` relies on the Fibonacci sequence being monotonic,
+which requires an inductive proof that the SMT solver cannot generate automatically.
+Instead, the programmer supplies an inductive proof in the form of a recursive \verb`proof` function
+(e.g., \verb`lemma_fibo_is_monotonic`).
+The programmer can also add explicit assertions\clref{clnum:fibo:fibo-impl-assert} that
+serve as hints to the SMT solver.
+This style of SMT-based verification with programmer-supplied lemmas and hints
+is similar to other verification systems like Boogie~\cite{boogie}, Dafny, and \fstar.
+
+To improve verification performance,
+\verus strives to keep the verification condition encoding lightweight,
+so that the SMT encoding of specifications is not much larger than the original
+specifications written in \verus code.
+In particular, calls to \verb`spec` functions are translated directly into calls to SMT functions,
+with no additional overhead.
+For this reason, \verus \verb`spec` functions are total functions that do not have preconditions and postconditions.
+This design is similar to Boogie,
+though it differs from Dafny and \fstar.
+
+This design choice has a downside, since
+precondition failures can provide the developer with early feedback
+to find errors in specification functions and in how they are used.
+In order to restore that feedback, \verus introduces \verb`recommends` clauses: soft preconditions
+for \verb`spec` functions, which Verus only considers when there is a verification error.
+At that point, it performs a separate check for soft preconditions of
+\verb`spec` functions that are mentioned in the context of the failure,
+and reports failures as warnings for the developer.
+
+Recursive \verb`spec` functions and recursive \verb`proof` functions are valid only if they terminate on all inputs
+(otherwise, they could encode unsound circular reasoning).
+\verus requires that all such functions contain a \verb`decreases` clause~\clref{clnum:fibo:fibo-decreases}~\clref{clnum:fibo:decreases-clause}
+and each recursive call must decrease the expression in the clause. The recursive definition of
+the $n$\textsuperscript{th} Fibonacci number~\clref{clnum:fibo:fibo-decreases} in \autoref{listing:fibonacci}
+is legal because both recursive calls decrease the expression \verb`n`.
+(\verus also imposes positivity restrictions on recursive type definitions to prevent
+nontermination, as discussed in \autoref{sec:formalization}.)
+The SMT solver may need to unfold definitions of a recursive \verb`spec` function.
+As in Dafny and \fstar, \verus uses an integer ``fuel'' to control the number of unfoldings.
+The \verb`reveal_with_fuel`~\clref{clnum:fibo:reveal} function controls the fuel level.
+
+\begin{figure}
+  \centering
+  \small
+  \begin{tabular}{r|l|l|l}
+    \hline
+    ~ & specification mode & proof mode & executable mode \\ \hline
+    compiled or ghost & ghost & ghost & compiled \\
+    code style & purely functional & mutation allowed & mutation allowed \\
+    linearity \& borrowing checking & not checked & checked & checked \\
+    can call specification functions & yes & yes & yes \\
+    can call proof functions & no & yes & yes \\
+    can call executable functions & no & no & yes \\
+    % body visibility & may be visible & never visible & never visible \\
+    % body & body optional & body mandatory & body mandatory \\
+    determinism & deterministic & nondeterministic & nondeterministic \\
+    termination & must terminate & must terminate & nontermination ok \\
+    preconditions/postconditions & none & requires/ensures & requires/ensures \\
+    \hline
+  \end{tabular}
+  \caption{Summary of \verus' modes and their properties.}
+  \label{fig:modes}
+\end{figure}
+
+\subsection{Linearity, Borrowing, Spec Variables, and Proof Variables} \label{sec:design:linearity}
+
+Rust types are linear by default:
+unless a type implements the Rust \verb`Copy` trait,
+values of the type can only be moved from one variable to another, not copied.
+For example, the Rust \verb`Vec<T>` type for vectors is linear.
+The following code is illegal in Rust because it attempts to duplicate a \verb`Vec<u64>` value,
+returning both copies of the value in a pair:
+
+\begin{lstlisting}[language=Verus]
+#[exec] fn f(v: Vec<u64>) -> (Vec<u64>, Vec<u64>) {
+    let v1 = v;
+    let v2 = v; // illegal, tries to duplicate v
+    (v1, v2)
+}
+\end{lstlisting}
+
+On the other hand, Rust code can duplicate immutable references to values,
+as long as the scope of the references is limited.
+In Rust terminology, a reference of type \verb`&T` temporarily {\it borrows} from
+an owned value of type \verb`T`.
+During the borrowing, the original owned value of type \verb`T` is inaccessible.
+When the references go out of scope, the original owned value becomes accessible again.
+Rust code can also borrow a mutable reference of type \verb`&mut T`;
+in contrast to immutable references, mutable references cannot be duplicated.
+Rust enforces the property that a value cannot be borrowed both immutably and mutably simultaneously.
+
+Rust contains a sophisticated ``borrow checker'' that checks linearity and borrowing.
+Similar to Creusot~\cite{denis:hal-03737878}, \verus trusts the results of Rust's borrow checker,
+and does not attempt to recheck these results in the SMT solver,
+since this would just slow down the SMT solving.
+Because of this, \verus can rely on the properties of borrowing in its SMT encoding.
+For example, \verus encodes immutably borrowed references \verb`&T` and owned heap pointers
+(\verb`Box<T>`, \verb`Rc<T>`, and \verb`Arc<T>`) simply as values of type \verb`T`,
+not as pointers to locations.
+
+\verus specifications, in contrast to ordinary Rust code, are not checked for linearity and borrowing;
+specifications can freely copy any value of any type.
+This allows specifications to freely talk about linear values,
+potentially mentioning a single linear variable multiple times in a precondition or postcondition,
+for example.
+\verus code can also store nonlinear copies of linear variables inside {\it spec variables},
+declared with the attribute \verb`#[spec]`:
+
+\begin{lstlisting}[language=Verus]
+#[exec] fn f(v: Vec<u64>) {
+    #[spec] let v1 = v; // copies v into spec variable v1
+    #[spec] let v2 = v; // copies v into spec variable v2
+    assert(v1.len() == v2.len());
+}
+\end{lstlisting}
+
+Spec variables are similar to ghost variables in Dafny or erased values in \fstar.
+However, \verus also supports {\it proof variables}, declared as \verb`#[proof]`,
+which do not have a correspondence in Dafny or \fstar.
+Proof variables sit midway between \verb`exec` variables and \verb`spec` variables:
+like \verb`spec` variables, they are ghost and are not compiled to machine code,
+but like \verb`exec` variables, they are checked for linearity.
+By default, variables in \verb`exec` functions are \verb`exec`,
+while variables in \verb`proof` functions are \verb`spec` unless declared \verb`#[proof]`.
+Spec functions can only use \verb`spec` variables, not \verb`proof` variables or \verb`exec` variables.
+
+Since \verb`proof` variables are both linear and ghost,
+they can represent abstract linear permissions to perform operations,
+which can produce and consume the linear permissions.
+The next section describes how \verus exploits this feature to verify
+safe low-level pointer manipulation that would, in ordinary Rust, require unsafe code.
+(In fact, \verus does not support verification of code marked with Rust's \verb`unsafe` keyword;
+instead, its goal is to provide safe replacements for unsafe Rust features,
+based on linear ghost permissions and SMT-based verification.)
+
+
+
+

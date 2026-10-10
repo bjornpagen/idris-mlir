@@ -1,0 +1,175 @@
+\section{From Programs \& Types to Propositions \& Proofs}
+
+The denotational soundness Theorem~\ref{thm:safety}
+lets us interpret well typed programs as proofs of
+propositions.
+
+\NV{say that definition is a context that will be used later}
+\mypara{``Definitions''}
+A \emph{definition} $\defn$ is a sequence of reflected binders:
+%
+$$\defn \ ::= \ \bullet \spmid \erefb{x}{\gtyp}{e}{\defn}$$
+%
+A \emph{definition's environment} $\env(\defn)$ comprises
+its binders and their reflected types:
+%
+\begin{align*}
+\aenv(\bullet)                    \defeq & \emptyset \\
+\aenv(\erefb{f}{\gtyp}{e}{\defn}) \defeq & (f, \exacttype{\gtyp}{e}),\ \env(\defn) \\
+\end{align*}
+%
+A \emph{definition's substitution} $\sto(\defn)$ maps each binder
+to its definition:
+%
+\begin{align*}
+\sto(\bullet)                     \defeq & \emptysto \\
+\sto(\erefb{f}{\gtyp}{e}{\defn})  \defeq & \extendsto{f}{\efix{f}\ e}{\sto(\defn)}
+\end{align*}
+
+\mypara{``Propositions''}
+%
+A \emph{proposition} is a type
+%
+$$\tbind{x_1}{\typ_1} \rightarrow \ldots
+  \rightarrow \tbind{x_n}{\typ_n}
+  \rightarrow \tref{v}{\tunit}{\ppn}$$
+%
+For brevity, we abbreviate propositions like the above to
+%
+$\tfun{\overline{x}}{\overline{\typ}}{\ttref{\ppn}}$
+%
+and we call $\ppn$ the \emph{proposition's refinement}.
+%
+For simplicity we assume that $\freevars{\typ_i} = \emptyset$.
+
+\mypara{``Validity''}
+%
+\NV{add termination: proofs should provably terminates}
+
+A proposition $\tfun{\overline{x}}{\overline{\typ}}{\ttref{\ppn}}$
+is \emph{valid under} $\defn$ if
+%
+$$\forall \overline{w} \in \interp{\overline{\typ}}.\
+  \evalsto{\applysub{\sto(\defn)}{\SUBST{\ppn}{\overline{x}}{\overline{w}}}}{\etrue}$$
+%
+That is, the proposition is valid if its refinement
+evaluates to $\etrue$ for every (well typed)
+interpretation for its parameters $\overline{x}$
+under $\defn$.
+
+\mypara{``Proofs''}
+%
+A binder $\bd$ \emph{proves} a proposition $\gtyp$ under $\defn$ if
+$$\hastype{\emptyset}{\defn[\eletb{x}{\typ}{\bd}{\eunit}]}{\tunit}$$
+%
+That is, if the binder $\bd$ has the proposition's type $\gtyp$
+under the definition $\defn$'s environment.
+
+\begin{theorem}{[Proofs]} \label{thm:validity}
+If $\bd$ proves $\typ$ under $\defn$ then $\typ$ is valid under $d$.
+\end{theorem}
+
+\begin{proof}
+As $\bd$ proves $\typ$ under $\defn$, we have
+%
+\begin{align}
+\hastype{\emptyset}{\defn[\eletb{x}{\typ}{\bd}{\eunit}]}{\tunit}
+\label{pf:1} \\
+%
+\intertext{By Theorem~\ref{thm:safety} on \ref{pf:1} we get}
+%
+\sto(\defn) \in \interp{\env(\defn)} \label{pf:2}\\
+%
+\intertext{Furthermore,  by the typing rules \ref{pf:1}
+implies $\hastype{\env(\defn)}{\bd}{\typ}$ and hence, via Theorem~\ref{thm:safety}}
+%
+\forall \sub \in \interp{\env(\defn)}.\ \applysub{\sub}{\bd} \in \interp{\applysub{\sub}{\typ}}
+\label{pf:3} \\
+\intertext{Together, \ref{pf:2} and \ref{pf:3} imply}
+\applysub{\sto(\defn)}{\bd} \in \interp{\applysub{\sto(\defn)}{\typ}}
+\label{pf:4}
+\intertext{By the definition of type denotations, we have}
+%
+\interp{\applysub{\sto(\defn)}{\typ}}
+  \defeq \{ f\ |\ \typ \mbox{ is valid under}\ \defn\}
+  \label{pf:5}
+\end{align}
+By \ref{pf:4}, the above set is not empty, and hence $\typ$ is valid under $\defn$.
+\end{proof}
+
+
+%%%%%  \begin{definition}[Theorem]
+%%%%%  Let $\aenv=\aenv(\prog)$ be the set of axioms for some program \prog.
+%%%%%  Then
+%%%%%  $\typ\defeq\tbind{x_1}{\typ_1} \rightarrow \dots \rightarrow \tbind{x_n}{\typ_n} \rightarrow \ttreft{v}{\btyp}{\refa}$
+%%%%%  is a theorem if
+%%%%%  $\freevars{\refa} \subseteq \{x_1, \dots, x_n\} \cup \domain{\aenv}$,
+%%%%%  and for simplicity $\freevars{\typ_i} = \emptyset$.
+%%%%%
+%%%%%  Moreover, every expression $e'$ such that  \hastype{\aenv}{e'}{\typ}
+%%%%%  provides a proof of the theorem $\typ$ with respect to the definitions in \prog.
+%%%%%  \end{definition}
+%%%%%  %
+%%%%%  In other words, any expression $e'$ provides an evidence that the theorem expressed
+%%%%%  by \typ holds.
+%%%%%  The above definition is an instance of the Curry-Howard correspondence,
+%%%%%  where programs as interpreted as proofs or the theorems expressed by their types.
+%%%%%  %
+%%%%%  %% Moreover, since the proof of the theorem is any expression $e'$ with type $\typ$
+%%%%%  %% the definition states that our proof system is proof irrelevant.
+%%%%%
+%%%%%  \begin{theorem}
+%%%%%  Let $\aenv=\aenv(\prog)$.
+%%%%%  For every theorem
+%%%%%  $\typ \equiv \tbind{x_1}{\typ_1} \rightarrow \dots \rightarrow \tbind{x_n}{\typ_n} \rightarrow \ttreft{v}{\btyp}{\refa}$
+%%%%%  with a proof $e_\typ$ with respect to $p$,
+%%%%%  then $\forall x_1\in\interp{\typ_1},\dots, x_n\in\interp{\typ_n}. \evalsto{\applysub{\Theta_\aenv(\prog)}{\refa}}{\etrue}$.
+%%%%%  \end{theorem}
+%%%%%  \begin{myproof}
+%%%%%  Since \hastype{\aenv}{e_\typ}{\typ}
+%%%%%  by Theorem~\ref{thm:safety} we have
+%%%%%  $\forall \sub \in \interp{\aenv}.
+%%%%%  \applysub{\sub}{e_\typ} \in \interp{\applysub{\sub}{\typ}}
+%%%%%  $.
+%%%%%  %
+%%%%%  Since \prog type checks
+%%%%%  we have $\Theta_\aenv(\prog)\in\interp{\aenv}$, thus
+%%%%%  $\applysub{\Theta_\aenv(\prog)}{\refa} \in \interp{\applysub{\Theta_\aenv(\prog)}{\typ}}$.
+%%%%%  %
+%%%%%  By the Definition of Type Denotations we have
+%%%%%  $\interp{\typ} =  \{f |\forall x_1\in\interp{\typ_1},\dots, x_n\in\interp{\typ_n}. \evalsto{\applysub{\Theta_\aenv(\prog)}{\refa}}{\etrue} \}$.
+%%%%%  %
+%%%%%  But $e_\typ$ is a witness that the set \interp{\typ} is not empty, thus
+%%%%%  $\forall x_1\in\interp{\typ_1},\dots, x_n\in\interp{\typ_n}. \evalsto{\applysub{\Theta_\aenv(\prog)}{\refa}}{\etrue}$.
+%%%%%  \end{myproof}
+
+%% Theta_\aenv(\eletrec{f}{e}{\gtyp}{L}{\prog})
+ %% & = (f, \efix{f}\ e),\aenv(p) \\
+%% \Theta_\aenv(\elet{f}{e}{\gtyp}{L}{\prog})
+ %% & = (f, e),\aenv(p) \\
+%% \Theta_\aenv(\eletrecopt{f}{e}{\gtyp}{}{\prog})
+ %% & = \Theta_\aenv(p) \\
+%% \Theta_\aenv(e) &= \emptyset
+%% \end{align*}
+
+%% A proposition is \emph{well-formed} under $\defn$ if
+%% $\freevars{\refa} \subseteq \{x_1, \dots, x_n\} \cup \domain{\aenv}$,
+
+
+\mypara{Example: Fibonacci is increasing}
+%
+In \S~\ref{sec:overview} we verified that
+under a definition $\defn$ that includes \fibname,
+the term \fibincrname proves
+$${\tfun{n}{\tnat}{\ttref{\fib{n} \leq \fib{(n+1)}}}}$$
+%
+Thus, by Theorem~\ref{thm:validity} we get
+%that the \fib{}, as defined in $\defn$ is increasing
+%
+%$$
+%\forall n\in\interp{\tnat}. \evalsto{\fib{n} \leq \fib{(n+1)}}{\etrue}
+%$$
+%Equivalently
+$$
+\forall n. \evalsto{0 \leq n}{\etrue} \Rightarrow \evalsto{\fib{n} \leq \fib{(n+1)}}{\etrue}
+$$

@@ -1,0 +1,104 @@
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
+<!--Converted with LaTeX2HTML .95.3 (Nov 17 1995) by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds -->
+<HTML>
+<HEAD>
+<TITLE>Three Other Algorithms</TITLE>
+<!-- Changed by: Guy Blelloch, 29-Feb-1996 -->
+<!-- Changed by: Guy Blelloch , 25-Mar-1996 -->
+<META NAME="description" CONTENT="Three Other Algorithms">
+<META NAME="keywords" CONTENT="cacm2">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<LINK REL=STYLESHEET HREF="cacm2.css">
+</HEAD>
+<BODY LANG="EN">
+
+<strong>
+From <a href="../cacm.html"><cite>Programming Parallel Algorithms.</cite></a>
+<br>
+Communications of the ACM, 39(3), March, 1996.
+</strong>
+
+ <BR> <HR><A NAME="tex2html141" HREF="node12.html"><IMG ALIGN=BOTTOM ALT="next"  WIDTH=37 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/next_motif.gif"></A> <A NAME="tex2html139" HREF="node7.html"><IMG ALIGN=BOTTOM ALT="up"  WIDTH=26 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/up_motif.gif"></A> <A NAME="tex2html135" HREF="node10.html"><IMG ALIGN=BOTTOM ALT="previous"  WIDTH=63 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/previous_motif.gif"></A>   <BR>
+<B> Next:</B> <A NAME="tex2html142" HREF="node12.html">Summary</A>
+<B>Up:</B> <A NAME="tex2html140" HREF="node7.html">Examples of Parallel Algorithms</A>
+<B> Previous:</B> <A NAME="tex2html136" HREF="node10.html">Planar Convex-Hull</A>
+<BR> <HR> <P>
+<H2><A NAME="secothers"><A NAME="SECTION00034000000000000000">Three Other Algorithms</A></A></H2>
+
+<P>
+We conclude our examples with brief discussions of three other
+algorithms: the fast Fourier transform (FFT), the scan operation (all
+prefix sums), and an algorithm for finding the <i>k</i>th smallest
+element of a set.  All the code is shown in Figure <A HREF="node11.html#figothers">11</A>.
+These algorithms give more demonstration of the conciseness of
+nested data parallel constructs.
+<P>
+<P><A NAME="825">&#160;</A><A NAME="figothers">&#160;</A> 
+<MAP NAME="buttonbar">
+<AREA SHAPE="RECT" COORDS="0,0,290,129" HREF="../nesl/alg-numerical.html#fft">
+<AREA SHAPE="RECT" COORDS="0,130,290,234" HREF="../nesl/alg-sequence.html#treescan">
+<AREA SHAPE="RECT" COORDS="0,235,290,360" HREF="../nesl/alg-sequence.html#quickmedian">
+</MAP>
+
+<A HREF="#buttonbar"><IMG  WIDTH=466 HEIGHT=366 SRC="img50.gif" ALIGN=BOTTOM ALT="Algorithms Figure" USEMAP="#buttonbar" ISMAP></A>
+<BR>
+<STRONG>Figure 11:</STRONG> Code for the fast Fourier
+transforms, the scan operation, and for finding the  <IMG ALIGN=BOTTOM ALT="tex2html_wrap_inline1832"  WIDTH=21 HEIGHT=15 SRC="img49.gif"  >  smallest
+element of a set.<BR>
+<P>
+<P>
+We use the standard recursive version for the fast Fourier transform
+(FFT) [<A HREF="node14.html#CormenLeRi90">11</A>].  The second argument <TT>w</TT> is a sequence
+of the same length as <TT>a</TT> containing all the complex <i>n</i>th roots
+of unity.  The FFT is called recursively on the odd and even elements
+of <TT>a</TT>.  The results are then combined using <TT>cadd</TT> and <TT>
+cmult</TT> (complex addition and multiplication).
+Assuming that <TT>cadd</TT> and <TT>cmult</TT> take constant work and depth,
+then the recursion gives us the costs:
+<P> <IMG ALIGN=BOTTOM ALT="eqnarray734"  WIDTH=400 HEIGHT=44 SRC="img51.gif"  > <P>
+<P>
+The plus-scan operation (also called all-prefix-sums) takes a sequence
+of values and returns a sequence of equal length for which each
+element is the sum of all previous elements in the original sequence.
+For example, executing a plus-scan on the sequence <TT>[3, 5, 3, 1, 6]</TT> returns <TT>[0, 3, 8, 11, 12]</TT>.
+This can be implemented as shown in Figure <A HREF="node11.html#figothers">11</A>.
+The algorithm works by elementwise adding the odd and even elements and
+recursively solving the problem on these sums.  The result of the
+recursive call is then used to generate all the prefix sums.
+The costs are:
+<P> <IMG ALIGN=BOTTOM ALT="eqnarray739"  WIDTH=400 HEIGHT=44 SRC="img52.gif"  > <P>
+The particular code shown only works on sequences that have a length
+equal to a power of two, but it is not hard to generalize it to work
+on sequences of any length.
+<P>
+A variation of Quicksort can be used to find the <TT>k</TT>th
+smallest element of a sequence [<A HREF="node14.html#CormenLeRi90">11</A>].  This algorithm
+only calls itself recursively on the set of elements containing the
+result.  Here we consider a parallel version of this algorithm.  After
+selecting the <TT>lesser</TT> elements, if <TT>#lesser</TT> is greater than
+<TT>k</TT>, then the <TT>k</TT>th smallest element must belong to that
+set.  In this case, the algorithm calls <TT>kth_smallest</TT>
+recursively on <TT>lesser</TT> using the same <TT>k</TT>.  Otherwise, the
+algorithm selects the elements that are greater than the pivot, and
+can similarly find if the <TT>k</TT>th element belongs in <TT>
+greater</TT>.  If it does belong in <TT>greater</TT>, the algorithm calls
+itself recursively, but must now readjust <TT>k</TT> by subtracting the
+number of elements less than or equal to the pivot.  If the <TT>
+k</TT>th element belongs in neither <TT>lesser</TT> nor <TT>greater</TT>,
+then it must be the pivot, and the algorithm returns this value.  For
+sequences of length <i>n</i> the expected work of this algorithm is <EM>O(n)</EM>,
+which is the same as the time of the serial version.  The expected
+depth is <EM>O(log n)</EM> since the expected depth of recursion is <EM>O(log n)</EM>.
+<P>
+<BR> <HR><A NAME="tex2html141" HREF="node12.html"><IMG ALIGN=BOTTOM ALT="next"  WIDTH=37 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/next_motif.gif"></A> <A NAME="tex2html139" HREF="node7.html"><IMG ALIGN=BOTTOM ALT="up"  WIDTH=26 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/up_motif.gif"></A> <A NAME="tex2html135" HREF="node10.html"><IMG ALIGN=BOTTOM ALT="previous"  WIDTH=63 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/previous_motif.gif"></A>   <BR>
+<B> Next:</B> <A NAME="tex2html142" HREF="node12.html">Summary</A>
+<B>Up:</B> <A NAME="tex2html140" HREF="node7.html">Examples of Parallel Algorithms</A>
+<B> Previous:</B> <A NAME="tex2html136" HREF="node10.html">Planar Convex-Hull</A>
+<BR> <HR> <P>
+<BR> <HR>
+<P><ADDRESS>
+<a href="http://www.cs.cmu.edu/~blelloch">Guy Blelloch</a>, <a href="mailto:blelloch@cs.cmu.edu">blelloch@cs.cmu.edu</a>
+</ADDRESS>
+</BODY>
+</HTML>

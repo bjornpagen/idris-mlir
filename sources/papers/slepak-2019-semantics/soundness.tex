@@ -1,0 +1,1161 @@
+\subsection{Type Soundness}
+\label{SoundnessSection}
+The value of a type soundness theorem for Remora is not only assurance
+that well-typed programs do not suffer from shape-mismatching errors.
+It also ensures that the types ascribed to program terms
+accurately describe the shapes of the data those terms compute.
+That is the guarantee that justifies a compiler's use of the type system
+as a static analysis for array shape.
+
+With supporting lemmas,
+such as canonical forms and substitution,
+already taken care of,
+we now establish progress and preservation lemmas.
+Since we have not committed to
+a collection of primitive operators that are all total functions,
+the progress lemma acknowledges the possibility of non-shape errors,
+such as division by zero.
+However, we do assume that any value returned by a primitive operator
+inhabits that operator's output type.
+
+\newcommand{\misapp}{\app{\arrlit{\primop}{}}{\sequence{\val}}}
+\begin{lemma}[Progress]
+  \label{Progress}
+  Given an expression $\expr$ such that
+  $\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}{\expr}{\type}$,
+  one of the following holds:
+  \begin{itemize}
+  \item{$\expr$ is a value $\val$}
+  \item{There exists $\expr'$ such that $\expr \mapsto \expr'$}
+  \item{$\expr$ is
+    $\ctxt\left[\misapp\right]$
+    where $\primop$ is a partial function applied to
+    appropriately-typed values outside its domain.}
+  \end{itemize}
+\end{lemma}
+\begin{sproof}[We use induction on the derivation of
+  $\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}{\expr}{\type}$.
+  We consider only cases for typing rules which apply to expressions (as opposed to atoms).
+  Since we do not reduce under a binder,
+  our assumed type derivation ensures
+  that the reducible subexpression of $\expr$
+  is also typable using an empty environment.
+
+  An {\tt array} form which is not already a value
+  must have some non-value atom.
+  That atom must itself contain a non-value expression,
+  with its own type derivation.
+  So the induction hypothesis implies that
+  it can take a reduction step or is a mis-applied primitive operator.
+  Similar reasoning applies to {\tt frame} forms:
+  either we have a {\it collapse} redex,
+  or some cell subexpression in the frame can make progress.
+
+  An {\tt unbox} form can either
+  make progress in the box position (via the induction hypothesis)
+  or take an {\it unbox} step.
+  Similarly, a type or index applications can make progress in function position
+  or take $\mathit{t\beta}$ or $\mathit{i\beta}$ step.
+
+  The function application case splits into subcases depending on
+  whether the function and argument arrays are fully reduced
+  and if so what their frame shapes are.
+  If they are all value forms,
+  we have all scalar frames (a $\beta$ or $\delta$ redex)
+  or all identical non-scalar frames (a {\it map} redex),
+  or non-identical prefix-compatible frames (a {\it lift} redex).
+  Prefix-incompatible frames are ruled out by the type derivation.]
+  We use induction on the derivation of
+  $\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}{\expr}{\type}$.
+  We consider only cases for typing rules which apply to expressions (as opposed to atoms).
+  Note that a {\sc T-Var} derivation is impossible with an empty type environment.
+  \paragraph{Case {\sc Array}}
+  \[{\infr[T-Array]
+    {\sequence{\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}{\atom}{\type_a}}
+      \qquad
+      \kindof{\emptyEnv}{\emptyEnv}{\type_a}{\kindatom}
+      \qquad
+      \mathit{Length}\llb \sequence{\atom} \rrb = \prod{\sequence{\nat}}}
+    {\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}
+      {\arrlit{\sequence{\atom}}{\sequence{\nat}}}
+      {\typearray{\type_a}{\idxshape{\sequence{\nat}}}}}}\]
+  We have two possibilities.
+  One is that all of $\sequence{\atom}$ are atomic values, $\sequence{\atval}$,
+  in which case $e = \typearray{\sequence{\atval}}{\sequence{\nat}}$ is a value.
+  Otherwise, at least one $\atom$ is not an atomic value.
+  The non-value must be of the form
+  $\atom_s = \dsum{\sequence{\notevar{\var}{\sort}}}{\expr_s}{\type_a}$,
+  with non-value $\expr_s$.
+  The derivation of $\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}{\atom}{\type_a}$
+  implies via the induction hypothesis that
+  either there exists some $\expr_s'$ such that $\expr_s \mapsto \expr_s'$
+  or $\expr_s$ has the form $\ctxt_s\left[\misapp\right]$
+  with misapplied partial function $\primop$.
+  We build the evaluation context
+  $\ctxt = \arrlit{\sequence{\atom_0} \;
+    \dsum{\sequence{\notevar{\var}{\sort}}}{\ctxt_s}{\type_a}
+    \; \sequence{\atom_1}}
+  {\sequence{\nat}}$
+  where $\sequence{\atom_0}$ and $\sequence{\atom_1}$
+  are the atoms appearing respectively before and after $\atom_s$ in $\expr$.
+  If $\expr_s \mapsto \expr_s'$, then $\ctxt\left[\expr_s\right] \mapsto \ctxt\left[\expr_s'\right]$.
+  Otherwise, $\expr = \ctxt\left[\misapp\right]$.
+
+  \paragraph{Case {\sc Frame}}
+  \[{\infr[T-Frame]
+    {\sequence{\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}
+        {\expr_a}
+        {\typearray{\type_a}{\idx_a}}}
+      \qquad
+    \kindof{\emptyEnv}{\emptyEnv}{\typearray{\type_a}{\idx_a}}{\kindarray}
+    \\\\
+    \mathit{Length}\llb \sequence{\expr} \rrb = \prod{\sequence{\nat}}}
+    {\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}
+      {\frm{\sequence{\expr_a}}{\sequence{\nat}}}
+      {\typearray{\type_a}{\idxappend{\idxshape{\sequence{\nat}} \; \idx_a}}}}}\]
+  By the induction hypothesis,
+  each of $\sequence{\expr_a}$ is a value, is reducible,
+  or is a primitive operator misapplication
+  with the form $\ctxt_a\left[\misapp\right]$.
+  If they are all values, then
+  each has the form $\arrlit{\sequence{\atval}}{\sequence{\nat'}}$, so
+  $\expr \mapsto$
+  {\tt (array ($\sequence{\nat}$ $\sequence{\nat'}$)
+    $\mathit{Concat}\llbracket(\atval \sequence{})$ $\sequence{}$
+    $\rrbracket$)}.
+  % $\arrlit
+  % {\mathit{Concat}\llb\sequence{\parens{\sequence{\atval}}}\rrb}
+  % {\sequence{\nat}\;\sequence{\nat'}}$.
+  Note that all of the array literals serving as cells in the frame must have the same shape,
+  or their types would differ, making $\expr$ ill-typed.
+
+  If some $\expr_e \in \sequence{\expr_a}$ is not a value,
+  then the induction hypothesis implies that
+  it is reducible to $\expr_e'$
+  or it has the form $\ctxt_e\left[\misapp\right]$.
+  We construct the evaluation context
+  $\ctxt =$
+  {\tt (frame ($\nat$ $\sequence{}$)
+    $\expr_0$ $\sequence{}$ $\expr_e$ $\expr_1$ $\sequence{}$)},
+  % $\ctxt = \frm{\sequence{\expr_0} \; \expr_e \; \sequence{\expr_1}}{\sequence{\nat}}$,
+  where $\parens{\sequence{\expr_a}} = \parens{\sequence{\expr_0} \; \expr_e \; \sequence{\expr_1}}$.
+  If $\expr_e \mapsto \expr_e'$, then $\ctxt\left[\expr_e\right] \mapsto \ctxt\left[\expr_e'\right]$.
+  Otherwise, $\expr = \ctxt\left[\misapp\right]$.
+
+  \paragraph{Case {\sc TApp}}
+  \[{\infr[T-TApp]
+    {\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}
+      {\expr_f}
+      {\typearray{\typeuniv{\sequence{\notevar{\var}{\kind}}}{\typearray{\type_u}{\idx_u}}}{\idx_f}}
+      \\\\
+    \sequence{\kindof{\emptyEnv}{\emptyEnv}{\type_a}{\kind}}}
+    {\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}
+      {\tapp{\expr_f}{\sequence{\type_a}}}
+      {\typearray{\seqsubst{\type_u}{\var}{\type_a}}{\idxappend{\idx_f \; \idx_u}}}}}\]
+  By the induction hypothesis,
+  $\expr_f$ is a value, is reducible, or misapplies a partial function.
+  If $\expr_f$ is a value of type
+  ${\typearray{\typeuniv{\sequence{\notevar{\var}{\kind}}}{\typearray{\type_u}{\idx_u}}}{\idx_f}}$,
+  then Lemma \ref{CFArray} (canonical forms) implies
+  that it is an array literal containing type abstractions---%
+  \ie, $\expr_f = \arrlit{\sequence{{\tlam{\sequence{\notevar{\var_u}{\kind}}}{\val_u}}}}{\sequence{\nat}}$.
+  This means we have a $\mathit{t\beta}$ redex.%,
+  % which reduces to $\frm{\sequence{\seqsubst{\val_u}{\var_u}{\type_a}}}{\sequence{\nat}}$.
+  If $\expr_f$ is itself reducible to $\expr_f'$,
+  then for some context $\ctxt_f$ and redex $\expr_r$,
+  $\expr_f = \ctxt_f\left[\expr_r\right]$, and $\expr_r \mapsto \expr_r'$.
+  % So $\ctxt = \tapp{\ctxt_f}{\sequence{\type_a}}$,
+  % thus $\expr = \ctxt\left[\expr_r\right] \mapsto \ctxt\left[\expr_r'\right]$.
+  Alternatively, $\expr_f = \ctxt_f\left[\misapp\right]$.
+  Either way, construct $\ctxt = \tapp{\ctxt_f}{\sequence{\type_a}}$.
+  In the first case, $\expr = \ctxt\left[\expr_r\right] \mapsto \ctxt\left[\expr_r'\right]$.
+  In the second, $\expr = \ctxt\left[\misapp\right]$.
+  \paragraph{Case {\sc IApp}}
+  \[{\infr[T-IApp]
+    {\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}
+      {\expr_f}
+      {\typearray{\typedprod{\sequence{\notevar{\var}{\sort}}}{\typearray{\type_p}{\idx_p}}}{\idx_f}}
+      \qquad
+      \sequence{\sortof{\emptyEnv}{\idx_a}{\sort}}}
+    {\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}
+      {\iapp{\expr_f}{\sequence{\idx_a}}}
+      {\typearray{\seqsubst{\type_p}{\var}{\idx_a}}{\idxappend{\idx_f \; \seqsubst{\idx_p}{\var}{\idx_a}}}}}}\]
+  As in the previous case,
+  $\expr_f$ is a value, is reducible, or misapplies a partial function.
+  If $\expr_f$ is a value, the canonical forms lemma implies that it has the form
+  {\tt
+    (array ($\nat$ $\sequence{}$) (I\cl (($\var_p$ $\sort$) $\sequence{}$) $\val_p$) $\sequence{}$)},
+  which makes $\expr$ an $\mathit{i\beta}$ redex.
+  Otherwise $\expr_f$ itself is reducible,
+  \ie, of the form $\ctxt_f\left[\expr_r\right]$ for some rede $\expr_r$ reducing to $\expr_r'$,
+  \emph{or} it is of the form $\ctxt_f\left[\misapp\right]$.
+  Let the context $\ctxt = \iapp{\ctxt_f}{\sequence{\idx_a}}$.
+  Then we have either $\expr = \ctxt\left[\expr_r\right] \mapsto \ctxt\left[\expr_r'\right]$
+  or $\expr = \ctxt\left[\misapp\right]$.
+
+  \paragraph{Case {\sc Unbox}}
+  \[{\infr[T-Unbox]
+    {\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}
+      {\expr_s}
+      {\typearray{\typedsum{\sequence{\notevar{\var_i'}{\sort}}}{\type_s}}{\idx_s}}
+      \\\\
+      \typeof
+      {\sequence{\hassort{\var_i}{\sort}}}{\emptyEnv}{\hastype{\var_e}{\seqsubst{\type_s}{\var_i'}{\var_i}}}
+      {\expr_b}
+      {\typearray{\type_b}{\idx_b}}
+      \\\\
+      \kindof{\emptyEnv}{\emptyEnv}{\typearray{\type_b}{\idx_b}}{\kindarray}}
+    {\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}
+      {\dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b}}
+      {\typearray{\type_b}{\idxappend{\idx_s \; \idx_b}}}}}\]
+  By the induction hypothesis,
+  $\expr_s$ is a value, reducible, or a misapplication of a partial function.
+  If $\expr_s$ is a value, the canonical forms lemma implies
+  $\expr_s = \arrlit{\dsum{\sequence{\idx_s}}{\val}{\type}}{}$,
+  so $\expr$ is an $\mathit{unbox}$ redex.
+  If $\expr_s$ is reducible,
+  \ie, it is $\ctxt_s\left[\expr_r\right]$ where the redex $\expr_r \mapsto \expr_r'$,
+  then let $\ctxt = \dproj{\sequence{\var_i}}{\var_e}{\ctxt_s}{\expr_b}$.
+  Thus $\expr = \ctxt\left[\expr_r\right] \mapsto \ctxt\left[\expr_r'\right]$.
+  Otherwise, $\expr_s =$
+  $\ctxt_s[$
+  {\tt ((array () $\primop$) $\val$ $\sequence{}$)}
+  $]$,
+  so the same construction of $\ctxt$ gives
+  $\expr = \ctxt\left[\misapp\right]$.
+  \paragraph{Case {\sc App}}
+  \[{\infr[T-App]
+    {\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}{\expr_f}
+      {\typearray
+        {\typefun
+          {\sequence{\typearray{\type_i}{\idx_i}}}
+          {\typearray{\type_o}{\idx_o}}}
+        {\idx_f}}
+      \\\\
+    \sequence{\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}
+      {\expr_a}
+      {\typearray{\type_i}{\idxappend{\idx_a \; \idx_i}}}}
+    \qquad
+    \idx_p = \mathit{Max}\llb \idx_f \; \sequence{\idx_a} \rrb}
+    {\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}
+      {\app{\expr_f}{\sequence{\expr_a}}}
+      {\typearray{\type_o}{\idxappend{\idx_p \; \idx_o}}}}}\]
+  Suppose $\expr_f$ is not a value.
+  Then the induction hypothesis implies that
+  \emph{either} $\expr_f \mapsto \expr_f'$,
+  meaning $\expr_f = \ctxt_f\left[\expr_r\right]$
+  for some redex $\expr_r \mapsto \expr_r'$
+  \emph{or} $\expr_f = \ctxt_f\left[\misapp\right]$
+  with incompatible but properly-typed arguments.
+  Let $\ctxt = \app{\ctxt_f}{\sequence{\expr_a}}$.
+  If $\expr_f \mapsto \expr_f'$, with $\expr_f = \ctxt_f\left[\expr_r\right]$,
+  then $\expr = \ctxt\left[\expr_r\right] \mapsto \ctxt\left[\expr_r'\right]$.
+  Otherwise, $\expr = \ctxt\left[\misapp\right]$.
+
+  We assume from now that $\expr_f$ is a value.
+  If any of $\sequence{\expr_a}$ is not a value,
+  then a similar argument applies.
+  Choose $\expr_c$ as the leftmost non-value argument,
+  so that $\parens{\sequence{\expr_a}} = \parens{\sequence{\val_a} \; \expr_c \; \sequence{\expr_c'}}$.
+  Then induction hypothesis implies that $\expr_c$ is a context $\ctxt_c$
+  filled by either the redex $\expr_r$ or the misapplication $\misapp$.
+  Then the context $\ctxt =$
+  {\tt ($\expr_f$ $\val_a$ $\sequence{}$ $\ctxt_c$ $\expr'_c$ $\sequence{}$)}.
+  If $\expr_c = \ctxt_x\left[\expr_r\right] \mapsto \ctxt_x\left[\expr_r'\right]$,
+  then $\ctxt\left[\expr_r\right] \mapsto \ctxt\left[\expr_r'\right]$.
+  If $\expr_c = \ctxt_x\left[\misapp\right]$, then $\expr = \ctxt\left[\misapp\right]$.
+
+  Having addressed the cases where not all of $\expr_f, \sequence{\expr_a}$ are values,
+  we now consider $\expr = \app{\val_f}{\sequence{\val_a}}$.
+  By canonical forms, $\val_f$ has the form $\arrlit{\sequence{\func}}{\sequence{\nat_f}}$,
+  and uniqueness of typing implies $\ieqv{\idx_f}{\idxshape{\sequence{\nat_f}}}$.
+  We proceed by case analysis on $\idx_f, \sequence{\idx_a}$
+  (\nb, per the typing derivation, they are all prefix-orderable).
+  With one exception---where $\expr$ itself is misapplication of a partial function---%
+  each line of argument leads to a particular applicable reduction rule.
+  \paragraph{Subcase 1:} $\idx_f = \idxshape{}$, and each $\idx_a = \idxshape{}$.
+  Then $\sequence{\nat_f}$ must be the empty sequence,
+  and $\val_f$ must contain only a single atom, $\func$.
+  So $\val_f = \arrlit{\func}{}$,
+  and the respective types of the arguments $\sequence{\val_a}$ are
+  $\sequence{\typearray{\type_i}{\idxappend{\idx_a \; \idx_i}}}$,
+  or equivalently $\sequence{\typearray{\type_i}{\idx_i}}$.
+  If $\func = \primop$,
+  then we have the (partially annotated) expression
+  $\expr =$
+  {\tt ((array () $\primop^{\typefun
+      {\sequence{\typearray{\type_i}{\idx_i}}}
+      {\typearray{\type_o}{\idx_o}}}$)
+    $\val_a^{\typearray{\type_i}{\idx_i}}$
+    $\sequence{}$)}.
+  If $\primop$ is a partial function
+  with $\sequence{\val_a}$ as out-of-domain inputs,
+  such as division by zero,
+  then the third condition of the progress lemma holds.
+  Otherwise, we have a $\delta$ redex.
+  On the other hand, if
+  $\func = \lam{\sequence{\notevar{\var}{\typearray{\type_i}{\idx_i}}}}{\expr_b}$,
+  the annotated expression is
+  $\app
+  {\arrlit
+    {\annotate
+      [\typefun
+      {\sequence{\typearray{\type_i}{\idx_i}}}
+      {\typearray{\type_o}{\idx_o}}]
+      {\lam{\sequence{\notevar{\var}{\typearray{\type_i}{\idx_i}}}}{\expr_b}}}{}}
+  {\sequence{\annotate[\typearray{\type_i}{\idx_i}]{\val_a}}}$.
+  This is a $\beta$ redex.%,
+  % which reduces to $\seqsubst{\expr_b}{\var}{\annotate[\typearray{\type_i}{\idx_i}]\val}$.
+  \paragraph{Subcase 2:}
+  $\idx_f = \idxshape{\sequence{\nat_f}}$,
+  and each $\idx_a = \idxshape{\sequence{\nat_f}}$
+  for nonempty sequence $\sequence{\nat_f}$.
+  Then $\val_f$ is
+  $${\annotate
+    [\typearray
+    {\typefun
+      {\sequence{\typearray{\type_i}{\idxshape{\sequence{\nat_i}}}}}
+      {\typearray{\type_o}{\idx_o}}}
+    {\idxshape{\sequence{\nat_f}}}]
+    {\arrlit{\sequence{\func}}{\sequence{\nat_f}}}}$$
+  and it is applied to arguments
+  $$\sequence{\val_a} =
+  \sequence{\annotate
+    [\typearray{\type_i}{\idxshape{\sequence{\nat_f} \; \sequence{\nat_i}}}]
+    {\arrlit{\sequence{\atval}}{\sequence{\nat_f} \; \sequence{\nat_i}}}}$$
+  This is a $\mathit{map}$ redex.%,
+  % which reduces to
+  % $$\frm
+  % {\sequence{
+  %     \app
+  %     {\arrlit{\func}{}}
+  %     {\sequence{\arrlit{\sequence{\atval'}}{\sequence{\nat_i}}}}}}
+  % {\sequence{\nat_f}}$$
+  % where
+  % $\parens{\sequence{\parens{\sequence{\parens{\sequence{\atval'}}}}}}
+  % = \mathit{Transpose}\llb\sequence{\mathit{Split}_{\prod\parens{\sequence{\nat_i}}}\llb\sequence{\atval}\rrb}\rrb$
+  \paragraph{Subcase 3:}
+  $\idx_f, \sequence{\idx_a}$ are not all equal but still prefix orderable.
+  The form of $\expr$ is similar to the previous subcase,
+  except that each argument array $\val_a$ replaces $\sequence{\nat_f}$
+  with its own particular frame shape.
+  We then have a $\mathit{lift}$ redex.
+\end{sproof}
+
+
+\begin{lemma}[Preservation]
+  \label{Preservation}
+  Let $\sEnv,\kEnv,\tEnv$ be a well-formed environment, \ie, $\wfenv{\sEnv}{\kEnv}{\tEnv}$.
+  If $\typeof{\sEnv}{\kEnv}{\tEnv}{\expr}{\type}$
+  and $\expr \mapsto \expr'$
+  then $\typeof{\sEnv}{\kEnv}{\tEnv}{\expr'}{\type}$.
+\end{lemma}
+\begin{sproof}[We use induction on the derivation of
+  $\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}{\expr}{\type}$.
+  An {\tt array} form which can take a reduction step
+  must contain a reducible subexpression.
+  Many typing rules give rise to subcases where the $\expr$ itself is not a redex
+  but contains some subexpression $\expr_r$ which steps to $\expr_r'$.
+  In these situations,
+  the typing derivation for $\expr_r$ is included in that for $\expr$,
+  so replacing that subderivation with one for $\expr_r'$
+  (deriving the same type, according to the induction hypothesis)
+  produces a derivation of
+  $\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}{\expr'}{\type}$.
+  
+  The remaining nontrivial subcases each correspond to particular reduction rules.
+  As in proving Progress,
+  the {\sc T-App} case is split into subcases based on the function and argument frames.
+  When frames are non-identical but prefix-compatible,
+  the resulting {\it lift} reduction produces an application form with the same principal frame
+  and thus the same result type.
+  When we have identical non-scalar frames,
+  the {\it map} reduction produces a {\tt frame} form
+  whose frame shape is equal to the application form's principal frame
+  and whose cell shape and atom type is the same as
+  the function's return shape and atom type.
+  This gives it a type equivalent to that of the {\it map} redex.
+  With a scalar principal frame,
+  we have a $\delta$ redex (trivial)
+  or $\beta$ redex (follows from Lemma \ref{EESub},
+  preservation of types under term substitution).
+  Reasoning for type and index application forms is similar
+  (via Lemma \ref{IESub} and Lemma \ref{TESub} respectively).
+  A reducible {\tt unbox} form also
+  substitutes a value in for a variable which is intended to have the same type,
+  so Lemma \ref{EESub} again ensures the result type is $\type$.]
+  We use induction on
+  %% the structure of $\expr$.
+  the derivation of
+  $\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}{\expr}{\type}$.
+  As with Lemma \ref{Progress} (progress),
+  we only consider typing rules that can apply to an expression.
+  We elide {\sc T-Var} because a variable does not reduce any further.
+  \paragraph{Case {\sc Eqv}}
+  \[{\infr[T-Eqv]
+    {\typeof{\sEnv}{\kEnv}{\tEnv}{\expr}{\type'}
+      \qquad \teqv{\type}{\type'}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}{\expr}{\type}}}\]
+  By the induction hypothesis,
+  $\typeof{\sEnv}{\kEnv}{\tEnv}{\expr'}{\type'}$.
+  Then applying {\sc T-Eqv} to that derivation produces
+  \[{\infr[T-Eqv]
+    {\typeof{\sEnv}{\kEnv}{\tEnv}{\expr'}{\type'}
+      \qquad {\teqv{\type}{\type'}}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}{\expr'}{\type}}}\]
+
+  \paragraph{Case {\sc Array}}
+  \[{\infr[T-Array]
+    {\sequence{\typeof{\sEnv}{\kEnv}{\tEnv}{\atom}{\type_a}}
+      \\ \kindof{\sEnv}{\kEnv}{\type_a}{\kindatom}
+      \\\\ \mathit{Length}\llb \sequence{\atom} \rrb = \prod{\sequence{\nat}}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\arrlit{\sequence{\atom}}{\sequence{\nat}}}
+      {\typearray{\type_a}{\idxshape{\sequence{\nat}}}}}}\]
+  An array literal is not itself a redex,
+  so the only way for $\expr$ to reduce to $\expr'$ is
+  if some atom $\atom_r$ in the array is reducible.
+  Let $\parens{\sequence{\atom_0} \; \atom_r \; \sequence{\atom_1}}
+    = \parens{\sequence{\atom}}$.
+  The only atom form which may contain an expression
+  that takes a reduction step is a box.
+  So $\atom_r$ must have the form
+  $\dsum
+  {\sequence{\idx}}{\expr_s}
+  {\typedsum{\sequence{\notevar{\var}{\sort}}}{\type_s}}$,
+  where $\expr_s \mapsto \expr_s'$
+  and
+  $\teqv{\typedsum{\sequence{\notevar{\var}{\sort}}}{\type_s}}{\type_a}$.
+  The typing derivation for $\atom_r$ must,
+  except perhaps for use of {\sc T-Eqv},
+  end with
+  \[{\infr[T-Box]
+    {\sequence{\sortof{\sEnv}{\idx}{\sort}}
+      \qquad
+      {\kindof{\sEnv}{\kEnv}{\typedsum{\sequence{\notevar{\var}{\sort}}}{\type_s}}{\kindatom}}
+      \\
+      \typeof{\sEnv}{\kEnv}{\tEnv}{\expr_s}
+      {\seqsubst{\type_s}{\var}{\idx}}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\dsum
+        {\sequence{\idx}}
+        {\expr_s}
+        {\typedsum{\sequence{\notevar{\var}{\sort}}}{\type_s}}}
+      {\typedsum{\sequence{\notevar{\var}{\sort}}}{\type_s}}}}\]
+  The induction hypothesis implies that
+  $\typeof{\sEnv}{\kEnv}{\tEnv}{\expr_s'}
+  {\seqsubst{\type_s}{\var}{\idx}}$,
+  so $\atom_r$ can be ascribed the same type
+  ${\typedsum{\sequence{\notevar{\var}{\sort}}}{\type_s}}$,
+  which is equivalent to $\type_a$.
+  Since $\atom_r \mapsto \atom_r'$,
+  which still has type $\type_a$,
+  we derive
+  \[{\infr[T-Array]
+    {\hspace{5em}\sequence{\typeof{\sEnv}{\kEnv}{\tEnv}{\atom_0}{\type_a}}
+      \\
+      \typeof{\sEnv}{\kEnv}{\tEnv}{\atom_r'}{\type_a}
+      \\\\
+      \sequence{\typeof{\sEnv}{\kEnv}{\tEnv}{\atom_1}{\type_a}}
+      \\
+      \kindof{\sEnv}{\kEnv}{\type_a}{\kindatom}
+      \hspace{5em}
+      \\\\
+      \mathit{Length}\llb \sequence{\atom} \rrb = \prod{\sequence{\nat}}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\arrlit
+        {\sequence{\atom}}
+        {\sequence{\nat}}}
+      {\typearray{\type_a}{\idxshape{\sequence{\nat}}}}}}\]
+  \paragraph{Case {\sc Frame}}
+  \[{\infr[T-Frame]
+    {\sequence{\typeof{\sEnv}{\kEnv}{\tEnv}
+        {\expr_a}{\typearray{\type_a}{\idx_a}}}
+      \\
+      \kindof{\sEnv}{\kEnv}{\typearray{\type_a}{\idx_a}}{\kindarray}
+      \\
+      \mathit{Length}\llb \sequence{\expr} \rrb = \prod{\sequence{\nat_f}}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\frm{\expr_a}{\sequence{\nat_f}}}
+      {\typearray{\type_a}{\idxappend{\idxshape{\sequence{\nat_f}} \; \idx_a}}}}}\]
+  As in the {\sc T-Array} case,
+  if $\expr$ itself is not a redex,
+  then in order for it to reduce to $\expr'$,
+  it must contain some reducible cell,
+  \ie, there is some $\expr_r \in \sequence{\expr_a}$
+  such that $\expr_r \mapsto \expr_r'$.
+  Since the type derivation for $\frm{\expr_a}{\sequence{\nat_f}}$
+  must ascribe the type $\typearray{\type_a}{\idx_a}$ to $\expr_r$,
+  the induction hypothesis gives
+  $\typeof{\sEnv}{\kEnv}{\tEnv}{\expr_r'}{\typearray{\type_a}{\idx_a}}$.
+  We then patch that result into the type derivation we had.
+  With $\sequence{\expr_a} =
+  \parens{\sequence{\expr_0} \; \expr_r \; \sequence{\expr_1}}$,
+  we derive
+  \[{\infr[T-Frame]
+    {\sequence{\typeof{\sEnv}{\kEnv}{\tEnv}
+        {\expr_0}{\typearray{\type_a}{\idx_a}}}
+      \\
+      \typeof{\sEnv}{\kEnv}{\tEnv}
+             {\expr_r}{\typearray{\type_a}{\idx_a}}
+      \\
+      \sequence{\typeof{\sEnv}{\kEnv}{\tEnv}
+        {\expr_1}{\typearray{\type_a}{\idx_a}}}
+      \\
+      \kindof{\sEnv}{\kEnv}{\typearray{\type_a}{\idx_a}}{\kindarray}
+      \\
+      \mathit{Length}\llb \sequence{\expr} \rrb = \prod{\sequence{\nat_f}}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\frm{\expr_a}{\sequence{\nat_f}}}
+      {\typearray{\type_a}{\idxappend{\idxshape{\sequence{\nat_f}} \; \idx_a}}}}}\]
+  If $\expr$ \emph{is} a redex,
+  it must be a $\mathit{collapse}$ redex.
+  Then $\expr$ is a frame of array literals, \ie,
+  {\tt (frame
+    ($\nat_f \sequence{}$)
+    (array ($\nat_c \sequence{}$) $\atval \sequence{}$) $\sequence{}$)},
+  and it must step to $\expr' =$
+{\tt (array ($\nat_f \sequence{} \nat_c \sequence{}$)
+$\mathit{Concat}\llbracket\sequence{(\sequence{\atval})}\rrbracket$)}.
+  Each of $\expr$'s cells is a well-typed array literal,
+  with type derivation:
+  \[{\infr[T-Array]
+    {\sequence{\typeof{\sEnv}{\kEnv}{\tEnv}
+        {\atval}{\type_a}}
+      \qquad
+      \kindof{\sEnv}{\kEnv}{\type_a}{\kindatom}
+      \\\\
+      \mathit{Length}\llb\sequence{\atval}\rrb = \prod{\sequence{\nat_c}}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\arrlit{\sequence{\atval}}{\sequence{\nat_c}}}
+      {\typearray{\type_a}{\idxshape{\sequence{\nat_c}}}}}}\]
+  The typing derivation for each cell in the {\tt frame}
+  requires that $\mathit{Length}\llb\sequence{\atval}\rrb = \prod{\sequence{\nat_c}}$.
+  Concatenating $\prod{\sequence{\nat_f}}$ sequences of atomic values
+  each of which contains $\prod{\sequence{\nat_c}}$ elements
+  gives a sequence whose length is $\prod{\parens{\sequence{\nat_f}\sequence{\nat_c}}}$.
+  So we can derive a similar type for the collapsed array:
+  \[{\infr[T-Array]
+    {\sequence{\typeof{\sEnv}{\kEnv}{\tEnv}
+        {\atval}{\type_a}}
+      \\
+      \kindof{\sEnv}{\kEnv}{\type_a}{\kindatom}
+      \\\\
+      \mathit{Length}\llb\mathit{Concat}\llb\sequence{\parens{\sequence{\atval}}}\rrb\rrb
+      = \prod{\parens{\sequence{\nat_f}\sequence{\nat_c}}}}
+    {\parbox{0.65\textwidth}
+      {\centering ${\sEnv};{\kEnv};{\tEnv}\vdash
+        {\arrlit
+          {\mathit{Concat}\llb\sequence{\parens{\sequence{\atval}}}\rrb}
+          {\sequence{\nat_f}\sequence{\nat_c}}}$
+        $:{\typearray{\type_a}{\idxshape{\sequence{\nat_f}\sequence{\nat_c}}}}$}}}\]
+
+  Strictly speaking, our goal is to ascribe the type
+  {\tt (Arr $\type_a$ (++ (Shp $\nat_f \sequence{}$) $\idx_a$))}  $=$
+  {\tt (Arr $\type_a$ (++ (Shp $\nat_f \sequence{}$) (Shp $\nat_c \sequence{}$)))}
+  rather than the type we have just derived,
+  but they are equivalent via {\sc TEqv-Array} because
+  {\tt (++ (Shp $\nat_f \sequence{}$) (Shp $\nat_c \sequence{}$))
+    $\theq$
+    (Shp $\nat_f \sequence{} \nat_c \sequence{}$)}.
+  So {\sc T-Eqv} completes the derivation for
+${\sEnv};{\kEnv};{\tEnv}$
+$\vdash$
+$\expr'$
+$:$
+{\tt (Arr $\type_a$ (++ (Shp $\nat_f \sequence{}$) $\idx_a$))}.
+
+  \paragraph{Case {\sc TApp}}
+  \[{\infr[T-TApp]
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\expr_f}
+      {\typearray
+        {\typeuniv
+          {\sequence{\notevar{\var}{\kind}}}
+          {\typearray{\type_u}{\idx_u}}}
+        {\idx_f}}
+      \qquad
+      \sequence{\kindof{\sEnv}{\kEnv}{\type_a}{\kind}}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\tapp{\expr_f}{\sequence{\type_a}}}
+      {\typearray
+        {\seqsubst{\type_u}{\var}{\type_a}}
+        {\idxappend{\idx_f \; \idx_u}}}}}\]
+  As in previous cases, if $\expr_f \mapsto \expr_f'$,
+  the induction hypothesis gives us a derivation
+  $$\typeof{\sEnv}{\kEnv}{\tEnv}
+  {\expr_f'}
+  {\typearray
+    {\typeuniv
+      {\sequence{\notevar{\var}{\kind}}}
+      {\typearray{\type_u}{\idx_u}}}
+    {\idx_f}}$$
+  which we can then use for
+  {\tt (t-app $\expr_f'$ $\type_a \sequence{}$)}.
+
+  Otherwise, $\expr \mapsto \expr'$ is only possible
+  if we have a $\mathit{t\beta}$ redex,
+  with
+  $\expr_f =$ {\tt (array ($\nat_f \sequence{}$) (T$\ttlm{\sequence{\ttparens{\var_u\; \kind}}}$ $\expr_u$) $\sequence{}$)}
+  and $\idx_f = \idxshape{\sequence{\nat_f}}$.
+  Following $\mathit{t\beta}$ reduction, $\expr' =$
+  {\tt (frame ($\nat_f \sequence{}$) $\seqsubst{\expr_u}{\var_u}{\type_a} \sequence{}$)}.
+  Since $\expr_f$ is a well-typed array of type abstractions,
+  it must be the case that
+  $\typeof{\sEnv}{\kEnv, \sequence{\haskind{\var_u}{\kind}}}{\tEnv}
+  {\expr_u}
+  {\typearray{\type_u}{\idx_u}}$
+  for each of the abstraction bodies, $\sequence{\expr_u}$.
+  Lemma \ref{TESub} (preservation of types under type substitution)
+  implies that we can give $\seqsubst{\expr_u}{\var_u}{\type_a}$
+  the ``same'' type as $\expr_u$,
+  that is,
+  $$\typeof{\sEnv}{\kEnv}{\seqsubst{\tEnv}{\var_u}{\type_a}}
+  {\seqsubst{\expr_u}{\var_u}{\type_a}}
+  {\typearray{\seqsubst{\type_u}{\var_u}{\type_a}}{\idx_u}}$$
+
+  The type derivation for $\expr_f$ requires that
+  the individual type abstractions' types all be
+  equivalent to $\typeuniv{\sequence{\notevar{\var}{\kind}}}{\type_u}$
+  despite possibly being written to bind different type names,
+  so each resulting $\seqsubst{\type_u}{\var_u}{\type_a}$
+  is equivalent to $\seqsubst{\type_u}{\var}{\type_a}$.
+  Per Barendregt's convention,
+  an abstraction's type variables $\sequence{\var_u}$
+  are not used in the range of $\tEnv$,
+  the type environment used in checking that abstraction
+  (otherwise, the environment structure $\sEnv; \kEnv; \tEnv$
+  would be ill-formed),
+  so $\seqsubst{\tEnv}{\var_u}{\type_a} = \tEnv$.
+  Theorem \ref{wellkinded} (ascription of well-kinded types)
+  implies that the pieces used to form the result type,
+  $\seqsubst{\type_u}{\var}{\type_a}$ and $\idx_u$,
+  are well-formed at kind $\kindatom$ and sort $\sortshp$ respectively,
+  so the cell type $\typearray{\seqsubst{\type_u}{\var}{\type_a}}{\idx_u}$
+  has kind $\kindarray$.
+  Finally, the number of result cells matches
+  the number of atoms in $\expr_f$,
+  which is the product of $\expr_f$'s dimensions $\sequence{\nat_f}$.
+  Thus we can derive
+  \[{\infr[T-Frame]
+    {\sequence{
+        \typeof{\sEnv}{\kEnv}{\tEnv}
+        {\seqsubst{\expr_u}{\var_u}{\type_a}}
+        {\typearray
+          {\seqsubst{\type_u}{\var}{\type_a}}
+          {\idx_u}}}
+      \\\\
+      \kindof
+          {\sEnv}{\kEnv}
+          {\typearray
+            {\seqsubst{\type_u}{\var}{\type_a}}
+            {\idx_u}}
+          {\kindarray}
+      \\\\
+      \mathit{Length}\llb \sequence{\expr_u} \rrb = \prod{\sequence{\nat}}}
+    {\parbox{0.6\textwidth}
+      {\centering
+        ${\sEnv};{\kEnv};{\tEnv}\vdash
+        {\frm
+          {\sequence{\seqsubst{\expr_u}{\var_u}{\type_a}}}
+          {\sequence{\nat_f}}}$
+        $: {\typearray
+          {\seqsubst{\type_u}{\var}{\type_a}}
+          {\idxappend{\idxshape{\sequence{\nat}} \; \idx_u}}}
+        $}}}\]
+
+  \paragraph{Case {\sc IApp}}
+  \newcommand{\ibetasub}[1]{\seqsubst{#1}{\var}{\idx_a}}
+  \newcommand{\ibetasubp}[1]{\seqsubst{#1}{\var'}{\idx_a}}
+  \[\infr[T-IApp]
+  {\typeof{\sEnv}{\kEnv}{\tEnv}
+    {\expr_f}
+    {\typearray
+      {\typedprod
+        {\sequence{\notevar{\var}{\sort}}}
+        {\typearray{\type_p}{\idx_p}}}
+      {\idx_f}}}
+  {\typeof{\sEnv}{\kEnv}{\tEnv}
+    {\iapp{\expr_f}{\idx_a}}
+    {\typearray{\ibetasub{\type_p}}{\idxappend{\idx_f \; \ibetasub{\idx_p}}}}}\]
+  If $\expr_f \mapsto \expr_f'$,
+  then the induction hypothesis implies that
+  ${\sEnv};{\kEnv};{\tEnv}\vdash$
+  ${\expr_f'}$
+  {\tt (Arr (Pi (($\var$ $\sort$) $\sequence{}$) (Arr $\type_p$ $\idx_p$)) $\idx_f$)}.
+  Then the type derivation for $\expr_f'$ can be substituted into the original derivation for $\expr$,
+  ascribing the same type
+  to the reduced term
+  ${\iapp{\expr_f'}{\sequence{\idx_a}}}$.
+
+  Otherwise, $\expr$ must be an $\mathit{i\beta}$ redex,
+  with $\expr_f = \arrlit{\sequence{\atval}}{\sequence{\nat_f}}$,
+  each $\atval$ of the form $\ilam{\sequence{\notevar{\var'}{\sort}}}{\val}$,
+  and $\ieqv{\idx_f}{\idxshape{\sequence{\nat_f}}}$.
+  We must also be able to derive, for each $\atval$,
+  $\typeof{\sEnv}{\kEnv}{\tEnv}
+  {\atval}{\typedprod{\sequence{\notevar{\var}{\sort}}}{\typearray{\type_p}{\idx_p}}}$.
+  Note that $\sequence{\var'}$ might not be the same variables as $\sequence{\var}$.
+  If not, then the type derivation for $\atval$ must end with {\sc T-Eqv}
+  relating the required array type $\typearray{\type_p}{\idx_p}$
+  and an actually derived array type $\typearray{\type_p'}{\idx_p'}$.
+  That is, use of {\sc T-Eqv} requires deriving both
+  \[{\infr[T-ILam]
+    {\typeof{\sEnv, \sequence{\hassort{\var'}{\sort}}}{\kEnv}{\tEnv}
+      {\val}
+      {\typearray{\type_p'}{\idx_p'}}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\ilam{\sequence{\notevar{\var'}{\sort}}}{\val}}
+      {\typedprod
+        {\sequence{\notevar{\var'}{\sort}}}
+        {\typearray{\type_p'}{\idx_p'}}}}}\]
+  and, with free variables $\sequence{\var_f}$,
+  \[{\infr[TEqv-Pi]
+    {\infr[TEqv-Array]
+      {\teqv
+        {\seqsubst{\type_p}{\var}{\var_f}}
+        {\seqsubst{\type_p'}{\var'}{\var_f}}
+        \\\\
+        \ieqv{\seqsubst{\idx_p}{\var}{\var_f}}{\seqsubst{\idx_p'}{\var'}{\var_f}}}
+      {\teqv
+        {\seqsubst{\typearray{\type_p}{\idx_p}}{\var}{\var_f}}
+        {\seqsubst{\typearray{\type_p'}{\idx_p'}}{\var'}{\var_f}}}}
+    {\teqv
+      {\typedprod{\sequence{\notevar{\var}{\sort}}}{\typearray{\type_p}{\idx_p}}}
+      {\typedprod{\sequence{\notevar{\var'}{\sort}}}{\typearray{\type_p'}{\idx_p'}}}}}\]
+
+  We now ascribe a type to $\ibetasubp{\val}$.
+  Previously, $\val$ was given the type $\typearray{\type_p'}{\idx_p'}$,
+  so Lemma \ref{IESub} (preservation of types under index substitution) implies
+  $\typeof{\sEnv}{\kEnv}{\ibetasubp{\tEnv}}
+  {\ibetasubp{\val}}{\ibetasubp{\typearray{\type_p'}{\idx_p'}}}$.
+  Well-formedness of the environment% $\sEnv;\kEnv;\tEnv$
+  means that no free index variables are used in the range of $\tEnv$,
+  so $\ibetasubp{\tEnv} = \tEnv$.
+  This simplifies our typing result to
+  $\typeof{\sEnv}{\kEnv}{\tEnv}
+  {\ibetasubp{\val}}{\ibetasubp{\typearray{\type_p'}{\idx_p'}}}$.
+  The ascribed type is equal to $\typearray{\ibetasubp{\type_p'}}{\ibetasubp{\idx_p'}}$.
+  We must show that it is equivalent to
+  $\typearray{\ibetasub{\type_p}}{\ibetasub{\idx_p}}$.
+
+  We consider
+  $\seqsubst{\seqsubst{\type_p}{\var}{\var_f}}{\var_f}{\idx_a}$
+  and
+  $\seqsubst{\seqsubst{\type_p'}{\var'}{\var_f}}{\var_f}{\idx_a}$,
+  which can be simplified to
+  $\seqsubst{\type_p}{\var}{\idx_a}$
+  and
+  $\seqsubst{\type_p'}{\var'}{\idx_a}$
+  respectively.
+  Since index substitution preserves type equivalence (per Lemma \ref{EqlIdxEqvType}),
+  our earlier $\teqv{\seqsubst{\type_p}{\var}{\var_f}}{\seqsubst{\type_p'}{\var'}{\var_f}}$
+  implies that $\teqv{\seqsubst{\type_p}{\var}{\idx_a}}{\seqsubst{\type_p'}{\var'}{\idx_a}}$.
+  Similarly, preservation of index equality under substitution implies
+  $\ieqv{\seqsubst{\idx_p}{\var}{\idx_a}}{\seqsubst{\idx_p'}{\var'}{\idx_a}}$.
+  So we can derive the type equivalence
+  \[{\infr[TEqv-Array]
+    {\teqv
+      {\seqsubst{\type_p}{\var}{\idx_a}}
+      {\seqsubst{\type_p'}{\var'}{\idx_a}}
+      \\\\
+      \ieqv{\seqsubst{\idx_p}{\var}{\idx_a}}{\seqsubst{\idx_p'}{\var'}{\idx_a}}}
+    {\teqv
+      {\ibetasub{\typearray{\type_p}{\idx_p}}}
+      {\ibetasubp{\typearray{\type_p'}{\idx_p'}}}}}\]
+  which then allows us to derive for each of $\sequence{\val}$
+  \[{\infr[T-Eqv]
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\ibetasubp{\val}}
+      {\ibetasub{\typearray{\type_p'}{\idx_p'}}}
+      \\\\
+      \teqv
+      {\ibetasubp{\typearray{\type_p'}{\idx_p'}}}
+      {\ibetasub{\typearray{\type_p}{\idx_p}}}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\ibetasubp{\val}}
+      {\ibetasub{\typearray{\type_p}{\idx_p}}}}}\]
+  This enables a type derivation for
+  $\expr' = \frm{\sequence{\ibetasubp{\val}}}{\sequence{\nat_f}}$:
+  \[{\infr[T-Frame]
+    {\sequence{\typeof{\sEnv}{\kEnv}{\tEnv}
+        {\ibetasubp{\val}}
+        {\ibetasub{\typearray{\type_p}{\idx_p}}}}
+      \\\\
+      \mathit{Length}\llb \sequence{\val} \rrb = \prod{\parens{\sequence{\nat_f}}}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\expr'}
+      {\typearray
+        {\ibetasub{\type_p}}
+        {\idxappend{\idxshape{\sequence{\nat_f}} \; \ibetasub{\idx_p}}}}}}\]
+
+  \paragraph{Case {\sc Unbox}}
+  \[{\infr[T-Unbox]
+    {\typeof{\sEnv}{\kEnv}{\tEnv}{\expr_s}
+      {\typearray{\typedsum{\sequence{\notevar{\var_i'}{\sort}}}{\type_s}}{\idx_s}}
+      \\\\
+      \typeof{\sEnv, \sequence{\hassort{\var_i}{\sort}}}
+      {\kEnv}
+      {\tEnv, \hastype{\var_e}{\seqsubst{\type_s}{\var_i'}{\var_i}}}
+      {\expr_b}{\typearray{\type_b}{\idx_b}}
+      \\\\
+      \kindof{\sEnv}{\kEnv}{\typearray{\type_b}{\idx_b}}{\kindarray}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b}}
+      {\typearray{\type_b}{\idxappend{\idx_s \; \idx_b}}}}}\]
+  If $\expr$ is reducible because $\expr_s \mapsto \expr_s'$,
+  then the induction hypothesis implies
+  $\typeof{\sEnv}{\kEnv}{\tEnv}{\expr_s'}
+  {\typearray{\typedsum{\sequence{\notevar{\var_i'}{\sort}}}{\type_s}}{\idx_s}}$.
+  This can be used to adapt the original type derivation for $\expr$
+  to fit $\expr' = {\dproj{\sequence{\var_i}}{\var_e}{\expr_s'}{\expr_b}}$:
+  \[{\infr[T-Unbox]
+    {\typeof{\sEnv}{\kEnv}{\tEnv}{\expr_s'}
+      {\typearray{\typedsum{\sequence{\notevar{\var_i'}{\sort}}}{\type_s}}{\idx_s}}
+      \\\\
+      \typeof{\sEnv, \sequence{\hassort{\var_i}{\sort}}}
+      {\kEnv}
+      {\tEnv, \hastype{\var_e}{\seqsubst{\type_s}{\var_i'}{\var_i}}}
+      {\expr_b}{\typearray{\type_b}{\idx_b}}
+      \\\\
+      \kindof{\sEnv}{\kEnv}{\typearray{\type_b}{\idx_b}}{\kindarray}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\dproj{\sequence{\var_i}}{\var_e}{\expr_s'}{\expr_b}}
+      {\typearray{\type_b}{\idxappend{\idx_s \; \idx_b}}}}}\]
+  Otherwise, $\expr$ must be an $\mathit{unbox}$ redex,
+  where all of the following hold:
+  \begin{enumerate}
+  \item{$\expr_s$ is of the form
+      $\arrlit{\sequence{\dsum{\sequence{\idx_s}}{\val_s}{\type_\sigma}}}{\sequence{\nat_s}}$}
+  \item{$\type_\sigma =
+      \teqv
+      {\typedsum{\sequence{\notevar{\var_i''}{\sort}}}{\type_s'}}
+      {\typedsum{\sequence{\notevar{\var_i'}{\sort}}}{\type_s}}$}
+  \item{$\idx_s = \idxshape{\sequence{\nat_s}}$}
+  \item{$\mathit{Length}\llb \sequence{\dsum{\sequence{\idx_s}}{\val_s}{\type_\sigma}} \rrb
+      = \prod{\sequence{\nat_s}}$}
+  \end{enumerate}
+
+  The type derivation for $\expr_s$ must include
+  ascription of $\type_\sigma$ to each box within the array:
+  \[{\infr[T-Box]
+    {\sequence{\sortof{\sEnv}{\idx_\sigma}{\sort}}
+      \qquad
+      {\kindof{\sEnv}{\kEnv}{\type_\sigma}{\kindatom}}
+      \\
+      \typeof{\sEnv}{\kEnv}{\tEnv}{\val_\sigma}{\seqsubst{\type_s'}{\var_i''}{\idx_\sigma}}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\dsum{\sequence{\idx_\sigma}}{\val_\sigma}{\type_\sigma}}
+      {\type_\sigma}}}\]
+
+  Equivalence of $\type_\sigma$ and $\typedsum{\sequence{\notevar{\var_i'}{\sort}}}{\type_s}$
+  means that each box's $\val_\sigma$ can also be typed as $\seqsubst{\type_s}{\var_i'}{\idx_\sigma}$.
+
+  The resulting term $\expr'$ is
+  $\multisubst{\expr_b}{\sequence{\singlesubst{\var_i}{\idx_\sigma}},\singlesubst{\var_e}{\val_\sigma}}
+  = \subst{\seqsubst{\expr_b}{\var_i}{\idx_\sigma}}{\var_e}{\val_\sigma}$.
+  Since we have a type derivation for $\expr_b$ in an extended environment,
+  we will apply Lemmas \ref{IESub} and \ref{EESub}
+  (preservation of types under index and expression substitution)
+  to produce a type derivation in the original environment.
+
+  Using the fact that each of $\sequence{\idx_\sigma}$ has its required sort
+  (necessary for the previous derivation),
+  Lemma \ref{IESub} gives us
+  $\typeof{\sEnv}{\kEnv}{\seqsubst{\parens{\tEnv, \hastype{\var_e}{\seqsubst{\type_s}{\var_i'}{\var_i}}}}{\var_i}{\idx_\sigma}}
+  {\seqsubst{\expr_b}{\var_i}{\idx_\sigma}}
+  {\seqsubst{\parens{\seqsubst{\type_b}{\var_i}{\var_i'}}}{\var_i}{\idx_\sigma}}$.
+  Well-formedness of the original environment means $\tEnv$ does not refer to the
+  new index variables $\sequence{\var_i}$,
+  which are instead bound by the {\tt unbox} expression.
+  So the substituted environment
+  $\seqsubst{\parens{\tEnv, \hastype{\var_e}{\seqsubst{\type_s}{\var_i'}{\var_i}}}}{\var_i}{\idx_\sigma}$
+  is equal to $\tEnv, \hastype{\var_e}{\seqsubst{\type_s}{\var_i'}{\idx_\sigma}}$,
+  turning the type derivation into
+  $\typeof{\sEnv}{\kEnv}{\tEnv, \hastype{\var_e}{\seqsubst{\type_s}{\var_i'}{\idx_\sigma}}}
+  {\seqsubst{\expr_b}{\var_i}{\idx_\sigma}}{\seqsubst{\type_b}{\var_i}{\var_i'}}$.
+  The index variables $\sequence{\var_i}$ are not bound in $\sEnv$,
+  but we still have $\kindof{\sEnv}{\kEnv}{\typearray{\type_b}{\idx_b}}{\kindarray}$.
+  This means $\type_b$ and $\idx_b$ must be well-formed without those bindings,
+  \ie, none of $\sequence{\var_i}$ appear free in $\type_b$ or $\idx_b$.
+  Thus $\seqsubst{\typearray{\type_b}{\idx_b}}{\var_i}{\idx_s}$ is simply $\typearray{\type_b}{\idx_b}$.
+  Our derivation now concludes
+  $\typeof{\sEnv}{\kEnv}{\tEnv, \hastype{\var_e}{\seqsubst{\type_s}{\var_i'}{\idx_\sigma}}}
+  {\seqsubst{\expr_b}{\var_i}{\idx_\sigma}}{\typearray{\type_b}{\idx_b}}$.
+
+  Since $\typeof{\sEnv}{\kEnv}{\tEnv}{\val_s}{\seqsubst{\type_s}{\var_i'}{\idx_\sigma}}$,
+  Lemma \ref{EESub} produces a derivation of
+  $\typeof{\sEnv}{\kEnv}{\tEnv}
+  {\subst{\seqsubst{\expr_b}{\var_i}{\idx_\sigma}}{\var_e}{\val_\sigma}}
+  {\typearray{\type_b}{\idx_b}}$
+  for each box's index contents $\sequence{\idx_\sigma}$ and term contents $\val_\sigma$.
+  We can therefore type the result of the $\mathit{unbox}$ reduction step,
+  {\tt (frame ($\nat_s$ $\sequence{}$)
+    $\subst{\seqsubst{\expr_b}{\var_i}{\idx_\sigma}}{\var_e}{\val_\sigma}$ $\sequence{}$)}
+  as follows:
+  \[{\infr[T-Frame]
+    {\sequence{\typeof{\sEnv}{\kEnv}{\tEnv}
+        {\subst{\seqsubst{\expr_b}{\var_i}{\idx_\sigma}}{\var_e}{\val_\sigma}}
+        {\typearray{\type_b}{\idx_b}}}
+      \\\\
+      \kindof{\sEnv}{\kEnv}{\typearray{\type_b}{\idx_b}}{\kindarray}
+    \\\\
+    \mathit{Length}\llb{\subst{\seqsubst{\expr_b}{\var_i}{\idx_\sigma}}{\var_e}{\val_\sigma}}\rrb
+    = \prod{\sequence{\nat_s}}}
+  {\parbox{0.6\textwidth}
+    {\centering
+      \({\sEnv};{\kEnv};{\tEnv}\vdash\)
+      \({\frm{\subst{\seqsubst{\expr_b}{\var_i}{\idx_\sigma}}{\var_e}{\val_\sigma}}{\sequence{\nat_s}}}\)
+      \({: \typearray{\type_b}{\idxappend{\idx_s}{\idx_b}}}\)}}
+  }\]
+
+  \paragraph{Case {\sc App}}
+  \[{\infr[T-App]
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\expr_f}
+      {\typearray
+        {\typefun
+          {\sequence{\typearray{\type_i}{\idx_i}}}
+          {\typearray{\type_o}{\idx_o}}}
+        {\idx_f}}
+      \\\\
+      \sequence
+      {\typeof{\sEnv}{\kEnv}{\tEnv}
+        {\expr_a}
+        {\typearray{\type_i}{\idxappend{\idx_a \; \idx_i}}}}
+      \qquad
+      \idx_p = \mathit{Max}\llb \idx_f \; \sequence{\idx_a} \rrb}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\app{\expr_f}{\sequence{\expr_a}}}
+      {\typearray{\type_o}{\idxappend{\idx_p \; \idx_o}}}}}\]
+  If either $\expr_f \mapsto \expr_f'$
+  or there is some argument $\expr_A \in \sequence{\expr_a}$
+  such that $\expr_A \mapsto \expr_A'$,
+  then the induction hypothesis implies that
+  the result $\expr_f'$ or $\expr_A'$ retains the same type as $\expr_f$ or $\expr_A$.
+  The type derivation for $\expr$ can be updated
+  with the new sub-derivation for $\expr_f$ or $\expr_A$
+  to derive the same type for $\expr'$.
+
+  Otherwise, $\expr$ must itself be a redex.
+  The possible reductions for an application form
+  are $\mathit{lift}$, $\mathit{map}$, $\beta$, and $\delta$.
+  \paragraph{Subcase 1:}
+  If $\expr$ is a $\mathit{lift}$ redex,
+  then it has the form
+  {\tt
+    ((array ($\nat_f$ $\sequence{}$) $\atval_f$ $\sequence{}$)
+    (array ($\nat_a$ $\sequence{}$ $\nat_i$ $\sequence{}$)
+    $\atval_a$ $\sequence{}$) $\sequence{}$)}.
+  In order to match the left hand side of the $\mathit{lift}$ rule,
+  it must be the case that that
+  $\ieqv{\idx_f}{\idxshape{\sequence{\nat_f}}}$
+  and that for each argument's own type derivation,
+  $\ieqv{\idx_a}{\idxshape{\sequence{\nat_a}}}$.
+  The frame portion of each array's shape
+  (\ie, $\sequence{\nat_f}$ for function position
+  and $\sequence{\nat_a}$ for argument position)
+  is replaced with the principal frame, $\sequence{\nat_p}$.
+  The individual atoms used in the new function and arugment arrays
+  all come from their corresponding original arrays
+  and therefore retain the same types.
+  That is, the atoms $\sequence{\atval_f'}$ in the new function array
+  $\expr_f' = \arrlit
+  {\mathit{Concat}\llb
+    \mathit{Rep}_{\nat_{\mathit{fe}}}\llb
+    \mathit{Split}_{1}\llb \sequence{\atval_f}
+    \rrb\rrb\rrb}
+  {\sequence{\nat_p}}$
+  all have type
+  $\typefun
+  {\sequence{\typearray{\type_i}{\idx_i}}}
+  {\typearray{\type_o}{\idx_o}}$,
+  and the atoms $\sequence{\atval_a'}$ in any new argument array
+  $\expr_a' = \arrlit
+  {\mathit{Concat}\llb
+    \mathit{Rep}_{\nat_{\mathit{ae}}}\llb
+    \mathit{Split}_{\nat_{\mathit{ac}}}\llb \sequence{\atval_a}
+    \rrb\rrb\rrb}
+  {\sequence{\nat_p} \; \sequence{\nat_i}}$
+  are all typed as the corresponding $\type_i$.
+  While $\mathit{Split}$ breaks a sequence into subsequences
+  (preserving the total number of elements)
+  and $\mathit{Concat}$ merges a sequence-of-sequences into a single sequence
+  (also preserving the total number of elements),
+  $\mathit{Rep}_{\nat}$ produces $\nat$ copies of each element.
+  The factor used by $\mathit{lift}$ reduction for replication of each array's cells is the quotient of
+  the number of cells in the principal frame and the number of cells in the original array.
+  Since the original frame shape is a prefix of the principal frame,
+  divisibility is guaranteed.
+  This also ensures that the number of atoms in each new argument array is
+  $\nat_{ae}*\parens{\prod\sequence{\nat_a}}*\parens{\prod\sequence{\nat_i}}
+  = \parens{\prod\sequence{\nat_p}}*\parens{\prod\sequence{\nat_i}}
+  = \prod{\parens{\sequence{\nat_p}\;\sequence{\nat_i}}}$.
+  Similarly, the number of atoms in the new function array is
+  $\nat_{fe}*\parens{\prod\sequence{\nat_f}} = \prod{\sequence{\nat_p}}$.
+  Based on the types and quantity of the function and argument arrays' atoms,
+  we can derive
+  \[{\infr[T-App]
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\expr_f'}
+      {\typearray
+        {\typefun
+          {\sequence{\typearray{\type_i}{\idx_i}}}
+          {\typearray{\type_o}{\idx_o}}}
+        {\idxshape{\sequence{\nat_p}}}}
+      \\
+      \sequence{\typeof{\sEnv}{\kEnv}{\tEnv}
+        {\expr_a'}
+        {\typearray{\type_i}{\idxappend{\idxshape{\sequence{\nat_p}} \; \idx_i}}}}
+      \\\\
+    \idx_p = \mathit{Max} \llb \idx_p \; \sequence{\idx_p} \rrb}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\expr'}
+      {\typearray{\type_o}{\idxappend{\idx_p \; \idx_o}}}}}\]
+  \paragraph{Subcase 2:}
+  If $\expr$ is a $\mathit{map}$ redex,
+  then it has the form
+  {\tt
+    ((array ($\sequence{\nat_f}$) $\sequence{\atom_f}$)
+    (array ($\sequence{\nat_f}$ $\sequence{\nat_a}$) $\sequence{\atom_a}$) $\sequence{}$)}.
+  % $\app
+  % {\arrlit{\sequence{\atom_f}}{\sequence{\nat_f}}}
+  % {\sequence{\arrlit{\sequence{\atom_a}}{\sequence{\nat_f} \; \sequence{\nat_a}}}}$.
+  Matching the left hand side of the $\mathit{map}$ rule requires that
+  $\ieqv{\idx_i}{\idxshape{\sequence{\nat_i}}}$.
+  Each argument $\expr_a = \arrlit{\sequence{\atom_a}}{\sequence{\nat_f} \; \sequence{\nat_a}}$
+  has its sequence of atoms split into segments whose length is
+  the product of $\sequence{\nat_i}$, the corresponding input type's dimensions.
+  Transposition groups the first segment from each argument,
+  then the second segment from each argument, and so on.
+  So the nested sequence
+  $\sequence{\parens{\sequence{\parens{\sequence{\atval_c}}}}}$
+  has for each $j^{\text{th}}$ $\parens{\sequence{\parens{\sequence{\atval_c}}}}$
+  a sequence of atoms corresponding to each of the function input types:
+  the $(j,k)^{\text{th}}$ atom sequence contains the atoms which make up
+  the $j^{\text{th}}$ cell of the $k^{\text{th}}$ argument.
+  Since the length of this single $\sequence{\atval_c}$ is
+  the product of the corresponding input type's dimensions
+  and they all have the same type as the atoms in the corresponding input type,
+  the array literal built from them,
+  $\arrlit{\sequence{\atval_c}}{\sequence{\nat_i}}$
+  has type $\typearray{\type_i}{\idxshape{\sequence{\nat_i}}}$.
+  Each function array $\arrlit{\atval_f}{}$
+  contains a single atom taken from the original $\expr_f$,
+  implying that it must have type
+  $\typefun
+  {\sequence{\typearray{\type_i}{\idx_i}}}
+  {\typearray{\type_o}{\idx_o}}$,
+  which is equivalent to
+  $\typefun
+  {\sequence{\typearray{\type_i}{\idxshape{\sequence{\nat_i}}}}}
+  {\typearray{\type_o}{\idx_o}}$.
+  Since the single-cell argument arrays' types all match
+  the singleton function array's input types
+  with principal frame of $\idxshape{}$,
+  each application form itself has type $\typearray{\type_o}{\idx_o}$.
+  That is, each result-cell application form
+  $\expr_c =$
+  {\tt
+    ((array () $\atval_f$)
+    (array ($\sequence{\nat_i}$) $\sequence{\atval_c}$) $\sequence{}$)}
+  in the resulting {\tt frame} form
+  can be typed as:
+  \[\infr[T-App]
+  {\parbox{0.6\textwidth}
+    {\centering
+      \({\sEnv};{\kEnv};{\tEnv}\vdash\)
+      ${\arrlit{\atval_f}{}}$\\
+      $:{\typearray
+        {\typefun
+          {\sequence{\typearray{\type_i}{\idx_i}}}
+          {\typearray{\type_o}{\idx_o}}}
+        {\idxshape{}}}$}
+    \\\\\\
+    \sequence{\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\arrlit{\sequence{\atval_c}}{\sequence{\nat_i}}}
+      {\typearray{\type_i}{\idx_i}}}
+    \\\\\\
+    \idx_p = \idxshape{}}
+  {\typeof{\sEnv}{\kEnv}{\tEnv}
+    {\expr_c}
+    {\typearray{\type_o}{\idx_o}}}\]
+  Recall that our goal type in this case is
+  $\type =$
+  $\typearray{\type_o}{\idxappend{\idx_p\;\idx_o}}$,
+  where $\idx_p = \idxshape{\sequence{\nat_f}}$.
+  That is, $\type$ is
+  $\typearray{\type_o}{\idxappend{\idxshape{\sequence{\nat_f}}\;\idx_o}}$.
+  Using the above derivations for the result cells $\sequence{\expr_c}$, we then derive
+  \[{\infr[T-Frame]
+    {{\sequence{\typeof{\sEnv}{\kEnv}{\tEnv}
+          {\expr_c}
+          {\typearray{\type_o}{\idx_o}}}}
+      \\
+      \kindof{\sEnv}{\kEnv}{\type}{\kindarray}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\frm
+        {\sequence{\expr_c}}
+        {\sequence{\nat_f}}}
+      {\typearray{\type_o}{\idxappend{\idxshape{\sequence{\nat_f}}\;\idx_o}}}}}\]
+  \paragraph{Subcase 3:}
+  If $\expr$ is a $\beta$ redex,
+  then $\expr_f$ must have the form
+  {\tt
+    (array () (\cl (($\var$ (Arr $\type_i$ $\idx_i$)) $\sequence{}$) $\expr_0$))}.
+  Then $\expr \mapsto_\beta \expr' = \seqsubst{\expr_o}{\var}{\expr_a}$.
+  We also know for each of $\sequence{\expr_a}$ that
+  $\typeof{\sEnv}{\kEnv}{\tEnv}{\expr_a}{\typearray{\type_i}{\idx_i}}$.
+  In the type derivation for $\expr$ itself,
+  we must have $\idx_f$ and every $\idx_a$ equal to $\idxshape{}$,
+  so $\idx_p = \idxshape{}$.
+  Thus
+  $\teqv
+  {\typearray{\type_o}{\idxappend{\idx_p \; \idx_o}}}
+  {\typearray{\type_o}{\idx_o}}$
+  The type of the function atom in $\expr_f$ is derived either by {\sc T-Lam},
+  in which case, the derivation must ascribe $\typearray{\type_o}{\idx_o}$ to $\expr_o$,
+  or by {\sc T-Eqv},
+  in which case there must be some earlier use of {\sc T-Lam}
+  which ascribes some type equivalent type to $\expr_o$.
+  Either way, we have
+  $\typeof{\sEnv}{\kEnv}{\tEnv, \sequence{\hastype{\var}{\typearray{\type_i}{\idx_i}}}}
+  {\expr_o}
+  {\typearray{\type_o}{\idx_o}}$.
+  The substitution lemma (Lemma \ref{EESub}) then gives
+  $\typeof{\sEnv}{\kEnv}{\tEnv}{\expr'}{\typearray{\type_o}{\idx_o}}$.
+  \paragraph{Subcase 4:}
+  If $\expr$ is a $\delta$ redex,
+  then the required result follows from
+  the requirements for primitive operators and their types.
+\end{sproof}
+
+\begin{theorem}[Type soundness]
+  \label{TypeSoundness}
+  If $\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}{\expr}{\type}$,
+  then either
+  $\expr$ diverges,
+  there exists $\val$ such that $\expr \mapsto^* \val$
+  and $\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}{\val}{\type}$,
+  or there exist partial function $\primop$
+  and appropriately-typed arguments $\sequence{\val}$
+  such that
+  $\expr \mapsto^* \ctxt\left[\misapp\right]$.
+\end{theorem}
+\begin{sproof}[\BODY]
+  We argue coinductively using the sequence of reduction steps from $\expr$.
+  For any well-typed $\expr$,
+  Progress (Lemma \ref{Progress}) implies that either
+  $\expr$ has the form $\val$,
+  $\expr$ has the form $\ctxt[${\tt ((array () $\primop$) $\val$ $\sequence{}$)}$]$,
+  or $\expr \mapsto \expr'$.
+  In the first case,
+  the reduction sequence terminates in a value,
+  so we have $\expr \mapsto^* \val$.
+  Furthermore, Preservation (Lemma \ref{Preservation}) implies that
+  $\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}{\val}{\type}$
+  In the second case,
+  the reduction sequence terminates in a mis-applied primitive operator.
+  In the third case,
+  Preservation implies that $\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}{\expr'}{\type}$.
+\end{sproof}

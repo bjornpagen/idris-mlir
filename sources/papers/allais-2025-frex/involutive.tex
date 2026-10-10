@@ -1,0 +1,292 @@
+\section{Modularity with Involutive Algebras}
+\applabel{involutive}
+We recount Jacobs's account, albeit in a more advanced categorical jargon, and
+use it to prove a generic representation theorem for involutive frals
+and frexes. We don't use this development elsewhere in this
+article.
+
+\begin{wrapfigure}{r}{.2\textwidth}
+  \vspace{-.5\baselineskip}
+  \includegraphics{diagram-08.mps}
+  \vspace{-1.5\baselineskip}
+\end{wrapfigure}
+Jacobs appeals to the Baez-Dolan \emph{microcosm
+  principle}~\cite{baez-dolan:microcosm} --- an algebraic structure on
+an object
+requires a compatible structure on its category of context---and
+defines the following concepts. An \emph{involutive structure} on a
+category $\C$ is a pair $\pair{\involve{(-)}}{\invlaw}$ consisting of a
+functor $\involve{(-)}:\C \to \C$, called the \emph{involution}, and a
+natural isomorphism $\invlaw : \iinvolve{(-)} \to -$, called the
+\emph{involution law}, satisfying the condition on the right.
+This definition is equivalent to Jacbos's, but reverses the direction of the involution
+law.
+
+For example, each category has an involutive structure given by the
+identity functor as involution and the identity natural transformation
+as the involutive law. This structure, which we call the
+\emph{trivial} involutive structure, may seem degenerate, but it plays
+an important role in our development.
+
+The motivating example is $\Monoid{}$, the category of monoids. It has
+the following non-trivial involutive structure.  Given a monoid \avar,
+construct another monoid $\involve\avar$ with the operation reversed:
+$\involve\avar\sem{\cdot}(x,y)\definedby \avar\sem\cdot(y,x)$. If
+$\hName{} : \avar{} \to \bvar{}$ is a monoid homomorphism, then the
+same underlying function provides a monoid homomorphism $\overline
+\hName{} : \involve{\avar{}} \to \involve{\bvar{}}$. These maps define
+an involution functor $\involve{(-)} : \Monoid \to \Monoid$. The
+identity function is then a monoid isomorphism $\invlaw \definedby
+(\fun xx) : \iinvolve\avar \to \avar$, the required involution law. We
+have similar involutive structures on other categories, given by
+ordinary or commutative: semi-groups, monoids, groups,
+semirings and rings, and so on.
+
+\begin{wrapfigure}{r}{.12\textwidth}
+  \vspace{-1.4\baselineskip}
+  \includegraphics{diagram-07.mps}\label{triangle-page}
+  \vspace{-2\baselineskip}
+\end{wrapfigure}
+To see the microcosm principle in action, note that a function
+$\hName{} : \U\,\avar \to \U\,\avar$ makes a monoid $\avar$ into an
+involutive monoid if and only if (1) it is a monoid homomorphism $\hName{}
+: \involve\avar \to \avar$, so $\hName(\x\cdot \y) =
+\hName\,\y\cdot\hName\,\x$, and (2) the diagram on the right commutes, so
+$\hName(\hName\,\x) = \x$.  These two conditions categorify the notion
+of an involutive monoid, so we can define it in any involutive
+category, not just $\Monoid$. Jacobs calls these \emph{self-conjugate}
+objects, and we will study them in more detail soon.
+
+\begin{wrapfigure}{r}{.21\textwidth}
+  \vspace{-1.1\baselineskip}
+  \includegraphics{diagram-09.mps}
+  \vspace{-2\baselineskip}
+\end{wrapfigure}
+Packaging this structure, an \emph{involutive category} $\C =
+\triple{\cat\C}{\involve{(-)}}{\invlaw}$ is an
+\IdrisFunction{o}rdinary category $\cat\C$ equipped with an involutive
+structure $\pair{\involve{(-)}}{\invlaw}$. An \emph{involutive
+  functor} ${F : \C[2] \to \C[1]}$ between involutive categories is a
+pair $\pair{\cat F}{\dist[F]}$ consisting of an ordinary functor $\cat
+F : \cat {\C[2]} \to \cat \C$ and a natural transformation $\dist[F]
+:\cat F\involve{(-)} \to \involve{\cat F(-)}$ called its
+\emph{distributive law}, satisfying the compatibility condition on the
+right. Such distributive laws are natural isomorphisms.
+
+The canonical example is the forgetful functor $\U : \Model \Pres \to
+\Set$ from the category of models of some presentation $\Pres$ to the
+category of sets and functions. This functor has an involutive functor
+structure w.r.t.~an involutive structure on $\Model\Pres$, when the
+involution of an algebra only changes the operations of the algebra,
+but not its carrier. Note the role that the
+trivial involutive structure on $\Set$ plays. All the examples above
+of monoid varieties and the semi-ring
+varieties w.r.t.~the operation-reversal and trivial involutive
+structures
+have such involutive forgetful functors.
+
+\begin{wrapfigure}{r}{.16\textwidth}
+  \vspace{-1.1\baselineskip}
+  \includegraphics{diagram-10.mps}
+  \vspace{-2\baselineskip}
+\end{wrapfigure}
+An \emph{involutive natural transformation} $\alpha : F \to G$ between
+two involutive functors is an ordinary natural transformation $\alpha
+: \cat F \to \cat G$ between their underlying ordinary functors that
+moreover satisfies the condition on the right. As Jacobs comments, we
+therefore have a 2-category $\ICAT$ consisting of involutive
+categories, functors, and natural transformations, and we may derive
+involutive adjunctions as two involutive functors and two involutive
+natural transformations satisfying the triangle laws.
+
+We can turn an ordinary adjunction
+into an involutive one when one of the functors is involutive:
+\begin{proposition}
+  Let $G : \C[3] \to \C$ be an involutive functor, and $\cat F
+  \leftadjointto \cat G$ be a left-adjoint to the ordinary functor
+  underlying $G$ with unit $\unit$ and counit $\counit$.
+%
+  Set $\dist[F]_{\X} : \cat F \involve\X \to \involve{\cat F\X}$ to be
+  the mate of the composite
+  \(
+  \involve\X \xto{\involve\unit} \overline{\cat G\cat F \X}
+  \xto{(\dist[G])^{-1}} \cat G\involve{\cat F\X}
+  \).
+  Then (1) $\dist[F]$ equips $\cat F$ with an involutive functor structure
+    $F : \C \to \C[3]$; and (2) $F \leftadjointto G$ is an involutive adjunction with unit
+    $\unit$ and counit $\counit$.
+\end{proposition}
+
+As a consequence, the free model functors for models in which the
+forgetful functor is involutive are all involutive adjunctions. This
+consequence covers our monoid and semi-ring varieties of interest,
+namely ordinary and commutative semi-groups, monoids, groups,
+semi-rings and rings with or without a unit. The distributive laws in
+these examples are given by the mate of the function:
+\(
+\fun x\unit x : \involve\X = \X \xto{\involve\unit = \unit } UF\X
+\xto{\dist[U] = \fun tt} U\involve{F\X}
+\). %
+%
+One might be tempted to think that the resulting distributive law is
+the identity homomorphism, because the mate of the unit of an
+adjunction is the identity function. It is not the case. When we take
+the mate, we take into account the algebra structure of
+$\involve{F\X}$, which may change the interpretation of the
+operations, and consequently changes the resulting mate homomorphism.
+For the non-trivial involutive structures over monoid and semi-ring
+varieties, the distributive law will reverse the relevant binary
+operation.
+
+
+\begin{wrapfigure}{r}{.12\textwidth}
+  \vspace{-1\baselineskip}
+  \includegraphics{diagram-11.mps}
+  \vspace{-1\baselineskip}
+\end{wrapfigure}
+A \emph{self-conjugate} object $\avar{}$ in an involutive category
+$\C[3]$ is a pair $\pair{\obj \avar}{\aconj[\avar]}$ consisting of an
+object $\obj \avar$ in $\C[3]$, and an $\C[3]$-morphism $\aconj[A] :
+\involve {\obj\avar} \to \obj\avar$, satisfying the triangle on the
+right. As we saw on p.~\pageref{triangle-page}, self-conjugate monoids
+are involutive monoids, and more generally, self-conjugate
+semi-groups, groups, semi-rings, rings, etc.~are the involutive
+ones. A \emph{homomorphism} $\hName : \avar \to \bvar$ of
+self-conjugate objects is a homomorphism\\[-\baselineskip]
+
+\begin{wrapfigure}{l}{.12\textwidth}
+  \vspace{-1\baselineskip}
+  \includegraphics{diagram-12.mps}
+  \vspace{-2\baselineskip}
+\end{wrapfigure}\noindent{}%
+$\hName : \obj\avar \to \obj\bvar$ between their underlying objects
+that moreover satisfies the condition on the left. This condition
+generalises the usual condition of involutive monoid homomorphisms and
+so on. Since homomorphisms of self-conjugate objects compose and
+contain the identities, they form a category which we denote by
+$\SC\C[3]$. Jacobs shows that the forgetful functor $\U : \SC\Set \to
+\Set$ has a left adjoint $\FSC : \Set \to \SC\Set$ sending each set
+$\X$ to the coproduct of two copies of itself, i.e.~by tagging each
+element with a boolean, and the self-conjugation structure flips this boolean
+$\FSC\X \definedby \pair{\BoolX}{\fun {(\bvar,\x)}(\lnot\bvar, \x)}$.
+
+It will pay-off immediately to include one more level of abstraction.
+Jacobs (Lemma~6) shows that the $\SC$-construction extends to a
+2-functor $\SC[] : \ICAT \to \ICAT$. We recall the remaining
+structure. The action on objects of $\ICAT$ equips the category
+$\SC\C[3]$ with an involutive structure, sending each self-conjugate
+object $\avar$ to the self-conjugate object $\involve\avar \definedby
+\pair{\involve{\obj\avar}}{\involve{\aconj[\avar]} :
+  \iinvolve{\obj\avar} \to \involve{\obj\avar}}$. The action on the%
+\\[-\baselineskip]
+
+\begin{wrapfigure}{l}{.18\textwidth}
+  \vspace{-1\baselineskip}
+  \includegraphics{diagram-13.mps}
+  \vspace{-1\baselineskip}
+\end{wrapfigure}\noindent{}%
+morphisms of $\ICAT$, sends an involutive functor
+$F : \C[2] \to \C$
+to the involutive functor $\SC F : \SC\C[2] \to \SC\C$ mapping each
+self-conjugate object $\avar$ to the self-conjugate object
+$\pair{\cat
+  F\obj \avar}{\aconj[\SC F \avar] : \involve{\cat F\obj
+    \avar}\xto{(\dist[F])^{-1}} \cat F\involve{\obj\avar} \xto{\cat
+    F\aconj[\avar]}}$, and acting as $\cat F$ on self-conjugate
+homomorphisms. The action on 2-cells sends each involutive natural
+transformations to itself, i.e.~a
+natural transformation between
+involutive functors also preserves the resulting self-conjugated
+structure. The
+forgetful functor $\U : \SC\C[3] \to \C[3]$ is then natural as on the
+left.
+
+\begin{wrapfigure}{r}{.22\textwidth}
+  \vspace{-1\baselineskip}
+  \includegraphics{diagram-14.mps}
+  \vspace{-2\baselineskip}
+\end{wrapfigure}
+We profit off of this obscene level of abstraction immediately:
+2-functors preserve all 2-adjunctions, since they transport the
+triangle equalities to the appropriate triangle equalities. Therefore,
+if we have an involutive adjunction $F \leftadjointto G : \C[3] \to
+\C$ where $\C$ has a free self-conjugate object adjunction $\FSC^{\C} \leftadjointto \U
+: \SC \C \to \C$, we get the free self-conjugate $\C[3]$-object on $\X$
+as the composite $F(\FSC^{\C} \X)$ completely structurally, as on the
+right. Applying this result to frals, we get the following
+generalisation of \propref{involution}(fral):
+\begin{proposition}\label{prop:involutive algebra fral}
+Let $\Pres$ be a presentation equipped with an involutive structure
+over $\Model\Pres$ and an involutive forgetful functor structure. Let $\pair\A\Env$ be any free $\Pres$ model over
+the product $\BoolX$. Then the following structure exhibits $\A$ as
+the free self-conjugate $\Pres$-model over $\X$:
+\[
+\begin{array}[b]{@{}l@{}}
+\aconj[\A] : \involve{\A} \xto{\dist[-1]} \A \xto{\bind(\lnot \times \id)} \A{}
+\\
+\Env' : \X \xto{\fun \x\spair\IFalse\x} \BoolX
+\end{array}
+\qquad
+\begin{array}[b]{@{}l@{}}
+(\bind'\f) : \A \xto{\bind\fun{\spair\bvar\x}\begin{cases}
+    b = \ITrue: & \aconj[\avar](\f\,\x) \\
+    b = \IFalse: & \f\,\x
+  \end{cases}
+} \avar
+\end{array}
+\]
+\end{proposition}
+
+Having dealt with the fral, we turn to the frex. Jacobs proves that if
+$\triple{\avar_1 + \avar_2}{\injection_1}{\injection_2}$ is a
+coproduct of $\avar_1$ and $\avar_2$ in an involutive category, then
+$\triple{\involve{\avar_1 +
+    \avar_2}}{\involve{\injection_1}}{\involve{\injection_2}}$ is a
+coproduct of $\involve{\avar_1}$ and $\involve{\avar_2}$. The unique
+cotupling morphism in the universal property, for each $\hName_i : \involve{\avar_i} \to \bvar$, is
+\(
+\involve[\hName_1, \hName_2\involve] : \involve{\avar_1 + \avar_2}
+\xto{[\involve\hName_1 \compose \invlaw^{-1},
+    \involve\hName_2\compose\invlaw^{-1}]} \iinvolve \bvar \xto{\invlaw} \bvar
+\).
+If each $\avar_i$ has a self-conjugate structure $\aconj[i] :
+\involve{\avar_i} \to \avar_i$, then the coproduct $\avar_1 + \avar_2$
+has a self-conjugate structure given by $\aconj[1] + \aconj[2]
+\definedby \involve[\injection_1\compose \aconj[1],
+  \injection_2\compose \aconj[2]\involve] : \involve{\avar_1 +
+  \avar_2} \to \avar_1 + \avar_2$.
+Since the frex $\avar{}[\X]$ can be construct as the coproduct of the
+model $\avar$ with the fral on $\X$, we generalise
+\propref{involution}(frex):
+\begin{proposition}\label{prop:involutive algebra frex}
+Let $\Pres$ be a presentation equipped with an involutive structure
+over\/ $\Model\Pres$ and an involutive forgetful functor structure, and $\avar$ be a self-conjugate $\Pres$-model. Let
+$\triple\A\Var\Embed$ be any $\Pres$-frex of $\obj\avar$ by the
+product $\BoolX$. Then the following structure exhibits $\A$ as the
+frex of the self-conjugate $\Pres$-model \avar{} by $\X$, for $\hName :
+\avar \to \cvar$ involutive monoid homomorphism and function $\env :
+\X \to \cvar$:
+\begin{gather*}
+\aconj : \involve \A \xto{\bracks{\obj\avar\xto{\invlaw^{-1}} \iinvolve{\obj\avar} \xto{\involve {\aconj[\avar]}} \involve\avar \xto{\involve\Embed} \involve\A
+, \BoolX \xto{\lnot \times \id} \BoolX \xto{\Var} \U\,\A \xto{\dist[-1]} \U\,{\involve\A}}} \iinvolve\A \xto{\invlaw} \A\\
+\Var' : \X \xto{\fun \x\spair\IFalse\x} \BoolX \xto{\Var} \A
+\qquad
+\Embed : \obj\avar \xto{\Embed} \A\\
+[\hName,\env] : \A \xto{\bracks{h, \fun{\spair \bvar x}\begin{cases}
+           \bvar = \ITrue: & \aconj[\cvar](\env\,\x) \\
+           \bvar = \IFalse: & (\env\,\x)
+         \end{cases}}
+}
+\cvar
+\end{gather*}
+\end{proposition}
+
+\Frexlib{} does not yet implement this proposition in its full
+generality, since it would require a substantial amount of
+additional infrastructure, either inside \Frexlib{} or as part of a
+category-theory library for \idris{}. For example, the type of the
+construction requires a categorical equivalence
+between some $\Model\Pres'$ for the presentation $\Pres'$ of involutive
+$\Pres$-models and the self-conjugate $\Pres$-models.
+\Frexlib{} currently only implements the
+special case of \propref{involution}, with its specialised proof.

@@ -1,0 +1,11 @@
+\begin{corollary}[F* native tactic compilation correctness] \ \\
+  If
+  \begin{itemize}
+  \item $\hastyp{\cdot}{\cdot}{\sval}{\sarrow{\staui}{\stauii}}$
+  \item $\hastyp{\cdot}{\svar{x} : \sarrow{\staui}{\stauii}}{\sexpp}{\stau}$
+  \item $\sval \trans \tval$
+  \end{itemize}
+  then
+  $\rexp{\stau}{\sexpp\ssubst{\svar{x}}{\sval}}
+    {\sexpp\ssubst{\svar{x}}{\scoerce{\sarrow{\staui}{\stauii}}{\cdot}{\tval}}}$
+\end{corollary}

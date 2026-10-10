@@ -1,0 +1,1327 @@
+\begin{figure}
+\begin{lstlisting}
+Lemma poly_multiply
+  (n p r h r0 r1 h0 h1 h2 s1 d0 d1 d2 hh : Z)
+  (H: p > 0 /\ r1 >= 0 /\ n > 0 /\ 4 * (n * n) = p + 5 /\ r = r1 * n + r0 /\
+            h = h2 * (n * n) + h1 * n + h0 /\ s1 = r1 + (r1 / 4) /\ r1 mod 4 = 0 /\
+            d0 = h0 * r0 + h1 * s1 /\ d1 = h0 * r1 + h1 * r0 + h2 * s1 /\
+            d2 = h2 * r0 /\ hh = d2 * (n * n) + d1 * n + d0)
+  : ((h * r) mod p = hh mod p).
+Proof.
+  repeat match goal with H : ?A /\ ?B |- _ => destruct H end.
+  subst.
+  match goal with |- ?A mod p = ?B mod p => change (eqm p A B) end.
+  match goal with K : r1 mod 4 = 0 |- _ =>
+   apply Z_div_exact_full_2 in K; try omega;
+   revert K;
+   generalize (r1 / 4);
+   intro u;
+   intros; subst
+  end.
+  pose (b := (h2 * n + h1) * u).
+  generalize (Zopp_eqm p).
+  generalize (Zplus_eqm p).
+  generalize (Zminus_eqm p).
+  generalize (Zmult_eqm p).
+  generalize (eqm_setoid p).
+  set (e := eqm p).
+  intros.
+  match goal with |- e _ ?R =>
+    generalize (modulo_addition_lemma R p b)
+  end.
+  fold e. intro K. setoid_rewrite <- K. clear K.
+  assert (p = 4 * (n * n) - 5) as J by omega.
+  replace (b * p) with (b * (4 * (n * n) - 5)) by congruence.
+  unfold b.
+  apply eq_implies_eqm.
+  ring.
+Qed.
+\end{lstlisting}
+\caption{Coq proof of \ls$poly_multiply$}
+\label{fig:coqpolymultiply}
+\end{figure}
+
+\section{Metaprogramming verified parsers and serializers}
+\label{sec:parsers-detail}
+
+We consider parser and serializer specifications as ghost code that
+``operates'' on finite sequences of bytes of unbounded lengths.
+For a given type $t$, a serializer for $t$ marshals any data of type
+$t$ into a finite sequence of bytes; and a parser for $t$ reads from a
+sequence of bytes, checks whether it corresponds to a valid data of
+type $t$, and if so, returns that parsed data and the number of bytes
+consumed.
+
+The serializer specification always succeeds; the parser specification
+succeeds if and only if the input data is valid with respect to the
+parser. On those specifications, we aim to prove that the parser and
+the serializer are partial inverses of each other. We encode these
+requirements as refinements on the types of parser and serializer
+specifications:
+%
+\begin{lstlisting}
+type byte = FStar.UInt8.t
+type parser t = (input: seq byte) -> GTot (option (t * (x: nat { x < length input } )))
+let serialize_then_parse_eq_id #t (p: parser t) (s: (t -> GTot (seq byte))) =
+  (forall (x: t) . let y = s x in p y == Some (x, length y))
+let parse_then_serialize_eq_id #t (p: parser t) (s: (t -> GTot (seq byte))) =
+  (forall (x: seq byte) . match p x with | Some (y, len) -> s y == slice x 0 len | _ -> True) })
+type serializer #t (p: parser t) = (s: (t -> GTot (seq byte))
+  { serialize_then_parse_eq_id p s /\ parse_then_serialize_eq_id p s })
+\end{lstlisting}
+
+Whereas those specifications are ghost code, we would like to generate
+implementations that can be extracted to C. To this end, we generate
+\emph{stateful} implementations written in the \lowstar set of \fstar~\cite{lowstar},
+operating on buffers, which are \lowstar mutable data structures
+representing C arrays. There, instead of a sequence of bytes, the
+parser implementation is given an input buffer and its length; and the
+serializer implementation is given an output buffer (along with its
+length) onto which it is to serialize the data. This means that, given
+a piece of data to serialize and a destination buffer, a serializer
+implementation can succeed only if the serialized data fits into the
+destination buffer; if so, then the serializer will return the number
+of bytes written.
+
+We bake the correctness of the implementations with respect to their
+specifications at the level of their types:
+
+\begin{lstlisting}
+type buffer8 = LowStar.Buffer.buffer FStar.UInt8.t
+type u32 = FStar.UInt32.t
+
+let parser32_postcond #t (p: parser t) (input: buffer8) (l: u32 {l == len input})
+  (h: mem) (res: option (t * u32)) (h': mem) =
+  modifies loc_none h h' /\ (* memory safety *)
+  match p (as_seq h input), res with (* functional correctness *)
+  | Some (x, ln), Some (x', ln') -> x' == x /\ FStar.UInt32.v ln' == ln
+  | None, None -> True   | _ -> False
+
+type parser32 #t (p: parser t) = (input: buffer8) -> (l: u32 { l == len input } )
+                                              -> Stack (option (t * u32))
+  (requires (fun h -> live h input)) (ensures (parser32_postcond p input))
+
+let serializer32_postcond #t (p: parser t) (s: serializer p) (output: buffer8)
+  (l: u32 {l == len output}) (x: t) (h: mem) (res: option u32) (h': mem) =
+  live h output /\ live h' output /\ modifies (loc_buffer b) h h' /\ (* memory safety *)
+  let ln = length (s x) in
+  match res with (* functional correctness *)
+  | Some ln' ->
+    FStar.UInt32.v ln' == ln /\ ln <= FStar.UInt32.v l /\
+    let b' = sub b 0ul ln' in modifies (loc_buffer b') h h' /\ as_seq h' b' == s x
+  | None -> ln > FStar.UInt32.v l
+
+type serializer32 #t (#p: parser t) (s: serializer p) =
+  (output: buffer8) -> (l: u32 { l == len output } ) -> (x: t) -> Stack (option u32)
+  (requires (fun h -> live h output)) (ensures (serializer32_postcond s output l x))
+\end{lstlisting}
+
+\tahina{TODO: gen\_parser can be implemented using typeclasses, triggering gen\_enum\_parser.}
+
+\paragraph{\bf Generating the specification from a \fstar datatype}
+
+Instead of mandating the user to write the parser and serializer
+specification themselves, we write a \metafstar
+tactic, \verb+gen_specs+, to generate both
+the parser and the serializer specifications directly from the \fstar
+type $t$ given by the user. These tactics operate by syntax inspection
+on $t$ itself, and generates the parser and serializer specifications
+using our combinators.
+
+Contrary to Coq's Ltac, \metafstar tactics can also inspect
+definitions of inductive types. From there, we made \verb+gen_specs+
+also generate a parser and serializer specification out of an
+enumeration type defined as a \fstar inductive type whose constructors
+have no arguments: for such a type with $n \leq 256$ constructors, the
+corresponding parser will associate a unique 8-bit integer from $0$ to
+$n-1$ to each constructor. For instance, if $t$ is defined as a \fstar
+enumeration type:
+
+As before, by virtue of the correctness of serializers being baked in
+their type, the correctness of the serializer generated
+by \verb+gen_specs+ does not appear as such as a verification
+condition when \fstar is type-checking the generated term. In the
+example above, the only proof obligations generated are those to
+correctly type-check the rewriting functions themselves passed
+to \verb+serialize_synth+ (e.g. enum constructors are rewritten to
+integers less than 4), and the precondition of \verb+serialize_synth+
+(i.e. the fact that the two rewriting functions are inverse of each
+other.) These can be discharged by the SMT solver, but they can also
+be discharged automatically by our tactics directly by case analysis
+on the inductive type, or by bounded integer enumeration.
+
+\paragraph{\bf Binders}
+
+For instance, we specified \verb+seq_p+, a combinator for dependent
+parsing:\protect{\footnote{This parsing combinator is based on yet
+unpublished work by Tej Chajed. Building serializers for parsers
+derived from \ls$seq_p$ is explicitly out of the scope of this
+paper.}} \tahina{I mentioned Tej in the footnote. This part of the
+footnote should be removed if Tej becomes a coauthor of the paper.}
+
+\begin{lstlisting}
+let seq_p #t1 (p1: parser t1) #t2 (p2: (t1 -> Tot (parser t2))) : Tot (parser t2) =
+  fun input -> match p1 input with | None -> None | Some (x1, cons1) ->
+    let input2 = slice input cons1 (length input) in
+    match p2 x1 input2 with
+    | None -> None | Some (x2, cons2) -> Some (x2, cons1 + cons2)
+\end{lstlisting}
+
+Then, we implemented it in \lowstar (\verb+seq_pi+), and
+manually proved it correct. From there, the user can write a simple
+parser specification for a parser that parses an integer encoded
+in one or two bytes depending on its value (where \verb+parse_ret x+
+is a parser that returns \verb+x+ without reading its byte input:)
+
+\begin{lstlisting}
+let example : parser_spec FStar.Int16.t =
+  seq_p parse_u8
+           (fun lo -> if lo <^ 128uy then parse_ret (cast_u8_to_i16 lo)
+                   else parse_synth parse_u8 (fun hi -> cast_u8_to_i16 (lo %^ 128uy)
+                                                 +^ cast_u8_to_i16 hi))
+\end{lstlisting}
+%
+Then, if the user writes:
+%
+\begin{lstlisting}
+let example_impl : parser_impl example = _ by gen_parser_impl
+\end{lstlisting}
+%
+then \verb+gen_parser32+ inspects the shape of the \emph{goal},
+which is \verb+parser32 example+, and so generates the following \lowstar implementation:
+%
+\begin{lstlisting}
+seq_pi parse32_u8 (fun lo ->
+  parse32_ifthenelse (lo <^ 128uy) (fun _ -> parse32_ret (cast_u8_to_i16 lo)) (fun _ -> parse32_synth parse32_u8 (fun hi -> cast_u8_to_i16 (lo %^ 128uy) +^ cast_u8_to_i16 hi)))
+\end{lstlisting}
+
+from where KreMLin \cite{lowstar} then inlines the corresponding implementation combinators to produce C code.
+
+First, \verb+gen_parser32+ inspects the shape of the goal to determine
+the type of the data to be parsed and the parser specification; then,
+it calls a recursive tactic \verb+gen_parser32'+ that inspects the
+shape of the parser specification and actually builds the
+implementation.
+
+\begin{lstlisting}
+module T = FStar.Tactics
+let rec gen_parser32' (env: T.env) (t: T.term) (p: T.term) : T.Tac T.term =
+  let (hd, tl) = app_head_tail p in
+  if hd `T.term_eq` (`(parse_ret)) then T.mk_app (`(parse32_ret)) tl else
+  if hd `T.term_eq` (`(parse_u8)) then (`(parse32_u8)) else
+  if hd `T.term_eq` (`(seq_p)) then match tl with
+  | [(t, _); (p, _); (t', _); (p', _)] ->
+    begin match T.inspect p' with
+    | T.Tv_Abs bx body ->
+      let p32 = gen_parser32' env k t p in
+      let env' = T.push_binder env bx in
+      let body' = gen_parser32' env' k' t' body in
+      let p32' = T.pack (T.Tv_Abs bx body') in
+      (`(seq_pi #(`#t) #(`#p) (`#p32) (`#t') (`#p') (`#p32')))
+    | _ -> ...
+    end
+  | _ -> ...
+  else
+  ...
+
+let gen_parser32 () : T.Tac unit =
+  let (hd, tl) = app_head_tail (T.cur_goal ()) in
+  if hd `T.term_eq` (`parser32)
+  then match tl with
+  | [(t, _); (p, _)] ->
+    let env = T.cur_env () in
+    let p32 = gen_parser32' env t p in
+    T.exact_guard p32;
+  | _ -> ...
+\end{lstlisting}
+
+When \verb+gen_parser32+ (resp. \verb+gen_serializer32+) builds the
+parser (resp. serializer) implementation, it may generate verification
+conditions due to specific preconditions required by certain
+combinators (such as the precondition of the \verb+serialize_synth+
+rewriting serializer combinator: the rewriting functions being inverse
+of each other). Contrary to Coq, there are no proof objects, so those
+preconditions need to be proven again even if they had been proven
+earlier by the user at the specification level. Nevertheless, those
+preconditions can be automatically solved by our tactics, or they can
+directly be sent to the SMT solver.
+
+However, by virtue of the correctness of the implementation
+combinators being baked in their type, typechecking the resulting term
+generated by \verb+gen_parser32+ triggers no verification condition
+other than those preconditions required by the specific combinators,
+and unification constraints, the latter solved by reflexivity. In
+particular, the memory safety and correctness of the implementations
+generated by \verb+gen_parser32+ do not appear as such as verification
+conditions when \fstar is type-checking the terms generated
+by \verb+gen_parser32+. \tahina{Is it already important to mention
+here the kinds of proof obligations generated by the tactics, and that
+they can be solved either by SMT or tactics? Or should we move to
+section 5?}
+
+\subsection{Verified meta-programming of program transformations}
+
+\ls$compile_bind$ expects, in \ls$bind f1 f2$, that \ls$f2$ be an
+abstraction, and so needs to manipulate binders and recursively
+compile \ls$f1$ and the body of \ls$f2$. This will, in the latter
+case, make some bound variables appear free in terms being compiled.
+
+If the head term $t_0$ is a free variable not corresponding to any
+combinator, then \ls$compile_fvar$ unfolds it, compiles the unfolded
+term, and inserts a coercion.\footnote{We defined an explicit coercion
+combinator, \ls$coerce_sz$, such that \ls$coerce_sz f1 f1_sz f2$ is
+well-typed and is a \ls$m_sz f2$ as soon as \ls$f1 () == f2 ()$ as $m$
+specifications.} In most cases, a free variable to be unfolded will
+correspond to a function definition, so that unfolding will yield a
+$\beta$-redex, which \ls$compile_fvar$ reduces by calling a
+normalization tactic that we provide as part of \metafstar. This needs
+an \emph{environment}
+\ls{(e: env)} tracking the bound variables encountered by nested calls
+to \ls$compile_bind$.
+
+We show below the implementation of \ls$compile_bind$, which is
+representative of most features of \metafstar that we use for
+our \ls$compile$ tactic.
+
+\begin{lstlisting}
+ (* extract the head symbol and the arguments of an application *)
+let rec app_head_rev_tail (t: term) : Tac (term * list argv) = 
+  match inspect t with | Tv_App u v -> let (x, l) = app_head_rev_tail u in (x, v :: l) | _ -> (t, [])
+let app_head_tail (t: term) : Tac (term * list argv) = let (x, l) = app_head_rev_tail t in (x, rev l)
+
+let compile_bind (e: env) (ty: term) (t: term) (compile: env -> term -> term -> Tac term) : Tac term =
+  let (t_0, ar) = app_head_tail t in
+  guard (t_0 = quote bind); (* fail if false *)
+  match ar with
+  | [ ($\tau_1$, _); ($\tau_2$, _); (f1, _); (f2, _); ] ->
+    begin match inspect f2 with
+    | Tv_Abs v f2_body ->
+      let f1' = compile e $\tau_1$ f1 in
+      let e' = push_binder e v in
+      let f2_body' = compile e' $\tau_2$ f2_body in
+      let f2' = pack (Tv_Abs v f2_body') in
+      (`(bind_sz #(`#tau_1) #(`#tau_2) (`#f1) (`#f1') (`#f2) (`#f2')))
+    | _ -> fail "compile_bind: Not an abstraction"
+    end
+  | _ -> fail "compile_bind: 4 arguments expected"
+\end{lstlisting}
+
+\paragraph{\bf Putting everything together}
+Finally, the following wrapper combinator $\Phi$ puts everything
+together, taking a specification $f$ and its size and buffer
+implementations, and yielding a stateful function, fitting in
+the \lowstar subset of \fstar amenable to extraction to C, that first
+computes the expected size of the output, then allocates one single
+buffer using the C \ls$malloc$, then uses it to write the output of
+$f$:
+\begin{lstlisting}
+let $\Phi$ $\tau$ (f: m $\tau$) (f_sz: m_sz f) (f_st: m_st f) : ST (option ($\tau$ * buffer U8.t)) (requires (fun _ -> True))
+  (ensures (fun h res h' -> let (r, log) = f () in
+    if length log > $2^{31} - 1$ then res == None else
+    Some? res /\ (let (Some (r', b)) = res in r == b /\ fresh b h h' /\  as_seq h b == log)
+  )) = match f_sz with | None -> None | Some (_, sz') ->
+       let b = rcreate_mm root 42uy sz in (* then allocate a fresh buffer *)
+       let (r, _) = f_st b in (* then write the output into the buffer *)
+       Some (r, b)
+\end{lstlisting}
+
+%%% Tahina: this paragraph removed because it should rather go to a
+%%% parser-specific paper.
+%%% CH: Added this back, Nada is on the ESOP %%% PC!
+\paragraph{\bf Related Work}
+Our approach of generating verified low-level formatters is related to
+Amin and Rompf's~\cite{Amin:2017:LAW:3009837.3009867} work on
+LMS-Verify. They use metaprogramming facilities in Scala to generate C
+code together with proof annotations to be checked by
+Frama-C~\citep{CuoqKKPSY12}, an SMT-based C verifier. In contrast, we
+generate correct-by-construction imperative \lowstar code, which is
+verified by \fstar{} before being translated to C by the KreMLin
+compiler.  LMS-Verify has also been used to generate efficient and
+safe HTTP parsers, a larger-scale effort than the network message
+formatters than we have currently done.
+
+%%%%% Appendix for Section 4
+
+\newpage
+
+\section{Proof of \autoref{thm:split}}
+\label{app:correctness}
+\input{correctness}
+
+\newpage
+
+\section{Modelling native plugins}
+\label{app:native}
+
+This appendix contains the formal definitions of our multi-language
+interoperability model. We formalize the semantics of source and target language
+as well as the translation between the two. We convey the essential ideas 
+in the text below, and present full details in 
+Figures \ref{fig:sourcelanglong}--\ref{fig:translationlong} that follow the discussion below.
+
+\subsection*{Part 1: Modeling Native Plugins with Simple Types}
+
+%We now present our design of native plugins using a small
+%multi-language calculus, a model of interactions between the
+%normalizers and native plugins, with appropriate conversions
+%between the term representations. We intend to only convey the essential ideas
+%of our implementation. A full formalization is out of scope, although more details are in the supplementary material.
+
+\iffalse
+\begin{figure}[h]
+  \centering
+\[\begin{array}{@{}l@{~~}l@{~}r@{}l@{}}
+\mbox{Types} & \stau & \bnfdef & \stunit% \bnfalt \svar{A}
+      \bnfalt \sarrow{\stau_{\source{1}}}{\stau_{\source{2}}}
+      \bnfalt \sprod{\stau_{\source{1}}}{\stau_{\source{2}}} \bnfalt \ssum{\stau_{\source{1}}}{\stau_{\source{2}}} \\
+& & & \\
+
+\mbox{Expressions} & \sexp & \bnfdef & \sunit \bnfalt \svar{x} \bnfalt \sabs{\svar{x}}{\stau}{\sexp} \bnfalt \sapp{\sexp_{\source{1}}}{\sexp_{\source{2}}} \\
+%& & \bnfalt & \stapp{\sexp}{\stau}\\
+& & \bnfalt & \spair{\sexp_{\source{1}}}{\sexp_{\source{2}}} \bnfalt \sfst{\sexp} \bnfalt \ssnd{\sexp} \\
+& & \bnfalt & \sinl{\sexp} \bnfalt \sinr{\sexp} \\
+& & \bnfalt & \scasex{\sexp}{\stau_{\source{1}}}{\sexp_{\source{1}}}{\stau_{\source{2}}}{\sexp_{\source{2}}} \\
+& & \bnfalt & \salien{\texp}{\stau}{\sdelta} \\
+% \bnfalt \sopaque{\texp}
+\end{array}\]
+  \caption{Syntax of the source language}
+  \label{fig:syntax-source}
+\end{figure}
+
+\begin{figure}[h]
+  \centering
+\[\begin{array}{@{}l@{~~}l@{~}r@{}l@{}}
+\mbox{Expressions} & \texp & \bnfdef & \tunit \bnfalt \tvar{x} \bnfalt \tabs{\tvar{x}}{\texp} \bnfalt \tapp{\texp_{\target{1}}}{\texp_{\target{2}}} \\
+& & \bnfalt & \tpair{\texp_{\target{1}}}{\texp_{\target{2}}} \bnfalt \tfst{\texp} \bnfalt \tsnd{\texp} \\
+& & \bnfalt & \tinl{\texp} \bnfalt \tinr{\texp} \\
+& & \bnfalt & \tcasex{\texp}{\texp_{\target{1}}}{\texp_{\target{2}}} \\
+& & \bnfalt & \talien{\sexp}{\stau}{\sdelta} \bnfalt
+%\topaque{\sexp}\\
+
+\end{array}\]
+  \caption{Syntax of the target language}
+  \label{fig:syntax-target}
+\end{figure}
+\fi
+
+Reflecting our requirement that plugins are only supported at
+ML-typeable interfaces, we start with a
+source language that is an intrinsically typed (Church
+style), standard, simply typed lambda calculus with pairs and
+sums. Later in the section, we
+will add ML-style rank 1 polymorphism to it.
+%
+Conversely, reflecting
+the type-less native representation of compiled OCaml code, our target
+language is the untyped lamdba calculus.
+For clarity, we markup the the syntax using colors, using
+$\source{blue}$ for the source language and $\target{red}$ for the target.
+Aside from the standard forms, we
+have two new expression forms to account for the ``alien''
+expressions of one language appearing in the other:
+$\talien{\sexp}{\stau}{}$, which \emph{embeds} a
+$\stau$-typed source language expression into the target language, and 
+$\salien{\texp}{\stau}{}$,
+which \emph{unembeds} a target language expression to the source language at
+type $\stau$.
+
+%% $\salien{\texp}{\stau}{}$,
+%% which \emph{unembeds}
+%% a target computation in the source language at type $\stau$, and
+%% $\talien{\sexp}{\stau}{}$, which
+%% \emph{embeds} a $\stau$-typed source computation in the target language.
+
+%% To model native plugins, consider a simply-typed lambda calculus
+%% source term $\source{E(\sexp : \stau)}$, a context $\source{E}$
+%% surrounding a term $\sexp : \stau$.
+%% %
+%% % JP: I think these two were salien as opposed to talien?
+%% We translate $\sexp$ to an untyped lambda term $\target{\texp}$ (by
+%% erasing type information) and unembed it in the original source
+%% context as $\source{E (\salien{\target{\texp}}{\stau}{})}$.
+%% %
+%% We study the interactions of such hybrid terms, aiming to ensure that
+%% $\source{E (\salien{\target{\texp}}{\stau}{})}$ is observationally
+%% equivalent to $\source{E(\sexp : \stau)}$.
+
+We explain the reductions through a small example. Consider a source language term
+$\sapp{\source{(}\sabs{\svar{x}}{\mathbb{\source{Z}}}{\svar{x}}\source{)}}{\source{0}}$, where we want to compile the
+identity function to native code and then perform the application. The
+first step is to translate the function to the target, by systematically
+erasing the types, and unembed it in the source. In our example, the
+source language term then becomes
+$\sapp{\salien{\tabs{\tvar{x}}{\tvar{x}}}{\mathbb{\source{Z}} \source{->} \mathbb{\source{Z}}}{}}{\source{0}}$.
+
+
+%% The main characteristic of the rules is that whenever a target term blocks
+%% reduction in the source language, we $\sforce{}$ the term into a source value of
+%% the appropriate type, using the unembedding function $\scoerce\stau\relax\texp$.
+%% When $\sforce{\svar}$ is applied at function type, this involves passing a
+%% source term as an argument to a target language function,
+%% after \emph{unembedding} said function as a source term, i.e., although not
+%% present initially, unembeddings of target terms in the source arise as during
+%% reductions.
+%% \guido{First use of $\scoerce\stau\relax\texp$, confused. Last sentence
+%% seems explained backwards to me, hard to follow.}
+
+%% \jonathan{I'm presenting both reduction semantics in this paragraph, then
+%% jumping to the description of the two coercion functions.}
+
+%% \nik{I suggest presenting embeddings first, since
+%% this is the direction with which things ``start'' in the plugin
+%% scenario.}
+
+%% \zp{What about this structure:
+%% \begin{itemize}
+%% \item Embeddings : syntax + semantics (reduction and coersions)
+%% \item Unembeddings : ditto
+%% \item Other (non-standard) rules of the semantics + force
+%% \end{itemize}
+%% }
+
+% \nik{remove $\delta$ at first and the protection function at first.}
+%
+%% \begin{mathpar}
+%%  \inferrule*[right=Alien]
+%%             {\sexp \sevals \sval}
+%%             {\talien{\sexp}{\stau}{\relax} \teval \tcoerce{\stau}{\relax}{\sval}}
+%% \end{mathpar}
+
+\paragraph{\bf Source semantics and unembedding (\autoref{fig:sourceseman})}
+At a beta-reduction step (e.g. rule {\sc{S-App}} below), the source
+semantics uses a meta-function
+$\sforce{\source{v}}$ to examine the head of the application $\svar{v}$.
+In addition to the usual values, the term
+$\salien{\tval}{\stau}{\relax}$ is a source value \emph{iff}
+$\tval$ is a target value. If the head is such a
+value, $\sforce{}$ invokes the unembedding coercion
+$\scoerce\stau\relax\tval$ to coerce it to a suitable source
+value. For structural types, this amounts to lazily coercing the head
+constructor of the term (see below). For function types, a source-level closure is
+allocated, which first \emph{embeds} its argument in the target,
+reduces a target application (using rule {\sc{S-Alien}}), and
+then \emph{unembeds} the result back in the source.
+%
+%
+%% $\sforce{}$ examines its argument and invokes the the embedding meta-function
+%% $\scoerce\stau\relax\tval$ whenever it hits an alien value. The embedding
+%% meta-function $\scoerce\stau\relax\tval$ takes a target \emph{value} (the target
+%% is CBV) and coerces it suitably as a source \emph{value}.
+%% \zp{The result of the coercion will always be a value in the simply typed world.
+%% It can be an expression when we add poly types.}
+%
+%
+%
+%% To define the semantics of the two languages we need a way to interpret alien terms
+%% in both contexts. 
+%%  The source reduces an alien term $\salien{\texp}{\stau}{\relax}$
+%% by invoking the semantics of the target language to obtain a target value (rule {\sc Alien}).
+%% Hence, the term $\salien{\tval}{\stau}{\relax}$ is a value in the source \emph{iff}
+%% $\tval$ is a value in the target language. Whenever a reduction step is blocked
+%% because of an alien value, the semantics will coerce this value to a source value by a
+%% call to the meta-function $\sforce{}$.
+%
+\begin{figure}
+\begin{mathpar}
+  \inferrule*[right=S-Alien]
+             {\texp \tevals \tval}
+             {\salien{\texp}{\stau}{} \seval \salien{\tval}{\stau}{}}
+  %
+%  \and
+%  \inferrule*[right=Proj]
+%             {\sforce{\sval}=\spair{\sexp_{\source{1}}}{\sexp_{\source{2}}}}
+%             {\sval.\source{i} \seval \sexp_{\source{i}}}
+ %
+  \and
+  %
+  \inferrule*[right=S-App]
+             {\sforce{\sval}=\sabs{\svar{x}}{\stau}{\sexp}}
+             {\sapp{\sval}{\sexpii} \seval \sexp \ssubst{\svar{x}}{\sexpii}}
+ %
+ \and
+  \inferrule*{}{
+    \sforce{\sval} =
+    \begin{cases}
+      \scoerce{\stau}{\relax}{\tval}
+      & \text{if }\sval = \salien{\tval}{\stau}{\relax} \cr
+        \sval
+      & \text{otherwise}
+    \end{cases}
+  }
+\end{mathpar}
+%
+\vspace{0.05cm}
+\[
+\begin{array}{r l l}
+  \scoerce{\stunit}{}{\tunit} & = & \sunit
+
+\\[0.3em]
+
+  \scoerce{\sprod{\staui}{\stauii}}{\relax}{\tpair{\tvali}{\tvalii}} & = &
+  \spair{\salien{\tvali}{\staui}{\relax}}{\salien{\tvalii}{\stauii}{\relax}}
+
+\\[0.3em]
+
+  \scoerce{\sarrow{\staui}{\stauii}}{\relax}{\texp} & = &
+  \sabs{\svar{x}}{\staui}{\salien{\tapp{\texp}{\talien{\svar{x}}\staui\relax}}{\stauii}{\relax}}
+\end{array}
+\]
+    \caption{Source semantics}
+    \label{fig:sourceseman}
+\end{figure}
+
+In our example, reduction proceeds by rule {\sc{S-App}} by first
+applying the unembedding coercion
+$\scoerce{\source{\mathbb{Z} -> \mathbb{Z}}}{}{}$ to $\tabs{\tvar{x}}{\tvar{x}}$ to get
+$\sabs{\svar{x}}{\mathbb{\source{Z}}}{\salien{\tapp{\target{(}\tabs{\tvar{x}}{\tvar{x}}\target{)}}{\talien{\svar{x}}{\mathbb{\source{Z}}}{}}}{\mathbb{\source{Z}}}{}}$,
+and then applying the substitution to get
+$\salien{\tapp{\target{(}\tabs{\tvar{x}}{\tvar{x}}\target{)}}{\talien{\source{0}}{\mathbb{\source{Z}}}{}}}{\mathbb{\source{Z}}}{}$.
+
+%
+%\nik{describe embeddings for pairs and then for functions, showing how the rule requires unembedding source terms and passing it to the target language.}
+%
+%% \jonathan{Probably need to change the rule above to account for the descrepancy
+%% between the lambda and the f}
+%% As such, when a function $\svar{f}$ is compiled as a plugin, one of
+%% \fstar's normalizers reduces
+%% $\sapp{\salien{\tvar{f}}{\sarrow\staui\stauii}\relax}{\sexp}$. The source
+%% semantics \emph{force} the head of the application by applying the arrow
+%% embedding above, followed by rule \textsc{App}, which gives 
+%% $
+%% \salien{\tapp{\tvar{f}}{\talien\sexp\staui\relax}}{\stauii}{\relax}
+%% $.
+%% \jonathan{Not sure about this bit.}
+%% \zp{From the formalization prospective seems accurate. That about implementation?
+%% Does this reflect what happens?}
+%% %
+%% By virtue of being call by value, the \textsc{Alien} rule for the target
+%% language then gives
+%% $
+%% \salien{\tapp{\tvar{f}}{\tcoerce\staui\relax{\svar{v}}}}{\stauii}{\relax}
+%% $.
+%% In practice, reducing source terms from within the target language via rule
+%% \textsc{Alien} is implemented via a callback to \fstar's normalizer.
+
+\paragraph{\bf Target semantics and embeddings (\autoref{fig:targetseman})}
+%% Although not present initially at the top-level, unembeddings of source terms in
+%%  the target arise during reductions of embdeddings. Hence, we need to coerce
+%%  them in the target.
+The target semantics is standard
+ CBV.
+ %% Embeddings of source terms are not values in the target language. As such,
+ %% embedded source terms are fully evaluated when passed to the target language.
+ The only new rule is \textsc{T-Alien}, which first reduces the foreign
+ source term using  the source semantics, and then proceeds
+ to \emph{embed} the resulting value into the target
+ language, using the embedding coercion $\tcoerce\stau\relax\sval$,
+ as shown below. In our implementation, this rule is realized via a callback
+ to the \fstar's normalizer.
+
+ \begin{figure}
+\begin{mathpar}
+\inferrule*[right=T-Alien]
+            {\sexp \sevals \sval}
+            {\talien{\sexp}{\stau}{} \teval \tcoerce{\stau}{}{\sval}}
+\and
+\inferrule*[right=T-App]
+            {\quad}
+            {\tapp{\target{(}\tabs{\tvar{x}}{\texp}\target{)}}{\tval} \teval \texp\tsubst{\tvar{x}}{\tval}}
+\end{mathpar}
+%% \jonathan{I'm not sure about having expressions in these rules below, because I
+%% thought that the target Alien rule forced reduction of the source expression as
+%% a value? Is this meant to imply that we only need to reduce to weak head normal
+%% form?}
+%% \zp{Yes, we only need whnf to apply the coercions. I'm also using it to indicate that the semantics of the source
+%% (i.e. the nornalizer) are CBN and therefore values are in weak head normal form. The rules below look good.
+%% Only changed the last one to stress that the inner red term will be a value. }
+%Coercions are defined in a similar manner.
+\[
+\begin{array}{r l l}
+  \tcoerce{\sarrow{\staui}{\stauii}}{\relax}\sexp  & = & 
+  \tabs{\tvar{x}}{\talien{\sapp\sexp{\salien{\tvar{x}}{\staui}{\relax}}}{\stauii}{\relax}}
+  \\[0.3em]
+  \tcoerce{\sprod{\staui}{\stauii}}{\relax}{\spair{\sexpi}{\sexpii}}  & = & 
+  \tpair{\talien{\sexpi}{\staui}{\relax}}{\talien{\sexpii}{\stauii}{\relax}}
+  %
+  \\[0.3em] 
+  \tcoerce{\staup}{\relax}{\salien{\tval}{\stau}{\relax}}  & = &  \tval
+  \text{ if } \stau \equiv \staup
+\end{array}
+\]
+     \caption{Target semantics}
+     \label{fig:targetseman}
+ \end{figure}
+
+The last case in the definition of the coercion cancels
+ superfluous embeddings, in case the term inside is an
+ unembedding. Continuing with our example,
+$\salien{\tapp{\target{(}\tabs{\tvar{x}}{\tvar{x}}\target{)}}{\talien{\source{0}}{\mathbb{\source{Z}}}{}}}{\mathbb{\source{Z}}}{}$
+ reduces using {\sc{S-Alien}}, which reduces the application in its
+ premise by first reducing
+ $\talien{\source{0}}{\mathbb{\source{Z}}}{}$
+ to
+$\target{0}$ (using rule {\sc{T-Alien}}, with
+ $\tcoerce{\mathbb{Z}}{\relax}{\source{0}} = \target{0}$), and
+then using rule {\sc{T-App}} to get
+ $\target{0}$. The rule {\sc{S-Alien}} then returns
+ $\salien{\target{0}}{\mathbb{\source{Z}}}{}$
+ to the \fstar normalizer, which applies the unembedding coercion to
+ get $\source{0}$.
+ 
+\iffull
+
+\paragraph{\bf Translation from source to target}
+Fig.~\ref{fig:translation} shows a few
+selected cases in the translation of source to target terms.
+The key rule is \textsc{Abs}, which translates a source
+abstraction to a target abstraction. Rather than maintaining an explicit mapping of
+source variables to target variables, the translation \emph{embeds} the target
+variable $\tvar x$
+in the source body of the abstraction. Later on, the \textsc{Box} rule finds the
+embedding, and removes it, leaving only the intended variable in the translated
+target program. As such, any closed source term is translated to a closed target
+term, without any embeddings or unembeddings in it.
+
+Rule \textsc{Var} is therefore only triggered for open variables that have not
+been unembedded by \textsc{Abs} already. The formalization accounts
+for this, and remains valid in the presence of open
+terms. From an implementation perspective, however, we cannot in general compile
+open terms to OCaml. Therefore, we restrict ourselves to compiling top-level
+definitions, in which the only open variables are other top-level definitions.
+Such top-level definitions have a name, which we know how to compile to OCaml.
+Because of this restriction, plugin extraction works at the level of top-level
+definitions, which are the only AST nodes that can be marked with the
+\ls$plugin$ attribute.
+
+\begin{figure}[h]
+  \centering
+\begin{mathpar}
+  \inferrule*[right=Var]
+             {\\}
+             {\svar{x} \trans \talien{\svar{x}}{\senv\spar{\svar{x}}}{\cdot}}
+  %
+  \and
+  %
+  \inferrule*[right=Box]
+             {\\}
+             {\salien{\texp}{\stau}{\sdelta} \trans \texp}
+  %
+  \and
+  %
+  \inferrule*[right=Pair]
+             {\source{e_i} \trans \target{e_i}}
+             { \spair{\source{e_1}}{\source{e_2}} \trans \tpair{\target{e_1}}{\target{e_2}}}
+  %
+  \and
+  %
+  \inferrule*[right=Abs]
+             {\sexp\ssubst{\svar{x}}{\salien{\tvar{x}}{\source{\tau}}{\cdot}} \trans \texp}
+             {\sabs{\svar{x}}{\stau}{\sexp} \trans \tabs{\tvar{x}}{\texp}}
+  %
+  \and
+  %
+  \inferrule*[right=App]
+             {\source{e_i} \trans \target{e_i}}
+             {\sapp{\source{e_1}}{\source{e_2}} \trans \tapp{\target{e_1}}{\target{e_2}}}
+  %
+           \end{mathpar}
+           \caption{Translation from source to target}
+           \label{fig:translation}
+\end{figure}
+\fi
+
+%% which is then the whole expression reduces to , which finally
+%% reduces to  using rule .\guido{\textsc{S-Alien} only seems to
+%% return unembedded terms? missing a coercion maybe?}
+%% %% \jonathan{Re the rule for arrow types: changed it to no longer do a built-in
+%% substitution. (Simpler?)}
+
+%% The base and structural cases (e.g. pairs) are straightforward. The arrow case
+%% is symmetrical to $\scoerce{\sarrow\staui\stauii}\relax\relax$. At run-time,
+%% this amount to allocating a closure in the target language (OCaml) that calls
+%% back into the normalizer, then embeds the result back in the target.
+%% \jonathan{I feel like we should say something else in this paragraph, because
+%% looking at the definition of force, it seems like we're always applying the
+%% cancellation rule (may confuse the reader).}
+
+% ----- Aseem: Begin: Text before starting tilde experiment -----
+
+%% We start with a source language that is an intrinsically typed (Church
+%% style), standard, simply-typed lambda calculus with pairs and sums and
+%% a target language that is the untyped lambda calculus.
+%% %
+%% For clarity, we markup the the syntax using colours, using
+%% \source{blue} for the source language and \target{red} for the target.
+%% %
+%% Two constructs are new: $\salien{\texp}{\stau}{}$, which \emph{unembeds}
+%% a target computation in the source language at type $\stau$, and
+%% $\talien{\sexp}{\stau}{}$, which
+%% \emph{embeds} a $\stau$-typed source computation in the target language.
+
+%% To model native plugins, consider a simply-typed lambda calculus
+%% source term $\source{E(\sexp : \stau)}$, a context $\source{E}$
+%% surrounding a term $\sexp : \stau$.
+%% %
+%% % JP: I think these two were salien as opposed to talien?
+%% We translate $\sexp$ to an untyped lambda term $\target{\texp}$ (by
+%% erasing type information) and unembed it in the original source
+%% context as $\source{E (\salien{\target{\texp}}{\stau}{})}$.
+%% %
+%% We study the interactions of such hybrid terms, aiming to ensure that
+%% $\source{E (\salien{\target{\texp}}{\stau}{})}$ is observationally
+%% equivalent to $\source{E(\sexp : \stau)}$.
+
+%% \iffull
+
+%% Figure \ref{fig:translation} shows a few
+%% selected cases in the translation of source to target terms.
+%% The key rule is \textsc{Abs}, which translates a source
+%% abstraction to a target abstraction. Rather than maintain an explicit mapping of
+%% source variables to target variables, the translation \emph{embeds} the target
+%% variable $\tvar x$
+%% in the source body of the abstraction. Later on, the \textsc{Box} rule finds the
+%% embedding, and removes it, leaving only the intended variable in the translated
+%% target program. As such, any closed source term is translated to a closed target
+%% term, without any embeddings or unembeddings in it.
+
+%% Rule \textsc{Var} is therefore only triggered for open variables that have not
+%% been unembedded by \textsc{Abs} already. The formalization accounts
+%% for this, and remains valid in the presence of open
+%% terms. From an implementation perspective, however, we cannot in general compile
+%% open terms to OCaml. Therefore, we restrict ourselves to compiling top-level
+%% definitions, in which the only open variables are other top-level definitions.
+%% Such top-level definitions have a name, which we know how to compile to OCaml.
+%% Because of this restriction, plugin extraction works at the level of top-level
+%% definitions, which are the only AST nodes that can be marked with the
+%% \ls$plugin$ attribute.
+
+%% \begin{figure}[h]
+%%   \centering
+%% \begin{mathpar}
+%%   \inferrule*[right=Var]
+%%              {\\}
+%%              {\svar{x} \trans \talien{\svar{x}}{\senv\spar{\svar{x}}}{\cdot}}
+%%   %
+%%   \and
+%%   %
+%%   \inferrule*[right=Box]
+%%              {\\}
+%%              {\salien{\texp}{\stau}{\sdelta} \trans \texp}
+%%   %
+%%   \and
+%%   %
+%%   \inferrule*[right=Pair]
+%%              {\source{e_i} \trans \target{e_i}}
+%%              { \spair{\source{e_1}}{\source{e_2}} \trans \tpair{\target{e_1}}{\target{e_2}}}
+%%   %
+%%   \and
+%%   %
+%%   \inferrule*[right=Abs]
+%%              {\sexp\ssubst{\svar{x}}{\salien{\tvar{x}}{\source{\tau}}{\cdot}} \trans \texp}
+%%              {\sabs{\svar{x}}{\stau}{\sexp} \trans \tabs{\tvar{x}}{\texp}}
+%%   %
+%%   \and
+%%   %
+%%   \inferrule*[right=App]
+%%              {\source{e_i} \trans \target{e_i}}
+%%              {\sapp{\source{e_1}}{\source{e_2}} \trans \tapp{\target{e_1}}{\target{e_2}}}
+%%   %
+%%            \end{mathpar}
+%%            \caption{Translation from source to target}
+%%            \label{fig:translation}
+%% \end{figure}
+
+%% \fi
+
+%% %% The main characteristic of the rules is that whenever a target term blocks
+%% %% reduction in the source language, we $\sforce{}$ the term into a source value of
+%% %% the appropriate type, using the unembedding function $\scoerce\stau\relax\texp$.
+%% %% When $\sforce{\svar}$ is applied at function type, this involves passing a
+%% %% source term as an argument to a target language function,
+%% %% after \emph{unembedding} said function as a source term, i.e., although not
+%% %% present initially, unembeddings of target terms in the source arise as during
+%% %% reductions.
+%% %% \guido{First use of $\scoerce\stau\relax\texp$, confused. Last sentence
+%% %% seems explained backwards to me, hard to follow.}
+
+%% %% \jonathan{I'm presenting both reduction semantics in this paragraph, then
+%% %% jumping to the description of the two coercion functions.}
+
+%% %% \nik{I suggest presenting embeddings first, since
+%% %% this is the direction with which things ``start'' in the plugin
+%% %% scenario.}
+
+%% %% \zp{What about this structure:
+%% %% \begin{itemize}
+%% %% \item Embeddings : syntax + semantics (reduction and coersions)
+%% %% \item Unembeddings : ditto
+%% %% \item Other (non-standard) rules of the semantics + force
+%% %% \end{itemize}
+%% %% }
+
+%% % \nik{remove $\delta$ at first and the protection function at first.}
+%% %
+%% %% \begin{mathpar}
+%% %%  \inferrule*[right=Alien]
+%% %%             {\sexp \sevals \sval}
+%% %%             {\talien{\sexp}{\stau}{\relax} \teval \tcoerce{\stau}{\relax}{\sval}}
+%% %% \end{mathpar}
+
+%% \paragraph{Embeddings}
+%% To define the semantics of the two languages we need a way to interpret alien terms
+%% in both contexts. 
+%%  The source reduces an alien term $\salien{\texp}{\stau}{\relax}$
+%% by invoking the semantics of the target language to obtain a target value (rule {\sc Alien}).
+%% Hence, the term $\salien{\tval}{\stau}{\relax}$ is a value in the source \emph{iff}
+%% $\tval$ is a value in the target language. Whenever a reduction step is blocked
+%% because of an alien value, the semantics will coerce this value to a source value by a
+%% call to the meta-function $\sforce{}$.
+%% %
+%% \begin{mathpar}
+%%   \inferrule*[right=Alien]
+%%              {\texp \tevals \tval}
+%%              {\salien{\texp}{\stau}{\sdelta} \seval \scoerce{\stau}{\sdelta}{\tval}}
+%%   %
+%% %  \and
+%% %  \inferrule*[right=Proj]
+%% %             {\sforce{\sval}=\spair{\sexp_{\source{1}}}{\sexp_{\source{2}}}}
+%% %             {\sval.\source{i} \seval \sexp_{\source{i}}}
+%%  %
+%%   \and
+%%   %
+%%   \inferrule*[right=App]
+%%              {\sforce{\sval}=\sabs{\svar{x}}{\stau}{\sexp}}
+%%              {\sapp{\sval}{\sexpii} \seval \sexp \ssubst{\svar{x}}{\sexpii}}
+%%  %
+%%  \and
+%%   \inferrule*{}{
+%%     \sforce{\sval} =
+%%     \begin{cases}
+%%       \scoerce{\stau}{\relax}{\tval}
+%%       & \text{if }\sval = \salien{\tval}{\stau}{\relax} \cr
+%%         \sval
+%%       & \text{otherwise}
+%%     \end{cases}
+%%   }
+%% \end{mathpar}
+%% $\sforce{}$ examines its argument and invokes the the embedding meta-function
+%% $\scoerce\stau\relax\tval$ whenever it hits an alien value. The embedding
+%% meta-function $\scoerce\stau\relax\tval$ takes a target \emph{value} (the target
+%% is CBV) and coerces it suitably as a source \emph{value}.
+%% \zp{The result of the coercion will always be a value in the simply typed world.
+%% It can be an expression when we add poly types.}
+%% For structural types, this amounts to lazily coercing the head constructor of
+%% the term (below). For function types, a source-level closure is allocated, which
+%% first \emph{embeds} its argument in the target, reduces a target application,
+%% then \emph{unembeds} the result back in the source.
+%% %
+%% \[
+%% \begin{array}{c c}
+%%   \scoerce{\sprod{\staui}{\stauii}}{\relax}{\tpair{\tvali}{\tvalii}} =
+%%   \spair{\salien{\tvali}{\staui}{\relax}}{\salien{\tvalii}{\stauii}{\relax}}
+
+%%   \qquad
+
+%% &
+
+%%   \qquad
+
+%%   \scoerce{\sarrow{\staui}{\stauii}}{\relax}{\tabs{\tvar{x}}{\texp}} =
+%%   \sabs{\svar{x}}{\staui}{\salien{\tapp{(\tabs{\tvar{x}}{\texp})}{\talien{\svar{x}}\staui\relax}}{\stauii}{\relax}}
+%% \end{array}
+%% \]
+%% %
+%% %\nik{describe embeddings for pairs and then for functions, showing how the rule requires unembedding source terms and passing it to the target language.}
+%% %
+%% \jonathan{Probably need to change the rule above to account for the descrepancy
+%% between the lambda and the f}
+%% As such, when a function $\svar{f}$ is compiled as a plugin, one of
+%% \fstar's normalizers reduces
+%% $\sapp{\salien{\tvar{f}}{\sarrow\staui\stauii}\relax}{\sexp}$. The source
+%% semantics \emph{force} the head of the application by applying the arrow
+%% embedding above, followed by rule \textsc{App}, which gives 
+%% $
+%% \salien{\tapp{\tvar{f}}{\talien\sexp\staui\relax}}{\stauii}{\relax}
+%% $.
+%% \jonathan{Not sure about this bit.}
+%% \zp{From the formalization prospective seems accurate. That about implementation?
+%% Does this reflect what happens?}
+%% %
+%% By virtue of being call by value, the \textsc{Alien} rule for the target
+%% language then gives
+%% $
+%% \salien{\tapp{\tvar{f}}{\tcoerce\staui\relax{\svar{v}}}}{\stauii}{\relax}
+%% $.
+
+%% \paragraph{Unembeddings}
+%% Although not present initially at the top-level, unembeddings of source terms in
+%%  the target arise during reductions of embdeddings. Hence, we need to coerce
+%%  them in the target. The reduction semantics for the target language is standard
+%%  CBV. Embeddings of source terms are not values in the target language. As such,
+%%  embedded source terms are fully evaluated when passed to the target language.
+%%  The only new rule is \textsc{Alien}, which first reduces the foreign term using
+%%  the source language semantics, then proceeds to \emph{embed} it into the target
+%%  language, using the target \emph{unembedding} $\tcoerce\stau\relax\sval$.
+%% \begin{mathpar}
+%% \inferrule*[right=Alien]
+%%             {\sexp \sevals \sval}
+%%             {\talien{\sexp}{\stau}{\sdelta} \teval \tcoerce{\stau}{\sdelta}{\sval}}
+%% \end{mathpar}
+%% %% \jonathan{I'm not sure about having expressions in these rules below, because I
+%% %% thought that the target Alien rule forced reduction of the source expression as
+%% %% a value? Is this meant to imply that we only need to reduce to weak head normal
+%% %% form?}
+%% %% \zp{Yes, we only need whnf to apply the coercions. I'm also using it to indicate that the semantics of the source
+%% %% (i.e. the nornalizer) are CBN and therefore values are in weak head normal form. The rules below look good.
+%% %% Only changed the last one to stress that the inner red term will be a value. }
+%% Coercions are defined in a similar manner.
+%% \[
+%% \begin{array}{c c c}
+%%   \tcoerce{\sarrow{\staui}{\stauii}}{\relax}\sexp  = 
+%%   \tabs{\tvar{x}}{\talien{\sapp\sexp{\salien{\tvar{x}}{\staui}{\relax}}}{\stauii}{\relax}}
+%%   & 
+%%   \quad
+%%   \tcoerce{\sprod{\staui}{\stauii}}{\relax}{\spair{\sexpi}{\sexpii}}  = 
+%%   \tpair{\talien{\sexpi}{\staui}{\relax}}{\talien{\sexpii}{\stauii}{\relax}}
+%%   %
+%%   \quad
+%%   & 
+%%   \tcoerce{\staup}{\relax}{\salien{\tval}{\stau}{\relax}}  =  \tval
+%%   \text{ if } \stau \equiv \staup
+%% \end{array}
+%% \]
+%% \jonathan{Re the rule for arrow types: changed it to no longer do a built-in
+%% substitution. (Simpler?)}
+
+%% The base and structural cases (e.g. pairs) are straightforward. The arrow case
+%% is symmetrical to $\scoerce{\sarrow\staui\stauii}\relax\relax$. At run-time,
+%% this amount to allocating a closure in the target language (OCaml) that calls
+%% back into the normalizer, then embeds the result back in the target. The last
+%% case covers the cancellation of embeddings and un-embeddings, and avoids
+%% generating superfluous unembeddings. 
+%% \jonathan{I feel like we should say something else in this paragraph, because
+%% looking at the definition of force, it seems like we're always applying the
+%% cancellation rule (may confuse the reader).}
+
+% ----- Aseem: End: Text before starting tilde experiment -----
+
+\subsection*{Part 2: Adding ML-style Polymorphism} %\nik{Budget: 1/2 page}}
+\label{sec:parametricity}
+
+%% We extend the source language with ML-style polymorphism and show how
+%% we use it to support a limited but useful form of open reduction.
+%%  This
+%% facilitates the use of polymorphic libraries (e.g., classic library
+%% functions on lists) as native plugins.
+
+The key observation in adding ML-style polymorphism is as
+follows. Since we only consider target terms
+compiled from well-typed source terms, by virtue of
+parametricity, a compiled polymorphic function must treat its
+argument abstractly. As a result, the normalizers can pass such
+arguments \emph{as-is} without applying any embedding coercions---passing
+an open term is simply a subcase without further
+difficulty. Thus, we can leverage polymorphism to support such limited
+but useful open reductions.
+
+In the formal model, we add an \emph{opaque} construct to the target
+language, written as
+$\topaque\sexp$, which denotes an embedding of $\sexp$ at some
+abstract type $\source{A}$ (as mentioned above, coercion to opaque is
+a no-op in the implementation\guido{not mentioned}).
+%
+The coercion functions are extended
+with rules to introduce and eliminate opaque terms (the $\sdelta$
+superscript carries type substitutions as a technical device), e.g.:
+\[
+\begin{array}{c c c}
+  \tcoerce{\svar{A}}{\sdelta}{\sexp}  = \topaque{\sexp}
+  \quad & \quad
+  \scoerce{\svar{A}}{\sdelta}{\topaque{\sexp}} = \sexp
+  \quad
+  &
+  \quad
+  \tcoerce{\sprod{\staui}{\stauii}}{\sdelta}{\spair{\sexpi}{\sexpii}} =
+  \tpair{\prot{\source{e_1}}{\source{\tau_1}}{\sdelta}}{\prot{\source{e_2}}{\source{\tau_2}}{\sdelta}}
+\end{array}
+\]
+where $\prot{\sexp}{\stau}{\sdelta}$ is $\topaque{\sexp}$ when
+$\stau = \source{A}$, or a usual type-directed embedding otherwise. The source
+semantics is 
+extended with a rule for type applications, while target
+semantics, being untyped, remains as-is.
+
+Consider an application of the polymorphic identity function to a
+variable $\svar{y}$:
+$\sapp{\stapp{(\stabs{\svar{A}}{\sabs{\svar{x}}{\svar{A}}{\svar{x}}})}{\source{\mathbb{Z}}}}{\svar{y}}$.
+As before, we would like to compile the function to native code and
+then reduce the applications---except this time it is an open term.
+%
+Translation of the function and its embedding in the source yields
+$\sapp{\stapp{\salien{\tabs{\tvar{x}}{\tvar{x}}}{\sall{\svar{A}}{\sarrow{\svar{A}}{\svar{A}}}}{\sesubstemp}}{\source{\mathbb{Z}}}}{\svar{y}}$.
+%
+We now apply the unembedding coercion
+$\scoerce{\sall{\svar{A}}{\sarrow{\svar{A}}{\svar{A}}}}{\sesubstemp}{\tabs{\tvar{x}}{\tvar{x}}}$
+which returns \linebreak a source type abstraction
+$\stabs{\svar{A}}{\scoerce{\sarrow{\svar{A}}{\svar{A}}}{\sesubstemp}{\tabs{\tvar{x}}{\tvar{x}}}}$.
+%
+Reducing the arrow coercion next, we get
+$\stabs{\svar{A}}{\sabs{\svar{x}}{\svar{A}}{\salien{\tapp{(\tabs{\tvar{x}}{\tvar{x}})}{\prot{\svar{x}}{\svar{A}}{\sesubstemp}}}{\svar{A}}{\sesubstemp}}}$,
+%
+where $\prot{\svar{x}}{\svar{A}}{\sesubstemp} = \topaque{\svar{x}}$, as mentioned above.
+This is the key idea---when the original application reaches the beta-reduction with
+argument $\svar{y}$ (after the type application is reduced), $\svar{y}$ is simply substituted
+in this opaque construct, which is then returned back to the \fstar normalizer as
+$\salien{\topaque{\svar{y}}}{\svar{A}}{\sesubstsingl{\svar{A}}{\source{\mathbb{Z}}}}$.
+%
+The normalizer can then apply the identity unembedding and get $\svar{y}$.
+
+This ability to reduce open terms relying on polymorphism allows us to
+evaluate expressions like
+$\sapp{\sapp{\stapp{\stapp{\salien{\target{\text{\ls{List.map}}}}{\sall{\svar{A}}{\sall{\svar{B}}{\sarrow{\sarrow{(\sarrow{\svar{A}}{\svar{B}})}{\source{\text{\ls{list}}} \svar{A}}}{\source{\text{\ls{list}}} \svar{B}}}}}{\sesubstemp}}{\source{\mathbb{Z}}}}{\source{\mathbb{Z}}}}{\source{\text{\ls{f}}}}}{\source{\text{\ls{[0; ...; 10}$^6$\ls{]}}}}$,
+with \ls$f$ a free variable,
+using native datastructure implementations (\ls{List} in this case), 
+which is much faster than using the normalizers.
+% (see \autoref{sec:registers}).
+
+\subsection*{Part 3: Full Details on our Multi-language Interoperability Model}
+
+%% \aseem{TODO: add an example of applying the polymorphic identity
+%% function to a variable. Add the property we hope for.}
+
+%% prevents further reduction or coercion (it is a value in
+%% the target language). An opaque construct preserves a source term at an abstract type.
+%% %
+%% We define the abstraction-protecting embedding $\prot\sexp\stau\sdelta$ to be
+%% either a regular $\talien\sexp\stau\sdelta$ as before, or an opaque
+%% $\topaque\sexp$ if $\sdelta(\stau) = \svar{A}$. Rules that previously generated
+%% $\talien\sexp\stau\sdelta$ now generate $\prot\sexp\stau\sdelta$, e.g.
+%% $
+%%   \tcoerce{\sarrow{\staui}{\stauii}}{\sdelta}\sexp  = 
+%%   \tabs{\tvar{x}}{\prot{\sapp\sexp{\salien{\tvar{x}}{\staui}{\sdelta}}}{\stauii}{\sdelta}}
+%% $
+
+
+%% In the formal model, we add a new \em
+
+%% In a polymorphic setting, abstract type variables appear in the language.
+%% To ensure soundness, coercions in the target language must stop at such abstract
+%% type variables. (Coercing underneath an abstraction would reveal the underlying
+%% type to the source language, and return an ill-typed term.) We add a type
+%% substitution $\sdelta$ in:
+%% $\tcoerce\stau\sdelta\sval$, 
+%% $\scoerce\stau\sdelta\tval$, 
+%% $\talien\sval\stau\sdelta$, 
+%% $\salien\tval\stau\sdelta$. Upon entering a type scheme
+%% $\sall{\svar{A}}{\ssig}$, $\sdelta$ is extended and becomes
+%% ${\sesubstext{\sdelta}{\svar{A}}{\stau}}$.
+
+%% We extend the target language with an \emph{opaque} construct, denoted
+%% $\topaque\sexp$, which prevents further reduction or coercion (it is a value in
+%% the target language). An opaque construct preserves a source term at an abstract type.
+%% %
+%% We define the abstraction-protecting embedding $\prot\sexp\stau\sdelta$ to be
+%% either a regular $\talien\sexp\stau\sdelta$ as before, or an opaque
+%% $\topaque\sexp$ if $\sdelta(\stau) = \svar{A}$. Rules that previously generated
+%% $\talien\sexp\stau\sdelta$ now generate $\prot\sexp\stau\sdelta$, e.g.
+%% $
+%%   \tcoerce{\sarrow{\staui}{\stauii}}{\sdelta}\sexp  = 
+%%   \tabs{\tvar{x}}{\prot{\sapp\sexp{\salien{\tvar{x}}{\staui}{\sdelta}}}{\stauii}{\sdelta}}
+%% $
+
+%% Crucially, the coercion functions are extended with rules to deal with opaque
+%% terms.
+%% \[
+%% \begin{array}{c c}
+%%   \tcoerce{\svar{A}}{\sdelta}{\sexp}  = \topaque{\sexp}
+%%   \quad & \quad
+%%   \scoerce{\svar{A}}{\sdelta}{\topaque{\sexp}} = \sexp
+%% \end{array}
+%% \]
+%% In essence, these rules embody the fact that a source function that is
+%% parametric over type $\svar{A}$ cannot examine a value at this abstract type,
+%% meaning that there actually is no need to unembed or embed such at value at the
+%% language boundary: the target program cannot do anything with it, except return
+%% it.
+
+%% One consequence of this is that by using polymorphic functions, the programmer
+%% can devise a library of natively-compiled plugins that are capable of dealing
+%% with open terms. The polymorphic versions are compiled natively, but are used
+%% from the source at concrete types that may contain open variables. No embeddings
+%% are generated, meaning that the target code is oblivious that the values it is
+%% passing around are opaque, open source terms.
+
+%% \jonathan{Is this what we want to say?}
+%% Naturally, \fstar goes beyond ML-style polymorphism. For the time being, we
+%% decline to compile plugins that, at extraction-time, cannot be re-typed with ML
+%% polymorphism.
+%% \aseem{We mentioned it before in the limitations of native plugins.}
+
+
+%\newcommand\path{interop_lazy/}%
+
+\begin{wrapfigure}[htb]{l}{\textwidth}%
+    %% \centering
+    %% \begin{minipage}{0.54\textwidth}\label{fig:srcexp}
+      \centering
+      \begin{framed}
+        \input{interop_lazy/src_syntax.tex}
+      \end{framed}
+      \caption{Source Language}
+      \label{fig:sourcelanglong}
+    %% \end{minipage}\hfill
+    %% \begin{minipage}{0.44\textwidth}\label{fig:trgexp}
+\end{wrapfigure}
+
+
+\begin{wrapfigure}[htb]{l}{\textwidth}%
+      \centering
+      \begin{framed}
+        \input{interop_lazy/trg_syntax.tex}
+      \end{framed}
+      \caption{Target Language}
+%    \end{minipage}
+\end{wrapfigure}
+
+\begin{wrapfigure}[htb]{l}{\textwidth}%
+  \label{fig:srctyp}
+  \fbox{$\iswf{\stenv}{\stau}$}
+  \begin{framed}
+    \input{interop_lazy/wf_typ}
+  \end{framed}
+  \caption{Type Well-formedness}
+\end{wrapfigure}
+
+\begin{wrapfigure}[htb]{l}{\textwidth}%
+  \label{fig:srctyp}
+  \fbox{$\iswf{\stenv}{\stau}$}
+  \begin{framed}
+    \input{interop_lazy/wf_subst}
+  \end{framed}
+  \caption{Type Substitution Well-formedness}
+\end{wrapfigure}
+
+
+\begin{wrapfigure}[htb]{l}{\textwidth}%
+  \label{fig:srctyp}
+  \fbox{$\hastyp{\stenv}{\senv}{\sexp}{\stau}$}
+  \begin{framed}
+    \input{interop_lazy/src_typing}
+  \end{framed}
+  \caption{Source Typing}
+\end{wrapfigure}
+
+%% \begin{wrapfigure}[htb]{l}{\textwidth}%
+%%   \label{fig:srctyp}
+%%   \fbox{$\isok{\stenv}{\senv}{\texp}$ (This might not be needed)}
+%%   \begin{framed}
+%%     \input{trg_typing}
+%%   \end{framed}
+%%   \caption{Target well-formedness}
+%% \end{wrapfigure}
+
+\begin{wrapfigure}[htb]{l}{\textwidth}%
+  \label{fig:srceval}
+  \fbox{$\sexp \seval \sexpp$}
+  \begin{framed}
+    \input{interop_lazy/src_eval}
+    where
+    \input{interop_lazy/force}
+  \end{framed}
+  \caption{Evaluation in the Source Language}
+\end{wrapfigure}
+
+\begin{wrapfigure}[htb]{l}{\textwidth}%
+  \label{fig:trgeval}
+  \fbox{$\texp \teval \texpp$}
+  \begin{framed}
+    \input{interop_lazy/trg_eval}
+  \end{framed}
+  \caption{Evaluation in the Target Language}
+\end{wrapfigure}
+
+\medskip
+
+\begin{wrapfigure}[htb]{l}{\textwidth}%
+    \centering
+    \begin{minipage}[t]{0.45\textwidth}\label{fig:stypsubst}
+      \centering
+      \begin{framed}
+        \input{interop_lazy/stypsubst}
+      \end{framed}
+      \caption{Type Substitution in Source Terms}
+    \end{minipage}\hfill
+    \begin{minipage}[t]{0.45\textwidth}\label{fig:ttypsubst}
+      \centering
+      \begin{framed}
+       \input{interop_lazy/ttypsubst}
+      \end{framed}
+      \caption{Type Substitution in Target Terms}
+    \end{minipage}
+\end{wrapfigure}
+
+
+\medskip
+
+\begin{wrapfigure}[htb]{L}{\textwidth}%
+  \label{fig:trans}
+  \fbox{$\sexp \trans \texp$} \\
+  $\senv$ is a global parameter 
+  \begin{framed}
+    \input{interop_lazy/trans}
+  \end{framed}
+  \caption{Translation}
+\end{wrapfigure}
+
+\medskip
+
+\begin{wrapfigure}[htb]{L}{\textwidth}%
+    \centering
+      \centering
+      \begin{framed}
+        \input{interop_lazy/scoerce}
+      \end{framed}
+      \caption{Target to Source Coercion}
+      \medskip\medskip\medskip\medskip\medskip
+      \centering
+      \begin{framed}
+        \input{interop_lazy/tcoerce}
+      \end{framed}
+      \caption{Source to Target Coercion}
+\end{wrapfigure}
+
+\medskip
+
+\begin{wrapfigure}[htb]{l}{\textwidth}%
+  \label{fig:protect}
+  %\fbox{$\prot{\sexp}{\stau}{\sdelta}$}
+  \begin{framed}
+    \input{interop_lazy/protect}
+  \end{framed}
+  \caption{Protect meta-function}
+\end{wrapfigure}
+
+\medskip
+
+\begin{wrapfigure}[htb]{l}{\textwidth}%
+  \label{fig:typeq}
+  %\fbox{$\staui \equiv \stauii$}
+  \begin{framed}
+    \input{interop_lazy/eqtyp}
+  \end{framed}
+  \caption{Type equivalence}
+\end{wrapfigure}
+
+
+\medskip
+
+\begin{wrapfigure}[htb]{l}{\textwidth}%
+  \label{fig:trans}
+  \fbox{$\sexp \trans \texp$} \\
+  %$\senv$ is a global parameter 
+  \begin{framed}
+    \input{interop_lazy/trans}
+  \end{framed}
+  \caption{Translation}
+  \label{fig:translationlong}
+\end{wrapfigure}

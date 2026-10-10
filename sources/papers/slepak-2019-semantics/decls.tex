@@ -1,0 +1,343 @@
+% Macros used in the paper					% -*- latex -*-
+
+\makeatletter
+
+\newcommand{\ie}{\mbox{\emph{i.e.}}}
+\newcommand{\Ie}{\mbox{\emph{I.e.}}}
+\newcommand{\eg}{\mbox{\emph{e.g.}}}
+\newcommand{\Eg}{\mbox{\emph{E.g.}}}
+\newcommand{\etc}{\emph{etc.}}
+\newcommand{\nb}{\mbox{\emph{n.b.}}}
+\newcommand{\Nb}{\mbox{\emph{N.b.}}}
+
+\newcommand{\sequence}[1]{#1 \, \ldots \,}
+\newcommand{\llb}{\left\llbracket}
+\newcommand{\rrb}{\right\rrbracket}
+
+\newcommand{\mdoubleplus}{\mathbin{+\mkern-7mu+}}
+\newcommand{\thappend}{\mdoubleplus}
+\newcommand{\thempty}{\square}
+\newcommand{\thprefix}{\sqsubseteq}
+\newcommand{\theq}{\equiv}
+\providecommand{\dotdiv}{% Don't redefine it if available
+  \mathbin{% We want a binary operation
+    \vphantom{+}% The same height as a plus or minus
+    \text{% Change size in sub/superscripts
+      \mathsurround=0pt % To be on the safe side
+      \ooalign{% Superimpose the two symbols
+        \noalign{\kern-.35ex}% but the dot is raised a bit
+        \hidewidth$\smash{\cdot}$\hidewidth\cr % Dot
+        \noalign{\kern.35ex}% Backup for vertical alignment
+        $-$\cr % Minus
+      }}}}
+\newcommand{\thmonus}{\dotdiv}
+
+% Syntactic classes
+%\newcommand{\scal}{\mathit{s}}
+\newcommand{\term}{\mathit{t}}
+\newcommand{\atom}{\mathfrak{a}}
+\newcommand{\func}{\mathfrak{f}}
+\newcommand{\atval}{\mathfrak{v}}
+\newcommand{\expr}{\mathit{e}}
+\newcommand{\var}{\mathit{x}}
+\newcommand{\primop}{\mathfrak{o}}
+\newcommand{\val}{\mathit{v}}
+\newcommand{\baseval}{\mathfrak{b}}
+\newcommand{\type}{\mathit{\tau}}
+\newcommand{\basetype}{\mathit{B}}
+\newcommand{\kind}{\mathit{k}}
+\newcommand{\idx}{\mathit{\iota}}
+\newcommand{\sort}{\mathit{\gamma}}
+\newcommand{\nat}{\mathit{n}}
+\newcommand{\tEnv}{\Gamma}
+\newcommand{\kEnv}{\Delta}
+\newcommand{\sEnv}{\Theta}
+\newcommand{\emptyEnv}{\cdot}
+\newcommand{\ctxt}{\mathbb{E}}
+\newcommand{\hole}{\square}
+\newcommand{\erased}[1]{\widehat{#1}}
+\newcommand{\eexpr}{\erased{\expr}}
+\newcommand{\eatom}{\erased{\atom}}
+\newcommand{\eterm}{\erased{\term}}
+\newcommand{\efunc}{\erased{\func}}
+\newcommand{\evalue}{\erased{\val}}
+\newcommand{\eatvalue}{\erased{\atval}}
+\newcommand{\ectxt}{\erased{\ctxt}}
+
+\newcommand{\Expr}{\mathit{Expr}}
+\newcommand{\Atom}{\mathit{Atom}}
+\newcommand{\Func}{\mathit{Func}}
+\newcommand{\Primop}{\mathit{Op}}
+\newcommand{\Term}{\mathit{Term}}
+\newcommand{\Type}{\mathit{Type}}
+\newcommand{\Idx}{\mathit{Idx}}
+\newcommand{\Kind}{\mathit{Kind}}
+\newcommand{\Sort}{\mathit{Sort}}
+\newcommand{\Val}{\mathit{Val}}
+\newcommand{\Atval}{\mathit{Atval}}
+\newcommand{\Ctxt}{\mathit{Ctxt}}
+\newcommand{\wt}[1]{{#1}^{T}}
+
+% Signature, specifying primops' types
+\newcommand{\Signature}{\mathcal{S}}
+\newcommand{\Sigref}[1]{\Signature{\hskip-.25em}\llb#1\rrb}
+
+% Evaluation context filled with term
+\newcommand{\fillc}[2]{#1\hskip-.15em\left[#2\right]}
+
+% Tools for sexp-like things
+\newcommand{\parens}[1]{\left( #1 \right)}
+\newcommand{\ttparens}[1]{\text{\tt (}#1\text{\tt )}}
+\newcommand{\braces}[1]{\left\{ #1 \right\}}
+\newcommand{\ttbraces}[1]{\text{\tt \{}#1\text{\tt \}}}
+\newcommand{\bracks}[1]{\left[ #1 \right]}
+\newcommand{\ttbracks}[1]{\text{\tt [}#1\text{\tt ]}}
+\newcommand{\pseq}[1]{\parens{\sequence{#1}}}
+% For sexp forms, give the keyword as the first argument and the rest
+% of the subexprs as the second argument
+\newcommand{\sexp}[2]{\left( #1 \subexp{#2} \right)}
+\newcommand{\ttsexp}[2]{\text{\tt(}#1 \subexp{#2}\text{\tt)}}
+\newcommand{\ttseq}[1]{\ttsexp{#1}{\text{\tt ...}}}
+%\newcommand{\noarg}{\negthickspace}
+% If a subexp might be blank, don't necessarily add spacing to separate it
+\newcommand{\subexp}[1]{\ifblank{#1}{}{\;#1}}
+% Variant for possibly-missing subexp at beginning of list
+\newcommand{\subexpcar}[1]{\ifblank{#1}{}{#1\;}}
+
+\let\oldl\l %Save the old \l on \oldl
+\newcommand{\cl}{\llap{$\lambda$\hskip-.65em}\phantom{ss}}
+%% JFP-friendly versions of \lambda-in-code macros
+\renewcommand{\l}[1]{\cl(#1)}
+\newcommand{\ttlm}[1]{\cl\ttparens{#1}}
+%% Non-JFP versions of \lambda-in-code macros
+% \renewcommand{\l}[1]{\ \llap{$\lambda$\hskip-.5em}\ (#1)}
+% \newcommand{\ttlm}[1]{\ \llap{$\lambda$\hskip-.5em}\ \ttparens{#1}}
+
+% Syntactic forms
+\newcommand{\annotate}[2][]{{#2}^{#1}}
+\newcommand{\notevar}[2]{\ttparens{#1 \; #2}}
+
+%\newcommand{\tuple}[2]{\langle #1 , #2 \rangle}
+\newcommand{\tuple}[1]{\ttsexp{\text{\tt tuple}}{#1}}
+\newcommand{\notedtuple}[2]{\annotate[#1]{\tuple{#2}}}
+
+%\newcommand{\lam}[2]{\parens{\lambda \; \bracks{#1} \; #2}}
+\newcommand{\lam}[2]{\ttsexp{\ttlm{#1}}{#2}}
+\newcommand{\notedlam}[3][]{\annotate[#1]{\lam{#2}{#3}}}
+
+% \newcommand{\tlam}[2]{
+%   \parens{{\tt T\lambda} \bracks{#1} \; #2}}
+\newcommand{\tlam}[2]{\ttsexp{{\tt T}\ttlm{#1}}{#2}}
+\newcommand{\notedtlam}[3][]{\annotate[#1]{\tlam{#2}{#3}}}
+
+% \newcommand{\ilam}[2]{
+%   \parens{{\tt I\lambda} \bracks{#1} \; #2}}
+\newcommand{\ilam}[2]{\ttsexp{{\tt I}\ttlm{#1}}{#2}}
+\newcommand{\notedilam}[3][]{\annotate[#1]{\ilam{#2}{#3}}}
+
+%\newcommand{\frm}[2]{\text{\tt Frm}\bracks{#1}_{#2}}
+%\newcommand{\frm}[2]{\ttsexp{\text{\tt frame}}{\ttparens{#2} \ifblank{#1}{}{\;#1}}}
+\newcommand{\frm}[2]{\ttsexp{\text{\tt frame}}{\ttparens{#2} \subexp{#1}}}
+\newcommand{\notedfrm}[3][]{\annotate[#1]{\frm{#2}{#3}}}
+
+%\newcommand{\emptyfrm}[2]{\text{\tt Frm}^{#1}_{#2}}
+\newcommand{\emptyfrm}[2]{\ttsexp{\text{\tt frame}}{\ttparens{#2} \subexp{#1}}}
+\newcommand{\notedemptyfrm}[3][]{\annotate[#1]{\frm{#2}{#3}}}
+
+%\newcommand{\arrlit}[2]{\text{\tt Arr}\bracks{#1}_{#2}}
+\newcommand{\arrlit}[2]{\ttsexp{\text{\tt array}}{\ttparens{#2} \subexp{#1}}}
+\newcommand{\notedarrlit}[3][]{\annotate[#1]{\arrlit{#2}{#3}}}
+
+\newcommand{\emptyarrlit}[2]{\ttsexp{\text{\tt array}}{\ttparens{#2} \subexp{#1}}}
+\newcommand{\notedemptyarrlit}[3][]{\annotate[#1]{\frm{#2}{#3}}}
+
+%\newcommand{\app}[2]{\parens{#1 \; #2}}
+\newcommand{\app}[2]{\ttsexp{#1}{#2}}
+\newcommand{\notedapp}[3][]{\annotate[#1]{\app{#2}{#3}}}
+
+%\newcommand{\tapp}[2]{\parens{\text{\tt T-APP} \; #1 \; #2}}
+\newcommand{\tapp}[2]{\ttsexp{\text{\tt t-app}}{#1 \subexp{#2}}}
+\newcommand{\notedtapp}[3][]{\annotate[#1]{\tapp{#2}{#3}}}
+
+\newcommand{\iapp}[2]{\ttsexp{\text{\tt i-app}}{#1 \subexp{#2}}}
+\newcommand{\notediapp}[3][]{\annotate[#1]{\iapp{#2}{#3}}}
+
+%\newcommand{\dsum}[3]{\parens{ \text{\tt box} \; #1 \; #2 \; : #3 }}
+\newcommand{\dsum}[3]{\ttsexp{\text{\tt box}}{#1 \subexp{#2} \subexp{#3}}}
+\newcommand{\noteddsum}[3][]{
+  \annotate[#1]{
+    \ttsexp{ \text{\tt box} \subexp{#2} \subexp{#3}}}}
+
+\newcommand{\dproj}[4]{
+  \ttsexp
+  {\text{\tt unbox}}
+  % Typesetting this is weird because the "optional" piece is #1, so its
+  % trailing space should be guarded by \ifblank{#1}, rather than considering it
+  % attached to #2
+  {\ttparens{\subexpcar{#1}#2 \subexp{#3}} \subexp{#4}}}
+\newcommand{\noteddproj}[5][]{\annotate[#1]{\dproj{#2}{#3}{#4}{#5}}}
+
+\newcommand{\typefun}[2]{\ttsexp{\text{\tt ->}}{\ttparens{#1} \; #2}}
+%{\ttsexp{#1}{\text{\tt ->} \; #2}}
+\newcommand{\typeprod}[2]{\ttsexp{\text{\tt Tuple}}{#1 \; #2}}
+\newcommand{\typeuniv}[2]{\ttsexp{\text{\tt Forall}}{\ttparens{#1} \; #2}}
+\newcommand{\typedprod}[2]{\ttsexp{\text{\tt Pi}}{\ttparens{#1} \; #2}}
+\newcommand{\typedsum}[2]{\ttsexp{\text{\tt Sigma}}{\ttparens{#1} \; #2}}
+%\newcommand{\typearray}[2]{#1 #2}
+\newcommand{\typearray}[2]{\ttsexp{\text{\tt Arr}}{#1 \; #2}}
+
+\newcommand{\idxshape}[1]{\ttsexp{\text{\tt Shp}}{#1}}
+\newcommand{\idxadd}[1]{\ttsexp{\text{\tt +}}{#1}}
+\newcommand{\idxappend}[1]{\ttsexp{\text{\tt ++}}{#1}}
+%\newcommand{\idxappend}[1]{\braces{\thappend \; #1}}
+
+\newcommand{\kindarray}{\text{\tt Array}}
+\newcommand{\kindatom}{\text{\tt Atom}}
+
+\newcommand{\sortdim}{\text{\tt Dim}}
+\newcommand{\sortshp}{\text{\tt Shape}}
+
+
+% Judgment forms
+\newcommand{\rulename}[1]{\quad \textsc{#1}}
+\newcommand{\seqpremise}[2]{#2 \; \; \text{for each $#1$}}
+
+\newcommand{\hassort}[2]{#1 :: #2}
+\newcommand{\sortof}[3]{#1 \vdash \hassort{#2}{#3}}
+
+\newcommand{\haskind}[2]{#1 :: #2}
+\newcommand{\kindof}[4]{#1;#2 \vdash \haskind{#3}{#4}}
+
+\newcommand{\hastype}[2]{#1 : #2}
+\newcommand{\typeof}[5]{#1;#2;#3 \vdash \hastype{#4}{#5}}
+
+\newcommand{\typeeqsym}{\cong}
+\newcommand{\teqv}[2]{#1 \typeeqsym #2}
+\newcommand{\ieqv}[2]{\text{\sc Valid} \llb #1 \theq #2 \rrb}
+
+\newcommand{\wfenv}[3]{#1 ; #2 \vdash #3}
+
+\newcommand{\fresh}[1]{\quad\text{with fresh $#1$}}
+
+
+% "Replace Y with Z"
+\newcommand{\singlesubst}[2]{#1 \mapsto #2}
+% "In X, replace ____"
+\newcommand{\multisubst}[2]{#1\hspace{-2pt}\bracks{#2}}
+% "In X, replace Y with Z
+\newcommand{\subst}[3]{\multisubst{#1}{\singlesubst{#2}{#3}}}
+% "In X, replace Ys with Zs"
+\newcommand{\seqsubst}[3]{\multisubst{#1}{\sequence{\singlesubst{#2}{#3},}}}
+
+
+% Evaluation rules
+\newcommand{\evalrule}[4][]{
+  \mbox{
+    \begin{tabular}{l}
+       #2 \\ $ \; \mapsto_{\mathit{#1}} $ #3
+    \end{tabular}
+  }\\
+  \mbox{#4}
+}
+\newcommand{\rulesep}{\medskip\\}
+\newcommand{\0}{\hspace*{0em} }
+
+
+% Proof utilities
+\newcommand{\pfstub}{{\color{red} Left as an exercise for the author}}
+\newcommand{\cfitem}[4][]{
+\item{
+  If $\type$ is of the form $#3$,\\
+  then $#2$ is of the form $#4$#1.}
+}
+\newcommand{\cfarritem}[4][]{
+  \cfitem
+      [#1]
+      {#2}
+      {\typearray{#3}{\idx}}
+      {\arrlit{\sequence{#4}}{\sequence{\nat}}}}
+
+% "Collapsible" proof environment: give \pfskip as argument to elide the proof
+\newcommand{\pfskip}[1]{{\color{cyan} elided for editing}}
+\NewEnviron{cproof}[1][]{\begin{proof}#1{\BODY}\end{proof}}
+% "Sketchable" proof environment: consults \pftype to pick version of proof
+% (can select \fullproof or \sketchproof or \collapseproof)
+\def\fullproof{0}
+\def\sketchproof{1}
+\def\collapseproof{2}
+\NewEnviron{sproof}[1][{\color{magenta} sketch missing}]
+{\begin{proof}
+\if\pftype\fullproof {\BODY} \else\if\pftype\sketchproof #1 \else \pfskip{} \fi\fi
+\end{proof}}
+\newcommand{\TODO}{{\color{red} [TODO]}}
+
+% Gadgets for sketching judgment derivations
+\newcommand{\somehow}[1]{\inferrule*{\vdots}{#1}}
+\newcommand{\teqvInd}[2]{\somehow{\teqv{#1}{#2}}}
+\newcommand{\typeofInd}[5]{\somehow{\typeof{#1}{#2}{#3}{#4}{#5}}}
+\newcommand{\kindofInd}[4]{\somehow{\kindof{#1}{#2}{#3}{#4}}}
+\newcommand{\sortofInd}[3]{\somehow{\sortof{#1}{#2}{#3}}}
+\newcommand{\infr}[3][]{\inferrule*[right=\;#1]{#2}{#3}}
+\newcommand{\ctrand}{\[\text{and}\]}
+
+% Erasure functions and related things
+\newcommand{\EraseE}[1]{\mathcal{E}{\hskip-.25em}\llb #1 \rrb}
+\newcommand{\EraseA}[1]{\mathcal{A}{\hskip-.25em}\llb #1 \rrb}
+\newcommand{\EraseT}[1]{\mathcal{T}{\hskip-.25em}\llb #1 \rrb}
+\newcommand{\EraseC}[1]{\mathcal{C}{\hskip-.25em}\llb #1 \rrb}
+\newcommand{\EraseTrm}[1]{\mathcal{R}{\hskip-.25em}\llb #1 \rrb}
+\newcommand{\EraseEqv}{\cong_{\mathcal{E}}}
+
+%% What you frequently want when you say \tt:
+\def\ttt{\ttfamily\upshape\mdseries\catcode``=13\@noligs\frenchspacing}
+
+%% Centered version of alltt environment
+\newenvironment{centertt}{%
+  \par\medskip
+  \centering
+  \varwidth{\linewidth}%
+  \alltt
+}{%
+  \endalltt
+  \endvarwidth
+  \vspace{-5pt}
+  \par
+}
+
+% Works in math mode; all special chars remain special; cheaper than \cd.
+% Will not be correct size in super and subscripts, though.
+\newcommand{\ex}[1]{\mbox{\ttt{#1}}}
+
+\newenvironment{inset}
+ {\bgroup\parskip=1ex plus 1ex\begin{list}{}%
+        {\topsep=0pt\rightmargin\leftmargin}%
+        \item[]}%
+ {\end{list}\leavevmode\egroup\global\@ignoretrue}
+
+\newenvironment{tightinset}
+ {\bgroup\parskip=0pt\begin{list}{}%
+        {\topsep=0pt\rightmargin\leftmargin}%
+        \item[]}%
+ {\end{list}\leavevmode\egroup\ignorespaces}
+
+\newenvironment{leftinset}
+ {\bgroup\parskip=1ex plus 1ex\begin{list}{}%
+        {\topsep=0pt}%
+        \item[]}%
+ {\end{list}\leavevmode\egroup\global\@ignoretrue}
+
+% For typesetting interactive examples.
+\newcommand{\result}[1]{\textsl{#1}}
+
+% For multiletter vars in math mode:
+\renewcommand{\v}[1]{\ensuremath{\mathit{#1}}} % \frenchspacing?
+\newcommand{\vi}[2]{\ensuremath{\mathit{#1}_{#2}}}
+
+\newcommand{\tu}{\ensuremath{\rightarrow}}
+
+\newcommand{\ft}[2]{(\tu\ (#1) #2)}
+\newcommand{\faty}[2]{(\(\forall\) (#1) {#2})}
+\newcommand{\pity}[2]{(\(\Pi\) (#1) {#2})}
+\newcommand{\vari}[2]{\ensuremath{#1_{#2}}}
+
+\makeatother

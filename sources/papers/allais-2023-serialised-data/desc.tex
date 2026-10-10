@@ -1,0 +1,237 @@
+\section{Our Universe of Descriptions}\label{sec:desc}
+
+We first need to pin down the domain of our discourse.
+%
+To talk generically about an entire class of datatypes
+without needing to modify the host language
+we have decided to perform a universe
+construction~\citep{DBLP:journals/njc/BenkeDJ03, DBLP:phd/ethos/Morris07, DBLP:conf/icfp/LohM11}.
+%
+That is to say that we are going to introduce an inductive type
+defining a set of codes together
+with an interpretation of these codes as bona fide
+host-language types.
+%
+We will then be able to program generically over the universe of
+datatypes by performing induction on the type of
+codes~\citep{DBLP:conf/tphol/PfeiferR99}.
+
+The universe we define is in the tradition of
+a sums-of-products vision of inductive types~\citep{DBLP:conf/popl/JanssonJ97}.
+%
+In our setting, constructors are essentially arbitrarily nested tuples of
+values of type unit,
+bytes,
+and recursive substructures.
+%
+A datatype is given by listing a choice of constructors.
+
+\subsection{Interlude: Serialisation Formats}\label{sec:interludeserialisation}
+
+Before giving a precise definition of the descriptions, let us think
+a little bit about the features we would like to see in our serialisation
+format and see how this informs our design.
+%
+We reproduce below the naïve encoding of a binary tree with bytes stored
+in its nodes we gave in the introduction. It has both strengths and
+weaknesses.
+
+\begin{center}
+  \usestt
+      \texttt{01 $\overbrace{\texttt{01 $\underbrace{\texttt{01 00 \IdrisData{01} 00}}_{\texttt{(node leaf \IdrisData{1} leaf)}}$
+    \IdrisData{05} 00}}^{\texttt{(node (node leaf \IdrisData{1} leaf) \IdrisData{5} leaf)}}$
+    \IdrisData{0a} 01 00 \IdrisData{14} 00}
+\end{center}
+
+One of its strength is the flattened encoding of nodes:
+the left subtree, byte stored, and right subtree are all stored
+contiguously after the tag \texttt{01} announcing that a \texttt{node} is present.
+%
+This approach can be generalised to any type with a unique constructor:
+there is no need to store a byte corresponding to the constructor for the
+unit type, or for the constructor to a pair type. These unambiguous
+constructors can be reinserted during the type-directed decoding phase.
+%
+In practice this means that our encoding will not retain the nesting
+structure described by a type. Concretely, $((a, b), c)$ and $(a, (b, c))$
+will have the same representations: the encoding of $a$, followed by the
+encoding of $b$ and last that of $c$.
+%
+Similarly, values of type $()$ will be eluded entirely: values of type
+$((), a, ())$ and $a$ will have the same serialised representation, the
+encoding of the value of type $a$.
+
+
+The major weakness of the naïve format we presented above is the
+inability to process a node's right subtree without having first
+processed its left subtree.
+%
+This is due to the fact that the subtree's size is not statically
+known and that the serialisation format does not store an offset
+for it.
+%
+Consequently, if we wanted to fetch the rightmost byte stored
+in the tree, we would have to traverse the entire encoding. That
+represents an exponential slow-down compared to what we could achieve
+with a different encoding allowing for random access.
+
+Based on these observations, we envision a serialisation format
+that will permit random access to all of the arguments of a node.
+Such a format will have to store an offset for all of a node's
+arguments whose size is not statically known and which we may want
+to jump past i.e. all of them except a constructor's very last argument.
+
+\subsection{Descriptions}
+
+This leads us to the inductive family \IdrisType{Desc} declared below
+as the type of constructor descriptions.
+
+\ExecuteMetaData[Serialised/Desc.idr.tex]{desctype}
+
+\begin{remark}[Separate Declaration and Definition]
+  \idris{} lets us declare a datatype or function first and only
+  define it later. This is convenient for blocks of mutually-defined
+  types and functions but can also be used, like here, to focus on
+  the type signature first.
+\end{remark}
+
+This family has three indices corresponding to three crucial
+invariants being tracked.
+%
+First, an index telling us whether the current description
+is being used in the \IdrisBound{rightmost} branch of the overall
+constructor description.
+%
+Second, the \IdrisBound{static}ally known size of the described data
+in the number of bytes it occupies.
+%
+Third, the number of \IdrisBound{offsets} that need to be stored to
+compensate for subterms not having a statically known size.
+%
+The reader should think of \IdrisBound{rightmost} as an `input' index
+(the context in which the family is used tells it whether it is in
+a rightmost branch)
+whereas \IdrisBound{static} and \IdrisBound{offsets} are `output' indices
+(the family's own constructors each determine their respective sizes).
+
+Next we define the family proper by giving its four constructors.
+
+\ExecuteMetaData[Serialised/Desc.idr.tex]{desc}
+
+Each constructor can be used anywhere in a description so their index
+tracking whether we are in the rightmost branch can be an arbitrary
+boolean \IdrisBound{r}.
+
+\IdrisData{None} is the description of values of type unit. The static
+size of these values is zero as no data is stored in a value of type unit.
+Similarly, they do not require an offset to be stored as we statically
+know their size.
+
+\IdrisData{Byte} is the description of bytes.
+%
+Their static size is precisely one byte, and they do not require an
+offset to be stored either.
+
+\IdrisData{Prod} gives us the ability to pair two descriptions together.
+As explained earlier pairs have a unique constructor and so their encoding
+will not consume any additional bytes.
+Consequently their static size and number of offsets are the respective
+sums of the static sizes and numbers of offsets of each subdescription.
+%
+The description of the left element of the pair will never be in the
+rightmost branch of the overall constructors description and so its
+index is \IdrisData{False} while the description of the right element
+of the pair is in the rightmost branch precisely whenever the whole pair
+is; hence the propagation of the \IdrisBound{r} arbitrary value from the
+return index into the description of the right component.
+
+Last but not least, \IdrisData{Rec} is a position for a subtree.
+We cannot know its size in bytes statically and so we decide to store
+an offset unless we are in the rightmost branch of the overall description.
+%
+Indeed, there are no additional constructor arguments behind the rightmost
+one and so we have no reason to skip past the subterm. Consequently we
+do not bother recording an offset for it.
+
+
+\subsection{Constructors}
+
+We represent a constructor as a record packing together
+a name for the constructor,
+the description of its arguments (which is, by virtue of
+being used at the toplevel, in rightmost position),
+and the values of the \IdrisFunction{static} and
+\IdrisFunction{offsets} invariants.
+
+\ExecuteMetaData[Serialised/Desc.idr.tex]{constructor}
+
+\begin{remark}[Implicit Record Fields]
+  Record fields whose type declaration is surrounded by
+  curly braces are implicit: they do not need to be explicitly
+  mentioned when constructing the record, or when pattern-matching
+  on it.
+\end{remark}
+
+Here the two invariants \IdrisFunction{static} and
+\IdrisFunction{offsets} are stored as implicit fields
+because as `output' indices of the \IdrisType{Desc} family
+their value is easily reconstructed using
+unification~\citep{DBLP:conf/tlca/AbelP11}.
+%
+Note that we used \IdrisData{(::)} as the name of the
+constructor for records of type \IdrisType{Constructor}.
+This allows us to define constructors by forming an
+expression reminiscent of Haskell's type declarations:
+\IdrisBound{name} \IdrisData{::} \IdrisBound{type}.
+%
+Returning to our running example, this gives us the following encodings for
+leaves that do not store anything
+and nodes that contain a left branch, a byte, and a right branch.
+
+\noindent
+\begin{minipage}[t]{.38\textwidth}
+  \ExecuteMetaData[Serialised/Desc.idr.tex]{treeleaf}
+\end{minipage}\hfill
+\begin{minipage}[t]{.58\textwidth}
+  \ExecuteMetaData[Serialised/Desc.idr.tex]{treenode}
+\end{minipage}
+
+\subsection{Datatypes}
+
+A datatype description \IdrisType{Data}
+is given by a vector (also known as
+a length-indexed list) named \IdrisFunction{constructors}
+and containing constructor descriptions.
+%
+For convenience, we store the number \IdrisFunction{consNumber}
+of constructors separately so that it does not need to be
+recomputed every time it is needed.
+%
+We additionally insist that we have a proof \IdrisFunction{fitsInBits8}
+that the datatype has less than 255 constructors which will allow us
+to safely store the corresponding tag in a single byte.
+This is enforced using \IdrisType{So}, a type
+family ensuring the boolean check it is indexed by has succeeded.
+
+\ExecuteMetaData[Serialised/Desc.idr.tex]{data}\label{sec:datadescriptions}
+
+\begin{remark}[Auto Implicit Record Fields]
+  Implicit record fields whose type declaration is preceded by the
+  \IdrisKeyword{auto} keyword are auto implicit: just like implicit
+  fields they do not need to be explicitly mentioned when constructing
+  the record, or when pattern-matching on it.
+  Additionally, these values are not constructed by unification but
+  via a builtin type-directed proof search.
+\end{remark}
+
+We can then encode our running example as a simple \IdrisType{Data}
+declaration: a binary tree whose node stores bytes is described by the choice
+of either a \IdrisFunction{Leaf} or \IdrisFunction{Node}, as defined above.
+The proof \IdrisFunction{fitsInBits8} is constructed automatically:
+the boolean test (\IdrisData{2} \IdrisFunction{<=} \IdrisData{255})
+has trivially computed to \IdrisData{True}.
+
+\ExecuteMetaData[Serialised/Desc.idr.tex]{treedesc}\label{fig:treedesc}
+
+Now that we have a language that allows us to give a description of our
+inductive types, we are going to give these descriptions a meaning as trees.

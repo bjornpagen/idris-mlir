@@ -1,0 +1,21 @@
+\emphbf{Subtyping}\hfill{\fbox{\issubtype{\env}{\RRenv}{\typ_1}{\typ_2}}}\\
+
+$$
+\inference{
+        \forall \theta\in\interp{\env}.
+        \interp{\applysub{\theta}{\tref{v}{\btyp}{\refa_1}}}
+        \subseteq
+        \interp{\applysub{\theta}{\tref{v}{\btyp}{\refa_2}}}
+}{
+        \issubtype{\env}{\RRenv}{\tref{v}{\btyp}{\refa_1}}{\tref{v}{\btyp}{\refa_2}}
+}[\rsubbasecore]
+$$
+
+$$
+\inference{
+	\issubtype{\env}{\RRenv}{\typ_x'}{\typ_x} &
+	\issubtype{\env,\tbind{x}{\typ_x'}}{\RRenv}{\typ}{\typ'}
+}{
+	\issubtype{\env}{\RRenv}{\trfun{x}{\typ_x}{\typ}}{\trfun{x}{\typ_x'}{\typ'}}
+}[\rsubfun]
+$$

@@ -1,0 +1,18 @@
+A:link    {color: #0066cc; text-decoration: none}
+
+A:visited {color: #0066cc; text-decoration: none}
+
+A:hover   {color: #ff0000; text-decoration: underline}
+
+A.small:link    {color: #0066cc; text-decoration: none}
+
+A.small:visited {color: #0066cc; text-decoration: none}
+
+A.small:hover   {color: #ff0000; text-decoration: underline}
+
+
+H1  {font-size: 14pt}
+
+pre {font-family:"APL385 Unicode", monospace; font-size: 10pt}
+
+tt  {font-family:"APL385 Unicode", monospace; font-size: 10pt}

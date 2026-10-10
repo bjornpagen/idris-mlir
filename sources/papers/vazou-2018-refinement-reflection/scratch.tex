@@ -1,0 +1,546 @@
+SCRATCH TEXT.
+
+MAYBE-SWAP
+
+* [AGDA](https://parfunc.slack.com/files/vikraman/F5YGV9JQ1/Untitled.hs)
+* [COQ](https://www.cs.princeton.edu/~appel/vfa/Perm.html#Exploration1.maybe_swap)
+
+fibUp AGDA
+* https://parfunc.slack.com/archives/C0BAZ6ZB8/p1498339139429555
+
+
+
+
+\begin{figure}[t!]
+\centering
+\begin{minipage}[t]{0.30\textwidth}
+\begin{codebox}
+ex1 :: Nat -> Nat
+ex1 x =
+  let y =
+    let t = x
+    in
+      dec t
+  in
+    inc y
+$\wwedge$
+\end{codebox}
+\end{minipage}
+\hspace{0.1in}
+\begin{minipage}[t]{0.45\textwidth}
+\begin{codebox}
+ex2 :: Nat -> Nat
+ex2 x =
+  let ys = let n  = dec x
+               p  = inc x
+               xs = n : []
+           in p : xs
+      y  = last ys
+  in
+    inc y
+
+\end{codebox}
+\end{minipage}
+\caption{Examples: (\bkw{ex1}) Local variables, (\bkw{ex2}) Collections}
+\label{fig:ex1}
+\label{fig:ex2}
+\end{figure}
+
+
+type Fusion = f:_ -> g:_ -> xs:_ ->
+                {map (f . g) xs = (map f . map g) xs}
+
+map_fusion f g []     = ()
+map_fusion f g (x:xs) = map_fusion f g xs
+
+map_fusion f g []
+  =  (map f . map g) []
+  =.  map f (map g [])
+  =.  map f []
+  =.  map (f . g) []
+  **  QED
+map_fusion f g (C x xs)
+  =  map (f . g) (x : xs)
+  =. ((f . g) x) : (map (f . g) xs)
+  =. ((f . g) x) : (((map f) . (map g)) xs)
+     ? map_fusion f g xs
+  =. ((f . g) x) : (map f (map g xs))
+  =. (f (g x)) : (map f (map g xs))
+  =. map f ((g x) : (map g xs))
+  =. map f ((g x) : (map g xs))
+  =. map f (map g (x : xs))
+  =. map f ((map g) (x : xs))
+  =. ((map f) . (map g)) (x : xs)
+  ** QED
+
+type Assoc = xs:_ -> ys:_ -> zs:_ ->
+              { xs ++ (ys ++ zs) = (xs ++ ys) ++ zs}
+
+app_assoc              :: Assoc
+app_assoc []     ys zs = ()
+app_assoc (x:xs) ys zs = app_assoc xs ys zs
+
+
+append_assoc [] ys zs
+  = ([] ++ ys) ++ zs
+  =. ys ++ zs
+  =. [] ++ (ys ++ zs)
+  ** QED
+
+append_assoc (x:xs) ys zs
+  = ((x : xs) ++  ys)  ++ zs
+  =. (x : (xs ++  ys)) ++ zs
+  =.  x :((xs ++  ys)  ++ zs)
+  =.  x :((xs ++ (ys   ++ zs)) ? append_assoc xs ys zs
+  =. (x : xs) ++ (ys   ++ zs)
+  ** QED
+
+
+append_assoc [] ys zs
+  = ([] ++ ys) ++ zs
+  =. ys ++ zs
+  =. [] ++ (ys ++ zs)
+  ** QED
+
+append_assoc (x:xs) ys zs
+  = ((x : xs) ++  ys)  ++ zs
+  =. (x : (xs ++  ys)) ++ zs
+  =.  x :((xs ++  ys)  ++ zs)
+  =.  x :((xs ++ (ys   ++ zs)) ? append_assoc xs ys zs
+  =. (x : xs) ++ (ys   ++ zs)
+  ** QED
+
+
+\mypara{Reflection vs. Axiomatization}
+%
+An alternative \emph{axiomatic} approach,
+used by Dafny~\citep{dafny} and
+\fstar~\citep{fstar},
+is to encode @fib@ using a universally
+quantified SMT formula (or axiom):
+$\forall n.\ \fibdef\ (\fib\ n)\ n$.
+%
+Axiomatization offers greater automation than
+reflection. Unlike \toolname, \fstar
+%and \fstar
+will verify the following by
+\emph{automatically instantiating} the above
+axiom at @2@, @1@ and @0@:
+%
+\begin{code}
+   val axPf_fib2: unit -> Tot (v:unit {fib 2 = 1})
+   let axPf_fib2 _ =  ()
+\end{code}
+%
+The automation offered by axioms is a bit of a
+devil's bargain, as axioms render checking of
+the VCs \emph{undecidable}.
+%
+In practice, automatic axiom instantation can
+easily lead to infinite ``matching loops''.
+%
+For example, the existence of a term \fib{n} in a VC
+can trigger the above axiom, which may then produce
+the terms \fib{(n-1)} and \fib{(n-2)}, which may then
+recursively give rise to further instantiations
+\emph{ad infinitum}.
+%
+To prevent matching loops an expert must carefully
+craft ``triggers'' and provide a ``fuel''
+parameter~\citep{Amin2014ComputingWA} that can be
+used to restrict the numbers of the SMT unfoldings,
+which ensure termination, but can cause the axiom
+to not be instantiated at the right places.
+%
+As an example, \fstar's default fuel is not adequate
+to compute the value of @fib@ at @15@,
+rendering the following property unpredictably unsafe.
+%
+\begin{code}
+   val axPf_fib2: unit -> Tot (v:unit {fib 15 = 610})
+   let axPf_fib2 _ =  ()
+\end{code}
+%
+In short, per the authors of Dafny, the
+undecidability of the VC checking and its
+attendant heuristics makes verification
+unpredictable~\citep{Leino16}.
+
+
+
+
+\subsection{Proof By Evaluation}
+
+To simplify trivial proof by rewriting (like @fib 2 == 1@) while preserving
+predictable behavior we introduce \pbename (Proof By Evaluation).
+%
+\pbename symbolically evaluates the subexpressions of the proof
+obligations based on the definitions of the
+reflected functions.
+%
+For instance the proof obligation
+@fib 2 == 1@ fires the unfolding of $\fib{2}$
+which in turn fires the unfoldings of
+both $\fib{1}$ and $\fib{0}$.
+%
+All the three unfoldings are collected in an assumption
+environment under which the proof obligation is checked
+strengthening the initial obligation to the
+following SMT query
+$$
+(\fib{2} = \fib{1} + \fib{0}
+\land
+\fib{1} = 1
+\land
+\fib{0} = 0
+) \Rightarrow \fib{2} = 1
+$$
+%
+Thus the SMT can prove @fib 2 == 1@
+while treating @fib@ as an uninterpreted function.
+
+
+\mypara{Inductive Proofs}
+\pbename only unfolds reflected functions when it
+can be statically decided exactly which branch the function unfolds to.
+%
+%
+For example \pbename cannot automatically prove inductive properties like
+that @fib@ is (locally) increasing: for all $n$, $\fib{n} \leq \fib{(n+1)}$.
+%
+\pbename will not automatically unfold \fib{n} since it is not
+determined which branch @fib n@ will take, for all @n@.
+%
+The programmer can use standard analysis on the value of @n@
+to appropriately fire \pbename unfoldings and thus construct inductive proofs.
+%
+\begin{mcode}
+    fibUp :: n:Nat -> { !fib! n <= !fib! (n+1) }
+    fibUp n | n == 0
+            -- UNFOLDINGS
+            -- fib 0 == 1, fib 1 == 1
+            =  trivial
+            | n == 1
+            -- UNFOLDINGS
+            -- fib 2 == fib 1 + fib 0, fib 1 == 1, fib 0 == 0
+            = trivial
+            | otherwise
+            -- UNFOLDINGS
+            -- fib (n+1) == fib n + fib (n-1)
+            -- fib n == fib (n-1) + fib (n-2)
+            =  fibUp (n-1) &&& fibUp (n-2)
+\end{mcode} %$
+
+\mypara{Case Splitting and Induction}
+%
+The proof @fibUp@ works by induction on @n@.
+%
+In the \emph{base} cases @0@ and @1@, we simply assert
+the relevant unfoldings. These are verified as \pbename automatically
+unfolds the
+reflected @fib@ definition at those inputs.
+%
+The derived VCs are (automatically) proved
+as the SMT solver concludes $0 < 1$ and $1 + 0 \leq 1$
+respectively.
+%
+In the \emph{inductive} case, @fib n@ is automatically unfolded
+to  @fib (n-1) + fib (n-2)@, which, because of the
+induction hypothesis (applied by invoking @fibUp@
+at @n-1@ and @n-2@) and the SMT solver's arithmetic
+reasoning, completes the proof.
+
+The connective operator @&&&@ is operationally the constant
+function that moreover combines in the logic the information
+form both its input arguments.
+
+\begin{mcode}
+    x &&& _ = x
+\end{mcode}
+
+\mypara{Properties of \pbename}
+In \S~\ref{sec:pbe} we formalize
+the automatically generated unfoldings
+via \pbename and discuss three main
+properties of our formalization
+\begin{itemize}
+\item \textbf{Completeness}
+\pbename will actually unfold all
+the reflected functions that can
+be unfolded to exactly one branch.
+\item \textbf{Termination}
+Assuming that all the unfolded functions terminated,
+\pbename will generate finitely many unfoldings.
+\end{itemize}
+
+As a result of the above two properties \pbename is more predictable
+than fuel-based axiom instantiation approach that is traditionally
+used by SMT-verifiers, since \pbename is automatically adjusting the
+number of instantiations (\ie fuel) based on the context.
+%
+Automatic fuel adjustment though
+may introduce a different source of
+unpredictability: verification
+slow-downs.
+%
+For instance verification of
+@fib 16 == 987@ is unpredictably
+unsafe in the fuel-based \fstar
+and unpredictably slow in our
+\pbename-based approach.
+%
+Yet, compared with axiomatization
+our notion of unpredictability is
+\textbf{local}: \pbename is separately
+strengthening proof obligations thus
+avoiding the ``butterfly effect''~\cite{Leino16}
+where axioms introduced an one point
+of the code may affect verification
+in different places.
+
+\mypara{Reflection and Refinement Types}
+\NV{This seems out of place now. }
+The above examples illustrate how refinement types
+critically allow us to restrict the domain of both
+reflected functions and proof terms in order to
+enable sound theorem proving.
+%
+\begin{itemize}
+  \item \emphbf{Totality}
+  First, by refining @Int@ to @Nat@ we restrict
+  the domain of Haskell's partial function @fib@
+  which lets us use @!fib!@ as a total function in
+  the logic. Specifically, refinement type checking
+  ensures soundness by verifying that @fib@ is never
+  called on negative numbers.
+%
+\item \emphbf{Induction}
+  Second, the refinement type @Nat@
+  in the argument of @fibUp@ constrains @fibUp@'s
+  domain, turning @fibUp@ into a total proof that
+  encodes induction on Natural numbers, while
+  reasoning about Haskell's runtime integers.
+\end{itemize}
+%
+Thus, refinement types let us encode proofs that
+only hold on refined types, like @Nat@ while using
+Haskell's Integers, instead of forcing to switch
+to a user or library defined @Data.Natural@ Haskell
+type.
+%
+As a less elegant alternative, usually followed
+in dependently typed languages, @fib@ could be
+defined as a function returning a @Maybe@ -- \ie
+returning @Nothing@ on negative inputs.
+%
+\VC{I'm not sure if this claim could be made for dependently typed languages,
+  for example, in Agda, Nat is compiled to Haskell Integer; in Coq, nat is
+  compiled to OCaml int}
+%
+Then the code and proofs would be littered with cases analyses
+required to extract @fib@'s result.
+%
+Another alternative is \dafny's approach
+that uses code level assumptions and assertions
+to restrict function's domain and range.
+%
+While these assumptions and assertions can
+be semi-automatically discharged using the
+SMT solver, they impose programmer overheads
+as they cannot be inferred unlike refinement
+types that are inferred using
+the abstract interpretation framework of
+liquid typing~\cite{LiquidPLDI08}.
+
+
+\subsection{Higher Order Reasoning}
+
+Refinement reflection allows terminating functions to appear in the refinements
+but to preserve decidability refinements cannot contain quantifiers.
+%
+Next we present how our refinement types can be used to
+encode quantified properties using lambda abstraction and dependent pairs
+for forall and exists respectively,
+thus encoding arbitrary higher order properties.
+
+\mypara{Encoding foralls}
+%
+Refinements smoothly accomodate universal quantification as lambda abstraction.
+%
+For example, lets prove that every locally increasing
+function is monotonic, \ie
+if @f z <= f (z+1)@ for all @z@,
+then @f x <= f y@ for all @x < y@.
+%
+\begin{mcode}
+  fMono :: f:(Nat -> Int)
+        -> fUp:(z:Nat -> {f z <= f (z+1)})
+        -> x:Nat
+        -> y:{x < y}
+        -> {f x <= f y} / [y]
+  fMono f inc x y
+    | x + 1 == y = fUp x
+    | x + 1 < y  = fMono f fUp x (y-1) &&& fUp (y-1)
+\end{mcode}
+%
+We prove the theorem by induction
+on @y@, which is specified by the
+annotation @/ [y]@ which states
+that @y@ is a well-founded
+termination metric that decreases
+at each recursive call~\citep{Vazou14}.
+%
+% All reflected functions are proved terminating.
+% When the annotation metric is not explicit Liquid Haskell
+% successfully uses heuristics to automatically prove termination.
+%
+If @x+1 == y@, then we use @fUp x@.
+%
+Otherwise, @x+1 < y@, and we use
+the induction hypothesis \ie apply
+@fMono@ at @y-1@, after which
+transitivity of the less-than
+ordering finishes the proof.
+%
+We can use the general @fMono@
+theorem to prove that @fib@
+increases monotonically:
+%
+\begin{code}
+  fibMono :: n:Nat -> m:{n<m} -> {fib n <= fib m}
+  fibMono = fMono fib fibUp
+\end{code}
+
+\mypara{Encoding existentials}
+Refinements encode existential quantification as dependent pairs.
+%
+For example, we can prove that is there exists an @m@ greater than @n@
+then there exists an upper bound to @fib n@.
+
+\begin{mcode}
+  fibBound :: n:Nat -> (m::Int, {n < m}) -> (m'::Int, {fib n <= m' }) @-}
+  fibBound n (m, pf) = (fib m, fibMono n m)
+\end{mcode}
+\VC{$m::Int$ or $m:Int$?}
+We use the notation @(m::t1, t2)@ to encode dependent pairs:
+we bind the first element of the pair to the binder @m@,
+then @m@ can appear in the refinements of the type @t2@ of the
+second element.
+%
+To prove @fibBound@ we open the existential assumption to get a value
+@m@ that is greater then @n@.
+Then, @fib m@ bounds @fib n@ as proved by @fibMono n m@.
+
+Even though quantifiers cannot appear inside the refinements
+lambdas and dependent pairs allows us to quantify values over
+the refinement properties.
+%
+One limitation of this encoding is that quantifiers cannot
+exist inside logical connectives (like $\land$ and $\lor$).
+%
+In \S~\ref{sec:higher-order} we encode logical connectives using
+data types.
+For instance conjunction is encoded as a product and
+disjunction as a union data type, thus naturally getting the
+expressiveness power of arbitrary higher order logics like
+Isabelle/HOL.
+
+
+\subsection{Case Study: Peano Numerals}
+
+Refinement reflection is not limited to programs
+operating on integers. We conclude the overview
+with a small library for Peano numerals, defined
+via the following algebraic data type:
+%
+\begin{code}
+  data Peano = Z | S Peano
+\end{code}
+%
+We can @add@ two @Peano@ numbers via:
+%
+\begin{code}
+  reflect add :: Peano -> Peano -> Peano
+  add Z     m = m
+  add (S n) m = S (add n m)
+\end{code}
+%
+In \S~\ref{subsec:measures} we will describe
+exactly how the reflection mechanism (illustrated
+via @fibP@) is extended to account for ADTs like @Peano@.
+%
+Note that \toolname automatically checks
+that @add@ is total~\citep{Vazou14}, which
+lets us safely @reflect@ it into the
+refinement logic.
+
+\mypara{Add Zero to Left}
+%
+As an easy warm up, lets show that
+adding zero to the left leaves the
+number unchanged:
+%
+\begin{code}
+  zeroL :: n:Peano -> { add Z n == n }
+  zeroL n = trivial
+\end{code}
+
+\mypara{Add Zero to Right}
+%
+It is slightly more work to prove
+that adding zero to the right also
+leaves the number unchanged.
+%
+\begin{mcode}
+  zeroR :: n:Peano -> { add n Z == n }
+  zeroR Z     =  trivial
+
+  zeroR (S n) =  zeroR n
+\end{mcode}
+%
+The proof goes by induction, splitting cases on
+whether the number is zero or non-zero. Consequently,
+we pattern match on the parameter @n@, and furnish
+separate proofs for each case.
+%
+In the ``zero" case, we simply unfold the definition
+of @add@.
+%
+In the ``successor" case, after unfolding we (literally)
+apply the induction hypothesis by using the because operator.
+%
+\toolname's termination and totality checker
+verifies that we are in fact doing induction
+properly, \ie the recursion in @zeroR@ is
+well-founded~(\S~\ref{sec:types-reflection}).
+
+\mypara{Commutativity}
+%
+Lets conclude by proving that @add@ is commutative:
+%
+\begin{mcode}
+add_com :: a:_ -> b:_ -> {add a b = add b a}
+
+add_com    Z  b =  zeroR b
+add_com (S a) b =  add_com a b &&& sucR b a
+\end{mcode}
+%
+using a lemma @sucR@
+%
+\begin{code}
+  sucR :: n:Peano -> m:Peano ->
+                {add n (S m) = S (add n m)}
+  sucR = exercise_for_reader
+\end{code}
+
+%
+% Again, note how case-splitting, induction, and
+% lemma reuse are just pattern-matching, recursion and
+% function application, via the lemma @sucR@:
+
+Thus, refinement reflection lets us prove properties of Haskell programs
+just by writing Haskell programs: lemmas are just functions, case-splitting
+is just branching and pattern matching, and induction is just recursion.
+%
+Next, we formalize refinement reflection and describe
+how to keep type checking decidable and predictable.

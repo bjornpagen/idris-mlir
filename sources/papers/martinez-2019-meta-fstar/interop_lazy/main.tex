@@ -1,0 +1,65 @@
+\documentclass[a4paper,11pt]{article}
+\usepackage{fullpage}
+
+\usepackage{amssymb,amsmath,amsfonts,amssymb,amsthm}
+\usepackage{lmodern}
+\usepackage{xcolor}
+\usepackage{thmtools}
+\usepackage{hyperref} 
+\usepackage{float}
+\usepackage{cleveref} 
+\usepackage{mathpartir}
+\usepackage{wrapfig, framed, caption}
+\usepackage{stmaryrd}
+\usepackage{mathtools}
+
+\theoremstyle{definition}
+\newtheorem{exmp}{Example}[section]
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{corollary}{Corollary}[section]
+
+
+% MACROS
+\input{defs}
+\input{exp}
+
+\date{}
+
+\begin{document}
+\title{Modeling native plugins}
+\maketitle
+
+%\tableofcontents
+%\listoffigures
+
+\input{append_interop}
+
+%% \begin{wrapfigure}[htb]{L}{\textwidth}%
+%%   \label{fig:trans}
+%%   \fbox{$\rexp{k}{}{} \subseteq \source{Exp} \times \source{Exp}$}
+%%   \begin{framed}
+%%     \input{log_rel}
+%%   \end{framed}
+%%   \caption{Source Logical Relation}
+%% \end{wrapfigure}
+
+%% \begin{wrapfigure}[htb]{L}{\textwidth}%
+%%   \label{fig:trans}
+%%   \fbox{$\rtexp{k}{}{} \subseteq \target{Exp} \times \target{Exp}$}
+%%   \begin{framed}
+%%     \input{trg_log_rel}
+%%   \end{framed}
+%%   \caption{Target Logical Relation}
+%% \end{wrapfigure}
+
+%% \medskip
+
+%% \section{Examples}
+%% \input{examples}
+
+%% \section{Theorems}
+%% %% \input{fundamental}
+%% %% \input{cor}
+%% \input{cortop}
+
+\end{document}

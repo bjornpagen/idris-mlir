@@ -1,0 +1,101 @@
+\section{Related Work}
+
+We chose to focus this related work survey on the compilers that influenced the design of structured and retargetable code generation. Readers interested in general IR design may refer to \cite{lattner2021mlir}.
+
+\subsection{Lessons from ONNX}
+ONNX (\url{https://onnx.ai}) is an open format for the interoperability of ML models and workloads.
+As such, it is predominantly driven by the expressiveness requirements of ML, and less by the  considerations of IR design for high-performance code generation.
+
+Similarly to ONNX, we define ``semantically charged'', ``named'' operations matching the needs of popular ML models.
+But we do not stop here: we also consider \emph{transformations on these operations} as a key part of the design, and we define supporting IR abstractions \emph{favoring transformations over expressiveness where necessary}.
+We also minimize the range of ``named'' operations by making them simple declarative configurations of a small set of \lstinline|generic| operations. Compared to a typical numerical library interface (the de facto standard until now), this greatly reduces maintenance burden and increases portability.
+Finally, we provide multiple levels of composable abstractions, with operations on tensors, vectors, memrefs and transformations thereof, not limiting ourselves to a framework interoperability interface.
+
+\subsection{Lessons from XLA}
+XLA~\cite{XLA} is one of the first post-Theano ML compilers, introduced as a domain-specific optimizing compiler for TensorFlow. It shines on Google's Cloud TPU hardware. XLA followed a pragmatic design process where the compiler is given perfect knowledge of the semantics of each operation. The set of operations known to the XLA system is called HLOs. 
+XLA code generation consists of composing C++ functions known as emitters. 
+This approach has two major benefits:
+(1) transformations are correct by construction
+(2) strong performance on specialized hardware such as TPUs.
+On the other hand, due to its approach relying on C++ function composition, extending XLA can involve significant amounts of code duplication. XLA also involves its own set of intermediate representations, optimization passes, domain-specific abstractions, resulting in the replication of similar features in contemporary frameworks.
+
+XLA inspired how operations ``know their semantics'' and ``how to transform and lower themselves''. 
+Yet the encoding of this information and its use in transformations differ:
+\begin{enumerate}
+\item Individual HLOs have parameterized yet special-purpose semantics, operating on a single level of abstraction (tensors), while lower level data representations come with their own set of operations. As a consequence, HLOs have evolved into a large set of operations whose semantics intersect. This echoes the operation proliferation problem also exhibited by ONNX.
+\item Over-reliance on perfect op knowledge leads to situations where transformations and ops end up needing to know about each other's semantics (e.g. during fusion). Since the transformations themselves are not simple local rewrite patterns code complexity grows quickly.
+\item XLA lacks a serializable IR that can be inspected, unit-tested and composed with independent compiler flows. 
+This monolithic design impacts portability. 
+For instance, the TPU and GPU compilers do not share much code.
+\end{enumerate}
+
+\subsection{Lessons from Halide, TVM and related languages}
+Halide~\cite{ragan2013halide} is a DSL embedded in C++ that provides a way of metaprogramming an algorithmic specification in HalideIR, applying transformations declaratively. This allows expert users to transform and optimize a high level program in tailored ways. Halide, initially targeted the graphics community but is now more generally applicable.
+TVM~\cite{chen2018tvm} is an evolution of Halide into the machine learning and deep-neural network space, based on HalideIR.
+
+Halide schedules borrow from the decoupling principle of the URUK~\cite{URUK} and CHiLL~\cite{CHiLL} polyhedral transformation frameworks. To a large extent, schedules are declarative, unlike LIFT, URUK and CHiLL. It is more restricted than polyhedral schedules, capturing rectangular shapes and limited forms of fusion and fine-grain scheduling. This avoids many of the complexities of polyhedral scheduling and code generation, yet Halide schedules remain powerful enough for its application domain, and explores a large swath of possible transformations.  Halide shines at making a loop nest optimization methodology accessible to $\Omega(10-100)$ users, at a time when polyhedral tools are still only accessible to $\Omega(1-10)$ users. It makes heavy usage of canonicalization rules\,\footnote{\url{https://sunfishcode.github.io/blog/2018/10/22/Canonicalization.html}.} that are also very prevalent in LLVM and MLIR.
+
+While these features are shared with structured and retargetable codegen, Halide diverges from our approach in a number of ways.
+Counter-current to our lowering rather than raising principle, Halide's front-end uses explicit indexing and arithmetic on scalar values, which makes it difficult to target BLAS/DNN libraries, including hardware instructions such as GPU tensor cores. TVM provides a \lstinline{tensorize} transformation for that purpose, but it remains ad-hoc to use or rely on pattern matching and raising abstractions from lower level indexing and iteration. Along the same lines, reductions and scans are expressed using serial iteration, again requiring pattern matching before they can be transformed into more efficient, target-specific parallel versions (recursion tree, atomic operations, etc.). Finally, Halide only operates on its own IR and abstractions, while we provide a composable set of abstractions, and genericity over a range of data representations.
+
+Fireiron~\cite{Fireiron}, recent work in the Halide family of languages, shares with our work the focus on decomposing an operation --- originally restricted to matrix multiplication --- into smaller kernels. It also enables the substitution of any such resulting kernel with a manually written microkernel implementation or hardware instructions of arbitrary granularity. In addition, Fireiron provides a bottom-up approach to performance modeling and extends Halide schedules with explicit data transfers; both developments will be influential in the future evolutions of our approach.
+
+\subsection{Lessons from LIFT and Combinator Languages with Rewriting Rules}
+LIFT~\cite{LIFT} is a system to write and optimized computational kernels based on functional abstractions. 
+Transformations are represented by means of local rewrites to the IR, including the insertion of combinators such as map, reduce, zip... as well as decorating these with distribution, parallelization, vectorization and storage mapping information.
+
+Similarly to LIFT, we make heavy use of local rewrite rules through the MLIR \lstinline|PatternRewrite| infrastructure.
+There are important differences however:
+\begin{enumerate}
+    \item Our transformations are co-designed with the IR in a structural decomposition approach, while LIFT rewrites generic nested combinators.
+    \item The unit of transformation and tuning is a generic $n$-D operation. Compared to LIFT, we believe this makes the optimization space more structured and tractable for search algorithms, and this will be the subject of another study.
+    \item We make operations generic over the representation of tensor values. This includes vector-level primitives and side-effecting operations.
+    \item Lowering to nested loops over \lstinline{vector}s and \lstinline{memref}s is more versatile than decorating combinators on tensor values, while ensuring transformation correctness (including lowering steps) by design of the structural decomposition approach.
+\end{enumerate}
+
+LIFT is expected to further influence our design in the future, leveraging experience with LIFT abstractions for sparse and position-dependent arrays.
+
+Related work on performance portability include the Multi-Dimensional Homomorphisms (MDH) approach~\cite{Rasch2019GeneratingPH}. Emphasizing the algebraic nature of parallelization and distribution rules over tensor operations, MDH leverages a specialized code generator and facilitates autotuning.
+
+Elevate~\cite{Elevate} addresses some of the expressiveness shortcomings of LIFT while establishing solid foundations for decoupled schedules. The proposed formalization applies to schedules driving the application of rewrite rules, which is different from Halide's code-generation-centered API.
+
+In the same family of languages, Glenside~\cite{Glenside} introduces ``access patterns'' as representation unifying pure tensor operations and storage mapping considerations such as layouts and hardware-centered memory management. Access patterns are amenable to automatic synthesis and lowering to coarse-grained hardware instructions.
+
+\subsection{Lessons from Tensor Comprehensions}
+Tensor Comprehensions~\cite{vasilache2019next} is a high-level language to express tensor computations with a syntax generalizing the Einstein notation, coupled to an end-to-end compilation flow capable of lowering to efficient GPU code. It was integrated with 2 ML frameworks: Caffe2 (the successor to the popular Caffe~\cite{Caffe} framework), as well as 
+PyTorch~\cite{PyTorch}.
+
+The compilation flow combines Halide with a Polyhedral Compiler derived from isl~\cite{isl} and uses both HalideIR and the isl schedule-tree IR. The compiler provides a collection of polyhedral compilation algorithms to perform fusion and favor multi-level parallelism and promotion to deeper levels of the memory hierarchy. Tensor Comprehensions showed that, building on a affine framework expressive enough to cover the main compositions of tiling, fusion and parallelization transformations required to reach competitive performance, it is sufficient to expose a few knobs over predefined affine scheduling strategies to provide strong performance---in the bandwidth and latency bound regimes.
+In particular, a simple genetic search combined with an autotuning framework and affine scheduling strategies reached high performance on sub-graphs or even full models in the non-compute bound regime.
+
+However, Tensor Comprehensions lacks the IR to reason about lower level rewrites, related to vectorization, register reuse, unrolling, necessary to perform well in the \emph{compute-bound regime}. 
+In particular, it lacks an SSA representation combining higher level abstractions with vector and register-level ones. 
+It also relies on parameterized affine scheduling strategies, relying on integer linear programming, which remain difficult to steer towards peak performance~\cite{Vas12,Zin18}.
+Most of these issues are naturally addressed in our \MLIR code generation flow, including vector abstractions and the ability to implement a wide variety of transformation and lowering strategies.
+
+\subsection{Lessons from Polyhedral compilers}
+The polyhedral model has been on the cutting edge of loop nest optimization for decades, with several incarnations in production compilers such as GRAPHITE~\cite{GRAPHITE} for GCC and Polly~\cite{Polly} for LLVM. 
+Although it has proven capable of competing with the best libraries and domain-specific frameworks, in incarnations like PolyMage~\cite{PolyMage} 
+and Tensor Comprehensions~\cite{vasilache2019next}, it has never been fully adopted into mainstream optimization flows.
+Some reasons include:
+\begin{enumerate}
+    \item The IR gets more complex than affine schedules, when representing multiple levels of tiling and parallelism, data transfers, unrolling, etc., and requires complex abstractions such as isl schedule trees \cite{isl}.
+    \item Scheduling and code generation from general affine representations rely on exponential algorithms \cite{Fea92a,Fea92b,Bas04,Pluto,RStream,Gro15,isl}.
+    \item Affine representations are not composable with the SSA form,
+    upon which most optimizing compilers are built today; this induces pass ordering conflicts with induction variable canonicalization, loop-invariant code motion, vectorization, etc.\ \cite{DeLICM}.
+    \item Expressiveness limitations remain in polyhedral compilers, despite progresses towards interprocedural analysis, dynamic control flow, irregular indexing \cite{PIPS,PENCIL,Zha18}.
+\end{enumerate}
+
+The affine dialect in MLIR addresses these long-standing issues. 
+In particular, it maintains the IR in the same form --- loops with additional constraints on how the bounds are expressed ---
+throughout the compilation flow.
+It also embeds the polyhedral representation into the SSA form through attributes and regions, facilitating the combination of
+polyhedral and SSA-based transformations.
+Yet some of the above-mentioned issues remain, including the algorithmic and software engineering challenges of building and tuning competitive optimization strategies by means of affine transformations. Structured operations avoid these problems by operating on a higher level of abstraction, involving tensor-operation-specific optimizations and lowering strategies instead.
+
+\subsection{Comparison With Low-Level Code Generators}
+
+On the back-end compiler side, an alternative approach consists in bypassing the \LLVM level completely, relying on non-portable assembly code generation instead~\cite{heinecke2016libxsmm}.
+While the performance one can achieve with perfectly accurate models of the hardware is impressive, such solutions jump over multiple levels of abstraction, forbidding any reuse of low-level compiler passes and abstractions.
+While such low-level bricks can be the ultimate target when decomposing structured operations, the reliance on non-portable, hand-tuned generators and proprietary tooling stands a bridge too far.
+Instead, we are more interested in leveraging program synthesis and superoptimization at the lower levels of abstraction~\cite{SwizzleInventor,VGen}.

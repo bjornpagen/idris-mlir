@@ -1,0 +1,183 @@
+\begin{thebibliography}{31}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{{#1}}
+\providecommand{\urlprefix}{URL }
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{DOI~\discretionary{}{}{}#1}\else
+  \providecommand{\doi}{DOI~\discretionary{}{}{}\begingroup
+  \urlstyle{rm}\Url}\fi
+\providecommand{\eprint}[2][]{\url{#2}}
+
+\bibitem[{Alagiannis et~al.(2012)Alagiannis, Borovica, Branco, Idreos, and
+  Ailamaki}]{Alagiannis:2012:NAA:2367502.2367543}
+Alagiannis I, Borovica R, Branco M, Idreos S, Ailamaki A (2012) {NoDB in
+  Action: Adaptive Query Processing on Raw Data}. Proc VLDB Endow
+  5(12):1942--1945
+
+\bibitem[{Boncz et~al.(2019)Boncz, Graefe, He, and Sattler}]{boncz2019database}
+Boncz PA, Graefe G, He B, Sattler KU (2019) Database architectures for modern
+  hardware. Tech. Rep. 18251, Dagstuhl Seminar
+
+\bibitem[{Bonetta and Brantner(2017)}]{Bonetta:2017:FFJ:3137765.3137782}
+Bonetta D, Brantner M (2017) {FAD.Js: Fast JSON Data Access Using {JIT}-based
+  Speculative Optimizations}. Proc VLDB Endow 10(12):1778--1789
+
+\bibitem[{Bray(2017)}]{rfc8259}
+Bray T (2017) {The JavaScript Object Notation (JSON) Data Interchange Format}.
+  \url{https://tools.ietf.org/html/rfc8259}, internet Engineering Task Force,
+  Request for Comments: 8259
+
+\bibitem[{Cameron et~al.(2008)Cameron, Herdy, and
+  Lin}]{Cameron:2008:HPX:1463788.1463811}
+Cameron RD, Herdy KS, Lin D (2008) {High Performance XML Parsing Using Parallel
+  Bit Stream Technology}. In: Proceedings of the 2008 Conference of the Center
+  for Advanced Studies on Collaborative Research: Meeting of Minds, ACM, New
+  York, NY, USA, CASCON '08, pp 17:222--17:235
+
+\bibitem[{Chandramouli et~al.(2018)Chandramouli, Prasaad, Kossmann, Levandoski,
+  Hunter, and Barnett}]{Chandramouli:2018:FCK:3183713.3196898}
+Chandramouli B, Prasaad G, Kossmann D, Levandoski J, Hunter J, Barnett M (2018)
+  {FASTER}: A concurrent key-value store with in-place updates. In: Proceedings
+  of the 2018 International Conference on Management of Data, ACM, New York,
+  NY, USA, SIGMOD '18, pp 275--290
+
+\bibitem[{Cohen and Roth(1978)}]{Cohen:1978:ADP:359511.359517}
+Cohen J, Roth MS (1978) Analyses of deterministic parsing algorithms. Commun
+  ACM 21(6):448--458
+
+\bibitem[{Cole(2011)}]{cole2011100}
+Cole CR (2011) {100-Gb/s and beyond transceiver technologies}. Optical Fiber
+  Technology 17(5):472--479
+
+\bibitem[{Downs(2019)}]{avxturbo}
+Downs T (2019) {avx-turbo}: Test the non-{AVX}, {AVX2} and {AVX-512} speeds
+  across various active core counts.
+  \url{https://github.com/travisdowns/avx-turbo}
+
+\bibitem[{Farf\'{a}n et~al.(2007)Farf\'{a}n, Hristidis, and
+  Rangaswami}]{Farfan:2007:BLX:2395856.2395868}
+Farf\'{a}n F, Hristidis V, Rangaswami R (2007) {Beyond Lazy XML Parsing}. In:
+  Proceedings of the 18th International Conference on Database and Expert
+  Systems Applications, Springer-Verlag, Berlin, Heidelberg, DEXA'07, pp 75--86
+
+\bibitem[{Fog(2018)}]{fog2018instruction}
+Fog A (2018) Instruction tables: Lists of instruction latencies, throughputs
+  and micro-operation breakdowns for {Intel, AMD} and {VIA CPUs}. Tech. rep.,
+  Copenhagen University College of Engineering, Copenhagen, Denmark,
+  \url{http://www.agner.org/optimize/instruction_tables.pdf}
+
+\bibitem[{Ge et~al.(2019)Ge, Li, Eilebrecht, Chandramouli, and
+  Kossmann}]{speculative-distributed-csv-data-parsing-for-big-data-analytics}
+Ge C, Li Y, Eilebrecht E, Chandramouli B, Kossmann D (2019) Speculative
+  distributed {CSV} data parsing for big data analytics. In: ACM SIGMOD
+  International Conference on Management of Data, ACM
+
+\bibitem[{Goldberg(1991)}]{Goldberg:1991:CSK:103162.103163}
+Goldberg D (1991) What every computer scientist should know about
+  floating-point arithmetic. ACM Comput Surv 23(1):5--48
+
+\bibitem[{Green et~al.(2004)Green, Gupta, Miklau, Onizuka, and
+  Suciu}]{Green:2004:PXS:1042046.1042051}
+Green TJ, Gupta A, Miklau G, Onizuka M, Suciu D (2004) {Processing XML Streams
+  with Deterministic Automata and Stream Indexes}. ACM Trans Database Syst
+  29(4):752--788
+
+\bibitem[{Kostoulas et~al.(2006)Kostoulas, Matsa, Mendelsohn, Perkins, Heifets,
+  and Mercaldi}]{Kostoulas:2006:XSI:1135777.1135796}
+Kostoulas MG, Matsa M, Mendelsohn N, Perkins E, Heifets A, Mercaldi M (2006)
+  {XML Screamer: An Integrated Approach to High Performance XML Parsing,
+  Validation and Deserialization}. In: Proceedings of the 15th International
+  Conference on World Wide Web, ACM, New York, NY, USA, WWW '06, pp 93--102
+
+\bibitem[{Lemire and Kaser(2016)}]{lemire2016faster}
+Lemire D, Kaser O (2016) Faster 64-bit universal hashing using carry-less
+  multiplications. Journal of Cryptographic Engineering 6(3):171--185
+
+\bibitem[{Li et~al.(2017)Li, Katsipoulakis, Chandramouli, Goldstein, and
+  Kossmann}]{Li:2017:MFJ:3115404.3115416}
+Li Y, Katsipoulakis NR, Chandramouli B, Goldstein J, Kossmann D (2017) {Mison:
+  A Fast JSON Parser for Data Analytics}. Proc VLDB Endow 10(10):1118--1129,
+  \doi{10.14778/3115404.3115416}
+
+\bibitem[{Liu et~al.(2014)Liu, Hammerschmidt, and
+  McMahon}]{Liu:2014:JDM:2588555.2595628}
+Liu ZH, Hammerschmidt B, McMahon D (2014) Json data management: Supporting
+  schema-less development in rdbms. In: Proceedings of the 2014 ACM SIGMOD
+  International Conference on Management of Data, ACM, New York, NY, USA,
+  SIGMOD '14, pp 1247--1258
+
+\bibitem[{Marian and Sim{\'e}on(2003)}]{Marian:2003:PXD:1315451.1315471}
+Marian A, Sim{\'e}on J (2003) {Projecting XML Documents}. In: Proceedings of
+  the 29th International Conference on Very Large Data Bases - Volume 29, VLDB
+  Endowment, VLDB '03, pp 213--224
+
+\bibitem[{M\"{u}hlbauer et~al.(2013)M\"{u}hlbauer, R\"{o}diger, Seilbeck,
+  Reiser, Kemper, and Neumann}]{Muhlbauer:2013:ILM:2556549.2556555}
+M\"{u}hlbauer T, R\"{o}diger W, Seilbeck R, Reiser A, Kemper A, Neumann T
+  (2013) Instant loading for main memory databases. Proc VLDB Endow
+  6(14):1702--1713
+
+\bibitem[{Mu\l{}a and Lemire(2018)}]{simdbase64}
+Mu\l{}a W, Lemire D (2018) {Faster Base64 Encoding and Decoding Using AVX2
+  Instructions}. ACM Trans Web 12(3):20:1--20:26
+
+\bibitem[{Mytkowicz et~al.(2014)Mytkowicz, Musuvathi, and
+  Schulte}]{newMytkowicz:2014:DFM:2541940.2541988}
+Mytkowicz T, Musuvathi M, Schulte W (2014) Data-parallel finite-state machines.
+  In: Proceedings of the 19th International Conference on Architectural Support
+  for Programming Languages and Operating Systems, ACM, New York, NY, USA,
+  ASPLOS '14, pp 529--542
+
+\bibitem[{Naishlos(2004)}]{naishlos2004autovectorization}
+Naishlos D (2004) {Autovectorization in GCC}. In: Proceedings of the 2004 GCC
+  Developers Summit, pp 105--118
+
+\bibitem[{Noga et~al.(2002)Noga, Schott, and
+  L\"{o}we}]{Noga:2002:LXP:585058.585075}
+Noga ML, Schott S, L\"{o}we W (2002) {Lazy XML Processing}. In: Proceedings of
+  the 2002 ACM Symposium on Document Engineering, ACM, New York, NY, USA,
+  DocEng '02, pp 88--94
+
+\bibitem[{Palkar et~al.(2018)Palkar, Abuzaid, Bailis, and
+  Zaharia}]{palkar2018filter}
+Palkar S, Abuzaid F, Bailis P, Zaharia M (2018) {Filter before you parse:
+  faster analytics on raw data with Sparser}. Proceedings of the VLDB Endowment
+  11(11):1576--1589
+
+\bibitem[{Pavlopoulou et~al.(2018)Pavlopoulou, Carman~Jr, Westmann, Carey, and
+  Tsotras}]{pavlopoulou2018parallel}
+Pavlopoulou C, Carman~Jr EP, Westmann T, Carey MJ, Tsotras VJ (2018) {A
+  Parallel and Scalable Processor for JSON Data}. In: EDBT'18
+
+\bibitem[{Tahara et~al.(2014)Tahara, Diamond, and
+  Abadi}]{Tahara:2014:SSS:2588555.2612183}
+Tahara D, Diamond T, Abadi DJ (2014) {Sinew: A SQL System for Multi-structured
+  Data}. In: Proceedings of the 2014 ACM SIGMOD International Conference on
+  Management of Data, ACM, New York, NY, USA, SIGMOD '14, pp 815--826
+
+\bibitem[{Takase et~al.(2005)Takase, Miyashita, Suzumura, and
+  Tatsubori}]{Takase:2005:AFS:1060745.1060845}
+Takase T, Miyashita H, Suzumura T, Tatsubori M (2005) {An Adaptive, Fast, and
+  Safe XML Parser Based on Byte Sequences Memorization}. In: Proceedings of the
+  14th International Conference on World Wide Web, ACM, New York, NY, USA, WWW
+  '05, pp 692--701
+
+\bibitem[{Xie et~al.(2019)Xie, Chandramouli, Li, and
+  Kossmann}]{Xie:2019:FFI:3299869.3319896}
+Xie D, Chandramouli B, Li Y, Kossmann D (2019) {FishStore}: Faster ingestion
+  with subset hashing. In: Proceedings of the 2019 International Conference on
+  Management of Data, ACM, New York, NY, USA, SIGMOD '19, pp 1711--1728
+
+\bibitem[{Xu et~al.(2015)Xu, Siyamwala, Ghosh, Suri, Awasthi, Guz, Shayesteh,
+  and Balakrishnan}]{Xu:2015:PAN:2757667.2757684}
+Xu Q, Siyamwala H, Ghosh M, Suri T, Awasthi M, Guz Z, Shayesteh A, Balakrishnan
+  V (2015) Performance analysis of {NVMe SSDs} and their implication on real
+  world databases. In: Proceedings of the 8th ACM International Systems and
+  Storage Conference, ACM, New York, NY, USA, SYSTOR '15, pp 6:1--6:11
+
+\bibitem[{Zhang et~al.(2009)Zhang, Pan, and Chiu}]{zhang2009speculative}
+Zhang Y, Pan Y, Chiu K (2009) {Speculative p-DFAs for parallel XML parsing}.
+  In: High Performance Computing (HiPC), 2009 International Conference on,
+  IEEE, pp 388--397
+
+\end{thebibliography}

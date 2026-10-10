@@ -1,0 +1,17 @@
+\centering
+\tikzset{
+  box/.style = {draw, thick, rectangle, rounded corners},
+}
+% "thick" sets line width to 0.8pt, which we compensate in order to avoid ugly effects
+\begin{tikzpicture}[node distance=0.5cm]
+  \draw
+    node (Comb) {Comb}
+    node[below=of Comb] (Pi) {Pi}
+    node[align=center, below left=of Pi] (Const) {Const\\("prop")}
+    node[below right=of Pi] (Type) {Type}
+    node[box, fit=(Pi)(Const)(Type)] {}
+  ;
+  \draw (Comb) to (Pi);
+  \draw (Pi) to (Const);
+  \draw (Pi) to (Type);
+\end{tikzpicture}

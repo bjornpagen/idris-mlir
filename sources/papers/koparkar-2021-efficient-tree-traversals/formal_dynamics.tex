@@ -1,0 +1,577 @@
+%\newcommand*{\mydots}{\ifmmode\mathellipsis\else.\kern-0.13em.\kern-0.13em.\fi} % touching at \kern-0.1725em
+\newcommand{\mydots}{\ifmmode\mathinner{\ldotp\kern-0.2em\ldotp\kern-0.2em\ldotp}\else.\kern-0.13em.\kern-0.13em.\fi}
+
+\newcommand{\rddatacon}{
+  \inferrule*[lab={\;\text{[\ddatacon]}}]{}{
+    \STOR;\MENV;
+    \datacon{\DC}{\locreg{\loc}{\reg}}{\overharpoon{\VAL}}
+    \stepsto
+    \STOR';\MENV;\concreteloc{\reg}{\ind}{\locreg{\loc}{\reg}}
+    \\\\ {
+          \begin{aligned}
+            \\[-4mm]
+            \text{where} \;
+            \; \STOR' = \STOR \cup \set{\reg \mapsto (\ind \mapsto \DC)} ;
+            \; \concreteloc{\reg}{\ind}{} = \MENV(\locreg{\loc}{\reg})
+          \end{aligned}
+    }
+    }}
+
+\newcommand{\rdletlocstart}{
+  \inferrule*[lab={\;\text{[\dletlocstart]}}]
+  {}{\STOR;\MENV;\letloc{\locreg{\loc}{\reg}}{\startr{\reg}}{\EXPR} \stepsto \STOR;\MENV';\EXPR
+    \\\\{
+         \begin{aligned}
+           \\[-4mm]
+           \text{where} \;
+           & \; \MENV' = \MENV \cup \set{\locreg{\loc}{\reg} \mapsto \concreteloc{\reg}{0}{}}
+         \end{aligned}
+        }
+  }
+}
+
+\newcommand{\rdletloctag}{
+  \inferrule*[lab={\;\text{[\dletloctag]}}]
+  {}{\STOR;\MENV;\letloc{\locreg{\loc}{\reg}}{\locreg{\loc'}{\reg} + 1}{\EXPR} \stepsto \STOR;\MENV';\EXPR
+    \\\\ {
+          \begin{aligned}
+            \\[-4mm]
+            \text{where} \;
+            & \; \MENV' = \MENV \cup \set{\locreg{\loc}{\reg} \mapsto \concreteloc{\reg}{\incri(\indbef{\ind})}{}} ;
+              \; \concreteloc{\reg}{\indbef{\ind}}{} = \MENV(\locreg{\loc'}{\reg})
+           \end{aligned}
+         }
+}}
+
+\newcommand{\rdletlocafter}{
+  \inferrule*[lab={\;\text{[\dletlocafter]}}]
+  {}{\STOR;\MENV;\letloc{\locreg{\loc}{\reg}}{\afterl{\tyatlocreg{\TYP}{\loc_1}{\reg}}}{\EXPR} \stepsto \STOR;\MENV';\EXPR
+    \\\\ {
+          \begin{aligned}
+            \\[-4mm]
+            \text{where} \;
+            & \; \MENV' = \MENV \cup \set{\locreg{\loc}{\reg} \mapsto \concreteloc{\reg}{\indj}{}} ;
+              \; \concreteloc{\reg}{\indbef{\ind}}{} = \MENV(\locreg{\loc_1}{\reg}) \\[-2mm]
+            & \; \ewitness{\TYP}{\concreteloc{\reg}{\indbef{\ind}}{}}{\STOR}{\concreteloc{\reg}{\indj}{}}
+           \end{aligned}
+         }
+  }
+}
+
+\newcommand{\rdcase}{
+  \inferrule*[lab={\;\text{[\dcase]}}]
+  {}{
+    \STOR;\MENV;\case{\concreteloc{\reg}{\ind}{\locreg{\loc}{\reg}}}{[\mydots, \caseclause{\datacon{\DC}{}{(\overharpoon{\var : \tyatlocreg{\TYP}{\loc}{\reg}})}}{\EXPR}, \mydots]}
+    \stepsto
+    \\\\
+    \STOR;\MENV';\subst{\EXPR}{\overharpoon{\var}}{\concreteloc{\reg}{\overharpoon{w}}{\overharpoon{\locreg{\loc}{\reg}}}}
+    \\\\ {
+         \begin{aligned}
+           \text{where} \;
+           & \; \MENV' = \MENV \cup \set{\overharpoon{\locreg{\loc}{\reg}_1} \mapsto \concreteloc{\reg}{\ind+1}{}, \mydots , \overharpoon{\locreg{\loc}{\reg}_{j+1}} \mapsto \concreteloc{\reg}{\overharpoon{w_{j+1}}}{}} \\[-2mm]
+           & \; \ewitness{\overharpoon{\TYP_1}}{\concreteloc{\reg}{\ind+1}{}}{\STOR}{\concreteloc{\reg}{\overharpoon{w_1}}{}} \\[-1mm]
+           & \; \ewitness{\overharpoon{\TYP_{j+1}}}{\concreteloc{\reg}{\overharpoon{w_j}}{}}{\STOR}{\concreteloc{\reg}{\overharpoon{w_{j+1}}}{}} \\[-1mm]
+           & \; \DC = \storelookupone{\STOR}{\reg}{\ind}; \; \indj \in \set{1 , \mydots , \litnum - 1} ;
+             \; \litnum = | \overharpoon{\var : \hTYP} | \\
+         \end{aligned}
+       }
+  }
+}
+
+\newcommand{\rdletexp}{
+  \inferrule*[lab={\;\text{[\dletexp]}}]
+              {\STOR;\MENV;\EXPR_1 \stepsto \STOR';\MENV';\EXPR'_1 \\ \EXPR'_1 \neq \VAL}
+              {\STOR;\MENV;\letpack{\var : \hTYP}{\EXPR_1}{\EXPR_2} \stepsto
+               \STOR';\MENV';\letpack{\var : \hTYP}{\EXPR'_1}{\EXPR_2}}
+}
+
+\newcommand{\rdletval}{
+  \inferrule*[lab={\;\text{[\dletval]}}]
+    {}{\STOR;\MENV;\letpack{\var : \hTYP}{\VAL_1}{\EXPR_2} \stepsto \STOR;\MENV;\subst{\EXPR_2}{\var}{\VAL_1}} 
+}
+
+\newcommand{\rdapp}{
+  \inferrule*[lab={\;\text{[\dapp]}}]
+    {}{\STOR;
+      \MENV;
+      \fapp{\overharpoon{\locreg{\loc}{\reg}}}{\overharpoon{\VAL}}
+      \stepsto \STOR;
+      \MENV;
+      \subst{\EXPR}{\overharpoon{\var}}{\overharpoon{\VAL}} \subst{}{\overharpoon{\locreg{\loc'}{\reg'}}}{\overharpoon{\locreg{\loc}{\reg}}}
+      \\\\{
+        \begin{aligned}
+          \\[-4mm]
+          \text{where} \;
+          & \; \FD = Function(f) \\[-2mm]
+          & \; \fvar : \forall _{\overharpoon{\locreg{\loc'}{\reg'}}}.
+          \overharpoon{\hTYP_{\fvar}} \ARROW \hTYP_{\fvar} ; (\fvar \overharpoon{\var} = \EXPR) = Freshen(\FD)
+        \end{aligned}
+      }
+    }
+}
+
+\newcommand{\rdletregion}{
+  \inferrule*[lab={\;\text{[\dletregion]}}]
+    {}{\STOR;\MENV;\letreg{\reg}{\EXPR} \stepsto \STOR;\MENV;\EXPR{}
+    }
+}
+
+\newcommand{\rdparsteptask}{
+  \inferrule*[lab={\;\text{[\dparsteptask]}}]
+  {\STOR;\MENV;\EXPR \stepsto \STOR';\MENV';\EXPR'}
+  {\TASKVAR_1, \mydots, \taskconfig{\hTYP}{\concretelocvar{}}{\STOR;\MENV;\EXPR}, \mydots \TASKVAR_n \parstepsto
+    \TASKVAR_1, \mydots,
+    \taskconfig{\hTYP}{\concretelocvar{}}{\STOR';\MENV';\EXPR'}, \mydots \TASKVAR_n
+  } 
+}
+
+
+\newcommand{\rdletexppar}{
+  \inferrule*[lab={\;\text{[\dletexppar]}}]
+  {}{\TASKVAR_1, \mydots, \taskconfig{\hTYP}{\concretelocvar{}}{\STOR;\MENV;\EXPR}, \mydots \TASKVAR_n \rparstepsto
+    \TASKVAR_1, \mydots,
+    \taskconfig{\hTYP_1}{\concretelocvar{}_1'}{\STOR;\MENV;\EXPR_1}, \mydots \TASKVAR_n, \taskconfig{\hTYP}{\concretelocvar{}}{\STOR;\MENV_2;\EXPR_2'}
+      \\\\{
+        \begin{aligned}
+          \\[-4mm]
+          \text{where} \;
+          & \; \EXPR = (\letpack{\var : \hTYP_1}{\EXPR_1}{\EXPR_2}) ;
+            \; \hTYP_1 = \tyatlocreg{\TYP_1}{\loc_1}{\reg_1} \\[-2mm]
+          & \; \var_1 \; \text{fresh} ;
+            \; \concretelocvar{}_1' = \concreteloc{\reg_1}{\concretelocbefore{\svind{\ind}_1}}{} \\[-2mm]
+          & \; \MENV = \set{\locreg{\loc_1}{\reg_1} \mapsto \concretelocvar{}_1} \cup \MENV' \\[-2mm]
+          & \; \MENV_2 = \set{\locreg{\loc_1}{\reg_1} \mapsto \concretelocvar{}_1'} \cup \MENV' \\[-2mm]
+          & \; \EXPR_2' = \subst{\EXPR_2}{\var}{\concretelocvar{}_1'}
+        \end{aligned}
+      }
+  } 
+}
+
+\newcommand{\rdparcasejoin}{
+  \inferrule*[lab={\;\text{[\dparcasejoin]}}]
+    {}{\TASKVAR_1, \mydots, \taskconfig{\hTYP_c}{\concretelocvar{}_c}{\STOR_c;\MENV_c;\EXPR_c}, \mydots, \TASKVAR_n \parstepsto \\
+      \TASKVAR_1, \mydots, \taskconfig{\hTYP_c}{\concretelocvar{}_c}{\STOR_c';\MENV_c';\EXPR_c'}, \mydots \TASKVAR_n{}
+      \\\\{
+        \begin{aligned}
+          \\[-4mm]
+          \text{where} \;
+          & \; \EXPR_c = \case{\concreteloc{\reg}{\concretelocbefore{\svind{\ind}_c}}{\locreg{\loc_c}{}}}{\overharpoon{\pat}} \\[-2mm]
+          & \; \TASKVAR_p \in \set{\TASKVAR_1, \mydots, \TASKVAR_n} \\[-2mm]
+          & \; \TASKVAR_p = \taskconfig{\tyatlocreg{\TYP_p}{\loc_p}{\reg}}{\concreteloc{\reg}{\concretelocbefore{\svind{\ind}_c}}{}}{\STOR_p;\MENV_p;\concreteloc{\reg}{\ind_p}{}} \\[-2mm]
+          & \; \ewitness{\TYP_p}{\concreteloc{\reg}{\ind_p}{}}{\STOR_p}{\concreteloc{\reg}{\ind_e}{}} \\[-2mm]
+          & \; \STOR_c' = \parmergestor{\STOR_p}{\subst{\STOR_c}{\ind_e}{\svind{\ind}_c}} \\[-2mm]
+          & \; \MENV_c' = \parmergemenv{\MENV_p}{\subst{\MENV_c}{\ind_e}{\svind{\ind}_c}} \\[-2mm]
+          & \; \EXPR_c' = \subst{\case{\concreteloc{\reg}{\ind_p}{{\locreg{\loc_p}{}}}}{\overharpoon{\pat}}}{\concretelocbefore{\svind{\ind}_c}}{\ind_p} \\[-2mm] 
+        \end{aligned}
+      }
+    }
+}
+
+\newcommand{\rdletlocafterpar}{
+  \inferrule*[lab={\;\text{[\dletlocafterpar]}}]
+  {}{\STOR;\MENV;\letloc{\locreg{\loc}{\reg}}{\afterl{\tyatlocreg{\TYP}{\loc_1}{\reg}}}{\EXPR} \stepsto \STOR;\MENV';\EXPR
+    \\\\ {
+          \begin{aligned}
+            \\[-4mm]
+            \text{where} \;
+            & \; \MENV' = \MENV \cup \set{\locreg{\loc}{\reg} \mapsto \concreteloc{\reg}{\svind{\ind_1}}{}} ;
+              \; \concreteloc{\reg}{\concretelocbefore{\svind{\ind_1}}} = \MENV(\locreg{\loc_1}{\reg})
+           \end{aligned}
+         }
+  }
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Adding indirections to datatypes
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcommand{\rtrdatadecl}{
+  \inferrule*[]
+  {}{\DATA\;\TYP = \DC_1 \; \overharpoon{\TYP_1}\; \gramor \;
+     \mydots \gramor \; \DC_n \; \overharpoon{\TYP_n} \;\; \transformsto \\\\
+     \DATA\;\TYP = \DC_1 \; \overharpoon{\TYP_1}\; \gramor \;
+     \mydots \gramor \; \DC_n \; \overharpoon{\TYP_n} \; \gramor \;
+     \datacon{\Indr_{\TYP_{1}}}{\locreg{\loc}{\reg}}{\TYP_{1}} \; \gramor \;
+     \mydots \gramor \; \datacon{\Indr_{\TYP_{m}}}{\locreg{\loc}{\reg}}{\TYP_{m}}
+    \\\\{
+         \begin{aligned}
+           \\[-4mm]
+           \text{where} \;
+           & \; \keywd{m} = | \set{\overharpoon{\TYP_1},\mydots,\overharpoon{\TYP_n}} |
+             %% \; \ind \in \set{0, \; \mydots \; , \keywd{m}}
+         \end{aligned}
+        }
+  }
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Region Parallel Semantics
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcommand{\rdregparsteptask}{
+  \inferrule*[lab={\;\text{[\dregparsteptask]}}]
+  {\STOR;\MENV;\EXPR \stepsto \STOR';\MENV';\EXPR'}
+  {\TASKVAR_1, \mydots, \taskconfig{\hTYP}{\concretelocvar{}}{\STOR;\MENV;\EXPR}, \mydots \TASKVAR_n \rparstepsto
+    \TASKVAR_1, \mydots,
+    \taskconfig{\hTYP}{\concretelocvar{}}{\STOR';\MENV';\EXPR'}, \mydots \TASKVAR_n
+  } 
+}
+
+%% For the appendix. Has different spacing.
+\newcommand{\rdregparsteptaskapp}{
+  \inferrule*[lab={\;\text{[\dregparsteptask]}}]
+  {\STOR;\MENV;\EXPR \stepsto \STOR';\MENV';\EXPR'}
+  {\TASKVAR_1, \mydots, \taskconfig{\hTYP}{\concretelocvar{}}{\STOR;\MENV;\EXPR}, \mydots \TASKVAR_n \rparstepsto \\\\
+    \TASKVAR_1, \mydots,
+    \taskconfig{\hTYP}{\concretelocvar{}}{\STOR';\MENV';\EXPR'}, \mydots \TASKVAR_n
+  } 
+}
+
+\newcommand{\rdregparletlocafternewreg}{
+  \inferrule*[lab={\;\text{[\dregparletlocafternewreg]}}]
+  {}{%% \TASKVAR_1, \mydots, \taskconfig{\hTYP}{\concretelocvar{}}{\STOR;\MENV;\EXPR}, \mydots , \TASKVAR_n \rparstepsto
+    %% \TASKVAR_1, \mydots, \taskconfig{\hTYP}{\concretelocvar{}}{\STOR';\MENV';\EXPR_1}, \mydots , \TASKVAR_n
+    \STOR;\MENV;\letloc{\locreg{\loc}{\reg}}{\afterl{\tyatlocreg{\TYP}{\loc_0}{\reg}}}{\EXPR} \stepsto \STOR';\MENV';\EXPR
+    \\\\ {
+          \begin{aligned}
+            \\[-4mm]
+            \text{where} \;
+            & \; \concreteloc{\reg}{\indivar{\ivarid}}{\loc_0} = \maplookupone{\MENV}{\locreg{\loc_0}{\reg}} ; \reg' \; \text{fresh}  \\[-2mm]
+            & \STOR' = \STOR \cup \set{\reg' \mapsto \emptyset} \\[-2mm]
+            & \MENV' = \MENV \cup \set{\locreg{\loc}{\reg} \mapsto \concreteloc{\reg}{\indirection{\reg'}{0}}{}}
+           \end{aligned}
+         }
+  }
+}
+
+\newcommand{\rdregparletlocafterseq}{
+  \inferrule*[lab={\;\text{[\dletlocafter]}}]
+  {}{%% \TASKVAR_1, \mydots, \taskconfig{\hTYP}{\concretelocvar{}}{\STOR;\MENV;\EXPR} , \mydots , \TASKVAR_n \rparstepsto
+    %% \TASKVAR_1, \mydots, \taskconfig{\hTYP}{\concretelocvar{}}{\STOR;\MENV';\EXPR}, \mydots , \TASKVAR_n
+    \STOR;\MENV;\letloc{\locreg{\loc}{\reg}}{\afterl{\tyatlocreg{\TYP}{\loc_0}{\reg}}}{\EXPR} \stepsto
+    \STOR;\MENV';\EXPR
+    \\\\ {
+          \begin{aligned}
+            \\[-4mm]
+            \text{where} \;
+            & \; \concreteloc{\reg}{\concreteind{\ind}}{} = \maplookupone{\MENV}{\locreg{\loc_0}{\reg}} ;
+            \; \ewitness{\TYP}{\concreteloc{\reg}{\concreteind{\ind}}{}}{\STOR}{\concreteloc{\reg}{\concreteind{\indj}}{}} \\[-2mm]
+            & \; \MENV' = \MENV \cup \set{\locreg{\loc}{\reg} \mapsto \concreteloc{\reg}{\concreteind{\indj}}{}}
+           \end{aligned}
+         }
+  }
+}
+
+%% \newcommand{\rdregpardataconlink}{
+%%   \inferrule*[lab={\;\text{[\dregpardataconlink]}}]{}{
+%%     \TASKVAR_1, \mydots, \taskconfig{\hTYP}{\concretelocvar{}}{\STOR;\MENV;\EXPR}, \mydots , \TASKVAR_n \rparstepsto
+%%     \TASKVAR_1, \mydots,
+%%     \taskconfig{\hTYP}{\concretelocvar{}}{\STOR'';\MENV;\concreteloc{\reg}{\ind}{}}, \mydots , \TASKVAR_n
+%%     \\\\ {
+%%           \begin{aligned}
+%%             \\[-4mm]
+%%             \text{where} \;            
+%%             & \; \EXPR = \datacon{\DC}{\locreg{\loc}{\reg}}{\overharpoon{\VAL}} ;
+%%               \; \overharpoon{\concreteloc{\reg}{\ind}{}} = \overharpoon{\VAL} \\[-1mm]
+%%             & \; \litnum = | \overharpoon{\VAL} | ;
+%%               \; \exists \indj \in \set{0, \mydots, \litnum-1}. \reg_{j} \neq \reg_{j+1} \\[-1mm]
+%%             & \; \overharpoon{\TYP} = \keywd{GetTypes}(\DC) ;
+%%               \; \STOR' = \linkfields(\STOR, \overharpoon{\TYP}, \overharpoon{\VAL}) \\[-1mm]
+%%             & \; \STOR'' = \STOR' \cup \set{\reg \mapsto (\ind \mapsto \DC)} ;
+%%               \; \concreteloc{\reg}{\ind}{} = \hat{\MENV}(\locreg{\loc}{\reg})
+%%           \end{aligned}
+%%     }
+%%   }
+%% }
+
+\newcommand{\rdregpardataconjoin}{
+  \inferrule*[lab={\;\text{[\dregpardataconjoin]}}]{}{
+    \TASKVAR_1, \mydots, \taskconfig{\hTYP}{\concretelocvar{}}{\STOR;\MENV;\EXPR}, \mydots , \TASKVAR_n \rparstepsto
+    \TASKVAR_1, \mydots, \TASKVAR', \mydots , \TASKVAR_n
+    \\\\ {
+          \begin{aligned}
+            \\[-4mm]
+            \text{where} \;
+            & \; \EXPR = \datacon{\DC}{\locreg{\loc}{\reg}}{\overharpoon{\VAL}} ;
+              \; \concreteloc{\reg}{\indivar{\ivarid}_{\indj}}{} = \overharpoon{\VAL_{\indj}} ;
+              \; \TASKVAR_c \in \set{\TASKVAR_1, \mydots, \TASKVAR_n}
+            \\[-1mm]
+            & \; \TASKVAR_c = \taskconfig{\tyatlocreg{\TYP_c}{\loc_c}{\reg}}{\concreteloc{\reg}{\indivar{\ivarid_j}}{}}{\STOR_c;\MENV_c;\concreteloc{\reg}{\concreteind{\ind_c}}{\loc_c}} \\[-2mm]
+            & \; \MENV' = \parmergemenv{\MENV_c}{\MENV} ;
+              \; \STOR' = \parmergestor{\STOR_c}{\STOR} \\[-2mm]
+            & \; \litnum = | \overharpoon{\VAL} | ;
+              \; \overharpoon{\VAL'} = [\overharpoon{\VAL_1}, \mydots, \overharpoon{\VAL_{\indj-1}}, \concreteloc{\reg}{\ind_c}{\loc_c}, \overharpoon{\VAL_{\indj+1}}, \mydots, \overharpoon{\VAL_n}] \\[-2mm]
+            & \; \TYP_{\indj} = \typeoffield(\DC,\indj) ; \\[-2mm]
+            & \; \STOR'' = \tie(\STOR',\MENV, \TYP_{\indj}, \concreteloc{\reg}{\concreteind{\ind_c}}{\loc_c}) \;\; \text{if} \;j \neq n \;\; \text{else} \; \STOR' \\[-2mm]
+            & \; \EXPR' = \datacon{\DC}{\locreg{\loc}{\reg}}{\overharpoon{\VAL'}} ;
+            \; \TASKVAR' = \taskconfig{\hTYP}{\concretelocvar{}}{\STOR'';\MENV';\EXPR'} 
+          \end{aligned}
+    }
+  }
+}
+
+\newcommand{\rdregparcasejoin}{
+  \inferrule*[lab={\;\text{[\dregparcasejoin]}}]
+    {}{\TASKVAR_1, \mydots, \TASKVAR_c, \mydots, \TASKVAR_n \rparstepsto
+      \TASKVAR_1, \mydots, \TASKVAR_c', \mydots \TASKVAR_n{},
+      \\\\{
+        \begin{aligned}
+          & \text{where} \\[-2mm]
+          %% \text{where} \;
+          \hspace{4mm} & \; \TASKVAR_c = \taskconfig{\hTYP_c}{\concretelocvar{}_c}{\STOR_c;\MENV_c;\EXPR_c} \\[-2mm]
+          & \; \EXPR_c = \case{\concreteloc{\reg}{\indivar{\ivarid_c}}{\locreg{\loc_c}{}}}{\overharpoon{\pat}} \\[-2mm]
+          & \; \TASKVAR_p \in \set{\TASKVAR_1, \mydots, \TASKVAR_n} = \taskconfig{\tyatlocreg{\TYP_p}{\loc_p}{\reg}}{\concreteloc{\reg}{\indivar{\ivarid_c}}{}}{\STOR_p;\MENV_p;\concreteloc{\reg}{\concreteind{\ind_p}}{}} \\[-2mm]
+          %% & \; \ewitness{\TYP_p}{\concreteloc{\reg}{\ind_p}{}}{\STOR_p}{\concreteloc{\reg}{\ind_e}{}} \\[-2mm]
+          & \; \MENV_3 = \parmergemenv{\MENV_p}{\MENV_c} ;
+            \; \STOR_3 = \parmergestor{\STOR_p}{\STOR_c} \\[-2mm]
+          & \; \EXPR_c' = \subst{\case{\concreteloc{\reg}{\concreteind{\ind_p}}{{\locreg{\loc_p}{}}}}{\overharpoon{\pat}}}{\indivar{\ivarid_c}}{\concreteind{\ind_p}} \\[-2mm]
+          & \; \TASKVAR_c' = \taskconfig{\hTYP_c}{\concretelocvar{}_c}{\STOR_3;\MENV_3;\EXPR_c'} 
+        \end{aligned}
+      }
+    }
+}
+
+\newcommand{\rregpardcase}{
+  \inferrule*[lab={\;\text{[\dcase]}}]
+  {}{%% \TASKVAR_1, \mydots, \taskconfig{\hTYP}{\concretelocvar{}}{} , \mydots , \TASKVAR_n \rparstepsto
+    %% \TASKVAR_1, \mydots, \taskconfig{\hTYP}{\concretelocvar{}}{\STOR;\MENV';\EXPR'}, \mydots , \TASKVAR_n
+    \STOR;\MENV;\case{\concreteloc{\reg}{\ind}{\locreg{\loc}{\reg}}}{[\mydots, \caseclause{\datacon{\DC}{}{(\overharpoon{\var : \tyatlocreg{\TYP}{\loc}{\reg}})}}{\EXPR}, \mydots]} \stepsto
+    \STOR;\MENV';\EXPR'
+    \\\\ {
+         \begin{aligned}
+           \text{where} \;
+           & \; \EXPR' = \subst{\EXPR}{\overharpoon{\var}}{\concreteloc{\reg}{\overharpoon{w}}{\overharpoon{\locreg{\loc}{\reg}}}} \\[-2mm]
+           & \; \MENV' = \MENV \cup \set{\overharpoon{\locreg{\loc}{\reg}_1} \mapsto \concreteloc{\reg}{\ind+1}{}, \mydots , \overharpoon{\locreg{\loc}{\reg}_{j+1}} \mapsto \concreteloc{\reg}{\overharpoon{w_{j+1}}}{}} \\[-2mm]
+           & \; \ewitness{\overharpoon{\TYP_1}}{\concreteloc{\reg}{\concreteind{\ind}+1}{}}{\STOR}{\concreteloc{\reg}{\overharpoon{\concreteind{w_1}}}{}} \\[-1mm]
+           & \; \ewitness{\overharpoon{\TYP_{j+1}}}{\concreteloc{\reg}{\overharpoon{\concreteind{w_j}}}{}}{\STOR}{\concreteloc{\reg}{\overharpoon{\concreteind{w_{j+1}}}}{}} \\[-1mm]
+           & \; \DC = \STOR(\reg)(\concreteind{\ind}); \; \indj \in \set{1 , \mydots , \litnum - 1} ;
+             \; \litnum = | \overharpoon{\var : \hTYP} | \\
+         \end{aligned}
+       }
+  }
+}
+
+\newcommand{\rdregparletexppar}{
+  \inferrule*[lab={\;\text{[\dregparletexppar]}}]
+  {}{\TASKVAR_1, \mydots, \taskconfig{\hTYP}{\concretelocvar{}}{\STOR;\MENV;\EXPR}, \mydots \TASKVAR_n \rparstepsto
+    \TASKVAR_1, \mydots,
+    \taskconfig{\hTYP_1}{\concretelocvar{}_1'}{\STOR;\MENV;\EXPR_1}, \mydots \TASKVAR_n, \taskconfig{\hTYP}{\concretelocvar{}}{\STOR;\MENV_2;\EXPR_2'}
+      \\\\{
+        \begin{aligned}
+          \\[-4mm]
+          \text{where} \;
+          & \; \EXPR = (\letpack{\var : \hTYP_1}{\EXPR_1}{\EXPR_2}) ;
+            \; \hTYP_1 = \tyatlocreg{\TYP_1}{\loc_1}{\reg_1} \\[-2mm]
+          %% & \; \concretelocvar{} = \hat{\MENV}(\locreg{\loc_1}{\reg_1}) \\[-2mm]
+          & \; \var_1 \; \text{fresh} ;
+            \; \concretelocvar{}_1' = \concreteloc{\reg_1}{\indivar{\ivarid_1}}{} ;
+            \; \EXPR_2' = \subst{\EXPR_2}{\var}{\concretelocvar{}_1'} \\[-2mm]
+          & \; \MENV = \set{\locreg{\loc_1}{\reg_1} \mapsto \concretelocvar{}_1} \cup \MENV' \\[-2mm]
+          & \; \MENV_2 = \set{\locreg{\loc_1}{\reg_1} \mapsto \concretelocvar{}_1'} \cup \MENV'
+          %% & \; (\reg_1 \mapsto \heap_1) \in \STOR ;
+          %%      \STOR_1 = \set{\reg_1 \mapsto \heap_1} ;
+          %%      \STOR_2 = \STOR - \STOR_1 \\[-2mm]
+        \end{aligned}
+      }
+  } 
+}
+
+\newcommand{\rdregparletexpparapp}{
+  \inferrule*[lab={\;\text{[\dregparletexppar]}}]
+  {}{\TASKVAR_1, \mydots, \taskconfig{\hTYP}{\concretelocvar{}}{\STOR;\MENV;\EXPR}, \mydots \TASKVAR_n \rparstepsto \\\\
+    \TASKVAR_1, \mydots,
+    \taskconfig{\hTYP_1}{\concretelocvar{}_1'}{\STOR;\MENV;\EXPR_1}, \mydots \TASKVAR_n, \taskconfig{\hTYP}{\concretelocvar{}}{\STOR;\MENV_2;\EXPR_2'}
+      \\\\{
+        \begin{aligned}
+          \\[-4mm]
+          \text{where} \;
+          & \; \EXPR = (\letpack{\var : \hTYP_1}{\EXPR_1}{\EXPR_2}) ;
+            \; \hTYP_1 = \tyatlocreg{\TYP_1}{\loc_1}{\reg_1} \\[-2mm]
+          %% & \; \concretelocvar{} = \hat{\MENV}(\locreg{\loc_1}{\reg_1}) \\[-2mm]
+          & \; \var_1 \; \text{fresh} ;
+            \; \concretelocvar{}_1' = \concreteloc{\reg_1}{\indivar{\ivarid_1}}{} ;
+            \; \EXPR_2' = \subst{\EXPR_2}{\var}{\concretelocvar{}_1'} \\[-2mm]
+          & \; \MENV = \set{\locreg{\loc_1}{\reg_1} \mapsto \concretelocvar{}_1} \cup \MENV' \\[-2mm]
+          & \; \MENV_2 = \set{\locreg{\loc_1}{\reg_1} \mapsto \concretelocvar{}_1'} \cup \MENV'
+          %% & \; (\reg_1 \mapsto \heap_1) \in \STOR ;
+          %%      \STOR_1 = \set{\reg_1 \mapsto \heap_1} ;
+          %%      \STOR_2 = \STOR - \STOR_1 \\[-2mm]
+        \end{aligned}
+      }
+  } 
+}
+
+\newcommand{\rdregionpardatacon}{
+  \inferrule*[lab={\;\text{[\ddatacon]}}]{}{
+    \STOR;\MENV; \datacon{\DC}{\locreg{\loc}{\reg}}{\overharpoon{\VAL}} \stepsto
+    \STOR';\MENV;\concreteloc{\reg'}{\ind'}{}
+    \\\\ {
+          \begin{aligned}
+            \\[-4mm]
+            \text{where} \;
+            & \; \STOR' = \STOR \cup \set{\reg' \mapsto (\ind' \mapsto \DC)} ;
+              \; \concreteloc{\reg'}{\concreteind{\ind'}}{} = \hat{\MENV}(\locreg{\loc}{\reg})
+          \end{aligned}
+    }
+    }}
+
+\newcommand{\rdregionparletlocstart}{
+  \inferrule*[lab={\;\text{[\dletlocstart]}}]
+  {}{\STOR;\MENV;\letloc{\locreg{\loc}{\reg}}{\startr{\reg}}{\EXPR} \stepsto \STOR;\MENV';\EXPR
+    \\\\{
+         \begin{aligned}
+           \\[-4mm]
+           \text{where} \;
+           & \; \MENV' = \MENV \cup \set{\locreg{\loc}{\reg} \mapsto \concreteloc{\reg}{0}{}}
+         \end{aligned}
+        }
+  }
+}
+
+\newcommand{\rdregionparletloctag}{
+  \inferrule*[lab={\;\text{[\dletloctag]}}]
+  {}{\STOR ; \MENV ;  \letloc{\locreg{\loc}{\reg}}{\locreg{\loc'}{\reg} + 1}{\EXPR} \stepsto
+     \STOR;\MENV';\EXPR    
+    \\\\ {
+          \begin{aligned}
+            \\[-4mm]
+            \text{where} \;
+            & \; \MENV' = \MENV \cup \set{\locreg{\loc}{\reg} \mapsto \concreteloc{\reg}{\concreteind{\ind} + 1}{}} ;
+              \; (\locreg{\loc'}{\reg} \mapsto \concreteloc{\reg}{\concreteind{\ind}}{}) \in \MENV
+           \end{aligned}
+         }
+}}
+
+\newcommand{\rdregparletexp}{
+  \inferrule*[lab={\;\text{[\dletexp]}}]
+              {\STOR;\MENV;\EXPR_1 \stepsto \STOR';\MENV';\EXPR'_1 \\ \EXPR'_1 \neq \VAL}
+              {\STOR;\MENV;\letpack{\var : \hTYP}{\EXPR_1}{\EXPR_2} \stepsto
+               \STOR';\MENV';\letpack{\var : \hTYP}{\EXPR'_1}{\EXPR_2}}
+}
+
+\newcommand{\rdregparletval}{
+  \inferrule*[lab={\;\text{[\dletval]}}]
+    {}{\STOR;\MENV;\letpack{\var : \hTYP}{\VAL_1}{\EXPR_2} \stepsto \STOR;\MENV;\subst{\EXPR_2}{\var}{\VAL_1}} 
+}
+
+\newcommand{\rdregparapp}{
+  \inferrule*[lab={\;\text{[\dapp]}}]
+    {}{\STOR;
+      \MENV;
+      \fapp{\overharpoon{\locreg{\loc}{\reg}}}{\overharpoon{\VAL}}
+      \stepsto \STOR;
+      \MENV;
+      \subst{\EXPR}{\overharpoon{\var}}{\overharpoon{\VAL}} \subst{}{\overharpoon{\locreg{\loc'}{\reg'}}}{\overharpoon{\locreg{\loc}{\reg}}}
+      \\\\{
+        \begin{aligned}
+          \\[-4mm]
+          \text{where} \;
+          & \; \FD = Function(f) \\[-2mm]
+          & \; \fvar : \forall _{\overharpoon{\locreg{\loc'}{\reg'}}}.
+          \overharpoon{\hTYP_{\fvar}} \ARROW \hTYP_{\fvar} ; (\fvar \overharpoon{\var} = \EXPR) = Freshen(\FD)
+        \end{aligned}
+      }
+    }
+}
+
+\newcommand{\rdregparletregion}{
+  \inferrule*[lab={\;\text{[\dletregion]}}]
+    {}{\STOR;\MENV;\letreg{\reg}{\EXPR} \stepsto \STOR \cup \set{\reg \mapsto \emptyset};\MENV;\EXPR{}
+    }
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Cost dynamics
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcommand{\rcdletlocstart}{
+  \inferrule*[lab={\;\text{[\dletlocstart]}}]
+  {\MENV' = \MENV \cup \set{\locreg{\loc}{\reg} \mapsto \concreteloc{\reg}{0}{}} \\
+    \STOR;\MENV';\EXPR \costdyn \STOR';\MENV'';\VAL; \compgraphvar
+  }
+  {\STOR;\MENV;\letloc{\locreg{\loc}{\reg}}{\startr{\reg}}{\EXPR} \costdyn \STOR';\MENV'';\VAL; \compgraphnode{\reg} \compgraphseqcompop \compgraphnode{\loc} \compgraphseqcompop \compgraphvar
+  }
+}
+
+\newcommand{\rcdletloctag}{
+  \inferrule*[lab={\;\text{[\dletloctag]}}]
+  {\MENV' = \MENV \cup \set{\locreg{\loc}{\reg} \mapsto \concreteloc{\reg}{\ind+1)}{}} \\
+    \concreteloc{\reg}{\ind}{} = \MENV(\locreg{\loc'}{\reg}) \\\\
+    \STOR;\MENV';\EXPR \costdyn ; \STOR';\MENV'';\VAL; \compgraphvar
+  }
+  {\STOR;\MENV;\letloc{\locreg{\loc}{\reg}}{\locreg{\loc'}{\reg} + 1}{\EXPR} \costdyn \STOR';\MENV'';\VAL; \compgraphnode{\loc} \compgraphseqcompop \compgraphvar
+}}
+
+\newcommand{\rcdletlocafter}{
+  \inferrule*[lab={\;\text{[\dletlocafter]}}]
+  {\MENV' = \MENV \cup \set{\locreg{\loc}{\reg} \mapsto \concreteloc{\reg}{\indj}{}} \\
+    \concreteloc{\reg}{\ind}{} = \MENV(\locreg{\loc_1}{\reg}) \\
+    \ewitness{\TYP}{\concreteloc{\reg}{\ind}{}}{\STOR}{\concreteloc{\reg}{\indj}{}} \\\\
+    \STOR;\MENV';\EXPR \costdyn \STOR';\MENV'';\VAL;\compgraphvar
+  }
+  {\STOR;\MENV;\letloc{\locreg{\loc}{\reg}}{\afterl{\tyatlocreg{\TYP}{\loc_1}{\reg}}}{\EXPR} \costdyn \STOR';\MENV'';\VAL;\compgraphnode{\loc} \compgraphseqcompop \compgraphvar 
+  }
+}
+
+\newcommand{\rcdletregion}{
+  \inferrule*[lab={\;\text{[\dletregion]}}]
+  { \STOR;\MENV;\EXPR \costdyn \STOR';\MENV';\VAL;\compgraphvar}
+  {\STOR;\MENV;\letreg{\reg}{\EXPR} \costdyn \STOR';\MENV';\VAL; \compgraphnode{\reg} \compgraphseqcompop \compgraphvar
+    }
+}
+
+\newcommand{\rcddatacon}{
+  \inferrule*[lab={\;\text{[\ddatacon]}}]
+  {\STOR' = \STOR \cup \set{\reg \mapsto (\ind \mapsto \DC)} \\
+    \concreteloc{\reg}{\ind}{} = \MENV(\locreg{\loc}{\reg}) \\\\
+    (\concreteloc{\reg_1}{\ind_1}{\locreg{\loc_1}{\reg_1}}, \mydots, \concreteloc{\reg_n}{\ind_n}{\locreg{\loc_n}{\reg_n}}) = \overharpoon{\VAL}  \\
+    \compgraphnodefresh{n}
+  }
+  {
+    \STOR;\MENV;
+    \datacon{\DC}{\locreg{\loc}{\reg}}{\overharpoon{\VAL}}
+    \costdyn
+    \STOR';\MENV;\concreteloc{\reg}{\ind}{\locreg{\loc}{\reg}}; \compgraphnode{n} \cup (\loc_1, n) \cup \mydots \cup (\loc_n, n)
+    }
+    }
+
+\newcommand{\rcdcase}{
+  \inferrule*[lab={\;\text{[\dcase]}}]
+  {    \DC = \STOR(\reg)(\ind); \; \indj \in \set{1 , \mydots , m - 1}; \; m = | \overharpoon{\var : \hTYP} | \\\\
+    \MENV' = \MENV \cup \set{\overharpoon{\locreg{\loc}{\reg}_1} \mapsto \concreteloc{\reg}{\ind+1}{}, \mydots , \overharpoon{\locreg{\loc}{\reg}_{j+1}} \mapsto \concreteloc{\reg}{\overharpoon{w_{j+1}}}{}} \\\\
+    \ewitness{\overharpoon{\TYP_1}}{\concreteloc{\reg}{\ind+1}{}}{\STOR}{\concreteloc{\reg}{\overharpoon{w_1}}{}} \\\\
+    \ewitness{\overharpoon{\TYP_{j+1}}}{\concreteloc{\reg}{\overharpoon{w_j}}{}}{\STOR}{\concreteloc{\reg}{\overharpoon{w_{j+1}}}{}} \\\\
+    \STOR;\MENV'; \subst{\EXPR}{\overharpoon{\var}}{\concreteloc{\reg}{\overharpoon{w}}{\overharpoon{\locreg{\loc}{\reg}}}} \costdyn \STOR';\MENV''; \VAL; \compgraphvar\\
+    \compgraphnodefresh{\compgraphnodevar}
+  }{
+    \STOR;\MENV;\case{\concreteloc{\reg}{\ind}{\locreg{\loc}{\reg}}}{[\mydots, \caseclause{\datacon{\DC}{}{(\overharpoon{\var : \tyatlocreg{\TYP}{\loc}{\reg}})}}{\EXPR}, \mydots]}
+    \costdyn \STOR';\MENV'';\VAL; \compgraphvar \cup (\loc, n)
+  }
+}
+
+\newcommand{\rcdletexp}{
+  \inferrule*[lab={\;\text{[\dletexp]}}]
+  {\STOR;\MENV;\EXPR_1 \costdyn \STOR';\MENV';\VAL_1;\compgraphvar_1 \\
+    \STOR';\MENV';\subst{\EXPR_2}{\var}{\VAL_1} \costdyn \STOR'';\MENV'';\VAL_2;\compgraphvar_2 \\
+        \compgraphnodefresh{\compgraphnodevar}
+  }
+  {\STOR;\MENV;\letpack{\var : \hTYP}{\EXPR_1}{\EXPR_2} \costdyn
+    \STOR'';\MENV'';\VAL_2; \compgraphseqcomp{\compgraphparcomp{\compgraphvar_1}{\compgraphvar_2}}{\compgraphnode{\compgraphnodevar}}}
+}
+
+\newcommand{\rcdapp}{
+  \inferrule*[lab={\;\text{[\dapp]}}]
+  { \fvar : \forall _{\overharpoon{\locreg{\loc'}{\reg'}}}.
+    \overharpoon{\hTYP_{\fvar}} \ARROW \hTYP_{\fvar} ; (\fvar \overharpoon{\var} = \EXPR) = Freshen(Function(f)) \\\\
+    (\concreteloc{\reg_1}{\ind_1}{\locreg{\loc_1}{\reg_1}}, \mydots, \concreteloc{\reg_m}{\ind_m}{\locreg{\loc_m}{\reg_m}}) = \overharpoon{\VAL} \\\\
+    \STOR; \MENV; \subst{\EXPR}{\overharpoon{\var}}{\overharpoon{\VAL}} \subst{}{\overharpoon{\locreg{\loc'}{\reg'}}}{\overharpoon{\locreg{\loc}{\reg}}} \costdyn \STOR'; \MENV'; \VAL'; \compgraphvar \\
+    \compgraphnodefresh{n}
+  }
+  {\STOR;
+      \MENV;
+      \fapp{\overharpoon{\locreg{\loc}{\reg}}}{\overharpoon{\VAL}}
+      \costdyn
+      \STOR'; \MENV'; \VAL'; (\compgraphnode{n} \compgraphseqcompop \compgraphvar) \cup (\loc_1, n) \cup \mydots \cup (\loc_n, n)
+    }
+}

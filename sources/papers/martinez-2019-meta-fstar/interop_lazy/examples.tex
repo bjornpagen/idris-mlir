@@ -1,0 +1,274 @@
+\begin{exmp}[Higher-rank target function]
+  \[
+  \begin{array}{r l}
+    & \salien {\tfapp} {\sapptyp} {\cdot}~\snat~\spar{\sdup}~\sarith \\[0.4em]
+    %%
+    \sevalr{Alien}
+    & \spar{\stabs{\svar{A}}{\salien {\tfapp} {\sapptypfree} {\cdot}}}~\snat~\spar{\sdup}~\sarith \\[0.4em]
+    %%
+    \sevalr{TApp}
+    & \salien {\tfapp} {\sapptypfree} {\sesubstsingl{\svar{A}}{\snat}}~\spar{\sdup}~\sarith \\[0.4em]
+    %%
+    \sevalr{Alien}
+    & \sabs{\svar{f}}{\sduptyp}
+           {\salien
+             {\tabs{\tvar{x}}{\talien{\svar{f}}{\sduptyp}{\sesubstsingl{\svar{A}}{\snat}}~\tvar{x}}}
+             {\sarrow{\svar{A}}{\sprod{\svar{A}}{\svar{A}}}} {\sesubstsingl{\svar{A}}{\snat}}
+           }
+           ~\spar{\sdup}~\sarith \\[0.4em]
+    %%
+    \sevalr{App}
+    & {\salien
+        {\tabs{\tvar{x}}{\talien{\sdup}{\sduptyp}{\sesubstsingl{\svar{A}}{\snat}}~\tvar{x}}}
+        {\sarrow{\svar{A}}{\sprod{\svar{A}}{\svar{A}}}} {\sesubstsingl{\svar{A}}{\snat}}
+      }
+    ~\sarith \\[0.4em]
+    %%
+    \sevalr{Alien}
+    & \sabs{\svar{x}}{\snat}
+           {\salien
+             {\talien{\sdup}{\sduptyp}{\sesubstsingl{\svar{A}}{\snat}}~
+               \topaque{\svar{x}}}
+             {\sprod{\svar{A}}{\svar{A}}}
+             {\sesubstsingl{\svar{A}}{\snat}}
+           }
+    ~\sarith \\[0.4em]
+    %%
+    \sevalr{App}
+    & \salien{\talien{\sdup}{\sduptyp}{\sesubstsingl{\svar{A}}{\snat}}~\topaque{\sarith}}
+           {\sprod{\svar{A}}{\svar{A}}} {\sesubstsingl{\svar{A}}{\snat}} \\[0.4em]
+    %
+    \tevalr{Alien}
+    & \salien{
+      \talien{\sabs{\svar{x}}{\svar{B}}{\spair{\svar{x}}{\svar{x}}}}
+             {\sarrow{\svar{B}}{\sprod{\svar{B}}{\svar{B}}}}
+             {\sesubstlist{ \bind{\svar{A}}{\snat} \source{,} \bind{\svar{B}}{\sttop}}}~\topaque{\sarith}}
+           {\sprod{\svar{A}}{\svar{A}}} {\sesubstsingl{\svar{A}}{\snat}} \\[0.4em]
+    %
+    \tevalr{Alien + App}
+    & \salien{
+      \talien
+          {\spair
+            {\salien{\topaque{\sarith}}{\svar{B}} {\sesubstlist{ \bind{\svar{A}}{\snat} \source{,} \bind{\svar{B}}{\sttop}}}}
+            {\salien{\topaque{\sarith}}{\svar{B}} {\sesubstlist{ \bind{\svar{A}}{\snat} \source{,} \bind{\svar{B}}{\sttop}}}}
+          }
+          {\sprod{\svar{B}}{\svar{B}}}
+          {\sesubstlist{ \bind{\svar{A}}{\snat} \source{,} \bind{\svar{B}}{\sttop}}}
+    }{\sprod{\svar{A}}{\svar{A}}} {\sesubstsingl{\svar{A}}{\snat}} \\[0.4em]
+    %
+    \tevalr{Alien}
+    & \salien{
+      \tpair
+          {\topaque
+            {\salien{\topaque{\sarith}}{\svar{B}} {\sesubstlist{ \bind{\svar{A}}{\snat} \source{,} \bind{\svar{B}}{\sttop}}}}
+            %% {\svar{B}}
+            %% {\sesubstlist{ \bind{\svar{A}}{\snat} \source{,} \bind{\svar{B}}{\sttop}}}
+          }
+          {\topaque
+            {\salien{\topaque{\sarith}}{\svar{B}} {\sesubstlist{ \bind{\svar{A}}{\snat} \source{,} \bind{\svar{B}}{\sttop}}}}
+            %% {\svar{B}}
+            %% {\sesubstlist{ \bind{\svar{A}}{\snat} \source{,} \bind{\svar{B}}{\sttop}}}
+          }
+    }
+   {\sprod{\svar{A}}{\svar{A}}} {\sesubstsingl{\svar{A}}{\snat}} \\[0.4em]
+   %
+   \sevalr{Alien}
+    & \spair
+          {
+            \salien
+                {\topaque
+                  {\salien{\topaque{\sarith}}{\svar{B}} {\sesubstlist{ \bind{\svar{A}}{\snat} \source{,} \bind{\svar{B}}{\sttop}}}}}
+                {\svar{A}}
+                {\sesubstsingl{\svar{A}}{\snat}}
+            %% {\svar{B}}
+            %% {\sesubstlist{ \bind{\svar{A}}{\snat} \source{,} \bind{\svar{B}}{\sttop}}}
+          }
+          {
+            \salien
+                {\topaque
+                  {\salien{\topaque{\sarith}}{\svar{B}} {\sesubstlist{ \bind{\svar{A}}{\snat} \source{,} \bind{\svar{B}}{\sttop}}}}}
+                {\svar{A}}
+                {\sesubstsingl{\svar{A}}{\snat}}
+          }
+  \end{array}
+  \]
+\end{exmp}
+
+\begin{exmp}[Translated higher-order polymorphic function applied to translated argument]
+  In the following I assume that natural numbers and natural numbers operations are primitive.
+  This example demonstrates why box cancellation is not sound in general.
+  \[
+  \begin{array}{r l}
+    & \salien {\tfapp} {\sapptypalt} {\cdot}~\snat~\snat~\salien{\tinc}{\sinctyp}{\cdot}~\sarith \\[0.4em]
+    \sevalr{Alien}
+    & \spar{\stabs{\svar{A}}{\salien {\tfapp} {\sapptypaltf} {\cdot}}}~\snat~\snat~\salien{\tinc}{\sinctyp}{\cdot}~\sarith \\[0.4em]
+    \sevalr{TApp}
+    & \salien {\tfapp} {\sapptypaltf} {\sesubstsingl{\svar{A}}{\snat}}~\snat~\salien{\tinc}{\sinctyp}{\cdot}~\sarith \\[0.4em]
+    \sevalr{Alien+TApp}
+    & \salien {\tfapp} {\sapptypaltff} {\sesubsttwo{\svar{A}}{\snat}{\svar{B}}{\snat}}~\salien{\tinc}{\sinctyp}{\cdot}~\sarith \\[0.4em]
+    \sevalr{Alien+App}
+    & \salien
+           {\tfapparg{\talien{\salien{\tinc}{\sinctyp}{\cdot}} {\sarrow{\svar{A}}{\svar{B}}} {\sesubsttwo{\svar{A}}{\snat}{\svar{B}}{\snat}}}}
+           {\sarrow{\svar{A}}{\svar{B}}} {\sesubsttwo{\svar{A}}{\snat}{\svar{B}}{\snat}}
+           ~\sarith \\[0.4em]
+    \sevalr{Alien+App}
+    & \salien
+           {\tfappargs
+             {\talien{\salien{\tinc}{\sinctyp}{\cdot}} {\sarrow{\svar{A}}{\svar{B}}} {\sesubsttwo{\svar{A}}{\snat}{\svar{B}}{\snat}}}
+             {\topaque{\sarith}}
+           }
+           {\svar{B}} {\sesubsttwo{\svar{A}}{\snat}{\svar{B}}{\snat}} \\[0.4em]
+    \sevalr{Alien}
+    & \salien
+           {\tfappargs
+             {\talien
+               {\sabs{\svar{x}}{\snat}{\salien{\talien{\svar{x}}{\snat}{\cdot}\target{+1}}{\snat}{\cdot}}}
+               {\sarrow{\svar{A}}{\svar{B}}}
+               {\sesubsttwo{\svar{A}}{\snat}{\svar{B}}{\snat}}}
+             {\topaque{\sarith}}
+           }
+           {\svar{B}} {\sesubsttwo{\svar{A}}{\snat}{\svar{B}}{\snat}} \\[0.4em]
+    \tevalr{Alien}
+    & \salien
+           {\tfappargs
+             {\tabs{\tvar{x}}
+               {\topaque
+                 {\salien{\talien{\salien{\tvar{x}}{\svar{A}}{\sesubsttwo{\svar{A}}{\snat}{\svar{B}}{\snat}}}
+                       {\snat}{\cdot}\target{+1}}{\snat}{\cdot}}}
+                 %% {\svar{B}}
+               %% {\sesubsttwo{\svar{A}}{\snat}{\svar{B}}{\snat}}
+             }
+             {\topaque{\sarith}}
+           }
+           {\svar{B}} {\sesubsttwo{\svar{A}}{\snat}{\svar{B}}{\snat}} \\[0.4em]
+    \tevalr{App}
+    & \salien
+           {\topaque
+             {\salien
+               {\talien
+                 {\salien
+                   {\topaque{\sarith}}
+                   {\svar{A}}
+                   {\sesubsttwo{\svar{A}}{\snat}{\svar{B}}{\snat}}
+                 }
+                 {\snat}
+                 {\cdot}\target{+1}}
+               {\snat}
+               {\cdot}
+             }
+             %% {\svar{B}}
+             %% {\sesubsttwo{\svar{A}}{\snat}{\svar{B}}{\snat}}
+           }
+           {\svar{B}}
+           {\sesubsttwo{\svar{A}}{\snat}{\svar{B}}{\snat}} \\[0.4em]
+   \sevalr{Alien}
+   & \salien
+          {\talien
+            {\salien
+              {\topaque{\sarith}}
+              {\svar{A}}
+              {\sesubsttwo{\svar{A}}{\snat}{\svar{B}}{\snat}}
+            }
+            {\snat}
+            {\cdot}\target{+1}}
+          {\snat}
+          {\cdot} \\[0.4em]
+   \sevalr{Alien}
+   & \salien
+          {\talien
+            {\sarith}
+            {\snat}
+            {\cdot}\target{+1}}
+          {\snat}
+          {\cdot} \\[0.4em]
+  \sevalr{PrimOp}
+  & \salien
+         {\talien
+           {\source{\overline{n}}}
+           {\snat}
+           {\cdot}\target{+1}}
+         {\snat}
+         {\cdot} \\[0.4em]
+    \tevalr{Alien}      
+    & \salien
+           {\target{\overline{n}+1}}
+           {\snat}
+           {\cdot} \\[0.4em]
+    \tevalr{PrimOp}      
+    & \salien
+           {\target{\overline{n+1}}}
+           {\snat}
+           {\cdot} \\[0.4em]
+
+    \sevalr{Alien}      
+    & \source{\overline{n+1}} 
+  \end{array}
+  \]
+\end{exmp}
+
+
+
+\begin{exmp}[Nik - 07/31]
+  \[
+  \begin{array}{r l}
+    & \talien{\sappid}{\sappidtyp}{\cdot}~\target{3}~\tpar{\tid} \\[0.4em]
+    \tevalr{Alien}      
+    & \talien{\sappidf}{\sappidtypf}{\sesubstsingl{\svar{A}}{\sttop}}~\target{3}~\tpar{\tid} \\[0.4em]
+    \tevalr{Alien}      
+    & \tabs{\tvar{x}}{\talien{\sappidarg{\salien{\tvar{x}}{\svar{A}}{\sesubstsingl{\svar{A}}{\sttop}}}}{\sappidtypff}{\sesubstsingl{\svar{A}}{\sttop}}}~\target{3}~\tpar{\tid} \\[0.4em]
+    \tevalr{App}      
+    & \talien{\sappidarg{\salien{\target{3}}{\svar{A}}{\sesubstsingl{\svar{A}}{\sttop}}}}{\sappidtypff}{\sesubstsingl{\svar{A}}{\sttop}}~\tpar{\tid} \\[0.4em]
+    \tevalr{Alien + App}      
+    & \talien
+           {\sappidargs{\salien{\target{3}}{\svar{A}}{\sesubstsingl{\svar{A}}{\sttop}}}{\salien{\tid}{\sarrow{\svar{A}}{\svar{A}}}{\sesubstsingl{\svar{A}}{\sttop}}}}
+           {\svar{A}}{\sesubstsingl{\svar{A}}{\sttop}} \\[0.4em]
+   \sevalr{Alien}      
+    & \talien
+          {\sappidargs
+            {\salien{\target{3}}{\svar{A}}{\sesubstsingl{\svar{A}}{\sttop}}}
+            {\sabs{\svar{x}}{\sttop}{\salien{\topaque{\svar{x}}}{\svar{A}}{\sesubstsingl{\svar{A}}{\sttop}}}}
+          }
+          {\svar{A}}{\sesubstsingl{\svar{A}}{\sttop}} \\[0.4em]
+   \sevalr{App}      
+    & \talien
+          {\salien{\topaque{\sapp{\spar{\sidf{\svar{A}}}}{\salien{\target{3}}{\svar{A}}{\sesubstsingl{\svar{A}}{\sttop}}}}}{\svar{A}}{\sesubstsingl{\svar{A}}{\sttop}}
+          }
+          {\svar{A}}{\sesubstsingl{\svar{A}}{\sttop}} \\[0.4em]
+  \sevalr{App}      
+  & \talien
+         {\salien{\target{3}}{\svar{A}}{\sesubstsingl{\svar{A}}{\sttop}}}
+         {\svar{A}}{\sesubstsingl{\svar{A}}{\sttop}} \\[0.4em]
+  \sevalr{Alien}      
+  & \talien
+         {\source{3}}
+         {\svar{A}}{\sesubstsingl{\svar{A}}{\sttop}} \\[0.4em]
+  \tevalr{Alien}      
+  & \target{3} \\[0.4em]
+  \end{array}
+  \]
+\end{exmp}
+
+\begin{exmp}[Parametricity Failure]
+  This example breaks type soundness and parametricity. However, the embedded
+  target term is not the translation of any valid well-typed source term. To
+  overcome this problem we can seal/annotate opaque and perform a dynamic
+  type check before removing the brackets.
+  \[
+  \begin{array}{r l}
+    & \salien{\tabs{\tvar{x}}{\tabs{\tvar{y}}{\tvar{x}}}}{\sall{\svar{A}}{\sall{\svar{B}}{\sarrow{\svar{A}}{\sarrow{\svar{B}}{\svar{B}}}}}}{\cdot}
+    ~\snat~\stunit~\sexpi~\sexpii \\[0.4em]
+    \sevalrs{Alien}
+    & \salien{\tabs{\tvar{x}}{\tabs{\tvar{y}}{\tvar{x}}}}{\sarrow{\svar{A}}{\sarrow{\svar{B}}{\svar{B}}}}
+            {\sesubsttwo{\svar{A}}{\snat}{\svar{B}}{\stunit}}~\sexpi~\sexpii \\[0.4em]
+    \sevalrs{Alien + App}
+    & \salien{\tabs{\tvar{y}}{\tvar{\topaque{\sexpi}}}}{\sarrow{\svar{B}}{\svar{B}}}
+            {\sesubsttwo{\svar{A}}{\snat}{\svar{B}}{\stunit}}~\sexpii \\[0.4em]
+    \sevalrs{Alien + App}
+    & \salien{\tvar{\topaque{\sexpi}}}{\svar{B}}
+            {\sesubsttwo{\svar{A}}{\snat}{\svar{B}}{\stunit}}\\[0.4em]
+    \sevalr{Alien}
+    & \sexpi
+  \end{array}
+  \]
+  
+\end{exmp}

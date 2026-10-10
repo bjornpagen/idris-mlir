@@ -1,0 +1,56 @@
+\section{Proof of Section: Embedding Natural Deduction with Refinement Types}
+
+\begin{lemma}[Validity]\label{lemma:validity}
+If there exists $e\in\embed{\formula}$\ then \formula is valid.
+\end{lemma}
+\begin{proof}
+We prove the lemma by case analysis in the shape of \formula. 
+\begin{itemize}
+\item $\formula \equiv \proofterm{p}$.
+Since the set
+ $\embed{\proofterm{p}} = \{e | \evalsto{p}{\etrue} \}$
+ is not empty, then  \evalsto{p}{\etrue}.
+% 
+\item $\formula \equiv {\formula_1} \rightarrow {\formula_2}$. 
+By assumption, there exists an expressions $f$ so that 
+$\forall e_x \in \embed{\formula_1}, f\ e_x \in \embed{\formula_2}$. 
+%
+So, if there exists an expression 
+$e_1 \in \embed{\formula_1}$ that makes $\formula_1$ valid 
+then $f\ e_1$ makes $\formula_2$ valid. 
+\item $\formula \equiv {\formula} \rightarrow {\efalse}$. 
+By assumption, there exists an expressions $f$ so that 
+$\forall e_x \in \embed{\formula}, f\ e_x \in \embed{\proofterm{\efalse}}$. 
+%
+So, if there exists an expression 
+$e_1 \in \embed{\formula}$ that makes $\formula$ valid 
+then $f\ e_1$ makes $\proofterm{\efalse}$ valid, which is impossible, 
+thus \formula cannot be valid. 
+\item $\formula \equiv \tyand{\formula_1}{\formula_2}$. 
+If there exists a total expression $e \in \embed{\formula}$
+then $e$ evaluates to \exprand{e_1}{e_2}. 
+\item $\formula \equiv \tyor{\formula_1}{\formula_2}$. 
+If there exists a total expression $e \in \embed{\formula}$
+then $e$ evaluates to either 
+\exprorleft{e'} or \exprorright{e'}. 
+\item $\formula \equiv \tyall{x}{\typ}{\formula}$.
+By assumption, there exists an expressions $f$ so that 
+$\forall e_x \in \embed{\typ}, f\ e_x \in \embed{\formula\subst{x}{e_x}}$. 
+%
+So, if there exists an expression 
+$e_1 \in \embed{\typ}$
+then $f\ e_1$ makes $\formula\subst{x}{e_1}$ valid. 
+\item $\formula \equiv \tyex{x}{\typ}{\formula}$.
+By assumption, there exists an expressions $p$ 
+that evaluates to a pair $(e_x, e_y)$ 
+so that $e_x\in \embed{\typ}$ and $e_y\in\embed{\formula\subst{x}{e_x}}$.
+\end{itemize} 
+\end{proof}
+
+
+\begin{theorem}[Validity]
+If \hastype{\emptyset}{\emptyset}{e}{\formula} then \formula is valid.
+\end{theorem}
+\begin{proof}
+By direct implication of Lemma~\ref{lemma:validity} and soundness of \corelan (Theorem~\ref{thm:safety}).
+\end{proof}

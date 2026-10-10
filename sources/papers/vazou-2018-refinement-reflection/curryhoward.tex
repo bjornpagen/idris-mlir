@@ -1,0 +1,133 @@
+\newcommand\fst[1]{\ensuremath{\texttt{fst}\ #1}\xspace}
+\newcommand\snd[1]{\ensuremath{\texttt{snd}\ #1}\xspace}
+
+\begin{figure}[t]
+%
+\setlength\tabcolsep{0pt} % default value: 6pt
+\begin{tabular}{ccc}
+\multirow{2}{*}{
+$
+\inference{
+    \ch{\env}{\fst{e}}{\formula_1} \\
+    \ch{\env}{\snd{e}}{\formula_2}
+}{
+	\ch{\env}{e}{\tyand{\formula_1}{\formula_2}}
+}\land\small{\textsc{\!-I}}$}
+& \quad &
+$\inference{
+	\ch{\env}{e}{\tyand{\formula_1}{\formula_2}}
+}{
+	\ch{\env}{\fst{e}}{\formula_1}
+}
+\land\small{\textsc{\!-L-E}}$\\
+& \quad & $\inference{
+	\ch{\env}{e}{\tyand{\formula_1}{\formula_2}}
+}{
+	\ch{\env}{\snd{e}}{\formula_2}
+}
+\land\small{\textsc{\!-R-E}}$
+\\[0.12in]
+$\inference{
+    \ch{\env}{e_1}{\formula_1}
+}{
+	\ch{\env}{\exprorleft{e_1}}{\tyor{\formula_1}{\formula_2}}
+}\lor\small{\textsc{\!-L-I}}$
+& \quad &
+\multirow{2}{*}{$
+\inference{
+	\ch{\env}{e}{\tyor{\formula_1}{\formula_2}} \\
+	\ch{\env,\bind{x_1}{\formula_1}}{e_1}{\formula} &&
+	\ch{\env,\bind{x_2}{\formula_2}}{e_2}{\formula}
+}{
+	\arraycolsep=0.5pt
+	\begin{array}{lll}
+	\env \vdash \texttt{case}\ e\ \text{of}\ \{&
+		\exprorleft{x_1}\rightarrow e_1; & \\
+	& \exprorright{x_2}\rightarrow e_2 \}\ & : \formula	\\
+	\end{array}
+}\lor\small{\textsc{\!-E}}$}\\
+\\
+%% Implication
+$\inference{
+    \ch{\env}{e_1}{\formula_2}
+}{
+	\ch{\env}{\exprorright{e_2}}{\tyor{\formula_1}{\formula_2}}
+}\lor\small{\textsc{\!-R-I}}$ & \quad&
+\\[0.12in]
+$\inference{
+	\ch{\env, \bind{x}{\formula_x}}{e}{\formula}
+}{
+	\ch{\env}{\lambda x. e}{\formula_x \rightarrow \formula}
+}\impIntro$ &
+\quad &
+$\inference{
+	\ch{\env}{e}{\formula_x \rightarrow \formula} &&
+	\ch{\env}{e_x}{\formula_x}
+}{
+	\ch{\env}{e\  e_x}{\formula}
+}
+\Rightarrow\small{\textsc{\!-E}}
+$
+\\[0.12in]
+%% Forall
+$
+\inference{
+	\ch{\env, \bind{x}{\typ}}{e}{\formula}
+}{
+	\ch{\env}{\lambda x. e}{(x:\typ \rightarrow \formula)}
+}\forallIntro$ &
+\quad
+&
+$
+\inference{
+	\ch{\env}{e_x}{\typ} &&
+	\ch{\env}{e}{(x:\typ \rightarrow \formula)}
+}{
+	\ch{\env}{e\ e_x}{\formula\subst{x}{e_x}}
+}
+\forallElim
+$
+\\[0.12in]
+%% Exists
+$
+\inference{
+	\ch{\env}{\fst{e}}{\typ}  &&
+	\ch{\env, \bind{x}{\typ}}{\snd{e}}{\formula}  &&
+}{
+	\ch{\env}{e}{\tyex{x}{\typ}{\formula\subst{x}{\fst{e}}}}
+}\exists\small{\textsc{\!-I}}$ &\quad \quad &
+$
+\inference{
+	\ch{\env}{e}{\tyex{x}{\typ}{\formula_x}} &&
+	\ch{\env, \bind{x}{\typ}, \bind{y}{\formula_x}}{e'}{\formula}
+}{
+	\ch{\env}{\texttt{case}\ e\ \texttt{of}\ \{ (x, y) \rightarrow e'\}}{\formula}
+}
+\existsElim
+$
+\end{tabular}
+%
+%% Negation
+%%$$
+%%\inference{
+%%	\ch{\env}{e_x}{\formula} &&
+%%	\ch{\env}{e}{\formula \rightarrow \proofterm{\efalse}}
+%%}{
+%%	\ch{\env}{e\ e_x}{\proofterm{\efalse}}
+%%}
+%%\neg\small{\textsc{\!-E}}
+%%\quad
+%%\inference{
+%%	\ch{\env, \bind{x}{\formula}}{e}{\proofterm{\efalse}}
+%%}{
+%%	\ch{\env}{\lambda x. e}{\formula \rightarrow \proofterm{\efalse}}
+%%}
+%%\neg\small{\textsc{\!-I}}
+%%$$
+%
+\caption{Natural deduction rules for refinement types.
+With $[\texttt{fst}|\texttt{snd}]\  e \equiv \texttt{case}\ e\ \texttt{of}\ \{(x_1, x_2)
+\rightarrow [x_1 | x_2 ] \}$ .}
+\label{fig:ch}
+\figrule
+\end{figure}

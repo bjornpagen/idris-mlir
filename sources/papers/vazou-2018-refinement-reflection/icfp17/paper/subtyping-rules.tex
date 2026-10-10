@@ -1,0 +1,38 @@
+\emphbf{Subtyping}\hfill{\fbox{\issubtype{\env}{\typ_1}{\typ_2}}}\\
+
+$$
+\inference{
+        \forall \sub\in\interp{\env}.
+        \interp{\applysub{\sub}{\tref{v}{\btyp}{\refa_1}}}
+        \subseteq
+        \interp{\applysub{\sub}{\tref{v}{\btyp}{\refa_2}}}
+}{
+        \issubtype{\env}{\tref{v}{\btyp}{\refa_1}}{\tref{v}{\btyp}{\refa_2}}
+}[\rsubbasecore]
+$$
+
+$$
+\inference{
+	\issubtype{\env}{\typ_x'}{\typ_x} &
+	\issubtype{\env,\tbind{x}{\typ_x'}}{\typ}{\typ'}
+}{
+	\issubtype{\env}{\tfun{x}{\typ_x}{\typ}}{\tfun{x}{\typ_x'}{\typ'}}
+}[\rsubfun]
+$$\\[0.4in]
+
+\emphbf{Algorithmic-Subtyping}\hfill{\fbox{\aissubtype{\env}{\typ_1}{\typ_2}}}\\
+
+$$
+\inference{
+%\env' \defeq \env,\tbind{v}{\{\btyp^\tlabel | \refa\}} \\
+\env' \defeq \env,\tbind{v}{\tref{v}{\btyp^\tlabel}{\refa}} \\
+\tologicshort{\env'}{\refa'}{\tbool}{\pred'}{}{}{} &
+\smtvalid{\vcond{\env'}{\pred'}}
+%%	\forall \sub\in\interp{\env}.
+%%	\interp{\applysub{\sub}{\tref{v}{\btyp}{\refa_1}}}
+%%	\subseteq
+%%	\interp{\applysub{\sub}{\tref{v}{\btyp}{\refa_2}}}
+}{
+	\aissubtype{\env}{\tref{v}{\btyp}{\refa}}{\tref{v}{\btyp}{\refa'}}
+}[\rsubbasesmt]
+$$

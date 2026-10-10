@@ -1,0 +1,54 @@
+\section{Conclusion}
+
+While APL and its descendant languages have attracted a devoted userbase,
+there has been little cross talk between
+the array-language community and
+the broader programming language research community.
+Much of the analysis opportunity taken for granted by lambda calculists
+has been unavailable in APL---%
+despite the many implementations,
+such languages lacked formal semantics amenable to proofs.
+Meanwhile, implementations of rank-polymorphic languages
+have struggled with compilation due to control structure that is ``too dynamic,''
+depending on run-time data to determine the structure of a loop nest.
+
+Developing Remora's semantics kills two birds with one stone:
+Formally stated reduction rules describe
+the results expected from the implicit, data-driven control structure,
+and typing rules give enough information about array shapes
+to identify that control structure statically.
+This necessarily entails recognizing programs
+which cannot have such a control structure
+due to incompatible array shapes---%
+this is not what we set out to do
+but a benefit realized by pursuing a larger goal.
+By casting the aggregate lifting as an extension to
+$\lambda$-calculus's function application semantics,
+we escape from APL's limitation on function arity
+and can treat functions as first-class values.
+
+There are two things to look for in evaluating a type system.
+We want to know the conclusions drawn by type checking reflect reality,
+which is handled by a conventional type soundness theorem.
+We also want to be sure that the types convey the information we seek.
+In Remora's case, that information is
+the iteration structure implicit in each function application.
+The typing rule for function application
+(and similarly, the rules for type and index application)
+produces a static characterization of that implicit iteration structure.
+
+Our type erasure can be seen as a compilation pass
+which moves the decision about how to break arguments into cells
+from the function's type into the application term.
+While our primary purpose in presenting type erasure
+is to point out type-level information which is not truly needed at run time,
+it also serves to make the control structure one step more explicit.
+Arguments' full shapes---available both at erasure time
+and later by inspecting argument terms---%
+suffice to determine the arguments' frames,
+the last puzzle piece needed to turn
+Remora's implicit iteration structure into
+explicit calls to {\tt map} and {\tt replicate} functions.
+Our intention for future work is to
+demonstrate use of that shape information for
+fully static compilation of Remora code.

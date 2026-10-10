@@ -1,0 +1,308 @@
+\section{Related Work}
+\seclabel{related}
+Within the Rocq ecosystem, an abundance of tactics enable algebraic simplification.
+%
+\citepos{boutin:reflection} ring
+and field tactics\footnote{See the Rocq documentation:
+  \url{https://rocq-prover.org/distrib/current/refman/addendum/ring.html} .}
+let programmers discharge proof obligations involving (and requiring!)
+addition, multiplication, and division operations.
+\citepos{strub:coqmt} CoqMT extends Rocq's Calculus of
+Inductive Constructions, allowing users to extend the conversion rule with
+arbitrary decision procedures for first order theories (e.g. Presburger
+arithmetic).
+%
+To ensure preservation of good meta-theoretical
+properties, Strub extends only term level conversion.
+%
+Implementations of Hilbert's Nullstellensatz theorem
+(\citepos{harrison:grobner} in HOL Light
+and \citepos{pottier:grobner} in Rocq)
+help users discharge proof obligations involving
+polynomial equalities on a commutative integral domain.
+%
+
+Rocq's \SetoidRewrite{} is an advanced tactic library for setoid rewriting.%
+\footnote{See the Rocq documentation:
+  \url{https://rocq-prover.org/refman/addendum/generalized-rewriting.html}
+  .} Disregarding the difference between the direct manipulation of
+proof-terms in \idris{} and the tactic-based manipulation in Rocq,
+\SetoidRewrite{} provides abstractions for manipulating parameterised
+relations (covariant and contravariant), and users can register
+setoids of interest and custom `morphisms' --- horn-like equational
+clauses --- with the library. The various tactics in the library apply
+these user-defined axioms to the goal. Users may also register
+tactics, and the library includes an expressive collection of
+term-traversal primitives (climbing up and down the syntax tree,
+repeating sub-tactics, and so on). While \SetoidRewrite{} does not deal
+with algebraic simplification directly, it may help in generalising
+equality-based simplifiers to setoid-based simplifiers. In comparison,
+\Frexlib{}'s setoid reasoning is minimal, implementing only the
+necessary features for the library.
+
+In Idris1,
+\citeauthor{slama-brady:automatically-proving-equivalence-by-type-safe-reflection}~\citeyearpar{slama-brady:automatically-proving-equivalence-by-type-safe-reflection} and
+\citeauthor{slama:thesis}~\citeyearpar{slama:thesis} implement a hierarchy of rewriting procedures for
+algebraic structures of increasing complexity.  Though the procedures'
+completeness is not enforced by type as in \Frexlib{}, these
+simplifiers are based on a Knuth-Bendix resolution of critical pairs,
+and so are likely to be complete.  \Frexlib{} also investigates a hierarchy of
+rewriting procedures, but: (1)~frexlets are complete by
+construction, (2) \Frexlib{} is based on normalisation-by-evaluation
+(like Boutin's tactic, and unlike Slama and Brady's), and (3) \Frexlib{} is
+extensible, with support for sufficiently motivated users to extend the library
+with bespoke solvers.
+
+Normalisation-by-evaluation is an established technique for
+simplifying terms in a concrete equational theory, often involving
+function types. One compelling example is \citepos{allais:nu-rules}
+work, which demonstrates by a careful model
+construction that the equational theory decided by
+nor\-ma\-li\-sa\-tion-by-eval\-u\-a\-tion can be enriched with additional
+rules. They implement a simply typed language internalising the
+functorial and fusion laws
+for list {\tt fold}, {\tt map}, and {\tt append} and prove
+their construction sound and complete with respect to the extended
+equational theory.
+
+In Agda, \citepos{cockx:rewriting} and \citepos{cockx-et-al:taming-of-the-rew} `\texttt{-{}-rewriting}'
+flag allows users to enrich the existing
+reduction relation with new rules. Their implementation goes beyond Allais et al.'s:
+it may restart stuck computations.
+%
+They leave to future work the soundness of user-provided reduction
+rules, i.e.~ensuring rules neither introduce nontermination nor break
+canonicity.
+%
+Unlike our approach, neither Allais et al's nor
+Cockx et al's technique currently supports commutativity.
+
+Existing formalisations for specific algebraic structures (monoids,
+groups, rings, actions, etc.)
+abound~\cite{mahboubi-tassi:mathcomp,agda-stdlib,hu-carette:agda-ct,lean-mathlib}. \Frexlib{}
+is set apart from these by formalising the fragments of universal
+algebra needed for its architecture. However, in \Frexlib{} we do not aspire
+to formalise universal
+algebra for its own sake.
+Formalising more complete
+fragments of the theory is an active area of research, with recent
+contributions by \citet{GUNTHER2018147} and
+\citet{DBLP:journals/corr/abs-2111-07936} in Agda.
+\citet{carette-farmer-sharoda:leveraging-the-information-contained-in-theory-presentations}
+generate \agda{} code for a comprehensive collection of multi-sorted
+algebraic theories and their associated machinery via a pre-processing
+phase from a much smaller description.
+\citet{fiore-szamozvancev:soas-in-agda} similarly generate definitions
+for the significantly more general second-order abstract syntax in
+\agda{} via a preprocessing step, while formalising more of the
+meta-theory as library code.  We consider it an open problem in this
+domain to include the concise information as first-class data in the
+meta-language while nonetheless enjoy the full ergonomics of
+hand-written, inlined, definitions.
+
+\agda{}'s category theory library~\cite{hu-carette:agda-ct} uses
+setoids extensively. Each category includes both its homsets and their
+dualisation. This choice allows for the operation `take the opposite
+category' to be judgementally involutive. In turn, one can define
+dualisation of a property purely formally, e.g. coproducts can be
+defined as products in the opposite category. Unfortunately, this
+design makes essential use of $\eta$-equality on records, yet
+unsupported by \idris{}.
+
+The Meta-F$\star$ language~\cite{martinez-et-al:metafstar} provides
+normalisation tactics for commutative monoids and semi-rings through
+its metaprogramming facilities. \Frexlib{}'s usage resembles
+these tactics' usage, and we hope a
+\Frexlib{} port to F$\star$ will make use of F$\star$'s metaprogramming
+facilities to reduce some syntactic noise during goal extraction.
+
+\section{Conclusions and Further Work}
+\seclabel{conclusion}
+
+We have presented a novel, mathematically structured, design for
+algebraic simplification suites that guarantees sound and complete
+simplification, even of user-defined simplifiers. Preliminary
+evaluation shows that, despite a high level of abstraction, the
+resulting library is responsive, with comparable functionality
+to other libraries, in a combination of features that no single existing
+library provides. \Frexlib{}'s unique design---the frex and
+the fral---offer new prospects and questions.
+
+Several computational type theories
+support extensional function types and quotients, such as
+observational type theory~\cite{altenkirch-et-al:ott-now,pujet-tabareau:ott-now-for-good,pujet-tabareau:impredicative-ott,pujet-leray-tabareau:ott-meets-cic} and cubical type theory~\cite{vezzosi-et-al:cubical-agda,cohen-et-al:cubical-tt}.
+Extensional function types and quotient types are also typical reasons
+for using setoids.  So it is natural to consider the tradeoffs for
+implementing a similar library in a type theory with extensional
+function types and quotient types.
+
+Even in such rich type theories, we would still want to implement
+setoid algebras.  Setoid algebras let us implement intensional aspects
+such as proof printing, certification, and simplification, which we
+view as useful functionality of a simplification library. Quotient
+types cannot replace this functionality: eliminators of the quotient
+must respect the quotient.
+
+However, a richer type theory may make other aspects of the library
+easier. For example, the commutative monoid fral and frex use the
+power of an algebra by a setoid. If we worked in a type theory with
+function extensionality, we could use the power of an algebra by a set
+and do away with some of the setoid machinery involved.  A more
+speculative direction involves using the improvements in the type
+theory to implement category theoretic abstractions (presheaf
+categories, ends and coends, 2-functors) which may allow us to `teach'
+Idris not just universal algebra, but categorical algebra. We expand
+on this idea further below.
+
+Cubical type theories offer another potential implementation strategy
+through non-trivial identity types.  Our Agda implementation
+(\Fragmentlib) is compatible with Cubical Agda, as it type-checks with
+the pragmas \texttt{-{}-safe} and \texttt{-{}-without-K}. Cubical identity types
+turn types
+into untruncated setoids, so our machinery applies unchanged.
+However, cubical identity types cannot replace setoids.
+Extracting intensional information is desirable and relevant  for cubical type theory too, so
+we will still
+implement setoid algebras. So cubical type theory will not
+improve \Frexlib{}'s core design.
+
+Implementing some of the internal data-structures may be
+simplified by a more powerful type theory. For example, we can
+implement the power of a model by an $n$-element set either as a
+function or as an $n$-vector. It might be possible to use univalence
+to ease transporting structure between these two different
+implementations. However, using cubical abstractions---rather than
+merely being compatible with a cubical type-theory---is a lot more
+sophisticated. Such transport might lead to unexpected challenges, and
+would require further experimentation.
+
+\citepos{yallop-et-al:partially-static-data-as-frex} partial
+evaluators include additional frexlets (e.g.~abelian groups,
+semirings, distributive lattices). We plan to follow suit and port the
+remaining simplifiers, then conduct larger evaluation and comparison studies.
+The main challenge is that, unlike
+\citeauthor{yallop-et-al:partially-static-data-as-frex}, we must
+mechanising proofs showing these frexlets complete, which is costly.
+One elegant motivation for including more
+simplifiers is the following. The frex generalises the `ring of
+polynomials over a ring' to that of an algebra of polynomials over an
+algebra. By porting
+\citeauthor{yallop-et-al:partially-static-data-as-frex}'s family of
+representations, we will fully realise this generalisation.
+
+Our experiment with reflection-based goal extraction as well as the reflection-based
+interfaces of existing solvers show that with enough engineering
+efforts, library designers can extract the goal equation from the goal
+type. However, software engineers for dependently typed
+languages are a scarce resource. We plan to explore other principled
+approaches. In practice, when invoked inside a chain of equational
+steps, the goal equation already appears in the source-code, albeit in
+a context. Programmers seem willing to type the goal
+equation once, since it documents the reasoning steps, but seem
+unhappy to do so \emph{twice}. Generic
+programming with holes\footnote{See Brad Hardy's Agda-Holes library:
+  \url{https://github.com/bch29/agda-holes} .} may help.
+
+Another promising direction is \emph{bootstrapping} of
+the \Frexlib{} library using simplifier certification.
+%
+Bootstrapping might start with a hierarchy of inefficient simplifiers
+that are easy to implement.
+%
+Next, these simplifiers may then be used to develop a hierarchy of
+more efficient simplifiers and proof-simplifiers.
+%
+Finally, the certification mechanism can extract proofs to complete
+the bootstrap.
+
+We would also like to extend \Frexlib{}'s design beyond algebraic
+structures. More general notions of theories abound: multisorted,
+second-order/parameterised, and essentially algebraic.
+%
+Supporting these may allow \Frexlib{} to cover much more complex situations, such as decision
+procedures for first order theories (e.g.~Presburger arithmetic,
+cf.~\citepos{strub:coqmt} CoqMT) normalisation-by-evaluation
+for fusion laws~\cite{allais:nu-rules}, and equational manipulation of
+big-operators~\cite{betot-et-al:big-operators,markert:big-operators,lau:big-operators}.
+%
+Note that \Frexlib{} can already deal with big-operators such as \IdrisFunction{sum} so
+long as the argument list is a concrete collection of constants and
+variables such as
+\IdrisFunction{sum}\ \IdrisData{[2,}\ \IdrisBound{x}\IdrisData{]}. We
+only need the more sophisticated theories when the length of the lists
+is abstract.
+
+\Frexlib{} uses many
+category-theoretic concepts, but the library itself is oblivious to
+category theory. %% Some care is needed for such a category theory library: it
+%% needs to avoid postulates that block reduction.
+We hope that making use of a rich category theory library like \citepos{hu-carette:agda-ct} {\tt agda-categories} might
+lead to a sleeker and even more modular \Frexlib{} implementation. More
+specifically, we plan to explore a general treatment of involutive
+algebras following \citeauthor{jacobs:involution}~\citeyearpar{jacobs:involution}, and Power's
+\emph{distributive tensor} of equational
+theories~\cite{power:discrete-lawvere-theories,%
+  hyland-power:discrete-lawvere-theories}
+for a uniform treatment of semi-ring varieties.
+Instantiating each of the $6$ semi-group varieties makes it possible to cover
+each instance of the following combinations:
+\[
+\left(
+\begin{array}{@{}l@{}}\hphantom{\cup{}}
+  \set{\text{ordinary}}\times\set{\text{ordinary}, \text{involutive},
+        \text{non-reversing involutive}}
+\\\cup
+\set{\text{commutative}}\times\set{\text{ordinary}, \text{involutive}
+}
+\end{array}
+\right)\times\set{\begin{array}{@{}c@{}}
+    \text{commutative}\\
+    \text{semigroup}, \text{monoid}, \text{group}
+  \end{array}
+}
+\]
+and modularly construct $(2+3)\times 3 = 15$ semi-ring varieties,
+including rings and semirings. As this example shows, this kind of
+modular treatment can provide a multiplicative development boost.
+
+\newpage
+
+%%
+
+%% Also, units of
+%% measurement.
+
+
+
+
+%% NbE. Proof-simplification.
+
+
+%% Morita equivalence, cat theory
+%% Fusion laws
+
+
+%% Things that will require significant innovation to fit into frex:
+
+%% Presburger arithmetic and Nullstellensatz
+%% Arbitrary rewriting
+%% Incomplete decision procedure
+
+%% Other languages
+
+%% Other frexy directions:
+
+%% Indexing-modulo-equations
+
+%% Holey reasoning with zippers
+%% (instead of elaborator refelction/macros, use overloading to construct the LHS/RHS + context)
+
+%% Future of staging in Idris, if we want the reflection magic.
+
+%% WG1: interoperability
+
+%% Exciting initiatives for cross-prover between provers/dependently
+%% typed systems, eg Euro-Proof-Network
+
+%% core-dump:
+%% %

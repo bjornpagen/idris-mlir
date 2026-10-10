@@ -1,0 +1,11 @@
+\begin{mathpar}
+\inferrule*[right=Alien]
+  {\isok{\stenv}{\senv}{\texp}}
+  {\hastyp{\stenv}{\senv}{\salien{\texp}{\stau}{\sesubst}}{\sesubst \stau}}
+  %% %
+  %% \and
+  %% %
+  %% \inferrule*[right=Opaque]
+  %% {\\}
+  %% {\hastyp{\senv}{\sopaque{\texp}}{\sttop}}
+\end{mathpar}

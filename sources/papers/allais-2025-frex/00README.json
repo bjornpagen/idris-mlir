@@ -1,0 +1,181 @@
+{
+   "sources" : [
+      {
+         "usage" : "toplevel",
+         "filename" : "frex.tex"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "ACM-Reference-Format.bst"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "Cross.idr"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "acmart.bib"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "acmauthoryear.bbx"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "acmauthoryear.cbx"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "acmdatamodel.dbx"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "acmnumeric.bbx"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "acmnumeric.cbx"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "appendix.tex"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "automation.png"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "create_diagram.sh"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "csv/10vars_commutative.csv"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "csv/10vars_noncommutative.csv"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "csv/15vars_commutative.csv"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "csv/15vars_noncommutative.csv"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "csv/1vars_commutative.csv"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "csv/1vars_noncommutative.csv"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "csv/5vars_commutative.csv"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "csv/5vars_noncommutative.csv"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "csv/Monoid_commutative_1.csv"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "csv/Monoid_commutative_2.csv"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "csv/Monoid_commutative_3.csv"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "csv/Monoid_noncommutative_1.csv"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "csv/Monoid_noncommutative_2.csv"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "csv/Monoid_noncommutative_3.csv"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "csv/commutative.csv"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "csv/noncommutative.csv"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "diagram-07.mps"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "diagram-08.mps"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "diagram-09.mps"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "diagram-10.mps"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "diagram-11.mps"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "diagram-12.mps"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "diagram-13.mps"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "diagram-14.mps"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "experiment-unused.tex"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "fancyvrb.sty.patch"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "frex.bib"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "involutive.tex"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "solve-type.png"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "solve-types.png"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "solve-vect-type.png"
+      }
+   ],
+   "version" : 2,
+   "texlive_version" : 2023,
+   "process" : {
+      "compiler" : "pdflatex"
+   }
+}

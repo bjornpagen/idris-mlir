@@ -1,0 +1,276 @@
+\section{Related Work}
+\label{sec:RelatedWork}
+
+%% Iverson's languages
+Rank polymorphism originally appeared in APL \cite{APL},
+which Iverson designed as a form of mathematical notation,
+with the APL interpreter serving to eliminate the semantic ambiguity
+found in conventional notation \cite{IversonTuringLecture}.
+At first, APL only lifted \emph{scalar} functions
+to operate on aggregate data via pointwise application,
+either on a scalar argument and an aggregate argument
+or on two aggregates of identical shape.
+Subsequent development introduced the notion of function rank,
+the number of dimensions a function expects its argument to have.
+This generalized the scalar function lifting,
+\eg, allowing a vector-mean function to produce a vector of results
+when given a matrix argument,
+and it introduced the ``frame of cells'' view of aggregate arguments
+where pointwise lifting generalizes to cellwise lifting.
+The next generalization step was to loosen the rule
+on frame shape compatibility.
+In J \cite{J}, which Iverson created as a successor to APL,
+a function can be applied to two arguments of differing frames
+as long as one frame---%
+viewed as a sequence of dimensions---%
+is a prefix of the other.
+This was a conscious design decision on Iverson's part:
+prefix agreement was chosen over suffix agreement because
+it fit better with APL's emphasis on operating along arrays' major axes \cite{RankAndUniformity}.
+
+%% other array languages
+FISh also made implicit aggregate lifting part of the semantics of function application,
+and its static semantics resolves the shapes of all arrays \cite{FISh}.
+A conventional type judgment describes
+the elements of arrays computed by a FISh program,
+and a second judgment ascribes a shape to each array.
+In FISh's metatheory,
+the shape of a function is a function on shapes.
+Thus a function application's shape can be calculated statically
+by applying the shape function to the arguments' shapes.
+
+As elegant as this model is in a first-order language,
+it is incompatible with first-class functions.
+When functions appear in arrays which are themselves applied to arguments,
+the shape must describe
+the layout of of that collection of functions,
+not just the functions' own behavior.
+In Remora, a function which checks
+whether a point in $\mathbb{R}^3$ is near the origin
+might have the type
+{\tt (-> ((Arr Float (Shp 3))) (Arr Bool (Shp)))}.
+FISh considers this function's shape to be
+the function on a singleton domain
+(containing only $[3]$)
+which returns the empty vector.
+However, Remora expressions produce array data,
+even in function position.
+A function array {\tt near-origin?} containing only that function
+has its own ``first-order'' shape {\tt (Shp)},
+independent of any function on shapes summarizing its behavior.
+
+In resolving all shapes statically,
+FISh is also too restrictive to permit shapes determined from run-time data.
+Functions like {\tt iota} and {\tt filter} cannot exist,
+nor can the ragged data which would result from lifting them.
+By characterizing functions with restricted dependent types,
+Remora escapes both of these limitations.
+
+%%% \cite{Transfinite} arrays (Sinkarovs & Scholz)
+
+%%% \cite{SISAL}
+
+ZPL is a data-parallel language
+which was designed to live within a larger language
+with a more general parallelism mode \cite{ZPLArraySublang}.
+Its programming model is based on
+an explicit map operation
+over programmer-specified index space within an array.
+Several built-in operators modify an index space,
+such as shifting a section along some dimension,
+adding a new dimension by broadcasting,
+or slicing out a particular sub-array.
+The set of built in operators is constructed
+to make communication cost implications clear to the programmer \cite{ZPLPerformance}.
+
+NESL uses a nested-vector data model,
+rather than the rank-polymorphic regular-array model \cite{NESL}.
+Programs map operations over vectors using a comprehension notation.
+Since a vector's elements may themselves be vectors
+with widely varying lengths,
+NESL's main performance trick is
+turning irregular nested vectors into a flat internal representation.
+After flattening, NESL can evenly distribute the computation workload
+by splitting at places that user code doe not consider not sub-vector boundaries.
+
+%%% \cite{DPH}
+%%% \cite{Repa}
+%%% \cite{Accelerate}
+
+%%% \cite{Futhark}
+%%% \cite{Nova}
+
+The goal of isolating the cell-level portion of a program
+has also led to some domain-specific languages,
+targeting specific varieties of regular aggregate data.
+Halide is a language designed for writing image processing pipelines \cite{Halide}.
+The iteration space is the set of pixels in an image.
+A Halide programmer writes code describing
+how an individual pixel should be handled
+(or a cluster of pixels for stencil computation),
+and then in a separate portion of the program,
+the programmer describes how the iteration space ought to be traversed.
+Since the program does not intermingle
+loop-nest control code with loop-body computation code,
+it is easier for a maintainer to tune for performance
+by adjusting the iteration schedule.
+
+Diderot is a programming language
+specifically aimed at processing medical images \cite{Diderot}.
+The universe of data consists of tensor fields,
+intended as functions on the continuous domain $\mathbb{R}^n$,
+rather than any particular discrete index space.
+Diderot offers pointwise arithmetic on tensors
+and a collection of common operations such as outer product and transposition.
+Aggregate lifting appears again,
+albeit in a smaller form,
+with some operations on tensor fields.
+
+HorseIR uses implicit lifting over arrays
+as an intermediate representation for SQL queries \cite{HorseIR}.
+HorseIR is lower-level than APL itself,
+serving as a three-address IR with vector instructions,
+and the IR itself is designed to ease loop fusion.
+In contrast with APL, all HorseIR arrays are vectors---%
+there are no higher-rank arrays, and scalars are represented as unit-length vectors.
+There is also a list datatype for handling heterogeneous aggregate data,
+such as one row of a database table.
+
+%% Since we've brought up databases, should we discuss KDB/Q?
+
+%% typing arrays
+Our type system's use of restricted dependent types
+is inspired by Dependent ML \cite{DependentML}.
+While Dependent ML is designed with the expectation
+that the index language has a fully decidable theory,
+Remora's index language does not \cite{Durnev}.
+In subsequent work,
+Dependent ML also focused on ensuring safety of array index accesses,
+using singleton and range types to ensure
+that numbers used for indexing fell within arrays' bounds \cite{DMLBounds}.
+
+Others have applied established type system machinery
+to an APL-like computation model.
+Thatte's coercion semantics \cite{ThatteCoercion}
+uses a form subtyping in which
+scalar types are subtypes of aggregates,
+and aggregate types in certain situations are subtypes of higher-dimensional aggregates.
+The subtyping rules emit coercions which invoke functions such as {\tt map} and {\tt replicate},
+automatically adapting scalar functions to aggregate data.
+However, the restrictions on treating aggregate types as subtypes of larger aggregates
+prohibit lifting for functions which expect non-scalar input
+(\ie, those whose expected rank is greater than zero)
+and lifting to unequal frame shapes
+(\eg, vector-matrix addition).
+Gibbons's embedding of in an extended Haskell \cite{APLicative}
+%%%% "... to define transposition, which is needed in order to implement reranking"!?
+extensively uses type-level programming
+and defines much of the rank-polymorphic lifting machinery
+in terms of transposition.
+
+Single Assignment C (SAC) is a variant of C without mutation \cite{SAC}.
+The primary iteration mechanism in SAC is the {\tt with} loop,
+in which the programmer describes a traversal of the index space
+and builds an output array an element at a time.
+The lack of mutation pushes the programmer
+to avoid writing loop-carried dependence,
+much like in the rank-polymorphic model.
+Translation of well-behaved APL programs to SAC
+tends to be straightforward \cite{APLSAC},
+though the resulting loop structure is
+somewhat specific to the function being lifted.
+A SAC variant called Qube introduces a Dependent ML-style type system
+to ensure the safety of indexed array element accesses \cite{Qube}.
+Qube retains SAC's {\tt with} loop-based programming model---%
+relying on range types in contrast to
+APL's and Remora's implicitly lifted function application semantics---%
+and due to its C roots,
+it does not support first-class functions
+to the extent of permitting arrays to appear in function position.
+
+%% Compilation
+Since the syntactic structure of a line of APL code,
+in particular the meaning of the juxtaposition of two terms,
+depends on the meanings of names which appear in the code,
+standard APL does not admit a fully static parsing algorithm.
+Due to this and other idiosyncratic warts,
+past efforts to compile APL have typically targetted
+large but well-behaved subsets of the language.
+
+A prominent exception is the APL\textbackslash3000 compiler,
+which could produce machine code for individual statements
+and used interpretation to manage inter-statement control flow \cite{APL3000Compiler}.
+This allowed some intraprocedural optimization,
+such as fold-unfold and map-map fusion%
+\footnote{In the APL community,
+  these transformations are respectively referred to as
+``beating'' (imagine a metronome producing a stream of beats)
+and ``dragging along'' (amassing a chain of
+delayed scalar operations to apply in a single loop body).}
+\cite{AbramsAPLMachine},
+analogous to deforestation
+which arose in mainstream functional languages \cite{BurstallDarlington, WadlerListless}.
+% Internal note: p31 of Wadler's dissertation contrasts his work with Abrams
+It also ensured that names' dynamic meanings would be available
+by the time execution reached any statement which used them.
+
+Weiss and Saal instead applied interprocedural data-flow analysis
+to resolve the syntactic classes of variable names in APL code \cite{ParsingAPL}.
+This analysis is not complete for APL itself
+due to the possibility that reassignment of a variable name
+will change how some line of code parses.
+However, the authors found that
+real-world code did not make use of
+the full freedom to manipulate
+the syntactic structure of an APL program
+by dynamically reassigning variables,
+suggesting that this is a misfeature which can be discarded for little cost.
+However, the common line-at-a-time compilation style
+used in other work
+also served to ensure that
+by the time execution reaches a line of code,
+its variable names, and thus their syntactic classes, could be resolved.
+
+Budd describes a compiler for an APL variant
+in which the ambiguity in parsing is avoided by
+declaring identifiers before use
+and name resolution is simplified by adopting lexical scope.
+\cite{BuddCompiler}.
+%TODO: more about what Budd's compiler does and doesn't do
+
+APEX parallelizes an APL dialect
+with restrictions on many APL features deemed
+incompatible with compilation
+(such as producing a string representation of an arbitrary function)
+or not strictly necessary for practical use (such as {\tt GOTO}) \cite{Apex}.
+APEX's shape compatibility rules for implicit aggregate lifting
+are less permissive than APL,
+\eg, prohibiting most cases of vector-matrix addition.
+Instead, both arguments must have the same rank
+or at least one argument passed to a scalar-consuming function
+be a scalar or singleton vector.
+
+A more recent line of work has focused on
+intermediate representations of array programs,
+such as the Typed Array Intermediate Language,
+which makes aggregate operations explicit
+using an {\tt each} primitive operator \cite{APLTAIL}.
+The type system tracks arrays' ranks,
+which provides enough information to recognize
+when an {\tt each} call is needed,
+but it is not meant to ensure that
+lifting a function application has a well-defined result
+(\ie, shape incompatibility is still possible).
+$\mathcal{L}_0$ plots out a loop fusion strategy
+inspired by control flow graph reduction \cite{T2GraphReduction}.
+The $\mathcal{L}_0$ compiler splits array programs
+into kernels of fused aggregate operations
+based on the applicability of $T_2$ graph reductions
+(merging nodes $X$ and $Y$ if $X$ is $Y$'s sole predecessor)
+to the program's data flow graph.
+%TODO: extend this to cover Futhark (which L_0 eventually turned into)
+
+%% Formal methods? (not really used in type checking, maybe mention in future work)
+%%% \cite{Inez}
+%%% \cite{Makanin, Karhumaki, Plandowski}
+

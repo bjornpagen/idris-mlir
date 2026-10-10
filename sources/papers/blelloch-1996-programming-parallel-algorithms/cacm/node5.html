@@ -1,0 +1,140 @@
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
+<!--Converted with LaTeX2HTML .95.3 (Nov 17 1995) by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds -->
+<HTML>
+<HEAD>
+<TITLE>NESL</TITLE>
+<!-- Changed by: Guy Blelloch , 25-Mar-1996 -->
+<META NAME="description" CONTENT="NESL">
+<META NAME="keywords" CONTENT="cacm2">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<LINK REL=STYLESHEET HREF="cacm2.css">
+</HEAD>
+<BODY LANG="EN">
+
+<strong>
+From <a href="../cacm.html"><cite>Programming Parallel Algorithms.</cite></a>
+<br>
+Communications of the ACM, 39(3), March, 1996.
+</strong>
+
+ <BR> <HR><A NAME="tex2html81" HREF="node6.html"><IMG ALIGN=BOTTOM ALT="next"  WIDTH=37 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/next_motif.gif"></A> <A NAME="tex2html79" HREF="node4.html"><IMG ALIGN=BOTTOM ALT="up"  WIDTH=26 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/up_motif.gif"></A> <A NAME="tex2html73" HREF="node4.html"><IMG ALIGN=BOTTOM ALT="previous"  WIDTH=63 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/previous_motif.gif"></A>   <BR>
+<B> Next:</B> <A NAME="tex2html82" HREF="node6.html">The Performance Model</A>
+<B>Up:</B> <A NAME="tex2html80" HREF="node4.html">Nested Data-Parallelism and NESL</A>
+<B> Previous:</B> <A NAME="tex2html74" HREF="node4.html">Nested Data-Parallelism and NESL</A>
+<BR> <HR> <P>
+<H2><A NAME="SECTION00021000000000000000">NESL</A></H2>
+<P>
+This article uses NESL [<A HREF="node14.html#nesl">5</A>] as an example of a nested
+data-parallel language.  This section gives an overview of the
+language and Section <A HREF="node7.html#secexamples">3</A> gives several examples of parallel
+algorithms described and analyzed with NESL.  NESL was designed to
+express nested parallelism in a simple way with a minimum set of
+structures and was therefore designed as a language on its own rather
+than as an extension of an existing sequential language.  The ideas,
+however, can clearly be used in other languages.  NESL is loosely
+based on ML [<A HREF="node14.html#Milner90">19</A>], a language with a powerful type system,
+and on SETL [<A HREF="node14.html#Schwartz86">22</A>], a language designed for concisely
+expressing sequential algorithms.  As with ML, NESL is mostly
+functional (has only limited forms of side effects), but this feature
+is tangential to the points made in this article.
+<P>
+NESL supports data-parallelism by means of operations on sequences--one
+dimensional arrays.  All elements of a sequence must be of the same
+type, and sequence indices are zero based (<TT>a[0]</TT> extracts the
+first element of the sequence <TT>a</TT>).  The main data-parallel
+construct is <EM>apply-to-each</EM>, which uses a set-like notation.
+For example, the expression
+<P>
+<PRE>  {a * a : a in [3, -4, -9, 5]};
+</PRE>
+<P>
+squares each elements of the sequence <TT>[3, -4, -9, 5]</TT>
+returning the sequence <TT>[9, 16, 81, 25]</TT>.  This can be read:
+``in parallel, for each <TT>a</TT> in the sequence <tex2html_verb_mark><tex2html_verb_mark>,
+square <TT>a</TT>''.  The apply-to-each can be used over multiple
+sequences.  The expression
+<P>
+<PRE>  {a + b : a in [3, -4, -9, 5]; b in [1, 2, 3, 4]};
+</PRE>
+<P>
+adds the two sequences elementwise returning <TT>[4, -2, -6, 9]</TT>.
+The apply-to-each construct also provides the ability to subselect
+elements of a sequence based on a filter.  For example
+<P>
+<PRE>  {a * a : a in [3, -4, -9, 5] | a &gt; 0};
+</PRE>
+<P>
+can be read: ``in parallel, for each <TT>a</TT> in the
+sequence <tex2html_verb_mark><tex2html_verb_mark> such that <TT>a</TT> is greater than <TT>0</TT>,
+square <TT>a</TT>''.  It returns the sequence <TT>[9, 25]</TT>.  The
+elements that remain maintain their relative order.  This filtering
+was used in the Quicksort example.
+<P>
+Any function, whether primitive or user defined, may be
+applied to each element of a sequence.  So, for example, we could define
+<P>
+<PRE>  function factorial(n) =
+    if (n == 1) then 1
+    else n*factorial(n-1);
+</PRE>
+<P>
+and then apply it over the elements of a sequence as in
+<P>
+<PRE>  {factorial(i) : i in [3, 1, 7]};
+</PRE>
+which returns the sequence <TT>[6, 1, 5040]</TT>.
+<P>
+In addition to the parallelism supplied by apply-to-each, NESL
+provides a set of functions on sequences, each of which can be
+implemented in parallel.  For example the function <TT>sum</TT> adds the
+elements of a sequence, and the function <TT>reverse</TT> reverses the
+elements of a sequence.  Perhaps the most important function on
+sequences is <TT>write</TT>, which supplies the only mechanism to modify
+multiple values of a sequence in parallel.  <TT>write</TT> takes two
+arguments: the first is the sequence to modify and the second
+is a sequence of integer-value pairs that specify what to modify.
+For each pair <TT>(i,v)</TT> the value <TT>v</TT> is inserted into position
+<TT>i</TT> of the destination sequence.  For example
+<P>
+<PRE>  write([0, 0, 0, 0, 0, 0, 0, 0],
+        [(4,-2),(2,5),(5,9)]);
+</PRE>
+<P>
+inserts the <TT>-2</TT>, <TT>5</TT> and <TT>9</TT> into the
+sequence at locations 4, 2 and 5, respectively, returning
+<P>
+<PRE>  [0, 0, 5, 0, -2, 9, 0, 0] .
+</PRE>  
+If an index is repeated, then one
+value is written non-deterministically.  For readers familiar with the
+variants of the PRAM model, we note that the <TT>write</TT> function is
+analogous to an ``arbitrary'' concurrent write.  NESL also includes
+a function <TT>e_write</TT> that does not allow repeated indices, and is
+analogous to an exclusive write.  If repeated indices are used with
+<TT>e_write</TT>, the current implementation reports an error.
+<P>
+Nested parallelism is supplied in NESL by allowing sequences to be
+nested and allowing parallel functions to be used in an apply-to-each.
+For example, we could apply the <TT>sum</TT> function in parallel over a
+nested sequence, as in
+<P>
+<PRE>  {sum(a) : a in [[2,3], [8,3,9], [7]]};
+</PRE> 
+which would return <TT>[5, 20, 7]</TT>.  Here there is
+parallelism both within each sum and across the sums.  The Quicksort
+algorithm showed another example of nested calls--the algorithm is
+itself used in an apply-to-each to invoke two recursive calls in
+parallel.
+<P>
+<BR> <HR><A NAME="tex2html81" HREF="node6.html"><IMG ALIGN=BOTTOM ALT="next"  WIDTH=37 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/next_motif.gif"></A> <A NAME="tex2html79" HREF="node4.html"><IMG ALIGN=BOTTOM ALT="up"  WIDTH=26 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/up_motif.gif"></A> <A NAME="tex2html73" HREF="node4.html"><IMG ALIGN=BOTTOM ALT="previous"  WIDTH=63 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/previous_motif.gif"></A>   <BR>
+<B> Next:</B> <A NAME="tex2html82" HREF="node6.html">The Performance Model</A>
+<B>Up:</B> <A NAME="tex2html80" HREF="node4.html">Nested Data-Parallelism and NESL</A>
+<B> Previous:</B> <A NAME="tex2html74" HREF="node4.html">Nested Data-Parallelism and NESL</A>
+<BR> <HR> <P>
+<BR> <HR>
+<P><ADDRESS>
+<a href="http://www.cs.cmu.edu/~blelloch">Guy Blelloch</a>, <a href="mailto:blelloch@cs.cmu.edu">blelloch@cs.cmu.edu</a>
+</ADDRESS>
+</BODY>
+</HTML>

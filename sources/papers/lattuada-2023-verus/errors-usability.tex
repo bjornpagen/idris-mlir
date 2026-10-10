@@ -1,0 +1,82 @@
+\section{User experience and error reporting} \label{sec:user-experience}
+
+We discuss the Verus user experience by example. Suppose the user starts by defining an \verb`Account` struct and
+an \verb`exec` function to transfer funds between accounts.
+
+\begin{lstlisting}[language=Verus,style=VerusLineNos,firstnumber=6]
+pub struct Account { pub balance: u64 }
+
+pub fn transfer_funds(orig: &mut Account, dest: &mut Account, amount: u64) {
+  requires([ old(orig).balance >= amount, old(dest).balance as nat + amount < u64::MAX ]);
+  ensures([ dest.balance == old(dest).balance + amount, orig.balance == old(orig).balance - amount ]);
+  orig.balance = orig.balance - amount;
+  dest.balance = dest.balance + amount;
+}
+\end{lstlisting}
+
+This function verifies, because Rust's type system ensures that \verb`orig` and \verb`dest`
+are not aliased. In fact, if the user accidentally aliased the two arguments when calling \verb`transfer_funds`,
+\begin{lstlisting}[language=Verus,style=VerusLineNos,firstnumber=15]
+fn main() {
+  let mut acct1 = Account { balance: 20_000 };
+  transfer_funds(&mut acct1, &mut acct1, 20_000);
+  assert(acct1.balance == 10_000);
+}
+\end{lstlisting}
+\noindent the user would quickly get an error from the Rust borrow checker, and Verus would not
+attempt to invoke Z3 to verify the invalid program, thereby allowing the user to quickly iterate by fixing
+the issue and re-running Verus.
+\begin{lstlisting}[style=Verus,literate=]
+error[E0499]: cannot borrow `acct1` as mutable more than once at a time
+  --> account.rs:17:32
+   |
+17 |     transfer_funds(&mut acct1, &mut acct1, 20_000);
+   |     -------------- ----------  ^^^^^^^^^^ second mutable borrow occurs here
+   |     |              |
+   |     |              first mutable borrow occurs here
+   |     first borrow later used by call
+\end{lstlisting}
+
+If one wrote similar code in Dafny, using a \verb`class` (a reference type) to
+represent the \verb`Account`, they would declare the \verb`transfer_funds` method as
+\lstinline[style=Verus]|method TransferFunds(orig: Accnt, dest: Accnt, amnt: nat)| with
+similar preconditions and postconditions. Dafny would report that the postconditions
+cannot be verified, which can be misleading to the developer, who has to determine that such
+a failure is due to potential aliasing of \verb`orig` and \verb`dest`; the developer
+would then need to add a framing condition to \verb`transfer_funds`,
+\verb`requires orig != dest`.
+
+In response to the Rust borrow checker failure above, the user may try and fix the \verb`main` function,
+
+\begin{lstlisting}[language=Verus,style=VerusLineNos,firstnumber=15]
+fn main() {
+  let mut acct1 = Account { balance: 10_000 }; let mut acct2 = Account { balance: 20_000 };
+  #[spec] let total_balance = acct1.balance + acct2.balance;
+  transfer_funds(&mut acct1, &mut acct2, 20_000);
+  assert(total_balance == acct1.balance + acct2.balance);
+}
+\end{lstlisting}
+
+\noindent but inadvertently introduce a logical error, which Verus reports with precise pointers to the
+offending code, and the relevant context (in this case, the failing precondition on the definition
+of \verb`transfer_funds`):
+
+\begin{lstlisting}[style=Verus,literate=]
+error: precondition not satisfied
+  --> account.rs:18:5
+   |
+9  |   requires([ old(orig).balance >= amount, old(dest).balance as nat + amount < u64::MAX ]);
+   |              --------------------------- failed precondition
+...
+18 |     transfer_funds(&mut acct1, &mut acct2, 20_000);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+\end{lstlisting}
+
+Adjusting the transferred amount to \verb`10_000` would result in successful verification upon re-running Verus.
+
+This user experience is conceptually similar to that of the Viper separation logic engine~\cite{DBLP:conf/vmcai/0001SS16}
+and the VeriFast C and Java verification tool~\cite{VeriFast}, with the distinction that both of these
+tools use a separate substructural logic to reason about memory permissions:
+the user has to explicitly manipulate permissions and separation logic predicates for the program data.
+In Rust's linear type system, memory-reasoning permissions are implicitly associated with data ownership,
+and manipulated by moving values, or taking references.

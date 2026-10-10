@@ -1,0 +1,40 @@
+
+
+\begin{displaymath}
+  \begin{aligned}
+  &\DC \in \; \textup{Data Constructors},\:\: \TYP \in \; \textup{Type Constructors},
+  \:\: \var, \yvar,\fvar \in \; \textup{Variables}%% ,\:\:
+%%   \loc, \locreg{l}{r} \in \; \textup{Symbolic Locations},\\
+%%   &\reg \in \; \textup{Regions},\:\: \ind, \indj \in \; \textup{Region Indices},\\
+%%   &\concreteloc{r}{i}{l} \in \; \textup{Concrete Locations}
+  \end{aligned}
+\end{displaymath}
+\begin{displaymath}
+  \begin{aligned}
+    \textup{Top-Level Programs} && \PROG && \gramdef & \vectorize{\DD} \;; \vectorize{\FD} \;; \EXPR \\
+    \textup{Field of a Data Constructor} && \fields && \gramdef & \sTYP  \\
+    \textup{Datatype Declarations} && \DD && \gramdef & \DATA\;\TYP = \vectorize{\DC \; \vectorize{\fields}\;} \\
+    \textup{Function Declarations} && \FD && \gramdef & \fvar : \vectorize{\TYP} \ARROW \TYP ; \fappnoloc{\vectorize{\var}} = \EXPR \\
+    %% \textup{Located Types} && \hTYP && \gramdef & \tyatlocreg{\TYP}{\loc}{\reg} \\
+%%     \textup{Type Scheme} && \TS && \gramdef &
+%%       \forall _{\vectorize{\locreg{l}{r}}}.
+%%       \vectorize{\hTYP} \ARROW \hTYP \\
+    \textup{Values} && \VAL && \gramdef & \var \\ %% \gramor \concreteloc{\reg}{\ind}{\locreg{\loc}{\reg}}
+    \textup{Expressions} && \EXPR && \gramdef & \VAL\\[-5pt]
+%%     && && \gramor & \fappnoloc{\vectorize{\VAL}} \\
+%%     && && \gramor & \dataconnoloc{\DC}{\vectorize{\VAL}}\\
+%%     && && \gramor & \copynoloc{\vectorize{\VAL}}\\
+    && && \gramor & \letpack{\var:\TYP}{\fappnoloc{\vectorize{\VAL}}}{\EXPR} \\
+    && && \gramor & \letpack{\var:\TYP}{\dataconnoloc{\DC}{\vectorize{\VAL}}}{\EXPR} \\
+%%     && && \gramor & \letloc{\locreg{\loc}{\reg}}{\LE}{\EXPR} \\
+%%     && && \gramor & \letreg{\reg}{\EXPR} \\
+    && && \gramor & \case{\VAL}{\vectorize{\pat}} \\
+    \textup{Pattern} && \pat && \gramdef &
+    \caseclause{\datacon{\DC}{}{(\vectorize{\var : \TYP})}}{\EXPR} \\
+%%     \textup{Location Expressions} && \LE && \gramdef
+%%     & \startr{\reg} \\
+%%     && && \gramor & (\locreg{\loc}{r} + 1) \\
+%%     && && \gramor & \afterl{\hTYP}   \\        
+%%     \textup{Copying Calls} && \cpy && \gramdef & \copyPacked{\var:\hTYP}
+  \end{aligned}
+\end{displaymath}

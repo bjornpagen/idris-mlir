@@ -1,0 +1,585 @@
+\section{Evaluation}\label{sec:evaluation}
+
+\input{table}
+%
+We have implemented reflection and \pbesym
+in \toolname~\cite{Vazou14}.
+%
+Table~\ref{table:evaluation} summarizes our
+evaluation which aims to determine
+%
+(1)~the kinds of programs and properties that can be verified,
+%
+(2)~how \pbesym simplifies \emph{writing} proofs, and
+%
+(3)~how \pbesym affects the verification time.
+
+
+\mypara{Benchmarks}
+%
+% We used our approach to implement and verify
+% a wide variety of programs.
+%
+We summarize our benchmarks below,
+see \citep{appendix} for details.
+%
+\begin{itemize}[leftmargin=*]
+%
+\item\textbf{Arithmetic}
+We proved arithmetic properties for the textbook
+Fibonacci function (\cf~\S~\ref{sec:overview})
+and the 12 properties of the Ackermann function
+from~\cite{ackermann}.
+%
+\item\textbf{Class Laws}
+%
+We proved the monoid laws for the "Peano",
+"Maybe" and "List" data types and the Functor,
+Applicative, and Monad laws, summarized
+in~Figure~\ref{fig:laws}, for the "Maybe",
+"List" and "Identity" monads.
+%
+\item\textbf{Higher Order Properties}
+%
+We used natural deduction to prove textbook
+logical properties as in~\S~\ref{sec:higher-order}.
+%
+% and this http://hume.ucdavis.edu/mattey/phi112/112dedurles_ho.pdf
+%
+We combined natural deduction principles with
+\pbesym-search to
+prove universality of right-folds, as
+described in~\citep{foldrHutton} and
+formalized in \agda~\citep{agdaequational}.
+%
+\item\textbf{Functional Correctness}
+%
+We proved correctness of a SAT solver
+and a unification algorithm as implemented
+in Zombie~\citep{Zombie}.
+%
+We proved that the SAT solver takes as
+input a formula "f" and either returns "Nothing"
+or an assignment that satisfies "f",
+by reflecting the notion of satisfaction.
+%
+Then, we proved that if the
+unification "unify s t" of two terms
+"s" and "t" returns a substitution
+"su", then applying "su" to "s" and "t"
+yields identical terms.
+%
+Note that, while the unification function can itself
+diverge, and hence cannot be reflected, our method
+allows terminating and diverging functions
+to soundly coexist.
+
+\item\textbf{Deterministic Parallelism}
+%
+Retrofitting verification
+onto an existing language with a mature parallel run-time
+allows us to create three deterministic
+parallelism libraries that, for the first time,
+verify implicit assumptions about associativity
+and ordering that are critical for determinism 
+(\cf~\cite{appendix} for extended description).
+%
+First, we proved that the \emph{ordering laws} hold for keys
+inserted into LVar-style concurrent sets \cite{kuper2014freeze}.
+%
+Second, we used "monad-par" \cite{monad-par} to implement an $n$-body
+simulation, whose correctness relied upon proving that a triple of "Real"
+(implementing) 3-d acceleration was a "Monoid".
+%
+Third, we built a DPJ-style \cite{DPJ} parallel-reducers library
+whose correctness relied upon verifying that the reduced
+arguments form a "CommutativeMonoid", and which was the basis of
+a parallel array sum.
+\end{itemize}
+
+\mypara{Proof Effort}
+%
+We split the total lines of code of our benchmarks
+into three categories:
+%
+\textbf{Spec} represents the refinement types that
+encode theorems, lemmas, and function \emph{specifications};
+%
+\textbf{Impl} represents the rest of the Haskell
+code that defines executable functions;
+%
+\textbf{Proofs} represent the sizes of the Haskell proof terms
+(\ie functions returning \typp).
+%
+Reflection and \pbesym are optionally
+enabled using pragmas; the latter is enabled
+either for a whole file/module or per
+top-level function.
+
+\mypara{Runtime Overhead}
+%
+Proof terms have \emph{no} runtime overhead
+as they will never be evaluated.
+%
+When verification of an executable term
+depends on theorems, we use the below 
+"withTheorem" function
+%
+\begin{mcode}
+    withTheorem :: x:a -> $\typp$ -> { v:a | v = x }
+    withTheorem x _ = x  
+\end{mcode}
+%
+that inserts the proof argument into the static 
+verification environment, relying upon laziness
+to not actually evaluate the proof.
+%
+For example, when verification depends on the associativity 
+of append on the lists "xs", "ys", and "zs", 
+the invocation "withTheorem xs (app_assoc xs ys zs)"
+extends the (static) SMT verification environment
+with the instantiation of the associativity theorem of 
+Figure~\ref{fig:list-laws}. 
+%
+This invocation adds no runtime overhead, since 
+even though "app_assoc xs ys zs" is an expensive 
+recursive function, it will never actually get evaluated. 
+%
+To ensure that proof terms are not evaluated in runtime, 
+without using laziness, one can add one rewrite rule for 
+each proof term that replaces the term with unit.
+%
+For example, the rewrite rule for "app_assoc" is 
+%
+\begin{code}
+    RULES "assoc/runtime"  forall xs ys zs. app_assoc xs ys zs = () 
+\end{code}
+%
+Such rules are sound, since each proof term is total, 
+thus provably reduces to unit.
+
+\mypara{Results}
+%
+The highlights of our evaluation are the following.
+%
+(1)~Reflection allows for the specification and verification
+    of a wide variety of important properties of programs.
+%
+(2)~\pbesym drastically reduces the proof effort: by a factor
+    of $2-5\times$ --- shrinking the total lines of
+    proof from \lhproofstotal to \pbeproofstotal ---
+    making it quite modest, about the size of
+    the specifications of the theorems.
+    Since \pbesym searches for equational
+    properties, there are some proofs, that
+    rarely occur in practice, that
+    \pbesym cannot simplify, \eg the
+    logical properties
+    from~\S~\ref{sec:higher-order}.
+%
+(3)~\pbesym does not impose a performance penalty: even though
+    proof search can make an order of magnitude many more SMT
+    queries --- increasing the total SMT queries from
+    \lhsmttotal without \pbesym to \pbesmttotal with \pbesym---
+    most of these queries are simple and it is typically
+    \emph{faster} to type-check the compact proofs enabled by
+    \pbesym than it is to type-check the $2-5\times$ longer
+    explicit proofs written by a human.
+
+\begin{figure}[t!]
+\input{fig-class-laws2}
+\end{figure}
+
+% The source counts were generated by:
+% $ cd benchmarks/haskell16/pos/
+% $ find . -type f -name '*.hs' -exec sed -i '' s/\{-"/\{-#LH/ {} +
+% $ sloccount
+% For verified-instances:
+% $ find src/Data/VerifiedEq* src/Data/VerifiedOrd* -type f -name '*.hs' -exec sloccount {} \+
+% For LVish:
+% $ git checkout master ; sloccount src/lvish/Data/LVar/PureSet.hs src/lvish/Data/LVar/SLSet.hs
+% $ git checkout verified ; sloccount src/lvish/Data/LVar/PureSet.hs src/lvish/Data/LVar/SLSet.hs
+% $ sloccount allpairs.hs ; sloccount allpairs_verified.hs
+% $ sloccount IntegerSumReduction2NoVerification.hs ; sloccount IntegerSumReduction2.hs
+
+
+
+%% \begin{figure}[t!]
+%% \begin{minipage}[b]{0.47\textwidth}
+%% \input{fig-case-studies}
+%% \end{minipage}
+%% \hspace{0.2in}
+%% \begin{minipage}[b]{0.47\textwidth}
+%% \input{fig-class-laws}
+%% \end{minipage}
+%% \end{figure}
+
+\begin{comment}
+We have implemented refinement reflection
+in \toolname.
+%
+In this section, we evaluate our approach
+by using \toolname to verify a variety of
+deep specifications of Haskell functions
+drawn from the literature and categorized
+in Figure~\ref{fig:eval-summary},
+totalling about 4,000 lines of specifications
+and proofs.
+%
+Verification is fast: from 1 to 7s per
+file (module), which is about twice as
+much time as GHC takes to compile the
+corresponding module.
+%
+Overall there is about one line of
+type specification (theorems)
+for three lines of code (implementations and proof).
+%
+Next, we detail each of the five classes of
+specifications, illustrate how they were
+verified using refinement reflection, and
+discuss the strengths and weaknesses of
+our approach.
+%
+\emph{All} of these proofs require refinement
+reflection, \ie are beyond the scope of shallow
+refinement typing.
+
+%\RGS{Should we make a mention of VIFP here?}
+%\NV{Proof strategies can go away}
+\mypara{Proof Strategies.}
+%
+Our proofs use three building blocks, that are seamlessly
+connected via refinement typing:
+%
+\begin{itemize}
+  \item \emphbf{Un/folding}
+     definitions of a function "f" at
+     arguments "e1...en", which due
+     to refinement reflection, happens
+     whenever the term "f e1 ... en"
+     appears in a proof.
+     For exposition, we render the function
+     whose un/folding is relevant as "#f#";
+%
+  \item \emphbf{Lemma Application}
+     which is carried out by using
+     the ``because'' combinator
+     ($\because$) to instantiate
+     some fact at some inputs;
+%
+  \item \emphbf{SMT Reasoning}
+     in particular, \emph{arithmetic},
+     \emph{ordering} and \emph{congruence closure}
+     which kicks in automatically (and predictably!),
+     allowing us to simplify proofs by not
+     having to specify, \eg which subterms
+     to rewrite.
+\end{itemize}
+
+\subsection{Arithmetic Properties} \label{subsec:arith} \label{subsec:ackermann}
+
+
+
+\subsection{Algebraic Data Properties}
+\label{subsec:fold}
+
+%The second category of properties pertains to data types.
+\mypara{Fold Universality}
+%Next, we proved properties of list folding,
+as encoded in \agda~\citep{agdaequational}.
+%
+The following encodes the universal property of "foldr"
+%
+\begin{code}
+  foldr_univ :: f:(a -> b -> b)
+             -> h:(L a -> b)
+             -> e:b
+             -> ys:L a
+             -> base:{h [] == e }
+             -> step:(x:a -> xs:[a] -> {h (x:xs) == f x (h xs)})
+             -> {h ys == foldr f e ys}
+\end{code}
+%
+The \toolname proof term of "foldr_univ"
+is similar to the one in \agda.
+But, there are two major differences.
+%
+First, specifications do not support
+quantifiers: universal quantification
+of "x" and "xs" in the step assumption
+is encoded as functional arguments.
+%
+Second, unlike \agda, \toolname does not
+support optional arguments, thus to use
+"foldr_univ" the proof arguments "base"
+and "step" that were implicit arguments
+in \agda need to be explicitly provided.
+%
+For example, the following code calls
+"foldr_universal" to prove "foldr_fusion"
+by explicitly applying proofs for the
+base and the step arguments
+%
+\begin{code}
+  foldr_fusion :: h:(b -> c)
+               -> f:(a -> b -> b)
+               -> g:(a -> c -> c)
+               -> e:b
+               -> z:[a]
+               -> x:a -> y:b
+               -> fuse: {h (f x y) == g x (h y)})
+               -> {(h.foldr f e) z == foldr g (h e) z}
+
+  foldr_fusion h f g e ys fuse = foldr_univ g (h . foldr f e) (h e) ys
+                                   (fuse_base h f e)
+                                   (fuse_step h f e g fuse)
+\end{code}
+%
+Where, for example, "fuse_base" is a function with type
+%
+\begin{code}
+  fuse_base :: h:(b -> c) -> f:(a -> b -> b) -> e:b -> {(h . foldr f e) [] == h e}
+\end{code}
+
+
+
+\subsection{Typeclass Laws}
+
+We used \toolname to prove the Monoid, Functor,
+Applicative, and Monad Laws, summarized in
+Figure~\ref{fig:laws}, for various user-defined
+instances summarized in Figure~\ref{fig:eval-summary}.
+
+%% The purpose of these proofs is to investigate the
+%% proving abilities of \libname.
+%% For this purpose, we defined the appropriate class
+%% operators on user defined lists, instead of using
+%% Haskell's predefined class instances.
+%% %
+%% In the near future, we plan to embed these proofs
+%% to check the laws on real Haskell instances,
+%% but this requires some engineering from the
+%% \liquidHaskell team.
+
+\mypara{Monoid Laws}
+%
+A Monoid is a datatype equipped with an associative
+binary operator $\emappend$ ("mappend") and an \emph{identity}
+element $\emempty$.
+%
+We prove that
+%
+"Peano" (with a suitable "add" and "Z"),
+"Maybe" (with a suitable "mappend" and "Nothing"), and
+"List" (with append "++" and "[]") satisfy the monoid laws.
+%
+%%For example, we prove that "++" (\S~\ref{subsec:list})
+%%is associative by reifying the textbook proof~\cite{HuttonBook}
+%%into a Haskell function, where the induction
+%%corresponds to case-splitting and recurring
+%%on the first argument:
+%%%
+%%\begin{mcode}
+%%assoc :: xs:[a] -> ys:[a] -> zs:[a] ->
+%%       {(xs ++ ys) ++ zs = xs ++ (ys ++ zs)}
+%%
+%%assoc [] ys zs     = ([] ++ ys) ++ zs
+%%                   =. [] ++ (ys ++ zs)
+%%                   ** QED
+%%assoc (x:xs) ys zs = ((x:  xs)++ ys) ++ zs
+%%                   =. (x: (xs ++ ys)) ++ zs
+%%                   =.  x:((xs ++ ys) ++ zs)
+%%                   =.  x: (xs ++ (ys ++ zs))
+%%                       $\because$ assoc xs ys zs
+%%                   =. (x:xs)  ++ (ys ++ zs)
+%%                   ** QED
+%%\end{mcode}
+%%
+
+\mypara{Functor Laws}
+%
+A type is a functor if it has a function
+"fmap" that satisfies the \emph{identity}
+and \emph{distribution} (or fusion) laws
+in Figure~\ref{fig:laws}.
+%
+For example, consider the proof of
+the "map" distribution law for the lists,
+also known as ``map-fusion'', which is the
+basis for important optimizations in
+GHC~\cite{ghc-map-fusion}.
+%
+We reflect the definition of "map" for lists
+%
+%%\begin{code}
+%%  reflect map :: (a -> b) -> [a] -> [b]
+%%  map f []     = []
+%%  map f (x:xs) = f x : fmap f xs
+%%\end{code}
+%
+and use it to specify fusion and verify it by an inductive proof:
+% by induction (recursion) on the list argument:
+%
+\begin{mcode}
+  map_fusion :: f:(b -> c) -> g:(a -> b) -> xs:[a] -> {map (f . g) xs = (map f . map g) xs}
+\end{mcode}
+
+%%\begin{mcode}
+%%  map_fusion f g []
+%%    =  ((map f) #.# (map g)) []
+%%    =. (map f) (#map# g [])
+%%    =. #map# f []
+%%    =. []
+%%    =. #map# (f . g) []
+%%    ** QED
+%%
+%%  map_fusion f g (x:xs)
+%%    =   #map# (f . g) (x:xs)
+%%    =. (f . g) x : map (f . g) xs
+%%    =. (f . g) x : (map f #.# map g) xs
+%%       $\because$  map_fusion f g xs
+%%    =. (f# . #g) x : map f (map g xs)
+%%    =. f   (g  x): map f (map g xs)
+%%    =. #map# f (g x: map g xs)
+%%    =. map f   (#map# g (x:xs))
+%%    =. (map f #.# map g)(x:xs)
+%%    ** QED
+%%\end{mcode}
+%%
+% \NV{Say why we need defunctionalization}
+% \NV{We use app function like HALO (link to the theory)}
+
+% \mypara{Applicative}
+\mypara{Monad Laws}
+%
+The monad laws, which relate the
+properties of the two operators
+$\ebind$ and $\ereturn$ (Figure~\ref{fig:laws}),
+refer to $\lambda$-functions which
+are encoded in our logic as uninterpreted functions.
+%%thus their proof exercises
+%%our support for defunctionalization
+%%and $\eta$- and $\beta$-equivalence.
+% and the extensionality axioms to prove.
+%
+For example, we can encode the associativity property
+as a refinement type alias:
+%
+\begin{code}
+  type AssocLaw m f g = { m >>= f >>= g = m >>= (\x -> f x >>= g) }
+\end{code}
+%
+and use it to prove that the list-bind is associative:
+%
+\begin{mcode}
+  assoc :: m:[a] -> f:(a ->[b]) -> g:(b ->[c]) -> AssocLaw m f g
+  assoc [] f g     =  [] #>>=# f >>= g
+                   =. [] #>>=# g
+                   =. []
+                   =. [] #>>=# (\x -> f x >>= g) ** QED
+  assoc (x:xs) f g =  (x:xs) #>>=# f  >>= g
+                   =. (f x ++ xs >>= f) >>= g
+                   =. (f x >>= g) ++ (xs >>= f >>= g) $\because$ bind_append (f x) (xs >>= f) g
+                   =. (f x >>= g) ++ (xs >>= \y -> f y >>= g) $\because$ assoc xs f g
+                   =. (\y -> f y >>= g) x ++ (xs >>= \y -> f y >>= g) $\because$ $\beta$eq f g x
+                   =. (x:xs) #>>=# (\y -> f y >>= g) ** QED
+\end{mcode}
+%
+Where the "bind_append" fusion lemma states that:
+%
+\begin{code}
+bind_append
+  :: xs:[a] -> ys:[a] -> f:(a -> [b]) -> {(xs++ys) >>= f = (xs >>= f)++(ys >>= f)}
+\end{code}
+%
+Notice that the last step requires
+$\beta$-equivalence on anonymous
+functions, which we get by explicitly
+inserting the redex in the logic,
+via the following lemma with "trivial" proof
+%
+\begin{mcode}
+    $\beta$eq :: f:_ -> g:_ -> x:_ -> {f x >>= g = (\y -> f y >>= g) x}
+    $\beta$eq _ _ _ = trivial
+\end{mcode}
+
+\subsection{Functional Correctness} \label{subsec:programs}
+
+Next, we proved correctness of two programs
+from the literature: a unification
+algorithm and a SAT solver.
+
+\mypara{Unification}
+%
+We verified the
+unification of first order terms, as
+presented in~\citep{Sjoberg2015}.
+%
+First, we define a predicate alias for
+when two terms "s" and "t" are equal
+under a substitution "su":
+%
+\begin{code}
+  eq_sub su s t = apply su s == apply su t
+\end{code}
+%
+Now, we defined a Haskell function
+"unify s t" that can diverge, or return
+"Nothing", or return a substitution "su"
+that makes the terms equal:
+%
+\begin{code}
+  unify :: s:Term -> t:Term -> Maybe {su | eq_sub su s t}
+\end{code}
+%
+For specification and verification,
+we only needed to reflect "apply" and
+not "unify"; thus, we only had to verify
+that the former terminates, and not the latter.
+%
+We proved correctness by invoking
+separate helper lemmata.
+%
+For example, to prove the post-condition
+when unifying a variable "TVar i" with
+a term "t" in which "i" \emph{does not}
+appear, we apply a lemma "not_in":
+%
+\begin{mcode}
+  unify (TVar i) t2 | not (i Set_mem freeVars t2) = Just (const [(i, t2)] $\because$ not_in i t2)
+\end{mcode}
+%%
+\ie if "i" is not free in "t",
+the singleton substitution yields "t":
+%
+\begin{code}
+  not_in :: i:Int -> t:{Term | not (i Set_mem freeVars t)} -> {eq_sub [(i,t)] (TVar i) t}
+\end{code}
+%
+This example highlights the benefits of
+partial verification on a legacy programming language:
+potential diverging code (\eg the function "unify") coexists and invokes proof terms.
+
+\mypara{SAT Solver}
+%
+As another example, we implemented and verified the simple
+SAT solver used to illustrate and evaluate
+the features of the dependently typed language
+Zombie~\citep{Zombie}.
+%
+The solver takes as input a formula "f"
+and returns an assignment that
+\emph{satisfies} "f" if one exists,
+as specified below.
+%
+\begin{code}
+  solve :: f:Formula -> Maybe {a:Assignment | sat a f}
+\end{code}
+%
+The function "sat a f" returns "True" iff the assignment
+"a" satisfies the formula "f".
+%
+Verifying "solve" follows directly by
+reflecting "sat" into the refinement logic.
+\end{comment}

@@ -1,0 +1,364 @@
+\section{Free Extensions and Free Models/Algebras}
+\seclabel{core}
+
+Before delving into the details of \Frexlib{}'s core, we revisit
+our frexlet representations using examples for elements in the
+fral and the frex for ordinary, commutative, and involutive monoids~(see~\figref{monoid frexlets}).
+
+The elements in the free monoid are lists of the variables appearing
+in the term. The elements in the free extension of a
+monoid are lists alternating between concrete elements in the given
+monoid, and freely adjoined variables. The figure shows an element
+in the free extension by 1 variable ($y$) of the multiplicative monoid
+of $2\times2$ matrices with natural-number components. The matrix $y$
+is unknown, and so its occurrence separates the elements in the list.
+
+Further assuming commutativity equates more terms, resulting
+in a representation of the free commutative monoid over \nvar{}
+variables as an \nvar-vector of coefficients, representing a linear
+polynomial. Freely extending a commutative monoid \A{} by
+\nvar{} variables can be represented by a concrete coefficient $c :
+\A$ together with an \nvar{}-vector of coefficients, representing a
+linear polynomial over $\A$.
+
+If we instead include an involutive operation $x \mapsto
+\overline x$ over the monoid, we get lists of variables and alternating lists
+whose letters may be tagged as involuted. The figure demonstrates
+the free extension of the monoid structure of \String{} concatenation,
+with string reversal for the involution.
+
+\subsection{Universal Properties}
+We now show the \idris{} realisation of the universal algebraic
+concepts from \secref{new-overview}. In the previous \secref{frexlib},
+we introduced these definitions:
+\begin{itemize}
+\item An \IdrisType{Algebra} for a signature, which consists of a carrier
+  and an interpretation of operations (\figref{algebras}). It does not
+  have to satisfy any equation.
+\item A \IdrisType{SetoidAlgebra} is simultaneously a setoid structure
+  (an equivalence relation) and an algebra structure over the same
+  carrier, whose operations are setoid homomorphisms (\figref{algebras}).
+\item A (setoid) \IdrisType{Model} for a presentation is a setoid
+  algebra validating the presentation's axioms.
+\end{itemize}
+In this section, we introduce these definitions:
+\begin{itemize}
+\item Homomorphisms of setoid algebras.
+\item A \IdrisType{ModelOver} a setoid \X{} is a model \A{}  equipped with a setoid
+  homomorphism \X{} to \A{}.
+\item An \IdrisType{Extension} of a model \A{} by a setoid \X{} is another
+  model \A[2]{} together with a setoid homomorphism from \X{} to \A[2]{} and a
+  model homomorphism from \A{} to \A[2].
+\item Their morphisms.
+\end{itemize}
+We will then show how we define in \idris{} both the free model
+(fral) over a setoid \X{} and the free extension (frex) of \A{} by
+\X{} as the initial ones.
+
+
+\subseclabel{UPs}
+\begin{figure}
+  \TwoColDIY{.31}{%
+    \OpPreservation{}
+    }{.65}{%
+    \IsAlgHomomorphism{}
+    \vspace{1\baselineskip}
+  \AlgHomomorphism{}
+  }
+\caption{Setoid algebra homomorphisms in \Frexlib{}}
+\figlabel{homo}
+\end{figure}
+
+\Frexlib{} defines homomorphisms of setoid algebras in \figref{homo}, by
+requiring the underlying function to be a setoid homomorphism between
+the corresponding setoids. The code uses an appropriate
+\IdrisFunction{cast} function (see page~\pageref{cast explanation})
+that assembles these setoids from the
+data in each setoid algebra.
+Each $\SigAlgebra$ defines a homomorphic extension operator
+\AlgBind{}\AlgBindType{} by structural induction over the
+term (i.e.~folding). The following term valuates to \BindExResult{}, e.g.:
+\begin{center}
+\BindEx{}
+\end{center}
+
+
+Similarly, \figref{algebras and extensions} presents the declarations
+for models over a setoid and extension of a model by a setoid. It
+expresses the equations in the commuting diagrams through
+the extensionality relation on the setoid of functions from
+\figref{quotients-and-functions}b in \appref{setoid example} and the power of a
+model by a setoid (see \subsecref{powers}). As \idris{}
+supports type-directed disambiguation, we overload the record name
+\IdrisType{($\~>$)}.
+
+\begin{figure*}
+  \TwoColDIY%
+      {.43}{%
+        \ModelOver{}
+        \PreservesEnvDecl{}
+        \ModelOverHomo{}
+      }
+      {.55}{%
+        \Extension{}
+        \vspace{-.5\baselineskip}
+        \ExtensionHomo{}
+      }
+  \caption{Structure and its preservation for (a) models
+    over a setoid, and (b) extensions of a model}
+  \figlabel{algebras and extensions}
+\end{figure*}
+
+
+
+The \emph{free} model over a set (fral) and the \emph{free}
+extension (frex) of an algebra by a set is then the initial such
+structure: there is a unique structure-preserving map from the free
+structure to every structure.
+This succinct definition, while
+standard, packs much structure. By way of introduction, we will unpack
+it for the free commutative monoid over $\Finn$, the finite set with
+$\nvar$ elements.
+
+First, we designate a commutative monoid for the
+the fral. This structure is the data structure our simplifier will use
+to represent the equivalence classes of terms.
+In \figref{monoid frexlets}, we mentioned the
+carrier consists of origin-intercepting linear polynomials with \Nat{}
+coefficients $p = a_1x_1 + \ldots + a_{\nvar}x_{\nvar}$, which we
+represent with $\nvar$-tuples of natural numbers and pointwise addition:
+\begin{center}
+\begin{minipage}{.35\textwidth}
+  \ModelCarrier{}
+\end{minipage}
+\begin{minipage}{.6\textwidth}
+  \[
+  \begin{aligned}[t]
+    0 \definedby{}& 0x_1 +\ldots+0x_n & \quad p \Plus q \definedby{}& (a_1 + b_1)x_1 + \ldots + (a_{\nvar} + b_{\nvar})x_{\nvar} \\
+    \definedby{}& \ReplicateZeroPartA \ldots \ReplicateZeroPartB
+    & \definedby{}& \OpenBracket a_1 \Plus b_2 \Comma \ldots \Comma a_{\nvar} \Plus b_{\nvar} \CloseBracket
+    \\
+    ={}& \ReplicateZero & ={}& \ZipIt{}
+  \end{aligned}
+  \]
+\end{minipage}
+\end{center}
+
+Denote the resulting $\AppliedFreeCMonoidModelType$ by $\AppliedFreeCMonoidModel$.  For the  $\EnvName$ component, use tabulation to define
+$ \FreeCMonoidUnit\,\nvar : \Finn \to \ModelCarrierName$, with $\idrisdata 1$ in
+the argument position and $\idrisdata 0$ elsewhere:
+%%%% For publication, rename dirac -> kronecker as that is the right
+%%%% thing to do after all
+\renewcommand\tabulateDirac[1][]{\UseVerb[#1]{tabulateDirac}}
+\begin{SaveVerbatim}[commandchars=\\\{\}]{tabulateDirac}
+\IdrisFunction{tabulate}\KatlaSpace{}$\KatlaSpace{}\IdrisFunction{kronecker}\KatlaSpace{}\IdrisBound{i}
+\end{SaveVerbatim}
+\renewcommand\dirac[1][]{\UseVerb[#1]{dirac}}
+\begin{SaveVerbatim}[commandchars=\\\{\}]{kronecker}
+\IdrisFunction{kronecker}
+\end{SaveVerbatim}
+\renewcommand\diracij[1][]{\UseVerb[#1]{diracij}}
+\begin{SaveVerbatim}[commandchars=\\\{\}]{diracij}
+\IdrisFunction{kronecker}\KatlaSpace{}\IdrisBound{i}\KatlaSpace{}\IdrisBound{j}
+\end{SaveVerbatim}
+\[
+\begin{array}[t]{@{}l@{\qquad}l@{}}
+\begin{aligned}[t]
+\FreeCMonoidUnit\ \nvar\ i \definedby{}& 1x_i \\
+\definedby{}& \ReplicateZeroPartA \ldots\KroneckerMiddle\ldots\ReplicateZeroPartB \\
+={}& \tabulateDirac
+\end{aligned}
+&
+\begin{array}[t]{@{}l@{}}
+\text{where}\\ \diracij \definedby
+\begin{cases}
+  \diracsi = \diracsj: & \idrisdata{1} \\
+  \diracsi \neq \diracsj:  & \idrisdata{0}
+\end{cases}
+\end{array}
+\end{array}
+\]
+The initiality of this structure follows from the normal form property
+--- every origin-intersecting linear polynomial $p$ can be represented
+as $p = \sum_{i=1}^n a_i\cdot \FreeCMonoidUnit\ \nvar\ \diracsi$:\\
+\[
+\begin{array}{@{}l@{}}
+  % NB: reverse from the codebase, hopefully that's ok!
+  \AppliedCMonoidNormalFormTypePartB
+  \\
+  \multicolumn{1}{r}{%
+    \AppliedCMonoidNormalFormTypePartC\ \AppliedCMonoidNormalFormTypePartA
+  }
+\end{array}
+\]
+Since monoid homomorphisms preserve the summation and
+multiplication-by-a-natural, the unique structure
+preserving map $\hName : \pair{\AppliedFreeCMonoidModel}{\FreeCMonoidUnit\,\nvar} \to \avar$
+is this homomorphism:
+\[
+\hName\ \idrisvar{xs}= \CMonoidUniqueMap{}
+\]
+
+This standard argument lies behind many simplifiers, as well as more
+advanced techniques like normalisation-by-evaluation. \Frexlib{} takes the same approach, but also explores how to use
+general-purpose constructions involving frals and frexes, and bespoke
+facts about algebraic structures, to construct new frals and frexes.
+
+To summarise, to implement a fral/frex simplifier, the developer
+follows these steps:
+\begin{itemize}
+\item Design a data-structure for the carrier of the frex/fral's
+  algebra, e.g.~for commutative monoids:
+  \IdrisType{Vect} \nvar{} \IdrisType{Nat} for the fral
+  and \IdrisKeyword{(}\U{} \avar{}, \IdrisType{Vect} \nvar{}
+  \IdrisType{Nat}\IdrisKeyword{)} for the frex.
+\item Equip it with a setoid algebra structure: pointwise
+  operations with propositional equality.
+\item Equip it with the appropriate additional structure, e.g.~the
+  unit for the fral and the \IdrisFunction{Var}iable function and the
+  \IdrisFunction{Embed}ding homomorphism for the frex.
+\item Define the function underlying the homomorphism into any other
+  algebra over the variable setoid or extension, e.g.~linear
+  combination for commutative monoids.
+\item Prove that this function is a homomorphism and its uniqueness.
+\end{itemize}
+These steps realise the simplifier development methodology
+we described in \secref{simplification} (page~\pageref{methodology-anchor}).
+
+\subsection{Solver Interface}\subseclabel{solver implementation}
+We can now explain the interface \Frexlib{} gives to the \IdrisFunction{solve}
+functions. We describe the frex-based interface in detail; the
+fral-based interface is similar. We implement the core functionality in the
+auxiliary function \IdrisFunction{solveVect} in \figref{solveVect}.
+\begin{figure}
+  \begin{minipage}{.75\textwidth}
+    \solveVectType[numbers=left]{}
+  \end{minipage}
+  \caption{Core frex-based simplification routine}\figlabel{solveVect}
+\end{figure}
+
+The argument \IdrisBound{frex} (line 2) is an implementation of a frex
+simplifier for some \IdrisBound{pres}-model \avar{}, extended with
+\nvar{} free variables (line 1). We erase the number of variables at
+runtime, and so we also erase the type \IdrisData{Fin} \IdrisBound{n}.
+We cast an erased type to a setoid instead of an unerased type, i.e.:
+\\[.4\baselineskip]
+\begin{tabular}{lcr}
+  \begin{minipage}[b]{.4\textwidth}
+    \irrelevantCast
+  \end{minipage}
+  &
+  instead of
+  &
+  \begin{minipage}[b]{.4\textwidth}
+    \relevantCast
+  \end{minipage}
+\end{tabular}
+\\[.4\baselineskip]
+\noindent
+The function also takes an \IdrisBound{env}ironment of terms to
+substitute for the free variables in the simplification equation (line
+2). In this auxiliary function, we present the environment using an
+\nvar-ary vector of terms over the algebra's carrier. Next comes the
+\IdrisBound{eq}uation we want to discharge (line 3), involving either
+concrete values (of type \U{} \avar) and any of the \nvar{} available
+variables. Both the \IdrisBound{frex} and the \avar{}lgebra with its
+\IdrisBound{env}ironment give rise to extensions in the formal sense,
+which we can use to give an environment
+for the \IdrisBound{eq}uation in question, namely a setoid
+homomorphism from the joint setoid of constants and free variables to
+the carrier of the model underlying the extension:
+\extEnv{}
+where:
+\begin{minipage}{.8\textwidth}
+  \setoidEither{}
+\end{minipage}
+
+We use these environments to interpret the equation, once in the
+\IdrisBound{frex} (lines 6--7) and once in the given algebra
+(lines~9--10). If the equation holds in all extensions, it will hold
+in the \IdrisBound{frex} and in \avar{}, and, moreover, homomorphisms
+of extensions will preserve this interpretation.  Interpreting this
+equation in the \IdrisBound{frex} may have better decidability
+properties over equivalence in \avar{}.
+
+We use \idris{}'s \IdrisKeyword{auto}-implicits mechanism to search
+for the equivalence of the \IdrisBound{frex} interpretations. This
+mechanism will try to find terms that resolve the implicit argument
+\IdrisBound{prf}, using a heuristic informed by unification, that will
+also attempt to apply data constructors.
+
+Typically, \idris{}'s judgemental
+equality decides
+the \IdrisBound{frex} setoid's
+equivalence relation, and the number of variables we extend by is known
+statically.  This case can happen when the equivalence relation
+on the setoid algebra \avar{} is decidable by judgemental
+equality. Then, the type of the \IdrisBound{prf} argument (line~5) is
+a propositional equality between closed terms. Judgemental
+equality decides this relation between the interpretations in the
+type of \IdrisBound{prf}.  In \idris{}, the \IdrisKeyword{auto}-search
+heuristic tries to use \IdrisData{Refl}, and promotes the required
+equation to a judgemental equality constraint.  Even when the setoid relation
+is not decidable by judgemental equality,
+making \IdrisBound{prf} an \IdrisKeyword{auto}-implicit may provide
+more functionality in the future. We may be able to
+freely extend algebras whose propositional equality is only partially
+decidable by judgemental equality (e.g.~function types in a
+type theory with function extensionality), or by a
+sophisticated decision procedure (e.g.~multiset equality).
+
+\begin{figure}
+  \begin{minipage}{.75\textwidth}
+    \Visibility{}
+    \metaPi{}
+    \metaPI{}
+  \end{minipage}
+  \caption{Metaprogramming abstractions for curried $\Pi$-types}\figlabel{meta-pi}
+\end{figure}
+
+We use metaprogramming abstractions (\figref{meta-pi}) to
+simplify the user-facing interface. The \IdrisFunction{PI} combinator
+produces an \nvar-ary telescope of
+\IdrisData{Visible}/\IdrisData{Hidden}/\IdrisData{Auto} arguments,
+packaged as an \nvar-ary vector which it passes this its argument \IdrisBound{b}.
+Using this abstraction to reduce
+\IdrisFunction{solve} (\figref{solve}) to \IdrisFunction{solveVect} (\figref{solveVect}).
+Compare their types: \IdrisFunction{solve} curries the \IdrisBound{env}ironment
+$n$-vector into $n$ implicit arguments.
+Unification can resolve these arguments to the free
+variables in the discharged equation.
+
+\begin{figure}
+  \begin{minipage}{.75\textwidth}
+    \solveType[numbers=left]{}
+  \end{minipage}
+  \caption{User-facing frex-based simplification routine}\figlabel{solve}
+\end{figure}
+
+\goodbreak
+\subsection{Powers}
+The commutative monoid structure \AppliedFreeCMonoidModel{} instantiates a general
+construction: $\Pres$-models have
+powers by setoids. The \emph{power} of an
+algebra $\A$ by a set(oid) $\X$ is the terminal
+\emph{parameterisation}.
+%
+\subseclabel{powers}
+\begin{wrapfigure}[4]{r}{2.6cm}
+  \vspace{-1\baselineskip}
+  \includegraphics{diagram-03.mps}
+\end{wrapfigure}
+%
+Parameterisations, shown succinctly on the right, are an $\X$-indexed
+collection of algebra homomorphisms $\aEval\ \f : \aModel \to \A$.
+%
+Requiring $\aEval\ \f$ to be homomorphic implies that operations are
+given pointwise. Structure preservation uses the contravariant
+action $\idrisfun{pre}\ \UH \hName$ precomposing a homomorphism $\UH
+\hName : \aModel \to \bModel$. Universality singles out
+the carrier of the power as the function-space \PowerConstruction{}.
+For $\X = \Finn$, we can represent it by $\nvar$-tuples from
+$\U\,\A$.
+
+\input{generic}

@@ -1,0 +1,19 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+  \PYG{p}{(}\PYG{k+kr}{assume} \PYG{n+nv}{a0} \PYG{p}{(}\PYG{n+nb}{exists }\PYG{p}{((}\PYG{n+nv}{x} \PYG{n+nv}{A}\PYG{p}{))} \PYG{p}{(}\PYG{n+nv}{f} \PYG{n+nv}{x}\PYG{p}{)))}
+  \PYG{p}{(}\PYG{k+kr}{anchor} \PYG{n+nf}{:step} \PYG{n+nv}{t1} \PYG{n+nf}{:args} \PYG{p}{(}\PYG{n+nb}{:= }\PYG{n+nv}{x} \PYG{n+nv}{vr}\PYG{p}{))}
+  \PYG{p}{(}\PYG{k+kr}{step} \PYG{n+nv}{t1.t1} \PYG{p}{(}\PYG{n+nb}{cl }\PYG{p}{(}\PYG{n+nb}{= }\PYG{n+nv}{x} \PYG{n+nv}{vr}\PYG{p}{))} \PYG{n+nf}{:rule} \PYG{n+nv}{cong}\PYG{p}{)}
+  \PYG{p}{(}\PYG{k+kr}{step} \PYG{n+nv}{t1.t2} \PYG{p}{(}\PYG{n+nb}{cl }\PYG{p}{(}\PYG{n+nb}{= }\PYG{p}{(}\PYG{n+nv}{f} \PYG{n+nv}{x}\PYG{p}{)} \PYG{p}{(}\PYG{n+nv}{f} \PYG{n+nv}{vr}\PYG{p}{)))} \PYG{n+nf}{:rule} \PYG{n+nv}{cong}\PYG{p}{)}
+  \PYG{p}{(}\PYG{k+kr}{step} \PYG{n+nv}{t1} \PYG{p}{(}\PYG{n+nb}{cl }\PYG{p}{(}\PYG{n+nb}{= }\PYG{p}{(}\PYG{n+nb}{exists }\PYG{p}{((}\PYG{n+nv}{x} \PYG{n+nv}{A}\PYG{p}{))} \PYG{p}{(}\PYG{n+nv}{f} \PYG{n+nv}{x}\PYG{p}{))}
+                  \PYG{p}{(}\PYG{n+nb}{exists }\PYG{p}{((}\PYG{n+nv}{vr} \PYG{n+nv}{A}\PYG{p}{))} \PYG{p}{(}\PYG{n+nv}{f} \PYG{n+nv}{vr}\PYG{p}{))))} \PYG{n+nf}{:rule} \PYG{n+nv}{bind}\PYG{p}{)}
+  \PYG{p}{(}\PYG{k+kr}{step} \PYG{n+nv}{t2} \PYG{p}{(}\PYG{n+nb}{cl }\PYG{p}{(}\PYG{n+nb}{not }\PYG{p}{(}\PYG{n+nb}{= }\PYG{p}{(}\PYG{n+nb}{exists }\PYG{p}{((}\PYG{n+nv}{vr} \PYG{n+nv}{A}\PYG{p}{))} \PYG{p}{(}\PYG{n+nv}{f} \PYG{n+nv}{x}\PYG{p}{))}
+                       \PYG{p}{(}\PYG{n+nb}{exists }\PYG{p}{((}\PYG{n+nv}{vr} \PYG{n+nv}{A}\PYG{p}{))} \PYG{p}{(}\PYG{n+nv}{f} \PYG{n+nv}{vr}\PYG{p}{))))}
+               \PYG{p}{(}\PYG{n+nb}{not }\PYG{p}{(}\PYG{n+nb}{exists }\PYG{p}{((}\PYG{n+nv}{vr} \PYG{n+nv}{A}\PYG{p}{))} \PYG{p}{(}\PYG{n+nv}{f} \PYG{n+nv}{x}\PYG{p}{)))}
+               \PYG{p}{(}\PYG{n+nb}{exists }\PYG{p}{((}\PYG{n+nv}{vr} \PYG{n+nv}{A}\PYG{p}{))} \PYG{p}{(}\PYG{n+nv}{f} \PYG{n+nv}{vr}\PYG{p}{)))} \PYG{n+nf}{:rule} \PYG{n+nv}{equiv\PYGZus{}pos1}\PYG{p}{)}
+  \PYG{p}{(}\PYG{k+kr}{step} \PYG{n+nv}{t3} \PYG{p}{(}\PYG{n+nb}{cl }\PYG{p}{(}\PYG{n+nb}{exists }\PYG{p}{((}\PYG{n+nv}{vr} \PYG{n+nv}{A}\PYG{p}{))} \PYG{p}{(}\PYG{n+nv}{f} \PYG{n+nv}{vr}\PYG{p}{)))} \PYG{n+nf}{:premises} \PYG{p}{(}\PYG{n+nv}{a0} \PYG{n+nv}{t1} \PYG{n+nv}{t2}\PYG{p}{)} \PYG{n+nf}{:rule} \PYG{n+nv}{resolution}\PYG{p}{)}
+  \PYG{p}{(}\PYG{k+kr}{define\PYGZhy{}fun} \PYG{n+nv}{X} \PYG{p}{()} \PYG{n+nv}{A} \PYG{p}{(}\PYG{n+nv}{choice} \PYG{p}{((}\PYG{n+nv}{vr} \PYG{n+nv}{A}\PYG{p}{))} \PYG{p}{(}\PYG{n+nv}{f} \PYG{n+nv}{vr}\PYG{p}{)))}
+  \PYG{p}{(}\PYG{k+kr}{step} \PYG{n+nv}{t4} \PYG{p}{(}\PYG{n+nb}{cl }\PYG{p}{(}\PYG{n+nb}{= }\PYG{p}{(}\PYG{n+nb}{exists }\PYG{p}{((}\PYG{n+nv}{vr} \PYG{n+nv}{A}\PYG{p}{))} \PYG{p}{(}\PYG{n+nv}{f} \PYG{n+nv}{vr}\PYG{p}{))} \PYG{p}{(}\PYG{n+nv}{f} \PYG{n+nv}{X}\PYG{p}{)))} \PYG{n+nf}{:rule} \PYG{n+nv}{sko\PYGZus{}ex}\PYG{p}{)}
+  \PYG{p}{(}\PYG{k+kr}{step} \PYG{n+nv}{t5} \PYG{p}{(}\PYG{n+nb}{cl }\PYG{p}{(}\PYG{n+nb}{not }\PYG{p}{(}\PYG{n+nb}{= }\PYG{p}{(}\PYG{n+nb}{exists }\PYG{p}{((}\PYG{n+nv}{vr} \PYG{n+nv}{A}\PYG{p}{))} \PYG{p}{(}\PYG{n+nv}{f} \PYG{n+nv}{vr}\PYG{p}{))} \PYG{p}{(}\PYG{n+nv}{f} \PYG{n+nv}{X}\PYG{p}{)))}
+               \PYG{p}{(}\PYG{n+nb}{not }\PYG{p}{(}\PYG{n+nb}{exists }\PYG{p}{((}\PYG{n+nv}{vr} \PYG{n+nv}{A}\PYG{p}{))} \PYG{p}{(}\PYG{n+nv}{f} \PYG{n+nv}{vr}\PYG{p}{)))}
+               \PYG{p}{(}\PYG{n+nv}{f} \PYG{n+nv}{X}\PYG{p}{))} \PYG{n+nf}{:rule} \PYG{n+nv}{equiv\PYGZus{}pos1}\PYG{p}{)}
+  \PYG{p}{(}\PYG{k+kr}{step} \PYG{n+nv}{t6} \PYG{p}{(}\PYG{n+nb}{cl }\PYG{p}{(}\PYG{n+nv}{f} \PYG{n+nv}{X}\PYG{p}{))} \PYG{n+nf}{:premises} \PYG{p}{(}\PYG{n+nv}{t3} \PYG{n+nv}{t4} \PYG{n+nv}{t5}\PYG{p}{)} \PYG{n+nf}{:rule} \PYG{n+nv}{resolution}\PYG{p}{)}
+\end{Verbatim}

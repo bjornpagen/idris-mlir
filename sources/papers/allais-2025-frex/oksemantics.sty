@@ -1,0 +1,69 @@
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{oksemantics}[2009/2/15 Ohad Kammar package for
+typesetting semantics]
+
+% various symbols...
+\DeclareFontFamily{OMX}{MnSymbolE}{}
+\DeclareFontFamily{OMX}{MnSymbolA}{}
+\DeclareSymbolFont{okMnSymbolLargeSymbols}{OMX}{MnSymbolE}{m}{n}
+\SetSymbolFont{okMnSymbolLargeSymbols}{bold}{OMX}{MnSymbolE}{b}{n}
+\DeclareFontShape{OMX}{MnSymbolE}{m}{n}{
+  <-6>  MnSymbolE5
+  <6-7>  MnSymbolE6
+  <7-8>  MnSymbolE7
+  <8-9>  MnSymbolE8
+  <9-10> MnSymbolE9
+  <10-12> MnSymbolE10
+  <12->   MnSymbolE12}{}
+\DeclareFontShape{OMX}{MnSymbolE}{b}{n}{
+  <-6>  MnSymbolE-Bold5
+  <6-7>  MnSymbolE-Bold6
+   <7-8>  MnSymbolE-Bold7
+   <8-9>  MnSymbolE-Bold8
+   <9-10> MnSymbolE-Bold9
+  <10-12> MnSymbolE-Bold10
+  <12->   MnSymbolE-Bold12}{}
+\DeclareMathDelimiter{\lsem}{\mathopen}{okMnSymbolLargeSymbols}{'102}{largesymbols}{'102}
+\DeclareMathDelimiter{\rsem}{\mathclose}{okMnSymbolLargeSymbols}{'107}{okMnSymbolLargeSymbols}{'107}
+\DeclareMathDelimiter{\langlebar}{\mathopen}{okMnSymbolLargeSymbols}{'152}{okMnSymbolLargeSymbols}{'152}
+\DeclareMathDelimiter{\ranglebar}{\mathclose}{okMnSymbolLargeSymbols}{'157}{okMnSymbolLargeSymbols}{'157}
+
+\DeclareSymbolFont{okMnSymbolArrows}{OMX}{MnSymbolA}{m}{n}
+\SetSymbolFont{okMnSymbolArrows}{bold}{OMX}{MnSymbolA}{b}{n}
+\DeclareFontShape{OMX}{MnSymbolA}{m}{n}{
+    <-6>  MnSymbolA5
+   <6-7>  MnSymbolA6
+   <7-8>  MnSymbolA7
+   <8-9>  MnSymbolA8
+   <9-10> MnSymbolA9
+  <10-12> MnSymbolA10
+  <12->   MnSymbolA12}{}
+\DeclareFontShape{OMX}{MnSymbolA}{b}{n}{
+    <-6>  MnSymbolA-Bold5
+   <6-7>  MnSymbolA-Bold6
+   <7-8>  MnSymbolA-Bold7
+   <8-9>  MnSymbolA-Bold8
+   <9-10> MnSymbolA-Bold9
+  <10-12> MnSymbolA-Bold10
+  <12->   MnSymbolA-Bold12}{}
+\DeclareMathSymbol{\rightpitchfork}{\mathrel}{okMnSymbolArrows}{136}
+\DeclareMathSymbol{\leftpitchfork}{\mathrel}{okMnSymbolArrows}{138}
+\DeclareMathSymbol{\downpitchfork}{\mathord}{okMnSymbolArrows}{139}
+
+\newcommand\foobargnat{\usefont{U}{blurb}{m}{n}{
+\char 110
+}}
+
+\DeclareFontFamily{U}{fsy}{}
+\DeclareFontShape{U}{fsy}{m}{n}{<->s*[.9]psyr}{}
+%\DeclareSymbolFont{ok@up@greek}{U}{fsy}{m}{n}
+%\DeclareMathSymbol{\uplambda}{\mathord}{ok@up@greek}{`l}
+%\newcommand{\uplambda}{\mathord{\text{\usefont{U}{fsy}{m}{n}{\char `l}}}}
+
+\newcommand\scottbrackets[1]{\left\lsem{#1}\right\rsem}
+
+\newcommand\okllparenthesis{\mathopen{\text{\usefont{U}{stmry}{m}{n}{\char
+                           "4C}}}}
+\newcommand\okrrparenthesis{\mathclose{\text{\usefont{U}{stmry}{m}{n}{\char
+                           "4D}}}}
+\newcommand\roundbrackets[1]{\okllparenthesis{#1}\okrrparenthesis}

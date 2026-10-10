@@ -1,0 +1,132 @@
+\newcommand{\sep}{\;\mid\;}
+
+\newcommand{\integer}{i}
+\newcommand{\structname}{\textrm{S}}
+\newcommand{\usage}{u}
+\newcommand{\mode}{m}
+\newcommand{\modeu}{\mu}
+\newcommand{\modu}[2]{#1\: #2}
+\newcommand{\linear}{\textrm{linear}}
+\newcommand{\shared}{\textrm{shared}}
+\newcommand{\spec}{\textrm{spec}}
+\newcommand{\prf}{\textrm{proof}}
+\newcommand{\exec}{\textrm{exec}}
+\newcommand{\lifetime}{\textrm{L}}
+\newcommand{\callability}{\textrm{O}}
+\newcommand{\datadecl}{\textrm{d}}
+\newcommand{\datadecls}{\textrm{D}}
+\newcommand{\static}{\textrm{static}}
+\newcommand{\restricted}{\textrm{restricted}}
+\newcommand{\once}{\textrm{Once}}
+\newcommand{\many}{\textrm{Many}}
+
+\newcommand{\val}{v}
+\newcommand{\expr}{e}
+\newcommand{\utyp}[2]{#1\: #2}
+\newcommand{\typ}{\tau}
+\newcommand{\typint}{\textrm{int}}
+\newcommand{\typunit}{\textrm{Unit}}
+\newcommand{\typnever}{\textrm{Never}}
+\newcommand{\typpermi}[1]{\textrm{permission}(\integer \mapsto #1)}
+\newcommand{\typopt}[1]{\textrm{Option}(#1)}
+\newcommand{\typfun}[7]{\textrm{Fn}^{#1}_{#2\: #3}\: #4\:#5\rightarrow #6\:#7}
+
+\newcommand{\exprunit}{()}
+\newcommand{\exprbottom}{\bot}
+\newcommand{\exprnone}[1]{\textrm{None}(#1)}
+\newcommand{\exprsome}[2]{\textrm{Some}(#1: #2)}
+\newcommand{\exprstruct}[2]{#1(#2)}
+\newcommand{\exprfun}[7]{\lambda^{#1}_{#2\: #3}\:#4\!:\! #5\: #6.\: #7}
+\newcommand{\exprdefault}[1]{\textrm{default}(#1)}
+\newcommand{\exprcrashnever}[1]{\textrm{crash\_never}(#1)}
+\newcommand{\exprhdata}{\textrm{hdata}()}
+\newcommand{\exprhread}{\textrm{hread}()}
+\newcommand{\exprhwrite}[1]{\textrm{hwrite}(#1)}
+\newcommand{\exprpermi}[1]{\textrm{permission}(\integer \mapsto #1)}
+\newcommand{\exprpdata}[1]{\textrm{pdata}(#1)}
+\newcommand{\exprpreadi}[1]{\textrm{pread}(\integer @ #1)}
+\newcommand{\exprpwritei}[2]{\textrm{pwrite}(\integer := #1 @ #2)}
+\newcommand{\exprdrop}[1]{\textrm{drop}(#1)}
+\newcommand{\exprcopy}[1]{\textrm{copy}(#1)}
+\newcommand{\exprseq}[2]{#1;\, #2}
+\newcommand{\exprlet}[4]{\textrm{let}\: #1\: #2 = {#3}\:\textrm{in}\:{#4}}
+\newcommand{\exprifsome}[4]{\textrm{if}\:\textrm{let}\:\textrm{Some}(#1) = #2\: \textrm{then}\: #3\: \textrm{else}\: #4}
+\newcommand{\exprletstruct}[4]{\textrm{let}\: #1(#2) = {#3}\:\textrm{in}\:{#4}}
+\newcommand{\exprapp}[2]{#1\: #2}
+\newcommand{\declstruct}[2]{#1\mapsto(#2)}
+\newcommand{\structfield}[2]{#1\:#2}
+
+\newcommand{\heapval}{h}
+\newcommand{\heaptyp}{\textrm{H}}
+\newcommand{\penv}{\textrm{P}}
+\newcommand{\xenv}{\Gamma}
+\newcommand{\lstrict}{\textrm{strict}}
+\newcommand{\llax}{\textrm{lax}}
+
+\ifextended
+  \newcommand{\laxity}{\varsigma}
+\else
+  \newcommand{\laxity}{}
+\fi
+
+\ifextended
+  \newcommand{\heapexp}[2]{(#1, #2)}
+\else
+  \newcommand{\heapexp}[2]{#2}
+\fi
+
+\newcommand{\modeless}{\sqsubseteq}
+\newcommand{\modejoin}{\sqcup}
+
+\newcommand{\turnstile}{\mbox{\Large $\vdash$}}
+\newcommand{\sturnstile}{\mbox{\normalsize $\vdash$}}
+\newcommand{\djudgment}[1]{\turnstile\; #1}
+\newcommand{\ljudgment}[3]{#1\: \turnstile\; #2 : #3}
+\newcommand{\cjudgment}[3]{#1\,;\, #2\: \turnstile\; #3 : \textrm{Copy}}
+\newcommand{\tjudgment}[2]{#1\: \turnstile\; #2}
+\newcommand{\trjudgment}[4]{#1\,;\, #2\,;\, #3\: \turnstile\; #4}
+
+\ifextended
+  \newcommand{\ejudgment}[9]{#1\,;\, #2\,;\, #3\,;\, #4\,;\, #5\: \turnstile_{\!#6}\; #7 : #8\: #9}
+\else
+  \newcommand{\ejudgment}[9]{#1\,;\, #3\,;\, #4\,;\, #5\: \turnstile_{\!#6}\; #7 : #8\: #9}
+\fi
+
+\ifextended
+  \newcommand{\sjudgment}[9]{#1\,;\, #2\,;\, #3\,;\, #4\,;\, #5\: \turnstile\; (#6, #7) : #8\: #9}
+\else
+  \newcommand{\sjudgment}[9]{#1\,;\, #3\,;\, #4\,;\, #5\: \turnstile\; #7 : #8\: #9}
+\fi
+
+\newcommand{\defjudgment}[3]{#1\: \turnstile\; #2\;\textrm{defaults\_to}\;#3}
+
+\newcommand{\envextend}[3]{#1,\:#2\mapsto #3}
+\newcommand{\envjoin}[2]{#1,#2}
+\newcommand{\envmerge}[2]{#1\:\#\:#2}
+\newcommand{\envmergen}[2]{#1\:\#\:\ldots\:\#\:#2}
+\newcommand{\domain}[1]{\textrm{domain}(#1)}
+\newcommand{\subst}[3]{#1 [ #2 := #3 ]}
+\newcommand{\msubst}[5]{#1 [ #2 := #3, \ldots, #4 := #5 ]}
+\newcommand{\ectx}{E}
+\newcommand{\ehole}{[\cdot]}
+\newcommand{\efill}[1]{\ectx[#1]}
+\newcommand{\step}{\rightarrow}
+\newcommand{\fullstep}{\longrightarrow}
+\newcommand{\versions}[2]{\textrm{versions}_#1(#2)}
+
+\newcommand{\envn}{!}
+\newcommand{\envl}{\text{!`}}
+\newcommand{\envlinear}[1]{\textrm{linear}(#1)}
+\newcommand{\envshared}[1]{\textrm{shared}(#1)}
+\newcommand{\envspec}[1]{\textrm{spec}(#1)}
+\newcommand{\envlax}[1]{\textrm{lax}(#1)}
+
+\newcommand{\modeof}[1]{\textrm{mode\_of}(#1)}
+\newcommand{\lifetimeof}[1]{\textrm{lifetime\_of}(#1)}
+\newcommand{\islinear}[1]{\textrm{is\_linear}(#1)}
+\newcommand{\isstatic}[1]{\textrm{is\_static}(#1)}
+\newcommand{\isunrestricted}[2]{\textrm{is\_unrestricted}(#1, #2)}
+\newcommand{\nonspecfunctionmodes}[4]{\textrm{non\_spec\_function\_modes}(#1, #2, #3, #4)}
+\newcommand{\functionbodycontext}[7]{\textrm{function\_body\_context}(#1, #2, #3, #4, #5, #6, #7)}
+
+\newcommand{\defaultsto}[2]{#1\: \textrm{defaults\_to}\: #2}

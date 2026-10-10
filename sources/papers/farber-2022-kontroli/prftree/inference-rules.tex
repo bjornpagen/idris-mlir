@@ -1,0 +1,43 @@
+\newcommand\typeinf{
+\prftree[r]{}
+{\phantom{A}}
+{\Gamma, \Delta \vdash \Type : \Kind}
+}
+%
+\newcommand\applinf{
+\prftree[r]{}
+{\Gamma, \Delta \vdash t : \Pi x\!:\!A.\, B}
+{\Gamma, \Delta \vdash u : A}
+{\Gamma, \Delta \vdash t\, u : B[u / x]}
+}
+%
+\newcommand\abstinf{
+\prftree[r]{}
+{\Gamma, \Delta \left\{x \to A\right\} \vdash t : B}
+{\Gamma, \Delta \vdash (\Pi x\!:\!A.\, B) : s}
+{\Gamma, \Delta \vdash (\lambda x\!:\!A.\, t) : (\Pi x\!:\!A.\, B)}
+}
+%
+\newcommand\prodinf{
+\prftree[r]{}
+{\Gamma, \Delta \vdash A : \Type}
+{\Gamma, \Delta,\, x : A \vdash t : s}
+{\Gamma, \Delta \vdash (\Pi x\!:\!A.\, t) : s}
+}
+%
+\newcommand\convinf{
+\prftree[r]{}
+{\Gamma, \Delta \vdash t : A}
+{\Gamma, \Delta \vdash B : s}
+{A \sim _{\Gamma} B}
+{\Gamma, \Delta \vdash t : B}
+}
+\centering
+\begin{tabular}{m{\widthof{Typ}} m{\widthof{\abstinf}}}
+Type & \mbox{\typeinf} \\[1.5em]
+Appl & \mbox{\applinf} \\[1.5em]
+Abst & \mbox{\abstinf} \\[1.5em]
+Prod & \mbox{\prodinf} \\[1.5em]
+Conv & \mbox{\convinf}
+\end{tabular}
+\par % needed for centering

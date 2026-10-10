@@ -1,0 +1,20 @@
+\begin{tikzpicture}[yscale=0.85]
+  \graph[no placement] {
+    "\tt theorem"[y=10] ->
+    "\tt fermat"[y=9, x=0] -> {
+      {
+        {"\tt gcd\strut"[y=8,x=-0.5], "\tt cong\strut"[y=8,x=0.5]} -> "\tt primes"[y=7,x=0],
+        "\tt sigmapi"[y=8,x=-2] -> "\tt bigops\strut"[y=7,x=-1.5]
+      } -> "\tt div"[y=6],
+      "\tt sigmapi" -> "\tt exp\strut"[y=7,x=-2.5],
+      "\tt fact\strut"[y=8,x=1.5],
+      "\tt permutation"[y=8,x=3],
+    } ->
+    "\tt nat"[y=5] ->
+    "\tt bool"[y=4] ->
+    "\tt relations"[y=3] ->
+    "\tt logic"[y=2] ->
+    "\tt connectives"[y=1] ->
+    "\tt sttfa"
+  };
+\end{tikzpicture}

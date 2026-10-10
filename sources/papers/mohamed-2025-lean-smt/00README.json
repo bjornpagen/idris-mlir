@@ -1,0 +1,17 @@
+{
+   "stamp" : true,
+   "sources" : [
+      {
+         "usage" : "toplevel",
+         "filename" : "main.tex"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "lstlean.tex"
+      }
+   ],
+   "process" : {
+      "fontmaps" : [],
+      "compiler" : "pdflatex"
+   }
+}

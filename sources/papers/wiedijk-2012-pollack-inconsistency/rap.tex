@@ -1,0 +1,1098 @@
+\documentclass{entcs}
+\usepackage{prentcsmacro,amssymb,url,alltt,graphicx,color}
+\raggedbottom
+
+\def\toolong{$\hspace{-100cm}$}
+
+\begin{document}
+
+\begin{frontmatter}
+\title{Pollack-inconsistency}
+\author{Freek Wiedijk\thanksref{rap}}
+\global\def\lastname{Wiedijk}
+\address{Institute for Computing and Information Sciences \\
+Radboud University Nijmegen \\
+Heyendaalseweg 135, 6525 AJ Nijmegen, The Netherlands}
+
+\begin{abstract}
+\parfillskip=1em plus 1fil
+For interactive theorem provers a very desirable property is \emph{consistency}:
+it should not be possible to prove false theorems.
+However, this is not enough:
+it also should not be possible to
+\emph{think}
+that a theorem that actually is false has been proved.
+More precisely: the user should be able to \emph{know} what it is that
+the interactive theorem prover is proving.
+
+To make these issues concrete
+we introduce the notion of \emph{Pollack-con\-sis\-ten\-cy}.
+This property is related to a system
+being able to correctly parse formulas that it printed itself.
+In current systems it happens regularly that this fails.
+
+We argue that a good interactive theorem prover should be Pollack-consistent.
+We show with examples that many interactive theorem provers currently are
+\emph{not} Pollack-consistent.
+Finally we describe a simple approach for
+making a system Pollack-consistent,
+which only consists of a small modification to the printing code of the system.
+
+\end{abstract}
+
+\thanks[rap]{Thanks to Randy Pollack, Mark Adams and Christian Urban for the inspiration for this note.
+Thanks to James McKinna and Josef Urban for valuable advise.
+Thanks to Makarius Wenzel for the Isabelle examples from Section~\ref{isa}.
+Thanks to the anonymous referees for helpful comments.}
+\end{frontmatter}
+
+\begin{flushright}
+\bigskip
+\small
+\emph{The most intelligent creature in the universe is a rock. \\
+None would know it because they have lousy I/O.} \\
+\smallskip
+--- quote from the Internet%
+\end{flushright}
+
+\section{Introduction}
+
+\subsection{Problem}
+
+An \emph{interactive theorem prover}, also called \emph{proof assistant}
+or \emph{proof checker} (although some proof checkers are really too simple
+to be considered interactive), is a computer program that allows a human and
+a computer to collaborate on the development of mathematical proofs.
+These \emph{formal proofs} are sufficiently detailed that -- once they are finished -- the computer
+can establish their full correctness without any human help.
+The proofs created in an interactive theorem prover can
+come both from computer science and from mathematics.
+The technology of interactive theorem proving gives an almost 100\% chance of getting all of the details
+of a proof right.\footnote{Why not the full 100\%?
+The logic of the system -- its \emph{foundations} -- might turn out to be inconsistent, for example.
+Or the user might misunderstand their own definitions, which can happen even
+in a Pollack-consistent system.
+}
+It is much better in this respect than any other method of
+proof development.
+Furthermore, although the technology is still in its infancy, already
+impressive formal theories have been constructed \cite{fox:03,gon:06,har:08,kle:09,ler:06}.
+
+Interactive theorem provers are complicated programs.
+They are similar in complexity to optimizing compilers.
+For this reason a serious worry could be that software errors -- \emph{bugs} --
+might cause errors in proofs to remain undetected.
+This would be similar to a program behaving incorrectly
+because of bugs in the compiler that compiled it,
+which of course happens occasionally.
+
+However, the situation with interactive theorem provers is different.
+Many of them are built according to the \emph{de Bruijn criterion}.
+In these systems only a very small part of the program is responsible
+for the correctness of the mathematics.
+That part can be a small separate checker (like the Ivy system
+for Otter and Prover9 \cite{mcc:shu:00}),
+but generally it is \emph{part} of the system as a `checking kernel'.
+Examples are {\small HOL}4, {\small HOL} Light, ProofPower, Isabelle, Coq, Nu{\small PRL}, Agda and Twelf.
+This criterion also might be called the \emph{micro-kernel} architecture for
+interactive theorem provers.
+This second option was first implemented in the seventies in Robin Milner's {\small LCF}
+system and therefore is also called the \emph{{\small LCF} architecture}.
+Here the kernel exports a few \emph{abstract datatypes} --
+for terms, types, formulas, proofs and so on --
+and because all mathematics is done using these datatypes, correctness
+can be guaranteed because only the kernel can manipulate this data.
+
+These \emph{{\small LCF} kernels} are sufficiently small that they
+can be inspected manually to get a very high confidence in their correctness.
+For example, the {\small HOL} Light kernel only has about 400 non-blank lines
+of code.
+For some of these systems the {code} of the kernel
+even has been \emph{formally} proved correct
+\cite{bar:96,bar:99:1,har:06}.
+
+However,
+as Randy Pollack argues in his seminal paper about these issues,
+\emph{How to Believe a Machine-Checked Proof} \cite{pol:98},
+the property of \emph{consistency} -- that the system will
+not `prove' false theorems -- is not enough.
+A serious problem is that a user might \emph{think} a theorem
+has been formally proved, while in fact he or she is misled about
+what it is that the system has actually done.
+For this reason not only the proof checking kernel
+has to be taken into account when considering the reliability of a system,
+but also the interface code.
+If a system is doing very smart things, but fails to communicate
+this to the user (like the rock from the quote at the start of this paper),
+it still will be useless.
+
+Now the issue of the user not understanding what the interactive theorem prover
+is doing is not a \emph{formal} property of the system.
+Who knows what a user might be thinking?
+However \emph{part} of it \emph{is} formal.
+That concerns the behavior of
+the code that parses a user's input and prints messages back.
+This code may behave in a manner that is `incorrect' in a way that can
+be formally defined.
+These definitions are the subject of this paper.
+
+These issues are closely related to a system not being able to parse
+what it printed itself.
+Often, a message from a system will contain a term or formula, that the
+user would like to copy/paste into the proof development.
+Generally this works, but regularly it does not.
+The system then gives error messages about its own output or sometimes,
+worse, will silently interpret it in a wrong way.
+This again is about the parsing and printing
+part of the system.
+A system that exhibits this behavior also might be called \emph{incorrect}.
+
+\subsection{Approach}
+
+\begin{figure}[tb]
+\begin{center}
+\begingroup
+\setlength{\unitlength}{2.5pt}
+\def\arraystretch{1}
+\definecolor{lightgray}{rgb}{.9,.9,.9}
+\begin{picture}(142.5,125)(0,-7.5)
+%\put(0,-7.5){\framebox(142.5,125){}}
+\put(0,55){\color{lightgray}\rule{70\unitlength}{45\unitlength}}
+\thicklines
+\put(0,0){\framebox(100,100){}}
+\put(35,50){\framebox(102.5,60){}}
+\put(92.5,23.75){\vector(0,1){26.25}}
+\put(92.5,23.75){\vector(-1,0){7.5}}
+\thinlines
+\put(100,-1){\makebox(0,0)[rt]{\strut\emph{interactive theorem prover}}}
+\put(137.5,111){\makebox(0,0)[rb]{\strut\emph{interface}}}
+\put(5,62.5){\framebox(25,30){\begin{tabular}{c}{proof}\\{checking}\\\emph{kernel}\end{tabular}}}
+\put(40,80){\framebox(25,15){\strut {parser}}}
+\put(40,60){\framebox(25,15){\strut {printer}}}
+\put(5,5){\framebox(80,37.5){\begin{tabular}{c}\emph{remainder of the system:} \\ {theorem database}, {basic reasoning}, \\ {rewriting}, {back-chaining}, \\ {proof search}, {decision procedures}, \\ {etc.}\end{tabular}}}
+\put(17.5,42.5){\vector(0,1){20}}
+\put(17.5,62.5){\vector(0,-1){20}}
+\put(40,87.5){\vector(-1,0){10}}
+\put(142.5,87.5){\vector(-1,0){10}}
+\put(107.5,87.5){\vector(-1,0){42.5}}
+\put(30,67.5){\vector(1,0){10}}
+\put(65,67.5){\vector(1,0){77.5}}
+\put(107.5,80){\framebox(25,15){\strut {editor}}}
+\end{picture}
+\endgroup
+\end{center}
+\caption{The part of an interactive theorem prover related
+to Pollack-consistency}
+\label{diagram}
+\end{figure}
+
+In Fig.~\ref{diagram} we present a diagram of a typical interactive
+theorem prover with the {\small LCF} architecture.
+The system consists of two parts: the prover itself, and the interface that
+it uses to communicate with the user.
+These parts overlap: part of the interface code is inside the system,
+but other parts are separate.
+For instance, the Proof General interface typically is separate from
+the prover.
+The \emph{editor} that is used to edit the formal proof text for the
+system also generally is outside the prover.
+
+In Fig.~\ref{diagram} we focus on two specific components of the
+interface: the \emph{parser} and the \emph{printer} of terms and formulas.
+Although the figure suggests that these are unique,
+in practice often there are multiple versions.
+For instance, a system might be able to print a term either
+in {\small ASCII} format as well as in a rich, mathematical, style.
+Also, there often are parsers for other types of input as well.
+For instance, most systems have a parser for their scripting
+language.
+The parser in Fig.~\ref{diagram} should be understood as \emph{only}
+the parser for terms and formulas,
+the other parsers are not indicated in the diagram.
+As terms and formulas are typically datatypes from
+the proof checking kernel of the system, we connected the parser
+and printer in the diagram to the kernel, although of course
+they also will often
+be called from the remainder of the system.
+
+Now the property of \emph{consistency} of a system is only concerned with
+the top left box in the figure, the proof checking kernel.
+In this paper we will introduce a notion called \emph{Pollack-consistency}
+(named after \cite{pol:98}), which concerns all three boxes in the
+shaded area of the diagram.
+We claim that a system only can be called \emph{correct}, if all of this
+(and not only the kernel) has been proved correct.
+
+To define Pollack-consistency, we need to talk about the functions in the system
+for parsing and printing terms (in the names of these functions the {\sf t} subscript indicates that
+they are for terms):
+$$
+\begin{array}{rcl}
+{\sf parse}_{\sf t} &:& {\sf string} \to {\sf term} \\
+{\sf print}_{\sf t} &:& {\sf term} \to {\sf string}
+\end{array}
+$$
+The first generally is a partial function (not all strings represent
+a term), while the second generally is total.
+Often there will be different {variants} of the ${\sf print}_{\sf t}$
+function, possibly selected by setting parameters of the system.
+In the rest of the paper we only consider the \emph{default} version of this function,
+the one that is used when running the system with all parameters
+having their default value.
+
+\begin{definition}
+\label{compatible}
+The functions ${\sf parse}_{\sf t}$ and ${\sf print}_{\sf t}$ are called \emph{compatible} if
+the output of ${\sf print}_{\sf t}$ always is in the domain of ${\sf parse}_{\sf t}$, i.e., if for all terms $t$ we have that ${\sf parse}_{\sf t}({\sf print}_{\sf t}(t))$ is defined.
+\end{definition}
+
+\begin{definition}
+\label{well-behaved}
+The functions ${\sf parse}_{\sf t}$ and ${\sf print}_{\sf t}$ are called \emph{well-behaved} if
+${\sf parse}_{\sf t}$ is a \emph{left} inverse of ${\sf print}_{\sf t}$, i.e., if
+$$\forall t.\,{\sf parse}_{\sf t}({\sf print}_{\sf t}(t)) = t$$
+\end{definition}
+
+\noindent
+Note that ${\sf parse}_{\sf t}$ generally is \emph{not} a \emph{right} inverse of ${\sf print}_{\sf t}$, i.e.
+$$\llap{$\neg$}\forall s.\,{\sf print}_{\sf t}({\sf parse}_{\sf t}(s)) = s$$
+For example we generally have that
+$${\sf parse}_{\sf t}(\mbox{\tt \char`\"x+y\char`\"}) = {\sf parse}_{\sf t}(\mbox{\tt \char`\"x + y\char`\"}) = {\sf parse}_{\sf t}(\mbox{\tt \char`\"(x + y)\char`\"})$$
+despite the fact that
+$$\mbox{\tt \char`\"x+y\char`\"} \ne \mbox{\tt \char`\"x + y\char`\"} \ne \mbox{\tt \char`\"(x + y)\char`\"}\vspace{-\bigskipamount}$$
+\begin{definition}\label{input-complete}
+The function ${\sf parse}_{\sf t}$ is called \emph{input-complete} if
+$$\forall t.\, \exists s.\, {\sf parse}_{\sf t}(s) = t$$
+I.e., if every term of the system can be written in the input language.
+\end{definition}
+
+\noindent
+Often in interactive theorem provers formulas are a special kind of terms,
+but this is not always the case.
+Therefore we also consider the parsing and printing functions for \emph{formulas},
+the statements of the logic:
+$$
+\begin{array}{rcl}
+{\sf parse}_{\sf f} &:& {\sf string} \to {\sf formula} \\
+{\sf print}_{\sf f} &:& {\sf formula} \to {\sf string}
+\end{array}
+$$
+The notions of well-behavedness, compatibility and input-completeness also make sense for
+these functions.
+
+\begin{definition}
+Let ${\cal P}$ be a proof assistant.
+A \emph{Pollack-axiom%
+\footnote{It is not
+easy to give an example of a non-trivial Pollack-axiom unrelated to
+Pollack-inconsistency,
+as generally different terms print differently.
+For this reason, examples of Pollack-axioms are postponed to the sections below,
+in which some interactive theorem provers are shown to be Pollack-inconsistent.}
+of ${\cal P}$}
+is a formula of the form
+$$t_1 = t_2$$
+where
+$${\sf print}_{\sf t}(t_1) = {\sf print}_{\sf t}(t_2)$$
+
+\noindent
+Furthermore, if the system distinguishes between terms and formulas, it also can be
+a formula of the form
+$$\phi_1 \Leftrightarrow \phi_2$$
+where
+$${\sf print}_{\sf f}(\phi_1) = {\sf print}_{\sf f}(\phi_2)$$
+
+\noindent
+The {\sf print} functions in this definition should be the \emph{default} {\sf print} functions
+of the system.
+No printing of extra type annotations, hidden arguments, coercions, etc. should be turned on
+that normally is turned off.
+However custom notation is \emph{not} excluded.
+This feature is such an ingrained part of most systems
+that excluding it does not make sense.
+We do not consider custom notation to be a deviation from the
+default printer, as well as a special form of definition.
+
+Note that the terms $t_1$ and $t_2$ and the formulas $\phi_1$ and $\phi_2$ are allowed to contain free variables.
+
+The $=$ should be the \emph{default} equality of the system.
+For instance, for Coq it should be the Leibniz equality of the system.
+
+Finally the equation $t_1 = t_2$ or the equivalence $\phi_1 \Leftrightarrow \phi_2$
+should be a correct, well-typed formula of the system.
+For instance, if in the case of {\small HOL} or  Coq the types of $t_1$ and $t_2$ differ,
+then $t_1 = t_2$ will not be a Pollack-axiom of the system, even
+if ${\sf print}_{\sf t}(t_1) = {\sf print}_{\sf t}(t_2)$.
+
+\end{definition}
+
+\noindent
+We now define four variants of the notion of Pollack-inconsistency.
+We define Pollack-inconsistency and Pollack-\emph{super}-inconsistency,
+with both notions having a strong and a weak form.%
+\footnote{%
+We make the distinction between strong and weak Pollack-inconsistency,
+because in the weak case one might claim that it is not the fault of
+the \emph{system} that it behaves in a strange way.
+Instead it is
+the fault of the \emph{user} entering `wrong' definitions.
+In that sense strong Pollack-inconsistency is worse
+than weak Pollack-inconsistency.
+}
+
+\begin{definition}
+A proof assistant ${\cal P}$ is called \emph{Pollack-inconsistent} if from
+a finite number of Pollack-axioms of ${\cal P}$ it is possible
+to derive a contradiction in ${\cal P}$.
+
+A proof assistant is called \emph{weakly} Pollack-inconsistent if
+the terms/formulas in the Pollack-axioms
+use extra definitions on top of the basic library.
+These definitions should be \emph{conservative}: they should
+just introduce new notions or notations, and not affect what can be proved
+about already existing notions.
+
+A proof assistant is called \emph{strongly} Pollack-inconsistent if
+the terms/for\-mu\-las in the Pollack-axioms that give the contradiction
+already can be written with just the basic library of ${\cal P}$ loaded,
+i.e., without extra definitions on top of the basic library.
+\end{definition}
+
+\begin{definition}
+A proof assistant ${\cal P}$ is called \emph{Pollack-super-inconsistent} if
+there exists a formula $\phi$ that is provable in ${\cal P}$ for which
+$${\sf print}_{\sf f}(\phi) = {\sf print}_{\sf f}(\bot)$$
+Here $\bot$ is the default formula for falsity in the system.
+For instance in Coq it is the constant \texttt{False} of type \texttt{Prop}.
+
+A proof assistant is called \emph{weakly} Pollack-super-inconsistent if
+the formula $\phi$
+is allowed to use extra definitions on top of the basic library.
+
+A proof assistant is called \emph{strongly} Pollack-super-inconsistent if
+the formula $\phi$
+already can be written with just the basic library of ${\cal P}$ loaded,
+i.e., without extra definitions on top of the basic library.
+\end{definition}
+
+\subsection{Related Work}
+
+Obviously the work of Randy Pollack is closely related to this paper.
+
+Some systems try hard to behave well with respect to the issues addressed
+in this paper.
+For example
+in Mark Adams's {\small HOL} Zero system the printing function
+has been especially designed to behave reasonably.
+(However, we do not know how the examples from Section~\ref{HOL_Light}
+behave in this system.)
+
+There already exists a body of literature on parsing and printing
+in interactive theorem provers (e.g., \cite{coe:zac:08}).
+The techniques discussed there can lead to a more subtle way to ensure
+Pollack-consistency than the trivial `quick shot'
+approach that we present
+in Section~\ref{discussion} below.
+
+There also has been some work on the \emph{verification} of parsers
+and printers in general (e.g., \cite{kop:bin:10}).
+However, this does not seem to have been applied yet to the
+specific case of interactive theorem proving.
+
+\subsection{Contribution}
+
+This paper defines a few obvious notions, and gives a few obvious examples
+of the printer
+of some interactive theorem provers behaving strangely.
+
+However, we think that it is important that these issues are --
+as it were -- \emph{on the table} in front of the theorem proving
+community.
+It is shocking that it is this easy to establish various forms
+of Pollack-inconsistency in many proof assistants.
+And even if the developers of these systems consider this
+not to matter, then still we would like to engender awareness of this.
+
+Our paper contributes three things:
+\begin{itemize}
+\item
+We introduce various notions of Pollack-consistency.
+
+\item
+We show by examples that many serious systems are \emph{not} Pollack-consistent.
+
+\item
+We present a simple strategy for making a system Pollack-consistent.
+%
+This strategy is designed to make it doable to formally \emph{prove}
+a system to be Pollack-consistent.
+
+\end{itemize}
+
+\subsection{Outline}
+
+This paper has the following structure.
+In Section~\ref{properties} we give some obvious properties of Pollack-consistency.
+In Sections~\ref{HOL_Light}--\ref{Metamath} we investigate the Pollack-consistency
+of several important interactive theorem provers.
+Finally in Section~\ref{conclusion} we discuss, and also present a generic approach
+for making a system Pollack-consistent.
+
+
+\section{Some properties of Pollack-consistency}
+\label{properties}
+
+We now list a few properties of the notions
+from the previous section.
+Most proofs are obvious and omitted.
+
+\begin{lemma}
+A system that is strongly Pollack-inconsistent also is weakly Pol\-lack-inconsistent.
+\end{lemma}
+
+\begin{lemma}
+A system that is strongly Pollack-super-inconsistent also is weak\-ly Pol\-lack-super-inconsistent.
+\end{lemma}
+
+\begin{lemma}
+A system that is strongly Pollack-super-inconsistent also is\break strongly
+Pollack-inconsistent.
+\end{lemma}
+
+\begin{lemma}
+A system that is weakly Pollack-super-inconsistent also is weakly
+Pol\-lack-inconsistent.
+\end{lemma}
+
+\noindent
+These four lemmas just say that the four notions of Pollack-consistency
+form the obvious diamond.
+
+\begin{lemma}
+A system that is inconsistent already is strongly Pollack-super-inconsistent.
+\end{lemma}
+
+\noindent
+Hence Pollack-consistency (any of its four forms)
+is a stronger property than consistency.
+
+\begin{lemma}
+Parsing and printing functions that are well-behaved (as defined
+in Definition~\ref{well-behaved}) also are compatible (as defined
+in Definition~\ref{compatible}) and input-complete (as defined in
+Definition~\ref{input-complete}).
+\end{lemma}
+
+\begin{lemma}
+\label{well-behaved-lemma}
+A consistent system in which the parsing and printing functions are
+well-behaved already is not weakly Pollack-inconsistent.
+\end{lemma}
+\noindent
+This means that in that case all four forms of Pollack-consistency
+hold.
+\begin{proof}
+If the parsing and printing functions are well-behaved, obviously the
+Pollack-axioms are provable by reflexivity of equality/equivalence.
+In that case the possibility to derive a contradiction
+is not dependent on the presence of Pollack-axioms.
+\end{proof}
+
+
+\section{{\normalsize HOL} Light is strongly Pollack-inconsistent and weakly
+Pollack-super-inconsistent}
+\label{HOL_Light}
+
+The first system that we look at is John Harrison's {\small HOL} Light
+system \cite{har:xx,har:00,har:07:1}.
+In this system we can have the following session:
+
+\begin{alltt}
+# `?!x:1. T`;;
+val it : term = `?!x. T`
+# `?!x:bool. T`;;
+val it : term = `?!x. T`
+\end{alltt}
+
+\noindent
+The first term is a formula that states that there exists exactly one object in the
+unit type \texttt{1}.
+The \texttt{?!} notation is {\small ASCII} for $\exists!$ and denotes
+unique existence, while the constant \texttt{T} is the formula $\top$ for truth.
+This first formula obviously is provable.
+The second term states that there exists exactly one object in the
+Booleans $\{\top,\bot\}$.
+This obviously is false.
+But both formulas print the same.
+This means that they give a Pollack-axiom that implies falsity.
+As for this example no definitions are needed beyond the basic library of the system,
+we have here an example of \emph{strong} Pollack-inconsistency.
+
+The parsing and printing functions of {\small HOL} Light
+are not \emph{well-behaved} in the sense of Definition~\ref{well-behaved}.
+In {\small HOL} Light
+${\sf print}_{\sf t}$ is called \texttt{string\char`\_of\char`\_term}
+and
+${\sf parse}_{\sf t}$ is called \texttt{parse\char`\_term}, and we have:
+\begin{alltt}
+# let t = `?!x:1. T`;;
+val t : term = `?!x. T`
+# let t' = parse_term (string_of_term t);;
+Warning: inventing type variables
+val t' : term = `?!x. T`
+# t' = t;;
+val it : bool = false
+# dest_binder "?!" t';;
+val it : term * term = (`x`, `T`)
+# type_of (fst it);;
+val it : hol_type = `:?73843`
+\end{alltt}
+The type of the variable \texttt{x} after the string is parsed
+back is a fresh `invented' type variable \texttt{?73843}.
+We have here an example of a term $t$ for which
+$${\sf parse}_{\sf t}({\sf print}_{\sf t}(t)) \ne t$$
+
+\noindent
+One can do stranger things in {\small HOL} Light.
+For instance one can create a formula that prints in a way that parses
+as a completely different formula:
+
+\begin{alltt}
+# mk_eq(mk_var("0",`:1`),mk_var("1",`:1`));;
+val it : term = `0 = 1`
+# prove(it, ONCE_REWRITE_TAC[one] THEN REFL_TAC);;
+val it : thm = |- 0 = 1
+\end{alltt}
+
+\noindent
+We here have two \emph{variables}, both of the type unit type \texttt{1}, which
+have names \texttt{0} and \texttt{1}.
+The pretty-printer of the system does not realize that something strange
+is going on with these variable names.
+But when \emph{parsing} these names, they of course will be read as
+the numbers $0$ and $1$.
+Again, we have strong Pollack-inconsistency here.
+By playing with variable names like this, one can make this example even more extreme:
+
+\begingroup
+\def\\{\char`\\}
+\begin{alltt}
+# mk_eq(mk_var("!x y z n. n > 2 /\\\\ x EXP n + y EXP n",`:1`),
+    mk_var("z EXP n ==> x = 0 /\\\\ y = 0",`:1`));;
+val it : term =
+  `!x y z n. n > 2 /\\ x EXP n + y EXP n = z EXP n ==> x = 0 /\\ y = 0`\toolong
+# prove(it, ONCE_REWRITE_TAC[one] THEN REFL_TAC);;
+val it : thm =
+  |- !x y z n. n > 2 /\\ x EXP n + y EXP n = z EXP n ==> x = 0 /\\ y = 0\toolong
+\end{alltt}
+\endgroup
+
+\noindent
+It does not seem possible to establish \emph{strong} Pollack-\emph{super}-inconsistency for
+{\small HOL} Light.
+But, even without extra definitions one \emph{can} have terms that print as `\texttt{F}' exactly like $\bot$ and even have
+the right type, but are \emph{not} falsity:
+\begin{alltt}
+# `F`;;
+val it : term = `F`
+# type_of it;;
+val it : hol_type = `:bool`
+# mk_var("F",`:bool`);;
+val it : term = `F`
+# type_of it;;
+val it : hol_type = `:bool`
+\end{alltt}
+However, if we are allowed extra definitions we can introduce the notation \texttt{F}
+for truth (which normally prints like \texttt{T}):
+\begin{alltt}
+# let f_tm = `F`;;
+val f_tm : term = `F`
+# override_interface("F",`T`);;
+val it : unit = ()
+# f_tm;;
+val it : term = `F`
+# `T`;;
+val it : term = `F`
+# prove(`F`, ACCEPT_TAC TRUTH);;
+val it : thm = |- F
+\end{alltt}
+This clearly shows that {\small HOL} Light is
+weakly Pollack-super-inconsistent.
+
+Note that after this definition, it is not possible anymore to enter
+$\bot$ as \texttt{F}.
+We lost the property of input-completeness for falsity.
+Of course {\small HOL} Light without this definition already is very
+much input-incomplete.
+
+
+\section{Isabelle is strongly Pollack-inconsistent and weak\-ly Pol\-lack-super-inconsistent}
+\label{isa}
+
+The tricks for {\small HOL} Light also work
+in Isabelle \cite{isa:xx,nip:pau:wen:02}:
+
+\begin{alltt}
+> lemma "EX! x::unit. True"\medskip
+proof (prove): step 0\medskip
+goal (1 subgoal):
+ 1. EX! x. True
+>  by auto
+lemma EX! x. True
+\end{alltt}
+
+\begin{alltt}
+> notation True ("False")
+> lemma False\medskip
+proof (prove): step 0\medskip
+goal (1 subgoal):
+ 1. False
+>  ..
+lemma False
+\end{alltt}
+
+\noindent
+The lines prefixed by \texttt{>} are the input processed by Isabelle,
+while the lines without that prefix are the output from the system.
+In the first example it is shown that Isabelle omits types in quantifiers
+in exactly the same way as {\small HOL} Light does.
+In the second example Isabelle proves a statement that reads \texttt{False}
+by changing the notation for \texttt{True} in the system.
+
+%This shows that Isabelle also is Pollack-inconsistent
+%as well as Pollack-super-inconsistent.
+
+
+\section{Coq is weakly Pollack-super-inconsistent}
+\label{coq}
+
+We did not manage to establish strong Pollack-inconsistency of the Coq
+system \cite{coq:xx,coq:08}.
+However, the weak forms are easy, by playing with coercions.
+A \emph{coercion} is a function that is supposed to be an embedding
+or projection.
+It does not need to be written
+by the user and is inferred by the system.
+This just affects parsing and printing, and does not logically change anything.
+However, one can abuse this mechanism.
+For instance consider:
+
+\begin{alltt}
+Coq < Coercion S : nat >-> nat.
+S is now a coercion\medskip
+Coq < Check 0.
+0
+     : nat\medskip
+Coq < Check 1.
+0
+     : nat
+\end{alltt}
+
+\noindent
+Here the successor function is declared a coercion, and will not
+be printed.
+Clearly the equation $0 = 1$ is now a Pollack-axiom,
+which obviously makes Coq Pollack-inconsistent.
+
+To get Pollack-\emph{super}-inconsistency for Coq, one can apply the same
+trick with negation:
+
+\begin{alltt}
+Definition _Prop := Prop.
+Definition _not : _Prop -> Prop := not.
+Coercion _not : _Prop >-> Sortclass.\medskip
+\end{alltt}
+
+\noindent
+These definitions make the following Coq session possible:
+
+\begin{alltt}
+Coq < Lemma _I : _not False.
+1 subgoal\medskip
+  ============================
+   False\medskip
+_I < exact (fun x => x).
+Proof completed.\medskip
+_I < Qed.
+exact (fun x => x).
+_I is defined\medskip
+Coq < Check _I.
+_I
+     : False
+\end{alltt}
+
+\noindent
+The formula for which \texttt{\char`\_I} is a proof prints
+like falsity, and Coq is weakly Pollack-super-inconsistent.
+
+
+\section{Mizar is weakly Pollack-inconsistent}
+\label{Mizar}
+
+The Mizar system \cite{muz:93,try:xx} in a strict sense does not have a printing
+function.
+All it prints are error numbers associated with specific locations in the source files.
+Therefore the notion of Pollack-inconsistency does not apply to it.
+However, there is an \emph{interface} for Mizar by Josef Urban,
+built on top of emacs \cite{urb:06:1,urb:06:2}.
+This is installed by default with the system,
+and it \emph{does} contain code to print Mizar formulas to {\small HTML}.
+Hence, if we take the Mizar system to include this environment,
+the notion of Pollack-inconsistency becomes applicable.
+
+Consider the following Mizar text:
+\begin{alltt}
+definition let x be real number;
+  func [x] equals 1; coherence;
+end;\medskip
+definition let x be natural number;
+  func [x] equals 0; coherence;
+end;\medskip
+theorem [0] <> [0 qua real number];
+\end{alltt}
+The number \texttt{0} both has the types \texttt{natural} \texttt{number}
+and \texttt{real} \texttt{number}.
+The second definition of \texttt{[x]} hides the first, hence
+the value of \texttt{[0]} is \texttt{0}.
+However, if one removes the type \texttt{natural} \texttt{number} using the \texttt{qua} construction,
+the second definition does not apply anymore, and the value becomes \texttt{1}.
+Of course these numbers are different, and hence the \texttt{theorem} is accepted
+without error messages.
+
+What we see here is Mizar's overloading in action: the two \texttt{[x]}s are mathematically
+unrelated but use the same notation.
+The syntax is disambiguated by the
+type of the argument.
+
+Now if we generate a web page for this text using Josef Urban's environment,
+the formula is printed \emph{without} the \texttt{qua}:
+
+\def\shiftbf#1{\strut\rlap{#1}\hspace{.3pt}#1}
+\begin{alltt}
+\shiftbf{theorem} \textsl{:: POLLACK:1}
+\underbar{[}\underbar{0} \underbar{]} \underbar{<>} \underbar{[}\underbar{0} \underbar{]} ;
+\end{alltt}
+
+\noindent
+This shows that \texttt{[0]} and \texttt{[0} \texttt{qua} \texttt{real} \texttt{number]} are identified in a Pollack-axiom, and that Mizar therefore is Pollack-inconsistent.
+
+The underlined characters in this example
+are hyperlinks to the definitions of the notions.
+In the {\small HTML} source the two terms
+are \emph{not} identical, as the two links point at different definitions.
+Still if one just looks at the characters that one would copy/paste 
+back into a Mizar file -- which seems the natural choice
+for the output of ${\sf print}_{\sf t}$ in Mizar -- then the system \emph{is}
+Pollack-inconsistent.
+
+Josef Urban pointed out to me that one can have a Mizar symbol 
+for a provable predicate that parses and prints like `\texttt{0=1}'.
+However, \emph{this} would affect the parser and printer in the same way,
+and therefore this would not lead to Pollack-inconsistency.
+It just would be a very confusing notation.
+
+
+\section{Metamath is Pollack-consistent}
+\label{Metamath}
+
+It is much easier to show that a system is Pollack-inconsistent
+than to show that it is Pollack-consistent.
+In the first case it is sufficient to exhibit an example of one or more Pollack-axioms that imply a contradiction,
+while in the second case one needs to \emph{prove} a relationship
+between rather complicated parsing
+and printing functions.
+Generally for a serious system that will be quite difficult.
+
+However, there is one system for which establishing Pollack-consistency
+is trivial:
+Norman D.~Megill's Metamath system \cite{meg:xx,meg:97}.
+In Metamath there is no distinction between strings and terms/formulas,
+and the parsing and printing functions therefore are taken to be the identity.
+Obviously these functions are well-behaved in the sense
+of Definition~\ref{well-behaved}, and therefore
+the system is automatically Pollack-consistent by Lemma~\ref{well-behaved-lemma}.
+
+
+\section{Conclusion}
+\label{conclusion}
+
+\subsection{Discussion}
+\label{discussion}
+
+When discussing Pollack-inconsistency with users of interactive
+theorem prov\-ers, often they appear to consider it a non-issue.
+They agree that the printing function of their system
+sometimes can be a bit quirky
+and misleading, but then they argue that if it really is needed then one can turn
+on more information in the printing function.
+The fact that \emph{on the inside} of
+the system everything is guaranteed to be meaningful seems to be sufficient for them.
+
+This attitude of interactive theorem prover users
+is a bit reminiscent of how computer algebra users
+react to the fact that computer algebra systems like Mathematica
+and Maple occasionally behave in an inconsistent way, due to the
+lack of semantics for the expressions in such a system.
+The system is useful to the user, one can find out what is going on if one
+wants it, and therefore no problem is perceived.
+
+It is hard to argue with this attitude.
+If no problem is felt, then in some sense there \emph{is} no problem.
+
+However, if one \emph{does} agree that Pollack-consistency is important and
+one \emph{would} like to have a system be Pollack-consistent,
+and even in a way that makes it realistic to formally prove it,
+we suggest the following approach.
+
+One writes \emph{another} printing function ${\sf print}_{\sf t}^{\sf failsafe}$, that gives
+output which is trivial to parse correctly.
+For instance there are brackets everywhere, all coercions are printed,
+there are type annotations everywhere, and so on.
+One might even use a completely different syntax -- possibly {\small XML} --
+with special bracketing to distinguish it from `normal' term syntax.
+
+One also adapts the parsing function to a function ${\sf parse}'_{\sf t}$ that not only parses
+`normal' term syntax appropriately, but also recognizes the output
+of ${\sf print}_{\sf t}^{\sf failsafe}$ and parses that correctly as well.
+This last requirement should be easy to fulfill because of the design of
+${\sf print}_{\sf t}^{\sf failsafe}$.
+
+This means that we then have three functions
+$$
+\begin{array}{lcl}
+{\sf print}_{\sf t} &:& {\sf term} \to {\sf string} \\
+{\sf print}_{\sf t}^{\sf failsafe} &:& {\sf term} \to {\sf string} \\
+{\sf parse}'_{\sf t} &:& {\sf string} \to {\sf term}
+\end{array}
+$$
+which satisfy the property
+$$\forall t.\,{\sf parse}'_{\sf t}({\sf print}_{\sf t}^{\sf failsafe}(t)) = t$$
+
+\noindent
+Now one combines the two printing functions into a new printing function
+in the following way (we use {\small ML} style syntax here):
+\begin{quote}\sf
+\medskip
+\strut \textbf{let} print$'_{\sf t}$ $t$ \textbf{=} \\
+\strut\quad\textbf{let} $s$ = (print$_{\sf t}$ $t$) \textbf{in} \\
+\strut\quad\textbf{if} (parse$'_{\sf t}$ $s$) = $t$ %\\
+%\strut\quad
+\textbf{then} $s$ %\\
+%\strut\quad
+\textbf{else} (print$_{\sf t}^{\sf failsafe}$ $t$)
+\medskip
+\end{quote}
+First one prints the term in the usual way, but then one also parses
+it back, to make sure one gets the original term that way.
+If that is \emph{not} the case, then one `falls back' on the
+failsafe version of the printer, which of course is certain to
+get the right parsing.
+With this definition obviously we get the well-behavedness property
+$$\forall t.\,{\sf parse}'_{\sf t}({\sf print}'_{\sf t}(t)) = t$$
+and therefore the system is Pollack-consistent.
+
+This approach will make printing slower, as every time something is printed
+the output also will be parsed back.
+However, printing is not a bottleneck in most interactive theorem
+provers, and probably this will not be an important issue.
+
+If the function ${\sf print}_{\sf t}^{\sf failsafe}$ is too extreme,
+and just prints a lot of `gibberish' for a term, then this approach, while formally
+making a system Pollack-consistent, mainly makes the system point
+out where the original printing function does not behave well
+by in that case giving unreadable output.
+
+It will be an interesting challenge to design a printing function for
+{\small HOL} Light that handles the examples from Section~\ref{HOL_Light}
+well -- i.e., it does \emph{not} print a lot of gibberish in those cases -- while still
+satisfying the well-behavedness property.
+
+\subsection{Future work}
+
+The main task ahead of us is to convince the makers of interactive
+theorem provers that these issues are worth looking into.
+That is, to convince them to modify their parsing/printing functions to make their
+systems Pollack-consistent.
+Or at least to make these functions closer to being well-behaved than they
+are today.
+
+In Sections~\ref{HOL_Light}--\ref{Mizar} we established some
+Pollack-inconsistencies of some systems, but we
+did not determine with certainty
+where they are on the Pollack-inconsis\-tency spectrum.
+For example, it would be interesting to know
+whether Coq
+is strongly Pollack-inconsistent as well.
+This will need close scrutiny of the Coq standard library.
+We also should investigate the Pollack-consistency of
+other interactive theorem provers, like {\small PVS}, the B method, {\small ACL}2 and Twelf.
+In particular the Twelf syntax might be simple enough that
+Pollack-consistency can be established without too much difficulty for this system.
+
+It is interesting to speculate what a proof of
+Pollack-consistency would look
+like for a pretty-printer that is more subtle than one that
+just uses the trick with
+the failsafe printer described above.
+One might base such a proof on ruling out the various pathological
+cases showed in this paper: using constants as identifiers, hiding types, etc.
+One also might identify abstract properties against
+which individual systems could be checked and that could serve as guidelines when designing a new proof
+assistant, a new version of a proof assistant or simply a new interface to a proof assistant.
+
+Finally it would be attractive to have a system for which the Pollack-consis\-ten\-cy
+has been \emph{formally} proved.
+An obvious choice for this would be a modified version of {\small HOL} Light,
+as for this system the consistency of the kernel already has been established \cite{har:06}.
+
+
+%\bibliographystyle{plain}
+%\bibliography{frk}
+
+\begin{thebibliography}{10}
+
+\bibitem{bar:96}
+Bruno Barras.
+\newblock {Coq en Coq}.
+\newblock Rapport de Recherche 3026, INRIA, October 1996.
+
+\bibitem{bar:99:1}
+Bruno Barras.
+\newblock {\em Auto-validation d'un syst{\`e}me de preuves avec familles
+  inductives}.
+\newblock Th{\`e}se de doctorat, Universit{\'e} Paris~7, November 1999.
+
+\bibitem{coe:zac:08}
+Claudio~Sacerdoti Coen and Stefano Zacchiroli.
+\newblock {Spurious Disambiguation Errors and How to Get Rid of Them}.
+\newblock {\em Mathematics in Computer Science}, 2(2):355--378, 2008.
+
+\bibitem{coq:xx}
+{The Coq Proof Assistant}.
+\newblock \emph{Web page} \texttt{http://coq.inria.fr/}.
+
+\bibitem{coq:08}
+{Coq Development Team}.
+\newblock {\em The Coq Proof Assistant Reference Manual}, 2008.
+
+\bibitem{fox:03}
+Anthony Fox.
+\newblock {Formal Specification and Verification of ARM6}.
+\newblock In D.A. Basin and B.~Wolff, editors, {\em TPHOLs 2003}, volume 2758
+  of {\em LNCS}. Springer, 2003.
+
+\bibitem{gon:06}
+Georges Gonthier.
+\newblock {A computer-checked proof of the Four Colour Theorem}.
+\newblock \texttt{http://research.{\penalty
+  100}microsoft.com/\char`\~gonthier/4colproof.pdf}, 2006.
+
+\bibitem{har:xx}
+John Harrison.
+\newblock {The HOL Light theorem prover}.
+\newblock \emph{Web page} \texttt{http://www.cl.cam.ac.uk/{\penalty
+  100}\char`\~jrh13/hol-light/}.
+
+\bibitem{har:00}
+John Harrison.
+\newblock {\em The HOL Light manual (1.1)}, 2000.
+
+\bibitem{har:06}
+John Harrison.
+\newblock {Towards self-verification of HOL Light}.
+\newblock In Ulrich Furbach and Natarajan Shankar, editors, {\em Proceedings of
+  the Third International Joint Conference IJCAR 2006}, volume 4130 of {\em
+  LNCS}, pages 177--191, Seattle, WA, 2006. Springer.
+
+\bibitem{har:07:1}
+John Harrison.
+\newblock {\em {HOL Light Tutorial (for version 2.20)}}, 2007.
+
+\bibitem{har:08}
+John Harrison.
+\newblock {Formalizing an Analytic Proof of the Prime Number Theorem}.
+\newblock In R.~Boulton, J.~Hurd, and K.~Slind, editors, {\em {Tools and
+  Techniques for Verification of System Infrastructure}}. The Royal Society,
+  2008.
+
+\bibitem{isa:xx}
+{Isabelle}.
+\newblock \emph{Web pages}
+  \texttt{http://www.cl.cam.ac.uk/research/hvg/Isabelle/} \emph{and}
+  \texttt{http://{\penalty 100}isabelle.{\penalty 100}in.tum.de/}.
+
+\bibitem{kle:09}
+Gerwin Klein et~al.
+\newblock {seL4: formal verification of an OS kernel}.
+\newblock In J.N. Matthews and Th. Anderson, editors, {\em {Proceedings of the
+  ACM SIGOPS 22nd symposium on Operating systems principles}}, pages 207--220,
+  2009.
+
+\bibitem{kop:bin:10}
+Adam Koprowski and Henri Binsztok.
+\newblock {TRX}: A formally verified parser interpreter.
+\newblock In {\em Proceedings of the 19th European Symposium on Programming
+  (ESOP '10)}, volume 6012 of {\em LNCS}, pages 345--365, 2010.
+
+\bibitem{ler:06}
+Xavier Leroy.
+\newblock {Formal Certification of a Compiler Back-end, or: Programming a
+  Compiler with a Proof Assistant}.
+\newblock In {\em {POPL'06}}, 2006.
+
+\bibitem{mcc:shu:00}
+William McCune and Olga Shumsy.
+\newblock {Ivy: A Preprocessor and Proof Checker for First-Order Logic}.
+\newblock In Matt Kaufmann, Panagiotis Manolios, and J~Strother Moore, editors,
+  {\em {Computer-Aided Reasoning: ACL2 Case Studies}}. Kluwer Academic
+  Publishers, 2000.
+
+\bibitem{meg:xx}
+Norman~D. Megill.
+\newblock {Metamath Home Page}.
+\newblock \emph{Web page} \texttt{http://us.metamath.org/}.
+
+\bibitem{meg:97}
+Norman~D. Megill.
+\newblock {Metamath, A Computer Language for Pure Mathematics}.
+\newblock \texttt{http://us.{\penalty 100}metamath.org/downloads/metamath.pdf},
+  1997.
+
+\bibitem{muz:93}
+Micha{\l} Muzalewski.
+\newblock {\em An Outline of PC Mizar}.
+\newblock Fondation Philippe le Hodey, Brussels, 1993.
+
+\bibitem{nip:pau:wen:02}
+Tobias Nipkow, Larry Paulson, and Markus Wenzel.
+\newblock {\em Isabelle/HOL --- A Proof Assistant for Higher-Order Logic},
+  volume 2283 of {\em LNCS}.
+\newblock Springer, 2002.
+
+\bibitem{pol:98}
+Randy Pollack.
+\newblock {How to Believe a Machine-Checked Proof}.
+\newblock In G.~Sambin and J.~Smith, editors, {\em Twenty-Five Years of
+  Constructive Type Theory}. Oxford University Press, Oxford, 1998.
+
+\bibitem{try:xx}
+Andrzej Trybulec et~al.
+\newblock {Mizar Home Page}.
+\newblock \emph{Web page} \texttt{http://mizar.org/}.
+
+\bibitem{urb:06:1}
+Josef Urban.
+\newblock {MizarMode - an integrated proof assistance tool for the Mizar way of
+  formalizing mathematics}.
+\newblock {\em J. Applied Logic}, 4(4):414--427, 2006.
+
+\bibitem{urb:06:2}
+Josef Urban.
+\newblock {XML-izing Mizar: Making Semantic Processing and Presentation of MML
+  Easy}.
+\newblock In M.~Kohlhase, editor, {\em MKM}, volume 3863 of {\em LNCS}, pages
+  346--360. Springer, 2006.
+
+\end{thebibliography}
+
+\end{document}

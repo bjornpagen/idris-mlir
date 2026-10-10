@@ -1,0 +1,1236 @@
+﻿<html>
+<head><meta http-equiv="content-type" content="text/html;charset=utf-8">
+<title>Operators and Functions</title>
+<link href="adoc.css" rel=stylesheet>
+</head>
+
+<body>
+
+<br>
+
+<table width=520 align=center><tr><td>
+
+<p align=center><font size=+2>Operators and Enclosed Arrays</font><br><br>
+<b>Bob Bernecky<br>
+and<br>
+Kenneth E. Iverson<br>
+I.P. Sharp Associates Limited<br>
+Toronto, Ontario</b></p>
+
+<br><hr>
+
+
+
+<a name="intro"></a>
+
+<p>In this paper we propose the introduction into
+APL of three functions and three operators,
+present their definitions,
+indicate the broad classes of applications,
+treat their relationship with other proposals,
+and discuss the order in which they are being
+introduced into the implementation
+with which we work.</p>
+
+<p>The two main functions are <i>enclose</i>,
+which produces a scalar encoding of its argument,
+and its left inverse <i>disclose</i>.
+The three operators concern application axes
+and forms of composition.
+They are important in their own right,
+but have special significance in conjunction
+with the enclose and disclose functions 
+because they extend the applicability of
+all functions to the arrays produced by enclose.</p>
+
+<p>The following conventions will be used throughout the paper:</p>
+
+<table>
+<tr><td valign=top>&#149;</td><td>&nbsp;</td><td>
+Direct definition of functions
+<acronym title=
+"Iverson, K.E., Elementary Analysis, APL Press, 1976.">[1]</acronym>
+will be used, as in<tt> f:&nbsp;+/⍳⍵</tt>&nbsp;.
+ </td></tr>
+<tr><td valign=top>&#149;</td><td>&nbsp;</td><td>
+Expressions such as<tt> g←+.× </tt>will be used
+to assign a name to a derived function.
+ </td></tr>
+<tr><td valign=top>&#149;</td><td>&nbsp;</td><td>
+Complementary indexing will be used in referring to axes.
+Thus<tt> ⎕io-1 </tt>will refer to the last 
+axis,<tt> ⎕io-2 </tt>to the penultimate axis, and so on.
+ </td></tr>
+<tr><td valign=top>&#149;</td><td>&nbsp;</td><td>
+1-origin indexing will be used.  
+Hence 0 will refer to the last axis of an array.
+ </td></tr>
+<tr><td valign=top>&#149;</td><td>&nbsp;</td><td>
+Names beginning with the characters<tt> f </tt>and<tt> g </tt>
+will denote functions;
+all other names will denote variables.
+ </td></tr>
+</table>
+<br>
+
+
+
+<a name="A"></a>
+<p><b>A. Enclose and Disclose</b></p>
+
+<p>The functions <i>enclose</i><tt> </tt>(<tt>&lt;</tt>)<tt> </tt>
+and <i>disclose</i><tt> </tt>(<tt>&gt;</tt>)<tt> </tt>
+are monadic functions defined as follows:</p>
+
+<table>
+<tr><td valign=top>1.</td><td>&nbsp;</td><td>
+<tt>0=⍴⍴&lt;a</tt>
+ </td></tr>
+<tr><td valign=top>2.</td><td>&nbsp;</td><td>
+<tt>&gt;&lt;a </tt>is identical to<tt> a</tt>
+ </td></tr>
+<tr><td valign=top>3.</td><td>&nbsp;</td><td>
+If<tt> a </tt>is a <i>simple</i> array 
+(i.e. of present APL), then<tt> &gt;a </tt>
+is identical to<tt> a</tt>&nbsp;.
+ </td></tr>
+<tr><td valign=top>4.</td><td>&nbsp;</td><td>
+Catenation applies to<tt> &lt;a </tt>as
+to other quantities of rank<tt> 0</tt>&nbsp;,<tt> </tt>
+and other structural and select functions
+(such as reshape, compression, and indexing)
+are extended accordingly.
+ </td></tr>
+<tr><td valign=top>5.</td><td>&nbsp;</td><td>
+The function<tt> &gt; </tt>(defined above
+only for an argument of rank<tt> 0</tt>)<tt> </tt>
+applies to each element of its argument<tt> a </tt>
+to produce an overall result of shape<tt> (⍴a),s</tt>&nbsp;,<tt> </tt>
+where<tt> s </tt>is the shape (necessarily common)
+of each of the individual disclosed results produced.
+For example, if<tt> a←(&lt;⍳3),&lt;3+⍳3</tt>&nbsp;,<tt> </tt>
+then<tt> ⍴&gt;a </tt>is<tt> 2&nbsp;3</tt>&nbsp;<tt> </tt>
+and<tt> ,&gt;a </tt>is<tt> ⍳6</tt>&nbsp;,<tt> </tt>
+whereas<tt> &gt;(&lt;⍳3),&lt;⍳2 </tt>
+would yield an error. 
+ </td></tr>
+</table>
+
+<p>The dyadic function <i>idem</i><tt> </tt>(<tt>≡</tt>)<tt> </tt>
+yields a boolean scalar, which is<tt> 0 </tt>
+if the arguments differ in shape or in any one of their elements.
+Two elements<tt> ai </tt>and<tt> bi </tt>
+differ if both are simple and if<tt> ai≠bi</tt>&nbsp;,<tt> </tt>
+if one is simple and the other is not, or 
+if<tt> ~(&gt;ai)≡(&gt;bi)</tt>&nbsp;.<tt> </tt>
+In particular,<tt> ''≡⍳0 </tt>is<tt> 1</tt>&nbsp;.</p>
+
+<p>The definitions of the functions<tt> ∊ </tt>
+and<tt> ⍳ </tt>are presently based upon
+comparisons for equality<tt> </tt>(<tt>=</tt>);<tt> </tt>
+their extension to enclosed arrays is based upon 
+the function<tt> ≡</tt>&nbsp;.
+<br>&nbsp;</p>
+
+
+
+<a name="B"></a>
+<p><b>B. Composition and Related Operators</b></p>
+
+<p>The operators to be defined apply not only
+to functions, but also to variables,
+and the names of the operators are chosen
+to suggest their use in both contexts.
+For example, the operator<tt> ⍤ </tt>will 
+be called <i>on</i> because the derived 
+function<tt> f⍤j </tt>applies<tt> f </tt>
+<i>on</i> the subarrays specified by the 
+axes<tt> j</tt>&nbsp;,<tt> </tt>
+and because the function<tt> f⍤g </tt>
+applies the function<tt> f </tt><i>on</i>
+the result of<tt> g</tt>&nbsp;.<tt> </tt>
+All derived functions are assumed 
+to be ambivalent, and the 
+monadic and dyadic cases must both be defined.</p>
+
+
+<a name="B1"></a>
+<p><b>1. The operator<tt> ⍤ </tt>(on)</b>.
+A variable argument to the operator<tt> ⍤ </tt>
+determines the <i>application</i> axes,
+that is, the axes of the subarrays on which
+the function argument applies.
+In the monadic case<tt> f⍤(&lt;ir)b</tt>&nbsp;,<tt> </tt>
+the argument<tt> b </tt>is treated as
+a &ldquo;<i>frame</i>&rdquo; of 
+shape<tt> s←(~(⍳⍴⍴b)∊ir)/⍴b </tt>which contains
+subarrays of shape<tt> (⍴b)[ir]</tt>&nbsp;,<tt> </tt>
+and the result can be considered
+as a frame of shape<tt> s </tt>
+which contains subarrays each of the
+(necessarily common) shape<tt> sir</tt>&nbsp;<tt> </tt>
+which is the shape of the individual result
+obtained by applying<tt> f </tt>
+to one of the subarrays of<tt> b</tt>&nbsp;.<tt> </tt>
+The shape of the overall result is 
+therefore<tt> s,sir</tt>&nbsp;.<tt> </tt>
+For example, if<tt> ⍴b </tt>is<nobr> <tt>2 3 4 5</tt>&nbsp;,<tt> </tt></nobr>
+then the shape of<tt> <nobr>,⍤(&lt;1 3) b</nobr> </tt>
+is<nobr><tt> 3 5 8 </tt>&nbsp;,<tt> </tt></nobr>
+the shape of<tt> &lt;⍤(&lt;1&nbsp;3)&nbsp;b </tt>
+is<tt> 3&nbsp;5</tt>&nbsp;,<tt> </tt>
+and the shape of<nobr><tt> &gt;&lt;⍤(&lt;1 3) b </tt></nobr>
+is<nobr><tt> 3 5 2 4</tt>&nbsp;.</nobr></p>
+
+<p>The dyadic case<nobr><tt> a f⍤((&lt;il),&lt;ir) b </tt></nobr>
+is defined analogously,
+with<tt> il </tt>and<tt> ir </tt>
+determining the application axes
+for the left and right arguments, respectively.
+The shapes of the left and right frames
+must normally agree.
+However, if one is empty,
+then the corresponding argument is used
+with each subarray of the other argument.
+This provides, in effect, a useful generalization
+of the notion of scalar extension.</p>
+
+<p>Scalar extension is also assumed for the argument
+of the operator itself;
+that is, in the dyadic case<tt> f⍤j </tt>
+is equivalent to<tt> f⍤(2⍴j)</tt>&nbsp;.<tt> </tt>
+Moreover, in the monadic case,
+the last element of<tt> j </tt>is used,
+that is,<tt> f⍤j </tt>is equivalent
+to<tt> f⍤(''⍴⌽j)</tt>&nbsp;.</p> 
+
+<p>The subarrays of the derived function<tt> f⍤j </tt>
+are specified explicitly by<tt> j</tt>&nbsp;,<tt> </tt>
+and the frames are specified implicitly
+as the remaining axes.
+In the expression<tt> j⍤f </tt>
+the converse is true;<tt> j </tt>
+specifies the frames explicitly
+and the subarrays implicitly.</p>
+
+<p>We will refer to the subarrays of a right
+(left) argument<tt> b </tt>to which
+a function<tt> g </tt>applies as the
+<i>right</i> (<i>left</i>)<tt> g</tt>-<i>arrays 
+of</i><tt> b</tt>&nbsp;,<tt> </tt>
+and to the corresponding frame 
+as the <i>right</i> (<i>left</i>)<tt> g</tt>-<i>frame
+of</i><tt> b</tt>&nbsp;.<tt> </tt>
+We will also refer to the left 
+and right<tt> g</tt>-arrays
+as <i>cells</i>.</p>
+
+<p>In what follows we will have occasion
+to specify identities which apply for
+a given argument only in the sense
+that they apply for each of the cells
+of the argument.  We will indicate
+such a <i>cell identity</i>
+by the symbol<tt> →←</tt>&nbsp;,<tt> </tt>
+rather than by the<tt> ←→ </tt>
+used for a full identity.</p>
+
+<p>The composition<tt> f⍤g </tt>is defined by
+the following cell-identities:</p>
+
+<pre>
+     f⍤g b →← f g b
+   a f⍤g b →← (g a) f g b
+</pre>
+
+<p>For example, if the shape of<tt> b </tt>
+is<tt> <nobr>2 3 4 5</nobr> </tt>
+and<tt> g←+/⍤(&lt;1&nbsp;3&nbsp;4)</tt>&nbsp;,<tt> </tt>
+then<tt> ,⍤g&nbsp;b </tt>is a<tt> 3 </tt>by<tt> 8 </tt>
+matrix, each row consisting of the ravelled sums
+over the last axis of subarrays 
+of shape<nobr><tt> 2 4 5</tt>&nbsp;.</nobr></p>
+
+
+<a name="B2"></a>
+<p><b>2. The operator<tt> ¨ </tt>(with)</b>.
+The derived function<tt> f¨g </tt>
+(read as<tt> f </tt>with<tt> g</tt>)<tt> </tt>
+is sometimes called the dual of<tt> f </tt>
+with respect to<tt> g</tt>&nbsp;.<tt> </tt>
+It differs from the function<tt> f⍤g </tt>
+only in that the function inverse to<tt> g </tt>
+is applied to each individual result. 
+Formally,</p>
+
+<pre>
+     f¨g b →← gi f g b
+   a f¨g b →← gi (g a) f g b
+</pre>
+
+<p>In many cases of interest, the function<tt> g </tt>
+possesses only a right inverse or a left inverse,
+but not a true inverse;
+in such cases a formal inverse will be 
+assumed to be defined for the purposes 
+of the operator<tt> ¨</tt>&nbsp;.<tt> </tt>
+For example, the square and square root functions
+will be assumed to be formal inverses,
+as will enclose and disclose.</p>
+
+<p>The same operator used 
+with a variable argument<tt> x </tt>
+produces a monadic derived function
+by assigning<tt> x </tt>as one of
+the arguments of the function involved.
+Formally,</p>
+
+<pre>
+   x¨f y →← x f y
+   f¨x y →← y f x
+</pre>
+
+<p>For example,<tt> *¨2 </tt>and<tt> *¨.5 </tt>
+are the square and square root functions,
+and the length function
+(that is,<tt> l:(+/⍵*2)*.5</tt>)<tt> </tt>
+could be written as<tt> *¨.5⍤(+/⍤(*¨2)) </tt>or,
+since the square and square root
+are formal inverses, as<tt> +/¨(*¨2)</tt>&nbsp;.</p>
+
+<p>Again, if the left<tt> f</tt>-frame 
+of<tt> x </tt>is not empty, each individual
+result of<tt> x¨f </tt>is the collection
+of results obtained by applying each
+left<tt> f</tt>-array of<tt> x </tt>
+as the left argument of<tt> f</tt>&nbsp;,<tt> </tt>
+and the shape of each individual result is 
+therefore the shape of the<tt> f</tt>-frame
+of<tt> x </tt>catenated with the shape
+of<tt> x1&nbsp;f&nbsp;y1</tt>&nbsp;,<tt> </tt>
+where<tt> x1 </tt>and<tt> y1 </tt>
+are left and right<tt> f</tt>-array
+of<tt> x </tt>and<tt> y</tt>&nbsp;.<tt> </tt>
+Thus,<tt> 1&nbsp;2¨○&nbsp;a </tt>
+will produce an overall result of
+shape<tt> (⍴a),2</tt>&nbsp;.</p>
+
+
+<a name="B3"></a>
+<p><b>3. The operator<tt> ⍥ </tt>(along)</b>.
+Certain functions apply to an array by
+first splitting it into subarrays <i>along</i>
+some one axis and then treating the 
+one-dimensional collection of sub-arrays
+produced.
+In present APL these include reduction,
+scan, grade, and permutations such
+as reverse and rotate.</p>
+
+<p>The right argument of the operator<tt> ⍥ </tt>
+determines the axis along which the derived
+function applies.
+For example, if<tt> ⍴a </tt>
+is<nobr><tt> 4 5 4 </tt>&nbsp;,</nobr><tt> </tt>
+the expression<tt> ⌽⍥2&nbsp;a </tt>
+splits<tt> a </tt>into a collection of 5
+subarrays along axis 2, reverses
+the order of the collection,
+and produces a result of the same shape 
+as<tt> a</tt>&nbsp;;<tt> </tt>
+the expression<tt> +.×⍥2/a </tt>
+also splits<tt> a </tt>into 5 
+square 4 by 4 matrices, and produces
+the 4 by 4 inner product over the
+5 matrices;<tt> +.×⍥2\a </tt>
+produces a collection of 5 inner products,
+giving an overall result of 
+shape<nobr><tt> 4 4, 5</tt>&nbsp;;</nobr><tt> </tt>
+and<tt> +⍥0\a </tt>splits<tt> a </tt>
+(along the last axis) into 4 matrices
+of shape<tt> 4&nbsp;5</tt>&nbsp;,<tt> </tt>
+and forms the four sums required by
+the scan into an array of 
+shape<nobr><tt> 4 5, 4</tt>&nbsp;.</nobr></p>
+
+<p>The placement of axes in the final result
+is determined as follows for the four cases
+of grade, permutation, reduction, and scan.
+No question arises in the cases of grade
+and reduction, since the former necessarily
+produces a single axis (i.e. a vector result),
+and the latter produces a single result
+whatever shape results from the reduction.
+In the case of a permutation,
+the splitting axis retains its position
+so that the result always has the same shape
+as the argument,
+and in the case of scan the extra axis
+is placed after those produced by the several
+reductions which comprises the scan.</p>
+
+<p>Applied to two <i>functions</i>, 
+the operator<tt> ⍥ </tt>produces an alternate
+form of composition defined for the dyadic case
+as follows:</p>
+
+<pre>
+   a f⍥g b →← f a g b
+</pre>
+
+<p>The definitions of the various cases
+of the three operators<tt> ⍤</tt>&nbsp;,
+<tt> ¨</tt>&nbsp;,<tt> </tt>
+and<tt> ⍥ </tt> are collected in Table 1.
+A study of the table suggests two useful
+mnemonic devices: 
+<nobr>1) the compositions</nobr><tt> f⍤g </tt>
+and<tt> f⍥g </tt>differ in the valence
+used for<tt> g</tt>&nbsp;,<tt> </tt>
+the larger valence being associated
+with the larger symbol, and
+2) monadic cases are derived from
+the corresponding dyadic cases
+by removing all subexpressions
+involving the left argument.</p>
+
+<table align=center>
+<tr><td><b>Name</b></td><td><tt>&nbsp;</tt></td>
+ <td><b>Expression</b></td><td><tt>&nbsp;</tt></td>
+ <td><b>Monadic</b></td><td><tt>&nbsp; &nbsp; &nbsp;</tt></td>
+ <td><b>Dyadic</b></td></tr>
+<tr><td>&nbsp;</td></tr>
+<tr><td>On</td><td></td>
+ <td><tt>f⍤g</tt></td><td></td><td><tt>f g ⍵</tt></td><td></td>
+ <td><tt>(g⍺) f g ⍵</tt></td></tr>
+<tr><td></td><td></td>
+ <td><tt>f⍤i</tt></td><td></td><td colspan=3>Apply on axes<tt> i</tt></td></tr>
+<tr><td></td><td></td>
+ <td><tt>i⍤f</tt></td><td></td><td colspan=3>Apply within frame<tt> i</tt></td></tr>
+<tr><td>&nbsp;</td></tr>
+<tr><td>With</td><td></td>
+ <td><tt>f¨g</tt></td><td></td><td><tt>gi f g ⍵</tt></td><td></td>
+ <td><tt>gi (g⍺) f g ⍵</tt></td></tr>
+<tr><td></td><td></td>
+ <td><tt>x¨g</tt></td><td></td><td><tt>x g ⍵</tt></td></tr>
+<tr><td></td><td></td>
+ <td><tt>g¨x</tt></td><td></td><td><tt>⍵ g x</tt></td></tr>
+<tr><td>&nbsp;</td></tr>
+<tr><td>Along</td><td></td>
+ <td><tt>f⍥g</tt></td><td></td><td><tt>f g ⍵</tt></td><td></td>
+ <td><tt>f ⍺ g ⍵</tt></td></tr>
+<tr><td></td><td></td>
+ <td><tt>f⍥i</tt></td><td></td><td colspan=3>Split along axis<tt> i</tt></td></tr>
+</table>
+<p align=center><b>Table of Operators<br>Table 1</b></p>
+
+<a name="B4"></a>
+<p><b>4. Index origin</b>.
+Although the value of<tt> x </tt>produced
+by the expression<tt> x←⍳5 </tt>depends
+upon the index origin in effect, subsequent
+changes in<tt> ⎕io </tt>will not change
+the value of<tt> x</tt>&nbsp;.<tt> </tt>
+In the same way, the expressions<tt> f⍤i </tt>
+and<tt> i⍤f </tt>and<tt> f⍥i </tt>depend
+upon the index origin,
+but the definition of the function<tt> g </tt>
+produced by an expression such 
+as<tt> g←f⍥i </tt>is determined by 
+the index origin in effect at the time
+of execution,
+and the behaviour of<tt> g </tt>is unaffected
+by later changes in<tt> ⎕io</tt>&nbsp;.<tt> </tt>
+For example, if<tt> ⎕io←1 </tt>
+and<tt> g←f⍥1 </tt>then the splitting axis
+of<tt> g </tt>is the <i>leading</i> axis,
+and remains so even though the <i>index</i>
+of the leading axis becomes<tt> 0 </tt>
+when<tt> ⎕io </tt>is later assigned 
+the value<tt> 0</tt>&nbsp;.</p>
+
+<a name="B5"></a>
+<p><b>5. Rank of a function</b>. The axes to which the derived 
+function<tt> f⍤j </tt>apply are a property of that function,
+a property that must be known in order to apply the function
+properly.
+Although the application axes must be known
+for all functions,
+they have in the past been treated implicitly and have,
+perhaps, not received the attention they now merit.</p>
+
+<p>For example, the fundamental definition 
+of the matrix inverse function<tt> ⌹ </tt>
+requires application to two axes,
+and if it were formally defined to
+apply to the last two axes,
+then<tt> ⌹a </tt> would have the same meaning
+as<tt> ⌹⍤(&lt;¯1&nbsp;0)</tt>&nbsp;,<tt> </tt>
+and the function<tt> ⌹ </tt>would extend
+usefully to arrays of rank greater than two.</p>
+
+<p>Although the operator<tt> ⍤ </tt>
+allows the specification of an arbitrary set
+of application axes,
+it should, in defining the application axes
+of primitive functions,
+suffice to specify the number of axes
+to which they apply, 
+and to assume that these are the final axes.</p>
+
+<p>The number of axes to which a function
+applies will be called the <i>rank</i>
+of the function.
+Thus the derived function<tt> f⍤j </tt>
+has a left rank 
+of<tt> ⍴&gt;''⍴j</tt>&nbsp;,<tt> </tt>
+and a right rank of<tt> ⍴&gt;''⍴⌽j</tt>&nbsp;.</p>
+
+<p>Although<tt> ⌹ </tt>provides an example of a function
+that should probably be assigned a fixed rank of 2,
+it is commonly advantageous to assign unlimited rank
+to a function, since the operator<tt> ⍤ </tt>can always
+be applied to specialized it as required.
+For example, the inner product<tt> +.× </tt>
+has unlimited rank,
+and can be specialized in many useful ways,
+using expressions such 
+as<nobr><tt> +.×⍤(2 1 ,⍤&lt; 1 2)</nobr></tt>&nbsp;,<nobr><tt> </tt>
+or<nobr><tt> +.×⍤ 3 1</tt>&nbsp;,<tt> </tt></nobr>
+or<tt> +.×⍤0</tt>&nbsp;.
+<br>&nbsp;</p>
+
+
+
+<a name="C"></a>
+<p><b>C. Applications</b></p>
+
+<p>Instead of attempting to provide a large number
+of examples of the application of
+enclosed arrays and composition operators,
+we will discuss two general classes of
+problems which they address, namely,
+representations, and the systematic 
+extension of mixed functions to arrays
+of higher rank.</p>
+
+
+<a name="C1"></a>
+<p><b>1. Representations</b>.
+Although a number is represented by
+a sequence of digits and a word is represented
+by a sequence of characters,
+it is convenient to be able to treat
+each number and each word as a single entity.
+In APL, the former is possible,
+but the latter is not.</p>
+
+<p>The type of &ldquo;scalar&rdquo; representation
+accorded numbers could be adopted
+to incorporate as scalars other things
+now representable only by non-scalar arrays:
+words, sentences, and paragraphs on the one hand,
+and complex numbers, natural numbers,
+polynomial coefficient vectors, and 
+rotation matrices on the other.
+The adoption of some of these
+(such as complex numbers and words)
+might be practical, but the list is endless,
+and it is important to introduce a general method
+for producing and using scalar representations.
+The enclose function provides the ability to
+produce such representations, and the composition
+and other operators provide the facility 
+for conveniently applying arbitrary functions
+to them.</p>
+
+<p>For example, 
+if<nobr><tt> enc: (&lt;(k-1)↑⍵),enc(k←⍵⍳' ')↓⍵ : 0=⍴⍵ : ⍵</tt>&nbsp;,</nobr><tt> </tt>
+then<tt> z←enc&nbsp;text </tt>is a vector
+of the enclosed words from the character
+string<tt> text</tt>&nbsp;,<tt> </tt>
+and<tt> z⍳&lt;'the' </tt>gives the index
+of the first occurrence of the 
+word<tt> 'the'</tt>&nbsp;.</p>
+
+<p>We will illustrate the matter of representation
+further by two numerical examples,
+the first concerning vectors of various shapes,
+and the second concerning arrays of various ranks.</p>
+
+<p>The polynomial 
+function<nobr><tt> pf: +/c×⍵*⍳⍴c </tt></nobr>
+can be represented by the vector<tt> c</tt>&nbsp;,<tt> </tt>
+and the representation of the product of two 
+polynomial functions represented by<tt> c </tt>
+and<tt> d </tt>is then given 
+by<tt> c&nbsp;p&nbsp;d</tt>&nbsp;,<tt> </tt>
+where:
+
+<pre>
+   p: ⍺+.×((⍳⍴⍺)∘.=(⍳⍴1↓⍺,⍵)∘.-⍳⍴⍵)+.×⍵
+</pre>
+
+<p>A family of polynomials can then be
+represented as a vector<tt> v </tt>
+whose elements are enclosed vectors,
+and the representation of the product over
+such a family is then given by the
+expression<tt> p¨&gt;/v</tt>&nbsp;.</p>
+
+<p>For example, 
+if<tt> v←(&lt;a),(&lt;b),(&lt;c)</tt>&nbsp;<tt> </tt>then:</p>
+
+<pre>
+   p¨&gt;/v
+   (&lt;a)p¨&gt;(&lt;b)p¨&gt;(&lt;c)       Def of reduction
+   (&lt;a)p¨&gt; &lt;(&gt;&lt;b) p (&gt;&lt;c)   Def of dual
+   (&lt;a)p¨&gt; &lt; b p c
+   &lt;(&gt;&lt;a)p &gt;&lt; b p c         Def of dual
+   &lt;a p b p c
+</pre>
+
+<p>The Taylor&rsquo;s Series approximation
+to a function<tt> f </tt>can be represented 
+by the values of the successive derivatives
+at some point<tt> x</tt>&nbsp;,<tt> </tt>
+and the approximate value of<tt> f&nbsp;x+s </tt>
+is then given as a sum of terms resulting from
+applying some dyadic function<tt> g </tt>
+to the argument<tt> s </tt>and to each
+of the derivatives.
+For the case of a scalar function<tt> f</tt>&nbsp;,<tt> </tt>
+each derivative is a scalar, and the function<tt> g </tt>
+is simply the product of<tt> (s*k)÷!k </tt>
+with the<tt> k</tt>&nbsp;th derivative.</p>
+
+<p>For the case of vector functions, 
+the<tt> k</tt>&nbsp;th derivative is represented
+by an array of rank<tt> k+1</tt>&nbsp;,<tt> </tt>
+and the Taylor&rsquo;s Series approximation
+at<tt> x </tt>can therefore be represented
+by a vector<tt> v </tt>of enclosed arrays
+of ranks 1, 2, 3, etc.
+The terms in the summation 
+approximating<tt> f&nbsp;x+s </tt>
+are then<tt> (&gt;v[1])÷!0</tt>&nbsp;,<tt> </tt>
+and<tt> (s+.×&gt;v[2])÷!1</tt>&nbsp;,<tt> </tt>
+and<tt> (s+.×s+.×&gt;v[3])÷!2</tt>&nbsp;,<tt> </tt>
+and so on.
+The approximation is therefore given by:</p>
+
+<pre>
+   +/s¨g⍤&gt;v
+</pre>
+
+<p>where<nobr><tt> g: ⍺ g ⍺+.×⍵÷¯1+⍴⍴⍵ : 1=⍴⍴⍵ : ⍵</tt></nobr></p>
+
+<a name="C2"></a>
+<p><b>2. Extensions of mixed functions</b>. 
+Scalar functions, because they have rank 0 and produce
+results of rank 0, extend simply 
+and systematically to arrays;
+mixed functions, which do not share these properties,
+do not extend so neatly.
+However, compositions with enclose and 
+disclose provide a general extension scheme,
+because for an arbitrary function<tt> f</tt>&nbsp;,<tt> </tt>
+the related function<tt> f⍤&gt; </tt>has rank 0,
+the function<tt> &lt;⍥f </tt>
+has a result of rank 0,
+and the function<tt> f¨&gt; </tt>
+has 0 rank and 0 result rank,
+and therefore extends like a scalar function.
+<br>&nbsp;</p>
+
+
+
+<a name="D"></a>
+<p><b>D. Related Proposals</b></p>
+
+<p>The &ldquo;strict&rdquo; enclose function
+defined in this paper produces a result which
+differs from its argument in every case,
+and corresponds to the enclose function associated
+with &ldquo;Axiom System 1&rdquo; in papers
+on general arrays
+[<acronym title=
+"Ghandour, Z., and J. Mezei, Generalized Arrays, Operators, and Functions, IBM Journal of Research and Development, 1973-07.">2</acronym>
+<acronym title=
+"Brown, J.A., A Generalization of APL, Ph.D. Thesis, Department of Systems and Information Sciences, University of Syracuse, 1971.">3</acronym>
+<acronym title=
+"More, T., Axioms and Theorems for a Theory of Arrays, IBM Journal of Research and Development, 1973-03.">4</acronym>
+<acronym title=
+"Gull, W.E., and M.A. Jenkins, Recursive Data Structures in APL, Communications of the ACM, Vol. 22, No. 2, 1979-02.">5</acronym>].
+It therefore differs from the &ldquo;permissive&rdquo;
+enclose of Axiom System 0,
+which produces no change when applied to a simple array
+of rank 0.</p>
+
+<p>The present proposal differs from most of the general
+array proposals in three major points:
+1) the primitive scalar functions are not presently
+extended to enclosed arrays, and can be applied
+to them only through composition 
+with the disclose function,
+2) there is no definition of &ldquo;fill elements&rdquo;
+(exemplified in present APL by the space and the zero
+in the expansion and (over) take functions)
+for enclosed arrays such as those provided by the
+&ldquo;prototypes&rdquo; of the cited references,
+and 3) empty arrays are always simple.</p>
+
+<p>However, as the concluding section makes clear,
+the present definitions leave largely open the
+possibility of such extensions,
+and the implementation plans will keep them
+open for some time to come.
+In particular, the use of strict enclose does <i>not</i>
+necessitate (as the permissive enclose does necessitate)
+the introduction of heterogeneous arrays
+<acronym title=
+"Gull, W.E., and M.A. Jenkins, Recursive Data Structures in APL, Communications of the ACM, Vol. 22, No. 2, 1979-02.">[5]</acronym>,
+not does it preclude their later introduction.</p>
+
+<p>Readers familiar with other proposals may wish
+to make comparisons by using the functions and operators
+defined here to duplicate or approximate constructs
+in these other proposals.
+For example, the <i>each</i> operator
+<acronym title=
+"More, T., On the Composition of Array-Theoretic Operators, IBM Cambridge Scientific Center, Report #320-2113, 1976-05.">[6]</acronym>
+applied to a function<tt> f </tt>is equivalent
+to<tt> f¨&gt; </tt>except for the case where
+every result produced by<tt> f </tt>
+is a simple scalar.
+The operators <i>each right</i> and <i>each left</i>
+can be approximated by expressions
+of the form<tt> x¨f¨&gt;y</tt>&nbsp;,<tt> </tt>
+and<tt> f¨y¨&gt;x</tt>&nbsp;.<tt> </tt>
+Moreover, the definition of a permissive enclose
+function<nobr><tt> pe: &lt;⍵ : simplescalar ⍵ : ⍵ </tt></nobr>
+would make<tt> pe⍤f⍤&gt; </tt>
+equivalent to the <i>each</i> operator on<tt> f </tt>
+and, if the function<nobr><tt> pd: &gt;⍵ </tt></nobr>
+were declared to be the formal inverse 
+of<tt> pe</tt>&nbsp;,<tt> </tt>
+then<tt> f¨pd </tt>would also be equivalent to
+the <i>each</i> operator.</p>
+
+<p>As a further example,
+the function <i>raise along axis</i><tt> i </tt>
+defined by Gull and Jenkins
+<acronym title="Gull, W.E., and M.A. Jenkins, Recursive Data Structures in APL, Communications of the ACM, Vol. 22, No. 2, 1979-02.">[5]</acronym>,
+may be written as<tt> &lt;⍤(&lt;i)</tt>&nbsp;<tt> </tt>
+and is, in fact, more general than 
+the raise function since<tt> i </tt>
+may specify a vector of axes rather than one.
+Finally, the function<tt> &gt; </tt>
+itself (because it has rank 0)
+is a generalization of the Gull and Jenkins
+function <i>lower</i>.</p>
+
+<p>As a final example, consider the indexing and
+other facilities proposed for applying functions
+at the &ldquo;leaves&rdquo; and other &ldquo;levels&rdquo;
+of an enclosed array.  The recursively defined function:</p>
+
+<pre>
+   f: f¨&gt;⍵ : t⍵ : g⍵
+</pre>
+
+<p>applies to its argument the function<tt> g </tt>
+at a level determined by a test of the items
+at each level performed by the function<tt> t</tt>&nbsp;.<tt> </tt>
+In particular, the function
+<nobr><tt> f: f¨&gt; ⍵ : simplescalar ⍵ : g ⍵ </tt></nobr>
+applies<tt> g </tt>at the leaves.</p>
+
+The operators defined here are similar to those
+proposed in
+<acronym title=
+"Iverson, K.E., Operators and Functions, IBM Research Division Report RC7091, 1978-04-26.">[7]</acronym>,
+although the symbols and names differ in most cases.
+In particular, the cases<tt> f⍤i </tt>
+and<tt> i⍤f </tt> were called <i>axis</i> operators,
+and the operator <i>with</i>,
+because it produces a derived function
+which is a <i>dual</i> of its left argument,
+was called the <i>dual</i> operator.</p>
+
+<p>Gull and Jenkins
+<acronym title="Gull, W.E., and M.A. Jenkins, Recursive Data Structures in APL, Communications of the ACM, Vol. 22, No. 2, 1979-02.">[5]</acronym> 
+provide and extensive bibliography on enclosed arrays.
+<br>&nbsp;</p>
+
+
+
+<a name="E"></a>
+<p><b>E. Related Functions and Operators</b></p>
+
+<p>The three operators and three functions defined
+at the outset represent a rather minimal set required
+to introduce the use of enclosed arrays 
+in an effective manner.
+There are, however, many related functions
+and operators which should receive some attention
+in assessing the utility of this minimal set.
+We will here discuss only one function
+and one operator in this class.</p>
+
+
+<a name="E1"></a>
+<p><b>1. Format function</b>. 
+The function is the extension of the monadic 
+format<tt> </tt>(<tt>⍕</tt>)<tt> </tt>
+to enclosed arrays, as proposed by
+Jenkins and Michel
+<acronym title=
+"Jenkins, M.A., and J. Michel, Operators in APL Including Nested Arrays, Technical Report #78-60, Dept. of Computing and Information Science, Queen’s University, Kingston, Ontario, 1978-03.">[8]</acronym>.
+Briefly, the extended definition
+formats each enclosed element independently into a matrix,
+and pads them with spaces to form with their neighbouring
+elements a rectangular array of characters.
+There follows an APL model of the function 
+and examples of its use.
+The examples were produce on SHARP APL,
+and in reading them one must recognize that 
+the monadic format function
+on that system differs from some 
+in not providing a leading blank column
+for all numeric matrices:</p>
+
+<pre>      
+th:(i,(⍴y)÷(×/i←¯2↓j),1)⍴y←1 C c s⍉s((×/¯1↓j),¯1↑1,j←⍴⍵)⍴e,⍵
+  :x≡&gt;x←1↑,⍵
+  :⍕⍵
+
+  e: (&lt;(⌽0,0⌊2-⍴⍴z)↓h z←th&gt;''⍴⍵),e 1↓⍵ : 0=⍴⍵ : ''
+
+  h:h(1⌽(¯2↓s),×/¯2↑s←¯1⌽⍴x)⍴x←(k+⌽2=+\1+0×k←⍴⍵)↑⍵
+   :2≥⍴⍴⍵
+   :(¯2↑1 1,⍴⍵)⍴⍵
+
+  s: ((ms a)S a←(1↓⌽⍴⍵)⍴⍉⍵)s 0 1↓⍵: 0=1↓⍴⍵ : ⍵
+
+   ms: (¯1↑⍴&gt;''⍴⍵)⌈ms 1↓⍵ : 0=⍴⍵ : 0
+
+   S: (&lt;⍉((⍴⍴x)↑⌽2↑⍺,⍴x)↑x←&gt;''⍴⍵),⍺S 1↓⍵ : 0=⍴⍵ : ''
+
+  c: (&lt;0 C x),c 1 0↓⍵ : (×/⍴⍵)=×/⍴x←(1↓⍴⍵)⍴⍵ : &lt;0 C x
+
+   C: x,[⎕io+⍺×1&lt;⍴⍴x←&gt;''⍴⍵]⍺C 1↓⍵ : 1=⍴⍵ : &gt;''⍴⍵
+
+
+      th (&lt;2 3⍴'abcdef'),&lt;3 4⍴¯1+⍳12
+abc 0  1  2  3 
+def 4  5  6  7 
+    8  9 10 11 
+
+a:&lt;2 3⍴'abcdef'
+ta:&lt;⍉&gt;a
+n:&lt;3 2⍴¯1+⍳6
+tn:&lt;⍉&gt;n
+b:&lt;'      '
+bm:&lt;0 8⍴''
+
+      th 3 2⍴b,b,a,ta,n,n
+                
+abc   ad
+def   be
+      cf
+0 1   0 1
+2 3   2 3
+4 5   4 5
+
+      th 3 2⍴bm,bm,a,ta,n,n
+abc     ad
+def     be
+        cf
+0 1     0 1
+2 3     2 3
+4 5     4 5
+
+      th 2 1⍴tn,&lt;a,ta
+0 2 4
+1 3 5
+abcad
+defbe
+   cf
+
+      th z←2 2 1⍴tn,&lt;a,ta
+0 2 4
+1 3 5
+abcad
+defbe
+   cf
+
+0 2 4
+1 3 5
+abcad
+defbe
+   cf
+
+      ⍴th z
+2 5 5
+</pre>
+
+<p>If<tt> x </tt>is a single array,
+the expression<tt> th&lt;x </tt>can often
+be used to advantage.
+For example, if<nobr><tt> x←3 2 4 ⍴⍳24</tt>&nbsp;,</nobr><tt> </tt>
+then the shape of<tt> th&lt;x </tt>
+is<tt> 8&nbsp;11</tt>&nbsp;,<tt> </tt>
+whereas the shape of<tt> th&nbsp;x </tt>
+is<tt> 3&nbsp;2&nbsp;11</tt>&nbsp;,<tt> </tt>
+although the printed results are indistinguishable.</p>
+
+
+<p>The utility of the extended function in report
+formatting can be seen from examples such
+as<tt> th&nbsp;x </tt>
+and<nobr><tt> th 2 3⍴(3⍴bm),x</tt>&nbsp;,</nobr><tt> </tt>
+where:</p>
+
+<pre>
+x←(&lt;cities),(&lt;population),&lt;country
+</pre>
+
+
+<a name="E2"></a>
+<p><b>2. Partitioning operator</b>.
+The convenience of enclosed arrays 
+can be greatly enhanced by a &ldquo;partitioning&rdquo;
+function which partitions an array along some one axis
+according to some criterion (such as spaces
+or other delimiters in the argument,
+or an associated boolean argument),
+enclosing each of the parts,
+and catenating the enclosed parts.  Smith
+<acronym title=
+"Smith, Bob, A Programming Technique for Non-Rectangular Data, APL Quote Quad, Vol. 9, No. 4 — Part 1 (APL 79 Conference Proceedings), 1979.">[9]</acronym>
+has discussed the use of such partitioning 
+in the context of simple arrays.</p>
+
+<p>Instead of a partitioning function we propose
+a partitioning <i>operator</i> of the 
+form<tt> f&nbsp;op&nbsp;m</tt>&nbsp;,<tt> </tt>
+where the two-row matrix<tt> m </tt>determines
+a partitioning of the argument of the
+derived function into a vector frame of subarrays
+to which the function<tt> f </tt>
+is applied individually.
+In particular, the derived 
+function<tt> &lt;&nbsp;op&nbsp;m </tt>
+partitions the argument into a vector of enclosed subarrays,
+thus providing a partition <i>function</i> 
+as a special case.</p>
+
+<p>The partitioning occurs along some one axis,
+and the general case can therefore be easily
+obtained from the case of a vector argument
+of the derived function.</p>
+
+<p>The non-negative integer matrix<tt> m </tt>
+determines the partitioning as follows.
+Each element of the first row<tt> b </tt>
+specifies the number of partitions beginning
+at the corresponding position,
+and the second row<tt> e </tt>determines
+the number ending at each position,
+in the following manner:
+if<tt> i </tt>is the first non-zero position 
+of<tt> b</tt>&nbsp;,<tt> </tt>
+then<tt> b[i] </tt> partitions begin
+at position<tt> i </tt>and end at the
+first<tt> b[i] </tt>positions specified 
+by<tt> ×e</tt>&nbsp;,<tt> </tt>
+unless<tt> b[i]&gt;+/×e</tt>&nbsp;,<tt> </tt>
+in which case the last<tt> b[i]-+/×e </tt>
+positions continue to the end.
+The process is then repeated with<tt> b[i] </tt>
+set to zero,
+and with<tt> 1 </tt>subtracted from each
+position of<tt> e </tt>used.</p>
+
+<p>The function<tt> p </tt>models the process,
+providing a boolean result whose successive columns
+represent the successive partitions:</p>
+
+<pre>
+p:(((⍴q)↑e/0 1↓l,0)&lt;q←b/l←x∘.≥x←⍳⍴⍺),(⍺-b)p ⍵-e←⍵⌊n≥+\×⍵
+ :0=n←+/b←⍺×&lt;\×⍺
+ :⍺∘.=''
+</pre>
+
+<p>For example, all contiguous partitions of order 4
+are given by:</p>
+
+<pre>
+      4 3 2 1 p 1 2 3 4
+1 1 1 1 0 0 0 0 0 0
+0 1 1 1 1 1 1 0 0 0
+0 0 1 1 0 1 1 1 1 0
+0 0 0 1 0 0 1 0 1 1
+</pre>
+
+<p>The function<tt> p </tt>above employs the extended
+definition of compression called <i>replication</i>
+<acronym title=
+"Bernecky, Bob, SHARP APL TECHNICAL NOTES, I.P. Sharp Associates Limited, SATN 34, Replication, 1980-08-26.">[11]</acronym> 
+which for the vector case is defined by</p>
+
+<pre>
+rep: ((1↑⍺)⍴(1↑⍵)),(1↓⍺)rep(1↓⍵) : 0=⍴⍵ : ⍵
+</pre>
+
+<p>The following functions are convenient for experimentation:</p>
+
+<pre>
+alph: (r⌽b←' ',(k,1)⍴(1↓k←⍴r←⍉⍵)↑'abcdefghijklmn')[;;⎕io]
+test: (alph r),' ',⍉1 0⍕r←⍺ p ⍵
+
+   r←1 1 1 1 1 0 0 0
+
+   r test ⌽r             (r∨~r) test ⌽r       r test r
+ abcd     11110000    abcd     11110000    a        10000000 
+  bcde    01111000     bcde    01111000     b       01000000 
+   cdef   00111100      cdef   00111100      c      00100000 
+    defg  00011110       defg  00011110       d     00010000 
+     efgh 00001111        efgh 00001111        e    00001000 
+                           fgh 00000111
+                            gh 00000011
+                             h 00000001
+</pre>
+
+<p>The first two examples above show a &ldquo;fixed window&rdquo;
+and a &ldquo;fixed window with trailing fragments&rdquo;.
+The arguments for other useful cases such as
+increasing and decreasing windows can be easily formed.</p>
+
+<p>In the partitioning operator,
+the two vectors specifying beginning and end points
+are combined in a single 2-row matrix argument;
+it will probably be useful to also define
+the case of a vector argument in which 
+a boolean vector specifies the beginning points
+of simple partitions.
+<br>&nbsp;</p>
+
+
+
+<a name="F"></a>
+<p><b>F. Implementation Plans</b></p>
+
+<p>Our implementation plans are guided by
+three considerations:
+to make the fundamental facilities available
+as early as possible,
+to defer further design decisions so as
+to benefit fully from experience in the use
+of the fundamental facilities,
+and to maintain complete compatibility
+for existing programs.</p>
+
+<p>The essential functions have been in use
+by a limited set of users for some time,
+and are clearly of great practical value
+even without the composition operators.
+In particular, many applications would be
+simplified by using enclosed arrays instead
+of <i>packages</i>
+<acronym title=
+"Berry, P.C., SHARP APL Reference Manual, I.P. Sharp Associates, 1979.">[10]</acronym>.</p>
+
+<p>The functions in use include the comparison
+functions<tt> ∊ </tt>and<tt> ⍳ </tt>extended
+to enclosed arrays in terms of the <i>idem</i>
+function<tt> ≡</tt>&nbsp;,<tt> </tt>
+and all of the structural functions,
+including indexed assignment.
+However, because of the present exclusion of
+heterogeneous arrays,
+every array is limited to a single &ldquo;type&rdquo;
+(namely, numeric, character, or enclosed),
+and catenation and indexed assignment are
+therefore subject to certain domain errors
+which may subsequently disappear.
+Moreover, because no fill element has
+been defined for enclosed arrays,
+expansion or overtake of an enclosed array
+will produce an error.</p>
+
+<p>Although the idem function does not distinguish
+between empty arrays of the same rank,
+expansion and overtake do.
+For the nonce, empty enclosed arrays are
+treated as numeric.</p>
+
+<p>Implementation of new operators
+in a completely general way so as to apply
+to all functions
+(user-defined and derived as well as primitive)
+is a lengthy task, and in order to get some
+of the more essential facilities available
+for early experimentation 
+we are beginning by implementing
+the following special cases:</p>
+
+<table>
+<tr><td valign=top><tt>f¨g</tt></td><td>&nbsp;</td><td>
+The dual operator applied to an arbitrary primitive
+function<tt> f </tt>and a subset
+of the primitive functions<tt> g</tt>&nbsp;.<tt> </tt>
+The subset will include those monadic primitive
+functions of zero or unlimited rank which
+possess inverses,
+namely,<tt> &gt; &lt; * ⍟ + - ~ ⍉ </tt>
+and<tt> ÷</tt>&nbsp;.<tt> </tt>
+The case<tt> f¨&gt; </tt>provides
+an important facility similar to the <i>each</i>
+operator.
+The very useful self-inverse<tt> ⌽ </tt>
+and<tt> ⊖ </tt>will be excluded
+at the outset because they raise questions
+of argument ranks other than zero.
+<br>&nbsp;
+ </td></tr>
+<tr><td valign=top nowrap><tt>f⍤i </tt>and<tt> i⍤f</tt></td><td>&nbsp;</td><td>
+The specification of the axes of application
+of a function is an important general tool.
+Specification of the frame is less important,
+but is easy to implement concurrently 
+with<tt> i⍤f</tt>&nbsp;.
+ </td></tr>
+</table>
+
+<p>The present definitions extend to enclosed
+arrays only the structural functions
+and the mixed &ldquo;comparison&rdquo; functions
+(<i>idem</i>, <i>membership</i>, and <i>index of</i>),
+and nothing adopted either precludes or prescribes
+future extensions of other functions.
+In particular, the decision not to extend
+the equal function avoided any commitment 
+concerning scalar primitives, a decision made
+practicable by the adoption of the related
+non-scalar function idem.</p>
+
+<p>The new structures introduced into the APL
+workspaces to represent enclosed arrays were
+designed to address several problems:</p>
+
+<table>
+<tr><td valign=top>a.</td><td>&nbsp;</td><td>
+They provide a uniform representation of all arrays,
+simplifying the implementation of the structural
+functions, and allowing them to perform equally
+well on all arrays, independent of the complexity
+of the underlying arrays.
+ </td></tr>
+<tr><td valign=top>b.</td><td>&nbsp;</td><td>
+They provide a general storage scheme which
+replaces multiple copies by more
+space-efficient multiple references,
+and permit more efficient comparisons
+in search algorithms.
+Moreover, the same structure may eventually
+be used to avoid the making of copies 
+of arguments in effecting function calls.
+ </td></tr>
+</table>
+<br>
+
+
+
+<a name="ref"></a>
+<p><b>References</b></p>
+
+<table>
+<tr><td valign=top>[1]</td><td>&nbsp;</td><td>
+Iverson, K.E., 
+<a target=_parent href="http://www.jsoftware.com/papers/DirectDef.htm"><i>Elementary Analysis</i></a>,
+APL Press, 1976.
+ </td></tr>
+<tr><td valign=top>[2]</td><td>&nbsp;</td><td>
+Ghandour, Z., and J. Mezei, <i>Generalized Arrays, Operators, and Functions</i>,
+IBM Journal of Research and Development, 1973-07.
+ </td></tr>
+<tr><td valign=top>[3]</td><td>&nbsp;</td><td>
+Brown, J.A., <i>A Generalization of APL</i>, Ph.D. Thesis,
+Department of Systems and Information Sciences,
+University of Syracuse, 1971.
+ </td></tr>
+<tr><td valign=top>[4]</td><td>&nbsp;</td><td>
+More, T., <i>Axioms and Theorems for a Theory of Arrays</i>,
+IBM Journal of Research and Development, 1973-03.
+ </td></tr>
+<tr><td valign=top>[5]</td><td>&nbsp;</td><td>
+Gull, W.E., and M.A. Jenkins,
+<i>Recursive Data Structures in APL</i>,
+Communications of the ACM, Vol. 22, No. 2, 
+1979-02.
+ </td></tr>
+<tr><td valign=top>[6]</td><td>&nbsp;</td><td>
+More, T., <i>On the Composition of Array-Theoretic Operators</i>,
+IBM Cambridge Scientific Center, Report #320-2113,
+1976-05.
+ </td></tr>
+<tr><td valign=top>[7]</td><td>&nbsp;</td><td>
+Iverson, K.E., 
+<a target=_parent href="http://www.jsoftware.com/papers/opfns.htm"><i>Operators and Functions</i></a>,
+IBM Research Division Report RC7091, 1978-04-26.
+ </td></tr>
+<tr><td valign=top>[8]</td><td>&nbsp;</td><td>
+Jenkins, M.A., and J. Michel, 
+<i>Operators in APL Including Nested Arrays</i>,
+Technical Report #78-60, Dept. of Computing and Information Science,
+Queen&rsquo;s University, Kingston, Ontario,
+1978-03.
+ </td></tr>
+<tr><td valign=top>[9]</td><td>&nbsp;</td><td>
+Smith, Bob,
+<i>A Programming Technique for Non-Rectangular Data</i>,
+APL Quote Quad, Vol. 9, No. 4 &mdash; Part 1
+(APL 79 Conference Proceedings), 1979.
+ </td></tr>
+<tr><td valign=top>[10]</td><td>&nbsp;</td><td>
+Berry, P.C., <i>SHARP APL Reference Manual</i>, 
+I.P. Sharp Associates, 1979.
+ </td></tr>
+<tr><td valign=top>[11]</td><td>&nbsp;</td><td>
+Bernecky, Bob, <i>SHARP APL TECHNICAL NOTES</i>, I.P. Sharp Associates Limited,
+SATN 34, Replication, 1980-08-26.
+ </td></tr>
+</table>
+<br>
+
+
+
+<a name="ack"></a>
+<p><b>Acknowledgements</b></p>
+
+<p>We are indebted to a number of our colleagues for
+helpful discussions, particular Doug Forkes and E.B. Iverson.
+P.C. Berry suggested the term &ldquo;frame&rdquo;.</p>
+
+
+
+<br><hr>
+<font size=-1>
+<p>Originally appeared in the Proceedings of the 1980 APL Users Meeting,
+1980-10-06 to -08.</p>
+
+<p><script src="apldisplay.js" type="text/javascript"></script></p>
+</font>
+
+
+<table>
+<tr><td><font size=-1>created: &nbsp;</font></td><td><font size=-1>2010-10-19 23:20</font></td></tr>
+<tr><td><font size=-1>updated:</font></td><td><font size=-1>2012-12-09 13:00</font></td></tr>
+</table>
+
+</td></tr></table>
+<br>
+</body>
+</html>

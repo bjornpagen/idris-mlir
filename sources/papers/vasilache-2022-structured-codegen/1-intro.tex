@@ -1,0 +1,59 @@
+\section{Introduction}
+Despite significant investment in software infrastructure, Machine Learning (ML) systems are still stuck in a rut~\cite{ml_rut}.
+This can largely be traced to a recurring issue: the number and sheer complexity of the steps involved in between programmers' intent and efficient execution on ever more powerful hardware.
+Software stacks include technologies as diverse as ML frameworks for distributed training or inference, for server or mobile platforms, as well as user-facing languages for productivity, high-performance communication and compute libraries, and domain-specific compiler implementations and autotuners.
+
+Unfortunately, these stacks are built in silos:
+(1) vertical silos follow to top-down, framework-centered considerations: the need to capture the ever-growing user base of ML practitioners encourages framework-specific designs, resulting in duplication of effort; while
+(2) horizontal silos follow bottom-up, technology-driven considerations: the lack of performance portability over hardware platforms push for hardware-specific implementations of a fixed set of computational operations and a fixed programming interface.
+
+\emph{None of this is built in a modular fashion; nothing composes.}
+
+Everyone rebuilds similar functionality resulting in incremental improvements at ever-increasing engineering costs. End users do not get access to programmable and portable high-performance building blocks; instead, they have to rely on limited expressiveness interfaces to the underlying implementations. Investments on common infrastructure --- such as the automation of target-specific code generation --- happen very late, making their adoption painful for software engineers with years of experience in a more restricted environment.
+
+Focusing on the performance portability of computational operations in ML frameworks, we explore a better way consisting of multiple cycles combining top-down and bottom-up thinking:
+(1) top-down thinking is concerned with making primitives available to the programmer that \emph{gradually decompose} into smaller building blocks with unsurprising, good performance; while
+(2) bottom-up thinking is concerned with the creation of primitive building blocks that are well-suited to each hardware architecture and then \emph{gradually compose} them into the larger building blocks that connect to top-down thinking.
+We propose a first attempt at embodying such alternating cycles based on compiler technology.
+Iterating between top-down and bottom-up thinking opens up multiple opportunities for codesign at the interface between the compiler and programming environments, runtime abstractions, performance tuners and hardware.
+
+From a compiler practitioner's point of view, it is interesting to realize that virtually all modern compiler solutions bottom-out on the \LLVM compiler to produce optimized binaries.
+While, \LLVM is a common substrate, it is also a very low-level one.
+Users (and ML frameworks) have to make an exclusive choice among the kind of abstractions introduced by either XLA~\cite{XLA}, TVM~\cite{chen2018tvm}, Glow~\cite{rotem2018glow}, Halide~\cite{ragan2013halide}, TACO~\cite{kjolstad2017taco}, polyhedral compilers~\cite{vasilache2019next} or other domain-specific compilers that all eventually produce some flavor of \LLVM IR.
+Each one of these compilers comes with its own implementation and does not mix with others: cross-pollination is often reduced to understanding what compiler A did well and retrofit it as new transformations in compiler B.
+
+Stepping back, one problem comes from the lack of an established infrastructure to support such domain-specific compilers.
+Another problem comes from jumping the abstraction gap too quickly between user-facing abstractions and levels of compiler Intermediate Representation (IR) on which analyses and transformations occur.
+This results in (1) losing information that is available at higher levels of IR and (2) exacerbating phase-ordering issues due to the need to reconstruct high-level semantical information form low-level IR.
+This hurts modularity, leaving software engineers without well-understood design patterns for reusable code generator components. 
+
+\MLIR is a new compiler infrastructure that drastically reduces the entry cost to define and introduce new abstraction levels for building domain-specific IRs~\cite{lattner2021mlir}.
+It is part of the \LLVM project and follows decades of established practices in production compiler construction.
+As such, \MLIR is an ideal solution to the missing infrastructure problem.
+Yet, even with the availability of \MLIR, the second problem remains: missing intermediate abstractions and a progressive refinement strategy for the compilation of tensor computations.
+
+This work presents ongoing code generation efforts to build composable abstractions for high-performance code generation in \MLIR:
+\begin{enumerate}
+\item Composable transformations: generic computations are decomposed hierarchically into smaller tiles, exploiting their algebraic properties and structure.
+They may also be fused, and lowered progressively to loops over retargetable vector primitives.
+Computations can be instantiated over tensor values (immutable) as well as in-memory buffers (side-effecting).
+Such abstractions exist in multiple storage variants such as dense, sparse formats, or quantized representations.
+An in-place bufferization pass provides a memory-efficient materialization of programs in tensor form, including transformed programs (tiled, fused, etc.).
+\item Programmable operations: on the front-end side, a declarative python-based DSL allows to define operations and their properties, including new operations called ``custom ops''; the latter immediately become first-class IR citizens on which all existing transformations and rewrites are available.
+Throughout the transformation and lowering process, we offer a simple ABI definition and interoperability with C, C++ and Python.
+\end{enumerate}
+
+As we will see in the following, the abstractions and transformations we propose offer immediate as well as long-term benefits:
+\begin{enumerate}
+\item High-level, domain-specific information is not discarded prematurely.
+Preserving the structure of computational operations allows to transform the IR while avoiding the performance cliffs of numerical libraries (e.g., when a fused operation is lacking a high-performance implementation).
+In particular, transformations preserve the ability to lower operations to hardware instructions implementing coarse-grained vector operations, or to numerical libraries --- such as Eigen~\cite{eigen}.
+The latter acts as a safety net upon which compiler transformations may add value, opening new avenues for compiler-library co-design.
+\item Tiled operations target \emph{subsets} of tensor values or memory buffers. This central notion leverages the natural structure in tensor operations, while remaining completely generic in the actual representation of tensors (values or side-effects, vectors or scalars, dense or sparse, etc.) and in the actual decompositions applied to the computations (e.g., different forms of tiling). This enhances composability while allowing transformations to apply to individual or groups of operations as opposed to loops or control-flow graphs. It also eases the expression of complex transformations and lowering sequences, which in turn facilitates autotuning.
+\item The IR remains executable at any intermediate transformation and lowering step. This greatly simplifies debugging, testing and performance evaluation, and somewhat blurs the lines between what is traditionally considered the programmer's and the compiler's responsibilities.
+In particular, C and C++ ABI compliance at function boundary eases the integration of domain-specific frameworks by relying on common infrastructure.
+It is also an ingredient in the matching of abstract operations into calls to numerical libraries, when available.
+\end{enumerate}
+
+The techniques and abstractions described in this paper are used in production at Google, including XLA-based compiler flows~\cite{XLA} for CPU/GPU, and IREE~\cite{iree} for CPU/GPU with an emphasis on mobile and edge computing.
+In particular we have successfully replaced uses of the Eigen~\cite{eigen} library in Google-wide production cases.

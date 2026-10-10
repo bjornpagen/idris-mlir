@@ -1,0 +1,148 @@
+% Simple Interaction Nets styles using pgf/tikz
+% 
+% author: Eugen Jiresch
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{in_simple}[2008/06/02 v0.1 tikz interaction nets library]
+\RequirePackage{tikz}
+\RequirePackage{ifthen}
+
+\usetikzlibrary{arrows}
+\usetikzlibrary{decorations.markings}
+
+\pgfkeys{/pgf/.cd,
+    arity/.initial=4,
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% NODES
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\tikzstyle{agent}= [circle, draw=black, fill=blue!10, thick, inner sep=0pt,
+minimum size = 8mm] %basic agent
+\tikzstyle{agent_small}= [circle, draw=black, fill=blue!10, thick, inner
+sep=0pt, minimum size = 5mm] %basic agent
+\tikzstyle{green_agent}=[agent, fill=green!30]
+\tikzstyle{red_agent}=[agent, fill=red!30]
+\tikzstyle{varnet}= [rectangle, draw=black, fill=gray!10, dashed, thick, inner
+sep=0pt, minimum size = 6mm] %basic agent
+\tikzstyle{active}=[sloped, midway] %active pair
+\tikzstyle{pp}=[sloped, near end] %principal port
+\tikzstyle{interface}=[minimum size = 7mm, inner sep=0pt] %interface
+
+\newcommand{\agent}[3][]{
+\node(#2) [agent, #1] {#3}; }
+
+%interface
+\newcommand{\iface}[2][]{
+\node(#2) [#1] {\small{$#2$}}; }
+
+%interface with explicit identifier
+\newcommand{\ifaceplain}[2][]{
+\node(#2) [#1] {\small{#2}}; }
+
+%arbitrary net
+\newcommand{\varnet}[3][]{
+\node(#2) [varnet, #1] {#3}; }
+
+
+
+\newcommand{\ifacename}[3][]{
+\node(#2) [#1] {\small{$#3$}}; }
+
+\newcommand{\is}[1][]{
+\node(is)	[#1]		{\large{$\Rightarrow$}}; }
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% WIRES
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\newcommand{\link}[3][]{
+\draw [#1] (#2) to (#3) node [] {}; }
+
+%arbitrary numver of links
+\newcommand{\multilink}[3][] {
+\draw[very thick] [#1] (#2) to (#3) node [sloped, midway, 
+fill=none, inner sep=0mm, shape=rectangle] {\textbf{/}};
+%we want to get a stroke through the line - is this too complicated?
+%\pgfslopedattimetrue
+
+%\pgftext{hi!}
+}
+\newcommand{\activepair}[3][] {
+\draw [#1,decoration={
+    	markings,
+    	mark=at position 0.5 with {\node[fill=white, midway, inner sep=0mm]
+    	{$\bowtie$};}},
+    postaction={decorate}] (#2) to (#3) ; 
+}
+
+\newcommand{\ap}[3][] {
+\draw [#1,decoration={
+    	markings,
+    	mark=at position 0.5 with {\node[fill=white, midway, inner sep=0mm]
+    	{$\bowtie$};}},
+    postaction={decorate}] (#2) to (#3) ; 
+}
+
+
+\newcommand{\ppl}[3][] {
+\draw [#1,decoration={
+    	markings,
+    	mark=at position 0.5 with {\node[fill=white,midway, inner sep=0mm]
+    	{$\triangleleft$};}},
+    postaction={decorate}] (#2) to (#3) ; 
+}
+
+\newcommand{\ppr}[3][] {
+\draw [#1,decoration={
+    	markings,
+    	mark=at position 0.5 with {\node[fill=white,midway, inner sep=0mm]
+    	{$\triangleright$};}},
+    postaction={decorate}] (#2) to (#3) ; 
+}
+
+\newcommand{\pp}[3][]{
+	\draw [-open triangle 60, #1] (#2) to (#3);
+
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% OTHER STUFF
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%scale everything tikz
+\newcommand{\tikzscale}[1]{
+\tikzset{every node/.style={scale=(#1)}}
+}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% DEPRECATED VERSIONS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newcommand{\ppnew}[3][] {
+\draw [#1,decoration={
+    	markings,
+    	mark=at position 0.5 with {
+    	{\arrow[fill=white]{open triangle 60}} } }, postaction={decorate}] (#2) to
+    	(#3) ; }
+
+\newcommand{\pplold}[3][]{
+	\draw [#1] (#2) to (#3) node [sloped, midway, fill=white, inner sep=0mm]
+	{$\triangleleft$}; }
+
+\newcommand{\pprold}[3][]{
+	\draw [#1] (#2) to (#3) node [sloped, midway, fill=white, inner sep=0mm]
+	{$\triangleright$}; }
+	
+\newcommand{\activepairold}[3][]{
+\draw [#1] (#2) to (#3) node [sloped, midway, fill=white,
+	inner sep=0mm, 
+shape=rectangle] {$\bowtie$}; }
+
+
+%activepair alias
+\newcommand{\apold}[3][] {
+\draw [#1] (#2) to (#3) node [sloped, midway, fill=white,
+	inner sep=0mm, 
+shape=rectangle] {$\bowtie$};
+}

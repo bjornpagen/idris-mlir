@@ -1,0 +1,224 @@
+\begin{thebibliography}{10}
+
+\bibitem{DataScript}
+Godmar Back.
+\newblock Datascript - a specification and scripting language for binary data.
+\newblock In {\em Proceedings of the 1st ACM SIGPLAN/SIGSOFT Conference on
+  Generative Programming and Component Engineering}, GPCE '02, page 66–77,
+  Berlin, Heidelberg, 2002. Springer-Verlag.
+
+\bibitem{BitStealingMadeLegal}
+Tha\"{\i}s Baudon, Gabriel Radanne, and Laure Gonnord.
+\newblock Bit-stealing made legal: Compilation for custom memory
+  representations of algebraic data types.
+\newblock {\em Proc. ACM Program. Lang.}, 7(ICFP), aug 2023.
+\newblock \href {https://doi.org/10.1145/3607858} {\path{doi:10.1145/3607858}}.
+
+\bibitem{Dargent}
+Zilin Chen, Ambroise Lafont, Liam O'Connor, Gabriele Keller, Craig McLaughlin,
+  Vincent Jackson, and Christine Rizkallah.
+\newblock Dargent: A silver bullet for verified data layout refinement.
+\newblock {\em Proc. ACM Program. Lang.}, 7(POPL), jan 2023.
+\newblock \href {https://doi.org/10.1145/3571240} {\path{doi:10.1145/3571240}}.
+
+\bibitem{CSD}
+Trishul~M. Chilimbi, Bob Davidson, and James~R. Larus.
+\newblock Cache-conscious structure definition.
+\newblock In {\em Proceedings of the ACM SIGPLAN 1999 Conference on Programming
+  Language Design and Implementation}, PLDI '99, page 13–24, New York, NY,
+  USA, 1999. Association for Computing Machinery.
+\newblock \href {https://doi.org/10.1145/301618.301635}
+  {\path{doi:10.1145/301618.301635}}.
+
+\bibitem{CSL}
+Trishul~M. Chilimbi, Mark~D. Hill, and James~R. Larus.
+\newblock Cache-conscious structure layout.
+\newblock In {\em Proceedings of the ACM SIGPLAN 1999 Conference on Programming
+  Language Design and Implementation}, PLDI '99, page 1–12, New York, NY,
+  USA, 1999. Association for Computing Machinery.
+\newblock \href {https://doi.org/10.1145/301618.301633}
+  {\path{doi:10.1145/301618.301633}}.
+
+\bibitem{ccgarbage}
+Trishul~M. Chilimbi and James~R. Larus.
+\newblock Using generational garbage collection to implement cache-conscious
+  data placement.
+\newblock In {\em Proceedings of the 1st International Symposium on Memory
+  Management}, ISMM '98, page 37–48, New York, NY, USA, 1998. Association for
+  Computing Machinery.
+\newblock \href {https://doi.org/10.1145/286860.286865}
+  {\path{doi:10.1145/286860.286865}}.
+
+\bibitem{urweb-icfp}
+Adam Chlipala.
+\newblock An optimizing compiler for a purely functional web-application
+  language.
+\newblock In {\em Proceedings of the 20th ACM SIGPLAN International Conference
+  on Functional Programming}, ICFP 2015, pages 10--21, New York, NY, USA, 2015.
+  ACM.
+\newblock URL: \url{http://doi.acm.org/10.1145/2784731.2784741}, \href
+  {https://doi.org/10.1145/2784731.2784741}
+  {\path{doi:10.1145/2784731.2784741}}.
+
+\bibitem{Floorplan}
+Karl Cronburg and Samuel~Z. Guyer.
+\newblock Floorplan: Spatial layout in memory management systems.
+\newblock In {\em Proceedings of the 18th ACM SIGPLAN International Conference
+  on Generative Programming: Concepts and Experiences}, GPCE 2019, page
+  81–93, New York, NY, USA, 2019. Association for Computing Machinery.
+\newblock \href {https://doi.org/10.1145/3357765.3359519}
+  {\path{doi:10.1145/3357765.3359519}}.
+
+\bibitem{Narcissus}
+Benjamin Delaware, Sorawit Suriyakarn, Cl\'{e}ment Pit-Claudel, Qianchuan Ye,
+  and Adam Chlipala.
+\newblock Narcissus: Correct-by-construction derivation of decoders and
+  encoders from binary formats.
+\newblock {\em Proc. ACM Program. Lang.}, 3(ICFP), jul 2019.
+\newblock \href {https://doi.org/10.1145/3341686} {\path{doi:10.1145/3341686}}.
+
+\bibitem{PADS}
+Kathleen Fisher and Robert Gruber.
+\newblock Pads: A domain-specific language for processing ad hoc data.
+\newblock In {\em Proceedings of the 2005 ACM SIGPLAN Conference on Programming
+  Language Design and Implementation}, PLDI '05, page 295–304, New York, NY,
+  USA, 2005. Association for Computing Machinery.
+\newblock \href {https://doi.org/10.1145/1065010.1065046}
+  {\path{doi:10.1145/1065010.1065046}}.
+
+\bibitem{Pads2}
+Kathleen Fisher and David Walker.
+\newblock The pads project: An overview.
+\newblock In {\em Proceedings of the 14th International Conference on Database
+  Theory}, ICDT '11, page 11–17, New York, NY, USA, 2011. Association for
+  Computing Machinery.
+\newblock \href {https://doi.org/10.1145/1938551.1938556}
+  {\path{doi:10.1145/1938551.1938556}}.
+
+\bibitem{ANF}
+Cormac Flanagan, Amr Sabry, Bruce~F. Duba, and Matthias Felleisen.
+\newblock The essence of compiling with continuations.
+\newblock In {\em Proceedings of the ACM SIGPLAN 1993 Conference on Programming
+  Language Design and Implementation}, PLDI '93, page 237–247, New York, NY,
+  USA, 1993. Association for Computing Machinery.
+\newblock \href {https://doi.org/10.1145/155090.155113}
+  {\path{doi:10.1145/155090.155113}}.
+
+\bibitem{Shapes}
+Juliana Franco, Martin Hagelin, Tobias Wrigstad, Sophia Drossopoulou, and Susan
+  Eisenbach.
+\newblock You can have it all: Abstraction and good cache performance.
+\newblock In {\em Proceedings of the 2017 ACM SIGPLAN International Symposium
+  on New Ideas, New Paradigms, and Reflections on Programming and Software},
+  Onward! 2017, page 148–167, New York, NY, USA, 2017. Association for
+  Computing Machinery.
+\newblock \href {https://doi.org/10.1145/3133850.3133861}
+  {\path{doi:10.1145/3133850.3133861}}.
+
+\bibitem{Shapes2}
+Juliana Franco, Alexandros Tasos, Sophia Drossopoulou, Tobias Wrigstad, and
+  Susan Eisenbach.
+\newblock Safely abstracting memory layouts, 2019.
+\newblock URL: \url{https://arxiv.org/abs/1901.08006}, \href
+  {https://doi.org/10.48550/ARXIV.1901.08006}
+  {\path{doi:10.48550/ARXIV.1901.08006}}.
+
+\bibitem{Hawkins}
+Peter Hawkins, Alex Aiken, Kathleen Fisher, Martin Rinard, and Mooly Sagiv.
+\newblock Concurrent data representation synthesis.
+\newblock In {\em Proceedings of the 33rd ACM SIGPLAN Conference on Programming
+  Language Design and Implementation}, PLDI '12, page 417–428, New York, NY,
+  USA, 2012. Association for Computing Machinery.
+\newblock \href {https://doi.org/10.1145/2254064.2254114}
+  {\path{doi:10.1145/2254064.2254114}}.
+
+\bibitem{poolallocation}
+Chris Lattner and Vikram Adve.
+\newblock Automatic pool allocation for disjoint data structures.
+\newblock In {\em Proceedings of the 2002 Workshop on Memory System
+  Performance}, MSP '02, page 13–24, New York, NY, USA, 2002. Association for
+  Computing Machinery.
+\newblock \href {https://doi.org/10.1145/773146.773041}
+  {\path{doi:10.1145/773146.773041}}.
+
+\bibitem{Pads3}
+Yitzhak Mandelbaum, Kathleen Fisher, David Walker, Mary Fernandez, and Artem
+  Gleyzer.
+\newblock Pads/ml: A functional data description language.
+\newblock In {\em Proceedings of the 34th Annual ACM SIGPLAN-SIGACT Symposium
+  on Principles of Programming Languages}, POPL '07, page 77–83, New York,
+  NY, USA, 2007. Association for Computing Machinery.
+\newblock \href {https://doi.org/10.1145/1190216.1190231}
+  {\path{doi:10.1145/1190216.1190231}}.
+
+\bibitem{PacketTypes}
+Peter~J. McCann and Satish Chandra.
+\newblock Packet types: Abstract specification of network protocol messages.
+\newblock In {\em Proceedings of the Conference on Applications, Technologies,
+  Architectures, and Protocols for Computer Communication}, SIGCOMM '00, page
+  321–333, New York, NY, USA, 2000. Association for Computing Machinery.
+\newblock \href {https://doi.org/10.1145/347059.347563}
+  {\path{doi:10.1145/347059.347563}}.
+
+\bibitem{o2016cogent}
+Liam O'Connor, Christine Rizkallah, Zilin Chen, Sidney Amani, Japheth Lim,
+  Yutaka Nagashima, Thomas Sewell, Alex Hixon, Gabriele Keller, Toby Murray,
+  et~al.
+\newblock Cogent: certified compilation for a functional systems language.
+\newblock {\em arXiv preprint arXiv:1601.05520}, 2016.
+
+\bibitem{okasaki}
+Chris Okasaki.
+\newblock {\em Purely Functional Data Structures}.
+\newblock Cambridge University Press, 1998.
+
+\bibitem{EverParse}
+Tahina Ramananandro, Antoine Delignat-Lavaud, C\'{e}dric Fournet, Nikhil Swamy,
+  Tej Chajed, Nadim Kobeissi, and Jonathan Protzenko.
+\newblock Everparse: Verified secure zero-copy parsers for authenticated
+  message formats.
+\newblock In {\em Proceedings of the 28th USENIX Conference on Security
+  Symposium}, SEC'19, page 1465–1482, USA, 2019. USENIX Association.
+
+\bibitem{GenericPacketDescriptions}
+Marcell van Geest and Wouter Swierstra.
+\newblock Generic packet descriptions: Verified parsing and pretty printing of
+  low-level data.
+\newblock In {\em Proceedings of the 2nd ACM SIGPLAN International Workshop on
+  Type-Driven Development}, TyDe 2017, page 30–40, New York, NY, USA, 2017.
+  Association for Computing Machinery.
+\newblock \href {https://doi.org/10.1145/3122975.3122979}
+  {\path{doi:10.1145/3122975.3122979}}.
+
+\bibitem{Local}
+Michael Vollmer, Chaitanya Koparkar, Mike Rainey, Laith Sakka, Milind Kulkarni,
+  and Ryan~R. Newton.
+\newblock Local: A language for programs operating on serialized data.
+\newblock In {\em Proceedings of the 40th ACM SIGPLAN Conference on Programming
+  Language Design and Implementation}, PLDI 2019, page 48–62, New York, NY,
+  USA, 2019. Association for Computing Machinery.
+\newblock \href {https://doi.org/10.1145/3314221.3314631}
+  {\path{doi:10.1145/3314221.3314631}}.
+
+\bibitem{gibbon}
+Michael Vollmer, Sarah Spall, Buddhika Chamith, Laith Sakka, Chaitanya
+  Koparkar, Milind Kulkarni, Sam Tobin-Hochstadt, and Ryan~R. Newton.
+\newblock {Compiling Tree Transforms to Operate on Packed Representations}.
+\newblock In Peter M{\"u}ller, editor, {\em 31st European Conference on
+  Object-Oriented Programming (ECOOP 2017)}, volume~74 of {\em Leibniz
+  International Proceedings in Informatics (LIPIcs)}, pages 26:1--26:29,
+  Dagstuhl, Germany, 2017. Schloss Dagstuhl--Leibniz-Zentrum fuer Informatik.
+\newblock URL: \url{http://drops.dagstuhl.de/opus/volltexte/2017/7273}, \href
+  {https://doi.org/10.4230/LIPIcs.ECOOP.2017.26}
+  {\path{doi:10.4230/LIPIcs.ECOOP.2017.26}}.
+
+\bibitem{VPBdeleware}
+Qianchuan Ye and Benjamin Delaware.
+\newblock A verified protocol buffer compiler.
+\newblock In {\em Proceedings of the 8th ACM SIGPLAN International Conference
+  on Certified Programs and Proofs}, CPP 2019, page 222–233, New York, NY,
+  USA, 2019. Association for Computing Machinery.
+\newblock \href {https://doi.org/10.1145/3293880.3294105}
+  {\path{doi:10.1145/3293880.3294105}}.
+
+\end{thebibliography}

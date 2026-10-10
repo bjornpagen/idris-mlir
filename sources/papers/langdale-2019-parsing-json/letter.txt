@@ -1,0 +1,5 @@
+JSON parsing is often a pain point in data engineering. In this manuscript, we show how we can parse JSON, with full validation, at several times the speed of a reference baseline like RapidJSON. We describe our design and engineering which involve a careful application of commonly available SIMD instructions. We believe that our work provides a new reference for important practical task of parsing JSON, but we also introduce several general ideas that should have broader appeal. We also expect out manuscript to be of interest to practitioners.
+
+As described in the manuscript, all of our code is publicly available and the experiments are reproducible, throughout (https://github.com/lemire/simdjson). Our code follows good quality standards (with testing). We are committed to supporting our code and encourage its eventual adaptation or inclusion in larger systems.
+
+Our work builds directly on work published by "VLDB such as Mison: A Fast JSON Parser for Data Analytics" (VLDB 2017). Our manuscript is entirely new, it has never been considered in any other venue. 

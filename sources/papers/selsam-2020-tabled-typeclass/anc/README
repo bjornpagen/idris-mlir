@@ -1,0 +1,4 @@
+This folder contains:
+
+1. A script `run_experiments.sh` to reproduce the two plots in the paper using Docker.
+2. A tarred csv file `mathlib_typeclass_queries_ge20ms.csv.tar.gz` with data collected about every typeclass resolution invocation from mathlib (9ac26cb6220deec0960f8a719572a82ead25f90e) that took more than 20ms.

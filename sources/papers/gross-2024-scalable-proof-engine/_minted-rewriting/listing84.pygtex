@@ -1,0 +1,8 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PYG{k}{match} \PYG{n}{e} \PYG{k}{with}
+\PYG{o}{|} \PYG{n}{App} \PYG{n}{f} \PYG{n}{y} \PYG{o}{=\PYGZgt{}} \PYG{k}{match} \PYG{n}{f} \PYG{k}{with}
+  \PYG{o}{|} \PYG{n}{Ident} \PYG{n}{fst} \PYG{o}{=\PYGZgt{}} \PYG{k}{match} \PYG{n}{y} \PYG{k}{with}
+    \PYG{o}{|} \PYG{n}{App} \PYG{o}{(}\PYG{n}{App} \PYG{o}{(}\PYG{n}{Ident} \PYG{n}{pair}\PYG{o}{)} \PYG{n}{x}\PYG{o}{)} \PYG{n}{y} \PYG{o}{=\PYGZgt{}} \PYG{n}{x} \PYG{o}{|} \PYG{o}{\PYGZus{}} \PYG{o}{=\PYGZgt{}} \PYG{n}{e} \PYG{k}{end}
+  \PYG{o}{|} \PYG{n}{App} \PYG{o}{(}\PYG{n}{Ident} \PYG{o}{+)} \PYG{n}{x} \PYG{o}{=\PYGZgt{}} \PYG{k}{match} \PYG{n}{y} \PYG{k}{with}
+    \PYG{o}{|} \PYG{n}{Ident} \PYG{o}{(}\PYG{n}{Literal} \PYG{l+m+mi}{0}\PYG{o}{)} \PYG{o}{=\PYGZgt{}} \PYG{n}{x} \PYG{o}{|} \PYG{o}{\PYGZus{}} \PYG{o}{=\PYGZgt{}} \PYG{n}{e} \PYG{k}{end} \PYG{o}{|} \PYG{o}{\PYGZus{}} \PYG{o}{=\PYGZgt{}} \PYG{n}{e} \PYG{k}{end} \PYG{o}{|} \PYG{o}{\PYGZus{}} \PYG{o}{=\PYGZgt{}} \PYG{n}{e} \PYG{k}{end}\PYG{o}{.}
+\end{Verbatim}

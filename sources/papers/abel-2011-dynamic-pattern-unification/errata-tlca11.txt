@@ -1,0 +1,176 @@
+﻿Errata for
+
+  Andreas Abel and Brigitte Pientka
+  Higher-Order Dynamic Pattern Unification for Dependent Types and Records
+  TLCA 2011
+
+2025-05-27 Andreas Abel: Meta occurs check loses solutions: due to definition of strongly rigid.
+
+Fixed in extended version:
+
+2017-07-02 Andreas Abel: Intersection cannot be extended beyond variable substitutions.
+2014-08-04 Andreas Abel: Fix for pruning did not get far enough.
+2014-01-15 Andreas Abel: Initial errata.
+
+------------------------------------------------------------------------
+1. Problem with pruning detected 2011-09-16.
+   Fixed in extended version.
+
+Pruning as described in the paper is overzealous and loses solutions.
+Given meta variables
+
+  u [x : A]
+  v [z : A × B]
+
+with constraint
+
+  x : A, y : B ⊢ u[x] = v[(x,y)] : A
+
+the proposed algorithm prunes v's argument, since it contains the
+variable y which is not bound on the lhs of the constraint.  This
+loses the solution
+
+  v[z] = fst z
+  u[x] = x
+
+Arguments of meta-variables should only be pruned if they have an
+unbound variable in a *non-eliminateable* rigid occurrence.  This means, if
+there is no instance of the meta-variable that would project away the
+bad parts of the argument.  In particular, such an instance cannot
+exist if the offending variable appears in the head of the argument.
+
+Another example is
+
+  u [x : A]
+  v [z : (A -> A -> A) -> A]
+
+  x : A |- u[x] = v[\k. k x y]
+
+Pruning the argument of v would lose the solution
+
+  v[z] = z (\x y. x)
+
+Fix: In Fig.5, replace FV^rig(M) ⊈ ρ with the new judgement
+badOcc_ρ(M) which is given by the rules
+
+  x ∉ ρ
+  --------------
+  badOcc_ρ(E[x])
+
+  badOcc_ρ(M)
+  --------------
+  badOcc_ρ(λy.M)
+
+  badOcc_ρ(M₁)  badOcc_ρ(M₂)
+  -------------------------
+  badOcc_ρ(M₁,M₂)
+
+In an extension of unification to full-fledged dependent types, such
+as Agda, one can also prune type arguments with rigid occurrences of
+bad variables.
+
+  FV^rig(A) ⊈ ρ
+  -------------  A is definitely a type expression
+  badOcc_ρ(A)
+
+where "definitely type expressions" are Π, Σ, and base types, i.e.,
+everything that is given in the grammar for A in Fig.1.
+
+Agda had the same problem, see Agda issue 458,
+http://code.google.com/p/agda/issues/detail?id=458.
+
+------------------------------------------------------------------------
+2. Problem with non-linearity detected 2013-10-18.
+   Fixed in extended version.
+
+The proposed extension to non-linear patterns produces ill-typed
+solutions in some cases.  For example, consider meta variable
+
+  u : B [A : type, x : A, B : type]
+
+and constraint
+
+  A : type, x : A |- u[A,x,A] = x : A.
+
+The proposed algorithm would solve with
+
+  u[A,x,B] = x
+
+but this solution is ill-typed.
+(See Agda issue 920, http://code.google.com/p/agda/issues/detail?id=920.)
+
+Fix: The free variable check has to take the types (A) of all the
+subexpressions of the rhs (here, just x) into account to see whether
+the non-linear variable (A) is actually unused in the solution.
+
+------------------------------------------------------------------------
+3. Problem with informal statement about intersection for non-variable substitutions,
+   detected 2017-07-02.
+   Fixed in extended version.
+
+The following statement in Section 3.5 is wrong:
+
+> Although we have restricted intersection to variable substitutions, it
+> could be extended to meta-ground substitutions, i.e., substitutions
+> that do not contain any meta-variables.
+
+Counterexample: Consider the problem
+
+  (λf. f ∘ f, g, N) ∩ (id, g ∘ g, N) : (x : (A→A)→A→A, y : A→A, z : P(x y))
+
+where N : P (g ∘ g).  We cannot remove x and y from the context, as
+P(x y) would be ill-formed then.
+
+The deeper reason is that substitution is not injective, i.e., we can
+have [σ]M =β [τ]M but σ(x) ≠ τ(x) for some x ∈ FV(M).
+
+------------------------------------------------------------------------
+4. The meta occurs check is losing solutions; wrong definition of strongly rigid.
+   Communicated to me 2025-05-26 by Bohdan Liesnikov
+   who found it together with Jesper Cockx.
+
+Fig. 3 (Unification steps) contains the following rule under "Failing occurs check":
+
+  ∆ ⊩ K ∧ Ψ ⊢ u[ρ] = M : C  ↦  ⊥   if   M = M′{u[ξ]}srig  ̸= u[ξ]
+
+The rule states that the equation u[ρ]=M is unsolvable if M contains meta u in a proper strongly rigid position.
+(A typical instance would be u[] = suc (u[]) where suc is a constructor.)
+
+According to paragraph "Occurrences and free variables" in section 2,
+
+  > A rigid occurrence is strong if it is not in the evaluation context of a free variable.
+  > In our example [ c (u[y₁]) (x₁ x₂) (λz. z x₃ v[y₂,w[y₃]]) ],
+  > only x₂ does not occur strongly rigidly.
+
+The following example was presented to me by Bohdan:
+
+  u = (c₁ (snd u), c₀)
+
+According to our definition, u occurs strongly rigidly and thus this equation should be unsolvable, but a valid solution is:
+
+  u = (c₁ c₀, c₀)
+
+This counterexample also works when we Church-encode pairs and projections:
+
+  u = λ z. z (c₁ (u (λ x y. y))) c₀
+
+which has solution
+
+  u = λ z. z (c₁ c₀) c₀.
+
+The counterexamples were not reproducible in current Agda (e.g. 2.7.0.1) because Agda does not error out on failing occurs checks, but simply postpones such equations.
+
+Note: The occurs-check rule in Jason Reed, LFMTP 2009 seems correct:
+
+  > (u = c·Ssrig{u[σ]}) ∧ P → ⊥
+
+with the definition of strongly rigid as:
+
+  > Xsrig {Y} refers to a strongly rigid context in which Y occurs, that is,
+  > not within an argument to a metavariable,
+  > nor within an argument to a bound variable x.
+
+Here, it is ensured that the solution of u is prefixed by a constructor c which is totally inert; there is no way to eliminate this constructor.
+In contrast, allowing pairing in the place of c makes it eliminateable.
+
+Falling back to the Rule of Reed would be one way to fix the "failing occurs check" step.

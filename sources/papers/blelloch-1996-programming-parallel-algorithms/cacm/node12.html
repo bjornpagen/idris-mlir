@@ -1,0 +1,79 @@
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
+<!--Converted with LaTeX2HTML .95.3 (Nov 17 1995) by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds -->
+<HTML>
+<HEAD>
+<TITLE>Summary</TITLE>
+<!-- Changed by: Guy Blelloch , 25-Mar-1996 -->
+<META NAME="description" CONTENT="Summary">
+<META NAME="keywords" CONTENT="cacm2">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<LINK REL=STYLESHEET HREF="cacm2.css">
+</HEAD>
+<BODY LANG="EN">
+
+<strong>
+From <a href="../cacm.html"><cite>Programming Parallel Algorithms.</cite></a>
+<br>
+Communications of the ACM, 39(3), March, 1996.
+</strong>
+
+ <BR> <HR><A NAME="tex2html151" HREF="node13.html"><IMG ALIGN=BOTTOM ALT="next"  WIDTH=37 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/next_motif.gif"></A> <A NAME="tex2html149" HREF="cacm2.html"><IMG ALIGN=BOTTOM ALT="up"  WIDTH=26 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/up_motif.gif"></A> <A NAME="tex2html143" HREF="node11.html"><IMG ALIGN=BOTTOM ALT="previous"  WIDTH=63 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/previous_motif.gif"></A>   <BR>
+<B> Next:</B> <A NAME="tex2html152" HREF="node13.html">Acknowledgments</A>
+<B>Up:</B> <A NAME="tex2html150" HREF="cacm2.html">Programming Parallel Algorithms</A>
+<B> Previous:</B> <A NAME="tex2html144" HREF="node11.html">Three Other Algorithms</A>
+<BR> <HR> <P>
+<H1><A NAME="SECTION00040000000000000000">Summary</A></H1>
+<P>
+The NESL language was designed to be useful for programming and
+teaching parallel algorithms.  For these purposes it was important
+that it allowed for simple descriptions of algorithms that closely
+match our high level intuition, and also supplied a well-defined model
+for analyzing performance.  We believe the language has successfully
+achieved these goals.  There are many aspects of NESL, and the
+purpose of this article was to extract the two features that are most
+important for programming parallel algorithms.  They are:
+<OL><LI>
+A performance model based on work and depth.  An important aspect is
+that the model is defined directly in terms of language constructs
+rather than trying to appeal to any intuition of a machine.  As
+discussed, the model is a virtual one for which we give mappings
+onto running times for various physical machine models.
+<LI>
+The use of data-parallel constructs for expressing parallelism, and
+the ability to nest such constructs.  We certainly do not mean to
+exclude any other parallel constructs, but having some way of mapping a
+function over a set of values in parallel seems critical for
+expressing many parallel algorithms.
+</OL>
+This article is suggesting a change in the underlying models we use for
+analyzing parallel algorithms.  In particular it suggests that we move
+away from using theoretical performance models based on machines to
+models based on languages.  As mentioned in the article, some reference
+works already informally analyze parallel algorithms in terms of work
+and depth before mapping them onto a PRAM [<A HREF="node14.html#Karp90">17</A>, <A HREF="node14.html#Jaja92">16</A>].  We
+suggest that the extra step is taken of formalizing a model based on
+work and depth.  With this formal model the PRAM can be cut out of the
+loop, directly mapping the model onto more realistic machines.  We
+furthermore argue that language-based models seem to be the most
+reasonable way to define a programming model based on work and depth.
+<P>
+A full implementation of NESL is currently available on the Web.
+The compiler is based on a technique called flattening nested
+parallelism [<A HREF="node14.html#Blelloch90">4</A>], and compiles to an intermediate
+language called VCODE.  Benchmark results for this implementation for
+the Connection Machines CM-2 and CM-5 and the Cray C90 are described
+in [<A HREF="node14.html#Nestedfoo94">6</A>].  These results show that NESL's performance is
+competitive with that of machine-specific codes for those benchmarks.
+<P>
+<BR> <HR><A NAME="tex2html151" HREF="node13.html"><IMG ALIGN=BOTTOM ALT="next"  WIDTH=37 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/next_motif.gif"></A> <A NAME="tex2html149" HREF="cacm2.html"><IMG ALIGN=BOTTOM ALT="up"  WIDTH=26 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/up_motif.gif"></A> <A NAME="tex2html143" HREF="node11.html"><IMG ALIGN=BOTTOM ALT="previous"  WIDTH=63 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/previous_motif.gif"></A>   <BR>
+<B> Next:</B> <A NAME="tex2html152" HREF="node13.html">Acknowledgments</A>
+<B>Up:</B> <A NAME="tex2html150" HREF="cacm2.html">Programming Parallel Algorithms</A>
+<B> Previous:</B> <A NAME="tex2html144" HREF="node11.html">Three Other Algorithms</A>
+<BR> <HR> <P>
+<BR> <HR>
+<P><ADDRESS>
+<a href="http://www.cs.cmu.edu/~blelloch">Guy Blelloch</a>, <a href="mailto:blelloch@cs.cmu.edu">blelloch@cs.cmu.edu</a>
+</ADDRESS>
+</BODY>
+</HTML>

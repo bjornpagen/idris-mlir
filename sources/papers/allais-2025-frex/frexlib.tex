@@ -1,0 +1,217 @@
+\section{Universal Algebra in \Frexlib{}}
+\seclabel{frexlib}
+To define an interface to algebraic simplifiers, we first
+specify and represent algebraic structures.
+We implement signatures and their operators in \Frexlib{} as follows
+(below, left and middle):
+\ThreeColDIY[]{.27}{
+  \SignaturesPartA{}
+  \SignaturesPartB{}
+}{.35}{\OpDecl{}}
+ {.35}{\MonoidOperationIntro{}}
+The implementation uses \idris{}'s implicit record field for
+\ArityName{}.  Users define concrete instances of \SignatureName{},
+such as the signature \MonoidSig{} for monoids, by defining a
+% injective
+type family for the indexed field
+\OpWithArityName{} (above, right).
+%% Injectivity avoids projecting the arity in concrete cases, where
+%% unification extracts it automatically.  Injectivity improves usability
+%% but is not otherwise necessary.  Idris currently has limited
+%% support for injectivity: unification makes use of the injectivity of
+%% data-type constructors, but there is no means for a type to require a
+%% judgementally injective type-level function.
+
+
+\begin{figure*}
+  \TwoColDIY{.375}{
+      \Tuple{}
+  \algebraOverDecl{}
+  \AlgebraDecl{}
+  }{.6}{
+\CongruenceWRT{}
+\SetoidAlgebra{}
+  }
+  %%
+  %% and (c) their
+  %% instantiation in the monoid frexlet
+  %%\figlabel{monoid frexlet}
+\caption{Algebras and setoid algebras in \Frexlib{}}
+\figlabel{algebras}
+\end{figure*}
+
+
+\Frexlib{} represents the domain of an $n$-ary operation
+with an $n$-ary vector (\figref{algebras}). (As in
+\Haskell{},
+backticks turn any name into an infix operator.)  For
+example, the additive natural numbers form
+an algebra for the monoid
+signature as follows:
+\MyCodeListing[0\baselineskip]{
+  \PutListing{.5\textwidth}\NatAdditive{}
+  }
+Instead of specifying the \IdrisBound{Semantics} field directly,
+this code uses the smart constructor \IdrisFunction{MkAlgebra},
+which has a \IdrisBound{Sem} argument, instead of \IdrisBound{Semantics}.
+This smart constructor transfers its \IdrisBound{Sem} argument into
+\IdrisData{MakeAlgebra}'s \IdrisBound{Semantics} field by uncurrying
+each \nvar{}-ary function into a function taking an \nvar{}-ary vector of arguments.
+The departure from our usual naming scheme in which it is the constructor of
+a record \IdrisType{R} that is called \IdrisData{MkR} indicates that the
+smart constructor \IdrisFunction{MkAlgebra}, not the record constructor
+\IdrisData{MakeAlgebra},
+is the preferred way to construct
+\IdrisType{Algebra} instances.
+The \IdrisKeyword{\textbackslash{}case} keyword is an anonymous
+function that immediately pattern-matches its argument.  \emph{Setoid
+  algebras} further require an equivalence relation that forms a
+congruence w.r.t.~the operations~(\figref{algebras}).
+
+
+We implement terms over a signature as follows, mirroring their mathematical definition:
+\MyCodeListing{
+  \PutListing{.7\textwidth}\TermDecl}
+Terms form an algebra, the \emph{free} algebra, with symbols denoting term formers:
+\MyCodeListing{
+\PutListing{.7\textwidth}\FreeDecl
+}
+Terms also form a monad, with \IdrisData{Done} as its unit and substitution
+as its sequencing operation.
+
+\begin{figure*}[t]
+\MonoidAxiom{}
+
+\MonoidTheory{}
+
+\MonoidStructure{}
+
+\MonoidModel{}
+\caption{Axiomatising monoids in \Frexlib{}}
+\figlabel{monoids}
+\end{figure*}
+
+Turning to equations, \Frexlib{} only needs
+equations in a finite context, and we call its cardinality
+the \emph{support} of the equation. We implement equations
+and presentations as follows:
+\ThreeColDIY{.26}{\EquationDecl[gobble=2]{}}{.3}{\PresentationDecl{}}
+            {.38}{\AssociativityScheme[numbers=right,numbersep=-.1cm]{}}
+\noindent\\[.3\baselineskip] For example, the monoid presentation
+$\Monoid$ has three axioms: left and right neutrality, and
+associativity. \Frexlib{} defines a generic collection of axiom
+schemes (above, right).  The second argument to \IdrisFunction{EqSpec}
+lists the arities \IdrisData{[n1, ..., nk]} of the operations in a
+scheme, so on lines 1--2 the argument \IdrisData{[2]} in the type
+\SchemeOps{} states that the scheme involves a single binary
+operation.  The first argument \IdrisData{3} in \MkEquation{} (lines 5--6)
+indicates that the declaration of the scheme involves three variables
+\IdrisFunction{X}\;\IdrisData{0}, \IdrisFunction{X}\;\IdrisData{1}, and
+\IdrisFunction{X}\;\IdrisData{2}. We use these
+generic axiom schemes to construct, for example, the theory of monoids in the
+middle of \figref{monoids}.
+
+
+\begin{figure*}[t]
+\Models{}
+
+\medskip
+
+\Entails{}
+
+\medskip
+
+\ValidatesEquation{}
+
+\medskip
+
+\Validates{}
+  \caption{Equational validity in an algebra}
+  \figlabel{equational validity}
+\end{figure*}
+
+\figref{equational validity} shows
+\Frexlib{}'s representation of what it means for an algebra
+to validate an equation. We use \idris{}'s dependent
+pairing construct to pair an algebra with an environment in the
+standard entailment syntax \ModelEnv{}.
+The following code validates the monoid axioms
+for our running example:
+\MyCodeListing{
+  \PutListing{.5\textwidth}\AdditiveNatValid{}
+}
+We define models for a presentation:
+\MyCodeListing{
+  \PutListing{.5\textwidth}\ModelDecl{}
+}
+%
+We can now define a monoid to be a $\Monoid$-model, as in
+\figref{monoids}. For another example, now putting everything together,
+we validate the monoid structure of multiplication as follows:
+\MyCodeListing{
+  \PutListing{.55\textwidth}{\NatMultitive[numbers=right]}
+}
+\label{cast explanation}
+The coercion function %
+(\IdrisFunction{cast} \IdrisKeyword{:} \IdrisBound{from} \IdrisKeyword{->} \IdrisBound{to}) %
+on Line 3 is a method in the standard Idris type-class/interface
+\IdrisType{Cast}
+\IdrisBound{from} \IdrisBound{to}.  \Frexlib{} exports a
+\IdrisType{Cast}-instance that converts an algebra into a setoid
+algebra whose equivalence relation is propositional equality
+(\IdrisKeyword{=}).  Lines 7--9 use results about the natural numbers
+from \idris{}'s standard library.
+
+\begin{figure}
+  \ListInvMonoid{}
+  \caption{The involutive monoids of list reversal}
+  \figlabel{involutive lists}
+\end{figure}
+
+\paragraph{Using \Frexlib{}.}
+Unless they are already working abstractly with an algebraic structure,
+we expect that in practice users start by recognising that their concrete
+algebra validates the axioms of an existing simplification
+module---\emph{frexlet} for short. Such modules export a presentation,
+convenient notation suites for its signature, and fral and/or frex simplifiers
+for this presentation.
+
+As a concrete example, we will take computations with lists
+that also involve the \IdrisFunction{reverse} function. These form an
+\emph{involutive} monoid: a monoid $\A$ equipped with a unary
+\emph{involution} operator $x\mapsto\overline x : \U\A \to \U\A$
+satisfying two axioms $\overline{\overline \x} = \x$ and
+$\overline{\x\y} = \overline\y\,\overline\x$. We then equip our type
+of interest, lists, with an involutive structure as in
+\figref{involutive lists}. We can use this algebra and the involutive
+monoid to discharge equations containing list variables and concrete
+lists: \InvMonoidFrexExample[numbers=right, numbersep=-.125cm]
+
+The \IdrisFunction{solve} function takes as argument the number of
+variables (\IdrisBound{n}=\IdrisData{2} on line~2) in the algebraic
+term to simplify, and an algebraic simplifier from the frexlet
+(\IdrisFunction{Involutive.Frex.Frex} on line~4). The final argument
+is a pair of terms with \IdrisBound{n}=\IdrisData{2} variables
+(\IdrisFunction{Dyn} \IdrisData{0} and \IdrisFunction{Dyn}
+\IdrisData{1}) and concrete values from the algebra. By importing
+notation modules the frexlet provides, we can use infix multiplicative
+notation such as (\IdrisFunction{.*.}). The type-checker then infers
+the terms to substitute for each variable.
+
+In this example, we used \IdrisFunction{solve} to define a stand-alone
+lemma, but we may also call \IdrisFunction{solve} directly from a
+chain of equational reasoning steps. When we extract lemmas, we often
+want to prove them more abstractly, for \emph{all} involutive
+monoids. In that case we use a fral:
+\InvMonoidFralExample[numbers=right,numbersep=-.125cm] Lines 2--3 and 8--9 overload the
+infix and postfix notation using the frexlet's built-in notation
+suites. Concretely, the projection \IdrisFunction{Notation1} brings
+into scope the functions
+\IdrisKeyword{(}\IdrisFunction{.*.}\IdrisKeyword{)} and
+\IdrisKeyword{(}\IdrisFunction{.inv}\IdrisKeyword{)} when writing
+algebraic terms.  The \IdrisFunction{solve} function takes the number
+of free variables and a corresponding fral simplifier (line~10), as
+well as the two terms representing the equation of interest.  The
+variables \IdrisBound{x}, \IdrisBound{y}, \IdrisBound{z} (bound in line 7) are
+implicitly used in this call. \subsecref{solver implementation}
+covers the type of \IdrisFunction{solve} in more detail.

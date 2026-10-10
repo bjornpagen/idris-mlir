@@ -1,0 +1,20 @@
+992c992,993
+<   \ifx\@tempa\@tempb
+---
+>   \def\FV@FirstNumber{#1}%
+>   \ifx\@tempa\@tempb%
+1128,1129c1129,1139
+<         \FV@TheVerbatim\FV@ProcessLine{##1}}}%
+<     \gdef\FV@TheVerbatim{}%
+---
+>         \FV@TheVerbatim\advance\c@FancyVerbLine\@ne\FV@ProcessLine{##1}}}%
+>     \gdef\FV@TheVerbatim{%
+>       \edef\@tempa{\FV@FirstNumber}%
+>       \def\@tempb{auto}%
+>       \ifx\@tempa\@tempb%
+>         \c@FancyVerbLine\FV@CodeLineNo%
+>       \else%
+>         \c@FancyVerbLine\FV@FirstNumber%
+>         \advance\c@FancyVerbLine\m@ne%
+>       \fi%
+>     }%

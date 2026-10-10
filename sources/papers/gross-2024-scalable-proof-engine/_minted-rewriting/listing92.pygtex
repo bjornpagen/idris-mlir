@@ -1,0 +1,19 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PYG{k+kn}{Fixpoint} \PYG{n}{nbeT} \PYG{n}{var} \PYG{o}{(}\PYG{n}{t} \PYG{o}{:} \PYG{n}{type}\PYG{o}{)} \PYG{o}{:} \PYG{k+kt}{Type} \PYG{o}{:=} \PYG{k}{match} \PYG{n}{t} \PYG{k}{with}
+  \PYG{o}{|} \PYG{n}{arrow} \PYG{n}{s} \PYG{n}{d} \PYG{o}{=\PYGZgt{}} \PYG{n}{nbeT} \PYG{n}{var} \PYG{n}{s} \PYG{o}{\PYGZhy{}\PYGZgt{}} \PYG{n}{nbeT} \PYG{n}{var} \PYG{n}{d}
+  \PYG{o}{|} \PYG{n}{base} \PYG{n}{b}    \PYG{o}{=\PYGZgt{}} \PYG{n}{expr} \PYG{n}{var} \PYG{n}{b}                    \PYG{k}{end}\PYG{o}{.}
+
+\PYG{k+kn}{Fixpoint} \PYG{n}{reify} \PYG{o}{\PYGZob{}}\PYG{n}{var} \PYG{n}{t}\PYG{o}{\PYGZcb{}} \PYG{o}{:} \PYG{n}{nbeT} \PYG{n}{var} \PYG{n}{t} \PYG{o}{\PYGZhy{}\PYGZgt{}} \PYG{n}{expr} \PYG{n}{var} \PYG{n}{t} \PYG{o}{:=} \PYG{k}{match} \PYG{n}{t} \PYG{k}{with}
+  \PYG{o}{|} \PYG{n}{arrow} \PYG{n}{s} \PYG{n}{d} \PYG{o}{=\PYGZgt{}} \PYG{o}{λ} \PYG{n}{f}\PYG{o}{,} \PYG{n}{Abs} \PYG{o}{(λ} \PYG{n}{x}\PYG{o}{,} \PYG{n}{reify} \PYG{o}{(}\PYG{n}{f} \PYG{o}{(}\PYG{n}{reflect} \PYG{o}{(}\PYG{n}{Var} \PYG{n}{x}\PYG{o}{))))}
+  \PYG{o}{|} \PYG{n}{base} \PYG{n}{b}    \PYG{o}{=\PYGZgt{}} \PYG{o}{λ} \PYG{n}{e}\PYG{o}{,} \PYG{n}{e}                                      \PYG{k}{end}
+\PYG{k}{with} \PYG{n}{reflect}   \PYG{o}{\PYGZob{}}\PYG{n}{var} \PYG{n}{t}\PYG{o}{\PYGZcb{}} \PYG{o}{:} \PYG{n}{expr} \PYG{n}{var} \PYG{n}{t} \PYG{o}{\PYGZhy{}\PYGZgt{}} \PYG{n}{nbeT} \PYG{n}{var} \PYG{n}{t} \PYG{o}{:=} \PYG{k}{match} \PYG{n}{t} \PYG{k}{with}
+  \PYG{o}{|} \PYG{n}{arrow} \PYG{n}{s} \PYG{n}{d} \PYG{o}{=\PYGZgt{}} \PYG{o}{λ} \PYG{n}{e}\PYG{o}{,} \PYG{o}{λ} \PYG{n}{x}\PYG{o}{,} \PYG{n}{reflect} \PYG{o}{(}\PYG{n}{App} \PYG{n}{e} \PYG{o}{(}\PYG{n}{reify} \PYG{n}{x}\PYG{o}{))}
+  \PYG{o}{|} \PYG{n}{base} \PYG{n}{b}    \PYG{o}{=\PYGZgt{}} \PYG{n}{rewrite\PYGZus{}head}                                \PYG{k}{end}\PYG{o}{.}
+\PYG{k+kn}{Fixpoint} \PYG{n}{reduce} \PYG{o}{\PYGZob{}}\PYG{n}{var} \PYG{n}{t}\PYG{o}{\PYGZcb{}} \PYG{o}{(}\PYG{n}{e} \PYG{o}{:} \PYG{n}{expr} \PYG{o}{(}\PYG{n}{nbeT} \PYG{n}{var}\PYG{o}{)} \PYG{n}{t}\PYG{o}{)} \PYG{o}{:} \PYG{n}{nbeT} \PYG{n}{var} \PYG{n}{t}\PYG{o}{:=}\PYG{k}{match} \PYG{n}{e} \PYG{k}{with}
+  \PYG{o}{|} \PYG{n}{Abs} \PYG{n}{e}     \PYG{o}{=\PYGZgt{}} \PYG{o}{λ} \PYG{n}{x}\PYG{o}{,} \PYG{n}{reduce} \PYG{o}{(}\PYG{n}{e} \PYG{o}{(}\PYG{n}{Var} \PYG{n}{x}\PYG{o}{))}
+  \PYG{o}{|} \PYG{n}{App} \PYG{n}{e1} \PYG{n}{e2} \PYG{o}{=\PYGZgt{}} \PYG{o}{(}\PYG{n}{reduce} \PYG{n}{e1}\PYG{o}{)} \PYG{o}{(}\PYG{n}{reduce} \PYG{n}{e2}\PYG{o}{)}
+  \PYG{o}{|} \PYG{n}{Var} \PYG{n}{x}     \PYG{o}{=\PYGZgt{}} \PYG{n}{x}
+  \PYG{o}{|} \PYG{n}{Ident} \PYG{n}{c}   \PYG{o}{=\PYGZgt{}} \PYG{n}{reflect} \PYG{o}{(}\PYG{n}{Ident} \PYG{n}{c}\PYG{o}{)}                            \PYG{k}{end}\PYG{o}{.}
+\PYG{k+kn}{Definition} \PYG{k+kn}{Rewrite} \PYG{o}{\PYGZob{}}\PYG{n}{t}\PYG{o}{\PYGZcb{}} \PYG{o}{(}\PYG{n}{E} \PYG{o}{:} \PYG{n}{Expr} \PYG{n}{t}\PYG{o}{)} \PYG{o}{:} \PYG{n}{Expr} \PYG{n}{t}
+  \PYG{o}{:=} \PYG{o}{λ} \PYG{n}{var}\PYG{o}{,} \PYG{n}{reify} \PYG{o}{(}\PYG{n}{reduce} \PYG{o}{(}\PYG{n}{E} \PYG{o}{(}\PYG{n}{nbeT} \PYG{n}{var} \PYG{n}{t}\PYG{o}{))).}
+\end{Verbatim}

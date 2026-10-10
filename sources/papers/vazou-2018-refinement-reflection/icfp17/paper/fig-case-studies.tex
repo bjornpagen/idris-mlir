@@ -1,0 +1,47 @@
+
+%\begin{center}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lllr}
+\toprule
+  \multicolumn{3}{l}{\textbf{CATEGORY}}              & \textbf{LOC} \\
+\toprule
+  \textbf{I.} & \multicolumn{3}{l}{\textbf{Arithmetic}} \\[0.05in]
+   & Fibonacci      & \S~\ref{sec:overview}          &  48 \\ % Overview.hs
+   & Ackermann      & \citep{ackermann}              & 280 \\ % Ackermann.hs
+
+  \midrule
+
+  \textbf{II.} & \multicolumn{3}{l}{\textbf{Algebraic Data Types}} \\[0.05in]
+
+  & Fold Universal & \citep{agdaequational}          & 105 \\ % FoldrUniversal.hs
+%  & Fold Fusion    & \citep{agdaequational}          &     \\
+
+  \midrule
+
+  \textbf{III.} & \textbf{Typeclasses} & Fig~\ref{fig:laws} & \\[0.05in]
+  & Monoid         & \tPeano, \tMaybe, \tList        & 189 \\ % Monoid*.hs
+  & Functor        & \tMaybe, \tList, \tId, \tReader & 296 \\ % Functor*.hs - FunctorReader.hs
+  & Applicative    & \tMaybe, \tList, \tId, \tReader & 578 \\ % Applicative*.hs
+  & Monad          & \tMaybe, \tList, \tId, \tReader & 435 \\ % Monad*.hs
+
+  \midrule
+
+  \textbf{IV.} & \multicolumn{3}{l}{\textbf{Functional Correctness}} \\[0.05in]
+  & SAT Solver     & \citep{Zombie}                  & 133 \\ % Solver.hs
+  & Unification    & \citep{Sjoberg2015}             & 200 \\ % Unification
+
+  \midrule
+
+  \textbf{V.} & \multicolumn{3}{l}{\textbf{Deterministic Parallelism}} \\[0.05in]
+  & Conc. Sets     & \S~\ref{sec:set}           & 906 \\ % VerifiedEq/Ord + PureSet.hs + SLSet.hs
+  & $n$-body       & \S~\ref{sec:nbody}         & 930 \\ % VerifiedEq/Ord + Inj/Iso + allpairs.hs
+  & Par. Reducers  & \S~\ref{sec:reducer}       &  55 \\ % VerifiedSemigroup + Iso + IntegerSumReduction2.hs
+
+  \midrule
+
+  \multicolumn{3}{l}{\textbf{TOTAL}}                 & 4155 \\
+\bottomrule
+\end{tabular}
+%\end{center}
+\caption{\textbf{Summary of Case Studies}}
+\label{fig:eval-summary}

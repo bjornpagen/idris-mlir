@@ -1,0 +1,203 @@
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
+<!--Converted with LaTeX2HTML .95.3 (Nov 17 1995) by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds -->
+<HTML>
+<HEAD>
+<TITLE>Work and Depth</TITLE>
+<!-- Changed by: Guy Blelloch , 25-Mar-1996 -->
+<META NAME="description" CONTENT="Work and Depth">
+<META NAME="keywords" CONTENT="cacm2">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<LINK REL=STYLESHEET HREF="cacm2.css">
+</HEAD>
+<BODY LANG="EN">
+
+<strong>
+From <a href="../cacm.html"><cite>Programming Parallel Algorithms.</cite></a>
+<br>
+Communications of the ACM, 39(3), March, 1996.
+</strong>
+
+ <BR> <HR><A NAME="tex2html39" HREF="node2.html"><IMG ALIGN=BOTTOM ALT="next"  WIDTH=37 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/next_motif.gif"></A> <A NAME="tex2html37" HREF="cacm2.html"><IMG ALIGN=BOTTOM ALT="up"  WIDTH=26 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/up_motif.gif"></A> <A NAME="tex2html31" HREF="cacm2.html"><IMG ALIGN=BOTTOM ALT="previous"  WIDTH=63 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/previous_motif.gif"></A>   <BR>
+<B> Next:</B> <A NAME="tex2html40" HREF="node2.html">Why Work and Depth?</A>
+<B>Up:</B> <A NAME="tex2html38" HREF="cacm2.html">Programming Parallel Algorithms</A>
+<B> Previous:</B> <A NAME="tex2html32" HREF="cacm2.html">Programming Parallel Algorithms</A>
+<BR> <HR> <P>
+<H1><A NAME="SECTION00010000000000000000">Work and Depth</A></H1>
+<P>
+Analyzing performance is a key part of studying algorithms.  Although
+such analysis is not used to predict the exact running time of an
+algorithm on a particular machine, it is important in determining how
+the running time grows as a function of the input size.  To analyze
+performance a formal model is needed to account for the costs.  In
+parallel computing the most common models are based on a set of
+processors connected either by a shared memory, as in the Parallel
+Random Access Machines (PRAM, see Figure <A HREF="node1.html#figPRAM">1</A>), or through a
+network, as with the hypercube or grid models.  In such <EM>
+processor-based models</EM>, performance is calculated in terms of the
+number of instruction cycles a computation takes (its running time)
+and is usually expressed as a function of input size and number of
+processors.
+<P>
+<P><A NAME="56">&#160;</A><A NAME="figPRAM">&#160;</A> <IMG ALIGN=BOTTOM ALT="figure54"  WIDTH=461 HEIGHT=80 SRC="img1.gif"  > <BR>
+<STRONG>Figure 1:</STRONG> A diagram of a Parallel Random Access Machine (PRAM).
+It is assumed in this model that all the processors can access
+a memory location in the shared memory simultaneously in unit time.<BR>
+<P>
+<P>
+An important advance in parallel computing was the introduction of the
+notion of <EM>virtual models</EM>.  A virtual model is a performance
+model that does not attempt to represent any machine that we would
+actually build, but rather is a higher-level model that can then be
+mapped onto various real machines.  For example, the PRAM is
+often viewed as a virtual model [<A HREF="node14.html#Vishkin84x">25</A>].  From this
+viewpoint, it is agreed that a PRAM cannot be built directly since in
+practice it is unreasonable to assume that every processor can access
+a shared memory in unit time.  Instead, the PRAM is treated as a
+virtual machine that can be mapped onto more realistic machines
+efficiently by simulating multiple processors of the PRAM on a single
+processor of a host machine.  This simulation imposes some slowdown
+<i>K</i>, but requires <i>K</i> fewer processors, so the total cost
+(processor-time product) remains the same.  The advantage of virtual
+models over physical machine models is that they can be easier to
+program.
+<P>
+<P><A NAME="63">&#160;</A><A NAME="figtree">&#160;</A> <IMG ALIGN=BOTTOM ALT="figure61"  WIDTH=461 HEIGHT=188 SRC="img2.gif"  > <BR>
+<STRONG>Figure 2:</STRONG> Summing 16 numbers on a tree.  The total depth (longest
+chain of dependencies) is 4 and the total work (number of operations)
+is 15.<BR>
+<P>
+<P>
+Virtual models can be taken a step further and used to define
+performance in more abstract measures than just running time on a
+particular machine.  A pair of such measures are work and depth: <EM>
+work</EM> is defined as the total number of operations executed by a
+computation, and <EM>depth</EM> is defined as the longest chain of
+sequential dependencies in the computation.  Consider, for example,
+summing <i>16</i> numbers using a balanced binary tree (see Figure <A HREF="node1.html#figtree">2</A>).
+The work required by this computation is <i>15</i> operations (the 15
+additions).  The depth of the computation is <i>4</i> operations since the
+longest chain of dependencies is the depth of the summation tree--the
+sums need to be calculated starting at the leaves and going down one
+level at a time.  In general summing <i>n</i> numbers on a balanced tree
+requires <i>n-1</i> work and <EM>log<sub>2</sub> n</EM> depth.  Work is usually viewed as a
+measure of the total cost of a computation (integral of needed
+resources over time), and also specifies the running time if the
+algorithm is executed on a sequential processor.  The depth represents
+the best possible running time, assuming an ideal machine with an
+unlimited number of processors.
+<P>
+Work and depth have been used informally for many years to describe
+the performance of parallel algorithms [<A HREF="node14.html#shiloachvishkin82">23</A>],
+especially when teaching them [<A HREF="node14.html#Karp90">17</A>, <A HREF="node14.html#Jaja92">16</A>].  The claim is that
+it is easier to describe, think about, and analyze algorithms in terms
+of work and depth rather than in terms of running time on a
+processor-based model (a model based on P processors).  Furthermore,
+work and depth together tell us a lot about expected performance on
+various machines.  We will return to these points, but we first
+describe in more detail how work and depth can be incorporated into a
+computational model.  There are basically three classes of such
+models--circuit models, vector machine models, and language-based
+models--and we briefly describe each.
+<P>
+<H4><A NAME="SECTION00010010000000000000">Circuit Models:</A></H4>
+<P>
+In circuit models an algorithm is specified by designing a circuit of
+logic gates to solve the problem.  The circuits are restricted to have
+no cycles.  For example we could view Figure <A HREF="node1.html#figtree">2</A> as a circuit in
+which the inputs are at the top, each <B>+</B> is an adder circuit, and
+each of the lines between adders is a bundle of wires.  The final sum
+is returned at the bottom.  In circuit models the circuit size (number
+of gates) corresponds to <EM>work</EM>, and the longest path from an
+input to an output corresponds to <EM>depth</EM>.  Although for a
+particular input size one could build a circuit to implement an
+algorithm, in general circuit models are viewed as virtual models from
+which the size and depth of the designs tell us something about the
+performance of algorithms on real machines.  As such, the models have
+been used for many years to study various theoretical aspects of
+parallelism, for example to prove that certain problems are hard to
+solve in parallel (see [<A HREF="node14.html#Karp90">17</A>] for an overview).  Although the
+models are well suited for such theoretical analysis, they are not a
+convenient model for programming parallel algorithms.
+<P>
+<P><A NAME="789">&#160;</A><A NAME="figVRAM">&#160;</A> <IMG ALIGN=BOTTOM ALT="figure78"  WIDTH=461 HEIGHT=158 SRC="img5.gif"  > <BR>
+<STRONG>Figure 3:</STRONG> A diagram of a Vector Random Access Machine (VRAM) and
+pseudocode for summing <i>n</i> numbers on the machine.  The vector processor
+acts as a slave to the scalar processor.  The functions <TT>
+odd_elts</TT> and <TT>even_elts</TT> extract the odd and even elements from
+a vector, respectively.  The function <TT>vector_add</TT> elementwise
+adds two vectors.  On each iteration through the loop the length of
+the vector <TT>V</TT> halves.  The code assumes <i>n</i> is a power of 2, but
+it is not hard to generalize the code to work with any <i>n</i>.  The total
+work done by the computation is  <IMG ALIGN=MIDDLE ALT="tex2html_wrap_inline1573"  WIDTH=227 HEIGHT=27 SRC="img4.gif"  >  and the
+depth is a constant times the number of iterations, which is <EM>O(log n)</EM>.<BR>
+<P><H4><A NAME="SECTION00010020000000000000">Vector Machine Models:</A></H4>
+<P>
+The first programmable machine model based on work and depth was the
+Vector Random Access Machine (VRAM) [<A HREF="node14.html#Blelloch90">4</A>].  The VRAM model
+is a sequential random-access machine (RAM) extended with a set of
+instructions that operate on vectors (see Figure <A HREF="node1.html#figVRAM">3</A>).  Each
+location of the memory contains a whole vector, and the vectors can
+vary in size during the computation.  The vector instructions include
+element-wise operations, such as adding the corresponding elements of
+two vectors, and aggregate operations, such as extracting elements
+from one vector based on another vector of indices.  The depth of a
+computation in a VRAM is simply the number of instructions executed by
+the machine, and the work is calculated by summing the lengths of the
+vectors on which the computation operates.  As an example, Figure <A HREF="node1.html#figVRAM">3</A>
+shows VRAM code for taking the sum of <i>n</i> values.  This code executes
+the summation tree in Figure <A HREF="node1.html#figtree">2</A>--each loop iteration moves down
+the tree one level.  The VRAM is again a virtual model since it would
+be impractical to build the vector memory because of its dynamic
+nature.  Although the VRAM is a good model for describing many
+algorithms that use vectors or arrays, it is not an ideal model for
+directly expressing algorithms on more complicated data structures,
+such as trees or graphs.
+<P>
+<H4><A NAME="SECTION00010030000000000000">Language-Based Models:</A></H4>
+<P>
+A third choice for defining a model in terms of work and depth is to
+define it directly in terms of language constructs.  Such a <EM>
+language-based performance model</EM> specifies the costs of the primitive
+instructions, and a set of rules for composing costs across program
+expressions.  The use of language-based models is certainly not new.
+Aho and Ullman, in their popular introductory text book ``Foundations
+of Computer Science'' [<A HREF="node14.html#AhoUllman92">2</A>], define such a model for
+deriving running times of sequential algorithms.  The approach allows
+them to discuss the running time of the algorithms without introducing
+a machine model.  A similar approach can be taken to define a model
+based on work and depth.  In this approach work and depth costs are
+assigned to each primitive instruction of a language and rules are
+specified for combining both parallel and sequential expressions.
+Roughly speaking, when executing a set of tasks in parallel the total
+work is the sum of the work of the tasks and the total depth is the
+maximum of the depth of the tasks.  When executing tasks sequentially,
+both the work and depth are summed.  These rules are made more
+concrete when we describe NESL's performance model in
+Section <A HREF="node6.html#seccomplexity">2.2</A>, and the algorithms in the article illustrate many
+examples of how the rules can be applied.
+<P>
+We note that language-based performance models seem to be
+significantly more important for parallel algorithms than for
+sequential algorithms.  Unlike Aho and Ullman's sequential model which
+corresponds almost directly to a machine model (the Random Access
+Machine) and is defined purely for convenience, there seems to be no
+satisfactory machine model that captures the notion of work and depth
+in a general way.
+<P>
+<BR> <HR>
+<UL> 
+<LI> <A NAME="tex2html41" HREF="node2.html#SECTION00011000000000000000">Why Work and Depth?</A>
+<LI> <A NAME="tex2html42" HREF="node3.html#SECTION00012000000000000000">Relationship of Work and Depth to Running Time</A>
+</UL>
+<BR> <HR><A NAME="tex2html39" HREF="node2.html"><IMG ALIGN=BOTTOM ALT="next"  WIDTH=37 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/next_motif.gif"></A> <A NAME="tex2html37" HREF="cacm2.html"><IMG ALIGN=BOTTOM ALT="up"  WIDTH=26 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/up_motif.gif"></A> <A NAME="tex2html31" HREF="cacm2.html"><IMG ALIGN=BOTTOM ALT="previous"  WIDTH=63 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/previous_motif.gif"></A>   <BR>
+<B> Next:</B> <A NAME="tex2html40" HREF="node2.html">Why Work and Depth?</A>
+<B>Up:</B> <A NAME="tex2html38" HREF="cacm2.html">Programming Parallel Algorithms</A>
+<B> Previous:</B> <A NAME="tex2html32" HREF="cacm2.html">Programming Parallel Algorithms</A>
+<BR> <HR> <P>
+<BR> <HR>
+<P><ADDRESS>
+<a href="http://www.cs.cmu.edu/~blelloch">Guy Blelloch</a>, <a href="mailto:blelloch@cs.cmu.edu">blelloch@cs.cmu.edu</a>
+</ADDRESS>
+</BODY>
+</HTML>

@@ -1,0 +1,3173 @@
+%\documentclass[11pt]{article}
+%\usepackage{a4}
+%\usepackage[square]{ebharvard}
+%\citationmode{full}
+%\def\xcite#1#2{\ncite{#1}}
+%\newif\ifbibtex\bibtextrue
+%\let\affiliation=\relax
+%\newenvironment{acknowledgements}{}{}
+
+\documentclass{rspublic}
+\def\xcite#1#2{#2}
+\newif\ifbibtex\bibtexfalse
+\newcounter{paragraph}
+\newcommand{\paragraph}{\subsubsection*}
+\def\harvardcite#1#2#3#4{}
+
+
+\usepackage{amssymb}
+\usepackage{url}
+\usepackage{alltt}
+\usepackage[all]{xypic}
+\usepackage{fancyvrb}
+
+%\usepackage{bk0,bk11}
+
+\makeatletter
+%%==================================================
+\def\section{\@startsection {section}{1}{\z@}{-3.5ex plus
+-1ex minus 
+ -.2ex}{2.3ex plus .2ex}{\large\bf}}
+\def\subsection{\@startsection{subsection}{2}{\z@}{-3.25ex plus -1ex minus 
+ -.2ex}{1.5ex plus .2ex}{\normalsize\bf}}
+\def\subsubsection{\@startsection{subsubsection}{3}{\z@}{-3.25ex plus
+ -1ex minus -.2ex}{1.5ex plus .2ex}{\normalsize\it}}
+
+% From ebarticle.sty     Moved to \sub-definition   EB 4 IV 1991
+
+%\def\labelenumi{{\rm (\theenumi)}} 
+%\def\theenumi{\roman{enumi}} 
+%\def\theenumiii{\arabic{enumiii}}    % Nog verder wijzigen!
+
+% Steffens `onderdelen'
+
+%\def\firstitem{\itemindent1.5em\item\itemindent3em}
+
+\def\firstitem{\@ifnextchar [{\@firstitemwithlabel}{\@firstitemnolabel}}
+
+\def\@firstitemwithlabel[#1]{\itemindent 0.5em\def\makelabel##1{##1}%
+\item[#1]\itemindent 3em\def\makelabel##1{\hss\llap{##1}}} %aanpassing 4 juni 91
+
+\def\@firstitemnolabel{\itemindent 0.5em\def\makelabel##1{##1}%
+\item\itemindent 3em\def\makelabel##1{\hss\llap{##1}}}
+
+\def\sub{
+\def\labelenumi{{\rm (\theenumi)}} 
+\def\theenumi{\roman{enumi}} 
+\def\theenumii{\arabic{enumii}}
+\def\theenumiii{\alph{enumiii}}    % verbeterd EB-8-jul-92
+\ifnum \@enumdepth >3 \@toodeep\else
+\advance\@enumdepth \@ne 
+   \edef\@enumctr{enum\romannumeral\the\@enumdepth}
+   \list {\csname label\@enumctr\endcsname} {\usecounter{\@enumctr} 
+   \topsep0pt plus 1pt \parsep0pt \itemsep0pt plus 1pt 
+			\listparindent\parindent
+   \leftmargin 0pt \labelwidth\leftmargin% \advance\labelwidth-\labelsep
+   \itemindent 3em
+   \def\makelabel##1{\hss\llap{##1}}}
+\fi}
+
+\let\endsub =\endlist
+
+
+% Theorem omgeving: gewijzigd (EB, 11 mei 1990)
+% 'Plain' theorems
+
+\def\newtheorem#1{\@ifnextchar[{\@othm{#1}}{\@nthm{#1}}}
+
+\def\@nthm#1#2{%
+\@ifnextchar[{\@xnthm{#1}{#2}}{\@ynthm{#1}{#2}}}
+
+\def\@xnthm#1#2[#3]{\expandafter\@ifdefinable\csname #1\endcsname
+{\@definecounter{#1}\@addtoreset{#1}{#3}%
+\expandafter\xdef\csname the#1\endcsname{\expandafter\noexpand
+  \csname the#3\endcsname \@thmcountersep \@thmcounter{#1}}%
+\global\@namedef{#1}{\@thm{#1}{#2}}\global\@namedef{end#1}{\@endtheorem}}}
+
+\def\@ynthm#1#2{\expandafter\@ifdefinable\csname #1\endcsname
+{\@definecounter{#1}%
+\expandafter\xdef\csname the#1\endcsname{\@thmcounter{#1}}%
+\global\@namedef{#1}{\@thm{#1}{#2}}\global\@namedef{end#1}{\@endtheorem}}}
+
+\def\@othm#1[#2]#3{\expandafter\@ifdefinable\csname #1\endcsname
+  {\global\@namedef{the#1}{\@nameuse{the#2}}%
+\global\@namedef{#1}{\@thm{#2}{#3}}%
+\global\@namedef{end#1}{\@endtheorem}}}
+
+\def\@thm#1#2{\refstepcounter
+    {#1}\@ifnextchar[{\@ythm{#1}{#2}}{\@xthm{#1}{#2}}}
+
+\def\@xthm#1#2{\@begintheorem{#2}{\csname the#1\endcsname}\ignorespaces}
+\def\@ythm#1#2[#3]{\@opargbegintheorem{#2}{\csname
+       the#1\endcsname}{#3}\ignorespaces}
+
+%DEFAULT VALUES
+\def\@thmcounter#1{\noexpand\arabic{#1}}
+\def\@thmcountersep{.}
+%deleted September 2, 1986 MDK
+%\def\@makethmnumber#1#2{\bf #1 #2:}
+%gewijzigd 11 mei 1990, EB
+%\def\@begintheorem#1#2{\it \trivlist \item[\hskip \labelsep{\bf #1\ #2}]}
+\def\@begintheorem#1#2{\trivlist \item[\hskip \labelsep{\rm #2.\ {\sc #1}.}]}
+%gewijzigd 11 mei 1990, EB
+%\def\@opargbegintheorem#1#2#3{\it \trivlist
+%      \item[\hskip \labelsep{\bf #1\ #2\ (#3)}]}
+\def\@opargbegintheorem#1#2#3{\trivlist
+      \item[\hskip \labelsep{\rm #2.\ {\sc #1}\ (#3).}]}
+\def\@endtheorem{\endtrivlist}
+
+% 'Italic' theorems
+
+\def\newtheoremit#1{\@ifnextchar[{\@othmit{#1}}{\@nthmit{#1}}}
+
+\def\@nthmit#1#2{%
+\@ifnextchar[{\@xnthmit{#1}{#2}}{\@ynthmit{#1}{#2}}}
+
+\def\@xnthmit#1#2[#3]{\expandafter\@ifdefinable\csname #1\endcsname
+{\@definecounter{#1}\@addtoreset{#1}{#3}%
+\expandafter\xdef\csname the#1\endcsname{\expandafter\noexpand
+  \csname the#3\endcsname \@thmcountersep \@thmcounter{#1}}%
+\global\@namedef{#1}{\@thmit{#1}{#2}}\global\@namedef{end#1}{\@endtheorem}}}
+
+\def\@ynthmit#1#2{\expandafter\@ifdefinable\csname #1\endcsname
+{\@definecounter{#1}%
+\expandafter\xdef\csname the#1\endcsname{\@thmcounter{#1}}%
+\global\@namedef{#1}{\@thmit{#1}{#2}}\global\@namedef{end#1}{\@endtheorem}}}
+
+\def\@othmit#1[#2]#3{\expandafter\@ifdefinable\csname #1\endcsname
+  {\global\@namedef{the#1}{\@nameuse{the#2}}%
+\global\@namedef{#1}{\@thmit{#2}{#3}}%
+\global\@namedef{end#1}{\@endtheorem}}}
+
+\def\@thmit#1#2{\refstepcounter
+    {#1}\@ifnextchar[{\@ythmit{#1}{#2}}{\@xthmit{#1}{#2}}}
+
+\def\@xthmit#1#2{\@begintheoremit{#2}{\csname the#1\endcsname}\ignorespaces}
+\def\@ythmit#1#2[#3]{\@opargbegintheoremit{#2}{\csname
+       the#1\endcsname}{#3}\ignorespaces}
+
+%DEFAULT VALUES
+%\def\@thmcounter#1{\noexpand\arabic{#1}}
+%\def\@thmcountersep{.}
+%deleted September 2, 1986 MDK
+%\def\@makethmnumber#1#2{\bf #1 #2:}
+%gewijzigd 11 mei 1990, EB
+%\def\@begintheorem#1#2{\it \trivlist \item[\hskip \labelsep{\bf #1\ #2}]}
+\def\@begintheoremit#1#2{\it \trivlist \item[\hskip \labelsep{\rm #2.\ {\sc
+#1}.}]} 
+%gewijzigd 11 mei 1990, EB
+%\def\@opargbegintheorem#1#2#3{\it \trivlist
+%      \item[\hskip \labelsep{\bf #1\ #2\ (#3)}]}
+\def\@opargbegintheoremit#1#2#3{\it \trivlist
+      \item[\hskip \labelsep{\rm #2.\ {\sc #1}\ (#3).}]}
+%\def\@endtheorem{\endtrivlist}
+
+% Einde gewijzigde theorems
+
+
+%\def\tableofcontents{\section*{Contents\@mkboth{CONTENTS}{CONTENTS}}
+% \@starttoc{toc}}
+%\def\l@part#1#2{\addpenalty{\@secpenalty}
+% \addvspace{2.25em plus 1pt} \begingroup
+% \@tempdima 3em \parindent \z@ \rightskip \@pnumwidth \parfillskip
+%-\@pnumwidth 
+% {\large \bf \leavevmode #1\hfil \hbox to\@pnumwidth{\hss #2}}\par
+% \nobreak \endgroup}
+%%\def\l@section#1#2{\addpenalty{\@secpenalty} \addvspace{1.0em plus 1pt} %160191
+%\def\l@section#1#2{\addpenalty{\@secpenalty}% \addvspace{1.0em plus 1pt}
+%\@tempdima 1.5em \begingroup
+% \parindent \z@ \rightskip \@pnumwidth 
+% \parfillskip -\@pnumwidth 
+%% \bf \leavevmode \advance\leftskip\@tempdima \hskip -\leftskip #1\nobreak\hfil
+%%vervangen 16 jan 91
+% \leavevmode \advance\leftskip\@tempdima \hskip -\leftskip #1\nobreak\hfil
+%%\nobreak\hbox to\@pnumwidth{\hss #2}\par  %vervangen 16 jan 91
+%\nobreak\hbox to\@pnumwidth{\hss #2}\par
+% \endgroup}
+
+%Sectioning (Veranderd 5 juli 1990, EB)
+
+\def\@sect#1#2#3#4#5#6[#7]#8{\ifnum #2>\c@secnumdepth
+     \def\@svsec{}\else 
+     \refstepcounter{#1}\edef\@svsec{\csname the#1\endcsname.\hskip 0.5em}\fi
+     \@tempskipa #5\relax
+      \ifdim \@tempskipa>\z@ 
+        \begingroup #6\relax
+          \@hangfrom{\hskip #3\relax\@svsec}{\interlinepenalty \@M #8\par}%
+        \endgroup
+       \csname #1mark\endcsname{#7}\addcontentsline
+         {toc}{#1}{\ifnum #2>\c@secnumdepth \else
+                      \protect\numberline{\csname the#1\endcsname}\fi
+                    #7}\else
+        \def\@svsechd{#6\hskip #3\@svsec #8\csname #1mark\endcsname
+                      {#7}\addcontentsline
+                           {toc}{#1}{\ifnum #2>\c@secnumdepth \else
+                             \protect\numberline{\csname the#1\endcsname}\fi
+                       #7}}\fi
+     \@xsect{#5}}
+
+% ceqn.sty
+% Modified eqnarray-environment to deal with case distinctions.
+% Erik Barendsen, 24-Jan-1991
+
+% Modified 28-May-1991 (previous version conflicted with Paul Taylor's
+% version of eqnarray
+
+% Here's the ceqnarray environment:
+%  Default is for left-hand side of equations to be flushleft.
+%  To make them flushright, \let\@ceqnsel = \hfil
+
+%\newcount\@eqcnt 
+%\newcount\@eqpen
+%\newif\if@eqnsw\@eqnswtrue 
+
+\@centering = 0pt plus 1000pt % Changed 11/4/85 to produce warning message
+                              % if line extends into margin.  Doesn't warn
+                              % about formula overprinting equation number.
+
+\def\ceqnarray{\stepcounter{equation}\let\@currentlabel=\theequation
+\global\@eqnswtrue
+\global\@eqcnt\z@\tabskip\@centering\let\\=\@ceqncr
+$$\halign to \displaywidth\bgroup\@ceqnsel\hskip\@centering
+  $\displaystyle\tabskip\z@{##}$&\global\@eqcnt\@ne 
+  \hskip 2\arraycolsep \hfil${##}$\hfil
+  &\global\@eqcnt\tw@ \hskip 2\arraycolsep $\displaystyle\tabskip\z@{##}$\hfil 
+  &\global\@eqcnt\thr@@ \hskip 4\arraycolsep \tabskip\z@{##}\hfil 
+   \tabskip\@centering&\llap{##}\tabskip\z@\cr}
+
+\def\endceqnarray{\@@ceqncr\egroup
+      \global\advance\c@equation\m@ne$$\global\@ignoretrue}
+
+\let\@ceqnsel=\relax
+
+\def\nonumber{\global\@eqnswfalse}
+
+\def\@ceqncr{{\ifnum0=`}\fi\@ifstar{\global\@eqpen\@M
+    \@yceqncr}{\global\@eqpen\interdisplaylinepenalty \@yceqncr}}
+
+\def\@yceqncr{\@ifnextchar [{\@xceqncr}{\@xceqncr[\z@]}}
+
+\def\@xceqncr[#1]{\ifnum0=`{\fi}\@@ceqncr
+   \noalign{\penalty\@eqpen\vskip\jot\vskip #1\relax}}
+
+\def\@@ceqncr{\let\@tempa\relax 
+    \ifcase\@eqcnt \def\@tempa{& & &}\or \def\@tempa{& &} 
+      \else \def\@tempa{&}\fi 
+     \@tempa \if@eqnsw\@eqnnum\stepcounter{equation}\fi
+     \global\@eqnswtrue\global\@eqcnt\z@\cr}
+
+% Here's the ceqnarray* environment:
+
+\let\@sceqncr=\@ceqncr
+\@namedef{ceqnarray*}{\def\@ceqncr{\nonumber\@sceqncr}\ceqnarray}
+\@namedef{endceqnarray*}{\nonumber\endceqnarray}
+
+%----------------------------------------------------------------------
+
+% Theorem-instellingen (uit ebsettings.tex)
+
+% Theorem-like environments
+
+
+
+\def\proof{\@ifnextchar [{\@proofby}{\@proof}}   %4 June 1991
+
+\def\@proofby[#1]{\begin{trivlist} \item[\hskip \labelsep%
+{\sc Proof} ({#1}).]}
+
+\def\@proof{\begin{trivlist} \item[\hskip \labelsep%
+{\sc Proof.}]}
+
+\def\endproof{\end{trivlist}}
+
+%\newenvironment{proof}{\begin{trivlist} \item[\hskip \labelsep%
+%{\sc Proof.}]}{\end{trivlist}}
+%\newenvironment{proofby}[1]{\begin{trivlist} \item[\hskip \labelsep%
+%{\sc Proof} ({#1}).]}{\end{trivlist}}
+
+\newcommand{\header}[1]{\newtheorem{#1}[definition]{#1}}
+\newcommand{\headerit}[1]{\newtheoremit{#1}[definition]{#1}}
+
+% EB 2-May-1991
+
+\newcommand{\headernonum}[1]{
+\newenvironment{#1}{\begin{trivlist} \item[\hskip \labelsep%
+{\sc {#1}.}]}{\end{trivlist}}}
+
+\newcommand{\headernonumit}[1]{
+\newenvironment{#1}{\begin{trivlist} \item[\hskip \labelsep%
+{\sc {#1}.}] \it}{\end{trivlist}}}
+
+\headernonum{Notation}
+\newenvironment{notation}{\begin{Notation}}{\end{Notation}}
+		 					% A little overdone, perhaps, but necessary for compatibility
+        % with previous versions   EB 2-May-1991
+
+%\newenvironment{thmnonum}[1]{\begin{trivlist} \item[\hskip \labelsep%
+%{\sc {#1}.}]}{\end{trivlist}}
+%\newenvironment{thmnonumit}[1]{\begin{trivlist} \item[\hskip \labelsep%
+%{\sc {#1}.}] \it}{\end{trivlist}}
+
+
+
+% Bibliography-environment
+
+\newenvironment{bibn}[1]{
+\def\etal{{\rm et al.\ }}
+\def\and{{\rm and\ }}
+\def\eds{{\rm (eds.)}}
+\def\ed{{\rm (ed.)}}
+\begin{trivlist} \item[]{{\sc#1}}\nopagebreak
+\begin{list}{}{\samepage\usecounter{enumi}
+ \topsep0pt plus 1pt \parsep0pt \itemsep0pt plus 1pt 
+   \leftmargin 5em \labelwidth 4em \advance\labelwidth-\labelsep
+   \itemindent 0pt
+   \def\makelabel##1{##1\hss}
+}}{\end{list}\end{trivlist}}
+ 
+\newcommand{\from}[1]{\item[{[#1]}]}
+\newcommand{\bibref}[1]{{\sc#1}}
+
+%\newenvironment{references}{\section*{References}
+%\addcontentsline{toc}{section}{References}\small}{\normalsize}
+
+\newenvironment{references}{\section*{References}\frenchspacing
+\addcontentsline{toc}{section}{References}
+\topsep0pt plus 1pt\small}{\normalsize}
+
+
+
+% Nieuwe `exercises' macros -- Erik Barendsen
+
+\typeout{Nieuwe `exercises' versie 0.3 -- EB 2 juli 1991}
+
+%
+% Het defini\"eren van de exercises-omgeving zoals in exercises.sty
+% kan met onderstaande macro als volgt:
+%
+%     \newexercises{exercises}{\subsection*{Exercises}\small}[section]
+%
+%                   ^^^^^^^^^             ^^^^^^^^^^          ^^^^^^^
+%                 naam omgeving           commando's     teller-referentie
+%                                                        (optioneel)
+%
+
+\newskip\exercisesep\exercisesep\parsep
+\newdimen\exmargin\exmargin 3em
+
+\def\newexercises#1#2{\@ifnextchar[{\@cexercises{#1}{#2}}{\@nexercises{#1}{#2}}}
+
+\def\@cexercises#1#2[#3]{
+   \expandafter\@ifdefinable\csname #1\endcsname
+   {\@definecounter{#1}\@addtoreset{#1}{#3}%
+    \expandafter\xdef\csname the#1\endcsname
+         {\expandafter\noexpand\csname the#3\endcsname.\@excounter{#1}}%
+    \global\@namedef{#1}{\@ex{#1}{#2}}
+    \global\@namedef{end#1}{\@endex}}}
+
+\def\@nexercises#1#2{
+   \expandafter\@ifdefinable\csname #1\endcsname
+   {\@definecounter{#1}
+    \expandafter\xdef\csname the#1\endcsname
+         {\@excounter{#1}}%
+    \global\@namedef{#1}{\@ex{#1}{#2}}
+    \global\@namedef{end#1}{\@endex}}}
+
+\def\@ex#1#2{
+\def\labelex{\rm\csname the#1\endcsname.}
+%\newcommand{\hint}[1]{\newline[{\it Hint.\/} ##1]}
+\newcommand{\hint}[1]{\begin{trivlist}\item[]{[\it
+Hint.\/} ##1]\end{trivlist}}
+\let\sub=\exsub
+\let\firstitem=\item
+%\def\exitem{\item}
+\def\exitem{\@ifstar{ \let\thislabelex=\labelex
+                      \def\labelex{{\rm\thislabelex*}}
+                      \item
+                      \let\labelex=\thislabelex}
+                    { \item}}
+#2  % commands
+\begin{list}{\csname labelex\endcsname}
+             {\exercisecounter{#1}  %misschien veranderen in \usecounter{#1}
+              \topsep0pt plus 1pt
+%             \parsep0pt %\itemsep0pt plus 1pt
+              \parsep0pt \itemsep\exercisesep
+              \leftmargin \exmargin \labelwidth \exmargin
+              \advance\labelwidth-\labelsep
+              \itemindent 0pt
+              \def\makelabel##1{##1\hss}}
+}
+
+\def\@endex{\end{list}}
+
+\def\@excounter#1{\noexpand\arabic{#1}}
+
+\def\exercisecounter#1{\@nmbrlisttrue\def\@listctr{#1}}
+
+\def\exsub{
+\def\labelenumi{{\rm (\theenumi)}}
+\def\theenumi{\roman{enumi}}
+\def\theenumiii{\arabic{enumiii}}    % Nog verder wijzigen!
+   \let\normalitem=\item
+   \def\item{\@ifstar{\def\labelenumi{{\rm \llap{*}(\theenumi)}}
+                      \normalitem
+                      \def\labelenumi{{\rm (\theenumi)}}}
+                     {\normalitem}} %EB 3 June
+\ifnum \@enumdepth >3 \@toodeep\else
+\advance\@enumdepth \@ne
+   \edef\@enumctr{enum\romannumeral\the\@enumdepth}
+   \list {\csname label\@enumctr\endcsname} {\usecounter{\@enumctr}
+   \topsep0pt plus 1pt \parsep0pt \itemsep0pt plus 1pt
+   \leftmargin 2em \labelwidth\leftmargin \advance\labelwidth-\labelsep
+   \itemindent 0pt
+   \def\makelabel##1{\rlap{##1}\hss}}
+\fi}
+
+\let\endsub =\endlist
+
+
+%%----------------------------------------------------
+%% Prooftrees (derived from Paul Taylor)
+
+%\input{prooftree.tex}
+\message{<Paul Taylor's Proof Trees, 2 August 1996>}
+%% Build proof tree for Natural Deduction, Sequent Calculus, etc.
+%% WITH SHORTENING OF PROOF RULES!
+%% Paul Taylor, begun 10 Oct 1989
+%% *** THIS IS ONLY A PRELIMINARY VERSION AND THINGS MAY CHANGE! ***
+%%
+%% 2 Aug 1996: fixed \mscount and \proofdotnumber
+%%
+%%      \prooftree
+%%              hyp1            produces:
+%%              hyp2
+%%              hyp3            hyp1    hyp2    hyp3
+%%      \justifies              -------------------- rulename
+%%              concl                   concl
+%%      \thickness=0.08em
+%%      \shiftright 2em
+%%      \using
+%%              rulename
+%%      \endprooftree
+%%
+%% where the hypotheses may be similar structures or just formulae.
+%%
+%% To get a vertical string of dots instead of the proof rule, do
+%%
+%%      \prooftree                      which produces:
+%%              [hyp]
+%%      \using                                  [hyp]
+%%              name                              .
+%%      \proofdotseparation=1.2ex                 .name
+%%      \proofdotnumber=4                         .
+%%      \leadsto                                  .
+%%              concl                           concl
+%%      \endprooftree
+%%
+%% Within a prooftree, \[ and \] may be used instead of \prooftree and
+%% \endprooftree; this is not permitted at the outer level because it
+%% conflicts with LaTeX. Also,
+%%      \Justifies
+%% produces a double line. In LaTeX you can use \begin{prooftree} and
+%% \end{prootree} at the outer level (however this will not work for the inner
+%% levels, but in any case why would you want to be so verbose?).
+%%
+%% All of of the keywords except \prooftree and \endprooftree are optional
+%% and may appear in any order. They may also be combined in \newcommand's
+%% eg "\def\Cut{\using\sf cut\thickness.08em\justifies}" with the abbreviation
+%% "\prooftree hyp1 hyp2 \Cut \concl \endprooftree". This is recommended and
+%% some standard abbreviations will be found at the end of this file.
+%%
+%% \thickness specifies the breadth of the rule in any units, although
+%% font-relative units such as "ex" or "em" are preferable.
+%% It may optionally be followed by "=".
+%% \proofrulebreadth=.08em or \setlength\proofrulebreadth{.08em} may also be
+%% used either in place of \thickness or globally; the default is 0.04em.
+%% \proofdotseparation and \proofdotnumber control the size of the
+%% string of dots
+%%
+%% If proof trees and formulae are mixed, some explicit spacing is needed,
+%% but don't put anything to the left of the left-most (or the right of
+%% the right-most) hypothesis, or put it in braces, because this will cause
+%% the indentation to be lost.
+%%
+%% By default the conclusion is centered wrt the left-most and right-most
+%% immediate hypotheses (not their proofs); \shiftright or \shiftleft moves
+%% it relative to this position. (Not sure about this specification or how
+%% it should affect spreading of proof tree.)
+%
+% global assignments to dimensions seem to have the effect of stretching
+% diagrams horizontally.
+%
+%%==========================================================================
+
+\def\introrule{{\cal I}}\def\elimrule{{\cal E}}%%
+\def\andintro{\using{\land}\introrule\justifies}%%
+\def\impelim{\using{\Rightarrow}\elimrule\justifies}%%
+\def\allintro{\using{\forall}\introrule\justifies}%%
+\def\allelim{\using{\forall}\elimrule\justifies}%%
+\def\falseelim{\using{\bot}\elimrule\justifies}%%
+\def\existsintro{\using{\exists}\introrule\justifies}%%
+
+%% #1 is meant to be 1 or 2 for the first or second formula
+\def\andelim#1{\using{\land}#1\elimrule\justifies}%%
+\def\orintro#1{\using{\lor}#1\introrule\justifies}%%
+
+%% #1 is meant to be a label corresponding to the discharged hypothesis/es
+\def\impintro#1{\using{\Rightarrow}\introrule_{#1}\justifies}%%
+\def\orelim#1{\using{\lor}\elimrule_{#1}\justifies}%%
+\def\existselim#1{\using{\exists}\elimrule_{#1}\justifies}
+
+%%==========================================================================
+
+\newdimen\proofrulebreadth \proofrulebreadth=.05em
+\newdimen\proofdotseparation \proofdotseparation=1.25ex
+\newdimen\proofrulebaseline \proofrulebaseline=2ex
+\newcount\proofdotnumber \proofdotnumber=3
+\let\then\relax
+\def\hfi{\hskip0pt plus.0001fil}
+\mathchardef\squigto="3A3B
+%
+% flag where we are
+\newif\ifinsideprooftree\insideprooftreefalse
+\newif\ifonleftofproofrule\onleftofproofrulefalse
+\newif\ifproofdots\proofdotsfalse
+\newif\ifdoubleproof\doubleprooffalse
+\let\wereinproofbit\relax
+%
+% dimensions and boxes of bits
+\newdimen\shortenproofleft
+\newdimen\shortenproofright
+\newdimen\proofbelowshift
+\newbox\proofabove
+\newbox\proofbelow
+\newbox\proofrulename
+%
+% miscellaneous commands for setting values
+\def\shiftproofbelow{\let\next\relax\afterassignment\setshiftproofbelow\dimen0 }
+\def\shiftproofbelowneg{\def\next{\multiply\dimen0 by-1 }%
+\afterassignment\setshiftproofbelow\dimen0 }
+\def\setshiftproofbelow{\next\proofbelowshift=\dimen0 }
+\def\setproofrulebreadth{\proofrulebreadth}
+
+%=============================================================================
+\def\prooftree{% NESTED ZERO (\ifonleftofproofrule)
+%
+% first find out whether we're at the left-hand end of a proof rule
+\ifnum  \lastpenalty=1
+\then   \unpenalty
+\else   \onleftofproofrulefalse
+\fi
+%
+% some space on left (except if we're on left, and no infinity for outermost)
+\ifonleftofproofrule
+\else   \ifinsideprooftree
+        \then   \hskip.5em plus1fil
+        \fi
+\fi
+%
+% begin our proof tree environment
+\bgroup% NESTED ONE (\proofbelow, \proofrulename, \proofabove,
+%               \shortenproofleft, \shortenproofright, \proofrulebreadth)
+\setbox\proofbelow=\hbox{}\setbox\proofrulename=\hbox{}%
+\let\justifies\proofover\let\leadsto\proofoverdots\let\Justifies\proofoverdbl
+\let\using\proofusing\let\[\prooftree
+\ifinsideprooftree\let\]\endprooftree\fi
+\proofdotsfalse\doubleprooffalse
+\let\thickness\setproofrulebreadth
+\let\shiftright\shiftproofbelow \let\shift\shiftproofbelow
+\let\shiftleft\shiftproofbelowneg
+\let\ifwasinsideprooftree\ifinsideprooftree
+\insideprooftreetrue
+%
+% now begin to set the top of the rule (definitions local to it)
+\setbox\proofabove=\hbox\bgroup$\displaystyle % NESTED TWO
+\let\wereinproofbit\prooftree
+%
+% these local variables will be copied out:
+\shortenproofleft=0pt \shortenproofright=0pt \proofbelowshift=0pt
+%
+% flags to enable inner proof tree to detect if on left:
+\onleftofproofruletrue\penalty1
+}
+
+%=============================================================================
+% end whatever box and copy crucial values out of it
+\def\eproofbit{% NESTED TWO
+%
+% various hacks applicable to hypothesis list 
+\ifx    \wereinproofbit\prooftree
+\then   \ifcase \lastpenalty
+        \then   \shortenproofright=0pt  % 0: some other object, no indentation
+        \or     \unpenalty\hfil         % 1: empty hypotheses, just glue
+        \or     \unpenalty\unskip       % 2: just had a tree, remove glue
+        \else   \shortenproofright=0pt  % eh?
+        \fi
+\fi
+%
+% pass out crucial values from scope
+\global\dimen0=\shortenproofleft
+\global\dimen1=\shortenproofright
+\global\dimen2=\proofrulebreadth
+\global\dimen3=\proofbelowshift
+\global\dimen4=\proofdotseparation
+\global\count255=\proofdotnumber
+%
+% end the box
+$\egroup  % NESTED ONE
+%
+% restore the values
+\shortenproofleft=\dimen0
+\shortenproofright=\dimen1
+\proofrulebreadth=\dimen2
+\proofbelowshift=\dimen3
+\proofdotseparation=\dimen4
+\proofdotnumber=\count255
+}
+
+%=============================================================================
+\def\proofover{% NESTED TWO
+\eproofbit % NESTED ONE
+\setbox\proofbelow=\hbox\bgroup % NESTED TWO
+\let\wereinproofbit\proofover
+$\displaystyle
+}%
+%
+%=============================================================================
+\def\proofoverdbl{% NESTED TWO
+\eproofbit % NESTED ONE
+\doubleprooftrue
+\setbox\proofbelow=\hbox\bgroup % NESTED TWO
+\let\wereinproofbit\proofoverdbl
+$\displaystyle
+}%
+%
+%=============================================================================
+\def\proofoverdots{% NESTED TWO
+\eproofbit % NESTED ONE
+\proofdotstrue
+\setbox\proofbelow=\hbox\bgroup % NESTED TWO
+\let\wereinproofbit\proofoverdots
+$\displaystyle
+}%
+%
+%=============================================================================
+\def\proofusing{% NESTED TWO
+\eproofbit % NESTED ONE
+\setbox\proofrulename=\hbox\bgroup % NESTED TWO
+\let\wereinproofbit\proofusing
+\kern0.3em$
+}
+
+%=============================================================================
+\def\endprooftree{% NESTED TWO
+\eproofbit % NESTED ONE
+% \dimen0 =     length of proof rule
+% \dimen1 =     indentation of conclusion wrt rule
+% \dimen2 =     new \shortenproofleft, ie indentation of conclusion
+% \dimen3 =     new \shortenproofright, ie
+%                space on right of conclusion to end of tree
+% \dimen4 =     space on right of conclusion below rule
+  \dimen5 =0pt% spread of hypotheses
+% \dimen6, \dimen7 = height & depth of rule
+%
+% length of rule needed by proof above
+\dimen0=\wd\proofabove \advance\dimen0-\shortenproofleft
+\advance\dimen0-\shortenproofright
+%
+% amount of spare space below
+\dimen1=.5\dimen0 \advance\dimen1-.5\wd\proofbelow
+\dimen4=\dimen1
+\advance\dimen1\proofbelowshift \advance\dimen4-\proofbelowshift
+%
+% conclusion sticks out to left of immediate hypotheses
+\ifdim  \dimen1<0pt
+\then   \advance\shortenproofleft\dimen1
+        \advance\dimen0-\dimen1
+        \dimen1=0pt
+%       now it sticks out to left of tree!
+        \ifdim  \shortenproofleft<0pt
+        \then   \setbox\proofabove=\hbox{%
+                        \kern-\shortenproofleft\unhbox\proofabove}%
+                \shortenproofleft=0pt
+        \fi
+\fi
+%
+% and to the right
+\ifdim  \dimen4<0pt
+\then   \advance\shortenproofright\dimen4
+        \advance\dimen0-\dimen4
+        \dimen4=0pt
+\fi
+%
+% make sure enough space for label
+\ifdim  \shortenproofright<\wd\proofrulename
+\then   \shortenproofright=\wd\proofrulename
+\fi
+%
+% calculate new indentations
+\dimen2=\shortenproofleft \advance\dimen2 by\dimen1
+\dimen3=\shortenproofright\advance\dimen3 by\dimen4
+%
+% make the rule or dots, with name attached
+\ifproofdots
+\then
+        \dimen6=\shortenproofleft \advance\dimen6 .5\dimen0
+        \setbox1=\vbox to\proofdotseparation{\vss\hbox{$\cdot$}\vss}%
+        \setbox0=\hbox{%
+                \advance\dimen6-.5\wd1
+                \kern\dimen6
+                $\vcenter to\proofdotnumber\proofdotseparation
+                        {\leaders\box1\vfill}$%
+                \unhbox\proofrulename}%
+\else   \dimen6=\fontdimen22\the\textfont2 % height of maths axis
+        \dimen7=\dimen6
+        \advance\dimen6by.5\proofrulebreadth
+        \advance\dimen7by-.5\proofrulebreadth
+        \setbox0=\hbox{%
+                \kern\shortenproofleft
+                \ifdoubleproof
+                \then   \hbox to\dimen0{%
+                        $\mathsurround0pt\mathord=\mkern-6mu%
+                        \cleaders\hbox{$\mkern-2mu=\mkern-2mu$}\hfill
+                        \mkern-6mu\mathord=$}%
+                \else   \vrule height\dimen6 depth-\dimen7 width\dimen0
+                \fi
+                \unhbox\proofrulename}%
+        \ht0=\dimen6 \dp0=-\dimen7
+\fi
+%
+% set up to centre outermost tree only
+\let\doll\relax
+\ifwasinsideprooftree
+\then   \let\VBOX\vbox
+\else   \ifmmode\else$\let\doll=$\fi
+        \let\VBOX\vcenter
+\fi
+% this \vbox or \vcenter is the actual output:
+\VBOX   {\baselineskip\proofrulebaseline \lineskip.2ex
+        \expandafter\lineskiplimit\ifproofdots0ex\else-0.6ex\fi
+        \hbox   spread\dimen5   {\hfi\unhbox\proofabove\hfi}%
+        \hbox{\box0}%
+        \hbox   {\kern\dimen2 \box\proofbelow}}\doll%
+%
+% pass new indentations out of scope
+\global\dimen2=\dimen2
+\global\dimen3=\dimen3
+\egroup % NESTED ZERO
+\ifonleftofproofrule
+\then   \shortenproofleft=\dimen2
+\fi
+\shortenproofright=\dimen3
+%
+% some space on right and flag we've just made a tree
+\onleftofproofrulefalse
+\ifinsideprooftree
+\then   \hskip.5em plus 1fil \penalty2
+\fi
+}
+
+%==========================================================================
+% IDEAS
+% 1.    Specification of \shiftright and how to spread trees.
+% 2.    Spacing command \m which causes 1em+1fil spacing, over-riding
+%       exisiting space on sides of trees and not affecting the
+%       detection of being on the left or right.
+% 3.    Hack using \@currenvir to detect LaTeX environment; have to
+%       use \aftergroup to pass \shortenproofleft/right out.
+% 4.    (Pie in the sky) detect how much trees can be "tucked in"
+% 5.    Discharged hypotheses (diagonal lines).
+
+\newcommand \prt [3] {\prooftree #1 \justifies #2
+ \using #3 \endprooftree}
+
+%\def\bpt{\begin{prooftree}}
+%\def\ept{\end{prooftree}}
+\def\bpt{\prooftree}
+\def\ept{\endprooftree}
+\def\hence{\justifies}
+\newcommand\as[1]{\using{\text{\scriptsize(#1)}}}
+\newcommand\ase[1]{\using{\text{\scriptsize(#1)}.\qed}}
+\newcommand\axiom[1]{\ptfe{}{#1}{{\scriptsize (axiom)}}}
+\newcommand\use [1]{\using #1\justifies}
+
+%%% \bpt
+%%%          A
+%%%             \hence [\use{..}]
+%%%          B
+%%% \ept
+
+%%% \bpt
+%%%     \[   A
+%%%             \hence [\use{..}]
+%%%          B 
+%%%     \]	\hence
+%%%          C
+%%% \ept
+
+\newcommand\npt[2]{{\prt {#1} {#2} {}}}
+
+%% Varia
+
+\newcommand\strikethrough[1]{{\setbox0=\hbox{$#1$}%
+\hbox{\vrule height.75ex depth-.65ex width\wd0 \kern-\wd0\box0}}}
+
+
+%\def\TT{{\bf T}}
+\def\VV{{\bf V}}
+\def\G{\Gamma}
+\newcommand\pr{\vdash}
+\def\para{\S}
+
+%------------------------------
+%\newcommand{\jnotind}[1]{}%{#1\notind{#1}}
+%\newcommand{\jauind}[1]{}%{#1\auind{#1}}
+%\newcommand{\jsubind}[1]{}%{#1\subind{#1}}
+\newcommand{\ixa}[1]{#1}% author index
+\newcommand{\ixd}[1]{#1}% definition index
+\newcommand{\ixn}[1]{#1}% notation index
+
+
+
+
+%% Varia
+
+\def\@blabel{$\circ$}
+
+\def\b@list{%  voor uitgelijnde subs
+\def\labelenumi{{\rm\theenumi.}} 
+\def\theenumi{\arabic{enumi}} 
+\def\theenumii{\arabic{enumii}}
+\def\theenumiii{\alph{enumiii}}    % verbeterd EB-8-jul-92
+\ifnum \@enumdepth >3 \@toodeep\else
+\advance\@enumdepth \@ne 
+   \edef\@enumctr{enum\romannumeral\the\@enumdepth}
+   \list {\csname label\@enumctr\endcsname} {\usecounter{\@enumctr} 
+   \topsep0pt plus 1pt \parsep0pt \itemsep0pt plus 1pt 
+                        \listparindent\parindent
+   \leftmargin 1em \labelwidth\leftmargin
+ \advance\labelwidth-\labelsep
+   \itemindent 0pt
+   \def\makelabel##1{\rlap{\@blabel}\hss}}
+\fi}
+\def\endb@list{\endlist}
+
+
+\newenvironment{blist}{\begin{minipage}[t]{\linewidth}\raggedright\b@list}{%
+\endb@list\end{minipage}\par\vspace*{0mm}}
+
+\def\rsub{%  voor uitgelijnde subs. r label
+\def\labelenumi{{\normalfont (\theenumi)}} 
+\def\labelenumii{{\normalfont (\theenumii)}} 
+\def\labelenumiii{{\normalfont (\theenumiii)}} 
+\def\theenumi{\roman{enumi}} 
+\def\theenumii{\arabic{enumii}}
+\def\theenumiii{\alph{enumiii}}    % verbeterd EB-8-jul-92
+\ifnum \@enumdepth >3 \@toodeep\else
+\advance\@enumdepth \@ne 
+   \edef\@enumctr{enum\romannumeral\the\@enumdepth}
+   \list {\csname label\@enumctr\endcsname} {\usecounter{\@enumctr} 
+   \topsep0pt plus 1pt \parsep0pt \itemsep0pt plus 1pt 
+                        \listparindent\parindent
+   \leftmargin 5em \labelwidth\leftmargin \advance\labelwidth -3em
+ \advance\labelwidth-\labelsep
+   \itemindent 0pt
+   \def\makelabel##1{\rlap{##1}\hss}}
+\fi}
+
+\let\endrsub =\endlist
+
+
+%------------------------------
+\newcommand{\jnotind}[1]{}%{#1\notind{#1}}
+\newcommand{\jauind}[1]{}%{#1\auind{#1}}
+\newcommand{\jsubind}[1]{}%{#1\subind{#1}}
+
+%%==================================================
+%\usepackage{colordvi}
+\newcommand\clr[1]{\Red{#1}}
+\newcommand\pfm[1]{{\framebox{$#1$}}}
+%\newcommand\pfm[1]{*{\framebox{$#1$}}*}
+\newcommand\Arr{\Rightarrow}
+\newcommand\Redd{\Arr\!\!\!\!\Arr}
+
+
+%% Theorems etcetera: global structure of a paper
+
+\newtheoremit{conjecture}[definition]{Conjecture}
+\newtheorem{attempt}[definition]{Attempt}
+\newtheorem{convention}[definition]{Convention}
+
+\newcommand\bdoc{\begin{document}}
+\newcommand\bdf{\begin{definition}}
+\newcommand\bth{\begin{theorem}}
+\newcommand\bprop{\begin{proposition}}
+\newcommand\blem{\begin{lemma}}
+\newcommand\bcon{\begin{conjecture}}
+\newcommand\bpf{\begin{proof}}
+\newcommand\bsub{\begin{sub}}
+\newcommand\bit{\begin{itemize}}
+\newcommand\benum{\begin{enumerate}}
+\def\btab{\begin{tabular}}
+\newcommand\bverb{\begin{verbatim}}
+\newcommand\bnot{\begin{notation}}
+\newcommand\bnnot{\begin{nnotation}}
+\newcommand\beqn{\begin{eqnarray*}}
+\newcommand\bceqn{\begin{ceqnarray*}}
+%\newcommand\btab{\begin{tabular}}
+\newcommand\bctr{\begin{center}}
+\newcommand\bex{\begin{example}}
+\newcommand\bexc{\begin{exercises}}
+\newcommand\bcor{\begin{corollary}}
+\newcommand\bexadh{\begin{exerciseadhoc}}
+\def\bar{\begin{array}}
+\newcommand\bexs{\begin{examples}}
+\newcommand\bec{\begin{exerciseadhoc}}
+\newcommand\bde{\begin{description}}
+
+\newcommand\edoc{\end{document}}
+\newcommand\edf{\end{definition}}
+\def\eth{\end{theorem}}
+\newcommand\eprop{\end{proposition}}
+\newcommand\elem{\end{lemma}}
+\newcommand\econ{\end{conjecture}}
+\newcommand\epf{\end{proof}}
+\newcommand\esub{\end{sub}}
+\newcommand\eit{\end{itemize}}
+\newcommand\eenum{\end{enumerate}}
+%\def\etab{\end{tabular}}
+\newcommand\everb{\end{verbatim}}
+\newcommand\enot{\end{notation}}
+\newcommand\ennot{\end{nnotation}}
+\newcommand\eeqn{\end{eqnarray*}}
+\newcommand\etab{\end{tabular}}
+\newcommand\eceqn{\end{ceqnarray*}}
+\newcommand\ectr{\end{center}}
+\newcommand\eex{\end{example}}
+\newcommand\eexc{\end{exercises}}
+\newcommand\ecor{\end{corollary}}
+\newcommand\eexadh{\end{exerciseadhoc}}
+\def\ear{\end{array}}
+\newcommand\eexs{\end{examples}}
+\newcommand\eec{\end{exerciseadhoc}}
+\newcommand\ede{\end{description}}
+
+
+%%-----------------------------------------------------
+%%
+%% Special symbols
+
+\def\l{\lambda}
+\newcommand\p{\Pi}
+\def\b{\beta}
+\newcommand\e{\eta}
+%\def\pr{\vdash}%% provability
+\newcommand\sat{\models}%% satisfaction
+\newcommand\x{\cdot}
+\newcommand\Z{{{\sf\,Z\!\!\!\!\! Z\,}}}
+\newcommand\ldana{[\![}%% to be made left Scott bracket.
+\newcommand\rdana{]\!]}
+\def\ll{\l\!\!\!\!\;\l}%% metalambda
+\newcommand\ac{{'}}
+\newcommand\be{\b\eta}
+\newcommand\cart{\times}
+\newcommand\om{o}
+\newcommand\Tvar{\Tatom}%{{\sf V\!\!\!\!\,V}}
+\newcommand\tvar{{\sf V}}
+
+%\newcommand\left{\langle}
+%\newcommand\right{\rangle}
+\newcommand\Larr{($\Leftarrow$) }
+\newcommand\Rarr{($\Rightarrow$) }
+
+%\newcommand\qed{~\rule{2mm}{2mm}}
+\def\ni{\noindent}
+\def\|{\,|\,}%% for set abstraction
+\newcommand\noi{\noindent}
+
+\let\dotlessi=\i  %EB
+\def\i{\item}
+%\newcommand\f{\firstitem}
+\newcommand\fit{\firstitem}
+
+\newcommand\IH{induction hypothesis{ }}
+\newcommand\himp{\supset}
+
+\newcommand\pat{propositions-as-types}
+
+%% Combinators
+
+\def\comb#1{\mm{\mbox{\sf {#1}}}\mm}
+\newcommand\mm{\hspace{0.3mm}}
+\newcommand\Boole{\comb{Bool}}
+\newcommand\True{\comb{true}}%{\mathop\mbox{\tt {true}}%}
+\newcommand\False{\comb{false}}%{\mathop\mbox{\tt {false}}%}
+\newcommand\Not{\comb{not}}%{\mathop\mbox{\tt {not}}%}
+%\newcommand\And{\comb{and}}%{\mathop\mbox{\tt {and}}%}
+\newcommand\Or{\comb{or}}%{\mathop\mbox{\tt {or}}%}
+\newcommand\Imp{\comb{imp}}%{\mathop\mbox{\tt {imp }}%}
+\newcommand\Iff{\comb{iff}}%{\mathop\mbox{\tt  {iff} }}%
+\newcommand\Nat{\comb{Nat}}%{\mbox{\tt  {Nat}}%}
+\newcommand\zero{\comb{{{zero}$_?$}}}%{\mathop{\mbox{\tt zero}_?}}%
+\newcommand\plus{\comb{plus}}%{\mathop{\mbox{\tt plus}}%
+\newcommand\Times{\comb{times}}%{\mathop{\mbox{\tt{{times}}%}}%}
+\newcommand\suc{\Scomb^{+}}%% for successor
+\newcommand\leaf{\comb{{leaf}$_?$}}%{\mathop{\mbox{\tt{ {leaf}_?}}%}}%
+\newcommand\Left{\comb{left}}%{\mathop{\mbox{\tt{ {left}}%}}%}
+\newcommand\Ssigma{\comb{Sigma}}
+\newcommand\tree{\comb{tree}}
+\newcommand\Empty{\comb{empty}}
+
+\newcommand\E{\mbox{\sf E}}                    
+\newcommand\I{{\sf I}}
+\def\O{{\sf \Omega}}
+\newcommand\Scomb{{\sf S}}
+\newcommand\K{{\sf K}}
+\newcommand\Y{\comb{Y}}
+
+%% Other constants
+
+\newcommand\up{{\uparrow}}
+\newcommand\down{{\downarrow}}
+
+%% Sets
+\newcommand\so{^{\!\mbox{\o}}}
+\def\L{\Lambda}%%                           set of lambda terms
+\newcommand\Lo{\Lambda^{\!\mbox{\o}}}%%                 set of closed lambda terms
+\newcommand\tmn{{{\bf\Lambda}^{\!\mbox{\o}}_{\beta}}}%% (closed) term model as numeration
+\newcommand\tm{\L/\!\!\isb}%% open term model
+\newcommand\ctm{\Lo/\!\!\isb}%% closed term model
+
+\newcommand\PR{{\cal PR}}%%     Partial recursive functions (usually unary)
+%\newcommand\R{{\cal R}}%%       Recursive functions (usually unary)
+\newcommand\nat{\mathbb N}%{\rm I\! N}}%%      natural numbers% FUNCTIONS
+
+\newcommand\fnarrow{\mathbin{\rightarrow}}
+\newcommand\pfnarrow{\mathbin{\mbox{{\lower1.1ex\hbox{%\rm
+\symbol{'25}}\kern-.22em\hbox{$\rightarrow$}}}}}
+
+%\newcommand{\function}[3]{{#1}\colon{#2}\fnarrow{#3}}
+\newcommand{\function}[3]{{#1}:{#2}\fnarrow{#3}}
+%\newcommand{\partfunction}[3]{#1\colon#2\pfnarrow#3}
+\newcommand{\partfunction}[3]{{#1}:{#2}\pfnarrow{#3}}
+
+
+
+%% Theories
+
+\newcommand\HA{{\bf HA}}
+\newcommand\PA{{\bf PA}}
+
+%% Operators
+
+\newcommand\dom{{\rm dom}}
+\newcommand\ra{{\rm Ra}}
+\newcommand\FV{{\rm FV}}
+\newcommand\BT{{\rm BT}}
+\newcommand\A{{\cal A}}
+\newcommand\W{{\cal W}}
+\newcommand\B{{\cal B}}
+\newcommand\V{{\cal V}}
+\newcommand\CC{{\cal C}}
+\newcommand\KK{{\cal K}}
+\newcommand\MM{{\cal M}}
+\def\SS{{\cal S}}
+\newcommand{\calX}{{\cal X}}
+\newcommand{\calD}{{\cal D}}
+\newcommand{\calS}{{\cal S}}
+
+\newcommand\FF{{\cal F}}
+
+\def\TT{{\cal T}}
+\newcommand\ZZ{{\cal Z}}
+\newcommand\DD{{\cal D}}
+\newcommand\TI{\cour{TI}}
+\newcommand\F{{\cal F}}
+\newcommand\form{{\comb{form}}}
+\newcommand\var{{\comb{var}}}
+\def\phi{\varphi}
+\newcommand\PROP{{\rm PROP}}
+\newcommand\kind{{\bf K}}
+\def\star{\ast}
+
+
+
+%% Binary relations
+
+\newcommand\imp{\;\Rightarrow\;}
+\renewcommand\and{\;\&\;}
+\newcommand\und{\;\&\;}
+\def\iff{\;\Leftrightarrow\;}
+\newcommand\isb{=_{\beta}}
+\newcommand\sbs{\subseteq}
+\let\esti=\in
+\def\in{{\esti}}
+\newcommand\reddb{\mathrel{\redd_{\beta}}}
+\newcommand\redd{\mathrel{\rightarrow\!\!\!\!\!\rightarrow}}
+%\newcommand\red{\mathrel{\rightarrow}}
+\newcommand\redb{\mathrel{\rightarrow_\beta}}
+\newcommand\dder{\mathrel{\leftarrow\!\!\!\!\!\leftarrow}}
+\newcommand\der{\mathrel{\leftarrow}}
+\newcommand\reds{\red_{\SS}}
+\newcommand\contrR[1]{-\!\!\!\!\red^{\!\!\!\!\!\!\!\!#1}}
+
+
+%% Binary operations
+
+
+\newcommand\comp{\mathbin\circ}
+\newcommand\conc{\mathbin{+\,\!+}}
+%\newcommand\o{\mbox {\scriptsize$\circ$}}
+\newcommand\arr{{\rightarrow}}
+\def\:{{:}}%% for x:A->B
+
+
+
+
+%%Systems
+
+\newcommand\lar{\l\arr}
+%\newcommand\lar{\l{\arr}}
+\newcommand\ltwo{{\l{2}}}
+\newcommand\lom{\l{\omega}}
+\newcommand\lwom{\l{\underline\omega}}
+\newcommand\lp{\l P}
+%\newcommand\lar{\l{\arr}}
+\newcommand\lptwo{{\lp{2}}}
+\newcommand\lpom{\lp{\omega}}
+\newcommand\lwpom{\lp{\underline\omega}}
+\newcommand\prlar{\pr_{\lar}}
+\newcommand\ltau{\l^{\tau}}%{\l_{\om}\arr}
+\newcommand\prltau{\pr_{\ltau}}
+\newcommand\lmu{\l{\mu}}
+\newcommand\lin{\l{\cap}}
+\newcommand\lint{\lin^{\!\top}}
+\newcommand\lT{\l{T}}
+\newcommand\lB{\l{B}}
+\newcommand\lY{\l{Y}}
+\newcommand\lsub{\l{\sbs}}
+\newcommand\tlar{{\type(\lar)}}
+\newcommand\larc{\mbox{$\lar$classic}}
+\newcommand\lm{\l\mu}
+\newcommand\Tcons{C\!\! C}
+
+\newcommand\empt{\emptyset}
+%\newcommand\eq{\equiv}
+\newcommand\Lar{\L_{\Tatom}}
+\newcommand\Laro{\Lar^{\emptyset}}
+%%%%%
+\newcommand\Bool{{\bf B}}
+
+\newcommand\force{\;\rule{0.2mm}{2.4mm}\hspace{-0.8mm}\vdash}
+\newcommand\fr{{\|}}
+
+\newcommand\ml{{\lambda\hspace{-1.7mm}\lambda}}
+
+%%%!!!!
+\newcommand\LT{\L_{\mbox{{\scriptsize$\sf T\!\!\!\!\,T$}}}}
+\newcommand\varc{\mbox{\tt var}}
+\newcommand\stype{\mbox{{\scriptsize$\sf T\!\!\!\!\,T$}}}
+\newcommand\stypec{\type}
+%\def\Tvar{{\sf V\!\!\!\!\,V}}
+\newcommand\Tvarc{\cour{typevar}}%{\sf V\!\!\!\!\,V}}
+%\newcommand\type{\mathbb T}
+\newcommand\type{\sf T\!\!\!T}
+\newcommand\typa{\type_{\Tatom}}
+\newcommand\typo{\type_{\om}}
+
+\newcommand\typec{\type(\con)}
+\newcommand\termvar{{\sf V}}
+\newcommand\termvarc{\cour{termvar}}
+\newcommand\term{\L}
+\newcommand\termc{\cour{term}}
+%%%!!!
+
+%\newcommand\IH{\mbox{induction hypothesis }}
+\newcommand\nforce{{\not\!\!\!\force}}
+%%%%%
+%% TeX operations
+
+
+\newtheorem{definition}{Definition}[section]
+%\newtheoremit{lemma}[definition]{Lemma}
+%\newtheoremit{proposition}[definition]{Proposition}
+%\newtheoremit{theorem}[definition]{Theorem}
+%\newtheoremit{corollary}[definition]{Corollary}
+\newtheorem{remark}[definition]{Remark}
+\newtheorem{fact}[definition]{Fact}
+\newtheorem{example}[definition]{Example}
+\newtheorem{examples}[definition]{Examples}
+\newtheorem{exerciseadhoc}[definition]{Exercise}
+%\newtheorem{exercises}[definition]{Exercises}
+\newexercises{exercises}{}[section]
+%{\section{Exercises}}
+\newtheoremit{feit}[definition]{Feit}
+
+
+
+\newcommand{\lh}{\mathopen{\mbox{\hspace{0.05cm}\rule[0.8ex]{0.01ex}{1ex}
+\kern-.35em{\rule[1.8ex]{0.6ex}{0.01ex}}}}}
+\newcommand{\rh}{\mathclose{\mbox{\rule[1.8ex]{0.6ex}{0.01ex}
+\kern-.35em{\rule[0.8ex]{0.01ex}{1ex}\hspace{0.05cm}}}}}
+\newcommand{\num} [1] {\lh{#1}\rh}%%                     for numerals
+\newcommand\semantics[1]{{\ldana{#1}\rdana}}
+\newcommand\sem[1]{\semantics{#1}}
+\newcommand{\sct}[1]{\section{#1}}
+\newcommand{\subs}[1]{\subsection*{{#1}}}
+\newcommand{\subsubs}[1]{\subsubsection*{{#1}}}
+\newcommand\cour[1]{{\tt #1}}
+
+\newcommand\vs[1]{\vspace*{#1mm}}
+
+%----------------------------
+
+
+\newcommand\cu{\mbox{\scriptsize CU}}
+\newcommand\ch{\mbox{\scriptsize CH}}
+\newcommand\cl{\mbox{\scriptsize CL}}
+\newcommand\abs[1]{|#1|}
+
+%\def\kind{{\bf K}}
+%\newcommand\star{\ast}
+\def\CC{{\cal C}}
+
+\newcommand\rom[1]{{\rm #1}}
+\def\bexc{\bexadh}
+\def\eexc{\eexadh}
+\newcommand\error{\cour{error}}
+\def\a{\alpha}
+
+\newcommand\tltau{{\type(\ltau)}}
+\newcommand\ltauc{\mbox{$\ltau$-classic}}
+%\newcommand\eq{\equiv}
+\newcommand\leqn[1]{\hspace{-5cm}\lefteqn{#1}}
+\newcommand\rank{\mbox{\cour{rank}}}
+
+\def\eq{\sim_{\m}}
+\newcommand\m{{\cal M}}
+\newcommand\n{{\cal N}}
+\newcommand\semr[1]{\sem{#1}_{\rho}}
+\newcommand\reals{{\rm I\! R}}
+\newcommand\dol[1]{\${#1}}
+
+\newcommand\bop{\bexc}
+\newcommand\eop{\eexc}
+
+\newcommand\pn{{\sim}}
+\def\restriction{\upharpoonright}
+\newcommand\subsub[1]{\subsubsection*{#1}}
+\newcommand\T{{\cal T}}
+\newcommand\ve{{\;\vee\;}}
+
+\newcommand\todaysmall
+{\mbox{{\tiny\ \the\day.\the\month.\the\year:\the\time}}}
+\newcommand\npr{\nvdash}
+\newcommand\ie{i.e.\ }
+
+\def\AA{{\cal A}}
+\newcommand\PP{{\cal P}}
+\newcommand\LL{{\cal L}}
+\newcommand\OO{{\cal O}}
+\newcommand\BB{{\cal B}}
+\newcommand\HH{{\cal H}}
+\newcommand\EE{{\cal E}}
+\newcommand\RR{{\cal R}}
+\newcommand\II{{\cal I}}
+\newcommand{\bcd}{\text{\footnotesize${\cal BCD}$}}
+\newcommand{\abo}{\mbox{\footnotesize${\cal AO}$}}
+\newcommand{\cdz}{\mbox{\footnotesize$\CC\D$$\ZZ$}}
+\newcommand{\eng}{\mbox{\footnotesize${\cal E}\mbox{{\it n}}$}}
+\newcommand{\park}{\mbox{\footnotesize${\cal P}\mbox{{\it a}}$}}
+\newcommand{\sco}{\mbox{\footnotesize${\cal S}${\it c}}}
+\newcommand{\plot}{\mbox{\footnotesize${\cal P}l$}}
+\newcommand{\honl}{\mbox{\footnotesize${\cal HL}$}}
+\newcommand{\code}{{}\mbox{\footnotesize${\cal CD}$}{}}
+%\newcommand{\bake}{\mbox{\footnotesize${\cal B}${\it a}}}
+\newcommand{\ehr}{\mbox{\footnotesize${\cal EHR}$}}
+\newcommand{\dhm}{\mbox{\footnotesize${\cal DHM}$}}
+\newcommand{\bake}{\mbox{\footnotesize${\cal CDV}$}}
+ 
+\newcommand\wit[1]{\rule{#1mm}{0mm}}
+\newcommand\hoog[1]{\rule{0mm}{#1}}
+\newcommand{\labelx}[1]{\label{#1}}
+%\newcommand{\labelx}[1]{{\footnotesize {\bf [#1]}}\label{#1}}
+
+\newcommand\sectiont[1]{\section{#1 \todaysmall}}
+\newcommand\chaptert[1]{\chapter{#1 \todaysmall}}
+\newcommand\partt[1]{\part{#1 \todaysmall}}
+
+\newcommand\ncite[1]{\cite{#1}}
+%\newcommand\pcite[1]{\possessivecite{#1}}
+%\newcommand\acite[1]{\citeaffixed{#1}}
+%\newcommand\scite[1]{(see \ncite{#1})}
+\newcommand\ycite[1]{\hspace{-0.9ex}\citeyear{#1}}
+
+
+%==============
+
+\newcommand\change{\renewcommand\newblock{\\}}
+%\newcommand\qedf{\mbox{ \Delta}}
+\newcommand\qedf{\mbox{$\qed$}}
+
+\newcommand\dak{^{\sharp}}
+\newcommand\kad{^{\flat}}
+%\def\ln{\ar@{-}}
+\newcommand\br{\ar@{-}[dr]\ar@{-}[dl]}
+\newcommand\embed{\hookrightarrow}
+\newcommand\CT{{\cal T}}
+\newcommand\CM{{\cal M}}
+\newcommand\tred{\leq_{\beta\eta}}
+\newcommand\teq{\sim_{\beta\eta}}
+\newcommand\beq{=_{\beta\eta}}
+\newtheorem{nnotation}[definition]{Notation}
+
+\newcommand\CE{{\cal E}}
+\newcommand\eqs{\mathbin{\approx}}
+\newcommand\eqc{\eqs_{\CC}}
+\newcommand\eqd{\eqs_{\CD}}
+\newcommand\eqext{\eqs^{\cour{ext}}}
+\newcommand\eqobs{\eqs^{\cour{obs}}}
+\newcommand\eqextd{\eqs^{\cour{ext}}_{\CD}}
+\newcommand\eqextc{\eqs^{\cour{ext}}_{\CC}}
+\newcommand\eqobsd{\eqs^{\cour{obs}}_{\CD}}
+\newcommand\eqobsc{\eqs^{\cour{obs}}_{\CC}}
+
+\newcommand\MC{\CM_{\CC}}
+\newcommand\XC{X_{\CC}}
+%\newcommand\LC{\L[\CC]}
+
+\newcommand\ul[1]{\underline{#1}}
+%\let\om=0
+\newcommand\bb[1]{\mbox{\boldmath{$#1$}}}
+\newcommand\msf[1]{{\ul{#1}}}
+
+\newcommand\Ltau{\L_{\om}}
+\newcommand\CD{{\cal D}}
+\newcommand\CN{{\cal N}}
+\newcommand\LC{\Lo_{\om}{[\CC]}}
+
+\newcommand\LD{\Lo_{\om}{[\CD]}}
+\newcommand\MD{\CM_{\CD}}
+
+\newcommand\balpha{\bb{\alpha}}
+\newcommand\bbeta{\bb{\beta}}
+\newcommand\bgamma{\bb{\gamma}}
+\newcommand\ualpha{\msf{\alpha}}
+\newcommand\ubeta{\msf{\beta}}
+\newcommand\ugamma{\msf{\gamma}}
+
+\newcommand\weglaten[1]{{}}
+
+
+\newcommand\reddbe{\redd_{\be}}
+\newcommand\Lt{\L_{\om}}
+\newcommand\Lto{\Lo_{\om}}
+\newcommand\LtD{\Lt[\CD]}
+\newcommand\downbe{\;\down_{\be}\;}
+\newcommand\lt{\leq}
+\newcommand\vect[2]{{#1_1,\ldots,#1_{#2}}}
+\newcommand\apart{\mathbin{{\hspace{2pt}/\hspace{-3.9pt}/\hspace{-10.8pt}=}}}
+\newcommand\sep{\mathbin{\bot}}
+\newcommand\CTM[2]{{\m^{\o}_{#1}[#2]}}
+\newcommand\OTM[2]{{\m_{#1}[#2]}}
+
+
+\newcommand\ulm{\ul{\m}}
+\newcommand\simm{\mathbin{\sim_{\m}}}
+\newcommand\st{^{\star}}
+\newcommand\Pow[1]{{\cal P}_{#1}}
+\newcommand\church{{\mathbf c}}
+\newcommand\cnum[1]{\church_{#1}}
+\newcommand\mL{\m^{\L}}
+
+\def\flip{}
+\newcommand{\corners}[1]{\langle #1 \rangle}
+\newcommand\lth[1]{\cour{lh}(#1)}
+\newcommand\lara{\l\arr}
+\newcommand\larch{\lara^{\rm CH}}
+\newcommand\larcu{\lara^{\rm CU}}
+\newcommand\larcl{\lara^{\rm CL}}
+\newcommand\Tatom{\mathbb A}%{\sf A\!\!\!\!\,A}}
+\newcommand\cmp{\comp}
+
+\newcommand\Ldar{\L\delta}
+\newcommand\ldar{\l\delta}
+\newcommand\prd{\pr_{\delta}}
+\newcommand\prD{\pr_{\Delta}}
+
+\newcommand{\ALG}{\text{\bf ALG}}
+\newcommand{\MSL}{\mbox{\bf MSL}}
+\newcommand{\Flt}{\mbox{\sf Flt}}
+\newcommand{\Cmp}{\mbox{\sf Cmp}}
+\newcommand{\Hom}{\mbox{\rm Hom}}
+\newcommand{\sqleq}{\sqsubseteq}
+
+
+
+%\def\ln{\ar@{-}}
+
+\newcommand\ptf[3]{\bpt{#1}\hence\use{\mbox{(#3)}}{#2}\ept}
+\newcommand\ptfe[3]{\bpt{#1}\hence\use{\mbox{#3}}{#2}\ept}
+\newcommand\bx[1]{{\bar{|l|}
+\hline
+{#1}\\
+\hline
+\ear}}
+
+
+%%%%%%%%%%%%
+
+\newcommand\bewijs[1]{{\bpf #1\qed\epf}}
+
+\newcommand\laru{\lar_{\rm U}}
+
+\newcommand{\SN}{{\rm SN}}
+
+\newcommand\struct[1]{\langle #1 \rangle}
+\newcommand\pair[2]{{\langle {#1},{#2} \rangle}}
+\newcommand{\into} {\cap}
+\newcommand{\funii}{{\bf fun}}
+\newcommand{\im}{\mbox{\sf i}_m}
+
+\newcommand{\set}[1]{\{#1\}}
+\newcommand\dash{\mbox{-}}
+\newcommand\semn[1]{\sem{#1}_{\nu}}
+\newcommand\dwn{\\[0.5em]}
+
+
+\newcommand\Byte{\mathrm{Byte}}
+\newcommand\Cp{{\mathrm{Cp}}}
+%\newcommand\Cmp{{\mathrm{Cmp}}}
+\newcommand\Aux{{\mathrm{Aux}}}
+\newcommand\Bin{\mathrm{Bin}}
+\newcommand\Int{\mathrm{Nat}}
+\newcommand\pl{\pi_1}
+%\def\pr{\pi_2}
+\newcommand\lr[1]{\langle #1\rangle}
+\newcommand\llr[1]{{\langle}\!\langle #1\rangle}
+\newcommand\lrr[1]{\langle #1\rangle\!{\rangle}}
+\def\ss {{*}}
+\newcommand\ksi{\xi}
+\newcommand\NN{{\cal N}}
+%\newcommand\seq{\cour{Seq}}
+\newcommand\expcm{\cour{exp}_{\tt CM}}
+\newcommand\nseq[2]{#1_1,\ldots,#1_{#2}}
+\newcommand\nzeq[2]{#1_0,\ldots,#1_{#2}}
+\newcommand\barh{\mbox{---}}
+\newcommand\Power{{\mathrm{Pow}}}
+\newcommand\Code{{\mathrm{Code}}}
+\newcommand\calB{{\cal B}}
+\newcommand\cm{{\mathrm{CM}}}
+\newcommand\Tcm{T_{\cm}}
+\newcommand\Tocm{\Tcm^{\om}}
+\newcommand\CS{\mathbf C}
+\newcommand\retract{\vartriangleleft}
+
+
+\newcommand\rk{{\rm rk}}
+\newcommand\ord{{\rm ord}}
+\newcommand\dpt{{\rm dpt}}
+
+\newcommand\bigsqcap{\mathop{\rule[-0.2ex]{.07em}{2.17ex}
+                \rule[1.8ex]{0.5em}{.17ex}
+                \rule[-0.2ex]{.07em}{2.17ex}}}
+\renewcommand\bigsqcup{\mathop{\rule[-0.2ex]{.07em}{2.17ex}
+                \rule[-0.2ex]{0.5em}{.17ex}
+                \rule[-0.2ex]{.07em}{2.17ex}}}
+
+%\newcommand\typen{\type^{\tytv}}
+\newcommand\artop{\mbox{arrow-top}}
+\newcommand\arin{\arr\text{-}\cap}
+%\renewcommand\stt{\tytv}
+\def\And{\und}
+\def\ium{{\"\dotlessi}}
+
+\newcommand\euro{\hspace{.15em}\raisebox{-.05em}{\large\sf C}\hspace{-1.2em}
+\raisebox{.11em}{\small =}\hspace{.15em}}
+
+\newcommand\eg{e.g.\ }
+\newcommand\bc{\begin{center}}
+\newcommand\ec{\end{center}}
+
+
+
+
+%%=====================================
+
+\makeatother
+
+%\usepackage{a4}            
+%\usepackage{hyperref}
+%\UseAllTwocells
+%\xyoption{2cell}
+%\CompileMatrices
+%\usepackage[pdftex]{graphicx}
+%\usepackage[english]{babel}
+%\usepackage{pst-node}
+%\usepackage{ae,aecompl}
+%\usepackage{color}
+%\usepackage{advi-graphicx,advi-annot}
+%\usepackage{german,yfonts}
+%\newcommand\spc[1]{{\Blue{\sc #1}}}
+%\usepackage[ignore]{advi}
+
+\makeatletter 
+  \newcommand\figcaption{\def\@captype{figure}\caption} 
+  \newcommand\tabcaption{\def\@captype{table}\caption}
+\makeatother
+\newcommand\lambdatwo{{\l2}}
+\newcommand\lit[1]{\footnote{\tt <#1>}}
+\def\i{\dotlessi}
+\newcommand{\monus}{-\hspace{-.8em}\dot{~}\;}
+\newcommand\PRED{\mbox{\rm PRED}}
+\newcommand\PREDtwo{\mbox{\rm PRED2}}
+\DefineVerbatimEnvironment{verbbox}{Verbatim}
+{samepage=true,frame=single}
+\newcommand{\ptsbox}[4]
+{$$
+\arraycolsep 1em
+\fbox{$\begin{array}{ll}
+{\cal S} & #1 \\
+{\cal A} & #2 \\
+{\cal R} & #3 
+\end{array}$}$$}
+\newcommand{\ptsnamebox}[4]
+{$$
+\arraycolsep 1em
+\mbox{#1 }\fbox{$\begin{array}{ll}
+{\cal S} & #2 \\
+{\cal A} & #3 \\
+{\cal R} & #4
+\end{array}$}$$}
+
+\newcommand{\Ptsnamebox}[5]
+{$$
+\arraycolsep 1em
+\mbox{#1 }\fbox{$\begin{array}{ll}
+{\cal S} & #2 \\
+{\cal A} & #3 \\
+{\cal R} & #4 \\
+& #5
+\end{array}$}$$}
+
+\newcommand\bfig{\begin{minipage}{\textwidth}\centering}
+\newcommand\efig{\end{minipage}}
+\newcommand{\sortvar}[2]{{}^{#1}\!#2}
+\newcommand\ts[1]{{\mbox{\tt #1}}} 
+\def\app{\ts{app}}
+\def\noi{\noindent}
+\newcommand\spc[1]{{#1}}
+\def\nat{{\mathbb N}}
+\def\zed{{\mathbb Z}}
+\def\rat{{\mathbb Q}}
+\def\real{{\mathbb R}}
+\def\complex{{\mathbb C}}
+\def\ie{{i.e.\ }}
+\def\acc{\mbox{\tt{}'{}}}
+\newcommand\leeg[2]{{}}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\newcount{\mscount}
+\renewcommand\AA{{\mathfrak A}}
+\renewcommand\Pow{{\mathcal P}}
+
+\begin{document}
+\ifbibtex
+\bibliographystyle{eb}
+\fi
+
+\title{The Challenge of Computer Mathematics}
+\author{Henk Barendregt and Freek Wiedijk}
+\affiliation{Radboud University Nijmegen \\ The Netherlands}
+\date{}
+\label{firstpage}
+\maketitle
+\begin{abstract}{Computer Mathematics, Formalised Proofs, 
+Proof Checking.}
+\noi Progress in the foundations of mathematics has
+made it possible to formulate all thinkable mathematical concepts,
+algorithms and proofs in one language and in an impeccable way. This is
+not in spite of, but partially based on the famous results of G\"odel
+and Turing. In this way statements are about mathematical objects
+\emph{and} algorithms, proofs show the correctness of statements
+\emph{and} computations, and computations are dealing with objects
+\emph{and} proofs. Interactive computer systems for a full integration
+of defining, computing and proving are based on this. The human
+defines concepts, constructs algorithms and provides proofs, while the
+machine checks that the definitions are well-formed and the proofs and
+computations are correct. Results formalised so far demonstrate the
+feasibility of this `Computer Mathematics'. Also there are very good
+applications. The challenge is to make the systems more
+mathematician-friendly, by building libraries and tools. The eventual
+goal is to help humans to learn, develop, communicate, referee and
+apply mathematics.
+\end{abstract}
+\noi \begin{acknowledgements}
+\noi {\bf Acknowledgements.} The authors thank Mark van Atten,
+Wieb Bosma, Femke van Raamsdonk and Bas Spitters for useful input.
+\end{acknowledgements}
+
+\section{The Nature of Mathematical Proof}
+Proofs in mathematics have come to us from the ancient Greeks. The
+notion of proof is said to have been invented by Thales (ca.\ 624-547
+BC). For example he demonstrated that the angles at the bases of any
+isosceles triangle are equal. His student Pythagoras (ca.\ 569-475 BC)
+went on proving among other things the theorem bearing his
+name. Pythagoras started a society of followers, half religious, half
+scientific, that continued after he passed away. One member of the
+society was Theodorus (465-398 BC), who taught the philosopher Plato
+(428-347 BC) the irrationality of
+$\sqrt{2},\sqrt{3},\sqrt{5},\sqrt{6}$ etcetera up to $\sqrt{17}$.
+Plato emphasised to his students the importance of mathematics, with
+its proofs that show non-obvious facts with a clarity such that
+everyone can understand them. In Plato's dialogue Meno a slave was
+requested by Socrates (469-399 BC) to listen and answer, and together,
+using the maieutic method, they came to the insight that the size of
+the long side of an isosceles rectangular triangle is, in modern
+terminology, $\sqrt{2}$ times the size of the shorter side. Not much
+later the subject of mathematics was evolved to a sufficient degree
+that Plato's student Aristotle (384-322 BC) could reflect about this
+discipline. He described the
+\emph{axiomatic method} as follows. Mathematics consists of objects
+and of valid statements. Objects are defined from previously defined
+objects; in order to be able to get started one has the
+\emph{primitive objects}. Valid statements are \emph{proved} from other
+such statements; in order to get started one has the
+\emph{axioms}. Euclid (ca.\ 325-265 BC) wrote just a few decades later 
+his monumental \emph{Elements} describing geometry in this axiomatic
+fashion. Besides that, the \emph{Elements} contain the first important
+results in number theory (theory of divisibility, prime numbers,
+factorisation) and even Eudoxos' (408-355 BC) account of treating
+ratios (that was later the inspiration for Dedekind (1831-1916) to
+give a completely rigorous description of the reals as cuts of
+rational numbers).
+
+
+During the course of history of mathematics proofs increased in
+complexity. In particular in the 19-th century some proofs could no
+longer be followed easily by just any other capable mathematician: one
+had to be a specialist. This started what has been called the
+sociological validation of proofs. In disciplines other than
+mathematics the notion of \emph{peer review} is quite
+common. Mathematics for the Greeks had the `democratic virtue' that
+anyone (even a slave) could follow a proof. This somewhat changed
+after the complex proofs appeared in the 19-th century that could only
+be checked by specialists. Nevertheless mathematics kept developing
+and having enough stamina one could decide to become a specialist in
+some area. Moreover, one did believe in the review by peers, although
+occasionally a mistake remained undiscovered for many years. This was
+the case e.g.\ with the erroneous proof of the Four Colour Conjecture by
+\xcite{kemp79}{Kempe [1879]}.
+
+\bctr\bfig \btab{|l|l|} \hline Verifiable by&Theorems\hoog{1.2em}\dwn
+\hline \btab[t]{l} Lay person/\hoog{1.2em}\\
+Student \etab &$\bar[t]{l}\sqrt{2}\mbox{ is irrational}\hoog{1.2em}\\
+\mbox{There are infinitely many primes} \ear$\\[1em] \hline
+\btab[t]{l} Competent\hoog{1.2em}\\ mathematician \etab &\btab[t]{l}
+Fundamental Theorem of Algebra\hoog{1.2em}\\[1.6em] \etab\\[1.1em]
+\hline
+\btab[t]{l} Specialist\hoog{1.2em} \etab & \btab[t]{l} Fermat's Last
+Theorem\hoog{1.2em} \etab\\[.5em]
+\hline \btab[t]{l} Group of\hoog{1.2em}\\ specialists \etab
+&\btab[t]{l} Classification of the finite simple
+groups\hoog{1.2em}
+\etab\\[1.6em] \hline \btab[t]{l}
+Computer \hoog{1.2em} \etab&\btab[t]{l}Four Colour
+Theorem\hoog{1.2em}\\ Kepler's Conjecture\etab\\[1.4em] \hline \etab
+\efig\vspace{-.1em} \figcaption{Theorems and their verification} \ectr
+In the 20-th century this development went to an extreme. There is the
+complex proof of Fermat's Last Theorem by Wiles. At first the proof
+contained an error, discovered by Wiles himself, and later his new
+proof was checked by a team of twelve specialist referees\footnote{One
+of these referees told us the following. ``If an ordinary non-trivial
+mathematical paper contains an interesting idea and its consequences
+and obtains `measure 1', then Wiles' proof can be rated as having
+measure 156.''}. Most mathematicians have not followed in detail the
+proof of Wiles, but feel confident because of the sociological
+verification. Then there is the proof of the Classification of the
+Finite Simple Groups. This proof was announced in 1979 by a group of
+mathematicians lead by Gorenstein. The proof consisted of a collection
+of connected results written down in various places, totalling 10,000
+pages. In the proof one relied also on `well-known' results and it
+turned out that not all of these were valid. Work towards improving
+the situation has been performed, and in \xcite{asch04}{Aschbacher
+[2004]} it is announced that at least this author believes in the
+validity of the theorem. Finally there are the proofs of the Four
+Colour Theorem, \xcite{appehake77}{Appel and Haken [1977a]},
+\xcite{appehakekoch77}{[1977b]}
+and \xcite{seym96}{Robertson et
+al.~[1996]}, and of Kepler's Conjecture, \xcite{hale98}{Hales [to
+appear]}. All these proofs use a long computation performed on a
+computer. (Actually \xcite{asch04}{Aschbacher [2004]} believes that at
+present also the proof of the Classification of the Finite Simple
+Groups relies on computer performed computation.) The situation is
+summed up in table 1.
+
+A very different development, defended by Zeilberger and others,
+consists of admitting proofs where the result is not 100\% certain,
+but say 99.9999999999. Examples of these proofs concern the primality
+of large numbers, see \xcite{mill76}{Miller [1976]},
+\xcite{rabi80}{Rabin [1980]}.
+
+In this situation the question arises whether there has been a
+necessary devaluation of proofs. One may fear that the quote of
+Benjamin Peirce (1809-1880) ``Mathematics is the science which draws
+necessary conclusions'' may not any longer hold. Scientific American
+even ventured an article called `The Death of Proof', see
+\xcite{horg93}{Horgan [1993]}. The Royal Society Symposium 
+`The Nature of Mathematical Proof' (London, October 18-19, 2004) had
+a more open-minded attitude and genuinely wanted to address the
+question. We will argue below that proofs remain alive and kicking and
+at the heart of mathematics. There is a sound methodology to ensure
+the full correctness of theorems with large proofs, even if they
+depend on complex computations, like the Four Colour Theorem, or on a
+sociological verification, like the Classification of the Finite
+Simple Groups.
+
+\subsection*{Phenomenology}
+From where does the confidence come that is provided by a proof in
+mathematics?  When a student asks the teacher: ``Sir, am I allowed to
+do this step?'', the answer we often give is ``When it is convincing,
+both for you and me!''. Mathematics is rightly considered as the most
+exact science. It is not too widely known to outsiders that this
+certainty eventually relies on a mental judgement.  It is indeed the
+case that proofs and computations are a warranty for the exactness of
+mathematics. But both proofs and computations need a judgement that
+the performed steps are correct and applicable. This judgement is
+based on a trained form of our intuition. For this reason
+\xcite{huss01}{Husserl [1901]}, and also 
+\xcite{goed95}{G\"odel [1995]}, and notably Bernays in
+\xcite{wang97}{Hao Wang [1997]}, p.337, 10.2.7, emphasise the
+phenomenological character of the act of doing mathematics.
+
+\subsection*{Computation vs. Intuition}
+
+In Buddhist psychology one distinguishes discursive versus intuitive
+knowledge. In order to explain this a contemporary example may be
+useful. Knowing physics one can calculate the range of angles a bike
+rider may use while making a right turn. This is discursive knowledge;
+it does not enable someone to ride a bike. On the other hand a person
+who knows how to ride a bike `feels' the correct angles by intuition,
+but may not be able to compute them. Both forms of knowledge are
+useful and probably use different parts of our brain.
+
+For the mental act of doing mathematics one may need some support. In
+fact, before the Greek tradition of proofs, there was the
+Egyptian-Chinese-Babylonian tradition of mathematics as the art of
+computing. Being able to use computational procedures can be seen as
+discursive knowledge. This aspect is often called the `algebraic' side
+of mathematics. On the other hand proofs often rely on our intuition.
+One speaks loosely about the intuitive `geometric' side of mathematics.
+
+A computation like $13338\times 3145727=41957706726$ needs do be done
+on paper or by some kind of computer (unless we are an \emph{idiot
+savant}; this computation is related to the famous `Pentium bug'
+appearing in 1994). Symbolic manipulations, like multiplying numbers
+or polynomials, performing symbolic integrations and arbitrary other
+`algebraic' computations may not be accompanied by intuition.  Some
+mathematicians like to use their intuition, while others prefer
+algebraic operations. Of course knowing both styles is best.  In the
+era of Greek mathematics at first the invention of proofs with its
+compelling exactness drew attention away from computations. Later in
+the work of Archimedes (287-212 BC) both computations and intuition
+did excel.
+
+The story repeated itself some two millennia later. The way in which
+Newton (1643-1727) introduced calculus was based on the solid grounds
+of Euclidean geometry. On the other hand Leibniz (1646-1716) based his
+calculus on infinitesimals that had some dubious ontological status
+(do they really exist?). But Leibniz' algebraic approach did lead to
+many fruitful computations and new mathematics, as witnessed by the
+treasure of results by Euler (1707-1783). Infinitesimals did lead to
+contradictions. But Euler was clever enough to avoid these. It was
+only after the foundational work of Cauchy (1789-1857) and Weierstrass
+(1815-1897) that full rigour could be given to the computational way
+of calculus. That was in the 19-th century and mathematics bloomed as
+never before, as witnessed by the work of Gauss (1777-1855), Jacobi
+(1804-1851), Riemann (1826-1866) and many others.
+
+During the last third of the 20-th century the `schism' between
+computing and proving reoccurred. Systems of computer algebra, being
+good at symbolic computations, were at first introduced for
+applications of mathematics in physics: a pioneering system is
+Schoonschip, see \xcite{velt67}{Veltman [1967]}, which helped win a
+Nobel prize in physics.  Soon they became useful tools for pure
+mathematics. Their drawback is that the systems contain bugs and
+cannot state logically necessary side-conditions for the validity of
+the computations. On the other hand systems for proof-checking on a
+computer have been introduced, the pioneer being Automath of de
+Bruijn, see \xcite{nedegeuv94}{Nederpelt et al.~[1994]}. These systems
+are able to express logic and hence necessary side conditions, but at
+first they were not good at making computations. The situation is
+changing now as will be seen below.
+
+\subsection*{Computer Science Proofs}
+Programs are elements of a formal (i.e.\ precisely defined) language
+and thereby they become mathematical objects. It was pointed out by
+\xcite{turi49}{Turing [1949]} that one needs a proof to show that a
+program satisfies some desired properties. This method was refined and
+perfected by \xcite{floy67}{Floyd [1967]} and \xcite{hoar69}{Hoare
+[1969]}. Not all software has been specified, leave alone proven
+correct, as it is often hard to know what one exactly wants from
+it. But for parts of programs and for some complete programs that are
+small but vital (like protocols) proofs of correctness have been
+given. The methodology of (partially) specifying software and proving
+that the required property holds for the program is called `Formal
+Methods'.
+
+Proofs for the correctness of software are often long and boring,
+relying on nested case distinctions, contrasting proofs in mathematics
+that are usually more deep. Therefore the formal methods ideal seemed
+to fail: who would want to verify the correctness proofs, if they were
+longer than the program itself and utterly uninspiring. Below we will
+see that also this situation has been changed.
+
+
+
+
+
+\section{Foundations of Mathematics}
+A foundation for mathematics asks for a formal language in which one
+can express mathematical statements and a system of derivation rules
+using which one can prove some of these statements. In order to classify
+the many objects that mathematicians have considered an `ontology',
+describing ways in which collections of interest can be defined, comes
+in handy. This will be provided by set theory or type theory. Finally
+one also needs to provide a model of computation in which algorithms
+performed by humans can be represented in one way or another. In other
+words, one needs Logic, Ontology and Computability.
+\subsection*{Logic}
+\bc
+\bfig
+{\small
+\bc$\bar{|l|l|l|} \hline \multicolumn{2}{|l|}{\text{Elimination
+rules}}&\text{Introduction rules}\\ \hline
+\multicolumn{2}{|l|}{\hoog{2.5em}\bpt \G\pr
+\leeg{pfs}{p:}A\quad\G\pr\leeg{pfs}{q:} A\arr B \hence
+\G\pr\leeg{pfs}{(p\;q):} B \ept}& \bpt
+\G,\leeg{pfs}{x\:}A\pr\leeg{pfs}{p:} B \hence \G\pr\leeg{pfs}{(\l
+x\:A.p):}A\arr B \ept \\[2.5em] \multicolumn{2}{|l|}{\bpt \G\pr A\und
+B \hence \G\pr A \ept \quad \bpt \G\pr A\und B \hence \G\pr B\ept }&
+\bpt \G\pr A\quad\G\pr B \hence \G\pr A\und B \ept \\[2.5em]
+\multicolumn{2}{|l|}{\bpt\G\pr A\vee B\quad\G,A\pr C\quad\G,B\pr C
+\hence\G\pr C\ept }& \bpt\G\pr A\hence\G\pr A\vee B\ept \quad
+\bpt\G\pr B\hence\G\pr A\vee B\ept \\[2.5em] \multicolumn{2}{|l|}{\bpt
+\G\pr\leeg{pfs}{p:}\forall x.A \hence\use{{t \mbox{ is free in }
+A}} \G\pr \leeg{pfs}{(p\;t):}A[x:= t] \ept} & \bpt \G\pr\leeg{pfs}{p:}
+A \hence \use{{x\notin\G}} \G\pr\leeg{pfs}{(\l x\:D.p):}\forall
+x\leeg{pfs}{\:D}.A \ept\\[2.5em] \multicolumn{2}{|l|}{\bpt\G\pr\exists
+x.A\quad\G,A\pr C \hence\use{x\notin C} \G\pr C\ept } & \bpt\G\pr
+A[x:=t]\hence\G\pr\exists x.A\ept\\[2em]
+\multicolumn{2}{|l|}
+{\bpt\G\pr\bot\hence
+\G\pr A\ept}& 
+{\bpt\ \hence\G\pr \top\ept}\\[1.5em]\hline 
+\multicolumn{2}{|l|}
+{\hoog{1em}\text{Start rule}}
+&\text{Double-negation
+rule}\\ \hline
+\multicolumn{2}{|l|}
+{\hoog{2.2em}{} \bpt \hoog{.95em}
+\hence\use{\wit{2}\leeg{pfs}{x\:}{A\in\G}\wit{5}}\G\pr
+\leeg{pfs}{x:}A \ept }&
+\bpt\G\pr\neg\neg A\hence\G\pr A\ept \\[1.5em] \hline \ear$
+\ec\vspace{-.7em}
+\figcaption{Predicate Logic Natural Deduction Style}\label{logic}
+}\efig\ectr
+Not only did Aristotle describe the axiomatic method, he also started
+the quest for logic. This is the endeavour to chart the logical steps
+needed in mathematical reasoning. He started a calculus for
+deductions.  The system was primitive: not all connectives (and, or,
+implies, not, for all, exists) were treated, only monadic predicates,
+like $P(n)$ `$n$ is a prime number', and not binary ones, like $R(n,m)$
+`$n<m$', were considered. Nevertheless, the attempt to find rules
+sufficient for reasoning was quite daring. 
+
+The quest for logic, as needed for mathematical reasoning, was
+finished 2300 years later in \xcite{freg79}{Frege [1971]}. Indeed,
+\xcite{goed30}{G\"odel [1930]} showed that Frege's system was complete
+(mathematically this was done already by \xcite{skol22}{Skolem
+[1922]}, but the result itself was not mentioned there). This means
+that from a set of hypotheses $\G$ a statement $A$ can be derived iff
+in all structures $\AA$ in which the hypotheses $\G$ hold, also the
+conclusion $A$ holds.
+
+A particular nice version of logic was given by Gentzen in 1934 (see
+his collected papers \xcite{gent69}{[1969]}). This system is
+presented in Figure \ref{logic}. Some explanations are in order.  The
+signs $\arr,\&,\vee,\top,\forall,\exists$ stand for `implies', `and',
+`or', `true', `for all' and `exists', respectively. $\neg A$ stands
+for `not $A$' and is defined as $A\arr\bot$, where $\bot$ stands for a
+(`the') false statement (like 0=1). $\G$ stands for a set of
+statements and $\G\pr A$ stands for `from the set $\G$ the statement
+$A$ is derivable'.  A rule like
+$$\bpt
+\G\pr A\und B
+\hence
+\G\pr A\ept$$
+has to be read as follows: `If $A\und B$ is derivable from $\G$, then
+so is $A$.'
+
+\subsubsection*{First-, second- and higher-order logic}
+The logic presented is first-order logic. It speaks about the element
+of a structure ${\AA}$ (a set with some given operations and relations
+on it) and can quantify over the elements of this structure. In
+second-order logic one can quantify over subsets of the structure
+$\AA$, i.e.\ over $\Pow(\AA)$. Then there is higher-order logic, that
+can quantify over each ${\Pow}^n(\AA)$. In first-order logic one can
+distinguish the difference between continuity and uniform continuity
+of a given function (say on $\real$). 
+$$\forall x\in\real\,\forall\epsilon{>}0\,\exists\delta{>}0\,\forall
+y\in\real\,.  |x-y|{<}\delta\imp|f(x)-f(y)|{<}\epsilon$$ versus
+$$\forall\epsilon{>}0\,\exists\delta{>}0\,\forall x,y\in\real\,.
+|x-y|{<}\delta\imp|f(x)-f(y)|{<}\epsilon.$$ Here
+$\forall\epsilon{>}0.\ldots$ has to be translated to
+$\forall\epsilon.[\epsilon{>}0\imp \ldots\;]$. 
+
+In second-order logic one may express that an element $x$ of a group
+$G$ has torsion (a power of $x$ is the unit element $e$) without
+having the notion of natural number:
+$$\forall X\in\Pow(G).x\in X\und [\forall y \in X.(x\cdot y)\in X]\imp
+e\in X.$$ 
+This states that $e$ belongs to the intersection of all subsets of $G$
+that contain $x$ and that are closed under left-multiplication by $x$.
+
+In higher-order logic one may state that there exists a non-trivial
+topology on $\real$ that makes a given function $f$ continuous:
+$$\exists {\cal O}\in\Pow^2(\real).{\cal O}\text{ is a non-trivial topology}
+\und\forall O\in{\cal O}.f^{-1}(O)\in{\cal O}.$$
+Here ${\cal O}$ is a non-trivial topology stands for 
+$$\bar{l}
+{\cal O}\not=\Pow({\mathbb R})\und {\mathbb R}\in{\cal O}\und\\
+\forall{\cal X}\in\Pow({\cal O}).[\emptyset\not={\cal X}\arr\bigcup 
+{\cal X}\in{\cal O}]\und\\ \forall X,Y\in{\cal O}.X\cap Y\in{\cal O}.
+\ear$$
+
+\subsubsection*{Intuitionistic logic}
+Not long after the first complete formalisation of (first-order) logic
+was given by Frege, Brouwer criticised this system of `classical
+logic'. It may promise an element when a statement like
+$$\exists k.P(k)$$ has been proved, but nevertheless it may not be the
+case that a \emph{witness} is found, i.e.\ one may not know how to prove
+any of
+$$P(0),\,P(1),\,P(2),\, P(3),\,\ldots\,\,.$$ 
+For example, this is the case for the statement
+$$P(x):=(x=0\und {\sf RH})\vee(x=1\und\neg{\sf RH}),$$ where ${\sf
+RH}$ stands for the Riemann Hypothesis that can formulated in (Peano)
+Arithmetic. The only possible witnesses are 0 and 1. By classical
+logic $\comb{RH}\ve\neg\comb{RH}$ holds. In the first case one can
+take $x=0$ and in the second case $x=1$. Therefore one can prove
+$\exists x.P(x)$. One, however, cannot provide a witness, as $P(0)$
+can be proved only if the ${\sf RH}$ is proved and $P(1)$ can be
+proved only if the $\comb{RH}$ is refuted. At present neither is the
+case. One may object that `tomorrow' the $\comb{RH}$ may be
+settled. But then one can take another open problem instead of the
+$\comb{RH}$, or an independent statement, for example a G\"odel
+sentence $G$ stating that 
+$$\mbox{`$G$' is not provable}$$
+or the Continuum Hypothesis
+$2^{\aleph_0}=\aleph_1$ (if we are in set theory). A similar criticism
+can be addressed to provable statements of the form $A\vee B$. These
+can be provable, while neither $A$ nor $B$ can be proved.
+
+Brouwer analysed that the law of excluded middle, $A\vee\neg A$ is the
+cause of this unsatisfactory situation. He proposed to do mathematics
+without this `unreliable' logical principle. In \xcite{heyt30}{Heyting
+[1930]} an alternative logic was formulated. For this logic one can
+show that
+$$\pr A\vee B\;\iff\;\; \pr A \text{ or }\pr B,$$
+and similarly
+$$\pr \exists x.P(x)\;\iff\;\; \pr P(t),\text{ for some expression
+}t.$$ Gentzen provided a convenient axiomatisation of both classical
+and intuitionistic logic. In Figure \ref{logic} the system of classical
+logic is given; if one leaves out the rule of double negation one
+obtains the system of intuitionistic logic.
+
+\subsection*{Ontology}
+Ontology is the philosophical theory of `existence'.  Kant remarked
+that existence is not a predicate. He probably meant that in order to
+state that something exists we already must have it. Nevertheless we
+can state that there exists a triple $(x,y,z)$ of positive integers
+such that $x^2+y^2=z^2$ (as Pythagoras knew), but not such that
+$x^3+y^3=z^3$ (as Euler knew). Ontology in the foundations of
+mathematics focuses on collections of objects $O$, so that one may
+quantify over it (i.e.\ stating $\forall x\in O.P(x)$, or $\exists
+x\in O.P(x)$). Traditional mathematics only needed a few of these
+collections: number systems and geometric figures. From the 19-th
+century on a wealth of new spaces was needed and ample time was
+devoted to constructing these. Cantor (1845-1918) introduced set
+theory that has the virtue of bringing together all possible spaces
+within one framework. Actually this theory is rather strong and not
+all postulated principles are needed for the development of
+mathematics.  An interesting alternative is type theory in which the
+notion of function is a first class object.
+
+
+
+\subsubsection*{Set Theory}
+\noi Postulated are the following axioms of `set existence':
+{$$\bar{|rcll|}
+\hline
+&&{\nat}&(infinity)\hoog{1.2em}\\
+a,b&\mapsto & \set{a,b}&\text{(pair)}\\
+a&\mapsto&\cup a=\cup_{x\in a}x&\mbox{(union)}\\
+a&\mapsto & \set{x\mid x\sbs a}=\PP(a)&\mbox{(powerset)}\\
+a&\mapsto & \set{x\in a\mid P(a)}\wit{9}&\mbox{(comprehension)}\\
+a&\mapsto & \set{F(x)\mid x\in a}&\mbox{(replacement)}\\[.3em]
+\hline
+\ear$$}\\
+These axioms have as intuitive interpretation the following. $\nat$ is
+a set; if $a,b$ are sets, then $\set{a,b}$ is a set; $\ldots$ ; if $P$
+is a property over sets, then $\set{x\in a\mid P(x)}$ is a set; if for
+every $x$ there is given a unique $F(x)$ in some way or another, then
+$\set{F(x)\mid x\in a}$ is a set. We will not spell out the way the
+above axioms have to be formulated and how $P$ and $F$ are given, but
+refer the reader to a textbook on axiomatic set theory, see
+e.g.\ \xcite{kune80}{Kunen [1983]}.
+Also there are the axioms of `set properties':
+$$\bar{ll} a=b \iff \forall x.[x\in a\iff x\in
+b]&\text{(extensionality)}\\ \forall a.[[\exists x.x\in a]\imp\exists
+x.  [x\in a\und\neg\exists y.y\in x\und y \in a]]&\text{(foundation)}
+\ear$$ The axiom of extensionality states that a set is completely
+determined by its elements. The axiom of foundation is equivalent with
+the statement that every predicate $P$ on sets is well-founded: if
+there is a witness $x$ such that $P(x)$ holds, then there is a minimal
+witness $x$. This means that $P(x)$ but for no $y\in x$ one has
+$P(y)$. Another way to state foundation:
+$\forall a\neg\exists f\in(\nat\arr a)\forall n\in\nat.f(n+1)\in f(n).$
+
+\subsubsection*{Type Theory}
+Type Theory, coming in several variants, forms an alternative to set
+theory. Postulated are {inductively defined data types} with their
+{recursively defined functions}. Moreover types are closed under
+{function spaces and products}. A type may be thought of as a set and
+that an element ${\tt a}$ belongs to type $\cour{A}$ is denoted by
+$\cour{a:A}$. The difference with set theory is that in type theory an
+element has a unique type. Inductive types are given in the following
+examples (boolean, natural numbers, lists of elements of \cour{A},
+binary trees with natural numbers at the leafs).\bc {\tt \btab{|lcl|}
+\hline
+bool&:=&true:bool | false:bool\hoog{1.2em}\\ nat&:=&0:nat | S:nat->nat\\
+list\_A&:=&nil:list\_A | cons:A->list\_A->list\_A\\
+tree&:=&leaf:nat->tree | branch:tree->tree->tree\\
+A$\times$B&:=&pair:A->B->A$\times$B\\[.3em]
+\hline \etab}\ectr These definitions
+should be read as follows. The only elements of \cour{bool} are
+\cour{true, false}. The elements of \cour{nat} are freely generated
+from \cour{0} and the unary `constructor' \cour{S}, obtaining
+$\cour{0,S(0),S(S(0)),\ldots\;}.$ One writes for elements of
+\cour{nat} 1=\cour{S(0)}, 2=\cour{S(1)}, $\ldots\;$. A typical element
+of \cour{list\_nat} is
+$$\lr{1,0,2}=\cour{cons(1,cons(0,cons(2,nil)))}.$$ A typical tree is
+$$\cour{branch(leaf(1),branch(leaf(0),leaf(2)))}=\flip{\xymatrix@dr{
+{\bullet}\ar@{-}[r]\ar@{-}[d]&{\bullet}\ar@{-}[r]\ar@{-}[d]&{2}\\
+1&0}}$$ A typical element of $\cour{A\times B}$ is $\lr{\tt
+a,b}=$\cour{pair(a,b)}, where \cour{a:A, b:B}.  Given types
+$\cour{A,B}$, one may form the `function-space' type \cour{A->B}.
+There is the primitive operation of application: if $\cour{f:\mbox{\tt
+A->}B}$ and $\cour{a:A}$, then $\cour{f(a):B}$. Conversely there is
+abstraction: if $\cour{M:B}$ `depends on' an $\cour{a:A}$ (like
+$\cour{a^2+a+1}$ depends on $\cour{a:nat}$) one may form the function
+\cour{f:=(a}$\mapsto$\cour{M):(A->B)}. This function is denoted by
+$\l\cour{a:A.M}$ (function abstraction). For example this can be used
+to define composition: if ${\tt f:A\mbox{\tt ->}B, g:B\mbox{\tt ->}C}$, 
+then ${\tt g\circ f:=\l a\:A.g(f(a)):A\mbox{\tt ->}C}$.
+Next to the formation of function space types there is the
+\emph{dependent cartesian product}. If ${\tt B}$ is a type that depends on
+an $\cour{a:A}$, then one may form $\cour{\Pi a\:A.B}$. One has (here
+$\cour{B[a:=t]}$ denotes the result of substitution of $\cour{t}$ in
+$\cour{B}$ for $\cour{a}$)
+$$\cour{f:(\Pi a\:A.B),\;t:A\imp f(t):B[a:=t]}.$$ A typical example is
+$\cour{B=A^n}$ for $\cour{n\:{\tt nat}}$. If $\cour{f\:(\Pi
+n\:\cour{nat}.A^n)}$, then $\cour{f(2n):A^{2n}}$. Type theories are
+particularly convenient to express intuitionistic mathematics. Type
+theories differ as to what dependent cartesian products and what
+inductive types are allowed, whether or not they are
+predicative\footnote{In predicative sytems a subset of an infinite set
+$X$ can only be defined if one does not refer to the class of all
+subsets of $X$. For example $\set{n\in\nat\mid n\mbox{ is even}}$ is
+allowed, but not $$\set{n\in\nat\mid\forall X\sbs\nat. P(X,n)}.$$}, have
+`powersets', the axiom of choice.  See \xcite{mart84}{Martin-L{\"o}f
+[1984]}, \xcite{aczerath01}{Aczel and Rathjen [2001]},
+\xcite{baregeuv01}{Barendregt and Geuvers [2001]} and
+\xcite{moerpalm02}{Moerdijk and Palmgren [2002]}.  In
+\xcite{fefe98}{Feferman [1998]}, Ch.\ 14, a type-free system (which
+can be seen as a system as a type system with just one type) is
+presented for predicative mathematics.
+
+\subsection*{Computability}
+\noi Mathematical algorithms are much older than mathematical proofs.
+They have been introduced in Egyptian-Babylonian-Chinese mathematics a
+long time before the notion of proofs. In spite of that, reflection
+over the notion of computability through algorithms has appeared much
+later, only about 80 years ago. The necessity came when Hilbert
+announced in 1900 his famous list of open problems. His 10-th problem
+was the following.\dwn ``\emph{Given a Diophantine equation with any
+number of unknown quantities and with rational integral numerical
+coefficients: to devise a process according to which it can be
+determined by a finite number of operations whether the equation is
+solvable in rational integers\footnote{By `rational integers' Hilbert
+just meant the set of integers ${\mathbb Z}$. This problem is
+equivalent to the problem over $\nat$. The solvability of Diophantine
+equations over ${\mathbb Q}$ is still open.}.}''\dwn By a number a
+steps over a time interval of nearly 50 years, the final one by
+Matijasevic using the Fibonacci numbers, this problem was shown to be
+undecidable, see \xcite{davi73}{Davis [1973]}. In order to be able to
+state such a result one needed to reflect over the notion of
+algorithmic computability.
+
+Steps towards the formalisation of the notion of computability were
+done by Skolem, Hilbert, G\"odel, Church and Turing.  At first
+\xcite{hilb26}{Hilbert [1926]} (based on work by Grassmann, Dedekind,
+Peano and Skolem) introduced the primitive recursive functions over
+$\nat$ by the following
+schemata\addtocounter{footnote}{1}\footnotemark{}.\\ \bfig
+$$\bar{|rcl|}
+\hline
+Z(x)&=&0;\\ S(x)&=&x+1;\\
+P^n_k(x_1,\ldots,x_n)&=&x_k;\\ f(\vec{x},0)&=&g(\vec{x});\\
+f(\vec{x},y+1)&=&h(\vec{x},y,f(\vec{x},y)).\\
+\hline
+\ear$$\\[-.7em]
+\figcaption{The primitive recursive functions}\label{fig:non:float}
+\efig\\[1em]
+\footnotetext{This definition scheme was generalised by
+\xcite{scot70}{Scott [1970]} to inductive types.
+For example over the binary trees introduced above one can define a
+primitive recursive function mirror as follows.
+$$\bar{rcl} \cour{mirror}(\cour{leaf}(n)) &=& \cour{leaf}(n)\\
+\cour{mirror(branch}(t_1,t_2)) &=&
+\cour{branch}(\cour{mirror}(t_2),\cour{mirror}(t_1)) \ear$$ It mirrors
+the tree displayed above.}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+It was shown by \xcite{suda27}{Sudan [1927]} and
+\xcite{acke28}{Ackermann [1928]} that not all computable functions
+were primitive recursive. Then G\"odel (based on a suggestion of
+Herbrand) introduced the notion of totally defined computable
+functions\footnote{Previously called \emph{(total) recursive
+functions}.}, based on what is called nowadays \emph{Term Rewrite
+Systems}, see \xcite{klop03}{Terese [2003]}. This class of total
+computable functions can also be obtained by adding to the primitive
+recursive schemata the scheme of minimalisation (`$\mu y\ldots$'
+stands for `the least $y$ such that $\ldots$), \xcite{klee36}{Kleene
+[1936]}.
+$$\framebox{$f(\vec{x})\;=\;\mu y.[g(\vec{x},y)=0],\; \text{ provided
+that }\;\forall\vec{x}\exists y.g(\vec{x},y)=0.$}$$ Finally it was
+realised that it is more natural to formalise computable partial
+functions. This was done by \xcite{chur36}{Church [1936]} using lambda
+calculus, and \xcite{turi36}{Turing [1936]} using what are now called
+Turing machines. The formalised computational models of Turing and
+Church later gave rise to the so-called imperative and functional
+programming styles. The first is more easy to be implemented, the
+second more easy to use and to show the correctness of the programs.
+
+Both the computational models of Church and Turing have a description
+about as simple as that of the first-order predicate calculus. More
+simple is the computational model given in
+\xcite{scho24}{Sch\"onfinkel [1924]} that is also capturing all
+partial computable functions. It is a very simple example of a Term
+Rewrite System.
+
+\medskip$\hspace{-10pt}$\bfig
+$\bar{|lcl|} \hline 
+\Scomb x y
+z&=&xz(yz)\hoog{1.2em}\\ 
+\K xy&=&x\\[.2em] \hline \ear$ \figcaption{\comb{CL} Combinatory Logic}
+\efig$\hspace{-10pt}$\medskip
+
+\noi The system is based on terms built up from the constants $\K,\Scomb$
+under a binary operation (application). Various forms of data (natural
+numbers, trees, etcetera) can be represented as $\K,\Scomb$
+expressions. Operations on this represented data can be performed by
+other such expressions.
+
+\subsection*{The Compactness of the Foundations}
+The study of the foundations of mathematics has achieved the
+following. The triple activity of defining, computing and reasoning
+can be described in each case by a small set of rules. This implies
+that it is decidable whether a (formalised) putative proof $p$ (from a
+certain mathematical context) is indeed a proof of a given statement
+$A$ (in that context). This is the basis of the technology of Computer
+Mathematics.  For more on the relation between the foundational studies
+and Computer Mathematics, see \xcite{bare05}{Barendregt [2005]}.
+ 
+
+\section{Computer Mathematics}
+In systems for Computer Algebra one can deal with mathematical objects
+like $\sqrt{2}$ with full precision. The idea is that this number is
+represented as a symbol, say $\alpha$, and that with this symbol one
+computes symbolically. One has $\alpha^2-2=0$ but $\alpha+1$ cannot be
+simplified. This can be done, since the computational rules for
+$\sqrt{2}$ are known. In a vague sense $\sqrt{2}$ is a `computable
+object'. There are many other computable objects like expressions
+dealing with transcendental functions ($e^x, \log x$) and integration
+and differentiation.
+
+In systems for Computer Mathematics, also called Mathematical
+Assistants, one can even represent non-computable objects. For example
+the set $S$ of parameters for which a Diophantine equation is
+solvable. Also these can be represented on a computer. Again the
+non-computable object is represented by a symbol. This time one cannot
+simply compute whether a given number, say 7, belongs to
+$S$. Nevertheless one can state that it does and in some cases one may
+prove this. If one provides a proof of this fact, then that proof can
+be checked and one can add $7\in S$ to the database of known results
+and use it in subsequent reasoning. In short, although provability is
+undecidable, being a proof of a given statement is decidable and this
+is the basis of systems for Computer Mathematics. It has been the
+basis for informal mathematics as well.
+
+One may wonder whether proofs verified by a computer are at all
+reliable. Indeed, many computer programs are faulty. It was emphasised
+by de Bruijn that in case of verification of formal proofs, there is
+an essential gain in reliability. Indeed a verifying program only
+needs to see whether in the putative proof the small number of logical
+rules are always observed. Although the proof may have the size of
+several Megabytes, the verifying program can be small. This program
+then can be inspected in the usual way by a mathematician or
+logician. If someone does not believe the statement that a proof has
+been verified, one can do independent checking by a trusted
+proof-checking program.  In order to do this one does need formal
+proofs of the statements. A Mathematical Assistant satisfying the
+possibility of independent checking by a small program is said to
+satisfy the \emph{de Bruijn} criterion.
+
+Of particular interest are proofs that essentially contain
+computations. This happens on all levels of complexity. In order to
+show that a linear transformation $A$ on a finite dimensional vector
+space has a real eigenvalue one computes
+$$\det(A-\l I)=p(\l)$$ and determines whether $p(\l)$ has a real
+root. In order to show that a polynomial function F vanishes
+identically on some variety V, one computes a Groebner basis to
+determine whether F is contained in the ideal generated by the
+equations defining V, see \xcite{buchwink98}{Buchberger and Winkler
+[1998]}.
+
+Although it is shown that provability in general is undecidable, for
+interesting particular cases the provability of statements may be
+reduced to computing. These form the decidable cases of the decision
+problem.  This will help Computer Mathematics considerably.
+\xcite{tars51}{Tarski [1951]} showed that the theory of real closed
+fields (and hence elementary geometry) is decidable. An essential
+improvement was given by \xcite{coll75}{Collins [1975]}. In
+\xcite{buch65}{Buchberger [1965]} a method to decide membership of
+finitely generated ideals in certain polynomial rings was
+developed. For polynomials over $\real$ this can be done also by the
+Tarski-Collins method, but much less efficiently so. Moreover,
+`Buchberger's algorithm' was optimised by
+e.g. \xcite{bachganz94}{Bachmair and Ganzinger [1994]}.
+
+In order to show that the Four Colour Theorem holds one checks 633
+configurations are `reducible', involving millions of cases, see
+\xcite{seym96}{Robertson et al.~[1996]}.  How can such computations be
+verified?  All these cases can be stylistically rendered as $f(a)=b$
+that needs to be verified. In order to do this one first needs to
+represent $f$ in the formal system. One way to do this is to introduce
+a predicate $P_f(x,y)$ such that for all $a,b$ (say natural numbers)
+one has
+$$f(a)=b\iff\;\pr P_f(\ul{a},\ul{b}).$$ Here `$\pr$' stands for
+provability. If e.g.\ $a=2$, then $\ul{a}=S(S(0))$, a representation
+of the object 2 in the formal system\footnote{For substantial
+computations one needs to introduce decimal (or binary) notation for
+numbers and prove that the operations on them are correctly
+defined. In the history of mathematics it was
+al-Khow\^arizm\^{\dotlessi} (780-850) who did not introduce algorithms
+as the name suggests, but proved that the well-known basic operations
+on the decimal numbers are correctly taught.}. In these languages
+algorithms are represented as so called `logical programs', as
+happened also in \xcite{goed31}{G\"odel [1931]}. In other formal
+theories, notably those based on type theory, the language itself
+contains expressions for functions and the representing predicate has
+a particularly natural form
+$$P_f(x,y)\;\;:=\;\;(F(x)=y).$$ This is the representation of the
+algorithm in the style of functional programming. Of course this all
+is not enough. One also needs to prove that the computation is
+relevant. For example in the case of linear transformations one needs
+a formal proof of
+$$P_f(\ul{A},\ul{0})\;\leftrightarrow\;A\text{ has an eigenvalue.}$$
+But once this proof is given and verified one only needs to check instances
+of $P_f(\ul{a},\ul{b})$ for establishing $f(a)=b$. 
+
+There are two ways of doing this. In the first one the computation
+trace is produced and annotated by steps in the logical program $P_f$
+(respectively functional program $F$). This produces a very long proof
+(in the order of the length of computation of $f(a)=b$) that can be
+verified step by step. Since the resulting proofs become long, they
+are usually not stored, but only the local steps to be verified (`Does
+this follow from that and that?').  One therefore can refer to these
+as \emph{ephemeral proofs}.
+
+On the other hand there are systems in which proofs are fully stored
+for later use (like extraction of programs from them). These may be
+called \emph{petrified proofs}. In systems with such proofs one often
+has adopted the Poincar\'e Principle. This principle states that for a
+certain class of equations $t=s$ no proofs are needed, provided that
+their validity can be checked by an algorithm. This puts somewhat of a
+strain on the de Bruijn criterion requiring that the verifying program
+be simple. But since the basic steps in a universal computational
+model are simple, this is justifiable.
+
+\section{The Nature of the Challenge}
+\subsection*{State of the Art: Effort and Space}
+Currently there are not many people who formalise mathematics with the
+computer, but that does not mean that the field of Computer
+Mathematics is not yet mature. The full formalisation of all of
+undergraduate university mathematics is within reach of current
+technology.  Formalising on that level will be labour-intensive, but
+it will not need any advances in proof assistant technology.
+
+To give an indication of how much work is needed for formalisation, we
+estimate that it takes approximately \emph{one work-week} (five
+work-days of eight work-hours) to formalise one page from an
+undergraduate mathematics textbook.  This measure for some people is
+surprisingly low, while for others it is surprisingly high.  Some
+people think it is impossible to formalise a non-trivial theorem in
+full detail all the way down to the axioms, and this measure shows
+that they are wrong.  On the other hand it takes much longer to
+formalise a proof than it takes to write a good informal version of it
+(this takes about half a workday per page: which is a factor of ten
+smaller).
+
+One can also compare the formal version of a mathematical proof with
+the corresponding informal---`traditional'---way of presenting that
+proof.  We investigated in \xcite{wied00}{Wiedijk [2000]} that a file
+containing a full formalisation of a mathematical theory is
+approximately \emph{four} times as long as the {\LaTeX} source of the
+informal presentation.  We call this factor the \emph{de Bruijn
+factor}, as de Bruijn claimed that this ratio is a constant, which
+does not change when one proceeds in formalising a mathematical
+theory. Some researchers actually believe that the factor decreases as
+the theory grows.
+
+\subsection*{State of the Art: Systems}
+In Fig.\  \ref{systems1} some contemporary systems for Computer
+Mathematics that are especially suited for the formalisation of
+mathematical proof are presented.
+On the left in this diagram there
+are the four `prehistoric' systems that started the subject in the
+early seventies (three of those systems are no longer actively being
+used and have their names in parentheses).  These systems differed in
+the amount of automated help that they gave to their users when doing
+proofs.  At one extreme there was the Automath system of de Bruijn,
+that had no automation whatsoever: all the details of the proofs had
+to be provided by the user of the system himself (it is surprising how
+far one still can get in such a system).  At the other extreme there
+was the nqthm system---also known as the Boyer-Moore prover---which
+fully automatically tries to prove the lemmas that the user of the
+system puts to it.  In between these two extremes there was the LCF
+system, which implemented an interesting compromise.  The user of this
+system was in control of the proof, but could make use of the
+automation of so-called
+\emph{tactics} which tried to do part of the proof automatically.  As
+will be apparent from this diagram the LCF system was quite
+influential.
+\bfig%egin{figure}
+$${\xymatrix{\txt{{Mizar} \\ 1973}\ar[rrrd]\ar@{.}[rrrr] &&&&
+\txt{\rlap{\emph{most mathematical}}} \\
+\txt{(LCF) \\ 1972}
+\ar[rr]\ar[rrd]\ar@/_1.8pc/[rrrdd] && \txt{{HOL}}\ar[r] & 
+\txt{Isabelle}\ar@{.}[r] & \txt{\rlap{\emph{most pure}}} \\
+\txt{(Automath) \\ 1968}\ar[rr] && \txt{Coq \\ NuPRL}\ar@{.}[rr] 
+&& \txt{\rlap{\emph{most logical}}} \\
+&&& \txt{PVS}\ar@{.}[r] & \txt{\rlap{\emph{most popular}}} \\
+\txt{(nqthm) \\ 1971}\ar[rr]\ar@/^.5pc/[rrru] && \txt{ACL2}\ar@{.}[rr] 
+&& \txt{\rlap{\emph{most computational}}}}\hspace{8em}
+}\medskip$$
+\efig%nd{figure}
+\figcaption{Some systems for Computer Mathematics}\label{systems1}
+%\vspace{-.85em}
+\noindent The seven systems in this diagram are those contemporary
+Proof Assistants in which a significant body of mathematics has been
+formalised.  To give some impression of the `flavour' of those systems
+we have put a superficial characterisation in the right margin.  See
+\url{<http://www.cs.ru.nl/~freek/digimath/>} for the web-addresses
+with information on these systems. The ontologies on which these
+systems are based are stated in Fig.\ \ref{ontologies}.  All of these
+systems (with the exception of Automath and Mizar) were primarily
+motivated by computer science applications.  Being able to prove
+algorithms and systems correct is at the moment the main driving force
+for the development of Proof Assistants.  This is an extremely
+exciting area of research.  Currently, people who have experience with
+programming claim to `know' that serious programs without bugs are
+impossible.  However, we think that eventually the technology of
+Computer Mathematics will evolve into a methodology that will change
+this perception.  Then a bug free program will be as normal as a `bug
+free' formalised proof is for us who do formal mathematics.
+\begin{center}
+\btab{|l|l|}
+\hline
+Systems&Basis\\
+\hline
+Mizar&Set Theory\\
+Coq, NuPRL&Intuitionistic Type Theory\\
+HOL, Isabelle&Higher Order Logic\\
+PVS&Higher Order Logic with predicate subtypes\\
+ACL2&Primitive Recursive Arithmetic\\
+\hline
+\etab
+\end{center}\vspace{-.6em}
+\figcaption{Foundational bases for Systems of Computer
+Mathematics}\label{ontologies}
+\noindent
+
+When one starts applying the technique to mathematics, one may be
+struck when finishing a formalisation. Usually one needs to go over a
+proof when it is finished, to make sure one really has understood
+everything and made no mistakes.  But with a formalisation that phase
+is not needed anymore.  One can even finish a proof before one has
+fully understood it! The feeling in that case is not unlike trying to take
+another step on a staircase which turns out not to be there.
+
+On the other hand when one returns from formalisation to `normal'
+programming, it feels as if a safety net has been removed.  One can
+then write down incorrect things again, without it being noticed by
+the system!
+
+\begin{center}
+\bfig \btab{|l|l|} \hline Theorem & System \\ \hline Hahn-Banach
+Theorem & Mizar, ALF\footnotemark\addtocounter{footnote}{-1}, Isabelle
+\\ Law of Quadratic Reciprocity & nqthm, Isabelle \\ G\"odel's First
+Incompleteness Theorem & nqthm, Coq \\ Correctness of Buchberger's
+Algorithm & ACL2, Agda\footnotemark\addtocounter{footnote}{-1}, Coq \\
+Fundamental Theorem of Galois theory & Lego\footnotemark \\
+Fundamental Theorem of Calculus & \emph{many systems} \\ Fundamental
+Theorem of Algebra & Mizar, HOL, Coq \\ Bertrand's Postulate & HOL,
+Coq \\ Prime Number Theorem & Isabelle \\ Four Colour Theorem & Coq \\
+Jordan Curve Theorem & HOL \\ \emph{Textbook on Continuous Lattices} &
+Mizar \\ \hline \etab \figcaption{Formalised mathematics}\label{last}
+\efig
+\end{center}
+\footnotetext{The ALF and Lego systems are Proof Assistants 
+from the Automath/Coq/NuPRL tradition that are no longer in use.  Agda
+is the successor of ALF: it is related to Automath but not to LCF.}
+
+\noindent A currently less successful application of Proof Assistants,
+but one which in the long run will turn out to be even more important
+than verification in computer science, is the application of Proof
+Assistants to mathematics.  The QED manifesto, see
+\xcite{boye94}{Boyer et al.~[1994]}, gives a lucid description of how
+this might develop.  We believe that when later generations look back
+at the development of mathematics one will recognise four important
+steps: (1) the Egyptian-Babylonian-Chinese phase, in which correct
+computations were made, without proofs; (2) the ancient Greeks with
+the development of `proof'; (3) the end of the nineteenth century when
+mathematics became `rigorous'; (4) the present, when mathematics
+(supported by computer) finally becomes fully precise and fully
+transparent.
+
+To show what current technology is able to do, we list some theorems
+that have been formalised already in Fig.\ \ref{last}.
+Clearly the
+technology has not yet reached `the research frontier', but the
+theorems that can be formalised are not exactly trivial either.
+
+The formalisations that are listed in this table are much like
+computer programs.
+To give an indication of the size of these formalisations: the
+Isabelle formalisation of the Prime Number Theorem by Avigad and
+others consists of 44 files that together take 998 kilobytes
+in almost thirty thousand lines of `code'.
+
+\subsection*{What is needed?}
+Today no mathematician uses a Proof Assistant for checking or
+developing new work. We believe that in the coming decennia this will
+change (although we do not know exactly how long it will take). We now
+will list some properties that a system for Computer Mathematics
+should have before this will happen.
+
+\subsubsection*{Mathematical style}
+
+In the current proof assistants the mathematics does not resemble
+traditional mathematics very much.
+This holds both for the statements as well as for the proofs.
+As an example consider the following statement:
+
+$$\lim_{x\to x_0} f(x) + g(x) = 
+\lim_{x\to x_0} f(x) + \lim_{x\to x_0} g(x)$$
+
+\noindent
+In the HOL system this statement is called \verb|LIM_ADD|, and there
+it reads\footnote{Here `\cour{!}' stands for `$\forall$' and
+`\cour{\char`\\}' stands for `$\lambda$'.}
+
+\begin{quote}
+\def\\{\char`\\}
+\begin{alltt}
+!f g l m. (f --> l)(x0) /\\ (g --> m)(x0) ==>
+   ((\\x. f(x) + g(x)) --> (l + m))(x0)
+\end{alltt}
+\end{quote}
+
+\noindent
+This does not match the {\LaTeX} version of the statement.  (The
+technical reason for this is that as HOL does not support partial
+functions, the limit operator is represented as a relation instead of
+as a function.)
+
+In the Mizar library the statement is called \verb|LIMFUNC3:37|,
+and there it reads
+(where for clarity we replaced the condition of the statement, which
+states that the limits actually exist, by an ellipsis):
+
+\if 0
+f is_convergent_in x0 & g is_convergent_in x0 &
+(for r1, r2 st r1 < x0 & x0 < r2 ex s1, s2 st
+  r1 < s1 & s1 < x0 & s1 in dom(f + g) &
+  s2 < r2 & x0 < s2 & s2 in dom(f + g)) implies
+f + g is_convergent_in x0 &
+lim(f + g, x0) = lim(f, x0) + lim(g, x0)
+\fi
+
+\begin{quote}
+\def\xdots{\textrm{\dots}}
+%\xdots implies \xdots &
+\begin{alltt}
+\xdots implies
+lim(f + g, x0) = lim(f, x0) + lim(g, x0)
+\end{alltt}
+\end{quote}
+
+\noindent
+Again this does not resemble the informal version of the statement.
+(Here the reason is that Mizar does not support binders,
+and therefore the limit operator cannot bind the limit variable.
+Therefore the functions $f$ and $g$ have to be added instead of
+the function values $f(x)$ and $g(x)$.)
+
+Clearly unless a system can accept this statement written similar to
+
+\begin{quote}
+\def\\{\char`\\}
+\def\xdots{\textrm{\dots}}
+\def\ydots{\strut\phantom{\textrm{\dots}}}
+\begin{alltt}
+\xdots ==> lim(x->x0, f(x) + g(x)) =
+\ydots     lim(x->x0, f(x)) + lim(x->x0, g(x))
+\end{alltt}
+\end{quote}
+
+\noindent
+mathematicians will not be very much inclined to use it\footnote{
+Structurally this last version is what one would like to write,
+but typographically it still is not ideal.
+Perhaps it will be
+one day be possible to use the mathematical style that opens this section --
+or, at least, the {\LaTeX} source for it.}.
+
+While in most current systems the statements themselves do not look
+much like their informal counterparts, for the proofs it is even
+worse. The main exceptions to this are the Mizar language, and the
+Isar language for the Isabelle system.  We call these two proof
+languages \emph{mathematical modes}. As an example, the following is
+what a proof looks like in the actual Coq system\footnote{
+In this proof `\texttt{limit\char`\_in1 f D l x0}' is the Coq notation for
+$\lim_{x \to x_0} f(x) = l$ where $x$ ranges over the set
+$D \subseteq {\mathbb R}$.}.
+
+\begingroup
+\small
+\def\toolong{$\hspace{-20pt}$}
+\begin{alltt}
+Lemma limit_plus :
+ forall (f g:R -> R) (D:R -> Prop) (l l' x0:R),
+   limit1_in f D l x0 ->
+   limit1_in g D l' x0 -> limit1_in (fun x:R => f x + g x) D (l + l') x0.
+Proof.
+intros; unfold limit1_in; unfold limit_in; simpl;
+ intros; elim (H (eps * / 2) (eps2_Rgt_R0 eps H1));
+ elim (H0 (eps * / 2) (eps2_Rgt_R0 eps H1)); simpl; 
+ clear H H0; intros; elim H; elim H0; clear H H0; intros;
+ split with (Rmin x1 x); split.
+exact (Rmin_Rgt_r x1 x 0 (conj H H2)).
+intros; elim H4; clear H4; intros;
+ cut (R_dist (f x2) l + R_dist (g x2) l' < eps).
+ cut (R_dist (f x2 + g x2) (l + l') <= R_dist (f x2) l + R_dist (g x2) l').
+exact (Rle_lt_trans _ _ _).
+exact (R_dist_plus _ _ _ _).
+elim (Rmin_Rgt_l x1 x (R_dist x2 x0) H5); clear H5; intros.
+generalize (H3 x2 (conj H4 H6)); generalize (H0 x2 (conj H4 H5)); intros;
+ replace eps with (eps * / 2 + eps * / 2).
+exact (Rplus_lt_compat _ _ _ _ H7 H8).
+exact (eps2 eps).
+Qed.
+\end{alltt}
+\endgroup
+
+\noindent
+Not even a Coq specialist will be able to understand what is going on
+in this proof without studying it closely with the aid of a computer.
+It will be clear why we think that having a mathematical mode is essential
+for a system to be attractive to working mathematicians.
+
+As an example of what a mathematical mode looks like, in Fig.\
+\ref{mathmode} there is the Coq proof rephrased using the Mizar proof
+language\footnote{ Actually, this is a mixture of Mizar and Coq.  The
+proof language is Mizar, but the statements are written in Coq syntax.
+We do this to be able to follow the Coq script very closely.}.
+
+\bfig
+\begingroup
+\small
+\def\toolong{$\hspace{-30pt}$}
+\def\\{\char`\\}
+\begin{alltt}
+\medskip
+proof
+  let f,g be R -> R and D be R -> Prop and l,l',x0 be R such that
+A1: limit1_in f D l x0 and
+A2: limit1_in g D l' x0;
+  now let eps be R such that
+A3:   eps > 0;
+    consider del being R such that
+A4:   del > 0 and
+A5:   forall x : R, D x /\\ R_dist x x0 < del -> R_dist (f x) l < eps * / 2
+        by A1,A3;
+    consider del' being R such that
+A6:   del' > 0 and
+A7:   forall x : R, D x /\\ R_dist x x0 < del' -> R_dist (g x) l' < eps * / 2\toolong
+        by A2,A3;
+    take del'' = Rmin del del';
+    thus del'' > 0 by Rmin_Rgt_r,A4,A6;
+    let x be R;
+    assume that
+A8:   D x and
+A9:   R_dist x x0 < del'';
+    thus R_dist (f x + g x) (l + l') < eps
+    proof
+A10:   R_dist (f x + g x) (l + l') <= R_dist (f x) l + R_dist (g x) l'
+        by R_dist_plus;
+A11:  del > R_dist x x0 by Rmin_Rgt_l,A9;
+A12:  del' > R_dist x x0 by Rmin_Rgt_l,A9;
+A13:  R_dist (f x) l < eps * / 2 by A5,A8,A11;
+A14:  R_dist (g x) l' < eps * / 2 by A7,A8,A12;
+      R_dist (f x) l + R_dist (g x) l' < eps * / 2 + eps * / 2
+        by Rplus_lt_compat,A13,A14;
+      then R_dist (f x) l + R_dist (g x) l' < eps by eps2;
+      hence thesis by Rle_lt_trans,A10;
+    end;
+  end;
+  then limit_in R_met R_met (fun x : R => f x + g x) D x (l + l');
+  hence limit1_in (fun x:R => f x + g x) D (l + l') x0;
+end;
+\end{alltt}
+\endgroup
+\efig$\hspace{-15pt}$
+\figcaption{A proof in \emph{mathematical mode}}\label{mathmode}
+%\endgroup
+
+\subsubsection*{Library}
+
+The most important part of a proof assistant is its library of
+pre-proved lemmas.
+If one looks which systems are useful for doing formal mathematics,
+then those are exactly the systems with a good library.
+Using an average system with a good library is painful but doable.
+Using an excellent system without a library is not.
+The bigger the library, the more mathematics one can deal with
+in a reasonable time.
+
+As an example, in Nijmegen we formalised a proof of the Fundamental
+Theorem of Algebra (see \xcite{geuvwiedzwan00}{Geuvers et al.~[2001]})
+and it took a team of three people two years.  At
+the same time Harrison formalised the same theorem all by himself (as
+described in \xcite{harr01}{Harrison [2001]}) and
+it only took him a few days.  The main difference which explains this
+huge difference in effort needed, is that he already had an extensive
+library while in Nijmegen we had not\footnote{%
+Another difference
+was that in Nijmegen we formalised an intuitionistic proof, while
+Harrison formalised a classical proof.  But when analysing the
+formalisations, it turned out that this was \emph{not} the main reason
+for the difference in work needed.}.
+
+
+\subsubsection*{Decision procedures}
+
+One might imagine that the computer can help mathematicians find
+proofs.  However \emph{automated theorem proving} is surprisingly weak
+when it comes to finding proofs that are interesting to human
+mathematics.  Worse, if one takes an existing informal textbook proof,
+and considers the gaps between the steps in that proof as `proof
+obligations', then a general purpose theorem prover often will not
+even be able to find proofs for those. For this reason Shankar, whose
+group is developing PVS, emphasised that rather than the use of
+general automated theorem provers the \emph{decision procedures},
+which can only solve one very specific task, are important as they
+will always be able to solve problems in a short time. In fact Shankar
+claims that the big success of PVS is mainly due to the fact that it
+has the best decision procedures of all the systems, and combines
+those well.
+
+Our view on automating Computer Mathematics is that a proof is
+something like an iceberg.  When considering all details of the proof,
+a human mathematician will not even be consciously aware of the
+majority of those, just like an iceberg is 90\% under water.  What is
+written in papers and communicated in lectures is only the 10\% of the
+proof (or even less) which is present in the consciousness of the
+mathematician.  We think that the automation of a system for Computer
+Mathematics should provide exactly those unconscious steps in the
+proof.  (There is a risk of having the computer provide too many steps
+so that we will not understand anymore what it is doing, and then we
+will not be able to guide the proof any longer.)
+
+One should make a distinction between unconscious steps and decidable
+ones.  Some unconscious steps may be guided in undecidable areas by
+heuristic tactics.  Also, some decision procedures have horrendous
+complexity, so it is not necessarily the case that they will `solve
+problems in a short time'.  However, the point we are making here is
+that the main function of automation in proof assistants should be
+taking care of unconscious steps, and that decision procedures are an
+important part of that.
+
+\subsubsection*{Support for reasoning with gaps}
+The manner in which proof assistants are generally being used today is
+that the whole formalisation is completed all the way to the axioms of
+the system.  This is for a good reason: it turns out that it is very
+difficult to write down fully correct formal statements without having
+the computer help `debug' the statements by requiring to
+formalise the proofs.  If one starts a formalisation by first writing
+down a global sketch of a theory, then when filling in the actual
+formal proofs, it often turns out that some of those statements are
+not provable after all!
+
+However, if one just wants to use a Proof Assistant to order one's
+thoughts, or to communicate something to another mathematician,
+then fully working out all proofs is just not practical.
+In that case one would like to just give a \emph{sketch} of the proof
+inside the formal system, as described in \xcite{wied04}{Wiedijk [2004]}.
+Related to this is the technique called
+\emph{proof planning}, see for instance \xcite{bund91}{Bundy [1991]}.
+Still, the current Proof Assistants do not support this way of
+working very well.
+
+In \xcite{lamp95}{Lamport [1995]} a proof style is described in which
+proofs are incrementally developed by \emph{refining} steps in the
+proof into more detailed steps.  Although that paper does not talk
+about proofs in the computer, and although we are not sure that the
+specific proof display format that is advocated in that paper is
+optimal, it is clear that this \emph{style of working} should be
+supported by systems for Computer Mathematics, if they are to be
+acceptable to mathematicians.
+%%%%%%%%%%%%%(Aczel also has strongly stressed this point.)
+
+\section{Romantic vs. Cool Mathematics}
+\weglaten{The work of \xcite{goed31}{G\"odel [1931]} shows that the
+set of provable statements in Arithmetic is essentially incomplete
+(for some statement $G$ nether $\pr G$ nor $\pr \neg G$, unless
+arithmetic is inconsistent). The work of \xcite{turi36}{Turing [1936]}
+shows that the set of provable statements of arithmetic is undecidable
+(if arithmetic is consistent). Although it seems that these results
+imply that Computer Mathematics is impossible, quite the contrary is
+true. The methods behind both results are essential for this
+endeavour. Central in G\"odel's result is the fact that proof-checking
+is decidable: given a (formalised) proof $p$ of a statement $A$, it
+can be checked whether $p$ is indeed a proof of $A$. As stated before,
+this is the basis of Computer Mathematics.  As it is important to
+incorporate computations in proofs, Turing's convincing description of
+a universal computational model is crucial as well. G\"odel's
+incompleteness results show the limitations of the axiomatic method
+and apply to informal mathematics as well. But the axiomatic method is
+the best we have and in spite of the limitations quite
+impressive. Turing's result shows that the old ideal of Leibniz to
+settle all (mathematical) questions to computing does not work. This
+makes the mathematical enterprise quite interesting and moreover, for
+important classes of problems decision methods do exists. (Tarski,
+Buchberger)
+
+That mathematical provability is undecidable means that there is no
+machine that decides whether a statement $A$ is provable from an axiom
+system $\G$, given $\G$ and $A$ as input. It is nevertheless
+semi-decidable whether a statement is provable. This means that if the
+statement is provable, the machine will confirm this and provide a
+proof; if not the machine will run forever. In the Artificial
+Intelligence community various strategies are used to perform such
+searches. This automated deduction is good enough to derive theorems
+of first order predicate logic needed in mathematical proofs [ ]. This
+does not imply that it is easy to formalise known mathematics. The
+difficulty is that for a statement $A$, that in principle can be
+derived (from the axioms) by first-order logic, this derivation is
+only possible if the definitions in $A$ are sufficiently
+`unfolded'. If all these definitions are unfolded, then an exponential
+explosion occurs; if not enough definitions are unfolded, then the
+statement is not provable.}
+
+After the initial proposals of the possibility of computer mathematics
+many mathematicians protested on emotional grounds. ``Proofs should be
+survey-able in our mind'', was and still is an often heard objection.
+We call this the \emph{romantic} attitude towards mathematics. There
+is another style, \emph{cool} mathematics, that is, verified by a
+computer. The situation may be compared to that in biology. In
+romantic biology, based on the human eye, one is concerned with
+flowers and butterflies. In cool biology, based on the microscope, an
+extension of our eyes, one is concerned with cells. There is even
+\emph{super-cool} molecular biology, based on electron microscopes.
+By now we know very well that these latter forms of biology are vital
+and essential and have a romanticism of their own. Similarly, we
+expect that cool proofs in mathematics will eventually lead to
+romantic proofs based on these. In comparison with biology there is
+also super-cool mathematics, checked by a computer, with a program
+this time not checked by the human mind, but checked by a computer in
+the cool way. This kind of \emph{boot-strap} has been used for a
+compiled (hence faster) version of Coq, see \xcite{barr96}{Barras
+[1996]} and \xcite{barr99}{Barras [1999]}.
+
+A fully formalised proof in Coq of the Four Colour Theorem has been
+verified, see \xcite{gont04}{Gonthier [2004]}. Moreover a full proof
+in HOL of the Jordan Curve Theorem has been produced by Tom Hales as
+part of his work towards a full formalisation of his proof of the
+Kepler conjecture. Both informal proofs need a long computer
+verification.  These kinds of theorems with a long proof seem
+exceptional, but they are not. From the undecidability of provability
+it follows trivially that there will be relatively short statements
+with arbitrarily long proofs\footnote{Indeed if every theorem of
+length $n$ would have a proof of length $2^{2^n}$, then theorem-hood
+would be decidable by checking all the possible candidate proofs.}.
+
+We foresee that in the future \emph{cool} proofs will have
+\emph{romantic} consequences and moreover that Computer Mathematics
+will have viable applications. \ifbibtex \bibliography{BB} \else
+
+\let\theiritem=\item
+\def\harvarditemx#1#2#3{\theiritem}
+\def\harvarditemy[#1]#2#3#4{\theiritem}
+\makeatletter
+\def\harvarditem{\@ifnextchar[{\harvarditemy}{\harvarditemx}}
+\makeatother
+\let\theirthebibliography=\thebibliography
+\def\thebibliography#1{\theirthebibliography{}}
+\def\harvardyearleft{[}
+\def\harvardyearright{]}
+
+%\input{RSpaper.bbl}
+
+\begin{thebibliography}{xx}
+
+\harvarditem{Ackermann}{1928}{acke28} Ackermann, W.  \harvardyearleft
+1928\harvardyearright .  \newblock Zum {H}ilbertschen {A}ufbau der
+reellen {Z}ahlen, \emph{Mathematische Annalen} \textbf{99},
+pp.~118--133.
+
+\harvarditem{Aczel and Rathjen}{2001}{aczerath01} Aczel, P. and
+M.~Rathjen \harvardyearleft 2001\harvardyearright .  \newblock Notes
+on constructive set theory, \emph{Technical report}, Institut
+Mittag-Leffler.  \newblock URL:
+\url{<http://www.ml.kva.se/preprints/meta/AczelMon_Sep_24_09_16_56.rdf.html>
+}.
+
+\harvarditem{Appel and Haken}{1977a}{appehake77}
+Appel, K. and W.~Haken  \harvardyearleft 1977a\harvardyearright .
+\newblock Every planar map is four colorable. part {I}. {D}ischarging,
+  \emph{Illinois J. Math.} \textbf{21}, pp.~429--490.
+
+\harvarditem{Appel and Haken}{1977b}{appehakekoch77}
+Appel, K. and W.~Haken  \harvardyearleft 1977b\harvardyearright .
+\newblock Every planar map is four colorable. part {I}{I}. {R}educibility,
+  \emph{Illinois J. Math.} \textbf{21}, pp.~491--567.
+
+\harvarditem{Aschbacher}{2004}{asch04}
+Aschbacher, M.  \harvardyearleft 2004\harvardyearright .
+\newblock The {S}tatus of the {C}lassification of the {F}inite {S}imple
+  {G}roups, \emph{Mathematical Monthly} \textbf{51}(7), pp.~736--740.
+
+\harvarditem{Bachmair and Ganzinger}{1994}{bachganz94} Bachmair, Leo
+and Harald Ganzinger \harvardyearleft 1994\harvardyearright .
+\newblock Buchberger's algorithm: a constraint-based completion
+procedure, \emph{Constraints in computational logics (Munich, 1994)},
+Lecture Notes in Comput. Sci. 845, Springer, Berlin, pp.~285--301.
+
+\harvarditem{Barendregt}{2005}{bare05} Barendregt, H.
+\harvardyearleft 2005\harvardyearright .  \newblock Foundations of
+{M}athematics from the {P}erspective of {C}omputer {V}erification, In:
+\emph{Mathematics, {C}omputer {S}cience, {L}ogic - {A} {N}ever
+{E}nding {S}tory}, Springer Verlag.  \newblock
+\url{<http://www.cs.ru.nl/~henk/papers.html>}.
+
+\harvarditem{Barendregt and Geuvers}{2001}{baregeuv01} Barendregt,
+Henk and Herman Geuvers \harvardyearleft 2001\harvardyearright .
+\newblock {Proof-assistants Using Dependent Type Systems}, \emph{in:}
+Alan Robinson and Andrei Voronkov (eds.), \emph{Handbook of Automated
+Reasoning}, Elsevier Science Publishers B.V., pp.~1149--1238.
+
+\harvarditem{Barras}{1996}{barr96} Barras, B.  \harvardyearleft
+1996\harvardyearright .  \newblock Verification of the interface of a
+small proof system in coq, \emph{in:} E.~Gimenez and C.~Paulin-Mohring
+(eds.), \emph{Proceedings of the 1996 Workshop on Types for Proofs and
+Programs}, Springer-Verlag LNCS 1512, Aussois, France, pp.~28--45.
+
+\harvarditem{Barras}{1999}{barr99}
+Barras, B.  \harvardyearleft 1999\harvardyearright .
+\newblock \emph{Auto-validation d'un syst{\`e}me de preuves avec familles
+  inductives}, Th{\`e}se de doctorat, Universit{\'e} Paris~7.
+
+\harvarditem{Boyer et~al.}{1994}{boye94}
+Boyer, R. et~al.  \harvardyearleft 1994\harvardyearright .
+\newblock {The QED Manifesto}, \emph{in:} A.~Bundy (ed.), \emph{Automated
+  Deduction -- CADE 12}, LNAI 814, Springer-Verlag, pp.~238--251.
+\newblock \url{<http://www.cs.ru.nl/~freek/qed/qed.ps.gz>}.
+
+\harvarditem{Buchberger}{1965}{buch65} Buchberger, B.
+\harvardyearleft 1965\harvardyearright .  \newblock \emph{An algorithm
+for finding a basis for the residue class ring of a zero-dimensional
+polynomial ring}, Dissertation, University of Innsbruck.
+
+\harvarditem{Buchberger and Winkler}{1998}{buchwink98} Buchberger,
+B. and F.~Winkler \harvardyearleft 1998\harvardyearright .  \newblock
+\emph{Gr\"obner Bases and Applications}, Cambridge University Press.
+
+\harvarditem{Bundy}{1991}{bund91}
+Bundy, Alan  \harvardyearleft 1991\harvardyearright .
+\newblock A science of reasoning, \emph{in:} J.-L. Lassez and G.~Plotkin
+  (eds.), \emph{Computational Logic: Essays in Honor of Alan Robinson}, MIT
+  Press, pp.~178--198.
+\newblock Also available from Edinburgh as DAI Research Paper 445.
+
+\harvarditem{Church}{1936}{chur36}
+Church, A.  \harvardyearleft 1936\harvardyearright .
+\newblock An unsolvable problem of elementary number theory, \emph{American
+  Journal of Mathematics} \textbf{58}, pp.~345--363.
+
+\harvarditem{Collins}{1975}{coll75} Collins, G.~E.  \harvardyearleft
+1975\harvardyearright .  \newblock Quantifier elimination for real
+closed fields by cylindrical algebraic decomposition, \emph{Automata
+theory and formal languages (Second GI Conf., Kaiserslautern, 1975)},
+Springer, Berlin, pp.~134--183. Lecture Notes in Comput. Sci.,
+Vol. 33.
+
+\harvarditem{Davis}{1973}{davi73}
+Davis, Martin  \harvardyearleft 1973\harvardyearright .
+\newblock Hilbert's tenth problem is unsolvable, \emph{Amer. Math. Monthly}
+  \textbf{80}, pp.~233--269.
+
+\harvarditem{Feferman}{1998}{fefe98}
+Feferman, S.  \harvardyearleft 1998\harvardyearright .
+\newblock \emph{In the Light of Logic}, Oxford University Press, Oxford.
+
+\harvarditem{Floyd}{1967}{floy67}
+Floyd, Robert~W.  \harvardyearleft 1967\harvardyearright .
+\newblock {Assigning meanings to programs}, \emph{{Mathematical Aspects of
+  Computer Science, Proceedings of Symposia in Applied Mathematics, American
+  Mathematical Society}}, pp.~19--32.
+
+\harvarditem{Frege}{1971}{freg79}
+Frege, Gottlob  \harvardyearleft 1971\harvardyearright .
+\newblock \emph{Begriffsschrift und andere {A}ufs\"atze}, Georg Olms Verlag,
+  Hildesheim.
+\newblock Zweite Auflage. Mit E. Husserls und H. Scholz' Anmerkungen
+  herausgegeben von Ignacio Angelelli, Nachdruck.
+
+\harvarditem{Gentzen}{1969}{gent69} Gentzen, G.  \harvardyearleft
+1969\harvardyearright .  \newblock \emph{The collected papers of
+{G}erhard {G}entzen}, Edited by M. E.  Szabo. Studies in Logic and the
+Foundations of Mathematics, North-Holland Publishing Co., Amsterdam.
+
+\harvarditem[Geuvers et al.]{Geuvers, Wiedijk and
+  Zwanenburg}{2001}{geuvwiedzwan00} Geuvers, Herman, Freek Wiedijk and
+  Jan Zwanenburg \harvardyearleft 2001\harvardyearright .  \newblock A
+  constructive proof of the {Fundamental Theorem of Algebra} without
+  using the rationals, \emph{in:} Paul Callaghan, Zhaohui Luo, James
+  McKinna and Robert Pollack (eds.), \emph{Types for Proofs and
+  Programs, Proceedings of the International Workshop {TYPES} 2000},
+  LNCS 2277, Springer, pp.~96--111.
+
+\harvarditem{G\"odel}{1930}{goed30}
+G\"odel, K.  \harvardyearleft 1930\harvardyearright .
+\newblock {D}ie {V}ollst\"andigkeit der {A}xiome des logischen
+  {F}unktionalkalk\"uls, \emph{Monatshefte f\"ur Mathematik und Physik}
+  \textbf{37}, pp.~349--360.
+
+\harvarditem{G\"odel}{1931}{goed31} G\"odel, K.  \harvardyearleft
+1931\harvardyearright .  \newblock \"{U}ber formal unentscheidbare
+{S}\"atze der {P}rincipia {M}athematica und verwandter {S}ysteme,
+\emph{Monatshefte f\"ur Mathematik und Physik} \textbf{38},
+pp.~173--198.  \newblock Translated and commented in
+\xcite{fefe86}{G\"odel [1986]}. Another English version based on
+course notes by Kleene and Rosser is in \xcite{goed34}{G\"odel
+[1965]}.
+
+\harvarditem{G\"odel}{1995}{goed95}
+G\"odel, K.  \harvardyearleft 1995\harvardyearright .
+\newblock \emph{Collected works {I}{I}{I}: {U}npublished essays and lectures
+  (S. Feferman et al., editors)}, Oxford University Press.
+
+\harvarditem{G{\"o}del}{1965}{goed34}
+G{\"o}del, Kurt  \harvardyearleft 1965\harvardyearright .
+\newblock On undecidable propositions of formal mathematical systems,
+  \emph{in:} Martin Davis (ed.), \emph{The Undecidable: Basic Papers on
+  Undecidable Propositions, Unsolvable Problems and Computable Functions},
+  Raven Press, New York, pp.~41--74.
+\newblock From mimeographed notes on lectures given by G{\"o}del in 1934.
+
+\harvarditem{G{\"o}del}{1986}{fefe86} G{\"o}del, Kurt \harvardyearleft
+1986\harvardyearright .  \newblock \emph{Collected works. {V}ol. {I}},
+The Clarendon Press Oxford University Press, New York.  \newblock
+Publications 1929--1936, Edited and with a preface by Solomon
+Feferman.
+
+\harvarditem{Gonthier}{2004}{gont04} Gonthier, George \harvardyearleft
+2004\harvardyearright .  \newblock {The Four Color Theorem in Coq},
+Talk at the TYPES 2004 conference, December 15--18, 2004, Campus
+Thal\`es, Jouy-en-Josas, France.
+
+\harvarditem{Hales}{to appear}{hale98} Hales, T.  \harvardyearleft to
+appear\harvardyearright .  \newblock A {P}roof of the {K}epler
+{C}onjecture, \emph{Annals of Mathematics}.  \newblock URL:\\
+\url{<http://www.math.pitt.edu/~thales/kepler03/fullkepler.pdf>}.
+
+\harvarditem{Harrison}{2001}{harr01} Harrison, John \harvardyearleft
+2001\harvardyearright .  \newblock Complex quantifier elimination in
+{HOL}, \emph{in:} Richard~J.  Boulton and Paul~B. Jackson (eds.),
+\emph{{TPHOLs} 2001: Supplemental Proceedings}, Division of
+Informatics, University of Edinburgh, pp.~159--174.  \newblock
+Published as Informatics Report Series EDI-INF-RR-0046. URL:
+\url{<http://www.informatics.ed.ac.uk/publications/report/0046.html>}.
+
+\harvarditem{Heyting}{1930}{heyt30}
+Heyting, A.  \harvardyearleft 1930\harvardyearright .
+\newblock {Die formalen Regeln der intuitionistischen Logik},
+  \emph{{Sitzungsberichte der Preussischen Akademie von Wissenschaften.
+  Physikalisch-mathematische Klasse}} pp.~42--56.
+
+\harvarditem{Hilbert}{1926}{hilb26}
+Hilbert, D.  \harvardyearleft 1926\harvardyearright .
+\newblock {Uber das Unendliche}, \emph{Mathematische Annalen} \textbf{95},
+  pp.~161--190.
+
+\harvarditem{Hoare}{1969}{hoar69}
+Hoare, C.A.R.  \harvardyearleft 1969\harvardyearright .
+\newblock {An axiomatic basis for computer programming}, \emph{The
+  Communication of ACM} \textbf{12}, pp.~576--583.
+
+\harvarditem{Horgan}{1993}{horg93} Horgan, John \harvardyearleft
+1993\harvardyearright .  \newblock The death of proof,
+\emph{Sci. Amer.} \textbf{269}(4), pp.~92--103.
+
+\harvarditem{Husserl}{1901}{huss01}
+Husserl, E.  \harvardyearleft 1901\harvardyearright .
+\newblock \emph{Untersuchungen zur Ph\"anomenologie und Theorie der
+  Erkenntnis}, Max Niemeyer, Halle.
+
+\harvarditem{Kempe}{1879}{kemp79} Kempe, A.B.  \harvardyearleft
+1879\harvardyearright .  \newblock On the geographical problem of the
+four colors, \emph{Amer. J. Math.}  \textbf{2}, pp.~193--200.
+
+\harvarditem{Kleene}{1936}{klee36}
+Kleene, S.~C.  \harvardyearleft 1936\harvardyearright .
+\newblock Lambda-definability and recursiveness, \emph{Duke Mathematical
+  Journal} \textbf{2}, pp.~340--353.
+
+\harvarditem{Kunen}{1983}{kune80} Kunen, Kenneth \harvardyearleft
+1983\harvardyearright .  \newblock \emph{Set theory}, Studies in Logic
+and the Foundations of Mathematics 102, North-Holland Publishing Co.,
+Amsterdam.  \newblock An introduction to independence proofs, Reprint
+of the 1980 original.
+
+\harvarditem{Lamport}{1995}{lamp95}
+Lamport, Leslie  \harvardyearleft 1995\harvardyearright .
+\newblock {How to Write a Proof}, \emph{American Mathematical Monthly}
+  \textbf{102}(7), pp.~600--608.
+
+\harvarditem{Martin-L{\"o}f}{1984}{mart84} Martin-L{\"o}f, P.
+\harvardyearleft 1984\harvardyearright .  \newblock
+\emph{Intuitionistic type theory}, Studies in Proof Theory. Lecture
+Notes 1, Bibliopolis, Naples.  \newblock Notes by Giovanni Sambin.
+
+\harvarditem{Miller}{1976}{mill76}
+Miller, G.  \harvardyearleft 1976\harvardyearright .
+\newblock {Riemann's Hypothesis and Tests for Primality}, \emph{{J.\ Comp.\
+  Syst.\ Sci.}} \textbf{13}, pp.~300--317.
+
+\harvarditem{Moerdijk and Palmgren}{2002}{moerpalm02}
+Moerdijk, I. and E.~Palmgren  \harvardyearleft 2002\harvardyearright .
+\newblock {Type Theories, Toposes and Constructive Set Theory: Predicative
+  Aspects of AST}, \emph{Annals of Pure and Applied Logic} \textbf{114},
+  pp.~155--201.
+
+\harvarditem[Nederpelt et al.]{Nederpelt, Geuvers and
+  de~Vrijer}{1994}{nedegeuv94} Nederpelt, R.~P., J.~H. Geuvers and
+  R.~C. de~Vrijer \harvardyearleft 1994\harvardyearright .  \newblock
+  Twenty-five years of {A}utomath research, \emph{Selected papers on
+  Automath}, Stud. Logic Found. Math. 133, North-Holland, Amsterdam,
+  pp.~3--54.
+
+\harvarditem{Rabin}{1980}{rabi80}
+Rabin, M.O.  \harvardyearleft 1980\harvardyearright .
+\newblock {Probabilistic Algorithm for Testing Primality}, \emph{J.\ Number
+  Th.} \textbf{12}, pp.~128--138.
+
+\harvarditem[Robertson et al.]{Robertson, Sanders, Seymour and
+  Thomas}{1996}{seym96} Robertson, N., D.P. Sanders, P.~Seymour and
+  R.~Thomas \harvardyearleft 1996\harvardyearright .  \newblock A new
+  proof of the four-colour theorem, \emph{Electron. Res. Announc.
+  Amer. Math. Soc.} \textbf{2}, pp.~17--25.  \newblock URL:
+  \url{<http://www.ams.org/era/1996-02-01/S1079-6762-96-00003-0/home.html>}.
+
+\harvarditem{Sch\"onfinkel}{1924}{scho24}
+Sch\"onfinkel, M.  \harvardyearleft 1924\harvardyearright .
+\newblock \"{U}ber die {B}austeine der {M}athematische {L}ogik, \emph{Math.
+  Annalen} \textbf{92}, pp.~305--316.
+
+\harvarditem{Scott}{1970}{scot70}
+Scott, D.  \harvardyearleft 1970\harvardyearright .
+\newblock Constructive validity, \emph{Symposium on Automatic Demonstration
+  (Versailles, 1968)}, Lecture Notes in Mathematics, Vol. 125, Springer,
+  Berlin, pp.~237--275.
+
+\harvarditem{Skolem}{1922}{skol22}
+Skolem, T.  \harvardyearleft 1922\harvardyearright .
+\newblock \"{U}ber ganzzahlige {L}\"osungen einer {K}lasse unbestimmter
+  {G}leichungen, \emph{Norsk Matematisk Forenings skrifter}.
+
+\harvarditem{Sudan}{1927}{suda27}
+Sudan, G.  \harvardyearleft 1927\harvardyearright .
+\newblock Sur le nombre transfini $\omega^\omega$, \emph{Bulletin
+  math\'ematique de la Soci\'et\'e Roumaine des Sciences} \textbf{30},
+  pp.~11--30.
+
+\harvarditem{Tarski}{1951}{tars51}
+Tarski, A.  \harvardyearleft 1951\harvardyearright .
+\newblock \emph{Decision Method for Elementary Algebra and Geometry},
+  University of California Press, Berkeley.
+
+\harvarditem{Terese}{2003}{klop03}
+Terese (ed.)  \harvardyearleft 2003\harvardyearright .
+\newblock \emph{Term Rewrite Systems}, Cambridge University Press.
+
+\harvarditem{Turing}{1936}{turi36} Turing, A.M.  \harvardyearleft
+1936\harvardyearright .  \newblock {O}n {C}omputable {N}umbers, with
+an {A}pplication to the {E}ntscheidungsproblem, \emph{Proceedings of
+the London Mathematical Society, Series 2} \textbf{42}, pp.~230--265.
+
+\harvarditem{Turing}{1949}{turi49}
+Turing, A.M.  \harvardyearleft 1949\harvardyearright .
+\newblock {Checking a Large Routine}, \emph{{Report of a Conference on High
+  Speed Automatic Calculating machines}}, pp.~67--69.
+\newblock Paper for the EDSAC Inaugural Conference, 24 June 1949.
+
+\harvarditem{Veltman}{1967}{velt67} Veltman, M.  \harvardyearleft
+1967\harvardyearright .  \newblock {SCHOONSCHIP, A CDC 6600 program
+for Symbolic Evaluation of Algebraic Expressions}, \emph{Technical
+report}, CERN.
+
+\harvarditem{Wang}{1997}{wang97}
+Wang, Hoa  \harvardyearleft 1997\harvardyearright .
+\newblock \emph{A {L}ogical {J}ourney, {F}rom {G}\"odel to {P}hilosophy},
+  Bradford Books.
+
+\harvarditem{Wiedijk}{2000}{wied00}
+Wiedijk, F.  \harvardyearleft 2000\harvardyearright .
+\newblock {The De Bruijn Factor},
+  \url{<http://www.cs.ru.nl/~freek/notes/factor.ps.gz>}.
+
+\harvarditem{Wiedijk}{2004}{wied04} Wiedijk, F.  \harvardyearleft
+2004\harvardyearright .  \newblock {Formal Proof Sketches}, \emph{in:}
+Stefano Berardi, Mario Coppo and Ferruccio Damiani (eds.), \emph{Types
+for Proofs and Programs: Third International Workshop, TYPES 2003,
+Torino, Italy, April 30 -- May 4, 2003, Revised Selected Papers}, LNCS
+3085, pp.~378--393.
+
+\end{thebibliography}
+
+\fi
+
+\edoc

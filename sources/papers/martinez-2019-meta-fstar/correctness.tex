@@ -1,0 +1,177 @@
+This proof is based on the formal definition of \emf, a recent formalization
+of an \fstar{} subset~\cite{dm4free}.
+%x
+We use the same notation and rule names from there, but the proof is
+nevertheless quite direct with just minimum familiarity with \emf.
+%
+We use $E$ to represent \fstar contexts:
+
+\[
+\begin{array}{rclcl}
+    E &=&    \cdot  & & \\
+      & \mid & t E &                 \mid & E t \\
+      & \mid & \lambda(x:t). E &     \mid & \lambda(x:E). t \\
+      & \mid & (x:t) \rightarrow E & \mid & (x:E) \rightarrow t \\
+      & \mid & x:t\{E\} &            \mid & x:E\{t\} \\
+      & ~ & \ldots
+\end{array}
+\]
+
+Contexts present a set of bound variables to their hole. We denote
+those variables by $\gamma(E)$:
+
+\[
+\begin{array}{lcl}
+    \gamma(\cdot) &=& \emptyset \\
+    \gamma(\lambda(x:t). E) &=& \{x\} \cup \gamma(E) \\
+    \gamma(\lambda(x:E). t) &=& \gamma(E) \\
+    \ldots
+\end{array}
+\]
+    % γ(∘) = {}
+    % γ(λ(x:t). E) = (x:t) ++ γ(E)
+    % γ(λ(x:E). t) = γ(E)
+    % ...
+
+We say a context $E$ has type $t_1 \Rightarrow t_2$ for $\Gamma$ (noted
+by $\Gamma \vdash E : t_1 \Rightarrow t_2$) when for all $e$ such that
+$\Gamma, \gamma(E) \vdash e : t_1$ we also have $\Gamma \vdash E[e] : t_2$.
+
+\subsection{Soundness of splitting the proof obligation}
+
+The proof follows mainly from the following lemma:
+
+\begin{lemma}
+    \[
+    \infer{\Gamma \vDash E[t_1] = E[t_2]}
+          {\Gamma, \gamma(E) \vDash t_1 = t_2}
+    \]
+\end{lemma}
+\begin{proof}
+    The proof follows from applying functional extensionality and using
+    a carefully crafted abstraction.
+
+    Let $S = \lambda f. E[f (\gamma(E))]$ (where $f (\gamma(E))$
+    represents $f$ applied to every variable in $\gamma(E)$,
+    sequentially). Also, $\lambda \gamma(E). t$ represents
+    abstracting $E$ over the variables in $\gamma(E)$, and
+    similarly for $\forall \gamma(E). t$.
+
+    Then,
+    \[
+        \infer[\mbox{Reduction}]{\Gamma \vDash E[t_1] = E[t_2]}
+        {\infer[\mbox{V-EqP}]{\Gamma \vDash S (\lambda \gamma(E). t_1) = S (\lambda \gamma(E). t_2)}
+        {\infer[\mbox{V-Ext}]{\Gamma \vDash (\lambda \gamma(E). t_1) = (\lambda \gamma(E). t_2)}
+        {\infer[\mbox{V-$\forall$i}]{\Gamma \vDash \forall \gamma(E). t_1 = t_2}
+                             {\Gamma, \gamma(E) \vDash t_1 = t_2}}}}
+    \]
+
+    Note that the particular set of contexts E does not influence
+    the proof.
+
+
+
+        % Γ, γ(E) |= t1 = t2
+        % ------------------------- [V-∀i, repeatedly]
+        % Γ |= forall γ(E). t1 = t2
+        % ------------------------------ [V-Ext, repeatedly]
+        % Γ |= (λγ(E). t1) = (λγ(E). t2)
+        % --------------------------------- [V-EqP, with P = S]
+        % Γ |= S (λy(E). t1) = S (γ(E). t2)
+        % --------------------------------- [Red]
+        % Γ |= E[t1] = E[t2]
+\end{proof}
+
+Having such lemma, the theorem is proven as follows:
+\[
+    \infer{\Gamma \vDash E[\phi]}
+         {\Gamma \vDash E[\top]
+         & \infer[\mbox{Lemma}]{\Gamma \vDash E[\phi] = E[\top]}{
+         \infer[\mbox{PropExt}]{\Gamma, \gamma(E) \vDash \phi = \top}{
+         \infer[\mbox{Trivial}]{\Gamma, \gamma(E) \vDash \phi \iff \top}
+                               {\Gamma, \gamma(E) \vDash \phi}}}
+         }
+\]
+
+
+\subsection{Partial completeness of splitting the proof obligation}
+
+While the previous theorem allows to soundly split any
+subformulae within a VC, we have seen that some of them
+constraint the system.
+%
+Here we prove that for a particular set of contexts, splitting
+does not make the judgments stronger, and via Theorem 1, then they are
+equivalent.
+
+We define a particular shape of ``positive'' contexts $P$.
+We don't attempt to follow all of EMF*'s syntax, just the parts
+we commonly see as VCs in practice.
+
+\[
+\begin{array}{rclcl}
+    P &=&    \cdot  & & \\
+       & \mid & \phi \land P            &\mid& P \land \phi \\
+       & \mid & \forall (x:t). P \\
+\end{array}
+\]
+
+In \emf, an implication $a \Rightarrow b$ is just sugar for
+$\forall (\_:a). b$, so they are considered as well.
+
+% This is sufficient to catch most VCs we encounter. Most likely, a reason
+% is that disjunction/existentials can never appear in strictly-positive
+% positions due to the inherent conjunctivity of WPs, but we haven't
+% proved it. In any case, this property is not crucial in any way.
+
+\begin{theorem}
+    Take $\Gamma$, $E$, and $\phi$ such that:
+    (1) $\phi$ is squashed,
+    (2) $\Gamma \vdash E : prop \rightarrow prop$
+    and (3) $\Gamma \vdash \phi : prop$.
+    Then the following holds
+
+    \[
+        \infer{\Gamma, \gamma(P) \vDash \phi \qquad \Gamma \vDash P[\top]}
+              {\Gamma \vDash P[\phi]}
+    \]
+\end{theorem}
+\begin{proof}
+    By induction on the structure of $P$, keeping $\Gamma$ and $\phi$
+    universally quantified.
+    \begin{itemize}
+        \item For $P = \cdot$, trivial
+        \item For $P = \psi \land P'$, our hypothesis is
+              $\Gamma \vDash \psi \land P'[\phi]$.
+              %
+              Hence,
+              $\Gamma \vDash \psi$ and
+              $\Gamma \vDash P'[\phi]$.
+              %
+              By the IH, we get
+              $\Gamma, \gamma(P') \vDash \phi$
+              (note that $\gamma(P) = \gamma(P')$)
+              and
+              $\Gamma \vDash P'[\top]$.
+              %
+              By weakening and conjunction, 
+              we can prove $\Gamma, \gamma(P') \vDash \psi \land \phi$
+              and $\Gamma \vDash \psi \land P'[\top]$, and conclude.
+
+        \item For $P = P' \land \psi$, the reasoning is analogous.
+
+        \item For $P = \forall (x:t). P'$, our hypothesis is
+              $\Gamma \vDash \forall (x:t). P'[\phi]$. Hence,
+              we get $\Gamma, x:t \vDash P'[\phi]$ by
+              eliminating the quantifier.
+              %
+              From the IH, we get
+              $\Gamma, x:t, \gamma(P') \vDash \phi$
+              and
+              $\Gamma, x:t \vDash E[\top]$.
+              %
+              From this last one, we can use V-$\forall$i to
+              obtain $\Gamma \vDash \forall (x:t). E[\top]$, and conclude
+              (noting that $\gamma(P) = x:t, \gamma(P')$).
+    \end{itemize}
+\end{proof}

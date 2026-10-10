@@ -1,0 +1,161 @@
+\section{Goal Extraction via Reflection}
+\seclabel{reflection}
+\newcommand\prove[1][]{\UseVerb[#1]{prove}}
+\begin{SaveVerbatim}[commandchars=\\\{\}]{prove}
+\IdrisFunction{Elab}
+\end{SaveVerbatim}
+
+\newcommand\Elab[1][]{\UseVerb[#1]{Elab}}
+\begin{SaveVerbatim}[commandchars=\\\{\}]{Elab}
+\IdrisType{Elab}
+\end{SaveVerbatim}
+
+\newcommand\TC[1][]{\UseVerb[#1]{TC}}
+\begin{SaveVerbatim}[commandchars=\\\{\}]{TC}
+\IdrisType{TC}
+\end{SaveVerbatim}
+
+\newcommand\TTImp[1][]{\UseVerb[#1]{TTImp}}
+\begin{SaveVerbatim}[commandchars=\\\{\}]{TTImp}
+\IdrisType{TTImp}
+\end{SaveVerbatim}
+
+Thus far, our examples have illustrated interaction with \Frexlib{}
+using \solve{}. The \solve{} function provides a similar interface to
+the simplifiers in (e.g.)  Agda's standard library: it takes the fral
+or frex simplifier, the number of free variables and the abstract
+syntax of a goal. However, these simplifiers additionally provide
+ergonomic goal extraction with Agda's \emph{proof reflection}
+mechanism.
+
+Proof reflection is a metaprogramming paradigm, available in
+proof assistants and dependently typed programming languages, that
+supports bi-directional communication between a language and its
+implementation. The language provides
+a representation of its terms,
+operators that construct, manipulate and destruct term representations, and
+primitives \emph{quote} and \emph{unquote} that respectively
+\emph{reify} terms into the representation and
+\emph{reflect} back encoded terms as ordinary terms.
+
+Given mechanisms for querying unsolved proof obligations, proof
+reflection enables the implementation of verified decision procedures
+for automatically discharging such obligations without
+boilerplate~\cite{boutin:reflection,christiansen-et-al:elab-reflection}.
+Coupled with the meta-theoretic properties that
+dependently typed implementations of decision procedures can enforce
+(e.g.~relative soundness and completeness), reflection-driven interfaces
+yield easy-to-use tactics with strong guarantees. It is then natural to
+ask: is it possible to construct an interface to \Frexlib{}
+that uses proof reflection to avoid the need to explicitly supply the
+equation to discharge?
+
+\begin{figure}
+  \begin{tabular}{@{}c@{}|c@{}}
+  \begin{minipage}[b]{.55\textwidth}
+    \MagicExOne{}
+    \vspace{-1\baselineskip}
+  \end{minipage}
+  &
+  \begin{minipage}[b]{.44\textwidth}
+    \vspace{-1\baselineskip}
+    \begin{code}
+    \>[0]\AgdaFunction{agdaEx}\AgdaSpace{}%
+    \AgdaSymbol{:}\AgdaSpace{}%
+    \AgdaSymbol{∀}\AgdaSpace{}%
+    \AgdaSymbol{\{}\AgdaBound{x}\AgdaSpace{}%
+    \AgdaBound{y}\AgdaSymbol{\}}\AgdaSpace{}%
+    \AgdaSymbol{→}\AgdaSpace{}%
+    \AgdaSymbol{(}\AgdaNumber{2}\AgdaSpace{}%
+    \AgdaOperator{\AgdaPrimitive{+}}\AgdaSpace{}%
+    \AgdaBound{x}\AgdaSymbol{)}\AgdaSpace{}%
+    \AgdaOperator{\AgdaPrimitive{+}}\AgdaSpace{}%
+    \AgdaSymbol{(}\AgdaBound{y}\AgdaSpace{}%
+    \AgdaOperator{\AgdaPrimitive{+}}\AgdaSpace{}%
+    \AgdaNumber{3}\AgdaSymbol{)}\AgdaSpace{}%
+    \AgdaOperator{\AgdaDatatype{≡}}\AgdaSpace{}%
+    \AgdaBound{x}\AgdaSpace{}%
+    \AgdaOperator{\AgdaPrimitive{+}}\AgdaSpace{}%
+    \AgdaSymbol{(}\AgdaBound{y}\AgdaSpace{}%
+    \AgdaOperator{\AgdaPrimitive{+}}\AgdaSpace{}%
+    \AgdaNumber{5}\AgdaSymbol{)}\<%
+    \\
+    \>[0]\AgdaFunction{agdaEx}\AgdaSpace{}%
+    \AgdaSymbol{=}\AgdaSpace{}%
+    \AgdaMacro{fragment}\AgdaSpace{}%
+    \AgdaFunction{CSemigroupFrex}\AgdaSpace{}%
+    \AgdaFunction{+-csemigroup}\<%
+  \end{code}
+  \end{minipage}
+  \end{tabular}
+  \caption{Goal extraction in (a) \idris{} \Frexlib{}'s elaborator reflection script;
+    (b) the \textbf{fr}ex \textbf{Ag}da aug\textbf{ment}ation lib.}
+  \figlabel{magic}
+\end{figure}
+As the example code in \figref{magic} illustrates, using proof
+reflection to provide such an interface to \Frexlib{} is possible in
+both \idris{} and \agda{}.
+%
+Rather than designing custom reflection-based drivers for individual
+simplifiers, we combine proof reflection with \Frexlib{}'s design
+philosophy of extensibility and common core reuse and provide a single
+generic metaprogram parameterized by a signature and a model of a
+presentation.
+%
+The metaprogram can be instantiated for any algebraic simplifier,
+built-in or user-defined.
+%
+\figref{magic} (a) shows the invocation of the \idris{} elaboration
+script \IdrisFunction{frexMagic}, and \figref{magic} (b) shows the
+\agda{} proof reflection macro \AgdaMacro{fragment}.
+%
+Both implementations aim to infer the abstract syntax of the goal
+equation based on the expected type.
+
+%% The \idris{} and Agda implementations of \Frexlib{} contain
+%% reflection-based drivers with identical interfaces. Each driver
+%% receives a frex simplifier and a model of the corresponding
+%% presentation.
+
+The drivers have no information about the structure of the algebraic
+signature argument ahead of time. \Frexlib{}'s inductive \Term{}
+representation means that relevant abstract operator names can be
+extracted from the presentation.
+%
+However, the process of matching goal fragments against the abstract
+syntax of the algebraic interpretation is tightly coupled to the
+language's reflection primitives. Implementing \Frexlib{} in both
+\idris{} and \agda{} allows us to compare differences in behaviour.
+
+The differences between the \idris{} and \agda{} implementations can
+be seen by considering the normalisation of arithmetic expressions
+such as \ExOne{}.
+%
+In \idris{}, the reflected syntax passed to the driver represents the
+normalized expression \ExTwo{}.
+%
+As far as the theory of monoids is concerned, \ReflectionSY{} is an atomic
+expression and so it is treated as another free variable, distinct
+from \ReflectionY{}. The \idris{} driver then incorrectly infers the
+invalid equation \ExThree{}, and fails to discharge the goal.
+%
+In contrast, Agda does not normalise quoted expressions before
+reflection, and so the Agda driver successfully finds the equation,
+allowing \Frexlib{} to solve the example.
+%
+Agda's approach is not always superior: there are
+similar examples for which the \agda{} driver fails.  The extent to which
+the implementation can avoid such pathologies ultimately depends on
+the engineering effort available to develop heuristics.
+
+As these problems indicate, this rather naive approach to automation
+requires significant developer resources to deal with edge cases or
+construct bespoke solutions under simplifying assumptions.
+%
+In large, mature ecosystems it may be possible to maintain practical
+heuristics despite these challenges.
+%
+However, there might be better mechanisms for specifying
+algebraic contexts, allowing the solver to extract the required
+information automatically; we suggest such directions in
+\secref{conclusion}.

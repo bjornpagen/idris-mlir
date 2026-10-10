@@ -1,0 +1,320 @@
+\section{Related Work}\label{sec:related}
+
+
+\mypara{SMT-Based Verification}
+%
+SMT-solvers have been extensively
+used to automate program verification
+via Floyd-Hoare logics~\cite{Nelson81}.
+%
+\toolfont{Leon} introduces an
+SMT-based algorithm that is
+complete for catamorphisms
+(folds) over ADTs~\cite{Suter2010}
+and a semi-decision procedure that 
+is guaranteed to find satisfying assignments 
+(models) for queries over arbitrary recursive
+functions, if they exist~\cite{Suter2011}.
+%
+Our work is inspired by \dafny's Verified
+Calculations~\citep{LeinoPolikarpova16} 
+but differs in
+%
+(1)~our use of reflection instead of axiomatization,
+%
+(2)~our use of refinements to compose proofs, and
+%
+(3)~our use of \pbesym to automate reasoning
+about user-defined functions.
+%
+\dafny (and \fstar~\citep{fstar})
+encode user-functions as axioms and use
+a fixed fuel to instantiate functions
+upto some fixed unfolding
+depth~\cite{Amin2014ComputingWA}.
+%
+While the fuel-based approach is incomplete,
+even for equational or calculational reasoning,
+it may, although rare in practice, quickly
+time out after a fixed, small number of
+instantiations rather than perform an
+exhaustive proof search like \pbesym.
+%
+Nevertheless, \pbesym demonstrates that it
+is possible to develop complete and practical
+algorithms for reasoning about user-defined
+functions.
+
+\mypara{Proving Equational Properties}
+%
+Several authors have proposed tools for proving
+(equational) properties of (functional) programs.
+%
+Systems of~\citet{sousa16} and~\citet{KobayashiRelational15}
+extend classical safety verification algorithms,
+respectively based on Floyd-Hoare logic and refinement types,
+to the setting of relational or $k$-safety properties
+that are assertions over $k$-traces of a program.
+%
+Thus, these methods can automatically prove that
+certain functions are associative, commutative \etc
+but are restricted to first-order properties and
+are not programmer-extensible.
+%
+Zeno~\citep{ZENO} generates proofs by term
+rewriting and Halo~\citep{HALO} uses an axiomatic
+encoding to verify contracts.
+%
+Both the above are automatic, but unpredictable and not
+programmer-extensible, hence, have been limited to
+far simpler properties than the ones checked here.
+%
+HERMIT~\citep{Farmer15} proves equalities by rewriting
+the GHC core language, guided by user specified scripts.
+%
+Our proofs are Haskell programs, SMT solvers
+automate reasoning, and importantly, we
+connect the validity of proofs with the
+semantics of the programs.
+
+
+% Dafny, and the related \fstar~\citep{fstar}
+% which like \toolname, uses types to compose
+% proofs, offer more automation by translating
+% recursive functions to SMT axioms.
+% However, unlike reflection, this axiomatic
+% approach renders typechecking and verification
+% undecidable (in theory) and leads to
+% unpredictability and divergence
+% (in practice)~\citep{Leino16}.
+
+% \RJ{PBE brings completeness for the first time yada}
+%
+% \RJ{More stuff from "butterfly effect" text? (see scratch.tex)}
+%
+%\NV{CHECL Relational-F*, Barthe et al, from POPL 2014, and EasyCrypt}
+
+%% In a work more closely related to
+%% ours, \fstar uses refinement types
+%% for program verification supporting
+%% expressiveness of fully dependent types.
+%% %
+%% As in Dafny, \fstar directly translates
+%% recursive functions to axioms in the logic
+%% thus suffers from the ``butterfly effect''
+%% and allows the user to explicitly write SMT tactics to control it.
+
+%% Leino \etal~\citep{Leino16}
+%% name this problem as the ``butterfly
+%% effect'', in which minor modifications
+%% to the program source cause significant
+%% instabilities in verification and propose
+%% trigger selection strategies to address it.
+%% %
+%% We avoid the ``butterfly effect'' by not
+%% directly axiomatizing functions into logic.
+%% Instead the information about the function's
+%% body is exactly captured in function's result
+%% type and user needs to explicitly invoke the function to push
+%% the function's definition information into the logic.
+
+
+% mature proof assistants like \coq and \isabelle
+% could be adapted to the refinement setting.
+%
+% that, unlike our approach, rely on tiny trusted computing base.
+%%%enable large scale proof engineering
+%%%that is well beyond what is currently
+% beyond what is currently feasible with our approach.
+%
+% (Indeed, it is likely that our proof search procedure
+% can, like @omega@, be encoded as a tactic within \coq.)
+% which allow for arbitrary expressiveness of the type system
+% in the cost of automatic verification.
+%
+%% The syntax of \libname's operators is inspired by
+%% Equational Reasoning in Agda~\citep{agda}.
+%% Here we extended these equational operators
+%% to support linear arithmetic and, for example, prove
+%% properties of Ackermann function.
+%% %
+%% Unlike Adga, proof term are explicit in \libname,
+%% we do not use heuristics to infer proofs.
+
+
+%%\mypara{Dependent Types for Non-Terminating Programs}
+%%%
+%%Zombie~\citep{Zombie, Sjoberg2015} integrates
+%%dependent types in non terminating programs
+%%and supports automatic reasoning for equality.
+%%%
+%%Vazou \etal have previously~\citep{Vazou14} shown
+%%how Liquid Types can be used to check
+%%non-terminating programs.
+%%%
+%%Reflection makes \toolname at least as
+%%expressive as Zombie, \emph{without}
+%%having to axiomatize the theory of
+%%equality within the type system.
+%%%
+%%Consequently, in contrast to Zombie,
+%%SMT based reflection lets \toolname
+%%verify higher-order specifications
+%%like @foldr_fusion@.
+
+% which lets us use SMT automation
+% to verify deep specifications of
+% non-trivial programs.
+%
+
+\mypara{Dependent Types in Programming}
+%
+Integration of dependent types into Haskell
+has been a long standing goal~\citep{EisenbergS14}
+that dates back to Cayenne~\citep{cayenne},
+a Haskell-like, fully dependent type
+language with undecidable type checking.
+%
+% In a recent line of work~\citet{EisenbergS14}
+% aim to allow fully dependent
+% programming within Haskell, by making
+% ``type-level programming ... at least as
+%   expressive as term-level programming''.
+%
+Our approach differs significantly in that
+reflection and \pbesym use SMT-solvers
+to drastically simplify proofs over decidable
+theories.
+%
+Zombie~\citep{Sjoberg2015} investigates
+the design of a dependently typed language where
+SMT-style congruence closure is used to reason
+about the equality of terms.
+%
+However, Zombie explicitly eschews type-level
+computation, as the authors write
+% note that type level computation, or to be precise
+``equalities that follow from $\beta$-reduction''
+are ``incompatible with congruence closure''.
+%
+Due to this incompleteness, the programmer must
+use explicit @join@ terms to indicate where
+normalization should be triggered, even
+so, equality checking is based on fuel,
+hence, is incomplete.
+%
+% In contrast, reflection and \pbesym show
+% how congruence closure and computation can
+% be very profitably combined, freeing the
+% programmer from having to provide
+% explicit @join@ operations.
+% \RJ{THE ABOVE IS TOO LONG}
+
+
+% Second, refinements are completely erased at run-time.
+% That is, while both systems automatically lift Haskell
+% code to either uninterpreted logical functions
+% or type families, with refinements, the logical
+% functions are not accessible at run-time and
+% promotion cannot affect the semantics of
+% the program.
+%
+% As an advantage (resp. disadvantage), refinements
+% cannot degrade (resp. optimize)
+% the performance of programs.
+
+\mypara{Theorem Provers}
+%
+Reflection shows how to retrofit deep
+specification and verification in the
+style of \agda~\citep{agda},
+\coq~\citep{coq-book} and
+\isabelle~\cite{NPW2002} into existing
+languages via refinement typing and
+\pbesym shows how type-level computation
+can be made compatible with SMT solvers'
+native theory reasoning yielding a
+powerful new way to automate
+proofs~(\S~\ref{sec:overview:lists}).
+%
+An extensive comparison~\cite{Vazou17}
+between our approach and mature theorem 
+provers like \coq, \agda, and \isabelle
+reveals that these provers 
+have two clear advantages
+over our approach:
+%
+they emit certificates,
+so they rely on a small
+trusted computing base,
+and they have decades-worth
+of tactics, libraries,
+and proof scripts that
+enable large scale proof
+engineering.
+%
+Some tactics even enable
+embedding of SMT-based
+proof search heuristics,
+\eg \toolfont{Sledgehammer}~\cite{sledgehammer},
+that is widely used in
+\isabelle.
+However, this search
+does not have the
+completeness
+guarantees of \pbesym.
+%
+The issue of extracting checkable
+certificates from SMT solvers is well
+understood~\cite{Necula97,chen-pldi-2010}
+and easy to extend to our setting.
+%
+However, the question of extending SMT-based
+verifiers with tactics and scriptable proof
+search, and more generally, incorporating
+\emph{interactivity} in the style of
+proof-assistants, perhaps enhanced by
+proof-completion hints, remains an
+interesting direction for future work.
+
+% However, the question of integrating
+% tactics and scriptable proof search
+% within SMT-based verifiers remains an
+% interesting direction for future work.
+
+
+
+%% Compared to these systems, our proofs are
+%% expressed as Haskell programs and do not
+%% require the user to learn a different
+%% tactic languages.
+%% %
+%% Moreover, our system is more general
+%% as it allows for both equational
+%% and linear arithmetic proofs.
+%% %
+%% On the other hand, \libname requires
+%% explicit proofs and does not currently
+%% support any automatic heuristics.
+
+%%% CUT \mypara{Deterministic Parallelism}
+%%% CUT %
+%%% CUT Deterministic parallelism has plenty of theory but relatively few practical
+%%% CUT implementations.  Early discoveries were based on limited producer-consumer
+%%% CUT communication, such as single-assignment variables \cite{Tesler-1968,IStructures}, Kahn
+%%% CUT process networks~\cite{kahn-1974}, and synchronous dataflow~\cite{lee-sdf}.
+%%% CUT Other models use synchronous updates to shared state, as in
+%%% CUT Esterel~\cite{synchronous-overview} or PRAM.  Finally, work on type systems for
+%%% CUT permissions management \cite{permission-types,habanero-java-permissions},
+%%% CUT supports the development of {\em non-interfering} parallel programs that access
+%%% CUT disjoint subsets of the heap in parallel.  Parallel functional programming is
+%%% CUT also non-interfering~\cite{manticore,multicore-ghc}.
+%%% CUT %
+%%% CUT Irrespective of which theory is used to support deterministic parallel
+%%% CUT programming, practical implementations such as Cilk~\cite{cilk} or Intel
+%%% CUT CnC~\cite{cnc} are limited by host languages with type systems insufficient to
+%%% CUT limit side effects, much less prove associativity.  Conversely, dependently
+%%% CUT typed languages like Agda and Idris do not have parallel programming APIs and
+%%% CUT runtime systems.
+
+% synchronous languages such as Esterel

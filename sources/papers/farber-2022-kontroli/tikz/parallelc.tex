@@ -1,0 +1,34 @@
+\begin{tikzpicture}
+
+{ [start chain=parsechain, node distance=.5cm, nodes={on chain}]
+  \node [block] (parse1) {parse};
+  \node [block] (parse2) {parse};
+  \node (parsen) {$\cdots$};
+}
+
+\node [left=1cm of parse1, text width=3em, align = center] {Parse thread};
+
+\draw (parse1) to (parse2);
+\draw (parse2) to (parsen);
+
+{ [start chain=mainchain, node distance=0cm, nodes={on chain}]
+  \node [block, below=1cm of parse1] (share1) {share};
+  \node [block] (infer1) {infer};
+  \node [block] (check1) {check};
+
+  \node [block, right=.5cm of check1] (share2) {share};
+  \node [block] (infer2) {infer};
+  \node [block] (check2) {check};
+
+  \node [right=.5cm of check2] (mainn) {$\cdots$};
+}
+
+\node [left=1cm of share1, text width=3em, align = center] {Main thread};
+
+\draw (check1) to (share2);
+\draw (check2) to (mainn);
+
+\draw [->] (parse1) to (share1);
+\draw [->] (parse2) |-| (share2);
+
+\end{tikzpicture}

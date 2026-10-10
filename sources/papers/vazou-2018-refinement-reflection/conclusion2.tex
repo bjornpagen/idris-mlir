@@ -1,0 +1,31 @@
+\section{Conclusions and Future Work}
+
+Our results identify a new design for
+deductive verifiers wherein:
+%
+(1)~via Refinement Reflection, 
+we can encode natural deduction 
+proofs as SMT-checkable refinement 
+typed programs and
+%
+(2)~via Proof by Logical Evaluation
+we can combine the complementary
+strengths of SMT- (\ie, decision procedures)
+and TT- based approaches (\ie, type-level computation)
+to obtain completeness guarantees 
+when verifying properties 
+of user-defined functions.
+%
+However, the increased automation 
+of SMT and proof-search can 
+sometimes make it harder for 
+a user to debug \emph{failed} proofs.
+%
+In future work, it would be 
+interesting to investigate how 
+to add interactivity to SMT based 
+verifiers, in the form of tactics 
+and scripts or algorithms for 
+synthesizing proof hints, and to 
+design new ways to explain and 
+fix refinement type errors.

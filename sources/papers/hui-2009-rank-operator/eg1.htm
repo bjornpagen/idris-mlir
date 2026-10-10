@@ -1,0 +1,85 @@
+﻿<html>
+<head><meta http-equiv="content-type" content="text/html;charset=utf-8">
+<title>Rank Operator - Dyalog '09</title>
+<link href="adoc.css" rel=stylesheet></head>
+<body>
+
+<p align=right><a href="index.htm">Index</a> &nbsp; 
+<a href="index.htm">&lt;&lt;</a> &nbsp; <a href="eg2.htm">&gt;&gt;</a></p>
+
+
+
+<table>
+<tr><td width=38 nowrap>&nbsp;</td><td nowrap>
+<p><font size=+4>Examples</font></p>
+
+<pre><font size=+4 face="APL385 Unicode">
+   ⎕←data←?3 4⍴10
+1 7 4 5
+2 0 6 6
+9 3 5 8
+
+   +/R 1 +data
+17 14 25
+
+   +/[1] data
+17 14 25
+
+   ⍋R 1 +data
+0 2 3 1
+1 0 2 3
+1 2 3 0
+
+   ⍋[1] data
+SYNTAX ERROR
+   ⍋[1]data
+  ∧
+
+   gradea←{c←¯1↑⍴⍵ ⋄ j←c/c×⍳×/¯1↓⍴⍵ ⋄ (⍴⍵)⍴j-⍨⍋j,[0.5],⍵}
+   gradea data
+0 2 3 1
+1 0 2 3
+1 2 3 0
+
+   gradeb←{↑ ⍋¨ ⊂[¯1+⍴⍴⍵] ⍵}
+   gradeb data
+0 2 3 1
+1 0 2 3
+1 2 3 0
+
+   {⍵[⍋⍵]}R 1 +data
+1 4 5 7
+0 2 6 6
+3 5 8 9
+
+   {⍵[⍋⍵]}[1] data
+SYNTAX ERROR
+   {⍵[⍋⍵]}[1]data
+  ∧
+
+   avg←{(+⌿⍵)÷⊃(⍴⍵),1}
+
+   avg R 1 +data
+4.25 3.5 6.25
+
+   avg[1] data
+SYNTAX ERROR
+   avg[1]data
+  ∧
+
+   avg R 2 +data
+4 3.33333 5 6.33333
+
+   avg R 0 +data
+1 7 4 5
+2 0 6 6
+9 3 5 8
+</font></pre>
+
+<br>
+
+</td></tr></table>
+
+
+</body>
+</html>

@@ -1,0 +1,4 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PYG{k+kn}{Inductive} \PYG{n}{UnderLets} \PYG{o}{\PYGZob{}}\PYG{n}{var}\PYG{o}{\PYGZcb{}} \PYG{o}{(}\PYG{n}{T} \PYG{o}{:} \PYG{k+kt}{Type}\PYG{o}{)} \PYG{o}{:=} \PYG{n}{Base} \PYG{o}{(}\PYG{n}{v} \PYG{o}{:} \PYG{n}{T}\PYG{o}{)}
+\PYG{o}{|} \PYG{n}{UnderLet} \PYG{o}{\PYGZob{}}\PYG{n}{A}\PYG{o}{\PYGZcb{}} \PYG{o}{(}\PYG{n}{e} \PYG{o}{:} \PYG{o}{@}\PYG{n}{expr} \PYG{n}{var} \PYG{n}{A}\PYG{o}{)} \PYG{o}{(}\PYG{n}{f} \PYG{o}{:} \PYG{n}{var} \PYG{n}{A} \PYG{o}{\PYGZhy{}\PYGZgt{}} \PYG{n}{UnderLets} \PYG{n}{T}\PYG{o}{).}
+\end{Verbatim}

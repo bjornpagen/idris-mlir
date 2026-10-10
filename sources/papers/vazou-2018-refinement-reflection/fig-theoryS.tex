@@ -1,0 +1,35 @@
+$$
+\arraycolsep=2.5pt
+\begin{array}{rccl}
+\emphbf{Terms}& \pred
+  & ::=    & \pred \binop \pred \spmid \unop \pred \spmid \dc \\
+  && \spmid & n \spmid b \spmid x \spmid  x\ \overline{\pred}\\
+%%  && \spmid & \forall \overline{\tbind{x}{\sort}}. \pred
+  && \spmid & \eif{\pred}{\pred}{\pred}
+\\[0.06in]
+
+\emphbf{Ints} & n
+  & ::= & 0, -1, 1, \dots
+\\[0.03in]
+
+\emphbf{Bools}& b
+  & ::= & \etrue \spmid \efalse
+\\[0.03in]
+
+\emphbf{Bin-Ops}& \binop
+  & ::= & = \spmid < \spmid \land \spmid +, - , \dots
+\\[0.03in]
+
+\emphbf{Un-Ops}& \unop
+  & ::= & \lnot \spmid \dots
+\\[0.03in]
+
+\emphbf{Args}& \sort_a
+  & ::= & \tint \spmid \tbool \spmid \tuniv \\
+  && \spmid & \tsmtfun{\sort_a}{\sort_a}
+\\[0.06in]
+
+\emphbf{Sorts} & \sort
+  & ::=    & \sort_a \spmid \sort_a \rightarrow \sort
+\end{array}
+$$

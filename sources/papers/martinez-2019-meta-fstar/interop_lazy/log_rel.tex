@@ -1,0 +1,68 @@
+\[
+\begin{array}{r l l}
+  \rval{k}{\salien{\texpi}{\staui}{\sdeltai}}{\salien{\texpii}{\stauii}{\sdeltaii}} & \defeq &
+  \rtexp{k}{\texpi}{\texpii}
+  \\[0.3em]
+  %
+  \rval{k}{\sunit}{\sunit} & \defeq & \top
+  \\[0.3em]
+  %
+  \rval{k}{\spair{\sexpi}{\sexpii}}{\spair{\sexpip}{\sexpiip}}
+  & \defeq &
+  \rexp{k}{\sexpi}{\sexpip} \wedge  \rexp{k}{\sexpii}{\sexpiip}
+  \\[0.3em]
+  %
+  \rval{k}{\sinl{\sexp}}{\sinl{\sexpp}}
+  & \defeq &
+  \rexp{k}{\sexp}{\sexpp}
+  \\[0.3em]
+  %
+  \rval{k}{\sinr{\sexp}}{\sinr{\sexpp}}
+  & \defeq &
+  \rexp{k}{\sexp}{\sexpp}
+  \\[0.3em]
+  %
+  \rval{k}{\sabs{\svar{x}}{\staui}{\sexpi}}{\sabs{\svar{y}}{\stauii}{\sexpii}}
+  & \defeq &
+  \forall (i < k)~\svali~\svalii, ~\rval{i}{\svali}{\svalii} \Rightarrow
+  \rexp{i}{\sexpi\ssubst{\svar{x}}{\svali}}{\sexpii\ssubst{\svar{y}}{\svalii}}
+  \\[0.3em]
+  %
+  \rval{k}{\stabs{\svar{A}}{\sexpi}}{\stabs{\svar{A}}{\sexpii}}
+  & \defeq &
+  \forall ~\staup, \iswf{}{\staup}  \Rightarrow
+  \rexp{k}{\sexpi\ssubst{\svar{A}}{\staup}}{\sexpii\ssubst{\svar{A}}{\staup}}
+  \\[0.3em]
+  %
+  & &   \\[0.3em]
+  %
+  & &   \\[0.3em]
+  % 
+  \rexp{k}{\sexpi}{\sexpii} & \defeq &
+  \forall (m < k)~\svali,~ {\sexpi}\sevalm{m}{\svali} \wedge \isval{\svali} \Rightarrow \\[0.3em]
+  & & ~~~~~~~~~~~~~~~~~~
+  \exists~\svalii,~ {\sexpii}\sevals{\svalii} \wedge \rval{k - m}{\svali}{\svalii}
+  \\[0.3em]
+   %
+  & &   \\[0.3em]
+  %
+  & &   \\[0.3em]
+  % 
+  \renv{\cdot}{k} & \defeq & \setsingl{(\cdot, \cdot )}  \\[0.3em]
+  %
+  \renv{\senvext{\senv}{\svar{x}}{\stau}}{k} & \defeq &
+  \setst{(\sigma_1\sesubstsingl{\svar{x}}{\svali}}{\sigma_2\sesubstsingl{\svar{x}}{\svalii})}{\rval{k}{\svali}{\svalii}
+  \wedge \inrenv{\sigma_1}{\sigma_2}{\senv}{k}}  \\[0.3em]
+  %
+  & &   \\[0.3em]
+  %
+  & &   \\[0.3em]
+  % 
+  \rtypenv{\cdot} & \defeq & \setsingl{\cdot}  \\[0.3em]
+  %
+  \rtypenv{\stenv,\svar{A}} & \defeq &
+  \setsto{(\delta\sesubstsingl{\svar{A}}{\stau}}
+  {\iswf{\stenv}{\stau}
+  \wedge \inrtypenv{\delta}{\stenv}}  \\[0.3em]
+\end{array}
+\]

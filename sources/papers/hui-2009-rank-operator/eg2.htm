@@ -1,0 +1,44 @@
+﻿<html>
+<head><meta http-equiv="content-type" content="text/html;charset=utf-8">
+<title>Rank Operator - Dyalog '09</title>
+<link href="adoc.css" rel=stylesheet></head>
+<body>
+
+<p align=right><a href="index.htm">Index</a> &nbsp; 
+<a href="eg1.htm">&lt;&lt;</a> &nbsp; <a href="model1.htm">&gt;&gt;</a></p>
+
+
+
+<table>
+<tr><td width=38>&nbsp;</td><td>
+<p><font size=+4>Examples</font></p>
+
+<pre><font size=+4 face="APL385 Unicode">
+   data
+1 7 4 5
+2 0 6 6
+9 3 5 8
+
+   0 1 2 ,R 0 1 +data
+0 1 7 4 5
+1 2 0 6 6
+2 9 3 5 8
+
+   0 1 2 ,R ¯1 +data
+0 1 7 4 5
+1 2 0 6 6
+2 9 3 5 8
+
+   0 1 2 ,R 1 +data
+0 1 2 1 7 4 5
+0 1 2 2 0 6 6
+0 1 2 9 3 5 8
+</font></pre>
+
+<br>
+
+</td></tr></table>
+
+
+</body>
+</html>

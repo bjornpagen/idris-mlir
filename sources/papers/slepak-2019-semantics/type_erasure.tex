@@ -1,0 +1,1481 @@
+\section{Type Erasure}
+The dynamic semantics given in Section \ref{sec:Formalism}
+relies on ubiquitous type annotations
+in order to determine how function application will proceed
+or how a frame of sub-arrays should collapse to a single array.
+While the possible case of constructing a frame
+with no actual result cells whose shape can be inspected
+can only be resolved by consulting a type annotation,
+the types themselves contain more information than is strictly needed.
+For example, it does not matter whether we are collapsing
+an empty frame of functions,
+an empty frame of integers,
+or an empty frame of boxes.
+The result shape is the same,
+regardless of the type of the atoms contained within the cells.
+All we truly need is the resulting shape (alternatively, the result cells' shape).
+Similarly, evaluating a function application requires knowing
+the expected cell shapes for the arguments,
+but it could, in principle, be done
+without knowing anything about their atoms.
+Function application is still tagged with a result shape,
+again to head off issues arising from mapping over an empty frame.
+
+In a type-erased version of Remora,
+we only need the term and index levels---%
+the syntactic class of types is discarded.
+The syntax for erased Remora is given in Figure \ref{fig:ErasedAbstractSyntax}.
+Note that the grammar of type indices from Figure \ref{fig:AbstractSyntax} is still in use here,
+although expressions, atoms, and their corresponding function and value-form subsets
+are now replaced with type-erased versions.
+
+\FigErasedAbstractSyntax
+
+Evaluation in erased Remora proceeds similarly to explicit Remora.
+A function-application form has a principal frame
+chosen to be the largest of the function and argument frames,
+and a $\mathit{lift}$ reduction replicates the function and argument arrays' atoms
+to bring all of the frames into agreement.
+The argument frames themselves are identified based on
+the individual argument positions' cell-shape annotations,
+rather than by inspecting a type annotation on the array in function position.
+A $\mathit{map}$ reduction turns an application form where all pieces have the same frame
+into a {\tt frame} form,
+where the end-result shape matches the result shape tag on the original application.
+Index application also maps over an array of index functions,
+producing a {\tt frame} of substituted function bodies.
+Since the type level has been eliminated,
+there are no {\tt t$\lambda$} and {\tt t-app} forms
+and no need for a $t\beta$ reduction rule.
+
+\FigErasedSemantics
+
+The translation from explicit Remora to erased Remora consists of three erasure functions:
+$\EraseE{\cdot} : \mathit{Expr} \rightarrow \erased{\mathit{Expr}}$,
+$\EraseA{\cdot} : \mathit{Atom} \rightarrow \erased{\mathit{Atom}}$,
+and $\EraseT{\cdot} : \mathit{Type} \rightarrow \mathit{Index}$.
+These functions are defined in Figure \ref{fig:ErasureDefn}.
+
+\ErasureDefn
+
+We also define $\EraseC{\cdot} : \Ctxt \rightarrow \erased{\Ctxt}$,
+given in Figure \ref{fig:ContextErasure},
+which is not needed for defining the erased form of an explicit Remora program
+but is useful for demonstrating their equivalence.
+
+\ContextErasure
+
+Types in explicit Remora are turned into indices in erased Remora.
+These indices are the dynamic residue of types,
+in the same sense that term-level values are dynamic,
+though the are still subject to a static discipline which governs their values
+and their relation to the array values they describe.
+Array types become just the shapes used to construct them,
+whereas functions, universals, dependent sums and products, and base types
+become the ``scalar'' shape.
+Extracting the index components of all types means that type variables
+can be turned into index variables,
+which will stand for the index component of whatever type the variable originally stood for.
+This translation captures exactly the information that a {\tt frame} form needs
+in the event that there are no cells.
+By extension, the term and index application forms
+also get the bookkeeping information needed by
+the {\tt frame}s they will eventually become.
+% The non-lifting forms {\tt array} and {\tt unbox} can safely ignore the source term's type tag.
+
+For example, consider a function term whose type is
+{\tt (-> (s (Arr t (Shp))) (Arr t (Shp k)))},
+where {\tt s}, {\tt t}, and {\tt k} are
+bound as {\tt Array}, {\tt Atom}, and {\tt Dim} respectively.
+This function produces a vector of some statically uncertain length
+containing atoms of uncertain type.
+When we apply this function,
+the explicitly typed application form
+describes the resulting array's type.
+If our arguments are a single {\tt s}
+and a ${\tt n} \times 4$ matrix of numbers,
+with {\tt n} also bound as a {\tt Dim},
+the principal frame shape is {\tt (Shp n 4)}.
+So we will have result type {\tt (Arr Num (Shp n 4 k))}.
+Type-erasing the application form must still preserve
+enough information to produce an array of the correct shape,
+even if {\tt n} turns out to be 0,
+leaving us with no result cells whose shape we can inspect.
+However, the dynamic semantics does not rely on knowing that
+the result array contains {\tt Num}s.
+% When type erasure recurs down the function position,
+% we will effectively summarize the function array's type as ``scalar,''
+% throwing out any information about the function's shape-level behavior.
+% That information is only used for the whole application form's result,
+% which we give as {\tt (Shp n 4 k)}.
+The binders for index variables {\tt n} and {\tt k},
+which must be either {\tt I$\lambda$} or {\tt unbox},
+are still present in the type-erased program,
+since the indices they eventually bind to those variables
+will affect the program's semantics.
+The {\tt T$\lambda$}s which bind {\tt s} and {\tt t}
+turn into {\tt I$\lambda$}s,
+though the variable {\tt t} is never used in the type-erased program.
+If any type argument was bound to {\tt s} in the original program,
+we replace it with its shape.
+All occurrences of {\tt s} from the original program
+now stand for an array shape rather than a full array type.
+
+We develop a bisimulation argument to show that
+the behavior of an explicitly typed term matches the behavior of its erased form.
+We define the space $S$ of machine states to be the sum of
+the set of well-typed explicit Remora terms
+and the set of their type-erased forms.
+That is, $S = \wt{Expr} \uplus \erased{\wt{\Expr}}$,
+where
+$\wt{Expr} =
+\{\expr \in \Expr | \typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}{\expr}{\type}\}$
+and
+$\erased{\wt{Expr}} =
+\{\EraseE{\expr} | \expr \in \wt{\Expr}\}$.
+Transitions in the machine match the explicit and erased languages' respective $\mapsto$ relations.
+We also define the ``erasure equivalence'' relation $\EraseEqv$ on machine states as
+the equivalence closure of the relation imposed by $\EraseE{\cdot}$.
+Before we show that $\EraseEqv$ is a bisimulation, several intermediate results are needed.
+
+First, the bisimulation proof will in one case need to
+reach deep into an expression to find the next redex.
+A compositionality property of the erasure rule
+will make it possible to reason about the redex and its reduced form
+separately from the evaluation context in which it is embedded.
+
+\begin{lemma}[Erasure in context]
+  \label{ErasureInContext}
+  Given an evaluation context $\ctxt$ and expression $\expr$,
+%  where $\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}{\fillc{\ctxt}{\expr}}{\type}$,
+  where ${\fillc{\ctxt}{\expr}}$ is well-typed,
+  $\EraseE{\fillc{\ctxt}{\expr}} = \fillc{\EraseC{\ctxt}}{\EraseE{\expr}}$.
+\end{lemma}
+\begin{sproof}[This follows from straightforward induction on $\ctxt$.]
+  We use induction on $\ctxt$.
+
+\paragraph{Array literal containing unevaluated box:}
+  \[\ctxt = \arrlit{\sequence{\atval}\,\dsum{\sequence{\idx}}{\ctxt'}{\type}\,\sequence{\atom}}{\sequence{\nat}}\]
+  $\EraseE{\fillc
+    {\arrlit{\sequence{\atval}\,\dsum{\sequence{\idx}}{\ctxt'}{\type}\,\sequence{\atom}}{\sequence{\nat}}}
+    {\expr}}$ \\
+  $= \EraseE{\arrlit
+    {\sequence{\atval}\,\dsum{\sequence{\idx}}{\fillc{\ctxt'}{\expr}}{\type}\,\sequence{\atom}}
+    {\sequence{\nat}}}$ \\
+  $= \arrlit
+  {\sequence{\EraseA{\atval}}\,\EraseA{\dsum{\sequence{\idx}}{\fillc{\ctxt'}{\expr}}{\type}}\,\sequence{\EraseA{\atom}}}
+  {\sequence{\nat}}$ \\
+  $= \arrlit
+  {\sequence{\EraseA{\atval}}\,\dsum{\sequence{\idx}}{\EraseE{\fillc{\ctxt'}{\expr}}}{}\,\sequence{\EraseA{\atom}}}
+  {\sequence{\nat}}$ \\
+  $= \arrlit
+  {\sequence{\EraseA{\atval}}\,\dsum{\sequence{\idx}}{\fillc{\EraseC{\ctxt'}}{\EraseE{\expr}}}{}\,\sequence{\EraseA{\atom}}}
+  {\sequence{\nat}}$ \\
+  $= \fillc{\arrlit
+    {\sequence{\EraseA{\atval}}\,\dsum{\sequence{\idx}}{\EraseC{\ctxt'}}{}\,\sequence{\EraseA{\atom}}}
+    {\sequence{\nat}}}
+  {\EraseE{\expr}}$ \\
+  $= \fillc{\EraseC{\arrlit
+    {\sequence{\atval}\,\dsum{\sequence{\idx}}{\ctxt'}{\type}\,\sequence{\atom}}
+    {\sequence{\nat}}}}
+  {\EraseE{\expr}}$ \\
+
+\paragraph{Frame containing unevaluated cells:}
+  \[\ctxt = \notedfrm[\type_r]{\sequence{\val}\,\ctxt'\,\sequence{\expr'}}{\sequence{\nat}}\]
+  $\EraseE{\fillc{\notedfrm[\type_r]{\sequence{\val}\,\ctxt'\,\sequence{\expr}}{\sequence{\nat}}}{\expr}}$ \\
+  $= \EraseE{\notedfrm[\type_r]{\sequence{\val}\,\fillc{\ctxt'}{\expr}\,\sequence{\expr'}}{\sequence{\nat}}}$ \\
+  $= \frm{\sequence{\EraseE{\val}}\,\EraseE{\fillc{\ctxt'}{\expr}}\,\sequence{\EraseE{\expr'}}}{\EraseT{\type_r}}$ \\
+  $= \frm{\sequence{\EraseE{\val}}\,\fillc{\EraseC{\ctxt'}}{\EraseE{\expr}}\,\sequence{\EraseE{\expr'}}}{\EraseT{\type_r}}$ \\
+  $= \fillc{\frm{\sequence{\EraseE{\val}}\,\EraseC{\ctxt'}\,\sequence{\EraseE{\expr'}}}{\EraseT{\type_r}}}{\EraseE{\expr}}$ \\
+  $= \fillc{\EraseC{\notedfrm[\type_r]
+      {\sequence{\val}\,\EraseC{\ctxt'}\,\sequence{\expr'}}
+      {\sequence{\nat}}}}
+  {\EraseE{\expr}}$ \\
+
+\paragraph{Application with unevaluated function:}
+  \[\ctxt =
+  \notedapp[\type_r]
+  {\annotate[\typearray{\typefun{\sequence{\type_i}}{\type_o}}{\idx_f}]{\ctxt'}}
+  {\sequence{\expr_a}}\]
+  $\EraseE{\fillc
+    {\notedapp[\type_r]
+      {\annotate[\typearray{\typefun{\sequence{\type_i}}{\type_o}}{\idx_f}]{\ctxt'}}
+      {\sequence{\expr_a}}}
+    {\expr}}$\\
+  $= \EraseE{\notedapp[\type_r]
+    {\fillc{\annotate[\typearray{\typefun{\sequence{\type_i}}{\type_o}}{\idx_f}]{\ctxt'}}{\expr}}
+    {\sequence{\expr_a}}}$ \\
+  $= \app
+  {\EraseE{\fillc{\ctxt'}{\expr}}}
+  {\sequence{\ttsexp{\EraseE{\expr_a}}{\EraseT{\type_i}}}\;\EraseT{\type_r}}$ \\
+  $= \app
+  {\fillc{\EraseC{\ctxt'}}{\expr}}
+  {\sequence{\ttsexp{\EraseE{\expr_a}}{\EraseT{\type_i}}}\;\EraseT{\type_r}}$ \\
+  $= \fillc{\app
+    {\EraseC{\ctxt'}}
+    {\sequence{\ttsexp{\EraseE{\expr_a}}{\EraseT{\type_i}}}\;\EraseT{\type_r}}}
+  {\expr}$ \\
+  $= \fillc{\EraseC{\app
+      {\annotate[\typearray{\typefun{\sequence{\type_i}}{\type_o}}{\idx_f}]{\ctxt'}}
+      {\sequence{\expr_a}}}}
+  {\expr}$ \\
+
+\paragraph{Application with unevaluated argument:}
+  \[\ctxt =
+  \notedapp[\type_r]
+  {\annotate
+    [\typearray{\typefun{\sequence{\type_1}\,\type_2\,\sequence{\type_3}}{\type_o}}{\idx_f}]
+    {\expr_f}}
+  {\sequence{\val_1}\,\ctxt'\,\sequence{\expr_3}}\]
+  $\EraseE{\fillc
+    {\notedapp[\type_r]
+      {\annotate
+        [\typearray{\typefun{\sequence{\type_1}\,\type_2\,\sequence{\type_3}}{\type_o}}{\idx_f}]
+        {\expr_f}}
+      {\sequence{\val_1}\,\ctxt'\,\sequence{\expr_3}}}
+    {\expr}}$ \\
+  $= \EraseE{\notedapp[\type_r]
+    {\annotate
+      [\typearray{\typefun{\sequence{\type_1}\,\type_2\,\sequence{\type_3}}{\type_o}}{\idx_f}]
+      {\expr_f}}
+    {\sequence{\val_1}\,\fillc{\ctxt'}{\expr}\,\sequence{\expr_3}}}$ \\
+  $= \app
+  {\EraseE{\expr_f}}
+  {\sequence{\ttsexp{\EraseE{\val_1}}{\EraseT{\type_1}}}
+    \,\ttsexp{\EraseE{\fillc{\ctxt'}{\expr}}}{\EraseT{\type_2}}
+    \,\sequence{\ttsexp{\EraseE{\expr_3}}{\EraseT{\type_3}}}
+    \;\EraseT{\type_r}}$ \\
+  $= \app
+  {\EraseE{\expr_f}}
+  {\sequence{\ttsexp{\EraseE{\val_1}}{\EraseT{\type_1}}}
+    \,\ttsexp{\fillc{\EraseC{\ctxt'}}{\EraseE{\expr}}}{\EraseT{\type_2}}
+    \,\sequence{\ttsexp{\EraseE{\expr_3}}{\EraseT{\type_3}}}
+    \;\EraseT{\type_r}}$ \\
+  $= \fillc
+  {\app
+    {\EraseE{\expr_f}}
+    {\sequence{\ttsexp{\EraseE{\val_1}}{\EraseT{\type_1}}}
+      \,\ttsexp{\EraseC{\ctxt'}}{\EraseT{\type_2}}
+      \,\sequence{\ttsexp{\EraseE{\expr_3}}{\EraseT{\type_3}}}
+      \;\EraseT{\type_r}}}
+  {\EraseE{\expr}}$ \\
+  $= \fillc
+  {\EraseC{\notedapp[\type_r]
+      {\annotate
+        [\typearray{\typefun{\sequence{\type_1}\,\type_2\,\sequence{\type_3}}{\type_o}}{\idx_f}]
+        {\expr_f}}
+      {\sequence{\val_1}\,\ctxt'\,\sequence{\expr_3}}}}
+  {\EraseE{\expr}}$ \\
+
+\paragraph{Type application:}
+  \[\ctxt =
+  \notedtapp[\type_r]
+  {\ctxt'}
+  {\sequence{\type_a}}\]
+  $\EraseE{\fillc{\notedtapp[\type_r]
+      {\ctxt'}
+      {\sequence{\type_a}}}
+    {\expr}}$ \\
+  $\EraseE{\notedtapp[\type_r]
+    {\fillc{\ctxt'}{\expr}}
+    {\sequence{\type_a}}}$ \\
+  $= \iapp
+  {\EraseE{\fillc{\ctxt'}{\expr}}}
+  {\sequence{\EraseT{\type_a}}\;\EraseT{\type_r}}$ \\
+  $= \iapp
+  {\fillc{\EraseC{\ctxt'}}{\EraseE{\expr}}}
+  {\sequence{\EraseT{\type_a}}\;\EraseT{\type_r}}$ \\
+  $= \fillc{\iapp
+    {\EraseC{\ctxt'}}
+    {\sequence{\EraseT{\type_a}}\;\EraseT{\type_r}}}
+  {\EraseE{\expr}}$ \\
+  $= \fillc{\EraseC{\notedtapp[\type_r]
+      {\ctxt'}
+      {\sequence{\type_a}}}}
+  {\EraseE{\expr}}$ \\
+
+\paragraph{Index application:}
+  \[\ctxt =
+  \notediapp[\type_r]
+  {\ctxt'}
+  {\sequence{\idx_a}}\]
+  $\EraseE{\fillc
+    {\notediapp[\type_r]
+      {\ctxt'}
+      {\sequence{\idx_a}}}
+    {\expr}}$ \\
+  $= \EraseE{\notediapp[\type_r]
+    {\fillc{\ctxt'}{\expr}}
+    {\sequence{\idx_a}}}$ \\
+  $= \iapp
+  {\EraseE{\fillc{\ctxt'}{\expr}}}
+  {\sequence{\idx_a}\;\EraseT{\type_r}}$ \\
+  $= \iapp
+  {\fillc{\EraseC{\ctxt'}}{\EraseE{\expr}}}
+  {\sequence{\idx_a}\;\EraseT{\type_r}}$ \\
+  $= \fillc{\iapp
+    {\EraseC{\ctxt'}}
+    {\sequence{\idx_a}\;\EraseT{\type_r}}}
+  {\EraseE{\expr}}$ \\
+  $= \fillc{\EraseC{\notediapp[\type_r]
+      {\ctxt'}
+      {\sequence{\idx_a}}}}
+  {\EraseE{\expr}}$ \\
+
+\paragraph{Unboxing:}
+  \[\ctxt =
+  \dproj
+  {\sequence{\var_i}}
+  {\var_e}
+  {\ctxt'}
+  {\expr_b^{\type_b}}\]
+  $\EraseE{\fillc
+    {\dproj
+      {\sequence{\var_i}}
+      {\var_e}
+      {\ctxt'}
+      {\expr_b^{\type_b}}}
+    {\expr}}$ \\
+  $= \EraseE{\dproj
+    {\sequence{\var_i}}
+    {\var_e}
+    {\fillc{\ctxt'}{\expr}}
+    {\expr_b^{\type_b}}}$ \\
+  $= \dproj
+  {\sequence{\var_i}}
+  {\var_e}
+  {\EraseE{\fillc{\ctxt'}{\expr}}}
+  {\EraseE{\expr_b^{\type_b}} \; \EraseT{\type_b}}$ \\
+  $= \dproj
+  {\sequence{\var_i}}
+  {\var_e}
+  {\fillc{\EraseC{\ctxt'}}{\EraseE{\expr}}}
+  {\EraseE{\expr_b^{\type_b}} \; \EraseT{\type_b}}$ \\
+  $= \fillc{\dproj
+    {\sequence{\var_i}}
+    {\var_e}
+    {\EraseC{\ctxt'}}
+    {\EraseE{\expr_b^{\type_b}} \; \EraseT{\type_b}}}
+  {\EraseE{\expr}}$ \\
+  $= \fillc{\EraseC{\dproj
+      {\sequence{\var_i}}
+      {\var_e}
+      {\ctxt'}
+      {\expr_b}}}
+  {\EraseE{\expr}}$ \\
+\end{sproof}
+
+We will also rely on a series of lemmas showing that substitution commutes with erasure.
+% Erase a generic expr then sub it into something
+\newcommand{\eexprsubst}[1]{\subst{#1}{\var}{\EraseE{\expr_\var}}}
+\newcommand{\etrmsubstE}[1]{\eexprsubst{\EraseTrm{#1}}}
+\newcommand{\exprsubstE}[1]{\eexprsubst{\EraseE{#1}}}
+\newcommand{\eatomsubstE}[1]{\eexprsubst{\EraseA{#1}}}
+\begin{lemma}%[Term substitution commutes with erasure]
+  \label{EESubstErase}
+  $\EraseTrm{\eexprsubst{\term}} = \etrmsubstE{\term}$
+\end{lemma}
+\begin{sproof}[This is straightforward induction on $\term$.]
+We use induction on $\term$.
+We skip the cases where $\var$ does not appear free in $\term$,
+as substitution would not change $\term$.
+\paragraph{Term abstraction:}
+\[\term = \lam{\sequence{\notevar{\var_i}{\type}}}{\expr}\text{, where } \var \not\in \sequence{\var_i}\]
+$\EraseTrm{\eexprsubst{\lam{\sequence{\notevar{\var_i}{\type}}}{\expr}}}$ \\
+$= \EraseA{\eexprsubst{\lam{\sequence{\notevar{\var_i}{\type}}}{\expr}}}$ \\
+$= \EraseA{\lam{\sequence{\notevar{\var_i}{\type}}}{\eexprsubst{\expr}}}$ \\
+$= \lam{\sequence{\var_i}}{\EraseE{\eexprsubst{\expr}}}$ \\
+$= \lam{\sequence{\var_i}}{\exprsubstE{\expr}}$ \\
+$= \eexprsubst{\lam{\sequence{\var_i}}{\EraseE{\expr}}}$ \\
+$= \eatomsubstE{\lam{\sequence{\notevar{\var_i}{\type}}}{\expr}}$ \\
+$= \etrmsubstE{\lam{\sequence{\notevar{\var_i}{\type}}}{\expr}}$ \\
+
+\paragraph{Type abstraction:}
+\[\term = \tlam{\sequence{\notevar{\var_i}{\kind}}}{\val}\]
+$\EraseTrm{\eexprsubst{\tlam{\sequence{\notevar{\var_i}{\kind}}}{\val}}}$ \\
+$= \EraseA{\eexprsubst{\tlam{\sequence{\notevar{\var_i}{\kind}}}{\val}}}$ \\
+$= \EraseA{\tlam{\sequence{\notevar{\var_i}{\kind}}}{\eexprsubst{\val}}}$ \\
+$= \ilam{\sequence{\var_i}}{\EraseE{\eexprsubst{\val}}}$ \\
+$= \ilam{\sequence{\var_i}}{\exprsubstE{\val}}$ \\
+$= \eexprsubst{\ilam{\sequence{\var_i}}{\EraseE{\val}}}$ \\
+$= \eatomsubstE{\tlam{\sequence{\notevar{\var_i}{\kind}}}{\val}}$ \\
+$= \etrmsubstE{\tlam{\sequence{\notevar{\var_i}{\kind}}}{\val}}$ \\
+
+\paragraph{Index abstraction:}
+\[\term = \ilam{\sequence{\notevar{\var_i}{\sort}}}{\val}\]
+$\EraseTrm{\eexprsubst{\ilam{\sequence{\notevar{\var_i}{\sort}}}{\val}}}$ \\
+$= \EraseA{\eexprsubst{\ilam{\sequence{\notevar{\var_i}{\sort}}}{\val}}}$ \\
+$= \EraseA{\ilam{\sequence{\notevar{\var_i}{\sort}}}{\eexprsubst{\val}}}$ \\
+$= \ilam{\sequence{\var_i}}{\EraseE{\eexprsubst{\val}}}$ \\
+$= \ilam{\sequence{\var_i}}{\exprsubstE{\val}}$ \\
+$= \eexprsubst{\ilam{\sequence{\var_i}}{\EraseE{\val}}}$ \\
+$= \eatomsubstE{\ilam{\sequence{\notevar{\var_i}{\sort}}}{\val}}$ \\
+$= \etrmsubstE{\ilam{\sequence{\notevar{\var_i}{\sort}}}{\val}}$ \\
+
+\paragraph{Box:}
+\[\term = \dsum{\sequence{\idx}}{\expr_s}{\type}\]
+$\EraseTrm{\eexprsubst{\dsum{\sequence{\idx}}{\expr_s}{\type}}}$ \\
+$= \EraseA{\eexprsubst{\dsum{\sequence{\idx}}{\expr_s}{\type}}}$ \\
+$= \EraseA{\dsum{\sequence{\idx}}{\eexprsubst{\expr_s}}{\type}}$ \\
+$= \dsum{\sequence{\idx}}{\EraseE{\eexprsubst{\expr_s}}}{}$ \\
+$= \dsum{\sequence{\idx}}{\exprsubstE{\expr_s}}{}$ \\
+$= \eexprsubst{\dsum{\sequence{\idx}}{\EraseE{\expr_s}}{}}$ \\
+$= \eatomsubstE{\dsum{\sequence{\idx}}{\expr_s}{\type}}$ \\
+$= \etrmsubstE{\dsum{\sequence{\idx}}{\expr_s}{\type}}$ \\
+
+\paragraph{Variable:}
+\[\term = \var\]
+$\EraseTrm{\eexprsubst{\var}}$ \\
+$= \EraseE{\eexprsubst{\var}}$ \\
+$= \EraseE{\expr_\var}$ \\
+$= \eexprsubst{\var}$ \\
+$= \exprsubstE{\var}$ \\
+$= \etrmsubstE{\var}$ \\
+
+\paragraph{Array:}
+\[\term = \arrlit{\sequence{\atom}}{\sequence{\nat}}\]
+$\EraseTrm{\eexprsubst{\arrlit{\sequence{\atom}}{\sequence{\nat}}}}$ \\
+$= \EraseE{\eexprsubst{\arrlit{\sequence{\atom}}{\sequence{\nat}}}}$ \\
+$= \EraseE{\arrlit{\sequence{\eexprsubst{\atom}}}{\sequence{\nat}}}$ \\
+$= \arrlit{\sequence{\EraseA{\eexprsubst{\atom}}}}{\sequence{\nat}}$ \\
+$= \arrlit{\sequence{\eatomsubstE{\atom}}}{\sequence{\nat}}$ \\
+$= \eexprsubst{\arrlit{\sequence{\EraseA{\atom}}}{\sequence{\nat}}}$ \\
+$= \exprsubstE{\arrlit{\sequence{\atom}}{\sequence{\nat}}}$ \\
+$= \etrmsubstE{\arrlit{\sequence{\atom}}{\sequence{\nat}}}$ \\
+
+\paragraph{Frame:}
+\[\term = \notedfrm[\type_r]{\sequence{\expr_c}}{\sequence{\nat}}\]
+$\EraseTrm{\eexprsubst{\notedfrm[\type_r]{\sequence{\expr_c}}{\sequence{\nat}}}}$ \\
+$= \EraseE{\eexprsubst{\notedfrm[\type_r]{\sequence{\expr_c}}{\sequence{\nat}}}}$ \\
+$= \EraseE{\notedfrm[\type_r]{\sequence{\eexprsubst{\expr_c}}}{\sequence{\nat}}}$ \\
+$= \frm{\sequence{\EraseE{\eexprsubst{\expr_c}}}}{\EraseT{\type_r}}$ \\
+$= \frm{\sequence{\exprsubstE{\expr_c}}}{\EraseT{\type_r}}$ \\
+$= \eexprsubst{\frm{\sequence{\EraseE{\expr_c}}}{\EraseT{\type_r}}}$ \\
+$= \exprsubstE{\notedfrm[\type_r]{\sequence{\expr_c}}{\sequence{\nat}}}$ \\
+$= \etrmsubstE{\notedfrm[\type_r]{\sequence{\expr_c}}{\sequence{\nat}}}$ \\
+
+\paragraph{Application:}
+\[\term =\notedapp[\type_r]
+{\annotate
+  [\typearray{\typefun{\sequence{\type_i}}{\type_o}}{\idx_f}]
+  {\expr_f}}
+{\sequence{\expr_a}}\]
+$\EraseTrm{\eexprsubst{\notedapp[\type_r]{\annotate
+      [\typearray{\typefun{\sequence{\type_i}}{\type_o}}{\idx_f}]
+      {\expr_f}}
+    {\sequence{\expr_a}}}}$ \\
+$= \EraseE{\eexprsubst{\notedapp[\type_r]{\annotate
+      [\typearray{\typefun{\sequence{\type_i}}{\type_o}}{\idx_f}]
+      {\expr_f}}
+    {\sequence{\expr_a}}}}$ \\
+$= \EraseE{\notedapp[\type_r]{\eexprsubst{\annotate
+      [\typearray{\typefun{\sequence{\type_i}}{\type_o}}{\idx_f}]
+      {\expr_f}}}
+  {\sequence{\eexprsubst{\expr_a}}}}$ \\
+$= \app
+{\EraseE{\eexprsubst{\expr_f}}}
+{\sequence{\ttsexp{\EraseE{\eexprsubst{\expr_a}}}{\EraseT{\type_i}}}\;\EraseT{\type_r}}$ \\
+$= \app
+{\exprsubstE{\expr_f}}
+{\sequence{\ttsexp{\exprsubstE{\expr_a}}{\EraseT{\type_i}}}\;\EraseT{\type_r}}$ \\
+$= \eexprsubst{\app
+  {\EraseE{\expr_f}}
+  {\sequence{\ttsexp{\EraseE{\expr_a}}{\EraseT{\type_i}}}\;\EraseT{\type_r}}}$ \\
+$= \exprsubstE{\notedapp[\type_r]
+  {\annotate
+    [\typearray{\typefun{\sequence{\type_i}}{\type_o}}{\idx_f}]
+    {\expr_f}}
+  {\sequence{\expr_a}}}$ \\
+$= \etrmsubstE{\notedapp[\type_r]
+  {\annotate
+    [\typearray{\typefun{\sequence{\type_i}}{\type_o}}{\idx_f}]
+    {\expr_f}}
+  {\sequence{\expr_a}}}$ \\
+
+\paragraph{Type application:}
+\[\term = \notedtapp[\type_r]{\expr_f}{\sequence{\type_a}}\]
+$\EraseTrm{\eexprsubst{\notedtapp[\type_r]{\expr_f}{\sequence{\type_a}}}}$ \\
+$= \EraseE{\eexprsubst{\notedtapp[\type_r]{\expr_f}{\sequence{\type_a}}}}$ \\
+$= \EraseE{\notedtapp[\type_r]{\eexprsubst{\expr_f}}{\sequence{\type_a}}}$ \\
+$= \iapp{\EraseE{\eexprsubst{\expr_f}}}{\sequence{\EraseT{\type_a}}\;\EraseT{\type_r}}$ \\
+$= \iapp{\exprsubstE{\expr_f}}{\sequence{\EraseT{\type_a}}\;\EraseT{\type_r}}$ \\
+$= \eexprsubst{\iapp{\EraseE{\expr_f}}{\sequence{\EraseT{\type_a}}\;\EraseT{\type_r}}}$ \\
+$= \exprsubstE{\notedtapp[\type_r]{\expr_f}{\sequence{\type_a}}}$ \\
+$= \etrmsubstE{\notedtapp[\type_r]{\expr_f}{\sequence{\type_a}}}$ \\
+
+\paragraph{Index application:}
+\[\term = \notediapp[\type_r]{\expr_f}{\sequence{\idx_a}}\]
+$\EraseTrm{\eexprsubst{\notediapp[\type_r]{\expr_f}{\sequence{\idx_a}}}}$ \\
+$= \EraseE{\eexprsubst{\notediapp[\type_r]{\expr_f}{\sequence{\idx_a}}}}$ \\
+$= \EraseE{\notediapp[\type_r]{\eexprsubst{\expr_f}}{\sequence{\idx_a}}}$ \\
+$= \iapp{\EraseE{\eexprsubst{\expr_f}}}{\sequence{\idx_a}\;\EraseT{\type_r}}$ \\
+$= \iapp{\exprsubstE{\expr_f}}{\sequence{\idx_a}\;\EraseT{\type_r}}$ \\
+$= \eexprsubst{\iapp{\EraseE{\expr_f}}{\sequence{\idx_a}\;\EraseT{\type_r}}}$ \\
+$= \exprsubstE{\notediapp[\type_r]{\expr_f}{\sequence{\idx_a}}}$ \\
+$= \etrmsubstE{\notediapp[\type_r]{\expr_f}{\sequence{\idx_a}}}$ \\
+
+\paragraph{Unboxing:}
+\[\term = \dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b^{\type_b}}\]
+$\EraseTrm{\eexprsubst{\dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b^{\type_b}}}}$ \\
+$= \EraseE{\eexprsubst{\dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b^{\type_b}}}}$ \\
+$= \EraseE{\dproj{\sequence{\var_i}}{\var_e}{\eexprsubst{\expr_s}}{\eexprsubst{\expr_b^{\type_b}}}}$ \\
+$= \dproj{\sequence{\var_i}}{\var_e}{\EraseE{\eexprsubst{\expr_s}}}
+{\EraseE{\eexprsubst{\expr_b^{\type_b}}}\;\EraseT{\type_b}}$ \\
+% Note: the above line relies on an earlier lemma that substitution in e_b does not change its type
+$= \dproj{\sequence{\var_i}}{\var_e}{\exprsubstE{\expr_s}}{\exprsubstE{\expr_b^{\type_b}}\;\EraseT{\type_b}}$ \\
+$= \eexprsubst{\dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b\;\EraseT{\type_b}}}$ \\
+$= \exprsubstE{\dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b}}$ \\
+$= \etrmsubstE{\dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b}}$ \\
+
+\end{sproof}
+
+\newcommand{\etypesubst}[1]{\subst{#1}{\var}{\EraseT{\type_\var}}}
+\begin{lemma}%[Type-into-type substitution commutes with erasure]
+  \label{TTSubstErase}
+  $\EraseT{\typesubst{\type}} = \etypesubst{\EraseT{\type}}$
+\end{lemma}
+\begin{sproof}[This is straightforward induction on $\type$.]
+  We use induction on $\type$.
+  We elide the cases where $\var$ does not appear free in $\type$.
+  \paragraph{Variable:}
+  \[\type = \var\]
+  $\EraseT{\typesubst{\var}}$ \\
+  $= \EraseT{\type_\var}$ \\
+  $= \etypesubst{\var}$ \\
+  $= \etypesubst{\EraseT{\var}}$ \\
+
+  \paragraph{Function:}
+  \[\type = \typefun{\sequence{\type_i}}{\type_o}\]
+  $\EraseT{\typesubst{\typefun{\sequence{\type_i}}{\type_o}}}$ \\
+  $= \EraseT{\typefun{\sequence{\typesubst{\type_i}}}{\typesubst{\type_o}}}$ \\
+  $= \idxshape{}$ \\
+  % $= \etypesubst{\idxshape{}}$ \\
+  $= \etypesubst{\EraseT{\typefun{\sequence{\type_i}}{\type_o}}}$ \\
+
+  \paragraph{Universal:}
+  \[\type = \typeuniv{\sequence{\notevar{\var_u}{\kind}}}{\type_u}\text{, where }\var \not\in \sequence{\var_u}\]
+  $\EraseT{\typesubst{\typeuniv{\sequence{\notevar{\var_u}{\kind}}}{\type_u}}}$ \\
+  $= \EraseT{\typeuniv{\sequence{\notevar{\var_u}{\kind}}}{\typesubst{\type_u}}}$ \\
+  $= \idxshape{}$ \\
+  $= \etypesubst{\EraseT{\typeuniv{\sequence{\notevar{\var_u}{\kind}}}{\type_u}}}$
+
+  \paragraph{Dependent product:}
+  \[\type = \typedprod{\sequence{\notevar{\var_p}{\sort}}}{\type_p}\]
+  $\EraseT{\typesubst{\typedprod{\sequence{\notevar{\var_p}{\sort}}}{\type_p}}}$ \\
+  $= \EraseT{\typedprod{\sequence{\notevar{\var_p}{\sort}}}{\typesubst{\type_p}}}$ \\
+  $= \idxshape{}$ \\
+  $= \etypesubst{\EraseT{\typedprod{\sequence{\notevar{\var_p}{\sort}}}{\type_p}}}$ \\
+
+  \paragraph{Dependent sum:}
+  \[\type = \typedsum{\sequence{\notevar{\var_p}{\sort}}}{\type_p}\]
+  $\EraseT{\typesubst{\typedsum{\sequence{\notevar{\var_p}{\sort}}}{\type_p}}}$ \\
+  $= \EraseT{\typedsum{\sequence{\notevar{\var_p}{\sort}}}{\typesubst{\type_p}}}$ \\
+  $= \idxshape{}$ \\
+  $= \etypesubst{\EraseT{\typedsum{\sequence{\notevar{\var_p}{\sort}}}{\type_p}}}$ \\
+
+  \paragraph{Array:}
+  \[\type = \typearray{\type_a}{\idx}\]
+  $\EraseT{\typesubst{\typearray{\type_a}{\idx}}}$ \\
+  $= \EraseT{\typearray{\typesubst{\type_a}}{\idx_a}}$ \\
+  $= \idx_a$\qquad\text{(note: $\var$ is a type variable and cannot appear in $\idx_a$)} \\
+  $= \etypesubst{\EraseT{\typearray{\type_a}{\idx}}}$
+
+\end{sproof}
+
+%\newcommand{\tesubstE}[1]{\subst}
+\begin{lemma}%[Type-into-term substitution commutes with erasure]
+  \label{TESubstErase}
+  $\EraseTrm{\typesubst{\term}} = \etypesubst{\EraseTrm{\term}}$
+\end{lemma}
+\begin{sproof}[This is straightforward induction on $\term$.]
+  We use induction on $\term$.
+  We elide the cases where $\var$ does not appear free in $\term$.
+
+  \paragraph{Term abstraction:}
+  \[\term = \lam{\sequence{\notevar{\var_i}{\type}}}{\expr}\]
+  $\EraseTrm{\typesubst{\lam{\sequence{\notevar{\var_i}{\type}}}{\expr}}}$ \\
+  $= \EraseA{\typesubst{\lam{\sequence{\notevar{\var_i}{\type}}}{\expr}}}$ \\
+  $= \EraseA{\lam{\sequence{\notevar{\var_i}{\type}}}{\typesubst{\expr}}}$ \\
+  $= \lam{\sequence{\var_i}}{\EraseE{\etypesubst{\expr}}}$ \\
+  $= \lam{\sequence{\var_i}}{\etypesubst{\EraseE{\expr}}}$ \\
+  $= \etypesubst{\lam{\sequence{\var_i}}{\EraseE{\expr}}}$ \\
+  $= \etypesubst{\EraseA{\lam{\sequence{\notevar{\var_i}{\type}}}{\expr}}}$ \\
+  $= \etypesubst{\EraseTrm{\lam{\sequence{\notevar{\var_i}{\type}}}{\expr}}}$ \\
+
+  \paragraph{Type abstraction:}
+  \[\term = \tlam{\sequence{\notevar{\var_i}{\kind}}}{\val}\text{, where } \var \not\in \sequence{\var_i}\]
+  $\EraseTrm{\typesubst{\tlam{\sequence{\notevar{\var_i}{\kind}}}{\val}}}$ \\
+  $= \EraseA{\typesubst{\tlam{\sequence{\notevar{\var_i}{\kind}}}{\val}}}$ \\
+  $= \EraseA{\tlam{\sequence{\notevar{\var_i}{\kind}}}{\typesubst{\val}}}$ \\
+  $= \ilam{\sequence{\var_i}}{\EraseE{\typesubst{\val}}}$ \\
+  $= \ilam{\sequence{\var_i}}{\etypesubst{\EraseE{\val}}}$ \\
+  $= \etypesubst{\ilam{\sequence{\var_i}}{\EraseE{\val}}}$ \\
+  $= \etypesubst{\EraseA{\tlam{\sequence{\notevar{\var_i}{\kind}}}{\val}}}$ \\
+  $= \etypesubst{\EraseTrm{\tlam{\sequence{\notevar{\var_i}{\kind}}}{\val}}}$ \\
+
+  \paragraph{Index abstraction:}
+  \[\term = \ilam{\sequence{\notevar{\var_i}{\sort}}}{\val}\]
+  $\EraseTrm{\typesubst{\ilam{\sequence{\notevar{\var_i}{\sort}}}{\val}}}$ \\
+  $= \EraseA{\typesubst{\ilam{\sequence{\notevar{\var_i}{\sort}}}{\val}}}$ \\
+  $= \EraseA{\ilam{\sequence{\notevar{\var_i}{\sort}}}{\typesubst{\val}}}$ \\
+  $= \ilam{\sequence{\var_i}}{\EraseE{\typesubst{\val}}}$ \\
+  $= \ilam{\sequence{\var_i}}{\etypesubst{\EraseE{\val}}}$ \\
+  $= \etypesubst{\ilam{\sequence{\var_i}}{\EraseE{\val}}}$ \\
+  $= \etypesubst{\EraseA{\ilam{\sequence{\notevar{\var_i}{\kind}}}{\val}}}$ \\
+  $= \etypesubst{\EraseTrm{\ilam{\sequence{\notevar{\var_i}{\kind}}}{\val}}}$ \\
+
+  \paragraph{Box:}
+  \[\term = \dsum{\sequence{\idx}}{\expr_s}{\type}\]
+  $\EraseTrm{\typesubst{\dsum{\sequence{\idx}}{\expr_s}{\type}}}$ \\
+  $= \EraseA{\typesubst{\dsum{\sequence{\idx}}{\expr_s}{\type}}}$ \\
+  $= \EraseA{{\dsum{\sequence{\idx}}{\typesubst{\expr_s}}{\typesubst{\type}}}}$ \\
+  $= \dsum{\sequence{\idx}}{\EraseE{\typesubst{\expr_s}}}{}$ \\
+  $= \dsum{\sequence{\idx}}{\etypesubst{\EraseE{\expr_s}}}{}$ \\
+  $= \etypesubst{\dsum{\sequence{\idx}}{\EraseE{\expr_s}}{}}$ \\
+  $= \etypesubst{\EraseA{\dsum{\sequence{\idx}}{\expr_s}{\type}}}$ \\
+  $= \etypesubst{\EraseTrm{\dsum{\sequence{\idx}}{\expr_s}{\type}}}$ \\
+
+  \paragraph{Array:}
+  \[\term = \arrlit{\sequence{\atom}}{\sequence{\nat}}\]
+  $\EraseTrm{\typesubst{\arrlit{\sequence{\atom}}{\sequence{\nat}}}}$ \\
+  $= \EraseE{\typesubst{\arrlit{\sequence{\atom}}{\sequence{\nat}}}}$ \\
+  $= \EraseE{\arrlit{\sequence{\typesubst{\atom}}}{\sequence{\nat}}}$ \\
+  $= \arrlit{\sequence{\EraseA{\typesubst{\atom}}}}{\sequence{\nat}}$ \\
+  $= \arrlit{\sequence{\etypesubst{\EraseA{\atom}}}}{\sequence{\nat}}$ \\
+  $= \etypesubst{\arrlit{\sequence{\EraseA{\atom}}}{\sequence{\nat}}}$ \\
+  $= \etypesubst{\EraseE{\arrlit{\sequence{\atom}}{\sequence{\nat}}}}$ \\
+  $= \etypesubst{\EraseTrm{\arrlit{\sequence{\atom}}{\sequence{\nat}}}}$ \\
+
+  \paragraph{Frame:}
+  \[\term = \notedfrm[\type_r]{\sequence{\expr_c}}{\sequence{\nat}}\]
+  $\EraseTrm{\typesubst{\notedfrm[\type_r]{\sequence{\expr_c}}{\sequence{\nat}}}}$ \\
+  $= \EraseE{\typesubst{\notedfrm[\type_r]{\sequence{\expr_c}}{\sequence{\nat}}}}$ \\
+  $= \EraseE{\notedfrm[\typesubst{\type_r}]{\sequence{\typesubst{\expr_c}}}{\sequence{\nat}}}$ \\
+  $= \frm{\sequence{\EraseE{\typesubst{\expr_c}}}}{\EraseT{\typesubst{\type_r}}}$ \\
+  $= \frm{\sequence{\etypesubst{\EraseE{\expr_c}}}}{\EraseT{\typesubst{\type_r}}}$%
+  , by the induction hypothesis \\
+  $= \frm{\sequence{\etypesubst{\EraseE{\expr_c}}}}{\etypesubst{\EraseT{\type_r}}}$%
+  , by Lemma \ref{TTSubstErase} \\
+  $= \etypesubst{\frm{\sequence{\EraseE{\expr_c}}}{\EraseT{\type_r}}}$ \\
+  $= \etypesubst{\EraseE{\notedfrm[\type_r]{\sequence{\expr_c}}{\sequence{\nat}}}}$ \\
+  $= \etypesubst{\EraseTrm{\notedfrm[\type_r]{\sequence{\expr_c}}{\sequence{\nat}}}}$ \\
+
+  \paragraph{Application:}
+  \[\term =
+  \notedapp[\type_r]{\annotate
+    [\typearray{\typefun{\sequence{\type_i}}{\type_o}}{\idx_f}]
+    {\expr_f}}{\sequence{\expr_a}}\]
+  $\EraseTrm{\typesubst{\notedapp[\type_r]{\annotate
+        [\typearray{\typefun{\sequence{\type_i}}{\type_o}}{\idx_f}]
+        {\expr_f}}{\sequence{\expr_a}}}}$ \\
+  $= \EraseE{\typesubst{\notedapp[\type_r]{\annotate
+        [\typearray{\typefun{\sequence{\type_i}}{\type_o}}{\idx_f}]
+        {\expr_f}}{\sequence{\expr_a}}}}$ \\
+  $= \EraseE{\notedapp[\typesubst{\type_r}]{\annotate
+      [\typesubst{\typearray{\typefun{\sequence{\type_i}}{\type_o}}{\idx_f}}]
+      {\typesubst{\expr_f}}}{\sequence{\typesubst{\expr_a}}}}$ \\
+  $= \EraseE{\notedapp[\typesubst{\type_r}]{\annotate
+      [\typearray{\typefun{\sequence{\typesubst{\type_i}}}{\typesubst{\type_o}}}{\idx_f}]
+      {\typesubst{\expr_f}}}{\sequence{\typesubst{\expr_a}}}}$ \\
+  $= \app{\EraseE{\typesubst{\expr_f}}}{\sequence
+    {\ttsexp{\EraseE{\typesubst{\expr_a}}}{\EraseT{\typesubst{\type_i}}}}
+    \;\EraseT{\typesubst{\type_r}}}$ \\
+  $= \app{\etypesubst{\EraseE{\expr_f}}}{\sequence
+    {\ttsexp{\etypesubst{\EraseE{\expr_a}}}{\EraseT{\typesubst{\type_i}}}}
+    \;\EraseT{\typesubst{\type_r}}}$, by the induction hypothesis \\
+  $= \app{\etypesubst{\EraseE{\expr_f}}}{\sequence
+    {\ttsexp{\etypesubst{\EraseE{\expr_a}}}{\etypesubst{\EraseT{\type_i}}}}
+    \;\etypesubst{\EraseE{\type_r}}}$, by Lemma \ref{TTSubstErase} \\
+  $= \etypesubst{\app{\EraseE{\expr_f}}{\sequence
+    {\ttsexp{\EraseE{\expr_a}}{\EraseT{\type_i}}}
+    \;\EraseE{\type_r}}}$ \\
+  $= \etypesubst{\EraseE{\notedapp[\type_r]{\annotate
+        [\typearray{\typefun{\sequence{\type_i}}{\type_o}}{\idx_f}]
+        {\expr_f}}{\sequence{\expr_a}}}}$ \\
+  $= \etypesubst{\EraseTrm{\notedapp[\type_r]{\annotate
+        [\typearray{\typefun{\sequence{\type_i}}{\type_o}}{\idx_f}]
+        {\expr_f}}{\sequence{\expr_a}}}}$ \\
+
+  \paragraph{Type application:}
+  \[\term = \notedtapp[\type_r]{\expr_f}{\sequence{\type_a}}\]
+  $\EraseTrm{\typesubst{\notedtapp[\type_r]{\expr_f}{\sequence{\type_a}}}}$ \\
+  $= \EraseE{\typesubst{\notedtapp[\type_r]{\expr_f}{\sequence{\type_a}}}}$ \\
+  $= \EraseE{\notedtapp[\typesubst{\type_r}]{\typesubst{\expr_f}}{\sequence{\typesubst{\type_a}}}}$ \\
+  $= \iapp{\EraseE{\typesubst{\expr_f}}}{\sequence
+    {\EraseT{\typesubst{\type_a}}}\;\EraseT{\typesubst{\type_r}}}$ \\
+  $= \iapp{\etypesubst{\EraseE{\expr_f}}}{\sequence
+    {\EraseT{\typesubst{\type_a}}}\;\EraseT{\typesubst{\type_r}}}$%
+  , by the induction hypothesis \\
+  $= \iapp{\etypesubst{\EraseE{\expr_f}}}{\sequence
+    {\etypesubst{\EraseT{\type_a}}}\;\etypesubst{\EraseT{\type_r}}}$%
+  , by Lemma \ref{TTSubstErase} \\
+  $= \etypesubst{\iapp{\EraseE{\expr_f}}{\sequence
+      {\EraseT{\type_a}}\;\EraseT{\type_r}}}$ \\
+  $= \etypesubst{\EraseE{\notedtapp[\type_r]{\expr_f}{\sequence{\type_a}}}}$ \\
+  $= \etypesubst{\EraseTrm{\notedtapp[\type_r]{\expr_f}{\sequence{\type_a}}}}$ \\
+
+  \paragraph{Index application:}
+  \[\term = \notediapp[\type_r]{\expr_f}{\sequence{\idx_a}}\]
+  $\EraseTrm{\typesubst{\notediapp[\type_r]{\expr_f}{\sequence{\idx_a}}}}$ \\
+  $= \EraseE{\typesubst{\notediapp[\type_r]{\expr_f}{\sequence{\idx_a}}}}$ \\
+  $= \EraseE{\notediapp[\typesubst{\type_r}]{\typesubst{\expr_f}}{\sequence{\idx_a}}}$ \\
+  $= \iapp{\EraseE{\typesubst{\expr_f}}}{\sequence{\idx_a}\;\EraseT{\typesubst{\type_r}}}$ \\
+  $= \iapp{\etypesubst{\EraseE{\expr_f}}}{\sequence{\idx_a}\;\EraseT{\typesubst{\type_r}}}$%
+  , by the induction hypothesis\\
+  $= \iapp{\etypesubst{\EraseE{\expr_f}}}{\sequence{\idx_a}\;\etypesubst{\EraseT{\type_r}}}$%
+  , by Lemma \ref{TTSubstErase}\\
+  $= \etypesubst{\iapp{\EraseE{\expr_f}}{\sequence{\idx_a}\;\EraseT{\type_r}}}$ \\
+  $= \etypesubst{\EraseE{\notediapp[\type_r]{\expr_f}{\sequence{\idx_a}}}}$ \\
+  $= \etypesubst{\EraseTrm{\notediapp[\type_r]{\expr_f}{\sequence{\idx_a}}}}$ \\
+
+  \paragraph{Unboxing:}
+  \[\term = \dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b^{\type_b}}\]
+  $\EraseTrm{\typesubst{\dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b^{\type_b}}}}$ \\
+  $= \EraseE{\typesubst{\dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b^{\type_b}}}}$ \\
+  $= \EraseE{\dproj{\sequence{\var_i}}{\var_e}{\typesubst{\expr_s}}
+    {\typesubst{\expr_b}^{\typesubst{\type_b}}}}$ \\
+  $= \dproj{\sequence{\var_i}}{\var_e}{\EraseE{\typesubst{\expr_s}}}
+  {\EraseE{\typesubst{\expr_b}} \; \EraseT{\typesubst{\type_b}}}$ \\
+  $= \dproj{\sequence{\var_i}}{\var_e}{\EraseE{\typesubst{\expr_s}}}
+  {\EraseE{\typesubst{\expr_b}} \; \etypesubst{\EraseT{\type_b}}}$ \\
+  $= \dproj{\sequence{\var_i}}{\var_e}{\etypesubst{\EraseE{\expr_s}}}
+  {\etypesubst{\EraseE{\expr_b}} \; \etypesubst{\EraseT{\type_b}}}$ \\
+  $= \etypesubst{\dproj{\sequence{\var_i}}{\var_e}{\EraseE{\expr_s}}{\EraseE{\expr_b} \; \EraseT{\type_b}}}$ \\
+  $= \etypesubst{\EraseE{\dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b}}}$ \\
+  $= \etypesubst{\EraseTrm{\dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b}}}$ \\
+
+\end{sproof}
+
+\begin{lemma}%[Index-into-type substitution commutes with erasure]
+  \label{ITSubstErase}
+  $\EraseT{\idxsubst{\type}} = \idxsubst{\EraseT{\type}}$
+\end{lemma}
+\begin{sproof}[This is straightforward induction on $\type$.]
+  We use induction on $\type$.
+  We elide the cases where $\var$ does not appear free in $\type$.
+  \paragraph{Function:}
+  \[\type = \typefun{\sequence{\type_i}}{\type_o}\]
+  $\EraseT{\idxsubst{\typefun{\sequence{\type_i}}{\type_o}}}$ \\
+  $= \EraseT{\typefun{\sequence{\idxsubst{\type_i}}}{\idxsubst{\type_o}}}$ \\
+  $= \idxshape{}$ \\
+  $= \idxsubst{\idxshape{}}$ \\
+  $= \idxsubst{\EraseT{\typefun{\sequence{\type_i}}{\type_o}}}$ \\
+
+  \paragraph{Universal:}
+  \[\type = \typeuniv{\sequence{\notevar{\var_u}{\kind}}}{\type_u}\]
+  $\EraseT{\idxsubst{\typeuniv{\sequence{\notevar{\var_u}{\kind}}}{\type_u}}}$ \\
+  $= \EraseT{\typeuniv{\sequence{\notevar{\var_u}{\kind}}}{\idxsubst{\type_u}}}$ \\
+  $= \idxshape{}$ \\
+  $= \idxsubst{\idxshape{}}$ \\
+  $= \idxsubst{\EraseT{\typeuniv{\sequence{\notevar{\var_u}{\kind}}}{\type_u}}}$ \\
+
+  \paragraph{Dependent product:}
+  \[\type = \typedprod{\sequence{\notevar{\var_p}{\sort}}}{\type_p}\text{, where }\var \not\in \sequence{\var_p}\]
+  $\EraseT{\idxsubst{\typedprod{\sequence{\notevar{\var_p}{\sort}}}{\type_p}}}$ \\
+  $= \EraseT{\typedprod{\sequence{\notevar{\var_p}{\sort}}}{\idxsubst{\type_p}}}$ \\
+  $= \idxshape{}$ \\
+  $= \idxsubst{\idxshape{}}$ \\
+  $= \idxsubst{\EraseT{\typedprod{\sequence{\notevar{\var_p}{\sort}}}{\type_p}}}$ \\
+
+  \paragraph{Dependent sum:}
+  \[\type = \typedsum{\sequence{\notevar{\var_p}{\sort}}}{\type_p}\text{, where }\var \not\in \sequence{\var_p}\]
+  $\EraseT{\idxsubst{\typedsum{\sequence{\notevar{\var_p}{\sort}}}{\type_p}}}$ \\
+  $= \EraseT{\typedsum{\sequence{\notevar{\var_p}{\sort}}}{\idxsubst{\type_p}}}$ \\
+  $= \idxshape{}$ \\
+  $= \idxsubst{\idxshape{}}$ \\
+  $= \idxsubst{\EraseT{\typedsum{\sequence{\notevar{\var_p}{\sort}}}{\type_p}}}$ \\
+
+  \paragraph{Array:}
+  \[\type = \typearray{\type_a}{\idx}\]
+  $\EraseT{\idxsubst{\typearray{\type_a}{\idx}}}$ \\
+  $= \EraseT{\typearray{\idxsubst{\type_a}}{\idxsubst{\idx}}}$ \\
+  $= \idxsubst{\idx}$ \\
+  $= \idxsubst{\EraseT{\typearray{\type_a}{\idx}}}$ \\
+
+\end{sproof}
+
+\begin{lemma}%[Index-into-term substitution commutes with erasure]
+  \label{IESubstErase}
+  $\EraseTrm{\idxsubst{\term}} = \idxsubst{\EraseTrm{\term}}$
+\end{lemma}
+\begin{sproof}[This is straightforward induction on $\term$.]
+  We use induction on $\term$.
+  We elide the cases where $\var$ does not appear free in $\term$.
+
+  \paragraph{Term abstraction:}
+  \[\term = \lam{\sequence{\notevar{\var_i}{\type}}}{\expr}\]
+  $\EraseTrm{\idxsubst{\lam{\sequence{\notevar{\var_i}{\type}}}{\expr}}}$ \\
+  $= \EraseA{\idxsubst{\lam{\sequence{\notevar{\var_i}{\type}}}{\expr}}}$ \\
+  $= \EraseA{\lam{\sequence{\notevar{\var_i}{\type}}}{\idxsubst{\expr}}}$ \\
+  $= \lam{\sequence{\var_i}}{\EraseE{\idxsubst{\expr}}}$ \\
+  $= \lam{\sequence{\var_i}}{\idxsubst{\EraseE{\expr}}}$ \\
+  $= \idxsubst{\lam{\sequence{\var_i}}{\EraseE{\expr}}}$ \\
+  $= \idxsubst{\EraseA{\lam{\sequence{\var_i}}{\expr}}}$ \\
+  $= \idxsubst{\EraseTrm{\lam{\sequence{\var_i}}{\expr}}}$ \\
+
+  \paragraph{Type abstraction:}
+  \[\term = \tlam{\sequence{\notevar{\var_i}{\kind}}}{\val}\]
+  Note: $\var$ is an index variable, while the $\sequence{\var_i}$ are type variables, so they do not shadow.
+  $\EraseTrm{\idxsubst{\tlam{\sequence{\notevar{\var_i}{\kind}}}{\val}}}$ \\
+  $= \EraseA{\idxsubst{\tlam{\sequence{\notevar{\var_i}{\kind}}}{\val}}}$ \\
+  $= \EraseA{\tlam{\sequence{\notevar{\var_i}{\kind}}}{\idxsubst{\val}}}$ \\
+  $= \ilam{\sequence{\var_i}}{\EraseE{\idxsubst{\val}}}$ \\
+  $= \ilam{\sequence{\var_i}}{\idxsubst{\EraseE{\val}}}$ \\
+  $= \idxsubst{\ilam{\sequence{\var_i}}{\EraseE{\val}}}$ \\
+  $= \idxsubst{\EraseA{\tlam{\sequence{\notevar{\var_i}{\kind}}}{\val}}}$ \\
+  $= \idxsubst{\EraseTrm{\tlam{\sequence{\notevar{\var_i}{\kind}}}{\val}}}$ \\
+
+  \paragraph{Index abstraction:}
+  \[\term = \ilam{\sequence{\notevar{\var_i}{\sort}}}{\val}\text{, where } \var \not\in \sequence{\var_i}\]
+  $\EraseTrm{\idxsubst{\ilam{\sequence{\notevar{\var_i}{\sort}}}{\val}}}$ \\
+  $= \EraseA{\idxsubst{\ilam{\sequence{\notevar{\var_i}{\sort}}}{\val}}}$ \\
+  $= \EraseA{\ilam{\sequence{\notevar{\var_i}{\sort}}}{\idxsubst{\val}}}$ \\
+  $= \ilam{\sequence{\var_i}}{\EraseE{\idxsubst{\val}}}$ \\
+  $= \ilam{\sequence{\var_i}}{\idxsubst{\EraseE{\val}}}$ \\
+  $= \idxsubst{\ilam{\sequence{\var_i}}{\EraseE{\val}}}$ \\
+  $= \idxsubst{\EraseA{\ilam{\sequence{\notevar{\var_i}{\sort}}}{\val}}}$ \\
+  $= \idxsubst{\EraseTrm{\ilam{\sequence{\notevar{\var_i}{\sort}}}{\val}}}$ \\
+
+  \paragraph{Box:}
+  \[\term = \dsum{\sequence{\idx}}{\expr_s}{\type}\]
+  $\EraseTrm{\idxsubst{\dsum{\sequence{\idx}}{\expr_s}{\type}}}$ \\
+  $= \EraseA{\idxsubst{\dsum{\sequence{\idx}}{\expr_s}{\type}}}$ \\
+  $= \EraseA{\dsum{\sequence{\idxsubst{\idx}}}{\idxsubst{\expr_s}}{\idxsubst{\type}}}$ \\
+  $= \dsum{\sequence{\idxsubst{\idx}}}{\EraseE{\idxsubst{\expr_s}}}{}$ \\
+  $= \dsum{\sequence{\idxsubst{\idx}}}{\idxsubst{\EraseE{\expr_s}}}{}$ \\
+  $= \idxsubst{\dsum{\sequence{\idx}}{\EraseE{\expr_s}}{}}$ \\
+  $= \idxsubst{\EraseA{\dsum{\sequence{\idx}}{\expr_s}{\type}}}$ \\
+  $= \idxsubst{\EraseTrm{\dsum{\sequence{\idx}}{\expr_s}{\type}}}$ \\
+
+  \paragraph{Array:}
+  \[\term = \arrlit{\sequence{\atom}}{\sequence{\nat}}\]
+  $\EraseTrm{\idxsubst{\arrlit{\sequence{\atom}}{\sequence{\nat}}}}$ \\
+  $= \EraseE{\idxsubst{\arrlit{\sequence{\atom}}{\sequence{\nat}}}}$ \\
+  $= \EraseE{\arrlit{\sequence{\idxsubst\atom}}{\sequence{\nat}}}$ \\
+  $= \arrlit{\sequence{\EraseA{\idxsubst{\atom}}}}{\sequence{\nat}}$ \\
+  $= \arrlit{\sequence{\idxsubst{\EraseA{\atom}}}}{\sequence{\nat}}$ \\
+  $= \idxsubst{\arrlit{\sequence{\EraseA{\atom}}}{\sequence{\nat}}}$ \\
+  $= \idxsubst{\EraseE{\arrlit{\sequence{\atom}}{\sequence{\nat}}}}$ \\
+  $= \idxsubst{\EraseTrm{\arrlit{\sequence{\atom}}{\sequence{\nat}}}}$ \\
+
+  \paragraph{Frame:}
+  \[\term = \notedfrm[\type_r]{\sequence{\expr_c}}{\sequence{\nat}}\]
+  $\EraseTrm{\idxsubst{\notedfrm[\type_r]{\sequence{\expr_c}}{\sequence{\nat}}}}$ \\
+  $= \EraseE{\idxsubst{\notedfrm[\type_r]{\sequence{\expr_c}}{\sequence{\nat}}}}$ \\
+  $= \EraseE{\notedfrm[\idxsubst{\type_r}]{\sequence{\idxsubst{\expr_c}}}{\sequence{\nat}}}$ \\
+  $= \frm{\sequence{\EraseE{\idxsubst{\expr_c}}}}{\EraseT{\idxsubst{\type_r}}}$ \\
+  $= \frm{\sequence{\idxsubst{\EraseE{\expr_c}}}}{\EraseT{\idxsubst{\type_r}}}$%
+  , by the induction hypothesis \\
+  $= \frm{\sequence{\idxsubst{\EraseE{\expr_c}}}}{\idxsubst{\EraseT{\type_r}}}$%
+  , by Lemma \ref{ITSubstErase} \\
+  $= \idxsubst{\frm{\sequence{\EraseE{\expr_c}}}{\EraseT{\type_r}}}$ \\
+  $= \idxsubst{\EraseE{\notedfrm[\type_r]{\sequence{\expr_c}}{\sequence{\nat}}}}$ \\
+  $= \idxsubst{\EraseTrm{\notedfrm[\type_r]{\sequence{\expr_c}}{\sequence{\nat}}}}$ \\
+
+  \paragraph{Application:}
+  \[\term =
+  \notedapp[\type_r]{\annotate
+    [\typearray{\typefun{\sequence{\type_i}}{\type_o}}{\idx_f}]
+    {\expr_f}}{\sequence{\expr_a}}\]
+  $\EraseTrm{\idxsubst{\notedapp[\type_r]{\annotate
+        [\typearray{\typefun{\sequence{\type_i}}{\type_o}}{\idx_f}]
+        {\expr_f}}{\sequence{\expr_a}}}}$ \\
+  $= \EraseE{\idxsubst{\notedapp[\type_r]{\annotate
+        [\typearray{\typefun{\sequence{\type_i}}{\type_o}}{\idx_f}]
+        {\expr_f}}{\sequence{\expr_a}}}}$ \\
+  $= \EraseE{\notedapp[\idxsubst{\type_r}]{\annotate
+      [\typearray{\typefun{\sequence{\idxsubst{\type_i}}}{\idxsubst{\type_o}}}{\idxsubst{\idx_f}}]
+      {\idxsubst{\expr_f}}}{\sequence{\idxsubst{\expr_a}}}}$ \\
+  $= \app{\EraseE{\idxsubst{\expr_f}}}{\sequence
+    {\ttsexp{\EraseE{\idxsubst{\expr_a}}}{\EraseT{\idxsubst{\type_i}}}}\;\EraseT{\idxsubst{\type_r}}}$ \\
+  $= \app{\idxsubst{\EraseE{\expr_f}}}{\sequence
+    {\ttsexp{\idxsubst{\EraseE{\expr_a}}}{\EraseT{\idxsubst{\type_i}}}}\;\EraseT{\idxsubst{\type_r}}}$%
+  , by the induction hypothesis \\
+  $= \app{\idxsubst{\EraseE{\expr_f}}}{\sequence
+    {\ttsexp{\idxsubst{\EraseE{\expr_a}}}{\idxsubst{\EraseT{\type_i}}}}\;\idxsubst{\EraseT{\type_r}}}$%
+  , by Lemma \ref{TTSubstErase} \\
+  $= \idxsubst{\app{\EraseE{\expr_f}}{\sequence
+      {\ttsexp{\EraseE{\expr_a}}{\EraseT{\type_i}}}\;\EraseT{\type_r}}}$ \\
+  $= \idxsubst{\EraseE{\notedapp[\type_r]{\annotate
+        [\typearray{\typefun{\sequence{\type_i}}{\type_o}}{\idx_f}]
+        {\expr_f}}{\sequence{\expr_a}}}}$ \\
+  $= \idxsubst{\EraseTrm{\notedapp[\type_r]{\annotate
+        [\typearray{\typefun{\sequence{\type_i}}{\type_o}}{\idx_f}]
+        {\expr_f}}{\sequence{\expr_a}}}}$ \\
+
+  \paragraph{Type application:}
+  \[\term = \notedtapp[\type_r]{\expr_f}{\sequence{\type_a}}\]
+  $\EraseTrm{\idxsubst{\notedtapp[\type_r]{\expr_f}{\sequence{\type_a}}}}$ \\
+  $= \EraseE{\idxsubst{\notedtapp[\type_r]{\expr_f}{\sequence{\type_a}}}}$ \\
+  $= \EraseE{\notedtapp[\idxsubst{\type_r}]{\idxsubst{\expr_f}}{\sequence{\idxsubst{\type_a}}}}$ \\
+  $= \iapp{\EraseE{\idxsubst{\expr_f}}}{\sequence{\EraseT{\idxsubst{\type_a}}}\;\EraseT{\idxsubst{\type_r}}}$ \\
+  $= \iapp{\idxsubst{\EraseE{\expr_f}}}{\sequence{\EraseT{\idxsubst{\type_a}}}\;\EraseT{\idxsubst{\type_r}}}$%
+  , by the induction hypothesis \\
+  $= \iapp{\idxsubst{\EraseE{\expr_f}}}{\sequence{\idxsubst{\EraseT{\type_a}}}\;\idxsubst{\EraseT{\type_r}}}$%
+  , by Lemma \ref{TTSubstErase} \\
+  $= \idxsubst{\iapp{\EraseE{\expr_f}}{\sequence{\EraseT{\type_a}}\;\EraseT{\type_r}}}$ \\
+  $= \idxsubst{\EraseE{\notedtapp[\type_r]{\expr_f}{\sequence{\type_a}}}}$ \\
+  $= \idxsubst{\EraseTrm{\notedtapp[\type_r]{\expr_f}{\sequence{\type_a}}}}$ \\
+
+  \paragraph{Index application:}
+  \[\term = \notediapp[\type_r]{\expr_f}{\sequence{\idx_a}}\]
+  $\EraseTrm{\idxsubst{\notediapp[\type_r]{\expr_f}{\sequence{\idx_a}}}}$ \\
+  $= \EraseE{\idxsubst{\notediapp[\type_r]{\expr_f}{\sequence{\idx_a}}}}$ \\
+  $= \EraseE{\notediapp[\idxsubst{\type_r}]{\idxsubst{\expr_f}}{\sequence{\idxsubst{\idx_a}}}}$ \\
+  $= \iapp{\EraseE{\idxsubst{\expr_f}}}{\sequence{\idxsubst{\idx_a}}\;\EraseT{\idxsubst{\type_r}}}$ \\
+  $= \iapp{\idxsubst{\EraseE{\expr_f}}}{\sequence{\idxsubst{\idx_a}}\;\EraseT{\idxsubst{\type_r}}}$%
+  , by the induction hypothesis \\
+  $= \iapp{\idxsubst{\EraseE{\expr_f}}}{\sequence{\idxsubst{\idx_a}}\;\idxsubst{\EraseT{\type_r}}}$%
+  , by Lemma \ref{TTSubstErase} \\
+  $= \idxsubst{\iapp{\EraseE{\expr_f}}{\sequence{\idx_a}\;\EraseT{\type_r}}}$ \\
+  $= \idxsubst{\EraseE{\notediapp[\type_r]{\expr_f}{\sequence{\idx_a}}}}$ \\
+  $= \idxsubst{\EraseTrm{\notediapp[\type_r]{\expr_f}{\sequence{\idx_a}}}}$ \\
+
+  \paragraph{Unboxing:}
+  \[\term = \dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b^{\type_b}}\text{, where }\var \not\in \sequence{\var_i}\]
+  $\EraseTrm{\idxsubst{\dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b^{\type_b}}}}$ \\
+  $= \EraseE{\idxsubst{\dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b^{\type_b}}}}$ \\
+  $= \EraseE{\dproj{\sequence{\var_i}}{\var_e}{\idxsubst{\expr_s}}{\idxsubst{\expr_b}^{\idxsubst{\type_b}}}}$ \\
+  $= \dproj{\sequence{\var_i}}{\var_e}{\EraseE{\idxsubst{\expr_s}}}
+  {\EraseE{\idxsubst{\expr_b}} \; \EraseT{\idxsubst{\type_b}}}$ \\
+  $= \dproj{\sequence{\var_i}}{\var_e}{\EraseE{\idxsubst{\expr_s}}}
+  {\EraseE{\idxsubst{\expr_b}} \; \idxsubst{\EraseT{\type_b}}}$ \\
+  $= \dproj{\sequence{\var_i}}{\var_e}{\idxsubst{\EraseE{\expr_s}}}
+  {\idxsubst{\EraseE{\expr_b}} \; \idxsubst{\EraseT{\type_b}}}$ \\
+  $= \idxsubst{\dproj{\sequence{\var_i}}{\var_e}{\EraseE{\expr_s}}{\EraseE{\expr_b} \; \EraseT{\type_b}}}$ \\
+  $= \idxsubst{\EraseE{\dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b^{\type_b}}}}$ \\
+  $= \idxsubst{\EraseTrm{\dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b^{\type_b}}}}$ \\
+
+  \paragraph{Unboxing, with shadowed variable:}
+  \[\term = \dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b^{\type_b}}\text{, where }\var \in \sequence{\var_i}\]
+  $\EraseTrm{\idxsubst{\dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b^{\type_b}}}}$ \\
+  $= \EraseE{\idxsubst{\dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b^{\type_b}}}}$ \\
+  $= \EraseE{\dproj{\sequence{\var_i}}{\var_e}{\idxsubst{\expr_s}}{\expr_b^{\type_b}}}$ \\
+  $= \dproj{\sequence{\var_i}}{\var_e}{\EraseE{\idxsubst{\expr_s}}}{\EraseE{\expr_b} \; \EraseT{\type_b}}$ \\
+  $= \dproj{\sequence{\var_i}}{\var_e}{\idxsubst{\EraseE{\expr_s}}}{\EraseE{\expr_b} \; \EraseT{\type_b}}$ \\
+  $= \idxsubst{\dproj{\sequence{\var_i}}{\var_e}{\EraseE{\expr_s}}{\EraseE{\expr_b} \; \EraseT{\type_b}}}$ \\
+  $= \idxsubst{\EraseE{\dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b^{\type_b}}}}$ \\
+  $= \idxsubst{\EraseTrm{\dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b^{\type_b}}}}$ \\
+
+\end{sproof}
+
+\begin{lemma}[Values erase to values]
+  \label{ValEraseToVal}
+  For any well-typed term $\term$,
+  \begin{itemize}
+  \item If $\term$ has the form $\atval$, then $\EraseTrm{\term}$ has the form $\eatvalue$
+  \item If $\term$ has the form $\val$, then $\EraseTrm{\term}$ has the form $\evalue$
+  \end{itemize}
+  % $\EraseE{\val}$ has the form $\evalue$.
+\end{lemma}
+\begin{sproof}[We use induction on $\term$.
+  The only nontrivial cases are {\tt box} and {\tt array} forms,
+  which may be values or may contain incomplete computation.
+  The contents of a {\tt box} value
+  must itself be a value,
+  which the induction hypothesis implies will erase to a value.
+  Similarly, an {\tt array} value contains only atomic values,
+  which erase to atomic values.]
+  We use induction on $\term$.
+  The result is trivial for all atom cases except for boxes,
+  so we have only two cases left to consider.
+
+  \paragraph{Box:}
+  \[\term = \dsum{\sequence{\idx}}{\val}{\type}\]
+  According to the grammar of Remora,
+  $\val$ must have the form
+  $\arrlit{\sequence{\atval}}{\sequence{\nat}}$ \\
+  Then $\EraseTrm{\term}$
+  $= \EraseA{\dsum{\sequence{\idx}}{\val}{\type}}$
+  $= \dsum{\sequence{\idx}}{\EraseE{\val}}{}$.
+  By the induction hypothesis,
+  $\EraseE{\val}$ has the form $\evalue$,
+  so $\EraseTrm{\term}$
+  has the form $\dsum{\sequence{\idx}}{\evalue}{}$,
+  which is a valid $\eatvalue$ form.
+
+  \paragraph{Array literal:}
+  \[\term = \arrlit{\sequence{\atval}}{\sequence{\nat}}\]
+  The induction hypothesis implies that
+  for each $\atval_i \in \sequence{\atval}$,
+  $\EraseA{\atval_i}$ produces an erased atomic value $\eatvalue_i$.
+  Therefore the erased term $\EraseTrm{\term}$
+  $=$
+  $\EraseE{\arrlit{\sequence{\atval}}{\sequence{\nat}}}$
+  $=$
+  {\tt (array ($\nat$ $\sequence{}$) $\EraseA{\atval}$ $\sequence{}$)}
+  must have the form
+  $\arrlit{\sequence{\eatvalue}}{\sequence{\nat}}$.
+\end{sproof}
+
+\begin{lemma}[Lockstep]
+  \label{Lockstep}
+  For any well-typed $\expr$,
+  one of the following holds:
+  \begin{itemize}
+  \item{$\expr$ has the form $\val$, and $\EraseE{\expr}$ has the form $\evalue$}
+  \item{$\expr \mapsto \expr'$, and $\EraseE{\expr} \mapsto \EraseE{\expr'}$}
+  \item{$\expr \not \mapsto$, and $\EraseE{\expr} \not \mapsto$}
+  \end{itemize}
+\end{lemma}
+\begin{sproof}[We prove this by induction on $\expr$.
+  
+  We rely on Lemma \ref{ErasureInContext} (erasure in context)
+  when $\expr$ is a redex $\expr_r$ within an evaluation context $\ctxt$ other than $\hole$.
+  If $\expr_r \not\mapsto$ because we have a mis-applied primitive operator,
+  then the same is true for $\EraseE{\expr_r}$,
+  so $\EraseE{\expr}$ is also an evaluation context around a mis-applied primitive operator.
+  Otherwise, $\expr_r \mapsto \expr_r'$,
+  and the induction hypothesis implies that $\EraseE{\expr_r} \mapsto \EraseE{\expr_r'}$.
+  So $\EraseE{\expr} \mapsto \EraseE{\expr'}$,
+  the erased context filled with $\expr_r'$.
+  
+  Values are handled by Lemma \ref{ValEraseToVal}.
+  For the remaining cases---redexes---%
+  straightforward symbol pushing shows that
+  erased Remora's reduction rules follow those of Remora.]
+  We prove this by induction on $\expr$.
+  Note that if $\expr$ is not itself a redex or a value form,
+  then the progress lemma implies that it must be
+  an evaluation context filled with a redex.
+  \paragraph{Value:}
+  This case is exactly the expression case of Lemma \ref{ValEraseToVal}.
+
+  \paragraph{Redex within nontrivial evaluation context:}
+  \[\expr = \fillc{\ctxt}{\expr_r}\text{, where }\expr_r \mapsto \expr_r'\]
+  Then $\expr \mapsto \expr' = \fillc{\ctxt}{\expr_r'}$.
+  By Lemma \ref{ErasureInContext} (erasure in context),
+  $\EraseE{\fillc{\ctxt}{\expr_r}} = \fillc{\EraseC{\ctxt}}{\EraseE{\expr_r}}$.
+  The induction hypothesis implies that $\EraseE{\expr_r} \mapsto \EraseE{\expr_r'}$,
+  so the full erased expression $\fillc{\EraseC{\ctxt}}{\EraseE{\expr_r}}$
+  $ \mapsto \fillc{\EraseC{\ctxt}}{\EraseE{\expr_r'}}$.
+  Erasure in context gives us
+  $\fillc{\EraseC{\ctxt}}{\EraseE{\expr_r'}} = \EraseE{\fillc{\ctxt}{\expr_r'}}$.
+  Therefore $\EraseE{\fillc{\ctxt}{\expr_r}} \mapsto \EraseE{\fillc{\ctxt}{\expr_r'}}$.
+
+  \paragraph{Lift redex:}
+  % Pulling these out as macro defns because linebreaking for code readability
+  % is not really an option inside an alltt block
+  \newcommand{\liftfnannot}
+  {\typearray
+    {\typefun
+      {\sequence{\typearray{\type_i}{\idxshape{\sequence{\nat_i}}}}}
+      {\typearray{\type_o}{\idx_o}}}
+    {\idxshape{\sequence{\nat_f}}}}
+  \newcommand{\liftfn}
+  {\notedarrlit[\liftfnannot]{\sequence{\atval_f}}{\sequence{\nat_f}}}
+  \newcommand{\liftargannot}
+  {\typearray
+    {\type_i}
+    {\idxshape{\sequence{\nat_a}\;\sequence{\nat_i}}}}
+  \newcommand{\liftarg}
+  {\notedarrlit[\liftargannot]{\sequence{\atval_a}}{\sequence{\nat_a}\,\sequence{\nat_i}}}
+  \newcommand{\liftresultannot}
+  {\typearray
+    {\type_o}
+    {\idxshape{\sequence{\nat_p}\;\sequence{\nat_o}}}}
+  \newcommand{\liftedfnannot}
+  {\typearray
+    {\typefun
+      {\sequence{\typearray{\type_i}{\idxshape{\sequence{\nat_i}}}}}
+      {\typearray{\type_o}{\idx_o}}}
+    {\idxshape{\sequence{\nat_p}}}}
+  \newcommand{\liftedfncells}
+  {\mathit{Concat}\llb
+    \mathit{Rep}_{\nat_{\mathit{fe}}}\llb
+    \mathit{Split}_1\llb
+    \sequence{\atval_f}\rrb\rrb\rrb}
+  \newcommand{\liftedfn}
+  {\notedarrlit[\liftedfnannot]
+    {\liftedfncells}
+    {\sequence{\nat_p}}}
+  \newcommand{\liftedargannot}
+  {\typearray
+    {\type_i}
+    {\idxshape{\sequence{\nat_p}\;\sequence{\nat_i}}}}
+  \newcommand{\liftedarg}
+  {\notedarrlit[\liftedargannot]
+    {\mathit{Concat}\llb
+      \mathit{Rep}_{\nat_{\mathit{ae}}}\llb
+      \mathit{Split}_{\nat_{\mathit{ac}}}\llb
+      \sequence{\atval_a}\rrb\rrb\rrb}
+    {\sequence{\nat_p}\,\sequence{\nat_i}}}
+  \newcommand{\erasedliftfn}
+  {\arrlit{\sequence{\EraseA{\atval_f}}}{\sequence{\nat_f}}}
+  \newcommand{\erasedliftarg}
+  {\arrlit{\sequence{\EraseA{\atval_a}}}{\sequence{\nat_a}\,\sequence{\nat_i}}}
+  \newcommand{\erasedliftcell}{\idxshape{\sequence{\nat_i}}}
+  \newcommand{\erasedliftresult}{\idxshape{\sequence{\nat_p}\;\sequence{\nat_o}}}
+  % \newcommand{\erasedliftresult}{\EraseT{\liftresultannot}}
+  \newcommand{\erasedliftedfn}
+  {\arrlit
+    {\mathit{Concat}\llb
+      \mathit{Rep}_{\nat_{\mathit{fe}}}\llb
+      \mathit{Split}_1\llb
+      \sequence{\EraseA{\atval_f}}\rrb\rrb\rrb}
+    {\sequence{\nat_p}}}
+  \newcommand{\erasedliftedarg}
+  {\arrlit
+    {\mathit{Concat}\llb
+      \mathit{Rep}_{\nat_{\mathit{ae}}}\llb
+      \mathit{Split}_{\nat_{\mathit{ac}}}\llb
+      \sequence{\EraseA{\atval_a}}\rrb\rrb\rrb}
+    {\sequence{\nat_p}\,\sequence{\nat_i}}}
+\begin{alltt}
+\(\expr = \)(\(\liftfn\)\\
+\phantom{\(\expr = \) }\(\liftarg\)\\
+\phantom{\(\expr = \) }\(\cdots\))\(\sp{\liftresultannot}\)\\
+\(\mapsto\sb{\mathit{lift}}\)\\
+\(\expr' = \)((array ()\\
+\phantom{\(\expr' = \) \ }\(\liftedfncells\))\(\sp{\liftedfnannot}\)\\
+\phantom{\(\expr' = \) }\(\liftedarg\)\\
+\phantom{\(\expr' = \) }\(\cdots\))\(\sp{\liftresultannot}\)
+\end{alltt}
+Then
+\begin{alltt}
+\(\EraseE{\expr} = \)(\(\erasedliftfn\)\\
+\phantom{\(\EraseE{\expr} = \) }(\(\erasedliftarg\) \(\erasedliftcell\))\\
+\phantom{\(\EraseE{\expr} = \) }\(\cdots\) \(\erasedliftresult\))
+\end{alltt}
+This is a $\mathit{lift}$ redex in Erased Remora, and it steps to
+\begin{alltt}
+\(\EraseE{\expr'} = \)(\(\erasedliftedfn\)\\
+\phantom{\(\EraseE{\expr'} = \) }(\(\erasedliftedarg\) \(\erasedliftcell\))\\
+\phantom{\(\EraseE{\expr'} = \) }\(\cdots\) \(\erasedliftresult\))
+\end{alltt}
+That is, $\EraseE{\expr} \mapsto_{\mathit{lift}} \EraseE{\expr'}$.
+
+  \paragraph{Map redex:}
+  \newcommand{\mapfn}{\liftfn}
+  \newcommand{\mapargannot}
+  {\typearray
+    {\type_i}
+    {\idxshape{\sequence{\nat_f}\;\sequence{\nat_i}}}}
+  \newcommand{\maparg}
+  {\notedarrlit[\mapargannot]{\sequence{\atval_a}}{\sequence{\nat_f}\,\sequence{\nat_i}}}
+  \newcommand{\mapresultannot}
+  {\typearray
+    {\type_o}
+    {\idxshape{\sequence{\nat_f}\;\sequence{\nat_o}}}}
+  \newcommand{\mapfncell}
+  {\notedarrlit[{\typearray
+      {\typefun
+        {\sequence{\typearray{\type_i}{\idxshape{\sequence{\nat_i}}}}}
+        {\typearray{\type_o}{\idx_o}}}
+      {\idxshape{}}}]
+    {\atval_f}{}}
+  \newcommand{\mapargcell}
+  {\notedarrlit[{\typearray{\type_i}{\idxshape{\sequence{\nat_i}}}}]
+    {\sequence{\atval_c}}{}}
+  \newcommand{\mappedargannot}
+  {\typearray
+    {\type_i}
+    {\idxshape{\sequence{\nat_i}}}}
+  \newcommand{\resultcellannot}
+  {\typearray
+    {\type_o}
+    {\idxshape{\sequence{\nat_o}}}}
+  \newcommand{\erasedmapfn}{\erasedliftfn}
+  \newcommand{\erasedmaparg}
+  {\arrlit{\sequence{\EraseA{\atval_a}}}{\sequence{\nat_f}\,\sequence{\nat_i}}}
+  \newcommand{\erasedmapcell}{\idxshape{\sequence{\nat_i}}}
+  \newcommand{\erasedmapresult}{\erasedliftresult}
+  \newcommand{\erasedmapfncell}{\arrlit{\EraseA{\atval_f}}{}}
+  \newcommand{\erasedmapargcell}{\arrlit{\sequence{\EraseA{\atval_c}}}{}}
+\begin{alltt}
+\(\expr = \)(\(\mapfn\)\\
+\phantom{\(\expr = \) }\(\maparg\)\\
+\phantom{\(\expr = \) }\(\cdots\))\(\sp{\mapresultannot}\)\\
+\(\mapsto\sb{\mathit{map}}\)\\
+\(\expr' = \)(frame (\(\sequence{\nat\sb{f}}\))\\
+\phantom{\(\expr' = \) }(\(\mapfncell\)\\
+\phantom{\(\expr' = \) \ }\(\mapargcell\)\\
+\phantom{\(\expr' = \) \ }\(\cdots\))\(\sp{\resultcellannot}\)\\
+\phantom{\(\expr' = \) }\(\cdots\))\(\sp{\mapresultannot}\)
+\end{alltt}
+The argument cells' atoms
+$\parens{\sequence{\parens{\sequence{\atval_c}}}}$
+are given by
+$\mathit{Transpose} \llb \sequence{\mathit{Split}_{\nat_c} \llb \sequence{\atval_a} \rrb} \rrb$,
+where
+each $\nat_c$ is computed as the product of
+the corresponding position's expected argument dimensions $\sequence{\nat_i}$,
+as in Figure \ref{fig:DynamicSemantics}.
+We then consider the erased form of $\expr$:
+\begin{alltt}
+\(\EraseE{\expr} = \)(\(\erasedmapfn\)
+         (\(\erasedmaparg\) \(\erasedmapcell\))
+         \(\cdots\) \(\erasedliftresult\))
+\end{alltt}
+This is a $\mathit{map}$ redex in Erased Remora.
+The argument atoms
+$\parens{\sequence{\parens{\sequence{\EraseA{\atval_a}}}}}$
+are split up into cells in the same way, with
+$\parens{\sequence{\parens{\sequence{\eatvalue_c}}}}
+= \parens{\sequence{\parens{\sequence{\EraseA{\atval_c}}}}}$
+as the result of
+$\mathit{Transpose} \llb \sequence{\mathit{Split}_{\nat_c} \llb \sequence{\EraseA{\atval_a}} \rrb} \rrb$.
+So $\EraseE{\expr}$ steps to
+\begin{samepage}
+\begin{alltt}
+\(\EraseE{\expr'} = \)(frame (\(\sequence{\nat\sb{f}}\))\\
+\phantom{\(\EraseE{\expr'} = \) }(\(\erasedmapfncell\)\\
+\phantom{\(\EraseE{\expr'} = \) \ }(\(\erasedmapargcell\) \(\erasedmapcell\))\\
+\phantom{\(\EraseE{\expr'} = \) \ }\(\cdots\))\\
+\phantom{\(\EraseE{\expr'} = \) }\(\cdots\))
+\end{alltt}
+\end{samepage}
+
+  \paragraph{Beta redex:}
+  Note that $\type_I$ here must be the array type
+  $\typearray{\type_i}{\idxshape{\sequence{\nat_a}}}$.
+  \newcommand{\betafnannot}
+  {\typearray
+    {\typefun
+      {\sequence{\type_I}}
+      {\type_O}}
+    {\idxshape{}}}
+  \newcommand{\betafn}
+  {\notedarrlit[\betafnannot]
+    {\lam{\sequence{\notevar{\var}{\type_i}}}{\expr_b}}
+    {}}
+  \newcommand{\erasedbetafn}
+  {\arrlit
+    {\lam{\sequence{\var}}{\EraseE{\expr_b}}}
+    {}}
+  \newcommand{\betaarg}{\notedarrlit[\type_I]{\sequence{\atval_a}}{\sequence{\nat_a}}}
+  \newcommand{\erasedbetaarg}{\arrlit{\sequence{\EraseA{\atval_a}}}{\sequence{\nat_a}}}
+  \newcommand{\erasedbetacell}{\idxshape{\sequence{\nat_a}}}
+\begin{alltt}
+\(\expr = \)(\(\betafn\)\\
+\phantom{\(\expr = \) }\(\betaarg\)\\
+\phantom{\(\expr = \) }\(\sequence{}\))\(\sp{\type\sb{O}}\)\\
+\(\mapsto\sb{\beta}\)\\
+\(\expr' = \seqsubst{\expr\sb{b}}{\var}{\betaarg}\)
+\end{alltt}
+Then
+\begin{alltt}
+\(\EraseE{\expr} = \)(\(\erasedbetafn\)\\
+\phantom{\(\EraseE{\expr} = \) }(\(\erasedbetaarg\) \(\erasedbetacell\))\\
+\phantom{\(\EraseE{\expr} = \) }\(\sequence{}\))\(\sp{\type\sb{O}}\)\\
+\(\mapsto\sb{\beta}\) \(\seqsubst{\EraseE{\expr\sb{b}}}{\var}{\erasedbetaarg}\)
+\end{alltt}
+By Lemma \ref{EESubstErase} (substitution commutes with erasure),
+this result term is equal to $\EraseE{\expr'}$.
+
+%  \paragraph{Delta redex:} \pfstub
+
+  \paragraph{I-Beta redex:}
+  \newcommand{\ibetafnannot}
+  {\typearray
+    {\typedprod
+      {\sequence{\notevar{\var}{\sort}}}
+      {\type_b}}
+    {\idxshape{\sequence{\nat_f}}}}
+  \newcommand{\ibetafn}
+  {\notedarrlit[\ibetafnannot]
+    {\sequence{\ilam{\notevar{\var}{\sort}}{\expr_b}}}
+    {\sequence{\nat_f}}}
+  \newcommand{\ibetaresult}
+  {\notedfrm[\type_R]
+    {\sequence{\seqsubst{\expr_b}{\var}{\idx_a}}}
+    {\sequence{\nat_f}}}
+  \newcommand{\erasedibetafn}
+  {\arrlit
+    {\sequence{\ilam{\var}{\EraseE{\expr_b}}}}
+    {\sequence{\nat_f}}}
+  \newcommand{\erasedibetaresult}
+  {\notedfrm[\type_R]
+    {\sequence{\seqsubst{\EraseE{\expr_b}}{\var}{\idx_a}}}
+    {\sequence{\nat_f}}}
+\begin{alltt}
+\(\expr = \)(i-app \(\ibetafn\)\\
+\phantom{\(\expr = \) }\(\idx\sb{a}\) ...)\(\sp{\type\sb{R}}\)\\
+\(\mapsto\sb{i\beta}\)\\
+\(\expr' = \ibetaresult\)
+\end{alltt}
+Then
+\begin{alltt}
+\(\EraseE{\expr} = \)(i-app \(\erasedibetafn\) \(\idx\sb{a}\) ... \(\EraseT{\type\sb{R}}\))\\
+\(\mapsto\sb{i\beta} \erasedibetaresult = \EraseE{\expr'}\)
+\end{alltt}
+
+  \paragraph{T-Beta redex:}
+  \newcommand{\tbetafnannot}
+  {\typearray
+    {\typeuniv
+      {\sequence{\notevar{\var}{\kind}}}
+      {\type_b}}
+    {\idxshape{\sequence{\nat_f}}}}
+  \newcommand{\tbetafn}
+  {\notedarrlit[\tbetafnannot]
+    {\sequence{\tlam{\notevar{\var}{\kind}}{\expr_b}}}
+    {\sequence{\nat_f}}}
+  \newcommand{\tbetaresult}
+  {\notedfrm[\type_R]
+    {\sequence{\seqsubst{\expr_b}{\var}{\type_a}}}
+    {\sequence{\nat_f}}}
+  \newcommand{\erasedtbetafn}
+  {\arrlit
+    {\sequence{\ilam{\var}{\EraseE{\expr_b}}}}
+    {\sequence{\nat_f}}}
+  \newcommand{\erasedtbetaresult}
+  {\notedfrm[\type_R]
+    {\sequence{\seqsubst{\EraseE{\expr_b}}{\var}{\type_a}}}
+    {\sequence{\nat_f}}}
+\begin{alltt}
+\(\expr = \)(t-app (array (\(\sequence{\nat\sb{f}}\))\\
+\phantom{\(\expr = \)(t-app (array }\(\sequence{\tlam{\notevar{\var}{\kind}}{\expr\sb{b}}}\))\(\sp{\tbetafnannot}\)\\
+\phantom{\(\expr = \) }\(\type\sb{a}\) ...)\(\sp{\type\sb{R}}\)\\
+\(\mapsto\sb{t\beta}\)\\
+\(\expr' = \tbetaresult\)
+\end{alltt}
+Recall that type abstraction and application erase to index abstraction and application.
+So in the erased language, we have:
+\begin{alltt}
+\(\EraseE{\expr} = \)(i-app \(\erasedtbetafn\) \(\type\sb{a}\) ... \(\EraseT{\type\sb{R}}\))\\
+\(\mapsto\sb{i\beta} \erasedtbetaresult = \EraseE{\expr'}\)
+\end{alltt}
+
+  \paragraph{Unbox redex:}
+  \newcommand{\unboxvars}{\sequence{\var_i}\text{ }\var_e}
+  \newcommand{\unboxval}{\annotate%[\typearray{\type_s}{\idxshape{\sequence{\nat_s}}}]
+    {\arrlit{\sequence{\dsum{\sequence{\idx_s}}{\val_s}{\type_s}}}{\sequence{\nat_s}}}}
+  \newcommand{\unboxbody}{\annotate[\type_B]{\expr_b}}
+  \newcommand{\unboxresult}
+  {\notedfrm[\type_R]
+    {\sequence{\multisubst{\expr_b}{\sequence{\singlesubst{\var_i}{\idx_s},},
+          \singlesubst{\var_e}{\val_s}}}}
+    {\sequence{\nat_s}}}
+  \newcommand{\erasedunboxval}
+  {\arrlit{\sequence{\dsum{\sequence{\idx_s}}{\EraseE{\val_s}}{}}}{\sequence{\nat_s}}}
+  \newcommand{\erasedunboxresult}
+  {\frm
+    {\sequence{\multisubst{\EraseE{\expr_b}}{\sequence{\singlesubst{\var_i}{\idx_s},},
+          \singlesubst{\var_e}{\EraseE{\val_s}}}}}
+    {\idxappend{\idxshape{\sequence{\nat_s}} \; \EraseT{\type_B}}}}
+  \newcommand{\rewrittenunboxresult}
+  {\frm
+    {\sequence{\EraseE{\multisubst{\expr_b}{\sequence{\singlesubst{\var_i}{\idx_s},},
+            \singlesubst{\var_e}{\val_s}}}}}
+    {\idxappend{\idxshape{\sequence{\nat_s}} \; \EraseT{\type_B}}}}
+\begin{alltt}
+\(\expr = \)(unbox (\(\unboxvars\) \(\unboxval\)) \(\unboxbody\))\(\sp{\type\sb{R}}\)\\
+\(\mapsto\sb{\mathit{unbox}}\)\\
+\(\expr' = \unboxresult\)
+\end{alltt}
+Then relying on our earlier result that erasure commutes with substitution,
+we can step the erased version of $\expr$ to get the erased version of $\expr'$:
+\begin{alltt}
+\(\EraseE{\expr} = \) (unbox (\(\unboxvars\) \(\erasedunboxval\)) \(\EraseE{\expr\sb{b}}\) \(\EraseT{\type\sb{B}}\))\\
+\(\mapsto\sb{\mathit{unbox}} \erasedunboxresult\)\\
+\( = \rewrittenunboxresult = \EraseE{\expr'}\)
+\end{alltt}
+
+\paragraph{Mis-applied primitive operator:}
+The remaining case is that $\expr \not\mapsto$, but $\expr$ is not a value.
+Since $\expr$ is well-typed, Lemma \ref{Progress} (Progress) implies that
+$\expr$ must be a mis-application of a primitive operator.
+That is, $\expr$ has the form
+$\ctxt\left[\misapp\right]$,
+where $\Sigref{\primop}$ is
+{\tt (-> ($\type_I$ $\sequence{}$) $\type_O$)},
+and the types of $\sequence{\val}$ are $\sequence{\type_i}$.
+Using Lemma \ref{ErasureInContext} (Erasure in context),
+$\EraseE{\expr}$ is
+$\EraseC{\ctxt}[${\tt ($\primop$ ($\EraseE{\val}$ $\EraseT{\type_I}$) $\sequence{}$ $\EraseT{\type_r}$)}$]$.
+Since each $\val$ has shape $\EraseT{\type_I}$,
+we still have function application with a scalar frame,
+and the values given as arguments are still out-of-domain for $\primop$.
+\end{sproof}
+
+Since we have a deterministic operational semantics for
+both explicitly typed Remora and type-erased Remora,
+the lockstep lemma also works in reverse.
+If an erased term takes an evaluation step,
+its preimage cannot be a value form or stuck state.
+The preimage must therefore step to some result expression,
+which itself erases to the same result.
+Similarly, a value form or stuck state in erased Remora
+cannot have a preimage which takes an evaluation step.
+
+\begin{corollary}[Reverse lockstep]
+If $\EraseE{\expr} \mapsto \EraseE{\expr'}$,
+then for any $\expr''$ such that $\expr \mapsto \expr''$, we have $\expr' \EraseEqv \expr''$,
+and at least one such $\expr''$ exists.
+If $\EraseE{\expr} \not\mapsto$, then $\expr \not\mapsto$.
+\end{corollary}
+
+Recall our relation $\EraseEqv$ on the set of machine states $S = \wt{\Expr} \uplus \erased{\wt{\Expr}}$,
+where $\wt{\Expr} = \{e \in \Expr | \typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}{\expr}{\type}\}$,
+\ie the set of well-typed explicitly-typed terms,
+and $\erased{\wt{\Expr}}$ is the image of $\wt{\Expr}$ under type erasure.
+$\EraseEqv$ is the equivalence closure of the relation given by the erasure function $\EraseE{\cdot}$.
+That is, $\EraseEqv$ is the least relation which
+relates two states $s$ and $w$ iff any of the following hold:
+\begin{enumerate}
+\item{$s \in \wt{Expr}$ and $\EraseE{s} = w$ (erasure proper)}
+\item{$s =_\alpha w$ (reflexivity)}
+\item{$w \EraseEqv s$ (symmetry)}
+\item{$s \EraseEqv s'$ and $s' \EraseEqv w$ (transitivity)}
+\end{enumerate}
+Expanding the erasure relation based on $\EraseE{\cdot}$
+to include both symmetry and transitivity
+relates any two explicitly typed expressions
+which produce $\alpha$-equivalent erased terms.
+A $\EraseEqv$ equivalence class consists of a single erased Remora expression
+and all of its preimages.
+There can be only one erased Remora expression because
+type erasure is a well-defined function
+(\ie, no single explicitly typed expression
+can erase to multiple different results).
+Formally, every $\EraseEqv$ equivalence class must have the form
+$$\{\eexpr\} \uplus \{\expr \in \Expr \, | \, \EraseE{\expr} = \eexpr\}$$
+\begin{theorem}
+  \label{Bisimulation}
+  $\EraseEqv$ is a bisimulation.
+  That is, for any states $s, w \in S$ if $s \EraseEqv w$,
+  either $(s \mapsto u \wedge w \mapsto v \wedge u \EraseEqv v)$
+  or $(s \not\mapsto \wedge w \not\mapsto)$.
+\end{theorem}
+\begin{sproof}[\BODY]
+  There are four cases to consider,
+  depending on which of $\Expr$ or $\erased{\Expr}$ each related term is drawn from,
+  but we can merge the two cases where $s$ and $w$ are drawn from different languages.
+
+  \paragraph{$s \in \erased{\Expr}$ and $w \in \Expr$, or vice versa:}
+  Then $s$ is the sole type-erased expression in its equivalence class,
+  and $\EraseE{w} = s$
+  (or vice versa).
+  Our proof obligation is exactly the lockstep lemma (Lemma \ref{Lockstep}).
+
+  \paragraph{$s, w \in \erased{\Expr}$:}
+  Since each equivalence class contains only one type-erased expression, $s = w$.
+  They must therefore have the same reduction behavior.
+
+  \paragraph{$s, w \in \Expr$:}
+  If $s \not\mapsto$, then the lockstep lemma implies $\EraseE{s} = \EraseE{w} \not\mapsto$.
+  Then by reverse lockstep, $w \not\mapsto$ as well.
+  On the other hand, if $s \mapsto s'$, then $\EraseE{s} = \EraseE{w} \mapsto \EraseE{s'}$.
+  Lockstep implies $\EraseE{w} \mapsto \EraseE{w'}$.
+  Since Erased Remora has deterministic operational semantics,
+  $\EraseE{s'} = \EraseE{w'}$
+  (they are both the result of taking an evaluation step from the same expression).
+  Therefore, all of their preimages, including $s'$ and $w'$ are erasure-equivalent,
+  \ie, $s' \EraseEqv w'$.
+\end{sproof}
+
+% Now that we have established the same ``behavior'' during evaluation,
+% we add one final note showing that the end results are the same
+% (\ie, critical details found in an explicit result term
+% have not been lost in translation).
+% \begin{lemma}[Uniqueness of first-order preimages]
+%   \label{FirstOrderPreimage}
+%   For any $\val$, $\val'$ and first-order type $\type$
+%   where $\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}{\val}{\type}$
+%   and $\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}{\val'}{\type}$,
+%   $\EraseE{\val} = \EraseE{\val'} \implies \val = \val'$.
+% \end{lemma}
+% \begin{sproof}
+%   \pfstub
+% \end{sproof}

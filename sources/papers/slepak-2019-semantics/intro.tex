@@ -1,0 +1,161 @@
+\section{Introduction}
+
+%% Motivation
+The essence of the rank-polymorphic programming model
+is implicitly treating all operations as \emph{aggregate} operations,
+usable on arrays with arbitrarily many dimensions.
+The model was first introduced by Iverson with the language APL \cite{APL}.
+Over time, Iverson continued to develop this programming model,
+making it gradually more flexible,
+eventually leading to the creation of J \cite{J} as a successor to APL.
+The boon APL offered programmers
+was a notation without loops or recursion:
+Programs would automatically follow a control-flow structure
+appropriate for the data being consumed.
+The nature of the implicit iteration structure
+could be modified using second-order operators,
+such as folding, scanning, or operating over a moving window.
+These second-order operators would directly reveal
+all loop-carried data dependences.
+
+In this sense,
+other languages demanded that
+unnecessary work be put into both compilers and user programs.
+The programmer would be expected to
+write the program's iteration structure explicitly;
+in many languages this entails describing a particular serial encoding
+of what is fundamentally parallelizable computation.
+The compiler must then perform intricate static analysis
+to see past the programmer's overspecified iteration schedule.
+
+The design of APL earned a Turing award for Iverson \cite{IversonTuringLecture}
+as well as a mention in an earlier Turing lecture \cite{BackusTuringLecture},
+praising it for showing the basis of a solution to the ``ven Neumann bottleneck.''
+However APL's subsequent development proceded largely in isolation
+from mainstream programming-language research.
+The APL family of languages % or just "APL"?
+painted itself into a corner with design decisions
+such as requiring functions to take only one or two arguments
+and making parsing dependent on values assigned at run time.
+As a result,
+APL compilers were forced to support only a subset of the language
+(such as Budd's compiler \cite{BuddCompiler})
+or to operate on small sections of code,
+alternating between executing each line of the program and compiling the next one
+\cite{APL3000Compiler}.
+What we gain from
+the rank-polymorphic programming model's
+natural friendliness to parallelism,
+we can easily lose by continually interrupting the program
+to return control to a line-at-a-time compiler.
+Limiting the compiler to operating over a narrow window of code
+can also eliminate opportunities for code transformations like fusion,
+forcing unnecessary materialization of large arrays.
+
+The tragedy of rank-polymorphic programming
+does not end at forgone opportunities for performance.
+Despite the convenience of rank polymorphism
+for writing array-processing code%
+---a common task in many application domains---%
+ % "APL never took off" is historically inaccurate but describes the current state well 
+APL and its close descendants do not see widespread use.
+There is enough desire for implicitly aggregate computation
+to support user communities for systems such as
+NumPy \cite{Numpy} and MATLAB \cite{MATLAB},
+% I am a bit uncomfortable with making this very nontechnical claim here
+which do not follow as principled or as flexible a rule
+for matching functions with aggregate arguments%
+\footnote{For example, operations which already expect aggregate data%
+% This statement combines two objections to prior art:
+% 1. In Numpy, user code doesn't get to specify arg rank, so only builtins can
+% be rank-polymorphic.
+% 2. MATLAB's det function does not lift. If you pass it an argument with 3 or
+% more dimensions, it gives an error message demanding a square matrix.
+---for example if the programmer writes a function
+to compute the norm of a vector or the determinant of a matrix---%
+do not always lift easily to consume even higher-dimensional arguments}.
+However, programmers are driven away from APL itself by features such as
+obtuse syntax,
+restrictions on function arity,
+poor support for naming things,
+and a limited universe of atomic data to populate the arrays \cite{WhatsWrong}.
+
+
+%% What we're doing
+Our goal is to study rank polymorphism itself
+without getting bogged down by APL's other baggage.
+A formal semantics of rank polymorphism
+is the essential groundwork for understanding
+how rank-polymorphic programs ought to behave,
+how they should be compiled,
+and how they can be safely transformed to reduce execution cost.
+To that end, we develop Remora,
+a language which integrates rank polymorphism with typed $\lambda$-calculus.
+% What do we gain from using lambda?
+
+A key problem impeding static compilation of rank-polymorphic programs
+is identifying the implicit iteration structure at each function application.
+Even without obscuring the programming model
+with the idiosyncratic special case behavior APL accreted,
+rank polymorphism itself has seemed ``too dynamic'' for good static compilation
+due to having its control structure derived from computed data.
+The old style of line-at-a-time compilation
+relied on inspecting functions and data at run time
+to decide what loop structure to emit.
+
+Remora's answer to the problem of finding the iteration space
+is a type system which describes the shapes of arrays
+and thereby identifies the implicit iteration space for each function application.
+In order for types to provide enough detail about array shapes,
+we use a restricted form of dependent typing,
+in the style of Dependent ML \cite{DependentML}.
+In Dependent ML, types are not parameterized over arbitrary program terms
+but over a much more restricted language.
+For Remora, our language of type indices
+consists of natural numbers, describing individual dimensions,
+and sequences of natural numbers, describing array shapes.
+
+%% Aside: Our dependent typing is different
+Past work on applying dependent types to computing with arrays
+has focused on ensuring the safety of accessing individual array elements
+\cite{DMLBounds, Qube}.
+Bounds checking array indices is essential
+in a programming model where extracting a single element
+is the only elimination form for arrays,
+but the rank-polymorphic programming model generally eschews this operation.
+Instead, arrays are consumed whole,
+and function application itself serves as the elimination form for arrays.
+
+%% How *we* use dependent types
+In Remora, a function's type describes the shapes of the expected argument arrays,
+called the ``cells,''
+and the type of the atomic data inside the array.
+The typing rule for function application
+is responsible for identifying the ``frame'' shape,
+\ie, the iteration structure derived from the non-cell dimensions.
+Type soundness means that
+the type system produces more than a safety guarantee:
+conclusions it draws about the iteration structure
+can be used to correctly compile the program.
+Our type system is flexible enough to express polymorphism over the cell shape,
+such as a determinant function that can operate on square matrix cells of any size.
+It can also handle functions whose output shape is not determined by input shape alone,
+such as reading a vector of unknown size from user input
+or generating an array of caller-specified shape.
+
+
+%% What's in this document
+We begin with an overview of the rank-polymorphic programming model,
+written as a programming tutorial for an untyped variant of Remora.
+After developing the intuition for rank polymorphism,
+we present a formal description of Remora's core language.
+This includes Remora's abstract syntax,
+the language of type indices with its associated theory,
+the static semantics which identifies array shapes and iteration spaces,
+a type-driven dynamic semantics,
+and a type-soundness theorem linking the static and dynamic semantics.
+Since our formal presentation is intrinsically typed,
+we also include an algorithm for partial type erasure,
+to characterize which type-level information is truly necessary to keep at run time.
+A bisimulation argument connects
+the dynamic semantics of explicitly-typed Remora to that of erased Remora.

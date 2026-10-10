@@ -12,6 +12,12 @@
 %   It also corrected two given names against the paper sources:
 %   bhat-2022-lambda-ultimate-ssa (Siddharth, was Utkarsh; paper.tex) and
 %   pal-2023-ruler (Amy Zhu, was Eric Zhu; main.tex).
+% The array-languages pass (2026-10-09) appended 44 entries for the papers,
+%   snapshots and link-only rows of the topic "Array languages and typed
+%   array programming" (the last section of this file): 697 entries, all
+%   keys unique. Twelve existing entries already covered papers of that
+%   topic and were not entered twice; five of them were completed in place
+%   (a doi, a url, a fixed apostrophe; see that section).
 % Open-access locations: README.md, "Open-access acquisition" (formerly
 %   sources/oa-locations.md).
 
@@ -2418,6 +2424,7 @@ series = {CGO 2019}
  acmid = {277732},
  publisher = {ACM},
  address = {New York, NY, USA},
+ doi = {10.1145/277650.277732},
 }
 
 @INPROCEEDINGS{ShapelyTypes,
@@ -2525,6 +2532,7 @@ series = {CGO 2019}
  source = {Library of Congress Catalog Card Number: 62-15180},
  publisher = {John Wiley \& Sons, Inc.},
  address = {New York, NY, USA},
+ url = {https://www.jsoftware.com/papers/APL.htm},
 }
 
 @misc{J,
@@ -2632,14 +2640,15 @@ series = {CGO 2019}
 }
 
 @article{trojahner2009dependently,
-  title={Dependently typed array programs don�t go wrong},
+  title={Dependently typed array programs don't go wrong},
   author={Trojahner, Kai and Grelck, Clemens},
   journal={Journal of Logic and Algebraic Programming},
   volume={78},
   number={7},
   pages={643--664},
   year={2009},
-  publisher={Elsevier}
+  publisher={Elsevier},
+  doi={10.1016/j.jlap.2009.03.002}
 }
 
 @article{ThatteCoercion,
@@ -3044,7 +3053,8 @@ note = {Best Paper Award}
   school =	{Khoury College of Computing Sciences, Northeastern University},
   address = 	{Boston, Massachussetts},
   year = 	2020,
-  note = 	{In preparation}
+  month = 	jul,
+  url = 	{https://www.khoury.northeastern.edu/~jrslepak/Dissertation.pdf}
   }
 
 @inproceedings{Barber1996DualIL,
@@ -3333,6 +3343,7 @@ year="2005",
 publisher="Springer Berlin Heidelberg",
 address="Berlin, Heidelberg",
 pages="98--113",
+doi="10.1007/11541868_7",
 abstract="We present a new implementation of a reflexive tactic which solves equalities in a ring structure inside the Coq system. The efficiency is improved to a point that we can now prove equalities that were previously beyond reach. A special care has been taken to implement efficient algorithms while keeping the complexity of the correctness proofs low. This leads to a single tool, with a single implementation, which can be addressed for a ring or for a semi-ring, abstract or not, using the Leibniz equality or a setoid equality. This example shows that such reflective methods can be effectively used in symbolic computation.",
 isbn="978-3-540-31820-0"
 }
@@ -8297,4 +8308,1055 @@ numpages = {14}
   acmid = {319876},
   publisher = {ACM},
   address = {New York, NY, USA},
+}
+
+% --- Array languages and typed array programming (2026-10-09): papers, link-only
+% --- rows and snapshots of that INDEX.md topic. Keys are the library shortnames.
+% --- Metadata from the paper READMEs, Crossref, OpenAlex and the arXiv records.
+% --- Already present under another key, so completed in place, not entered again:
+% ---   slepak-2014-remora      -> Slepak+:ESOP14
+% ---   slepak-2018-constraint  -> Slepak+:ARRAY18
+% ---   slepak-2019-semantics   -> Slepak+:semantics-rank-poly-preprint
+% ---   slepak-2020-dissertation -> Slepak:PhD (note "In preparation" replaced by month and url)
+% ---   xi-1998-dml-bounds      -> DMLBoundsChecking (doi added)
+% ---   trojahner-2009-qube     -> trojahner2009dependently (mis-encoded apostrophe fixed; doi added)
+% ---   mcdonell-2013-accelerate-optimising -> accelerate:icfp13
+% ---   steuwer-2015-lift       -> lift-rewrite-2015
+% ---   hagedorn-2020-elevate   -> hagedorn2020-elevate
+% ---   tillet-2019-triton      -> tillet2019triton
+% ---   gregoire-2005-ring      -> RingSolver (doi added)
+% ---   iverson-1962-programming-language -> APL (url added)
+
+@article{iverson-1980-notation-tool-of-thought,
+  title = {Notation as a Tool of Thought},
+  author = {Iverson, Kenneth E.},
+  journal = {Communications of the ACM},
+  volume = {23},
+  number = {8},
+  pages = {444--465},
+  year = {1980},
+  doi = {10.1145/358896.358899},
+  note = {1979 ACM Turing Award Lecture},
+  url = {https://www.jsoftware.com/papers/tot.htm}
+}
+
+@inproceedings{bernecky-1980-operators-enclosed-arrays,
+  title = {Operators and Enclosed Arrays},
+  author = {Bernecky, Robert and Iverson, Kenneth E.},
+  booktitle = {1980 APL Users Meeting Proceedings},
+  publisher = {I.P. Sharp Associates},
+  address = {Toronto},
+  year = {1980},
+  url = {https://www.jsoftware.com/papers/opea.htm}
+}
+
+@techreport{bernecky-1983-satn45-rank-operator,
+  title = {Language Extensions of May 1983},
+  author = {Bernecky, Robert and Iverson, Kenneth E. and McDonnell, Eugene E. and Metzger, Robert C. and Schueler, J. Henri},
+  institution = {I.P. Sharp Associates},
+  type = {SHARP APL Technical Note},
+  number = {45},
+  year = {1983},
+  url = {https://www.jsoftware.com/papers/satn45.htm}
+}
+
+@article{iverson-1987-dictionary-of-apl,
+  title = {A Dictionary of {APL}},
+  author = {Iverson, Kenneth E.},
+  journal = {ACM SIGAPL APL Quote Quad},
+  volume = {18},
+  number = {1},
+  pages = {5--40},
+  year = {1987},
+  doi = {10.1145/36983.36984},
+  url = {https://www.jsoftware.com/papers/APLDictionary.htm}
+}
+
+@inproceedings{bernecky-1988-function-rank,
+  title = {An Introduction to Function Rank},
+  author = {Bernecky, Robert},
+  booktitle = {Proceedings of the International Conference on APL (APL '88)},
+  pages = {39--43},
+  year = {1988},
+  doi = {10.1145/55626.55632}
+}
+
+@inproceedings{hui-1995-rank-uniformity,
+  title = {Rank and Uniformity},
+  author = {Hui, Roger K. W.},
+  booktitle = {APL95, APL Quote Quad 25(4)},
+  year = {1995},
+  url = {https://www.jsoftware.com/papers/rank.htm}
+}
+
+@misc{hui-2009-rank-operator,
+  title = {Rank Operator: An Idea Worth Stealing Borrowing},
+  author = {Hui, Roger K. W.},
+  howpublished = {Talk, Dyalog '09},
+  year = {2009},
+  url = {https://www.jsoftware.com/papers/rank/index.htm}
+}
+
+@phdthesis{hsu-2019-data-parallel-compiler,
+  title = {A Data Parallel Compiler Hosted on the {GPU}},
+  author = {Hsu, Aaron W.},
+  school = {Indiana University},
+  year = {2019},
+  month = nov,
+  url = {https://hdl.handle.net/2022/24749}
+}
+
+@article{hui-2020-apl-since-1978,
+  title = {{APL} since 1978},
+  author = {Hui, Roger K. W. and Kromberg, Morten J.},
+  journal = {Proceedings of the ACM on Programming Languages},
+  volume = {4},
+  number = {HOPL},
+  pages = {69:1--69:108},
+  year = {2020},
+  doi = {10.1145/3386319}
+}
+
+@manual{hui-iverson-j-dictionary,
+  title = {J Dictionary},
+  author = {Hui, Roger K. W. and Iverson, Kenneth E.},
+  organization = {Jsoftware Inc.},
+  year = {2001},
+  url = {https://www.jsoftware.com/help/dictionary/}
+}
+
+@misc{lochbaum-bqn,
+  title = {{BQN}: finally, an {APL} for your flying saucer},
+  author = {Lochbaum, Marshall},
+  howpublished = {\url{https://github.com/mlochbaum/BQN}},
+  note = {Documentation snapshot at commit 5abbab967fefc68ae9b3c2620d5d38473a90cb66},
+  year = {2026}
+}
+
+@misc{hsu-codfns,
+  title = {Co-dfns: High-performance, Parallel {APL} Compiler},
+  author = {Hsu, Aaron W.},
+  howpublished = {\url{https://github.com/Co-dfns/Co-dfns}},
+  note = {Snapshot at commit 073634096d0aa030addddc7cf9d2adebe5200ce2 (v5.7.1)},
+  year = {2025}
+}
+
+@inproceedings{henriksen-2013-t2-fusion,
+  title = {A {T2} Graph-Reduction Approach to Fusion},
+  author = {Henriksen, Troels and Oancea, Cosmin E.},
+  booktitle = {FHPC 2013},
+  year = {2013},
+  doi = {10.1145/2502323.2502328}
+}
+
+@phdthesis{henriksen-2017-futhark-thesis,
+  title = {Design and Implementation of the {Futhark} Programming Language (Revised)},
+  author = {Henriksen, Troels},
+  school = {University of Copenhagen},
+  year = {2017},
+  month = dec,
+  url = {https://futhark-lang.org/publications/troels-henriksen-phd-thesis.pdf}
+}
+
+@inproceedings{henriksen-2019-incremental-flattening,
+  title = {Incremental Flattening for Nested Data Parallelism},
+  author = {Henriksen, Troels and Thor{\o}e, Frederik and Elsman, Martin and Oancea, Cosmin},
+  booktitle = {PPoPP 2019},
+  year = {2019},
+  doi = {10.1145/3293883.3295707}
+}
+
+@inproceedings{munksgaard-2022-memory-optimizations,
+  title = {Memory Optimizations in an Array Language},
+  author = {Munksgaard, Philip and Henriksen, Troels and Sadayappan, Ponnuswamy and Oancea, Cosmin},
+  booktitle = {SC 2022},
+  year = {2022},
+  url = {https://futhark-lang.org/publications/sc22-mem.pdf}
+}
+
+@article{schenck-2024-automap,
+  title = {{AUTOMAP}: Inferring Rank-Polymorphic Function Applications with Integer Linear Programming},
+  author = {Schenck, Robert and Hinnerskov, Nikolaj Hey and Henriksen, Troels and Madsen, Magnus and Elsman, Martin},
+  journal = {Proc. ACM Program. Lang.},
+  volume = {8},
+  number = {OOPSLA2},
+  articleno = {334},
+  year = {2024},
+  doi = {10.1145/3689774}
+}
+
+@article{paszke-2021-dex,
+  title = {Getting to the Point: Index Sets and Parallelism-Preserving Autodiff for Pointful Array Programming},
+  author = {Paszke, Adam and Johnson, Daniel D. and Duvenaud, David and Vytiniotis, Dimitrios and Radul, Alexey and Johnson, Matthew J. and Ragan-Kelley, Jonathan and Maclaurin, Dougal},
+  journal = {Proc. ACM Program. Lang.},
+  volume = {5},
+  number = {ICFP},
+  year = {2021},
+  doi = {10.1145/3473593},
+  eprint = {2104.05372},
+  archiveprefix = {arXiv}
+}
+
+@inproceedings{chakravarty-2011-accelerate,
+  title = {Accelerating {Haskell} Array Codes with Multicore {GPUs}},
+  author = {Chakravarty, Manuel M. T. and Keller, Gabriele and Lee, Sean and McDonell, Trevor L. and Grover, Vinod},
+  booktitle = {DAMP 2011},
+  year = {2011},
+  doi = {10.1145/1926354.1926358}
+}
+
+@article{grelck-2006-sac,
+  title = {{SAC}---A Functional Array Language for Efficient Multi-threaded Execution},
+  author = {Grelck, Clemens and Scholz, Sven-Bodo},
+  journal = {International Journal of Parallel Programming},
+  volume = {34},
+  number = {4},
+  pages = {383--427},
+  year = {2006},
+  doi = {10.1007/s10766-006-0018-x}
+}
+
+@inproceedings{mcbride-2000-elimination-motive,
+  author    = {McBride, Conor},
+  title     = {Elimination with a Motive},
+  booktitle = {Types for Proofs and Programs (TYPES 2000)},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {2277},
+  pages     = {197--216},
+  year      = {2002},
+  publisher = {Springer},
+  doi       = {10.1007/3-540-45842-5_13},
+  url       = {http://strictlypositive.org/elim.ps.gz}
+}
+
+@article{mcbride-2004-view-from-left,
+  author    = {McBride, Conor and McKinna, James},
+  title     = {The view from the left},
+  journal   = {Journal of Functional Programming},
+  volume    = {14},
+  number    = {1},
+  pages     = {69--111},
+  year      = {2004},
+  doi       = {10.1017/S0956796803004829},
+  url       = {http://strictlypositive.org/view.ps.gz}
+}
+
+@inproceedings{goguen-2006-eliminating-dependent-pattern-matching,
+  author    = {Goguen, Healfdene and McBride, Conor and McKinna, James},
+  title     = {Eliminating Dependent Pattern Matching},
+  booktitle = {Algebra, Meaning, and Computation: Essays Dedicated to Joseph A. Goguen},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {4060},
+  pages     = {521--540},
+  year      = {2006},
+  publisher = {Springer},
+  doi       = {10.1007/11780274_27},
+  url       = {http://strictlypositive.org/goguen.pdf}
+}
+
+@inproceedings{cockx-2014-overlapping-patterns,
+  author    = {Cockx, Jesper and Piessens, Frank and Devriese, Dominique},
+  title     = {Overlapping and Order-Independent Patterns: Definitional Equality for All},
+  booktitle = {Programming Languages and Systems (ESOP 2014)},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {8410},
+  pages     = {87--106},
+  year      = {2014},
+  publisher = {Springer},
+  doi       = {10.1007/978-3-642-54833-8_6},
+  url       = {https://jesper.cx/files/overlapping-and-order-independent-patterns.pdf}
+}
+
+@inproceedings{cockx-2016-unifiers-as-equivalences,
+  author    = {Cockx, Jesper and Devriese, Dominique and Piessens, Frank},
+  title     = {Unifiers as Equivalences: Proof-Relevant Unification of Dependently Typed Data},
+  booktitle = {Proceedings of the 21st ACM SIGPLAN International Conference on Functional
+               Programming (ICFP 2016)},
+  pages     = {270--283},
+  year      = {2016},
+  publisher = {ACM},
+  doi       = {10.1145/2951913.2951917},
+  url       = {https://jesper.cx/files/unifiers-as-equivalences.pdf}
+}
+
+@phdthesis{cockx-2017-dependent-pattern-matching-thesis,
+  author    = {Cockx, Jesper},
+  title     = {Dependent Pattern Matching and Proof-Relevant Unification},
+  school    = {KU Leuven, Faculty of Engineering Science},
+  year      = {2017},
+  month     = jun,
+  url       = {https://jesper.cx/files/thesis-final-digital.pdf}
+}
+
+@inproceedings{cockx-2020-type-theory-unchained,
+  author    = {Cockx, Jesper},
+  title     = {Type Theory Unchained: Extending {Agda} with User-Defined Rewrite Rules},
+  booktitle = {25th International Conference on Types for Proofs and Programs (TYPES 2019)},
+  series    = {Leibniz International Proceedings in Informatics (LIPIcs)},
+  volume    = {175},
+  pages     = {2:1--2:27},
+  year      = {2020},
+  publisher = {Schloss Dagstuhl--Leibniz-Zentrum f{\"u}r Informatik},
+  doi       = {10.4230/LIPIcs.TYPES.2019.2}
+}
+
+@inproceedings{allais-2013-new-equations-neutral-terms,
+  author    = {Allais, Guillaume and McBride, Conor and Boutillier, Pierre},
+  title     = {New Equations for Neutral Terms: A Sound and Complete Decision Procedure,
+               Formalized},
+  booktitle = {Proceedings of the 2013 ACM SIGPLAN Workshop on Dependently-Typed
+               Programming (DTP '13)},
+  year      = {2013},
+  publisher = {ACM},
+  doi       = {10.1145/2502409.2502411},
+  eprint    = {1304.0809},
+  archivePrefix = {arXiv}
+}
+
+@article{allais-2025-frex,
+  author    = {Allais, Guillaume and Brady, Edwin and Corbyn, Nathan and Kammar, Ohad and
+               Yallop, Jeremy},
+  title     = {Frex: Dependently Typed Algebraic Simplification},
+  journal   = {Proceedings of the ACM on Programming Languages},
+  volume    = {9},
+  number    = {ICFP},
+  articleno = {237},
+  year      = {2025},
+  doi       = {10.1145/3747506},
+  eprint    = {2306.15375},
+  archivePrefix = {arXiv}
+}
+
+@article{xi-2007-dependent-ml,
+  author    = {Xi, Hongwei},
+  title     = {Dependent {ML}: An Approach to Practical Programming with Dependent Types},
+  journal   = {Journal of Functional Programming},
+  volume    = {17},
+  number    = {2},
+  pages     = {215--286},
+  year      = {2007},
+  doi       = {10.1017/S0956796806006216},
+  url       = {https://hwxi.github.io/PUBLICATION/MYDATA/DML-jfp07.pdf}
+}
+
+@article{cockx-2021-taming-rew,
+  author    = {Cockx, Jesper and Tabareau, Nicolas and Winterhalter, Th{\'e}o},
+  title     = {The Taming of the Rew: A Type Theory with Computational Assumptions},
+  journal   = {Proceedings of the ACM on Programming Languages},
+  volume    = {5},
+  number    = {POPL},
+  year      = {2021},
+  doi       = {10.1145/3434341},
+  note      = {Not stored (link-only)}
+}
+
+@article{cockx-2016-without-k,
+  author    = {Cockx, Jesper and Devriese, Dominique and Piessens, Frank},
+  title     = {Eliminating dependent pattern matching without {K}},
+  journal   = {Journal of Functional Programming},
+  volume    = {26},
+  pages     = {e16},
+  year      = {2016},
+  doi       = {10.1017/S0956796816000174},
+  note      = {Not stored (link-only)}
+}
+
+@article{cockx-2018-proof-relevant-unification,
+  author    = {Cockx, Jesper and Devriese, Dominique},
+  title     = {Proof-relevant unification: Dependent pattern matching with only the axioms of
+               your type theory},
+  journal   = {Journal of Functional Programming},
+  volume    = {28},
+  year      = {2018},
+  doi       = {10.1017/S095679681800014X},
+  note      = {Not stored (link-only)}
+}
+
+@misc{vasilache-2022-structured-codegen,
+  title = {Composable and Modular Code Generation in {MLIR}: A Structured and Retargetable Approach to Tensor Compiler Construction},
+  author = {Vasilache, Nicolas and Zinenko, Oleksandr and Bik, Aart J. C. and Ravishankar, Mahesh and Raoux, Thomas and Belyaev, Alexander and Springer, Matthias and Gysi, Tobias and Caballero, Diego and Herhut, Stephan and Laurenzo, Stella and Cohen, Albert},
+  year = {2022},
+  eprint = {2202.03293},
+  archivePrefix = {arXiv}
+}
+
+@article{bik-2022-sparse-mlir,
+  title = {Compiler Support for Sparse Tensor Computations in {MLIR}},
+  author = {Bik, Aart J. C. and Koanantakool, Penporn and Shpeisman, Tatiana and Vasilache, Nicolas and Zheng, Bixia and Kjolstad, Fredrik},
+  journal = {ACM Transactions on Architecture and Code Optimization},
+  volume = {19},
+  number = {4},
+  pages = {1--25},
+  year = {2022},
+  doi = {10.1145/3544559},
+  eprint = {2202.04305},
+  archivePrefix = {arXiv}
+}
+
+@misc{jax-shape-polymorphism,
+  title = {{JAX}: Shape polymorphism (docs/501/shape-polymorphism.md) and Exporting and serializing staged-out computations (docs/501/export.md)},
+  author = {{The JAX Authors}},
+  howpublished = {\url{https://github.com/jax-ml/jax/tree/40a35abdd67b2298decb7d14e89adf4d120f1902/docs/501}},
+  note = {Revision 40a35abdd67b2298decb7d14e89adf4d120f1902, fetched 2026-10-09},
+  year = {2026}
+}
+
+@misc{mojo-mlir-docs,
+  title = {Mojo documentation: inline {MLIR} reference, the pop dialect, parameterization},
+  author = {{Modular Inc.}},
+  howpublished = {\url{https://github.com/modular/modular/tree/135c332fec9b326cab8e2f3951a0b2f31d017a5d/Mojo/docs}},
+  note = {Revision 135c332fec9b326cab8e2f3951a0b2f31d017a5d, fetched 2026-10-09},
+  year = {2026}
+}
+
+@misc{triton-mlir-dialects,
+  title = {Triton {MLIR} dialects: TritonOps.td, TritonTypes.td, TritonGPUAttrDefs.td},
+  author = {{The Triton Authors}},
+  howpublished = {\url{https://github.com/triton-lang/triton/tree/11523f38065f52a8117dc3c4d74a2ac59936c19e/include/triton/Dialect}},
+  note = {Revision 11523f38065f52a8117dc3c4d74a2ac59936c19e, fetched 2026-10-09},
+  year = {2026}
+}
+
+@inproceedings{henriksen-2021-size-types,
+  author    = {Henriksen, Troels and Elsman, Martin},
+  title     = {Towards Size-Dependent Types for Array Programming},
+  booktitle = {Proceedings of the 7th ACM SIGPLAN International Workshop on Libraries,
+               Languages and Compilers for Array Programming (ARRAY '21)},
+  year      = {2021},
+  publisher = {ACM},
+  doi       = {10.1145/3460944.3464310},
+  url       = {https://www.futhark-lang.org/publications/array21.pdf}
+}
+
+@inproceedings{bailly-2023-size-dependent,
+  author    = {Bailly, Lubin and Henriksen, Troels and Elsman, Martin},
+  title     = {Shape-Constrained Array Programming with Size-Dependent Types},
+  booktitle = {Proceedings of the 11th ACM SIGPLAN International Workshop on Functional
+               High-Performance and Numerical Computing (FHPNC '23)},
+  pages     = {29--41},
+  year      = {2023},
+  publisher = {ACM},
+  doi       = {10.1145/3609024.3609412},
+  url       = {https://futhark-lang.org/publications/fhpnc23.pdf}
+}
+
+@inproceedings{gibbons-2017-naperian,
+  author    = {Gibbons, Jeremy},
+  title     = {{APLicative} Programming with {Naperian} Functors},
+  booktitle = {Programming Languages and Systems (ESOP 2017)},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {10201},
+  pages     = {556--583},
+  year      = {2017},
+  publisher = {Springer},
+  doi       = {10.1007/978-3-662-54434-1_21},
+  url       = {https://www.cs.ox.ac.uk/people/jeremy.gibbons/publications/aplicative.pdf}
+}
+
+@inproceedings{diatchki-2015-smt,
+  author    = {Diatchki, Iavor S.},
+  title     = {Improving {Haskell} Types with {SMT}},
+  booktitle = {Proceedings of the 2015 ACM SIGPLAN Symposium on Haskell},
+  pages     = {1--10},
+  year      = {2015},
+  publisher = {ACM},
+  doi       = {10.1145/2804302.2804307}
+}
+
+@misc{code-ghc-typelits-natnormalise,
+  author       = {Baaij, Christiaan},
+  title        = {ghc-typelits-natnormalise: {GHC} typechecker plugin for types of kind {GHC.TypeLits.Nat}},
+  howpublished = {\url{https://github.com/clash-lang/ghc-typelits-natnormalise}},
+  note         = {Commit 44c1a880be312d73c175dda131a8f97ff0d22a75}
+}
+
+@misc{code-makanin-algo,
+  author       = {Slepak, Justin},
+  title        = {makanin-algo: Makanin's algorithm for string equation satisfiability},
+  howpublished = {\url{https://github.com/jrslepak/makanin-algo}},
+  note         = {Commit 64e3ac616ce29b62a0ee522ee59c5098f21cd0d0}
+}
+
+@article{melnik-2010-dremel,
+  title = {Dremel: Interactive Analysis of Web-Scale Datasets},
+  author = {Melnik, Sergey and Gubarev, Andrey and Long, Jing Jing and Romer, Geoffrey and Shivakumar, Shiva and Tolton, Matt and Vassilakis, Theo},
+  journal = {Proceedings of the VLDB Endowment},
+  volume = {3},
+  number = {1--2},
+  pages = {330--339},
+  year = {2010},
+  doi = {10.14778/1920841.1920886},
+  url = {https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/36632.pdf}
+}
+
+@misc{apache-arrow-columnar-format,
+  title = {Arrow Columnar Format, Version 1.5},
+  author = {{The Apache Software Foundation}},
+  howpublished = {Apache Arrow documentation, \texttt{docs/source/format/Columnar.rst} at tag \texttt{apache-arrow-26.0.0}},
+  year = {2026},
+  url = {https://arrow.apache.org/docs/format/Columnar.html}
+}
+
+@misc{apache-parquet-format,
+  title = {Apache Parquet Format},
+  author = {{The Apache Software Foundation}},
+  howpublished = {\texttt{apache/parquet-format} at tag \texttt{apache-parquet-format-2.14.0}},
+  year = {2026},
+  url = {https://github.com/apache/parquet-format}
+}
+
+@misc{tustvold-2022-arrow-parquet-nested,
+  title = {Arrow and Parquet Part 2: Nested and Hierarchical Data using Structs and Lists},
+  author = {{tustvold} and {alamb}},
+  howpublished = {Apache Arrow blog},
+  year = {2022},
+  month = oct,
+  url = {https://arrow.apache.org/blog/2022/10/08/arrow-parquet-encoding-part-2/}
+}
+
+@book{blelloch-1990-vector-models,
+  title = {Vector Models for Data-Parallel Computing},
+  author = {Blelloch, Guy E.},
+  publisher = {MIT Press},
+  year = {1990},
+  isbn = {0-262-02313-X},
+  url = {https://www.cs.cmu.edu/~guyb/papers/Ble90.pdf}
+}
+
+@article{blelloch-1994-portable-nesl,
+  title = {Implementation of a Portable Nested Data-Parallel Language},
+  author = {Blelloch, Guy E. and Chatterjee, Siddhartha and Hardwick, Jonathan C. and Sipelstein, Jay and Zagha, Marco},
+  journal = {Journal of Parallel and Distributed Computing},
+  volume = {21},
+  number = {1},
+  pages = {4--14},
+  year = {1994},
+  doi = {10.1006/jpdc.1994.1038}
+}
+
+@techreport{blelloch-1995-nesl,
+  title = {{NESL}: A Nested Data-Parallel Language (Version 3.1)},
+  author = {Blelloch, Guy E.},
+  institution = {Carnegie Mellon University, School of Computer Science},
+  number = {CMU-CS-95-170},
+  year = {1995},
+  url = {https://www.cs.cmu.edu/~guyb/papers/Nesl3.1.pdf}
+}
+
+@article{blelloch-1996-programming-parallel-algorithms,
+  title = {Programming Parallel Algorithms},
+  author = {Blelloch, Guy E.},
+  journal = {Communications of the ACM},
+  volume = {39},
+  number = {3},
+  pages = {85--97},
+  year = {1996},
+  doi = {10.1145/227234.227246}
+}
+
+@inproceedings{keller-1998-flattening-trees,
+  title = {Flattening Trees},
+  author = {Keller, Gabriele and Chakravarty, Manuel M. T.},
+  booktitle = {Euro-Par'98 Parallel Processing},
+  series = {LNCS},
+  volume = {1470},
+  pages = {709--719},
+  publisher = {Springer},
+  year = {1998},
+  doi = {10.1007/BFb0057920}
+}
+
+@inproceedings{chakravarty-2000-more-types,
+  title = {More Types for Nested Data Parallel Programming},
+  author = {Chakravarty, Manuel M. T. and Keller, Gabriele},
+  booktitle = {ICFP 2000},
+  pages = {94--105},
+  year = {2000},
+  doi = {10.1145/351240.351249}
+}
+
+@inproceedings{leshchinskiy-2006-higher-order-flattening,
+  title = {Higher Order Flattening},
+  author = {Leshchinskiy, Roman and Chakravarty, Manuel M. T. and Keller, Gabriele},
+  booktitle = {Computational Science -- ICCS 2006 (PAPP 2006)},
+  series = {LNCS},
+  volume = {3992},
+  publisher = {Springer},
+  year = {2006},
+  doi = {10.1007/11758525_122}
+}
+
+@inproceedings{chakravarty-2007-dph-status,
+  title = {Data Parallel {H}askell: a status report},
+  author = {Chakravarty, Manuel M. T. and Leshchinskiy, Roman and Peyton Jones, Simon and Keller, Gabriele and Marlow, Simon},
+  booktitle = {DAMP 2007},
+  pages = {10--18},
+  year = {2007},
+  doi = {10.1145/1248648.1248652}
+}
+
+@inproceedings{peytonjones-2008-harnessing-multicores,
+  title = {Harnessing the Multicores: Nested Data Parallelism in {H}askell},
+  author = {Peyton Jones, Simon and Leshchinskiy, Roman and Keller, Gabriele and Chakravarty, Manuel M. T.},
+  booktitle = {FSTTCS 2008},
+  series = {LIPIcs},
+  volume = {2},
+  pages = {383--414},
+  year = {2008},
+  doi = {10.4230/LIPIcs.FSTTCS.2008.1769}
+}
+
+@inproceedings{lippmeier-2012-work-efficient-vectorisation,
+  title = {Work Efficient Higher-Order Vectorisation},
+  author = {Lippmeier, Ben and Chakravarty, Manuel M. T. and Keller, Gabriele and Leshchinskiy, Roman and Peyton Jones, Simon},
+  booktitle = {ICFP 2012},
+  pages = {259--270},
+  year = {2012},
+  doi = {10.1145/2364527.2364564}
+}
+
+@inproceedings{keller-2012-vectorisation-avoidance,
+  title = {Vectorisation Avoidance},
+  author = {Keller, Gabriele and Chakravarty, Manuel M. T. and Leshchinskiy, Roman and Lippmeier, Ben and Peyton Jones, Simon},
+  booktitle = {Haskell Symposium 2012},
+  pages = {37--48},
+  year = {2012},
+  doi = {10.1145/2364506.2364512}
+}
+
+@inproceedings{bergstrom-2013-data-only-flattening,
+  title = {Data-Only Flattening for Nested Data Parallelism},
+  author = {Bergstrom, Lars and Fluet, Matthew and Rainey, Mike and Reppy, John and Rosen, Stephen and Shaw, Adam},
+  booktitle = {PPoPP 2013},
+  pages = {81--92},
+  year = {2013},
+  doi = {10.1145/2442516.2442525}
+}
+
+@inproceedings{larsen-2017-segmented-reductions,
+  title = {Strategies for Regular Segmented Reductions on {GPU}},
+  author = {Larsen, Rasmus Wriedt and Henriksen, Troels},
+  booktitle = {FHPC 2017},
+  pages = {42--52},
+  year = {2017},
+  doi = {10.1145/3122948.3122952}
+}
+
+@inproceedings{elsman-2019-flattening-by-expansion,
+  title = {Data-Parallel Flattening by Expansion},
+  author = {Elsman, Martin and Henriksen, Troels and Serup, Niels Gustav Westphal},
+  booktitle = {ARRAY 2019},
+  pages = {14--24},
+  year = {2019},
+  doi = {10.1145/3315454.3329955}
+}
+
+@mastersthesis{hashemi-2026-full-flattening,
+  title = {Full Flattening of Nested Data Parallelism in the {F}uthark Compiler},
+  author = {Hashemi, Amirreza},
+  school = {Aalto University and Technical University of Denmark},
+  year = {2026},
+  url = {https://futhark-lang.org/student-projects/amir-msc-thesis.pdf}
+}
+
+@article{blelloch-1990-collection-oriented,
+  title = {Compiling collection-oriented languages onto massively parallel computers},
+  author = {Blelloch, Guy E. and Sabot, Gary W.},
+  journal = {Journal of Parallel and Distributed Computing},
+  volume = {8},
+  number = {2},
+  pages = {119--134},
+  year = {1990},
+  doi = {10.1016/0743-7315(90)90087-6}
+}
+
+@incollection{blelloch-1990-prefix-sums,
+  title = {Prefix Sums and Their Applications},
+  author = {Blelloch, Guy E.},
+  booktitle = {Synthesis of Parallel Algorithms},
+  editor = {Reif, John H.},
+  publisher = {Morgan Kaufmann},
+  year = {1991},
+  url = {https://www.cs.cmu.edu/~guyb/papers/Ble93.pdf}
+}
+
+@phdthesis{leshchinskiy-2005-thesis,
+  title = {Higher-Order Nested Data Parallelism: Semantics and Implementation},
+  author = {Leshchinskiy, Roman},
+  school = {Technische Universit{\"a}t Berlin},
+  year = {2005},
+  url = {https://depositonce.tu-berlin.de/items/3a5f106d-4c15-4e5e-8610-7b7fb81b372f}
+}
+
+@misc{sevald-krause-2023-flattening,
+  title = {Flattening Irregular Nested Parallelism in {F}uthark},
+  author = {Sevald-Krause, Cornelius},
+  note = {BSc thesis, DIKU, University of Copenhagen},
+  year = {2023},
+  url = {https://futhark-lang.org/student-projects/cornelius-bsc-thesis.pdf}
+}
+
+@inproceedings{vollmer-2017-packed-tree-transforms,
+  title = {Compiling Tree Transforms to Operate on Packed Representations},
+  author = {Vollmer, Michael and Spall, Sarah and Chamith, Buddhika and Sakka, Laith and Koparkar, Chaitanya and Kulkarni, Milind and Tobin-Hochstadt, Sam and Newton, Ryan R.},
+  booktitle = {31st European Conference on Object-Oriented Programming (ECOOP 2017)},
+  series = {Leibniz International Proceedings in Informatics (LIPIcs)},
+  volume = {74},
+  pages = {26:1--26:29},
+  publisher = {Schloss Dagstuhl--Leibniz-Zentrum f{\"u}r Informatik},
+  year = {2017},
+  doi = {10.4230/LIPIcs.ECOOP.2017.26}
+}
+
+@inproceedings{vollmer-2019-local,
+  title = {{LoCal}: A Language for Programs Operating on Serialized Data},
+  author = {Vollmer, Michael and Koparkar, Chaitanya and Rainey, Mike and Sakka, Laith and Kulkarni, Milind and Newton, Ryan R.},
+  booktitle = {Proceedings of the 40th ACM SIGPLAN Conference on Programming Language Design and Implementation (PLDI 2019)},
+  pages = {48--62},
+  year = {2019},
+  doi = {10.1145/3314221.3314631},
+  note = {Extended version: Indiana University Technical Report TR741, 2019, https://hdl.handle.net/2022/13945}
+}
+
+@article{koparkar-2021-efficient-tree-traversals,
+  title = {Efficient Tree-Traversals: Reconciling Parallelism and Dense Data Representations},
+  author = {Koparkar, Chaitanya and Rainey, Mike and Vollmer, Michael and Kulkarni, Milind and Newton, Ryan R.},
+  journal = {Proc. ACM Program. Lang.},
+  volume = {5},
+  number = {ICFP},
+  pages = {1--29},
+  year = {2021},
+  doi = {10.1145/3473596},
+  eprint = {2107.00522},
+  archiveprefix = {arXiv}
+}
+
+@inproceedings{koparkar-2024-mostly-serialized-gc,
+  title = {Garbage Collection for Mostly Serialized Heaps},
+  author = {Koparkar, Chaitanya S. and Singhal, Vidush and Gupta, Aditya and Rainey, Mike and Vollmer, Michael and Pelenitsyn, Artem and Tobin-Hochstadt, Sam and Kulkarni, Milind and Newton, Ryan R.},
+  booktitle = {Proceedings of the 2024 ACM SIGPLAN International Symposium on Memory Management (ISMM 2024)},
+  pages = {1--14},
+  year = {2024},
+  doi = {10.1145/3652024.3665512}
+}
+
+@inproceedings{yang-2015-compact-normal-forms,
+  title = {Efficient Communication and Collection with Compact Normal Forms},
+  author = {Yang, Edward Z. and Campagna, Giovanni and A{\u{g}}acan, {\"O}mer S. and El-Hassany, Ahmed and Kulkarni, Abhishek and Newton, Ryan R.},
+  booktitle = {Proceedings of the 20th ACM SIGPLAN International Conference on Functional Programming (ICFP 2015)},
+  pages = {362--374},
+  year = {2015},
+  doi = {10.1145/2784731.2784735},
+  url = {http://ezyang.com/papers/ezyang15-cnf.pdf}
+}
+
+@inproceedings{singhal-2024-marmoset,
+  title = {Optimizing Layout of Recursive Datatypes with {Marmoset}: Or, Algorithms + Data Layouts = Efficient Programs},
+  author = {Singhal, Vidush and Koparkar, Chaitanya and Zullo, Joseph and Pelenitsyn, Artem and Vollmer, Michael and Rainey, Mike and Newton, Ryan and Kulkarni, Milind},
+  booktitle = {38th European Conference on Object-Oriented Programming (ECOOP 2024)},
+  series = {Leibniz International Proceedings in Informatics (LIPIcs)},
+  volume = {313},
+  pages = {38:1--38:28},
+  publisher = {Schloss Dagstuhl--Leibniz-Zentrum f{\"u}r Informatik},
+  year = {2024},
+  doi = {10.4230/LIPIcs.ECOOP.2024.38},
+  eprint = {2405.17590},
+  archiveprefix = {arXiv}
+}
+
+@misc{allais-2023-serialised-data,
+  title = {Seamless, Correct, and Generic Programming over Serialised Data},
+  author = {Allais, Guillaume},
+  year = {2023},
+  eprint = {2310.13441},
+  archiveprefix = {arXiv},
+  primaryclass = {cs.PL},
+  note = {v2, 2024, as submitted to the Journal of Functional Programming},
+  url = {https://arxiv.org/abs/2310.13441}
+}
+
+@inproceedings{demoura-2021-lean4,
+  author    = {de Moura, Leonardo and Ullrich, Sebastian},
+  title     = {The {Lean} 4 Theorem Prover and Programming Language},
+  booktitle = {Automated Deduction -- CADE 28},
+  series    = {Lecture Notes in Artificial Intelligence},
+  volume    = {12699},
+  pages     = {625--635},
+  year      = {2021},
+  publisher = {Springer},
+  doi       = {10.1007/978-3-030-79876-5_37},
+  url       = {https://publikationen.bibliothek.kit.edu/1000142109/141380002}
+}
+
+@misc{selsam-2020-tabled-typeclass,
+  author        = {Selsam, Daniel and Ullrich, Sebastian and de Moura, Leonardo},
+  title         = {Tabled Typeclass Resolution},
+  year          = {2020},
+  eprint        = {2001.04301},
+  archivePrefix = {arXiv},
+  url           = {https://arxiv.org/abs/2001.04301}
+}
+
+@misc{carneiro-2024-lean4lean,
+  author        = {Carneiro, Mario},
+  title         = {{Lean4Lean}: Verifying a Typechecker for {Lean}, in {Lean}},
+  year          = {2024},
+  note          = {v3, 14 September 2025; submitted to CPP 2026},
+  eprint        = {2403.14064},
+  archivePrefix = {arXiv},
+  url           = {https://arxiv.org/abs/2403.14064}
+}
+
+@inproceedings{boespflug-2011-full-throttle,
+  author    = {Boespflug, Mathieu and D{\'e}n{\`e}s, Maxime and Gr{\'e}goire, Benjamin},
+  title     = {Full Reduction at Full Throttle},
+  booktitle = {Certified Programs and Proofs (CPP 2011)},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {7086},
+  pages     = {362--377},
+  year      = {2011},
+  publisher = {Springer},
+  doi       = {10.1007/978-3-642-25379-9_26},
+  url       = {https://www.cs.mcgill.ca/~mboes/papers/cpp11.pdf}
+}
+
+@inproceedings{wenzel-2009-parallel-isabelle,
+  author    = {Wenzel, Makarius},
+  title     = {Parallel Proof Checking in {Isabelle/Isar}},
+  booktitle = {Programming Languages for Mechanized Mathematics Systems (PLMMS 2009)},
+  year      = {2009},
+  publisher = {ACM},
+  url       = {https://www21.in.tum.de/~wenzelm/papers/parallel-isabelle.pdf}
+}
+
+@inproceedings{wenzel-2013-read-eval-print,
+  author    = {Wenzel, Makarius},
+  title     = {{READ-EVAL-PRINT} in Parallel and Asynchronous Proof-checking},
+  booktitle = {User Interfaces for Theorem Provers (UITP 2012)},
+  series    = {Electronic Proceedings in Theoretical Computer Science},
+  volume    = {118},
+  pages     = {57--71},
+  year      = {2013},
+  doi       = {10.4204/EPTCS.118.4},
+  eprint    = {1307.1944},
+  archivePrefix = {arXiv}
+}
+
+@inproceedings{barras-2015-async-coq,
+  author    = {Barras, Bruno and Tankink, Carst and Tassi, Enrico},
+  title     = {Asynchronous Processing of {Coq} Documents: From the Kernel up to the User Interface},
+  booktitle = {Interactive Theorem Proving (ITP 2015)},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {9236},
+  pages     = {51--66},
+  year      = {2015},
+  publisher = {Springer},
+  doi       = {10.1007/978-3-319-22102-1_4},
+  eprint    = {1506.05605},
+  archivePrefix = {arXiv}
+}
+
+@inproceedings{swamy-2016-fstar-mumon,
+  author    = {Swamy, Nikhil and Hri{\c{t}}cu, C{\u{a}}t{\u{a}}lin and Keller, Chantal and
+               Rastogi, Aseem and Delignat-Lavaud, Antoine and Forest, Simon and
+               Bhargavan, Karthikeyan and Fournet, C{\'e}dric and Strub, Pierre-Yves and
+               Kohlweiss, Markulf and Zinzindohoue, Jean-Karim and Zanella-B{\'e}guelin, Santiago},
+  title     = {Dependent Types and Multi-Monadic Effects in {F*}},
+  booktitle = {Proceedings of the 43rd Annual ACM SIGPLAN-SIGACT Symposium on Principles of
+               Programming Languages (POPL 2016)},
+  pages     = {256--270},
+  year      = {2016},
+  publisher = {ACM},
+  doi       = {10.1145/2837614.2837655},
+  url       = {https://www.fstar-lang.org/papers/mumon/paper.pdf}
+}
+
+@inproceedings{martinez-2019-meta-fstar,
+  author    = {Mart{\'i}nez, Guido and Ahman, Danel and Dumitrescu, Victor and
+               Giannarakis, Nick and Hawblitzel, Chris and Hri{\c{t}}cu, C{\u{a}}t{\u{a}}lin and
+               Narasimhamurthy, Monal and Paraskevopoulou, Zoe and Pit-Claudel, Cl{\'e}ment and
+               Protzenko, Jonathan and Ramananandro, Tahina and Rastogi, Aseem and Swamy, Nikhil},
+  title     = {{Meta-F*}: Proof Automation with {SMT}, Tactics, and Metaprograms},
+  booktitle = {Programming Languages and Systems (ESOP 2019)},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {11423},
+  pages     = {30--59},
+  year      = {2019},
+  publisher = {Springer},
+  doi       = {10.1007/978-3-030-17184-1_2},
+  eprint    = {1803.06547},
+  archivePrefix = {arXiv}
+}
+
+@article{gross-2024-scalable-proof-engine,
+  author    = {Gross, Jason and Erbsen, Andres and Philipoom, Jade and Agrawal, Rajashree and
+               Chlipala, Adam},
+  title     = {Towards a Scalable Proof Engine: A Performant Prototype Rewriting Primitive for {Coq}},
+  journal   = {Journal of Automated Reasoning},
+  volume    = {68},
+  number    = {19},
+  year      = {2024},
+  doi       = {10.1007/s10817-024-09705-6},
+  eprint    = {2305.02521},
+  archivePrefix = {arXiv}
+}
+
+@incollection{pollack1998believe,
+  author    = {Pollack, Robert},
+  title     = {How to Believe a Machine-Checked Proof},
+  booktitle = {Twenty Five Years of Constructive Type Theory},
+  editor    = {Sambin, Giovanni and Smith, Jan M.},
+  publisher = {Oxford University Press},
+  year      = {1998},
+  doi       = {10.1093/oso/9780198501275.003.0013},
+  note      = {Also BRICS Report Series RS-97-18, July 1997, doi:10.7146/brics.v4i18.18945}
+}
+
+@article{barendregt2005challenge,
+  author  = {Barendregt, Henk and Wiedijk, Freek},
+  title   = {The Challenge of Computer Mathematics},
+  journal = {Philosophical Transactions of the Royal Society A},
+  volume  = {363},
+  number  = {1835},
+  pages   = {2351--2375},
+  year    = {2005},
+  doi     = {10.1098/rsta.2005.1650}
+}
+
+@article{wiedijk2012pollack,
+  author  = {Wiedijk, Freek},
+  title   = {Pollack-inconsistency},
+  journal = {Electronic Notes in Theoretical Computer Science},
+  volume  = {285},
+  pages   = {85--100},
+  year    = {2012},
+  note    = {UITP 2010},
+  doi     = {10.1016/j.entcs.2012.06.008}
+}
+
+@inproceedings{carneiro2020mm0,
+  author    = {Carneiro, Mario},
+  title     = {Metamath Zero: Designing a Theorem Prover Prover},
+  booktitle = {Intelligent Computer Mathematics (CICM 2020)},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {12236},
+  pages     = {71--88},
+  publisher = {Springer},
+  year      = {2020},
+  doi       = {10.1007/978-3-030-53518-6_5},
+  eprint    = {1910.10703},
+  archivePrefix = {arXiv}
+}
+
+@phdthesis{carneiro2022mm0thesis,
+  author = {Carneiro, Mario},
+  title  = {Metamath Zero: From Logic, to Proof Assistant, to Verified Compilation},
+  school = {Carnegie Mellon University},
+  year   = {2022},
+  url    = {https://digama0.github.io/mm0/thesis.pdf}
+}
+
+@book{megill2019metamath,
+  author    = {Megill, Norman D. and Wheeler, David A.},
+  title     = {Metamath: A Computer Language for Mathematical Proofs},
+  publisher = {Lulu Press},
+  address   = {Morrisville, North Carolina},
+  year      = {2019},
+  isbn      = {978-0-359-70223-7},
+  url       = {https://github.com/metamath/metamath-book}
+}
+
+@misc{assaf2016dedukti,
+  author = {Assaf, Ali and Burel, Guillaume and Cauderlier, Rapha{\"e}l and Delahaye, David and Dowek, Gilles and Dubois, Catherine and Gilbert, Fr{\'e}d{\'e}ric and Halmagrand, Pierre and Hermant, Olivier and Saillard, Ronan},
+  title  = {Dedukti: a Logical Framework based on the $\lambda\Pi$-Calculus Modulo Theory},
+  year   = {2016},
+  note   = {Manuscript; arXiv:2311.07185, 2023},
+  eprint = {2311.07185},
+  archivePrefix = {arXiv}
+}
+
+@inproceedings{farber2022kontroli,
+  author    = {F{\"a}rber, Michael},
+  title     = {Safe, Fast, Concurrent Proof Checking for the lambda-Pi Calculus Modulo Rewriting},
+  booktitle = {Proceedings of the 11th ACM SIGPLAN International Conference on Certified Programs and Proofs (CPP 2022)},
+  pages     = {225--238},
+  publisher = {ACM},
+  year      = {2022},
+  doi       = {10.1145/3497775.3503683},
+  eprint    = {2102.08766},
+  archivePrefix = {arXiv}
+}
+
+@inproceedings{boutin1997reflection,
+  author    = {Boutin, Samuel},
+  title     = {Using Reflection to Build Efficient and Certified Decision Procedures},
+  booktitle = {Theoretical Aspects of Computer Software (TACS 1997)},
+  editor    = {Abadi, Mart{\'\i}n and Ito, Takayasu},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {1281},
+  pages     = {515--529},
+  publisher = {Springer},
+  year      = {1997},
+  doi       = {10.1007/BFb0014565}
+}
+
+@article{gonthier2010ssreflect,
+  author  = {Gonthier, Georges and Mahboubi, Assia},
+  title   = {An introduction to small scale reflection in {Coq}},
+  journal = {Journal of Formalized Reasoning},
+  volume  = {3},
+  number  = {2},
+  pages   = {95--152},
+  year    = {2010},
+  doi     = {10.6092/issn.1972-5787/1979}
+}
+
+@techreport{gonthier2008ssreflectmanual,
+  author      = {Gonthier, Georges and Mahboubi, Assia and Tassi, Enrico},
+  title       = {A Small Scale Reflection Extension for the {Coq} system},
+  institution = {INRIA},
+  type        = {Research Report},
+  number      = {RR-6455},
+  year        = {2008},
+  url         = {https://inria.hal.science/inria-00258384}
+}
+
+@article{gonthier2008fourcolour,
+  author  = {Gonthier, Georges},
+  title   = {Formal Proof---The Four-Color Theorem},
+  journal = {Notices of the American Mathematical Society},
+  volume  = {55},
+  number  = {11},
+  pages   = {1382--1393},
+  year    = {2008}
+}
+
+@inproceedings{gregoire2002strong,
+  author    = {Gr{\'e}goire, Benjamin and Leroy, Xavier},
+  title     = {A Compiled Implementation of Strong Reduction},
+  booktitle = {Proceedings of the Seventh ACM SIGPLAN International Conference on Functional Programming (ICFP 2002)},
+  pages     = {235--246},
+  publisher = {ACM},
+  year      = {2002},
+  doi       = {10.1145/581478.581501}
+}
+
+@inproceedings{abel2011dynamic,
+  author    = {Abel, Andreas and Pientka, Brigitte},
+  title     = {Higher-Order Dynamic Pattern Unification for Dependent Types and Records},
+  booktitle = {Typed Lambda Calculi and Applications (TLCA 2011)},
+  series    = {Lecture Notes in Computer Science},
+  volume    = {6690},
+  pages     = {10--26},
+  publisher = {Springer},
+  year      = {2011},
+  doi       = {10.1007/978-3-642-21691-6_5}
+}
+
+@unpublished{gundry2012tutorial,
+  author = {Gundry, Adam and McBride, Conor},
+  title  = {A tutorial implementation of dynamic pattern unification},
+  note   = {Draft of 10 July 2012; see also Gundry's thesis (key gundrythesis), Chapter 4},
+  year   = {2012},
+  url    = {http://adam.gundry.co.uk/pub/pattern-unify/}
 }

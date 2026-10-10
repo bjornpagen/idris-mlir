@@ -1,0 +1,43 @@
+﻿<html>
+<head><meta http-equiv="content-type" content="text/html;charset=utf-8">
+<title>Rank Operator - Dyalog '09</title>
+<link href="adoc.css" rel=stylesheet></head>
+<body>
+
+<p align=right><a href="index.htm">Index</a> &nbsp; 
+<a href="app3.htm">&lt;&lt;</a> &nbsp; <a href="irs1.htm">&gt;&gt;</a></p>
+
+
+
+<table>
+<tr><td width=38>&nbsp;</td><td>
+<p><font size=+4>Application: Monadic Comma-Bar</font></p>
+
+<br>
+
+<p><font size=+4 face="APL385 Unicode">,.Y &nbsp; &nbsp; &nbsp; &nbsp;</font>
+<font size=+4>(J)<br>If</font><font size=+4 face="APL385 Unicode"> y </font>
+<font size=+4>is an atom, then</font><font size=+4 face="APL385 Unicode"> ,.y </font>
+<font size=+4>is</font><font size=+4 face="APL385 Unicode"> 1&nbsp;1$y</font>
+<font size=+4> ;</font><font size=+4 face="APL385 Unicode"> </font>
+<font size=+4>otherwise,</font><font size=+4 face="APL385 Unicode"> ,.y </font>
+<font size=+4>is</font><font size=+4 face="APL385 Unicode"> ,"_1 y</font><font size=+4>&nbsp;,</font><font size=+4 face="APL385 Unicode"> </font>
+<font size=+4>the table formed
+by ravelling each item 
+of</font><font size=+4 face="APL385 Unicode"> y</font><font size=+4>&nbsp;.</font>
+</p> 
+
+<pre><font size=+4 face="APL385 Unicode">
+commabar1 ← {⍬≡⍴⍵ : 1 1⍴⍵ ⋄ ,R ¯1 +⍵}
+
+commabar2 ← {,R ¯1⍣(1+⍬≡⍴⍵) +⍵}
+
+commabar3 ← ,R ¯1 ⍣ 2
+</font></pre>
+
+</td></tr></table>
+<br><br><br><br><br><br><br><br><br>
+<br><br><br><br><br><br><br><br><br>
+<br><br><br><br><br><br><br><br><br>
+</body>
+</html>

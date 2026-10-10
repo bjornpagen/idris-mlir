@@ -1,0 +1,2929 @@
+%%
+
+%% Use this for the extended version. Also update the EXTND flag below,
+%% and comment the acknowledgments section at the end.
+\documentclass[acmsmall,acmthm=false,nonacm]{acmart}
+
+%% %% Use this for ICFP's camera-ready. Also update the EXTND flag below,
+%% %% and uncomment the acknowledgments section at the end.
+%% \documentclass[acmsmall,acmthm=false]{acmart}
+
+%% Required for arxiv.
+\pdfoutput=1
+
+%% Controls for various things.
+\newtoggle{isappendix}
+\togglefalse{isappendix}
+\newtoggle{EXTND}
+\newtoggle{ARXIV}
+
+%% %% For local version of the extended paper a.k.a. for the "make paper" that is
+%% %% required before "make arxiv".
+%% \toggletrue{EXTND}
+%% \togglefalse{ARXIV}
+
+%% For "make arxiv".
+\toggletrue{EXTND}
+\toggletrue{ARXIV}
+
+%% %% For ICFP camera ready.
+%% \togglefalse{EXTND}
+%% \togglefalse{ARXIV}
+
+
+\iftoggle{EXTND}{
+  \settopmatter{printfolios=true,printccs=false,printacmref=false}
+  \setcopyright{none}
+  \renewcommand{\footnotetextcopyrightpermission}[1]{}
+  \renewcommand{\footnotetextauthorsaddresses}[1]{}
+}{
+  \settopmatter{}
+  \setcopyright{rightsretained}
+  \acmJournal{PACMPL}  
+  \acmYear{2021}
+  \acmMonth{8}
+  \acmVolume{5}
+  \acmNumber{}
+  \acmArticle{}
+  \acmDOI{}
+  \startPage{}
+  \acmPrice{}
+  \acmISBN{}
+  \acmConference[ICFP]{}{2021}{}
+}
+
+%% Bibliography style
+\bibliographystyle{ACM-Reference-Format}
+\citestyle{acmauthoryear}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Packages
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% For tables (toprule, bottomrule etc.)
+\usepackage{booktabs}
+%% \usepackage{amssymb}
+%% For proof trees.
+\usepackage{mathpartir}
+\usepackage{amsthm}
+\usepackage{amsmath}
+%% For the overrightharpoon symbol.
+\usepackage{MnSymbol}
+%% For tables (multicolumn etc.)
+\usepackage{multirow}
+%% For subfigures.
+\usepackage{subcaption}
+%% For inline enumerations.
+\usepackage[inline]{enumitem}
+%% For blackboard font.
+\usepackage[bbgreekl]{mathbbol}
+
+\usepackage{ellipsis} 
+\renewcommand{\ellipsisgap}{0.01em}
+
+%% Used for regular mathbb commands.
+\DeclareSymbolFontAlphabet{\mathbb}{AMSb}
+
+%% Used to typeset capital sigma in blackboard font
+\DeclareSymbolFontAlphabet{\mathbbl}{bbold}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Proof stuff
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+
+%% % Cases in a proof.
+%% \theorempreskip{0pt}
+%% \theorempostskip{10pt}
+%% \theoremheaderfont{\scshape}
+%% \theorembodyfont{\upshape}
+%% \theoremindent10pt
+\newtheorem*{goal}{Obl.}
+
+%% %\theorempreskip{5pt}
+%% %\theorempostwork{\setcounter{goal}{0}}
+%% \theoremindent10pt
+%% \newtheorem{subcase}{SubCase}
+%% \theorempostwork{\setcounter{subcase}{0}}
+%% %\theoremindent0pt
+
+
+%% % Proof sketches.
+%% \theoremstyle{nonumberplain}
+%% \theorempreskip{0pt}
+%% \theorempostskip{10pt}
+%% \theoremheaderfont{\scshape}
+%% \theorembodyfont{\upshape}
+
+%% \theorempostwork{\setcounter{ncase}{0}}
+\newtheorem{proofsketch}{Proof Sketch}
+
+%% \theorempostwork{\setcounter{ncase}{0}}
+
+\newtheoremstyle{straighttext0}%
+                {}{}%
+                {}{}%
+                {\bfseries}{}%
+                { }%
+                {\thmname{\textbf{#1}}\thmnumber{ #2}: \thmnote{ #3}}
+\theoremstyle{straighttext0}
+\newtheorem*{bproof}{Proof}
+
+\newtheoremstyle{straighttext}%
+                {}{}%
+                {}{}%
+                {}{}%
+                {\newline}%
+                {\thmname{\textbf{#1}}\thmnumber{ \textbf{#2}}: \thmnote{ #3}}
+\theoremstyle{straighttext}
+\newtheorem{ncase}{Case}
+\newtheorem*{bcase}{Case}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% Usual imports.
+\iftoggle{EXTND}{
+\newcommand{\Secref}[1]{Section~\ref{#1}}
+\newcommand{\Figref}[1]{Figure~\ref{#1}}
+\newcommand{\new}[1]{#1}
+}{
+  \input{editingmarks}
+}
+\input{defs.tex}
+\input{haskell_style}
+
+%% Other imports.
+\input{formal_dynamics}
+\input{formal_typings1}
+
+%% Reduce whitespace between a figure's caption and the text after it.
+\setlength{\textfloatsep}{\baselineskip}
+
+\begin{document}
+
+% \title[]{Parallel Gibbon}
+%\title[]{Parallel Gibbon: Reconciling Parallelism \\ and Dense Data Representations}
+\title[]{Efficient Tree-Traversals: Reconciling Parallelism and Dense Data Representations}
+%% \title[]{Efficiently Compiling Tree-Traversals}
+%% \subtitle{Reconciling Parallelism and Dense Data Representations}
+
+\iftoggle{EXTND}{
+\subtitle{Extended Version}
+\titlenote{Extended version of ``Efficient Tree-Traversals: Reconciling Parallelism and Dense Data Representations,''~\cite{ParallelLoCal-icfp}.}
+}{}
+
+
+%% Author information
+
+\newcommand{\iuaffil}[0]{
+  \affiliation{
+    %     \position{Position1}
+    %% \department{Computer Science}              %% \department is recommended
+    \institution{Indiana University}            %% \institution is required
+    %% \streetaddress{700 N Woodlawn Ave}
+    %% \city{Bloomington}
+    %% \state{Indiana}
+    %% \postcode{47408}
+    \country{United States}
+}}
+
+
+\newcommand{\fbaffil}[0]{
+  \affiliation{
+    %     \position{Position1}
+    %% \department{Computer Science}              %% \department is recommended
+    \institution{Facebook}            %% \institution is required
+    %% %% Check address with RRN.
+    %% \streetaddress{1 Hacker Way}
+    %% \city{Menlo Park}
+    %% \state{California}
+    %% \postcode{94025}
+    \country{United States}
+}}
+
+\newcommand{\purdueaffil}[0]{
+  \affiliation{
+    %     \position{Position1}
+    %% \department{Electrical and Computer Engineering}              %% \department is recommended
+    \institution{Purdue University}            %% \institution is required
+    %% \streetaddress{465 Northwestern Ave}
+    %% \city{West Lafayette}
+    %% \state{Indiana}
+    %% \postcode{47907}
+    \country{United States}
+}}
+
+\newcommand{\cmuaffil}[0]{
+  \affiliation{
+    %     \position{Position1}
+    %% \department{Computer Science}              %% \department is recommended
+    \institution{Carnegie Mellon University}            %% \institution is required
+    %% Check address with MR.
+    %% \streetaddress{5000 Forbes Ave}
+    %% \city{Pittsburgh}
+    %% \state{Pennsylvania}
+    %% \postcode{15213}
+    \country{United States}
+}}
+
+\newcommand{\kentaffil}[0]{
+  \affiliation{
+    %     \position{Position1}
+    \department{School of Computing}              %% \department is recommended
+    \institution{University of Kent}            %% \institution is required
+    %% \streetaddress{Darwin Rd.}
+    %% \city{Canterbury}
+    %% \postcode{CT2 7NZ}
+    \country{United Kingdom}
+}}
+
+\author{Chaitanya Koparkar}\iuaffil\email{ckoparka@indiana.edu}
+\author{Mike Rainey}\cmuaffil\email{me@mike-rainey.site}
+\author{Michael Vollmer}\kentaffil\email{m.vollmer@kent.ac.uk}
+\author{Milind Kulkarni}\purdueaffil\email{milind@purdue.edu}
+\author{Ryan R. Newton}\purdueaffil\email{rrnewton@purdue.edu}
+
+
+%% Abstract
+\begin{abstract}
+Recent work showed that compiling functional programs to use dense, serialized
+memory representations for recursive algebraic datatypes can yield significant
+constant-factor speedups for sequential programs. 
+%Adding parallelism in such a
+%scenario is an open problem that we address in this work. 
+But serializing data in a
+{\em maximally} dense format consequently serializes the processing of that
+data, yielding a tension between density and parallelism.  
+%
+This paper shows that a disciplined, practical compromise is possible.
+%
+We present \pargibbon{}, a
+compiler that obtains the benefits of dense data formats {\em and} parallelism.
+%
+We formalize the semantics of the {\em parallel location calculus}
+underpinning this novel implementation strategy, 
+and show that it is type-safe.
+%
+\pargibbon{} exceeds the parallel performance of existing compilers for purely
+functional programs that use recursive algebraic datatypes,
+including, notably, abstract-syntax-tree traversals as in compilers.
+\end{abstract}
+
+
+%% 2012 ACM Computing Classification System (CSS) concepts
+%% Generate at 'http://dl.acm.org/ccs/ccs.cfm'.
+\begin{CCSXML}
+  <ccs2012>
+    <concept>
+      <concept_id>10011007.10011006.10011039</concept_id>
+      <concept_desc>Software and its engineering~Formal language definitions</concept_desc>
+      <concept_significance>500</concept_significance>
+    </concept>
+    <concept>
+      <concept_id>10011007.10011006.10011041</concept_id>
+      <concept_desc>Software and its engineering~Compilers</concept_desc>
+      <concept_significance>500</concept_significance>
+    </concept>
+    <concept>
+      <concept_id>10011007.10011006.10011008.10011009.10010175~</concept_id>
+      <concept_desc>Software and its engineering~Parallel programming languages</concept_desc>
+      <concept_significance>500</concept_significance>
+    </concept>
+  </ccs2012>
+\end{CCSXML}
+
+\ccsdesc[500]{Software and its engineering~Formal language definitions}
+\ccsdesc[500]{Software and its engineering~Parallel programming languages}
+\ccsdesc[500]{Software and its engineering~Compilers}
+%% End of generated code
+
+\iftoggle{EXTND}{}{
+%% Keywords
+\keywords{Parallelism, Region Calculus, Compilers, Data Representation}
+}
+
+%% Note: \maketitle command must come after title commands, author
+%% commands, abstract environment, Computing Classification System
+%% environment and commands, and keywords command.
+\maketitle
+
+%% Must come *after* maketitle.
+\renewcommand{\shortauthors}{C. Koparkar, M. Rainey, M. Vollmer, M. Kulkarni and R. R. Newton}
+
+\section{Introduction}
+
+Representing tree-like data as \emph{pointer-free, serialized byte arrays} can
+be extremely efficient for tree traversals, as it minimizes pointer-chasing and
+maximizes locality \cite{goldfarb13sc, meyerovich11hotpar, makino90}. 
+%
+Moreover, by using an in-memory representation also suitable for external
+transfer and storage \cite{capnproto, cnf-icfp15}, programs can rapidly process
+data without the overhead of deserialization.
+%
+Traditionally, any such tree-layout optimizations would be implemented manually by
+the programmer---for example, in a scientific application with balanced
+trees.
+
+Recent work, however, has shown the benefits of {\em automatically} compiling tree
+traversals to use denser representations, even for source programs written in a
+general-purpose language. 
+%% Further, compiler-based automatic dense representations can be relaxed to be
+%% {\em mostly} serialized, admitting {\em some} internal pointers when
+%% random-access to child nodes is necessary to preserve the asymptotic complexity
+%% of source programs \cite{LoCal}.
+The Gibbon compiler for a subset of Haskell
+exemplifies this approach \cite{Gibbon, LoCal}.
+%
+%% Prior work has explored this approach, and in particular the Gibbon
+%% compiler~\cite{LoCal,Gibbon} automatically transforms functional
+%% programs to operate on serialized data.
+%
+While the dense data representation strategy works well for sequential
+programs, there is an intrinsic tension if we want to parallelize
+these tree traversals.  As the name implies, efficiently {\em serialized}
+data must often be read serially.  To change that, first, enough {\em indexing} data
+must be left in the representation so parallel tasks can
+``skip ahead'' and process multiple subtrees in parallel.  Second, the
+allocation areas must be bifurcated to allow allocation of outputs in
+parallel.
+
+In this paper, we offer a solution to these challenges.
+We propose a strategy where form follows function: where data
+representation is random-access only insofar as parallelism is needed,
+and both data representation and control flow ``bottom out'' to
+sequential pieces of work.  That is, granularity-control in the data
+mirrors traditional granularity-control in parallel task
+scheduling. We demonstrate our solution by extending the Gibbon
+compiler with support for parallel computation, introducing {\em \pargibbon}.
+%
+We also extend {\em LoCal}, Gibbon's typed intermediate language,
+adding parallelism and give an updated formal
+semantics~(\Secref{sec:region-parallel-local}).
+
+In addition to tree traversals, we show that \pargibbon{} can efficiently
+compile other parallel programs, such as sort and search algorithms
+(\Secref{sec:evaluation}) to match or exceed the performance of the best
+existing parallel functional compilers.  We choose a {\em functional} focus
+for three primary reasons:
+
+\begin{itemize}
+\item Many tree traversals have different input and output types---as in
+  a compiler pass that converts between intermediate languages---which necessitates 
+  {\em out-of-place} traversals even in an imperative language.
+%% \item For the tree traversal scenario, data representation and memory management
+%%   {\em dominate} performance considerations, more so than whether traversals
+  %%   operate ``in place'' on the tree~\cite{Gibbon}.
+\item Even pure programs can use mutable data, via linear
+  types. (Gibbon uses these and eschews the {\em IO monad}.)
+\item The purely-functional parallel Gibbon programs considered in this work are intrinsically
+  {\em data-race free}.
+\end{itemize}
+
+The last point is worth emphasizing: every time a language adds both parallel
+constructs and mutable data, it enables data-races and must define a memory
+model to give them meaning.  In this work, we extend Gibbon with linearly-typed primitives for mutable data\footnote{Leveraging the Linear Haskell~\cite{linear-haskell}
+extensions now available in GHC 9}
+(\Secref{subsec:parallel-arrays}),
+while keeping the language {race-free}.
+%
+We claim that linearly-typed mutable data, efficient data representation, and
+compiler-supported parallelism are a synergistic combination.
+%
+In Parallel Gibbon programs, as in other
+purely functional parallel programs, parallelism annotations not only don't
+introduce races but also {\em do not affect program semantics},
+%% (see {\em parallel/sequential equivalence}~\Secref{sec:par-seq-equivalence}),
+meaning that these programs are {\em deterministic} as well as data-race free.
+
+Ultimately, we believe that this work shows one path forward for
+high-performance, purely-functional programs.  Parallelism in functional
+programming has long been regarded as theoretically promising, but has a
+spottier track record in practice, due to problems in runtime systems, data
+representation, and memory management.
+%% The parallel version of Gibbon we describe in this paper
+\pargibbon{} directly addresses these sore spots, showing how a
+purely-functional program operating on fine-grained, irregular data can also run
+fast (sequentially) and parallelize efficiently.
+%
+This complements more well-trodden areas of compiler research on parallelism, such
+as dense and sparse collective operations on arrays~\cite{julia-parallel-accelerator, tensorflow, pytorch, nesl}.
+%
+That is, the approach described in this paper---for general-purpose, recursive
+functional programs, including tree traversals---could be combined with targeted EDSLs or libraries implementing additional parallel programming idioms,
+such as Haskell's Accelerate~\cite{accelerate}.  Both determinism and
+data-race-freedom would be {\em compositional} within the functional-parallelism
+setting.
+%
+Indeed, we have taken the first steps in this direction, adding a small set of parallel array primitives to Gibbon (\Secref{subsec:parallel-arrays}).
+
+In this paper, we make the following contributions:
+
+\begin{itemize}  
+\item We introduce the first compiler that combines parallelism with automatic dense data
+  representations for trees. While dense data~\cite{LoCal} and
+  efficient parallelism~\cite{MPL,icfp-hierarchical-heaps} have been shown to independently yield large
+  speedups on tree-traversing programs, our system is the first to combine
+  these sources of speedup, yielding the fastest known performance generated by
+  a compiler for this class of programs.
+
+\item We formalize the semantics of a {\em parallel location calculus}
+  (\Secref{sec:region-parallel-local}) that underpins the compiler, 
+  including a proof of its type-safety (\Secref{subsec:type-safety}).
+  To do so, we extend prior work on location calculi~\cite{LoCal},
+  which in turn builds on work in region calculi~\cite{regioncalcs}.
+
+\item We evaluate our implementation (\Secref{sec:implementation})
+  on several benchmarks
+  from the literature (\Secref{sec:evaluation}).
+  On a single thread, our implementation is
+  $1.93\times$, $2.53\times$, and $2.14\times$
+  faster than \MPL{}~\cite{MPL} (an extension of MLton),
+  OCaml, and GHC, respectively.
+  When utilizing 48 threads, our geomean speedup is
+  $1.92\times$, $3.73\times$ and $4.01\times$,
+  %% over \MPL{}, OCaml and GHC respectively,
+  meaning that the use of dense
+  representations to improve sequential processing performance
+  {\em coexists with scalable parallelism}.
+  %
+  Most notably, the speedup on a five-pass compiler drawn from a university
+  compiler course was $1.02\times$, $2.2\times$ and $10.7\times$ over those alternative
+  languages.
+  
+\end{itemize}
+
+%% The remainder of the paper is organized as follows. Section~\ref{sec:overview} presents a high level overview of the contributions of the paper, as well as summarizing prior work on \seqcalc{}. Section~\ref{sec:parallel-local} lays out the semantics of our new parallel location calculus. Section~\ref{subsec:region-parallel-semantics} presents a variant parallel semantics that enables a simpler implementation, and Section~\ref{sec:implementation} describes that implementation. Section~\ref{sec:evaluation} evaluates our new system against best-of-breed systems for parallel functional programming. Section~\ref{sec:related-work} presents related work, and Section~\ref{sec:conclusions} concludes.
+
+
+\section{Overview}
+\label{sec:overview}
+
+We give a high-level overview of the ideas presented in this paper
+using a program given in \Figref{fig:example1-haskell}
+%
+\iftoggle{EXTND}{
+  (with a larger sample program given in Appendix \ref{sec:appendix-code-snippet}).
+}{
+  (with a larger sample program given in the Appendix of the extended version~\cite{ParallelLoCal-tr}).
+}
+%
+Because the techniques we present for compiling tree-traversals are
+directly applicable to {\em compilers themselves}, we use 
+a miniature compiler pass as our example.
+%
+The example defines a datatype \il{Exp} which represents the abstract syntax of a language that supports
+integer arithmetic, and a function \il{constFold} that implements
+constant folding for this language.
+%
+Constant folding is a common compiler optimization in which expressions with
+constant operands are evaluated at compile time, thus improving the run-time performance.
+%
+But here we are trying to optimize the performance of {\em the constant folding pass itself}
+rather than the performance of the program produced by constant folding.
+%
+%% In this example, the function
+\il{constFold} walks over the abstract-syntax-tree, and substitutes all
+expressions of the form \il{(Plus (Lit i) (Lit j))} with \il{(Lit (i+j))}.
+%
+We only show a simplified \il{constFold} ---
+for example it doesn't recur on the children of \il{Plus} before checking if they're literals ---
+to keep it simple enough to serve as a running example.
+
+The program in \Figref{fig:example1-haskell} is written using the
+front-end language for Gibbon, a polymorphic, higher-order subset of Haskell,
+with strict rather than lazy evaluation.
+%
+The \il{($\partup$)} operator used on line~\ref{line:parallel-tuple} denotes a parallel tuple --- it marks its operands to evaluate in parallel with each other.
+%
+But with a purely functional source language, it is semantically equivalent to a sequential
+tuple, i.e., replacing all ``\il{$\partup$}'' occurences with ``\il{,}'' yields a valid program.
+% , and should be treated as one for now.
+%
+%% We give the details about Gibbon's use of parallel tuples in \Secref{sec:implementation}.
+We will return to this topic in \Secref{sec:implementation}.
+
+
+Gibbon uses LoCal (short for location calculus) as an intermediate
+representation (IR) with explicit byte-addressed, mostly-serialized data layout.
+%
+To go from the vanilla Haskell front-end language to \seqcalc{},
+it performs {\em location inference},
+a variant of region inference~\cite{regioncalcs,mlkit-retrospective},
+on the input programs.
+%
+%% Having an automatic location inference procedure simplifies the job of programmers,
+%% much like automatic type inference.
+%
+The LoCal IR code generated by Gibbon for the \il{constFold} function
+is shown in \Figref{fig:example1}.
+%
+In the following, we use it to sketch out how LoCal works.
+
+{
+\small
+\input{fig1.tex}
+}
+
+
+\subsection{A Primer on Location-Calculus}
+\label{subsec:local-primer}
+
+LoCal is a type-safe IR that represents programs operating on
+densely encoded (serialized) data.  All serialized values live in regions,
+which are unbounded memory buffers \new{that never overlap and} that store the raw data.
+All programs make explicit not only the region to which a value belongs to, but
+also a \textit{location} at which that value is written.
+%
+In our notation, a location $\locreg{l}{r}$ resides in region $r$.
+%
+Locations are fine-grained indices into a region, but unlike pointers in
+languages like C, arbitrary arithmetic on locations is not allowed.
+Locations are only introduced relative to other locations,
+\new{and they can be written to only once.}
+%
+\new{
+Once allocated at a particular location, a value cannot be {\em shared} with another location
+(within the same region or across regions), and it has to be {\em copied}
+to allocate it at a different location.
+%
+(In practice, the Gibbon compiler supports sharing using pointers, which
+we discuss in \Secref{subsec:indirection-pointers}.)
+}
+%% This automatically imposes an order in which the values must be written to a region.
+
+A new location is either: at the start of a region, one unit past
+an existing location, or {\em after} all elements of a value rooted at an
+existing location.
+%
+In the program given in \Figref{fig:example1},
+%% the location $\locreg{\loc_3}{\reg_2}$ is at the start of the region $\reg$,
+the location $\locreg{\loc_3}{\reg_2}$ is one past the
+location $\locreg{\loc_2}{\reg_2}$ (line~\ref{line:letloctag})
+and $\locreg{\loc_4}{\reg_2}$ is after
+every element of the value rooted at location $\locreg{\loc_3}{\reg_2}$
+(line~\ref{line:letlocafter}).
+%
+Any expression that allocates takes an extra argument:
+a location-region pair that specifies where the allocation should happen.
+%
+The types of such expressions are decorated with these location-region pairs.
+%
+For example, the \il{(Lit $\;\locreg{\loc_2}{\reg_2}\;$ i)} data constructor
+(line~\ref{line:datacon})
+allocates a tag at location $\loc_2$ in region $\reg_2$, and has type \il{(Exp$\tyatlocreg{}{\loc_2}{\reg_2}\;$)}.
+%
+Any scalar arguments passed to a data constructor, such as the
+unpacked integer \il{i} in this case, are allocated immediately after
+%% the location $\locreg{\loc}{\reg}$.
+the tag.
+%
+Functions may be polymorphic over any of their input or output locations,
+and these locations are provided at call-sites.
+%
+In the example, the function \il{constFold} is polymorphic over an
+input location $\locreg{\loc_1}{\reg_1}$ and an output location $\locreg{\loc_2}{\reg_2}$,
+and values for these are given at all call-sites.
+%
+\new{
+In spite of the forall quantifier in its type signature,
+the input and output regions given at its call-site must be distinct ($\reg_1 \neq \reg_2$) to prevent overwrites.
+%
+This property is checked by LoCal's type-system (described in \Secref{subsec:type-system}),
+which makes multiple writes to any location illegal---with the use of a nursery environment---
+ensuring that function calls like
+(\il{constFold} [$\locreg{\loc_x}{\reg_x}$ $\locreg{\loc_x}{\reg_x}$] \il{x})
+don't type check.
+}
+
+
+\subsubsection{Sequential Execution Model}
+\label{subsec:local-primer-eval}
+
+
+%% The original sequential semantics for LoCal presents a model in which
+%% The authors also give semantics to evaluate LoCal programs sequentially.
+LoCal has a dynamic semantics which can run programs sequentially~\cite{LoCal}.
+In this model, regions are represented as serialized heaps, where each heap
+is an array of cells that can store primitive values
+(data constructor tags, numbers, etc).
+%
+A write operation, such as the application of a data constructor, allocates to a fresh cell
+on the heap, and a read operation reads the contents of a cell.
+Performing multiple reads on a single cell is safe, and the type-system ensures
+that each cell (location) is written to only once.
+%
+At run time, locations in the source language translate to heap indices,
+which are the concrete addresses of the cells where reads/writes happen.
+%
+Computing addresses of locations which are at the start of a region,
+or one past another location is straightforward
+--- the addresses get initialized to \il{0} and \il{(prev + 1)} respectively.
+%
+But evaluating an $\gramwd{after}$ expression,
+to get an address one past the end of another, variable-sized value,
+requires more work.
+
+A naive computational interpretation of this $\gramwd{after}$ is to simply scan over
+a value to compute its end.
+%
+In LoCal's formal model, this is referred to as the {\em end-witness judgment}.
+%
+Locations computed via $\gramwd{after}$ are used during both read and write operations.
+%
+For example,
+when a LoCal \il{case} expression pattern matches on \il{(Plus e1 e2)},
+it has to scan past \il{e1} in order to know the starting address of \il{e2},
+which adds $O(n)$ amount of extra work in a {\em fully} serialized representation!
+%
+In practice, if values are read in the same order in which they were serialized,
+a linear scan can be avoided by {\em tracking end-witnesses} that are
+naturally computed in the evaluation of the program,
+for example, by having every read return the address of the cell after it.
+%
+Intuitively, we can imagine there being a single read pointer that
+is used to perform all reads in the program.
+%
+It always points to the next cell to be read on heap, and each read
+advances it by one.
+%
+When the program starts executing, the read pointer starts at the
+beginning of the heap and it chugs along in a continuous fashion.
+%
+Allocating a serialized value can  be thought of in a similar way ---
+that there is a single allocation pointer that starts at the
+beginning of the heap, and moves along its length performing writes,
+as illustrated in \Figref{fig:step-by-step-dynamics-sequential-right}.
+%
+To avoid changing the asymptotic complexity of programs which read values out-of-order,
+the Gibbon compiler by default inserts some offset information ---
+such as pointers to some fields of a data constructor ---  back into the representation.  
+%
+But it doesn't allow {\em out-of-order allocations},
+which will be needed as we add parallelism to LoCal (\Secref{subsec:parallelism-in-local}).
+
+
+\subsubsection{Sequential Execution Model, Example}
+
+{
+%% \floatstyle{boxed}\restylefloat{figure}
+%% \begin{figure}
+%% \includegraphics[scale=0.3]{figs/constant-folding-region-parallel_squished.png}
+%% \end{figure}
+\begin{figure*}
+\hspace{0.07\linewidth}
+\begin{subfigure}[t]{0.35\linewidth}
+  \vspace{0pt}
+  \includegraphics[scale=0.36]{figs/constant-folding-sequential-left.png}
+  \caption{}
+  \label{fig:step-by-step-dynamics-sequential-left}
+\end{subfigure}
+\hspace{0.16\linewidth}
+\begin{subfigure}[t]{0.35\linewidth}
+  \vspace{0pt}
+  \includegraphics[scale=0.36]{figs/constant-folding-sequential-right-color.png}
+  \caption{}
+  \label{fig:step-by-step-dynamics-sequential-right}
+\end{subfigure}
+\caption{
+  (a) Sequential, step-by-step execution of the program from
+  \Figref{fig:example1},
+  and (b) \new{the heap operations corresponding to the output region $\reg_2$.}
+  %
+  Each step is named after its line number in the program and only
+  shows the changes relative to the previous step.
+  \textit{AP} is the allocation pointer.
+  %
+  \il{P} is short for \il{Plus}, and \il{L} is short for \il{Lit}.
+  %
+  %% \vspace{4mm}
+}
+\label{fig:step-by-step-dynamics-sequential}
+\end{figure*}
+%% \floatstyle{plain}\restylefloat{figure}
+}
+
+To make this execution model concrete, let us go over
+a step-by-step trace of the semantics executing \il{constFold} on
+\il{(Plus (Lit 20) (Plus (Lit 10) (Lit 12)))}.
+%
+%% The following heap represents what the serialized input looks like:
+%% The following shows the layout of a serialized heap containing this expression:
+%% \begin{table}[h!]
+%%   \includegraphics[scale=0.3]{figs/constant-folding-input.png}
+%% \end{table}
+%
+The execution trace is given in \Figref{fig:step-by-step-dynamics-sequential}.
+%
+The store $\STOR$ maps regions to their corresponding heaps, and
+the location map $\MENV$ maps symbolic locations to their corresponding
+heap indices.
+%
+The evaluation starts at
+\il{(constFold [$\locreg{l_1}{r_1}\;\locreg{l_2}{r_2}$] e)},
+and is given a store containing a fully allocated input region $r_1$
+and an empty region $r_2$ to allocate the output,
+along with a location map
+containing the locations $\locreg{l_1}{r_1}$ and $\locreg{l_2}{r_2}$
+initialized to the starting addresses of these regions.
+%
+Since the input region has a \il{Plus} at the top, 
+%% the case expression on line~2 transfers control to line~5.
+execution continues at line~5.
+%
+The pattern match binds the locations $l_{a}^0$ and $l_{b}^0$ to
+the addresses of the sub-expressions \il{(Lit 20)} and \il{(Plus (Lit 10) (Lit 12))}
+respectively .
+%
+Since both the sub-expressions are not constants, execution continues at line~10.
+%
+Then, the output location of the first sub-expression, $\locreg{l_3}{r_2}$, is defined to
+be one past $\locreg{l_2}{r_2}$, and \il{constFold} is invoked recursively
+on this sub-expression.
+%% with the input and output locations of this sub-expression.
+%
+%% Since this sub-expression is a constant \il{(Lit 20)}, execution continues at line 3.
+%
+Step 4 \new{{\em copies}\footnote{\new{This value is copied because line~\ref{line:datacon} in \Figref{fig:example1} has a data constructor \il{(Lit $\;\locreg{l_2}{r_2}\;$ i)} on the right hand side of the case alternative. If we update the program to return the input expression \il{exp} directly, Gibbon would allocate a pointer and the value \il{(Lit 20)} would be {\em shared} between the input and the output regions. We discuss how sharing works in \Secref{subsec:indirection-pointers}.}}}
+the first sub-expression by writing a tag $L$ (short for \il{Lit}),
+followed by the integer 20 on the heap.
+%
+Then, the output location of the second sub-expression, $\locreg{l_4}{r_2}$, is defined to be one past
+every element of the first sub-expression, which occupies two cells after the 0$^{th}$ cell.
+%
+Thus, $\locreg{l_4}{r_2}$ gets initialized with the address of the 3$^{rd}$ cell.
+%
+\il{constFold} is now invoked recursively
+%% with the input and output locations
+for the second sub-expression.
+%
+%% Note that the allocation pointer \textit{AP} is already at the correct cell.
+%
+Following similar steps, the second sub-expression is allocated at $\locreg{l_4}{r_2}$.
+%
+Since the second sub-expression is a \il{Plus} with constant operands,
+it is transformed to \il{(Lit 22)}.
+%
+Finally, Step 16 writes the tag $P$ (short for \il{Plus}) which
+completes the construction of the full expression,
+\il{(Plus (Lit 20) (Lit 22))}.
+
+
+\subsection{Parallelism in Location-Calculus}
+\label{subsec:parallelism-in-local}
+
+In this section, we outline various {\em latent} opportunities for parallelism
+that exist in \seqcalc{} programs (irrespective of annotation with ``\il{$\partup$}'').
+%
+The first kind of parallelism is available when programs access
+the store in a read-only fashion,
+%% such as the program that calculates the size of a binary tree.
+such as in an interpreter, for example.
+%
+\vspace{1mm}
+%
+\begin{code}
+interp : forall @\locreg{l}{r}@ . @\tyatlocreg{Exp}{l}{r}@ -> Int
+interp [@\locreg{l}{r}@] t = case t of
+  Lit (i : @\tyatlocreg{Int}{l_i}{r}@) -> i
+  Plus (e1 : @\tyatlocreg{Exp}{l_a}{r}@) (e2 : @\tyatlocreg{Exp}{l_b}{r}@) ->
+    (interp [@\locreg{l_a}{r}@] a) + (interp [@\locreg{l_b}{r}@] b)
+  ...
+\end{code}
+%
+Even though the recursive calls in the \il{Plus} case can
+safely evaluate in parallel, there is a subtlety: parallel evaluation
+is efficient only if the \il{Plus} constructor stores offset
+information for its right child node.
+%
+If it does, then the address of \il{e2} can be calculated in constant
+time, thereby allowing the calls to proceed immediately in parallel.
+%
+If there is no offset information, then the overall tree traversal is
+necessarily sequential, because the starting address of \il{e2} can be
+obtained only after a full traversal of \il{e1}.
+%
+As such, there is a tradeoff between space and time, that is, the cost
+of the space to store the offsets, %% in the \il{Plus} objects
+versus the time of the sequential traversal %% (e.g., of \il{e1})
+forced by the absence of offsets.
+
+Programs that write to the store also provide opportunities for
+parallelism.
+%
+The most immediate such opportunity exists when the program performs
+writes that affect different regions.
+%
+Such writes can happen in parallel because different regions cannot overlap
+in memory.
+%
+%% For example, the writes to construct the leaf nodes for \il{a} and
+%% \il{b} can happen in parallel because different regions cannot overlap
+%% in memory.
+%% %
+%% \begin{code}
+%% letregion @ra@ in
+%% letregion @rb@ in
+%% letloc @\locreg{la}{ra}@ = start @ra@ in
+%% letloc @\locreg{lb}{rb}@ = start @rb@ in
+%% let a : @\tyatlocreg{Tree}{la}{ra}@ = Leaf @\locreg{la}{ra}@ in
+%% let b : @\tyatlocreg{Tree}{lb}{ra}@ = Leaf @\locreg{lb}{rb}@ in
+%% @\ldots@  
+%% \end{code}
+%
+There is another kind of parallelism that is more challenging
+to exploit, but is at least as important as the others:
+%
+intra-region parallelism that can be realized by allowing different fields
+of the same constructor to be filled in parallel.
+%
+This is crucial in \seqcalc{} programs, where large, serialized data
+(large trees or DAGs) frequently occupy only a small number of regions, and yet there are
+opportunities to exploit parallelism in their construction.
+
+Consider the case in \Figref{fig:example1} which recursively calls
+\il{constFold} on the sub-expressions of \il{Plus}.
+%% :
+%% %
+%% \begin{code}
+%% Plus (e1 : @\tyatlocreg{Exp}{l_a}{r_1}@) (e2 : @\tyatlocreg{Exp}{l_b}{r_1}@) ->
+%%   letloc @\locreg{l_3}{r_2}@ = @\locreg{l_2}{r_2}@ + 1 in
+%%   let e3 : @\tyatlocreg{Exp}{l_3}{r_2}@ = constFold [@\locreg{l_a}{r_1}@ @\locreg{l_3}{r_2}@] e1 in
+%%   letloc @\locreg{l_4}{r_2}@ = after(@\tyatlocreg{Exp}{l_3}{r_2}@) in
+%%   let e4 : @\tyatlocreg{Exp}{l_4}{r_2}@ = constFold [@\locreg{l_b}{r_1}@ @\locreg{l_4}{r_2}@] e2 in
+%%   (Plus @\locreg{l_2}{r_2}@ e3 e4)
+%% \end{code}
+%
+If we want to access the parallelism between the recursive calls,
+we need to break the data dependency that the right branch has on
+the left.
+%
+The starting address of the right branch, namely $\locreg{l_4}{r_2}$, is
+assigned to be end witness of the left branch by the \il{after}
+expression.
+%
+But the end witness of the left branch is, in general, known only
+after the left branch is completely filled, which would effectively
+sequentialize the computation.
+%
+One non-starter would be to ask the programmer to specify the
+size of the left branch up front, which would make it possible to
+calculate the starting address of the right branch.
+%
+Unfortunately, this approach would introduce safety issues, such as
+incorrect size information, of exactly the kind that \seqcalc{}
+is designed to prevent.
+%
+Instead, we explore an approach that is safe-by-construction and
+efficient, as we explain next.
+
+
+\section{Region-Parallel LoCal}
+\label{sec:region-parallel-local}
+
+To address the challenges of parallel evaluation---in concert with dense,
+mostly-serialized data representations---we start by
+presenting an execution model, \rparcalc{},
+which can utilize {\em all} potential parallelism in \seqcalc{} programs.
+%
+Parallelism in this formal model is generated {\em implicitly},
+by allowing every let-bound expression to potentially evaluate in parallel with the body.
+Accordingly, the language omits explicit parallelism ``hints'' (\il{$\partup$}).
+%
+That is, you'll see in the next sections that implicitly parallel \il{let} has both a sequential and parallel evaluation rule.
+%
+%% \new{We formalize a small language that, again, doesn't include explicit parallelism ``hints''
+%% (\il{$\partup$}).}
+%% % In this model, the surface languageis unchanged from the original, sequential language.
+%% %% That is, there are no new linguistic constructs needed to, e.g., spawn
+%% %% parallel tasks or synchronize on task completion.
+%
+% This strategy allows us to separate {\em the scheduling} from {\em the evaluation}.
+%
+By modeling every possible parallelization, the formal model is general ---
+it formalizes all possible valid parallel schedules, and all valid heap layouts.
+%
+We return to the pragmatic issue of selecting {\em efficient} parallelizations, i.e. granularity control, in \Secref{subsec:granularity}.
+%
+%% \new{In section \Secref{subsec:sequential-semantics}, we cover the sequential evalutaion rules, followed in \Secref{subsubsec:parallel-semantics} by the parallel evalation rules.
+%% %
+%%   But first, we describe the basics of how parallel evaluation and regions interact.
+%  }
+
+% \subsection{Region-Parallel Mechanics}
+\subsection{Region Memory and Parallel Tasks}
+\label{sec:indirection-semantics-intro}
+
+
+{
+%% \floatstyle{boxed}\restylefloat{figure}
+%% \begin{figure}
+%% \includegraphics[scale=0.3]{figs/constant-folding-region-parallel_squished.png}
+%% \end{figure}
+\begin{figure*}
+\hspace{-5mm}
+\begin{subfigure}[t]{0.45\linewidth}
+  \vspace{0pt}
+  \includegraphics[scale=0.34]{figs/constant-folding-region-parallel-left.png}
+  \caption{}
+  \label{fig:step-by-step-dynamics-region-parallel-left}
+\end{subfigure}
+\hspace{0.12\linewidth}
+\begin{subfigure}[t]{0.4\linewidth}
+  \vspace{0pt}
+  \includegraphics[scale=0.34]{figs/constant-folding-region-parallel-right-color.png}
+  \caption{}
+  \label{fig:step-by-step-dynamics-region-parallel-right}
+\end{subfigure}
+\caption{
+  (a) Parallel, step-by-step execution of the program from \Figref{fig:example1} such that
+  parallel allocations happen only in separate regions,
+  and (b) \new{the heap operations corresponding to the output region $\reg_2$.}
+  %
+  Each step is named after its line number in the program and only
+  shows the changes relative to the previous step.
+  %
+  \il{P} is short for \il{Plus}, and \il{L} is short for \il{Lit}.
+}
+\label{fig:step-by-step-dynamics-region-parallel}
+\end{figure*}
+%% \floatstyle{plain}\restylefloat{figure}
+}
+
+
+%% \paragraph{Region-parallel execution model, example.}
+
+In the formal model, while parallelism is implicit, there is
+still a restriction that at
+most one task allocates in a given region at a time.
+%
+To realize intra-region parallelism, the model introduces fresh,
+intermediate regions as needed, that is, when
+%
+the schedule takes a parallel evaluation step for a given let-bound expression,
+and the body tries to allocate in the same region.
+%
+To demonstrate this, let us consider a trace of the
+region-parallel evaluation of the program from \Figref{fig:example1},
+%
+%% We are going to examine the trace
+corresponding to the schedule
+shown in \Figref{fig:step-by-step-dynamics-region-parallel},
+where the recursive calls to \il{constFold} on lines~12 and 14 run in parallel
+with each other.
+%
+The parallel fork point for the first recursive call
+%% (the one corresponding to the first sub-expression)
+occurs on the $11^{th}$ step of the trace.
+%
+At this point, the evaluation of the let-bound expression results in
+the creation of a new child task, and the
+continuation of the body of the let expression in the parent task.
+%
+
+Each task has its own private view of memory, which is realized by
+giving the child and parent task copies of the store $\STOR$ and
+location map $\MENV$.
+%
+These copies differ in one way, however: each sees a different mapping
+for the starting location of \il{e3}, namely $\locreg{l_3}{r_2}$.
+%
+The child task sees the mapping
+$\locreg{l_3}{r_2} \mapsto \concreteloc{r_2}{1}{}$, which
+is the ultimate starting address of \il{e3} in the heap.
+%
+The parent task sees a different mapping for $\locreg{l_3}{r_2}$,
+namely $\concreteloc{r_2}{\indivar{e3}}{}$.
+%
+This address is an \emph{ivar}: it behaves exactly like an I-Var~\cite{IStructures},
+and, in our example, stands in for the completion of the memory being
+filled for \il{e3}, by the child task.
+%
+Any expression in the body of the let expression that tries to read
+from this location blocks on the completion of the child task.
+
+
+The only exception to this blocking-rule is a letloc $\gramwd{after}$ expression, which is handled differently.
+%
+Such an expression occurs at line~\ref{line:letlocafter},
+just after the parent continues after the fork point.
+%
+At this step, the parent task uses an \il{after} expression to
+assign an appropriate location for the starting address of \il{e4},
+one past every byte occupied by \il{e3}.
+%
+If we synchronize with the child task here, the computation will effectively be
+sequential.
+%
+In order to avoid that,
+the starting address of \il{e4} is assigned to be
+$\locreg{l_4}{r_2} \mapsto \concreteloc{r_2}{\indirection{r_3}{0}}{}$.
+%
+This address is an \emph{indirection} pointing to the start of fresh region $r_3$, and
+causes the parent task to allocate \il{e4} in the region $r_3$ instead of $r_2$,
+which is being allocated to by the child task,
+thus maintaining the single-threaded-per-region allocation invariant.
+%
+The parent and child tasks have, in effect, two different
+allocation pointers for 
+% the same logical region.
+what will functionally be the same region (after joining).
+%
+The use of \il{e3} on line~\ref{line:joinpoint} forces the parent task
+to join with its child task.
+%
+In particular,
+$\concreteloc{r_2}{\indivar{e3}}{}$ is
+substituted by $\concreteloc{r_2}{1}{}$, the starting address of
+\il{e3}, in the expression and the location map $\MENV$.
+%
+Also, all the new entries in the location map $\MENV$ and store
+$\STOR$ of the child are merged into the corresponding environments in
+the parent.
+%
+Finally, the regions $r_2$ and $r_3$ are linked with a pointer,
+corresponding to the indirection pointer that was added for the starting address of \il{e4}.
+
+
+
+\subsection{Syntax and Operational Semantics}
+\label{subsec:region-parallel-semantics}
+
+%% \floatstyle{boxed}\restylefloat{figure}
+\begin{figure}
+  \small
+  \input{formal_grammar}
+  \input{formal_dynamics_grammar}
+  \normalsize
+  \caption{Grammar of \rparcalc{}.}  
+  \label{fig:opergram}
+\end{figure}
+%% \floatstyle{plain}\restylefloat{figure}
+
+In this section, we present the formal semantics of our parallel
+location calculus, \rparcalc{}. {This semantics has also been mechanically tested in PLT
+  Redex~\cite{redex}.
+%
+The grammar for the language is given in \Figref{fig:opergram}.
+%
+Again, all parallelism in this model language is introduced implicitly, by
+evaluating \il{let} expressions.
+%
+There is no explicit syntax for introducing parallelism in our
+language, and consequently the language is,
+from the perspective of a client, exactly same as the
+sequential language~\cite{LoCal}.
+
+
+The parallel operational semantics does, however, differ from the
+sequential semantics, most notably from the introduction of a richer
+form of indexing in regions.
+%
+Whereas in sequential \seqcalc{} a region index consists simply of a non-negative integer,
+it is enriched to an extended region index $\indbef{\ind}$ in \rparcalc{}.
+%
+It consists of either a concrete index
+$\concreteind{\ind}$, an $\indivar{\ivarid}$, or an indirection pointer
+$\indirection{\reg}{\concreteind{\ind}}$.
+%
+A concrete index is a non-negative integer that specifies the
+final position of a value in a region.
+%
+An ivar is a synchronization variable that is used to coordinate between parallel tasks.
+%
+For example, the $\indivar{e3}$ in the sample
+trace in \Figref{fig:step-by-step-dynamics-region-parallel}, is used
+to synchronize with the child task that is allocating \il{e3}.
+%
+An indirection $\indirection{\reg}{\concreteind{\ind}}$ points
+to the address $\concreteind{\ind}$ in the region $\reg$,
+and is used to link together different \emph{chunks} of the same logical region,
+which may have been introduced to enable intra-region parallel allocation.
+%
+For example, in the sample
+trace in \Figref{fig:step-by-step-dynamics-region-parallel}, a pointer
+$\indirection{\reg_3}{0}$ written at the end of the value \il{e3}
+links it with the value \il{e4}, which is allocated to a separate region $\reg_3$.
+%
+And a concrete location $\concretelocvar$ is enriched to a pair
+$\concreteloc{\reg}{\indbef{\ind}}{}$,
+of a region $\reg$,
+and an extended region index $\indbef{\ind}$.
+%
+The state configurations of \rparcalc{} appear at the bottom of
+\Figref{fig:opergram}.
+%
+Just like in sequential \seqcalc{}, a sequential state of
+\rparcalc{}, $\SEQSTATE$, contains a store $\STOR$, location map $\MENV$, and an
+expression $\EXPR$.
+%
+But by using enriched concrete locations,
+the location map also has the ability to contain indirection pointers.
+%
+A value that can be written to a heap, $\heapval$, is
+similarly enriched to allow indirection pointers.
+
+
+\subsubsection{Sequential Transitions}
+\label{subsubsec:sequential-semantics}
+
+{
+%% \floatstyle{boxed}\restylefloat{figure}
+\begin{figure}
+  \small
+  \normalsize
+  \begin{mathpar}
+    \mprset{flushleft}
+    \rdregionpardatacon{}\\
+    %% \rdregparletregion{}\\
+    %% \rdregionparletlocstart{}\\
+    %% \rdregionparletloctag{}\\
+    %% \rdletlocafter{}\\
+    \rdregparletlocafterseq{}\\
+    \rdregparletlocafternewreg{}\\    
+    %% \rdcase{}\\
+    \rregpardcase{}\\
+    \rdregparletexp{}\\
+    \rdregparletval{}
+    %% \rdregparapp{}
+  \end{mathpar}
+  %% \vspace{-9mm}
+  \caption{Selected dynamic semantics rules (sequential transitions).}
+  \label{fig:dynamic-sequential}
+\end{figure}
+%% \floatstyle{plain}\restylefloat{figure}
+}
+
+A subset of the sequential transition rules are given in
+\Figref{fig:dynamic-sequential}.
+%
+The rules are close to the original sequential rules,
+except for some minor differences.
+%
+For the rule \ddatacon{}, we need to handle the case
+where an indirection is assigned to the source symbolic location
+$\locreg{\loc}{\reg}$.
+%
+For this purpose, we use a metafunction $\hat{\MENV}$
+\iftoggle{EXTND}{
+  (formally defined in Appendix~\ref{subsec:maplookup})
+}{
+  (formally defined in the Appendix of the extended version~\cite{ParallelLoCal-tr})
+}
+that can dereference indirection pointers when looking up its address in the location map $\MENV$.
+%
+With respect to the rule \dregparletlocafternewreg{}, we now
+allow the concrete location assigned to the source location
+$\locreg{\loc_0}{\reg}$ to hold an ivar.
+%
+The purpose of this relaxation is to allow an expression downstream
+from a parallelized \il{let} binding to continue evaluating in
+parallel with the task that is evaluating the let-bound expression.
+%
+The task evaluating the \il{after} expression continues by using an
+indirection pointing to the start of a fresh region $\reg'$.
+%
+%% That is, if the \il{letloc} encounters an $\indivar{\ind}$ in its
+%% source location, then the index
+%% that results from our map lookup function $\hat{\MENV}$ yields
+%% an address $\concreteloc{\reg'}{0}{}$.
+%
+The effect is to make $\concreteloc{\reg'}{0}{}$ the setting for the allocation
+pointer for the task.
+%
+If the source location $\locreg{\loc_0}{\reg}$ is assigned to hold a concrete index
+$\concreteind{\ind}$, the rule \dletlocafter{} yields an address by using the
+the end-witness judgment.
+%
+The remaining rules are similar to sequential \seqcalc{},
+\iftoggle{EXTND}{
+  and are available in Appendix~\ref{subsec:appendix-dynamic-semantics}.
+}{
+  and are available in the Appendix of the extended version~\cite{ParallelLoCal-tr}.
+}
+
+
+\subsubsection{Parallel Transitions}
+\label{subsubsec:parallel-semantics}
+
+{
+%% \floatstyle{boxed}\restylefloat{figure}
+%\begin{figure*}
+\begin{figure}
+  %\begin{wrapfigure}{r}{0.5\textwidth}
+%\begin{subfigure}[t]{0.3\linewidth}
+  \small
+  \normalsize
+  \begin{mathpar}
+    \mprset{flushleft}
+    \rdregparsteptask{}\\
+    \rdregparletexppar{}\\
+    %% \rdregparletlocafterseq{}\\
+    %% \rdregparletlocafternewreg{}\\
+    \rdregparcasejoin{}\\
+    \rdregpardataconjoin{}
+  \end{mathpar}
+  \vspace{-6mm}
+  \caption{Dynamic semantics rules (parallel transitions).}
+  \label{fig:dynamic-parallel}
+%\end{wrapfigure}
+% \end{figure*}
+%\end{subfigure}
+\end{figure}
+%% \floatstyle{plain}\restylefloat{figure}
+}
+
+We generalize a sequential state to a parallel task $\TASKVAR$ by
+adding two more fields: a located type and a concrete location, which
+together describe the type and location of the final result allocated
+by the task.
+%
+A parallel transition in \rparcalc{} takes the form of the following
+rule, where any number of tasks
+in a task set $\TASKSET$ may step together.
+%
+\begin{displaymath}
+\TASKSET \rparstepsto  \TASKSET'
+\end{displaymath}
+%
+In each step, a given task may make a sequential transition, it may
+fork a new parallel task, it may join with another parallel task,
+or it may remain unchanged.
+
+The parallel transition rules are given in
+\Figref{fig:dynamic-parallel}.
+%
+In these rules, we model parallelism by an interleaving semantics.
+%
+Any of the tasks that are ready to take a sequential step may make a
+transition in rule \dregparsteptask{}.
+%
+A parallel task can be spawned by the \dletexppar{} rule, from which an
+in-flight \il{let} expression breaks into two tasks.
+%
+The child task handles the evaluation of the \il{let}-bound expression
+$\EXPR_1$, and the parent task handles the body $\EXPR_2$.
+%
+To represent the future location of the let-bound expression,
+and to create a data dependency on it,
+the rule creates a fresh ivar, which is
+passed to the body of the \il{let} expression.
+%
+This same ivar is also the target concrete location of the
+child task, thereby indicating that it produces this value.
+
+%% %% SUPER FRAGILE:
+%% \newpage %% On top of right column
+%% \begin{wrapfigure}{L}{0.03\linewidth}%% Make room for the too wide figure in the left column
+%%   \rule{0pt}{34em}% height of wrapfigure
+%% \end{wrapfigure}
+%
+A task can satisfy a data dependency in a rule such as
+\dregparcasejoin{}, where a \il{case} expression is blocked
+%
+on the value
+located at $\indivar{\ivarid_c}$, by joining with the task producing the value.
+%
+Because each task has a private copy of the store and location map,
+the process of joining two tasks involves merging environments.
+%
+The merging of the task memories is performed by the metafunctions $\merges$ and $\mergem$,
+\iftoggle{EXTND}{
+  defined formally in Appendix~\ref{subsec:appendix-merging-memories-region-parallel}.
+}{
+  defined formally in the Appendix of the extended version~\cite{ParallelLoCal-tr}.
+}
+%
+We merge two stores by merging the heaps of all the regions that are
+shared in common by the two stores, and then by combining with all
+regions that are not shared.
+%
+We merge two heaps by taking the set of all the heap values at
+indices that are equal, and all the heap values at
+indices in only the first and only the second heap.
+%
+The merging of location maps follows a similar pattern, but is slightly
+complicated by its handling of locations that map to ivars.
+%
+In particular, for any location where one of the two location maps
+holds an ivar and the other one holds a concrete index, we assign
+to the resulting location map the concrete index, because the concrete
+index contains the more recent information.
+%
+After merging the environments, all occurrences of
+$\indivar{\ivarid}_c$ are eliminated in the continuation,
+and are replaced by the index $\ind_p$,
+that represents the starting index of the value produced by the task $\TASKVAR_p$.
+%
+Join points in \rparcalc{} are, in general, deterministic, because they only
+{\em increase} the information held by the parent task.
+
+The rule \dregpardataconjoin{} handles the case where a data constructor
+is blocked on the value of its $j^{th}$ field, and it joins with the task
+producing that value.
+%
+It is similar to \dregparcasejoin{}, and also requires merging environments.
+%
+But depending on the schedule of execution,
+if the $(j+1)^{th}$ field of this constructor was computed in parallel
+with the $j^{th}$ field, they will both be allocated to separate regions,
+due to the way the rule \dregparletlocafternewreg{} works.
+%
+These fields have to be reconciled to simulate a single region.
+%
+For this purpose, we use a metafunction $\linkfields$
+\iftoggle{EXTND}{
+  --- defined formally in Appendix~\ref{subsec:appendix-linking-fields} ---
+}{
+  --- defined formally in the Appendix of the extended version~\cite{ParallelLoCal-tr} ---
+}
+which stitches together these fields
+by writing an indirection pointing to the start of region containing the $(j+1)^{th}$ field
+at an address one past the end of the $j^{th}$ field.
+%
+Thus, when all fields of a data constructor are synchronized with, all fields allocated
+to different regions are linked together by indirection pointers,
+forming a linked-list.
+%% as shown in \Figref{fig:datacon-layout-1}.
+
+%% Although there are several other rules that handle joins
+%% in addition to those described above,
+%% we omit them to save space, because they are similar.
+%% %
+%% A complete version of the dynamic semantics is available in
+%% the Appendix,~\ref{subsec:appendix-dynamic-semantics}.
+
+
+
+\subsection{Type System}
+\label{subsec:type-system}
+
+{
+%% \floatstyle{boxed}\restylefloat{figure}
+\begin{figure}
+\begin{mathpar}
+%% \mprset{flushleft}
+\rttask{}
+\quad
+\rttasksetempty{} \\
+\rttaskset{}
+\end{mathpar}
+\caption{Typing rules for a parallel task $\TASKVAR$, and a set of parallel tasks $\TASKSET$.}
+\label{fig:static-semantics-parallel}
+\end{figure}
+%% \floatstyle{plain}\restylefloat{figure}
+}
+
+Our type system for \rparcalc{} requires some substantial extensions
+to the original type system given by \citet{LoCal}.
+%
+These extensions address the need to handle multi-task configurations,
+which require a number of new typing environments and rules.
+%
+Before we present these extensions, we recall the typing rule
+for the configuration of a single task, which is mostly unchanged from
+the original.
+%
+\[ \TENV;\SENV;\CENV;\AENV;\NENV \vdash \AENV'; \NENV'; \EXPR : \hTYP \]
+%
+%
+The context for this judgment includes five different environments.
+First, $\TENV$ is a standard typing environment.
+Second, $\SENV$ is a store-typing environment, mapping 
+\emph{materialized} symbolic locations to their types. That is, every location in $\SENV$ {\em has been written} and contains a value of type $\SENV(l^r)$.
+Third, $\CENV$ is a constraint environment, keeping
+track of how symbolic locations relate to each other.
+Fourth, $\AENV$ maps each region in scope to a location, and is used to symbolically
+track the allocation and incremental construction of data structures;
+%% $\AENV$ can be thought of as representing the
+%% \emph{focus} within a region of the computation.
+% (the exact usage of $\AENV$ will be expanded on below).
+Finally, $\NENV$ is a nursery of all symbolic locations that have been allocated,
+but not yet written to.
+%
+\new{Locations are removed from $\NENV$ upon being written to,
+as the purpose is to prevent multiple writes to a location.}
+%
+Both $\AENV$ and $\NENV$ are threaded through the typing
+rules, also occurring in the output of the judgment, to the right of the
+turnstile.
+
+%% \Figref{fig:static-semantics-parallel-grammar} shows our
+%% generalized typing rules to handle multi-task configurations ---
+To generalize our typing rules to handle multi-task configurations,
+we introduce new environments for variables $\TENVMAP$, store
+typing $\SENVMAP$, allocation constraints $\CENVMAP$, allocation
+pointers $\AENVMAP$, and nurseries $\NENVMAP$.
+%
+These environments extend their counterparts in the sequential
+\seqcalc{} type system, and are needed to track state on a per-task
+basis.
+%
+\Figref{fig:static-semantics-parallel} gives 
+the precise typing rules to type check a parallel task $\TASKVAR$, and
+a set of parallel tasks $\TASKSET$.
+%
+A parallel task $\TASKVAR$ is well-typed if its target expression
+$\EXPR$ is well-typed, using the original \seqcalc{} typing rules, and
+a task set $\TASKSET$ is well-typed if all tasks in it are
+well-typed.
+%
+\iftoggle{EXTND}{
+  \rparcalc{}'s complete typing rules are given in Appendix~\ref{subsec:appendix-typing-rules}.
+}{
+  \rparcalc{}'s complete typing rules are given in the Appendix
+  of the extended version~\cite{ParallelLoCal-tr}.
+}
+
+\subsection{Type Safety}
+\label{subsec:type-safety}
+
+Compared to the original type-safety result proved for single-task
+\seqcalc{}, ours generalizes to parallel evaluation by requiring that,
+for any given multi-task configuration, either the program has fully
+evaluated or at least one task can take a step.
+%
+As usual, we prove this theorem by showing progress and preservation.
+%
+The main complication relates to the property that parts of the
+overall store are now spread across the individual stores of the
+tasks, whereas in the original proof there is only one store.
+%
+In particular, our proof must establish that the store of each task
+remains well formed, even while that task waits on a data dependency,
+and moreover after the task joins with another task and their stores
+are merged.
+%
+The complete proof is available
+\iftoggle{EXTND}{
+  in Appendix~\ref{subsec:appendix-type-safety}.
+}{
+  in the Appendix of the extended version~\cite{ParallelLoCal-tr}.
+}
+%
+Here we summarize key invariants.
+
+Many such invariants are specified by our well-formedness rule, which
+applies to a set of tasks executing in the parallel machine.
+%
+\iftoggle{EXTND}{
+  We give the full rule in Appendix~\ref{sec:well-formedness-tasks}.
+}{
+  The full rule is given in the Appendix of the extended version\cite{ParallelLoCal-tr}.
+}
+%
+\begin{displaymath}
+\SENVMAP;\CENVMAP;\AENVMAP;\NENVMAP \storewftasks{\TASKSET}
+\end{displaymath}
+%
+This judgment specifies two new invariants that must hold for all
+tasks $\TASKVAR \in \TASKSET$.
+%
+The first enforces that all ivars get filled with an appropriate value.
+%
+In particular, if an expression being evaluated by a task references an ivar,
+%% the location map $\MENV$ must have a location mapping to this ivar,
+then there must be exactly one other task in the task set which supplies a
+{\em well-typed} value for it.
+%
+The second invariant consists of the well-formedness judgment that
+verifies certain properties hold for each store of a given task.
+%
+This judgment generalizes a similar rule used in the original proof
+by its use of the overall task set $\TASKSET$.
+%
+We discuss in detail the necessary extensions in the sequel.
+
+With these new typing judgments in hand, we can now state the type-safety
+theorem, shown below.
+%
+This theorem states that, if a given task set $\TASKSET$ is well typed
+and its overall store is well formed, and if $\TASKSET$
+%% can
+makes a transition to some task set $\TASKSET'$ in $n$ steps,
+then either all tasks in
+$\TASKSET'$ are fully evaluated or $\TASKSET'$ can take
+a step to some task set $\TASKSET''$.
+%
+\begin{theorem}[Type Safety]
+  \label{theorem:type-safety}
+  \begin{displaymath}    
+  \begin{aligned}
+  \text{If} \;\; & \emptyset;\SENVMAP;\CENVMAP;\AENVMAP;\NENVMAP \vdash_{taskset} \AENVMAP' ; \NENVMAP' ; \TASKSET \; \wedge \; \SENVMAP;\CENVMAP;\AENVMAP;\NENVMAP \storewftasks{\TASKSET} \\
+  %% \text{and} \;\; &  \\
+  \text{and} \;\; & \TASKSET \rparstepsto^{n} \TASKSET' \\
+  \text{then, either} \;\; & \forall \TASKVAR \in \TASKSET'. \; \taskcomplete{\TASKVAR} \\
+  \text{or} \;\; & \exists \; \TASKSET''. \; \TASKSET' \rparstepsto \TASKSET''.
+  \end{aligned}
+  \end{displaymath}
+\end{theorem}
+
+%% %% to make sure this sub-section starts on a fresh page, which makes
+%% %% the judgment definition look better.
+%% \vspace{1cm}
+
+\subsubsection{Well formedness of the store}
+  %
+  Our store well-formedness judgment extends the judgment of the
+  sequential \seqcalc{} typing system to establish a global criterion
+  for well-formedness, checking in particular that parts of regions
+  that are distributed across each task-private store, given by
+  $\MENV; \STOR$, are well-formed:
+%
+\begin{displaymath}
+\storewf{\SENV}{\CENV}{\AENV}{\NENV}{\TASKSET}{\MENV}{\STOR}
+\end{displaymath}
+%
+\iftoggle{EXTND}{
+  This judgment, defined formally in Appendix~\ref{sec:well-formedness},
+}{
+  This judgment, defined formally in the Appendix of
+  the extended version~\cite{ParallelLoCal-tr},
+}
+is one of the most challenging parts of our extension, because it must be
+strong enough to ensure safe merging of stores when tasks meet at join points.
+%
+Like in sequential LoCal, it specifies three categories of invariants.
+
+
+The first category enforces that allocations occurring across the
+task-private stores are accounted for.
+%
+In particular, for each symbolic location in the store-typing environment,
+$(\locreg{\loc}{\reg} \mapsto \TYP) \in \SENV$,
+a value must be allocated to the appropriate store.
+%
+There are two possible ways in which this allocation may occur:
+(1) sequentially, in the current task, or (2) in parallel, in a different task.
+%
+In the sequential case, $\locreg{\loc}{\reg}$'s address in the location map $\MENV$ must be a
+concrete index, and it must have an end-witness.
+%
+This technical point ensures that the store never contains partially allocated values.
+%
+In the parallel case, $\locreg{\loc}{\reg}$'s address in $\MENV$ must be an ivar,
+and there must be exactly one other task, $\TASKVAR_{oth} \in \TASKSET$,
+that supplies a well-typed value for it.
+%
+Moreover, $\locreg{\loc}{\reg}$'s address in $\TASKVAR_{oth}$'s location map must be a concrete index,
+and if $\TASKVAR_{oth}$ has finished evaluating, this value must have an end-witness.
+%
+This property ensures that when these tasks merge, the resulting store has {\em complete} values
+allocated at the expected addresses and the expected types.
+
+
+The second category enforces that allocations occur in the sequence specified by the constraint
+environment $\CENV$.
+%
+In particular, if there is some location $\locreg{\loc}{}$ in the domain of $\CENV$,
+then the location map and store must have the expected allocations at the expected types.
+%
+The most interesting rule here is that for the \gramwd{after} constraint,
+since it involves potential parallel allocations.
+%
+For instance, if $(\loc \mapsto (\afterl{\tyatlocreg{\TYP}{\loc'}{}})) \in \CENV$,
+then the values at locations $\loc$ and $\loc'$ may be allocated sequentially,
+in the same task, or in parallel, in different tasks.
+%
+The sequential case is straightforward.
+%
+For the parallel case, there are two possibilities --- (1) the task allocating the value at
+location $\loc'$ may be still in-flight,
+or (2) it may have already synchronized with the current (parent) task.
+%
+In the first case, we ensure the presence of an appropriate indirection in the location map
+($\loc \mapsto \concreteloc{\reg}{\indirection{\reg_{\text{fresh}}}{0}}{}$)
+and of a fresh region in the store ($\reg_{\text{fresh}} \in \STOR$).
+%
+Otherwise, we ensure that a link between the values at locations $\loc'$ and $\loc$ exists,
+which is accomplished by the metafunction $\linkfields$.
+
+The final category enforces that each location is written to only once.
+%
+This is done by checking that the domain of the store-typing environment and the nursery
+are disjoint: $dom(\SENV) \cap \NENV = \emptyset$.
+
+
+
+
+\subsection{Controlling Fragmentation}
+\label{subsec:fragmentation}
+
+A consequence of \rparcalc{} introducing fresh regions
+is that the schedule of evaluation dictates the way a value is laid out on the heap,
+as shown in \Figref{fig:datacon-layouts}.
+%
+Every choice to parallelize an intra-region allocation implies the creation
+of a new region and a new indirection, thereby introducing fragmentation.
+%
+Thus, in addition to the usual task-scheduling overheads,
+in our system, a schedule that parallelizes too many allocations also leads
+to fragmentation.
+%
+Conversely, effort at amortizing the overhead of parallelism
+simultaneously amortizes the overhead of indirections and region
+fragmentation.
+%
+We return to this topic and address fragmentation along with parallelism granularity management in \Secref{subsec:granularity}.
+%% In the worst case the heap might degenerate to a full pointer-based
+%% representation --- the benefits of using a serialized representation
+%% would be lost.
+%% If a schedule is picked carelessly the heap might become very
+%% fragmented, similar to a full pointer-based representation,
+%% and the benefits of using a serialized representation will be lost.
+
+{
+%% \floatstyle{boxed}\restylefloat{figure}
+\begin{figure}
+\par\medskip
+\begin{subfigure}{0.45\textwidth}
+  \par\medskip
+  \includegraphics[scale=0.3]{figs/datacon-layout1-color.pdf}
+  \caption{}
+  \label{fig:datacon-layout-1}
+  \par\bigskip
+  \includegraphics[scale=0.3]{figs/datacon-layout2-color.pdf}
+  \caption{}
+  \label{fig:datacon-layout-2}
+  \par\bigskip
+  \includegraphics[scale=0.3]{figs/datacon-layout3-color.pdf}
+  \caption{}
+  \label{fig:datacon-layout-3}
+\end{subfigure}
+\caption{
+  The heap layout for a data constructor if:
+  %
+  (a) all fields are allocated sequentially,
+  %
+  (b) only the second and third fields are allocated in parallel with each other, and
+  %
+  (c) all fields are allocated in parallel.  
+}
+\label{fig:datacon-layouts}
+\end{figure}
+%% \floatstyle{plain}\restylefloat{figure}
+}
+
+
+\section{Implementation}
+\label{sec:implementation}
+
+
+Gibbon is a whole-program\footnote{\new{Gibbon’s automatic selection of data representation works best if it can see the whole program, much like the data-representation optimizations in MLton. One way to get around this issue would be to make the programmer responsible for choosing the representation, by using appropriate annotations in datatype definitions. Another option is to conservatively insert random-access information in all datatypes that flow into code within other compilation units. Our current implementation does not offer these options, and only supports whole program compilation.}} micropass compiler that compiles a
+polymorphic, higher-order subset of (strict) Haskell\footnote{Note
+  that we are not the first to propose a strict variant of Haskell, not only do many of its cousins like Idris take a strict approach, but GHC itself supports a module-level strict mode.}.
+%
+The Gibbon front-end uses standard whole-program compilation and monomorphization
+techniques~\cite{urweb-icfp} to lower input programs into a
+first-order, monomorphic representation.
+%
+On this representation, Gibbon performs \textit{location inference} 
+to convert it into a LoCal program, which has region and location annotations.
+%
+Then a big middle section of the compiler is a series of LoCal->LoCal compiler passes
+that perform various transformations.
+%
+Finally, it generates C code.
+
+Our parallelism extension operates in the middle end,
+with minor additions to the backend code generator and the runtime system.
+%
+We add a collection of LoCal->LoCal compiler passes that transform the program
+so that reads and allocations can run in parallel.
+%
+At run time, we make use of the Intel Cilk Plus language extension~\cite{blumofe1996cilk}
+(and its work-stealing scheduler) to realize parallel execution.
+Our implementation closely follows the formal model described in \Secref{subsec:region-parallel-semantics},
+but with explicit parallelism annotations.
+%
+%% but we make one important change.
+%% Instead of manifesting {\em all} implicit  parallelism,
+%% we follow the approach of most major task-parallel systems:
+%% we ask the programmer to perform manual granularity control.
+%% %% i.e. mark computations to run in parallel when they predict that
+%% %% the benefits (speedup) would outweigh the costs (overheads),
+%% %% and use a sequential variant of their algorithm on small-sized inputs.
+
+
+% --------------------------------------------------------------------------------
+
+\subsection{Granularity Control}
+\label{subsec:granularity}
+
+Before going further into the details of what we implemented, we first
+explain our choices in what we do and {\em do not} implement.
+%  of what we are {\em not} doing in this work.
+As we saw in \Figref{fig:example1-haskell}, we use manual annotations
+for the programmer to mark parallelism opportunities.  This is the
+norm in both current and past parallel programming practice: from
+MultiLisp~\cite{multilisp} to OpenMP~\cite{openmp}, Cilk~\cite{blumofe1996cilk},
+Java fork-join~\cite{lea2000java}, etc.
+%
+Recall also that with a purely functional source language,
+parallel-tuple annotations change {\em performance only}, not program
+semantics, so a programmer need not worry about safety when inserting
+annotations\footnote{This same property holds for inserting parallel
+  annotations in pure GHC Haskell code, which has been used to modest
+  benefit in past experimental work \cite{ghc-insert-parallelism}, but
+  is not commonplace practice.}.
+%
+Task granularity thresholds can be fine-tuned by using the same reasoning
+as in other parallel systems --- switch to sequential for small
+problem sizes.
+%
+But there's also the issue of fragmentation
+(\Secref{subsec:fragmentation}), i.e. amortizing the overhead of
+pointers in the representation as well as parallel tasks in the
+control flow. One might wonder how these interact.
+
+\subsubsection{How to optimize granularity in Gibbon?}
+
+%% Relatively small chunks of sequential data can effectively amortize the (space)
+%% cost of indirections for random-access, but more doesn’t hurt.
+%
+Relatively small chunks of sequential data can effectively amortize the
+cost of creating regions and indirections.
+%
+For instance, serializing just the bottom two levels in our binary tree examples eliminates 75\% of pointers and ensures pointers use only 11\% of memory.
+%
+The task size to amortize parallel scheduling overheads, on the other
+hand, is usually much larger.  Therefore, it's best the Parallel
+Gibbon programmer thinks about parallelism granularity exclusively,
+and the data representation can comfortably follow from that.
+%
+%% In the future, we plan to evaluate automatic techniques for
+%% granularity control in Gibbon, such as Heartbeat Scheduling~\cite{Heartbeat_17}
+%% or Oracle-Guided Scheduling~\cite{OracleGuided_19},
+% 
+%% whose power would be amplified by using them to achieve {\em both} automatic selection of task granularity and
+In other words, a manual (or automatic) solution to task granularity, also gives ``for free'', an efficient, mostly-serialized data representation with amortized indirections.
+%
+
+\subsubsection{Why not {\em automatic} granularity?}
+
+{\em Automatic} task-parallel granularity control is an active research area
+\cite{Heartbeat_17,OracleGuided_19}.
+%
+Combining Parallel Gibbon's automatic
+control over data representation, {\em together} with automatic
+granularity control, is a promising avenue for future work.  This goes
+doubly so if approaches like {\em Heartbeat scheduling}
+\cite{Heartbeat_17} mature to the point of offering robust backends
+and runtime systems that compilers like Parallel Gibbon may target,
+and very recent work offers a step in that direction \cite{TPAL_21}.
+
+
+For this paper, however, it would be confounding to address automating
+granularity {\em simultaneously} with compacting data representation and
+assigning regions.
+%
+In our experiments (\Secref{sec:evaluation}), we hold task granularity
+constant across different implementations of the same benchmarks,
+focusing only on the impact of each compiler's code generation and
+data representation choices.
+%
+Parallel Gibbon, as well as all of its competitors, use explicit
+parallelism annotations, and schedule the same set of tasks at runtime
+for the same program inputs, unless mentioned otherwise.
+
+
+% --------------------------------------------------------------------------------
+\subsection{Desugaring Parallel Tuples}
+
+
+As shown in \Figref{fig:example1-haskell},
+in the front-end language, we use the standard parallel tuples to express parallelism,
+like other eager, parallel functional languages~\cite{manticore,MPL}.
+%
+A parallel tuple \il{(e1 $\;\partup\;$ e2)}
+marks the expressions \il{e1} and \il{e2} to evaluate in parallel with each other.
+%
+To more closely match Cilk, we desugar these parallel tuples into a spawn/sync representation in the compiler IR:
+%
+\begin{code}
+let x = spawn e1 in
+let y = e2 in
+let _ = sync in
+(x,y)
+\end{code}
+%
+Using this representation simplifies the subsequent conversion to LoCal,
+in which additional steps like allocating regions or binding locations
+may be required before getting to \il{e1} or \il{e2}.
+%
+Generating the corresponding \il{letregion}/\il{letloc} bindings, such that they have
+the correct scope, is easier with a spawn/sync representation.
+%
+Also, we preserve these parallelism annotations in the LoCal code we
+generate.  In contrast with the formal model (with implicit
+parallelism, \Secref{sec:region-parallel-local}), \il{let y = e2}
+is always sequential, whereas \il{let y = spawn e2} essentially
+corresponds to a {\em potentially} parallel let binding, though the decision
+is ultimately dynamic.
+
+We do not support first-class futures, or tasks that communicate through channels
+or other mutable data structures, and thus the task-parallelism opportunities available in
+Parallel Gibbon remain effectively {\em series-parallel}.
+%
+But this is sufficiently expressive for writing a large number of parallel algorithms.
+%
+Note that the formal model can express some {\em local}, non-escaping futures that are not strictly series-parallel by using parallel lets that are
+forced out of order. This pattern of parallelism does not provide much additional expressive power over that provided by parallel tuples, so we do not give up much by not exposing this capability in the front-end language.
+%but this isn't substantial expressive power to give up
+%by surfacing only parallel tuples in the front-end language.
+
+
+
+\subsection{Indirection Pointers}
+\label{subsec:indirection-pointers}
+
+In the implementation, we need a runtime representation of optional
+pointers to include in the data that corresponds to the indirections in the
+semantics (\Secref{sec:indirection-semantics-intro}).
+%
+Fortunately, in the Gibbon compiler there is already a
+pointer mechanism that is sufficient for our purposes.
+%
+This exists because of how Gibbon's regions grow---rather than copying
+data into a larger buffer, Gibbon accumulates a linked list of contiguous
+chunks, doubling the size on each extension. The last filled cell in a
+chunk is an indirection into the next chunk.
+%
+\new{
+Indirections also enable Gibbon to allocate a value that is {\em shared}
+between multiple locations (within the same region or across regions)
+without requiring a full copy,
+which is crucial for ensuring asymptotic complexity conservation of programs.
+%
+Variable aliases indicate this sharing to the compiler.
+%
+For example, the aliased variable \il{x} in the expression
+\il{(let x = mkBigExpr in Plus x x)} indicates that a single, shared value
+must be allocated for the left and right subtrees of \il{Plus}.
+%
+Gibbon rewrites this expression to \il{(let x = mkBigExpr in Plus x (IndPtr x))},
+where the right subtree is an indirection pointing to the data allocated for
+the left.
+%
+Similarly, the identity function \il{(id x = x)} becomes \il{(id x = IndPtr x)}.
+%
+However, shared scalar values such as numbers and booleans are always copied,
+because it is more efficient to do so.
+}
+%
+In \pargibbon{}, we reuse this indirection pointer mechanism to implement
+intra-region parallel allocations.
+
+
+
+\subsection{Parallel Reads}
+
+Using static analysis, Gibbon can infer if a dataype requires offsets,
+and it can transform the program to add offsets to datatypes that need them.
+%
+In sequential programs, these are used to preserve asymptotic complexity of
+certain functions.
+%% For example, \il{rightmost} on a binary tree would be linear
+%% instead of logarithmic without offsets.
+%
+In \pargibbon{}, we use these offsets to enable parallel reads.
+%
+We update that static analysis, and add offsets if a program
+performs parallel reads, i.e. via a clause in a case expression that accesses a
+data-constructor's fields in parallel.
+
+\subsection{Parallel Allocations}
+\label{subsec:parallel-allocations}
+
+%% \begin{figure}
+%% \begin{code}
+%% ...  
+%% Plus (e1 : @\tyatlocreg{Exp}{l_a}{r_1}@) (e2 : @\tyatlocreg{Exp}{l_b}{r_1}@) ->
+%%   letloc @\locreg{l_3}{r_2}@ = @\locreg{l_2}{r_2}@ + 1 in
+%%   let e3 : @\tyatlocreg{Exp}{l_3}{r_2}@ = spawn (constFold ..) in
+%%   if task_stolen(e3)
+%%   then -- Allocate e4 in a fresh region $r_3$.
+%%     letregion $r_3$ in
+%%     letloc $\locreg{l_p}{r_3}$ = start $r_3$ in
+%%     ... allocate e4 at $\locreg{l_p}{r_3}$ ...
+%%     let _ : () = sync in
+%%     -- Link the regions $r_2$ and $\reg_3$  with a pointer.
+%%     letloc @\locreg{l_4}{r_2}@ = after(@\tyatlocreg{Exp}{l_3}{r_2}@) in
+%%     let e3' : @\tyatlocreg{Exp}{l_3}{r_2}@  = link $\locreg{l_3}{r_2}$ $\locreg{l_p}{r_3}$ in
+%%     (Plus @\locreg{l_2}{r_2}@ e3' e4)
+%%   else -- Allocate e4 in $r_2$, just like a sequential program.
+%%     let _ : () = sync in
+%%     letloc @\locreg{l_4}{r_2}@ = after(@\tyatlocreg{Exp}{l_3}{r_2}@) in
+%%     ... allocate e4 at $\locreg{l_4}{r_2}$ ...
+%%     (Plus @\locreg{l_2}{r_2}@ e3 e4)
+%% \end{code}
+%% \caption{
+%%   Program from \Figref{fig:example1} transformed by the compiler such that it
+%%   allocates in parallel, and avoids fragmentation.
+%% }
+%% \label{fig:parallel-generated}
+%% \end{figure}
+%% \floatstyle{plain}\restylefloat{figure}
+
+%% Inter-region parallel allocations can be compiled straightforwardly.
+%% %
+The implementation of intra-region parallel allocations closely follows the
+design described in \Secref{sec:region-parallel-local}.
+%
+A program transformation pass generates code that allocates fresh regions and writes
+indirection pointers at appropriate places.
+%
+\new{
+But the metafunctions $\merges$ and $\mergem$ which merge task memories at join points have
+a different run time behavior compared to their formal definition.
+%% which requires set-unions.
+%
+The implementation does not have a direct notion of a store.
+%
+At run time, a region variable $\reg$ is only a structure containing a
+pointer to the start of a memory buffer
+and some metadata necessary for garbage collection.
+%% such as size of the buffer, the current reference count, and a set of outgoing pointers.
+%
+Two memory buffers are merged (linked) simply by writing a single indirection pointer
+in one of them.
+%
+This operation is relatively cheap compared to the set union used
+in the formal definition.
+%
+Similarly, the implementation does not have a direct notion of a location map,
+and therefore there is no run time operation equivalent to $\mergem$.
+%
+At run time, all location variables become absolute pointers into the heap.
+%% that point to memory locations on the heap.
+}
+
+
+%% Ideally, if a parallel program runs on a single thread, the heap it constructs
+%% should be identical to one constructed by its sequential counterpart.
+%% %
+%% But granularity control alone --- \new{in the form of judicious use of
+%% $\gramwd{spawn}$} --- is not sufficient to accomplish this.
+%
+But there still exists an issue with fragmentation.
+%
+With granularity control --- in the form of judicious use of parallel tuples ---
+we can restrict excessive creation of fresh regions, but the number of regions created will still
+always be equal to the number of parallel tasks spawned by the program.
+%
+This can still cause fragmentation because all spawned tasks
+might not actually {\em run} in parallel.
+
+The key insight
+%% A crucial optimization utilized by our implementation
+is to make the number of fresh region allocations equal to the number of
+{\em steals}, not spawns.
+%
+That is, because our implementation uses a work-stealing scheduler,
+but the general idea applies to other schedulers as well: fragmentation
+should be proportional to parallelism in the dynamic schedule, not the static
+potential for parallelism.
+%
+Our implementation creates fresh regions for intra-region parallel allocations
+only if they really run in parallel.
+%
+We accomplish this by using the Cilk Plus API to implement a hook to detect when steals occur.
+%
+Before reaching a parallel fork point (spawn), the runtime system stores the ID of the worker
+executing the current code.
+%
+Next, the corresponding ID is immediately fetched in the continuation of the fork point.
+%
+If the IDs match, it indicates that a steal did not occur.
+%
+This optimization enables parallel allocations with minimal fragmentation.
+
+
+\subsection{Parallel Arrays}
+\label{subsec:parallel-arrays}
+
+Programs need arrays as well as trees.
+We extend Gibbon with array primitives such as
+\il{alloc}, \il{length}, \il{nth}, \il{slice}, and \il{inplaceUpdate},
+and use them to build a small library of parallel array operations with
+good work and span bounds.
+%
+The ability to {\em safely} mutate an array in-place allows us to implement optimizations
+that go beyond what is commonly allowed in a purely functional language.
+%
+This is enforced using the new Linear Haskell extensions~\cite{linear-haskell}, for example, the signature of an $O(1)$ array mutation is:
+% inplaceUpdate :: Int → a → Array a ⊸ Array a
+\begin{code}
+inplaceUpdate :: Int $\rightarrow$ a $\rightarrow$ Array a $\multimap$ Array a  
+\end{code}
+%
+Using these primitive operations, collective operations on arrays are implemented as recursive
+  divide-and-conquer functions in Parallel Gibbon that use parallelism annotations\footnote{These combinators offer variants to explicitly control sequential chunk size, or to use the common heuristic of splitting into a number of tasks that is a multiple of the number of cores (provided as a global constant).}.
+%
+For example, our parallel \il{map} first allocates an array to store the output,
+and then updates it in parallel with \il{inplaceUpdate}.
+%
+But all such potentially-racy operations are hidden behind a pure interface.
+%
+Also, an \il{Array} in \pargibbon{} can only store primitive values such as
+numbers, booleans, and n-ary tuples of such values.
+%
+In the future, we plan to explore ways to support data-parallel operations
+on serialized algebraic data.
+
+
+\subsection{Memory Management}
+
+In the formalism,
+regions are modeled as {\em unbounded} memory buffers that offer a byte-indexed storage
+for primitive values (data constructor tags, numbers, etc.).
+%
+Practically, we start by allocating a single contiguous {\em chunk} of memory of {\em bounded} size.
+%
+When this chunk is exhausted, a new one which is double in size is allocated
+and linked with the previous one using a pointer.
+%
+\new{This policy is used up to an upper bound (1GB)
+after which constant sized (1GB) new chunks are allocated.}
+%
+Thus, a single region is really a linked-list of chunks:
+a small initial chunk, with subsequent ones doubling in size.
+%
+\new{
+The small initial chunk is beneficial when a region contains a small value,
+and the doubling policy reduces the overall \il{malloc} overhead when
+allocating large values.
+}
+
+Our garbage collection strategy is based on regions and lifetimes, and also reference counting.
+%
+In classic region calculi, regions can be immediately deallocated at the end of their lexical scope.
+%
+However, we allow indirection pointers to point across {\em different} regions (chunks),
+which is crucial to support parallelism, (and also to maintain the asymptotic complexity
+of certain sequential programs).
+%
+Thus, a region can stay alive beyond its lexical scope, for example if a pointer to
+it is captured by another region which is still in scope.
+
+
+We use reference counting to deallocate such regions.
+%
+When a region is initialized---with a \il{letregion}---its reference count is set to 1,
+and it is decremented when the region goes out of scope.
+%
+At this stage, if its reference count hits zero, it is deallocated by freeing
+all of its chunks.
+%
+When a chunk is freed, the reference counts of the regions it points to are also decremented,
+which may cause some of these regions to be freed as well.
+%
+But these reference counts are {\em per-region}, rather than {\em per-chunk}.
+Hence, even if a single chunk in a region is truly alive, all of its other chunks are also
+considered alive, and cannot be freed.
+%
+%% \new{
+%% This especially impacts programs which have highly fragmented values alive in many small regions, which will show the overheads of reference counting.
+%% %
+%% But standard engineering investments---in optimized reference counting or
+%% tracing collection---would greatly reduce the constant factor overheads for
+%% small regions.
+%% }
+%
+Also, there isn't a supplemental garbage-collector for long-lived regions at this time,
+as in later versions of MLKit~\cite{mlkit-retrospective}.
+%
+%
+In the future, we plan to make improvements in this area.
+%
+Note, however, that it is impossible to create heap cycles in Gibbon, because it's a pure strict language. (In-place modification through linear types doesn't change this, and besides, Parallel Gibbon's arrays do not contain pointers or sum types.)
+
+
+\section{Evaluation}
+\label{sec:evaluation}
+
+%% \input{big_table}
+
+In this section, we evaluate our implementation using a variety of
+benchmarks from the existing literature, as well as a new compiler benchmark.
+%
+To measure the latent overheads of adding parallelism,
+we compare our single-thread performance
+against the original, sequential LoCal, as implemented by the Gibbon compiler.
+%
+Sequential Gibbon is also a good baseline for performing speedup calculations
+since its programs operate on serialized heaps, and
+as shown in prior work, are significantly faster than their pointer-based counterparts.
+%
+Note that prior work \cite{Gibbon} compared sequential constant factor performance
+against a range of compilers including GCC and Java.  Since Sequential Gibbon
+outperformed those compilers in sequential tree-traversal workloads, we focus
+here on comparing against Sequential Gibbon for sequential performance.
+
+We also compare the performance of our implementation
+to other languages and systems
+that support efficient parallelism for recursive, functional programs
+--- \MPL{} \cite{MPL},
+%% \footnote{https://github.com/MPLLang/mpl}
+Multicore OCaml \cite{OCaml,multicore-ocaml}, and GHC.
+%
+\MPL{} (an extension of MLton) %% \footnote{http://www.mlton.org}
+is a whole-program, optimizing compiler for Standard ML \cite{StandardML};
+%
+it supports nested fork/join parallelism, and generates extremely efficient code.
+%% and hence serves as a baseline for comparing against a system that is pointer-based.
+%
+%% We compare against OCaml and GHC as the most optimized existing implementations of the
+%% general purpose languages Objective Caml and Haskell respectively.
+
+%% lscpu          -- processor info
+%% free -m        -- memory
+%% lsb-release -a -- OS
+
+The experiments in this section are performed on a 48 core machine
+(96 hyper-threads) made up of
+2 $\times$ 2.9 GHz 24 core Intel Xeon Platinum 8268 processors, with 1.5TB of memory,
+and running Ubuntu 18.04.
+%
+The shared memory on this machine is divided into two NUMA nodes
+such that CPUs \il{0-23} and \il{48-71} use \il{node-0} as their local memory node,
+and \il{24-47} and \il{72-95} use \il{node-1}.
+%
+In our experiments we only use 48 threads (no SMT), evenly distributed across
+both NUMA nodes (\il{numactl $\;--$physcpubind=48-95}).
+%
+All experiments are performed using the default memory allocation policy
+which always allocates memory on the current NUMA node.
+%
+We observed that using a round-robin memory allocation policy
+(option \il{$--$interleave=0,1}) did not affect performance,
+and therefore we do not report those results.
+
+
+Each benchmark sample is the median of 9 runs.
+%
+To compile the C programs generated by our implementation we use
+GCC 7.4.0 with all optimizations enabled (option \il{-O3}), and
+the Intel Cilk Plus language extension~\cite{blumofe1996cilk}
+(option \il{-fcilkplus}) to realize parallelism.
+%
+To compile sequential LoCal programs we use the open-source Sequential Gibbon compiler, \new{but we modify it to include arrays with in-place mutation using linear types, just like Parallel Gibbon.}
+%% but disable the changes that add parallelism with appropriate flags.
+%
+For \MPL{}, we use version \il{20200220.150446-g16af66d05} compiled from its source code.
+%% and disable overflow checking when compiling all benchmarks (option \il{-cc-opt -DINT_NO_CHECK}).
+%
+For OCaml, we use the Multicore OCaml compiler \cite{multicore-ocaml}
+(version 4.10 with options \il{-O3}),
+along with the \il{domainslib} \footnote{https://github.com/ocaml-multicore/domainslib}
+library for parallelism.
+%
+We use GHC 8.6.5, with options \il{-threaded -O2}, along with
+the monad-par~\cite{monad-par} library for parallelism.
+
+
+% \vspace{-2mm}
+\subsection{Benchmarks}
+\label{subsec:benchmarks}
+
+We use the following set of 10 benchmarks.
+%
+For GHC, we use {\em strict datatypes} in benchmarks, which generally offers the
+same or better performance, and avoids problematic interactions between
+laziness and parallelism.
+%
+All programs use the same algorithms and datatypes
+(including mutable arrays, which are provably race-free in Gibbon and GHC),
+have identical granularity control thresholds, and are run with the same inputs.
+%
+This way, each pairing of program and input creates a deterministic task graph ---
+which does not change when varying the number of threads ---
+and the evaluation focuses on data representation and code generation,
+rather than on decomposing and scheduling parallel tasks.
+%% all four runtimes use similar work-stealing load balancers.
+
+\begin{itemize}
+
+\item \textbf{fib}:
+  %% parallelism: n=48 to 31. TASKS: 2^18
+  Compute the 48th fibonacci number with a sequential cutoff after \new{depth=18}: a simple baseline for scaling.
+
+\item \textbf{\buildfib{}}:
+  %% parallelism: n=18 to 7. TASKS: 2^12
+  This is an artificial benchmark that is included here to
+  measure parallel allocation under ideal conditions.
+  %
+  It constructs a balanced binary tree of height 18, and computes
+  the 20th fibonacci number at each leaf, with sequential cutoff after depth=12.
+
+%% \item \textbf{buildTree} and \textbf{add1Tree} and \textbf{sumTree}:
+%%   \il{buildTree} constructs a a balanced binary tree of depth 26 with
+%%   an integer at the leaf, and \il{add1Tree} and \il{sumTree}
+%%   operate on this tree.
+%%   %% \il{add1Tree} is a mapper function which adds 1 to all the leaves and
+%%   %% \il{sumTree} is a reducer which sums up all leaves in the tree.
+%%   %% The sequential cutoff for each of these benchmarks is at depth=18.
+
+\item \textbf{buildKdTree} and \textbf{countCorrelation} and \textbf{allNearest}:
+  \il{buildKDTree} constructs a kd-tree \cite{kdtree}
+  containing 1M 3-d points
+  %%   %% in the Gauss–Kuzmin distribution
+  in the Plummer distribution.
+  %
+  The sequential cutoff is at a node containing less than 32K points.
+  %
+  %% parallel-for grain: 4. TASKS: 25
+  %
+  \il{countCorrelation} takes as input a kd-tree and a list of 100 3-d points,
+  and counts the number of points which are correlated to each one.
+  %
+  The chunk-size for the parallel-map is 4, and the sequential cutoff
+  for \il{countCorrelation} is at a node containing less than 8K points.
+  %
+  %% parallel-for grain: 1024. TASKS: 976.
+  \il{allNearest} computes the nearest neighbor of all 1M 3-d points.
+  %% (full code in Appendix \ref{sec:appendix-code-snippet})
+  %
+  The chunk-size for the parallel-map is 1024.
+  %% using the kd-tree.
+
+  
+\item \textbf{barnesHut}:
+  %% parallel-for grain: 4096. TASKS: 244.
+  Use a quad tree to run an nbody simulation over
+  1M 2-d point-masses distributed uniformly within a square.
+  %
+  The chunk-size for the parallel-map is 4096.
+
+\item \textbf{coins}
+  This benchmark is taken from GHC's NoFib \footnote{https://gitlab.haskell.org/ghc/nofib}
+  benchmark suite. It is a combinatorial search problem that computes
+  the number of ways in which a certain amount of money can be paid by
+  using the given set of coins.
+  %% It uses an append-list to store each combination
+  %% of coins that adds up to the amount, and counts the number of non-nil elements
+  %% in this list later. Only the time required to construct this list is measured.
+  %
+  The input set of coins and their quantities are
+  \il{[(250,55),(100,88),(25,88),(10,99),(5,122),(1,177)]},
+  and the amount to be paid is 999.
+  %
+  % TASKS: 2^3.
+  The sequential cutoff is after depth=3.
+
+\item \textbf{countNodes}: This operates on ASTs gathered from the Racket compiler when processing
+  large, real programs. The benchmark simply counts the number of
+  nodes in a tree.
+  %
+  %% The ASTs are a complicated datatype (9 mutually recursive types with 36
+  %% data constructors) and are stored on disk as text files.
+  %
+  For our implementation, we store the ASTs on disk in a serialized format
+  which is read using a single \il{mmap} call.
+  %
+  All others parse the text files before operating on them.
+  %
+  To ensure an apples-to-apples comparison, we do not measure the time required
+  to parse the text files.
+  %% for GHC, \MPL{}, and OCaml, and for our implementation,
+  %% we run the \il{mmap}'d file through an identity function to ensure that it
+  %% is loaded into memory.
+  %
+  The size of the text file is 1.2G, and that same file
+  when serialized for our implementation is 356M.
+  %
+  The AST has around 100M nodes in it.
+  %
+  %% parallelism: n=0 to 8. TASKS: 2^9.
+  %
+  The sequential cutoff is after depth=9.
+
+\item \textbf{constFold}:
+  Run the \il{constFold} function shown in
+  \Figref{fig:example1-both} on an artificially generated syntax-tree,
+  which is a balanced binary tree of \il{Plus} expressions,
+  with a \il{Lit} as a leaf.
+  %
+  %% 
+  The height of the syntax-tree is 26, the sequential cutoff is after depth=8.
+
+\item \textbf{mergeSort}:
+  %
+  %% This benchmark starts with a parallel algorithm, and then
+  An in-place parallel merge sort,
+  which bottoms out to a sequential quick sort
+  when the array contains less than 8192 elements.
+  %
+  For our implementation, we use the \il{qsort} function from the C standard library to
+  sort small arrays.
+  %
+  The Haskell implementation is taken from Kuper et al's artifact
+  accompanying their paper~\cite{lvish_2014},
+  and it makes an FFI call to a sequential quick sort written in C.
+  %
+  \MPL{} and OCaml bottom out to a sequential quick sort implemented in their source language.
+  %
+  The input array contains 8M randomly generated floating point numbers.
+
+
+\end{itemize}
+
+
+\subsection{Results: Parallel versus Sequential Gibbon}
+
+%% This figure is here so that it shows up on the page we want.
+\begin{figure*}
+\begin{subfigure}[t]{0.5\linewidth}
+\vspace{0pt}
+  \input{gibbon_table}
+  \caption{
+    %% Execution time in seconds (Columns 2 and 4),
+    %% overhead on a single thread ($O = (T_1 - T_s) / T_s * 100$),
+    %% and speedup on 48 threads ($S=T_s / T_{48}$),
+    %% relative to Sequential Gibbon (Column 1, $T_s$).
+    %
+    %% Column
+    $T_s$ is the run time of Sequential Gibbon.
+    %
+    %% Columns
+    $T_1$ and $T_{48}$ are the run times of Parallel Gibbon
+    on 1 thread and on 48 threads respectively.
+    %
+    $O$ is the single-thread percentage overhead: $O = (T_1 - T_s) / T_s * 100$.
+    %
+    $S$ is the 48-thread speedup: $S = T_s / T_{48}$.
+  }
+  \label{fig:gibbon-table}
+\end{subfigure}
+\hspace{0.03\linewidth}
+\begin{subfigure}[t]{0.42\linewidth}
+  \vspace{-2pt}
+  \includegraphics[scale=0.7]{figs/gibbon_scalability.pdf}
+  %% so that the captions line up.
+  \vspace{9pt}
+  \caption{
+    Speedups relative to Sequential Gibbon.
+  }
+\label{fig:gibbon-speedup-plot}
+\end{subfigure}
+%% \vspace{-5mm}
+%% \caption{\vspace{-3mm}}
+\caption{}
+\label{fig:gibbon-results}
+\end{figure*}
+
+
+Figures~\ref{fig:gibbon-table} and \ref{fig:gibbon-speedup-plot} show the results
+of comparing performance of benchmarks compiled using our
+%
+% \new{Parallel Gibbon}
+parallel
+%
+implementation, labeled ``Ours'', relative to Sequential Gibbon.
+%
+The quantities in the table can be interpreted as follows.
+%
+Column $T_s$ shows the run time of a sequential program.
+which serves the purpose of a sequential baseline.
+%
+$T_1$ is the run time of a parallel program on a single thread, and
+$O$ the percentage overhead relative to $T_s$, calculated as
+$((T_1 - T_s) / T_s) * 100$.
+%
+$T_{48}$ is the run time of a parallel program on 48 threads and
+$S$ is the speedup relative to $T_s$, calculated as $T_s / T_{48}$.
+$R$ is the number of additional regions created to enable
+parallel allocations, calculated as $R_{48} - R_{s}$.
+%
+For a majority of benchmarks, the overhead is under 3\%,
+and the speedups range between 31.7$\times$ and 43.5$\times$.
+%
+These speedups match, or in cases such as \il{barnesHut} and \il{allNearest},
+exceed those of optimized implementations that have been analyzed on
+similar machines~\cite{pbbs,MPL,Heartbeat_17}.
+
+With respect to the difference in speedups between different benchmarks,
+we see the expected relationship among them which reflects their memory access patterns.
+%
+Compute-bound benchmarks such as \il{fib} scale very well,
+whereas benchmarks such as \il{constFold} and \il{buildKdTree}
+can become memory bound, and do not scale over a certain number of cores\footnote{For example, a simple parallel dot-product computation (in Cilk) has a similar linear access pattern and low arithmetic intensity to \il{constFold}, and it achieves only a 6X speedup on this same machine.}.
+%
+With respect to \il{buildKdTree}, a significant portion of its total running time is
+spent in sorting the points at each node.
+%
+We observed that our \il{mergeSort} doesn't scale well on small inputs,
+and since \il{buildKdTree} performs a series of smaller and smaller sorts,
+it eventually runs into this, leading to lower scalability.
+%
+But its high overhead (14.6\%) and low speedup (10.6$\times$)
+are in the same ballpark as an optimized C implementation
+which \citet{adve_kdtree} analysed on a 32-core machine.
+%
+Figures~\ref{fig:ours_versus_others}
+\iftoggle{EXTND}{
+  and \ref{fig:others-benchmark-results} (given in the Appendix)
+}{
+  and 15 (given in the Appendix of the extended version~\cite{ParallelLoCal-tr})
+}
+show that \MPL{}, GHC and OCaml also scale similarly.
+%
+Overall, these results show that our technique is able to handle
+parallelism in a mostly-serialized data representation effectively.
+
+
+
+
+
+\subsubsection{Fragmentation:}
+\label{subsec:fragmentation-results}
+
+
+
+\new{
+Traversals on a serialized heap are efficient because serialization minimizes
+pointer-chasing and maximizes data locality.
+%
+But the heap produced by running intra-region allocations in parallel is
+fragmented, which can affect the performance of subsequent traversals that
+consume this heap, due to additional pointer dereferences and worse locality.
+%
+To measure this downstream effect,
+we compare the run time of a single-threaded traversal operating
+on a sequentially allocated value to that traversal
+operating on a value allocated in parallel, which will be fragmented.
+%
+Thus, the thing whose run time is being compared---the traversal---stays the same
+but it is given inputs that have different levels of fragmentation.
+%
+We also measure the amount of fragmentation introduced for parallelism by counting
+the number of regions created solely to enable parallel allocations.
+%
+\Figref{fig:fragmentation-results} shows the results.
+
+We use a subset of the benchmarks from \Secref{subsec:benchmarks}
+whose output is a serialized value (the other benchmarks do not measure
+the construction of new values),
+and measure the time required to {\em traverse} the output.
+%
+For example, the benchmark \il{trav(constFold)}
+constructs an input expression, runs constant folding over it,
+and then sequentially traverses the resulting expression
+(counts the number of leaves in it),
+but the number reported is only the run time of the traversal
+and it does not include the time taken to run \il{constFold} itself.
+%
+Each benchmark sample is the median of 9 runs,
+such that each run allocates a value and then traverses it $N$ times,
+where $N$ is set high enough to get the total run time over one second,
+and the run time of a {\em single} traversal is reported.
+%
+$T_s$ is the time required to sequentially traverse a sequentially allocated
+value, which is the baseline.
+
+
+We compare against this baseline the performance of traversing
+a value allocated in parallel with two levels of fragmentation:
+\textit{optimum} and \textit{maximum}.
+%
+In the \textit{optimum} setting, the allocators are identical to
+those used for measurements reported in \Figref{fig:gibbon-table}.
+%
+That is, they control fragmentation by
+controlling the granularity of parallelism
+(using the thresholds given in \Secref{subsec:benchmarks})
+and are compiled using the {\em region-upon-steal} allocation
+policy~(\Secref{subsec:parallel-allocations}).
+%% which only creates a fresh region when a steal occurs~(\Secref{subsec:parallel-allocations}).
+%
+$R_{\mathit{opt}}$ is the number of {\em additional} regions created to allocate a value in parallel using 48 threads.
+%
+For example, the sequential \il{constFold} uses a single region
+and its parallel version requires 132 additional regions (133 regions total).
+%
+$T_{\mathit{opt}}$ is the time required to sequentially traverse the allocated value,
+and $O_{\mathit{opt}}$ is the percentage overhead relative to $T_s$, calculated as
+$O_{\mathit{opt}} = (T_{\mathit{opt}} - T_s) / T_s * 100$.
+%
+%% The latter measures the effect of maximum amount of fragmentation:
+In the \textit{maximum} setting,
+the allocators do not control fragmentation at all (no granularity control),
+and they are compiled
+using the {\em region-upon-spawn} allocation policy, which creates a fresh
+region for every intra-region allocation task that is spawned.
+%
+This setting thus represents the {\em upper bound} on the amount of fragmentation that can be
+introduced due to parallelism, where the heap essentially degenerates
+to a full pointer-based representation.
+%
+$R_{\mathit{max}}$, $T_{\mathit{max}}$ and $O_{\mathit{max}}$ are the corresponding
+numbers for this fragmentation setting when using 48 threads.
+%
+$O_{\mathit{max}}$ is the percentage overhead relative to $T_s$, calculated as
+$O_{\mathit{max}} = (T_{\mathit{max}} - T_s) / T_s * 100$.
+}
+
+
+{
+
+\begin{figure}
+
+  \begin{tabular}{l c r ccc r ccc}
+    \toprule
+    & Seq Alloc. & \phantom{} & \multicolumn{3}{c}{Optimum Fragmentation} & \phantom{} & \multicolumn{3}{c}{Maximum Fragmentation} \\
+    \cmidrule{2-2}
+    \cmidrule{4-6}
+    \cmidrule{8-10}
+    Benchmark & $T_s$ && $\;\;\;$ $R_{\mathit{opt}}$ & $T_{\mathit{opt}}$ & $O_{\mathit{opt}}$ && $\;\;\;$ $R_{\mathit{max}}$ & $T_{\mathit{max}}$ & $O_{\mathit{max}}$ \\
+
+    \midrule
+    %%  & (1) && $\;\;\;$ (2) & (3) & (4) && $\;\;\;$ (5) & (6) & (7) \\
+    %% \midrule
+
+    %%
+    trav(\buildfib{}) & 0.99ms && $\;\;\;$ 341 & 1.02ms & 3.03 && $\;\;\;$ 262K & 11.45ms & 1056.6 \\
+
+    %%
+    trav(buildKdTree) & 6.22ms && $\;\;\;$ 31 & 6.64ms & 6.75 && $\;\;\;$ 262K & 55ms & 784.2 \\
+
+    %%
+    trav(coins) & 0.35s && $\;\;\;$ 9K & 0.37s & 5.71 && $\;\;\;$ 75M & 5.21s & 1388.6 \\
+
+    %%
+    trav(constFold) & 0.30s && $\;\;\;$ 132 & 0.32s & 6.67 && $\;\;\;$ 67M & 2.70s & 800 \\
+
+    %%
+    trav(x86-compiler) & 366.2$\mu s$ && $\;\;\;$ 1K & 377.5$\mu s$ & 3.09 && $\;\;\;$ 14K & 464.3$\mu s$ & 26.8 \\
+
+    \midrule
+    geomean & - && $\;\;\;$ - & - & 4.74 && $\;\;\;$ - & - & 476.9 \\
+    \bottomrule
+  \end{tabular}
+  \caption{
+    $T_s$ is the time required to sequentially traverse a sequentially allocated value.
+    %
+    $R_{\mathit{opt}}$ is the number of {\em additional} regions created to allocate a value in parallel using 48 threads,
+    %% allocating a value in parallel with optimum fragmentation,
+    $T_{\mathit{opt}}$ is the time required to sequentially traverse it,
+    and $O_{\mathit{opt}}$ is the percentage overhead of the traversal: $O_{\mathit{opt}} = (T_{\mathit{opt}} - T_s) / T_s * 100$.
+    %
+    $R_{\mathit{max}}$, $T_{\mathit{max}}$ and $O_{\mathit{max}}$ are the corresponding
+    numbers for a value allocated in parallel using 48 threads with maximum fragmentation.
+    %
+    $O_{\mathit{max}}$ is the percentage overhead relative to $T_s$ calculated as
+    $O_{\mathit{max}} = (T_{\mathit{max}} - T_s) / T_s * 100$.
+  }
+\label{fig:fragmentation-results}
+\end{figure}
+}
+
+\new{
+Comparing $R_{\mathit{opt}}$ and $R_{\mathit{max}}$,
+we see that in the optimum setting most of the allocated heap is still serialized
+and uses only a small number of additional regions---less than 0.13\% of the maximum--- in most cases.
+%
+For \il{x86-compiler}, this percentage is higher (7.14\%) compared to the other benchmarks
+because even in the optimum setting this benchmark
+does not control the granularity of parallelism,
+which is controlled only by the structure of the input
+as we discuss in \Secref{subsec:compiler-case-study}.
+%
+In this case, the {\em region-upon-steal} allocation policy is responsible
+for trimming the number of regions from 14K to 1K.
+%
+With respect to the run time of the traversal,
+the overhead with optimum fragmentation is between 3.03\% to 6.75\%,
+with a geomean of 4.74\%.
+%
+In addition to fragmentation,
+the NUMA memory policy~\footnote{As described in the experimental setup, the shared memory on this machine is divided into two NUMA nodes and we use 48 threads evenly distributed across both nodes with the default {\em local} memory allocation policy.} has a significant impact on the overall overhead
+because in the parallel version potentially
+50\%
+of memory accesses are at a non-local NUMA memory node.
+%
+If we run the experiment using a single NUMA node (\il{numactl $\;--$membind=0 $\;$ $\;--$physcpubind=1-24,49-71}),
+the geomean overhead drops to 1.44\%,
+with a significant reduction in the overheads for \il{buildKdTree} (0.96\%) and
+\il{constFold} (2.95\%).
+%
+In the presence of maximum fragmentation, we see the expected result:
+since heap degenerates to a full pointer-based representation,
+the traversals are several times slower
+and the benefits of using a serialized representation are lost.
+%
+This slowdown in traversing a pointer-based representation compared to a serialized one
+is consistent with the results given in previous work~\cite{LoCal,Gibbon}.
+%
+Overall, these results show that using the granularity of parallelism to
+guide the data representation works well in practice,
+and gives us an efficient, {\em mostly-serialized} representation.
+}
+
+\subsection{Results: Gibbon versus Other Compilers}
+\label{subsec:gibbon-versus-others}
+
+\Figref{fig:ours_versus_others} shows the results of comparing performance of
+%% benchmarks compiled using
+our implementation to \MPL, OCaml, and GHC.
+%% ---
+%% three of the most mature and performant implementations of general purpose
+%% typed functional programming languages.
+%
+For each compiler, Column $T_s$ is the run time of a sequential program,
+Column $T_{48}$ is the run time of a parallel program on 48 threads,
+and an adjacent column to each shows the corresponding speedup (or slowdown) of our implementation
+relative to this compiler.
+%
+For example, on 48 threads, \il{allNearest} is $3.95\times$ faster with our
+implementation compared to OCaml.
+%
+\Figref{fig:scaling-subset} shows how a subset of benchmarks scale on 48 threads.
+%
+The scaling results for the remaining benchmarks
+\iftoggle{EXTND}{
+  are available in Appendix~\ref{sec:appendix-evaluation}.
+}{
+  are available in the Appendix of the extended version~\cite{ParallelLoCal-tr}.
+}
+%
+With respect to self-relative comparisons,
+on average, we scale similarly to \MPL{}, and {\em better} than OCaml or GHC.
+
+Across all benchmarks,
+on a single thread our \pargibbon{} offers a $1.93\times$, $2.53\times$, and $2.14\times$ geomean speedup compared to \MPL{}, OCaml, and GHC, respectively.
+%
+When utilizing 48 cores, our geomean speedup is $1.92\times$, $3.73\times$ and $4.01\times$.
+%
+Overall,
+these results show that we start with a faster baseline in the sequential world,
+and we're able to preserve the speedups in the parallel as well,
+meaning that the use of dense representations
+to improve sequential processing performance {\em coexists with scalable parallelism}.
+%
+The only benchmark for which our implementation is slower compared to others is \il{coins}.
+%
+This benchmark makes heavy use of linked-list operations
+such as \il{cons}, \il{head}, and \il{tail},
+and our implementation uses \il{malloc} to allocate memory
+for every \il{cons}, which is inefficient.
+%
+Also, our dense representation currently offers no benefit when building
+linked-lists by cons'ing onto existing lists.
+%
+All others, \MPL{}, OCaml and GHC, use a copying garbage collector~\cite{sivaramakrishnan2020retrofitting,MPL,marlow08_gc} allowing them to use a bump-allocator,
+making them more efficient than our implementation.
+%
+%% \new{
+%% In the future, we plan to use standard techniques (with some adaptations for Gibbon)
+%% to allow Gibbon to gracefully degrade to performance similar to existing
+%% functional languages for all linked list applications,
+%% while retaining the benefits on tree programs that are Gibbon’s raison d'être.
+%% }
+%
+\iftoggle{EXTND}{
+  \Figref{fig:others-benchmark-results} in Appendix
+}{
+  Figure~15 in the Appendix of the extended version~\cite{ParallelLoCal-tr}
+}
+gives the {\em self-relative} performance
+results for \MPL{}, OCaml and GHC.
+
+
+\begin{figure}
+\input{ours_versus_others}
+\caption{
+  Comparison of Ours with \MPL{}, OCaml, and GHC ---
+  %
+  execution time in seconds, %% (Columns 1, 3, 5, 7, 9, 11),
+  and ratios to Ours. %% (Columns 2, 4, 6, 8, 10, 12).
+  %
+  $T_s$ is the run time of a sequential program, and
+  $T_{48}$ is the run time of a parallel program on 48 threads.
+  %
+  %% A ratio N such that N > 1 means that Ours is N times faster than a partcular compiler,
+  %% and N < 1 means that Ours is N times slower.
+  %% \vspace{-5mm}
+}
+\label{fig:ours_versus_others}
+\end{figure}
+
+\begin{figure}
+%% %
+%% \hspace{-2mm}
+%  
+\includegraphics[scale=0.75]{figs/horizontal-legend.pdf}
+\\
+%
+\hspace{0.02\linewidth}
+\begin{subfigure}[t]{0.3\linewidth}
+%% \includegraphics[scale=0.5]{figs/AllNearest.pdf}
+\includegraphics[scale=0.55]{figs/BarnesHut.pdf}
+\caption{barnesHut}
+\end{subfigure}
+%
+\hspace{0.025\linewidth}
+%
+\begin{subfigure}[t]{0.3\linewidth}
+\includegraphics[scale=0.55]{figs/Countnodes.pdf}
+\caption{countnodes}
+\end{subfigure}
+%
+\hspace{0.025\linewidth}
+%
+\begin{subfigure}[t]{0.3\linewidth}
+\includegraphics[scale=0.55]{figs/Mergesort.pdf}
+\caption{mergeSort}
+\end{subfigure}
+%
+\caption{
+  Speedups on 1-48 threads relative to the fastest sequential baseline,
+  which is Sequential Gibbon for these three benchmarks.
+}
+\label{fig:scaling-subset}
+\end{figure}
+
+%% \vspace{-1ex}
+
+\subsection{Results: x86-Compiler Case Study}
+\label{subsec:compiler-case-study}
+
+As an example of a complex benchmark which performs multiple traversals over
+different datatypes, we implement a subset of
+a compiler drawn from a university course~\cite{iu_compilers_book}.
+%
+Our version compiles to x86, from a source language that supports
+integers and arithmetic and comparison operations on them,
+booleans and operations such as \il{and} and \il{or},
+and a conditional expression, \il{if}.
+%
+%% integer arithmetic,
+%% %% (similar to the one shown in \Figref{fig:example1-haskell}),
+%% comparison operators on integers such as \il{<} and \il{==},
+%% a conditional expression (\il{if}),
+%% and two boolean operators, namely \il{and} and \il{or}.
+%
+To compile this high level language, we first translate it to an
+intermediate language similar to C,
+in which the order of evaluation is explicit in its syntax.
+%
+The compiler is written in a nanopass style~\cite{sarkar_nanopass},
+and is made up of five passes:
+\begin{enumerate*}[label*=(\arabic*)]
+\item \il{typecheck} type checks the source program,
+\item \il{uniqify} freshens all bound variables to handle shadowing,
+\item \il{explicateControl} translates to an
+intermediate language similar to C,
+\item \il{selectInstructions} generates x86 code which has variables in it,
+\item and \il{assignHomes} maps each variable to a location on the stack.
+\end{enumerate*}
+%
+The input to this benchmark is a synthetically generated, balanced syntax-tree
+with conditional expressions at the top, followed by a sequence of let bindings.
+%
+The structure of the input program is used to control the granularity of parallelism.
+%
+%% The passes operating on the high-level language process the branches of conditionals
+%% in parallel, and subsequent passes process every {\em block} of instructions in parallel.
+The first three passes process the branches of conditionals in parallel,
+and subsequent ones process every {\em block} of instructions in parallel.
+
+
+\new{
+On this compiler benchmark, Parallel Gibbon offers a
+$1.24\times$, $1.11\times$, and $2.16\times$ speedup on a single thread, and
+$1.02\times$, $2.20\times$ and $10.7\times$ speedup when utilizing 48 threads,
+compared to \MPL{}, OCaml, and GHC, respectively.
+%
+Note that most of the run time and
+also the self-relative parallel speedup of this benchmark is due to \il{assignHomes}.
+%
+%% Due to the way the input is structured,
+The first four passes of the compiler have a linear memory access pattern
+and low arithmetic intensity, much like \il{constFold}.
+%
+The passes inspect the input expression,
+perform inserts or lookups on shallow environments
+(which only contain entries for variables that are in scope at a point),
+and then allocate the output.
+%
+But \il{assignHomes} works in a different way.
+%
+Since it needs to assign a unique stack location to every variable occurring in an expression,
+it constructs an environment containing {\em all} variables in
+the expression (as opposed to just those in scope at a point),
+and then performs repeated lookups on it to
+rewrite variable occurrences with stack location references.
+%
+This environment is significantly larger than those used by other passes,
+making \il{assignHomes} much more work-intensive and suitable for parallel execution.
+
+Here we have only taken the first step towards developing an efficient parallel compiler,
+and there is ample opportunity for further investigation in this area.
+%
+In the future, we plan to expand the compiler's source language to include
+constructs such as top-level function definitions and modules which
+are a source of parallelism in many real compilers.
+}
+
+%\vspace{-1.5ex}
+
+\section{Related Work}
+\label{sec:related-work}
+
+The most closely related work to this paper is, of course, Vollmer et al.'s LoCal~\cite{LoCal}, which was summarized in Section~\ref{subsec:local-primer}. As discussed there,
+%% while LoCal's syntax is identical to \parcalc{},
+Vollmer et al.'s treatment only provided sequential semantics, while this paper
+extends those semantics to incorporate parallelism.
+
+
+This work, and LoCal, are related to several HPC approaches to serializing recursive trees into flat buffers for efficient traversal~\cite{goldfarb13sc, meyerovich11hotpar, makino90}. Notably, these approaches {\em must} maintain the ability to access the serialized trees in parallel, despite the elimination of pointers internal to the data structure, or risk sacrificing their performance goals. The key distinction that makes enabling parallelism in the HPC setting ``easier'' than in our setting is that these approaches are application-specific. The serialized layouts are tuned for trees whose structure and size are known prior to serialization, and the applications that consume these trees are specially-written to deal with the application-specific serialization strategies. Hence, offsets are either manually included in the necessary locations, or are not necessary as tree sizes can be inferred from application-specific information.
+
+Work on more general approaches for packing recursive structures into buffers includes Cap'N Proto~\cite{capnproto}, which attempts to unify on-disk and in-memory representations of data structures, and Compact Normal Form (CNF)~\cite{cnf-icfp15}. Neither of these approaches have the same design goals as \seqcalc{} and \rparcalc{}:
+%
+both Cap'N Proto and CNF preserve internal pointers in their representations, eliding the problem of parallel access by invariably paying the cost (in memory consumption and lost spatial locality) of maintaining those pointers. We note that Vollmer et al. showed that \seqcalc{}'s representations enable faster sequential traversal than either of those two approaches~\cite{LoCal}, and Section~\ref{sec:evaluation} shows that our approach is comparable in {\em sequential} performance to \seqcalc{} despite also supporting parallelism.
+
+There is a long line of work on flattening and nested data parallelism, where parallel computations over irregular structures are \textit{flattened} to operate over dense structures~\cite{nesl,keller98europar,bergstrom13ppopp}. However, these works do not have the same goals as ours. They focus on array
+data, generating parallel code, and data layouts that promote data parallel access to the elements of the structure, rather than selectively trading off between parallel access to structures and efficient sequential access.
+
+Efficient automatic memory management is a longstanding challenge for parallel functional
+languages.
+%
+Recent work has addressed scalable garbage collection by structuring
+the heap in a hierarchy of heaps, enabling task-private collections
+~\cite{hierarchical-heaps-mutation}. There is work proposing a
+split-heap collector that can handle a parallel lazy
+language~\cite{marlow2009runtime} and a strict
+one~\cite{multicore-ocaml}, and there is work on a
+scalable, concurrent collector~\cite{ueno2016fully}.
+%
+A promising new line of work explores hierarchical heaps for parallel
+functional programs~\cite{icfp-hierarchical-heaps}.
+%
+All of these designs focus on a conventional object model for algebraic datatypes that, unlike \rparcalc{},
+assume a uniform, boxed representation.
+%
+In the future, we plan to investigate how results in these collectors relate to our model,
+where objects may be laid out in a variety of ways.
+
+
+\section{Conclusions and Future Work}
+\label{sec:conclusions}
+
+We have shown how a practical form of task parallelism can be reconciled with
+dense data representations.  We demonstrated this result inside a compiler
+designed to implicitly transform programs to operate on such dense
+representations.  For a set of tree-manipulating programs we considered in
+\Secref{sec:evaluation}, this experimental system yielded better performance
+than existing best-in-class compilers.
+
+To build on what we have presented in this paper, we plan to explore automatic
+granularity control~\cite{Heartbeat_17,OracleGuided_19}; this would remove the
+last major source of manual tuning in Gibbon programs,
+which already automate data layout optimizations.
+Parallel Gibbon with
+automatic granularity control would represent the dream of implicitly parallel
+functional programming with good absolute wall-clock performance.
+%
+While our current approach supports limited examples of data parallelism--friendly data structures beyond trees, such as dense arrays (\Secref{subsec:parallel-arrays}), we plan to further generalize our system by adding additional data structures that capture mutable sparse and dense multi-dimensional data.
+%
+%% We plan to incorporate mutation by adding primitives based on linear types, which we expect to mesh well with the implicitly parallel functional paradigm.
+%
+We plan to support limited in-place mutation of densely-encoded algebraic data, by adding primitives based on linear types, which we expect to mesh well with the implicitly parallel functional paradigm.
+%
+While \pargibbon{} already out-performs competing parallel, functional approaches, we expect these additional features will both improve programmability (by relieving the programmer of the burden of granularity control) and performance (by supporting more efficient parallel structures and strategies).
+
+
+%% Acknowledgments
+\begin{acks}
+  %% Commands \grantsponsor{<sponsorID>}{<name>}{<url>} and
+  %% \grantnum[<url>]{<sponsorID>}{<number>} should be used to
+  %% acknowledge financial support and will be used by metadata
+  %% extraction tools.
+  This work was supported in part by \grantsponsor{nsf}{National Science Foundation}{}
+  awards \grantnum{spx-milind}{CCF-1725672}{}, \grantnum{spx-ryan}{CCF-1725679}
+  and \grantnum{spx-milind-two}{CCF-1919197}{}, as well as
+  by the \grantsponsor{EPSRC}{Engineering and Physical Sciences Research Council}{}
+  award \grantnum{epsrc-granule}{EP/T013516/1}{}.
+  %% and by \grantsponsor{doe}{Department of Energy}{} award \grantnum{doe-career}{DE-SC0010295}.
+  %
+  We would like to thank our shepherd, Cyrus Omar, as well as the anonymous
+  reviewers for their suggestions and comments.
+\end{acks}
+
+%% Bibliography
+\iftoggle{ARXIV}{
+\input{ms.bbl}
+}{
+\bibliography{refs.bib}
+}
+
+\iftoggle{EXTND}{
+%% Appendix
+\clearpage
+\input{appendix}
+}{}
+
+\end{document}

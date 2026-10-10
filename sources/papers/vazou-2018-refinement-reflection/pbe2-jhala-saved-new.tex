@@ -1,0 +1,794 @@
+\section{Complete Verification} \label{sec:pbe}
+
+\begin{figure}[t!]
+\begin{tabular}{>{$}r<{$} >{$}r<{$} >{$}r<{$} >{$}l<{$} >{$}l<{$} }
+\emphbf{Terms}    & \pred, \expr, \body  & ::=   & \smtlan\ \text{\kw{if}-free predicates from Figure~\ref{fig:smtsyntax}}            & \\ [0.05in]
+
+\emphbf{Functions}    & \Rfun  & ::=    & \rdef{x}{\pred}{\body}                   & \\ [0.05in]
+\emphbf{Definitional Environment}  & \Renv  & ::=    & \emptyset \spmid \rfun \mapsto \Rfun, \Renv & \\ [0.05in]
+\emphbf{Logical Environment} & \Penv  & ::=    & \emptyset \spmid \pred, \Penv               & \\ [0.05in]
+\end{tabular}
+\caption{{Syntax of Predicates, Terms and Reflected Functions}}
+\label{fig:pbe:syntax}
+\end{figure}
+
+Next, we make the type checking from Figure~\ref{fig:typing}
+algorithmic by checking subtyping using our new
+\pbesym algorithm for validity checking under a
+given reflection environment.
+%
+First, we describe the input-output behavior
+of $\pbesym$ and show how it makes refinement
+checking \emph{algorithmic}~(\S~\ref{sec:pbe:tc}).%
+%
+Next, we formalize the algorithm and show that it is sound~(\S~\ref{sec:pbe:algo}),
+it is complete with respect to equational proofs~(\S~\ref{sec:pbe:complete}),
+and, that it terminates~(\S~\ref{sec:pbe:terminates}).
+
+\subsection{Algorithmic Type Checking}\label{sec:pbe:tc}
+
+\mypara{Verification Conditions}
+%
+The implication or \emph{verification condition} (VC)
+${\vcond{\env}{\pred}}$ is \emph{valid} only if the
+set of values described by $\env$ is subsumed by
+the set of values described by $\pred$.
+%
+$\env$ is embedded into logic by conjoining
+the refinements of provably terminating binders~\cite{Vazou14}:
+%
+$$
+\tosmt{\env} \defeq \bigcup_{x \in \env} \tosmt{\env, x} %\\
+\quad \mbox{where we embed each binder as} \quad
+\tosmt{\env, x} \defeq \begin{cases}
+                           \tosmt{e}  & \text{if } \env(x)=\tref{x}{\btyp^{\tlabel}}{e}\\
+                           \etrue & \text{otherwise}.
+                         \end{cases}
+$$
+
+\mypara{Validity Checking}
+%
+Given a
+%
+reflection environment $\RRenv$,
+%
+type environment $\env$, and
+%
+expression $e$,
+%
+the procedure $\pbe{\tosmt{\RRenv}}{\tosmt{\env}}{\tosmt{e}}$
+returns true only when the expression $e$ evaluates
+to \etrue under the reflection and type environments
+\RRenv and \env.
+
+\mypara{Subtyping via VC Validity Checking}
+%
+We make subtyping, and hence, typing decidable,
+by replacing the denotational base subtyping
+rule \rsubbasecore with the conservative,
+algorithmic version \rsubbasepbe that uses
+\pbesym to check the validity of the subtyping VC.
+%
+$$
+\inference{
+\pbe{\tosmt{\RRenv}}{\tosmt{\env,\tbind{v}{\tref{v}{\btyp^\tlabel}{\refa}}}}{\tosmt{\refa'}}
+}{
+	\pbeissubtype{\env}{\RRenv}{\tref{v}{\btyp}{\refa}}{\tref{v}{\btyp}{\refa'}}
+}[\rsubbasepbe]
+$$
+
+This typing rule is sound as functions reflected in \RRenv
+always respect the typing environment \env (by construction),
+and because \pbename is sound (Theorem~\ref{thm:pbe:sound}).
+%
+\begin{lemma}\label{lem:pbe:subtyping} %[Conservative Subtyping]
+If {\pbeissubtype{\env}{\RRenv}{\tref{v}{\btyp}{e_1}}{\tref{v}{\btyp}{e_2}}}
+then {\issubtype{\env}{\RRenv}{\tref{v}{\btyp}{e_1}}{\tref{v}{\btyp}{e_2}}}.
+\end{lemma}
+
+\subsection{Algorithm}\label{sec:pbe:algo}
+
+Figure~\ref{fig:pbe:syntax} describes
+the input environments for \pbename.
+%
+The logical environment $\Penv$ contains
+a set of hypotheses $p$, described in
+Figure~\ref{fig:smtsyntax}.
+%
+The definitional environment $\Renv$
+maps function symbols $f$ to their
+definitions $\rdef{x}{\pred}{\body}$,
+written as $\lambda$-abstractions
+over guarded bodies.
+%
+Moreover, the body $\body$ and the
+guard $\pred$ contain neither
+$\lambda$ nor \texttt{if}.
+%
+These restrictions do not impact
+expressiveness: $\lambda$s can be
+named and reflected, and
+\kw{if}-expressions can
+be pulled out into top-level
+guards using $\defIf\cdot$,
+found in Appendix~\ref{sec:misc}.
+%
+A definitional environment $\Renv$
+can be constructed from $\RRenv$ as
+%
+$$
+\tosmt{\RRenv} \defeq \{
+   \gbind{f}{\lambda\overline{x}. \defIf{\tosmt{\refa}}} |
+  (\gbind{f}{\lambda\overline{x}. \refa})\in\RRenv
+  \}
+$$
+
+
+\begin{figure}[t!]
+$$\begin{array}{lcl}
+\toprule
+\uinstsym & : & (\Renv, \Penv) \rightarrow \Penv \\
+\midrule
+\uinst{\Renv}{\Penv} & = &
+  \Penv \cup \
+  \bigcup_{\issubterm{\fapp{\rfun}{\expr}}{\Penv}}
+    \inst{\Renv}{\Penv}{\rfun}{\exprs} \\[0.1in]
+
+%\midrule
+%\instsym & : & (\Renv, \Pred, \Rfun, \params{\Expr}) \rightarrow \setof{\Pred} \\
+%\midrule
+\inst{\Renv}{\Penv}{\rfun}{\exprs} & = &
+  \left \{ \SUBSTS{\left(\tosmt{\fapp{\rfun}{x}} = \body_i\right)}{x}{\expr}\;
+  \left|\;\, \left( \pred_i \Rightarrow \body_i \right) \in \overline{d}
+  ,      \;\; \smtIsValid{\Penv}{\SUBSTS{\pred_i}{x}{\expr}}
+  \right.
+  \right \}\\
+\quad \mbox{where} & & \\
+\quad \quad \rbody{x}{d} & = & \Renv(\rfun) \\[0.1in]
+
+\midrule
+\pbesym & : & (\Renv, \Penv, \pred) \rightarrow \tbool \\
+\midrule
+\pbe{\Renv}{\Penv}{\pred} & = & \pbeloop{0}{\,\Penv\cup \
+  \bigcup_{\issubterm{\fapp{\rfun}{\expr}}{\pred}}
+    \inst{\Renv}{\Penv}{\rfun}{\exprs} } \\
+\quad \mbox{where} & & \\
+\quad \quad \pbeloop{i}{\Penv_i} & & \\
+\quad \quad \spmid \smtIsValid{\Penv_i}{\pred} & = & \ttrue \\
+\quad \quad \spmid \Penv_{i+1} \subseteq \Penv           & = & \tfalse \\
+\quad \quad \spmid \mbox{otherwise}                 & = & \pbeloop{i+1}{\Penv_{i+1}} \\
+\quad \quad \quad  \mbox{where}                     &   & \\
+\quad \quad \quad  \quad \Penv_{i+1}                & = & \Penv \cup \uinst{\Renv}{\Penv_i} \\
+\bottomrule
+\end{array}$$
+\caption{Algorithm \pbesym: Proof by Symbolic Evaluation}
+\label{fig:pbe}
+\label{fig:inst}
+\label{fig:uinst}
+\end{figure}
+
+\mypara{Notation}
+%
+We write
+$\issubterm{\fapp{\rfun}{\expr}}{\Penv}$
+if the \smtlan term
+$(\text{app} \dots (\text{app}\ f \ \expr_1) \dots \expr_n)$
+is a syntactic subterm of $\expr' \in \Penv$.
+%
+We abuse notation to write
+$\issubterm{\fapp{\rfun}{\expr}}{\expr'}$
+for
+$\issubterm{\fapp{\rfun}{\expr}}{\{\expr'\}}$.
+%
+We write \smtIsValid{\Penv}{\pred}
+for SMT validity of the implication
+$\Penv \Rightarrow \pred$.
+
+
+\mypara{Instantiation \& Unfolding}
+%
+A term $\predb$ is a \emph{$(\Renv,\Penv)$-instance} if
+there exists $\issubterm{\fapp{\rfun}{\expr}}{\Penv}$
+such that:
+%
+\begin{itemize}
+\item $\rlookup{\Renv}{\rfun} \equiv \rdef{x}{\pred_i}{\body_i}$,
+\item $\smtIsValid{\Penv}{\SUBSTS{\pred_i}{x}{\expr}}$,
+\item $\predb \equiv \SUBSTS{(\fapp{\rfun}{x} = \body_i)}{x}{\expr}$.
+\end{itemize}
+%
+A set of terms $Q$ is a \emph{$(\Renv, \Penv)$-instance}
+if every $\predb \in Q$ is an $(\Renv, \Penv)$-instance.
+%
+The \emph{unfolding} of $\Renv, \Penv$ is the
+(finite) set of all $\Renv, \Penv$ instances.
+%
+Procedure $\uinst{\Renv}{\Penv}$ shown in
+Figure~\ref{fig:uinst} computes and returns
+the conjunction of $\Penv$ and the unfolding
+of $\Renv, \Penv$.
+%
+The following properties relate $(\Renv, \Penv)$-instances
+to the semantics of \corelan and SMT validity.
+
+\begin{lemma}\label{lem:pbe:semantics}
+For every \RJ{what is $\models$?} $\env \models \RRenv$, and $\store\in \embed{\env}$,
+\begin{itemize}
+\item\textbf{Sat-Inst}  \label{lem:sat-inst}
+If $\tosmt{e}$ is a $(\tosmt{\RRenv},\tosmt{\env})$-instance,
+then \rsatisfies{\RRenv}{\store}{e}.
+\item\textbf{SMT-Approx}\label{lem:smt-approx}
+If $\smtIsValid{\tosmt{\env}}{\tosmt{e}}$
+then \rsatisfies{\RRenv}{\store}{e}.
+\item\textbf{SMT-Inst} \label{lem:smt-inst}
+If $\predb$ is a $(\tosmt{\RRenv},\tosmt{\env})$-instance
+and $\smtIsValid{\tosmt{\env}, \predb}{\tosmt{e}}$
+then $\rsatisfies{\RRenv}{\store}{e}$.
+\end{itemize}
+\end{lemma}
+
+%%\begin{lemma}[\textbf{Sat-Inst}] \label{lem:sat-inst}
+%%  If   $\satisfies{\Renv}{\store}{\Penv}$ and
+%%       $Q$ is a $\Renv,\Penv$-instance,
+%%  then $\satisfies{\Renv}{\store}{\Penv \wedge Q}$.
+%%\end{lemma}
+%%
+%%\begin{lemma}[\textbf{SMT-Approx}] \label{lem:smt-approx}
+%%If $\smtIsValid{\Penv}{\pred}$ then %forall $\store$,
+%%   $\satisfies{\Renv}{\store}{\Penv}$ implies
+%%   $\satisfies{\Renv}{\store}{\pred}$.
+%%\end{lemma}
+%%
+%%\begin{lemma}[\textbf{SMT-Inst}] \label{lem:smt-inst}
+%%If   (1)~$\satisfies{\Renv}{\store}{\Penv}$,
+%%     (2)~$Q$ is an $\Renv,\Penv$-instance,
+%%     (3)~$\smtIsValid{\Penv \wedge Q}{\pred}$
+%%then $\satisfies{\Renv}{\store}{\pred}$.
+%%\end{lemma}
+
+\mypara{The Algorithm}
+%
+Figure~\ref{fig:pbe} shows our proof search algorithm
+$\pbe{\Renv}{\Penv}{\pred}$ which takes as input
+%
+a set of \emph{reflected definitions} $\Renv$,
+%
+an \emph{hypothesis} $\Penv$, and
+%
+a \emph{goal} $\pred$.
+%
+The \pbename procedure recursively \emph{unfolds}
+function application terms by invoking $\uinstsym$
+until either the goal can be proved using the
+unfolded instances (in which case the search
+returns $\ttrue$) \emph{or} no new instances
+are generated by the unfolding (in which case
+the search returns $\tfalse$).
+
+\mypara{Soundness}
+%
+First, we prove the soundness of \pbesym. %(and hence, our type system.)
+Let \refapply{\RRenv}{e} denote the evaluation
+of $e$ under the reflection environment $\RRenv$, \ie
+$\refapply{\emptyset}{e} \doteq e$
+and
+$\refapply{(\RRenv, \bind{f}{e_f})}{e} \doteq \refapply{\RRenv}{\text{let rec } f = e_f \text{ in } e}$.
+
+\begin{theorem}[\textbf{Soundness}] \label{thm:pbe:sound}
+If   $\pbe{\tosmt{\RRenv}}{\tosmt{\env}}{\tosmt{e}}$
+then $\forall \store\in\embed{\env}$,
+\evalsto{\apply{\store}{\refapply{\RRenv}{e}}}{\etrue}
+% we have $\satisfies{\Renv}{\store}{\Penv \Rightarrow \pred}$.
+\end{theorem}
+
+We prove Theorem~\ref{thm:pbe:sound}
+using the Lemma~\ref{lem:pbe:semantics} % ,~\ref{lem:smt-approx},~\ref{lem:smt-inst}
+that relates instantiation, SMT validity,
+and the exact semantics.
+%
+Intuitively, \pbesym is sound as it
+reasons about a finite set of instances
+by \emph{conservatively} treating all function
+applications as \emph{uninterpreted}~\cite{Nelson81}.
+
+
+\subsection{Completeness} \label{sec:pbe:complete}
+
+Next, we show that our proof search
+is \emph{complete} with respect to
+equational reasoning.
+%
+We define a notion of equational
+proof
+\eqpf{\Renv}{\Penv}{\expr}{\expr'}
+and prove that
+if there exists such a proof,
+then
+\pbe{\Renv}{\Penv}{\expr = \expr'}
+is guaranteed to return \ttrue.
+%
+To prove this theorem, we introduce
+the notion of \emph{bounded unfolding}
+which corresponds to unfolding
+definitions $n$ times.
+%
+We will show that unfolding preserves
+congruences, and hence, that an equational
+proof exists iff the goal can be proved with
+\emph{some} bounded unfolding.
+%
+Thus, completeness follows by showing that
+the proof search procedure computes the limit
+(\ie fixpoint) of the bounded unfolding.
+%
+In \S~\ref{sec:pbe:terminates}
+we will show that the fixpoint is computable:
+there is an unfolding depth at which \pbesym
+reaches a fixpoint and hence terminates.
+
+\mypara{Bounded Unfolding}
+%
+For every $\Renv, \Penv$ and $0 \leq n$,
+the \emph{bounded unfolding of depth} $n$ is
+defined by:
+%
+$$\begin{array}{lcl}
+  \binst{\Renv}{\Penv}{0}     & \doteq & \Penv \\
+  \binst{\Renv}{\Penv}{n+1}   & \doteq & \Penv_n \cup \uinst{\Renv}{\Penv_n}
+  \quad \mbox{where}\ \Penv_n = \binst{\Renv}{\Penv}{n}
+\end{array}$$
+%
+That is, the unfolding at depth $n$ essentially
+performs $\uinstsym$ upto $n$ times.
+%
+The bounded-unfoldings yield a monotonically
+non-decreasing sequence of formulas and that
+if two consecutive bounded unfoldings coincide,
+then all subsequent unfoldings are the same.
+%
+
+\begin{lemma}[\textbf{Monotonicity}] \label{lem:bounded:mono}
+$\forall 0 \leq n.\ \binst{\Renv}{\Penv}{n} \subseteq \binst{\Renv}{\Penv}{n + 1}$.
+\end{lemma}
+
+\begin{lemma}[\textbf{Fixpoint}] \label{lem:bounded:fix}
+Let $\Penv_i \doteq \binst{\Renv}{\Penv}{i}$.
+If $\Penv_n = \Penv_{n+1}$
+then $\forall n < m.\ \Penv_m = \Penv_n$.
+\end{lemma}
+
+\mypara{Uncovering}
+%
+Next we prove that every function application
+term that is \emph{uncovered} by unfolding to
+depth $n$ is congruent to a term in the $n$-depth
+unfolding.
+
+\begin{lemma}[\textbf{Uncovering}] \label{lem:uncovering}
+Let $\Penv_n \equiv \binst{\Renv}{\extendpenv{\Penv}{\vv = \expr}}{n}$.
+If   $\smtIsValid{\Penv_n}{\vv = \expr'}$
+then for every $\issubterm{\fapp{\rfun}{t'}}{\expr'}$
+       there exists $\issubterm{\fapp{\rfun}{t}}{\Penv_n}$
+         such that $\smtIsValid{\Penv_n}{t_i = t'_i}$.
+\end{lemma}
+
+We prove the above lemma by induction on $n$
+where the inductive step uses the following
+property of congruence closure, which itself
+is proved by induction on the structure of
+$\expr'$:
+
+\begin{lemma}[\textbf{Congruence}] \label{lem:congruence}
+If   $\smtIsValid{\Penv, \vv = \expr}{\vv = \expr'}$
+     and
+     $\vv \not \in \Penv, \expr, \expr'$
+then for every $\issubterm{\fapp{\rfun}{t'}}{\expr'}$
+       there exists $\issubterm{\fapp{\rfun}{t}}{\Penv, \expr}$
+         such that $\smtIsValid{\Penv}{t_i = t'_i}$.
+\end{lemma}
+
+
+\mypara{Unfolding Preserves Equational Links}
+%
+Next, we use the uncovering Lemma~\ref{lem:uncovering}
+and congruence to show that \emph{every instantiation}
+that is valid after $n$ steps is subsumed by the $n+1$
+depth unfolding.
+%
+That is, we show that every possible \emph{link} in
+a possible equational chain can be proved equal to
+the source expression via bounded unfolding.
+
+\begin{lemma}[\textbf{Link}] \label{lem:link}
+If   $\smtIsValid{\binst{\Renv}{\extendpenv{\Penv}{\vv = \expr}}{n}}{\vv = \expr'}$
+then $\smtIsValid{\binst{\Renv}{\extendpenv{\Penv}{\vv = \expr}}{n+1}}{\uinst{\Renv}{\extendpenv{\Penv}{\vv = \expr'}}}$.
+\end{lemma}
+
+
+\mypara{Equational Proof}
+%
+There is an \emph{equational proof}
+that $\expr$ equals $\expr'$ under
+$\Renv, \Penv$
+($\symeqpf{\Renv}{\Penv}{\expr}{\expr'}$)
+if
+$$\begin{array}{lll}
+\inference{
+}{
+	\eqpf{\Renv}{\Penv}{\expr}{\expr}
+}[\rulename{Eq-Refl}]
+&
+\inference
+  { \eqpf{\Renv}{\Penv}{\expr}{\expr''}
+    \quad
+    \smtIsValid{\uinst{\Renv}{\extendpenv{\Penv}{\vv = \expr''}}}{\vv = \expr'}
+  }
+  {\eqpf{\Renv}{\Penv}{\expr}{\expr'}}
+ [\rulename{Eq-Trans}]\\
+\end{array}$$
+$$\inference
+  { \eqpf{\Renv}{\Penv}{\expr}{\expr''}
+    \quad
+		\eqpf{\Renv}{\Penv}{\expr'}{\expr''}
+  }
+  {\symeqpf{\Renv}{\Penv}{\expr}{\expr'}}
+ [\rulename{Eq-Sym}]$$
+
+\RJ{TODO:explain:mimics normalization etc.}
+There is an \emph{directional proof}
+that $\expr$ equals $\expr'$ under
+$\Renv, \Penv$
+($\eqpf{\Renv}{\Penv}{\expr}{\expr'}$)
+if
+
+\mypara{Completeness of Bounded Unfolding}
+%
+Next, we use the fact that unfolding preserves
+equational links to show that bounded unfolding
+is \emph{complete} for equational proofs.
+%
+That is, we prove by induction on the structure
+of the equational proof that whenever there is
+an \emph{equational proof} of $\expr = \expr'$,
+there exists some bounded unfolding that
+suffices to prove the equality.
+
+\begin{lemma}\label{lem:bounded-completeness}
+  If   $\eqpf{\Renv}{\Penv}{\expr}{\expr'}$
+  then $\exists 0 \leq n.\ \smtIsValid{\binst{\Renv}{\extendpenv{\Penv}{\vv = \expr}}{n}}{\vv = \expr'}$.
+\end{lemma}
+
+
+
+\mypara{\pbesym is a Fixpoint of Bounded Unfolding}
+%
+Next, we show that the proof search procedure \pbesym computes
+the least-fixpoint of the bounded unfolding and hence,
+returns \ttrue iff there exists \emph{some} unfolding
+depth $n$ at which the goal can be proved.
+
+\begin{lemma}[\textbf{Fixpoint}]\label{lem:fixpoint}
+$\pbe{\Renv}{\Penv}{\expr = \expr'}$ iff
+$\exists n.\ \smtIsValid{\binst{\Renv}{\extendpenv{\Penv}{\vv = \expr}}{n}}{\vv = \expr'}$
+\end{lemma}
+
+The proof follows by observing that
+$\pbe{\Renv}{\Penv}{\expr = \expr'}$
+computes the \emph{least-fixpoint}
+of the sequence
+%
+$\Penv_i \doteq \binst{\Renv}{\Penv'}{i} \label{eq:fix:1}$
+%
+Specifically, we can prove by induction on $i$
+that at each invocation of $\pbeloop{i}{\Penv_i}$
+in Figure~\ref{fig:pbe}, $\Penv_i$ is equal to
+$\binst{\Renv}{\extendpenv{\Penv}{\vv = \expr}}{i}$,
+which then yields the result.
+
+\mypara{Completeness of \pbesym}
+%
+By combining Lemma~\ref{lem:fixpoint}
+and  Lemma~\ref{lem:link}  we can show that
+\pbesym is complete, \ie if there is an equational proof
+that $\expr = \expr'$ under $\Renv, \Penv$,
+then \pbe{\Renv}{\Penv}{\expr=\expr'} returns $\ttrue$.
+
+\begin{theorem}[\textbf{Completeness}] \label{thm:completeness}
+  If \symeqpf{\Renv}{\Penv}{\expr}{\expr'}
+  then \pbe{\Renv}{\Penv}{\expr = \expr'} = \ttrue.
+\end{theorem}
+
+\subsection{\pbesym Terminates} \label{sec:pbe:terminates}
+
+
+So far, we have shown that our proof search
+procedure $\pbesym$ is both sound and complete.
+%
+Both of these are easy to achieve
+simply by \emph{enumerating} all
+possible instances and repeatedly
+querying the SMT solver.
+%
+Such a monkeys-with-typewriters
+approach is rather impractical: it
+may never terminate.
+%
+Fortunately, next, we show that in
+addition to being sound and complete
+with respect to equational proofs,
+our proof search procedure always
+terminates.
+
+\mypara{Intuition}
+%
+\RJ{FIXME}
+%
+Put another way your "clean intuition" applies to
+single concrete inputs: @f n@ will terminate on any
+INDIVIDUAL @n@. However in symbolic land we are working
+with potentially INFINITE sets of @n@ -- each of which
+would terminate individually -- but we need to show
+that our COLLECTIVE procedure will also terminate.
+%
+Note that the naive approach of enumerating each @n@
+and running it obviously does not terminate.
+That's why we have to carefully formalize
+the notion of "execution" at a logical level
+and use transparency to connect the two worlds.
+%
+The key insight is that if $\pbesym$ \emph{does not terminate}
+then it is because
+%
+(1)~the set of depth $n$ unfoldings form a strictly
+    increasing infinite chain,
+    $\binst{\Renv}{\Penv}{0} \subset \binst{\Renv}{\Penv}{1} \ldots$,
+    which means that
+(2)~there is an infinite sequence of application terms
+    $\stepsmany{\fapp{\rfun_0}{\expr_0}}{\stepsmany{\fapp{\rfun_1}{\expr_1}}{\ldots}}$
+    which means that
+(3)~the reflected function $\rfun_0$ is \emph{not terminating}.
+%
+Thus, when all reflected functions terminate, \pbesym must terminate!
+%
+Next, we formalize the above intuition and
+prove the termination Theorem~\ref{thm:termination}.
+
+\mypara{Transparency}
+%
+An environment $\env$ is \emph{inconsistent}
+if $\smtIsValid{\tosmt{\env}}{\tfalse}$.
+%
+An environment \env is \emph{inhabited}
+if there exists some $\store \in \embed{\env}$.
+%
+We say $\env$ is \emph{transparent}
+if it is either inhabited \emph{or} inconsistent.
+%
+As an example of a \emph{non-transparent}
+$\Penv_0$ consider the predicate
+$\kw{lenA xs} = 1 + \kw{lenB xs}$,
+where \kw{lenA} and \kw{lenB} are both
+identical definitions of the list length
+function.
+%
+Clearly there is no $\store$ that causes
+the above predicate to evaluate to $\ttrue$.
+%
+At the same time, the SMT solver cannot
+(using the decidable, quantifier-free theories)
+prove a contradiction as that requires
+induction over \kw{xs}.
+
+\mypara{Totality}
+%
+A function is \emph{total} when its evaluation
+reduces to exactly one value.
+%
+The totality of \RRenv can and is checked
+by refinement types~\cite{Vazou14}.
+%
+Hence, for brevity, in the sequel
+we will \emph{implicitly assume}
+that $\RRenv$ is total under $\env$.
+%
+\begin{definition}[\textbf{Total}]\label{asm:total}
+Let $\body \equiv \rdef{x}{\tosmt{\pred}}{\tosmt{e}}$.
+$\body$ is \emph{total} under \env and \RRenv if
+forall $\store\in \embed{\env}$:
+%
+%% \NV{We definitely need to check that theta . body is well typed}
+\begin{enumerate}
+\item If $\rsatisfies{\RRenv}{\store}{\pred_i}$ then
+$\evalsto{{\apply{\store}{\refapply{\RRenv}{e_i}}}}{\val}$.
+\item If $\rsatisfies{\RRenv}{\store}{\pred_i}$ and $\rsatisfies{\Renv}{\store}{\pred_j}$, then $i=j$.
+\item There exists an $i$ so that  $\rsatisfies{\RRenv}{\store}{\pred_i}$.
+\end{enumerate}
+
+$\RRenv$ is \emph{total} under \env
+if every $\body \in \tosmt{\RRenv}$
+is total under \env and \RRenv.
+%
+\end{definition}
+
+\mypara{Subterm Evaluation}
+%
+As the reflected functions are total,
+the Church-Rosser theorem implies that
+evaluation order is not important.
+%
+To prove termination, we require
+an evaluation strategy, \eg CBV,
+in which if a reflected
+function's guard is satisfied,
+then the evaluation of the
+corresponding function body
+requires evaluating
+\emph{every subterm}
+inside the body.
+%
+As $\defIf\cdot$ hoists
+\kw{if}-expressions out
+of the body and into the
+top-level guards, the below
+fact follows from the
+properties of CBV:
+
+%%% HEREHEREHERE
+
+\begin{lemma}\label{lem:subterm-eval}
+Let $\body \equiv \rdef{x}{\tosmt{\pred}}{\tosmt{e}}$.
+%
+For every \env, \RRenv, and $\store \in \embed{\env}$,
+if $\rsatisfies{\RRenv}{\store}{\pred_i}$ and
+   $\issubterm{\fapp{f}{\tosmt{e}}}{\tosmt{e_i}}$
+then
+   $\evalsto{{\apply{\store}{\refapply{\RRenv}{e_i}}}}{\ctxapp{\ctx}{\rawapp{f}{\apply{\store}{\refapply{\RRenv}{\params{e}}}}}}$.
+\end{lemma}
+
+\mypara{Symbolic Step}
+%
+A pair
+$\symstep{\fapp{\rfun}{\expr}}{\fapp{\rfun'}{\expr'}}$
+is a
+$\Renv,\Penv$-\emph{symbolic step} (abbrev. step)
+if
+%
+\begin{itemize}
+  \item $\rlookup{\Renv}{\rfun} \equiv \rdef{x}{\pred}{\body}$,
+  \item $\smtIsValid{\Penv \wedge Q}{\pred_i}$ for some $(\Renv, \Penv)$-instance $Q$,
+  \item $\issubterm{\fapp{\rfun'}{\expr'}}{\SUBSTS{\body_i}{x}{\expr}}$
+\end{itemize}
+
+\mypara{Steps and Reductions}
+%
+Next, using Lemmas~\ref{lem:subterm-eval},~\ref{lem:pbe:semantics},
+and the definition of symbolic steps, we show that every
+symbolic step corresponds to a \emph{sequence} of steps
+in the concrete semantics:
+
+\begin{lemma}[\textbf{Step-Reductions}]\label{lem:step-reductions}
+If   $\symstep{\fapp{\rfun}{\tosmt{e}}}{\fapp{\rfun'}{\tosmt{e'}}}$
+     is a symbolic step under $\tosmt{\RRenv}, \tosmt{\env}$
+		 and
+		 $\store\in \embed{\env}$,
+then $\evalsto{{\fapp{\rfun}{\apply{\store}{\refapply{\RRenv}{e}}}}}
+              {\ctxapp{\ctx}{\rawapp{f}{\apply{\store}{\refapply{\RRenv}{\params{e'}}}}}}$
+for some context $\ctx$.
+\end{lemma}
+
+\mypara{Steps and Values}
+%
+Next, we show that if
+$\symstep{\fapp{\rfun}{y}}{\expr'}$
+is a symbolic step under an $\env$
+that is inhabited by $\store$
+then \fapp{\rfun}{y} reduces
+to a value under $\store$.
+%
+The proof follows by observing
+that if $\env$ is inhabited by
+$\store$, and a particular step
+is possible, then the guard
+corresponding to that step
+must also be true under
+$\store$ and hence, by totality,
+the function must reduce to
+a value under the given store.
+
+% \begin{lemma}[\textbf{Step-Value}]\label{lem:step-value}
+% If $\satisfies{\Renv}{\store}{\Penv}$, and
+   % $\symstep{\fapp{\rfun}{y}}{\expr'}$ is a $\Renv,\Penv$ step
+% then $\trans{\Renv}{\apply{\store}{\fapp{\rfun}{y}}}{\val}$.
+% \end{lemma}
+
+\newcommand{\rjtrans}[3]{\ensuremath{\evalsto{{{\refapply{#1}{#2}}}}{#3}}}
+\newcommand{\rjtranstore}[4]{\rjtrans{#1}{\apply{#2}{#3}}{#4}}
+
+\begin{lemma}[\textbf{Step-Value}]\label{lem:step-value}
+If   $\store \in \embed{\env}$
+     and
+     $\symstep{\fapp{\rfun}{y}}{\expr'}$
+	   is a $\tosmt{\RRenv}, \tosmt{\env}$ step
+then \rjtranstore{\RRenv}{\store}{\fapp{\rfun}{y}}{\val}.
+\end{lemma}
+
+\mypara{Symbolic Trace}
+%
+A sequence
+%
+$\fapp{\rfun_0}{\expr_0},\fapp{\rfun_1}{\expr_1},\fapp{\rfun_2}{\expr_2},\ldots$
+%
+is a $\Renv,\Penv$-\emph{symbolic trace} (abbrev. trace)
+if $\params{\expr_0} \equiv \params{x_0}$ for some variables $\params{x_0}$,
+and $\symstep{\fapp{\rfun_i}{\expr_i}}{\fapp{\rfun_{i+1}}{\expr_{i+1}}}$
+is a $\Renv,\Penv$-step, for each $i$.
+%
+Our termination proof hinges upon the following key result: inhabited
+environments only have \emph{finite} symbolic traces.
+
+\begin{theorem}[\textbf{Finite-Trace}]\label{thm:finite-trace}
+If % $\RRenv$ is total under \env
+   \env is inhabited
+then every $(\tosmt{\RRenv},\tosmt{\env})$-trace is finite.
+\end{theorem}
+
+We prove the above lemma by contradiction.
+Specifically, we show by Lemma~\ref{lem:step-reductions} that an infinite
+$(\tosmt{\RRenv},\tosmt{\env})$-trace
+combined with the assumption that \embed{\env} is not empty
+yields \textit{at least one}
+infinite \emph{concrete trace}, which
+contradicts totality, and hence, all the
+$(\tosmt{\RRenv},\tosmt{\env})$ symbolic traces
+must be finite.
+
+\mypara{Unfolding Chains and Traces}
+%
+If the unfolding $\Renv, \Penv$ yields
+an infinite chain, then $\Renv, \Penv$
+has an infinite symbolic trace:
+
+\begin{lemma} [\textbf{Ascending Chains}] \label{lem:chain}
+Let $\Penv_i \doteq \binst{\Renv}{\Penv}{i}$.
+If there exists an (infinite) ascending chain
+$\Penv_0 \subset \ldots \subset \Penv_n \ldots$
+then there exists an (infinite) symbolic trace
+$\fapp{\rfun_0}{\expr_0},\ldots,\fapp{\rfun_n}{\expr_n},\ldots$.
+\end{lemma}
+
+To prove the above,
+we construct a trace
+by selecting at level $i$
+(\ie in $\Penv_i$),
+an application term
+$\fapp{\rfun_i}{\expr_i}$
+that was created by
+unfolding an application
+term at level $i-1$
+(\ie in $\Penv_{i-1}$).
+
+\mypara{\pbesym Terminates}
+%
+Finally, we prove that the proof search
+procedure $\pbesym$ terminates.
+
+\begin{theorem}[\textbf{Termination}] \label{thm:termination}
+  If $\RRenv$ is total under \env and \env is inhabited,
+  then $\pbe{\tosmt{\RRenv}}{\tosmt{\env}}{\pred}$ terminates.
+\end{theorem}
+
+If $\pbesym$ loops forever,
+there must be an infinite
+strictly ascending chain of
+unfoldings $\Penv_i$, and
+hence, by lemma~\ref{lem:chain}
+and infinite symbolic trace
+which contradicts
+lemma~\ref{thm:finite-trace}.
+%
+Thus, $\pbesym$ must terminate.
+%
+In practice, to check if \env is inhabited
+we need only find suitable concrete values
+via random~\cite{Claessen00} or SMT-guided
+generation~\cite{Seidel15}.

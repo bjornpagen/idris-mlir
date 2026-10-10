@@ -1,0 +1,6 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PYG{k+kn}{Fixpoint} \PYG{n}{nbeT\PYGZsq{}} \PYG{o}{\PYGZob{}}\PYG{n}{var}\PYG{o}{\PYGZcb{}} \PYG{o}{(}\PYG{n}{with\PYGZus{}lets} \PYG{o}{:} \PYG{n}{bool}\PYG{o}{)} \PYG{o}{(}\PYG{n}{t} \PYG{o}{:} \PYG{n}{type}\PYG{o}{)} \PYG{o}{:=} \PYG{k}{match} \PYG{n}{t} \PYG{k}{with}
+\PYG{o}{|}\PYG{n}{base} \PYG{n}{t}\PYG{o}{=\PYGZgt{}}\PYG{k}{if} \PYG{n}{with\PYGZus{}lets} \PYG{k}{then} \PYG{o}{@}\PYG{n}{UnderLets} \PYG{n}{var} \PYG{o}{(@}\PYG{n}{expr} \PYG{n}{var} \PYG{n}{t}\PYG{o}{)} \PYG{k}{else} \PYG{o}{@}\PYG{n}{expr} \PYG{n}{var} \PYG{n}{t}
+\PYG{o}{|}\PYG{n}{arrow} \PYG{n}{s} \PYG{n}{d}\PYG{o}{=\PYGZgt{}}\PYG{n}{nbeT\PYGZsq{}} \PYG{n+nb+bp}{false} \PYG{n}{s} \PYG{o}{\PYGZhy{}\PYGZgt{}} \PYG{n}{nbeT\PYGZsq{}} \PYG{n+nb+bp}{true} \PYG{n}{d}  \PYG{k}{end}\PYG{o}{.}
+\PYG{k+kn}{Definition} \PYG{n}{nbeT} \PYG{o}{:=} \PYG{n}{nbeT\PYGZsq{}} \PYG{n+nb+bp}{false}\PYG{o}{.}  \PYG{k+kn}{Definition} \PYG{n}{nbeT\PYGZus{}with\PYGZus{}lets} \PYG{o}{:=} \PYG{n}{nbeT\PYGZsq{}} \PYG{n+nb+bp}{true}\PYG{o}{.}
+\end{Verbatim}

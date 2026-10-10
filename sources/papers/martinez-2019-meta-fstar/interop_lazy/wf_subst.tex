@@ -1,0 +1,17 @@
+\begin{mathpar}
+  \inferrule*[right=Empty]
+  {\\}
+  {\iswf{\cdot}{\cdot}}
+  %
+  \and
+  %
+  \inferrule*[right=Cons]
+             {
+               \iswf{\stenv}{\sdelta} \\
+               \iswf{\stenv}{\stau} \\
+             }
+             {
+               \iswf{\senvtext{\stenv}{\svar{A}}}
+                    {\sesubstext{\sdelta}{\svar{A}}{\stau}}
+             }
+\end{mathpar}

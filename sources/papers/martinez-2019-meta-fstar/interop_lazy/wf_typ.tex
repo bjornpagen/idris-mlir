@@ -1,0 +1,20 @@
+\begin{mathpar}
+  \inferrule*[right=TyVar]
+  {\\}
+  {\iswf{\senvtext{\stenv}{\svar{A}}}{\svar{A}}}
+  %
+  \and
+  %
+  \inferrule*[right=Scheme]
+  {\iswf{\senvtext{\stenv}{\svar{A}}}{\sexp}}
+  {\iswf{\stenv}{\sall{\svar{A}}{\stau}}}
+  %
+  \and
+  %
+  \inferrule*[right=Env]
+  {\forall ~x,~\iswf{\stenv}{\senv(x)}}
+  {\iswf{\stenv}{\senv}}
+  %% \inferrule*[right=Opaque]
+  %% {\\}
+  %% {\hastyp{\senv}{\sopaque{\texp}}{\sttop}}
+\end{mathpar}

@@ -1,0 +1,196 @@
+\newif\ifextended  % Flag for extended version
+\extendedtrue
+% \extendedfalse     % Comment out for extended version
+
+\ifextended
+\documentclass[acmsmall,screen,authorversion,nonacm,review=false,timestamp=false]{acmart}\settopmatter{printccs=false,printacmref=false}
+\else
+\documentclass[acmsmall,screen]{acmart}
+\fi
+
+\input{conf-prelude}
+
+\ifextended
+% \setcopyright{none}
+% \renewcommand\footnotetextcopyrightpermission[1]{}
+% \pagestyle{plain}
+\makeatletter
+\let\@acmArticle\@empty
+\let\@authorsaddresses\@empty
+\makeatother
+\fi
+
+\usepackage{booktabs}   %% For formal tables: http://ctan.org/pkg/booktabs
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{mathpartir}
+\usepackage{listings}
+\usepackage{listings-rust}
+\usepackage{listings-verus}
+\usepackage{xspace}
+\usepackage{tikz}
+\usepackage{colortbl}
+\usepackage{siunitx}
+
+\usepackage{pifont}      % Provides the ding symbol used for comments
+
+%% Listing options
+\lstdefinestyle{DefaultStyle}
+{
+  basicstyle=\scriptsize\ttfamily\linespread{0.8}\selectfont,
+  breaklines=true,
+  % escapechar=\#,
+  tabsize=1,
+  breakindent=2em,
+  literate={\ \ }{{\ }}1
+}
+
+\lstset{
+  style=DefaultStyle,
+  escapeinside={\%*}{*},
+}
+
+\lstdefinestyle{Verus}%
+{ style=DefaultStyle,
+, identifierstyle=%
+, commentstyle=\color[gray]{0.4}%
+, stringstyle=\color[rgb]{0, 0, 0.5}%
+, keywordstyle={[1]\bfseries}% reserved keywords
+, keywordstyle={[2]\color[rgb]{0.75, 0, 0}}% traits
+, keywordstyle={[3]\color[rgb]{0, 0.5, 0}}% primitive types
+, keywordstyle={[4]\color[rgb]{0, 0.5, 0}}% type and value constructors
+, keywordstyle={[5]\color[rgb]{0, 0, 0.75}}% macros
+, keywordstyle={[6]\color[rgb]{0, 0, 0.75}}% macros
+, columns=spaceflexible%
+, keepspaces=true%
+, showspaces=false%
+, showtabs=false%
+, showstringspaces=true%
+}%
+
+\lstdefinestyle{VerusLineNos}{
+  style=Verus%
+, numbers=left%
+, firstnumber=auto%
+, numberblanklines=true%
+, numberstyle=\color{gray}%
+, numbersep=5pt%
+, xleftmargin=15pt%
+}
+
+\renewcommand{\sectionautorefname}{Section}
+
+%% Aliases
+\newcommand\fstar{F$^\star$\xspace}
+\newcommand{\rust}{\cite{the-rust-language,the-rust-programming-language}\xspace}
+\newcommand*{\verus}[0]{Verus\xspace}
+
+\newcommand{\codemarker}[1]{\hspace{-2em}\tikz[baseline=(char.base)]{\node[shape=rectangle,draw,inner sep=.7pt] (char) {\scriptsize #1};}}
+\newcommand{\inlinecodemarker}[1]{\tikz[baseline=(char.base)]{\node[shape=rectangle,draw,inner sep=.7pt] (char) {\scriptsize #1};}}
+
+% Circled numbers for examples
+\newcommand*\circled[1]{\,\tikz[baseline=(char.base)]{
+            \node[shape=circle,draw,inner sep=.7pt] (char) {\scriptsize\texttt{#1}};}\,}
+\newcounter{clnumcounter}
+\renewcommand{\theclnumcounter}{\Alph{clnumcounter}}
+\newcommand{\clnum}{\refstepcounter{clnumcounter}\circled{\theclnumcounter}}
+\newcommand{\clref}[1]{\hyperref[#1]{\circled{\ref{#1}}}}
+
+\newcounter{lclnumcounter}
+\renewcommand{\thelclnumcounter}{\alph{lclnumcounter}}
+\newcommand{\lclnum}{\refstepcounter{lclnumcounter}\circled{\thelclnumcounter}}
+\newcommand{\lclnumhidden}{\refstepcounter{lclnumcounter}}
+\newcommand{\lclref}[1]{\hyperref[#1]{\circled{\ref{#1}}}}
+
+
+%%%%%%%%%  Conditional Commands  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\newif\ifsubmit    % Flag for distinguishing submission commands
+\submittrue
+% \submitfalse       % Comment out before submitting 
+
+\def\sectionautorefnamesymbol{Section}
+\def\sectionautorefname{\sectionautorefnamesymbol}
+\def\subsectionautorefname{\sectionautorefnamesymbol}
+\def\subsubsectionautorefname{\sectionautorefnamesymbol}
+\def\subsubsubsectionautorefname{\sectionautorefnamesymbol}
+
+\input{sloc.tex}
+\input{time.tex}
+
+\begin{document}
+
+%% Title information
+% \title[Short Title]{Full Title}         %% [Short Title] is optional;
+                                          %% when present, will be used in
+                                          %% header instead of Full Title.
+\ifextended
+\title{\verus: Verifying Rust Programs using Linear Ghost Types (extended version)}
+\else
+\title{\verus: Verifying Rust Programs using Linear Ghost Types}
+\fi
+% \titlenote{with title note}             %% \titlenote is optional;
+%                                         %% can be repeated if necessary;
+%                                         %% contents suppressed with 'anonymous'
+% \subtitle{Subtitle}                     %% \subtitle is optional
+% \subtitlenote{with subtitle note}       %% \subtitlenote is optional;
+%                                         %% can be repeated if necessary;
+%                                         %% contents suppressed with 'anonymous'
+
+\input{authors}
+
+%% Abstract
+\begin{abstract}
+The Rust programming language provides a powerful type system that checks linearity and borrowing,
+allowing code to safely manipulate memory without garbage collection and
+making Rust ideal for developing low-level, high-assurance systems.
+For such systems, formal verification can be useful
+to prove functional correctness properties beyond type safety.
+This paper presents Verus, an SMT-based tool for formally verifying Rust programs.
+With Verus, programmers express proofs and specifications using the Rust language,
+allowing proofs to take advantage of Rust's linear types and borrow checking.
+We show how this allows proofs to manipulate linearly typed permissions
+that let Rust code safely manipulate memory, pointers, and concurrent resources.
+Verus organizes proofs and specifications using a novel mode system that distinguishes
+specifications, which are not checked for linearity and borrowing, from executable code and proofs,
+which are checked for linearity and borrowing.
+We formalize Verus' linearity, borrowing, and modes in a small lambda calculus,
+for which we prove type safety and termination of specifications and proofs.
+We demonstrate Verus on a series of examples, including pointer-manipulating code
+(an xor-based doubly linked list), code with interior mutability, and concurrent code.
+\end{abstract}
+
+\input{conf-ccs}
+
+%% \maketitle
+%% Note: \maketitle command must come after title commands, author
+%% commands, abstract environment, Computing Classification System
+%% environment and commands, and keywords command.
+\maketitle
+
+\input{intro}
+
+\input{overview}
+
+\input{encoding}
+
+\input{linear-ghost-pointers}
+\input{interior-mutability}
+\input{concurrency}
+
+\input{implementation}
+\input{errors-usability}
+\input{limitations}
+
+\input{formalizationmacros}
+\input{formalization}
+
+\input{related}
+\input{conclusions}
+
+\input{acks}
+
+
+%% Bibliography
+\bibliography{bib}
+
+\end{document}

@@ -1,0 +1,31 @@
+\begin{tikzpicture}
+
+{ [start chain=mainchain, node distance=0cm, nodes={on chain}]
+  \node [block] (parse1) {parse};
+  \node [block] (share1) {share};
+  \node [block] (infer1) {infer};
+
+  \node [block, right=.5cm of infer1] (parse2) {parse};
+  \node [block] (share2) {share};
+  \node [block] (infer2) {infer};
+
+  \node [right=.5cm of infer2] (mainn) {$\cdots$};
+}
+
+\node [left=1cm of parse1, text width=3em, align = center] {Main thread};
+
+\node [rectangle, draw, below=1cm of parse1] (check1) {check};
+\node [rectangle, draw, below=1cm of check1] (check2) {check};
+\node [below=.35cm of check2] (checkn) {$\vdots$};
+
+\node [left=1cm of check1, text width=3em, align = center] {Check thread};
+\node [left=1cm of check2, text width=3em, align = center] {Check thread};
+\node [below left=.35cm and 1cm of check2, text width=3em, align=center] {\vdots};
+
+\draw (infer1) to (parse2);
+\draw (infer2) to (mainn);
+
+\draw [->] (infer1) |-| (check1);
+\draw [->, hvvh/ratio=.75] (infer2) |-| (check2);
+
+\end{tikzpicture}

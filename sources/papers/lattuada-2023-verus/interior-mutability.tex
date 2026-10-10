@@ -1,0 +1,87 @@
+
+
+\begin{figure}
+\noindent\begin{minipage}{.48\textwidth}
+\begin{lstlisting}[language=Verus,style=VerusLineNos]
+struct InvCell<T> { /* ... */ }
+
+impl InvCell<T> {
+    // Well-formedness of the InvCell
+    #[spec] pub fn wf(&self) -> bool;
+
+    // Boolean predicate indicating the values allowed to be stored.
+    #[spec] pub fn inv(&self, val: T) -> bool;
+
+    // Construct a new InvCell, with initial value `val` and invariant given by `f`.
+    #[exec] pub fn new(val: T, #[spec] f: impl Fn(T) -> bool) -> Self {
+        requires(f(val));
+        ensures(|cell: Self| cell.wf() && forall(|t: T| f(t) == cell.inv(t)));
+        /* ... */
+    }
+\end{lstlisting}
+\end{minipage}
+\hfill\begin{minipage}{.48\textwidth}
+\begin{lstlisting}[language=Verus,style=VerusLineNos,firstnumber=17]
+    // Write to the cell and return the old value.
+    #[exec] pub fn replace(&self, val: T) -> T {
+        requires(self.wf() && self.inv(val)); %*\clnum\label{clnum:invcell:replace:pre}*
+        ensures(|old_val: T| self.inv(old_val));
+        /* ... */
+    }
+
+    // Read the current value of the cell.
+    #[exec] pub fn get(&self) -> T
+        where T: Copy
+    {
+        requires(self.wf());
+        ensures(|val: T| self.inv(val));  %*\clnum\label{clnum:invcell:get:post}*
+        /* ... */
+    }
+}
+\end{lstlisting}
+\end{minipage}
+    \caption{
+        \label{fig:inv-cell-api}
+        API and specification for \texttt{InvCell<T>}.
+    }
+\end{figure}
+
+\section{Supporting Interior Mutability} \label{sec:interior-mutability}
+
+Interior mutability is a Rust pattern in which the contents (the ``interior'') of a datatype \verb`X` may be modified even when it is shared via a reference type \verb`&X`.
+Since \verb`&` is supposed to be an ``immutable'' reference, interior mutability appears to be at odds with the core tenets of Rust's type system, and in fact
+interior mutability is only sound when restricted appropriately.
+Rust's standard library provides a handful of types with interior mutability, e.g., \verb`Cell`, \verb`RefCell`, \verb`RwLock`, each of which provides a different set of restrictions
+and characteristics. For example, \verb`Cell` may not be shared across threads, while \verb`RwLock` is thread-safe but incurs all the costs of being a lock.
+The most flexible Rust datatype supporting interior mutability is the \verb`UnsafeCell`, upon which the aforementioned types are implemented. %on top in Rust's standard library.
+Since \verb`UnsafeCell` has no restrictions, it is---as the name implies---\emph{not} safe in general, and implementations that use it must take great care.
+
+Providing safe and correct versions of such types in \verus is challenging, 
+since in our SMT encoding, values of type \verb`&T` are always treated as immutable.
+Therefore, to handle any \verb`Cell`-like datatypes, our SMT representation of \verb`&Cell<T>` cannot include an encoding of its mutable ``interior'' \verb`T`.
+How, then, are we able to verify programs that require reasoning about this interior?
+
+There are two broad classes of strategies a \verus developer can use:
+\begin{enumerate}
+  \item Use linear ghost state to represent the contents of a cell, similar to the way linear ghost state represents the value pointed to by a pointer.
+  \item Avoid ``keeping track of'' the interior value entirely. Instead, when the interior value is read, model the result as being effectively nondeterministic,
+      potentially using invariants to restrict the set of values that can be stored in the interior.
+\end{enumerate}
+\verus provides primitives and additional verified libraries supporting both styles, which the user can mix-and-match as needed.
+
+The first strategy is the one used by our primitive \verb`PCell` (``permissioned \verb`Cell`'').
+In the same way that \verb`PPtr` is our safe alternative to Rust's raw pointers,
+\verb`PCell` is our safe alternative to \verb`UnsafeCell`.
+\verb`PCell` uses a ghost permission mechanism with a similar API and specification to \verb`PPtr`, allowing us to track the interior value on the permission object.
+
+The second strategy is exemplified by the type \verb`InvCell` of Verus' standard
+library (\autoref{fig:inv-cell-api}), which provides a \verb`Cell`-like interface and allows the user to specify an invariant as a boolean predicate on values.
+Whenever they write to the cell, they must prove the written value satisfies the invariant~\clref{clnum:invcell:replace:pre},
+and when they read from it, they obtain an arbitrary value that they can \emph{assume} satisfies it~\clref{clnum:invcell:get:post}.
+We first illustrate how this can be useful in our next section, and then we
+discuss how \verb`InvCell` is itself verified in terms of lower-level invariant primitives.
+
+\input{example-memoize}
+
+\input{example-inv-cell-proof}
+

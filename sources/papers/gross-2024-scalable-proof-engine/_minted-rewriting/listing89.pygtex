@@ -1,0 +1,9 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PYG{k+kn}{Fixpoint} \PYG{n}{denoteE} \PYG{o}{\PYGZob{}}\PYG{n}{t}\PYG{o}{\PYGZcb{}} \PYG{o}{(}\PYG{n}{e} \PYG{o}{:} \PYG{n}{expr} \PYG{n}{denoteT} \PYG{n}{t}\PYG{o}{)} \PYG{o}{:} \PYG{n}{denoteT} \PYG{n}{t} \PYG{o}{:=} \PYG{k}{match} \PYG{n}{e} \PYG{k}{with}
+  \PYG{o}{|} \PYG{n}{Var} \PYG{n}{v}     \PYG{o}{=\PYGZgt{}} \PYG{n}{v}
+  \PYG{o}{|} \PYG{n}{Abs} \PYG{n}{f}     \PYG{o}{=\PYGZgt{}} \PYG{o}{λ} \PYG{n}{x}\PYG{o}{,} \PYG{n}{denoteE} \PYG{o}{(}\PYG{n}{f} \PYG{n}{x}\PYG{o}{)}
+  \PYG{o}{|} \PYG{n}{App} \PYG{n}{f} \PYG{n}{x}   \PYG{o}{=\PYGZgt{}} \PYG{o}{(}\PYG{n}{denoteE} \PYG{n}{f}\PYG{o}{)} \PYG{o}{(}\PYG{n}{denoteE} \PYG{n}{x}\PYG{o}{)}
+  \PYG{o}{|} \PYG{n}{LetIn} \PYG{n}{x} \PYG{n}{f} \PYG{o}{=\PYGZgt{}} \PYG{k}{let} \PYG{n}{xv} \PYG{o}{:=} \PYG{n}{denoteE} \PYG{n}{x} \PYG{k}{in} \PYG{n}{denoteE} \PYG{n}{f} \PYG{n}{xv}
+  \PYG{o}{|} \PYG{n}{Ident} \PYG{n}{c}   \PYG{o}{=\PYGZgt{}} \PYG{n}{denoteI} \PYG{n}{c}  \PYG{k}{end}\PYG{o}{.}
+\PYG{k+kn}{Definition} \PYG{n}{DenoteE} \PYG{o}{\PYGZob{}}\PYG{n}{t}\PYG{o}{\PYGZcb{}} \PYG{o}{(}\PYG{n}{E} \PYG{o}{:} \PYG{n}{Expr} \PYG{n}{t}\PYG{o}{)} \PYG{o}{:} \PYG{n}{denoteT} \PYG{n}{t} \PYG{o}{:=} \PYG{n}{denoteE} \PYG{o}{(}\PYG{n}{E} \PYG{n}{denoteT}\PYG{o}{).}
+\end{Verbatim}

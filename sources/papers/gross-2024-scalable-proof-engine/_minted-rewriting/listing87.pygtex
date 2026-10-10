@@ -1,0 +1,5 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PYG{k+kn}{Inductive} \PYG{n}{base\PYGZus{}type} \PYG{o}{:=}
+\PYG{o}{|} \PYG{n}{Prod} \PYG{o}{(}\PYG{n}{A} \PYG{n}{B} \PYG{o}{:} \PYG{n}{base\PYGZus{}type}\PYG{o}{)} \PYG{o}{|} \PYG{n}{List} \PYG{o}{(}\PYG{n}{A} \PYG{o}{:} \PYG{n}{base\PYGZus{}type}\PYG{o}{)} \PYG{o}{|} \PYG{n}{Option} \PYG{o}{(}\PYG{n}{A} \PYG{o}{:} \PYG{n}{base\PYGZus{}type}\PYG{o}{)}
+\PYG{o}{|} \PYG{n}{Unit} \PYG{o}{|} \PYG{n}{Nat} \PYG{o}{|} \PYG{n}{Bool}\PYG{o}{.}
+\end{Verbatim}

@@ -1,0 +1,154 @@
+\section{Meaning as Pointers Into a Buffer}\label{sec:pointers}
+
+For reasons that will become apparent in \Cref{sec:bufferfold}
+when we start programming over serialised data in a correct-by-construction
+manner, our types of `pointers' will be parameterised not only
+by the description of the type of the data stored but also by a
+runtime-irrelevant inductive value of that type.
+
+Note that we will \emph{not} export the constructors to the various
+`pointer' types defined in the following section.
+%
+Consequently, the only way for a user to get their hands on such a
+pointer is to use the library functions we provide.
+%
+By only providing invariant-respecting functions, we can ensure
+that the assumptions encoded in the phantom parameters are never
+violated.
+
+\subsection{Tracking Buffer Positions}
+
+We start with the definition of \IdrisType{Pointer.Mu},
+the counterpart to \IdrisType{Data.Mu} for serialised values.
+
+\ExecuteMetaData[SaferIndexed.idr.tex]{pointermu}
+
+A tree sitting in a buffer is represented
+by a record packing the buffer, the position at which the tree's
+root node is stored, and the size of the tree.
+%
+The record is indexed by \IdrisBound{cs} a \IdrisType{Data} description
+and \IdrisBound{t} the tree of type (\IdrisType{Data.Mu} \IdrisBound{cs})
+which is represented by the buffer's content.
+Neither are mentioned in the types of the record's fields, making them
+\emph{phantom types}~\citep{DBLP:conf/dsl/LeijenM99}.
+%
+A term of type (\IdrisType{Pointer.Mu} \IdrisBound{cs} \IdrisBound{t})
+plays a double role in our library: it acts both as a label $\ell$ in
+the runtime relevant layer, and a proof that said label points to a
+buffer-bound value equal to $t$
+(i.e. \Pointer{\ell}{\text{\IdrisType{Data.Mu} \IdrisBound{cs}}}{t}).
+
+
+%% Note that according to our serialisation format the size is not stored
+%% in the file but using the size of the buffer, the stored offsets,
+%% and the size of the static data we will always
+%% be able to compute a value corresponding to it.
+
+The pointer counterpart to a \IdrisFunction{Meaning} stores
+additional information.
+
+\ExecuteMetaData[SaferIndexed.idr.tex]{elem}
+
+For a description of type (\IdrisType{Desc} \IdrisBound{r} \IdrisBound{s} \IdrisBound{o})
+on top of the buffer, the position at which the root of the meaning resides,
+and the size of the layer we additionally have a vector of \IdrisBound{o} offsets
+corresponding to the sizes of the subtrees we may want to skip past.
+This will allow us to efficiently access any constructor argument we want.
+
+\subsection{Writing a Tree to a File}\label{sec:writetofile}
+
+Once we have a pointer to a tree \IdrisBound{t} of type \IdrisBound{cs}
+(\IdrisType{Pointer.Mu} \IdrisBound{cs} \IdrisBound{t} in the type below)
+in a buffer, we can easily write it to a file be it for safekeeping
+or sending over the network.
+
+\ExecuteMetaData[SaferIndexed.idr.tex]{writeToFile}
+
+\begin{remark}[Forall Quantifier]
+  The \IdrisKeyword{forall} quantifier is sugar for an implicit
+  binder at quantity \IdrisKeyword{0}.
+  %
+  It can be useful to introduce variables that cannot be automatically
+  bound in a prenex manner because they have a type dependency over an
+  explicitly bound argument.
+\end{remark}
+
+
+We first start by reading the size of the header stored in the buffer.
+%
+This allows us to compute both the \IdrisBound{start} of the data block
+as well as the size of the buffer (\IdrisBound{bufSize}) that will
+contain the header followed by the tree we want to write to a file.
+%
+We then check whether the position of the pointer is exactly the beginning
+of the data block.
+%
+If it is then we are pointing to the whole tree and the current buffer can
+be written to a file as is.
+%
+Otherwise we are pointing to a subtree and need to separate it from its
+surrounding context first.
+%
+To do so we allocate a new buffer of the right size and use the
+standard library's \IdrisFunction{copyData} primitive to copy the raw bytes
+corresponding to the header first, and the tree of interest second.
+%
+We can then write the buffer we have picked to a file and happily succeed.
+
+\subsection{Reading a Tree from a File}
+
+We can also go in the other direction: using the data description
+\IdrisBound{cs}, we can load the content of the file located at
+\IdrisBound{fp} as a pointer to the root of the tree of type
+(\IdrisType{Mu} \IdrisBound{cs}) we claim is contained in it.
+
+\ExecuteMetaData[SaferIndexed.idr.tex]{readFromFile}
+
+This function takes a default argument \IdrisBound{safe} controlling
+whether we should attempt to check that the file starts with a header
+containing a type descripton matching the one passed as an argument
+by the caller.
+
+\begin{remark}[Default Arguments]
+  An implicit argument can be assigned a \IdrisKeyword{default} value.
+  It will take this value unless explicitly overwritten by the caller.
+\end{remark}
+
+First, we create a buffer from the content of the file.
+We then read the offset giving us the size of the header.
+If we want to be \IdrisBound{safe} we then read the type description
+contained in the header using \IdrisFunction{getData} (not shown here)
+and check it for equality against the one we were passed using \IdrisFunction{eqData}
+(not shown here).
+%
+If the check fails, we emit an error and fail.
+%
+If the check succeeds, we postulate the existence of a runtime irrelevant
+tree meant to represent the file's content and put together a pointer
+for that asbtract tree.
+%
+This postulate cements the user's claim about the file's content;
+naturally if the file is not in fact contain a serialised representation
+of a tree this can lead to fatal errors later on when attempting to
+inspect the buffer's content.
+%
+We return a pair of the runtime irrelevant tree and a pointer to it
+thus ensuring users cannot directly attempt to match on the inductive
+tree; they will have to use the combinators we are about to define to
+inspect it by reading into the buffer.
+
+Note that, in order to save space in the paper, we never checked whether
+the buffer reads we performed in both \IdrisFunction{writeToFile} and
+\IdrisFunction{readFromFile} were within bounds.
+%
+A released version of the library would naturally need to include such
+checks.
+
+
+Now that we have pointers,
+and use files to read and write the trees they are standing for,
+we are only missing the ability to look at the content they are pointing to.
+%
+But first we need to introduce some basic tools
+to be able to talk precisely about this stored content.

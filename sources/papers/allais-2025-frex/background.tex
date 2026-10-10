@@ -1,0 +1,48 @@
+\begin{figure}
+\TwoColDIY%
+    {.6}{\EquivalenceDef{}
+          \SetoidDef{}}%
+    {.35}{%
+      \SetoidSugar{}
+      \SetoidCarrierSugar{}
+      \SetoidRelationSugar{}
+    }
+    \caption{(a) Equivalence relations and setoids as records and
+      (b) example desugaring into a GADT and projections}
+\figlabel{setoid}
+\end{figure}
+\paragraph{Setoids in \idris{}.}
+We represent equivalence
+relations and setoids in \idris{} with \emph{records} in \figref{setoid}a.
+\idris{} records are syntactic sugar for a single-constructor
+\IdrisKeyword{data} declaration and automatically generated
+\emph{field projections}, as in \figref{setoid}b.  \idris{} also
+automatically generates the post-fix projections for each
+field using a dotted notation, writing
+\IdrisBound{b}\IdrisFunction{.equivalence.relation} for the
+nested projection.
+The annotation \IdrisKeyword{0} preceding the definition of the field $\U$ is a
+\emph{quantity} \cite{mcbride:qtt,atkey:qtt} indicating
+that the field is not represented at runtime, but may be used in
+types. Readers can safely ignore these annotations. There is only a handful of them in
+this article.
+We maintain them to demonstrate and emphasise that \Frexlib{} does not
+require us to retain, for example, runtime representations of types.
+If you are reading this article in colour,
+our listings include semantic highlighting, designating the semantic class
+of each lexeme: \IdrisData{data} constructor, \IdrisType{type}
+constructor, \IdrisFunction{defined} function or value, and
+\IdrisBound{variable} in a binding/bound occurence.
+We define setoid homomorphisms:
+\MyCodeListing{
+  \PutListing{.49\textwidth}\SetoidHomo
+  \PutListing{.39\textwidth}\SetoidArrow
+}
+The Appendix includes expanded examples for setoids of functions and quotient
+setoids.
+
+This technique is affectionately dubbed `setoid hell', since we
+need to prove that all our functions are setoid homomorphisms.
+Following \citeauthor{hu-carette:agda-ct}~\citeyearpar{hu-carette:agda-ct}, we manage
+setoid hell by structuring code categorically, organising results
+into homomorphisms between appropriate setoids.

@@ -1,0 +1,63 @@
+
+\subsection{Invariant Primitives and \texttt{InvCell} Verification} \label{sec:invcell}
+
+Just as Rust's standard library implements \verb`Cell` via \verb`UnsafeCell`,
+in \verus we can implement and verify \verb`InvCell` via our 
+\verb`UnsafeCell`-equivalent, \verb`PCell`.
+To do this, though, we first need to introduce our \emph{invariant primitives}.
+
+To see what these are for, consider what happens when we
+try to implement \verb`InvCell<T>` using \verb`UnsafeCell<T>`.
+From the API, we know that we need to be able to write
+even when we only have access to a shared reference \verb`&InvCell<T>`,
+but writing to the underlying \verb`UnsafeCell<T>` requires exclusive ownership
+of the \verb`PermData<T>` object.
+
+Once again, we run into this problem of trying to gain exclusive ownership of something
+that is shared. However, we have pushed the problem one layer down---to the \emph{ghost}
+layer, and this is where \verus introduces its trusted invariant primitives to escape
+the problem.
+
+The two primitives are called \verb`LocalInvariant<G>` and
+\verb`AtomicInvariant<G>`.\footnote{Both these types also have additional type parameters used to specify the invariant as a boolean predicate on \texttt{G}.}
+Each one allows the user to store a (ghost) object \verb`G`; each one allows the user to perform
+a ghost operation called \emph{opening the invariant}, where they obtain temporary, exclusive
+ownership over the \verb`G`. For example, this snippet shows how the implementation of
+\verb`InvCell<T>::replace` temporarily gains access to the \verb`PermData<T>` object:
+
+\begin{lstlisting}[language=Verus,style=VerusLineNos]
+impl InvCell<T> {
+    pub fn replace(&self, val: T) -> T {
+        requires(self.wf() && self.inv(val));
+        ensures(|old_val| self.inv(old_val));
+
+        let r;
+
+        // Opens the invariant `&self.perm_inv` which has type `LocalInvariant<PermData<T>>`.
+        // Opening the invariant is a ghost operation, and it binds to the ghost variable `perm`.
+        open_local_invariant!(&self.perm_inv => perm => {
+            // The code inside, however, is executable. This is where we actually perform
+            // the write, using ownership of the ghost `perm` object, of type `PermData<T>`.
+            r = self.pcell.replace(&mut perm, val);
+        });
+
+        r // Return the old value.
+    }
+}
+\end{lstlisting}
+
+The difference between the two primitives is that \verb`LocalInvariant<G>` is restricted for use
+on a single thread: it does not implement \verb`Send` or \verb`Sync`, the traits Rust uses to mark thread-safety.
+\verb`AtomicInvariant<G>` is thread-safe, and it does implement these traits: however,
+this comes with an additional requirement, that the invariant may only be opened
+for atomic operations.
+Since \verb`InvCell` (like Rust's \verb`Cell`) is for single-threaded use,
+we use \verb`LocalInvariant<V>` here. 
+
+The reader might wonder what happens if we attempt to nest calls to the invariant-opening
+operation, \verb`open_local_invariant`. It would certainly be unsound if we could open the same
+\verb`LocalInvariant<G>` object twice, and obtain double-ownership of the `T`.
+Indeed, \verus generates extra verification conditions to disallow such things
+by tracking which invariants are ``open'' at a given time. These verification conditions
+are designed to be lightweight, and they have no impact on our SMT generation
+for cases outside of those which use the low-level invariant APIs.

@@ -1,0 +1,13 @@
+\begin{theorem}[Correctness of the translation] \ \\
+
+  For all $k \in \mathcal{N}$, if
+  \begin{itemize}
+  \item $\hastyp{\stenv}{\senv}{\sexp}{\stau}$
+  \item $\sexp \trans \texp$
+  \item $\inrtypenv{\delta}{\stenv}$
+  \item $\inrenv {\sigma_1}{\sigma_2}{\senv}{k}$
+  \end{itemize}
+  then
+  $\rexp{k}{\delta\sigma_1\sexp}
+  {\salien{\delta\sigma_2\texp}{\stau}{\sdelta}}$
+\end{theorem}

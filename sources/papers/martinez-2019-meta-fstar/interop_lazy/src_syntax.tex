@@ -1,0 +1,23 @@
+\[\begin{array}{@{}l@{~~}l@{~}r@{}l@{}}
+\mbox{Types} & \stau & \bnfdef & \stunit \bnfalt \svar{A}
+      \bnfalt \sarrow{\stau_{\source{1}}}{\stau_{\source{2}}}
+      \bnfalt \sprod{\stau_{\source{1}}}{\stau_{\source{2}}} \bnfalt \ssum{\stau_{\source{1}}}{\stau_{\source{2}}} \\
+& & & \\
+
+\mbox{Type Schemes} & \ssig & \bnfdef & \sall{\svar{A}}{\ssig} \bnfalt \stau \\
+& & & \\
+
+
+\mbox{Environments} & \senv & \bnfdef & \senvemp \bnfalt \senvext{\senv}{\svar{x}}{\stau} \\
+& \stenv & \bnfdef & \senvemp \bnfalt \senvtext{\stenv}{\svar{A}} \\
+& & & \\
+\mbox{Substitutions} & \sesubst & \bnfdef & \sesubstemp \bnfalt \sesubstext{\sesubst}{\svar{A}}{\stau} \\
+& & & \\
+\mbox{Expressions} & \sexp & \bnfdef & \sunit \bnfalt \svar{x} \bnfalt \sabs{\svar{x}}{\stau}{\sexp} \bnfalt \sapp{\sexp_{\source{1}}}{\sexp_{\source{2}}} \\
+& & \bnfalt & \stabs{A}{e} \bnfalt \stapp{\sexp}{\stau} \\
+& & \bnfalt & \spair{\sexp_{\source{1}}}{\sexp_{\source{2}}} \bnfalt \sfst{\sexp} \bnfalt \ssnd{\sexp} \\
+& & \bnfalt & \sinl{\sexp} \bnfalt \sinr{\sexp} \\
+& & \bnfalt & \scasex{\sexp}{\stau_{\source{1}}}{\sexp_{\source{1}}}{\stau_{\source{2}}}{\sexp_{\source{2}}} \\
+& & \bnfalt & \salien{\texp}{\stau}{\sdelta} \\
+% \bnfalt \sopaque{\texp}
+\end{array}\]

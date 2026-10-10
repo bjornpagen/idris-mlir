@@ -1,0 +1,32 @@
+We thank the anonymous referees,
+our shepherd Koen Claessen, and
+Rustan Leino for their feedback
+on earlier versions of this paper.
+%
+Special thanks to George Karachalias
+and Valentin Robert for their input
+on proof combinators,
+and to Joachim Breitner and Eric Seidel
+for their suggestion on run-time proof
+elimination.
+%
+% and to Nikhil Swamy
+% for insisting that
+% functions are most
+% precisely specified
+% by their definitions.
+%
+This work was supported by the
+EPSRC programme grant EP/K034413/1,
+%
+the \grantsponsor{GS100000001}{National Science
+Foundation}{http://dx.doi.org/10.13039/100000001}
+under Grant Numbers
+\grantnum{GS100000001}{CCF-1618756},
+\grantnum{GS100000001}{CNS-1518765},
+\grantnum{GS100000001}{CCF-1518844},
+\grantnum{GS100000001}{CCF-1422471},
+\grantnum{GS100000001}{CCF-1223850}, and
+\grantnum{GS100000001}{CCF-1218344},
+%
+and a generous gift from Microsoft Research.

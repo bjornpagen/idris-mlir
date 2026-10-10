@@ -1,0 +1,90 @@
+%% \setlength{\tabcolsep}{0.4em}
+%% D{.}{.}{2.3}
+\setlength{\tabcolsep}{0.3em}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}l cc cccc@{}}
+    \toprule
+    & Gibbon & \phantom{} & \multicolumn{4}{c}{Ours} \\
+    \cmidrule{2-2}
+    \cmidrule{4-7}
+    Benchmark & $T_s$ && $T_1$ & O & $T_{48}$ & S \\
+
+    \midrule
+    
+    %% & (1) && (2) & (3) & (4) & (5) \\
+    %% \midrule
+
+    %%
+    fib & 12.8 && 12.8 & 0 & 0.31 & 41.3 \\
+
+    %%
+    %% \buildfib{} & 4.6 && 4.61 & 0.22 & 0.11 & 41.8 \\
+    \buildfib{} & 4.69 && 4.69 & 0 & 0.11 & 42.6 \\
+
+    %% %% %%
+    %% %% buildTree & 1.1 && 1.1 & & 0.17 & 6.5 \\
+
+    %% %% %%
+    %% %% add1Tree & 1.29 && 1.33 & & 0.15 & 8.6 \\
+
+    %% %% %%
+    %% %% sumTree & 0.32 && 0.32 & & 0.018 & 17.8 \\
+
+    %% %%
+    %% buildKdTree & 2.09 && 2.5 & 19.6 & 0.19 & 11 \\
+    buildKdTree & 2.33 && 2.67 & 14.6 & 0.22 & 10.6 \\
+
+    %%
+    %% countCorr & 1.45  && 1.44 & -0.68 & 0.054 & 26.8 \\
+    countCorr & 1.46  && 1.47 & 0.68 & 0.044 & 33.2 \\
+
+    %%
+    %% allNearest & 0.82 && 0.82 & 0 & 0.02 & 41 \\
+    allNearest & 1.0 && 1.01 & 1 & 0.023 & 43.5 \\
+
+    %% %% %%
+    %% %% buildQuadTree & && & & & \\
+
+    %% %%
+    %% barnesHut(4M) & 14.43 && 14.42 & -0.069  & 0.35 & 40.9 \\
+
+    %%
+    %% barnesHut & 2.71 && 2.72 & 0.37  & 0.063 & 43 \\
+    barnesHut & 3.21 && 3.21 & 0 & 0.074 & 43.4 \\
+
+    %% %%
+    %% %% buildBvh & && & & & \\
+
+    %% %% %%
+    %% %% ray & && & & & \\
+
+    %%
+    coins & 3.04 && 3.13 & 3 & 0.096 & 31.7 \\
+
+    %%
+    countnodes & 0.21 && 0.21 & 0 & 0.006 & 35.0 \\
+
+    %%
+    %% foldConstants & 1.71 && 1.71 & 0 & 0.17 & 10 \\
+    constFold & 1.78 && 1.78 & 0 & 0.16 & 11.1 \\
+    
+    %% %% old, incorrect
+    %% x86-compiler & 0.053 && 0.056 & 5.6 & 0.018 & 2.94 & 123 \\
+
+    %% %% correct, big input
+    %% x86-compiler & 5.98 && 5.98 & 0 & 0.16 & 37.4  & -  \\
+
+    %% correct, small input
+    x86-compiler & 1.08 && 1.08 & 0 & 0.041 & 26.3 \\
+
+    %%
+    %% mergeSort & 1.65 && 1.64 & -0.71 & 0.043 & 38.4 \\
+    mergeSort & 1.58 && 1.60 & 1.27 & 0.039 & 40.5 \\
+
+\iftoggle{isappendix}{
+\midrule
+average & - && - & 1.28 & - & 29.5 \\
+}{
+}
+    \bottomrule
+\end{tabular}

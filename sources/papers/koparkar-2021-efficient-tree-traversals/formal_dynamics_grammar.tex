@@ -1,0 +1,11 @@
+\begin{displaymath}
+  \begin{aligned}
+    \textup{Store} && \STOR && \gramdef & \set{\reg_1 \mapsto \heap_1 , \; \ldots \; , \reg_{n} \mapsto \heap_{n}} \\
+    \textup{Heap Values} && \heapval && \gramdef & \DC \gramor \indirection{\reg}{\concreteind{\ind}} \\
+    \textup{Heap} && \heap && \gramdef & \set{\concreteind{\ind}_1 \mapsto \heapval_1 , \; \ldots \; , \concreteind{\ind}_{n} \mapsto \heapval_{n}}\\
+    \textup{Location Map} && \MENV && \gramdef & \set{\locreg{\loc}{\reg_1}_1 \mapsto \concretelocvar{}_1 , \; \ldots \; , \locreg{\loc}{\reg_n}_n \mapsto \concretelocvar{}_n} \\
+    \textup{Sequential States} && \SEQSTATE && \gramdef & \STOR ; \MENV ; \EXPR \\
+    \textup{Parallel Tasks} && \TASKVAR && \gramdef & (\hTYP, \concretelocvar{}, \SEQSTATE) \\
+    \textup{Task Set} && \TASKSET && \gramdef & \set { \TASKVAR_1, \ldots, \TASKVAR_n }
+  \end{aligned}
+\end{displaymath}

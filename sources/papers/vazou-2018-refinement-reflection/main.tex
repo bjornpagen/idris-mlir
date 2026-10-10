@@ -1,0 +1,237 @@
+%\pdfouput=1
+\documentclass[acmsmall,screen]{acmart}
+\settopmatter{printfolios=true,printacmref=true}
+
+
+% Toggle this if you don't like it
+% \newcommand{\figrule}{\vspace{-2mm}\hrulefill\vspace{-2mm}}
+\newcommand{\figrule}{}
+
+% TOGGLE ME to turn off the appendix
+% \appendixtrue % comment out to hide appendix
+
+\usepackage{framed}
+\usepackage{hyperref}
+\usepackage{xspace}
+\usepackage{fancyvrb}
+\usepackage{listings}
+
+\usepackage{booktabs}
+\hypersetup{colorlinks=true,allcolors=blue}
+\usepackage{amsmath,amssymb,latexsym,amstext}
+\usepackage{array}
+\usepackage{url}
+\usepackage{comment}
+\usepackage{listings}
+\usepackage{showexpl} % already includes listings package
+
+\usepackage{enumitem}
+\usepackage{booktabs}
+
+\usepackage{stmaryrd}
+\usepackage{xcolor}
+\usepackage{mathtools}
+\usepackage{apptools}
+\usepackage{chngcntr}
+\usepackage{scalerel}
+\usepackage{mathpartir}
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{csvsimple}
+\usepackage{pdfpages}
+\usepackage{tikz}
+\usepackage{anyfontsize}
+\input{haskellListings}
+\usepackage{multicol,lipsum}
+\usepackage{multirow}
+\usepackage{array}
+
+\usepackage{wrapfig}
+
+\usepackage{epsfig}
+\usepackage[outdir=./]{epstopdf}
+
+\usepackage{commands}
+% \usepackage{liquidHaskell}
+\usepackage[inference]{semantic}
+\newtheorem{assumption}{Assumption}
+
+
+
+
+
+
+\bibliographystyle{ACM-Reference-Format}
+\usepackage{booktabs}   %% For formal tables:
+                        %% http://ctan.org/pkg/booktabs
+\usepackage{subcaption} %% For complex figures with subfigures/subcaptions
+                        %% http://ctan.org/pkg/subcaption
+
+
+\begin{document}
+
+\setcopyright{acmcopyright}
+\acmPrice{}
+\acmDOI{10.1145/3158141}
+\acmYear{2018}
+\copyrightyear{2018}
+\acmJournal{PACMPL}
+\acmVolume{2}
+\acmNumber{POPL}
+\acmArticle{53}
+\acmMonth{1}
+
+\begin{CCSXML}
+<ccs2012>
+<concept>
+<concept_id>10011007.10010940.10010992.10010998.10010999</concept_id>
+<concept_desc>Software and its engineering~Software verification</concept_desc>
+<concept_significance>500</concept_significance>
+</concept>
+</ccs2012>
+\end{CCSXML}
+
+\ccsdesc[500]{Software and its engineering~General programming languages}
+\keywords{refinement types, theorem proving, Haskell, automatic verification} 
+
+\title[]{Refinement Reflection: Complete Verification with SMT}
+
+
+\author{Niki Vazou}
+
+\affiliation{
+  \institution{University of Maryland}
+  \country{USA}
+}
+\email{nvazou@cs.umd.edu}
+
+
+
+\author{Anish Tondwalkar}
+\affiliation{
+	\institution{University of California, San Diego}
+	\country{USA}
+}
+\email{atondwal@cs.ucsd.edu}
+
+\author{Vikraman Choudhury}
+\affiliation{
+	\institution{Indiana University}
+	\country{USA}
+}
+
+\author{Ryan G. Scott}
+\affiliation{
+	\institution{Indiana University}
+	\country{USA}
+}
+
+\author{Ryan R. Newton}
+\affiliation{
+	\institution{Indiana University}
+	\country{USA}
+}
+
+\author{Philip Wadler}
+\affiliation{
+	\institution{University of Edinburgh and Input Output HK}
+	\country{UK}
+}
+\email{wadler@inf.ed.ac.uk}
+
+\author{Ranjit Jhala}
+\affiliation{
+	\institution{University of California, San Diego}
+	\country{USA}
+}
+\email{jhala@cs.ucsd.edu}
+
+\renewcommand{\shortauthors}{N. Vazou, A. Tondwalkar, V. Choudhury, R. G. Scott, R. R. Newton, P. Wadler, and R. Jhala}
+
+\begin{CCSXML}
+<ccs2012>
+<concept>
+<concept_id>10011007.10010940.10010992.10010998.10010999</concept_id>
+<concept_desc>Software and its engineering~Software verification</concept_desc>
+<concept_significance>500</concept_significance>
+</concept>
+</ccs2012>
+\end{CCSXML}
+
+\ccsdesc[500]{Software and its engineering~General programming languages}
+
+\input{abstract}
+
+\maketitle
+
+\input{intro2}
+\input{overview}
+\input{expressive}
+\input{theoryR}
+\input{theoryS}
+\input{pbe2}
+\input{evaluation}
+\input{related}
+\input{conclusion2}
+
+
+\begin{acks} 
+We thank the anonymous referees,
+our shepherd Koen Claessen, and 
+Rustan Leino for their feedback 
+on earlier versions of this paper.
+%
+Special thanks to George Karachalias 
+and Valentin Robert for their input 
+on proof combinators, 
+and to Joachim Breitner and Eric Seidel 
+for their suggestion on run-time proof 
+elimination.
+%
+% and to Nikhil Swamy 
+% for insisting that 
+% functions are most 
+% precisely specified 
+% by their definitions.  
+%
+This work was supported by the 
+EPSRC programme grant EP/K034413/1,
+%
+the \grantsponsor{GS100000001}{National Science
+Foundation}{http://dx.doi.org/10.13039/100000001}
+under Grant Numbers
+\grantnum{GS100000001}{CCF-1618756}, 
+\grantnum{GS100000001}{CNS-1518765},
+\grantnum{GS100000001}{CCF-1518844},
+\grantnum{GS100000001}{CCF-1422471},
+\grantnum{GS100000001}{CCF-1223850}, and
+\grantnum{GS100000001}{CCF-1218344},
+%
+and a generous gift from Microsoft Research.
+\end{acks}
+
+\bibliography{sw}
+\newpage
+\appendix
+
+\input{pbe-proofs}
+\input{expressiveness-proofs}
+%% OLD soundsness proofs to be included in the Appendix
+
+\renewcommand\hastype[3]{\ensuremath{#1 \vdash #2 : #3}}
+\renewcommand\issubtype[3]{\ensuremath{#1 \vdash #2 \preceq #3}}
+\renewcommand\sub{\ensuremath{\theta}}
+\renewcommand\aissubtype[3]{\ensuremath{#1 \vdash_{S} #2 \preceq #3}}
+\renewcommand\ahastype[3]{\ensuremath{#1 \vdash_{S} #2 : #3}}
+\renewcommand\tref[3]{\ensuremath{\{ \tbind{#1}{#2} \mid #3 \}}}
+\renewcommand\tfun[3]{\ensuremath{\tbind{#1}{#2} \rightarrow #3}}
+
+\input{icfp17/paper/theory.extended}
+\input{icfp17/paper/soundness}
+\input{icfp17/paper/algorithmic.extended}
+\input{icfp17/paper/soundness_algorithmic}
+\input{icfp17/paper/lambda}
+\input{implementation}
+\input{evaluation_par}
+
+\end{document}

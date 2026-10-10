@@ -1,0 +1,254 @@
+\begin{thebibliography}{46}
+
+\bibitem[{Abel and Pientka}(2011){Abel \& Pientka}]{DBLP:conf/tlca/AbelP11}
+{Abel, A. \& Pientka, B.} (2011) Higher-order dynamic pattern unification for
+  dependent types and records. Typed Lambda Calculi and Applications - 10th
+  International Conference, {TLCA} 2011, Novi Sad, Serbia, June 1-3, 2011.
+  Proceedings. Springer. pp. 10--26.
+
+\bibitem[{Allais}(2023)]{DBLP:conf/esop/Allais23}
+{Allais, G.} (2023) Builtin types viewed as inductive families. Programming
+  Languages and Systems - 32nd European Symposium on Programming, {ESOP} 2023,
+  Held as Part of the European Joint Conferences on Theory and Practice of
+  Software, {ETAPS} 2023, Paris, France, April 22-27, 2023, Proceedings.
+  Springer. pp. 113--139.
+
+\bibitem[{Altenkirch and McBride}(2002){Altenkirch \&
+  McBride}]{DBLP:conf/ifip2-1/AltenkirchM02}
+{Altenkirch, T. \& McBride, C.} (2002) Generic programming within dependently
+  typed programming. Generic Programming, {IFIP} {TC2/WG2.1} Working Conference
+  on Generic Programming, July 11-12, 2002, Dagstuhl, Germany. Kluwer. pp.
+  1--20.
+
+\bibitem[{Atkey}(2018)]{DBLP:conf/lics/Atkey18}
+{Atkey, R.} (2018) Syntax and semantics of quantitative type theory.
+  Proceedings of the 33rd Annual {ACM/IEEE} Symposium on Logic in Computer
+  Science, {LICS} 2018, Oxford, UK, July 09-12, 2018. {ACM}. pp. 56--65.
+
+\bibitem[{Baudon et~al.}(2023){Baudon, Radanne, \&
+  Gonnord}]{ACM:conf/icfp/Baudon23}
+{Baudon, T., Radanne, G. \& Gonnord, L.} (2023) Bit-stealing made legal:
+  Compilation for custom memory representations of algebraic data types.
+  \textit{Proc. ACM Program. Lang.} {\bf 7}(ICFP).
+
+\bibitem[{Benke et~al.}(2003){Benke, Dybjer, \&
+  Jansson}]{DBLP:journals/njc/BenkeDJ03}
+{Benke, M., Dybjer, P. \& Jansson, P.} (2003) Universes for generic programs
+  and proofs in dependent type theory. \textit{Nord. J. Comput.} {\bf 10}(4),
+  265--289.
+
+\bibitem[{Brady}(2021)]{DBLP:conf/ecoop/Brady21}
+{Brady, E.~C.} (2021) Idris 2: Quantitative type theory in practice. 35th
+  European Conference on Object-Oriented Programming, {ECOOP} 2021, July 11-17,
+  2021, Aarhus, Denmark (Virtual Conference). Schloss Dagstuhl -
+  Leibniz-Zentrum f{\"{u}}r Informatik. pp. 9:1--9:26.
+
+\bibitem[{Charguéraud}(2023)]{DBLP:books/hal/Chargueraud23}
+{Charguéraud, A.} (2023) {\em A Modern Eye on Separation Logic for Sequential
+  Programs\/}. University of Strasbourg.
+
+\bibitem[{Charguéraud}(2023)]{MANUAL:book/sfoundations/Chargueraud23}
+{Charguéraud, A.} (2023) {\em Separation Logic Foundations\/}. vol.~6 of {\em
+  Software Foundations\/}. Electronic textbook. Version 1.6.
+
+\bibitem[{Chen et~al.}(2023){Chen, Lafont, O'Connor, Keller, McLaughlin,
+  Jackson, \& Rizkallah}]{DBLP:journals/pacmpl/ChenLOKMJR23}
+{Chen, Z., Lafont, A., O'Connor, L., Keller, G., McLaughlin, C., Jackson, V. \&
+  Rizkallah, C.} (2023) Dargent: {A} silver bullet for verified data layout
+  refinement. \textit{Proc. {ACM} Program. Lang.} {\bf 7}({POPL}), 1369--1395.
+
+\bibitem[{Christiansen}(2013)]{DBLP:conf/icfp/Christiansen13}
+{Christiansen, D.~R.} (2013) Dependent type providers. Proceedings of the 9th
+  {ACM} {SIGPLAN} workshop on Generic programming, {WGP} 2013, Boston,
+  Massachusetts, USA, September 28, 2013. {ACM}. pp. 25--34.
+
+\bibitem[{Coutts et~al.}(2007){Coutts, Stewart, \&
+  Leshchinskiy}]{DBLP:conf/padl/CouttsSL07}
+{Coutts, D., Stewart, D. \& Leshchinskiy, R.} (2007) Rewriting haskell strings.
+  Practical Aspects of Declarative Languages, 9th International Symposium,
+  {PADL} 2007, Nice, France, January 14-15, 2007. Springer. pp. 50--64.
+
+\bibitem[{Dybjer}(1994)]{DBLP:journals/fac/Dybjer94}
+{Dybjer, P.} (1994) Inductive families. \textit{Formal Aspects Comput.} {\bf
+  6}(4), 440--465.
+
+\bibitem[{Escot and Cockx}(2022){Escot \&
+  Cockx}]{DBLP:journals/pacmpl/EscotC22}
+{Escot, L. \& Cockx, J.} (2022) Practical generic programming over a universe
+  of native datatypes. \textit{Proc. {ACM} Program. Lang.} {\bf 6}({ICFP}),
+  625--649.
+
+\bibitem[{Gibbons}(2006)]{DBLP:conf/ssdgp/Gibbons06}
+{Gibbons, J.} (2006) Datatype-generic programming. Datatype-Generic Programming
+  - International Spring School, {SSDGP} 2006, Nottingham, UK, April 24-27,
+  2006, Revised Lectures. Springer. pp. 1--71.
+
+\bibitem[{Hagino}(1987)]{DBLP:conf/ctcs/Hagino87}
+{Hagino, T.} (1987) A typed lambda calculus with categorical type constructors.
+  Category Theory and Computer Science, Edinburgh, UK, September 7-9, 1987,
+  Proceedings. Springer. pp. 140--157.
+
+\bibitem[{Hoare}(1969)]{DBLP:journals/cacm/Hoare69}
+{Hoare, C. A.~R.} (1969) An axiomatic basis for computer programming.
+  \textit{Commun. {ACM}}. {\bf 12}(10), 576--580.
+
+\bibitem[{{Idris Community}}(2023)]{MANUAL:repo/github/Katla23}
+{{Idris Community}}. (2023) Katla -- {LaTeX} \& {HTML} code listing generator
+  for {Idris} 2. \url{https://github.com/idris-community/katla}.
+
+\bibitem[{Jansson and Jeuring}(1997){Jansson \&
+  Jeuring}]{DBLP:conf/popl/JanssonJ97}
+{Jansson, P. \& Jeuring, J.} (1997) Polyp - {A} polytypic programming language.
+  Conference Record of POPL'97: The 24th {ACM} {SIGPLAN-SIGACT} Symposium on
+  Principles of Programming Languages, Papers Presented at the Symposium,
+  Paris, France, 15-17 January 1997. {ACM} Press. pp. 470--482.
+
+\bibitem[{Koparkar et~al.}(2021){Koparkar, Rainey, Vollmer, Kulkarni, \&
+  Newton}]{DBLP:journals/pacmpl/KoparkarRVKN21}
+{Koparkar, C., Rainey, M., Vollmer, M., Kulkarni, M. \& Newton, R.~R.} (2021)
+  Efficient tree-traversals: reconciling parallelism and dense data
+  representations. \textit{Proc. {ACM} Program. Lang.} {\bf 5}({ICFP}), 1--29.
+
+\bibitem[{Kov{\'{a}}cs}(2022)]{DBLP:journals/pacmpl/Kovacs22}
+{Kov{\'{a}}cs, A.} (2022) Staged compilation with two-level type theory.
+  \textit{Proc. {ACM} Program. Lang.} {\bf 6}({ICFP}), 540--569.
+
+\bibitem[{Larmouth}(1999)]{MANUAL:book/larmouth1999}
+{Larmouth, J.} (1999) {\em ASN.1 Complete\/}. Morgan Kaufmann Publishers Inc.
+  San Francisco, CA, USA.
+
+\bibitem[{Leijen and Meijer}(1999){Leijen \& Meijer}]{DBLP:conf/dsl/LeijenM99}
+{Leijen, D. \& Meijer, E.} (1999) Domain specific embedded compilers.
+  Proceedings of the Second Conference on Domain-Specific Languages {(DSL}
+  '99), Austin, Texas, USA, October 3-5, 1999. {ACM}. pp. 109--122.
+
+\bibitem[{L{\"{o}}h and Magalh{\~{a}}es}(2011){L{\"{o}}h \&
+  Magalh{\~{a}}es}]{DBLP:conf/icfp/LohM11}
+{L{\"{o}}h, A. \& Magalh{\~{a}}es, J.~P.} (2011) Generic programming with
+  indexed functors. Proceedings of the seventh {ACM} {SIGPLAN} workshop on
+  Generic programming, WGP@ICFP 2011, Tokyo, Japan, September 19-21, 2011.
+  {ACM}. pp. 1--12.
+
+\bibitem[{Malcolm}(1990)]{DBLP:journals/scp/Malcolm90}
+{Malcolm, G.} (1990) Data structures and program transformation. \textit{Sci.
+  Comput. Program.} {\bf 14}(2-3), 255--279.
+
+\bibitem[{Mandelbaum et~al.}(2007){Mandelbaum, Fisher, Walker, Fern{\'{a}}ndez,
+  \& Gleyzer}]{DBLP:conf/popl/MandelbaumFWFG07}
+{Mandelbaum, Y., Fisher, K., Walker, D., Fern{\'{a}}ndez, M.~F. \& Gleyzer, A.}
+  (2007) {PADS/ML:} a functional data description language. Proceedings of the
+  34th {ACM} {SIGPLAN-SIGACT} Symposium on Principles of Programming Languages,
+  {POPL} 2007, Nice, France, January 17-19, 2007. {ACM}. pp. 77--83.
+
+\bibitem[{McBride}(2008)]{DBLP:conf/popl/McBride08}
+{McBride, C.} (2008) Clowns to the left of me, jokers to the right (pearl):
+  dissecting data structures. Proceedings of the 35th {ACM} {SIGPLAN-SIGACT}
+  Symposium on Principles of Programming Languages, {POPL} 2008, San Francisco,
+  California, USA, January 7-12, 2008. {ACM}. pp. 287--295.
+
+\bibitem[{McBride}(2016)]{DBLP:conf/birthday/McBride16}
+{McBride, C.} (2016) I got plenty o' nuttin'. A List of Successes That Can
+  Change the World - Essays Dedicated to Philip Wadler on the Occasion of His
+  60th Birthday. Springer. pp. 207--233.
+
+\bibitem[{McBride and McKinna}(2004){McBride \&
+  McKinna}]{DBLP:journals/jfp/McBrideM04}
+{McBride, C. \& McKinna, J.} (2004) The view from the left. \textit{J. Funct.
+  Program.} {\bf 14}(1), 69--111.
+
+\bibitem[{McBride and Paterson}(2008){McBride \&
+  Paterson}]{DBLP:journals/jfp/McbrideP08}
+{McBride, C. \& Paterson, R.} (2008) Applicative programming with effects.
+  \textit{J. Funct. Program.} {\bf 18}(1), 1--13.
+
+\bibitem[{Mendel-Gleason}(2012)]{MANUAL:phd/dublin/Mendel12}
+{Mendel-Gleason, G.} (2012) {\em Types and verification for infinite state
+  systems\/}. Ph.D. thesis. Dublin City University.
+
+\bibitem[{Moggi}(1991)]{DBLP:journals/iandc/Moggi91}
+{Moggi, E.} (1991) Notions of computation and monads. \textit{Inf. Comput.}
+  {\bf 93}(1), 55--92.
+
+\bibitem[{Monnier}(2019)]{DBLP:conf/icfp/Monnier19}
+{Monnier, S.} (2019) Inductive types deconstructed: the calculus of united
+  constructions. Proceedings of the 4th {ACM} {SIGPLAN} International Workshop
+  on Type-Driven Development, TyDe@ICFP 2019, Berlin, Germany, August 18, 2019.
+  {ACM}. pp. 52--63.
+
+\bibitem[{Morris}(2007)]{DBLP:phd/ethos/Morris07}
+{Morris, P. W.~J.} (2007) {\em Constructing Universes for Generic
+  Programming\/}. Ph.D. thesis. University of Nottingham, {UK}.
+
+\bibitem[{O'Hearn}(2019)]{DBLP:journals/cacm/OHearn19}
+{O'Hearn, P.~W.} (2019) Separation logic. \textit{Commun. {ACM}}. {\bf 62}(2),
+  86--95.
+
+\bibitem[{Petersen et~al.}(2002){Petersen, Harper, Crary, \&
+  Pfenning}]{MANUAL:report/cmu/PetersenHCP03}
+{Petersen, L., Harper, R., Crary, K. \& Pfenning, F.} (2002) A type theory for
+  memory allocation and data layout (extended version). Technical Report
+  CMU-CS-02-171.
+
+\bibitem[{Petersen et~al.}(2003){Petersen, Harper, Crary, \&
+  Pfenning}]{DBLP:conf/popl/PetersenHCP03}
+{Petersen, L., Harper, R., Crary, K. \& Pfenning, F.} (2003) A type theory for
+  memory allocation and data layout. Conference Record of {POPL} 2003: The 30th
+  {SIGPLAN-SIGACT} Symposium on Principles of Programming Languages, New
+  Orleans, Louisisana, USA, January 15-17, 2003. {ACM}. pp. 172--184.
+
+\bibitem[{Pfeifer and Rue{\ss}}(1999){Pfeifer \&
+  Rue{\ss}}]{DBLP:conf/tphol/PfeiferR99}
+{Pfeifer, H. \& Rue{\ss}, H.} (1999) Polytypic proof construction. Theorem
+  Proving in Higher Order Logics, 12th International Conference, TPHOLs'99,
+  Nice, France, September, 1999, Proceedings. Springer. pp. 55--72.
+
+\bibitem[{Poulsen et~al.}(2018){Poulsen, Rouvoet, Tolmach, Krebbers, \&
+  Visser}]{DBLP:journals/pacmpl/PoulsenRTKV18}
+{Poulsen, C.~B., Rouvoet, A., Tolmach, A., Krebbers, R. \& Visser, E.} (2018)
+  Intrinsically-typed definitional interpreters for imperative languages.
+  \textit{Proc. {ACM} Program. Lang.} {\bf 2}({POPL}), 16:1--16:34.
+
+\bibitem[{Reynolds}(2002)]{DBLP:conf/lics/Reynolds02}
+{Reynolds, J.~C.} (2002) Separation logic: {A} logic for shared mutable data
+  structures. 17th {IEEE} Symposium on Logic in Computer Science {(LICS} 2002),
+  22-25 July 2002, Copenhagen, Denmark, Proceedings. {IEEE} Computer Society.
+  pp. 55--74.
+
+\bibitem[{Rouvoet}(2021)]{DBLP:phd/basesearch/Rouvoet21}
+{Rouvoet, A.} (2021) {\em Correct by Construction Language Implementations\/}.
+  Ph.D. thesis. Delft University of Technology, Netherlands.
+
+\bibitem[{{Tom{\'{e}} Corti{\~{n}}as} and Swierstra}(2018){{Tom{\'{e}}
+  Corti{\~{n}}as} \& Swierstra}]{DBLP:conf/icfp/CortinasS18}
+{{Tom{\'{e}} Corti{\~{n}}as}, C. \& Swierstra, W.} (2018) From algebra to
+  abstract machine: a verified generic construction. Proceedings of the 3rd
+  {ACM} {SIGPLAN} International Workshop on Type-Driven Development, TyDe@ICFP
+  2018, St. Louis, MO, USA, September 27, 2018. {ACM}. pp. 78--90.
+
+\bibitem[{van Geest and Swierstra}(2017){van Geest \&
+  Swierstra}]{DBLP:conf/icfp/GeestS17}
+{van Geest, M. \& Swierstra, W.} (2017) Generic packet descriptions: verified
+  parsing and pretty printing of low-level data. Proceedings of the 2nd {ACM}
+  {SIGPLAN} International Workshop on Type-Driven Development, TyDe@ICFP 2017,
+  Oxford, UK, September 3, 2017. {ACM}. pp. 30--40.
+
+\bibitem[{Vollmer et~al.}(2019){Vollmer, Koparkar, Rainey, Sakka, Kulkarni, \&
+  Newton}]{DBLP:conf/pldi/VollmerKRS0N19}
+{Vollmer, M., Koparkar, C., Rainey, M., Sakka, L., Kulkarni, M. \& Newton,
+  R.~R.} (2019) {LoCal}: a language for programs operating on serialized data.
+  Proceedings of the 40th {ACM} {SIGPLAN} Conference on Programming Language
+  Design and Implementation, {PLDI} 2019, Phoenix, AZ, USA, June 22-26, 2019.
+  {ACM}. pp. 48--62.
+
+\bibitem[{Wadler}(1987)]{DBLP:conf/popl/Wadler87}
+{Wadler, P.} (1987) Views: {A} way for pattern matching to cohabit with data
+  abstraction. Conference Record of the Fourteenth Annual {ACM} Symposium on
+  Principles of Programming Languages, Munich, Germany, January 21-23, 1987.
+  {ACM} Press. pp. 307--313.
+
+\bibitem[{Yallop}(2007)]{DBLP:conf/ml/Yallop07}
+{Yallop, J.} (2007) Practical generic programming in ocaml. Proceedings of the
+  {ACM} Workshop on ML, 2007, Freiburg, Germany, October 5, 2007. {ACM}. pp.
+  83--94.
+
+\end{thebibliography}

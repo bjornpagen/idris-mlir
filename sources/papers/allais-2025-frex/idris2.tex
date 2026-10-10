@@ -1,0 +1,102 @@
+\subsection{Idris2}
+\seclabel{idris2}
+At its heart, the type checker implements: dynamic
+pattern
+unification~\cite{miller:unification,reed:unification,gundry:thesis},
+which instantiates implicit arguments; and conversion checking
+whether two terms evaluate to the same reduct.
+Both components require an evaluator.  \idris{} uses
+normalisation by evaluation~\cite{berger:nbe} with a \emph{syntactic representation}
+(terms) and a
+\emph{semantic representation} (values in weak head normal form). The
+static evaluator is call-by-name and produces a weak head normal form from a term, and
+\idris{} implements a quotation mechanism which reconstructs a term from a semantic
+representation of a weak head normal form.
+
+Profiling the \idris{} executable reveals that most performance
+bottlenecks encountered in developing \Frexlib{} are caused by
+the evaluator.
+%
+We have experimented with alternative implementations of the evaluator
+that compile terms using Scheme's backend and a glued
+representation of values~\cite{DBLP:journals/mscs/CoquandD97,Chapman2005epigram} rather
+than interpreting terms directly.
+%
+These implementations give
+modest performance
+gains, but in the end the most effective way is to avoid evaluation in the first place! We have therefore also experimented with the following ways
+to avoid evaluating terms: preserving subterm sharing, choosing appropriate
+data representation in unification, and taking advantage of the typical
+structure of unification and conversion problems.
+
+\subsubsection*{Preserving Sharing}
+
+Instantiating implicit arguments in dependently typed programs often
+leads to significant \emph{sharing} of subterms.
+For example,
+\IdrisData{[}\IdrisData{True}\IdrisData{,} \IdrisData{False}\IdrisData{]}
+\IdrisKeyword{:} \IdrisType{Vect} \IdrisData{2} \IdrisType{Bool}
+elaborates to the following term:
+\IdrisKeyword{(}\IdrisData{::}\IdrisKeyword{)} \IdrisKeyword{(}\IdrisData{S} \IdrisData{Z}\IdrisKeyword{)} \IdrisType{Bool} \IdrisData{True} \IdrisKeyword{(}\IdrisKeyword{(}\IdrisData{::}\IdrisKeyword{)} \IdrisData{Z} \IdrisType{Bool} \IdrisData{False} \IdrisKeyword{(}\IdrisData{Nil} \IdrisType{Bool}\IdrisKeyword{)}\IdrisKeyword{)},
+sharing the subexpressions \IdrisData{Z} and \IdrisType{Bool}. As the vector
+gets longer, sharing increases.
+Following~\citet{kovacs:smalltt}, we preserve sharing by introducing a
+metavariable for \emph{every} implicit argument, inlining only when it is
+guaranteed that the definition cannot break sharing. Consequently,
+we inline a metavariable whose definition is itself a metavariable applied
+to local variables. Otherwise, we do not substitute metavariable solutions
+into terms at all until they are required for unification or display
+purposes.
+
+\subsubsection*{Unification}
+
+Unification operates on \emph{values}, not \emph{terms}, but sometimes \idris{}
+needs to postpone a unification problem if it is blocked due to an unsolved
+metavariable. When the metavariable is solved, \idris{} needs to re-evaluate the
+terms being unified. Previously, \idris{} stored postponed problems as a pair
+of (syntactic) terms in an environment, re-evaluated once the
+blocking metavariable is solved.
+However, \Frexlib{} produces some large postponed problems, for which quotation
+to syntax is expensive.  Now, in addition to the evaluator and quotation, we
+have introduced a \emph{continue} operation, which re-evaluates the
+metavariable at the head of a blocked value, and avoids unnecessary quotation.
+
+\subsubsection*{Conversion Checking}
+
+Types in \Frexlib{} can be large, and sometimes a unification problem that arises
+while type checking \Frexlib{} is postponed due to an unsolved
+metavariable which blocks evaluation. In this case, we might have a
+unification problem of the form
+\IdrisFunction{f} \IdrisBound{x1} \IdrisKeyword{...} \IdrisBound{xn}
+\IdrisKeyword{=?=}
+\IdrisFunction{f} \IdrisBound{y1} \IdrisKeyword{...} \IdrisBound{yn}
+where the \IdrisBound{xi}, \IdrisBound{yi} etc may be very large subterms,
+and the terms unify if they are convertible.
+If most corresponding terms are equal after evaluation, but one differs, it may
+take a long time to find the differing subterm which blocks unification,
+especially since checking the convertibility of subterms involves evaluation.
+Fortunately, terms in blocked unification problems
+tend to differ at the heads rather than at deeply nested subterms. Therefore,
+we always check the heads of the values of corresponding \IdrisBound{xi} and
+\IdrisBound{yi} first, postponing the unification
+problem if any are unequal. This heuristic significantly improves performance,
+preventing a lot of unnecessary evaluation.
+
+\subsubsection*{Influence on Language Design and Ecosystem}
+
+The development of \Frexlib{} has led to the implementation of a number of
+desirable language features in \idris{}.
+%
+Many of these have been minor changes to the treatment of implicit
+arguments and \texttt{parameters} blocks.
+%
+More significantly, \Frexlib{} makes extensive use of \texttt{auto}
+implicit arguments, which are solved by a search procedure which uses
+constructors and functions marked as search hints.  To assist
+the development of \Frexlib{} and improve the readability of its code we have added the
+ability to mark \emph{local} functions as search hints, allowing
+us to restrict the scope of the hints and so avoid excessive
+growth of the search space.
+%
+\Frexlib{} is now part of the \idris{} test suite, ensuring that it will
+remain consistent with any updates to \idris{}.

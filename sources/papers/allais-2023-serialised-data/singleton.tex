@@ -1,0 +1,66 @@
+\subsection{The Singleton Type}\label{sec:datasingleton}
+
+The \IdrisType{Singleton} family has a single constructor
+which takes an argument \IdrisBound{x} of type \IdrisBound{a},
+its return type is indexed precisely by this \IdrisBound{x}.
+
+\ExecuteMetaData[Data/Singleton.idr.tex]{singleton}
+
+More concretely this means that a value of type
+(\IdrisType{Singleton} $t$) has to be a runtime relevant
+copy of the term $t$.
+%
+Note that \idris{} performs an optimisation similar to Haskell's
+\texttt{newtype} unwrapping: every datatype that has a single
+non-recursive constructor with only one non-erased argument
+is unwrapped during compilation.
+%
+This means that at runtime the
+\IdrisType{Singleton} / \IdrisData{MkSingleton} indirections
+will have disappeared.
+
+We can define some convenient combinators to manipulate
+singletons.
+%
+We reuse the naming conventions typical of applicative
+functors which will allow us to rely on \idris{}'s automatic
+desugaring of \emph{idiom brackets}~\citep{DBLP:journals/jfp/McbrideP08}
+into expressions using these combinators.
+
+First \IdrisFunction{pure} is a simple alias for \IdrisData{MkSingleton},
+it turns a runtime-relevant value \IdrisBound{x} into a singleton for
+this value.
+
+\ExecuteMetaData[Data/Singleton.idr.tex]{pure}
+
+Next, we can `map' a function under a \IdrisType{Singleton} layer: given
+a pure function \IdrisBound{f} and a runtime copy of \IdrisBound{t} we
+can get a runtime copy of (\IdrisBound{f} \IdrisBound{t}).
+
+\ExecuteMetaData[Data/Singleton.idr.tex]{fmap}
+
+Finally, we can apply a runtime copy of a function \IdrisBound{f}
+to a runtime copy of an argument \IdrisBound{t}
+to get a runtime copy of the result (\IdrisBound{f} \IdrisBound{t}).
+
+\ExecuteMetaData[Data/Singleton.idr.tex]{ap}
+
+As we mentioned earlier, \idris{} automatically desugars idiom brackets
+using these combinators.
+
+\begin{remark}[Idiom Brackets as Sugar]
+  Idiom brackets let us use the standard whitespace-based application
+  typical of pure functions to performs computations in an \emph{Applicative}
+  contexts.
+%
+  In other words, during elaboration an atomic expression
+  \IdrisKeyword{[|} \IdrisBound{x} \IdrisKeyword{|]}
+  will be desugared to (\IdrisFunction{pure} \IdrisBound{x})
+  while a compound expression
+  \IdrisKeyword{[|} \IdrisBound{f} \IdrisBound{t1} $\cdots$ \IdrisBound{tn} \IdrisKeyword{|]}
+  will become (\IdrisBound{f} \IdrisFunction{<\$>} \IdrisBound{t1} \IdrisFunction{<*>} $\cdots$ \IdrisFunction{<*>} \IdrisBound{tn}).
+\end{remark}
+
+This built-in handling of idiom brackets lets us apply
+\IdrisType{Singleton}-wrapped values almost as seamlessly
+as pure values.

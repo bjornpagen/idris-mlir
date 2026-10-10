@@ -1,0 +1,164 @@
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
+<!--Converted with LaTeX2HTML .95.3 (Nov 17 1995) by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds -->
+<HTML>
+<HEAD>
+<TITLE>Primes</TITLE>
+<!-- Changed by: Guy Blelloch, 29-Feb-1996 -->
+<!-- Changed by: Guy Blelloch , 25-Mar-1996 -->
+<META NAME="description" CONTENT="Primes">
+<META NAME="keywords" CONTENT="cacm2">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<LINK REL=STYLESHEET HREF="cacm2.css">
+</HEAD>
+<BODY LANG="EN">
+
+<strong>
+From <a href="../cacm.html"><cite>Programming Parallel Algorithms.</cite></a>
+<br>
+Communications of the ACM, 39(3), March, 1996.
+</strong>
+
+ <BR> <HR><A NAME="tex2html113" HREF="node9.html"><IMG ALIGN=BOTTOM ALT="next"  WIDTH=37 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/next_motif.gif"></A> <A NAME="tex2html111" HREF="node7.html"><IMG ALIGN=BOTTOM ALT="up"  WIDTH=26 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/up_motif.gif"></A> <A NAME="tex2html105" HREF="node7.html"><IMG ALIGN=BOTTOM ALT="previous"  WIDTH=63 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/previous_motif.gif"></A>   <BR>
+<B> Next:</B> <A NAME="tex2html114" HREF="node9.html">Sparse Matrix Multiplication</A>
+<B>Up:</B> <A NAME="tex2html112" HREF="node7.html">Examples of Parallel Algorithms</A>
+<B> Previous:</B> <A NAME="tex2html106" HREF="node7.html">Examples of Parallel Algorithms</A>
+<BR> <HR> <P>
+<H2><A NAME="SECTION00031000000000000000">Primes</A>
+<A NAME="secprimes">&#160;</A>
+<A NAME="494">&#160;</A></H2>
+
+Our first algorithm finds all the prime numbers less than <i>n</i>.  This
+example demonstrates a common technique used in parallel
+algorithms--solving a smaller case of the same problem to speed the
+solution of the full problem.  We also use the example to introduce
+the notion of work efficiency.  An important aspect of developing a
+good parallel algorithm is designing one whose work is close to the
+time for a good sequential algorithm that solves the same problem.
+Without this condition we cannot hope to get good speedup of the
+parallel algorithm over the sequential algorithm.  Parallel algorithms
+are referred to as <EM>work-efficient</EM> relative to a sequential
+algorithm if their work is within a constant factor of the time of the
+sequential algorithm.  All the algorithms we have discussed so far are
+work efficient relative to the best sequential algorithms.  In
+particular summing <i>n</i> numbers took <EM>O(n)</EM> work and parallel Quicksort
+took <EM>O(n log n)</EM> expected work, both of which are the same as
+required sequentially.  For finding primes our goal should again be to
+develop a work-efficient algorithm.  We therefore start by looking at
+efficient sequential algorithms.
+<P>
+<P><A NAME="514">&#160;</A><A NAME="figprimes1">&#160;</A> <IMG ALIGN=BOTTOM ALT="figure498"  WIDTH=461 HEIGHT=122 SRC="img35.gif"  > <BR>
+<STRONG>Figure 8:</STRONG> Pseudocode for the sieve of Eratosthenes<BR>
+<P>
+<P>
+The most common sequential algorithm for finding primes is the sieve
+of Eratosthenes, which is specified in Figure <A HREF="node8.html#figprimes1">8</A>.  The
+algorithm returns an array in which the <i>i</i>th position is set to
+true if <i>i</i> is a prime and to false otherwise.  The algorithm works by
+initializing the array <i>A</i> to <font size=-1><small>TRUE</small></font> and then setting to <font size=-1><small>FALSE</small></font> all multiples of each prime it finds.  It starts with the first
+prime, 2, and works it way up to <EM>sqrt(n)</EM>.  The algorithm only needs
+go up to <EM>sqrt(n)</EM> since all composite numbers (non-primes) less than
+<i>n</i> must have a factor less or equal to <EM>sqrt(n)</EM>.  If line 7 is
+implemented by looping over the multiples, then the algorithm can be
+shown to take <EM>O(n log log n)</EM> time and the constant is small.  The
+sieve of Eratosthenes is not the theoretically best algorithm for
+finding primes, but it is close and we would be happy to
+derive a parallel algorithm that is work-efficient relative to it
+(<EM>i.e.</EM> does <EM>O(n log log n)</EM> work).
+<P>
+It turns out that the algorithm as described has some easy
+parallelism.  In particular, line 7 can be implemented in parallel.
+In NESL the multiples of a value <i>i</i> can be generated in parallel
+with the expression
+<P>
+<PRE>  [2*i:n:i]
+</PRE>
+<P>
+and can be written into the array <i>A</i> in parallel with the <TT>write</TT>
+function.  Using the rules for costs (see Figure <A HREF="node6.html#figsequencefuncs">6</A>),
+the depth of these operations is constant and the work is the number
+of multiples, which is the same as the time of the sequential version.
+Given the parallel implementation of line 7, the total work of the
+algorithm is the same as the sequential algorithm since it does the
+same number of operations, and the depth of the algorithm is
+<EM>O(sqrt(n))</EM> since each iteration of the loop in lines 5-8 has
+constant depth and the number of iterations is <EM>sqrt(n)</EM>.  Note that
+thinking of the algorithm in terms of work and depth allows a simple
+analysis (assuming we know the running time of the sequential
+algorithm) without having to worry about how the parallelism maps onto
+a machine.  In particular, the amount of parallelism varies greatly
+from the first iteration, in which we have  <IMG ALIGN=MIDDLE ALT="tex2html_wrap_inline1767"  WIDTH=26 HEIGHT=26 SRC="img36.gif"  >  multiples of 2 to
+knock out in parallel, to the last iteration where we have only
+<EM>sqrt(n)</EM> multiples.  This varying parallelism would make it messy to
+program and analyze on a processor based model.
+<P>
+We now consider improving the depth of the algorithm without giving up
+any work.  We note that if we were given all the primes from 2 up to
+<EM>sqrt(n)</EM>, we could then generate all the multiples of these primes
+at once.  The NESL code for generating all the multiples is
+<P>
+<PRE> {[2*p:n:p]: p in sqr_primes};
+</PRE>
+where <TT>sqr_primes</TT> is a
+sequence containing all the primes up to <EM>sqrt(n)</EM>.  This computation
+has nested parallelism, since there is parallelism across the <TT>
+sqr_primes</TT> (outer parallelism) and also in generating the multiples
+of each prime (inner parallelism).  The depth of the computation is
+constant since each subcall has constant depth, and the work is  <IMG ALIGN=MIDDLE ALT="tex2html_wrap_inline1769"  WIDTH=100 HEIGHT=27 SRC="img37.gif"  >  since the total number of multiples when summed across
+the subcalls is the same as the number of multiples used by the
+sequential version.
+<P>
+<P><A NAME="811">&#160;</A><A NAME="figprimes">&#160;</A> 
+<A href="../nesl/alg-numerical.html#primes">
+<IMG ALIGN=BOTTOM ALT="figure537"  WIDTH=461 HEIGHT=368 SRC="img38.gif"  > 
+</a><BR>
+<STRONG>Figure 9:</STRONG> The code for the primes algorithm, an example
+of one level of the recursion, and a diagram of the work and depth.
+In the code <TT>[] int</TT> indicates an empty sequence of integers.
+The function <TT>isqrt</TT> takes the square root of an integer.
+The function <TT>flatten</TT> takes a nested sequence and flattens it.
+The function <TT>dist(a,n)</TT> distributes the value <TT>a</TT> to a sequence
+of length <TT>n</TT>.    The expression
+<TT>{i in [0:n]; fl in flags | fl}</TT> can be read
+as ``for each <TT>i</TT> from 0 to <TT>n</TT> and each <TT>fl</TT> in <TT>flags</TT>
+return the <TT>i</TT> if the corresponding <TT>fl</TT> is true''.
+The function <TT>drop(a,n)</TT> drops the first <TT>n</TT>
+elements of the sequence <TT>a</TT>.<BR>
+<P>
+<P>
+We have assumed that <TT>sqr_primes</TT> was given, but to generate
+these primes we can simply call the algorithm recursively on
+<EM>sqrt(n)</EM>.  Figure <A HREF="node8.html#figprimes">9</A> shows the full algorithm for finding
+primes based on this idea.  Instead of returning a sequence of flags,
+the algorithm returns a sequence with the values of the primes.  For
+example <TT>primes(10)</TT> would return the sequence <TT>
+[2,3,5,7]</TT>. The algorithm recursively calls itself on a problem of
+size <EM>sqrt(n)</EM> and terminates when a problem of size 2 is reached.
+The work and depth can be analyzed by looking at the picture
+at the bottom of Figure <A HREF="node8.html#figprimes">9</A>.  Clearly most of the work is done at
+the top level of recursion, which does <EM>O(n log log n)</EM> work.  The
+total work is therefore also <EM>O(n log log n)</EM>.  Now let's consider
+the depth.  Since each recursion level has constant depth, the total
+depth is proportional to the number of levels.  To calculate this
+number we note that the size of the problem at level <i>i</i> is
+ <IMG ALIGN=BOTTOM ALT="tex2html_wrap_inline1777"  WIDTH=33 HEIGHT=18 SRC="img39.gif"  > , and that when the size is 2, the algorithm terminates.
+This gives us the equation  <IMG ALIGN=BOTTOM ALT="tex2html_wrap_inline1779"  WIDTH=69 HEIGHT=17 SRC="img40.gif"  > , where <i>d</i> is the depth we
+seek.  Solving for <i>d</i>, this method gives  <IMG ALIGN=MIDDLE ALT="tex2html_wrap_inline1785"  WIDTH=92 HEIGHT=27 SRC="img41.gif"  > .  The
+costs are therefore:
+<P> <IMG ALIGN=BOTTOM ALT="eqnarray591"  WIDTH=400 HEIGHT=44 SRC="img42.gif"  > <P>
+This algorithm remains work efficient relative to the sequential sieve
+of Eratosthenes and greatly improves the depth.  It is actually
+possible to improve the depth to a constant, but we will leave this as
+an exercise for the reader.
+<P>
+<BR> <HR><A NAME="tex2html113" HREF="node9.html"><IMG ALIGN=BOTTOM ALT="next"  WIDTH=37 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/next_motif.gif"></A> <A NAME="tex2html111" HREF="node7.html"><IMG ALIGN=BOTTOM ALT="up"  WIDTH=26 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/up_motif.gif"></A> <A NAME="tex2html105" HREF="node7.html"><IMG ALIGN=BOTTOM ALT="previous"  WIDTH=63 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/previous_motif.gif"></A>   <BR>
+<B> Next:</B> <A NAME="tex2html114" HREF="node9.html">Sparse Matrix Multiplication</A>
+<B>Up:</B> <A NAME="tex2html112" HREF="node7.html">Examples of Parallel Algorithms</A>
+<B> Previous:</B> <A NAME="tex2html106" HREF="node7.html">Examples of Parallel Algorithms</A>
+<BR> <HR> <P>
+<BR> <HR>
+<P><ADDRESS>
+<a href="http://www.cs.cmu.edu/~blelloch">Guy Blelloch</a>, <a href="mailto:blelloch@cs.cmu.edu">blelloch@cs.cmu.edu</a>
+</ADDRESS>
+</BODY>
+</HTML>

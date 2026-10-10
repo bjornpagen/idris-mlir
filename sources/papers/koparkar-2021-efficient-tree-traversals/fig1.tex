@@ -1,0 +1,87 @@
+\begin{figure*}
+\hspace{-1cm}
+\begin{subfigure}[t]{0.43\linewidth}
+\vspace{0pt}
+%% This code snippet is in a table for 2 reasons: to center it on the page,
+%% and to draw a tight bounding box around it.
+\begin{tabular}{|c|c} 
+\hline
+\hspace{2mm}
+{
+\lstset{numbers=left,frame=l,numbersep=6pt,numberstyle=\color{black}}
+\begin{code}
+data Exp = Lit Int
+         | Plus Exp Exp
+         | Sub Exp Exp
+         | Let Sym Exp Exp
+         ...
+
+constFold :: Exp -> Exp
+constFold exp = case exp of
+  Lit i -> Lit i
+  Plus e1 e2 ->
+    case (e1, e2) of
+      (Lit i,Lit j) -> Lit (i+j)
+      _ -> let (e3,e4) =
+             ( constFold e1 @\partup@ @\label{line:parallel-tuple}@
+               constFold e2 )
+           in Plus e3 e4
+  Sub e1 e2 ->
+    ...
+\end{code}
+}
+%% \hspace{3mm}
+\\
+\hline
+\end{tabular}
+\caption{Constant folding written using the front-end language for Gibbon (Haskell).}
+\label{fig:example1-haskell}
+\end{subfigure}
+%
+\hspace{0.04\linewidth}
+%
+\begin{subfigure}[t]{0.43\linewidth}
+\vspace{0pt}
+%% %% This code snippet is in a table for 2 reasons: to center it on the page,
+%% %% and to draw a tight bounding box around it.
+%% \begin{figure}[h!]
+\begin{tabular}{|c|c}
+\hline
+\hspace{2mm}
+{
+\lstset{numbers=left,frame=l,numbersep=6pt,numberstyle=\color{black}}
+\begin{code}
+constFold: forall@\locreg{l_1}{r_1}@ @\locreg{l_2}{r_2}@. @\styatlocreg{Exp}{l_1}{r_1}@ -> @\styatlocreg{Exp}{l_2}{r_2}@
+constFold [@\locreg{l_1}{r_1}@ @\locreg{l_2}{r_2}@] exp = case exp of
+  Lit (i:@\styatlocreg{Int}{l_i}{r_1}@) -> (Lit @\locreg{l_2}{r_2}@ i) @\label{line:datacon}@
+  Plus (e1: @\styatlocreg{Exp}{l_a}{r_1}@) (e2: @\styatlocreg{Exp}{l_b}{r_1}@) ->
+    case (e1,e2) of
+      (Lit(i:@\styatlocreg{Int}{l_c}{r_1}@), Lit(j:@\styatlocreg{Int}{l_d}{r_1}@))
+        -> (Lit @\locreg{l_2}{r_2}@ (i+j))
+      _
+        ->
+        letloc @\locreg{l_3}{r_2}@ = @\locreg{l_2}{r_2}@ + 1 in @\label{line:letloctag}@
+        let e3 : @\styatlocreg{Exp}{l_3}{r_2}@ =
+          constFold [@\locreg{l_a}{r_1}@ @\locreg{l_3}{r_2}@] e1 in
+        letloc @\locreg{l_4}{r_2}@ = after(@\styatlocreg{Exp}{l_3}{r_2}@) in @\label{line:letlocafter}@
+        let e4 : @\styatlocreg{Exp}{l_4}{r_2}@ =
+          constFold [@\locreg{l_b}{r_1}@ @\locreg{l_4}{r_2}@] e2 in
+        (Plus @\locreg{l_2}{r_2}@ e3 e4) @\label{line:joinpoint}@
+  Sub (e1: @\styatlocreg{Exp}{l_a}{r_1}@) (e2: @\styatlocreg{Exp}{l_b}{r_1}@) ->
+    ...
+\end{code}
+}
+\hspace{1cm}
+\\
+\hline
+\end{tabular}
+\caption{\Figref{fig:example1-haskell} compiled into LoCal IR by Gibbon.}
+\label{fig:example1}
+\end{subfigure}
+\vspace{-5mm}
+\caption{\vspace{-3mm}}
+%% \caption{}
+%% \caption{{\bf Left (a)}: Constant folding written using the front-end language for Gibbon (Haskell).
+%% {\bf Right (b)}: the same program compiled into LoCal IR by Gibbon.}
+\label{fig:example1-both}
+\end{figure*}

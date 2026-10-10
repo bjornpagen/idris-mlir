@@ -1,0 +1,39 @@
+% https://en.wikibooks.org/wiki/LaTeX/Plain_TeX
+
+\makeatletter
+
+% https://tex.stackexchange.com/questions/34312/how-to-create-a-command-with-key-values/34314#34314
+\define@key{includetexgraphics}{width}{\def\itg@width{#1}}
+\define@key{includetexgraphics}{height}{\def\itg@height{#1}}
+\newcommand{\includetexgraphics}[2][]{
+  \begingroup
+  \setkeys{includetexgraphics}{#1}
+  \ifx\itg@width\undefined
+    \ifx\itg@height\undefined
+      \input{#2}
+    \else
+      \resizebox{!}{\itg@height}{\input{#2}}
+    \fi
+  \else
+    \ifx\itg@height\undefined
+      \resizebox{\itg@width}{!}{\input{#2}}
+    \else
+      \resizebox{\itg@width}{\itg@height}{\input{#2}}
+    \fi
+  \fi
+  \par
+  \endgroup
+}
+
+\let\oldincludegraphics\includegraphics
+\renewcommand{\includegraphics}[2][]{
+  \def\@texext{tex}
+  \filename@parse{#2}
+  \ifx\filename@ext\@texext
+    \includetexgraphics[#1]{#2}
+  \else
+    \oldincludegraphics[#1]{#2}
+  \fi
+}
+
+\makeatother

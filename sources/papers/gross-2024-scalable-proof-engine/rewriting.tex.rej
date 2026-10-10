@@ -1,0 +1,11 @@
+--- /dev/null
++++ /dev/null
+@@ -295,7 +295,7 @@
+ % CCF-1521584 is Collaborative Research: Expeditions in Computing: The Science of Deep Specification, December 15, 2015 through November 30, 2020
+ % 1122374 and 1745302 are Jason's NSF GRFP Grant
+ % Google Research Award first shows up in commit 6cba11c7b09e7c3afbd7db2956adb47c78878738 by Adam in the reification by parametricity paper, and has been copied over from there
+-% \versionofrecordtext
++\versionofrecordtext
+ }
+ 
+ \expandafter\def\csname X@3\endcsname{3}%

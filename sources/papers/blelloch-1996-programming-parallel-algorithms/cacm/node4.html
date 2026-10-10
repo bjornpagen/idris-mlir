@@ -1,0 +1,83 @@
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
+<!--Converted with LaTeX2HTML .95.3 (Nov 17 1995) by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds -->
+<HTML>
+<HEAD>
+<TITLE>Nested Data-Parallelism and NESL</TITLE>
+<!-- Changed by: Guy Blelloch , 25-Mar-1996 -->
+<META NAME="description" CONTENT="Nested Data-Parallelism and NESL">
+<META NAME="keywords" CONTENT="cacm2">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<LINK REL=STYLESHEET HREF="cacm2.css">
+</HEAD>
+<BODY LANG="EN">
+
+<strong>
+From <a href="../cacm.html"><cite>Programming Parallel Algorithms.</cite></a>
+<br>
+Communications of the ACM, 39(3), March, 1996.
+</strong>
+
+ <BR> <HR><A NAME="tex2html69" HREF="node5.html"><IMG ALIGN=BOTTOM ALT="next"  WIDTH=37 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/next_motif.gif"></A> <A NAME="tex2html67" HREF="cacm2.html"><IMG ALIGN=BOTTOM ALT="up"  WIDTH=26 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/up_motif.gif"></A> <A NAME="tex2html61" HREF="node3.html"><IMG ALIGN=BOTTOM ALT="previous"  WIDTH=63 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/previous_motif.gif"></A>   <BR>
+<B> Next:</B> <A NAME="tex2html70" HREF="node5.html">NESL</A>
+<B>Up:</B> <A NAME="tex2html68" HREF="cacm2.html">Programming Parallel Algorithms</A>
+<B> Previous:</B> <A NAME="tex2html62" HREF="node3.html">Relationship of Work and </A>
+<BR> <HR> <P>
+<H1><A NAME="SECTION00020000000000000000">Nested Data-Parallelism and NESL</A><A NAME="secnesl">&#160;</A></H1>
+
+Many constructs have been suggested for expressing parallelism in
+programming languages, including fork-and-join constructs,
+data-parallel constructs, and futures, among  others.  The
+question is which of these are most useful for specifying parallel
+algorithms?  If we look at the parallel algorithms that are described
+in the literature and their pseudocode, we find that nearly all are
+described as parallel operations over collections of values.  For
+example ``in parallel for each vertex in a graph, find its minimum
+neighbor'', or ``in parallel for each row in a matrix, sum the row''.
+Of course the algorithms are not this simple--they usually consist of
+many such parallel calls interleaved with operations that rearrange
+the order of a collection, and can be called recursively in parallel,
+as in Quicksort.  This ability to operate in parallel over sets of
+data is often referred to as <EM>data-parallelism</EM> [<A HREF="node14.html#Hillis86">15</A>],
+and languages based on it are often referred to as data-parallel
+languages or <EM>collection-oriented</EM>
+languages [<A HREF="node14.html#sipelsteinblelloch91">24</A>].  We note that many parallel
+languages have data-parallel features in conjunction with other forms of
+parallelism [<A HREF="node14.html#chandymisra88">10</A>, <A HREF="node14.html#Arvind89">3</A>, <A HREF="node14.html#feocannoldehoeft90">12</A>, <A HREF="node14.html#proteus">18</A>].
+<P>
+Before we come to the rash conclusion that data-parallel languages are
+the panacea for programming parallel algorithms, we make a distinction
+between flat and nested data-parallel languages.  In <EM>flat
+data-parallel languages</EM> a function can be applied in parallel over a
+set of values, but the function itself must be sequential.  In <EM>
+nested data-parallel languages</EM> [<A HREF="node14.html#Blelloch90">4</A>] any function can be
+applied over a set of values, including parallel functions.  For
+example, the summation of each row of the matrix mentioned above could
+itself execute in parallel using a tree sum.  We claim that the
+ability to nest parallel calls is critical for expressing algorithms
+in a way that matches our high-level intuition of how they work.  In
+particular, nested parallelism can be used to implement nested loops
+and divide-and-conquer algorithms in parallel (five out of the seven
+algorithms described in this article use nesting in a crucial way).  The
+importance of allowing nesting in data-parallel languages has also
+been observed by others [<A HREF="node14.html#Hatcher92">13</A>].  However, most existing
+data-parallel languages, such as High Performance Fortran
+(HPF) [<A HREF="node14.html#hpff93">14</A>] or C* [<A HREF="node14.html#rosesteele87">21</A>], do not have direct
+support for such nesting.<A NAME="tex2html7" HREF="footnode.html#310"><IMG ALIGN=BOTTOM ALT="gif"  WIDTH=15 HEIGHT=15 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/foot_motif.gif"></A>
+<P>
+<BR> <HR>
+<UL> 
+<LI> <A NAME="tex2html71" HREF="node5.html#SECTION00021000000000000000">NESL</A>
+<LI> <A NAME="tex2html72" HREF="node6.html#SECTION00022000000000000000">The Performance Model</A>
+</UL>
+<BR> <HR><A NAME="tex2html69" HREF="node5.html"><IMG ALIGN=BOTTOM ALT="next"  WIDTH=37 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/next_motif.gif"></A> <A NAME="tex2html67" HREF="cacm2.html"><IMG ALIGN=BOTTOM ALT="up"  WIDTH=26 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/up_motif.gif"></A> <A NAME="tex2html61" HREF="node3.html"><IMG ALIGN=BOTTOM ALT="previous"  WIDTH=63 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/previous_motif.gif"></A>   <BR>
+<B> Next:</B> <A NAME="tex2html70" HREF="node5.html">NESL</A>
+<B>Up:</B> <A NAME="tex2html68" HREF="cacm2.html">Programming Parallel Algorithms</A>
+<B> Previous:</B> <A NAME="tex2html62" HREF="node3.html">Relationship of Work and </A>
+<BR> <HR> <P>
+<BR> <HR>
+<P><ADDRESS>
+<a href="http://www.cs.cmu.edu/~blelloch">Guy Blelloch</a>, <a href="mailto:blelloch@cs.cmu.edu">blelloch@cs.cmu.edu</a>
+</ADDRESS>
+</BODY>
+</HTML>

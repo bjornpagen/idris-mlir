@@ -1,0 +1,107 @@
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
+<!--Converted with LaTeX2HTML .95.3 (Nov 17 1995) by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds -->
+<HTML>
+<HEAD>
+<TITLE>The Performance Model</TITLE>
+<!-- Changed by: Guy Blelloch , 25-Mar-1996 -->
+<META NAME="description" CONTENT="The Performance Model">
+<META NAME="keywords" CONTENT="cacm2">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<LINK REL=STYLESHEET HREF="cacm2.css">
+</HEAD>
+
+<strong>
+From <a href="../cacm.html"><cite>Programming Parallel Algorithms.</cite></a>
+<br>
+Communications of the ACM, 39(3), March, 1996.
+</strong>
+
+<BODY LANG="EN">
+ <BR> <HR><A NAME="tex2html89" HREF="node7.html"><IMG ALIGN=BOTTOM ALT="next"  WIDTH=37 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/next_motif.gif"></A> <A NAME="tex2html87" HREF="node4.html"><IMG ALIGN=BOTTOM ALT="up"  WIDTH=26 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/up_motif.gif"></A> <A NAME="tex2html83" HREF="node5.html"><IMG ALIGN=BOTTOM ALT="previous"  WIDTH=63 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/previous_motif.gif"></A>   <BR>
+<B> Next:</B> <A NAME="tex2html90" HREF="node7.html">Examples of Parallel Algorithms</A>
+<B>Up:</B> <A NAME="tex2html88" HREF="node4.html">Nested Data-Parallelism and NESL</A>
+<B> Previous:</B> <A NAME="tex2html84" HREF="node5.html">NESL</A>
+<BR> <HR> <P>
+<H2><A NAME="SECTION00022000000000000000">The Performance Model</A><A NAME="seccomplexity">&#160;</A></H2>
+
+We now return to the issue of performance models, this time in the
+context of NESL.  As mentioned earlier, NESL defines work and depth
+in terms of the work and depth of the primitive operations and rules
+for composing the measures across expressions.  We will use  <IMG ALIGN=MIDDLE ALT="tex2html_wrap_inline1697"  WIDTH=38 HEIGHT=27 SRC="img16.gif"  >  and
+ <IMG ALIGN=MIDDLE ALT="tex2html_wrap_inline1699"  WIDTH=34 HEIGHT=27 SRC="img17.gif"  >  to refer to the work and depth of evaluating an expression <i>e</i>.
+In most cases the work and depth of an expression are the sums of the
+work and depth of the subexpressions.  So, for example, if we have an
+expression  <IMG ALIGN=MIDDLE ALT="tex2html_wrap_inline1703"  WIDTH=50 HEIGHT=21 SRC="img18.gif"  >  where  <IMG ALIGN=MIDDLE ALT="tex2html_wrap_inline1705"  WIDTH=13 HEIGHT=15 SRC="img19.gif"  >  and  <IMG ALIGN=MIDDLE ALT="tex2html_wrap_inline1707"  WIDTH=13 HEIGHT=15 SRC="img20.gif"  >  are subexpressions then
+the work of the expression is
+<P> <IMG ALIGN=BOTTOM ALT="displaymath1693"  WIDTH=326 HEIGHT=18 SRC="img21.gif"  > <P>
+where the <i>1</i> is the cost of the add.  A similar rule is used for
+depth.
+The interesting rules concerning parallelism are the rules for an
+apply-to-each expression:
+<P><A NAME="eqndepth">&#160;</A><A NAME="eqnwork">&#160;</A> <IMG ALIGN=BOTTOM ALT="eqnarray355"  WIDTH=591 HEIGHT=86 SRC="img22.gif"  > <P>
+The first rule specifies that the work is the sum of the work of
+each of the applications of  <IMG ALIGN=MIDDLE ALT="tex2html_wrap_inline1711"  WIDTH=13 HEIGHT=15 SRC="img23.gif"  >  to  <IMG ALIGN=MIDDLE ALT="tex2html_wrap_inline1713"  WIDTH=12 HEIGHT=15 SRC="img24.gif"  > , plus the work of  <IMG ALIGN=MIDDLE ALT="tex2html_wrap_inline1715"  WIDTH=13 HEIGHT=15 SRC="img25.gif"  > ,
+plus 1 to account for overheads.  The rule for depth is similar, but takes the
+maximum of the depth of each application of  <IMG ALIGN=MIDDLE ALT="tex2html_wrap_inline1717"  WIDTH=13 HEIGHT=15 SRC="img26.gif"  > .  This supports our
+intuition that the applications are executed in parallel and the
+evaluation of the apply-to-each completes when the last call
+completes.   The other interesting rules are the rules
+for an <TT>if</TT> expression, which for work is
+<P><A NAME="ifrule">&#160;</A> <IMG ALIGN=BOTTOM ALT="eqnarray364"  WIDTH=654 HEIGHT=48 SRC="img27.gif"  > <P>
+with a similar rule for depth.
+The work and depth for a function call and for scalar
+primitives are 1 each.
+The costs of the NESL functions on sequences are summarized in
+Figure <A HREF="node6.html#figsequencefuncs">6</A>.
+We note that the performance rules can be more precisely defined
+using an operational semantics [<A HREF="node14.html#lambda95">7</A>].
+<P>
+<P><A NAME="802">&#160;</A><A NAME="figsequencefuncs">&#160;</A> <IMG ALIGN=BOTTOM ALT="figure379"  WIDTH=427 HEIGHT=166 SRC="img28.gif"  > <BR>
+<STRONG>Figure 6:</STRONG> List of some of the sequence functions supplied by
+NESL.  The work required by each function is 
+given in the Work column: L(<TT>v</TT>) refers to the length of the
+sequence <TT>v</TT>.  
+The work of the <TT>write(d,a)</TT> function actually depends on whether
+the argument <TT>d</TT> needs to be copied or not, but in
+the examples in this paper the difference has no effect.
+<BR>
+<P>
+<P>
+<P><A NAME="804">&#160;</A><A NAME="figfact">&#160;</A> <IMG ALIGN=BOTTOM ALT="figure445"  WIDTH=461 HEIGHT=276 SRC="img29.gif"  > <BR>
+<STRONG>Figure 7:</STRONG> Calculating the work and depth of
+<TT>{factorial(n) : n in [3,1,5,2]}</TT>.<BR>
+<P>
+<P>
+As an example of composing work and depth, consider evaluating the
+expression
+<P>
+<PRE>  {factorial(n) : n in a}
+</PRE>
+<P>
+where <TT>a = [3,1,5,2]</TT>.  Using the rules for work and the code for
+<TT>factorial</TT> given earlier, we can write the following equation for
+work:
+<P>
+<P> <IMG ALIGN=BOTTOM ALT="eqnarray468"  WIDTH=501 HEIGHT=48 SRC="img30.gif"  > <P>
+where  <IMG ALIGN=MIDDLE ALT="tex2html_wrap_inline1721"  WIDTH=30 HEIGHT=22 SRC="img31.gif"  > ,  <IMG ALIGN=MIDDLE ALT="tex2html_wrap_inline1723"  WIDTH=22 HEIGHT=22 SRC="img32.gif"  > , and  <IMG ALIGN=MIDDLE ALT="tex2html_wrap_inline1725"  WIDTH=22 HEIGHT=22 SRC="img33.gif"  >  are the work for <TT>
+==</TT>, <TT>*</TT>, and <TT>-</TT>, and are all 1.  The two unit constants
+come from the cost of the function call and the <EM>if-then-else</EM>
+rule.  Adding up the terms and solving the recurrence gives
+ <IMG ALIGN=MIDDLE ALT="tex2html_wrap_inline1727"  WIDTH=142 HEIGHT=27 SRC="img34.gif"  > .  Since there is no parallelism in the
+factorial function, the depth is the same as the work.  To calculate
+work and depth for the full expression <TT>{factorial(n) : n in a}</TT>
+we can use equations <A HREF="node6.html#eqnwork">1</A> and <A HREF="node6.html#eqndepth">2</A>.  This
+calculation is shown in Figure <A HREF="node6.html#figfact">7</A>.
+<P>
+<BR> <HR><A NAME="tex2html89" HREF="node7.html"><IMG ALIGN=BOTTOM ALT="next"  WIDTH=37 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/next_motif.gif"></A> <A NAME="tex2html87" HREF="node4.html"><IMG ALIGN=BOTTOM ALT="up"  WIDTH=26 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/up_motif.gif"></A> <A NAME="tex2html83" HREF="node5.html"><IMG ALIGN=BOTTOM ALT="previous"  WIDTH=63 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/previous_motif.gif"></A>   <BR>
+<B> Next:</B> <A NAME="tex2html90" HREF="node7.html">Examples of Parallel Algorithms</A>
+<B>Up:</B> <A NAME="tex2html88" HREF="node4.html">Nested Data-Parallelism and NESL</A>
+<B> Previous:</B> <A NAME="tex2html84" HREF="node5.html">NESL</A>
+<BR> <HR> <P>
+<BR> <HR>
+<P><ADDRESS>
+<a href="http://www.cs.cmu.edu/~blelloch">Guy Blelloch</a>, <a href="mailto:blelloch@cs.cmu.edu">blelloch@cs.cmu.edu</a>
+</ADDRESS>
+</BODY>
+</HTML>

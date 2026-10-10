@@ -1,0 +1,29 @@
+--- ../rewriting.tex	2024-07-12 12:54:22
++++ rewriting.tex	2024-07-12 12:55:04
+@@ -31,7 +31,7 @@
+ %%\documentclass[pdflatex,sn-basic]{sn-jnl}% Basic Springer Nature Reference Style/Chemistry Reference Style
+ 
+ %%\documentclass[sn-basic]{sn-jnl}% Basic Springer Nature Reference Style/Chemistry Reference Style
+-\documentclass[sn-mathphys,lineno,pdflatex]{sn-jnl}% Math and Physical Sciences Reference Style
++\documentclass[sn-mathphys,pdflatex]{sn-jnl}% Math and Physical Sciences Reference Style
+ %%\documentclass[sn-aps]{sn-jnl}% American Physical Society (APS) Reference Style
+ %%\documentclass[sn-vancouver]{sn-jnl}% Vancouver Reference Style
+ %%\documentclass[sn-apa]{sn-jnl}% APA Reference Style
+@@ -46,7 +46,7 @@
+ \catcode`|=12
+ \makeatletter
+ \usepackage{subcaption}
+-\usepackage{minted}
++\usepackage[frozencache]{minted}
+ \usemintedstyle{bw}
+ \usepackage{amsmath}
+ \usepackage{booktabs}
+@@ -99,7 +99,7 @@
+ \usepackage{etoolbox,xpatch}
+ 
+ \providebool{arxiv}
+-\boolfalse{arxiv}
++\booltrue{arxiv}
+ 
+ % Fix oversight of sp-jnl in incompatible argument ordering of \href https://tex.stackexchange.com/questions/671997/how-can-i-get-xparse-newdocumentcommand-macros-to-work-with-springer-natures?noredirect=1#comment1670132_671997
+ \@ifpackageloaded{breakurl}{

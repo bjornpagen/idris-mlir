@@ -1,0 +1,22 @@
+\section{Conclusion and Future Work}
+
+We presented the composable multi-level intermediate representation and transformations that underpin tensor code generation in \MLIR.
+This work heavily leverages \MLIR's progressivity design principle, which it helped to shape by designing and implementing multiple instances of progressive lowering.
+The approach is characterized by a \emph{transformation-oriented IR design}: doing away with legality analyses and applicability checks on low-level IR, relying systematically on the progressive decomposition of carefully designed abstractions.
+The resulting design is modular and built with optionality in mind; abstractions span data structures and control flow with both functional (SSA form) and imperative (side-effecting) semantics; they serve as generic building blocks for retargetable tensor compilers.
+Transformations are systematically applied as compositions of declarative patterns.
+This allows implementing advanced forms of pass fusion, known to alleviate the dreaded phase-ordering problem.
+Early single threaded CPU code generation shows strong performance, even in the absence of systematic tuning.
+
+Multiple extensions and generalizations of this work are actively being pursued:
+\begin{itemize}
+    \item Functionally inspired abstractions for parallel semantics on immutable tensors will extend our results to multi-threaded CPUs and beyond.
+    \item Generalization of the approach to other hardware targets thanks to our retargetable vector abstractions.
+    \item More powerful vector abstractions including generalized masking and warp-level GPU programming.
+    \item More advanced data structures and iterators than dense or sparse to enable cross-pollination with other fields such as databases.
+    \item Autotuning infrastructure to systematically find transformation compositions and parameters that produce code running at a high fraction of peak, for any hardware.
+    \item Controllable framework for selecting and composing transformation patterns, making production compilers effectively extensible with domain-specific code generation strategies.
+\end{itemize}
+
+We believe these contributions will further demystify the field of high-performance compilation,
+give a high-level of control to users of the system and provide a strong basis on which future research and near-peak performance production systems will be built.

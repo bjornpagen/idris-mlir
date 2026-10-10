@@ -1,0 +1,217 @@
+
+\newpage
+
+\section{Proof by Evaluation}\label{sec:pbe}
+
+Our terms are measure application, constructor application, and variables.
+\[e ::= x \mid C\;\bar e \mid m\;\bar e\]
+Measures are represented as a list of guarded lambdas $[\left<p,\lambda x.e\right>,\ldots]$,
+where $p$ is predicate that guards evaluation and the type checker can use to prove termination
+
+We have the following contexts:
+\[\Gamma ::= \bullet\mid \Gamma; i :T \mid \Gamma; m : \left<p,\lambda x.e\right> \qquad
+\Delta ::= \bullet\mid \Delta; \phi \qquad
+\Sigma ::= \bullet\mid \Sigma; \star \mid \Sigma; t\]
+$\Gamma$, has our measures, and carries around refinement
+type information for free variables in scope. $\Delta$ just exists to
+dump all the predicates into, and $\Sigma$ hold terms awaiting PBE. $\star$ in
+$\Sigma$ runs PBE on the term being scrutinized.
+
+We have the following operational semantics:
+\[
+\inference{\left<\Gamma,e_i\right> \hookrightarrow \left<\Gamma,e_i'\right>}{\left<\Gamma,C \bar e\right> \hookrightarrow\left<\Gamma,C\bar e'\right>}
+\qquad
+\left<\Gamma,x\right> \hookrightarrow\left<\Gamma,x\right>
+\]
+\[
+\inference{\Gamma \vdash p(x)}
+       %----------------------------
+{\left<\Gamma;(m:\left<p,\lambda \bar x.e\right>),m\;\bar e\right> \hookrightarrow\left<\Gamma;(m:\left<p,\lambda \bar x . e\right>),e[\bar e/\bar x]\right>}
+\]
+We proceed to define the judgments for $\vdash$, $\vdash_n$, and $\vdash^*$:
+
+$\vdash p$ is just EUF, so we have the following rules:
+
+
+\[
+\inference        {\vdash a=b}
+       %----------------------------
+               {\vdash b=a}          [sym]
+\qquad
+\inference        {}
+       %----------------------------
+               {\vdash a=a}          [refl]
+\]
+
+\[
+\inference        {\vdash a=b}
+       %----------------------------
+            {\vdash f(a)=f(b)}       [cong]
+\qquad
+\inference  {\vdash a=b \qquad \vdash b = c}
+         %-------------------------------
+                 {\vdash a=c}       [trans]
+\]
+Checking equality proofs using these rules is done with a data structure called
+an E-dag\cite{nelson-oppen}. We can construct proof terms by abstracting away
+the mathematical properties of this data structure.
+
+If we consider proofs that
+don't use congruence, then we can model this set of equalities as a graph with
+terms as nodes and equalities as edges. This graph is symmetric, has all
+identity loops, and transitivity means we can compose paths, so we can think of
+paths in this graph as morphisms of a groupoid in which objects are terms and
+morphisms are equalities --- each of these three rules correspond to one of the
+groupoid laws.
+
+The advantage of the groupoid apporach here is that we now have
+a way to explicitly construct and compose proof terms, where we can use any of
+the equalities in $G$ to give us a literal proof term, construct morphisms
+$id_a: a \rightarrow a$ using $[refl]$, construct inverses $p:a\rightarrow b$
+from $q:b\rightarrow a$, using $[sym]$, and compose morphisms using $[trans]$.
+
+Congruence, then, is given by the family of endofunctors
+$C_-$, indexed over functions in our logic, and is defined in the following equations
+\begin{align*}
+  C_f (t) &= f t \\
+  C_f (p_{a=b}) &= p_{fa = fb}\\
+\end{align*}
+where $p_{a=b}:a\rightarrow b$ is the morphism that correponds to the equality $a=b$
+Note that $C_f(p)^{-1} = C_f(p^{-1})$ and $C_f(p)\circ C_f(q) = C_f(p\circ q)$, in accordance with the Functor laws.
+
+\(\Gamma, \Delta \vdash_n p\) has semantics:
+\[
+\inference        {\vdash p}
+       %----------------------------
+           {\Gamma,\Delta\vdash_0 p}      [[0]]
+\qquad
+\inference
+      {\Gamma,\Delta\vdash_0 \phi \rightarrow p}
+     %------------------------------------------
+       {\Gamma,\Delta;\phi\vdash_0 p}             [[$\Delta$]]
+\]
+\[
+\inference
+        {\vdash \Delta \rightarrow q(\bar e) \qquad \Gamma;m:\left<q,\lambda \bar x.e\right>,\Delta;m\;\bar e = e[\bar e/\bar x]\vdash_n p}
+     %------------------------------------------------------------------------------
+           {\Gamma;m:\left<q,\lambda \bar x.e\right>,\Delta\vdash_{n+1} p}                  [[n]]
+\]
+Furthermore, we write $\Gamma,\Delta \vdash_* \phi$ if $\exists n | \Gamma,\Delta \vdash_n \phi$
+
+$\Gamma, \Delta, \Sigma \vdash^* p$ defines our PBE semantics and is more involved:
+\[
+\inference
+        {\Gamma, \Delta, \Sigma;\phi \vdash^* \phi}
+     %-----------------------------------------------------------------
+        {\Gamma,\Delta,\Sigma;\star \vdash^* \phi}
+        \qquad
+\inference
+      {\Gamma;x:\{x:T|R(v)\},\Delta;R(x),\Sigma \vdash^* \phi}
+     %--------------------------------------------------------
+      {\Gamma;x:\{x:T|R(v)\},\Delta,\Sigma;x \vdash^* \phi}
+\]
+\[
+\inference
+        {\vdash \Delta \rightarrow \phi}
+     %-------------------------------------
+      {\Gamma,\Delta,\Sigma \vdash^* \phi}
+      \qquad
+\inference
+      {\Gamma;C:\bar x \rightarrow \{v:T|R(\bar x)\},\Delta;R(\bar e),\Sigma;\bar e \vdash^* \phi}
+     %---------------------------------------------------------------------------------------
+       {\Gamma;C:\bar x \rightarrow \{v:T|R(\bar x)\},\Delta,\Sigma;C\;\bar e \vdash^* \phi}
+\]
+%Add guard for if statements to make sure we terminate by only instantiating measures that actually matter
+%this guard should be a predicate in the measure checked by both PBE as well as =_n
+\[
+\inference
+        {\Gamma;m:\left<q,\lambda \bar x.e\right>,\Delta,\Sigma;\bar e \vdash^* q(\bar e) \qquad \Gamma;m:\left<q,\lambda \bar x.e\right>,\Delta;m\;\bar e = e[\bar e/\bar x], \Sigma;e[\bar e/\bar x]\vdash^* p}
+     %------------------------------------------------------------------------------
+           {\Gamma;m:\left<q,\lambda \bar x.e\right>,\Delta,\Sigma;m\; \bar e\vdash^* p}
+\]
+\begin{lemma}
+  If $G,a=b\vdash u=v$ and then either $a=b$ does not appear as a premise in the proof, or
+  there exists $a',b'$ which are subterms of $G$, $u$, or $v$, such that
+  $G\vdash a'=a$ and $G\vdash b'=b$ \end{lemma}
+\begin{proof}
+  Let $p_{ans}$ be the proof term that witnesses the proof $G,a=b\vdash u=v$.
+
+  We proceed by induction on number of occurrences of $C_-$ in $p_{ans}$. In the
+  case where we have 0 occurrences, $p_{ans} = id_u \circ p_0\circ p_1 \circ \cdots
+  \circ p_k \circ id_v$, where $p_0$ through $p_k$ are equalities from $G$ (or their inverses).
+  If $p_{a=b}$ is precomposed in $p_{ans}$ with a $p_i$, then $a\in G$, otherwise, $a=u$,
+  and the same is true of postcomposition and $b$, so we just have $a'\equiv a$
+  and $b'\equiv b$.
+
+  Now consider the case in which we have $n+1$ occurrences of $C_-$ in
+  $p_{ans}$. Let $p_n:\bar u\rightarrow \bar v$ have at most $n$ occurrences of $C_-$.
+  By the induction hypothesis, each of $a',b'$ are either subterms of $G$ (in
+  which case we are done) or of $\bar u$ or $\bar v$. This problem is
+  symmetric, we we really just need to show that this for $a'$ in the
+  precomposition case, as before. We have three cases:
+  \begin{itemize}
+    \item $p_{ans} = id_u\circ C_f(p_n)\circ \cdots$ in which case $u=\bar u$ and we are done
+    \item $p_{ans} = \cdots \circ p \circ C_f(p_n)\circ \cdots$ where $p$ or
+      $p^{-1}$ are from $G$. Here, $p : \bar u \rightarrow t$, so
+      $\bar u$ occurs in $G$.
+    \item $p_{ans} = \cdots \circ C_f(p_{n_1}) \circ C_f(p_{n_2} )\circ \cdots$
+      where instead of $p_n$, we have $p_{n_i}$ which have at most $n_i$
+      occurrences of $C_-$, such that $n_1+n_2=1$. From the functor laws, we
+      have $p_{ans} = \cdots \circ C_f(p_{n_1}\circ p_{n_2}) \circ \cdots$,
+      which reduces to one of the previous cases, after repeating this case at
+      most finitely many times.
+\end{itemize}
+\end{proof}
+\begin{corollary}
+  If $G,a=b\vdash u=v$ and $G\not\vdash u=v$, then there exists $a',b'$ which
+  are subterms of $G$, $u$, or $v$, such that $G\vdash a'=a$ and $G\vdash b'=b$
+  \label{cor:subterm-exist}
+\end{corollary}
+\begin{proof}
+  Let $p_{ans}$ be the proof term that witnesses the proof $G,a=b\vdash u=v$.
+  $p_{a=b}$ must appear in $p_{ans}$, since otherwise $G\vdash u=v$.
+\end{proof}
+
+\begin{lemma}
+  $\pbe\Renv\Penv\pred$ instantiates all subterms of $\pred$ and $\Penv$
+  \label{lem:subterm-pbe}
+\end{lemma}
+
+\begin{theorem}[\textbf{Soundness \& Completeness}]
+  $\pbe{\Renv}{\Penv}{\pred}$ iff $\validstar{\Renv}{\Penv}{\pred}$.
+\end{theorem}
+\begin{proof}
+  The forward direction follows directly from the fact that
+  $\pbe\Renv\Penv\pred$ performs only finitely many measure installations. For
+  the reverse direction:
+
+  \(\Renv, \Penv \vdash_* p\) means there exists an \(n\) such that
+  \(\Renv, \Penv \vdash_n p\). We proceed by induction on \(n\):
+
+  In the case where \(n=0\), we know that $\Renv, \Penv \vdash_0 p$ iff
+  $\Penv \vdash p$, but in that case $\pbe\Renv\Penv\pred$,
+  no matter what predicates we add to $G$.
+
+  In the inductive case, given that
+  $\forall \pred, \Renv,\Penv\vdash_n \pred \implies \pbe\Renv\Penv\pred$,
+  we want to show that
+  $\forall \pred, \Renv,\Penv\vdash_{n+1} \pred \implies \pbe\Renv\Penv\pred$.
+  That is, there exists an expression $e$ and
+  $\lambda \bar x. q \Rightarrow e \in \Renv(m)$, such that $\Penv \vdash q$ and
+  $\Renv,\Penv; m  \; \bar e = e [\bar e/\bar x] \vdash_{n} \pred \implies
+  \pbe\Renv\Penv\pred$
+
+  If $\Renv,\Penv\vdash_{n}\pred$, then we're done, by the induction
+  hypothesis.  Otherwise, if $\Renv, \Penv \not\vdash_{n}\pred$, but $\Renv,\Penv
+  ;m\;\bar e = e [\bar e/\bar x]\vdash_{n}\pred$, then there exist
+  $p_1,\ldots,p_n$, such that
+  \(p_1, \ldots, p_n \not\vdash  t=t'\) but \(m\;\bar e = e[\bar e /\bar x], p_1, \ldots, p_n \vdash  t=t'\)
+
+  By \ref{cor:subterm-exist},
+  we know that $m \;\bar e$ is a subterm of $p$ or $G$,
+  and then \ref{lem:subterm-pbe} gives us FIXME:
+  $\pbe{\Renv;\pred}{\Penv}{m  \; \bar e = e [\bar e/\bar x]}$
+  and by applying the induction hypothesis to our premise, we have
+  $\pbe\Renv{\Penv}{m  \; \bar e = e [\bar e/\bar x] \rightarrow p}$
+  so we have \(\pbe\Renv\Penv\pred\)
+\end{proof}

@@ -1,0 +1,511 @@
+@inproceedings{CSD,
+author = {Chilimbi, Trishul M. and Davidson, Bob and Larus, James R.},
+title = {Cache-Conscious Structure Definition},
+year = {1999},
+isbn = {1581130945},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/301618.301635},
+doi = {10.1145/301618.301635},
+abstract = {A program's cache performance can be improved by changing the organization and layout of its data---even complex, pointer-based data structures. Previous techniques improved the cache performance of these structures by arranging distinct instances to increase reference locality. These techniques produced significant performance improvements, but worked best for small structures that could be packed into a cache block.This paper extends that work by concentrating on the internal organization of fields in a data structure. It describes two techniques---structure splitting and field reordering---that improve the cache behavior of structures larger than a cache block. For structures comparable in size to a cache block, structure splitting can increase the number of hot fields that can be placed in a cache block. In five Java programs, structure splitting reduced cache miss rates 10--27% and improved performance 6--18% beyond the benefits of previously described cache-conscious reorganization techniques.For large structures, which span many cache blocks, reordering fields, to place those with high temporal affinity in the same cache block can also improve cache utilization. This paper describes bbcache, a tool that recommends C structure field reorderings. Preliminary measurements indicate that reordering fields in 5 active structures improves the performance of Microsoft SQL Server 7.0 2--3%.},
+booktitle = {Proceedings of the ACM SIGPLAN 1999 Conference on Programming Language Design and Implementation},
+pages = {13–24},
+numpages = {12},
+keywords = {cache-conscious definition, field reorganization, class splitting, structure splitting},
+location = {Atlanta, Georgia, USA},
+series = {PLDI '99}
+}
+
+@inproceedings{CSL,
+author = {Chilimbi, Trishul M. and Hill, Mark D. and Larus, James R.},
+title = {Cache-Conscious Structure Layout},
+year = {1999},
+isbn = {1581130945},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/301618.301633},
+doi = {10.1145/301618.301633},
+abstract = {Hardware trends have produced an increasing disparity between processor speeds and memory access times. While a variety of techniques for tolerating or reducing memory latency have been proposed, these are rarely successful for pointer-manipulating programs.This paper explores a complementary approach that attacks the source (poor reference locality) of the problem rather than its manifestation (memory latency). It demonstrates that careful data organization and layout provides an essential mechanism to improve the cache locality of pointer-manipulating programs and consequently, their performance. It explores two placement techniques---clustering and coloring---that improve cache performance by increasing a pointer structure's spatial and temporal locality, and by reducing cache-conflicts.To reduce the cost of applying these techniques, this paper discusses two strategies---cache-conscious reorganization and cache-conscious allocation---and describes two semi-automatic tools---ccmorph and ccmalloc---that use these strategies to produce cache-conscious pointer structure layouts. ccmorph is a transparent tree reorganizer that utilizes topology information to cluster and color the structure. ccmalloc is a cache-conscious heap allocator that attempts to co-locate contemporaneously accessed data elements in the same physical cache block. Our evaluations, with microbenchmarks, several small benchmarks, and a couple of large real-world applications, demonstrate that the cache-conscious structure layouts produced by ccmorph and ccmalloc offer large performance benefits---in most cases, significantly outperforming state-of-the-art prefetching.},
+booktitle = {Proceedings of the ACM SIGPLAN 1999 Conference on Programming Language Design and Implementation},
+pages = {1–12},
+numpages = {12},
+keywords = {cache-conscious reorganization, clustering, cache-conscious allocation, cache-conscious data placement, coloring},
+location = {Atlanta, Georgia, USA},
+series = {PLDI '99}
+}
+
+@article{Dargent,
+author = {Chen, Zilin and Lafont, Ambroise and O'Connor, Liam and Keller, Gabriele and McLaughlin, Craig and Jackson, Vincent and Rizkallah, Christine},
+title = {Dargent: A Silver Bullet for Verified Data Layout Refinement},
+year = {2023},
+issue_date = {January 2023},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+volume = {7},
+number = {POPL},
+url = {https://doi.org/10.1145/3571240},
+doi = {10.1145/3571240},
+abstract = {Systems programmers need fine-grained control over the memory layout of data structures, both to produce performant code and to comply with well-defined interfaces imposed by existing code, standardised protocols or hardware. Code that manipulates these low-level representations in memory is hard to get right. Traditionally, this problem is addressed by the implementation of tedious marshalling code to convert between compiler-selected data representations and the desired compact data formats. Such marshalling code is error-prone and can lead to a significant runtime overhead due to excessive copying. While there are many languages and systems that address the correctness issue, by automating the generation and, in some cases, the verification of the marshalling code, the performance overhead introduced by the marshalling code remains. In particular for systems code, this overhead can be prohibitive. In this work, we address both the correctness and the performance problems. We present a data layout description language and data refinement framework, called Dargent, which allows programmers to declaratively specify how algebraic data types are laid out in memory. Our solution is applied to the Cogent language, but the general ideas behind our solution are applicable to other settings. The Dargent framework generates C code that manipulates data directly with the desired memory layout, while retaining the formal proof that this generated C code is correct with respect to the functional semantics. This added expressivity removes the need for implementing and verifying marshalling code, which eliminates copying, smoothens interoperability with surrounding systems, and increases the trustworthiness of the overall system.},
+journal = {Proc. ACM Program. Lang.},
+month = {jan},
+articleno = {47},
+numpages = {27},
+keywords = {data refinement, systems programming, certifying compiler}
+}
+
+@inproceedings{ccgarbage,
+author = {Chilimbi, Trishul M. and Larus, James R.},
+title = {Using Generational Garbage Collection to Implement Cache-Conscious Data Placement},
+year = {1998},
+isbn = {1581131143},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/286860.286865},
+doi = {10.1145/286860.286865},
+abstract = {The cost of accessing main memory is increasing. Machine designers have tried to mitigate the consequences of the processor and memory technology trends underlying this increasing gap with a variety of techniques to reduce or tolerate memory latency. These techniques, unfortunately, are only occasionally successful for pointer-manipulating programs. Recent research has demonstrated the value of a complementary approach, in which pointer-based data structures are reorganized to improve cache locality.This paper studies a technique for using a generational garbage collector to reorganize data structures to produce a cache-conscious data layout, in which objects with high temporal affinity are placed next to each other, so that they are likely to reside in the same cache block. The paper explains how to collect, with low overhead, real-time profiling information about data access patterns in object-oriented languages, and describes a new copying algorithm that utilizes this information to produce a cache-conscious object layout.Preliminary results show that this technique reduces cache miss rates by 21--42%, and improves program performance by 14--37% over Cheney's algorithm. We also compare our layouts against those produced by the Wilson-Lam-Moher algorithm, which attempts to improve program locality at the page level. Our cache-conscious object layouts reduces cache miss rates by 20--41% and improves program performance by 18--31% over their algorithm, indicating that improving locality at the page level is not necessarily beneficial at the cache level.},
+booktitle = {Proceedings of the 1st International Symposium on Memory Management},
+pages = {37–48},
+numpages = {12},
+keywords = {cache-conscious data placement, object-oriented programs, garbage collection, profiling},
+location = {Vancouver, British Columbia, Canada},
+series = {ISMM '98}
+}
+
+@inproceedings{Shapes, author = {Franco, Juliana and Hagelin, Martin and Wrigstad, Tobias and Drossopoulou, Sophia and Eisenbach, Susan}, title = {You Can Have It All: Abstraction and Good Cache Performance}, year = {2017}, isbn = {9781450355308}, publisher = {Association for Computing Machinery}, address = {New York, NY, USA}, url = {https://doi.org/10.1145/3133850.3133861}, doi = {10.1145/3133850.3133861}, abstract = {On current architectures, the optimisation of an application's performance often involves data being stored according to access affinity --- what is accessed together should be stored together, rather than logical affinity --- what belongs together logically stays together. Such low level techniques lead to faster, but more error prone code, and end up tangling the program's logic with low-level data layout details. Our vision, which we call SHAPES --- Safe, High-level, Abstractions for oPtimisation of mEmory cacheS --- is that the layout of a data structure should be defined only once, upon instantiation, and the remainder of the code should be layout agnostic. This enables performance improvements while also guaranteeing memory safety, and supports the separation of program logic from low level concerns. In this paper we investigate how this vision can be supported by extending a programming language. We describe the core language features supporting this vision: classes can be customized to support different layouts, and layout information is carried around in types; the remaining source code is layout-unaware and the compiler emits layout-aware code. We then discuss our SHAPES implementation through a prototype library, which we also used for preliminary evaluations. Finally, we discuss how the core could be expanded so as to deliver SHAPES's full potential: the incorporation of compacting garbage collection, ad hoc polymorphism and late binding, synchronization of representations of different collections, support for dynamic change of representation, etc.}, booktitle = {Proceedings of the 2017 ACM SIGPLAN International Symposium on New Ideas, New Paradigms, and Reflections on Programming and Software}, pages = {148–167}, numpages = {20}, keywords = {object layout}, location = {Vancouver, BC, Canada}, series = {Onward! 2017}
+}
+
+@misc{Shapes2,
+  doi = {10.48550/ARXIV.1901.08006},
+
+  url = {https://arxiv.org/abs/1901.08006},
+
+  author = {Franco, Juliana and Tasos, Alexandros and Drossopoulou, Sophia and Wrigstad, Tobias and Eisenbach, Susan},
+
+  keywords = {Programming Languages (cs.PL), FOS: Computer and information sciences, FOS: Computer and information sciences},
+
+  title = {Safely Abstracting Memory Layouts},
+
+  publisher = {arXiv},
+
+  year = {2019},
+
+  copyright = {Creative Commons Attribution Share Alike 4.0 International}
+}
+
+
+
+@inproceedings{Hobbit, author = {Diatchki, Iavor S. and Jones, Mark P.}, title = {Strongly Typed Memory Areas Programming Systems-Level Data Structures in a Functional Language}, year = {2006}, isbn = {1595934898}, publisher = {Association for Computing Machinery}, address = {New York, NY, USA}, url = {https://doi.org/10.1145/1159842.1159851}, doi = {10.1145/1159842.1159851}, abstract = {Modern functional languages offer several attractive features to support development of reliable and secure software. However, in our efforts to use Haskell for systems programming tasks-including device driver and operating system construction-we have also encountered some significant gaps in functionality. As a result, we have been forced, either to code some non-trivial components in more traditional but unsafe languages like C or assembler, or else to adopt aspects of the foreign function interface that compromise on strong typing and type safety.In this paper, we describe how we have filled one of these gaps by extending a Haskell-like language with facilities for working directly with low-level, memory-based data structures. Using this extension, we are able to program a wide range of examples, including hardware interfaces, kernel data structures, and operating system APIs. Our design allows us to address concerns about representation, alignment, and placement (in virtual or physical address spaces) that are critical in some systems applications, but clearly beyond the scope of most existing functional languages.Our approach leverages type system features that are wellknown and widely supported in existing Haskell implementations, including kinds, multiple parameter type classes, functional dependencies, and improvement. One interesting feature is the use of a syntactic abbreviation that makes it easy to define and work with functions at the type level.}, booktitle = {Proceedings of the 2006 ACM SIGPLAN Workshop on Haskell}, pages = {72–83}, numpages = {12}, keywords = {improvement, memory areas, qualified types, systems programming, memory manipulation, data representation}, location = {Portland, Oregon, USA}, series = {Haskell '06} }
+
+@inproceedings{Hobbit2, author = {Diatchki, Iavor S. and Jones, Mark P. and Leslie, Rebekah}, title = {High-Level Views on Low-Level Representations}, year = {2005}, isbn = {1595930647}, publisher = {Association for Computing Machinery}, address = {New York, NY, USA}, url = {https://doi.org/10.1145/1086365.1086387}, doi = {10.1145/1086365.1086387}, abstract = {This paper explains how the high-level treatment of datatypes in functional languages—using features like constructor functions and pattern matching—can be made to coexist with bitdata. We use this term to describe the bit- level representations of data that are required in the construction of many different applications, including operating systems, device drivers, and assemblers. We explain our approach as a combination of two language extensions, each of which could potentially be adapted to any modern functional language. The first adds simple and elegant constructs for manipulating raw bitfield values, while the second provides a view-like mechanism for defining distinct new bitdata types with fine-control over the underlying representation. Our design leverages polymorphic type inference, as well as techniques for improvement of qualified types, to track both the type and the width of bitdata structures. We have implemented our extensions in a small functional language interpreter, and used it to show that our approach can handle a wide range of practical bitdata types.}, booktitle = {Proceedings of the Tenth ACM SIGPLAN International Conference on Functional Programming}, pages = {168–179}, numpages = {12}, keywords = {bitdata, qualified types, bitfields, pattern matching, bit manipulation, polymorphism, views, data representation}, location = {Tallinn, Estonia}, series = {ICFP '05} }
+
+@inproceedings{Local, author = {Vollmer, Michael and Koparkar, Chaitanya and Rainey, Mike and Sakka, Laith and Kulkarni, Milind and Newton, Ryan R.}, title = {LoCal: A Language for Programs Operating on Serialized Data}, year = {2019}, isbn = {9781450367127}, publisher = {Association for Computing Machinery}, address = {New York, NY, USA}, url = {https://doi.org/10.1145/3314221.3314631}, doi = {10.1145/3314221.3314631}, abstract = {In a typical data-processing program, the representation of data in memory is distinct from its representation in a serialized form on disk. The former has pointers and arbitrary, sparse layout, facilitating easy manipulation by a program, while the latter is packed contiguously, facilitating easy I/O. We propose a language, LoCal, to unify in-memory and serialized formats. LoCal extends a region calculus into a location calculus, employing a type system that tracks the byte-addressed layout of all heap values. We formalize LoCal and prove type safety, and show how LoCal programs can be inferred from unannotated source terms. We transform the existing Gibbon compiler to use LoCal as an intermediate language, with the goal of achieving a balance between code speed and data compactness by introducing just enough indirection into heap layouts, preserving the asymptotic complexity of traditional representations, but working with mostly or completely serialized data. We show that our approach yields significant performance improvement over prior approaches to operating on packed data, without abandoning idiomatic programming with recursive functions.}, booktitle = {Proceedings of the 40th ACM SIGPLAN Conference on Programming Language Design and Implementation}, pages = {48–62}, numpages = {15}, keywords = {Region Calculus, Compiler Optimization, Tree Traversal, Data Encoding}, location = {Phoenix, AZ, USA}, series = {PLDI 2019} }
+
+
+
+@inproceedings{FloorPlan, author = {Cronburg, Karl and Guyer, Samuel Z.}, title = {Floorplan: Spatial Layout in Memory Management Systems}, year = {2019}, isbn = {9781450369800}, publisher = {Association for Computing Machinery}, address = {New York, NY, USA}, url = {https://doi.org/10.1145/3357765.3359519}, doi = {10.1145/3357765.3359519}, abstract = {In modern runtime systems, memory layout calculations are hand-coded in systems languages. Primitives in these languages are not powerful enough to describe a rich set of layouts, leading to reliance on ad-hoc macros, numerous interrelated static constants, and other boilerplate code. Memory management policies must also carefully orchestrate their application of address calculations in order to modify memory cooperatively, a task ill-suited to low-level systems languages at hand which lack proper safety mechanisms. In this paper we introduce Floorplan, a declarative language for specifying high level memory layouts. Constraints formerly implemented by describing how to compute locations are, in Floorplan, defined declaratively using explicit layout constructs. The challenge here was to discover constructs capable of sufficiently enabling the automatic generation of address calculations. Floorplan is implemented as a compiler for generating a Rust library. In a case study of an existing implementation of the immix garbage collection algorithm, Floorplan eliminates 55 out of the 63 unsafe lines of code: 100% of unsafe lines pertaining to memory safety.}, booktitle = {Proceedings of the 18th ACM SIGPLAN International Conference on Generative Programming: Concepts and Experiences}, pages = {81–93}, numpages = {13}, keywords = {Memory Management, Runtime Systems}, location = {Athens, Greece}, series = {GPCE 2019} }
+
+@inproceedings{PADS, author = {Fisher, Kathleen and Gruber, Robert}, title = {PADS: A Domain-Specific Language for Processing Ad Hoc Data}, year = {2005}, isbn = {1595930566}, publisher = {Association for Computing Machinery}, address = {New York, NY, USA}, url = {https://doi.org/10.1145/1065010.1065046}, doi = {10.1145/1065010.1065046}, abstract = {PADS is a declarative data description language that allows data analysts to describe both the physical layout of ad hoc data sources and semantic properties of that data. From such descriptions, the PADS compiler generates libraries and tools for manipulating the data, including parsing routines, statistical profiling tools, translation programs to produce well-behaved formats such as Xml or those required for loading relational databases, and tools for running XQueries over raw PADS data sources. The descriptions are concise enough to serve as "living" documentation while flexible enough to describe most of the ASCII, binary, and Cobol formats that we have seen in practice. The generated parsing library provides for robust, application-specific error handling.}, booktitle = {Proceedings of the 2005 ACM SIGPLAN Conference on Programming Language Design and Implementation}, pages = {295–304}, numpages = {10}, keywords = {domain-specific languages, data description language}, location = {Chicago, IL, USA}, series = {PLDI '05} }
+
+@inproceedings{Pads2, author = {Fisher, Kathleen and Walker, David}, title = {The PADS Project: An Overview}, year = {2011}, isbn = {9781450305297}, publisher = {Association for Computing Machinery}, address = {New York, NY, USA}, url = {https://doi.org/10.1145/1938551.1938556}, doi = {10.1145/1938551.1938556}, abstract = {The goal of the PADS project, which started in 2001, is to make it easier for data analysts to extract useful information from ad hoc data files. This paper does not report new results, but rather gives an overview of the project and how it helps bridge the gap between the unmanaged world of ad hoc data and the managed world of typed programming languages and databases. In particular, the paper reviews the design of PADS data description languages, describes the generated parsing tools and discusses the importance of meta-data. It also sketches the formal semantics, discusses useful tools and how can they can be generated automatically from PADS descriptions, and describes an inferencing system that can learn useful PADS descriptions from positive examples of the data format.}, booktitle = {Proceedings of the 14th International Conference on Database Theory}, pages = {11–17}, numpages = {7}, keywords = {data description languages, ad hoc data, domain-specific languages}, location = {Uppsala, Sweden}, series = {ICDT '11} }
+
+@inproceedings{Pads3, author = {Mandelbaum, Yitzhak and Fisher, Kathleen and Walker, David and Fernandez, Mary and Gleyzer, Artem}, title = {PADS/ML: A Functional Data Description Language}, year = {2007}, isbn = {1595935754}, publisher = {Association for Computing Machinery}, address = {New York, NY, USA}, url = {https://doi.org/10.1145/1190216.1190231}, doi = {10.1145/1190216.1190231}, abstract = {Massive amounts of useful data are stored and processed in ad hoc formats for which common tools like parsers, printers, query engines and format converters are not readily available. In this paper, we explain the design and implementation of PADS/ML , a new language and system that facilitates the generation of data processing tools for ad hoc formats. The PADS/ML design includes features such as dependent, polymorphic and recursive datatypes, which allow programmers to describe the syntax and semantics of ad hoc data in a concise, easy-to-read notation. The PADS/ML implementation compiles these descriptions into ml structures and functors that include types for parsed data, functions for parsing and printing, and auxiliary support for user-specified, format-dependent and format-independent tool generation.}, booktitle = {Proceedings of the 34th Annual ACM SIGPLAN-SIGACT Symposium on Principles of Programming Languages}, pages = {77–83}, numpages = {7}, keywords = {parsing, domain-specific languages, ML, printing, functional programming, data description languages, modules, dependent types}, location = {Nice, France}, series = {POPL '07} }
+
+@inproceedings{PacketTypes, author = {McCann, Peter J. and Chandra, Satish}, title = {Packet Types: Abstract Specification of Network Protocol Messages}, year = {2000}, isbn = {1581132239}, publisher = {Association for Computing Machinery}, address = {New York, NY, USA}, url = {https://doi.org/10.1145/347059.347563}, doi = {10.1145/347059.347563}, abstract = {In writing networking code, one is often faced with the task of interpreting a raw buffer according to a standardized packet format. This is needed, for example, when monitoring network traffic for specific kinds of packets, or when unmarshaling an incoming packet for protocol processing. In such cases, a programmer typically writes C code that understands the grammar of a packet and that also performs any necessary byte-order and alignment adjustments. Because of the complexity of certain protocol formats, and because of the low-level of programming involved, writing such code is usually a cumbersome and error-prone process. Furthermore, code written in this style loses the domain-specific information, viz. the packet format, in its details, making it difficult to maintain.}, booktitle = {Proceedings of the Conference on Applications, Technologies, Architectures, and Protocols for Computer Communication}, pages = {321–333}, numpages = {13}, location = {Stockholm, Sweden}, series = {SIGCOMM '00} }
+
+@inproceedings{Protege, author = {Wang, Yan and Gaspes, Ver\'{o}nica}, title = {An Embedded Language for Programming Protocol Stacks in Embedded Systems}, year = {2011}, isbn = {9781450304856}, publisher = {Association for Computing Machinery}, address = {New York, NY, USA}, url = {https://doi.org/10.1145/1929501.1929511}, doi = {10.1145/1929501.1929511}, abstract = {Protocol stack specifications are well-structured documents that follow a number of conventions and notations that have proven very useful for the design and dissemination of communication protocols. Protocol stack implementations on the other hand, are done in low-level languages, using error-prone programming techniques resulting in programs that are difficult to relate to the specifications, difficult to maintain, modify, extend and reuse. To overcome these problems we propose a domain-specific language that provides abstractions close to the notations used in protocol specifications. From descriptions in our language we generate C programs that can be integrated with other systems software. The language provides constructs to describe packet formats, including physical layout, constraints and dependencies. It also provides constructs for state machines and for layering protocols into stacks. Experiments show that the C programs we generate are comparable in performance and binary size to hand-crafted C programs.}, booktitle = {Proceedings of the 20th ACM SIGPLAN Workshop on Partial Evaluation and Program Manipulation}, pages = {63–72}, numpages = {10}, keywords = {embedded compilation, domain-specific language, embedded network software}, location = {Austin, Texas, USA}, series = {PEPM '11} }
+
+@inproceedings{DataScript, author = {Back, Godmar}, title = {DataScript - A Specification and Scripting Language for Binary Data}, year = {2002}, isbn = {3540442847}, publisher = {Springer-Verlag}, address = {Berlin, Heidelberg}, abstract = {DataScript is a language to describe and manipulate binary data formats as types. DataScript consists of two components: a constraint-based specification language that uses DataScript types to describe the physical layout of data and a language binding that provides a simple programming interface to script binary data. A DataScript compiler generates Java libraries that are linked with DataScript scripts.DataScript specifications can be used to describe formats in a programmatic way, eliminating the vagaries and ambiguities often associated with prosaic format descriptions. The libraries generated by the DataScript compiler free the programmer from the tedious task of coding input and output routines. More importantly, they assure correctness and safety by validating both the input read and the output generated. We show examples that demonstrate that DataScript is simple, yet powerful enough to describe many commonly used formats. Similar to how scripting languages such as Perl allow the manipulation of text files, the libraries generated by the DataScript compiler can be used to quickly write scripts that safely manipulate binary files.}, booktitle = {Proceedings of the 1st ACM SIGPLAN/SIGSOFT Conference on Generative Programming and Component Engineering}, pages = {66–77}, numpages = {12}, series = {GPCE '02} }
+
+@inproceedings{Nail, author = {Bangert, Julian and Zeldovich, Nickolai}, title = {Nail: A Practical Tool for Parsing and Generating Data Formats}, year = {2014}, isbn = {9781931971164}, publisher = {USENIX Association}, address = {USA}, abstract = {Nail is a tool that greatly reduces the programmer effort for safely parsing and generating data formats defined by a grammar. Nail introduces several key ideas to achieve its goal. First, Nail uses a protocol grammar to define not just the data format, but also the internal object model of the data. Second, Nail eliminates the notion of semantic actions, used by existing parser generators, which reduces the expressive power but allows Nail to both parse data formats and generate them from the internal object model, by establishing a semantic bijection between the data format and the object model. Third, Nail introduces dependent fields and stream transforms to capture protocol features such as size and offset fields, checksums, and compressed data, which are impractical to express in existing protocol languages. Using Nail, we implement an authoritative DNS server in C in under 300 lines of code and grammar, and an unzip program in C in 220 lines of code and grammar, demonstrating that Nail makes it easy to parse complex real-world data formats. Performance experiments show that a Nail-based DNS server can outperform the widely used BIND DNS server on an authoritative workload, demonstrating that systems built with Nail can achieve good performance.}, booktitle = {Proceedings of the 11th USENIX Conference on Operating Systems Design and Implementation}, pages = {615–628}, numpages = {14}, location = {Broomfield, CO}, series = {OSDI'14} }
+
+@inproceedings{GenericPacketDescriptions, author = {van Geest, Marcell and Swierstra, Wouter}, title = {Generic Packet Descriptions: Verified Parsing and Pretty Printing of Low-Level Data}, year = {2017}, isbn = {9781450351836}, publisher = {Association for Computing Machinery}, address = {New York, NY, USA}, url = {https://doi.org/10.1145/3122975.3122979}, doi = {10.1145/3122975.3122979}, abstract = {Complex protocols describing the communication or storage of binary data are difficult to describe precisely. This paper presents a collection of data types for describing a binary data formats; the corresponding parser and pretty printer are generated automatically from a data description. By embedding these data types in a general purpose dependently typed programming language, we can verify once and for all that the parsers and pretty printers generated in this style are correct by construction. To validate our results, we show how to write a verified parser of the IPv4 network protocol.}, booktitle = {Proceedings of the 2nd ACM SIGPLAN International Workshop on Type-Driven Development}, pages = {30–40}, numpages = {11}, keywords = {dependent types, parsing, pretty printing, data type generic programming}, location = {Oxford, UK}, series = {TyDe 2017} }
+
+@inproceedings{VPBdeleware, author = {Ye, Qianchuan and Delaware, Benjamin}, title = {A Verified Protocol Buffer Compiler}, year = {2019}, isbn = {9781450362221}, publisher = {Association for Computing Machinery}, address = {New York, NY, USA}, url = {https://doi.org/10.1145/3293880.3294105}, doi = {10.1145/3293880.3294105}, abstract = {The code responsible for serializing and deserializing untrusted external data is a vital component of any software that communicates with the outside world, as any bugs in these components can compromise the entire system. This is particularly true for verified systems which rely on trusted code to process external data, as any defects in the parsing code can invalidate any formal proofs about the system. One way to reduce the trusted code base of these systems is to use interface generators like Protocol Buffer and ASN.1 to generate serializers and deserializers from data descriptors. Of course, these generators are not immune to bugs. In this work, we formally verify a compiler for a realistic subset of the popular Protocol Buffer serialization format using the Coq proof assistant, proving once and for all the correctness of every generated serializer and deserializer. One of the challenges we had to overcome was the extreme flexibility of the Protocol Buffer format: the same source data can be encoded in an infinite number of ways, and the deserializer must faithfully recover the original source value from each. We have validated our verified system using the official conformance tests.}, booktitle = {Proceedings of the 8th ACM SIGPLAN International Conference on Certified Programs and Proofs}, pages = {222–233}, numpages = {12}, keywords = {Serialization, Coq, Program verification}, location = {Cascais, Portugal}, series = {CPP 2019} }
+
+@article{Narcissus, author = {Delaware, Benjamin and Suriyakarn, Sorawit and Pit-Claudel, Cl\'{e}ment and Ye, Qianchuan and Chlipala, Adam}, title = {Narcissus: Correct-by-Construction Derivation of Decoders and Encoders from Binary Formats}, year = {2019}, issue_date = {August 2019}, publisher = {Association for Computing Machinery}, address = {New York, NY, USA}, volume = {3}, number = {ICFP}, url = {https://doi.org/10.1145/3341686}, doi = {10.1145/3341686}, abstract = {It is a neat result from functional programming that libraries of parser combinators can support rapid construction of decoders for quite a range of formats. With a little more work, the same combinator program can denote both a decoder and an encoder. Unfortunately, the real world is full of gnarly formats, as with the packet formats that make up the standard Internet protocol stack. Most past parser-combinator approaches cannot handle these formats, and the few exceptions require redundancy – one part of the natural grammar needs to be hand-translated into hints in multiple parts of a parser program. We show how to recover very natural and nonredundant format specifications, covering all popular network packet formats and generating both decoders and encoders automatically. The catch is that we use the Coq proof assistant to derive both kinds of artifacts using tactics, automatically, in a way that guarantees that they form inverses of each other. We used our approach to reimplement packet processing for a full Internet protocol stack, inserting our replacement into the OCaml-based MirageOS unikernel, resulting in minimal performance degradation.}, journal = {Proc. ACM Program. Lang.}, month = {jul}, articleno = {82}, numpages = {29}, keywords = {Serialization and Deserialization, Program Synthesis, Parser Combinators, Deductive Synthesis} }
+
+@inproceedings{EverParse, author = {Ramananandro, Tahina and Delignat-Lavaud, Antoine and Fournet, C\'{e}dric and Swamy, Nikhil and Chajed, Tej and Kobeissi, Nadim and Protzenko, Jonathan}, title = {Everparse: Verified Secure Zero-Copy Parsers for Authenticated Message Formats}, year = {2019}, isbn = {9781939133069}, publisher = {USENIX Association}, address = {USA}, abstract = {We present EverParse, a framework for generating parsers and serializers from tag-length-value binary message format descriptions. The resulting code is verified to be safe (no overflow, no use after free), correct (parsing is the inverse of serialization) and non-malleable (each message has a unique binary representation). These guarantees underpin the security of cryptographic message authentication, and they enable testing to focus on interoperability and performance issues.EverParse consists of two parts: LowParse, a library of parser combinators and their formal properties written in F*; and QuackyDucky, a compiler from a domain-specific language of RFC message formats down to low-level F* code that calls LowParse. While LowParse is fully verified, we do not formalize the semantics of the input language and keep QuackyDucky outside our trusted computing base. Instead, it also outputs a formal message specification, and F* automatically verifies our implementation against this specification.EverParse yields efficient zero-copy implementations, usable both in F* and in C. We evaluate it in practice by fully implementing the message formats of the Transport Layer Security standard and its extensions (TLS 1.0-1.3, 293 datatypes) and by integrating them into MITLS, an F* implementation of TLS. We illustrate its generality by implementing the Bitcoin block and transaction formats, and the ASN.1 DER payload of PKCS #1 RSA signatures. We integrate them into C applications and measure their runtime performance, showing significant improvements over prior handwritten libraries.}, booktitle = {Proceedings of the 28th USENIX Conference on Security Symposium}, pages = {1465–1482}, numpages = {18}, location = {Santa Clara, CA, USA}, series = {SEC'19} }
+
+@InProceedings{contiguityTypes,
+  author =	{Slind, Konrad},
+  title =	{{Specifying Message Formats with Contiguity Types}},
+  booktitle =	{12th International Conference on Interactive Theorem Proving (ITP 2021)},
+  pages =	{30:1--30:17},
+  series =	{Leibniz International Proceedings in Informatics (LIPIcs)},
+  ISBN =	{978-3-95977-188-7},
+  ISSN =	{1868-8969},
+  year =	{2021},
+  volume =	{193},
+  editor =	{Cohen, Liron and Kaliszyk, Cezary},
+  publisher =	{Schloss Dagstuhl -- Leibniz-Zentrum f{\"u}r Informatik},
+  address =	{Dagstuhl, Germany},
+  URL =		{https://drops.dagstuhl.de/opus/volltexte/2021/13925},
+  URN =		{urn:nbn:de:0030-drops-139252},
+  doi =		{10.4230/LIPIcs.ITP.2021.30},
+  annote =	{Keywords: Logic, verification, formal language theory, message format languages}
+}
+
+@inproceedings{hardnessLayout,
+author = {Petrank, Erez and Rawitz, Dror},
+title = {The Hardness of Cache Conscious Data Placement},
+year = {2002},
+isbn = {1581134509},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/503272.503283},
+doi = {10.1145/503272.503283},
+abstract = {The growing gap between the speed of memory access and cache access has made cache misses an influential factor in program efficiency. Much effort has been spent recently on reducing the number of cache misses during program run. This effort includes wise rearranging of program code, cache-conscious data placement, and algorithmic modifications that improve the program cache behavior. In this work we investigate the complexity of finding the optimal placement of objects (or code) in the memory, in the sense that this placement reduces the cache misses to the minimum. We show that this problem is one of the toughest amongst the interesting algorithmic problems in computer science. In particular, suppose one is given a sequence of memory accesses and one has to place the data in the memory so as to minimize the number of cache misses for this sequence. We show that if P ≠ NP, then one cannot efficiently approximate the optimal solution even up to a very liberal approximation ratio. Thus, this problem joins the small family of extremely inapproximable optimization problems. The other two famous members in this family are minimum coloring and maximum clique.},
+booktitle = {Proceedings of the 29th ACM SIGPLAN-SIGACT Symposium on Principles of Programming Languages},
+pages = {101–112},
+numpages = {12},
+keywords = {Cache conscious data placement, computational complexity, memory management, hardness of approximation, cache conscious code rearrangement},
+location = {Portland, Oregon},
+series = {POPL '02}
+}
+
+@INPROCEEDINGS{9948361,
+  author={Wang, Yongliang and Gu, Naijie and Su, Junjie and Qi, Dongsheng and Ning, Zhuorui},
+  booktitle={2022 5th International Conference on Advanced Electronic Materials, Computers and Software Engineering (AEMCSE)},
+  title={Data layout optimization based on the spatio-temporal model of field access},
+  year={2022},
+  volume={},
+  number={},
+  pages={238-244},
+  doi={10.1109/AEMCSE55572.2022.00055}}
+
+@inproceedings{recursionTwisting,
+author = {Sundararajah, Kirshanthan and Sakka, Laith and Kulkarni, Milind},
+title = {Locality Transformations for Nested Recursive Iteration Spaces},
+year = {2017},
+isbn = {9781450344654},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/3037697.3037720},
+doi = {10.1145/3037697.3037720},
+abstract = {There has been a significant amount of effort invested in designing scheduling transformations such as loop tiling and loop fusion that rearrange the execution of dynamic instances of loop nests to place operations that access the same data close together temporally. In recent years, there has been interest in designing similar transformations that operate on recursive programs, but until now these transformations have only considered simple scenarios: multiple recursions to be fused, or a recursion nested inside a simple loop. This paper develops the first set of scheduling transformations for nested recursions: recursive methods that call other recursive methods. These are the recursive analog to nested loops. We present a transformation called recursion twisting that automatically improves locality at all levels of the memory hierarchy, and show that this transformation can yield substantial performance improvements across several benchmarks that exhibit nested recursion.},
+booktitle = {Proceedings of the Twenty-Second International Conference on Architectural Support for Programming Languages and Operating Systems},
+pages = {281–295},
+numpages = {15},
+keywords = {nested recursion, locality optimization},
+location = {Xi'an, China},
+series = {ASPLOS '17}
+}
+
+@article{analyticalCacheModel,
+author = {Agarwal, A. and Hennessy, J. and Horowitz, M.},
+title = {An Analytical Cache Model},
+year = {1989},
+issue_date = {May 1989},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+volume = {7},
+number = {2},
+issn = {0734-2071},
+url = {https://doi.org/10.1145/63404.63407},
+doi = {10.1145/63404.63407},
+abstract = {Trace-driven simulation and hardware measurement are the techniques most often used to obtain accurate performance figures for caches. The former requires a large amount of simulation time to evaluate each cache configuration while the latter is restricted to measurements of existing caches. An analytical cache model that uses parameters extracted from address traces of programs can efficiently provide estimates of cache performance and show the effects of varying cache parameters. By representing the factors that affect cache performance, we develop an analytical model that gives miss rates for a given trace as a function of cache size, degree of associativity, block size, subblock size, multiprogramming level, task switch interval, and observation interval. The predicted values closely approximate the results of trace-driven simulations, while requiring only a small fraction of the computation cost.},
+journal = {ACM Trans. Comput. Syst.},
+month = {may},
+pages = {184–215},
+numpages = {32}
+}
+
+@article{popr,
+author = {Aho, Alfred V. and Denning, Peter J. and Ullman, Jeffrey D.},
+title = {Principles of Optimal Page Replacement},
+year = {1971},
+issue_date = {Jan. 1971},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+volume = {18},
+number = {1},
+issn = {0004-5411},
+url = {https://doi.org/10.1145/321623.321632},
+doi = {10.1145/321623.321632},
+journal = {J. ACM},
+month = {jan},
+pages = {80–93},
+numpages = {14}
+}
+
+@article{clusterDAG,
+author = {Banerjee, J. and Kim, W. and Kim, S.-J. and Garza, J. F.},
+title = {Clustering a DAG for CAD Databases},
+year = {1988},
+issue_date = {November 1988},
+publisher = {IEEE Press},
+volume = {14},
+number = {11},
+issn = {0098-5589},
+url = {https://doi.org/10.1109/32.9055},
+doi = {10.1109/32.9055},
+abstract = {A DAG (direct acyclic graph) is an important data structure which requires efficient support in CAD (computer-aided design) databases. It typically arise from the design hierarchy, which describes complex designs in terms of subdesigns. A study is made of the properties of the three types of clustered sequences of nodes for hierarchies and DAGs, and algorithms are developed for generating the clustered sequences, retrieving the descendants of a given node, and inserting new nodes into existing clustered sequences of nodes which preserve their clustering properties. The performance of the clustering sequences is compared.},
+journal = {IEEE Trans. Softw. Eng.},
+month = {nov},
+pages = {1684–1699},
+numpages = {16},
+keywords = {data structures, CAD, storage management, DAG, design hierarchy, data structure, clustering sequences, directed graphs, database management systems, CAD databases, computer-aided design, direct acyclic graph, clustered sequences}
+}
+
+@article{Bayer1972OrganizationAM,
+  title={Organization and maintenance of large ordered indexes},
+  author={Rudolf Bayer and Edward M. McCreight},
+  journal={Acta Informatica},
+  year={1972},
+  volume={1},
+  pages={173-189}
+}
+
+@article{eronique1995enhancing,
+  title={Enhancing performance in a persistent object store: Clustering strategies in O2},
+  author={eronique Benzaken, V and Delobel, Claude},
+  journal={Implementing Persistent Object Bases: Principles and Practice},
+  pages={403--412},
+  year={1995}
+}
+
+@inproceedings{poolallocation,
+author = {Lattner, Chris and Adve, Vikram},
+title = {Automatic Pool Allocation for Disjoint Data Structures},
+year = {2002},
+isbn = {9781450373685},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/773146.773041},
+doi = {10.1145/773146.773041},
+abstract = {This paper presents an analysis technique and a novel program transformation that can enable powerful optimizations for entire linked data structures. The fully automatic transformation converts ordinary programs to use pool (aka region) allocation for heap-based data structures. The transformation relies on an efficient link-time interprocedural analysis to identify disjoint data structures in the program, to check whether these data structures are accessed in a type-safe manner, and to construct a Disjoint Data Structure Graph that describes the connectivity pattern within such structures. We present preliminary experimental results showing that the data structure analysis and pool allocation are effective for a set of pointer intensive programs in the Olden benchmark suite. To illustrate the optimizations that can be enabled by these techniques, we describe a novel pointer compression transformation and briefly discuss several other optimization possibilities for linked data structures.},
+booktitle = {Proceedings of the 2002 Workshop on Memory System Performance},
+pages = {13–24},
+numpages = {12},
+location = {Berlin, Germany},
+series = {MSP '02}
+}
+
+@inproceedings{larusAndHilfinger,
+author = {Larus, J. R. and Hilfinger, P. N.},
+title = {Detecting Conflicts between Structure Accesses},
+year = {1988},
+isbn = {0897912691},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/53990.53993},
+doi = {10.1145/53990.53993},
+abstract = {Two references to a record structure conflict if they access the same field and at least one modifies the location. Because structures can be connected by pointers, deciding if two statements conflict requires knowledge of the possible aliases for the locations that they access.This paper describes a dataflow computation that produces a conservative description of the aliases visible at any point in a program. The data structure that records aliases is an alias graph. It also labels instances of structures so that the objects referenced at different points in a program can be compared. This paper shows how alias graphs can be used to detect potential conflicts.},
+booktitle = {Proceedings of the ACM SIGPLAN 1988 Conference on Programming Language Design and Implementation},
+pages = {24–31},
+numpages = {8},
+location = {Atlanta, Georgia, USA},
+series = {PLDI '88}
+}
+
+@misc{thrift,
+  title = {Apache Thrift},
+  howpublished = {\url{https://thrift.apache.org}},
+  note = {Accessed: 2023}
+}
+
+@misc{finalge,
+  title = {Finagle:Extensible RPC system for the JVM},
+  howpublished = {\url{https://twitter.github.io/finagle/}},
+  note = {Accessed: 2023}
+}
+
+@misc{grpc,
+  title = {gRPC:A high performance, open source universal RPC framework},
+  howpublished = {\url{https://grpc.io}},
+  note = {Accessed: 2023}
+}
+
+@misc{jsonapi,
+  title = {Json api:A SPECIFICATION FOR BUILDING APIS IN JSON},
+  howpublished = {\url{https://jsonapi.org}},
+  note = {Accessed: 2023}
+}
+
+@misc{cplex,
+  howpublished = {\url{https://ibmdecisionoptimization.github.io/docplex-doc/}},
+  title        = {IBM® Decision Optimization CPLEX® Modeling for Python},
+  year         = {Accessed: 2023}
+}
+
+@article{o2016cogent,
+  title={COGENT: certified compilation for a functional systems language},
+  author={O'Connor, Liam and Rizkallah, Christine and Chen, Zilin and Amani, Sidney and Lim, Japheth and Nagashima, Yutaka and Sewell, Thomas and Hixon, Alex and Keller, Gabriele and Murray, Toby and others},
+  journal={arXiv preprint arXiv:1601.05520},
+  year={2016}
+}
+
+@InProceedings{gibbon,
+  author =	{Michael Vollmer and Sarah Spall and Buddhika Chamith and Laith Sakka and Chaitanya Koparkar and Milind Kulkarni and Sam Tobin-Hochstadt and Ryan R. Newton},
+  title =	{{Compiling Tree Transforms to Operate on Packed Representations}},
+  booktitle =	{31st European Conference on Object-Oriented Programming (ECOOP 2017)},
+  pages =	{26:1--26:29},
+  series =	{Leibniz International Proceedings in Informatics (LIPIcs)},
+  ISBN =	{978-3-95977-035-4},
+  ISSN =	{1868-8969},
+  year =	{2017},
+  volume =	{74},
+  editor =	{Peter M{\"u}ller},
+  publisher =	{Schloss Dagstuhl--Leibniz-Zentrum fuer Informatik},
+  address =	{Dagstuhl, Germany},
+  URL =		{http://drops.dagstuhl.de/opus/volltexte/2017/7273},
+  URN =		{urn:nbn:de:0030-drops-72737},
+  doi =		{10.4230/LIPIcs.ECOOP.2017.26},
+  annote =	{Keywords: compiler optimization, program transformation, tree traversal}
+}
+
+@inproceedings{truong,
+author = {Truong, D. N. and Bodin, F. and Seznec, A.},
+title = {Improving Cache Behavior of Dynamically Allocated Data Structures},
+year = {1998},
+isbn = {0818685913},
+publisher = {IEEE Computer Society},
+address = {USA},
+booktitle = {Proceedings of the 1998 International Conference on Parallel Architectures and Compilation Techniques},
+pages = {322},
+series = {PACT '98}
+}
+
+@article{gibbon-par,
+author = {Koparkar, Chaitanya and Rainey, Mike and Vollmer, Michael and Kulkarni, Milind and Newton, Ryan R.},
+title = {Efficient Tree-Traversals: Reconciling Parallelism and Dense Data Representations},
+year = {2021},
+issue_date = {August 2021},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+volume = {5},
+number = {ICFP},
+url = {https://doi.org/10.1145/3473596},
+doi = {10.1145/3473596},
+abstract = {Recent work showed that compiling functional programs to use dense, serialized memory representations for recursive algebraic datatypes can yield significant constant-factor speedups for sequential programs. But serializing data in a maximally dense format consequently serializes the processing of that data, yielding a tension between density and parallelism. This paper shows that a disciplined, practical compromise is possible. We present Parallel Gibbon, a compiler that obtains the benefits of dense data formats and parallelism. We formalize the semantics of the parallel location calculus underpinning this novel implementation strategy, and show that it is type-safe. Parallel Gibbon exceeds the parallel performance of existing compilers for purely functional programs that use recursive algebraic datatypes, including, notably, abstract-syntax-tree traversals as in compilers.},
+journal = {Proc. ACM Program. Lang.},
+month = {aug},
+articleno = {91},
+numpages = {29},
+keywords = {Compilers, Data Representation, Parallelism, Region Calculus}
+}
+@article{regioncalcs,
+ author = {Tofte, Mads and Talpin, Jean-Pierre},
+ title = {Region-Based Memory Management},
+ journal = {Inf. Comput.},
+ issue_date = {Feb. 1, 1997},
+ volume = {132},
+ number = {2},
+ month = feb,
+ year = {1997},
+ issn = {0890-5401},
+ pages = {109--176},
+ numpages = {68},
+ url = {http://dx.doi.org/10.1006/inco.1996.2613},
+ doi = {10.1006/inco.1996.2613},
+ acmid = {249661},
+ publisher = {Academic Press, Inc.},
+ address = {Duluth, MN, USA},
+}
+@inproceedings{destination-passing,
+ author = {Shaikhha, Amir and Fitzgibbon, Andrew and Peyton Jones, Simon and Vytiniotis, Dimitrios},
+ title = {Destination-passing Style for Efficient Memory Management},
+ booktitle = {Proceedings of the 6th ACM SIGPLAN International Workshop on Functional High-Performance Computing},
+ series = {FHPC 2017},
+ year = {2017},
+ isbn = {978-1-4503-5181-2},
+ location = {Oxford, UK},
+ pages = {12--23},
+ numpages = {12},
+ url = {http://doi.acm.org/10.1145/3122948.3122949},
+ doi = {10.1145/3122948.3122949},
+ acmid = {3122949},
+ publisher = {ACM},
+ address = {New York, NY, USA},
+ keywords = {Array Programming, Destination-Passing Style},
+}
+
+
+@inproceedings{ANF,
+author = {Flanagan, Cormac and Sabry, Amr and Duba, Bruce F. and Felleisen, Matthias},
+title = {The Essence of Compiling with Continuations},
+year = {1993},
+isbn = {0897915984},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/155090.155113},
+doi = {10.1145/155090.155113},
+abstract = {In order to simplify the compilation process, many compilers for higher-order languages use the continuation-passing style (CPS) transformation in a first phase to generate an intermediate representation of the source program. The salient aspect of this intermediate form is that all procedures take an argument that represents the rest of the computation (the “continuation”). Since the nai¨ve CPS transformation considerably increases the size of programs, CPS compilers perform reductions to produce a more compact intermediate representation. Although often implemented as a part of the CPS transformation, this step is conceptually a second phase. Finally, code generators for typical CPS compilers treat continuations specially in order to optimize the interpretation of continuation parameters.A thorough analysis of the abstract machine for CPS terms show that the actions of the code generator invert the nai¨ve CPS translation step. Put differently, the combined effect of the three phases is equivalent to a source-to-source transformation that simulates the compaction phase. Thus, fully developed CPS compilers do not need to employ the CPS transformation but can achieve the same results with a simple source-level transformation.},
+booktitle = {Proceedings of the ACM SIGPLAN 1993 Conference on Programming Language Design and Implementation},
+pages = {237–247},
+numpages = {11},
+location = {Albuquerque, New Mexico, USA},
+series = {PLDI '93}
+}
+
+@inproceedings{urweb-icfp,
+ author = {Chlipala, Adam},
+ title = {An Optimizing Compiler for a Purely Functional Web-application Language},
+ booktitle = {Proceedings of the 20th ACM SIGPLAN International Conference on Functional Programming},
+ series = {ICFP 2015},
+ year = {2015},
+ isbn = {978-1-4503-3669-7},
+ location = {Vancouver, BC, Canada},
+ pages = {10--21},
+ numpages = {12},
+ url = {http://doi.acm.org/10.1145/2784731.2784741},
+ doi = {10.1145/2784731.2784741},
+ acmid = {2784741},
+ publisher = {ACM},
+ address = {New York, NY, USA},
+ keywords = {Web programming languages, pure functional programming, whole-program optimization},
+}
+
+@book{okasaki,
+  place={Cambridge},
+  title={Purely Functional Data Structures},
+  publisher={Cambridge University Press},
+  author={Okasaki, Chris},
+  year={1998}
+}
+
+@inproceedings{Hawkins,
+author = {Hawkins, Peter and Aiken, Alex and Fisher, Kathleen and Rinard, Martin and Sagiv, Mooly},
+title = {Concurrent Data Representation Synthesis},
+year = {2012},
+isbn = {9781450312059},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/2254064.2254114},
+doi = {10.1145/2254064.2254114},
+abstract = {We describe an approach for synthesizing data representations for concurrent programs. Our compiler takes as input a program written using concurrent relations and synthesizes a representation of the relations as sets of cooperating data structures as well as the placement and acquisition of locks to synchronize concurrent access to those data structures. The resulting code is correct by construction: individual relational operations are implemented correctly and the aggregate set of operations is serializable and deadlock free. The relational specification also permits a high-level optimizer to choose the best performing of many possible legal data representations and locking strategies, which we demonstrate with an experiment autotuning a graph benchmark.},
+booktitle = {Proceedings of the 33rd ACM SIGPLAN Conference on Programming Language Design and Implementation},
+pages = {417–428},
+numpages = {12},
+keywords = {lock placement, synthesis},
+location = {Beijing, China},
+series = {PLDI '12}
+}
+
+@article{BitStealingMadeLegal,
+author = {Baudon, Tha\"{\i}s and Radanne, Gabriel and Gonnord, Laure},
+title = {Bit-Stealing Made Legal: Compilation for Custom Memory Representations of Algebraic Data Types},
+year = {2023},
+issue_date = {August 2023},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+volume = {7},
+number = {ICFP},
+url = {https://doi.org/10.1145/3607858},
+doi = {10.1145/3607858},
+abstract = {Initially present only in functional languages such as OCaml and Haskell, Algebraic Data Types (ADTs) have now become pervasive in mainstream languages, providing nice data abstractions and an elegant way to express functions through pattern matching. Unfortunately, ADTs remain seldom used in low-level programming. One reason is that their increased convenience comes at the cost of abstracting away the exact memory layout of values. Even Rust, which tries to optimize data layout, severely limits control over memory representation. In this article, we present a new approach to specify the data layout of rich data types based on a dual view: a source type, providing a high-level description available in the rest of the code, along with a memory type, providing full control over the memory layout. This dual view allows for better reasoning about memory layout, both for correctness, with dedicated validity criteria linking the two views, and for optimizations that manipulate the memory view. We then provide algorithms to compile constructors and destructors, including pattern matching, to their low-level memory representation. We prove our compilation algorithms correct, implement them in a tool called ribbit that compiles to LLVM IR, and show some early experimental results.},
+journal = {Proc. ACM Program. Lang.},
+month = {aug},
+articleno = {216},
+numpages = {34},
+keywords = {Algebraic Data Types, Compilation, Data Layouts, Pattern Matching}
+}
+
+@misc{extended,
+      title={Optimizing Layout of Recursive Datatypes with Marmoset}, 
+      author={Vidush Singhal and Chaitanya Koparkar and Joseph Zullo and Artem Pelenitsyn and Michael Vollmer and Mike Rainey and Ryan Newton and Milind Kulkarni},
+      year={2024},
+      eprint={2405.17590},
+      archivePrefix={arXiv},
+      primaryClass={cs.PL}
+}

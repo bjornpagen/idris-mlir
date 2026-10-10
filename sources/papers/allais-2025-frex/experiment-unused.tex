@@ -1,0 +1,46 @@
+\subsection{Extending \Frexlib{}.}
+\subseclabel{extending frexlib}
+The Frex library itself, around \FrexlibLoC{} lines of Idris code,
+compiles in around 24 seconds. To evaluate its extensibility, we
+assigned an experienced \Frexlib{} developer the task to extend the
+library with an involutive monoid frexlet. The development took place
+over a period of two weeks, with the code-development phase taking 10
+days.
+
+This paragraph is for readers who are interested in the breakdown of
+the experiment.  It took the developer around an afternoon to design
+the frex data structure and produce a pencil-and-paper proof for
+soundness and completeness. However, the developer noticed the
+structural simplicity of the frexlet, and conjectured that a more modular
+construction might be possible. Within two days, the developer found Jacobs's
+axiomatisation of involutive algebras~\cite{jacobs:involution}, and
+refactored the pencil-and-paper proof using Jacobs's concepts, though
+still specialised to involutive monoids only. Then code development
+began, and the developer discovered a new performance bottleneck in
+\idris{}, which meant that every new 2-3 lines of \idris{} code took five
+minutes or longer to type check. To work around the bottleneck, the
+developer proceeded with a three buffer approach, using using separate
+buffers for definitions that are completed, currently checked and under construction.
+Later, when preparing this manuscript, the developer used
+the \ByFrex{} construct to implement the involutive monoid fral from
+this frex. This step took an additional half-afternoon, mostly spent on
+reducing the construction of the initial involutive
+monoid to the initial monoid. The management of notation is cumbersome
+and slowed the fral development by perhaps an hour or so.
+
+We view the experiment as noisy due to the effect of the type-checker
+bottleneck (now eliminated, as described in the next section), but
+draw some tentative conclusions.
+%
+First, a two-week development time seems acceptable for a shipping
+component: the involutive monoid frexlet now forms part of \Frexlib{}.
+%
+Second, we expect \Frexlib{} will need an overhaul of its
+notation-system as it accrues more frexlets. This refactoring might
+depend on proposing additional notation-management features to
+\idris{} first.
+%
+Finally, although algebraic generalization delayed the development of
+the component, the result of the delay is pleasing: it appears that working
+with the generic representations in \Frexlib{} encourages algebraic
+thinking that can lead to modular code and even to new theorems.

@@ -1,0 +1,20 @@
+\begin{tikzpicture}
+
+{ [start chain=mainchain, node distance=0cm, nodes={on chain}]
+  \node [block] (parse1) {parse};
+  \node [block] (share1) {share};
+  \node [block] (infer1) {infer};
+  \node [block] (check1) {check};
+
+  \node [block, right=.5cm of check1] (parse2) {parse};
+  \node [block] (share2) {share};
+  \node [block] (infer2) {infer};
+  \node [block] (check2) {check};
+
+  \node [right=.5cm of check2] (mainn) {$\cdots$};
+}
+
+\draw (check1) to (parse2);
+\draw (check2) to (mainn);
+
+\end{tikzpicture}

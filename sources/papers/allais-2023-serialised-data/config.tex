@@ -1,0 +1,73 @@
+\PassOptionsToPackage{x11names}{xcolor}
+\usepackage{jigsaw}
+\usepackage{tikz}
+\usepackage{stmaryrd}
+\usepackage{mathtools}
+\usepackage{etoolbox}
+\usepackage{idris2}
+\usepackage{catchfilebetweentags}
+\input{robust-catch}
+\usepackage{hyperref}
+\usepackage{cleveref}
+\usepackage{bytefield}
+
+%\usepackage{fullpage}
+
+\usepackage{todonotes}
+\setuptodonotes{inline}
+
+\usepackage{listings}
+
+\lstset{ %
+  language=C,
+  numbers=left,
+  numberstyle=\tiny,
+  stepnumber=1,
+  numbersep=5pt,
+  breaklines=true,
+  otherkeywords={uint8_t},
+}
+
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.16, width=\textwidth}
+
+%%%%%%%%%%%%% SUBMISSION PROCESSES
+
+\newtoggle{BLIND}
+
+\newcommand{\usestt}{\small}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%% Languages
+
+\newcommand{\agda}{Agda}
+\newcommand{\idris}{Idris~2}
+
+%%% Idris highlighting
+
+\newcommand{\assertTotal}{\IdrisPostulate{assert\KatlaUnderscore{}total}}
+\newcommand{\believeMe}{\IdrisPostulate{believe\KatlaUnderscore{}me}}
+
+%%% Data highlighting
+
+\newcommand{\hexadesc}[1]{\texttt{\usestt\IdrisType{#1}}}
+\newcommand{\hexadata}[1]{\texttt{\usestt\IdrisData{#1}}}
+\newcommand{\hexacons}[1]{\texttt{\usestt\IdrisFunction{#1}}}
+\newcommand{\hexaoffset}[1]{\texttt{\usestt{\color{lightgray}#1}}}
+
+\newenvironment{hexdump}{\usestt\medskip\ttfamily\obeyspaces\obeylines\noindent}{\medskip}
+
+%%% Links to supplementary material
+\newcommand{\suppfile}[1]{File \texttt{#1}}
+
+%%% Remark environment
+\usepackage{amsthm}
+\newtheorem{remark}{Idris Specifics}
+
+\usepackage{xifthen}% provides \isempty test
+%%% Hoare logic
+\newcommand{\Pointer}[3]{\ensuremath{#1 \xmapsto{~#2~} #3}}
+\newcommand{\Hoare}[4]{\ensuremath{\lbrace~ #1 ~\rbrace~ #2 ~\lbrace~ #3.\, #4 ~\rbrace}}
+\newcommand{\Meaning}[2]{\ensuremath{\llbracket \,#1\, \rrbracket\, (\Mu{#2})}}
+\newcommand{\Mu}[1]{\ensuremath{\mu \, \mathit{#1}}}

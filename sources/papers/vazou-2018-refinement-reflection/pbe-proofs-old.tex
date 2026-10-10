@@ -1,0 +1,262 @@
+\section{Proofs for Section~\ref{sec:pbe}}
+
+\begin{proof} (Of lemma~\ref{lem:uncovering})
+We prove the result by induction on $n$.
+
+\smallskip{\emph{Case $n=0$:}}
+Immediate as $\expr \equiv \expr'$.
+
+\smallskip{\emph{Case $n=k+1$:}}
+Consider any $\expr'$ such that $\smtIsValid{\Penv_{k+1}}{\vv = \expr'}$.
+By definition $\Penv_{k+1} = \uinst{\Renv}{\Penv_k}$, hence
+$\smtIsValid{\uinst{\Renv}{\Penv_k}, v = \expr}{\vv = \expr'}$.
+Consider any $\issubterm{\fapp{\rfun}{t'}}{\expr'}$;
+Lemma~\ref{lem:congruence} completes the proof.
+\end{proof}
+
+
+\begin{proof} (Of lemma~\ref{lem:congruence})
+%
+Proof by induction on the structure of $\expr'$:
+%
+Case $\expr' \equiv x$:
+  There are no subterms, hence immediate.
+%
+Case $\expr' \equiv c$:
+  There are no subterms, hence immediate.
+%
+Case $\expr' \equiv \fapp{\rfun}{t'}$:
+  Consider the \emph{last link} in $\Penv$
+  connecting the equivalence class
+  of $\vv$ (and $\expr$) to $\expr'$.
+  %
+  Suppose the last link is a \emph{congruence link}
+  of the form $\expr = \expr'$ where
+  $\expr \equiv \fapp{\rfun}{t}$ and
+  $\smtIsValid{\Penv}{t = t'}$.
+  %
+  Then $\issubterm{\fapp{\rfun}{t}}{\Penv, \expr}$
+  and we are done.
+  %
+  Suppose instead, the last link is an \emph{equality link}
+  in $\Penv$ of the form $z = \fapp{\rfun}{t'}$.
+  In this case, $\issubterm{\fapp{\rfun}{t'}}{\Penv}$
+  and again, we are done.
+\end{proof}
+
+
+\begin{proof} (Of lemma~\ref{lem:link})
+%
+\begin{align}
+\intertext{Let $G_k \doteq \binst{\Renv}{\Penv}{k}$. Let us assume that}
+  & \smtIsValid{\binst{\Renv}{\Penv, \vv = \expr}{n}}{\vv = \expr'}
+  \label{eq:link:1} \\
+\intertext{Consider any instance}
+  & \predb \equiv \fapp{\rfun}{t'} = \SUBSTS{\body_i}{x}{t'} \ \mbox{in}\ \uinst{\Renv}{\Penv \wedge \vv = \expr'}
+  \label{eq:link:2} \\
+\intertext{By the definition of \uinstsym, we have}
+  & \issubterm{\fapp{\rfun}{t'}}{\Penv \wedge \vv = \expr'}
+    \ \mbox{such that}\ \smtIsValid{\Penv}{\SUBSTS{\pred_i}{x}{t'}}
+    \label{eq:link:3} \\
+\intertext{By (\ref{eq:link:1}) and Lemma~\ref{lem:uncovering}
+  there exists \issubterm{\fapp{\rfun}{t}}{\Penv_n} such that}
+  & \smtIsValid{\Penv_n}{t = t'} \notag \\
+\intertext{As $\Penv \subseteq \Penv_n$ and (\ref{eq:link:3}), by congruence}
+  & \smtIsValid{\Penv_n}{\SUBSTS{\pred_i}{x}{t}} \notag \\
+\intertext{Hence, the instance}
+ & \fapp{\rfun}{t} = \SUBSTS{\body_i}{x}{t} \ \mbox{is in} \Penv_{n+1} \notag \\
+\intertext{That is}
+ & \smtIsValid{\Penv_{n+1}}{t = t' \wedge \fapp{\rfun}{t} = \SUBST{\body_i}{x}{t}} \notag \\
+\intertext{And so by congruence closure}
+ & \smtIsValid{\Penv_{n+1}}{\predb} \notag \\
+\intertext{As the above holds for every instance, we have}
+ & \smtIsValid{\Penv_{n+1}}{\uinst{\Renv}{\Penv \wedge \vv = \expr'}} \notag
+\end{align}
+\end{proof}
+
+\begin{proof} (Of lemma~\ref{lem:bounded-completeness})
+%
+The proof follows by induction on the structure
+of $\eqpf{\Renv}{\Penv}{\expr}{\expr'}$.
+
+\smallskip \emph{Base Case \rulename{Eq-Refl}:}
+Follows immediately as $\expr \equiv \expr'$.
+
+\smallskip \emph{Inductive Case \rulename{Eq-Trans}}
+\begin{align}
+\intertext{In this case, there exists $\expr''$ such that}
+  & \eqpf{\Renv}{\Penv}{\expr}{\expr''}
+    \label{eq:bc:1} \\
+  & \smtIsValid{\uinst{\Renv}{\Penv \wedge \vv = \expr''}}{\vv = \expr'}
+    \label{eq:bc:2} \\
+\intertext{By the induction hypothesis (\ref{eq:bc:1}) implies there exists $0 \leq n$ such that}
+  & \smtIsValid{\binst{\Renv}{\Penv \wedge \vv = \expr}{n}}{\vv = \expr''}
+    \notag \\
+\intertext{By Lemma~\ref{lem:link} we have}
+  & \smtIsValid{\binst{\Renv}{\Penv, \vv = \expr}{n+1}}{\uinst{\Renv}{\Penv \wedge \vv = \expr''}}
+    \notag \\
+\intertext{Thus, by (\ref{eq:bc:2}) and modus ponens we get}
+  & \smtIsValid{\binst{\Renv}{\Penv, \vv = \expr}{n+1}}{\vv = \expr'} \notag
+\end{align}
+\end{proof}
+
+
+\begin{proof} (Of Lemma~\ref{lem:fixpoint})
+Let $\Penv' = \Penv \wedge \vv = \expr$.
+%
+\emph{Case $\Rightarrow$:}
+Assume that $\pbe{\Renv}{\Penv}{\expr = \expr'}$.
+That is, at some iteration $i$ we have
+$\smtIsValid{\Penv_i}{\vv = \expr'}$,
+\ie by (\ref{eq:fix:1}) we have
+$\smtIsValid{\binst{\Renv}{\Penv'}{i}}{\vv = \expr'}$.
+
+\emph{Case $\Leftarrow$:}
+Pick the smallest $n$ such that
+$\smtIsValid{\binst{\Renv}{\Penv'}{n}}{\vv = \expr'}$.
+Using Lemmas~\ref{lem:bounded:mono}~and~\ref{lem:bounded:fix}
+we can then show that forall $0 \leq k < n$, we have
+%
+$$
+\binst{\Renv}{\Penv'}{k} \subset \binst{\Renv}{\Penv'}{k+1}
+$$
+%
+and
+%
+$$\binst{\Renv}{\Penv'}{k} \not \vdash {\vv = \expr'}$$
+%
+Hence, after $n$ iterations of the recursive loop,
+$\pbe{\Renv}{\Penv}{\expr = \expr'}$, returns $\ttrue$.
+\end{proof}
+
+
+\begin{proof} (Of Lemma~\ref{lem:step-value})
+\begin{align}%{3}
+\bcoz{Assume that}
+  & \store \in \embed{\env} \label{eq:stepval:1} \\
+\bcoz{Let}
+  & \store^*  \doteq \store \mapsingle{\params{x}}{\apply{\store}{\params{y}}} \label{eq:stepval:2}\\
+  & \rlookup{\Renv}{\rfun} \doteq \rdef{x}{\pred}{\body} \label{eq:stepval:3} \\
+\intertext{As $\symstep{\fapp{\rfun}{y}}{\expr'}$ is a $\tosmt{\RRenv}{\env}$ step,
+for some $i$, \tosmt{\RRenv}-instance $Q$ we have}
+  & \smtIsValid{\tosmt{\env} \wedge Q}{\SUBSTS{\pred_i}{x}{y}} \notag \\
+\bcoz{Hence, by (\ref{eq:stepval:1}) and Lemma~\ref{lem:smt-approx}}
+  & \rsatisfies{\RRenv}{\store}{\SUBSTS{\pred_i}{x}{y}} \label{eq:stepval:4}\\
+\bcoz{As}
+  & \apply{\store^*}{\pred_i} \equiv \apply{\store}{\SUBSTS{\pred_i}{x}{y}} \\
+\bcoz{The fact (\ref{eq:stepval:4}) yields}
+  & \rsatisfies{\RRenv}{\store^*}{\pred_i} \notag \\
+\bcoz{By the Totality Assumption~\ref{asm:total}}
+  & \rjtranstore{\RRenv}{\store^*}{\fapp{\rfun}{x}}{\val} \notag \\
+\bcoz{That is}
+  & \rjtranstore{\RRenv}{\store}{\fapp{\rfun}{y}}{\val} \\
+\end{align}
+\end{proof}
+
+\RJ{HEREHEREHEREHERE}
+
+\begin{proof} (Of Lemma~\ref{lem:step-value})
+\begin{alignat}{3}
+\bcoz{Assume that}
+  && \Renv, \store & \models \Penv \label{eq:stepval:1} \\
+\bcoz{Let}
+  && \store^*               & \doteq \store \mapsingle{\params{x}}{\apply{\store}{\params{y}}} \label{eq:stepval:2}\\
+  && \rlookup{\Renv}{\rfun} & \doteq \rdef{x}{\pred}{\body} \label{eq:stepval:3} \\
+\intertext{As $\symstep{\fapp{\rfun}{y}}{\expr'}$ is a $\Renv,\Penv$ step,
+for some $i$, \Renv-instance $Q$ we have}
+  && \Penv \wedge Q & \vdash \SUBSTS{\pred_i}{x}{y} \notag \\
+\bcoz{Hence, by (\ref{eq:stepval:1}) and Lemma~\ref{lem:smt-approx}}
+  && \Renv, \store  & \models \SUBSTS{\pred_i}{x}{y} \label{eq:stepval:4}\\
+\bcoz{As}
+  && \apply{\store^*}{\pred_i}
+  & \equiv \apply{\store}{\SUBSTS{\pred_i}{x}{y}} \\
+\bcoz{The fact (\ref{eq:stepval:4}) yields}
+  && \Renv, \store^*  & \models \pred_i \notag \\
+\bcoz{By the Totality Assumption~\ref{asm:total}}
+  && \Renv & \models \stepsmany{\apply{\store^*}{\fapp{\rfun}{x}}}{\val} \notag \\
+\bcoz{That is}
+  && \Renv & \models \stepsmany{\apply{\store}{\fapp{\rfun}{y}}}{\val} \notag
+\end{alignat}
+\end{proof}
+
+
+
+\mypara{Divergence}
+%
+A closed term $\expr$ \emph{diverges under}
+$\RRenv$ if there is no $\val$ such that
+$\rjtrans{\RRenv}{\expr}{\val}$ .
+
+\begin{lemma}[\textbf{Divergence}] \label{lem:div} % TRIVIAL
+If $\ \forall 0 \leq i$ we have
+$\rjtrans{\RRenv}{\expr_i}{\ctxapp{\ctx}{\expr_{i+1}}}$
+then $\expr_0$ diverges under $\Renv$.
+\end{lemma}
+
+
+\begin{proof} (Of Theorem~\ref{thm:finite-trace})
+%
+\begin{alignat}{3}
+\bcoz{Assume that}
+   && \Renv, \store & \models \Penv
+   \label{eq:fin:0}\\
+\bcoz{and assume an infinite $\Renv, \Penv$ trace:}
+   && \fapp{f_0}{\expr_0}, & \fapp{f_1}{\expr_1}, \ldots
+   \label{eq:fin:1}\\
+\bcoz{Where additionally}
+   && \params{\expr_0} & \equiv \params{x_0}
+      \label{eq:fin:2} \\
+\bcoz{Define}
+   && \expr^*_i        & \equiv \apply{\store}{\fapp{\rfun_i}{\expr_i}}
+      \label{eq:fin:3} \\
+\bcoz{By Lemma~\ref{lem:step-reductions}, for every $i \in \nats$}
+   && \Renv & \models \stepsmany{\expr^*_i}{\ctxapp{\ctx_i}{\expr^*_{i+1}}}
+      \notag \\
+\bcoz{Hence, by Lemma~\ref{lem:div}}
+   && \expr^*_0
+    & \ \mbox{diverges under $\Renv$}
+      \notag \\
+\bcoz{\ie, by (\ref{eq:fin:2}, \ref{eq:fin:3})}
+   && \apply{\store}{\fapp{\rfun_0}{x_0}}
+    & \ \mbox{diverges under $\Renv$}
+      \label{eq:fin:5} \\
+\bcoz{But by (\ref{eq:fin:0}) and Lemma~\ref{lem:step-value}}
+   && \Renv & \models \stepsmany{\apply{\store}{\fapp{\rfun_0}{x_0}}}
+                                {\val}
+      \quad \mbox{contradicting (\ref{eq:fin:5})} \notag
+\end{alignat}
+%
+Hence, assumption (\ref{eq:fin:1}) cannot hold, \ie all
+all the $\Renv, \Penv$ symbolic traces must be finite.
+\end{proof}
+
+
+\begin{proof} (Of Theorem~\ref{thm:termination})
+As $\Penv$ is transparent, there are two cases.
+%
+\begin{alignat}{3}
+%
+\intertext{\quad \emph{Case: $\Penv$ is inconsistent.}}
+%
+\bcoz{By definition of inconsistency}
+  && \Penv & \vdash \tfalse \notag \\
+\bcoz{Hence}
+  && \Penv & \vdash \pred \notag \\%[0.1in]
+\bcoz{\ie $\pbe{\Renv}{\Penv}{\pred}$ terminates immediately.}
+  && & \notag \\
+%
+\intertext{\quad \emph{Case: $\Penv$ is inhabited.}}
+%
+\bcoz{That is, exists $\store$ s.t.}
+  && \Renv, \store & \models \Penv \label{eq:term:1} \\
+\intertext{\quad Suppose that $\pbe{\Renv}{\Penv}{\pred}$ does not terminate.}
+\bcoz{That is, there is an infinitely increasing chain:}
+  && \Penv_0 \subset \ldots \subset \Penv_n \ldots
+  \label{eq:term:2} \\
+\bcoz{By Lemma~\ref{lem:chain}}
+  && \Renv,\Penv & \ \mbox{has an infinite trace} \notag
+\end{alignat}
+Which, by (\ref{eq:term:1}) contradicts Theorem~\ref{thm:finite-trace}.
+Thus, (\ref{eq:term:2}) is impossible, \ie $\pbe{\Renv}{\Penv}{\pred}$
+terminates.
+\end{proof}

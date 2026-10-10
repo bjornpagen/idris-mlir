@@ -1,0 +1,39 @@
+
+%\begin{figure}[t!]
+\begin{center}
+%\small
+\begin{tabular}{rl}
+
+\toprule
+
+\multicolumn{2}{c}{\textbf{Monoid}} \\
+{Left Id.}  & $\emempty\ x\ \emappend\  \equiv x$  \\
+{Right Id.} & $x\ \emappend\ \emempty \equiv x$  \\
+{Assoc}     & $(x\ \emappend\ y)\ \emappend\ z \equiv x\ \emappend\ (y\ \emappend\ z)$ \\
+
+\midrule
+
+\multicolumn{2}{c}{\textbf{Functor}} \\
+{Id.}    & $\efmap\ \eid\ xs \equiv \eid\ xs$ \\
+{Distr.} & $\efmap\ (g\ecompose\ h)\ xs \equiv (\efmap\ g\ \ecompose\ \efmap\ h)\ xs$\\
+
+\midrule
+
+\multicolumn{2}{c}{\textbf{Applicative}} \\
+
+{Id.}    & $\epure \eid \eseq\ v \equiv v$ \\
+{Comp.}  & $\epure (\ecompose) \eseq u \eseq v \eseq w \equiv u \eseq (v \eseq w)$ \\
+{Hom.}   & $\epure\ f\ \eseq\ \epure\ x \equiv \epure\ (f\ x)$\\
+{Inter.} & $u\ \eseq\ \epure\ y \equiv \epure\ (\$\ y) \ \eseq \ u$ \\
+
+\midrule
+\multicolumn{2}{c}{\textbf{Monad}} \\
+{Left Id.}   & $\ereturn\ a \ebind f \equiv f\ a$ \\
+{Right Id.}  & $m \ebind \ereturn \equiv m$ \\
+{Assoc}         & $(m\ebind f) \ebind g \equiv m\ebind (\lambda x \rightarrow f\ x \ebind g)$\\
+\bottomrule
+\end{tabular}
+\end{center}
+\caption{\textbf{Summary of Verified Typeclass Laws}}
+\label{fig:laws}
+%\end{figure}

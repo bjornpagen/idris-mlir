@@ -1,0 +1,34 @@
+\begin{mathpar}
+\inferrule*[right=Alien]
+ {\hastyp{\stenv}{\senv}{\sexp}{\sesubst \stau}}
+ {\isok{\stenv}{\senv}{\talien{\sexp}{\stau}{\sdelta}}}
+  %
+  \and
+  %
+  \inferrule*[right=Opaque]
+  {\\}
+  {\isok{\stenv}{\senv}{\topaque{\sexp}}}
+  %
+  \and
+  %
+  \inferrule*[right=Unit]
+  {\\}
+  {\isok{\stenv}{\senv}{\tunit}}
+  %
+  \and
+  %
+  \inferrule*[right=Pair]
+  {\isok{\stenv}{\senv}{\texpi} \\
+   \isok{\stenv}{\senv}{\texpii}}
+  {\isok{\stenv}{\senv}{\tpair{\texpi}{\texpii}}}
+  %
+  \and
+  %
+  \inferrule*[right=Abs]
+  {\isok{\stenv}{\senv}{\texp}}
+  {\isok{\stenv}{\senv}{\tabs{\tvar{x}}{\texp}}}
+ 
+  %% \inferrule*[right=Opaque]
+  %% {\\}
+  %% {\hastyp{\senv}{\sopaque{\texp}}{\sttop}}
+\end{mathpar}

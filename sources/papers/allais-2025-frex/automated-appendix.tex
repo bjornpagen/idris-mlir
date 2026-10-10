@@ -1,0 +1,105 @@
+\section{Module Structure of \Frexlib{}}\label{app:first-appendix}
+We summarises the implementation's code modules
+and their relationship to this article:
+\input{deps}
+
+\section{Extensional Function and Quotient Setoids}
+\label{sec:setoid example}
+\applabel{setoid example}
+\begin{figure*}
+  \TwoColDIYprime{.45}{
+ \QuotientDef[numbers=right, numbersep=0.2cm]{}
+ \FunSpaceDef[numbers=right, firstnumber=17,numbersep=0.2cm]{}
+  }{.54}{%
+    \VectEquality{}%
+    \VectSetoid{}%
+    \VectMap{}%
+  }
+  \caption{(a) Quotient, function-space, and (b) vector setoids (top) and a higher-order homomorphism (bottom)}
+  \figlabel{quotients-and-functions}
+  \figlabel{vect-setoid}
+\end{figure*}
+\Figref{quotients-and-functions}a defines the quotient of a type by a
+function \QuotientingMap{}, taking two elements to be equal when their
+images under the function \IdrisBound{q} are equal, and
+the setoid of homomorphisms
+between two setoids together with extensional equality.  This example
+also demonstrates \idris's local definitions (lines 4--6, e.g.), possibly
+with quantities, named-argument function calls (lines 8--15, e.g.), application operator \IdrisBound{\$},
+and
+anonymous functions (lines 9--10, e.g.). \idris, like \Haskell, implicitly
+quantifies (with quantity \IdrisKeyword{0}) over unbound variables in
+type-declarations such as the type \ImplicitArg{} in \QuotientName{}.
+These underscores mean elaboration must fill-in the blanks
+uniquely using unification.
+
+
+\Figref{vect-setoid}b presents a setoid over $\nvar$-length
+vectors over a given setoid. The vector functorial action
+\VectMapName{} has a setoid homomorphism structure
+between the two setoids of homomorphisms: (1) \VectMapF{} is a homomorphism (lines 19--25), and
+that (2) it maps extensionally equal homomorphisms to extensionally
+equal homomorphisms (26--30). These proofs use \idris's equational
+reasoning notation for setoids (lines 20--25 and 27--30), a
+deeply embedded chain of equational steps. Each step
+\IdrisData{(\KatlaTilde\KatlaTilde)} appeals to
+transitivity, and requires a justification. The last two dots in the
+thought bubble operator \BasicThoughtBubble{} modify the reason:
+plain usage (line~23) appeals to a setoid equivalence;
+an
+equals in the middle dot, e.g.~\EqualThoughtBubble{}, appeals to reflexivity via propositional equality (lines 22, 25, 28, 30); and
+a comparison symbol in the end, e.g.~\EqualSymThoughtBubble{}, appeals to
+symmetry (lines 25, 30).
+
+
+\section{Proof Printing and Certification}
+\applabel{last-appendix}
+\applabel{printing}
+\Figref{linear-derivations} presents the layered representation of
+linear derivations.
+%
+\begin{figure}
+\TwoColDIY{.4}{%
+  \RTList
+  \caption*{(a) reflexive-transitive closure}
+  \Symmetrise
+  \caption*{(b) symmetric closure}
+  \vspace{2\baselineskip}
+  \Derivation%
+  \caption*{(e) linear derivations}
+}{.57}{%
+  \Locate
+  \caption*{(c) unary congruence closure}
+  \Step
+  \caption*{(d) axiomatic steps}
+}
+\caption{Layered (a--d) representation of linear derivations (e)}
+\figlabel{linear-derivations}
+\end{figure}
+
+\figref{proof-extraction} shows an automatically extracted proof for
+the equation $(x•3)•2 = 5•x$ in the additive monoid structure $(\Nat,
+0, (\Plus))$. The extracted proof has $\IntroPrinterStepCount$ steps ---
+ far from the shortest proof possible.
+Extraction removes reflexivity and transitivity steps, and the pointed
+bracket tells whether the step uses the axiom directly (angle points
+right) or using symmetry (angle points left). Square brackets mean
+appealing to congruence, where the context is the congruence's
+context, and the term in the hole is the equation's LHS.
+\begin{figure*}
+  \IntroPrintedListing{}
+  \caption{\Frexlib-extracted proof of $(x•3)•2 = 5•x$
+    in the additive monoid over \Nat{}}
+  \figlabel{proof-extraction}
+\end{figure*}
+\figref{certification} shows an automatically extracted certificate
+for the equation $0 + (x + 0) + 0 = x$ in a generic monoid $\mvar{} =
+(\Um{}, \OI{}, (\DotPlus))$.  The certificate is generated inside a
+module that parameterises over the generic monoid \mvar{} and
+introduces the various notations and reasoning functions.
+
+\begin{figure*}
+  \Certificate{}
+  \caption{\Frexlib-certificate for the  of $0 + (x + 0) + 0 = x$ in a generic monoid \mvar{}}
+  \figlabel{certification}
+\end{figure*}

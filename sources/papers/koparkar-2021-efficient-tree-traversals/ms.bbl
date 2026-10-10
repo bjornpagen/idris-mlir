@@ -1,0 +1,841 @@
+%%% -*-BibTeX-*-
+%%% Do NOT edit. File created by BibTeX with style
+%%% ACM-Reference-Format-Journals [18-Jan-2012].
+
+\begin{thebibliography}{47}
+
+%%% ====================================================================
+%%% NOTE TO THE USER: you can override these defaults by providing
+%%% customized versions of any of these macros before the \bibliography
+%%% command.  Each of them MUST provide its own final punctuation,
+%%% except for \shownote{}, \showDOI{}, and \showURL{}.  The latter two
+%%% do not use final punctuation, in order to avoid confusing it with
+%%% the Web address.
+%%%
+%%% To suppress output of a particular field, define its macro to expand
+%%% to an empty string, or better, \unskip, like this:
+%%%
+%%% \newcommand{\showDOI}[1]{\unskip}   % LaTeX syntax
+%%%
+%%% \def \showDOI #1{\unskip}           % plain TeX syntax
+%%%
+%%% ====================================================================
+
+\ifx \showCODEN    \undefined \def \showCODEN     #1{\unskip}     \fi
+\ifx \showDOI      \undefined \def \showDOI       #1{#1}\fi
+\ifx \showISBNx    \undefined \def \showISBNx     #1{\unskip}     \fi
+\ifx \showISBNxiii \undefined \def \showISBNxiii  #1{\unskip}     \fi
+\ifx \showISSN     \undefined \def \showISSN      #1{\unskip}     \fi
+\ifx \showLCCN     \undefined \def \showLCCN      #1{\unskip}     \fi
+\ifx \shownote     \undefined \def \shownote      #1{#1}          \fi
+\ifx \showarticletitle \undefined \def \showarticletitle #1{#1}   \fi
+\ifx \showURL      \undefined \def \showURL       {\relax}        \fi
+% The following commands are used for tagged output and should be
+% invisible to TeX
+\providecommand\bibfield[2]{#2}
+\providecommand\bibinfo[2]{#2}
+\providecommand\natexlab[1]{#1}
+\providecommand\showeprint[2][]{arXiv:#2}
+
+\bibitem[\protect\citeauthoryear{Abadi, Agarwal, Barham, Brevdo, Chen, Citro,
+  Corrado, Davis, Dean, Devin, Ghemawat, Goodfellow, Harp, Irving, Isard, Jia,
+  Jozefowicz, Kaiser, Kudlur, Levenberg, Man\'{e}, Monga, Moore, Murray, Olah,
+  Schuster, Shlens, Steiner, Sutskever, Talwar, Tucker, Vanhoucke, Vasudevan,
+  Vi\'{e}gas, Vinyals, Warden, Wattenberg, Wicke, Yu, and Zheng}{Abadi
+  et~al\mbox{.}}{2015}]%
+        {tensorflow}
+\bibfield{author}{\bibinfo{person}{Mart\'{\i}n Abadi}, \bibinfo{person}{Ashish
+  Agarwal}, \bibinfo{person}{Paul Barham}, \bibinfo{person}{Eugene Brevdo},
+  \bibinfo{person}{Zhifeng Chen}, \bibinfo{person}{Craig Citro},
+  \bibinfo{person}{Greg~S. Corrado}, \bibinfo{person}{Andy Davis},
+  \bibinfo{person}{Jeffrey Dean}, \bibinfo{person}{Matthieu Devin},
+  \bibinfo{person}{Sanjay Ghemawat}, \bibinfo{person}{Ian Goodfellow},
+  \bibinfo{person}{Andrew Harp}, \bibinfo{person}{Geoffrey Irving},
+  \bibinfo{person}{Michael Isard}, \bibinfo{person}{Yangqing Jia},
+  \bibinfo{person}{Rafal Jozefowicz}, \bibinfo{person}{Lukasz Kaiser},
+  \bibinfo{person}{Manjunath Kudlur}, \bibinfo{person}{Josh Levenberg},
+  \bibinfo{person}{Dan Man\'{e}}, \bibinfo{person}{Rajat Monga},
+  \bibinfo{person}{Sherry Moore}, \bibinfo{person}{Derek Murray},
+  \bibinfo{person}{Chris Olah}, \bibinfo{person}{Mike Schuster},
+  \bibinfo{person}{Jonathon Shlens}, \bibinfo{person}{Benoit Steiner},
+  \bibinfo{person}{Ilya Sutskever}, \bibinfo{person}{Kunal Talwar},
+  \bibinfo{person}{Paul Tucker}, \bibinfo{person}{Vincent Vanhoucke},
+  \bibinfo{person}{Vijay Vasudevan}, \bibinfo{person}{Fernanda Vi\'{e}gas},
+  \bibinfo{person}{Oriol Vinyals}, \bibinfo{person}{Pete Warden},
+  \bibinfo{person}{Martin Wattenberg}, \bibinfo{person}{Martin Wicke},
+  \bibinfo{person}{Yuan Yu}, {and} \bibinfo{person}{Xiaoqiang Zheng}.}
+  \bibinfo{year}{2015}\natexlab{}.
+\newblock \bibinfo{title}{{TensorFlow}: Large-Scale Machine Learning on
+  Heterogeneous Systems}.
+\newblock
+\newblock
+\urldef\tempurl%
+\url{http://tensorflow.org/}
+\showURL{%
+\tempurl}
+\newblock
+\shownote{Software available from tensorflow.org.}
+
+
+\bibitem[\protect\citeauthoryear{Acar, Aksenov, Chargu{\'e}raud, and
+  Rainey}{Acar et~al\mbox{.}}{2019}]%
+        {OracleGuided_19}
+\bibfield{author}{\bibinfo{person}{Umut~A. Acar}, \bibinfo{person}{Vitaly
+  Aksenov}, \bibinfo{person}{Arthur Chargu{\'e}raud}, {and}
+  \bibinfo{person}{Mike Rainey}.} \bibinfo{year}{2019}\natexlab{}.
+\newblock \showarticletitle{Provably and Practically Efficient Granularity
+  Control}. In \bibinfo{booktitle}{\emph{Proceedings of the 24th Symposium on
+  Principles and Practice of Parallel Programming}}
+  \emph{(\bibinfo{series}{PPoPP '19})}. \bibinfo{publisher}{ACM},
+  \bibinfo{address}{New York, NY, USA}, \bibinfo{pages}{214--228}.
+\newblock
+\showISBNx{978-1-4503-6225-2}
+\urldef\tempurl%
+\url{http://mike-rainey.site/papers/oracle-ppop19-long.pdf}
+\showURL{%
+\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Acar, Chargu{\'e}raud, , Guatto, Rainey, and
+  Sieczkowski}{Acar et~al\mbox{.}}{2018}]%
+        {Heartbeat_17}
+\bibfield{author}{\bibinfo{person}{Umut~A Acar}, \bibinfo{person}{Arthur
+  Chargu{\'e}raud}, \bibinfo{person}{}, \bibinfo{person}{Adrien Guatto},
+  \bibinfo{person}{Mike Rainey}, {and} \bibinfo{person}{Filip Sieczkowski}.}
+  \bibinfo{year}{2018}\natexlab{}.
+\newblock \showarticletitle{Heartbeat Scheduling: Provable Efficiency for
+  Nested Parallelism}.
+\newblock  (\bibinfo{year}{2018}).
+\newblock
+\urldef\tempurl%
+\url{http://mike-rainey.site/papers/heartbeat.pdf}
+\showURL{%
+\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Anderson, Liu, Kuper, Totoni, Vitek, and
+  Shpeisman}{Anderson et~al\mbox{.}}{2017}]%
+        {julia-parallel-accelerator}
+\bibfield{author}{\bibinfo{person}{Todd~A. Anderson}, \bibinfo{person}{Hai
+  Liu}, \bibinfo{person}{Lindsey Kuper}, \bibinfo{person}{Ehsan Totoni},
+  \bibinfo{person}{Jan Vitek}, {and} \bibinfo{person}{Tatiana Shpeisman}.}
+  \bibinfo{year}{2017}\natexlab{}.
+\newblock \showarticletitle{{Parallelizing Julia with a Non-Invasive DSL}}. In
+  \bibinfo{booktitle}{\emph{31st European Conference on Object-Oriented
+  Programming (ECOOP 2017)}} \emph{(\bibinfo{series}{Leibniz International
+  Proceedings in Informatics (LIPIcs)})},
+  \bibfield{editor}{\bibinfo{person}{Peter M{\"u}ller}} (Ed.),
+  Vol.~\bibinfo{volume}{74}. \bibinfo{publisher}{Schloss
+  Dagstuhl--Leibniz-Zentrum fuer Informatik}, \bibinfo{address}{Dagstuhl,
+  Germany}, \bibinfo{pages}{4:1--4:29}.
+\newblock
+\showISBNx{978-3-95977-035-4}
+\showISSN{1868-8969}
+\urldef\tempurl%
+\url{https://doi.org/10.4230/LIPIcs.ECOOP.2017.4}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Arvind, Nikhil, and Pingali}{Arvind
+  et~al\mbox{.}}{1989}]%
+        {IStructures}
+\bibfield{author}{\bibinfo{person}{Arvind}, \bibinfo{person}{Rishiyur~S.
+  Nikhil}, {and} \bibinfo{person}{Keshav~K. Pingali}.}
+  \bibinfo{year}{1989}\natexlab{}.
+\newblock \showarticletitle{I-structures: {D}ata structures for parallel
+  computing}.
+\newblock \bibinfo{journal}{\emph{ACM Trans. Program. Lang. Syst.}}
+  \bibinfo{volume}{11} (\bibinfo{date}{October} \bibinfo{year}{1989}),
+  \bibinfo{pages}{598--632}.
+\newblock
+Issue 4.
+\showISSN{0164-0925}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/69558.69562}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Bergstrom, Fluet, Rainey, Reppy, Rosen, and
+  Shaw}{Bergstrom et~al\mbox{.}}{2013}]%
+        {bergstrom13ppopp}
+\bibfield{author}{\bibinfo{person}{Lars Bergstrom}, \bibinfo{person}{Matthew
+  Fluet}, \bibinfo{person}{Mike Rainey}, \bibinfo{person}{John Reppy},
+  \bibinfo{person}{Stephen Rosen}, {and} \bibinfo{person}{Adam Shaw}.}
+  \bibinfo{year}{2013}\natexlab{}.
+\newblock \showarticletitle{Data-Only Flattening for Nested Data Parallelism}.
+  In \bibinfo{booktitle}{\emph{Proceedings of the 18th ACM SIGPLAN Symposium on
+  Principles and Practice of Parallel Programming}}
+  \emph{(\bibinfo{series}{PPoPP '13})}. \bibinfo{publisher}{Association for
+  Computing Machinery}, \bibinfo{address}{New York, NY, USA},
+  \bibinfo{pages}{81--92}.
+\newblock
+\showISBNx{9781450319225}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/2442516.2442525}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Bernardy, Boespflug, Newton, Peyton~Jones, and
+  Spiwack}{Bernardy et~al\mbox{.}}{2017}]%
+        {linear-haskell}
+\bibfield{author}{\bibinfo{person}{Jean-Philippe Bernardy},
+  \bibinfo{person}{Mathieu Boespflug}, \bibinfo{person}{Ryan~R. Newton},
+  \bibinfo{person}{Simon Peyton~Jones}, {and} \bibinfo{person}{Arnaud
+  Spiwack}.} \bibinfo{year}{2017}\natexlab{}.
+\newblock \showarticletitle{Linear Haskell: Practical Linearity in a
+  Higher-Order Polymorphic Language}.
+\newblock \bibinfo{journal}{\emph{Proc. ACM Program. Lang.}}
+  \bibinfo{volume}{2}, \bibinfo{number}{POPL}, Article \bibinfo{articleno}{5}
+  (\bibinfo{date}{Dec.} \bibinfo{year}{2017}), \bibinfo{numpages}{29}~pages.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3158093}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Blelloch}{Blelloch}{1992}]%
+        {nesl}
+\bibfield{author}{\bibinfo{person}{Guy~E. Blelloch}.}
+  \bibinfo{year}{1992}\natexlab{}.
+\newblock \bibinfo{booktitle}{\emph{NESL: A Nested Data-Parallel Language}}.
+\newblock \bibinfo{type}{{T}echnical {R}eport}. \bibinfo{address}{USA}.
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{Blumofe, Joerg, Kuszmaul, Leiserson, Randall,
+  and Zhou}{Blumofe et~al\mbox{.}}{1995}]%
+        {blumofe1996cilk}
+\bibfield{author}{\bibinfo{person}{Robert~D. Blumofe},
+  \bibinfo{person}{Christopher~F. Joerg}, \bibinfo{person}{Bradley~C.
+  Kuszmaul}, \bibinfo{person}{Charles~E. Leiserson}, \bibinfo{person}{Keith~H.
+  Randall}, {and} \bibinfo{person}{Yuli Zhou}.}
+  \bibinfo{year}{1995}\natexlab{}.
+\newblock \showarticletitle{Cilk: An Efficient Multithreaded Runtime System}.
+  In \bibinfo{booktitle}{\emph{Proceedings of the Fifth ACM SIGPLAN Symposium
+  on Principles and Practice of Parallel Programming}}
+  \emph{(\bibinfo{series}{PPOPP ’95})}. \bibinfo{publisher}{Association for
+  Computing Machinery}, \bibinfo{address}{New York, NY, USA},
+  \bibinfo{pages}{207–216}.
+\newblock
+\showISBNx{0897917006}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/209936.209958}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Chakravarty, Keller, Lee, McDonell, and
+  Grover}{Chakravarty et~al\mbox{.}}{2011}]%
+        {accelerate}
+\bibfield{author}{\bibinfo{person}{Manuel~M.T. Chakravarty},
+  \bibinfo{person}{Gabriele Keller}, \bibinfo{person}{Sean Lee},
+  \bibinfo{person}{Trevor~L. McDonell}, {and} \bibinfo{person}{Vinod Grover}.}
+  \bibinfo{year}{2011}\natexlab{}.
+\newblock \showarticletitle{Accelerating Haskell Array Codes with Multicore
+  GPUs}. In \bibinfo{booktitle}{\emph{Proceedings of the Sixth Workshop on
+  Declarative Aspects of Multicore Programming}} \emph{(\bibinfo{series}{DAMP
+  ’11})}. \bibinfo{publisher}{Association for Computing Machinery},
+  \bibinfo{address}{New York, NY, USA}, \bibinfo{pages}{3–14}.
+\newblock
+\showISBNx{9781450304863}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/1926354.1926358}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Chlipala}{Chlipala}{2015}]%
+        {urweb-icfp}
+\bibfield{author}{\bibinfo{person}{Adam Chlipala}.}
+  \bibinfo{year}{2015}\natexlab{}.
+\newblock \showarticletitle{An Optimizing Compiler for a Purely Functional
+  Web-application Language}. In \bibinfo{booktitle}{\emph{Proceedings of the
+  20th ACM SIGPLAN International Conference on Functional Programming}}
+  \emph{(\bibinfo{series}{ICFP 2015})}. \bibinfo{publisher}{ACM},
+  \bibinfo{address}{New York, NY, USA}, \bibinfo{pages}{10--21}.
+\newblock
+\showISBNx{978-1-4503-3669-7}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/2784731.2784741}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Choi, Komuravelli, Lu, Sung, Bocchino, Adve,
+  and Hart}{Choi et~al\mbox{.}}{2010}]%
+        {adve_kdtree}
+\bibfield{author}{\bibinfo{person}{Byn Choi}, \bibinfo{person}{Rakesh
+  Komuravelli}, \bibinfo{person}{Victor Lu}, \bibinfo{person}{Hyojin Sung},
+  \bibinfo{person}{Robert~L. Bocchino}, \bibinfo{person}{Sarita~V. Adve}, {and}
+  \bibinfo{person}{John~C. Hart}.} \bibinfo{year}{2010}\natexlab{}.
+\newblock \showarticletitle{Parallel SAH K-D Tree Construction}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the Conference on High Performance
+  Graphics}} \emph{(\bibinfo{series}{HPG '10})}.
+  \bibinfo{publisher}{Eurographics Association}, \bibinfo{address}{Goslar,
+  DEU}, \bibinfo{pages}{77–86}.
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{Felleisen, Findler, and Flatt}{Felleisen
+  et~al\mbox{.}}{2009}]%
+        {redex}
+\bibfield{author}{\bibinfo{person}{Matthias Felleisen},
+  \bibinfo{person}{Robert~Bruce Findler}, {and} \bibinfo{person}{Matthew
+  Flatt}.} \bibinfo{year}{2009}\natexlab{}.
+\newblock \bibinfo{booktitle}{\emph{Semantics engineering with PLT Redex}}.
+\newblock \bibinfo{publisher}{Mit Press}.
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{Friedman, Bentley, and Finkel}{Friedman
+  et~al\mbox{.}}{1977}]%
+        {kdtree}
+\bibfield{author}{\bibinfo{person}{Jerome~H. Friedman},
+  \bibinfo{person}{Jon~Louis Bentley}, {and} \bibinfo{person}{Raphael~Ari
+  Finkel}.} \bibinfo{year}{1977}\natexlab{}.
+\newblock \showarticletitle{An Algorithm for Finding Best Matches in
+  Logarithmic Expected Time}.
+\newblock \bibinfo{journal}{\emph{ACM Trans. Math. Softw.}}
+  \bibinfo{volume}{3}, \bibinfo{number}{3} (\bibinfo{date}{Sept.}
+  \bibinfo{year}{1977}), \bibinfo{pages}{209--226}.
+\newblock
+\showISSN{0098-3500}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/355744.355745}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Goldfarb, Jo, and Kulkarni}{Goldfarb
+  et~al\mbox{.}}{2013}]%
+        {goldfarb13sc}
+\bibfield{author}{\bibinfo{person}{Michael Goldfarb},
+  \bibinfo{person}{Youngjoon Jo}, {and} \bibinfo{person}{Milind Kulkarni}.}
+  \bibinfo{year}{2013}\natexlab{}.
+\newblock \showarticletitle{General transformations for GPU execution of tree
+  traversals}. In \bibinfo{booktitle}{\emph{Proceedings of the International
+  Conference on High Performance Computing, Networking, Storage and Analysis
+  (Supercomputing)}} \emph{(\bibinfo{series}{SC '13})}.
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{Guatto, Westrick, Raghunathan, Acar, and
+  Fluet}{Guatto et~al\mbox{.}}{2018}]%
+        {hierarchical-heaps-mutation}
+\bibfield{author}{\bibinfo{person}{Adrien Guatto}, \bibinfo{person}{Sam
+  Westrick}, \bibinfo{person}{Ram Raghunathan}, \bibinfo{person}{Umut Acar},
+  {and} \bibinfo{person}{Matthew Fluet}.} \bibinfo{year}{2018}\natexlab{}.
+\newblock \showarticletitle{Hierarchical Memory Management for Mutable State}.
+  In \bibinfo{booktitle}{\emph{Proceedings of the 23rd ACM SIGPLAN Symposium on
+  Principles and Practice of Parallel Programming}}
+  \emph{(\bibinfo{series}{PPoPP '18})}. \bibinfo{publisher}{Association for
+  Computing Machinery}, \bibinfo{address}{New York, NY, USA},
+  \bibinfo{pages}{81--93}.
+\newblock
+\showISBNx{9781450349826}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3178487.3178494}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Halstead}{Halstead}{1985}]%
+        {multilisp}
+\bibfield{author}{\bibinfo{person}{Robert~H. Halstead}.}
+  \bibinfo{year}{1985}\natexlab{}.
+\newblock \showarticletitle{MULTILISP: A Language for Concurrent Symbolic
+  Computation}.
+\newblock \bibinfo{journal}{\emph{ACM Trans. Program. Lang. Syst.}}
+  \bibinfo{volume}{7}, \bibinfo{number}{4} (\bibinfo{date}{Oct.}
+  \bibinfo{year}{1985}), \bibinfo{pages}{501–538}.
+\newblock
+\showISSN{0164-0925}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/4472.4478}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Harris and Singh}{Harris and Singh}{2007}]%
+        {ghc-insert-parallelism}
+\bibfield{author}{\bibinfo{person}{Tim Harris} {and} \bibinfo{person}{Satnam
+  Singh}.} \bibinfo{year}{2007}\natexlab{}.
+\newblock \showarticletitle{Feedback Directed Implicit Parallelism}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the 12th ACM SIGPLAN International
+  Conference on Functional Programming}} \emph{(\bibinfo{series}{ICFP '07})}.
+  \bibinfo{publisher}{Association for Computing Machinery},
+  \bibinfo{address}{New York, NY, USA}, \bibinfo{pages}{251–264}.
+\newblock
+\showISBNx{9781595938152}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/1291151.1291192}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Keller and Chakravarty}{Keller and
+  Chakravarty}{1998}]%
+        {keller98europar}
+\bibfield{author}{\bibinfo{person}{Gabriele Keller} {and}
+  \bibinfo{person}{Manuel M.~T. Chakravarty}.} \bibinfo{year}{1998}\natexlab{}.
+\newblock \showarticletitle{Flattening Trees}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the 4th International Euro-Par
+  Conference on Parallel Processing}} \emph{(\bibinfo{series}{Euro-Par '98})}.
+  \bibinfo{publisher}{Springer-Verlag}, \bibinfo{address}{Berlin, Heidelberg},
+  \bibinfo{pages}{709--719}.
+\newblock
+\showISBNx{3540649522}
+
+
+\bibitem[\protect\citeauthoryear{Koparkar, Rainey, Vollmer, Kulkarni, and
+  Newton}{Koparkar et~al\mbox{.}}{2021}]%
+        {ParallelLoCal-icfp}
+\bibfield{author}{\bibinfo{person}{Chaitanya Koparkar}, \bibinfo{person}{Mike
+  Rainey}, \bibinfo{person}{Michael Vollmer}, \bibinfo{person}{Milind
+  Kulkarni}, {and} \bibinfo{person}{Ryan~R. Newton}.}
+  \bibinfo{year}{2021}\natexlab{}.
+\newblock \showarticletitle{Efficient Tree-Traversals: Reconciling Parallelism
+  and Dense Data Representations}.
+\newblock \bibinfo{journal}{\emph{Proc. ACM Program. Lang.}}
+  \bibinfo{volume}{5}, \bibinfo{number}{ICFP} (\bibinfo{year}{2021}).
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{Kuper, Todd, Tobin-Hochstadt, and
+  Newton}{Kuper et~al\mbox{.}}{2014}]%
+        {lvish_2014}
+\bibfield{author}{\bibinfo{person}{Lindsey Kuper}, \bibinfo{person}{Aaron
+  Todd}, \bibinfo{person}{Sam Tobin-Hochstadt}, {and} \bibinfo{person}{Ryan~R.
+  Newton}.} \bibinfo{year}{2014}\natexlab{}.
+\newblock \showarticletitle{Taming the Parallel Effect Zoo: Extensible
+  Deterministic Parallelism with LVish}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the 35th ACM SIGPLAN Conference on
+  Programming Language Design and Implementation}} \emph{(\bibinfo{series}{PLDI
+  '14})}. \bibinfo{publisher}{Association for Computing Machinery},
+  \bibinfo{address}{New York, NY, USA}, \bibinfo{pages}{2–14}.
+\newblock
+\showISBNx{9781450327848}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/2594291.2594312}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Lea}{Lea}{2000}]%
+        {lea2000java}
+\bibfield{author}{\bibinfo{person}{Doug Lea}.} \bibinfo{year}{2000}\natexlab{}.
+\newblock \showarticletitle{A java fork/join framework}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the ACM 2000 conference on Java
+  Grande}}. \bibinfo{pages}{36--43}.
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{Leroy, Doligez, Frisch, Garrigue, Rémy, and
+  Vouillon}{Leroy et~al\mbox{.}}{2020}]%
+        {OCaml}
+\bibfield{author}{\bibinfo{person}{Xavier Leroy}, \bibinfo{person}{Damien
+  Doligez}, \bibinfo{person}{Alain Frisch}, \bibinfo{person}{Jacques Garrigue},
+  \bibinfo{person}{Didier Rémy}, {and} \bibinfo{person}{Jérôme Vouillon}.}
+  \bibinfo{year}{2020}\natexlab{}.
+\newblock \showarticletitle{The OCaml system release}.
+\newblock  (\bibinfo{date}{Feb} \bibinfo{year}{2020}).
+\newblock
+\urldef\tempurl%
+\url{https://ocaml.org/releases/4.10/htmlman/index.html}
+\showURL{%
+\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Makino}{Makino}{1990}]%
+        {makino90}
+\bibfield{author}{\bibinfo{person}{Junichiro Makino}.}
+  \bibinfo{year}{1990}\natexlab{}.
+\newblock \showarticletitle{Vectorization of a treecode}.
+\newblock \bibinfo{journal}{\emph{J. Comput. Phys.}}  \bibinfo{volume}{87}
+  (\bibinfo{date}{March} \bibinfo{year}{1990}), \bibinfo{pages}{148--160}.
+\newblock
+\showISSN{0021-9991}
+\urldef\tempurl%
+\url{https://doi.org/10.1016/0021-9991(90)90231-O}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Marlow, Harris, James, and
+  Peyton~Jones}{Marlow et~al\mbox{.}}{2008}]%
+        {marlow08_gc}
+\bibfield{author}{\bibinfo{person}{Simon Marlow}, \bibinfo{person}{Tim Harris},
+  \bibinfo{person}{Roshan~P. James}, {and} \bibinfo{person}{Simon
+  Peyton~Jones}.} \bibinfo{year}{2008}\natexlab{}.
+\newblock \showarticletitle{Parallel Generational-Copying Garbage Collection
+  with a Block-Structured Heap}. In \bibinfo{booktitle}{\emph{Proceedings of
+  the 7th International Symposium on Memory Management}}
+  \emph{(\bibinfo{series}{ISMM '08})}. \bibinfo{publisher}{Association for
+  Computing Machinery}, \bibinfo{address}{New York, NY, USA},
+  \bibinfo{pages}{11–20}.
+\newblock
+\showISBNx{9781605581347}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/1375634.1375637}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Marlow, Newton, and Peyton~Jones}{Marlow
+  et~al\mbox{.}}{2011}]%
+        {monad-par}
+\bibfield{author}{\bibinfo{person}{Simon Marlow}, \bibinfo{person}{Ryan
+  Newton}, {and} \bibinfo{person}{Simon Peyton~Jones}.}
+  \bibinfo{year}{2011}\natexlab{}.
+\newblock \showarticletitle{A Monad for Deterministic Parallelism}.
+\newblock \bibinfo{journal}{\emph{SIGPLAN Not.}} \bibinfo{volume}{46},
+  \bibinfo{number}{12} (\bibinfo{date}{Sept.} \bibinfo{year}{2011}),
+  \bibinfo{pages}{71--82}.
+\newblock
+\showISSN{0362-1340}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/2096148.2034685}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Marlow, Peyton~Jones, and Singh}{Marlow
+  et~al\mbox{.}}{2009}]%
+        {marlow2009runtime}
+\bibfield{author}{\bibinfo{person}{Simon Marlow}, \bibinfo{person}{Simon
+  Peyton~Jones}, {and} \bibinfo{person}{Satnam Singh}.}
+  \bibinfo{year}{2009}\natexlab{}.
+\newblock \showarticletitle{Runtime Support for Multicore Haskell}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the 14th ACM SIGPLAN International
+  Conference on Functional Programming}} \emph{(\bibinfo{series}{ICFP '09})}.
+  \bibinfo{publisher}{Association for Computing Machinery},
+  \bibinfo{address}{New York, NY, USA}, \bibinfo{pages}{65–78}.
+\newblock
+\showISBNx{9781605583327}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/1596550.1596563}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Menon and Dagum}{Menon and Dagum}{1998}]%
+        {openmp}
+\bibfield{author}{\bibinfo{person}{R. Menon} {and} \bibinfo{person}{L. Dagum}.}
+  \bibinfo{year}{1998}\natexlab{}.
+\newblock \showarticletitle{OpenMP: An Industry-Standard API for Shared-Memory
+  Programming}.
+\newblock \bibinfo{journal}{\emph{Computing in Science and Engineering}}
+  \bibinfo{volume}{v}, \bibinfo{number}{01} (\bibinfo{date}{jan}
+  \bibinfo{year}{1998}), \bibinfo{pages}{46--55}.
+\newblock
+\showISSN{1558-366X}
+\urldef\tempurl%
+\url{https://doi.org/10.1109/99.660313}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Meyerovich, Mytkowicz, and Schulte}{Meyerovich
+  et~al\mbox{.}}{2011}]%
+        {meyerovich11hotpar}
+\bibfield{author}{\bibinfo{person}{Leo~A. Meyerovich}, \bibinfo{person}{Todd
+  Mytkowicz}, {and} \bibinfo{person}{Wolfram Schulte}.}
+  \bibinfo{year}{2011}\natexlab{}.
+\newblock \showarticletitle{Data Parallel Programming for Irregular Tree
+  Computations}, In \bibinfo{booktitle}{HotPAR}.
+\newblock
+\urldef\tempurl%
+\url{https://www.microsoft.com/en-us/research/publication/data-
+  parallel-programming-for-irregular-tree-computations/}
+\showURL{%
+\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Milner, Tofte, and Macqueen}{Milner
+  et~al\mbox{.}}{1997}]%
+        {StandardML}
+\bibfield{author}{\bibinfo{person}{Robin Milner}, \bibinfo{person}{Mads Tofte},
+  {and} \bibinfo{person}{David Macqueen}.} \bibinfo{year}{1997}\natexlab{}.
+\newblock \bibinfo{booktitle}{\emph{The Definition of Standard ML}}.
+\newblock \bibinfo{publisher}{MIT Press}, \bibinfo{address}{Cambridge, MA,
+  USA}.
+\newblock
+\showISBNx{0262631814}
+
+
+\bibitem[\protect\citeauthoryear{Paszke, Gross, Massa, Lerer, Bradbury, Chanan,
+  Killeen, Lin, Gimelshein, Antiga, et~al\mbox{.}}{Paszke
+  et~al\mbox{.}}{2019}]%
+        {pytorch}
+\bibfield{author}{\bibinfo{person}{Adam Paszke}, \bibinfo{person}{Sam Gross},
+  \bibinfo{person}{Francisco Massa}, \bibinfo{person}{Adam Lerer},
+  \bibinfo{person}{James Bradbury}, \bibinfo{person}{Gregory Chanan},
+  \bibinfo{person}{Trevor Killeen}, \bibinfo{person}{Zeming Lin},
+  \bibinfo{person}{Natalia Gimelshein}, \bibinfo{person}{Luca Antiga},
+  {et~al\mbox{.}}} \bibinfo{year}{2019}\natexlab{}.
+\newblock \showarticletitle{PyTorch: An Imperative Style, High-Performance Deep
+  Learning Library}. In \bibinfo{booktitle}{\emph{Advances in Neural
+  Information Processing Systems}}. \bibinfo{pages}{8026--8037}.
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{Raghunathan, Muller, Acar, and
+  Blelloch}{Raghunathan et~al\mbox{.}}{2016}]%
+        {icfp-hierarchical-heaps}
+\bibfield{author}{\bibinfo{person}{Ram Raghunathan}, \bibinfo{person}{Stefan~K
+  Muller}, \bibinfo{person}{Umut~A Acar}, {and} \bibinfo{person}{Guy
+  Blelloch}.} \bibinfo{year}{2016}\natexlab{}.
+\newblock \showarticletitle{Hierarchical memory management for parallel
+  programs}.
+\newblock \bibinfo{journal}{\emph{ACM SIGPLAN Notices}} \bibinfo{volume}{51},
+  \bibinfo{number}{9} (\bibinfo{year}{2016}), \bibinfo{pages}{392--406}.
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{Rainey, Hale, Newton, Hardavellas, Campanoni,
+  Dinda, and Acar}{Rainey et~al\mbox{.}}{2021}]%
+        {TPAL_21}
+\bibfield{author}{\bibinfo{person}{Mike Rainey}, \bibinfo{person}{Kyle~A Hale},
+  \bibinfo{person}{Ryan Newton}, \bibinfo{person}{Nikos Hardavellas},
+  \bibinfo{person}{Simone Campanoni}, \bibinfo{person}{Peter Dinda}, {and}
+  \bibinfo{person}{Umut Acar}.} \bibinfo{year}{2021}\natexlab{}.
+\newblock \showarticletitle{Task Parallel Assembly Language for Uncompromising
+  Parallelism}.
+\newblock  (\bibinfo{year}{2021}).
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{Reppy, Russo, and Xiao}{Reppy
+  et~al\mbox{.}}{2009}]%
+        {manticore}
+\bibfield{author}{\bibinfo{person}{John Reppy}, \bibinfo{person}{Claudio~V.
+  Russo}, {and} \bibinfo{person}{Yingqi Xiao}.}
+  \bibinfo{year}{2009}\natexlab{}.
+\newblock \showarticletitle{Parallel Concurrent ML}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the 14th ACM SIGPLAN International
+  Conference on Functional Programming}} \emph{(\bibinfo{series}{ICFP '09})}.
+  \bibinfo{publisher}{Association for Computing Machinery},
+  \bibinfo{address}{New York, NY, USA}, \bibinfo{pages}{257–268}.
+\newblock
+\showISBNx{9781605583327}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/1596550.1596588}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Sarkar, Waddell, and Dybvig}{Sarkar
+  et~al\mbox{.}}{2004}]%
+        {sarkar_nanopass}
+\bibfield{author}{\bibinfo{person}{Dipanwita Sarkar}, \bibinfo{person}{Oscar
+  Waddell}, {and} \bibinfo{person}{R.~Kent Dybvig}.}
+  \bibinfo{year}{2004}\natexlab{}.
+\newblock \showarticletitle{A Nanopass Infrastructure for Compiler Education}.
+  In \bibinfo{booktitle}{\emph{Proceedings of the Ninth ACM SIGPLAN
+  International Conference on Functional Programming}}
+  \emph{(\bibinfo{series}{ICFP '04})}. \bibinfo{publisher}{Association for
+  Computing Machinery}, \bibinfo{address}{New York, NY, USA},
+  \bibinfo{pages}{201–212}.
+\newblock
+\showISBNx{1581139055}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/1016850.1016878}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Shun, Blelloch, Fineman, Gibbons, Kyrola,
+  Simhadri, and Tangwongsan}{Shun et~al\mbox{.}}{2012}]%
+        {pbbs}
+\bibfield{author}{\bibinfo{person}{Julian Shun}, \bibinfo{person}{Guy~E.
+  Blelloch}, \bibinfo{person}{Jeremy~T. Fineman}, \bibinfo{person}{Phillip~B.
+  Gibbons}, \bibinfo{person}{Aapo Kyrola}, \bibinfo{person}{Harsha~Vardhan
+  Simhadri}, {and} \bibinfo{person}{Kanat Tangwongsan}.}
+  \bibinfo{year}{2012}\natexlab{}.
+\newblock \showarticletitle{Brief Announcement: The Problem Based Benchmark
+  Suite}. In \bibinfo{booktitle}{\emph{Proceedings of the Twenty-Fourth Annual
+  ACM Symposium on Parallelism in Algorithms and Architectures}}
+  \emph{(\bibinfo{series}{SPAA '12})}. \bibinfo{publisher}{Association for
+  Computing Machinery}, \bibinfo{address}{New York, NY, USA},
+  \bibinfo{pages}{68--70}.
+\newblock
+\showISBNx{9781450312134}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/2312005.2312018}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Siek, Factora, Kuhlenschmidt, Newton, Ryan,
+  Swords, Vitousek, and Vollmer}{Siek et~al\mbox{.}}{2020}]%
+        {iu_compilers_book}
+\bibfield{author}{\bibinfo{person}{Jeremy Siek}, \bibinfo{person}{Carl
+  Factora}, \bibinfo{person}{Andre Kuhlenschmidt}, \bibinfo{person}{Ryan
+  Newton}, \bibinfo{person}{Scott Ryan}, \bibinfo{person}{Cameron Swords},
+  \bibinfo{person}{Michael Vitousek}, {and} \bibinfo{person}{Michael Vollmer}.}
+  \bibinfo{year}{2020}\natexlab{}.
+\newblock \bibinfo{title}{Essentials Of Compilation: An Incremental Approach}.
+\newblock
+\newblock
+\urldef\tempurl%
+\url{https://iucompilercourse.github.io/IU-P423-P523-E313-E513-Fall-2020/}
+\showURL{%
+\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Sivaramakrishnan, Dolan, White, Jaffer, Kelly,
+  Sahoo, Parimala, Dhiman, and Madhavapeddy}{Sivaramakrishnan
+  et~al\mbox{.}}{2020a}]%
+        {multicore-ocaml}
+\bibfield{author}{\bibinfo{person}{KC Sivaramakrishnan},
+  \bibinfo{person}{Stephen Dolan}, \bibinfo{person}{Leo White},
+  \bibinfo{person}{Sadiq Jaffer}, \bibinfo{person}{Tom Kelly},
+  \bibinfo{person}{Anmol Sahoo}, \bibinfo{person}{Sudha Parimala},
+  \bibinfo{person}{Atul Dhiman}, {and} \bibinfo{person}{Anil Madhavapeddy}.}
+  \bibinfo{year}{2020}\natexlab{a}.
+\newblock \showarticletitle{Retrofitting Parallelism onto OCaml}.
+\newblock \bibinfo{journal}{\emph{Proc. ACM Program. Lang.}}
+  \bibinfo{volume}{4}, \bibinfo{number}{ICFP}, Article
+  \bibinfo{articleno}{113}, \bibinfo{numpages}{30}~pages.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3408995}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Sivaramakrishnan, Dolan, White, Jaffer, Kelly,
+  Sahoo, Parimala, Dhiman, and Madhavapeddy}{Sivaramakrishnan
+  et~al\mbox{.}}{2020b}]%
+        {sivaramakrishnan2020retrofitting}
+\bibfield{author}{\bibinfo{person}{KC Sivaramakrishnan},
+  \bibinfo{person}{Stephen Dolan}, \bibinfo{person}{Leo White},
+  \bibinfo{person}{Sadiq Jaffer}, \bibinfo{person}{Tom Kelly},
+  \bibinfo{person}{Anmol Sahoo}, \bibinfo{person}{Sudha Parimala},
+  \bibinfo{person}{Atul Dhiman}, {and} \bibinfo{person}{Anil Madhavapeddy}.}
+  \bibinfo{year}{2020}\natexlab{b}.
+\newblock \showarticletitle{Retrofitting Parallelism onto OCaml}.
+\newblock \bibinfo{journal}{\emph{arXiv preprint arXiv:2004.11663}}
+  (\bibinfo{year}{2020}).
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{Tofte, Birkedal, Elsman, and Hallenberg}{Tofte
+  et~al\mbox{.}}{2004}]%
+        {mlkit-retrospective}
+\bibfield{author}{\bibinfo{person}{Mads Tofte}, \bibinfo{person}{Lars
+  Birkedal}, \bibinfo{person}{Martin Elsman}, {and} \bibinfo{person}{Niels
+  Hallenberg}.} \bibinfo{year}{2004}\natexlab{}.
+\newblock \showarticletitle{A Retrospective on Region-Based Memory Management}.
+\newblock \bibinfo{journal}{\emph{Higher Order Symbol. Comput.}}
+  \bibinfo{volume}{17}, \bibinfo{number}{3} (\bibinfo{date}{Sept.}
+  \bibinfo{year}{2004}), \bibinfo{pages}{245--265}.
+\newblock
+\showISSN{1388-3690}
+\urldef\tempurl%
+\url{https://doi.org/10.1023/B:LISP.0000029446.78563.a4}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Tofte and Talpin}{Tofte and Talpin}{1997}]%
+        {regioncalcs}
+\bibfield{author}{\bibinfo{person}{Mads Tofte} {and}
+  \bibinfo{person}{Jean-Pierre Talpin}.} \bibinfo{year}{1997}\natexlab{}.
+\newblock \showarticletitle{Region-Based Memory Management}.
+\newblock \bibinfo{journal}{\emph{Inf. Comput.}} \bibinfo{volume}{132},
+  \bibinfo{number}{2} (\bibinfo{date}{Feb.} \bibinfo{year}{1997}),
+  \bibinfo{pages}{109--176}.
+\newblock
+\showISSN{0890-5401}
+\urldef\tempurl%
+\url{https://doi.org/10.1006/inco.1996.2613}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Ueno and Ohori}{Ueno and Ohori}{2016}]%
+        {ueno2016fully}
+\bibfield{author}{\bibinfo{person}{Katsuhiro Ueno} {and}
+  \bibinfo{person}{Atsushi Ohori}.} \bibinfo{year}{2016}\natexlab{}.
+\newblock \showarticletitle{A fully concurrent garbage collector for functional
+  programs on multicore processors}. In \bibinfo{booktitle}{\emph{Proceedings
+  of the 21st ACM SIGPLAN International Conference on Functional Programming}}.
+  \bibinfo{pages}{421--433}.
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{Varda}{Varda}{2015}]%
+        {capnproto}
+\bibfield{author}{\bibinfo{person}{Kenton Varda}.}
+  \bibinfo{year}{2015}\natexlab{}.
+\newblock \bibinfo{title}{{Cap'n Proto}}.
+\newblock
+\newblock
+\urldef\tempurl%
+\url{https://capnproto.org/}
+\showURL{%
+\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Vollmer, Koparkar, Rainey, Sakka, Kulkarni,
+  and Newton}{Vollmer et~al\mbox{.}}{2019}]%
+        {LoCal}
+\bibfield{author}{\bibinfo{person}{Michael Vollmer}, \bibinfo{person}{Chaitanya
+  Koparkar}, \bibinfo{person}{Mike Rainey}, \bibinfo{person}{Laith Sakka},
+  \bibinfo{person}{Milind Kulkarni}, {and} \bibinfo{person}{Ryan~R. Newton}.}
+  \bibinfo{year}{2019}\natexlab{}.
+\newblock \showarticletitle{LoCal: A Language for Programs Operating on
+  Serialized Data}. In \bibinfo{booktitle}{\emph{Proceedings of the 40th ACM
+  SIGPLAN Conference on Programming Language Design and Implementation}}
+  \emph{(\bibinfo{series}{PLDI 2019})}. \bibinfo{publisher}{Association for
+  Computing Machinery}, \bibinfo{address}{New York, NY, USA},
+  \bibinfo{pages}{48--62}.
+\newblock
+\showISBNx{9781450367127}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3314221.3314631}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Vollmer, Spall, Chamith, Sakka, Koparkar,
+  Kulkarni, Tobin-Hochstadt, and Newton}{Vollmer et~al\mbox{.}}{2017}]%
+        {Gibbon}
+\bibfield{author}{\bibinfo{person}{Michael Vollmer}, \bibinfo{person}{Sarah
+  Spall}, \bibinfo{person}{Buddhika Chamith}, \bibinfo{person}{Laith Sakka},
+  \bibinfo{person}{Chaitanya Koparkar}, \bibinfo{person}{Milind Kulkarni},
+  \bibinfo{person}{Sam Tobin-Hochstadt}, {and} \bibinfo{person}{Ryan~R.
+  Newton}.} \bibinfo{year}{2017}\natexlab{}.
+\newblock \showarticletitle{{Compiling Tree Transforms to Operate on Packed
+  Representations}}. In \bibinfo{booktitle}{\emph{31st European Conference on
+  Object-Oriented Programming (ECOOP 2017)}} \emph{(\bibinfo{series}{Leibniz
+  International Proceedings in Informatics (LIPIcs)})},
+  \bibfield{editor}{\bibinfo{person}{Peter M{\"u}ller}} (Ed.),
+  Vol.~\bibinfo{volume}{74}. \bibinfo{publisher}{Schloss
+  Dagstuhl--Leibniz-Zentrum fuer Informatik}, \bibinfo{address}{Dagstuhl,
+  Germany}, \bibinfo{pages}{26:1--26:29}.
+\newblock
+\showISBNx{978-3-95977-035-4}
+\showISSN{1868-8969}
+\urldef\tempurl%
+\url{https://doi.org/10.4230/LIPIcs.ECOOP.2017.26}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Westrick, Yadav, Fluet, and Acar}{Westrick
+  et~al\mbox{.}}{2019}]%
+        {MPL}
+\bibfield{author}{\bibinfo{person}{Sam Westrick}, \bibinfo{person}{Rohan
+  Yadav}, \bibinfo{person}{Matthew Fluet}, {and} \bibinfo{person}{Umut~A.
+  Acar}.} \bibinfo{year}{2019}\natexlab{}.
+\newblock \showarticletitle{Disentanglement in Nested-Parallel Programs}.
+\newblock \bibinfo{journal}{\emph{Proc. ACM Program. Lang.}}
+  \bibinfo{volume}{4}, \bibinfo{number}{POPL}, Article \bibinfo{articleno}{47}
+  (\bibinfo{date}{Dec.} \bibinfo{year}{2019}), \bibinfo{numpages}{32}~pages.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3371115}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Yang, Campagna, A\u{g}acan, El-Hassany,
+  Kulkarni, and Newton}{Yang et~al\mbox{.}}{2015}]%
+        {cnf-icfp15}
+\bibfield{author}{\bibinfo{person}{Edward~Z. Yang}, \bibinfo{person}{Giovanni
+  Campagna}, \bibinfo{person}{\"{O}mer~S. A\u{g}acan}, \bibinfo{person}{Ahmed
+  El-Hassany}, \bibinfo{person}{Abhishek Kulkarni}, {and}
+  \bibinfo{person}{Ryan~R. Newton}.} \bibinfo{year}{2015}\natexlab{}.
+\newblock \showarticletitle{Efficient Communication and Collection with Compact
+  Normal Forms}. In \bibinfo{booktitle}{\emph{Proceedings of the 20th ACM
+  SIGPLAN International Conference on Functional Programming}}
+  \emph{(\bibinfo{series}{ICFP 2015})}. \bibinfo{publisher}{ACM},
+  \bibinfo{address}{New York, NY, USA}, \bibinfo{pages}{362--374}.
+\newblock
+\showISBNx{978-1-4503-3669-7}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/2784731.2784735}
+\showDOI{\tempurl}
+
+
+\end{thebibliography}

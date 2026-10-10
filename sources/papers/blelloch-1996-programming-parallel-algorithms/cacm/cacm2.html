@@ -1,0 +1,117 @@
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
+<!--Converted with LaTeX2HTML .95.3 (Nov 17 1995) by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds -->
+<HTML>
+<HEAD>
+<TITLE>Programming Parallel Algorithms</TITLE>
+<!-- Changed by: Guy Blelloch , 24-Mar-1996 -->
+<META NAME="description" CONTENT="Programming Parallel Algorithms">
+<META NAME="keywords" CONTENT="cacm2">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<LINK REL=STYLESHEET HREF="cacm2.css">
+</HEAD>
+<BODY LANG="EN">
+ <BR> <HR>
+<A NAME="tex2html15" HREF="node1.html">
+<IMG ALIGN=BOTTOM ALT="next" WIDTH=37 HEIGHT=24 SRC="/afs/cs.cmu.edu/local/info-tools/common/omega/lib/latex2html/icons/next_motif.gif"></A>
+<A HREF="../cacm.html">
+<IMG ALIGN=BOTTOM ALT="up"  WIDTH=26 HEIGHT=24 SRC="/afs/cs.cmu.edu/local/info-tools/common/omega/lib/latex2html/icons/up_motif_gr.gif"></A>   
+<IMG ALIGN=BOTTOM ALT="previous"  WIDTH=63 HEIGHT=24 SRC="/afs/cs.cmu.edu/local/info-tools/common/omega/lib/latex2html/icons/previous_motif_gr.gif">
+<BR>
+<B> Next:</B> <A NAME="tex2html16" HREF="node1.html">Work and Depth</A>
+<B>Up:</B> <A HREF="../cacm.html">Front Page</A>
+<BR> <HR> <P>
+<P>
+<H1 ALIGN=CENTER>Programming Parallel Algorithms</H1>
+<P ALIGN=CENTER><STRONG>Guy E. Blelloch</STRONG></P><P>
+<P ALIGN=CENTER><STRONG>Communications of the ACM, 39(3), March, 1996.</STRONG></P><P>
+<P ALIGN=CENTER><STRONG></STRONG></P><P>
+<P>
+In the past 20 years there has been tremendous progress in developing
+and analyzing parallel algorithms.  Researchers have developed
+efficient parallel algorithms to solve most problems for which
+efficient sequential solutions are known.  Although some of these
+algorithms are efficient only in a theoretical framework, many are
+quite efficient in practice or have key ideas that have been used in
+efficient implementations.  This research on parallel algorithms has
+not only improved our general understanding of parallelism, but in
+several cases has led to improvements in sequential algorithms.
+Unfortunately there has been less success in developing good languages
+for programming parallel algorithms, particularly languages that are
+well suited for teaching and prototyping algorithms.  There has been a
+large gap between languages that are too low level, requiring
+specification of many details that obscure the meaning of the
+algorithm, and languages that are too high-level, making the
+performance implications of various constructs unclear.  In sequential
+computing many standard languages such as C or Pascal do a reasonable
+job of bridging this gap, but in parallel languages building such a
+bridge has been significantly more difficult.
+<P>
+Our research involves developing a parallel language that is useful
+for teaching as well as for implementing parallel algorithms.  To
+achieve this, an important goal has been to develop a language that
+allows high-level descriptions of parallel algorithms while also
+having a well understood mapping onto a performance model (<EM>i.e.</EM>
+bridges the gap).  Based on our research, we believe that the
+following two features are important for achieving this goal:
+<P>
+<UL><LI>
+A language-based performance model that uses <EM>work</EM> and <EM>
+depth</EM> rather than a machine-based model that uses ``running time''.
+<LI>
+Support for <EM>nested data-parallel</EM> constructs.  This is the
+ability to apply a function in parallel to each element of a
+collection of data, and the ability to nest such parallel calls.
+</UL>
+In this article we describe these features and explain why they are
+important for programming parallel algorithms.  To make the ideas
+concrete, we describe the programming language NESL [<A HREF="node14.html#nesl">5</A>],
+which we designed based on the features, and go through several
+examples of how to program and analyze parallel algorithms using the
+language.  We have been using NESL for three years in undergraduate
+and graduate courses on parallel algorithms [<A HREF="node14.html#classnotes">8</A>].  The
+algorithms we cover in this article are relatively straightforward.
+Many more algorithms can be found through the Web version of this
+article.
+<P>
+<BR> <HR>
+<UL> 
+<LI> <A NAME="tex2html17" HREF="node1.html#SECTION00010000000000000000">Work and Depth</A>
+<UL> 
+<LI> <A NAME="tex2html18" HREF="node2.html#SECTION00011000000000000000">Why Work and Depth?</A>
+<LI> <A NAME="tex2html19" HREF="node3.html#SECTION00012000000000000000">Relationship of Work and Depth to Running Time</A>
+</UL> 
+<LI> <A NAME="tex2html20" HREF="node4.html#SECTION00020000000000000000">Nested Data-Parallelism and NESL</A>
+<UL> 
+<LI> <A NAME="tex2html21" HREF="node5.html#SECTION00021000000000000000">NESL</A>
+<LI> <A NAME="tex2html22" HREF="node6.html#SECTION00022000000000000000">The Performance Model</A>
+</UL> 
+<LI> <A NAME="tex2html23" HREF="node7.html#SECTION00030000000000000000">Examples of Parallel Algorithms</A>
+<UL> 
+<LI> <A NAME="tex2html24" HREF="node8.html#SECTION00031000000000000000">Primes</A>
+<LI> <A NAME="tex2html25" HREF="node9.html#SECTION00032000000000000000">Sparse Matrix Multiplication</A>
+<LI> <A NAME="tex2html26" HREF="node10.html#SECTION00033000000000000000">Planar Convex-Hull</A>
+<LI> <A NAME="tex2html27" HREF="node11.html#SECTION00034000000000000000">Three Other Algorithms</A>
+</UL> 
+<LI> <A NAME="tex2html28" HREF="node12.html#SECTION00040000000000000000">Summary</A>
+<LI> <A NAME="tex2html29" HREF="node14.html#SECTION00060000000000000000">References</A>
+<LI> <A NAME="tex2html30" HREF="node15.html#SECTION00070000000000000000">  About this document ... </A>
+</UL>
+<BR> <HR>
+<A NAME="tex2html15" HREF="node1.html">
+<IMG ALIGN=BOTTOM ALT="next" WIDTH=37 HEIGHT=24 SRC="/afs/cs.cmu.edu/local/info-tools/common/omega/lib/latex2html/icons/next_motif.gif"></A>
+<A HREF="../cacm.html">
+<IMG ALIGN=BOTTOM ALT="up"  WIDTH=26 HEIGHT=24 SRC="/afs/cs.cmu.edu/local/info-tools/common/omega/lib/latex2html/icons/up_motif_gr.gif"></A>   
+<IMG ALIGN=BOTTOM ALT="previous"  WIDTH=63 HEIGHT=24 SRC="/afs/cs.cmu.edu/local/info-tools/common/omega/lib/latex2html/icons/previous_motif_gr.gif">
+<BR>
+<B> Next:</B> <A NAME="tex2html16" HREF="node1.html">Work and Depth</A>
+<B>Up:</B> <A HREF="../cacm.html">Front Page</A>
+
+<BR> <HR> <P>
+
+<BR> <HR>
+<P><ADDRESS>
+Guy Blelloch, <a href="http://www.cs.cmu.edu/~blelloch">blelloch@cs.cmu.edu</a>
+</ADDRESS>
+</BODY>
+</HTML>

@@ -27,12 +27,25 @@ keeps only what remains.
 - [0003](0003-llvm-trunk.md): the LLVM pin on a trunk commit, done but
   for one step: the bootstrap and every suite on both targets with the
   patches the tree carries.
-- [0004](0004-tensors.md): pure array programs as tensors until
-  bufferization. A raise to `linalg` on tensors, fusion and tiling,
-  One-Shot Bufferize with the linear grade kept, rank above 1, and SPMD
-  through `shard-partition` on the runtime of 0005. Proposed.
+- [0004](0004-typed-apl/README.md): a typed APL. Arrays of any rank with
+  shapes as erased types, rank polymorphism with frames and cells, index
+  sets, the full operator vocabulary, and shape arithmetic in the
+  elaborator. It lowers to tensor and linalg with fusion, tiling and
+  One-Shot Bufferize meeting the grades, plus SPMD on the runtime of 0005.
+  Two companion files go deeper on the compiler and on the type theory.
+  Proposed.
 - [0005](0005-shards.md): shards, the concurrency runtime. One copy of the
   single-threaded runtime per core, task frames for computations that
   wait, a reactor per shard, values crossing only inside messages, and
   Rust futures polled on the reactor. Its decisions are taken; the plan
   waits for launch.
+- [0006](0006-flattened-data.md): compiler-chosen flattened layouts of
+  algebraic data. Packed preorder trees (Gibbon) when the exclusive grade
+  proves no sharing, and columnar layouts (Arrow-style) for collections and
+  arrays of records, with one reference count per region and packed data
+  as the shard message format. Proposed.
+- [0007](0007-typechecker.md): a state-of-the-art type checker for the fork.
+  Flat, hash-consed terms, glued evaluation, compiled reduction through
+  idris-mlir, tabled search, shape arithmetic and a rewrite ladder, solvers
+  that search while the kernel checks, a separate small kernel, and
+  parallel elaboration, each stage measured against a baseline. Proposed.

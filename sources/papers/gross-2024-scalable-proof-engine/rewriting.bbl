@@ -1,0 +1,847 @@
+%% BioMed_Central_Bib_Style_v1.01
+
+\begin{thebibliography}{55}
+% BibTex style file: bmc-mathphys.bst (version 2.1), 2014-07-24
+\ifx \bisbn   \undefined \def \bisbn  #1{ISBN #1}\fi
+\ifx \binits  \undefined \def \binits#1{#1}\fi
+\ifx \bauthor  \undefined \def \bauthor#1{#1}\fi
+\ifx \batitle  \undefined \def \batitle#1{#1}\fi
+\ifx \bjtitle  \undefined \def \bjtitle#1{#1}\fi
+\ifx \bvolume  \undefined \def \bvolume#1{\textbf{#1}}\fi
+\ifx \byear  \undefined \def \byear#1{#1}\fi
+\ifx \bissue  \undefined \def \bissue#1{#1}\fi
+\ifx \bfpage  \undefined \def \bfpage#1{#1}\fi
+\ifx \blpage  \undefined \def \blpage #1{#1}\fi
+\ifx \burl  \undefined \def \burl#1{\textsf{#1}}\fi
+\ifx \doiurl  \undefined \def \doiurl#1{\url{https://doi.org/#1}}\fi
+\ifx \betal  \undefined \def \betal{\textit{et al.}}\fi
+\ifx \binstitute  \undefined \def \binstitute#1{#1}\fi
+\ifx \binstitutionaled  \undefined \def \binstitutionaled#1{#1}\fi
+\ifx \bctitle  \undefined \def \bctitle#1{#1}\fi
+\ifx \beditor  \undefined \def \beditor#1{#1}\fi
+\ifx \bpublisher  \undefined \def \bpublisher#1{#1}\fi
+\ifx \bbtitle  \undefined \def \bbtitle#1{#1}\fi
+\ifx \bedition  \undefined \def \bedition#1{#1}\fi
+\ifx \bseriesno  \undefined \def \bseriesno#1{#1}\fi
+\ifx \blocation  \undefined \def \blocation#1{#1}\fi
+\ifx \bsertitle  \undefined \def \bsertitle#1{#1}\fi
+\ifx \bsnm \undefined \def \bsnm#1{#1}\fi
+\ifx \bsuffix \undefined \def \bsuffix#1{#1}\fi
+\ifx \bparticle \undefined \def \bparticle#1{#1}\fi
+\ifx \barticle \undefined \def \barticle#1{#1}\fi
+\bibcommenthead
+\ifx \bconfdate \undefined \def \bconfdate #1{#1}\fi
+\ifx \botherref \undefined \def \botherref #1{#1}\fi
+\ifx \url \undefined \def \url#1{\textsf{#1}}\fi
+\ifx \bchapter \undefined \def \bchapter#1{#1}\fi
+\ifx \bbook \undefined \def \bbook#1{#1}\fi
+\ifx \bcomment \undefined \def \bcomment#1{#1}\fi
+\ifx \oauthor \undefined \def \oauthor#1{#1}\fi
+\ifx \citeauthoryear \undefined \def \citeauthoryear#1{#1}\fi
+\ifx \endbibitem  \undefined \def \endbibitem {}\fi
+\ifx \bconflocation  \undefined \def \bconflocation#1{#1}\fi
+\ifx \arxivurl  \undefined \def \arxivurl#1{\textsf{#1}}\fi
+\csname PreBibitemsHook\endcsname
+
+%%% 1
+\bibitem{FiatCryptoSP19}
+\begin{bchapter}
+\bauthor{\bsnm{Erbsen}, \binits{A.}},
+\bauthor{\bsnm{Philipoom}, \binits{J.}},
+\bauthor{\bsnm{Gross}, \binits{J.}},
+\bauthor{\bsnm{Sloan}, \binits{R.}},
+\bauthor{\bsnm{Chlipala}, \binits{A.}}:
+\bctitle{Simple high-level code for cryptographic arithmetic -- with proofs,
+  without compromises}.
+In: \bbtitle{2019 IEEE Symposium on Security and Privacy (SP)},
+\bconflocation{San Francisco, CA, USA},
+pp. \bfpage{1202}--\blpage{1219}
+(\byear{2019}).
+\doiurl{10.1109/SP.2019.00005}.
+\burl{http://adam.chlipala.net/papers/FiatCryptoSP19/}
+\end{bchapter}
+\endbibitem
+
+%%% 2
+\bibitem{Gross2021thesis}
+\begin{botherref}
+\oauthor{\bsnm{Gross}, \binits{J.S.}}:
+Performance engineering of proof-based software systems at scale.
+{PhD} thesis,
+Massachusetts Institute of Technology
+(February 2021).
+\url{https://dspace.mit.edu/handle/1721.1/130763}
+\end{botherref}
+\endbibitem
+
+%%% 3
+\bibitem{Infamous2014Gawron}
+\begin{botherref}
+\oauthor{\bsnm{Gawron}, \binits{N.}}:
+Infamous Software Bugs: {FDIV} Bug.
+\url{https://www.olenick.com/blog/articles/infamous-software-bugs-fdiv-bug}
+\end{botherref}
+\endbibitem
+
+%%% 4
+\bibitem{Truth1995Halfhill}
+\begin{botherref}
+\oauthor{\bsnm{Halfhill}, \binits{T.R.}}:
+The Truth Behind the {P}entium Bug.
+\url{https://web.archive.org/web/20060209005434/http://www.byte.com/art/9503/sec13/art1.htm}
+\end{botherref}
+\endbibitem
+
+%%% 5
+\bibitem{Pentium2011Nicely}
+\begin{botherref}
+\oauthor{\bsnm{Nicely}, \binits{T.R.}}:
+Pentium {FDIV} Flaw {FAQ}.
+\url{https://web.archive.org/web/20190618044444/http://www.trnicely.net/pentbug/pentbug.html}
+\end{botherref}
+\endbibitem
+
+%%% 6
+\bibitem{lynch2017worst_mars}
+\begin{botherref}
+\oauthor{\bsnm{Lynch}, \binits{J.}}:
+The Worst Computer Bugs in History: Rapid unanticipated disassembly of the Mars
+  Climate Orbiter.
+BugSnag Blog.
+Accessed: 2023-04-25
+(2017).
+\url{https://www.bugsnag.com/blog/bug-day-mars-climate-orbiter}
+\end{botherref}
+\endbibitem
+
+%%% 7
+\bibitem{Metric1999Lloyd}
+\begin{botherref}
+\oauthor{\bsnm{Lloyd}, \binits{R.}}:
+Metric Mishap Caused Loss of {NASA} Orbiter.
+\url{http://www.cnn.com/TECH/space/9909/30/mars.metric.02/index.html}
+\end{botherref}
+\endbibitem
+
+%%% 8
+\bibitem{Space1996Leech}
+\begin{botherref}
+\oauthor{\bsnm{Leech}, \binits{J.P.}},
+\oauthor{\bsnm{Klaes}, \binits{L.}},
+\oauthor{\bsnm{Wiener}, \binits{M.}},
+\oauthor{\bsnm{Yamada}, \binits{Y.}}:
+Space {FAQ} 08/13 - Planetary Probe History.
+\url{http://www.faqs.org/faqs/space/probe/}
+\end{botherref}
+\endbibitem
+
+%%% 9
+\bibitem{Gift2018Baase}
+\begin{botherref}
+\oauthor{\bsnm{Baase}, \binits{S.}},
+\oauthor{\bsnm{Henry}, \binits{T.}}:
+A Gift of Fire: Social, Legal, and Ethical Issues for Computing Technology,
+5th edn.
+Pearson.
+\url{https://books.google.com/books?id=izaqAQAACAAJ}
+\end{botherref}
+\endbibitem
+
+%%% 10
+\bibitem{lynch2017worst_therac}
+\begin{botherref}
+\oauthor{\bsnm{Lynch}, \binits{J.}}:
+The Worst Computer Bugs in History: Race conditions in {T}herac-25.
+BugSnag Blog.
+Accessed: 2023-04-25
+(2017).
+\url{https://www.bugsnag.com/blog/bug-day-race-condition-therac-25}
+\end{botherref}
+\endbibitem
+
+%%% 11
+\bibitem{Investigation1993Leveson}
+\begin{botherref}
+\oauthor{\bsnm{Leveson}, \binits{N.G.}},
+\oauthor{\bsnm{Turner}, \binits{C.S.}}:
+An investigation of the {T}herac-25 accidents.
+Computer
+\textbf{26}(7),
+18--41.
+\doiurl{10.1109/MC.1993.274940}
+\end{botherref}
+\endbibitem
+
+%%% 12
+\bibitem{lynch2017worst_ariane}
+\begin{botherref}
+\oauthor{\bsnm{Lynch}, \binits{J.}}:
+The Worst Computer Bugs in History: The {A}riane 5 Disaster.
+BugSnag Blog.
+Accessed: 2023-04-25
+(2017).
+\url{https://www.bugsnag.com/blog/bug-day-ariane-5-disaster}
+\end{botherref}
+\endbibitem
+
+%%% 13
+\bibitem{Design1997Jazequel}
+\begin{botherref}
+\oauthor{\bsnm{Jézéquel}, \binits{J.-M.}},
+\oauthor{\bsnm{Meyer}, \binits{B.}}:
+Design by contract: The lessons of {A}riane
+\textbf{30}(1),
+129--130.
+\doiurl{10.1109/2.562936}
+\end{botherref}
+\endbibitem
+
+%%% 14
+\bibitem{Ariane1997Dowson}
+\begin{botherref}
+\oauthor{\bsnm{Dowson}, \binits{M.}}:
+The {A}riane 5 software failure
+\textbf{22}(2),
+84.
+\doiurl{10.1145/251880.251992}
+\end{botherref}
+\endbibitem
+
+%%% 15
+\bibitem{lynch2017worst_460m}
+\begin{botherref}
+\oauthor{\bsnm{Lynch}, \binits{J.}}:
+The Worst Computer Bugs in History: Losing \$460m in 45 minutes.
+BugSnag Blog.
+Accessed: 2023-04-25
+(2017).
+\url{https://www.bugsnag.com/blog/bug-day-460m-loss}
+\end{botherref}
+\endbibitem
+
+%%% 16
+\bibitem{smith2022using}
+\begin{botherref}
+\oauthor{\bsnm{Smith}, \binits{S.}},
+\oauthor{\bsnm{Patwary}, \binits{M.}},
+\oauthor{\bsnm{Norick}, \binits{B.}},
+\oauthor{\bsnm{LeGresley}, \binits{P.}},
+\oauthor{\bsnm{Rajbhandari}, \binits{S.}},
+\oauthor{\bsnm{Casper}, \binits{J.}},
+\oauthor{\bsnm{Liu}, \binits{Z.}},
+\oauthor{\bsnm{Prabhumoye}, \binits{S.}},
+\oauthor{\bsnm{Zerveas}, \binits{G.}},
+\oauthor{\bsnm{Korthikanti}, \binits{V.}},
+\oauthor{\bsnm{Zhang}, \binits{E.}},
+\oauthor{\bsnm{Child}, \binits{R.}},
+\oauthor{\bsnm{Aminabadi}, \binits{R.Y.}},
+\oauthor{\bsnm{Bernauer}, \binits{J.}},
+\oauthor{\bsnm{Song}, \binits{X.}},
+\oauthor{\bsnm{Shoeybi}, \binits{M.}},
+\oauthor{\bsnm{He}, \binits{Y.}},
+\oauthor{\bsnm{Houston}, \binits{M.}},
+\oauthor{\bsnm{Tiwary}, \binits{S.}},
+\oauthor{\bsnm{Catanzaro}, \binits{B.}}:
+Using {D}eep{S}peed and {M}egatron to train {M}egatron-{T}uring {NLG} 530{B}, a
+  large-scale generative language model
+(2022)
+{\href{https://arxiv.org/abs/2201.11990}{{arXiv:2201.11990}}}
+{[cs.CL]}
+\end{botherref}
+\endbibitem
+
+%%% 17
+\bibitem{xiang2023-ai-suicide}
+\begin{botherref}
+\oauthor{\bsnm{Xiang}, \binits{C.}}:
+`{H}e Would Still Be Here': Man Dies by Suicide After Talking with {AI}
+  Chatbot, Widow Says,
+Vice
+(2023).
+Accessed: 2023-04-24.
+\url{https://www.vice.com/en/article/pkadgm/man-dies-by-suicide-after-talking-with-ai-chatbot-widow-says}
+\end{botherref}
+\endbibitem
+
+%%% 18
+\bibitem{turley2023chatgpt}
+\begin{botherref}
+\oauthor{\bsnm{Turley}, \binits{J.}}:
+Chat{GPT} falsely accused me of sexually harassing my students. Can we really
+  trust {AI}?
+USA Today.
+Accessed: 2023-05-01
+(2023).
+\url{https://www.usatoday.com/story/opinion/columnist/2023/04/03/chatgpt-misinformation-bias-flaws-ai-chatbot/11571830002/}
+\end{botherref}
+\endbibitem
+
+%%% 19
+\bibitem{lee2016learning}
+\begin{botherref}
+\oauthor{\bsnm{Lee}, \binits{P.}}:
+Learning from {T}ay's Introduction,
+Official Microsoft Blog
+(2016).
+Microsoft. Accessed: 2023-04-24.
+\url{https://blogs.microsoft.com/blog/2016/03/25/learning-tays-introduction/}
+\end{botherref}
+\endbibitem
+
+%%% 20
+\bibitem{hern2016microsoft}
+\begin{botherref}
+\oauthor{\bsnm{Hern}, \binits{A.}}:
+Microsoft Scrambles to Limit {PR} Damage over Abusive {AI} Bot {T}ay,
+The Guardian
+(2016).
+Accessed: 2023-04-24.
+\url{https://www.theguardian.com/technology/2016/mar/24/microsoft-scrambles-limit-pr-damage-over-abusive-ai-bot-tay}
+\end{botherref}
+\endbibitem
+
+%%% 21
+\bibitem{coulter2023alphabet}
+\begin{botherref}
+\oauthor{\bsnm{Coulter}, \binits{M.}},
+\oauthor{\bsnm{Bensinger}, \binits{G.}}:
+Alphabet Shares Dive After {G}oogle {AI} Chatbot {B}ard Flubs Answer in ad,
+Reuters
+(2023).
+Accessed: 2023-04-24.
+\url{https://www.reuters.com/technology/google-ai-chatbot-bard-offers-inaccurate-information-company-ad-2023-02-08/}
+\end{botherref}
+\endbibitem
+
+%%% 22
+\bibitem{vmcompute}
+\begin{bchapter}
+\bauthor{\bsnm{Grégoire}, \binits{B.}},
+\bauthor{\bsnm{Leroy}, \binits{X.}}:
+\bctitle{A compiled implementation of strong reduction}.
+In: \bbtitle{Proceedings of the Seventh ACM SIGPLAN International Conference on
+  Functional Programming}.
+\bsertitle{ICFP '02},
+pp. \bfpage{235}--\blpage{246}.
+\bpublisher{Association for Computing Machinery},
+\blocation{New York, NY, USA}
+(\byear{2002}).
+\doiurl{10.1145/581478.581501}
+\end{bchapter}
+\endbibitem
+
+%%% 23
+\bibitem{nativecompute}
+\begin{bchapter}
+\bauthor{\bsnm{Boespflug}, \binits{M.}},
+\bauthor{\bsnm{Dénès}, \binits{M.}},
+\bauthor{\bsnm{Grégoire}, \binits{B.}}:
+\bctitle{Full reduction at full throttle}.
+In: \bbtitle{Proceedings of the First International Conference on Certified
+  Programs and Proofs}.
+\bsertitle{CPP'11},
+pp. \bfpage{362}--\blpage{377}.
+\bpublisher{Springer},
+\blocation{Berlin, Heidelberg}
+(\byear{2011}).
+\doiurl{10.1007/978-3-642-25379-9_26}
+\end{bchapter}
+\endbibitem
+
+%%% 24
+\bibitem{RewritingITP2022}
+\begin{bchapter}
+\bauthor{\bsnm{Gross}, \binits{J.}},
+\bauthor{\bsnm{Erbsen}, \binits{A.}},
+\bauthor{\bsnm{Philipoom}, \binits{J.}},
+\bauthor{\bsnm{Agrawal}, \binits{R.}},
+\bauthor{\bsnm{Chlipala}, \binits{A.}}:
+\bctitle{Accelerating verified-compiler development with a verified rewriting
+  engine}.
+In: \beditor{\bsnm{Andronick}, \binits{J.}},
+\beditor{\bparticle{de} \bsnm{Moura}, \binits{L.}} (eds.)
+\bbtitle{Proceedings of the {\href{https://itpconference.github.io/ITP22/}{13th
+  International Conference on Interactive Theorem Proving (ITP 2022)}}}.
+\bsertitle{Leibniz International Proceedings in Informatics (LIPIcs)},
+vol. \bseriesno{237},
+pp. \bfpage{17}--\blpage{11718}.
+\bpublisher{Schloss Dagstuhl -- Leibniz-Zentrum f{\"u}r Informatik},
+\blocation{Dagstuhl, Germany}
+(\byear{2022}).
+\doiurl{10.4230/LIPIcs.ITP.2022.17}.
+\burl{https://arxiv.org/abs/2205.00862}
+\end{bchapter}
+\endbibitem
+
+%%% 25
+\bibitem{Compcert}
+\begin{barticle}
+\bauthor{\bsnm{Leroy}, \binits{X.}}:
+\batitle{A formally verified compiler back-end}.
+\bjtitle{Journal of Automated Reasoning}
+\bvolume{43}(\bissue{4}),
+\bfpage{363}--\blpage{446}
+(\byear{2009}).
+\doiurl{10.1007/s10817-009-9155-4}
+\end{barticle}
+\endbibitem
+
+%%% 26
+\bibitem{CakeML}
+\begin{bchapter}
+\bauthor{\bsnm{Kumar}, \binits{R.}},
+\bauthor{\bsnm{Myreen}, \binits{M.O.}},
+\bauthor{\bsnm{Norrish}, \binits{M.}},
+\bauthor{\bsnm{Owens}, \binits{S.}}:
+\bctitle{{CakeML}: A verified implementation of {ML}}.
+In: \bbtitle{POPL '14: Proceedings of the 41st ACM SIGPLAN-SIGACT Symposium on
+  Principles of Programming Languages}.
+\bsertitle{POPL '14},
+pp. \bfpage{179}--\blpage{191}.
+\bpublisher{ACM Press},
+\blocation{New York, NY, USA}
+(\byear{2014}).
+\doiurl{10.1145/2535838.2535841}.
+\burl{https://cakeml.org/popl14.pdf}
+\end{bchapter}
+\endbibitem
+
+%%% 27
+\bibitem{LocallyNameless}
+\begin{bchapter}
+\bauthor{\bsnm{Aydemir}, \binits{B.}},
+\bauthor{\bsnm{Charguéraud}, \binits{A.}},
+\bauthor{\bsnm{Pierce}, \binits{B.C.}},
+\bauthor{\bsnm{Pollack}, \binits{R.}},
+\bauthor{\bsnm{Weirich}, \binits{S.}}:
+\bctitle{Engineering formal metatheory}.
+In: \bbtitle{Proc. POPL},
+pp. \bfpage{3}--\blpage{15}
+(\byear{2008}).
+\burl{https://www.cis.upenn.edu/\texttildelow bcpierce/papers/binders.pdf}
+\end{bchapter}
+\endbibitem
+
+%%% 28
+\bibitem{coqbug-12524}
+\begin{botherref}
+\oauthor{\bsnm{Gross}, \binits{J.}}:
+\texttt{setoid\_rewrite} and \texttt{rewrite\_strat} Are Cubic in the Number of
+  Binders Even When There Are No Matches \textbullet\space Issue \#12524
+  \textbullet\space Coq/coq,
+GitHub issue
+(2020).
+Accessed: 2023-04-25.
+\url{https://github.com/coq/coq/issues/12524}
+\end{botherref}
+\endbibitem
+
+%%% 29
+\bibitem{Aehlig}
+\begin{bchapter}
+\bauthor{\bsnm{Aehlig}, \binits{K.}},
+\bauthor{\bsnm{Haftmann}, \binits{F.}},
+\bauthor{\bsnm{Nipkow}, \binits{T.}}:
+\bctitle{A compiled implementation of normalization by evaluation}.
+In: \beditor{\bsnm{Mohamed}, \binits{O.A.}},
+\beditor{\bsnm{Mu{\~{n}}oz}, \binits{C.}},
+\beditor{\bsnm{Tahar}, \binits{S.}} (eds.)
+\bbtitle{Theorem Proving in Higher Order Logics},
+pp. \bfpage{39}--\blpage{54}.
+\bpublisher{Springer},
+\blocation{Berlin, Heidelberg}
+(\byear{2008}).
+\doiurl{10.1007/978-3-540-71067-7_8}
+\end{bchapter}
+\endbibitem
+
+%%% 30
+\bibitem{Hickey2006}
+\begin{barticle}
+\bauthor{\bsnm{Hickey}, \binits{J.}},
+\bauthor{\bsnm{Nogin}, \binits{A.}}:
+\batitle{Formal compiler construction in a logical framework}.
+\bjtitle{Higher-Order and Symbolic Computation}
+\bvolume{19}(\bissue{2}),
+\bfpage{197}--\blpage{230}
+(\byear{2006}).
+\doiurl{10.1007/s10990-006-8746-6}
+\end{barticle}
+\endbibitem
+
+%%% 31
+\bibitem{ReflectionTACS97}
+\begin{botherref}
+\oauthor{\bsnm{Boutin}, \binits{S.}}:
+Using reflection to build efficient and certified decision procedures.
+In: Abadi, M., Ito, T. (eds.)
+Theoretical Aspects of Computer Software,
+pp. 515--529.
+Springer.
+\doiurl{10.1007/BFb0014565}
+\end{botherref}
+\endbibitem
+
+%%% 32
+\bibitem{micromega}
+\begin{bchapter}
+\bauthor{\bsnm{Besson}, \binits{F.}}:
+\bctitle{Fast reflexive arithmetic tactics the linear case and beyond}.
+In: \beditor{\bsnm{Altenkirch}, \binits{T.}},
+\beditor{\bsnm{McBride}, \binits{C.}} (eds.)
+\bbtitle{Types for Proofs and Programs},
+pp. \bfpage{48}--\blpage{62}.
+\bpublisher{Springer},
+\blocation{Berlin, Heidelberg}
+(\byear{2007}).
+\doiurl{10.1007/978-3-540-74464-1_4}
+\end{bchapter}
+\endbibitem
+
+%%% 33
+\bibitem{romega}
+\begin{bchapter}
+\bauthor{\bsnm{Chaieb}, \binits{A.}},
+\bauthor{\bsnm{Nipkow}, \binits{T.}}:
+\bctitle{Verifying and reflecting quantifier elimination for presburger
+  arithmetic}.
+In: \beditor{\bsnm{Sutcliffe}, \binits{G.}},
+\beditor{\bsnm{Voronkov}, \binits{A.}} (eds.)
+\bbtitle{Logic for Programming, Artificial Intelligence, and Reasoning},
+pp. \bfpage{367}--\blpage{380}.
+\bpublisher{Springer},
+\blocation{Berlin, Heidelberg}
+(\byear{2005}).
+\doiurl{10.1007/11591191_26}
+\end{bchapter}
+\endbibitem
+
+%%% 34
+\bibitem{psatz}
+\begin{bchapter}
+\bauthor{\bsnm{Martin-Dorel}, \binits{{\'E}.}},
+\bauthor{\bsnm{Roux}, \binits{P.}}:
+\bctitle{A reflexive tactic for polynomial positivity using numerical solvers
+  and floating-point computations}.
+In: \bbtitle{Proceedings of the 6th ACM SIGPLAN Conference on Certified
+  Programs and Proofs}.
+\bsertitle{CPP 2017},
+pp. \bfpage{90}--\blpage{99}.
+\bpublisher{Association for Computing Machinery},
+\blocation{New York, NY, USA}
+(\byear{2017}).
+\doiurl{10.1145/3018610.3018622}
+\end{bchapter}
+\endbibitem
+
+%%% 35
+\bibitem{nsatz}
+\begin{bchapter}
+\bauthor{\bsnm{Gr{\'e}goire}, \binits{B.}},
+\bauthor{\bsnm{Pottier}, \binits{L.}},
+\bauthor{\bsnm{Th{\'e}ry}, \binits{L.}}:
+\bctitle{Proof certificates for algebra and their application to automatic
+  geometry theorem proving}.
+In: \beditor{\bsnm{Sturm}, \binits{T.}},
+\beditor{\bsnm{Zengler}, \binits{C.}} (eds.)
+\bbtitle{Automated Deduction in Geometry},
+pp. \bfpage{42}--\blpage{59}.
+\bpublisher{Springer},
+\blocation{Berlin, Heidelberg}
+(\byear{2011}).
+\doiurl{10.1007/978-3-642-21046-4_3}
+\end{bchapter}
+\endbibitem
+
+%%% 36
+\bibitem{gbcoq}
+\begin{botherref}
+\oauthor{\bsnm{Pottier}, \binits{L.}}:
+Connecting {G}r\"obner bases programs with {C}oq to do proofs in algebra,
+  geometry and arithmetics
+(2010)
+{\href{https://arxiv.org/abs/1007.3615}{{arXiv:1007.3615}}}
+{[cs.SC]}
+\end{botherref}
+\endbibitem
+
+%%% 37
+\bibitem{aacrewrite}
+\begin{bchapter}
+\bauthor{\bsnm{Braibant}, \binits{T.}},
+\bauthor{\bsnm{Pous}, \binits{D.}}:
+\bctitle{Tactics for reasoning modulo {AC} in {C}oq}.
+In: \beditor{\bsnm{Jouannaud}, \binits{J.-P.}},
+\beditor{\bsnm{Shao}, \binits{Z.}} (eds.)
+\bbtitle{Certified Programs and Proofs},
+pp. \bfpage{167}--\blpage{182}.
+\bpublisher{Springer},
+\blocation{Berlin, Heidelberg}
+(\byear{2011}).
+\doiurl{10.1007/978-3-642-25379-9_14}
+\end{bchapter}
+\endbibitem
+
+%%% 38
+\bibitem{rtac}
+\begin{bchapter}
+\bauthor{\bsnm{Malecha}, \binits{G.}},
+\bauthor{\bsnm{Bengtson}, \binits{J.}}:
+\bctitle{Extensible and Efficient Automation Through Reflective Tactics}.
+In: \beditor{\bsnm{Thiemann}, \binits{P.}} (ed.)
+\bbtitle{Programming Languages and Systems: 25th {E}uropean Symposium on
+  Programming, {ESOP} 2016, Held as Part of the {E}uropean Joint Conferences on
+  Theory and Practice of Software, {ETAPS} 2016, {E}indhoven, The
+  {N}etherlands, April 2--8, 2016, Proceedings},
+pp. \bfpage{532}--\blpage{559}.
+\bpublisher{Springer},
+\blocation{Berlin, Heidelberg}
+(\byear{2016}).
+\doiurl{10.1007/978-3-662-49498-1_21}
+\end{bchapter}
+\endbibitem
+
+%%% 39
+\bibitem{NbE}
+\begin{bchapter}
+\bauthor{\bsnm{Berger}, \binits{U.}},
+\bauthor{\bsnm{Schwichtenberg}, \binits{H.}}:
+\bctitle{An inverse of the evaluation functional for typed $\lambda$-calculus}.
+In: \bbtitle{[1991] Proceedings Sixth Annual IEEE Symposium on Logic in
+  Computer Science},
+pp. \bfpage{203}--\blpage{211}
+(\byear{1991}).
+\doiurl{10.1109/LICS.1991.151645}
+\end{bchapter}
+\endbibitem
+
+%%% 40
+\bibitem{CodeGen}
+\begin{bchapter}
+\bauthor{\bsnm{Haftmann}, \binits{F.}},
+\bauthor{\bsnm{Nipkow}, \binits{T.}}:
+\bctitle{A code generator framework for {I}sabelle/{HOL}}.
+In: \bbtitle{Proc. TPHOLs}
+(\byear{2007})
+\end{bchapter}
+\endbibitem
+
+%%% 41
+\bibitem{Boespflug2009}
+\begin{bchapter}
+\bauthor{\bsnm{Boespflug}, \binits{M.}}:
+\bctitle{Efficient normalization by evaluation}.
+In: \beditor{\bsnm{Danvy}, \binits{O.}} (ed.)
+\bbtitle{Workshop on Normalization by Evaluation},
+\bconflocation{Los Angeles, United States}
+(\byear{2009}).
+\burl{https://hal.inria.fr/inria-00434283}
+\end{bchapter}
+\endbibitem
+
+%%% 42
+\bibitem{maranget2008compiling}
+\begin{bchapter}
+\bauthor{\bsnm{Maranget}, \binits{L.}}:
+\bctitle{Compiling pattern matching to good decision trees}.
+In: \bbtitle{Proceedings of the 2008 ACM SIGPLAN Workshop on ML},
+pp. \bfpage{35}--\blpage{46}
+(\byear{2008}).
+\bcomment{ACM}.
+\burl{http://moscova.inria.fr/\texttildelow maranget/papers/ml05e-maranget.pdf}
+\end{bchapter}
+\endbibitem
+
+%%% 43
+\bibitem{debruijn1972}
+\begin{bchapter}
+\bauthor{\bsnm{De~Bruijn}, \binits{N.G.}}:
+\bctitle{Lambda calculus notation with nameless dummies, a tool for automatic
+  formula manipulation, with application to the {C}hurch-{R}osser theorem}.
+In: \bbtitle{Indagationes Mathematicae (Proceedings)},
+vol. \bseriesno{75},
+pp. \bfpage{381}--\blpage{392}
+(\byear{1972}).
+\doiurl{10.1016/1385-7258(72)90034-0}.
+\bcomment{Elsevier}.
+\burl{https://www.sciencedirect.com/science/article/pii/1385725872900340}
+\end{bchapter}
+\endbibitem
+
+%%% 44
+\bibitem{PhoasICFP08}
+\begin{bchapter}
+\bauthor{\bsnm{Chlipala}, \binits{A.}}:
+\bctitle{Parametric higher-order abstract syntax for mechanized semantics}.
+In: \bbtitle{ICFP'08: Proceedings of the 13th ACM SIGPLAN International
+  Conference on Functional Programming},
+\bconflocation{Victoria, British Columbia, Canada}
+(\byear{2008}).
+\burl{http://adam.chlipala.net/papers/PhoasICFP08/}
+\end{bchapter}
+\endbibitem
+
+%%% 45
+\bibitem{claret2013lightweight}
+\begin{bchapter}
+\bauthor{\bsnm{Claret}, \binits{G.}},
+\bauthor{\bparticle{del} \bsnm{Carmen Gonz{\'a}lez~Huesca}, \binits{L.}},
+\bauthor{\bsnm{R{\'e}gis-Gianas}, \binits{Y.}},
+\bauthor{\bsnm{Ziliani}, \binits{B.}}:
+\bctitle{Lightweight proof by reflection using a posteriori simulation of
+  effectful computation}.
+In: \beditor{\bsnm{Blazy}, \binits{S.}},
+\beditor{\bsnm{Paulin-Mohring}, \binits{C.}},
+\beditor{\bsnm{Pichardie}, \binits{D.}} (eds.)
+\bbtitle{Interactive Theorem Proving},
+pp. \bfpage{67}--\blpage{83}.
+\bpublisher{Springer},
+\blocation{Berlin, Heidelberg}
+(\byear{2013}).
+\doiurl{10.1007/978-3-642-39634-2_8}
+\end{bchapter}
+\endbibitem
+
+%%% 46
+\bibitem{metacoq}
+\begin{barticle}
+\bauthor{\bsnm{Sozeau}, \binits{M.}},
+\bauthor{\bsnm{Anand}, \binits{A.}},
+\bauthor{\bsnm{Boulier}, \binits{S.}},
+\bauthor{\bsnm{Cohen}, \binits{C.}},
+\bauthor{\bsnm{Forster}, \binits{Y.}},
+\bauthor{\bsnm{Kunze}, \binits{F.}},
+\bauthor{\bsnm{Malecha}, \binits{G.}},
+\bauthor{\bsnm{Tabareau}, \binits{N.}},
+\bauthor{\bsnm{Winterhalter}, \binits{T.}}:
+\batitle{The {M}eta{C}oq project}.
+\bjtitle{Journal of Automated Reasoning}
+\bvolume{64}(\bissue{5}),
+\bfpage{947}--\blpage{999}
+(\byear{2020}).
+\doiurl{10.1007/s10817-019-09540-0}
+\end{barticle}
+\endbibitem
+
+%%% 47
+\bibitem{malecha2015thesis}
+\begin{botherref}
+\oauthor{\bsnm{Malecha}, \binits{G.M.}}:
+Extensible proof engineering in intensional type theory.
+PhD thesis,
+Harvard University
+(November 2014).
+\url{http://gmalecha.github.io/publication/2015/02/01/extensible-proof-engineering-in-intensional-type-theory.html}
+\end{botherref}
+\endbibitem
+
+%%% 48
+\bibitem{coq-coq-correct}
+\begin{botherref}
+\oauthor{\bsnm{Sozeau}, \binits{M.}},
+\oauthor{\bsnm{Boulier}, \binits{S.}},
+\oauthor{\bsnm{Forster}, \binits{Y.}},
+\oauthor{\bsnm{Tabareau}, \binits{N.}},
+\oauthor{\bsnm{Winterhalter}, \binits{T.}}:
+{C}oq {C}oq correct! verification of type checking and erasure for {C}oq, in
+  {C}oq.
+Proc. ACM Program. Lang.
+\textbf{4}(POPL)
+(2019).
+\doiurl{10.1145/3371076}
+\end{botherref}
+\endbibitem
+
+%%% 49
+\bibitem{godel1931incompleteness}
+\begin{barticle}
+\bauthor{\bsnm{Gödel}, \binits{K.}}:
+\batitle{On formally undecidable propositions of {P}rincipia {M}athematica and
+  related systems {I}}.
+\bjtitle{Monatshefte für Mathematik}
+\bvolume{38}(\bissue{1}),
+\bfpage{173}--\blpage{198}
+(\byear{1931}).
+\doiurl{10.1007/BF01700692}
+\end{barticle}
+\endbibitem
+
+%%% 50
+\bibitem{lob1955theorem}
+\begin{barticle}
+\bauthor{\bsnm{Löb}, \binits{M.H.}}:
+\batitle{Solution of a problem of {L}eon {H}enkin}.
+\bjtitle{The Journal of Symbolic Logic}
+\bvolume{20}(\bissue{2}),
+\bfpage{115}--\blpage{118}
+(\byear{1955}).
+\doiurl{10.2307/2266895}.
+Accessed 2023-04-26
+\end{barticle}
+\endbibitem
+
+%%% 51
+\bibitem{pujet2023logrelmltt}
+\begin{botherref}
+\oauthor{\bsnm{Pujet}, \binits{L.}}:
+A Logical Relation for {MLTT} Using Indexed Inductive Types,
+GitHub repository
+(2022).
+Accessed: 2023-04-25.
+\url{https://github.com/loic-p/logrel-mltt/}
+\end{botherref}
+\endbibitem
+
+%%% 52
+\bibitem{westbrook2011uniform}
+\begin{botherref}
+\oauthor{\bsnm{Westbrook}, \binits{E.}}:
+Uniform logical relations.
+Technical Report TR11-01,
+Rice University
+(2011).
+April 1, 2011.
+\url{https://hdl.handle.net/1911/96394}
+\end{botherref}
+\endbibitem
+
+%%% 53
+\bibitem{shulman2014hott}
+\begin{botherref}
+\oauthor{\bsnm{Shulman}, \binits{M.}}:
+Homotopy Type Theory Should Eat Itself (but so Far, It's Too Big to Swallow),
+Homotopy Type Theory Blog
+(2014).
+Accessed: 2023-04-25.
+\url{https://homotopytypetheory.org/2014/03/03/hott-should-eat-itself/}
+\end{botherref}
+\endbibitem
+
+%%% 54
+\bibitem{kolomatskaia2022semisimplicial}
+\begin{botherref}
+\oauthor{\bsnm{Kolomatskaia}, \binits{A.}},
+\oauthor{\bsnm{Shulman}, \binits{M.}}:
+Semi-Simplicial Types,
+GitHub repository
+(2022).
+Accessed: 2023-04-25.
+\url{https://github.com/FrozenWinters/SSTs}
+\end{botherref}
+\endbibitem
+
+%%% 55
+\bibitem{Schropp2013}
+\begin{botherref}
+\oauthor{\bsnm{Schropp}, \binits{A.}},
+\oauthor{\bsnm{Popescu}, \binits{A.}}:
+Nonfree datatypes in {I}sabelle/{HOL}.
+In: Gonthier, G., Norrish, M. (eds.)
+Certified Programs and Proofs,
+pp. 114--130.
+Springer.
+\doiurl{10.1007/978-3-319-03545-1_8}
+\end{botherref}
+\endbibitem
+
+\end{thebibliography}

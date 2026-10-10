@@ -1,0 +1,48 @@
+%% \begin{figure}[t!]
+%% \vspace{-5mm}
+%% \centering
+$$
+\begin{array}{rrcl}
+\emphbf{Predicates}
+  & \pred & ::= &
+    \pred \binop \pred \spmid
+    \unop \pred \\
+  && \spmid & n \spmid b \spmid x \spmid \dc \spmid  x\ \overline{\pred}\\
+%%  && \spmid & \forall \overline{\tbind{x}{\sort}}. \pred
+  && \spmid & \eif{\pred}{\pred}{\pred}
+\\[0.03in]
+
+\emphbf{Integers}
+  & n
+  & ::= & 0, -1, 1, \dots
+\\[0.03in]
+
+\emphbf{Booleans}
+  & b
+  & ::= & \etrue \spmid \efalse
+\\[0.03in]
+
+\emphbf{Binary Ops}
+  & \binop
+  & ::= & = \spmid < \spmid \land \spmid + \spmid - \spmid \dots
+\\[0.03in]
+
+\emphbf{Unary Ops}
+  & \unop
+  & ::= & \lnot \spmid \dots
+\\[0.03in]
+
+\emphbf{Sort Args}
+  & \sort_a
+  & ::= & \tint \spmid \tbool \spmid \tuniv
+         \spmid \tsmtfun{\sort_a}{\sort_a}
+\\[0.03in]
+\emphbf{Sorts}
+  & \sort
+  & ::=  & \sort_a \spmid \sort_a \rightarrow \sort
+\end{array}
+$$
+\caption{\textbf{Syntax of \smtlan}}
+\label{fig:smtsyntax}
+% \vspace{-2mm}
+% \end{figure}

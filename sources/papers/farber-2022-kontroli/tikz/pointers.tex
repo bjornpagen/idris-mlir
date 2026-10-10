@@ -1,0 +1,16 @@
+% Adapted from: http://www.texample.net/tikz/examples/venn/
+\centering
+\begin{tikzpicture}
+  \begin{scope}[blend group = soft light]
+    \fill[red!30!white]   ( 90:1.2) circle (2);
+    \fill[green!30!white] (210:1.2) circle (2);
+    \fill[blue!30!white]  (330:1.2) circle (2);
+  \end{scope}
+  \node at ( 90:2)    {Thread-safe};
+  \node at ( 210:2)   {Fast};
+  \node at ( 330:2)   {Shared};
+  \node at ( 30:1.4)  {\large\tt Arc};
+  \node at ( 150:1.4) {\large\tt Box};
+  \node at ( 270:1.4) {\large\tt Rc};
+  \node at (0, 0)     {\large\tt \&};
+\end{tikzpicture}

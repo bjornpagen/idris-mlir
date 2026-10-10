@@ -1,0 +1,11 @@
+\[\begin{array}{@{}l@{~~}l@{~}r@{}l@{}}
+\mbox{Expressions} & \texp & \bnfdef & \tunit \bnfalt \tvar{x} \bnfalt \tabs{\tvar{x}}{\texp} \bnfalt \tapp{\texp_{\target{1}}}{\texp_{\target{2}}} \\
+& & \bnfalt & \tpair{\texp_{\target{1}}}{\texp_{\target{2}}} \bnfalt \tfst{\texp} \bnfalt \tsnd{\texp} \\
+& & \bnfalt & \tinl{\texp} \bnfalt \tinr{\texp} \\
+& & \bnfalt & \tcasex{\texp}{\texp_{\target{1}}}{\texp_{\target{2}}} \\
+& & \bnfalt & \talien{\sexp}{\stau}{\sdelta} \bnfalt
+\topaque{\sexp}\\
+& & & \\
+\mbox{Environments} & \tenv & \bnfdef & \tenvemp \bnfalt \tenvext{\tenv}{\tvar{x}} \\
+
+\end{array}\]

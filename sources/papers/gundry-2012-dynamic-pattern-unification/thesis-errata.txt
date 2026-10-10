@@ -1,0 +1,58 @@
+Errata for the final accepted version of
+
+    Type Inference, Haskell and Dependent Types
+    Adam Michael Gundry
+    PhD thesis, 2013
+
+9th August 2014
+
+Please report any further errors to adam (at) well (dash) typed (dot) com.
+
+
+1. Pruning is not most general
+
+In the description of higher-order pattern unification, the final rule
+for pruning given on page 72,
+
+    prune V Δ ts ↦ Δ'   fv^rig(s) ⊄ V
+    ----------------------------------
+    prune V (Δ,x:S) (ts,s) ↦ Δ'
+
+does not lead to most general solutions.  For example, consider
+
+    α : 𝔹, β : ((𝔹 → 𝔹) → 𝔹) → 𝔹  |   x : 𝔹  ⊢  α ≈ β (λ f. f x) : 𝔹
+
+Then pruning 𝔹 is successful and the rule allows the derivation of
+
+    prune ∅ (x:𝔹) (λ f. f x) ↦ .
+
+since fv^rig(λ f. f x) = {x}, but this loses the solution
+
+   β = λ k. k (λ _. α).
+
+Similarly, the problem
+
+   α ≅ β (tt, x)
+
+is erroneously pruned, despite having the solution
+
+   β = λ z. if z HD then tt else z TL.
+
+Instead, the side condition should be strengthened to require not only
+that fv^rig(s) ⊄ V, but that one of the variables not in V occurs in a
+"non-eliminateable" position (i.e. a position such that no instance of
+the metavariable can project away the bad variable).
+
+Lemma D.8 (Generality of pruning, page 248) is false as stated.  It
+makes the assumption that fv^rig(t) ⊈ V implies fv^rig(θ t) ⊈ V, which
+is not the case for β-normal forms, because rigid free variables may
+be eliminated by the combination of substitution for metavariables and
+β-reduction (as in the above examples).
+
+Thanks to Andreas Abel for pointing out this problem.  See also the
+errata for "Higher-Order Dynamic Pattern Unification for Dependent
+Types and Records" by Andreas Abel and Brigitte Pientka (2011) [1] and
+a related bug in Agda [2].
+
+[1] http://www.cse.chalmers.se/~abela/errata-tlca11.txt
+[2] https://code.google.com/p/agda/issues/detail?id=458

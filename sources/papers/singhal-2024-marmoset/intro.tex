@@ -1,0 +1,318 @@
+\section{Introduction}
+
+%% \note{ Fortunately, programmers need not worry about the placement of
+%%   data in memory: variables and fields are ordered statically by the
+%%   compiler, and linked structures use pointers and are ordered
+%%   in the heap by a runtime allocator.
+%%   %
+%%   Yet this tradition is rigid in its static/dynamic boundary, and
+%%   inflexible in where shortcut occurs, with little or no {\em
+%%     compile-time information} informing {\em runtime allocation} and
+%%   placement.}
+  
+   
+%% \note{Compilers optimize code, but usually data representations are
+%%   fixed. Changing the data representation to fit the way the data is
+%%   consumed in a specific program is an underexplored area.}
+
+%% \note{One place where this underexplored area is brought to the fore
+%%   is when considering denser (serialized) representations of data.
+%%   %
+%%   High level languages hide the data representation and in fact use
+%%   inefficient, boxed representations: a kind of
+%%   lowest-common-denominator representation that makes things easy for
+%%   the compiler but is rarely the absolute most efficient.
+%%   %
+%%   If we want dense data, today we can write error prone low-level
+%%   code.  Or, recently, we gained the ability to use the Gibbon
+%%   compiler, which introduces compiler-optimized serialization, but is
+%%   still inflexible with respect to {\em data ordering}.}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% When programmers write code, they rely on compilers to
+% % optimize many aspects of the code
+% make the low level decisions: which instructions to select, when instructions are scheduled to improve register and cache usage, where variables are placed on the stack, etc.
+% %
+% But one area where programmers typically cannot rely on compiler support is in creating efficient data representations for complex data structures.
+% %
+% While a compiler might tweak field placement in a structure to improve memory alignment, basic decisions like field ordering are typically chosen to simplify code generation rather than with an eye to efficiency.
+% %
+% In high level languages, where data is ``boxed'', elements in a structure may, indeed, be scattered throughout memory due to the decisions of runtime memory allocators.
+% %
+% The problem is compounded with recursive, heap-allocated data structures: a program that simply traverses a linked list may ultimately hop randomly through memory, destroying cache locality and obviating the benefits of hardware prefetchers.
+% %
+% The performance difference between a data layout that is well-matched to a program's access patterns and one that is not can be vast.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Over the years, there has been some work exploring the space of more-intelligent data representations, tackling the problem from different angles.
+% %
+% Some work targets memory management, making either memory allocation~\cite{poolallocation} or copying garbage collectors~\cite{ccgarbage} sensitive to program behavior, allowing object locations to match access patterns.
+% %
+% Other work modifies structure layouts to re-order fields and influence placement decisions~\cite{truong,CSL,CSD}.
+% %
+% However, these approaches only tackle one aspect of data representation---where objects are located---and primarily target non-recursive structures.
+% %
+% Further, they fundamentally operate at the level of boxed data, requiring pointer chasing to access non-primitive data.
+% %
+% When processing recursive, linked data structures, such approaches cannot (and do not attempt to) improve the efficiency of program by placing elements of data structures in such a way so as to improve traversal efficiency.
+% \mk{I don't feel great about this last sentence...}
+% \vs{changed this a bit.}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Recent work has tackled this problem from another direction: the Gibbon language and whole-program compiler~\cite{gibbon, Local} focuses on the problem of chasing pointers haphazardly through memory when accessing recursive, linked structures.
+% %
+% Gibbon produces {\em dense}, {\em packed} representations of algebraic datatypes where {\em unboxed} data is accessed directly, without pointer chasing.
+% %
+% For example, tree data will be serialized in pre-order into a buffer, and traversing the tree (e.g., to sum all of its elements) will result in, essentially, a linear scan of an array, resulting in no pointer dereferencing and highly-efficient, predictable access patterns.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Gibbon has many benefits: programmers no longer need to take control of low-level data representation and allocation to serialize linked structures; and rather than writing error-prone index math to access data, the Gibbon compiler automatically translates idiomatic data structure accesses into operations on the serialized representation.
+% %
+% However, Gibbon suffers from drawbacks complementary to the other approaches mentioned above.
+% %
+% It does not attempt to match data layout to the access patterns of a program.
+% %
+% If the particular serialization decisions for a datatype chosen by Gibbon do not correspond to the behavior of functions accessing that data, then pathological behavior can result.
+% %
+% Consider a tree laid out in left-to-right pre-order with a program that accesses that tree right-to-left.
+% %
+% Rather than scanning straightforwardly through the structure, the program would have to jump back and forth through the buffer to access the necessary data.
+% %
+% When encountering such cases, Gibbon does not break: instead, it inserts {\em shortcut pointers} to allow more-random access to structures~\cite{Local}.
+% %
+% But this defeats the purpose of a dense, packed representation: not only are accesses no longer nicely strided through memory, but the pointers and pointer-chasing of boxed data have returned.
+% %
+% Indeed, when Gibbon is presented with a program whose access patterns do not match the chosen data layout, the generated code can be {\em significantly slower} than plain, pointer-based representations.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% What we want is the best of both worlds: Gibbon's dense, packed data layouts combined with access pattern--aware decisions of {\em how} to lay out that data.
+% %
+% %
+% To that end, this paper introduces \system, an extension of the Gibbon compiler that creates dense, packed data representations that match the way a program accesses that data. \system can also reason about recursive fields in a way that prior work cannot. Since the data we operate on is packed, \system has insights on how to place recursive fields such that it aids traversal performance.
+
+Recursive data structures are
+% popular in many domains and are
+readily available in most programming languages. Linked lists, search trees, tries and others
+provide efficient and flexible solutions to a wide class of problems---both in low-level languages with direct
+memory access (C, \cpp, Rust, Zig) as well as high-level ones (Java, \csharp, Python).
+Additionally, in the purely functional (or {\em persistent}~\cite{okasaki}) setting, recursive,
+tree-like data structures largely replace array-based ones.
+%
+Implementation details of recursive data structures are not necessarily known to
+application programmers, 
+%% The clients of libraries containing recursive data structures
+%% % only get access to convenient APIs
+%% often access them through a high-level container API,
+who can only hope that the library authors and the
+compiler
+% optimize extensively to
+achieve good performance.
+Sadly, recursive data structures are a hard optimization target.
+
+% The hope for a good performance of recursive data structures is limited in
+
+High-level languages represent recursive structures with pointers to small
+objects allocated sparsely on the heap. An algorithm traversing such a
+\emph{boxed} representation spends much time in pointer
+chasing, which is a painful operation for
+modern hardware architectures. Optimizing compilers for these languages and architectures have
+many strengths but optimizing memory representation of user-defined data
+structures is not among them. One alternative is resorting to manual memory
+management to achieve maximum performance, but it has the obvious drawback of
+leaving convenience and safety behind.
+% Is there another alternative?
+
+A radically different approach is representing recursive datatypes as dense structures
+(basically, arrays) \new{with the help of a library or compiler}.
+% has been studied recently.
+% \ap{TODO: add citations}
+% \mv{not many citations beyond Gibbon for recursive data packed into arrays}
+% \mk{If Gibbon is the only real example, I'm dropping ``for example'' from the next sentence...}
+The \gibbon{} compiler tries to improve the performance of recursive data
+structures by embracing dense representations by default~\cite{gibbon}. This choice has
+practical benefits for programmers: they no longer need to take control of
+low-level data representation and allocation to serialize linked structures; and
+rather than employing error-prone index arithmetic to access data, they let \gibbon{}
+automatically translate idiomatic data structure accesses into operations on
+the dense representation.
+
+Dense representations are not a panacea, though. They can suffer a complementary problem due to their inflexibility.
+A particular serialization decision for a data structure made by the compiler
+can misalign with the behavior of functions accessing that data.
+%
+Consider a tree laid out in left-to-right pre-order with a program that accesses that tree right-to-left.
+%
+Rather than scanning straightforwardly through the structure, the program would have to jump back and forth
+through the buffer to access the necessary data.
+
+One way to counter the inflexibility of dense representations is to introduce
+some pointers.
+For instance, \gibbon{} inserts {\em shortcut pointers} to allow random access to recursive structures~\cite{Local}.
+%
+But this defeats the purpose of a dense representation: not only are
+accesses no longer nicely strided through memory, but the pointers and pointer
+chasing of boxed data are back.
+%
+Indeed, when \gibbon{} is presented with a program whose access patterns do not match the chosen data layout,
+the generated code can be {\em significantly slower} than a program with favorable access patterns. 
+
+Are we stuck with pointer chasing when processing recursive data structures?
+% This paper argues ``no'';
+We present \system{} as a counter example. \system{} is our program analysis
+and transformation approach that spots misalignments of algorithms and data
+layouts and fixes them where possible. Thus, our slogan is:
+\begin{quote}
+Algorithms + Data Layouts = Efficient Programs
+\end{quote}
+
+% Artem: not a fan of this paragraph below. It repeats things that are also
+% mentioned below. It's too detailed for giving the first impression. And it's
+% too gibbon-specific in the second point.
+% \system's key insight is twofold.
+% %
+% First, that a compile-time analysis can yield insights into how a program is {\em likely} to access the fields of a data structure, including recursive traversal patterns.
+% %
+% Second, that Gibbon's dense, serialized representation is ideal for taking advantage of this access information.
+% %
+% Gibbon's compilation strategy~\cite{Local} makes explicit when field references will result in sub-optimal access patterns, making it possible to statically estimate the costs of different layout choices.
+% %
+% This cost model can be used to drive a search process for a minimum-cost layout, subject to any additional constraints provided by the programmer.
+
+\system analyzes the data access patterns of a program and synthesizes a data layout that corresponds to that behavior.
+%
+It then rewrites the datatype and code to produce more efficient code that
+operates on a dense data representation in a way that matches access patterns.
+This co-optimization of datatype and code results in improved locality and, in the context of \gibbon,
+avoidance of shortcut pointers as much as possible.
+
+We implement \system{} as an extension to \gibbon---a
+compiler based on dense representations of datatypes.
+% including extending the source language to support (optional) layout hints.
+% Artem: ^^--this is not implemented so let's not tlak about it just yet.
+That way, \system can be either a transparent compiler optimization, or semi-automated tool for exploring different layouts during the programmer's optimization work.
+%
+% Our approach is fairly general:
+Our approach has general applicability because of the minimal and common nature of the core language:
+%
+the core language of \system (\figref{fig:grammar})
+is a simple first-order, monomorphic, strict, purely functional language.
+Thanks to the succinct core language,
+we manage to isolate \system from \gibbon-specific, complicated (backend) mechanics of converting a program
+to operate on dense rather than boxed data.
+%
+% Artem: vv--this is too much Gibbonn-specific detail that will scare reviewers.
+% Rather, in terms of phase ordering, \system does its work early in the compiler, after monomorphization, but before explicit regions-and-pointer-arithmetic serialization transformations.
+%
+
+%% We show across several microbenchmarks, as well as on a larger case study of a blog management service, that \system finds optimal data structure layouts,.
+%% %
+%% \system-generated programs outperform alternative Gibbon layouts for the same program, as well as optimized GHC implementations.
+
+Overall, in this paper:
+\begin{itemize}
+\item We provide a static analysis capturing the temporal access patterns of a
+  function towards a datatype it processes. As a result of the analysis, we
+  generate a {\em field access graph} that summarizes these patterns.
+
+\item We define a cost model that, together with the field access graph, enables
+  formulating the field-ordering optimization problem as an integer linear program.
+  We apply a % commercially available % Artem: I don't see why it's relevant that
+            % it's proprietary. If anything, that's a downside that I wouldn't
+            % put forward.
+  linear solver to the problem and obtain optimal positions of fields in the
+  datatype definition relative to the cost model.
+  %, consistent with any constraints provided by the programmer.
+  % Artem: ^^-- obvious
+  
+\item We extend the \gibbon{} compiler to synthesize new datatypes based on the
+solution to the optimization problem, and transform the program to use these new,
+optimized types, adjusting the code where necessary.
+  
+\item Using a series of benchmarks, we show that our implementation, \system,
+  can provide speedups of 1.14
+  % \lstinline|rightmost| tree traversal
+  to 54 times
+  %for a simple \lstinline|length| function on a \lstinline|List|)
+  over the best prior work on dense representations, \gibbon.
+%
+% through our evaluation on a realistic blog software application
+% Artem: ^^-- I wouldn't call it realistic, and OOPSLA reviewers too.
+%
+  \new{\system outperforms \mlton on these same benchmarks by a factor of 1.6 to 38.}
+  %, a strict 
+  %compiler targeting Standard ML.}
+  % On the same benchmarks, \system outperforms the standard Haskell compiler GHC,
+  % which uses boxed representations, when compiling in strict \new{(call-by-value)} mode
+  % 3 to 6 times.
+  %% .\mv{Can we be more precise here? Like, not \emph{everything} is boxed in Haskell}.
+
+%% \item \system can automatically generate the different permutations of the
+%%   algebraic datatype in a type safe way. In addition, it allows the programmer
+%%   to manually specify these constraints thereby making it easy for the
+%%   programmer to conform the data to their specifications.
+\end{itemize}
+
+
+%% \section*{OLD INTRO}
+
+%% \mk{Material to cut starts here}
+%% When programmers write programs, they do not necessarily think
+%% about the \new{location} of the corresponding data in memory. The
+%% layout of data is mostly an implementation detail left for the
+%% language runtime to handle. For this reason, programmers are
+%% agnostic to the combinative effects of the structural properties of
+%% the code (i.e, control flow and data access patterns) to the in
+%% memory \new{layout} of the data which does not guarantee optimal
+%% performance due to the memory hierarchy in modern architectures.
+
+%% This gap in knowledge in conjunction with the difficulty to reason about the particular choices of transformations (either in the source code, or the in-memory layout of data) makes writing optimal code a tough challenge. Most languages resort to allocating data through pointers by utilizing libraries like \textit{malloc} which rely on system calls like \textit{sbrk or mmap} under the hood to allocate data. Although this allows for relatively cheap updates in the data representation, mallocing does not provide any guarantees on whether the allocated data will exhibit good spatial locality. In addition, \textit{malloc} is completely incognizant about the structural properties of the source code and just returns the smallest memory block available in the allocation tree.
+
+%% \mv{Need some more motivation here before jumping into discussing other papers.}
+
+%% \mk{This paragraph is probably redundant with RW}
+%% There has been work on solving this problem, by, for example, modifying data structures to promote locality~\cite{truong}, or modifying memory allocators~\cite{poolallocation} and garbage collectors to ensure objects will be placed in certain relative positions in memory.
+%% Chilimbi~\etal~\cite{CSL} employ clustering and coloring techniques on data structures to identify contemporaneously accessed elements and to segregate heavily accessed with non-heavily accessed elements in non-conflicting cache regions respectively. They use this information together with a smart allocator that attempts to fit contemporaneously accessed elements in the same cache block. 
+
+%% \mk{This paragraph is probably redundant with RW}
+%% For data structures greater than half the size of the cache block, Chilimbi~\etal~\cite{CSD} introduces more techniques like structure splitting and field reordering to optimize the layout of the data structure in memory. They also utilize their cache conscious garbage collector~\cite{ccgarbage} to optimize the layout of the live objects at runtime. 
+
+%% Although these techniques work well for pointer based programs in languages like C, we are in a different optimization space. We want to optimize the data layout of \textit{packed and recursive} algebraic datatypes in memory written in a functional programming language and for a compiler that compiles code for a functional programming language.
+
+%% \mk{this paragraph, or the contents of it, would be good for the background.}
+%% We utilize the existing lanuage LoCal~\cite{Local} (and the Gibbon compiler~\cite{gibbon}) that packs ADTs in memory and use it to reason about the optimal layout of the fields in an algebraic datatype. LoCal (short for \textit{location calculus}) \textit{eschews} the traditional pointer representation of ADTs and serializes \textit{tree-like} ADTs in memory by fixing a particular traversal order of the ADT.
+%% %
+%% The programmer can write various ADTs and define functions in a higher-order, polymorphic subset of Haskell. Their type system encodes a layout for an algebraic datatype in memory at the byte level. This makes it possible for the program to operate over a dense serialized representation of the data in memory in a type safe manner.
+%% %
+%% This dense serialized representation provides good spatial locality, however it is still limited because it does not optimize the fine grained layout of the \textit{ADT} (the fields within the datatype) to the access patterns of the fields induced by the structure of the program.
+
+%% A major use case for Gibbon's approach to data representation is operating directly on serialized data. There are instances where applications require serializing or de-serializing data for specific purposes. Serialized data is omnipresent in file systems, where objects are converted into a stream of bytes or \textit{serialized} to be stored on disk. A \textit{deserialization} happens when there in an impedance mismatch arising from a program requiring the data to be in a specific format and the incoming data existing in an alien format.
+%% %
+%% Similarly, microservices architectures often rely on remote procedure calls (RPC)\footnote{Such as Thrift ({\url{https://thrift.apache.org}}), Finagle ({\url{https://twitter.github.io/finagle/}}), gRPC ({\url{https://grpc.io}})} or RESTful APIs that convert data to a specific format like JSON to serialize and deserialize data over network when sending data to other microservices.
+%% %
+%% By having the ability to operate directly on serialized data, it becomes much easier to bring the program closer to the data rather than mutating the data representation to fit the program~\cite{Local}; thus reducing the overhead of transforming the data from one layout to another and even avoiding expensive network calls. 
+
+%% \mv{I don't think we need to bring up Cogent/Dargent right here. That can be in the related work section.}
+
+%% This paper makes the following contributions:
+%% \begin{itemize}
+%% \item We introduce a new framework, \system, which can reason about the locally optimal layout of fields in an algebraic datatype by statically analyzing the function that consumes the ADT. By statically analyzing the control flow of the function, we generate a field access graph to capture the temporal access patterns of the ADT for that function.
+
+%% \item We formulate the ordering of the fields as an Integer Linear Program and use a commercially available linear solver to get a mapping from fields to the optimal indices in the algebraic datatype.
+
+%% \item We show through our evaluation on a realistic blog software application and various synthetic benchmarks that \system can provide greater speedups than the best prior work Gibbon. We also compare our implementation against GHC where all ADTs are boxed in nature.
+
+%% \item  \system can automatically generate the different permutations of the algebraic datatype in a type safe way. In addition, it allows the programmer to manually specify these constraints thereby making it easy for the programmer to conform the data to their specifications.
+
+
+
+%% % Another line of work, Dargent~\cite{Dargent} is a data layout descriptive language that allows programmers to specify the data layout of an algebraic datatype. It is built on top of the Cogent~\cite{o2016cogent}  language which is a first order polymorphic functional programming language. Dargent targets C code and provides proofs for formally verifying the correctness of the data layout transformations.
+
+%% % Their work however, is set in a different environment and does not evaluate the data layout transformations in terms of performance. They do not automatically optimize their program for the best layout and neither do they support recursive algebraic datatypes.
+
+%% \end{itemize}
+

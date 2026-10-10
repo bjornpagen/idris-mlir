@@ -1,0 +1,180 @@
+\documentclass[format=acmsmall,screen=true,review=false,nonacm=true]{acmart}
+
+\pdfoutput=1 
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{listings}
+\usepackage{xspace}
+\usepackage{xcolor}
+\usepackage{tabularx}
+\usepackage{subcaption}
+
+\newcommand{\albert}[2][]{\todo[inline,linecolor=brown,backgroundcolor=brown!25,bordercolor=brown,#1]{\textbf{Albert:} #2}}
+\newcommand{\az}[2][]{\todo[inline,linecolor=blue,backgroundcolor=blue!25,bordercolor=blue,#1]{\textbf{Alex:} #2}}
+\newcommand{\ntv}[2][]{\todo[inline,linecolor=purple,backgroundcolor=purple!25,bordercolor=purple,#1]{\textbf{Nicolas:} #2}}
+
+
+%% Custom definitions
+\newcommand{\MLIR}{MLIR\xspace}
+\newcommand{\LLVM}{LLVM\xspace}
+\newcommand{\PDLL}{PDLL\xspace}
+
+\definecolor{orange3}{rgb}{0.425,0.191,0.000}
+\definecolor{scarletred3}{rgb}{0.643,0.000,0.000}
+\definecolor{green3}{rgb}{0.000,0.405,0.000}
+\definecolor{blue3}{rgb}{0.000,0.000,0.704}
+\definecolor{aluminium1}{rgb}{0.933,0.933,0.925}
+\definecolor{aluminium2}{rgb}{0.827,0.843,0.812}
+\definecolor{aluminium3}{rgb}{0.729,0.741,0.714}
+\definecolor{aluminium4}{rgb}{0.533,0.541,0.522}
+\definecolor{aluminium5}{rgb}{0.333,0.341,0.325}
+\definecolor{aluminium6}{rgb}{0.180,0.204,0.212}
+
+\lstset{basicstyle=\ttfamily\small}
+
+\lstdefinelanguage{cpp}{
+	% see https://tex.stackexchange.com/questions/137237/listings-text-highlighting-based-on-prefix
+    %moredelim=[s][\color{orange3}]{x}{>},
+    basicstyle=\ttfamily\scriptsize,
+    keywordstyle=\color{orange3},
+    commentstyle=\color{aluminium4},
+    % this allows to color inside <memrefxf32> (i.e., f32).
+    %otherkeywords={index, f32, i32, f64, i8, vector},
+    keywords=[3]{int64_t, float, double, int, size_t},
+    keywordstyle=[3]\color{scarletred3},
+    keywords=[4]{template,typename,struct,class},
+    keywordstyle=[4]\color{blue3},
+    showstringspaces=false,
+	breaklines=true,
+    breakatwhitespace=true,
+    morestring=[b]",
+    stringstyle=\color{green3},
+}
+\lstdefinelanguage{llvm}{
+	% see https://tex.stackexchange.com/questions/137237/listings-text-highlighting-based-on-prefix
+    %moredelim=[s][\color{orange3}]{x}{>},
+    basicstyle=\ttfamily\scriptsize,
+    alsoletter={\%,\#,!},
+    keywordsprefix={\%},
+    morekeywords={\%},
+    keywordstyle=\color{orange3},
+    commentstyle=\color{aluminium4},
+    % this allows to color inside <memrefxf32> (i.e., f32).
+    %otherkeywords={index, f32, i32, f64, i8, vector},
+    keywords=[3]{i64, i32, float, double},
+    keywordstyle=[3]\color{scarletred3},
+    keywords=[4]{extractvalue,insertvalue,undef},
+    keywordstyle=[4]\color{blue3},
+    showstringspaces=false,
+	breaklines=true,
+    breakatwhitespace=true,
+    morestring=[b]",
+    stringstyle=\color{green3},
+    morecomment=[l]{;},
+}
+\lstdefinelanguage{mlir}{
+	% see https://tex.stackexchange.com/questions/137237/listings-text-highlighting-based-on-prefix
+    %moredelim=[s][\color{orange3}]{x}{>},
+    basicstyle=\ttfamily\scriptsize,
+    alsoletter={\%,\#,!},
+    keywordsprefix={\%},
+    morekeywords={\%},
+    keywordstyle=\color{orange3},
+    keywordsprefix=[2]{\@},
+    keywordstyle=[2]\bfseries,
+    commentstyle=\color{aluminium4},
+    % this allows to color inside <memrefxf32> (i.e., f32).
+    otherkeywords={index, f32, i32, f64, i8, vector},
+    keywords=[3]{index, f32, memref, vector, i32, f64, i8, affine_map, affine_set, iter_args},
+    keywordstyle=[3]\color{scarletred3},
+    keywords=[4]{affine,linalg},
+    keywordstyle=[4]\color{aluminium6},
+    showstringspaces=false,
+	breaklines=true,
+    breakatwhitespace=true,
+    morestring=[b]",
+    stringstyle=\color{green3},
+    moredelim=[s][\color{blue3}]{\#}{\ },
+    moredelim=[s][\color{scarletred3}]{!}{\ },
+    morecomment=[l]{//},
+}
+\lstdefinelanguage{python}{
+	% see https://tex.stackexchange.com/questions/137237/listings-text-highlighting-based-on-prefix
+    %moredelim=[s][\color{orange3}]{x}{>},
+    basicstyle=\ttfamily\scriptsize,
+    alsoletter={},
+    keywordsprefix={@},
+    morekeywords={def, True, False, with, return, import, from, for, if, in, is},
+    keywordstyle=\color{orange3},
+    commentstyle=\color{aluminium4},
+    keywords=[3]{TensorDef, ScalarDef, AttributeDef},
+    keywordstyle=[3]\color{scarletred3},
+    keywords=[4]{cast, },
+    keywordstyle=[4]\color{aluminium6},
+    showstringspaces=false,
+	breaklines=true,
+    breakatwhitespace=true,
+    morestring=[b]',
+    stringstyle=\color{green3},
+    morecomment=[l]{\#},
+}
+
+%\title{The Design And Implementation of Structured Retargetable Tensor Codegen in \MLIR}
+\title{Composable and Modular Code Generation in \MLIR}
+\subtitle{A Structured and Retargetable Approach to Tensor Compiler Construction}
+
+\author{Nicolas Vasilache}
+\orcid{0000-0002-4096-3325}
+\author{Oleksandr Zinenko}
+\orcid{0000-0003-1978-0222}
+\author{Aart J.C. Bik}
+\orcid{0000-0002-0333-7413}
+\author{Mahesh Ravishankar}
+\author{Thomas Raoux}
+\author{Alexander Belyaev}
+\author{Matthias Springer}
+\orcid{0000-0001-5077-7131}
+\author{Tobias Gysi}
+\author{Diego Caballero}
+\author{Stephan Herhut}
+\author{Stella Laurenzo}
+\author{Albert Cohen}
+\orcid{0000-0002-8866-5343}
+\affiliation{%
+  \institution{Google}
+  \country{}
+}
+\authorsaddresses{Google, 1600 Amphitheatre Pkwy, Mountain View, CA 94043, USA}
+\renewcommand{\shortauthors}{Vasilache \emph{et al.}}
+
+\date{\today}
+
+\begin{document}
+
+\input{0-abstract}
+
+\maketitle
+
+\input{1-intro}
+\input{2-codegen-flow-overview}
+\input{3-transformations}
+\input{4-experiments}
+\input{5-related-work}
+\input{6-conclusion}
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{bibliography}
+
+\newpage
+\appendix
+\input{a1-annotated-examples}
+
+\end{document}
+
+
+% TODOs:
+
+% Finish bufferization (albert, matthias).
+% Finish benchmark(aart for sparse).
+% Related work (albert).
+% Conclusion (nicolas, albert, anyone else interested).

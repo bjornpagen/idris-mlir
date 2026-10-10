@@ -1,0 +1,16 @@
+\emphbf{Well Formedness}\hfill{\fbox{\iswellformed{\env}{\typ}}}\\
+
+$$
+\inference{
+  \hastype{\env,\tbind{v}{\btyp}}{\emptyset}{\refa}{\tbool^{\tlabel}}
+}{
+	\iswellformed{\env}{\tref{v}{\btyp}{\refa}}
+}[\rwbase]
+\qquad
+\inference{
+	\iswellformed{\env}{\typ_x} &
+	\iswellformed{\env,\tbind{x}{\typ_x}}{\typ}
+}{
+	\iswellformed{\env}{\trfun{x}{\typ_x}{\typ}}
+}[\rwfun]
+$$

@@ -1,0 +1,40 @@
+% !TEX root = paper.tex
+
+\section{Implementation} \label{sec:implementation}
+
+We forked the Rust compiler to introduce additional hooks and typechecking rules.
+We then implemented \verus as a separate ``driver'' that links against the Rust compiler.
+Both our fork and \verus are open source (\url{https://github.com/verus-lang/verus}) and in use by various verification projects.
+We are working with the Rust compiler developers to 
+extend Rust with additional language features, such as support
+for ghost code, to better integrate \verus with Rust. %and obviate the need to fork the Rust compiler.
+
+In \autoref{fig:impl:examples} we list programs and examples we have verified using \verus.
+For each, we report the number of lines of \verb`spec`, \verb`proof`,
+and \verb`exec` code, the time to verify the example, and interesting \verus features they employ. 
+The code snippets used in the figures in the paper are extracts from these examples,
+which are available in full in the supplementary material~\cite{verussupplementary}.
+
+\begin{table}
+\caption{Example programs}
+\begin{tabular}{l|l|l|l|l|l|p{4cm}}
+    \hline
+                           & \multicolumn{4}{l|}{sloc} & verif. &  \\
+    Example                & \verb`spec` & \verb`proof` & \verb`exec` & total & time & \verus features \\ \hline
+    \arrayrulecolor{gray}
+    Allocator pages        & \allocatorpagesspec & \allocatorpagesproof & \allocatorpagesexe & \allocatorpagestotal & \timeallocatorpages & linearity \\ \hline
+    %Doubly-linked list     & \doublylinkedsimplespec & \doublylinkedsimpleproof & \doublylinkedsimpleexe & \doublylinkedsimpletotal & \timedoublylinkedsimple & permissions \\ \hline
+    XOR doubly-linked list & \doublylinkedxorspec & \doublylinkedxorproof & \doublylinkedxorexe & \doublylinkedxortotal & \timedoublylinkedxor & permissions \\ \hline
+    Fibonacci              & \fibospec & \fiboproof & \fiboexe & \fibototal & \timefibo & \\ \hline
+    Vector                 & \vectorspec & \vectorproof & \vectorexe & \vectortotal & \timevector & linearity \\ \hline
+    Interner               & \internerspec & \internerproof & \internerexe & \internertotal & \timeinterner & user ghost state \\ \hline
+    Memoization            & \memoizespec & \memoizeproof & \memoizeexe & \memoizetotal & \timememoize & interior mutability \\ \hline
+    \verb`PCell` example usage           & \pcellspec & \pcellproof & \pcellexe & \pcelltotal & \timepcell & permissions \\ \hline
+    \verb`PPtr` example usage            & \pptrspec & \pptrproof & \pptrexe & \pptrtotal & \timepptr &  permissions \\ \hline
+    \verb`InvCell`         & \invcellspec & \invcellproof & \invcellexe & \invcelltotal & \timeinvcell &  permissions, \texttt{LocalInvariant} \\ \hline
+    FIFO queue             & \queuefifospec & \queuefifoproof & \queuefifoexe & \queuefifototal & \timequeuefifo & permissions, atomics, \phantom{xyz} user ghost state \\ \hline
+    \verus \verb`Rc`       & \rcspec & \rcproof & \rcexe & \rctotal & \timerc & permissions, cells, \phantom{padding} user ghost state \\ \hline
+    \verus \verb`RwLock`   & \rwlockspec & \rwlockproof & \rwlockexe & \rwlocktotal & \timerwlock & permissions, user ghost state \\ \hline
+\end{tabular}
+\label{fig:impl:examples}
+\end{table}

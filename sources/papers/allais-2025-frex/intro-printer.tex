@@ -1,0 +1,77 @@
+\usepackage{amsmath}
+\usepackage{mathtools}
+\usepackage{amssymb}
+\usepackage{newunicodechar}
+\usepackage{newunicodechar}
+\newunicodechar{ε}{\ensuremath{\varepsilon}}
+\newunicodechar{•}{\ensuremath{\bullet}}
+\newunicodechar{⟨}{\ensuremath{\langle}}
+\newunicodechar{⟩}{\ensuremath{\rangle}}
+\usepackage{ifthen}
+\usepackage{mathpartir}
+\newboolean{explanation}
+\setboolean{explanation}{false}
+\newcommand\explainabove[2]{\overset{\overset{%
+\clap{\text{\scriptsize #2}}}%
+{\downarrow}}{#1}}
+\newcommand\explainbelow[2]{\underset{\underset{%
+\clap{\text{\scriptsize #2}}}%
+{\uparrow}}{#1}}
+\newcommand\negate[1]{%
+  \ifthenelse{\boolean{#1}}{%
+    \setboolean{#1}{false}%
+    }{%
+    \setboolean{#1}{true}%
+    }%
+}
+\newcommand\explain[2]{%
+  \ifthenelse{\boolean{explanation}}{%
+    \explainabove{#1}{#2}%
+  }{%
+    \explainbelow{#1}{#2}%
+  }
+  \negate{explanation}
+}
+\usepackage{suffix}
+\WithSuffix\newcommand\explain*[2]{\explain{#1}{\llap{#2}}}
+\newcommand\IntroPrintedListing{
+\begin{mathpar}\mprset{flushleft}
+(x • 3) • [2]\explain={⟨ Right neutrality ]}
+(x • 3) • 2 • [ε]\explain={⟨ Left neutrality ]}
+(x • [3]) • 2 • ε • ε\explain={⟨ Right neutrality ]}
+(x • 3 • [ε]) • 2 • ε • ε\explain={⟨ Left neutrality ]}
+([x] • 3 • ε • ε) • 2 • ε • ε\explain*={⟨ Right neutrality ]}
+([x • ε] • 3 • ε • ε) • 2 • ε • ε\explain={⟨ Right neutrality ]}
+([(x • ε) • ε] • 3 • ε • ε) • 2 • ε • ε\explain={⟨ Left neutrality ]}
+(([ε] • (x • ε) • ε) • 3 • ε • ε) • 2 • ε • ε\explain*={[ Evaluate ⟩}
+[(0 • (x • ε) • ε) • 3 • ε • ε] • 2 • ε • ε\explain={⟨ Associativity ]}
+(0 • [((x • ε) • ε) • 3 • ε • ε]) • 2 • ε • ε\explain={[ Associativity ⟩}
+(0 • [((x • ε) • ε) • 3] • ε • ε) • 2 • ε • ε\explain*={[ Commutativity ⟩}
+(0 • [(3 • (x • ε) • ε) • ε • ε]) • 2 • ε • ε\explain={⟨ Associativity ]}
+[0 • 3 • ((x • ε) • ε) • ε • ε] • 2 • ε • ε\explain={[ Associativity ⟩}
+((0 • 3) • ((x • ε) • ε) • [ε • ε]) • 2 • ε • ε\explain*={[ Left neutrality ⟩}
+((0 • 3) • [(x • ε) • ε] • ε) • 2 • ε • ε\explain={⟨ Associativity ]}
+((0 • 3) • (x • [ε • ε]) • ε) • 2 • ε • ε\explain={[ Left neutrality ⟩}
+([0 • 3] • (x • ε) • ε) • 2 • ε • ε\explain*={[ Evaluate ⟩}
+(3 • (x • ε) • ε) • 2 • ε • ε\explain={⟨ Associativity ]}
+3 • [((x • ε) • ε) • 2 • ε • ε]\explain={[ Associativity ⟩}
+3 • [((x • ε) • ε) • 2] • ε • ε\explain*={[ Commutativity ⟩}
+3 • [(2 • (x • ε) • ε) • ε • ε]\explain={⟨ Associativity ]}
+3 • 2 • ((x • ε) • ε) • ε • ε\explain={[ Associativity ⟩}
+(3 • 2) • ((x • ε) • ε) • [ε • ε]\explain*={[ Left neutrality ⟩}
+(3 • 2) • [(x • ε) • ε] • ε\explain={⟨ Associativity ]}
+(3 • 2) • (x • [ε • ε]) • ε\explain={[ Left neutrality ⟩}
+[3 • 2] • (x • ε) • ε\explain={[ Evaluate ⟩}
+5 • [(x • ε) • ε]\explain={[ Right neutrality ⟩}
+5 • [x • ε]\explain*={[ Right neutrality ⟩}
+5 • x
+\end{mathpar}
+}
+\newcommand\ExtractedProof[1][]{\UseVerbatim[#1]{ExtractedProof}}
+\begin{SaveVerbatim}[commandchars=\\\{\}]{ExtractedProof}
+\IdrisFunction{extractedProof}\KatlaSpace{}\IdrisKeyword{:}\KatlaSpace{}\IdrisKeyword{((}\IdrisFunction{Dyn'}\KatlaSpace{}\IdrisData{0}\KatlaSpace{}\IdrisFunction{:+:}\KatlaSpace{}\IdrisFunction{Sta'}\KatlaSpace{}\IdrisData{3}\IdrisKeyword{)}\KatlaSpace{}\IdrisFunction{:+:}\KatlaSpace{}\IdrisFunction{Sta'}\KatlaSpace{}\IdrisData{2}\KatlaSpace{}\IdrisFunction{~~}\KatlaSpace{}\IdrisFunction{Sta'}\KatlaSpace{}\IdrisData{5}\KatlaSpace{}\IdrisFunction{:+:}\KatlaSpace{}\IdrisFunction{Dyn'}\KatlaSpace{}\IdrisData{0}\IdrisKeyword{)}\KatlaSpace{}\IdrisKeyword{\{}\IdrisBound{vars}\KatlaSpace{}\IdrisKeyword{=}\KatlaSpace{}\IdrisType{Fin}\KatlaSpace{}\IdrisData{1}\IdrisKeyword{\}}
+\IdrisFunction{extractedProof}
+\KatlaSpace{}\KatlaSpace{}\IdrisKeyword{=}\KatlaSpace{}\IdrisFunction{Frex.prove}\KatlaSpace{}\IdrisKeyword{_}\KatlaSpace{}\IdrisKeyword{(}\IdrisFunction{Monoid.Commutative.Frex}\KatlaSpace{}\IdrisFunction{Nat.Additive}\IdrisKeyword{)}
+\KatlaSpace{}\KatlaSpace{}$\KatlaSpace{}\IdrisKeyword{((}\IdrisFunction{Dyn}\KatlaSpace{}\IdrisData{0}\KatlaSpace{}\IdrisFunction{:+:}\KatlaSpace{}\IdrisFunction{Sta}\KatlaSpace{}\IdrisData{3}\IdrisKeyword{)}\KatlaSpace{}\IdrisFunction{:+:}\KatlaSpace{}\IdrisFunction{Sta}\KatlaSpace{}\IdrisData{2}\KatlaSpace{}\IdrisFunction{=-=}\KatlaSpace{}\IdrisFunction{Sta}\KatlaSpace{}\IdrisData{5}\KatlaSpace{}\IdrisFunction{:+:}\KatlaSpace{}\IdrisFunction{Dyn}\KatlaSpace{}\IdrisData{0}\IdrisKeyword{)}
+
+\end{SaveVerbatim}

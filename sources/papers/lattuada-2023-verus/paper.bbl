@@ -1,0 +1,714 @@
+%%% -*-BibTeX-*-
+%%% Do NOT edit. File created by BibTeX with style
+%%% ACM-Reference-Format-Journals [18-Jan-2012].
+
+\begin{thebibliography}{44}
+
+%%% ====================================================================
+%%% NOTE TO THE USER: you can override these defaults by providing
+%%% customized versions of any of these macros before the \bibliography
+%%% command.  Each of them MUST provide its own final punctuation,
+%%% except for \shownote{}, \showDOI{}, and \showURL{}.  The latter two
+%%% do not use final punctuation, in order to avoid confusing it with
+%%% the Web address.
+%%%
+%%% To suppress output of a particular field, define its macro to expand
+%%% to an empty string, or better, \unskip, like this:
+%%%
+%%% \newcommand{\showDOI}[1]{\unskip}   % LaTeX syntax
+%%%
+%%% \def \showDOI #1{\unskip}           % plain TeX syntax
+%%%
+%%% ====================================================================
+
+\ifx \showCODEN    \undefined \def \showCODEN     #1{\unskip}     \fi
+\ifx \showDOI      \undefined \def \showDOI       #1{#1}\fi
+\ifx \showISBNx    \undefined \def \showISBNx     #1{\unskip}     \fi
+\ifx \showISBNxiii \undefined \def \showISBNxiii  #1{\unskip}     \fi
+\ifx \showISSN     \undefined \def \showISSN      #1{\unskip}     \fi
+\ifx \showLCCN     \undefined \def \showLCCN      #1{\unskip}     \fi
+\ifx \shownote     \undefined \def \shownote      #1{#1}          \fi
+\ifx \showarticletitle \undefined \def \showarticletitle #1{#1}   \fi
+\ifx \showURL      \undefined \def \showURL       {\relax}        \fi
+% The following commands are used for tagged output and should be
+% invisible to TeX
+\providecommand\bibfield[2]{#2}
+\providecommand\bibinfo[2]{#2}
+\providecommand\natexlab[1]{#1}
+\providecommand\showeprint[2][]{arXiv:#2}
+
+\bibitem[Amani et~al\mbox{.}(2016)]%
+        {cogent}
+\bibfield{author}{\bibinfo{person}{Sidney Amani}, \bibinfo{person}{Alex Hixon},
+  \bibinfo{person}{Zilin Chen}, \bibinfo{person}{Christine Rizkallah},
+  \bibinfo{person}{Peter Chubb}, \bibinfo{person}{Liam O'Connor},
+  \bibinfo{person}{Joel Beeren}, \bibinfo{person}{Yutaka Nagashima},
+  \bibinfo{person}{Japheth Lim}, \bibinfo{person}{Thomas Sewell},
+  \bibinfo{person}{Joseph Tuong}, \bibinfo{person}{Gabriele Keller},
+  \bibinfo{person}{Toby Murray}, \bibinfo{person}{Gerwin Klein}, {and}
+  \bibinfo{person}{Gernot Heiser}.} \bibinfo{year}{2016}\natexlab{}.
+\newblock \showarticletitle{Cogent: Verifying High-Assurance File System
+  Implementations}. In \bibinfo{booktitle}{\emph{Proceedings of the ACM
+  Conference on Architectural Support for Programming Languages and Operating
+  Systems (ASPLOS)}}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1145/2872362.2872404}
+\showDOI{\tempurl}
+
+
+\bibitem[Astrauskas et~al\mbox{.}(2022)]%
+        {DBLP:conf/nfm/AstrauskasBFGMM22}
+\bibfield{author}{\bibinfo{person}{Vytautas Astrauskas}, \bibinfo{person}{Aurel
+  B{\'{\i}}l{\'{y}}}, \bibinfo{person}{Jon{\'{a}}s Fiala},
+  \bibinfo{person}{Zachary Grannan}, \bibinfo{person}{Christoph Matheja},
+  \bibinfo{person}{Peter M{\"{u}}ller}, \bibinfo{person}{Federico Poli}, {and}
+  \bibinfo{person}{Alexander~J. Summers}.} \bibinfo{year}{2022}\natexlab{}.
+\newblock \showarticletitle{The {Prusti} Project: Formal Verification for
+  {Rust}}. In \bibinfo{booktitle}{\emph{{NASA} Formal Methods - 14th
+  International Symposium, {NFM} 2022, Pasadena, CA, USA, May 24-27, 2022,
+  Proceedings}} \emph{(\bibinfo{series}{LNCS}, Vol.~\bibinfo{volume}{13260})}.
+  \bibinfo{publisher}{Springer}, \bibinfo{pages}{88--108}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1007/978-3-031-06773-0\_5}
+\showDOI{\tempurl}
+
+
+\bibitem[Astrauskas et~al\mbox{.}(2019)]%
+        {DBLP:journals/pacmpl/Astrauskas0PS19}
+\bibfield{author}{\bibinfo{person}{Vytautas Astrauskas}, \bibinfo{person}{Peter
+  M{\"{u}}ller}, \bibinfo{person}{Federico Poli}, {and}
+  \bibinfo{person}{Alexander~J. Summers}.} \bibinfo{year}{2019}\natexlab{}.
+\newblock \showarticletitle{Leveraging {Rust} Types for Modular Specification
+  and Verification}.
+\newblock \bibinfo{journal}{\emph{Proc. {ACM} Program. Lang.}}
+  \bibinfo{volume}{3}, \bibinfo{number}{{OOPSLA}} (\bibinfo{year}{2019}),
+  \bibinfo{pages}{147:1--147:30}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3360573}
+\showDOI{\tempurl}
+
+
+\bibitem[Barnett et~al\mbox{.}(2005)]%
+        {boogie}
+\bibfield{author}{\bibinfo{person}{Michael Barnett},
+  \bibinfo{person}{Bor{-}Yuh~Evan Chang}, \bibinfo{person}{Robert DeLine},
+  \bibinfo{person}{Bart Jacobs}, {and} \bibinfo{person}{K.~Rustan~M. Leino}.}
+  \bibinfo{year}{2005}\natexlab{}.
+\newblock \showarticletitle{Boogie: {A} Modular Reusable Verifier for
+  Object-Oriented Programs}. In \bibinfo{booktitle}{\emph{Formal Methods for
+  Components and Objects, 4th International Symposium, {FMCO} 2005, Amsterdam,
+  The Netherlands, November 1-4, 2005, Revised Lectures}}
+  \emph{(\bibinfo{series}{LNCS}, Vol.~\bibinfo{volume}{4111})}.
+  \bibinfo{publisher}{Springer}, \bibinfo{pages}{364--387}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1007/11804192\_17}
+\showDOI{\tempurl}
+
+
+\bibitem[Barrett et~al\mbox{.}(2010)]%
+        {smtlib}
+\bibfield{author}{\bibinfo{person}{Clark Barrett}, \bibinfo{person}{Aaron
+  Stump}, {and} \bibinfo{person}{Cesare Tinelli}.}
+  \bibinfo{year}{2010}\natexlab{}.
+\newblock \showarticletitle{{The SMT-LIB Standard: Version 2.0}}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the 8th International Workshop on
+  Satisfiability Modulo Theories (Edinburgh, UK)}},
+  \bibfield{editor}{\bibinfo{person}{A.~Gupta} {and}
+  \bibinfo{person}{D.~Kroening}} (Eds.).
+\newblock
+
+
+\bibitem[Bobot et~al\mbox{.}(2011)]%
+        {boogie11why3}
+\bibfield{author}{\bibinfo{person}{Fran\c{c}ois Bobot},
+  \bibinfo{person}{Jean-Christophe Filli\^atre}, \bibinfo{person}{Claude
+  March\'e}, {and} \bibinfo{person}{Andrei Paskevich}.}
+  \bibinfo{year}{2011}\natexlab{}.
+\newblock \showarticletitle{Why3: Shepherd Your Herd of Provers}. In
+  \bibinfo{booktitle}{\emph{Boogie 2011: First International Workshop on
+  Intermediate Verification Languages}}. \bibinfo{address}{Wroc\l{}aw, Poland},
+  \bibinfo{pages}{53--64}.
+\newblock
+\newblock
+\shownote{\url{https://hal.inria.fr/hal-00790310}}.
+
+
+\bibitem[Borgida et~al\mbox{.}(1995)]%
+        {on-the-frame-problem}
+\bibfield{author}{\bibinfo{person}{Alexander Borgida}, \bibinfo{person}{John
+  Mylopoulos}, {and} \bibinfo{person}{Raymond Reiter}.}
+  \bibinfo{year}{1995}\natexlab{}.
+\newblock \showarticletitle{On the Frame Problem in Procedure Specifications}.
+\newblock \bibinfo{journal}{\emph{{IEEE} Trans. Software Eng.}}
+  \bibinfo{volume}{21}, \bibinfo{number}{10} (\bibinfo{year}{1995}),
+  \bibinfo{pages}{785--798}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1109/32.469460}
+\showDOI{\tempurl}
+
+
+\bibitem[Cohen and Leino(2020)]%
+        {dafny:unsoundness}
+\bibfield{author}{\bibinfo{person}{Ernie Cohen} {and} \bibinfo{person}{Rustan
+  Leino}.} \bibinfo{year}{2020}\natexlab{}.
+\newblock \bibinfo{title}{Dafny issue 851: unsoundness: dafny seems to assume
+  tuple and inductive datatypes are inhabited}.
+\newblock
+\newblock
+\urldef\tempurl%
+\url{https://github.com/dafny-lang/dafny/issues/851}
+\showURL{%
+\tempurl}
+
+
+\bibitem[{Coq Development Team}(2022)]%
+        {coq}
+\bibfield{author}{\bibinfo{person}{{Coq Development Team}}.}
+  \bibinfo{year}{2022}\natexlab{}.
+\newblock \bibinfo{title}{The {C}oq {P}roof {A}ssistant}.
+\newblock \bibinfo{howpublished}{\url{https://coq.inria.fr/}}.
+\newblock
+
+
+\bibitem[Crary et~al\mbox{.}(1999)]%
+        {crary1999capcalculus}
+\bibfield{author}{\bibinfo{person}{Karl Crary}, \bibinfo{person}{David Walker},
+  {and} \bibinfo{person}{Greg Morrisett}.} \bibinfo{year}{1999}\natexlab{}.
+\newblock \showarticletitle{Typed Memory Management in a Calculus of
+  Capabilities}. In \bibinfo{booktitle}{\emph{Proceedings of the 26th ACM
+  SIGPLAN-SIGACT Symposium on Principles of Programming Languages}}
+  \emph{(\bibinfo{series}{POPL '99})}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1145/292540.292564}
+\showDOI{\tempurl}
+
+
+\bibitem[Dang et~al\mbox{.}(2020)]%
+        {DBLP:journals/pacmpl/DangJKD20}
+\bibfield{author}{\bibinfo{person}{Hoang{-}Hai Dang},
+  \bibinfo{person}{Jacques{-}Henri Jourdan}, \bibinfo{person}{Jan{-}Oliver
+  Kaiser}, {and} \bibinfo{person}{Derek Dreyer}.}
+  \bibinfo{year}{2020}\natexlab{}.
+\newblock \showarticletitle{RustBelt meets relaxed memory}.
+\newblock \bibinfo{journal}{\emph{Proc. {ACM} Program. Lang.}}
+  \bibinfo{volume}{4}, \bibinfo{number}{{POPL}} (\bibinfo{year}{2020}),
+  \bibinfo{pages}{34:1--34:29}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3371102}
+\showDOI{\tempurl}
+
+
+\bibitem[de~Moura et~al\mbox{.}(2015)]%
+        {lean2015}
+\bibfield{author}{\bibinfo{person}{Leonardo de Moura}, \bibinfo{person}{Soonho
+  Kong}, \bibinfo{person}{Jeremy Avigad}, \bibinfo{person}{Floris van Doorn},
+  {and} \bibinfo{person}{Jakob von Raumer}.} \bibinfo{year}{2015}\natexlab{}.
+\newblock \showarticletitle{The {Lean} Theorem Prover}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the Conference on Automated
+  Deduction (CADE)}}.
+\newblock
+
+
+\bibitem[de~Moura and Bj{\o}rner(2007)]%
+        {e-matching}
+\bibfield{author}{\bibinfo{person}{Leonardo~Mendon{\c{c}}a de Moura} {and}
+  \bibinfo{person}{Nikolaj~S. Bj{\o}rner}.} \bibinfo{year}{2007}\natexlab{}.
+\newblock \showarticletitle{Efficient E-Matching for {SMT} Solvers}. In
+  \bibinfo{booktitle}{\emph{Automated Deduction - CADE-21, 21st International
+  Conference on Automated Deduction, Bremen, Germany, July 17-20, 2007,
+  Proceedings}} \emph{(\bibinfo{series}{Lecture Notes in Computer Science},
+  Vol.~\bibinfo{volume}{4603})}, \bibfield{editor}{\bibinfo{person}{Frank
+  Pfenning}} (Ed.). \bibinfo{publisher}{Springer}, \bibinfo{pages}{183--198}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1007/978-3-540-73595-3\_13}
+\showDOI{\tempurl}
+
+
+\bibitem[de~Moura and Bj{\o}rner(2008)]%
+        {z3}
+\bibfield{author}{\bibinfo{person}{Leonardo~Mendon{\c{c}}a de Moura} {and}
+  \bibinfo{person}{Nikolaj~S. Bj{\o}rner}.} \bibinfo{year}{2008}\natexlab{}.
+\newblock \showarticletitle{{Z3:} An Efficient {SMT} Solver}. In
+  \bibinfo{booktitle}{\emph{Tools and Algorithms for the Construction and
+  Analysis of Systems, 14th International Conference, {TACAS} 2008, Held as
+  Part of the Joint European Conferences on Theory and Practice of Software,
+  {ETAPS} 2008, Budapest, Hungary, March 29-April 6, 2008. Proceedings}}
+  \emph{(\bibinfo{series}{LNCS}, Vol.~\bibinfo{volume}{4963})}.
+  \bibinfo{publisher}{Springer}, \bibinfo{pages}{337--340}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1007/978-3-540-78800-3\_24}
+\showDOI{\tempurl}
+
+
+\bibitem[Denis et~al\mbox{.}(2022)]%
+        {denis:hal-03737878}
+\bibfield{author}{\bibinfo{person}{Xavier Denis},
+  \bibinfo{person}{Jacques-Henri Jourdan}, {and} \bibinfo{person}{Claude
+  March{\'e}}.} \bibinfo{year}{2022}\natexlab{}.
+\newblock \showarticletitle{Creusot: A Foundry for the Deductive Verication of
+  {Rust} Programs}. In \bibinfo{booktitle}{\emph{{Proceedings of ICFEM 2022 -
+  International Conference on Formal Engineering Methods}}}
+  \emph{(\bibinfo{series}{Lecture Notes in Computer Science})}.
+  \bibinfo{publisher}{{Springer Verlag}}, \bibinfo{address}{Madrid, Spain}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1007/978-3-031-17244-1_6}
+\showDOI{\tempurl}
+
+
+\bibitem[Dijkstra(1975)]%
+        {DBLP:journals/cacm/Dijkstra75}
+\bibfield{author}{\bibinfo{person}{Edsger~W. Dijkstra}.}
+  \bibinfo{year}{1975}\natexlab{}.
+\newblock \showarticletitle{Guarded Commands, Nondeterminacy and Formal
+  Derivation of Programs}.
+\newblock \bibinfo{journal}{\emph{Commun. {ACM}}} \bibinfo{volume}{18},
+  \bibinfo{number}{8} (\bibinfo{year}{1975}), \bibinfo{pages}{453--457}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1145/360933.360975}
+\showDOI{\tempurl}
+
+
+\bibitem[Fromherz et~al\mbox{.}(2021)]%
+        {DBLP:journals/pacmpl/FromherzRSGMMR21}
+\bibfield{author}{\bibinfo{person}{Aymeric Fromherz}, \bibinfo{person}{Aseem
+  Rastogi}, \bibinfo{person}{Nikhil Swamy}, \bibinfo{person}{Sydney Gibson},
+  \bibinfo{person}{Guido Mart{\'{\i}}nez}, \bibinfo{person}{Denis Merigoux},
+  {and} \bibinfo{person}{Tahina Ramananandro}.}
+  \bibinfo{year}{2021}\natexlab{}.
+\newblock \showarticletitle{Steel: proof-oriented programming in a dependently
+  typed concurrent separation logic}.
+\newblock \bibinfo{journal}{\emph{Proc. {ACM} Program. Lang.}}
+  \bibinfo{volume}{5}, \bibinfo{number}{{ICFP}} (\bibinfo{year}{2021}),
+  \bibinfo{pages}{1--30}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3473590}
+\showDOI{\tempurl}
+
+
+\bibitem[{Google Security Blog}(2021)]%
+        {rustandroid}
+\bibfield{author}{\bibinfo{person}{{Google Security Blog}}.}
+  \bibinfo{year}{2021}\natexlab{}.
+\newblock \bibinfo{title}{Rust in the Android platform}.
+\newblock
+\newblock
+\urldef\tempurl%
+\url{https://security.googleblog.com/2021/04/rust-in-android-platform.html}
+\showURL{%
+\tempurl}
+
+
+\bibitem[Hance et~al\mbox{.}(2022)]%
+        {ironsync-tr}
+\bibfield{author}{\bibinfo{person}{Travis Hance}, \bibinfo{person}{Yi Zhou},
+  \bibinfo{person}{Andrea Lattuada}, \bibinfo{person}{Reto Achermann},
+  \bibinfo{person}{Alex Conway}, \bibinfo{person}{Ryan Stutsman},
+  \bibinfo{person}{Gerd Zellweger}, \bibinfo{person}{Chris Hawblitzel},
+  \bibinfo{person}{Jon Howell}, {and} \bibinfo{person}{Bryan Parno}.}
+  \bibinfo{year}{2022}\natexlab{}.
+\newblock \bibinfo{booktitle}{\emph{Sharding the State Machine: Automated
+  Modular Reasoning for Complex Concurrent Systems}}.
+\newblock \bibinfo{type}{{T}echnical {R}eport} CMU-CyLab-22-003.
+  \bibinfo{institution}{CyLab, Carnegie Mellon University}.
+\newblock
+
+
+\bibitem[Ho and Protzenko(2022)]%
+        {DBLP:journals/pacmpl/HoP22}
+\bibfield{author}{\bibinfo{person}{Son Ho} {and} \bibinfo{person}{Jonathan
+  Protzenko}.} \bibinfo{year}{2022}\natexlab{}.
+\newblock \showarticletitle{Aeneas: Rust Verification by Functional
+  Translation}.
+\newblock \bibinfo{journal}{\emph{Proc. {ACM} Program. Lang.}}
+  \bibinfo{volume}{6}, \bibinfo{number}{{ICFP}} (\bibinfo{year}{2022}),
+  \bibinfo{pages}{711--741}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3547647}
+\showDOI{\tempurl}
+
+
+\bibitem[Jacobs et~al\mbox{.}(2011)]%
+        {VeriFast}
+\bibfield{author}{\bibinfo{person}{Bart Jacobs}, \bibinfo{person}{Jan Smans},
+  \bibinfo{person}{Pieter Philippaerts}, \bibinfo{person}{Fr{\'{e}}d{\'{e}}ric
+  Vogels}, \bibinfo{person}{Willem Penninckx}, {and} \bibinfo{person}{Frank
+  Piessens}.} \bibinfo{year}{2011}\natexlab{}.
+\newblock \showarticletitle{VeriFast: {A} Powerful, Sound, Predictable, Fast
+  Verifier for {C} and Java}. In \bibinfo{booktitle}{\emph{{NASA} Formal
+  Methods - Third International Symposium, {NFM} 2011, Pasadena, CA, USA, April
+  18-20, 2011. Proceedings}} \emph{(\bibinfo{series}{Lecture Notes in Computer
+  Science}, Vol.~\bibinfo{volume}{6617})},
+  \bibfield{editor}{\bibinfo{person}{Mihaela~Gheorghiu Bobaru},
+  \bibinfo{person}{Klaus Havelund}, \bibinfo{person}{Gerard~J. Holzmann}, {and}
+  \bibinfo{person}{Rajeev Joshi}} (Eds.). \bibinfo{publisher}{Springer},
+  \bibinfo{pages}{41--55}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1007/978-3-642-20398-5\_4}
+\showDOI{\tempurl}
+
+
+\bibitem[Jung et~al\mbox{.}(2019)]%
+        {StackedBorrows}
+\bibfield{author}{\bibinfo{person}{Ralf Jung}, \bibinfo{person}{Hoang-Hai
+  Dang}, \bibinfo{person}{Jeehoon Kang}, {and} \bibinfo{person}{Derek Dreyer}.}
+  \bibinfo{year}{2019}\natexlab{}.
+\newblock \showarticletitle{Stacked Borrows: An Aliasing Model for {Rust}}.
+\newblock \bibinfo{journal}{\emph{Proc. ACM Program. Lang.}}
+  \bibinfo{volume}{4}, \bibinfo{number}{POPL}, Article \bibinfo{articleno}{41}
+  (\bibinfo{date}{dec} \bibinfo{year}{2019}), \bibinfo{numpages}{32}~pages.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3371109}
+\showDOI{\tempurl}
+
+
+\bibitem[Jung et~al\mbox{.}(2018a)]%
+        {DBLP:journals/pacmpl/0002JKD18}
+\bibfield{author}{\bibinfo{person}{Ralf Jung}, \bibinfo{person}{Jacques{-}Henri
+  Jourdan}, \bibinfo{person}{Robbert Krebbers}, {and} \bibinfo{person}{Derek
+  Dreyer}.} \bibinfo{year}{2018}\natexlab{a}.
+\newblock \showarticletitle{{RustBelt}: Securing the Foundations of the {Rust}
+  Programming Language}.
+\newblock \bibinfo{journal}{\emph{Proc. {ACM} Program. Lang.}}
+  \bibinfo{volume}{2}, \bibinfo{number}{{POPL}} (\bibinfo{year}{2018}),
+  \bibinfo{pages}{66:1--66:34}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3158154}
+\showDOI{\tempurl}
+
+
+\bibitem[Jung et~al\mbox{.}(2018b)]%
+        {Iris31}
+\bibfield{author}{\bibinfo{person}{Ralf Jung}, \bibinfo{person}{Robbert
+  Krebbers}, \bibinfo{person}{Jacques-Henri Jourdan}, \bibinfo{person}{Ales
+  Bizjak}, \bibinfo{person}{Lars Birkedal}, {and} \bibinfo{person}{Derek
+  Dreyer}.} \bibinfo{year}{2018}\natexlab{b}.
+\newblock \showarticletitle{Iris from the ground up: A modular foundation for
+  higher-order concurrent separation logic}.
+\newblock \bibinfo{journal}{\emph{Journal of Functional Programming}}
+  (\bibinfo{year}{2018}).
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1017/S0956796818000151}
+\showDOI{\tempurl}
+
+
+\bibitem[Klabnik and Nichols(2018)]%
+        {the-rust-programming-language}
+\bibfield{author}{\bibinfo{person}{Steve Klabnik} {and} \bibinfo{person}{Carol
+  Nichols}.} \bibinfo{year}{2018}\natexlab{}.
+\newblock \bibinfo{booktitle}{\emph{The Rust Programming Language}}.
+\newblock \bibinfo{publisher}{No Starch Press}, \bibinfo{address}{USA}.
+\newblock
+\showISBNx{1593278284}
+
+
+\bibitem[Lattuada et~al\mbox{.}(2023)]%
+        {verussupplementary}
+\bibfield{author}{\bibinfo{person}{Andrea Lattuada}, \bibinfo{person}{Travis
+  Hance}, \bibinfo{person}{Chanhee Cho}, \bibinfo{person}{Matthias Brun},
+  \bibinfo{person}{Isitha Subasinghe}, \bibinfo{person}{Yi Zhou},
+  \bibinfo{person}{Jon Howell}, \bibinfo{person}{Bryan Parno}, {and}
+  \bibinfo{person}{Chris Hawblitzel}.} \bibinfo{year}{2023}\natexlab{}.
+\newblock \bibinfo{booktitle}{\emph{{Verus: Verifying Rust Programs using
+  Linear Ghost Types -- Supplementary Material}}}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.5281/zenodo.7718486}
+\showDOI{\tempurl}
+\newblock
+\shownote{The copy of record of the supplementary material is available in the
+  ACM DL.}.
+
+
+\bibitem[Leino(2010)]%
+        {DBLP:conf/lpar/Leino10}
+\bibfield{author}{\bibinfo{person}{K.~Rustan~M. Leino}.}
+  \bibinfo{year}{2010}\natexlab{}.
+\newblock \showarticletitle{Dafny: An Automatic Program Verifier for Functional
+  Correctness}. In \bibinfo{booktitle}{\emph{Logic for Programming, Artificial
+  Intelligence, and Reasoning - 16th International Conference, LPAR-16, Dakar,
+  Senegal, April 25-May 1, 2010, Revised Selected Papers}}
+  \emph{(\bibinfo{series}{LNCS}, Vol.~\bibinfo{volume}{6355})}.
+  \bibinfo{publisher}{Springer}, \bibinfo{pages}{348--370}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1007/978-3-642-17511-4\_20}
+\showDOI{\tempurl}
+
+
+\bibitem[Leino and Rümmer(2010)]%
+        {poly-boogie}
+\bibfield{author}{\bibinfo{person}{Rustan Leino} {and} \bibinfo{person}{Philipp
+  Rümmer}.} \bibinfo{year}{2010}\natexlab{}.
+\newblock \showarticletitle{A Polymorphic Intermediate Verification Language:
+  Design and Logical Encoding}. In \bibinfo{booktitle}{\emph{Conference: Tools
+  and Algorithms for the Construction and Analysis of Systems, 16th
+  International Conference, TACAS 2010, Held as Part of the Joint European
+  Conferences on Theory and Practice of Software, ETAPS 2010, Paphos, Cyprus,
+  March 20-28, 2010.}}
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/978-3-642-12002-2_26}
+\showDOI{\tempurl}
+
+
+\bibitem[Li et~al\mbox{.}(2022)]%
+        {DBLP:journals/pacmpl/LiLZCHPH22}
+\bibfield{author}{\bibinfo{person}{Jialin Li}, \bibinfo{person}{Andrea
+  Lattuada}, \bibinfo{person}{Yi Zhou}, \bibinfo{person}{Jonathan Cameron},
+  \bibinfo{person}{Jon Howell}, \bibinfo{person}{Bryan Parno}, {and}
+  \bibinfo{person}{Chris Hawblitzel}.} \bibinfo{year}{2022}\natexlab{}.
+\newblock \showarticletitle{Linear types for large-scale systems verification}.
+\newblock \bibinfo{journal}{\emph{Proc. {ACM} Program. Lang.}}
+  \bibinfo{volume}{6}, \bibinfo{number}{{OOPSLA}} (\bibinfo{year}{2022}),
+  \bibinfo{pages}{1--28}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3527313}
+\showDOI{\tempurl}
+
+
+\bibitem[Matsakis and Klock(2014)]%
+        {the-rust-language}
+\bibfield{author}{\bibinfo{person}{Nicholas~D. Matsakis} {and}
+  \bibinfo{person}{Felix~S. Klock}.} \bibinfo{year}{2014}\natexlab{}.
+\newblock \showarticletitle{The {Rust} Language}.
+\newblock \bibinfo{journal}{\emph{Ada Lett.}} \bibinfo{volume}{34},
+  \bibinfo{number}{3} (\bibinfo{date}{Oct.} \bibinfo{year}{2014}),
+  \bibinfo{pages}{103--104}.
+\newblock
+\showISSN{1094-3641}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/2692956.2663188}
+\showDOI{\tempurl}
+
+
+\bibitem[Matsushita et~al\mbox{.}(2022)]%
+        {DBLP:conf/pldi/MatsushitaDJD22}
+\bibfield{author}{\bibinfo{person}{Yusuke Matsushita}, \bibinfo{person}{Xavier
+  Denis}, \bibinfo{person}{Jacques{-}Henri Jourdan}, {and}
+  \bibinfo{person}{Derek Dreyer}.} \bibinfo{year}{2022}\natexlab{}.
+\newblock \showarticletitle{{RustHornBelt}: A Semantic Foundation for
+  Functional Verification of {Rust} Programs With Unsafe Code}. In
+  \bibinfo{booktitle}{\emph{{PLDI} '22: 43rd {ACM} {SIGPLAN} International
+  Conference on Programming Language Design and Implementation, San Diego, CA,
+  USA, June 13 - 17, 2022}}. \bibinfo{publisher}{{ACM}},
+  \bibinfo{pages}{841--856}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3519939.3523704}
+\showDOI{\tempurl}
+
+
+\bibitem[Matsushita et~al\mbox{.}(2020)]%
+        {DBLP:conf/esop/0002T020}
+\bibfield{author}{\bibinfo{person}{Yusuke Matsushita}, \bibinfo{person}{Takeshi
+  Tsukada}, {and} \bibinfo{person}{Naoki Kobayashi}.}
+  \bibinfo{year}{2020}\natexlab{}.
+\newblock \showarticletitle{{RustHorn}: {CHC}-Based Verification for Rust
+  Programs}. In \bibinfo{booktitle}{\emph{Programming Languages and Systems -
+  29th European Symposium on Programming, {ESOP} 2020, Held as Part of the
+  European Joint Conferences on Theory and Practice of Software, {ETAPS} 2020,
+  Dublin, Ireland, April 25-30, 2020, Proceedings}}
+  \emph{(\bibinfo{series}{LNCS}, Vol.~\bibinfo{volume}{12075})}.
+  \bibinfo{publisher}{Springer}, \bibinfo{pages}{484--514}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1007/978-3-030-44914-8\_18}
+\showDOI{\tempurl}
+
+
+\bibitem[Morrisett et~al\mbox{.}(2005)]%
+        {morrisett2005l3}
+\bibfield{author}{\bibinfo{person}{Greg Morrisett}, \bibinfo{person}{Amal
+  Ahmed}, {and} \bibinfo{person}{Matthew Fluet}.}
+  \bibinfo{year}{2005}\natexlab{}.
+\newblock \showarticletitle{L3: A Linear Language with Locations}. In
+  \bibinfo{booktitle}{\emph{Typed Lambda Calculi and Applications}}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1007/11417170_22}
+\showDOI{\tempurl}
+
+
+\bibitem[M{\"{u}}ller et~al\mbox{.}(2016)]%
+        {DBLP:conf/vmcai/0001SS16}
+\bibfield{author}{\bibinfo{person}{Peter M{\"{u}}ller}, \bibinfo{person}{Malte
+  Schwerhoff}, {and} \bibinfo{person}{Alexander~J. Summers}.}
+  \bibinfo{year}{2016}\natexlab{}.
+\newblock \showarticletitle{Viper: {A} Verification Infrastructure for
+  Permission-Based Reasoning}. In \bibinfo{booktitle}{\emph{Verification, Model
+  Checking, and Abstract Interpretation - 17th International Conference,
+  {VMCAI} 2016, St. Petersburg, FL, USA, January 17-19, 2016. Proceedings}}
+  \emph{(\bibinfo{series}{LNCS}, Vol.~\bibinfo{volume}{9583})}.
+  \bibinfo{publisher}{Springer}, \bibinfo{pages}{41--62}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1007/978-3-662-49122-5\_2}
+\showDOI{\tempurl}
+
+
+\bibitem[O'Hearn(2007)]%
+        {DBLP:journals/tcs/OHearn07}
+\bibfield{author}{\bibinfo{person}{Peter~W. O'Hearn}.}
+  \bibinfo{year}{2007}\natexlab{}.
+\newblock \showarticletitle{Resources, concurrency, and local reasoning}.
+\newblock \bibinfo{journal}{\emph{Theor. Comput. Sci.}} \bibinfo{volume}{375},
+  \bibinfo{number}{1-3} (\bibinfo{year}{2007}), \bibinfo{pages}{271--307}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1016/j.tcs.2006.12.035}
+\showDOI{\tempurl}
+
+
+\bibitem[Pearce(2021)]%
+        {pearce-rust-toplas2021}
+\bibfield{author}{\bibinfo{person}{David~J. Pearce}.}
+  \bibinfo{year}{2021}\natexlab{}.
+\newblock \showarticletitle{A Lightweight Formalism for Reference Lifetimes and
+  Borrowing in Rust}.
+\newblock \bibinfo{journal}{\emph{ACM Transactions on Programming Languages and
+  Systems (TOPLAS)}} \bibinfo{volume}{43}, \bibinfo{number}{1}, Article
+  \bibinfo{articleno}{3} (\bibinfo{date}{apr} \bibinfo{year}{2021}),
+  \bibinfo{numpages}{73}~pages.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3443420}
+\showDOI{\tempurl}
+
+
+\bibitem[Reynolds(2002)]%
+        {DBLP:conf/lics/Reynolds02}
+\bibfield{author}{\bibinfo{person}{John~C. Reynolds}.}
+  \bibinfo{year}{2002}\natexlab{}.
+\newblock \showarticletitle{Separation Logic: {A} Logic for Shared Mutable Data
+  Structures}. In \bibinfo{booktitle}{\emph{17th {IEEE} Symposium on Logic in
+  Computer Science {(LICS} 2002), 22-25 July 2002, Copenhagen, Denmark,
+  Proceedings}}. \bibinfo{publisher}{{IEEE} Computer Society},
+  \bibinfo{pages}{55--74}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1109/LICS.2002.1029817}
+\showDOI{\tempurl}
+
+
+\bibitem[Smith et~al\mbox{.}(2000)]%
+        {smith2000aliastypes}
+\bibfield{author}{\bibinfo{person}{Frederick Smith}, \bibinfo{person}{David
+  Walker}, {and} \bibinfo{person}{J.~Gregory Morrisett}.}
+  \bibinfo{year}{2000}\natexlab{}.
+\newblock \showarticletitle{Alias Types}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the 9th European Symposium on
+  Programming Languages and Systems}} \emph{(\bibinfo{series}{ESOP '00})}.
+\newblock
+
+
+\bibitem[Swamy et~al\mbox{.}(2016)]%
+        {mumon}
+\bibfield{author}{\bibinfo{person}{Nikhil Swamy},
+  \bibinfo{person}{C\u{a}t\u{a}lin Hri\c{t}cu}, \bibinfo{person}{Chantal
+  Keller}, \bibinfo{person}{Aseem Rastogi}, \bibinfo{person}{Antoine
+  Delignat-Lavaud}, \bibinfo{person}{Simon Forest},
+  \bibinfo{person}{Karthikeyan Bhargavan}, \bibinfo{person}{C\'{e}dric
+  Fournet}, \bibinfo{person}{Pierre-Yves Strub}, \bibinfo{person}{Markulf
+  Kohlweiss}, \bibinfo{person}{Jean-Karim Zinzindohou\'e}, {and}
+  \bibinfo{person}{Santiago {Zanella-B\'eguelin}}.}
+  \bibinfo{year}{2016}\natexlab{}.
+\newblock \showarticletitle{Dependent Types and Multi-Monadic Effects in {F*}}.
+  In \bibinfo{booktitle}{\emph{Proceedings of the ACM Symposium on Principles
+  of Programming Languages (POPL)}}.
+\newblock
+\showISBNx{978-1-4503-3549-2}
+\urldef\tempurl%
+\url{https://doi.org/10.1145/2837614.2837655}
+\showDOI{\tempurl}
+
+
+\bibitem[Vaughan-Nichols(2022)]%
+        {rustlinux}
+\bibfield{author}{\bibinfo{person}{Steven Vaughan-Nichols}.}
+  \bibinfo{year}{2022}\natexlab{}.
+\newblock \bibinfo{title}{Linus Torvalds: Rust will go into Linux 6.1}.
+\newblock
+\newblock
+\urldef\tempurl%
+\url{https://www.zdnet.com/article/linus-torvalds-rust-will-go-into-linux-6-1/}
+\showURL{%
+\tempurl}
+
+
+\bibitem[Wadler(1990)]%
+        {DBLP:conf/ifip2/Wadler90}
+\bibfield{author}{\bibinfo{person}{Philip Wadler}.}
+  \bibinfo{year}{1990}\natexlab{}.
+\newblock \showarticletitle{Linear Types can Change the World!}. In
+  \bibinfo{booktitle}{\emph{Programming concepts and methods: Proceedings of
+  the {IFIP} Working Group 2.2, 2.3 Working Conference on Programming Concepts
+  and Methods, Sea of Galilee, Israel, 2-5 April, 1990}}.
+  \bibinfo{publisher}{North-Holland}, \bibinfo{pages}{561}.
+\newblock
+
+
+\bibitem[Weiss et~al\mbox{.}(2019)]%
+        {DBLP:journals/corr/abs-1903-00982}
+\bibfield{author}{\bibinfo{person}{Aaron Weiss}, \bibinfo{person}{Daniel
+  Patterson}, \bibinfo{person}{Nicholas~D. Matsakis}, {and}
+  \bibinfo{person}{Amal Ahmed}.} \bibinfo{year}{2019}\natexlab{}.
+\newblock \showarticletitle{Oxide: The Essence of Rust}.
+\newblock \bibinfo{journal}{\emph{CoRR}}  \bibinfo{volume}{abs/1903.00982}
+  (\bibinfo{year}{2019}).
+\newblock
+\showeprint[arXiv]{1903.00982}
+\urldef\tempurl%
+\url{http://arxiv.org/abs/1903.00982}
+\showURL{%
+\tempurl}
+
+
+\bibitem[Yanovski et~al\mbox{.}(2021)]%
+        {DBLP:journals/pacmpl/YanovskiDJD21}
+\bibfield{author}{\bibinfo{person}{Joshua Yanovski},
+  \bibinfo{person}{Hoang{-}Hai Dang}, \bibinfo{person}{Ralf Jung}, {and}
+  \bibinfo{person}{Derek Dreyer}.} \bibinfo{year}{2021}\natexlab{}.
+\newblock \showarticletitle{{GhostCell}: Separating Permissions from Data in
+  {Rust}}.
+\newblock \bibinfo{journal}{\emph{Proc. {ACM} Program. Lang.}}
+  \bibinfo{volume}{5}, \bibinfo{number}{{ICFP}} (\bibinfo{year}{2021}),
+  \bibinfo{pages}{1--30}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3473597}
+\showDOI{\tempurl}
+
+
+\bibitem[Zhu and Xi(2005)]%
+        {zhu2005atsviews}
+\bibfield{author}{\bibinfo{person}{Dengping Zhu} {and} \bibinfo{person}{Hongwei
+  Xi}.} \bibinfo{year}{2005}\natexlab{}.
+\newblock \showarticletitle{Safe Programming with Pointers through Stateful
+  Views}. In \bibinfo{booktitle}{\emph{Proceedings of the 7th International
+  Conference on Practical Aspects of Declarative Languages}}
+  \emph{(\bibinfo{series}{PADL'05})}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1007/978-3-540-30557-6_8}
+\showDOI{\tempurl}
+
+
+\end{thebibliography}

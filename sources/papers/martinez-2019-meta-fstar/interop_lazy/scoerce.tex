@@ -1,0 +1,38 @@
+\[
+\begin{array}{r l l}
+  \scoerce{\stunit}{\sdelta}{\tunit} & = & \sunit
+  \\[0.3em]
+  %
+  \scoerce{\sarrow{\staui}{\stauii}}{\sdelta}{\tabs{\tvar{x}}{\texp}} & = &
+  \sabs{\svar{x}}{\sdelta\staui}{\salien{\texp\tsubst{\tvar{x}}{\prot{\svar{x}}{\staui}{\sdelta}}} {\stauii} {\sdelta}}
+  \\[0.3em]
+  %
+  \scoerce{\sprod{\staui}{\stauii}}{\sdelta}{\tpair{\tvali}{\tvalii}} & = &
+  \spair{\salien{\tvali}{\staui}{\sdelta}}{\salien{\tvalii}{\stauii}{\sdelta}}
+  \\[0.3em]
+  %
+  \scoerce{\ssum{\staui}{\stauii}}{\sdelta}{\tinl{\tval}} & = &
+  \sinl{\salien{\tval}{\staui}{\sdelta}}
+  \\[0.3em]
+  %
+  \scoerce{\ssum{\staui}{\stauii}}{\sdelta}{\tinr{\tval}} & = &
+  \sinr{\salien{\tval}{\stauii}{\sdelta}}
+  \\[0.3em]
+  % 
+  \scoerce{\svar{A}}{\sdelta}{\topaque{\sexp}} & = &
+  \sexp \\[0.3em]
+  & & \\
+  %
+  \scoerce{\sall{\svar{A}}{\ssig}}{\sdelta}{\tval} & = &
+  \stabs{\svar{A}}{\scoerce{\ssig}{\sdelta}{\tval}}
+  \\[0.3em]
+
+  
+
+  %
+  %
+  %% \scoerce{\sttop}{\sdelta}{\salien{\tval}{\staup}{\sdeltap}} & = &
+  %% \tval
+  %% \\[0.3em]
+\end{array}
+\]

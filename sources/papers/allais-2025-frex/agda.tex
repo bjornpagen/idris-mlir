@@ -1,0 +1,22 @@
+\subsection{Agda}
+Agda is a well-established dependently typed interactive proof
+environment. \idris{} and Agda and their communities have different
+goals, leading to subtle implementation differences.
+
+The key differences between the two languages arise from Agda's focus on proving versus \idris{}'s focus on programming.
+\idris{} currently uses a single \emph{universe}~\cite{palmgren:universes}, allowing
+\IdrisType{Type}\,\IdrisKeyword{:}\,\IdrisType{Type}, and is hence inconsistent
+by Girard's paradox. In contrast, Agda's well-developed predicative
+theory of universes avoids Girard's paradox. Agda also
+protects users from other logical paradoxes of its more experimental
+features with its `\texttt{-{}-safe}' compiler flag.
+%
+In the spirit of \citeauthor{hu-carette:agda-ct}~\citeyearpar{hu-carette:agda-ct} and \citeauthor{agda-stdlib}~\citeyearpar{agda-stdlib}, we adopt a
+conservative set of compiler options (\texttt{-{}-without-K -{}-safe}). All our definitions are
+universe-polymorphic. This conservativity broadens the applicability of
+\Frexlib{} in the Agda ecosystem by guaranteeing compatibility with
+all of Agda's various configurations, and
+further assures us about the correctness of \Frexlib{} itself.
+\anon[{[Reference redacted for anonymous review]}]{\citeauthor{corbyn:agda-fragment}~\citeyearpar{corbyn:agda-fragment}}
+%%
+discusses these ideas in greater detail.

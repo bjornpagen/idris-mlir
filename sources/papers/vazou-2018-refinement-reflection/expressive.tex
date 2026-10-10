@@ -1,0 +1,518 @@
+\newcommand\expror[2]{\ensuremath{\texttt{Either}\ #1\ #2}\xspace}
+\newcommand\exprand[2]{\ensuremath{(#1, #2)}\xspace}
+\newcommand\exprorleft[1]{\ensuremath{\texttt{Left}\ #1}\xspace}
+\newcommand\exprorright[1]{\ensuremath{\texttt{Right}\ #1}\xspace}
+\newcommand\tyand[2]{\ensuremath{(#1, #2)}\xspace}
+\newcommand\tyor[2]{\ensuremath{\texttt{Either}\ #1\ #2}\xspace}
+\newcommand\tyex[3]{\ensuremath{(#1::#2,#3)}\xspace}
+\newcommand\tyall[3]{\ensuremath{#1:#2 \rightarrow #3}\xspace}
+
+\section{Embedding Natural Deduction with Refinement Types}
+\label{sec:higher-order}
+
+In this section we show how user-provided
+\emph{quantified} specifications
+can be naturally encoded using
+$\lambda$-abstractions and
+dependent pairs to encode
+universal and existential
+quantification, respectively.
+Proof terms can be generated
+using the standard natural
+deduction derivation rules,
+following Propositions as Types~\cite{Wadler15}
+(also known as the Curry-Howard
+isomorphism~\cite{CHIso}).
+%
+What is new is that we exploit this encoding to show for the first time that a refinement
+type system can represent any proof
+in Gentzen's natural deduction~\cite{Gentzen35}
+while still taking advantage of
+SMT decision procedures to automate the
+quantifier-free portion of natural
+deduction proofs.
+%
+For simplicity, in this section we assume
+all terms are total.
+
+\subsection{Propositions: Refinement Types}
+
+Figure~\ref{fig:hol} maps logical predicates
+to types constructed over quantifier-free refinements.
+
+\mypara{Native terms}
+%
+Native terms consist of all of the
+(quantifier-free) expressions
+of the refinement languages.
+%
+In \S~\ref{sec:formalism}
+we formalize refinement typing
+in a core calculus \corelan where
+refinements include (quantifier-free)
+terminating expressions.
+
+
+\mypara{Boolean connectives}
+Implication $\formula_1 \Rightarrow \formula_2$
+is encoded as a \emph{function} from the proof of
+$\formula_1$ to the proof of $\formula_2$.
+%
+Negation is encoded as an implication where
+the consequent is "False".
+%
+Conjunction $\formula_1 \land \formula_2$
+is encoded as the \emph{pair} "($\formula_1$, $\formula_2$)"
+that contains the proofs of \emph{both} conjuncts
+%
+and disjunction $\formula_1 \lor \formula_2$
+is encoded as the \emph{sum} type "Either"
+that contains the proofs of \emph{one of}
+the disjuncts, \ie where "data Either a b = Left a | Right b".
+
+\mypara{Quantifiers}
+%
+Universal quantification $\forall x. \formula$
+is encoded as lambda abstraction $x:\typ \rightarrow \formula$
+and eliminated by function application.
+%
+Existential quantification $\exists x. \formula$
+is encoded as a dependent pair "(x::$\typ$, $\formula$)"
+that contains the term $x$ and a proof of a formula
+that depends on $x$.
+%
+Even though refinement type systems do not
+traditionally come with explicit syntax for
+dependent pairs, one can encode dependent
+pairs in refinements using abstract
+refinement types~\cite{Vazou13}
+which do not add extra complexity
+to the system.
+%
+Consequently, we add the syntax for
+dependent pairs in Figure~\ref{fig:hol}
+as syntactic sugar for abstract refinements.
+
+\input{holsyntax}
+
+\subsection{Proofs: Natural Deduction}
+
+We overload \formula to be both a proposition and
+a refinement type.
+%
+We connect these two meanings of \formula by
+using the Propositions as Types~\cite{Wadler15},
+to prove that if there exists an expression (or proof term) with
+refinement type \formula, then the proposition
+\formula is valid.
+%
+
+We construct proofs terms using Gentzen's
+natural deduction system~\cite{Gentzen35},
+whose rules map directly to refinement type
+derivations.
+%
+The rules for natural deduction arise from the propositions-as-types reading
+of the standard refinement type
+checking rule (to be defined in
+\S~\ref{sec:formalism}) \ch{\env}{e}{\formula}
+as ``\formula is provable under the assumptions of \env''.
+%% and
+%% \ch{\env}{e}{\typ} as ``$e$ is a term''.
+%
+We write \gentzenValid{\env}{\formula}
+for Gentzen's natural deduction judgment
+``under assumption \env, proposition \formula holds''.
+%
+Then, each of Gentzen's logical rules
+can be recovered from the rules in
+Figure~\ref{fig:ch} by rewriting
+each judgment \ch{\env}{e}{\formula}
+of \corelan as \gentzenValid{\env}{\formula}.
+%
+For example, conjunction and universal
+elimination can be derived as:
+%
+$$
+\inference{
+	\gentzenValid{\env}{{\formula_1} \lor{\formula_2}} &&
+	\gentzenValid{\env,\formula_1}{\formula} &&
+	\gentzenValid{\env,\formula_2}{\formula} &&
+}{
+	\gentzenValid{\env}{\formula}
+}
+\lor\small{\textsc{\!-E}}
+\quad
+\inference{
+	\gentzenValid{\env}{e_x\ \text{term}} &&
+	\gentzenValid{\env}{\forall x. \formula}
+}{
+	\gentzenValid{\env}{\formula\subst{x}{e_x}}
+}
+\forall\small{\textsc{\!-E}}
+$$
+
+\mypara{Programs as Proofs}
+%
+As Figure~\ref{fig:ch} directly maps
+natural deduction rules to derivations
+that are accepted by refinement typing,
+we conclude that if there exists a
+natural deduction derivation for a
+proposition \formula, then there
+exists an expression that has the refinement type \formula.
+\begin{theorem}\label{theorem:embedding}
+If\ \gentzenValid{\env}{\formula},
+then we can construct an $e$ such that\ \ch{\env}{e}{\formula}.
+\end{theorem}
+
+Note that our embedding is \textit{not} an isomorphism, 
+since the converse of Theorem~\ref{theorem:embedding} does not hold. 
+%
+As a counterexample, the law of the excluded middle
+can be proved in our system
+(\ie we can construct an "Either" term $e$, so that 
+$\ch{\bind{p}{\proofterm{\typbool\ | \ \etrue}}}{e}{p\lor\neg p}$), 
+but cannot be proved using natural deduction
+(\ie $\gentzenValid{{\proofterm{\etrue}}\not}{p\lor\neg p}$).
+%
+The reason for that is that our system is using the classical logic
+of the SMTs, which includes the law of the excluded middle.
+On the contrary, in intuitionistic systems that also encode natural deduction
+(\eg \coq, \idris, \nuPRL)
+the law of the excluded middle should be axiomatized.
+
+%
+\subsection{Examples}\label{sec:expressiveness:examples}
+%
+Next, we illustrate our encoding
+with examples of proofs for
+quantified propositions
+ranging from
+%
+textbook logical tautologies,
+%
+properties of datatypes like lists,
+%
+and induction on natural numbers.
+%
+%These and more examples can be found in \url{https://github.com/nikivazou/LiquidHOL}.
+
+\mypara{Natural Deduction as Type Derivation}
+%
+We illustrate the mapping from natural deduction rules to typing rules
+in Figure~\ref{fig:ex:ch} which uses typing judgments to express
+Gentzen's proof of the proposition
+%
+$$
+\phi \equiv (\exists x. \forall y. (p\ x\ y)) \Rightarrow (\forall y. \exists x. (p\ x\ y))
+$$
+%
+Read bottom-up, the derivation provides a proof of \formula.
+Read top-down, it constructs a \emph{proof} of the formula
+as the \emph{term}
+%the proof term of the formula to be
+$\lambda e\ y. \texttt{case}\ e\ \texttt{of}\ \{
+    (x,e_x) \rightarrow (x, e_x\ y)\}$.
+%
+This proof term corresponds directly to the following Haskell expression
+that typechecks with type \formula.
+\begin{mcode}
+    exAll :: p:(a -> a -> Bool) -> (x::a, y:a -> {p x y}) -> y:a -> (x::a, {p x y})
+    exAll _ = \e y -> case e of {(x, ex) -> (x, ex y)}
+\end{mcode}
+%
+% Pattern matching simplifies the proof to: "existsForall f (x,px) y = (x, px y)".
+
+\begin{figure}
+%\begin{framed}
+$$
+\inference{
+	\inference{
+		\inference{
+			\bind{e}{\formulap},
+			\bind{y}{\typ_y}
+			\vdash
+			 e
+			 :
+	        \formulap &&
+	        \inference{
+	        \bind{e}{\formulap},
+			\bind{y}{\typ_y},
+			\bind{x}{\type_x},
+			\bind{e_x}{\formulax}
+			\vdash
+			 e_x
+			 :
+	         \formulax
+	         \\
+	        \bind{e}{\formulap},
+			\bind{y}{\typ_y},
+			\bind{x}{\type_x},
+			\bind{e_x}{\formulax}
+			\vdash
+			 y
+			 :
+	         \typ_y
+	        }{
+	        \bind{e}{\formulap},
+			\bind{y}{\typ_y},
+			\bind{x}{\type_x},
+			\bind{e_x}{\formulax}
+			\vdash
+			 e_x\ y
+			 :
+	         p\ x\ y
+	        }\forallElim
+		}{
+			\bind{e}{\formulap},
+			\bind{y}{\typ_y}
+			\vdash
+			\texttt{case}\ e\ \texttt{of}\ \{
+                                (x,e_x) \rightarrow (x, e_x\ y)
+                        \}
+                        :
+	        \exists x. (p\ x\ y)
+		}\existsElim
+	}{
+	\bind{e}{\formulap}
+	\vdash
+	\lambda y. \texttt{case}\ e\ \texttt{of}\ \{
+    (x,e_x) \rightarrow (x, e_x\ y)
+    \}
+    :
+	\forall y. \exists x. (p\ x\ y)
+	}\forallIntro
+}
+{
+\emptyset
+\vdash
+\lambda e\ y. \texttt{case}\ e\ \texttt{of}\ \{
+    (x,e_x) \rightarrow (x, e_x\ y)
+\}
+:
+{(\exists x. \forall y. (p\ x\ y)) \Rightarrow (\forall y. \exists x. (p\ x\ y))}
+}
+\impIntro
+$$
+\caption{Proof of $(\exists x. \forall y. (p\ x\ y)) \Rightarrow (\forall y. \exists x. (p\ x\ y))$
+where
+$\formulap \equiv \exists x. \forall y. (p\ x\ y)
+$,
+$
+\formulax \equiv \forall y. (p\ x\ y)
+$.
+}
+\figrule
+\label{fig:ex:ch}
+% \end{framed}
+\end{figure}
+
+\mypara{SMT-aided proofs}
+The great benefit of using refinement types
+to encode natural deduction is that the quantifier-free
+portions of the proof can be automated via SMTs.
+%
+For every quantifier-free proposition \formula,
+you can convert between $\{\formula\}$,
+where \formula is treated as an SMT-proposition
+and \formula, where \formula is treated as a
+type; and this conversion goes \emph{both} ways.
+%
+For example, let $\formula \equiv p \land (q \lor r)$.
+%
+Then "flatten" converts from \formula to
+$\{\formula\}$ and "expand" the other way,
+while this conversion is SMT-aided.
+%
+\begin{mcode}
+    flatten :: p:_ -> q:_ -> r:_-> ({p}, Either {q} {r}) -> {p && (q || r)}
+    flatten (pf, Left  qf) = pf &&& qf
+    flatten (pf, Right rf) = pf &&& rf
+
+    expand :: p:_ -> q:_ -> r:_ -> {p && (q || r)} -> ({p}, Either {q} {r})
+    expand proof | q = (proof, Left  proof)
+    expand proof | r = (proof, Right proof)
+\end{mcode}
+
+\mypara{Distributing Quantifiers}
+% \mypara{Existentials over disjunction}
+%
+Next, we construct the proof terms needed
+to prove two logical properties:
+that existentials distribute over disjunctions
+% (\ref{eq:ex:or})
+and foralls over conjunctions, \ie
+% (\ref{eq:ex:and}).
+%
+\begin{align}
+%
+  \formula_\exists \ & \equiv (\exists x. p\ x \lor q\ x) \Rightarrow ((\exists x. p\ x) \lor (\exists x. q\ x))
+  \label{eq:ex:or} \\
+%
+  \formula_\forall \ & \equiv (\forall x. p\ x \land q\ x) \Rightarrow ((\forall x. p\ x) \land (\forall x. q\ x))
+  \label{eq:ex:and}
+%
+\end{align}
+%
+The specification of these properties requires
+nesting quantifiers inside connectives and
+vice versa.
+%
+The proof of $\formula_\exists$ (\ref{eq:ex:or})
+proceeds by existential case splitting and introduction:
+%
+\begin{code}
+    exDistOr :: p:_ -> q:_ -> (x::a, Either {p x} {q x})
+                           -> Either (x::a, {p x}) (x::a, {q x})
+    exDistOr _ _ (x, Left  px) = Left  (x, px)
+    exDistOr _ _ (x, Right qx) = Right (x, qx)
+\end{code}
+%
+% \PW{Phil suggests to show the proof derivation tree here too}
+%
+% \mypara{Foralls over conjunction}
+% Similarly, we prove that foralls distribute over conjunction:
+% %
+% $$\formula \equiv \forall x. (p\ x \land q\ x)) \Rightarrow ((\forall x. p\ x)\land (\forall x. q\ x))$$
+% %
+% The specification of the conclusion now
+% requires nesting universal quantification
+% over conjunctions.
+%
+Dually, we prove $\formula_\forall$ (\ref{eq:ex:and}) via
+a $\lambda$-abstraction and case spitting
+inside the conjunction pair:
+%
+\begin{code}
+    allDistAnd :: p:_ -> q:_ -> (x:a->({p x}, {q x}))
+                             -> ((x:a->{p x}), (x:a->{q x}))
+    allDistAnd _ _ andx = ( (\x -> case andx x of (px, _) -> px)
+                          , (\x -> case andx x of (_, qx) -> qx) )
+\end{code}
+%
+The above proof term exactly corresponds to its natural deduction proof derivation
+but using SMT-aided verification can get simplified to the following
+%
+\begin{code}
+    allDistAnd _ _ andx = (pf, pf)
+      where pf x = case andx x of (px, py) -> px &&& py
+\end{code}
+
+%%\subsubsection{Forall - exists over implication}
+%%We prove distribution of foralls over conjunction:
+%%$$(\forall x. \exists y. (p\ x \Rightarrow q\ x\ y)) \Rightarrow (\forall x. (p\ x \Rightarrow (\exists y. q\ x\ y))))$$
+%%The proof proceeds by forall elimination and existential introduction:
+%%
+%%\begin{code}
+%%forallExistsImpl :: p:(a -> Bool) -> q:(a -> a -> Bool)
+%%  -> (x:a -> (y::a, {p x} -> {q x y} ))
+%%  -> (x:a -> ({p x} -> (y::a, {q x y})))
+%%forallExistsImpl p q f x px
+%%  = case f x of
+%%      (y, pxToqxy) -> (y, pxToqxy px)
+%%\end{code}
+
+% \subsubsection{Properties on user specified domains}
+
+\mypara{Properties of User Defined Datatypes}
+%
+As \formula can describe properties
+of data types like lists, we can prove
+properties of such types, \eg that for
+every list "xs", if there exists a list
+"ys" such that "xs == ys ++ ys" ,then
+"xs" has even length.
+%
+$$\formula \equiv \forall xs. ((\exists ys.\ xs = ys \ \texttt{++}\ ys) \Rightarrow (\exists n. \texttt{len}\ xs = n + n))$$
+%
+The proof ("evenLen") proceeds by existential elimination and introduction
+and uses the "lenAppend" lemma, which in turn uses induction on the
+input list and \pbesym to automate equational reasoning.
+%
+\begin{code}
+    evenLen :: xs:[a]->(ys::[a],{xs = ys ++ ys})->(n::Int,{len xs = n+n})
+    evenLen xs (ys,pf) = (len ys, lenAppend ys ys &&& pf)
+
+    lenAppend :: xs:_ -> ys:_ -> {len (xs ++ ys) = len xs + len ys}
+    lenAppend []     _  = ()
+    lenAppend (x:xs) ys = lenAppend xs ys
+\end{code}
+
+\mypara{Induction on Natural Numbers}
+%
+Finally, we specify and verify \emph{induction} on natural numbers:
+%
+$$
+\formula_{ind} \equiv  (p\ 0 \land (\forall n. p\ (n-1) \Rightarrow p\ n) \Rightarrow \forall n. p\ n)
+$$
+%
+The proof proceeds by induction (\eg case splitting).
+%
+In the base case, "n == 0", the proof calls the left conjunct, which contains a proof of the base case.
+%
+Otherwise, "0 < n", and the proof \emph{applies} the induction hypothesis to the right conjunct instantiated at "n-1".
+%
+\begin{code}
+    ind :: p:_ -> ({p 0},(n:Nat -> {p (n-1)} -> {p n})) -> n:Nat -> {p n}
+    ind p (p0, pn) 0 = p0
+    ind p (p0, pn) n = pn n (ind p (p0, pn) (n-1))
+\end{code}
+
+\input{curryhoward}
+
+\subsection{Consequences}
+%
+To summarize, we use the propositions-as-types
+principle to make two important contributions.
+%
+First, we show that natural deduction reasoning
+can smoothly co-exist with SMT-based verification
+to automate the decidable, quantifier-free portions
+of the proof.
+%
+
+
+
+\begin{comment}
+
+\begin{code}
+    andRefine :: b1:Bool -> b2:Bool -> ({b1}, {b2}) -> {b1 && b2}
+    andRefine _ _ (b1, b2) = ()
+\end{code}
+%
+Using "andRefine" the user does not have to explicitly eliminate "PAnd".
+For instance the "forallAndDistr" proof from~\S~\ref{sec:expressiveness:examples}
+simplifies to the following.
+%
+\begin{code}
+    forallAndDistr _ _ andx = (fAndG, fAndG)
+      where fAndG = andRefine (f x) (g x) (andx x)
+\end{code}
+
+On the other direction, we reify SMT conjunction by using
+$\formula_1 \land \formula_2$
+as a proof for each conjunct $\formula_1$ and $\formula_2$
+that can later be used in natural deduction derivations.
+\begin{code}
+    andReify :: b1:Bool -> b2:Bool -> {b1 && b2} -> ({b1}, {b2})
+    andReify _ _ b = (b, b)
+\end{code}
+\end{comment}
+
+Second, we show for the first time how
+natural deduction proofs can be encoded
+in refinement type systems like \toolname
+and we expect this encoding to extend,
+in a straightforward manner to other
+SMT-based deductive verifiers
+(\eg \dafny and \fstar).
+%
+This encoding shows that refinement type systems
+are expressive enough to encode any intuitionistic natural deduction proof,
+gives a guideline for encoding proofs
+with nested quantifiers, and provides
+a pleasant implementation of
+natural deduction that
+% can be used
+is pedagogically useful.

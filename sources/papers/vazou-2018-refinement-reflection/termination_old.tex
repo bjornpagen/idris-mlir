@@ -1,0 +1,316 @@
+\subsection{\pbesym Terminates} \label{sec:pbe:termination}
+\NV{HERE HERE HERE}
+%% \subsection{Preliminaries} \label{sec:pbe:prelim}
+%
+Figure~\ref{fig:pbe:syntax} describes the syntax of
+the main ingredients.
+%
+\RJ{describe $\Renv$}
+
+
+
+\mypara{Normal}
+%
+We say $\Penv$ is \emph{normal}
+if all applications in $\Penv$ are
+of the form $\fapp{f}{x}$.
+%
+We can easily \emph{normalize}
+a $\Penv$ by introducing fresh
+variables for each sub-term, and
+hence in the sequel we assume
+that $\pbe{\Renv}{\Penv}{\pred}$
+is only invoked with normal $\Penv$.
+
+\mypara{Stores and Inhabitation}
+%
+A \emph{store} $\store$ is a mapping from
+(free) variables to values.
+%
+We write $\apply{\store}{\expr}$ for the term
+obtained by substituting free variables $x$
+in $\expr$ with the corresponding values in
+the store $\store$.
+%
+We write $\satisfies{\Renv}{\store}{\expr}$
+if $\trans{\Renv}{\apply{\store}{\expr}}{\ttrue}$.
+%
+We say $\Penv$ is \emph{inhabited}
+if for some $\store$ we have
+$\satisfies{\Renv}{\store}{\pred}$
+for each $\pred \in \Penv$.
+
+
+\mypara{Divergence}
+%
+We say that a closed term $\expr$
+\emph{diverges under} $\Renv$ if
+there is no $\val$ such that
+$\trans{\Renv}{\expr}{\val}$ .
+
+\begin{lemma}[\textbf{Divergence}] \label{lem:div} % TRIVIAL
+If $\ \forall i \in \nats$ we have
+$\trans{\Renv}{\expr_i}{\ctxapp{\ctx}{\expr_{i+1}}}$
+then $\expr_0$ diverges under $\Renv$.
+\end{lemma}
+
+\NV{What is the context?}
+
+\mypara{Application Subterm}
+We write $\issubterm{\expr}{\expr'}$
+if $\expr$ is a \emph{syntactic subterm}
+of $\expr'$ or if 
+$\expr$ is a \textbf{fully applied} 
+reflected function or data constructor application with arity $n$
+($\expr \equiv f (e1, \dots, e_n)$)
+and $\texttt{app}\ (\dots (\texttt{app}\ f\ e_1) \dots ) e_n$
+is a \emph{syntactic subterm}
+of $\expr'$.
+
+\mypara{Subterm Evaluation}
+%
+The following lemma states that
+if a store satisfies a reflected
+function's guard, then the evaluation
+of the corresponding function body
+requires evaluating \emph{every subterm}
+inside the body.
+
+\begin{lemma}\label{lem:subterm-eval}
+Let $\rlookup{\Renv}{\rfun} \equiv \rdef{x}{\pred}{\body}$.
+%
+If $\satisfies{\Renv}{\store}{\pred_i}$ and $\issubterm{\fapp{g}{e}}{\body_i}$
+then
+$\trans{\Renv}{\apply{\store}{\body_i}}
+              {\ctxapp{\ctx}{\rawapp{g}{\apply{\store}{\params{\expr}}}}}$.
+\end{lemma}
+
+\NV{How is evaluation and context defined?}
+\mypara{Totality Assumption}
+%
+The following assumption states that
+if a store satisfies a reflected function's
+guard, then the corresponding body reduces
+to exactly one value.
+%
+Both of these are checked via
+refinement typing \cite{Vazou14}.
+%
+\RJ{format below as "assumption" to avoid confusion}
+
+\begin{lemma}[\textbf{Total}]\label{asm:total}
+Let $\rlookup{\Renv}{\rfun} \equiv \rdef{x}{\pred}{\body}$.
+%
+$\rfun$ is \emph{total} if forall $\store$
+%
+\begin{enumerate}
+\item If $\satisfies{\Renv}{\store}{\pred_i}$ then $\trans{\Renv}{\apply{\store}{\body_i}}{\val}$.
+\item If $\satisfies{\Renv}{\store}{\pred_i}$, $\satisfies{\Renv}{\store}{\pred_j}$ then $i=j$.
+\end{enumerate}
+%
+$\Renv$ is \emph{total} if every $\rfun \in \Renv$ is total.
+%
+\end{lemma}
+
+
+
+
+
+\NV{The only interesting thing here is the transparency requirement. 
+Yet, not clearly stated why you need it}
+
+So far, we have shown that our proof search
+procedure $\pbesym$ is both sound and complete.
+%
+Both of these are easy to achieve
+simply by \emph{enumerating} all possible
+instances and repeatedly querying the SMT
+solver.
+%
+Such an approach --- lets call it
+``monkeys-with-typewriters'' --- is rather
+impractical: it may never terminate.
+%
+Fortunately, next, we show that in addition
+to being sound and complete, our proof search
+procedure always terminates.
+%
+The key insight is that if $\pbesym$ \emph{does not terminate}
+then it is because
+%
+(1)~the set of depth $n$ unfoldings form a strictly
+    increasing infinite chain,
+    $\binst{\Renv}{\Penv}{0} \subset \binst{\Renv}{\Penv}{1} \ldots$,
+    which means that
+(2)~there is an infinite sequence of application terms
+    $\stepsmany{\fapp{\rfun_0}{\expr_0}}{\stepsmany{\fapp{\rfun_1}{\expr_1}}{\ldots}}$
+    which means that
+(3)~the reflected function $\rfun_0$ is \emph{not total}, contradicting the
+    totality assumption (\ref{asm:total}).
+%
+Thus, \pbesym must terminate!
+%
+Next, we formalize the above intuition and
+prove the termination Theorem~\ref{thm:termination}.
+
+\mypara{Symbolic Step}
+%
+A pair
+$\symstep{\fapp{\rfun}{\expr}}{\fapp{\rfun'}{\expr'}}$
+is a
+$\Renv,\Penv$-\emph{symbolic step} (abbrev. step)
+if
+%
+\begin{itemize}
+  \item $\rlookup{\Renv}{\rfun} \equiv \rdef{x}{\pred}{\body}$,
+  \item $\smtIsValid{\Penv \wedge Q}{\pred_i}$ for some $\Renv$-instance $Q$,
+  \item $\issubterm{\fapp{\rfun'}{\expr'}}{\SUBSTS{\body_i}{x}{\expr}}$
+\end{itemize}
+
+\mypara{Steps and Reductions}
+%
+Next, using Lemmas~\ref{lem:subterm-eval},~\ref{lem:smt-approx}
+and the definition of symbolic steps, we show that every
+symbolic step under an inhabited $\Penv$ corresponds
+to a \emph{sequence} of steps in the concrete semantics:
+
+\begin{lemma}[\textbf{Step-Reductions}]\label{lem:step-reductions}
+If   $\symstep{\fapp{\rfun}{\expr}}{\fapp{\rfun'}{\expr'}}$
+     is a symbolic step under $\Renv, \Penv$
+     and
+     $\satisfies{\Renv}{\store}{\Penv}$
+then $\trans{\Renv}
+            {\fapp{\rfun}{\apply{\store}{\expr}}}
+            {\ctxapp{\ctx}{\fapp{\rfun'}{\apply{\store}{\expr'}}}}$
+for some context $\ctx$.
+\end{lemma}
+
+\mypara{Steps and Values}
+%
+The following lemma states that if
+$\symstep{\fapp{\rfun}{y}}{\expr'}$
+is a symbolic step under a $\Penv$
+inhabited by $\store$ then
+$\apply{\store}{\fapp{\rfun}{y}}$
+reduces to a value.
+
+\begin{lemma}[\textbf{Step-Value}]\label{lem:step-value}
+If $\Renv$ is total,
+   $\satisfies{\Renv}{\store}{\Penv}$, and
+   $\symstep{\fapp{\rfun}{y}}{\expr'}$ is a $\Renv,\Penv$ step
+then $\trans{\Renv}{\apply{\store}{\fapp{\rfun}{y}}}{\val}$.
+\end{lemma}
+
+The proof follows by observing that if $\Penv$
+is inhabited by $\store$, and a particular step
+is possible, then the guard corresponding to that
+step must also be true under $\store$ (Lemma~\ref{lem:smt-approx})
+and hence, by totality (\ref{asm:total}),
+the function must reduce to a value under the given store.
+
+\mypara{Symbolic Trace}
+%
+A sequence
+%
+$\fapp{\rfun_0}{\expr_0},\fapp{\rfun_1}{\expr_1},\fapp{\rfun_2}{\expr_2},\ldots$
+%
+is a $\Renv,\Penv$-\emph{symbolic trace} (abbrev. trace)
+if $\params{\expr_0} \equiv \params{x_0}$ for some variables $x_0$,
+and $\symstep{\fapp{\rfun_i}{\expr_i}}{\fapp{\rfun_{i+1}}{\expr_{i+1}}}$
+is a $\Renv,\Penv$-step, for each $i$.
+
+\begin{lemma}[\textbf{Finite-Trace}]\label{lem:finite-trace}
+If $\Renv$ is total, $\satisfies{\Renv}{\store}{\Penv}$
+then every $\Renv,\Penv$-trace is finite.
+\end{lemma}
+
+We prove the above lemma by contradiction.
+Specifically, we show that an infinite
+$\Renv,\Penv$-trace for a $\Penv$
+inhabited by $\store$ yields an
+infinite \emph{concrete trace}, which
+contradicts totality, and hence, all the
+$\Renv, \Penv$ symbolic traces
+must be finite.
+
+\mypara{Unfolding Chains and Traces}
+%
+If the unfolding $\Renv, \Penv$ yields
+an infinite chain, then $\Renv, \Penv$
+has an infinite symbolic trace:
+
+\begin{lemma} [\textbf{Ascending Chains}] \label{lem:chain}
+Let $\Penv_i \doteq \binst{\Renv}{\Penv}{i}$.
+If there exists an (infinite) ascending chain
+  $$\Penv_0 \subset \ldots \subset \Penv_n \ldots$$
+then there exists an (infinite) symbolic trace
+  $$\fapp{\rfun_0}{\expr_0},\ldots,\fapp{\rfun_n}{\expr_n},\ldots$$
+\end{lemma}
+
+To prove the above,
+we construct a trace
+by selecting at level $i$
+(\ie in $\Penv_i$),
+an application term
+$\fapp{\rfun_i}{\expr_i}$
+that was created by
+unfolding an application
+term at level $i-1$
+(\ie in $\Penv_{i-1}$).
+
+
+\mypara{Transparency}
+%
+We say $\Penv$ is \emph{inconsistent}
+if $\smtIsValid{\Penv}{\tfalse}$.
+%
+We say $\Penv$ is \emph{transparent}
+if it is either inhabited or inconsistent.
+%
+As an example of a \emph{non-transparent}
+$\Penv_0$ consider the predicate
+$\kw{lenA xs} = 1 + \kw{lenB xs}$,
+where \kw{lenA} and \kw{lenB} are both
+identical definitions of the list length
+function.
+%
+Clearly there is no $\store$ that causes
+the above predicate to evaluate to $\ttrue$.
+%
+At the same time, the SMT solver cannot
+(using the decidable, quantifier-free theories)
+prove a contradiction as that requires
+induction over \kw{xs}.
+
+
+\mypara{\pbesym Terminates}
+%
+Finally, we prove that as long the hypotheses
+are \emph{transparent} the proof search
+procedure $\pbesym$ terminates.
+
+\begin{theorem}[\textbf{Termination}] \label{thm:termination}
+  If $\Penv$ is transparent
+  then $\pbe{\Renv}{\Penv}{\pred}$ terminates.
+\end{theorem}
+
+The proof has two cases.
+%
+If $\Penv$ is \emph{inconsistent} then trivially $\smtIsValid{\Penv}{\pred}$
+and so $\pbe{\Renv}{\Penv}{\pred}$ terminates immediately.
+%
+If $\Penv$ is inhabited and yet $\pbesym$ loops forever,
+there must be an infinite strictly ascending chain of
+unfoldings $\Penv_i$, and hence, by lemma~\ref{lem:chain}
+and infinite symbolic trace which contradicts
+lemma~\ref{lem:finite-trace}.
+%
+Thus, if $\Penv$ is inhabited, $\pbesym$ must terminate.
+
+%
+The transparency requirement is not onerous.
+In practice, the environments are either always
+inconsistent \ie we have provably ``dead code'',
+or it is easy to find concrete values that inhabit
+the hypothesis by random~\cite{Claessen00}
+or SMT-guided generation~\cite{Seidel15}.

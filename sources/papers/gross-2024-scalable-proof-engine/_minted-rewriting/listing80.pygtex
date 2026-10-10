@@ -1,0 +1,3 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PYG{n}{Make} \PYG{n}{myrewriter} \PYG{o}{:=} \PYG{n}{Rewriter} \PYG{n}{For} \PYG{o}{(}\PYG{n}{zero\PYGZus{}plus}\PYG{o}{,} \PYG{n}{plus\PYGZus{}zero}\PYG{o}{,} \PYG{n}{times\PYGZus{}zero}\PYG{o}{,} \PYG{n}{times\PYGZus{}one}\PYG{o}{).}
+\end{Verbatim}

@@ -1,0 +1,165 @@
+\section{Annotated IR Examples}
+\label{sec:annotated_examples}
+
+\subsection{LLVM Dialect and Mix of Dialects}
+\label{sec:appendix-llvm-mix-example}
+
+The snippet in Figure~\ref{fig:llvm_dialect_example} (function \lstinline{llvm_example}) mixes operations and types within the declaration of a function in the \lstinline{llvm} dialect.
+
+\begin{figure}[h!tb]
+\begin{lstlisting}[language=mlir]
+llvm.func @llvm_example(%v: i32, %cond: i1) -> !llvm.struct<(f32, vector<2xf32>, i32)> {
+  %0 = llvm.mlir.undef : !llvm.struct<(f32, vector<2xf32>, i32)>
+  %vf32 = arith.uitofp %v : i32 to f32
+  %1 = llvm.insertvalue %vf32, %0[0] : !llvm.struct<(f32, vector<2xf32>, i32)>
+  %f123 = arith.constant 123.0 : f32
+  cond_br %cond, ^bb1(%f123: f32), ^bb2(%f123: f32)
+  
+^bb1(%fa: f32):
+  %at123 = math.atan2 %fa, %fa : f32
+  br ^bb2(%at123: f32)
+  
+^bb2(%fb: f32):
+  %b = vector.broadcast %fb: f32 to vector<2xf32>
+  %2 = llvm.insertvalue %b, %1[1] : !llvm.struct<(f32, vector<2xf32>, i32)>
+  %c1024 = arith.constant 1024 : i32
+  %3 = llvm.insertvalue %c1024, %2[2] : !llvm.struct<(f32, vector<2xf32>, i32)>
+  llvm.return %3 : !llvm.struct<(f32, vector<2xf32>, i32)>
+}
+\end{lstlisting}
+\caption{Illustration of an LLVM dialect function that takes an i32 and a bool and returns a struct. The struct is filled with different values depending on the bool function argument.}
+\label{fig:llvm_dialect_example}
+\end{figure}
+
+\lstinline|llvm.undef| creates a \lstinline|!llvm.struct<(f32, vector<2xf32, i32)>| structure that is filled thanks to \lstinline|llvm.insertvalue|.
+The values used to fill the struct are created with operations from the \lstinline|arith|, 
+\lstinline|math| and \lstinline|vector| dialect. 
+Builtin types are provided that are visible to all dialects (e.g. \lstinline|f32|, \lstinline|i32|, \lstinline|vector<2xf32>|). 
+Dialects may introduce their own types (e.g. \lstinline|!llvm.struct<(f32, f32, i32)>| 
+has no builtin representation and is not understood by ops in the \lstinline|arith| and \lstinline|math| dialects).
+
+This simple example already provides a key insight about SSA form that we leverage in other dialects.
+The instruction
+\begin{lstlisting}[language=mlir]
+%1 = llvm.insertvalue %vf32, %0[0] : !llvm.struct<(f32, vector<2xf32>, i32)>
+\end{lstlisting}
+inserts the value \lstinline|%vf32| at position \lstinline|0| in the 
+\lstinline|!llvm.struct| named \lstinline|%0|. The instruction produces a new \lstinline|!llvm.struct| named \lstinline|%1| that contains a copy of all entries of \lstinline|%0| except for the \lstinline|f32| at position \lstinline|0| that takes the value \lstinline|%vf32|.
+
+In a classical compilation flow to \LLVM IR, all operations and types must be converted to the \lstinline|llvm| dialect. This process is called \emph{dialect conversion}.
+To make this process easier and improve interoperability between dialects, the \lstinline|llvm| dialect use the same representation for builtin types. 
+
+\subsection{ArmNEON dialect example}
+\label{sec:appendix-arm-neon-example}
+
+\MLIR has a native higher-dimensional vector type that conveniently mixes with target-specific operations (effectively mirroring actual instructions) of the \lstinline|arm_neon| dialect.
+
+\begin{lstlisting}[language=mlir]
+// High-level 2-d vector flavor of the sdot operation.
+func @sdot2d_4x4_i8i8(%a: vector<4xi32>, %b: vector<4x4xi8>, %c: vector<4x4xi8>) 
+    -> vector<4xi32> {
+  %0 = arm_neon.2d.sdot %a, %b, %c : vector<4x4xi8>, vector<4x4xi8> to vector<4xi32>
+  return %0 : vector<4xi32>
+}
+// Lowers to 1-d intrinsic form.
+llvm.func @lowered_sdot2d_4x4_i8i8(%a: vector<4xi32>, %b: vector<16xi8>, %c: vector<16xi8>) 
+    -> vector<4xi32> {
+  %0 = arm_neon.intr.sdot %a, %b, %c : vector<16xi8>, vector<16xi8> to vector<4xi32>
+  return %0 : vector<4xi32>
+}
+// And further translates to llvm IR.
+define <4xi32> @llvm_sdot2d_4x4_i8i8(<4xi32> %0, <16xi8> %1, <16xi8> %2) {
+  %4 = call <4xi32> @llvm.aarch64.neon.sdot.v4i32.v16i8(<4xi32> %0, <16xi8> %1, <16xi8> %2)
+  ret <4xi32> %4
+}
+\end{lstlisting}
+
+The \lstinline|llvm.aarch64.neon.sdot.v4i32.v16i8| intrinsic performs 4 parallel dot products
+on subvectors of \lstinline|4xi8|, each contributing to one of the lanes of the resulting \lstinline|4xi32|. The \lstinline|arm_neon.intr.sdot| closely mirrors the intrinsic.
+However, we also provide a \lstinline|arm_neon.2d.sdot| that exposes the operation semantics more clearly to the higher level of the infrastructure.
+
+This simple example illustrates the semantic benefits of more structured, higher-dimensional abstractions.
+
+
+\subsection{Target-Specific Vector IR}
+\label{sec:appendix-lowered-vector}
+
+\begin{lstlisting}[language=mlir]
+func @contract(%m0: memref<2xf32>, %m1: memref<2x16xf32>, %m2: memref<2x16xf32>) {
+    %0 = vector.load %m0[0] : memref<2xf32>, vector<2xf32>
+    %1 = vector.load %m1[0, 0] : memref<2x16xf32>, vector<8xf32>
+    %2 = vector.load %m1[1, 0] : memref<2x16xf32>, vector<8xf32>
+    %3 = vector.load %m1[0, 8] : memref<2x16xf32>, vector<8xf32>
+    %4 = vector.load %m1[1, 8] : memref<2x16xf32>, vector<8xf32>
+    %5 = vector.extract %0[0] : vector<2xf32>
+    %6 = splat %5 : vector<8xf32>
+    %7 = vector.fma %6, %1, 0.0f : vector<8xf32>
+    %8 = vector.extract %0[1] : vector<2xf32>
+    %9 = splat %8 : vector<8xf32>
+    %10 = vector.fma %9, %2, %7 : vector<8xf32>
+    %11 = vector.fma %6, %3, 0.0f : vector<8xf32>
+    %12 = vector.fma %9, %4, %11 : vector<8xf32>
+    vector.store %10, %m2[0, 0] : memref<2x16xf32>, vector<8xf32>
+    vector.store %12, %m2[0, 8] : memref<2x16xf32>, vector<8xf32>
+    vector.store %10, %m2[1, 0] : memref<2x16xf32>, vector<8xf32>
+    vector.store %12, %m2[1, 8] : memref<2x16xf32>, vector<8xf32>
+  return
+}
+\end{lstlisting}
+
+\subsection{Python Bindings and Interoperability}
+\label{sec:appendix-python}
+
+Structured tensor code generation strongly influenced the design of the MLIR Python bindings, in particular, the ``natural'' mapping between nested Python context managers and the nested IR structure is illustrated in Figure~\ref{fig:python-ir-nesting}.
+
+\begin{figure}[h!tb]
+\begin{lstlisting}[language=python]
+from mlir.ir import Context, InsertionPoint, Module
+from mlir.dialects import builtin, scf
+
+# Constructs IR in a fresh MLIR context.
+with Context():
+  module = Module()
+  
+  # Construct the following operations within module.
+  with InsertionPoint(Module.body):
+    func = builtin.FuncOp('foo')
+    
+    # Construct the following operations within function.
+    # Create the entry block to turn declaration into definition.
+    with InsertionPoint(func.add_entry_block()):
+      loop = scf.ForOp(...)
+      
+      # Construct the following operations with loop.
+      with InsertionPoint(loop.body):
+        # etc.
+\end{lstlisting}
+\caption{Illustration of the L1-resident 2-D copy benchmark.}
+\label{fig:python-ir-nesting}
+\end{figure}
+
+Structured data objects processed by the flow are exposed in Python as objects compatible with the Python buffer protocol and can therefore be converted to and from NumPy arrays, which are further convertible to framework-specific data types.
+
+Once the program is constructed, compiled using the structured tensor code generation flow and lowered, it can be JIT-compiled and functions from this program can be invoked from Python using its name. The code below illustrates the execution of the \lstinline{matmul} function from the module defined above.
+
+\begin{lstlisting}[language=python]
+from mlir.execution_engine import ExecutionEngine
+from mlir.runtime import get_ranked_memref_descriptor
+import numpy as np
+import ctypes
+
+# Create NumPy arrays.
+np_a, np_b = np.ones(M, K), np.ones(K, N)
+np_c = np.zeros(M, N)
+
+# Transform them into MLIR-compatible objects that share underlying data.
+a, b, c = [ctypes.pointer(ctypes.pointer(get_ranked_memref_descriptor(v)))
+           for v in (np_a, np_b, np_c)]
+           
+# JIT-compile and invoke the function.
+engine = ExecutionEngine(module, opt_level=3)
+engine.invoke('matmul', a, b, c)
+
+# Results are readily available in the NumPy array.
+print(np_c)
+\end{lstlisting}

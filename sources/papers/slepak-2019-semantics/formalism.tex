@@ -1,0 +1,4179 @@
+\section{Formalism}
+\label{sec:Formalism}
+
+We present a formal description of Core Remora,
+which describes the control-flow mechanism used for computing on arrays.
+While the nested-vector shorthand used earlier is convenient for human use,
+this formalism explicitly distinguishes atoms from arrays.
+
+The basic design goal for the language of types and indices
+is to describe the program's control structure,
+for a compiler's benefit.
+This requires a detailed description of array shapes.
+Knowing only the number of axes an array has is insufficient because
+good mapping from source to hardware---%
+\eg, whether to emit vector instructions, invoke a GPGPU kernel, or fork separate parallel threads---%
+depends more on the actual sizes of individual axes than on how many there are.
+We use indexed types, in the style of Dependent ML:
+rather than allowing types to be parameterized over arbitrary terms,
+they are parameterized over a limited language of type indices.
+Remora's index language consists of natural numbers, representing individual dimensions,
+and sequences of naturals, representing array shapes
+(or fragments of shapes).
+So the type of an array has the form
+{\tt (Arr $\type$ $\idx$)},
+where $\type$ identifies the type of the array's atoms,
+and $\idx$ describes the array's shape.
+This includes enough detail for the type system to describe
+how the function and argument arrays align in function application.
+It also grants the ability to statically detect arrays that cannot be properly aligned.
+
+Fixed-size computation,
+requiring every function to exactly specify its argument and result sizes,
+is far too restrictive for practical use.
+Programmers should not have to write a separate {\tt vector-mean} function
+for every possible length of vector their programs might use.
+So the index language must permit variables,
+%which might represent individual dimensions or sequences of dimensions,
+and the type language must allow universal quantification.
+This is phrased as a dependent product:
+$\typedprod{\sequence{\notevar{\var}{\sort}}}{\type}$.
+Each $\var$ is marked with its sort $\sort$,
+which specifies whether $\var$ ranges over
+individual dimensions ($\sort = \sortdim$)
+or sequences ($\sort = \sortshp$).
+Now we can give a type to {\tt vector-mean}:
+
+\begin{alltt}
+(Pi ((n Dim))
+  (-> ((Arr Float (Shp n)))
+      (Arr Float (Shp))))
+\end{alltt}
+This function will lift to operate on higher-rank arrays of {\tt Float}s,
+effectively behaving as a minor-axis mean function.
+Having {\tt Shape} variables in addition to {\tt Dim} variables
+allows us to type a major-axis mean function as well:
+
+\begin{alltt}
+(Pi ((c Shape) (n Dim))
+  (-> ((Arr Float (++ (Shp n) c)))
+      (Arr Float c)))
+\end{alltt}
+
+Combined with parametric polymorphism,
+where type variables can be quantified separately over
+the kinds $\kindatom$ and $\kindarray$,
+we now have a lot of flexibility in describing a function's behavior.
+For example, {\tt append} stitches two arrays together along their major axis.
+This requires that
+the $(n-1)$-dimensional pieces of each $n$-dimensional array
+have the same type
+(\ie, they must share the same $\kindatom$-kinded type variable),
+but we must introduce separate index variables
+(of sort $\sortdim$)
+for the arguments' major axes.
+The type we give to {\tt append} is
+
+\begin{alltt}
+(Pi ((c Shape) (m Dim) (n Dim))
+  (Forall ((a Atom))
+    (-> ((Arr a (++ (Shp m) c))
+         (Arr a (++ (Shp n) c)))
+        (Arr a (++ (Shp (+ m n)) c)))))
+\end{alltt}
+We have index variables {\tt m} and {\tt n} to stand for
+each argument's first dimension
+and {\tt c} to denote the rest of their shapes.
+Quantifying over the type variable {\tt a} allows {\tt append} to work
+independent of the type of atoms its arguments contain.
+Our result type's first dimension is the sum of the arguments' first dimensions,
+but it has the same ``remainder'' shape {\tt c}.
+
+Quantifying over $\kindarray$ types is a convenience---%
+it is not strictly necessary.
+Concrete $\kindarray$-kinded types must be of the form
+$\typearray{\type}{\idx}$,
+so polymorphic types of the form
+$\typeuniv{\notevar{\var}{\kindarray}}{\type}$
+could be rewritten with fresh variables $\var_s$ and $\var_a$ as
+% \(\typedprod{\notevar{\var_s}{\sortshp}}{\typeuniv{\notevar{\var_a}{\kindatom}}
+%   {\subst{\type}{\var}{\typearray{\var_a}{\var_s}}}}\).
+
+\begin{alltt}
+(Pi ((\(\var\sb{s}\) Shape))
+  (Forall ((\(\var\sb{a}\) Atom))
+    \(\subst{\type}{\var}{\typearray{\var\sb{a}}{\var\sb{s}}}\)))
+\end{alltt}
+
+Even having escaped the confines of fixed-size computation,
+we so far only have functions whose result shape depends solely on its arguments' shapes.
+Common utility functions such as {\tt iota} and {\tt filter}
+have result shapes which depend on the actual run-time data they receive.
+We can solve this limitation using existential quantification.
+A dependent sum type,
+\(\typedsum{\sequence{\notevar{\var}{\sort}}}{\type}\),
+conceptually represents a tuple
+containing indices whose respective sorts are $\sequence{\sort}$
+and an array whose type $\type$ may depend on those indices.
+This is the type-level description of a {\tt box},
+the atomic wrapper around an arbitrary array.
+Such types can encode arrays whose dimensions are not all known.
+For example,
+{\tt (Sigma ((n Dim)) (Arr Int (Shp n)))}
+%\(\typedsum{\notevar{\text{\tt n}}{\sortdim}}{\typearray{\text{\tt Int}}{\idxshape{\text{\tt n}}}}\)
+can describe any vector of integers without giving its specific length.
+Note that the type still requires the underlying array to have rank 1.
+No scalar or matrix or higher-ranked array can
+fit the pattern specified by $\typearray{\text{\tt Int}}{\idxshape{\text{\tt n}}}$,
+the dependent sum's body.
+Use of dependent sums offers a lot of freedom in stating
+what shape information is known precisely and what is hidden.
+At one extreme,
+{\tt (Sigma ((s Shape)) (Arr Int s))}
+could contain an array of absolutely any shape.
+We can also write more detailed descriptions,
+\eg, floating-point matrices with exactly three rows and at least two columns:
+
+\begin{alltt}
+(Sigma ((c Dim))
+  (Arr Float
+       (Shp 3 (+ 2 c))))
+\end{alltt}
+Quantifying over shapes allows us to describe
+arrays where only specific axes are known,
+such as boolean arrays whose leading axis has length 10:
+
+\begin{alltt}
+(Sigma ((s Shape))
+  (Arr Bool
+       (++ (Shp 10) s)))
+\end{alltt}
+
+Typing boxes as dependent sums also permits controlled access to ragged arrays,
+which are typed as arrays of boxes.
+Consider a vector of 20 strings of varying lengths:
+
+\begin{alltt}
+(Arr (Sigma ((len Dim))
+       (Arr Char (Shp len)))
+     (Shp 20))
+\end{alltt}
+Any function written to operate on a box of the appropriate type,
+in this case containing {\tt Char} vectors of completely unknown length,
+can be safely lifted to operate on this vector of strings.
+Separating the lifting over the outer dimensions
+from the lifting over inner, existentially hidden dimensions
+reflects an important consideration for code generation:
+ragged dimensions in a type identify when implicit parallelism is \emph{irregular},
+in contrast with the strictly regular parallelism offered in box-free code.
+Raggedness is not restricted to the minor axis
+because a box's type can still specify some exact dimensions,
+as in
+\begin{alltt}
+(Arr (Sigma ((l Dim))
+        (Arr Char (Shp l 80)))
+     (Shp 20))
+\end{alltt}
+Here we have a vector of 20 documents,
+each of which is a character array
+containing an unknown number of 80-character lines.
+
+\subsection{Syntax}
+\FigAbstractSyntax
+The grammar for Core Remora is given in Figure \ref{fig:AbstractSyntax}.
+Term-level syntax is divided into atoms,
+noted as $\atom$,
+and expressions,
+noted as $\expr$.
+Expressions produce arrays,
+which contain atoms.
+For the most part, atom terms perform only trivial computation.
+This rule applies to base values,
+noted as $\baseval$;
+primitive operators,
+noted as $\primop$;
+and $\lambda$-abstractions,
+which may abstract over terms, types, and type indices.
+As an exception,
+a box gives an atomic view of an array of any shape
+and may therefore perform any computation to compute its contents.
+A box hides part of its contents' shape,
+using a dependent sum.
+It existentially quantifies type indices,
+but an explicit type annotation is required.
+A box built from the index {\tt 3} and a $3\times3$ matrix
+could be meant, for example,
+as an unspecified-length vector containing 3-vectors,
+with type
+{\tt (Sigma ((n Dim)) (Arr Int (Shp n 3)))}
+% $\typedsum
+% {\notevar{\text{\tt n}}{\sortdim}}
+% {\typearray{\text{\tt Int}}{\idxshape{\text{\tt n 3}}}}$;
+or as a square matrix of unspecified size,
+with type
+{\tt (Sigma ((n Dim)) (Arr Int (Shp n n)))}
+$\typedsum
+{\notevar{\text{\tt n}}{\sortdim}}
+{\typearray{\text{\tt Int}}{\idxshape{\text{\tt n n}}}}$;.
+%Tuples also evaluate their elements.
+
+An array can be written as a literal,
+with its shape and individual atoms listed directly.
+It can also be written in nested form
+as a frame containing cells (its subexpressions)
+arranged in the specified shape.
+For example, the matrix
+$\left[\begin{smallmatrix}
+    1 & 2 \\ 3 & 4
+\end{smallmatrix}\right]$
+can be written as the literal
+$$\arrlit{\text{\tt 1 2 3 4}}{\text{\tt 2 2}}$$
+or as a vector frame of vector literal cells:
+$$\text{\tt (frame (2) (array (2) 1 2) (array (2) 3 4))}$$
+% $\frm
+% {\arrlit{\text{\tt 1 2}}{\text{\tt 2}}
+%  \; \arrlit{\text{\tt 3 4}}{\text{\tt 2}}}
+% {\text{\tt 2}}$.
+The frame notation allows construction of arrays from unevaluated cells.
+An empty array (\ie, one with a zero in its shape)
+must be written with the type its elements are meant to have.
+An empty vector of integers is a different value than
+an empty vector of booleans,
+and they inhabit different types.
+
+Term, type, and index abstractions can be applied to
+zero or more expressions, types, or indices.
+The body of the abstraction must itself be an expression,
+\ie, all functions produce arrays as their results.
+
+Consuming a box let-binds its index- and term-level contents.
+Suppose we have {\tt M},
+a boxed square matrix of unspecified size.
+Unboxing {\tt M} as in
+$\dproj{\text{\tt l}}{\text{\tt a}}{\text{\tt M}}{\expr}$
+lets us use the index variable {\tt l} and term variable {\tt a}
+within $\expr$, the body.
+
+Types include base types
+(noted as $\basetype$),
+functions, arrays,
+universal types,
+and dependent products and sums.
+Universals specify the kind of each type argument,
+and dependent products and sums specify the sort of each index argument.
+Types are classified as either $\kindatom$ or $\kindarray$.
+Type indices are naturals and sequences of naturals,
+with addition and appending as the only operators.
+They are classified into sorts, $\sortdim$ and $\sortshp$.
+
+The grammar in Figure \ref{fig:AbstractSyntax} does not
+require any specific set of primitive operators, base types, and base values.
+An example collection of array-manipulation primitives and their types
+is given in Figure \ref{fig:ArrayOps}.
+For readability, we elide the enclosing {\tt Pi} and {\tt Forall} forms.
+Most of these primitives perform some operation along the argument's major axis.
+For example, {\tt head} extracts the first scalar of a vector, the first row of a matrix, \etc
+This means that the argument shape must have
+one dimension more than the result shape,
+and that extra dimension must be nonzero.
+This is expressed in the type of {\tt head}
+by giving the argument shape {\tt (++ (+ 1 d) s)},
+\ie, a single dimension which is 1 plus any arbitrary natural
+followed by any arbitrary sequence of naturals.
+In taking one scalar from a 3-vector,
+we would instantiate {\tt d} as the dimension {\tt 2}
+and {\tt s} as the empty shape {\tt (Shp)}.
+If we want to extract the first plane of a $5 \times 6 \times 7$ array,
+we use {\tt 4} for {\tt d} and {\tt (Shp 6 7)} for {\tt s}.
+
+Since these operations work along the major axis,
+we can use other axes instead
+by instantiating them differently.
+Suppose {\tt mtx} is the matrix {\tt (array (3 2) 0 1 2 3 4 5)},
+which has type {\tt (Arr Num (Shp 3 2))}.
+Then {\tt (t-app (i-app head 2 (Shp 2)) Num)}
+is a function which extracts the first row
+of a $(1+2) \times 2$ (\ie, $3 \times 2$) matrix.
+So {\tt ((t-app (i-app head 2 (Shp 2)) Num) mtx)}
+evaluates to {\tt (array (2) 0 1)}.
+Instead, consider {\tt (t-app (i-app head 1 (Shp)) Num)}.
+This is a function with input type {\tt (Arr Num (Shp 2))}
+and output type {\tt (Arr Num (Shp))}.
+It extracts the first scalar of a 2-vector.
+When applied to {\tt mtx},
+this function \emph{lifts}
+to extract the first scalar from \emph{each} 2-vector,
+gathering the results as
+{\tt (frame (3) (array () 0) (array () 2) (array () 4))}.
+Evaluation proceeds, reducing this to {\tt (array (3) 0 2 4)},
+the first column of {\tt mtx}.
+
+Several primitives must return boxed arrays
+because the type system cannot keep track of enough information
+to fully describe the result shape.
+As an extreme example,
+{\tt read-nums} reads a vector of numbers from user input,
+and there is no way of knowing until run time
+how long a vector the user will enter.
+In other cases, the necessity of boxing
+comes from a limit on the type system's expressive power.
+The {\tt ravel} function produces a vector
+whose atoms are all those of the argument array,
+laid out in row-major order.
+The length of the {\tt ravel} of some array
+is fully determined by that array's shape:
+it is the product of all of its dimensions.
+However the undecidability of Peano arithmetic
+would interfere with type checking
+(not to mention future efforts on type inference).
+Since ``product of all dimensions'' is not expressible in Presburger arithmetic,
+we instead have {\tt ravel} return a boxed vector.
+
+Boxing is not limited to vectors.
+For example, {\tt filter} uses a vector of booleans
+to decide which parts of an array to retain.
+Since the number of true entries in that vector is unknown,
+the size of the result's major axis is also unknown.
+The resulting {\tt Sigma} type
+existentially quantifies only that one dimension,
+and leaves the remaining dimensions externally visible.
+
+\FigArrayOps
+
+The {\tt iota} functions and their variants ,
+described in Figure \ref{fig:IotaVariants},
+form a useful case study on
+what invariants can be expressed in Remora's type system.
+These functions produce arrays whose atoms are
+successive natural numbers starting from 0,
+such as {\tt (array (2 3) 0 1 2 3 4 5)},
+representing the matrix
+$\left[\begin{smallmatrix}
+    0 & 1 & 2 \\ 3 & 4 & 5
+\end{smallmatrix}\right]$.
+The argument to {\tt iota}
+is a vector of numbers specifying the result array's shape.
+Since this vector can be dynamically computed,
+we cannot give any specific shape for {\tt iota}'s return type.
+Instead, {\tt iota} must return a box
+with existentially quantified shape.
+Recall that boxing arrays allows functions with data-dependent result shape to lift safely,
+since applying {\tt iota} to {\tt (array (2 2) 3 3 4 4)}
+must produce a $3 \times 3$ matrix and a $4 \times 4$ matrix
+as its two result cells.
+
+Variants on {\tt iota}
+allow the programmer to
+communicate more detailed knowledge to the type system.
+When the result is meant to be a vector,
+{\tt iota/v} takes that vector's length as the argument.
+The resulting box is typed as a vector of unknown length
+rather than an array of completely unknown shape.
+Knowing that we have a vector of numbers rather than any arbitrary array
+means, for example,
+that summing the box's contents with {\tt reduce}
+is certain to produce a scalar.
+We can therefore type the following function as
+consuming and producing \emph{non-boxed} scalar numbers:
+\begin{alltt}
+(\l{(n (Arr Num (Shp)))}
+  (unbox (len nums ((array () iota/v) n))
+    ((t-app (i-app (array () reduce) len (Shp)) Num)
+     +
+     ((t-app (i-app (array () append) 1 len (Shp)) Num)
+      (array () 0)
+     nums))))
+\end{alltt}
+In a more programmer-friendly surface language,
+with automatic instantiation of polymorphic functions%
+\footnote{This inference problem is beyond the scope of this paper.}
+and conversion of bare atoms to scalar arrays,
+this might be written as:
+\begin{alltt}
+(\l{(n (Arr Num (Shp)))}
+  (unbox (len nums (iota/v n))
+    (reduce + (append [0] nums))))
+\end{alltt}
+
+Alternatively, the programmer might prefer to use {\tt iota/s}
+to pass the desired result shape as a type index
+rather than as a term-level vector.
+In that case, there is no need to box the result array.
+In the automatic-instantiation shorthand,
+{\tt iota/s} may be stylistically awkward,
+calling for the variant {\tt iota/w}, which
+takes an extra array argument as a ``shape witness''
+rather than instantiating at a shape index.
+Producing a number array whose shape matches some existing array {\tt xs}
+could then be written as {\tt (iota/w xs)}
+instead of {\tt ((i-app iota/s shape-of-xs))}.
+
+\FigIotaVariants
+
+The {\tt reshape} function behaves similarly to {\tt iota},
+except that the atoms in the result array
+are drawn from the second argument,
+repeating them cyclically if necessary.
+So using {\tt reshape}
+with the shape specification {\tt (array (2) 3 2)}
+and the vector {\tt (array (5) 1 2 3 4 5)}
+produces the $3 \times 2$ matrix {\tt (array (3 2) 1 2 3 4 5 1)}.
+Like {\tt iota},
+{\tt reshape} benefits from alternative ways
+for the programmer to specify the result shape.
+
+\subsection{Theory of type indices} \label{IdxTheoryProse}
+Type indices, given in program syntax as $\idx$,
+represent individual dimensions, taken from $\mathbb{N}$,
+and array shapes, taken from the free monoid on $\mathbb{N}$.
+The theory of the free monoid on $\mathbb{N}$ includes as axioms
+the associativity of adding naturals and appending sequences
+as well as unique identity elements for addition (zero)
+and appending (the scalar shape, $\thempty$):
+\[0 + i = i + 0 = i\]
+\[(i + j) + k = i + (j + k)\]
+\[\thempty \thappend a = a \thappend \thempty = a\]
+\[(a \thappend b) \thappend c = a \thappend (b \thappend c)\]
+
+As the \emph{free} monoid,
+it also follows an equidivisibility rule which states that
+if two uses of the append operator give the same result,
+there is some completing subsequence,
+representing the overlap between each use's larger argument
+(demonstrated in Figure \ref{fig:OverlapAxiom}):
+\[ a \thappend b = c \thappend d \implies
+\exists w . \left( a \thappend w = c\wedge w \thappend d = b \right)
+\vee \left( c \thappend w = a \wedge w \thappend b = d \right) \]
+
+\FigOverlapAxiom
+
+A free monoid (on any set of generators) also has a homomorphism to
+the monoid formed by $\mathbb{N}$ under addition,
+with the property that only the free monoid's identity element
+can be mapped to 0.
+This can be axiomatized with one additional function symbol $L$:
+\[L(a) = 0 \implies a = \thempty \]
+\[L(a \thappend b) = L(a) + L(b) \]
+
+Using equidivisibility and the homomorphism to the additive $\mathbb{N}$ monoid,
+we can define a partial operator $\thmonus$ for prefix subtraction:
+$a \thmonus b = c$ iff $b \thappend c = a$.
+For example, $[3,4,5,6] \thmonus [3,4] = [5,6]$,
+whereas $[3,4,5,6] \thmonus [4]$ is undefined.
+
+Type checking only requires a very restricted fragment of this theory.
+Pairs of indices are only checked for equality in isolation from each other,
+and no information about an index
+(other than its sort)
+is given in the program.
+So the check is for the validity of a single equality---%
+no connectives or quantifiers needed.
+This fragment can be decided efficiently by
+comparing indices written in canonical form.
+Two $\sortdim$s which are equal must simplify to sums with
+the same constant component
+and the same coefficient on corresponding variables.
+For example,
+\[\idxadd{\text{\tt x y 5 x}} = \idxadd{\idxadd{\text{\tt x x}} \text{\tt\ 5 y}}\]
+is valid
+because both simplify to $2x+y+5$,
+whereas
+\[\idxadd{\text{\tt q 5 y}} = \idxadd{\idxadd{\text{\tt x x}} \text{\tt\ 5 y}}\]
+is false for any interpretation which
+does not assign $q$ to twice the value assigned to $x$
+(and thus is not valid).
+
+To decide the validity of an equality on $\sortshp$s
+(\ie, sequences of naturals),
+we can again test by conversion to a canonical form:
+a sequence is written out as the concatenation of
+single $\sortdim$s and $\sortshp$ variables.
+Sorting rules guarantee that
+the individual elements of a sequence are natural numbers,
+and associativity permits nested appends to be collapsed away.
+Thus the index
+\[\idxappend%
+{\idxshape{\text{\tt 2\ }\idxadd{\text{\tt x 5 x}}}
+  \text{\tt\ }
+  \idxappend{\text{\tt\ d\ } \idxshape{\text{\tt3}}}}\]
+canonicalizes to
+\[\idxappend%
+{\idxshape{\text{\tt 2}}
+  \text{\tt\ }
+  \idxshape{\idxadd{\text{\tt x x 5}}}
+  \text{\tt\ d\ }
+  \idxshape{\text{\tt 3}}}\]
+To show that this process does produce a canonical form,
+consider two shapes in this form which differ,
+and focus on the leftmost differing position
+in their respective lists of appended components.
+If they are syntactically different singleton shapes---%
+their respective contents are two different canonicalized naturals---%
+then an assignment under which those naturals differ
+will also make the full shapes differ at this position.
+If one is a singleton $\idxshape{\idx}$ and the other a variable {\tt s}
+(of sort $\sortshp$),
+then an interpretation which assigns
+the variables in $\idx$ such that its components sum to $n$
+may also assign {\tt s} to be the shape $\idxshape{\idxadd{n \text{\tt\ 1}}}$.
+Again, an interpretation forces the shapes to be unequal.
+Finally, if this position has variables {\tt s} and {\tt t},
+choose an interpretation mapping
+{\tt s} to $\idxshape{\text{\tt 1}}$
+and {\tt t} to $\idxshape{\text{\tt 2}}$
+to produce unequal interpretations of the whole shapes.
+
+Although type checking itself only requires this canonicalization process,
+constraint-based type inference would call for a more sophisticated solver
+due to the use of existential variables for choosing pieces of an index.
+
+In order to describe when arguments' shapes are compatible,
+it is useful to impose a lattice structure on the universe of shapes.
+The lattice is built with the order $\sqsubseteq$ meaning that one shape is a prefix of another;
+a $\top$ is added to represent the join of incompatible shapes
+(we already have $\bot = \thempty$,
+as the empty shape is a prefix of every shape).
+For shapes $s_0$ and $s_1$,
+we have $s_0 \sqcup s_1 \not= \top$ if and only if
+$s_0 \sqsubseteq s_1$ or $s_1 \sqsubseteq s_0$.
+Generalizing to arbitrary finite joins,
+$\displaystyle\bigsqcup\left\{ \sequence{s} \right\} \not= \top$
+implies that the shapes $\sequence{s}$ are totally ordered,
+and the lattice structure means the shapes' join is one of the shapes themselves.
+
+\subsection{Static Semantics}
+\label{ssec:StaticSemantics}
+Typing Core Remora uses a three-part environment structure:
+$\sEnv$ is a partial function mapping index variables to sorts;
+$\kEnv$ maps type variables to their kinds;
+and $\tEnv$ maps term variables to their types.
+The stratification of Dependent ML-style types
+allows indices to be checked using only the sort environment
+and types using only the sort and kind environments.
+Following the definition of each judgment form,
+we give a handful of lemmas
+which will be needed for a type soundness argument in Subsection \ref{SoundnessSection}.
+The well-formedness judgments
+each come with a lemma stating that
+the judgment gives a unique result to each well-formed term
+and that unique result is preserved by
+substituting well-formed assignments for free variables.
+When we show type soundness for Remora,
+these results will be needed to prove the preservation lemma.
+Uniqueness of typing is particularly important for Remora,
+where the implicit iteration in function application
+(including index and type abstractions)
+is driven by the types ascribed to the function and argument expressions.
+Well-defined program behavior relies on having
+a unique decomposition of each array into a frame of cells.
+
+\subsubsection{Sorting}
+\FigSortingRules
+Figure \ref{fig:SortingRules} defines the sorting judgment,
+$\sortof{\sEnv}{\idx}{\sort}$,
+which states that in sort environment $\sEnv$,
+the index $\idx$ has sort $\sort$.
+Natural number literals have sort $\sortdim$.
+A sequence of indices is a $\sortshp$,
+provided that every element of the sequence is a $\sortdim$.
+Addition is used on $\sortdim$ arguments to produce a $\sortdim$.
+$\sortshp$ arguments may be appended,
+to form another $\sortshp$.
+Variables may be bound at either sort,
+but they can only be introduced into the environment by
+index abstraction and unboxing terms---%
+the index language itself has no binding forms.
+
+We give two results about the well-behaved nature of the sorting rules:
+No index inhabits both sorts (in the same environment),
+and replacing an index's variables with appropriately-sorted indices
+does not change the sort.
+
+
+\begin{lemma}[Uniqueness of sorting]
+  \label{UniqSort}
+  If $\sortof{\sEnv}{\idx}{\sort}$
+  and $\sortof{\sEnv}{\idx}{\sort'}$,
+  then $\sort = \sort'$.
+\end{lemma}
+\begin{sproof}[\BODY]
+  No non-variable index form is compatible with multiple sorting rules,
+  so they can only have whichever sort their one compatible rule concludes.
+  It remains to show that uniqueness holds for variables.
+  Since $\sEnv$ is a well-defined partial function,
+  mapping variables to sorts,
+  $\sEnv(\var)$ can only have one value.
+  If $\sEnv(\var) = \sort$ and $\sEnv(\var) = \sort'$, $\sort = \sort'$.
+\end{sproof}
+
+\newcommand{\idxsubst}[1]{\subst{#1}{\var}{\idx_\var}}
+\begin{lemma}[Preservation of sorts under index substitution]
+  \label{IISub}
+  If $\sortof{\sEnv,\hassort{\var}{\sort_\var}}{\idx}{\sort}$
+  and $\sortof{\sEnv}{\idx_\var}{\sort_\var}$
+  then $\sortof{\sEnv}{\idxsubst{\idx}}{\sort}$.
+\end{lemma}
+\begin{sproof}[This is straightforward induction on the original sort derivation.]
+  We use induction on the sort derivation
+  $\sortof{\sEnv,\hassort{\var}{\sort_\var}}{\idx}{\sort}$.
+  \paragraph{Case {\sc Nat}}
+  \[\infr[S-Nat]
+  {\nat \in \mathbb{N}}
+  {\sortof{\sEnv,\hassort{\var}{\sort_1}}{\nat}{\sortdim}}\]
+  Since $\idx_0 = \nat$, $\idxsubst{\idx} = \idx_0$,
+  so the original derivation is still valid.
+  \paragraph{Case {\sc Var}}
+  \[\infr[S-Var]
+  {\parens{\hassort{\var'}{\sort}} \in \sEnv}
+  {\sortof{\sEnv,\hassort{\var}{\sort_\var}}{\var'}{\sort}}\]
+  Then $\idx$ has the form $\var'$.
+  If $\var' = \var$, then $\idxsubst{\idx} = \idx_1$,
+  and (by Lemma \ref{UniqSort}, uniqueness of sorting) $\sort = \sort_\var$.
+  By assumption, $\sortof{\sEnv}{\idx_\var}{\sort_\var}$,
+  so the equality of $\sort$ and $\sort_\var$ implies $\sortof{\sEnv}{\idx_\var}{\sort}$.
+  If $\var' \not= \var$, then $\idxsubst{\idx} = \var$,
+  and we use the same {\sc S-Var} derivation we started with.
+  \paragraph{Case {\sc Shape}}
+  \[\infr[S-Shape]
+  {\sequence{\sortof{\sEnv,\hassort{\var}{\sort_\var}}{\idx_d}{\sortdim}}}
+  {\sortof{\sEnv,\hassort{\var}{\sort_\var}}{\idxshape{\sequence{\idx_d}}}{\sortshp}}\]
+  Then the induction hypothesis implies that
+  $\sortof{\sEnv}{\idxsubst{\idx_d}}{\sortdim}$
+  for each of the $\sequence{\idx_d}$.
+  So applying {\sc S-Shape} derives
+  \[\infr[S-Shape]
+  {\sequence{\sortof{\sEnv}{\idxsubst{\idx_d}}{\sortdim}}}
+  {\sortof{\sEnv}{\idxshape{\sequence{\idxsubst{\idx_d}}}}{\sortshp}}\]
+  \paragraph{Case {\sc Plus}}
+  \[\infr[S-Plus]
+  {\sequence{\sortof{\sEnv,\hassort{\var}{\sort_\var}}{\idx_d}{\sortdim}}}
+  {\sortof{\sEnv,\hassort{\var}{\sort_\var}}{\idxadd{\sequence{\idx_d}}}{\sortdim}}\]
+  By the induction hypothesis,
+  $\sortof{\sEnv}{\idxsubst{\idx_d}}{\sortdim}$
+  for each of $\sequence{\idx_d}$.
+  Then we use their derivations to construct
+  \[\infr[S-Plus]
+  {\sequence{\sortof{\sEnv}{\idxsubst{\idx_d}}{\sortdim}}}
+  {\sortof{\sEnv}{\idxadd{\sequence{\idxsubst{\idx_d}}}}{\sortdim}}\]
+  \paragraph{Case {\sc Append}}
+  \[\infr[S-Append]
+  {\sequence{\sortof{\sEnv,\hassort{\var}{\sort_\var}}{\idx_s}{\sortshp}}}
+  {\sortof{\sEnv,\hassort{\var}{\sort_\var}}{\idxappend{\sequence{\idx_s}}}{\sortshp}}\]
+  The induction hypothesis gives
+  $\sortof{\sEnv}{\idxsubst{\idx_s}}{\sortshp}$
+  for each of $\sequence{\idx_s}$.
+  Then we derive
+  \[\infr[S-Append]
+  {\sequence{\sortof{\sEnv}{\idxsubst{\idx_s}}{\sortshp}}}
+  {\sortof{\sEnv}{\idxappend{\sequence{\idxsubst{\idx_s}}}}{\sortshp}}\]
+\end{sproof}
+
+
+\subsubsection{Kinding}
+\FigKindingRules
+Kinding rules are given in figure \ref{fig:KindingRules}.
+The $\kindarray$ kind is only ascribed to
+types built by the array type constructor
+and type variables bound at that kind.
+The array type constructor requires as its arguments
+an $\kindatom$ type and a $\sortshp$ index.
+Base types are fundamental, non-aggregate types,
+such as {\tt Float} or {\tt Bool},
+so they are $\kindatom$s.
+Function types have kind $\kindatom$,
+but their input and output types must be $\kindarray$s.
+This reflects the rule that application is performed on arrays,
+and the function produces an array result.
+Similarly, universal types and dependent products,
+describing type and index abstractions,
+must have an $\kindarray$ as their body,
+while they themselves are $\kindatom$s.
+This rules out types whose inhabitants would have to be syntactically illegal
+due to containing expressions instead of atoms as their bodies.
+Since boxes present arrays as atoms,
+dependent sum types also have an $\kindarray$ body
+and are kinded as $\kindatom$s.
+A universal type adds bindings for its quantified type variables to $\kEnv$.
+Dependent products and sums do the same for their index variables in $\sEnv$.
+
+As with sorting of indices,
+we expect a well-kinded type to inhabit only a single kind (fixing a particular environment).
+The kinding system should also allow free index or type variables to be
+replaced with appropriately sorted or kinded indices or types
+without changing the original type's kind.
+
+\begin{lemma}[Uniqueness of kinding]
+  \label{UniqKind}
+  If $\kindof{\sEnv}{\kEnv}{\type}{\kind}$
+  and $\kindof{\sEnv}{\kEnv}{\type}{\kind'}$,
+  then $\kind = \kind'$.
+\end{lemma}
+\begin{sproof}[\BODY]
+  As with uniqueness of sorting,
+  no non-variable type is compatible with multiple kinding rules.
+  Since all kinding rules except for {\sc K-Var}
+  ascribe a specific kind,
+  the only remaining case is for type variables.
+  The kind environment $\kEnv$ is a well-defined partial function,
+  so $\kEnv(\var) = \kind$ and $\kEnv(\var) = \kind'$ imply $\kind = \kind'$.
+\end{sproof}
+
+\begin{lemma}[Preservation of kinds under index substitution]
+  \label{ITSub}
+  If $\kindof{\sEnv,\hassort{\var}{\sort}}{\kEnv}{\type}{\kind}$
+  and $\sortof{\sEnv}{\idx}{\sort}$
+  then $\kindof{\sEnv}{\kEnv}{\idxsubst{\type}}{\kind}$.
+\end{lemma}
+\begin{sproof}[This is straightforward induction on the original kind derivation.]
+  We use induction on the kind derivation
+  $\kindof{\sEnv,\hassort{\var}{\sort}}{\kEnv}{\type}{\kind}$.
+  \paragraph{Case {\sc Var}}
+  \[\infr[K-Var]
+  {\haskind{\var'}{\kind} \in \kEnv}
+  {\kindof{\sEnv,\hassort{\var}{\sort}}{\kEnv}{\var'}{\kind}}\]
+  Since $\var$ cannot appear free in $\type$,
+  $\idxsubst{\var'} = \var'$,
+  so the same kind is derivable:
+  \[\infr[K-Var]
+  {\haskind{\var'}{\kind} \in \kEnv}
+  {\kindof{\sEnv}{\kEnv}{\var'}{\kind}}\]
+  \paragraph{Case {\sc Base}}
+  \[\infr[K-Base]
+  {\ }
+  {\kindof{\sEnv,\hassort{\var}{\sort}}{\kEnv}{\basetype}{\kind}}\]
+  Again, $\var$ cannot appear free in $\type$,
+  so we derive
+  \[\infr[K-Base]
+  {\ }
+  {\kindof{\sEnv}{\kEnv}{\basetype}{\kind}}\]
+  \paragraph{Case {\sc Fun}}
+  \[\infr[K-Fun]
+  {\sequence{\kindof{\sEnv,\hassort{\var}{\sort}}{\kEnv}{\type_i}{\kindarray}}
+    \qquad \kindof{\sEnv,\hassort{\var}{\sort}}{\kEnv}{\type_o}{\kindarray}}
+  {\kindof{\sEnv,\hassort{\var}{\sort}}{\kEnv}
+    {\typefun{\sequence{\type_i}}{\type_o}}
+    {\kindarray}}\]
+  By the induction hypothesis, we have
+  $\kindof{\sEnv}{\kEnv}{\idxsubst{\type_i}}{\kindarray}$ for each of $\sequence{\type_i}$,
+  and $\kindof{\sEnv}{\kEnv}{\idxsubst{\type_o}}{\kindarray}$.
+  Then we can derive
+  \[\infr[K-Fun]
+  {\sequence{\kindof{\sEnv}{\kEnv}{\idxsubst{\type_i}}{\kindarray}}
+    \qquad \kindof{\sEnv}{\kEnv}{\idxsubst{\type_o}}{\kindarray}}
+  {\kindof{\sEnv}{\kEnv}
+    {\typefun{\sequence{\idxsubst{\type_i}}}{\idxsubst{\type_o}}}
+    {\kindarray}}\]
+  \paragraph{Case {\sc Univ}}
+  \[\infr[K-Univ]
+  {\kindof{\sEnv,\hassort{\var}{\sort}}{\kEnv, \sequence{\haskind{\var_u}{\kind_u}}}{\type_u}{\kindarray}}
+  {\kindof{\sEnv,\hassort{\var}{\sort}}{\kEnv}
+    {\typeuniv{\sequence{\notevar{\var_u}{\kind_u}}}{\type_u}}
+    {\kindatom}}\]
+  The induction hypothesis implies
+  $\kindof{\sEnv}{\kEnv, \sequence{\haskind{\var_u}{\kind_u}}}{\idxsubst{\type_u}}{\kindarray}$.
+  So we derive
+  \[\infr[K-Univ]
+  {\kindof{\sEnv}{\kEnv, \sequence{\haskind{\var_u}{\kind_u}}}{\idxsubst{\type_u}}{\kindarray}}
+  {\kindof{\sEnv,\hassort{\var}{\sort}}{\kEnv}
+    {\typeuniv{\sequence{\notevar{\var_u}{\kind_u}}}{\idxsubst{\type_u}}}
+    {\kindatom}}\]
+  \paragraph{Case {\sc Pi}}
+  \[\infr[K-Pi]
+  {\kindof{\sEnv,\hassort{\var}{\sort}, \sequence{\hassort{\var_p}{\sort_p}}}{\kEnv}
+    {\type_p}{\kindarray}}
+  {\kindof{\sEnv,\hassort{\var}{\sort}}{\kEnv}
+    {\typedprod{\sequence{\notevar{\var_p}{\sort_p}}}{\type_p}}
+    {\kindatom}}\]
+  By the induction hypothesis,
+  $\kindof{\sEnv, \sequence{\hassort{\var_p}{\sort_p}}}{\kEnv}{\idxsubst{\type_p}}{\kindarray}$.
+  Note that, following Barendregt's convention, $\sequence{\var_p}$ are all unique and distinct from $\var$.
+  Then we construct the derivation
+  \[\infr[K-Pi]
+  {\kindof{\sEnv, \sequence{\hassort{\var_p}{\sort_p}}}{\kEnv}
+    {\idxsubst{\type_p}}{\kindarray}}
+  {\kindof{\sEnv}{\kEnv}
+    {\typedprod{\sequence{\notevar{\var_p}{\sort_p}}}{\idxsubst{\type_p}}}
+    {\kindatom}}\]
+  \paragraph{Case {\sc Sigma}}
+  \[\infr[K-Sigma]
+  {\kindof{\sEnv,\hassort{\var}{\sort}, \sequence{\hassort{\var_s}{\sort_s}}}{\kEnv}
+    {\type_s}{\kindarray}}
+  {\kindof{\sEnv,\hassort{\var}{\sort}}{\kEnv}
+    {\typedsum{\sequence{\notevar{\var_s}{\sort_s}}}{\type_s}}
+    {\kindatom}}\]
+  As in the {\sc K-Pi} case, the induction hypothesis gives
+  $\kindof{\sEnv, \sequence{\hassort{\var_s}{\sort_s}}}{\kEnv}{\idxsubst{\type_s}}{\kindarray}$.
+  Then we can derive
+  \[\infr[K-Sigma]
+  {\kindof{\sEnv, \sequence{\hassort{\var_s}{\sort_s}}}{\kEnv}
+    {\idxsubst{\type_s}}{\kindarray}}
+  {\kindof{\sEnv,\hassort{\var}{\sort}}{\kEnv}
+    {\typedsum{\sequence{\notevar{\var_s}{\sort_s}}}{\idxsubst{\type_s}}}
+    {\kindatom}}\]
+  \paragraph{Case {\sc Array}}
+  \[\infr[K-Array]
+  {\kindof{\sEnv,\hassort{\var}{\sort}}{\kEnv}{\type_a}{\kindatom}
+    \qquad \sortof{\sEnv,\hassort{\var}{\sort}}{\idx_a}{\sortshp}}
+  {\kindof{\sEnv,\hassort{\var}{\sort}}{\kEnv}
+    {\typearray{\type_a}{\idx_a}}
+    {\kindarray}}\]
+  The induction hypothesis implies
+  $\kindof{\sEnv}{\kEnv}{\idxsubst{\type_a}}{\kindatom}$,
+  and Lemma \ref{IISub} (substitution in an index) implies
+  $\sortof{\sEnv}{\idxsubst{\idx_a}}{\sortshp}$.
+  So we then have
+  \[\infr[K-Array]
+  {\kindof{\sEnv}{\kEnv}{\idxsubst{\type_a}}{\kindatom}
+    \qquad \sortof{\sEnv}{\idxsubst{\idx_a}}{\sortshp}}
+  {\kindof{\sEnv,\hassort{\var}{\sort}}{\kEnv}
+    {\typearray{\idxsubst{\type_a}}{\idxsubst{\idx_a}}}
+    {\kindarray}}\]
+\end{sproof}
+
+\newcommand{\typesubst}[1]{\subst{#1}{\var}{\type_\var}}
+\begin{lemma}[Preservation of kinds under type substitution]
+  \label{TTSub}
+  If $\kindof{\sEnv}{\kEnv,\haskind{\var}{\kind_\var}}{\type}{\kind}$
+  and $\kindof{\sEnv}{\kEnv}{\type_\var}{\kind_\var}$
+  then $\kindof{\sEnv}{\kEnv}{\typesubst{\type}}{\kind}$.
+\end{lemma}
+\begin{sproof}[This is also provable by induction on the kind derivation for $\type$.]
+  We use induction on the kind derivation
+  $\kindof{\sEnv}{\kEnv,\haskind{\var}{\kind_\var}}{\type}{\kind}$.
+  \paragraph{Case {\sc Var}, $\type = \var$}
+  \[\infr[K-Var]
+  {\parens{\haskind{\var}{\kind}} \in \kEnv, \haskind{\var}{\kind_\var}}
+  {\kindof{\sEnv}{\kEnv, \haskind{\var}{\kind_\var}}{\var}{\kind}}\]
+  Then $\typesubst{\type} = \type_\var$,
+  which has kind $\kind_\var$ by assumption.
+
+  \paragraph{Case {\sc Var}, $\type = \var' \not= \var$}
+  \[\infr[K-Var]
+  {\parens{\haskind{\var'}{\kind}} \in \kEnv, \haskind{\var}{\kind_\var}}
+  {\kindof{\sEnv}{\kEnv, \haskind{\var}{\kind_\var}}{\var'}{\kind}}\]
+  Then $\typesubst{\type} = \var'$,
+  and $\var' \not= \var$ implies $\haskind{\var'}{\kind} \in \kEnv$.
+  So we have
+  \[\infr[K-Var]
+  {\parens{\haskind{\var'}{\kind}} \in \kEnv}
+  {\kindof{\sEnv}{\kEnv}{\var'}{\kind}}\]
+
+  \paragraph{Case {\sc Base}}
+  \[\infr[K-Base]
+  {\ }{\kindof{\sEnv}{\kEnv, \haskind{\var}{\kind_\var}}{\basetype}{\kindatom}}\]
+  Since $\var$ cannot appear free in $\type$,
+  $\typesubst{\type} = \type = \basetype$.
+  The kinding rule {\sc K-Base} applies in any environment,
+  so we have
+  \[\infr[K-Base]{\ }{\kindof{\sEnv}{\kEnv}{\basetype}{\kindatom}}\]
+
+  \paragraph{Case {\sc Fun}}
+  \[\infr[K-Fun]
+  {\sequence{\kindof{\sEnv}{\kEnv, \haskind{\var}{\kind_\var}}{\type_i}{\kindarray}}
+    \qquad
+  \kindof{\sEnv}{\kEnv, \haskind{\var}{\kind_\var}}{\type_o}{\kindarray}}
+  {\kindof{\sEnv}{\kEnv, \haskind{\var}{\kind_\var}}{\typefun{\sequence{\type_i}}{\type_o}}{\kindatom}}\]
+  By the induction hypothesis,
+  $\kindof{\sEnv}{\kEnv}{\typesubst{\type_i}}{\kindarray}$
+  for each of $\sequence{\type_i}$,
+  and $\kindof{\sEnv}{\kEnv}{\typesubst{\type_o}}{\kindarray}$.
+  Then we derive
+  \[\infr[K-Fun]
+  {\sequence{\kindof{\sEnv}{\kEnv}
+      {\typesubst{\type_i}}
+      {\kindarray}}
+    \qquad \kindof{\sEnv}{\kEnv}
+    {\typesubst{\type_o}}
+    {\kindarray}}
+  {\kindof
+    {\sEnv}{\kEnv}
+    {\typefun{\sequence{\typesubst{\type_i}}}{\typesubst{\type_o}}}
+    {\kindatom}}\]
+
+  \paragraph{Case {\sc Univ}}
+  \[\infr[K-Univ]
+  {\kindof
+    {\sEnv}{\kEnv, \haskind{\var}{\kind_\var}, \sequence{\haskind{\var_u}{\kind_u}}}
+    {\type_u}{\kindarray}}
+  {\kindof
+    {\sEnv}{\kEnv, \haskind{\var}{\kind_\var}}
+    {\typeuniv{\sequence{\notevar{\var_u}{\kind_u}}}{\type_u}}{\kindatom}}\]
+  The induction hypothesis implies
+  $\kindof{\sEnv}{\kEnv, \sequence{\haskind{\var_u}{\kind_u}}}{\typesubst{\type_u}}{\kindarray}$
+  (again, Barendregt's convention promises that $\var \not\in \sequence{\var_u}$).
+  This leads to the derivation
+  \[\infr[K-Univ]
+  {\kindof
+    {\sEnv}{\kEnv, \sequence{\haskind{\var_u}{\kind_u}}}
+    {\typesubst{\type_u}}{\kindarray}}
+  {\kindof
+    {\sEnv}{\kEnv}
+    {\typeuniv{\sequence{\notevar{\var_u}{\kind_u}}}{\typesubst{\type_u}}}{\kindatom}}\]
+
+  \paragraph{Case {\sc Pi}}
+  \[\infr[K-Pi]
+  {\kindof{\sEnv, \sequence{\hassort{\var_p}{\sort_p}}}{\kEnv, \haskind{\var}{\kind_\var}}
+    {\type_p}{\kindarray}}
+  {\kindof{\sEnv}{\kEnv, \haskind{\var}{\kind_\var}}
+    {\typedprod{\sequence{\notevar{\var_p}{\sort_p}}}{\type_p}}
+    {\kindatom}}\]
+  By the induction hypothesis,
+  $\kindof{\sEnv, \sequence{\hassort{\var_p}{\sort_p}}}{\kEnv}{\typesubst{\type_p}}{\kindarray}$.
+  Then applying {\sc K-Pi} derives
+  \[\infr[K-Pi]
+  {\kindof{\sEnv, \sequence{\hassort{\var_p}{\sort_p}}}{\kEnv}
+    {\typesubst{\type_p}}{\kindarray}}
+  {\kindof{\sEnv}{\kEnv}
+    {\typedprod{\sequence{\notevar{\var_p}{\sort_p}}}{\typesubst{\type_p}}}
+    {\kindatom}}\]
+
+  \paragraph{Case {\sc Sigma}}
+  \[\infr[K-Sigma]
+  {\kindof{\sEnv, \sequence{\hassort{\var_p}{\sort_p}}}{\kEnv, \haskind{\var}{\kind_\var}}
+    {\type_s}{\kindarray}}
+  {\kindof{\sEnv}{\kEnv, \haskind{\var}{\kind_\var}}
+    {\typedsum{\sequence{\notevar{\var_s}{\sort_s}}}{\type_s}}
+    {\kindatom}}\]
+  The induction hypothesis gives
+  $\kindof{\sEnv, \sequence{\hassort{\var_s}{\sort_s}}}{\kEnv}{\typesubst{\type_s}}{\kindarray}$.
+  We then derive
+  \[\infr[K-Sigma]
+  {\kindof{\sEnv, \sequence{\hassort{\var_s}{\sort_s}}}{\kEnv}
+    {\typesubst{\type_s}}{\kindarray}}
+  {\kindof{\sEnv}{\kEnv}
+    {\typedsum{\sequence{\notevar{\var_s}{\sort_s}}}{\typesubst{\type_s}}}
+    {\kindatom}}\]
+ 
+  \paragraph{Case {\sc Array}}
+  \[\infr[K-Array]
+  {\kindof{\sEnv}{\kEnv, \haskind{\var}{\kind_\var}}{\type_a}{\kindatom}
+    \qquad \sortof{\sEnv}{\idx_a}{\sortshp}}
+  {\kindof{\sEnv}{\kEnv, \haskind{\var}{\kind_\var}}{\typearray{\type_a}{\idx_a}}{\kindarray}}\]
+  By the induction hypothesis,
+  $\kindof{\sEnv}{\kEnv}{\typesubst{\type_a}}{\kindatom}$.
+  Recycling the sort derivation for $\idx_a$ as is, we derive
+  \[\infr[K-Array]
+  {\kindof{\sEnv}{\kEnv}{\typesubst{\type_a}}{\kindatom}
+    \qquad \sortof{\sEnv}{\idx_a}{\sortshp}}
+  {\kindof{\sEnv}{\kEnv}{\typearray{\typesubst{\type_a}}{\idx_a}}{\kindarray}}\]
+\end{sproof}
+
+\subsubsection{Typing}
+\FigTypingRules
+
+The typing rules in Figure \ref{fig:TypingRules} relate
+a full environment
+($\sEnv$ mapping index variables to sorts,
+$\kEnv$ mapping type variables to kinds,
+and $\tEnv$ mapping term variables to types),
+a term (whether an atom or an expression),
+and its type under that environment.
+Since an array type might have its shape described in multiple different ways,
+\eg, a vector of length 6 or a vector of length $1+5$,
+the {\sc T-Eqv} rule makes reference to a type equivalence judgment
+(presented in full detail in \S\ref{TypeEqvProse})
+which reconciles such differences according to
+the algebraic theory of type indices
+(presented earlier in \S\ref{IdxTheoryProse}).
+
+The signature $\Signature$,
+referenced in the {\sc T-Op} rule,
+is a function mapping from primitive operators to their types.
+For example, $\Sigref{\text{\tt +}}$ is
+{\tt (-> ((Arr Num (Shp)) (Arr Num (Shp))) (Arr Num (Shp)))},
+meaning {\tt +} is an operator
+which consumes two scalar numbers
+and produces one scalar number.
+
+Array literals and nested frames both include a length check:
+the number of atoms or cells must be equal to
+the product of the given dimensions.
+In the case of empty arrays, the length matching condition is fulfilled
+if and only if the array has a {\tt 0} as one of its dimensions.
+Term, type, and index abstractions all
+bind their arguments' names in the appropriate environment.
+
+Typing function application starts by identifying
+the type of the expression in function position.
+It must be an array of functions,
+and the array's entire shape $\idx_f$ is treated as the function frame.
+The function input types, also arrays,
+specify the element type and cell shape for each argument.
+Each cell shape $\idx$ must be a suffix of the shape
+of the corresponding actual argument;
+the remainder $\idx_a$ is the argument's frame.
+The maximum of these frames under prefix ordering
+(where $[2\, 3] \sqsubseteq [2\, 3\, 2]$
+but $[2\, 3] \not\sqsubseteq [6\, 3\, 2]$)
+is the principal frame $\idx_p$.
+That is, the function and argument arrays will all be
+lifted so as to have $\idx_p$ as their frames when the program runs.
+Then $\idx_p$ is used as the frame around the function's output type
+to give the result type for this function application.
+
+Type and index application also require arrays in function position,
+but they can skip prefix comparison
+as type and index arguments do not come in arrays
+that must be split into frames of cells.
+Thus the function's frame shape $\idx_f$ passes through unaltered,
+and arguments are substituted into the body type $\type_b$
+to produce the resulting array's element type.
+
+When constructing a box,
+a dependent-sum type annotation is provided.
+The box's index components must match their declared sorts,
+and substituting them into the body of the dependent sum type
+must produce a type that matches the box's array component.
+Unboxing requires that $\expr_\mathit{box}$, the expression being destructed,
+be a dependent sum.
+The unbox form names the sum's index and array components
+and adds them to the sort and type environments
+when checking $\expr_\mathit{body}$.
+Although the index components are in scope while checking the body,
+information hidden by the existential is not permitted to leak out:
+The end result type $\tau_\mathit{body}$ must be well-formed
+without relying on the extended sort environment.
+Unboxing a frame of boxes (scalars)
+produces a frame of result cells,
+similar to lifting function application.
+
+Anticipating a progress lemma,
+we prove a canonical-forms lemma for Remora's typing rules.
+Following the atom/array distinction,
+we have separate lemmas for atoms and arrays.
+Although an atom can contain an array
+if that atom is a box,
+we avoid mutual dependence between the lemmas
+by not making any claim about the syntactic structure
+of the box's contents.
+
+\begin{lemma}[Canonical forms for atomic values]
+  \label{CFAtom}
+  Let $\atval$ be a well-typed atomic value,
+  that is, $\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}{\atval}{\type}$.
+  \begin{enumerate}
+    {\cfitem
+      {\atval}
+      {\typefun{\sequence{\type_i}}{\type_o}}
+      {\primop$ or $\lam{\sequence{\notevar{\var}{\type_i}}}{\expr}}}
+    {\cfitem
+      {\atval}
+      {\typeuniv{\sequence{\notevar{\var}{\kind}}}{\type_u}}
+      {\tlam{\sequence{\notevar{\var_u}{\kind}}}{\val}}}
+    {\cfitem
+      {\atval}
+      {\typedprod{\sequence{\notevar{\var}{\sort}}}{\type_p}}
+      {\ilam{\sequence{\notevar{\var_p}{\sort}}}{\val}}}
+    {\cfitem[,\\ with
+        \(\teqv{\type}
+               {\typedsum{\sequence{\notevar{\var_b}{\sort}}}{\type_b'}}\)]
+      {\atval}
+      {\typedsum{\sequence{\notevar{\var}{\sort}}}{\type_b}}
+      {\dsum
+        {\sequence{\idx}}
+        {\val_b}
+        {\typedsum{\sequence{\notevar{\var_b}{\sort}}}{\type_b'}}}}
+    {\cfitem
+      {\atval}
+      {\basetype}
+      {\baseval}}
+  \end{enumerate}
+\end{lemma}
+\begin{sproof}[The type derivation may end with {\sc T-Eqv},
+so we consider the subderivation prior to all final {\sc T-Eqv} instances.
+We then examine which typing rules can ascribe a type of the right form
+and the identify what form the term must take to match those rule.]
+  A type derivation may end with a chain of uses of the {\sc T-Eqv} rule,
+  but this chain must then be preceded by a use of some other rule.
+  We consider the last non-{\sc T-Eqv} rule used in the derivation;
+  the type ascribed by this rule must then be equivalent to
+  the type ascribed by the full derivation.
+  Types of two different forms (\eg, a function and a dependent sum)
+  cannot be equivalent because no type equivalence rule can relate them.
+  \begin{enumerate}
+  \item{The only rules capable of ascribing a function type to an atom
+    are {\sc T-Op} and {\sc T-Lam},
+    which apply to atomic values of the form
+    $\primop$ and
+    $\lam{\sequence{\notevar{\var}{\type_i}}}{\expr}$ respectively.}
+  \item{Ascribing this type to an atom requires {\sc T-TLam},
+    which applies only to an atomic value of the form
+    $\tlam{\sequence{\notevar{\var_u}{\kind}}}{\val}$.}
+  \item{Ascribing this type to an atom requires {\sc T-ILam},
+    which applies only to an atomic value of the form
+    $\ilam{\sequence{\notevar{\var_p}{\sort}}}{\val}$.}
+  \item{Ascribing this type to an atom requires {\sc T-Box},
+    which applies only to an atomic value of the form
+    \({\dsum
+        {\sequence{\idx}}
+        {\val_b}
+        {\typedsum{\sequence{\notevar{\var_b}{\sort}}}{\type_b'}}}\).
+      {\sc T-Box} ascribes the annotated type,
+      but the full derivation may produce any equivalent type.}
+  \item{Only {\sc T-Base} can ascribe base type to an atom,
+      and it applies only to literals of the appropriate type of base value.}
+  \end{enumerate}
+\end{sproof}
+
+\begin{lemma}[Canonical forms for arrays]
+  \label{CFArray}
+  Let $\val$ be a well-typed value,
+  that is, $\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}{\val}{\type}$,
+  \begin{enumerate}
+    {\cfarritem
+      {\val}
+      {\typefun{\sequence{\type_i}}{\type_o}}
+      {\func}}
+    {\cfarritem
+      {\val}
+      {\typeuniv{\sequence{\notevar{\var}{\kind}}}{\type_u}}
+      {\tlam{\sequence{\notevar{\var_u}{\kind}}}{\val_u}}}
+    {\cfarritem
+      {\val}
+      {\typedprod{\sequence{\notevar{\var}{\sort}}}{\type_p}}
+      {\ilam{\sequence{\notevar{\var_p}{\sort}}}{\val_u}}}
+    {\cfarritem[,\\ with
+        \(\teqv{\type}
+               {\typedsum{\sequence{\notevar{\var_b}{\sort}}}{\type_b'}}\)]
+      {\val}
+      {\typedsum{\sequence{\notevar{\var}{\sort}}}{\type_b}}
+      {\dsum
+        {\sequence{\idx}}
+        {\val_b}
+        {\typedsum{\sequence{\notevar{\var_b}{\sort}}}{\type_b}}}}
+    {\cfarritem[,\\ with
+        $\typeof{\emptyEnv}{\emptyEnv}{\emptyEnv}{\baseval}{\basetype}$
+        for each of $\sequence{\baseval}$]
+      {\val}
+      {\basetype}
+      {\baseval}}
+  \end{enumerate}
+\end{lemma}
+\begin{sproof}[This proceeds like the proof for Lemma \ref{CFAtom}.]
+  As for Lemma \ref{CFAtom},
+  the type derivation for $\val$ must at some point use a rule other than {\sc T-Eqv}
+  to ascribe a type to $\val$,
+  and any subsequent use of {\sc T-Eqv} must preserve the form of that type.
+  All of the types considered here have the form $\typearray{\type_a}{\idx_a}$;
+  array types must be ascribed by {\sc T-Array}.
+  So $\val$ must be an array literal---$\arrlit{\sequence{\atval}}{\sequence{\nat}}$---%
+  and we can shift to considering the forms of the atoms $\sequence{\atval}$.
+  Each case in this lemma corresponds to a particular case in Lemma \ref{CFAtom}.
+\end{sproof}
+
+
+\subsubsection{Type equivalence} \label{TypeEqvProse}
+\FigTypeEqv
+Remora's typing rules rely on a type-equivalence relation
+defined in Figure \ref{fig:TypeEqv}.
+The equivalence relation is essentially $\alpha$-equivalence
+augmented with a check as to whether array shapes are guaranteed to be equal.
+We expect the relation $\teqv{}{}$ actually to be an equivalence relation,
+\ie, reflexive, symmetric, and transitive.
+Only reflexivity has its own inference rule,
+so we now show symmetry and transitivity.
+
+\begin{lemma}[Symmetry of $\teqv{}{}$]
+  \label{SymTEqv}
+  If $\teqv{\type}{\type'}$,
+  then $\teqv{\type'}{\type}$.
+\end{lemma}
+\begin{sproof}[This follows via straightforward induction on the derivation of $\teqv{\type_0}{\type_1}$.]
+  We use a straightforward inductive argument on the derivation of $\teqv{\type_0}{\type_1}$.
+  \paragraph{Case {\sc Refl}:}
+  \[\infr[TEqv-Refl]{\ }{\teqv{\type}{\type}}\]
+  Since $\type$ and $\type'$ are equal,
+  the obligation is to show $\teqv{\type}{\type}$,
+  which we already have.
+  \paragraph{Case {\sc Array}:}
+  \[\infr[TEqv-Array]
+  {\teqv{\type_a}{\type_a'} \qquad \ieqv{\idx_a}{\idx_a'}}
+  {\teqv{\typearray{\type_a}{\idx_a}}{\typearray{\type_a'}{\idx_a'}}}\]
+  Index equality is symmetric, so $\ieqv{\idx_a'}{\idx_a}$.
+  The induction hypothesis gives $\teqv{\type_a'}{\type_a}$.
+  We then apply {\sc TEqv-Array} to construct
+  \[\infr[TEqv-Array]
+  {\teqv{\type_a'}{\type_a} \qquad \ieqv{\idx_a'}{\idx_a}}
+  {\teqv{\typearray{\type_a'}{\idx_a'}}{\typearray{\type_a}{\idx_a}}}\]
+  \paragraph{Case {\sc Fn}:}
+  \[\infr[TEqv-Fn]
+  {\sequence{\teqv{\type_i}{\type_i'}}
+    \qquad
+  \teqv{\type_o}{\type_o'}}
+  {\teqv{\typefun{\sequence{\type_i}}{\type_o}}{\typefun{\sequence{\type_i'}}{\type_o'}}}\]
+  The induction hypothesis gives
+  $\teqv{\type_i}{\type_i'}, \dots, \teqv{\type_o}{\type_o'}$,
+  so {\sc TEqv-Fn} produces
+  \[\infr[TEqv-Fn]
+  {\sequence{\teqv{\type_i'}{\type_i}}
+    \qquad
+  \teqv{\type_o'}{\type_o}}
+  {\teqv{\typefun{\sequence{\type_i'}}{\type_o'}}{\typefun{\sequence{\type_i}}{\type_o}}}\]
+  \paragraph{Case {\sc Univ}:}
+  \[\infr[TEqv-Univ]
+  {\teqv
+    {\seqsubst{\type_s}{\var}{\var_f}}
+    {\seqsubst{\type_s'}{\var'}{\var_f}}
+    \fresh{\sequence{\var_f}}}
+  {\teqv
+    {\typeuniv{\sequence{\notevar{\var}{\sort}}}{\type_u}}
+    {\typeuniv{\sequence{\notevar{\var'}{\sort}}}{\type_u'}}}\]
+  The induction hypothesis gives
+  $\teqv
+  {\seqsubst{\type_u'}{\var'}{\var_f}}
+  {\seqsubst{\type_u}{\var}{\var_f}}$,
+  so we construct
+  \[\infr[TEqv-Univ]
+  {\teqv
+    {\seqsubst{\type_s'}{\var'}{\var_f}}
+    {\seqsubst{\type_s}{\var}{\var_f}}
+    \fresh{\sequence{\var_f}}}
+  {\teqv
+    {\typeuniv{\sequence{\notevar{\var'}{\sort}}}{\type_u'}}
+    {\typeuniv{\sequence{\notevar{\var}{\sort}}}{\type_u}}}\]
+  \paragraph{Case {\sc Pi}:}
+  \[\infr[TEqv-Pi]
+  {\teqv
+    {\seqsubst{\type_s}{\var}{\var_f}}
+    {\seqsubst{\type_s'}{\var'}{\var_f}}
+    \fresh{\sequence{\var_f}}}
+  {\teqv
+    {\typedprod{\sequence{\notevar{\var}{\sort}}}{\type_p}}
+    {\typedprod{\sequence{\notevar{\var'}{\sort}}}{\type_p'}}}\]
+  The induction hypothesis gives
+  $\teqv
+  {\seqsubst{\type_s'}{\var'}{\var_f}}
+  {\seqsubst{\type_s}{\var}{\var_f}}$.
+  Then we derive
+  \[\infr[TEqv-Pi]
+  {\teqv
+    {\seqsubst{\type_p'}{\var'}{\var_f}}
+    {\seqsubst{\type_p}{\var}{\var_f}}
+    \fresh{\sequence{\var_f}}}
+  {\teqv
+    {\typedprod{\sequence{\notevar{\var'}{\sort}}}{\type_p'}}
+    {\typedprod{\sequence{\notevar{\var}{\sort}}}{\type_p}}}\]
+  \paragraph{Case {\sc Sigma}:}
+  \[\infr[TEqv-Sigma]
+  {\teqv
+    {\seqsubst{\type_s}{\var}{\var_f}}
+    {\seqsubst{\type_s'}{\var'}{\var_f}}
+    \fresh{\sequence{\var_f}}}
+  {\teqv
+    {\typedsum{\sequence{\notevar{\var}{\sort}}}{\type_s}}
+    {\typedsum{\sequence{\notevar{\var'}{\sort}}}{\type_s'}}}\]
+  The induction hypothesis gives
+  $\teqv
+  {\seqsubst{\type_s'}{\var'}{\var_f}}
+  {\seqsubst{\type_s}{\var}{\var_f}}$,
+  so we construct
+  \[\infr[TEqv-Sigma]
+  {\teqv
+    {\seqsubst{\type_s'}{\var'}{\var_f}}
+    {\seqsubst{\type_s}{\var}{\var_f}}
+    \fresh{\sequence{\var_f}}}
+  {\teqv
+    {\typedsum{\sequence{\notevar{\var'}{\sort}}}{\type_s'}}
+    {\typedsum{\sequence{\notevar{\var}{\sort}}}{\type_s}}}\]
+\end{sproof}
+
+\begin{lemma}[Transitivity of $\teqv{}{}$]
+  \label{TransTEqv}
+  If $\teqv{\type_0}{\type_1}$ and $\teqv{\type_1}{\type_2}$,
+  then $\teqv{\type_0}{\type_2}$.
+\end{lemma}
+\begin{sproof}[This follows from induction on
+  the derivations of $\teqv{\type_0}{\type_1}$ and $\teqv{\type_1}{\type_2}$.
+  Since both derivations $\type_1$,
+  the structure of the equivalence rules prohibits the derivations
+  from ending with different rules
+  (other than {\sc TEqv-Refl}, which passes that structural requirement on to its premises).]
+  We use induction on the derivations of $\teqv{\type_0}{\type_1}$ and $\teqv{\type_1}{\type_2}$.
+  Since both derivations involve $\type_1$,
+  the structure of the equivalence rules prohibits the derivations from ending with different rules,
+  unless one is {\sc TEqv-Refl}.
+  All non-reflexivity rules place incompatible restrictions on the types they find equivalent.
+  If either derivation is by {\sc TEqv-Refl},
+  then $\type_1$ is either $\type_0$ or $\type_2$,
+  so the conclusion $\teqv{\type_0}{\type_2}$ is the same as one of the assumptions.
+  In the remaining cases, both derivations end with the same rule.
+  \paragraph{Case {\sc Array}:}
+  \[
+  \infr[TEqv-Array]
+  {\teqv{\type_0'}{\type_1'} \qquad {\ieqv{\idx_0}{\idx_1}}}
+  {\teqv{\typearray{\type_0'}{\idx_0}}{\typearray{\type_1'}{\idx_1}}}\]
+  \ctrand
+  \[\infr[TEqv-Array]
+  {\teqv{\type_1'}{\type_2'} \qquad {\ieqv{\idx_1}{\idx_2}}}
+  {\teqv{\typearray{\type_1'}{\idx_1}}{\typearray{\type_2'}{\idx_2}}}
+  \]
+  Since $\teqv{\type_0'}{\type_1'}$ and $\teqv{\type_1'}{\type_2'}$,
+  the induction hypothesis implies $\teqv{\type_0'}{\type_2'}$.
+  Transitivity of equality (on indices) implies $\ieqv{\idx_0}{\idx_2}$.
+  So we can derive
+  \[\infr[TEqv-Array]
+  {\teqv{\type_0'}{\type_2'} \qquad {\ieqv{\idx_0}{\idx_2}}}
+  {\teqv{\typearray{\type_0'}{\idx_0}}{\typearray{\type_2'}{\idx_2}}}\]
+  \paragraph{Case {\sc Fn}:}
+  \[\infr[TEqv-Fn]
+  {\sequence{\teqv{\type_{i_0}}{\type_{i_1}}}
+    \qquad {\teqv{\type_{o_0}}{\type_{o_1}}}}
+  {\teqv
+    {\typefun{\sequence{\type_{i_0}}}{\type_{o_0}}}
+    {\typefun{\sequence{\type_{i_1}}}{\type_{o_1}}}}\]
+  \ctrand
+  \[\infr[TEqv-Fn]
+  {\sequence{\teqv{\type_{i_1}}{\type_{i_2}}}
+    \qquad {\teqv{\type_{o_1}}{\type_{o_2}}}}
+  {\teqv
+    {\typefun{\sequence{\type_{i_1}}}{\type_{o_1}}}
+    {\typefun{\sequence{\type_{i_2}}}{\type_{o_2}}}}\]
+  We have equivalent argument types, via the induction hypothesis---%
+  each $\sequence{\teqv{\type_{i_0}}{\type_{i_1}}}$ and $\sequence{\teqv{\type_{i_1}}{\type_{i_2}}}$
+  implies $\sequence{\teqv{\type_{i_0}}{\type_{i_2}}}$.
+  We also have equivalent result types, $\sequence{\teqv{\type_{o_0}}{\type_{o_2}}}$.
+  Then {\sc TEqv-Fn} gives
+  \[\infr[TEqv-Fn]
+  {\sequence{\teqv{\type_{i_0}}{\type_{i_2}}} \qquad {\teqv{\type_{o_0}}{\type_{o_2}}}}
+  {\teqv{\typefun{\sequence{\type_{i_0}}}{\type_{o_0}}}{\typefun{\sequence{\type_{i_2}}}{\type_{o_2}}}}\]
+  \paragraph{Case {\sc Univ}:}
+  \[\infr[TEqv-Univ]
+  {\teqv
+    {\seqsubst{\type_{u_0}}{\var_0}{\var_f}}
+    {\seqsubst{\type_{u_1}}{\var_1}{\var_f}}}
+  {\teqv
+    {\typeuniv{\sequence{\notevar{\var_0}{\kind}}}{\type_{u_0}}}
+    {\typeuniv{\sequence{\notevar{\var_1}{\kind}}}{\type_{u_1}}}}\]
+  \ctrand
+  \[\infr[TEqv-Univ]
+  {\teqv
+    {\seqsubst{\type_{u_1}}{\var_1}{\var_f}}
+    {\seqsubst{\type_{u_2}}{\var_2}{\var_f}}}
+  {\teqv
+    {\typeuniv{\sequence{\notevar{\var_1}{\kind}}}{\type_{u_1}}}
+    {\typeuniv{\sequence{\notevar{\var_2}{\kind}}}{\type_{u_2}}}}\]
+  The induction hypothesis relates
+  ${\seqsubst{\type_{u_0}}{\var_0}{\var_f}}$ and ${\seqsubst{\type_{u_2}}{\var_2}{\var_f}}$,
+  so we can construct the derivation
+  \[\infr[TEqv-Univ]
+  {\teqv
+    {\seqsubst{\type_{u_0}}{\var_0}{\var_f}}
+    {\seqsubst{\type_{u_2}}{\var_2}{\var_f}}}
+  {\teqv
+    {\typeuniv{\sequence{\notevar{\var_0}{\kind}}}{\type_{u_0}}}
+    {\typeuniv{\sequence{\notevar{\var_2}{\kind}}}{\type_{u_2}}}}\]
+  \paragraph{Case {\sc Pi}:}
+  \[\infr[TEqv-Pi]
+  {\teqv
+    {\seqsubst{\type_{p_0}}{\var_0}{\var_f}}
+    {\seqsubst{\type_{p_1}}{\var_1}{\var_f}}}
+  {\teqv
+    {\typedprod{\sequence{\notevar{\var_0}{\sort}}}{\type_{p_0}}}
+    {\typedprod{\sequence{\notevar{\var_1}{\sort}}}{\type_{p_1}}}}\]
+  \ctrand
+  \[\infr[TEqv-Pi]
+  {\teqv
+    {\seqsubst{\type_{p_1}}{\var_1}{\var_f}}
+    {\seqsubst{\type_{p_2}}{\var_2}{\var_f}}}
+  {\teqv
+    {\typedprod{\sequence{\notevar{\var_1}{\kind}}}{\type_{u_1}}}
+    {\typedprod{\sequence{\notevar{\var_2}{\kind}}}{\type_{u_2}}}}\]
+  The induction hypothesis implies
+  ${\seqsubst{\type_{u_0}}{\var_0}{\var_f}}$ and ${\seqsubst{\type_{u_2}}{\var_2}{\var_f}}$
+  are equivalent,
+  so we can apply {\sc TEqv-Pi}:
+  \[\infr[TEqv-Pi]
+  {\teqv
+    {\seqsubst{\type_{u_0}}{\var_0}{\var_f}}
+    {\seqsubst{\type_{u_2}}{\var_2}{\var_f}}}
+  {\teqv
+    {\typedprod{\sequence{\notevar{\var_0}{\kind}}}{\type_{u_0}}}
+    {\typedprod{\sequence{\notevar{\var_2}{\kind}}}{\type_{u_2}}}}\]
+  \paragraph{Case {\sc Sigma}:}
+  \[\infr[TEqv-Sigma]
+  {\teqv
+    {\seqsubst{\type_{s_0}}{\var_0}{\var_f}}
+    {\seqsubst{\type_{s_1}}{\var_1}{\var_f}}}
+  {\teqv
+    {\typedsum{\sequence{\notevar{\var_0}{\sort}}}{\type_{s_0}}}
+    {\typedsum{\sequence{\notevar{\var_1}{\sort}}}{\type_{s_1}}}}\]
+  \ctrand
+  \[\infr[TEqv-Sigma]
+  {\teqv
+    {\seqsubst{\type_{s_1}}{\var_1}{\var_f}}
+    {\seqsubst{\type_{s_2}}{\var_2}{\var_f}}}
+  {\teqv
+    {\typedsum{\sequence{\notevar{\var_1}{\sort}}}{\type_{s_1}}}
+    {\typedsum{\sequence{\notevar{\var_2}{\sort}}}{\type_{s_2}}}}\]
+  By the induction hypothesis,
+  $\teqv{\seqsubst{\type_{s_0}}{\var_0}{\var_f}}{\seqsubst{\type_{s_2}}{\var_2}{\var_f}}$,
+  allowing us to derive
+  \[\infr[TEqv-Sigma]
+  {\teqv
+    {\seqsubst{\type_{s_0}}{\var_0}{\var_f}}
+    {\seqsubst{\type_{s_2}}{\var_2}{\var_f}}}
+  {\teqv
+    {\typedsum{\sequence{\notevar{\var_0}{\sort}}}{\type_{s_0}}}
+    {\typedsum{\sequence{\notevar{\var_2}{\sort}}}{\type_{s_2}}}}\]
+\end{sproof}
+
+\begin{theorem}
+  \label{EqvTEqv}
+  $\teqv{}{}$ is an equivalence relation.
+\end{theorem}
+
+A type-equivalence relation should not cross kind boundaries.
+Violation of this principle would allow
+use of {\sc T-Eqv} to ascribe an ill-kinded type to a well-typed term.
+It follows directly from inspection of the equivalence rules that
+they will not relate an $\kindatom$ with an $\kindarray$,
+but correct use of type and index variables remains to be proven.
+To that end, we show that two equivalent types
+will be ascribed the same kind by the same environment.
+
+\begin{lemma}
+  \label{TEqvRespectsKinds}
+  If $\kindof{\sEnv}{\kEnv}{\type}{\kind}$
+  and $\teqv{\type}{\type'}$,
+  then $\kindof{\sEnv}{\kEnv}{\type'}{\kind}$.
+\end{lemma}
+\begin{sproof}[This result is proven induction on
+  the derivation of $\teqv{\type}{\type'}$.
+  In each case,
+  the induction hypothesis converts a kind derivation
+  for some fragment of $\type$
+  into a kind derivation for a corresponding fragment of $\type'$
+  (and similar for index fragments).]
+  We use induction on the derivation of
+  $\teqv{\type}{\type'}$.
+  \paragraph{Case {\sc Refl}:}
+  \[{\infr[TEqv-Refl]
+    {\ }
+    {\teqv{\type}{\type}}}\]
+  Then $\type = \type'$,
+  so the kind derivation for $\type$ applies to $\type'$ as well.
+  \paragraph{Case {\sc Array}:}
+  \[{\infr[TEqv-Array]
+    {\teqv{\type_a}{\type_a'}
+    \qquad
+    \ieqv{\idx_a}{\idx_a'}}
+    {\teqv
+      {\typearray{\type_a}{\idx_a}}
+      {\typearray{\type_a'}{\idx_a'}}}}\]
+  The kind derivation for $\type$ must have the form
+  \[{\infr[K-Array]
+    {\kindof{\sEnv}{\kEnv}{\type_a}{\kindatom}
+      \qquad
+      \sortof{\sEnv}{\idx_a}{\sortshp}}
+    {\kindof{\sEnv}{\kEnv}{\typearray{\type_a}{\idx_a}}{\kindarray}}}\]
+  Similarly, equivalent indices must be of the same sort
+  (dimensions and shapes are distinct objects in our universe of type indices).
+  Applying the induction hypothesis to our kinding result for $\type_a'$
+  gives $\kindof{\sEnv}{\kEnv}{\type_a'}{\kindatom}$.
+  Then we can derive for $\type'$:
+  \[{\infr[K-Array]
+    {\kindof{\sEnv}{\kEnv}{\type_a'}{\kindatom}
+      \qquad
+      \sortof{\sEnv}{\idx_a'}{\sortshp}}
+    {\kindof{\sEnv}{\kEnv}{\typearray{\type_a'}{\idx_a'}}{\kindarray}}}\]
+  \paragraph{Case {\sc Fn}:}
+  \[{\infr[TEqv-Fn]
+    {\sequence{\teqv{\type_i}{\type_i'}}
+      \qquad
+      \teqv{\type_o}{\type_o'}}
+    {\teqv
+      {\typefun{\sequence{\type_i}}{\type_o}}
+      {\typefun{\sequence{\type_i'}}{\type_o'}}}}\]
+  The kinding derivation for $\type$ has the form
+  \[{\infr[K-Fun]
+    {\sequence{\kindof{\sEnv}{\kEnv}{\type_i}{\kindarray}}
+      \qquad
+      \kindof{\sEnv}{\kEnv}{\type_o}{\kindarray}}
+    {\kindof{\sEnv}{\kEnv}{\typefun{\sequence{\type_i}}{\type_o}}{\kindatom}}}\]
+  By the induction hypothesis,
+  we have kind derivations ascribing $\kindarray$
+  to each of the $\sequence{\type_i}$ and $\type_o$.
+  So we can then derive
+  \[{\infr[K-Fun]
+    {\sequence{\kindof{\sEnv}{\kEnv}{\type_i'}{\kindarray}}
+      \qquad
+      \kindof{\sEnv}{\kEnv}{\type_o'}{\kindarray}}
+    {\kindof{\sEnv}{\kEnv}{\typefun{\sequence{\type_i'}}{\type_o'}}{\kindatom}}}\]
+  \paragraph{Case {\sc Univ}:}
+  \[{\infr[TEqv-Univ]
+    {\teqv
+      {\seqsubst{\type_u}{\var}{\var_f}}
+      {\seqsubst{\type_u'}{\var'}{\var_f}}
+      \fresh{\sequence{\var_f}}}
+    {\teqv
+      {\typeuniv{\sequence{\notevar{\var}{\kind}}}{\type_u}}
+      {\typeuniv{\sequence{\notevar{\var'}{\kind}}}{\type_u'}}}}\]
+  The kind derivation for $\type$ must have the form
+  \[{\infr[K-Univ]
+    {\kindof{\sEnv}{\kEnv, \sequence{\haskind{\var}{\kind}}}{\type_u}{\kindarray}}
+    {\kindof{\sEnv}{\kEnv}
+      {\typeuniv{\sequence{\notevar{\var}{\kind}}}{\type_u}}
+      {\kindatom}}}\]
+  The premise implies via $\alpha$-conversion in turn that
+  $\kindof{\sEnv}{\kEnv, \sequence{\haskind{\var_f}{\kind}}}
+  {\seqsubst{\type_u}{\var}{\var_f}}
+  {\kindarray}$.
+  By the induction hypothesis,
+  $\kindof{\sEnv}{\kEnv, \sequence{\haskind{\var_f}{\kind}}}
+  {\seqsubst{\type_u'}{\var'}{\var_f}}
+  {\kindarray}$.
+  Using $\alpha$-conversion again,
+  converting $\seqsubst{\type_u'}{\var'}{\var_f}$ to
+  $\seqsubst{\parens{\seqsubst{\type_u'}{\var'}{\var_f}}}{\var_f}{\var'}$,
+  which is $\type_u'$,
+  we get
+  $\kindof{\sEnv}{\kEnv, \sequence{\haskind{\var'}{\kind}}}
+  {\type_u'}
+  {\kindarray}$.
+  Then we can derive
+  \[{\infr[K-Univ]
+    {\kindof{\sEnv}{\kEnv, \sequence{\haskind{\var'}{\kind}}}
+      {\type_u'}
+      {\kindarray}}
+    {\kindof{\sEnv}{\kEnv}
+      {\typeuniv{\sequence{\notevar{\var'}{\kind}}}{\type_u'}}
+      {\kindatom}}}\]
+  \paragraph{Case {\sc Pi}:}
+  \[{\infr[TEqv-Pi]
+    {\teqv
+      {\seqsubst{\type_p}{\var}{\var_f}}
+      {\seqsubst{\type_p'}{\var'}{\var_f}}
+      \fresh{\sequence{\var_f}}}
+    {\teqv
+      {\typedprod{\sequence{\notevar{\var}{\kind}}}{\type_p}}
+      {\typedprod{\sequence{\notevar{\var'}{\kind}}}{\type_p'}}}}\]
+  Deriving a kind for $\type$ must end with
+  \[{\infr[K-Pi]
+    {\kindof{\sEnv, \sequence{\hassort{\var}{\sort}}}{\kEnv}
+      {\type_p}
+      {\kindarray}}
+    {\kindof{\sEnv}{\kEnv}
+      {\typedprod{\sequence{\notevar{\var}{\kind}}}{\type_p}}
+      {\kindatom}}}\]
+  By $\alpha$-converting $\sequence{\var}$ to $\sequence{\var_f}$,
+  we get the judgment
+  $\kindof{\sEnv, \sequence{\hassort{\var_f}{\sort}}}{\kEnv}
+  {\seqsubst{\type_p}{\var}{\var_f}}
+  {\kindarray}$,
+  implying via the induction hypothesis that
+  $\kindof{\sEnv, \sequence{\hassort{\var_f}{\sort}}}{\kEnv}
+  {\seqsubst{\type_p'}{\var'}{\var_f}}
+  {\kindarray}$.
+  Another round of $\alpha$-conversion gives
+  $\kindof{\sEnv, \sequence{\hassort{\var'}{\sort}}}{\kEnv}
+  {\type_p'}
+  {\kindarray}$,
+  so we derive
+  \[{\infr[K-Pi]
+    {\kindof{\sEnv, \sequence{\hassort{\var'}{\sort}}}{\kEnv}
+      {\type_p'}
+      {\kindarray}}
+    {\kindof{\sEnv}{\kEnv}
+      {\typedprod{\sequence{\notevar{\var'}{\kind}}}{\type_p'}}
+      {\kindatom}}}\]
+  \paragraph{Case {\sc Sigma}:}
+  \[{\infr[TEqv-Sigma]
+    {\teqv
+      {\seqsubst{\type_s}{\var}{\var_f}}
+      {\seqsubst{\type_s'}{\var'}{\var_f}}
+      \fresh{\sequence{\var_f}}}
+    {\teqv
+      {\typedsum{\sequence{\notevar{\var}{\kind}}}{\type_s}}
+      {\typedsum{\sequence{\notevar{\var'}{\kind}}}{\type_s'}}}}\]
+  We also have a kind derivation for $\type$
+  \[{\infr[K-Sigma]
+    {\kindof{\sEnv, \sequence{\hassort{\var}{\sort}}}{\kEnv}
+      {\type_s}
+      {\kindarray}}
+    {\kindof{\sEnv}{\kEnv}
+      {\typedsum{\sequence{\notevar{\var}{\kind}}}{\type_s}}
+      {\kindatom}}}\]
+  As in the previous two cases,
+  applying the induction hypothesis under $\alpha$-conversion gives
+  $\kindof{\sEnv, \sequence{\hassort{\var'}{\sort}}}{\kEnv}
+  {\type_s'}
+  {\kindarray}$,
+  leading to the derivation
+  \[{\infr[K-Sigma]
+    {\kindof{\sEnv, \sequence{\hassort{\var'}{\sort}}}{\kEnv}
+      {\type_s'}
+      {\kindarray}}
+    {\kindof{\sEnv}{\kEnv}
+      {\typedsum{\sequence{\notevar{\var'}{\kind}}}{\type_s'}}
+      {\kindatom}}}\]
+\end{sproof}
+
+We also expect type equivalence to be well-behaved under substitution.
+Ultimately, substituting equivalent types or indices into equivalent types
+ought to produce equivalent types.
+Proving that result by induction on derivation of equivalence is straightforward
+except for the {\sc Refl} case.
+
+\begin{lemma}
+  \label{EqlIdxEqvType}
+  If $\ieqv{\idx}{\idx'}$,
+  then for any index variable $\var$,
+  $\teqv{\subst{\type}{\var}{\idx}}{\subst{\type}{\var}{\idx'}}$.
+\end{lemma}
+\begin{sproof}[This is provable using induction on the structure of $\type$.
+  Only the case for arrays makes direct use of $\idx$ and $\idx'$;
+  the other cases simply use the induction hypothesis
+  to prove the premises of the derivation of
+  $\teqv{\subst{\type}{\var}{\idx}}{\subst{\type}{\var}{\idx'}}$.]
+  This is provable using induction on the structure of $\type$.
+  Only the case for arrays makes direct use of $\idx$ and $\idx'$;
+  the other cases simply use the induction hypothesis
+  to prove the premises of the derivation of
+  $\teqv{\subst{\type}{\var}{\idx}}{\subst{\type}{\var}{\idx'}}$.
+  \paragraph{Case {\sc Array}:}
+  $\type = \typearray{\type_a}{\idx_a}$,
+  so the induction hypothesis implies $\teqv{\subst{\type_a}{\var}{\idx}}{\subst{\type_a}{\var}{\idx'}}$.
+  $\ieqv{\subst{\idx_a}{\var}{\idx}}{\subst{\idx_a}{\var}{\idx'}}$
+  follows from the substitution lemma of first-order logic.
+  Then we can construct the type equivalence derivation
+  \[\infr[TEqv-Array]
+  {\teqv{\subst{\type_a}{\var}{\idx}}{\subst{\type_a}{\var}{\idx'}}
+    \qquad
+    \ieqv{\subst{\idx_a}{\var}{\idx}}{\subst{\idx_a}{\var}{\idx'}}}
+  {\teqv
+    {\typearray{\subst{\type_a}{\var}{\idx}}{\subst{\idx_a}{\var}{\idx}}}
+    {\typearray{\subst{\type_a}{\var}{\idx'}}{\subst{\idx_a}{\var}{\idx'}}}}\]
+\end{sproof}
+
+\begin{lemma}
+  \label{EqlTypeEqvType}
+  If $\teqv{\type_{\var}}{\type_{\var}'}$,
+  then for any type variable $\var$,
+  $\teqv
+  {\subst{\type}{\var}{\type_{\var}}}
+  {\subst{\type}{\var}{\type_{\var}'}}$.
+\end{lemma}
+\begin{sproof}[\BODY]
+  We use induction on the structure of $\type$.
+  The cases for universals, dependent products, and dependent sums
+  require instantiating the induction hypothesis 
+  with a substitution of fresh type variables $\sequence{\var_f}$.
+  For example, when $\type = \typeuniv{\sequence{\notevar{\var_u}{\kind}}}{\type_u}$,
+  the induction hypothesis promises the equivalence of $\type_u$
+  after substituting in $\sequence{\var_f}$ for $\sequence{\var_u}$
+  and \emph{also} $\type_x$ or $\type_x'$ for $\var$.
+\end{sproof}
+
+\begin{theorem}
+  \label{EqvTypeEqvType}
+  If $\teqv{\type}{\type'}$ and $\teqv{\type_{\var}}{\type_{\var}'}$,
+  then for any type variable $\var$,
+  $\teqv
+  {\subst{\type}{\var}{\type_{\var}}}
+  {\subst{\type'}{\var}{\type_{\var}'}}$.
+\end{theorem}
+\begin{sproof}[We use induction on the derivation of $\teqv{\type}{\type'}$.
+  In each case, the induction hypothesis provides equivalence derivations
+  for corresponding fragments of
+  $\subst{\type}{\var}{\type_{\var}}$ and $\subst{\type'}{\var}{\type_{\var}'}$,
+  which can then be used to prove the substituted types themselves equivalent.]
+  We use induction on the derivation of $\teqv{\type}{\type'}$.
+  \paragraph{Case {\sc Refl}:}
+  $\type = \type'$.
+  By Lemma \ref{EqlTypeEqvType},
+  $\teqv{\subst{\type}{\var}{\type_{\var}}}{\subst{\type}{\var}{\type_{\var}'}}$.
+  \paragraph{Case {\sc Array}:}
+  \[\infr[TEqv-Array]
+  {\teqv{\type_a}{\type_a'} \qquad \ieqv{\idx_a}{\idx_a'}}
+  {\teqv{\typearray{\type_a}{\idx_a}}{\typearray{\type_a'}{\idx_a'}}}\]
+  The induction hypothesis gives
+  $\teqv{\subst{\type_a}{\var}{\type_{\var}}}{\subst{\type_a'}{\var}{\type_{\var}'}}$,
+  so {\sc TEqv-Array} derives
+  \[\infr[TEqv-Array]
+  {\teqv{\subst{\type_a}{\var}{\type_{\var}}}{\subst{\type_a'}{\var}{\type_{\var}'}}
+    \qquad \ieqv{\idx_a}{\idx_a'}}
+  {\teqv
+    {\typearray{\subst{\type_a}{\var}{\type_{\var}}}{\idx_a}}
+    {\typearray{\subst{\type_a'}{\var}{\type_{\var}'}}{\idx_a'}}}\]
+  \paragraph{Case {\sc Fn}:}
+  \[\infr[TEqv-Fn]
+  {\sequence{\teqv{\type_i}{\type_i'}} \qquad \teqv{\type_o}{\type_o'}}
+  {\teqv
+    {\typefun{\sequence{\type_i}}{\type_o}}
+    {\typefun{\sequence{\type_i}}{\type_o}}}\]
+  The induction hypothesis gives derivations for
+  equivalence of corresponding input types after substitution,
+  $\sequence{\teqv{\subst{\type_i}{\var}{\type_{\var}}}{\subst{\type_i'}{\var}{\type_{\var}'}}}$,
+  as well as equivalence for output types,
+  ${\subst{\type_o}{\var}{\type_{\var}}}$
+  ${\teqv{}{}}$
+  ${\subst{\type_o'}{\var}{\type_{\var}'}}$.
+  Then applying {\sc TEqv-Fn} gives
+  \[\infr[TEqv-Fn]
+  {\sequence{\teqv{\subst{\type_i}{\var}{\type_{\var}}}{\subst{\type_i'}{\var}{\type_{\var}'}}}
+    \qquad \teqv{\subst{\type_o}{\var}{\type_{\var}}}{\subst{\type_o'}{\var}{\type_{\var}'}}}
+  {\teqv
+    {\typefun{\sequence{\subst{\type_i}{\var}{\type_{\var}}}}{\subst{\type_o}{\var}{\type_{\var}}}}
+    {\typefun{\sequence{\subst{\type_i'}{\var}{\type_{\var}'}}}{\subst{\type_o'}{\var}{\type_{\var}'}}}}\]
+  \paragraph{Case {\sc Univ}:}
+  \[\infr[TEqv-Univ]
+  {\teqv
+    {\seqsubst{\type_u}{\var_u}{\var_f}}
+    {\seqsubst{\type_u'}{\var_u'}{\var_f}}}
+  {\teqv
+    {\typeuniv{\sequence{\notevar{\var_u}{\kind}}}{\type_u}}
+    {\typeuniv{\sequence{\notevar{\var_u'}{\kind}}}{\type_u'}}}\]
+  If $\var$ is shadowed by $\sequence{\var_u}$
+  but not by $\sequence{\var_u'}$ (or vice versa),
+  then the universal types $\type$ and $\type'$ will not be equivalent,
+  as a type variable is only equivalent to itself (via {\sc TEqv-Refl}).
+  If $\var$ does not appear at all in both $\type_u$ and $\type_u'$,
+  then substitution leaves them unchanged,
+  and our required conclusion is an initial assumption.
+  So we now assume that $\var$ is free in both $\type_u$ and $\type_u'$.
+  When we substitute in $\type_{\var}$ and $\type_{\var}'$,
+  the induction hypothesis implies
+  $\teqv
+  {\subst{\seqsubst{\type_u}{\var_u}{\var_f}}{\var}{\type_{\var}}}
+  {\subst{\seqsubst{\type_u'}{\var_u'}{\var_f}}{\var}{\type_{\var}'}}$.
+  These types are equal to
+  $\seqsubst{\subst{\type_u}{\var}{\type_{\var}}}{\var_u}{\var_f}$
+  and $\seqsubst{\subst{\type_u'}{\var}{\type_{\var}'}}{\var_u'}{\var_f}$ respectively,
+  so we then use {\sc TEqv-Univ}
+  \[\infr[TEqv-Univ]
+  {\teqv
+    {\seqsubst{\subst{\type_u}{\var}{\type_{\var}}}{\var_u}{\var_f}}
+    {\seqsubst{\subst{\type_u'}{\var}{\type_{\var}'}}{\var_u'}{\var_f}}}
+  {\parbox{0.6\textwidth}
+    {\centering
+      \({\typeuniv{\sequence{\notevar{\var_u}{\kind}}}{\subst{\type_u}{\var}{\type_{\var}}}}\)\\
+      \(\teqv{}{}
+      {\typeuniv{\sequence{\notevar{\var_u'}{\kind}}}{\subst{\type_u'}{\var}{\type_{\var}'}}}\)}}\]
+  \paragraph{Case {\sc Pi}:}
+  \[{\infr[TEqv-Pi]
+    {\teqv
+      {\seqsubst{\type_p}{\var_p}{\var_f}}
+      {\seqsubst{\type_p'}{\var_p'}{\var_f}}}
+    {\teqv
+      {\typedprod{\notevar{\var_p}{\sort}}{\type_p}}
+      {\typedprod{\notevar{\var_p'}{\sort}}{\type_p'}}}}\]
+  Shadowing $\var$ is no longer a concern because
+  it is a type variable,
+  whereas the dependent product only binds index variables.
+  Substituting $\type_{\var}$ and $\type_{\var}'$ into the $\alpha$-converted body types
+  produces $\subst{\seqsubst{\type_p}{\var_p}{\var_f}}{\var}{\type_{\var}}$
+  and $\subst{\seqsubst{\type_p'}{\var_p'}{\var_f}}{\var}{\type_{\var}'}$,
+  which the induction hypothesis implies are equivalent.
+  They are in turn equal to
+  $\seqsubst{\subst{\type_p}{\var}{\type_{\var}}}{\var_p}{\var_f}$
+  and $\seqsubst{\subst{\type_p'}{\var}{\type_{\var}'}}{\var_p'}{\var_f}$
+  respectively.
+  We then construct the derivation
+  \[{\infr[TEqv-Pi]
+    {\teqv
+      {\seqsubst{\subst{\type_p}{\var}{\type_{\var}}}{\var_p}{\var_f}}
+      {\seqsubst{\subst{\type_p'}{\var}{\type_{\var}'}}{\var_p'}{\var_f}}}
+    {\teqv
+      {\typedprod{\notevar{\var_p}{\sort}}{\subst{\type_p}{\var}{\type_{\var}}}}
+      {\typedprod{\notevar{\var_p}{\sort}}{\subst{\type_p'}{\var}{\type_{\var}'}}}}}\]
+  \paragraph{Case {\sc Sigma}:}
+  This case proceeds as the {\sc Pi} case.
+\end{sproof}
+
+Having defined the typing judgment
+and the type-equivalence relation on which it builds,
+we can now prove the usual results about typing in Remora.
+The {\sc T-Eqv} rule can allow many types to be ascribed to a single term,
+but we will prove that an environment and term
+can only map to a single equivalence class.
+
+\begin{theorem}[Uniqueness of typing, up to equivalence]
+  \label{UniqType}
+  If $\typeof{\sEnv}{\kEnv}{\tEnv}{\term}{\type}$
+  and $\typeof{\sEnv}{\kEnv}{\tEnv}{\term}{\type'}$,
+  then $\teqv{\type}{\type'}$.
+\end{theorem}
+\begin{sproof}[This can be proven by induction on $\term$,
+  showing that all derivations of
+  $\typeof{\sEnv}{\kEnv}{\tEnv}{\term}{\type'}$
+  must end with the same non-{\sc T-Eqv} rule
+  (chosen according to the structure of $\term$)
+  followed by 0 or more {\sc T-Eqv} instances,
+  which keeps the result in the same equivalence class as $\type$.]
+  Any derivation of $\typeof{\sEnv}{\kEnv}{\tEnv}{\term}{\type}$
+  can be followed with zero or more additional uses of {\sc T-Eqv}
+  or have any terminal uses of {\sc T-Eqv} stripped off
+  to derive another type.
+  Since type equivalence is transitive, any alternative type $\type'$ derived in this way
+  is equivalent to $\type$.
+  It remains to show, by induction on $\term$,
+  that all derivations for $\typeof{\sEnv}{\kEnv}{\tEnv}{\term}{\type'}$ 
+  ending in a non-{\sc Eqv} rule
+  ascribe a $\type'$ equivalent to $\type$.
+  \paragraph{Variable:}
+  $\term = \var$,
+  so the only applicable rule is {\sc T-Var},
+  which ascribes $\tEnv(\var)$.
+  \paragraph{Array:}
+  $\term = \arrlit{\sequence{\atom}}{\sequence{\nat}}$.
+  Only {\sc T-Array} can derive a type,
+  so the derivations for $\type$ and $\type'$ are
+  \[\infr[T-Array]
+  {\sequence{\typeof{\sEnv}{\kEnv}{\tEnv}{\atom}{\type_a}}
+    \qquad \kindof{\sEnv}{\kEnv}{\type_a}{\kindatom}
+    \qquad \mathit{Length}\llb \sequence{\atom} \rrb = \prod{\sequence{\nat}}}
+  {\typeof{\sEnv}{\kEnv}{\tEnv}
+    {\arrlit{\sequence{\atom}}{\sequence{\nat}}}
+    {\typearray{\type_a}{\idxshape{\sequence{\nat}}}}}\]
+  \ctrand
+  \[\infr[T-Array]
+  {\sequence{\typeof{\sEnv}{\kEnv}{\tEnv}{\atom}{\type_a'}}
+    \qquad \kindof{\sEnv}{\kEnv}{\type_a'}{\kindatom}
+    \qquad \mathit{Length}\llb \sequence{\atom} \rrb = \prod{\sequence{\nat}}}
+  {\typeof{\sEnv}{\kEnv}{\tEnv}
+    {\arrlit{\sequence{\atom}}{\sequence{\nat}}}
+    {\typearray{\type_a'}{\idxshape{\sequence{\nat}}}}}\]
+  By the induction hypothesis,
+  the derivations for each $\atom$ must produce equivalent types,
+  \ie, $\teqv{\type_a}{\type_a'}$.
+  Thus we can derive
+  \[\infr[TEqv-Array]
+  {\teqv{\type_a}{\type_a'}
+    \qquad \ieqv{\idxshape{\sequence{\nat}}}{\idxshape{\sequence{\nat}}}}
+  {\teqv
+    {\typearray{\type_a}{\idxshape{\sequence{\nat}}}}
+    {\typearray{\type_a'}{\idxshape{\sequence{\nat}}}}}\]
+  \paragraph{Frame:}
+  $\term = \frm{\sequence{\expr}}{\sequence{\nat}}$.
+  Only {\sc T-Frame} is applicable, so the derivations are
+  \[\infr[T-Frame]
+  {\sequence{\typeof
+      {\sEnv}{\kEnv}{\tEnv}
+      {\expr}{\typearray{\type_a}{\idx_c}}}
+    \qquad \kindof{\sEnv}{\kEnv}{\typearray{\type_a}{\idx_c}}{\kindarray}
+    \\\\ \mathit{Length}\llb \sequence{\atom} \rrb = \prod{\sequence{\nat}}}
+  {\typeof{\sEnv}{\kEnv}{\tEnv}
+    {\frm{\sequence{\expr}}{\sequence{\nat}}}
+    {\typearray
+      {\type_a}
+      {\idxappend{\idxshape{\sequence{\nat}} \; \idx_c}}}}\]
+  \ctrand
+  \[\infr[T-Frame]
+  {\sequence{\typeof
+      {\sEnv}{\kEnv}{\tEnv}
+      {\expr}{\typearray{\type_a'}{\idx_c'}}}
+    \qquad \kindof{\sEnv}{\kEnv}{\typearray{\type_a'}{\idx_c'}}{\kindarray}
+    \\\\ \mathit{Length}\llb \sequence{\atom} \rrb = \prod{\sequence{\nat}}}
+  {\typeof{\sEnv}{\kEnv}{\tEnv}
+    {\frm{\sequence{\expr}}{\sequence{\nat}}}
+    {\typearray
+      {\type_a'}
+      {\idxappend{\idxshape{\sequence{\nat}} \; \idx_c'}}}}\]
+  By the induction hypothesis,
+  $\teqv {\typearray{\type_a}{\idx_c}}{\typearray{\type_a'}{\idx_c'}}$.
+  The derivation for this must either end with {\sc TEqv-Array}
+  or be simply {\sc TEqv-Refl}.
+  In either case, we have $\teqv{\type_a}{\type_a'}$
+  and $\ieqv{\idx_c}{\idx_c'}$.
+  The latter implies
+  $\ieqv
+  {\idxappend{\idxshape{\sequence{\nat}} \; \idx_c}}
+  {\idxappend{\idxshape{\sequence{\nat}} \; \idx_c'}}$,
+  which leads to the derivation
+  \[\infr[TEqv-Array]
+  {\teqv{\type_a}{\type_a'}
+    \qquad
+    \ieqv{\idxshape{\sequence{\nat}} \; \idx_c}{\idxshape{\sequence{\nat}} \; \idx_c'}}
+  {\parbox{0.6\textwidth}
+    {\centering
+      \({\typearray{\type_a}{\idxappend{\idxshape{\sequence{\nat}} \; \idx_c}}}\)\\
+      \(\teqv{}{}{\typearray{\type_a'}{\idxappend{\idxshape{\sequence{\nat}} \; \idx_c'}}}\)}}\]
+  \paragraph{Empty array:}
+  $\term = \emptyarrlit{\type_a}{\sequence{\nat}}$.
+  The only possible non-{\sc Eqv} rule for ending a type derivation is
+  \[\infr[T-EmptyA]
+  {\kindof{\sEnv}{\kEnv}{\type_a}{\kindatom}
+    \qquad 0 \in \sequence{\nat}}
+  {\typeof{\sEnv}{\kEnv}{\tEnv}
+    {\emptyarrlit{\type_a}{\sequence{\nat}}}
+    {\typearray{\type_a}{\idxshape{\sequence{\nat}}}}}\]
+  Note that there are no atoms for derivations to conclude
+  have distinct (but equivalent) types.
+  Instead, the exact atom type is specified in the term itself.
+  Therefore all types derived for $\term$ by {\sc TEqv-EmptyA} are equal,
+  thus equivalent.
+  \paragraph{Empty frame:}
+  $\term = \emptyfrm{\typearray{\type_a}{\idx}}{\sequence{\nat}}$.
+  Similar to the empty array case,
+  only one non-{\sc Eqv} end to the derivation is possible:
+  \[\infr[T-EmptyF]
+  {\kindof{\sEnv}{\kEnv}{\type_a}{\kindatom}
+    \qquad \sortof{\sEnv}{\idx}{\sortshp}
+    \qquad 0 \in \sequence{\nat}}
+  {\typeof
+    {\sEnv}{\kEnv}{\tEnv}
+    {\emptyfrm{\typearray{\type_a}{\idx}}{\sequence{\nat}}}
+    {\typearray{\type_a}{\idxshape{\sequence{\nat}}}}}\]
+  Again, only one unique type is derivable.
+  \paragraph{Application:}
+  $\term = \app{\expr_f}{\sequence{\expr_a}}$
+  The of a typing derivations for $\term$ end with
+  \[\infr
+  {\typeof
+    {\sEnv}{\kEnv}{\tEnv}
+    {\expr_f}
+    {\typearray
+      {\typefun
+        {\sequence{\typearray{\type_i}{\idx_i}}}
+        {\typearray{\type_o}{\idx_o}}}
+      {\idx_f}}
+    \\\\
+    \sequence{\typeof
+      {\sEnv}{\kEnv}{\tEnv}
+      {\expr_a}
+      {\typearray{\type_i}{\idxappend{\idx_a \; \idx_i}}}}
+    \\\\
+    \idx_p = \mathit{Max}\llb \idx_f \; \sequence{\idx_a} \rrb}
+  {\typeof
+    {\sEnv}{\kEnv}{\tEnv}
+    {\app{\expr_f}{\sequence{\expr_a}}}
+    {\typearray{\type_o}{\idxappend{\idx_p \; \idx_o}}}}\]
+  \ctrand
+  \[\infr
+  {\typeof
+    {\sEnv}{\kEnv}{\tEnv}
+    {\expr_f}
+    {\typearray
+      {\typefun
+        {\sequence{\typearray{\type_i'}{\idx_i'}}}
+        {\typearray{\type_o'}{\idx_o'}}}
+      {\idx_f'}}
+    \\\\
+    \sequence{\typeof
+      {\sEnv}{\kEnv}{\tEnv}
+      {\expr_a}
+      {\typearray{\type_i'}{\idxappend{\idx_a' \; \idx_i'}}}}
+    \\\\
+    \idx_p' = \mathit{Max}\llb \idx_f' \; \sequence{\idx_a'} \rrb}
+  {\typeof
+    {\sEnv}{\kEnv}{\tEnv}
+    {\app{\expr_f}{\sequence{\expr_a}}}
+    {\typearray{\type_o'}{\idxappend{\idx_p' \; \idx_o'}}}}\]
+  By the induction hypothesis, the types ascribed to $\expr_f$ are equivalent.
+  Since their equivalence can only be concluded from {\sc TEqv-Fn} or {\sc TEqv-Refl},
+  we know that corresponding input types---%
+  $\typearray{\type_i}{\idx_i}$ and $\typearray{\type_i'}{\idx_i'}$---%
+  are equivalent.
+  This in turn implies the equivalence of corresponding atom types $\type_i$ and $\type_i'$
+  and of corresponding argument cell shapes $\idx_i$ and $\idx_i'$
+  (the array types could only be equivalent because of {\sc TEqv-Array} or {\sc TEqv-Refl}).
+  For the same reason, we have
+  equality of the function frames and of corresponding argument shapes.
+  What we then need is equality of corresponding \emph{argument frames}.
+
+  In the free monoid,
+  $a \thappend b \theq a \thappend c$ implies $b \theq c$,
+  and $b \thappend a \theq c \thappend a$ implies $b \theq c$
+  (\nb, this does not hold in all monoids).
+  In effect, if we know that prefixes match on two equal shapes,
+  we can conclude that their suffixes match as well.
+  Applied to our situation,
+  this means that the equality of
+  $\idxappend{\idx_a \; \idx_i}$ and $\idxappend{\idx_a' \; \idx_i'}$
+  with equal $\idx_i$ and $\idx_i'$
+  entails the equality of $\idx_a$ and $\idx_a'$.
+  So any two frames derived for the same argument \emph{are} equal.
+  Since all corresponding frames are equal,
+  their respective maxima $\idx_p$ and $\idx_p'$ must also be equal.
+
+  Returning to the derived function types,
+  their equivalence also implies the equivalence of their output types.
+  Since $teqv{\typearray{\type_o}{\idx_o}}{\typearray{\type_o'}{\idx_o'}}$,
+  it must be the case that $\teqv{\type_o}{\type_o'}$
+  and that $\ieqv{\idx_o}{\idx_o'}$.
+
+  The equivalences $\teqv{\type_o}{\type_o'}$, $\ieqv{\idx_o}{\idx_o'}$, and $\ieqv{\idx_p}{\idx_p'}$
+  lead to
+  \[\infr
+  {\teqv{\type_o}{\type_o'}
+    \qquad \ieqv{\idxappend{\idx_p \; \idx_o}}{\idxappend{\idx_p' \; \idx_o'}}}
+  {\teqv
+    {\typearray{\type_o}{\idxappend{\idx_p \; \idx_o}}}
+    {\typearray{\type_o'}{\idxappend{\idx_p' \; \idx_o'}}}}\]
+  \paragraph{Type application:}
+  $\term = \tapp{\expr_f}{\sequence{\type_a}}$.
+  The derivations must have the form
+  \[\infr[T-TApp]
+  {\typeof{\sEnv}{\kEnv}{\tEnv}
+    {\expr_f}
+    {\typearray{\typeuniv{\sequence{\notevar{\var}{\kind}}}{\typearray{\type_u}{\idx_u}}}{\idx_f}}
+    \\\\ \sequence{\kindof{\sEnv}{\kEnv}{\type_a}{\kind}}}
+  {\typeof{\sEnv}{\kEnv}{\tEnv}
+    {\tapp{\expr_f}{\sequence{\type_a}}}
+    {\typearray{\seqsubst{\type_u}{\var}{\type_a}}{\idxappend{\idx_f\;\idx_u}}}}\]
+  \ctrand
+  \[\infr[T-TApp]
+  {\typeof{\sEnv}{\kEnv}{\tEnv}
+    {\expr_f}
+    {\typearray{\typeuniv{\sequence{\notevar{\var'}{\kind}}}{\typearray{\type_u'}{\idx_u'}}}{\idx_f'}}
+    \\\\ \sequence{\kindof{\sEnv}{\kEnv}{\type_a}{\kind}}}
+  {\typeof{\sEnv}{\kEnv}{\tEnv}
+    {\tapp{\expr_f}{\sequence{\type_a}}}
+    {\typearray{\seqsubst{\type_u'}{\var'}{\type_a}}{\idxappend{\idx_f'\;\idx_u'}}}}\]
+  From the induction hypothesis, we have
+  ${\typearray{\typeuniv{\sequence{\notevar{\var}{\kind}}}{\typearray{\type_u}{\idx_u}}}{\idx_f}}$
+  $\teqv{}{}$
+  ${\typearray{\typeuniv{\sequence{\notevar{\var'}{\kind}}}{\typearray{\type_u'}{\idx_u'}}}{\idx_f'}}$,
+  which then implies that
+  ${\seqsubst{\type_u}{\var}{\var_f}}$
+  $\teqv{}{}$
+  ${\seqsubst{\type_u'}{\var'}{\var_f}}$.
+  Because substituting equal types into equivalent types produces equivalent types
+  % (by Lemma \ref{EqlTypeEqvType}),
+  ${\seqsubst{\parens{\seqsubst{\type_u}{\var}{\var_f}}}{\var_f}{\type_a}}$
+  $\teqv{}{}$
+  ${\seqsubst{\parens{\seqsubst{\type_u'}{\var'}{\var_f}}}{\var_f}{\type_a}}$.
+  Applying both substitutions in order,
+  we have
+  $\teqv{\seqsubst{\type_u}{\var}{\type_a}}{\seqsubst{\type_u'}{\var'}{\type_a}}$.
+  Equivalence of types derived for $\expr_f$ also implies
+  equivalence of the result cell shapes $\idx_u$ and $\idx_u'$
+  and of the frame shapes $\idx_f$ and $\idx_f'$.
+  This means $\ieqv{\idxappend{\idx_f \; \idx_u}}{\idxappend{\idx_f' \; \idx_u'}}$.
+  So we can derive
+  \[\infr[TEqv-Array]
+  {\teqv
+    {\seqsubst{\type_u}{\var}{\type_a}}
+    {\seqsubst{\type_u'}{\var'}{\type_a}}
+    \\\\ \ieqv{\idxappend{\idx_f \; \idx_u}}{\idxappend{\idx_f' \; \idx_u'}}}
+  {\parbox{0.42\textwidth}
+    {\centering
+      \({\typearray{\seqsubst{\type_u}{\var}{\type_a}}{\idxappend{\idx_f\;\idx_u}}}\)\\
+      \(\teqv{}{}{\typearray{\seqsubst{\type_u'}{\var'}{\type_a}}{\idxappend{\idx_f'\;\idx_u'}}}\)}}\]
+  \paragraph{Index application:}
+  $\term = \iapp{\expr_f}{\sequence{\idx_a}}$.
+  Non-{\sc Eqv} endings of the type derivations must have the form
+  \[\infr[T-IApp]
+  {\typeof
+    {\sEnv}{\kEnv}{\tEnv}
+    {\expr}
+    {\typearray{\typedprod{\sequence{\notevar{\var}{\sort}}}{\typearray{\type_p}{\idx_p}}}{\idx_f}}
+    \qquad
+    \sequence{\sortof{\sEnv}{\idx_a}{\sort}}}
+  {\typeof
+    {\sEnv}{\kEnv}{\tEnv}
+    {\iapp{\expr_f}{\sequence{\idx_a}}}
+    {\typearray{\seqsubst{\type_p}{\var}{\idx}}{\idxappend{\idx_f\;\seqsubst{\idx_p}{\var}{\idx}}}}}\]
+  In two typing derivations,
+  $\expr_f$ is ascribed types
+  $\typearray{\typedprod{\sequence{\notevar{\var}{\sort}}}{\typearray{\type_p}{\idx_p}}}{\idx_f}$
+  and $\typearray{\typedprod{\sequence{\notevar{\var'}{\sort}}}{\typearray{\type_p'}{\idx_p'}}}{\idx_f'}$.
+  The induction hypothesis implies that these two types are equivalent.
+  Deriving this equivalence must use {\sc TEqv-Array},
+  relating $\idx_f$ with $\idx_f'$
+  and $\typearray{\type_p}{\idx_p}$ with $\typearray{\type_p'}{\idx_p'}$.
+  By similar substitution-tracing arguments as in the type application case,
+  we have $\teqv{\seqsubst{\type_p}{\var}{\idx_a}}{\seqsubst{\type_p'}{\var'}{\idx_a}}$
+  and
+  $\text{\sc Valid} \llbracket {\seqsubst{\idx_p}{\var}{\idx}}
+  \theq {\seqsubst{\idx_p'}{\var}{\idx}} \rrbracket$,
+  leading to
+  \[\infr[TEqv-Pi]
+  {\teqv
+    {\seqsubst{\type_p}{\var}{\idx_a}}
+    {\seqsubst{\type_p'}{\var'}{\idx_a}}
+    \\\\
+    \ieqv
+    {\idxappend{\idx_f\;\seqsubst{\idx_p}{\var}{\idx}}}
+    {\idxappend{\idx_f'\;\seqsubst{\idx_p'}{\var}{\idx}}}}
+  {\parbox{0.55\textwidth}
+    {\centering
+      \({\typearray
+        {\seqsubst{\type_p}{\var}{\idx}}
+        {\idxappend{\idx_f\;\seqsubst{\idx_p}{\var}{\idx}}}}\)\\
+      \(\teqv{}{}
+      {\typearray
+        {\seqsubst{\type_p'}{\var'}{\idx}}
+        {\idxappend{\idx_f'\;\seqsubst{\idx_p'}{\var}{\idx}}}}\)}}\]
+  \paragraph{Unboxing:}
+  $\term = \dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b}$.
+  The only non-{\sc T-Eqv} rule which can type $\term$ is {\sc T-Unbox},
+  so type derivations must end with
+  \[\infr[]
+  {\typeof
+    {\sEnv}{\kEnv}{\tEnv}
+    {\expr_s}
+    {\typearray{\typedsum{\sequence{\notevar{\var_i'}{\sort}}}{\type_s}}{\idx_s}}
+    \\\\
+    \typeof
+    {\sEnv,\sequence{\hassort{\var_i}{\sort}}}{\kEnv}{\tEnv,\hastype{\var_e}{\seqsubst{\type_s}{\var_i'}{\var_i}}}
+    {\expr_b}
+    {\typearray{\type_b}{\idx_b}}
+    \qquad
+    \kindof{\sEnv}{\kEnv}{\typearray{\type_b}{\idx_b}}{\kindarray}}
+  {\typeof
+    {\sEnv}{\kEnv}{\tEnv}
+    {\dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b}}
+    {\typearray{\type_b}{\idxappend{\idx_s \; \idx_b}}}}\]
+  By the induction hypothesis, any two types $\typearray{\type_b}{\idxappend{\idx_s \; \idx_b}}$
+  and $\typearray{\type_b'}{\idxappend{\idx_s' \; \idx_b'}}$
+  ascribed to $\expr_b$ using the extended environment by the second premise
+  must be equivalent---%
+  \ie, $\teqv{\typearray{\type_b}{\idxappend{\idx_s \; \idx_b}}}{\typearray{\type_b'}{\idxappend{\idx_s' \; \idx_b'}}}$.
+  This is exactly the proof obligation.
+  \paragraph{Abstraction:}
+  $\term = \lam{\sequence{\notevar{\var}{\type_i}}}{\expr}$.
+  Type derivations must end with {\sc T-Lam}:
+  \[\infr[T-Lam]
+  {\typeof
+    {\sEnv}{\kEnv}{\tEnv, \sequence{\hastype{\var}{\type_i}}}
+    {\expr}
+    {\type_o}
+    \\
+    \sequence{\kindof{\sEnv}{\kEnv}{\type_i}{\kindarray}}}
+  {\typeof
+    {\sEnv}{\kEnv}{\tEnv}
+    {\lam{\sequence{\notevar{\var}{\type_i}}}{\expr}}
+    {\typefun{\sequence{\type_i}}{\type_o}}}\]
+  For any two such derivations,
+  the induction hypothesis implies that types $\type_o$ and $\type_o'$
+  are equivalent, since they are both ascribed to $\expr$.
+  Since the input types $\sequence{\type_i}$ are given explicitly in the term,
+  we can derive
+  \[\infr[]
+  {\sequence{\infr[TEqv-Refl]{\ }{\teqv{\type_i}{\type_i}}}
+    \qquad \teqv{\type_o}{\type_o'}}
+  {\teqv
+    {\typefun{\sequence{\type_i}}{\type_o}}
+    {\typefun{\sequence{\type_i}}{\type_o'}}}\]
+  \paragraph{Type abstraction:}
+  $\term = \tlam{\sequence{\notevar{\var}{\kind}}}{\val}$.
+  Non-{\sc Eqv} derivations must end with
+  \[\infr[T-TLam]
+  {\typeof
+    {\sEnv}{\kEnv, \sequence{\haskind{\var}{\kind}}}{\tEnv}
+    {\val}{\type_u}}
+  {\typeof
+    {\sEnv}{\kEnv}{\tEnv}
+    {\tlam{\sequence{\notevar{\var}{\kind}}}{\val}}
+    {\typeuniv{\sequence{\notevar{\var}{\kind}}}{\type_u}}}\]
+  Any $\type_u$ and $\type_u'$ ascribed to $\val$, the body of the abstraction,
+  must be equivalent,
+  and substituting in the same fresh variables
+  will preserve that equivalence,
+  by Lemma \ref{EqlTypeEqvType}.
+  So we can construct the derivation
+  \[\infr[TEqv-Univ]
+  {\teqv
+    {\seqsubst{\type_u}{\var}{\var_f}}
+    {\seqsubst{\type_u'}{\var}{\var_f}}}
+  {\teqv
+    {\typeuniv{\sequence{\notevar{\var}{\kind}}}{\type_u}}
+    {\typeuniv{\sequence{\notevar{\var}{\kind}}}{\type_u'}}}\]
+  \paragraph{Index abstraction:}
+  $\term = \ilam{\sequence{\notevar{\var}{\sort}}}{\val}$.
+  \[\infr[T-ILam]
+  {\typeof
+    {\sEnv, \sequence{\hassort{\var}{\sort}}}{\kEnv}{\tEnv}
+    {\val}{\type_p}}
+  {\typeof
+    {\sEnv}{\kEnv}{\tEnv}
+    {\tlam{\sequence{\notevar{\var}{\kind}}}{\val}}
+    {\typeuniv{\sequence{\notevar{\var}{\kind}}}{\type_p}}}\]
+  Similar to the type abstraction case,
+  any types ascribed to the abstraction body must be equivalent,
+  and $\alpha$-conversion will preserve that equivalence,
+  leading to
+  \[\infr[TEqv-Pi]
+  {\teqv
+    {\seqsubst{\type_p}{\var}{\var_f}}
+    {\seqsubst{\type_p'}{\var}{\var_f}}}
+  {\teqv
+    {\typeuniv{\sequence{\notevar{\var}{\kind}}}{\type_p}}
+    {\typeuniv{\sequence{\notevar{\var}{\kind}}}{\type_p'}}}\]
+  \paragraph{Box construction:}
+  $\term = \dsum{\sequence{\idx}}{\expr}{\type_s}$.
+  Only $\type_s$ can be ascribed to $\term$ without ending the derivation with {\sc T-Eqv}.
+  \paragraph{Base value or primitive operator:}
+  $\term = \baseval$ or $\term = \primop$.
+  Each base value and primitive operator has a single defined type.
+\end{sproof}
+
+We also require guarantees about substitution in terms:
+replacing an index variable with an appropriately-sorted index,
+a type variable with an appropriately-kinded type,
+or a term variable with an appropriately-typed expression
+should not change the type of the original term.
+If substitution turns a term $\term$ with type $\type$
+into $\term'$ with type $\type'$,
+where $\teqv{\type}{\type'}$,
+we can add a {\sc T-Eqv} at the end of the new type derivation
+to conclude $\term'$ has type $\type$.
+As such, we do not need to include an ``up to equivalence'' caveat
+when stating the preservation of typing lemmas.
+
+\begin{lemma}[Preservation of types under index substitution]
+  \label{IESub}
+  If $\typeof{\sEnv,\hassort{\var}{\sort}}{\kEnv}{\tEnv}{\term}{\type}$
+  and $\sortof{\sEnv}{\idx}{\sort}$
+  then $\typeof{\sEnv}{\kEnv}{\idxsubst{\tEnv}}
+  {\idxsubst{\term}}{\idxsubst{\type}}$.
+\end{lemma}
+\begin{sproof}[This is straightforward induction on the derivation of
+  $\typeof{\sEnv,\hassort{\var}{\sort}}{\kEnv}{\tEnv}{\term}{\type}$.]
+  We use induction on the derivation of
+  $\typeof{\sEnv,\hassort{\var}{\sort}}{\kEnv}{\tEnv}{\term}{\type}$.
+  \paragraph{Case {\sc Eqv}}
+  \[\infr[T-Eqv]
+  {\typeof{\sEnv,\hassort{\var}{\sort}}{\kEnv}{\tEnv}{\term}{\type'}
+    \qquad \teqv{\type}{\type'}}
+  {\typeof{\sEnv,\hassort{\var}{\sort}}{\kEnv}{\tEnv}{\term}{\type}}\]
+  By the induction hypothesis,
+  $\typeof{\sEnv}{\kEnv}{\idxsubst{\tEnv}}
+  {\idxsubst{\term}}
+  {\idxsubst{\type'}}$,
+  and preservation of equivalence (Lemma \ref{EqlIdxEqvType}) implies
+  $\teqv{\idxsubst{\type}}{\idxsubst{\type'}}$.
+  Thus we can build the derivation
+  \[{\infr[T-Eqv]
+    {\typeof{\sEnv}{\kEnv}{\idxsubst{\tEnv}}
+      {\idxsubst{\term}}{\idxsubst{\type'}}
+      \qquad \teqv{\idxsubst{\type}}{\idxsubst{\type'}}}
+    {\typeof{\sEnv}{\kEnv}{\idxsubst{\tEnv}}
+      {\idxsubst{\term}}{\idxsubst{\type}}}}\]
+  \paragraph{Case {\sc Op}, {\sc Base}}
+  These cases are trivial,
+  since primitive operators and base values are only ascribed closed types.
+  \paragraph{Case {\sc Var}}
+  \[{\infr[T-Var]
+    {\parens{\hastype{\var'}{\type}} \in \tEnv}
+    {\typeof{\sEnv, \hassort{\var}{\sort}}{\kEnv}{\tEnv}{\var'}{\type}}}\]
+  In this case, $\var$ cannot appear in $\term$,
+  so $\idxsubst{\var'} = \var'$.
+  Since $\var'$ is bound in $\tEnv$,
+  we can construct a similar derivation
+  with $\tEnv(\var')$ updated by substitution:
+  \[{\infr[T-Var]
+    {\parens{\hastype{\var'}{\idxsubst{\type}}}
+      \in \idxsubst{\tEnv}}
+    {\typeof{\sEnv}{\kEnv}
+      {\idxsubst{\tEnv}}
+      {\var'}{\idxsubst{\type}}}}\]
+  \paragraph{Case {\sc Array}}
+  \[{\infr[T-Array]
+    {\sequence{\typeof{\sEnv, \hassort{\var}{\sort}}{\kEnv}{\tEnv}
+        {\atom}{\type_a}}
+      \qquad {\kindof{\sEnv, \hassort{\var}{\sort}}{\kEnv}
+        {\type_a}{\kindatom}}
+      \\\\ {\mathit{Length}\llb \sequence{\atom} \rrb
+        = \prod{\sequence{\nat}}}}
+    {\typeof{\sEnv,\hassort{\var}{\sort}}{\kEnv}{\tEnv}
+      {\arrlit{\sequence{\atom}}{\sequence{\nat}}}
+      {\typearray{\type_a}{\idxshape{\sequence{\nat}}}}}}\]
+  By the induction hypothesis,
+  $\typeof{\sEnv}{\kEnv}{\idxsubst{\tEnv}}{\idxsubst{\atom}}{\idxsubst{\type_a}}$
+  for each of $\sequence{\atom}$.
+  Preservation of kinds under substitution (Lemma \ref{ITSub}) implies
+  $\kindof{\sEnv}{\kEnv}{\idxsubst{\type_a}}{\kindatom}$.
+  We use these results to construct the derivation
+  \[{\infr[T-Array]
+    {\sequence{\typeof{\sEnv}{\kEnv}{\idxsubst{\tEnv}}
+        {\idxsubst{\atom}}{\idxsubst{\type_a}}}
+      \\\\ {\kindof{\sEnv}{\kEnv}
+        {\idxsubst{\type_a}}{\kindatom}}
+      \\\\ {\mathit{Length}\llb \sequence{\atom} \rrb
+        = \prod{\sequence{\nat}}}}
+    {\parbox{0.45\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\tEnv}\vdash\)
+        \({\arrlit{\sequence{\idxsubst{\atom}}}{\sequence{\nat}}}\)\\
+        \(:{\typearray{\idxsubst{\type_a}}{\idxshape{\sequence{\nat}}}}\)}}}\]
+  \paragraph{Case {\sc Frame}}
+  \[{\infr[T-Frame]
+    {\sequence{\typeof{\sEnv, \hassort{\var}{\sort}}{\kEnv}{\tEnv}
+        {\expr_a}
+        {\typearray{\type_a}{\idx_a}}}
+      \\\\ {\kindof{\sEnv, \hassort{\var}{\sort}}{\kEnv}
+        {\typearray{\type_a}{\idx_a}}
+        {\kindarray}}
+      \\\\ {\mathit{Length}\llb \sequence{\expr_a} \rrb
+        = \prod{\sequence{\nat}}}}
+    {\parbox{0.45\textwidth}
+      {\centering
+        \({\sEnv, \hassort{\var}{\sort}};{\kEnv};{\tEnv}\vdash\)
+        \({\frm{\sequence{\expr}}{\sequence{\nat}}}\)\\
+        \(:{\typearray{\type_a}
+          {\idxappend{\idxshape{\sequence{\nat}}
+              \; \idx_a}}}\)}}}\]
+  The induction hypothesis implies
+  $\typeof{\sEnv}{\kEnv}{\idxsubst{\tEnv}}
+  {\idxsubst{\expr}}{\typearray{\idxsubst{\type_a}}{\idxsubst{\idx_a}}}$
+  for each of the $\sequence{\expr}$.
+  As in the {\sc T-Array} case,
+  we use preservation of kinds to determine that
+  $\kindof{\sEnv}{\kEnv}
+  {\typearray{\idxsubst{\type_a}}{\idxsubst{\idx_a}}}{\kindarray}$.
+  Then we derive
+  \[{\infr[T-Frame]
+    {\sequence{\typeof{\sEnv}{\kEnv}{\idxsubst{\tEnv}}
+        {\idxsubst{\expr_a}}
+        {\typearray{\idxsubst{\type_a}}{\idxsubst{\idx_a}}}}
+      \\\\ {\kindof{\sEnv}{\kEnv}
+        {\typearray{\idxsubst{\type_a}}{\idxsubst{\idx_a}}}
+        {\kindarray}}
+      \\\\ {\mathit{Length}\llb \sequence{\expr_a} \rrb
+        = \prod{\sequence{\nat}}}}
+    {\parbox{0.6\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\idxsubst{\tEnv}}\vdash\)
+        \({\frm{\sequence{\idxsubst{\expr}}}{\sequence{\nat}}}\)\\
+        \(:{\typearray{\idxsubst{\type_a}}
+          {\idxappend{\idxshape{\sequence{\nat}}
+              \; \idxsubst{\idx_a}}}}\)}}}\]
+  \paragraph{Case {\sc EmptyA}}
+  \[{\infr[T-EmptyA]
+    {\kindof{\sEnv, \hassort{\var}{\sort}}{\kEnv}{\type_a}{\kindatom}
+      \qquad 0 \in \sequence{\nat}}
+    {\parbox{0.4\textwidth}
+      {\centering
+        \({\sEnv, \hassort{\var}{\sort}};{\kEnv};{\tEnv}\vdash\)
+        \({\emptyarrlit{\type_a}{\sequence{\nat}}}\)
+        \(:{\typearray{\type_a}{\idxshape{\sequence{\nat}}}}\)}}}\]
+  By preservation of kinds,
+  $\kindof{\sEnv}{\kEnv}{\idxsubst{\type_a}}{\kindatom}$.
+  This leads to the derivation
+  \[{\infr[T-EmptyA]
+    {\kindof{\sEnv}{\kEnv}{\idxsubst{\type_a}}{\kindatom}
+      \qquad 0 \in \sequence{\nat}}
+    {\parbox{0.51\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\idxsubst{\tEnv}}\vdash\)
+        \({\emptyarrlit{\idxsubst{\type_a}}{\sequence{\nat}}}\)
+        \(:{\typearray{\idxsubst{\type_a}}{\idxshape{\sequence{\nat}}}}\)}}}\]
+  \paragraph{Case {\sc EmptyF}}
+  \[{\infr[T-EmptyF]
+    {\kindof{\sEnv, \hassort{\var}{\sort}}{\kEnv}{\type_a}{\kindatom}
+      \\\\
+      \sortof{\sEnv, \hassort{\var}{\sort}}{\idx_a}{\sortshp}
+      \\ 0 \in \sequence{\nat}}
+    {\parbox{0.5\textwidth}
+      {\centering
+        \({\sEnv, \hassort{\var}{\sort}};{\kEnv};{\tEnv}\vdash\)
+        \({\emptyfrm{\typearray{\type_a}{\idx_a}}{\sequence{\nat}}}\)
+        \(:{\typearray
+          {\type_a}
+          {\idxappend{\idxshape{\sequence{\nat}} \; \idx_a}}}\)}}}\]
+  As before, preservation of kinds implies
+  $\kindof{\sEnv}{\kEnv}{\idxsubst{\type_a}}{\kindatom}$.
+  We also have, by preservation of sorts under substitution (Lemma \ref{IISub})
+  $\sortof{\sEnv}{\idxsubst{\idx_a}}{\sortshp}$.
+  So we can derive
+  \[{\infr[T-EmptyF]
+    {\kindof{\sEnv}{\kEnv}{\idxsubst{\type_a}}{\kindatom}
+      \\\\
+      \sortof{\sEnv}{\idxsubst{\idx_a}}{\sortshp}
+      \\ 0 \in \sequence{\nat}}
+    {\parbox{0.63\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\tEnv}\vdash\)
+        \({\emptyfrm
+          {\typearray{\idxsubst{\type_a}}{\idxsubst{\idx_a}}}
+          {\sequence{\nat}}}\)
+        \(:{\typearray
+          {\idxsubst{\type_a}}
+          {\idxappend{\idxshape{\sequence{\nat}} \; \idxsubst{\idx_a}}}}\)}}}\]
+  \paragraph{Case {\sc Lam}}
+  \[{\infr[T-Lam]
+    {\typeof{\sEnv, \hassort{\var}{\sort}}{\kEnv}
+      {\tEnv, \sequence{\hastype{\var_i}{\type_i}}}
+      {\expr}{\type_o}
+      \qquad \kindof{\sEnv, \hassort{\var}{\sort}}{\kEnv}
+             {\type_i}{\kindarray}}
+    {\typeof{\sEnv, \hassort{\var}{\sort}}{\kEnv}{\tEnv}
+      {\lam{\sequence{\notevar{\var_i}{\type_i}}}{\expr}}
+      {\typefun{\sequence{\type_i}}{\type_o}}}}\]
+  The induction hypothesis gives us
+  $\typeof{\sEnv}{\kEnv}
+  {\idxsubst{\tEnv}, \sequence{\hastype{\var_i}{\idxsubst{\type_i}}}}
+  {\idxsubst{\expr}}
+  {\idxsubst{\type_o}}$.
+  By preservation of kinds,
+  $\kindof{\sEnv}{\kEnv}{\idxsubst{\tEnv}}{\kindarray}$
+  for each of $\sequence{\type_i}$,
+  which leads to the derivation
+  \[{\infr[T-Lam]
+    {\typeof{\sEnv}{\kEnv}
+      {\idxsubst{\tEnv}, \sequence{\hastype{\var_i}{\idxsubst{\type_i}}}}
+      {\idxsubst{\expr}}{\idxsubst{\type_o}}
+      \\\\ \sequence{\kindof{\sEnv}{\kEnv}
+        {\idxsubst{\type_i}}{\kindarray}}}
+    {\parbox{0.6\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\idxsubst{\tEnv}}\vdash\)
+        \({\lam{\sequence{\var_i}{\idxsubst{\type_i}}}{\idxsubst{\expr}}}\)
+        \(:{\typefun{\sequence{\idxsubst{\type_i}}}{\idxsubst{\type_o}}}\)}}}\]
+  \paragraph{Case {\sc TLam}}
+  \[{\infr[T-TLam]
+    {\typeof{\sEnv, \hassort{\var}{\sort}}
+      {\kEnv, \sequence{\haskind{\var_u}{\kind}}}{\tEnv}
+      {\val}{\type_u}}
+    {\typeof{\sEnv, \hassort{\var}{\sort}}{\kEnv}{\tEnv}
+      {\tlam{\sequence{\notevar{\var_u}{\kind}}}{\val}}
+      {\typeuniv{\sequence{\notevar{\var_u}{\kind}}}{\type_u}}}}\]
+  By the induction hypothesis,
+  $\typeof{\sEnv}{\kEnv, \sequence{\haskind{\var_u}{\kind}}}
+  {\idxsubst{\tEnv}}
+  {\idxsubst{\val}}{\idxsubst{\type_u}}$,
+  so we derive
+  \[{\infr[T-TLam]
+    {\typeof{\sEnv}
+      {\kEnv, \sequence{\haskind{\var_u}{\kind}}}
+      {\idxsubst{\tEnv}}
+      {\idxsubst{\val}}{\idxsubst{\type_u}}}
+    {\parbox{0.6\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\idxsubst{\tEnv}}\vdash\)
+        \({\tlam{\sequence{\notevar{\var_u}{\kind}}}{\idxsubst{\val}}}\)
+        \(:{\typeuniv{\sequence{\notevar{\var_u}{\kind}}}{\idxsubst{\type_u}}}\)}}}\]
+  \paragraph{Case {\sc ILam}}
+  \[{\infr[T-ILam]
+    {\typeof{\sEnv, \hassort{\var}{\sort},
+        \sequence{\haskind{\var_u}{\sort_p}}}
+      {\kEnv}{\tEnv}
+      {\val}{\type_p}}
+    {\typeof{\sEnv, \hassort{\var}{\sort}}{\kEnv}{\tEnv}
+      {\ilam{\sequence{\notevar{\var_p}{\sort_p}}}{\val}}
+      {\typedprod{\sequence{\notevar{\var_p}{\sort_p}}}{\type_p}}}}\]
+  Following Barendregt's convention,
+  we assume that $\var$ does not appear in $\idx_{\var}$.
+  The induction hypothesis gives
+  $\typeof{\sEnv, \sequence{\hassort{\var_p}{\sort_p}}}{\kEnv}
+  {\idxsubst{\tEnv}}
+  {\idxsubst{\val}}{\idxsubst{\type_p}}$,
+  leading to
+  \[{\infr[T-ILam]
+    {\typeof{\sEnv, \sequence{\hassort{\var_u}{\sort_u}}}{\kEnv}
+      {\idxsubst{\tEnv}}
+      {\idxsubst{\val}}{\idxsubst{\type_u}}}
+    {\parbox{0.6\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\idxsubst{\tEnv}}\vdash\)
+        \({\tlam{\sequence{\notevar{\var_u}{\kind}}}{\idxsubst{\val}}}\)
+        \(:{\typeuniv{\sequence{\notevar{\var_u}{\kind}}}{\idxsubst{\type_u}}}\)}}}\]
+  \paragraph{Case {\sc Box}}
+  \[{\infr[T-Box]
+    {\sequence{\sortof{\sEnv, \hassort{\var}{\sort}}{\idx_s}{\sort_s}}
+      \qquad
+      \kindof{\sEnv, \hassort{\var}{\sort}}{\kEnv}
+      {\typedsum{\sequence{\notevar{\var_s}{\sort_s}}}{\type_s}}
+      {\kindatom}
+      \\
+      \typeof{\sEnv, \hassort{\var}{\sort}}{\kEnv}{\tEnv}
+      {\expr}{\seqsubst{\type_s}{\var_s}{\idx_s}}}
+    {\parbox{0.7\textwidth}
+      {\centering
+        \({\sEnv, \hassort{\var}{\sort}};{\kEnv};{\tEnv}\vdash\)
+        \({\dsum{\sequence{\idx_s}}{\expr}
+          {\typedsum{\sequence{\notevar{\var_s}{\sort_s}}}{\type_s}}}\)
+        \(:{\typedsum{\sequence{\notevar{\var_s}{\sort_s}}}{\type_s}}\)}}}\]
+  By the induction hypothesis,
+  $\typeof{\sEnv}{\kEnv}{\idxsubst{\tEnv}}
+  {\idxsubst{\expr}}{\idxsubst{\seqsubst{\type_s}{\var_s}{\idx_s}}}$,
+  which is equal to $\seqsubst{\idxsubst{\type_s}}{\var_s}{\idx_s}$.
+  Preservation of sorts implies
+  $\sortof{\sEnv}{\idxsubst{\idx_s}}{\sort_s}$
+  for each of $\sequence{\idx_s}$,
+  while preservation of kinds implies
+  $\kindof{\sEnv}{\kEnv}
+  {\typedsum{\sequence{\notevar{\var_s}{\sort_s}}}{\idxsubst{\type_s}}}
+  {\kindatom}$.
+  Applying {\sc T-Box} derives
+  \[{\infr[T-Box]
+    {\sequence{\sortof{\sEnv}{\idxsubst{\idx_s}}{\sort_s}}
+      \\\\
+      \kindof{\sEnv}{\kEnv}
+      {\typedsum{\sequence{\notevar{\var_s}{\sort_s}}}{\idxsubst{\type_s}}}
+      {\kindatom}
+      \\\\
+      \typeof{\sEnv}{\kEnv}{\idxsubst{\tEnv}}
+      {\idxsubst{\expr}}
+      {\seqsubst{\idxsubst{\type_s}}{\var_s}{\idx_s}}}
+    {\parbox{0.72\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\idxsubst{\tEnv}}\vdash\)
+        \({\dsum{\sequence{\idxsubst{\idx_s}}}{\idxsubst{\expr}}
+          {\typedsum{\sequence{\notevar{\var_s}{\sort_s}}}{\idxsubst{\type_s}}}}\)
+        \(:{\typedsum{\sequence{\notevar{\var_s}{\sort_s}}}{\idxsubst{\type_s}}}\)}}}\]
+  \paragraph{Case {\sc TApp}}
+  \[{\infr[T-TApp]
+    {\typeof{\sEnv, \hassort{\var}{\sort}}{\kEnv}{\tEnv}
+      {\expr}
+      {\typearray{\typeuniv
+          {\sequence{\notevar{\var_u}{\kind}}}
+          {\typearray{\type_u}{\idx_u}}}{\idx_f}}
+      \\\\
+      \sequence{\kindof
+        {\sEnv, \hassort{\var}{\sort}}{\kEnv}
+        {\type_a}{\kind}}}
+    {\typeof{\sEnv, \hassort{\var}{\sort}}{\kEnv}{\tEnv}
+      {\tapp{\expr}{\sequence{\type_a}}}
+      {\typearray
+        {\seqsubst{\type_u}{\var_u}{\type_a}}
+        {\idxappend{\idx_f \; \idx_u}}}}}\]
+  The induction hypothesis gives
+  ${\sEnv};{\kEnv};{\idxsubst{\tEnv}}\vdash$
+  ${\idxsubst{\expr}}$ :
+  {\tt
+    (Arr (Forall (($\var_u$ $\kind$) $\sequence{}$)
+    (Arr $\idxsubst{\type_u}$ $\idxsubst{\idx_u}$))
+    ($\idxsubst{\idx_f}$))}.
+  Preservation of kinds under index substitution (Lemma \ref{ITSub}) implies
+  $\kindof{\sEnv}{\kEnv}{\idxsubst{\type_a}}{\kind}$
+  for each of $\sequence{\type_a}$.
+  So we derive
+  \[{\infr[T-TApp]
+    {\sequence{\kindof
+        {\sEnv}{\kEnv}
+        {\idxsubst{\type_a}}{\kind}}
+      \quad
+      \parbox{0.5\textwidth}
+      {%\centering
+        \({\sEnv};{\kEnv};{\idxsubst{\tEnv}}\vdash\)
+        \({\idxsubst{\expr}}\)\\
+        {\tt
+          : (Arr (Forall (($\var_u$ $\kind$) $\sequence{}$)\\
+          \phantom{: DArr DF}(Arr $\idxsubst{\type_u}$ $\idxsubst{\idx_u}$))\\
+          \phantom{: DArr }($\idxsubst{\idx_f}$))}
+        % \(:{\typearray{\typeuniv
+        % {\sequence{\notevar{\var_u}{\kind}}}
+        % {\typearray{\idxsubst{\type_u}}{\idxsubst{\idx_u}}}}{\idxsubst{\idx_f}}}\)
+      }}
+    {\parbox{0.7\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\idxsubst{\tEnv}}\vdash\)
+        \({\tapp{\expr}{\sequence{\idxsubst{\type_a}}}}\)
+        \(:{\typearray
+          {\seqsubst{\idxsubst{\type_u}}{\var_u}{\type_a}}
+          {\idxappend{\idxsubst{\idx_f} \; \idxsubst{\idx_u}}}}\)}}}\]
+  \paragraph{Case {\sc IApp}}
+  \[{\infr[T-IApp]
+    {\typeof{\sEnv, \hassort{\var}{\sort}}{\kEnv}{\tEnv}
+      {\expr}
+      {\typearray{\typedprod
+            {\sequence{\notevar{\var_p}{\sort_p}}}
+            {\typearray{\type_p}{\idx_p}}}{\idx_f}}
+      \\\\
+      \sequence{\sortof{\sEnv, \hassort{\var}{\sort}}
+        {\idx_a}{\sort_p}}}
+    {\parbox{0.6\textwidth}
+      {\centering
+        \({\sEnv, \hassort{\var}{\sort}};{\kEnv};{\tEnv}\vdash\)
+        \({\iapp{\expr}{\sequence{\idx_a}}}\)
+        \(:{\typearray
+          {\seqsubst{\type_p}{\var_p}{\idx_a}}
+          {\idxappend{\idx_f \; \seqsubst{\idx_p}{\var_p}{\idx_a}}}}\)}}}\]
+  The induction hypothesis implies
+  ${\sEnv};{\kEnv};{\idxsubst{\tEnv}}\vdash{\idxsubst{\expr}}$
+  {\tt : (Arr (Pi (($\var_p$ $\sort_p$) $\sequence{}$) (Arr $\idxsubst{\type_p}$ $\idxsubst{\idx_p}$)) $\idxsubst{\idx_f}$)}.
+  % ${\typearray
+  %   {\typedprod{\sequence{\notevar{\var_p}{\sort_p}}}{\typearray{\idxsubst{\type_p}}{\idxsubst{\idx_p}}}}
+  %   {\idxsubst{\idx_f}}}$.
+  Preservation of sorts under index substitution (Lemma \ref{IISub}) implies
+  $\sortof{\sEnv}{\idxsubst{\idx_a}}{\sort_a}$
+  for each corresponding pair $\sequence{(\idx_a, \sort_a)}$.
+  So we construct the derivation
+  \[{\infr[T-IApp]
+    {\sequence{\sortof{\sEnv}
+        {\idxsubst{\idx_a}}{\sort_p}}
+      \qquad
+      \parbox{0.5\textwidth}
+      {%\centering
+        \({\sEnv};{\kEnv};{\idxsubst{\tEnv}}\vdash\)
+        \({\idxsubst{\expr}}\)\\
+        {\tt
+          : (Arr (Forall (($\var_u$ $\kind$) $\sequence{}$)\\
+          \phantom{: DArr DP}(Arr $\idxsubst{\type_p}$ $\idxsubst{\idx_p}$))\\
+          \phantom{: DArr }($\idxsubst{\idx_f}$))}
+        % {\typearray{\typedprod
+        % {\sequence{\notevar{\var_p}{\sort_p}}}
+        % {\typearray{\idxsubst{\type_p}}{\idxsubst{\idx_p}}}}{\idxsubst{\idx_f}}}
+      }}
+    {\parbox{0.6\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\idxsubst{\tEnv}}\vdash\)
+        \({\iapp{\expr}{\sequence{\idxsubst{\idx_a}}}}\)
+        \(:{\typearray
+          {\seqsubst{\idxsubst{\type_p}}{\var_p}{\idx_a}}
+          {\idxappend{\idxsubst{\idx_f} \; \seqsubst{\idxsubst{\idx_p}}{\var_p}{\idx_a}}}}\)}}}\]
+  \paragraph{Case {\sc App}}
+  \[{\infr[T-App]
+    {\typeof{\sEnv, \hassort{\var}{\sort}}{\kEnv}{\tEnv}
+      {\expr_f}
+      {\typearray
+        {\typefun
+          {\sequence{\typearray{\type_i}{\idx_i}}}
+          {\typearray{\type_o}{\idx_o}}}
+        {\idx_f}}
+      \\\\
+      {\sequence
+        {\typeof{\sEnv, \hassort{\var}{\sort}}{\kEnv}{\tEnv}
+          {\expr_a}
+          {\typearray{\type_i}{\idxappend{\idx_a \; \idx_i}}}}}
+      \qquad
+      {\idx_p = \mathit{Max}\llb \idx_f \; \sequence{\idx_a} \rrb}}
+    {\typeof{\sEnv, \hassort{\var}{\sort}}{\kEnv}{\tEnv}
+      {\app{\expr_f}{\sequence{\expr_a}}}
+      {\typearray{\type_o}{\idxappend{\idx_p \; \idx_o}}}}}\]
+  By the induction hypothesis,
+  ${\sEnv};{\kEnv};{\idxsubst{\tEnv}}\vdash$
+  ${\idxsubst{\expr_f}}$
+  {\tt :
+    (Arr (-> ((Arr $\idxsubst{\type_i}$ $\idxsubst{\idx_i}$) $\sequence{}$)
+    (Arr $\idxsubst{\type_o}$ $\idxsubst{\idx_o}$))
+    $\idxsubst{\idx_f}$)}
+  % ${\typearray
+  %   {\typefun
+  %     {\sequence{\typearray{\idxsubst{\type_i}}{\idxsubst{\idx_i}}}}
+  %     {\typearray{\idxsubst{\type_o}}{\idxsubst{\idx_o}}}}
+  %   {\idxsubst{\idx_f}}}$
+  and for each of $\sequence{\expr_a}$, we have
+  $\typeof{\sEnv}{\kEnv}{\idxsubst{\tEnv}}{\idxsubst{\expr_a}}
+  {\typearray
+    {\idxsubst{\type_i}}
+    {\idxappend{\idxsubst{\idx_a} \; \idxsubst{\idx_i}}}}$.
+  Since substituting into a shape is monotonic in the subbed-in index,
+  \ie, prefix ordering commutes with substitution,
+  $\mathit{Max}\llb \idxsubst{\idx_f} \; \sequence{\idxsubst{\idx_a}} \rrb
+  = \idxsubst{\mathit{Max}\llb \idx_f \; \sequence{\idx_a} \rrb}
+  = \idxsubst{\idx_p}$.
+  Then we build the derivation
+  \[{\infr[T-App]
+    {\parbox{0.5\textwidth}
+      {\({\sEnv};{\kEnv};{\idxsubst{\tEnv}}\vdash\)
+        \({\idxsubst{\expr_f}}\)\\
+        {\tt
+          : (Arr (-> ((Arr $\idxsubst{\type_i}$ $\idxsubst{\idx_i}$)\\
+          \phantom{: DArr D-> D}$\sequence{}$)\\
+          \phantom{: DArr D-> }(Arr $\idxsubst{\type_o}$ $\idxsubst{\idx_o}$))\\
+          \phantom{: DArr }$\idx_f$)}
+        % {\typearray
+        %   {\typefun
+        %     {\sequence{\typearray{\idxsubst{\type_i}}{\idxsubst{\idx_i}}}}
+        %     {\typearray{\idxsubst{\type_o}}{\idxsubst{\idx_o}}}}
+        %   {\idx_f}}
+      }
+      \\\\\\
+      {\sequence
+        {\parbox{0.5\textwidth}
+          {\centering
+            \({\sEnv};{\kEnv};{\idxsubst{\tEnv}}\vdash\)
+            \({\idxsubst{\expr_a}}\)\\
+            \(:{\typearray
+              {\idxsubst{\type_i}}
+              {\idxappend{\idxsubst{\idx_a} \; \idxsubst{\idx_i}}}}\)}}}
+      \\\\\\
+      {\idxsubst{\idx_p} =
+        \mathit{Max}\llb \idxsubst{\idx_f} \; \sequence{\idxsubst{\idx_a}} \rrb}}
+    {\parbox{0.6\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\idxsubst{\tEnv}}\vdash\)
+        \({\app{\idxsubst{\expr_f}}{\sequence{\idxsubst{\expr_a}}}}\)
+        \(:{\typearray
+          {\idxsubst{\type_o}}
+          {\idxappend{\idxsubst{\idx_p} \; \idxsubst{\idx_o}}}}\)}}}\]
+  \paragraph{Case {\sc Unbox}}
+  \[{\infr[T-Unbox]
+    {\typeof{\sEnv, \hassort{\var}{\sort}}{\kEnv}{\tEnv}
+      {\expr_s}
+      {\typearray{\typedsum{\sequence{\var_i'}{\sort_i}}{\type_s}}
+        {\idx_s}}
+      \\\\
+      {\typeof{\sEnv, \hassort{\var}{\sort},
+          \sequence{\hassort{\var_i}{\sort_i}}}
+        {\kEnv}
+        {\tEnv, \hastype{\var_e}{\seqsubst{\type_s}{\var_i'}{\var_i}}}
+        {\expr_b}
+        {\typearray{\type_b}{\idx_b}}}
+      \\\\
+      {\kindof{\sEnv, \hassort{\var}{\sort}}{\kEnv}
+        {\typearray{\type_b}{\idx_b}}{\kindarray}}}
+    {\typeof{\sEnv, \hassort{\var}{\sort}}{\kEnv}{\tEnv}
+      {\dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b}}
+      {\typearray{\type_b}{\idxappend{\idx_s \; \idx_b}}}}}\]
+  Per Barendregt's convention, we stipulate that $\var \not\in \sequence{\var_i'}$.
+  Then the induction hypothesis gives both
+  $\typeof{\sEnv}{\kEnv}{\idxsubst{\tEnv}}
+  {\idxsubst{\expr_s}}
+  {\typearray{\typedsum{\sequence{\var_i'}{\sort_i}}{\idxsubst{\type_s}}}
+    {\idxsubst{\idx_s}}}$
+  and
+  $\typeof{\sEnv, \sequence{\hassort{\var_i}{\sort_i}}}{\kEnv}
+  {\idxsubst{\tEnv}, \hastype{\var_e}{\idxsubst{\parens{\seqsubst{\type_s}{\var_i'}{\var_i}}}}}
+  {\idxsubst{\expr_b}}
+  {\idxsubst{\type_b}}$.
+  By preservation of kinds,
+  $\kindof{\sEnv}{\kEnv}{\idxsubst{\typearray{\type_b}{\idx_b}}}{\kindarray}$.
+  So we can build the derivation
+  \[{\infr[T-Unbox]
+    {{\typeof{\sEnv}{\kEnv}{\idxsubst{\tEnv}}
+        {\idxsubst{\expr_s}}
+        {\typearray{\typedsum{\sequence{\var_i'}{\sort_i}}{\idxsubst{\type_s}}}
+          {\idx_s}}}
+      % \hspace{8pc}\\
+      \\\\\\
+      {\parbox{0.6\textwidth}
+        {\centering
+          \({\sEnv, \sequence{\hassort{\var_i}{\sort_i}}};{\kEnv};
+          {\idxsubst{\tEnv}, \hastype{\var_e}{\idxsubst{\parens{\seqsubst{\type_s}{\var_i'}{\var_i}}}}}\vdash\)\\
+          \({\idxsubst{\expr_b}}\)
+          \(:{\idxsubst{\typearray{\type_b}{\idx_b}}}\)}}
+      % \\\hspace{8pc}
+      \\\\\\
+      {\kindof{\sEnv}{\kEnv}{\idxsubst{\typearray{\type_b}{\idx_b}}}{\kindarray}}}
+    {\parbox{0.7\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\idxsubst{\tEnv}}\vdash\)
+        \({\dproj{\sequence{\var_i}}{\var_e}{\idxsubst{\expr_s}}{\idxsubst{\expr_b}}}\)\\
+        \(:{\idxsubst{\typearray{\type_b}{\idx_b}}}\)}}}\]
+\end{sproof}
+
+\begin{lemma}[Preservation of types under type substitution]
+  \label{TESub}
+  If $\typeof{\sEnv}{\kEnv,\haskind{\var}{\kind}}{\tEnv}{\term}{\type}$
+  and $\kindof{\sEnv}{\kEnv}{\type_\var}{\kind}$
+  then $\typeof{\sEnv}{\kEnv}{\typesubst{\tEnv}}
+  {\typesubst{\term}}
+  {\typesubst{\type}}$.
+\end{lemma}
+\begin{sproof}[This is straightforward induction on the derivation of
+  $\typeof{\sEnv}{\kEnv,\haskind{\var}{\kind}}{\tEnv}{\term}{\type}$.]
+  We use induction on the derivation of
+  $\typeof{\sEnv}{\kEnv,\haskind{\var}{\kind}}{\tEnv}{\term}{\type}$.
+  \paragraph{Case {\sc Eqv}}
+  \[{\infr[T-Eqv]
+    {\typeof{\sEnv}{\kEnv, \haskind{\var}{\kind}}{\tEnv}{\term}{\type'}
+      \qquad \teqv{\type}{\type'}}
+    {\typeof{\sEnv}{\kEnv, \haskind{\var}{\kind}}{\tEnv}
+      {\term}
+      {\type}}}\]
+  The induction hypothesis implies
+  $\typeof{\sEnv}{\kEnv}{\typesubst{\tEnv}}
+  {\typesubst{\term}}{\typesubst{\type'}}$.
+  Preservation of equivalence (Lemma \ref{EqlTypeEqvType}) implies
+  $\teqv{\typesubst{\type}}{\typesubst{\type'}}$.
+  So we derive
+  \[{\infr[T-Eqv]
+    {\typeof{\sEnv}{\kEnv}{\typesubst{\tEnv}}{\typesubst{\term}}{\typesubst{\type'}}
+      \qquad \teqv{\typesubst{\type}}{\typesubst{\type'}}}
+    {\typeof{\sEnv}{\kEnv}{\typesubst{\tEnv}}
+      {\typesubst{\term}}
+      {\typesubst{\type}}}}\]
+  \paragraph{Case {\sc Op}, {\sc Base}}
+  Since $\var$ cannot appear free in $\term$ or $\type$,
+  the goal, after substitution, is to ascribe $\type$ to $\term$
+  in the diminished environment,
+  which can be done because
+  {\sc T-Op} and {\sc T-Base} do not depend on the contents of the environment.
+  \paragraph{Case {\sc Var}}
+  \[{\infr[T-Var]
+    {\parens{\hastype{\var'}{\type}} \in \tEnv}
+    {\typeof{\sEnv}{\kEnv, \haskind{\var}{\kind}}{\tEnv}
+      {\var'}
+      {\type}}}\]
+  The type variable $\var$ cannot appear free in $\var'$ (a term variable),
+  so $\typesubst{\var'} = \var'$.
+  Applying substitution to $\tEnv$ maps $\tEnv(\var')$ into $\typesubst{\tEnv(\var')}$,
+  so $\parens{\hastype{\var'}{\typesubst{\type}}} \in \typesubst{\tEnv}$.
+  We then derive
+  \[\infr[T-Var]
+  {\parens{\hastype{\var'}{\typesubst{\type}}} \in \typesubst{\tEnv}}
+  {\typeof{\sEnv}{\kEnv}{\typesubst{\tEnv}}
+    {\var'}
+    {\typesubst{\type}}}\]
+  \paragraph{Case {\sc Array}}
+  \[{\infr[T-Array]
+    {\sequence{\typeof{\sEnv}{\kEnv, \haskind{\var}{\kind}}{\tEnv}
+        {\atom}{\type_a}}
+      \\\\
+      \kindof{\sEnv}{\kEnv, \haskind{\var}{\kind}}{\type_a}{\kindatom}
+      \qquad
+      \mathit{Length}\llb \sequence{\atom} \rrb = \prod{\sequence{\nat}}}
+    {\typeof{\sEnv}{\kEnv, \haskind{\var}{\kind}}{\tEnv}
+      {\arrlit{\sequence{\atom}}{\sequence{\nat}}}
+      {\typearray{\type_a}{\idxshape{\sequence{\nat}}}}}}\]
+  The induction hypothesis implies
+  $\typeof{\sEnv}{\kEnv}{\typesubst{\tEnv}}{\atom}{\typesubst{\type_a}}$
+  for each of the $\sequence{\atom}$.
+  By preservation of kinds (Lemma \ref{TTSub}),
+  $\kindof{\sEnv}{\kEnv}{\typesubst{\type_a}}{\kindatom}$.
+  This leads to the derivation
+  \[{\infr[T-Array]
+    {\sequence{\typeof{\sEnv}{\kEnv}{\typesubst{\tEnv}}
+        {\typesubst{\atom}}{\typesubst{\type_a}}}
+      \\\\
+      \kindof{\sEnv}{\kEnv}{\typesubst{\type_a}}{\kindatom}
+      \qquad
+      \mathit{Length}\llb \sequence{\atom} \rrb = \prod{\sequence{\nat}}}
+    {\parbox{0.6\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\typesubst{\tEnv}}\vdash\)
+        \({\arrlit{\sequence{\typesubst{\atom}}}{\sequence{\nat}}}\)
+        \(:{\typearray{\typesubst{\type_a}}{\idxshape{\sequence{\nat}}}}\)}}}\]
+  \paragraph{Case {\sc Frame}}
+  \[{\infr[T-Frame]
+    {\sequence{\typeof{\sEnv}{\kEnv, \haskind{\var}{\kind}}{\tEnv}
+        {\expr}{\typearray{\type_a}{\idx_a}}}
+      \\\\
+      {\kindof{\sEnv}{\kEnv, \haskind{\var}{\kind}}
+        {\typearray{\type_a}{\idx_a}}
+        {\kindarray}}
+      \qquad
+      \mathit{Length}\llb \sequence{\atom} \rrb = \prod{\sequence{\nat}}}
+  {\typeof{\sEnv}{\kEnv, \haskind{\var}{\kind}}{\tEnv}
+    {\frm{\sequence{\expr}}{\sequence{\nat}}}
+    {\typearray{\type_a}{\idxappend{\idxshape{\sequence{\nat}} \; \idx_a}}}}}\]
+  By the induction hypothesis,
+  $\typeof{\sEnv}{\kEnv}{\typesubst{\tEnv}}{\typesubst{\expr}}{\typearray{\typesubst{\type_a}}{\idx_a}}$
+  for each of the $\sequence{\expr}$.
+  Preservation of kinds gives
+  $\kindof{\sEnv}{\kEnv}{\typearray{\typesubst{\type_a}}{\idx_a}}{\kindarray}$.
+  So we derive
+  \[{\infr[T-Frame]
+    {\sequence{\typeof{\sEnv}{\kEnv}{\typesubst{\tEnv}}{\typesubst{\expr}}{\typearray{\typesubst{\type_a}}{\idx_a}}}
+      \\\\
+      \kindof{\sEnv}{\kEnv}{\typearray{\typesubst{\type_a}}{\idx_a}}{\kindarray}
+      \qquad
+      \mathit{Length}\llb \sequence{\atom} \rrb = \prod{\sequence{\nat}}}
+    {\parbox{0.6\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\typesubst{\tEnv}}\vdash\)
+        \({\frm{\sequence{\typesubst{\expr}}}{\sequence{\nat}}}\)
+        \(:{\typearray{\typesubst{\type_a}}{\idxappend{\idxshape{\sequence{\nat}} \; \idx_a}}}\)}}}\]
+  \paragraph{Case {\sc EmptyA}}
+  \[{\infr[T-EmptyA]
+    {\kindof{\sEnv}{\kEnv, \haskind{\var}{\kind}}{\type_a}{\kindatom}
+      \qquad 0 \in \sequence{\nat}}
+    {\typeof{\sEnv}{\kEnv, \haskind{\var}{\kind}}{\tEnv}
+      {\emptyarrlit{\type_a}{\sequence{\nat}}}
+      {\typearray{\type_a}{\idxshape{\sequence{\nat}}}}}}\]
+  Preservation of kinds implies
+  $\kindof{\sEnv}{\kEnv}{\typesubst{\type_a}}{\kindatom}$,
+  so we can derive
+  \[{\infr[T-EmptyA]
+    {\kindof{\sEnv}{\kEnv}{\typesubst{\type_a}}{\kindatom}
+      \qquad 0 \in \sequence{\nat}}
+    {\parbox{0.6\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\typesubst{\tEnv}}\vdash\)
+        \({\emptyarrlit{\typesubst{\type_a}}{\sequence{\nat}}}\)\\
+        \(:{\typearray{\typesubst{\type_a}}{\idxshape{\sequence{\nat}}}}\)}}}\]
+  \paragraph{Case {\sc EmptyF}}
+  \[{\infr[T-EmptyF]
+    {\kindof{\sEnv}{\kEnv, \haskind{\var}{\kind}}
+      {\typearray{\type_a}{\idx_a}}
+      {\kindarray}
+      \qquad 0 \in \sequence{\nat}}
+    {\parbox{0.6\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv, \haskind{\var}{\kind}};{\tEnv}\vdash\)
+        \({\emptyfrm{\typearray{\type_a}{\idx_a}}{\sequence{\nat}}}\)
+        \(:{\typearray{\type_a}{\idxappend{\idx_a \; \idxshape{\sequence{\nat}}}}}\)}}}\]
+  Preservation of kinds implies
+  $\kindof{\sEnv}{\kEnv}{\typearray{\typesubst{\type_a}}{\idx_a}}{\kindarray}$.
+  so we can derive
+  \[{\infr[T-EmptyF]
+    {\kindof{\sEnv}{\kEnv}
+      {\typearray{\typesubst{\type_a}}{\idx_a}}
+      {\kindarray}
+      \qquad 0 \in \sequence{\nat}}
+    {\parbox{0.6\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv, \haskind{\var}{\kind}};{\tEnv}\vdash\)
+        \({\emptyfrm{\typearray{\typesubst{\type_a}}{\idx_a}}{\sequence{\nat}}}\)
+        \(:{\typearray{\typesubst{\type_a}}{\idxappend{\idx_a \; \idxshape{\sequence{\nat}}}}}\)}}}\]
+  \paragraph{Case {\sc Lam}}
+  \[{\infr[T-Lam]
+    {\typeof{\sEnv}{\kEnv, \haskind{\var}{\kind}}
+      {\tEnv, \sequence{\hastype{\var_i}{\type_i}}}
+      {\expr}{\type_o}}
+    {\typeof{\sEnv}{\kEnv, \haskind{\var}{\kind}}{\tEnv}
+      {\lam{\sequence{\notevar{\var_i}{\type_i}}}{\expr}}
+      {\typefun{\sequence{\type_i}}{\type_o}}}}\]
+  The induction hypothesis implies
+  $\typeof{\sEnv}{\kEnv}{\typesubst{\tEnv}, \sequence{\hastype{\var_i}{\typesubst{\type_i}}}}
+  {\typesubst{\expr}}{\typesubst{\type_o}}$
+  (\nb,
+  $\typesubst{\parens{\tEnv, \sequence{\hastype{\var_i}{\type_i}}}}
+  = \typesubst{\tEnv}, \sequence{\hastype{\var_i}{\type_i}}$).
+  Then applying {\sc T-Lam} derives
+  \[{\infr[T-Lam]
+    {\typeof{\sEnv}{\kEnv}
+      {\typesubst{\tEnv}, \sequence{\hastype{\var_i}{\typesubst{\type_i}}}}
+      {\typesubst{\expr}}{\typesubst{\type_o}}}
+    {\parbox{0.6\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\typesubst{\tEnv}}\vdash\)
+        \({\lam{\sequence{\notevar{\var_i}{\typesubst{\type_i}}}}{\typesubst{\expr}}}\)
+        \(:{\typefun{\sequence{\typesubst{\type_i}}}{\typesubst{\type_o}}}\)}}}\]
+  \paragraph{Case {\sc TLam}}
+  \[{\infr[T-TLam]
+    {\typeof{\sEnv}{\kEnv, \haskind{\var}{\kind}, \sequence{\haskind{\var_u}{\kind_u}}}{\tEnv}
+      {\expr}
+      {\type_u}}
+    {\typeof{\sEnv}{\kEnv, \haskind{\var}{\kind}}{\tEnv}
+      {\tlam{\sequence{\notevar{\var_u}{\kind_u}}}{\expr}}
+      {\typeuniv{\sequence{\notevar{\var_u}{\kind_u}}}{\type_u}}}}\]
+  By the induction hypothesis,
+  $\typeof{\sEnv}{\kEnv, \sequence{\haskind{\var_u}{\kind_u}}}{\typesubst{\tEnv}}
+  {\typesubst{\expr}}{\typesubst{\type_u}}$
+  (per Barendregt's convention, $\var \not\in \sequence{\var_u}$).
+  We then derive
+  \[{\infr[T-TLam]
+    {\typeof{\sEnv}{\kEnv, \sequence{\haskind{\var_u}{\kind_u}}}{\typesubst{\tEnv}}
+      {\typesubst{\expr}}{\typesubst{\type_u}}}
+    {\parbox{0.6\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\typesubst{\tEnv}}\vdash\)
+        \({\tlam{\sequence{\notevar{\var_u}{\kind_u}}}{\typesubst{\expr}}}\)
+        \(:{\typeuniv{\sequence{\notevar{\var_u}{\kind_u}}}{\typesubst{\type_u}}}\)}}}\]
+  \paragraph{Case {\sc ILam}}
+  \[{\infr[T-ILam]
+    {\typeof{\sEnv, \sequence{\hassort{\var_p}{\sort_p}}}{\kEnv, \haskind{\var}{\kind}}{\tEnv}
+      {\expr}
+      {\type_p}}
+    {\typeof{\sEnv}{\kEnv, \haskind{\var}{\kind}}{\tEnv}
+      {\ilam{\sequence{\notevar{\var_p}{\sort_p}}}{\expr}}
+      {\typedprod{\sequence{\notevar{\var_p}{\sort_p}}}{\type_p}}}}\]
+  The induction hypothesis implies
+  $\typeof{\sEnv, \sequence{\hassort{\var_p}{\sort_p}}}{\kEnv}{\typesubst{\tEnv}}
+  {\typesubst{\expr}}{\typesubst{\type_p}}$.
+  Then we can derive
+  \[{\infr[T-ILam]
+    {\typeof{\sEnv, \sequence{\hassort{\var_p}{\sort_p}}}{\kEnv}{\typesubst{\tEnv}}
+      {\typesubst{\expr}}
+      {\typesubst{\type_p}}}
+    {\parbox{0.6\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\typesubst{\tEnv}}\vdash\)
+        \({\ilam{\sequence{\notevar{\var_p}{\sort_p}}}{\typesubst{\expr}}}\)
+        \(:{\typedprod{\sequence{\notevar{\var_p}{\sort_p}}}{\typesubst{\type_p}}}\)}}}\]
+  \paragraph{Case {\sc Box}}
+  \[{\infr[T-Box]
+    {\sequence{\sortof{\sEnv}{\idx_s}{\sort_s}}
+      \qquad
+      {\kindof{\sEnv}{\kEnv, \haskind{\var}{\kind}}
+        {\typedsum{\sequence{\notevar{\var_s}{\sort_s}}}{\type_s}}
+        {\kindatom}}
+      \\
+      {\typeof{\sEnv}{\kEnv, \haskind{\var}{\kind}}{\tEnv}
+        {\expr}
+        {\seqsubst{\type_s}{\var_s}{\idx_s}}}}
+    {\parbox{0.7\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv, \haskind{\var}{\kind}};{\tEnv}\vdash\)
+        \({\dsum
+          {\sequence{\idx_s}}{\expr}
+          {\typedsum{\sequence{\notevar{\var_s}{\sort_s}}}{\type_s}}}\)\\
+        \(:{\typedsum{\sequence{\notevar{\var_s}{\sort_s}}}{\type_s}}\)}}}\]
+  By the induction hypothesis,
+  $\typeof{\sEnv}{\kEnv}{\typesubst{\tEnv}}{\expr}{\typesubst{\seqsubst{\type_s}{\var_s}{\idx_s}}}$.
+  Preservation of kinds under type substitution gives a derivation for
+  $\kindof{\sEnv}{\kEnv}
+  {\typedsum{\sequence{\notevar{\var_s}{\sort_s}}}{\typesubst{\type_s}}}
+  {\kindatom}$.
+  The ascribed type ${\typesubst{\seqsubst{\type_s}{\var_s}{\idx_s}}}$
+  is equal to $\multisubst{\type_s}{\sequence{\singlesubst{\var_s}{\idx_s}}, \singlesubst{\var}{\type_1}}$.
+  We then derive
+  \[{\infr[T-Box]
+    {\sequence{\sortof{\sEnv}{\idx_s}{\sort_s}}
+      \qquad
+      {\kindof{\sEnv}{\kEnv}
+        {\typedsum{\sequence{\notevar{\var_s}{\sort_s}}}{\typesubst{\type_s}}}
+        {\kindatom}}
+      \\
+      {\typeof{\sEnv}{\kEnv}{\typesubst{\tEnv}}
+        {\expr}
+        {\multisubst{\type_s}
+          {\sequence{\singlesubst{\var_s}{\idx_s}},
+            \singlesubst{\var}{\type_1}}}}}
+    {\parbox{0.85\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\typesubst{\tEnv}}\vdash\)
+        \({\dsum
+          {\sequence{\idx_s}}{\typesubst{\expr}}
+          {\typedsum{\sequence{\notevar{\var_s}{\sort_s}}}{\typesubst{\type_s}}}}\)\\
+        \(:{\typedsum{\sequence{\notevar{\var_s}{\sort_s}}}{\typesubst{\type_s}}}\)}}}\]
+  \paragraph{Case {\sc TApp}}
+  \[{\infr[T-TApp]
+    {\typeof
+      {\sEnv}{\kEnv, \haskind{\var}{\kind}}{\tEnv}
+      {\expr}
+      {\typearray{\typeuniv{\sequence{\notevar{\var_u}{\kind_u}}}{\typearray{\type_u}{\idx_u}}}{\idx_f}}
+      \\\\
+      \sequence{\kindof{\sEnv}{\kEnv, \haskind{\var}{\kind}}{\type_a}{\kind_u}}}
+    {\typeof{\sEnv}{\kEnv, \haskind{\var}{\kind}}{\tEnv}
+      {\tapp{\expr}{\sequence{\type_a}}}
+      {\typearray{\seqsubst{\type_u}{\var_u}{\type_a}}{\idxappend{\idx_f\;\idx_u}}}}}\]
+  The induction hypothesis gives
+  ${\sEnv};{\kEnv};{\typesubst{\tEnv}}\vdash$
+  ${\typesubst{\expr}}$ :
+  {\tt (Arr (Forall (($\var_u$ $\kind_u$) $\sequence{}$) (Arr $\typesubst{\type_u}$ $\idx_u$)) $\idx_f$)}.
+  Lemma \ref{TTSub} (preservation of kinds) implies for each of $\sequence{\type_a}$ that
+  $\kindof{\sEnv}{\kEnv}{\typesubst{\type_a}}{\kind_u}$.
+  Then we can derive
+  \[{\infr[T-TApp]
+    {\parbox{0.63\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\typesubst{\tEnv}}\vdash\)
+        \({\typesubst{\expr}}\)
+        \(:{\typearray
+          {\typeuniv
+            {\sequence{\notevar{\var_u}{\kind_u}}}
+            {\typearray{\typesubst{\type_u}}{\idx_u}}}
+          {\idx_f}}\)}
+      \\\\\\
+      \sequence{\kindof{\sEnv}{\kEnv}{\typesubst{\type_a}}{\kind_u}}}
+    {\parbox{0.58\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\typesubst{\tEnv}}\vdash\)
+        \({\tapp{\typesubst{\expr}}{\sequence{\typesubst{\type_a}}}}\)
+        \(:{\typearray
+          {\seqsubst{\typesubst{\type_u}}{\var_u}{\type_a}}
+          {\idxappend{\idx_f \; \idx_u}}}\)}}}\]
+  \paragraph{Case {\sc IApp}}
+  \[{\infr[T-IApp]
+    {\typeof
+      {\sEnv}{\kEnv, \haskind{\var}{\kind}}{\tEnv}
+      {\expr}
+      {\typearray{\typedprod{\sequence{\notevar{\var_p}{\sort_p}}}{\typearray{\type_p}{\idx_p}}}{\idx_f}}
+      \\\\
+      \sequence{\sortof{\sEnv}{\idx_a}{\sort_p}}}
+    {\parbox{0.6\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv, \haskind{\var}{\kind}};{\tEnv}\vdash\)
+        \({\iapp{\expr}{\sequence{\idx_a}}}\)\\
+        \(:{\typearray{\seqsubst{\type_p}{\var_p}{\idx_a}}{\idxappend{\idx_f\;\seqsubst{\idx_p}{\var_p}{\idx_a}}}}\)}}}\]
+  By the induction hypothesis,
+  ${\sEnv};{\kEnv};{\typesubst{\tEnv}}\vdash$
+  ${\typesubst{\expr}}$ :
+  {\tt (Arr (Pi (($\var_p$ $\sort_p$) $\sequence{}$) (Arr $\typesubst{\type_p}$ $\idx_p$)) $\idx_f$)}.
+  % ${\typearray
+  %   {\typedprod{\sequence{\notevar{\var_p}{\sort_p}}}{\typearray{\typesubst{\type_p}}{\idx_p}}}
+  %   {\idx_f}}$
+  Applying {\sc T-IApp} produces the derivation
+  \[{\infr[T-IApp]
+    {\parbox{0.6\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\typesubst{\tEnv}}\vdash\)
+        \({\typesubst{\expr}}\)
+        \(:{\typearray
+          {\typedprod
+            {\sequence{\notevar{\var_p}{\sort_p}}}
+            {\typearray{\typesubst{\type_p}}{\idx_p}}}
+          {\idx_f}}\)}
+      \\\\\\
+      \sequence{\sortof{\sEnv}{\idx_a}{\sort_p}}}
+    {\parbox{0.6\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\typesubst{\tEnv}}\vdash\)
+        \({\iapp{\typesubst{\expr}}{\sequence{\idx_a}}}\)\\
+        \(:{\typearray{\seqsubst{\type_p}{\var_p}{\idx_a}}{\idxappend{\idx_f\;\seqsubst{\idx_p}{\var_p}{\idx_a}}}}\)}}}\]
+  \paragraph{Case {\sc App}}
+  \[{\infr[T-App]
+    {\typeof{\sEnv}{\kEnv, \haskind{\var}{\kind}}{\tEnv}
+      {\expr_f}
+      {\typearray
+        {\typefun
+          {\sequence{\typearray{\type_i}{\idx_i}}}
+          {\typearray{\type_o}{\idx_o}}}
+        {\idx_f}}
+      \\\\
+      {\sequence
+        {\typeof{\sEnv}{\kEnv, \haskind{\var}{\kind}}{\tEnv}
+          {\expr_a}
+          {\typearray{\type_i}{\idxappend{\idx_a \; \idx_i}}}}}
+      \qquad
+      {\idx_p = \mathit{Max}\llb \idx_f \; \sequence{\idx_a} \rrb}}
+    {\typeof{\sEnv}{\kEnv, \haskind{\var}{\kind}}{\tEnv}
+      {\app{\expr_f}{\sequence{\expr_a}}}
+      {\typearray{\type_o}{\idxappend{\idx_p \; \idx_o}}}}}\]
+  The induction hypothesis gives derivations for
+  ${\sEnv};{\kEnv, \haskind{\var}{\kind}};{\typesubst{\tEnv}}\vdash$
+  ${\typesubst{\expr_f}}$ :
+  {\tt (Arr (-> ((Arr $\typesubst{\type_i}$ $\idx_i$) $\sequence{}$) (Arr $\typesubst{\type_o}$ $\idx_o$)) $\idx_f$)}
+  % ${\typearray
+  %   {\typefun
+  %     {\sequence{\typearray{\typesubst{\type_i}}{\idx_i}}}
+  %     {\typearray{\typesubst{\type_o}}{\idx_o}}}
+  %   {\idx_f}}$
+  and $\typeof{\sEnv}{\kEnv, \haskind{\var}{\kind}}{\typesubst{\tEnv}}
+  {\typesubst{\expr_a}}
+  {\typearray{\typesubst{\type_i}}{\idxappend{\idx_a \; \idx_i}}}$
+  for each of the $\sequence{\expr_a}$.
+  Note that the frames of the function and argument arrays have not changed,
+  so the principal frame $\idx_p$ is also unchanged.
+  We then derive
+  \[{\infr[T-App]
+    {\parbox{0.7\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\typesubst{\tEnv}}\vdash\)
+        \({\typesubst{\expr_f}}\)\\
+        \(:{\typearray
+          {\typefun
+            {\sequence{\typearray{\typesubst{\type_i}}{\idx_i}}}
+            {\typearray{\typesubst{\type_o}}{\idx_o}}}
+          {\idx_f}}\)}
+      \\\\\\
+      {\sequence
+        {\typeof{\sEnv}{\kEnv}{\typesubst{\tEnv}}
+          {\typesubst{\expr_a}}
+          {\typearray{\typesubst{\type_i}}{\idxappend{\idx_a \; \idx_i}}}}}
+      \\\\\\
+      {\idx_p = \mathit{Max}\llb \idx_f \; \sequence{\idx_a} \rrb}}
+    {\parbox{0.6\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\typesubst{\tEnv}}\vdash\)
+        \({\app{\typesubst{\expr_f}}{\sequence{\typesubst{\expr_a}}}}\)\\
+        \(:{\typearray{\typesubst{\type_o}}{\idxappend{\idx_p \; \idx_o}}}\)}}}\]
+  \paragraph{Case {\sc Unbox}}
+  \[{\infr[T-Unbox]
+    {\typeof{\sEnv}{\kEnv, \haskind{\var}{\kind}}{\tEnv}
+      {\expr_s}
+      {\typearray{\typedsum{\sequence{\notevar{\var_i'}{\sort_i}}}{\type_s}}
+        {\idx_s}}
+      \\\\
+      {\typeof
+        {\sEnv, \sequence{\hassort{\var_i}{\sort_i}}}
+        {\kEnv, \haskind{\var}{\kind}}
+        {\tEnv, \hastype{\var_e}{\seqsubst{\type_s}{\var_i'}{\var_i}}}
+        {\expr_b}
+        {\typearray{\type_b}{\idx_b}}}
+      \\\\
+      {\kindof{\sEnv}{\kEnv, \haskind{\var}{\kind}}
+        {\typearray{\type_b}{\idx_b}}{\kindarray}}}
+    {\typeof{\sEnv}{\kEnv, \haskind{\var}{\kind}}{\tEnv}
+      {\dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b}}
+      {\typearray{\type_b}{\idxappend{\idx_s \; \idx_b}}}}}\]
+  By the induction hypothesis,
+  ${\sEnv};{\kEnv};{\typesubst{\tEnv}}\vdash$
+  ${\typesubst{\expr_s}}$ :
+  {\tt (Arr (Sigma (($\var_i'$ $\sort_i$) $\sequence{}$) $\typesubst{\type_s}$) $\idx_s$)},
+  % ${\typearray{\typedsum{\sequence{\var_i'}{\sort_i}}{\typesubst{\type_s}}}
+  %   {\idx_s}}$,
+  and
+  $\typeof
+  {\sEnv, \sequence{\hassort{\var_i}{\sort_i}}}
+  {\kEnv}
+  {\typesubst{\tEnv}, \hastype{\var_e}{\typesubst{\parens{\seqsubst{\type_s}{\var_i'}{\var_i}}}}}
+  {\typesubst{\expr_b}}
+  {\typesubst{\typearray{\type_b}{\idx_b}}}$.
+  Preservation of kinds implies
+  $\kindof{\sEnv}{\kEnv}{\typesubst{\typearray{\type_b}{\idx_b}}}{\kindarray}$.
+  Then we can derive
+  \[{\infr[T-Unbox]
+    {\parbox{0.6\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\typesubst{\tEnv}}\vdash\)
+        \({\typesubst{\expr_s}}\)\\
+        \(:{\typearray{\typedsum{\sequence{\notevar{\var_i'}{\sort_i}}}{\typesubst{\type_s}}}
+          {\idx_s}}\)}
+      % \hspace{8pc}\\
+      \\\\\\
+      {\parbox{0.6\textwidth}
+        {\centering
+          \({\sEnv, \sequence{\hassort{\var_i}{\sort_i}}};
+          {\kEnv};
+          {\typesubst{\tEnv}, \hastype{\var_e}{\typesubst{\parens{\seqsubst{\type_s}{\var_i'}{\var_i}}}}}\)
+          \(\vdash{\typesubst{\expr_b}}\)
+          \(:{\typesubst{\typearray{\type_b}{\idx_b}}}\)}}
+      % \\\hspace{8pc}
+      \\\\\\
+      {\kindof{\sEnv}{\kEnv}
+        {\typesubst{\typearray{\type_b}{\idx_b}}}{\kindarray}}}
+    {\parbox{0.75\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\typesubst{\tEnv}}\vdash\)
+        \({\dproj{\sequence{\var_i}}{\var_e}{\typesubst{\expr_s}}{\typesubst{\expr_b}}}\)\\
+        \(:{\typesubst{\typearray{\type_b}{\idxappend{\idx_s \; \idx_b}}}}\)}}}\]
+\end{sproof}
+
+\newcommand{\exprsubst}[1]{\subst{#1}{\var}{\expr_{\var}}}
+\begin{lemma}[Preservation of types under term substitution]
+  \label{EESub}
+  If $\typeof{\sEnv}{\kEnv}{\tEnv,\hastype{\var}{\type_{\var}}}{\term}{\type}$
+  and $\typeof{\sEnv}{\kEnv}{\tEnv}{\expr_{\var}}{\type_{\var}}$
+  then $\typeof{\sEnv}{\kEnv}{\tEnv}
+  {\exprsubst{\term}}
+  {\type}$.
+\end{lemma}
+\begin{sproof}[We use induction on the derivation of
+  $\typeof{\sEnv}{\kEnv}{\tEnv,\hastype{\var}{\type_{\var}}}{\term}{\type}$.]
+  We use induction on the derivation of
+  $\typeof{\sEnv}{\kEnv}{\tEnv,\hastype{\var}{\type_{\var}}}{\term}{\type}$.
+  \paragraph{Case {\sc Eqv}}
+  \[{\infr[T-Eqv]
+    {\typeof{\sEnv}{\kEnv}{\tEnv, \hastype{\var}{\type_{\var}}}{\term}{\type'}
+      \qquad \teqv{\type}{\type'}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv, \hastype{\var}{\type_{\var}}}
+      {\term}
+      {\type}}}\]
+  By the induction hypothesis,
+  $\typeof{\sEnv}{\kEnv}{\tEnv}{\exprsubst{\term}}{\type'}$.
+  So we can derive
+  \[{\infr[T-Eqv]
+    {\typeof{\sEnv}{\kEnv}{\tEnv}{\exprsubst{\term}}{\type'}
+      \qquad \teqv{\type}{\type'}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv, \hastype{\var}{\type_{\var}}}
+      {\exprsubst{\term}}
+      {\type}}}\]
+  \paragraph{Case {\sc Var}}
+  \[{\infr[T-Var]
+    {\parens{\hastype{\var'}{\type}} \in \tEnv}
+    {\typeof{\sEnv}{\kEnv}{\tEnv, \hastype{\var}{\type_{\var}}}
+      {\var'}
+      {\type}}}\]
+  Suppose $\var' = \var$.
+  Then $\exprsubst{\var'} = \expr_{\var}$,
+  and by assumption, $\typeof{\sEnv}{\kEnv}{\tEnv}{\expr_{\var}}{\type_{\var}}$.
+  Since the type environment maps $\var$ to both $\type$ and $\type_{\var}$,
+  we know that $\type = \type_{\var}$.
+  Therefore, $\typeof{\sEnv}{\kEnv}{\tEnv}{\expr_{\var}}{\type}$.
+  Otherwise, $\var' \not= \var$, and $\exprsubst{\var'} = \var'$.
+  The type environment still contains $\parens{\hastype{\var'}{\type}}$,
+  so we can still derive
+  \[{\infr[T-Var]
+    {\parens{\hastype{\var'}{\type}} \in \tEnv}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}{\var'}{\type}}}\]
+  \paragraph{Case {\sc Op}, {\sc Base}}
+  The variable $\var$ cannot appear free in $\term$, so $\exprsubst{\term} = \term$.
+  Neither {\sc T-Op} nor {\sc T-Base} depends on the environment,
+  so the same rule which produced the original derivation
+  can also derive $\typeof{\sEnv}{\kEnv}{\tEnv}{\term}{\type}$.
+  \paragraph{Case {\sc Array}}
+  \[{\infr[T-Array]
+    {\sequence{\typeof{\sEnv}{\kEnv}{\tEnv, \hastype{\var}{\type_{\var}}}
+        {\atom}{\type_a}}
+    \\\\
+    \kindof{\sEnv}{\kEnv}{\type_a}{\kindatom}
+    \qquad
+    \mathit{Length}\llb \sequence{\atom} \rrb = \prod{\sequence{\nat}}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv, \hastype{\var}{\type_{\var}}}
+      {\arrlit{\sequence{\atom}}{\sequence{\nat}}}
+      {\typearray{\type_a}{\idxshape{\sequence{\nat}}}}}}\]
+  By the induction hypothesis,
+  $\typeof{\sEnv}{\kEnv}{\tEnv}{\exprsubst{\atom}}{\type_a}$
+  for each of $\sequence{\atom}$.
+  So we can derive
+  \[{\infr[T-Array]
+    {\sequence{\typeof{\sEnv}{\kEnv}{\tEnv}
+        {\exprsubst{\atom}}{\type_a}}
+    \\\\
+    \kindof{\sEnv}{\kEnv}{\type_a}{\kindatom}
+    \qquad
+    \mathit{Length}\llb \sequence{\atom} \rrb = \prod{\sequence{\nat}}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\arrlit{\sequence{\exprsubst{\atom}}}{\sequence{\nat}}}
+      {\typearray{\type_a}{\idxshape{\sequence{\nat}}}}}}\]
+  \paragraph{Case {\sc Frame}}
+  \[{\infr[T-Frame]
+    {\sequence{\typeof{\sEnv}{\kEnv}{\tEnv, \hastype{\var}{\type_{\var}}}
+        {\expr_a}{\typearray{\type_a}{\idx_a}}}
+      \\\\
+      {\kindof{\sEnv}{\kEnv}
+        {\typearray{\type_a}{\idx_a}}
+        {\kindarray}}
+      \qquad
+      \mathit{Length}\llb \sequence{\atom} \rrb = \prod{\sequence{\nat}}}
+  {\parbox{0.6\textwidth}
+    {\centering
+      \({\sEnv};{\kEnv};{\tEnv, \hastype{\var}{\type_{\var}}}\vdash\)
+      \({\frm{\sequence{\expr_a}}{\sequence{\nat}}}\)\\
+      \(:{\typearray{\type_a}{\idxappend{\idxshape{\sequence{\nat}} \; \idx_a}}}\)}}}\]
+  The induction hypothesis implies for each of $\sequence{\expr_a}$
+  that $\typeof{\sEnv}{\kEnv}{\tEnv}{\expr_a}{\typearray{\type_a}{\idx_a}}$.
+  This leads to
+  \[{\infr[T-Frame]
+    {\sequence{\typeof{\sEnv}{\kEnv}{\tEnv}
+        {\exprsubst{\expr_a}}{\typearray{\type_a}{\idx_a}}}
+      \\\\
+      {\kindof{\sEnv}{\kEnv}
+        {\typearray{\type_a}{\idx_a}}
+        {\kindarray}}
+      \qquad
+      \mathit{Length}\llb \sequence{\atom} \rrb = \prod{\sequence{\nat}}}
+  {\parbox{0.6\textwidth}
+    {\centering
+      \({\sEnv};{\kEnv};{\tEnv}\vdash\)
+      \({\frm{\sequence{\exprsubst{\expr_a}}}{\sequence{\nat}}}\)\\
+      \(:{\typearray{\type_a}{\idxappend{\idxshape{\sequence{\nat}} \; \idx_a}}}\)}}}\]
+  \paragraph{Case {\sc EmptyA}, {\sc EmptyF}}
+  For each of these rules,
+  the only premise is a kind check,
+  which  does not mention the conclusion's type environment.
+  So $\typeof{\sEnv}{\kEnv}{\tEnv}{\exprsubst{\term}}{\type}$
+  can be derived from the same premise.
+  \paragraph{Case {\sc Lam}}
+  \[{\infr[T-Lam]
+    {\typeof{\sEnv}{\kEnv}
+      {\tEnv, \hastype{\var}{\type_{\var}}, \sequence{\hastype{\var_i}{\type_i}}}
+      {\expr}{\type_o}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv, \hastype{\var}{\type_{\var}}}
+      {\lam{\sequence{\notevar{\var_i}{\type_i}}}{\expr}}
+      {\typefun{\sequence{\type_i}}{\type_o}}}}\]
+  The induction hypothesis gives
+  $\typeof{\sEnv}{\kEnv}{\tEnv, \sequence{\hastype{\var_i}{\type_i}}}
+  {\exprsubst{\expr}}{\type_o}$,
+  so we derive
+  \[{\infr[T-Lam]
+    {\typeof{\sEnv}{\kEnv}
+      {\tEnv, \sequence{\hastype{\var_i}{\type_i}}}
+      {\exprsubst{\expr}}{\type_o}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv, \hastype{\var}{\type_{\var}}}
+      {\lam{\sequence{\notevar{\var_i}{\type_i}}}{\exprsubst{\expr}}}
+      {\typefun{\sequence{\type_i}}{\type_o}}}}\]
+  \paragraph{Case {\sc TLam}}
+  \[{\infr[T-TLam]
+    {\typeof{\sEnv}{\kEnv, \sequence{\haskind{\var_u}{\kind_u}}}{\tEnv, \hastype{\var}{\type_{\var}}}
+      {\expr}
+      {\type_u}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv, \hastype{\var}{\type_{\var}}}
+      {\tlam{\sequence{\notevar{\var_u}{\kind_u}}}{\expr}}
+      {\typeuniv{\sequence{\notevar{\var_u}{\kind_u}}}{\type_u}}}}\]
+  By the induction hypothesis,
+  $\typeof{\sEnv}{\kEnv, \sequence{\haskind{\var_u}{\kind_u}}}{\tEnv}
+  {\exprsubst{\expr}}{\type_u}$.
+  We then derive
+  \[{\infr[T-TLam]
+    {\typeof{\sEnv}{\kEnv, \sequence{\haskind{\var_u}{\kind_u}}}{\tEnv}
+      {\exprsubst{\expr}}
+      {\type_u}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\tlam{\sequence{\notevar{\var_u}{\kind_u}}}{\exprsubst{\expr}}}
+      {\typeuniv{\sequence{\notevar{\var_u}{\kind_u}}}{\type_u}}}}\]
+  \paragraph{Case {\sc ILam}}
+  \[{\infr[T-ILam]
+    {\typeof{\sEnv, \sequence{\hassort{\var_p}{\sort_p}}}{\kEnv}{\tEnv, \hastype{\var}{\type_{\var}}}
+      {\expr}
+      {\type_p}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv, \hastype{\var}{\type_{\var}}}
+      {\ilam{\sequence{\notevar{\var_p}{\sort_p}}}{\expr}}
+      {\typedprod{\sequence{\notevar{\var_p}{\sort_p}}}{\type_p}}}}\]
+  The induction hypothesis implies
+  $\typeof{\sEnv, \sequence{\hassort{\var_p}{\sort_p}}}{\kEnv}{\tEnv}
+      {\exprsubst{\expr}}{\type_p}$,
+      which leads to the derivation
+  \[{\infr[T-ILam]
+    {\typeof{\sEnv, \sequence{\hassort{\var_p}{\sort_p}}}{\kEnv}{\tEnv}
+      {\exprsubst{\expr}}
+      {\type_p}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\ilam{\sequence{\notevar{\var_p}{\sort_p}}}{\exprsubst{\expr}}}
+      {\typedprod{\sequence{\notevar{\var_p}{\sort_p}}}{\type_p}}}}\]
+  \paragraph{Case {\sc Box}}
+  \[{\infr[T-Box]
+    {\sequence{\sortof{\sEnv}{\idx_s}{\sort_s}}
+      \qquad
+      {\kindof{\sEnv}{\kEnv}
+        {\typedsum{\sequence{\notevar{\var_s}{\sort_s}}}{\type_s}}
+        {\kindatom}}
+      \\
+      {\typeof{\sEnv}{\kEnv}{\tEnv, \hastype{\var}{\type_{\var}}}
+        {\expr}
+        {\seqsubst{\type_s}{\var_s}{\idx_s}}}}
+    {\parbox{0.67\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\tEnv, \hastype{\var}{\type_{\var}}}\vdash\)
+        \({\dsum
+          {\sequence{\idx_s}}{\expr}
+          {\typedsum{\sequence{\notevar{\var_s}{\sort_s}}}{\type_s}}}\)\\
+        \(:{\typedsum{\sequence{\notevar{\var_s}{\sort_s}}}{\type_s}}\)}}}\]
+  By the induction hypothesis,
+  $\typeof{\sEnv}{\kEnv}{\tEnv}{\exprsubst{\expr}}{\seqsubst{\type_s}{\var_s}{\idx_s}}$.
+  We then derive
+  \[{\infr[T-Box]
+    {\sequence{\sortof{\sEnv}{\idx_s}{\sort_s}}
+      \qquad
+      {\kindof{\sEnv}{\kEnv}
+        {\typedsum{\sequence{\notevar{\var_s}{\sort_s}}}{\type_s}}
+        {\kindatom}}
+      \\
+      {\typeof{\sEnv}{\kEnv}{\tEnv}
+        {\exprsubst{\expr}}
+        {\seqsubst{\type_s}{\var_s}{\idx_s}}}}
+    {\parbox{0.67\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\tEnv}\vdash\)
+        \({\dsum
+          {\sequence{\idx_s}}{\exprsubst{\expr}}
+          {\typedsum{\sequence{\notevar{\var_s}{\sort_s}}}{\type_s}}}\)\\
+        \(:{\typedsum{\sequence{\notevar{\var_s}{\sort_s}}}{\type_s}}\)}}}\]
+  \paragraph{Case {\sc TApp}}
+  \[{\infr[T-TApp]
+    {\typeof
+      {\sEnv}{\kEnv}{\tEnv, \hastype{\var}{\type_{\var}}}
+      {\expr}
+      {\typearray{\typeuniv{\sequence{\notevar{\var_u}{\kind_u}}}{\typearray{\type_u}{\idx_u}}}{\idx_f}}
+      \\\\
+      \sequence{\kindof{\sEnv}{\kEnv}{\type_a}{\kind_u}}}
+    {\typeof {\sEnv}{\kEnv}{\tEnv, \hastype{\var}{\type_{\var}}}
+      {\tapp{\expr}{\sequence{\type_a}}}
+      {\typearray{\seqsubst{\type_u}{\var_u}{\type_a}}{\idxappend{\idx_f\;\idx_u}}}}}\]
+  The induction hypothesis gives a derivation for
+  ${\sEnv};{\kEnv};{\tEnv}\vdash$
+  ${\exprsubst{\expr}}$ :
+  {\tt (Arr (Forall (($\var_u$ $\kind_u$) $\sequence{}$) (Arr $\type_u$ $\idx_u$)) $\idx_f$)}.
+  % ${\typearray{\typeuniv{\sequence{\notevar{\var_u}{\kind_u}}}{\typearray{\type_u}{\idx_u}}}{\idx_f}}$.
+  We can then construct the derivation
+  \[{\infr[T-TApp]
+    {\typeof
+      {\sEnv}{\kEnv}{\tEnv}
+      {\exprsubst{\expr}}
+      {\typearray{\typeuniv{\sequence{\notevar{\var_u}{\kind_u}}}{\typearray{\type_u}{\idx_u}}}{\idx_f}}
+      \\\\
+      \sequence{\kindof{\sEnv}{\kEnv}{\type_a}{\kind_u}}}
+    {\typeof {\sEnv}{\kEnv}{\tEnv}
+      {\tapp{\exprsubst{\expr}}{\sequence{\type_a}}}
+      {\typearray{\seqsubst{\type_u}{\var_u}{\type_a}}{\idxappend{\idx_f\;\idx_u}}}}}\]
+  \paragraph{Case {\sc IApp}}
+  \[{\infr[T-IApp]
+    {\typeof
+      {\sEnv}{\kEnv}{\tEnv, \hastype{\var}{\type_{\var}}}
+      {\expr}
+      {\typearray{\typedprod{\sequence{\notevar{\var_p}{\sort_p}}}{\typearray{\type_p}{\idx_p}}}{\idx_f}}
+      \\\\
+      \sequence{\sortof{\sEnv}{\idx_a}{\sort_p}}}
+    {\parbox{0.6\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\tEnv, \hastype{\var}{\type_{\var}}}\vdash\)
+        \({\iapp{\expr}{\sequence{\idx_a}}}\)\\
+        \(:{\typearray
+          {\seqsubst{\type_p}{\var_p}{\idx_a}}
+          {\idxappend{\idx_f\;\seqsubst{\idx_p}{\var_p}{\idx_a}}}}\)}}}\]
+  By the induction hypothesis, we have
+  ${\sEnv};{\kEnv};{\tEnv, \hastype{\var}{\type_{\var}}}\vdash$
+  ${\exprsubst{\expr}}$ :
+  {\tt (Arr (Pi (($\var_p$ $\sort_p$) $\sequence{}$) (Arr $\type_p$ $\idx_p$)) $\idx_f$)}.
+  % ${\typearray{\typedprod{\sequence{\notevar{\var_p}{\sort_p}}}{\typearray{\type_p}{\idx_p}}}{\idx_f}}$.
+  This leads to
+  \[{\infr[T-IApp]
+    {\typeof
+      {\sEnv}{\kEnv}{\tEnv}
+      {\exprsubst{\expr}}
+      {\typearray{\typedprod{\sequence{\notevar{\var_p}{\sort_p}}}{\typearray{\type_p}{\idx_p}}}{\idx_f}}
+      \\\\
+      \sequence{\sortof{\sEnv}{\idx_a}{\sort_p}}}
+    {\parbox{0.6\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\tEnv}\vdash\)
+        \({\iapp{\exprsubst{\expr}}{\sequence{\idx_a}}}\)\\
+        \(:{\typearray
+          {\seqsubst{\type_p}{\var_p}{\idx_a}}
+          {\idxappend{\idx_f\;\seqsubst{\idx_p}{\var_p}{\idx_a}}}}\)}}}\]
+  \paragraph{Case {\sc App}}
+  \[{\infr[T-App]
+    {\typeof{\sEnv}{\kEnv}{\tEnv, \hastype{\var}{\type_{\var}}}
+      {\expr_f}
+      {\typearray
+        {\typefun
+          {\sequence{\typearray{\type_i}{\idx_i}}}
+          {\typearray{\type_o}{\idx_o}}}
+        {\idx_f}}
+      \\\\
+      {\sequence
+        {\typeof{\sEnv}{\kEnv}{\tEnv, \hastype{\var}{\type_{\var}}}
+          {\expr_a}
+          {\typearray{\type_i}{\idxappend{\idx_a \; \idx_i}}}}}
+      \qquad
+      {\idx_p = \mathit{Max}\llb \idx_f \; \sequence{\idx_a} \rrb}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv, \hastype{\var}{\type_{\var}}}
+      {\app{\expr_f}{\sequence{\expr_a}}}
+      {\typearray{\type_o}{\idxappend{\idx_p \; \idx_o}}}}}\]
+  The induction hypothesis implies
+  ${\sEnv};{\kEnv};{\tEnv}\vdash$
+  ${\exprsubst{\expr_f}}$ :
+  {\tt (Arr (-> ((Arr $\type_i$ $\idx_i$) $\sequence{}$) (Arr $\type_o$ $\idx_o$)) $\idx_f$)}
+  % ${\typearray
+  %   {\typefun
+  %     {\sequence{\typearray{\type_i}{\idx_i}}}
+  %     {\typearray{\type_o}{\idx_o}}}
+  %   {\idx_f}}$
+  and
+  $\typeof{\sEnv}{\kEnv}{\tEnv}
+  {\exprsubst{\expr_a}}
+  {\typearray{\type_i}{\idxappend{\idx_a \; \idx_i}}}$
+  for each of $\sequence{\expr_a}$.
+  Since the individual frames $\idx_f, \sequence{\idx_a}$ are unchanged,
+  so is the principal frame $\idx_p$.
+  Thus we derive
+  \[{\infr[T-App]
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\exprsubst{\expr_f}}
+      {\typearray
+        {\typefun
+          {\sequence{\typearray{\type_i}{\idx_i}}}
+          {\typearray{\type_o}{\idx_o}}}
+        {\idx_f}}
+      \\\\
+      {\sequence
+        {\typeof{\sEnv}{\kEnv}{\tEnv}
+          {\exprsubst{\expr_a}}
+          {\typearray{\type_i}{\idxappend{\idx_a \; \idx_i}}}}}
+      \qquad
+      {\idx_p = \mathit{Max}\llb \idx_f \; \sequence{\idx_a} \rrb}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\app{\exprsubst{\expr_f}}{\sequence{\exprsubst{\expr_a}}}}
+      {\typearray{\type_o}{\idxappend{\idx_p \; \idx_o}}}}}\]
+  \paragraph{Case {\sc Unbox}}
+  \[{\infr[T-Unbox]
+    {\typeof{\sEnv}{\kEnv}{\tEnv, \hastype{\var}{\type_{\var}}}
+      {\expr_s}
+      {\typearray{\typedsum{\sequence{\var_i'}{\sort_i}}{\type_s}}
+        {\idx_s}}
+      \\\\
+      {\typeof
+        {\sEnv, \sequence{\hassort{\var_i}{\sort_i}}}
+        {\kEnv}
+        {\tEnv, \hastype{\var_e}{\seqsubst{\type_s}{\var_i'}{\var_i}}, \hastype{\var}{\type_{\var}}}
+        {\expr_b}
+        {\typearray{\type_b}{\idx_b}}}
+      \\\\
+      {\kindof{\sEnv}{\kEnv, \haskind{\var}{\kind}}
+        {\typearray{\type_b}{\idx_b}}{\kindarray}}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv, \hastype{\var}{\type_{\var}}}
+      {\dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b}}
+      {\typearray{\type_b}{\idxappend{\idx_s \; \idx_b}}}}}\]
+  The induction hypothesis gives
+  ${\sEnv};{\kEnv};{\tEnv}\vdash$
+  ${\exprsubst{\expr_s}}$ :
+  {\tt (Arr (Sigma (($\var_i'$ $\sort_i$) $\sequence{}$) $\type_s$) $\idx_s$)}
+  % ${\typearray{\typedsum{\sequence{\var_i'}{\sort_i}}{\type_s}}
+  %   {\idx_s}}$
+  and
+  $\typeof{\sEnv, \sequence{\hassort{\var_i}{\sort_i}}}
+  {\kEnv}
+  {\tEnv, \hastype{\var_e}{\seqsubst{\type_s}{\var_i'}{\var_i}}}
+  {\exprsubst{\expr_b}}{\typearray{\type_b}{\idx_b}}$.
+  We then derive
+  \[{\infr[T-Unbox]
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\exprsubst{\expr_s}}
+      {\typearray{\typedsum{\sequence{\var_i'}{\sort_i}}{\type_s}}
+        {\idx_s}}
+      \\\\
+      {\typeof
+        {\sEnv, \sequence{\hassort{\var_i}{\sort_i}}}
+        {\kEnv}
+        {\tEnv, \hastype{\var_e}{\seqsubst{\type_s}{\var_i'}{\var_i}}}
+        {\exprsubst{\expr_b}}
+        {\typearray{\type_b}{\idx_b}}}
+      \\\\
+      {\kindof{\sEnv}{\kEnv, \haskind{\var}{\kind}}
+        {\type_b}{\kindarray}}}
+    {\parbox{0.6\textwidth}
+      {\centering
+        \({\sEnv};{\kEnv};{\tEnv}\vdash\)
+        \({\dproj{\sequence{\var_i}}{\var_e}{\exprsubst{\expr_s}}{\exprsubst{\expr_b}}}\)\\
+        \(:{\typearray{\type_b}{\idxappend{\idx_s \; \idx_b}}}\)}}}\]
+\end{sproof}
+
+
+We call an environment well-formed,
+noted as $\wfenv{\sEnv}{\kEnv}{\tEnv}$,
+if for every binding $\hastype{\var}{\type} \in \tEnv$,
+we can derive $\kindof{\sEnv}{\kEnv}{\type}{\kindarray}$.
+This is the expected case,
+rather than permitting $\type$ to have kind $\kindatom$,
+because a lone variable is an expression and ought to stand for an array value.
+
+When we show that the typing judgment only ascribes types of the appropriate kind,
+the case for the {\sc T-Eqv} rule
+relies on the earlier lemma that the type equivalence relation respects kinding,
+\ie, two equivalent types will have the same kind
+when checked in the same environment.
+
+%TODO: introduce theorems
+\begin{theorem}[Ascription of well-kinded types]
+  \label{wellkinded}
+  Given $\typeof{\sEnv}{\kEnv}{\tEnv}{\term}{\type}$ where $\wfenv{\sEnv}{\kEnv}{\tEnv}$:
+\begin{itemize}
+  \item{If $\term$ is an expression, then $\kindof{\sEnv}{\kEnv}{\type}{\kindarray}$}
+  \item{If $\term$ is an atom, then $\kindof{\sEnv}{\kEnv}{\type}{\kindatom}$}
+\end{itemize}
+\end{theorem}
+\begin{sproof}[This follows from induction on
+  the derivation of $\typeof{\sEnv}{\kEnv}{\tEnv}{\term}{\type}$.
+  It is not sufficient to point out that each typing rule ascribes a type
+  whose form matches the appropriate kind.
+  Elimination-form cases call for a little extra work.
+  For {\sc Unbox}, the kind check on the result type
+  is necessary to ensure that existentially quantified variables do not leak out.
+  The {\sc App} case must ensure that index variables in the ascribed type
+  actually appear in the environment.
+  This is guaranteed because the principal frame is always
+  chosen to be one of the function- or argument-position frames.]
+  We use induction on the derivation of $\typeof{\sEnv}{\kEnv}{\tEnv}{\term}{\type}$.
+  First, we prove the cases where $\term$ is an expression.
+  \paragraph{Case {\sc Var}:}
+  \[{\infr[T-Array]
+    {\parens{\hastype{\var}{\type}} \in \tEnv}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}{\var}{\type}}}\]
+  Since $\hastype{\var}{\type} \in \tEnv$, this follows directly from $\wfenv{\sEnv}{\kEnv}{\tEnv}$.
+  \paragraph{Case {\sc Array}:}
+  \[{\infr[T-Array]
+    {\sequence{\typeof {\sEnv}{\kEnv}{\tEnv}{\atom_j}{\type_a}}
+      \\\\
+      \kindof{\sEnv}{\kEnv}{\type_a}{\kindatom}
+      \\\\
+      \mathit{Length}\llb \sequence{\atom} \rrb = \prod{\sequence{\nat}}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\arrlit{\sequence{\atom}}{\sequence{\nat}}}
+      {\typearray{\type_a}{\idxshape{\sequence{\nat}}}}}}\]
+  %Here, $\term$ is an expression.
+  We can derive
+  \[{\infr[K-Array]
+    {\kindof{\sEnv}{\kEnv}{\type_a}{\kindatom}
+      \qquad
+      {\infr[S-Shape]
+        {\sequence{\infr[S-Nat]{\ }{\sortof{\sEnv}{\nat}{\sortdim}}}}
+        {\sortof{\sEnv}{\idxshape{\sequence{\nat}}}{\sortshp}}}}
+    {\kindof{\sEnv}{\kEnv}{\typearray{\type_a}{\idxshape{\sequence{\nat}}}}{\kindarray}}}\]
+  \paragraph{Case {\sc Frame}:}
+  \[{\infr[T-Frame]
+    {\sequence{\typeof{\sEnv}{\kEnv}{\tEnv}
+        {\expr}
+        {\typearray{\type_c}{\idx_c}}}
+      \\
+      \kindof{\sEnv}{\kEnv}{\typearray{\type_c}{\idx_c}}{\kindarray}
+      \\
+      \mathit{Length}\llb \sequence{\expr} \rrb = \prod{\parens{\sequence{\nat}}}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\frm{\sequence{\expr}}{\sequence{\nat}}}
+      {\typearray{\type_c}{\idxappend{\idxshape{\sequence{\nat}}\;\idx_c}}}}}\]
+  The second premise must be derived as
+  \[{\infr[K-Array]
+    {\sortof{\sEnv}{\idx_c}{\sortshp}
+      \qquad
+      \kindof{\sEnv}{\kEnv}{\type_c}{\kindatom}}
+    {\kindof{\sEnv}{\kEnv}{\typearray{\type_c}{\idx_c}}{\kindarray}}}\]
+  Using this knowledge about $\idx_c$,
+  we can show the array type's shape is indeed a $\sortshp$:
+  \[{\infr[S-Append]
+    {\sortof{\sEnv}{\idx_c}{\sortshp}
+      \qquad
+      {\infr[S-Shape]
+        {\sequence{\infr[S-Nat]
+            {\ }
+            {\sortof{\sEnv}{\nat}{\sortdim}}}}
+        {\sortof{\sEnv}{\idxshape{\sequence{\nat}}}{\sortshp}}}}
+    {\sortof{\sEnv}{\idxappend{\idxshape{\sequence{\nat}}\;\idx_c}}{\sortshp}}}\]
+  Then we can derive
+  \[{\infr[K-Array]
+    {\kindof{\sEnv}{\kEnv}{\type_c}{\kindatom}
+      \qquad
+      \sortof{\sEnv}{\idxappend{\idxshape{\sequence{\nat}}\;\idx_c}}{\sortshp}}
+    {\kindof{\sEnv}{\kEnv}
+      {\typearray{\type_c}{\idxappend{\idxshape{\sequence{\nat}}\;\idx_c}}}
+      {\kindarray}}}\]
+  \paragraph{Case {\sc EmptyA}:}
+  \[{\infr[T-EmptyA]
+    {\kindof{\sEnv}{\kEnv}{\type_a}{\kindatom}
+      \qquad
+    0 \in \sequence{\nat}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\emptyarrlit{\type_a}{\sequence{\nat}}}
+      {\typearray{\type_a}{\idxshape{\sequence{\nat}}}}}}\]
+  We derive
+  \[{\infr[K-Array]
+    {\kindof{\sEnv}{\kEnv}{\type_a}{\kindatom}
+      \qquad
+      {\infr[S-Shape]
+        {\sequence{\infr[S-Nat]
+            {\ }
+            {\sortof{\sEnv}{\nat}{\sortdim}}}}
+        {\sortof{\sEnv}{\idxshape{\sequence{\nat}}}{\sortshp}}}}
+    {\kindof{\sEnv}{\kEnv}{\typearray{\type_a}{\idxshape{\sequence{\nat}}}}{\kindarray}}}\]
+  \paragraph{Case {\sc EmptyF}:}
+  \[{\infr[T-EmptyF]
+    {\kindof{\sEnv}{\kEnv}{\type_a}{\kindatom}
+      \qquad
+      \sortof{\sEnv}{\idx}{\sortshp}
+      \qquad
+      0 \in \sequence{\nat}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\emptyfrm{\typearray{\type_a}{\idx_c}}{\sequence{\nat}}}
+      {\typearray{\type_a}{\idxappend{\idxshape{\sequence{\nat}}\;\idx_c}}}}}\]
+  First, we show that the array type's shape has sort $\sortshp$:
+  \[{\infr[S-Append]
+    {\sortof{\sEnv}{\idx_c}{\sortshp}
+      \qquad
+      {\infr[S-Shape]
+        {\sequence{\infr[S-Nat]
+            {\ }
+            {\sortof{\sEnv}{\nat}{\sortdim}}}}
+        {\sortof{\sEnv}{\idxshape{\sequence{\nat}}}{\sortshp}}}}
+    {\sortof{\sEnv}{\idxappend{\idxshape{\sequence{\nat}}\;\idx_c}}{\sortshp}}}\]
+  Then we derive
+  \[{\infr[K-Array]
+    {\kindof{\sEnv}{\kEnv}{\type_a}{\kindatom}
+      \\
+      \sortof{\sEnv}{\idxappend{\idxshape{\sequence{\nat}}\;\idx_c}}{\sortshp}}
+    {\kindof{\sEnv}{\kEnv}
+      {\typearray{\type_a}{\idxappend{\idxshape{\sequence{\nat}}\;\idx_c}}}
+      {\kindarray}}}\]
+  \paragraph{Case {\sc TApp}:}
+  \[{\infr[T-TApp]
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\expr_f}
+      {\typearray
+        {\typeuniv{\sequence{\notevar{\var}{\kind}}}{\typearray{\type_u}{\idx_u}}}
+        {\idx_f}}
+      \\\\
+      \sequence{\kindof{\sEnv}{\kEnv}{\type_a}{\kind}}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\tapp{\expr_f}{\sequence{\type_a}}}
+      {\typearray{\seqsubst{\type_u}{\var}{\type_a}}{\idxappend{\idx_f \; \idx_u}}}}}\]
+  By the induction hypothesis, we have a kind derivation for the type of $\expr_f$:
+  \[{\infr[K-Array]
+    {\sortof{\sEnv}{\idx_f}{\sortshp}
+      \qquad
+      \kindof{\sEnv}{\kEnv}
+      {\typeuniv
+        {\sequence{\notevar{\var}{\kind}}}
+        {\typearray{\type_u}{\idx_u}}}
+      {\kindatom}}
+    {\kindof{\sEnv}{\kEnv}
+      {\typearray
+        {\typeuniv
+          {\sequence{\notevar{\var}{\kind}}}
+          {\typearray{\type_u}{\idx_u}}}
+        {\idx_f}}
+      {\kindarray}}}\]
+  The derivation for the second premise must have the following structure:
+  \[{\infr[K-Univ]
+    {\infr[K-Array]
+      {\sortof{\sEnv}{\idx_u}{\sortshp}
+        \\
+        \kindof{\sEnv}{\kEnv, \sequence{\haskind{\var}{\kind}}}
+        {\type_u}{\kindatom}}
+      {\kindof{\sEnv}{\kEnv, \sequence{\haskind{\var}{\kind}}}
+        {\typearray{\type_u}{\idx_u}}
+        {\kindarray}}}
+    {\kindof{\sEnv}{\kEnv}
+      {\typeuniv
+        {\sequence{\notevar{\var}{\kind}}}
+        {\typearray{\type_u}{\idx_u}}}
+      {\kindatom}}}\]
+  Using the kind derivation for $\type_u$ in the extended environment,
+  we apply Lemma \ref{TTSub} (type substitution preserves kinds) to get
+  $\kindof{\sEnv}{\kEnv}{\seqsubst{\type_u}{\var}{\type_a}}{\kindatom}$.
+  Then we can derive
+  \[{\infr[K-Array]
+    {\kindof{\sEnv}{\kEnv}{\seqsubst{\type_u}{\var}{\type_a}}{\kindatom}
+      \qquad
+      {\infr[S-Append]
+        {\sortof{\sEnv}{\idx_f}{\sortshp}
+          \\\\
+          \sortof{\sEnv}{\idx_u}{\sortshp}}
+        {\sortof{\sEnv}{\idxappend{\idx_f \; \idx_u}}{\sortshp}}}}
+    {\kindof{\sEnv}{\kEnv}
+      {\typearray
+        {\seqsubst{\type_u}{\var}{\type_a}}
+        {\idxappend{\idx_f \; \idx_u}}}
+      {\kindarray}}}\]
+  \paragraph{Case {\sc IApp}:}
+  \[{\infr[T-IApp]
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\expr_f}
+      {\typearray
+        {\typedprod
+          {\sequence{\notevar{\var}{\sort}}}
+          {\typearray{\type_p}{\idx_p}}}
+        {\idx_f}}
+      \qquad
+      \sequence{\sortof{\sEnv}{\idx_a}{\sort}}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\iapp{\expr_f}{\sequence{\idx_a}}}
+      {\typearray
+        {\seqsubst{\type_p}{\var}{\idx_a}}
+        {\idxappend{\idx_f  \; \seqsubst{\idx_p}{\var}{\idx_a}}}}}}\]
+  The induction hypothesis implies that the type of $\expr_f$ has kind $\kindarray$,
+  giving us a derivation which ends as follows:
+  \[{\infr[K-Array]
+    {\sortof{\sEnv}{\idx_f}{\sortshp}
+      \qquad
+      {\kindof{\sEnv}{\kEnv}
+        {\typedprod
+          {\sequence{\notevar{\var}{\sort}}}
+          {\typearray{\type_p}{\idx_p}}}
+        {\kindatom}}}
+    {\kindof{\sEnv}{\kEnv}
+      {\typearray
+        {\typedprod
+          {\sequence{\notevar{\var}{\sort}}}
+          {\typearray{\type_p}{\idx_p}}}
+        {\idx_f}}
+      {\kindarray}}}\]
+  The derivation of the second premise must itself have this form:
+  \[{\infr[K-Pi]
+    {\infr[K-Array]
+      {\sortof{\sEnv, \sequence{\hassort{\var}{\sort}}}{\idx_p}{\sortshp}
+        \qquad
+        \kindof{\sEnv, \sequence{\hassort{\var}{\sort}}}{\kEnv}{\type_p}{\kindatom}}
+      {\kindof{\sEnv, \sequence{\hassort{\var}{\sort}}}{\kEnv}
+        {\typearray{\type_p}{\idx_p}}
+        {\kindarray}}}
+    {\kindof{\sEnv}{\kEnv}
+      {\typedprod
+        {\sequence{\notevar{\var}{\sort}}}
+        {\typearray{\type_p}{\idx_p}}}
+      {\kindatom}}}\]
+  Using Lemma \ref{IISub} (index substitution preserves sorts) implies
+  $\sortof{\sEnv}{\seqsubst{\idx_p}{\var}{\idx_a}}{\sortshp}$.
+  So we derive
+  \[{\infr[S-Append]
+    {\sortof{\sEnv}{\idx_f}{\sortshp}
+      \qquad
+      \sortof{\sEnv}{\seqsubst{\idx_p}{\var}{\idx_a}}{\sortshp}}
+    {\sortof{\sEnv}{\idxappend{\idx_f  \; \seqsubst{\idx_p}{\var}{\idx_a}}}{\sortshp}}}\]
+  Next, Lemma \ref{ITSub} (index substitution preserves kinds) gives us
+  $\kindof{\sEnv}{\kEnv}{\seqsubst{\type_p}{\var}{\idx_a}}{\kindatom}$.
+  We now have the pieces for the derivation
+  \[{\infr[K-Array]
+    {\kindof{\sEnv}{\kEnv}{\seqsubst{\type_p}{\var}{\idx_a}}{\kindatom}
+      \qquad
+      \sortof{\sEnv}{\idxappend{\idx_f  \; \seqsubst{\idx_p}{\var}{\idx_a}}}{\sortshp}}
+    {\kindof{\sEnv}{\kEnv}
+      {\typearray
+        {\seqsubst{\type_p}{\var}{\idx_a}}
+        {\idxappend{\idx_f  \; \seqsubst{\idx_p}{\var}{\idx_a}}}}
+      {\kindarray}}}\]
+  \paragraph{Case {\sc Unbox}:}
+  \[{\infr[T-Unbox]
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\expr_s}
+      {\typearray{\typedsum{\sequence{\notevar{\var_i'}{\sort}}}{\type_s}}
+        {\idx_s}}
+      \\
+    \typeof
+    {\sEnv, \sequence{\hassort{\var_i}{\sort}}}
+    {\kEnv}
+    {\tEnv, \hastype{\var_e}{\seqsubst{\type_s}{\var_i'}{\var_i}}}
+    {\expr_b}
+    {\typearray{\type_b}{\idx_b}}
+    \\
+    {\kindof{\sEnv}{\kEnv}{\typearray{\type_b}{\idx_b}}{\kindarray}}
+  }
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\dproj{\sequence{\var_i}}{\var_e}{\expr_s}{\expr_b}}
+      {\typearray{\type_b}{\idxappend{\idx_s \; \idx_b}}}}}\]
+  %In this case, the required result is one of the premises of the original type derivation.
+  The third premise must be derived by
+  \[{\infr[K-Array]
+    {\kindof{\sEnv}{\kEnv}{\type_b}{\kindatom} \qquad \sortof{\sEnv}{\idx_b}{\sortshp}}
+    {\kindof{\sEnv}{\kEnv}{\typearray{\type_b}{\idx_b}}{\kindarray}}}\]
+  The induction hypothesis gives us a kinding derivation for the box array type
+  \[{\infr[K-Array]
+    {\kindof{\sEnv,\sequence{\notevar{\var_i'}{\sort}}}{\kEnv}
+      {\type_s}{\kindarray}
+    \qquad
+    {\sortof{\sEnv}{\idx_s}{\sortshp}}}
+    {\kindof{\sEnv}{\kEnv}
+      {\typearray{\typedsum{\sequence{\notevar{\var_i'}{\sort}}}{\type_s}}{\idx_s}}
+      {\kindarray}}}\]
+  % Since we know that the result cell type $\typearray{\type_b}{\idx_b}$ is well-formed,
+  From these derivations, we have the pieces needed to construct the kind derivation for the result type:
+  \[\infr[K-Array]
+  {\kindof{\sEnv}{\kEnv}{\type_b}{\kindatom}
+    \qquad
+    \infr[S-Append]
+    {\sortof{\sEnv}{\idx_s}{\sortshp}
+      \qquad
+      \sortof{\sEnv}{\idx_b}{\sortshp}}
+    {\sortof{\sEnv}{\idxappend{\idx_s \; \idx_b}}{\sortshp}}}
+  {\kindof{\sEnv}{\kEnv}{\typearray{\type_b}{\idxappend{\idx_s \; \idx_b}}}{\kindarray}}\]
+  \paragraph{Case {\sc App}:}
+  \[{\infr[T-App]
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\expr_f}
+      {\typearray
+        {\typefun
+          {\sequence{\typearray{\type_i}{\idx_i}}}
+          {\typearray{\type_o}{\idx_o}}}
+        {\idx_f}}
+      \\
+      \sequence{\typeof{\sEnv}{\kEnv}{\tEnv}
+        {\expr_a}
+        {\typearray{\type_i}{\idxappend{\idx_a \; \idx_i}}}}
+      \\
+      \idx_p = \bigsqcup\parens{\idx_f, \sequence{\idx_a}}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\app{\expr_f}{\sequence{\expr_a}}}
+      {\typearray{\type_o}{\idxappend{\idx_p \; \idx_o}}}}}\]
+  Since $\expr_f$ is well-typed,
+  the induction hypothesis implies that
+  its type has kind $\kindarray$.
+  This derivation must have the form
+  \[{\infr[K-Array]
+    {\sortof{\sEnv}{\idx_f}{\sortshp}
+      \\
+      \kindof{\sEnv}{\kEnv}
+      {\typefun
+        {\sequence{\typearray{\type_i}{\idx_i}}}
+        {\typearray{\type_o}{\idx_o}}}
+      {\kindatom}}
+    {\kindof{\sEnv}{\kEnv}
+      {\typearray
+        {\typefun
+          {\sequence{\typearray{\type_i}{\idx_i}}}
+          {\typearray{\type_o}{\idx_o}}}
+        {\idx_f}}
+      {\kindarray}}}\]
+  The second premise must be derived via
+  \[{\infr[K-Fun]
+    {\sequence{\kindof{\sEnv}{\kEnv}{\typearray{\type_i}{\idx_i}}{\kindarray}}
+      \\
+      \kindof{\sEnv}{\kEnv}{\typearray{\type_o}{\idx_o}}{\kindarray}}
+    {\kindof{\sEnv}{\kEnv}
+      {\typefun
+        {\sequence{\typearray{\type_i}{\idx_i}}}
+        {\typearray{\type_o}{\idx_o}}}
+      {\kindatom}}}\]
+  Then the kinding derivation for each argument type $\typearray{\type_i}{\idx_i}$
+  must include ascription of $\kindatom$ to $\type_i$ and $\sortshp$ to $\idx_i$
+  (and similar for the result type $\typearray{\type_o}{\idx_o}$).
+  Any index variables which appear in $\idx_p$ must also appear in at least one of
+  $\idx_f, \sequence{\idx_a}$,
+  so $\idx_p$ must be well-formed
+  (\ie, $\sortof{\sEnv}{\idx_p}{\sortshp}$).
+  We can then derive
+  \[{\infr[K-Array]
+    {\typeof{\sEnv}{\kEnv}{\type_o}{\kindatom}
+      \qquad
+      \sequence{\infr[S-Append]
+        {\sortof{\sEnv}{\idx_p}{\sortshp}
+          \qquad
+          \sortof{\sEnv}{\idx_o}{\sortshp}}
+        {\sortof{\sEnv}{\idxappend{\idx_p \; \idx_o}}{\sortshp}}}}
+    {\kindof{\sEnv}{\kEnv}
+      {\typearray{\type_o}{\idxappend{\idx_p \; \idx_o}}}
+      {\kindarray}}}\]
+
+  Now, we describe the atom cases.
+  \paragraph{Case {\sc TLam}:}
+  \[{\infr[T-TLam]
+    {\typeof{\sEnv}{\kEnv, \sequence{\haskind{\var}{\kind}}}{\tEnv}
+      {\expr_u}
+      {\type_u}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\tlam{\sequence{\notevar{\var}{\kind}}}{\expr_u}}
+      {\typeuniv{\sequence{\notevar{\var}{\kind}}}{\type_u}}}}\]
+  By the induction hypothesis,
+  $\kindof{\sEnv}{\kEnv, \sequence{\haskind{\var}{\kind}}}{\type_u}{\kindarray}$,
+  so we can derive
+  \[{\infr[K-Univ]
+    {\kindof{\sEnv}{\kEnv, \sequence{\haskind{\var}{\kind}}}{\type_u}{\kindarray}}
+    {\kindof{\sEnv}{\kEnv}{\typeuniv{\sequence{\notevar{\var}{\kind}}}{\type_u}}{\kindatom}}}\]
+  \paragraph{Case {\sc ILam}:}
+  \[{\infr[T-ILam]
+    {\typeof{\sEnv, \sequence{\hassort{\var}{\sort}}}{\kEnv}{\tEnv}
+      {\expr_p}
+      {\type_p}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\ilam{\sequence{\notevar{\var}{\sort}}}{\expr_p}}
+      {\typedprod{\sequence{\notevar{\var}{\sort}}}{\type_p}}}}\]
+  The induction hypothesis implies
+  $\kindof{\sEnv, \sequence{\hassort{\var}{\sort}}}{\kEnv}{\type_p}{\kindarray}$.
+  We then derive
+  \[{\infr[K-Pi]
+    {\kindof{\sEnv, \sequence{\hassort{\var}{\sort}}}{\kEnv}{\type_p}{\kindarray}}
+    {\kindof{\sEnv}{\kEnv}{\typedprod{\sequence{\notevar{\var}{\sort}}}{\expr_p}}{\kindatom}}}\]
+  \paragraph{Case {\sc Box}:}
+  \[{\infr[T-Box]
+    {\sequence{\sortof{\sEnv}{\idx}{\sort}}
+      \qquad
+      \kindof{\sEnv}{\kEnv}
+      {\typedsum{\sequence{\notevar{\var}{\sort}}}{\type_s}}
+      {\kindatom}
+      \\
+      \typeof{\sEnv}{\kEnv}{\tEnv}
+      {\expr_s}
+      {\seqsubst{\type_s}{\var}{\idx}}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\dsum
+        {\sequence{\idx}}
+        {\expr_s}
+        {\typedsum{\sequence{\notevar{\var}{\sort}}}{\type_s}}}
+      {\typedsum{\sequence{\notevar{\var}{\sort}}}{\type_s}}}}\]
+  The required result is a premise in the original derivation.
+  \paragraph{Case {\sc Lam}:}
+  \[{\infr[T-Lam]
+    {\typeof{\sEnv}{\kEnv}{\tEnv}{\expr_f}{\type_o}
+      \qquad
+      \sequence{\kindof{\sEnv}{\kEnv}{\type_i}{\kindarray}}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}
+      {\lam{\sequence{\notevar{\var}{\type_i}}}{\expr_f}}
+      {\typefun{\sequence{\type_i}}{\type_o}}}}\]
+  The induction hypothesis implies that
+  $\kindof{\sEnv}{\kEnv}{\type_o}{\kindarray}$,
+  so we can derive
+  \[{\infr[K-Fun]
+    {\sequence{\kindof{\sEnv}{\kEnv}{\type_i}{\kindarray}}
+      \\
+      \kindof{\sEnv}{\kEnv}{\type_o}{\kindarray}}
+    {\kindof{\sEnv}{\kEnv}{\typefun{\sequence{\type_i}}{\type_o}}{\kindatom}}}\]
+
+  In this final case, $\term$ may be an expression or an atom.
+  \paragraph{Case {\sc Eqv}:}
+  \[{\infr[T-Eqv]
+    {\typeof{\sEnv}{\kEnv}{\tEnv}{\term}{\type'}
+      \qquad
+      \teqv{\type'}{\type}}
+    {\typeof{\sEnv}{\kEnv}{\tEnv}{\term}{\type}}}\]
+  The induction hypothesis gives
+  $\kindof{\sEnv}{\kEnv}{\type'}{\kind}$,
+  where $\kind = \kindatom$ if $\term$ is an atom
+  and  $\kind = \kindarray$ if $\term$ is an expression.
+  The required result ascribing the same kind to $\type$,
+  that is
+  $\kindof{\sEnv}{\kEnv}{\type}{\kind}$,
+  follows directly from Lemma \ref{TEqvRespectsKinds}.
+\end{sproof}
+
+\subsection{Dynamic Semantics}
+In the dynamic semantics for Remora,
+the way function application is lifted to work on aggregate data
+depends on the types of the function and argument terms.
+Consulting type information avoids a ``hole'' in the semantics of
+untyped array-oriented code,
+where a frame whose shape includes a 0 dimension
+evaluates to an array with indeterminate shape---%
+there are no concrete cells whose shape can be used to
+determine the overall shape of the resulting array.
+Instead, the function's type tells us
+the shape of the resulting cells,
+even when there are zero such cells.
+
+The small-step operational semantics,
+given in Figure \ref{fig:DynamicSemantics},
+assumes every atom or expression has been tagged with its type.
+For example, $\beta$-reduction requires
+that each atom in the function position array have input types $\sequence{\type}$
+and that the argument arrays' types also match $\sequence{\type}$.
+This matching is still subject to the type equivalence rules described in \S\ref{ssec:StaticSemantics},
+\eg, a function tagged as having input type {\tt (Array Int (++ (Shp 3) (Shp 4)))}
+can be applied to an argument tagged with type {\tt (Array Int (Shp 3 4))}.
+Because every term now has type annotations attached,
+we drop the ``empty'' array and frame syntactic forms.
+Their replacements use the standard array and frame syntax
+with an empty list of atoms or cells,
+and the atom or cell type is implied by the expression's type annotation.
+
+Several list-processing metafunctions are used in defining the reduction rules.
+These metafunctions are defined in Figure \ref{fig:Metafunctions}.
+$\mathit{Split}_{\nat}$ turns a list into a list of lists,
+made up of the consecutive length-$\nat$ pieces of the original list.
+For example, $\mathit{Split}_{3}\llb\text{\tt (1 2 3 4 5 6)}\rrb$
+is {\tt ((1 2 3) (4 5 6))}.
+$\mathit{Concat}$ flattens a list of lists into a single list,
+effectively reversing a $\mathit{Split}$.
+$\mathit{Rep}_{\nat}$ constructs a new list by
+repeating each element of the original list $\nat$ times.
+$\mathit{Rep}_2\llb\text {\tt (0 1)}\rrb$
+is {\tt (0 0 1 1)}.
+Used on nested lists,
+the inner lists are treated atomically:
+$\mathit{Rep}_2\llb\text {\tt ((1 2 3) (4 5 6))}\rrb$
+is {\tt ((1 2 3) (1 2 3) (4 5 6) (4 5 6))}.
+$\mathit{Transpose}$ takes a list of lists,
+where the inner lists all have the same length,
+and produces a new list of lists whose $i^{\mathit{th}}$ element
+contains the $i^{\mathit{th}}$ elements of each original inner list.
+
+\FigListMetafns
+
+The reduction rules themselves are given in Figure \ref{fig:DynamicSemantics}.
+Remora's function application is split into stages for
+replicating cells to make frame shapes match ($\mathit{lift}$),
+mapping the functions to corresponding argument cells ($\mathit{map}$),
+and gathering the result cells back into an array ($\mathit{collapse}$).
+
+Performing a $\mathit{lift}$ step identifies
+the function array's frame,
+the sequence $[\sequence{\nat_f}]$,
+and each argument's frame,
+$[\sequence{\nat_a}]$.
+Then the sequence $[\sequence{\nat_p}]$ is chosen to be the largest frame
+according to prefix ordering.
+We require that at least one function or argument frame
+be different from the principal frame---%
+otherwise, a $\mathit{map}$ step would be appropriate instead.
+Each argument's cell size $\nat_{\mathit{ac}}$ is
+the product of the dimensions $[\sequence{\nat_{\mathit{in}}}]$
+of the function's input type at that position;
+the function array's cell size is always 1.
+The number of replicas needed for each cell
+($\nat_{\mathit{fe}}$ for the function and
+$\nat_{\mathit{fa}}$ for each argument)
+is determined by multiplying the dimensions
+that must be added to each corresponding frame to produce the principal frame,
+\ie, the principal frame minus whatever prefix was
+already present in the original array's shape.
+Given these numbers,
+we split each array's atom list into its cells,
+replicate those cells to match the new array shapes,
+and then concatenate each array's replicated cells
+to produce the new function and argument arrays.
+Type annotations on the individual arrays update
+to reflect their new shapes,
+but the application form's type remains unchanged.
+
+A $\mathit{map}$ step is possible when
+every piece of a function application has the same frame shape.
+Then the application becomes a {\tt frame} of application forms,
+which themselves all have scalar principal frame.
+This requires breaking each argument array's atom list
+into its individual cells' atom lists,
+then transposing to match the first cell of each argument with the first function,
+the second cell of each argument with the second function,
+and so on.
+
+When function application has a scalar in function position,
+and every argument array matches the function's corresponding input type,
+then we can $\beta$-reduce or $\delta$-reduce.
+$\beta$-reduction performs conventional $\lambda$-calculus substitution.
+The $\delta$ rule uses a family of metafunctions,
+each associated with a primitive operator.
+No {\tt frame} construct is necessary in either result,
+as this is the degenerate case of function lifting---%
+the principal frame is scalar.
+
+Applying type and index abstractions is handled by
+the $\mathit{t\beta}$ and $\mathit{i\beta}$ rules.
+The application frame is the shape of the array of type or index abstractions,
+since there are no argument \emph{arrays}.
+Every {\tt T$\lambda$} or {\tt I$\lambda$} is applied to
+the full list of type or index arguments.
+Substitution into the body of each abstraction
+should be read as affecting type annotations as well as subterms:
+if we are replacing the type variable {\tt T} with {\tt Int},
+then {\tt x$^{\text{\tt (Array T (Shp 3))}}$} becomes {\tt x$^{\text{\tt (Array Int (Shp 3))}}$}.
+
+Once a {\tt frame} has every one of its cells reduced to an {\tt array} literal,
+the nested representation can be merged into a single literal.
+In the case where one of $\sequence{\nat}$ is 0,
+there will be no cells to examine to determine the cell dimensions $\sequence{\nat'}$,
+so this information is taken from the type annotation on the {\tt frame} form.
+The type annotation itself passes through unchanged.
+The atom lists from the cells are concatenated
+to produce the collapased array's atom list.
+
+Destructing a {\tt box} with an {\tt unbox} form
+behaves like a conventional {\tt let}.
+The result is the body $\expr$,
+where the index variables $\sequence{\var_i}$
+are replaced with the {\tt box}'s indices $\sequence{\idx}$,
+and the term variable $\var_e$ is replaced with the contained array $\val$.
+
+\FigDynamicSemantics
+
+\input{soundness}

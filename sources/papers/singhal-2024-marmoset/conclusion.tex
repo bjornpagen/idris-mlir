@@ -1,0 +1,6 @@
+\section{Conclusions}
+
+%\ap{probably needs rewriting for ECOOP resubmission}
+This paper introduces \system, which builds on \gibbon to generate efficient orders for algebraic datatypes. We show that a straightforward control-flow and data-flow analysis allows \system to identify opportunities to place fields of a data constructor near each other in memory to promote efficient consecutive access to those fields. Because a given function might use many fields in many different ways, \system adopts an approach of formulating the data layout problem as an ILP, with a cost model that assigns an abstract cost to a chosen layout. Armed with the ILP problem formulation, an off-the-shelf ILP solver allows \system to generate minimal-(abstract)-cost layout for algebraic datatypes. \system then uses the best layout to synthesize a new ADT and the \gibbon compiler toolchain to lower the code into an efficient program that operates over packed datatypes with minimal pointer chasing.
+
+We show, across a number of benchmarks, that \system is able to effectively and consistently find the optimal data layout for a given combination of traversal function and ADT. In our experiments, \system-optimized layouts outperform not only \gibbon's default layouts but also the popular SML compiler \mlton.

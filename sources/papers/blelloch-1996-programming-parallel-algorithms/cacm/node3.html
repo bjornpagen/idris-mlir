@@ -1,0 +1,93 @@
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
+<!--Converted with LaTeX2HTML .95.3 (Nov 17 1995) by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds -->
+<HTML>
+<HEAD>
+<TITLE>Relationship of Work and Depth to Running Time</TITLE>
+<!-- Changed by: Guy Blelloch , 25-Mar-1996 -->
+<META NAME="description" CONTENT="Relationship of Work and Depth to Running Time">
+<META NAME="keywords" CONTENT="cacm2">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<LINK REL=STYLESHEET HREF="cacm2.css">
+</HEAD>
+<BODY LANG="EN">
+
+<strong>
+From <a href="../cacm.html"><cite>Programming Parallel Algorithms.</cite></a>
+<br>
+Communications of the ACM, 39(3), March, 1996.
+</strong>
+
+ <BR> <HR><A NAME="tex2html59" HREF="node4.html"><IMG ALIGN=BOTTOM ALT="next"  WIDTH=37 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/next_motif.gif"></A> <A NAME="tex2html57" HREF="node1.html"><IMG ALIGN=BOTTOM ALT="up"  WIDTH=26 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/up_motif.gif"></A> <A NAME="tex2html53" HREF="node2.html"><IMG ALIGN=BOTTOM ALT="previous"  WIDTH=63 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/previous_motif.gif"></A>   <BR>
+<B> Next:</B> <A NAME="tex2html60" HREF="node4.html">Nested Data-Parallelism and NESL</A>
+<B>Up:</B> <A NAME="tex2html58" HREF="node1.html">Work and Depth</A>
+<B> Previous:</B> <A NAME="tex2html54" HREF="node2.html">Why Work and Depth?</A>
+<BR> <HR> <P>
+<H2><A NAME="SECTION00012000000000000000">Relationship of Work and Depth to Running Time</A></H2>
+<P>
+Work and depth can be viewed as the running time of an algorithm at
+two limits: one processor (work) and an unlimited number of processors
+(depth).  In fact, the complexities are often referred to as  <IMG ALIGN=MIDDLE ALT="tex2html_wrap_inline1665"  WIDTH=16 HEIGHT=23 SRC="img8.gif"  >  and
+ <IMG ALIGN=MIDDLE ALT="tex2html_wrap_inline1667"  WIDTH=23 HEIGHT=23 SRC="img9.gif"  > .  In practice, however, we want to know the running time
+for some fixed number of processors.  A simple but important result of
+Brent [<A HREF="node14.html#Brent74">9</A>] showed that knowing the two limits is good enough
+to place reasonable bounds on running time for any fixed number of
+processors.  In particular he showed that if we know that a
+computation has work <i>W</i> and depth <i>D</i> then it will run with <i>P</i>
+processors in time <i>T</i> such that <P> <IMG ALIGN=BOTTOM ALT="displaymath1661"  WIDTH=274 HEIGHT=36 SRC="img10.gif"  > <P> This result makes some assumptions about communication and
+scheduling costs, but the equation can be modified if these
+assumptions change.  For example, with a machine that has a memory latency of
+<i>L</i> (the time between making a remote request and receiving the
+reply), the equation is  <IMG ALIGN=MIDDLE ALT="tex2html_wrap_inline1679"  WIDTH=196 HEIGHT=26 SRC="img11.gif"  > .
+<P>
+Let's return to the example of summing.  Brent's equation along with
+our previous analysis of work and depth (<EM>W = <i>n-1</i>, D = <EM>log<sub>2</sub> n</EM></EM>) tell
+us that <i>n</i> numbers can be summed on <i>P</i> processors within the time
+bounds
+<P> <IMG ALIGN=BOTTOM ALT="displaymath1662"  WIDTH=323 HEIGHT=37 SRC="img12.gif"  > <P> For example 1,000,000
+elements can be summed on 1000 processors in somewhere between 1000
+( <IMG ALIGN=MIDDLE ALT="tex2html_wrap_inline1687"  WIDTH=56 HEIGHT=28 SRC="img13.gif"  > ) and 1020 ( <IMG ALIGN=MIDDLE ALT="tex2html_wrap_inline1689"  WIDTH=136 HEIGHT=28 SRC="img14.gif"  > ) cycles, assuming we
+count one cycle per addition.  For many parallel machines models, such
+as the PRAM or a set of processors connected by a hypercube network,
+this is indeed the case.  To implement the addition, we could assign
+1000 elements to each processor and sum them, which would take 999
+cycles.  We could then sum across the processors using a tree of depth
+ <IMG ALIGN=MIDDLE ALT="tex2html_wrap_inline1691"  WIDTH=108 HEIGHT=26 SRC="img15.gif"  > , so the total number of add cycles would be 1009,
+which is within our bounds.
+<P>
+<H4><A NAME="SECTION00012010000000000000">Communication Costs</A></H4>
+<P>
+A problem with using work and depth as cost measures is that they do
+not directly account for communication costs and can lead to bad
+predictions of running time on machines where communication is a
+bottleneck.  To address this question, let's separate communication
+costs into two parts: <EM>latency</EM>, as defined above, and <EM>
+bandwidth</EM>, the rate at which a processor can access memory.
+If we assume that each processor may have multiple outstanding
+requests, then latency is not a problem.  In particular, latency can
+be accounted for in the mapping of the work and depth into time for a
+machine (see above), and the simulation remains work-efficient (<EM>
+i.e.</EM> the processor-time product is proportional to the total work).
+This is based on hiding the latency by using few enough processors
+such that on average each processor has multiple parallel tasks
+(threads) to execute, and therefore has plenty to do while waiting for
+replies.  Bandwidth is a more serious problem.  For machines where the
+bandwidth between processors is very much less than the bandwidth to
+the local memory, work and depth by themselves will not in general
+give good predictions of running time.  However, the network bandwidth
+available on recent parallel machines, such as the Cray T3D and SGI
+Power Challenge, is high enough to give reasonable predictions, and we
+expect the situation only to improve with rapidly improving network
+technology.
+<P>
+<BR> <HR><A NAME="tex2html59" HREF="node4.html"><IMG ALIGN=BOTTOM ALT="next"  WIDTH=37 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/next_motif.gif"></A> <A NAME="tex2html57" HREF="node1.html"><IMG ALIGN=BOTTOM ALT="up"  WIDTH=26 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/up_motif.gif"></A> <A NAME="tex2html53" HREF="node2.html"><IMG ALIGN=BOTTOM ALT="previous"  WIDTH=63 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/previous_motif.gif"></A>   <BR>
+<B> Next:</B> <A NAME="tex2html60" HREF="node4.html">Nested Data-Parallelism and NESL</A>
+<B>Up:</B> <A NAME="tex2html58" HREF="node1.html">Work and Depth</A>
+<B> Previous:</B> <A NAME="tex2html54" HREF="node2.html">Why Work and Depth?</A>
+<BR> <HR> <P>
+<BR> <HR>
+<P><ADDRESS>
+<a href="http://www.cs.cmu.edu/~blelloch">Guy Blelloch</a>, <a href="mailto:blelloch@cs.cmu.edu">blelloch@cs.cmu.edu</a>
+</ADDRESS>
+</BODY>
+</HTML>

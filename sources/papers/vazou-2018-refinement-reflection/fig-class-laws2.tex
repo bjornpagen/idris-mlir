@@ -1,0 +1,66 @@
+\begin{center}
+\small
+\begin{tabular}{rlrl}
+\toprule
+
+\multicolumn{2}{c}{\textbf{Monoid} (for Peano, Maybe, List)}
+&
+\multicolumn{2}{c}{\textbf{Functor} (for Maybe, List, Id)} \\
+
+{Left Id.}  & $\emempty\ x\ \emappend\  \equiv x$
+&
+{Id.}    & $\efmap\ \eid\ xs \equiv \eid\ xs$ \\
+
+{Right Id.} & $x\ \emappend\ \emempty \equiv x$
+&
+{Distr.} & $\efmap\ (g\ecompose\ h)\ xs \equiv (\efmap\ g\ \ecompose\ \efmap\ h)\ xs$\\
+
+{Assoc.}     & $(x\ \emappend\ y)\ \emappend\ z \equiv x\ \emappend\ (y\ \emappend\ z)$
+&
+& \\
+
+\midrule
+
+\multicolumn{2}{c}{\textbf{Applicative} (for Maybe, List, Id)}
+&
+\multicolumn{2}{c}{\textbf{Monad} (for Maybe, List, Id)} \\
+
+{Id.}    & $\epure \eid \eseq\ v \equiv v$
+&
+{Left Id.}   & $\ereturn\ a \ebind f \equiv f\ a$ \\
+
+{Comp.}  & $\epure (\ecompose) \eseq u \eseq v \eseq w \equiv u \eseq (v \eseq w)$
+&
+{Right Id.}  & $m \ebind \ereturn \equiv m$ \\
+
+{Hom.}   & $\epure\ f\ \eseq\ \epure\ x \equiv \epure\ (f\ x)$
+&
+{Assoc.}         & $(m\ebind f) \ebind g \equiv m\ebind (\lambda x \rightarrow f\ x \ebind g)$\\
+
+{Inter.} & $u\ \eseq\ \epure\ y \equiv \epure\ (\$\ y) \ \eseq \ u$
+&
+& \\
+
+\midrule
+
+\multicolumn{2}{c}{\textbf{Ord} (for Int, Double, Either, $(,)$)}
+&
+\multicolumn{2}{c}{\textbf{Commutative Monoid} (for Int, Double, $(,)$)} \\
+
+{Refl.}    & $x \leq x$
+&
+{Comm.}   & $x\ \emappend\ y \equiv y\ \emappend\ x$ \\
+
+{Antisym.} & $x \leq y \land y \leq x \implies x \equiv y$
+\\
+{Trans.}   & $x \leq y \land y \leq z \implies x \leq z$
+&
+& \emph{(including Monoid laws)}
+\\
+{Total.}   & $x \leq y \lor y \leq x$ \\
+%
+\bottomrule
+\end{tabular}
+\end{center}
+\caption{Summary of Verified Typeclass Laws.}
+\label{fig:laws}

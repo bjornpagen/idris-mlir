@@ -1,0 +1,5 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PYG{k+kn}{Fixpoint} \PYG{n}{denoteT} \PYG{o}{(}\PYG{n}{t} \PYG{o}{:} \PYG{n}{type}\PYG{o}{)} \PYG{o}{:} \PYG{k+kt}{Type} \PYG{o}{:=} \PYG{k}{match} \PYG{n}{t} \PYG{k}{with}
+  \PYG{o}{|} \PYG{n}{arrow} \PYG{n}{s} \PYG{n}{d} \PYG{o}{=\PYGZgt{}} \PYG{n}{denoteT} \PYG{n}{s} \PYG{o}{\PYGZhy{}\PYGZgt{}} \PYG{n}{denoteT} \PYG{n}{d}
+  \PYG{o}{|} \PYG{n}{base} \PYG{n}{b}    \PYG{o}{=\PYGZgt{}} \PYG{n}{denote\PYGZus{}base\PYGZus{}type} \PYG{n}{b}  \PYG{k}{end}\PYG{o}{.}
+\end{Verbatim}

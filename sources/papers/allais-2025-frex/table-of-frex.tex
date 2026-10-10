@@ -1,0 +1,68 @@
+\begingroup\small
+\begin{tikzpicture}
+
+\node[minimum width=0.3\textwidth] (monoid)
+  at (0,0) { \bfseries monoids };
+\node[minimum width=0.3\textwidth,anchor=north west] (cmonoid)
+  at (monoid.north east) { \bfseries \textit{commutative} monoids };
+\node[minimum width=0.3\textwidth,anchor=north west] (imonoid)
+  at (cmonoid.north east) { \bfseries \textit{involutive} monoids };
+
+\node[anchor=north] 
+  at ($(monoid.north) + (0,-0.8)$)
+     { \parbox{0.28\textwidth}{\centering lists of\\ variables} };
+\node[anchor=north]
+  at ($(cmonoid.north) + (0,-0.8)$)
+     { \parbox{0.28\textwidth}{\centering origin-intercepting\\ linear polynomials} };
+\node[anchor=north]
+  at ($(imonoid.north) + (0,-0.8)$)
+     { \parbox{0.28\textwidth}{\centering lists over ordinary \& \\ singly-involuted variables } };
+
+\node[anchor=north]
+  at ($(monoid.north) + (0,-1.8)$)
+     { $yxxyx$ };
+\node[anchor=north]
+  at ($(cmonoid.north) + (0,-1.8)$)
+     { \parbox{0.28\textwidth}{\centering $a_1x_1\! +\! \ldots\! +\! a_nx_n$ \\ $(a_i : \Nat)$}};
+\node[anchor=north] 
+  at ($(imonoid.north) + (0,-1.8)$)
+     { $y\overline xxx\overline yx$ };
+
+\node[anchor=north]
+  at ($(monoid.north) + (0,-2.9)$)
+     { \parbox{0.28\textwidth}{\centering ~\\[-0.5ex] alternating lists\\in $\mathbb{M}_{2\times 2}(\Nat{})[y]$\\~} };
+\node[anchor=north]
+  at ($(cmonoid.north) + (0,-2.9)$)
+     { \parbox{0.28\textwidth}{\centering ~\\[-0.5ex]  linear polynomials \\ in $\A{}[x_1, \ldots, x_n]$\\~} };
+\node[anchor=north]
+  at ($(imonoid.north) + (0,-2.9)$)
+     { \parbox{0.28\textwidth}{\centering alternating lists\\ with tagged variables \\ in $\String{}[x,y]$ } };
+
+\node[anchor=north]
+  at ($(monoid.north) + (0,-4.1)$)
+     {   $\begin{pmatrix} 1 & 3 \\ 0 & 2 \end{pmatrix}y\begin{pmatrix} 0 & 1 \\ 1 & 0 \end{pmatrix}y$ };
+\node[anchor=north]
+  at ($(cmonoid.north) + (0,-4.3)$)
+     { \parbox{0.28\textwidth}{\centering $c\! +\! a_1x_1\! +\! \ldots\! +\! a_nx_n$ \\ ($a_i : \Nat{}, c : \A$)}};
+\node[anchor=north] (imonoid-frex-repr-eg)
+  at ($(imonoid.north) + (0,-4.3)$)
+     { $\EmptyStr{}x\helloStr{}y\ollehStr{}\overline x\EmptyStr{}$ };
+
+\node[rectangle,rounded corners,draw=black,minimum width=0.26\textwidth,minimum height=5.3cm,anchor=north west]
+  at ($(monoid.north west) + (0.01\textwidth,0)$) { };
+\node[rectangle,rounded corners,draw=black,minimum width=0.26\textwidth,minimum height=5.3cm,anchor=north west]
+  at ($(cmonoid.north west) + (0.01\textwidth,0)$) { };
+\node[rectangle,rounded corners,draw=black,minimum width=0.26\textwidth,minimum height=5.3cm,anchor=north west]
+  at ($(imonoid.north west) + (0.01\textwidth,0)$) { };
+
+\node[rectangle,fill=red,fill opacity=0.1,minimum width=0.96\textwidth,minimum height=2cm,anchor=north west] (frals)
+  at ($(monoid.north west) + (-0.06\textwidth,-0.7cm)$) { };
+
+\node[rectangle,fill=green,fill opacity=0.1,minimum width=0.96\textwidth,minimum height=2.2cm,anchor=north west] (frexes)
+  at ($(monoid.north west) + (-0.06\textwidth,-2.9cm)$) { };
+
+\node[anchor=north,rotate=90] at ($(frals.west) + (0.03\textwidth,0)$) { free algebra};
+\node[anchor=north,rotate=90] at ($(frexes.west) + (0.03\textwidth,0)$) { free extension};
+
+\end{tikzpicture}
+\endgroup

@@ -1,0 +1,34 @@
+\begin{tikzpicture}
+\hspace{-0.4cm}
+\begin{groupplot}[
+  group style={group size=3 by 1, horizontal sep=0.25cm, yticklabels at=edge left},
+  height=4.35cm,
+  width=6.8cm,
+  xbar,
+  symbolic y coords={DK, DK$_{t=\infty}$, KO, KO$_{c=2}$, KO$_{c=4}$, KO$_{c=8}$},
+  yticklabel style={align=left,text width=width("KO$_{c=1}$")},
+  y dir=reverse,
+  ytick=data,
+  ytick style={draw=none},
+  xlabel=Max. memory,
+  x unit=GB,
+  xmin=0,
+  ymin={[normalized]-0.75},
+  ymax={[normalized] 5.75},
+  nodes near coords,
+  enlarge x limits={value=0.2,upper},
+  nodes near coords style={/pgf/number format/precision=1},
+  ]
+\nextgroupplot[title=Matita, x unit=MB]
+\addplot+[]
+  table [y=Conf, x expr=\thisrow{RAM}/1000] {eval/itp/ram/matita_sttfa.dat};
+
+\nextgroupplot[title=HOL Light]
+\addplot+[]
+  table [y=Conf, x expr=\thisrow{RAM}/1000000] {eval/itp/ram/hol_stdlib_u.dat};
+
+\nextgroupplot[title=Isabelle/HOL]
+\addplot+[]
+  table [y=Conf, x expr=\thisrow{RAM}/1000000] {eval/itp/ram/isabelle_hol.dat};
+\end{groupplot}
+\end{tikzpicture}

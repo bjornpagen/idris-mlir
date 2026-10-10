@@ -1,0 +1,108 @@
+\begin{center}
+\begin{tabular}{ll}
+  \begin{minipage}[t]{.44\textwidth}
+\begin{itemize}[leftmargin=*]
+\item[\textbullet] \AModule[ (\secref*{frexlib}--\subsecref{frex-via-coproducts})]{Frex}
+  core definitions
+\begin{itemize}[leftmargin=*]
+\item[\textbullet] \AModule[ (\secref*{frexlib})]{Signature}
+  operations \& arities
+\item[\textbullet] \AModule[ (\secref*{frexlib},\subsecref{UPs})]{Algebra}
+  algebraic structures and terms, homomorphisms
+\item[\textbullet] \AModule[ (\secref*{frexlib})]{Presentation}
+  axioms, equational theories
+\item[\textbullet] \AModule[ (\secref*{frexlib})]{Axiom}
+  common axiom schemes
+\item[\textbullet] \AModule[ (\secref*{frexlib})]{Model}
+  axiom-validating algebras
+\item[\textbullet] \AModule[ (\subsecref{powers})]{Powers}
+  parameterised algebras
+\item[\textbullet] \AModule[ (\secref*{frexlib})]{Free}
+  simplification in all algebras
+\begin{itemize}[leftmargin=*]
+\item[\textbullet] \AModule[ (\subsecref{UPs})]{Definition}
+  universal property
+\item[\textbullet] \AModule[ (\secref*{certification})]{Construction} a
+  non-effective quotient construction used for extraction, printing,
+  and certification
+\begin{itemize}[leftmargin=*]
+\item[\textbullet] \AModule[ (\subsecref{fral via frex})]{ByFrex}
+  reuse a frex simplifier to define a fral simplifier
+\item[\textbullet] \AModule[ (\subsecref{extracting
+    certificates}--\subsecref{proof simplification})]{Linear}
+  generic proof simplification and printing
+\item[\textbullet] \AModule[ (\secref*{certification})]{Idris}
+  generic certification
+\end{itemize}
+\end{itemize}
+\item[\textbullet] \AModule[ (\subsecref{frex-via-coproducts})]{Coproduct}
+  universal property
+\item[\textbullet] \AModule[ (\subsecref{UPs}--\subsecref{frex-via-coproducts})]{Frex}
+  universal property, reuse coproduct and fral simplifier to define a frex simplifier
+\begin{itemize}[leftmargin=*]
+\item[\textbullet] \AModule[ (\secref*{certification})]{Construction}
+  non-effective quotient construction used for extraction, printing,
+  and certification
+\end{itemize}
+\item[\textbullet] \AModule[ (\secref*{certification})]{Lemma}
+  auxiliary representation for auxiliary lemmata discharged by fral
+  simplifiers, printed, or certified
+\item[\textbullet] \AModule[ (\secref*{reflection})]{Magic}
+  generic reflection code for ergonomic invocation
+\end{itemize}
+\end{itemize}
+\end{minipage}
+&
+\begin{minipage}[t]{.52\textwidth}
+\begin{itemize}[leftmargin=*]
+\item[\textbullet] \AModule{Frexlet.Monoid}
+  modules concerning varieties of monoids and their simplifiers
+\begin{itemize}[leftmargin=*]
+\item[\textbullet] \AModule[ (\secref*{frexlib})]{Theory}
+  signature, axioms, pretty printing for the theory of ordinary monoids
+\item[\textbullet] \AModule[ (\secref*{frexlib})]{Notation}
+  shared infix notation (additive and multiplicative) for monoid varieties
+\item[\textbullet] \AModule[ (\figref{monoid frexlets})]{Frex}
+  frex simplifier for monoids
+\item[\textbullet] \AModule[ (\subsecref{fral via frex})]{Free}
+  fral simplifier, reuses frex simplifier
+ %  -- Concrete algebras
+\item[\textbullet] \AModule[ (\secref*{frexlib})]{Nat}
+  additive and multiplicative monoid structure of the natural numbers
+\item[\textbullet] \AModule{Pair} types with the cartesian product as
+  a proof-relevant monoid structure
+\item[\textbullet] \AModule{List}
+  monoid structure of lists with catenation
+\item[\textbullet] \AModule{Commutative}
+  commutative monoids modules
+\begin{itemize}[leftmargin=*]
+\item[\textbullet] \AModule{Theory}
+  commutativity axiom
+\item[\textbullet] \AModule[ (\subsecref{UPs}]{Free})
+  fral simplifier
+\item[\textbullet] \AModule[ (\subsecref{UPs})]{NatSemiLinear}
+  auxiliary definitions for fral simplifier
+\item[\textbullet] \AModule[ (\subsecref{frex-via-coproducts})]{Frex}
+  simplifier, reuses fral via coproducts
+\item[\textbullet] \AModule[ (\subsecref{frex-via-coproducts})]{Coproduct}
+  coproduct of commutative monoids
+\item[\textbullet] \AModule{Nat}
+  addition and multiplication of naturals
+\end{itemize}
+\item[\textbullet] \AModule{Involutive}
+  modules concerning monoids equipped with an involution
+\begin{itemize}[leftmargin=*]
+\item[\textbullet] \AModule[ (\secref*{frexlib})]{Theory}
+  signature and axioms
+\item[\textbullet] \AModule{Free}
+  simplifier, reuses frex simplifier
+\item[\textbullet] \AModule[ (\subsecref{reusing frexlets})]{Frex}
+  simplifier, reuses monoid frex
+\item[\textbullet] \AModule[ (\secref*{frexlib})]{List}
+  involutive monoid structure of list reversal
+\end{itemize}
+\end{itemize}
+\end{itemize}
+\end{minipage}
+\end{tabular}
+\end{center}

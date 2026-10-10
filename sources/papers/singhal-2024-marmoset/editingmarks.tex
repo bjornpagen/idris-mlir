@@ -1,0 +1,146 @@
+
+% \usepackage[usenames,dvipsnames]{xcolor}
+% \usepackage[dvipsnames]{xcolor}
+\usepackage[]{xcolor}
+
+% [2024.05.20] doesn't seem to work with the LIPIcs format currently. A low-key reimplementation goes below.
+% [2016.10.23] Switching to margin notes for peanut gallery:
+\usepackage{todonotes}
+% \presetkeys{todonotes}{inline}{}  % Activate to turn-off margin notes.
+
+% [2016.05.26] This can just be a growing list from paper to paper:
+%% \newcommand{\rn}[1]{\pgwrapper{RRN}{#1}}  % Ryan Newton
+
+%% \newcommand{\tlm}[1]{\pgwrapper{TLM}{#1}} % Trevor
+%% \newcommand{\bjs}[1]{\pgwrapper{BJS}{#1}} % Bo Joel Svenson
+%% \newcommand{\chc}[1]{\pgwrapper{CHC}{#1}} % Chao-Hong Chen
+%% \newcommand{\vc}[1]{\pgwrapper{VC}{#1}} % Vikraman Choudhury
+%% \newcommand{\bc}[1]{\pgwrapper{BC}{#1}} % Buddhika Chamith
+%% \newcommand{\mv}[1]{\pgwrapper{MV}{#1}} % Michael Vollmer
+%% \newcommand{\osa}[1]{\pgwrapper{OSA}{#1}} % Omer Agacan
+%% \newcommand{\mm}[1]{\pgwrapper{MM}{#1}} % Madan Musuvathi
+%% \newcommand{\rgs}[1]{\pgwrapper{RGS}{#1}} % Ryan Scott
+%% \newcommand{\csk}[1]{\pgwrapper{CSK}{#1}} % Chaitanya Koparkar
+%% \newcommand{\mr}[1]{\pgwrapper{MR}{#1}} % Mike Rainey
+%% \newcommand{\sth}[1]{\pgwrapper{STH}{#1}} % Sam Tobin-Hochstadt
+
+%% \newcommand{\mk}[1]{\pgwrapper{MK}{#1}} % Milind Kulkarni
+%% \newcommand{\ls}[1]{\pgwrapper{LS}{#1}} % Laith Sakka
+%% \newcommand{\vs}[1]{\pgwrapper{VS}{#1} } % Vidush Singhal
+%% \newcommand{\ap}[1]{\pgwrapper{AP}{#1} } % Artem Pelenitsyn
+
+%% \newcommand{\spall}[1]{\pgwrapper{SS}{#1}} % Sarah Spall
+
+%% \newcommand{\jd}[1]{\pgwrapper{JD}{#1}} % Joe Devietti
+%% \newcommand{\onl}[1]{\pgwrapper{ONL}{#1}} % Omar Navarro-Leija
+
+% ATTENTION passenger, to switch off the comments...
+\newcommand{\metacomment}[3]%
+% {}
+{{\scriptsize\color{#1}{\bf #2}:\ #3}}
+% ... switch between the previous two lines to hide/show all visible comments in the PDF
+\newcommand{\rn}[1]{\metacomment{blue}{Ryan}{#1}}
+\newcommand{\mk}[1]{\metacomment{teal}{Milind}{#1}}
+\newcommand{\csk}[1]{\metacomment{orange}{Chaitanya}{#1}}
+\newcommand{\mv}[1]{\metacomment{orange}{Michael}{#1}}
+\newcommand{\mr}[1]{\metacomment{orange}{Mike}{#1}}
+\newcommand{\vs}[1]{\metacomment{olive}{Vidush}{#1}}
+\newcommand{\ap}[1]{\metacomment{purple}{Artem}{#1}}
+
+% Add co-authors here or in a downstream file.
+
+\InputIfFileExists{activateeditingmarks}{
+}{
+    \def\noeditingmarks{}
+}
+
+\definecolor{comment-red}{rgb}{0.8,0,0}
+\definecolor{dark-green}{rgb}{0.0,0.4,0}
+\definecolor{dark-blue}{rgb}{0.0,0.0,0.55}
+\definecolor{very-dark-green}{rgb}{0.0,0.3,0}
+
+\ifx\noeditingmarks\undefined
+   %% This means someone else should take a look:
+   \newcommand{\auditme}[1]{{\color{comment-red}{#1}}}
+
+   %% This means there's a serious problem that must be fixed before
+   %% the paper goes out:
+   \newcommand{\fixme}[1]{{\color{comment-red}{#1}}}
+
+   %% This is for outlining, i.e., psuedotext that must be converted
+   %% to real text:
+   \newcommand{\noteus}[1]{{\begin{itemize}\item \textcolor{blue}{#1} \end{itemize}}}
+
+   %% A very poor-man's version of ``track changes'':
+   \newcommand{\new}[1]{{\color{very-dark-green}{#1}}}
+   \newcommand{\nnew}[1]{{\color{dark-blue}{#1}}}
+
+   \newcommand{\const}[1]{\textred{#1}}
+   %\definecolor{mygrey}{rgb}{0.6,0.6,0.6}
+   \definecolor{mygrey}{rgb}{0.7,0.7,0.7}
+
+   \newcommand{\textred}[1]{{\color{comment-red}{#1}}}
+
+   % Old version was inline:
+   % \newcommand{\pgwrapper}[2]{\textred{(#1: #2)}}
+   % New version is in the margin:
+   \setlength{\marginparwidth}{1.3cm}
+   \newcommand{\pgwrapper}[2]{\todo[size=\tiny]{#1: #2}}
+
+   %% RRN: Dim the background for Ryan's eyes:
+   %% Hack: do this ONLY on Ryan's machine.
+   %%  I don't know a way based on user or host name, so...
+   %%  instead I just signal on a file, activategreybg.tex which I
+   %%  don't then checkin.
+   \InputIfFileExists{activategreybg}{
+       \definecolor{comment-red}{rgb}{0.5,0,0}
+       \pagecolor{mygrey}
+   }{}
+
+  % When they are their own para, todonotes annoyingly take up vertical space:
+  \newcommand{\rnfloat}[1]{\pgwrapper{RRN}{#1}\vspace{-4mm}}  % Ryan Newton
+
+\else
+%   \newcommand{\textred}[1]{#1}
+% Keep it on so we catch stuff to fix:
+   \newcommand{\textred}[1]{{\color{comment-red}{#1}}}
+   \newcommand{\textgreen}[1]{{\color{dark-green}{#1}}}
+   \newcommand{\auditme}[1]{#1}
+   % This is more severe and should not go away:
+   \newcommand{\fixme}[1]{\textred{#1}}
+   \newcommand{\pgwrapper}[2]{}
+%   \newcommand{\note}[1]{}
+   \newcommand{\new}[1]{#1}
+   \newcommand{\nnew}[1]{#1}
+   \newcommand{\const}[1]{#1}
+
+   \newcommand{\rnfloat}[1]{}  % Ryan Newton
+\fi
+
+% Just an alias because sometimes we use this:
+\newcommand{\Red}[1]{\textred{#1}}
+\newcommand{\Blue}[1]{\textcolor{blue}{#1}}
+\newcommand{\Green}[1]{\textgreen{#1}}
+
+% These probable should be elsewhere:
+\newcommand{\ie}{{i.e.,}}
+\newcommand{\eg}{{e.g.,}}
+\newcommand{\etal}{\textit{et al.}}
+
+\def\scrunchit{}
+\ifx\scrunchit\undefined
+  \newcommand{\captionscrunch}{}
+\else
+%  \newcommand{\captionscrunch}{\vspace{-4mm}}
+  \newcommand{\captionscrunch}{\vspace{-3mm}}
+\fi
+
+%% \newcommand{\secref}[1]{section~\ref{#1}}
+%% \newcommand{\Secref}[1]{Section~\ref{#1}}
+\newcommand{\secref}[1]{Section~\ref{#1}}
+\newcommand{\Secref}[1]{\secref{#1}}
+\newcommand{\Figref}[1]{Figure~\ref{#1}\xspace}
+\newcommand{\figref}[1]{Figure~\ref{#1}\xspace}
+\newcommand{\tabref}[1]{Table~\ref{#1}\xspace}
+\newcommand{\Tabref}[1]{Table~\ref{#1}\xspace}
+

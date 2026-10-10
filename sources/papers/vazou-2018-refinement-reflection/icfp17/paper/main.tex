@@ -1,0 +1,144 @@
+\documentclass[acmlarge, preprint, authorversion]{acmart}
+\settopmatter{printacmref=false}
+
+\pagestyle{plain}
+\usepackage{hyperref}
+
+\hypersetup{colorlinks=true,allcolors=blue}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue,
+    citecolor=blue
+}
+
+% \usepackage{tipa}
+% \usepackage{inconsolata}
+\usepackage{amsmath,amssymb,latexsym}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{comment}
+%\usepackage{amsfonts}
+%\usepackage{amssymb}
+%\usepackage{mathtools}
+\usepackage{commands}
+\usepackage{liquidHaskell}
+\usepackage{xspace}
+\usepackage{epsfig}
+\usepackage{booktabs}
+\usepackage{listings}
+% \usepackage{stmaryrd}
+\usepackage{flushend}
+\usepackage{ifthen}
+\usepackage[outdir=./]{epstopdf}
+
+% \bibliographystyle{ACM-Reference-Format}
+% \citestyle{acmauthoryear}
+
+% \renewcommand{\ttdefault}{pcr}
+
+% \newtheorem{theorem}{Theorem}
+% \newtheorem{lemma}{Lemma}
+% \newtheorem{definition}{Definition}
+% \newtheorem{corollary}{Corollary}
+
+\usepackage{thmtools}
+\declaretheoremstyle[%
+  spaceabove=-6pt,%
+  spacebelow=6pt,%
+  headfont=\normalfont\itshape,%
+  postheadspace=1em,%
+  qed=\qedsymbol,%
+  headpunct={}
+]{mystyle}
+\declaretheorem[name={Proof:},style=mystyle,unnumbered,
+]{myproof}
+
+\usepackage[inference]{semantic}
+
+\input{haskellListings}
+
+\newcommand{\isTechReport}{false} % true or false
+\acmYear{2017}
+\acmMonth{2}
+
+\begin{document}
+
+
+%\title{From Types to Proofs via Refinement Reflection}
+%\title{\ifthenelse{\equal{\isTechReport}{true}}
+%       {{Technical Report:}}
+%        {}
+%        Refinement Reflection
+%       }
+%\subtitle{\emph{(or, how to convert a legacy programming language into a proof assistant)\vspace{-17mm}}}
+
+\ifthenelse{\equal{\isTechReport}{true}}{
+\title{Technical Report: Refinement Reflection:}
+}{
+\title{Refinement Reflection:}
+}
+% \authorinfo{}{}
+% \authorinfo{OMITTED FOR BLIND REVIEW}{}
+% \authorinfo{Niki Vazou \and Ranjit Jhala}{University of California, San Diego}{}
+
+\subtitle{Parallel Legacy Languages as Theorem Provers}
+
+\input{abstract}
+
+
+%% Author with two affiliations and emails.
+\author{Niki Vazou}
+\affiliation{
+  \institution{University of Maryland}           %% \institution is required
+}
+
+
+\author{Ranjit Jhala}
+\affiliation{
+  \institution{UC San Diego}           %% \institution is required
+}
+
+\author{Vikraman Choudhury}
+\author{Ryan Scott}
+\author{Ryan Newton}
+\affiliation{
+  \institution{Indiana University}            %% \institution is required
+}
+% \email{first1.last1@inst1.edu}          %% \email is recommended
+
+
+\maketitle
+
+\input{intro}
+\input{overview}
+\input{theoryR}
+\input{theoryS}
+%%%\input{shorttheory}
+\input{lambda}
+\input{evaluation}
+\input{evaluation_par}
+\input{related}
+\input{conclusion}
+
+%% \subsection*{Acknowledgements}
+
+{
+\bibliographystyle{plain}
+\bibliography{sw}
+}
+
+\ifthenelse{\equal{\isTechReport}{true}}
+{
+\appendix
+   \input{implementation}
+   \input{theory.extended}
+   \input{soundness}
+   \input{algorithmic.extended}
+   \input{soundness_algorithmic}
+   \input{lambda}
+}
+
+
+\end{document}

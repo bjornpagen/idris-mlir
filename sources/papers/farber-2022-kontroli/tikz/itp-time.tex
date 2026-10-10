@@ -1,0 +1,34 @@
+\begin{tikzpicture}
+\hspace{-0.4cm}
+\begin{groupplot}[
+  group style={group size=3 by 1, horizontal sep=0.25cm, yticklabels at=edge left},
+  height=6.5cm,
+  width=6.8cm,
+  xbar,
+  symbolic y coords={DK, KO, DK$\cap p$, KO$\cap p$, DK$_{t=\infty}$, KO$_{p=1}$, KO$_{c=1}$, KO$_{c=2}$, KO$_{c=4}$, KO$_{c=8}$, KO$\setminus c$},
+  yticklabel style={align=left,text width=width("DK$_{c=1}$")},
+  y dir=reverse,
+  ytick=data,
+  ytick style={draw=none},
+  xlabel=Runtime,
+  x unit=s,
+  xmin=0,
+  ymin={[normalized]-0.75},
+  ymax={[normalized]10.75},
+  nodes near coords,
+  enlarge x limits={value=0.2,upper},
+  nodes near coords style={/pgf/number format/precision=0},
+  ]
+\nextgroupplot[title=Matita, x unit=ms]
+\addplot+[error bars/.cd, x dir=plus, x explicit]
+  table [y=Conf, x expr=\thisrow{Mean}*1000, x error expr=\thisrow{Stddev}*1000] {eval/itp/time/matita_sttfa.dat};
+
+\nextgroupplot[title=HOL Light]
+\addplot+[error bars/.cd, x dir=plus, x explicit]
+  table [y=Conf, x=Mean, x error=Stddev] {eval/itp/time/hol_stdlib_u.dat};
+
+\nextgroupplot[title=Isabelle/HOL]
+\addplot+[error bars/.cd, x dir=plus, x explicit]
+  table [y=Conf, x=Mean, x error=Stddev] {eval/itp/time/isabelle_hol.dat};
+\end{groupplot}
+\end{tikzpicture}

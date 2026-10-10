@@ -1,0 +1,128 @@
+\begin{thebibliography}{10}
+\providecommand{\url}[1]{\texttt{#1}}
+\providecommand{\urlprefix}{URL }
+\providecommand{\doi}[1]{https://doi.org/#1}
+
+\bibitem{sail-popl2019}
+Armstrong, A., Bauereiss, T., Campbell, B., Reid, A., Gray, K.E., Norton, R.M.,
+  Mundkur, P., Wassell, M., French, J., Pulte, C., Flur, S., Stark, I.,
+  Krishnaswami, N., Sewell, P.: {ISA} semantics for {ARMv8-A, RISC-V, and
+  CHERI-MIPS}. In: Proc. 46th ACM SIGPLAN Symposium on Principles of
+  Programming Languages (Jan 2019). \doi{10.1145/3290384}, proc. ACM Program.
+  Lang. 3, POPL, Article 71
+
+\bibitem{barras1996coq}
+Barras, B.: Coq en coq  (1996)
+
+\bibitem{cao2018vst}
+Cao, Q., Beringer, L., Gruetter, S., Dodds, J., Appel, A.W.: Vst-floyd: A
+  separation logic tool to verify correctness of c programs. Journal of
+  Automated Reasoning  \textbf{61}(1-4),  367--422 (2018)
+
+\bibitem{unambiguous}
+Carneiro, M.: Grammar ambiguity in \texttt{set.mm} (2013),
+  \url{http://us.metamath.org/downloads/grammar-ambiguity.txt}
+
+\bibitem{Carn16}
+Carneiro, M.: Models for metamath (2016), presented at CICM 2016
+
+\bibitem{Carn19}
+Carneiro, M.: {Specifying verified x86 software from scratch}. In: Workshop on
+  Instruction Set Architecture Specification (SpISA 2019) (2019),
+  \url{https://www.cl.cam.ac.uk/~jrh13/spisa19/paper_07.pdf}
+
+\bibitem{k-x86}
+Dasgupta, S., Park, D., Kasampalis, T., Adve, V.S., Ro\c{s}u, G.: {A Complete
+  Formal Semantics of x86-64 User-Level Instruction Set Architecture}. In:
+  Proceedings of the 40th ACM SIGPLAN Conference on Programming Language Design
+  and Implementation (PLDI'19). pp. 1133--1148. ACM (June 2019).
+  \doi{http://dx.doi.org/10.1145/3314221.3314601}
+
+\bibitem{davis09}
+Davis, J.C., Moore, J.S.: A self-verifying theorem prover. Ph.D. thesis,
+  University of Texas (2009)
+
+\bibitem{why3}
+Filli{\^a}tre, J.C., Paskevich, A.: Why3---where programs meet provers. In:
+  European symposium on programming. pp. 125--128. Springer (2013)
+
+\bibitem{goel2020verifying}
+Goel, S., Slobodova, A., Sumners, R., Swords, S.: Verifying x86 instruction
+  implementations. In: Proceedings of the 9th ACM SIGPLAN International
+  Conference on Certified Programs and Proofs. pp. 47--60 (2020)
+
+\bibitem{haftmann2013code}
+Haftmann, F.: Code generation from isabelle/hol theories
+
+\bibitem{harrison-holhol}
+Harrison, J.: Towards self-verification of hol light. In: Furbach, U., Shankar,
+  N. (eds.) Proceedings of the third International Joint Conference, IJCAR
+  2006. Lecture Notes in Computer Science, vol.~4130, pp. 177--191.
+  Springer-Verlag, Seattle, WA (2006)
+
+\bibitem{jung2017rustbelt}
+Jung, R., Jourdan, J.H., Krebbers, R., Dreyer, D.: Rustbelt: Securing the
+  foundations of the rust programming language. Proceedings of the ACM on
+  Programming Languages  \textbf{2}(POPL),  1--34 (2017)
+
+\bibitem{jung2018iris}
+Jung, R., Krebbers, R., Jourdan, J.H., Bizjak, A., Birkedal, L., Dreyer, D.:
+  Iris from the ground up: A modular foundation for higher-order concurrent
+  separation logic. Journal of Functional Programming  \textbf{28} (2018)
+
+\bibitem{kumar2018software}
+Kumar, R., Mullen, E., Tatlock, Z., Myreen, M.O.: Software verification with
+  itps should use binary code extraction to reduce the tcb. In: International
+  Conference on Interactive Theorem Proving. pp. 362--369. Springer (2018)
+
+\bibitem{Kumar14}
+Kumar, R., Myreen, M.O., Norrish, M., Owens, S.: Cakeml: A verified
+  implementation of ml. SIGPLAN Not.  \textbf{49}(1),  179--191 (Jan 2014).
+  \doi{10.1145/2578855.2535841},
+  \url{http://doi.acm.org/10.1145/2578855.2535841}
+
+\bibitem{dafny}
+Leino, K.R.M.: Dafny: An automatic program verifier for functional correctness.
+  In: International Conference on Logic for Programming Artificial Intelligence
+  and Reasoning. pp. 348--370. Springer (2010)
+
+\bibitem{leroy2012compcert}
+Leroy, X., et~al.: The compcert verified compiler. Documentation and user’s
+  manual. INRIA Paris-Rocquencourt  \textbf{53} (2012)
+
+\bibitem{letouzey2008extraction}
+Letouzey, P.: Extraction in coq: An overview. In: Conference on Computability
+  in Europe. pp. 359--369. Springer (2008)
+
+\bibitem{loow19}
+L{\"o}{\"o}w, A., Kumar, R., Tan, Y.K., Myreen, M.O., Norrish, M., Abrahamsson,
+  O., Fox, A.: Verified compilation on a verified processor. In: Proceedings of
+  the 40th ACM SIGPLAN Conference on Programming Language Design and
+  Implementation. pp. 1041--1053. ACM (2019)
+
+\bibitem{Meg19}
+Megill, N., Wheeler, D.A.: Metamath: A Computer Language for Mathematical
+  Proofs. Lulu Press (2019)
+
+\bibitem{myreen2009formal}
+Myreen, M.O.: Formal verification of machine-code programs. Tech. rep.,
+  University of Cambridge, Computer Laboratory (2009)
+
+\bibitem{myreen11}
+Myreen, M.O., Davis, J.: A verified runtime for a verified theorem prover. In:
+  International Conference on Interactive Theorem Proving. pp. 265--280.
+  Springer (2011)
+
+\bibitem{rosu-serbanuta-2010-jlap}
+Ro{\c s}u, G., {\c S}erb{\u a}nu{\c t}{\u a}, T.F.: An overview of the {K}
+  semantic framework. Journal of Logic and Algebraic Programming
+  \textbf{79}(6),  397--434 (2010). \doi{10.1016/j.jlap.2010.03.012}
+
+\bibitem{slind08}
+Slind, K., Norrish, M.: A brief overview of hol4. In: International Conference
+  on Theorem Proving in Higher Order Logics. pp. 28--32. Springer (2008)
+
+\bibitem{sozeaucoq}
+Sozeau, M., Forster, Y., Winterhalter, T.: Coq coq correct!
+
+\end{thebibliography}

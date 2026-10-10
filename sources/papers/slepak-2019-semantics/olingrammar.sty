@@ -1,0 +1,42 @@
+% For CFGs.
+%%%%%% Macros for defining sexp grammars
+\newcommand{\gramdef}{\;\mathrm{::=}\;}
+\newcommand{\gramalt}{\;\;|\;\;}
+
+\newlength{\gramdefnwidth}
+\newcommand{\delim}[1]{\hspace{1ex}\makebox[\gramdefnwidth][c]{#1}\hspace{1ex}}
+
+\newenvironment{grammar}%
+  {\bgroup\settowidth{\gramdefnwidth}{\textrm{::=}}%
+          \begin{displaymath}
+          \begin{array}[t]{@{}r@{\delim{${|}$}}lr}}%
+  {\end{array}\end{displaymath}\egroup}
+
+\newenvironment{grammarnondisplay}[1][t]%
+  {\bgroup\settowidth{\gramdefnwidth}{\textrm{::=}}%
+          \begin{math}
+          \begin{array}[#1]{@{}r@{\delim{${|}$}}lr}}%
+  {\end{array}\end{math}\egroup}
+
+\newcommand{\grmk}[1]{\text{\textit{#1}}} % grammar remark -- turn off \tt.
+
+% Nonterminal LHS definition: #1 \in #2 ::=
+\newcommand{\nt}[2]{\ntsimple{#1 \in #2}}
+
+% Nonterminal LHS definition: #1 \in #2 =
+\newcommand{\nteq}[3]%		% When RHS is not a production.
+  {\multicolumn{1}{@{}r@{\delim{=}}}{#1 \in #2} & #3}
+
+% Nonterminal LHS definition with no RHS: #1 \in #2
+% For primitive syntax domains with no RHS productions.
+% E.g., x in Var
+\newcommand{\ntprim}[2]%		% No RHS
+  {\multicolumn{1}{@{}r@{\delim{}}}{#1 \in #2} &}
+
+% Nonterminal with no element-var part.
+\newcommand{\ntsimple}[1]%
+  {\multicolumn{1}{@{}r@{\delim{\rm{::=}}}}{#1}}
+
+% Nuke the | alternative delimiter. Use it when the first production
+% starts on the line *after* the "nterm ::=" line.
+\newcommand{\noalt}{\multicolumn{1}{@{}}{}}

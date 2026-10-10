@@ -1,0 +1,19 @@
+\begin{figure}[t!]
+$$
+\begin{array}{rcccc}
+                    & \quad  & \textbf{Logical Formula} & \quad & \textbf{Refinement Type}  \\
+\text{Native Terms} & \quad&   $e$      & & \proofterm{e}    \\
+\text{Implication}  & & \formula_1 \Rightarrow \formula_2 &      & {\formula_1} \rightarrow {\formula_2}     \\
+\text{Negation}     & & \neg \formula                  & & \formula \rightarrow \proofterm{\efalse} \\
+\text{Conjunction}  & & \formula_1 \land \formula_2    & & \tyand{\formula_1}{\formula_2} \\
+\text{Disjunction}  & &  \formula_1 \lor \formula_2    & & \tyor{\formula_1}{\formula_2}   \\
+\text{Forall}       & &\forall x. \formula             & & \tyall{x}{\typ}{\formula}                \\
+\text{Exists}       & & \exists x. \formula            & & \tyex{x}{\typ}{\formula}                 \\
+\end{array}
+$$
+\caption{Mapping from logical predicates to quantifier-free refinement types.
+\proofterm{e} abbreviates \prooftermlarge{e}. Function binders are not relevant for
+negation and implication, and hence, elided.}
+\figrule
+\label{fig:hol}
+\end{figure}

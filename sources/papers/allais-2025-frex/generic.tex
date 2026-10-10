@@ -1,0 +1,88 @@
+%\section{Generic constructions for frexlets}
+\subsection{Frex via Coproducts with Fral}
+\subseclabel{frex-via-coproducts}
+\begin{wrapfigure}[4]{r}{3cm}
+  \vspace{-1\baselineskip}
+\includegraphics{diagram-06.mps}
+\end{wrapfigure}
+The fral and the frex are related: the free extension of $\A$ by $\X$ is
+the \emph{coproduct} of $\A$ with the free algebra over $\X$.
+%
+A \emph{cospan} $\avar{}$ between $\A_1$ and $\A_2$ consists of two
+homomorphisms with a shared codomain: $\A_1
+\xto{\aLft}$\aSink$\xleftarrow{\aRgt} \A_2$.  A \emph{cospan
+homomorphism} $h : \avar \to \bvar$ is a homomorphism $\UH : \aSink
+\to \bSink$ preserving the cospan as in the diagram on the right.  The
+coproducts $\A_1\oplus\A_2$ of two models $\A_1$ and $\A_2$ is then
+the initial \emph{cospan}.  All models have coproducts, but these may
+be difficult to represent. However, in cases such as commutative
+monoids, the coproduct is straightforward to represent: its carrier is
+the cartesian product of the components carriers.
+
+The universal property of the frex $\A{}[\X]$ combines
+those of the fral $\FreeName\,\Pres\!\X$ and
+its coproduct with $\A$. Consider the following two diagrams:
+\[
+\hfill\includegraphics{diagram-05.mps}
+\qquad
+\hfill\includegraphics{diagram-04.mps}
+\]
+The \Var-arrows and the \Lft-arrows correspond through the universal
+property of the fral: \Lft{} is the unique homomorphic extension of
+the \Var{}-arrows. The \Embed-homomorphisms are exactly
+the \Rgt-homomorphism.
+This identification lets us construct:
+\MyCodeListing{
+\FrexByCoprodPartA{}\IdrisKeyword{ :}\FrexByCoprodPartB{}\\
+\FrexByCoprodPartC{}
+}
+For commutative monoids it gives the
+commutative monoid of linear polynomials with natural numbers as degree-1
+coefficients whose carrier is represented by $\CMonoidFrexCarrier{}$.
+
+\subsection{Fral via a Frex}
+\subseclabel{fral via frex}
+We use the relationship between the fral and frex, described in \subsecref{frex-via-coproducts}, to derive a fral from a corresponding frex.
+%
+In particular, the following calculation shows that every free algebra arises as a free extension of $\FreeName\,\Pres\emptyset$. We use $\uplus$ for the disjoint union, i.e., the coproduct of sets:
+\begin{align*}
+\FreeName\,\Pres\X
+&\isomorphic \FreeName\,\Pres(\X\uplus\emptyset) & (\X \isomorphic \X \uplus \emptyset)\\
+&\isomorphic (\FreeName\,\Pres\X)\oplus(\FreeName\,\Pres\emptyset) & (\text{$\FreeName\,\Pres$ left adjoint, left adjoints preserve coproducts})\\
+&\isomorphic (\FreeName\,\Pres\emptyset){}[\X]
+\end{align*}
+%
+Therefore, we may construct a fral from an initial
+algebra and its frex:
+\MyCodeListing{\PutListing{.5\textwidth}\ByFrexFull{}}
+This generic construction can produce suboptimal
+representations.  For example, the initial monoid is easy to
+construct: its carrier is the unit type. Freely extending this
+initial monoid produces alternating lists, that interleave the unit
+value. Taking lists of variables instead leads to a simpler representation but
+requires more complicated proofs.  However, generic constructions such as the foregoing allow us to trade efficiency for rapid prototyping.
+
+\subsection{Reusing Frexlets}
+\subseclabel{reusing frexlets}
+The final example demonstrates reuse of one simplifier when
+constructing another. Recall the presentation of involutive monoids
+from the end of \secref{frexlib}.
+\begin{proposition}[Jacobs]\label{prop:involution}
+  The carrier set and monoid operations of the free involutive monoid on \X{}
+  are those of the free monoid on the product\/ $\BoolX$.
+  Similarly, the frex of an involutive monoid by $\X$ is the
+  frex of its underlying monoid by\/ $\BoolX$, extended with an involution operation.
+\end{proposition}
+We can prove this proposition directly, establishing the involutive
+axioms, and have taken this strategy in \Frexlib{}.  However, it is
+possible to prove this result without referring to the specific
+representation of the monoid fral/frex, resulting in a
+simplifier-transformer reusing the code implementing simplifiers for
+monoids to implement simplifiers for involutive monoid.  The potential
+for this kind of reuse extends beyond monoids.  We can phrase the
+result in much greater generality, and give a higher-level proof,
+using \citepos{jacobs:involution} axiomatisation of involutions. This
+more abstract proof generalises to other notions of involutive
+algebras, and we plan to exploit it in the future for generic frexlet
+reuse. The more abstract proof goes beyond the scope of this
+article, involving more abstract category theoretic notions.

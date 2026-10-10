@@ -1,0 +1,285 @@
+\begin{thebibliography}{10}
+
+\bibitem{abiteboul1995foundations}
+Serge Abiteboul, Richard Hull, and Victor Vianu.
+\newblock {\em Foundations of databases}, volume~8.
+\newblock Addison-Wesley Reading, 1995.
+
+\bibitem{AMD_2024}
+AMD.
+\newblock Hip documentation, 2024.
+
+\bibitem{alcf-aurora}
+{Argonne Leadership Computing Facility}.
+\newblock Aurora supercomputer, 2024.
+
+\bibitem{awad2019engineering}
+Muhammad~A Awad, Saman Ashkiani, Rob Johnson, Mart{\'\i}n Farach-Colton, and John~D Owens.
+\newblock Engineering a high-performance gpu b-tree.
+\newblock In {\em Proceedings of the 24th symposium on principles and practice of parallel programming}, pages 145--157, 2019.
+
+\bibitem{balatsouras2016cclyzer}
+George Balatsouras and Yannis Smaragdakis.
+\newblock Structure-sensitive points-to analysis for c and c++.
+\newblock In {\em Static Analysis: 23rd International Symposium, SAS 2016, Edinburgh, UK, September 8-10, 2016, Proceedings 23}, pages 84--104. Springer, 2016.
+
+\bibitem{bravenboer2009doop}
+Martin Bravenboer and Yannis Smaragdakis.
+\newblock Strictly declarative specification of sophisticated points-to analyses.
+\newblock In {\em Proceedings of the 24th ACM SIGPLAN conference on Object oriented programming systems languages and applications}, pages 243--262, 2009.
+
+\bibitem{bravenboer2009strictly}
+Martin Bravenboer and Yannis Smaragdakis.
+\newblock Strictly declarative specification of sophisticated points-to analyses.
+\newblock In {\em Proceedings of the 24th ACM SIGPLAN conference on Object oriented programming systems languages and applications}, pages 243--262, 2009.
+
+\bibitem{dbsp}
+Mihai Budiu, Tej Chajed, Frank McSherry, Leonid Ryzhyk, and Val Tannen.
+\newblock Dbsp: Automatic incremental view maintenance for rich query languages.
+\newblock {\em Proc. VLDB Endow.}, 16(7):1601–1614, mar 2023.
+
+\bibitem{suitesparse}
+Timothy~A. Davis and Yifan Hu.
+\newblock The university of florida sparse matrix collection.
+\newblock {\em ACM Trans. Math. Softw.}, 38(1), dec 2011.
+
+\bibitem{fan2022optimizing}
+Ke~Fan, Thomas Gilray, Valerio Pascucci, Xuan Huang, Kristopher Micinski, and Sidharth Kumar.
+\newblock Optimizing the bruck algorithm for non-uniform all-to-all communication.
+\newblock In {\em Proceedings of the 31st International Symposium on High-Performance Parallel and Distributed Computing}, pages 172--184, 2022.
+
+\bibitem{fan2024configurable}
+Ke~Fan, Steve Petruzza, Thomas Gilray, and Sidharth Kumar.
+\newblock Configurable algorithms for all-to-all collectives.
+\newblock In {\em ISC High Performance 2024 Research Paper Proceedings (39th International Conference)}, pages 1--12. Prometeus GmbH, 2024.
+
+\bibitem{recstep}
+Zhiwei Fan, Jianqiao Zhu, Zuyu Zhang, Aws Albarghouthi, Paraschos Koutris, and Jignesh~M. Patel.
+\newblock Scaling-up in-memory datalog processing: Observations and techniques.
+\newblock {\em Proc. VLDB Endow.}, 12(6):695--708, feb 2019.
+
+\bibitem{flores2020ddisasm}
+Antonio Flores-Montoya and Eric Schulte.
+\newblock Datalog disassembly.
+\newblock In {\em 29th USENIX Security Symposium (USENIX Security 20)}, pages 1075--1092, 2020.
+
+\bibitem{gilray2021compiling}
+Thomas Gilray, Sidharth Kumar, and Kristopher Micinski.
+\newblock Compiling data-parallel datalog.
+\newblock In {\em Proceedings of the 30th ACM SIGPLAN International Conference on Compiler Construction}, pages 23--35, 2021.
+
+\bibitem{10.1145/3460872}
+Oded Green.
+\newblock Hashgraph—scalable hash tables using a sparse graph data structure.
+\newblock {\em ACM Trans. Parallel Comput.}, 8(2), jul 2021.
+
+\bibitem{green2012merge}
+Oded Green, Robert McColl, and David~A Bader.
+\newblock Gpu merge path: a gpu merging algorithm.
+\newblock In {\em Proceedings of the 26th ACM international conference on Supercomputing}, pages 331--340, 2012.
+
+\bibitem{green2013datalog}
+Todd~J Green, Shan~Shan Huang, Boon~Thau Loo, Wenchao Zhou, et~al.
+\newblock Datalog and recursive query processing.
+\newblock {\em Foundations and Trends{\textregistered} in Databases}, 5(2):105--195, 2013.
+
+\bibitem{gu2019rasql}
+Jiaqi Gu, Yugo~H Watanabe, William~A Mazza, Alexander Shkapsky, Mohan Yang, Ling Ding, and Carlo Zaniolo.
+\newblock Rasql: Greater power and performance for big data analytics with recursive-aggregate-sql on spark.
+\newblock In {\em Proceedings of the 2019 International Conference on Management of Data}, pages 467--484, 2019.
+
+\bibitem{onetbb}
+{Intel}.
+\newblock {oneAPI Threading Building Blocks (oneTBB)}.
+\newblock \url{https://github.com/oneapi-src/oneTBB}, 2024.
+
+\bibitem{hbm}
+{JEDEC}.
+\newblock {High Bandwidth Memory (HBM) DRAM}.
+\newblock \url{https://www.jedec.org/document_search?search_api_views_fulltext=jesd235}, 2021.
+
+\bibitem{jordan2016souffle}
+Herbert Jordan, Bernhard Scholz, and Pavle Suboti{\'c}.
+\newblock Souffl{\'e}: On synthesis of program analyzers.
+\newblock In {\em Computer Aided Verification: 28th International Conference, CAV 2016, Toronto, ON, Canada, July 17-23, 2016, Proceedings, Part II 28}, pages 422--430. Springer, 2016.
+
+\bibitem{jordan2019brie}
+Herbert Jordan, Pavle Suboti\'c, David Zhao, and Bernhard Scholz.
+\newblock Brie: A specialized trie for concurrent datalog.
+\newblock In {\em Proceedings of the 10th International Workshop on Programming Models and Applications for Multicores and Manycores}, pages 31--40, 2019.
+
+\bibitem{jordan2019specialized}
+Herbert Jordan, Pavle Suboti{\'c}, David Zhao, and Bernhard Scholz.
+\newblock A specialized b-tree for concurrent datalog evaluation.
+\newblock In {\em Proceedings of the 24th symposium on principles and practice of parallel programming}, pages 327--339, 2019.
+
+\bibitem{kumar2019distributed}
+Sidharth Kumar and Thomas Gilray.
+\newblock Distributed relational algebra at scale.
+\newblock In {\em International Conference on High Performance Computing, Data, and Analytics (HiPC). IEEE}, volume~1, 2019.
+
+\bibitem{kumar2020load}
+Sidharth Kumar and Thomas Gilray.
+\newblock Load-balancing parallel relational algebra.
+\newblock In {\em High Performance Computing: 35th International Conference, ISC High Performance 2020, Frankfurt/Main, Germany, June 22--25, 2020, Proceedings 35}, pages 288--308. Springer, 2020.
+
+\bibitem{lam2005context}
+Monica~S Lam, John Whaley, V~Benjamin Livshits, Michael~C Martin, Dzintars Avots, Michael Carbin, and Christopher Unkel.
+\newblock Context-sensitive program analysis as database queries.
+\newblock In {\em Proceedings of the twenty-fourth ACM SIGMOD-SIGACT-SIGART symposium on Principles of database systems}, pages 1--12, 2005.
+
+\bibitem{snapnets}
+Jure Leskovec and Andrej Krevl.
+\newblock {SNAP Datasets}: {Stanford} large network dataset collection.
+\newblock \url{http://snap.stanford.edu/data}, June 2014.
+
+\bibitem{li2005trip}
+Feifei Li, Dihan Cheng, Marios Hadjieleftheriou, George Kollios, and Shang-Hua Teng.
+\newblock On trip planning queries in spatial databases.
+\newblock In {\em International symposium on spatial and temporal databases}, pages 273--290. Springer, 2005.
+
+\bibitem{li2021dycuckoo}
+Yuchen Li, Qiwei Zhu, Zheng Lyu, Zhongdong Huang, and Jianling Sun.
+\newblock Dycuckoo: dynamic hash tables on gpus.
+\newblock In {\em 2021 IEEE 37th international conference on data engineering (ICDE)}, pages 744--755. IEEE, 2021.
+
+\bibitem{maier2018datalog}
+David Maier, K~Tuncay Tekle, Michael Kifer, and David~S Warren.
+\newblock Datalog: concepts, history, and outlook.
+\newblock In {\em Declarative Logic Programming: Theory, Systems, and Applications}, pages 3--100. 2018.
+
+\bibitem{martinez2013Datalog}
+Carlos~Alberto Mart{\'\i}nez-Angeles, In{\^e}s Dutra, V{\'\i}tor~Santos Costa, and Jorge Buenabad-Ch{\'a}vez.
+\newblock A datalog engine for gpus.
+\newblock In {\em International Conference on Applications of Declarative Programming and Knowledge Management}, pages 152--168. Springer, 2013.
+
+\bibitem{mcsherry2013differential}
+Frank McSherry, Derek~Gordon Murray, Rebecca Isaacs, and Michael Isard.
+\newblock Differential dataflow.
+\newblock In {\em CIDR}, 2013.
+
+\bibitem{mooney1996inductive}
+Raymond~J Mooney.
+\newblock Inductive logic programming for natural language processing.
+\newblock In {\em International conference on inductive logic programming}, pages 1--22. Springer, 1996.
+
+\bibitem{Naiad}
+Derek~G. Murray, Frank McSherry, Rebecca Isaacs, Michael Isard, Paul Barham, and Mart\'{\i}n Abadi.
+\newblock Naiad: A timely dataflow system.
+\newblock In {\em Proceedings of the Twenty-Fourth ACM Symposium on Operating Systems Principles}, SOSP '13, page 439–455, New York, NY, USA, 2013. Association for Computing Machinery.
+
+\bibitem{thrust}
+{Nvida}.
+\newblock {Thrust: The C++ Parallel Algorithms Library }.
+\newblock \url{https://nvidia.github.io/cccl/thrust/}, 2024.
+
+\bibitem{simt}
+{NVIDIA}.
+\newblock {CUDA C Programming Guide: SIMT Architecture.}
+\newblock \url{https://docs.nvidia.com/cuda/cuda-c-programming-guide/#simt-architecture}, 2024.
+
+\bibitem{frontier}
+{Oak Ridge National Laboratory}.
+\newblock Aurora supercomputer, 2024.
+
+\bibitem{librmm}
+{RAPIDS}.
+\newblock {RMM: RAPIDS Memory Manager}.
+\newblock \url{https://github.com/rapidsai/rmm}, 2024.
+
+\bibitem{cudf}
+{RAPIDS Development Team}.
+\newblock {cuDF}: Gpu dataframe library.
+\newblock \url{https://github.com/rapidsai/cudf}, 2021.
+
+\bibitem{business-Datalog}
+Daniel Ritter and Till Westmann.
+\newblock Business network reconstruction using datalog.
+\newblock In Pablo Barcel{\'o} and Reinhard Pichler, editors, {\em Datalog in Academia and Industry}, pages 148--152, Berlin, Heidelberg, 2012. Springer Berlin Heidelberg.
+
+\bibitem{byods}
+Arash Sahebolamri, Langston Barrett, Scott Moore, and Kristopher Micinski.
+\newblock Bring your own data structures to datalog.
+\newblock {\em Proc. ACM Program. Lang.}, 7(OOPSLA2), oct 2023.
+
+\bibitem{10.1145/2892208.2892226}
+Bernhard Scholz, Herbert Jordan, Pavle Suboti\'{c}, and Till Westmann.
+\newblock On fast large-scale program analysis in datalog.
+\newblock In {\em Proceedings of the 25th International Conference on Compiler Construction}, CC 2016, page 196–206, New York, NY, USA, 2016. Association for Computing Machinery.
+
+\bibitem{seo2013socialite}
+Jiwon Seo, Stephen Guo, and Monica~S Lam.
+\newblock Socialite: Datalog extensions for efficient social network analysis.
+\newblock In {\em 2013 IEEE 29th International Conference on Data Engineering (ICDE)}, pages 278--289. IEEE, 2013.
+
+\bibitem{socialite}
+Jiwon Seo, Jongsoo Park, Jaeho Shin, and Monica~S. Lam.
+\newblock Distributed socialite: A datalog-based language for large-scale graph analysis.
+\newblock {\em Proc. VLDB Endow.}, 6(14):1906–1917, sep 2013.
+
+\bibitem{shkapsky2016big}
+Alexander Shkapsky, Mohan Yang, Matteo Interlandi, Hsuan Chiu, Tyson Condie, and Carlo Zaniolo.
+\newblock Big data analytics with datalog queries on spark.
+\newblock In {\em Proceedings of the 2016 International Conference on Management of Data}, SIGMOD '16, page 1135–1149, New York, NY, USA, 2016. Association for Computing Machinery.
+
+\bibitem{gpujoincode}
+Ahmedur~Rahman Shovon.
+\newblock Public github repository of {GPUJoin}.
+\newblock \url{https://github.com/harp-lab/usenixATC23}, 2023.
+
+\bibitem{shovon2022accelerating}
+Ahmedur~Rahman Shovon, Landon~Richard Dyken, Oded Green, Thomas Gilray, and Sidharth Kumar.
+\newblock Accelerating datalog applications with cudf.
+\newblock In {\em 2022 IEEE/ACM Workshop on Irregular Applications: Architectures and Algorithms (IA3)}, pages 41--45. IEEE, 2022.
+
+\bibitem{shovon2023towards}
+Ahmedur~Rahman Shovon, Thomas Gilray, Kristopher Micinski, and Sidharth Kumar.
+\newblock Towards iterative relational algebra on the $\{$GPU$\}$.
+\newblock In {\em 2023 USENIX Annual Technical Conference (USENIX ATC 23)}, pages 1009--1016, 2023.
+
+\bibitem{skvortsov2024logica}
+Evgeny Skvortsov, Yilin Xia, and Bertram Lud{\"a}scher.
+\newblock Logica: Declarative data science for mere mortals.
+\newblock In {\em EDBT}, pages 842--845, 2024.
+
+\bibitem{indexselection}
+Pavle Suboti\'{c}, Herbert Jordan, Lijun Chang, Alan Fekete, and Bernhard Scholz.
+\newblock Automatic index selection for large-scale datalog computation.
+\newblock {\em Proc. VLDB Endow.}, 12(2):141–153, oct 2018.
+
+\bibitem{sun2023communication}
+Yihao Sun, Sidharth Kumar, Thomas Gilray, and Kristopher Micinski.
+\newblock Communication-avoiding recursive aggregation.
+\newblock In {\em 2023 IEEE International Conference on Cluster Computing (CLUSTER)}, pages 197--208. IEEE, 2023.
+
+\bibitem{veldhuizen2014leapfrog}
+Todd~L Veldhuizen.
+\newblock Leapfrog triejoin: A simple, worst-case optimal join algorithm.
+\newblock In {\em Proc. International Conference on Database Theory}, 2014.
+
+\bibitem{Wang2017GraspanAS}
+Kai Wang, Aftab Hussain, Zhiqiang Zuo, Guoqing~Harry Xu, and Ardalan~Amiri Sani.
+\newblock Graspan: A single-machine disk-based graph system for interprocedural static analyses of large-scale systems code.
+\newblock {\em Proceedings of the Twenty-Second International Conference on Architectural Support for Programming Languages and Operating Systems}, 2017.
+
+\bibitem{freejoin}
+Yisu~Remy Wang, Max Willsey, and Dan Suciu.
+\newblock Free join: Unifying worst-case optimal and traditional joins.
+\newblock {\em Proc. ACM Manag. Data}, 1(2), jun 2023.
+
+\bibitem{wu2014redfox}
+Haicheng Wu, Gregory Diamos, Tim Sheard, Molham Aref, Sean Baxter, Michael Garland, and Sudhakar Yalamanchili.
+\newblock Red fox: An execution environment for relational query processing on gpus.
+\newblock In {\em Proceedings of Annual IEEE/ACM International Symposium on Code Generation and Optimization}, pages 44--54, 2014.
+
+\bibitem{wu2022dcdatalog}
+Jiacheng Wu, Jin Wang, and Carlo Zaniolo.
+\newblock Optimizing parallel recursive datalog evaluation on multicore machines.
+\newblock In {\em Proceedings of the 2022 International Conference on Management of Data}, pages 1433--1446, 2022.
+
+\bibitem{zhao2024evaluating}
+Hangdong Zhao, Shaleen Deep, Paraschos Koutris, Sudeepa Roy, and Val Tannen.
+\newblock Evaluating datalog over semirings: A grounding-based approach.
+\newblock {\em Proceedings of the ACM on Management of Data}, 2(2):1--26, 2024.
+
+\end{thebibliography}

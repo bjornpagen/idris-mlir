@@ -1,0 +1,4 @@
+prime,prime-str,prime-tex,nlimbs,kind,bitwidth,partial-eval-and-rewrite-x64-time,n-rewrites,mem-ko
+2305843009213693952,2e61m1,2^{61} - 1,1,UnsaturatedSolinas,64,98.616,495,
+162259276829213363391578010288128,2e107m1,2^{107} - 1,2,UnsaturatedSolinas,64,607.765,1269,
+170141183460469231731687303715884105728,2e127m1,2^{127} - 1,3,UnsaturatedSolinas,64,8706.089,2398,58206840

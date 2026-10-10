@@ -1,0 +1,39 @@
+$$
+\arraycolsep=2.5pt
+\begin{array}{rccl}
+\emphbf{Ops}& \odot
+  & ::= & = \spmid  <
+\\[0.03in]
+
+\emphbf{Consts}& c
+  & ::=
+  & \land \spmid \lnot \spmid \odot \spmid +,-,\dots  \\
+  && \spmid & \etrue\spmid \efalse \spmid 0, -1, 1, \dots
+\\[0.03in]
+
+\emphbf{Vals}& w
+  & ::=&  c \spmid \efun{x}{\typ}{e} \spmid D\ \overline{w}
+\\[0.03in]
+
+\emphbf{Exprs}& e
+  & ::=    & w \spmid x \spmid \eapp{e}{e}      \\
+  && \spmid & \ecase{x}{e}{\dc}{\overline{x}}{e}
+  %% &   & \spmid & \eletb{x}{\gtyp}{e}{e}
+\\[0.06in]
+
+\emphbf{Binds}& \bd
+  & ::= & e \spmid \eletb{x}{\gtyp}{\bd}{\bd}
+\\[0.03in]
+
+\emphbf{Progs}& \prog
+  & ::= & \bd \spmid \erefb{x}{\gtyp}{e}{\prog}
+\\[0.03in]
+
+\emphbf{Bas. Types}& \btyp
+  & ::= & \tint \spmid \tbool \spmid T
+\\[0.03in]
+
+\emphbf{Ref. Types}& \typ
+  & ::=   &  {\tref{v}{\btyp^{[\tlabel]}}{\refa}} \spmid \trfun{x}{\typ_x}{\typ}
+\end{array}
+$$

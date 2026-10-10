@@ -1,0 +1,1193 @@
+﻿<html>
+<head>
+<title>Rank and Uniformity</title>
+<link href="jdoc.css" rel=stylesheet>
+</head>
+
+<body>
+
+<br>
+
+<table width=520 align=center><tr><td>
+
+<p align=center><font size=+2>Rank and Uniformity</font><br><br>
+<b>Roger K.W. Hui</b>
+<br>&nbsp;</p>
+
+
+
+<a name="abs"></a>
+<p><b>Abstract</b></p>  
+<p>Rank is elucidated through an executable model.
+ Integrated rank support for specific functions can be vastly more efficient 
+than the general algorithm in computing<tt> v&quot;r</tt> ,<tt> </tt> 
+and uniform verbs provide a way to extend the more efficient implementation 
+to a large class of verbs.</p>  
+
+<a name="ack"></a>
+<p><b>Acknowledgment</b></p>  
+<p>Ideas presented herein evolved over many conversations with K.E. Iverson.</p> 
+
+<br><hr>
+
+
+ 
+<br><a name="0"></a>
+<p><b>0 Rank</b></p>  
+<p>Verb (function) rank was introduced by Iverson 
+<acronym title=
+"Iverson, K.E., Operators and Functions, Research Report #RC7091, IBM Corporation, 1978 4 26.">
+[1978 &sect;6]</acronym>, 
+further developed in Iverson 
+[<acronym title="Iverson, K.E., Rationalized APL, I.P. Sharp Associates, 1983 1 6.">1983</acronym>, 
+<acronym title="Iverson, K.E., A Dictionary of APL, APL Quote-Quad 18.1, 1987 9.">1987</acronym>, 
+<acronym title="Iverson, K.E., J Introduction and Dictionary, Iverson Software Inc., 1995 2 1.">1995</acronym>], 
+and implemented in SHARP APL, SHARP APL/HP, SAX, A, and J 
+(see Bernecky <i>et al.</i> 
+[<acronym title=
+"Bernecky, Robert, K.E. Iverson, E.E. McDonnell, Robert C. Metzger, and J. Henri Schueler, Language Extensions of May 1983, SHARP APL Technical Note 45, I.P. Sharp Associates, 1983 5 2.">1983</acronym>, 
+<acronym title=
+"Bernecky, Robert, An Introduction to Function Rank, APL88, APL Quote-Quad 18.2, 1987 12.">1987]</acronym>, 
+Hodgkinson <acronym title=
+"Hodgkinson, Robert, APL Procedures, APL86, APL Quote-Quad 16.4, 1986 7.">[1986]</acronym>, 
+Steinbrook <acronym title=
+"Steinbrook, David H., SAX Reference, I.P. Sharp Associates, 1986.">[1986]</acronym>, 
+Whitney <acronym title="Whitney, Arthur T., A, plenary session, APL89, 1989 8.">[1989]</acronym>, 
+and Hui <i>et al.</i> 
+<acronym title=
+"Hui, Roger K.W., K.E. Iverson, E.E. McDonnell, and Arthur T. Whitney, APL\?, APL90, APL Quote-Quad 21.4, 1990 7.">
+[1990]</acronym>, respectively).
+</p>  
+
+<p>A verb of rank<tt> r </tt>is defined on arguments with rank bounded 
+by<tt> r</tt> ;<tt> </tt>the extension to higher-rank arguments is the 
+same for all verbs.
+The rank conjunction<tt> &quot; </tt>(operator) augments the default ranks 
+of a verb by user-specified ranks.
+It provides for the generalization of a verb to higher-rank arrays, 
+and could justifiably be called the generalization or extension operator; 
+it also provides for consistent application to <i>lower</i>-rank arrays, 
+subsuming and superseding the anomalous bracket-axis operator.
+</p>  
+
+<p>Various aspects of rank are here discussed in terms of a model in J, 
+updated from Hui 
+[<acronym title=
+"Hui, Roger K.W., Some Uses of { and }, APL87, APL Quote-Quad 17.4, 1987 5.">1987 &sect;A.2</acronym>, 
+<acronym title=
+"Hui, Roger K.W., An Implementation of J, Iverson Software Inc., 1992 1 27.">1992 &sect;3.2</acronym>].
+The notation is defined in Iverson 
+<acronym title=
+"Iverson, K.E., J Introduction and Dictionary, Iverson Software Inc., 1995 2 1.">[1995]</acronym>, 
+and additional annotated examples 
+can be found in Appendix A.
+</p>  
+  
+<a name="0a"></a><p><b>Frames and Cells. </b>A rank<tt> r </tt>splits 
+the argument shape into the frame and the cell shape; 
+a positive<tt> r </tt>specifies the number 
+of trailing cell axes, while a negative<tt> r </tt>specifies the negative 
+of the number of leading frame axes.</p>  
+
+<pre>
+rk    =. #@$  
+er    =. (0:&gt;.(+rk))`(&lt;.rk) @. (0:&lt;:[)  
+fr    =. -@er }. $@]  
+cs    =. -@er {. $@]  
+boxr  =. ]`(&lt;@$ , [ $: */@[}.])@.(*@#@])
+cells =. fr $ cs boxr ,@]
+</pre>
+  
+<p>For rank<tt> r </tt>and argument<tt> y</tt> ,<tt> </tt>
+the phrase<tt> r er y </tt>computes 
+the effective rank (non-negative and bounded by<tt> #$y</tt>);<tt> r fr y </tt> 
+computes the frame and<tt> r cs y </tt>the cell shape; 
+and<tt> r cells y </tt>computes the array of cells with 
+shape<tt> r fr y</tt> ,<tt> </tt>
+each cell individually boxed and 
+shaped<tt> s=. r cs y </tt>
+(<tt>r cells y </tt><font size=+1>&harr;</font><tt> &lt;&quot;r y</tt>).
+The recursively-defined verb<tt> s boxr y </tt>produces the list of such cells.</p> 
+ 
+<p>The model is shown in action on<tt> x*&quot;0 _1 y</tt> ,<tt> </tt>
+the atoms (scalars) of<tt> x </tt>times the items of<tt> y</tt> :</p> 
+
+<pre>
+   x=. 1 2 3
+   y=. i.3 2
+</pre>
+<table>
+<tr><td valign=top width=200><pre>
+   y
+0 1
+2 3
+4 5
+
+   0 er x
+0
+   0 fr x
+3
+   0 cs x
+
+   0 cells x
+┌─┬─┬─┐
+│1│2│3│
+└─┴─┴─┘
+</pre></td><td>&nbsp;</td><td valign=top><pre>
+   x *"0 1 y
+ 0  1
+ 4  6
+12 15
+
+   _1 er y
+1
+   _1 fr y
+3
+   _1 cs y
+2
+   _1 cells y
+┌───┬───┬───┐
+│0 1│2 3│4 5│
+└───┴───┴───┘
+</pre></td></tr>
+</table>
+
+<a name="0b"></a><p><b>Agreement. </b>In the dyad<tt> v&quot;r</tt> ,<tt> </tt>commonly 
+the left and right frames match, that is, the two cell arrays 
+have the same shape; if not, several design choices are possible:</p>  
+
+<p>In <i>scalar</i> agreement, one frame must be empty, 
+and the single cell is reshaped using the other frame; 
+in <i>suffix</i> agreement, one frame must be a suffix of the other, 
+and again the list of cells is reshaped using the other frame; 
+finally, in <i>prefix</i> agreement, one frame must be 
+a prefix of the other, and each cell is reshaped with the excess in the other frame.
+All three agreements are proper generalizations of scalar extension in APL\360, 
+with cells acting the role of scalars.
+Agreement results in the two cell arrays having the same shape 
+(&ldquo;the frame&rdquo;).</p>  
+
+<p>Prefix agreement is adopted in J as suggested by Whitney 
+<acronym title=
+"Whitney, Arthur T., private communication, Kiln Farm, 1992 5 24.">[1992]</acronym>, 
+because it best fits the emphasis on leading axes.</p>
+
+<pre>
+pfx   =. &lt;.&amp;rk
+agree =. (pfx {. $@[) -: (pfx {. $@])
+frame =. [:`($@([^:(&gt;&amp;rk))) @. agree 
+rag   =. frame $ ([: */ rk@]}.$@[) # ,@]
+lag   =. rag~
+</pre>
+
+<p><tt>rag </tt>and<tt> lag </tt>apply to both cell arrays 
+(the results of<tt> cells </tt>in the previous section), 
+producing cell arrays with the same shape.
+If<tt> v&quot;r </tt>itself were used in the model,<tt> rag </tt>could be 
+defined more directly from the 
+specification:<tt> (rk@]}.$@[) $&quot;1 0 ] </tt>&mdash; 
+each cell is reshaped with the excess in the other frame.
+In the continuing example,<tt> rag </tt>and<tt> lag </tt>
+have no effect because the left and right frames match.</p> 
+ 
+<table>
+<tr><td valign=top width=200><pre>
+   [xc=. 0 cells x
+┌─┬─┬─┐
+│1│2│3│
+└─┴─┴─┘
+   [xa=. xc lag yc
+┌─┬─┬─┐
+│1│2│3│
+└─┴─┴─┘
+</pre><td>&nbsp;</td><td valign=top><pre>
+   [yc=. _1 cells y
+┌───┬───┬───┐
+│0 1│2 3│4 5│
+└───┴───┴───┘
+   [ya=. xc rag yc
+┌───┬───┬───┐
+│0 1│2 3│4 5│
+└───┴───┴───┘
+</pre></td></tr>
+</table>
+
+<a name="0c"></a><p><b>Assembly. </b>After agreement, the phrase<tt> v&amp;.&gt; </tt>
+applies<tt> v </tt>under<tt> &gt; </tt>to corresponding boxed 
+left and right argument cells, to produce an array of boxed result cells.
+It remains to assemble the overall result from the individual results.</p>
+
+<p>Cells are brought to a common rank by adding leading unit axes, 
+then to a common shape by padding.
+The overall shape is<tt> fm,sir</tt> ,<tt> </tt>where<tt> fm </tt>
+is the frame and<tt> sir </tt>is the common shape of the individual results.
+This is a design choice: the individual results could be required 
+to have a common shape without further intervention, 
+but this permissive assembly proves useful.
+For example, <i>open</i><tt> &gt; </tt>on a list of boxed words 
+yields a matrix with 
+the words padded to a common length.</p> 
+
+<pre>
+mrk   =. &gt;./@:(rk&amp;&gt;)@,  
+crank =. mrk ,:@]^:(-rk)&amp;.&gt; ]
+msh   =. &gt;./@:( $&amp;&gt;)@, 
+cshape=. &lt;@msh {.&amp;.&gt; ] 
+asm   =. &gt; @ cshape @ crank  
+
+rank  =. 2 : 0
+ 'm l r'=.3&$&.|.y.
+ ([: asm [: x.&.> m&cells) : &nbsp; &crarr;
+      ([: asm l&cells@[ (lag x.&.> rag) r&cells@])
+)  
+</pre>
+
+<p>The conjunction<tt> rank </tt>(with a 2-line body) integrates the model components.
+The left argument<tt> x. </tt>is the verb<tt> v</tt> ;<tt> </tt>
+the right argument<tt> y. </tt>
+is reshaped from the right to exactly 3 numbers and assigned 
+to<tt> m</tt> ,<tt> l</tt> ,<tt> </tt>and<tt> r</tt> .</p> 
+ 
+<pre>
+   [ za=. xa*&amp;.&gt;ya
+┌───┬───┬─────┐
+│0 1│4 6│12 15│
+└───┴───┴─────┘
+   asm za
+ 0  1
+ 4  6
+12 15
+   x * rank 0 _1 y
+ 0  1
+ 4  6
+12 15
+</pre>
+   
+<a name="0d"></a><p><b>Zero Frame. </b>If the frame contains 0 
+(as in<tt> 3 *&quot;1 i. 0 4</tt>),<tt> </tt>there are no argument cells 
+to apply<tt> v </tt>to, and the shape of a result cell 
+(the value of<tt> sir</tt>)<tt> </tt>is indeterminate.
+Pesch 
+<acronym title=
+"Pesch, Roland H., Empty Frames in Sharp APL, APL86, APL Quote-Quad 16.4, 1986 7.">[1986]</acronym>
+describes a variety of strategies to address this problem.
+In J, the shape is calculated if<tt> v </tt>is uniform (see below); 
+otherwise<tt> v </tt>is applied to a cell of fills.</p>  
+
+
+<br><a name="1"></a>
+<p><b>1 Integrated Rank Support</b></p>  
+<p>While the rank conjunction as modelled above can be used for any verb, 
+much more efficient implementation of<tt> v&quot;r </tt>exists for 
+particular<tt> v</tt>&nbsp;.<tt> </tt>
+The specialized implementation is called integrated rank support (IRS) 
+because the code resides with each<tt> v</tt>&nbsp;.<tt> </tt>
+The strategy was first used in SHARP APL to good effect (Bernecky &amp; Bezoff 
+<acronym title=
+"Bernecky, Robert, and Greg Bezoff, I.P. Sharp Associates, 1986.">[1986]</acronym>).
+The increased efficiency derives from 
+(a) exploiting specific properties of<tt> v</tt> ;<tt> </tt>
+(b) avoiding explicit construction of the argument and result cells; and 
+(c) reducing the overhead in separate application of<tt> v </tt>to each cell 
+or pair of cells (e.g. in<tt> x+y</tt> ,<tt> </tt>validating that<tt> x </tt>
+and<tt> y </tt>are numeric for each pair of cells).
+We consider two examples:</p> 
+ 
+<p><i>Head</i><tt> {.&quot;1 y </tt>yields the first element of each row.
+The general routine builds an argument cell for each row, only to have<tt> {. </tt>
+discard most of it; in contrast,<tt> {.  </tt>with IRS strides 
+through<tt> y </tt>one row at a time, taking the first element, 
+without explicitly constructing each row vector.
+In this case, IRS provides an order of magnitude improvement: constant time 
+<i>vs.</i> linear time for each row.</p>
+
+<p><i>Itemize/laminate</i><tt> ,: </tt>provides a less extreme example.
+The monad adds a leading unit axis to the argument, and<tt> ,:&quot;r y </tt>
+<font size=+1>&harr;</font><tt> (((-r)}.$y),1,(-r){.$y)$,y</tt> .</tt>
+The dyad<tt> x,:&quot;(r,s)y </tt>can be computed as follows:</p>  
+ 
+<pre>
+r1=. r+p=. 0&lt;r
+s1=. s+q=. 0&lt;s
+,:&quot;0^:(p+:q)(,:&quot;r^:p x),&quot;(r1,s1),:&quot;s^:q y
+</pre>
+
+<p>Exactly which verbs should have integrated rank support is 
+a trade-off between the expected utility, interpreter size, 
+and implementation effort.<tt> v&quot;r </tt>invokes IRS as appropriate; 
+conversely,<tt> v </tt>invokes the general rank routine for any sub-case 
+that it chooses not to handle specifically.
+In J, IRS is provided for all atomic (scalar) verbs and 
+for the following verbs, 
+where &dagger; indicates IRS planned but not yet implemented and 
+&Dagger; indicates IRS not planned.</p>
+
+<table>
+<tr><td><b>Verb</b><td>&nbsp; &nbsp; &nbsp;</td>
+ <td><b>Monad</b></td><td>&nbsp; &nbsp; &nbsp;</td>
+ <td><b>Dyad</b></td></tr>  
+<tr><td><tt>-:</tt></td><td>&nbsp;</td><td>halve</td><td>&nbsp;</td><td>match</td></tr>
+<tr><td><tt>-:!.n</tt></td><td>&nbsp;</td><td>halve</td><td>&nbsp;</td><td>match with tolerance</td></tr>
+<tr><td><tt>v~</tt></td><td>&nbsp;</td><td>both</td><td>&nbsp;</td><td>commute</td></tr>
+<tr><td><tt>|.</tt></td><td>&nbsp;</td><td>reverse</td><td>&nbsp;</td><td>rotate</td></tr>
+<tr><td><tt>|.!.n</tt></td><td>&nbsp;</td><td>shift once</td><td>&nbsp;</td><td>shift</td></tr>
+<tr><td><tt>|:</tt></td><td>&nbsp;</td><td>transpose1</td><td>&nbsp;</td><td>transpose2</td></tr>
+<tr><td><tt>,</tt></td><td>&nbsp;</td><td>ravel</td><td>&nbsp;</td><td>append</td></tr>
+<tr><td><tt>,.</tt></td><td>&nbsp;</td><td>ravel item</td><td>&nbsp;</td><td>&dagger;stitch</td></tr>
+<tr><td><tt>,:</tt></td><td>&nbsp;</td><td>itemize</td><td>&nbsp;</td><td>laminate</td></tr>
+<tr><td><tt>#</tt></td><td>&nbsp;</td><td>tally</td><td>&nbsp;</td><td>replicate (compress)</td></tr>
+<tr><td><tt>v/</tt></td><td>&nbsp;</td><td>insert</td><td>&nbsp;</td><td>&dagger;table (outer product)</td></tr>
+<tr><td><tt>v/\</tt></td><td>&nbsp;</td><td>scan</td><td>&nbsp;</td><td>infix</td></tr>
+<tr><td><tt>v/\.</tt></td><td>&nbsp;</td><td>suffix scan</td><td>&nbsp;</td><td>&Dagger;outfix</td></tr>
+<tr><td><tt>[</tt></td><td>&nbsp;</td><td>same</td><td>&nbsp;</td><td>left</td></tr>
+<tr><td><tt>]</tt></td><td>&nbsp;</td><td>same</td><td>&nbsp;</td><td>right</td></tr>
+<tr><td><tt>{</tt></td><td>&nbsp;</td><td>&Dagger;catalog</td><td>&nbsp;</td><td>from (indexing)</td></tr>
+<tr><td><tt>{.</tt></td><td>&nbsp;</td><td>first</td><td>&nbsp;</td><td>take</td></tr>
+<tr><td><tt>{.!.n</tt></td><td>&nbsp;</td><td>first</td><td>&nbsp;</td><td>take with fill</td></tr>
+<tr><td><tt>}.</tt></td><td>&nbsp;</td><td>drop first</td><td>&nbsp;</td><td>drop</td></tr>
+<tr><td><tt>{:</tt></td><td>&nbsp;</td><td>last</td><td>&nbsp;</td><td>-</td></tr>
+<tr><td><tt>}:</tt></td><td>&nbsp;</td><td>drop last</td><td>&nbsp;</td><td>-</td></tr>
+<tr><td><tt>n&amp;v</tt> ,<tt> v&amp;n</tt></td><td>&nbsp;</td><td>Curry</td><td>&nbsp;</td><td>-</td></tr>
+<tr><td><tt>e.</tt></td><td>&nbsp;</td><td>&Dagger;raze in</td><td>&nbsp;</td><td>&dagger;member of</td></tr>
+<tr><td><tt>i.</tt></td><td>&nbsp;</td><td>&Dagger;integers</td><td>&nbsp;</td><td>&dagger;index of</td></tr> 
+</table>
+ 
+<p>The following table lists the speed-up in execution for<tt> v&quot;r </tt>
+using the general routine versus<tt> v&quot;r </tt>with IRS, 
+on the arrays defined at the end of the table.
+The factors were obtained from JPC386 release 2.04 
+running on a 80486/50 machine 
+(and are roughly applicable to all machines).</p>  
+
+<table>
+<tr><td><tt>y-:&quot;1 y</tt><td>&nbsp;&nbsp;&nbsp;</td><td align=right><tt>2.1</tt></td><td>&nbsp;&nbsp;</td><td>match corresponding rows<b>
+<tr><td><tt>d-:!.0&quot;1 d</tt><td>&nbsp;</td><td align=right><tt>1.8</tt></td><td>&nbsp;&nbsp;</td><td>ditto, with zero tolerance
+<tr><td><tt>|.&quot;1 y</tt><td>&nbsp;</td><td align=right><tt>18.2</tt></td><td>&nbsp;&nbsp;</td><td>reverse each row
+<tr><td><tt>,&quot;2 a</tt><td>&nbsp;</td><td align=right><tt>9.5</tt></td><td>&nbsp;&nbsp;</td><td>ravel each plane
+<tr><td><tt>y,&quot;1 v</tt><td>&nbsp;</td><td align=right><tt>6.6</tt></td><td>&nbsp;&nbsp;</td><td>append a vector to each row
+<tr><td><tt>,:&quot;1 y</tt><td>&nbsp;</td><td align=right><tt>24.3</tt></td><td>&nbsp;&nbsp;</td><td>itemize each row
+<tr><td><tt>y,:&quot;1 v</tt><td>&nbsp;</td><td align=right><tt>22.9</tt></td><td>&nbsp;&nbsp;</td><td>laminate each row to a vector
+<tr><td><tt>+/&quot;1 y</tt><td>&nbsp;</td><td align=right><tt>3.7</tt></td><td>&nbsp;&nbsp;</td><td>sum each row
+<tr><td><tt>i{&quot;1 y</tt><td>&nbsp;</td><td align=right><tt>37.8</tt></td><td>&nbsp;&nbsp;</td><td>index three columns
+<tr><td><tt>7{.&quot;1 y</tt><td>&nbsp;</td><td align=right><tt>17.3</tt></td><td>&nbsp;&nbsp;</td><td>take seven columns
+<tr><td><tt>30{.!.9&quot;1 y</tt><td>&nbsp;</td><td align=right><tt>6.7</tt></td><td>&nbsp;&nbsp;</td><td>take 30 columns, filling with 9
+<tr><td><tt>7}.&quot;1 y</tt><td>&nbsp;</td><td align=right><tt>17.4</tt></td><td>&nbsp;&nbsp;</td><td>drop seven columns
+<tr><td><tt>{.&quot;1 y</tt><td>&nbsp;</td><td align=right><tt>157.3</tt></td><td>&nbsp;&nbsp;</td><td>first column
+<tr><td><tt>{:&quot;1 y</tt><td>&nbsp;</td><td align=right><tt>117.9</tt></td><td>&nbsp;&nbsp;</td><td>last column
+<tr><td><tt>}.&quot;1 y</tt><td>&nbsp;</td><td align=right><tt>19.2</tt></td><td>&nbsp;&nbsp;</td><td>drop first column
+<tr><td><tt>}:&quot;1 y</tt><td>&nbsp;</td><td align=right><tt>15.0</tt></td><td>&nbsp;&nbsp;</td><td>drop last column</p> 
+</table>
+
+<br>
+<table>
+<tr><td><tt>y=.?8000 23$1e6</tt></td><td>&nbsp; &nbsp; &nbsp;</td><td>random<tt> 8000 23 </tt>integer matrix</td></tr>
+<tr><td><tt>d=.o.?8000 23$1e6</tt></td><td>&nbsp;</td><td>floating point matrix</td></tr>
+<tr><td><tt>a=.?8000 2 11$1e6</tt></td><td>&nbsp;</td><td>integer 3-d array</td></tr>
+<tr><td><tt>v=.?23$1e6</tt></td><td>&nbsp;</td><td>integer vector</td></tr>
+<tr><td><tt>i=.?3$23</tt></td><td>&nbsp;</td><td>three column indices</td></tr>
+</table>
+
+<br><a name="2"></a>
+<p><b>2 Uniform Functions</b></p>  
+
+<p>A verb<tt> v </tt>is uniform if the result shape depends only on the argument shape(s), 
+<i>and</i> the result rank depends only on the argument rank(s).
+That is, there is a shape calculator<tt> vs </tt>and a rank calculator<tt> vr </tt>such that</p>
+
+<table>
+<tr><td><tt>$v y </tt></td><td>&nbsp;</td>
+ <td><font size=+1>&harr;</font></td><td>&nbsp;</td>
+ <td><tt> vs $y</tt></td></tr> 
+<tr><td><tt>$x v y </tt></td><td>&nbsp;</td>
+ <td><font size=+1>&harr;</font></td><td>&nbsp;</td>
+ <td><tt> ($x) vs $y</tt></td></tr>
+<tr><td>&nbsp;</td></tr>
+<tr><td><tt>#$v y </tt></td><td>&nbsp;</td>
+ <td><font size=+1>&harr;</font></td><td>&nbsp;</td>
+ <td><tt> vr #$y</tt><br> 
+<tr><td><tt>#$x v y </tt></td><td>&nbsp;</td>
+ <td><font size=+1>&harr;</font></td><td>&nbsp;</td>
+ <td><tt> (#$x) vr #$y</tt><br>
+</table>
+
+<p>Iverson <acronym title=
+"Iverson, K.E., Operators and Functions, Research Report #RC7091, IBM Corporation, 1978 4 26.">
+[1978 &sect;6]</acronym> 
+defines a uniform function as one whose result shape 
+depends only on the argument shapes, and the result rank is a number associated with each verb.
+The advantages of having a rank calculator 
+will be apparent shortly.
+Keenan <acronym title=
+"Keenan, Douglas J., Operators and Uniform Forms, APL79, APL Quote-Quad 9.4, 1979 6.">[1979]</acronym> 
+defines uniformity in terms of shape <i>and</i> type; 
+however, the extra consideration of type does not greatly enhance the concept, 
+and leads to the conclusion that verbs such as<tt> + </tt>and<tt> * </tt>are not uniform.</p> 
+ 
+<p>The so-called scalar functions<tt> </tt>(<tt>+ - * % </tt>etc.) are uniform.
+<i>Ravel/append</i> is uniform.
+<i>Integers</i><tt> i. </tt>is not uniform:<tt> 3 </tt>and<tt> 4 </tt>
+have identical shape but<tt> i.3 </tt>and<tt> i.4 </tt>do not.
+<i>Take</i><tt> {. </tt>is not uniform, but<tt> m&amp;{. </tt>
+(take with a fixed left argument) is; likewise <i>drop</i>, <i>reshape</i>, 
+and <i>replicate</i>.
+Appendix B lists the primitive verbs together with 
+either rank/shape calculators or an invalidating example.</p>  
+
+<p>If<tt> u </tt>and<tt> v </tt>are uniform, then so are the 
+compositions<tt> u@:v </tt>and<tt> u&amp;:v</tt> ,<tt> </tt>
+with the rank and shape calculators of the composition being 
+the composition of the calculators.
+The related compositions<tt> u@v </tt>and<tt> u&amp;v </tt>are complicated by that they 
+inherit the ranks of<tt> v </tt>
+(denoted<tt> m</tt> ,<tt> l</tt> ,<tt> </tt>and<tt> r </tt>respectively 
+for the monadic, left, and right ranks).
+But since<tt> v </tt>is uniform, the result cells in<tt> v y </tt>are exactly the 
+rank<tt> (vr m&lt;.#$y) </tt>cells, and the result cells in
+<tt> x v y </tt>are the rank<tt> (l&lt;.#$x)vr(r&lt;.#$y) </tt>cells.
+Thus:</p>  
+
+<table>
+<tr><td><tt>u@v y </tt></td><td>&nbsp;</td><td><font size=+1>&harr;</font></td><td>&nbsp;</td><td><tt> u&quot;(vr m&lt;.#$y) v y</tt></td></tr> 
+<tr><td><tt>x u@v y </tt></td><td>&nbsp;</td><td><font size=+1>&harr;</font></td><td>&nbsp;</td><td><tt> u&quot;((l&lt;.#$x)vr(r&lt;.#$y)) x v y</tt></td></tr>
+</table>
+
+<p>The expressions on the right hand side can be much 
+more efficient to evaluate than those on the left.
+For example, on two 8000-element floating point vectors,<tt> x *:@+ y </tt>
+(square the element-wise sums) takes over 24 times as long as the 
+equivalent<tt> *:&quot;0 x+y</tt> .<tt> </tt>
+The former applies<tt> *: </tt>to<tt> + </tt>on two atoms, 8000 times; the latter 
+applies<tt> + </tt>once to<tt> x </tt>and<tt> y </tt><i>in toto</i>, then 
+applies<tt> *:&quot;0 </tt>once to <i>that</i>, 
+reaping the benefits from the integrated rank support in<tt> *: </tt>and<tt> +</tt> .<tt> </tt>
+The greater efficiency is due to the same factors as for IRS: 
+obviating the explicit construction of cells and replacing multiple application 
+to cells by one application to entire arguments.</p>  
+
+<p>Moreover,<tt> u@v </tt>is uniform, with the following calculators:</p>  
+<pre>
+fl =. ] - &lt;.              NB. frame length
+fa =. -@[ }. ]            NB. frame axes
+ca =. ([ -@&lt;. #@]) {. ]   NB. cell axes
+</pre>
+
+<table>
+<tr><td><tt>$u@v y</tt></td><td>&nbsp;</td><td><font size=+1>&harr;</font></td><td>&nbsp;</td><td><tt>(m fa $y), us@vs(m ca $y)</td></tr>
+<tr><td><tt>$x u@v y</tt></td><td>&nbsp;</td><td><font size=+1>&harr;</font></td><td>&nbsp;</td><td><tt>((l fa$x)[^:(&gt;&amp;#)(r fa$y)),(l ca $x)us@vs(r ca $y)</td></tr>
+<tr><td>&nbsp;</td></tr>
+<tr><td><tt>#$u@v y</tt></td><td>&nbsp;</td><td><font size=+1>&harr;</font></td><td>&nbsp;</td><td><tt>(m fl #$y) + ur@vr(m&lt;.#$y)</td></tr>
+<tr><td><tt>#$x u@v y</tt></td><td>&nbsp;</td><td><font size=+1>&harr;</font></td><td>&nbsp;</td><td><tt>((l fl #$x)&gt;.r fl #$y) + (l&lt;.#$x)ur@vr(r&lt;.#$y)</td></tr>
+</table>  
+
+<p>The computations derive by straightforward consideration of 
+the workings of the rank conjunction (Section 0).
+Each expression consists of the contribution from the frame joined 
+to the contribution from the cells.
+For the shape calculator<tt> , </tt>catenates the frame axes to the result cell axes, 
+while for the rank calculator<tt> + </tt>adds the frame length to the cell rank.</p>  
+
+<p>A similar analysis leads to the conclusion that 
+if<tt> u</tt> ,<tt> v</tt> ,<tt> </tt>and<tt> w </tt>are uniform 
+and<tt> n </tt>and<tt> r </tt>are nouns, 
+then the following verbs are also uniform:</p>  
+
+<table>
+<tr><td><tt>u@v</tt></td><td>&nbsp; &nbsp; &nbsp;</td>
+ <td><tt>u@:v</tt></td></tr>
+<tr><td><tt>u&amp;v</tt></td><td>&nbsp;</td>
+ <td><tt>u&amp;:v</tt></td><td>&nbsp; &nbsp; &nbsp;</td>
+ <td><tt>n&amp;v</tt></td><td>&nbsp; &nbsp; &nbsp;</td>
+ <td><tt>v&amp;n</tt></tt></td></tr> 
+<tr><td><tt>u v</tt></td><td>&nbsp;</td>
+ <td><tt>u v w</tt></td><td>&nbsp;</td></tr>
+<tr><td><tt>v&quot;r</tt></td><td>&nbsp;</td>
+ <td><tt>v^:n</tt></td><td>&nbsp;</td>
+ <td><tt>v~</tt></tt></td></tr>
+<tr><td><tt>v/</tt></td><td>&nbsp;</td>
+ <td><tt>v/. </tt>monad</td></tr>  
+<tr><td><tt>v\ </tt>monad</td><td>&nbsp;</td>
+ <td><tt>v\. </tt>monad</td></tr>
+</table>  
+
+<p>It remains to implement a calculus of uniform verbs 
+so that like integrated rank support, the more efficient code 
+for uniform verbs can be invoked automatically when possible, 
+reducing the need to sacrifice readability for efficiency 
+(for example, using<tt> (u0&quot;r0)@:(u1&quot;r1)@:(u2&quot;r2) </tt>
+instead of the more readable<tt> u0@u1@u2</tt>).<tt> </tt>
+It appears that a calculus on rank alone suffices to produce 
+much benefit.
+The rank calculus, being concerned with single numbers, 
+is simpler than the shape calculus, and makes an important 
+and useful intermediate step.</p>  
+
+<p>We conjecture that the analysis for integrated rank support 
+and for uniform verbs is applicable to APL dialects that have the each 
+operator<tt> </tt><b> &uml;</b>&nbsp;,<tt> </tt>with similar efficiency gains.</p>  
+
+
+<br><a name="ref"></a>
+<p><b>References</b></p>  
+<table>
+<tr><td valign=top>&#149;</td><td>&nbsp;</td><td>
+Bernecky, Robert, <i>An Introduction to Function Rank</i>, APL88, APL Quote-Quad 18.2, 1987 12.
+</td></tr>
+<tr><td valign=top>&#149;</td><td>&nbsp;</td><td>
+<p>Bernecky, Robert, and Greg Bezoff, I.P. Sharp Associates, 1986.
+</td></tr>
+<tr><td valign=top>&#149;</td><td>&nbsp;</td><td>
+Bernecky, Robert, K.E. Iverson, E.E. McDonnell, 
+Robert C. Metzger, and J. Henri Schueler, 
+<a target=_parent href="http://www.jsoftware.com/papers/satn45.htm"><i>Language Extensions of May 1983</i></a>, 
+SHARP APL Technical Note 45, 
+I.P. Sharp Associates, 1983 5 2.</td></tr>
+<tr><td valign=top>&#149;</td><td>&nbsp;</td><td>
+Hodgkinson, Robert, <i>APL Procedures</i>, APL86, APL Quote-Quad 16.4, 1986 7.
+</td></tr>
+<tr><td valign=top>&#149;</td><td>&nbsp;</td><td>
+Hui, Roger K.W., 
+<a target=_parent href="http://www.jsoftware.com/papers/from.htm"><i>Some 
+Uses of</i><tt> { </tt><i>and</i><tt> }</tt></a>,<tt> </tt>APL87, 
+APL Quote-Quad 17.4, 1987 5.
+</td></tr>
+<tr><td valign=top>&#149;</td><td>&nbsp;</td><td>
+Hui, Roger K.W., <i>An Implementation of J</i>, Iverson Software Inc., 1992 1 27.
+</td></tr>
+<tr><td valign=top>&#149;</td><td>&nbsp;</td><td>
+Hui, Roger K.W., K.E. Iverson, E.E. McDonnell, and Arthur T. Whitney, 
+<a target=_parent href="http://www.jsoftware.com/papers/J1990.htm"><i>APL\?</i></a>, 
+APL90, APL Quote-Quad 21.4, 1990 7.
+</td></tr>
+<tr><td valign=top>&#149;</td><td>&nbsp;</td><td>
+Iverson, K.E., 
+<a target=_parent href="http://www.jsoftware.com/papers/opfns.htm"><i>Operators and Functions</i></a>, 
+Research Report #RC7091, IBM Corporation, 1978 4 26.
+</td></tr>
+<tr><td valign=top>&#149;</td><td>&nbsp;</td><td>
+Iverson, K.E., 
+<a target=_parent href="http://www.jsoftware.com/papers/RationalizedAPL.htm"><i>Rationalized APL</i></a>, 
+I.P. Sharp Associates, 1983 1 6.
+</td></tr>
+<tr><td valign=top>&#149;</td><td>&nbsp;</td><td>
+Iverson, K.E., 
+<a target=_parent href="http://www.jsoftware.com/papers/APLDictionary.htm"><i>A Dictionary of APL</i></a>, 
+APL Quote-Quad 18.1, 1987 9.
+</td></tr>
+<tr><td valign=top>&#149;</td><td>&nbsp;</td><td>
+Iverson, K.E., 
+<a target=_parent href="http://www.jsoftware.com/help/dictionary/contents.htm"><i>J Introduction and Dictionary</i></a>, Iverson Software Inc., 1995 2 1.
+</td></tr>
+<tr><td valign=top>&#149;</td><td>&nbsp;</td><td>
+Keenan, Douglas J., <i>Operators and Uniform Forms</i>, APL79, APL Quote-Quad 9.4, 1979 6.
+</td></tr>
+<tr><td valign=top>&#149;</td><td>&nbsp;</td><td>
+Pesch, Roland H., 
+<a target=_parent href="http://www.jsoftware.com/papers/EmptyFrames.htm"><i>Empty Frames in Sharp APL</i></a>,
+APL86, APL Quote-Quad 16.4, 1986 7.
+<tr><td valign=top>&#149;</td><td>&nbsp;</td><td>
+Steinbrook, David H., <i>SAX Reference</i>, I.P. Sharp Associates, 1986.
+</td></tr>
+<tr><td valign=top>&#149;</td><td>&nbsp;</td><td>
+Whitney, Arthur T., <i>A</i>, plenary session, APL89, 1989 8.
+</td></tr>
+<tr><td valign=top>&#149;</td><td>&nbsp;</td><td>
+Whitney, Arthur T., private communication, Kiln Farm, 1992 5 24.
+</td></tr>
+</table>
+
+
+<br><a name="a"></a>
+<p><b>Appendix A. Annotated Examples</b></p>  
+<a name="a0"></a><p><b>A.0 Rank Model</b></p>  
+<pre>
+rk    =. #@$  
+er    =. (0:&gt;.(+rk))`(&lt;.rk) @. (0:&lt;:[)  
+fr    =. -@er }. $@]  
+cs    =. -@er {. $@]  
+boxr  =. ]`(&lt;@$ , [ $: */@[}.])@.(*@#@])
+cells =. fr $ cs boxr ,@]
+ 
+pfx   =. &lt;.&amp;rk
+agree =. (pfx {. $@[) -: (pfx {. $@])
+frame =. [:`($@([^:(&gt;&amp;rk))) @. agree 
+rag   =. frame $ ([: */ rk@]}.$@[) # ,@]
+lag   =. rag~
+
+mrk   =. &gt;./@:(rk&amp;&gt;)@,  
+crank =. mrk ,:@]^:(-rk)&amp;.&gt; ]
+msh   =. &gt;./@:( $&amp;&gt;)@, 
+cshape=. &lt;@msh {.&amp;.&gt; ] 
+asm   =. &gt; @ cshape @ crank  
+
+rank  =. 2 : 0
+ 'm l r'=.3&$&.|.y.
+ ([: asm [: x.&.> m&cells) :  &nbsp; &crarr;
+      ([: asm l&cells@[ (lag x.&.> rag) r&cells@])
+)
+
+</pre>
+
+<a name="a1"></a><p><b>A.1 Frames and Cells</b></p>
+
+<pre>
+   [ y=. i.2 3 4
+ 0  1  2  3
+ 4  5  6  7
+ 8  9 10 11
+
+12 13 14 15
+16 17 18 19
+20 21 22 23
+
+   0 (er;fr;cs) y    NB. effective rank; frame; cell shape
+┌─┬─────┬┐
+│0│2 3 4││
+└─┴─────┴┘
+   0 cells y         NB. rank 0 cells aka 0-cells
+┌──┬──┬──┬──┐
+│0 │1 │2 │3 │
+├──┼──┼──┼──┤
+│4 │5 │6 │7 │
+├──┼──┼──┼──┤
+│8 │9 │10│11│
+└──┴──┴──┴──┘
+
+┌──┬──┬──┬──┐
+│12│13│14│15│
+├──┼──┼──┼──┤
+│16│17│18│19│
+├──┼──┼──┼──┤
+│20│21│22│23│
+└──┴──┴──┴──┘
+
+   1 (er;fr;cs) y
+┌─┬───┬─┐
+│1│2 3│4│
+└─┴───┴─┘
+   1 cells y
+┌───────────┬───────────┬───────────┐
+│0 1 2 3    │4 5 6 7    │8 9 10 11  │
+├───────────┼───────────┼───────────┤
+│12 13 14 15│16 17 18 19│20 21 22 23│
+└───────────┴───────────┴───────────┘
+
+   2 (er;fr;cs) y
+┌─┬─┬───┐
+│2│2│3 4│
+└─┴─┴───┘
+   2 cells y
+┌─────────┬───────────┐
+│0 1  2  3│12 13 14 15│
+│4 5  6  7│16 17 18 19│
+│8 9 10 11│20 21 22 23│
+└─────────┴───────────┘
+
+   3 (er;fr;cs) y
+┌─┬┬─────┐
+│3││2 3 4│
+└─┴┴─────┘
+   3 cells y
+┌───────────┐
+│ 0  1  2  3│
+│ 4  5  6  7│
+│ 8  9 10 11│
+│           │
+│12 13 14 15│
+│16 17 18 19│
+│20 21 22 23│
+└───────────┘
+
+   _1 (er;fr;cs) y
+┌─┬─┬───┐
+│2│2│3 4│
+└─┴─┴───┘
+   _1 cells y        NB. rank-_1 cells aka _1-cells
+┌─────────┬───────────┐  NB. aka major cells aka items
+│0 1  2  3│12 13 14 15│
+│4 5  6  7│16 17 18 19│
+│8 9 10 11│20 21 22 23│
+└─────────┴───────────┘
+
+   _1 cells i.3 4
+┌───────┬───────┬─────────┐
+│0 1 2 3│4 5 6 7│8 9 10 11│
+└───────┴───────┴─────────┘
+   _1 cells i.4
+┌─┬─┬─┬─┐
+│0│1│2│3│
+└─┴─┴─┴─┘
+   _1 cells 3
+┌─┐
+│3│
+└─┘
+
+   _2 cells y
+┌───────────┬───────────┬───────────┐
+│0 1 2 3    │4 5 6 7    │8 9 10 11  │
+├───────────┼───────────┼───────────┤
+│12 13 14 15│16 17 18 19│20 21 22 23│
+└───────────┴───────────┴───────────┘
+
+</pre>
+
+<a name="a2"></a><p><b>A.2 Rank Monad</b></p>  
+<p>The computation to be modelled is<tt> i.&quot;_1 y</tt> .</p>
+
+<pre>
+   y=. 6 4 9
+   1 (er;fr;cs) y    NB. effective rank; frame; cell shape
+┌─┬┬─┐
+│1││3│
+└─┴┴─┘
+   [yc=. _1 cells y
+┌─┬─┬─┐
+│6│4│9│
+└─┴─┴─┘
+   [zc=. i.&.>yc     NB. apply i. to each cell
+┌───────────┬───────┬─────────────────┐
+│0 1 2 3 4 5│0 1 2 3│0 1 2 3 4 5 6 7 8│
+└───────────┴───────┴─────────────────┘
+
+   asm zc            NB. permissive assembly
+0 1 2 3 4 5 0 0 0
+0 1 2 3 0 0 0 0 0
+0 1 2 3 4 5 6 7 8
+
+   i. rank _1 y
+0 1 2 3 4 5 0 0 0
+0 1 2 3 0 0 0 0 0
+0 1 2 3 4 5 6 7 8
+
+</pre>
+ 
+<a name="a3"></a><p><b>A.3 Agreement I</b></p>  
+<p>The computation to be modelled is<tt> x,&quot;1 y</tt> ,<tt> </tt>append vectors to vectors.</p>  
+
+<pre>
+   [ x=. 'PQ'
+PQ
+   [ y=. 3 4 $'abcdefghijkl'
+abcd
+efgh
+ijkl
+
+   1 er x                     1 er y    NB. effective rank
+1                          1
+   1 fr x                     1 fr y    NB. frame
+                           3
+   1 cs x                     1 cs y    NB. cell shape
+2                          4
+
+   NB. argument cells before agreement
+   [ xc=. 1 cells x           [ yc=. 1 cells y
+┌──┐                       ┌────┬────┬────┐
+│PQ│                       │abcd│efgh│ijkl│
+└──┘                       └────┴────┴────┘
+
+   NB. argument cells after agreement
+   [ xa=. xc lag yc           [ ya=. xc rag yc
+┌──┬──┬──┐                 ┌────┬────┬────┐
+│PQ│PQ│PQ│                 │abcd│efgh│ijkl│
+└──┴──┴──┘                 └────┴────┴────┘
+
+   [ za=. xa,&.>ya   NB. apply , to corresponding cells
+┌──────┬──────┬──────┐
+│PQabcd│PQefgh│PQijkl│
+└──────┴──────┴──────┘
+
+   asm za            NB. assemble to produce the required result
+PQabcd
+PQefgh
+PQijkl
+
+   x , rank 1 y
+PQabcd
+PQefgh
+PQijkl
+
+</pre>
+
+<a name="a4"></a><p><b>A.4 Agreement II</b></p>  
+<p>The computation to be modelled is<tt> x,&quot;0 1 y</tt> ,<tt> </tt>
+append scalars to vectors.</p>
+
+<pre>
+   [ x=. 3 2$'012345'
+01
+23
+45
+   [ y=. 3 4$'abcdefghij'
+abcd
+efgh
+ijab
+
+   0 er x                     1 er y    NB. effective rank
+0                          1
+   0 fr x                     1 fr y    NB. frame
+3 2                        3
+   0 cs x                     1 cs y    NB. cell shape
+                           4
+
+   NB. argument cells before agreement
+   [ xc=. 0 cells x           [ yc=. 1 cells y
+┌─┬─┐                      ┌────┬────┬────┐
+│0│1│                      │abcd│efgh│ijkl│
+├─┼─┤                      └────┴────┴────┘
+│2│3│
+├─┼─┤
+│4│5│
+└─┴─┘
+
+   NB. argument cells after agreement
+   [ xa=. xc lag yc           [ ya=. xc rag yc
+┌─┬─┐                      ┌────┬────┐
+│0│1│                      │abcd│abcd│
+├─┼─┤                      ├────┼────┤
+│2│3│                      │efgh│efgh│
+├─┼─┤                      ├────┼────┤
+│4│5│                      │ijkl│ijkl│
+└─┴─┘                      └────┴────┘
+
+   [ za=. xa,&.>ya   NB. apply , to corresponding cells
+┌─────┬─────┐
+│0abcd│1abcd│
+├─────┼─────┤
+│2efgh│3efgh│
+├─────┼─────┤
+│4ijkl│5ijkl│
+└─────┴─────┘
+
+   asm za            NB. assemble to produce the required result
+0abcd
+1abcd
+
+2efgh
+3efgh
+
+4ijab
+5ijab
+
+   x , rank 0 1 y
+0abcd
+1abcd
+
+2efgh
+3efgh
+
+4ijab
+5ijab
+
+</pre>
+
+
+<a name="a5"></a><p><b>A.5 Agreement III &mdash; Outer Product</b></p>  
+<p>The computation to be modelled is<tt> x*&quot;0 _ y</tt> ,<tt> </tt>
+multiply scalars in<tt> x </tt>by the entire of<tt> y</tt> .</p> 
+
+<pre> 
+   x=. 1 2 3 4
+   y=. 8 5 7
+   
+   0 er x                     _ er y    NB. effective rank
+0                          1
+   0 fr x                     _ fr y    NB. frame
+4
+   0 cs x                     _ cs y    NB. cell shape
+                           3
+   
+   NB. argument cells before agreement
+   [ xc=. 0 cells x           [ yc=. _ cells y
+┌─┬─┬─┬─┐                  ┌─────┐
+│1│2│3│4│                  │8 5 7│
+└─┴─┴─┴─┘                  └─────┘
+
+   NB. argument cells after agreement
+   [ xa=. xc lag yc           [ ya=. xc rag yc
+┌─┬─┬─┬─┐                  ┌─────┬─────┬─────┬─────┐
+│1│2│3│4│                  │8 5 7│8 5 7│8 5 7│8 5 7│
+└─┴─┴─┴─┘                  └─────┴─────┴─────┴─────┘
+
+   [ za=. xa*&.>ya   NB. apply * to corresponding cells
+┌─────┬────────┬────────┬────────┐
+│8 5 7│16 10 14│24 15 21│32 20 28│
+└─────┴────────┴────────┴────────┘
+
+   asm za            NB. assemble to produce the required result
+ 8  5  7
+16 10 14
+24 15 21
+32 20 28
+   
+   x * rank 0 _ y
+ 8  5  7
+16 10 14
+24 15 21
+32 20 28
+
+</pre>
+
+<a name="a6"></a><p><b>A.6 Permissive Assembly</b></p>  
+<p>The computation to be modelled is<tt> x{.&quot;0 1 y</tt> .</p> 
+
+<pre>
+   y
+Barlett, Sue
+Doe, John   
+Other, A.N. 
+   $y
+3 12
+   [ x=. y i."1 ','  NB. index of comma in each row
+7 3 5
+
+   0 (er;fr;cs) x    NB. effective rank; frame; cell shape
+┌─┬─┬┐
+│0│3││
+└─┴─┴┘
+   1 (er;fr;cs) y
+┌─┬─┬──┐
+│1│3│12│
+└─┴─┴──┘
+
+   [ xc=. 0 cells x
+┌─┬─┬─┐
+│7│3│5│
+└─┴─┴─┘
+   [ yc=. 1 cells y
+┌────────────┬────────────┬────────────┐
+│Barlett, Sue│Doe, John   │Other, A.N. │
+└────────────┴────────────┴────────────┘
+
+   xc -: xa=. xc lag yc
+1
+   yc -: ya=. xc rag yc
+1
+
+   [ za=. xa{.&.>ya  NB. apply {.
+┌───────┬───┬─────┐
+│Barlett│Doe│Other│
+└───────┴───┴─────┘
+
+   asm za            NB. permissive assembly
+Barlett
+Doe    
+Other  
+   $ asm za
+3 7
+
+   x {."0 1 y
+Barlett
+Doe    
+Other  
+   (y i."1 ',') {."0 1 y
+Barlett
+Doe    
+Other  
+   
+   surname=. (] i."1 ','"_) {."0 1 ]
+   surname y
+Barlett
+Doe    
+Other  
+</pre>
+
+
+<br><a name="b"></a>
+<p><b>Appendix B. Uniform Functions</b></p>
+
+<p>The primitive verbs in the table on the right are uniform 
+with the indicated rank and shape calculators<tt> vrb </tt>
+and<tt> vsb</tt> ,<tt> </tt>applicable to arguments with 
+rank bounded by the ranks of<tt> v</tt> .<tt> </tt>
+(<tt>m</tt> ,<tt> l</tt> ,<tt> </tt>and<tt> r</tt> ,<tt> </tt>
+respectively, for the monadic, left, and right ranks.) 
+The rank and shape calculators for general arguments 
+are as follows:</p>  
+
+<pre>
+fl =. ] - &lt;.
+fa =. -@[ }. ]
+ca =. ([ -@&lt;. #@]) {. ]
+</pre>
+  
+<table>
+<tr><td><tt>vr #$y</tt></td>     <td>&nbsp;</td><td><font size=+1>&harr;</font></td>
+ <td>&nbsp;</td><td><tt>(m fl #$y) + vrb(m&lt;.#$y)</tt></td></tr>
+<tr><td><tt>(#$x)vr #$y</tt></td><td>&nbsp;</td><td><font size=+1>&harr;</font></td>
+ <td>&nbsp;</td><td><tt>((l fl #$x)&gt;.r fl #$y) + (l&lt;.#$x)vrb(r&lt;.#$y)</tt></td></tr>  
+<tr><td><tt>vs $y</tt></td>      <td>&nbsp;</td><td><font size=+1>&harr;</font></td>
+ <td>&nbsp;</td><td><tt>(m fa $y), vsb(m ca $y)</tt></td></tr>
+<tr><td><tt>($x)vs $y</tt></td>  <td>&nbsp;</td><td><font size=+1>&harr;</font></td>
+ <td>&nbsp;</td><td><tt>((l fa$x)[^:(&gt;&amp;#) r fa$y),(l ca $x)vsb(r ca $y)</tt></td></tr> 
+</table>
+
+<p>The table entry for<tt> + </tt>represents the so-called scalar functions, which are:</p> 
+<table>
+<tr><td valign=top>Monad</td><td>&nbsp;</td><td><tt>&nbsp; &nbsp; &lt;. &lt;: &nbsp; &gt;. 
+ &gt;: + &nbsp;&nbsp; +: * &nbsp;&nbsp; *: -  -. -: 
+ % %: ^ ^. &nbsp;&nbsp; | ! ? j. o. r. </tt></td></tr>  
+<tr><td valign=top>Dyad </td><td>&nbsp;</td><td><tt>= &lt;  &lt;. &lt;: &gt; &gt;. 
+ &gt;: + +. +: * *. *: - &nbsp;&nbsp; &nbsp;&nbsp; 
+ % %: ^ ^. ~: | ! &nbsp; j. o. r. </tt></td></tr> 
+</table>
+
+<p> ____________________________________</p>  
+
+<p>The following primitive verbs are not uniform; in each case, results with different 
+shapes are produced from the indicated arguments having the same shape.</p>  
+
+<table>
+<tr><td width=150><tt>=&nbsp; 0 0</tt></td><td>&nbsp; &nbsp; &nbsp;</td><td><tt>=&nbsp; 0 1</tt></td></tr>  
+<tr><td><tt>&gt;&nbsp; &lt;0</tt></td><td>&nbsp;</td><td><tt>&gt;&nbsp; &lt;0 1</tt></td></tr>  
+<tr><td><tt>~. 0 0</tt></td><td>&nbsp;</td><td><tt>~. 0 1</tt></td></tr>  
+<tr><td><tt>;&nbsp; (0;0)</tt></td><td>&nbsp;</td><td><tt>;&nbsp; 0;0 0</tt></td></tr> 
+<tr><td><tt>;: '^1'</tt></td><td>&nbsp;</td><td><tt>;: '10'</tt></td></tr>  
+<tr><td><tt>#. 1</tt></td><td>&nbsp;</td><td><tt>#: 2</tt></td></tr> 
+<tr><td><tt>{&nbsp; 0;1</tt></td><td>&nbsp;</td><td><tt>{&nbsp; 0;0 1</tt></td></tr>  
+<tr><td><tt>&quot;. '0 1'</tt></td><td>&nbsp;</td><td><tt>&quot;. '0+1'</tt></td></tr>  
+<tr><td><tt>&quot;: 0</tt></td><td>&nbsp;</td><td><tt>&quot;: 10</tt></td></tr>  
+<tr><td><tt>C. 0 1</tt></td><td>&nbsp;</td><td><tt>C. 1 0</tt></td></tr>  
+<tr><td><tt>e. 0;0</tt></td><td>&nbsp;</td><td><tt>e. 0;0 1</tt></td></tr>  
+<tr><td><tt>i. 0 1</tt></td><td>&nbsp;</td><td><tt>i. 1 0</tt></td></tr>  
+<tr><td><tt>p. 1;0</tt></td><td>&nbsp;</td><td><tt>p. 1;0 1</tt></td></tr>
+</table>
+<br>
+<table>
+<tr><td width=150><tt>0 1 &nbsp;-. 2</tt></td><td>&nbsp; &nbsp; &nbsp;</td><td><tt>0 1 &nbsp; &nbsp;-. 0</tt></td></tr>
+<tr><td><tt>0 &nbsp; &nbsp;$&nbsp; 0</tt></td><td>&nbsp;</td><td><tt>1 &nbsp; &nbsp; &nbsp;$&nbsp; 0</tt></td></tr> 
+<tr><td><tt>0 1 &nbsp;|: i.3 4</tt></td><td>&nbsp;</td><td><tt>1 0 &nbsp; &nbsp;|: i.3 4</tt></td></tr>
+<tr><td><tt>0 1 &nbsp;;&nbsp; 0;1</tt></td><td>&nbsp;</td><td><tt>0 1 &nbsp; &nbsp;;&nbsp; 0 1</tt></td></tr> 
+<tr><td><tt>0 &nbsp;&nbsp; #&nbsp; 0</tt></td><td>&nbsp;</td><td><tt>1 &nbsp; &nbsp; &nbsp;#&nbsp; 0</tt></td></tr>
+<tr><td><tt>(&lt;0) {&nbsp; i.3 4</tt></td><td>&nbsp;</td><td><tt>(&lt;0 1) {&nbsp; i. 3 4</tt></td></tr>
+<tr><td><tt>0 &nbsp;&nbsp; {. 1</tt></td><td>&nbsp;</td><td><tt>1 &nbsp; &nbsp; &nbsp;{. 1</tt></td></tr>
+<tr><td><tt>0 &nbsp;&nbsp; }. 1</tt></td><td>&nbsp;</td><td><tt>1 &nbsp; &nbsp; &nbsp;}. 1</tt></td></tr>
+<tr><td><tt>0 &nbsp;&nbsp; &quot;: 0</tt></td><td>&nbsp;</td><td><tt>0 &nbsp; &nbsp; &nbsp;&quot;: 10</tt></td></tr>
+<tr><td><tt>0 &nbsp;&nbsp; ?&nbsp; 1</tt></td><td>&nbsp;</td><td><tt>1 &nbsp; &nbsp; &nbsp;?&nbsp; 1</tt></td></tr>
+</table>
+<br>
+
+<table>
+<tr><td valign=bottom><b>Rank</b></td><td>&nbsp; &nbsp;</td>
+ <td valign=bottom><b>Verb</b></td><td>&nbsp;</td>
+ <td><b>Rank<br>Calculator</b><td>&nbsp; &nbsp; &nbsp;</td>
+ <td><b>Shape<br>Calculator</b></td></tr>  
+<tr><td><tt>_</tt></td><td>&nbsp;</td><td><tt>&lt;</tt></td><td>&nbsp;</td>
+ <td><tt>0:</tt></td><td>&nbsp;</td><td><tt>i.@0:</tt></td></tr>  
+<tr><td><tt>_</tt></td><td>&nbsp;</td><td><tt>+</tt></td><td>&nbsp;</td>
+ <td><tt>]</tt></td><td>&nbsp;</td><td><tt>]</tt></td></tr>  
+<tr><td><tt>_</tt></td><td>&nbsp;</td><td><tt>+.</tt></td><td>&nbsp;</td>
+ <td><tt>&gt;:</tt></td><td>&nbsp;</td><td><tt>,&amp;2</tt></td></tr>  
+<tr><td><tt>_</tt></td><td>&nbsp;</td><td><tt>*.</tt></td><td>&nbsp;</td>
+ <td><tt>&gt;:</tt></td><td>&nbsp;</td><td><tt>,&amp;2</tt></td></tr>  
+<tr><td><tt>2</tt></td><td>&nbsp;</td><td><tt>%.</tt></td><td>&nbsp;</td>
+ <td><tt>]</tt></td><td>&nbsp;</td><td><tt>|.</tt></td></tr>  
+<tr><td><tt>_</tt></td><td>&nbsp;</td><td><tt>$</tt></td><td>&nbsp;</td>
+ <td><tt>1:</tt></td><td>&nbsp;</td><td><tt>$</tt></td></tr>  
+<tr><td><tt>_</tt></td><td>&nbsp;</td><td><tt>~:</tt></td><td>&nbsp;</td>
+ <td><tt>1:</tt></td><td>&nbsp;</td><td><tt>ic</tt></td></tr>  
+<tr><td><tt>_</tt></td><td>&nbsp;</td><td><tt>|.</tt></td><td>&nbsp;</td>
+ <td><tt>]</tt></td><td>&nbsp;</td><td><tt>] </tt></td></tr>  
+<tr><td><tt>_</tt></td><td>&nbsp;</td><td><tt>|:</tt></td><td>&nbsp;</td>
+ <td><tt>]</tt></td><td>&nbsp;</td><td><tt>|.</tt></td></tr>  
+<tr><td><tt>_</tt></td><td>&nbsp;</td><td><tt>,</tt></td><td>&nbsp;</td>
+ <td><tt>1:</tt></td><td>&nbsp;</td><td><tt>,@(*/)</tt></td></tr>  
+<tr><td><tt>_</tt></td><td>&nbsp;</td><td><tt>,.</tt></td><td>&nbsp;</td>
+ <td><tt>2:</tt></td><td>&nbsp;</td><td><tt>ic , */@}.
+</tt></td></tr>  
+<tr><td><tt>_</tt></td><td>&nbsp;</td><td><tt>,:</tt></td><td>&nbsp;</td>
+ <td><tt>&gt;:</tt></td><td>&nbsp;</td><td><tt>1&amp;,</tt></td></tr>  
+<tr><td><tt>_</tt></td><td>&nbsp;</td><td><tt>#</tt></td><td>&nbsp;</td>
+ <td><tt>0:</tt></td><td>&nbsp;</td><td><tt>i.@0:</tt></td></tr>  
+<tr><td><tt>1</tt></td><td>&nbsp;</td><td><tt>#.</tt></td><td>&nbsp;</td>
+ <td><tt>0:</tt></td><td>&nbsp;</td><td><tt>i.@0:</tt></td></tr>  
+<tr><td><tt>_</tt></td><td>&nbsp;</td><td><tt>/:</tt></td><td>&nbsp;</td>
+ <td><tt>1&amp;&lt;.</tt></td><td>&nbsp;</td><td><tt>ic^:#</tt></td></tr>  
+<tr><td><tt>_</tt></td><td>&nbsp;</td><td><tt>\:</tt></td><td>&nbsp;</td>
+ <td><tt>1&amp;&lt;.</tt></td><td>&nbsp;</td><td><tt>ic^:#</tt></td></tr>  
+<tr><td><tt>_</tt></td><td>&nbsp;</td><td><tt>[</tt></td><td>&nbsp;</td>
+ <td><tt>]</tt></td><td>&nbsp;</td><td><tt>]</tt></td></tr>  
+<tr><td><tt>_</tt></td><td>&nbsp;</td><td><tt>]</tt></td><td>&nbsp;</td>
+ <td><tt>]</tt></td><td>&nbsp;</td><td><tt>]</tt></td></tr>  
+<tr><td><tt>_</tt></td><td>&nbsp;</td><td><tt>{.</tt></td><td>&nbsp;</td>
+ <td><tt>0&amp;&gt;.@&lt;:</tt></td><td>&nbsp;</td><td><tt>}.</tt></td></tr>  
+<tr><td><tt>_</tt></td><td>&nbsp;</td><td><tt>{:</tt></td><td>&nbsp;</td>
+ <td><tt>0&amp;&gt;.@&lt;:</tt></td><td>&nbsp;</td><td><tt>}.</tt></td></tr>  
+<tr><td><tt>_</tt></td><td>&nbsp;</td><td><tt>}.</tt></td><td>&nbsp;</td>
+ <td><tt>1&amp;&gt;.</tt></td><td>&nbsp;</td><td><tt>0&amp;&gt;.@&lt;:@ic , }.</tt></td></tr>  
+<tr><td><tt>_</tt></td><td>&nbsp;</td><td><tt>}:</tt></td><td>&nbsp;</td>
+ <td><tt>1&amp;&gt;.</tt></td><td>&nbsp;</td><td><tt>0&amp;&gt;.@&lt;:@ic , }.</tt></td></tr>  
+<tr><td><tt>1</tt></td><td>&nbsp;</td><td><tt>A.</tt></td><td>&nbsp;</td>
+ <td><tt>0:</tt></td><td>&nbsp;</td><td><tt>}:</tt></td></tr>  
+<tr><td><tt>1</tt></td><td>&nbsp;</td><td><tt>c.</tt></td><td>&nbsp;</td>
+ <td><tt>1:</tt></td><td>&nbsp;</td><td><tt>}:</tt></td></tr>  
+<tr><td><tt>_</tt></td><td>&nbsp;</td><td><tt>0:</tt></td><td>&nbsp;</td>
+ <td><tt>0:</tt></td><td>&nbsp;</td><td><tt>i.@0:</tt></td></tr>  
+<tr><td><tt>&nbsp;</tt></td></tr>  
+<tr><td><tt>0 0</tt></td><td>&nbsp;</td><td><tt>+</tt></td><td>&nbsp;</td>
+ <td><tt>0:</tt></td><td>&nbsp;</td><td><tt>i.@0:</tt></td></tr>  
+<tr><td><tt>_ _</tt></td><td>&nbsp;</td><td><tt>-:</tt></td><td>&nbsp;</td>
+ <td><tt>0:</tt></td><td>&nbsp;</td><td><tt>i.@0:</tt></td></tr>  
+<tr><td><tt>_ 2</tt></td><td>&nbsp;</td><td><tt>%.</tt></td><td>&nbsp;</td>
+ <td><tt>+&amp;(0&amp;&gt;.@&lt;:)</tt></td><td>&nbsp;</td><td><tt>}.@[ ,~ }.@]</tt></td></tr>  
+<tr><td><tt>1 _</tt></td><td>&nbsp;</td><td><tt>|.</tt></td><td>&nbsp;</td>
+ <td><tt>]</tt></td><td>&nbsp;</td><td><tt>]</tt></td></tr>  
+<tr><td><tt>_ _</tt></td><td>&nbsp;</td><td><tt>,</tt></td><td>&nbsp;</td>
+ <td><tt>1&amp;&gt;.@&gt;.</tt></td><td>&nbsp;</td><td><tt>gcat</tt></td></tr>  
+<tr><td><tt>_ _</tt></td><td>&nbsp;</td><td><tt>,.</tt></td><td>&nbsp;</td>
+ <td><tt>(+ 2&amp;&gt;)@&gt;.</tt></td><td>&nbsp;</td><td><tt>gstch</tt></td></tr>  
+<tr><td><tt>_ _</tt></td><td>&nbsp;</td><td><tt>,:</tt></td><td>&nbsp;</td>
+ <td><tt>2&amp;&gt;.@&gt;.&amp;&gt;:</tt></td><td>&nbsp;</td><td><tt>glam</tt></td></tr>  
+<tr><td><tt>1 1</tt></td><td>&nbsp;</td><td><tt>#.</tt></td><td>&nbsp;</td>
+ <td><tt>0:</tt></td><td>&nbsp;</td><td><tt>i.@0:</tt></td></tr>  
+<tr><td><tt>1 0</tt></td><td>&nbsp;</td><td><tt>#:</tt></td><td>&nbsp;</td>
+ <td><tt>[</tt></td><td>&nbsp;</td><td><tt>[</tt></td></tr>  
+<tr><td><tt>_ _</tt></td><td>&nbsp;</td><td><tt>/:</tt></td><td>&nbsp;</td>
+ <td><tt>1&amp;&gt;.@[ - 0&amp;=@]</tt></td><td>&nbsp;</td><td><tt>}.@[ ,~ ic^:#@]</tt></td></tr>  
+<tr><td><tt>_ _</tt></td><td>&nbsp;</td><td><tt>\:</tt></td><td>&nbsp;</td>
+ <td><tt>1&amp;&gt;.@[ - 0&amp;=@]</tt></td><td>&nbsp;</td><td><tt>}.@[ ,~ ic^:#@]</tt></td></tr>  
+<tr><td><tt>_ _</tt></td><td>&nbsp;</td><td><tt>[</tt></td><td>&nbsp;</td>
+ <td><tt>[</tt></td><td>&nbsp;</td><td><tt>[</tt></td></tr>  
+<tr><td><tt>_ _</tt></td><td>&nbsp;</td><td><tt>]</tt></td><td>&nbsp;</td>
+ <td><tt>]</tt></td><td>&nbsp;</td><td><tt>]</tt></td></tr>  
+<tr><td><tt>0 _</tt></td><td>&nbsp;</td><td><tt>A.</tt></td><td>&nbsp;</td>
+ <td><tt>]</tt></td><td>&nbsp;</td><td><tt>]</tt></td></tr>  
+<tr><td><tt>1 _</tt></td><td>&nbsp;</td><td><tt>C.</tt></td><td>&nbsp;</td>
+ <td><tt>]</tt></td><td>&nbsp;</td><td><tt>]</tt></td></tr>  
+<tr><td><tt>0 2</tt></td><td>&nbsp;</td><td><tt>c.</tt></td><td>&nbsp;</td>
+ <td><tt>2:</tt></td><td>&nbsp;</td><td><tt>]</tt></td></tr>  
+<tr><td><tt>_ _</tt></td><td>&nbsp;</td><td><tt>e.</tt></td><td>&nbsp;</td>
+ <td><tt>&nbsp;-0&amp;&gt;.@&lt;:</tt></td><td>&nbsp;</td><td><tt>0&amp;&lt;.@-.@#@] }. [</tt></td></tr>  
+<tr><td><tt>_ _</tt></td><td>&nbsp;</td><td><tt>i.</tt></td><td>&nbsp;</td>
+ <td><tt>(-0&amp;&gt;.@&lt;:)~</tt></td><td>&nbsp;</td><td><tt>0&amp;&lt;.@-.@#@[ }. ]</tt></td></tr>  
+<tr><td><tt>1 0</tt></td><td>&nbsp;</td><td><tt>p.</tt></td><td>&nbsp;</td>
+ <td><tt>0:</tt></td><td>&nbsp;</td><td><tt>i.@0:</tt></td></tr>  
+<tr><td><tt>_ _</tt></td><td>&nbsp;</td><td><tt>0:</tt></td><td>&nbsp;</td>
+ <td><tt>0:</tt></td><td>&nbsp;</td><td><tt>i.@0:</tt></td></tr>  
+</table>
+<br>
+
+<pre>
+ic    =. 1&amp;{.@(,&amp;1)
+ms1   =. &gt;.&amp;# {.!.1&amp;.|.`1:@.(0&amp;=@#@])&amp;&gt; ;  
+gcat  =. ({.@(+/) , }.@(&gt;./)) @ ms1
+gstch =. (*@+&amp;# $ &gt;.&amp;(1&amp;{.)) , gcat&amp;}.  
+ms0   =. &gt;.&amp;# {.!.1&amp;.|.`0:@.(0&amp;=@#@])&amp;&gt; ;  
+glam  =. 2: , &gt;./@ms0`1:@.(0&amp;=@&gt;.&amp;#)
+</pre>    
+
+<br><hr>
+
+<p><font size=-1>Originally appeared in the APL95 Proceedings,
+APL Quote Quad, Volume 25, Number 1, 1996-06-04 to -08.
+</font></p>
+
+<table>
+<tbody><tr><td><font size="-1">created: &nbsp;</font></td><td><font size="-1">2009-05-16 00:00</font></td></tr>
+<tr><td><font size="-1">updated:</font></td><td><font size="-1">2013-05-08 09:20</font></td></tr>
+</tbody></table>
+
+
+
+<br><br>
+</td></tr></table>
+</body>  
+</html> 

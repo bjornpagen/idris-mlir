@@ -1,0 +1,134 @@
+\begin{mathpar}
+  \inferrule*[right=Unit]
+             {\\}
+             {\sunit \trans \tunit}
+  %
+  \and
+  \inferrule*[right=Var]
+             {\\}
+             {\svar{x} \trans \talien{\svar{x}}{\senv\spar{\svar{x}}}{\cdot}}
+
+  %
+  \and
+  %
+  \inferrule*[right=Box]
+             {\\}
+             {\salien{\texp}{\stau}{\sdelta} \trans \texp}
+  %
+  \and
+  %
+  \inferrule*[right=Pair]
+             {\source{e_i} \trans \target{e_i}}
+             { \spair{\source{e_1}}{\source{e_2}} \trans \tpair{\target{e_1}}{\target{e_2}}}
+  %
+  \and
+  %
+  \inferrule*[right=Proj]
+             {\sexp \trans \texp}
+             {\sproji{\sexp} \trans \tproji{\texp}}
+  %
+  \and
+  %
+  \inferrule*[right=Inl]
+             {\sexp \trans \texp}
+             {\sinl{\sexp} \trans \tinl{\texp}}
+  %
+  \and
+  %
+  \inferrule*[right=Inr]
+             {\sexp \trans \texp}
+             {\sinr{\sexp} \trans \tinr{\texp}}
+  %
+  \and
+  %
+  \inferrule*[right=Case]
+             {\sexp \trans \texp \\
+              \source{e_i}\ssubst{\svar{x}}{\salien{\tvar{x}}{\source{\tau_i}}{\cdot}} \trans \target{e_i}
+             }
+             {\scasex{\sexp} {\staui}{\sexpi} {\stauii}{\sexpii} \trans \tcasex{\texp} {\texpi} {\texpii}}
+  %
+  \and
+  %
+  \inferrule*[right=Abs]
+             {\sexp\ssubst{\svar{x}}{\salien{\tvar{x}}{\source{\tau}}{\cdot}} \trans \texp}
+             {\sabs{\svar{x}}{\stau}{\sexp} \trans \tabs{\tvar{x}}{\texp}}
+  %
+  \and
+  %
+  \inferrule*[right=App]
+             {\source{e_i} \trans \target{e_i}}
+             {\sapp{\source{e_1}}{\source{e_2}} \trans \tapp{\target{e_1}}{\target{e_2}}}
+  %
+  \and
+  %
+  \inferrule*[right=TAbs]
+             {\sexp \trans \texp}
+             {\stabs{\svar{A}}{\sexp} \trans \texp}
+  %
+  \and
+  %
+  \inferrule*[right=TApp]
+             {\sexp \trans \texp}
+             {\stapp{\sexp}{\stau} \trans \texp}
+
+ %% %
+ %%  \and
+ %%  %
+ %%  \inferrule*[right=Box]
+ %%             {\texp \tevals \tval}
+ %%             {\salien{\texp}{\stau}{\sdelta} \seval \salien{\tval}{\stau}{\sdelta}}
+ %%   %
+ %%  \and
+ %%  %
+ %%  \inferrule*[right=ProjAlien]
+ %%             {\\}
+ %%             {\salien{\tpair{\texp_{\target{1}}}{\texp_{\target{2}}}}{\sprod{\stau_{\source{1}}}{\stau_{\source{2}}}}{\sdelta}
+ %%               \seval
+ %%               \salien{\texp_{\target{1}}}{\stau_{\source{1}}}{\sdelta} }
+ %%  %
+ %%  \and
+ %%  %
+ %%  \inferrule*[right=CaseLAlien]
+ %%             {\\}
+ %%             {\scasex{\salien{\tinl{\texp}}{\ssum{\stau_{\source{1}}}{\stau_{\source{2}}}}{\sdelta}}{\stau_{\source{1}}}{\sexp_{\source{1}}}{\stau_{\source{2}}}{\sexp_{\source{2}}}
+ %%               \seval
+ %%               \sexp_{\source{1}} \ssubst{\svar{x}}{\salien{\texp}{\stau_{\source{1}}}{\sdelta}}}
+ %%  %
+ %%  \and
+ %%  %
+ %%  \inferrule*[right=AppAlien]
+ %%             {\\}
+ %%             {\sapp{\salien{\tabs{\tvar{x}}{\texp}}{\sarrow{\stau_{\source{1}}}{\stau_{\source{2}}}}{\sdelta}}
+ %%               {\sexp}
+ %%               \seval
+ %%               \sabs{\svar{x}}{\sdelta\stau_{\source{1}}}
+ %%                    {\kap{\stau_{\source{1}}}{\sdelta}{\svar{x}}
+ %%                      {\mfun{\texpp}{\salien{\texp\ssubst{\tvar{x}}{\texpp}}{\stau_{\source{2}}}{\sdelta}}}}
+ %%             }
+ %%  %
+ %%  \and
+ %%  %
+ %%  \inferrule*[right=TAppAlien]
+ %%             {\\}
+ %%             {\stapp{\salien{\texp}{\sall{\svar{A}}{\stau}}{\sdelta}}{\staup}
+ %%               \seval
+ %%               \salien{\texp}{\stau}{\sesubstext{\sdelta}{\svar{A}}{\staup}}
+ %%             }
+ %%  %
+ %%  \and
+ %%  %
+ %%  \inferrule*[right=AlienOpaque]
+ %%             {\stau \not = \sttop}
+ %%             {\salien{\topaque{\sexp}}{\stau}{\sdelta}
+ %%               \seval
+ %%               \sexp
+ %%             }
+ %%  %
+ %%  \and
+ %%  %
+ %%  \inferrule*[right=AlienCancel]
+ %%             {\\}
+ %%             {\salien{\talien{\sexp}{\staup}{\sdeltap}}{\stau}{\sdelta}
+ %%               \seval
+ %%               \sexp}
+\end{mathpar}

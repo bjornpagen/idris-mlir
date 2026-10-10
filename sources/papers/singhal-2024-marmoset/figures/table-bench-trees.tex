@@ -1,0 +1,65 @@
+\begin{table}
+    \small
+    \setlength{\tabcolsep}{4pt} %% default is 6pt
+    \centering
+	\caption{Run-time mean and 95\% confidence interval (ub, lb) for different
+      layouts and traversal orders in the binary tree benchmarks (seconds).
+              \misalignedPre{} -- post-order traversal on the pre-order layout of the tree.
+              \misalignedPost{} -- pre-order traversal on the post-order layout of the tree.
+              \alignedPre{} -- pre-order traversal on the pre-order layout of the tree.
+              \alignedIn{} -- in-order traversal on an in-order layout of the tree.
+              \alignedPost{} -- post-order traversal on the post-order layout of the tree.
+              }
+    \begin{tabular}{@{}lrrrrrrr@{}}
+        \toprule
+        \multirow{2}[2]{*}{\thead[l]{Benchmark\\name}}
+        & \multicolumn{5}{c}{{\gibbon}}
+        & \multicolumn{2}{c}{{\system}}\\
+        \cmidrule(lr){2-6}\cmidrule(lr){7-8}
+        & \multicolumn{1}{c}{\scriptsize{\misalignedPre}}
+        & \multicolumn{1}{c}{\scriptsize{\misalignedPost}}
+        & \multicolumn{1}{c}{\scriptsize{\alignedPre}}
+        & \multicolumn{1}{c}{\scriptsize{\alignedIn}}
+        & \multicolumn{1}{c}{\scriptsize{\alignedPost}}
+        & \multicolumn{1}{c}{\scriptsize{\systemGreedy}}
+        & \multicolumn{1}{c}{\scriptsize{\systemSolver}}\\
+     \midrule
+      \thead[l]{%
+        \benchname{AddOneTree}
+		\\\vspace{0cm}}
+            & \thead{\textcolor{\myred}{{45.51}}\\ \scriptsize{(45.35, 45.66)}}
+            &   \thead{memory\\error}
+            &   \thead{{{1.29}}\\ \scriptsize{(1.29, 1.29)}}
+    		&   \thead{{{1.30}}\\ \scriptsize{(1.30, 1.30)}}
+    		&   \thead{{{1.29}}\\ \scriptsize{(1.29, 1.29)}}
+    		&   \thead{{{1.29}}\\ \scriptsize{(1.29, 1.29)}}
+            &   \thead{\textcolor{\myblue}{{1.28}}\\ \scriptsize{(1.28, 1.28)}}
+            \\
+      \thead[l]{%
+        \benchname{ExpTree}
+		\\\vspace{0cm}}
+            & \thead{\textcolor{\myred}{{45.52}}\\ \scriptsize{(45.34, 45.70)}}
+            &   \thead{memory\\error}
+            &  \thead{{\fnumtwo{1.3119424788732397}}\\ \scriptsize{(\fnumtwo{1.3118021074983999}, \fnumtwo{1.3120828502480795})}}
+    		&   \thead{{\fnumtwo{1.3128224647887325}}\\ \scriptsize{(\fnumtwo{1.312729018973989}, \fnumtwo{1.312915910603476})}}
+    		&   \thead{{\fnumtwo{1.2938285633802817}}\\ \scriptsize{(\fnumtwo{1.2937382563056141}, \fnumtwo{1.2939188704549494})}}
+    		&   \thead{{\fnumtwo{1.3117947323943662}}\\ \scriptsize{(\fnumtwo{1.311661357137603}, \fnumtwo{1.3119281076511293})}}
+            &   \thead{\textcolor{\myblue}{\fnumtwo{1.292822605633803}}\\ \scriptsize{(\fnumtwo{1.2919551360395027}, \fnumtwo{1.2936900752281033})}}
+            \\
+      \thead[l]{%
+        \benchname{CopyTree}
+		\\\vspace{0cm}}
+            & \thead{\textcolor{\myred}{{45.52}}\\ \scriptsize{(45.37, 45.67)}}
+            &   \thead{memory\\error}
+            &  \thead{{\fnumtwo{1.2870960563380283}}\\ \scriptsize{(\fnumtwo{1.286875053013491}, \fnumtwo{1.2873170596625656})}}
+    		&   \thead{{\fnumtwo{1.2969579436619716}}\\ \scriptsize{(\fnumtwo{1.2967934277469406}, \fnumtwo{1.2971224595770026})}}
+    		&   \thead{{\fnumtwo{1.2786742816901409}}\\ \scriptsize{(\fnumtwo{1.2785930976634212}, \fnumtwo{1.2787554657168605})}}
+    		&   \thead{{\fnumtwo{1.2858431830985915}}\\ \scriptsize{(\fnumtwo{1.2857585274482104}, \fnumtwo{1.2859278387489725})}}
+            &   \thead{\textcolor{\myblue}{\fnumtwo{1.2766249295774648}}\\ \scriptsize{(\fnumtwo{1.2765012665588478}, \fnumtwo{1.2767485925960818})}}
+            \\
+    \bottomrule
+    \end{tabular}
+    \label{table:Add-one-Tree}
+    \label{table:Exponentiation-Tree}
+	\label{table:Copy-Tree}
+\end{table}

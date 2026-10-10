@@ -1,0 +1,467 @@
+\newcommand\nats{\ensuremath{\mathbb{N}}}
+
+
+\subsection{Semantics}\label{sec:pbe:semantics}
+
+\mypara{Stores}
+%
+A \emph{store} $\store$ is a mapping from
+(free) variables to values.
+%
+We write $\apply{\store}{\expr}$ for the term
+obtained by substituting free variables $x$
+in $\expr$ with the corresponding values in
+the store $\store$.
+%
+We write $\satisfies{\Renv}{\store}{\expr}$
+if $\trans{\Renv}{\apply{\store}{\expr}}{\ttrue}$.
+%
+We say $\Penv$ is \emph{inhabited}
+if for some $\store$ we have
+$\satisfies{\Renv}{\store}{\pred}$
+for each $\pred \in \Penv$.
+
+%% \begin{figure}[h]
+%% \judgementHead{Satisfaction}{\satisfies{\Renv}{\store}{\cdot}}
+%% $$\begin{array}{lll}
+%% \inferrule[\rulename{Sat-Base}]
+  %% {\trans{\Renv}{\apply{\store}{\expr}}{\ttrue}}
+  %% {\satisfies{\Renv}{\store}{\pred}}
+%% &
+%% \inferrule[\rulename{Sat-Ext}]
+  %% {\satisfies{\Renv}{\store}{\pred}\ \satisfies{\Renv}{\store}{\Penv}}
+  %% {\satisfies{\Renv}{\store}{\pred,\Penv}}
+%% \end{array}$$
+%% \caption{{Constraints: Syntax and Semantics}}
+%% \label{fig:satisfaction}
+%% \end{figure}
+
+\mypara{Divergence}
+%
+We say that a closed term $\expr$
+\emph{diverges under} $\Renv$ if
+there is no $\val$ such that
+$\trans{\Renv}{\expr}{\val}$ .
+
+\begin{lemma}[\textbf{Divergence}] \label{lem:div} % TRIVIAL
+If $\ \forall i \in \nats$ we have
+$\trans{\Renv}{\expr_i}{\ctxapp{\ctx}{\expr_{i+1}}}$
+then $\expr_0$ diverges under $\Renv$.
+\end{lemma}
+
+\mypara{Subterm Evaluation}
+%
+The following lemma states that
+if a store satisfies a reflected
+function's guard, then the evaluation
+of the corresponding function body
+requires evaluating \emph{every}
+sub-term inside the body.
+
+\begin{lemma}\label{lem:subterm-eval}
+Let $\rlookup{\Renv}{\rfun} \equiv \rdef{x}{\pred}{\body}$.
+%
+If $\satisfies{\Renv}{\store}{\pred_i}$ and $\issubterm{\fapp{g}{e}}{\body_i}$
+then
+$\trans{\Renv}{\apply{\store}{\body_i}}
+              {\ctxapp{\ctx}{\rawapp{g}{\apply{\store}{\params{\expr}}}}}$.
+\end{lemma}
+
+\mypara{Totality Assumption}
+%
+The following assumption states that
+if a store satisfies a reflected function's
+guard, then the corresponding body reduces
+to exactly one value.
+%
+Both of these are checked via
+refinement typing \cite{Vazou14}.
+%
+\RJ{format below as "assumption" to avoid confusion}
+
+\begin{lemma}[\textbf{Total}]\label{asm:total}
+Let $\rlookup{\Renv}{\rfun} \equiv \rdef{x}{\pred}{\body}$.
+%
+$\rfun$ is \emph{total} if forall $\store$
+%
+\begin{enumerate}
+\item If $\satisfies{\Renv}{\store}{\pred_i}$ then $\trans{\Renv}{\apply{\store}{\body_i}}{\val}$.
+\item If $\satisfies{\Renv}{\store}{\pred_i}$, $\satisfies{\Renv}{\store}{\pred_j}$ then $i=j$.
+\end{enumerate}
+%
+$\Renv$ is \emph{total} if every $\rfun \in \Renv$ is total.
+%
+\end{lemma}
+
+\subsection{Symbolic Steps and Traces} \label{sec:pbe:trace}
+
+\mypara{Instantiation}
+%
+A term $\predb$ is a \emph{$\Renv$-instance} if
+${\predb \equiv \SUBST{(\pred_i \Rightarrow \fapp{\rfun}{x} = \body_i)}{\params{x}}{\params{\expr}}}$
+for some $\rfun$ such that $\rlookup{\Renv}{\rfun} \equiv \rdef{x}{\pred}{\body}$.
+%
+A set of terms $Q$ is a \emph{$\Renv$-instance}
+if every $\predb \in Q$ is an $\Renv$-instance.
+
+\begin{lemma}[\textbf{Sat-Inst}]\label{lem:sat-inst}
+  If   $\satisfies{\Renv}{\store}{\Penv}$ and
+       $Q$ is a $\Renv,\Penv$-instance,
+  then $\satisfies{\Renv}{\store}{\Penv \wedge Q}$.
+\end{lemma}
+
+\begin{lemma}[\textbf{SMT-Approx}] \label{lem:smt-approx}
+If $\smtIsValid{\Penv}{\pred}$ then %forall $\store$,
+   $\satisfies{\Renv}{\store}{\Penv}$ implies
+   $\satisfies{\Renv}{\store}{\pred}$.
+\end{lemma}
+
+\begin{lemma}[\textbf{SMT-Inst}] \label{lem:smt-inst}
+If   (1)~$\satisfies{\Renv}{\store}{\Penv}$,
+     (2)~$Q$ is an $\Renv,\Penv$-instance,
+     (3)~$\smtIsValid{\Penv \wedge Q}{\pred}$
+then $\satisfies{\Renv}{\store}{\pred}$.
+\end{lemma}
+
+\mypara{Symbolic Step}
+%
+A pair
+$\symstep{\fapp{\rfun}{\expr}}{\fapp{\rfun'}{\expr'}}$
+is a
+$\Renv,\Penv$-\emph{symbolic step} (abbrev. step)
+if
+%
+\begin{itemize}
+  \item $\rlookup{\Renv}{\rfun} \equiv \rdef{x}{\pred}{\body}$,
+  \item $\smtIsValid{\Penv \wedge Q}{\pred_i}$ for some $\Renv$-instance $Q$,
+  \item $\issubterm{\fapp{\rfun'}{\expr'}}{\SUBST{\body_i}{\params{x}}{\params{\expr}}}$
+\end{itemize}
+
+\mypara{Steps and Reductions}
+%
+Every symbolic step under an inhabited $\Penv$ corresponds
+to a \emph{sequence} of steps in the concrete semantics:
+
+\begin{lemma}[\textbf{Step-Reductions}]\label{lem:step-reductions}
+If   $\symstep{\fapp{\rfun}{\expr}}{\fapp{\rfun'}{\expr'}}$
+     is a symbolic step under $\Renv, \Penv$
+     and
+     $\satisfies{\Renv}{\store}{\Penv}$
+then $\trans{\Renv}
+            {\fapp{\rfun}{\apply{\store}{\expr}}}
+            {\ctxapp{\ctx}{\fapp{\rfun'}{\apply{\store}{\expr'}}}}$
+for some context $\ctx$.
+\end{lemma}
+
+\begin{proof}
+Using Lemmas~\ref{lem:subterm-eval}, \label{lem:smt-approx}
+and the definition of symbolic steps.
+\end{proof}
+
+\mypara{Steps and Values}
+%
+The following lemma states that if
+$\symstep{\fapp{\rfun}{y}}{\expr'}$
+is a symbolic step under a $\Penv$
+inhabited by $\store$ then
+$\apply{\store}{\fapp{\rfun}{y}}$
+reduces to a value.
+%
+The proof follows by observing that if $\Penv$
+is inhabited by $\store$, and a particular step
+is possible, then the guard corresponding to that
+step must also be true under $\store$ and hence,
+by totality, the function must reduce to a value
+under the given store.
+
+\begin{lemma}[\textbf{Step-Value}]\label{lem:step-value}
+If $\Renv$ is total,
+   $\satisfies{\Renv}{\store}{\Penv}$, and
+   $\symstep{\fapp{\rfun}{y}}{\expr'}$ is a $\Renv,\Penv$ step
+then $\trans{\Renv}{\apply{\store}{\fapp{\rfun}{y}}}{\val}$.
+\end{lemma}
+
+
+\begin{proof}
+\begin{alignat}{3}
+\bcoz{Assume that}
+  && \Renv, \store & \models \Penv \label{eq:stepval:1} \\
+\bcoz{Let}
+  && \store^*               & \doteq \store \mapsingle{\params{x}}{\apply{\store}{\params{y}}} \label{eq:stepval:2}\\
+  && \rlookup{\Renv}{\rfun} & \doteq \rdef{x}{\pred}{\body} \label{eq:stepval:3} \\
+\intertext{As $\symstep{\fapp{\rfun}{y}}{\expr'}$ is a $\Renv,\Penv$ step,
+for some $i$, \Renv-instance $Q$ we have}
+  && \Penv \wedge Q & \vdash \SUBST{\pred_i}{\params{x}}{\params{y}} \notag \\
+\bcoz{Hence, by (\ref{eq:stepval:1} and Lemma~\ref{lem:smt-approx}}
+  && \Renv, \store  & \models \SUBST{\pred_i}{\params{x}}{\params{y}} \label{eq:stepval:4}\\
+\bcoz{As}
+  && \apply{\store^*}{\pred_i}
+  & \equiv \apply{\store}{\SUBST{\pred_i}{\params{x}}{\params{y}}} \\
+\bcoz{The fact (\ref{eq:stepval:4}) yields}
+  && \Renv, \store^*  & \models \pred_i \notag \\
+\bcoz{By the Totality Assumption~\ref{asm:total}}
+  && \Renv & \models \stepsmany{\apply{\store^*}{\fapp{\rfun}{x}}}{\val} \notag \\
+\bcoz{That is}
+  && \Renv & \models \stepsmany{\apply{\store}{\fapp{\rfun}{y}}}{\val} \notag
+\end{alignat}
+\end{proof}
+
+\mypara{Symbolic Trace}
+%
+A sequence
+%
+$\fapp{\rfun_0}{\expr_0},\fapp{\rfun_1}{\expr_1},\fapp{\rfun_2}{\expr_2},\ldots$
+%
+is a $\Renv,\Penv$-\emph{symbolic trace} (abbrev. trace)
+if $\params{\expr_0} \equiv \params{x_0}$ for some variables $x_0$,
+and $\symstep{\fapp{\rfun_i}{\expr_i}{\fapp{\rfun_{i+1}}{\expr_{i+1}}}}$
+is a $\Renv,\Penv$-step, for each $i$.
+
+\begin{theorem}[\textbf{Finite-Trace}]\label{thm:finite-trace}
+If $\Renv$ is total, $\satisfies{\Renv}{\store}{\Penv}$
+then every $\Renv,\Penv$-trace is finite.
+\end{theorem}
+
+\begin{proof}
+We prove this theorem by contradiction.
+Specifically, we show that an infinite
+$\Renv,\Penv$-trace for a $\Penv$
+inhabited by $\store$ yields a
+contradiction, and hence, all the
+$\Renv, \Penv$ symbolic traces
+must be finite.
+%
+\begin{alignat}{3}
+\bcoz{Assume that}
+   && \Renv, \store & \models \Penv
+   \label{eq:fin:0}\\
+\bcoz{and assume an infinite $\Renv, \Penv$ trace:}
+   && \fapp{f_0}{\expr_0}, & \fapp{f_1}{\expr_1}, \ldots
+   \label{eq:fin:1}\\
+\bcoz{Where additionally}
+   && \params{\expr_0} & \equiv \params{x_0}
+      \label{eq:fin:2} \\
+\bcoz{Define}
+   && \expr^*_i        & \equiv \apply{\store}{\fapp{\rfun_i}{\expr_i}}
+      \label{eq:fin:3} \\
+\bcoz{By Lemma~\ref{lem:step-reductions}, for every $i \in \nats$}
+   && \Renv & \models \stepsmany{\expr^*_i}{\ctxapp{\ctx_i}{\expr^*_{i+1}}}
+      \notag \\
+\bcoz{Hence, by Lemma~\ref{lem:div}}
+   && \expr^*_0
+    & \ \mbox{diverges under $\Renv$}
+      \notag \\
+\bcoz{\ie, by (\ref{eq:fin:2}, \ref{eq:fin:3})}
+   && \apply{\store}{\fapp{\rfun_0}{x_0}}
+    & \ \mbox{diverges under $\Renv$}
+      \label{eq:fin:5} \\
+\bcoz{But by (\ref{eq:fin:0}) and Lemma~\ref{lem:step-value}}
+   && \Renv & \models \stepsmany{\apply{\store}{\fapp{\rfun_0}{x_0}}}
+                                {\val}
+      \quad \mbox{contradicting (\ref{eq:fin:5})} \notag
+\end{alignat}
+%
+Hence, assumption (\ref{eq:fin:1}) cannot hold, \ie all
+all the $\Renv, \Penv$ symbolic traces must be finite.
+\end{proof}
+
+\subsection{Algorithm \pbesym}\label{sec:pbe:algo}
+
+
+\begin{figure}[t!]
+\begin{tabular}{>{$}r<{$} >{$}r<{$} >{$}r<{$} >{$}l<{$} >{$}l<{$} }
+\emphbf{Values}       & \val   & ::=    & \vconst                                  & \mbox{constants}\\
+                      &        & \spmid & \capp{\ctor}{\val}                       & \mbox{ctor-application}\\[0.05in]
+\emphbf{Operators}    & \op    & ::=    & \{ =,\ \wedge,\ \ldots \}  \\[0.05in]
+% \emphbf{Operators}   & \op    & ::=    & =      \spmid \leq \spmid <              & \mbox{comparisons} \\
+%                      &        & \spmid & \wedge \spmid \vee \spmid \neg           & \mbox{boolean} \\[0.05in]
+\emphbf{Terms} & \expr, \pred, \body
+                      & ::=    & \val                                              & \mbox{values}  \\
+                      &        & \spmid & x                                        & \mbox{variables} \\
+                      &        & \spmid & \expr \op \expr                          & \mbox{prim-op} \\
+                      &        & \spmid & \fapp{\rfun}{\expr}                      & \mbox{func-application} \\
+                      &        & \spmid & \capp{\ctor}{\expr}                      & \mbox{ctor-application} \\[0.05in]
+\emphbf{Functions}    & \Rfun  & ::=    & \rdef{x}{\pred}{\body}                   & \\ [0.05in]
+\emphbf{Definitions}  & \Renv  & ::=    & \emptyset \spmid \rfun \mapsto \Rfun, \Renv & \\ [0.05in]
+\emphbf{Environments} & \Penv  & ::=    & \ttrue \spmid \pred, \Penv               & \\ [0.05in]
+\end{tabular}
+\caption{{Syntax of Predicates, Terms and Reflected Functions}}
+\label{fig:syntax}
+\end{figure}
+
+
+\begin{figure}[thp]
+\centering
+\begin{tabular}{c}  % the tabular makes the listing as small as possible and centers it
+\toprule
+\begin{code2}
+def $\cands{\expr}$:
+  return [$(\rfun, \exprs)$|$\issubterm{\fapp{\rfun}{e}}{\expr}$]
+
+def $\init{\Penv}{\predb}$:
+  $\tree$ = $\emptyset$
+  $\link{\tree}{\troot}{\cands{\predb}}$
+  for $\pred$ in $\Penv$:
+    $\link{\tree}{\troot}{\cands{\pred}}$
+  return $\tree$
+
+def $\link{t}{\node}{\nodes}$:
+  $\nodes'$ = [$\node'$|$\node'$ in $\nodes$ if $\node' \not \in t$]
+  if $\nodes' = \emptyset$:
+    $t$ += ($\node \linkarrow \tdone$)
+    return $(t,\kw{False})$
+  else:
+    for $\node'$ in $\nodes'$:
+      $t$ += ($\node \linkarrow \node'$)
+      return $(t,\kw{True})$
+\end{code2}
+\tabularnewline \bottomrule
+\end{tabular}
+\caption{\fixme{This is some code}}
+\label{fig:code-label}
+\end{figure}
+
+\begin{figure}[t]
+\begin{center}
+\begin{tabular}{c}
+\toprule
+\begin{code2}
+def $\pbe{\Renv}{\Penv}{\pred}$:
+  $\tree$ = $\init{G}{p}$
+  $\cont$ = True
+  while cont && $\neg \smtIsValid{\Penv}{p}$:
+    $\cont$ = False
+    for $(\rfun, \exprs)$ in $\leaves{\tree}$:
+      $q$ = $\inst{\Renv}{\Penv}{\rfun}{\exprs}$
+      if $q \not = \ttrue$:
+        $\Penv$ = $\Penv \wedge q$
+        $(\tree, \cont)$ = $\link{\tree}{(\rfun, \exprs)}{\cands{q}}$
+  return $\smtIsValid{\Penv}{\pred}$
+
+def $\inst{\Renv}{\Penv}{\rfun}{\exprs}$:
+  let $\rbody{x}{d}$ = $\Renv(\rfun)$
+  for $\pred \Rightarrow \body$ in $\overline{d}$:
+    if $\smtIsValid{\Penv}{\SUBST{p}{\params{x}}{\exprs}}$:
+      return $\SUBST{(\rfun(\params{x}) = \body)}{\params{x}}{\exprs}$
+  return $\ttrue$
+\end{code2}
+\tabularnewline \bottomrule
+\end{tabular}
+\end{center}
+\caption{Proof by Evaluation}
+\label{fig:pbe}
+\label{fig:inst}
+\end{figure}
+
+\begin{lemma}[\textbf{Link}]\label{lem:link}
+$\link{t}{n}{{ns'}} = (t', \ttrue)$
+iff
+$t$ is a strict subtree of $t'$.
+\end{lemma}
+
+\begin{lemma} \label{lem:invariants}
+The following invariants hold at every
+iteration of the \kw{loop} in
+$\pbe{\Renv}{\Penv}{\expr = \expr'}$:
+%
+\begin{enumerate}
+\item $\Penv_i$ is a $\Renv, \Penv$-instance,
+\item Every path in $\tree$ is an $\Renv,\Penv$-trace.
+\end{enumerate}
+%
+\end{lemma}
+
+\begin{proof}
+%
+The first invariant follows as $Q$ is
+initially $\ttrue$ and at each iteration,
+$Q$ is conjoined with $\Renv$-instances.
+%
+The second invariant holds initially as
+$\Penv$ and $\pred$ are normalized (via
+the addition of ``temporary'' variables)
+to ensure that all applications are to
+variables.
+%
+As at each iteration, $Q$ is, an $\Renv$-instance,
+each link connecting $\fapp{\rfun}{\expr}$
+to $\fapp{\rfun'}{\expr'}$ is a $\Renv, \Penv$-step,
+and so each path is a $\Renv, \Penv$-trace.
+\end{proof}
+
+
+\mypara{Transparency}
+%
+We say $\Penv$ is \emph{inconsistent}
+if $\smtIsValid{\Penv}{\tfalse}$.
+%
+We say $\Penv$ is \emph{transparent}
+if it is either inhabited or inconsistent.
+%
+As an example of a \emph{non-transparent}
+$\Penv_0$ consider the predicate
+$\kw{lenA xs} = 1 + \kw{lenB xs}$,
+where \kw{lenA} and \kw{lenB} are both
+identical definitions of the list length
+function.
+%
+Clearly there is no $\store$ that causes
+the above predicate to evaluate to $\ttrue$.
+%
+At the same time, the SMT solver cannot
+(using the decidable, quantifier-free theories)
+prove a contradiction as that requires
+induction over \kw{xs}.
+
+\mypara{Normal}
+%
+We say $\Penv$ is \emph{normal}
+if all applications in $\Penv$ are
+of the form $\fapp{f}{x}$.
+%
+We can easily \emph{normalize}
+a $\Penv$ by introducing fresh
+variables for each sub-term.
+
+\begin{theorem}[\textbf{Termination}] \label{thm:termination}
+  If $\Penv$ is transparent, $\Penv, \pred$ are normal
+  then $\pbe{\Renv}{\Penv}{\pred}$ terminates.
+\end{theorem}
+
+\begin{proof}
+As $\Penv$ is transparent, there are two cases.
+%
+\begin{alignat}{3}
+%
+\intertext{\quad \emph{Case: $\Penv$ is inconsistent.}}
+%
+\bcoz{By definition of inconsitency}
+  && \Penv & \vdash \tfalse \notag \\
+\bcoz{Hence}
+  && \Penv & \vdash \pred \quad \mbox{\ie $\pbe{\Renv}{\Penv}{\pred}$ terminates immediately.}
+     \notag \\%[0.1in]
+%
+\intertext{\quad \emph{Case: $\Penv$ is inhabited.}}
+%
+\bcoz{That is, exists $\store$ s.t.}
+  && \Renv, \store & \models \Penv \label{eq:term:1} \\
+\intertext{\quad Suppose that $\pbe{\Renv}{\Penv}{\pred}$ does not terminate.}
+\bcoz{That is, assume that:}
+  && \kw{while} & \ \mbox{loop iterates infinitely}
+  \label{eq:term:2} \\
+\bcoz{By Lemma~\ref{lem:link}}
+  && \tree & \ \mbox{has infinite nodes} \notag \\
+\bcoz{By Konig's Lemma~\cite{konig27}}
+  && \tree & \ \mbox{has an infinite path} \notag \\
+\bcoz{By Lemma~\ref{lem:invariants}}
+  && \Renv,\Penv & \ \mbox{has an infinite trace} \notag
+\end{alignat}
+Which, by (\ref{eq:term:1}) contradicts Theorem~\ref{thm:finite-trace}.
+Thus, (\ref{eq:term:2}) is impossible, \ie $\pbe{\Renv}{\Penv}{\pred}$
+terminates.
+\end{proof}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

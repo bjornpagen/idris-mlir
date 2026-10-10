@@ -1,0 +1,16 @@
+% !TEX root = paper.tex
+
+\section{Conclusions}\label{sec:conclusions}
+
+By taking advantage of Rust's linearity and borrow checking,
+Verus can express linear ghost permissions that aid the verification
+of tricky, low-level and/or concurrent code.
+This allows Verus to safely express code that would be unsafe in ordinary Rust,
+and to prove strong correctness guarantees about the code.
+Even for more straightforward code,
+Rust's type safety and control over aliasing makes verification considerably easier,
+allowing \verus' generation of verification conditions to treat Rust code more as functional code
+than as imperative code.
+In other words, we've found that one of the most valuable tools for verifying Rust code is Rust itself.
+So we conclude with a simple slogan for Verus' style of verification:
+ask not what verification can do for Rust --- ask what Rust can do for verification.

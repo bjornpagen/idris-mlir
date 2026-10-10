@@ -1,0 +1,117 @@
+% !TEX root = paper.tex
+
+\section{Related work}\label{sec:related}
+
+Many tools for verifying Rust code exist.
+As far as we know, no other tool leverages Rust's borrow checker to enforce linear ghost permissions.
+However, in other dimensions, there is significant overlap between Verus and other projects.
+
+Creusot~\cite{denis:hal-03737878} may be the closest tool to Verus,
+since it uses Rust code to express specifications and proofs,
+based on a macro named Pearlite.
+Creusot functions can be annotated as \verb`#[logic]` or \verb`#[predicate]`
+to indicate that the functions are ghost.
+These are similar to Verus' \verb`spec` functions,
+in that they are not checked for linearity and borrowing
+(``Pearlite formulas are type-checked by the front-end of the Rust compiler,
+but they are not borrow checked'').
+Creusot does not have ghost code that is checked for linearity and borrowing,
+the way Verus' \verb`proof` functions and \verb`proof` variables are.
+Verus' SMT-LIB encoding is conceptually similar to the one produced 
+by Creusot~\cite{denis:hal-03737878} via the Why3~\cite{boogie11why3} prover,
+which requires an intermediate step: in Creusot the Rust code is first
+lowered into Why3's MLCFG (an ML with labelled blocks and gotos),
+and then Why3 encodes verification conditions for the backend solvers.
+
+Prusti~\cite{DBLP:journals/pacmpl/Astrauskas0PS19,DBLP:conf/nfm/AstrauskasBFGMM22}
+verifies Rust code by translating it into the Viper separation logic engine~\cite{DBLP:conf/vmcai/0001SS16},
+effectively reverifying ownership properties enforced by Rust's borrow checker.
+This relatively heavyweight encoding creates larger formulas for an SMT solver,
+but can be used for Rust \verb`unsafe` code that subverts Rust's borrow checking rules.
+By contrast, \verus relies on the memory safety enforced by Rust's borrow checker,
+obviating the need to use separation logic ubiquitously---instead,
+the user can selectively apply separation logic-style techniques
+(based on linear ghost permissions) only for the tricky cases that require them.
+
+Aeneas~\cite{DBLP:journals/pacmpl/HoP22} verifies Rust code by translating it into a purely functional
+representation in \fstar.
+In this style of verification,
+programmers develop a proof about the functional representation of executable Rust code,
+which is quite different from Verus' Hoare-logic style,
+where the programmer annotates the Rust code with preconditions, postconditions, and loop invariants.
+
+% {Verifying Rust Programs with SMACK} % https://soarlab.org/publications/2018_atva_bhr/
+
+% {CRust: A Bounded Verifier for Rust} % https://alastairreid.github.io/RelatedWork/papers/toman:ase:2015/
+
+\citet{DBLP:journals/pacmpl/YanovskiDJD21} propose a datatype called \verb`GhostCell`, which separates
+data from permission in a manner similar to our \verb`PCell` and \verb`PermData`.
+The main difference is that \verb`GhostCell` employs a polymorphic type trick to enforce that a permission may
+only be used with the cells to which it corresponds, while \verb`PCell` uses a \verb`requires` clause to enforce this,
+which is more flexible and allows permissions to depend on data that is not statically determined during type-checking.
+Furthermore, while \verb`GhostCell` is used to enforce memory safety, to our knowledge, it has not been used to show functional correctness properties.
+
+RustBelt~\cite{DBLP:journals/pacmpl/0002JKD18} is a verification framework that establishes
+a semantic model for type safety in Rust: it allows a user to verify \verb`unsafe` code
+with safe APIs, i.e., prove that any well-typed, \verb`unsafe`-free Rust program using the API
+will be memory safe.
+This makes it complementary to \verus, which relies on that memory safety, and indeed, it might be possible to use RustBelt to verify \verus' memory primitives (\verb`PPtr` and \verb`PCell`) and their specifications.
+RustBelt can also handle atomics with relaxed memory ordering~\cite{DBLP:journals/pacmpl/DangJKD20}, which \verus does not support.
+RustBelt is implemented in Coq, and thus proofs are written via tactics rather than by SMT.
+
+RustBelt has also been used as part of RustHornBelt~\cite{DBLP:conf/pldi/MatsushitaDJD22}, which validates RustHorn~\cite{DBLP:conf/esop/0002T020},
+the encoding used by Creusot.
+However, RustHornBelt still requires that \verb`unsafe` code be proved correct in Coq,
+while \verus provides safe, zero-cost alternatives to commonly used \verb`unsafe` Rust features via its linear ghost state.
+Specifically, \verus provides \verb`PPtr` for raw pointers and \verb`PCell` for \verb`UnsafeCell`, so that users can write code (which would otherwise need those
+\verb`unsafe` features) within \verus itself.
+
+Note though that while \verus supports some \verb`unsafe` use-cases, including raw pointers,
+our specification for pointers
+is very simple, only handling pointers that point into heap allocations from the global
+memory allocator. A complete pointer model for Rust would support pointers to the
+stack variables, cell interiors, struct fields, references, and so on, as well as handle
+thorny issues such as pointer provenance.
+By comparison, Stacked Borrows~\cite{StackedBorrows} is a promising operational semantics 
+for Rust memory accesses that aims to handle all these concepts.
+
+Separation logic~\cite{DBLP:conf/lics/Reynolds02, DBLP:journals/tcs/OHearn07, Iris31}
+was one inspiration for our linear ghost permissions,
+although the techniques used in Verus and separation logic are quite different.
+In separation logic, a permission is part of the logic rather than a program-level value,
+and two permissions are combined together using separating conjunction.
+In Verus, permissions are values and two permissions are combined together by placing them in a datatype.
+Thus, in Verus, programmers manipulate permissions directly as data,
+which can require extra programmer effort,
+but makes generating verification conditions for an SMT solver much easier,
+since SMT solvers handle classical logic, not separation logic.
+
+Another inspiration for linear ghost permissions was earlier work on
+using linearity in type systems to manage changing
+state~\cite{crary1999capcalculus, smith2000aliastypes, zhu2005atsviews, morrisett2005l3}
+Alias Types~\cite{smith2000aliastypes}, for example, tracks a set of constraints on the memory state,
+and these constraints change linearly as the memory state evolves.
+ATS~\cite{zhu2005atsviews} combines this idea, in the form of ``stateful views'',
+with reasoning about integer arithmetic via a simple dependent type system.
+Most similar to our approach is L3~\cite{morrisett2005l3},
+which treats ``capabilities'' (permissions) as first-class linear ghost values,
+as in Verus.  L3 uses type variables (specifically, location variables)
+to connect the capabilities to pointers, whereas
+Verus uses SMT solving, which avoids the burden on the programmer of
+universally quantifying or existentially quantifying over location variables.
+The combination of SMT solving and Rust's automated borrow checking means that
+ideas from ATS and L3 are now not only possible within a mainstream language,
+but convenient.
+
+Dafny~\cite{DBLP:conf/lpar/Leino10} and \fstar~\cite{mumon} support ghost code and ghost variables.
+\fstar uses an effect system to distinguish ghost functions from executable functions,
+and has an \verb`erased` type to represent ghost data.
+\fstar does not have a linear type system,
+although the \fstar Steel system~\cite{DBLP:journals/pacmpl/FromherzRSGMMR21}
+supports separation logic reasoning.
+Dafny supports \verb`ghost` annotations on variables,
+similar to Verus \verb`spec` variables,
+and Dafny supports \verb`lemma`s, similar to Verus \verb`proof` functions.
+Linear Dafny~\cite{DBLP:journals/pacmpl/LiLZCHPH22} extends Dafny with linear types and borrowing,
+although the linearity and borrowing is less sophisticated than in Rust (for example,
+Linear Dafny lacks lifetime variables).

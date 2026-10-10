@@ -1,0 +1,192 @@
+%% By design, frex supports arbitrary algebraic theories (including
+%% undecidable theories, which can be constructed using quotients,
+%% although these introduce proof obligations that the user must
+%% discharge by some means other than definitional equality).
+
+\section{Completeness and Certification}
+\seclabel{certification}
+%
+\Frexlib{} uses setoids to extract intensional information: it
+automatically extracts printable representations of simplification proofs, and moreover formalises
+the completeness of fral/frex simplifiers. Here is how it works:
+\begin{itemize}
+\item It is easy to construct a frex and a fral using
+      a quotient setoid: terms quotiented by provability.
+\item The equivalence relation in this setoid is not necessarily
+  \emph{effective}/\emph{decidable}.
+\item An effective fral/frex must be constructed manually/creatively.
+\item Any fral/frex is canonically isomorphic to the quotient frex, and an
+  effective fral/frex with a constructive universality proof has an effective isomorphism to
+  the quotient setoid.
+\item In this way, a simplifier using an effective frex is
+  constructively sound and complete.
+\item The universal property of the effective fral/frex lets us
+  interpret equations it simplifies to the same value as related
+  values in every model/extension.
+\item
+  So the effective fral/frex lets us extract the data structure that represents
+  equivalence in the setoid. For the
+  quotient fral/frex, it is a representation of the equational proof.
+\end{itemize}
+Through this mechanism, there is no need to write any proof extraction
+code for our simplifiers. The universal properties of the fral/frex
+have done all the presentation-specific heavy-lifting. The remainder
+of this section expands this description in more technical detail
+(\subsecref{completeness}), how \Frexlib{} we represent certificates
+(\subsecref{extracting certificates}), and how we simplify proofs
+(\subsecref{proof simplification}).
+
+\subsection{Completeness}
+\subseclabel{completeness}
+%
+It is straightforward to represent the deduction rules of equational
+logic from \figref{provability} as a datatype
+\IdrisType{Provability}$\,t\,s$ relating pairs of terms $t$ and $s$.
+There are two variations on this provability relation: for free models
+and for free extensions.
+
+For free models over \X{}, we index the relation by $t,s \in \Term
+\X$.  Its definition consists of the unshaded rules in
+\figref{provability}. The quotient setoid
+$Q \definedby \Term\X/\text{\IdrisType{Provability}}$ then satisfies the universal
+property of the free model over \X{}.
+%
+For the free extension of a model $\avar$ by \X{}, we index the
+relation by $t,s \in \Term(\X \uplus \U\,\avar)$, i.e., terms with
+variables in the disjoint union $\X \uplus \U\,\avar$. The
+left-injected values represent variables from \X{}. For each $c \in
+\U\,\avar$, the corresponding right-injected variable, which we denote
+by $\underline{c}$, is a term representing $c$.  The provability
+relation then adds the shaded evaluation equation from
+\figref{provability}. It amounts to datatype constructor, for every
+operator $f : n$ and constants $c_1, \ldots, c_n \in \U\,\avar$,
+representing the equation \( (\underline c_1, \ldots, \underline c_n)
+= \underline{\text\avar\sem f(c_1, \ldots, c_n)} \).  The quotient
+setoid $Q\definedby \Term(\X \uplus \U\,\avar) /
+\text{\IdrisType{Provability}}$ then satisfies the universal property
+of the frex of \avar{} by \X.
+
+The interpretation of a term $t$ in $Q$ is $t$ itself, and so the quotient
+setoid does not help at all with simplification.  Since $Q$ satisfies
+the universal property, it is canonically isomorphic to every other
+fral/frex. So the interpretation of every two terms $s,t$ in every
+fral/frex is related iff the datatype
+$\text{\IdrisType{Provability}}\,t\,s$ is inhabited. Therefore
+evaluation in fral/frex is sound and complete for algebraic
+simplification.
+%
+After designing a fral/frex $S$ whose equivalence relation is
+\emph{effective}, we can use $Q$ as follows. The input type to the
+function \IdrisFunction{solve} is exactly the carrier of $Q$.  By
+appealing to the universal property of the fral/frex $S$, we obtain an
+inhabitant of \IdrisType{Provability}, and we extracted the
+simplification proof, which we call the \emph{certificate}.
+
+\subsection{Representing Certificates}
+\subseclabel{extracting certificates} \Frexlib{} provides the
+\FrexLemma{} \IdrisBound{pres} type, consisting of a
+\IdrisBound{pres}\IdrisFunction{.signature}-equation and derivation
+for it in the quotient fral for \IdrisBound{pres}.
+Such lemmata are sound: every \FrexLemma{} for a theory holds
+in all models of this theory.
+%
+\Frexlib{} provides a \IdrisFunction{mkLemma} smart constructor which
+runs the given fral simplifier, constructs a
+proof that a stated equivalence holds, and returns a valid
+\IdrisType{Lemma}.
+This mechanism allows users to build up a library of
+lemmata for their theories. Users can then seamlessly invoke
+these lemmata in any model, avoiding further \Frexlib{} calls.
+
+This approach forces the user's project to depend on most of
+\Frexlib{} indirectly through such modules.
+If users do not want to introduce that dependency, \Frexlib{} gives
+them the option not to depend on it.
+%
+\Frexlib{} also supports proof-certificate extraction,
+allowing users to produce standalone libraries of ordinary \idris{} functions
+rather than \FrexLemma{} independent of
+the \Frexlib{} library. For example, the fral simplifier for monoids
+generates a module exporting the following \idris{} function:
+\begin{center}
+\CertificateType{}
+\end{center}
+together with an explicit equational proof that does not call any \Frexlib{}
+simplification steps (see \figref{certification} in the \appref{printing}).
+We now explain the certification process in technical detail.
+
+Our goals for this extraction are to (1) produce libraries from lemmata,
+and (2) produce somewhat idiomatic \idris{} code.
+%
+The derivation found by \Frexlib{} may not be what a human would have
+chosen but it should nonetheless be possible for a sufficiently patient
+human to follow the reasoning steps.
+
+The main challenge was to go from the rich type of derivations trees,
+i.e., the quotient setoid relation, to a representation that we can
+print in a relatively readable way. The derivation trees have
+arbitrarily nested transitivity, symmetry, and $n$-ary congruence
+steps.  We transform them into a type of linear/flat derivations that
+could be pretty-printed using combinators for setoid
+reasoning.
+
+We represent derivations in layers:
+\begin{center}
+  \begin{tabular}{@{}l@{\qquad}l@{}}
+(a) the reflexive-transitive closure of &
+(b) the symmetric closure of\\%
+(c) the unary congruence closure of &
+(d) axiomatic reasoning steps.
+  \end{tabular}
+\end{center}
+We now detail each of these layers, implementing each layer by a
+dedicated data structure~(cf.~\figref{linear-derivations} in
+\appref{printing} for the full details):\\
+\textit{(a) Reflexive-transitive closure (\IdrisType{RTList}):}
+type-aligned~\cite{DBLP:conf/haskell/PloegK14} lists of steps in
+the closed-over relation: the target element of each list position
+is the source element of the next.\\
+\textit{(b) Symmetric closure (\IdrisType{Symmetrise}):}{ either the relation or its opposite}.\\
+\textit{(c) Unary congruence closure (\IdrisType{Locate}):} It suffices to pair a term
+with a distinguished variable for the contextual hole, together with a
+step in the closed-over relation. To ease our pretty-printing code,
+we distinguish between using the closed-over relation in an empty
+context, and using it in a context with a distinguished variable
+represented by the Idris value \IdrisData{Nothing}.\\
+\textit{(d) Axiomatic steps (\IdrisType{Step}):} An atomic step is either a setoid equivalence,
+or an axiom.\\
+Putting these together gives the type \IdrisType{Derivation} of
+linear derivations~(cf.~\figref{linear-derivations}(e) in \appref{printing}).
+
+Every derivation tree decomposes into a value in this layered
+representation. The modular definition of \IdrisType{Derivation} as a
+composition of the relation-transformers \IdrisType{RTList},
+\IdrisType{Symmetrise}, \IdrisType{Locate} and \IdrisType{Step} makes
+decomposition straightforward.  We use generic combinators for each
+closure relation-transformers. Closure under congruence is the
+trickiest part, decomposing an $n$-ary congruence in the derivation tree
+into $n$ separate
+unary congruences, pushing them under the reflexive-transitive and
+symmetric closure layers, and erasing any congruence steps with the
+identity context.
+
+\subsection{Proof Simplication}
+\subseclabel{proof simplification}
+
+Certification also allows us to inspect \Frexlib{}-generated proofs.
+%
+Frexlet developers can check whether data-structures and
+proofs are suboptimal, spurring code refactoring.
+%
+Concretely, when developing \Frexlib{}, we noticed proofs with loops:
+multi-step derivations that start and end in the same term.
+%
+Such loops come from internal data structures that optimise
+simplifier-development effort, but insert semantically irrelevant
+subterms that can be simplified away.
+%
+\Frexlib{} implements a generic proof simplifier that automatically removes
+all such loops.
+%
+This mechanism suggests further work, developing
+modules for simplifying these proofs further.

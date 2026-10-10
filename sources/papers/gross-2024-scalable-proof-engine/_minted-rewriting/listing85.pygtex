@@ -1,0 +1,11 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PYG{k+kn}{Inductive} \PYG{n}{type} \PYG{o}{:=} \PYG{n}{arrow} \PYG{o}{(}\PYG{n}{s} \PYG{n}{d} \PYG{o}{:} \PYG{n}{type}\PYG{o}{)} \PYG{o}{|} \PYG{n}{base} \PYG{o}{(}\PYG{n}{b} \PYG{o}{:} \PYG{n}{base\PYGZus{}type}\PYG{o}{).}
+\PYG{n}{Infix} \PYG{l+s+s2}{\PYGZdq{}→\PYGZdq{}} \PYG{o}{:=} \PYG{n}{arrow}\PYG{o}{.}
+\PYG{k+kn}{Inductive} \PYG{n}{expr} \PYG{o}{(}\PYG{n}{var} \PYG{o}{:} \PYG{n}{type} \PYG{o}{\PYGZhy{}\PYGZgt{}} \PYG{k+kt}{Type}\PYG{o}{)} \PYG{o}{:} \PYG{n}{type} \PYG{o}{\PYGZhy{}\PYGZgt{}} \PYG{k+kt}{Type} \PYG{o}{:=}
+\PYG{o}{|} \PYG{n}{Var} \PYG{o}{\PYGZob{}}\PYG{n}{t}\PYG{o}{\PYGZcb{}} \PYG{o}{(}\PYG{n}{v} \PYG{o}{:} \PYG{n}{var} \PYG{n}{t}\PYG{o}{)} \PYG{o}{:} \PYG{n}{expr} \PYG{n}{var} \PYG{n}{t}
+\PYG{o}{|} \PYG{n}{Abs} \PYG{o}{\PYGZob{}}\PYG{n}{s} \PYG{n}{d}\PYG{o}{\PYGZcb{}} \PYG{o}{(}\PYG{n}{f} \PYG{o}{:} \PYG{n}{var} \PYG{n}{s} \PYG{o}{\PYGZhy{}\PYGZgt{}} \PYG{n}{expr} \PYG{n}{var} \PYG{n}{d}\PYG{o}{)} \PYG{o}{:} \PYG{n}{expr} \PYG{n}{var} \PYG{o}{(}\PYG{n}{s} \PYG{o}{→} \PYG{n}{d}\PYG{o}{)}
+\PYG{o}{|} \PYG{n}{App} \PYG{o}{\PYGZob{}}\PYG{n}{s} \PYG{n}{d}\PYG{o}{\PYGZcb{}} \PYG{o}{(}\PYG{n}{f} \PYG{o}{:} \PYG{n}{expr} \PYG{n}{var} \PYG{o}{(}\PYG{n}{s} \PYG{o}{→} \PYG{n}{d}\PYG{o}{))} \PYG{o}{(}\PYG{n}{x} \PYG{o}{:} \PYG{n}{expr} \PYG{n}{var} \PYG{n}{s}\PYG{o}{)} \PYG{o}{:} \PYG{n}{expr} \PYG{n}{var} \PYG{n}{d}
+\PYG{o}{|} \PYG{n}{LetIn} \PYG{o}{\PYGZob{}}\PYG{n}{a} \PYG{n}{b}\PYG{o}{\PYGZcb{}} \PYG{o}{(}\PYG{n}{x} \PYG{o}{:} \PYG{n}{expr} \PYG{n}{var} \PYG{n}{a}\PYG{o}{)} \PYG{o}{(}\PYG{n}{f} \PYG{o}{:} \PYG{n}{var} \PYG{n}{a} \PYG{o}{\PYGZhy{}\PYGZgt{}} \PYG{n}{expr} \PYG{n}{var} \PYG{n}{b}\PYG{o}{)} \PYG{o}{:} \PYG{n}{expr} \PYG{n}{var} \PYG{n}{b}
+\PYG{o}{|} \PYG{n}{Const} \PYG{o}{\PYGZob{}}\PYG{n}{t}\PYG{o}{\PYGZcb{}} \PYG{o}{(}\PYG{n}{c} \PYG{o}{:} \PYG{n}{const} \PYG{n}{t}\PYG{o}{)} \PYG{o}{:} \PYG{n}{expr} \PYG{n}{var} \PYG{n}{t}\PYG{o}{.}
+\PYG{k+kn}{Definition} \PYG{n}{Expr} \PYG{o}{(}\PYG{n}{t} \PYG{o}{:} \PYG{n}{type}\PYG{o}{)} \PYG{o}{:} \PYG{k+kt}{Type} \PYG{o}{:=} \PYG{k}{forall} \PYG{n}{var}\PYG{o}{,} \PYG{n}{expr} \PYG{n}{var} \PYG{n}{t}\PYG{o}{.}
+\end{Verbatim}

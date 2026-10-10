@@ -1,0 +1,42 @@
+% courtesy of: https://tex.stackexchange.com/a/116720
+\pgfplotsset{
+    mark repeat*/.style={
+        scatter,
+        scatter src=x,
+        scatter/@pre marker code/.code={
+            \pgfmathtruncatemacro\usemark{
+                or(mod(\coordindex,#1)==0, (\coordindex==(\numcoords-1))
+            }
+            \ifnum\usemark=0
+                \pgfplotsset{mark=none}
+            \fi
+        },
+        scatter/@post marker code/.code={}
+    }
+}
+
+% modified pgfplots `color` style by setting the mark of the third entry
+% from `otimes*` to `triangle*` to increase the readability of the plot
+\pgfplotscreateplotcyclelist{color'}{%
+	blue,every mark/.append style={fill=blue!80!black},mark=*\\%
+	red,every mark/.append style={fill=red!80!black},mark=square*\\%
+	brown!60!black,every mark/.append style={fill=brown!80!black},mark=triangle*\\%
+}
+
+\begin{tikzpicture}
+\begin{loglogaxis}
+[ legend pos=north east
+, xlabel=Commands
+, y unit=B
+, ylabel=Size
+, mark repeat*={10000}
+]
+\pgfplotsset{cycle list name=color'}
+\addplot table {eval/itp/size/isabelle_hol.dat};
+\addlegendentry{Isabelle/HOL};
+\addplot table {eval/itp/size/hol_stdlib_u.dat};
+\addlegendentry{HOL Light};
+\addplot table {eval/itp/size/matita_sttfa.dat};
+\addlegendentry{Matita};
+\end{loglogaxis}
+\end{tikzpicture}

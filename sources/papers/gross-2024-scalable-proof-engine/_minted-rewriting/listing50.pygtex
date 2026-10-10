@@ -1,0 +1,10 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PYG{n}{rw} \PYG{o}{(λ} \PYG{n}{x}\PYG{o}{:}\PYG{n}{T}\PYG{o}{,} \PYG{n}{e}\PYG{o}{)} \PYG{o}{=}
+   \PYG{k}{let} \PYG{n}{rrw} \PYG{o}{:=} \PYG{o}{(λ} \PYG{n}{x}\PYG{o}{:}\PYG{n}{T}\PYG{o}{,} \PYG{n}{rw} \PYG{n}{e}\PYG{o}{)} \PYG{k}{in}
+   \PYG{k}{let} \PYG{n}{mid} \PYG{o}{:=} \PYG{o}{(λ} \PYG{n}{y}\PYG{o}{:}\PYG{n}{T}\PYG{o}{,} \PYG{k}{let} \PYG{o}{(}\PYG{n}{e\PYGZsq{}}\PYG{o}{,} \PYG{o}{\PYGZus{})} \PYG{o}{:=} \PYG{n}{beta} \PYG{o}{(}\PYG{n}{rrw} \PYG{n}{y}\PYG{o}{)} \PYG{k}{in} \PYG{n}{e\PYGZsq{}}\PYG{o}{)} \PYG{k}{in}
+   \PYG{k}{let} \PYG{n}{f\PYGZus{}mid}\PYG{o}{:=λ\PYGZus{}}\PYG{n}{extensionality}\PYG{o}{(λ} \PYG{n}{z}\PYG{o}{:}\PYG{n}{T}\PYG{o}{,} \PYG{k}{let} \PYG{o}{(\PYGZus{},}\PYG{n}{e\PYGZsq{}e}\PYG{o}{):=}\PYG{n}{beta} \PYG{o}{(}\PYG{n}{rrw} \PYG{n}{z}\PYG{o}{)} \PYG{k}{in} \PYG{n}{e\PYGZsq{}e}\PYG{o}{)} \PYG{k}{in}
+   \PYG{k}{match} \PYG{n}{rwh} \PYG{n}{mid} \PYG{k}{with}
+   \PYG{o}{|} \PYG{o}{(}\PYG{n}{result}\PYG{o}{,} \PYG{n}{mid\PYGZus{}result}\PYG{o}{)} \PYG{o}{=\PYGZgt{}} \PYG{o}{(}\PYG{n}{result}\PYG{o}{,} \PYG{n}{eq\PYGZus{}trans} \PYG{n}{f\PYGZus{}mid} \PYG{n}{mid\PYGZus{}result}\PYG{o}{)}
+   \PYG{o}{|} \PYG{o}{\PYGZus{}} \PYG{o}{=\PYGZgt{}} \PYG{o}{(}\PYG{n}{mid}\PYG{o}{,} \PYG{n}{f\PYGZus{}mid}\PYG{o}{)}
+   \PYG{k}{end}
+\end{Verbatim}

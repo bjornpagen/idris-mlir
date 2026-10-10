@@ -1,0 +1,108 @@
+
+%% Reference listings https://github.com/snowleopard/united/blob/main/paper/main.tex
+
+\definecolor{canaryblue}{HTML}{2916F5}
+\definecolor{darkgreen}{HTML}{006400}
+\definecolor{darkpink}{HTML}{CD00CD}
+\definecolor{graygreen}{rgb}{0.3,0.5,0.3}
+\definecolor{grayblue}{rgb}{0.2,0.2,0.6}
+\definecolor{grayred}{rgb}{0.5,0.2,0.2}
+\definecolor{crimsonred}{HTML}{990000}
+\definecolor{irishgreen}{HTML}{08A04B}
+\definecolor{darkviolet}{HTML}{9400D3}
+\newcommand{\myblue}{NavyBlue}
+\newcommand{\myred}{BrickRed}
+
+\lstset{
+  backgroundcolor=\color{white},     % choose the background color; you must add \usepackage{color} or \usepackage{xcolor}; should come as last argument
+  % identifierstyle=\color{red},
+  basicstyle=\footnotesize\ttfamily,      % the size of the fonts that are used for the code
+  breakatwhitespace=false,              % sets if automatic breaks should only happen at whitespace
+  breaklines=false,                     % sets automatic line breaking
+  captionpos=b,                         % sets the caption-position to bottom
+  abovecaptionskip=-2 mm,
+  commentstyle=\itshape\color{graygreen}, % comment style
+  % escapeinside={(:}{:)},             % if you want to add LaTeX within your code
+  escapechar={!},
+  % extendedchars=true,              % lets you use non-ASCII characters; for 8-bits encodings only, does not work with UTF-8
+  % firstnumber=1000,                % start line enumeration with line 1000
+  % frame=tb,                        % adds a frame around the code
+  % keepspaces=true,                 % keeps spaces in text, useful for keeping indentation of code (possibly needs columns=flexible)
+  keywordstyle={[1]\color{canaryblue}},     % keyword style
+  keywordstyle={[2]\color{crimsonred}},
+  keywordstyle={[3]\color{darkviolet}},
+  keywordstyle={[4]\color{irishgreen}},
+  language=Haskell,                  % the language of the code
+  morekeywords={[1]Int, Float}, %primitives
+  morekeywords={[2]Leaf, Node, Sub, Add, Eq, Leq, Geq, Neq, And, Or, IntType, FloatType, Boolean, Implication, Blog, Nil, HIADCTB, Empty, Cons, Snoc, Not, Val, T, E}, % data constructors
+  morekeywords={[3]data, class, instance, where, type}, %some more keywords
+  morekeywords={[4] F0, F1, F2, F3, F4, F5, Tree, IntExpr, FloatExpr, BoolExpr, Constraint, BlogList, Content, HashTags, Header, Id, Author, Date, Ast, Blogs, Exp},  %packed types
+  deletekeywords={instance, data, where, class, filter, type, insert, delete, union, map, Eq},      % if you want to delete keywords from the given language
+  numbers=none,                      % where to put the line-numbers; possible values are (none, left, right)
+  % numbersep=5pt,                   % how far the line-numbers are from the code
+  % numberstyle=\tiny\color{mygray}, % the style that is used for the line-numbers
+  % rulecolor=\color{black},         % if not set, the frame-color may be changed on line-breaks within not-black text (e.g. comments (green here))
+  % showspaces=false,                % show spaces everywhere adding particular underscores; it overrides 'showstringspaces'
+  % showstringspaces=false,          % underline spaces within strings only
+  % showtabs=false,                  % show tabs within strings adding particular underscores
+  % stepnumber=2,                    % the step between two line-numbers. If it's 1, each line will be numbered
+  stringstyle=\color{grayred},     % string literal style
+  % tabsize=2,                       % sets default tabsize to 2 spaces
+  % title=\lstname                   % show the filename of files included with \lstinputlisting; also try caption instead of title
+  xleftmargin=2pt,
+  aboveskip=2pt,
+  belowskip=1pt
+}
+
+
+%system name
+\newcommand{\system}{{\sc Marmoset}\xspace}
+
+\newcommand{\ribbit}{{\sc Ribbit}\xspace}
+
+\newcommand{\systemSolver}{{\sc M$_{\mathit{solver}}$}\xspace}
+\newcommand{\systemGreedy}{{\sc M$_{\mathit{greedy}}$}\xspace}
+
+
+\newcommand{\alignedPre}{{\sc Algn$_{\mathit{pre}}$}\xspace}
+\newcommand{\alignedIn}{{\sc Algn$_{\mathit{in}}$}\xspace}
+\newcommand{\alignedPost}{{\sc Algn$_{\mathit{post}}$}\xspace}
+
+
+\newcommand{\misalignedPost}{{\sc Misalgn$_{\mathit{post}}$}\xspace}
+\newcommand{\misalignedPre}{{\sc Misalgn$_{\mathit{pre}}$}\xspace}
+
+\newcommand{\misalignedGen}{{\sc Misalgn}\xspace}
+\newcommand{\alignedGen}{{\sc Algn}\xspace}
+
+
+
+% \newcommand{\systemlang}[0]{MLANG}
+\newcommand{\systemlang}[0]{\ensuremath{\lambda_{M}}}
+
+\newcommand{\gibbon}{{\sc Gibbon}\xspace}
+
+\newcommand{\relc}{{\sc RELC}\xspace}
+
+\newcommand{\ghc}{{\sc Ghc}\xspace}
+
+\newcommand{\mlton}{{\sc MLton}\xspace}
+
+\newcommand{\ra}[1]{\renewcommand{\arraystretch}{#1}}
+
+
+\newcommand{\snum}[1]{{\num[round-precision=3,round-mode=figures,scientific-notation=true,output-exponent-marker = e]{#1}}}
+\newcommand{\snumfour}[1]{{\num[round-precision=4,round-mode=figures,scientific-notation=true,output-exponent-marker = e]{#1}}}
+
+\newcommand{\fnumthree}[1]{{\num[round-mode=places,round-precision=3, scientific-notation=false]{#1}}}
+\newcommand{\fnumtwo}[1]{{\num[round-mode=places,round-precision=2, scientific-notation=false]{#1}}}
+
+\def\cpp{{C\nolinebreak[4]\hspace{-.05em}\raisebox{.4ex}{\footnotesize\bf ++}}}
+\def\csharp{C\tikz[x=1em,y=\baselineskip]%
+  \draw (0.125,0.15) -- ++(0.15,0.5)%
+        (0.325,0.15) -- ++(0.15,0.5)%
+        (0.05,0.3) -- ++(0.45,0.0)%
+        (0.1,0.5) -- ++(0.45,0.0);}
+
+% benchname style copied from lipics' style, descriptionlabel macro sans an hskip
+\newcommand{\benchname}[1]{\textcolor{lipicsGray}{\sffamily\small\bfseries\mathversion{bold}#1}}

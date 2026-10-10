@@ -1,0 +1,32 @@
+\[
+\begin{array}{r l l}
+  \tcoerce{\stunit}{\sdelta}{\sunit} & = & \tunit
+  \\[0.3em]
+  %
+  \tcoerce{\sarrow{\staui}{\stauii}}{\sdelta}{\sabs{\svar{x}}{\stau}{\sexp}} & = &
+  \tabs{\tvar{x}}{\prot{\sexp\tsubst{\svar{x}}{\salien{\tvar{x}}{\staui}{\sdelta}}} {\stauii} {\sdelta}}
+  \\[0.3em]
+  %
+  \tcoerce{\sprod{\staui}{\stauii}}{\sdelta}{\spair{\sexpi}{\sexpii}} & = &
+  \tpair{\prot{\sexpi}{\staui}{\sdelta}}{\prot{\sexpii}{\stauii}{\sdelta}}
+  \\[0.3em]
+  %
+  \tcoerce{\ssum{\staui}{\stauii}}{\sdelta}{\sinl{\sexp}} & = &
+  \tinl{\prot{\sexp}{\staui}{\sdelta}}
+  \\[0.3em]
+  %
+  \tcoerce{\ssum{\staui}{\stauii}}{\sdelta}{\sinr{\sexp}} & = &
+  \tinr{\prot{\sexp}{\stauii}{\sdelta}}
+  \\[0.3em]
+  %
+  %% \tcoerce{\sall{\svar{A}}{\stau}}{\sdelta}{\stabs{\svar{A}}{\sexp}} & = &
+  %% \prot{\sexp\ssubst{\svar{A}}{\sttop}}{\stau\ssubst{\svar{A}}{\sttop} }{\sdelta}
+  %% \\[0.3em]
+  %% %
+  \tcoerce{\svar{A}}{\sdelta}{\sexp} & = & \topaque{\sexp}
+  \\[0.3em]
+  \tcoerce{\staup}{\sdelta}{\salien{\texp}{\stau}{\sdelta}} & = & \texp
+  \hfill \text{if } \stau \equiv \staup
+  \\[0.3em]
+\end{array}
+\]

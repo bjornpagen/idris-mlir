@@ -1,0 +1,1343 @@
+% !TEX root = paper.tex
+
+\section{Formalization} \label{sec:formalization}
+
+The previous sections introduced Verus concepts by example.
+This section presents a small formal lambda calculus to make the concepts
+from the previous sections more precise.
+The goal of this lambda calculus is to serve as a model
+to demonstrate particular features and their type safety.
+We do not attempt to capture all of the semantics of Rust and Verus,
+since formalizing Rust semantics is by itself a large and
+challenging problem~\cite{pearce-rust-toplas2021, DBLP:journals/corr/abs-1903-00982, DBLP:journals/pacmpl/0002JKD18}.
+Instead, we focus on a small set of topics that are novel to Verus
+and are particularly relevant for type safety:
+
+\begin{itemize}
+\item \verb`spec`, \verb`proof`, and \verb`exec` functions
+\item \verb`spec`, \verb`proof`, and \verb`exec` variables,
+  showing how \verb`exec` and \verb`proof` variables are treated linearly,
+  while \verb`spec` variables can capture nonlinear snapshots of data
+  from \verb`exec` and \verb`proof` variables
+\item \verb`spec`, \verb`proof`, and \verb`exec` annotations on datatype fields
+\item linear ghost permissions, with read-only borrowing
+\item ensuring termination of \verb`spec` and \verb`proof` code,
+  particularly in the presence of mutation, recursive types,
+  and higher-order features like traits or first-class functions
+\ifextended
+\item default values in \verb`spec` code,
+  particularly for types are are uninhabited in \verb`proof` code and \verb`exec` code
+\fi
+\end{itemize}
+
+Since this is already a sizable list of topics,
+we aggressively minimize other features in our model language.
+First, we omit concurrency entirely.
+Second, we omit preconditions, postconditions, and verification condition generation,
+focusing instead on type safety and termination.
+(We believe that verification condition generation could be added
+in a style similar to the formalization of Linear Dafny~\cite{DBLP:journals/pacmpl/LiLZCHPH22}.)
+Third, our lambda calculus is a mostly-functional language that manipulates values,
+rather than an imperative language that mutates values stored in locations.
+(This contrasts with more detailed formalizations of Rust centered on
+locations~\cite{pearce-rust-toplas2021, DBLP:journals/corr/abs-1903-00982}.)
+\ifextended
+The model language does, however, include two forms of mutation.
+First, the language supports load and store operations that are controlled by linear ghost permissions.
+Second, the lambda calculus contains a tiny nonlinear mutable heap
+(actually, just a single nonlinear mutable heap location),
+for the purpose of demonstrating the type safety of higher-order code in the presence of mutation.
+\else
+The model language does, however, include mutation,
+in the form of load and store operations that are controlled by linear ghost permissions.
+(The extended version of this paper~\cite{verus2023extended} also includes a second kind of mutation,
+in the form of a tiny nonlinear mutable heap.)
+\fi
+
+Since our model language is based on values rather than locations,
+it lacks Rust's distinction between a value (e.g. of type \verb`int`)
+and a reference to that value (e.g. of type \verb`&int` or \verb`&mut int`).
+Nevertheless, we still want to capture some notion of borrowing in order to demonstrate
+borrowed linear ghost permissions.
+For this, we associate $\linear$ and $\shared$ {\it usages}
+with variable typings and expression typings.
+The usage ``$\shared$'' represents immutable borrowing (as in \verb`&int`),
+which we use for reading permissions.
+For simplicity, we omit mutable borrowing,
+instead annotating permissions with ``$\linear$''.
+
+We build these usages into the mode system,
+in a style similar to Linear Dafny~\cite{DBLP:journals/pacmpl/LiLZCHPH22}
+(which in turn built on earlier work by Wadler's ``let!'' feature~\cite{DBLP:conf/ifip2/Wadler90}
+and Cogent's purely functional support for borrowing~\cite{cogent}).
+We define a mode $\mode$ to be $\spec$, $\prf$, or $\exec$ (see \autoref{fig:formal:syntax}),
+with a reflexive, transitive ordering $\exec \modeless \prf \modeless \spec$
+and a least upper bound $\mode_1 \modejoin \mode_2$ that
+is the least $\mode$ such that
+$\mode_1 \modeless \mode$ and
+$\mode_2 \modeless \mode$.
+We then associate a usage $\usage$ with proof and exec modes,
+since proof and exec variables can be linear or borrowed:
+\[
+\modeu ::= \spec \sep \modu{\prf}{\usage} \sep \modu{\exec}{\usage}
+\]
+The environment
+$\xenv ::= \{x_1 \mapsto \utyp{\modeu_1}{\typ_1}, \ldots, x_n \mapsto \utyp{\modeu_n}{\typ_n}\}$
+tracks the mode, usage, and type of each variable.
+We refer to a binding $x \mapsto \utyp{\modu{\mode}{\linear}}{\typ}$ as a linear binding,
+and we refer to $x \mapsto \utyp{\modu{\mode}{\shared}}{\typ}$
+and $x \mapsto \utyp{\spec}{\typ}$ as nonlinear bindings.
+We write $\envl\xenv$ to extract just the linear bindings from $\xenv$
+and we write $\envn\xenv$ to extract just the nonlinear bindings from $\xenv$
+(see \autoref{fig:formal:typingdefs}).
+
+We write $\xenv_1, \xenv_2$ to concatenate two environments together.
+For writing typing rules, though,
+we often want to split environments in a more sophisticated way then simple concatenation.
+In particular, we want to split linear bindings between subexpressions
+while sharing nonlinear bindings among subexpressions.
+For this, we write $\xenv = \envmerge{\xenv_1}{\xenv_2}$.
+For example, in the typing rule for adding two integers (see \autoref{fig:formal:typing}),
+the left subexpression gets environment $\xenv_1$ and the right
+subexpression gets $\xenv_2$:
+\[
+\inferrule{
+  \ejudgment{\datadecls}{\heaptyp}{\penv_1}{\xenv_1}{\mode}{\laxity}{\expr_1}{\modeu}{\typint}
+  \\
+  \ejudgment{\datadecls}{\heaptyp}{\penv_2}{\xenv_2}{\mode}{\laxity}{\expr_2}{\modeu}{\typint}
+}{
+  \ejudgment{\datadecls}{\heaptyp}{\envmerge{\penv_1}{\penv_2}}{\envmerge{\xenv_1}{\xenv_2}}{\mode}{\laxity}{\expr_1 + \expr_2}{\modeu}{\typint}
+}
+\]
+(The other environments can be ignored for now;
+\autoref{sec:termination} discusses $\datadecls$ and $\heaptyp$,
+and \autoref{sec:permissions} discusses $\penv$ and $\mode$.)
+
+When $\xenv = \envmerge{\xenv_1}{\xenv_2}$,
+all nonlinear bindings in $\xenv$ appear in both $\xenv_1$ and $\xenv_2$.
+Linear bindings, however are more subtle:
+a linear binding in $\xenv$ appears as-is in one of the environments ($\xenv_1$ or $\xenv_2$),
+and is demoted to mode $\spec$ in the other environment.
+Thus, the environment that didn't get the linear binding can still talk about the variable
+in specifications.
+For example, if $\xenv$ has a linear binding for $x_2$ and we split $\xenv$
+into $\xenv = \envmerge{\xenv_1}{\xenv_2}$,
+and $\xenv_1$ receives the linear binding for $x_2$,
+then $\xenv_2$ will receive a $\spec$ binding for $x_2$:
+
+$\xenv = \{x_1 \mapsto \utyp{\modu{\exec}{\shared}}{\typ},\: x_2 \mapsto \utyp{\modu{\exec}{\linear}}{\typ}\}$
+
+$\xenv_1 = \{x_1 \mapsto \utyp{\modu{\exec}{\shared}}{\typ},\: x_2 \mapsto \utyp{\modu{\exec}{\linear}}{\typ}\}$
+
+$\xenv_2 = \{x_1 \mapsto \utyp{\modu{\exec}{\shared}}{\typ},\: x_2 \mapsto \utyp{\spec}{\typ}\}$
+
+(See \autoref{fig:formal:typingdefs} for a formal definition of $\envmerge{\xenv_1}{\xenv_2}$.)
+
+Following Linear Dafny's formalization,
+our model language allows borrowing by temporarily viewing linear variables as shared
+within a lexical scope.
+For example, in the sequencing expression $\exprseq{\expr_1}{\expr_2}$
+the first expression $\expr_1$ can view a portion of the environment $\xenv_b$ as shared,
+and these variables then revert to linear in $\expr_2$:
+\[
+\inferrule{
+  \ejudgment{\datadecls}{\heaptyp}{\penv_1, \envshared{\penv_b}}{\xenv_1, \envshared{\xenv_b}}{\mode}{\laxity}{\expr_1}{\modeu_1}{\typunit}
+  \\
+  \ejudgment{\datadecls}{\heaptyp}{\penv_2, \envlinear{\penv_b}}{\xenv_2, \envlinear{\xenv_b}}{\mode}{\laxity}{\expr_2}{\modeu_2}{\typ_2}
+}{
+  \ejudgment{\datadecls}{\heaptyp}{(\envmerge{\penv_1}{\penv_2}), \envlinear{\penv_b}}{(\envmerge{\xenv_1}{\xenv_2}), \envlinear{\xenv_b}}{\mode}{\laxity}{\exprseq{\expr_1}{\expr_2}}{\modeu_2}{\typ_2}
+}
+\]
+Here, the notation $\envlinear{\xenv_b}$ means $\xenv_b$ with all proof/exec bindings made linear,
+$\envshared{\xenv_b}$ means $\xenv_b$ with all proof/exec bindings made shared.
+(For more detail on this style of borrowing, which was inspired by
+Wadler's ``let!'' feature~\cite{DBLP:conf/ifip2/Wadler90}, see~\cite{DBLP:journals/pacmpl/LiLZCHPH22}.)
+
+For simplicity and clarity,
+the model language implements a linear type system that prohibits discarding linear resources;
+for example, it disallows discarding permissions,
+and the only way to deallocate a linear \verb`struct` is to deconstruct it with pattern matching.
+(Rust behaves more like an affine type system, allowing dropping of any value.)
+Rust includes a \verb`Copy` trait,
+implemented by simple types like \verb`bool` and \verb`u64`,
+for types that are inherently nonlinear and may be freely copied.
+Our model language also includes a judgment $\cjudgment{\datadecls}{\mode}{\typ}$
+\ifextended
+(see \autoref{fig:formal:additional} for the formal definition)
+\else
+(see the extended version of this paper~\cite{verus2023extended} for the formal definition)
+\fi
+to indicate that a type $\typ$ may be copied or dropped,
+although, for simplicity, the copies and drops are explicit,
+using the expressions $\exprcopy{\expr}$ and $\exprdrop{\expr}$.
+
+Even though the linear type system prohibits copying and dropping linear resources,
+it allows arbitrary implicit copying and dropping in specifications.
+It defines $\cjudgment{\datadecls}{\spec}{\typ}$ to be true of all types,
+so that in $\spec$ mode, code can always use $\exprcopy{\expr}$ and $\exprdrop{\expr}$.
+Furthermore, $\spec$ variables can be implicitly copied when splitting
+variables among subexpressions using $\envmerge{\xenv_1}{\xenv_2}$.
+In particular, since environment splitting creates $\spec$ copies of linear variable bindings,
+$\spec$ variables can be used to capture immutable snapshots of mutable linear resources.
+For example if variable $x_l$ is bound linearly,
+the expression ``$\exprlet{\spec}{x_s}{x_l}{\expr}$''
+can make a $\spec$ copy $x_s$ of the linear variable $x_l$ without consuming $x_l$.
+Here, $\expr$ can continue to use $x_l$ linearly while simultaneously
+keeping the immutable snapshot $x_s$.
+This allows specifications to talk about the past state (old snapshots) of linear resources
+as well as the current state,
+which is useful for specifications that relate old states to new states.
+
+\subsection{Permissions} \label{sec:permissions}
+
+\autoref{sec:ghost:perms} described how linear ghost permissions
+allow safe manipulation of low-level pointers.
+To model permissions and pointers,
+the model language contains a $\typpermi{\typ}$ type representing permission
+to read or write a value to pointer $\integer$,
+which, for simplicity, is simply an integer constant.
+There are three operations on pointers and permissions:
+
+\begin{itemize}
+\item $\exprpreadi{\expr_p}$ reads the value stored at pointer $\integer$,
+  based on the access granted by permission $\expr_p$
+\item $\exprpwritei{\expr_v}{\expr_p}$ writes a new value $\expr_v$ to pointer $\integer$,
+  based on the access granted by permission $\expr_p$
+\item $\exprpdata{\expr_p}$ takes a $\spec$-mode snapshot of the value currently stored at pointer $\integer$,
+  based on the access granted by a $\spec$-mode copy of the permission $\expr_p$
+\end{itemize}
+
+\autoref{fig:formal:typingdefs} shows the typing rules for these operations.
+Each operation uses the same permission,
+but with a different mode.
+Writing requires linear access to the permission,
+so that no aliased views of the permission can have a stale view of the permission.
+Reading, on the other hand, can be performed on borrowed permissions with mode $\shared$.
+Finally, $\exprpdata{\expr_p}$ uses the permission with mode $\spec$,
+allowing use in specifications.
+For simplicity, we omit operations to deallocate permissions or allocate new permissions;
+we assume that all permissions are passed in to a program when the program starts and
+returned at the end of the program.
+However, the typing rule for $\exprpwritei{\expr_v}{\expr_p}$ allows the program to
+change the type of a permission, effectively reallocating the memory for a new type.
+Thus, the linear handling of permissions is crucial;
+if the permissions were not linear, a program could use a stale permission to read
+a value memory from memory with an out-of-date type, subverting type safety.
+Our type safety theorem (\autoref{sec:soundness}) ensures that this cannot happen.
+
+While $\exprpdata{\expr_p}$ is a ghost-only operation,
+$\exprpreadi{\expr_p}$ and $\exprpwritei{\expr_v}{\expr_p}$ perform run-time actions that,
+in an implementation, would be compiled to machine code.
+Since proofs and specifications are ghost code,
+they are not allowed to perform $\exprpreadi{\expr_p}$ and $\exprpwritei{\expr_v}{\expr_p}$ operations.
+To enforce this, the typing rules include an access level $\mode$
+that limits what operations the code is allowed to perform.
+Many operations (such as integer addition) can be performed in any mode,
+but $\exprpreadi{\expr_p}$ and $\exprpwritei{\expr_v}{\expr_p}$ can only be performed in $\exec$ mode:
+\[
+\inferrule{
+  \ldots
+}{
+  \ejudgment{\datadecls}{\heaptyp}{\envmerge{\penv_1}{\penv_2}}{\envmerge{\xenv_1}{\xenv_2}}{\exec}{\laxity}{\exprpwritei{\expr_v}{\expr_p}}{\modu{\prf}{\linear}}{\typ}
+}
+\]
+The bodies of $\exec$ functions are type-checked with access level $\exec$,
+and can perform run-time reads and writes,
+while the bodies of $\prf$ and $\spec$ functions are type-checked with access level
+$\prf$ and $\spec$, and therefore cannot perform run-time reads and writes.
+
+The formal semantics of our mode language use a value $\exprpermi{\val}$
+to represent the storage location pointed to by pointer $\integer$,
+holding contents $\val$.
+Notice that this storage location is just a value,
+so it may get passed around from expression to expression,
+in and out of functions,
+although the type system's linearity ensures that there will never be two inconsistent linear copies
+of a permission for the same pointer.
+There may, however, be many $\spec$ copies of the permission floating around that
+contain snapshots old permission state,
+and the code is allowed to execute $\exprpdata{x_s}$ on these snapshots to obtain
+the old contents as $\spec$ values.
+In fact, it's important that $\exprpdata{x_s}$ return the contents associated with
+the snapshot $x_s$,
+rather than the most up-to-date value,
+because specifications must be deterministic:
+they cannot produce different values just because the state has changed.
+
+In order to prove the type safety of our model language,
+we have to prove that well-typedness is preserved, including the well-typedness of permission values.
+For this, we use an environment $\penv$ that keeps track of whether each storage location $\integer$
+is currently linear or borrowed ($\shared$).
+We also need to type-check the snapshotted $\spec$ copies of permissions.
+For this, we provide a special ``dead-end'' rule that allows stale copies of a permission
+to persist as $\spec$-only (see \autoref{fig:formal:typing2});
+this is sound because the $\spec$-only permission cannot be coerced
+back to a $\shared$ or $\linear$ permission for run-time reads and writes
+(hence our description of the $\spec$ copy as a ``dead-end'').
+
+\subsection{Functions and Lifetimes}
+
+Since our model language is a lambda calculus,
+it supports functions.
+This models both first-order functions,
+as shown in the examples in previous section,
+and higher-order features.
+For example, Verus supports first-class functions in specifications.
+Verus also supports simple traits with methods taking a \verb`self` argument;
+these simple traits can encode first-class functions.
+
+First-class functions in Rust (called closures in Rust terminology)
+are considerably more complicated
+than simply-typed lambda calculus functions, though.
+First, Rust distinguishes between \verb`Fn`,
+which represents functions that may be called many times,
+and \verb`FnOnce`,
+which represents functions that can only be called once.
+(There is also \verb`FnMut`, which we do not model.)
+\verb`FnOnce` functions may capture linear variables,
+while \verb`Fn` functions cannot.
+We define a {\it callability} $\callability ::= \once \sep \many$
+to represent this distinction.
+
+Rust first-class functions also have lifetimes associated with them,
+so that a function cannot outlive the variables that it captures,
+even if these variables are nonlinear (e.g., variables of type \verb`&int`).
+Rust lifetimes are quite sophisticated, including parameterization over lifetime variables,
+but, for simplicity,
+our model language contains just two hard-coded lifetimes
+$\lifetime ::= \static \sep \restricted$.
+The lifetime $\static$ means that a function may be passed around freely,
+because it does not capture any $\shared$ variables,
+while the lifetime $\restricted$ means that a function may have captured $\shared$ variables,
+and therefore the function cannot be returned past the nearest enclosing borrowing scope.
+(Note that this rather strict limitation is only for the model language;
+the actual \verus implementation allows Rust's more sophisticated lifetime variables.)
+The definition $\textrm{function\_body\_context}$ (see \autoref{fig:formal:typingdefs})
+specifies exactly which variables may be captured by the body of a function definition
+for each of the four combinations of $\callability$ and $\lifetime$.
+
+Finally, Verus adds yet another dimension to functions: a mode $\mode$
+that represents a function being a $\spec$ function, $\prf$ function, or $\exec$ function.
+The typing rule for function calls $\exprapp{\expr_f}{\expr_a}$ (\autoref{fig:formal:typing2})
+require that the function $\expr_f$'s mode be accessible
+according to the current access level,
+which means $\mode \modeless \mode_f$ if the current access level is $\mode$
+and $\expr_f$ is a function of mode $\mode_f$.
+
+With all of these configuration options,
+we can write function definitions $\exprfun{\mode}{\callability}{\lifetime}{x}{\modeu}{\typ}{\expr}$
+of type $\typfun{\mode}{\callability}{\lifetime}{\modeu_1}{\typ_1}{\modeu_2}{\typ_2}$.
+\autoref{fig:formal:typing2} shows two main rules for assigning function types to function definitions,
+one for non-spec functions and one for spec functions.
+The latter allows spec functions to capture snapshots of shared variables without worrying about lifetimes;
+it does not allow direct capturing of linear variables (since this would effectively discard the linear variable),
+but programs can always capture a linear variable indirectly by splitting off
+a $\spec$ copy of the linear variable from the surrounding environment and capturing the $\spec$ copy.
+
+
+The language also allows $\spec$ snapshots of non-spec functions.
+Just as snapshots of permissions required a dead-end rule,
+functions also require dead-end rules, which bring a slightly annoying technicality.
+We could write very simple dead-end rules that just ignore the function's body completely,
+and this would be sound,
+since a non-spec function snapshotted as a $\spec$ value can never be called,
+so the body doesn't matter.
+However, our proof of termination in \autoref{sec:soundness} is based on a translation
+of our model language into the calculus of inductive constructions (CIC, the logic used by Coq),
+and for this translation we need to retain enough of the body to form a well-typed CIC term.
+For this, we need to relax the linearity checking in order for the retained body to remain well-typed
+in the model language.
+\ifextended
+Therefore, we parameterize all of the typing rules with a flag $\laxity ::= \lstrict \sep \llax$ that enables ($\lstrict$) or disables
+($\llax$) linearity checking, and use $\llax$ for the dead-end function rules.
+Note, however, that $\laxity$ is just for assisting the CIC translation,
+and does not correspond to anything in the real Verus implementation of type checking and mode checking;
+Verus always uses the $\lstrict$ rules.
+\else
+We write this relaxed checking using the notation $\turnstile_{\llax}$;
+the details of this are included in the extended version of this paper~\cite{verus2023extended}.
+\fi
+
+\ifextended
+\subsubsection{Default values} \label{sec:default}
+
+In Verus, $\spec$ functions are total and correspond closely to SMT total functions,
+for the sake of enabling a direct, efficient translation from Verus into SMT queries.
+As in Z3, Boogie, and Creusot,
+but unlike Dafny, \fstar, and Coq,
+Verus $\spec$ functions always return some value of their output type, for all possible inputs.
+For example, the division function is uninterpreted when dividing by zero;
+it returns some integer, but we can't know which integer.
+A Verus function that wraps a division operation is itself well-formed
+and returns whatever arbitrary integer the division returns:
+
+\begin{lstlisting}[language=Verus]
+#[spec]
+fn my_div(i: int, j: int) -> int { i / j }
+\end{lstlisting}
+
+On the other hand, non-spec functions are partial:
+Verus prohibits division by zero, for example, in $\prf$ and $\exec$ functions.
+(If the code above were declared \verb`#[proof]` or \verb`#[exec]`,
+it would need a precondition specifying that $j \neq 0$.)
+Therefore, it is important to ensure that $\spec$ values don't leak back into non-spec code.
+This is especially important for spec functions that return an uninhabited type,
+such as Rust's ``Never'' type (written as ``!'' in Rust syntax);
+it would be unsound for a value of the Never type to appear as an $\exec$ value.
+(For a real-world example of values of uninhabited type causing unsoundness in Dafny,
+see~\cite{dafny:unsoundness}.)
+
+To model this, we include the type $\typnever$ in our language,
+along with a special default value $\exprbottom$ that has this type in specifications
+(and {\it only} in specifications).
+To demonstrate that the value doesn't leak into $\prf$ variables or $\exec$ variables,
+we include an expression $\exprcrashnever{\expr}$, usable in $\prf$ and $\exec$ modes,
+that crashes (fails to step) when given a value of type $\typnever$.
+Our type safety proof ensures that this crash never happens.
+
+Building on $\exprbottom$, we can define default values of all well-formed types.
+(The details are found in the definition of ``$\defaultsto{\typ}{\val}$'' in \autoref{fig:formal:additional}.)
+\fi
+
+\subsection{Termination} \label{sec:termination}
+
+When Verus code is compiled,
+all ghost code is erased (not compiled to machine code).
+This erasure is sound only if the ghost code always terminates with no side effects.
+The access level described in \autoref{sec:permissions} enforces the absence of side effects.
+Enforcing termination, though, is more delicate because
+mutation and recursive types can often encode nontermination
+when combined with higher-order features,
+like traits and first-class functions.
+
+To see how this can happen, consider the following two examples, written in OCaml.
+The first example creates a mutable reference that holds a function of type \verb`unit -> unit`.
+It then stores a new function into the mutable reference
+The new function recursively calls itself by reading itself from the reference,
+causing an infinite loop:
+
+\begin{lstlisting}
+let r: (unit -> unit) ref = ref (fun () -> ()) in
+r := (fun () -> !r ());
+!r ()
+\end{lstlisting}
+
+The second example passes a function to itself as an argument,
+using a recursive type \verb`R` to encapsulate the function in a well-typed way.
+The function then calls its argument, which means it calls itself,
+causing an infinite loop:
+
+\begin{lstlisting}
+type r = | R of (r -> unit)
+let f (R x) = x (R x) in f (R f)
+\end{lstlisting}
+
+\noindent(Note: this can also be encoded directly in Rust as follows:
+\begin{lstlisting}[language=Verus]
+        trait T { fn f(&self); }
+        fn rec<A: T>(x: &A) { x.f(); }
+        struct S {}
+        impl T for S { fn f(&self) { rec(self); } }
+        fn foo() { let s = S {}; s.f(); }
+\end{lstlisting}
+although this is more complicated.)
+
+Neither of these examples would be caught by \verb`decreases` clauses,
+because there are no explicit recursively-defined functions in the code.
+
+\ifextended
+To demonstrate that Verus can correctly prohibit these sources of nontermination,
+we include two more features in our model language.
+First, we add a small heap that consists of a single value $\heapval = \val$
+stored in a single heap location, having type $\heaptyp = \typ$.
+We also add operations $\exprhread$, $\exprhwrite{\expr}$, and $\exprhdata$
+to read, write, and snapshot the heap data.
+Using this, we can express nontermination with the following heap value $\heapval$:
+\[
+\heapval =
+  \exprfun{\exec}{\many}{\static}{x}{\modu{\exec}{\linear}}{\typunit}
+    {\exprapp{(\exprhread)}{x}}
+\]
+As in the first OCaml example, this function reads itself from the heap
+and then calls itself, causing an infinite loop.
+In fact, our model language allows this nontermination for $\exec$ functions.
+It prohibits it for $\spec$ and $\prf$ functions,
+though, because $\spec$ and $\prf$ functions don't have a sufficent access level $\mode$
+to call $\exprhread$, which requires access level $\exec$.
+More subtly, they don't have sufficient access to call $\exprhdata$ either,
+which could be another source of nontermination ---
+unlike the $\exprpdata{\expr_p}$ operation, $\exprhdata$ requires access level $\exec$,
+not access level $\spec$.
+(This access-level restriction also ensures that specifications are deterministic,
+since $\exprhdata$ reads directly from the global heap instead of from a snapshotted permission value.)
+
+Note that Verus currently uses linear permissions rather than a heap,
+but other languages like Dafny and \fstar use heaps,
+and Linear Dafny uses regions, which have similar properties to heaps.
+We include both the heap and linear permissions in the model language
+to highlight the distinction between the rules for the two approaches.
+In particular, we found the difference between
+the $\exprpdata{\expr_p}$ rules and the $\exprhdata$ rules surprising and worth formalizing.
+
+The second feature we add is recursive type definitions
+in the form of recursive structs.
+\else
+
+We demonstrate that Verus can correctly prohibit these sources of nontermination by including
+the following features in the model language:
+(i) permissions (\autoref{sec:termination});
+(ii) a small heap consisting of one ref cell
+(in the extended version of the paper~\cite{verus2023extended});
+(iii) recursive types, in the form of recursive structs, described below.
+
+\fi
+A recursive struct declaration
+$\datadecl ::= \declstruct{\structname}{\structfield{\mode_1}{\typ_1},\ldots,\structfield{\mode_n}{\typ_n}}$
+declares a struct $\structname$ with $n$ fields,
+each having a mode and a type.
+When constructing or destructing structs,
+the typing rules join the mode of the fields with the mode of the overall struct value
+using the $\modejoin$ operator (see \autoref{fig:formal:typing2}).
+This joining ensures, for example, that when reading fields from a $\spec$ snapshot
+of an $\exec$ struct value, the result will have mode $\spec$ even if the field mode
+is $\prf$ or $\exec$.
+
+\ifextended
+To complement recursive structs, the language also includes an option type $\typopt{\typ}$,
+allowing interesting recursive types like lists and trees.
+The rules for options are straightforward, with one nuance:
+the expression for matching on options ($\exprifsome{x}{\expr_1}{\expr_2}{\expr_3}$)
+restricts the access level for $\expr_2$ and $\expr_3$ depending on the mode of the option
+(see \autoref{fig:formal:typing}).
+This prohibits, for example, $\exec$ code from testing whether a $\spec$ option
+is Some or None and causing a side effect that depends on the test result.
+It does allow $\prf$ functions to test $\spec$ options, though, which is sound and useful in proofs.
+\fi
+
+The rules for well-formed struct declarations
+\ifextended
+\else
+(included in the extended version of this paper~\cite{verus2023extended})
+\fi
+allow recursive structs (although, for simplicity, they disallow mutual recursion).
+These rules enforce a standard ``strict positivity'' restriction
+(used by Coq, Lean, \fstar, and Dafny).
+However, they only require strict positivity in $\spec$ and $\prf$ function types;
+non-positive uses are allowed in $\exec$ function types
+(unlike in Coq, Lean, and Dafny, where all function types are restricted).
+
+\ifextended
+The main judgment for well-formed types has the form
+$\trjudgment{\datadecls}{\datadecls_r}{\datadecls_p}{\typ}$ (see \autoref{fig:formal:typing2}).
+The environment $\datadecls$ contains all declarations before the current struct
+that we're checking,
+and $\datadecls_r$ contains the current struct if it is legal
+to use recursively in the current position.
+The global environment $\datadecls$ is well formed ($\djudgment{\datadecls}$)
+if the empty environment is well formed ($\djudgment{\varnothing}$) and
+each subsequent struct declaration is well formed:
+\[
+\inferrule{
+  \djudgment{\datadecls}
+  \\
+  \datadecl = \declstruct{\structname}{\structfield{\mode_1}{\typ_1},\ldots,\structfield{\mode_n}{\typ_n}}
+  \\
+  \forall 1\le i \le n,\;(\trjudgment{\datadecls}{\varnothing}{\datadecl}{\typ_i}\;\;\textrm{and}\;\;\ljudgment{\mode_i}{\typ_i}{\static})
+}{
+  \djudgment{\datadecls, \datadecl}
+}
+\]
+For example, the rule for $\spec$ function types makes the struct available
+in the return type, but not in the argument type ($\datadecls_r$ is set to $\varnothing$
+when checking the argument type):
+
+\[
+\inferrule{
+  \trjudgment{\datadecls}{\varnothing}{\varnothing}{\typ_1}
+  \\
+  \trjudgment{\datadecls}{\datadecls_r}{\datadecls_p}{\typ_2}
+}{
+  \trjudgment{\datadecls}{\datadecls_r}{\datadecls_p}
+    {\typfun{\spec}{\many}{\static}{\spec}{\typ_1}{\spec}{\typ_2}}
+}
+\]
+
+By contrast, the rule for $\exec$ function types allows recursion in the argument type,
+so that executable code can still express nontermination through recursive types.
+(Note: the two separate environments $\datadecls_r$ and $\datadecls_p$
+are used because the rules actually enforce two separate properties:
+first, strict positivity and second, that recursive structs have default values.
+For the second property, declarations start in $\datadecls_p$ and then shift to $\datadecls_r$.)
+\fi
+
+\subsection{Semantics and Type Safety} \label{sec:soundness}
+
+\ifextended
+\autoref{fig:formal:evaluation}
+\else
+The extended version of this paper~\cite{verus2023extended}
+\fi
+defines evaluation rules
+$\heapexp{\heapval}{\expr} \fullstep \heapexp{\heapval'}{\expr'}$
+\ifextended
+for a heap and expression to take a single step to a new heap and expression.
+\else
+for an expression to take a single step to a new expression.
+\fi
+Based on this and the typing rules,
+we have proven type preservation,
+progress, and ghost-code termination:
+
+\begin{itemize}
+\item Preservation:
+if $\djudgment\datadecls$
+and $\sjudgment{\datadecls}{\heaptyp}{\penv}{\xenv}{\mode}{\heapval}{\expr}{\modeu}{\typ}$
+and $\heapexp{\heapval}{\expr} \fullstep \heapexp{\heapval'}{\expr'}$,\newline
+then $\sjudgment{\datadecls}{\heaptyp}{\penv}{\xenv}{\mode}{\heapval'}{\expr'}{\modeu}{\typ}$
+\item Progress:
+if $\djudgment\datadecls$
+and $\sjudgment{\datadecls}{\heaptyp}{\penv}{\varnothing}{\mode}{\heapval}{\expr}{\modeu}{\typ}$
+and $\expr$ is not a value,\newline
+then there is some $\heapexp{\heapval'}{\expr'}$ such that $\heapexp{\heapval}{\expr} \fullstep \heapexp{\heapval'}{\expr'}$.
+\item Termination:
+if $\mode\in\{\spec, \prf\}$
+and $\djudgment\datadecls$
+and $\sjudgment{\datadecls}{\heaptyp}{\penv}{\varnothing}{\mode}{\heapval_0}{\expr_0}{\modeu}{\typ}$
+then there is no infinite evaluation sequence
+$\heapexp{\heapval_0}{\expr_0} \fullstep \heapexp{\heapval_1}{\expr_1} \fullstep \heapexp{\heapval_2}{\expr_2} \fullstep \heapexp{\heapval_3}{\expr_3} \fullstep \ldots$
+\end{itemize}
+
+The supplementary material~\cite{verussupplementary} contains proofs of these theorems.
+The preservation and progress proofs are straightforward.
+The termination proof works by translating the declarations, types, and expressions
+into CIC (calculus of inductive constructions) declarations and terms,
+and then proving that the CIC declarations and terms are well-typed
+and proving a simulation between the CIC reduction steps and the $\heapexp{\heapval}{\expr}$ evaluation steps.
+The translation to CIC is fairly simple:
+$\spec$ and $\prf$ function types are translated into corresponding
+CIC function types, while $\exec$ function types are simply translated into the unit type,
+$\exec$ functions are erased completely (translated into the unit value),
+\ifextended
+$\exprpermi{\val}$ is translated into $\val$, and the heap is erased completely.
+\else
+and $\exprpermi{\val}$ is translated into $\val$.
+\fi
+
+
+
+
+
+
+
+
+\begin{figure}
+\begin{tabular}{lcrl}
+variable        & $ x $ & & \\
+integer         & $ \integer $ & ::= & $ \ldots, -2, -1, 0, 1, 2, \ldots $ \\
+struct name     & $ \structname $ & & \\
+usage           & $ \usage $ & ::= & $ \linear \sep \shared $ \\
+mode            & $ \mode $ & ::= & $ \spec \sep \prf \sep \exec$ \\
+mode + usage\!\!  & $ \modeu $ & ::= & $ \spec \sep \modu{\prf}{\usage} \sep \modu{\exec}{\usage}$ \\
+callability     & $ \callability $ & ::= & $ \once \sep \many $ \\
+lifetime        & $ \lifetime $ & ::= & $ \static \sep \restricted $ \\
+type            & $ \typ $ & ::= & $ \typint \sep \typunit
+\ifextended
+                             \sep \typnever
+\fi
+                             \sep \typpermi{\typ} \sep \typopt{\typ} $ \\
+                &           & $ \mid $ & $ \structname \sep \typfun{\mode}{\callability}{\lifetime}{\modeu_1}{\typ_1}{\modeu_2}{\typ_2} $ \\
+value           & $ \val $ & ::= & $ \integer \sep \exprunit
+\ifextended
+                             \sep \exprbottom
+\fi
+                             \sep \exprpermi{v} \sep \exprnone{\typ} \sep \exprsome{\val}{\typ} $ \\
+                &           & $ \mid $ & $ \exprstruct{\structname}{\val_1,\ldots,\val_n} \sep \exprfun{\mode}{\callability}{\lifetime}{x}{\modeu}{\typ}{\expr} $ \\
+expression      & $ \expr $ & ::= & $ x \sep \integer \sep \expr_1 + \expr_2 \sep \exprunit
+\ifextended
+                             \sep \exprbottom \sep \exprdefault{\typ} \sep \exprcrashnever{\expr}
+\fi
+                             $ \\
+\ifextended
+                &           & $ \mid $ & $ \exprhdata \sep \exprhread \sep \exprhwrite{\expr} $ \\
+\fi
+                &           & $ \mid $ & $ \exprpermi{v} \sep \exprpdata{\expr_p} \sep \exprpreadi{\expr_p} \sep \exprpwritei{\expr_v}{\expr_p} $ \\
+                &           & $ \mid $ & $ \exprdrop{\expr} \sep \exprcopy{\expr} \sep \exprseq{\expr_1}{\expr_2} \sep \exprlet{\mode}{x}{\expr_1}{\expr_2} $ \\
+                &           & $ \mid $ & $ \exprnone{\typ} \sep \exprsome{\expr}{\typ} \sep \exprifsome{x}{\expr_1}{\expr_2}{\expr_3} $ \\
+                &           & $ \mid $ & $ \exprstruct{\structname}{\expr_1,\ldots,\expr_n} \sep \exprletstruct{\structname}{x_1,\ldots,x_n}{\expr_1}{\expr_2} $ \\
+                &           & $ \mid $ & $ \exprfun{\mode}{\callability}{\lifetime}{x}{\modeu}{\typ}{\expr} \sep \exprapp{\expr_1}{\expr_2} $ \\
+datatype decl   & $ \datadecl $ & ::= & $ \declstruct{\structname}{\structfield{\mode_1}{\typ_1},\ldots,\structfield{\mode_n}{\typ_n}} $ \\
+datatype decls\!\!  & $ \datadecls $ & ::= & $ \datadecl_1,\ldots,\datadecl_n $ \\
+\ifextended
+heap value      & $ \heapval $ & ::= & $\val$ \\
+heap type       & $ \heaptyp $ & ::= & $\typ$ \\
+\fi
+permission env\!\!\!\!\!\!  & $ \penv $ & ::= & $ \{\integer_1 \mapsto \usage_1, \ldots, \integer_n \mapsto \usage_n\} $ \\
+variable env    & $ \xenv $ & ::= & $ \{x_1 \mapsto \utyp{\modeu_1}{\typ_1}, \ldots, x_n \mapsto \utyp{\modeu_n}{\typ_n}\} $ \\
+\ifextended
+lax checking    & $ \laxity $ & ::= & $ \lstrict \sep \llax $ \\
+\fi
+\end{tabular}
+\caption{Formal Model Language Syntax}
+\label{fig:formal:syntax}
+\end{figure}
+
+
+
+
+
+
+
+
+
+
+
+
+
+\begin{figure}
+\begin{flushleft}
+{\small
+
+$\modeof{\spec} = \spec \quad\quad \modeof{\utyp{\mode}{\usage}} = \mode$
+
+$\islinear{\modeu} = \textrm{true}$ iff $\modeu = \modu{\mode}{\linear}$
+
+\begin{tabular}{ll}
+$\envn\penv = \{\integer \mapsto \shared \;|\; \integer \mapsto \shared \in \penv\}$
+&
+$\envn\xenv = \{x \mapsto \utyp{\modeu}{\typ} \;|\; x \mapsto \utyp{\modeu}{\typ} \in \xenv \wedge \neg \islinear{\modeu}\}$
+\\
+$\envl\penv =  \{\integer \mapsto \linear \;|\; \integer \mapsto \linear \in \penv\}$
+&
+$\envl\xenv =  \{x \mapsto \utyp{\modeu}{\typ} \;|\; x \mapsto \utyp{\modeu}{\typ} \in \xenv \wedge \islinear{\modeu}\}$
+\end{tabular}
+
+\begin{tabular}{ll}
+$\envlinear{\penv} = \{\integer \mapsto \linear \;|\; \integer \mapsto \usage \in \penv\}$
+&
+$\envlinear{\xenv} = \{x \mapsto \utyp{(\modu{\mode}{\linear})}{\typ} \;|\; x \mapsto \utyp{(\modu{\mode}{\usage})}{\typ} \in \xenv\}$
+\\
+$\envshared{\penv} = \{\integer \mapsto \shared \;|\; \integer \mapsto \usage \in \penv\}$
+&
+$\envshared{\xenv} = \{x \mapsto \utyp{(\modu{\mode}{\shared})}{\typ} \;|\; x \mapsto \utyp{(\modu{\mode}{\usage})}{\typ} \in \xenv\}$
+\\
+$ $
+&
+$\envspec{\xenv} = \{x \mapsto \utyp{\spec}{\typ} \;|\; x \mapsto \utyp{\modeu}{\typ} \in \xenv\}$
+\end{tabular}
+
+$\penv = \envmerge{\penv_1}{\penv_2}$ iff $\envl\penv = \envl\penv_1, \envl\penv_2$ and $\envn\penv = \envn\penv_1 = \envn\penv_2$
+
+$\xenv = \envmerge{\xenv_1}{\xenv_2}$ iff $\envl\xenv = \envl\xenv_1, \envl\xenv_2$ and $(\envn\xenv, \envspec{\envl\xenv)} = (\envn\xenv_1, \envspec{\envl\xenv_1)} = (\envn\xenv_2, \envspec{\envl\xenv_2})$
+
+Define $\isunrestricted{\modeu}{\typ}$ to mean: $\modeu \neq (\modu{\mode}{\shared})$
+and $\ljudgment{\modeof{\modeu}}{\typ}{\static}$
+
+Define $\isstatic{\xenv}$ to mean: for all $x\mapsto\modu{\modeu}{\typ}\in\xenv$, $\lifetimeof{\typ} = \static$
+
+Define $\nonspecfunctionmodes{m_f}{\modeu_x}{\modeu_b}{\typ_b}$ to mean:
+$\isunrestricted{\modeu_b}{\typ_b}$ and
+$\mode_f \neq spec$ and
+$\mode_f \modeless \modeof{\modeu_x}$ and
+$\mode_f \modeless \modeof{\modeu_b}$
+
+Define $\functionbodycontext{\callability}{\lifetime}{\penv}{\xenv}{\penv_b}{\xenv_b}{\usage}$ to mean:
+\begin{itemize}
+\item if $\callability = \once$ and $\lifetime = \restricted$ then $\penv_b = \penv$ and $\xenv_b = \xenv$
+\item if $\callability = \many$ and $\lifetime = \restricted$ then $\penv = \envn\penv$ and $\xenv = \envn\xenv$ and $\penv_b = \penv$ and $\xenv_b = \xenv$
+\item if $\callability = \many$ and $\lifetime = \static$ then $\penv = \envn\penv$ and $\penv_b = \varnothing$ and $\xenv = \envn\xenv$ and $\xenv_b = \envspec{\xenv}$
+\item if $\callability = \once$ and $\lifetime = \static$ then $\penv_b = \envl\penv$ and $\xenv_b = \envl\xenv, \envspec{\envn\xenv}$ and $\isstatic{\envl\xenv}$
+\item if $\callability = \once$ then $\usage = \linear$
+\end{itemize}
+
+Define $\lifetimeof{\typ}$ to be:
+\begin{itemize}
+  \item $\lifetimeof{\typfun{\mode}{\callability}{\lifetime}{\modeu_1}{\typ_1}{\modeu_2}{\typ_2}} = \lifetime$
+  \item $\lifetimeof{\typopt{\typ}} = \lifetimeof{\typ}$
+  \item $\lifetimeof{\typ} = \static$ for all other $\typ$
+\end{itemize}
+}
+\end{flushleft}
+\vspace{-2mm}
+\caption{Notation and definitions for type checking}
+\label{fig:formal:typingdefs}
+\end{figure}
+
+
+
+
+
+
+
+
+
+
+
+\begin{figure}
+\begin{flushleft}{\bf Well-typed expression (main rules)} $\ejudgment{\datadecls}{\heaptyp}{\penv}{\xenv}{\mode}{\laxity}{\expr}{\modeu}{\typ}$\end{flushleft}
+{\small
+
+$
+\inferrule{
+  \mode \modeless \modeof{\modeu_x}
+}{
+  \ejudgment{\datadecls}{\heaptyp}{\envn\penv}{\envn\xenv, x\mapsto\utyp{\modeu_x}{\typ_x}}{\mode}{\laxity}{x}{\modeu_x}{\typ_x}
+}
+$
+\;\;\;\;\;\;\;\;
+$
+  \ejudgment{\datadecls}{\heaptyp}{\envn\penv}{\envn\xenv, x\mapsto\utyp{\modu{\mode_x}{\shared}}{\typ_x}}{\mode}{\laxity}{x}{\spec}{\typ_x}
+$
+\medskip\;\;\;\;\;\;\;\;
+$
+  \ejudgment{\datadecls}{\heaptyp}{\envn\penv}{\envn\xenv}{\mode}{\laxity}{\integer}{\modeu}{\typint}
+$
+\medskip\;\;\;\;\;\;\;\;
+\inferrule{
+  \ejudgment{\datadecls}{\heaptyp}{\penv_1}{\xenv_1}{\mode}{\laxity}{\expr_1}{\modeu}{\typint}
+  \\
+  \ejudgment{\datadecls}{\heaptyp}{\penv_2}{\xenv_2}{\mode}{\laxity}{\expr_2}{\modeu}{\typint}
+}{
+  \ejudgment{\datadecls}{\heaptyp}{\envmerge{\penv_1}{\penv_2}}{\envmerge{\xenv_1}{\xenv_2}}{\mode}{\laxity}{\expr_1 + \expr_2}{\modeu}{\typint}
+}
+\medskip\;\;\;\;\;\;\;\;
+$
+  \ejudgment{\datadecls}{\heaptyp}{\envn\penv}{\envn\xenv}{\mode}{\laxity}{\exprunit}{\modeu}{\typunit}
+$
+\medskip\;\;\;\;\;\;\;\;
+\ifextended
+$
+  \ejudgment{\datadecls}{\heaptyp}{\envn\penv}{\envn\xenv}{\mode}{\laxity}{\exprbottom}{\spec}{\typnever}
+$
+\medskip\;\;\;\;\;\;\;\;
+\inferrule{
+  \tjudgment{\datadecls}{\typ}
+}{
+  \ejudgment{\datadecls}{\heaptyp}{\envn\penv}{\envn\xenv}{\mode}{\laxity}{\exprdefault{\typ}}{\spec}{\typ}
+}
+\medskip\;\;\;\;\;\;\;\;
+\inferrule{
+  \ejudgment{\datadecls}{\heaptyp}{\penv}{\xenv}{\mode}{\laxity}{\expr}{\modeu}{\typnever}
+  \\
+  \modeu \neq \spec
+}{
+  \ejudgment{\datadecls}{\heaptyp}{\penv}{\xenv}{\mode}{\laxity}{\exprcrashnever{\expr}}{\modeu}{\typunit}
+}
+\medskip\;\;\;\;\;\;\;\;
+$
+  \ejudgment{\datadecls}{\heaptyp}{\envn\penv}{\envn\xenv}{\exec}{\laxity}{\exprhdata}{\spec}{\heaptyp}
+$
+\medskip\;\;\;\;\;\;\;\;
+$
+  \ejudgment{\datadecls}{\heaptyp}{\envn\penv}{\envn\xenv}{\exec}{\laxity}{\exprhread}{\modu{\exec}{\linear}}{\heaptyp}
+$
+\medskip\;\;\;\;\;\;\;\;
+\inferrule{
+  \ejudgment{\datadecls}{\heaptyp}{\penv}{\xenv}{\exec}{\laxity}{\expr}{\modu{\exec}{\linear}}{\heaptyp}
+}{
+  \ejudgment{\datadecls}{\heaptyp}{\penv}{\xenv}{\exec}{\laxity}{\exprhwrite{\expr}}{\modeu}{\typunit}
+}
+\medskip\;\;\;\;\;\;\;\;
+\fi
+\inferrule{
+  \ejudgment{\datadecls}{\heaptyp}{\envn\penv}{\envn\xenv}{\mode}{\laxity}{\val}{\modu{\exec}{\linear}}{\typ}
+  \\
+  \cjudgment{\datadecls}{\exec}{\typ}
+}{
+  \ejudgment{\datadecls}{\heaptyp}{\envn\penv, \integer\mapsto\usage}{\envn\xenv}{\mode}{\laxity}{\exprpermi{\val}}{\modu{\prf}{\usage}}{\typpermi{\typ}}
+}
+\medskip\;\;\;\;\;\;\;\;
+\inferrule{
+  \ejudgment{\datadecls}{\heaptyp}{\penv}{\xenv}{\mode}{\laxity}{\expr}{\spec}{\typpermi{\typ}}
+}{
+  \ejudgment{\datadecls}{\heaptyp}{\penv}{\xenv}{\mode}{\laxity}{\exprpdata{\expr}}{\spec}{\typ}
+}
+\medskip\;\;\;\;\;\;\;\;
+\inferrule{
+  \ejudgment{\datadecls}{\heaptyp}{\penv}{\xenv}{\exec}{\laxity}{\expr_p}{\modu{\prf}{\shared}}{\typpermi{\typ}}
+}{
+  \ejudgment{\datadecls}{\heaptyp}{\penv}{\xenv}{\exec}{\laxity}{\exprpreadi{\expr_p}}{\modu{\exec}{\shared}}{\typ}
+}
+\medskip\;\;\;\;\;\;\;\;
+\inferrule{
+  \ejudgment{\datadecls}{\heaptyp}{\penv_1}{\xenv_1}{\exec}{\laxity}{\expr_v}{\modu{\exec}{\linear}}{\typ'}
+  \\
+  \ejudgment{\datadecls}{\heaptyp}{\penv_2}{\xenv_2}{\exec}{\laxity}{\expr_p}{\modu{\prf}{\linear}}{\typpermi{\typ}}
+  \\
+  \cjudgment{\datadecls}{\exec}{\typ'}
+}{
+  \ejudgment{\datadecls}{\heaptyp}{\envmerge{\penv_1}{\penv_2}}{\envmerge{\xenv_1}{\xenv_2}}{\exec}{\laxity}{\exprpwritei{\expr_v}{\expr_p}}{\modu{\prf}{\linear}}{\typ'}
+}
+\medskip\;\;\;\;\;\;\;\;
+\inferrule{
+  \ejudgment{\datadecls}{\heaptyp}{\penv}{\xenv}{\mode}{\laxity}{\expr}{\modu{\mode_e}{\linear}}{\typ}
+  \\
+  \cjudgment{\datadecls}{\mode_e}{\typ}
+}{
+  \ejudgment{\datadecls}{\heaptyp}{\penv}{\xenv}{\mode}{\laxity}{\exprdrop{\expr}}{\modu{\mode_e}{\shared}}{\typ}
+}
+\medskip\;\;\;\;\;\;\;\;
+\inferrule{
+  \ejudgment{\datadecls}{\heaptyp}{\penv}{\xenv}{\mode}{\laxity}{\expr}{\modu{\mode_e}{\shared}}{\typ}
+  \\
+  \cjudgment{\datadecls}{\mode_e}{\typ}
+}{
+  \ejudgment{\datadecls}{\heaptyp}{\penv}{\xenv}{\mode}{\laxity}{\exprcopy{\expr}}{\modu{\mode_e}{\linear}}{\typ}
+}
+\medskip\;\;\;\;\;\;\;\;
+\inferrule{
+  \ejudgment{\datadecls}{\heaptyp}{\penv_1, \envshared{\penv_b}}{\xenv_1, \envshared{\xenv_b}}{\mode}{\laxity}{\expr_1}{\modeu_1}{\typunit}
+  \\
+  \ejudgment{\datadecls}{\heaptyp}{\penv_2, \envlinear{\penv_b}}{\xenv_2, \envlinear{\xenv_b}}{\mode}{\laxity}{\expr_2}{\modeu_2}{\typ_2}
+}{
+  \ejudgment{\datadecls}{\heaptyp}{(\envmerge{\penv_1}{\penv_2}), \envlinear{\penv_b}}{(\envmerge{\xenv_1}{\xenv_2}), \envlinear{\xenv_b}}{\mode}{\laxity}{\exprseq{\expr_1}{\expr_2}}{\modeu_2}{\typ_2}
+}
+\medskip\;\;\;\;\;\;\;\;
+\inferrule{
+  \ejudgment{\datadecls}{\heaptyp}{\penv_1, \envshared{\penv_b}}{\xenv_1, \envshared{\xenv_b}}{\mode}{\laxity}{\expr_1}{\modeu_1}{\typ_1}
+  \\
+  \ejudgment{\datadecls}{\heaptyp}{\penv_2, \envlinear{\penv_b}}{\xenv_2, \envlinear{\xenv_b}, x\mapsto\modu{\modeu_1}{\typ_1}}{\mode}{\laxity}{\expr_2}{\modeu_2}{\typ_2}
+  \\
+  \isunrestricted{\modeu_1}{\typ_1}\:\textrm{or}\:(\penv_b = \varnothing\:\textrm{and}\:\xenv_b = \varnothing)
+  \\
+  \ljudgment{\modeof{\modeu_2}}{\typ_2}{\static}
+  \\
+  \mode_1 = \modeof{\modeu_1}
+  \\
+  \mode \modeless \mode_1
+}{
+  \ejudgment{\datadecls}{\heaptyp}{(\envmerge{\penv_1}{\penv_2}), \envlinear{\penv_b}}{(\envmerge{\xenv_1}{\xenv_2}), \envlinear{\xenv_b}}{\mode}{\laxity}
+    {\exprlet{\mode_1}{x}{\expr_1}{\expr_2}}{\modeu_2}{\typ_2}
+}
+\medskip\;\;\;\;\;\;\;\;
+\inferrule{
+  \tjudgment{\datadecls}{\typ}
+}{
+  \ejudgment{\datadecls}{\heaptyp}{\envn\penv}{\envn\xenv}{\mode}{\laxity}{\exprnone{\typ}}{\modeu}{\typopt{\typ}}
+}
+\medskip\;\;\;\;\;\;\;\;
+\inferrule{
+  \ejudgment{\datadecls}{\heaptyp}{\penv}{\xenv}{\mode}{\laxity}{\expr}{\modeu}{\typ}
+}{
+  \ejudgment{\datadecls}{\heaptyp}{\penv}{\xenv}{\mode}{\laxity}{\exprsome{\expr}{\typ}}{\modeu}{\typopt{\typ}}
+}
+\medskip\;\;\;\;\;\;\;\;
+\inferrule{
+  \ejudgment{\datadecls}{\heaptyp}{\penv_1}{\xenv_1}{\mode}{\laxity}{\expr_1}{\modeu_1}{\typopt{\typ_1}}
+  \\
+  \ejudgment{\datadecls}{\heaptyp}{\penv_b}{\xenv_b, x\mapsto{\modu{\modeu_1}{\typ_1}}}{\mode_b}{\laxity}{\expr_2}{\modeu_b}{\typ_b}
+  \\
+  \ejudgment{\datadecls}{\heaptyp}{\penv_b}{\xenv_b}{\mode_b}{\laxity}{\expr_3}{\modeu_b}{\typ_b}
+  \\
+  \mode \modeless \mode_b
+  \\
+  (\modeof{\modeu_1} \modeless \mode_b)\:\textrm{or}\:(\modeof{\modeu_1} = \spec\:\textrm{and}\:\mode_b = \prf)
+}{
+  \ejudgment{\datadecls}{\heaptyp}{\envmerge{\penv_1}{\penv_b}}{\envmerge{\xenv_1}{\xenv_b}}{\mode}{\laxity}{\exprifsome{x}{\expr_1}{\expr_2}{\expr_3}}{\modeu_b}{\typ_b}
+}
+}
+\caption{Type Checking Rules}
+\label{fig:formal:typing}
+\end{figure}
+
+
+
+\begin{figure}
+\begin{flushleft}{\bf Well-typed expression (main rules, continued)}\end{flushleft}
+{\small
+$
+\inferrule{
+  \datadecls = \ldots, \declstruct{\structname}{\utyp{\mode_1}{\typ_1},\ldots,\utyp{\mode_n}{\typ_n}}, \ldots
+  \\
+  \forall 1\le i \le n,\;\ejudgment{\datadecls}{\heaptyp}{\penv_i}{\xenv_i}{\mode}{\laxity}{\expr_i}{(\mode_i\modejoin\modeu)}{\typ_i}
+}{
+  \ejudgment{\datadecls}{\heaptyp}{\envmergen{\penv_1}{\penv_n}}{\envmergen{\xenv_1}{\xenv_n}}{\mode}{\laxity}{\exprstruct{\structname}{\expr_1,\ldots,\expr_n}}{\modeu}{\structname}
+}
+$
+\medskip\;\;\;\;\;\;\;\;
+\inferrule{
+  \datadecls = \ldots, \declstruct{\structname}{\utyp{\mode_1}{\typ_1},\ldots,\utyp{\mode_n}{\typ_n}}, \ldots
+  \\
+  \ejudgment{\datadecls}{\heaptyp}{\penv_0}{\xenv_0}{\mode}{\laxity}{\expr_0}{\modeu_0}{\structname}
+  \\
+  \ejudgment{\datadecls}{\heaptyp}{\penv_b}{\xenv_b, x_1\mapsto\utyp{(\mode_1\modejoin\modeu_0)}{\typ_1}, \ldots, x_n\mapsto\utyp{(\mode_n\modejoin\modeu_0)}{\typ_n}}{\mode}{\laxity}{\expr_b}{\modeu_b}{\typ_b}
+  \\
+  \ljudgment{\modeof{\modeu_b}}{\typ_b}{\static}
+}{
+  \ejudgment{\datadecls}{\heaptyp}{\envmerge{\penv_0}{\penv_b}}{\envmerge{\xenv_0}{\xenv_b}}{\mode}{\laxity}{\exprletstruct{\structname}{x_1,\ldots,x_n}{\expr_0}{\expr_b}}{\modeu_b}{\typ_b}
+}
+\medskip\;\;\;\;\;\;\;\;
+\inferrule{
+  \ejudgment{\datadecls}{\heaptyp}{\penv_b}{\xenv_b, x\mapsto \utyp{\modeu_x}{\typ_x}}{\mode_f}{\laxity}{\expr_b}{\modeu_b}{\typ_b}
+  \\
+  \tjudgment{\datadecls}{\typ_x}
+  \\
+  \functionbodycontext{\callability}{\lifetime}{\penv}{\xenv}{\penv_b}{\xenv_b}{\usage}
+  \\
+  \nonspecfunctionmodes{\mode_f}{\modeu_x}{\modeu_b}{\typ_b}
+}{
+  \ejudgment{\datadecls}{\heaptyp}{\penv}{\xenv}{\mode}{\laxity}{(\exprfun{\mode_f}{\callability}{\lifetime}{x}{\modeu_x}{\typ_x}{\expr_b})}{\utyp{\mode_f}{\usage}}{(\typfun{\mode_f}{\callability}{\lifetime}{\modeu_x}{\typ_x}{\modeu_b}{\typ_b})}
+}
+\medskip\;\;\;\;\;\;\;\;
+\inferrule{
+  \ejudgment{\datadecls}{\heaptyp}{\envn\penv}{\envn\xenv, x\mapsto \utyp{\spec}{\typ_x}}{\spec}{\laxity}{\expr_b}{\spec}{\typ_b}
+  \\
+  \tjudgment{\datadecls}{\typ_x}
+}{
+  \ejudgment{\datadecls}{\heaptyp}{\envn\penv}{\envn\xenv}{\mode}{\laxity}{(\exprfun{\spec}{\many}{\static}{x}{\spec}{\typ_x}{\expr_b})}{\spec}{(\typfun{\spec}{\many}{\static}{\spec}{\typ_x}{\spec}{\typ_b})}
+}
+\medskip\;\;\;\;\;\;\;\;
+\inferrule{
+  \callability = \once\Longrightarrow \islinear{\modeu_1}
+  \\
+  \ejudgment{\datadecls}{\heaptyp}{\penv_1}{\xenv_1}{\mode}{\laxity}{\expr_f}{\modeu_1}{(\typfun{\mode_f}{\callability}{\lifetime}{\modeu_a}{\typ_a}{\modeu_b}{\typ_b})}
+  \\
+  \ejudgment{\datadecls}{\heaptyp}{\penv_2}{\xenv_2}{\mode}{\laxity}{\expr_a}{\modeu_a}{\typ_a}
+  \\
+  \modeof{\modeu_1} \modeless \mode_f
+  \\
+  \mode \modeless \mode_f
+}{
+  \ejudgment{\datadecls}{\heaptyp}{\envmerge{\penv_1}{\penv_2}}{\envmerge{\xenv_1}{\xenv_2}}{\mode}{\laxity}{\exprapp{\expr_f}{\expr_a}}{\modeu_b}{\typ_b}
+}
+\ifextended
+\medskip\;\;\;\;\;\;\;\;
+\inferrule{
+  \ejudgment{\datadecls}{\heaptyp}{\penv}{\xenv}{\mode}{\lstrict}{\expr}{\modeu}{\typ}
+  \\
+  \ejudgment{\datadecls}{\heaptyp}{\varnothing}{\envspec{\xenv}}{\exec}{\lstrict}{\heapval}{\modu{\exec}{\linear}}{\heaptyp}
+  \\
+  \cjudgment{\datadecls}{\exec}{\heaptyp}
+  \\
+  \lifetimeof{\heaptyp} = \static
+}{
+  \sjudgment{\datadecls}{\heaptyp}{\penv}{\xenv}{\mode}{\heapval}{\expr}{\modeu}{\typ}
+}
+\fi
+}
+
+\begin{flushleft}{\bf Well-typed expression (dead-end rules)} $\ejudgment{\datadecls}{\heaptyp}{\penv}{\xenv}{\mode}{\laxity}{\expr}{\modeu}{\typ}$\end{flushleft}
+{\small
+$
+\inferrule{
+  \envspec{\xenv} = \envspec{\xenv'}
+  \\
+  \modeof{\modeu} = \modeof{\modeu'}
+  \\
+  \ejudgment{\datadecls}{\heaptyp}{\penv'}{\xenv'}{\mode}{\llax}{\expr}{\modeu'}{\typ}
+}{
+  \ejudgment{\datadecls}{\heaptyp}{\penv}{\xenv}{\mode}{\llax}{\expr}{\modeu}{\typ}
+}
+$
+\medskip\;\;\;\;\;\;\;\;
+\inferrule{
+  \ejudgment{\datadecls}{\heaptyp}{\envn\penv}{\envn\xenv}{\mode}{\laxity}{\val}{\modeu}{\typ}
+}{
+  \ejudgment{\datadecls}{\heaptyp}{\envn\penv}{\envn\xenv}{\mode}{\laxity}{\exprpermi{\val}}{\spec}{\typpermi{\typ}}
+}
+\medskip\;\;\;\;\;\;\;\;
+\inferrule{
+  \ejudgment{\datadecls}{\heaptyp}{\envn\penv}{\envn\xenv, x\mapsto \utyp{\modeu_x}{\typ_x}}{\mode_f}{\llax}{\expr_b}{\modeu_b}{\typ_b}
+  \\
+  \tjudgment{\datadecls}{\typ_x}
+  \\
+  \nonspecfunctionmodes{\mode_f}{\modeu_x}{\modeu_b}{\typ_b}
+}{
+  \ejudgment{\datadecls}{\heaptyp}{\envn\penv}{\envn\xenv}{\mode}{\laxity}{(\exprfun{\mode_f}{\callability}{\lifetime}{x}{\modeu_x}{\typ_x}{\expr_b})}{\spec}{(\typfun{\mode_f}{\callability}{\lifetime}{\modeu_x}{\typ_x}{\modeu_b}{\typ_b})}
+}
+\medskip\;\;\;\;\;\;\;\;
+\inferrule{
+  \ejudgment{\datadecls}{\heaptyp}{\envn\penv}{\envn\xenv, x\mapsto \utyp{\modeu_x}{\typ_x}}{\mode_f}{\llax}{\expr_b}{\modeu_b}{\typ_b}
+  \\
+  \tjudgment{\datadecls}{\typ_x}
+  \\
+  \nonspecfunctionmodes{\mode_f}{\modeu_x}{\modeu_b}{\typ_b}
+}{
+  \ejudgment{\datadecls}{\heaptyp}{\envn\penv}{\envn\xenv}{\mode}{\laxity}{(\exprfun{\mode_f}{\once}{\lifetime}{x}{\modeu_x}{\typ_x}{\expr_b})}{\modu{\mode_f}{\shared}}{(\typfun{\mode_f}{\once}{\lifetime}{\modeu_x}{\typ_x}{\modeu_b}{\typ_b})}
+}
+}
+
+\ifextended
+
+\begin{flushleft}{\bf Well-formed types} $\trjudgment{\datadecls}{\datadecls_r}{\datadecls_p}{\typ}$ \end{flushleft}
+{\small
+$
+\trjudgment{\datadecls}{\datadecls_r}{\datadecls_p}{\typint}
+$
+\;\;\;\;\;\;\;\;
+$
+\trjudgment{\datadecls}{\datadecls_r}{\datadecls_p}{\typunit}
+$
+\;\;\;\;\;\;\;\;
+$
+\trjudgment{\datadecls}{\datadecls_r}{\datadecls_p}{\typnever}
+$
+\;\;\;\;\;\;\;\;
+$
+\inferrule{
+  \trjudgment{\datadecls}{\datadecls_r}{\datadecls_p}{\typ}
+}{
+  \trjudgment{\datadecls}{\datadecls_r}{\datadecls_p}{\typpermi{\typ}}
+}
+$
+\;\;\;\;\;\;\;\;
+\inferrule{
+  \trjudgment{\datadecls}{\datadecls_r, \datadecls_p}{\varnothing}{\typ}
+}{
+  \trjudgment{\datadecls}{\datadecls_r}{\datadecls_p}{\typopt{\typ}}
+}
+\medskip\;\;\;\;\;\;\;\;
+\inferrule{
+  \datadecls, \datadecls_r = \ldots, \declstruct{\structname}{\ldots}, \ldots
+}{
+  \trjudgment{\datadecls}{\datadecls_r}{\datadecls_p}{\structname}
+}
+\medskip\;\;\;\;\;\;\;\;
+\inferrule{
+  \trjudgment{\datadecls}{\datadecls_r, \datadecls_p}{\varnothing}{\typ_1}
+  \\
+  \trjudgment{\datadecls}{\datadecls_r, \datadecls_p}{\varnothing}{\typ_2}
+  \\
+  \isunrestricted{\modeu_2}{\typ_2}
+}{
+  \trjudgment{\datadecls}{\datadecls_r}{\datadecls_p}{\typfun{\exec}{\callability}{\lifetime}{\modeu_1}{\typ_1}{\modeu_2}{\typ_2}}
+}
+\medskip\;\;\;\;\;\;\;\;
+\inferrule{
+  \prf \modeless \modeof{\modeu_1}
+  \\
+  \prf \modeless \modeof{\modeu_2}
+  \\
+  \trjudgment{\datadecls}{\varnothing}{\varnothing}{\typ_1}
+  \\
+  \trjudgment{\datadecls}{\datadecls_r}{\datadecls_p}{\typ_2}
+  \\
+  \isunrestricted{\modeu_2}{\typ_2}
+}{
+  \trjudgment{\datadecls}{\datadecls_r}{\datadecls_p}{\typfun{\prf}{\callability}{\lifetime}{\modeu_1}{\typ_1}{\modeu_2}{\typ_2}}
+}
+\medskip\;\;\;\;\;\;\;\;
+\inferrule{
+  \trjudgment{\datadecls}{\varnothing}{\varnothing}{\typ_1}
+  \\
+  \trjudgment{\datadecls}{\datadecls_r}{\datadecls_p}{\typ_2}
+}{
+  \trjudgment{\datadecls}{\datadecls_r}{\datadecls_p}{\typfun{\spec}{\many}{\static}{\spec}{\typ_1}{\spec}{\typ_2}}
+}
+
+}
+\fi
+
+\caption{Type Checking Rules, continued}
+\label{fig:formal:typing2}
+\end{figure}
+
+\ifextended
+\begin{figure}
+\begin{flushleft}{\bf Evaluation context} $\efill{\expr}$\end{flushleft}
+{\small
+
+\begin{tabular}{lrrl}
+& $ \ectx $ & ::= & $
+  \ehole
+  \sep \ectx_1 + \expr_2
+  \sep \val_1 + \ectx_2
+  \sep \exprcrashnever{\ectx}
+  \sep \exprhwrite{\ectx}
+  \sep \exprpdata{\ectx}
+  $ \\
+  & & $ \mid $ & $
+  \exprpreadi{\ectx}
+  \sep \exprpwritei{\ectx}{\expr_p}
+  \sep \exprpwritei{\val}{\ectx}
+  \sep \exprdrop{\ectx}
+  \sep \exprcopy{\ectx}
+  $ \\
+  & & $ \mid $ & $
+  \exprseq{\ectx_1}{\expr_2}
+  \sep \exprlet{\mode}{x}{\ectx_1}{\expr_2}
+  \sep \exprsome{\ectx}{\typ}
+  \sep \exprifsome{x}{\ectx}{\expr_2}{\expr_3}
+  $ \\
+  & & $ \mid $ & $
+  \exprstruct{\structname}{\val_1,\ldots,\val_i,\ectx_j,\expr_k,\ldots,\expr_n}
+  \sep \exprletstruct{\structname}{x_1,\ldots,x_n}{\ectx_0}{\expr_b}
+  \sep \exprapp{\ectx_1}{\expr_2}
+  \sep \exprapp{\val_1}{\ectx_2}
+  $ \\
+\end{tabular}
+
+}
+\begin{flushleft}{\bf Evaluation rules} $(\heapval, \expr) \fullstep (\heapval', \expr')$ (implicitly in a context $\datadecls$)\end{flushleft}
+{\small
+
+\[
+\inferrule{
+  \expr\step\expr'
+}{
+  (\heapval, \expr) \step (\heapval, \expr')
+}
+\;\;\;\;\;\;\;\;
+\inferrule{
+  (\heapval, \expr) \step (\heapval', \expr')
+}{
+  (\heapval, \efill{\expr})\fullstep(\heapval', \efill{\expr'})
+}
+\]
+
+\[
+\inferrule{
+  i_3 = \textrm{sum of } i_1, i_2
+}{
+  i_1 + i_2 \step i_3
+}
+\;\;\;\;\;\;\;\;
+\inferrule{
+  \defjudgment{\datadecls}{\typ}{\val}
+}{
+  \exprdefault{\typ} \step \val
+}
+\]
+
+\[
+(\heapval, \exprhdata) \step (\heapval, \heapval)
+\;\;\;\;\;\;\;\;
+(\heapval, \exprhread) \step (\heapval, \heapval)
+\;\;\;\;\;\;\;\;
+(\heapval, \exprhwrite{\val}) \step (\val, \exprunit)
+\]
+
+\[
+\exprpdata{\exprpermi{\val}} \step \val
+\;\;\;\;\;\;\;\;
+\exprpreadi{\exprpermi{\val}} \step \val
+\]
+
+\[
+\exprpwritei{\val'}{\exprpermi{\val}} \step \exprpermi{\val'}
+\]
+
+\[
+\exprdrop{\val} \step ()
+\;\;\;\;\;\;\;\;
+\exprcopy{\val} \step \val
+\;\;\;\;\;\;\;\;
+\exprseq{\exprunit}{\expr_2} \step \expr_2
+\;\;\;\;\;\;\;\;
+\exprlet{\mode}{x}{\val_1}{\expr_2} \step \subst{\expr_2}{x}{\val_1}
+\]
+
+\[
+\exprifsome{x}{\exprnone{\typ}}{\expr_2}{\expr_3} \step \expr_3
+\]
+
+\[
+\exprifsome{x}{\exprsome{\val}{\typ}}{\expr_2}{\expr_3} \step \subst{\expr_2}{x}{\val}
+\]
+
+\[
+\exprletstruct{\structname}{x_1,\ldots,x_n}{\exprstruct{\structname}{\val_1,\ldots,\val_n}}{\expr_b}
+\step \msubst{\expr_b}{x_1}{\val_1}{x_n}{\val_n}
+\]
+
+\[
+\exprapp{(\exprfun{\mode}{\callability}{\lifetime}{x}{\modeu_x}{\typ_x}{\expr_b})}{\val_x} \step \subst{\expr_b}{x}{\val_x}
+\]
+
+$ $
+
+(Note: $\exprcrashnever{\exprbottom}$ does not step.  By not stepping, it ``crashes''.)
+
+}
+
+\caption{Evaluation Rules}
+\label{fig:formal:evaluation}
+\end{figure}
+
+
+\begin{figure}
+\begin{flushleft}{\bf Default values} $\defjudgment{\datadecls}{\typ}{\val}$\end{flushleft}
+{\small
+
+\[
+\defjudgment{\datadecls}{\typint}{0}
+\;\;\;\;\;\;\;\;
+\defjudgment{\datadecls}{\typunit}{\exprunit}
+\;\;\;\;\;\;\;\;
+\defjudgment{\datadecls}{\typnever}{\exprbottom}
+\]
+
+\[
+\inferrule{
+  \defjudgment{\datadecls}{\typ}{\val}
+}{
+  \defjudgment{\datadecls}{\typpermi{\typ}}{\exprpermi{\val}}
+}
+\;\;\;\;\;\;\;\;
+\defjudgment{\datadecls}{\typopt{\typ}}{\exprnone{\typ}}
+\]
+
+\[
+\inferrule{
+  \datadecls = \ldots, \declstruct{\structname}{\utyp{\mode_1}{\typ_1},\ldots,\utyp{\mode_n}{\typ_n}}, \ldots
+  \\
+  \defjudgment{\datadecls}{\typ_1}{\val_1}
+  \\
+  \ldots
+  \\
+  \defjudgment{\datadecls}{\typ_n}{\val_n}
+}{
+  \defjudgment{\datadecls}{\structname}{\exprstruct{\structname}{\val_1,\ldots,\val_n}}
+}
+\]
+
+\[
+\defjudgment{\datadecls}
+  {(\typfun{\mode}{\callability}{\lifetime}{\modeu_1}{\typ_1}{\modeu_2}{\typ_2})}
+  {(\exprfun{\mode}{\callability}{\lifetime}{x}{\modeu_1}{\typ_1}{\exprdefault{\typ_2}})}
+\]
+
+}
+\begin{flushleft}{\bf Copyable types} $\cjudgment{\datadecls}{\mode}{\typ}$\end{flushleft}
+{\small
+
+\[
+\cjudgment{\datadecls}{\spec}{\typ}
+\;\;\;\;\;\;\;\;
+\cjudgment{\datadecls}{\mode}{\typint}
+\;\;\;\;\;\;\;\;
+\cjudgment{\datadecls}{\mode}{\typunit}
+\;\;\;\;\;\;\;\;
+\cjudgment{\datadecls}{\mode}{\typnever}
+\]
+
+\[
+\inferrule{
+  \datadecls = \ldots, \declstruct{\structname}{\utyp{\mode_1}{\typ_1},\ldots,\utyp{\mode_n}{\typ_n}}, \ldots
+  \\
+  \cjudgment{\datadecls}{\mode_1}{\typ_1}
+  \\
+  \ldots
+  \\
+  \cjudgment{\datadecls}{\mode_n}{\typ_n}
+}{
+  \cjudgment{\datadecls}{\mode}{\structname}
+}
+\]
+
+\[
+\inferrule{
+  \cjudgment{\datadecls}{\mode}{\typ}
+}{
+  \cjudgment{\datadecls}{\mode}{\typopt{\typ}}
+}
+\;\;\;\;\;\;\;\;
+  \cjudgment{\datadecls}{\mode}{(\typfun{\mode_f}{\many}{\lifetime}{\modeu_1}{\typ_1}{\modeu_2}{\typ_2})}
+\]
+
+}
+\caption{Additional Rules}
+\label{fig:formal:additional}
+\end{figure}
+
+\fi
+

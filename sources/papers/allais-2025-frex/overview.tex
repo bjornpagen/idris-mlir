@@ -1,0 +1,373 @@
+\section{Mathematical Overview}
+\seclabel{new-overview}
+\emph{Universal algebra} concerns the generic description of algebraic
+structures and relationships between them~\cite[Chp.~II]{burris-sankappanavar:universal-algebra}.
+We summarise
+the concepts relevant to \Frexlib{}.
+
+\subsection{Presentations of Algebraic Structures}\seclabel{presentations}
+A \emph{finitary signature} $\Sig = \pair{\Op\Sig}{\arity}$ consists
+of a set $\Op\Sig$ of \emph{operators},
+and an assignment $\arity : \Op\Sig \to \Nat$ of a natural
+number to each operator called its \emph{arity}.
+%
+For example, the signature $\Sig_{(2,0)}$ often used for monoids
+has two operators $\Op(\Sig_{(2,0)}) \definedby \set{(+),0}$ with
+respective arities $2$ and $0$.
+%
+It is common to use a succinct notation that groups operators
+and their arities: $\Sig_{(2,0)} \definedby \set{(+):2,0:0}$.
+
+Signatures determine an algebraic language, whose semantic models
+are \emph{algebras}.
+%
+An \emph{algebra} $\A = \pair{\U\,\A}{\A\sem-}$
+  for a signature $\Sig$
+  consists of
+a set $\U\,\A$ called the \emph{carrier} and
+an assignment $\A\sem f : (\U\,\A)^n \to \U\,\A$ of an \emph{$n$-ary operation} over this carrier for every $n$-ary operator $f : n$ in $\Sigma$.
+%
+Continuing the example above, $\Sig_{(2,0)}$-algebras amount to
+triples $\triple{X}{\sem{(+)} : X^2 \to X}{\sem{0} \in X}$.
+%
+There may be many different algebras for a given signature and carrier set:
+for instance, we can equip the natural
+numbers $\naturals$ with the $\Sig_{(2,0)}$-algebra structures of
+arithmetic addition $\triple{\naturals}{(+)}{0}$,
+arithmetic multiplication $\triple\naturals{(\cdot)}1$,
+or $\triple{\naturals}{\max}{0}$.
+%
+Examples abound:
+subtraction over the integers has a $\Sig_{(2,0)}$-algebra
+$\triple{\integers}{(-)}{0}$;
+$n\times n$ matrices over $\naturals$ have
+$\Sig_{(2,0)}$-algebra structures given by matrix addition and
+multiplication with the zero and identity matrix respectively, and so
+on.
+%
+
+Each signature determines a language consisting of \emph{terms}.
+Given a set $\X$ of variables, the
+\emph{$\Sig$-terms over $\X$} are given inductively as either a
+variable in $\X$ or an application $f(t_1, \ldots, t_n)$ of an
+operator $f : n$ from $\Sig$ to $n$ terms over $\X$.
+The primary role of terms is to designate \emph{equations in context}
+$\X \vdash t = s$, i.e.~triples consisting of a set $\X$ of
+variables and two terms in context $\X$. For example, the
+associativity equation, expressed over the signature $\Sig_{(2,0)}$,
+is $x,y,z \vdash x + (y + z) = (x + y) + z$.
+
+An \emph{environment} for a context (=set) $\X$ in an algebra $\A$ is
+a function $\env : \X \to \U\,\A$.
+%
+An algebra $\A$ determines, for
+each term in context $\X \vdash t$, an \emph{interpretation} function
+$\A\sem t : (\U\,\A)^{\X} \to \U\,\A$.
+%
+Given an environment $\env$, $\A\sem t$ interprets
+each variable in the environment $\A\sem{\x}\env \definedby \env\,\x$,
+and structurally interprets each operator
+application:
+$\A\sem{f(t_1, \ldots, t_n)}\env\definedby \A\sem f(\A\sem{t_1}\env, \ldots, \A\sem{t_n}\env)$.
+For example, the interpretation of the left-hand-side (LHS) of the
+associativity axiom in the $\Sig_{(2,0)}$-algebra $\triple{\naturals}{\max}{0}$
+given the environment $\{x \mapsto 5, y \mapsto 3, z \mapsto 8\}$ is
+$\max(5, \max(3, 8)) = 8$.
+
+We say that an equation is \emph{valid} in an algebra $\A$, writing
+$\A \models (\X \vdash t = s)$, when $\A\sem t\env = \A\sem s\env$
+for all environments $\env : \X \to \U\,\A$. %% It is this implicit universal
+%% quantification over the environment that gives universal algebra its name.
+For example, the $\Sig_{(2,0)}$-algebras
+presented so far validate the associativity axiom, but interpreting
+the binary operation as subtraction over the integers $\triple{\integers}{(-)}{0}$
+does not: taking the
+environment $\{x \mapsto 0, y \mapsto 0, z \mapsto 1\}$, we have
+$0 - (0 - 1) = 1 \neq -1 = (0 - 0) - 1$.
+
+A \emph{presentation} of an algebraic theory $\Pres = \pair{\Sig_{\Pres}}{\Pres\Axiom}$
+consists of a signature $\Sig_{\Pres}$ and a set $\Pres\Axiom$ of
+$\Sig_{\Pres}$-equations in context, which we call \emph{axioms}. A
+\emph{$\Pres$-model} $\A$ is a $\Sig_{\Pres}$-algebra $\A$ validating
+all $\Pres$-axioms.  For example, the axioms of the $\Monoid$
+presentation consist of associativity and neutrality ($x \vdash x
++ 0 = x, 0 + x = x$) over the signature $\Sig_{(2,0)}$. The
+axioms for the $\CMonoid$ presentation additionally include commutativity $x,y
+\vdash y + x = x + y$. We can now generically manipulate classes of
+algebraic structures using these concepts, while generalising the
+usual examples: $\Monoid$-models are monoids, $\CMonoid$-models are
+commutative monoids, etc.
+
+\subsection{Homomorphisms, Free Models/Algebras, and Free Extensions}\seclabel{simplification}
+For a presentation $\Pres$, we consider two classes of simplification problem of interest, which we call \emph{purely abstract} and \emph{partially concrete}, respectively.
+%
+In the purely abstract case, the input to the problem consists of a set of variables $\X$ and a $\Sigma_{\Pres}$-term over $\X$.
+%
+Usually, $\X = \Finn$ is a set of De Bruijn levels.
+%
+In the partially concrete case, the input instead consists of a $\Pres$-model $\A$, a set of variables $\X$ and a $\Sigma_{\Pres}$-term over the disjoint union $\U\,\A \uplus \X$.
+%
+Here, we do not treat the `variables' in the term coming from the inclusion of $\U\,\A$ as variables in the usual sense.
+%
+Indeed, in both cases, the goal of the simplification problem is to find a representative modulo the presentation's axioms and the rules of deduction.
+%
+However, in the partially concrete case, simplification must also fold the elements of $\U\,\A$ using the operations of $\A$.
+%
+When the set $\X$ is empty, simplification and evaluation should coincide.
+
+The foregoing description is imprecise, but can be made precise using the notions of free algebra and free extension, whose definitions are formulated in terms of the unique existence of certain structure-preserving maps.
+%
+We dedicate the remainder of this section to introducing these concepts, drawing connection to the frex and fral simplification examples from
+page \pageref{new-intro fral example}. We start with the fral:
+\begin{equation}
+-6 + (x+3) + (y+x)
+{}\xmapsto{\text{evaluate}(x_0 + (x_2 + x_1) + (x_3 + x_2))}{}
+(1, 1, 2, 1)
+{}\xmapsto{\text{reify}\left(\begin{array}{@{}>{\scriptstyle}l@{}}
+      x_0 \mapsto -6, x_1 \mapsto 3, \\
+      x_2 \mapsto x, x_3 \mapsto y
+    \end{array}
+\right)}{}
+-6 +3 + 2x + y
+\qquad
+\label{nbe-examples-fral}
+\end{equation}
+
+Let $\Pres$ be a presentation and $\X$ a set of variables.  We define a \emph{$\Pres$-model\/}
+\emph{$\avar{}=\pair{\aModel}{\aEnv}$ over $\X$} to be a
+$\Pres$-model $\aModel$ equipped with an $\X$-environment in this
+algebra, i.e.~a function $\env : \X \to \U(\aModel)$.  This concept
+formalises the inputs to the fral simplification process from
+\eqref{nbe-examples-fral}.
+The starting term is the expression $-6 + (x+3) + (y+x)$
+in the meta-language involving the
+meta-level variables $x$ and $y$.
+The argument
+$x_0 + (x_2 + x_1) + (x_3 + x_2)$
+in the label on the left arrow is
+a $\Sig_{(2,0)}$-term with object-level variables from
+$\X \definedby \set{x_0, \ldots, x_3}$. The argument to the label on
+the right arrow, $(x_0 \mapsto -6, x_1 \mapsto 3, x_2 \mapsto x, x_3
+\mapsto y)$, is an $\X$-environment mapping the object-level variables $x_i \in \X$
+to expressions in the meta-level such as the constants $-6$ and $3$ and the
+meta-level variable $y$. To the fral simplification process
+these three expressions have the same status.
+The frex simplification process we describe later uses the concrete
+nature of $-6$ and $3$, simplifying the meta-level expression further through evaluation.
+
+Let $\A[1]$, $\A[2]$ be $\Sig$-algebras for a signature
+$\Sig$.  A \emph{homomorphism} $h : \A[1] \to \A[2]$ of
+$\Sig$-algebras is a semantics-preserving function $h : \U\,\A[1]
+\to \U\,\A[2]$ between their carriers. Explicitly, for all operators
+$f : n$ in $\Sig$ and elements $a_1, \ldots, a_n$ in $\U\,\A$, we have:
+\( h(\A[1]\sem f\!(a_1, \ldots, a_n)) = \A[2]\sem f\!(h\,a_1,
+\ldots, h\,a_n) \). A homomorphism between $\Pres$-models
+is a homomorphism between the underlying signature algebras.
+For example, the list-length function is a homomorphism from the
+monoid of concatenation over lists to the monoid
+of addition over naturals: $\length : \triple{\List \X}{(\++)}{\Empty}
+\to \triple\naturals{(+)}0$.
+
+\begin{wrapfigure}[4]{r}{2cm}
+  \vspace{-1\baselineskip}
+  \includegraphics{diagram-01.mps}
+\end{wrapfigure}
+A \emph{morphism} $\hName : \avar \to \bvar$ of $\Pres$-models over
+$\X$ is a $\Pres$-model homomorphism that moreover makes the diagram
+on the right commute.  A \emph{free $\Pres$-model over $\X$} is
+then a $\Pres$-model over $\X$ from which there is a unique such
+morphism to every other $\Pres$-model over $\X$. This
+existence-and-uniqueness property is called the \emph{universal
+property} of free $\Pres$-models.  For example, the free commutative
+monoid over $\X = \set{x_0, \ldots, x_3}$ is the $\Sig_{(2,0)}$-algebra
+over $\naturals^4$ given by componentwise arithmetic addition, and
+equipped with the $\X$-environment sending $x_0$ to $(1, 0, 0, 0)$,
+etc. The unique morphism out of this algebra into any commutative
+monoid $\A$, equipped with an environment $\env$, sends $(a_0, \ldots,
+a_3)$ to $a_0(\env\,x_0) + \ldots + a_3(\env\,x_3)$.
+%
+
+Confusingly, the literature sometimes refers to $\Pres$-models as
+$\Pres$-algebras~\cite[\S{}V.6]{mac-lane:categories-2nd-ed}. To avoid
+this confusion, we will use the terminology `$\Pres$-models' as much as
+possible, with one exception. When $\Pres$ is implicit, we will
+sometimes use the portmanteau `fral' of `\textbf{fr}ee
+\textbf{al}gebra'. We prefer it over alternatives (`frmo' or `frem').
+
+In summary, fral simplification provides a guiding principle
+for designing the data structure in the middle of
+\eqref{nbe-examples-fral}: it is an implementation of the fral.
+%
+\label{methodology-anchor}%
+The success criterion for the design of the simplification code is the
+universal property, which singles the fral up to a unique isomorphism
+of models over $\X$. The different components of the universal
+property provide the following methodology for this creative process.  Failure in
+each step in this process may provide insight into how the current
+data structure fails, and how it may be revised:
+\begin{enumerate}
+\item\label{methodology-step-structure} \textit{Equip the data structure with
+  a $\Sig_{\Pres}$-algebra structure.} Failure in this step typically exposes
+  inputs this simplifier cannot deal with. Revise the data structure to
+  support these operations.
+\item\label{methodology-step-validation} \textit{Prove it validates the
+  axioms, i.e., forms a $\Pres$-model.}  Failure in this step
+  exposes equations the structure does not use, i.e., completeness
+  issues. Revise the data structure to use the additional equations, or
+  relax the presentation, giving up on using these equations.
+\item\label{methodology-step-existence} \textit{Define a function out of
+  it to any other $\Pres$-model over $\X$.} Failure in this step
+  typically exposes `junk' in the data structure: components that are
+  not captured by the presentation such as missing operators.
+  Revise the data structure to exclude the junk, or extend the presentation
+  with more operators to account for the additional components.
+\item\label{methodology-step-homomorphic}
+  \textit{Show this function is a homomorphism.}
+  Failure in this step typically exposes unprovable
+  equations that the data structure validates.
+  Revise the data structure/presentation.
+\item\label{methodology-step-4-uniqueness} Show this homomorphism is
+  unique.  Failure in this step similarly exposes implicit axioms in
+  the data structure, revise data structure/presentation.
+\end{enumerate}
+While each step requires mathematical creativity, the overall structure
+breaks the task down into smaller steps, a checklist. This checklist
+organises the simplification code along these steps, making simplifier
+development more methodical.
+
+We now turn to frex simplification, through the second example from
+page~\pageref{new-intro fral example}:
+\begin{equation}
+-6 + (x+3) + (y+x)
+{}\xmapsto{\text{evaluate}_{\integers}}{}
+(-3, 2, 1)
+{}\xmapsto{\text{reify}}{}
+-3 + 2x + y
+\label{nbe-examples-frex}
+\end{equation}
+Let $\A$ be a $\Pres$-model and $\X$ a set whose elements we treat as representing
+variables. An \emph{extension}
+of $\A$ by $\X$ is a triple
+$\avar =
+\triple{\aModel}{\aVar}{\aEmbed}$
+consisting of a $\Pres$-model $\aModel$, a function $\aVar : \X \to
+\U(\aModel)$, and a $\Pres$-homomorphism $\aembed : \A \to \aModel$.
+This concept lets us phrase the distinction between meta-level constants such as
+$3$ and $6$, and meta-level variables such as $y$ in the meta-level expression
+$-6 + (x+3) + (y+x)$ from \eqref{nbe-examples-frex}.
+Taking $\A := \integers$ and $\X \definedby \set{x,y}$, both the
+concrete elements of the algebra $\A$ (e.g., $3$ and $-6$) and the
+abstract variables from $\X$ are part of the vocabularly of the
+simplification process. It uses the evaluation equation
+$-6 + 3 = -3$.
+
+\begin{wrapfigure}[4]{r}{3.2cm}
+  %uncomment next line if this paragraph is not in the beginning of the page.
+  \vspace{-1\baselineskip}
+  \includegraphics{diagram-02.mps}
+\end{wrapfigure}
+A \emph{morphism}\/ $\hName : \avar \to \bvar$ of extensions of $\A$
+by $\X$ is a $\Pres$-homomorphisms $\hName : \aModel \to \bModel$ that
+makes the two triangles in the diagram on the right commute.  A
+\emph{free extension} of $\A$ by $\X$ is then an extension from which
+there is a unique such morphism to every other extension of $\A$ by
+$\X$.  For example, the free extension of a commutative monoid $\A$ by
+two variables $\X \definedby \set{x,y}$ is the $\Sig_{(2,0)}$-algebra
+over $\U\,\A\times \naturals^2$, given componentwise, equipped with
+the $\Sig_{(2,0)}$-homomorphism that sends $u \in \U\,\A$ to $(u, 0,
+0)$ and the function that sends $x$ to $(\A\sem0, 1, 0)$ and $y$ to
+$(\A\sem0, 0, 1)$. The unique morphism to any
+extension $(\A[2], \env, b)$ sends $(u,a_0,a_1)$ to
+$b u + a_0(\env\,x) + a_1(\env\,y)$.
+
+\begin{figure*}
+  \centering
+  \input{table-of-frex}
+  \caption{Frals and frexes for varieties of monoids}
+  \figlabel{monoid frexlets}
+\end{figure*}
+\Figref{monoid frexlets} summarises the frals and frexes
+in this article. All but the last frex are well-known representations.
+Our contribution is to implement, alongside these representations,
+constructive proofs that they represent the fral or the frex. These proofs
+require the universal algebraic concepts we introduced
+so far. Other simplification modules can reuse these concepts and the representation
+theorems for existing simplifiers. This design enables extensible and modular
+user and library code.
+
+\subsection{Setoids}
+
+Designing \Frexlib{} around the concepts from
+\secref{presentations} and~\secref{simplification} supports
+term simplification in a uniform way.
+%
+Generalising the design further to use
+\emph{setoids}~\cite{hofmann:thesis,Bishop1967-BISFOC-3} instead of
+sets enables the same abstractions to offer more flexible
+functionality: printing terms and proofs, proof simplication, code
+generation, and more, which
+\secsref{certification}{reflection}
+explore.  The ability to extract such
+intensional information from terms violates algebraic equality, and
+differentiates this design from work involving quotients, for example
+quotient inductive-inductive types
+(QIITs)~\cite{altenkirch-et-al:qiits,kaposi-et-al:constructing-qiits,altenkirch-et-al:tt-in-tt-with-qiits}.
+This
+section presents some mathematical background about setoids and their
+realisation in \idris{}.
+
+A \emph{setoid} $\X = (\U\,\X,(\equiv_{\X}))$ consists of a set
+$\U\,\X$ and an equivalence relation $(\equiv_{\X})$ over $\U\,\X$.  A
+\emph{setoid homomorphism} $\f : \X[1] \~> \X[2]$ is a
+relation-preserving function between sets $\X[1]$ and $\X[2]$:
+$\f\,x \equiv_{\X[2]} \f\,y$ whenever $x \equiv_{\X} y$.
+We think of elements in $\U\,\X$ as representatives of the equivalence
+classes of $(\equiv_{\X})$, and so every setoid homomorphism induces
+a (unique) function between the quotients $\X/(\equiv_{\X}) \to \X[2]/(\equiv_{\X[2]})$.
+One way to construct a setoid is to equip a set $\X$ with its
+equality relation to give $(\X, (=))$, but using setoids
+also allows us to explicate sophisticated equivalence relations and define
+operations on them that are not supported by the corresponding
+quotients. For example, given a presentation $\Pres$ and a set $\X$,
+we can define the \emph{provability} relation $\X \vdash - = -$ over
+terms $\X \vdash t$ (cf.~\figref{provability}).  Related elements in
+the setoid $(\Term\X, \X\vdash -=-)$ represent different, but provably
+equal, terms. In contrast, elements in the quotient
+$\Term\X/(\X\vdash-=-)$ represent equivalence classes of provably equal
+terms. \Figref{provability} also includes the evaluation axiom (\textsc{eval}),
+which we will use to present the frex.
+\begin{figure}
+  \input{provability}
+  \caption{Provability in (a) equational logic (unshaded) and (b) the evaluation rule}
+  \figlabel{provability}
+\end{figure}
+
+Setoids and their homomorphisms form a common technique to complete an
+intensional type theory with extensional functions and quotients,
+requiring users to establish that every defined function is a setoid
+homomorphism.  However, in \Frexlib{} we make essential use of setoids
+that quotient types~\cite{hofmann-phd} do not allow.
+%
+For example, the terms-up-to-provability
+setoid supports operations such as $\mathrm{vars} : \Term\X
+\to \List\;\X$ which extract the list of variables appearing in a given
+term in-order. This function is not a setoid homomorphism.
+The quotient can only support such extraction following a canonicalisation.
+Both flavours of
+function are useful in applications, but setoids, and not quotients,
+support both.
+
+In \Frexlib{}, we implement universal algebra \emph{internal} to setoids:
+carriers are setoids; algebraic operations are setoid homomorphisms;
+algebra homomorphisms and environments must also be setoid
+homomorphisms; and the unique homomorphisms in the universal
+properties of the fral and the frex must be setoid homomorphisms.
+With this generalisation, the setoid $\Term\X/(\X\vdash-=-)$ also
+satisfies the fral universal property constructively. Therefore, there
+is a unique canonical setoid isomorphism to every other fral.  Similarly,
+by including the evaluation equations (\textsc{eval}), we obtain a
+setoid frex together with a setoid isomorphism to every other frex.
+These
+isomorphisms let us extract simplification proofs generically out of
+user-defined simplifiers. We discuss the decision to use setoids
+in \secref{conclusion} where we refer to the concrete benefits setoids offer.

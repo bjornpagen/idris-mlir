@@ -1,0 +1,17 @@
+benchmark,time
+RHS Monoid_commutative_2:9:1--9:75,0.028
+RHS Monoid_commutative_2:11:1--11:87,0.008
+RHS Monoid_commutative_2:13:1--13:87,0.002
+RHS Monoid_commutative_2:15:1--15:75,0.001
+RHS Monoid_commutative_2:17:1--17:87,0.002
+RHS Monoid_commutative_2:19:1--19:99,0.050
+RHS Monoid_commutative_2:21:1--21:99,0.003
+RHS Monoid_commutative_2:23:1--23:99,0.003
+RHS Monoid_commutative_2:25:1--25:87,0.002
+RHS Monoid_commutative_2:27:1--27:99,0.003
+RHS Monoid_commutative_2:29:1--29:100,0.003
+RHS Monoid_commutative_2:31:1--31:88,0.002
+RHS Monoid_commutative_2:33:1--33:100,0.003
+RHS Monoid_commutative_2:35:1--35:100,0.003
+RHS Monoid_commutative_2:37:1--37:88,0.002
+RHS Monoid_commutative_2:39:1--39:100,0.003

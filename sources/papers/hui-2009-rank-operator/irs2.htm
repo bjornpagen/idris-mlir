@@ -1,0 +1,52 @@
+﻿<html>
+<head><meta http-equiv="content-type" content="text/html;charset=utf-8">
+<title>Rank Operator - Dyalog '09</title>
+<link href="adoc.css" rel=stylesheet></head>
+<body>
+
+<p align=right><a href="index.htm">Index</a> &nbsp; 
+<a href="irs1.htm">&lt;&lt;</a> &nbsp; <a href="history.htm">&gt;&gt;</a></p>
+
+
+
+<table>
+<tr><td width=38>&nbsp;</td><td>
+<p><font size=+4>Integrated Rank Support (IRS)</font></p>
+
+<pre><font size=+4 face="APL385 Unicode">
+   data
+1 7 4 5
+2 0 6 6
+9 3 5 8
+
+   0 {"1 data
+1 2 9
+
+   x=: 1e2 1e5 ?@$ 0
+
+   ts=: 6!:2 , 7!:2@]  NB. time &amp; space
+
+   ts '0 {"1 x'        NB. IRS
+1.53651e_5 1856
+
+   ts '0 ([ { ])"1 x'  NB. no IRS
+0.0423858 1.05094e6
+
+   y=: 1e5 ?@$ 0
+
+   ts '0 { y'
+7.26349e_6 640
+
+   ts '0 ([ { ]) y'
+1.00571e_5 960
+
+</font></pre>
+
+
+<br>
+
+</td></tr></table>
+
+
+</body>
+</html>

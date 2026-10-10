@@ -1,0 +1,45 @@
+\begin{gather*}
+\inferrule
+    {~}
+    {
+      \X \vdash t = t
+    }
+    \textsc{refl}
+\qquad
+\inferrule
+    {\X \vdash s = t}
+    {
+      \X \vdash t = s
+    }\textsc{sym}
+\qquad
+\inferrule
+    {\X \vdash t = s\quad
+      \X \vdash s = r
+    }
+    {
+      \X \vdash t = r
+    }\textsc{trans}
+\qquad
+\inferrule{
+  (\X \vdash t = s) \in \Pres\Axiom
+}{
+  \X \vdash t = s
+}\textsc{ax}
+\\
+ \inferrule
+    {\X[2] \vdash t=s\quad
+      \theta_1,\theta_2 : \X[2] \to \Term\X[2]\quad
+     (\X \vdash \theta_1y = \theta_2y)_{y \in \X[2]}
+    }
+    {
+      \X \vdash t[\theta_1] = s[\theta_2]
+    }\textsc{cong}
+\qquad
+\shade{
+\inferrule{
+  \U\A \vdash t
+}{
+  \X \vdash t = \A\sem{t}
+}\textsc{eval}
+}
+\end{gather*}

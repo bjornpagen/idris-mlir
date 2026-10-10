@@ -1,0 +1,333 @@
+\section{Meaning as Trees}\label{sec:trees}
+
+We now see descriptions as functors and, correspondingly,
+datatypes as the initial objects of the associated functor-algebras.
+%
+This is a standard construction derived from Malcolm's
+work~\citeyearpar{DBLP:journals/scp/Malcolm90},
+itself building on Hagino's categorically-inspired
+definition of a lambda calculus
+with a generic notion of datatypes~\citep{DBLP:conf/ctcs/Hagino87}.
+
+Intuitively, the meaning of a description is the shape of one ``layer'' of
+tree where the subtrees' meaning is left abstract. We include below two
+sketches showing what the respective meanings of the \IdrisFunction{Node}
+and \IdrisFunction{Leaf} descriptions look like.
+%
+We use jigsaw pieces to figure ports in which subtrees can be inserted.
+
+\noindent
+\begin{center}
+\scalebox{.8}{\input{trees-as-puzzles}}
+\end{center}
+
+In our work these trees will be used primarily to allow users to
+give a precise specification of the IO procedures they actually want
+to write in order to process values stored in buffers.
+%
+We expect these inductive trees and the associated generic programs
+consuming them to be mostly used at the \IdrisKeyword{0}
+modality i.e. to be erased during compilation.
+
+\subsection{Descs as Functors}
+
+We are going to define the \IdrisFunction{Meaning} of descriptions
+as strictly positive endofunctors on \IdrisType{Type} by
+induction on said descriptions.
+%
+In its type, all of \IdrisBound{r}, \IdrisBound{s},
+and \IdrisBound{o} are implicitly universally quantified,
+a feature of \idris{} we explain below.
+
+\ExecuteMetaData[Serialised/Desc.idr.tex]{meaningtype}
+
+\begin{remark}[Implicit Prenex Polymorphism]\label{rmk:prenexpoly}
+  Lowercase names that are seemingly unbound are automatically
+  quantified over in a prenex manner reminiscent of other functional
+  languages like OCaml or Haskell.
+  These variables are bound at quantity 0, meaning that they will
+  be automatically erased during compilation.
+\end{remark}
+
+This function will interpret every \IdrisType{Desc} constructor
+as its obvious meaning as a type, using the parameter to give a
+meaning to \IdrisData{Rec} positions.
+%
+In particular, \IdrisData{None} and \IdrisData{Prod} will
+respectively be interpreted by a unit type (\IdrisType{True})
+and a product type (\IdrisType{Tuple}) defined below.
+%
+We do not use the unit and product from the standard
+library purely to offer better syntactic sugar to
+our users.
+
+\noindent
+\begin{minipage}[t]{.4\textwidth}
+  \ExecuteMetaData[Lib.idr.tex]{true}
+\end{minipage}\hfill
+\begin{minipage}[t]{.5\textwidth}
+  \ExecuteMetaData[Lib.idr.tex]{pair}
+\end{minipage}
+
+\begin{remark}[Lack of Eta-rules for Records]\label{rmk:etarecords}
+  \IdrisType{True} and \IdrisType{Tuple} are both defined
+  as \IdrisKeyword{record}s.
+  %
+  However in \idris{}, this is currently only syntactic sugar
+  to declare a datatype together with a projection for each
+  of the record's fields.
+  %
+  Conversion checking does not incorporate eta rules for records
+  and so we have to manually state, prove, and deploy eta rules
+  whenever necessary.
+  %
+  We include the two lemmas below as we will need them later.
+
+  \ExecuteMetaData[Lib.idr.tex]{etaTrue}\label{fig:etatrue}
+  \ExecuteMetaData[Lib.idr.tex]{etaTuple}\label{fig:etatuple}
+\end{remark}
+
+Now that we have these two type constructors, we can explicitly
+define \IdrisFunction{Meaning}, the function giving
+us the action on objects of the \IdrisType{Desc}-encoded
+endofunctors.
+
+\ExecuteMetaData[Serialised/Desc.idr.tex]{meaningfun}
+
+Both \IdrisData{None} and \IdrisData{Byte} are interpreted by constant
+functors (respectively the one returning the unit type \IdrisType{True},
+and the one returning the type of bytes).
+%
+(\IdrisData{Prod} \IdrisBound{d} \IdrisBound{e})
+is interpreted as a tuple grouping the respective interpretations
+of \IdrisBound{d} and \IdrisBound{e}.
+%
+Finally \IdrisData{Rec} is the identity functor.
+
+
+%% Looking back at our example of \IdrisFunction{Tree} descriptions,
+%% the meaning of the \IdrisFunction{Leaf} description is a unit type
+%% because our leaves do not store anything.
+%% \ExecuteMetaData[Serialised/Desc.idr.tex]{treeleafmeaning}
+%% Correspondingly, the meaning of the \IdrisFunction{Node} description
+%% is a nested tuple of whatever type is used to interpret subtrees,
+%% a byte, and another subtree.
+%% \ExecuteMetaData[Serialised/Desc.idr.tex]{treenodemeaning}
+
+
+Now that we have the action of descriptions on types,
+let us see their action on morphisms: provided a
+function from \IdrisBound{a} to \IdrisBound{b}, we can
+build one from the \IdrisFunction{Meaning} of \IdrisBound{d}
+at type \IdrisBound{a} to its meaning at type \IdrisBound{b}.
+%
+We once again proceed by induction on the description.
+
+\ExecuteMetaData[Serialised/Desc.idr.tex]{fmap}\label{def:fmap}
+
+All cases but the one for \IdrisData{Rec} are structural.
+%
+We leave out the proofs verifying that these definitions
+respect the functor laws up to pointwise equality.
+They are included in the supplementary material
+(\suppfile{Data.Serialisable.Data}).
+
+\subsection{Data as Trees}
+
+Given a datatype description \IdrisBound{cs}, our first goal is
+to define what it means to pick a constructor.
+%
+The \IdrisType{Index} record is a thin wrapper around a
+(\IdrisType{Fin} (\IdrisFunction{consNumber} \IdrisBound{cs}) i.e.
+a finite natural number known to be smaller than the number of
+constructors the \IdrisBound{cs} type provides.
+
+\ExecuteMetaData[Serialised/Desc.idr.tex]{index}
+
+We use this type rather than \IdrisType{Fin} directly because it
+plays well with inference.
+%
+In the following code snippet, implementing a function returning
+the description corresponding to a given index,
+we use this to our advantage:
+the \IdrisBound{cs} argument can be left implicit because it already
+shows up in the type of the \IdrisType{Index} and can thus be
+reconstructed by unification~\citep{DBLP:conf/tlca/AbelP11}.
+
+\ExecuteMetaData[Serialised/Desc.idr.tex]{description}
+
+The \IdrisFunction{index} function is provided by the standard
+library: given a position of type (\IdrisType{Fin} \IdrisBound{n})
+and a vector of size \IdrisBound{n}, it returns the value located
+at that position.
+%
+Note that we seem to define \IdrisFunction{description}
+in terms of itself, in a manner that would create an
+infinite loop.
+%
+But the occurrence on the right-hand side is actually
+referring to the projection out of the
+\IdrisType{Constructor} record.
+%
+This is possible thanks to Idris' type-directed disambiguation.
+
+\begin{remark}[Type-directed Disambiguation]
+  If multiple definitions in scope have the same name,
+  Idris performs type-directed disambiguation to pick
+  the only one that would work in that context.
+\end{remark}
+
+This type of indices also allows us to provide users with
+syntactic sugar enabling them to use the constructors' names
+directly rather than confusing numeric indices.
+%
+The following function runs a semi-decision procedure
+\IdrisFunction{isConstructor} (whose implementation is
+not given here) at the type level
+in order to turn any raw string \IdrisBound{str}
+into the corresponding \IdrisType{Index}.
+
+\ExecuteMetaData[Serialised/Desc.idr.tex]{fromString}
+
+\begin{remark}[Ad-hoc Polymorphisms for Literals]
+  String, numeric, and floating point literals are respectively
+  desugared using \IdrisFunction{fromString}, \IdrisFunction{fromInteger}, and
+  \IdrisFunction{fromDouble}.
+  Combined with the type-directed disambiguation (see above)
+  of overloaded symbols, this allows users to compute potentially complex
+  data from literals in a type-directed manner.
+\end{remark}
+
+In this instance, this allows us to use string literals as
+proxies for constructor names.
+%
+If the string literal stands for a valid name then
+\IdrisFunction{isConstructor} will
+return a valid \IdrisType{Index} and the compiler's proof
+search mechanism will be able to
+\IdrisKeyword{auto}matically fill-in the implicit proof.
+%
+If the name is not valid then \idris{} will not
+find the index and will raise a compile time error.
+%
+We include a successful example on the left and a failing test
+on the right hand side where the compiler is not able to find
+a proof of (\IdrisFunction{isJust} \IdrisKeyword{(}
+\IdrisFunction{isConstructor} \IdrisData{"Cons"}
+\IdrisFunction{Tree}\IdrisKeyword{)}) because it is
+simply not the case that \IdrisData{"Cons"} is the
+name of a \IdrisFunction{Tree} constructor.
+
+\noindent
+\begin{minipage}[t]{0.35\textwidth}
+  \ExecuteMetaData[Serialised/Desc.idr.tex]{indexleaf}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.52\textwidth}
+\ExecuteMetaData[Serialised/Desc.idr.tex]{notindexcons}
+\end{minipage}
+
+\begin{remark}[Failing Blocks]
+  A \IdrisKeyword{failing} block is a way to document (and
+  enforce) that some code leads to an error.
+  Such blocks are only accepted if their body parses but
+  leads to an error during elaboration.
+\end{remark}
+
+Once equipped with the ability to pick constructors, we can define
+the type of algebras for the functor described by a \IdrisType{Data}
+description. For each possible constructor, we demand an algebra for
+the functor corresponding to the meaning of the  constructor's description.
+
+\ExecuteMetaData[Serialised/Desc.idr.tex]{alg}
+
+We can then introduce the fixpoint of data descriptions as the initial
+algebra, defined as the following inductive type.
+
+\ExecuteMetaData[Serialised/Desc.idr.tex]{mu}
+
+\begin{remark}[Escape hatches]
+  \idris{} provides some escape hatches to use when the author
+  knows a usage is safe but the compiler is not able to
+  determine that it is.
+
+  A function call of the form (\assertTotal{} $e$) will
+  circumvent the termination and positivity checkers in
+  the expression $e$.
+  This is only safe if the function is actually terminating
+  or the type strictly positive.
+
+  A function call of the form (\believeMe{} $e$) will be
+  usable at any type. This is only safe if $e$'s actual type
+  and the type it is being used at have the same runtime
+  representation.
+\end{remark}
+
+Note that here we are forced to use \assertTotal{} to convince \idris{}
+to accept the definition.
+%
+Indeed, unlike Agda, \idris{} does not (yet!) track whether a function's
+arguments are used in a strictly positive manner.
+%
+Consequently the positivity checker
+is unable to see that \IdrisFunction{Meaning} uses its second
+argument in a strictly positive manner,
+and so that \IdrisFunction{Alg} also is,
+and that this is therefore a legal definition.
+
+Now that we can build trees as fixpoints of the
+meaning of descriptions, we can define convenient aliases for
+the \IdrisFunction{Tree} constructors.
+%
+Note that the leftmost \IdrisData{(\#)} use in each definition corresponds
+to the \IdrisType{Mu} constructor while later ones are \IdrisType{Tuple}
+constructors.
+%
+\idris{}'s type-directed disambiguation of constructors allows us to use
+this uniform notation for all of these pairing notions.
+
+\noindent
+\begin{minipage}[t]{.3\textwidth}
+  \ExecuteMetaData[Serialised/Desc.idr.tex]{leaf}
+\end{minipage}\hfill
+\begin{minipage}[t]{.65\textwidth}
+  \ExecuteMetaData[Serialised/Desc.idr.tex]{node}
+\end{minipage}
+
+This enables us to define our running example as an inductive value
+of type (\IdrisType{Mu} \IdrisFunction{Tree}):
+
+\ExecuteMetaData[Serialised/Desc.idr.tex]{longexample}
+
+\subsection{Generic Fold}\label{sec:genericfoldinductive}
+
+\IdrisType{Mu} gives us the initial fixpoint for these algebras i.e.
+given any other algebra over a type \IdrisBound{a}, from a term of
+type (\IdrisType{Mu} \IdrisBound{cs}), we can compute an \IdrisBound{a}.
+%
+We define the generic \IdrisFunction{fold} function over inductive values
+as follows:
+
+\ExecuteMetaData[Serialised/Desc.idr.tex]{fold}
+
+We first match on the term's top constructor, use \IdrisFunction{fmap}
+(defined in \Cref{def:fmap})
+to recursively apply the fold to all the node's subterms and finally
+apply the algebra to the result.
+%
+Here we only use \assertTotal{} because \idris{} does not see that
+\IdrisFunction{fmap} only applies its argument to strict subterms.
+This limitation could easily be bypassed by mutually defining
+an inlined and specialised version of
+(\IdrisFunction{fmap} \IdrisKeyword{\KatlaUnderscore} (\IdrisFunction{fold} \IdrisBound{alg}))
+as we demonstrate in \Cref{appendix:safefold}.
+%
+In an ideal type theory these supercompilation steps, whose sole
+purpose is to satisfy the totality checker, would be automatically
+performed by the compiler~\citep{MANUAL:phd/dublin/Mendel12}.
+
+%\todo{Include induction example \& move \IdrisFunction{All} here?}
+
+Further generic programming can yield other useful programs e.g. a
+generic proof that tree equality is decidable,
+a generic definition of zippers~\citep{DBLP:conf/icfp/LohM11},
+or a tail-recursive version of fold~\citep{DBLP:conf/icfp/CortinasS18}.

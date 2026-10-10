@@ -1,0 +1,73 @@
+\emphbf{Typing}\hfill{\fbox{\hastype{\env}{\RRenv}{\prog}{\typ}}}\\
+$$
+\inference{
+	\tbind{x}{\gtyp}\in\env
+}{
+	\hastype{\env}{\RRenv}{x}{\gtyp}
+}[\rtvar]
+\qquad
+\inference{
+}{
+	\hastype{\env}{\RRenv}{c}{\constty{c}}
+}[\rtconst]
+\quad
+\inference{
+	\hastype{\env}{\RRenv}{\prog}{\typ'} &
+	\issubtype{\env}{\RRenv}{\typ'}{\typ}
+}{
+	\hastype{\env}{\RRenv}{\prog}{\typ}
+}[\rtsub]
+$$
+
+$$
+\inference{
+	\hastype{\env}{\RRenv}{e}{\tref{v}{\btyp}{e_r}}
+}{
+	\hastype{\env}{\RRenv}{e}{\tref{v}{\btyp}{e_r\land v = e}}
+}[\rtexact]
+\qquad
+\inference{
+	\hastype{\env, \tbind{x}{\typ_x}}{\RRenv}{e}{\typ}
+}{
+	\hastype{\env}{\RRenv}{\efun{x}{\typ}{e}}{(\trfun{x}{\typ_x}{\typ})}
+}[\rtfun]
+$$
+
+$$
+\inference{
+	\hastype{\env}{\RRenv}{e}{(\trfun{x}{\typ_x}{\typ})} &&
+	\hastype{\env}{\RRenv}{e_x}{\typ_x}
+}{
+	\hastype{\env}{\RRenv}{e\ e_x}{\typ\subst{x}{e_x}}
+}[\rtapp]
+\qquad
+\inference
+	{\hastype{\env, \tbind{x}{\gtyp_x}}{\RRenv}{\bd_x}{\gtyp_x} &
+	 \iswellformed{\env, \tbind{x}{\gtyp_x}}{\typ_x} \\
+	 \hastype{\env, \tbind{x}{\gtyp_x}}{\RRenv}{\bd}{\gtyp} &
+	 \iswellformed{\env}{\typ}}
+	{\hastype{\env}{\RRenv}{\eletb{x}{\gtyp_x}{\bd_x}{\bd}}{\typ}}
+	[\rtlet]
+$$
+
+$$
+\inference{
+	\hastype{\env}{\RRenv}{e}{\tref{v}{T}{e_r}} & \iswellformed{\env}{\typ} \\
+	& \forall i. \constty{\dc_i} = \tfunbasic{\overline{\tbind{y_j}{\typ_j}}}{\tref{v}{T}{e_{r_i}}} 
+	& \hastype{\env, \overline{\tbind{y_j}{\typ_j}}, \tbind{x}{\tref{v}{T}{e_r \land e_{r_i}}} }{\RRenv}{e_i}{\typ}
+}{
+	\hastype{\env}{\RRenv}{\ecase{x}{e}{\dc_i}{\overline{y_i}}{e_i}}{\typ}
+}[\rtcase]
+$$
+
+$$
+\inference
+	{\hastype{\env}{\RRenv, f \mapsto e}
+	 				 {\eletb{f}{\exacttype{\gtyp_f}{e}}{e}{\prog}}
+					 {\typ}
+	}
+	{\hastype{\env}{\RRenv}
+					 {\erefb{f}{\gtyp_f}{e}{\prog}}
+					 {\typ}
+	}[\rtreflect]
+$$

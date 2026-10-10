@@ -1,0 +1,115 @@
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
+<!--Converted with LaTeX2HTML .95.3 (Nov 17 1995) by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds -->
+<HTML>
+<HEAD>
+<TITLE>Planar Convex-Hull</TITLE>
+<!-- Changed by: Guy Blelloch, 29-Feb-1996 -->
+<!-- Changed by: Guy Blelloch , 25-Mar-1996 -->
+<META NAME="description" CONTENT="Planar Convex-Hull">
+<META NAME="keywords" CONTENT="cacm2">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<LINK REL=STYLESHEET HREF="cacm2.css">
+</HEAD>
+<BODY LANG="EN">
+
+<strong>
+From <a href="../cacm.html"><cite>Programming Parallel Algorithms.</cite></a>
+<br>
+Communications of the ACM, 39(3), March, 1996.
+</strong>
+
+ <BR> <HR><A NAME="tex2html133" HREF="node11.html"><IMG ALIGN=BOTTOM ALT="next"  WIDTH=37 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/next_motif.gif"></A> <A NAME="tex2html131" HREF="node7.html"><IMG ALIGN=BOTTOM ALT="up"  WIDTH=26 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/up_motif.gif"></A> <A NAME="tex2html125" HREF="node9.html"><IMG ALIGN=BOTTOM ALT="previous"  WIDTH=63 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/previous_motif.gif"></A>   <BR>
+<B> Next:</B> <A NAME="tex2html134" HREF="node11.html">Three Other Algorithms</A>
+<B>Up:</B> <A NAME="tex2html132" HREF="node7.html">Examples of Parallel Algorithms</A>
+<B> Previous:</B> <A NAME="tex2html126" HREF="node9.html">Sparse Matrix Multiplication</A>
+<BR> <HR> <P>
+<H2><A NAME="SECTION00033000000000000000">Planar Convex-Hull</A><A NAME="secquickhull">&#160;</A></H2>
+<P>
+
+<P>
+Our next example solves the planar convex hull problem: Given <i>n</i>
+points in a plane, find which of them lie on the perimeter of the
+smallest convex region that contains all points.  This example shows
+another use of nested parallelism for divide-and-conquer algorithms.
+The algorithm we use is a parallel <EM>Quickhull</EM> [<A HREF="node14.html#Preparata85">20</A>],
+so named because of its similarity to the Quicksort algorithm.  As
+with Quicksort, the strategy is to pick a ``pivot'' element, split the
+data based on the pivot, and recurse on each of the split sets.  Also
+as with Quicksort, the pivot element is not guaranteed to split the
+data into equally sized sets, and in the worst case the algorithm
+requires  <IMG ALIGN=MIDDLE ALT="tex2html_wrap_inline1806"  WIDTH=44 HEIGHT=30 SRC="img45.gif"  >  work, however in practice the algorithm is often
+very efficient.
+
+<P><A NAME="814">&#160;</A><A NAME="figquickhull">&#160;</A>
+<blockquote>
+<a href="../nesl/alg-geometry.html#quickhull">
+<IMG  WIDTH=318 HEIGHT=213 SRC="../nesl/images/hull2.gif" alt="Convex Hull Image">
+</a><br>
+Click on the image to see and run the code.
+</blockquote>
+<BR>
+<STRONG>Figure 10:</STRONG> 
+Example of the <EM>Quickhull</EM> algorithm.
+Each sequence in the example shows one step of the algorithm.
+Since <i>A</i> and <i>P</i> are the two <i>x</i> extrema, the line
+<i>AP</i> is the original split line.
+<i>J</i> and <i>N</i> are the farthest points in each subspace from <i>AP</i> and
+are, therefore, used for the next level of splits.
+The values outside the brackets are hull points that
+have already been found.<BR>
+<P>
+<P>
+Figure <A HREF="node10.html#figquickhull">10</A> shows the code and an example of the Quickhull
+algorithm.  The algorithm is based on the recursive routine <TT>
+hsplit</TT>.  This function takes a set of points in the plane ( <IMG ALIGN=MIDDLE ALT="tex2html_wrap_inline1822"  WIDTH=38 HEIGHT=27 SRC="img47.gif"  >  coordinates) and two points <TT>p1</TT> and <TT>p2</TT> that
+are known to lie on the convex hull and returns all the points that
+lie on the hull clockwise from <TT>p1</TT> to <TT>p2</TT>, inclusive of <TT>
+p1</TT>, but not of <TT>p2</TT>.  In Figure <A HREF="node10.html#figquickhull">10</A>, given all the points
+<TT>[A, B, C, ..., P]</TT>, <TT>p1 = A</TT> and <TT>p2 = P</TT>, <TT>hsplit</TT>
+would return the sequence <TT>[A, B, J, O]</TT>.  In <TT>hsplit</TT>, the
+order of <TT>p1</TT> and <TT>p2</TT> matters, since if we switch <TT>A</TT> and
+<TT>P</TT>, <TT>hsplit</TT> would return the hull along the other direction
+<TT>[P, N, C]</TT>.
+<P>
+The <TT>hsplit</TT> function first removes all the elements that cannot
+be on the hull because they lie below the line between <TT>p1</TT> and
+<TT>p2</TT> (which we denote by <TT>p1-p2</TT>).  This is done by removing
+elements whose cross product with the line between <TT>p1</TT> and <TT>
+p2</TT> is negative.  In the case <TT>p1 = A</TT> and <TT>p2 = P</TT>, the
+points <TT>[B, D, F, G, H, J, K, M, O]</TT> would remain and be placed in
+the sequence <TT>packed</TT>.  The algorithm now finds the point, <TT>
+pm</TT>, furthest from the line <TT>p1-p2</TT>.  The point <TT>pm</TT> must be
+on the hull since as a line at infinity parallel to <TT>p1-p2</TT> moves
+toward <TT>p1-p2</TT>, it must first hit <TT>pm</TT>.  The point <TT>pm</TT>
+(<TT>J</TT> in the running example) is found by taking the point with the
+maximum cross-product.  Once <TT>pm</TT> is found, <TT>hsplit</TT> calls
+itself twice recursively using the points <TT>(p1, pm)</TT> and <TT>(pm,
+p2)</TT> (<TT>(A, J)</TT> and <TT>(J, P)</TT> in the example).  When the
+recursive calls return, <TT>hsplit</TT> flattens the result, thereby
+appending the two subhulls.
+<P>
+The overall <TT>convex-hull</TT> algorithm works by finding the points
+with minimum and maximum <TT>x</TT> coordinates (these points must be on
+the hull) and then using <TT>hsplit</TT> to find the upper and lower
+hull.  Each recursive call has constant depth and <EM>O(n)</EM> work.
+However, since many points might be deleted on each step, the work
+could be significantly less.  As with Quicksort, the worst case costs
+are <EM>W = <EM>O(n2)</EM></EM> and <EM>D = <EM>O(n)</EM></EM>.  For <i>m</i> hull points the best case
+times are <EM>O(log m)</EM> depth and <EM>O(n)</EM> work.  It is hard to state the
+average case time since it depends on the distribution of the inputs.
+Other parallel algorithms for the convex-hull problem run in <EM>D =
+<EM>O(log n)</EM></EM>, and <EM>W = <EM>O(n)</EM></EM> in the worst case [<A HREF="node14.html#Jaja92">16</A>],
+but have larger constants.
+<P>
+<BR> <HR><A NAME="tex2html133" HREF="node11.html"><IMG ALIGN=BOTTOM ALT="next"  WIDTH=37 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/next_motif.gif"></A> <A NAME="tex2html131" HREF="node7.html"><IMG ALIGN=BOTTOM ALT="up"  WIDTH=26 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/up_motif.gif"></A> <A NAME="tex2html125" HREF="node9.html"><IMG ALIGN=BOTTOM ALT="previous"  WIDTH=63 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/previous_motif.gif"></A>   <BR>
+<B> Next:</B> <A NAME="tex2html134" HREF="node11.html">Three Other Algorithms</A>
+<B>Up:</B> <A NAME="tex2html132" HREF="node7.html">Examples of Parallel Algorithms</A>
+<B> Previous:</B> <A NAME="tex2html126" HREF="node9.html">Sparse Matrix Multiplication</A>
+<BR> <HR> <P>
+<BR> <HR>
+<P><ADDRESS>
+<a href="http://www.cs.cmu.edu/~blelloch">Guy Blelloch</a>, <a href="mailto:blelloch@cs.cmu.edu">blelloch@cs.cmu.edu</a>
+</ADDRESS>
+</BODY>
+</HTML>

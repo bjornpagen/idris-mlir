@@ -1,0 +1,135 @@
+\newcommand\numbertodo[1]{{\color{red}{#1}}}
+\def\exectotal{1176}
+\def\spectotal{1279}
+\def\lhtimetotal{148.76}
+\def\lhsmttotal{1626\xspace}
+\def\lhproofstotal{1524\xspace}
+\def\pbetimetotal{150.88}
+\def\pbesmttotal{4068\xspace}
+\def\pbeproofstotal{638\xspace}
+
+\def\lhtotaltotal{843}
+\def\pbetotaltotal{306}
+
+\newcolumntype{?}{!{\vrule width 1pt}}
+\setlength{\tabcolsep}{3pt}
+
+\begin{small}
+\begin{table*}
+
+\begin{center}
+  \begin{tabular}{ ? l  ? r|r ? r|r|r ? r|r|r? }
+    \hline
+        \multirow{2}{*}{\textbf{Benchmark}}  & \multicolumn{2}{c?}{\textbf{Common}} & \multicolumn{3}{c?}{\textbf{Without PLE Search}} & \multicolumn{3}{c?}{\textbf{With PLE Search}} \\\cline{2-9}
+          & Impl~(l) & Spec~(l)
+          & Proof~(l)& Time~(s) & SMT~(q)
+          & Proof~(l) & Time~(s) & SMT~(q) \\
+    \hline
+     \multicolumn{9}{?l?}{\textbf{Arithmetic}}\\
+    \hline
+    Fibonacci
+    & 7 & 10
+    & 38& 2.74 & 129
+    & 16& 1.92 & 79
+    \\
+    Ackermann
+    & 20 & 73
+    & 196& 5.40        & 566
+    & 119& 13.80       & 846
+    \\
+    \hline
+    \multicolumn{9}{?l?}{\textbf{Class Laws}  Fig~\ref{fig:laws}}\\
+    \hline
+    Monoid
+    & 33 & 50
+    & 109& 4.47 & 34
+    & 33& 4.22 & 209
+    \\
+    Functor
+    & 48 & 44
+    & 93& 4.97 & 26
+    & 14& 3.68 & 68
+    \\
+    Applicative
+    & 62 & 110
+    & 241& 12.00 & 69
+    & 74& 10.00 & 1090
+    \\
+    Monad
+    & 63 & 42
+    & 122& 5.39           & 49
+    & 39& 4.89           & 250
+    \\
+    \hline
+     \multicolumn{9}{?l?}{\textbf{Higher-Order Properties}}\\
+    \hline
+    Logical Properties %% this is NatInduction + NaturalDeduction
+    & 0 & 20 % 2+18
+    & 33& 2.71 & 32
+    & 33& 2.74 & 32
+    \\
+    \hline
+    Fold Universal
+    & 10 & 44
+    & 43& 2.17 & 24
+    & 14& 1.46 & 48
+    \\
+    \hline
+     \multicolumn{9}{?l?}{\textbf{Functional Correctness}}\\
+    \hline
+    SAT-solver
+    & 92 & 34
+    & 0& 50.00 & 50
+    & 0& 50.00 & 50
+    \\
+    Unification
+    & 51 & 60
+    & 85& 4.77 & 195
+    & 21& 5.64 & 422
+    \\
+    \hline
+     \multicolumn{9}{?l?}{\textbf{Deterministic Parallelism}}\\
+    \hline
+    Conc. Sets
+    & 597 & 329
+    & 339& 40.10  & 339
+    & 229& 40.70  & 861
+    \\
+    $n$-body
+    & 163 & 251
+    & 101& 7.41 & 61
+    & 21& 6.27 & 61
+    \\
+    Par. Reducers
+    & 30 & 212
+    & 124& 6.63 & 52
+    & 25& 5.56 & 52
+    \\
+     \hline
+    \textbf{Total}
+    & \exectotal   & \spectotal
+    & \lhproofstotal& \lhtimetotal & \lhsmttotal
+    & \pbeproofstotal& \pbetimetotal & \pbesmttotal
+    \\
+    \hline
+	\end{tabular}
+\end{center}
+  \caption{We report verification \textbf{Time}
+           (in seconds, on a 2.3GHz Intel{\textregistered} Xeon{\textregistered}
+           CPU E5-2699 v3 with 18 physical cores and 64GiB RAM.),
+           the number of \textbf{SMT} queries and size of
+           \textbf{Proofs} (in lines).
+           %
+           The \textbf{Common} columns show sizes of common
+           \textbf{Implementations} and \textbf{Specifications} .
+           %
+           We separately consider proofs \textbf{Without} and
+           \textbf{With PLE Search}.
+           %
+           % \toolname (\lhtotaltotal~LoC in total) and
+           % \toolname with \pbesym (\pbetotaltotal~LoC in total) into
+           % \textbf{specifications}, \textbf{proof terms} and \textbf{executable} code.
+         }
+\label{table:evaluation}
+\end{table*}
+\end{small}

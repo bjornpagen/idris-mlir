@@ -1,0 +1,387 @@
+% ================================================================================
+% extra \newcommand's specific to this paper.
+% ================================================================================
+
+%% Oh no, we don't actually HAVE lambda!
+%% Later we'll have to make this a higher-order calculus!
+%% \newcommand{\ourcalc}[0]{\ensuremath{\lambda^{loc}}}
+%% \newcommand{\lamadt}{\ensuremath{\lambda^{adt}}}
+%% \newcommand{\lamcur}{\ensuremath{\lambda^{cur}}}
+
+%% Proposal 1 - hey, we have capital lambda, and it's even the thing that binds
+%% our lovely locations.
+%% \newcommand{\ourcalc}[0]{\ensuremath{\Lambda^{loc}}}
+%% \newcommand{\lamadt}{\ensuremath{\Lambda^{adt}}}
+%% \newcommand{\lamcur}{\ensuremath{\Lambda^{cur}}}
+
+% TODO: coming up with a new name.  RECONCILE usages with \ourcalc below.
+% Ones using this macro have already been audited/reconciled.
+%\newcommand{\sysname}[0]{}
+
+%% %% Proposal 2 - Core, like GHC Core.
+% \newcommand{\ourcalc}[0]{\ensuremath{Core^{loc}}}
+
+%% Helpers
+\newcommand{\pargibbon}[0]{Parallel Gibbon}
+
+\newcommand{\ourcalc}{\rparcalc{}}
+\newcommand{\rparcalc}{LoCal$^{\text{par}}$}
+\newcommand{\parcalc}{LoCal$^{\text{par}}$}
+\newcommand{\seqcalc}{LoCal}
+% \newcommand{\lamadt} [0]{\ensuremath{Core^{adt}}}
+\newcommand{\lamadt} [0]{HiCal\xspace}
+% \newcommand{\lamcur} [0]{\ensuremath{Core^{cur}}}
+% \newcommand{\lamcur} [0]{\textsf{Cursored}}
+% \newcommand{\lamcur} [0]{\textsf{CursedCal}}
+
+\newcommand{\lamcur}[0]{NoCal\xspace}
+
+\newcommand{\gramdef}{\; ::= \;}
+\newcommand{\gramor}{\; | \;}
+\newcommand{\keywd}[1]{\mathit{#1}}
+\newcommand{\gramwd}[1]{\texttt{#1}}
+\newcommand{\sgramwd}[1]{\texttt{#1}}
+\newcommand{\skeywd}[1]{\mathit{#1}}
+
+%% Grammar
+\newcommand{\PROG}{\keywd{top}}
+\newcommand{\DD}{\keywd{dd}}
+\newcommand{\VD}{\keywd{vd}}
+\newcommand{\FD}{\keywd{fd}}
+\newcommand{\DC}{\keywd{K}}
+\newcommand{\sDC}{\skeywd{K}}
+\newcommand{\TC}{\keywd{T}}
+\newcommand{\EXPR}{\keywd{e}}
+\newcommand{\sEXPR}{\skeywd{e}}
+\newcommand{\DATA}{\gramwd{data}}
+\newcommand{\TYP}{\keywd{\tau}}
+\newcommand{\TYPC}{\keywd{\tau_c}}
+\newcommand{\TYPIND}[1]{\gramwd{ind} \;  #1}
+\newcommand{\hTYP}{\keywd{\hat{\tau}}}
+\newcommand{\sTYP}{\skeywd{\tau}}
+\newcommand{\var}{\svar}
+\newcommand{\svar}{x}
+\newcommand{\fvar}{\sfvar}
+\newcommand{\sfvar}{f}
+\newcommand{\yvar}{y}
+\newcommand{\num}{n}
+\newcommand{\ARROW}{\rightarrow}
+\newcommand{\RP}{\keywd{dl}}
+\newcommand{\sRP}{\skeywd{dl}}
+\newcommand{\loc}{\skeywd{l}}
+\newcommand{\sloc}{\skeywd{l}}
+\newcommand{\concreteloc}[3]{\ensuremath{\langle #1, #2 \rangle ^{#3}}}
+\newcommand{\reg}{\skeywd{r}}
+\newcommand{\sreg}{\skeywd{r}}
+\newcommand{\LS}{\keywd{ls}}
+\newcommand{\LC}{\keywd{lc}}
+\newcommand{\LE}{\keywd{le}}
+\newcommand{\letpack}[3]{\gramwd{let}\;#1=#2\;\gramwd{in}\;#3}
+\newcommand{\letloc}[3]{\gramwd{letloc}\;#1 = #2\;\gramwd{in}\;#3}
+\newcommand{\letreg}[2]{\gramwd{letregion}\;#1\;\gramwd{in}\;#2}
+\newcommand{\fapp}[2]{\fvar \;[#1]\; #2}
+\newcommand{\TS}{\keywd{ts}}
+\newcommand{\ssetbool}[4]{#4 = #3[#2\mapsto \keywd{#1}=\keywd{True}]}
+\newcommand{\sinlinesetbool}[3]{#3[#2\mapsto \keywd{#1}=\keywd{True}]}
+\newcommand{\CS}{\keywd{cs}}
+\newcommand{\pat}{\keywd{pat}}
+\newcommand{\ptr}[1]{\gramwd{ptr}\;\keywd{#1}}
+\newcommand{\sind}{i}
+\newcommand{\ind}{\keywd{i}}
+\newcommand{\indj}{\keywd{j}}
+\newcommand{\concreteind}[1]{#1}
+\newcommand{\svind}[1]{#1\circ}
+\newcommand{\svindplusoff}[2]{#1 + #2}
+\newcommand{\indbef}[1]{#1\diamond}
+\newcommand{\concretelocvar}{\keywd{cl}}
+\newcommand{\fut}[1]{\text{fut}\;#1}
+\newcommand{\concretelocbefore}[1]{\gramwd{before}\; #1}
+\newcommand{\indivar}[1]{\gramwd{ivar}\; #1}
+\newcommand{\ivarid}{\var}
+\newcommand{\concretelocvardiamond}{\keywd{\concretelocvar\diamond}}
+\newcommand{\indirection}[2]{\ensuremath{\text{\&}(#1,#2)}}
+\newcommand{\indirectionvar}{hr}
+\newcommand{\VAL}{\keywd{v}}
+\newcommand{\ec}{\keywd{\mathcal{E}}}
+\newcommand{\evalc}[1]{\ec \llbracket #1 \rrbracket }
+\newcommand{\STOR}{\keywd{S}}
+\newcommand{\stepsto}{\Rightarrow}
+\newcommand{\parstepsto}{\Longrightarrow}
+\newcommand{\rparstepsto}{\Longrightarrow_{rp}}
+\newcommand{\costdyn}{\Downarrow}
+\newcommand{\Name}{\Red{Name }}
+\newcommand{\q}[1]{\texttt{#1}}
+\newcommand{\frl}[1]{{\ensuremath \mathit{frl}(#1)}}
+\newcommand{\caseclause}[2]{#1 \;\rightarrow \;#2}
+\newcommand{\case}[2]{\gramwd{case}\; #1 \;\gramwd{of}\;#2}
+\newcommand{\spat}{\keywd{spat}}
+\newcommand{\switch}[2]{\gramwd{switch}\; #1 \;\gramwd{of}\;#2}
+\newcommand{\readInt}[1]{\gramwd{\text{readInt}} \; #1}
+\newcommand{\writeInt}[2]{\gramwd{\text{writeInt}} \; #1 \; #2}
+\newcommand{\readTag}[1]{\gramwd{\text{readTag}} \; #1}
+\newcommand{\writeTag}[2]{\gramwd{\text{writeTag}} \; #1 \; #2}
+\newcommand{\readCursor}[1]{\gramwd{\text{readCursor}} \; #1}
+\newcommand{\writeCursor}[2]{\gramwd{\text{writeCursor}} \; #1 \; #2}
+\newcommand{\datacon}[3]{\ensuremath{#1 \;#2 \;#3}}
+\newcommand{\litcon}[2]{\datacon{\keywd{L}}{#1}{#2}}
+\newcommand{\litnum}{\keywd{n}}
+\newcommand{\CP}{\keywd{cp}}
+\newcommand{\tptr}[3]{\langle \mathit{ptr}\;#2\;#3 \rangle_{#1}}
+\newcommand{\LM}{\keywd{M}}
+\newcommand{\locis}[2]{\ensuremath{#1:#2}}
+\newcommand{\lvar}{\keywd{lx}}
+\newcommand{\has}[3]{\ensuremath{#1(#2) = #3}}
+\newcommand{\startr}[1]{\gramwd{start}\; #1}
+\newcommand{\afterl}[1]{\gramwd{after}\; #1}
+\newcommand{\tightoverset}[2]{%
+  \mathop{#2}\limits^{\vbox to -.5ex{\kern-0.75ex\hbox{$#1$}\vss}}}
+\newcommand\set[1]{\{ \, \ensuremath{#1} \,\}}
+\newcommand{\ecdot}{\bullet}
+\newcommand{\heap}{\keywd{h}}
+\newcommand{\heapval}{\keywd{hv}}
+\newcommand{\alphaequiv}{=_{\alpha}}
+\newcommand{\partup}{\ensuremath{\parallel}}
+
+\newcommand{\tsetequivjudg}[2]{\ensuremath{#1 \approx_{ts} #2}}
+\newcommand{\taskequivjudg}[3]{\ensuremath{#1; #2 \approx_{t} #3}}
+\newcommand{\storequivjudg}[5]{\ensuremath{#1; (#2, #3) \approx_{s} (#4, #5)}}
+
+% Cost graphs
+\newcommand{\costgraphnode}{\loc}
+\newcommand{\compgraphnodevar}{n}
+\newcommand{\compgraphvar}{g}
+\newcommand{\compgraphedgeset}{E}
+\newcommand{\compgraphseqcompop}{\oplus}
+\newcommand{\compgraphseqcomp}[2]{#1 \compgraphseqcompop #2}
+\newcommand{\compgraphparcomp}[2]{#1 \otimes #2}
+\newcommand{\heapgraph}{h}
+\newcommand{\compgraphnode}[1]{[#1]}
+\newcommand{\compgraph}[3]{(#1;#2;#3)}
+\newcommand{\compgraphnodefresh}[1]{(#1 \; \mathbf{fresh})}
+
+
+%% Environments
+\newcommand{\LENV}{\keywd{L}}
+\newcommand{\RENV}{\keywd{R}}
+\newcommand{\CENV}{\keywd{C}}
+\newcommand{\TENV}{\keywd{\Gamma}}
+\newcommand{\EENV}{\keywd{E}}
+\newcommand{\SENV}{\keywd{\Sigma}}
+\newcommand{\MENV}{\keywd{M}}
+\newcommand{\FENV}{\keywd{F}}
+\newcommand{\AENV}{\keywd{A}}
+\newcommand{\NENV}{\keywd{N}}
+
+\newcommand{\lTENV}{\overharpoon{\keywd{\Gamma}}}
+\newcommand{\lSENV}{\overharpoon{\keywd{\Sigma}}}
+\newcommand{\lCENV}{\overharpoon{\keywd{C}}}
+\newcommand{\lAENV}{\overharpoon{\keywd{A}}}
+\newcommand{\lNENV}{\overharpoon{\keywd{N}}}
+
+\newcommand{\liTENV}[1]{\overharpoon{\keywd{\Gamma}_{#1}}}
+\newcommand{\liSENV}[1]{\overharpoon{\keywd{\Sigma}_{#1}}}
+\newcommand{\liCENV}[1]{\overharpoon{\keywd{C}_{#1}}}
+\newcommand{\liAENV}[1]{\overharpoon{\keywd{A}_{#1}}}
+\newcommand{\liNENV}[1]{\overharpoon{\keywd{N}_{#1}}}
+
+\newcommand{\TASKVAR}{\keywd{T}}
+\newcommand{\SEQSTATE}{\keywd{t}}
+
+\newcommand{\TASKSET}{\mathbb{T}}
+\newcommand{\CENVMAP}{\mathbb{C}}
+\newcommand{\AENVMAP}{\mathbb{A}}
+\newcommand{\NENVMAP}{\mathbb{N}}
+\newcommand{\SENVMAP}{\mathbbl{\Sigma}}
+\newcommand{\TENVMAP}{\mathbbl{\Gamma}}
+
+\newcommand{\singlewriter}[3]{\ensuremath{HasSingleWriter(#1, #2, #3)}}
+\newcommand{\getwriter}[3]{\ensuremath{GetSingleWriter(#1, #2, #3)}}
+\newcommand{\isval}[1]{\ensuremath{IsVal(#1)}}
+\newcommand{\taskcomplete}[1]{\ensuremath{TaskComplete(#1)}}
+\newcommand{\xor}{\ensuremath{\oplus}}
+
+%% Loc helpers
+\newcommand{\inloc}[0]{\ensuremath{\downarrow\sloc}}
+\newcommand{\outloc}[0]{\ensuremath{\uparrow\sloc}}
+\newcommand{\locreg}[2]{\ensuremath{{#1}^{#2}}}
+\newcommand{\tyatlocreg}[3]{#1 \ensuremath{@} \locreg{#2}{#3}}
+\newcommand{\styatlocreg}[3]{#1\ensuremath{@}\locreg{#2}{#3}}
+\newcommand{\Cursorize}[0]{Cursorize}
+\newcommand{\fresh}[0]{\keywd{fresh}}
+
+%% Meta functions
+
+% Takes FROM,TO, i.e. \subst{e}{x}{v}.
+\newcommand{\subst}[3]{\ensuremath{#1[#3/#2]}}
+\newcommand{\substtwo}[3]{\ensuremath{#1\llbracket#3/#2\rrbracket}}
+
+\newcommand{\typeofcon}{\keywd{TypeOfCon}}
+\newcommand{\typeoffield}{\keywd{TypeOfField}}
+\newcommand{\kargtys}{\keywd{ArgTysOfConstructor}}
+\newcommand{\allocptr}[2]{\keywd{MaxIdx}(#1,#2)}
+
+% Update(M,key,val), e.g. M[key>val]
+%\newcommand{\update}[3]{\ensuremath{((#2 \mapsto #3)\; #1)}}
+\newcommand{\update}[3]{\ensuremath{#1+\{#2 \mapsto #3\}}}
+
+\newcommand{\nfofi}{\keywd{Nf}}
+\newcommand{\incri}{\keywd{Incr}}
+\newcommand{\followinm}{\keywd{Deref}}
+\newcommand{\rorngi}[2]{[#1, #2)}
+\newcommand{\rorngh}{\keywd{RORngH}}
+\newcommand{\storelookupone}[3]{\hat{#1}(#2,#3)}
+\newcommand{\maplookupone}[2]{\hat{#1}(#2)}
+\newcommand{\advancei}{\keywd{After}}
+\newcommand{\mergeh}{\keywd{MergeH}}
+\newcommand{\mergem}{\keywd{MergeM}}
+\newcommand{\merges}{\keywd{MergeS}}
+\newcommand{\tie}{\keywd{LinkFields}}
+\newcommand{\linkfields}{\keywd{LinkFields}}
+
+\newcommand{\ewitnesstext}{\ensuremath{\vdash_{\textit{ew}}}}
+\newcommand{\ewitness}[4]{\ensuremath{#1;#2;#3 \ewitnesstext #4}}
+\newcommand{\tietext}{\ensuremath{\vdash_{\textit{tie}}}}
+\newcommand{\storewf}[7]{\ensuremath{#1;#2;#3;#4;#5 \vdash_{wf} #6;#7}}
+\newcommand{\storewfcfa}[4]{\ensuremath{#1 \vdash_{wf_{cfc}} #3;#4}}
+\newcommand{\storewfca}[5]{\ensuremath{#1;#2 \vdash_{wf_{ca}} #4;#5}}
+\newcommand{\storewftasks}[1]{\ensuremath{\vdash_{wf_{tasks}} #1}}
+
+\newcommand{\tcfun}{\ensuremath{\vdash_{fun}}}
+\newcommand{\tcpat}{\ensuremath{\vdash_{pat}}}
+\newcommand{\tcts}{\ensuremath{\vdash_{ts}}}
+\newcommand{\tctask}{\ensuremath{\vdash_{task}}}
+\newcommand{\tctaskset}{\ensuremath{\vdash_{taskset}}}
+
+\newcommand{\parmergemenv}[2]{\mergem(#1, #2)}
+\newcommand{\parmergestor}[2]{\merges(#1, #2)}
+\newcommand{\parmergetask}[2]{\keywd{MergeT}(#1, #2)}
+
+%% Special references for proofs.
+\newcommand{\refwellformed}[2]{WF~\ref{#1};\ref{#2}}
+\newcommand{\refendwitness}[2]{EW~\ref{#1};\ref{#2}}
+\newcommand{\refts}[1]{T-#1}
+\newcommand{\refcase}[1]{Case-\ref{#1}}
+\newcommand{\elimexists}[0]{$\exists$ elim}
+\newcommand{\refinst}[0]{Inst.}
+
+\newcommand{\tfunctiondef}{T-Function-Definition}
+\newcommand{\tdatacon}{T-DataConstructor}
+\newcommand{\tdataconivars}{T-DataConstructor-Ivars}
+\newcommand{\ddatacon}{D-DataConstructor}
+\newcommand{\dletloctag}{D-LetLoc-Tag}
+\newcommand{\dletlocafter}{D-LetLoc-After}
+\newcommand{\dletlocafterpar}{D-Par-LetLoc-After}
+\newcommand{\dletlocstart}{D-LetLoc-Start}
+\newcommand{\dapp}{D-App}
+\newcommand{\dletregion}{D-LetRegion}
+\newcommand{\tcase}{T-Case}
+\newcommand{\dcase}{D-Case}
+\newcommand{\tpat}{T-Pattern}
+\newcommand{\tprogram}{T-Program}
+\newcommand{\tllafter}{T-LetLoc-After}
+\newcommand{\tlltag}{T-LetLoc-Tag}
+\newcommand{\tllstart}{T-LetLoc-Start}
+\newcommand{\tlregion}{T-LetRegion}
+\newcommand{\tvar}{T-Var}
+\newcommand{\ttaskset}{T-Taskset}
+\newcommand{\ttasksetempty}{T-Taskset-Empty}
+\newcommand{\ttask}{T-Task}
+\newcommand{\tlet}{T-Let}
+\newcommand{\dletexp}{D-Let-Expr}
+\newcommand{\dletval}{D-Let-Val}
+\newcommand{\dletexppar}{D-Par-Let}
+\newcommand{\dparcasejoin}{D-Par-Case-Join}
+\newcommand{\tapp}{T-App}
+\newcommand{\tconcreteloc}{T-Concrete-Loc}
+\newcommand{\dparsteptask}{D-Par-Step}
+\newcommand{\emptytenv}{\emptyset}
+
+%% Region-Parallel transitions
+\newcommand{\transformsto}{\longrightarrow}
+\newcommand{\Indr}{I}
+\newcommand{\trdatadecl}{Tr-DataDecl}
+\newcommand{\dregparsteptask}{D-Par-Step}
+\newcommand{\dregparletexppar}{D-Par-Let-Fork}
+\newcommand{\dregparletexpseq}{D-Par-Let}
+\newcommand{\dregparletlocafter}{D-Par-LetLoc-After}
+\newcommand{\dregparletlocafternewreg}{D-LetLoc-After-NewReg}
+\newcommand{\dregparcasejoin}{D-Par-Case-Join}
+\newcommand{\dregparcase}{D-Par-Case}
+\newcommand{\dregpardatacon}{D-Par-DataConstructor}
+\newcommand{\dregpardataconjoin}{D-Par-DataConstructor-Join}
+\newcommand{\dregparletlocstart}{D-Par-LetLoc-Start}
+\newcommand{\dregparletloctag}{D-Par-LetLoc-Tag}
+\newcommand{\dregparletexp}{D-Par-Let-Expr}
+\newcommand{\dregparletval}{D-Par-Let-Val}
+\newcommand{\dregparapp}{D-Par-App}
+\newcommand{\dregparletregion}{D-Par-LetRegion}
+
+%%
+\newcommand{\wftask}{\ensuremath{\vdash_{wf_{task}}}}
+
+%% Formatting
+
+%% fdtools, harpoon are packages that provide this feature, but
+%% have their own set of problems. We do this by hand instead:
+%% https://tex.stackexchange.com/questions/304622
+%% \makeatletter
+%% \newcommand*\MY@rightharpoonupfill@{%
+%%   \arrowfill@\relbar\relbar\rightharpoonup
+%% }
+%% \newcommand*\overrightharpoon{%
+%%   \mathpalette{\overarrow@\MY@rightharpoonupfill@}%
+%% }
+%% \makeatother
+\newcommand{\overharpoon}[1]{\overrightharpoon{#1}}
+
+\newcommand{\taskconfig}[3]{(#1, #2, #3)}
+
+%% \newcommand{\MPL}{\text{MPL}}
+\newcommand{\MPL}{\text{MaPLe}}
+
+\newcommand{\vsmaple}[1]{$\inferrule{\MPL{}}{\text{Ours}}{#1}$}
+\newcommand{\vsocaml}[1]{$\inferrule{\text{OCaml}}{\text{Ours}}{#1}$}
+\newcommand{\vsghc}[1]{$\inferrule{\text{GHC}}{\text{Ours}}{#1}$}
+\newcommand{\buildfib}{buildtreeHvyLf}
+
+\newcommand{\appendixref}[1]{appendix~\ref{#1}}
+\newcommand{\Appendixref}[1]{Appendix~\ref{#1}}
+
+
+\newcommand{\metafmerging}{
+\[
+\begin{array}{lcl}
+  %% \merges(\STOR_1, \STOR_2) & = & \STOR_1 \cup \STOR_2 \\\\
+  \merges(\STOR_1, \STOR_2) & = & \set{\reg \mapsto \mergeh(\heap_ 1, \heap_2) \mid (\reg \mapsto \heap_1) \in \STOR_1,  (\reg \mapsto \heap_2) \in \STOR_2} \\
+                            & \cup & \set{\reg \mapsto \heap \mid (\reg \mapsto \heap) \in \STOR_1,  \reg \not\in dom(\STOR_2)} \\
+                            & \cup & \set{\reg \mapsto \heap \mid (\reg \mapsto \heap) \in \STOR_2,  \reg \not\in dom(\STOR_1)} \\\\
+  \mergeh(\heap_1, \heap_2) & = & \set{\concreteind{\ind_1} \mapsto \heapval \mid (\concreteind{\ind_1} \mapsto \heapval) \in \heap_1, (\concreteind{\ind_2} \mapsto \heapval) \in \heap_2, \concreteind{\ind_1} = \concreteind{\ind_2}} \\
+                            & \cup & \set{\concreteind{\ind} \mapsto \heapval \mid (\concreteind{\ind} \mapsto \heapval) \in \heap_1, \concreteind{\ind} \not\in \set{\concreteind{\ind'} | \concreteind{\ind'} \in dom(\heap_2)}} \\
+                            & \cup & \set{\concreteind{\ind} \mapsto \heapval \mid (\concreteind{\ind} \mapsto \heapval) \in \heap_2, \concreteind{\ind} \not\in \set{\concreteind{\ind'} | \concreteind{\ind'} \in dom(\heap_1)}} \\\\
+
+  \mergem(\MENV_1, \MENV_2)
+  %
+  & = & \set{\locreg{\loc}{\reg} \mapsto \concreteloc{\reg}{\concreteind{\ind_1}}{} \mid
+  (\locreg{\loc}{\reg} \mapsto \concreteloc{\reg}{\concreteind{\ind_1}}{}) \in \MENV_1,
+  (\locreg{\loc}{\reg} \mapsto \concreteloc{\reg}{\concreteind{\ind_2}}{}) \in \MENV_2,
+  \ind_1 = \ind_2} \\
+  %
+  & \cup & \set{\locreg{\loc}{\reg} \mapsto \concretelocvar \mid
+  (\locreg{\loc}{\reg} \mapsto \concretelocvar) \in \MENV_1,
+  \locreg{\loc}{\reg} \notin \MENV_2} \\
+  %
+  & \cup & \set{\locreg{\loc}{\reg} \mapsto \concretelocvar \mid
+  \locreg{\loc}{\reg} \notin \MENV_1,
+  (\locreg{\loc}{\reg} \mapsto \concretelocvar) \in \MENV_2} \\
+  %
+  & \cup & \set{\locreg{\loc}{\reg} \mapsto \concreteloc{\reg}{\indj}{} \mid
+  (\locreg{\loc}{\reg} \mapsto \concreteloc{\reg}{\indivar{\ivarid}}{}) \in \MENV_1,
+  (\locreg{\loc}{\reg} \mapsto \concreteloc{\reg}{\concreteind{\indj}}{}) \in \MENV_2} \\
+  %
+  & \cup & \set{\locreg{\loc}{\reg} \mapsto \concreteloc{\reg}{\indj}{} \mid
+  (\locreg{\loc}{\reg} \mapsto \concreteloc{\reg}{\concreteind{\indj}}{}) \in \MENV_1,
+  (\locreg{\loc}{\reg} \mapsto \concreteloc{\reg}{\indivar{\ivarid}}{}) \in \MENV_2} \\
+  %
+\end{array}
+\]
+}

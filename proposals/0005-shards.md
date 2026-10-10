@@ -631,6 +631,27 @@ completion is posted to the shard, and user code does not change, since
 the type was `IO` all along. A blocking item that takes an Idris callback
 stays inline: the callback would run Idris code on a foreign thread.
 
+
+### Lessons from Swift's concurrency model
+
+Swift reached data-race safety in a shared-memory language step by step.
+Its evolution proposals are stored under `sources/docs/swift-evolution/proposals/`.
+The send check here answers the same question per message, not per thread:
+- **`Sendable`** (0302): a type-level "may cross". It is what our send check
+  is.
+- **Region-based isolation** (0414) and **`sending`** (0430) let a
+  non-Sendable value cross when the compiler proves its whole region is
+  disconnected from the sender. That is the precise form of a move: a value
+  the sender's ownership grade proves exclusive crosses without a copy,
+  because nothing on the sender can reach it.
+
+  Decision: the send check accepts a value at the exclusive grade as a
+  move, and its region goes with it. That is the same fact 0006's packed
+  layout relies on. Everything else crosses by copy, as decided above.
+- **Noncopyable types and `borrowing`/`consuming`** (0377, 0390, 0427):
+  ownership added to a language after the fact. Idris's quantities have
+  had this from the start; Swift shows where the ergonomics need help.
+
 ## Staged plan
 
 Each stage runs AGENTS.md's checks on both targets. P1, P2 and P4 are in
@@ -689,7 +710,7 @@ before:
   server at saturation spends more than a quarter of its time in
   readiness and transfer system calls;
 - SPMD through upstream's `shard-partition`, after pure array programs
-  are tensors (`proposals/0004-tensors.md` §3.8), when it runs
+  are tensors (`proposals/0004-typed-apl/README.md` §3.8), when it runs
   spectral-norm faster than P4's `scf.forall` lowering beyond the
   run-to-run spread.
 

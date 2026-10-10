@@ -1,0 +1,30 @@
+\begin{tikzpicture}
+\hspace{-0.35cm}
+\begin{groupplot}[
+  group style={group size=2 by 1, horizontal sep=0.25cm, yticklabels at=edge left},
+  height=2.6cm,
+  width=5cm,
+  xbar,
+  symbolic y coords={DK$_{t=24}$, KO$_{t=24}$},
+  y dir=reverse,
+  ytick=data,
+  ytick style={draw=none},
+  yticklabel style={xshift=1ex},
+  ymin={[normalized]-0.5},
+  ymax={[normalized] 1.5},
+  xlabel=Runtime,
+  x unit=s,
+  xmin=0,
+  nodes near coords,
+  nodes near coords align={anchor=east},
+  nodes near coords style={/pgf/number format/precision=0},
+  ]
+\nextgroupplot[title=iProver, nodes near coords style={/pgf/number format/precision=2}]
+\addplot+[error bars/.cd, x dir=plus, x explicit]
+  table [y=Conf, x=Mean, x error=Stddev] {eval/atp/iprover.dat};
+
+\nextgroupplot[title=Zenon]
+\addplot+[error bars/.cd, x dir=plus, x explicit]
+  table [y=Conf, x=Mean, x error=Stddev] {eval/atp/zenon.dat};
+\end{groupplot}
+\end{tikzpicture}

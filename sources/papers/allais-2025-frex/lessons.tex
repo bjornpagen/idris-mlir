@@ -1,0 +1,13 @@
+\section{System Design Lessons}
+\seclabel{lessons}
+\Frexlib{} uses generic and dependently typed programming techniques
+extensively, requiring significant type level computation that taxes
+the capabilities of the host language implementation.
+%
+In developing \Frexlib{} in \agda{} and \idris{} we have eliminated some
+performance bottlenecks in \idris{}'s type checker, and learned valuable lessons
+about practical dependently typed language implementation. We share these
+lessons here, in the hope that developers of other systems will find them useful.
+
+\input{idris2}
+\input{agda}

@@ -1,0 +1,12 @@
+\begin{Verbatim}[commandchars=\\\{\}]
+\PYG{n}{rw} \PYG{o}{(}\PYG{n}{f} \PYG{n}{x}\PYG{o}{)} \PYG{o}{=}
+   \PYG{k}{let} \PYG{o}{(}\PYG{n}{mid}\PYG{o}{,} \PYG{n}{fx\PYGZus{}mid}\PYG{o}{)} \PYG{o}{:=}
+     \PYG{k}{match} \PYG{n}{rw} \PYG{n}{f}\PYG{o}{,} \PYG{n}{rw} \PYG{n}{x} \PYG{k}{with}
+     \PYG{o}{|} \PYG{o}{(}\PYG{n}{f\PYGZsq{}}\PYG{o}{,} \PYG{n}{f\PYGZsq{}f}\PYG{o}{),} \PYG{o}{(}\PYG{n}{x\PYGZsq{}}\PYG{o}{,} \PYG{n}{x\PYGZsq{}x}\PYG{o}{)} \PYG{o}{=\PYGZgt{}} \PYG{o}{(}\PYG{n}{f\PYGZsq{}} \PYG{n}{x\PYGZsq{}}\PYG{o}{,} \PYG{n}{app\PYGZus{}cong} \PYG{n}{f\PYGZsq{}f} \PYG{n}{x\PYGZsq{}x}\PYG{o}{)}
+     \PYG{o}{|} \PYG{o}{\PYGZus{}} \PYG{o}{=\PYGZgt{}} \PYG{o}{(}\PYG{n}{f} \PYG{n}{x}\PYG{o}{,} \PYG{n}{eq\PYGZus{}refl} \PYG{o}{(}\PYG{n}{f} \PYG{n}{x}\PYG{o}{))}
+     \PYG{k}{end} \PYG{k}{in}
+   \PYG{k}{match} \PYG{n}{rwh} \PYG{n}{mid} \PYG{k}{with}
+   \PYG{o}{|} \PYG{o}{(}\PYG{n}{result}\PYG{o}{,} \PYG{n}{mid\PYGZus{}result}\PYG{o}{)} \PYG{o}{=\PYGZgt{}} \PYG{o}{(}\PYG{n}{result}\PYG{o}{,} \PYG{n}{eq\PYGZus{}trans} \PYG{n}{fx\PYGZus{}mid} \PYG{n}{mid\PYGZus{}result}\PYG{o}{)}
+   \PYG{o}{|} \PYG{o}{\PYGZus{}} \PYG{o}{=\PYGZgt{}} \PYG{o}{(}\PYG{n}{mid}\PYG{o}{,} \PYG{n}{fx\PYGZus{}mid}\PYG{o}{)}
+   \PYG{k}{end}
+\end{Verbatim}

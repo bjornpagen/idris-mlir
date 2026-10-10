@@ -1,0 +1,21 @@
+\section{Limitations} \label{sec:limitations}
+
+Verus currently only supports mutable borrows (\verb`&mut`) of data passed as arguments to a function call:
+mutable references in return values and explicit borrows on the right-hand side of assignments are not
+supported.
+We believe that adding more complete support with an approach similar to Creusot's is mainly a
+matter of syntax, interface design, and engineering.
+
+Unlike tools that re-encode ownership properties (e.g., with separation logic in Viper~\cite{DBLP:conf/vmcai/0001SS16}),
+Verus relies on borrow-checking rules and hence cannot reason about traditional Rust unsafe code.
+This may limit its applicability in applications that heavily rely on unsafe,
+e.g., when direct memory manipulation is required to communicate with memory-mapped devices.
+\autoref{sec:unsafe}, \autoref{sec:linear-ghost}, and \autoref{sec:dlist} discuss
+encapsulations that alleviate the need for unsafe in certain contexts.
+
+Verus is closely tied to Rust's type system,
+which is more limited in some ways than the dependent type systems of Coq and F*.
+This may preclude some more sophisticated styles of structuring proofs that are supported by Coq and F*.
+While the limitation on mutable borrows will be lifted in the near future, limitations tied to Rust's type
+system are imposed by Verus's design choices.
+

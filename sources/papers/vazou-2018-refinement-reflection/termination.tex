@@ -1,0 +1,199 @@
+\subsection{\pbesym Terminates} \label{sec:pbe:termination}
+
+So far, we have shown that our proof search
+procedure $\pbesym$ is both sound and complete.
+%
+Both of these are easy to achieve
+simply by \emph{enumerating} all possible
+instances and repeatedly querying the SMT
+solver.
+%
+Such an approach --- lets call it
+``monkeys-with-typewriters'' --- is rather
+impractical: it may never terminate.
+%
+Fortunately, next, we show that in addition
+to being sound and complete, our proof search
+procedure always terminates.
+%
+The key insight is that if $\pbesym$ \emph{does not terminate}
+then it is because
+%
+(1)~the set of depth $n$ unfoldings form a strictly
+    increasing infinite chain,
+    $\binst{\Renv}{\Penv}{0} \subset \binst{\Renv}{\Penv}{1} \ldots$,
+    which means that
+(2)~there is an infinite sequence of application terms
+    $\stepsmany{\fapp{\rfun_0}{\expr_0}}{\stepsmany{\fapp{\rfun_1}{\expr_1}}{\ldots}}$
+    which means that
+(3)~the reflected function $\rfun_0$ is \emph{not terminating}.
+%
+Thus, when all reflected functions terminate, \pbesym must terminate!
+%
+Next, we formalize the above intuition and
+prove the termination Theorem~\ref{thm:termination}.
+
+
+\mypara{Inhabitation}
+%
+An environment \env is \emph{inhabited} 
+it there exists at least one assignment 
+that satisfies it, \ie $\embed{\env} \not = \emptyset$.
+
+
+
+\mypara{Totality Definition}
+%
+A function is total when its evaluation 
+reduces to exactly one value.
+%
+Totality is checked via
+refinement typing \cite{Vazou14}.
+%
+
+\begin{definition}[\textbf{Total}]\label{asm:total}
+Let $\body \equiv \rdef{x}{\tosmt{\pred}}{\tosmt{e}}$.
+%
+$\body$ is \emph{total} under \env and \RRenv if forall $\store\in \embed{\env}$
+%
+%% \NV{We definitely need to check that theta . body is well typed}
+\begin{enumerate}
+\item If $\rsatisfies{\RRenv}{\store}{\pred_i}$ then 
+$\evalsto{{\apply{\store}{\refapply{\RRenv}{e_i}}}}{\val}$.
+\item If $\rsatisfies{\RRenv}{\store}{\pred_i}$ and $\rsatisfies{\Renv}{\store}{\pred_j}$, then $i=j$.
+\item There exists an $i$ so that  $\rsatisfies{\RRenv}{\store}{\pred_i}$.
+\end{enumerate}
+%
+$\RRenv$ is \emph{total} under \env 
+if every $\body \in \tosmt{\RRenv}$ is total under \env and \RRenv.
+%
+\end{definition}
+
+
+\mypara{Subterm Evaluation Assumption}
+%
+If we assume that all the reflected functions are total, 
+using Church-Rosser theorem, evaluation order is not important. 
+%
+To simplify the termination proof we assume 
+an evaluation strategy in which  
+if a reflected function's guard is satisfied, 
+then the evaluation of the corresponding function body
+requires evaluating \emph{every subterm}
+inside the body.
+
+\begin{assumption}\label{lem:subterm-eval}
+Let $\body \equiv \rdef{x}{\tosmt{\pred}}{\tosmt{e}}$.
+%
+For every \env, \RRenv, and $\store \in \embed{\env}$,  
+if $\rsatisfies{\RRenv}{\store}{\pred_i}$ and $\issubterm{\fapp{f}{\tosmt{e}}}{\tosmt{e_i}}$
+then
+$\evalsto{{\apply{\store}{\refapply{\RRenv}{e_i}}}}{\ctxapp{\ctx}{\rawapp{f}{\apply{\store}{\refapply{\RRenv}{\params{e}}}}}}$.
+\end{assumption}
+
+\mypara{Symbolic Step}
+%
+A pair
+$\symstep{\fapp{\rfun}{\expr}}{\fapp{\rfun'}{\expr'}}$
+is a
+$\Renv,\Penv$-\emph{symbolic step} (abbrev. step)
+if
+%
+\begin{itemize}
+  \item $\rlookup{\Renv}{\rfun} \equiv \rdef{x}{\pred}{\body}$,
+  \item $\smtIsValid{\Penv \wedge Q}{\pred_i}$ for some $(\Renv, \Penv)$-instance $Q$,
+  \item $\issubterm{\fapp{\rfun'}{\expr'}}{\SUBSTS{\body_i}{x}{\expr}}$
+\end{itemize}
+
+\mypara{Steps and Reductions}
+%
+Next, using Lemmata~\ref{lem:subterm-eval},~\ref{lem:pbe:semantics}, 
+and the definition of symbolic steps, we show that every
+symbolic step corresponds
+to a \emph{sequence} of steps in the concrete semantics:
+
+\begin{lemma}[\textbf{Step-Reductions}]\label{lem:step-reductions}
+If   $\symstep{\fapp{\rfun}{\tosmt{e}}}{\fapp{\rfun'}{\tosmt{e'}}}$
+     is a symbolic step under $\tosmt{\RRenv}, \tosmt{\env}$
+and $\store\in \embed{\env}$,
+then $\evalsto{{\fapp{\rfun}{\apply{\store}{\refapply{\RRenv}{e}}}}}
+              {\ctxapp{\ctx}{\rawapp{f}{\apply{\store}{\refapply{\RRenv}{\params{e'}}}}}}$
+for some context $\ctx$.
+\end{lemma}
+
+\mypara{Symbolic Trace}
+%
+A sequence
+%
+$\fapp{\rfun_0}{\expr_0},\fapp{\rfun_1}{\expr_1},\fapp{\rfun_2}{\expr_2},\ldots$
+%
+is a $\Renv,\Penv$-\emph{symbolic trace} (abbrev. trace)
+if $\params{\expr_0} \equiv \params{x_0}$ for some variables $x_0$,
+and $\symstep{\fapp{\rfun_i}{\expr_i}}{\fapp{\rfun_{i+1}}{\expr_{i+1}}}$
+is a $\Renv,\Penv$-step, for each $i$.
+
+\begin{lemma}[\textbf{Finite-Trace}]\label{lem:finite-trace}
+If $\RRenv$ is total under \env and \env is inhibited
+then every $(\tosmt{\RRenv},\tosmt{\env})$-trace is finite.
+\end{lemma}
+
+We prove the above lemma by contradiction.
+Specifically, we show by Lemma~\ref{lem:step-reductions} that an infinite
+$(\tosmt{\RRenv},\tosmt{\env})$-trace 
+combined with the assumption that \embed{\env} is not empty  
+yields \textit{at least one}
+infinite \emph{concrete trace}, which
+contradicts totality, and hence, all the
+$(\tosmt{\RRenv},\tosmt{\env})$ symbolic traces
+must be finite.
+
+\mypara{Unfolding Chains and Traces}
+%
+If the unfolding $\Renv, \Penv$ yields
+an infinite chain, then $\Renv, \Penv$
+has an infinite symbolic trace:
+
+\begin{lemma} [\textbf{Ascending Chains}] \label{lem:chain}
+Let $\Penv_i \doteq \binst{\Renv}{\Penv}{i}$.
+If there exists an (infinite) ascending chain
+$\Penv_0 \subset \ldots \subset \Penv_n \ldots$
+then there exists an (infinite) symbolic trace
+$\fapp{\rfun_0}{\expr_0},\ldots,\fapp{\rfun_n}{\expr_n},\ldots$.
+\end{lemma}
+
+To prove the above,
+we construct a trace
+by selecting at level $i$
+(\ie in $\Penv_i$),
+an application term
+$\fapp{\rfun_i}{\expr_i}$
+that was created by
+unfolding an application
+term at level $i-1$
+(\ie in $\Penv_{i-1}$).
+
+
+
+\mypara{\pbesym Terminates}
+%
+Finally, we prove that the proof search
+procedure $\pbesym$ terminates.
+
+\begin{theorem}[\textbf{Termination}] \label{thm:termination}
+  If $\RRenv$ is total under \env and \env is inhibited, 
+  then $\pbe{\tosmt{\RRenv}}{\tosmt{\env}}{\pred}$ terminates.
+\end{theorem}
+
+If $\pbesym$ loops forever,
+there must be an infinite strictly ascending chain of
+unfoldings $\Penv_i$, and hence, by lemma~\ref{lem:chain}
+and infinite symbolic trace which contradicts
+lemma~\ref{lem:finite-trace}.
+%
+Thus, $\pbesym$ must terminate.
+
+The totality of \RRenv can be check by refinement types. 
+To check if \env is inhibited 
+it is easy to find concrete values that inhabit
+the hypothesis by random~\cite{Claessen00}
+or SMT-guided generation~\cite{Seidel15}.

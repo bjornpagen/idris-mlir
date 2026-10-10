@@ -1,0 +1,19 @@
+\[
+\begin{array}{r l l}
+  \tunit \ssubst{\svar{A}}{\stau} & = & \tunit
+  \\[0.3em]
+  %
+  \tabs{\tvar{x}}{\texp} \ssubst{\svar{A}}{\stau} & = &
+  \tabs{\tvar{x}}{\texp\ssubst{\svar{A}}{\stau}}
+  \\[0.3em]
+  %
+  \vdots 
+  \\[0.3em]
+  \talien{\sexp}{\staup}{\sdelta}\ssubst{\svar{A}}{\stau}  & = &
+  \talien{\sexp\ssubst{\svar{A}}{\stau}}{\staup}{\sesubstext{\sdelta}{\svar{A}}{\stau}}
+  \\[0.3em]
+  \topaque{\sval}  & = & 
+  \topaque{\sval \ssubst{\svar{A}}{\stau}}
+  \\[0.3em]
+\end{array}
+\]

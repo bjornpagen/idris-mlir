@@ -1,0 +1,136 @@
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
+<!--Converted with LaTeX2HTML .95.3 (Nov 17 1995) by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds -->
+<HTML>
+<HEAD>
+<TITLE>Sparse Matrix Multiplication</TITLE>
+<!-- Changed by: Guy Blelloch, 29-Feb-1996 -->
+<!-- Changed by: Guy Blelloch , 24-Apr-1996 -->
+<META NAME="description" CONTENT="Sparse Matrix Multiplication">
+<META NAME="keywords" CONTENT="cacm2">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<LINK REL=STYLESHEET HREF="cacm2.css">
+</HEAD>
+<BODY LANG="EN">
+
+<strong>
+From <a href="../cacm.html"><cite>Programming Parallel Algorithms.</cite></a>
+<br>
+Communications of the ACM, 39(3), March, 1996.
+</strong>
+
+ <BR> <HR><A NAME="tex2html123" HREF="node10.html"><IMG ALIGN=BOTTOM ALT="next"  WIDTH=37 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/next_motif.gif"></A> <A NAME="tex2html121" HREF="node7.html"><IMG ALIGN=BOTTOM ALT="up"  WIDTH=26 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/up_motif.gif"></A> <A NAME="tex2html115" HREF="node8.html"><IMG ALIGN=BOTTOM ALT="previous"  WIDTH=63 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/previous_motif.gif"></A>   <BR>
+<B> Next:</B> <A NAME="tex2html124" HREF="node10.html">Planar Convex-Hull</A>
+<B>Up:</B> <A NAME="tex2html122" HREF="node7.html">Examples of Parallel Algorithms</A>
+<B> Previous:</B> <A NAME="tex2html116" HREF="node8.html">Primes</A>
+<BR> <HR> <P>
+<H2><A NAME="SECTION00032000000000000000">Sparse Matrix Multiplication</A></H2>
+<P>
+Sparse matrices, which are common in scientific applications, are matrices
+in which most elements are zero.  To save space and running time it is
+critical to only store the nonzero elements.  A
+standard representation of sparse matrices in sequential languages is
+to use an array with one element per row each of which contains a
+linked-list of the nonzero values in that row along with their column
+number.  A similar representation can be used in parallel.  In NESL
+a sparse matrix can be represented as a sequence of rows, each of
+which is a sequence of <TT>(column-number, value)</TT> pairs of the
+nonzero values in the row.  The matrix
+<center>
+<TABLE WIDTH=240>
+<TR>
+<TD><em>A = </em>
+</TD>
+<TD> 
+<TABLE WIDTH=200>
+  <TR><TD align=right>2.0</TD>
+      <TD align=right>-1.0</TD>
+      <TD align=right>0</TD>
+      <TD align=right>0</TD>
+  <TR><TD align=right>-1.0</TD>
+      <TD align=right>2.0</TD>
+      <TD align=right>-1.0</TD>
+      <TD align=right>0</TD>
+  <TR><TD align=right>0</TD>
+      <TD align=right>-1.0</TD>
+      <TD align=right>2.0</TD>
+      <TD align=right>-1.0</TD>
+  <TR><TD align=right>0</TD>
+      <TD align=right>0</TD>
+      <TD align=right>-1.0</TD>
+      <TD align=right>2.0</TD>
+</TABLE>
+</TD>
+</TABLE>
+</center>
+<!-- <IMG ALIGN=BOTTOM   WIDTH=379 HEIGHT=106 SRC="images/matrix.gif">  -->
+
+is represented in this way as 
+<BLOCKQUOTE> 
+<PRE>A = [[(0, 2.0), (1, -1.0)],
+     [(0, -1.0), (1, 2.0), (2, -1.0)],
+     [(1, -1.0), (2, 2.0), (3, -1.0)],
+     [(2, -1.0), (3, 2.0)]]
+</PRE>
+</BLOCKQUOTE>
+where <TT>A</TT> is a nested sequence.  This representation can be used
+for matrices with arbitrary patterns of nonzero elements since each
+subsequence can be of a different size.
+<P>
+
+A common operation on sparse matrices is to multiply them by a dense
+vector.  In such an operation, the result is the dot-product of each
+sparse row of the matrix with the dense vector.  The NESL code for
+taking the dot-product of a sparse row with a dense vector <TT>x</TT> is:
+
+<pre>
+  sum({v * x[i] : (i,v) in row});
+</pre>
+
+This code takes each
+index-value pair <TT>(i,v)</TT> in the sparse row, multiplies <TT>v</TT>
+with the <TT>i</TT> <IMG ALIGN=BOTTOM ALT="tex2html_wrap_inline1798"  WIDTH=12 HEIGHT=9 SRC="img44.gif"  >  value of <TT>x</TT>, and sums the results.  The
+work and depth is easily calculated using the performance rules.  If
+<i>n</i> is the number of non-zeros in the row, then the depth of the
+computation is the depth of the <TT>sum</TT>, which is <EM>O(log n)</EM>, and
+the work is the sum of the work across the elements, which is <EM>O(n)</EM>.
+<P>
+The full code for multiplying a sparse matrix <i>A</i> represented as above
+by a dense vector <TT>x</TT> requires that we apply the above code to
+each row in parallel, which gives
+<FORM ACTION="http://web.scandal.cs.cmu.edu/cgi-bin/www-nesl" METHOD=POST>
+<TEXTAREA NAME="command" ROWS=13 COLS=50
+>function sparse_matrix_mult(A,x) =
+  {sum({v * x[i] : (i,v) in row})
+   : row in A};  
+
+% An example matrix and vector %
+A = [[(0, 2.0), (1, -1.0)],
+     [(0, -1.0), (1, 2.0), (2, -1.0)],
+     [(1, -1.0), (2, 2.0), (3, -1.0)],
+     [(2, -1.0), (3, 2.0)]];
+x = [1.0, 0.0, -1.0, 0.0];
+
+% Try it out %
+sparse_matrix_mult(A,x);
+</TEXTAREA>
+<INPUT TYPE=submit VALUE=" Submit ">
+</FORM>
+This example has nested parallelism since
+there is parallelism both across the rows and within each row for the
+dot products.  The total depth of the code is the maximum of the depth
+of the dot products, which is the logarithm of the size of the largest
+row.  The total work is proportional to the total number of nonzero
+elements.
+<P>
+<BR> <HR><A NAME="tex2html123" HREF="node10.html"><IMG ALIGN=BOTTOM ALT="next"  WIDTH=37 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/next_motif.gif"></A> <A NAME="tex2html121" HREF="node7.html"><IMG ALIGN=BOTTOM ALT="up"  WIDTH=26 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/up_motif.gif"></A> <A NAME="tex2html115" HREF="node8.html"><IMG ALIGN=BOTTOM ALT="previous"  WIDTH=63 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/previous_motif.gif"></A>   <BR>
+<B> Next:</B> <A NAME="tex2html124" HREF="node10.html">Planar Convex-Hull</A>
+<B>Up:</B> <A NAME="tex2html122" HREF="node7.html">Examples of Parallel Algorithms</A>
+<B> Previous:</B> <A NAME="tex2html116" HREF="node8.html">Primes</A>
+<BR> <HR> <P>
+<BR> <HR>
+<P><ADDRESS>
+<a href="http://www.cs.cmu.edu/~blelloch">Guy Blelloch</a>, <a href="mailto:blelloch@cs.cmu.edu">blelloch@cs.cmu.edu</a>
+</ADDRESS>
+</BODY>
+</HTML>

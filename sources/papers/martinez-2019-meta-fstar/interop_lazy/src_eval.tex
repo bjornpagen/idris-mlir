@@ -1,0 +1,96 @@
+\begin{mathpar}
+  \inferrule*[right=Ctx]
+             {\sexp \seval \sexpp}
+             {\scon{\sexp} \seval \scon{\sexpp}}
+  %
+  \and
+  \inferrule*[right=App]
+             {\sforce{\sval}=\sabs{\svar{x}}{\stau}{\sexp}}
+             {\sapp{\sval}{\sexpii} \seval \sexp \ssubst{\svar{x}}{\sexpii}}
+
+  %
+  \and
+  %
+  \inferrule*[right=TApp]
+             {\sforce{\sval}=\stabs{\svar{A}}{\sexpp}}
+             { \stapp{\sval}{\stau} \seval
+               \sexpp \ssubst{\svar{A}}{\stau}}
+  %
+  \and
+  %
+  \inferrule*[right=CaseL]
+             {\sforce{\sval} = \sinl{\sexpp}}
+             {\scasex{\sval}{\stau_{\source{1}}}{\sexp_{\source{1}}}{\stau_{\source{2}}}{\sexp_{\source{2}}} \seval \sexp_{\source{1}} \ssubst{\svar{x}}{\sexpp}}
+  %
+  \and
+  %
+    \inferrule*[right=CaseR]
+             {\sforce{\sval} = \sinr{\sexpp}}
+             {\scasex{\sval}{\stau_{\source{1}}}{\sexp_{\source{1}}}{\stau_{\source{2}}}{\sexp_{\source{2}}} \seval \sexp_{\source{2}} \ssubst{\svar{x}}{\sexpp}}
+  %
+  \and
+  %
+  \inferrule*[right=Proj]
+             {\sforce{\sval}=\spair{\sexp_{\source{1}}}{\sexp_{\source{2}}}}
+             {\sval.\source{i} \seval \sexp_{\source{i}}}
+ %
+  \and
+  %
+  \inferrule*[right=Alien]
+             {\texp \tevals \tval}
+             {\salien{\texp}{\stau}{\sdelta} \seval \salien{\sval}{\stau}{\sdelta}}
+   %
+  \and
+  %
+  %% \inferrule*[right=ProjAlien]
+  %%            {\\}
+  %%            {\salien{\tpair{\texp_{\target{1}}}{\texp_{\target{2}}}}{\sprod{\stau_{\source{1}}}{\stau_{\source{2}}}}{\sdelta}
+  %%              \seval
+  %%              \salien{\texp_{\target{1}}}{\stau_{\source{1}}}{\sdelta} }
+  %% %
+  %% \and
+  %% %
+  %% \inferrule*[right=CaseLAlien]
+  %%            {\\}
+  %%            {\scasex{\salien{\tinl{\texp}}{\ssum{\stau_{\source{1}}}{\stau_{\source{2}}}}{\sdelta}}{\stau_{\source{1}}}{\sexp_{\source{1}}}{\stau_{\source{2}}}{\sexp_{\source{2}}}
+  %%              \seval
+  %%              \sexp_{\source{1}} \ssubst{\svar{x}}{\salien{\texp}{\stau_{\source{1}}}{\sdelta}}}
+  %% %
+  %% \and
+  %% %
+  %% \inferrule*[right=AppAlien]
+  %%            {\\}
+  %%            {\sapp{\salien{\tabs{\tvar{x}}{\texp}}{\sarrow{\stau_{\source{1}}}{\stau_{\source{2}}}}{\sdelta}}
+  %%              {\sexp}
+  %%              \seval
+  %%              %% \sabs{\svar{x}}{\sdelta\stau_{\source{1}}}
+  %%                   {\kap{\stau_{\source{1}}}{\sdelta}{\sexp}
+  %%                     {\mfun{\texpp}{\salien{\texp\ssubst{\tvar{x}}{\texpp}}{\stau_{\source{2}}}{\sdelta}}}}
+  %%            }
+  %% %
+  %% \and
+  %% %
+  %% \inferrule*[right=TAppAlien]
+  %%            {\\}
+  %%            {\stapp{\salien{\texp}{\sall{\svar{A}}{\stau}}{\sdelta}}{\staup}
+  %%              \seval
+  %%              \salien{\texp}{\stau}{\sesubstext{\sdelta}{\svar{A}}{\staup}}
+  %%            }
+  %% %
+  %% \and
+  %% %
+  %% \inferrule*[right=AlienOpaque]
+  %%            {\stau \not = \sttop}
+  %%            {\salien{\topaque{\sexp}}{\stau}{\sdelta}
+  %%              \seval
+  %%              \sexp
+  %%            }
+  %% %
+  %% \and
+  %% %
+  %% \inferrule*[right=AlienCancel]
+  %%            {\\}
+  %%            {\salien{\talien{\sexp}{\staup}{\sdeltap}}{\stau}{\sdelta}
+  %%              \seval
+  %%              \sexp}
+\end{mathpar}

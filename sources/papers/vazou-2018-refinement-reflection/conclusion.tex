@@ -1,0 +1,65 @@
+\section{Conclusions and Future Work}
+
+We have shown how refinement reflection---namely
+reflecting the definitions of functions in their
+output refinements---can be used to convert a
+legacy programming language, like Haskell,
+into a theorem prover.
+%
+Reflection ensures that (refinement) type checking
+stays decidable and predictable via careful design
+of the logic and proof combinators.
+%
+Reflection enables programmers working with
+the highly tuned libraries, compilers and
+run-times of legacy languages to specify
+and verify arbitrary properties of their
+code simply by writing programs in the
+legacy language.
+%
+Our evaluation shows that refinement reflection
+lets us prove deep specifications of a variety
+of implementations, for example, the determinism
+of fast parallel programming libraries, and also
+identifies two important avenues for research.
+
+First, while our proofs are often elegant
+and readable, they can sometimes be cumbersome.
+For example, in the proof of associativity of
+the monadic bind operator for the @Reader@ monad
+three out of eight (extensional) equalities required
+explanations, some nested under multiple
+$\lambda$-abstractions. Thus, it would be
+valuable to explore how to extend the notions
+of tactics, proof search, and automation
+to the setting of legacy languages.
+%
+Similarly, while our approach to $\alpha$- and
+$\beta$-equivalence is sound, we do not know
+if it is \emph{complete}. We conjecture it is,
+due to the fact that our refinement terms
+are from the simply typed lambda calculus (STLC).
+Thus, it would be interesting to use the
+normalization of STLC to develop a sound
+and complete system for SMT-based type-level
+computation and use it to automate proofs
+predictably.
+
+Second, while Haskell's separation of pure
+and effectful code undoubtedly makes it
+easier to implement refinement reflection,
+we believe that the technique, like
+refinement typing in general, is orthogonal
+to purity.
+In particular, by carefully mediating
+between the interaction of pure and
+impure code using methods like
+permissions, uniqueness \etc
+refinement type systems have been
+developed for legacy languages
+like C \cite{LiquidPOPL10},
+JavaScript \cite{Chugh2012, Vekris16},
+and Racket \cite{RefinedRacket}
+and so it would be interesting
+to see how to extend refinement
+reflection to other legacy languages.

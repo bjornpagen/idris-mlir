@@ -1,0 +1,143 @@
+% !TEX root = paper.tex
+
+\section{Introduction}
+
+The Rust programming language~\rust has brought linear types into the mainstream.
+Rust's sophisticated type system incorporates linear types and borrowing,
+making it possible to write low-level systems code in a type-safe way
+without requiring garbage collection.
+This makes Rust an attractive language for developing low-level software
+that needs both high performance and high assurance,
+and Rust has gained rapid acceptance for system programming over the last
+few years~\cite{rustandroid, rustlinux}.
+
+Nevertheless, even type-safe code can still contain bugs
+that harm a program's security and reliability.
+Furthermore, systems programmers using Rust sometimes resort to unsafe code
+(via Rust's \verb`unsafe` keyword)
+for programming styles that do not fit into Rust's linearity discipline; e.g.,
+it is awkward to encode doubly linked lists in Rust
+because the backwards links violate linearity.
+
+Formal verification promises to prove deeper properties about Rust programs,
+including properties about low-level code that would otherwise require unsafe Rust features.
+Hence, we introduce \verus, an SMT-based tool for verifying Rust code.
+SMT-based verification can help
+Rust overcome the limitations of Rust's strict typing discipline,
+making it possible to safely express low-level code like doubly linked lists
+or safe implementations of reader-writer locks for concurrent code.
+
+Just as importantly,
+we argue that Rust's linear type system can help make SMT-based verification easier,
+bringing the power of substructural logics, like concurrent separation logic~\cite{DBLP:conf/lics/Reynolds02,DBLP:journals/tcs/OHearn07},
+to SMT-based reasoning.
+In particular, we demonstrate the use of linear ghost permissions
+that enable a program to take specific actions on specific resources,
+such as writing to a memory location.
+Since the permissions are linear, they can track the evolving state of a resource
+in the same way that separation logic formulas can track the state of a resource.
+Since the permissions are ghost, they exist only during type checking and verification,
+and do not impose any overhead on compiled executable code.
+
+To take advantage of Rust's type system for checking linear ghost permissions,
+\verus uses Rust to express specifications and proofs,
+running Rust's linearity and borrow checking on the proofs.
+By using a single language for specifications, proofs, and executable code,
+\verus follows in the footsteps of earlier frameworks that combine proofs and programming,
+such as Coq~\cite{coq}, Dafny~\cite{DBLP:conf/lpar/Leino10}, \fstar~\cite{mumon}, and Lean~\cite{lean2015}.
+However, these systems were designed from scratch for verification,
+unlike Rust, which was designed strictly as a programming language.
+Therefore, it is important to ensure that the subset of Rust
+that \verus allows in proofs and specifications is sound as a proof language.
+
+In particular, we need to make sure that proofs terminate
+and that functions used in specifications are pure, mathematical functions,
+whereas executable code might contain infinite loops,
+be nondeterministic, or have side effects.
+In a language like Rust that contains recursive types, higher-order functions,
+and type classes (traits), termination can be particularly subtle:
+without positivity restrictions on recursive type definitions, for example,
+these features together can encode nontermination.
+Nevertheless, we want to restrict recursive types only for specifications and proofs,
+not for executable code, unlike Coq, Dafny, and Lean,
+which restrict all recursive types.
+
+To enforce the distinction between specifications, proofs, and executable code,
+\verus introduces a mode system that classifies all code as
+specification, proof, or executable,
+where specification and proof code are checked for termination.
+All three modes of code are type checked;
+proof and executable code are checked for linearity and borrowing;
+only executable code is compiled to machine code.
+We formalize this mode system using a small Rust-inspired lambda calculus,
+proving preservation and progress for all well-typed expressions
+and termination for all specification and proof expressions (\autoref{sec:formalization}).
+
+\verus currently supports a large set of proof features
+and a large subset of ordinary Rust features:
+\begin{itemize}
+\item Rust's finite range integers (i32, u32, etc.) as well as
+  infinite-range integers (int, nat) for specifications and proofs
+\item recursive algebraic datatypes (structs and enums),
+  including mutual recursion, pattern matching, and pattern match guards
+\item mutable variables, while loops, and return statements
+\item recursive specification functions and inductive proofs,
+  including mutual recursion and lexicographic decreases clauses
+\item passing function arguments by borrowing (both \verb`&` and \verb`&mut`)
+\item lifetime parameters on structs
+\item generics (parametric polymorphism), with support for simple traits (type classes)
+\item first-class functions (Rust closures) in specifications
+\item modules with public and private definitions
+\item preconditions, postconditions, and loop invariants
+\item quantifiers (forall, exists, choose) with both automated and manual SMT trigger selection,
+  as well as integrated quantifier profiling to diagnose verification performance issues
+\item programmer control of SMT performance by selectively hiding and revealing
+  specification function definitions,
+  including control over recursive function unrolling
+\item support for bit-vector reasoning and proof by computation
+\item strings and characters
+\item a library of types for specifications, including sequences, sets, and maps
+\item low-level pointer reasoning
+\item concurrency and state machines
+\end{itemize}
+
+Verus is also able to handle some situations that require \texttt{unsafe}.
+For example, Verus is able to verify the use of raw pointers and unsafe cells, which can be useful
+for some low-level pointer reasoning, lock implementations, and interior mutability use-cases.
+As we will see, \verus' support for linear ghost state is crucial for this support.
+Note though, that Verus does not attempt a full aliasing and provenance model for Rust's pointers;
+our simplified model for ``raw pointers'' only handles those that point into the global heap.
+
+
+
+Some features are still missing, notably support for separate verification of multiple crates
+and functions that return mutable references.
+However, we believe that supporting crates and various other Rust features is a matter of engineering,
+and supporting functions that return mutable references can follow earlier research (\autoref{sec:related})
+by Prusti~\cite{DBLP:conf/nfm/AstrauskasBFGMM22},
+RustHorn~\cite{DBLP:conf/esop/0002T020},
+Creusot~\cite{denis:hal-03737878},
+and Aeneas~\cite{DBLP:journals/pacmpl/HoP22}.
+
+
+Regardless, this paper will not focus on all the features supported by \verus,
+but will instead focus on the most novel contributions:
+\begin{enumerate}
+\item usage of Rust's linearity and borrow checking in proofs
+\item verification of pointer-manipulating Rust code and concurrent Rust code,
+  based on a combination of linearity, borrowing, and SMT solving
+\item a mode system for enforcing the different properties of specs, proofs,
+  and executable code
+\item formalization of the mode system, including checking of linearity and borrowing
+\end{enumerate}
+
+The remainder of this paper
+introduces \verus by example (\autoref{sec:design});
+discusses handling unsafe code (\autoref{sec:unsafe});
+applies \verus to pointer-based code (including a doubly linked list, \autoref{sec:linear-ghost}),
+interior mutability (\autoref{sec:interior-mutability}),
+and concurrent code (\autoref{sec:concurrency});
+discusses Verus' implementation (\autoref{sec:implementation}),
+user experience (\autoref{sec:user-experience}), and limitations (\autoref{sec:limitations});
+and presents syntax, semantics, and proofs for a formal lambda calculus
+with modes, linearity, and borrowing (\autoref{sec:formalization}).

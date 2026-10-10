@@ -1,0 +1,38 @@
+\begin{displaymath}
+  \begin{aligned}
+  &\DC \in \; \textup{Data Constructors},\:\: \TYPC \in \; \textup{Type Constructors},\\
+  &\var, \yvar,\fvar \in \; \textup{Variables},\:\:
+  \loc, \locreg{l}{r} \in \; \textup{Symbolic Locations},\\
+  &\reg \in \; \textup{Regions},\:\: \concreteind{\ind}, \concreteind{\indj} \in \; \textup{Concrete Region Indices},
+  %% \\ & \svind{\ind}, \svind{\indj} \in \; \textup{Placeholder Region Indices}\\
+  \end{aligned}
+\end{displaymath}
+\begin{displaymath}
+  \begin{aligned}
+    \textup{Top-Level Programs} && \PROG && \gramdef & \overharpoon{\DD} \;; \overharpoon{\FD} \;; \EXPR \\
+    \textup{Datatype Declarations} && \DD && \gramdef & \DATA\;\TYPC = \overharpoon{\DC \; \overharpoon{\sTYP}\;} \\
+    \textup{Function Declarations} && \FD && \gramdef & \fvar : \TS ; \fvar \overharpoon{\var} = \EXPR \\
+    \textup{Located Types} && \hTYP && \gramdef & \tyatlocreg{\TYP}{\loc}{\reg} \\
+    \textup{Types} && \TYP && \gramdef & \TYPC \\
+    \textup{Type Scheme} && \TS && \gramdef &
+      \forall _{\overharpoon{\locreg{l}{r}}}.
+      \overharpoon{\hTYP} \ARROW \hTYP \\
+      %% \textup{Region Indices} && \ind, \indj && \gramdef & \concreteind{\ind} \gramor \svind{\ind}  \gramor \svindplusoff{\ind}{\concreteind{\ind}} \\
+      \textup{Extended Region Indices} && \indbef{\ind}, \indbef{\indj} && \gramdef & \concreteind{\ind} \gramor \indivar{\ivarid} \gramor \indirection{\reg}{\concreteind{\ind}} \\
+    \textup{Concrete Locations} && \concretelocvar{} && \gramdef & \concreteloc{\reg}{\indbef{\ind}}{\loc}\\
+    \textup{Values} && \VAL && \gramdef & \var \gramor \concretelocvar{}\\
+    \textup{Expressions} && \EXPR && \gramdef & \VAL\\[-5pt]
+    && && \gramor & \fapp{\overharpoon{\locreg{l}{r}}}{\overharpoon{\VAL}} \\
+    && && \gramor & \datacon{\DC}{\keywd{\locreg{\loc}{\reg}}}{\overharpoon{\VAL}}\\
+    && && \gramor & \letpack{\var:\hTYP}{\EXPR}{\EXPR} \\
+    && && \gramor & \letloc{\locreg{\loc}{\reg}}{\LE}{\EXPR} \\
+    && && \gramor & \letreg{\reg}{\EXPR} \\
+    && && \gramor & \case{\VAL}{\overharpoon{\pat}} \\
+    \textup{Pattern} && \pat && \gramdef &
+    \caseclause{\datacon{\DC}{}{(\overharpoon{\var : \hTYP})}}{\EXPR} \\
+    \textup{Location Expressions} && \LE && \gramdef
+    & \startr{\reg} \\
+    && && \gramor & \locreg{\loc}{r} + 1 \\
+    && && \gramor & \afterl{\hTYP}
+  \end{aligned}
+\end{displaymath}

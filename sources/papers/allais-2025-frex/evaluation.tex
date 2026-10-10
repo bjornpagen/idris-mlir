@@ -1,0 +1,150 @@
+\section{Supplementary Evaluation: Usability and Interactive Development}
+\seclabel{evaluation}
+
+The implementation of \Frexlib{} is still in its early stages, and
+offers many opportuntities for further engineering work to extend its
+functionality, expressiveness, ergonomics, and efficiency.
+%
+However, we have already carried out some small experiments to assess
+user experience and frexlet developer experience to establish that the
+approach is feasible, and to identify further directions.
+
+\subsection{Quantitative evaluation}
+\idris{} encourages interactive, type-driven development, so it is
+important that the checker is responsive when the user modifies the program.
+Following~\citet{nielsen:usability}, our \idris{}
+implementation aims for response times under one second, and we treat
+a response time of over 10 seconds when type checking a modification
+to \Frexlib{} client code as a bug.
+
+\pgfplotstableread[col sep = comma]{csv/1vars_commutative.csv}\OneVarCommutativeData
+\pgfplotstableread[col sep = comma]{csv/1vars_noncommutative.csv}\OneVarNoncommutativeData
+\pgfplotstableread[col sep = comma]{csv/5vars_commutative.csv}\FiveVarCommutativeData
+\pgfplotstableread[col sep = comma]{csv/5vars_noncommutative.csv}\FiveVarNoncommutativeData
+\pgfplotstableread[col sep = comma]{csv/10vars_commutative.csv}\TenVarCommutativeData
+\pgfplotstableread[col sep = comma]{csv/10vars_noncommutative.csv}\TenVarNoncommutativeData
+\pgfplotstableread[col sep = comma]{csv/15vars_commutative.csv}\FifteenVarCommutativeData
+\pgfplotstableread[col sep = comma]{csv/15vars_noncommutative.csv}\FifteenVarNoncommutativeData
+
+For typical small equalities that arise incidentally in dependently
+typed programs, Frex's performance falls very comfortably
+within \citeauthor{nielsen:usability}'s limits.  For example, the
+checking time\footnote{We use a dated
+AMD FX-8320 machine with 16GB memory, running Idris 2 version
+0.5.1-1011cc616 on Debian Linux.} is under 0.1s for terms of size six or below with the commutative solver
+and terms of size 14 or below with the non-commutative solver, creating an impression of instantaneous response.
+
+As the term size increases, Frex eventually crosses the one second
+interactivity threshold.  \figref{timings} shows how type-checking
+times grow with term size and with the number of free variables in a
+randomly generated term for the commutative and non-commutative monoid
+solvers.
+%
+As the figure shows, Frex's type-checking time generally remains below
+the interactivity threshold up to terms of around size 30, and only
+exceeds the 10 second threshold (beyond which users' attention is
+lost) for a few terms of size 45 or above.
+%
+Our experience with Frex development suggests that the anomalously
+high checking times for these terms is likely to arise from a
+performance bottleneck in \idris{}'s evaluator (\secref{lessons})
+and that the ongoing development of \idris{} may eventually eliminate
+the problem, bringing the type-checking time for most terms up to size
+60 down to a few seconds.
+%
+\begin{figure}[ht]
+
+\begin{tikzpicture}
+  \begin{axis}[only marks,width=0.85\columnwidth,height=5.3cm,
+    xlabel={term size (leaves)},
+    ylabel={run time (s)},
+    ymax = 45,
+    xmin = 0,
+    xmax = 60,
+    xlabel style={font=\small},
+    ylabel style={font=\small},
+    ymode=log,
+    log ticks with fixed point,
+    scaled ticks=false,
+    tick label style={/pgf/number format/fixed},
+    title={\footnotesize commutative solver},
+    every axis title/.style={below right,at={(0,1)}},
+    legend style={anchor=north west,at={(1.05,1.0)},draw=black,fill=white,align=left}
+    ]
+    \addplot[blue!50!black,mark=triangle,mark size=1pt] table[x index = {0}, y expr=(\thisrow{time})]{\OneVarCommutativeData};
+    \addlegendentry{\scriptsize 1 free var};
+    \addplot[red!50!black,,mark=otimes,mark size=1pt] table[x index = {0}, y expr=(\thisrow{time})]{\FiveVarCommutativeData};
+    \addlegendentry{\scriptsize 5 free vars};
+    \addplot[green!50!black,mark=star,mark size=1pt] table[x index = {0}, y expr=(\thisrow{time})]{\TenVarCommutativeData};
+    \addlegendentry{\scriptsize 10 free vars};
+    \addplot[yellow!50!black,mark=diamond,mark size=1pt] table[x index = {0}, y expr=(\thisrow{time})]{\FifteenVarCommutativeData};
+    \addlegendentry{\scriptsize 15 free vars};
+
+    \draw [dashed,green!50!black] (axis cs:0,0.1) -- node[anchor=east,fill=white,pos=0.98, inner sep=1pt] { \footnotesize instantaneity threshold } (axis cs:60,0.1);
+    \draw [dashed,green!50!black] (axis cs:0,1) -- node[anchor=west,fill=white,pos=0.02,inner sep=1pt] { \footnotesize interactivity threshold } (axis cs:60,1);
+    \draw [dashed,green!50!black] (axis cs:0,10) -- node[anchor=west,fill=white,pos=0.02, inner sep=1pt] { \footnotesize attention threshold } (axis cs:60,10);
+  \end{axis}
+\end{tikzpicture}
+
+
+\begin{tikzpicture}
+  \begin{axis}[only marks,width=0.85\columnwidth,height=5.3cm,
+    xlabel={term size (leaves)},
+    xmin=0,
+    xmax=60,
+    ymax = 30,
+    ymode=log,
+    log ticks with fixed point,
+    ylabel={run time (s)},
+    xlabel style={font=\small},
+    ylabel style={font=\small},
+    scaled ticks=false,
+    tick label style={/pgf/number format/fixed},
+    title={\footnotesize non-commutative solver},
+    every axis title/.style={below right,at={(0,1)}},
+    legend style={anchor=north west,at={(1.05,1.0)},draw=black,fill=white,align=left}
+    ]
+    \addplot[blue!50!black,mark=triangle,mark size=1pt] table[x index = {0}, y expr=(\thisrow{time})]{\OneVarNoncommutativeData};
+    \addlegendentry{\scriptsize 1 free var};
+    \addplot[red!50!black,mark=otimes,mark size=1pt] table[x index = {0}, y expr=(\thisrow{time})]{\FiveVarNoncommutativeData};
+    \addlegendentry{\scriptsize 5 free vars};
+    \addplot[green!50!black,mark=star,mark size=1pt] table[x index = {0}, y expr=(\thisrow{time})]{\TenVarNoncommutativeData};
+    \addlegendentry{\scriptsize 10 free vars};
+    \addplot[yellow!50!black,mark=diamond,mark size=1pt] table[x index = {0}, y expr=(\thisrow{time})]{\FifteenVarNoncommutativeData};
+    \addlegendentry{\scriptsize 15 free vars};
+
+    \draw [dashed,green!50!black] (axis cs:0,0.1) -- node[anchor=east,fill=white,pos=0.98, inner sep=1pt] { \footnotesize instantaneity threshold } (axis cs:60,0.1);
+    \draw [dashed,green!50!black] (axis cs:0,1) -- node[anchor=west,fill=white,pos=0.02, inner sep=1pt] { \footnotesize interactivity threshold } (axis cs:60,1);
+    \draw [dashed,green!50!black] (axis cs:0,10) -- node[anchor=west,fill=white,pos=0.02, inner sep=1pt] { \footnotesize attention threshold } (axis cs:60,10);
+  \end{axis}
+\end{tikzpicture}
+
+   \caption{\Frexlib{} monoid simplifiers type-checking times}
+  \figlabel{timings}
+\end{figure}
+
+\subsection{Qualitative evaluation}
+To evaluate \Frexlib{}'s usage, we have reproduced
+\citeauthor{brady-mckinna-et-al:indexed-binary}'s \citeyearpar{brady-mckinna-et-al:indexed-binary}
+dependently typed representation of binary
+arithmetic. \citeauthor{brady-mckinna-et-al:indexed-binary} index
+binary representations by the natural numbers that they represent, and
+so the programmer needs to prove arithmetic operations correct.
+Such proofs interleave insightful
+equational reasoning steps with rote calculational steps
+such as the following:
+\begin{center}
+\FrexifyLHS{} \IdrisFunction{=} \FrexifyRHS{}
+\end{center}
+which may be discharged with \IdrisFunction{solve}.
+We do not use our reflection capabilities since
+these kinds of examples, in which the binding-time analysis is challenging,
+are beyond their reach at the moment.
+%
+With early \Frexlib{} implementations the task was arduous due to
+performance bottlenecks in \idris{} that are now eliminated.
+%
+The only other significant obstacle we encountered was the usual pain
+point involved in invoking an algebraic simplifier without a goal
+extraction mechanism: the need to repeat the equation and its relevant
+rewriting-context when calling \Frexlib{}.

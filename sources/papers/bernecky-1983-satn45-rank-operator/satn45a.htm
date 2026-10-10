@@ -1,0 +1,943 @@
+﻿<html>
+<head><meta http-equiv="content-type" content="text/html;charset=utf-8">
+<title>SATN-45: Language Extensions of May 1983</title>
+<link href="adoc.css" rel=stylesheet>
+</head>
+
+<body>
+
+<br>
+
+<table width=520 align=center><tr><td>
+
+<p align=center><b>SATN-45</b><br>
+<font size=+2>Language Extensions of May 1983</font>
+<br>&nbsp;</p>
+
+
+
+<p>A number of language extensions are available 
+in the May 1983 release of SHARP APL:</p>
+
+<table>
+<tr><td valign=top>&#149;</td><td>&nbsp;</td><td>
+Extension of the operator<tt> ⍤ </tt>to allow specification 
+of the ranks of the cells to which 
+a function applies (in the form<tt> f⍤(m,l,r)</tt>&nbsp;).
+ </td></tr>
+<tr><td valign=top>&#149;</td><td>&nbsp;</td><td>
+Extension of the right domains 
+of the compositions<tt> </tt>(&nbsp;<tt>f⍤g </tt>and<tt> f⍥g</tt>&nbsp;)<tt> </tt>
+and dual<tt> </tt>(&nbsp;<tt>f¨g</tt>&nbsp;).
+ </td></tr>
+<tr><td valign=top>&#149;</td><td>&nbsp;</td><td>
+New functions: Lev (<tt>⊣</tt>), Dex (<tt>⊢</tt>), 
+and Link (<tt>⊃</tt>).
+ </td></tr>
+<tr><td valign=top>&#149;</td><td>&nbsp;</td><td>
+Extensions of matrix inverse and division (<tt>⌹</tt>) 
+to arrays of rank greater than 2.
+ </td></tr>
+</table>
+<br>
+
+
+
+<a name="rank"></a>
+<p><b>The Rank Operator</b></p>
+
+<p><b>Definition</b></p>
+
+<p>The operator On<tt> </tt>(<tt>⍤</tt>)<tt> </tt>previously 
+only applied to two functions to provide Composition. 
+It now accepts an integer right argument (as in<tt> ,⍤2</tt>&nbsp;) 
+to specify the rank, or ranks, of the subarrays 
+to which the function applies. For example:</p>
+
+
+<pre>
+      a←2 3 4⍴⍳24
+   
+      ,⍤2 a
+ 0  1  2  3  4  5  6  7  8  9 10 11
+12 13 14 15 16 17 18 19 20 21 22 23
+   
+      ,⍤¯1 a
+ 0  1  2  3  4  5  6  7  8  9 10 11
+12 13 14 15 16 17 18 19 20 21 22 23
+</pre>
+
+<p>As illustrated  above,  a non-negative  argument  
+specifies  the number of <i>final</i> axes  to which 
+the  function applies. 
+A negative argument specifies the <i>complementary</i> rank, 
+i.e.,  the number of leading axes to be <i>excluded</i>. 
+The magnitude of the argument serves only 
+to limit the number of axes;  
+for the<tt> a </tt>given above,<tt> f⍤4 a ←→ f⍤3 a</tt>&nbsp;,<tt> </tt>   
+and<tt> f⍤¯4 a ←→ f⍤¯3 a</tt>&nbsp;.</p>
+
+<p>In the dyadic case two ranks (or complementary ranks) 
+are specified. For example:</p>
+
+<pre>
+      e←2 2⍴'abcd' 
+      f←2 2⍴'1234'
+
+      e,⍤1 2 f
+ab
+12
+34
+
+cd
+12
+34
+
+      e,⍤0 0 f
+a1
+b2
+
+c3
+d4
+</pre>
+
+<p>The most general right argument of<tt> ⍤ </tt> 
+is a three-element vector 
+whose successive elements specify 
+the monadic, left, and right ranks. 
+A shorter argument<tt> r </tt>is extended 
+so that<tt> f⍤r ←→ f⍤(⌽3⍴⌽r)</tt>&nbsp;.<tt> </tt> 
+If the right argument of On is a scalar, 
+and the resulting derived function is used dyadically, 
+that number will specify the rank of both arguments.</p>
+
+<p>An expression such as<tt> f⍤r a </tt>introduces the possibility 
+of juxtaposing constants (<tt>r </tt>and<tt> a</tt>). 
+If<tt> r </tt>is a constant, 
+and if the expression defining<tt> a </tt>begins with a constant, 
+then the division between the two constants 
+must be made clear to prevent them 
+from being treated as a single vector. 
+For example, the sequence</p>
+
+<pre>
+      a←2 3 4⍴⍳24
+      r←2
+      ,⍤r a
+</pre>
+
+<p>cannot be written in a single line as</p>
+
+<pre>
+      ,⍤2 2 3 4⍴⍳24
+</pre>
+
+<p>but must be written in a form which separates 
+the vector constants. For example:</p>
+
+
+<pre>
+      ,⍤(2) 2 3 4⍴⍳24
+
+      ,⍤2 (2 3 4)⍴⍳24
+
+      ,⍤2 a←2 3 4⍴⍳24
+
+      ,⍤2⊢ 2 3 4⍴⍳24
+</pre>
+
+<p>If a function has rank<tt> r</tt>&nbsp;,<tt> </tt>      
+then the subarrays along the last<tt> r </tt>axes 
+of its arguments are the <i>cells</i> of the array. 
+The remaining axes are  the <i>frame</i> of the  array. 
+Consider the expression<tt> ⌹a</tt>&nbsp;,<tt> </tt> 
+where<tt> a </tt>has the 
+shape<tt> 8&nbsp;7&nbsp;6&nbsp;5&nbsp;4</tt>&nbsp;.</p>
+
+<table>
+<tr><td><tt>&nbsp; &nbsp; &nbsp;</tt></td><td><tt> ⌹ </tt>has argument rank 2</td></tr>
+<tr><td>&nbsp;</td><td>The cells are arrays of shape 5&nbsp;4.</td></tr>
+<tr><td>&nbsp;</td><td>The frame has shape 8&nbsp;7&nbsp;6.</td></tr>
+</table>
+
+<p>In contrast, consider the expression<tt> ⌊a</tt>&nbsp;,<tt> </tt>   
+using the same array<tt> a</tt>&nbsp;.</p>
+
+<table>
+<tr><td><tt>&nbsp; &nbsp; &nbsp;</tt></td><td><tt> ⌊ </tt>has argument rank 0.</td></tr>
+<tr><td>&nbsp;</td><td>The cells are scalars, that is, arrays of shape<tt> ⍳0</tt>&nbsp;.</td></tr>
+<tr><td>&nbsp;</td><td>The frame has shape 8&nbsp;7&nbsp;6&nbsp;5&nbsp;4.</td></tr>
+</table>
+
+<p>A function applies independently to each cell 
+(or pair of cells, if dyadic)  
+to produce result cells, which must be of common shape. 
+The result is formed by assembling the frame 
+of result cells into an array.</p>
+
+<p>If a function<tt> f </tt>has rank<tt> r</tt>&nbsp;,<tt> </tt> 
+then the result of<tt> f ⍵ </tt>is determined by:</p>
+
+<table>
+<tr><td valign=top>1)</td><td>&nbsp;</td><td>
+applying<tt> f </tt>to each of the <i>cells</i> of shape<tt> (-r)↑⍴⍵</tt>&nbsp;,
+ </td></tr>
+<tr><td valign=top>2)</td><td>&nbsp;</td><td>
+producing results with a <i>common shape</i><tt> sir </tt>for each,
+ </td></tr>
+<tr><td valign=top>3)</td><td>&nbsp;</td><td>
+assembling the whole into a result of shape<tt> ((-r)↓⍴⍵),sir</tt>&nbsp;.
+ </td></tr>
+</table>
+
+<p>The frames of the arguments 
+of a dyadic function must match in shape, 
+or one of them must be a scalar. 
+If the frame is a scalar, 
+it is extended by reshaping it 
+to match the shape of the other frame. 
+This is a generalization of scalar extension.</p>
+
+<p>By convention, if the frame is empty (i.e.<tt> 0∊(-r)↓⍴⍵</tt>&nbsp;), 
+then the empty vector is used as the result cell shape.
+<br>&nbsp;</p>
+
+
+
+<a name="eg"></a>
+<p><b>Examples</b></p>
+
+<p>Common uses for the Rank operator include:</p>
+
+<table>
+<tr><td valign=top>1)</td><td>&nbsp;</td><td>
+Applying functions of infinite rank (such as Enclose and Ravel) 
+to sub-arrays, within multi-dimensional arrays, and
+ </td></tr>
+<tr><td valign=top>2)</td><td>&nbsp;</td><td>
+Applying scalar functions (such as Addition) 
+in ways that would not otherwise be possible
+under the rules of ordinary scalar extension.
+ </td></tr>
+</table>
+
+<p>The  following examples illustrate uses 
+of the Rank operator.</p>
+
+
+<pre>
+   v←⍳5 ⋄ x←10×⍳4 ⋄ y←100×⍳3 ⋄ w←v ⋄ m←3 4⍴⍳12 ⋄ n←?m ⋄ b←3 4 
+5⍴⍳60
+   q←2 5⍴'abcdeedbca' ⋄ ⎕ps←-1 1 3 3
+
+</pre>
+
+
+<a name="eg_enclose"></a>
+<p><b>Examples with Enclose</b></p>
+
+<pre>
+      m
+1  2  3  4
+5  6  7  8
+9 10 11 12
+
+      <⍤0 m                  Enclose each (scalar) element
+|¯| |¯|  |¯|  |¯|
+|1| |2|  |3|  |4|
+|_| |_|  |_|  |_|
+
+|¯| |¯|  |¯|  |¯|
+|5| |6|  |7|  |8|
+|_| |_|  |_|  |_|
+
+|¯| |¯¯| |¯¯| |¯¯|
+|9| |10| |11| |12|
+|_| |__| |__| |__|
+
+      <⍤1 m                  Enclose rows
+|¯¯¯¯¯¯¯| |¯¯¯¯¯¯¯| |¯¯¯¯¯¯¯¯¯¯|
+|1 2 3 4| |5 6 7 8| |9 10 11 12|
+|_______| |_______| |__________|
+
+gp    <⍤2 b                  Enclose matrices
+|¯¯¯¯¯¯¯¯¯¯¯¯¯¯| |¯¯¯¯¯¯¯¯¯¯¯¯¯¯| |¯¯¯¯¯¯¯¯¯¯¯¯¯¯|
+| 1  2  3  4  5| |21 22 23 24 25| |41 42 43 44 45|
+| 6  7  8  9 10| |26 27 28 29 30| |46 47 48 49 50|
+|11 12 13 14 15| |31 32 33 34 35| |51 52 53 54 55|
+|16 17 18 19 20| |36 37 38 39 40| |56 57 58 59 60|
+|______________| |______________| |______________|
+
+</pre>
+
+
+
+<a name="eg_link"></a>
+<p><b>Examples with Link</b></p>
+
+<pre>
+      v
+1 2 3 4 5
+      w
+1 2 2 3 2
+
+      v ⊃⍤0 w                Similar to (&lt;⍤&gt;v),[1.5] &lt;⍤&gt;w
+|¯| |¯|
+|1| |1|
+|2| |2|
+|3| |2|
+|4| |3|
+|5| |2|
+|_| |_|
+
+      m ⊃⍤1 n                Similar to (&lt;⍤1 m),[1.5] &lt;⍤1 n
+|¯¯¯¯¯¯¯|    |¯¯¯¯¯¯¯|
+|1 2 3 4|    |1 2 3 4|
+|_______|    |_______|
+
+|¯¯¯¯¯¯¯|    |¯¯¯¯¯¯¯|
+|5 6 7 8|    |2 4 6 1|
+|_______|    |_______|
+
+|¯¯¯¯¯¯¯¯¯¯| |¯¯¯¯¯¯¯|
+|9 10 11 12| |1 6 8 1|
+|__________| |_______|
+
+</pre>
+
+
+
+<a name="eg_grade"></a>
+<p><b>Examples with Grade</b></p>
+
+<pre>
+      n
+1 2 3 4
+2 4 6 1
+1 6 8 1
+
+      ⍋⍤1 n                  Upgrade each row independently
+1 2 3 4 
+4 1 2 3 
+1 4 2 3
+
+      ⍉ ⍋⍤1 ⍉n               Independent upgrade 
+1 1 1 2                      of each column
+3 2 2 3 
+2 3 3 1
+
+      q
+abcde
+edcba
+
+      q ⍋⍤1 'abcdef'         Upgrade with multiple 
+1 2 3 4 5 6                  collating sequences
+5 4 3 2 1 6
+
+</pre>
+
+
+
+<a name="eg_ravel"></a>
+<p><b>An example with Ravel</b></p>
+
+
+<pre>
+   ,⍤2 b                     Ravel each matrix
+ 1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20
+21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40
+41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60
+
+</pre>
+
+
+
+<a name="eg_rotate"></a>
+<p><b>An example with Rotate</b></p>
+
+<pre>
+      (1-⍳4)⌽⍤1 2 b
+ 1  2  3  4  5
+10  6  7  8  9
+14 15 11 12 13
+18 19 20 16 17
+
+21 22 23 24 25
+30 26 27 28 29
+34 35 31 32 33
+38 39 40 36 37
+
+41 42 43 44 45
+50 46 47 48 49
+54 55 51 52 53
+58 59 60 56 57
+
+</pre>
+
+
+
+<a name="eg_catenate"></a>
+<p><b>Examples with Catenate</b></p>
+
+<pre>
+      y
+100 200 300
+
+      y ,⍤0 2 b              Catenate scalars to matrices
+100   1   2   3   4   5
+100   6   7   8   9  10
+100  11  12  13  14  15
+100  16  17  18  19  20
+
+200  21  22  23  24  25
+200  26  27  28  29  30
+200  31  32  33  34  35
+200  36  37  38  39  40
+
+300  41  42  43  44  45
+300  46  47  48  49  50
+300  51  52  53  54  55
+300  56  57  58  59  60
+
+      m ,⍤0 n                Same as m,[2.5] n
+ 1  1
+ 2  2
+ 3  3
+ 4  4
+
+ 5  2
+ 6  4
+ 7  6
+ 8  1
+
+ 9  1
+10  6
+11  8
+12  1
+
+</pre>
+
+
+
+<a name="eg_reshape"></a>
+<p><b>Examples with Reshape</b></p>
+
+<pre>
+      5 4 ⍴⍤1 2 b            Reshape each plane
+ 1  2  3  4
+ 5  6  7  8
+ 9 10 11 12
+13 14 15 16
+17 18 19 20
+
+21 22 23 24
+25 26 27 28
+29 30 31 32
+33 34 35 36
+37 38 39 40
+
+41 42 43 44
+45 46 47 48
+49 50 51 52
+53 54 55 56
+57 58 59 60
+
+      (5×¯1↑⍴m) ⍴⍤1 m        Five side-by-side copies
+1  2  3  4  1  2  3  4  1  2  3  4  1  2  3  4  1  2  3  4
+5  6  7  8  5  6  7  8  5  6  7  8  5  6  7  8  5  6  7  8
+9 10 11 12  9 10 11 12  9 10 11 12  9 10 11 12  9 10 11 12
+
+</pre>
+
+
+
+<a name="eg_take"></a>
+<p><b>Examples with Take</b></p>
+
+<pre>
+      7 ↑⍤1 m                Take on all rows;
+1  2  3  4 0 0 0             the same as ((¯1↓⍴m),7)↑m
+5  6  7  8 0 0 0
+9 10 11 12 0 0 0
+
+      ⍉ 7 ↑⍤1 ⍉ m            Take on all columns;
+1  2  3  4                   the same as (7,1↓⍴m)↑m
+5  6  7  8
+9 10 11 12
+0  0  0  0
+0  0  0  0
+0  0  0  0
+0  0  0  0
+
+      2 3 ↑⍤1 2 b            Take on each matrix
+ 1  2  3
+ 6  7  8
+
+21 22 23
+26 27 28
+
+41 42 43
+46 47 48
+
+</pre>
+
+
+
+<a name="eg_match"></a>
+<p><b>Examples with Match</b></p>
+
+<pre>
+      b ≡⍤1 ⊖b               Compare vectors
+0 0 0 0
+1 1 1 1
+0 0 0 0
+
+      b ≡⍤2 ⊖b               Compare matrices
+0 1 0
+
+</pre>
+
+
+
+<a name="eg_membership"></a>
+<p><b>Examples with Membership</b></p>
+
+<pre>
+      (⍳3) ∊⍤0 2 b           First scalar member of first
+1 0 0                        plane, 2nd of 2nd plane, etc.
+
+      (⍳7) ∊⍤1 2 b           Usual member of vector,
+1 1 1 1 1 1 1                repeated for each matrix
+0 0 0 0 0 0 0
+0 0 0 0 0 0 0
+
+</pre>
+
+
+
+<a name="eg_iota"></a>
+<p><b>Examples with Iota</b></p>
+
+<pre>
+      m
+1  2  3  4
+5  6  7  8
+9 10 11 12
+
+      n
+1 2 3 4
+2 4 6 1
+1 6 8 1
+
+      m ⍳⍤1 n                Independent search on rows;
+1 2 3 4                      as in m[1;]⍳n[1;], etc.
+5 5 2 5
+5 5 5 5
+
+      c←3 3⍴'keirbeeem'      Table lookup, as in ⎕io++/∧\d∨.≠⍉c
+      d←2 3⍴'rbercm'
+      (d∧.=⍉c)⍳⍤(1) 1
+2 4 
+
+</pre>
+
+
+
+<a name="eg_addition"></a>
+<p><b>Examples with Addition</b></p>
+
+
+<pre>
+      x
+10 20 30 40
+
+      x +⍤1 m                Add scalars to rows,
+11 22 33 44                  as in, m+(⍴m)⍴x
+15 26 37 48
+19 30 41 52
+
+      y
+100 200 300
+
+      ⍉ y+⍤1 ⍉m              Add scalars to columns
+101 102 103 104              as in,m+⍉(⌽⍴m)⍴⍉y
+205 206 207 208
+309 310 311 312
+
+      y +⍤0 2 b              Add scalars to matrices
+101 102 103 104 105
+106 107 108 109 110
+111 112 113 114 115
+116 117 118 119 120
+
+221 222 223 224 225
+226 227 228 229 230
+231 232 233 234 235
+236 237 238 239 240
+
+341 342 343 344 345
+346 347 348 349 350
+351 352 353 354 355
+356 357 358 359 360
+
+</pre>
+
+
+
+<a name="eg_representation"></a>
+<p><b>An example with Representation</b></p>
+
+<pre>
+      10 10⊤v
+0 0 0 0 0
+1 2 3 4 5
+
+      10 10 ⊤⍤1 0 v          A different representation
+0 1
+0 2
+0 3
+0 4
+0 5
+
+</pre>
+
+
+
+<a name="domains"></a>
+<p><b>Domains of Operators<tt> ⍤</tt>&nbsp;,<tt> ⍥</tt>&nbsp;,<tt> ¨</tt></b></p>
+
+<p>The left argument of 
+the operators<tt> ⍤</tt>&nbsp;,<tt> ⍥</tt>&nbsp;,<tt> ¨</tt>
+may be any primitive function except execute (<tt>⍎</tt>). 
+The valid right arguments of<tt> ⍤ </tt>include any scalar 
+or vector of integers containing at most three elements.
+
+<p>A primitive function<tt> g </tt>is a valid right argument 
+of<tt> ⍤ </tt>and<tt> ⍥ </tt>(and of<tt> ¨ </tt>
+if it has an assigned inverse) 
+if its relevant ranks (left and right in the case 
+of<tt> ⍺&nbsp;f⍥g&nbsp;⍵</tt>&nbsp;,<tt> </tt>   
+and monadic in all other cases) have been assigned. 
+The following table shows function ranks, 
+denoting infinite rank by<tt> ¯</tt>&nbsp;,<tt> </tt> 
+and unassigned rank by<tt> ⍝</tt>&nbsp;:</p>
+
+<pre>
+ ⌹  <  >  ⍴  ,  ⍉  ∊  ⍋  ⍒  ?  ⊤  ⍕  ≡  ⊢  ⊣  ⊃     Function
+ 2  ¯  0  ¯  ¯  ¯  ⍝  ¯  ¯  0  ⍝  ¯  ⍝  ¯  ¯  ¯     Monadic
+ ¯  0  0  ⍝  ¯  ⍝  0  ¯  ¯  ⍝  ¯  ⍝  ¯  ¯  ¯  ¯     Left
+ 2  0  0  ⍝  ¯  ⍝  ¯  ¯  ¯  ⍝  ¯  ⍝  ¯  ¯  ¯  ¯     Right
+</pre>
+
+<p>The functions<tt> ⊥ ⍳ ⌽ ⊖ ↑ ↓ ⍎ </tt>
+are not included in this table 
+because their ranks have not been assigned.</p>
+
+<p>All scalar primitive functions have rank 0 
+and are therefore in the right domains 
+of<tt> ⍤ </tt>and<tt> ⍥</tt>&nbsp;.<tt> </tt> 
+A monadic function<tt> g </tt>is in the right domain of<tt> ¨ </tt>
+if it is in the right domain of<tt> ⍤ </tt>and also occurs 
+in the following table of assigned inverses:</p>
+
+<pre>
+ +  -  ÷  *  ~  <  ⍉  ⊢  ⌹ > ⍟ Function
+ +  -  ÷  ⍟  ~  >  ⍉  ⊢  ⌹ < * Inverse
+
+</pre>
+
+
+
+<a name="lev"></a>
+<p><b>Lev<tt> ⊣ </tt>and Dex<tt> ⊢ </tt></b></p>
+
+<p><b>Definition:</b></p>
+
+<p>The dyadic functions Lev<tt> ⊣ </tt>and Dex<tt> ⊢ </tt> 
+return their left and right arguments, respectively. 
+Each symbol points toward the argument it returns. 
+The names are derived form the Latin words meaning 
+&lsquo;on the left side&rsquo; (laevus) and 
+&lsquo;on the right side&rsquo; (dexter).</p>
+
+The monadic case of<tt> ⊢ </tt>is an identity function. 
+It returns its argument unchanged. 
+The monadic case of<tt> ⊣ </tt>returns no result, 
+and is thus equivalent to<tt> ⍎''</tt>&nbsp;.<tt> ⊣a </tt>
+will work, but<tt> z←⊣a </tt>will 
+give a<tt> result error</tt>&nbsp;.<tt> </tt>
+Both cases of each function have infinite rank, 
+and thus can be used with the operators 
+On, Over, and With.</p>
+
+<p><b>Application:</b></p>
+
+<p>A) Many system functions both cause side effects 
+(like defining functions) and return explicit results. 
+If the result is not needed, it can be discarded using Lev. 
+For example, the statement</p>
+
+<pre>
+[∘]  junk←⎕ex namelist
+</pre>
+
+<p>can also be written as</p>
+
+<pre>
+[∘]  ⊣⎕ex namelist
+</pre>
+
+<p>B) Lev, when used dyadically, 
+provides a statement connection facility. 
+Unlike diamond, the statement on the right side 
+of the Lev function will execute first.
+<br>&nbsp;</p>
+
+
+
+<a name="link"></a>
+<p><b>Link<tt> ⊃ </tt></b></p>
+
+<p><b>Definition:</b></p>
+
+<p>The monadic function<tt> ⊃ </tt>is a conditional enclose. 
+If the argument is simple (not enclosed), 
+then it is enclosed. If the argument is non-simple, 
+it is returned unchanged.</p>
+
+<p>The dyadic function<tt> ⊃ </tt>is called Link. 
+It encloses its left argument, 
+applies the conditional enclose to the right argument, 
+and catenates the results. 
+These rules can be summarized by the following.</p>
+
+<table>
+<tr><td><tt>⊃⍵</tt>&nbsp;</td> <td><tt>←→</tt>&nbsp;</td><td><tt>&lt;⍵ </tt>if<tt> ⍵ </tt>is simple</td></tr>
+<tr><td>&nbsp;</td>            <td><tt>←→</tt>&nbsp;</td><td><tt>⍵ </tt>if<tt> ⍵ </tt>is non-simple</td></tr>
+<tr><td>&nbsp;</td></tr>
+<tr><td><tt>⍺⊃⍵</tt>&nbsp;</td><td><tt>←→</tt>&nbsp;</td><td><tt>(&lt;⍺),⊃⍵</tt>&nbsp;</td></tr>
+</table>
+
+<p>Both cases of<tt> ⊃ </tt>have infinite rank, 
+enabling it to be used 
+as the right function argument in composition. 
+Note that in the expression<tt> ⍺⊃⍵</tt>&nbsp;,<tt> </tt>
+the symbol<tt> ⊃ </tt>
+(like the symbol<tt> &lt; </tt>in<tt> &lt;⍵</tt>&nbsp;) 
+opens toward the argument to be enclosed.</p>
+
+<p>If the right argument (<tt>⍵</tt>) is simple, 
+the shape of the result will always be 2. 
+If the right argument (<tt>⍵</tt>) is not simple, 
+the shape of the result will 
+be<tt> ((-⍴⍴⍵)↑1)+⍴⍵</tt>&nbsp;.<tt> </tt>
+This is due to the scalar extension of the left argument 
+when the catenation occurs. 
+The following example illustrates this point.</p>
+
+<pre>
+      ⎕ps←-1 1 3 3
+      g←2 5⍴'0123456789'
+      h←<⍤(0) 3 4⍴'abcdefghijkl'
+      ⍴h⊃g
+2
+      h⊃g
+|¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯| |¯¯¯¯¯|
+||¯| |¯| |¯| |¯|| |01234|
+||a| |b| |c| |d|| |56789|
+||_| |_| |_| |_|| |_____|
+|               |
+||¯| |¯| |¯| |¯||
+||e| |f| |g| |h|| 
+||_| |_| |_| |_||
+|               |
+||¯| |¯| |¯| |¯||
+||i| |j| |k| |l|| 
+||_| |_| |_| |_||
+|_______________|
+
+      ⍴g⊃h
+3 5
+      g⊃h
+|¯¯¯¯¯| |¯| |¯| |¯| |¯|
+|01234| |a| |b| |c| |d|
+|56789| |_| |_| |_| |_|
+|_____|  
+
+|¯¯¯¯¯| |¯| |¯| |¯| |¯|
+|01234| |e| |f| |g| |h|
+|56789| |_| |_| |_| |_|
+|_____|  
+
+|¯¯¯¯¯| |¯| |¯| |¯| |¯|
+|01234| |i| |j| |k| |l|
+|56789| |_| |_| |_| |_|
+|_____|  
+
+</pre>
+
+
+<p><b>Application:</b></p>
+
+<p>A) Monadic<tt> ⊃ </tt>can be used to test whether an array is simple.</p>
+<pre>
+simple⋄ ~⍵≡⍵
+</pre>
+
+<p>B) Dyadic<tt> ⊃ </tt>can be used to create enclosed arrays 
+without having to explicitly enclose and catenate the elements.</p>
+
+<table>
+<tr><td>OLD WAY</td><td><tt>&nbsp; &nbsp; &nbsp; &nbsp;</tt></td><td>NEW WAY</td></tr>
+<tr><td><tt>(<1 2),(<'def'),<6 7 8 9</tt></td><td>&nbsp;</td>    <td><tt>1 2⊃'def'⊃6 7 8 9</td></tr>
+</table>
+
+<p>Note that the new way is more readable and uses fewer functions.
+<br>&nbsp;</p>
+
+
+
+<a name="domino"></a>
+<p><b>Matrix Inverse and Matrix Division</b><tt> ⌹</tt></p>
+
+<p><b>Definition:</b></p>
+
+<p>In the past, the functions denoted by<tt> ⌹ </tt>were limited 
+to working with arguments whose rank was less than or equal to 2. 
+The definition of Matrix Inverse is still based on inverting rank 2 arrays. 
+But now, it can be applied to multiple matrices in a single operation, 
+rather than by looping.</p>
+
+<table>
+<tr><td>Old Way</td><td><tt>&nbsp; &nbsp;</tt></td><td>New Way</td></tr>
+<tr><td><tt>z[1;;]←⌹x[1;;]</tt></td><td>&nbsp;</td><td><tt>z←⌹x</tt></td></tr>
+<tr><td><tt>z[2;;]←⌹x[2;;]</tt></td></tr>
+<tr><td><tt>z[3;;]←⌹x[3;;] ....</tt></td></tr>
+</table>
+
+<p>This example shows that the new Matrix Inverse function 
+inverts the matrices along the last two axes of the argument.</p>
+
+<p>Since Matrix Division is defined in terms 
+of Matrix Inverse (&nbsp;<tt>⍺⌹⍵ ≡ (⌹⍵)+.×⍺</tt>&nbsp;) 
+its definition is extended in a similar manner.</p>
+
+<p>The rules for determining the argument 
+and result shapes are given below. 
+(The degenerate cases where<tt> 2>⍴⍴⍵ </tt>
+work as before and are not included in this table.)</p>
+
+<table>
+<tr><td>Function</td><td>&nbsp;</td><td><tt>⍴⍵</tt></td><td>&nbsp; &nbsp;</td>
+ <td><tt>⍴⍺</tt></td><td>&nbsp; &nbsp;</td><td><tt>⍴z</tt></td></tr>
+<tr><td><tt>z←⌹⍵</tt></td><td>&nbsp;</td><td><tt>(1↑¯2↑⍴⍵)≥¯1↑⍴⍵</tt></td><td>&nbsp;</td>
+ <td><tt>-</tt></td><td>&nbsp;</td><td><tt>(¯2↓⍴⍵),⌽¯2↑⍴⍵</tt></td></tr>
+<tr><td><tt>z←⍺⌹⍵</tt></td><td>&nbsp;</td><td><tt>(1↑¯2↑⍴⍵)≥¯1↑⍴⍵</tt></td><td>&nbsp;</td>
+ <td><tt>(1↑⍴⍺)=1↑¯2↑⍴⍵</tt></td><td>&nbsp;</td><td><tt>(¯2↓⍴⍵),(¯1↑⍴⍵),1↓⍴⍺</tt></td></tr>
+</table>
+
+<p><b>Application:</b></p>
+
+<p>To solve several systems of equations 
+which have different coefficients, 
+but the same constants, 
+try an expression like the following.</p>
+
+<pre>
+constantvector⌹coeffmatrix1,[0.5] coeffmatrix2
+</pre>
+
+<p>To solve several systems of equations 
+which have the same coefficients, 
+but different constants, 
+try an expression like the following.</p>
+
+<pre>
+(constantvector1,[1.5] constantvector2)⌹coeffmatrix
+</pre>
+
+
+<p><b>Examples:</b></p>
+
+
+<pre>
+      a←2 2 2⍴0 1 1 2 3 5 8 13
+      ⌹a
+ ¯2  1
+  1  0
+
+¯13  5
+  8 ¯3
+      b←2 2⍴1 0 0 1
+      b⌹a
+ ¯2  1
+  1  0
+
+¯13  5
+  8 ¯3
+      c←2 3 4⍴⍳24
+      c⌹a
+ 11  10   9   8
+  7   6   5   4
+  3   2   1   0
+
+  1   2   3   4
+  5   6   7   8
+  9  10  11  12
+
+
+ 52  44  36  28
+ 20  12   4  ¯4
+¯12 ¯20 ¯28 ¯36
+
+¯31 ¯26 ¯21 ¯16
+¯11  ¯6  ¯1   4
+  9  14  19  24
+
+</pre>
+
+
+
+<a name="ack"></a>
+<p><b>Acknowledgements</b>: The following people contributed to this SATN:
+R. Bernecky, K.E. Iverson, E.E. McDonnell, 
+R.C. Metzger, J.H. Schueler.</p>
+
+
+
+<br><hr>
+
+<a name="err"></a>
+<p align=center><font size=+1>Errata</font></p>
+
+<table>
+<tr><td valign=top>&#149;</td><td>&nbsp;</td><td>
+In the <a href="#eg">Examples</a> section,<tt> q </tt>
+should be initialized to<tt> 2&nbsp;5⍴'abcdeedcba'</tt>&nbsp;.
+ </td></tr>
+<tr><td valign=top>&#149;</td><td>&nbsp;</td><td>
+In the <a href="#eg_enclose">Examples with Enclose</a> section,
+there should not be a<tt> gp </tt>in the last example.
+ </td></tr>
+</table>
+
+
+
+<br><hr>
+<font size=-1><p>First appeared as SHARP APL Technical Note 45, 
+Language Extensions of May 1983, <nobr>1983-05-02.</nobr></p>
+
+<p><script src="apldisplay.js" type="text/javascript"></script></p>
+</font>
+
+<table>
+<tr><td><font size=-1>created: &nbsp;</font></td><td><font size=-1>2009-11-08 22:35</font></td></tr>
+<tr><td><font size=-1>updated:</font></td><td><font size=-1>2014-10-15 13:20</font></td></tr>
+</table>
+
+</td></tr></table>
+
+
+<br><br><br>
+</body>
+</html>

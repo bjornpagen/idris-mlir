@@ -1,0 +1,47 @@
+% \section{Abstract}
+
+\begin{abstract}
+
+
+While programmers know that memory representation of data structures can have significant effects
+on performance, compiler support to {\em optimize} the layout of those structures is an under-explored field.
+Prior work has optimized the layout of individual, \textit{non-recursive} structures without considering how
+collections of those objects in linked or \textit{recursive} data structures are laid out.
+%The internal layout of constituent objects in linked data structures is an under-explored field.
+
+%or focused on arranging the 
+%placement of linked data structures without considering the internal layout of the constituent objects.
+
+This work introduces \system, a compiler that optimizes the layouts of algebraic datatypes, with a special focus
+on producing highly optimized, {\em packed} data layouts where recursive structures can be traversed with minimal
+pointer chasing. \system performs an analysis of how a recursive ADT is used across functions to choose a \textit{global} layout
+that promotes simple, strided access for that ADT in memory. It does so by building and solving a constraint system
+to minimize an abstract cost model, yielding a predicted efficient layout for the ADT. \system then builds on top
+of \gibbon, a prior compiler for packed, mostly-serial representations, to synthesize optimized ADTs. We show experimentally 
+that \system is able to choose optimal layouts across a series of microbenchmarks and case studies, outperforming both 
+\gibbon's baseline approach, as well as \mlton, a Standard ML compiler that uses traditional
+pointer-heavy representations.
+
+
+%\bf{ABSTRACT 2}
+%
+%Compilers treat the layout of fields in memory as a matter of
+%preestablished convention, not as a free variable to optimize for a
+%particular input program.
+%%
+%This rigidity incurs an opportunity cost, especially as we move to
+%consider more compact in-memory representations for data; for example,
+%as found in the \gibbon compiler which uses compact, mostly-serialized
+%heap formats.
+%
+%This paper introduces \system, a compilation approach for functional
+%programs which uses a solver to determine the optimal-cost ordering of
+%data fields, optimizing for a particular traversal function over that
+%data.
+%%
+%An experimental evaluation and case study shows that this approach
+%yields an \auditme{XYZ} speedup over the compact-data approach alone,
+%and an \auditme{XYZ} speedup over the mature GHC compiler with its
+%traditional, pointer-heavy, non-compact data representations.
+  
+\end{abstract}

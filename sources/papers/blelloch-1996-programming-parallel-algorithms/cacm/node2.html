@@ -1,0 +1,133 @@
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
+<!--Converted with LaTeX2HTML .95.3 (Nov 17 1995) by Nikos Drakos (nikos@cbl.leeds.ac.uk), CBLU, University of Leeds -->
+<HTML>
+<HEAD>
+<TITLE>Why Work and Depth?</TITLE>
+<!-- Changed by: Guy Blelloch, 29-Feb-1996 -->
+<!-- Changed by: Guy Blelloch , 25-Mar-1996 -->
+<META NAME="description" CONTENT="Why Work and Depth?">
+<META NAME="keywords" CONTENT="cacm2">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+<LINK REL=STYLESHEET HREF="cacm2.css">
+</HEAD>
+<BODY LANG="EN">
+
+<strong>
+From <a href="../cacm.html"><cite>Programming Parallel Algorithms.</cite></a>
+<br>
+Communications of the ACM, 39(3), March, 1996.
+</strong>
+
+ <BR> <HR><A NAME="tex2html51" HREF="node3.html"><IMG ALIGN=BOTTOM ALT="next"  WIDTH=37 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/next_motif.gif"></A> <A NAME="tex2html49" HREF="node1.html"><IMG ALIGN=BOTTOM ALT="up"  WIDTH=26 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/up_motif.gif"></A> <A NAME="tex2html43" HREF="node1.html"><IMG ALIGN=BOTTOM ALT="previous"  WIDTH=63 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/previous_motif.gif"></A>   <BR>
+<B> Next:</B> <A NAME="tex2html52" HREF="node3.html">Relationship of Work and </A>
+<B>Up:</B> <A NAME="tex2html50" HREF="node1.html">Work and Depth</A>
+<B> Previous:</B> <A NAME="tex2html44" HREF="node1.html">Work and Depth</A>
+<BR> <HR> <P>
+<H2><A NAME="SECTION00011000000000000000">Why Work and Depth?</A></H2>
+<P>
+We now return to the question of why models based on work and depth
+are better than processor-based models for programming and analyzing
+parallel algorithms.  To motivate this claim we consider a particular
+algorithm, <EM>Quicksort</EM>, and compare the code and performance
+analysis of a parallel version of the algorithm using the two types of
+models.  We argue that in the work-depth model the code is very
+simple, the performance analysis is closely related to the code, and
+the code captures the notion of parallelism in Quicksort at a very
+high level.  This is not true with the processor-based model.
+<P>
+<P><A NAME="791">&#160;</A><A NAME="figquicksort1">&#160;</A> <IMG ALIGN=BOTTOM ALT="figure117"  WIDTH=461 HEIGHT=150 SRC="img6.gif"  > <BR>
+<STRONG>Figure 4:</STRONG> Pseudocode for Quicksort from Aho, Hopcroft and Ullman, 
+``The Design and Analysis of Computer Algorithms'' [<A HREF="node14.html#Aho74">1</A>].
+Although originally described as a sequential algorithm, the algorithm
+as stated is not hard to parallelize.<BR>
+<P>
+<P>
+We start by reviewing sequential Quicksort, for which pseudocode is
+shown in Figure <A HREF="node2.html#figquicksort1">4</A>.  A standard performance analysis
+proves that for <i>n</i> keys the algorithm runs in <EM>O(n log n)</EM> time on
+average (expected case).  A similar analysis proves that the maximum
+depth of recursive calls is <EM>O(log n)</EM> expected case--we will use
+this fact later.  Quicksort is not hard to parallelize.  In
+particular, we can execute the two recursive calls in parallel, and
+furthermore, within a single Quicksort we can compare all the elements
+of <i>S</i> to the pivot <i>a</i> in parallel when subselecting the elements for
+<EM>S1</EM>, and similarly for <EM>S2</EM> and <EM>S3</EM>.  The questions remain of how
+we program this parallel version and what is its performance?
+<P>
+<P><A NAME="797">&#160;</A><A NAME="figqsort">&#160;</A> 
+<a href="../nesl/alg-sequence.html#quicksort"><IMG ALIGN=BOTTOM ALT="figure139"  WIDTH=466 HEIGHT=296 SRC="img7.gif" ></a> <BR>
+<STRONG>Figure 5:</STRONG> 
+The Quicksort algorithm in NESL.  The operator <TT>#</TT> returns the
+length of a sequence.  The function <TT>rand(n)</TT> returns a random
+number between 0 and <TT>n</TT> (the expression <TT>S[rand(#S)]</TT>
+therefore returns a random element of <TT>S</TT>).  The notation <TT>{e
+in S| e &lt; a}</TT> is read: ``in parallel find all elements <TT>e</TT> in
+<TT>S</TT> for which <TT>e</TT> is less than <TT>a</TT>''.  This operation has
+constant depth and work proportional to the length of <TT>S</TT>.  The
+notation <TT>{Quicksort(v): v in [S1,S3]}</TT> is read: ``in parallel
+for <TT>v</TT> in <TT>S1</TT> and <TT>S3</TT>, <TT>Quicksort</TT> <TT>v</TT>''.  The
+results are returned as a pair.  The function <TT>++</TT> appends two
+sequences.  <BR>
+<P>
+<P>
+We first consider programming and analyzing parallel Quicksort with a
+model based on work and depth.  Figure <A HREF="node2.html#figqsort">5</A> illustrates the NESL
+code for the algorithm.  This code should be compared with the
+sequential pseudocode--the only significant difference is that the
+NESL code specifies that the subselection for <TT>S1</TT>, <TT>S2</TT> and
+<TT>S3</TT>, and the two recursive calls to <TT>Quicksort</TT> should be
+executed in parallel (in NESL curly brackets {} signify parallel
+execution).  Since the parallel algorithm does basically the same
+operations as the sequential version, the work cost of the parallel
+version is within a small constant factor of the time of the
+sequential version (<EM>O(n log n)</EM> expected case).  The depth cost of
+the algorithm can be analyzed by examining the recursion tree in
+Figure <A HREF="node2.html#figqsort">5</A>.  The depth of each of the blocks represents the sum of
+the depths of all the operations in a single call to Quicksort (not
+including the two recursive calls).  These operations are the test for
+termination, finding the pivot <TT>a</TT>, generating <TT>S1</TT>, <TT>S2</TT>
+and <TT>S3</TT>, and the two appends at the end.  As discussed in more
+detail in Section <A HREF="node6.html#seccomplexity">2.2</A> each of these operations has constant
+depth (<EM>i.e.</EM> is fully parallel).  The depth of each block is
+therefore constant, and the total depth is this constant times the
+maximum number of levels of recursion, which we mentioned earlier is
+<EM>O(log n)</EM> expected case.  This completes our analysis of Quicksort
+and says that the work of Quicksort is <EM>O(n log n)</EM> and the depth is
+<EM>O(log n)</EM>, both expected case.<A NAME="tex2html6" HREF="footnode.html#277"><IMG ALIGN=BOTTOM ALT="gif"  WIDTH=15 HEIGHT=15 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/foot_motif.gif"></A>  Note that we have derived performance measures for
+the algorithm based on very high-level code and without talking about
+processors.
+<P>
+We now consider code and analysis for parallel Quicksort based on a
+parallel machine model with <i>P</i> processors.  We claim that in such a
+model the code will be very long, will obscure the high-level
+intuition of the algorithm and will make it hard to analyze the
+performance of the algorithm.  In particular the code will have to
+specify how the sequence is partitioned across processors (in general
+the input length does not equal <i>P</i> and needs to be broken up into
+parts), how the subselection is implemented in parallel (for
+generating <EM>S1</EM>, <EM>S2</EM> and <EM>S3</EM> in parallel), how the recursive
+calls get partitioned among the processors and then load-balanced, how
+the sub-calls synchronize, and many other details.  This is
+complicated by the fact that in Quicksort the recursive calls are
+typically not of equal sizes, the recursion tree is not balanced, and
+the <EM>S2</EM> sets have to be reinserted on the way back up the recursion.
+Although coding these details might help optimize the algorithm for a
+particular machine, they have little to do with core ideas.  Even if
+we assume the simplest model with unit-time access to shared memory
+and built-in synchronization primitives, the fully parallel code for
+Quicksort in just about any language would require hundreds of lines
+of code.  This is not just a question of verbosity but is a question
+of how we think about the algorithm.
+<P>
+<BR> <HR><A NAME="tex2html51" HREF="node3.html"><IMG ALIGN=BOTTOM ALT="next"  WIDTH=37 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/next_motif.gif"></A> <A NAME="tex2html49" HREF="node1.html"><IMG ALIGN=BOTTOM ALT="up"  WIDTH=26 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/up_motif.gif"></A> <A NAME="tex2html43" HREF="node1.html"><IMG ALIGN=BOTTOM ALT="previous"  WIDTH=63 HEIGHT=24 SRC="/afs/cs.cmu.edu/project/scandal/public/www/icons/previous_motif.gif"></A>   <BR>
+<B> Next:</B> <A NAME="tex2html52" HREF="node3.html">Relationship of Work and </A>
+<B>Up:</B> <A NAME="tex2html50" HREF="node1.html">Work and Depth</A>
+<B> Previous:</B> <A NAME="tex2html44" HREF="node1.html">Work and Depth</A>
+<BR> <HR> <P>
+<BR> <HR>
+<P><ADDRESS>
+<a href="http://www.cs.cmu.edu/~blelloch">Guy Blelloch</a>, <a href="mailto:blelloch@cs.cmu.edu">blelloch@cs.cmu.edu</a>
+</ADDRESS>
+</BODY>
+</HTML>

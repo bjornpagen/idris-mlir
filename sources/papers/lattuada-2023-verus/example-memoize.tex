@@ -1,0 +1,111 @@
+
+\subsection{Verified Example: Memoized Function Calls} \label{sec:memoize}
+
+\begin{figure}
+
+\noindent\begin{minipage}{.5\textwidth}
+
+\begin{lstlisting}[language=Verus,style=VerusLineNos]
+#[spec] fn expected_result() -> u64 { /* ... */ }
+
+#[exec] fn computation() -> u64 {
+    ensures(|res: u64| res == expected_result()); %*\lclnum\label{clnum:comp:post}*
+    /* ... */
+}
+
+#[spec] fn cell_value_inv(v: Option<u64>) -> bool {
+    equal(v, Option::Some(expected_result()))
+    || equal(v, Option::None) %*\lclnum\label{clnum:memo:cell-value-inv}*
+}
+
+#[spec] fn cell_is_valid(
+        cell: InvCell<Option<u64>>) -> bool {
+    cell.wf()
+    && forall(|v| (#[trigger] cell.inv(v) ==
+        cell_value_inv(v)))
+}
+
+#[exec] fn init_cell() -> InvCell<Option<u64>> {
+    ensures(|c| cell_is_valid(c));
+    InvCell::new(Option::None,
+        |v: Option<u64>| cell_value_inv(v)) %*\lclnum\label{clnum:memo:init}*
+}
+\end{lstlisting}
+\end{minipage}\hfill
+\noindent\begin{minipage}{.5\textwidth}
+
+\begin{lstlisting}[language=Verus,style=VerusLineNos]
+#[exec] fn memoized_computation(
+        cell: &InvCell<Option<u64>>) -> u64 {
+    requires(cell_is_valid(*cell));
+    ensures(|res: u64| res == expected_result());
+
+    match cell.get() {
+        Option::Some(res) => res, %*\lclnum\label{clnum:memo:case-none}*
+        Option::None => {
+            let res = computation();
+            cell.replace(Option::Some(res));
+            res %*\lclnum\label{clnum:memo:case-some}*
+        }
+    }
+}
+
+struct Client<'a> {
+    cell: &'a InvCell<Option<u64>>,
+}
+
+fn main() {
+    let c = init_cell();
+    let client1 = Client { cell: &c };
+    let client2 = Client { cell: &c };
+    let x = memoized_computation(&client1.cell);
+    let y = memoized_computation(&client2.cell);
+    assert(x == y);
+}
+\end{lstlisting}
+\end{minipage}
+
+    \caption{
+        \label{fig:memoize}
+        Memoization example built on top of \texttt{InvCell}. %We take as given some (spec) value \texttt{expected\_result()} and
+        %some (exec) code \texttt{computation()} that returns \texttt{expected\_result()}.
+        %We then produce a function \texttt{memoized\_computation(cell)} which also returns
+        %\texttt{expected\_result()}.
+    }
+\end{figure}
+
+\emph{Memoization} is an optimization technique whereby a user saves time
+by storing the result of a computation the first time it is invoked; on future invocations,
+they use the stored value. Here, we show how to memoize a function call
+\texttt{computation()}.
+In \autoref{fig:memoize} we use a function that takes 0 arguments for simplicity, so there is only a single value to memoize;
+in our supplementary materials~\cite{verussupplementary}, we provide a slightly more complex example that memoizes
+a single-argument function \texttt{computation(i)}.
+
+To set up the problem, we assume that \verb`computation()` has a postcondition~\lclref{clnum:comp:post} ensuring
+that its result is equal to some desired (spec-mode) value, \verb`expected_result()`.
+(This is similar to the setup of \verb`fibo_impl` and \verb`fibo` from earlier.)
+The aim is to construct a function \verb`memoized_computation` that also returns
+\verb`expected_result()`.
+To keep the problem interesting, we also insist that it be possible to share the 
+``result store'' across potentially many clients.
+As such, we need to use a shared reference type \verb`&`; however,
+a given update invocation might need to update the result store, which requires
+mutability. Therefore, we need to use some form of interior mutability.
+
+In our approach, we use
+an \verb`InvCell` with a simple invariant on the data held by the cell.
+When initializing the cell~\lclref{clnum:memo:init}, we specify the data invariant as a (spec-mode) boolean predicate on the interior values;
+here, we set it to the function \verb`cell_value_inv`, defined at \lclref{clnum:memo:cell-value-inv}.
+The resulting property of the cell is expressed as in \verb`cell_is_valid`.
+This definition says that the value is valid if and only if the stored value is either
+\verb`None` (not yet computed) or contains the correct answer.
+
+To implement \verb`memoized_computation`, we first read from the cell; if the value we get is
+\verb`Some`, then we return the value immediately~\lclref{clnum:memo:case-none} (as we can assume it satisfies the invariant
+we just specified).
+Otherwise, we perform the computation, store it in the cell,
+and return it~\lclref{clnum:memo:case-some}.
+
+Finally, in \verb`main`, we show that we can create multiple ``clients,'' sharing a
+reference to the cell, and use them to call \verb`memoized_computation`.

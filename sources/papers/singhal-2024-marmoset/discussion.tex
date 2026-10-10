@@ -1,0 +1,33 @@
+\section{Future Work}
+\label{sec:discussion}
+
+\system could allow the user to provide optional constraints on the layout
+(either relative or absolute) through pragmas.
+A relative constraint would allow the user to specify if a field \lstinline|A| comes immediately after
+field \lstinline|B|. An absolute constraint would specify an exact index in the layout for a field.
+Such pragmas may be useful if the user requires a specific configuration of a data
+type for external reasons or has information about performance bottlenecks.
+
+
+Although the performance optimization is currently statically driven, there are many avenues for future
+improvement. For instance, we can get better edges weights for the access graphs
+using dynamic profiling techniques. The profiling can be quite detailed, for
+instance, which branch in a function is more likely, which function takes the
+most time overall in a global setting (the optimization would bias the layout
+towards that function), how does a particular global layout affect the
+performance in case of a pipeline of functions.
+
+We could also look at a scenario where we optimize each function locally and 
+use ``shim'' functions that copy one layout to another (the one required by the
+next function in the pipeline). Although the cost of copying may be high, it warrants
+further investigation. Areas of improvement purely on the implementation side include 
+optimizing whether \system dereferences a pointer to get to a field or uses the end-witness
+information as mentioned in section~\ref{sec:overview}. Lesser pointer dereferencing 
+can lower instruction counts and impact performance positively. We would also like to 
+optimize the solver times as mentioned in~\ref{subsec:heuristic-tradeoffs}.
+
+We envision that the \textit{structure of arrays} effect that we discovered may help 
+with optimizations such as vectorization, where the performance can benefit significantly
+if the same datatype is close together in memory. Regardless, through the case studies, we see 
+that \system shows promise in optimizing the layout of datatypes and may open up 
+the optimization space for other complex optimizations such as vectorization.
