@@ -6,28 +6,16 @@ the agent's first message. They touch disjoint things: the first works
 in a separate clone of llvm-project and only updates `upstream/` status
 here; the second owns this repository's toolchain and code.
 
-State, updated 2026-10-09 (evening).
+State, updated 2026-10-10.
 
-**Toolchain.** The LLVM pin is llvm main 7208ba24, and the toolchain is one
-recipe for both targets (`tools/bootstrap.sh`, into `.toolchain/llvm`).
-No toolchain has been built with the patches the tree carries, so
-`make build` refuses until `make bootstrap` runs. None of the C++ written
-since then has been compiled. That covers:
-- the configuration sweep;
-- IORef as the array of rank 0, with the move-out read;
-- Integer shifts;
-- the string iterator;
-- the growable `Array`;
-- record boxing;
-- the removal of global state;
-- the typed `idr` dialect and its generator;
-- the driver inversion (`idris-mlir` drives, `idris-mlir-front` is a
-  file-to-file program);
-- the `idr-identity` pass.
-
-The generated `Dialect`/`Syntax` modules were written by hand to the
-generator's format; the first `make build` regenerates them, must
-reproduce them, and refreshes their fingerprints.
+**Toolchain.** Built on arm64 macOS, pin llvm main 7208ba24, one recipe
+(`tools/bootstrap.sh`, into `.toolchain/llvm`). `make build` passes, and
+the generated `Dialect`/`Syntax` modules match what the generator writes.
+`make check` is 26/26, `test-idr` 269/269, `test-mlir-tools` 17/17. A
+stage-2 rebuild takes about 3 minutes with ccache. Two `make test`
+programs, `programs/prelude/every-interfaces-export` and
+`every-types-export`, compile and then hit their time limits; that run is
+left there. x86_64 Linux is still unbuilt at this pin (proposal 0003).
 
 **Self-hosting.**
 - **Stage 0 compiles itself (2026-10-10).** The frontend, built by the
@@ -48,12 +36,13 @@ reproduce them, and refreshes their fingerprints.
   --timing <t> --core <c> -o <m> IdrisMLIR/Frontend/Driver.idr` from a
   copy of `compiler/src`. Cap the Chez process's memory when running it by
   hand: a translator bug shows as unbounded growth, not as an error.
-- **Not run:** the emitted module has not been parsed, verified or lowered:
-  that needs the C++ toolchain built with the patches the tree carries
-  (`make bootstrap`), which is not built here. So stage 1 (a native,
-  static `idris-mlir-front`), stage 2 and stage 3 (the fixpoint, stage 2 =
-  stage 3 on both targets) are next, and the new tests'
-  end-to-end runs and FileCheck with them.
+- **Not run:** stages 1 to 3 (`make self`, `tools/self.sh`). Stage 1 is
+  the first parse, verify, lower and link of the module stage 0 emitted,
+  into a native static `idris-mlir-front`. The compile passes `--no-eval`:
+  `idr-eval`'s JIT is not part of this bootstrap (proposal 0013). Stage 2
+  compiles the same sources with that frontend, and stage 3 must match
+  stage 2 byte for byte. The new tests' end-to-end runs and FileCheck
+  with the native frontend are after that.
 - **Then:** the test runner off Chez (orchestration in sh, generators
   compiled by idris-mlir, an `--exports` query instead of the stock
   REPL); `tests/toolchain/static-linking` covering `idris-mlir-front`;
