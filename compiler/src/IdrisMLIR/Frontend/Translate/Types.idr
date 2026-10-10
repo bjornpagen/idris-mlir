@@ -172,21 +172,63 @@ dataParams def = case definition def of
         go i acc (Bind _ _ (Pi _ _ _ a) sc) = go (S i) (add acc a) (subst (marker i) sc)
         go i acc ret = maybe [] positions (add acc ret)
 
-||| The positions of a type constructor's arguments that are types: its
-||| parameters whose kind is a universe. Only they tell instances apart;
-||| every other argument (an index, or a value parameter such as `Equal`'s
-||| `x`) is compile-time information.
+||| Does a term mention the stand-in for the `k`th binder of a constructor's
+||| type?
+mentionsMarker : Nat -> TT vs -> Bool
+mentionsMarker k (Ref _ _ (MN "idris-mlir-binder" i)) = cast i == k
+mentionsMarker k (Bind _ _ b sc) = mentionsMarker k (binderType b) || mentionsMarker k sc
+mentionsMarker k (App _ f a) = mentionsMarker k f || mentionsMarker k a
+mentionsMarker k (As _ _ a p) = mentionsMarker k p
+mentionsMarker k (TDelayed _ _ t) = mentionsMarker k t
+mentionsMarker k (TDelay _ _ t a) = mentionsMarker k t || mentionsMarker k a
+mentionsMarker k (TForce _ _ t) = mentionsMarker k t
+mentionsMarker k (Meta _ _ _ args) = any (mentionsMarker k) args
+mentionsMarker _ _ = False
+
+||| The positions of a type constructor's arguments that are types and that
+||| a value of it represents: its parameters whose kind is a universe, and
+||| which some constructor holds at runtime or names in the type of one of
+||| its arguments. Only they tell instances apart; every other argument (an
+||| index, or a value parameter such as `Equal`'s `x`) is compile-time
+||| information. A parameter no constructor names is a phantom (the state
+||| thread `s` of base's `ST s a` and `STRef s a`): every type it is given
+||| has values of one representation, so one instance serves them all, and
+||| a type abstraction over it, `{0 s : Type} -> ST s Int`, is a value of
+||| that one instance once applied to whatever type.
 typeParams : {auto c : Ref Ctxt Defs} -> GlobalDef -> Core (List Nat)
 typeParams def = case definition def of
-  TCon arity _ _ _ _ _ _ => do
+  TCon arity _ _ _ _ cons _ => do
     params <- dataParams def
     defs <- get Ctxt
     -- A record's parameter kinds may be solved metavariables.
     ty <- normaliseHoles defs [] (type def)
     let values = kinds ty
-    pure (filter (\i => elem i params && not (fromMaybe False (getAt i values))) [0 .. minus arity 1])
+    let types = filter (\i => elem i params && not (fromMaybe False (getAt i values))) [0 .. minus arity 1]
+    tys <- traverse (\n => map (map type) (lookupCtxtExact n (gamma defs))) (fromMaybe [] cons)
+    -- Without its constructors, every type parameter counts.
+    case the (Maybe (List ClosedTerm)) (sequence tys) of
+      Just ts@(_ :: _) => do
+        conTys <- traverse normaliseClosed ts
+        pure (filter (\i => any (represents i) conTys) types)
+      _ => pure types
   _ => pure []
   where
+    binders : Nat -> ClosedTerm -> (List (RigCount, ClosedTerm), ClosedTerm)
+    binders i (Bind _ _ (Pi _ rig _ a) sc) =
+      let (bs, ret) = binders (S i) (subst (marker i) sc) in ((rig, a) :: bs, ret)
+    binders i t = ([], t)
+    -- Does a constructor represent the parameter at position `p` of the
+    -- type it returns: does it hold the binder there at runtime, or name it
+    -- in the type of any of its arguments? Anything but a binder there
+    -- counts.
+    represents : Nat -> ClosedTerm -> Bool
+    represents p conTy =
+      let (bs, ret) = binders 0 conTy in
+      case getAt p (snd (spine ret [])) of
+        Just (Ref _ _ (MN "idris-mlir-binder" k)) =>
+          maybe True (not . isErased . fst) (getAt (cast k) bs) ||
+          any (mentionsMarker (cast k) . snd) bs
+        _ => True
     -- Is a kind certainly the type of values, not a universe: a variable
     -- (`x : a`) or a data type (`n : Nat`)?
     valueKind : TT vs -> Bool
@@ -216,10 +258,21 @@ outsideIndices : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                  (ClosedTerm -> Bool) -> String -> ClosedTerm -> Core Bool
 outsideIndices picks owner (Bind bfc _ (Pi _ _ _ a) sc) = do
   -- The argument is erased in the result: a dependency on it is one on an
-  -- erased value, unless it is only an index.
+  -- erased value, unless it is only an index. A quantity-0 binder of kind
+  -- Type, `{0 s : Type} -> ST s Int` (the argument of base's runST), is
+  -- compile-time only: a value of the type is applied to a type and to
+  -- nothing at runtime, so it has the representation of its body with the
+  -- binder erased (`coreType`), one representation for whatever type it is
+  -- applied to. The body may then mention the binder only where no
+  -- representation needs it, as an index or a phantom parameter
+  -- (`typeParams`); anywhere else (`{0 s : Type} -> List s`) the
+  -- representation would depend on it, and the type is refused.
   inA <- outsideIndices picks owner a
   inB <- outsideIndices picks owner (subst (Erased bfc Placeholder) sc)
   pure (inA || inB)
+-- A suspension of a type depends on what the type depends on: `coreType`
+-- represents `Lazy t` as a suspension of `t`'s representation.
+outsideIndices picks owner (TDelayed _ _ t) = outsideIndices picks owner t
 outsideIndices picks owner tm = case spine tm [] of
   (Ref _ (TyCon _) n, args) => do
     Just (_, ps) <- paramPositions owner n
