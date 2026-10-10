@@ -4,6 +4,7 @@
 module Core.Binary
 
 import public Core.Binary.Prims
+import Core.Case.CaseTree
 import Core.Context.Log
 import Core.Options
 import Core.TTC
@@ -288,6 +289,32 @@ getSaveDefs modns (n :: ns) acc defs
     trimName n@(NS defns d) = if defns == modns then d else n
     trimName n = n
 
+-- Mark for saving every metavariable a definition marked for saving refers
+-- to, in its type or its case trees, and those their solutions refer to.
+-- Idris saves the metavariables of a public definition's tree only, since
+-- another module reduces only a public body; this compiler translates every
+-- definition from its checked tree, whatever its visibility, so a
+-- metavariable left in any saved definition must be saved with it, or it
+-- dangles once the TTC is read back.
+saveMetas : {auto c : Ref Ctxt Defs} -> Core ()
+saveMetas = go . keys . toSave =<< get Ctxt
+  where
+    metasOf : GlobalDef -> List Name
+    metasOf d = keys (getMetas (type d)) ++ case definition d of
+      PMDef _ _ ct rt _ => keys (Core.Case.CaseTree.getMetas ct) ++ keys (Core.Case.CaseTree.getMetas rt)
+      _ => []
+
+    go : List Name -> Core ()
+    go [] = pure ()
+    go (n :: ns)
+        = do defs <- get Ctxt
+             Just d <- lookupCtxtExact n (gamma defs)
+               | Nothing => go ns
+             ms <- traverse (full (gamma defs)) (metasOf d)
+             let new = nub (filter (\m => isNothing (lookup m (toSave defs))) ms)
+             traverse_ addToSave new
+             go (new ++ ns)
+
 -- Write out the things in the context which have been defined in the
 -- current source file
 export
@@ -298,6 +325,7 @@ writeToTTC : (HasNames extra, TTC extra) =>
              (ttcFileName : String) -> Core ()
 writeToTTC extradata sourceFileName ttcFileName
     = do bin <- initBinary
+         saveMetas
          defs <- get Ctxt
          ust <- get UST
          gdefs <- getSaveDefs (currentNS defs) (keys (toSave defs)) [] defs
