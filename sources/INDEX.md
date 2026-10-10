@@ -89,9 +89,9 @@ optimization study; the "Threads" column keeps that filing.
 | `mlir-stack` | MLIR's array dialects as the lowering target; JAX, Mojo and Triton on MLIR | Array languages and typed array programming |
 | `sharded-compilation` | Whole-program compilation at scale, incremental and sharded backends, deterministic parallel fixpoints and scheduling | Sharded and incremental compilation |
 
-The five threads before the last are the passes of 2026-10-09 (proposal 0004); their rows also
+The five threads before the last are the passes of 2026-10-09 (proposal 0007); their rows also
 carry the letter threads they serve. `sharded-compilation` is the pass of 2026-10-10 (proposal
-0012).
+0011).
 
 ## Memory
 
@@ -462,8 +462,8 @@ Prior art for typed array programming at every rank, lowered to MLIR: the APL fa
 model and its rank operator, typed rank polymorphism (Remora) and size and dependent types for
 arrays, the data-parallel functional array compilers, the dependent-equality problem that
 shape arithmetic raises in a dependently typed host, the solvers for type-level arithmetic, and
-MLIR's own array stack as the lowering target. Collected on 2026-10-09 for proposal 0004
-(`proposals/0004-typed-apl/README.md`) by five passes, whose names are the threads below:
+MLIR's own array stack as the lowering target. Collected on 2026-10-09 for proposal 0007
+(`proposals/0007-typed-apl/README.md`) by five passes, whose names are the threads below:
 `apl-lineage`, `typed-rank`, `dataparallel`, `dependent-equality` and `mlir-stack`. Every
 entry here is new on that date; existing entries that serve the topic are cross-linked in the
 "Also" lines and not stored again.
@@ -802,8 +802,8 @@ link-time optimization with parallel, cached backends (ThinLTO, GCC's WHOPR), wh
 compilation as MLton does it, rustc's query system and codegen-unit partitioning, build systems
 as incremental computations, and the parallel machinery such a compiler runs on: work
 stealing, deterministic parallelism, monotone (LVar) state, and parallel and incremental
-Datalog. Collected on 2026-10-10 for proposal 0012
-(`proposals/0012-sharded-whole-program-compiler.md`) by the `sharded-compilation` pass, whose
+Datalog. Collected on 2026-10-10 for proposal 0011
+(`proposals/0011-sharded-whole-program-compiler.md`) by the `sharded-compilation` pass, whose
 reading notes are `notes/sharded-compilation/whole-program-at-scale.md` and
 `notes/sharded-compilation/deterministic-fixpoints.md`. The rows marked "indexed 2026-10-10"
 were already stored and are listed here for the first time.
@@ -1233,4 +1233,4 @@ why unification belongs outside the kernel.
 
 ## Reading notes
 
-`notes/` holds the deep-dive notes written while these sources were read (array-languages, flattened-data, type-checking, sharded-compilation): what each source says and what idris-mlir should take from it, cited to the stored files. Proposals 0004, 0006, 0007 and 0012 build on them.
+`notes/` holds the deep-dive notes written while these sources were read (array-languages, flattened-data, type-checking, sharded-compilation): what each source says and what idris-mlir should take from it, cited to the stored files. Proposals 0007, 0008, 0006 and 0011 build on them.

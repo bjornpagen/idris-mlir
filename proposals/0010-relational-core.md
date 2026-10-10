@@ -1,8 +1,8 @@
-# 0011: the relational core, `mlir-relational`
+# 0010: the relational core, `mlir-relational`
 
 **Status:** proposed (2026-10-10). Nothing here is built. It is the
-proposal 0007 D6 promised, written now because 0010 names its first
-consumer. It takes over §4.5 of `../bumbledb/proposals/0003-idris-port.md`
+proposal 0006 D6 promised, written now because 0005 names its first
+consumer. It takes over §4.5 of `../bumbledb/proposals/0001-idris-port.md`
 on this side; that file keeps what is about the database.
 
 **Sources.** Under `sources/`: `papers/zhang-2022-relational-ematching`,
@@ -97,7 +97,7 @@ From bumbledb, without storage, laws and the log (*read*: its README and
 Each layer is built on the one below. No storage and no IO: the library
 is the functional and array core, and the shell belongs to consumers.
 
-1. **Relations and joins:** typed relations as columnar arrays (0006's
+1. **Relations and joins:** typed relations as columnar arrays (0008's
    columns), COLT, Free Join and the generic-join end, selections,
    anti-probes, exact folds and aggregates, the planner, and the executor
    as an interpreter.
@@ -110,7 +110,7 @@ is the functional and array core, and the shell belongs to consumers.
 
 **Prepared queries are specialized, not compiled by a query compiler.** A
 query known at compile time is a closed call of the interpreter on a
-constant query. The planner is total, so static normalization (0013)
+constant query. The planner is total, so static normalization (0003)
 computes the plan in the frontend; `idr-specialize` clones the
 executor for it, defunctionalization and inlining remove dispatch, and
 `linalg` fusion merges each pipeline into one loop nest: the first Futamura
@@ -123,14 +123,14 @@ plan is static; COLT forcing, exact-versus-estimated key counts and the
 cover chosen per node depend on data, so they stay dynamic, and the
 interpreter separates them from the plan by construction (binding-time
 separation). A prepared query compiles at most 4 plan variants and a
-guard on image statistics picks one (bumbledb 0003 §4.4).
+guard on image statistics picks one (bumbledb 0001 §4.4).
 
 ## 4. Consumers
 
-- **The frontend (0010):** the instance fixpoint, reachability, name
+- **The frontend (0005):** the instance fixpoint, reachability, name
   resolution's interval join, multiplicity and size-change folds,
   postponement as semi-naive evaluation.
-- **The elaborator (0007):** constraints as relations, meta unification
+- **The elaborator (0006):** constraints as relations, meta unification
   as union-find, shape and rewrite equalities as e-graph saturation, so
   `n * m = m * n` never blocks a user.
 - **bumbledb's port:** the core plus storage, laws, the log and shards.
@@ -154,18 +154,18 @@ Inventory, each with its limit:
 
 | Mechanism | What it gives the core | Limit |
 | --- | --- | --- |
-| `sparse_tensor` | A relation is a sparse Boolean tensor; a conjunctive query is an einsum (`Q[a,b,c] = R[a,b]·S[b,c]·T[a,c]`). Level formats (dense, compressed, singleton) are trie levels: CSR is a two-level trie, and COLT's row-pinning singleton child is the singleton level's idea. Co-iteration by merge lattices is generic join's intersection; variable order is loop order (*recalled*: bik-2022, kjolstad-2017; Ahrens's Finch, Deeds et al.'s Galley). 0004 §13 already plans `SArray fmt s a` on `#sparse_tensor.encoding` without the runtime library (*read*). | Numeric elements only (*read*: 0004 §13); sorted coordinates, not hash maps; formats fixed at compile time where COLT forces lazily; no worst-case optimal variable ordering. A lowering target for some plans, not the engine. |
+| `sparse_tensor` | A relation is a sparse Boolean tensor; a conjunctive query is an einsum (`Q[a,b,c] = R[a,b]·S[b,c]·T[a,c]`). Level formats (dense, compressed, singleton) are trie levels: CSR is a two-level trie, and COLT's row-pinning singleton child is the singleton level's idea. Co-iteration by merge lattices is generic join's intersection; variable order is loop order (*recalled*: bik-2022, kjolstad-2017; Ahrens's Finch, Deeds et al.'s Galley). 0007 §13 already plans `SArray fmt s a` on `#sparse_tensor.encoding` without the runtime library (*read*). | Numeric elements only (*read*: 0007 §13); sorted coordinates, not hash maps; formats fixed at compile time where COLT forces lazily; no worst-case optimal variable ordering. A lowering target for some plans, not the engine. |
 | `linalg`, `vector`, LLVM backends | The tail of a query compiler: fusion, tiling, vectorization to NEON, SVE, AVX-512 and wasm SIMD128. The scalar twin is the same source at width 1; hand NEON and runtime dispatch go. | Hash probes and data-dependent control are weak in `linalg`. |
-| One-Shot Bufferize | Tensors have value semantics and bufferization decides in-place writes: Idris's "functional but in place" at the array level. 0004 carries `!idr.lin` into the tensor encoding (*read*: 0004 `compiler.md` §9). Images immutable, arenas and aggregation state in place, by one mechanism. | |
-| `IntegerRangeAnalysis` | `idr-in-bounds` proves pool and table indices in range, so COLT's pools need no `unsafe` and no per-access check (*read*: 0004 `compiler.md` names it). | Indices it cannot prove keep a guard. |
-| `idr-specialize` on constant arguments | A plan computed by static normalization specializes the executor. | The planner must be total: only total code is normalized (0013). |
+| One-Shot Bufferize | Tensors have value semantics and bufferization decides in-place writes: Idris's "functional but in place" at the array level. 0007 carries `!idr.lin` into the tensor encoding (*read*: 0007 `compiler.md` §9). Images immutable, arenas and aggregation state in place, by one mechanism. | |
+| `IntegerRangeAnalysis` | `idr-in-bounds` proves pool and table indices in range, so COLT's pools need no `unsafe` and no per-access check (*read*: 0007 `compiler.md` names it). | Indices it cannot prove keep a guard. |
+| `idr-specialize` on constant arguments | A plan computed by static normalization specializes the executor. | The planner must be total: only total code is normalized (0003). |
 | The verifier | Erased plan proofs and grades survive lowering because they are re-checked after every pass. | |
-| `shard` | Hash-partitioned relations are a sharding annotation; where to reshuffle is propagation (*read*: 0004 `compiler.md`'s SPMD row). | Upstream propagates over parallel array dimensions, not joins. A join whose atoms are not co-partitioned on a shared variable needs a shuffle or HyperCube-style partitioning (*recalled*); this is open. |
+| `shard` | Hash-partitioned relations are a sharding annotation; where to reshuffle is propagation (*read*: 0007 `compiler.md`'s SPMD row). | Upstream propagates over parallel array dimensions, not joins. A join whose atoms are not co-partitioned on a shared variable needs a shuffle or HyperCube-style partitioning (*recalled*); this is open. |
 | Greedy pattern rewriting | A fixpoint rewrite engine, destructive. | Layer 3 is the non-destructive version. |
 
 **Decision (D3):** what upstream lacks (hash tables, strings, tries,
 data-dependent control) becomes `idr` ops or runtime primitives, never
-hand code in the library, as bumbledb 0003 §4.2's measurement rule says.
+hand code in the library, as bumbledb 0001 §4.2's measurement rule says.
 A LingoDB-style relational dialect is not the primary path (§8).
 
 ## 6. Gates
@@ -175,7 +175,7 @@ A LingoDB-style relational dialect is not the primary path (§8).
 - e-matching and saturation within 1.5× of egglog on its benchmarks;
 - joins at ≥ 80% of bumbledb's Rust engine on its read families, with its
   oracle (2,879 cases in its 1.3.0 suite) as the correctness gate;
-- for each consumer, its own proposal's gate (0010's stages, 0007's T2
+- for each consumer, its own proposal's gate (0005's stages, 0006's T2
   and T4).
 
 A caution on prepared-query speedups (*recalled*: Kersten et al., VLDB
@@ -188,7 +188,7 @@ alone (*conjecture*).
 ## 7. Rules it keeps
 
 - **No runtime library:** no `sparse_tensor` runtime, OpenMP or async
-  runtime; everything static (AGENTS.md; 0004 §13).
+  runtime; everything static (AGENTS.md; 0007 §13).
 - **Both targets;** nothing per target outside the target entry.
 - **One thing, one representation:** D2.
 - **Facts in types:** a plan is `ValidatedPlan q`, an erased proof
@@ -199,11 +199,11 @@ alone (*conjecture*).
 
 | Stage | Content | Proof |
 | --- | --- | --- |
-| R1 | layer 1: relations as 0006 columns, COLT, Free Join, the planner, the interpreter | bumbledb's oracle cases for reads; read families ≥ 80% of the Rust engine |
+| R1 | layer 1: relations as 0008 columns, COLT, Free Join, the planner, the interpreter | bumbledb's oracle cases for reads; read families ≥ 80% of the Rust engine |
 | R2 | layer 2: semi-naive fixpoints | within 1.5× of Soufflé (compiled) |
-| R3 | first consumer: 0010 O3, Translate's instance fixpoint | identical Core; O3's threshold |
+| R3 | first consumer: 0005 O3, Translate's instance fixpoint | identical Core; O3's threshold |
 | R4 | layer 3: e-graphs, relational e-matching, slotted binders | within 1.5× of egglog |
-| R5 | the elaborator on the library (0007 T4) | 0004's shape-equality corpus never blocks; base elaborates no slower |
+| R5 | the elaborator on the library (0006 T4) | 0007's shape-equality corpus never blocks; base elaborates no slower |
 | R6 | prepared-query specialization and plan variants (D1) | bumbledb's scenario queries, prepared, against the Rust engine |
 
 ## 9. Rejected alternatives
@@ -218,7 +218,7 @@ alone (*conjecture*).
   gaps only (D3).
 - **`sparse_tensor` as the join engine:** its limits in §5; it stays a
   lowering target where a plan fits it.
-- **Trusting a solver for equalities:** 0007 §2.5; saturation finds, the
+- **Trusting a solver for equalities:** 0006 §2.5; saturation finds, the
   kernel checks.
 
 ## 10. Decisions

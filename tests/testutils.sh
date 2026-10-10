@@ -22,6 +22,10 @@
 #                     expected-stdout's (e2e.sh)
 #     default-stack   the program runs on the default stack instead of the
 #                     1 MiB one; the file says why (e2e.sh)
+#     live-cells      the first word is how many heap cells are still live
+#                     when main returns: a reference-count cycle the runtime
+#                     does not collect. That count is taken off stderr, as 0
+#                     is; any other count stays and fails the empty-stderr check
 #     constant-stack  the program loops in constant stack on a long input:
 #                     its stdin is the fixture's stdin as many times over as
 #                     the file's first word says, so many iterations that a

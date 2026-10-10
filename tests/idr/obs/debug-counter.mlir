@@ -1,25 +1,11 @@
-// RUN: mkdir -p %t.kept %t.evaluated
-// RUN: idris-mlir -c %s -o %t.kept.o --dump-dir=%t.kept -mlir-debug-counter=idr-eval-call-count=0 -mlir-print-debug-counter 2> %t.kept.err
-// RUN: cat %t.kept/*-idr-simplify.mlir | FileCheck %s --check-prefix=KEPT
-// RUN: FileCheck %s --check-prefix=COUNTED < %t.kept.err
-// RUN: idris-mlir -c %s -o %t.evaluated.o --dump-dir=%t.evaluated
-// RUN: cat %t.evaluated/*-idr-simplify.mlir | FileCheck %s --check-prefix=EVALUATED
-// RUN: idris-mlir -c %s -o %t.no-eval.o --no-eval -mlir-debug-counter=idr-eval-call-count=0 -mlir-print-debug-counter 2> %t.no-eval.err
-// RUN: FileCheck %s --check-prefix=NOEVAL < %t.no-eval.err
-// RUN: idris-mlir -c %s -o %t.o -mlir-debug-counter=idr-eval-call-count=0
+// RUN: mkdir -p %t.dumps
+// RUN: idris-mlir -c %s -o %t.o --dump-dir=%t.dumps
+// RUN: cat %t.dumps/*-idr-simplify.mlir | FileCheck %s --check-prefix=LEFT
 // RUN: %cc %t.o -o %t
 // RUN: %t | FileCheck %s --check-prefix=OUT
-// Replacing a closed call by its results is the action idr-eval-call. With
-// MLIR's debug counter at 0, every such action is skipped: the call of
-// @fact stays in the module (it is evaluated, and not replaced), and runs
-// at runtime to the same result. Without the counter it is replaced. With
-// --no-eval the pass never runs, so the counter counts no action, and the
-// two handlers of the compilation work together.
-// KEPT: func.call @fact(
-// COUNTED: idr-eval-call{{ +}}: {{[{][1-9][0-9]*}},0,0}
-// EVALUATED-NOT: @fact
-// EVALUATED: 3628800
-// NOEVAL: idr-eval-call{{ +}}: {0,0,0}
+// idr-eval is not in the simplify round, so the closed call of @fact stays
+// and runs at run time.
+// LEFT: func.call @fact(
 // OUT: 3628800
 module attributes {idr.program} {
   func.func private @fact(%n: i64) -> i64 attributes {idr.total, no_inline} {

@@ -1,4 +1,4 @@
-# 0005: shards
+# 0009: shards
 
 **Status:** proposed, 2026-10-09, against `main` at 651156d4. Nothing here
 is built, run or timed. Its Decisions section is decided: D1 is the
@@ -497,7 +497,7 @@ Erased: the shard index on `Here`, `Shard`, `Join` and `Local`; `Here`
 itself; every proof that a `Fin` is in range. Runtime: the `Fin` that
 selects a queue (an `i64` after Nat narrowing),
 `k`, and the message's bytes. Static normalization folds a closed
-placement function of total code (0013), never the core count, which is
+placement function of total code (0003), never the core count, which is
 IO.
 
 #### 7.3 The hop in MLIR and the send check
@@ -606,7 +606,7 @@ shape of pure fork/join.
 
 #### 10.3 `FutT`
 
-`Rust (FutT a)` is a counted foreign cell (proposal 0001 §9.1) holding a
+`Rust (FutT a)` is a counted foreign cell (proposal 0013 §9.1) holding a
 pinned Rust future. The binding's `await` is a loop in a `wait` function:
 poll through the shim with this task's waker; on `Ready a`, return `a`;
 on `Pending`, `idr.wait` for a wake of this slot, then poll again. Rust
@@ -616,15 +616,15 @@ must be `Send + Sync`, and a one-word waker is.
 Before a Rust async import is honest, one shard needs the task frame,
 the `wait` bit and tail await, a reactor with its wake queue, kick and
 platform wait, runtime-owned sockets and timers behind Rust's async I/O
-traits (proposal 0001 §12 names them), the waker, and cancellation as
+traits (proposal 0013 §12 names them), the waker, and cancellation as
 destroy. More shards, lending, taking unstarted messages and io_uring can
-wait. Static normalization covers only total, pure code (0013); waiting
+wait. Static normalization covers only total, pure code (0003); waiting
 is IO, so nothing that waits is normalized.
 
 #### 10.4 Blocking calls offloaded
 
 Synchronous bindings are generated runtime primitives that run on the
-calling shard, in world order (proposal 0001 §9.2). Once a reactor
+calling shard, in world order (proposal 0013 §9.2). Once a reactor
 exists, the manifest marks blocking items, and each becomes a wait run on
 a runtime-owned offload thread that runs Rust only: the arguments move
 into Rust's ownership (`IdrisValue: !Send` already enforces it), the
@@ -647,7 +647,7 @@ The send check here answers the same question per message, not per thread:
   because nothing on the sender can reach it.
 
   Decision: the send check accepts a value at the exclusive grade as a
-  move, and its region goes with it. That is the same fact 0006's packed
+  move, and its region goes with it. That is the same fact 0008's packed
   layout relies on. Everything else crosses by copy, as decided above.
 - **Noncopyable types and `borrowing`/`consuming`** (0377, 0390, 0427):
   ownership added to a language after the fact. Idris's quantities have
@@ -711,7 +711,7 @@ before:
   server at saturation spends more than a quarter of its time in
   readiness and transfer system calls;
 - SPMD through upstream's `shard-partition`, after pure array programs
-  are tensors (`proposals/0004-typed-apl/README.md` §3.8), when it runs
+  are tensors (`proposals/0007-typed-apl/README.md` §3.8), when it runs
   spectral-norm faster than P4's `scf.forall` lowering beyond the
   run-to-run spread.
 
@@ -755,7 +755,7 @@ before:
 - **A Rust future as our coroutine handle:** rustc compiles a future into
   its own state machine, a foreign value; the frame that polls it is ours
   (§10.3).
-- **A tokio island** on threads of its own (proposal 0001 §3).
+- **A tokio island** on threads of its own (proposal 0013 §3).
 - **Tokio's `Arc` waker:** an allocation and an atomic count per task
   and wake, where one word does (§10.2).
 - **The standard streams as waits:** it colours every batch program that
@@ -867,7 +867,10 @@ join's reply flushed its worker, so every line is out.
 
 A top-level constant is evaluated at most once per shard that demands it,
 in that shard's slot (§6). With one shard it is evaluated once, as today.
-A `trace` in a top-level constant prints once per shard that forces it.
+Whether a closed call of total code becomes a startup constant is 0003's
+cost rule. This decision is only that the shard which demands the constant
+computes it. A `trace` in a top-level constant prints once per shard that
+forces it.
 This amends the reason a static constant memoizes, that a top-level
 constant names one value evaluated once: once per shard, not once.
 
@@ -964,5 +967,5 @@ graph enables none of tokio's `rt`, `net` or `time` features, and is
 generic over the async I/O traits the runtime implements (hyper 1.x, h2,
 `tokio-postgres` over a provided stream, the AWS SDK with a provided
 connector; recalled). The generator rejects any other graph as
-`unsupported (rust async)` (proposal 0001 §12). P3's fixture is a hyper
+`unsupported (rust async)` (proposal 0013 §12). P3's fixture is a hyper
 client and server.

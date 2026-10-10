@@ -5,15 +5,13 @@
 // RUN: idris-mlir -c %s -o %t-no-eval.o --no-eval --dump-dir=%t-no-eval.dumps
 // RUN: %cc %t-no-eval.o -o %t-no-eval
 // RUN: %t-no-eval | FileCheck %s
-// RUN: sh -c 'for dump in %t.dumps/*; do last=$dump; done; cat "$last"' | FileCheck %s --check-prefix=EVALUATED
-// RUN: sh -c 'for dump in %t-no-eval.dumps/*; do last=$dump; done; cat "$last"' | FileCheck %s --check-prefix=RUNTIME
-// Evaluation changes when a result is computed, not what it is: the program
-// prints the same with and without --no-eval (as tests/equivalence
-// checks). With it, the call stays in the module idris-mlir ends with,
-// and runs.
+// RUN: sh -c 'for dump in %t.dumps/*; do last=$dump; done; cat "$last"' | FileCheck %s --check-prefix=LEFT
+// RUN: sh -c 'for dump in %t-no-eval.dumps/*; do last=$dump; done; cat "$last"' | FileCheck %s --check-prefix=LEFT
+// idr-eval is not in the simplify round, so the closed call stays in the
+// module and runs at run time. --no-eval is the same pipeline. The program
+// prints the same either way.
 // CHECK: 832040 -1.5e-7 250
-// EVALUATED-NOT: @fib
-// RUNTIME: @fib
+// LEFT: @fib
 module attributes {idr.program} {
   func.func private @fib(%n: i64) -> i64 attributes {idr.total, no_inline} {
     %two = arith.constant 2 : i64

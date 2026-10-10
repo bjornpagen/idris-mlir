@@ -1,7 +1,6 @@
 // input: after idr-simplify
-// FILECHECK-OPTIONS: --implicit-check-not=idr.big.
-// Every closed call is evaluated, of the total `power` and of the partial
-// `fib` and `euclid` alike, so no Integer operation is left; only `fib n`
-// stays a call, its argument read at runtime. The values printed are the
-// run's to check.
+// idr-eval is not in the simplify round, so the closed calls stay and run
+// at run time, Integer operations included. `fib n` stays a call whose
+// argument is read at run time. The values printed are the run's to check.
 // CHECK: call @Main.fib(%{{.*}}) : (i64) -> i64
+// CHECK: idr.big.

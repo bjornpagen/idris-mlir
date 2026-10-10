@@ -1,7 +1,7 @@
 # Whole-program compilation at scale: summaries, sharded backends, deterministic caches
 
-Notes of the sharded-compilation cluster, 2026-10-10, for proposal 0012
-(`proposals/0012-sharded-whole-program-compiler.md`). Paths starting `docs/`, `code/` or
+Notes of the sharded-compilation cluster, 2026-10-10, for proposal 0011
+(`proposals/0011-sharded-whole-program-compiler.md`). Paths starting `docs/`, `code/` or
 `papers/` are already stored in this library. Everything else was **read online on
 2026-10-10 and is not stored**, except the items of §10, fetched the same day after the
 owner's approval. A claim is marked **measured** (a published number with its

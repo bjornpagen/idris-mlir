@@ -2,13 +2,10 @@
 // RUN: FileCheck %s --check-prefix=TIMING < %t.timing
 // RUN: %cc %t.o -o %t
 // RUN: %t | FileCheck %s
-// A list built at compile time (range is total) is static data: cells with
-// count 0 in the executable, which a function that is not total (so not
-// evaluated) walks at runtime, printing the strings they hold. --mlir-timing
-// reports each pass and the LLVM stage.
+// A list walked at run time prints the strings it holds. idr-eval is not
+// in the simplify round. --mlir-timing reports each pass and the LLVM stage.
 // CHECK: 5:five 4:four 3:three 2:two 1:one 
 // TIMING: Execution time report
-// TIMING-DAG: IdrEval
 // TIMING-DAG: IdrLower
 // TIMING-DAG: LLVM
 module attributes {idr.program} {

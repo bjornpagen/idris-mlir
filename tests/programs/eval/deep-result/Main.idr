@@ -2,10 +2,9 @@ module Main
 
 import Prelude
 
--- `build 20000` is a closed call, so it is evaluated: a list of 20,000
--- cells, a constant nested 20,000 deep. Reading it back from the
--- evaluation takes time linear in its size, so the whole compilation fits
--- well within its time limit; a reading quadratic in the depth would not.
+-- `build 20000` stays a call: idr-eval is not in the simplify round. The
+-- walk reads the list at run time. A reading quadratic in the depth would
+-- not finish within the test's time limit.
 build : Int -> List Int
 build 0 = []
 build n = n :: build (n - 1)

@@ -1,20 +1,14 @@
 #!/bin/sh
-# Compile-time evaluation runs code its JIT wrote, which LLVM's in-process
-# memory manager maps writable, then executable and never writable again
-# (no MAP_JIT): macOS lets a process do that unless it runs under the
-# hardened runtime, which kills a process that runs such code, after
-# mprotect has said yes; then only the entitlement
-# com.apple.security.cs.allow-unsigned-executable-memory lets it, and
-# com.apple.security.cs.allow-jit, which is for MAP_JIT memory, does not.
-# idris-mlir, copied and signed each way, compiles tests/idr/e2e/eval.mlir
-# (whose closed calls idr-eval evaluates): as the build signs it, and with
-# that entitlement, it evaluates them; under the hardened runtime without
-# it, it rejects the compilation with an error that names the entitlement,
-# rather than taking every call to have failed. --no-eval compiles under
-# any signature. Every program prints what the build's own compiler's does.
-# Every copy may load libraries signed by others
-# (com.apple.security.cs.disable-library-validation), which has nothing to
-# do with executable memory.
+# idr-eval is not in the simplify round, so a compilation does not run
+# code a JIT wrote, under any signature. The closed calls of
+# tests/idr/e2e/eval.mlir stay and run at run time, and every program
+# prints what the build's own compiler's does. The pass remains, and
+# running it maps memory writable and then executable (no MAP_JIT): the
+# hardened runtime refuses that unless the process has
+# com.apple.security.cs.allow-unsigned-executable-memory. This test locks
+# that the driver does not run the pass: a signature that would refuse the
+# JIT still compiles. Every copy may load libraries signed by others
+# (com.apple.security.cs.disable-library-validation).
 step_limit=120
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 source=$root/tests/idr/e2e/eval.mlir

@@ -380,17 +380,17 @@ TR pp. 15–16).
 ## 6. What idris-mlir should take
 
 idris-mlir context used (read, not from the sources): arrays are `memref`s with world-ordered ops
-and `idr.array.generate`/`fold` lowered to `linalg.generic`; proposal 0004 rejects
+and `idr.array.generate`/`fold` lowered to `linalg.generic`; proposal 0007 rejects
 `IArray 1 (IArray 1 a)` for rank 2 because a cell per row is "not contiguous, and no linalg op
 sees its rank"; "indexed vectors do not imply contiguous storage"; "erased does not mean
 constant"; multiplicities live in types; one representation per concept; shards are one runtime
-per core (`AGENTS.md`, `proposals/0004-typed-apl/README.md`, `proposals/0005-shards.md`). Items below are
+per core (`AGENTS.md`, `proposals/0007-typed-apl/README.md`, `proposals/0009-shards.md`). Items below are
 conjecture unless they restate a source.
 
 1. **A ragged array is one flat buffer plus offsets and lengths, not a cell per row.** Store
    (offsets, lengths) as DPH's `Segd` does (lengths plus their scan, `code/dph/.../USegd.hs`
    lines 37–41), derive flags only where a scan needs them, and never use head-flags alone (they
-   cannot say "empty", `Ble90.pdf` p. 68). This is the missing representation behind 0004's
+   cannot say "empty", `Ble90.pdf` p. 68). This is the missing representation behind 0007's
    rejected nested rank 2: the regular case is one memref with a stride; the irregular case is a
    data memref and two index memrefs, which `linalg` and `scf.forall` can still traverse.
 2. **Columnar arrays of data types, generated from the type.** An array of records is a record of

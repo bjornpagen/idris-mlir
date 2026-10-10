@@ -1,6 +1,6 @@
 # Deterministic parallel fixpoints, scheduling and partitioning
 
-Notes of the sharded-compilation cluster, 2026-10-10, for proposal 0012. Paths starting
+Notes of the sharded-compilation cluster, 2026-10-10, for proposal 0011. Paths starting
 `docs/`, `code/` or `papers/` are stored here; everything else was **read online on
 2026-10-10 and is not stored**, except the items of §8, fetched the same day after the
 owner's approval. Claims are marked
@@ -8,7 +8,7 @@ owner's approval. Claims are marked
 
 Contents: 1 what the library already held; 2 work stealing and its shared-nothing forms;
 3 deterministic parallelism; 4 parallel and incremental Datalog; 5 parallel CFA and SCCs;
-6 parallel elaboration; 7 partitioning; 8 snapshots fetched; 9 the recipe for 0012.
+6 parallel elaboration; 7 partitioning; 8 snapshots fetched; 9 the recipe for 0011.
 
 ## 1. Already stored, and library findings
 
@@ -44,7 +44,7 @@ Contents: 1 what the library already held; 2 work stealing and its shared-nothin
   thief tries w random victims, then registers on lifeline graphs; a victim with work later
   pushes it down a lifeline. Work is a user `TaskBag` with `split` and `merge`; results by
   `reduce`. **measured** nearly linear to 16K cores. The closest published model to stealing
-  under 0005's runtime.
+  under 0009's runtime.
 - **read** `docs/seastar/`, Glommio: thread per core, explicit cross-core messages, **no
   work stealing**. `docs/tokio/`: steals half a victim's queue, at most half the workers
   searching, a LIFO slot for locality.
@@ -96,7 +96,7 @@ Contents: 1 what the library already held; 2 work stealing and its shared-nothin
 - **read** Doop (OOPSLA 2009): the whole points-to analysis in Datalog; **measured** over 15×
   faster than Paddle at equal precision, from join optimization, not parallelism.
 - **read** MLton's closure conversion (`docs/mlton/`, ClosureConvert, Closure): 0CFA, then
-  closures as sums with coercions — the serial baseline 0012's label relation reproduces.
+  closures as sums with coercions — the serial baseline 0011's label relation reproduces.
 - **read** Fleischer, Hendrickson, Pınar, IPDPS workshops 2000 (via secondary sources):
   forward-backward SCC — the intersection of forward and backward reachability from a pivot
   is one SCC; recurse on the rest in parallel. FB-Trim peels size-1 SCCs first, which suits
@@ -109,7 +109,7 @@ Contents: 1 what the library already held; 2 work stealing and its shared-nothin
   join after each theory.
 - **read** `papers/barras-2015-async-coq/`: worker processes; task requests and responses
   must be marshalable; marshalling the state was the main difficulty. **Task inputs must be
-  small, closed, serializable values** — the same rule 0005 imposes on messages.
+  small, closed, serializable values** — the same rule 0009 imposes on messages.
 - **read** Lean 4 v4.19.0 release notes: theorem bodies elaborated in parallel with each other
   and with other elaboration.
 - **measured** GHC `-jsem`: 22% on lens, 29% on pandoc; modules wait for all dependencies.

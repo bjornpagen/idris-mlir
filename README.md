@@ -11,8 +11,7 @@ backend.
 ```text
 Idris frontend (pinned) → checked TT → Core (Idris: types, monomorphisation, representations)
   → idr dialect (C++): lambdas and delays as regions, outlined by idr-isolate
-  → the simplify loop: inline, specialize, evaluate at compile time
-    by running the program's own code in a JIT, to a fixpoint
+  → the simplify loop: inline, specialize, canonicalize, to a fixpoint
   → defunctionalize (closures and memo sums), reference counting, loops
   → idr-lower, idr-entry → LLVM O3 with the runtime
   → object → linked as the target entry says (static PIE on musl, PIE on libSystem)
@@ -25,13 +24,9 @@ CMakeLists.txt, whose comment lists every fact an entry gives.
 
 Idris does types; MLIR does programs. Idris checks the program,
 monomorphises it and decides each value's representation; everything else
-(inlining, specialization, compile-time evaluation, defunctionalization,
-reference counting and loops) happens in MLIR. Compile-time
-evaluation is runtime evaluation run early: every closed call of pure code
-is evaluated by running the program's own lowered code with its own
-runtime. As in Idris's own evaluator, totality does not decide what is
-evaluated: total code runs to the end, and partial code runs within a
-budget, past which the call is left to run at runtime.
+(inlining, specialization, defunctionalization, reference counting and
+loops) happens in MLIR. `idr-eval` is not in that loop: a closed call
+runs at run time. The pass remains, and static normalization replaces it.
 
 ## Why not Lean 4
 
@@ -210,7 +205,7 @@ expected files are its specification.
   is the fork of Idris's compiler the frontend runs on, whose TTCs only
   it reads, so the packages Idris ships are built by the frontend into
   this checkout's prefix, `build/idris2`.
-- `foreign/idr/`: the `idr` dialect, its passes, the JIT and the tools.
+- `foreign/idr/`: the `idr` dialect, its passes and the tools.
 - `runtime/`: the runtime every program links, and that folding and
   compile-time evaluation call.
 - `libs/`: the Idris packages this compiler ships (`mlir-linear`: linear

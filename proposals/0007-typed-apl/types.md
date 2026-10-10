@@ -1,8 +1,8 @@
-# 0004 companion — types: the type theory in depth
+# 0007 companion — types: the type theory in depth
 
 A companion to `README.md`, written independently as a full draft from the types side. Where it disagrees with the README, the README decides (see the README's layout note).
 
-(Its original title: 0004: typed arrays, lowered to tensors)
+(Its original title: typed arrays, lowered to tensors)
 
 **Status:** proposed, 2026-10-09. This replaces the whole proposal. Its
 premise is the user's ruling of 2026-10-09, kept: pure array programs are
@@ -24,7 +24,7 @@ are in bounds by type. Structural operations are typed by equations, and
 the elaborator decides those equations, so that `n * m` against `m * n`
 never blocks a program. Every array of every rank and every element type
 is a ranked tensor in MLIR until bufferization. This proposal owns dense
-and typed arrays; the shard runtime is 0005's and Rust is 0001's, cited
+and typed arrays; the shard runtime is 0009's and Rust is 0013's, cited
 where they meet.
 
 ## What it changes
@@ -236,7 +236,7 @@ function (read: `sources/docs/mlir/docs/Bufferization.md`); and SPMD
 partitioning, whose sharding is a property of a tensor's dimensions
 (read: `.toolchain/llvm-project/mlir/include/mlir/Dialect/Shard/IR/ShardOps.td`).
 They are single-thread wins first and the multicore path second:
-single-thread performance wins the tie (`proposals/0005-shards.md`,
+single-thread performance wins the tie (`proposals/0009-shards.md`,
 "Rules it keeps").
 
 **What the user's request adds.** Every rank, whether the program
@@ -705,7 +705,7 @@ thaw       : Array s a -> ((1 _ : LArray s a) -> Ur b) -> b
   It is total at every rank, a shape variable's included (measured:
   `Core2.idr`).
 - **Normalized when closed and total.** The frontend normalizes every
-  closed call of total code (0013). A closed total computation of an array
+  closed call of total code (0003). A closed total computation of an array
   of words becomes a dense constant, `arith.constant dense<...> :
   tensor<...>`, within the counted budget and the static-data cap, and a
   startup constant beyond them; partial code is never normalized (decision
@@ -1299,8 +1299,8 @@ changes the types bring.
 
 ### 5.5 Multicore
 
-0004 owns the partitioning of tensor programs; 0005 owns the runtime they
-run on and the parallel loops before them (`proposals/0005-shards.md`,
+0007 owns the partitioning of tensor programs; 0009 owns the runtime they
+run on and the parallel loops before them (`proposals/0009-shards.md`,
 §8 and stage P5). Kept from the first version's §3.8:
 
 - The grid is `shard.grid @cores(shape = ?)`, its size a runtime value,
@@ -1316,17 +1316,17 @@ run on and the parallel loops before them (`proposals/0005-shards.md`,
   one shard, as it stays on one lane; `treeSum` shards whole blocks and
   combines them by its tree. A result is the same on any number of
   cores.
-- The launch and the collectives are 0005's runtime: the result is
+- The launch and the collectives are 0009's runtime: the result is
   allocated whole and each shard writes its slice as its destination; the
   arrays reach every shard by pointer for the join, which is sound
   because a partitioned body only loads and stores words in its own
   slice. That is the `counts-nothing` property, an `idr-expect` check
   today and the partitioning's precondition here: a region over counted
-  elements touches counts, which only their shard may (0005, D1), and
+  elements touches counts, which only their shard may (0009, D1), and
   stays on one shard.
-- **When.** 0005's P4 lowers a loop that counts nothing to a fork per
+- **When.** 0009's P4 lowers a loop that counts nothing to a fork per
   shard and a join; SPMD replaces that lowering for tensor programs by
-  0005's own rule, when it runs spectral-norm faster than P4 beyond the
+  0009's own rule, when it runs spectral-norm faster than P4 beyond the
   run-to-run spread. A partitioned region has a sequential version below
   a bound on its parallel extent, the extent at which the partitioned
   spectral-norm row loop breaks even, measured per target, rounded up to
@@ -1339,7 +1339,7 @@ its core; the compiler's representation is a faster lowering of that
 meaning, the registry's rule for every hook. (decision D5) Every test of
 the array library runs three ways against one set of expected files:
 with static normalization and without it, as every program test runs
-(read: `tests/README.md`; kept by 0013 D5), and with the registry's array
+(read: `tests/README.md`; kept by 0003 D5), and with the registry's array
 hooks off, so that the plain definitions run. "Faster, never different" is then a test.
 No other implementation is asked.
 
@@ -1409,7 +1409,7 @@ Every stage passes `make check`, `make build`, `make test`,
 `make test-idr` and `make test-mlir-tools` on both targets and runs
 `bench/` on both. T1 and A1 start at once; T2 follows T1; A2 follows A1;
 L follows T1; C1 follows A1 and L; C2 and C3 follow C1; C4 follows C3
-and 0005's P4.
+and 0009's P4.
 
 **T1. Shape arithmetic in the fork** (§4.1-4.5, §4.9).
 
@@ -1525,7 +1525,7 @@ rank).
   loop at `-O2`, on both targets; `jacobi2d`, a stencil written with
   `windows`, against its C.
 
-**C4. Multicore** (the first version's stage 5, kept). After 0005's P4.
+**C4. Multicore** (the first version's stage 5, kept). After 0009's P4.
 
 - Proof: spectral-norm-typed's output identical on one shard and on all;
   faster than under P4's lowering beyond the run-to-run spread on both
@@ -1756,7 +1756,7 @@ keeps every other element on the tensor path.
 
 A closed total computation of an array of words is normalized in the
 frontend into a dense tensor constant, within the counted budget and the
-static-data cap, and is a startup constant beyond them. Reason: 0013's
+static-data cap, and is a startup constant beyond them. Reason: 0003's
 static normalization covers total code; a dense constant is what `linalg`
 consumers fold.
 

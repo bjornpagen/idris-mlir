@@ -1,4 +1,4 @@
-# Proposal 0001: Rust as the one foreign world
+# Proposal 0013: Rust as the one foreign world
 
 Status: proposed, 2026-10-04, at 6fda6d8. Nothing here changes the
 compiler. Once the user decides on it, its decisions are recorded here
@@ -8,7 +8,7 @@ Amended 2026-10-09:
 
 - A binding is a generated runtime primitive, not a `%foreign "rust:"`
   convention: §1, §2, §4, §8.1 and §9.2.
-- The LLVM pin is a trunk commit (proposal 0003), and rustc keeps its own
+- The LLVM pin is a trunk commit (proposal 0001), and rustc keeps its own
   LLVM: §14 R0 and §15.
 - One crate graph and one surface per program, from the union of every
   package's manifest; selection and slicing of what is bound; the surface
@@ -865,7 +865,7 @@ rollback : (1 _ : Tx Open) -> IO ()
 
 No Rust call runs at compile time. The compiler has no compile-time
 evaluation feature; it normalizes the static part of the program on the
-type checker's interpreter (0013), which has no foreign world to call
+type checker's interpreter (0003), which has no foreign world to call
 into: a binding's call is stuck there and runs at run time. The stage that
 would have run calls the manifest declares `pure` is withdrawn.
 
@@ -938,7 +938,7 @@ new pool green on both target entries.
   - **Pins:** a `rust` entry in `toolchain.lock.json` (the nightly's date,
     its `rustc-nightly-src` tarball and SHA-256, and the LLVM major it is
     built against) and a `rust` step in `tools/bootstrap.sh`.
-  - **LLVM:** the LLVM pin is a trunk commit (proposal 0003), which
+  - **LLVM:** the LLVM pin is a trunk commit (proposal 0001), which
     rustc does not build against (it supports external LLVM 22 and 23,
     rust-lang/rust#163572). The step pins an official nightly with its
     bundled LLVM, and `verify-pins` checks that rustc's LLVM major is not
@@ -972,7 +972,7 @@ new pool green on both target entries.
 - **R3, generics and callbacks.** `IdrisValue` containers and the
   cycle-check edge, callbacks through exported apply entries, and
   `i128`.
-- **R4** is withdrawn: no call runs at compile time (§11, 0013).
+- **R4** is withdrawn: no call runs at compile time (§11, 0003).
 - **R5, async on the Idris executor** (§12), when the runtime has one.
 
 **Size (conjecture):**
@@ -986,7 +986,7 @@ new pool green on both target entries.
 | Bootstrap and tests | about 1k |
 
 R0 pins an official nightly, so the bootstrap builds no rustc (proposal
-0003). Whatever Rust the bootstrap or the build compiles later goes
+0001). Whatever Rust the bootstrap or the build compiles later goes
 through a compiler cache, as the LLVM builds go through ccache
 (`tools/bootstrap.sh`).
 
@@ -1003,7 +1003,7 @@ through a compiler cache, as the LLVM builds go through ccache
   (§14 R0), which decides every Rust layout and calling convention
   itself.
 - **Building MLIR from Rust's LLVM fork instead.** Rejected for now. The
-  toolchain's LLVM is an upstream trunk commit (proposal 0003), and
+  toolchain's LLVM is an upstream trunk commit (proposal 0001), and
   PINS.md's MLIR workarounds and `upstream/`'s reproducers are pinned to
   it. rustc ships its own release LLVM (23 since July 2026,
   rust-lang/rust#158734). LTO works as long as rustc's major is not

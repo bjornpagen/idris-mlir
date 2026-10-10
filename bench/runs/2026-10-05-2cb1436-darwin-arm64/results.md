@@ -38,7 +38,7 @@ Best of 5 runs, wall-clock seconds. Outputs agree.
 | tak | 18 | 0.076 | 0.747 | 0.076 | 0.99x |
 | unionfind | 3000000 | 0.091 | 1.257 | 0.102 | 1.12x |
 
-Compile time of this compiler, wall-clock seconds, once: idris-mlir, idris-mlir-cc and the link.
+Compile time of this compiler, wall-clock seconds, once: idris-mlir (frontend, pipeline and link).
 
 | benchmark | compile |
 | --- | ---: |

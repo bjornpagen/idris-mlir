@@ -8,7 +8,7 @@ a language). Every path below is relative to the library root `sources/` (staged
 `stage/sources/`); PDF page numbers are physical pages of the stored PDF ("PDF p."), TeX and
 code references are line numbers of the stored file.
 
-The reader in mind is proposal 0004 (`proposals/0004-typed-apl/README.md`), whose section 3.7 limits
+The reader in mind is proposal 0007 (`proposals/0007-typed-apl/README.md`), whose section 3.7 limits
 rank above 1 to literal ranks and dense word elements, and the AGENTS.md rules: Idris does
 types, MLIR does programs; one representation per concept; facts Idris proved live in types.
 
@@ -107,14 +107,14 @@ dialect that restates `linalg` would duplicate it. Also avoid `scan` as a fusion
 our fusion, stated once as a checkable property (a verifier-style assertion over the
 before/after op counts per index), not as a heuristic. (2) Multi-consumer fusion: upstream's
 `linalg-fuse-elementwise-ops` fuses a producer whose result only the consumer reads
-(proposal 0004 §3.4); Futhark shows that the multi-consumer case is reachable *without*
+(proposal 0007 §3.4); Futhark shows that the multi-consumer case is reachable *without*
 duplication when consumers are themselves merged first (horizontal fusion into one
 multi-result generic). That is a rewrite we can contribute upstream (multi-result generic
 merge) rather than a pass of ours. (3) Consumption edges in the fusion graph: our grades
 (`!idr.lin`) must block a fusion that moves a read past a consuming write — One-Shot's RaW
 analysis already does this on tensors (`docs/mlir/docs/Bufferization.md`, lines 183-201, 385-447),
 so the Futhark lesson is to *fuse on tensors before bufferization* and let One-Shot decide
-in place afterwards, which is what 0004 does.
+in place afterwards, which is what 0007 does.
 
 **Avoid.** A bespoke fusion algebra per pair of combinators (Dex's critique, §2.6 below). Do
 not fuse into a loop or lambda from outside (Futhark case 3): it changes asymptotic cost.
@@ -147,10 +147,10 @@ not fuse into a loop or lambda from outside (Futhark case 3): it changes asympto
   optimisation and memory passes (`code/futhark/src/Futhark/Passes.hs`, lines 52-110).
 
 **Steal.** The *multi-versioning with a runtime predicate on available parallelism* is the
-right answer to "how many of the rank-r loops are parallel" on CPU too (proposal 0005's SPMD
+right answer to "how many of the rank-r loops are parallel" on CPU too (proposal 0009's SPMD
 path): emit `scf.if (par ≥ t)` around two versions — outer dims parallel with the inner nest
 sequential and tiled, or the inner nest parallel — with the threshold a module attribute
-derived from the target (as 0004 reads `L1_cache_size_in_bytes` from DLTI). The rank being in
+derived from the target (as 0007 reads `L1_cache_size_in_bytes` from DLTI). The rank being in
 the type is what makes `Par(Σ)` a product of known sizes. **Avoid** autotuning as a required
 step (it makes builds non-reproducible and our tests check behaviour, not timings); keep one
 default threshold from the target entry. **Limit:** the whole technique presumes regular,
@@ -194,10 +194,10 @@ static-depth nesting.
   `seqmemPipeline`, `gpumemPipeline`).
 
 **Steal.** (1) The *occurrence-trace* formulation is a precise statement of what our
-`!idr.lin` grade promises an array write; 0004 §3.6 checks it by asking One-Shot. Futhark
+`!idr.lin` grade promises an array write; 0007 §3.6 checks it by asking One-Shot. Futhark
 shows the two-level design is sound practice: check at the source (Idris QTT does this for us)
 *and re-check on the IR after every pass* (Futhark's IR checker does exactly this) — our
-verifier's role. (2) A map body may consume its own row: the rank-r version of 0004's
+verifier's role. (2) A map body may consume its own row: the rank-r version of 0007's
 "a thread of writes is a tensor when it is linear" is a `linalg.generic`/`scf.forall` whose
 `outs` slice per iteration is written in place (`tensor.parallel_insert_slice`), which One-Shot
 already bufferizes in place when there is no RaW. (3) Short-circuiting is One-Shot plus
@@ -244,7 +244,7 @@ the memory-level analysis recovers precision only for LMAD-describable access.
 types, so we need none of Futhark's restrictions on the *checker*; the lesson is about
 *representation after erasure*. (1) Futhark's invariant "every dimension of every array in
 scope is a variable in scope" is precisely what MLIR's `tensor<?x?xf32>` + `tensor.dim` gives,
-and what 0004 §3.7's `Vect rank Int` shape record gives at run time. Steal the *function
+and what 0007 §3.7's `Vect rank Int` shape record gives at run time. Steal the *function
 slicing* trick: when a map's result size depends on the element, compute the size from a
 sliced copy of the body before the map so the result is regular and preallocated. (2)
 Bailly et al. name exactly Idris's ergonomic gap (dependent pairs for `filter`); in our setting
@@ -280,10 +280,10 @@ resolution with ranks known after monomorphisation. **Limit:** cannot express fu
 are themselves rank-polymorphic in a principled cell/frame sense (Remora's model); it is
 lifting at call sites only.
 
-### 1.7 Futhark: what to take for 0004, summarised
+### 1.7 Futhark: what to take for 0007, summarised
 
 - Fusion and flattening only ever touch a closed, regular, static-depth structure — the same
-  restriction 0004 makes when it says "a dense program builds its arrays whole". Keep it.
+  restriction 0007 makes when it says "a dense program builds its arrays whole". Keep it.
 - In-place updates are a *type* fact (uniqueness), checked at the source and re-checked on the
   IR; the optimisation that exploits them is memory-level (short-circuiting) and is exactly
   One-Shot + empty-tensor elimination upstream.
@@ -329,7 +329,7 @@ Stored: `papers/paszke-2021-dex` (TeX), `code/dex/` at `25e2e389b90403ae2f8d67fb
 Idris interface; tuples/products of index sets give rank r as *one* index type
 `(Fin n1, …, Fin nr)` whose `ordinal` is the row-major offset — i.e. the shape is a type, the
 layout is the `ordinal` function, and `reshape` between `n=>m=>a` and `(n,m)=>a` is free.
-Concretely for 0004 §3.7: replace `IArray : Nat -> Type -> Type` with a vector `Vect r Int` of
+Concretely for 0007 §3.7: replace `IArray : Nat -> Type -> Type` with a vector `Vect r Int` of
 sizes by an array indexed by an *index-set type* (`IArray (Fin n, Fin m) a`, or a shape
 `Vect r Nat` lifted to a product of `Fin`s), so that: indexing is total (no bounds check when
 the index came from a `for`, main.tex line 1857); rank is not a separate literal but the
@@ -391,10 +391,10 @@ linearity and an abstract API give the same guarantee.
 the consumer's indexing map); keep the Dex framing: a pure `tabulate`/`generate` that is read
 once is never materialised. (2) Destination-passing lowering is MLIR's DPS; Dex had to write
 it, we get it from One-Shot. (3) Bounds-check elision by index-set types: our
-`idr.check.in_bounds` (0004 §3.2) can be *omitted at emission* when the index is a `Fin n`
+`idr.check.in_bounds` (0007 §3.2) can be *omitted at emission* when the index is a `Fin n`
 value produced by a loop over `n` — an Idris-proved fact; carry it in the type of the index
 (an erased `Fin`-ness), not in an attribute (AGENTS.md: facts in types). **Avoid** Dex's
-choice to forbid recursion (main.tex line 674); Idris programs recurse, and 0004 already
+choice to forbid recursion (main.tex line 674); Idris programs recurse, and 0007 already
 handles recursion via `idr-tail-loops`. **Limit:** Dex's MLIR attempt stalled at scalars —
 the hard part is the array/HOF lowering, which is why MLIR's tensor/linalg path, not a scalar
 dialect mapping, is the target.
@@ -407,7 +407,7 @@ dialect mapping, is the target.
   1664-1690). The linear arrow `-o` is documentation only (line 1155).
 
 **Steal (later).** Idris has a real linear arrow; Dex's unenforced `-o` is enforceable for us.
-Not needed for 0004.
+Not needed for 0007.
 
 ---
 
@@ -455,7 +455,7 @@ scatter structure. MLIR's elementwise fusion and `transform.structured.fuse` are
 phases. (2) `Step` over `Yield`: keep index transforms *structured* (affine, permutation,
 slice) so the backend can see access patterns — in MLIR this is the difference between an
 `affine_map` indexing map and a `tensor.extract` with computed indices inside the body.
-Prefer the former when the Idris index expression is affine in the loop indices (0004 §3.7
+Prefer the former when the Idris index expression is affine in the loop indices (0007 §3.7
 already says this). (3) The snoc-list shape `Z :. Int :. Int` is a precedent for shapes as an
 inductive type: in Idris it is `Vect r Nat` or a `List Nat` index, with rank-polymorphic
 `fold` over the innermost dimension expressible directly. **Avoid** the embedded-DSL
@@ -503,20 +503,20 @@ Stored: `papers/grelck-2006-sac`.
   this paper (§5, PDF p. 41-42).
 
 **Steal.** (1) *Shape-hierarchy specialisation* is exactly our monomorphisation story for rank:
-0004 §3.7's "rank is a literal after monomorphisation" is SaC's AKD layer; going further,
+0007 §3.7's "rank is a literal after monomorphisation" is SaC's AKD layer; going further,
 specialise to AKS (static shapes) when sizes are compile-time known — which compile-time
 evaluation already gives us — and lower AKS to static `tensor<3x7xf32>` types, AKD to
 `tensor<?x?xf32>`, and only AUD (unknown rank) to the library's generic code. This is "no
 ceiling" with a clear ladder rather than a cliff. (2) The three with-loop optimisations are,
 one-for-one, linalg elementwise fusion with affine maps (folding), multi-result generic
 merging (fusion), and collapsing nested generics into one of higher rank (scalarisation —
-crucial for `IArray n (IArray m a)` which 0004 §7 rejects as "a cell per row": scalarisation
+crucial for `IArray n (IArray m a)` which 0007 §7 rejects as "a cell per row": scalarisation
 is the transformation that makes the nested form contiguous when the inner shape is uniform).
 (3) Sub-array selection with a short index vector is a typed operation in Idris
 (`sel : Vect k Nat → IArray (k ++ rest) a → IArray rest a`) and is `tensor.extract_slice`
 with rank reduction. **Avoid** runtime reference counting as the in-place mechanism for
 *pure* arrays: we have static linearity for those (the RC path remains for shared counted
-arrays, 0004 §3.5). Avoid generators with step/width as language primitives; they are
+arrays, 0007 §3.5). Avoid generators with step/width as language primitives; they are
 `affine_map`s with strides, i.e. a library-level index-set. **Limit:** single-level parallelism
 (only with-loops), no nested-parallel story.
 
@@ -590,7 +590,7 @@ Stored: `papers/hagedorn-2020-elevate`. Related, already in the library:
 transform dialect (`docs/mlir/docs/Dialects/Transform.md`, lines 1-30;
 `papers/lucke-2024-transform-dialect`). ELEVATE's lesson for us is the discipline:
 optimisation strategies are *programs* built from small rewrites with explicit traversal, and
-codegen afterwards decides nothing. 0004 §3.4 already uses `transform.structured.fuse`; the
+codegen afterwards decides nothing. 0007 §3.4 already uses `transform.structured.fuse`; the
 steal is to write *all* our array schedules (tile, fuse, vectorise, parallelise for SPMD) as
 transform-dialect sequences derived from target facts, kept in one place, so a new target is
 a new sequence and not a new pass (AGENTS.md: a new target is a new entry). Normal forms
@@ -620,7 +620,7 @@ pointful code makes it inlining (Dex) or index substitution (SaC folding, Accele
 `Yield`). MLIR's `linalg.generic` is the meeting point: regions are pointful, indexing maps are
 point-free index transforms.
 
-### 7.2 Concrete recommendations for revamping 0004 §3.7 (rank above 1)
+### 7.2 Concrete recommendations for revamping 0007 §3.7 (rank above 1)
 
 1. **Shapes are types; ranks are not a ceiling.** Index arrays by index-set *types*
    (Dex, §2.1): `Fin n`, products of them, and a few affine index sets (ranges). Rank is the
@@ -654,7 +654,7 @@ point-free index transforms.
 ### 7.3 Things every one of these systems gave up that we should not
 
 - Recursion (Dex, RISE, Accelerate `Exp`): Idris recurses; tail loops and the module
-  bufferization analysis handle it (0004 §3.5).
+  bufferization analysis handle it (0007 §3.5).
 - A real linear type (Dex's `-o` is unenforced, Futhark's uniqueness is a separate system):
   Idris QTT supplies it.
 - Full dependent shapes (Futhark restricted sizes to variables in 2021, then to syntactic

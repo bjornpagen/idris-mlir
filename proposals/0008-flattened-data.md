@@ -1,4 +1,4 @@
-# 0006: compiler-chosen flattened layouts of algebraic data
+# 0008: compiler-chosen flattened layouts of algebraic data
 
 **Status:** proposed (2026-10-09). Nothing here is built.
 
@@ -66,7 +66,7 @@ When each layout is legal and chosen:
   value is updated in place piecewise.
 - **Columns** hold a collection of values of one type that is traversed
   field by field (a map over one field, a filter, an aggregate), and every
-  array of records the array core touches (proposal 0004 — typed APL). An
+  array of records the array core touches (proposal 0007 — typed APL). An
   array of records becomes structure-of-arrays with no programmer action.
 - **The measurement rule.** The automatic choice is on by default only for
   cases a fixture proves faster: at least 1.3× over the cell layout, on the
@@ -102,7 +102,7 @@ the compiler's decision, made from facts only the compiler has.
   - binders are segmented scans;
   - a rewrite is gather, scatter and compaction;
   - all of it lowers to `linalg` through the array core and fuses with
-    neighbouring array code (proposal 0004).
+    neighbouring array code (proposal 0007).
 
   Segmented reductions follow Futhark's and NESL's (*read*
   `papers/larsen-2017-segmented-reductions`,
@@ -122,7 +122,7 @@ the compiler's decision, made from facts only the compiler has.
   Gibbon's work on mostly-serialized heaps avoids per-node work (*read*
   `papers/koparkar-2024-mostly-serialized-gc`). Reuse in place applies to the
   whole region when it is unique.
-- **Packed data is the message format between shards** (proposal 0005). A
+- **Packed data is the message format between shards** (proposal 0009). A
   packed or columnar value crosses by copying its buffer, with no detach
   walk, like GHC's compact regions (*read*
   `papers/yang-2015-compact-normal-forms`). The send check is unchanged: a
@@ -130,12 +130,12 @@ the compiler's decision, made from facts only the compiler has.
 
 ## Consumers
 
-- **The elaborator's terms (proposal 0007):** flat, hash-consed term arenas
-  (*read* `papers/filliatre-2006-hash-consing`, `code/ocaml-hashcons`). That
-  makes shifting, equality and occurs checks vector operations.
-- **The array core (proposal 0004):** records and trees enter array programs
+- **The frontend's term arena (proposal 0005, O4),** shared with the type
+  checker (proposal 0006, T1). Flat, hash-consed terms are that arena.
+  This proposal does not build it.
+- **The array core (proposal 0007):** records and trees enter array programs
   through columns.
-- **bumbledb's port** (`../bumbledb/proposals/0003-idris-port.md`): its
+- **bumbledb's port** (`../bumbledb/proposals/0001-idris-port.md`): its
   images are columns already.
 - **The frontend's own passes,** once self-hosted: Translate and Emit over
   columnar TT.
@@ -159,8 +159,7 @@ the compiler's decision, made from facts only the compiler has.
 | F2 | layout as a type parameter in the `idr` dialect; Layout and idr-rc handle packed and columnar regions | verifier checks; idr-expect properties for one count per region |
 | F3 | automatic columns for arrays of records in the array core | benchmarks: nbody-style records ≥ 1.3× over cells |
 | F4 | automatic packing for exclusive, build-once, traverse-whole trees | Gibbon's benchmark programs (tree add1, sum, repmax), ≥ 1.3× over cells and within 1.5× of Gibbon's published numbers on the same machine class |
-| F5 | packed and columnar values as shard messages | 0005's message benchmarks: copy cost per byte against the detach walk |
-| F6 | the elaborator on flat, hash-consed terms (with 0007) | 0007's elaboration benchmarks |
+| F5 | packed and columnar values as shard messages | 0009's message benchmarks: copy cost per byte against the detach walk |
 
 ## Rejected alternatives
 

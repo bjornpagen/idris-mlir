@@ -320,12 +320,22 @@ alg ix (AppF l f x) env expected = do
     | Nothing => pure Nothing
   FunT a r <- pure fv.type
     | t => internal ("an application of a value of type " ++ show t)
-  Just xv <- x.result env (Just (typeOf a))
+  -- A parameter that binds nothing takes the erased value, and the
+  -- argument is not evaluated: it may be a proof. Translation passes
+  -- `Erased` when it already knows the function's type; a closure's type
+  -- is known here.
+  Just xv <- argument a
     | Nothing => pure Nothing
-  xv <- coerce ix l (binderUse a) xv
   callee <- operand ix fv
   arg <- operand ix xv
   Just <$> value ix l r (\rt => Idr.applyOp callee [arg] [rt])
+  where
+    argument : Binder -> E (Maybe Val)
+    argument Gone = Just <$> erasedValue ix l
+    argument b = do
+      Just v <- x.result env (Just (typeOf b))
+        | Nothing => pure Nothing
+      Just <$> coerce ix l (binderUse b) v
 alg ix (SuspendF l body) env expected = do
   let result = case expected of
                  Just (LazyT r) => Just r

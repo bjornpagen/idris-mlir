@@ -1,4 +1,4 @@
-# 0007: a state-of-the-art type checker and elaborator
+# 0006: a state-of-the-art type checker and elaborator
 
 **Status:** proposed (2026-10-09). Nothing here is built.
 
@@ -9,7 +9,7 @@ measurable workloads, while implementing Idris 2 fully.
 **Sources.** Under `sources/`, topic "Fast dependent type checking and
 elaboration"; reading notes in `sources/notes/type-checking/`.
 
-**Leads, not mandates.** Array programming (0004), flattened data (0006), a
+**Leads, not mandates.** Array programming (0007), flattened data (0008), a
 relational core, and SMT were all candidates. This proposal keeps what the
 evidence supports and says why for each.
 
@@ -32,7 +32,7 @@ benchmark.
 
 ### 2.1 Terms: flat, hash-consed, with explicit sharing (adopted)
 
-- **Representation.** Terms live in an arena as flat nodes (0006's columnar
+- **Representation.** Terms live in an arena as flat nodes (0008's columnar
   layout), with de Bruijn indices in terms and levels in values.
   Hash-consing gives every distinct subterm one integer id.
 - **What it deletes.**
@@ -60,7 +60,7 @@ benchmark.
   compiled tier. Array operations run as whole-array primitives of the
   runtime, so interpretive overhead is paid per array, not per element
   (the APL insight). This evaluator is also the program's static
-  normalization (0013): one evaluator for types, proofs and constants.
+  normalization (0003): one evaluator for types, proofs and constants.
   Coq's `native_compute` (*read* `papers/gregoire-2002-strong-reduction`,
   `papers/boespflug-2011-full-throttle`) is rejected (§5).
 
@@ -76,11 +76,11 @@ benchmark.
   warning: overloads combined with constraint solving blow up without
   bounds (*read* `docs/swift`, `papers/benes-2025-simple-essence-of-overloading`).
 
-### 2.4 Shape arithmetic and dependent rewrite (adopted, shared with 0004)
+### 2.4 Shape arithmetic and dependent rewrite (adopted, shared with 0007)
 
 - **Polynomial normalisation of `Nat` expressions in conversion.** Commutative
   ring laws make `n * m = m * n` and `n + 0 = n` definitional, with no
-  rewrite needed. This is the theory decided in 0004's `types.md`.
+  rewrite needed. This is the theory decided in 0007's `types.md`.
 - **Rewrite,** in increasing order of reach:
   - Refl elimination when the rewritten side is a variable;
   - telescope generalisation when it is a term;
@@ -133,7 +133,7 @@ the kernel checks.
   - Definitions whose signatures are known check independently.
   - Modules check in dependency order.
   - Both are maps over the module graph: one frontend process per module
-    today, and shards (0005) once they exist.
+    today, and shards (0009) once they exist.
 
   Isabelle's and Coq's asynchronous proof processing are the precedent
   (*read* `papers/wenzel-2009-parallel-isabelle`, `papers/barras-2015-async-coq`),
@@ -146,7 +146,7 @@ the kernel checks.
 - **Datalog and the relational core:** used for the constraint store and for
   e-graph closure of equalities (*read* `papers/jordan-2016-souffle`,
   `papers/madsen-2016-datalog-to-flix`, `papers/bembenek-2020-formulog`). The
-  library is the shared `mlir-relational` of proposal 0011, and is not
+  library is the shared `mlir-relational` of proposal 0010, and is not
   duplicated here.
 - **Rejected for now: GPU type checking and interaction-net normalisation.**
   The evidence is research-grade: the GPU front ends in Voetter's thesis
@@ -171,13 +171,13 @@ the kernel checks.
 | Stage | Content | Proof |
 | --- | --- | --- |
 | T0 | per-phase baseline of elaborating base and the frontend | committed record |
-| T1 | flat, hash-consed terms (0006 F6) | base and the frontend elaborate with identical TTCs; ≥ 1.5× faster than T0 |
-| T2 | glued NbE, caches, approximate conversion | smalltt's benchmark set within 1.5× of smalltt; ≥ 2× over T1 on conversion-heavy files |
+| T1 | the term arena owned by 0005 (O4), used here | base and the frontend elaborate with identical TTCs; ≥ 1.5× faster than T0 |
+| T2 | glued NbE, caches, approximate conversion. The three normalization rules are 0003's; this stage is where that interpreter is built | smalltt's benchmark set within 1.5× of smalltt; ≥ 2× over T1 on conversion-heavy files |
 | T3 | tabled instance search, bounded | instance-heavy files ≥ 2× over T2; no regression elsewhere |
-| T4 | Nat normalisation in conversion; the rewrite ladder | 0004's shape-equality corpus never blocks; upstream's rewrite failures listed in tests become passes |
+| T4 | Nat normalisation in conversion; the rewrite ladder | 0007's shape-equality corpus never blocks; upstream's rewrite failures listed in tests become passes |
 | T5 | separate kernel and an independent re-checker in tests | every TTC of base re-checked |
-| T6 | the interpreter's array path: array operations as whole-array runtime primitives, on 0004's arrays | reflection benchmarks ≥ 10× over T2 where they use arrays; 0013's 10⁶-word table fixture within budget |
-| T7 | parallel elaboration (processes, then shards) | wall time on base ≤ (1 / cores × 1.5) of T6's |
+| T6 | the interpreter's array path, once 0007's arrays exist: array operations as whole-array runtime primitives | reflection benchmarks ≥ 10× over T2 where they use arrays; 0003's 10⁶-word table fixture within budget |
+| T7 | parallel elaboration, after 0009's shards (processes until then) | wall time on base ≤ (1 / cores × 1.5) of T6's |
 | T8 | certificates from SAT/SMT, checked as terms | a fixture where the search succeeds and the kernel checks the result |
 
 The headline target, *conjecture until measured*: elaborating a
@@ -194,16 +194,17 @@ are comparable.
   stage, each stage proved by identical TTCs.
 - **Compiled reduction** (Coq's `native_compute`, a JIT inside the type
   checker): a second compiler inside the first. The interpreter's array
-  path (T6) is the answer to heavy evaluation (0013 D3).
+  path (T6) is the answer to heavy evaluation (0003 D3).
 
 ## 6. Decisions
 
 - D1. Measure first (T0); every target is a ratio to a recorded baseline.
-- D2. Flat, hash-consed terms and glued NbE are the core representation;
-  one interpreter, with array operations as whole-array primitives, serves
-  types, proofs and static normalization (0013).
+- D2. The term arena is 0005's (O4). This proposal builds the interpreter
+  on it: glued NbE, one interpreter, with array operations as whole-array
+  primitives, serving types, proofs and static normalization. The three
+  normalization rules are 0003's.
 - D3. Solvers search; the kernel checks; nothing is trusted.
 - D4. A separate small kernel, re-checked in tests.
 - D5. Parallelism by independent definitions and modules; GPU deferred
   until measured.
-- D6. The relational core is proposal 0011's library, not a copy here.
+- D6. The relational core is proposal 0010's library, not a copy here.

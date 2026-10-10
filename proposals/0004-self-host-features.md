@@ -1,7 +1,9 @@
-# 0009: the compiler features self-hosting asked for
+# 0004: the compiler features self-hosting asked for
 
-**Status:** a sketch to flesh out, 2026-10-10, against `main` at 9326d1b8.
-Nothing here is built. Claims are marked: read, measured, recalled,
+**Status:** a sketch to flesh out, 2026-10-10. Nothing of the six features
+is built. Stage 0 of self-hosting compiled the frontend (c50d176d), and
+`make self` (1ce907d3) shows stage 2 identical to stage 3. The ledger below
+is those rewrites. Claims are marked: read, measured, recalled,
 conjecture, decision.
 
 To compile itself, the fork of Idris's compiler (`compiler/idris`) and the
@@ -101,7 +103,7 @@ boxed.
 Roughly in order of cost (conjecture). Each lands in the Idris side
 (classification, instances) and in the `idr` dialect's passes
 (`foreign/idr/`), which already specialize and defunctionalize; the
-static part of the program is normalized in the frontend (0013).
+static part of the program is normalized in the frontend (0003).
 
 1. **An erased match forced by a runtime value.** A match on an erased
    proof (`First`, `Later`) that a runtime index determines is compiled as
@@ -125,7 +127,7 @@ static part of the program is normalized in the frontend (0013).
      in the argument's shape), the instance is specialized on it, as
      `neededShape` already specializes on a parameter's shape: the result
      type reduces and the call is monomorphic. Static normalization
-     (0013) finds more of the value in the frontend, where the instance is
+     (0003) finds more of the value in the frontend, where the instance is
      decided, and the `idr` specialization pass extends this across
      calls.
    - Where it is not, the type is the closed sum of the type's whole-
@@ -136,7 +138,7 @@ static part of the program is normalized in the frontend (0013).
      value at the use refines the type in each branch to one variant,
      which the dialect's canonicalization turns into the variant's
      payload with no test. A field type computed from another field is
-     the same sum inside the data's layout (proposal 0006's flattened
+     the same sum inside the data's layout (proposal 0008's flattened
      layouts place it), so `ActType`'s action is stored unboxed.
 4. **Existentials** (`SeqEat`, a tokenizer's hidden tag, a hidden name
    type). A constructor that hides a type is, in the whole program, built
@@ -162,7 +164,9 @@ static part of the program is normalized in the frontend (0013).
    quantity 0 computes nothing, so in base (trusted) it is accepted and
    compiled to the primitive's test alone, with the `Refl` gone. The
    fork's `nameEq`, `scopeEq` and the rest then come back as upstream wrote
-   them, at the cost of the comparison they already make.
+   them, at the cost of the comparison they already make. The traversal
+   that comparison costs is replaced by interned names (0005 O1). The
+   proofs are this feature.
 
 ## Staged plan
 
@@ -190,7 +194,7 @@ Each stage is one feature, in the order above:
 - The bound on a sum's variants (3, 4, 5) past which the program is
   refused rather than compiled to a large switch: a measurement rule to
   write here, from the bench.
-- How 3's sum meets proposal 0006's flattened layouts and the grades
+- How 3's sum meets proposal 0008's flattened layouts and the grades
   (`!idr.lin`, `!idr.erased`): a variant must keep its payload's grade.
 - Whether `TokenKind` comes back: it needs 3, and its only users are two
   small parsers.

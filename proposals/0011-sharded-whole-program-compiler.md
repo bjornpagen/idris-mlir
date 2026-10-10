@@ -1,9 +1,12 @@
-# 0012: a sharded whole-program compiler
+# 0011: a sharded whole-program compiler
 
-**Status:** proposed (2026-10-10), for after 0004 and 0005. Nothing here is built.
-It **assumes 0004 (typed APL) and 0005 (shards) are fully implemented**, and builds on 0006
-(flattened data), 0007 (the type checker), 0010 (the data-oriented frontend) and 0011 (the
-relational core).
+**Status:** proposed (2026-10-10). Nothing here is built. Read at 8395d4f7.
+S0–S3 and S5–S7 start once the bootstrap exists and 0003's N2 has removed
+the fork; they do not wait on typed arrays or shards. S4 waits on the
+relational core (0010). S8 waits on shards (0009) and the frontend's
+tables (0005). S0, the measurement, can be recorded on the arm64 toolchain
+that is already built. Array programs inside the compiler wait on 0007,
+and that is not a precondition for S1–S3.
 
 **Sources.** `sources/notes/sharded-compilation/whole-program-at-scale.md` (ThinLTO, GCC
 WHOPR, MLton, rustc, MLIR threading, build systems, Zig, Swift, GHC) and
@@ -19,7 +22,7 @@ elaboration). The pipeline facts below were read from this repository at c50d176
 
 Whole-program knowledge carries the compiler's guarantees: monomorphic code with no
 dictionaries, closures as closed sums, the static in-place promise, the acyclic heap, and
-0009's closed sums. Those guarantees need **facts** about the whole program. They do not need
+0004's closed sums. Those guarantees need **facts** about the whole program. They do not need
 every pass to hold the whole program while it runs. The facts are small (sets, edges, flags,
 sizes); the work (translating bodies, MLIR passes, LLVM) is large and nearly all local once
 the facts are known.
@@ -47,7 +50,7 @@ byte-identical to the serial compile. Whole-program semantics, sharded execution
   (`lib/Driver/Run.cppm:182-222`).
 - MLIR threading is **off**: `context.disableMultithreading()` "so results do not depend on
   scheduling, and idr-eval may fork" (`Run.cppm:59-62`). `tests/lib/determinism.sh` already
-  runs `idris-mlir-opt --idr-pipeline` under MLIR's thread pool and compares bytes. 0013
+  runs `idris-mlir-opt --idr-pipeline` under MLIR's thread pool and compares bytes. 0003
   replaces it with static normalization in the frontend, and the fork goes.
 - LLVM sees one module: one O3 run with MergeFunctions, one single-threaded codegen, no
   module splitting (`Target/Optimize.cppm`, `Driver/Emit.cppm`).
@@ -111,8 +114,8 @@ modules ─▶ [1 summarize, per module] ─▶ summary tables (columnar)
 
 ### 3.1 Phase 1: summaries
 
-Each module, in parallel across shards, is elaborated (0007), translated into 0010's tables,
-and summarized. A summary is a set of flat, columnar relations (0006: the shard message
+Each module, in parallel across shards, is elaborated (0006), translated into 0005's tables,
+and summarized. A summary is a set of flat, columnar relations (0008: the shard message
 format, copied as a buffer with no detach walk):
 
 - definitions with content hashes, sizes and effect bits;
@@ -120,7 +123,7 @@ format, copied as a buffer with no detach walk):
 - data containment edges; dictionary construction sites;
 - per call site, whether each argument is passed shared or exclusive *at that site*;
 - the results of static normalization: every closed call of total code in the module,
-  normalized here on the type checker's interpreter (0013), since a closed call needs only
+  normalized here on the type checker's interpreter (0003), since a closed call needs only
   its callees, which the module's imports provide.
 
 Summaries are keyed by the module's content hash, so an unchanged module's summary is reused
@@ -128,7 +131,7 @@ Summaries are keyed by the module's content hash, so an unchanged module's summa
 
 ### 3.2 Phase 2: global facts (the "thin link")
 
-Every fact of §2.1's global column is a relation computed by 0011's `mlir-relational`
+Every fact of §2.1's global column is a relation computed by 0010's `mlir-relational`
 (layers 1 and 2) over the summaries, run **sharded and bulk-synchronous** (§4). Its outputs:
 
 - the frozen fact relations;
@@ -185,13 +188,13 @@ The recipe (sources: `deterministic-fixpoints.md` §9).
 Every global relation only grows within a build, so it is an LVar-style set: the order in
 which deltas arrive cannot change the fixpoint. A tuple's owner shard is the hash of a
 canonical, content-derived key: a definition's hash plus a normalized type-argument vector,
-Merkle-hashed over hash-consed terms (0007 §2.1). Relations that join on a column share a
+Merkle-hashed over hash-consed terms (0006 §2.1). Relations that join on a column share a
 decomposition (Slog); recursion partitioned on its pivot needs no shuffle (BigDatalog).
 
 ### 4.2 Bulk-synchronous semi-naive rounds
 
-Each round: every shard joins its delta against the totals (0011 layer 2), routes derived
-tuples to their owner shards **as messages** (0005), owners insert and dedupe, and a global
+Each round: every shard joins its delta against the totals (0010 layer 2), routes derived
+tuples to their owner shards **as messages** (0009), owners insert and dedupe, and a global
 reduction asks whether anything is new. Only the frozen result is read by the next phase.
 **Decision (D2):** propagation is synchronous; asynchronous propagation reaches the same
 fixpoint but lets round counts and budgets depend on the schedule.
@@ -253,7 +256,7 @@ the cost; the ripple is.
 
 ### 5.3 Static normalization lives in phase 1
 
-0013 replaces the C++ `idr-eval` with static normalization in the frontend, on the type
+0003 replaces the C++ `idr-eval` with static normalization in the frontend, on the type
 checker's interpreter. For this design that means:
 - normalization is per module, in phase 1, cached under the module's content hash with the
   rest of its summary;
@@ -266,21 +269,21 @@ checker's interpreter. For this design that means:
 ### 5.4 Two worlds: Idris shards and C++ passes
 
 The frontend, the elaborator, Translate, the summaries and phase 2 are Idris and run on
-0005's shards with 0004's arrays. The `idr` passes and LLVM are C++ (AGENTS.md: the dialect
-and passes are C++ in `foreign/idr`). 0005's runtime does not reach into them.
+0009's shards with 0007's arrays. The `idr` passes and LLVM are C++ (AGENTS.md: the dialect
+and passes are C++ in `foreign/idr`). 0009's runtime does not reach into them.
 
 **Decision (D7):** the C++ side follows the same discipline with its own threads: one worker
 per core, one `MLIRContext` per worker (shared-nothing; types re-uniqued per worker at a
 memory cost S0 measures), units as MLIR bytecode buffers, results merged by unit name. The
-boundary between the worlds is per-unit bytecode, never one text module (0010 O2). The driver
+boundary between the worlds is per-unit bytecode, never one text module (0005 O2). The driver
 keeps `idris-mlir` as the C++ orchestrator; the Idris side is a library of phases it calls
-through the existing child-process boundary, then through 0001's Rust interop if that lands
+through the existing child-process boundary, then through 0013's Rust interop if that lands
 first.
 
 ### 5.5 Large read-only facts across shards
 
-0005 has no shared heap; a large frozen table copied to every shard is serial work on the
-sender, and `lent` waits on its measurement rule (0005 D10: build it when detach walks exceed
+0009 has no shared heap; a large frozen table copied to every shard is serial work on the
+sender, and `lent` waits on its measurement rule (0009 D10: build it when detach walks exceed
 5% of wall). **Decision (D8):** ship slices, not tables. Each unit message carries only its
 fact slice, so no shard needs the whole fact base. The global tables stay sharded where they
 were computed. If a phase still needs a broadcast, it is the measurement that triggers `lent`.
@@ -296,7 +299,7 @@ levels:
 | fact slice | hash of the unit's slice | the slice hash is unchanged (a projection firewall: a global fact changes, most slices do not) |
 | object | hash of (toolchain version, target, options, unit content, sorted import hashes, slice hash) — `computeLTOCacheKey`'s recipe | the object exists |
 
-The store is content-addressed blobs plus a small relational index. 0011's core (or bumbledb
+The store is content-addressed blobs plus a small relational index. 0010's core (or bumbledb
 in hosted mode, as a shared cache over S3) can hold the index; that choice is open (§12). An
 edit to one definition re-summarizes one module, re-runs phase 2 semi-naively on its delta,
 re-slices the units whose slices changed, and recompiles only those.
@@ -305,32 +308,32 @@ ThinLTO's numbers set the expectation (*measured*, Chromium-scale): an edit to o
 called function took 25 s under ThinLTO against 17 min under full LTO. GCC 15's lesson sets
 the precondition: partitions must not drift under small edits (D4), or nothing hits.
 
-## 7. Using 0004 and 0005 inside the compiler
+## 7. Using 0007 and 0009 inside the compiler
 
-**0005 shards.**
+**0009 shards.**
 - `runShards` hosts the compiler; phase 1 forks per module, phase 2 per relation shard, phase
   3 per unit (the Idris half), each with `fork`/`join`. Pure fork/join is "deterministic and
-  equal to the sequential run" (0005 D2), which D1 needs.
-- Messages are columnar or packed values (0006 D5), so summaries, deltas and slices cross
+  equal to the sequential run" (0009 D2), which D1 needs.
+- Messages are columnar or packed values (0008 D5), so summaries, deltas and slices cross
   shards as buffer copies.
 - Load balance without a shared heap: **over-decompose** (one message per unit or relation
   shard, many more units than shards), send **longest first** (sizes from summaries; previous
   build timings from the cache may order placement but never decide output), place by queue
-  depth (0005 §6), and let idle shards take unstarted messages, 0005's D9 item, which the
+  depth (0009 §6), and let idle shards take unstarted messages, 0009's D9 item, which the
   compiler's own run is a natural case to measure (D9 builds it when idle time at the last
   join exceeds 1/10 of shards × wall). Message-based stealing in GLB's style (split and merge
   bags, lifelines) is the next step only if D9 is not enough.
-- A started unit never migrates (0005); units are small enough that it does not matter.
+- A started unit never migrates (0009); units are small enough that it does not matter.
 
-**0004 arrays.** With 0010's tables, compiler data is ids and words, which is exactly what
-0004's parallel lowering accepts (elements that count nothing). Phase 2's array work:
+**0007 arrays.** With 0005's tables, compiler data is ids and words, which is exactly what
+0007's parallel lowering accepts (elements that count nothing). Phase 2's array work:
 - sorting and grading keys for canonical order; scan labeling for ids (§4.4);
 - segmented reductions for sizes, use counts and per-site sharing;
 - `accumulate` histograms for partition sizes; size-change closure as Boolean matrix
-  products (0007 §2.7);
+  products (0006 §2.7);
 - forward-backward SCC with trimming (Fleischer et al.) with canonical pivots, for call-graph
   and data-graph SCCs.
-All integer: 0004's D15 lets integer reductions split across shards, so nothing here waits on
+All integer: 0007's D15 lets integer reductions split across shards, so nothing here waits on
 float reassociation.
 
 ## 8. What limits the speedup (the performance ceiling)
@@ -347,9 +350,9 @@ By Brent's bound, time on P shards is at most T1/P + T∞. The terms that do not
 
 Targets (*conjecture*, decided at S0 from the measured serial share):
 - phase 2 at most **5% of one-shard wall**: by Amdahl that caps 8 shards at 5.9×, the same
-  figure 0005 uses for lending;
+  figure 0009 uses for lending;
 - cold self-compile at 8 shards at least **0.6 × 8** faster than one shard;
-- one shard **no slower** than today's serial pipeline (0005's rule: single-thread
+- one shard **no slower** than today's serial pipeline (0009's rule: single-thread
   performance wins the tie);
 - a no-op rebuild compiles **zero** units; a one-definition edit recompiles only the units
   whose slices changed.
@@ -362,7 +365,7 @@ Targets (*conjecture*, decided at S0 from the measured serial share):
   `tests/lib/determinism.sh` gains shard counts 1, 2, 8 and a schedule-perturbing mode
   (randomized placement and message delays) that must not change a byte.
 - **Static linking, both targets, no new runtime library**: no OpenMP, TBB or async runtime;
-  0005's runtime on the Idris side, LLVM's thread pool on the C++ side.
+  0009's runtime on the Idris side, LLVM's thread pool on the C++ side.
 - **Reject with a named rule**: budgets and refusals are decided in phase 2 in key order, so
   a refusal names the same cause on every schedule.
 - **Single-thread performance wins the tie.**
@@ -372,15 +375,15 @@ Targets (*conjecture*, decided at S0 from the measured serial share):
 
 | Stage | Content | Proof |
 | --- | --- | --- |
-| S0 | measure: the C++ pipeline on the self-compile module (needs `make bootstrap`); per pass, the time in its global part against its local part; LLVM's share | committed record; the per-pass split decides §8's targets |
+| S0 | measure: the C++ pipeline on the self-compile module (the arm64 toolchain is built, 8395d4f7); per pass, the time in its global part against its local part; LLVM's share | committed record; the per-pass split decides §8's targets |
 | S1 | content names: `$lam<h>`, `$spec<h>`, instance names by hash; sort at every hand-off | corpus outputs unchanged; names stable under an unrelated edit (a fixture) |
 | S2 | units: per-unit bytecode from the frontend; split LLVM codegen; parallel local passes with one context per worker; ordered link | executables byte-identical across worker counts 1, 2, 8; compile-time speedup on bench |
 | S3 | summaries and phase 2 for the cheap facts: reachability, effects, layouts, the type graph, contify, returned arguments, tail calls | differential: phase 2's facts equal the module passes' on the corpus and the self-compile |
-| S4 | defunctionalization's label flow in phase 2 (0CFA on 0011) | differential against `idr-defunctionalize`'s analysis; sums identical |
+| S4 | defunctionalization's label flow in phase 2 (0CFA on 0010) | differential against `idr-defunctionalize`'s analysis; sums identical |
 | S5 | exclusivity, borrow and in-bounds facts as monotone duals | differential; `idr-demand` verdicts identical |
 | S6 | inline and import decisions in phase 2; simplify per SCC unit; specialization requests as deltas; outer rounds; budgets in key order | corpus outputs unchanged; outer round counts recorded; self-compile speedup |
-| S7 | MLIR's pass-manager threading on for nested pipelines, after 0013's V2 removes the fork | `determinism.sh` across thread counts; byte-identical outputs |
-| S8 | the Idris half on 0005 shards: phase 1 per module, 0010's Translate fixpoint sharded, columnar summaries as messages | determinism across shard counts; phase 1 and 2 speedup |
+| S7 | MLIR's pass-manager threading on for nested pipelines, after 0003's N2 removes the fork | `determinism.sh` across thread counts; byte-identical outputs |
+| S8 | the Idris half on 0009 shards: phase 1 per module, 0005's Translate fixpoint sharded, columnar summaries as messages | determinism across shard counts; phase 1 and 2 speedup |
 | S9 | the persisted cache and early cutoff at three levels | no-op rebuild compiles zero units; a one-definition edit recompiles only changed slices |
 | S10 | balance: longest-first placement; the D9 measurement on the compiler's run; GLB-style stealing only if D9's rule fires and it is still not enough | idle time at the last join below 1/10 of shards × wall |
 
@@ -390,7 +393,7 @@ Targets (*conjecture*, decided at S0 from the measured serial share):
   the instance set, the closure sums and the every-caller fact, so it loses the guarantees.
 - **One module, MLIR threading only**: almost every pass is module-anchored; only the nested
   inline pipeline would thread.
-- **Work stealing over a shared heap**: 0005 rejects it ("every count becomes atomic, tagged
+- **Work stealing over a shared heap**: 0009 rejects it ("every count becomes atomic, tagged
   or traced").
 - **Asynchronous fixpoints**: same result, schedule-dependent round counts and budgets (D2).
 - **Ids by allocation or arrival order**, including per-thread interning (Zig's), randomized
@@ -402,13 +405,13 @@ Targets (*conjecture*, decided at S0 from the measured serial share):
 
 ## 12. Open questions
 
-- The hash: BLAKE3 through Rust interop (0001) or a runtime primitive; width and collision
+- The hash: BLAKE3 through Rust interop (0013) or a runtime primitive; width and collision
   policy.
 - Memory per C++ worker with its own `MLIRContext` (re-uniqued types): S0 and S2 measure it.
 - The largest SCC of the self-compile after inlining: if one SCC dominates, simplify within
   it needs its own split.
-- Where the cache index lives: 0011's core in-process, or bumbledb as a shared cache over S3.
-- Whether the Idris half should drive the C++ half (a self-hosted driver) once 0001 lands.
+- Where the cache index lives: 0010's core in-process, or bumbledb as a shared cache over S3.
+- Whether the Idris half should drive the C++ half (a self-hosted driver) once 0013 lands.
 
 ## 13. Decisions
 
@@ -419,10 +422,10 @@ Targets (*conjecture*, decided at S0 from the measured serial share):
 - D4. Partitions are a pure, edit-stable function of content, independent of P; simplify
   units follow SCCs, codegen units follow size.
 - D5. Budgets and refusals are decided in phase 2 in key order.
-- D6. Static normalization (total code only, 0013) runs in phase 1; phases 2 to 4 never run
+- D6. Static normalization (total code only, 0003) runs in phase 1; phases 2 to 4 never run
   program code.
 - D7. The C++ side runs one `MLIRContext` per worker, units as bytecode, results merged by
   name.
 - D8. Units carry fact slices, never whole tables.
 - D9. Balance by over-decomposition, longest first and queue-depth placement; stealing only
-  by 0005's measured rules.
+  by 0009's measured rules.

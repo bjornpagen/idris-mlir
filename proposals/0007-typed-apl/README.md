@@ -1,4 +1,4 @@
-# 0004: a typed array language, lowered to tensors
+# 0007: a typed array language, lowered to tensors
 
 **How this proposal is laid out.** This README is the proposal: the language
 a programmer writes, how it lowers, the staged plan and the decisions. Two
@@ -18,7 +18,7 @@ this README's Decisions or is struck. It replaces the earlier
 "Array languages and typed array programming"), with reading notes in
 `sources/notes/array-languages/`.
 
-**Status:** proposed, 2026-10-09; replaces the earlier 0004 (dense array
+**Status:** proposed, 2026-10-09; replaces the earlier draft (dense array
 programs as tensors). Two rulings of the user's stand behind it: pure
 array programs are tensors ("tensors should definitely be tensors, pure
 array programs is one of the heavy hitting features of mlir and we cannot
@@ -47,7 +47,7 @@ Each move names the data that changes and the branches it deletes.
   Nat`, and a tensor with one dimension per component of the shape's
   form (§3.1). Deleted: the ceiling of rank 1 on every array the program
   does not order (today each is a memref of rank 0 or 1), the earlier
-  0004's "rank above 1 only when the rank is a literal" and its fallback
+  0007's "rank above 1 only when the rank is a literal" and its fallback
   for any other rank.
 - **Indices are typed.** Data: `Index s`, one `Fin` per axis (§2.2).
   Deleted: the guard of every typed access, and the entry test and the
@@ -118,10 +118,10 @@ Each move names the data that changes and the branches it deletes.
 - **The contract's dialects** are idr, builtin, arith, func, math, memref
   and ub, each with Idris builders generated from its ODS (read:
   `tools/dialects.sh`).
-- **Static normalization** (0013): the frontend normalizes the static part
+- **Static normalization** (0003): the frontend normalizes the static part
   of the program on the type checker's interpreter; closed calls of total
-  code become values, and partial code is never normalized. At c50d176d
-  the C++ `idr-eval` still runs closed calls on a JIT; 0013 replaces it.
+  code become values, and partial code is never normalized. `idr-eval` is
+  out of the simplify round; 0003's N2 deletes the pass.
 - **User code may not use `believe_me`**: it is `unsupported (escape
   hatch)` (read: `tests/reject/escape-hatch-believe-me`).
 
@@ -791,9 +791,8 @@ through Idris's evaluator or Chez (D13). A line is an expression in the
 scope of the loaded modules: Idris elaborates it, and its type, shape
 included, is printed (`:t` stops there); the frontend translates it as a
 program whose root displays the value; the pipeline compiles it exactly
-as it compiles a program, and it runs in a child process; whether through
-an LLJIT inside the driver or a linked executable is the loop's choice,
-settled by the latency rule below (0013 §7).
+as it compiles a program, links it as an executable, and runs that
+executable in a child. There is no JIT (0003 §7).
 The meaning of every primitive is then the runtime's, which AGENTS.md
 requires, and the loop shows what the compiled program would print.
 
@@ -826,7 +825,7 @@ subterm (a variable, or a call that does not reduce, such as `replicate k
 2` with `k` a variable) a **segment**: `f ++ g` is two segments, `[<n] ++
 f` a dimension and a segment. An array whose shape has `k`
 components is a ranked tensor of rank `k`, each dimension `?` unless
-static normalization (0013) made it constant. A segment is one dimension
+static normalization (0003) made it constant. A segment is one dimension
 whose size is the product of its axes (the dissertation's collapse to
 products; read: `sources/papers/slepak-2020-dissertation/Dissertation.pdf`,
 §11.2; `sources/code/remorac/src/remora-internal/map_replicate_ast.ml:129-156`),
@@ -913,7 +912,7 @@ where the rank is a runtime value. This is SaC's specialization ladder
 `int[3,7]`) with no rung missing: a known form is a known rank, constant
 sizes are static dimensions, and an unknown form is a segment.
 
-The reason this is not the earlier 0004's "a rank erased at quantity 0
+The reason this is not the earlier draft's "a rank erased at quantity 0
 is not a constant the compiler may assume": that sentence is about
 sizes. A shape's form is part of the checked type at the call, as a
 constructor of a runtime argument is; the compiler reads forms and never
@@ -1079,7 +1078,7 @@ MLIR's one-to-many conversion (read:
 `replaceOpWithMultiple`). One-Shot then sees only tensors. A box (a cell
 in the heap) holds a memref: a tensor stored into one is
 `bufferization.to_buffer`, a value read out of one is `to_tensor`, not
-`restrict`, because the box may be shared. This is the earlier 0004's
+`restrict`, because the box may be shared. This is the earlier draft's
 rule for frozen arrays read out of boxes, kept.
 
 ### 3.9 Fusion, tiling and vectorization
@@ -1103,7 +1102,7 @@ rule for frozen arrays read out of boxes, kept.
 
 ### 3.10 Bufferization and grades
 
-Kept from the earlier 0004, whose decisions stand:
+Kept from the earlier draft, whose decisions stand:
 
 - `idr-bufferize` is One-Shot Bufferize through
   `bufferization::runOneShotModuleBufferize`, function boundaries
@@ -1132,7 +1131,7 @@ Kept from the earlier 0004, whose decisions stand:
 
 ### 3.11 Threads of writes on `Linear.Array`
 
-Kept from the earlier 0004: a thread of writes on a `Linear.Array` that
+Kept from the earlier draft: a thread of writes on a `Linear.Array` that
 starts at a new array, runs through SSA and ends where it is frozen or
 stored, becomes `tensor.insert` when One-Shot's analysis of the raised
 thread finds every write in place; a read-after-write conflict, where
@@ -1142,20 +1141,20 @@ memref ops. A thread bound at quantity 1 never conflicts.
 ### 3.12 Static normalization
 
 A closed array expression of total code is a closed total call, so the
-frontend normalizes it (0013): its result becomes a dense constant
+frontend normalizes it (0003): its result becomes a dense constant
 (`arith.constant dense<...>`), up to the static-data cap. The interpreter
 runs each array operation as one whole-array primitive of the runtime, so a
 table built by array operations normalizes at close to native speed; one
 built element by element through a lambda is interpreted per element, and
 past the counted budget it is a startup constant, computed once at native
-speed (0005 D6). A shape that normalization makes constant makes static
+speed (0009 D6). A shape that normalization makes constant makes static
 dimensions, and every loop over them a known trip count. Partial array code
 is never normalized.
 
 ### 3.13 Multicore
 
 The shard runtime, its fork and join and its lowering of `scf.forall`
-are `proposals/0005-shards.md`'s (§8, stage P4); SPMD through upstream's
+are `proposals/0009-shards.md`'s (§8, stage P4); SPMD through upstream's
 `shard-partition` is its P5, by its rule. What this proposal owns is
 which loops may run on many cores: generics' parallel dimensions, which
 only bodies that compute have (§3.4); reductions split only when their
@@ -1175,7 +1174,7 @@ rounded up to a power of two and kept in the target's entry.
 - `Linear.Array`'s `IArray`, `ifoldl`, `imap`, `map`, `zipWith`, `sum`,
   and the registry's `prim__generate` and `prim__foldl` hooks.
 - The words-only condition on loops (`Terms.idr`, `arrayLoop`).
-- The earlier 0004's §3.7 and its fallback for a rank that is not a
+- The earlier draft's §3.7 and its fallback for a rank that is not a
   literal.
 
 ## 5. Rules of AGENTS.md it keeps
@@ -1211,9 +1210,8 @@ rounded up to a power of two and kept in the target's entry.
   `reduceBlocked`'s fan-out is the program's, not a target's.
 - **Only `IdrisMLIR.Frontend.*` imports Idris's modules; `third_party`
   is unmodified.** The error-message fix is a patch under `upstream/`.
-- **Static linking.** If the interactive loop runs lines on an LLJIT, it
-  is the loop's own, in the statically linked driver (0013 §7); nothing of
-  ours is loaded at run time.
+- **Static linking.** The interactive loop runs a line as a linked
+  executable in a child (0003 §7). Nothing of ours is loaded at run time.
 
 ## 6. Staged plan
 
@@ -1263,7 +1261,8 @@ run's C; parity is within the run-to-run spread (`bench/README.md`).
 5. **Index sets, shapes that depend on data, shape arithmetic.**
    `for` and `Table`, `filter`, `Ragged`, `accumulate`, `resize`,
    `Array.Shape.solve` and the views; arrays of naturals narrowed through
-   the tensor (§3.1). Proof: tests; `word-loops` on `histogram` and on a
+   the tensor (§3.1). The solver waits on 0006's rewrite ladder (T4) where
+   a shape does not already reduce. Proof: tests; `word-loops` on `histogram` and on a
    gather through `select`; `histogram` at parity with its C; the tactic
    within its threshold (§2.9) on the corpus.
 6. **Threads of writes and the in-place clause** (§3.10, §3.11). Proof:
@@ -1272,12 +1271,12 @@ run's C; parity is within the run-to-run spread (`bench/README.md`).
    fannkuch-linear at parity with clang.
 7. **The interactive loop** (§2.13). Proof: transcript tests; the latency
    rule measured on both targets and its outcome recorded.
-8. **Multicore** (§3.13), after 0005's P4. Proof: 0005's rules for P4
+8. **Multicore** (§3.13), after 0009's P4. Proof: 0009's rules for P4
    and P5; `heat` and `matmul` outputs identical on one shard and on all.
 
 ## 7. Rejected alternatives
 
-- **Rank only where it is a literal** (the earlier 0004): it read a
+- **Rank only where it is a literal** (the earlier draft): it read a
   form, which the type states, as if it were a value. Forms are static;
   sizes are not (§3.2).
 - **An unranked tensor or a runtime-rank descriptor for every array.**
@@ -1423,4 +1422,4 @@ bufferization; boxes hold memrefs** (§3.8).
 | `bufferization.to_tensor`, `to_buffer` | edges with boxes and `Linear.Array` (§3.8) |
 | `transform.structured.fuse`, DLTI `L1_cache_size_in_bytes` | tiling (§3.9) |
 | `linalg::vectorize` (through `idr-vectorize`) | lanes (§3.9) |
-| `shard.grid`, `sharding-propagation`, `shard-partition` | SPMD, by 0005's rule (§3.13) |
+| `shard.grid`, `sharding-propagation`, `shard-partition` | SPMD, by 0009's rule (§3.13) |

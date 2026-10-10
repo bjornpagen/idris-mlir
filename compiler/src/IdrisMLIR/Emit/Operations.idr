@@ -480,14 +480,19 @@ effect ix l p types vs res = do
     | _ => internal (show res ++ " does not hold a value and a world")
   args <- traverse (operand ix) !(guarded ix l (Op p) types vs)
   let unit = unitOf ix x
-  gives <- case unit of
-    Just _ => pure []
-    Nothing => (\t => [t]) <$> mlirType ix x
+  -- `idr.array.get` always yields the element: its type has a value
+  -- result even when the element is a unit, which carries nothing. Other
+  -- effects build that unit after the op and give no result for it.
+  gives <- case (p, unit) of
+    (ArrayGet, _) => (\t => [t]) <$> mlirType ix x
+    (_, Just _) => pure []
+    (_, Nothing) => (\t => [t]) <$> mlirType ix x
   names <- resultNames l (primOp p args (gives ++ [!(mlirType ix WorldT)]))
-  v <- case (unit, head' names) of
-    (Just u, _) => con ix l u []
-    (Nothing, Just n) => pure (val n x Many)
-    (Nothing, Nothing) => internal (show (Op p) ++ " without its value")
+  v <- case (p, unit, head' names) of
+    (ArrayGet, _, Just n) => pure (val n x Many)
+    (_, Just u, _) => con ix l u []
+    (_, Nothing, Just n) => pure (val n x Many)
+    _ => internal (show (Op p) ++ " without its value")
   Just w <- pure (last' names)
     | Nothing => internal (show (Op p) ++ " without the next world")
   Just <$> con ix l mk [v, val w WorldT Many]

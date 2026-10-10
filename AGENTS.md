@@ -37,7 +37,7 @@ numbers.
   frontend and `Emit`, on the fork of Idris's compiler in `compiler/idris`)
   checks what the compiler accepts, monomorphises and decides
   representations. The `idr` dialect and its passes
-  (specialization, compile-time evaluation, defunctionalization, loops, the
+  (specialization, defunctionalization, loops, the
   heap-free check, lowering) are C++ in `foreign/idr/`, following
   bjornpagen/cpp-starter; `PINS.md` records every deliberate deviation from
   it and every pinned workaround.
@@ -53,15 +53,14 @@ numbers.
   replace that input with CExp or runtime case trees, and do not erase facts
   before the passes that use them.
 - No primitive has an implementation in Idris: its one meaning is the
-  runtime's (`runtime/`), which folders and compile-time evaluation call
-  too. Compile-time evaluation follows upstream Idris 2: every closed call of
-  pure code is evaluated, total code to the end, partial code within a
-  budget, after which the call stays for runtime.
+  runtime's (`runtime/`), which folders call too. `idr-eval` is not in the
+  simplify loop: a closed call runs at run time. The pass remains until
+  static normalization (proposal 0003) replaces it.
 - The compiler implements the Idris 2 it can compile to the code a
   monomorphic program would be: every construct whose runtime choices
   (the types, instances, implementations or shapes a site can meet) form a
-  set the whole program fixes, which specialization, compile-time
-  evaluation, closed sums and defunctionalization compile away. That
+  set the whole program fixes, which specialization, closed sums and
+  defunctionalization compile away. That
   covers programs over the upstream prelude and base. A megamorphic
   construct, whose set at a site no compile-time analysis bounds (an
   implementation chosen by a runtime value, a recursion that builds its
@@ -89,7 +88,7 @@ numbers.
   `%foreign` or the extern; never ignore the pragma. A `Data.Buffer`
   operation is a runtime primitive, with its one meaning in `runtime/`. There
   is no C interop now or later: the one foreign world planned is Rust
-  (proposal 0001), and a C library is reached only through a Rust `-sys`
+  (proposal 0013), and a C library is reached only through a Rust `-sys`
   crate and the safe crate over it.
 - Only `IdrisMLIR.Frontend.*` may import the fork of Idris's compiler
   (`compiler/idris`), and the fork never imports `IdrisMLIR.*`.

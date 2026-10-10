@@ -565,7 +565,7 @@ def IdrSimplify : Pass<"idr-simplify", "::mlir::ModuleOp"> {
   let description = [{
     Runs idr-loop-breakers, idr-effects, idr-identity, inline,
     idr-specialize, sccp, int-range-optimizations, idr-canonicalize, cse,
-    idr-eval, remove-dead-values and symbol-dce, again and again, until a round
+    remove-dead-values and symbol-dce, again and again, until a round
     leaves every operation where it is. Every member
     of the round is finite, so the rounds end; `max-rounds` asserts it: a
     module that still changes after that many rounds is the error

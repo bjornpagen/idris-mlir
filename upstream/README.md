@@ -191,7 +191,7 @@ entry in one change, and a `submission.md` once it is ready to send.
 
 The LLVM pin is llvm main at 7208ba24ca2894729cd394475a00d2a7b605e642
 (LLVM 24.0.0git, `toolchain.lock.json`), moved from `llvmorg-23.1.2` as
-`proposals/0003-llvm-trunk.md` decides. One recipe builds the toolchain
+`proposals/0001-llvm-trunk.md` decides. One recipe builds the toolchain
 on both targets: `tools/bootstrap.sh llvm` (stage 1, the target's C
 library, the runtimes and stage 2, into `.toolchain/llvm`) applies every
 `upstream/*/llvm.patch` in name order, and stage 2's stamp records each by

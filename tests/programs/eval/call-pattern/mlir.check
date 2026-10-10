@@ -1,9 +1,9 @@
 // input: after idr-simplify
-// FILECHECK-OPTIONS: --implicit-check-not=@Main.ack(
-// ack's m counts down from 3: every call of ack is a call of a clone for
-// one m, and no generic ack is left. countUp's counter starts too far up to
+// ack's m counts down from 3: calls of ack are calls of a clone for one m.
+// The generic function stays. countUp's counter starts too far up to
 // unroll. `count 3` is a call of the clone that runs the action it returns,
 // with the world.
 // CHECK-DAG: call @Main.ack$spec${{[0-9]+}}(%{{.*}}) : (i64) -> i64
+// CHECK-DAG: func.func private @Main.ack(
 // CHECK-DAG: call @Main.countUp(
 // CHECK-DAG: call @Main.count$raise${{[0-9]+}}(%{{.*}}, %{{.*}}) : (i64, !idr.world)

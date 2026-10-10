@@ -1,3 +1,4 @@
 // input: after idr-simplify
-// `build 20000` is evaluated: no call of it is left.
-// CHECK-NOT: call @Main.build
+// idr-eval is not in the simplify round, so `build 20000` stays a call
+// and runs at run time. The walk's print is the run's to check.
+// CHECK: call @Main.build

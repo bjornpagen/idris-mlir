@@ -1,11 +1,9 @@
 module Main
 
 -- A closed call of a partial function that never ends: `spin 0`.
--- Compile-time evaluation runs it metered, stops it once it has spent its
--- budget, and leaves the call to run at runtime, as Idris's own backends
--- leave every call: the program compiles, and runs the call only on the
--- input 9, which this test does not give. The closed call after it is
--- evaluated as usual.
+-- idr-eval is not in the simplify round, so the call stays and runs at
+-- run time, and only on the input 9, which this test does not give. The
+-- closed call of collatz stays and runs too.
 
 import Prelude
 

@@ -23,9 +23,9 @@ changes, as any golden test's. No other implementation is asked.
 ## Layout
 
 - `spec/`: the repository: pins, commands, source rules (`make check`).
-- `programs/<topic>/<name>/`: end-to-end programs, each compiled with
-  and without compile-time evaluation and run against its expected
-  output; one topic directory per subject (`semantics`, `basic`, `io`,
+- `programs/<topic>/<name>/`: end-to-end programs, each compiled twice
+  (the second with `--no-eval`; idr-eval is not in the simplify round, so
+  the pipelines match) and run against its expected output; one topic directory per subject (`semantics`, `basic`, `io`,
   `prelude`, `interfaces`, `eval`, `partial`, `stack`, `nat`, `data`,
   `linear`, `arrays`), one pool each in Main.idr. The `prim-*` tests of
   `semantics` are generated (Sem.idr), their expected values computed from

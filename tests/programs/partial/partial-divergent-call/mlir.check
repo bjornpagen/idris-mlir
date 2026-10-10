@@ -1,6 +1,6 @@
 // input: after idr-simplify
-// FILECHECK-OPTIONS: --implicit-check-not=@Main.collatz
-// `spin 0` never ends, so it stays a call; `collatz 97 0` ends, so it is
-// evaluated and nothing of collatz is left. The value it printed is the
-// run's to check.
+// idr-eval is not in the simplify round, so both closed calls stay.
+// `spin 0` runs only on the input 9, which this test does not give.
+// The values printed are the run's to check.
 // CHECK: call @Main.spin(
+// CHECK: call @Main.collatz(

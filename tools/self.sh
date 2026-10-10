@@ -14,9 +14,8 @@
 # that nothing differs between two stages but the compiler. STAGE (default
 # 3) is the last stage made; at 3, stages 2 and 3 must be the same, byte for
 # byte: the executable, its module and its Core. Each compile passes
-# --no-eval: idr-eval's JIT is not part of this bootstrap (proposal 0013),
-# and on this module it is where simplify spends its time. A closed call
-# stays for runtime. Each compile's output is kept in
+# --no-eval: idr-eval is not in the simplify round (proposal 0003).
+# A closed call stays for runtime. Each compile's output is kept in
 # build/self/stageN/stdout and stderr, which ends with its phases' times
 # (-mlir-timing) and its peak memory (time -l).
 root=$(cd "$(dirname "$0")/.." && pwd)

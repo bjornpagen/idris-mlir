@@ -11,14 +11,14 @@ The study's report, `docs/research/first-principles-optimization.md`, was deferr
 sources pass and never written; this library is the material it was to reason from.
 
 On 2026-10-09 five array-languages passes (`apl-lineage`, `typed-rank`, `dataparallel`,
-`dependent-equality`, `mlir-stack`) added the prior art for proposal 0004
-(`proposals/0004-typed-apl/README.md`): 42 papers, 6 link-only rows, 19 new snapshots and two
+`dependent-equality`, `mlir-stack`) added the prior art for proposal 0007
+(`proposals/0007-typed-apl/README.md`): 42 papers, 6 link-only rows, 19 new snapshots and two
 addenda to existing ones. [INDEX.md](INDEX.md) files them under [Array languages and typed
 array programming](INDEX.md#array-languages-and-typed-array-programming); this file records
 their provenance alongside the rest, in the sections below, each part marked with that date.
 
-On 2026-10-10 the `sharded-compilation` pass added the prior art for proposal 0012
-(`proposals/0012-sharded-whole-program-compiler.md`): 12 papers, two new documentation
+On 2026-10-10 the `sharded-compilation` pass added the prior art for proposal 0011
+(`proposals/0011-sharded-whole-program-compiler.md`): 12 papers, two new documentation
 snapshots (`docs/rustc-dev-guide/`, `docs/gcc-lto/`) and an addendum to `docs/llvm/`, with the
 owner's approval of exactly these items. [INDEX.md](INDEX.md) files them under [Sharded and
 incremental compilation](INDEX.md#sharded-and-incremental-compilation), with six folders that
@@ -1117,7 +1117,7 @@ The library merge of 2026-09-27 moved all of it here and merged the two paper tr
 [Where the old files went](#where-the-old-files-went)). [INDEX.md](INDEX.md) has the current
 counts.
 
-- **Array-languages passes** (2026-10-09), for proposal 0004: five parallel passes, each
+- **Array-languages passes** (2026-10-09), for proposal 0007: five parallel passes, each
   staging its folders outside the repository, then one catalogue pass that merged their
   records into [INDEX.md](INDEX.md), this file and [bibliography.bib](bibliography.bib),
   checked that no entry duplicated one already here (the overlaps are cross-linked: for
@@ -1129,7 +1129,7 @@ counts.
   (`henriksen-thesis`, `sac-language`, `dex-papers`), 19 new snapshots and the `code/idris2/`
   and `code/mlir/` addenda; `code-dex` and `code-futhark` moved from
   [Planned sources not collected](#planned-sources-not-collected) into the library.
-- **Sharded-compilation pass** (2026-10-10), for proposal 0012: the cluster read its
+- **Sharded-compilation pass** (2026-10-10), for proposal 0011: the cluster read its
   sources online and wrote the two notes in `notes/sharded-compilation/`; once the owner
   approved the notes' snapshot tables, this pass fetched exactly those fifteen items into new
   folders and recorded them here, in [INDEX.md](INDEX.md) and in

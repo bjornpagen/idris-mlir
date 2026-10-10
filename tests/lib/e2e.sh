@@ -2,9 +2,10 @@
 #
 # Each fixture is compiled once with every module of the pipeline dumped,
 # and everything that holds of a compilation is read off that one
-# compilation and its dumps (lib/properties.sh); then once more without
-# compile-time evaluation, whose program must behave the same. Two
-# compilations per fixture, and no suite that compiles them all again.
+# compilation and its dumps (lib/properties.sh); then once more with
+# --no-eval, whose program must behave the same. idr-eval is not in the
+# simplify round, so the two pipelines match. Two compilations per fixture,
+# and no suite that compiles them all again.
 
 # stdout_within_a_few_ulp EXPECTED OURS LINES: EXPECTED and OURS print the
 # same text, except that the numbered lines LINES (one number per line) hold
@@ -39,7 +40,9 @@ stdout_within_a_few_ulp() {
 # the stack by a frame per iteration exhausts the 1 MiB: both compilations
 # run the long input. With `demand-in-place` both compilations make the
 # in-place promise: a call passes what its callee rebuilds in place
-# exclusive, or the program is refused.
+# exclusive, or the program is refused. With `live-cells` the first word is
+# how many cells may still be live at a normal exit; that count is taken
+# off stderr.
 e2e_io() {
   io_fixture=$(cd "$1" && pwd)
   io_stdin=/dev/null
@@ -78,6 +81,16 @@ e2e_io() {
   artifacts "$work/ours" prog.core prog.mlir prog.o prog
   run_ours ours "$work/ours/build/exec/prog" "$io_stdin" $io_stack
   ours_status=$ran
+  # A `live-cells` mark names how many cells a reference-count cycle keeps
+  # at exit. The count is taken off stderr when it matches, as a count of 0
+  # is, so the leak check still sees any other number.
+  if [ -f "$io_fixture/live-cells" ]; then
+    io_live=$(first_word "$io_fixture/live-cells")
+    if [ "$(tail -n 1 "$work/ours.err")" = "idris-rt: live cells $io_live" ]; then
+      sed '$d' "$work/ours.err" > "$work/ours.err.counted"
+      mv "$work/ours.err.counted" "$work/ours.err"
+    fi
+  fi
 
   if [ -f "$io_fixture/expected-crash" ]; then
     io_crash=$(cat "$io_fixture/expected-crash")

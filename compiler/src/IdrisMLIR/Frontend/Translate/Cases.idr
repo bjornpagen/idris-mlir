@@ -158,8 +158,11 @@ equated k conTy (Just (MkTyped scTy at)) = go k conTy
 ||| An alternative's variables, with each erased variable that its
 ||| constructor equates with a runtime argument (`equated`) bound to that
 ||| argument: the two are one value, which the argument holds at runtime.
+||| Several outer variables can be that same argument (`Refl` makes the
+||| two indices of a `Thin` one list). The case tree names the erased
+||| one, and a runtime parameter is passed the list.
 bindEquated : Nat -> List (Nat, Nat) -> List (VarInfo b) -> List (VarInfo b)
-bindEquated k eqs env = foldl one env eqs
+bindEquated k eqs env = foldl one (share eqs env) eqs
   where
     runtime : VarInfo b -> Bool
     runtime (Runtime _ (Just ErasedT)) = False
@@ -176,8 +179,29 @@ bindEquated k eqs env = foldl one env eqs
     setAt (S i) v (x :: xs) = x :: setAt i v xs
     setAt _ _ [] = []
 
+    atOuter : Nat -> List (VarInfo b) -> Maybe (VarInfo b)
+    atOuter j e = getAt (k + j) e
+
+    -- A runtime outer variable equated with this pattern argument.
+    runtimeOuter : Nat -> List (Nat, Nat) -> List (VarInfo b) -> Maybe (VarInfo b)
+    runtimeOuter _ [] _ = Nothing
+    runtimeOuter p ((j, q) :: rest) e =
+      if p /= q then runtimeOuter p rest e else case atOuter j e of
+        Just v => if runtime v then Just v else runtimeOuter p rest e
+        Nothing => runtimeOuter p rest e
+
+    -- Outer variables that are one pattern argument are one value. An
+    -- erased one is bound to the runtime one.
+    share : List (Nat, Nat) -> List (VarInfo b) -> List (VarInfo b)
+    share [] e = e
+    share ((j, p) :: rest) e =
+      let e' = case (atOuter j e, runtimeOuter p ((j, p) :: rest) e) of
+                 (Just v, Just r) => if erased v then setAt (k + j) r e else e
+                 _ => e
+      in share rest e'
+
     one : List (VarInfo b) -> (Nat, Nat) -> List (VarInfo b)
-    one e (j, p) = case (getAt (k + j) e, getAt p e) of
+    one e (j, p) = case (atOuter j e, getAt p e) of
       (Just v, Just f) => if erased v && runtime f then setAt (k + j) f e else e
       _ => e
 

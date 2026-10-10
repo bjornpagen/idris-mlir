@@ -1,7 +1,7 @@
 # Dependent equality: shape arithmetic and the rewrite problem
 
 Cluster notes for an Idris-hosted, shape-typed array language compiled through MLIR
-(proposal 0004, rank above 1 with no ceiling). The question: why rewriting by an equation
+(proposal 0007, rank above 1 with no ceiling). The question: why rewriting by an equation
 fails under dependent types, the algorithms that avoid the failure, the solvers that decide
 type-level `Nat` arithmetic, and what the language needs so that `n * m = m * n`,
 `n + 0 = n` and `prod [n, m] = prod [m, n]` never block a user.

@@ -7,17 +7,17 @@ proved, and the one owner decision not yet carried out. When every item is done,
 
 ## Not run
 
-- **The suites on both targets.** `make check`, `make build`, `make test`,
-  `make test-idr` and `make test-mlir-tools` last passed in round 3, on
-  arm64 macOS, on the toolchain of the time (7208ba24 with 02-07, 09 and
-  15), with `upstream/16`'s group set aside: check 25/25, test 373/373,
-  test-idr 251/251, test-mlir-tools 10/10. Nothing committed after round 3
-  has been built, 327c2e30's compile-time fix and 0451b1b8 among them, and
-  x86_64 Linux has never run them. They run with the toolchain the one
-  recipe builds, which is proposal 0003's remaining step. On x86_64 Linux
-  that run is also the first of the runtime platform layer's Linux
-  branches and of `tests/upstream/clang-module-layout-forward-declaration`.
-  A target that has not run them is NotRun, never green.
+- **The suites on both targets.** On arm64 macOS, at 8395d4f7, `make build`
+  passes, `make check` is 26/26, `make test-idr` is 269/269 and
+  `make test-mlir-tools` is 17/17, on the toolchain the one recipe built
+  with the patches the tree carries. `make test` ran and is left with two
+  programs set aside, `programs/prelude/every-interfaces-export` and
+  `every-types-export`, which compile and then hit their time limits.
+  x86_64 Linux has not been built. That run is proposal 0001's remaining
+  step, and on Linux it is also the first of the runtime platform layer's
+  Linux branches and of
+  `tests/upstream/clang-module-layout-forward-declaration`. A target that
+  has not run them is NotRun, never green.
 - **The bench.** `bench/run.sh` on each target, compared with that
   target's last record (`bench/runs/2026-10-07-f5a4dff9-darwin-arm64`,
   `bench/runs/2026-10-03-861acdc`) by each program's ratio to its own C

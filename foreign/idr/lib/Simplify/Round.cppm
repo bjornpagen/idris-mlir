@@ -37,7 +37,10 @@ export SmallVector<std::string> simplifyRound() {
       "int-range-optimizations",
       "idr-canonicalize",
       "cse",
-      "idr-eval",
+      // idr-eval is not in the round. It compiled every closed call with a
+      // JIT in a forked child, which dominated compile time, and the fork
+      // is why the driver keeps MLIR threading off. The pass remains until
+      // static normalization replaces it and the pass is deleted.
       // remove-dead-values without its own canonicalization, which folds
       // region-branch patterns on the matches alone: a field one of them
       // folds leaves the constructor it read dead but in place, still

@@ -2,11 +2,9 @@ module Main
 
 import Prelude
 
--- `mk 40` is total and closed, so it is evaluated: a tree of 2^41 - 1
--- nodes with 41 distinct ones, since each level is the same subtree twice.
--- The result keeps that sharing from the evaluation to the executable, so
--- the compilation takes the time of 41 nodes; a copy of the tree would
--- never finish.
+-- `mk 40` stays a call: idr-eval is not in the simplify round. The let
+-- shares each level, a tree of 2^41 - 1 nodes with 41 distinct ones, so
+-- the walk finishes. A copy of the tree at each step would not.
 data T = L | N T T
 
 mk : Nat -> T

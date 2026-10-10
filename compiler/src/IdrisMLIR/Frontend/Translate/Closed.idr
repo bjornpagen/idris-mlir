@@ -550,6 +550,88 @@ computesType def = do
   defs <- get Ctxt
   pure (isTypeLike !(normaliseTypes defs [] (type def)))
 
+||| A type argument as data instances compare them. A type-level function
+||| and the lambda of its one clause are the same argument: elaboration
+||| leaves the name in one type and the clause in another (`Printed`, and
+||| `\n => (Fin n -> Nat) -> Nat -> String`), including where the name is
+||| an argument of another type (`List (AltF Printed _)`). The clause is
+||| inlined where the name stands, when that clause is a function type.
+||| An applied name is left to normalisation, and so is an alias of a
+||| data type: normalisation has already made those one type.
+export
+canonicalTypeArg : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core ClosedTerm
+canonicalTypeArg tm = walk False [] tm
+  where
+    -- Reduced to a name, rather than staying a lambda over its clause.
+    etaContracted : {vars : _} -> TT vars -> Bool
+    etaContracted (Bind _ _ (Lam {}) sc) = etaContracted sc
+    etaContracted (Ref _ Func _) = True
+    etaContracted _ = False
+
+    -- A function type, under the lambdas of the clause. `Printed n` is
+    -- `(Fin n -> Nat) -> Nat -> String`. An alias of a data type
+    -- (`Scopeable a = List a`) is already that data type once normalised.
+    hasPi : {vars : _} -> TT vars -> Bool
+    hasPi (Bind _ _ (Pi {}) _) = True
+    hasPi (Bind _ _ (Lam {}) sc) = hasPi sc
+    hasPi (App _ f a) = hasPi f || hasPi a
+    hasPi _ = False
+
+    normaliseClause : {vs : _} -> FC -> TT vs -> Core (Maybe ClosedTerm)
+    normaliseClause fc body = do
+      defs <- get Ctxt
+      let written = wrapLams fc body
+      -- A name with no argument (`Scope = List Name`) is already reduced
+      -- by ordinary normalisation wherever it is applied. Inlining it
+      -- here turns a parameter into a value at one site only.
+      case written of
+        Bind _ _ (Lam {}) _ => do
+          nf <- normaliseTypes defs [] written
+          -- Quoting can put the name back; the clause is kept as written.
+          let chosen = if etaContracted nf then written else nf
+          pure (if hasPi chosen then Just chosen else Nothing)
+        _ => pure Nothing
+
+    -- The lambda of a type-level function's one clause, or nothing when
+    -- the name is not such a function.
+    clause : FC -> Name -> Core (Maybe ClosedTerm)
+    clause fc n = do
+      defs <- get Ctxt
+      Just gdef <- lookupCtxtExact n (gamma defs)
+        | Nothing => pure Nothing
+      -- The type as written is enough for `Nat -> Type`. A name for one
+      -- (`VarSet : Scoped`) needs the normalised type, and that lookup is
+      -- the uncommon case.
+      yes <- if isTypeLike (type gdef) then pure True else computesType gdef
+      if yes then case definition gdef of
+             PMDef _ _ _ _ [(_ ** (_, _, body))] => normaliseClause fc body
+             PMDef _ _ (STerm _ body) _ _ => normaliseClause fc body
+             _ => pure Nothing
+        else pure Nothing
+
+    -- The names whose clauses are being inlined. A clause that mentions
+    -- its own name stays a name there: inlining it again would not end.
+    -- `head` is the function of an application: that name is left to
+    -- normalisation, and only its arguments are inlined. Replacing an
+    -- applied name with its clause and not reducing the application is
+    -- a different type than the reduced one.
+    walk : {vars : _} -> Bool -> List Name -> TT vars -> Core (TT vars)
+    walk head stack (Ref fc Func n) =
+      if head || elem n stack then pure (Ref fc Func n) else do
+        -- The clause is already the form elaboration uses. Walking it
+        -- would inline the names it mentions into types that were left
+        -- as names, and a call would no longer match its function.
+        Nothing <- clause fc n
+          | Just lam => pure (embedClosed lam)
+        pure (Ref fc Func n)
+    walk _ stack (App fc f a) = App fc <$> walk True stack f <*> walk False stack a
+    walk _ stack (Meta fc n i args) = Meta fc n i <$> traverse (walk False stack) args
+    walk _ stack (TDelayed fc r t) = TDelayed fc r <$> walk False stack t
+    walk _ stack (TDelay fc r ty a) = TDelay fc r <$> walk False stack ty <*> walk False stack a
+    walk _ stack (TForce fc r t) = TForce fc r <$> walk False stack t
+    walk _ stack (As fc s p q) = As fc s <$> walk False stack p <*> walk False stack q
+    walk _ _ tm = pure tm
+
 ||| A runtime variable in a term closed for normalisation: a reference to a
 ||| definition that does not exist, which no reduction looks into.
 runtimeVariable : ClosedTerm

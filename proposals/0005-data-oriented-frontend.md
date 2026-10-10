@@ -1,7 +1,10 @@
-# 0010: a data-oriented, array-first frontend
+# 0005: a data-oriented, array-first frontend
 
 **Status:** proposed (2026-10-10), against `main` at c50d176d. Nothing here
-is built.
+is built. The arm64 toolchain now builds (8395d4f7); O0 is still
+unmeasured. Early stages (O1, O2, O4–O6) use today's arrays. The end
+state, where compiler tables are rank-polymorphic arrays, waits on 0007.
+O3 and O7 wait on the relational core (0010).
 
 **Sources.** Under `sources/`: `code/co-dfns` and
 `papers/hsu-2019-data-parallel-compiler` (a compiler as array programs),
@@ -28,10 +31,10 @@ gathers, scatters, compaction, segmented folds, joins and fixpoints.
 It is Brooks's "show me your tables" applied to the compiler itself, and
 it is the same data model as bumbledb (relations as columnar images,
 SIMD kernels, Free Join, semi-naive fixpoints). The relational parts run
-on the shared relational core of proposal 0011; the array parts run on
-the typed APL of proposal 0004; the layouts are proposal 0006's.
+on the shared relational core of proposal 0010; the array parts run on
+the typed APL of proposal 0007; the layouts are proposal 0008's.
 
-It is not a from-scratch rewrite (0007 §5 rejects that): each stage
+It is not a from-scratch rewrite (0006 §5 rejects that): each stage
 changes one representation inside the fork, proved by identical TTCs and
 the unchanged corpus.
 
@@ -51,10 +54,10 @@ module (58,305 functions, 7,664 data types). Phases:
 
 Translate and print are 88% of the run. Both are pointer chasing: a
 worklist over trees of cells, and a tree serialized to text. Elaboration
-is not in this profile (it runs when the fork installs, about 75 s); 0007
+is not in this profile (it runs when the fork installs, about 75 s); 0006
 T0 records it.
 
-0009 records a different self-compile figure (87 s, 1.8 GB on stage 0).
+0004 records a different self-compile figure (87 s, 1.8 GB on stage 0).
 **Decision (D0):** stage O0 re-measures both on one commit before any
 change, and every target below is a ratio to that record.
 
@@ -64,22 +67,22 @@ change, and every target below is a ratio to that record.
 | --- | --- | --- |
 | files | one contiguous byte buffer each | |
 | tokens | `kind : u8`, `start : u32` (end from the next start or a length) | Zig's tokenizer (*recalled*) |
-| syntax nodes | `kind`, `main_token`, `subtree_size` (or `parent`), in preorder, so every subtree is a contiguous slice; variable arity in an `extra` column | Co-dfns, Carbon's toolchain (*recalled*); 0006's packed layout |
+| syntax nodes | `kind`, `main_token`, `subtree_size` (or `parent`), in preorder, so every subtree is a contiguous slice; variable arity in an `extra` column | Co-dfns, Carbon's toolchain (*recalled*); 0008's packed layout |
 | names | interned: `id → (offset, len)`; namespaces are ids | |
-| terms | hash-consed arena: `kind`, `a`, `b`, `extra`; cached `hash`, loose-bound-variable bound, `has_metas` | 0007 §2.1; Lean 4's cached `Expr` data (*recalled*) |
+| terms | hash-consed arena: `kind`, `a`, `b`, `extra`; cached `hash`, loose-bound-variable bound, `has_metas` | 0006 §2.1; Lean 4's cached `Expr` data (*recalled*) |
 | metas | `meta → solved term | unsolved` | |
 | constraints | `(lhs, rhs, ctx, blocked_on)` | |
-| defs | `def → name, type, body, multiplicity, totality` | already a growable `Linear.Array` in the fork (*read*: 0009's ledger) |
+| defs | `def → name, type, body, multiplicity, totality` | already a growable `Linear.Array` in the fork (*read*: 0004's ledger) |
 | instances | `(def, type arguments…) → instance` | Translate's monomorphisation |
 | ops | `(opcode, operands, result types, region slices)` | MLIR bytecode |
 
 What falls out at once:
 - **Equality is an integer compare** for names, terms and types. This also
-  replaces a 0009 regression ("names, constants and scopes compared as
-  values") without waiting for 0009's feature 6.
+  replaces a 0004 regression ("names, constants and scopes compared as
+  values") without waiting for 0004's feature 6.
 - **Spans are free.** A node names its token, a token its offset; no
   location side-table threads through every function.
-- **Memory is a few large arrays,** one count per region (0006 D4), not
+- **Memory is a few large arrays,** one count per region (0008 D4), not
   millions of cells. The 9.1 GB peak is the first thing this should cut,
   on Chez as well as natively (*conjecture*).
 
@@ -119,7 +122,7 @@ array, with no allocation per token.
 
 ### 4.3 Parsing
 A sequential parser with an explicit stack writes the preorder node
-arrays: no recursion, no closures, as Carbon does (*recalled*). 0009's
+arrays: no recursion, no closures, as Carbon does (*recalled*). 0004's
 ledger already turned the combinator library into direct code (*read*);
 this goes one step further, so its output is tables, not cells. Operator
 resolution (fixities are declared in source) stays sequential, over a
@@ -127,7 +130,7 @@ flat token slice.
 
 **Decision (D2):** parsing stays sequential. Parallel parsing (Pareas,
 *recalled*) is research-grade, and Idris's grammar (user fixities,
-indentation, interpolation, pragmas) is its hardest case; 0007 §2.7
+indentation, interpolation, pragmas) is its hardest case; 0006 §2.7
 already defers GPU front ends.
 
 ### 4.4 Name resolution is an interval join
@@ -150,9 +153,9 @@ exclusive scan for offsets, then scatter: flattening by expansion
 ### 4.6 Elaboration: representation, not SIMD
 A bidirectional elaborator with metavariables is irregular and
 order-dependent within one definition. The gains here are from the
-representation (*conjecture*, sized by 0007's T1 and T2 targets):
+representation (*conjecture*, sized by 0006's T1 and T2 targets):
 - **Hash-consing and id-keyed caches** for weak-head normal forms and
-  conversion results (0007 T1, T2).
+  conversion results (0006 T1, T2).
 - **Postponement as semi-naive evaluation.** Each round's newly solved
   metas (the delta) join the blocked constraints on `blocked_on`; only
   the matches wake. No rescans of a worklist.
@@ -160,11 +163,11 @@ representation (*conjecture*, sized by 0007's T1 and T2 targets):
   `(id, id)` pairs before any normalisation.
 - **One evaluator.** Normalization runs on the term arena by NbE, with
   array operations as whole-array runtime primitives; the same interpreter
-  serves the program's static normalization (0013).
+  serves the program's static normalization (0003).
 - **Shape arithmetic as a group-by.** A polynomial is a sparse column of
   `(monomial, coefficient)`; normalising it is a sort and a segmented
-  sum (0004's theory, 0007 §2.4).
-- **Parallelism across definitions and modules,** not within one (0007
+  sum (0007's theory, 0006 §2.4).
+- **Parallelism across definitions and modules,** not within one (0006
   §2.7).
 
 ### 4.7 Multiplicities and termination are semiring folds
@@ -177,7 +180,7 @@ representation (*conjecture*, sized by 0007's T1 and T2 targets):
 - **Size-change termination** is a closure of small matrices over
   `Algebra/SizeChange.idr`'s semiring (*read*: `Smaller | Same | Unknown`
   with `Same` neutral): repeated semiring matrix products to a fixpoint.
-  0007 §2.7 already names this.
+  0006 §2.7 already names this.
 
 ### 4.8 Translate is semi-naive Datalog over the instance table
 Each round:
@@ -189,7 +192,7 @@ Each round:
    known;
 5. what remains is the next delta.
 
-"Reachable" (4.2 s) is the same query without substitution. 0009's rule
+"Reachable" (4.2 s) is the same query without substitution. 0004's rule
 (refuse when an instance set grows without bound) is exactly the case in
 which Datalog with function symbols stops terminating, so the refusal has
 a precise meaning in this representation: the delta never empties.
@@ -206,7 +209,7 @@ scatter-write each op at its offset. With MLIR bytecode instead of a
   exactly one binder" is a key. "Every parent precedes its child" is an
   order law. "Every instance is reachable from `main`" is a containment.
   In test builds they run as compiled law queries over the compiler's own
-  state (bumbledb's judge, `../bumbledb/proposals/0003-idris-port.md`
+  state (bumbledb's judge, `../bumbledb/proposals/0001-idris-port.md`
   §4.3), a mechanical backstop for "reject with a named rule, never
   miscompile".
 - **Incremental compilation has an obvious shape** (*conjecture*, not
@@ -216,7 +219,7 @@ scatter-write each op at its offset. With MLIR bytecode instead of a
   underneath instead of a memo table.
 - **The relational core gets its first consumer.** The constraint store,
   union-find, the interval join, the instance fixpoint and the
-  size-change closure are layers 1 and 2 of proposal 0011.
+  size-change closure are layers 1 and 2 of proposal 0010.
 
 ## 6. Limits, honestly
 
@@ -225,7 +228,7 @@ scatter-write each op at its offset. With MLIR bytecode instead of a
   desugaring, multiplicity checking, emission and the fixpoint phases are
   the array-shaped ones.
 - **Bootstrap order.** The data-oriented frontend pays off in speed only
-  once idris-mlir compiles arrays well: 0004's array core and contiguous
+  once idris-mlir compiles arrays well: 0007's array core and contiguous
   runs, both unbuilt. On Chez (stage 0) it should still cut memory; speed
   shows from stage 1.
 - **Sequential is fine.** Zig and Carbon are fast with sequential
@@ -238,7 +241,7 @@ scatter-write each op at its offset. With MLIR bytecode instead of a
   definition context; only the representation of that TT changes.
 - **One thing, one representation.** A table replaces its tree; no pass
   keeps the old form beside the new one. The relational mechanisms live
-  once, in 0011's library.
+  once, in 0010's library.
 - **No primitive implemented in Idris;** array and relational operations
   lower through the array core and the dialect.
 - **Deterministic, byte-identical outputs;** both targets.
@@ -247,14 +250,14 @@ scatter-write each op at its offset. With MLIR bytecode instead of a
 
 | Stage | Content | Proof |
 | --- | --- | --- |
-| O0 | one baseline: self-compile phases, peak memory, elaboration of base (with 0007 T0) | committed record |
-| O1 | interned names and token SoA; names compared by id | identical TTCs and corpus; 0009's name-equality regression replaced |
+| O0 | one baseline: self-compile phases, peak memory, elaboration of base (with 0006 T0) | committed record |
+| O1 | interned names and token SoA; names compared by id. This replaces the name-equality traversal in 0004's ledger. The equality proofs stay 0004's feature 6 | identical TTCs and corpus |
 | O2 | ops table and MLIR bytecode emission | identical module after a bytecode round trip; print ≥ 5× faster than O0 (*conjecture*) |
 | O3 | Translate as semi-naive over the instance table; reachable as its query | identical Core; translate ≥ 3× faster than O0 (*conjecture*) |
-| O4 | the hash-consed term arena (0007 T1, 0006 F6) | identical TTCs; 0007 T1's ≥ 1.5× |
+| O4 | the hash-consed term arena, owned here and shared with the checker (0006 T1) | identical TTCs; 0006 T1's ≥ 1.5× |
 | O5 | flat parse tree; name resolution as the interval join | identical TTCs; parse plus resolve no slower than O4 |
 | O6 | multiplicity and size-change checking as semiring folds | identical totality and multiplicity verdicts on base and the corpus |
-| O7 | elaborator constraint store and postponement on 0011's core | 0007 T2's targets; identical TTCs |
+| O7 | elaborator constraint store and postponement on 0010's core | 0006 T2's targets; identical TTCs |
 | O8 | the compiler's invariants as law queries in test builds | a seeded violation of each law is caught by name |
 
 The thresholds marked *conjecture* become decisions once O0 records the
@@ -263,14 +266,14 @@ baseline.
 ## 9. Rejected alternatives
 
 - **A from-scratch frontend:** loses Idris 2 compatibility and the corpus
-  proofs (0007 §5).
-- **Full flattening of everything** (DPH): 0006 rejects it; layouts are
+  proofs (0006 §5).
+- **Full flattening of everything** (DPH): 0008 rejects it; layouts are
   chosen where the access pattern pays.
 - **Untyped `u32` ids, Zig style:** the type checker can carry the
   invariant for free (D1).
 - **A parallel parser now:** D2.
 - **The frontend's own Datalog or union-find:** that would be a second
-  copy of 0011's mechanism.
+  copy of 0010's mechanism.
 
 ## 10. Decisions
 
@@ -279,7 +282,7 @@ baseline.
 - D1. Every table id is a type indexed by its table, erased to a word.
 - D2. Lexing is array-shaped; parsing stays sequential, writing tables.
 - D3. Translate is a semi-naive fixpoint over the instance table, and an
-  unbounded instance set is the refusal 0009 already names.
+  unbounded instance set is the refusal 0004 already names.
 - D4. Emission is bytecode from an ops table.
 - D5. Every stage is proved by identical TTCs and the unchanged corpus;
   no stage keeps the tree it replaces.

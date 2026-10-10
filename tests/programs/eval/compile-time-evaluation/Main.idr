@@ -1,14 +1,10 @@
 module Main
 
--- A closed call is evaluated at compile time, recursion included, whether
--- or not Idris proves the function terminating. `power` recurses on a Nat,
--- so `power (the Integer 2) 100` and `power (the Integer 3) 20` are
--- constants, and no Integer exists at runtime. `fib` and `euclid` recurse
--- on values Idris cannot see decrease, so they are partial, and their
--- closed calls are evaluated too: `fib 15`, `fib 27` and
--- `euclid (the Integer 1071) 462` are constants, and only `fib n` and
--- `euclid (n * 462) 1071`, whose arguments come from the input, run at
--- runtime.
+-- A closed call stays in the program: idr-eval is not in the simplify
+-- round, so it runs at run time, recursion included, whether or not Idris
+-- proves the function terminating. `fib n` and `euclid (n * 462) 1071`
+-- take their arguments from the input. The other calls are closed and run
+-- the same way.
 
 import Prelude
 

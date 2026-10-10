@@ -1,5 +1,6 @@
 // input: after idr-simplify
-// FILECHECK-OPTIONS: --implicit-check-not=@Main.safeDiv --implicit-check-not=@Main.collatz
-// Both closed calls are evaluated, so neither function is left to run at
-// runtime. What they print is the run's to check.
+// idr-eval is not in the simplify round. safeDiv's closed call is inlined.
+// collatz stays a call and runs at run time. What they print is the run's
+// to check.
+// CHECK: call @Main.collatz(
 // CHECK: idr.io.put_

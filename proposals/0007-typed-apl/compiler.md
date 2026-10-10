@@ -1,10 +1,10 @@
-# 0004 companion — compiler: the lowering in depth
+# 0007 companion — compiler: the lowering in depth
 
 A companion to `README.md`, written independently as a full draft from the compiler side. Where it disagrees with the README, the README decides (see the README's layout note).
 
-(Its original title: 0004: a typed array language, lowered to MLIR)
+(Its original title: a typed array language, lowered to MLIR)
 
-**Status:** proposed, 2026-10-09, replacing the 0004 of the same day
+**Status:** proposed, 2026-10-09, replacing the draft of the same day
 whole. Two premises are the user's: pure array programs are tensors
 ("tensors should definitely be tensors, pure array programs is one of
 the heavy hitting features of mlir and we cannot lose this"), and rank
@@ -27,8 +27,8 @@ primitive is a structured op on tensors, and fusion, tiling,
 bufferization, vectorization and partitioning are upstream's mechanisms
 driven by facts the types already give. The `idr` dialect adds only what
 upstream lacks. This draft goes deepest on the compiler; the surface
-library appears where the compiler depends on it. 0005 owns the shard
-runtime and 0001 Rust; both are cited, not restated.
+library appears where the compiler depends on it. 0009 owns the shard
+runtime and 0013 Rust; both are cited, not restated.
 
 ## What it changes
 
@@ -105,7 +105,7 @@ deletes.
   "primitives" are library functions recognized by name, as
   `Linear.Array`'s loops are today; sorting words is the runtime's
   (§4.4).
-- **Static normalization** (0013). A closed call of total array code is
+- **Static normalization** (0003). A closed call of total array code is
   normalized in the frontend (§4.6); partial array code is not.
 - **No oracle.** Expected files are the specification. C and Futhark are
   performance baselines only; their outputs agreeing with ours to 1e-9 is
@@ -494,7 +494,7 @@ constants:
 Reasons:
 
 1. **One output per program.** No oracle means one expected file for
-   every target, vector width and shard count (0005 D8); a compiler that
+   every target, vector width and shard count (0009 D8); a compiler that
    reassociates a float reduction cannot give it.
 2. **Nothing to prove or keep.** An association written in the program
    needs no law, so no fact about an operator exists to lose. For a
@@ -563,7 +563,7 @@ ShardingInterfaceImpl.cpp:46-73).
 
 - **Total array code is normalized.** Value-array code has no world, so a
   closed call of total array code is normalized at compile time by the
-  type checker's interpreter (0013), which runs each array operation as a
+  type checker's interpreter (0003), which runs each array operation as a
   whole-array primitive of the runtime. Past the counted budget the result
   is a startup constant. Array code that performs IO through forged worlds
   (`Linear.Array`) is stuck and runs at run time, as are partial calls.
@@ -782,7 +782,7 @@ from the vendors' documents when the entries are written, and W measured
   is the wrapper, as for every other value, and the verifier checks it
   there.
 - **The heap.** A store of a tensor into a cell (a constructor's field, a
-  closure's capture, an element of an array, a message of 0005 §5) is a
+  closure's capture, an element of an array, a message of 0009 §5) is a
   write of its buffer as One-Shot sees it, a *release*: One-Shot copies
   when the program still uses the tensor afterwards, so a cell never holds
   a buffer that tensor code may still write. A read from the heap is
@@ -916,9 +916,9 @@ ahead of bufferization.
 
 ## 12. Multicore
 
-### 12.1 Partitioned loops on 0005's shards
+### 12.1 Partitioned loops on 0009's shards
 
-0005 §8 owns the lowering of `scf.forall` to a fork per shard and a join,
+0009 §8 owns the lowering of `scf.forall` to a fork per shard and a join,
 and the runtime. This section owns which array loops become one.
 
 **decision (D14).**
@@ -936,21 +936,21 @@ and the runtime. This section owns which array loops become one.
   target's entry. It is a work bound rather than an extent bound because
   a 5500-element map is not worth a fork and a 5500-row matrix product is.
 - **Determinism.** Only parallel dimensions are partitioned, so every
-  shard count prints the same output (0005 D8).
+  shard count prints the same output (0009 D8).
 - **The arrays reach every shard by pointer** for the duration of the
   join, which is sound because a partitioned body touches no count and
-  each tile writes its own slice (0005 §8).
+  each tile writes its own slice (0009 §8).
 - **Proof.** `partitioned=@f`: some loop of @f is mapped to shards, and
   every such loop's body counts nothing and can neither crash nor
   diverge.
 
 ### 12.2 Region SPMD through `shard-partition`
 
-By 0005's rule for its P5: when it runs spectral-norm faster than
+By 0009's rule for its P5: when it runs spectral-norm faster than
 per-loop partitioning beyond the run-to-run spread. Then a region of roots
 is outlined (`outlineSingleBlockRegion`), its tensors annotated
 `shard.shard` along parallel dimensions only, and `sharding-propagation`
-and `shard-partition` make it SPMD. Its collectives lower to 0005's
+and `shard-partition` make it SPMD. Its collectives lower to 0009's
 runtime: an `all_gather` of a result is each shard writing its slice of
 one buffer. Its gain is one fork and one join for a region instead of one
 per loop.
@@ -1046,9 +1046,9 @@ per loop.
 |---|---|
 | **Ops added** | `idr.array.lift` (§4.2), `scan` (§4.3), `scatter` (§4.4), `alloc` and `copy` (§9.1), `thaw` (§4.5), `rebase` (§9.4), `constant` (§4.6), `sort` (§4.4) |
 | **Interfaces they implement** | `DestinationStyleOpInterface`; `TilingInterface` (lift: frame dimensions parallel; scan and scatter: batch dimensions parallel, the sequential dimension tiled in order with its state carried); `BufferizableOpInterface`, also for `idr.lin.enter` and `use` (casts keeping the buffer) and for `idr.con` and closures with tensor operands (releases); `ShardingInterface` at stage 9 |
-| **Attributes** | `#idr.shards`, a device mapping for `scf.forall`, on which 0005's lowering keys; `#idr.grade`, a tensor encoding made of the grade's two enums, which exists only inside `idr-bufferize` (§9.2) |
+| **Attributes** | `#idr.shards`, a device mapping for `scf.forall`, on which 0009's lowering keys; `#idr.grade`, a tensor encoding made of the grade's two enums, which exists only inside `idr-bufferize` (§9.2) |
 | **Passes added** | `idr-soa`, `idr-batch`, `idr-fuse`, `idr-schedule`, `idr-bufferize` |
-| **Passes changed** | `idr-vectorize` (§11), `idr-rc` and `idr-stack` (§10), `idr-demand` (§9.5), `idr-in-bounds` (the length relation also starts at `idr.array.alloc` and every dimension), `idr-target` (§8.4); `idr-eval` is replaced by static normalization in the frontend (0013) |
+| **Passes changed** | `idr-vectorize` (§11), `idr-rc` and `idr-stack` (§10), `idr-demand` (§9.5), `idr-in-bounds` (the length relation also starts at `idr.array.alloc` and every dimension), `idr-target` (§8.4); `idr-eval` is replaced by static normalization in the frontend (0003) |
 | **Properties of `idr-expect`** | `batched=@f` (no frame loop is left from a lift in @f), `fused=@f` (§7), `in-place=@f` (no copy of an array in @f), `program-order` (no reduction dimension anywhere has more than one lane or a partition), `partitioned=@f` (§12.1) |
 | **Deleted** | `idr.array.generate` and `fold`; `Idr_Rank1ArrayValue` as a loop's operand type; `Loops.cppm`'s memref half; the `ArrayLoop` hook and its region signatures; `Rank0 | Rank1`; `vectorBits`'s test of x86 |
 
@@ -1128,7 +1128,7 @@ programs are checked before any is committed (to check).
 
 Each stage passes `make check`, `make build`, `make test`, `make test-idr`
 and `make test-mlir-tools` on both targets, and runs `bench/` on both.
-Stages 1 to 5 are in order; 6 follows 5 and 0005's P4; 7 and 8 follow 4;
+Stages 1 to 5 are in order; 6 follows 5 and 0009's P4; 7 and 8 follow 4;
 9 and 10 wait on their measurements.
 
 **1. Value arrays as tensors, rank 1** (§4, §9, §10).
@@ -1198,12 +1198,12 @@ Stages 1 to 5 are in order; 6 follows 5 and 0005's P4; 7 and 8 follow 4;
   extended to arrays).
 - **Benchmarks:** G4.
 
-**6. Multicore** (§12.1), after 0005's P4.
+**6. Multicore** (§12.1), after 0009's P4.
 
 - **Change:** the partition in `idr-schedule`; `#idr.shards`; W measured
   and written into both entries.
 - **Proof:** every array fixture at `IDRIS_RT_SHARDS=1` against its
-  expected files and at more shards against the one-shard run (0005 D8);
+  expected files and at more shards against the one-shard run (0009 D8);
   `partitioned=@f`; a body that may crash is not partitioned.
 - **Benchmarks:** G3 on every program.
 
@@ -1221,7 +1221,7 @@ Stages 1 to 5 are in order; 6 follows 5 and 0005's P4; 7 and 8 follow 4;
   no closure (`no-closures=@f`).
 - **Benchmarks:** logreg-grad within 1.5x of C's hand-written gradient.
 
-**9. Region SPMD** (§12.2), on 0005's P5 measurement.
+**9. Region SPMD** (§12.2), on 0009's P5 measurement.
 
 **10. GPU** (§14), on its gates.
 
@@ -1304,7 +1304,7 @@ Stages 1 to 5 are in order; 6 follows 5 and 0005's P4; 7 and 8 follow 4;
   `sparse_tensor.new` from files.** A C++ runtime library, and input
   belongs to our runtime's IO.
 - **MPI (`ShardToMPI`), OpenMP (`convert-scf-to-openmp`), async
-  (`async-parallel-for`).** Second runtimes and C libraries; 0005's shards
+  (`async-parallel-for`).** Second runtimes and C libraries; 0009's shards
   are the runtime.
 - **Enzyme for differentiation.** A second pinned upstream that tracks
   LLVM's releases, and the float order of its derivative would be the
@@ -1361,19 +1361,19 @@ Each decision's reason or measurement is in the section it points to.
   under transposition (§15).
 - **D18** Futhark is pinned for the bench and its C committed (Performance
   goals).
-- **D19** Total array code is normalized in the frontend (0013); constants
+- **D19** Total array code is normalized in the frontend (0003); constants
   are static cells (§4.6).
 - **D20** The in-place promise has an array clause, checked under
   `--demand-in-place` (§9.5).
 
-0005 cites the earlier draft's §3.8 for SPMD (its §8 and P5); that
-content is §12 here, and 0005's sentence on tiling loops to `scf.forall`
+0009 cites the earlier draft's §3.8 for SPMD (its §8 and P5); that
+content is §12 here, and 0009's sentence on tiling loops to `scf.forall`
 should cite §12.1, which owns which array loops are partitioned.
 `proposals/README.md`'s entry becomes: "a typed array language lowered
 to MLIR: arrays of any rank are tensors from the frontend, a closed
 primitive layer around the rank operator, fusion and scheduling on
 tensors, One-Shot Bufferize with the grades kept in the types, partitions on
-0005's shards, sparse arrays and differentiation from the same layer.
+0009's shards, sparse arrays and differentiation from the same layer.
 Proposed."
 
 ## Upstream used, and the changes planned

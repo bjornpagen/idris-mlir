@@ -50,12 +50,19 @@ finIdx : {idx : _} -> (0 prf : IsVar x idx vars) ->
 finIdx First = FZ
 finIdx (Later l) = FS (finIdx l)
 
-||| Recover the value pointed at by an IsVar proof
-||| O(n) in the size of the index
+||| The element at an index. An `IsVar` proof never reaches the empty list
+||| or an index past the end, so those cases are missing and crash.
+partial
+elementAt : List a -> Nat -> a
+elementAt (x :: _) Z = x
+elementAt (_ :: xs) (S k) = elementAt xs k
+
+||| Recover the value pointed at by an IsVar proof.
+||| O(n) in the size of the index. The name the proof binds is erased, so
+||| the value is this element of the list, not that name.
 export
 nameAt : {vars : List a} -> {idx : Nat} -> (0 p : IsVar n idx vars) -> a
-nameAt {vars = n :: _} First = n
-nameAt (Later p) = nameAt p
+nameAt {vars} {idx} _ = assert_total (elementAt vars idx)
 
 ||| Inversion principle for Later
 export

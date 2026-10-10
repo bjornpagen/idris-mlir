@@ -375,13 +375,16 @@ arrange (Nothing :: ls) ps (f :: fs) = f :: arrange ls ps fs
 arrange (Nothing :: ls) ps [] = []
 
 ||| A type with the indices of every inductive family in it erased, so that
-||| `Vect 3 Double` and `Vect n Double` name one instance.
+||| `Vect 3 Double` and `Vect n Double` name one instance. A type family is
+||| a lambda (`SortedDMap k (\_ => v)`, `DPair a (\x => p x)`): the indices
+||| inside its body are erased the same way, so two families that differ
+||| only there name one instance.
 eraseIndices : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                {vars : _} -> String -> TT vars -> Core (TT vars)
-eraseIndices owner tm@(Bind fc x (Pi pfc rig pinfo a) sc) = do
-  a' <- eraseIndices owner a
+eraseIndices owner (Bind fc x b sc) = do
+  b' <- traverse (eraseIndices owner) b
   sc' <- eraseIndices owner sc
-  pure (Bind fc x (Pi pfc rig pinfo a') sc')
+  pure (Bind fc x b' sc')
 eraseIndices owner tm = case spine tm [] of
   (h@(Ref _ (TyCon _) n), args) => do
     Just (_, ps) <- paramPositions owner n
@@ -502,8 +505,9 @@ mutual
     facts <- tyConFacts def
     let params = facts.params
     let keep = facts.typeParams
-    args <- traverse (\(i, a) => if elem i keep then eraseIndices owner a
-                                  else pure (Erased EmptyFC Placeholder))
+    args <- traverse (\(i, a) => if elem i keep
+                                    then eraseIndices owner !(canonicalTypeArg a)
+                                    else pure (Erased EmptyFC Placeholder))
                      (zip [0 .. length args0] args0)
     inst <- MkDataId <$> instanceName (fullname def) (map Just args)
     st <- get TState

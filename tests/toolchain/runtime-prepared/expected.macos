@@ -15,6 +15,7 @@ the prepared runtime needs:
   ___gmpz_clear
   ___gmpz_cmp
   ___gmpz_fdiv_q
+  ___gmpz_fdiv_q_2exp
   ___gmpz_fits_slong_p
   ___gmpz_get_si
   ___gmpz_get_str
@@ -23,6 +24,7 @@ the prepared runtime needs:
   ___gmpz_limbs_read
   ___gmpz_mod
   ___gmpz_mul
+  ___gmpz_mul_2exp
   ___gmpz_roinit_n
   ___gmpz_set
   ___gmpz_set_d

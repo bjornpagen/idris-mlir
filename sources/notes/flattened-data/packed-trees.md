@@ -309,11 +309,11 @@ missing, (3) route end witnesses as extra returns, (4) destination-cursor-passin
    monomorphisation is the same closed world Gibbon relies on (ParLoCal §4 footnote).
 5. **Relative offsets, not absolute pointers, inside a packed value**, so a subtree is a byte
    slice that copies with one memcpy and can be written to disk or a message unchanged (Allais
-   `serialisation.tex` "Copying Entire Trees"; LoCal §3.4). This fits proposal 0005's "values
-   cross only inside messages" (`proposals/0005-shards.md`): a packed value is already a
+   `serialisation.tex` "Copying Entire Trees"; LoCal §3.4). This fits proposal 0009's "values
+   cross only inside messages" (`proposals/0009-shards.md`): a packed value is already a
    message (conjecture).
 6. **Granularity decides representation in parallel code**: fresh region only on steal;
-   serialise below the task cutoff (ParLoCal §4.1, §4.5). Relevant to shards (`proposals/0005-shards.md`; conjecture).
+   serialise below the task cutoff (ParLoCal §4.1, §4.5). Relevant to shards (`proposals/0009-shards.md`; conjecture).
 7. **Region-level counting fits the existing counted runtime.** A packed value is one counted
    cell with an outset of the regions it points into (TR App. C), so it should slot under
    `runtime/Rc` reference counting without a tracing collector (conjecture); CNF shows the same "one object
