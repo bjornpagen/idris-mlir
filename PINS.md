@@ -168,6 +168,26 @@ which the top-level CMake configure gate reads.
   `check-mlir` not run on main); plan in its README: an issue and a pull
   request
 
+## remove-dead-values-poison-operand
+
+- symptom: on main at 7208ba24, `remove-dead-values` replaces an operand of
+  a region branch op (or its terminator) that it finds dead with a new
+  `ub.poison` even when the operand already is one
+  (`cleanUpDeadVals`, `mlir/lib/Transforms/RemoveDeadValues.cpp`). The
+  module prints the same, but `OperationFingerPrint` changes, and `cse`
+  merges the new poison back, so the simplify round never reaches its
+  fixpoint on a module with such a value: `tests/idr/vectorize/rows-aarch64`
+  ran to the round budget with 26 ops in every round
+- sites: none in our code; the patch. The simplify round runs
+  `remove-dead-values{canonicalize=false}` and `cse`
+  (foreign/idr/lib/Simplify/Round.cppm)
+- workaround: `upstream/22-remove-dead-values-poison-operand/llvm.patch`,
+  the pull request: the cleanup keeps an operand defined by `ub.poison`
+- retire: drop the patch when the pin has the fix
+- upstream: upstream/22-remove-dead-values-poison-operand (not filed;
+  `check-mlir` not run on main); plan in its README: an issue and a pull
+  request
+
 ## elaboration-primitive-folding
 
 - symptom: at the pinned Idris, elaboration normalises every checked term

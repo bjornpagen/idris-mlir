@@ -1,0 +1,21 @@
+#!/bin/sh
+# The pinned mlir-opt, with upstream/22-remove-dead-values-poison-operand/llvm.patch,
+# no longer shows the bug: remove-dead-values{canonicalize=false}, on a module
+# whose dead loop value is already poison, leaves the poison as it is, so
+# composite-fixed-point-pass over it converges after one run. An unpatched
+# mlir-opt (main at 7208ba24) puts a new poison in its place, which the
+# composite pass's fingerprint counts as a change. When the pin has the fix,
+# the patch goes, and with it the PINS.md entry remove-dead-values-poison-operand,
+# the report and this test (upstream/README.md).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+input=$root/upstream/22-remove-dead-values-poison-operand/poison-operand.mlir
+bounded "$llvm_bin/mlir-opt" "$input" \
+  --composite-fixed-point-pass="pipeline=remove-dead-values{canonicalize=false} max-iterations=1 on-convergence-failure=error" \
+  > /dev/null 2> "$work/err"
+status=$?
+if [ "$status" -eq 0 ]; then
+  say "keeps the poison operand (converges after one run)"
+else
+  say "replaces the poison operand (exit $status)"
+  show "$work/err"
+fi

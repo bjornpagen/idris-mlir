@@ -1,5 +1,7 @@
 module Main
 
+import Prelude
+
 -- A chain of 240 covering functions with no loop, each matching its first
 -- argument and calling one of the next two with its arguments permuted,
 -- and 25 total functions that call the first: each total function's check

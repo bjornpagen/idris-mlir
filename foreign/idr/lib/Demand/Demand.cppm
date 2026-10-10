@@ -75,9 +75,9 @@ void report(Broken broken) {
 } // namespace
 
 // Every call of a function passes each parameter the function rebuilds in
-// place exclusive (`!idr.excl<T>`): an error at each call that passes it
-// owned or as a view, with a note at the idr.dup that shared it, when the
-// call passes one.
+// place exclusive (`!idr.excl<T>`): an error at each call that shares it
+// (passes what an idr.dup made), with a note at the idr.dup, or, when none
+// does, at each call that passes it owned or as a view.
 export LogicalResult inPlace(ModuleOp module) {
   DenseMap<StringAttr, SmallVector<unsigned>> promised;
   for (auto fn : module.getOps<func::FuncOp>())
@@ -98,15 +98,14 @@ export LogicalResult inPlace(ModuleOp module) {
           broken.push_back(
               {caller, call, index, throughLinear(call.getOperand(index)).getDefiningOp<DupOp>()});
     });
-  // The calls that share the value there come first, since the frontend
-  // names the first error: each other one passes on a value such a call
-  // shared (a function's call of itself on a part of what it took apart),
-  // or one shared into the grade such a call set.
+  // A call that shares the value there is the cause: each other one passes
+  // on a value such a call shared (a function's call of itself on a part of
+  // what it took apart), or one shared into the grade such a call set, and
+  // is no error of its own. So the calls that share are reported, and the
+  // others only when no call shares.
+  bool shares = llvm::any_of(broken, [](const Broken &each) { return bool(each.dup); });
   for (Broken each : broken)
-    if (each.dup)
-      report(each);
-  for (Broken each : broken)
-    if (!each.dup)
+    if (bool(each.dup) == shares)
       report(each);
   return success(broken.empty());
 }

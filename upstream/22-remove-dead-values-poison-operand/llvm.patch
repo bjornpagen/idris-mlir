@@ -1,0 +1,68 @@
+diff --git a/mlir/lib/Transforms/RemoveDeadValues.cpp b/mlir/lib/Transforms/RemoveDeadValues.cpp
+index 0b9321a26..9d959e5e6 100644
+--- a/mlir/lib/Transforms/RemoveDeadValues.cpp
++++ b/mlir/lib/Transforms/RemoveDeadValues.cpp
+@@ -582,6 +582,10 @@ static void cleanUpDeadVals(MLIRContext *ctx, RDVFinalCleanupList &list) {
+     for (auto deadIdx : o.nonLive.set_bits()) {
+       Value operand = o.op->getOperand(deadIdx);
+       assert(operand && "expected non-null operand for poison replacement");
++      // An operand that is already poison stays: a new ub.poison in its place
++      // would change the IR without simplifying it.
++      if (operand.getDefiningOp<ub::PoisonOp>())
++        continue;
+       o.op->setOperand(deadIdx, createPoisonedValue(rewriter, operand));
+     }
+   }
+@@ -735,7 +739,15 @@ static void cleanUpDeadVals(MLIRContext *ctx, RDVFinalCleanupList &list) {
+ 
+   // 7. Operations
+   LDBG() << "Cleaning up " << list.operations.size() << " operations";
++  // A ub.poison that operands still use is erased last, if they are gone by
++  // then: erasing it now would put a new one in their place (as step 1 keeps
++  // them).
++  SmallVector<Operation *> usedPoison;
+   for (Operation *op : list.operations) {
++    if (isa<ub::PoisonOp>(op) && !op->use_empty()) {
++      usedPoison.push_back(op);
++      continue;
++    }
+     LDBG() << "Erasing operation: "
+            << OpWithFlags(op,
+                           OpPrintingFlags().skipRegions().printGenericOpForm());
+@@ -775,6 +787,9 @@ static void cleanUpDeadVals(MLIRContext *ctx, RDVFinalCleanupList &list) {
+     if (poisonOp.use_empty())
+       poisonOp.erase();
+   }
++  for (Operation *op : usedPoison)
++    if (op->use_empty())
++      rewriter.eraseOp(op);
+ 
+   LDBG() << "Finished cleanup of dead values";
+ }
+diff --git a/mlir/test/Transforms/remove-dead-values-poison-operand.mlir b/mlir/test/Transforms/remove-dead-values-poison-operand.mlir
+new file mode 100644
+index 000000000..252672b00
+--- /dev/null
++++ b/mlir/test/Transforms/remove-dead-values-poison-operand.mlir
+@@ -0,0 +1,21 @@
++// RUN: mlir-opt %s -split-input-file -verify-diagnostics \
++// RUN:   --composite-fixed-point-pass="pipeline=remove-dead-values{canonicalize=false} max-iterations=2" \
++// RUN:   | FileCheck %s
++
++// A loop whose result is dead and whose iteration value is already poison:
++// remove-dead-values has nothing to replace, so a run leaves the function as
++// it is, and the composite pass stops after it.
++
++// CHECK-LABEL: func.func @poison_iter_arg
++//       CHECK:   %[[P:.*]] = ub.poison : i64
++//       CHECK:   scf.for {{.*}} iter_args(%{{.*}} = %[[P]]) -> (i64)
++//       CHECK:     scf.yield %[[P]] : i64
++func.func @poison_iter_arg(%lb: index, %ub: index, %step: index, %m: memref<i64>) {
++  %p = ub.poison : i64
++  %r = scf.for %i = %lb to %ub step %step iter_args(%a = %p) -> (i64) {
++    %c = arith.constant 1 : i64
++    memref.store %c, %m[] : memref<i64>
++    scf.yield %p : i64
++  }
++  return
++}

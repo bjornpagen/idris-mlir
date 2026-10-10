@@ -53,7 +53,7 @@ module attributes {idr.program} {
 
 // Ties go to the smaller name: @P and @Q take 130 each, and boxing @P
 // leaves 131 in @Two's cell.
-// CHECK-LABEL: // -----
+// CHECK-LABEL: {{//}} -----
 // CHECK-DAG: idr.data @P box {
 // CHECK-DAG: idr.data @Q {
 // CHECK-DAG: idr.data @S16 {
@@ -81,7 +81,7 @@ module attributes {idr.program} {
 
 // An array's element is a cell's worth of slots too: an element of @W
 // would hold 256, so @W becomes a box, and then @S16 in @W's cell.
-// CHECK-LABEL: // -----
+// CHECK-LABEL: {{//}} -----
 // CHECK-DAG: idr.data @W box {
 // CHECK-DAG: idr.data @S16 box {
 // CHECK: @first(%{{.*}}: memref<?x!idr.box<@W>>)
@@ -108,7 +108,7 @@ module attributes {idr.program} {
 // A closure sum is made here, of one label that captures @W: two of its
 // values would put 512 in @Cell's cell, so the sum becomes a box (fit
 // runs once closures are sums), then @W in the sum's cell, then @S16.
-// CHECK-LABEL: // -----
+// CHECK-LABEL: {{//}} -----
 // CHECK-DAG: idr.data @{{fn\$[0-9]+}} box closures {
 // CHECK-DAG: idr.data @W box {
 // CHECK-DAG: idr.data @S16 box {
@@ -152,7 +152,7 @@ module attributes {idr.program} {
 // -----
 
 // Nothing to do: 15 of @S16 and 15 strings are 255, which a header counts.
-// CHECK-LABEL: // -----
+// CHECK-LABEL: {{//}} -----
 // CHECK-DAG: idr.data @S16 {
 // CHECK-DAG: idr.data @Fits box {
 module attributes {idr.program} {
@@ -173,7 +173,7 @@ module attributes {idr.program} {
 // A sum of several constructors is looked through, never boxed: a read of
 // one of its fields may already run where its constructor is not known.
 // @U's slots hold @W's 256, so @W becomes a box inside it, then @S16.
-// CHECK-LABEL: // -----
+// CHECK-LABEL: {{//}} -----
 // CHECK-DAG: idr.data @U {
 // CHECK-DAG: idr.data @W box {
 // CHECK-DAG: idr.data @S16 box {
