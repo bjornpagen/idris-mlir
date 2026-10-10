@@ -67,23 +67,34 @@ spine : TT vars -> List (TT vars) -> (TT vars, List (TT vars))
 spine (App _ fn arg) args = spine fn (arg :: args)
 spine fn args = (fn, args)
 
+||| Does a subterm satisfy the test: the term, its binders' types and
+||| values, an application's parts, a pattern's value, what a delay holds,
+||| a metavariable's arguments?
+export
+mentions : ({0 vs : Scope} -> TT vs -> Bool) -> TT vars -> Bool
+mentions p tm = p tm || case tm of
+  Bind _ _ b sc => mentions p (binderType b) || binderVal b || mentions p sc
+  App _ f a => mentions p f || mentions p a
+  As _ _ _ pat => mentions p pat
+  TDelayed _ _ t => mentions p t
+  TDelay _ _ t a => mentions p t || mentions p a
+  TForce _ _ t => mentions p t
+  Meta _ _ _ args => any (mentions p) args
+  _ => False
+  where
+    binderVal : TTBinder (TT vs) -> Bool
+    binderVal (Let _ _ v _) = mentions p v
+    binderVal (PLet _ _ v _) = mentions p v
+    binderVal _ = False
+
 ||| Does the term mention `Erased` (a placeholder for an unknown value)?
 export
 anyErased : TT vars -> Bool
-anyErased (Erased _ _) = True
-anyErased (Bind _ _ b sc) = anyErased (binderType b) || binderVal b || anyErased sc
+anyErased = mentions erasedTerm
   where
-    binderVal : TTBinder (TT vs) -> Bool
-    binderVal (Let _ _ v _) = anyErased v
-    binderVal (PLet _ _ v _) = anyErased v
-    binderVal _ = False
-anyErased (App _ f a) = anyErased f || anyErased a
-anyErased (As _ _ a p) = anyErased p
-anyErased (TDelayed _ _ t) = anyErased t
-anyErased (TDelay _ _ t a) = anyErased t || anyErased a
-anyErased (TForce _ _ t) = anyErased t
-anyErased (Meta _ _ _ args) = any anyErased args
-anyErased _ = False
+    erasedTerm : TT vs -> Bool
+    erasedTerm (Erased _ _) = True
+    erasedTerm _ = False
 
 ||| Abstracts every variable in scope with a lambda, giving a closed term whose
 ||| outermost lambda binds the last variable of `vars`.
@@ -91,26 +102,6 @@ wrapLams : {vars : Scope} -> FC -> TT vars -> ClosedTerm
 wrapLams {vars = []} fc tm = tm
 wrapLams {vars = x :: rest} fc tm =
   wrapLams {vars = rest} fc (Bind fc x (Lam fc top Explicit (Erased fc Placeholder)) tm)
-
-||| The closed normal form of a term in scope, with type variables replaced by
-||| their known values and every other variable by `Erased`. Every
-||| definition unfolds, whatever its visibility (`normaliseAll`): Idris's
-||| plain `normalise` keeps a `private` function of another module as it is
-||| (a type-level function such as Data.SortedMap's `delType`), which is a
-||| module boundary, not a value.
-export
-closeNormalise : {auto c : Ref Ctxt Defs} -> {vars : Scope} ->
-                 FC -> List (VarInfo a) -> TT vars -> Core ClosedTerm
-closeNormalise fc env tm = do
-  let closed = foldl (App fc) (wrapLams fc tm) (reverse (map value env))
-  defs <- get Ctxt
-  normaliseAll defs [] closed
-  where
-    value : VarInfo a -> ClosedTerm
-    value (TypeValue t) = t
-    value (Static t) = t
-    value (Shaped _ _ s) = s
-    value (Runtime _ _) = Erased fc Placeholder
 
 ||| A closed term in any scope.
 export
@@ -167,19 +158,11 @@ closeWritten fc env tm = zeta (betaAll (wrapLams fc tm) (reverse (map value env)
 ||| Does a term mention a metavariable? Idris can leave a solved one in an
 ||| elaborated term (the implementation for the inner pair of a triple).
 hasMeta : TT vars -> Bool
-hasMeta (Meta {}) = True
-hasMeta (Bind _ _ b sc) = hasMeta (binderType b) || binderVal b || hasMeta sc
+hasMeta = mentions metaTerm
   where
-    binderVal : TTBinder (TT vars) -> Bool
-    binderVal (Let _ _ v _) = hasMeta v
-    binderVal (PLet _ _ v _) = hasMeta v
-    binderVal _ = False
-hasMeta (App _ f a) = hasMeta f || hasMeta a
-hasMeta (As _ _ a p) = hasMeta p
-hasMeta (TDelayed _ _ t) = hasMeta t
-hasMeta (TDelay _ _ t a) = hasMeta t || hasMeta a
-hasMeta (TForce _ _ t) = hasMeta t
-hasMeta _ = False
+    metaTerm : TT vs -> Bool
+    metaTerm (Meta {}) = True
+    metaTerm _ = False
 
 ||| A written form with the solutions of its metavariables filled in, and
 ||| nothing else evaluated.
@@ -452,20 +435,11 @@ unknownPart = Ref EmptyFC Func (MN "idris-mlir-unknown" 0)
 ||| Does a term mention `unknownPart`?
 export
 mentionsUnknown : TT vars -> Bool
-mentionsUnknown (Ref _ _ (MN "idris-mlir-unknown" _)) = True
-mentionsUnknown (Bind _ _ b sc) = mentionsUnknown (binderType b) || binderVal b || mentionsUnknown sc
+mentionsUnknown = mentions unknownRef
   where
-    binderVal : TTBinder (TT vs) -> Bool
-    binderVal (Let _ _ v _) = mentionsUnknown v
-    binderVal (PLet _ _ v _) = mentionsUnknown v
-    binderVal _ = False
-mentionsUnknown (App _ f a) = mentionsUnknown f || mentionsUnknown a
-mentionsUnknown (As _ _ a p) = mentionsUnknown p
-mentionsUnknown (TDelayed _ _ t) = mentionsUnknown t
-mentionsUnknown (TDelay _ _ t a) = mentionsUnknown t || mentionsUnknown a
-mentionsUnknown (TForce _ _ t) = mentionsUnknown t
-mentionsUnknown (Meta _ _ _ args) = any mentionsUnknown args
-mentionsUnknown _ = False
+    unknownRef : TT vs -> Bool
+    unknownRef (Ref _ _ (MN "idris-mlir-unknown" _)) = True
+    unknownRef _ = False
 
 ||| A type-level parameter: its type is a universe, possibly after Pi binders.
 export
@@ -487,3 +461,79 @@ lookupDef fc owner n = do
   Just def <- lookupCtxtExact n (gamma defs)
     | Nothing => reject fc owner CompiledModule ("missing definition " ++ show n)
   pure def
+
+||| A runtime variable in a term closed for normalisation: a reference to a
+||| definition that does not exist, which no reduction looks into.
+runtimeVariable : ClosedTerm
+runtimeVariable = Ref EmptyFC Func (MN "idris-mlir-runtime" 0)
+
+isRuntimeVariable : TT vs -> Bool
+isRuntimeVariable (Ref _ _ (MN "idris-mlir-runtime" _)) = True
+isRuntimeVariable _ = False
+
+||| A type in which no computation is run on a runtime variable: what is
+||| known of one is its constructors, as written, so a constructor or a type
+||| constructor applied to one stays, and any other call to one, a
+||| computation of a value, is unknown (`Erased`), as a runtime argument's
+||| shape is read (`skeleton`). A computation on a value nothing is known of
+||| can only be stuck, or never end: a parser's, built of closures that call
+||| one another, unfolds without end once normalised under them. A function
+||| whose result is a type (`IsNothing m = m = Nothing`) is no such
+||| computation: the type it gives is needed whatever the value, and is cut
+||| inside instead. Nor is a lambda applied to one, a type family at a
+||| value (`(\m => Vect m Int) n`), which is substituted. A value whose
+||| constructors are known (`Shaped`) is no runtime variable, and a type
+||| still reduces on it.
+cutRuntime : {auto c : Ref Ctxt Defs} -> TT vars -> Core (TT vars)
+cutRuntime tm =
+  if not (mentions isRuntimeVariable tm) then pure tm else case spine tm [] of
+    (Bind fc _ (Lam {}) sc, a :: as) => cutRuntime (foldl (App fc) (subst a sc) as)
+    (Bind fc x b sc, []) => Bind fc x <$> binder b <*> cutRuntime sc
+    (TDelayed fc r t, []) => TDelayed fc r <$> cutRuntime t
+    (h@(Ref fc (DataCon _ _) _), args) => foldl (App fc) h <$> traverse cutRuntime args
+    (h@(Ref fc (TyCon _) _), args) => foldl (App fc) h <$> traverse cutRuntime args
+    (h@(Ref fc Func n), args) =>
+      if !(computesType n)
+         then foldl (App fc) h <$> traverse cutRuntime args
+         else pure (Erased fc Placeholder)
+    _ => pure (Erased EmptyFC Placeholder)
+  where
+    computesType : Name -> Core Bool
+    computesType n = do
+      defs <- get Ctxt
+      Just def <- lookupCtxtExact n (gamma defs)
+        | Nothing => pure False
+      pure (isTypeLike (type def))
+
+    binder : TTBinder (TT vs) -> Core (TTBinder (TT vs))
+    binder (Lam bfc r p ty) = Lam bfc r p <$> cutRuntime ty
+    binder (Let bfc r val ty) = Let bfc r <$> cutRuntime val <*> cutRuntime ty
+    binder (Pi bfc r p ty) = Pi bfc r p <$> cutRuntime ty
+    binder (PVar bfc r p ty) = PVar bfc r p <$> cutRuntime ty
+    binder (PLet bfc r val ty) = PLet bfc r <$> cutRuntime val <*> cutRuntime ty
+    binder (PVTy bfc r ty) = PVTy bfc r <$> cutRuntime ty
+
+||| The closed normal form of a term in scope, with type variables replaced by
+||| their known values and every runtime variable by `Erased`, once every
+||| computation on one is cut (`cutRuntime`). A solved metavariable is
+||| filled in first: it stands applied to every variable in scope where it
+||| was made, runtime ones too, which its solution need not use. Every
+||| definition unfolds, whatever its visibility (`normaliseAll`): Idris's
+||| plain `normalise` keeps a `private` function of another module as it is
+||| (a type-level function such as Data.SortedMap's `delType`), which is a
+||| module boundary, not a value.
+export
+closeNormalise : {auto c : Ref Ctxt Defs} -> {vars : Scope} ->
+                 FC -> List (VarInfo a) -> TT vars -> Core ClosedTerm
+closeNormalise fc env tm = do
+  closed <- solved (betaAll (wrapLams fc tm) (reverse (map value env)))
+  defs <- get Ctxt
+  normaliseAll defs [] !(cutRuntime closed)
+  where
+    value : VarInfo a -> ClosedTerm
+    value (TypeValue t) = t
+    value (Static t) = t
+    value (Shaped _ _ s) = s
+    -- A quantity-0 variable (a length, a proof) is no runtime value.
+    value (Runtime _ (Just ErasedT)) = Erased fc Placeholder
+    value (Runtime _ _) = runtimeVariable
