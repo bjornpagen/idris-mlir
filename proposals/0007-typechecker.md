@@ -145,9 +145,7 @@ the kernel checks.
 - **Datalog and the relational core:** used for the constraint store and for
   e-graph closure of equalities (*read* `papers/jordan-2016-souffle`,
   `papers/madsen-2016-datalog-to-flix`, `papers/bembenek-2020-formulog`). The
-  library is the shared `mlir-relational` recorded in
-  `../bumbledb/proposals/0003-idris-port.md` §4.5. Decision: it gets its own
-  idris-mlir proposal when the first consumer is built, and is not
+  library is the shared `mlir-relational` of proposal 0011, and is not
   duplicated here.
 - **Rejected for now: GPU type checking and interaction-net normalisation.**
   The evidence is research-grade: the GPU front ends in Voetter's thesis
@@ -202,4 +200,4 @@ are comparable.
 - D4. A separate small kernel, re-checked in tests.
 - D5. Parallelism by independent definitions and modules; GPU deferred
   until measured.
-- D6. The relational core gets its own proposal when first built.
+- D6. The relational core is proposal 0011's library, not a copy here.

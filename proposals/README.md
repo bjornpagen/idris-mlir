@@ -63,3 +63,20 @@ keeps only what remains.
   specializations or closed sums, existentials and runtime types as
   defunctionalized sums, equality a primitive decides with its proof),
   no slower than the code they replace. A sketch.
+- [0010](0010-data-oriented-frontend.md): a data-oriented, array-first
+  frontend. The compiler's state as columnar tables keyed by typed ids
+  (tokens, a preorder node array, interned names, a hash-consed term
+  arena, metas, constraints, instances, ops), and each pass as table
+  operations: lexing as classify-scan-compact, name resolution as an
+  interval join, multiplicities and termination as semiring folds,
+  Translate as a semi-naive fixpoint over the instance table, and
+  emission as bytecode. Staged by measured cost, each stage proved by
+  identical TTCs. Proposed.
+- [0011](0011-relational-core.md): the relational core,
+  `libs/mlir-relational`, shared by the frontend, the elaborator,
+  bumbledb's port and user programs. Relations and worst-case optimal
+  joins, semi-naive fixpoints, and e-graphs with relational e-matching;
+  the executor an interpreter specialized per prepared query. Records why
+  the database and the compiler converged, and which MLIR mechanisms it
+  reuses (sparse tensors as tries, bufferization as linearity, range
+  analysis, the JIT, sharding) with their limits. Proposed.

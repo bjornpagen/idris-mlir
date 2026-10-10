@@ -74,7 +74,9 @@ reproduce them, and refreshes their fingerprints.
 - 0006: flattened data;
 - 0007: the type checker;
 - 0008: OpenTelemetry;
-- 0009: the compiler features self-hosting asked for.
+- 0009: the compiler features self-hosting asked for;
+- 0010: a data-oriented, array-first frontend;
+- 0011: the relational core, shared by the compiler and bumbledb.
 
 The research behind 0004, 0006 and 0007 is in `sources/`, with reading
 notes in `sources/notes/`. Contiguous runs (one run cell for strings,
