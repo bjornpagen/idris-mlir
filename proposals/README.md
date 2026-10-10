@@ -55,10 +55,11 @@ keeps only what remains.
   task-local context carried across fork/join and messages, a no-op
   provider removed at compile time, per-shard buffers and metrics with no
   atomics, and the compiler tracing its own phases. Proposed.
-- [0009](0009-fork-back-to-upstream.md): the fork back to upstream's
-  forms. Grow the compiler until each rewrite the fork took only to
-  satisfy it reverts to upstream's code, every feature compiled away on the
-  whole program (an erased match a runtime index forces, polymorphic
-  recursion, dependent result and field types as specializations or closed
-  sums, existentials and runtime types as defunctionalized sums), with the
-  bar that the reverted code runs no slower than the rewrite. A sketch.
+- [0009](0009-self-host-features.md): the compiler features self-hosting
+  asked for. A ledger of every rewrite self-hosting forced (improvements
+  kept, regressions replaced when a feature lands), and the features, each
+  compiled away on the whole program (an erased match a runtime index
+  forces, polymorphic recursion, dependent result and field types as
+  specializations or closed sums, existentials and runtime types as
+  defunctionalized sums, equality a primitive decides with its proof),
+  no slower than the code they replace. A sketch.
