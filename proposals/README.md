@@ -55,3 +55,8 @@ keeps only what remains.
   task-local context carried across fork/join and messages, a no-op
   provider removed at compile time, per-shard buffers and metrics with no
   atomics, and the compiler tracing its own phases. Proposed.
+- [0009](0009-fork-back-to-upstream.md): the fork back to upstream's
+  forms. Grow the compiler (an erased match a runtime index forces,
+  polymorphic recursion, dependent result and field types, existentials,
+  types at runtime) until each rewrite the fork took only to satisfy it
+  can be reverted to upstream's code. A sketch.
