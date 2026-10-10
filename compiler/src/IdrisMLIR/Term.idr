@@ -8,10 +8,11 @@
 ||| `Term Void`; a function's body is a `Term (Fin arity)`, parameter `i`
 ||| being `i`, as in Idris's case trees. An unbound variable is a type error.
 |||
-||| Renaming is the derived `Functor`, the free variables are the derived
-||| `Foldable`, and strengthening is the derived `Traversable` (base's
-||| `Deriving.*`). Every other traversal is a fold over the base functor
-||| `TermF`: `cata`, or `para` where the algebra needs a part as it was.
+||| Renaming is `Functor`, the free variables are `Foldable`, and
+||| strengthening is `Traversable`: each visits a term's variables in the
+||| order its constructors hold them, left to right. Every other traversal
+||| is a fold over the base functor `TermF`: `cata`, or `para` where the
+||| algebra needs a part as it was.
 |||
 ||| A lambda's or a `Delay`'s body stays in the scope it is written in, as a
 ||| `let`'s does: renaming enters it, and the variables of that scope it
@@ -29,12 +30,7 @@ import Data.Fin
 import Data.List
 import Data.String
 import Data.Vect
-import Deriving.Foldable
-import Deriving.Functor
-import Deriving.Show
-import Deriving.Traversable
 
-%language ElabReflection
 %default total
 
 ------------------------------------------------------------------------------
@@ -48,17 +44,20 @@ data Under : Nat -> Type -> Type where
   Bound : Fin k -> Under k a
   Free : a -> Under k a
 
-%hint export
-underFunctor : Functor (Under k)
-underFunctor = %runElab derive
+export
+Functor (Under k) where
+  map f (Bound i) = Bound i
+  map f (Free x) = Free (f x)
 
-%hint export
-underFoldable : Foldable (Under k)
-underFoldable = %runElab derive
+export
+Foldable (Under k) where
+  foldr f z (Bound _) = z
+  foldr f z (Free x) = f x z
 
-%hint export
-underTraversable : Traversable (Under k)
-underTraversable = %runElab derive
+export
+Traversable (Under k) where
+  traverse f (Bound i) = pure (Bound i)
+  traverse f (Free x) = Free <$> f x
 
 export
 Eq a => Eq (Under k a) where
@@ -136,35 +135,165 @@ mutual
   data Alt : Type -> Type where
     MkAlt : {k : Nat} -> ConId -> Vect k Binder -> Term (Under k a) -> Alt a
 
--- `Term` and `Alt` are mutually recursive, so each derivation names the
--- other: base's deriving then marks the calls between them as total, which
--- its termination checker cannot see through the other's instance.
-mutual
-  %hint export
-  altFunctor : Functor Alt
-  altFunctor = %runElab derive {mutualWith = [`{Term}]}
-
-  %hint export
-  termFunctor : Functor Term
-  termFunctor = %runElab derive {mutualWith = [`{Alt}]}
+-- Renaming, the free variables and strengthening, by structural recursion
+-- through `Term` and `Alt` together. A binder's body is a term over
+-- `Under k a`, so the recursion into it is at that type, through the
+-- instances of `Under k`.
 
 mutual
-  %hint export
-  altFoldable : Foldable Alt
-  altFoldable = %runElab derive {mutualWith = [`{Term}]}
+  mapTerm : (a -> b) -> Term a -> Term b
+  mapTerm f (Var l x) = Var l (f x)
+  mapTerm f (Literal l x) = Literal l x
+  mapTerm f (Erased l) = Erased l
+  mapTerm f (PrimApp l p stands as) = PrimApp l p stands (mapTerms f as)
+  mapTerm f (Effect l p tys as res) = Effect l p tys (mapTerms f as) res
+  mapTerm f (Call l fn stands as) = Call l fn stands (mapTerms f as)
+  mapTerm f (ConApp l c as) = ConApp l c (mapTerms f as)
+  mapTerm f (Let l q v b) = Let l q (mapTerm f v) (mapTerm (map f) b)
+  mapTerm f (Case l x alts d) = Case l (f x) (mapAlts f alts) (mapDefault f d)
+  mapTerm f (CaseLit l x alts d) = CaseLit l (f x) (mapLits f alts) (mapTerm f d)
+  mapTerm f (CaseNat l x z s) = CaseNat l (f x) (mapTerm f z) (mapTerm (map f) s)
+  mapTerm f (Lam l b body) = Lam l b (mapTerm (map f) body)
+  mapTerm f (App l g x) = App l (mapTerm f g) (mapTerm f x)
+  mapTerm f (Suspend l body) = Suspend l (mapTerm f body)
+  mapTerm f (Resume l e) = Resume l (mapTerm f e)
+  mapTerm f (Unreachable l) = Unreachable l
+  mapTerm f (Crash l m) = Crash l m
+  mapTerm f (NewWorld l) = NewWorld l
+  mapTerm f (SystemOs l) = SystemOs l
+  mapTerm f (Region l p tys as body res) = Region l p tys (mapTerms f as) (mapTerm (map f) body) res
 
-  %hint export
-  termFoldable : Foldable Term
-  termFoldable = %runElab derive {mutualWith = [`{Alt}]}
+  mapTerms : (a -> b) -> List (Term a) -> List (Term b)
+  mapTerms f [] = []
+  mapTerms f (t :: ts) = mapTerm f t :: mapTerms f ts
+
+  mapDefault : (a -> b) -> Maybe (Term a) -> Maybe (Term b)
+  mapDefault f Nothing = Nothing
+  mapDefault f (Just t) = Just (mapTerm f t)
+
+  mapLits : (a -> b) -> List (Lit, Term a) -> List (Lit, Term b)
+  mapLits f [] = []
+  mapLits f ((k, t) :: rest) = (k, mapTerm f t) :: mapLits f rest
+
+  mapAlt : (a -> b) -> Alt a -> Alt b
+  mapAlt f (MkAlt c fs body) = MkAlt c fs (mapTerm (map f) body)
+
+  mapAlts : (a -> b) -> List (Alt a) -> List (Alt b)
+  mapAlts f [] = []
+  mapAlts f (alt :: alts) = mapAlt f alt :: mapAlts f alts
 
 mutual
-  %hint export
-  altTraversable : Traversable Alt
-  altTraversable = %runElab derive {mutualWith = [`{Term}]}
+  foldrTerm : (a -> acc -> acc) -> acc -> Term a -> acc
+  foldrTerm f z (Var _ x) = f x z
+  foldrTerm f z (Literal _ _) = z
+  foldrTerm f z (Erased _) = z
+  foldrTerm f z (PrimApp _ _ _ as) = foldrTerms f z as
+  foldrTerm f z (Effect _ _ _ as _) = foldrTerms f z as
+  foldrTerm f z (Call _ _ _ as) = foldrTerms f z as
+  foldrTerm f z (ConApp _ _ as) = foldrTerms f z as
+  foldrTerm f z (Let _ _ v b) = foldrTerm f (foldrUnder f z b) v
+  foldrTerm f z (Case _ x alts d) = f x (foldrAlts f (foldrDefault f z d) alts)
+  foldrTerm f z (CaseLit _ x alts d) = f x (foldrLits f (foldrTerm f z d) alts)
+  foldrTerm f z (CaseNat _ x zb sb) = f x (foldrTerm f (foldrUnder f z sb) zb)
+  foldrTerm f z (Lam _ _ body) = foldrUnder f z body
+  foldrTerm f z (App _ g x) = foldrTerm f (foldrTerm f z x) g
+  foldrTerm f z (Suspend _ body) = foldrTerm f z body
+  foldrTerm f z (Resume _ e) = foldrTerm f z e
+  foldrTerm f z (Unreachable _) = z
+  foldrTerm f z (Crash _ _) = z
+  foldrTerm f z (NewWorld _) = z
+  foldrTerm f z (SystemOs _) = z
+  foldrTerm f z (Region _ _ _ as body _) = foldrTerms f (foldrUnder f z body) as
 
-  %hint export
-  termTraversable : Traversable Term
-  termTraversable = %runElab derive {mutualWith = [`{Alt}]}
+  ||| The variables of a body that are the scope's outside it.
+  foldrUnder : (a -> acc -> acc) -> acc -> Term (Under k a) -> acc
+  foldrUnder f z body = foldrTerm (\u, rest => foldr f rest u) z body
+
+  foldrTerms : (a -> acc -> acc) -> acc -> List (Term a) -> acc
+  foldrTerms f z [] = z
+  foldrTerms f z (t :: ts) = foldrTerm f (foldrTerms f z ts) t
+
+  foldrDefault : (a -> acc -> acc) -> acc -> Maybe (Term a) -> acc
+  foldrDefault f z Nothing = z
+  foldrDefault f z (Just t) = foldrTerm f z t
+
+  foldrLits : (a -> acc -> acc) -> acc -> List (Lit, Term a) -> acc
+  foldrLits f z [] = z
+  foldrLits f z ((_, t) :: rest) = foldrTerm f (foldrLits f z rest) t
+
+  foldrAlt : (a -> acc -> acc) -> acc -> Alt a -> acc
+  foldrAlt f z (MkAlt _ _ body) = foldrUnder f z body
+
+  foldrAlts : (a -> acc -> acc) -> acc -> List (Alt a) -> acc
+  foldrAlts f z [] = z
+  foldrAlts f z (alt :: alts) = foldrAlt f (foldrAlts f z alts) alt
+
+mutual
+  traverseTerm : Applicative f => (a -> f b) -> Term a -> f (Term b)
+  traverseTerm g (Var l x) = Var l <$> g x
+  traverseTerm g (Literal l x) = pure (Literal l x)
+  traverseTerm g (Erased l) = pure (Erased l)
+  traverseTerm g (PrimApp l p stands as) = PrimApp l p stands <$> traverseTerms g as
+  traverseTerm g (Effect l p tys as res) = (\as' => Effect l p tys as' res) <$> traverseTerms g as
+  traverseTerm g (Call l fn stands as) = Call l fn stands <$> traverseTerms g as
+  traverseTerm g (ConApp l c as) = ConApp l c <$> traverseTerms g as
+  traverseTerm g (Let l q v b) = Let l q <$> traverseTerm g v <*> traverseTerm (traverse g) b
+  traverseTerm g (Case l x alts d) = Case l <$> g x <*> traverseAlts g alts <*> traverseDefault g d
+  traverseTerm g (CaseLit l x alts d) = CaseLit l <$> g x <*> traverseLits g alts <*> traverseTerm g d
+  traverseTerm g (CaseNat l x z s) = CaseNat l <$> g x <*> traverseTerm g z <*> traverseTerm (traverse g) s
+  traverseTerm g (Lam l b body) = Lam l b <$> traverseTerm (traverse g) body
+  traverseTerm g (App l h x) = App l <$> traverseTerm g h <*> traverseTerm g x
+  traverseTerm g (Suspend l body) = Suspend l <$> traverseTerm g body
+  traverseTerm g (Resume l e) = Resume l <$> traverseTerm g e
+  traverseTerm g (Unreachable l) = pure (Unreachable l)
+  traverseTerm g (Crash l m) = pure (Crash l m)
+  traverseTerm g (NewWorld l) = pure (NewWorld l)
+  traverseTerm g (SystemOs l) = pure (SystemOs l)
+  traverseTerm g (Region l p tys as body res) =
+    (\as', body' => Region l p tys as' body' res) <$> traverseTerms g as <*> traverseTerm (traverse g) body
+
+  traverseTerms : Applicative f => (a -> f b) -> List (Term a) -> f (List (Term b))
+  traverseTerms g [] = pure []
+  traverseTerms g (t :: ts) = (::) <$> traverseTerm g t <*> traverseTerms g ts
+
+  traverseDefault : Applicative f => (a -> f b) -> Maybe (Term a) -> f (Maybe (Term b))
+  traverseDefault g Nothing = pure Nothing
+  traverseDefault g (Just t) = Just <$> traverseTerm g t
+
+  traverseLits : Applicative f => (a -> f b) -> List (Lit, Term a) -> f (List (Lit, Term b))
+  traverseLits g [] = pure []
+  traverseLits g ((k, t) :: rest) = (\t', rest' => (k, t') :: rest') <$> traverseTerm g t <*> traverseLits g rest
+
+  traverseAlt : Applicative f => (a -> f b) -> Alt a -> f (Alt b)
+  traverseAlt g (MkAlt c fs body) = MkAlt c fs <$> traverseTerm (traverse g) body
+
+  traverseAlts : Applicative f => (a -> f b) -> List (Alt a) -> f (List (Alt b))
+  traverseAlts g [] = pure []
+  traverseAlts g (alt :: alts) = (::) <$> traverseAlt g alt <*> traverseAlts g alts
+
+export
+Functor Term where
+  map = mapTerm
+
+export
+Functor Alt where
+  map = mapAlt
+
+export
+Foldable Term where
+  foldr = foldrTerm
+
+export
+Foldable Alt where
+  foldr = foldrAlt
+
+export
+Traversable Term where
+  traverse = traverseTerm
+
+export
+Traversable Alt where
+  traverse = traverseAlt
 
 ------------------------------------------------------------------------------
 -- The base functor and its folds
@@ -369,10 +498,10 @@ typeArgs : List Ty -> String
 typeArgs [] = ""
 typeArgs ts = "<" ++ joinBy ", " (map show ts) ++ ">"
 
-||| A region primitive by its constructor's name. Not a hint: the dump is
-||| its one reader.
-regionShow : Show IdrRegionPrim
-regionShow = %runElab derive
+||| A region primitive by its constructor's name, as the dump writes it.
+regionName : IdrRegionPrim -> String
+regionName ArrayGenerate = "ArrayGenerate"
+regionName ArrayFold = "ArrayFold"
 
 printer : TermF Printed b -> Printed b
 printer (VarF _ x) ix d = "#" ++ show (ix x)
@@ -410,7 +539,7 @@ printer (CrashF _ m) ix d = "crash " ++ show m
 printer (NewWorldF _) ix d = "new-world"
 printer (SystemOsF _) ix d = "os"
 printer (RegionF {k} _ p tys as body _) ix d =
-  "io." ++ show @{regionShow} p ++ typeArgs tys ++ "(" ++ joinBy ", " (map (\a => a ix d) as) ++ ")/" ++
+  "io." ++ regionName p ++ typeArgs tys ++ "(" ++ joinBy ", " (map (\a => a ix d) as) ++ ")/" ++
   show k ++ " => " ++ body (under ix) d
 
 ||| A function body, parameter `i` being `#i`.
