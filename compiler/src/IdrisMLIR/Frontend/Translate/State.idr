@@ -8,6 +8,7 @@ import Core.TT
 
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
+import IdrisMLIR.Registry.Libraries
 import IdrisMLIR.Term
 import IdrisMLIR.Types
 
@@ -184,16 +185,21 @@ record TS where
   ||| The escape hatches and holes the source of a user module spells, by
   ||| module and name, each rejected where it is written.
   spelled : SortedSet (String, String)
+  ||| Where each module a location names comes from and its source file, by
+  ||| the module's name: facts of the module, found once each
+  ||| (`Errors.toLoc`), which no pass and no rejection changes.
+  places : SortedMap String (Origin, String)
 
 export
 initState : SortedSet Name -> FC -> TS
-initState ifaces fc = MkTS empty [<] empty empty empty [<] empty emptyQueue fc empty empty empty empty empty empty False Nothing empty ifaces [<] empty empty
+initState ifaces fc = MkTS empty [<] empty empty empty [<] empty emptyQueue fc empty empty empty empty empty empty False Nothing empty ifaces [<] empty empty empty
 
 ||| The state a pass of the translation starts from: nothing of the last
-||| pass but the dictionaries it found, the interfaces, and the rejections
-||| and what they refused. A void pass's rejections stay: the first one
-||| found is the one the program is refused with, whichever pass found it.
+||| pass but the dictionaries it found, the interfaces, the rejections and
+||| what they refused, and the modules' places. A void pass's rejections
+||| stay: the first one found is the one the program is refused with,
+||| whichever pass found it.
 export
 nextPass : TS -> TS
-nextPass st = { dicts := st.dicts, rejected := st.rejected, refused := st.refused }
+nextPass st = { dicts := st.dicts, rejected := st.rejected, refused := st.refused, places := st.places }
                 (initState st.interfaces st.moduleFC)

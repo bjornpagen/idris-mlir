@@ -87,7 +87,7 @@ drain = do
             st' <- get TState
             unless st'.restart drain
       after <- get TState
-      put TState ({ rejected := after.rejected, refused := after.refused } before)
+      put TState ({ rejected := after.rejected, refused := after.refused, places := after.places } before)
       drain
 
 ||| The program's instances from its root, in as many passes as the

@@ -16,6 +16,7 @@ import IdrisMLIR.Rule
 
 import Data.Maybe
 import Data.SnocList
+import Data.SortedMap
 
 %default covering
 
@@ -66,12 +67,20 @@ rejections : {auto s : Ref TState TS} -> Core (List Error)
 rejections = pure ((!(get TState)).rejected <>> [])
 
 ||| An Idris location as a Core location, with the source file resolved and
-||| the origin the registry gives its module. A package file is in no module.
+||| the origin the registry gives its module, each found once per module
+||| (`places`). A package file is in no module.
 export
-toLoc : {auto c : Ref Ctxt Defs} -> FC -> Core Loc
+toLoc : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> FC -> Core Loc
 toLoc fc@(MkFC (PhysicalIdrSrc ident) (sl, sc) (el, ec)) = do
-  file <- fromMaybe "" <$> moduleSource fc ident
-  pure (MkLoc !(originOf ident) (shown (show ident)) file sl sc el ec)
+  let place = show ident
+  (origin, file) <- case lookup place (!(get TState)).places of
+    Just known => pure known
+    Nothing => do
+      file <- fromMaybe "" <$> moduleSource fc ident
+      origin <- originOf ident
+      update TState { places $= insert place (origin, file) }
+      pure (origin, file)
+  pure (MkLoc origin (shown place) file sl sc el ec)
 toLoc (MkFC (PhysicalPkgSrc file) (sl, sc) (el, ec)) = pure (MkLoc Generated (shown "") file sl sc el ec)
 toLoc (MkVirtualFC (PhysicalIdrSrc ident) (sl, sc) (el, ec)) =
   toLoc (MkFC (PhysicalIdrSrc ident) (sl, sc) (el, ec))
