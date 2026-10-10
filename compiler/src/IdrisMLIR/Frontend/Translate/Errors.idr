@@ -15,6 +15,7 @@ import IdrisMLIR.Registry.Libraries
 import IdrisMLIR.Rule
 
 import Data.Maybe
+import Data.SnocList
 
 %default covering
 
@@ -37,6 +38,32 @@ reject fc owner rule what = do
 export
 internal : FC -> String -> Core a
 internal fc msg = throw (InternalError (show fc ++ ": internal error: " ++ msg))
+
+||| Runs one check, or translates one part, of the program so that its
+||| rejection does not stop the others: the program's error is recorded,
+||| once however many parts find it, and the part gives nothing. The
+||| compiler's own error still ends the run, since nothing after it can be
+||| trusted.
+export
+noting : {auto s : Ref TState TS} -> Core a -> Core (Maybe a)
+noting part = catch (Just <$> part) $ \err => case err of
+  InternalError _ => throw err
+  _ => do
+    st <- get TState
+    let shown = show err
+    unless (any (\e => show e == shown) st.rejected) $
+      put TState ({ rejected $= (:< err) } st)
+    pure Nothing
+
+||| A check run as `noting` runs it, for what it finds alone.
+export
+noted : {auto s : Ref TState TS} -> Core () -> Core ()
+noted check = ignore (noting check)
+
+||| The rejections recorded so far, the first found first.
+export
+rejections : {auto s : Ref TState TS} -> Core (List Error)
+rejections = pure ((!(get TState)).rejected <>> [])
 
 ||| An Idris location as a Core location, with the source file resolved and
 ||| the origin the registry gives its module. A package file is in no module.

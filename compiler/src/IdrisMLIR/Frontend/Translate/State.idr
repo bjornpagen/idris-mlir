@@ -145,13 +145,28 @@ record TS where
   ||| of these types, or of a pair of or a function to such values
   ||| (`Types.implementationType`).
   interfaces : SortedSet Name
+  ||| The program's rejections so far, in the order they were found: a
+  ||| check or an instance that is rejected does not stop the others
+  ||| (`Errors.noting`), so that one run reports every independent one.
+  rejected : SnocList Error
+  ||| The definitions the checks of what the program reaches rejected, and
+  ||| the user definitions that refer to them, by full name: the translation
+  ||| leaves them out, since what it would find there is the same
+  ||| rejection again, or something the checks exist to keep from it.
+  refused : SortedSet String
+  ||| The escape hatches and holes the source of a user module spells, by
+  ||| module and name, each rejected where it is written.
+  spelled : SortedSet (String, String)
 
 export
 initState : SortedSet Name -> FC -> TS
-initState ifaces fc = MkTS empty [<] empty empty empty [<] empty [] fc empty empty empty empty empty empty False Nothing empty ifaces
+initState ifaces fc = MkTS empty [<] empty empty empty [<] empty [] fc empty empty empty empty empty empty False Nothing empty ifaces [<] empty empty
 
 ||| The state a pass of the translation starts from: nothing of the last
-||| pass but the dictionaries it found, and the interfaces.
+||| pass but the dictionaries it found, the interfaces, and the rejections
+||| and what they refused. A void pass's rejections stay: the first one
+||| found is the one the program is refused with, whichever pass found it.
 export
 nextPass : TS -> TS
-nextPass st = { dicts := st.dicts } (initState st.interfaces st.moduleFC)
+nextPass st = { dicts := st.dicts, rejected := st.rejected, refused := st.refused }
+                (initState st.interfaces st.moduleFC)

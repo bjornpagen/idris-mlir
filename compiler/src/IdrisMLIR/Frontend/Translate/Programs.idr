@@ -46,6 +46,10 @@ translateInstance p = do
   update TState { current := Just p.inst }
   def <- lookupDef EmptyFC (show p.name) p.name
   let owner = show (fullname def)
+  -- A definition the checks refused is left out, and so is what only it
+  -- reaches.
+  False <- pure (contains owner (!(get TState)).refused)
+    | True => pure ()
   let fc = location def
   PMDef _ args treeCT _ _ <- pure (definition def)
     | _ => reject fc owner DefinitionShape "not a pattern-matching definition"
@@ -72,28 +76,38 @@ translateInstance p = do
     info i (ValueParam b (Just shape)) = shaped i (typeOf b) shape
 
 ||| Translates every instance requested, until none is left or a
-||| construction site voids the pass (`Dictionaries`).
+||| construction site voids the pass (`Dictionaries`). A rejected instance
+||| is recorded and leaves the state as it was before it, the instances it
+||| requested included, but for the rejections and what they refused: what
+||| it would have reached is reported once it is fixed, and every
+||| rejection the translation reports is independent.
 drain : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Core ()
 drain = do
   st <- get TState
   case st.queue of
     [] => pure ()
     (p :: rest) => do
-      put TState ({ queue := rest } st)
-      translateInstance p
-      st' <- get TState
-      unless st'.restart drain
+      let before = { queue := rest } st
+      put TState before
+      Nothing <- noting (translateInstance p)
+        | Just () => do
+            st' <- get TState
+            unless st'.restart drain
+      after <- get TState
+      put TState ({ rejected := after.rejected, refused := after.refused } before)
+      drain
 
 ||| The program's instances from its root, in as many passes as the
 ||| dictionary fields matched before they were built need: each pass starts
 ||| from the dictionaries the last one found.
-translateFrom : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> FC -> Name -> Core FnId
+translateFrom : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> FC -> Name -> Core (Maybe FnId)
 translateFrom fc main = do
   update TState nextPass
-  inst <- request fc (show main) main []
+  Just inst <- noting (request fc (show main) main [])
+    | Nothing => pure Nothing
   drain
   st <- get TState
-  if st.restart then translateFrom fc main else pure inst
+  if st.restart then translateFrom fc main else pure (Just inst)
 
 ||| The program, with each data instance's representation: a box when it
 ||| contains itself, through the fields of any data (not through closures,
@@ -121,13 +135,17 @@ assemble root = do
 ||| `unsafeCreateWorld` and `unsafeDestroyWorld` mean:
 |||   root w = case main of MkIO f => f w
 ||| It returns the `IORes` of `main`'s result and the last world, so the
-||| world is used exactly once. `%MkWorld` never appears.
+||| world is used exactly once. `%MkWorld` never appears. Nothing when an
+||| instance was rejected (`rejections`).
 export
 translateIOProgram : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                     FC -> Name -> Core Source
+                     FC -> Name -> Core (Maybe Source)
 translateIOProgram fc main = do
-  inst <- translateFrom fc main
+  Just inst <- translateFrom fc main
+    | Nothing => pure Nothing
   st <- get TState
+  let [<] = st.rejected
+    | _ => pure Nothing
   let owner = show main
   let notIO = reject fc owner ProgramShape "main must have type IO ()"
   let Just mainFn = lookup inst st.fns
@@ -151,4 +169,4 @@ translateIOProgram fc main = do
   -- The root is the `ProgramRoot` hook's code, `unsafePerformIO main`: its
   -- facts are the registry's, and it terminates when main does.
   let facts = MkFacts (MkFact mainFn.facts.terminating.holds FromRegistry)
-  pure ({ fns $= (++ [MkTFn rootId (shown rootId.name) 1 [Held Once WorldT] res body loc facts]) } src)
+  pure (Just ({ fns $= (++ [MkTFn rootId (shown rootId.name) 1 [Held Once WorldT] res body loc facts]) } src))

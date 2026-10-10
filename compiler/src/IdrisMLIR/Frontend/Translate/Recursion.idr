@@ -116,22 +116,28 @@ same i call = case Data.List.lookup i call.fnArgs of
   Nothing => False
 
 ||| Checks one component: a recursive one may pass on a type or an
-||| implementation only as the caller got it.
+||| implementation only as the caller got it. Each call that does not is
+||| rejected, and the whole component is refused: its instances would
+||| never end, so the translation leaves them out.
 checkComponent : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                  SortedMap String Node -> List String -> Core ()
 checkComponent nodes members = do
   let inside = the (SortedSet String) (fromList members)
+  let callers = mapMaybe (\m => lookup m nodes) members
   let recursive = case members of
                     [one] => maybe False (any (\call => nameKey call.fnCall == one) . (.calls)) (lookup one nodes)
                     _ => True
-  when recursive $
-    for_ (mapMaybe (\m => lookup m nodes) members) $ \caller =>
-      for_ (filter (\call => contains (nameKey call.fnCall) inside) caller.calls) $ \call => do
+  when recursive $ do
+    wrong <- for callers $ \caller =>
+      for (filter (\call => contains (nameKey call.fnCall) inside) caller.calls) $ \call => do
         positions <- staticPositions call.fnCall
-        unless (all (\i => same i call) positions) $
-          reject caller.location (show caller.name) Polymorphism
-                 ("polymorphic recursion: " ++ show caller.name ++ " calls " ++ show call.fnCall ++
-                  " with a type or an implementation that is not its own, unchanged")
+        if all (\i => same i call) positions then pure False else do
+          noted $ reject caller.location (show caller.name) Polymorphism
+                    ("polymorphic recursion: " ++ show caller.name ++ " calls " ++ show call.fnCall ++
+                     " with a type or an implementation that is not its own, unchanged")
+          pure True
+    when (any (any id) wrong) $
+      update TState { refused $= \r => foldl (\r', caller => insert (show caller.name) r') r callers }
 
 ||| Checks the component of a definition, and of every definition it
 ||| reaches, once each.

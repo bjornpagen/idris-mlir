@@ -25,7 +25,9 @@
 ||| and its warnings too. The frontend's rejections are Idris errors,
 ||| printed the same way where they are found. The exit status is
 ||| idris-mlir's: 0, 1 for the compiler's own error, 2 for a usage error, 3
-||| for any error of the program's, Idris's included. A package that does
+||| for any error of the program's, Idris's included. Every independent
+||| rejection of a program is printed, the first found first, as Idris
+||| prints every error of a build. A package that does
 ||| not build is 1, as Idris's package commands decide.
 module IdrisMLIR.Frontend.Driver
 
@@ -264,7 +266,13 @@ perform : {auto c : Ref Ctxt Defs} ->
           Task -> Core ()
 perform (Compile breakShape core out source) = do
   mainModule <- built source
-  program mainModule breakShape core out
+  [] <- program mainModule breakShape core out
+    | errs => do
+        for_ errs $ \err => do
+          showingItsSource err
+          emitError err
+        coreLift (exitWith (statusOfAll errs))
+  pure ()
 perform (Check source) = ignore (built source)
 perform (PackageCommand cmd file) = do
   p <- newRef PostS defaultPost

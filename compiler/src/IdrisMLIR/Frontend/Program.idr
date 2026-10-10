@@ -102,11 +102,16 @@ entryPoint = do
 
 ||| Compiles the program Idris has built from its main file, whose path
 ||| names the module `mainFile`, into the Core at `corePath` and the module
-||| at `mlirPath`.
+||| at `mlirPath`, or gives the program's rejections, the first found
+||| first, and writes nothing. The checks of the source and of what the
+||| program reaches report every rejection they find, and the translation
+||| every rejected instance of what they did not refuse. An error that is
+||| not a rejection (no main, a broken registry entry, the compiler's own)
+||| is thrown.
 export
 program : {auto c : Ref Ctxt Defs} -> {auto syn : Ref Syn SyntaxInfo} ->
           (mainFile : ModuleIdent) -> (breakShape : Maybe String) ->
-          (corePath, mlirPath : String) -> Core ()
+          (corePath, mlirPath : String) -> Core (List Error)
 program mainFile breakShape corePath mlirPath = do
   -- The interfaces of every module Idris loaded for the program, which
   -- Idris keeps with their syntax rather than with their definitions.
@@ -138,16 +143,18 @@ program mainFile breakShape corePath mlirPath = do
       is <- imports m p
       for_ is $ \(target, at) => do
         trusted <- covers Trusted <$> originOf (moduleIdent (forget (split (== '.') target)))
-        unless (trusted || elem target userNames) $
+        unless (trusted || elem target userNames) $ noted $
           reject at (show m) ProgramShape
                  ("imports " ++ target ++ ", which is neither a user module nor a trusted module")
     Nothing => pure ()
-  for_ sources $ \(m, path) => case path of
+  for_ sources $ \(m, path) => noted $ case path of
     Just p => checkPragmas m p
     Nothing => reject fc programEntry ProgramShape
                  ("loads " ++ show m ++ ", a module of the project whose source is missing")
   checkReachable fc [main]
-  prog <- translateIOProgram fc main
+  Just prog <- translateIOProgram fc main
+    | Nothing => rejections
   (core, mlir) <- middle fc prog
   write corePath core
   write mlirPath mlir
+  pure []
