@@ -24,7 +24,8 @@
 #                          idris-mlir, through tools/compile.sh
 #   make bench             bench/run.sh; ARGS='--runs 3 fib' passes arguments
 #   make self              the frontend compiled by itself (tools/self.sh): stages 1, 2
-#                          and 3, stage 2 the same as stage 3; after `make build`
+#                          and 3, without idr-eval, stage 2 the same as stage 3;
+#                          after `make build`
 #
 # The test commands run tests/Main.idr, a golden runner that runs each test
 # in a process of its own; the whole run ends after 4 hours, so that nothing
