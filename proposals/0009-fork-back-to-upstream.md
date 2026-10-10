@@ -14,13 +14,18 @@ more code) and cost a merge conflict on every re-sync. This proposal
 grows the compiler until each of those rewrites can be reverted to
 upstream's form, and then reverts it.
 
-The rule, decided: a fork rewrite stays only where upstream's code is
-dishonest or wrong (a `believe_me`, an `%unsafe`, a bug). Where upstream's
-code is ordinary Idris that the compiler refuses, the compiler is what
-changes (AGENTS.md: the compiler implements Idris 2 fully over prelude and
-base). Today's own evidence (measured, 9326d1b8): every "implementation
-chosen at runtime" site in the fork was a gap in the compiler, and closing
-it accepted upstream's code unchanged.
+The rule, decided (the user's, 2026-10-10): this compiler does not take
+on all of Idris. It takes the middle way: every construct it can compile
+to the code a monomorphic program would be, and none that is megamorphic
+(AGENTS.md). So a fork rewrite reverts to upstream's form when the
+feature upstream's code uses is one the whole program bounds (each
+feature below), and stays when upstream's code needs a megamorphic one,
+or is dishonest or wrong (a `believe_me`, an `%unsafe`, a bug). Today's
+own evidence (measured, 9326d1b8): every "implementation chosen at
+runtime" site in the fork was bounded (one implementation, closing over
+runtime values), and the compiler accepted upstream's code unchanged once
+it compiled that case; `op @{choose k}`, which picks the implementation by
+a runtime value, stays refused.
 
 ## The rewrites to revert, each with the feature it needs
 

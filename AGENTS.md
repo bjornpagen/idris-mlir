@@ -57,8 +57,18 @@ numbers.
   too. Compile-time evaluation follows upstream Idris 2: every closed call of
   pure code is evaluated, total code to the end, partial code within a
   budget, after which the call stays for runtime.
-- The compiler implements Idris 2 fully for programs over the upstream
-  prelude and base. The other packages shipped with Idris (contrib, linear,
+- The compiler implements the Idris 2 it can compile to the code a
+  monomorphic program would be: every construct whose runtime choices
+  (the types, instances, implementations or shapes a site can meet) form a
+  set the whole program fixes, which specialization, compile-time
+  evaluation, closed sums and defunctionalization compile away. That
+  covers programs over the upstream prelude and base. A megamorphic
+  construct, whose set at a site no compile-time analysis bounds (an
+  implementation chosen by a runtime value, a recursion that builds its
+  type deeper at each call), is not Idris this compiler supports: it is
+  refused with an `unsupported` error that names the site and the value
+  whose set is unbounded, never compiled to a uniform boxed form. The
+  other packages shipped with Idris (contrib, linear,
   network, test) are no commitment: upstream itself plans to disband
   contrib for external packages. What they covered comes from the packages
   this compiler ships in `libs/` (today `mlir-linear`: linear arrays and
