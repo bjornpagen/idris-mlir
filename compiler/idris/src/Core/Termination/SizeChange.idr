@@ -359,6 +359,76 @@ insideComponents work
           same = \f, g => lookup f st.component == lookup g st.component in
       fromList (filter (\(f, g, _) => same f g) (Prelude.toList work))
 
+||| `weaker g h`: `h` says at least what `g` says of every argument: each
+||| arc of `g` is one of `h`'s, as strong or stronger (a missing entry is no
+||| arc, the weakest).
+weaker : Change -> Change -> Bool
+weaker g h = all row g
+  where
+    row : (Nat, Vector1 SizeChange) -> Bool
+    row (i, xs) = case Vector.lookupOrd i h of
+      Nothing => False
+      Just ys => all (\(j, x) => maybe False (x <=) (Vector1.lookupOrd j ys)) (forget xs)
+
+||| Does going round a loop with this graph, from a function to itself,
+||| fail to decrease? Going round any number of times is a power of the
+||| graph, and some power is idempotent, unchanged by composing with
+||| itself: the loop decreases each time round exactly when that power
+||| takes some argument to a strictly smaller one of itself. A power that
+||| is not found within the fuel counts as failing, so that the answer is
+||| never a decrease that was not shown.
+nonDescending : Change -> Bool
+nonDescending g = go 1024 g
+  where
+    go : Nat -> Change -> Bool
+    go Z _ = True
+    go (S k) p = if composeChange p p == p
+                    then not (any (\(i, xs) => Vector1.lookupOrd i xs == Just Smaller) p)
+                    else go k (composeChange p g)
+
+||| For each pair of functions of a component, the weakest graphs of the
+||| paths from one to the other: those no other path's graph is weaker
+||| than. They decide what the closure over every path's graph decides.
+||| Composition keeps the order (weaker parts make a weaker path), so every
+||| path's graph has one here at least as weak; and a loop that fails to
+||| decrease still fails when its graph says less, since the powers of a
+||| weaker graph are weaker and a strict arc of a weaker graph is one of the
+||| stronger's. So a loop without decrease exists exactly when one of these
+||| has none. A pair keeps a handful of graphs where the closure keeps
+||| every one, each composed with all the others.
+Weakest : Type
+Weakest = NameMap (NameMap (List Change))
+
+weakestOf : Name -> Name -> Weakest -> List Change
+weakestOf f g w = fromMaybe [] (lookup g (lookupMap f w))
+
+||| Adds the graphs of a work list, and the paths each makes with those
+||| already there, to the weakest graphs. A graph is added only when none
+||| there is weaker, and it replaces those it is weaker than; a graph once
+||| bettered never comes back, so this ends.
+closeWeakest : List (Name, Name, Change) -> Weakest -> Weakest
+closeWeakest [] w = w
+closeWeakest ((f, h, x) :: work) w
+    = let old = weakestOf f h w in
+      if any (\y => weaker y x) old then closeWeakest work w else
+        let w' = insert f (insert h (x :: filter (not . weaker x) old) (lookupMap f w)) w
+            after = concatMap (\(k, zs) => map (\z => (f, k, composeChange x z)) zs)
+                              (Libraries.Data.NameMap.toList (lookupMap h w'))
+            before = concatMap (\(e, m) => map (\v => (e, h, composeChange v x)) (fromMaybe [] (lookup f m)))
+                               (Libraries.Data.NameMap.toList w') in
+        closeWeakest (after ++ before ++ work) w'
+
+||| For each function of a strongly connected component of the call graph,
+||| given the calls between its functions (caller, callee, and how each
+||| argument of the callee relates to the caller's), whether every loop
+||| through it decreases some argument each time round. A loop never
+||| leaves its component, so a call out of it is no part of the answer.
+export
+loopsTerminate : List (Name, Name, Matrix SizeChange) -> List Name -> List (Name, Bool)
+loopsTerminate calls members
+    = let w = closeWeakest calls empty in
+      map (\f => (f, not (any nonDescending (weakestOf f f w)))) members
+
 ||| The names a definition refers to, with those of its case blocks, which
 ||| are checked as part of it.
 addCases : {auto c : Ref Ctxt Defs} -> Defs -> List Name -> Core (List Name)

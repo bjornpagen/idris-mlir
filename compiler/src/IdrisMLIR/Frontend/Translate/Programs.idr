@@ -6,7 +6,6 @@ module IdrisMLIR.Frontend.Translate.Programs
 import Core.Context
 import Core.Core
 import Core.TT
-import Core.Termination
 
 import IdrisMLIR.Facts
 import IdrisMLIR.Frontend.Translate.Cases
@@ -32,14 +31,6 @@ import Data.Vect
 
 %default covering
 
-||| Idris's termination checker reports the definition terminating.
-isTotal : {auto c : Ref Ctxt Defs} -> FC -> Name -> Core Bool
-isTotal fc n = do
-  t <- catch (checkTotal fc n) (\_ => pure Unchecked)
-  pure (case t of
-          IsTerminating => True
-          _ => False)
-
 ||| Translates one function instance.
 translateInstance : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Pending -> Core ()
 translateInstance p = do
@@ -63,7 +54,9 @@ translateInstance p = do
   let env = zipWith info (Data.Fin.List.allFins (length kinds)) kinds
   body <- tree (MkCtx owner fc complete) env (telescope (length args) (type def)) treeCT
   loc <- toLoc fc
-  tot <- isTotal fc p.name
+  -- Every loop through the definition terminates: its component was
+  -- checked when the instance was requested (`Recursion`).
+  let tot = fromMaybe False (lookup (nameKey (fullname def)) (!(get TState)).loops)
   let facts = MkFacts (MkFact tot FromIdris)
   update TState { fns $= insert p.inst (MkTFn p.inst (shown owner) (length kinds)
                                               (map runtimeBinder (fromList kinds)) result body loc facts)
@@ -167,6 +160,7 @@ translateIOProgram fc main = do
   let rootId = MkFnId "$idris-mlir.root"
   src <- assemble rootId
   -- The root is the `ProgramRoot` hook's code, `unsafePerformIO main`: its
-  -- facts are the registry's, and it terminates when main does.
-  let facts = MkFacts (MkFact mainFn.facts.terminating.holds FromRegistry)
+  -- facts are the registry's. It has no loop of its own; what main does is
+  -- main's, which the passes find through the call.
+  let facts = MkFacts (MkFact True FromRegistry)
   pure (Just ({ fns $= (++ [MkTFn rootId (shown rootId.name) 1 [Held Once WorldT] res body loc facts]) } src))

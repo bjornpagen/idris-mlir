@@ -141,8 +141,9 @@ record TS where
   ||| Instances per definition, which only an assertion bounds.
   perName : SortedMap String Nat
   ||| The definitions whose component of the call graph has been checked
-  ||| for polymorphic recursion.
-  checked : SortedSet String
+  ||| (`Recursion`), by `nameKey`, each with whether every loop through it
+  ||| terminates.
+  loops : SortedMap String Bool
   ||| Who owns each instance name: names are injective, and
   ||| a printed form that two instances share is told apart here.
   owners : SortedMap String (List (Name, List (Maybe ClosedTerm)))

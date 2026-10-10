@@ -31,6 +31,9 @@ record Fact where
 public export
 record Facts where
   constructor MkFacts
-  ||| It terminates: Idris's checker reports it terminating
-  ||| (`Core.Termination.checkTotal`).
+  ||| Every loop through it terminates: the size-change graphs Idris keeps
+  ||| of the calls in its component of the call graph decrease some
+  ||| argument each time round (`Translate.Recursion`). A loop never leaves
+  ||| its component; what it calls outside carries its own fact, and the
+  ||| passes find through the calls whether a call may diverge.
   terminating : Fact

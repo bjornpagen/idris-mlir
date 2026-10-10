@@ -1,8 +1,12 @@
-||| Polymorphic recursion, found in the size-change graphs that Idris's
-||| termination checker keeps for every definition (`sizeChange`). A call
-||| in a recursive component of the call graph that gives a callee's type
-||| or implementation argument anything but one of the caller's own
-||| arguments, unchanged, would ask for instances at ever larger types.
+||| The components of the call graph, found in the size-change graphs that
+||| Idris's termination checker keeps for every definition (`sizeChange`),
+||| and what each says of its recursion. A call in a recursive component
+||| that gives a callee's type or implementation argument anything but one
+||| of the caller's own arguments, unchanged, would ask for instances at
+||| ever larger types: polymorphic recursion. And every loop through a
+||| definition terminates when the graphs of the calls in its component
+||| decrease some argument each time round, which is what the definition's
+||| `terminating` fact says (`Facts`): a loop never leaves its component.
 ||| Idris folds a case block's calls into its parent's graph, so the
 ||| definitions here are the ones Idris checks.
 module IdrisMLIR.Frontend.Translate.Recursion
@@ -10,6 +14,7 @@ module IdrisMLIR.Frontend.Translate.Recursion
 import Core.Context
 import Core.Core
 import Core.TT
+import Core.Termination.SizeChange
 import Libraries.Data.SparseMatrix
 
 import IdrisMLIR.Frontend.Translate.Closed
@@ -60,7 +65,7 @@ node n = do
 mutual
   ||| Visits a definition not visited yet: its component is found once
   ||| every definition it reaches is.
-  visit : {auto c : Ref Ctxt Defs} -> SortedSet String -> Node -> Search -> Core Search
+  visit : {auto c : Ref Ctxt Defs} -> SortedMap String Bool -> Node -> Search -> Core Search
   visit done v s0 = do
     let key = nameKey v.name
     let s1 = { next $= S, number $= insert key s0.next, low $= insert key s0.next
@@ -72,12 +77,12 @@ mutual
             , onStack $= \on => foldl (flip delete) on (key :: members)
             , found $= ((key :: members) ::) } s2)
 
-  successors : {auto c : Ref Ctxt Defs} -> SortedSet String -> String -> List Name -> Search ->
+  successors : {auto c : Ref Ctxt Defs} -> SortedMap String Bool -> String -> List Name -> Search ->
                Core Search
   successors done key [] s = pure s
   successors done key (w :: ws) s = do
     let wkey = nameKey w
-    s' <- if contains wkey done then pure s else
+    s' <- if isJust (lookup wkey done) then pure s else
             case lookup wkey s.number of
               Just n => pure (if contains wkey s.onStack then lower key n s else s)
               Nothing => do
@@ -115,15 +120,20 @@ same i call = case Data.List.lookup i call.fnArgs of
   Just row => any (\(_, change) => change == Same) (forget row)
   Nothing => False
 
-||| Checks one component: a recursive one may pass on a type or an
-||| implementation only as the caller got it. Each call that does not is
-||| rejected, and the whole component is refused: its instances would
-||| never end, so the translation leaves them out.
+||| Checks one component: whether every loop through each of its
+||| definitions terminates, and, for a recursive one, that it passes on a
+||| type or an implementation only as the caller got it. Each call that
+||| does not is rejected, and the whole component is refused: its
+||| instances would never end, so the translation leaves them out.
 checkComponent : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                  SortedMap String Node -> List String -> Core ()
 checkComponent nodes members = do
   let inside = the (SortedSet String) (fromList members)
   let callers = mapMaybe (\m => lookup m nodes) members
+  let calls = [ (caller.name, call.fnCall, call.fnArgs)
+              | caller <- callers, call <- caller.calls, contains (nameKey call.fnCall) inside ]
+  let verdicts = loopsTerminate calls (map (.name) callers)
+  update TState { loops $= \m => foldl (\m', (n, v) => insert (nameKey n) v m') m verdicts }
   let recursive = case members of
                     [one] => maybe False (any (\call => nameKey call.fnCall == one) . (.calls)) (lookup one nodes)
                     _ => True
@@ -146,9 +156,8 @@ checkRecursion : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name ->
 checkRecursion n = do
   st <- get TState
   full <- toFullNames n
-  unless (contains (nameKey full) st.checked) $ do
+  unless (isJust (lookup (nameKey full) st.loops)) $ do
     Just start <- node full
       | Nothing => pure ()
-    result <- visit st.checked start (MkSearch 0 empty empty [] empty empty [])
+    result <- visit st.loops start (MkSearch 0 empty empty [] empty empty [])
     for_ result.found (checkComponent result.nodes)
-    update TState { checked $= \done => foldl (flip insert) done (keys result.nodes) }
