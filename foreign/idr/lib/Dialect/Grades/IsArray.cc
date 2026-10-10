@@ -12,7 +12,7 @@ using namespace idr;
 // erased value, which have no runtime form to store.
 bool idr::isArray(Type type) {
   auto memref = dyn_cast<MemRefType>(type);
-  if (!memref || memref.getRank() > 1 || memref.getNumDynamicDims() != memref.getRank() ||
+  if (!memref || memref.getRank() > 1 || !llvm::all_of(memref.getShape(), ShapedType::isDynamic) ||
       !memref.getLayout().isIdentity() || memref.getMemorySpace())
     return false;
   Type element = memref.getElementType();

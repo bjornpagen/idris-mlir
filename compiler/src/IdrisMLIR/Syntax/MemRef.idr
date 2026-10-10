@@ -38,3 +38,4 @@ Prelude.EqOrd.Eq AtomicRMWKind where
   AtomicRMWKind.Xori == AtomicRMWKind.Xori = True
   _ == _ = False
 
+-- fingerprint: 2738765116-958074 1444926775-1757
