@@ -22,6 +22,7 @@ import IdrisMLIR.Types
 
 import Data.List
 import Data.Maybe
+import Data.SortedMap
 
 %default total
 
@@ -30,9 +31,21 @@ export
 entries : List Entry
 entries = primitives ++ recognized
 
+||| The hooks of each definition the registry names, by its qualified name,
+||| in the entries' order: the definitions' keys indexed once, since every
+||| definition the compiler reaches and every call it translates asks.
+defHooks : SortedMap (List String, String) (List Hook)
+defHooks = foldl add empty entries
+  where
+    add : SortedMap (List String, String) (List Hook) -> Entry -> SortedMap (List String, String) (List Hook)
+    add m e = case e.key of
+      Def q => insert (q.space, q.name) (fromMaybe [] (lookup (q.space, q.name) m) ++ [e.hook]) m
+      _ => m
+
 ||| The hooks of a key, one per entry that has it.
 export
 hooks : Key -> List Hook
+hooks (Def q) = fromMaybe [] (lookup (q.space, q.name) defHooks)
 hooks k = map (.hook) (filter (\e => e.key == k) entries)
 
 ||| Does a definition's spec list declare an entry's spec?

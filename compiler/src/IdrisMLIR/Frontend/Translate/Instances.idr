@@ -225,12 +225,14 @@ classify fc owner (S k) (Bind bfc _ (Pi _ rig _ a) sc) vals = do
          -- once the projections and applications that lead to it are
          -- reduced; one that still needs the value is chosen at runtime.
          val <- if !(runtimeDependent written) then implementationOf 64 written else pure written
-         when !(runtimeDependent val) $
+         -- The message is made in its own `do`: a `!` lifts to its
+         -- statement, and would make it whether or not it is needed.
+         when !(runtimeDependent val) $ do
            reject fc owner RuntimeClosure ("an implementation chosen at runtime: " ++ !(showTT val))
          (rest, res) <- classify fc owner k !(normaliseClosed (subst val sc)) vals'
          pure (DictParam val :: rest, res)
        else do
-         when !(erasedOutsideIndices owner a') $
+         when !(erasedOutsideIndices owner a') $ do
            reject fc owner ValueType ("a parameter type that depends on another argument: " ++ !(showTT a'))
          t <- coreType fc owner ValueType a'
          -- The rest of the type may have to reduce on the parameter's value

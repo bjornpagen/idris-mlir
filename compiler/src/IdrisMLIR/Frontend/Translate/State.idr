@@ -126,6 +126,16 @@ record Decl where
   cons : List Con
   loc : Loc
 
+||| What the translation reads of a type constructor's definition: its
+||| parameters, the type parameters among them that a value represents, and
+||| whether it is `Nat`-like.
+public export
+record TyConFacts where
+  constructor MkTyConFacts
+  params : List Nat
+  typeParams : List Nat
+  natLike : Bool
+
 public export
 record TS where
   constructor MkTS
@@ -189,10 +199,9 @@ record TS where
   ||| the module's name: facts of the module, found once each
   ||| (`Errors.toLoc`), which no pass and no rejection changes.
   places : SortedMap String (Origin, String)
-  ||| Each type constructor's parameters and the type parameters among
-  ||| them a value represents (`Types.paramsOf`), by `nameKey`: facts of
-  ||| its definition, found once each.
-  params : SortedMap String (List Nat, List Nat)
+  ||| What the translation reads of each type constructor's definition
+  ||| (`Types.tyConFacts`), by `nameKey`, found once each.
+  tyCons : SortedMap String TyConFacts
 
 export
 initState : SortedSet Name -> FC -> TS
@@ -200,12 +209,12 @@ initState ifaces fc = MkTS empty [<] empty empty empty [<] empty emptyQueue fc e
 
 ||| The state a pass of the translation starts from: nothing of the last
 ||| pass but the dictionaries it found, the interfaces, the rejections and
-||| what they refused, and what it found of modules and type constructors
-||| (`places`, `params`). A void pass's rejections
+||| what they refused, and what it found of modules, type constructors and
+||| the call graph's components (`places`, `tyCons`, `loops`). A void pass's rejections
 ||| stay: the first one found is the one the program is refused with,
 ||| whichever pass found it.
 export
 nextPass : TS -> TS
 nextPass st = { dicts := st.dicts, rejected := st.rejected, refused := st.refused, places := st.places
-               , params := st.params }
+               , tyCons := st.tyCons, loops := st.loops }
                 (initState st.interfaces st.moduleFC)

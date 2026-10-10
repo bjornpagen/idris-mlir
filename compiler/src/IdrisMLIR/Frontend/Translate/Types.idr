@@ -251,19 +251,50 @@ typeParams def params = case definition def of
     kinds (Bind _ _ (Pi _ _ _ a) sc) = valueKind a :: kinds sc
     kinds _ = []
 
-||| A type constructor's parameters (`dataParams`) and the type parameters
-||| among them (`typeParams`), found once per type constructor (`params`).
-paramsOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             GlobalDef -> Core (List Nat, List Nat)
-paramsOf def = do
+||| The role Idris gives a constructor of a `Nat`-like type
+||| (`TTImp.ProcessData.calcNaty`): the type is `NatT`, zero is `0`, and the
+||| successor adds one, as Idris's own backends represent every such type.
+||| Idris counts only runtime arguments, so `Fin` is one too.
+public export
+data NatRole = Zero | Succ
+
+export
+natRole : GlobalDef -> Maybe NatRole
+natRole def = case mapMaybe role (flags def) of
+  (r :: _) => Just r
+  [] => Nothing
+  where
+    role : DefFlag -> Maybe NatRole
+    role (ConType ZERO) = Just Zero
+    role (ConType SUCC) = Just Succ
+    role _ = Nothing
+
+||| Is a type constructor `Nat`-like: do its constructors carry Idris's
+||| `ZERO` and `SUCC` flags? These are read from Idris's metadata, never
+||| from names.
+natLike : {auto c : Ref Ctxt Defs} -> GlobalDef -> Core Bool
+natLike def = case definition def of
+  TCon _ _ _ _ _ (Just cons) _ => do
+    defs <- get Ctxt
+    roles <- traverse (\n => map (>>= natRole) (lookupCtxtExact n (gamma defs))) cons
+    pure (not (null roles) && all isJust roles)
+  _ => pure False
+
+||| What the translation reads of a type constructor's definition: its
+||| parameters (`dataParams`), the type parameters among them
+||| (`typeParams`), and whether it is `Nat`-like, found once per type
+||| constructor (`tyCons`).
+tyConFacts : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+             GlobalDef -> Core TyConFacts
+tyConFacts def = do
   let key = nameKey (fullname def)
-  case lookup key (!(get TState)).params of
+  case lookup key (!(get TState)).tyCons of
     Just known => pure known
     Nothing => do
       ps <- dataParams def
-      ts <- typeParams def ps
-      update TState { params $= insert key (ps, ts) }
-      pure (ps, ts)
+      facts <- MkTyConFacts ps <$> typeParams def ps <*> natLike def
+      update TState { tyCons $= insert key facts }
+      pure facts
 
 ||| The type arguments of a type constructor, and its arity.
 paramPositions : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
@@ -271,7 +302,7 @@ paramPositions : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
 paramPositions owner n = do
   def <- lookupDef EmptyFC owner n
   case definition def of
-    TCon arity _ _ _ _ _ _ => pure (Just (arity, snd !(paramsOf def)))
+    TCon arity _ _ _ _ _ _ => pure (Just (arity, (!(tyConFacts def)).typeParams))
     _ => pure Nothing
 
 ||| Does a type mention what the test picks other than as an index of an
@@ -364,35 +395,6 @@ shortName : Name -> String
 shortName (NS _ n) = shortName n
 shortName n = show n
 
-||| The role Idris gives a constructor of a `Nat`-like type
-||| (`TTImp.ProcessData.calcNaty`): the type is `NatT`, zero is `0`, and the
-||| successor adds one, as Idris's own backends represent every such type.
-||| Idris counts only runtime arguments, so `Fin` is one too.
-public export
-data NatRole = Zero | Succ
-
-export
-natRole : GlobalDef -> Maybe NatRole
-natRole def = case mapMaybe role (flags def) of
-  (r :: _) => Just r
-  [] => Nothing
-  where
-    role : DefFlag -> Maybe NatRole
-    role (ConType ZERO) = Just Zero
-    role (ConType SUCC) = Just Succ
-    role _ = Nothing
-
-||| Is a type constructor `Nat`-like: do its constructors carry Idris's
-||| `ZERO` and `SUCC` flags? These are read from Idris's metadata, never
-||| from names.
-natLike : {auto c : Ref Ctxt Defs} -> GlobalDef -> Core Bool
-natLike def = case definition def of
-  TCon _ _ _ _ _ (Just cons) _ => do
-    defs <- get Ctxt
-    roles <- traverse (\n => map (>>= natRole) (lookupCtxtExact n (gamma defs))) cons
-    pure (not (null roles) && all isJust roles)
-  _ => pure False
-
 ||| Is a type the type of implementations, whatever binds a value of it?
 ||| Idris passes a function's constraints to its `where` functions and its
 ||| case and with blocks as explicit arguments, so the binder does not say.
@@ -470,7 +472,7 @@ mutual
       -- A word type is a machine word whatever its arguments: what a
       -- `Ptr t` points to names what its handle holds, not its
       -- representation.
-      if !(natLike def)
+      if (!(tyConFacts def)).natLike
          then pure NatT
          else if isWordType (hooksOf (fullname def))
            then pure (IntT UInt64)
@@ -482,7 +484,7 @@ mutual
            Nothing => DataT <$> dataInstance fc owner n !(traverse normaliseClosed args)
     (TType _ _, _) => reject fc owner rule "Type in a runtime position"
     (Erased _ _, _) => reject fc owner rule "a type that depends on a runtime or erased value"
-    _ => reject fc owner rule ("unsupported runtime type " ++ !(showTT tm))
+    _ => do reject fc owner rule ("unsupported runtime type " ++ !(showTT tm))
 
   ||| Registers a monomorphic data instance.
   export
@@ -493,7 +495,9 @@ mutual
     let tname = show (fullname def)
     -- An index is compile-time information; instances differ by
     -- their parameters only.
-    (params, keep) <- paramsOf def
+    facts <- tyConFacts def
+    let params = facts.params
+    let keep = facts.typeParams
     args <- traverse (\(i, a) => if elem i keep then eraseIndices owner a
                                   else pure (Erased EmptyFC Placeholder))
                      (zip [0 .. length args0] args0)
@@ -528,7 +532,7 @@ mutual
           -- An implementation is a compile-time value of the instance, not
           -- a runtime field (`Dictionaries`).
           if !(dictionaryBinder rig a') then pure (Gone, Just a') else do
-            when !(erasedOutsideIndices cname a') $
+            when !(erasedOutsideIndices cname a') $ do
               reject dfc cname DependentField ("a field type that depends on another field: " ++ !(showTT a'))
             t <- coreType dfc cname DependentField a'
             pure (Held (useOf rig) t, Nothing)
