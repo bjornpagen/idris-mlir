@@ -46,47 +46,108 @@ stage, by the rule above): `OptArg` is simpler than `ActType` and loses
 nothing, since no option takes more than one argument; the match on the
 position is arguably the honest form.
 
-## The features, roughly in order of cost (conjecture)
+## The bar: no runtime price, decided at compile time
 
-1. **An erased match forced by a runtime value.** When an index the
-   program holds at runtime determines which constructor an erased proof
-   has, the match compiles to a match on that index. Small: it is the
-   detagging Idris's own backends do.
-2. **Polymorphic recursion with a finite instance set.** The closure of
-   instances is computed as a fixpoint within the budgets; a nested
-   datatype whose recursion only deepens an erased index has one
-   representation. Reverts `Term`, the traversals.
-3. **A function type whose result depends on its argument, and a field
-   type that depends on another field.** Either an instance per shape of
-   the argument (as `neededShape` already does for parameters), or one
-   uniform representation, a box, for a value whose type is only known at
-   runtime. Measurement decides which is the default.
-4. **Existentials.** A constructor that hides a type holds its value
-   boxed, with whatever its uses need (its implementations) beside it,
-   closure-converted as defunctionalization already converts captures.
-5. **Types at runtime.** A `Type` held or matched at runtime is a value of
-   a closed runtime type of type codes. Last, and only if a revert needs
-   it: the others may cover `WithData`.
+Decision: every feature here is compiled away. None of them may introduce
+a uniform (boxed) representation, a runtime type code dispatched on at
+each use, a dictionary passed at runtime, or an indirect call that the
+monomorphic rewrite does not have. The reverted upstream code must run at
+least as fast as the rewrite it replaces, on the bench and on the
+self-compile, and use no more memory; a revert that is slower is not
+taken. What makes this possible is the one fact this compiler always has:
+the whole program (memory: whole program, always). Every set the features
+need (the types an existential is built at, the kinds a dependent result
+is computed from, the types held at runtime) is finite and known at
+compile time, so each runtime choice becomes either a specialization or a
+closed sum whose variants are exactly the program's cases, which MLIR's
+passes then specialize, fold and defunctionalize like any other data.
+Where a set is not finite (a type that grows without bound at runtime),
+the program is refused with a message that names the growing value, never
+boxed.
+
+## The features, each as a compile-time construction
+
+Roughly in order of cost (conjecture). Each lands in the Idris side
+(classification, instances) and in the `idr` dialect's passes
+(`foreign/idr/`), which already specialize, evaluate at compile time and
+defunctionalize.
+
+1. **An erased match forced by a runtime value.** A match on an erased
+   proof (`First`, `Later`) that a runtime index determines is compiled as
+   the match on that index, the detagging Idris's own backends do: the
+   proof's constructors map to the index's, decided per data type from its
+   constructors' indices. No runtime cost: it is the match the rewrite
+   writes by hand.
+2. **Polymorphic recursion over nested datatypes.** `Term (Under k a)`
+   differs from `Term a` only in an erased index, so it has one
+   representation (instances keyed by representation, as the
+   runST/phantom rule already keys them). The instance set of a recursion
+   through implementations is computed as a fixpoint at compile time, in
+   the specialization pass's worklist; it is finite or the program is
+   refused naming the type that grows. Every call is direct.
+3. **A result or field type computed from a runtime value**
+   (`tokValue : (kind : k) -> String -> TokType kind`, `ActType`).
+   - Where the value is known at the call (a literal kind, a constructor
+     in the argument's shape), the instance is specialized on it, as
+     `neededShape` already specializes on a parameter's shape: the result
+     type reduces and the call is monomorphic. The `idr` specialization
+     pass extends this across calls after compile-time evaluation has
+     found more of the value.
+   - Where it is not, the type is the closed sum of the type's whole-
+     program image: `TokType` over the kinds the program can construct is
+     a finite set of types, so the result is a sum with one variant per
+     image type, tagged by the value it was computed from (which the
+     program already holds: the tag costs nothing new). A match on the
+     value at the use refines the type in each branch to one variant,
+     which the dialect's canonicalization turns into the variant's
+     payload with no test. A field type computed from another field is
+     the same sum inside the data's layout (proposal 0006's flattened
+     layouts place it), so `ActType`'s action is stored unboxed.
+4. **Existentials** (`SeqEat`, a tokenizer's hidden tag, a hidden name
+   type). A constructor that hides a type is, in the whole program, built
+   at finitely many types: the hidden type becomes a closed sum over those
+   construction sites' types, exactly as defunctionalization turns a
+   closure's captures into a labelled sum keyed by concrete types. The
+   operations used on the hidden value become a match on that label,
+   which specialization removes wherever the construction site reaches the
+   use (the parser combinators: every grammar is a constant, so most
+   collapse to direct code). No box, no vtable.
+5. **Types at runtime** (`KeyVal` holding a `Type`, a match on `{a =
+   Name}`). A `Type` held at runtime is a value of a closed enum of the
+   types the program stores there, generated per site, and a match on it
+   is a switch on that enum, folded at compile time wherever the type is
+   known (always, for `WithData`, whose field lists are constant). Last,
+   and only if a revert needs it; 3 and 4 may cover `WithData`.
 
 ## Staged plan
 
-Each stage is one feature: its tests (accepted programs with expected
-output, and the rejections it replaces), the fork rewrites it lets
-revert, reverted in the same change, the 702-program corpus unchanged but
-where the feature changes meaning by design, and the stage-0 self-compile
-still clean.
+Each stage is one feature, in the order above:
+- its tests: programs with expected output, reject tests for the
+  unbounded cases with their precise messages, and an `idr` FileCheck
+  test that the construct leaves no sum, tag test or indirect call where
+  the value is known;
+- the fork rewrites it lets revert, reverted in the same change;
+- the 702-program corpus unchanged but where the feature changes meaning
+  by design; the stage-0 self-compile still clean;
+- the bench and the self-compile, before and after: no slower, no more
+  memory, or the revert is not taken and the stage says why.
 
 ## Measures
 
 - Fork diff against upstream at the pin, in lines, before and after each
   stage (measured each time; it should only fall).
-- Self-compile time and peak memory (today 87 s, 1.8 GB, measured).
-- Runtime cost of each uniform representation chosen in 3 and 4, against
-  an instance per shape, on the bench.
+- Runtime: the bench and the native self-compile, the reverted upstream
+  code against the rewrite it replaces; the bar is "no slower".
+- Compile time: the extra instances and sum variants each feature makes,
+  and the self-compile's time and peak memory (today 87 s, 1.8 GB on
+  stage 0, measured).
 
 ## Open questions
 
-- Which of 3's two representations is the default, and the threshold that
-  picks the other (a measurement rule to write here).
+- The bound on a sum's variants (3, 4, 5) past which the program is
+  refused rather than compiled to a large switch: a measurement rule to
+  write here, from the bench.
+- How 3's sum meets proposal 0006's flattened layouts and the grades
+  (`!idr.lin`, `!idr.erased`): a variant must keep its payload's grade.
 - Whether `TokenKind` is reverted: it needs 3, and its only users are two
   small parsers.

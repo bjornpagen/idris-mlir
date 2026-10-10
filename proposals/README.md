@@ -56,7 +56,9 @@ keeps only what remains.
   provider removed at compile time, per-shard buffers and metrics with no
   atomics, and the compiler tracing its own phases. Proposed.
 - [0009](0009-fork-back-to-upstream.md): the fork back to upstream's
-  forms. Grow the compiler (an erased match a runtime index forces,
-  polymorphic recursion, dependent result and field types, existentials,
-  types at runtime) until each rewrite the fork took only to satisfy it
-  can be reverted to upstream's code. A sketch.
+  forms. Grow the compiler until each rewrite the fork took only to
+  satisfy it reverts to upstream's code, every feature compiled away on the
+  whole program (an erased match a runtime index forces, polymorphic
+  recursion, dependent result and field types as specializations or closed
+  sums, existentials and runtime types as defunctionalized sums), with the
+  bar that the reverted code runs no slower than the rewrite. A sketch.
