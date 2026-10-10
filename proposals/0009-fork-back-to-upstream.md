@@ -27,29 +27,57 @@ runtime values), and the compiler accepted upstream's code unchanged once
 it compiled that case; `op @{choose k}`, which picks the implementation by
 a runtime value, stays refused.
 
-## The rewrites to revert, each with the feature it needs
+## The ledger: every change self-hosting forced
 
-Read from compiler/idris/README.md, "Rewritten so that this compiler can
-compile it".
+Read from compiler/idris/README.md ("Honest code", "Rewritten so that
+this compiler can compile it", "Ours") and the frontend's own history
+(2fc2621a, 2299f6dc). Each change is a regression to revert (by the
+feature named, below), or kept, with the reason. This proposal is done
+when every "revert" row is reverted or moved to "keep" with a measurement
+that says why.
 
-| Rewrite | Upstream's form | What the compiler lacks |
+### Regressions in type precision or code size: revert
+
+| Change | Upstream's form | Revert by |
 |---|---|---|
-| `Core.WithData`: 13 concrete records | one extensible record, `WithData fields a`, whose field types are computed from a type-level list and whose `KeyVal` holds a `Type` | field types computed from an index; a `Type` held at runtime |
-| `IdrisMLIR.Term` / `Term n` with `Fin n` | a nested datatype (`Term a`, `Under k a`) | polymorphic recursion over a nested datatype |
-| `Libraries.Text.Token`: no `TokenKind`, `match` gives text | `tokValue : (kind : k) -> String -> TokType kind` | a function type whose result is computed from a runtime argument |
-| `Libraries.Text.Parser.Core`: grammars as closures | a deep embedding, `SeqEat` hiding its intermediate type | existentials (a constructor that hides a type argument) |
-| `Libraries.Text.Lexer.Tokenizer.Compose`: tag as a `String` | a tagger to a hidden tag type | existentials |
-| `Error`'s existential as rendered docs | a hidden type in an error | existentials |
-| `Idris.CommandLine.OptArg` | `ActType : List OptType -> Type`, the action's type computed from the arguments | a field type computed from another field |
-| `StartExpr` over `Name` | over any name type, hidden | existentials |
-| `decorationFromBounded` with no name | a match on the type `a` (`{a = Name}`) | a `Type` at runtime, matched on |
-| the `Functor`/traversal maps split per type | methods calling `map` through the implementation at types they bind | polymorphic recursion through implementations |
-| `shuffleVars`, `updateLocal`, `removeArgVars` match the position | a match on the erased proof (`First`, `Later`) that the runtime position forces | a match on an erased value that a runtime value determines |
+| `Core.WithData`: 13 concrete records | one extensible record, field types computed from a type-level list, a `KeyVal` holding a `Type` | 3, then 5 if 3 does not cover it |
+| `IdrisMLIR.Term`: `Term n` with `Fin n` variables | a nested datatype (`Term a`, `Under k a`) | 2 |
+| `IdrisMLIR.Term`'s derives and hints written by hand | derived | to check: which rule of the user profile refused them |
+| `Libraries.Text.Token`: no `TokenKind`; `match` gives text | `tokValue : (kind : k) -> String -> TokType kind` | 3 |
+| `Libraries.Text.Parser.Core`: grammars as closures; `assert_total` on the recursions of `some`, `many` and the rest; combinators no longer `%inline`, `>>` no longer `%tcinline` | a deep embedding read by `doParse`, `SeqEat` hiding its intermediate type, recursion guarded by a constructor | 4 |
+| `Libraries.Text.Lexer.Tokenizer.Compose`: the tag a `String` | a tagger to a hidden tag type | 4 |
+| `OperatorBindingMismatch`: rendered documents | a value of a hidden type with its printer | 4 |
+| `StartExpr` over `Name` | over any name type, hidden | 4, if free; the parser only builds `Name` |
+| `decorationFromBounded` keeps no name | a match on the type `a` (`{a = Name}`) | 5; it only fed the IDE metadata (stubbed), so revert for the re-sync, not for a feature |
+| recursion at the types it is given: `TTImp.TTImp.Functor`'s maps split per type, `goPairedPTerms` over a pair function, parser rules over `WithBounds ()`, `localHelper`'s one result, `HasNames` at `NameMap Bool`, `convertMatches` at `Scope` | methods calling `map` through the implementation at types they bind; one function over any `t` | 2 |
+| `OperatorLHSInfo` a family over `Type` | over a value of an implicit type (`tm -> Type`) | 3 (a parameter that is a value) |
+| `shuffleVars`, `updateLocal`, `removeArgVars` match the position | a match on the erased proof the position forces | 1 |
+| names, constants and scopes compared as values; `nameEq`, `namesEq`, `scopeEq`, `constantEq`, `DecEq Namespace` and `Libraries.Decidable.Equality` gone | equality decided with proofs (`Maybe (x = y)`, `Dec`) | 6 |
 
-Some of these may be better left as they are (decision deferred to each
-stage, by the rule above): `OptArg` is simpler than `ActType` and loses
-nothing, since no option takes more than one argument; the match on the
-position is arguably the honest form.
+### Honest rewrites with a runtime cost: keep, made free
+
+| Change | Cost | Made free by |
+|---|---|---|
+| a scope coercion is a traversal (`embedTerm`, `compatTerm`, `map embed`) | rebuilds every node | the `idr-identity` pass (written, unbuilt): a traversal that rebuilds its argument from the same fields is the identity once indices are erased; measure that it fires on each |
+| `Cast (Doc Void) (Doc ann)` rebuilds the document | one traversal | the same pass |
+| a TTC's local variable decides its `IsVar` proof from the scope (`isVarAt`) | a walk of the scope per variable read | 6 if the proof can be the primitive's; else measure on the TTC load |
+| Levenshtein over lists of rows | list cells where upstream had an `IOMatrix` | `mlir-linear`'s growable `Array`, if the bench shows the cost |
+
+### Kept, no regression
+
+- Every `believe_me`, `%unsafe` and `%foreign` gone (the compiler's rules);
+  the `strM` view replaced by `strUncons`; the shunting yard's stack
+  threaded as a value; the delayed-elaboration knot cut (the acyclic
+  heap); primitives backed by base's (one meaning per primitive); the
+  context table on a growable `Linear.Array` (an improvement).
+- Bugs fixed: the termination check's closure (`upstream/21`), `clean`,
+  the lost write after the context table grew, Levenshtein's crash on an
+  empty string.
+- `Idris.CommandLine.OptArg`: simpler than `ActType` and loses nothing (no
+  option takes more than one argument). Decision: keep.
+- What was deleted as out of scope (the REPL, IDE mode, code generators,
+  the CExp pipeline, source hashes, package scripts) and stubbed
+  (`Core.Metadata`): scope, not regressions.
 
 ## The bar: no runtime price, decided at compile time
 
@@ -123,6 +151,15 @@ defunctionalize.
    is a switch on that enum, folded at compile time wherever the type is
    known (always, for `WithData`, whose field lists are constant). Last,
    and only if a revert needs it; 3 and 4 may cover `WithData`.
+
+6. **Equality a primitive decides, with its proof.** Base decides
+   `DecEq String` and `DecEq Integer` with the primitive and forges the
+   proof (`believe_me Refl`), which is why the fork's equality proofs went.
+   The proof is erased: a `believe_me` whose result is used only at
+   quantity 0 computes nothing, so in base (trusted) it is accepted and
+   compiled to the primitive's test alone, with the `Refl` gone. The
+   fork's `nameEq`, `scopeEq` and the rest then come back as upstream wrote
+   them, at the cost of the comparison they already make.
 
 ## Staged plan
 
