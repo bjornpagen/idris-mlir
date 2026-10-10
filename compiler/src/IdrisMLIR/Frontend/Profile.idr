@@ -18,6 +18,7 @@ import Parser.Lexer.Source
 import IdrisMLIR.Dialect.Idr
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate
+import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.Registry
@@ -326,24 +327,27 @@ checkReachable fc roots = go empty empty (map (\r => (r, [], False)) roots) [<]
       Just def <- lookupCtxtExact n (gamma defs)
         | Nothing => go seen reported rest back
       let full = fullname def
-      let key = show full
+      -- What tells definitions apart: `show` leaves out the index of a
+      -- case block, so that two case blocks of one definition would be
+      -- one, and the second never checked.
+      let key = nameKey full
       -- Where the definition comes from, as the registry classifies it.
       loc <- toLoc (location def)
       -- Primitives have no location; errors name the user definition.
       let here = if covers Trusted loc.origin || isNothing (isNonEmptyFC (location def))
                    then path else (full, location def) :: path
-      let owner = case here of
-                    ((u, _) :: _) => show u
-                    [] => key
-      let refuse = update TState { refused $= (insert key . insert owner . maybe id (insert . show . fst) (head' path)) }
+      let owner = maybe full fst (head' here)
+      let refuse = update TState { refused $= (insert key . insert (nameKey owner) .
+                                                maybe id (insert . nameKey . fst) (head' path)) }
       if contains key seen then go seen reported rest back else do
         st <- get TState
-        if contains (key, owner) reported || contains (moduleOf (userFC here), nameRoot full) st.spelled
+        let reach = (key, nameKey owner)
+        if contains reach reported || contains (moduleOf (userFC here), nameRoot full) st.spelled
           then do
             refuse
-            go seen (insert (key, owner) reported) rest back
+            go seen (insert reach reported) rest back
           else do
-            Nothing <- noting (visit def loc here owner path fromTrusted)
+            Nothing <- noting (visit def loc here (show owner) path fromTrusted)
               | Just next => go (insert key seen) reported rest (back <>< next)
             refuse
-            go seen (insert (key, owner) reported) rest back
+            go seen (insert reach reported) rest back

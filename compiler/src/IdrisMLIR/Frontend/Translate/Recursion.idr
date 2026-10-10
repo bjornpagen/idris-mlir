@@ -137,7 +137,7 @@ checkComponent nodes members = do
                      " with a type or an implementation that is not its own, unchanged")
           pure True
     when (any (any id) wrong) $
-      update TState { refused $= \r => foldl (\r', caller => insert (show caller.name) r') r callers }
+      update TState { refused $= \r => foldl (\r', caller => insert (nameKey caller.name) r') r callers }
 
 ||| Checks the component of a definition, and of every definition it
 ||| reaches, once each.

@@ -150,7 +150,7 @@ record TS where
   ||| (`Errors.noting`), so that one run reports every independent one.
   rejected : SnocList Error
   ||| The definitions the checks of what the program reaches rejected, and
-  ||| the user definitions that refer to them, by full name: the translation
+  ||| the user definitions that refer to them, by `nameKey`: the translation
   ||| leaves them out, since what it would find there is the same
   ||| rejection again, or something the checks exist to keep from it.
   refused : SortedSet String

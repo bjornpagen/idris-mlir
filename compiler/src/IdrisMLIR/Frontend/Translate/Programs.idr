@@ -48,7 +48,7 @@ translateInstance p = do
   let owner = show (fullname def)
   -- A definition the checks refused is left out, and so is what only it
   -- reaches.
-  False <- pure (contains owner (!(get TState)).refused)
+  False <- pure (contains (nameKey (fullname def)) (!(get TState)).refused)
     | True => pure ()
   let fc = location def
   PMDef _ args treeCT _ _ <- pure (definition def)
