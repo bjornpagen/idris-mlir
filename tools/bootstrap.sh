@@ -1010,9 +1010,15 @@ args_libcxx() {
         -DLIBCXXABI_USE_COMPILER_RT=ON -DLIBCXXABI_USE_LLVM_UNWINDER=ON \
         -DLIBCXX_USE_COMPILER_RT=ON -DLIBCXX_HAS_MUSL_LIBC=ON
       ;;
+    # libSystem loads the system's libc++ into every process, and dyld
+    # binds a weak definition to the first image that exports it: a
+    # static libc++ that exported its symbols would have its locales and
+    # streams bound to the system's, two implementations freeing each
+    # other's memory. Built hermetic, it exports nothing.
     sdk)
       printf '%s\n' '-DLLVM_ENABLE_RUNTIMES=libcxxabi;libcxx' \
-        -DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=OFF -DLIBCXXABI_USE_LLVM_UNWINDER=OFF
+        -DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=OFF -DLIBCXXABI_USE_LLVM_UNWINDER=OFF \
+        -DLIBCXX_HERMETIC_STATIC_LIBRARY=ON -DLIBCXXABI_HERMETIC_STATIC_LIBRARY=ON
       ;;
   esac
 }
