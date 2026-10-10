@@ -23,6 +23,8 @@
 #   make compile SRC=Main.idr OUT=prog
 #                          idris-mlir, through tools/compile.sh
 #   make bench             bench/run.sh; ARGS='--runs 3 fib' passes arguments
+#   make self              the frontend compiled by itself (tools/self.sh): stages 1, 2
+#                          and 3, stage 2 the same as stage 3; after `make build`
 #
 # The test commands run tests/Main.idr, a golden runner that runs each test
 # in a process of its own; the whole run ends after 4 hours, so that nothing
@@ -93,7 +95,7 @@ TIMEOUT_MISSING := $(call toolchain,timeout_missing)
 RUN_TESTS = $(or $(TIMEOUT),$(error $(TIMEOUT_MISSING))) -k 10 14400 $(RUNNER) $(COMPILER)
 
 .PHONY: help bootstrap doctor verify-pins env check build fork frontend prefix libs host-libs \
-        test test-idr test-mlir-tools runner compile bench
+        test test-idr test-mlir-tools runner compile bench self self-fork
 .DEFAULT_GOAL := help
 
 # `make` alone lists the commands: the comment that starts this file.
@@ -214,6 +216,24 @@ $(HOST_LIBS_STAMP): $(wildcard $(IDRIS_PREFIX)/provenance.json) $(SHIPPED_SOURCE
 	@mkdir -p '$(HOST_PREFIX)'
 	$(call install,IDRIS2_PREFIX='$(HOST_PREFIX)' IDRIS2_PACKAGE_PATH="$(call libdir,$(IDRIS_PREFIX))" '$(IDRIS2)',$(HOST_PREFIX),$(SHIPPED))
 	@touch $@
+
+# The fork of Idris's compiler as a package of the frontend's prefix,
+# installed by the frontend, so that the frontend can compile itself
+# (-p idris-compiler): from a copy of compiler/idris, its earlier
+# installation removed first, again whenever a file of the fork changes.
+SELF_FORK_STAMP := $(CHECKOUT_PREFIX)/$(call toolchain,fork_stamp)
+self-fork: $(SELF_FORK_STAMP)
+$(SELF_FORK_STAMP): $(FORK_SOURCES) $(LIBS_STAMP)
+	@packages=$$('$(FRONTEND)' --prefix '$(CHECKOUT_PREFIX)' --libdir) && rm -rf "$$packages"/idris-compiler-* \
+	  '$(CHECKOUT_PREFIX)-src/idris-compiler' && mkdir -p '$(CHECKOUT_PREFIX)-src' && \
+	  cp -R '$(ROOT)/compiler/idris' '$(CHECKOUT_PREFIX)-src/idris-compiler' && \
+	  rm -rf '$(CHECKOUT_PREFIX)-src/idris-compiler/build'
+	cd '$(CHECKOUT_PREFIX)-src/idris-compiler' && '$(FRONTEND)' --prefix '$(CHECKOUT_PREFIX)' --install idris-compiler.ipkg
+	@touch $@
+
+self: self-fork
+	@$(PINS) built llvm sysroot
+	$(ROOT)/tools/self.sh
 
 # Every test command rebuilds the runner while other runs may be using it.
 # So it is built aside, in build/stage, one build at a time (a mkdir
