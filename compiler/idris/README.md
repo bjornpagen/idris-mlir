@@ -25,6 +25,13 @@ nothing else, so the frontend builds the packages Idris ships itself, into
 It depends on nothing but prelude and base. Upstream's API package needs
 `network` for the IDE mode's socket; nothing here does.
 
+To this compiler the fork is a trusted library of its own, as base is
+(`Compiler` in `IdrisMLIR.Registry.Libraries`): a module whose TTC is
+installed in the package `idris-compiler` may be imported by a program and
+is admitted whole, so the frontend compiles as a program over it. The
+frontend's own modules (`IdrisMLIR.*`) are the program's, user code under
+the same profile as any other.
+
 ## What was deleted, and why
 
 - **The REPL, the IDE mode and every code generator.** They are

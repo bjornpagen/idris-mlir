@@ -9,15 +9,18 @@ import IdrisMLIR.Registry.Name
 %default total
 
 ||| The libraries the compiler knows: `Builtin` and `PrimIO`, the rest of
-||| the prelude, base, and the packages this compiler ships itself
-||| (`libs/`: `mlir-linear`), which it implements in full. The compiler
-||| implements Idris 2 for programs over the upstream prelude and base; the
-||| other packages shipped with Idris (contrib, linear, network, test) are
-||| no commitment, and what they covered comes from `libs/`. A module of
-||| prelude or base is one of these because its TTC lives in that package,
-||| not because its name was listed.
+||| the prelude, base, the packages this compiler ships itself (`libs/`:
+||| `mlir-linear`), which it implements in full, and `Compiler`, its own
+||| fork of Idris's compiler (`compiler/idris`, the package
+||| `idris-compiler`), which the frontend is written over, so that the
+||| frontend compiles as a program. The compiler implements Idris 2 for
+||| programs over the upstream prelude and base; the other packages
+||| shipped with Idris (contrib, linear, network, test) are no commitment,
+||| and what they covered comes from `libs/`. A module of prelude or base
+||| is one of these because its TTC lives in that package, not because its
+||| name was listed.
 public export
-data Lib = Builtin | PrimIO | Prelude | Base | InHouse
+data Lib = Builtin | PrimIO | Prelude | Base | InHouse | Compiler
 
 ||| Where Idris found the TTC of a module: in the project's own build
 ||| directory, built from the user's source; in an installed package of
@@ -57,13 +60,14 @@ record Row where
 ||| The table, one row per library. `Admitted` is off for `PrimIO`, which
 ||| admits only what `admittedFromPrimIO` lists.
 |||
-|||                         trusted admitted break-last report
+|||                          trusted admitted break-last report
 row : Lib -> Row
-row Builtin = MkRow        True    True     True       True
-row PrimIO  = MkRow        True    False    True       True
-row Prelude = MkRow        True    True     False      True
-row Base    = MkRow        True    True     False      False
-row InHouse = MkRow        True    True     False      False
+row Builtin  = MkRow        True    True     True       True
+row PrimIO   = MkRow        True    False    True       True
+row Prelude  = MkRow        True    True     False      True
+row Base     = MkRow        True    True     False      False
+row InHouse  = MkRow        True    True     False      False
+row Compiler = MkRow        True    True     False      False
 
 column : Purpose -> Row -> Bool
 column Trusted = (.trusted)
@@ -82,8 +86,10 @@ covers _ _ = False
 ||| Every module of the prelude package is trusted: `Builtin` and `PrimIO`
 ||| keep the rows that admit them differently, and the rest of that package
 ||| is the Prelude. Every module of base is base. Every module of a package
-||| this compiler ships is its own. A module of any other installed package
-||| is untrusted, whatever it is named.
+||| this compiler ships is its own, and every module of its fork of Idris's
+||| compiler is the fork's: the frontend's own modules (`IdrisMLIR.*`) are
+||| the project's, user code like any program's. A module of any other
+||| installed package is untrusted, whatever it is named.
 export
 moduleOrigin : Home -> List String -> Origin
 moduleOrigin Project _ = User
@@ -92,6 +98,7 @@ moduleOrigin (Installed "prelude") ("PrimIO" :: _) = Library PrimIO
 moduleOrigin (Installed "prelude") _ = Library Prelude
 moduleOrigin (Installed "base") _ = Library Base
 moduleOrigin (Installed "mlir-linear") _ = Library InHouse
+moduleOrigin (Installed "idris-compiler") _ = Library Compiler
 moduleOrigin _ _ = Untrusted
 
 ||| The packages every program sees, whether it asks for them or not, as
