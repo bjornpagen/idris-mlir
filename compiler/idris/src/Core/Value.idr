@@ -17,6 +17,7 @@ record EvalOpts where
   argHolesOnly : Bool -- only evaluate holes which are relevant arguments
   removeAs : Bool -- reduce 'as' patterns (don't do this on LHS)
   evalAll : Bool -- evaluate everything, including private names
+  evalTypes : Bool -- evaluate the private names that compute a type
   tcInline : Bool -- inline for totality checking
   sharedPrimsOnly : Bool -- reduce only the primitives every backend computes
                          -- alike (Core.Primitives.sharedOp)
@@ -32,6 +33,7 @@ defaultOpts = MkEvalOpts
     , argHolesOnly = False
     , removeAs = True
     , evalAll = False
+    , evalTypes = False
     , tcInline = False
     , sharedPrimsOnly = False
     , fuel = Nothing
@@ -46,6 +48,7 @@ withHoles = MkEvalOpts
     , argHolesOnly = True
     , removeAs = False
     , evalAll = False
+    , evalTypes = False
     , tcInline = False
     , sharedPrimsOnly = False
     , fuel = Nothing
@@ -60,12 +63,20 @@ withAll = MkEvalOpts
     , argHolesOnly = False
     , removeAs = True
     , evalAll = True
+    , evalTypes = False
     , tcInline = False
     , sharedPrimsOnly = False
     , fuel = Nothing
     , reduceLimit = []
     , strategy = CBN
     }
+
+||| Evaluates what Idris's own normalisation does, and also every private
+||| definition that computes a type, wherever it is: the type a value has
+||| is needed whichever module defines what it reduces through.
+export
+withTypes : EvalOpts
+withTypes = { evalTypes := True } defaultOpts
 
 export
 withArgHoles : EvalOpts
@@ -74,6 +85,7 @@ withArgHoles = MkEvalOpts
     , argHolesOnly = True
     , removeAs = False
     , evalAll = False
+    , evalTypes = False
     , tcInline = False
     , sharedPrimsOnly = False
     , fuel = Nothing

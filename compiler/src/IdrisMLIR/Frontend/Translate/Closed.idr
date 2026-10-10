@@ -255,13 +255,13 @@ runtimeDependent = go
       arguments (True :: es) (_ :: as) = arguments es as
       arguments es (a :: as) = if !(go a) then pure True else arguments (drop 1 es) as
 
-||| The normal form of a closed term, every definition unfolded as in
+||| The normal form of a closed term, its definitions unfolded as in
 ||| `closeNormalise`.
 export
 normaliseClosed : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core ClosedTerm
 normaliseClosed tm = do
   defs <- get Ctxt
-  normaliseAll defs [] tm
+  normaliseTypes defs [] tm
 
 ||| A projection: a definition that matches one of its parameters against
 ||| one constructor and returns one of that constructor's arguments, as
@@ -517,18 +517,21 @@ cutRuntime tm =
 ||| their known values and every runtime variable by `Erased`, once every
 ||| computation on one is cut (`cutRuntime`). A solved metavariable is
 ||| filled in first: it stands applied to every variable in scope where it
-||| was made, runtime ones too, which its solution need not use. Every
-||| definition unfolds, whatever its visibility (`normaliseAll`): Idris's
-||| plain `normalise` keeps a `private` function of another module as it is
-||| (a type-level function such as Data.SortedMap's `delType`), which is a
-||| module boundary, not a value.
+||| was made, runtime ones too, which its solution need not use. A
+||| definition that computes a type unfolds whatever its visibility
+||| (`normaliseTypes`): Idris's plain `normalise` keeps a `private` function
+||| of another module as it is (a type-level function such as
+||| Data.SortedMap's `delType`), which is a module boundary, not a value.
+||| Any other unfolds as Idris's own normalisation unfolds it: a value whose
+||| definition its module keeps to itself stays as it is (a parser's, whose
+||| closures, normalised, would unfold without end).
 export
 closeNormalise : {auto c : Ref Ctxt Defs} -> {vars : Scope} ->
                  FC -> List (VarInfo a) -> TT vars -> Core ClosedTerm
 closeNormalise fc env tm = do
   closed <- solved (betaAll (wrapLams fc tm) (reverse (map value env)))
   defs <- get Ctxt
-  normaliseAll defs [] !(cutRuntime closed)
+  normaliseTypes defs [] !(cutRuntime closed)
   where
     value : VarInfo a -> ClosedTerm
     value (TypeValue t) = t

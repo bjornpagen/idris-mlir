@@ -86,8 +86,9 @@ definitionsIn _ = []
 ||| declared for mentions a definition Idris keeps opaque where the
 ||| program is (`Meters`, which its module exports without its body,
 ||| `Meters = Int`), so the types it builds are types of their own there.
-||| The compiler unfolds every definition (`normaliseAll`), and so makes
-||| one data instance of two such types and gives it one implementation.
+||| The compiler unfolds every definition that computes a type, whatever
+||| its visibility (`normaliseTypes`), and so makes one data instance of two
+||| such types and gives it one implementation.
 ||| Data keyed by the type Idris sees would not be sound: inside the
 ||| defining module the two types are one, and a value of one can leave it
 ||| as the other, holding the first one's implementation.
@@ -116,7 +117,10 @@ opaqueFor impl = case spine impl [] of
       rest <- hidden xs
       Just def <- lookupCtxtExact x (gamma defs)
         | Nothing => pure rest
-      pure (if collapseDefault (visibility def) == Public then rest else x :: rest)
+      -- Only a definition that computes a type is unfolded here where
+      -- Idris keeps it opaque.
+      pure (if collapseDefault (visibility def) == Public || not (isTypeLike (type def))
+               then rest else x :: rest)
 
 ||| A construction site gives field `i` of a constructor the implementation
 ||| `impl`: the one the field holds, if no site gave another. Two sites of

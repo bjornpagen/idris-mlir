@@ -299,7 +299,7 @@ parameters (defs : Defs) (topopts : EvalOpts)
                   | Nothing => do logC "eval.stuck.outofscope" 5 $ do n' <- toFullNames n
                                                                       pure $ "Stuck function: " ++ show n'
                                   pure def
-             let redok1 = evalAll topopts
+             let redok1 = evalAll topopts || (evalTypes topopts && computesType (type res))
              let redok2 = reducibleInAny (currentNS defs :: nestedNS defs)
                                          (fullname res)
                                          (collapseDefault $ visibility res)
@@ -323,6 +323,13 @@ parameters (defs : Defs) (topopts : EvalOpts)
                    --                         pure "Reduced \{show n'} to \{show nf}"
                    pure nf
                 else pure def
+
+    -- Is a definition's type a universe, after its arguments: does it
+    -- compute a type?
+    computesType : Term vs -> Bool
+    computesType (TType _ _) = True
+    computesType (Bind _ _ (Pi {}) sc) = computesType sc
+    computesType _ = False
 
     -- TODO note the list of closures is stored RTL
     getCaseBound : List (Closure free) ->

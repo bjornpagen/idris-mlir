@@ -106,6 +106,15 @@ normaliseAll : {auto c : Ref Ctxt Defs} ->
 normaliseAll defs env tm
     = quote defs env !(nfOpts withAll defs env tm)
 
+||| The normal form Idris's own normalisation gives, with every private
+||| definition that computes a type unfolded too (`withTypes`).
+export
+normaliseTypes : {auto c : Ref Ctxt Defs} ->
+                 {free : _} ->
+                 Defs -> Env Term free -> Term free -> Core (Term free)
+normaliseTypes defs env tm
+    = quote defs env !(nfOpts withTypes defs env tm)
+
 -- Normalise, but without normalising the types of binders. Dealing with
 -- binders is the slow part of normalisation so whenever we can avoid it, it's
 -- a big win
