@@ -299,6 +299,158 @@ initWork : {auto c : Ref Ctxt Defs} ->
            Core (Either Terminating (WorkList, NameMap (FC, Name)))
 initWork defs def = addFunctions defs [def] (insert def.fullname (def.location, def.fullname) empty) empty
 
+||| The strongly connected components of the graph of the calls in a work
+||| list, as each function's component (Tarjan's algorithm). A path from a
+||| function back to itself never leaves its component, so every loop is
+||| among the calls inside components; a call between two components is on
+||| no loop, and closing over it only makes paths that no loop is on.
+record Components where
+  constructor MkComponents
+  next : Nat
+  index : NameMap Nat
+  low : NameMap Nat
+  stack : List Name
+  onStack : NameMap ()
+  component : NameMap Nat
+  count : Nat
+
+lowOf : Components -> Name -> Nat
+lowOf st v = fromMaybe 0 (lookup v st.low)
+
+||| Pops the component whose first visited function is `v`.
+popComponent : Name -> Components -> Components
+popComponent v st = go st.stack st
+  where
+    go : List Name -> Components -> Components
+    go [] st = { stack := [] } st
+    go (w :: ws) st
+        = let st' = { onStack $= delete w, component $= insert w st.count } st in
+          if w == v then { stack := ws, count $= S } st' else go ws st'
+
+mutual
+  connect : NameMap (List Name) -> Components -> Name -> Components
+  connect calls st v
+      = let i = st.next
+            st1 = { next $= S, index $= insert v i, low $= insert v i,
+                    stack $= (v ::), onStack $= insert v () } st
+            st2 = foldl (connectCall calls v) st1 (fromMaybe [] (lookup v calls)) in
+        if lowOf st2 v == i then popComponent v st2 else st2
+
+  connectCall : NameMap (List Name) -> Name -> Components -> Name -> Components
+  connectCall calls v st w
+      = case lookup w st.index of
+             Nothing => let st' = connect calls st w in
+                        { low $= insert v (min (lowOf st' v) (lowOf st' w)) } st'
+             Just j => if isJust (lookup w st.onStack)
+                          then { low $= insert v (min (lowOf st v) j) } st
+                          else st
+
+||| The calls of a work list that are inside a component. The closure over
+||| them holds exactly the graphs from a function to one of its own
+||| component that the closure over every call holds, found in the same
+||| order: a call that leaves a component never composes into a path that
+||| comes back to it.
+insideComponents : WorkList -> WorkList
+insideComponents work
+    = let calls = foldl (\m, (f, g, _) => insert f (g :: fromMaybe [] (lookup f m)) m)
+                        (the (NameMap (List Name)) empty) (Prelude.toList work)
+          st = foldlNames (\st, v, _ => if isJust (lookup v st.index) then st else connect calls st v)
+                          (MkComponents 0 empty empty [] empty empty 0) calls
+          same = \f, g => lookup f st.component == lookup g st.component in
+      fromList (filter (\(f, g, _) => same f g) (Prelude.toList work))
+
+||| The names a definition refers to, with those of its case blocks, which
+||| are checked as part of it.
+addCases : {auto c : Ref Ctxt Defs} -> Defs -> List Name -> Core (List Name)
+addCases defs ns = go empty ns
+  where
+    go : NameMap () -> List Name -> Core (List Name)
+    go all [] = pure (keys all)
+    go all (n :: ns)
+        = case lookup n all of
+             Just _ => go all ns
+             Nothing =>
+               if caseFn !(getFullName n)
+                  then case !(lookupCtxtExact n (gamma defs)) of
+                            Just def => go (insert n () all) (keys (refersTo def) ++ ns)
+                            Nothing => go (insert n () all) ns
+                  else go (insert n () all) ns
+
+||| Records as terminating the functions a successful search visited whose
+||| verdict no later check could change, so that no later check searches
+||| them again. A visited function's own check would search a part of this
+||| search's graph, which has no loop, and would find each name it refers
+||| to as it is then. That is the same verdict when every such name is
+||| settled: terminating already, a primitive, which has no calls, or
+||| settled here. Settled here are the visited functions and their case
+||| blocks (a case block is checked inline, as part of the function that
+||| matches, so no call reaches one and none is on a loop) whose names are
+||| all settled. A function that is not defined yet, a constructor whose
+||| type's positivity is not checked yet, or a reference to an unchecked
+||| function outside the search (under `assert_total`, or a guarded `Delay`)
+||| may still become non-terminating, and so does everything that refers to
+||| one.
+settle : {auto c : Ref Ctxt Defs} -> Defs -> List Name -> Core ()
+settle defs visited
+    = do let seen = Libraries.Data.NameMap.fromList (map (\n => (n, ())) visited)
+         deps <- explore seen visited empty
+         let users = foldlNames (\m, n, ds => foldl (\m, d => insert d (n :: fromMaybe [] (lookup d m)) m) m
+                                                    (fromMaybe [] ds))
+                                (the (NameMap (List Name)) empty) deps
+         let unsettled = spread users empty (keys (filterBy (\n => maybe False isNothing (lookup n deps)) deps))
+         traverse_ (\n => when (isNothing (lookup n unsettled)) $
+                             setTerminating EmptyFC n IsTerminating)
+                   (keys deps)
+  where
+    primitive : Def -> Bool
+    primitive (Builtin _) = True
+    primitive (ExternDef _) = True
+    primitive _ = False
+
+    -- The functions and case blocks a function's verdict depends on, or
+    -- Nothing when it depends on a name that is not settled.
+    dependencies : NameMap () -> Name -> Core (Maybe (List Name))
+    dependencies seen n
+        = do Just def <- lookupCtxtExact n (gamma defs)
+               | Nothing => pure Nothing
+             let PMDef {} = definition def
+               | d => pure (if primitive d then Just [] else Nothing)
+             refs <- addCases defs (keys (refersTo def) ++ map (\(MkSCCall g _ _) => g) def.sizeChange)
+             go refs []
+      where
+        go : List Name -> List Name -> Core (Maybe (List Name))
+        go [] acc = pure (Just acc)
+        go (r :: rs) acc
+            = do Just d <- lookupCtxtExact r (gamma defs)
+                   | Nothing => go rs acc
+                 case isTerminating (totality d) of
+                      IsTerminating => go rs acc
+                      NotTerminating _ => pure Nothing
+                      Unchecked =>
+                        if isJust (lookup d.fullname seen) || caseFn d.fullname
+                           then go rs (d.fullname :: acc)
+                           else if primitive (definition d)
+                                   then go rs acc
+                                   else pure Nothing
+
+    -- Every function and case block reached, with what it depends on.
+    explore : NameMap () -> List Name -> NameMap (Maybe (List Name)) ->
+              Core (NameMap (Maybe (List Name)))
+    explore seen [] acc = pure acc
+    explore seen (n :: ns) acc
+        = case lookup n acc of
+               Just _ => explore seen ns acc
+               Nothing => do
+                 ds <- dependencies seen n
+                 explore seen (fromMaybe [] ds ++ ns) (insert n ds acc)
+
+    spread : NameMap (List Name) -> NameMap () -> List Name -> NameMap ()
+    spread users acc [] = acc
+    spread users acc (n :: ns)
+        = case lookup n acc of
+               Just _ => spread users acc ns
+               Nothing => spread users (insert n () acc) (fromMaybe [] (lookup n users) ++ ns)
+
 export
 calcTerminating : {auto c : Ref Ctxt Defs} ->
                   FC -> Name -> Core Terminating
@@ -311,7 +463,7 @@ calcTerminating loc n
            | bad => pure bad
          Right (work, pred) <- initWork defs def
            | Left bad => pure bad
-         let s = transitiveClosure work initSCSet
+         let s = transitiveClosure (insideComponents work) initSCSet
          let Nothing = findNonTerminatingLoop s
            | Just (g, loop) =>
                ifThenElse (def.fullname == g)
@@ -320,20 +472,5 @@ calcTerminating loc n
                      let init = prefixCallSeq pred g
                      setPrefixTerminating init g
                      pure $ NotTerminating (BadPath init g))
+         settle defs (keys pred)
          pure IsTerminating
-  where
-    addCases' : Defs -> NameMap () -> List Name -> Core (List Name)
-    addCases' defs all [] = pure (keys all)
-    addCases' defs all (n :: ns)
-        = case lookup n all of
-             Just _ => addCases' defs all ns
-             Nothing =>
-               if caseFn !(getFullName n)
-                  then case !(lookupCtxtExact n (gamma defs)) of
-                            Just def => addCases' defs (insert n () all)
-                                                  (keys (refersTo def) ++ ns)
-                            Nothing => addCases' defs (insert n () all) ns
-                  else addCases' defs (insert n () all) ns
-
-    addCases : Defs -> List Name -> Core (List Name)
-    addCases defs ns = addCases' defs empty ns
