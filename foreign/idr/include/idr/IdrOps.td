@@ -28,13 +28,6 @@ def Idr_Dialect : Dialect {
     ::mlir::Type parseType(::mlir::DialectAsmParser &parser) const override;
     void printType(::mlir::Type type, ::mlir::DialectAsmPrinter &printer) const override;
 
-    // The SymbolScopes open on this context, innermost first. Per context,
-    // because a context is one compilation's state and its passes may run
-    // on several threads, each of which must see the scope its pass opened.
-    std::atomic<::idr::SymbolScope *> &symbolScopes() { return scopes; }
-    // The HoldMemos open on this context, innermost first, for the same
-    // reason: a pass remembers whether a type may hold a world or a closure.
-    std::atomic<::idr::HoldMemo *> &holdMemos() { return memos; }
     // The runtime cells the folders left live on this context, summed over
     // every thread that folded. Per context, because a context is one
     // compilation's state and its folds may run on several threads.
@@ -42,8 +35,6 @@ def Idr_Dialect : Dialect {
     int64_t foldLeakCount() const { return foldLeak.load(std::memory_order_relaxed); }
 
   private:
-    std::atomic<::idr::SymbolScope *> scopes{nullptr};
-    std::atomic<::idr::HoldMemo *> memos{nullptr};
     std::atomic<int64_t> foldLeak{0};
   }];
   let useDefaultAttributePrinterParser = 1;
@@ -931,8 +922,7 @@ def Idr_CrashStrOp : Idr_Op<"crash_str", [Idr_CallsRuntime, Idr_MayCrash<>, Idr_
 // Created by idr-tail-loops in loops of functions that are not total; never
 // written by Emit. MLIR deletes a region op without effects even if it never
 // finishes; this op's effect keeps such a loop, and orders it with output as
-// a crash is. It lowers to llvm.sideeffect, before which idr-meter counts the
-// tick that lets idr-eval stop a call that does not end.
+// a crash is. It lowers to llvm.sideeffect.
 def Idr_MayLoopOp : Idr_Op<"may_loop", [MemoryEffects<[
     MemWrite<Idr_DivergenceResource>, MemWrite<Idr_IOResource>]>]> {
   let summary = "marks one iteration of a loop that may not terminate";
@@ -1779,8 +1769,7 @@ def Idr_BufferGetStringOp : Idr_BufferAccessOp<"buffer_get_string", [Idr_CallsRu
 // orders that chain; between chains, the effects order the ops, as they
 // order any two IO ops. It opens the IO resource, so no pass merges two,
 // moves one past an IO op, or deletes one, and every function that reaches
-// one performs IO (idr-effects), which keeps compile-time evaluation off
-// it. It has no runtime form.
+// one performs IO (idr-effects). It has no runtime form.
 def Idr_WorldNewOp : Idr_Op<"world.new", [Idr_PerformsIO, Idr_Primitive,
     MemoryEffects<[MemWrite<Idr_IOResource>]>]> {
   let summary = "a forged world, the first of a chain of its own";

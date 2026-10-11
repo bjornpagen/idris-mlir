@@ -37,8 +37,8 @@ def IdrTarget : Pass<"idr-target", "::mlir::ModuleOp"> {
     Writes the build's target triple and CPU on the module as its
     `#llvm.target`, then lets LLVM fill in the CPU's features and the data
     layout (`dlti.dl_spec`). Every later step reads the target there:
-    idr-eval's JIT compiles for it, idr-entry tells the runtime's entry which
-    features to test, and idris-mlir compiles the object for it. The
+    idr-entry tells the runtime's entry which features to test, and
+    idris-mlir compiles the object for it. The
     triple and the CPU are the build's target entry (CMakeLists.txt).
   }];
   let dependentDialects = ["::mlir::LLVM::LLVMDialect", "::mlir::DLTIDialect"];
@@ -52,9 +52,7 @@ def IdrLower : Pass<"idr-lower", "::mlir::ModuleOp"> {
     the runtime's C functions. Each guard becomes its comparison and a crash
     with its cause. Constants become static data, and
     `@__idr_release_cafs` releases what the static thunks among them hold
-    once forced. It has one mode: a program and compile-time evaluation are
-    lowered alike, and what differs between them is a pass of its own after
-    it, idr-entry for a program and idr-meter for evaluation.
+    once forced. A program's root becomes its entry in idr-entry, after this.
   }];
   let dependentDialects = [
     "::mlir::arith::ArithDialect", "::mlir::scf::SCFDialect",
@@ -68,8 +66,7 @@ def IdrLower : Pass<"idr-lower", "::mlir::ModuleOp"> {
 def IdrEntry : Pass<"idr-entry", "::mlir::ModuleOp"> {
   let summary = "Make the lowered root the program's entry: @__idr_main and @main";
   let description = [{
-    Runs after idr-lower on a program, never in compile-time evaluation.
-    The root, the only public function, becomes private, and its kind comes
+    Runs after idr-lower. The root, the only public function, becomes private, and its kind comes
     from its lowered signature: `() -> i64` returns the exit status, and
     `() -> ()` returns 0. `@__idr_main` calls the root, then
     `@__idr_release_cafs`, then `idris_rt_main_return`. `@main(i32, ptr)`
@@ -78,18 +75,6 @@ def IdrEntry : Pass<"idr-entry", "::mlir::ModuleOp"> {
     declared where absent.
   }];
   let dependentDialects = ["::mlir::LLVM::LLVMDialect", "::mlir::func::FuncDialect"];
-}
-
-def IdrMeter : Pass<"idr-meter", "::mlir::ModuleOp"> {
-  let summary = "Count a tick of the evaluator's meter at every function entry and every loop that may not end";
-  let description = [{
-    Runs after idr-lower in compile-time evaluation only. Every defined
-    function calls `idris_rt_eval_tick` at the start of its entry block, and
-    again right before each `llvm.sideeffect`, which a loop that may not end
-    (`idr.may_loop`) lowers to, so that idr-eval stops a call that does not
-    end within its budget.
-  }];
-  let dependentDialects = ["::mlir::LLVM::LLVMDialect"];
 }
 
 def IdrTailCalls : Pass<"idr-tail-calls", "::mlir::ModuleOp"> {
@@ -116,46 +101,6 @@ def IdrTailCalls : Pass<"idr-tail-calls", "::mlir::ModuleOp"> {
     Statistic<"numTailCalls", "tail-calls", "Calls in tail position made guaranteed tail calls">,
     Statistic<"numInMemory", "in-memory", "Functions on tail calls whose result goes through memory">,
     Statistic<"numFrameBound", "frame-bound", "Calls in tail position that take their caller's frame, left calls">,
-  ];
-}
-
-def IdrEval : Pass<"idr-eval", "::mlir::ModuleOp"> {
-  let summary = "Evaluate closed calls of functions that perform no IO at compile time";
-  let description = [{
-    Every call whose operands are all constants, of a function that has a
-    body and performs no IO (and whose constant operands name only such
-    functions as closures), is run: the round's calls are defunctionalized,
-    lowered with idr-lower as a program is and metered by idr-meter,
-    compiled once by ORC's LLJIT and run in a child process, and each result
-    replaces its call as constants. A round whose closures or suspensions
-    the defunctionalization cannot follow stays for runtime. Every call runs
-    metered, within a budget of ticks (counted where code enters a function
-    or goes round a loop), arena bytes and stack; a call that reaches only
-    total code gets a larger budget than one whose code may diverge
-    (`idr.effects`). A call that crashes, spends its budget, or is
-    refused memory by the machine stays, and so does one whose results
-    would take more than 1 MiB of static data. The results come back as
-    MLIR bytecode, read once per cell, so parts they share stay shared.
-    Results are cached per callee and arguments. Remarks: `Passed` with the
-    wall time, `Missed` for a crash, for a call that did not finish and
-    for results too large, in the category idr-eval.
-    Replacing one call by its results is the action `idr-eval-call`.
-  }];
-  let statistics = [
-    Statistic<"numEvaluated", "evaluated", "Calls replaced by their results">,
-    Statistic<"numStayedCrash", "stayed-crash", "Calls that crash, left to run at runtime">,
-    Statistic<"numStayedBudget", "stayed-budget",
-              "Metered calls that did not finish, left to run at runtime">,
-    Statistic<"numStayedLarge", "stayed-large",
-              "Calls whose results are too large to be worth it, left to run at runtime">,
-    Statistic<"numCacheHits", "cache-hits",
-              "Closed calls whose outcome an earlier run of the pass knew">,
-  ];
-  let dependentDialects = [
-    "::mlir::arith::ArithDialect", "::mlir::scf::SCFDialect",
-    "::mlir::ub::UBDialect", "::mlir::LLVM::LLVMDialect",
-    "::mlir::func::FuncDialect", "::mlir::cf::ControlFlowDialect",
-    "::mlir::math::MathDialect"
   ];
 }
 
@@ -194,8 +139,8 @@ def IdrSpecialize : Pass<"idr-specialize", "::mlir::ModuleOp"> {
     parameter's binding time allows it: any argument when the callee is on
     no cycle of references, else that of a fixed parameter, or of a
     decreasing or bounded one when the static value is small
-    (`idr-binding-times` reports the binding times). A closed call is left
-    to `idr-eval`. Clones are shared by key (the function first cloned, and
+    (`idr-binding-times` reports the binding times). Clones are shared by key
+    (the function first cloned, and
     the patterns of its parameters); a key goes into the table before its
     clone is simplified, so a clone's calls with its own key are self calls.
     More clones of one function than a fixed budget is the error
@@ -230,14 +175,14 @@ def IdrBindingTimes : Pass<"idr-binding-times", "::mlir::ModuleOp"> {
 def IdrInline : Pass<"idr-inline", "::mlir::ModuleOp"> {
   let summary = "Inline calls by MLton's size rule";
   let description = [{
-    MLIR's inliner, which runs `idr-canonicalize` on each function before
-    it inlines into it, deciding what to inline as MLton does: a function
-    that calls nothing and has at most 40 ops, and any function on no cycle
-    of calls for which (calls - 1) * (size - 60) <= 320, sizes counted in
-    ops, calls in call sites and in closures that name the function. The
+    MLIR's inliner, deciding what to inline as MLton does: a function that
+    calls nothing and has at most 40 ops, and any function on no cycle of
+    calls for which (calls - 1) * (size - 60) <= 320, sizes counted in ops,
+    calls in call sites and in closures that name the function. The
     decisions are taken once, before anything is inlined, from the callees
-    up. Simplifying and inlining repeat for each group of functions until
-    an iteration inlines nothing.
+    up. Inlining repeats for each group of functions until an iteration
+    inlines nothing. A body is inlined as it is; the simplify round
+    canonicalizes the module after inlining.
   }];
   let statistics = [
     Statistic<"numInlinable", "inlinable", "Functions the size rule lets inline">,
@@ -775,9 +720,9 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
         parameter and constructor field of the module in <file> (the
         emitted module) has the quantity it has there;
       - `facts-as-marked`: every op marked `expect.facts = "..."` gets from
-        lib/Facts the answers the mark lists, of `drop move delay evaluate`
-        in that order: whether it may be dropped (an unused call), moved
-        across anything, delayed, and evaluated at compile time;
+        lib/Facts the answers the mark lists, of `drop move delay` in that
+        order: whether it may be dropped (an unused call), moved across
+        anything, and delayed;
       - `output-fused`: no string is built only to be written: no
         `idr.io.put_str` writes what `idr.str.append`, `cons`, `from_char`
         or `show` made, or what `pack` or `concat` made for it alone;

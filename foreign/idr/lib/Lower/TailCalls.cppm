@@ -22,12 +22,10 @@
 //     callee pops even when there is no stack argument and the caller takes
 //     back), so the other functions keep C's convention, which LLVM makes
 //     fastcc. Only a function that only the module's own calls reach
-//     (private, its address never taken) takes `tailcc`: @main,
-//     @__idr_main, which the runtime's entry calls through a pointer, and
-//     in compile-time evaluation the evaluator's entries and the code of
-//     closures, which an apply calls through a pointer, keep C's. Calls of
-//     the runtime's C functions stay calls of C: the runtime never calls
-//     back, so no recursion runs through one.
+//     (private, its address never taken) takes `tailcc`: @main and
+//     @__idr_main, which the runtime's entry calls through a pointer, keep
+//     C's. Calls of the runtime's C functions stay calls of C: the runtime
+//     never calls back, so no recursion runs through one.
 //   - Tail position. A call of a `tailcc` function from one is in tail
 //     position when the path from it decides, by what it sees alone, to
 //     return the call's result unchanged: through extractvalue and

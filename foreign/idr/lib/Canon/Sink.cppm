@@ -39,12 +39,12 @@ constexpr int64_t kSinkBudget = 64;
 // Whether the user holding `use` folds or canonicalizes against `value`
 // once they meet: what feeds() says for a value an op builds, and for a
 // match's result, a consumer that case-of-case would move into the match.
-bool meets(Value value, OpOperand &use) {
+bool meets(Value value, OpOperand &use, canon::MeetsMemory &kept) {
   if (canon::feeds(value, use))
     return true;
   auto result = dyn_cast<OpResult>(value);
   return result && isa<MatchOp, MatchLitOp>(result.getOwner()) &&
-         canon::meetsInSomeRegion(result, use.getOwner());
+         canon::meetsInSomeRegion(kept, result, use.getOwner());
 }
 
 // Whether `value` may run later, in the regions of `match` that use it.
@@ -86,7 +86,7 @@ SmallVector<Region *> usersIn(Operation *value, Operation *match) {
 }
 
 // Whether `value` moves into the regions of `match` that use it.
-bool sinkable(Operation *value, Operation *match) {
+bool sinkable(Operation *value, Operation *match, MeetsMemory &kept) {
   if (value->getNumResults() == 0 || value->use_empty() ||
       value->hasTrait<OpTrait::ConstantLike>())
     return false;
@@ -98,8 +98,9 @@ bool sinkable(Operation *value, Operation *match) {
   if (!movesInto(value, match, regions))
     return false;
   if (!isa<ConOp, ClosureOp, LinEnterOp>(value) &&
-      !llvm::any_of(value->getResults(), [](Value result) {
-        return llvm::any_of(result.getUses(), [&](OpOperand &use) { return meets(result, use); });
+      !llvm::any_of(value->getResults(), [&](Value result) {
+        return llvm::any_of(result.getUses(),
+                            [&](OpOperand &use) { return meets(result, use, kept); });
       }))
     return false;
   int64_t size = 0;
@@ -116,7 +117,7 @@ bool sinkable(Operation *value, Operation *match) {
 // makes the scan long, a match that nests dozens deep (as case-of-case makes
 // them) the walk. The two run a step each in turn, and the first to finish
 // answers.
-Operation *nearestSinkable(Operation *match) {
+Operation *nearestSinkable(Operation *match, MeetsMemory &kept) {
   Block *block = match->getBlock();
   Operation *scanned = match;
   SmallVector<std::pair<Block::iterator, Block::iterator>> walk;
@@ -128,7 +129,7 @@ Operation *nearestSinkable(Operation *match) {
     Operation *previous = scanned->getPrevNode();
     if (!previous)
       return nullptr;
-    if (sinkable(previous, match))
+    if (sinkable(previous, match, kept))
       return previous;
     scanned = previous;
 
@@ -152,7 +153,7 @@ Operation *nearestSinkable(Operation *match) {
       left.push_back(def);
   llvm::sort(left, [](Operation *a, Operation *b) { return b->isBeforeInBlock(a); });
   for (Operation *def : left)
-    if (sinkable(def, match))
+    if (sinkable(def, match, kept))
       return def;
   return nullptr;
 }
@@ -163,7 +164,8 @@ struct SinkIntoRegions : OpRewritePattern<Match> {
     this->setDebugName("idr-sink-into-regions");
   }
   LogicalResult matchAndRewrite(Match op, PatternRewriter &rewriter) const final {
-    Operation *value = nearestSinkable(op);
+    MeetsMemory &kept = bindMeets(meets, rewriter);
+    Operation *value = nearestSinkable(op, kept);
     if (!value)
       return failure();
     for (Region *region : usersIn(value, op)) {
@@ -177,6 +179,11 @@ struct SinkIntoRegions : OpRewritePattern<Match> {
     rewriter.eraseOp(value);
     return success();
   }
+
+private:
+  // This pattern's memory. The rewriter's listener is it, or another
+  // pattern's on the same worklist; bindMeets finds which.
+  mutable MeetsMemory meets;
 };
 
 } // namespace idr::canon

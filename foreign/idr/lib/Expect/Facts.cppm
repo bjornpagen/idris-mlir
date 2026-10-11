@@ -1,6 +1,6 @@
 // facts-as-marked: what lib/Facts answers about an op, stated on the op.
 // A test marks an op `expect.facts = "..."` with the questions the answer is
-// yes to, among `drop`, `move`, `delay` and `evaluate`, and the property
+// yes to, among `drop`, `move` and `delay`, and the property
 // fails wherever lib/Facts answers otherwise; the op itself is not changed.
 export module idr.expect:facts;
 
@@ -15,13 +15,12 @@ using namespace mlir;
 namespace {
 
 // The questions lib/Facts answers yes to about `op`, in a fixed order.
-std::string answers(Operation *op, SymbolTable &symbols) {
+std::string answers(Operation *op) {
   auto call = dyn_cast<func::CallOp>(op);
   std::pair<StringRef, bool> questions[] = {
       {"drop", call && call->use_empty() && idr::onlyAllocates(call)},
       {"move", idr::onlyAllocates(op)},
       {"delay", !idr::performsIO(op)},
-      {"evaluate", idr::facts::canEvaluate(op, symbols).has_value()},
   };
   std::string out;
   for (auto [question, yes] : questions)
@@ -36,15 +35,14 @@ namespace idr::expect {
 
 // What lib/Facts answers about each op marked `expect.facts = "..."` is
 // what the mark says: the questions answered yes, in the order `drop move
-// delay evaluate`.
+// delay`.
 export LogicalResult factsAsMarked(ModuleOp module, StringRef) {
-  SymbolTable symbols(module);
   bool held = true;
   module.walk([&](Operation *op) {
     auto marked = op->getAttrOfType<StringAttr>("expect.facts");
     if (!marked)
       return;
-    std::string found = answers(op, symbols);
+    std::string found = answers(op);
     if (found == marked.getValue())
       return;
     fail(op->getLoc(), "facts-as-marked")

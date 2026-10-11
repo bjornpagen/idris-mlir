@@ -17,11 +17,10 @@ namespace {
 // too long to unroll anyway, so the exact count does not matter.
 constexpr uint64_t countless = uint64_t(1) << 32;
 
-// The size of `value` as a tree, up to countless. A constant that
-// compile-time evaluation made shares its parts, so each part is measured
-// once, in `sizes`, however often it occurs. A run measures as the
-// constructors it stands for, each cell read once: its tail, and each cell
-// one with its fields.
+// The size of `value` as a tree, up to countless. A constant shares its
+// parts, so each part is measured once, in `sizes`, however often it
+// occurs. A run measures as the constructors it stands for, each cell read
+// once: its tail, and each cell one with its fields.
 uint64_t constantSize(Attribute value, llvm::DenseMap<Attribute, uint64_t> &sizes) {
   if (auto known = sizes.find(value); known != sizes.end())
     return known->second;

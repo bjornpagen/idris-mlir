@@ -5,11 +5,10 @@
 // to terminate, so no op with an effect may lie between its call and the
 // apply (output in the first case, the guard of a division, which may
 // crash, in the second), and the apply must be in the call's block (the
-// third: it runs only in one region). A closed call of a pure, total callee
-// is idr-eval's, which runs it to the end (the fourth). A pure and total
-// callee that cannot crash has nothing to observe, so its call is raised
-// even across output (the fifth), and the raised call is where the apply
-// was, after the output.
+// third: it runs only in one region). A pure and total callee that cannot
+// crash has nothing to observe, so its call is raised, a closed one included
+// (the fourth) and one across output (the fifth). The raised call is where
+// the apply was.
 // CHECK-LABEL: func.func @Main.main(
 // CHECK: %[[F1:.*]] = call @mk(
 // CHECK-NEXT: %[[W2:.*]] = idr.io.put_int
@@ -22,10 +21,9 @@
 // CHECK-NEXT: idr.match_lit
 // CHECK-NEXT: case 0 {
 // CHECK-NEXT: idr.apply %[[F3]](
-// CHECK: %[[F4:.*]] = call @pmk(%{{.*}}) : (i64) -> !idr.fn<(i64) -> i64>
-// CHECK-NEXT: %[[R4:.*]] = idr.apply %[[F4]](
+// CHECK: %[[R4:.*]] = call @[[PMK:pmk\$raise\$[0-9]+]](%{{.*}}, %{{.*}}) : (i64, i64) -> i64
 // CHECK-NEXT: %[[W3:.*]] = idr.io.put_int signed %[[R4]], %[[W2]]
-// CHECK-NEXT: %[[R5:.*]] = call @[[PMK:pmk\$raise\$[0-9]+]](%{{.*}}, %[[R2]]) : (i64, i64) -> i64
+// CHECK-NEXT: %[[R5:.*]] = call @[[PMK]](%{{.*}}, %[[R2]]) : (i64, i64) -> i64
 // CHECK-NEXT: idr.io.put_int signed %[[R5]], %[[W3]]
 // CHECK-NOT: call @mk$raise
 // CHECK: func.func private @[[PMK]](

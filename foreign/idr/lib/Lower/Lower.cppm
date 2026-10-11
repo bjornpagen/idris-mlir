@@ -1,10 +1,8 @@
 // idr.lower: idr-lower, which takes idr to func, arith, math, scf, ub and
 // llvm in two phases (matches and loops over arrays first, still on idr
 // types, then a dialect conversion that takes every idr type apart into the
-// layouts of idr.layout), the same for a program and for compile-time
-// evaluation; idr-entry, which makes a program's lowered root its entry;
-// idr-meter, which makes evaluated code count the meter's ticks; and
-// idr-tail-calls, which makes every call in tail position on a cycle of
+// layouts of idr.layout); idr-entry, which makes a program's lowered root
+// its entry; and idr-tail-calls, which makes every call in tail position on a cycle of
 // calls a guaranteed tail call once the control flow is final.
 export module idr.lower;
 
@@ -25,7 +23,6 @@ export import :idrPattern;
 export import :loops;
 export import :lowering;
 export import :matches;
-export import :meter;
 export import :passThroughMemory;
 export import :patterns;
 export import :returnRegisters;

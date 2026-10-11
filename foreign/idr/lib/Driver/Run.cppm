@@ -57,9 +57,9 @@ int run(llvm::StringRef modulePath, llvm::StringRef objectPath, mlir::TimingScop
                   mlir::ub::UBDialect, mlir::memref::MemRefDialect>();
   idr::registerIdr(contract);
   mlir::MLIRContext context(contract);
-  // MLIR runs single-threaded, so results do not depend on
-  // scheduling, and idr-eval may fork.
-  context.disableMultithreading();
+  // Threading is on for compile time. Two compiles of one module are the
+  // same bytes: pass order is stable, and a symbol scope is not shared
+  // across worker threads. --mlir-disable-threading leaves the pool off.
 
   llvm::InitializeNativeTarget();
   llvm::InitializeNativeTargetAsmPrinter();
@@ -126,23 +126,6 @@ int run(llvm::StringRef modulePath, llvm::StringRef objectPath, mlir::TimingScop
   // on without it.
   if (verdict.errors)
     return usage;
-  // --no-eval: the idr-eval pass, wherever a pipeline runs it, is skipped;
-  // every other action goes on to the handler installed before, or runs.
-  if (noEval) {
-    mlir::MLIRContext::HandlerTy next = std::move(context.getActionHandler());
-    if (!next)
-      next = [](llvm::function_ref<void()> transform, const mlir::tracing::Action &) {
-        transform();
-      };
-    context.registerActionHandler([next = std::move(next)](llvm::function_ref<void()> transform,
-                                                           const mlir::tracing::Action &action) {
-      if (action.getTag() == mlir::PassExecutionAction::tag &&
-          static_cast<const mlir::PassExecutionAction &>(action).getPass().getArgument() ==
-              "idr-eval")
-        return;
-      next(transform, action);
-    });
-  }
   // --stats, LLVM's own option: the statistics of every pass manager too.
   bool statistics = llvm::AreStatisticsEnabled();
 

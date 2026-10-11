@@ -9,7 +9,10 @@
 // checked again; what is left when nothing changes is the greatest
 // fixpoint, so the functions of a mutual recursion are found together, and
 // whatever order the functions are checked in finds the same ones.
-// rebuilds says why the assumptions that are left hold.
+// rebuilds says why the assumptions that are left hold. Each function is
+// walked once before that fixpoint. The walk records how the body is
+// built; what remains of the assumptions is read off that record, so the
+// arguments share one walk and a requeued caller is not walked again.
 //
 // A function in the owned stage (a reference in its signature) gives back
 // nothing, nor does one that takes a world, whose call is where its effects
@@ -70,6 +73,13 @@ DenseMap<Operation *, unsigned> identities(ModuleOp module) {
       if (assumed.contains(callee))
         callers[callee].insert(fn.getOperation());
     });
+  // One walk of each function. The fixpoint reads the walks; it does not
+  // walk a function again.
+  DenseMap<Operation *, Rebuilds> recorded;
+  for (func::FuncOp fn : functions) {
+    auto known = assumed.find(fn.getSymNameAttr());
+    recorded.try_emplace(fn.getOperation(), fn, ArrayRef<unsigned>(known->second));
+  }
   SetVector<Operation *> work;
   for (func::FuncOp fn : functions)
     work.insert(fn.getOperation());
@@ -79,10 +89,8 @@ DenseMap<Operation *, unsigned> identities(ModuleOp module) {
     auto it = assumed.find(name);
     if (it == assumed.end())
       continue;
-    SmallVector<unsigned, 1> kept;
-    for (unsigned argument : it->second)
-      if (Rebuilds(fn, argument, assumed).givesBack())
-        kept.push_back(argument);
+    SmallVector<unsigned, 1> kept =
+        recorded.find(fn.getOperation())->second.givesBack(it->second, assumed);
     if (kept.size() == it->second.size())
       continue;
     if (kept.empty())

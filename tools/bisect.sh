@@ -113,11 +113,11 @@ counter() {
   printf '%s\n' "-mlir-debug-counter=$tag-skip=0,$tag-count=$1"
 }
 
-outcome reference --no-eval
+outcome reference
 case $(first reference) in
   exit*) ;;
   *)
-    echo "bisect: with --no-eval, $(first reference); there is no reference" >&2
+    echo "bisect: reference $(first reference); there is no reference" >&2
     sed 's/^/  | /' "$work/reference.log" >&2
     exit 2
     ;;

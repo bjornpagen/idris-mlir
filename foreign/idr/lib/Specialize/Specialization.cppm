@@ -6,8 +6,8 @@
 // allows it (BindingTimes.cppm): anything static when the callee is on no
 // cycle, and otherwise only for a fixed parameter, or a decreasing or
 // bounded one whose static value is small. Every other argument is a
-// runtime leaf, however static. A closed call is idr-eval's, and a world
-// carries no value to specialize around.
+// runtime leaf, however static. A world carries no value to specialize
+// around.
 //
 // A clone is keyed by its owner (the function it was first cloned from) and
 // the patterns of the owner's parameters, so that keys made at calls of the
@@ -175,8 +175,7 @@ void count(Statistics &stats, BindingTime time) {
 
 } // namespace
 
-LogicalResult Specializer::specialize(func::CallOp call) {
-  auto callee = clones.symbols().lookup<func::FuncOp>(call.getCalleeAttr().getAttr());
+LogicalResult Specializer::specialize(func::CallOp call, func::FuncOp callee) {
   if (!callee || callee.isExternal() || llvm::all_of(call.getOperands(), [](Value v) {
         return isErased(v.getType()) || isWorld(v.getType()) || isClosed(v);
       }))

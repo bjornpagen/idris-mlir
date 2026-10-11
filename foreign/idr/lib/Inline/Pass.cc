@@ -1,6 +1,7 @@
 // idr-inline: MLIR's inliner, deciding what to inline as idr.inlining
 // does. A caller that takes in a body without Idris's proof of termination
-// loses its own (facts::inlined).
+// loses its own (facts::inlined). A body is inlined as it is; the simplify
+// round canonicalizes the module afterwards.
 
 #include "idr/Idr.h"
 
@@ -25,40 +26,27 @@ namespace {
 struct Inline : idr::impl::IdrInlineBase<Inline> {
   using IdrInlineBase::IdrInlineBase;
 
-  // What the inliner runs on each function before it inlines into it:
-  // idr-canonicalize, which leaves what canonicalize leaves and counts it.
-  static constexpr StringLiteral simplifyEach = "idr-canonicalize";
-
-  // The pipeline is parsed once, here; a tool that has not registered
-  // idr-canonicalize fails the pass instead of running nothing on every
-  // function.
-  LogicalResult initialize(MLIRContext *ctx) override {
-    std::string error;
-    llvm::raw_string_ostream os(error);
-    OpPassManager parsed;
-    if (failed(parsePassPipeline(simplifyEach, parsed, os)))
-      return emitError(UnknownLoc::get(ctx))
-             << "idr-inline: " << simplifyEach << " does not parse: " << StringRef(error).trim();
-    pipeline = std::move(parsed);
-    return success();
-  }
-
   void runOnOperation() override {
     ModuleOp module = getOperation();
-    // The decisions look callees up in this table, and the pipelines look
-    // symbols up in it. A table for the decisions alone would walk every
-    // symbol of the module again.
+    // The decisions look callees up in this table. The fold records the
+    // functions it builds into the same table, so a later lookup does not
+    // walk the module again.
     SymbolTable &table = getAnalysis<SymbolTable>();
+    // Opened before the call graph: the fold builds functions, and the
+    // graph has to contain them and the calls in their bodies.
+    idr::SymbolScope symbols(module, table);
+    // Data declarations do not change. The fold remembers whether a type
+    // may hold a world or a closure instead of walking it for every call
+    // it tests for deadness.
+    idr::HoldMemo memo(module.getContext());
+    idr::prepareForceAtCapture(module);
     idr::inlining::Decisions decisions = idr::inlining::decide(module, table);
     numInlinable += decisions.inlined.size();
     numLeaves += decisions.leaves;
 
     InlinerConfig config;
-    // The inliner hands a pass manager anchored on the function's op; the
-    // parsed pipeline, anchored on any op, runs there.
-    config.setDefaultPipeline([this](OpPassManager &pm) { pm = pipeline; });
     // Until an iteration inlines nothing: the size rule, decided once,
-    // bounds what can be inlined.
+    // bounds what can be inlined. A body is inlined as it is.
     config.setMaxInliningIterations(std::numeric_limits<unsigned>::max());
     config.setCloneCallback([clone = config.getCloneCallback()](
                                 OpBuilder &builder, Region *src, Block *inlineBlock,
@@ -73,39 +61,30 @@ struct Inline : idr::impl::IdrInlineBase<Inline> {
       Region *region = call.targetNode->getCallableRegion();
       return region && decisions.inlined.contains(region->getParentOp());
     };
-    CallGraph &graph = getAnalysis<CallGraph>();
-    // The module's symbols, for every pipeline the inliner runs on a
-    // function, on whichever thread: inlining adds none and erases the dead
-    // functions only after the last pipeline has run (eraseDeadCallables),
-    // when nothing looks one up.
-    idr::SymbolScope symbols(module, table);
-    // Data declarations do not change. The pipelines, on whichever thread
-    // the inliner runs them, remember whether a type may hold a world or a
-    // closure instead of walking it for every call they test for deadness.
-    idr::HoldMemo memo(module.getContext());
-    Inliner inliner(module, graph, *this, getAnalysisManager(), runPipelineHelper, config,
+    // Built after the fold, not taken from a preserved analysis: the fold
+    // adds functions, and a graph from before this pass does not have them.
+    CallGraph graph(module);
+    // The inliner asks for a pipeline runner. None is installed, so the
+    // runner is not called.
+    Inliner inliner(module, graph, *this, getAnalysisManager(),
+                    [](Pass &, OpPassManager &, Operation *) { return success(); }, config,
                     profitable);
+    // Inlining a call and erasing a dead function rewrite the module. The
+    // fingerprint is that rewrite.
+    OperationFingerPrint before(module);
     if (failed(inliner.doInlining()))
-      signalPassFailure();
+      return signalPassFailure();
+    // Nothing was rewritten. Preserving every analysis skips the walk of
+    // every nested operation.
+    if (before == OperationFingerPrint(module))
+      markAllAnalysesPreserved();
   }
 
-  // The scope around the inliner is held by the context's idr dialect,
-  // which must be loaded before the pass manager runs. A pipeline that does
-  // not parse loads nothing more, and initialize reports it.
+  // The scope around the fold is held by the context's idr dialect, which
+  // must be loaded before the pass manager runs.
   void getDependentDialects(DialectRegistry &registry) const override {
     registry.insert<idr::IdrDialect>();
-    OpPassManager pm(func::FuncOp::getOperationName());
-    if (succeeded(parsePassPipeline(simplifyEach, pm, llvm::nulls())))
-      pm.getDependentDialects(registry);
   }
-
-  // The inliner runs the default pipeline on each function as part of
-  // this pass.
-  static LogicalResult runPipelineHelper(Pass &pass, OpPassManager &pipeline, Operation *op) {
-    return static_cast<Inline &>(pass).runPipeline(pipeline, op);
-  }
-
-  OpPassManager pipeline;
 };
 
 } // namespace

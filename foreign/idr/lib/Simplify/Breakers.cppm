@@ -62,20 +62,60 @@ export unsigned markLoopBreakers(ModuleOp module) {
   for (auto fn : module.getOps<func::FuncOp>())
     order.try_emplace(fn, order.size());
 
+  // What each body names. Marking a breaker drops that function from the
+  // graph and does not change a body's uses, so the uses are read once.
+  // The edges between the functions that may be inlined are built from
+  // those lists once; a later iteration deletes the edges that touch the
+  // breaker instead of walking every callee list into a new adjacency.
+  llvm::DenseMap<func::FuncOp, SmallVector<func::FuncOp>> named;
+  SmallVector<func::FuncOp> nodes;
+  llvm::DenseMap<func::FuncOp, unsigned> index;
+  for (auto fn : module.getOps<func::FuncOp>()) {
+    if (fn.isExternal())
+      continue;
+    named.try_emplace(fn, idr::graph::refersTo(fn, symbols));
+    if (fn.getNoInline())
+      continue;
+    index.try_emplace(fn, nodes.size());
+    nodes.push_back(fn);
+  }
+  SmallVector<SmallVector<unsigned>> edges(nodes.size());
+  SmallVector<SmallVector<unsigned>> incoming(nodes.size());
+  for (unsigned at = 0; at < nodes.size(); ++at) {
+    for (func::FuncOp next : named.find(nodes[at])->second) {
+      auto to = index.find(next);
+      if (to == index.end())
+        continue;
+      edges[at].push_back(to->second);
+      incoming[to->second].push_back(at);
+    }
+  }
+  // A dropped function keeps its index, so the others are not renumbered.
+  // No edge is left in or out of it, and it is then a component of its own.
+  SmallVector<bool> live(nodes.size(), true);
+  auto drop = [&](unsigned at) {
+    live[at] = false;
+    for (unsigned from : incoming[at])
+      llvm::erase(edges[from], at);
+    edges[at].clear();
+    incoming[at].clear();
+  };
+
   unsigned marked = 0;
   for (bool again = true; again;) {
     again = false;
-    SmallVector<func::FuncOp> inlinable;
-    for (auto fn : module.getOps<func::FuncOp>())
-      if (!fn.isExternal() && !fn.getNoInline())
-        inlinable.push_back(fn);
-    for (const SmallVector<func::FuncOp> &cycle : idr::graph::stronglyConnected<func::FuncOp>(
-             inlinable, [&](func::FuncOp fn) { return idr::graph::refersTo(fn, symbols); })) {
+    for (const SmallVector<unsigned> &component : idr::graph::components(edges)) {
+      if (!llvm::all_of(component, [&](unsigned vertex) { return live[vertex]; }))
+        continue;
+      SmallVector<func::FuncOp> cycle;
+      for (unsigned vertex : component)
+        cycle.push_back(nodes[vertex]);
       if (cycle.size() == 1 &&
-          !llvm::is_contained(idr::graph::refersTo(cycle.front(), symbols), cycle.front()))
+          !llvm::is_contained(named.find(cycle.front())->second, cycle.front()))
         continue;
       func::FuncOp breaker = choose(cycle, order);
       breaker.setNoInline(true);
+      drop(index.find(breaker)->second);
       ++marked;
       again = true;
     }

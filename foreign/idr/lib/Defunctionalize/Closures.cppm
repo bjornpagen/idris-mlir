@@ -89,10 +89,10 @@ struct Module {
     return decl ? decl.getFieldType(index) : Type();
   }
 
-  // Whether a closure is inside the constant `attr`. Constants of
-  // compile-time evaluation share their parts, so a tree may have far more
-  // paths than distinct parts: each part is looked at once, and the walks
-  // below skip a part with no closure in it.
+  // Whether a closure is inside the constant `attr`. A constant shares its
+  // parts, so a tree may have far more paths than distinct parts: each part
+  // is looked at once, and the walks below skip a part with no closure in
+  // it.
   bool holdsClosure(Attribute attr) {
     if (isa<idr::ClosureAttr>(attr))
       return true;

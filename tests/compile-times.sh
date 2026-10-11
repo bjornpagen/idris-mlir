@@ -92,7 +92,6 @@ echo
 # `<total> <jit> <eval>` in seconds, or nothing.
 timing() {
   timing_flags=--mlir-timing
-  case $2 in *no-eval*) timing_flags="$timing_flags --no-eval" ;; esac
   # shellcheck disable=SC2086 # the flags are words
   "$idris_mlir" -c "$1" -o "$tmp/object.o" $timing_flags > "$tmp/timing.out" 2> "$tmp/timing.err" || return 0
   cat "$tmp/timing.out" "$tmp/timing.err" | awk '

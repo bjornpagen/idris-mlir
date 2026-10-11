@@ -1,5 +1,4 @@
-// idr.target:optimize: LLVM's pipeline for the target, the same for
-// executables and for idr-eval's JIT.
+// idr.target:optimize: LLVM's pipeline for the target.
 export module idr.target:optimize;
 
 import idr.mlir;

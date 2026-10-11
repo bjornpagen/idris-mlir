@@ -4,7 +4,6 @@ idr_library(idr_support
 	MODULES
 		Support.cppm
 		Counts.cppm
-		EvalCallAction.cppm
 		Perform.cppm
 		RaiseAction.cppm
 		SpecializeCloneAction.cppm

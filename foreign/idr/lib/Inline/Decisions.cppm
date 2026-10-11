@@ -23,8 +23,8 @@ export struct Decisions {
 };
 
 // The decisions for `module`. Callees are looked up in `symbols`, the
-// module's table, which the pass keeps for the pipelines: building another
-// here would walk every symbol again.
+// module's table, which the fold also records into: building another here
+// would walk every symbol again.
 //
 // A leaf function, one that calls nothing (an apply calls something), is
 // inlined when it has at most kLeafSize ops. Any other function is inlined

@@ -2,8 +2,8 @@
 // round runs the passes of simplifyRound() in order; rounds repeat until one
 // leaves the module unchanged, so running the loop again changes nothing.
 // The loop ends because every member of a round is finite: loop breakers
-// stop inlining at every cycle, specialization makes finitely many clones,
-// and every evaluation removes a call. The round budget, `max-rounds`,
+// stop inlining at every cycle, and specialization makes finitely many
+// clones. The round budget, `max-rounds`,
 // asserts it: a module that still changes after that many rounds is the
 // user error `unsupported (compile-time budget)`, not a hang.
 //
@@ -103,8 +103,13 @@ struct SymbolsHeld : PassWrapper<SymbolsHeld, OperationPass<ModuleOp>> {
     SymbolTable table(module);
     idr::SymbolScope scope(module, table);
     idr::HoldMemo memo(module.getContext());
+    OperationFingerPrint before(module);
     if (failed(runPipeline(pipeline, module)))
-      signalPassFailure();
+      return signalPassFailure();
+    // The step left the fingerprint unchanged, so it rewrote nothing.
+    // Preserving every analysis skips the walk of every nested operation.
+    if (before == OperationFingerPrint(module))
+      markAllAnalysesPreserved();
   }
 
   void parse() {

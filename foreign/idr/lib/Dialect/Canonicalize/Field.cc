@@ -6,8 +6,6 @@
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
 
-import idr.canon;
-
 using namespace mlir;
 using namespace idr;
 
@@ -30,12 +28,6 @@ LogicalResult FieldOp::canonicalize(FieldOp field, PatternRewriter &rewriter) {
         (quantityOf(operand.getType()) == Quantity::One && !fieldReadOnce(built.getResult(), index)))
       return failure();
     rewriter.replaceOp(field, heldAs(rewriter, field.getLoc(), operand, type));
-    return success();
-  }
-  // A field read in the case of a match on the value: the region already
-  // binds it, so the read is that argument, held as read.
-  if (Value bound = canon::boundByEnclosing(field)) {
-    rewriter.replaceOp(field, heldAs(rewriter, field.getLoc(), bound, type));
     return success();
   }
   ConAttr con;

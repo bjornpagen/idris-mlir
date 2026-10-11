@@ -73,9 +73,6 @@ LogicalResult checkNoClosures(ModuleOp module) {
 
 } // namespace
 
-// idr-lower on `module`, a program or the calls of a round of compile-time
-// evaluation alike: what differs between the two is a pass of its own after
-// this one, idr-entry for a program and idr-meter for evaluation.
 export LogicalResult lowerModule(ModuleOp module) {
   MLIRContext *ctx = module.getContext();
   if (failed(checkNoClosures(module)))

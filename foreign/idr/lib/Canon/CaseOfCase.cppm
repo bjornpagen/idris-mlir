@@ -26,8 +26,11 @@ struct SinkConsumer : OpRewritePattern<Match> {
     this->setDebugName("idr-sink-consumer");
   }
   LogicalResult matchAndRewrite(Match op, PatternRewriter &rewriter) const final {
+    // The driver attempts this again for the same match, and each attempt
+    // would walk the regions. The answer is kept for this rewriter.
+    MeetsMemory &kept = bindMeets(meets, rewriter);
     for (OpResult result : op->getResults()) {
-      Operation *consumer = candidate(op, result);
+      Operation *consumer = candidate(op, result, kept);
       if (!consumer)
         continue;
       if (canRaise(op, consumer))
@@ -41,15 +44,19 @@ struct SinkConsumer : OpRewritePattern<Match> {
   }
 
 private:
+  // This pattern's memory. The rewriter's listener is it, or another
+  // pattern's on the same worklist; bindMeets finds which.
+  mutable MeetsMemory meets;
+
   // The single consumer of `result`, in the match's block, when it would
   // meet in some region a value it folds or canonicalizes against.
-  static Operation *candidate(Match op, OpResult result) {
+  static Operation *candidate(Match op, OpResult result, MeetsMemory &kept) {
     if (!result.hasOneUse())
       return nullptr;
     Operation *consumer = *result.getUsers().begin();
     if (consumer->getBlock() != op->getBlock() || consumer->hasTrait<OpTrait::IsTerminator>())
       return nullptr;
-    return meetsInSomeRegion(result, consumer) ? consumer : nullptr;
+    return meetsInSomeRegion(kept, result, consumer) ? consumer : nullptr;
   }
 
   // Whether `consumer` can move up to the match: its other operands, and the

@@ -53,9 +53,9 @@ numbers.
   replace that input with CExp or runtime case trees, and do not erase facts
   before the passes that use them.
 - No primitive has an implementation in Idris: its one meaning is the
-  runtime's (`runtime/`), which folders call too. `idr-eval` is not in the
-  simplify loop: a closed call runs at run time. The pass remains until
-  static normalization (proposal 0003) replaces it.
+  runtime's (`runtime/`), which folders call too. A closed call runs at
+  run time. Static normalization (proposal 0003) is what would fold one,
+  and it is not built.
 - The compiler implements the Idris 2 it can compile to the code a
   monomorphic program would be: every construct whose runtime choices
   (the types, instances, implementations or shapes a site can meet) form a

@@ -33,13 +33,14 @@ endif()
 # PIN(cmake-import-std-uuid): the 4.2-series value — see PINS.md
 set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "d0edc3af-4c50-42ea-a356-e2862fe7a444")
 
-project(idris_mlir LANGUAGES C CXX)
-
 # ccache, when the machine has one (on PATH, or MacPorts'), launches every
-# compile, on the cache tools/bootstrap.sh configures (.toolchain/ccache):
-# a rebuild recompiles only what changed. ccache cannot cache a compile
-# that uses a precompiled header, so with it there are none, as in the
-# toolchain's builds. Neither changes what a compile produces.
+# C and C++ compile, on the cache tools/bootstrap.sh configures
+# (.toolchain/ccache): a rebuild recompiles only what changed. CMake copies
+# CMAKE_<LANG>_COMPILER_LAUNCHER onto a target when that target is created,
+# and project() creates the libc++ std module libraries, so the launcher is
+# set first; a later assignment does not reach them. ccache cannot cache a
+# compile that uses a precompiled header, so with it there are none, as in
+# the toolchain's builds. Neither changes what a compile produces.
 find_program(IDRIS_MLIR_CCACHE ccache HINTS /opt/local/bin)
 if(IDRIS_MLIR_CCACHE)
 	set(IDRIS_MLIR_CCACHE_LAUNCHER "${CMAKE_COMMAND}" -E env
@@ -48,6 +49,8 @@ if(IDRIS_MLIR_CCACHE)
 	set(CMAKE_CXX_COMPILER_LAUNCHER ${IDRIS_MLIR_CCACHE_LAUNCHER})
 	set(CMAKE_DISABLE_PRECOMPILE_HEADERS ON)
 endif()
+
+project(idris_mlir LANGUAGES C CXX)
 
 # project() makes libc++'s std module an ordinary target of this build; the
 # lint graph checks our code, not libc++'s.

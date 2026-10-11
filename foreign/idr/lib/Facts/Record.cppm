@@ -11,9 +11,14 @@ using namespace idr;
 
 export namespace idr::facts {
 
-// Writes what idr-effects found as `idr.effects`.
-void record(func::FuncOp fn, Effects effects) {
-  fn->setAttr("idr.effects", EffectAttr::get(fn.getContext(), effects.bits()));
+// Writes `idr.effects` when `fn` does not already carry `effects`.
+// Returns whether the attribute was written.
+bool record(func::FuncOp fn, Effects effects) {
+  Attribute attr = EffectAttr::get(fn.getContext(), effects.bits());
+  if (fn->getAttr("idr.effects") == attr)
+    return false;
+  fn->setAttr("idr.effects", attr);
+  return true;
 }
 
 } // namespace idr::facts

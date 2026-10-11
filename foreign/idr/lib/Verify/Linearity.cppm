@@ -37,13 +37,16 @@ public:
         }
         byBlock[op->getBlock()].push_back(op);
       }
-    llvm::DenseMap<Block *, unsigned> order;
+    // The reported second use is the earliest in the region. The numbers are
+    // this walk's: isBeforeInBlock writes the block's order cache, which
+    // every verifier of these ops shares.
+    llvm::DenseMap<Operation *, unsigned> place;
+    unsigned next = 0;
     for (Block &block : *home)
-      order[&block] = order.size();
+      for (Operation &op : block)
+        place.try_emplace(&op, next++);
     llvm::sort(top, [&](Operation *a, Operation *b) {
-      if (a->getBlock() != b->getBlock())
-        return order[a->getBlock()] < order[b->getBlock()];
-      return a->isBeforeInBlock(b);
+      return place.lookup(a) < place.lookup(b);
     });
   }
 

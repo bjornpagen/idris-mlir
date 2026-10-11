@@ -4,13 +4,8 @@
 // RUN: FileCheck %s --check-prefix=LEFT < %t.mlir
 // RUN: %cc %t.o -o %t
 // RUN: %t | FileCheck %s
-// RUN: idris-mlir -c %s -o %t-no-eval.o --no-eval
-// RUN: %cc %t-no-eval.o -o %t-no-eval
-// RUN: %t-no-eval | FileCheck %s
-// idr-eval is not in the simplify round, so a closed call of a pure, total
-// function stays in the module and runs at run time. --no-eval is the same
-// pipeline. The program prints the same either way. The pass's own tests
-// are tests/idr/eval.
+// A closed call of a pure, total function stays in the module and runs at
+// run time.
 // CHECK: 3628800 x-x-x
 // LEFT: llvm.call @fact(
 // LEFT: llvm.call @dashes(

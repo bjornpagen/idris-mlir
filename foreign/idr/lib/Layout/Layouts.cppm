@@ -1,6 +1,6 @@
 // idr.layout:layouts: the layouts of the values of a module. idr-lower
-// builds values in these layouts, idr-eval's child reads its results back
-// through them, and the owned stage and idr-stack size cells by them.
+// builds values in these layouts, and the owned stage and idr-stack size
+// cells by them.
 module;
 // The runtime's C ABI: the size of a word and of a cell's header.
 #include "idris_rt.h"

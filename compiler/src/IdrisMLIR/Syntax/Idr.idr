@@ -227,4 +227,4 @@ idrAttrText t a (KeyConAttr data' ctor fields) = fastConcat ["#idr.key_con<", (u
 idrAttrText t a (KeyHoleAttr index) = fastConcat ["#idr.key_hole<", (show index), ">"]
 idrAttrText t a (SpecKeyAttr origin patterns) = fastConcat ["#idr.spec_key<", (utf8 origin), ", ", (array a patterns), ">"]
 
--- fingerprint: 1445599729-1108170 1955709702-10511
+-- fingerprint: 276652151-1107546 1955709702-10511

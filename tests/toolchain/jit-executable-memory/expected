@@ -1,5 +1,0 @@
-as-built: exit 0, no call evaluated, the program prints what the build's compiler's prints
-hardened: exit 0, no call evaluated, the program prints what the build's compiler's prints
-hardened --no-eval: exit 0, no call evaluated, the program prints what the build's compiler's prints
-hardened-allow-jit: exit 0, no call evaluated, the program prints what the build's compiler's prints
-hardened-allow-unsigned: exit 0, no call evaluated, the program prints what the build's compiler's prints

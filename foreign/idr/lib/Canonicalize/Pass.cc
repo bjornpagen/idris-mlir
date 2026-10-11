@@ -1,16 +1,21 @@
-// idr-canonicalize: upstream's canonicalize with its rewrites counted, as
-// idr.canonicalize builds it.
+// idr-canonicalize: canonicalize, with its rewrites counted.
 //
+// The patterns are those canonicalize collects, from every dialect loaded
+// when the pass is initialized and every registered operation, and the
+// greedy driver runs with canonicalize's configuration: top-down, region
+// simplification at Normal, and this pass's iteration budget. A listener
+// counts the patterns that apply, so the IR is what canonicalize leaves.
 // The totals are statistics. As for canonicalize, stopping early is no
 // failure unless test-convergence asks for one.
+//
+// A run that rewrites nothing preserves every analysis. That skips the
+// walk of every nested operation. A run that rewrites is verified.
 
 #include "idr/Idr.h"
 
-#include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "mlir/Transforms/Passes.h"
 
-#include <memory>
+#include <optional>
 
 using namespace mlir;
 
@@ -29,46 +34,51 @@ struct Canonicalize : idr::impl::IdrCanonicalizeBase<Canonicalize> {
 
   // The pass manager copies a pass it has initialized to run it on several
   // operations at once, and gives the copy its options only after. The
-  // copy builds a canonicalizer of its own from the options of the pass it
-  // copies, which counts into the copy's listener. Those options built one
-  // when that pass was initialized; a copy of a pass that was not is
-  // initialized in turn, and reports there what fails here.
-  Canonicalize(const Canonicalize &other) : IdrCanonicalizeBase(other) {
-    (void)build(other, [](const Twine &) { return failure(); });
-  }
+  // copy shares the patterns collected for the pass it copies. Each run
+  // builds its own driver, listener and change flag. A copy of a pass that
+  // was not initialized is initialized in turn.
+  Canonicalize(const Canonicalize &other)
+      : IdrCanonicalizeBase(other), patterns(other.patterns) {}
 
   LogicalResult initialize(MLIRContext *context) override {
-    return build(*this, [&](const Twine &message) -> LogicalResult {
-      return emitError(UnknownLoc::get(context)) << "idr-canonicalize: " << message;
-    });
-  }
-
-  // Upstream's canonicalize, configured as canonicalize configures itself
-  // by default but for the iteration budget of `from`, reporting to this
-  // pass's listener, as a pipeline of its own.
-  LogicalResult build(const Canonicalize &from,
-                      function_ref<LogicalResult(const Twine &)> error) {
-    GreedyRewriteConfig config;
-    config.setUseTopDownTraversal(true)
-        .setRegionSimplificationLevel(GreedySimplifyRegionLevel::Normal)
-        .setMaxIterations(from.maxIterations)
-        .setListener(&counter);
-    std::unique_ptr<Pass> pass = createCanonicalizerPass(config);
-    // A run that stops before its fixpoint fails upstream's pass, which is
-    // how it tells one; the configuration does not carry that.
-    if (failed(pass->initializeOptions("test-convergence=true", error)))
-      return failure();
-    canonicalizer = OpPassManager();
-    canonicalizer.addPass(std::move(pass));
+    if (patterns)
+      return success();
+    RewritePatternSet owning(context);
+    for (Dialect *dialect : context->getLoadedDialects())
+      dialect->getCanonicalizationPatterns(owning);
+    for (RegisteredOperationName op : context->getRegisteredOperations())
+      op.getCanonicalizationPatterns(owning, context);
+    patterns.emplace(std::move(owning));
     return success();
   }
 
   void runOnOperation() override {
     Operation *op = getOperation();
     auto run = [&] {
-      counter.start();
-      LogicalResult converged = runPipeline(canonicalizer, op);
+      if (!patterns) {
+        op->emitError() << "idr-canonicalize: patterns were not collected";
+        return signalPassFailure();
+      }
+      // Top-down and region simplification at Normal: canonicalize's
+      // configuration. The iteration budget is this pass's. The listener,
+      // the configuration and the change flag are locals of this run. A
+      // copy of the pass shares the patterns collected at initialization.
+      // Constant uniquing while the worklist is built does not start
+      // another iteration, and the listener is told of it. A rewrite is
+      // verified. A run the driver and the listener both leave untouched
+      // preserves every analysis, which skips the walk of every nested
+      // operation.
+      idr::canonicalize::Counter counter;
+      GreedyRewriteConfig config;
+      config.setUseTopDownTraversal(true)
+          .setRegionSimplificationLevel(GreedySimplifyRegionLevel::Normal)
+          .setMaxIterations(maxIterations)
+          .setListener(&counter);
+      bool changed = false;
+      LogicalResult converged = applyPatternsGreedily(op, *patterns, config, &changed);
       numRewrites += counter.report(op, converged, maxIterations);
+      if (!changed && !counter.rewrote())
+        markAllAnalysesPreserved();
       if (succeeded(converged))
         return;
       ++numUnconverged;
@@ -92,8 +102,7 @@ struct Canonicalize : idr::impl::IdrCanonicalizeBase<Canonicalize> {
     run();
   }
 
-  idr::canonicalize::Counter counter;
-  OpPassManager canonicalizer;
+  std::optional<FrozenRewritePatternSet> patterns;
 };
 
 } // namespace

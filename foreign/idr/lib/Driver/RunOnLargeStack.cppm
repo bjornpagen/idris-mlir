@@ -19,12 +19,10 @@ namespace {
 
 // The compilation runs on the runtime's reserved-stack runner, on a stack
 // committed as it is touched: MLIR's parser, printer and walks recurse over
-// nested constants, and compile-time evaluation builds them as large as the
-// program's own values (no limits but the machine's). The stack is 2^40
-// bytes, more than the memory of a machine that compiles, so memory runs
-// out first; no more, since reserving costs time in proportion to the
-// size, at the start, at the exit and at every fork of compile-time
-// evaluation. The frontend and the link are spawned from this thread,
+// nested constants. The stack is 2^40 bytes, more than the memory of a
+// machine that compiles, so memory runs out first; no more, since reserving
+// costs time in proportion to the size, at the start and at the exit. The
+// frontend and the link are spawned from this thread,
 // which posix_spawn allows. PIN(mlir-recursion) — see PINS.md
 struct Compilation {
   llvm::function_ref<int()> body;

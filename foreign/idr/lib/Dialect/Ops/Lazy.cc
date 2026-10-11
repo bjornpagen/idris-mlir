@@ -7,6 +7,7 @@
 
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 import idr.canon;
 import idr.graph;
@@ -34,23 +35,19 @@ struct ForceOfOneUse : OpRewritePattern<ForceOp> {
   }
 };
 
-// The function `name` names. An open scope answers from its table. A function
-// this rewrite has just built sits in the body and not yet in that table: one
-// scan finds it and records it, and every later closure of the same name reads
-// the table. Recording is skipped when the name is already there, so a symbol
-// the table holds is never renamed out from under a use.
+// The function `name` names, from the symbol table the pass opened. A
+// function this rewrite has just built is recorded into that table; looking
+// it up does not walk the module.
 func::FuncOp functionNamed(Operation *from, StringAttr name) {
   Operation *table = SymbolTable::getNearestSymbolTable(from);
   if (!table)
     return nullptr;
   SymbolScope *scope = SymbolScope::of(table);
-  if (scope)
-    if (Operation *hit = scope->symbols().lookup(name))
-      return dyn_cast<func::FuncOp>(hit);
-  auto found = dyn_cast_or_null<func::FuncOp>(SymbolTable::lookupSymbolIn(table, name));
-  if (found && scope && !scope->symbols().lookup(name))
-    scope->symbols().insert(found);
-  return found;
+  // No scan of the module. A function this rewrite has just built is
+  // recorded into the open table; a lookup with no table does not fire.
+  if (!scope)
+    return nullptr;
+  return dyn_cast_or_null<func::FuncOp>(scope->symbols().lookup(name));
 }
 
 func::FuncOp functionNamed(Operation *from, FlatSymbolRefAttr name) {
@@ -72,10 +69,11 @@ void recordFunction(func::FuncOp fn) {
 bool mayRunWithin(func::FuncOp label, func::FuncOp holder) {
   Operation *table = label->getParentOp();
   SymbolScope *scope = SymbolScope::of(table);
-  std::optional<SymbolTable> built;
+  // Without the pass's table the walk would scan the module for every
+  // callee. Keep the cell: a fold that cannot see the callees is not done.
   if (!scope)
-    built.emplace(table);
-  SymbolTable &symbols = scope ? scope->symbols() : *built;
+    return true;
+  SymbolTable &symbols = scope->symbols();
   llvm::DenseSet<Operation *> seen{label.getOperation()};
   SmallVector<func::FuncOp> work{label};
   while (!work.empty()) {
@@ -339,5 +337,15 @@ void ForceOp::getEffects(
 }
 
 void ForceOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRContext *context) {
-  results.add<ForceOfOneUse, ForceOfOneConstant, ForceInOneCase, ForceAtCapture>(context);
+  // ForceAtCapture builds a function. It runs on its own, before a call
+  // graph is built, not from here: a canonicalize inside the inliner would
+  // build it after the graph, and the inliner would erase what the new
+  // body still calls.
+  results.add<ForceOfOneUse, ForceOfOneConstant, ForceInOneCase>(context);
+}
+
+void idr::prepareForceAtCapture(Operation *op) {
+  RewritePatternSet patterns(op->getContext());
+  patterns.add<ForceAtCapture>(op->getContext());
+  (void)applyPatternsGreedily(op, std::move(patterns));
 }

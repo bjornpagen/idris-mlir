@@ -47,21 +47,34 @@ public:
   Statistics stats;
 
 private:
-  // Raising (:raise): the call of a clone that replaces `call` and the
-  // consumer of its result, or null.
-  mlir::FailureOr<mlir::func::CallOp> raise(mlir::func::CallOp call);
+  // What raising produced: the call to specialize, and the function it
+  // names. A null call means `call` was not raised.
+  struct Raised {
+    mlir::func::CallOp call;
+    mlir::func::FuncOp callee;
+  };
+
+  // Raising (:raise). `callee` is the function `call` names, resolved when
+  // the calls were read.
+  mlir::FailureOr<Raised> raise(mlir::func::CallOp call, mlir::func::FuncOp callee);
   std::optional<Consumer> consumerOf(mlir::func::CallOp call, mlir::func::FuncOp callee);
   mlir::FailureOr<mlir::func::FuncOp> makeRaised(mlir::func::FuncOp callee,
                                                  mlir::func::CallOp call, Consumer c,
                                                  mlir::Attribute key);
 
-  // Specialization (:specialization).
-  mlir::LogicalResult specialize(mlir::func::CallOp call);
+  // Specialization (:specialization). `callee` is the function `call` names,
+  // the same resolution raising used.
+  mlir::LogicalResult specialize(mlir::func::CallOp call, mlir::func::FuncOp callee);
 
   void canonicalize(mlir::func::FuncOp fn);
 
   mlir::ModuleOp module;
   CloneTable clones;
+  // The references of the functions present when the run starts, read once
+  // for the binding times and for the calls. Valid until those functions
+  // change; each function's calls are taken from it before that function
+  // is rewritten.
+  idr::graph::References references;
   BindingTimes times;
   std::optional<mlir::FrozenRewritePatternSet> patterns;
   llvm::SmallVector<mlir::func::FuncOp> work;
@@ -72,38 +85,39 @@ private:
 namespace idr::specialize {
 
 Specializer::Specializer(ModuleOp root)
-    : module(root), clones(root), times(root, clones) {}
+    : module(root), clones(root), references(root, clones.symbols()),
+      times(root, clones, references) {}
 
 LogicalResult Specializer::run() {
-  // Clones are inserted into this table, and nothing erases or renames a
-  // symbol during the run, so a lookup of a callee or a data declaration
-  // reads the table instead of scanning the module. Data declarations do
-  // not change either, so whether a type may hold a world or a closure is
-  // walked once: raising asks of every call, and canonicalizing a clone
-  // asks again for every call it tests for deadness.
-  SymbolScope scope(module, clones.symbols());
-  HoldMemo memo(module.getContext());
-  // The functions present when the run starts were read once, before
-  // anything changed. A clone is made during the run, and its calls are
-  // what canonicalization left, so they are read when the clone is reached.
-  idr::graph::References references(module, clones.symbols());
+  // The functions present when the run starts were read once, with the
+  // binding times, before anything changed. That read resolved each call's
+  // callee. Raising and specializing both use it: the name still names that
+  // function, since nothing erases or renames a symbol, so a call does not
+  // look its callee up again. A clone is made during the run, and its calls
+  // are what canonicalization left, so each of those callees is resolved
+  // once when the clone is reached and then used the same way.
   llvm::append_range(work, module.getOps<func::FuncOp>());
   const size_t known = work.size();
   for (size_t i = 0; i < work.size(); ++i) {
-    SmallVector<func::CallOp> calls;
+    SmallVector<std::pair<func::CallOp, func::FuncOp>> calls;
     if (i < known) {
       for (const idr::graph::References::Site &site : references.of(work[i]))
         if (auto call = dyn_cast<func::CallOp>(site.at))
-          calls.push_back(call);
+          calls.push_back({call, site.target});
     } else {
-      work[i].walk([&](func::CallOp call) { calls.push_back(call); });
+      work[i].walk([&](func::CallOp call) {
+        if (auto callee = clones.symbols().lookup<func::FuncOp>(call.getCalleeAttr().getAttr()))
+          calls.push_back({call, callee});
+      });
     }
-    for (func::CallOp call : calls) {
-      FailureOr<func::CallOp> raised = raise(call);
+    for (auto [call, callee] : calls) {
+      FailureOr<Raised> raised = raise(call, callee);
       if (failed(raised))
         return failure();
-      // The raised call, if any, is the one to specialize.
-      if (failed(specialize(*raised ? *raised : call)))
+      // The raised call, if any, is the one to specialize, and it names the
+      // clone raising just called.
+      const Raised &done = *raised;
+      if (failed(specialize(done.call ? done.call : call, done.call ? done.callee : callee)))
         return failure();
     }
   }

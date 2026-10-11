@@ -1,5 +1,4 @@
-// idr.target:targetoptions: LLVM's options for the target, the same for
-// executables and for idr-eval's JIT.
+// idr.target:targetoptions: LLVM's options for the target.
 export module idr.target:targetoptions;
 
 import idr.mlir;

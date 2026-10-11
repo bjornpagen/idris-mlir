@@ -8,7 +8,6 @@ idr_library(idr_facts
 		ClosureLabel.cppm
 		Contained.cppm
 		Effects.cppm
-		Evaluation.cppm
 		Infer.cppm
 		Inherit.cppm
 		Inlined.cppm

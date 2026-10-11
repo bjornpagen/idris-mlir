@@ -40,8 +40,6 @@ cl::opt<bool> noPrelude("no-prelude", cl::desc("Do not import the Prelude implic
 cl::opt<std::string> breakShape("break-shape", cl::Hidden,
                                 cl::desc("Break the shape of the registry's entry of this key"),
                                 cl::init(""));
-// No compile-time evaluation.
-cl::opt<bool> noEval("no-eval", cl::desc("Do not run idr-eval"), cl::init(false));
 cl::list<std::string> without(
     "without", cl::CommaSeparated,
     cl::desc("Leave out these steps of the pipeline (an idr-* pass other than idr-lower) or these "
@@ -57,7 +55,7 @@ cl::opt<bool> demandInPlace(
 // execution with the whole module.
 cl::list<std::string> logActionsTags(
     "log-actions-tags",
-    cl::desc("With -log-actions-to, log only the actions of these tags, e.g. idr-eval-call"),
+    cl::desc("With -log-actions-to, log only the actions of these tags, e.g. idr-specialize-clone"),
     cl::CommaSeparated);
 // The module after each step, `<NN>-<step>.mlir` in this directory.
 cl::opt<std::string> dumpDir("dump-dir",

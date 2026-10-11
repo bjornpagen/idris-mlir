@@ -17,7 +17,11 @@ namespace {
 
 struct Specialize : idr::impl::IdrSpecializeBase<Specialize> {
   void runOnOperation() override {
-    Specializer specializer(getOperation());
+    ModuleOp module = getOperation();
+    // A redirect onto a clone made in an earlier run rewrites a call and
+    // is not one of the statistics. The fingerprint is the rewrite.
+    OperationFingerPrint before(module);
+    Specializer specializer(module);
     LogicalResult result = specializer.run();
     const Statistics &stats = specializer.stats;
     numClones += stats.clones;
@@ -28,7 +32,11 @@ struct Specialize : idr::impl::IdrSpecializeBase<Specialize> {
     numDecreasing += stats.decreasing;
     numBounded += stats.bounded;
     if (failed(result))
-      signalPassFailure();
+      return signalPassFailure();
+    // The run rewrote nothing. Preserving every analysis skips the walk of
+    // every nested operation.
+    if (before == OperationFingerPrint(module))
+      markAllAnalysesPreserved();
   }
 };
 

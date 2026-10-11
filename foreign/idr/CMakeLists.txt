@@ -34,11 +34,10 @@ add_public_tablegen_target(idr_tablegen)
 
 # idris-mlir links the runtime's bitcode into the program (Linker,
 # BitReader, Object), internalizes it (IPO) and writes the runtime it
-# prepared (BitWriter); idr-eval compiles with ORC's LLJIT (OrcJIT) and the
-# same pipeline (Passes). The runtime's bitcode carries inline assembly (CPU
+# prepared (BitWriter). The runtime's bitcode carries inline assembly (CPU
 # feature probes), which the object emitter parses with the native target's
 # assembly parser.
-llvm_map_components_to_libnames(IDR_LLVM_CODEGEN_LIBS nativecodegen ${LLVM_NATIVE_ARCH} passes linker bitreader bitwriter object ipo orcjit)
+llvm_map_components_to_libnames(IDR_LLVM_CODEGEN_LIBS nativecodegen ${LLVM_NATIVE_ARCH} passes linker bitreader bitwriter object ipo)
 
 # What every unit of foreign/idr is compiled with: the generated headers and
 # MLIR's and LLVM's as system headers, so that the project's warnings apply
@@ -65,8 +64,7 @@ target_compile_definitions(idr_build INTERFACE
 # The target entry's lists, as X-macros of C strings in a generated header
 # (idr/TargetEntry.h): what links a program after its object, the runtime
 # and -o (--target with the triple, the executable flags, the program link
-# flags, GMP), which idris-mlir links with and --print-link-flags prints,
-# and the library calls idr-eval's JIT binds from the process.
+# flags, GMP), which idris-mlir links with and --print-link-flags prints.
 function(idr_strings out)
 	set(text "")
 	foreach(item IN LISTS ARGN)
@@ -161,7 +159,6 @@ foreach(area
 		Demand
 		Dialect
 		Driver
-		Eval
 		Expect
 		Facts
 		Fold
@@ -192,7 +189,7 @@ endforeach()
 # idr_dialect: what the tools link. The areas not yet modules are its plain
 # units, above the modules' libraries, with the dialect's definitions and
 # hooks; it links every module's library, and the runtime, natively, for the
-# folders and idr-eval's JIT, with GMP, which it calls, linked as the target
+# folders, with GMP, which it calls, linked as the target
 # entry says.
 target_include_directories(idr_dialect PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib)
 target_link_libraries(idr_dialect
@@ -214,7 +211,6 @@ target_link_libraries(idr_dialect
 		idr_isolate
 		idr_stack
 		idr_specialize
-		idr_eval
 		idr_ownership
 		idr_demand
 		idr_canon
@@ -240,9 +236,45 @@ set_target_properties(idr_dialect PROPERTIES
 	CXX_SCAN_FOR_MODULES ON
 )
 
+# Sampling of these tools. One translation unit, from the Tracy tree beside
+# this repo, so the module build and this project's warnings stay on our
+# code. The client listens on localhost and does not broadcast. It is not
+# told to refuse exit: this build runs idris-mlir to prepare the runtime,
+# and that step has to return when no capture is attached. A capture sets
+# TRACY_NO_EXIT=1 so the profiled process flushes before it quits.
+# The client starts from a static constructor. Nothing in our code names a
+# symbol in that archive, so the link would drop it; the tools force-load it.
+set(IDRIS_MLIR_TRACY_DIR "${CMAKE_SOURCE_DIR}/../tracy")
+if(NOT EXISTS "${IDRIS_MLIR_TRACY_DIR}/public/TracyClient.cpp")
+	message(FATAL_ERROR "Tracy client is missing at ${IDRIS_MLIR_TRACY_DIR}")
+endif()
+add_library(idr_tracy STATIC "${IDRIS_MLIR_TRACY_DIR}/public/TracyClient.cpp")
+target_include_directories(idr_tracy PUBLIC "${IDRIS_MLIR_TRACY_DIR}/public")
+target_compile_definitions(idr_tracy PRIVATE
+	TRACY_ENABLE
+	TRACY_ONLY_LOCALHOST
+	TRACY_NO_BROADCAST
+)
+# See lib/TracySampling.h: without this the Apple sampler never starts,
+# and a capture has a time span and no call stacks.
+target_compile_options(idr_tracy PRIVATE
+	"SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/lib/TracySampling.h"
+)
+find_package(Threads REQUIRED)
+target_link_libraries(idr_tracy PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
+set_target_properties(idr_tracy PROPERTIES
+	CXX_STANDARD 20
+	CXX_STANDARD_REQUIRED ON
+	CXX_EXTENSIONS OFF
+	CXX_MODULE_STD OFF
+	CXX_SCAN_FOR_MODULES OFF
+	CXX_CLANG_TIDY ""
+)
+
 add_executable(idris-mlir-opt tools/idris-mlir-opt.cc)
 target_link_libraries(idris-mlir-opt PRIVATE
 	idr_dialect
+	idr_tracy
 	MLIROptLib
 	MLIRRegisterAllDialects
 	MLIRRegisterAllExtensions
@@ -256,6 +288,7 @@ add_executable(idris-mlir tools/idris-mlir.cc)
 target_link_libraries(idris-mlir PRIVATE
 	idr_driver
 	idr_dialect
+	idr_tracy
 	MLIRDebug
 	MLIRRegisterAllDialects
 	MLIRRegisterAllExtensions
@@ -306,12 +339,16 @@ add_custom_target(idris_rt_prepared ALL DEPENDS "${IDRIS_MLIR_RUNTIME_PREPARED}"
 add_executable(idris-mlir-reduce tools/idris-mlir-reduce.cc)
 target_link_libraries(idris-mlir-reduce PRIVATE
 	idr_dialect
+	idr_tracy
 	MLIRReduceLib
 	MLIRRegisterAllDialects
 	MLIRRegisterAllExtensions
 	MLIRRegisterAllPasses
 	idris_mlir_language_profile
 )
+foreach(tool idris-mlir-opt idris-mlir idris-mlir-reduce)
+	target_link_options(${tool} PRIVATE "LINKER:-force_load,$<TARGET_FILE:idr_tracy>")
+endforeach()
 
 # mlir-tblgen with the generator of the Idris side's vocabulary of each
 # dialect Emit writes (tools/dialects.sh, which make build runs). It reads

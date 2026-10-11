@@ -71,13 +71,17 @@ public:
   // refers to no function.
   void settleBreaker(mlir::func::FuncOp clone, bool unrolls);
 
+  // The module's symbol table for this invocation. Lookups of callees and
+  // the inserts of clones go through it. It is not published on the
+  // context: a SymbolScope a caller opened before a nested pipeline stays
+  // that caller's.
   mlir::SymbolTable &symbols();
 
 private:
   static std::optional<Clone> parse(mlir::func::FuncOp fn);
 
   mlir::ModuleOp module;
-  mlir::SymbolTable table;
+  mlir::SymbolTableCollection tables;
   llvm::DenseMap<mlir::Attribute, Clone> byKey;
   llvm::DenseMap<mlir::Operation *, mlir::Attribute> keyOf;
   // The clones of each owner, counted from their names.
@@ -134,7 +138,7 @@ std::optional<Clone> CloneTable::parse(func::FuncOp fn) {
   return out;
 }
 
-CloneTable::CloneTable(ModuleOp root) : module(root), table(root) {
+CloneTable::CloneTable(ModuleOp root) : module(root) {
   for (auto fn : module.getOps<func::FuncOp>()) {
     if (std::optional<Clone> clone = parse(fn)) {
       keyOf.try_emplace(fn.getOperation(), clone->key);
@@ -180,7 +184,7 @@ FailureOr<func::FuncOp> CloneTable::copy(func::FuncOp from, StringAttr owner, St
   func::FuncOp clone = from.clone();
   clone.setSymName((owner.getValue() + "$" + kind + "$" + Twine(n)).str());
   clone.setPrivate();
-  table.insert(clone, module.getBody()->end());
+  symbols().insert(clone, module.getBody()->end());
   return clone;
 }
 
@@ -195,12 +199,12 @@ const Clone &CloneTable::add(Attribute key, func::FuncOp fn) {
 void CloneTable::settleBreaker(func::FuncOp clone, bool unrolls) {
   std::optional<SymbolTable::UseRange> uses = SymbolTable::getSymbolUses(&clone.getBody());
   bool refers = uses && llvm::any_of(*uses, [&](const SymbolTable::SymbolUse &use) {
-    return table.lookup<func::FuncOp>(use.getSymbolRef().getRootReference());
+    return symbols().lookup<func::FuncOp>(use.getSymbolRef().getRootReference());
   });
   if (unrolls || !refers)
     clone.setNoInline(false);
 }
 
-SymbolTable &CloneTable::symbols() { return table; }
+SymbolTable &CloneTable::symbols() { return tables.getSymbolTable(module); }
 
 } // namespace idr::specialize

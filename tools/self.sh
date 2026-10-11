@@ -13,9 +13,8 @@
 # same copy of compiler/src (build/self/src), against the same prefix, so
 # that nothing differs between two stages but the compiler. STAGE (default
 # 3) is the last stage made; at 3, stages 2 and 3 must be the same, byte for
-# byte: the executable, its module and its Core. Each compile passes
-# --no-eval: idr-eval is not in the simplify round (proposal 0003).
-# A closed call stays for runtime. Each compile's output is kept in
+# byte: the executable, its module and its Core. A closed call stays for
+# runtime. Each compile's output is kept in
 # build/self/stageN/stdout and stderr, which ends with its phases' times
 # (-mlir-timing) and its peak memory (time -l).
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -40,7 +39,7 @@ stage() {
   echo "==> stage $n, compiled by ${compiler#"$root"/}"
   started=$(date +%s)
   (cd "$self/src" && /usr/bin/time -l "$compiler" --prefix "$checkout_prefix" \
-     -p idris-compiler -p mlir-linear --no-eval -mlir-timing \
+     -p idris-compiler -p mlir-linear -mlir-timing \
      IdrisMLIR/Frontend/Driver.idr -o "$out/idris-mlir-front") \
     > "$out/stdout" 2> "$out/stderr"
   status=$?

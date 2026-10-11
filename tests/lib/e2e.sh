@@ -2,10 +2,7 @@
 #
 # Each fixture is compiled once with every module of the pipeline dumped,
 # and everything that holds of a compilation is read off that one
-# compilation and its dumps (lib/properties.sh); then once more with
-# --no-eval, whose program must behave the same. idr-eval is not in the
-# simplify round, so the two pipelines match. Two compilations per fixture,
-# and no suite that compiles them all again.
+# compilation and its dumps (lib/properties.sh).
 
 # stdout_within_a_few_ulp EXPECTED OURS LINES: EXPECTED and OURS print the
 # same text, except that the numbered lines LINES (one number per line) hold
@@ -130,8 +127,6 @@ e2e_io() {
   heap_free "$io_fixture" "$work/ours/build/exec/prog.dump"
   module_checks "$io_fixture" "$work/ours/build/exec/prog.mlir" "$work/ours/build/exec/prog.dump"
   compilation_properties "$work/ours/build/exec/prog.mlir" "$work/ours/build/exec/prog.dump"
-
-  without_evaluation "$io_fixture" "$io_stdin" $io_stack
 }
 
 # sem_case NAME: the generated semantics test NAME, an e2e fixture built in

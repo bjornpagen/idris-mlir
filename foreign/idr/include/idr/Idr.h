@@ -26,7 +26,6 @@
 
 #include <algorithm>
 #include <atomic>
-#include <mutex>
 #include <optional>
 #include <string>
 
@@ -455,6 +454,13 @@ CtorOp lookupCtor(DataOp data, llvm::StringRef ctor);
 // The constructor `@T::@C` names, or null.
 CtorOp lookupCtor(mlir::Operation *from, mlir::SymbolRefAttr ctor);
 
+// A closure whose body only forces one captured suspension becomes a call
+// of a function built from that suspension's body. The new function is part
+// of the module before any call graph of it is built: its body calls what
+// the suspension called, and a later erase of an unreferenced function must
+// still see those calls.
+void prepareForceAtCapture(mlir::Operation *op);
+
 // Whether `data` is a memo sum: what idr-defunctionalize makes of a lazy
 // type (lib/Dialect/Ops/Data.cc).
 bool isMemo(DataOp data);
@@ -465,27 +471,26 @@ bool isMemo(DataOp data);
 inline constexpr llvm::StringLiteral memoRunning = "running";
 inline constexpr llvm::StringLiteral memoForced = "forced";
 
-// The most static data a constant made at compile time may take: the
-// results of an evaluated call (idr-eval), and a folded op whose result can
-// outgrow its operands (a big shifted left). A larger one would make the
+// The most static data a folded constant may take: a folded op whose result
+// can outgrow its operands (a big shifted left). A larger one would make the
 // executable larger than computing it at runtime does, and the compilation
-// slower, so it stays, to run at runtime, as upstream Idris runs its calls
-// there. The value is never at stake, only the size and the speed.
+// slower, so it stays, to run at runtime. The value is never at stake, only
+// the size and the speed.
 inline constexpr uint64_t constantBytes = uint64_t{1} << 20;
 
-// While a SymbolScope is open on a context, lookupSymbol (and so
+// While a SymbolScope is open on this thread, lookupSymbol (and so
 // lookupData, lookupCtor and the effects of a call) answers a lookup in
-// `op`, a symbol table, from `table` on every thread, instead of scanning
-// `op`'s body, which takes as long as the module is large. Only a pass
-// anchored on `op` or above opens one (or the idr dialect's verifier of the
-// module), outside every nested pipeline it starts. Scopes therefore open
-// and close in order, on one thread, while no other thread reads the chain.
-// A lookup reads `table`. A symbol added while a lookup may read it is
-// inserted through `table`, so the lookup sees it; a symbol is erased or
-// renamed through `table`, or when no lookup still reads it. The pass
-// manager keeps a nested pass from changing a symbol except through a scope
-// that pass opens inside this one. The context must have the idr dialect
-// loaded.
+// `op`, a symbol table, from `table`, instead of scanning `op`'s body,
+// which takes as long as the module is large. Only a pass anchored on
+// `op` or above opens one (or the idr dialect's verifier of the module),
+// outside every nested pipeline it starts. The chain is this thread's. A
+// worker running that pipeline does not see a scope opened here, and a
+// scope it opens is not visible on this thread, so two compiles do not
+// depend on which worker published a scope. A lookup reads `table`. A
+// symbol added while a lookup on this thread may read it is inserted
+// through `table`, so the lookup sees it; a symbol is erased or renamed
+// through `table`, or when no lookup on this thread still reads it. The
+// context must have the idr dialect loaded.
 class SymbolScope {
 public:
   SymbolScope(mlir::Operation *op, mlir::SymbolTable &table);
@@ -493,7 +498,7 @@ public:
   SymbolScope(const SymbolScope &) = delete;
   SymbolScope &operator=(const SymbolScope &) = delete;
 
-  // The scope open on `op`'s context for `op`, or null.
+  // The scope this thread has open for `op`, or null.
   static SymbolScope *of(mlir::Operation *op);
   mlir::SymbolTable &symbols() const { return table; }
 
@@ -503,15 +508,15 @@ private:
   SymbolScope *outer;
 };
 
-// While a HoldMemo is open on a context, mayHoldWorld and mayHoldClosure
+// While a HoldMemo is open on this thread, mayHoldWorld and mayHoldClosure
 // remember what they answered for each type. A pass opens one when it does
 // not change a data declaration, so the walk of a type's fields, and the
-// lookup of each field's declaration, happen once and every later ask is
-// the remembered answer. The seen-set of one walk is not that: the next
-// call of the same type would walk again. Memos open and close in order,
-// on one thread, while no other thread reads the chain. A walk may run on
-// a thread the pass already uses, so remembering an answer takes the
-// memo's lock. The innermost memo is the one a walk fills. The context
+// lookup of each field's declaration, happen once and every later ask on
+// this thread is the remembered answer. The seen-set of one walk is not
+// that: the next call of the same type would walk again. Memos open and
+// close in order on this thread. A worker running a nested pipeline does
+// not see this memo, and one it opens is not visible here. The innermost
+// memo on this thread for the context is the one a walk fills. The context
 // must have the idr dialect loaded.
 class HoldMemo {
 public:
@@ -520,7 +525,7 @@ public:
   HoldMemo(const HoldMemo &) = delete;
   HoldMemo &operator=(const HoldMemo &) = delete;
 
-  // The memo open on `context`, or null.
+  // The memo this thread has open on `context`, or null.
   static HoldMemo *of(mlir::MLIRContext *context);
 
   // The answer already remembered for `type`, or nullopt.
@@ -531,20 +536,17 @@ public:
 
 private:
   std::optional<bool> find(const llvm::DenseMap<mlir::Type, bool> &map, mlir::Type type) const {
-    std::lock_guard<std::mutex> lock(mu);
     auto it = map.find(type);
     if (it == map.end())
       return std::nullopt;
     return it->second;
   }
   void remember(llvm::DenseMap<mlir::Type, bool> &map, mlir::Type type, bool answer) {
-    std::lock_guard<std::mutex> lock(mu);
     map.try_emplace(type, answer);
   }
 
   mlir::MLIRContext *context;
   HoldMemo *outer;
-  mutable std::mutex mu;
   llvm::DenseMap<mlir::Type, bool> worldAnswers;
   llvm::DenseMap<mlir::Type, bool> closureAnswers;
 };

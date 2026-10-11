@@ -10,8 +10,8 @@ using namespace idr;
 
 export namespace idr::ops {
 
-// The constants and types already checked: a constant that compile-time
-// evaluation made shares its parts, and each is checked once.
+// The constants and types already checked: a constant shares its parts, and
+// each is checked once.
 using Checked = llvm::DenseSet<std::pair<Attribute, Type>>;
 
 // That `value` is a constant of `type`, recursively through fields and

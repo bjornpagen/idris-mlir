@@ -1,7 +1,5 @@
 // idr.sharing:aliases: in text, a large constant gets an alias, which the
-// printer defines once and refers to by name. (Compile-time evaluation
-// sends its results to the compiler as a flat table of their parts, not as
-// text.)
+// printer defines once and refers to by name.
 export module idr.sharing:aliases;
 
 import idr.mlir;

@@ -50,7 +50,12 @@ export namespace idr::specialize {
 
 class BindingTimes {
 public:
+  // `references`, when the caller has one, is its walk of the module, made
+  // before anything changes. The other constructor walks for a caller that
+  // has not.
   BindingTimes(mlir::ModuleOp module, CloneTable &clones);
+  BindingTimes(mlir::ModuleOp module, CloneTable &clones,
+               const idr::graph::References &references);
 
   // The binding time of parameter `index` of `fn`, or none for a function
   // the analysis did not see: one made after it ran.
@@ -93,9 +98,12 @@ std::optional<std::pair<StringAttr, unsigned>> raisedFrom(Attribute key) {
 
 } // namespace
 
-BindingTimes::BindingTimes(ModuleOp module, CloneTable &clones) {
+BindingTimes::BindingTimes(ModuleOp module, CloneTable &clones)
+    : BindingTimes(module, clones, idr::graph::References(module, clones.symbols())) {}
+
+BindingTimes::BindingTimes(ModuleOp module, CloneTable &clones,
+                           const idr::graph::References &references) {
   SymbolTable &symbols = clones.symbols();
-  idr::graph::References references(module, symbols);
   SmallVector<func::FuncOp> functions;
   for (auto fn : module.getOps<func::FuncOp>()) {
     times[fn.getOperation()].assign(fn.getNumArguments(), BindingTime::Free);
@@ -105,8 +113,9 @@ BindingTimes::BindingTimes(ModuleOp module, CloneTable &clones) {
   llvm::DenseMap<func::FuncOp, SmallVector<func::FuncOp>> edges;
   for (func::FuncOp fn : functions) {
     SmallVector<func::FuncOp> &out = edges[fn];
+    llvm::SmallDenseSet<func::FuncOp, 8> seen;
     for (const idr::graph::References::Site &site : references.of(fn))
-      if (!llvm::is_contained(out, site.target))
+      if (seen.insert(site.target).second)
         out.push_back(site.target);
   }
   for (const SmallVector<func::FuncOp> &component : idr::graph::stronglyConnected<func::FuncOp>(

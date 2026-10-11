@@ -15,8 +15,6 @@
 // it by its regions. A call is specialized for an argument only where the
 // argument is a function, which makes the callee's applications of it
 // direct calls; for data it would only re-abstract what the regions know.
-// A call whose every argument is then a constant is closed, and
-// compile-time evaluation computes it.
 export module idr.canon:feeds;
 
 import idr.mlir;
@@ -40,9 +38,7 @@ OpOperand &reader(OpOperand &use) {
   return *at;
 }
 
-// Whether every operand of the op holding `use` but that one is a constant:
-// with a constant there, a call is closed, and compile-time evaluation
-// computes it.
+// Whether every operand of the op holding `use` but that one is a constant.
 bool closedWith(OpOperand &use) {
   return llvm::all_of(use.getOwner()->getOpOperands(), [&](OpOperand &operand) {
     return &operand == &use || matchPattern(operand.get(), m_Constant());

@@ -14,7 +14,7 @@ namespace idr::lower {
 // through the code generator's view of a function that returns the type, of
 // a machine for the #llvm.target of the module or of the first module around
 // it that has one, the program's. A module with none (a test's) is asked of
-// this machine's triple and the generic CPU, which the JIT compiles it for.
+// this machine's triple and the generic CPU.
 class ReturnRegisters {
 public:
   explicit ReturnRegisters(Operation *module) : scope(module) {}

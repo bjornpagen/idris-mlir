@@ -96,38 +96,3 @@ quantities_kept() {
   [ -n "$qk_failed" ] || say "quantities: kept"
 }
 
-# without_evaluation FIXTURE STDIN STACK: the fixture compiled again
-# with `--no-eval`, which leaves every closed call to runtime,
-# must print the stdout and exit with the status the first compilation's
-# program did (in $work/ours.out and $ours_status), within its budgets. A
-# fixture that --no-eval rejects with a user error (a value the profile
-# forbids at runtime, which only evaluation removes) says so with the
-# reason instead. STACK is `small` or empty, as the first run had it. The
-# packages and the in-place promise are the first compilation's.
-without_evaluation() {
-  mkdir "$work/noeval"
-  copy_fixture "$1" "$work/noeval"
-  # shellcheck disable=SC2086 # the packages and the promise are words
-  compile_program $io_packages $io_promise --no-eval "$work/noeval/Main.idr" prog
-  we_exe=$work/noeval/build/exec/prog
-  if [ "$compiled" -ne 0 ]; then
-    we_reason=$(rejection_reason)
-    if [ "$compiled" -eq 3 ] && [ -n "$we_reason" ]; then
-      say "no-eval: compiles only with evaluation: $we_reason"
-    else
-      say "no-eval: compile exit $compiled"
-      show "$work/compile.out" "$work/compile.err"
-    fi
-    return
-  fi
-  budget_kept "no-eval budget"
-  run_ours noeval "$we_exe" "$2" ${3:+small}
-  if ! cmp -s "$work/ours.out" "$work/noeval.out"; then
-    say "no-eval: stdout differs (< evaluation, > --no-eval)"
-    diff "$work/ours.out" "$work/noeval.out" | head -n 20 | sed 's/^/  | /'
-  elif [ "$ran" -ne "$ours_status" ]; then
-    say "no-eval: same stdout, but exit $ours_status with evaluation and $ran with --no-eval"
-  else
-    say "no-eval: same stdout and exit status"
-  fi
-}

@@ -22,8 +22,7 @@
 // in the call's block, and either the call only computes (it performs no IO,
 // cannot crash and returns; building actions is no IO), or every op between
 // it and the consumer only computes. A callee that takes a world is never
-// raised: its body would take part in the world chain. A closed call that
-// idr-eval runs to the end is left to it.
+// raised: its body would take part in the world chain.
 export module idr.specialize:raise;
 
 import idr.mlir;
@@ -171,16 +170,12 @@ std::optional<Consumer> Specializer::consumerOf(func::CallOp call, func::FuncOp 
   if (!e || e->apply->getBlock() != call->getBlock())
     return std::nullopt;
   ApplyOp apply = e->apply;
-  // idr-eval evaluates this call to the end, and its consumer then folds. A
-  // closed call of partial code it evaluates only within a budget, so that
-  // call is raised like any other; the raised call is closed too when the
-  // consumer's operands are, and idr-eval evaluates it instead.
-  if (std::optional<facts::Evaluation> evaluation = facts::canEvaluate(call, clones.symbols());
-      evaluation && evaluation->total)
-    return std::nullopt;
   // A call that only computes may run later, after anything between it and
-  // its consumer; any other only after ops that only compute.
-  if (!idr::onlyAllocates(call))
+  // its consumer; any other only after ops that only compute. The callee's
+  // own effects are the same at every call: IO, a crash, or not returning
+  // is already more than computing, whatever closures the arguments hold,
+  // so those are not walked and the callee is not looked up again.
+  if (!facts::of(callee).none() || !idr::onlyAllocates(call))
     for (Operation *op = call->getNextNode(); op != apply; op = op->getNextNode())
       if (!idr::onlyAllocates(op))
         return std::nullopt;
@@ -228,16 +223,15 @@ FailureOr<func::FuncOp> Specializer::makeRaised(func::FuncOp callee, func::CallO
   return clone;
 }
 
-FailureOr<func::CallOp> Specializer::raise(func::CallOp call) {
-  auto callee = clones.symbols().lookup<func::FuncOp>(call.getCalleeAttr().getAttr());
+FailureOr<Specializer::Raised> Specializer::raise(func::CallOp call, func::FuncOp callee) {
   if (!callee || callee.isExternal())
-    return func::CallOp();
+    return Raised{func::CallOp(), func::FuncOp()};
   std::optional<Consumer> c = consumerOf(call, callee);
   if (!c)
-    return func::CallOp();
+    return Raised{func::CallOp(), func::FuncOp()};
   // Making the clone and calling it is one action, which a debug counter
   // may skip: then there is no clone and the call and its consumer stay.
-  FailureOr<func::CallOp> result = func::CallOp();
+  FailureOr<Raised> result = Raised{func::CallOp(), func::FuncOp()};
   support::perform<support::RaiseAction>(call, [&] {
     Attribute key = keyOf(*c, callee);
     const Clone *clone = clones.lookup(key);
@@ -268,7 +262,7 @@ FailureOr<func::CallOp> Specializer::raise(func::CallOp call) {
       c->enter.erase();
     }
     call.erase();
-    result = replacement;
+    result = Raised{replacement, fn};
   });
   return result;
 }

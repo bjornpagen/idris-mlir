@@ -130,11 +130,6 @@ module;
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/TargetLowering.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
-#include "llvm/ExecutionEngine/Orc/AbsoluteSymbols.h"
-#include "llvm/ExecutionEngine/Orc/ExecutionUtils.h"
-#include "llvm/ExecutionEngine/Orc/JITTargetMachineBuilder.h"
-#include "llvm/ExecutionEngine/Orc/LLJIT.h"
-#include "llvm/ExecutionEngine/Orc/ThreadSafeModule.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/Function.h"
@@ -346,6 +341,7 @@ using mlir::OpPassManager;
 using mlir::OpPrintingFlags;
 using mlir::OpResult;
 using mlir::OpRewritePattern;
+using mlir::RewritePattern;
 using mlir::OptionalParseResult;
 using mlir::OwningOpRef;
 using mlir::parsePassPipeline;
@@ -358,6 +354,7 @@ using mlir::PassExecutionAction;
 using mlir::PassManager;
 using mlir::PassPipelineRegistration;
 using mlir::Pattern;
+using mlir::PatternBenefit;
 using mlir::PatternRewriter;
 using mlir::populateCallOpTypeConversionPattern;
 using mlir::populateFunctionOpInterfaceTypeConversionPattern;
@@ -798,7 +795,6 @@ using llvm::isa;
 using llvm::isa_and_nonnull;
 using llvm::IsaPred;
 using llvm::isDigit;
-using llvm::JITSymbolFlags;
 using llvm::join;
 using llvm::Linker;
 using llvm::LLVMContext;
@@ -916,20 +912,6 @@ using llvm::CallingConv::Tail;
 export namespace llvm::ISD {
 using llvm::ISD::OutputArg;
 } // namespace llvm::ISD
-
-export namespace llvm::orc {
-using llvm::orc::absoluteSymbols;
-using llvm::orc::DynamicLibrarySearchGenerator;
-using llvm::orc::ExecutorAddr;
-using llvm::orc::JITTargetMachineBuilder;
-using llvm::orc::LLJIT;
-using llvm::orc::LLJITBuilder;
-using llvm::orc::setUpInactivePlatform;
-using llvm::orc::SymbolMap;
-using llvm::orc::SymbolNameSet;
-using llvm::orc::SymbolStringPtr;
-using llvm::orc::ThreadSafeModule;
-} // namespace llvm::orc
 
 export namespace llvm::PICLevel {
 using llvm::PICLevel::BigPIC;

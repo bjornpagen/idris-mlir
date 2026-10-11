@@ -4,14 +4,13 @@
 // reaches, `idr.effects`; a call answers MemoryEffectOpInterface from the
 // latter (CallEffects.cc), so whether code may be dropped, moved or delayed is
 // MLIR's question (idr::onlyAllocates, idr::performsIO), and the partitions
-// here answer the rest: what a function reaches, what a closure passed to
-// a call may do, and what a closed call may be evaluated as.
+// here answer the rest: what a function reaches, and what a closure passed
+// to a call may do.
 export module idr.facts;
 
 export import :breakslast;
 export import :closurelabel;
 export import :effects;
-export import :evaluation;
 export import :infer;
 export import :inherit;
 export import :inlined;

@@ -1,6 +1,5 @@
 // idr.lower:entry: idr-entry, which makes the root idr-lower lowered the
-// program's entry. A program's own step: compile-time evaluation lowers
-// calls, which have no entry.
+// program's entry.
 module;
 // The target entry's list of CPU features, an X-macro, and the runtime's
 // C ABI, whose feature bits it names.

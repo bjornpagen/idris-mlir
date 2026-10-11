@@ -46,13 +46,12 @@ public:
       symbols.getSymbolTable(module).insert(callee);
       // The C ABI has the caller extend an argument narrower than 32 bits, and
       // the runtime's narrow parameters are unsigned (a byte): without
-      // zeroext, JIT-compiled code would pass garbage in the upper bits.
+      // zeroext, a caller would pass garbage in the upper bits.
       for (auto [i, arg] : llvm::enumerate(args.getTypes()))
         if (auto integer = dyn_cast<IntegerType>(arg); integer && integer.getWidth() < 32)
           callee.setArgAttr(static_cast<unsigned>(i), LLVM::LLVMDialect::getZExtAttrName(), b.getUnitAttr());
       // A crash or an exit does not return, which lets LLVM treat what
-      // follows as unreachable without the runtime's bitcode (JIT-compiled
-      // code has none).
+      // follows as unreachable.
       if (name == "idris_rt_crash" || name == "idris_rt_crash_str" || name == "idris_rt_io_exit")
         callee.setPassthroughAttr(b.getArrayAttr({b.getStringAttr("noreturn")}));
     }
@@ -61,8 +60,7 @@ public:
   }
 
   // A crash at `loc` reporting `cause`: idris_rt_crash, which does not
-  // return. In compile-time evaluation it ends the evaluation's child,
-  // which reports it to the evaluator.
+  // return.
   void crash(OpBuilder &b, Location loc, StringRef cause) {
     std::string text = crashMessage(loc, cause);
     Value ptr = statics.message(b, loc, text);
@@ -89,15 +87,13 @@ public:
   // removes, and LLVM keeps too, so a loop that may not terminate stays.
   // llvm.sideeffect is the effect LLVM keeps in place and emits as no
   // instruction, so the body of a loop that may not end never empties. A
-  // fence would not do: LLVM hoists it out of the loop. Compile-time
-  // evaluation counts a tick of its meter right before it (idr-meter).
+  // fence would not do: LLVM hoists it out of the loop.
   void mayLoop(OpBuilder &b, Location loc) {
     LLVM::CallIntrinsicOp::create(b, loc, b.getStringAttr("llvm.sideeffect"), ValueRange{});
   }
 
   // A new cell of `size` bytes with its header: count 1 and `info`
-  // (idris_rt_cell). In compile-time evaluation's arena the runtime makes
-  // it persistent, as everything evaluation makes.
+  // (idris_rt_cell).
   Value allocate(OpBuilder &b, Location loc, unsigned size, layout::CellInfo info) {
     return call(b, loc, "idris_rt_cell", ptrType(b.getContext()),
                 ValueRange{i64Constant(b, loc, size), i32Constant(b, loc, info.word())});
@@ -150,9 +146,7 @@ public:
   }
 
   // One more, or one less, reference for each counted component of a value
-  // (idris_rt_inc, idris_rt_dec); `counted` says which components are. In
-  // compile-time evaluation's arena every cell is persistent, and both do
-  // nothing there.
+  // (idris_rt_inc, idris_rt_dec); `counted` says which components are.
   void inc(OpBuilder &b, Location loc, ValueRange components, ArrayRef<bool> counted) {
     countEach(b, loc, "idris_rt_inc", components, counted);
   }
