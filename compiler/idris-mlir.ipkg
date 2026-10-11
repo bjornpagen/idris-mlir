@@ -52,6 +52,7 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Frontend.Translate.Primitives
         , IdrisMLIR.Frontend.Translate.Hooks
         , IdrisMLIR.Frontend.Translate.Terms
+        , IdrisMLIR.Frontend.Translate.Forced
         , IdrisMLIR.Frontend.Translate.Cases
         , IdrisMLIR.Frontend.Translate.Programs
         , IdrisMLIR.Frontend.Translate

@@ -624,6 +624,12 @@ canonicalTypeArg tm = walk False [] tm
         Nothing <- clause fc n
           | Just lam => pure (embedClosed lam)
         pure (Ref fc Func n)
+    -- Elaboration writes a type family as `f` in one type and as
+    -- `(\x => f x)` in another. They name one data instance.
+    walk _ stack tm@(Bind _ _ (Lam {}) (App _ fn (Local _ _ Z _))) =
+      case shrink fn (Drop Refl) of
+        Just fn' => walk False stack fn'
+        Nothing => pure tm
     walk _ stack (App fc f a) = App fc <$> walk True stack f <*> walk False stack a
     walk _ stack (Meta fc n i args) = Meta fc n i <$> traverse (walk False stack) args
     walk _ stack (TDelayed fc r t) = TDelayed fc r <$> walk False stack t

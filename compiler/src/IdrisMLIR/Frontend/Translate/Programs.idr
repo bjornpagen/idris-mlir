@@ -3,16 +3,15 @@
 ||| representation.
 module IdrisMLIR.Frontend.Translate.Programs
 
-import Core.Case.CaseTree
 import Core.Context
 import Core.Core
-import Core.Env
 import Core.TT
 
 import IdrisMLIR.Facts
 import IdrisMLIR.Frontend.Translate.Cases
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
+import IdrisMLIR.Frontend.Translate.Forced
 import IdrisMLIR.Frontend.Translate.Instances
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Translate.Terms
@@ -29,7 +28,6 @@ import Data.List
 import Data.SnocList
 import Data.SortedMap
 import Data.SortedSet
-import Data.String
 import Data.Vect
 
 %default covering
@@ -45,30 +43,18 @@ translateInstance p = do
   False <- pure (contains (nameKey (fullname def)) (!(get TState)).refused)
     | True => pure ()
   let fc = location def
-  PMDef _ args treeCT treeRT pats <- pure (definition def)
+  PMDef _ args treeCT _ _ <- pure (definition def)
     | _ => reject fc owner DefinitionShape "not a pattern-matching definition"
   -- A missing case crashes.
   let complete = case isCovering (totality def) of
                    MissingCases _ => False
                    _ => True
   (kinds, resTy) <- classify fc owner (length args) (type def) (givenArgs p.kinds)
-  when (isInfixOf "getBinderUnder" owner || isInfixOf "wknTms" owner) $ do
-    tyShown <- showTT (type def)
-    coreLift $ putStrLn $ "==== " ++ owner
-    coreLift $ putStrLn $ "ARGS " ++ show args
-    coreLift $ putStrLn $ "KINDS " ++ show (map kindTag kinds)
-    coreLift $ putStrLn $ "TYPE " ++ tyShown
-    coreLift $ putStrLn "PATS"
-    coreLift $ putStrLn $ show (map (\(_ ** (_, lhs, rhs)) => show lhs ++ " => " ++ show rhs) pats)
-    coreLift $ putStrLn "CT"
-    coreLift $ putStrLn $ show treeCT
-    coreLift $ putStrLn "RT"
-    coreLift $ putStrLn $ show treeRT
-    when (isInfixOf "wknTms" owner) $ throw (InternalError "dump")
   result <- coreType fc owner ValueType !(normaliseClosed resTy)
   -- Parameter i is variable i, as in the case tree's scope.
   let env = zipWith info (Data.Fin.List.allFins (length kinds)) kinds
-  body <- tree (MkCtx owner fc complete) env (telescope (length args) (type def)) treeCT
+  body <- tree (MkCtx owner fc complete) env (telescope (length args) (type def))
+               (emptyKnown (length env)) treeCT
   loc <- toLoc fc
   -- Every loop through the definition terminates: its component was
   -- checked when the instance was requested (`Recursion`).
@@ -78,12 +64,6 @@ translateInstance p = do
                                               (map runtimeBinder (fromList kinds)) result body loc facts)
                 , fnOrder $= (:< p.inst) }
   where
-    kindTag : PKind -> String
-    kindTag (TypeParam _) = "T"
-    kindTag (DictParam _ _) = "D"
-    kindTag (ValueParam Gone _) = "E"
-    kindTag (ValueParam (Held _ _) _) = "R"
-
     info : Fin k -> PKind -> VarInfo (Fin k)
     info i (TypeParam t) = TypeValue t
     info i (DictParam t h) = Static t ((i,) <$> h)

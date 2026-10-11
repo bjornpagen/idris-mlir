@@ -10,6 +10,7 @@ import Core.TT
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Dictionaries
 import IdrisMLIR.Frontend.Translate.Errors
+import IdrisMLIR.Frontend.Translate.Forced
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Translate.Terms
 import IdrisMLIR.Frontend.Translate.Types
@@ -114,16 +115,134 @@ telescope k = go 0
         Just (MkTyped a (\i => if i < p then Just (minus p (S i)) else Nothing)) :: go (S p) sc
       _ => replicate (minus k p) Nothing
 
-||| The types of an alternative's scope: the `k` arguments of the
-||| constructor it matches, in front of the scope of the match.
-alternativeTypes : {auto c : Ref Ctxt Defs} -> Name -> Nat -> List (Maybe Typed) -> Core (List (Maybe Typed))
-alternativeTypes cn k tys = do
-  defs <- get Ctxt
-  args <- maybe (replicate k Nothing) (telescope k . type) <$> lookupCtxtExact cn (gamma defs)
-  pure (args ++ map (map shift) tys)
+||| A variable's type once matches have shown the locals it mentions. A
+||| known constructor becomes that view; its arguments stay env positions,
+||| which is what lining the constructor's result up against the view needs.
+viewOf : Typed -> List (Maybe Known) -> View
+viewOf (MkTyped tm at) known = case spine tm [] of
+  -- An index the type does not place in the environment decides nothing.
+  -- One still a variable is `VLocal`: a concrete constructor on the other
+  -- side then does not fit. A match records `VRef` through `KnownCon`.
+  (Local _ _ i _, []) => case at i of
+    Just p => case getAt p known of
+      Just (Just (KnownCon n ps)) => VRef n (map VLocal ps)
+      _ => VLocal p
+    Nothing => VSkip
+  (Ref _ _ n, args) => VRef n (map (\a => viewOf (MkTyped a at) known) args)
+  (PrimVal _ c, []) => VLit c
+  _ => VSkip
+
+replaceAt : Nat -> a -> List a -> List a
+replaceAt Z v (_ :: xs) = v :: xs
+replaceAt (S i) v (x :: xs) = x :: replaceAt i v xs
+replaceAt _ _ xs = xs
+
+||| Substitute pattern-argument locals with terms learned from the
+||| scrutinee. `Nothing` when a local has no learned term, or the domain
+||| binds its own variable: the generic telescope entry then stays, and
+||| its `at` already names pattern-argument positions.
+substDomain : {0 sc : _} -> {0 vs : _} -> Nat -> List (Maybe (TT sc)) -> TT vs -> Maybe (TT sc)
+substDomain p learned t = go t
   where
-    shift : Typed -> Typed
-    shift (MkTyped t at) = MkTyped t (map (+ k) . at)
+    go : {0 vs' : _} -> TT vs' -> Maybe (TT sc)
+    go (Local _ _ i _) =
+      if i >= p then Nothing
+      else case getAt (minus p (S i)) learned of
+        Just (Just tm) => Just tm
+        _ => Nothing
+    go (Ref fc nt n) = Just (Ref fc nt n)
+    go (App fc f a) = App fc <$> go f <*> go a
+    go (PrimVal fc c) = Just (PrimVal fc c)
+    go (TType fc u) = Just (TType fc u)
+    go (Erased fc Placeholder) = Just (Erased fc Placeholder)
+    go (Erased fc Impossible) = Just (Erased fc Impossible)
+    go (Erased fc (Dotted d)) = (\d' => Erased fc (Dotted d')) <$> go d
+    go (TDelayed fc r d) = TDelayed fc r <$> go d
+    go (TDelay fc r ty a) = TDelay fc r <$> go ty <*> go a
+    go (TForce fc r d) = TForce fc r <$> go d
+    go _ = Nothing
+
+bindPat : {0 sc : _} -> Nat -> List (Maybe (TT sc)) -> TT sc -> Maybe (List (Maybe (TT sc)))
+bindPat pat learned rhs = case getAt pat learned of
+  Just Nothing => Just (replaceAt pat (Just rhs) learned)
+  Just (Just old) => if eqTerm old rhs then Just learned else Nothing
+  Nothing => Nothing
+
+unifyLearned : {auto c : Ref Ctxt Defs} -> {0 sc : _} -> {0 vs : _} ->
+               Nat -> List (Maybe (TT sc)) -> TT vs -> TT sc ->
+               Core (Maybe (List (Maybe (TT sc))))
+unifyLearned k learned (Local _ _ i _) rhs =
+  if i < k then pure (bindPat (minus k (S i)) learned rhs) else pure Nothing
+unifyLearned k learned lhs rhs = case (spine lhs [], spine rhs []) of
+  ((Ref _ _ n, as), (Ref _ _ m, bs)) => do
+    same <- (==) <$> toFullNames n <*> toFullNames m
+    if same && length as == length bs then unifyArgs learned (zip as bs) else pure Nothing
+  ((PrimVal _ c, []), (PrimVal _ d, [])) =>
+    pure (if c == d then Just learned else Nothing)
+  ((TType {}, []), (TType {}, [])) => pure (Just learned)
+  ((Erased _ Placeholder, []), (Erased _ Placeholder, [])) => pure (Just learned)
+  ((Erased _ Impossible, []), (Erased _ Impossible, [])) => pure (Just learned)
+  _ => pure Nothing
+  where
+    unifyArgs : List (Maybe (TT sc)) -> List (TT vs, TT sc) -> Core (Maybe (List (Maybe (TT sc))))
+    unifyArgs acc [] = pure (Just acc)
+    unifyArgs acc ((a, b) :: rest) = do
+      Just acc' <- unifyLearned k acc a b
+        | Nothing => pure Nothing
+      unifyArgs acc' rest
+
+||| Binders of the constructor's result, learned by unifying that result
+||| with the scrutinee. The terms are in the scrutinee's scope.
+learnBinders : {auto c : Ref Ctxt Defs} -> {0 sc : _} -> {0 vs : _} ->
+               Nat -> TT vs -> TT sc -> Core (Maybe (List (Maybe (TT sc))))
+learnBinders k ty rhs = walk k (replicate k Nothing) ty
+  where
+    walk : {0 vs' : _} -> Nat -> List (Maybe (TT sc)) -> TT vs' ->
+           Core (Maybe (List (Maybe (TT sc))))
+    walk Z learned ret = unifyLearned k learned ret rhs
+    walk (S n) learned (Bind _ _ (Pi {}) sc) = walk n learned sc
+    walk _ _ _ = pure Nothing
+
+||| Domains whose binders all substitute, written at the scrutinee's
+||| `at` shifted by `k`: this `Typed` sits in the new arguments, which
+||| are not shifted again. A domain that does not substitute keeps its
+||| generic telescope entry.
+fillDomains : {0 sc : _} -> {0 vs : _} -> Nat -> (Nat -> Maybe Nat) ->
+              List (Maybe (TT sc)) -> List (Maybe Typed) -> TT vs -> List (Maybe Typed)
+fillDomains k scAt learned generic ty = go 0 generic ty
+  where
+    shifted : Nat -> Maybe Nat
+    shifted i = map (+ k) (scAt i)
+    go : {0 vs' : _} -> Nat -> List (Maybe Typed) -> TT vs' -> List (Maybe Typed)
+    go p (g :: gs) (Bind _ _ (Pi _ _ _ a) sc) =
+      let here = case substDomain p learned a of
+                   Just tm => Just (MkTyped tm shifted)
+                   Nothing => g
+      in here :: go (S p) gs sc
+    go _ gs _ = gs
+
+||| The types of an alternative's scope: the `k` arguments of the
+||| constructor it matches, in front of the scope of the match. Where the
+||| scrutinee's type is known, an argument domain is that type's instance
+||| of the domain, so a nested match sees the field's specialised type
+||| and an erased outer variable can be bound to the runtime field.
+alternativeTypes : {auto c : Ref Ctxt Defs} ->
+                   Name -> Nat -> Maybe Typed -> List (Maybe Typed) -> Core (List (Maybe Typed))
+alternativeTypes cn k scTy tys = do
+  defs <- get Ctxt
+  found <- lookupCtxtExact cn (gamma defs)
+  let generic = maybe (replicate k Nothing) (telescope k . type) found
+  args <- case (scTy, found) of
+    (Just (MkTyped sc scAt), Just def) => do
+      learned <- learnBinders k (type def) sc
+      pure (case learned of
+              Just bs => fillDomains k scAt bs generic (type def)
+              Nothing => generic)
+    _ => pure generic
+  pure (args ++ map (map (shift k)) tys)
+  where
+    shift : Nat -> Typed -> Typed
+    shift n (MkTyped t at) = MkTyped t (map (+ n) . at)
 
 ||| The variables of the matched value's type that a constructor's type
 ||| equates with its arguments, as pairs of the variable's position and the
@@ -205,20 +324,64 @@ bindEquated k eqs env = foldl one (share eqs env) eqs
       (Just v, Just f) => if erased v && runtime f then setAt (k + j) f e else e
       _ => e
 
+||| At a leaf, an erased variable may be the same value as a runtime
+||| argument. The case tree did not match it: earlier matches left one
+||| constructor of its type, and the tree names the erased variable.
+||| Doing this before a match would change which value that match
+||| compiles, so it runs only once the alternatives are done. A family
+||| with one constructor is left alone: its result equates indices the
+||| branch never proved equal.
+forcedEnv : {auto c : Ref Ctxt Defs} -> {0 nv : Nat} ->
+            List (VarInfo (Fin nv)) -> List (Maybe Typed) -> List (Maybe Known) ->
+            Core (List (VarInfo (Fin nv)))
+forcedEnv env tys known =
+  if any isJust known then scan 0 env tys else pure env
+  where
+    isErasedVar : VarInfo a -> Bool
+    isErasedVar (Runtime _ (Just ErasedT)) = True
+    isErasedVar _ = False
+
+    retarget : List (VarInfo (Fin nv)) -> Typed -> Core (List (VarInfo (Fin nv)))
+    retarget e ty = case viewOf ty known of
+      VRef tn _ => do
+        cons <- dataConstructors tn
+        let view = viewOf ty known
+        fits <- mapMaybe id <$> traverse (\cn => matchConstructor cn view) cons
+        case fits of
+          [(k, eqs)] => if length cons > 1
+                          then pure (drop k (bindEquated k eqs
+                                       (replicate k (TypeValue (Erased EmptyFC Placeholder)) ++ e)))
+                          else pure e
+          _ => pure e
+      _ => pure e
+
+    scan : Nat -> List (VarInfo (Fin nv)) -> List (Maybe Typed) ->
+           Core (List (VarInfo (Fin nv)))
+    scan _ e [] = pure e
+    scan i e (Nothing :: rest) = scan (S i) e rest
+    scan i e (Just ty :: rest) = do
+      e' <- case getAt i e of
+        Just v => if isErasedVar v then retarget e ty else pure e
+        Nothing => pure e
+      scan (S i) e' rest
+
 mutual
   ||| A case tree over its scope's variables, and their types as their
   ||| binders give them (`Typed`).
   export
   tree : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-         Ctx -> List (VarInfo (Fin nv)) -> List (Maybe Typed) -> CaseTree vars -> Core (Term nv)
-  tree ctx env tys (STerm _ tm) = term ctx env tm
+         Ctx -> List (VarInfo (Fin nv)) -> List (Maybe Typed) -> List (Maybe Known) ->
+         CaseTree vars -> Core (Term nv)
+  tree ctx env tys known (STerm _ tm) = do
+    env' <- forcedEnv env tys known
+    term ctx env' tm
   -- Idris proved it cannot be reached. An `Unmatched` leaf of a covering
   -- definition is one too: a definition whose clauses are all impossible
   -- has only that leaf. In a definition with missing cases it is one of
   -- them, and crashes.
-  tree ctx env tys (Unmatched msg) = missingCase ctx <$> toLoc ctx.fc
-  tree ctx env tys Impossible = Unreachable <$> toLoc ctx.fc
-  tree ctx env tys (Case {name} idx _ _ alts) = do
+  tree ctx env tys known (Unmatched msg) = missingCase ctx <$> toLoc ctx.fc
+  tree ctx env tys known Impossible = Unreachable <$> toLoc ctx.fc
+  tree ctx env tys known (Case {name} idx _ _ alts) = do
     loc <- toLoc ctx.fc
     -- What is known of the value's shape rules alternatives out.
     let shape = case getAt idx env of
@@ -226,7 +389,7 @@ mutual
                   _ => Nothing
     case map plain (getAt idx env) of
       Just (Runtime i (Just WorldT)) => case alts of
-        [ConstCase WorldVal rhs] => tree ctx env tys rhs
+        [ConstCase WorldVal rhs] => tree ctx env tys known rhs
         _ => internal ctx.fc "an unexpected match on the world"
       -- A match on a quantity-0 value (a proof, an index) is in the
       -- compile-time tree only when its type forces the alternative, as
@@ -234,8 +397,8 @@ mutual
       Just (Runtime i (Just ErasedT)) => forced alts
       Just (TypeValue (Erased _ _)) => forced alts
       Just (Runtime i (Just (DataT inst))) => do
-        (conAlts, def) <- conAlternatives ctx env tys shape !(defaultDead shape alts) inst
-                                          (join (getAt idx tys)) alts
+        (conAlts, def) <- conAlternatives ctx env tys known shape !(defaultDead shape alts) inst
+                                          (join (getAt idx tys)) idx alts
         st <- get TState
         -- Constructors the tree leaves out are impossible when the
         -- definition is covering, and crash otherwise.
@@ -247,10 +410,10 @@ mutual
       -- A `Nat`-like value is a natural: a match on its constructors is a
       -- match on zero.
       Just (Runtime i (Just NatT)) =>
-        if any isConCase alts then natCase ctx env tys shape loc i alts else literals loc i
+        if any isConCase alts then natCase ctx env tys known idx shape loc i alts else literals loc i
       Just (Runtime i (Just _)) => literals loc i
       -- A match on an implementation selects its alternative now.
-      Just (Static t hole) => staticCase ctx env tys t hole alts
+      Just (Static t hole) => staticCase ctx env tys known idx t hole alts
       _ => internal ctx.fc "a match on a compile-time value"
     where
       -- A shaped value is matched as a runtime value of its type.
@@ -264,16 +427,18 @@ mutual
 
       literals : Loc -> Fin nv -> Core (Term nv)
       literals loc i = do
-        (litAlts, def) <- litAlternatives ctx env tys alts
+        (litAlts, def) <- litAlternatives ctx env tys known alts
         let Just def = def <|> (if ctx.complete then Nothing else Just (missingCase ctx loc))
           | Nothing => reject ctx.fc ctx.owner Match "a literal match without a default"
         pure (CaseLit loc i litAlts def)
 
       forced : List (CaseAlt vars) -> Core (Term nv)
       forced [ConCase cn _ args rhs] =
+        let k = length args in
         tree ctx (map (const (TypeValue (Erased ctx.fc Placeholder))) args ++ env)
-             !(alternativeTypes cn (length args) tys) rhs
-      forced [DefaultCase rhs] = tree ctx env tys rhs
+             !(alternativeTypes cn k (join (getAt idx tys)) tys)
+             (underKnown k idx cn known) rhs
+      forced [DefaultCase rhs] = tree ctx env tys known rhs
       forced _ = do
         cons <- traverse altName alts
         reject ctx.fc ctx.owner Match
@@ -290,10 +455,11 @@ mutual
   ||| A match on a `Nat`-like value: zero, or a successor binding the
   ||| predecessor. The default stands for whichever the tree leaves out.
   natCase : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-            Ctx -> List (VarInfo (Fin nv)) -> List (Maybe Typed) -> Maybe ClosedTerm -> Loc -> Fin nv ->
+            Ctx -> List (VarInfo (Fin nv)) -> List (Maybe Typed) -> List (Maybe Known) -> Nat ->
+            Maybe ClosedTerm -> Loc -> Fin nv ->
             List (CaseAlt vars) -> Core (Term nv)
-  natCase ctx env tys shape loc x alts = do
-    (zero, succ, def) <- natAlternatives ctx env tys shape !(defaultDead shape alts) loc x alts
+  natCase ctx env tys known idx shape loc x alts = do
+    (zero, succ, def) <- natAlternatives ctx env tys known idx shape !(defaultDead shape alts) loc x alts
     case (zero, succ, def) of
       (Nothing, Nothing, d) => pure (fromMaybe (missingCase ctx loc) d)
       (z, s, d) => pure (CaseNat loc x (fromMaybe (fromMaybe (missingCase ctx loc) d) z)
@@ -305,19 +471,22 @@ mutual
   ||| given as `deadDefault`). The value's shape, if known, rules one of
   ||| the two out, and gives the predecessor its own.
   natAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-                    Ctx -> List (VarInfo (Fin nv)) -> List (Maybe Typed) -> Maybe ClosedTerm -> Bool -> Loc -> Fin nv ->
+                    Ctx -> List (VarInfo (Fin nv)) -> List (Maybe Typed) -> List (Maybe Known) -> Nat ->
+                    Maybe ClosedTerm -> Bool -> Loc -> Fin nv ->
                     List (CaseAlt vars) -> Core (Maybe (Term nv), Maybe (Term (Under 1 nv)), Maybe (Term nv))
-  natAlternatives ctx env tys shape deadDefault loc x [] = pure (Nothing, Nothing, Nothing)
-  natAlternatives ctx env tys shape deadDefault loc x (ConCase cn _ args rhs :: rest) = do
+  natAlternatives ctx env tys known idx shape deadDefault loc x [] = pure (Nothing, Nothing, Nothing)
+  natAlternatives ctx env tys known idx shape deadDefault loc x (ConCase cn _ args rhs :: rest) = do
     def <- lookupDef ctx.fc ctx.owner cn
     isErased <- erasedArgs cn
     dead <- excludedBy shape (fullname def)
-    tys' <- alternativeTypes cn (length args) tys
+    let k = length args
+    tys' <- alternativeTypes cn k (join (getAt idx tys)) tys
     case natRole def of
       Just Zero => do
         z <- if dead then pure (Unreachable loc)
-             else tree ctx (map (const (TypeValue (Erased ctx.fc Placeholder))) args ++ env) tys' rhs
-        (_, s, d) <- natAlternatives ctx env tys shape deadDefault loc x rest
+             else tree ctx (map (const (TypeValue (Erased ctx.fc Placeholder))) args ++ env) tys'
+                       (underKnown k idx cn known) rhs
+        (_, s, d) <- natAlternatives ctx env tys known idx shape deadDefault loc x rest
         pure (Just z, s, d)
       Just Succ => do
         let erased = isErased ++ replicate (length args) False
@@ -327,8 +496,9 @@ mutual
                          Nothing => Runtime FZ (Just NatT)
         let infos = zipWith (\_, e => if e then TypeValue (Erased ctx.fc Placeholder) else predInfo)
                             args erased
-        body <- if dead then pure (Unreachable loc) else tree ctx (under {k = 1} infos env) tys' rhs
-        (z, _, d) <- natAlternatives ctx env tys shape deadDefault loc x rest
+        body <- if dead then pure (Unreachable loc)
+                else tree ctx (under {k = 1} infos env) tys' (underKnown (length infos) idx cn known) rhs
+        (z, _, d) <- natAlternatives ctx env tys known idx shape deadDefault loc x rest
         pure (z, Just body, d)
       Nothing => internal ctx.fc ("a constructor of another type in a match on a Nat-like value")
     where
@@ -337,18 +507,20 @@ mutual
       predecessor (a :: as) (True :: es) = predecessor as es
       predecessor (a :: as) _ = Just a
       predecessor [] _ = Nothing
-  natAlternatives ctx env tys shape deadDefault loc x (DefaultCase rhs :: _) =
-    pure (Nothing, Nothing, Just !(if deadDefault then pure (Unreachable loc) else tree ctx env tys rhs))
-  natAlternatives ctx env tys shape deadDefault loc x (_ :: _) = internal ctx.fc "an unexpected alternative"
+  natAlternatives ctx env tys known idx shape deadDefault loc x (DefaultCase rhs :: _) =
+    pure (Nothing, Nothing, Just !(if deadDefault then pure (Unreachable loc) else tree ctx env tys known rhs))
+  natAlternatives ctx env tys known idx shape deadDefault loc x (_ :: _) =
+    internal ctx.fc "an unexpected alternative"
 
   ||| A match on a compile-time value: the implementation is reduced to its
   ||| constructor, and the alternative's variables stand for its arguments.
   ||| An argument that mentions the runtime value the implementation closes
   ||| over closes over it too.
   staticCase : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-               Ctx -> List (VarInfo (Fin nv)) -> List (Maybe Typed) -> ClosedTerm -> Maybe (Fin nv, Holes) ->
+               Ctx -> List (VarInfo (Fin nv)) -> List (Maybe Typed) -> List (Maybe Known) -> Nat ->
+               ClosedTerm -> Maybe (Fin nv, Holes) ->
                List (CaseAlt vars) -> Core (Term nv)
-  staticCase ctx env tys t hole alts = do
+  staticCase ctx env tys known idx t hole alts = do
     Just (cn, cargs) <- whnf 64 t
       | Nothing => do reject ctx.fc ctx.owner RuntimeClosure
                         ("an implementation that does not reduce to its constructor: " ++ !(showTT t))
@@ -360,13 +532,15 @@ mutual
       info True v = TypeValue v
       info False v = Static v (if mentionsHole v then hole else Nothing)
       pick : Name -> List (VarInfo (Fin nv)) -> List (CaseAlt vars) -> Core (Term nv)
-      pick cn infos (ConCase k _ args rhs :: rest) = do
-        k <- toFullNames k
-        if k /= cn then pick cn infos rest else do
+      pick cn infos (ConCase con _ args rhs :: rest) = do
+        full <- toFullNames con
+        if full /= cn then pick cn infos rest else do
           when (length args /= length infos) $
             internal ctx.fc ("constructor " ++ show cn ++ " binds an unexpected number of arguments")
-          tree ctx (infos ++ env) !(alternativeTypes cn (length args) tys) rhs
-      pick cn infos (DefaultCase rhs :: _) = tree ctx env tys rhs
+          let k = length infos
+          tree ctx (infos ++ env) !(alternativeTypes cn k (join (getAt idx tys)) tys)
+               (underKnown k idx con known) rhs
+      pick cn infos (DefaultCase rhs :: _) = tree ctx env tys known rhs
       pick cn infos (_ :: rest) = pick cn infos rest
       pick cn infos [] = internal ctx.fc ("no alternative for " ++ show cn)
 
@@ -375,10 +549,11 @@ mutual
   ||| `deadDefault`). The value's shape, if known, rules out every other
   ||| constructor and gives the fields their shapes.
   conAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-                    Ctx -> List (VarInfo (Fin nv)) -> List (Maybe Typed) -> Maybe ClosedTerm -> Bool -> DataId ->
-                    Maybe Typed -> List (CaseAlt vars) -> Core (List (Alt nv), Maybe (Term nv))
-  conAlternatives ctx env tys shape deadDefault inst scTy [] = pure ([], Nothing)
-  conAlternatives ctx env tys shape deadDefault inst scTy (ConCase cn _ args rhs :: rest) = do
+                    Ctx -> List (VarInfo (Fin nv)) -> List (Maybe Typed) -> List (Maybe Known) ->
+                    Maybe ClosedTerm -> Bool -> DataId ->
+                    Maybe Typed -> Nat -> List (CaseAlt vars) -> Core (List (Alt nv), Maybe (Term nv))
+  conAlternatives ctx env tys known shape deadDefault inst scTy idx [] = pure ([], Nothing)
+  conAlternatives ctx env tys known shape deadDefault inst scTy idx (ConCase cn _ args rhs :: rest) = do
     def <- lookupDef ctx.fc ctx.owner cn
     let cid = MkConId inst (shortName (fullname def))
     st <- get TState
@@ -401,31 +576,35 @@ mutual
                                          (Nothing, Runtime x (Just t), Just s) => shaped x t s
                                          _ => f)
                              [0 .. length bs] (fieldInfos {nv} bs)
-        eqs <- equated (length args) (type def) scTy
-        tree ctx (bindEquated (length args) eqs (under {k = length info.con.fields} (arrange info.layout info.params fields) env))
-             !(alternativeTypes cn (length args) tys) rhs
+        let k = length args
+        eqs <- equated k (type def) scTy
+        let env' = bindEquated k eqs (under {k = length info.con.fields}
+                         (arrange info.layout info.params fields) env)
+        tree ctx env' !(alternativeTypes cn k scTy tys) (underKnown k idx cn known) rhs
       Nothing => Unreachable <$> toLoc ctx.fc
-    (alts, def') <- conAlternatives ctx env tys shape deadDefault inst scTy rest
+    (alts, def') <- conAlternatives ctx env tys known shape deadDefault inst scTy idx rest
     pure (MkAlt cid bs body :: alts, def')
-  conAlternatives ctx env tys shape deadDefault inst scTy (DefaultCase rhs :: _) =
-    pure ([], Just !(if deadDefault then Unreachable <$> toLoc ctx.fc else tree ctx env tys rhs))
-  conAlternatives ctx env tys shape deadDefault inst scTy (DelayCase {} :: _) =
+  conAlternatives ctx env tys known shape deadDefault inst scTy idx (DefaultCase rhs :: _) =
+    pure ([], Just !(if deadDefault then Unreachable <$> toLoc ctx.fc else tree ctx env tys known rhs))
+  conAlternatives ctx env tys known shape deadDefault inst scTy idx (DelayCase {} :: _) =
     reject ctx.fc ctx.owner Laziness "a match on a lazy value"
-  conAlternatives ctx env tys shape deadDefault inst scTy (ConstCase {} :: _) =
+  conAlternatives ctx env tys known shape deadDefault inst scTy idx (ConstCase {} :: _) =
     internal ctx.fc "a constant alternative in a constructor match"
 
   litAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-                    Ctx -> List (VarInfo (Fin nv)) -> List (Maybe Typed) -> List (CaseAlt vars) ->
+                    Ctx -> List (VarInfo (Fin nv)) -> List (Maybe Typed) -> List (Maybe Known) ->
+                    List (CaseAlt vars) ->
                     Core (List (Lit, Term nv), Maybe (Term nv))
-  litAlternatives ctx env tys [] = pure ([], Nothing)
-  litAlternatives ctx env tys (ConstCase c rhs :: rest) = do
+  litAlternatives ctx env tys known [] = pure ([], Nothing)
+  litAlternatives ctx env tys known (ConstCase c rhs :: rest) = do
     Just lit <- pure (constantLit c)
       | Nothing => reject ctx.fc ctx.owner StringPrimitive ("a match on " ++ show c)
     case lit of
       LDouble _ => reject ctx.fc ctx.owner Primitive "a match on a Double literal"
       _ => pure ()
-    body <- tree ctx env tys rhs
-    (alts, def) <- litAlternatives ctx env tys rest
+    body <- tree ctx env tys known rhs
+    (alts, def) <- litAlternatives ctx env tys known rest
     pure ((lit, body) :: alts, def)
-  litAlternatives ctx env tys (DefaultCase rhs :: _) = pure ([], Just !(tree ctx env tys rhs))
-  litAlternatives ctx env tys _ = internal ctx.fc "an unexpected alternative"
+  litAlternatives ctx env tys known (DefaultCase rhs :: _) =
+    pure ([], Just !(tree ctx env tys known rhs))
+  litAlternatives ctx env tys known _ = internal ctx.fc "an unexpected alternative"
