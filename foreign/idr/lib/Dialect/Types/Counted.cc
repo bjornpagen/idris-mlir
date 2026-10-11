@@ -23,7 +23,14 @@ bool holds(Type type, SymbolTableCollection &symbols, Operation *scope,
   auto data = dyn_cast<DataType>(type);
   if (!data)
     return false;
-  auto decl = symbols.lookupNearestSymbolFrom<DataOp>(scope, data.getName());
+  // A fresh collection builds a symbol table by scanning the module the first
+  // time it is asked, and canonicalization asks once per array write. A scope
+  // already open has the table.
+  Operation *table = SymbolTable::getNearestSymbolTable(scope);
+  DataOp decl =
+      table && SymbolScope::of(table)
+          ? lookupSymbol<DataOp>(scope, data.getName().getAttr())
+          : symbols.lookupNearestSymbolFrom<DataOp>(scope, data.getName());
   if (!decl || !visited.insert(decl).second)
     return false;
   for (CtorOp ctor : decl.getCtors())

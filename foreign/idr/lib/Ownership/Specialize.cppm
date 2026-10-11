@@ -31,11 +31,10 @@ public:
   // by an earlier round's copy joins.
   using Copies = llvm::DenseMap<Operation *, func::FuncOp>;
 
-  Specialize(ModuleOp module, DataFlowSolver &solver, Copies &copies)
-      : module(module), solver(solver), copies(copies) {}
+  Specialize(ModuleOp module, DataFlowSolver &solver, Copies &copies, SymbolTable &symbols)
+      : module(module), solver(solver), copies(copies), symbols(symbols) {}
 
   bool run() {
-    SymbolTableCollection symbols;
     SmallVector<func::FuncOp> fns(module.getOps<func::FuncOp>());
     bool redirected = false;
     for (func::FuncOp fn : fns) {
@@ -104,6 +103,7 @@ private:
     OpBuilder b(fn);
     b.setInsertionPointAfter(fn);
     b.insert(copy.getOperation());
+    symbols.insert(copy);
     copies.try_emplace(fn, copy);
     return copy;
   }
@@ -111,6 +111,7 @@ private:
   ModuleOp module;
   DataFlowSolver &solver;
   Copies &copies;
+  SymbolTable &symbols;
 };
 
 } // namespace idr::ownership

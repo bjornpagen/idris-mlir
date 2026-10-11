@@ -19,7 +19,9 @@ bool sameBody(Region &a, Region &b) {
   auto unused = [](Block &block) {
     return llvm::all_of(block.getArguments(), [](BlockArgument arg) { return arg.use_empty(); });
   };
-  if (!unused(x) || !unused(y) || x.getOperations().size() != y.getOperations().size())
+  // Length is part of the comparison below. The list's size walks every
+  // operation, and the comparison walks them again.
+  if (!unused(x) || !unused(y))
     return false;
   DenseMap<Value, Value> same;
   return llvm::all_of_zip(x, y, [&](Operation &l, Operation &r) {
@@ -30,6 +32,19 @@ bool sameBody(Region &a, Region &b) {
   });
 }
 
+// Operations a case holds, mixed so two cases that differ there are not
+// compared body to body. Equal shapes still are: the mix can collide.
+uint64_t shape(Block &block) {
+  uint64_t hash = block.getNumArguments();
+  for (Operation &op : block) {
+    hash = hash * 0x9e3779b97f4a7c15ULL +
+           reinterpret_cast<uintptr_t>(op.getName().getAsOpaquePointer());
+    hash = hash * 0x9e3779b97f4a7c15ULL + op.getNumOperands();
+    hash = hash * 0x9e3779b97f4a7c15ULL + op.getNumResults();
+  }
+  return hash;
+}
+
 // A case that does what the default does is left to the default, and
 // without a default, cases that do the same become it.
 template <typename Match>
@@ -38,11 +53,25 @@ struct MergeIdenticalRegions : OpRewritePattern<Match> {
   LogicalResult matchAndRewrite(Match op, PatternRewriter &rewriter) const final {
     unsigned count = static_cast<unsigned>(op.getCases().size());
     Region *fallback = op.getDefaultRegion();
-    if (!fallback)
-      for (unsigned i = 0; i < count && !fallback; ++i)
-        for (unsigned j = i + 1; j < count && !fallback; ++j)
-          if (sameBody(op.getCaseRegion(i), op.getCaseRegion(j)))
-            fallback = &op.getCaseRegion(i);
+    // Every pair of cases, when nothing is a default yet. A match with many
+    // cases would compare each body with every other; cases whose operations
+    // differ cannot be that pair.
+    if (!fallback) {
+      llvm::DenseMap<uint64_t, SmallVector<unsigned, 2>> buckets;
+      for (unsigned i = 0; i < count; ++i)
+        buckets[shape(op.getCaseRegion(i).front())].push_back(i);
+      unsigned best = count;
+      for (auto &bucket : buckets) {
+        ArrayRef<unsigned> ids = bucket.second;
+        for (unsigned a = 0; a < ids.size() && ids[a] < best; ++a)
+          for (unsigned b = a + 1; b < ids.size(); ++b)
+            if (sameBody(op.getCaseRegion(ids[a]), op.getCaseRegion(ids[b]))) {
+              best = ids[a];
+              fallback = &op.getCaseRegion(ids[a]);
+              break;
+            }
+      }
+    }
     if (!fallback)
       return failure();
     SmallVector<Attribute> cases;

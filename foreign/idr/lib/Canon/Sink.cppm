@@ -68,11 +68,19 @@ namespace idr::canon {
 
 // The regions of `match` in which `value` is used.
 SmallVector<Region *> usersIn(Operation *value, Operation *match) {
+  // One walk of the users. Asking each region whether any user sits in it
+  // walks the users again for every case of the match.
+  llvm::SmallPtrSet<Region *, 8> hit;
+  for (Operation *user : value->getUsers()) {
+    Region *region = user->getParentRegion();
+    while (region && region->getParentOp() != match)
+      region = region->getParentRegion();
+    if (region)
+      hit.insert(region);
+  }
   SmallVector<Region *> out;
   for (Region &region : match->getRegions())
-    if (llvm::any_of(value->getUsers(), [&](Operation *user) {
-          return region.isAncestor(user->getParentRegion());
-        }))
+    if (hit.contains(&region))
       out.push_back(&region);
   return out;
 }

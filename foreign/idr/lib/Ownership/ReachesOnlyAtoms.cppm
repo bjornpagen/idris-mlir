@@ -24,8 +24,9 @@ bool onlyAtoms(Operation *from, Attribute attr) {
   auto con = dyn_cast<ConAttr>(attr);
   if (!con)
     return true;
-  auto data = SymbolTable::lookupNearestSymbolFrom<DataOp>(
-      from, FlatSymbolRefAttr::get(con.getCtor().getRootReference()));
+  // The data declaration. A scope open on the module answers from its
+  // table; otherwise this scans the module, once per constant.
+  auto data = lookupSymbol<DataOp>(from, con.getCtor().getRootReference());
   if (!data)
     return false;
   // The cells of a run have at least the field that links them. A memo

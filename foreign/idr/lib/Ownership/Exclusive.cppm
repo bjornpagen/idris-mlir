@@ -23,6 +23,8 @@
 export module idr.ownership:exclusive;
 
 import idr.mlir;
+import idr.dialect;
+import idr.graph;
 
 import :commit;
 import :exclusiveanalysis;
@@ -45,6 +47,11 @@ export FailureOr<unsigned> inferExclusive(ModuleOp module) {
   for (auto fn : module.getOps<func::FuncOp>())
     fn->removeAttr("idr.clone");
   shareTainted(module);
+  // The solve adds a copy and erases an original nothing calls. Both go
+  // through this table, so a lookup of a declaration reads it instead of
+  // scanning the module once per constant.
+  SymbolTable table(module);
+  SymbolScope scope(module, table);
   Specialize::Copies copies;
   // Every round redirects a call for good, so the rounds are bounded by
   // the calls; a round past that is a bug here.
@@ -57,17 +64,22 @@ export FailureOr<unsigned> inferExclusive(ModuleOp module) {
     solver.load<ExclusiveAnalysis>();
     if (failed(solver.initializeAndRun(module)))
       return failure();
-    if (round <= calls && Specialize(module, solver, copies).run())
+    if (round <= calls && Specialize(module, solver, copies, table).run())
       continue;
     if (round > calls)
       return module.emitError("idr-rc: specializing on exclusivity did not settle"), failure();
     FailureOr<unsigned> exclusive = Commit(module, solver).run();
     if (failed(exclusive))
       return failure();
-    // A function every call of which went to its copy is unused.
-    for (auto [original, copy] : copies)
-      if (SymbolTable::symbolKnownUseEmpty(original, module))
-        original->erase();
+    // A function every call of which went to its copy is unused. One walk
+    // lists every symbol's uses; asking per original walks the module once
+    // per copy.
+    graph::SymbolUses uses(module);
+    for (auto [original, copy] : copies) {
+      std::optional<ArrayRef<SymbolTable::SymbolUse>> found = uses.of(original);
+      if (found && found->empty())
+        table.erase(original);
+    }
     return exclusive;
   }
 }

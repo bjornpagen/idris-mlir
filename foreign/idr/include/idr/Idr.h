@@ -22,8 +22,11 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Pass/Pass.h"
 
+#include "llvm/ADT/DenseMap.h"
+
 #include <algorithm>
 #include <atomic>
+#include <mutex>
 #include <optional>
 #include <string>
 
@@ -306,8 +309,10 @@ bool fieldReadOnce(mlir::Value value, unsigned index);
 bool holdsLinear(mlir::Value value);
 bool takenOnce(mlir::Value value);
 
-// The dialect holds the chain of the scopes open on its context.
+// The dialect holds the chains of the scopes and the hold memos open on
+// its context.
 class SymbolScope;
+class HoldMemo;
 
 } // namespace idr
 
@@ -474,10 +479,13 @@ inline constexpr uint64_t constantBytes = uint64_t{1} << 20;
 // `op`'s body, which takes as long as the module is large. Only a pass
 // anchored on `op` or above opens one (or the idr dialect's verifier of the
 // module), outside every nested pipeline it starts. Scopes therefore open
-// and close in order, on one thread, while no other thread reads them.
-// The opener adds, erases and renames no symbol of `op` while a lookup may
-// read the table, and the pass manager keeps nested passes from doing so.
-// The context must have the idr dialect loaded.
+// and close in order, on one thread, while no other thread reads the chain.
+// A lookup reads `table`. A symbol added while a lookup may read it is
+// inserted through `table`, so the lookup sees it; a symbol is erased or
+// renamed through `table`, or when no lookup still reads it. The pass
+// manager keeps a nested pass from changing a symbol except through a scope
+// that pass opens inside this one. The context must have the idr dialect
+// loaded.
 class SymbolScope {
 public:
   SymbolScope(mlir::Operation *op, mlir::SymbolTable &table);
@@ -493,6 +501,52 @@ private:
   mlir::Operation *op;
   mlir::SymbolTable &table;
   SymbolScope *outer;
+};
+
+// While a HoldMemo is open on a context, mayHoldWorld and mayHoldClosure
+// remember what they answered for each type. A pass opens one when it does
+// not change a data declaration, so the walk of a type's fields, and the
+// lookup of each field's declaration, happen once and every later ask is
+// the remembered answer. The seen-set of one walk is not that: the next
+// call of the same type would walk again. Memos open and close in order,
+// on one thread, while no other thread reads the chain. A walk may run on
+// a thread the pass already uses, so remembering an answer takes the
+// memo's lock. The innermost memo is the one a walk fills. The context
+// must have the idr dialect loaded.
+class HoldMemo {
+public:
+  explicit HoldMemo(mlir::MLIRContext *context);
+  ~HoldMemo();
+  HoldMemo(const HoldMemo &) = delete;
+  HoldMemo &operator=(const HoldMemo &) = delete;
+
+  // The memo open on `context`, or null.
+  static HoldMemo *of(mlir::MLIRContext *context);
+
+  // The answer already remembered for `type`, or nullopt.
+  std::optional<bool> world(mlir::Type type) const { return find(worldAnswers, type); }
+  std::optional<bool> closure(mlir::Type type) const { return find(closureAnswers, type); }
+  void rememberWorld(mlir::Type type, bool answer) { remember(worldAnswers, type, answer); }
+  void rememberClosure(mlir::Type type, bool answer) { remember(closureAnswers, type, answer); }
+
+private:
+  std::optional<bool> find(const llvm::DenseMap<mlir::Type, bool> &map, mlir::Type type) const {
+    std::lock_guard<std::mutex> lock(mu);
+    auto it = map.find(type);
+    if (it == map.end())
+      return std::nullopt;
+    return it->second;
+  }
+  void remember(llvm::DenseMap<mlir::Type, bool> &map, mlir::Type type, bool answer) {
+    std::lock_guard<std::mutex> lock(mu);
+    map.try_emplace(type, answer);
+  }
+
+  mlir::MLIRContext *context;
+  HoldMemo *outer;
+  mutable std::mutex mu;
+  llvm::DenseMap<mlir::Type, bool> worldAnswers;
+  llvm::DenseMap<mlir::Type, bool> closureAnswers;
 };
 
 // The symbol `name` of the symbol table nearest `from` (`from` included),

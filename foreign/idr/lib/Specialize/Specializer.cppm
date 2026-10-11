@@ -75,6 +75,14 @@ Specializer::Specializer(ModuleOp root)
     : module(root), clones(root), times(root, clones) {}
 
 LogicalResult Specializer::run() {
+  // Clones are inserted into this table, and nothing erases or renames a
+  // symbol during the run, so a lookup of a callee or a data declaration
+  // reads the table instead of scanning the module. Data declarations do
+  // not change either, so whether a type may hold a world or a closure is
+  // walked once: raising asks of every call, and canonicalizing a clone
+  // asks again for every call it tests for deadness.
+  SymbolScope scope(module, clones.symbols());
+  HoldMemo memo(module.getContext());
   // The functions present when the run starts were read once, before
   // anything changed. A clone is made during the run, and its calls are
   // what canonicalization left, so they are read when the clone is reached.

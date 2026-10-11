@@ -70,6 +70,7 @@ module;
 #include "mlir/IR/Remarks.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Unit.h"
+#include "mlir/IR/Verifier.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllExtensions.h"
 #include "mlir/InitAllPasses.h"
@@ -423,6 +424,7 @@ using mlir::TypeSwitch;
 using mlir::UnitAttr;
 using mlir::UnknownLoc;
 using mlir::UnrealizedConversionCastOp;
+using mlir::verify;
 using mlir::Value;
 using mlir::ValueBoundsConstraintSet;
 using mlir::ValueRange;

@@ -93,6 +93,8 @@ export std::optional<Value> measured(Value length) {
 export class Calls {
 public:
   explicit Calls(ModuleOp module) {
+    for (auto fn : module.getOps<func::FuncOp>())
+      functions.try_emplace(fn.getSymNameAttr(), fn);
     graph::SymbolUses symbolUses(module);
     for (auto fn : module.getOps<func::FuncOp>()) {
       if (!fn.isPrivate() || fn.isExternal())
@@ -121,7 +123,22 @@ public:
     return it == sites.end() ? nullptr : &it->second;
   }
 
+  // The function `name` names, from the map built once above. A lookup in
+  // the module would scan every symbol of it, and a join asks per call.
+  func::FuncOp function(FlatSymbolRefAttr name) const { return functions.lookup(name.getAttr()); }
+
+  // The returns of `fn`, from one walk the first time it is asked. A join
+  // of a call's result asks again for every value the call gives.
+  ArrayRef<func::ReturnOp> returnsOf(func::FuncOp fn) const {
+    auto [it, inserted] = returnOps.try_emplace(fn.getOperation());
+    if (inserted)
+      fn.walk([&](func::ReturnOp ret) { it->second.push_back(ret); });
+    return it->second;
+  }
+
 private:
+  DenseMap<StringAttr, func::FuncOp> functions;
+  mutable DenseMap<Operation *, SmallVector<func::ReturnOp>> returnOps;
   DenseMap<Operation *, SmallVector<func::CallOp>> sites;
 };
 
@@ -183,7 +200,7 @@ std::optional<Join> argumentJoin(BlockArgument arg, const Calls &calls) {
   return Join{block->getParent(), parent, true, forwarded(branch, successor, *position)};
 }
 
-std::optional<Join> resultJoin(OpResult result) {
+std::optional<Join> resultJoin(OpResult result, const Calls &calls) {
   Operation *op = result.getOwner();
   if (auto branch = dyn_cast<RegionBranchOpInterface>(op)) {
     RegionSuccessor successor(op);
@@ -193,13 +210,12 @@ std::optional<Join> resultJoin(OpResult result) {
     return Join{op, op, true, forwarded(branch, successor, *position)};
   }
   if (auto call = dyn_cast<func::CallOp>(op)) {
-    auto callee = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(call, call.getCalleeAttr());
+    func::FuncOp callee = calls.function(call.getCalleeAttr());
     if (!callee || callee.isExternal())
       return std::nullopt;
     Join join{op, op, false, {}};
-    callee.walk([&](func::ReturnOp ret) {
+    for (func::ReturnOp ret : calls.returnsOf(callee))
       join.incoming.push_back(ret.getOperand(result.getResultNumber()));
-    });
     return join;
   }
   // Two selects on one condition take the same side.
@@ -216,7 +232,7 @@ std::optional<Join> resultJoin(OpResult result) {
 export std::optional<Join> joinOf(Value value, const Calls &calls) {
   if (auto arg = dyn_cast<BlockArgument>(value))
     return argumentJoin(arg, calls);
-  return resultJoin(cast<OpResult>(value));
+  return resultJoin(cast<OpResult>(value), calls);
 }
 
 } // namespace idr::inbounds

@@ -206,6 +206,7 @@ using idr::stringifyEnum;
 using idr::stringOfList;
 using idr::StrPackOp;
 using idr::SuspendOp;
+using idr::HoldMemo;
 using idr::SymbolScope;
 using idr::symbolizeCmpPredicate;
 using idr::symbolizeEffect;

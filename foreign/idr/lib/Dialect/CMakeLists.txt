@@ -51,6 +51,7 @@ target_sources(idr_dialect PRIVATE
 	Symbols/ListCons.cc
 	Symbols/LookupCtor.cc
 	Symbols/LookupData.cc
+	Symbols/HoldMemo.cc
 	Symbols/LookupSymbol.cc
 	Verify/Attributes.cc
 	Verify/DiscardableAttrs.cc

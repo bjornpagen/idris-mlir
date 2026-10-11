@@ -26,6 +26,9 @@ def IdrEffects : Pass<"idr-effects", "::mlir::ModuleOp"> {
     Statistic<"numCrash", "crash", "Functions that get crash">,
     Statistic<"numDiverge", "diverge", "Functions that get diverge">,
   ];
+  // The scope that holds the module's symbols while a type is walked for a
+  // world, and the memo of that walk, are held by the context's idr dialect.
+  let dependentDialects = ["::idr::IdrDialect"];
 }
 
 def IdrTarget : Pass<"idr-target", "::mlir::ModuleOp"> {
@@ -207,7 +210,11 @@ def IdrSpecialize : Pass<"idr-specialize", "::mlir::ModuleOp"> {
     Statistic<"numDecreasing", "decreasing", "Static arguments of decreasing parameters">,
     Statistic<"numBounded", "bounded", "Static arguments of bounded parameters">,
   ];
-  let dependentDialects = ["::mlir::arith::ArithDialect"];
+  // The scope that holds the module's symbols while calls are raised and
+  // specialized, and the memo of which types may hold a world or a closure,
+  // are held by the context's idr dialect. Clones are inserted through that
+  // scope's table.
+  let dependentDialects = ["::mlir::arith::ArithDialect", "::idr::IdrDialect"];
 }
 
 def IdrBindingTimes : Pass<"idr-binding-times", "::mlir::ModuleOp"> {

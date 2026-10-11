@@ -80,6 +80,17 @@ export LogicalResult lowerModule(ModuleOp module) {
   MLIRContext *ctx = module.getContext();
   if (failed(checkNoClosures(module)))
     return failure();
+  // Every lookup of a declaration reads this table. The conversion rewrites
+  // functions in place and the declarations stay until they are erased
+  // through the table, so the table is the module's for the whole lowering.
+  // A runtime function added along the way is entered in the runtime's own
+  // table: nothing here looks one up.
+  SymbolTable table(module);
+  // A module with no idr op has not loaded the dialect, and a scope needs
+  // it. Such a module has no idr symbol to look up.
+  std::unique_ptr<SymbolScope> scope;
+  if (ctx->getLoadedDialect<IdrDialect>())
+    scope.reset(new SymbolScope(module, table));
   FailureOr<layout::Layouts> layouts = layout::Layouts::of(module);
   if (failed(layouts))
     return failure();
@@ -150,7 +161,7 @@ export LogicalResult lowerModule(ModuleOp module) {
 
   runtime.finish();
   for (auto data : llvm::make_early_inc_range(module.getOps<DataOp>()))
-    data.erase();
+    table.erase(data);
   // The idr attributes have served their purpose; LLVM's translation
   // refuses attributes of a dialect it cannot translate.
   auto isIdr = [](NamedAttribute attr) { return attr.getName().strref().starts_with("idr."); };

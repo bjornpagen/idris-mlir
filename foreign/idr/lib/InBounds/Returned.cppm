@@ -137,31 +137,47 @@ Value peel(Value value) {
 // are while it asks; `calls` is that owner's, of the same module.
 class ReturnedArrays {
 public:
-  ReturnedArrays(ModuleOp module, const Calls &calls) : calls(calls), symbols(module) {
+  ReturnedArrays(ModuleOp module, const Calls &calls) : calls(calls) {
+    DenseMap<Operation *, SetVector<Operation *>> callers;
     for (auto fn : module.getOps<func::FuncOp>()) {
       if (fn.isExternal() || fn.empty() || fn.getNumResults() == 0)
         continue;
       functions.push_back(fn);
       known[fn].assign(fn.getNumResults(), Origin::unknown());
     }
-    for (bool changed = true; changed;) {
-      changed = false;
-      for (func::FuncOp fn : functions) {
-        SmallVector<Origin> now(fn.getNumResults(), Origin::unknown());
-        bool saw = false;
-        fn.walk([&](func::ReturnOp ret) {
-          saw = true;
-          for (auto [i, operand] : llvm::enumerate(ret.getOperands()))
-            if (i < now.size())
-              now[i] = now[i].meet(origin(fn, operand, {}));
-        });
-        if (!saw)
-          now.assign(now.size(), Origin::none());
-        if (now != known[fn]) {
-          known[fn] = std::move(now);
-          changed = true;
-        }
+    for (func::FuncOp fn : functions)
+      fn.walk([&](func::CallOp call) {
+        if (func::FuncOp callee = calls.function(call.getCalleeAttr()))
+          if (known.contains(callee))
+            callers[callee].insert(fn);
+      });
+    // A result only ever meets down from unknown, so the order does not
+    // matter and a function is walked again only when a callee's result
+    // changed. Walking every function whenever any one changed walks the
+    // module once per function on a chain of calls.
+    SetVector<Operation *> work;
+    for (func::FuncOp fn : llvm::reverse(functions))
+      work.insert(fn);
+    while (!work.empty()) {
+      auto fn = cast<func::FuncOp>(work.pop_back_val());
+      SmallVector<Origin> now(fn.getNumResults(), Origin::unknown());
+      bool saw = false;
+      // Copied: origin asks for another function's returns, which must not
+      // reallocate the vector this walk is reading.
+      SmallVector<func::ReturnOp> returns(calls.returnsOf(fn));
+      for (func::ReturnOp ret : returns) {
+        saw = true;
+        for (auto [i, operand] : llvm::enumerate(ret.getOperands()))
+          if (i < now.size())
+            now[i] = now[i].meet(origin(fn, operand, {}));
       }
+      if (!saw)
+        now.assign(now.size(), Origin::none());
+      if (now == known[fn])
+        continue;
+      known[fn] = std::move(now);
+      for (Operation *caller : callers.lookup(fn.getOperation()))
+        work.insert(caller);
     }
   }
 
@@ -191,17 +207,18 @@ public:
 
 private:
   std::optional<GivenBack> fromCall(func::CallOp call, unsigned slot, ArrayRef<Proj> path) {
-    auto callee = symbols.lookup<func::FuncOp>(call.getCalleeAttr().getAttr());
+    func::FuncOp callee = calls.function(call.getCalleeAttr());
     if (!callee || !known.contains(callee) || slot >= callee.getNumResults())
       return std::nullopt;
     Origin acc = Origin::unknown();
     bool saw = false;
-    callee.walk([&](func::ReturnOp ret) {
+    SmallVector<func::ReturnOp> returns(calls.returnsOf(callee));
+    for (func::ReturnOp ret : returns) {
       if (slot >= ret.getNumOperands())
-        return;
+        continue;
       saw = true;
       acc = acc.meet(origin(callee, ret.getOperand(slot), path));
-    });
+    }
     if (!saw || acc.kind != Origin::Argument || acc.argument >= call.getNumOperands())
       return std::nullopt;
     Value materialized = materialize(call.getOperand(acc.argument), acc.inside);
@@ -317,7 +334,7 @@ private:
   // A result the table has not constrained is left so: a recursive call
   // still in the fixpoint, and walking it again is not a smaller question.
   Origin callOrigin(func::FuncOp fn, func::CallOp call, unsigned slot, ArrayRef<Proj> path) {
-    auto callee = symbols.lookup<func::FuncOp>(call.getCalleeAttr().getAttr());
+    func::FuncOp callee = calls.function(call.getCalleeAttr());
     auto it = callee ? known.find(callee) : known.end();
     if (!callee || it == known.end() || slot >= it->second.size())
       return Origin::none();
@@ -336,12 +353,13 @@ private:
     ForgetOp forget(rewalking, callee);
     Origin acc = Origin::unknown();
     bool saw = false;
-    callee.walk([&](func::ReturnOp ret) {
+    SmallVector<func::ReturnOp> returns(calls.returnsOf(callee));
+    for (func::ReturnOp ret : returns) {
       if (slot >= ret.getNumOperands())
-        return;
+        continue;
       saw = true;
       acc = acc.meet(origin(callee, ret.getOperand(slot), path));
-    });
+    }
     if (!saw || acc.kind != Origin::Argument)
       return saw ? acc : Origin::none();
     return origin(fn, call.getOperand(acc.argument), acc.inside);
@@ -363,7 +381,6 @@ private:
   }
 
   const Calls &calls;
-  SymbolTable symbols;
   SmallVector<func::FuncOp> functions;
   DenseMap<Operation *, SmallVector<Origin>> known;
   DenseMap<Value, Origin> assumed;

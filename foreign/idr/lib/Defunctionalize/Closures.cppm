@@ -68,10 +68,17 @@ struct Module {
   llvm::DenseSet<StringAttr> escaping;
   // holdsClosure's answers, by constructor constant.
   llvm::DenseMap<Attribute, bool> closureFree;
+  llvm::DenseSet<StringAttr> ctorsLoaded;
+  llvm::DenseMap<std::pair<StringAttr, StringAttr>, idr::CtorOp> ctors;
 
+  // The constructors of each declaration, read once. A lookup in the
+  // declaration scans its constructors, and a constant asks per field.
   idr::CtorOp ctor(StringAttr data, StringAttr name) {
-    auto decl = symbols.lookup<idr::DataOp>(data);
-    return decl ? decl.lookupSymbol<idr::CtorOp>(name) : idr::CtorOp();
+    if (ctorsLoaded.insert(data).second)
+      if (auto decl = symbols.lookup<idr::DataOp>(data))
+        for (idr::CtorOp each : decl.getCtors())
+          ctors.try_emplace({data, each.getSymNameAttr()}, each);
+    return ctors.lookup({data, name});
   }
 
   func::FuncOp function(StringAttr name) { return symbols.lookup<func::FuncOp>(name); }

@@ -78,11 +78,14 @@ export LogicalResult noHeapAllocation(ModuleOp module, StringRef function) {
         fail(op->getLoc(), property) << where(op) << " applies a closure made outside it";
         held = false;
       }
-      if (std::optional<SymbolTable::UseRange> uses = SymbolTable::getSymbolUses(op))
-        for (const SymbolTable::SymbolUse &use : *uses)
-          if (auto callee = symbols.lookup<func::FuncOp>(use.getSymbolRef().getRootReference()))
-            if (seen.insert(callee).second)
-              reached.push_back(callee);
+      // The walk already visits every op, so the references are the ones on
+      // this op. getSymbolUses would walk its regions again, and the regions
+      // of every op that contains it.
+      op->getAttrDictionary().walk([&](SymbolRefAttr ref) {
+        if (auto callee = symbols.lookup<func::FuncOp>(ref.getRootReference()))
+          if (seen.insert(callee).second)
+            reached.push_back(callee);
+      });
     });
   }
   return success(held);

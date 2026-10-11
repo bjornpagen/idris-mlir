@@ -42,9 +42,13 @@ void passThroughMemory(ModuleOp module, const SetVector<Operation *> &inMemory,
   MLIRContext *ctx = module.getContext();
   auto ptr = LLVM::LLVMPointerType::get(ctx);
   auto nothing = LLVM::LLVMVoidType::get(ctx);
+  // The calls name these functions. One map answers, where a lookup in the
+  // module would scan every symbol of it for every call.
+  DenseMap<StringAttr, LLVM::LLVMFuncOp> byName;
   DenseMap<Operation *, Type> results;
   for (Operation *op : inMemory) {
     auto fn = cast<LLVM::LLVMFuncOp>(op);
+    byName.try_emplace(SymbolTable::getSymbolName(fn), fn);
     LLVM::LLVMFunctionType type = fn.getFunctionType();
     results[fn] = type.getReturnType();
     DictionaryAttr attrs = rewriter.getDictionaryAttr(
@@ -58,11 +62,11 @@ void passThroughMemory(ModuleOp module, const SetVector<Operation *> &inMemory,
   SmallVector<LLVM::CallOp> calls;
   module.walk([&](LLVM::CallOp call) {
     FlatSymbolRefAttr name = call.getCalleeAttr();
-    if (name && inMemory.contains(module.lookupSymbol(name.getAttr())))
+    if (name && byName.contains(name.getAttr()))
       calls.push_back(call);
   });
   for (LLVM::CallOp call : calls) {
-    auto callee = cast<LLVM::LLVMFuncOp>(module.lookupSymbol(call.getCalleeAttr().getAttr()));
+    auto callee = byName.lookup(call.getCalleeAttr().getAttr());
     Type result = results.lookup(callee);
     auto caller = call->getParentOfType<LLVM::LLVMFuncOp>();
     SmallVector<Value> operands;

@@ -65,11 +65,22 @@ public:
       owned[fn] = std::move(params);
     }
     findCycles();
-    do {
-      changed = false;
-      for (func::FuncOp fn : functions)
-        collect(fn);
-    } while (changed);
+    // A parameter only ever becomes owned, so a function is walked again
+    // only when its own parameter or a callee's did. Walking every function
+    // whenever any parameter changed walks the module once per parameter.
+    SetVector<func::FuncOp> work;
+    for (func::FuncOp fn : llvm::reverse(functions))
+      work.insert(fn);
+    while (!work.empty()) {
+      collect(work.pop_back_val());
+      for (func::FuncOp fn : dirtied) {
+        work.insert(fn);
+        if (auto callersOf = callers.find(fn.getOperation()); callersOf != callers.end())
+          for (func::FuncOp caller : callersOf->second)
+            work.insert(caller);
+      }
+      dirtied.clear();
+    }
     unsigned borrowed = 0;
     for (func::FuncOp fn : functions) {
       SmallVector<Type> params(fn.getArgumentTypes());
@@ -98,8 +109,10 @@ private:
     auto calls = [&](func::FuncOp fn) {
       SmallVector<func::FuncOp> callees;
       fn.walk([&](func::CallOp call) {
-        if (func::FuncOp g = callee(call, symbols))
+        if (func::FuncOp g = callee(call, symbols)) {
           callees.push_back(g);
+          callers[g].insert(fn);
+        }
       });
       return callees;
     };
@@ -121,7 +134,7 @@ private:
     SmallVector<bool> &params = owned[fn];
     if (index < params.size() && !params[index]) {
       params[index] = true;
-      changed = true;
+      dirtied.insert(fn);
     }
   }
 
@@ -194,9 +207,10 @@ private:
   SmallVector<func::FuncOp> functions;
   llvm::DenseMap<func::FuncOp, SmallVector<bool>> owned;
   llvm::DenseMap<func::FuncOp, unsigned> cycleOf;
+  llvm::DenseMap<Operation *, SetVector<func::FuncOp>> callers;
   func::FuncOp current;
   llvm::DenseSet<Value> ownedFields;
-  bool changed = false;
+  SetVector<func::FuncOp> dirtied;
 };
 
 } // namespace

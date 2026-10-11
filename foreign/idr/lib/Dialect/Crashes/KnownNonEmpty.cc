@@ -10,13 +10,27 @@ using namespace mlir;
 using namespace idr;
 
 bool idr::knownNonEmpty(Value value) {
-  Attribute constant;
-  if (matchPattern(value, m_Constant(&constant)))
-    return checkHolds(CheckKind::Nonempty, constant);
-  Operation *def = value.getDefiningOp();
-  if (isa_and_nonnull<StrConsOp, StrFromCharOp, StrShowOp, BigShowOp>(def))
-    return true;
-  if (auto append = dyn_cast_or_null<StrAppendOp>(def))
-    return knownNonEmpty(append.getLhs()) || knownNonEmpty(append.getRhs());
+  // Appends share subexpressions. Walking both sides of each without
+  // remembering a value walks the shared part again on every path.
+  SmallVector<Value> work{value};
+  llvm::SmallPtrSet<Value, 8> seen;
+  while (!work.empty()) {
+    Value next = work.pop_back_val();
+    if (!seen.insert(next).second)
+      continue;
+    Attribute constant;
+    if (matchPattern(next, m_Constant(&constant))) {
+      if (checkHolds(CheckKind::Nonempty, constant))
+        return true;
+      continue;
+    }
+    Operation *def = next.getDefiningOp();
+    if (isa_and_nonnull<StrConsOp, StrFromCharOp, StrShowOp, BigShowOp>(def))
+      return true;
+    if (auto append = dyn_cast_or_null<StrAppendOp>(def)) {
+      work.push_back(append.getLhs());
+      work.push_back(append.getRhs());
+    }
+  }
   return false;
 }

@@ -65,14 +65,31 @@ struct Canonicalize : idr::impl::IdrCanonicalizeBase<Canonicalize> {
 
   void runOnOperation() override {
     Operation *op = getOperation();
-    counter.start();
-    LogicalResult converged = runPipeline(canonicalizer, op);
-    numRewrites += counter.report(op, converged, maxIterations);
-    if (succeeded(converged))
+    auto run = [&] {
+      counter.start();
+      LogicalResult converged = runPipeline(canonicalizer, op);
+      numRewrites += counter.report(op, converged, maxIterations);
+      if (succeeded(converged))
+        return;
+      ++numUnconverged;
+      if (testConvergence)
+        signalPassFailure();
+    };
+    // One scope for a run on the symbol table itself. A run on each
+    // function uses a scope a caller already opened (idr-inline does) and
+    // does not open another: two functions at once would each open a memo,
+    // and opening one per function would scan the module that many times.
+    // Data declarations do not change, so the deadness test of a call
+    // remembers whether a type may hold a closure.
+    if (op->getContext()->getLoadedDialect<idr::IdrDialect>() &&
+        SymbolTable::getNearestSymbolTable(op) == op) {
+      SymbolTable table(op);
+      idr::SymbolScope scope(op, table);
+      idr::HoldMemo memo(op->getContext());
+      run();
       return;
-    ++numUnconverged;
-    if (testConvergence)
-      signalPassFailure();
+    }
+    run();
   }
 
   idr::canonicalize::Counter counter;

@@ -36,6 +36,7 @@
 #include "mlir/Transforms/Passes.h"
 
 #include "llvm/ADT/ScopeExit.h"
+#include "llvm/ADT/StringSwitch.h"
 
 #include <algorithm>
 #include <chrono>
@@ -72,6 +73,50 @@ struct OpenRound : PassWrapper<OpenRound, OperationPass<ModuleOp>> {
   Rounds &rounds;
 };
 
+// A step of the round that looks symbols up and does not add, erase or
+// rename one: sccp, the integer-range pass, canonicalize's neighbours cse
+// and remove-dead-values. idr-canonicalize opens its own scope. A lookup
+// reads one table, and whether a type may hold a world or a closure is
+// walked once. The pass manager would otherwise ask that of every call by
+// scanning the module, which takes as long as the module is large.
+struct SymbolsHeld : PassWrapper<SymbolsHeld, OperationPass<ModuleOp>> {
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(SymbolsHeld)
+
+  explicit SymbolsHeld(std::string text) : step(std::move(text)) { parse(); }
+
+  // The pass manager copies a pass it has initialized. The copy parses its
+  // own pipeline; those passes are initialized when the copy runs.
+  SymbolsHeld(const SymbolsHeld &other) : PassWrapper(other), step(other.step) { parse(); }
+
+  StringRef getName() const override { return step; }
+
+  void getDependentDialects(DialectRegistry &registry) const override {
+    pipeline.getDependentDialects(registry);
+  }
+
+  bool parsedOk() const { return ok; }
+
+  void runOnOperation() override {
+    if (!ok)
+      return signalPassFailure();
+    ModuleOp module = getOperation();
+    SymbolTable table(module);
+    idr::SymbolScope scope(module, table);
+    idr::HoldMemo memo(module.getContext());
+    if (failed(runPipeline(pipeline, module)))
+      signalPassFailure();
+  }
+
+  void parse() {
+    pipeline = OpPassManager(ModuleOp::getOperationName());
+    ok = succeeded(parsePassPipeline(step, pipeline, llvm::errs()));
+  }
+
+  std::string step;
+  bool ok = false;
+  OpPassManager pipeline;
+};
+
 // The last pass of each round, which traces it.
 struct CloseRound : PassWrapper<CloseRound, OperationPass<ModuleOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(CloseRound)
@@ -99,11 +144,30 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
     (void)build(other.maxRounds);
   }
 
-  // The passes of one round, parsed from their textual pipelines.
+  // Whether `step` looks symbols up without adding, erasing or renaming
+  // one, so it can run under one table. idr-specialize inserts clones
+  // through its own table; idr-inline erases dead functions; symbol-dce
+  // erases symbols. Each of those opens a scope on the table it changes,
+  // or changes symbols when nothing looks one up.
+  static bool holdsSymbols(StringRef step) {
+    StringRef name = step.split('{').first;
+    return llvm::StringSwitch<bool>(name)
+        .Cases({"sccp", "cse", "int-range-optimizations", "remove-dead-values"}, true)
+        .Default(false);
+  }
+
   static LogicalResult buildRound(OpPassManager &pm) {
-    for (const std::string &step : idr::simplify::simplifyRound())
+    for (const std::string &step : idr::simplify::simplifyRound()) {
+      if (holdsSymbols(step)) {
+        auto held = std::make_unique<SymbolsHeld>(step);
+        if (!held->parsedOk())
+          return failure();
+        pm.addPass(std::move(held));
+        continue;
+      }
       if (failed(parsePassPipeline(step, pm, llvm::errs())))
         return failure();
+    }
     return success();
   }
 

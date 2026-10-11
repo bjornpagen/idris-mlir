@@ -331,23 +331,51 @@ void lowerFold(IRRewriter &rewriter, ArrayFoldOp op) {
 
 // Outermost first: a generate sees the fold its body is before anything
 // lowers it; a fold the body only holds is cloned into the generic with
-// the body, and lowers in its turn.
+// the body, and lowers in its turn. The outermost are gathered in one
+// walk. Lowering one clones the loops nested in it into the generic, and
+// those are the next to lower: scanning the module again per loop would
+// walk it once for every loop.
 export void lowerArrayLoops(ModuleOp module) {
-  IRRewriter rewriter(module.getContext());
-  for (;;) {
-    Operation *next = nullptr;
-    module.walk<WalkOrder::PreOrder>([&](Operation *op) {
+  struct Spawned : RewriterBase::Listener {
+    SmallVector<Operation *> fresh;
+    DenseSet<Operation *> live;
+
+    void notifyOperationInserted(Operation *op, OpBuilder::InsertPoint) override {
       if (!isa<ArrayGenerateOp, ArrayFoldOp>(op))
-        return WalkResult::advance();
-      next = op;
-      return WalkResult::interrupt();
-    });
-    if (!next)
-      return;
-    if (auto generate = dyn_cast<ArrayGenerateOp>(next))
+        return;
+      // Nested in a loop that is itself still to be lowered, as the original
+      // walk left it. Lowering that loop clones it out.
+      if (op->getParentOfType<ArrayGenerateOp>() || op->getParentOfType<ArrayFoldOp>())
+        return;
+      fresh.push_back(op);
+      live.insert(op);
+    }
+
+    void notifyOperationErased(Operation *op) override { live.erase(op); }
+  };
+
+  IRRewriter rewriter(module.getContext());
+  Spawned spawned;
+  rewriter.setListener(&spawned);
+  SmallVector<Operation *> work;
+  module.walk<WalkOrder::PreOrder>([&](Operation *op) {
+    if (!isa<ArrayGenerateOp, ArrayFoldOp>(op))
+      return WalkResult::advance();
+    work.push_back(op);
+    return WalkResult::skip();
+  });
+  size_t outermost = work.size();
+  for (size_t i = 0; i < work.size(); ++i) {
+    Operation *op = work[i];
+    if (i >= outermost && !spawned.live.contains(op))
+      continue;
+    size_t mark = spawned.fresh.size();
+    if (auto generate = dyn_cast<ArrayGenerateOp>(op))
       lowerGenerate(rewriter, generate);
     else
-      lowerFold(rewriter, cast<ArrayFoldOp>(next));
+      lowerFold(rewriter, cast<ArrayFoldOp>(op));
+    for (size_t j = mark; j < spawned.fresh.size(); ++j)
+      work.push_back(spawned.fresh[j]);
   }
 }
 

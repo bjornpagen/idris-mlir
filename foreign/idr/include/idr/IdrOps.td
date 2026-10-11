@@ -32,6 +32,9 @@ def Idr_Dialect : Dialect {
     // because a context is one compilation's state and its passes may run
     // on several threads, each of which must see the scope its pass opened.
     std::atomic<::idr::SymbolScope *> &symbolScopes() { return scopes; }
+    // The HoldMemos open on this context, innermost first, for the same
+    // reason: a pass remembers whether a type may hold a world or a closure.
+    std::atomic<::idr::HoldMemo *> &holdMemos() { return memos; }
     // The runtime cells the folders left live on this context, summed over
     // every thread that folded. Per context, because a context is one
     // compilation's state and its folds may run on several threads.
@@ -40,6 +43,7 @@ def Idr_Dialect : Dialect {
 
   private:
     std::atomic<::idr::SymbolScope *> scopes{nullptr};
+    std::atomic<::idr::HoldMemo *> memos{nullptr};
     std::atomic<int64_t> foldLeak{0};
   }];
   let useDefaultAttributePrinterParser = 1;

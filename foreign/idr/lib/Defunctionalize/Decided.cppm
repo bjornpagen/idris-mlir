@@ -106,10 +106,13 @@ struct Decided : Moves {
         cyclic.insert(component.begin(), component.end());
     converted.insert(candidates.begin(), candidates.end());
 
-    bool changed = true;
+    // A key leaves the converted set at most once, and leaving it only
+    // changes the rules that mention it. Rescanning every flow for each
+    // key walks the module once per key.
+    llvm::SetVector<Key> dropped;
     auto keep = [&](const Key &key) {
       if (key.first && converted.erase(key))
-        changed = true;
+        dropped.insert(key);
     };
     // A closure of `label` of `type` calls it with the type's arguments.
     auto seal = [&](StringAttr label, Type type) {
@@ -125,6 +128,43 @@ struct Decided : Moves {
         for (StringAttr label : key.second.getAsRange<StringAttr>())
           seal(label, key.first);
     };
+    llvm::DenseMap<Key, SmallVector<unsigned>> flowsFrom, flowsTo, sourcesOf;
+    for (auto [index, flow] : llvm::enumerate(flows)) {
+      flowsFrom[flow.from].push_back(static_cast<unsigned>(index));
+      flowsTo[flow.to].push_back(static_cast<unsigned>(index));
+    }
+    for (auto [index, source] : llvm::enumerate(sources))
+      sourcesOf[source.second].push_back(static_cast<unsigned>(index));
+    llvm::DenseMap<Key, SmallVector<idr::ApplyOp>> appliesOf;
+    for (idr::ApplyOp apply : module.applies)
+      appliesOf[values.lookup(apply.getCallee())].push_back(apply);
+    auto consequences = [&](const Key &key) {
+      sealAll(key);
+      if (auto at = sourcesOf.find(key); at != sourcesOf.end())
+        for (unsigned index : at->second)
+          seal(sources[index].first, sources[index].second.first);
+      if (auto at = flowsTo.find(key); at != flowsTo.end())
+        for (unsigned index : at->second) {
+          const Flow &flow = flows[index];
+          if (!isEmpty(flow.to) && isConverted(flow.from))
+            sealAll(flow.from);
+        }
+      if (auto at = flowsFrom.find(key); at != flowsFrom.end())
+        for (unsigned index : at->second) {
+          const Flow &flow = flows[index];
+          if (isConverted(flow.to) && !canCoerce(flow.from, flow.to))
+            keep(flow.to);
+        }
+      if (auto at = appliesOf.find(key); at != appliesOf.end())
+        for (idr::ApplyOp apply : at->second) {
+          for (Value arg : apply.getArgs())
+            if (isClosureType(arg.getType()) && isConverted(values.lookup(arg)))
+              sealAll(values.lookup(arg));
+          for (Value value : apply.getResults())
+            if (isClosureType(value.getType()))
+              keep(values.lookup(value));
+        }
+    };
     // Functions that others may call keep their signatures.
     for (func::FuncOp fn : module.op.getOps<func::FuncOp>())
       if (!fn.isExternal() && (fn.isPublic() || module.escaping.contains(fn.getSymNameAttr()))) {
@@ -132,35 +172,34 @@ struct Decided : Moves {
           keep(argument(fn, i));
         llvm::for_each(results.lookup(fn.getOperation()), keep);
       }
-    while (changed) {
-      changed = false;
-      for (const Flow &flow : flows) {
-        if (isConverted(flow.to) && !canCoerce(flow.from, flow.to))
-          keep(flow.to);
-        if (!isConverted(flow.to) && !isEmpty(flow.to) && isConverted(flow.from))
-          sealAll(flow.from);
-      }
-      for (auto &[label, slot] : sources) {
-        if (isConverted(slot) && !llvm::is_contained(slot.second, label))
-          keep(slot);
-        if (!isConverted(slot))
-          seal(label, slot.first);
-      }
-      for (auto &[key, sum] : keys)
-        if (!isConverted(key))
-          sealAll(key);
-      // An apply of a closure passes closures and returns closures.
-      for (idr::ApplyOp apply : module.applies) {
-        if (isConverted(values.lookup(apply.getCallee())))
-          continue;
-        for (Value arg : apply.getArgs())
-          if (isClosureType(arg.getType()) && isConverted(values.lookup(arg)))
-            sealAll(values.lookup(arg));
-        for (Value value : apply.getResults())
-          if (isClosureType(value.getType()))
-            keep(values.lookup(value));
-      }
+    for (const Flow &flow : flows) {
+      if (isConverted(flow.to) && !canCoerce(flow.from, flow.to))
+        keep(flow.to);
+      if (!isConverted(flow.to) && !isEmpty(flow.to) && isConverted(flow.from))
+        sealAll(flow.from);
     }
+    for (auto &[label, slot] : sources) {
+      if (isConverted(slot) && !llvm::is_contained(slot.second, label))
+        keep(slot);
+      if (!isConverted(slot))
+        seal(label, slot.first);
+    }
+    for (auto &[key, sum] : keys)
+      if (!isConverted(key))
+        sealAll(key);
+    // An apply of a closure passes closures and returns closures.
+    for (idr::ApplyOp apply : module.applies) {
+      if (isConverted(values.lookup(apply.getCallee())))
+        continue;
+      for (Value arg : apply.getArgs())
+        if (isClosureType(arg.getType()) && isConverted(values.lookup(arg)))
+          sealAll(values.lookup(arg));
+      for (Value value : apply.getResults())
+        if (isClosureType(value.getType()))
+          keep(values.lookup(value));
+    }
+    for (size_t next = 0; next < dropped.size(); ++next)
+      consequences(dropped[next]);
 
     // Closure sums and memo sums are numbered apart, each by first
     // appearance.

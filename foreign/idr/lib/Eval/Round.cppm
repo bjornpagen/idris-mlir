@@ -47,8 +47,10 @@ FailureOr<idr::defunctionalize::Defunctionalized> defunctionalizeCalls(ModuleOp 
   auto all = func::FuncOp::create(b, loc, "__idr_eval_all", b.getFunctionType({}, {}));
   b.setInsertionPointToStart(all.addEntryBlock());
   SmallVector<func::FuncOp> wrappers;
+  // One table: a lookup per call would scan the module once per call.
+  SymbolTable symbols(scratch);
   for (size_t i = 0; i < calls; ++i) {
-    wrappers.push_back(scratch.lookupSymbol<func::FuncOp>(evalName(i)));
+    wrappers.push_back(symbols.lookup<func::FuncOp>(evalName(i)));
     wrappers.back().setPrivate();
     func::CallOp::create(b, loc, wrappers.back(), ValueRange{});
   }
@@ -111,9 +113,10 @@ LogicalResult evaluateRound(ModuleOp module, ArrayRef<Key> keys,
   if (failed(layouts))
     return failure();
   SmallVector<SmallVector<Type>> resultTypes;
+  SymbolTable pristineSymbols(*pristine);
   for (size_t i = 0; i < keys.size(); ++i)
     resultTypes.push_back(
-        llvm::to_vector(pristine->lookupSymbol<func::FuncOp>(evalName(i)).getResultTypes()));
+        llvm::to_vector(pristineSymbols.lookup<func::FuncOp>(evalName(i)).getResultTypes()));
 
   phases.lap(phases.prepare);
   // The program's own lowering, metered.
@@ -134,8 +137,9 @@ LogicalResult evaluateRound(ModuleOp module, ArrayRef<Key> keys,
   OpBuilder b(ctx);
   b.setInsertionPointToEnd(lowered.getBody());
   auto ptr = LLVM::LLVMPointerType::get(ctx);
+  SymbolTable loweredSymbols(lowered);
   for (size_t i = 0; i < keys.size(); ++i) {
-    auto wrapped = lowered.lookupSymbol<func::FuncOp>(evalName(i));
+    auto wrapped = loweredSymbols.lookup<func::FuncOp>(evalName(i));
     wrapped.setPrivate();
     Location loc = wrapped.getLoc();
     auto run = func::FuncOp::create(b, loc, runName(i), b.getFunctionType({ptr}, {}));

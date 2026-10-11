@@ -60,23 +60,33 @@ public:
   }
 
   // Refines every function's results until nothing changes: the greatest
-  // fixpoint, which the order of visiting does not affect.
+  // fixpoint, which the order of visiting does not affect. A result only
+  // meets down from unconstrained, so a function is walked again only when
+  // a callee's result changed. Walking every function whenever any one
+  // changed walks the module once per function on a chain of calls.
   void analyze() {
-    bool changed = true;
-    while (changed) {
-      changed = false;
-      for (func::FuncOp fn : functions) {
-        SmallVector<Returned> now(fn.getNumResults(), Returned());
-        fn.walk([&](func::ReturnOp ret) {
-          for (auto [i, operand] : llvm::enumerate(ret.getOperands()))
-            now[i] = now[i].meet(argumentOf(fn, operand));
-        });
-        SmallVector<Returned> &known = results[fn];
-        if (now != known) {
-          known = std::move(now);
-          changed = true;
-        }
-      }
+    DenseMap<Operation *, SetVector<Operation *>> callers;
+    for (func::FuncOp fn : functions)
+      for (func::CallOp call : calls.lookup(fn))
+        if (auto caller = call->getParentOfType<func::FuncOp>())
+          if (results.contains(caller))
+            callers[fn].insert(caller);
+    SetVector<Operation *> work;
+    for (func::FuncOp fn : llvm::reverse(functions))
+      work.insert(fn);
+    while (!work.empty()) {
+      auto fn = cast<func::FuncOp>(work.pop_back_val());
+      SmallVector<Returned> now(fn.getNumResults(), Returned());
+      fn.walk([&](func::ReturnOp ret) {
+        for (auto [i, operand] : llvm::enumerate(ret.getOperands()))
+          now[i] = now[i].meet(argumentOf(fn, operand));
+      });
+      SmallVector<Returned> &known = results[fn];
+      if (now == known)
+        continue;
+      known = std::move(now);
+      for (Operation *caller : callers.lookup(fn.getOperation()))
+        work.insert(caller);
     }
   }
 

@@ -22,7 +22,9 @@ export struct Decisions {
   unsigned leaves = 0;
 };
 
-// The decisions for `module`.
+// The decisions for `module`. Callees are looked up in `symbols`, the
+// module's table, which the pass keeps for the pipelines: building another
+// here would walk every symbol again.
 //
 // A leaf function, one that calls nothing (an apply calls something), is
 // inlined when it has at most kLeafSize ops. Any other function is inlined
@@ -36,8 +38,7 @@ export struct Decisions {
 // and its recursion becomes a self call. The decisions are taken once,
 // before anything is inlined, from the callees up, a callee that will be
 // inlined counting with its size where it is called.
-export Decisions decide(ModuleOp module) {
-  SymbolTable symbols(module);
+export Decisions decide(ModuleOp module, SymbolTable &symbols) {
   idr::graph::References references(module, symbols);
   SmallVector<func::FuncOp> functions;
   llvm::DenseMap<func::FuncOp, SmallVector<func::FuncOp>> callees;
@@ -49,6 +50,10 @@ export Decisions decide(ModuleOp module) {
     functions.push_back(fn);
     if (!references.hasCall(fn))
       leaves.insert(fn);
+    // One edge per callee, the first call to it. The cycles read that
+    // order. Scanning the edges gathered so far at every later call is
+    // quadratic in the calls of this function.
+    llvm::SmallDenseSet<func::FuncOp, 8> edged;
     for (const idr::graph::References::Site &site : references.of(fn)) {
       func::FuncOp target = site.target;
       if (isa<func::CallOp>(site.at)) {
@@ -57,7 +62,7 @@ export Decisions decide(ModuleOp module) {
           continue;
         }
         ++calls[target];
-        if (!target.getNoInline() && !llvm::is_contained(callees[fn], target))
+        if (!target.getNoInline() && edged.insert(target).second)
           callees[fn].push_back(target);
         continue;
       }

@@ -34,6 +34,39 @@ struct ForceOfOneUse : OpRewritePattern<ForceOp> {
   }
 };
 
+// The function `name` names. An open scope answers from its table. A function
+// this rewrite has just built sits in the body and not yet in that table: one
+// scan finds it and records it, and every later closure of the same name reads
+// the table. Recording is skipped when the name is already there, so a symbol
+// the table holds is never renamed out from under a use.
+func::FuncOp functionNamed(Operation *from, StringAttr name) {
+  Operation *table = SymbolTable::getNearestSymbolTable(from);
+  if (!table)
+    return nullptr;
+  SymbolScope *scope = SymbolScope::of(table);
+  if (scope)
+    if (Operation *hit = scope->symbols().lookup(name))
+      return dyn_cast<func::FuncOp>(hit);
+  auto found = dyn_cast_or_null<func::FuncOp>(SymbolTable::lookupSymbolIn(table, name));
+  if (found && scope && !scope->symbols().lookup(name))
+    scope->symbols().insert(found);
+  return found;
+}
+
+func::FuncOp functionNamed(Operation *from, FlatSymbolRefAttr name) {
+  return functionNamed(from, name.getAttr());
+}
+
+// The new function joins the scope's table once its body is in place, under
+// the name the table kept. A later lookup of that name does not scan.
+void recordFunction(func::FuncOp fn) {
+  Operation *table = SymbolTable::getNearestSymbolTable(fn);
+  SymbolScope *scope = table ? SymbolScope::of(table) : nullptr;
+  if (!scope || scope->symbols().lookup(fn.getSymNameAttr()))
+    return;
+  scope->symbols().insert(fn);
+}
+
 // Whether `holder` may run while `label` runs: whether the functions bodies
 // refer to lead from `label` to it.
 bool mayRunWithin(func::FuncOp label, func::FuncOp holder) {
@@ -74,7 +107,7 @@ struct ForceOfOneConstant : OpRewritePattern<ForceOp> {
     auto closure = dyn_cast<ClosureAttr>(attr);
     if (!closure)
       return failure();
-    auto fn = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(force, closure.getCallee());
+    auto fn = functionNamed(force, closure.getCallee());
     if (!fn || closure.getCaptures().size() > fn.getNumArguments())
       return failure();
     auto holder = force->getParentOfType<func::FuncOp>();
@@ -140,23 +173,31 @@ struct ForceAtCapture : OpRewritePattern<ClosureOp> {
   using OpRewritePattern::OpRewritePattern;
 
   LogicalResult matchAndRewrite(ClosureOp closure, PatternRewriter &rewriter) const override {
-    auto wrapper = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(closure, closure.getCalleeAttr());
+    auto wrapper = functionNamed(closure, closure.getCalleeAttr());
     if (!wrapper || wrapper.isExternal() || !llvm::hasSingleElement(wrapper.getBody()))
       return failure();
+    // Two operations, the force and the return. The list's size walks every
+    // operation in the callee, and this match runs on every closure.
     Block &body = wrapper.getBody().front();
-    if (body.getOperations().size() != 2)
+    Block::iterator it = body.begin();
+    if (it == body.end())
       return failure();
-    auto force = dyn_cast<ForceOp>(body.front());
-    auto ret = dyn_cast<func::ReturnOp>(body.back());
-    auto arg = force ? dyn_cast<BlockArgument>(force.getSuspension()) : BlockArgument();
-    if (!force || !ret || ret.getNumOperands() != 1 || ret.getOperand(0) != force.getResult() ||
-        !arg || arg.getOwner() != &body || arg.getArgNumber() >= closure.getCaptures().size())
+    auto force = dyn_cast<ForceOp>(&*it);
+    ++it;
+    if (!force || it == body.end())
+      return failure();
+    auto ret = dyn_cast<func::ReturnOp>(&*it);
+    ++it;
+    auto arg = dyn_cast<BlockArgument>(force.getSuspension());
+    if (!ret || it != body.end() || ret.getNumOperands() != 1 ||
+        ret.getOperand(0) != force.getResult() || !arg || arg.getOwner() != &body ||
+        arg.getArgNumber() >= closure.getCaptures().size())
       return failure();
     unsigned index = arg.getArgNumber();
     auto suspend = closure.getCaptures()[index].getDefiningOp<SuspendOp>();
     if (!suspend || !suspend.getResult().hasOneUse())
       return failure();
-    auto callee = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(suspend, suspend.getCalleeAttr());
+    auto callee = functionNamed(suspend, suspend.getCalleeAttr());
     if (!callee)
       return failure();
     auto nCaps = static_cast<unsigned>(suspend.getCaptures().size());
@@ -177,8 +218,7 @@ struct ForceAtCapture : OpRewritePattern<ClosureOp> {
     // erases it after this pipeline.
     std::string name =
         (wrapper.getSymName() + "$" + std::to_string(index) + "$" + callee.getSymName()).str();
-    auto existing = SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(
-        wrapper, FlatSymbolRefAttr::get(rewriter.getContext(), name));
+    auto existing = functionNamed(wrapper, StringAttr::get(rewriter.getContext(), name));
     if (existing && existing.getFunctionType() != type)
       return failure();
     if (!existing) {
@@ -197,6 +237,7 @@ struct ForceAtCapture : OpRewritePattern<ClosureOp> {
       rewriter.setInsertionPointToStart(entry);
       for (Operation &op : callee.getBody().front())
         rewriter.clone(op, mapping);
+      recordFunction(existing);
     }
     rewriter.setInsertionPoint(closure);
     SmallVector<Value> captures;
@@ -209,7 +250,7 @@ struct ForceAtCapture : OpRewritePattern<ClosureOp> {
       captures.push_back(cap);
     }
     auto neu = ClosureOp::create(rewriter, closure.getLoc(), closure.getType(),
-                                 FlatSymbolRefAttr::get(rewriter.getContext(), name), captures);
+                                 FlatSymbolRefAttr::get(existing.getSymNameAttr()), captures);
     rewriter.replaceOp(closure, neu.getResult());
     rewriter.eraseOp(suspend);
     return success();

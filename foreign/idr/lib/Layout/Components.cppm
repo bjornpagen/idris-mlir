@@ -79,25 +79,33 @@ const SumLayout &Components::sum(StringAttr name) {
     layout.tag = b.getIntegerType(width);
   }
   for (CtorOp ctor : ctors) {
-    SmallVector<bool> used(layout.slots.size(), false);
+    // The first free slot of each component, counted and not, in the order
+    // the scan used to find them. Built once per constructor: searching the
+    // slots again for every field is quadratic in a wide sum.
+    struct Free {
+      DenseMap<Type, SmallVector<unsigned>> slots;
+      DenseMap<Type, unsigned> cursor;
+    };
+    Free free[2];
+    for (unsigned i = 0, n = static_cast<unsigned>(layout.slots.size()); i < n; ++i)
+      free[layout.counted[i]].slots[layout.slots[i]].push_back(i);
     SmallVector<SmallVector<unsigned>> perField;
     for (Attribute field : ctor.getFieldTypes()) {
       Type fieldType = cast<TypeAttr>(field).getValue();
       SmallVector<unsigned> slots;
       for (auto [component, isCounted] :
            llvm::zip_equal(components(fieldType), counted(fieldType))) {
-        auto chosen = static_cast<unsigned>(layout.slots.size());
-        for (unsigned i = 0; i < layout.slots.size(); ++i)
-          if (!used[i] && layout.slots[i] == component && layout.counted[i] == isCounted) {
-            chosen = i;
-            break;
-          }
-        if (chosen == layout.slots.size()) {
+        Free &index = free[isCounted];
+        SmallVector<unsigned> &bucket = index.slots[component];
+        unsigned &at = index.cursor[component];
+        unsigned chosen;
+        if (at < bucket.size())
+          chosen = bucket[at++];
+        else {
+          chosen = static_cast<unsigned>(layout.slots.size());
           layout.slots.push_back(component);
           layout.counted.push_back(isCounted);
-          used.push_back(false);
         }
-        used[chosen] = true;
         slots.push_back(chosen);
       }
       perField.push_back(std::move(slots));

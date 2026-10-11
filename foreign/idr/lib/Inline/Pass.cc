@@ -45,7 +45,11 @@ struct Inline : idr::impl::IdrInlineBase<Inline> {
 
   void runOnOperation() override {
     ModuleOp module = getOperation();
-    idr::inlining::Decisions decisions = idr::inlining::decide(module);
+    // The decisions look callees up in this table, and the pipelines look
+    // symbols up in it. A table for the decisions alone would walk every
+    // symbol of the module again.
+    SymbolTable &table = getAnalysis<SymbolTable>();
+    idr::inlining::Decisions decisions = idr::inlining::decide(module, table);
     numInlinable += decisions.inlined.size();
     numLeaves += decisions.leaves;
 
@@ -74,7 +78,11 @@ struct Inline : idr::impl::IdrInlineBase<Inline> {
     // function, on whichever thread: inlining adds none and erases the dead
     // functions only after the last pipeline has run (eraseDeadCallables),
     // when nothing looks one up.
-    idr::SymbolScope symbols(module, getAnalysis<SymbolTable>());
+    idr::SymbolScope symbols(module, table);
+    // Data declarations do not change. The pipelines, on whichever thread
+    // the inliner runs them, remember whether a type may hold a world or a
+    // closure instead of walking it for every call they test for deadness.
+    idr::HoldMemo memo(module.getContext());
     Inliner inliner(module, graph, *this, getAnalysisManager(), runPipelineHelper, config,
                     profitable);
     if (failed(inliner.doInlining()))
