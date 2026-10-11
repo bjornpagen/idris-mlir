@@ -28,13 +28,25 @@ def Idr_Dialect : Dialect {
     ::mlir::Type parseType(::mlir::DialectAsmParser &parser) const override;
     void printType(::mlir::Type type, ::mlir::DialectAsmPrinter &printer) const override;
 
+    // The scope chain and the hold-memo chain published for workers of a
+    // nested pipeline, innermost first. The thread that opened them, before
+    // that pipeline, is the only one that moves the head. A worker reads it.
+    std::atomic<::idr::SymbolScope *> &publishedScopes() { return scopeHead; }
+    std::atomic<void *> &publishedScopeOwner() { return scopeOwner; }
+    std::atomic<::idr::HoldMemo *> &publishedMemos() { return memoHead; }
+    std::atomic<void *> &publishedMemoOwner() { return memoOwner; }
     // The runtime cells the folders left live on this context, summed over
     // every thread that folded. Per context, because a context is one
-    // compilation's state and its folds may run on several threads.
+    // compilation's state and its folds may run on several threads. The add
+    // is atomic, and a sum does not depend on which thread folded.
     void countFoldLeak(int64_t cells) { foldLeak.fetch_add(cells, std::memory_order_relaxed); }
     int64_t foldLeakCount() const { return foldLeak.load(std::memory_order_relaxed); }
 
   private:
+    std::atomic<::idr::SymbolScope *> scopeHead{nullptr};
+    std::atomic<void *> scopeOwner{nullptr};
+    std::atomic<::idr::HoldMemo *> memoHead{nullptr};
+    std::atomic<void *> memoOwner{nullptr};
     std::atomic<int64_t> foldLeak{0};
   }];
   let useDefaultAttributePrinterParser = 1;

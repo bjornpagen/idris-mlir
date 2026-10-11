@@ -131,9 +131,9 @@ struct Inferred::Cache {
   // unknown (a function without a body, a call of anything but a func.func)
   // makes it do anything. IO a function does with a world it takes is not
   // reached: it is read off its type; IO on a world it forges (idr.world.new)
-  // is reached. `names` is the symbol each reach resolved, beside it, so a
-  // function erased and another built at the same address is not the callee
-  // the body resolved.
+  // is reached. `names` is the symbol each reach resolved, kept beside it:
+  // the body is inferred again when that function is gone or carries another
+  // name.
   struct Found {
     idr::Effect reached = idr::Effect::none;
     llvm::SetVector<func::FuncOp> reaches;
@@ -227,8 +227,10 @@ struct Inferred::Cache {
   }
 
   static bool reachesCurrent(const Found &found, const llvm::DenseSet<func::FuncOp> &live) {
-    for (auto [callee, name] : llvm::zip_equal(found.reaches, found.names))
-      if (!live.contains(callee) || callee.getSymNameAttr() != name)
+    if (found.reaches.size() != found.names.size())
+      return false;
+    for (auto [index, callee] : llvm::enumerate(found.reaches))
+      if (!live.contains(callee) || callee.getSymNameAttr() != found.names[index])
         return false;
     return true;
   }
@@ -328,7 +330,7 @@ struct Inferred::Cache {
 
 Inferred::Inferred() : cache(std::make_unique<Cache>()) {}
 
-Inferred::~Inferred() = default;
+Inferred::~Inferred() { cache.reset(); }
 
 llvm::SmallVector<std::pair<func::FuncOp, Effects>> Inferred::infer(ModuleOp module) {
   return cache->run(module);

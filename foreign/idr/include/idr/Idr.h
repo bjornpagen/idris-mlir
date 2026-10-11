@@ -22,8 +22,6 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Pass/Pass.h"
 
-#include "llvm/ADT/DenseMap.h"
-
 #include <algorithm>
 #include <atomic>
 #include <optional>
@@ -308,8 +306,9 @@ bool fieldReadOnce(mlir::Value value, unsigned index);
 bool holdsLinear(mlir::Value value);
 bool takenOnce(mlir::Value value);
 
-// The dialect holds the chains of the scopes and the hold memos open on
-// its context.
+// The scope chain and the hold-memo chain a pass published for the workers
+// of a nested pipeline are held by the context's idr dialect. A worker reads
+// them and does not push.
 class SymbolScope;
 class HoldMemo;
 
@@ -478,19 +477,21 @@ inline constexpr llvm::StringLiteral memoForced = "forced";
 // the size and the speed.
 inline constexpr uint64_t constantBytes = uint64_t{1} << 20;
 
-// While a SymbolScope is open on this thread, lookupSymbol (and so
-// lookupData, lookupCtor and the effects of a call) answers a lookup in
-// `op`, a symbol table, from `table`, instead of scanning `op`'s body,
-// which takes as long as the module is large. Only a pass anchored on
-// `op` or above opens one (or the idr dialect's verifier of the module),
-// outside every nested pipeline it starts. The chain is this thread's. A
-// worker running that pipeline does not see a scope opened here, and a
-// scope it opens is not visible on this thread, so two compiles do not
-// depend on which worker published a scope. A lookup reads `table`. A
-// symbol added while a lookup on this thread may read it is inserted
-// through `table`, so the lookup sees it; a symbol is erased or renamed
-// through `table`, or when no lookup on this thread still reads it. The
-// context must have the idr dialect loaded.
+// While a SymbolScope is open, lookupSymbol (and so lookupData, lookupCtor
+// and the effects of a call) answers a lookup in `op`, a symbol table, from
+// `table`, instead of scanning `op`'s body, which takes as long as the
+// module is large. A pass anchored on `op` or above opens one on the thread
+// that runs the pass, before the nested pipeline it starts. That chain is
+// published on the context: a worker of the pipeline reads `table` and does
+// not push a scope onto the chain. A scope a worker does open stays on that
+// worker. A sibling would otherwise load a stack object the worker destroys
+// when its pass returns, and the table a lookup reads would depend on which
+// worker finished opening one. The publishing thread closes a scope after
+// the pipeline that scope surrounds returns, so a worker's lookup does not
+// outlive it. A worker only reads `table`. The publishing thread inserts
+// and erases through `table`, and not while a worker is inside that
+// pipeline: the thread is waiting for it. The context must have the idr
+// dialect loaded.
 class SymbolScope {
 public:
   SymbolScope(mlir::Operation *op, mlir::SymbolTable &table);
@@ -498,7 +499,8 @@ public:
   SymbolScope(const SymbolScope &) = delete;
   SymbolScope &operator=(const SymbolScope &) = delete;
 
-  // The scope this thread has open for `op`, or null.
+  // The scope open for `op`: one this thread opened, or else one published
+  // for it before a nested pipeline, innermost first. Null when neither is.
   static SymbolScope *of(mlir::Operation *op);
   mlir::SymbolTable &symbols() const { return table; }
 
@@ -506,17 +508,21 @@ private:
   mlir::Operation *op;
   mlir::SymbolTable &table;
   SymbolScope *outer;
+  bool published = false;
 };
 
-// While a HoldMemo is open on this thread, mayHoldWorld and mayHoldClosure
-// remember what they answered for each type. A pass opens one when it does
-// not change a data declaration, so the walk of a type's fields, and the
-// lookup of each field's declaration, happen once and every later ask on
-// this thread is the remembered answer. The seen-set of one walk is not
-// that: the next call of the same type would walk again. Memos open and
-// close in order on this thread. A worker running a nested pipeline does
-// not see this memo, and one it opens is not visible here. The innermost
-// memo on this thread for the context is the one a walk fills. The context
+// While a HoldMemo is open, mayHoldWorld and mayHoldClosure remember what
+// they answered for each type. A pass opens one when it does not change a
+// data declaration, on the thread that runs the pass, before the nested
+// pipeline it starts. Workers of that pipeline see the memo, so a walk
+// knows to remember, and each thread remembers in its own map. A walk on a
+// worker does not write a map another thread reads. The answer is a
+// property of the type, so which thread walked it does not change the
+// program. The seen-set of one walk is not that map: the next call of the
+// same type on the same thread would walk again. A memo a worker opens
+// stays on that worker, for the same reason a worker's scope does. The
+// innermost memo this thread has for the context, or the one the pass
+// published when this thread has none, is the one a walk fills. The context
 // must have the idr dialect loaded.
 class HoldMemo {
 public:
@@ -525,30 +531,22 @@ public:
   HoldMemo(const HoldMemo &) = delete;
   HoldMemo &operator=(const HoldMemo &) = delete;
 
-  // The memo this thread has open on `context`, or null.
+  // The memo open on `context`: one this thread opened, or else one
+  // published for it before a nested pipeline. Null when neither is.
   static HoldMemo *of(mlir::MLIRContext *context);
 
-  // The answer already remembered for `type`, or nullopt.
-  std::optional<bool> world(mlir::Type type) const { return find(worldAnswers, type); }
-  std::optional<bool> closure(mlir::Type type) const { return find(closureAnswers, type); }
-  void rememberWorld(mlir::Type type, bool answer) { remember(worldAnswers, type, answer); }
-  void rememberClosure(mlir::Type type, bool answer) { remember(closureAnswers, type, answer); }
+  // The answer this thread already remembers for `type`, or nullopt.
+  std::optional<bool> world(mlir::Type type) const;
+  std::optional<bool> closure(mlir::Type type) const;
+  void rememberWorld(mlir::Type type, bool answer);
+  void rememberClosure(mlir::Type type, bool answer);
 
 private:
-  std::optional<bool> find(const llvm::DenseMap<mlir::Type, bool> &map, mlir::Type type) const {
-    auto it = map.find(type);
-    if (it == map.end())
-      return std::nullopt;
-    return it->second;
-  }
-  void remember(llvm::DenseMap<mlir::Type, bool> &map, mlir::Type type, bool answer) {
-    map.try_emplace(type, answer);
-  }
-
   mlir::MLIRContext *context;
   HoldMemo *outer;
-  llvm::DenseMap<mlir::Type, bool> worldAnswers;
-  llvm::DenseMap<mlir::Type, bool> closureAnswers;
+  bool published = false;
+  // Distinguishes this memo in the thread-local answers. Never reused.
+  uint64_t epoch = 0;
 };
 
 // The symbol `name` of the symbol table nearest `from` (`from` included),

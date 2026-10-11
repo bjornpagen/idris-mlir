@@ -17,7 +17,7 @@ struct Effects : idr::impl::IdrEffectsBase<Effects> {
   Effects() = default;
   // A copy is another run, on its own module. The functions already inferred
   // belong to the module this pass ran on.
-  Effects(const Effects &other) : idr::impl::IdrEffectsBase<Effects>(other) {}
+  Effects(const Effects &other) : idr::impl::IdrEffectsBase<Effects>(other), inferred() {}
 
   void runOnOperation() override {
     mlir::ModuleOp module = getOperation();
