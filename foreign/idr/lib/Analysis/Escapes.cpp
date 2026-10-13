@@ -265,7 +265,10 @@ LogicalResult Flow::visitOperation(Operation *op, ArrayRef<EscapeLattice *> oper
     return success();
   if (isa<FieldOp>(op)) {
     Escape update;
-    update.deep = results[0]->getValue().deep;
+    // What the read gives is reachable from the scrutinee only when it
+    // holds a cell; a word read out of it reaches nothing.
+    if (holdsCells(op->getResult(0).getType()))
+      update.deep = results[0]->getValue().deep;
     each(update);
     return success();
   }

@@ -22,7 +22,7 @@
 // CHECK: %[[R:.*]] = scf.if %{{.*}} -> (i64) {
 // CHECK: %[[K:.*]] = arith.addi %[[N]], %[[I]] : i64
 // CHECK: scf.yield %[[K]] : i64
-// CHECK: %[[S:.*]] = call @find(%[[A]], %[[N]], %{{.*}}) : (!llvm.ptr, i64, i64) -> i64
+// CHECK: %[[S:.*]] = {{(func\.)?}}call @find(%[[A]], %[[N]], %{{.*}}) : (!llvm.ptr, i64, i64) -> i64
 // CHECK: scf.yield %[[S]] : i64
 // CHECK: return %[[R]] : i64
 // CHECK-LABEL: func.func private @sometimes(

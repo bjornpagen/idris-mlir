@@ -15,8 +15,8 @@
 // CHECK-SAME: %[[N:[a-z0-9_]+]]: i64, %[[M:[a-z0-9_]+]]: i64, %[[X:[a-z0-9_]+]]: i64)
 // CHECK-NOT: closure @add
 // CHECK: %[[H:.*]] = {{(idr\.)?}}closure @sub(%[[N]])
-// CHECK-NEXT: call @apply.spec1(%[[N]], %[[X]]) {effects = #idr.effects<none>} : (i64, i64) -> i64
-// CHECK-NEXT: call @apply.spec1(%[[M]], %[[X]]) : (i64, i64) -> i64
+// CHECK-NEXT: call @[[SPEC:[^ (]+]](%[[N]], %[[X]]) effects = <none> : (i64, i64) -> i64
+// CHECK-NEXT: call @[[SPEC]](%[[M]], %[[X]]) : (i64, i64) -> i64
 // CHECK-NEXT: call @apply(%[[H]], %[[X]]) : (!idr.fn<(i64) -> i64>, i64) -> i64
 // CHECK-NOT: closure @add
 // CHECK: return
@@ -34,14 +34,14 @@ module attributes {idr.program} {
     idr.return %y : i64
   }
   idr.func private @apply.spec1(%a: i64, %x: i64) -> i64 attributes {clone = #idr.clone<@apply.spec1, #idr.spec_key<"apply", [#idr.key_closure<"add", [#idr.key_hole<0>]>, #idr.key_hole<1>]>>, effects = #idr.effects<none>, total} {
-    %y = idr.call @add(%a, %x) {effects = #idr.effects<none>} : (i64, i64) -> i64
+    %y = idr.call @add(%a, %x) effects = <none> : (i64, i64) -> i64
     idr.return %y : i64
   }
   idr.func private @use(%n: i64, %m: i64, %x: i64) -> (i64, i64, i64) attributes {effects = #idr.effects<none>, total} {
     %f = idr.closure @add(%n) : (i64) -> !idr.fn<(i64) -> (i64)>
     %g = idr.closure @add(%m) : (i64) -> !idr.fn<(i64) -> (i64)>
     %h = idr.closure @sub(%n) : (i64) -> !idr.fn<(i64) -> (i64)>
-    %r1 = idr.call @apply(%f, %x) {effects = #idr.effects<none>} : (!idr.fn<(i64) -> (i64)>, i64) -> i64
+    %r1 = idr.call @apply(%f, %x) effects = <none> : (!idr.fn<(i64) -> (i64)>, i64) -> i64
     %r2 = idr.call @apply(%g, %x) : (!idr.fn<(i64) -> (i64)>, i64) -> i64
     %r3 = idr.call @apply(%h, %x) : (!idr.fn<(i64) -> (i64)>, i64) -> i64
     idr.return %r1, %r2, %r3 : i64, i64, i64
