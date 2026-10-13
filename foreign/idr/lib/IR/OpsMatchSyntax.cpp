@@ -38,9 +38,25 @@ ParseResult parseMatchHead(OpAsmParser &parser, OperationState &result, Type &sc
       parser.parseArrow() ||
       parser.parseCommaSeparatedList(OpAsmParser::Delimiter::Paren,
                                      [&] { return parser.parseType(resultTypes.emplace_back()); }) ||
-      parser.resolveOperand(scrutinee, scrutineeType, result.operands) ||
-      parser.parseOptionalAttrDictWithKeyword(result.attributes))
+      parser.resolveOperand(scrutinee, scrutineeType, result.operands))
     return failure();
+  SMLoc attrsLoc = parser.getCurrentLocation();
+  if (parser.parseOptionalAttrDictWithKeyword(result.attributes))
+    return failure();
+  // The cases are spelled by the case clauses and set as a property by
+  // the caller; a `cases` in the dict would become that property when
+  // the op is created, overriding the clauses' keys, or vanish if of
+  // the wrong kind. Check the dict's inherent facts first, as the
+  // generic parser does, and refuse the restated one.
+  std::optional<RegisteredOperationName> info = result.name.getRegisteredInfo();
+  if (info && failed(info->verifyInherentAttrs(result.attributes, [&]() {
+        return parser.emitError(attrsLoc);
+      })))
+    return failure();
+  if (result.attributes.get("cases"))
+    return parser.emitError(attrsLoc, "inherent attribute 'cases' cannot be parsed from "
+                                      "attr-dict when strict properties in assembly format "
+                                      "is enabled");
   result.addTypes(resultTypes);
   return success();
 }

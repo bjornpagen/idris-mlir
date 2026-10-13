@@ -175,7 +175,22 @@ ParseResult ConstantOp::parse(OpAsmParser &parser, OperationState &result) {
     return parser.emitError(loc, "expects a value followed by `:` and its type");
   result.addTypes(type);
   result.getOrAddProperties<Properties>().value = untyped(value);
-  return parser.parseOptionalAttrDict(result.attributes);
+  SMLoc attrsLoc = parser.getCurrentLocation();
+  if (parser.parseOptionalAttrDict(result.attributes))
+    return failure();
+  // The value is the syntax's, set as a property above; a `value` in the
+  // dict would become that property when the op is created, silently in
+  // place of the one written. Check the dict's inherent facts first, as
+  // the generic parser does, and refuse the restated one.
+  if (failed(verifyInherentAttrs(result.name, result.attributes, [&]() {
+        return parser.emitError(attrsLoc);
+      })))
+    return failure();
+  if (result.attributes.get("value"))
+    return parser.emitError(attrsLoc, "inherent attribute 'value' cannot be parsed from "
+                                      "attr-dict when strict properties in assembly format "
+                                      "is enabled");
+  return success();
 }
 
 void ConstantOp::print(OpAsmPrinter &printer) {
