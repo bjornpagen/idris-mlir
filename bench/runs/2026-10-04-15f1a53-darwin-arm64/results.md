@@ -68,34 +68,3 @@ Compile time of this compiler, wall-clock seconds, once: idris-mlir (frontend, p
 | spectral-norm-linear | 5.591 |
 | tak | 1.118 |
 | unionfind | 1.966 |
-
-Against the previous record (measured on 2026-10-03 at 14:57 UTC, at 861acdc): clang's time
-over this compiler's in each run, and how it moved.
-
-| benchmark | before | now | change |
-| --- | ---: | ---: | ---: |
-| ack | 56.57x | 11.93x | -79% |
-| ackdyn | 0.97x | 0.91x | -6% |
-| binary-trees | 4.37x | 2.82x | -35% |
-| cfold | 2.45x | 1.33x | -45% |
-| collatz | 1.07x | 0.99x | -7% |
-| deriv | 3.76x | 2.05x | -46% |
-| fannkuch-linear | 2.17x | 1.06x | -51% |
-| fannkuch-redux | 1.64x | 0.77x | -53% |
-| fasta | 0.56x | 0.54x | -4% |
-| fib | 0.85x | 1.16x | +36% |
-| harmonic | 1.02x | 0.99x | -3% |
-| k-nucleotide | 0.05x | 0.01x | -73% |
-| mandelbrot | 1.00x | 0.99x | -0% |
-| mandelbrot-pbm | 1.01x | 1.07x | +6% |
-| nbody | 0.98x | 1.15x | +16% |
-| nqueens | 1.26x | 1.13x | -10% |
-| pidigits | 1.06x | 0.67x | -37% |
-| qsort | 0.95x | 0.94x | -1% |
-| rbtree | 1.43x | 1.97x | +37% |
-| rbtree-ck | 1.55x | 1.21x | -22% |
-| reverse-complement | 0.12x | 0.24x | +94% |
-| spectral-norm | 0.78x | 0.73x | -6% |
-| spectral-norm-linear | 1.99x | 1.93x | -3% |
-| tak | 0.97x | 1.00x | +3% |
-| unionfind | 0.85x | 1.12x | +33% |
