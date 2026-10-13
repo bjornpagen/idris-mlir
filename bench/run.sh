@@ -26,8 +26,9 @@
 # set here too, so that a direct run builds against this checkout's libs/:
 # this compiler on its own prefix, the stock Idris on the pinned prefix and
 # what this checkout installed for it (`make bench` makes both). Every
-# build and run is killed after 300 seconds, and a benchmark that times out
-# fails.
+# build and run is killed after 1800 seconds, and a benchmark that times
+# out fails: the Chez runs at the game's sizes are the slow ones
+# (fannkuch-redux took 1163 s in the 2026-10-07 record).
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 . "$root/tools/toolchain.sh"
@@ -69,7 +70,7 @@ die() {
 
 [ -n "$timeout_cmd" ] || die "$timeout_missing, so a benchmark could hang"
 now_ns > /dev/null || die "no clock to time the benchmarks with"
-limit=300
+limit=1800
 
 # bounded CMD...: CMD, killed after $limit seconds; a timeout exits 124.
 bounded() {
