@@ -163,11 +163,12 @@ export
 quantityOf : RigCount -> Quantity
 quantityOf rig = if isLinear rig then One else Many
 
-||| The Core binder of an Idris binder of multiplicity 1 or ω; the caller
-||| has left out an erased one.
+||| The product of two quantities, as Idris uses a field through the
+||| binder that holds its value: one is the unit, and many absorbs.
 export
-binderOf : RigCount -> Core Ty -> Core Binder
-binderOf rig t = MkBinder (quantityOf rig) <$> t
+quantityTimes : Quantity -> Quantity -> Quantity
+quantityTimes One q = q
+quantityTimes Many _ = Many
 
 primTy : PrimType -> Maybe PrimTy
 primTy IntType = Just (IntP IdrisInt)

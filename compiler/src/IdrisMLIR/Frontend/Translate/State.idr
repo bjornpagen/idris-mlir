@@ -200,10 +200,12 @@ record TS where
   ||| each is declared, whatever its shape, since its values contain
   ||| themselves.
   reentered : SortedSet DataId
-  ||| The instances with one constructor and one runtime field, by the type
-  ||| of that field, which is the type of their values: they are not
-  ||| declared, and their constructor is the identity.
-  newtypes : SortedMap DataId Ty
+  ||| The instances with one constructor and one runtime field, by the
+  ||| binder of that field, whose type is the type of their values: they
+  ||| are not declared, and their constructor is the identity. The binder
+  ||| keeps the field's quantity, which a binder of the instance's type
+  ||| takes through its own (`coreBinder`).
+  newtypes : SortedMap DataId Binder
   cons : SortedMap ConId ConLayout
   fns : SortedMap FnId TFn
   fnOrder : SnocList FnId

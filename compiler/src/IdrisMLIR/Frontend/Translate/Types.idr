@@ -21,6 +21,7 @@ import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.Registry
 import IdrisMLIR.Rule
+import IdrisMLIR.Syntax.Idr
 import IdrisMLIR.Term
 import IdrisMLIR.Types
 
@@ -406,7 +407,7 @@ mutual
     if isErased rig
        then normaliseClosed rest >>= coreType fc owner rule
        else do
-         arg <- binderOf rig (coreType fc owner rule a)
+         arg <- coreBinder fc owner rule rig a
          when !(erasedOutsideIndices owner rest) $
            reject fc owner rule "a function type that depends on its argument"
          rt <- coreType fc owner rule !(normaliseClosed rest)
@@ -461,7 +462,7 @@ mutual
     st <- get TState
     case (lookup inst st.datas, lookup inst st.newtypes) of
       (Just _, _) => pure (inst, DataT inst)
-      (_, Just t) => pure (inst, t)
+      (_, Just b) => pure (inst, typeOf b)
       _ =>
         -- An instance being registered is referred to by its own fields
         -- when it is recursive; `assemble` makes it a box.
@@ -479,23 +480,19 @@ mutual
             conList <- traverse (constructor inst args params keep) datacons
             let sorted = sortBy (\a, b => compare (fst a).tag (fst b).tag) conList
             again <- contains inst . (.reentered) <$> get TState
-            let fields : List Ty = case sorted of
-                           [(_, kinds)] => mapMaybe fieldType kinds
+            let fields : List Binder = case sorted of
+                           [(_, kinds)] => mapMaybe fieldBinder kinds
                            _ => []
             case (again, fields) of
-              (False, [t]) => do
-                update TState { building $= delete inst, newtypes $= insert inst t }
-                pure (inst, t)
+              (False, [b]) => do
+                update TState { building $= delete inst, newtypes $= insert inst b }
+                pure (inst, typeOf b)
               _ => do
                 update TState { building $= delete inst
                               , datas $= insert inst (MkDecl inst key (map fst sorted) loc)
                               , dataOrder $= (:< inst) }
                 pure (inst, DataT inst)
     where
-      fieldType : ArgKind -> Maybe Ty
-      fieldType (Field _ b _) = Just (typeOf b)
-      fieldType _ = Nothing
-
       ||| The constructor's arguments: a parameter is the instance's, one of
       ||| quantity 0 is none, an implementation is a compile-time value of
       ||| the instance (`Dictionaries`), anything else is the next field.
@@ -510,7 +507,7 @@ mutual
           if !(dictionaryBinder rig a') then (DictArg a' ::) <$> walk cname dfc targs i ls rest else do
             when !(erasedOutsideIndices cname a') $ do
               reject dfc cname DependentField ("a field type that depends on another field: " ++ !(showTT a'))
-            b <- binderOf rig (coreType dfc cname DependentField a')
+            b <- coreBinder dfc cname DependentField rig a'
             (Field i b a' ::) <$> walk cname dfc targs (S i) ls rest
       walk _ _ _ _ _ _ = pure []
 
@@ -536,19 +533,41 @@ mutual
         update TState { cons $= insert con.id (MkConLayout kinds (fullname def) con) }
         pure (con, kinds)
 
-||| The data instance a closed, normalised type names, when it is a data
-||| type and not a natural, a machine word or an array: the instance, and
-||| the type its values have, which is its field's for a type with one
-||| runtime field.
-export
-dataOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-         FC -> String -> ClosedTerm -> Core (Maybe (DataId, Ty))
-dataOf fc owner tm = case getFnArgs tm of
-  (Ref _ (TyCon _) n, args) => do
-    def <- lookupDef fc owner n
-    let hs = hooksOf (fullname def)
-    natural <- (.natLike) <$> tyConFacts def
-    if natural || isWordType hs || isJust (arrayElementOf hs) then pure Nothing else do
-      args' <- traverse normaliseClosed args
-      Just <$> dataInstance fc owner n args'
-  _ => pure Nothing
+  ||| The data instance a closed, normalised type names, when it is a data
+  ||| type and not a natural, a machine word or an array: the instance, and
+  ||| the type its values have, which is its field's for a type with one
+  ||| runtime field.
+  export
+  dataOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+           FC -> String -> ClosedTerm -> Core (Maybe (DataId, Ty))
+  dataOf fc owner tm = case getFnArgs tm of
+    (Ref _ (TyCon _) n, args) => do
+      def <- lookupDef fc owner n
+      let hs = hooksOf (fullname def)
+      natural <- (.natLike) <$> tyConFacts def
+      if natural || isWordType hs || isJust (arrayElementOf hs) then pure Nothing else do
+        args' <- traverse normaliseClosed args
+        Just <$> dataInstance fc owner n args'
+    _ => pure Nothing
+
+  ||| The binder of a position of this type at this rig: the Core type at
+  ||| the rig's quantity, taken through a type with one runtime field,
+  ||| whose value is its field's, so that what the binder binds is the
+  ||| field at the product of the rig's quantity and the field's, as
+  ||| Idris uses the field of a value bound at the rig. Erasing such a
+  ||| type to its field's type alone would give a binder at the rig's
+  ||| quantity the field's value at that quantity, and a field Idris
+  ||| binds unrestricted (the one field of `!* a`) would be held linear.
+  export
+  coreBinder : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+               FC -> String -> Rule -> RigCount -> ClosedTerm -> Core Binder
+  coreBinder fc owner rule rig tm = do
+    t <- coreType fc owner rule tm
+    inst <- dataOf fc owner tm
+    st <- get TState
+    let q = case inst of
+              Just (i, _) => case lookup i st.newtypes of
+                               Just (MkBinder fq _) => quantityTimes (quantityOf rig) fq
+                               Nothing => quantityOf rig
+              Nothing => quantityOf rig
+    pure (MkBinder q t)

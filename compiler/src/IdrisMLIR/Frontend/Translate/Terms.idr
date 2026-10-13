@@ -267,7 +267,7 @@ mutual
     if isErased rig then term ctx (TypeValue (Erased fc Placeholder) :: env) sc else do
       loc <- toLoc (bestFC ctx fc)
       known <- closeNormalise fc env ty
-      b <- binderOf rig (coreType (bestFC ctx fc) ctx.owner ValueType known)
+      b <- coreBinder (bestFC ctx fc) ctx.owner ValueType rig known
       body <- term ctx (under {k = 1} [Runtime FZ (Just (typeOf b)) (Just known)] env) sc
       pure (Lam loc (binderName x) b body)
   term ctx env (TDelay fc _ _ arg) = suspend ctx env fc arg

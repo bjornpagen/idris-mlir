@@ -254,7 +254,7 @@ classify fc owner (S k) (Bind bfc _ (Pi _ rig _ a) sc) vals = do
        else do
          when !(erasedOutsideIndices owner a') $ do
            reject fc owner ValueType ("a parameter type that depends on another argument: " ++ !(showTT a'))
-         t <- coreType fc owner ValueType a'
+         b <- coreBinder fc owner ValueType rig a'
          -- The rest of the type may have to reduce on the parameter's value
          -- (`treeDelete : (n : Nat) -> ... -> Either (Tree n k v o) (delType n k v o)`
          -- in Data.SortedMap, where `delType` reduces on the constructors of
@@ -283,7 +283,7 @@ classify fc owner (S k) (Bind bfc _ (Pi _ rig _ a) sc) vals = do
            _ => pure Nothing
          let value = fromMaybe (Erased bfc Placeholder) shape
          (rest, res) <- classify fc owner k !(normaliseClosed (subst value sc)) vals'
-         pure (ValueParam (MkBinder (quantityOf rig) t) shape a' :: rest, res)
+         pure (ValueParam b shape a' :: rest, res)
 classify fc owner (S k) ty vals = do
   ty' <- normaliseClosed ty
   case ty' of
