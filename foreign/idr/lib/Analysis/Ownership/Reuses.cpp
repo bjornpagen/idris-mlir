@@ -168,6 +168,10 @@ private:
   // region does), dies on each path of `block`, the first constructor after
   // that point whose cell fits gets the box's cell.
   void dies(Held box, CtorOp ctor, Block &block, Block *fields) {
+    // A constructor without fields is its atom: it has no cell, so its
+    // take would hand out no token for a reuse to build in.
+    if (ctor.getFieldTypes().empty())
+      return;
     SmallVector<OpOperand *> uses = usesOf(box);
     unsigned size = layouts.box(ctor).size;
     whereDies(uses, block, /*graded=*/nullptr, [&](Block &where, Block::iterator at) {
@@ -187,7 +191,7 @@ private:
         if (!claimed.contains(con) && isa<BoxType>(unrestricted(con.getType())) &&
             !stack.isAttrPresent(con))
           if (CtorOp ctor = lookupCtor(symbols, con.getCtor());
-              ctor && layouts.box(ctor).size == size) {
+              ctor && !ctor.getFieldTypes().empty() && layouts.box(ctor).size == size) {
             found.push_back(con);
             return true;
           }
