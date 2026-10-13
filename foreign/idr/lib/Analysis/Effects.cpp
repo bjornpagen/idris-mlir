@@ -94,12 +94,8 @@ idr::Effects::Effects(Operation *module, AnalysisManager &am)
   }
 
   answers.reserve(n);
-  worlds.resize(n);
-  for (unsigned at = 0; at < n; ++at) {
+  for (unsigned at = 0; at < n; ++at)
     answers.push_back(slots[at].world ? reached[at] | Effect::io : reached[at]);
-    if (slots[at].world)
-      worlds.set(at);
-  }
 }
 
 bool idr::Effects::isInvalidated(const AnalysisManager::PreservedAnalyses &pa) const {
@@ -111,13 +107,6 @@ bool idr::Effects::isInvalidated(const AnalysisManager::PreservedAnalyses &pa) c
 idr::Effect idr::Effects::of(FuncOp fn) const {
   auto found = positions.find(fn.getOperation());
   return found == positions.end() ? anyEffect : answers[found->second];
-}
-
-bool idr::Effects::takesWorld(FuncOp fn) const {
-  auto found = positions.find(fn.getOperation());
-  if (found != positions.end())
-    return worlds.test(found->second);
-  return fn && takes(holds, fn);
 }
 
 idr::Effect idr::Effects::declared(FuncOp fn) {

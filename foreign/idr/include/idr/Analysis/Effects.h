@@ -12,7 +12,6 @@
 
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Pass/AnalysisManager.h"
-#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -53,8 +52,6 @@ public:
   // What a call of `fn` may do, from the module as it is; anyEffect for a
   // function it did not see.
   idr::Effect of(idr::FuncOp fn) const;
-  // Whether `fn` takes a world, in a parameter or in data one holds.
-  bool takesWorld(idr::FuncOp fn) const;
   // What code given `value` may do by applying the closures it holds.
   idr::Effect passed(mlir::Value value) const;
   // What the fact on `fn` says: anyEffect when `fn` is null, external or
@@ -70,7 +67,6 @@ private:
   mlir::SymbolTable &symbols;
   llvm::DenseMap<mlir::Operation *, unsigned> positions;
   llvm::SmallVector<idr::Effect> answers;
-  llvm::BitVector worlds;
 };
 
 } // namespace idr
