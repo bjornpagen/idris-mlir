@@ -49,7 +49,7 @@ LogicalResult ReturnRegisters::prepare() {
   for (Operation *op = scope; op && !target; op = op->getParentOp())
     target = op->getAttrOfType<LLVM::TargetAttr>(LLVM::LLVMDialect::getTargetAttrName());
   if (!target)
-    return scope->emitError("internal error: the module lost its #llvm.target"), failure();
+    return scope->emitError("internal error: the module lost its #llvm.target");
   LLVM::detail::initializeBackendsOnce();
   machine = LLVM::detail::getTargetMachine(cast<LLVM::TargetAttrInterface>(target))
                 .value_or(nullptr);

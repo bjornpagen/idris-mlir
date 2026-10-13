@@ -551,12 +551,12 @@ void emitOp(Enums &enums, const Operator &op, llvm::raw_ostream &os) {
           true);
     }
   }
-  for (const auto &[index, region] : llvm::enumerate(op.getRegions())) {
+  for (auto [index, region] : llvm::enumerate(op.getRegions())) {
     std::string param = parameter(region.name, "region" + llvm::Twine(index));
     regions.emplace_back(param, region.isVariadic() ? '*' : '1');
     explicits.push_back({param, region.isVariadic() ? "List Region" : "Region", std::nullopt});
   }
-  for (const auto &[index, result] : llvm::enumerate(op.getResults())) {
+  for (auto [index, result] : llvm::enumerate(op.getResults())) {
     std::string param = parameter(result.name, "result" + llvm::Twine(index));
     results.emplace_back(param, arity(result));
     explicits.push_back({param, valuesType("MlirType", arity(result)), std::nullopt});
@@ -658,7 +658,7 @@ void emitPrimitives(std::vector<const llvm::Record *> defs, llvm::raw_ostream &o
     if (std::optional<Primitive> primitive = primitiveOf(Operator(def)))
       (primitive->bodyArguments ? regions : plain).push_back(*primitive);
   auto constructors = [&](const std::vector<Primitive> &primitives) {
-    for (const auto &[index, primitive] : llvm::enumerate(primitives))
+    for (auto [index, primitive] : llvm::enumerate(primitives))
       os << (index == 0 ? "  = " : "  | ") << primitive.constructor << "\n";
     os << "\n";
   };
