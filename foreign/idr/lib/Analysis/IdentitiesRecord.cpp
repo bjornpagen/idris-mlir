@@ -177,7 +177,7 @@ void Identities::Record::encodeConst(Node &node, Value value, Attribute constant
 int Identities::Record::internJoin(Operation *op, unsigned number) {
   unsigned side = static_cast<unsigned>(joins.size());
   joins.push_back(armsOf(op));
-  int found = -1;
+  int wanted = -1;
   for (OpResult result : op->getResults()) {
     Node node;
     node.kind = Node::Join;
@@ -185,9 +185,9 @@ int Identities::Record::internJoin(Operation *op, unsigned number) {
     node.side = side;
     int id = place(result, std::move(node));
     if (result.getResultNumber() == number)
-      found = id;
+      wanted = id;
   }
-  return found;
+  return wanted;
 }
 
 SmallVector<Identities::Record::Arm, 2> Identities::Record::armsOf(Operation *op) {

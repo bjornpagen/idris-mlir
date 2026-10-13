@@ -108,10 +108,10 @@ void Identities::Record::fill(std::size_t node) {
     // read; only the memo and the parts grow.
     const Node &call = nodes[node];
     readCallee(call.callee);
-    auto found = live->find(call.callee);
-    if (found == live->end())
+    auto entry = live->find(call.callee);
+    if (entry == live->end())
       break;
-    ArrayRef<unsigned> params = found->second;
+    ArrayRef<unsigned> params = entry->second;
     auto operand = [&](unsigned param) { return static_cast<std::size_t>(call.ops[param]); };
     for (unsigned param : params)
       if (param < call.ops.size())

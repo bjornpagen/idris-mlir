@@ -47,10 +47,10 @@ Identities::Identities(Operation *op, AnalysisManager &am) {
   Assumed assumed;
   SmallVector<FuncOp> functions;
   for (FuncOp fn : cast<ModuleOp>(op).getOps<FuncOp>()) {
-    SmallVector<unsigned, 1> found = candidates(fn);
-    if (found.empty())
+    SmallVector<unsigned, 1> cands = candidates(fn);
+    if (cands.empty())
       continue;
-    assumed[fn.getSymNameAttr()] = std::move(found);
+    assumed[fn.getSymNameAttr()] = std::move(cands);
     functions.push_back(fn);
   }
 
