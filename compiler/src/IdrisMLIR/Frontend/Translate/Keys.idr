@@ -11,10 +11,12 @@ module IdrisMLIR.Frontend.Translate.Keys
 import Core.Case.CaseTree
 import Core.Context
 import Core.Core
+import Core.Env
 import Core.Hash
 import Core.Name.Scoped
 import Core.TT
 import Libraries.Data.List.Thin
+import Libraries.Data.NameMap
 
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
@@ -116,60 +118,87 @@ mutual
   altRefs acc (ConstCase _ sc) = treeRefs acc sc
   altRefs acc (DefaultCase sc) = treeRefs acc sc
 
-||| What a definition refers to: its compile-time tree's references, which
-||| for a solved metavariable are its solution's.
+||| What a definition refers to: its compile-time tree's references, then
+||| its runtime tree's and its clauses' terms, which the translation also
+||| takes references from when it unfolds a definition: a block whose call
+||| the trees compiled away is still referred to there. For a solved
+||| metavariable these are its solution's.
 referencesOf : {auto c : Ref Ctxt Defs} -> Name -> Core (List Reference)
 referencesOf n = do
   defs <- get Ctxt
   Just def <- lookupCtxtExact n (gamma defs)
     | Nothing => pure []
   pure (case definition def of
-          PMDef _ _ tree _ _ => treeRefs [<] tree <>> []
+          PMDef _ _ tree treeRT pats =>
+            treeRefs [<] tree <>> (treeRefs [<] treeRT <>> concatMap patRefs pats)
           _ => [])
+  where
+    patRefs : (vs : Scope ** (Env Term vs, Term vs, Term vs)) -> List Reference
+    patRefs (_ ** (_, lhs, rhs)) = termRefs (termRefs [<] lhs) rhs <>> []
 
-||| Names the blocks a definition refers to, depth first: each block not
-||| yet named gets the next number of its kind under the definition that
-||| refers to it first, and its own references are walked at once under
-||| its new name. The numbers count from 0 in each parent, so a block's
-||| name changes only with its parent's definition, never with how many
-||| blocks the rest of the build made.
-nameUnder : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-            String -> (Nat, Nat) -> List Reference -> Core ()
-nameUnder origin ks [] = pure ()
-nameUnder origin ks (AMeta m :: rest) = do
-  solution <- referencesOf m
-  nameUnder origin ks (solution ++ rest)
-nameUnder origin (cases, withs) (ARef r :: rest) = do
-  full <- toFullNames r
-  let Just kind = blockOf full
-    | Nothing => nameUnder origin (cases, withs) rest
-  let key = nameKey full
-  if isJust (lookup key (!(get TState)).blockNames)
-     then nameUnder origin (cases, withs) rest
-     else do
-       let (name, ks) : (String, (Nat, Nat)) = case kind of
-                          CaseB => (origin ++ ".case" ++ show cases, (S cases, withs))
-                          WithB => (origin ++ ".with" ++ show withs, (cases, S withs))
-                          NestedB inner => (origin ++ "." ++ inner, (cases, withs))
-       update TState { blockNames $= insert key name }
-       nameUnder name (0, 0) !(referencesOf full)
-       nameUnder origin ks rest
+mutual
+  ||| Names the blocks a definition refers to, depth first: each block not
+  ||| yet named gets the next number of its kind under the definition that
+  ||| refers to it first, and its own references are walked at once under
+  ||| its new name. The numbers count from 0 in each parent, so a block's
+  ||| name changes only with its parent's definition, never with how many
+  ||| blocks the rest of the build made. An ordinary reference is walked
+  ||| too: a block is not always referred to by the definition being
+  ||| translated or by the one Idris named it for (a case block of an
+  ||| interface's default method is referred to by the implementation
+  ||| methods the default was elaborated into, under the method's name),
+  ||| so the walk follows references until it reaches a definition that
+  ||| does refer to the block. Each definition is walked once.
+  nameUnder : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+              String -> (Nat, Nat) -> List Reference -> Core ()
+  nameUnder origin ks [] = pure ()
+  nameUnder origin ks (AMeta m :: rest) = do
+    solution <- referencesOf m
+    nameUnder origin ks (solution ++ rest)
+  nameUnder origin (cases, withs) (ARef r :: rest) = do
+    full <- toFullNames r
+    let Just kind = blockOf full
+      | Nothing => do nameBlocksOf full
+                      nameUnder origin (cases, withs) rest
+    let key = nameKey full
+    if isJust (lookup key (!(get TState)).blockNames)
+       then nameUnder origin (cases, withs) rest
+       else do
+         let (name, ks) : (String, (Nat, Nat)) = case kind of
+                            CaseB => (origin ++ ".case" ++ show cases, (S cases, withs))
+                            WithB => (origin ++ ".with" ++ show withs, (cases, S withs))
+                            NestedB inner => (origin ++ "." ++ inner, (cases, withs))
+         update TState { blockNames $= insert key name }
+         nameUnder name (0, 0) !(referencesOf full)
+         nameUnder origin ks rest
 
-||| Names the blocks of a definition that is no block, once.
-nameBlocksOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> Core ()
-nameBlocksOf n = do
-  full <- toFullNames n
-  let key = nameKey full
-  when (isNothing (blockOf full) && isNothing (lookup key (!(get TState)).blockNames)) $ do
-    let origin = plainOrigin full
-    update TState { blockNames $= insert key origin }
-    nameUnder origin (0, 0) !(referencesOf full)
+  ||| Names the blocks of a definition that is no block, once.
+  nameBlocksOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> Core ()
+  nameBlocksOf n = do
+    full <- toFullNames n
+    let key = nameKey full
+    when (isNothing (blockOf full) && isNothing (lookup key (!(get TState)).blockNames)) $ do
+      let origin = plainOrigin full
+      update TState { blockNames $= insert key origin }
+      nameUnder origin (0, 0) !(referencesOf full)
+
+namespaceOf : Name -> Maybe Namespace
+namespaceOf (NS ns _) = Just ns
+namespaceOf (DN _ n) = namespaceOf n
+namespaceOf _ = Nothing
 
 ||| The definition's printed name, which a key starts with: Idris's full
 ||| name (`plainOrigin`), and for a case, with or nested block its
 ||| parent's, then `.case<k>`, `.with<k>` or `.<name>`. A block is named
-||| when the definition that refers to it is walked: the one being
-||| translated, which is where its call is; else the block's root.
+||| when a definition that refers to it is walked: first the one being
+||| translated, then the block's root, and at last every definition in
+||| the block's namespace and beyond, since neither of the first two
+||| need refer to it: a default method's case block is referred to by
+||| the implementation methods the default was elaborated into, and a
+||| nested block's parent index is its place in the context that
+||| elaborated it, which loading does not keep. The block and the
+||| definition Idris made it in share a namespace, so that is where the
+||| search starts.
 keyOrigin : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> Core String
 keyOrigin n = do
   full <- toFullNames n
@@ -185,12 +214,26 @@ keyOrigin n = do
   Nothing <- named key
     | Just o => pure o
   nameBlocksOf !(rootOf full)
+  Nothing <- named key
+    | Just o => pure o
+  defs <- get Ctxt
+  let all = map fst (Libraries.Data.NameMap.toList (resolvedAs (gamma defs)))
+  let (near, far) = partition (\c => namespaceOf c == namespaceOf full) all
+  search key (near ++ far)
   Just o <- named key
     | Nothing => internal EmptyFC ("no definition refers to the block " ++ show full)
   pure o
   where
     named : String -> Core (Maybe String)
     named key = pure (lookup key (!(get TState)).blockNames)
+
+    search : String -> List Name -> Core ()
+    search key [] = pure ()
+    search key (c :: cs) = do
+      nameBlocksOf c
+      case !(named key) of
+        Just _ => pure ()
+        Nothing => search key cs
 
 ------------------------------------------------------------------------------
 -- Arguments as text
