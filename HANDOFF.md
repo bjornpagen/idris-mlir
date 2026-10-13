@@ -8,15 +8,22 @@ here; the second owns this repository's toolchain and code.
 
 State, updated 2026-10-12.
 
-**The cutover.** Proposal 0002 is committed and unbuilt:
+**The cutover.** Proposal 0002 is committed, and it builds:
 `foreign/idr` is an in-tree MLIR dialect in upstream's layout (headers
 and .cpp, no C++ module), functions are `idr.func` with their facts as
 inherent attributes, analyses run under the analysis manager, the round
 is upstream's composite pass, the runtime is headers and .cpp, the
 frontend emits no erased value, and compile-time evaluation (`idr-eval`,
-its JIT and its child) is gone. It is checked by `make typecheck` alone,
-which compiles every unit of `foreign/idr` against TableGen's headers
-without stage 2; `make build` and the suites have not run on it. Its
+its JIT and its child) is gone. Its first real build (4d5e7e8f, arm64
+macOS) passed, and a Prelude program compiled by it runs with no live
+cells at exit. The suites ran once, before the fixes that followed:
+`make test` 84 of 415, `make test-idr` 251 of 272, `make
+test-mlir-tools` 15 of 16. The failure clusters those runs showed are
+fixed in the commits after it (isolate's linear closures, the
+quantities check's keys, rc's reuse of atoms, the newtype's field
+quantity, block naming, the parsers' inherent facts), and the gate has
+not run again since. `make typecheck`, which compiles every unit with
+the dev warnings as errors without stage 2, and `make check` pass. Its
 qualification is the 0002 README's "Qualification".
 
 **Toolchain.** Built on arm64 macOS, pin llvm main 7208ba24, one recipe

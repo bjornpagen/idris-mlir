@@ -1,9 +1,9 @@
 # 0002: the cutover swarm
 
 **Status:** launched and integrated, 2026-10-12. Every lane's work is in
-the tree and committed. It is checked by `make typecheck` and `make check`
-on this checkout only: no `make build` or `make test` has run. It is
-deleted when 0001's G1 qualifies it on the owner's machine.
+the tree and committed, and it builds on arm64 macOS (4d5e7e8f). Its
+first suites' failures are fixed and the gate has not run again since.
+It is deleted when 0001's G1 qualifies it on the owner's machine.
 
 The packet makes the compiler hold each thing it knows once, where MLIR
 already has a name for it, and deletes the copy that held it before:

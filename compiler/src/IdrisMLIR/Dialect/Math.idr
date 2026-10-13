@@ -526,4 +526,4 @@ printOp (MkOp "math.trunc" [o0] props [] attrs [r0]) = do
 
 printOp _ = Nothing
 
--- fingerprint: 2450473905-802604 3666400374-27897
+-- fingerprint: 2527488977-802583 3666400374-27897

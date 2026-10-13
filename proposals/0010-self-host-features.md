@@ -1,8 +1,8 @@
 # 0010: the compiler features self-hosting asked for
 
 **Status:** a sketch to flesh out, 2026-10-10; updated 2026-10-12 against
-the cutover (0001, executed by 0002), which is committed and unbuilt
-until the owner's machine runs it. Nothing of the six features is built.
+the cutover (0001, executed by 0002), which is committed and builds;
+its suites have not passed yet. Nothing of the six features is built.
 Stage 0 of self-hosting compiled the frontend (c50d176d), and `make self`
 (1ce907d3) shows stage 2 identical to stage 3 on the small stages; the
 whole frontend has never been through the C++ pipeline (0001 §1). The

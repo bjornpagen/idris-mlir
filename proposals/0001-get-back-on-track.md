@@ -6,7 +6,8 @@ to C5 and H1 to H2 were carried out as one cutover by the swarm packet
 where the two differ (no compatibility owed, `idr.func` at once, the
 erased grade deleted from the dialect, profiling instrumented
 through the pass manager, the dialect's readability taken now). The
-cutover is committed; it is unbuilt until the owner's machine runs it. G0, G1 (§12, what remained of the former LLVM-pin and representation-cutover proposals)
+cutover is committed and builds on arm64 macOS (4d5e7e8f); the full
+gate has not run since the fixes its first suites called for. G0, G1 (§12, what remained of the former LLVM-pin and representation-cutover proposals)
 and S (§6.1, self-hosting) stay here. Its §1 to §4 read the tree before
 the cutover, at 25890d32. Claims are marked: *read* (the path),
 *measured* (the record), *recalled* (from memory, to be checked),
@@ -380,7 +381,8 @@ parallel with C3 and C4.
 ### 6.1 Self-hosting, after the cutover
 
 Self-hosting is the first priority. The
-cutover is written and unbuilt; these steps take it to a compiler that
+cutover builds, and its first suites' failures are fixed but not yet
+rerun; these steps take it to a compiler that
 compiles itself, each one measured before the next starts.
 
 1. **Integrate.** The cutover's lanes as one tree: `make typecheck` and

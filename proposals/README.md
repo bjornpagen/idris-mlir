@@ -47,7 +47,7 @@ nothing waits on them. Parked, with the reason in each status line:
   parallel with threading on, the frontend emitting no erased value and
   readable names with locations, and profiling through the pass
   manager (a time trace since D8, in 0001).
-  Committed and unbuilt; deleted once G1 qualifies it.
+  Committed, and it builds; deleted once G1 qualifies it.
 - [0003](0003-typed-apl/README.md): a typed array language, MLIR first.
   Every fact Idris proves about an array has one image in MLIR, the one
   upstream optimizes on: shapes as ranked tensor types with static
