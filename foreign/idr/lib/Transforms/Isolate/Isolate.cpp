@@ -144,10 +144,26 @@ void Isolate::runOnOperation() {
     rewriter.setInsertionPoint(op);
     auto callee = FlatSymbolRefAttr::get(symbol);
     Type type = op->getResult(0).getType();
-    if (lambda)
-      rewriter.replaceOpWithNewOp<idr::ClosureOp>(op, type, callee, captures);
-    else
-      rewriter.replaceOpWithNewOp<idr::SuspendOp>(op, type, callee, captures);
+    Value made =
+        lambda ? Value(idr::ClosureOp::create(rewriter, op->getLoc(), type, callee, captures))
+               : Value(idr::SuspendOp::create(rewriter, op->getLoc(), type, callee, captures));
+    // A body that uses a linear value from above makes a closure or a
+    // suspension holding it, whose one use must run it where it is made
+    // or enter it into a linear type (their verifiers). The region form
+    // has no such use to show: where the lambda was not taken once --
+    // returned, as PrimIO.io_bind returns the action it builds over its
+    // linear halves -- enter the closure into a linear type and use it
+    // back out. The pair is its one use, and what reads the use reads an
+    // ordinary value, as one read out of a linear field is.
+    bool holds = llvm::any_of(captures, [](Value capture) {
+      return idr::quantityOf(capture.getType()) == idr::Quantity::One;
+    });
+    if (holds && idr::quantityOf(type) == idr::Quantity::Many &&
+        !idr::takenOnce(op->getResult(0))) {
+      Value entered = idr::LinEnterOp::create(rewriter, op->getLoc(), idr::linear(type), made);
+      made = idr::LinUseOp::create(rewriter, op->getLoc(), type, entered);
+    }
+    rewriter.replaceOp(op, made);
   }
   // Every function went in through the table; no declaration changed.
   markAnalysesPreserved<SymbolTable, idr::Holds, idr::TypeGraph, idr::Layouts>();
