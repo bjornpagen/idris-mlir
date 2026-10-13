@@ -8,7 +8,7 @@ here; the second owns this repository's toolchain and code.
 
 State, updated 2026-10-12.
 
-**The cutover.** Proposal 0015 is committed and unbuilt:
+**The cutover.** Proposal 0002 is committed and unbuilt:
 `foreign/idr` is an in-tree MLIR dialect in upstream's layout (headers
 and .cpp, no C++ module), functions are `idr.func` with their facts as
 inherent attributes, analyses run under the analysis manager, the round
@@ -17,7 +17,7 @@ frontend emits no erased value, and compile-time evaluation (`idr-eval`,
 its JIT and its child) is gone. It is checked by `make typecheck` alone,
 which compiles every unit of `foreign/idr` against TableGen's headers
 without stage 2; `make build` and the suites have not run on it. Its
-qualification is the 0015 README's "Qualification".
+qualification is the 0002 README's "Qualification".
 
 **Toolchain.** Built on arm64 macOS, pin llvm main 7208ba24, one recipe
 (`tools/bootstrap.sh`, into `.toolchain/llvm`). Before the cutover, on
@@ -25,7 +25,7 @@ qualification is the 0015 README's "Qualification".
 269/269 and `test-mlir-tools` 17/17, and two `make test` programs,
 `programs/prelude/every-interfaces-export` and `every-types-export`,
 compiled and then hit their time limits. A stage-2 rebuild takes about 3
-minutes with ccache. x86_64 Linux is still unbuilt at this pin (0014's
+minutes with ccache. x86_64 Linux is still unbuilt at this pin (0001's
 gate G1).
 
 **Self-hosting.**
@@ -60,26 +60,28 @@ gate G1).
   emission's memory (9.1 GB for a 405 MB text module: the print-write
   patch in the scratch audit, and R7's bytecode rule, now measurable).
 - The rewrites self-hosting forced, and the compiler features that would
-  replace the regressions among them, are proposal 0004.
+  replace the regressions among them, are proposal 0010.
 
-**Proposals** (`proposals/README.md`), in the order the work starts:
-- 0015: the cutover that executes 0014's stages C and H, committed;
-- 0014: self-hosting (its stage S, §6.1), behind its gate G1 (its §12):
+**Proposals** (`proposals/README.md`), in their numbered order, which
+is the order the work is done:
+- 0001: self-hosting (its stage S, §6.1), behind its gate G1 (its §12):
   what remained of the Linux bootstrap and of the representation cutover;
-- 0007's stage 1: the purge of today's array stack and its MLIR-first
+- 0002: the cutover that executes 0001's stages C and H, committed;
+  qualifying it is 0001 §6.1's first steps;
+- 0003's stage 1: the purge of today's array stack and its MLIR-first
   rebuild, as one cutover, right after `make self`;
-- 0009 and 0011: sharding (0009's P1, P2 and P4; 0011's S0, S1, S2 and
+- 0004 and 0005: sharding (0004's P1, P2 and P4; 0005's S0, S1, S2 and
   S8);
-- then the array work: 0007's typed array language, with 0016's array
+- then the array work: 0003's typed array language, with 0006's array
   interpreter (static normalization on the type checker's evaluator),
-  0005's tables and 0008's flattened data as its consumers, and 0006's
-  type checker on 0016's machine;
-- 0004: the compiler features self-hosting asked for, once `make self`
+  0007's tables and 0008's flattened data as its consumers, and 0009's
+  type checker on 0006's machine;
+- 0010: the compiler features self-hosting asked for, once `make self`
   is green;
-- parked: 0010 (the relational core), 0013 (Rust), 0011's S3 to S6 and
-  S9 to S10, and 0009's P3.
+- parked: 0011 (the relational core), 0012 (Rust), 0005's S3 to S6 and
+  S9 to S10, and 0004's P3.
 
-The research behind 0006, 0007 and 0008 is in `sources/`, with reading
+The research behind 0009, 0003 and 0008 is in `sources/`, with reading
 notes in `sources/notes/`. Contiguous runs (one run cell for strings,
 arrays and buffers) has no proposal yet. The LLVM submissions are in
 `upstream/`; their status table says which is next.
@@ -108,5 +110,5 @@ Its two phases landed: the trunk cutover (20fcfadb, 1677b8cb) and the
 representation cutover (93f5d9c9, 327c2e30, 0451b1b8). What it left open
 is now the repository's own: the bootstrap and the suites on both
 targets at the pin, and the rest of the representation cutover's
-qualification, both in 0014's gate G1
-(`proposals/0014-get-back-on-track.md` §12).
+qualification, both in 0001's gate G1
+(`proposals/0001-get-back-on-track.md` §12).

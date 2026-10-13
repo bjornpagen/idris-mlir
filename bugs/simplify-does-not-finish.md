@@ -1,7 +1,7 @@
 # `idr-simplify` does not finish on the frontend module
 
 **Status:** open until it is measured again on the cutover (proposal
-0015). The record below was read and measured at 25890d32, before it.
+0002). The record below was read and measured at 25890d32, before it.
 
 The loop was not open: it stops after `max-rounds` (64) and one more
 round, or at a round that leaves the composite's fingerprint unchanged.

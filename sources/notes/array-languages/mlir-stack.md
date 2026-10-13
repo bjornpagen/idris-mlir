@@ -241,7 +241,7 @@ increase by a static *reassociation*, with dynamic `output_shape` operands), `co
 catenate → `concat`; reshape between ranks of the same element count → `expand_shape`
 / `collapse_shape` (views when contiguous); fill → `linalg.fill` of `tensor.empty`;
 padding with a fill element → `tensor.pad`. Use `tensor.dim` as the size the bounds
-relation reads (0007 already plans this).
+relation reads (0003 already plans this).
 
 **Avoid.** `tensor.generate` (no destination, always allocates: §2.5). `tensor.gather`
 and `tensor.scatter`: at the pin they have no `BufferizableOpInterface` model (the
@@ -295,9 +295,9 @@ must be known at compile time. Dynamic rank is out of reach of the tensor dialec
 **Steal.**
 - One-Shot as *the* in-place analysis for value arrays, with `memCpyFn` and `allocationFn`
   set to our runtime's cell and an element-aware copy. With a counting-aware `memCpyFn`
-  (dup every counted element copied) the "words only" restriction of 0007 §3.1 item 1 is
+  (dup every counted element copied) the "words only" restriction of 0003 §3.1 item 1 is
   a choice, not a limit: an array of boxes can be a tensor too.
-- The custom-type interfaces: an `!idr.lin<tensor<...>>` / `!idr.lin<memref<...>>` pair (0007
+- The custom-type interfaces: an `!idr.lin<tensor<...>>` / `!idr.lin<memref<...>>` pair (0003
   §3.3) is exactly what `TensorLikeType`/`BufferLikeType` were added for; quantity 1 then
   stays in the type across bufferization, as AGENTS.md requires.
 - `restrict writable` is how a quantity-1 array enters tensor land: Idris's linearity is
@@ -321,7 +321,7 @@ must be known at compile time. Dynamic rank is out of reach of the tensor dialec
 future work, `vasilache-2022-structured-codegen/3-transformations.tex:240`). One-Shot does not
 understand reference counts: an array shared by count 2 must not be written in place,
 which SSA-only analysis cannot see if two SSA values alias the same cell through a box
-(0007 §3.1 already excludes arrays read out of boxes).
+(0003 §3.1 already excludes arrays read out of boxes).
 
 ### 2.6 Transform dialect (docs, ODS, Lücke et al.)
 
@@ -466,8 +466,8 @@ which Idris can prove.
 
 **Avoid.** The `ShardToMPI` conversion (`mlir/lib/Conversion/ShardToMPI` at the pin): MPI is
 a C library, multi-process; our multicore runtime is shards of one process
-(`proposals/0009-shards.md`). Keep `shard` for the partitioning decision and lower the
-collectives to our runtime (0007 §3.8 already decides this).
+(`proposals/0004-shards.md`). Keep `shard` for the partitioning decision and lower the
+collectives to our runtime (0003 §3.8 already decides this).
 
 **Limits.** Partition requires every op to implement `ShardingInterface` or be fully
 replicated (`Passes.td:65-71`); contiguous shards only (`ShardOps.td:234`); no cost
@@ -486,7 +486,7 @@ written inside are privatized; results are combined by `scf.forall.in_parallel` 
 
 **Steal.** `scf.forall` is the target-independent "for each frame cell, in parallel" of a
 rank-polymorphic lift, on tensors, bufferizable, and lowerable to our own fork/join
-(`proposals/0009-shards.md`, P4). A custom `mapping` attribute (`DeviceMappingInterface.td`)
+(`proposals/0004-shards.md`, P4). A custom `mapping` attribute (`DeviceMappingInterface.td`)
 can name our shards.
 
 **Avoid.** `convert-scf-to-openmp` and `async-parallel-for` lowerings: both need a C runtime
@@ -609,7 +609,7 @@ no published account of Mojo's array (tensor/layout) lowering in this snapshot.
 
 ## 3. The lowering map, without a rank ceiling
 
-The question 0007 §3.7 answered timidly ("the backing stays one-dimensional", rank-r only
+The question 0003 §3.7 answered timidly ("the backing stays one-dimensional", rank-r only
 by name and only for words): what upstream gives is enough for every static rank, and a
 small set of idr ops covers what it does not.
 
@@ -665,7 +665,7 @@ type's shape whenever the rank is known.
 
 ### 3.3 Element types beyond words
 
-`tensor` and `memref` already accept idr element types (§2.3 Limits). What restricts 0007
+`tensor` and `memref` already accept idr element types (§2.3 Limits). What restricts 0003
 §3.1 to words is (a) bufferization's copy and (b) the vectorizer. (a) is a hook:
 `memCpyFn` can emit a counted copy (dup per element) and `allocationFn` our cell
 (§2.5 Steal). (b) is not a limit on correctness: a non-vectorizable `generic` lowers to
@@ -681,16 +681,16 @@ references must not be written in place; One-Shot sees SSA aliasing only. Exclus
 | scan with a user monoid | none in `linalg`/`tensor`; `vector.scan` has a fixed combining kind (`VectorOps.td:3032`) | `idr.array.scan` (region combiner over an axis, `reverse`), implementing `TilingInterface` (and `PartialReductionOpInterface` for a two-pass parallel scan), modelled on `tt.scan` (`code/triton/.../TritonOps.td:876-905`) |
 | dynamic rank | none (§3.2) | a descriptor array type and fixed-rank view ops (`idr.array.view` at a collapsed rank, `idr.array.shape`) |
 | gather/scatter that reach code | `tensor.gather`/`scatter` lack bufferization (§2.4) | `generic` bodies with `tensor.extract`, or an idr op with a `BufferizableOpInterface` model |
-| allocation in our runtime's cell | `memref.alloc` | `allocationFn` building `idr.array.alloc` (0007 §3.5) |
+| allocation in our runtime's cell | `memref.alloc` | `allocationFn` building `idr.array.alloc` (0003 §3.5) |
 | copying counted elements | `memref.copy` | `memCpyFn` emitting a counted copy |
 | linearity across bufferization | `TensorLikeType`/`BufferLikeType` exist (`BufferizationTypeInterfaces.td:18-50`) | `!idr.lin`/`!idr.excl` implementing them over tensor and memref carriers |
-| SPMD collectives on our shards | `ShardToMPI` (C library) | lowering of `shard` collectives to the shard runtime (0009) |
-| parallel `scf.forall` on CPU without a C runtime | `scf-to-openmp`, `async` | lowering `scf.forall` to our fork/join (0009 P4) |
+| SPMD collectives on our shards | `ShardToMPI` (C library) | lowering of `shard` collectives to the shard runtime (0004) |
+| parallel `scf.forall` on CPU without a C runtime | `scf-to-openmp`, `async` | lowering `scf.forall` to our fork/join (0004 P4) |
 | nested / ragged arrays (boxed APL) | none; `linalg` has no nesting (`_index.md:679`) | arrays of `!idr.box` elements (legal tensor elements) plus element-aware bufferization; ragged as an array of arrays, not a linalg value |
 | sparse arrays of non-numbers | encoding restricted to numeric elements (`SparseTensorAttrDefs.td:129-131`) | out of scope until a program needs it |
 | proven associativity/commutativity/neutral element | not representable; reductions carry only `reduction` iterators | a property of the reduction op proved by Idris, kept in the op (not a discardable attribute) so float reductions may reassociate only when proved |
 
-## 5. Rules these sources impose on a revised 0007
+## 5. Rules these sources impose on a revised 0003
 
 - One representation: emit structured ops from the Idris array type's rank; do not keep a
   1-D backing plus a recognized-by-name rank-r library (§3.1).

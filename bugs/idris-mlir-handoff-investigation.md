@@ -1,7 +1,7 @@
 # Investigation: Is the Idris → `idr` MLIR handoff too low level?
 
-**Status:** answered. Proposal 0014 took up its questions and the cutover
-(proposal 0015) decided them: the frontend emits no erased value and no
+**Status:** answered. Proposal 0001 took up its questions and the cutover
+(proposal 0002) decided them: the frontend emits no erased value and no
 newtype, names are readable quoted symbols with locations, and the
 dialect's functions are `idr.func`. The IR it quotes is the handoff at
 25890d32; the brief is kept as the record those proposals cite.

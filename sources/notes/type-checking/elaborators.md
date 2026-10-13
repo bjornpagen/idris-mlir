@@ -469,7 +469,7 @@ solutions" (line 196). These numbers are 2021; the fork has not been measured by
    time, which is exactly Isabelle's "practical proof irrelevance"; check proof bodies of
    total, erased-only definitions in parallel and late, with the type known first
    (Isabelle 3.0–3.2x on 4 cores; Coq latency 1 h to 7 min, §8). This would fit the
-   one-runtime-per-core model of proposal 0009 (`proposals/README.md`, the 0009 entry) if
+   one-runtime-per-core model of proposal 0004 (`proposals/README.md`, the 0004 entry) if
    elaboration of a definition were a task; conjecture.
 10. **A compiled evaluator for closed, total computation**, staged: the NbE interpreter
     for open terms; compiled code (this compiler's own MLIR pipeline) for closed heavy

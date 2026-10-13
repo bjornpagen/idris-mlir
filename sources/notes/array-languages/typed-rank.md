@@ -1,6 +1,6 @@
 # Typed rank polymorphism and shape typing
 
-Notes for an Idris-hosted typed array language compiled through MLIR (proposal 0007's rank
+Notes for an Idris-hosted typed array language compiled through MLIR (proposal 0003's rank
 above 1). Cluster `typed-rank`. Written 2026-10-09.
 
 Every source claim cites the stored file under `sources/` (staged at
@@ -20,7 +20,7 @@ section and the printed page; TeX and code citations give `file:line`.
 - [5. Futhark size types (2021, 2023)](#5-futhark-size-types)
 - [6. Type-level Nat solvers: Diatchki, natnormalise](#6-type-level-nat-solvers)
 - [7. Decidability, in one table](#7-decidability-in-one-table)
-- [8. What this means for 0007: rank with no ceiling](#8-what-this-means-for-0007-rank-with-no-ceiling)
+- [8. What this means for 0003: rank with no ceiling](#8-what-this-means-for-0003-rank-with-no-ceiling)
 - [9. Not stored, and open questions](#9-not-stored-and-open-questions)
 
 ## 0. What the cluster answers
@@ -603,9 +603,9 @@ numbers": sizes are naturals and differences need a `≤` proof.
 | GHC Nat with `+`, constant `*`, `<=?` | linear arithmetic via SMT (Diatchki); non-linear terms named away | `diatchki-2015-smt/paper.tex:581-703` |
 | Rank-polymorphic types without ∀ | no principal types (`app+`) | Dissertation ch. 6 pp. 73–74 |
 
-## 8. What this means for 0007: rank with no ceiling
+## 8. What this means for 0003: rank with no ceiling
 
-0007 §3.7 today (read: `proposals/0007-typed-apl/README.md:268-298`): rank-r arrays when the rank is a
+0003 §3.7 today (read: `proposals/0003-typed-apl/README.md:268-298`): rank-r arrays when the rank is a
 literal after monomorphisation and the elements are words; otherwise "the library's definition
 compiles as written: a rank erased at quantity 0 is not a constant the compiler may assume".
 The prior art says the second branch need not be a fallback. Below, each step is marked.
@@ -714,7 +714,7 @@ The prior art says the second branch need not be a fallback. Below, each step is
 - **What not to use.** MLIR's `Broadcastable` trait and TOSA/NumPy-style implicit broadcasting:
   trailing-axis alignment with size-1 stretching decided at run time
   (`Broadcastable.md:22-80`), the semantics prefix agreement exists to avoid. (read + conjecture)
-- **What this gives 0007.** The `tabulate`/`index`/`map`/`zipWith` surface of §3.7 becomes the
+- **What this gives 0003.** The `tabulate`/`index`/`map`/`zipWith` surface of §3.7 becomes the
   cell-level vocabulary; `lift` (frame found by unification, principal frame by evidence)
   becomes the one lifting combinator the frontend recognizes; the rank-r restriction to
   literal ranks becomes "one loop per canonical component", with specialization when the rank
