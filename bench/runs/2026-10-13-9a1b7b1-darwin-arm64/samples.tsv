@@ -1,0 +1,405 @@
+ack	10	this compiler	312091000
+ack	10	this compiler	27536000
+ack	10	this compiler	19253000
+ack	10	this compiler	17012000
+ack	10	this compiler	14085000
+ack	10	Idris Chez	932900000
+ack	10	Idris Chez	698654000
+ack	10	Idris Chez	680149000
+ack	10	Idris Chez	659723000
+ack	10	Idris Chez	685642000
+ack	10	clang -O2	250576000
+ack	10	clang -O2	154208000
+ack	10	clang -O2	157247000
+ack	10	clang -O2	168662000
+ack	10	clang -O2	167552000
+ackdyn	10	this compiler	249768000
+ackdyn	10	this compiler	170763000
+ackdyn	10	this compiler	183677000
+ackdyn	10	this compiler	196576000
+ackdyn	10	this compiler	162705000
+ackdyn	10	Idris Chez	856934000
+ackdyn	10	Idris Chez	618731000
+ackdyn	10	Idris Chez	626343000
+ackdyn	10	Idris Chez	618682000
+ackdyn	10	Idris Chez	609688000
+ackdyn	10	clang -O2	239329000
+ackdyn	10	clang -O2	145372000
+ackdyn	10	clang -O2	143318000
+ackdyn	10	clang -O2	142431000
+ackdyn	10	clang -O2	144423000
+binary-trees	21	this compiler	5639419000
+binary-trees	21	this compiler	6166700000
+binary-trees	21	this compiler	6080438000
+binary-trees	21	this compiler	6095773000
+binary-trees	21	this compiler	6697970000
+binary-trees	21	Idris Chez	27636149000
+binary-trees	21	Idris Chez	25649105000
+binary-trees	21	Idris Chez	26335276000
+binary-trees	21	Idris Chez	25886904000
+binary-trees	21	Idris Chez	25295078000
+binary-trees	21	clang -O2	10262140000
+binary-trees	21	clang -O2	9794716000
+binary-trees	21	clang -O2	9995735000
+binary-trees	21	clang -O2	10011858000
+binary-trees	21	clang -O2	10307940000
+cfold	20	this compiler	371814000
+cfold	20	this compiler	89718000
+cfold	20	this compiler	88534000
+cfold	20	this compiler	89185000
+cfold	20	this compiler	87603000
+cfold	20	Idris Chez	549579000
+cfold	20	Idris Chez	371870000
+cfold	20	Idris Chez	360595000
+cfold	20	Idris Chez	361645000
+cfold	20	Idris Chez	366606000
+cfold	20	clang -O2	187075000
+cfold	20	clang -O2	95900000
+cfold	20	clang -O2	95200000
+cfold	20	clang -O2	106152000
+cfold	20	clang -O2	109547000
+collatz	3000000	this compiler	544234000
+collatz	3000000	this compiler	457088000
+collatz	3000000	this compiler	452982000
+collatz	3000000	this compiler	456626000
+collatz	3000000	this compiler	460709000
+collatz	3000000	Idris Chez	12761571000
+collatz	3000000	Idris Chez	12079431000
+collatz	3000000	Idris Chez	14167570000
+collatz	3000000	Idris Chez	13407939000
+collatz	3000000	Idris Chez	13570762000
+collatz	3000000	clang -O2	793570000
+collatz	3000000	clang -O2	536742000
+collatz	3000000	clang -O2	530109000
+collatz	3000000	clang -O2	529108000
+collatz	3000000	clang -O2	518234000
+deriv	10	this compiler	804035000
+deriv	10	this compiler	729230000
+deriv	10	this compiler	728886000
+deriv	10	this compiler	701309000
+deriv	10	this compiler	702096000
+deriv	10	Idris Chez	2531760000
+deriv	10	Idris Chez	2328864000
+deriv	10	Idris Chez	2311043000
+deriv	10	Idris Chez	2281410000
+deriv	10	Idris Chez	2334535000
+deriv	10	clang -O2	1245497000
+deriv	10	clang -O2	1154320000
+deriv	10	clang -O2	1171442000
+deriv	10	clang -O2	1169905000
+deriv	10	clang -O2	1153859000
+fannkuch-linear	12	this compiler	51821864000
+fannkuch-linear	12	this compiler	50131595000
+fannkuch-linear	12	this compiler	53964298000
+fannkuch-linear	12	this compiler	51374040000
+fannkuch-linear	12	this compiler	49205242000
+fannkuch-linear	12	Idris Chez	507315391000
+fannkuch-linear	12	Idris Chez	531297078000
+fannkuch-linear	12	Idris Chez	497403297000
+fannkuch-linear	12	Idris Chez	512656874000
+fannkuch-linear	12	Idris Chez	538013676000
+fannkuch-linear	12	clang -O2	31497255000
+fannkuch-linear	12	clang -O2	31000553000
+fannkuch-linear	12	clang -O2	31352484000
+fannkuch-linear	12	clang -O2	31190602000
+fannkuch-linear	12	clang -O2	31672958000
+fannkuch-redux	12	this compiler	38311153000
+fannkuch-redux	12	this compiler	34321967000
+fannkuch-redux	12	this compiler	34031700000
+fannkuch-redux	12	this compiler	34546296000
+fannkuch-redux	12	this compiler	33729322000
+fannkuch-redux	12	Idris Chez	1254927988000
+fannkuch-redux	12	Idris Chez	1218731315000
+fannkuch-redux	12	Idris Chez	1231169728000
+fannkuch-redux	12	Idris Chez	1233357255000
+fannkuch-redux	12	Idris Chez	1310543175000
+fannkuch-redux	12	clang -O2	27021470000
+fannkuch-redux	12	clang -O2	25629025000
+fannkuch-redux	12	clang -O2	25724499000
+fannkuch-redux	12	clang -O2	25995244000
+fannkuch-redux	12	clang -O2	25553245000
+fasta	25000000	this compiler	6975949000
+fasta	25000000	this compiler	6247784000
+fasta	25000000	this compiler	6502274000
+fasta	25000000	this compiler	6344309000
+fasta	25000000	this compiler	6329047000
+fasta	25000000	Idris Chez	22820067000
+fasta	25000000	Idris Chez	22551811000
+fasta	25000000	Idris Chez	22886019000
+fasta	25000000	Idris Chez	23738218000
+fasta	25000000	Idris Chez	23832291000
+fasta	25000000	clang -O2	3182476000
+fasta	25000000	clang -O2	2863406000
+fasta	25000000	clang -O2	2783436000
+fasta	25000000	clang -O2	2697641000
+fasta	25000000	clang -O2	2682181000
+fasta-redux	25000000	this compiler	4209123000
+fasta-redux	25000000	this compiler	4103380000
+fasta-redux	25000000	this compiler	4158998000
+fasta-redux	25000000	this compiler	4136243000
+fasta-redux	25000000	this compiler	4129273000
+fasta-redux	25000000	Idris Chez	16553227000
+fasta-redux	25000000	Idris Chez	17873478000
+fasta-redux	25000000	Idris Chez	18159203000
+fasta-redux	25000000	Idris Chez	18305234000
+fasta-redux	25000000	Idris Chez	18592937000
+fasta-redux	25000000	clang -O2	1501729000
+fasta-redux	25000000	clang -O2	1154112000
+fasta-redux	25000000	clang -O2	1152364000
+fasta-redux	25000000	clang -O2	1134585000
+fasta-redux	25000000	clang -O2	1127339000
+fib	38	this compiler	219152000
+fib	38	this compiler	136679000
+fib	38	this compiler	134965000
+fib	38	this compiler	130448000
+fib	38	this compiler	135689000
+fib	38	Idris Chez	2550166000
+fib	38	Idris Chez	2376338000
+fib	38	Idris Chez	2365573000
+fib	38	Idris Chez	2367855000
+fib	38	Idris Chez	2345433000
+fib	38	clang -O2	248846000
+fib	38	clang -O2	149823000
+fib	38	clang -O2	142545000
+fib	38	clang -O2	147646000
+fib	38	clang -O2	150991000
+harmonic	200000000	this compiler	338370000
+harmonic	200000000	this compiler	240154000
+harmonic	200000000	this compiler	242001000
+harmonic	200000000	this compiler	240273000
+harmonic	200000000	this compiler	237276000
+harmonic	200000000	Idris Chez	4105265000
+harmonic	200000000	Idris Chez	3943657000
+harmonic	200000000	Idris Chez	3907351000
+harmonic	200000000	Idris Chez	3910303000
+harmonic	200000000	Idris Chez	3953568000
+harmonic	200000000	clang -O2	332113000
+harmonic	200000000	clang -O2	232886000
+harmonic	200000000	clang -O2	242436000
+harmonic	200000000	clang -O2	235507000
+harmonic	200000000	clang -O2	238499000
+k-nucleotide	fasta 25000000	this compiler	3983015000
+k-nucleotide	fasta 25000000	this compiler	3071744000
+k-nucleotide	fasta 25000000	this compiler	3087355000
+k-nucleotide	fasta 25000000	this compiler	3068203000
+k-nucleotide	fasta 25000000	this compiler	3067403000
+k-nucleotide	fasta 25000000	Idris Chez	197018226000
+k-nucleotide	fasta 25000000	Idris Chez	197974550000
+k-nucleotide	fasta 25000000	Idris Chez	179673401000
+k-nucleotide	fasta 25000000	Idris Chez	181237662000
+k-nucleotide	fasta 25000000	Idris Chez	151061328000
+k-nucleotide	fasta 25000000	clang -O2	2692234000
+k-nucleotide	fasta 25000000	clang -O2	2384745000
+k-nucleotide	fasta 25000000	clang -O2	2411852000
+k-nucleotide	fasta 25000000	clang -O2	2396256000
+k-nucleotide	fasta 25000000	clang -O2	2420331000
+mandelbrot	2000	this compiler	339328000
+mandelbrot	2000	this compiler	248766000
+mandelbrot	2000	this compiler	247960000
+mandelbrot	2000	this compiler	247011000
+mandelbrot	2000	this compiler	251023000
+mandelbrot	2000	Idris Chez	3655285000
+mandelbrot	2000	Idris Chez	3385894000
+mandelbrot	2000	Idris Chez	3336093000
+mandelbrot	2000	Idris Chez	3270784000
+mandelbrot	2000	Idris Chez	3136328000
+mandelbrot	2000	clang -O2	334304000
+mandelbrot	2000	clang -O2	230350000
+mandelbrot	2000	clang -O2	231328000
+mandelbrot	2000	clang -O2	230833000
+mandelbrot	2000	clang -O2	230175000
+mandelbrot-pbm	16000	this compiler	13686287000
+mandelbrot-pbm	16000	this compiler	13624129000
+mandelbrot-pbm	16000	this compiler	14325767000
+mandelbrot-pbm	16000	this compiler	14592711000
+mandelbrot-pbm	16000	this compiler	14070631000
+mandelbrot-pbm	16000	Idris Chez	232794987000
+mandelbrot-pbm	16000	Idris Chez	241269804000
+mandelbrot-pbm	16000	Idris Chez	242262521000
+mandelbrot-pbm	16000	Idris Chez	214189286000
+mandelbrot-pbm	16000	Idris Chez	209097946000
+mandelbrot-pbm	16000	clang -O2	15585044000
+mandelbrot-pbm	16000	clang -O2	15106448000
+mandelbrot-pbm	16000	clang -O2	15078711000
+mandelbrot-pbm	16000	clang -O2	15106497000
+mandelbrot-pbm	16000	clang -O2	15328548000
+nbody	50000000	this compiler	2059682000
+nbody	50000000	this compiler	1763861000
+nbody	50000000	this compiler	1769706000
+nbody	50000000	this compiler	1763051000
+nbody	50000000	this compiler	1764286000
+nbody	50000000	Idris Chez	50463375000
+nbody	50000000	Idris Chez	48488481000
+nbody	50000000	Idris Chez	49252594000
+nbody	50000000	Idris Chez	48546801000
+nbody	50000000	Idris Chez	48405739000
+nbody	50000000	clang -O2	2249105000
+nbody	50000000	clang -O2	1969896000
+nbody	50000000	clang -O2	1972130000
+nbody	50000000	clang -O2	1975642000
+nbody	50000000	clang -O2	1973165000
+nqueens	13	this compiler	650459000
+nqueens	13	this compiler	552808000
+nqueens	13	this compiler	554277000
+nqueens	13	this compiler	553592000
+nqueens	13	this compiler	551668000
+nqueens	13	Idris Chez	7334251000
+nqueens	13	Idris Chez	7147748000
+nqueens	13	Idris Chez	7144739000
+nqueens	13	Idris Chez	7133508000
+nqueens	13	Idris Chez	7153089000
+nqueens	13	clang -O2	974877000
+nqueens	13	clang -O2	589959000
+nqueens	13	clang -O2	593729000
+nqueens	13	clang -O2	592994000
+nqueens	13	clang -O2	590338000
+pidigits	10000	this compiler	771432000
+pidigits	10000	this compiler	671143000
+pidigits	10000	this compiler	670915000
+pidigits	10000	this compiler	669925000
+pidigits	10000	this compiler	669492000
+pidigits	10000	Idris Chez	4312485000
+pidigits	10000	Idris Chez	4045697000
+pidigits	10000	Idris Chez	4049988000
+pidigits	10000	Idris Chez	3889822000
+pidigits	10000	Idris Chez	3882384000
+pidigits	10000	clang -O2	544719000
+pidigits	10000	clang -O2	444521000
+pidigits	10000	clang -O2	446429000
+pidigits	10000	clang -O2	447174000
+pidigits	10000	clang -O2	450880000
+qsort	400	this compiler	1141990000
+qsort	400	this compiler	1047234000
+qsort	400	this compiler	1046113000
+qsort	400	this compiler	1046420000
+qsort	400	this compiler	1048661000
+qsort	400	Idris Chez	9566341000
+qsort	400	Idris Chez	9343768000
+qsort	400	Idris Chez	9370474000
+qsort	400	Idris Chez	9449856000
+qsort	400	Idris Chez	9426256000
+qsort	400	clang -O2	1311184000
+qsort	400	clang -O2	995385000
+qsort	400	clang -O2	990425000
+qsort	400	clang -O2	993266000
+qsort	400	clang -O2	988869000
+rbtree	4200000	this compiler	518106000
+rbtree	4200000	this compiler	423864000
+rbtree	4200000	this compiler	426848000
+rbtree	4200000	this compiler	421854000
+rbtree	4200000	this compiler	425935000
+rbtree	4200000	Idris Chez	1726351000
+rbtree	4200000	Idris Chez	1506311000
+rbtree	4200000	Idris Chez	1515407000
+rbtree	4200000	Idris Chez	1513400000
+rbtree	4200000	Idris Chez	1512222000
+rbtree	4200000	clang -O2	838793000
+rbtree	4200000	clang -O2	760027000
+rbtree	4200000	clang -O2	766789000
+rbtree	4200000	clang -O2	721421000
+rbtree	4200000	clang -O2	742113000
+rbtree-ck	4200000	this compiler	1183695000
+rbtree-ck	4200000	this compiler	1085187000
+rbtree-ck	4200000	this compiler	1083021000
+rbtree-ck	4200000	this compiler	1092347000
+rbtree-ck	4200000	this compiler	1085736000
+rbtree-ck	4200000	Idris Chez	4017331000
+rbtree-ck	4200000	Idris Chez	4038036000
+rbtree-ck	4200000	Idris Chez	4049362000
+rbtree-ck	4200000	Idris Chez	4206325000
+rbtree-ck	4200000	Idris Chez	3852389000
+rbtree-ck	4200000	clang -O2	1345379000
+rbtree-ck	4200000	clang -O2	1249977000
+rbtree-ck	4200000	clang -O2	1222286000
+rbtree-ck	4200000	clang -O2	1258604000
+rbtree-ck	4200000	clang -O2	1261435000
+regex-redux	fasta 5000000	this compiler	79903470000
+regex-redux	fasta 5000000	this compiler	77995181000
+regex-redux	fasta 5000000	this compiler	78632223000
+regex-redux	fasta 5000000	this compiler	80496944000
+regex-redux	fasta 5000000	this compiler	79549429000
+regex-redux	fasta 5000000	Idris Chez	94507873000
+regex-redux	fasta 5000000	Idris Chez	94004685000
+regex-redux	fasta 5000000	Idris Chez	93600233000
+regex-redux	fasta 5000000	Idris Chez	93466793000
+regex-redux	fasta 5000000	Idris Chez	93324470000
+regex-redux	fasta 5000000	clang -O2	18171220000
+regex-redux	fasta 5000000	clang -O2	17840639000
+regex-redux	fasta 5000000	clang -O2	17859221000
+regex-redux	fasta 5000000	clang -O2	17863542000
+regex-redux	fasta 5000000	clang -O2	17896497000
+reverse-complement	fasta 25000000	this compiler	661768000
+reverse-complement	fasta 25000000	this compiler	567185000
+reverse-complement	fasta 25000000	this compiler	565609000
+reverse-complement	fasta 25000000	this compiler	554728000
+reverse-complement	fasta 25000000	this compiler	566960000
+reverse-complement	fasta 25000000	Idris Chez	21519730000
+reverse-complement	fasta 25000000	Idris Chez	21219091000
+reverse-complement	fasta 25000000	Idris Chez	21196348000
+reverse-complement	fasta 25000000	Idris Chez	21159452000
+reverse-complement	fasta 25000000	Idris Chez	21249030000
+reverse-complement	fasta 25000000	clang -O2	1174423000
+reverse-complement	fasta 25000000	clang -O2	780956000
+reverse-complement	fasta 25000000	clang -O2	784000000
+reverse-complement	fasta 25000000	clang -O2	787784000
+reverse-complement	fasta 25000000	clang -O2	787028000
+spectral-norm	5500	this compiler	3146209000
+spectral-norm	5500	this compiler	3139214000
+spectral-norm	5500	this compiler	3112918000
+spectral-norm	5500	this compiler	3044676000
+spectral-norm	5500	this compiler	3045123000
+spectral-norm	5500	Idris Chez	90721974000
+spectral-norm	5500	Idris Chez	90681565000
+spectral-norm	5500	Idris Chez	90586635000
+spectral-norm	5500	Idris Chez	90571356000
+spectral-norm	5500	Idris Chez	90668345000
+spectral-norm	5500	clang -O2	1444700000
+spectral-norm	5500	clang -O2	1157262000
+spectral-norm	5500	clang -O2	1166786000
+spectral-norm	5500	clang -O2	1157230000
+spectral-norm	5500	clang -O2	1152876000
+spectral-norm-linear	5500	this compiler	705557000
+spectral-norm-linear	5500	this compiler	607021000
+spectral-norm-linear	5500	this compiler	606545000
+spectral-norm-linear	5500	this compiler	606448000
+spectral-norm-linear	5500	this compiler	608281000
+spectral-norm-linear	5500	Idris Chez	93213647000
+spectral-norm-linear	5500	Idris Chez	93110741000
+spectral-norm-linear	5500	Idris Chez	93272888000
+spectral-norm-linear	5500	Idris Chez	93106262000
+spectral-norm-linear	5500	Idris Chez	93298699000
+spectral-norm-linear	5500	clang -O2	1433596000
+spectral-norm-linear	5500	clang -O2	1154001000
+spectral-norm-linear	5500	clang -O2	1154590000
+spectral-norm-linear	5500	clang -O2	1155854000
+spectral-norm-linear	5500	clang -O2	1156614000
+tak	18	this compiler	193816000
+tak	18	this compiler	81747000
+tak	18	this compiler	82122000
+tak	18	this compiler	82304000
+tak	18	this compiler	85710000
+tak	18	Idris Chez	1032208000
+tak	18	Idris Chez	773814000
+tak	18	Idris Chez	775780000
+tak	18	Idris Chez	775189000
+tak	18	Idris Chez	776641000
+tak	18	clang -O2	172271000
+tak	18	clang -O2	82321000
+tak	18	clang -O2	82994000
+tak	18	clang -O2	82617000
+tak	18	clang -O2	82586000
+unionfind	3000000	this compiler	190154000
+unionfind	3000000	this compiler	96406000
+unionfind	3000000	this compiler	99532000
+unionfind	3000000	this compiler	97009000
+unionfind	3000000	this compiler	97398000
+unionfind	3000000	Idris Chez	1576553000
+unionfind	3000000	Idris Chez	1381715000
+unionfind	3000000	Idris Chez	1377290000
+unionfind	3000000	Idris Chez	1373666000
+unionfind	3000000	Idris Chez	1358420000
+unionfind	3000000	clang -O2	197567000
+unionfind	3000000	clang -O2	107717000
+unionfind	3000000	clang -O2	109452000
+unionfind	3000000	clang -O2	108892000
+unionfind	3000000	clang -O2	108470000

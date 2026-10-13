@@ -72,30 +72,29 @@ make compile SRC=Main.idr OUT=prog
 
 ## Performance
 
-Measured before the representation cutover, on 26 programs against
-clang -O2 and against Idris's own Chez Scheme backend, best of 5 runs:
+Measured on arm64 macOS (Apple M2 Max), best of 5 runs, against
+clang -O2 and against Idris's own Chez Scheme backend. The latest
+record is
+[bench/runs/2026-10-13-9a1b7b1-darwin-arm64](bench/runs/2026-10-13-9a1b7b1-darwin-arm64/results.md):
 
-![This compiler against clang -O2](bench/runs/2026-10-03-861acdc/vs-c.svg)
+![This compiler against clang -O2](bench/runs/2026-10-13-9a1b7b1-darwin-arm64/vs-c.svg)
 
-![This compiler against Idris on Chez Scheme](bench/runs/2026-10-03-861acdc/vs-chez.svg)
+![This compiler against Idris on Chez Scheme](bench/runs/2026-10-13-9a1b7b1-darwin-arm64/vs-chez.svg)
 
 The programs that trail C are mostly written the way an Idris programmer
 writes them first, with `List Char` where the C has byte buffers. The
 `Linear.Array` version of spectral-norm beats C. [bench/](bench/README.md)
-says what each program measures, holds the arm64 macOS record, and
+says what each program measures, holds every kept record, and
 explains every gap.
 
 ## Where it is going
 
 The order is fixed in [proposals/](proposals/README.md):
-1. **The representation cutover.** `idr.func` as the function op, facts
-   in types and inherent attributes, the readable dialect, threaded
-   passes, and time-trace instrumentation throughout.
-2. **Self-hosting.** The compiler compiles itself, deterministically under
-   threads, and the test runner leaves Chez Scheme.
-3. **Sharding.** A whole-program compiler that splits its work across
+1. **Self-hosting.** The compiler compiles itself, deterministically
+   under threads, and the test runner leaves Chez Scheme.
+2. **Sharding.** A whole-program compiler that splits its work across
    cores and machines, and a runtime of one shard per core.
-4. **Arrays.** A typed array language in the APL tradition, with shapes in
+3. **Arrays.** A typed array language in the APL tradition, with shapes in
    dependent types, compiled through MLIR's tensor and linalg stack with
    fusion. The compiler itself moves to the array style: its tables, its
    data layouts, and an array interpreter that does compile-time

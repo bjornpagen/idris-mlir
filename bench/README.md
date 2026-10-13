@@ -9,11 +9,10 @@ backend; and the pinned clang at `-O2` on `bench/c/<name>.c`, linked
 as `idris-mlir --print-link-flags` says the target links a program (a
 static PIE on musl, a dynamic executable on Darwin), for this
 compiler's target CPU without floating-point contraction, as our programs
-are built. Every program runs
-with the largest stack the system allows: unlimited on Linux, the hard
-limit (about 64 MiB) on macOS. Only cfold needs a deep one: its programs
-recurse 48 to 56 MiB on x86-64, which fits. The output starts with what it
-ran on: the host, its CPU, that stack limit and each compiler's version.
+are built. Every program runs with the largest stack the system allows
+(on macOS the hard limit, about 64 MiB; only cfold needs a deep one, and
+it fits). The output starts with what it ran on: the host, its CPU, that
+stack limit and each compiler's version.
 
 The script checks that every program prints the same numbers (to 1e-9),
 or the same bytes where the game compares bytes, and reports the best of
@@ -23,86 +22,34 @@ millisecond). The last column is clang's time over this compiler's: above
 
 ## Results
 
-The latest record is
-[`runs/2026-10-03-861acdc`](runs/2026-10-03-861acdc/results.md): every
-program built by every compiler, best of 5 runs, measured on 2026-10-03
-at 861acdc on a shared development container (x86-64, 4 CPUs, a Xeon at
-2.10 GHz) with LLVM 23.1.2 and Chez Scheme 10.4.1. Its results page holds
-the full table, the compile times and the comparison with the record
-before it. The arm64 macOS record is beside it, below. Both predate the
-LLVM pin at 7208ba24 and the representation cutover; the next records are
-made on both targets with the toolchain of the one recipe.
+Every record kept here was measured on arm64 macOS: best of 5 runs on an
+Apple M2 Max (12 CPUs, 16 KiB pages) on AC power, with the desktop's own
+applications running, so not a quiet machine. This compiler targets
+apple-m1 there and links dynamic executables with lld; clang's C is built
+for the same CPU and linked the same way, and the stack is macOS's 64 MiB
+hard limit, which cfold fits.
 
-![This compiler against clang -O2](runs/2026-10-03-861acdc/vs-c.svg)
+The one record kept is
+[`runs/2026-10-13-9a1b7b1-darwin-arm64`](runs/2026-10-13-9a1b7b1-darwin-arm64/results.md);
+its results page holds the full table and the compile times. Against
+clang -O2 this compiler is faster on 6 programs, within 15% on 13 and
+slower on 8 (fannkuch-linear, fannkuch-redux, fasta, fasta-redux,
+k-nucleotide, pidigits, regex-redux and spectral-norm); against Idris
+on Chez Scheme it is faster on all 27, from 1.2x (regex-redux) to 154x
+(spectral-norm-linear). Compiling a program takes 0.8 to 5.4 seconds;
+k-nucleotide is the slow one.
 
-![This compiler against Idris on Chez Scheme](runs/2026-10-03-861acdc/vs-chez.svg)
+![This compiler against clang -O2 on arm64 macOS](runs/2026-10-13-9a1b7b1-darwin-arm64/vs-c.svg)
 
-![Best time of each compiler](runs/2026-10-03-861acdc/times.svg)
+![This compiler against Idris on Chez Scheme on arm64 macOS](runs/2026-10-13-9a1b7b1-darwin-arm64/vs-chez.svg)
 
-Against clang -O2 this compiler is faster on 10 programs, within 15% on 9
-and slower on 6 (fasta, fib, k-nucleotide, reverse-complement,
-spectral-norm and unionfind); regex-redux has no C version. Against Idris
-on Chez Scheme it is faster on 25 of the 26, from 2.25x (rbtree) to 252x
-(ack), and 1.2x slower on regex-redux. Compiling a program takes 1.8 to
-11.2 seconds (idris-mlir: frontend, pipeline and link); k-nucleotide,
-spectral-norm-linear and regex-redux are the slow ones.
+![Best time of each compiler on arm64 macOS](runs/2026-10-13-9a1b7b1-darwin-arm64/times.svg)
 
-Since the record before it (2026-10-02, 903d127): fannkuch-redux went from
-0.72x of C to 1.64x (a match knows the case of an enclosing match on its
-value), spectral-norm-linear from 0.99x to 1.99x (idr-narrow-lanes' 32-bit
-lanes) and reverse-complement from 0.08x to 0.12x; the rest moved within
-the spread.
-
-The arm64 macOS record is
-[`runs/2026-10-07-f5a4dff9-darwin-arm64`](runs/2026-10-07-f5a4dff9-darwin-arm64/results.md):
-twenty-seven programs, best of 5 runs, measured on 2026-10-07 at
-f5a4dff9 on an Apple M2 Max (12 CPUs, 16 KiB pages) on AC power, with the
-desktop's own applications running, so not a quiet machine either. This
-compiler targets apple-m1 there and links dynamic executables with lld;
-clang's C is built for the same CPU and linked the same way, and the stack
-is macOS's 64 MiB hard limit, which cfold fits.
-
-![This compiler against clang -O2 on arm64 macOS](runs/2026-10-07-f5a4dff9-darwin-arm64/vs-c.svg)
-
-![This compiler against Idris on Chez Scheme on arm64 macOS](runs/2026-10-07-f5a4dff9-darwin-arm64/vs-chez.svg)
-
-![Best time of each compiler on arm64 macOS](runs/2026-10-07-f5a4dff9-darwin-arm64/times.svg)
-
-Against clang -O2 it is faster on 8 programs, within 15% on 11 and slower
-on 8 (fannkuch-redux, fasta, fasta-redux, k-nucleotide, pidigits,
-regex-redux, reverse-complement and spectral-norm); against Idris on Chez
-Scheme it is faster on all 27, from 1.12x (regex-redux) to 152x
-(spectral-norm-linear). Compiling a program takes 1.0 to 14.0 seconds;
-k-nucleotide is the slow one. Its results page compares each ratio with
-the previous Mac record's. The game programs are at the size the game
-measures. Past the spread, k-nucleotide went from 0.35x of C to 0.22x and
-reverse-complement from 0.26x to 0.12x; rbtree, still at 4200000, went
-from 1.51x to 1.76x (clang's C, 0.631 s then and 0.718 s now, ours 0.418 s
-and 0.409 s). fasta-redux is new, at 0.25x of C, and regex-redux's C
-column is new, 0.21x. The rest moved within the spread, fannkuch-redux
-included (0.80x then, 0.78x at 12). The previous Mac record
-([`runs/2026-10-05-2cb1436-darwin-arm64`](runs/2026-10-05-2cb1436-darwin-arm64/results.md))
-compares each ratio with the record before it: k-nucleotide, the C's
-algorithm since that record, is 0.35x of C (0.130 s against 0.045 s)
-where the program before it was 0.01x, and the rest of that comparison
-moved within the spread (rbtree's -23% is clang's C, 0.789 s then and
-0.631 s now, ours 0.401 s and 0.418 s). The record before that
-([`runs/2026-10-04-15f1a53-darwin-arm64`](runs/2026-10-04-15f1a53-darwin-arm64/results.md))
-compares each ratio with the Linux record's, each against its own run's
-C: the Mac is behind on the allocation-heavy programs (binary-trees,
-cfold, deriv), on fannkuch-redux and on pidigits, and ahead on fib,
-rbtree, unionfind and reverse-complement. The Mac's C is the faster of the
-two by up to 3x (fannkuch-redux's runs in 0.172 s there against 0.546 s
-on Linux), which lowers every ratio against it. ack takes 12 ms in the
-2026-10-05 record against Linux's 4 ms; an empty program starts in about
-2 ms on this Mac, so start-up is not all of the difference, and it is not
-measured further yet.
-
-How to read them. The run-to-run spread on this container reaches 15%, so
+How to read them. The run-to-run spread on this Mac reaches 15%, so
 a ratio within that of 1 is parity. The C column itself moved by up to 2x
 between runs on different days (rbtree 0.82 s on one, 1.68 s two days
 later), so a ratio is read against its own run's C, and records compare by
-those ratios, never by seconds. ack runs in 4 ms: it measures the
+those ratios, never by seconds. ack runs in milliseconds: it measures the
 specialization (Caveats below), not a loop.
 
 A record is what a run measured, kept: `make bench ARGS='--record
@@ -111,8 +58,7 @@ compile times and what it ran on (`about`), once every output has agreed.
 `bench/report.sh RUN PREVIOUS` makes the results page and the charts from
 it, and the table `bench/run.sh` prints is that report's, so the numbers
 have one source; `tests/bench/records` checks that every kept record's
-results are what the report makes. The first record,
-`runs/2026-10-02-903d127`, is the table this file held before, transcribed.
+results are what the report makes.
 
 Three kinds of program. **Numeric** (ack, ackdyn, collatz, fib, harmonic,
 mandelbrot, nbody, tak): Idris over the stock Prelude, whose interfaces,
@@ -164,21 +110,13 @@ are an accumulator: the Prelude's `length` keeps a frame per element, and
 the input is longer than the program's stack.
 
 The game's own cutoff for a measured run is several minutes. This suite
-kills a run at 300 seconds. The 2026-10-07 arm64 record is the official
-sizes, and every program finished. Chez's best times for the four the
-previous record's column scaled past that kill:
-
-- `fannkuch-redux` at 12 took 1163.295 s.
-- `fannkuch-linear` at 12 took 383.179 s.
-- `k-nucleotide` at fasta 25000000 took 522.836 s.
-- `reverse-complement` at fasta 25000000 took 309.447 s.
-
-The sizes were not shrunk.
+kills a run at 1800 seconds, which the official sizes fit: the slowest
+are Chez's, fannkuch-redux at about twenty minutes. The sizes are not
+shrunk.
 
 ### Per program
 
-- **unionfind** (0.85x of C in the 2026-10-03 record, parity in earlier
-  runs): path compression threads the array
+- **unionfind**: path compression threads the array
   through every `find` and gives it back around a non-tail call. Two
   general changes brought it from 1.4x of C to parity: an array value is
   its cell and its length, so a bounds check compares two registers
@@ -189,11 +127,10 @@ The sizes were not shrunk.
   check. Nothing in the compiler knows union-find.
 - **fannkuch-linear** at about 2x of C: the work is the same (the same
   permutations and flips, the same scaling from n=9 to n=11); clang turns
-  the C's copy and rotate loops into `memcpy` and `memmove` calls into
-  musl, once per permutation, on 40 bytes. Built with `-fno-builtin` the
-  same C takes 0.21 s against 0.50 s, then 10 to 15% faster than the
-  Idris. The C stays as written. The Idris compiles to the loop's loads and
-  stores and nothing else.
+  the C's copy and rotate loops into `memcpy` and `memmove` calls once
+  per permutation, on 40 bytes; built with `-fno-builtin` the same C is
+  10 to 15% faster than the Idris instead. The C stays as written. The
+  Idris compiles to the loop's loads and stores and nothing else.
 - **fannkuch-redux** (`IOArray`) against **fannkuch-linear**: the same
   loops. The table's 3x was the simplify loop's, not the program's:
   inlining base's `readArray` and `writeArray` left each index's range
@@ -202,11 +139,8 @@ The sizes were not shrunk.
   after it, the IO binds on the out-of-bounds paths stayed closures built
   and applied, and the loops became code LLVM would not inline (`rev` was
   a thousand lines after the loop, the linear `rev` 33). A match now
-  knows the case of an enclosing match on its value (2026-10-02), and
-  both compile to the loops' loads and stores: in one run after the
-  change, 0.397 s against the linear version's 0.245 s and C's 0.591 s
-  (1.49x and 2.42x of C); in the 2026-10-03 record 0.333 s against the
-  linear version's 0.250 s and C's 0.546 s. What remains is base's representation: an
+  knows the case of an enclosing match on its value, and both compile
+  to the loops' loads and stores. What remains is base's representation: an
   `IOArray` holds `Maybe elem` cells, an unboxed tag beside each `Int` at
   a stride of 16 bytes, so every read loads and tests a tag and every
   write stores one. The same program over the raw primitive takes the
@@ -221,7 +155,7 @@ The sizes were not shrunk.
   every backend. What can be turned off is each compiler mechanism:
 - **Ablation.** `idris-mlir --without=STEP,...` leaves pipeline steps
   out, or idr-rc's mechanisms (`reuse`, `sink`). fannkuch-linear and
-  unionfind, best of 3, each variant compiled and run alone (2026-10-01):
+  unionfind, best of 3, each variant compiled and run alone:
 
   | left out | fannkuch-linear | unionfind |
   | --- | ---: | ---: |
@@ -248,23 +182,14 @@ The sizes were not shrunk.
 - **spectral-norm** (lists) and **spectral-norm-linear**: the linear one
   is written over `Linear.Array`'s loops over an index space (`generate`,
   `ifoldl`), and idr-vectorize runs each product with A as one loop nest
-  computing four rows at a time on AVX2 lanes, each row's sum in index
+  computing four rows at a time on vector lanes, each row's sum in index
   order (the C sums in index order too, so clang does not vectorize it).
-  The body's index arithmetic is the program's 64-bit `Int`, for which
-  x86-64-v3 has no vector multiply nor an int64-to-double conversion: on
-  64-bit lanes the inner loop emulates the one (three `vpmuludq`, shifts
-  and adds) and scalarizes the other (four `vcvtsi2sd` with the extracts
-  and inserts around them), 36 instructions per four rows around the one
-  `vdivpd`, which ran at clang's speed. The C computes its indices in
-  `int`, for which both instructions exist (`vpmulld`, `vcvtdq2pd`), and
-  idr-narrow-lanes gives each row loop a version on 32-bit lanes while n
-  is at most 2^14, the bound the analysis of the body's own arithmetic
-  finds: 15 instructions per four rows (`vpaddd`, `vpmulld`, a `vpsrad`
-  for the `div 2`, `vcvtdq2pd` and the `vdivpd`). Measured at 5500, best
-  of 10 interleaved in one session: 0.696 s, against 1.401 s on 64-bit
-  lanes and clang's 1.399 s. The 2026-10-03 record shows it in a full run:
-  0.874 s against clang's 1.740 s. The list one rebuilds its lists in their own
-  cells and pays for it. The input is the game's 5500.
+  The body's index arithmetic is the program's 64-bit `Int`; the C
+  computes its indices in `int`, and idr-narrow-lanes gives each row loop
+  a version on 32-bit lanes while n is at most 2^14, the bound the
+  analysis of the body's own arithmetic finds, which is where its lead
+  over C comes from. The list one rebuilds its lists in their own cells
+  and pays for it. The input is the game's 5500.
 - **qsort** (parity with C): over `Linear.Array`, so the partition writes
   in place.
 - **rbtree, rbtree-ck, cfold, deriv, nqueens:** persistent trees and terms
@@ -272,7 +197,7 @@ The sizes were not shrunk.
   as the Perceus and Lean papers' versions do, the rest on the stack.
   rbtree-ck keeps the older trees alive, so it measures the allocator under
   a live set.
-- **binary-trees:** the C frees through musl's `malloc`; the game's fastest
+- **binary-trees:** the C frees through `malloc`; the game's fastest
   C uses a pool. Ours frees each tree as it dies through the runtime's
   allocator, and the bottom level is one static cell.
 - **pidigits:** C uses GMP in place; ours allocates a new `mpz` per
@@ -289,10 +214,8 @@ The sizes were not shrunk.
   along it, counted in one open-addressing table of the key beside its
   count. The table holds twice as many slots as there are fragments, or
   twice the 4^k possible keys when that is fewer, and an empty slot is a
-  zero key, with the same hash as the C (`key ^ (key >> 15)`). The records
-  up to 2026-10-04 measured the earlier program, which counted `String`s in
-  a `Data.SortedMap`; it needed `Data.Bits`' shifts on `Int`, which this
-  compiler refused until then. The fill of a fresh table writes every slot,
+  zero key, with the same hash as the C (`key ^ (key >> 15)`). The fill of
+  a fresh table writes every slot,
   where the C's `calloc` leaves a page untouched until a store.
 - **mandelbrot-pbm** builds each row in a `Buffer` and writes it through
   `System.File`, byte for byte as the C does.
