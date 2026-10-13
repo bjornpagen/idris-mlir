@@ -11,17 +11,17 @@
 // CHECK-NEXT: idr.str.length
 // CHECK-NEXT: {{^ *}}%{{[^ ]+}} = match %{{[^ ]+}} : !M -> (i64) {
 // CHECK-NEXT: case @Just(%f0: i64) {
-// CHECK-NEXT: {{^ *}}%inc = idr.call @inc(%f0) : (i64) -> i64
-// CHECK-NEXT: {{^ *}}%just = idr.con @M::@Just(%inc) : (i64) -> !M
-// CHECK-NEXT: {{^ *}}idr.yield %inc : i64
+// CHECK-NEXT: {{^ *}}%[[INC:.*]] = idr.call @inc(%f0) : (i64) -> i64
+// CHECK-NEXT: {{^ *}}%[[JUST:.*]] = idr.con @M::@Just(%[[INC]]) : (i64) -> !M
+// CHECK-NEXT: {{^ *}}idr.yield %[[INC]] : i64
 // CHECK-NEXT: }
 // CHECK-NEXT: default {
 // CHECK-NEXT: {{^ *}}idr.yield
 // CHECK-NEXT: }
 // CHECK-NEXT: }
 // CHECK-NEXT: idr.io.put_int signed
-// CHECK-NEXT: {{^ *}}%inc{{_[0-9]+}} = call @inc(%applied) : (i64) -> i64
-// CHECK-NEXT: {{^ *}}return %inc{{_[0-9]+}}, %{{[^ ]+}} : i64, !idr.world
+// CHECK-NEXT: {{^ *}}%[[OUT:.*]] = call @inc(%applied) : (i64) -> i64
+// CHECK-NEXT: {{^ *}}return %[[OUT]], %{{[^ ]+}} : i64, !idr.world
 
 idr.data @M {
   idr.ctor @Nothing ()

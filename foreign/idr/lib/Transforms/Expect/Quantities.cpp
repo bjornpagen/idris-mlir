@@ -1,7 +1,7 @@
 // quantities-kept: no pass drops or widens a quantity Idris proved. A
-// quantity is a type's (quantityOf), one or many; a parameter, a field a
-// match binds or a constructor field the emitted module declared keeps the
-// quantity it had there. A binder is known by its location, what Emit
+// quantity is a type's (quantityOf), one or many; a parameter of a
+// function or a lambda, a field a match binds or a constructor field the
+// emitted module declared keeps the quantity it had there. A binder is known by its location, what Emit
 // gave it (the span of its Idris binder) or what the parser gave a module
 // written by hand (the position of its name), with the names around it
 // removed: passes copy locations with what they copy, so a binder that was
@@ -30,28 +30,37 @@ namespace {
 constexpr StringRef property = "quantities-kept";
 
 // The key of a binder at `loc`: the location under every name; none for
-// an unknown location, which many binders share.
+// an unknown location, which many binders share. A parser position
+// (FileLineColLoc) names the text it was read from, and the module and
+// the emitted module are different texts, so for one only its line and
+// column are the binder's identity; a span Emit wrote (FileLineColRange)
+// names its Idris source, which both sides share.
 std::optional<Attribute> keyOf(Location loc) {
   while (auto named = dyn_cast<NameLoc>(loc))
     loc = named.getChildLoc();
   if (isa<UnknownLoc>(loc))
     return std::nullopt;
+  if (auto at = dyn_cast<FileLineColLoc>(loc))
+    return FileLineColLoc::get(at.getContext(), "", at.getLine(), at.getColumn());
   LocationAttr key = loc;
   return key;
 }
 
 // Whether `block`'s arguments are binders Idris proved quantities of: a
-// function's parameters, and the fields a match's region binds (its
-// default region's scrutinee too). A loop's iteration state is the pass's.
+// function's parameters, a lambda's parameters (isolation lifts them to
+// a function's, so the emitted module must prove them under the same
+// key), and the fields a match's region binds (its default region's
+// scrutinee too). A loop's iteration state is the pass's.
 bool bindsProved(Block &block) {
   Operation *parent = block.getParentOp();
   if (auto fn = dyn_cast<FuncOp>(parent))
     return &block == &fn.getBody().front();
-  return isa<MatchOp, MatchLitOp>(parent);
+  return isa<MatchOp, MatchLitOp, LambdaOp>(parent);
 }
 
-// The quantity of `arg`, a binder: a parameter's from its function's
-// signature, a bound field's from its type.
+// The quantity of `arg`, a binder: a function parameter's from its
+// function's signature, a lambda parameter's or a bound field's from
+// its type.
 Quantity quantityOfBinder(BlockArgument arg) {
   if (auto fn = dyn_cast<FuncOp>(arg.getOwner()->getParentOp()))
     return quantityOf(fn.getArgumentTypes()[arg.getArgNumber()]);
@@ -112,9 +121,6 @@ LogicalResult quantitiesKept(ModuleOp module, AnalysisManager &, StringRef emitt
     if (!bindsProved(*block))
       return;
     Operation *parent = block->getParentOp();
-    auto fn = dyn_cast<FuncOp>(parent);
-    if (!fn)
-      fn = parent->getParentOfType<FuncOp>();
     for (BlockArgument arg : block->getArguments()) {
       std::optional<Attribute> key = keyOf(arg.getLoc());
       auto was = key ? proved.find(*key) : proved.end();
@@ -123,7 +129,7 @@ LogicalResult quantitiesKept(ModuleOp module, AnalysisManager &, StringRef emitt
       Quantity now = quantityOfBinder(arg);
       if (*was->second == now)
         continue;
-      fail(arg.getLoc(), property) << (parent == fn ? "parameter " : "bound field ")
+      fail(arg.getLoc(), property) << (isa<MatchOp, MatchLitOp>(parent) ? "bound field " : "parameter ")
                                    << arg.getArgNumber() << " of " << where(parent)
                                    << " has quantity " << spelled(now) << ", and Idris proved "
                                    << spelled(*was->second);

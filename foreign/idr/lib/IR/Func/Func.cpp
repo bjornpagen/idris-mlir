@@ -24,9 +24,16 @@ ParseResult idr::FuncOp::parse(OpAsmParser &parser, OperationState &result) {
                           function_interface_impl::VariadicFlag, std::string &) {
     return FunctionType::get(builder.getContext(), inputs, results);
   };
-  return function_interface_impl::parseFunctionOp(
-      parser, result, /*allowVariadic=*/false, getFunctionTypeAttrName(result.name),
-      buildFuncType, getArgAttrsAttrName(result.name), getResAttrsAttrName(result.name));
+  if (failed(function_interface_impl::parseFunctionOp(
+          parser, result, /*allowVariadic=*/false, getFunctionTypeAttrName(result.name),
+          buildFuncType, getArgAttrsAttrName(result.name), getResAttrsAttrName(result.name))))
+    return failure();
+  // The facts arrive in `result.attributes` and become properties when
+  // the op is created, which silently drops one of the wrong kind; the
+  // generic parser checks them first, and a custom one must too.
+  return verifyInherentAttrs(result.name, result.attributes, [&]() {
+    return mlir::emitError(result.location) << "'" << result.name.getStringRef() << "' op ";
+  });
 }
 
 void idr::FuncOp::print(OpAsmPrinter &printer) {

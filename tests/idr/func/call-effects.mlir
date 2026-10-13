@@ -16,7 +16,7 @@ idr.func private @f(%w: !idr.world) -> !idr.world attributes {effects = #idr.eff
 }
 idr.func private @g(%w: !idr.world) -> !idr.world {
   // expected-error @+1 {{carries effects #idr.effects<io>, but @f may do #idr.effects<io, crash>}}
-  %w1 = idr.call @f(%w) {effects = #idr.effects<io>} : (!idr.world) -> !idr.world
+  %w1 = idr.call @f(%w) effects = <io> : (!idr.world) -> !idr.world
   return %w1 : !idr.world
 }
 
@@ -27,7 +27,7 @@ idr.func private @f(%x: i64) -> i64 {
 }
 idr.func private @g(%x: i64) -> i64 {
   // expected-error @+1 {{carries effects #idr.effects<io, crash>, but @f may do #idr.effects<io, crash, diverge>}}
-  %r = idr.call @f(%x) {effects = #idr.effects<io, crash>} : (i64) -> i64
+  %r = idr.call @f(%x) effects = <io, crash> : (i64) -> i64
   return %r : i64
 }
 
@@ -39,17 +39,17 @@ idr.func private @f(%x: i64) -> i64 attributes {total, effects = #idr.effects<cr
   return %x : i64
 }
 idr.func private @g(%x: i64) -> i64 {
-  %a = idr.call @f(%x) {effects = #idr.effects<crash>} : (i64) -> i64
-  %b = idr.call @f(%a) {effects = #idr.effects<io, crash>} : (i64) -> i64
+  %a = idr.call @f(%x) effects = <crash> : (i64) -> i64
+  %b = idr.call @f(%a) effects = <io, crash> : (i64) -> i64
   return %b : i64
 }
 
 // -----
 
 // WRITE-LABEL: idr.func @caller(
-// WRITE: call @pure(%{{[^)]*}}) {effects = #idr.effects<none>} : (i64) -> i64
+// WRITE: call @pure(%{{[^)]*}}) effects = <none> : (i64) -> i64
 // WRITE: call @unknown(%{{[^)]*}}) : (i64) -> i64
-// WRITE: call @say(%{{[^)]*}}) {effects = #idr.effects<io>} : (!idr.world) -> !idr.world
+// WRITE: call @say(%{{[^)]*}}) effects = <io> : (!idr.world) -> !idr.world
 idr.func private @pure(%x: i64) -> i64 attributes {total} {
   %y = arith.addi %x, %x : i64
   return %y : i64
@@ -84,6 +84,6 @@ idr.func @keeps(%x: i64) -> i64 {
   return %x : i64
 }
 idr.func @drops(%x: i64) -> i64 {
-  %unused = idr.call @pure(%x) {effects = #idr.effects<none>} : (i64) -> i64
+  %unused = idr.call @pure(%x) effects = <none> : (i64) -> i64
   return %x : i64
 }

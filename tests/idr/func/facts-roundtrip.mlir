@@ -15,7 +15,7 @@
 // CHECK-NEXT: {{^ *}}return %{{.*}} : i64
 // CHECK-LABEL: idr.func private @g(
 // CHECK-SAME: attributes {break_last} {
-// CHECK-NEXT: {{^ *}}%[[R:.*]] = call @f(%{{.*}}) {effects = #idr.effects<io, crash>} : (i64) -> i64
+// CHECK-NEXT: {{^ *}}%[[R:.*]] = call @f(%{{.*}}) effects = <io, crash> : (i64) -> i64
 // CHECK-NEXT: {{^ *}}return %[[R]] : i64
 
 idr.func private @f(%x: i64) -> i64
@@ -25,7 +25,7 @@ idr.func private @f(%x: i64) -> i64
   return %x : i64
 }
 idr.func private @g(%x: i64) -> i64 attributes {break_last} {
-  %r = call @f(%x) {effects = #idr.effects<io, crash>} : (i64) -> i64
+  %r = call @f(%x) effects = <io, crash> : (i64) -> i64
   return %r : i64
 }
 
