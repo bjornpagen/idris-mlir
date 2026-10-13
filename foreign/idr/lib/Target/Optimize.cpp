@@ -3,6 +3,8 @@
 
 #include "idr/Target/Target.h"
 
+#include "idr/Support/Profile.h"
+
 #include "llvm/Analysis/CGSCCPassManager.h"
 #include "llvm/Analysis/LoopAnalysisManager.h"
 #include "llvm/IR/Module.h"
@@ -44,7 +46,9 @@ void idr::target::optimize(llvm::Module &module, llvm::TargetMachine &machine) {
   llvm::ModuleAnalysisManager mam;
   llvm::PipelineTuningOptions tuning;
   tuning.MergeFunctions = true;
-  llvm::PassBuilder builder(&machine, tuning);
+  // Every pass and analysis of the pipeline is a zone of the trace, when
+  // one is started; the callbacks are null until then.
+  llvm::PassBuilder builder(&machine, tuning, std::nullopt, idr::profile::llvmCallbacks());
   builder.registerModuleAnalyses(mam);
   builder.registerCGSCCAnalyses(cgam);
   builder.registerFunctionAnalyses(fam);

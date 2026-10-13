@@ -87,6 +87,16 @@ bool leaveOut(idr::PipelineOptions &options) {
     }
     options.without.insert(name);
   }
+  // --demand-in-place asks idr-demand to reject a program that breaks the
+  // promise; leaving the checker, or its one check, out would keep the
+  // promise by not looking, which is never what was asked.
+  if (options.demandInPlace &&
+      (options.without.contains("idr-demand") || options.without.contains("in-place"))) {
+    Report() << "--demand-in-place with --without "
+             << (options.without.contains("idr-demand") ? "idr-demand" : "in-place")
+             << ": the promise is asked of the checker that is left out";
+    return false;
+  }
   return true;
 }
 

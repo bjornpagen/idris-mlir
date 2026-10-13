@@ -1,22 +1,22 @@
-// Profiling with Tracy: the one header that includes it. Every build reads
-// these macros; only the profile build (IDRIS_MLIR_PROFILE, which defines
-// TRACY_ENABLE and TRACY_ON_DEMAND everywhere it compiles) gives them a
-// body. In every other build each one expands to nothing and its arguments
-// are never evaluated, so an argument may walk the module (IDR_PLOT of an
-// op count) and costs nothing outside a profile. In the profile build a
-// zone costs a load and a branch until a capture connects.
-//
-// A zone's name is a string literal: Tracy keeps a pointer to it, and a
-// zone of ours never allocates. The zones of passes and analyses, whose
-// names are only known at run time, are addInstrumentation's.
+// Profiling with LLVM's time trace: the one header that includes it.
+// Every build compiles these macros; nothing is a special build. A trace
+// is a run-time choice, --time-trace=<file> on a tool, as clang's
+// -ftime-trace is: until a tool starts one, the profiler is not
+// initialized and a zone is a load and a branch, so nothing is recorded
+// and no output byte changes. The trace is Chrome trace JSON, read by
+// Perfetto. The zones of passes and analyses, whose names are only
+// known at run time, are addInstrumentation's and llvmCallbacks'.
 #ifndef IDR_SUPPORT_PROFILE_H
 #define IDR_SUPPORT_PROFILE_H
 
-#include "tracy/Tracy.hpp"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/Support/TimeProfiler.h"
 
-#include <array>
-#include <cstddef>
-#include <cstdint>
+#include <string>
+
+namespace llvm {
+class PassInstrumentationCallbacks;
+} // namespace llvm
 
 namespace mlir {
 class PassManager;
@@ -24,45 +24,58 @@ class PassManager;
 
 namespace idr::profile {
 
-// What a zone belongs to, which gives it its colour, so that a timeline
-// reads by colour before it reads by name.
-enum class Subsystem : std::uint8_t { Driver, Parse, Round, Analysis, Pass, Conversion, LLVM, Link };
+// One tool's trace, from its command line to its exit: constructed after
+// the options are read, it starts the profiler when --time-trace named
+// a file (--time-trace-granularity=<microseconds> coarsens it; at 0, the
+// default, every span is kept), and its destruction writes the trace.
+// Constructing one in a tool that was not asked for a trace does nothing.
+struct Trace {
+  explicit Trace(llvm::StringRef procName);
+  ~Trace();
+  Trace(const Trace &) = delete;
+  Trace &operator=(const Trace &) = delete;
 
-// One fixed colour per subsystem, 0xRRGGBB.
-constexpr std::uint32_t color(Subsystem subsystem) {
-  constexpr std::array<std::uint32_t, 8> colors{
-      0x4C72B0, // Driver: blue
-      0x55A868, // Parse: green
-      0xC44E52, // Round: red
-      0x8172B2, // Analysis: purple
-      0xCCB974, // Pass: ochre
-      0x64B5CD, // Conversion: cyan
-      0xDD8452, // LLVM: orange
-      0x937860, // Link: brown
-  };
-  return colors[static_cast<std::size_t>(subsystem)];
-}
+  std::string procName;
+  bool active = false;
+};
+
+// A worker thread's share of the trace, for a thread a tool spawns and
+// joins itself (the driver's large-stack thread): the profiler's state
+// is a thread's own, so a thread begins its own and finishes it before
+// it is joined, and the process's Trace writes them all. Threads the
+// pass manager runs on are addInstrumentation's.
+struct ThreadTrace {
+  ThreadTrace();
+  ~ThreadTrace();
+  ThreadTrace(const ThreadTrace &) = delete;
+  ThreadTrace &operator=(const ThreadTrace &) = delete;
+
+  bool owns = false;
+};
 
 // Zones for every pass and every analysis the manager runs, named by the
-// pass or analysis and coloured Pass or Analysis. Defined in every build;
-// it adds nothing without TRACY_ENABLE, so a manager's owner calls it
+// pass or analysis. Defined in every build; while no trace is started
+// its hooks record nothing, so a manager's owner calls it
 // unconditionally.
 void addInstrumentation(mlir::PassManager &pm);
 
+// The callbacks that give every pass and every analysis of an LLVM
+// pipeline its zone, for llvm::PassBuilder, which takes them as a
+// pointer it may be given or not. Null while no trace is started, so a
+// builder given it is then the builder it was.
+llvm::PassInstrumentationCallbacks *llvmCallbacks();
+
 } // namespace idr::profile
 
-#ifdef TRACY_ENABLE
-#define IDR_ZONE(name) ZoneScopedN(name)
-#define IDR_ZONE_IN(name, sub) ZoneScopedNC(name, ::idr::profile::color(::idr::profile::Subsystem::sub))
-#define IDR_FRAME(name) FrameMarkNamed(name)
-#define IDR_PLOT(name, value) TracyPlot(name, static_cast<int64_t>(value))
-#define IDR_MESSAGE(literal) TracyMessageL(literal)
-#else
-#define IDR_ZONE(name)
-#define IDR_ZONE_IN(name, sub)
-#define IDR_FRAME(name)
-#define IDR_PLOT(name, value)
-#define IDR_MESSAGE(literal)
-#endif
+// A zone is a TimeTraceScope, whose variable the line names. The
+// subsystem a zone belongs to is its caller's to state, for a reader;
+// the trace format has no colours to give it.
+#define IDR_ZONE_INNER(name, line) llvm::TimeTraceScope idr_time_trace_scope_##line(name)
+#define IDR_ZONE_EXPAND(name, line) IDR_ZONE_INNER(name, line)
+#define IDR_ZONE(name) IDR_ZONE_EXPAND(name, __LINE__)
+#define IDR_ZONE_IN(name, subsystem) IDR_ZONE(name)
+// A point in a trace, where one stage of a thing (a compilation, a
+// round of idr-simplify) ends: the format's instant event.
+#define IDR_INSTANT(name) llvm::timeTraceAddInstantEvent(name, [] { return std::string(); })
 
 #endif // IDR_SUPPORT_PROFILE_H

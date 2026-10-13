@@ -282,7 +282,10 @@ def Idr_TermLinesOp : Idr_ReadingOp<"term_lines", "the terminal's number of line
 
 def Idr_ErrnoOp : Idr_ReadingOp<"errno", "the saved errno of the last failing call">;
 
-def Idr_StrerrorOp : Idr_PlatformIOOp<"strerror"> {
+// The text is the C library's, the same at every call: IO in the world's
+// order, but nothing the program's outside observes, so not Idr_IOOp.
+def Idr_StrerrorOp : Idr_Op<"io.strerror", [Idr_PerformsIO, Idr_CallsRuntime, Idr_Primitive,
+    MemoryEffects<[MemRead<Idr_IOResource>, MemWrite<Idr_IOResource>]>]> {
   let summary = "the text of an error number, a new string";
   let arguments = (ins I64:$code, Idr_WorldType:$world);
   let results = (outs Res<Idr_StrValue, "", [MemAlloc]>:$str, Idr_WorldType:$next);

@@ -50,6 +50,8 @@ void optMain(void *argument) {
   registry.insert<idr::IdrDialect>();
   auto [inputPath, outputPath] = mlir::registerAndParseCLIOptions(
       invocation.argc, invocation.argv, "idris-mlir-opt: the idr dialect\n", registry);
+  // --time-trace, when it named a file: written as this returns.
+  idr::profile::Trace trace("idris-mlir-opt");
   // idr-simplify counts its rounds through an instrumentation of the manager
   // that runs it, so every manager this tool runs carries one, ahead of the
   // pipeline the command line gives, and the profile's zones, as

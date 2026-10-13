@@ -4,7 +4,7 @@
 to C5 and H1 to H2 were carried out as one cutover by the swarm packet
 `0002-cutover-swarm/`, whose `contracts.md` is the more specific decision
 where the two differ (no compatibility owed, `idr.func` at once, the
-erased grade deleted from the dialect, Tracy as a preset instrumented
+erased grade deleted from the dialect, profiling instrumented
 through the pass manager, the dialect's readability taken now). The
 cutover is committed; it is unbuilt until the owner's machine runs it. G0, G1 (§12, what remained of the former LLVM-pin and representation-cutover proposals)
 and S (§6.1, self-hosting) stay here. Its §1 to §4 read the tree before
@@ -391,7 +391,7 @@ compiles itself, each one measured before the next starts.
    set-aside programs within their limits, G0's record taken on the
    cutover tree. A failure is read from the code and fixed in the tree.
 3. **Break the wall by measurement.** The pipeline on the stage-0 module
-   with `-mlir-timing` and a Tracy capture (the `profile` preset): the
+   with `-mlir-timing` and a time trace (`tools/profile.sh`): the
    first time the C++ side finishes on it. The pass or analysis that
    dominates is fixed first. LLVM's single module is the term no pass
    change touches, so 0005's S2 (units, split codegen, an ordered link)
@@ -480,6 +480,15 @@ same change, and `make self` stays green across it.
   changes; it ends on a change flag, bounded, and the bound is measured.
 - D7: a stage lands only with its proof in §6; a stage that makes the
   compile-time record worse is not taken until it does not.
+- D8 (owner, 2026-10-12): profiling is LLVM's time trace, by a hard
+  cutover from Tracy: every build carries it, off until a tool is given
+  --time-trace, through the same pass-manager instrumentation, and
+  Tracy leaves the tree entirely -- the submodule, the client, the
+  profile presets, the bootstrap's capture step and its pins. The
+  trace defaults to full granularity; completeness is not traded for
+  file size. Tracy's sampled stacks, plots and allocation timeline do
+  not come across: the system's sampling profiler and --stats are
+  theirs. The runtime stays unprofiled, as it was.
 
 ## 10. Rules changed
 

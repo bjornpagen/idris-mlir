@@ -124,6 +124,16 @@ private:
   template <typename, template <typename> class...> friend class mlir::Op;
 };
 
+// An IO op the program's outside can observe (`Idr_ObservableIO`), what
+// makes a memo label that reaches it `by_name`.
+template <typename ConcreteType>
+class ObservableIO : public mlir::OpTrait::TraitBase<ConcreteType, ObservableIO> {
+private:
+  ObservableIO() = default;
+  friend ConcreteType;
+  template <typename, template <typename> class...> friend class mlir::Op;
+};
+
 // An op Idris names as a primitive (`Idr_Primitive`), what
 // idris-mlir-tblgen generates the Idris side's primitive set from.
 template <typename ConcreteType>

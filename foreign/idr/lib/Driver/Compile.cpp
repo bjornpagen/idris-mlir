@@ -10,7 +10,6 @@
 
 #include "mlir/Support/Timing.h"
 
-#include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/FileSystem.h"
@@ -88,8 +87,8 @@ std::string idr::driver::frontendBeside(const char *argv0) {
 }
 
 int idr::driver::compile(llvm::StringRef frontendPath, Input kind, Artifacts &artifacts) {
-  // A profile's frames are compilations, however each one ends.
-  llvm::scope_exit frame([] { IDR_FRAME("compile"); });
+  // The compilation as one span of the trace, however it ends.
+  IDR_ZONE_IN("compile", Driver);
   mlir::DefaultTimingManager timings;
   mlir::applyDefaultTimingManagerCLOptions(timings);
   mlir::TimingScope rootTiming = timings.getRootScope();

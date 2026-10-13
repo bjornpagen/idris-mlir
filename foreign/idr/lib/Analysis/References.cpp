@@ -14,6 +14,7 @@
 #include "idr/Analysis/References.h"
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Symbols.h"
 #include "idr/Support/Scc.h"
 
 #include "mlir/IR/BuiltinOps.h"
@@ -170,5 +171,16 @@ void idr::walkStoredAttributes(Operation *op, function_ref<void(Attribute)> visi
 
 StringAttr idr::closureLabel(mlir::SymbolTable &symbols, SymbolRefAttr ctor) {
   auto data = symbols.lookup<DataOp>(ctor.getRootReference());
-  return data && data.getClosures() ? ctor.getLeafReference() : StringAttr();
+  if (!data)
+    return {};
+  if (data.getClosures())
+    return ctor.getLeafReference();
+  // A memo sum is the suspension as a closure sum is the closure: its label
+  // constructors, which `labels` names, are its functions; its two states
+  // are not, and `labels` does not name them.
+  if (isMemo(data) && data.getLabelsAttr())
+    for (auto label : data.getLabelsAttr().getAsRange<FlatSymbolRefAttr>())
+      if (label.getAttr() == ctor.getLeafReference())
+        return ctor.getLeafReference();
+  return {};
 }

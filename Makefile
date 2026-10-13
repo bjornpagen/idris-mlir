@@ -5,8 +5,8 @@
 #   make verify-pins       the Idris submodule is at its staged gitlink, unmodified
 #   make check             tests/spec: the pins, the commands and the layout;
 #                          always, without a build
-#   make build             the C++ dev preset (PRESET=release, hardened,
-#                          profile or lint for another), the Idris side's modules of the
+#   make build             the C++ dev preset (PRESET=release, hardened
+#                          or lint for another), the Idris side's modules of the
 #                          dialects (tools/dialects.sh), the fork of Idris's
 #                          compiler (compiler/idris), the frontend, and the
 #                          frontend's prefix: the packages the pinned Idris

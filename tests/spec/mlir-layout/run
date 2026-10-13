@@ -3,7 +3,7 @@
 # under include/idr and .cpp under lib, no C++20 module, every library one
 # add_mlir_library (add_mlir_dialect_library for the dialect), and a
 # CMakeLists.txt only where a list of the layout is. The build follows the
-# project's profile: the five presets (no asan-ubsan, PINS.md
+# project's profile: the presets but asan-ubsan (PINS.md
 # no-sanitizer-runtimes), C++26 with clang and libc++, no exceptions or
 # RTTI, warnings as errors. No state outlives a call but three: the
 # dialect's count of the cells the folders left live (a member the ODS
@@ -15,7 +15,7 @@ idr=foreign/idr
 
 sed -n '/"configurePresets"/,/"buildPresets"/p' CMakePresets.json |
   sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' > "$work/presets"
-for preset in dev release hardened profile lint; do
+for preset in dev release hardened lint; do
   if grep -qx "$preset" "$work/presets"; then say "preset $preset"; else say "preset $preset: missing"; fi
 done
 if grep -qx asan-ubsan "$work/presets"; then say "preset asan-ubsan: present"; else say "no preset asan-ubsan"; fi
@@ -52,10 +52,9 @@ else
   say "no C++20 module under $idr"
 fi
 
-# Every library is an add_mlir_library; the one add_library is the Tracy
-# client, third-party code the profile build compiles beside ours.
+# Every library is an add_mlir_library; there is no plain add_library.
 find "$idr" -name CMakeLists.txt | sort > "$work/lists"
-xargs grep -HnE '^[[:space:]]*add_library\(' < "$work/lists" | grep -v 'add_library(idr_tracy ' > "$work/plain"
+xargs grep -HnE '^[[:space:]]*add_library\(' < "$work/lists" > "$work/plain"
 if [ -s "$work/plain" ]; then
   say "libraries that are not add_mlir_library:"
   cat "$work/plain"

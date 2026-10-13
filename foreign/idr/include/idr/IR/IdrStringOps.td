@@ -68,7 +68,7 @@ def Idr_StrConcatOp : Idr_StrBuilderOp<"concat", [Idr_Primitive,
 // the idr.io ops are, but calls no runtime function named after it: its
 // lowering walks the list (lib/Conversion). What the list's declaration must
 // be is a symbol-use rule.
-def Idr_PutListOp : Idr_Op<"io.put_list", [Idr_PerformsIO, Idr_Primitive,
+def Idr_PutListOp : Idr_Op<"io.put_list", [Idr_PerformsIO, Idr_ObservableIO, Idr_Primitive,
     MemoryEffects<[MemRead<Idr_IOResource>, MemWrite<Idr_IOResource>]>,
     DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
   let summary = "writes the characters or the strings of a list, in order";

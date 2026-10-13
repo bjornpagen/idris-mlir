@@ -1,12 +1,17 @@
 // quantities-kept: no pass drops or widens a quantity Idris proved. A
 // quantity is a type's (quantityOf), one or many; a parameter of a
 // function or a lambda, a field a match binds or a constructor field the
-// emitted module declared keeps the quantity it had there. A binder is known by its location, what Emit
-// gave it (the span of its Idris binder) or what the parser gave a module
-// written by hand (the position of its name), with the names around it
-// removed: passes copy locations with what they copy, so a binder that was
-// renamed, cloned or moved is still found, and one made by inlining
-// carries another location, which no binder of the emitted module has.
+// emitted module declared keeps the quantity it had there. A binder is
+// known by its location: the name Emit gave it over the span of its
+// Idris definition, or what the parser gave a module written by hand
+// (the position of its name). The span alone is not the binder: every
+// binder of one definition shares it, so the name over it is part of
+// the key. Passes copy locations with what they copy, so a binder that
+// was cloned or moved is still found; a binder a pass makes of its own
+// (a clone's destination, at the function's location) or for a value
+// that was no binder when emitted (a capture, at the value's location)
+// carries a name no emitted binder at that span has, and one made by
+// inlining carries another location outright.
 
 #include "idr/Transforms/Expect.h"
 
@@ -29,20 +34,26 @@ namespace {
 
 constexpr StringRef property = "quantities-kept";
 
-// The key of a binder at `loc`: the location under every name; none for
-// an unknown location, which many binders share. A parser position
-// (FileLineColLoc) names the text it was read from, and the module and
-// the emitted module are different texts, so for one only its line and
-// column are the binder's identity; a span Emit wrote (FileLineColRange)
-// names its Idris source, which both sides share.
+// The key of a binder at `loc`: its outermost name over the location
+// under every name; none where that location is unknown, which many
+// binders share. A parser position (FileLineColLoc) names the text it
+// was read from, and the module and the emitted module are different
+// texts, so for one only its line and column are the binder's identity;
+// a span Emit wrote (FileLineColRange) names its Idris source, which
+// both sides share.
 std::optional<Attribute> keyOf(Location loc) {
+  StringAttr name;
+  if (auto named = dyn_cast<NameLoc>(loc))
+    name = named.getName();
   while (auto named = dyn_cast<NameLoc>(loc))
     loc = named.getChildLoc();
   if (isa<UnknownLoc>(loc))
     return std::nullopt;
-  if (auto at = dyn_cast<FileLineColLoc>(loc))
-    return FileLineColLoc::get(at.getContext(), "", at.getLine(), at.getColumn());
   LocationAttr key = loc;
+  if (auto at = dyn_cast<FileLineColLoc>(loc))
+    key = FileLineColLoc::get(at.getContext(), "", at.getLine(), at.getColumn());
+  if (name)
+    return NameLoc::get(name, key);
   return key;
 }
 

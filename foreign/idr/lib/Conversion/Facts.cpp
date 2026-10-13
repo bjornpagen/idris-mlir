@@ -4,6 +4,7 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/Symbols.h"
+#include "idr/Analysis/References.h"
 #include "idr/Conversion/Facts.h"
 #include "idr/Conversion/Mangle.h"
 
@@ -22,10 +23,11 @@ namespace idr::conversion {
 
 namespace {
 
-// Whether a value of `type` is one pointer to a cell: a box, a closure or a
-// string. Static data and live cells alike are 8-aligned and start with an
-// 8-byte header.
-bool isCell(Type type) { return isa<BoxType, FnType, LazyType, StrType>(unrestricted(type)); }
+// Whether a value of `type` is one pointer to a cell: a box or a string.
+// idr-lower reads these facts after idr-defunctionalize, where every
+// closure and suspension is already a box, so the box says it once. Static
+// data and live cells alike are 8-aligned and start with an 8-byte header.
+bool isCell(Type type) { return isa<BoxType, StrType>(unrestricted(type)); }
 
 // The attributes of a pointer to a cell.
 SmallVector<NamedAttribute> cellFacts(Builder &b) {
@@ -73,12 +75,8 @@ Facts::Facts(ModuleOp m, SymbolTable &symbols) : module(m) {
     mangled[fn] = name;
     signatures[name] = fn.getFunctionType();
   }
-  DenseSet<StringAttr> memos;
-  for (auto data : module.getOps<DataOp>()) {
+  for (auto data : module.getOps<DataOp>())
     constructors[data.getSymNameAttr()] = static_cast<uint64_t>(data.getCtors().size());
-    if (isMemo(data))
-      memos.insert(data.getSymNameAttr());
-  }
   module.walk([&](Operation *op) {
     idr::FuncOp callee;
     OperandRange passed = op->getOperands();
@@ -92,10 +90,9 @@ Facts::Facts(ModuleOp m, SymbolTable &symbols) : module(m) {
       label = reuse.getCtor();
       passed = reuse.getFields();
     }
-    if (label && memos.contains(label.getRootReference()) &&
-        label.getLeafReference().getValue() != memoRunning &&
-        label.getLeafReference().getValue() != memoForced)
-      callee = symbols.lookup<idr::FuncOp>(label.getLeafReference());
+    if (label)
+      if (StringAttr named = closureLabel(symbols, label))
+        callee = symbols.lookup<idr::FuncOp>(named);
     if (!callee)
       return;
     StringAttr name = mangled.lookup(callee);

@@ -292,10 +292,7 @@ public:
       return *counts;
     };
     traceRound(cast<ModuleOp>(module), round, took, census);
-    IDR_FRAME("round");
-    IDR_PLOT("functions", census().functions);
-    IDR_PLOT("clones", census().clones);
-    IDR_PLOT("ops", census().ops);
+    IDR_INSTANT("round");
   }
 
 private:

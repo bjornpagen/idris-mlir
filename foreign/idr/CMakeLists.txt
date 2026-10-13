@@ -16,16 +16,13 @@ include(TableGen)
 include(AddLLVM)
 include(AddMLIR)
 
-# MLIR's and LLVM's headers, the generated ones and Tracy's are system
-# headers, so that the project's warnings apply to our code and not to
-# theirs. TableGen reads the same include path. Every build reads
-# tracy/Tracy.hpp; only the profile build defines TRACY_ENABLE, without
-# which every zone is nothing.
+# MLIR's and LLVM's headers and the generated ones are system headers,
+# so that the project's warnings apply to our code and not to theirs.
+# TableGen reads the same include path.
 include_directories(SYSTEM
 	${LLVM_INCLUDE_DIRS}
 	${MLIR_INCLUDE_DIRS}
 	${CMAKE_CURRENT_BINARY_DIR}/include
-	${PROJECT_SOURCE_DIR}/third_party/tracy/public
 )
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 separate_arguments(IDR_LLVM_DEFINITIONS NATIVE_COMMAND ${LLVM_DEFINITIONS})
@@ -97,51 +94,6 @@ set(IDR_DRIVER_DEFINITIONS
 	"IDRIS_MLIR_IDRIS_PREFIX=\"${IDRIS_MLIR_IDRIS_PREFIX}\""
 )
 
-# Profiling with Tracy, the profile preset's alone: the client, the zones
-# of every pass and analysis, and, with IDRIS_MLIR_PROFILE_MEMORY, every
-# allocation. Every other build compiles the same zones to nothing.
-# PIN(tracy-profiler) — see PINS.md
-option(IDRIS_MLIR_PROFILE "Instrument the compiler for Tracy (the profile preset)" OFF)
-option(IDRIS_MLIR_PROFILE_MEMORY "With IDRIS_MLIR_PROFILE, track every allocation of the tools" OFF)
-if(IDRIS_MLIR_PROFILE_MEMORY AND NOT IDRIS_MLIR_PROFILE)
-	message(FATAL_ERROR "IDRIS_MLIR_PROFILE_MEMORY needs IDRIS_MLIR_PROFILE; use the profile preset")
-endif()
-if(IDRIS_MLIR_PROFILE)
-	# The client, one translation unit from the pinned submodule, built
-	# before the language profile applies, so this project's warnings stay
-	# on our code. It listens on localhost and does not broadcast. It is not
-	# told to refuse exit: this build runs idris-mlir to prepare the
-	# runtime, and that step has to return when no capture is attached. A
-	# capture sets TRACY_NO_EXIT=1 so the profiled process flushes before it
-	# quits.
-	set(IDR_TRACY_DIR "${PROJECT_SOURCE_DIR}/third_party/tracy")
-	if(NOT EXISTS "${IDR_TRACY_DIR}/public/TracyClient.cpp")
-		message(FATAL_ERROR "the Tracy client is missing at ${IDR_TRACY_DIR}; run: git submodule update --init third_party/tracy")
-	endif()
-	# On demand, the client records only while a capture is connected. The
-	# definitions change the layout of Tracy's zone types, so every unit
-	# here and the client agree on them. Frame pointers and line tables give
-	# the sampler its call stacks.
-	add_compile_definitions(TRACY_ENABLE TRACY_ON_DEMAND)
-	add_compile_options(-fno-omit-frame-pointer -g1)
-	add_library(idr_tracy STATIC "${IDR_TRACY_DIR}/public/TracyClient.cpp")
-	target_compile_definitions(idr_tracy PRIVATE TRACY_ONLY_LOCALHOST TRACY_NO_BROADCAST)
-	# Without the sampling header the Apple sampler never starts, and a
-	# capture has a time span and no call stacks (ProfileSampling.h says
-	# why).
-	target_compile_options(idr_tracy PRIVATE
-		"SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/include/idr/Support/ProfileSampling.h"
-	)
-	find_package(Threads REQUIRED)
-	target_link_libraries(idr_tracy PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
-	set_target_properties(idr_tracy PROPERTIES
-		CXX_STANDARD 20
-		CXX_STANDARD_REQUIRED ON
-		CXX_EXTENSIONS OFF
-		CXX_CLANG_TIDY ""
-	)
-endif()
-
 # Every target below is compiled and linked with the language profile.
 link_libraries(idris_mlir_language_profile)
 
@@ -203,20 +155,6 @@ else()
 		target_link_libraries(${tool} PRIVATE ${IDR_TOOL_LINKS_${tool}})
 	endforeach()
 	add_dependencies(idris-mlir idris_rt_check)
-
-	# The profile build links the client whole into each tool: it starts from
-	# a static constructor, which a link that keeps only what is named would
-	# drop. With IDRIS_MLIR_PROFILE_MEMORY each tool also defines the global
-	# operator new and delete through Tracy; no library holds them, so nothing
-	# that links a library of ours gets them.
-	if(IDRIS_MLIR_PROFILE)
-		foreach(tool IN LISTS IDR_TOOLS)
-			target_link_libraries(${tool} PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,idr_tracy>")
-			if(IDRIS_MLIR_PROFILE_MEMORY)
-				target_sources(${tool} PRIVATE lib/Support/ProfileAlloc.cpp)
-			endif()
-		endforeach()
-	endif()
 
 	set(IDRIS_MLIR_RUNTIME_PREPARED_FILES "${IDRIS_MLIR_RUNTIME_PREPARED}")
 	if(IDRIS_MLIR_RUNTIME_BITCODE_SECTION STREQUAL "")

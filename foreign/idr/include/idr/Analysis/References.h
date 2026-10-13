@@ -76,10 +76,12 @@ private:
   llvm::SmallVector<llvm::SmallVector<idr::FuncOp>> parts;
 };
 
-// The function a constructor of a sum of closures names: such a sum (an
-// idr.data with `closures`) has one constructor per label, named after the
-// label's function. Null for any other constructor. The one rule of a
-// closure's label, for References' sites and Effects::passed.
+// The function a constructor of a sum of closures or of a memo sum names:
+// such a sum (an idr.data with `closures`, or with `memo`) has one
+// constructor per label, named after the label's function, which a memo
+// sum's `labels` names besides its two states. Null for any other
+// constructor. The one rule of a label, for References' sites,
+// Effects::passed and the facts idr-lower hands LLVM.
 mlir::StringAttr closureLabel(mlir::SymbolTable &symbols, mlir::SymbolRefAttr ctor);
 
 // Calls `visit` on every attribute nested in what `op` stores, inherent and

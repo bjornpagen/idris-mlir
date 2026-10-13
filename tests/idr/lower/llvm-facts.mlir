@@ -17,6 +17,8 @@
 // CHECK-SAME: -> (!llvm.ptr {llvm.align = 8 : i64, llvm.dereferenceable = 8 : i64, llvm.nonnull})
 // CHECK-LABEL: func.func private @shade(
 // CHECK-SAME: i8 {llvm.range = #llvm.constant_range<i8, 0, 3>}
+// CHECK-LABEL: func.func private @walk(
+// CHECK-SAME: !llvm.ptr {llvm.align = 8 : i64, llvm.dereferenceable = 8 : i64, llvm.nonnull}
 // CHECK-LABEL: func.func private @unread(
 // CHECK-NOT: llvm.nonnull
 // CHECK-SAME: -> i64

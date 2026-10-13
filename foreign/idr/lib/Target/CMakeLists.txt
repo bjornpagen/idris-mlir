@@ -12,6 +12,7 @@ add_mlir_library(IdrTarget
 	IdrPassesIncGen
 
 	LINK_LIBS PUBLIC
+	IdrSupport
 	MLIRIR
 	MLIRPass
 	MLIRLLVMDialect

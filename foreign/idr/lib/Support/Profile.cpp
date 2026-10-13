@@ -1,29 +1,29 @@
-// The zones of passes and analyses: one pass instrumentation, on the
-// manager of idris-mlir and of idris-mlir-opt, which every nested and
-// dynamic pipeline run under it (the round's, the inliner's, a module
-// pass's own) inherits, so every pass and every analysis gets its zone here
-// and no pass adds one for its run.
+// The zones of passes and analyses, on LLVM's time trace: one MLIR pass
+// instrumentation on the manager of idris-mlir and of idris-mlir-opt,
+// which every nested and dynamic pipeline run under it (the round's, the
+// inliner's, a module pass's own) inherits, and one set of LLVM pass
+// instrumentation callbacks for the optimizer's pipeline, so every pass
+// and every analysis on either side gets its zone here and no pass adds
+// one for its run. A zone opened in a before-hook closes in the matching
+// after-hook, a call later, so no scope can hold it; each side calls a
+// pass's or analysis's before- and after-hooks on the one thread that
+// runs it, in nesting order, which is the order the profiler's per-thread
+// stack keeps.
 //
-// A zone opened in a before-hook closes in the matching after-hook, a call
-// later, so no scope can hold it. MLIR calls a pass's or analysis's
-// before- and after-hooks on the one thread that runs it, and Tracy needs
-// a zone begun and ended on one thread, so the context Tracy returns is
-// kept in this instrumentation, under its mutex, keyed by what the after-
-// hook is called with: the pass and the operation it runs on, or the
-// analysis's TypeID and its operation. Those pairs are unique among the
-// zones open at once: a pass instance runs on one operation at a time,
-// and an analysis is not computed on an operation while it is being
-// computed there. Tracy's per-thread queue is Tracy's; nothing of ours is
-// per thread or atomic.
+// The profiler's state is a thread's own, and a pass manager runs its
+// nested pipelines on its context's pool threads. So a pipeline hook
+// begins the calling thread's profiler where it has none and finishes it
+// where the outermost pipeline on that thread ends, and the finished
+// threads' entries are written with the process's. A pipeline a pass
+// failed in never runs its after-pipeline hook (Pass.cpp returns first),
+// so the failing pass's after-hook finishes the thread instead.
 //
-// The names are only known at run time, so each zone's source location is
-// allocated, by Tracy, which copies the names and frees the location
-// itself. With TRACY_ON_DEMAND a hook does nothing but ask whether a
-// capture is connected until one is.
+// Nothing here is compiled away: until a tool starts a trace with
+// --time-trace, no thread's profiler exists and every hook but the
+// pipeline ones is a load and a branch, which is what -mlir-timing's
+// instrumentations cost untimed too.
 
 #include "idr/Support/Profile.h"
-
-#ifdef TRACY_ENABLE
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Operation.h"
@@ -34,123 +34,208 @@
 #include "mlir/Support/TypeID.h"
 
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/IR/Function.h"
+#include "llvm/IR/IRUnitRef.h"
+#include "llvm/IR/Module.h"
+#include "llvm/IR/PassInstrumentation.h"
+#include "llvm/Support/Casting.h"
+#include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Error.h"
+#include "llvm/Support/Threading.h"
+#include "llvm/Support/raw_ostream.h"
 
-#include <algorithm>
-#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <mutex>
-#include <source_location>
+#include <optional>
+#include <string>
 #include <utility>
-
-#include "tracy/TracyC.h"
 
 namespace {
 
-using idr::profile::Subsystem;
+// The trace a tool was asked for, as clang's -ftime-trace asks: a file,
+// and the shortest span worth keeping. At zero (the default) every span
+// is kept; a coarser trace is the knob, never the default trade.
+llvm::cl::opt<std::string> timeTraceFile(
+    "time-trace", llvm::cl::value_desc("file"),
+    llvm::cl::desc("Write a time trace of the compilation (every pass, analysis and "
+                   "driver phase) as Chrome trace JSON to <file>, for Perfetto"));
+llvm::cl::opt<unsigned> timeTraceGranularity(
+    "time-trace-granularity", llvm::cl::value_desc("microseconds"), llvm::cl::init(0),
+    llvm::cl::desc("With --time-trace, drop spans shorter than this many microseconds"));
 
-// A begun zone, as Tracy's C API returns it: by value, inactive when no
-// capture was connected as it began.
-using Zone = TracyCZoneCtx;
+// What the process's Trace started, read by every thread that begins its
+// own profiler from it. It is written once, before any work that is
+// traced, and only read after.
+struct TraceState {
+  std::string proc;
+  bool started = false;
+};
+TraceState traceState;
 
-// Begins a zone named `name` whose source location's function is
-// `function`; the location's file and line are this file's, where the
-// hook is.
-Zone beginZone(llvm::StringRef function, llvm::StringRef name, Subsystem subsystem,
-               std::source_location where = std::source_location::current()) {
-  llvm::StringRef file = where.file_name();
-  std::uint64_t location =
-      ___tracy_alloc_srcloc_name(where.line(), file.data(), file.size(), function.data(), function.size(),
-                                 name.data(), name.size(), idr::profile::color(subsystem));
-  // Tracy frees the location when the zone does not begin.
-  return ___tracy_emit_zone_begin_alloc(location, 1);
-}
-
-// What a pass zone ran on, as its text: the operation's name and, for a
-// symbol, its name, which tells one function's run of a function pass
-// from another's.
-void describe(Zone zone, mlir::Operation *op) {
+// What an MLIR pass zone ran on, as its detail: the operation's name and,
+// for a symbol, its name, which tells one function's run of a function
+// pass from another's.
+std::string describe(mlir::Operation *op) {
   llvm::SmallString<128> text(op->getName().getStringRef());
   if (auto symbol = op->getAttrOfType<mlir::StringAttr>(mlir::SymbolTable::getSymbolAttrName())) {
     text += " @";
     text += symbol.getValue();
   }
-  // Tracy takes a text shorter than 64 KiB.
-  std::size_t size = std::min<std::size_t>(text.size(), 0xFFFE);
-  ___tracy_emit_zone_text(zone, text.data(), size);
+  return text.str().str();
+}
+
+// What an LLVM pass or analysis zone ran on, where the unit has a name.
+std::string describe(llvm::IRUnitRef ir) {
+  if (const auto *function = llvm::dyn_cast<llvm::Function>(ir))
+    return function->getName().str();
+  if (const auto *module = llvm::dyn_cast<llvm::Module>(ir))
+    return module->getName().str();
+  return {};
+}
+
+void beginLlvmZone(llvm::StringRef name, llvm::IRUnitRef ir) {
+  llvm::timeTraceProfilerBegin(name, [ir] { return describe(ir); });
+}
+
+void endLlvmZone() {
+  if (llvm::getTimeTraceProfilerInstance())
+    llvm::timeTraceProfilerEnd();
 }
 
 class Zones final : public mlir::PassInstrumentation {
 public:
+  void runBeforePipeline(std::optional<mlir::OperationName>, const PipelineParentInfo &) override {
+    if (!traceState.started)
+      return;
+    std::uint64_t thread = llvm::get_threadid();
+    std::lock_guard<std::mutex> lock(mutex);
+    unsigned &depth = depths[thread];
+    if (depth == 0 && !llvm::getTimeTraceProfilerInstance()) {
+      llvm::timeTraceProfilerInitialize(timeTraceGranularity, traceState.proc);
+      owned.insert(thread);
+    }
+    ++depth;
+  }
+
+  void runAfterPipeline(std::optional<mlir::OperationName>, const PipelineParentInfo &) override {
+    leavePipeline(false);
+  }
+
   void runBeforePass(mlir::Pass *pass, mlir::Operation *op) override {
-    if (!___tracy_connected())
-      return;
-    // The name is the one -mlir-timing prints; the function is what a
-    // pipeline spells, where the pass has an argument.
-    llvm::StringRef name = pass->getName();
-    llvm::StringRef argument = pass->getArgument();
-    Zone zone = beginZone(argument.empty() ? name : argument, name, Subsystem::Pass);
-    if (!zone.active)
-      return;
-    describe(zone, op);
-    std::lock_guard<std::mutex> lock(mutex);
-    passes[{pass, op}] = zone;
+    // The name is the one -mlir-timing prints.
+    llvm::timeTraceProfilerBegin(pass->getName(), [op] { return describe(op); });
   }
 
-  void runAfterPass(mlir::Pass *pass, mlir::Operation *op) override { endZone(passes, {pass, op}); }
-
-  void runAfterPassFailed(mlir::Pass *pass, mlir::Operation *op) override { endZone(passes, {pass, op}); }
-
-  void runBeforeAnalysis(llvm::StringRef name, mlir::TypeID id, mlir::Operation *op) override {
-    if (!___tracy_connected())
-      return;
-    Zone zone = beginZone(name, name, Subsystem::Analysis);
-    if (!zone.active)
-      return;
-    std::lock_guard<std::mutex> lock(mutex);
-    analyses[{id, op}] = zone;
+  void runAfterPass(mlir::Pass *, mlir::Operation *) override {
+    if (llvm::getTimeTraceProfilerInstance())
+      llvm::timeTraceProfilerEnd();
   }
 
-  void runAfterAnalysis(llvm::StringRef, mlir::TypeID id, mlir::Operation *op) override {
-    endZone(analyses, {id, op});
+  void runAfterPassFailed(mlir::Pass *, mlir::Operation *) override {
+    if (llvm::getTimeTraceProfilerInstance())
+      llvm::timeTraceProfilerEnd();
+    // A failed pipeline skips its after-pipeline hook, so this thread's
+    // pipelines are all unwinding: finish its profiler here.
+    leavePipeline(true);
+  }
+
+  void runBeforeAnalysis(llvm::StringRef name, mlir::TypeID, mlir::Operation *op) override {
+    llvm::timeTraceProfilerBegin(name, [op] { return describe(op); });
+  }
+
+  void runAfterAnalysis(llvm::StringRef, mlir::TypeID, mlir::Operation *) override {
+    if (llvm::getTimeTraceProfilerInstance())
+      llvm::timeTraceProfilerEnd();
   }
 
 private:
-  // Ends the zone `key` began, if one did. With no capture connected there
-  // is nothing to end: a zone begun under a capture that has since gone
-  // stays in the map until its key begins again, and Tracy ignores the end
-  // of a zone of an earlier connection.
-  template <typename Key>
-  void endZone(llvm::DenseMap<Key, Zone> &zones, Key key) {
-    if (!___tracy_connected())
+  void leavePipeline(bool failed) {
+    if (!traceState.started)
       return;
-    Zone zone{};
-    {
-      std::lock_guard<std::mutex> lock(mutex);
-      auto found = zones.find(key);
-      if (found == zones.end())
-        return;
-      zone = found->second;
-      zones.erase(found);
+    std::uint64_t thread = llvm::get_threadid();
+    std::lock_guard<std::mutex> lock(mutex);
+    auto found = depths.find(thread);
+    if (found == depths.end())
+      return;
+    if (failed)
+      found->second = 0;
+    else if (found->second > 0)
+      --found->second;
+    if (found->second == 0) {
+      depths.erase(found);
+      if (owned.erase(thread))
+        llvm::timeTraceProfilerFinishThread();
     }
-    ___tracy_emit_zone_end(zone);
   }
 
   std::mutex mutex;
-  llvm::DenseMap<std::pair<mlir::Pass *, mlir::Operation *>, Zone> passes;
-  llvm::DenseMap<std::pair<mlir::TypeID, mlir::Operation *>, Zone> analyses;
+  llvm::DenseMap<std::uint64_t, unsigned> depths;
+  llvm::DenseSet<std::uint64_t> owned;
 };
+
+struct LlvmCallbacks {
+  llvm::PassInstrumentationCallbacks pic;
+  bool registered = false;
+};
+LlvmCallbacks llvmCallbacksState;
 
 } // namespace
 
-void idr::profile::addInstrumentation(mlir::PassManager &pm) { pm.addInstrumentation(std::make_unique<Zones>()); }
+idr::profile::Trace::Trace(llvm::StringRef proc) : procName(proc.str()) {
+  if (timeTraceFile.empty())
+    return;
+  traceState.proc = procName;
+  traceState.started = true;
+  llvm::timeTraceProfilerInitialize(timeTraceGranularity, procName);
+  active = true;
+}
 
-#else
+idr::profile::Trace::~Trace() {
+  if (!active)
+    return;
+  if (llvm::Error error = llvm::timeTraceProfilerWrite(timeTraceFile, ""))
+    llvm::errs() << procName << ": cannot write the time trace to " << timeTraceFile << ": "
+                 << llvm::toString(std::move(error)) << "\n";
+  llvm::timeTraceProfilerCleanup();
+  traceState.started = false;
+}
 
-// Without TRACY_ENABLE there is nothing to add, and this build holds no
-// symbol of Tracy's.
-void idr::profile::addInstrumentation(mlir::PassManager &) {}
+idr::profile::ThreadTrace::ThreadTrace() {
+  if (traceState.started && !llvm::getTimeTraceProfilerInstance()) {
+    llvm::timeTraceProfilerInitialize(timeTraceGranularity, traceState.proc);
+    owns = true;
+  }
+}
 
-#endif
+idr::profile::ThreadTrace::~ThreadTrace() {
+  if (owns)
+    llvm::timeTraceProfilerFinishThread();
+}
+
+void idr::profile::addInstrumentation(mlir::PassManager &pm) {
+  pm.addInstrumentation(std::make_unique<Zones>());
+}
+
+llvm::PassInstrumentationCallbacks *idr::profile::llvmCallbacks() {
+  if (!traceState.started)
+    return nullptr;
+  if (!llvmCallbacksState.registered) {
+    llvm::PassInstrumentationCallbacks &pic = llvmCallbacksState.pic;
+    pic.registerBeforeNonSkippedPassCallback(
+        [](llvm::StringRef name, llvm::IRUnitRef ir) { beginLlvmZone(name, ir); });
+    pic.registerAfterPassCallback(
+        [](llvm::StringRef, llvm::IRUnitRef, const llvm::PreservedAnalyses &) { endLlvmZone(); });
+    // The end of a pass whose IR unit it invalidated comes here instead.
+    pic.registerAfterPassInvalidatedCallback(
+        [](llvm::StringRef, const llvm::PreservedAnalyses &) { endLlvmZone(); });
+    pic.registerBeforeAnalysisCallback(
+        [](llvm::StringRef name, llvm::IRUnitRef ir) { beginLlvmZone(name, ir); });
+    pic.registerAfterAnalysisCallback([](llvm::StringRef, llvm::IRUnitRef) { endLlvmZone(); });
+    llvmCallbacksState.registered = true;
+  }
+  return &llvmCallbacksState.pic;
+}

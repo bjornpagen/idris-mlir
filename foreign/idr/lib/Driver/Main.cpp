@@ -8,6 +8,7 @@
 #include "idr/Driver/Options.h"
 #include "idr/Driver/Report.h"
 #include "idr/Driver/Runtime.h"
+#include "idr/Support/Profile.h"
 #include "idr/Transforms/Pipeline.h"
 
 // The runtime's C ABI: its reserved-stack runner.
@@ -53,6 +54,8 @@ struct Compilation {
 } // namespace
 
 static void enter(void *argument) {
+  // This thread's share of the trace, finished before it is joined.
+  idr::profile::ThreadTrace thread;
   auto *compilation = static_cast<Compilation *>(argument);
   compilation->status = compilation->body();
 }
@@ -112,6 +115,9 @@ int idr::driver::main(int argc, char **argv) {
                                          "executable\n",
                                          &llvm::errs()))
     return usage;
+  // --time-trace, when it named a file: written as this returns, by
+  // whichever way out the compilation took.
+  idr::profile::Trace trace("idris-mlir");
   if (printTargetTriple) {
     llvm::outs() << targetTriple << "\n";
     return ok;

@@ -1,7 +1,6 @@
 preset dev
 preset release
 preset hardened
-preset profile
 preset lint
 no preset asan-ubsan
 CMakeLists.txt: set(CMAKE_CXX_STANDARD 26)

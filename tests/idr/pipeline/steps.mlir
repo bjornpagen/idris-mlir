@@ -15,6 +15,9 @@
 // RUN: %status 2 idris-mlir -c %s -o %t.bad.o --without=idr-sinking
 // RUN: %status 2 idris-mlir -c %s -o %t.bad.o --without=idr-redirect
 // RUN: %status 2 idris-mlir -c %s -o %t.bad.o --without=idr-rc-place
+// RUN: %status 2 idris-mlir -c %s -o %t.bad.o --demand-in-place --without=idr-demand
+// RUN: %status 2 idris-mlir -c %s -o %t.bad.o --demand-in-place --without=in-place
+// RUN: idris-mlir -c %s -o %t.without.o --without=idr-demand
 // idris-mlir dumps the module after each pass its manager runs, one file
 // per pass, `<NN>-<pass>.mlir` numbered in order from 01, the first
 // idr-target, which sets the build's target (a nested group is named by
@@ -25,7 +28,10 @@
 // the pipeline's own business. --without leaves named steps out (and turns
 // idr-rc's mechanisms off), for measuring what each is worth; a name that
 // is no step, or idr-lower, is a usage error, and so is a pass of the
-// simplify round or one a step runs nested inside itself.
+// simplify round or one a step runs nested inside itself. Asking
+// --demand-in-place of the checker --without leaves out is a usage error
+// too, never a promise kept by not looking; leaving idr-demand out
+// without asking is a measurement like any other.
 module attributes {idr.program} {
   idr.func @Prog.main() -> i64 {
     %c = arith.constant 42 : i64

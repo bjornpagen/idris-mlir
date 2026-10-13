@@ -604,32 +604,6 @@ which the top-level CMake configure gate reads.
   once
 - upstream: none
 
-## tracy-profiler
-
-- symptom: a profile of the compiler needs Tracy's client in the compiler
-  and its capture tool beside it, and neither is part of the toolchain:
-  the client was read from a sibling checkout (`../tracy`) of whatever
-  version was there, and the capture tool's CMake fetches capstone, zstd,
-  PPQSort and nlohmann/json from the network at configure (CPM)
-- sites: .gitmodules and toolchain.lock.json (`tracy`, v0.14.1 at
-  30997d5c), foreign/idr/CMakeLists.txt (the client, `idr_tracy`, built
-  only with `IDRIS_MLIR_PROFILE`, the profile preset), tools/bootstrap.sh
-  (step `tracy`), toolchain.lock.json (`capstone`, `zstd`, `ppqsort`,
-  `nlohmann_json`)
-- workaround: `third_party/tracy` is a submodule at the release tag the
-  lock records. Every build compiles `tracy/Tracy.hpp`; only the profile
-  preset defines `TRACY_ENABLE` (with `TRACY_ON_DEMAND`) and links the
-  client, so every other build's zones are nothing. The bootstrap builds
-  the capture tool from the same submodule with the stage-2 clang,
-  statically, and gives CPM each source it would fetch as a copy of the
-  lock's pin (`CPM_<name>_SOURCE`), with Tracy's two patches of PPQSort
-  applied as its CMake would; nothing is fetched at configure. The
-  runtime is not instrumented
-- retire: never while the compiler is profiled with Tracy; the pin moves
-  with Tracy's releases, the four sources with what its `cmake/vendor.cmake`
-  names
-- upstream: none
-
 ## idris-support-host-cc
 
 - symptom: the pinned toolchain builds everything else with the stage-2

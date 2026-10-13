@@ -21,17 +21,9 @@ namespace idr::defunctionalize {
 
 namespace {
 
-// Whether `op` is an effect the program's outside can observe: output,
-// input, a file, a clock. An array or a buffer is memory that only the
-// program reads back, through its own ops; a forged world orders a chain
-// without being an effect; an error's text is the C library's, the same at
-// every call.
-bool observable(Operation *op) {
-  return op->hasTrait<PerformsIO>() &&
-         !isa<ArrayNewOp, ArrayGetOp, ArraySetOp, ArrayGenerateOp, ArrayFoldOp, BufferLoadOp,
-              BufferStoreOp, BufferCopyOp, BufferSetStringOp, BufferGetStringOp, WorldNewOp,
-              StrerrorOp>(op);
-}
+// Whether `op` is an effect the program's outside can observe: the trait
+// its op class carries says it, once, beside the op.
+bool observable(Operation *op) { return op->hasTrait<ObservableIO>(); }
 
 // Whether `label` reaches an observable effect through direct calls. A
 // function without a body may do anything.

@@ -71,6 +71,17 @@ def Idr_PerformsIO : NativeOpTrait<"PerformsIO"> {
   let cppNamespace = "::idr";
 }
 
+// An IO op whose effect the program's outside can observe: output, input,
+// a file, a clock. An array or a buffer is memory only the program reads
+// back through its own ops, a forged world only orders a chain, and an
+// error's text is the C library's, the same at every call: none of those
+// carries this trait. It is said here, on the op's class, once: a memo
+// label that reaches one is `by_name`, so its effect happens where its
+// value is demanded (idr-defunctionalize).
+def Idr_ObservableIO : NativeOpTrait<"ObservableIO"> {
+  let cppNamespace = "::idr";
+}
+
 // Where an op takes over the reference an operand holds, said once, here,
 // beside the op: idr-rc places counts by it (idr::consumes), and after idr-rc
 // an op whose only effect is what it takes over reports a Free of what it

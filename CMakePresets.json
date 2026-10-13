@@ -39,15 +39,6 @@
       }
     },
     {
-      "name": "profile",
-      "displayName": "Release build instrumented for Tracy (tools/profile.sh)",
-      "inherits": "release",
-      "cacheVariables": {
-        "IDRIS_MLIR_PROFILE": "ON",
-        "IDRIS_MLIR_PROFILE_MEMORY": "OFF"
-      }
-    },
-    {
       "name": "lint",
       "displayName": "Debug build checked by the pinned clang-tidy",
       "inherits": "base",
@@ -70,7 +61,6 @@
     { "name": "dev", "configurePreset": "dev" },
     { "name": "release", "configurePreset": "release" },
     { "name": "hardened", "configurePreset": "hardened" },
-    { "name": "profile", "configurePreset": "profile" },
     { "name": "lint", "configurePreset": "lint" },
     { "name": "typecheck", "configurePreset": "typecheck" }
   ]

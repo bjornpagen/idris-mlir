@@ -24,9 +24,6 @@
 #             compiler: it runs Idris 2 and bench/'s baseline
 #   idris     Idris 2 and its API (third_party/Idris2), on  -> .toolchain/idris2
 #             the pinned Chez Scheme
-#   tracy     Tracy's capture tool (third_party/tracy),     -> .toolchain/tracy
-#             static, built with the stage-2 clang;
-#             tools/profile.sh runs it
 #   typecheck LLVM and MLIR's TableGen and generated  -> .toolchain/typecheck
 #             headers alone, built with the host's C++
 #             compiler from stage 2's patched tree, and a
@@ -109,8 +106,6 @@ runtimes_prefix=$toolchain/runtimes
 llvm_prefix=$toolchain/llvm
 chez_prefix=$toolchain/chez
 idris_prefix=$toolchain/idris2
-tracy_prefix=$toolchain/tracy
-tracy_capture=$tracy_prefix/bin/tracy-capture
 typecheck_prefix=$toolchain/typecheck
 llvm_source=$toolchain/llvm-project
 cmake=$cmake_prefix/bin/cmake
@@ -212,7 +207,7 @@ native_cmake_flags() {
 
 usage() {
   if [ $# -gt 0 ]; then printf 'bootstrap: %s\n' "$*" >&2; fi
-  echo 'usage: tools/bootstrap.sh STEP...  (cmake ninja stage1 libc runtimes stage2 gmp chez idris tracy typecheck llvm all)' >&2
+  echo 'usage: tools/bootstrap.sh STEP...  (cmake ninja stage1 libc runtimes stage2 gmp chez idris typecheck llvm all)' >&2
   exit 2
 }
 
@@ -220,9 +215,9 @@ usage() {
 steps=
 for arg in "$@"; do
   case $arg in
-    cmake | ninja | stage1 | libc | runtimes | stage2 | gmp | chez | idris | tracy | typecheck) steps="$steps $arg" ;;
+    cmake | ninja | stage1 | libc | runtimes | stage2 | gmp | chez | idris | typecheck) steps="$steps $arg" ;;
     llvm) steps="$steps stage1 libc runtimes stage2" ;;
-    all) steps="$steps cmake ninja stage1 libc runtimes stage2 gmp chez idris tracy" ;;
+    all) steps="$steps cmake ninja stage1 libc runtimes stage2 gmp chez idris" ;;
     -h | --help)
       sed -n '2,/^$/s/^# \{0,1\}//p' "$0"
       exit 0
@@ -342,7 +337,6 @@ gmp_version=$(lock_value gmp version) || exit 1
 chez_revision=$(lock_value chez revision) || exit 1
 chez_tag=$(lock_value chez tag) || exit 1
 chez_version=$(lock_value chez version) || exit 1
-tracy_tag=$(lock_value tracy tag) || exit 1
 
 # --- Stamps and inputs --------------------------------------------------
 
@@ -385,7 +379,6 @@ stamp_of() {
     stage2) echo "$llvm_prefix/provenance.json" ;;
     chez) echo "$chez_prefix/provenance.json" ;;
     idris) echo "$idris_prefix/provenance.json" ;;
-    tracy) echo "$tracy_prefix/provenance.json" ;;
     typecheck) echo "$typecheck_prefix/provenance.json" ;;
     *) die "internal error: no step $1" ;;
   esac
@@ -1156,41 +1149,6 @@ recipe_idris() {
   printf '%s\n' "chez $recipe_chez_inputs" "make bootstrap install install-api"
 }
 
-# What Tracy's build would fetch at configure (CPM), each a pin of the lock
-# instead, by the lock's name and the name Tracy's CMake gives it: the
-# disassembler, the compressor, the parallel sort and the JSON reader of its
-# server code.
-tracy_sources='capstone:capstone zstd:zstd ppqsort:PPQSort nlohmann_json:json'
-
-# The capture tool alone, by the stage-2 clang for the target, as every
-# tool here is: no CPU of the building machine's (-march=native), no LTO
-# probe, no linker or compiler cache of Tracy's choosing, no git query (the
-# exported source has none), and every source CPM would fetch given as the
-# pinned copy under the build directory.
-args_tracy() {
-  printf '%s
-' -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_MAKE_PROGRAM=$ninja" \
-    "-DCMAKE_TOOLCHAIN_FILE=$llvm_prefix/toolchain.cmake" \
-    -DNO_ISA_EXTENSIONS=ON -DNO_LTO=ON -DNO_MOLD_LINKER=ON -DNO_CCACHE=ON \
-    -DCMAKE_DISABLE_FIND_PACKAGE_Git=ON -DCPM_USE_LOCAL_PACKAGES=OFF
-  for args_tracy_source in $tracy_sources; do
-    printf '%s\n' "-DCPM_${args_tracy_source#*:}_SOURCE=$builds/tracy/${args_tracy_source%%:*}"
-  done
-}
-
-recipe_tracy() {
-  recipe_tracy_revision=$(submodule third_party/tracy tracy) || exit 1
-  recipe_stage2_inputs=$(inputs stage2) || exit 1
-  printf '%s\n' "tracy $recipe_tracy_revision"
-  for recipe_tracy_source in $tracy_sources; do
-    recipe_tracy_name=${recipe_tracy_source%%:*}
-    recipe_tracy_pin=$(lock_value "$recipe_tracy_name" revision) || exit 1
-    printf '%s\n' "$recipe_tracy_name $recipe_tracy_pin"
-  done
-  printf '%s\n' "stage2 $recipe_stage2_inputs"
-  args_tracy
-}
-
 # What the typecheck step builds: the TableGen tools and libraries, which
 # idris-mlir-tblgen links, and every header LLVM and MLIR generate, which
 # our code includes, directly or through MLIR's (LLVM's *_gen targets, three
@@ -1626,46 +1584,6 @@ idris_make() {
     fi
     cd "$build/src" && make "$@" "PREFIX=$idris_prefix" "SCHEME=$chez" "VERSION_TAG=$idris_version_tag"
   )
-}
-
-# Tracy's capture tool, which tools/profile.sh starts before a compile of
-# the profile preset's idris-mlir: the pinned submodule's, built by the
-# stage-2 clang, statically, and checked as the target's executables are.
-# What its CMake would fetch is each cloned at the lock's revision and
-# exported beside it; PPQSort takes the two patches Tracy's CMake applies
-# to its fetch, from the submodule. PIN(tracy-profiler) — see PINS.md
-step_tracy() {
-  begin tracy "Tracy's capture tool $tracy_tag, with the stage-2 clang" || return 0
-  require cmake ninja stage2 libc
-  need git
-  submodule third_party/tracy tracy > /dev/null
-  build_dir
-  export_source "$root/third_party/tracy" "$build/tracy"
-  for step_tracy_source in $tracy_sources; do
-    step_tracy_name=${step_tracy_source%%:*}
-    clone_pinned "$step_tracy_name" "$build/clones/$step_tracy_name"
-    export_source "$build/clones/$step_tracy_name" "$build/$step_tracy_name"
-  done
-  for step_tracy_patch in ppqsort-nodebug ppqsort-semaphore; do
-    run "apply Tracy's $step_tracy_patch.patch" in_dir "$build/ppqsort" \
-      env "GIT_CEILING_DIRECTORIES=$build" git apply --verbose "$build/tracy/cmake/$step_tracy_patch.patch"
-  done
-  eval "set -- $({ args_tracy; ccache_flags; } | quote_lines)"
-  run configure "$cmake" -S "$build/tracy/capture" -B "$build/out" "$@"
-  run build "$cmake" --build "$build/out" --parallel "$jobs" --target tracy-capture
-  rm -rf "$tracy_prefix"
-  mkdir -p "$tracy_prefix/bin"
-  run install cp "$build/out/tracy-capture" "$tracy_capture"
-  check_executable "$llvm_prefix" "$tracy_capture"
-  # -h prints the version and the usage, and exits 1.
-  step_tracy_usage=$("$tracy_capture" -h 2>&1) || true
-  case $step_tracy_usage in
-    "tracy-capture ${tracy_tag#v} "*) ;;
-    *) die "$tracy_capture -h does not name version ${tracy_tag#v}: $step_tracy_usage" ;;
-  esac
-  write_stamp "$(stamp_of tracy)" step tracy revision "$(lock_value tracy revision)" tag "$tracy_tag" \
-    inputs "$step_inputs" built "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  finish
 }
 
 # The typecheck build: what the host's C++ compiler needs to compile our

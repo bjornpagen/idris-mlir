@@ -47,13 +47,25 @@ LogicalResult Specializer::run() {
         generation.push_back({call, site.target});
   while (true) {
     for (auto [call, callee] : generation) {
-      FailureOr<Raised> raised = raise(call, callee);
-      if (failed(raised))
-        return failure();
+      // Raising takes the apply that consumes the call's result into the
+      // callee; the raised call's result is in turn applied where the
+      // callee's result was a function, so raising again takes that apply
+      // too. Each raise removes one apply from the caller, so this ends,
+      // and it ends in this run: the raised call sits in a caller no later
+      // generation reads, so stopping at one would leave one apply per
+      // round of the simplify loop.
+      while (true) {
+        FailureOr<Raised> raised = raise(call, callee);
+        if (failed(raised))
+          return failure();
+        if (!raised->call)
+          break;
+        call = raised->call;
+        callee = raised->callee;
+      }
       // The raised call, if any, is the one to specialize, and it names the
       // clone raising just called.
-      const Raised &done = *raised;
-      if (failed(specialize(done.call ? done.call : call, done.call ? done.callee : callee)))
+      if (failed(specialize(call, callee)))
         return failure();
     }
     if (made.empty())

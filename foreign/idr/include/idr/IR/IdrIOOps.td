@@ -13,7 +13,7 @@ include "idr/IR/IdrBigOps.td"
 
 // Each IO op consumes one world and produces the next.
 class Idr_IOOp<string mnemonic, list<Trait> traits = []> : Idr_Op<"io." # mnemonic,
-    !listconcat(traits, [Idr_PerformsIO, Idr_CallsRuntime,
+    !listconcat(traits, [Idr_PerformsIO, Idr_ObservableIO, Idr_CallsRuntime,
                          MemoryEffects<[MemRead<Idr_IOResource>,
                                         MemWrite<Idr_IOResource>]>])>;
 
@@ -68,7 +68,7 @@ def Idr_GetLineOp : Idr_IOOp<"get_line", [Idr_Primitive]> {
 // i8) between it and a handle. The range lies in the buffer: idr.check.range
 // guards the offset. The op's effects are its own, as the array ops' are.
 class Idr_IOTransferOp<string mnemonic> : Idr_Op<"io." # mnemonic,
-    [Idr_PerformsIO, Idr_CallsRuntime, Idr_Primitive,
+    [Idr_PerformsIO, Idr_ObservableIO, Idr_CallsRuntime, Idr_Primitive,
      DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
   let arguments = (ins I64:$handle, Idr_Rank1ArrayValue:$buffer, I64:$offset, I64:$count,
                        Idr_WorldType:$world);

@@ -45,7 +45,8 @@ nothing waits on them. Parked, with the reason in each status line:
   dialect in upstream's layout with `.cpp` and `.h`, `idr.func` with
   inherent facts, analyses under the pass manager, function passes in
   parallel with threading on, the frontend emitting no erased value and
-  readable names with locations, and Tracy as a pinned profile preset.
+  readable names with locations, and profiling through the pass
+  manager (a time trace since D8, in 0001).
   Committed and unbuilt; deleted once G1 qualifies it.
 - [0003](0003-typed-apl/README.md): a typed array language, MLIR first.
   Every fact Idris proves about an array has one image in MLIR, the one

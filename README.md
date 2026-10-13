@@ -90,7 +90,7 @@ explains every gap.
 The order is fixed in [proposals/](proposals/README.md):
 1. **The representation cutover.** `idr.func` as the function op, facts
    in types and inherent attributes, the readable dialect, threaded
-   passes, and Tracy instrumentation throughout.
+   passes, and time-trace instrumentation throughout.
 2. **Self-hosting.** The compiler compiles itself, deterministically under
    threads, and the test runner leaves Chez Scheme.
 3. **Sharding.** A whole-program compiler that splits its work across
@@ -109,7 +109,7 @@ primitives. There is no C interop.
 Two first-class targets, built by one recipe: x86_64 Linux (musl, static
 PIE) and arm64 macOS (PIE on libSystem). `make bootstrap` builds every
 pinned tool into `.toolchain/`: CMake, Ninja, a two-stage LLVM and MLIR,
-the target's C library, GMP, Chez Scheme, Idris 2 and Tracy. Nothing comes
+the target's C library, GMP, Chez Scheme and Idris 2. Nothing comes
 from the host but a C++ compiler and a few build tools, and nothing global
 is modified. The full LLVM build takes hours. `make typecheck` builds only
 TableGen and checks that every unit compiles, in minutes.
@@ -144,8 +144,8 @@ make self              # the compiler compiling itself
 ```
 
 The C++ builds through `CMakePresets.json`: `dev`, `release` (full LTO),
-`hardened`, `profile` (Tracy, recorded by `tools/profile.sh`), `lint` and
-`typecheck`. `make build PRESET=<name>` picks one.
+`hardened`, `lint` and `typecheck`. A profile is a run, not a
+build: `--time-trace` on the tools, taken by `tools/profile.sh`. `make build PRESET=<name>` picks one.
 
 ## Layout
 
