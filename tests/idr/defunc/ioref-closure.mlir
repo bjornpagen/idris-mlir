@@ -9,19 +9,19 @@
 // CHECK: idr.data @{{fn\$[0-9]+}} closures {
 // CHECK-DAG: idr.ctor @add (i64)
 // CHECK-DAG: idr.ctor @dbl ()
-// CHECK-LABEL: func.func @Main.main(
+// CHECK-LABEL: idr.func @Main.main(
 // CHECK-DAG: call @add(
 // CHECK-DAG: call @dbl(
 module attributes {idr.program} {
-  func.func private @add(%a: i64, %x: i64) -> i64 attributes {idr.total} {
+  idr.func private @add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64
     return %y : i64
   }
-  func.func private @dbl(%x: i64) -> i64 attributes {idr.total} {
+  idr.func private @dbl(%x: i64) -> i64 attributes {total} {
     %y = arith.addi %x, %x : i64
     return %y : i64
   }
-  func.func @Main.main(%w: !idr.world) -> !idr.world {
+  idr.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_byte %w
     %n = arith.extui %c : i32 to i64
     %one = arith.constant 1 : i64

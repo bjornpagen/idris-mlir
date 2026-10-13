@@ -1,8 +1,8 @@
 #!/bin/sh
 # All C++ (.cpp, .h, .hpp, .cc, .cppm, .td, .inc) is under foreign/idr or,
-# for the runtime, runtime/, with .cc its only source extension and .cppm
-# that of a module interface; src/ and unsafe/ exist only once they hold
-# code. A hidden directory is a tool's (the editor's, the agent's
+# for the runtime, runtime/. foreign/idr is in MLIR's layout: its sources
+# are .cpp under lib and tools, its headers under include; the runtime's
+# are .cpp and .h, so a C++20 module interface (.cppm) is in no area. A hidden directory is a tool's (the editor's, the agent's
 # worktrees), never a source zone, so none is searched; nor is upstream/,
 # whose C++ is a reproducer of a bug in upstream tools, built by its check
 # and never by the build.
@@ -18,22 +18,15 @@ if grep -v -e '^foreign/idr/' -e '^runtime/' "$work/cpp" > "$work/outside"; then
 else
   say "C++: all under foreign/idr and runtime"
 fi
-if grep '\.cpp$' "$work/cpp" > "$work/retired"; then
-  say "C++ sources named .cpp:"
-  cat "$work/retired"
+# Each extension where its area keeps it.
+grep -E '^foreign/idr/' "$work/cpp" | grep -vE \
+  -e '^foreign/idr/lib/.*\.(cpp|td)$' \
+  -e '^foreign/idr/include/.*\.(h|td)$' \
+  -e '^foreign/idr/tools/[^/]*\.cpp$' > "$work/misplaced"
+grep -E '^runtime/' "$work/cpp" | grep -vE '^runtime/.*\.(cpp|h)$' >> "$work/misplaced"
+if [ -s "$work/misplaced" ]; then
+  say "C++ sources outside their area's extension:"
+  cat "$work/misplaced"
 else
-  say "C++ sources: .cc only"
+  say "C++ sources: .cpp and .h in foreign/idr's layout and the runtime"
 fi
-# src/ and unsafe/ exist only once they hold code.
-empty=
-for zone in src unsafe; do
-  [ -e "$root/$zone" ] || continue
-  if [ -f "$root/$zone/CMakeLists.txt" ] &&
-     [ -n "$(find "$root/$zone" -type f -name '*.cc' | head -n 1)" ]; then
-    :
-  else
-    say "$zone/: exists but holds no code"
-    empty=yes
-  fi
-done
-[ -n "$empty" ] || say "zones: none empty"

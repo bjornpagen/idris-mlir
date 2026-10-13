@@ -5,10 +5,17 @@
 # (-gen-idris-syntax: its enums, and its types and attributes, which
 # IdrisMLIR.MLIR's types and attributes hold), and its ops,
 # compiler/src/IdrisMLIR/Dialect/<Name>.idr (-gen-idris-dialect: the
-# builders of its ops and its primitives, over its syntax).
+# builders of its ops, the printer of each op's declarative syntax, and its
+# primitives, over its syntax).
 #
 #     tools/dialects.sh generate   write each module that changed (make build)
 #     tools/dialects.sh check      say whether each module is current
+#
+# With `typecheck` after either, the generator is make typecheck's
+# idris-mlir-tblgen, and mlir-tblgen and MLIR's ODS are those of the
+# TableGen-only LLVM/MLIR its bootstrap step builds and the patched tree it
+# reads (tools/bootstrap.sh typecheck), where stage 2 is not built. The
+# records are the same, so are the modules and their fingerprints.
 #
 # The modules are checked in, so that the Idris build needs no other step
 # and a change of ODS shows as a change of the Idris it means. Each ends
@@ -20,25 +27,55 @@
 # either again.
 root=$(cd "$(dirname "$0")/.." && pwd)
 . "$root/tools/toolchain.sh"
-mlir_include=${llvm_bin%/bin}/include
-generator_source=$root/foreign/idr/tools/idris-mlir-tblgen.cc
+generator_source=$root/foreign/idr/tools/idris-mlir-tblgen.cpp
 src=$root/compiler/src/IdrisMLIR
 
 usage() {
-  echo "usage: tools/dialects.sh generate|check" >&2
+  echo "usage: tools/dialects.sh generate|check [typecheck]" >&2
   exit 2
 }
-[ $# -eq 1 ] || usage
+[ $# -eq 1 ] || [ $# -eq 2 ] || usage
 case $1 in generate | check) ;; *) usage ;; esac
+# mlir_tblgen, and the include directories of MLIR's ODS (mlir_include)
+# and of LLVM's (llvm_include): one installed tree in stage 2's prefix, the
+# source tree's two in the typecheck build's.
+case ${2-} in
+  '')
+    mlir_tblgen=$llvm_bin/mlir-tblgen
+    mlir_include=${llvm_bin%/bin}/include
+    llvm_include=$mlir_include
+    ;;
+  typecheck)
+    typecheck_build=$(stamp_field "$typecheck_toolchain" llvm_build)
+    typecheck_tree=$(stamp_field "$typecheck_toolchain" tree)
+    if [ -z "$typecheck_build" ] || [ -z "$typecheck_tree" ]; then
+      echo "tools/dialects.sh: no typecheck build; run: tools/bootstrap.sh typecheck" >&2
+      exit 1
+    fi
+    mlir_tblgen=$typecheck_build/bin/mlir-tblgen
+    mlir_include=$typecheck_tree/mlir/include
+    llvm_include=$typecheck_tree/llvm/include
+    idris_mlir_tblgen=$typecheck_tblgen
+    ;;
+  *) usage ;;
+esac
+# Without mlir-tblgen no record is read, so say which step builds it.
+if [ ! -x "$mlir_tblgen" ]; then
+  case ${2-} in
+    '') step='make bootstrap' ;;
+    typecheck) step='tools/bootstrap.sh typecheck (make typecheck)' ;;
+  esac
+  echo "tools/dialects.sh: $mlir_tblgen is missing; $step builds it" >&2
+  exit 1
+fi
 
 # The contract's dialects (idris-mlir parses a module of these and
 # builtin's ops), each with its module's name and the ODS file of its ops:
 # ours, or the pinned MLIR's.
 dialects() {
   cat << EOF
-idr Idr $root/foreign/idr/include/idr/IdrOps.td
+idr Idr $root/foreign/idr/include/idr/IR/IdrOps.td
 builtin Builtin $mlir_include/mlir/IR/BuiltinOps.td
-func Func $mlir_include/mlir/Dialect/Func/IR/FuncOps.td
 arith Arith $mlir_include/mlir/Dialect/Arith/IR/ArithOps.td
 math Math $mlir_include/mlir/Dialect/Math/IR/MathOps.td
 ub UB $mlir_include/mlir/Dialect/UB/IR/UBOps.td
@@ -52,7 +89,7 @@ trap 'rm -rf "$work"' EXIT
 # fingerprint ODS: the checksum of the records mlir-tblgen reads from ODS,
 # followed by the generator's source.
 fingerprint() {
-  "$llvm_bin/mlir-tblgen" -I "$mlir_include" -I "$root/foreign/idr/include" "$1" \
+  "$mlir_tblgen" -I "$mlir_include" -I "$llvm_include" -I "$root/foreign/idr/include" "$1" \
     > "$work/records" 2> "$work/records.err" || {
     echo "tools/dialects.sh: mlir-tblgen cannot read $1:" >&2
     cat "$work/records.err" >&2
@@ -83,7 +120,7 @@ while read -r name module ods; do
       mkdir -p "$src/$directory"
       "$idris_mlir_tblgen" "-gen-idris-$generator" "-idris-dialect=$name" \
         "-idris-module=IdrisMLIR.$directory.$module" \
-        "-idris-syntax-module=IdrisMLIR.Syntax.$module" -I "$mlir_include" \
+        "-idris-syntax-module=IdrisMLIR.Syntax.$module" -I "$mlir_include" -I "$llvm_include" \
         -I "$root/foreign/idr/include" "$ods" -o "$out" || exit 1
       printf -- '-- fingerprint: %s %s\n' "$expected" "$(text_fingerprint "$out")" >> "$out"
       if ! cmp -s "$out" "$path"; then

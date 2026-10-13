@@ -20,11 +20,11 @@ module {
   idr.data @Handle {
     idr.ctor @MkHandle (!idr.lin<i64>, i64)
   }
-  func.func private @consume(%h: !idr.lin<i64>) -> i64 {
+  idr.func private @consume(%h: !idr.lin<i64>) -> i64 {
     %z = arith.constant 0 : i64
     return %z : i64
   }
-  func.func private @open(%h: !idr.lin<!idr.data<@Handle>>) -> i64 {
+  idr.func private @open(%h: !idr.lin<!idr.data<@Handle>>) -> i64 {
     %r = idr.match %h : !idr.lin<!idr.data<@Handle>> -> (i64) {
     case @MkHandle(%a: !idr.lin<i64>, %b: i64) {
       idr.yield %b : i64
@@ -32,9 +32,9 @@ module {
     }
     return %r : i64
   }
-  func.func @keep(%x: i64) -> i64 {
+  idr.func @keep(%x: i64) -> i64 {
     %e = idr.lin.enter %x : !idr.lin<i64>
-    %r = func.call @consume(%e) : (!idr.lin<i64>) -> i64
+    %r = idr.call @consume(%e) : (!idr.lin<i64>) -> i64
     return %r : i64
   }
 }

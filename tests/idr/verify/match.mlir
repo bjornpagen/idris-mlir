@@ -4,7 +4,7 @@ idr.data @T {
   idr.ctor @A (i64)
   idr.ctor @B ()
 }
-func.func @f(%v: !idr.data<@T>) {
+idr.func @f(%v: !idr.data<@T>) {
   // expected-error @+1 {{has two cases for @B}}
   idr.match %v : !idr.data<@T> -> () {
   case @B() {
@@ -22,7 +22,7 @@ func.func @f(%v: !idr.data<@T>) {
 idr.data @T {
   idr.ctor @A (i64)
 }
-func.func @f(%v: !idr.data<@T>) {
+idr.func @f(%v: !idr.data<@T>) {
   // expected-error @+1 {{has a case for @C, which is not a constructor of '!idr.data<@T>'}}
   idr.match %v : !idr.data<@T> -> () {
   case @C() {
@@ -37,7 +37,7 @@ func.func @f(%v: !idr.data<@T>) {
 idr.data @T {
   idr.ctor @A (i64)
 }
-func.func @f(%v: !idr.data<@T>) {
+idr.func @f(%v: !idr.data<@T>) {
   // expected-error @+1 {{case @A must take the constructor's fields at the scrutinee's grade, 'i64'}}
   idr.match %v : !idr.data<@T> -> () {
   case @A(%x: i32) {
@@ -52,7 +52,7 @@ func.func @f(%v: !idr.data<@T>) {
 idr.data @T {
   idr.ctor @A (i64)
 }
-func.func @f(%v: !idr.data<@T>) -> i64 {
+idr.func @f(%v: !idr.data<@T>) -> i64 {
   // expected-error @+1 {{along control flow edge from Operation idr.yield to Operation idr.match: successor operand type #0 'i32' should match successor input type #0 'i64'}}
   %r = idr.match %v : !idr.data<@T> -> (i64) {
   case @A(%x: i64) {
@@ -69,7 +69,7 @@ func.func @f(%v: !idr.data<@T>) -> i64 {
 idr.data @T {
   idr.ctor @A (i64)
 }
-func.func @f(%v: !idr.data<@T>) {
+idr.func @f(%v: !idr.data<@T>) {
   // expected-error @+1 {{region #0 must end in idr.yield or ub.unreachable}}
   idr.match %v : !idr.data<@T> -> () {
   case @A(%x: i64) {
@@ -81,7 +81,7 @@ func.func @f(%v: !idr.data<@T>) {
 
 // -----
 
-func.func @f(%v: i64) {
+idr.func @f(%v: i64) {
   // expected-error @+1 {{expects one region per case and a default}}
   idr.match_lit %v : i64 -> () {
   case 0 {
@@ -93,7 +93,7 @@ func.func @f(%v: i64) {
 
 // -----
 
-func.func @f(%v: i64) {
+idr.func @f(%v: i64) {
   // expected-error @+1 {{has two cases for 1 : i64}}
   idr.match_lit %v : i64 -> () {
   case 1 {
@@ -111,7 +111,7 @@ func.func @f(%v: i64) {
 
 // -----
 
-func.func @f(%v: i8) {
+idr.func @f(%v: i8) {
   idr.match_lit %v : i8 -> () {
   // expected-error @+1 {{key does not fit in 'i8'}}
   case 256 {
@@ -126,7 +126,7 @@ func.func @f(%v: i8) {
 
 // -----
 
-func.func @f(%v: !idr.str) {
+idr.func @f(%v: !idr.str) {
   // expected-error @+1 {{has two cases for "a"}}
   idr.match_lit %v : !idr.str -> () {
   case "a" {
@@ -144,7 +144,7 @@ func.func @f(%v: !idr.str) {
 
 // -----
 
-func.func @f(%v: f64) {
+idr.func @f(%v: f64) {
   idr.match_lit %v : f64 -> () {
   // expected-error @+1 {{a literal match on 'f64' has no keys}}
   case 1 {
@@ -159,7 +159,7 @@ func.func @f(%v: f64) {
 
 // -----
 
-func.func @f() {
+idr.func @f() {
   // expected-error @+1 {{expects parent op to be one of 'idr.match, idr.match_lit, idr.array.generate, idr.array.fold, idr.lambda, idr.delay'}}
   idr.yield
 }

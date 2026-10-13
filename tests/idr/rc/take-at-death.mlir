@@ -19,7 +19,7 @@ module attributes {idr.program} {
     idr.ctor @Nil ()
     idr.ctor @Cons (i64, !idr.box<@List>)
   }
-  func.func private @flip(%t: !idr.box<@T>) -> !idr.box<@T> {
+  idr.func private @flip(%t: !idr.box<@T>) -> !idr.box<@T> {
     %r = idr.match %t : !idr.box<@T> -> (!idr.box<@T>) {
     case @L() {
       idr.yield %t : !idr.box<@T>
@@ -33,7 +33,7 @@ module attributes {idr.program} {
     }
     return %r : !idr.box<@T>
   }
-  func.func private @keep(%p: !idr.box<@List>) -> !idr.box<@List> {
+  idr.func private @keep(%p: !idr.box<@List>) -> !idr.box<@List> {
     %r = idr.match %p : !idr.box<@List> -> (!idr.box<@List>) {
     case @Nil() {
       idr.yield %p : !idr.box<@List>
@@ -47,14 +47,14 @@ module attributes {idr.program} {
     }
     return %r : !idr.box<@List>
   }
-  func.func @root(%w: !idr.world) -> !idr.world {
+  idr.func @root(%w: !idr.world) -> !idr.world {
     %x = arith.constant 7 : i64
     %leaf = idr.constant #idr.con<@T::@L, []> : !idr.box<@T>
     %nil = idr.constant #idr.con<@List::@Nil, []> : !idr.box<@List>
     %t = idr.con @T::@N(%leaf, %x, %leaf) : (!idr.box<@T>, i64, !idr.box<@T>) -> !idr.box<@T>
-    %f = func.call @flip(%t) : (!idr.box<@T>) -> !idr.box<@T>
+    %f = idr.call @flip(%t) : (!idr.box<@T>) -> !idr.box<@T>
     %l = idr.con @List::@Cons(%x, %nil) : (i64, !idr.box<@List>) -> !idr.box<@List>
-    %k = func.call @keep(%l) : (!idr.box<@List>) -> !idr.box<@List>
+    %k = idr.call @keep(%l) : (!idr.box<@List>) -> !idr.box<@List>
     %a = idr.tag %f : !idr.box<@T>
     %b = idr.tag %k : !idr.box<@List>
     %s = arith.addi %a, %b : i64

@@ -9,7 +9,7 @@
 // CHECK: llvm.call_intrinsic "llvm.sideeffect"()
 // CHECK: scf.yield
 module attributes {idr.program} {
-  func.func private @spin(%n: i64) {
+  idr.func private @spin(%n: i64) {
     %r = scf.while (%x = %n) : (i64) -> i64 {
       %zero = arith.constant 0 : i64
       %more = arith.cmpi ne, %x, %zero : i64
@@ -21,9 +21,9 @@ module attributes {idr.program} {
     }
     return
   }
-  func.func @Prog.main() -> i64 {
+  idr.func @Prog.main() -> i64 {
     %one = arith.constant 1 : i64
-    func.call @spin(%one) : (i64) -> ()
+    idr.call @spin(%one) : (i64) -> ()
     %z = arith.constant 0 : i64
     return %z : i64
   }

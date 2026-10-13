@@ -34,10 +34,10 @@ stdout_within_a_few_ulp() {
 # packages it uses. It runs on a 1 MiB stack, or with `default-stack`,
 # which says why, on the one programs get. With `constant-stack` its input
 # is its stdin many times over (`repeated`), so long that a loop growing
-# the stack by a frame per iteration exhausts the 1 MiB: both compilations
-# run the long input. With `demand-in-place` both compilations make the
-# in-place promise: a call passes what its callee rebuilds in place
-# exclusive, or the program is refused. With `live-cells` the first word is
+# the stack by a frame per iteration exhausts the 1 MiB. With
+# `demand-in-place` the compilation makes the in-place promise: a call
+# passes what its callee rebuilds in place exclusive, or the program is
+# refused. With `live-cells` the first word is
 # how many cells may still be live at a normal exit; that count is taken
 # off stderr.
 e2e_io() {

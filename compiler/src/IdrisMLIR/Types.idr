@@ -1,9 +1,9 @@
 ||| Types, literals and primitives of Core.
 |||
 ||| There is one type language: every type of full Core exists at runtime,
-||| and MLIR removes abstraction. A data
-||| instance records its representation where it is declared (`Term.Data`),
-||| so `DataT` names the instance and nothing more. Types Idris flags
+||| and MLIR removes abstraction. A data instance records its
+||| representation where it is declared (`Term.Data`), so `DataT` names the
+||| instance and nothing more. Types Idris flags
 ||| `ZERO`/`SUCC` are not data at all: they are `NatT`.
 module IdrisMLIR.Types
 
@@ -14,25 +14,16 @@ import IdrisMLIR.MLIR
 %default total
 
 ------------------------------------------------------------------------------
--- Uses and integer types
+-- Quantities and integer types
 ------------------------------------------------------------------------------
 
-||| How often a runtime value is used, as Idris proved: exactly once
-||| (multiplicity 1) or any number of times (ω). Multiplicity 0 binds no
-||| runtime value at all (`Binder`'s `Gone`).
-public export
-data Use = Once | Many
-
+||| A quantity as the Core dump writes it: `1` for a value used exactly
+||| once, `w` for one used any number of times. A binder Idris erased binds
+||| no runtime value, so it is not represented.
 export
-Eq Use where
-  Once == Once = True
-  Many == Many = True
-  _ == _ = False
-
-export
-Show Use where
-  show Once = "1"
-  show Many = "w"
+quantityText : Quantity -> String
+quantityText One = "1"
+quantityText Many = "w"
 
 public export
 data IntTy = IdrisInt | SInt8 | SInt16 | SInt32 | SInt64 | UInt8 | UInt16 | UInt32 | UInt64
@@ -113,23 +104,25 @@ mutual
   ||| rank 1 `Data.IOArray.Prims.ArrayData` and `Buffer`, of rank 0 the
   ||| one cell of an IORef.
   public export
-  data Ty = IntT IntTy | CharT | DoubleT | StrT | BigT | NatT | WorldT | ErasedT
+  data Ty = IntT IntTy | CharT | DoubleT | StrT | BigT | NatT | WorldT
           | DataT DataId
           | FunT Binder Ty
           | LazyT Ty
           | ArrayT Rank Ty
 
-  ||| What a parameter, a lambda, an arrow or a constructor field binds:
-  ||| nothing at runtime (multiplicity 0), or a value of a type, used as
-  ||| Idris proved.
+  ||| What a parameter, a lambda, an arrow or a constructor field binds: a
+  ||| value of a type, used as Idris proved. A binder of quantity zero binds
+  ||| no runtime value, so it is not a binder: the position is absent.
   public export
-  data Binder = Gone | Held Use Ty
+  record Binder where
+    constructor MkBinder
+    quantity : Quantity
+    type : Ty
 
-||| The type of what a binder binds: an erased value when it binds nothing.
+||| The type of what a binder binds.
 public export
 typeOf : Binder -> Ty
-typeOf Gone = ErasedT
-typeOf (Held _ t) = t
+typeOf = (.type)
 
 mutual
   sameTy : Ty -> Ty -> Bool
@@ -140,7 +133,6 @@ mutual
   sameTy BigT BigT = True
   sameTy NatT NatT = True
   sameTy WorldT WorldT = True
-  sameTy ErasedT ErasedT = True
   sameTy (DataT a) (DataT b) = a == b
   sameTy (FunT a r) (FunT a' r') = sameBinder a a' && sameTy r r'
   sameTy (LazyT a) (LazyT b) = sameTy a b
@@ -148,9 +140,7 @@ mutual
   sameTy _ _ = False
 
   sameBinder : Binder -> Binder -> Bool
-  sameBinder Gone Gone = True
-  sameBinder (Held u t) (Held u' t') = u == u' && sameTy t t'
-  sameBinder _ _ = False
+  sameBinder (MkBinder q t) (MkBinder q' t') = q == q' && sameTy t t'
 
 export
 Eq Ty where
@@ -161,33 +151,36 @@ Eq Binder where
   (==) = sameBinder
 
 mutual
-  showTy : Ty -> String
-  showTy (IntT t) = show t
-  showTy CharT = "Char"
-  showTy DoubleT = "Double"
-  showTy StrT = "String"
-  showTy BigT = "Integer"
-  showTy NatT = "Nat"
-  showTy WorldT = "%World"
-  showTy ErasedT = "Erased"
-  showTy (DataT d) = show d
-  showTy (FunT a r) = "((" ++ showBinder a ++ ") -> " ++ showTy r ++ ")"
-  showTy (LazyT a) = "Lazy (" ++ showTy a ++ ")"
-  showTy (ArrayT Rank1 a) = "Array (" ++ showTy a ++ ")"
-  showTy (ArrayT Rank0 a) = "Mut (" ++ showTy a ++ ")"
+  ||| A type as the Core dump writes it, each data instance named by `name`:
+  ||| the one type printer, so that the dump can name an instance by its
+  ||| key, as the module does.
+  export
+  tyText : (name : DataId -> String) -> Ty -> String
+  tyText name (IntT t) = show t
+  tyText name CharT = "Char"
+  tyText name DoubleT = "Double"
+  tyText name StrT = "String"
+  tyText name BigT = "Integer"
+  tyText name NatT = "Nat"
+  tyText name WorldT = "%World"
+  tyText name (DataT d) = name d
+  tyText name (FunT a r) = "((" ++ binderText name a ++ ") -> " ++ tyText name r ++ ")"
+  tyText name (LazyT a) = "Lazy (" ++ tyText name a ++ ")"
+  tyText name (ArrayT Rank1 a) = "Array (" ++ tyText name a ++ ")"
+  tyText name (ArrayT Rank0 a) = "Mut (" ++ tyText name a ++ ")"
 
-  ||| `0 Erased`, `1 T` or `w T`, as the Core dump writes a binder.
-  showBinder : Binder -> String
-  showBinder Gone = "0 Erased"
-  showBinder (Held u t) = show u ++ " " ++ showTy t
+  ||| `1 T` or `w T`, as the Core dump writes a binder.
+  export
+  binderText : (name : DataId -> String) -> Binder -> String
+  binderText name (MkBinder q t) = quantityText q ++ " " ++ tyText name t
 
 export
 Show Ty where
-  show = showTy
+  show = tyText show
 
 export
 Show Binder where
-  show = showBinder
+  show = binderText show
 
 ------------------------------------------------------------------------------
 -- Literals

@@ -14,12 +14,12 @@ idr.data @L box {
   idr.ctor @Cons (i64, !idr.box<@L>)
 }
 
-// CHECK-LABEL: func.func @constant_con
-// CHECK-DAG: %[[S:.*]] = idr.constant #idr.con<@S::@B, [1, "x"]> : !idr.data<@S>
-// CHECK-DAG: %[[L:.*]] = idr.constant #idr.con<@L::@Cons, [2, #idr.con<@L::@Nil, []>]> : !idr.box<@L>
-// CHECK-NOT: idr.con
+// CHECK-LABEL: idr.func @constant_con
+// CHECK-DAG: %[[S:.*]] = {{(idr\.)?}}constant #idr.con<@S::@B, [1, "x"]> : !S
+// CHECK-DAG: %[[L:.*]] = {{(idr\.)?}}constant #idr.con<@L::@Cons, [2, #idr.con<@L::@Nil, []>]> : !L
+// CHECK-NOT: {{(idr\.| )con }}
 // CHECK: return %[[S]], %[[L]]
-func.func @constant_con() -> (!idr.data<@S>, !idr.box<@L>) {
+idr.func @constant_con() -> (!idr.data<@S>, !idr.box<@L>) {
   %one = arith.constant 1 : i64
   %two = arith.constant 2 : i64
   %x = idr.constant "x" : !idr.str
@@ -30,14 +30,14 @@ func.func @constant_con() -> (!idr.data<@S>, !idr.box<@L>) {
 }
 
 // A constructor with a runtime field stays; its fields and tag fold.
-// CHECK-LABEL: func.func @known(
+// CHECK-LABEL: idr.func @known(
 // CHECK-SAME: %[[X:.*]]: i64)
 // CHECK-DAG: %[[ONE:.*]] = arith.constant 1 : i64
-// CHECK-DAG: %[[Y:.*]] = idr.constant "y" : !idr.str
-// CHECK-NOT: idr.field
-// CHECK-NOT: idr.tag
+// CHECK-DAG: %[[Y:.*]] = {{(idr\.)?}}constant "y" : !idr.str
+// CHECK-NOT: {{(idr\.| )field }}
+// CHECK-NOT: {{(idr\.| )tag }}
 // CHECK: return %[[ONE]], %[[X]], %[[Y]]
-func.func @known(%x: i64) -> (i64, i64, !idr.str) {
+idr.func @known(%x: i64) -> (i64, i64, !idr.str) {
   %y = idr.constant "y" : !idr.str
   %s = idr.con @S::@B(%x, %y) : (i64, !idr.str) -> !idr.data<@S>
   %t = idr.tag %s : !idr.data<@S>
@@ -47,12 +47,12 @@ func.func @known(%x: i64) -> (i64, i64, !idr.str) {
 }
 
 // Fields and tags of a constant fold, nested ones included.
-// CHECK-LABEL: func.func @of_constant
+// CHECK-LABEL: idr.func @of_constant
 // CHECK-DAG: %[[SEVEN:.*]] = arith.constant 7 : i64
 // CHECK-DAG: %[[ONE:.*]] = arith.constant 1 : i64
-// CHECK-DAG: %[[NIL:.*]] = idr.constant #idr.con<@L::@Nil, []> : !idr.box<@L>
+// CHECK-DAG: %[[NIL:.*]] = {{(idr\.)?}}constant #idr.con<@L::@Nil, []> : !L
 // CHECK: return %[[SEVEN]], %[[ONE]], %[[NIL]]
-func.func @of_constant() -> (i64, i64, !idr.box<@L>) {
+idr.func @of_constant() -> (i64, i64, !idr.box<@L>) {
   %l = idr.constant #idr.con<@L::@Cons, [7 : i64, #idr.con<@L::@Nil, []>]> : !idr.box<@L>
   %h = idr.field %l[@Cons, 0] : !idr.box<@L> -> i64
   %t = idr.tag %l : !idr.box<@L>
@@ -62,13 +62,13 @@ func.func @of_constant() -> (i64, i64, !idr.box<@L>) {
 
 // A field of another constructor is unspecified and does not fold; the tag
 // of a type of one constructor is 0.
-// CHECK-LABEL: func.func @unknown(
-// CHECK-SAME: %[[V:.*]]: !idr.data<@S>, %[[O:.*]]: !idr.data<@One>)
+// CHECK-LABEL: idr.func @unknown(
+// CHECK-SAME: %[[V:.*]]: !S, %[[O:.*]]: !One)
 // CHECK-DAG: %[[ZERO:.*]] = arith.constant 0 : i64
-// CHECK-DAG: %[[F:.*]] = idr.field %{{.*}}[@B, 0] : !idr.data<@S> -> i64
-// CHECK-DAG: %[[T:.*]] = idr.tag %[[V]] : !idr.data<@S>
+// CHECK-DAG: %[[F:.*]] = {{(idr\.)?}}field %{{.*}}[@B, 0] : !S -> i64
+// CHECK-DAG: %[[T:.*]] = {{(idr\.)?}}tag %[[V]] : !S
 // CHECK: return %[[F]], %[[T]], %[[ZERO]]
-func.func @unknown(%v: !idr.data<@S>, %o: !idr.data<@One>) -> (i64, i64, i64) {
+idr.func @unknown(%v: !idr.data<@S>, %o: !idr.data<@One>) -> (i64, i64, i64) {
   %a = idr.con @S::@A() : () -> !idr.data<@S>
   %f = idr.field %a[@B, 0] : !idr.data<@S> -> i64
   %t = idr.tag %v : !idr.data<@S>
@@ -77,11 +77,11 @@ func.func @unknown(%v: !idr.data<@S>, %o: !idr.data<@One>) -> (i64, i64, i64) {
 }
 
 // Equal constants are one value.
-// CHECK-LABEL: func.func @cse
-// CHECK: %[[C:.*]] = idr.constant #idr.big<"12345678901234567890"> : !idr.big
-// CHECK-NOT: idr.constant
+// CHECK-LABEL: idr.func @cse
+// CHECK: %[[C:.*]] = {{(idr\.)?}}constant #idr.big<"12345678901234567890"> : !idr.big
+// CHECK-NOT: {{(idr\.| )constant }}
 // CHECK: return %[[C]], %[[C]]
-func.func @cse() -> (!idr.big, !idr.big) {
+idr.func @cse() -> (!idr.big, !idr.big) {
   %a = idr.constant #idr.big<"12345678901234567890"> : !idr.big
   %b = idr.constant #idr.big<"12345678901234567890"> : !idr.big
   return %a, %b : !idr.big, !idr.big

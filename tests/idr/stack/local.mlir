@@ -8,29 +8,29 @@
 // outlives the frame. A mark on a con that escapes is dropped: the pass
 // decides every mark itself, and a second run changes nothing.
 
-// CHECK-LABEL: func.func private @read(
-// CHECK: idr.con @P::@MkP(%{{[^)]*}}) {idr.stack} :
-// CHECK-LABEL: func.func private @returned(
+// CHECK-LABEL: idr.func private @read(
+// CHECK: con @P::@MkP(%{{[^)]*}}) {idr.stack} :
+// CHECK-LABEL: idr.func private @returned(
 // CHECK-NOT: idr.stack
 // CHECK: return
-// CHECK-LABEL: func.func private @yielded(
+// CHECK-LABEL: idr.func private @yielded(
 // CHECK-NOT: idr.stack
 // CHECK: return
-// CHECK-LABEL: func.func private @matched(
-// CHECK: idr.con @P::@MkP(%{{[^)]*}}) {idr.stack} :
-// CHECK-LABEL: func.func private @selected(
+// CHECK-LABEL: idr.func private @matched(
+// CHECK: con @P::@MkP(%{{[^)]*}}) {idr.stack} :
+// CHECK-LABEL: idr.func private @selected(
 // CHECK-NOT: idr.stack
 // CHECK: return
-// CHECK-LABEL: func.func private @chosen(
-// CHECK: idr.con @P::@MkP(%{{[^)]*}}) {idr.stack} :
-// CHECK-LABEL: func.func private @stale(
+// CHECK-LABEL: idr.func private @chosen(
+// CHECK: con @P::@MkP(%{{[^)]*}}) {idr.stack} :
+// CHECK-LABEL: idr.func private @stale(
 // CHECK-NOT: idr.stack
 // CHECK: return
 module attributes {idr.program} {
   idr.data @P box {
     idr.ctor @MkP (i64, i64)
   }
-  func.func private @read(%a: i64, %b: i64) -> i64 {
+  idr.func private @read(%a: i64, %b: i64) -> i64 {
     %p = idr.con @P::@MkP(%a, %b) : (i64, i64) -> !idr.box<@P>
     %r = idr.match %p : !idr.box<@P> -> (i64) {
     case @MkP(%x: i64, %y: i64) {
@@ -44,11 +44,11 @@ module attributes {idr.program} {
     %v = arith.addi %u, %f : i64
     return %v : i64
   }
-  func.func private @returned(%a: i64, %b: i64) -> !idr.box<@P> {
+  idr.func private @returned(%a: i64, %b: i64) -> !idr.box<@P> {
     %p = idr.con @P::@MkP(%a, %b) : (i64, i64) -> !idr.box<@P>
     return %p : !idr.box<@P>
   }
-  func.func private @yielded(%n: i64, %q: !idr.box<@P>) -> !idr.box<@P> {
+  idr.func private @yielded(%n: i64, %q: !idr.box<@P>) -> !idr.box<@P> {
     %r = idr.match_lit %n : i64 -> (!idr.box<@P>) {
     case 0 {
       %p = idr.con @P::@MkP(%n, %n) : (i64, i64) -> !idr.box<@P>
@@ -60,7 +60,7 @@ module attributes {idr.program} {
     }
     return %r : !idr.box<@P>
   }
-  func.func private @matched(%n: i64, %q: !idr.box<@P>) -> i64 {
+  idr.func private @matched(%n: i64, %q: !idr.box<@P>) -> i64 {
     %r = idr.match_lit %n : i64 -> (!idr.box<@P>) {
     case 0 {
       %p = idr.con @P::@MkP(%n, %n) : (i64, i64) -> !idr.box<@P>
@@ -73,22 +73,22 @@ module attributes {idr.program} {
     %x = idr.field %r[@MkP, 0] : !idr.box<@P> -> i64
     return %x : i64
   }
-  func.func private @selected(%c: i1, %a: i64, %q: !idr.box<@P>) -> !idr.box<@P> {
+  idr.func private @selected(%c: i1, %a: i64, %q: !idr.box<@P>) -> !idr.box<@P> {
     %p = idr.con @P::@MkP(%a, %a) : (i64, i64) -> !idr.box<@P>
     %s = arith.select %c, %q, %p : !idr.box<@P>
     return %s : !idr.box<@P>
   }
-  func.func private @chosen(%c: i1, %a: i64, %q: !idr.box<@P>) -> i64 {
+  idr.func private @chosen(%c: i1, %a: i64, %q: !idr.box<@P>) -> i64 {
     %p = idr.con @P::@MkP(%a, %a) : (i64, i64) -> !idr.box<@P>
     %s = arith.select %c, %q, %p : !idr.box<@P>
     %x = idr.field %s[@MkP, 0] : !idr.box<@P> -> i64
     return %x : i64
   }
-  func.func private @stale(%a: i64) -> !idr.box<@P> {
+  idr.func private @stale(%a: i64) -> !idr.box<@P> {
     %p = idr.con @P::@MkP(%a, %a) {idr.stack} : (i64, i64) -> !idr.box<@P>
     return %p : !idr.box<@P>
   }
-  func.func @Prog.main() -> i64 {
+  idr.func @Prog.main() -> i64 {
     %zero = arith.constant 0 : i64
     return %zero : i64
   }

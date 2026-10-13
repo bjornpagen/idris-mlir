@@ -3,6 +3,7 @@ make doctor
 make verify-pins
 make check
 make build
+make typecheck
 make test
 make test-idr
 make test-mlir-tools

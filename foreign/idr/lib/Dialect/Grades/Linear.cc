@@ -1,8 +1,0 @@
-// The spelling !idr.lin<T>: T at (one, plain).
-
-#include "idr/Idr.h"
-
-using namespace mlir;
-using namespace idr;
-
-Type idr::linear(Type value) { return graded({Quantity::One, Permission::Plain}, value); }

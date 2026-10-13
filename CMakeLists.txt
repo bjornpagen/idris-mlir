@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 4.0)
 
-# The configure gate (adopted from bjornpagen/cpp-starter). The accepted
-# toolchain series live in toolchain.lock.json only.
+# The configure gate. The accepted toolchain series live in
+# toolchain.lock.json only.
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/toolchain.lock.json" IDRIS_MLIR_LOCK)
 string(JSON IDRIS_MLIR_NINJA_SERIES GET "${IDRIS_MLIR_LOCK}" ninja accept)
 string(JSON IDRIS_MLIR_CMAKE_SERIES GET "${IDRIS_MLIR_LOCK}" cmake accept)
@@ -27,40 +27,38 @@ if(NOT IDRIS_MLIR_NINJA_STATUS EQUAL 0
 endif()
 
 if(NOT CMAKE_VERSION MATCHES "^${IDRIS_MLIR_CMAKE_SERIES}\\.")
-	message(FATAL_ERROR "CMake ${IDRIS_MLIR_CMAKE_SERIES}.x is required: the import-std experimental UUID below is specific to that series (got ${CMAKE_VERSION})")
+	message(FATAL_ERROR "CMake ${IDRIS_MLIR_CMAKE_SERIES}.x is required (got ${CMAKE_VERSION})")
 endif()
-
-# PIN(cmake-import-std-uuid): the 4.2-series value — see PINS.md
-set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "d0edc3af-4c50-42ea-a356-e2862fe7a444")
 
 # ccache, when the machine has one (on PATH, or MacPorts'), launches every
 # C and C++ compile, on the cache tools/bootstrap.sh configures
-# (.toolchain/ccache): a rebuild recompiles only what changed. CMake copies
-# CMAKE_<LANG>_COMPILER_LAUNCHER onto a target when that target is created,
-# and project() creates the libc++ std module libraries, so the launcher is
-# set first; a later assignment does not reach them. ccache cannot cache a
-# compile that uses a precompiled header, so with it there are none, as in
-# the toolchain's builds. Neither changes what a compile produces.
+# (.toolchain/ccache): a rebuild recompiles only what changed, in every
+# preset, as in the toolchain's builds. CMake copies it onto each target
+# created after it. No target uses a precompiled header, which ccache
+# cannot cache. The launcher changes nothing a compile produces.
 find_program(IDRIS_MLIR_CCACHE ccache HINTS /opt/local/bin)
 if(IDRIS_MLIR_CCACHE)
 	set(IDRIS_MLIR_CCACHE_LAUNCHER "${CMAKE_COMMAND}" -E env
 		"CCACHE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/.toolchain/ccache" "${IDRIS_MLIR_CCACHE}")
 	set(CMAKE_C_COMPILER_LAUNCHER ${IDRIS_MLIR_CCACHE_LAUNCHER})
 	set(CMAKE_CXX_COMPILER_LAUNCHER ${IDRIS_MLIR_CCACHE_LAUNCHER})
-	set(CMAKE_DISABLE_PRECOMPILE_HEADERS ON)
 endif()
 
 project(idris_mlir LANGUAGES C CXX)
 
-# project() makes libc++'s std module an ordinary target of this build; the
-# lint graph checks our code, not libc++'s.
-if(TARGET __cmake_cxx26)
-	set_target_properties(__cmake_cxx26 PROPERTIES CXX_CLANG_TIDY "")
-endif()
+# The typecheck build (make typecheck, the typecheck preset, whose
+# toolchain file tools/bootstrap.sh typecheck writes): every unit of
+# foreign/idr compiled by the host's clang against the TableGen-only LLVM
+# and MLIR, nothing linked but idris-mlir-tblgen, and the runtime's units
+# compiled into objects nothing links. It checks that the code compiles
+# where stage 2 is not built; it is no build of the compiler. The typecheck
+# toolchain file sets it, so it is declared after project() has read that
+# file.
+option(IDRIS_MLIR_TYPECHECK "Compile foreign/idr with the host's clang against the TableGen-only LLVM/MLIR, and link nothing but idris-mlir-tblgen" OFF)
 
-# PIN(platform-gate-x86_64): cpp-starter's platforms are Darwin arm64; this
-# project's are the two whose targets the compiler has, Linux x86_64 and
-# Darwin arm64, the same machines tools/bootstrap.sh builds a toolchain on.
+# PIN(platform-gate-x86_64): the build runs on the two machines whose
+# targets the compiler has, Linux x86_64 and Darwin arm64, the same
+# machines tools/bootstrap.sh builds a toolchain on.
 if(NOT (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
 		AND NOT (CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64"))
 	message(FATAL_ERROR "the machine boundary is Linux x86_64 and Darwin arm64 (got ${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR})")
@@ -70,14 +68,17 @@ endif()
 # llvm-project, with the pinned libc++, for the target its toolchain file
 # names (tools/bootstrap.sh writes it; every preset reads it).
 # PIN(clang-libcxx) — see PINS.md
-foreach(lang C CXX)
-	if(NOT CMAKE_${lang}_COMPILER_ID STREQUAL "Clang")
-		message(FATAL_ERROR "production builds require the pinned clang (got ${CMAKE_${lang}_COMPILER_ID} for ${lang}); build it with tools/bootstrap.sh stage2")
-	endif()
-	if(NOT CMAKE_${lang}_COMPILER_VERSION MATCHES "^${IDRIS_MLIR_LLVM_SERIES}\\.")
-		message(FATAL_ERROR "production builds require clang ${IDRIS_MLIR_LLVM_SERIES}.x (got ${CMAKE_${lang}_COMPILER_VERSION} for ${lang})")
-	endif()
-endforeach()
+# The typecheck build's compiler is the host's, by design.
+if(NOT IDRIS_MLIR_TYPECHECK)
+	foreach(lang C CXX)
+		if(NOT CMAKE_${lang}_COMPILER_ID STREQUAL "Clang")
+			message(FATAL_ERROR "production builds require the pinned clang (got ${CMAKE_${lang}_COMPILER_ID} for ${lang}); build it with tools/bootstrap.sh stage2")
+		endif()
+		if(NOT CMAKE_${lang}_COMPILER_VERSION MATCHES "^${IDRIS_MLIR_LLVM_SERIES}\\.")
+			message(FATAL_ERROR "production builds require clang ${IDRIS_MLIR_LLVM_SERIES}.x (got ${CMAKE_${lang}_COMPILER_VERSION} for ${lang})")
+		endif()
+	endforeach()
+endif()
 # The target programs are compiled for is decided here and nowhere else. The
 # preset names its triple (CMAKE_CXX_COMPILER_TARGET), which the runtime is
 # built for too, and selects one entry below. idris-mlir writes the
@@ -93,8 +94,8 @@ endforeach()
 #                                       the target has (idris-mlir raises
 #                                       it to the program's CPU)
 #   IDRIS_MLIR_RUNTIME_CPU_TEST         the runtime's test of the processor
-#                                       at a program's entry, rt.platform's
-#                                       partition for it (runtime/Platform/)
+#                                       at a program's entry, the runtime's
+#                                       unit for it (runtime/Platform/)
 #   IDRIS_MLIR_RUNTIME_CPU_FEATURES     the features that test names, each
 #                                       as the test spells it and as LLVM
 #                                       does (a runtime/ header)
@@ -131,11 +132,11 @@ endforeach()
 #   IDRIS_MLIR_CONSTRUCTOR_SECTIONS     the sections of an object that hold
 #                                       static constructors and destructors,
 #                                       which the runtime may not have
-#   IDRIS_MLIR_JIT_LIBRARY_CALLS        the library functions, beyond those
-#                                       Eval/Jit.cppm binds, that LLVM's code
-#                                       for the target calls, which
-#                                       idr-eval's JIT binds from the
-#                                       process
+#   IDRIS_MLIR_CODEGEN_LIBRARY_CALLS    the library functions, beyond memcpy,
+#                                       memset and memmove, that LLVM's code
+#                                       for the target calls, the only calls
+#                                       a program's object may make that its
+#                                       source does not
 #   IDRIS_MLIR_PAGE_SIZE                the size of a page of the target, the
 #                                       one number the runtime's startup
 #                                       check compares with the system's:
@@ -159,7 +160,7 @@ if(CMAKE_CXX_COMPILER_TARGET MATCHES "^x86_64-[^-]+-linux-musl$")
 	# PIN(runtime-cx16) — see PINS.md
 	set(IDRIS_MLIR_TARGET_CPU "x86-64-v3")
 	set(IDRIS_MLIR_RUNTIME_BASELINE -march=x86-64 -mcx16)
-	set(IDRIS_MLIR_RUNTIME_CPU_TEST Platform/X86_64/Cpu.cppm)
+	set(IDRIS_MLIR_RUNTIME_CPU_TEST Platform/X86_64/Cpu.cpp)
 	set(IDRIS_MLIR_RUNTIME_CPU_FEATURES cpu_x86_64.h)
 	set(IDRIS_MLIR_RUNTIME_DEFINITIONS SNMALLOC_HAS_LINUX_RANDOM_H SNMALLOC_HAS_LINUX_FUTEX_H)
 	# ELF: fat LTO objects, and one object whose .llvm.lto section, as a fat
@@ -175,7 +176,7 @@ if(CMAKE_CXX_COMPILER_TARGET MATCHES "^x86_64-[^-]+-linux-musl$")
 	set(IDRIS_MLIR_NO_UNWINDER --unwindlib=none)
 	set(IDRIS_MLIR_SYMBOL_PREFIX "")
 	set(IDRIS_MLIR_CONSTRUCTOR_SECTIONS .init_array .fini_array .ctors .dtors .preinit_array)
-	set(IDRIS_MLIR_JIT_LIBRARY_CALLS "")
+	set(IDRIS_MLIR_CODEGEN_LIBRARY_CALLS "")
 	set(IDRIS_MLIR_PAGE_SIZE 4096)
 	# Our tools: PIE code with CET and stack-clash probes; static-PIE on musl,
 	# read-only after relocation, no executable stack. PIN(musl-thread-stacks):
@@ -193,7 +194,7 @@ elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^arm64-apple-macosx")
 	# compiler-rt reads them from sysctl only when the test asks.
 	set(IDRIS_MLIR_TARGET_CPU "apple-m1")
 	set(IDRIS_MLIR_RUNTIME_BASELINE -mcpu=apple-m1)
-	set(IDRIS_MLIR_RUNTIME_CPU_TEST Platform/Aarch64/Cpu.cppm)
+	set(IDRIS_MLIR_RUNTIME_CPU_TEST Platform/Aarch64/Cpu.cpp)
 	set(IDRIS_MLIR_RUNTIME_CPU_FEATURES cpu_aarch64.h)
 	# snmalloc chooses its Apple platform itself (mach_vm, arc4random); the
 	# Linux headers its defines name do not exist here.
@@ -220,7 +221,7 @@ elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^arm64-apple-macosx")
 	set(IDRIS_MLIR_NO_UNWINDER "")
 	set(IDRIS_MLIR_SYMBOL_PREFIX "_")
 	set(IDRIS_MLIR_CONSTRUCTOR_SECTIONS __mod_init_func __mod_term_func __init_offsets)
-	set(IDRIS_MLIR_JIT_LIBRARY_CALLS bzero memset_pattern16 __sincos_stret __sincosf_stret __exp10 __exp10f)
+	set(IDRIS_MLIR_CODEGEN_LIBRARY_CALLS bzero memset_pattern16 __sincos_stret __sincosf_stret __exp10 __exp10f)
 	set(IDRIS_MLIR_PAGE_SIZE 16384)
 	# Our tools: Darwin's PIE executables need nothing beyond the profile.
 	# PIN(darwin-inert-mitigations): branch protection executes as NOP in a
@@ -235,11 +236,12 @@ endif()
 set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_CXX_MODULE_STD ON)
+# No unit is a C++ module, so no target scans its sources for one.
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
-# Module-ABI flags must be global: CMake's synthesized import-std targets see
-# only CMAKE_CXX_FLAGS, and the std module BMI must match every importer.
-# PIN(clang-no-reflection): no -freflection — see PINS.md
+# Every C++ unit of the build, ours and the runtime's, is compiled as LLVM
+# and MLIR are, without exceptions or RTTI, and against libc++'s extensive
+# hardening. PIN(clang-no-reflection): no -freflection — see PINS.md
 string(APPEND CMAKE_CXX_FLAGS " -fno-exceptions -fno-rtti -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE")
 
 include(CheckCXXSourceCompiles)
@@ -255,8 +257,7 @@ if(NOT IDRIS_MLIR_HAS_LIBCXX)
 endif()
 
 # Warnings are errors, for every target with our own C++ (the runtime too).
-# PIN(clang-libcxx): the GCC-only diagnostics of cpp-starter's profile have
-# no clang spelling and are left out — see PINS.md
+# PIN(clang-libcxx): a warning only GCC spells is left out — see PINS.md
 add_library(idris_mlir_warnings INTERFACE)
 target_compile_options(idris_mlir_warnings INTERFACE
 	-Werror
@@ -275,6 +276,11 @@ target_compile_options(idris_mlir_warnings INTERFACE
 	-Werror=format-security
 	-Wimplicit-fallthrough
 )
+# The host's clang warns otherwise than the pinned one: the typecheck build
+# prints its warnings and fails on errors alone.
+if(IDRIS_MLIR_TYPECHECK)
+	target_compile_options(idris_mlir_warnings INTERFACE -Wno-error)
+endif()
 
 # The language profile of our tools. No FP contraction anywhere. The Release
 # build of our code is full LTO, linked with LLVM's and MLIR's libraries as
@@ -283,22 +289,20 @@ add_library(idris_mlir_language_profile INTERFACE)
 target_link_libraries(idris_mlir_language_profile INTERFACE idris_mlir_warnings)
 
 target_compile_options(idris_mlir_language_profile INTERFACE
-	-fsanitize=undefined
-	-fsanitize-trap=all
-	-ftrivial-auto-var-init=zero
-	-fstack-protector-strong
-	-fzero-call-used-regs=used-gpr
-	-fno-delete-null-pointer-checks
-	-fno-strict-aliasing
-	-fstrict-flex-arrays=3
 	-ffp-contract=off
 	"$<$<CONFIG:Release>:-ffunction-sections;-fdata-sections;-flto=full>"
 )
 target_link_options(idris_mlir_language_profile INTERFACE
-	-fsanitize=undefined
-	-fsanitize-trap=all
 	"$<$<CONFIG:Release>:-flto=full>"
 )
+
+# What a preset adds to our tools' compiles and links, and to nothing else
+# (the runtime has its own profile): the hardened preset's sanitizer traps
+# and mitigations. Empty in the other presets.
+set(IDRIS_MLIR_PRESET_COMPILE_FLAGS "" CACHE STRING "The flags the preset adds to every compile of our tools")
+set(IDRIS_MLIR_PRESET_LINK_FLAGS "" CACHE STRING "The flags the preset adds to every link of our tools")
+target_compile_options(idris_mlir_language_profile INTERFACE ${IDRIS_MLIR_PRESET_COMPILE_FLAGS})
+target_link_options(idris_mlir_language_profile INTERFACE ${IDRIS_MLIR_PRESET_LINK_FLAGS})
 
 # The target's own flags for our tools, from its entry above. FORTIFY is in
 # neither: it is inert on musl and in Apple's SDK for C++
@@ -309,9 +313,7 @@ target_link_options(idris_mlir_language_profile INTERFACE
 	"$<$<CONFIG:Release>:${IDRIS_MLIR_TOOL_RELEASE_LINK_FLAGS}>"
 )
 
-# The runtime, then the quarantine code that faces MLIR, which records where
-# the runtime's archive is.
-# PIN(zones-on-demand): cpp-starter's src/ and unsafe/ have no code, so
-# they do not exist.
+# The runtime, then the dialect and its tools, which read where the
+# runtime's archive is.
 add_subdirectory(runtime)
 add_subdirectory(foreign/idr)

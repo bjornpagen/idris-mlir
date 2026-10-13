@@ -10,8 +10,8 @@ idr.data @IORes {
 }
 
 // A chain of IO ops.
-// CHECK-LABEL: func.func private @chain
-func.func private @chain(%w: !idr.world) -> !idr.world {
+// CHECK-LABEL: idr.func private @chain
+idr.func private @chain(%w: !idr.world) -> !idr.world {
   %c = arith.constant 65 : i32
   %w1 = idr.io.put_char %c, %w
   %w2 = idr.io.put_char %c, %w1
@@ -19,8 +19,8 @@ func.func private @chain(%w: !idr.world) -> !idr.world {
 }
 
 // One use in each region of a match is one use on each path.
-// CHECK-LABEL: func.func private @branches
-func.func private @branches(%b: !idr.data<@B>,
+// CHECK-LABEL: idr.func private @branches
+idr.func private @branches(%b: !idr.data<@B>,
                             %w: !idr.world) -> !idr.world {
   %c = arith.constant 65 : i32
   %r = idr.match %b : !idr.data<@B> -> (!idr.world) {
@@ -40,8 +40,8 @@ func.func private @branches(%b: !idr.data<@B>,
 
 // A region that crashes does not reach the use after the match, but no
 // region is special: a region that yields the world unused is fine.
-// CHECK-LABEL: func.func private @crash
-func.func private @crash(%n: i64, %w: !idr.world) -> !idr.world {
+// CHECK-LABEL: idr.func private @crash
+idr.func private @crash(%n: i64, %w: !idr.world) -> !idr.world {
   %c = arith.constant 65 : i32
   %r = idr.match_lit %n : i64 -> (!idr.world) {
   case 0 {
@@ -57,16 +57,16 @@ func.func private @crash(%n: i64, %w: !idr.world) -> !idr.world {
 }
 
 // A world stored in a constructor and returned is used once.
-// CHECK-LABEL: func.func private @stored
-func.func private @stored(%w: !idr.world) -> !idr.data<@IORes> {
+// CHECK-LABEL: idr.func private @stored
+idr.func private @stored(%w: !idr.world) -> !idr.data<@IORes> {
   %z = arith.constant 0 : i64
   %r = idr.con @IORes::@MkIORes(%z, %w) : (i64, !idr.world) -> !idr.data<@IORes>
   return %r : !idr.data<@IORes>
 }
 
 // A loop carries the world from one iteration to the next.
-// CHECK-LABEL: func.func private @loop
-func.func private @loop(%w: !idr.world) -> !idr.world {
+// CHECK-LABEL: idr.func private @loop
+idr.func private @loop(%w: !idr.world) -> !idr.world {
   %c = arith.constant 65 : i32
   %r = scf.while (%v = %w) : (!idr.world) -> !idr.world {
     %v1 = idr.io.put_char %c, %v

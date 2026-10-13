@@ -1,7 +1,7 @@
 module Main
 
--- A closed call stays in the program: idr-eval is not in the simplify
--- round, so it runs at run time, recursion included, whether or not Idris
+-- A closed call stays in the program: nothing evaluates it at compile
+-- time, so it runs at run time, recursion included, whether or not Idris
 -- proves the function terminating. `fib n` and `euclid (n * 462) 1071`
 -- take their arguments from the input. The other calls are closed and run
 -- the same way.

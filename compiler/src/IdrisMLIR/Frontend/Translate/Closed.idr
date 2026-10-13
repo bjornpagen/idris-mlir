@@ -32,30 +32,32 @@ public export
 TTBinder : Type -> Type
 TTBinder = Core.TT.Binder.Binder
 
-||| What a TT variable stands for: a Core variable (with its type, when a
-||| match may need it, and with the shape of its value when that is known),
-||| a type argument's value, or an implementation's value. Types and
-||| implementations are compile-time values, closed TT terms: types are
-||| erased at runtime, and an implementation is used by translating it where
-||| it is needed. An implementation that closes over runtime values holds
-||| markers for them (`holeMarker`), with the variable that holds them and
-||| what it holds (`Holes`).
+||| What a TT variable stands for: a Core variable (with its Core type, when a
+||| match may need it, its closed Idris type where it is known, which says
+||| which arguments a function-typed value takes at runtime, and the shape
+||| of its value when that is known), a compile-time value, or an
+||| implementation's value. Types and implementations are compile-time
+||| values, closed TT terms, and so is a variable of quantity 0, which is
+||| `TypeValue` of `Erased`: none is a Core variable. An implementation is
+||| used by translating it where it is needed. An implementation that
+||| closes over runtime values holds markers for them (`holeMarker`), with
+||| the variable that holds them and what it holds (`Holes`).
 public export
 data VarInfo : Type -> Type where
-  Runtime : a -> Maybe Ty -> VarInfo a
+  Runtime : a -> Maybe Ty -> Maybe ClosedTerm -> VarInfo a
   ||| A runtime value whose shape is known: the constructors every call of
   ||| the instance built its argument with (`Instances.classify`), or a
   ||| constructor's field of such a value. The shape stands for the value
   ||| in types, and a match on the value takes only the alternatives a
-  ||| value of that shape can.
-  Shaped : a -> Ty -> ClosedTerm -> VarInfo a
+  ||| value of that shape can. Its Idris type is the one before the shape.
+  Shaped : a -> Ty -> ClosedTerm -> ClosedTerm -> VarInfo a
   TypeValue : ClosedTerm -> VarInfo a
   Static : ClosedTerm -> Maybe (a, Holes) -> VarInfo a
 
 export
 Functor VarInfo where
-  map f (Runtime x t) = Runtime (f x) t
-  map f (Shaped x t s) = Shaped (f x) t s
+  map f (Runtime x t i) = Runtime (f x) t i
+  map f (Shaped x t i s) = Shaped (f x) t i s
   map f (TypeValue t) = TypeValue t
   map f (Static t h) = Static t (map (\(x, hs) => (f x, hs)) h)
 
@@ -64,11 +66,6 @@ export
 under : {k : Nat} -> List (VarInfo (Fin (Under k n))) -> List (VarInfo (Fin n)) ->
         List (VarInfo (Fin (Under k n)))
 under bound env = bound ++ map (map (Free {k})) env
-
-export
-spine : TT vars -> List (TT vars) -> (TT vars, List (TT vars))
-spine (App _ fn arg) args = spine fn (arg :: args)
-spine fn args = (fn, args)
 
 ||| Does a subterm satisfy the test: the term, its binders' types and
 ||| values, an application's parts, a pattern's value, what a delay holds,
@@ -151,12 +148,8 @@ closeWritten fc env tm = zeta (betaAll (wrapLams fc tm) (reverse (map value env)
     value (Static t _) = t
     -- A shape is what is known of the value at compile time; its holes
     -- are the runtime parts (`skeleton`).
-    value (Shaped _ _ s) = s
-    -- A quantity-0 variable (a length, a proof) is not a runtime value: an
-    -- implementation that mentions it (`Foldable (Vect n)`) does not
-    -- depend on anything at runtime.
-    value (Runtime _ (Just ErasedT)) = Erased fc Placeholder
-    value (Runtime _ _) = Erased fc Impossible
+    value (Shaped _ _ _ s) = s
+    value (Runtime {}) = Erased fc Impossible
 
 ||| Does a term mention a metavariable? Idris can leave a solved one in an
 ||| elaborated term (the implementation for the inner pair of a triple).
@@ -244,7 +237,7 @@ runtimeDependent = go
       go (TForce _ _ t) = go t
       go (As _ _ _ p) = go p
       go (Meta _ _ _ args) = anyM args go
-      go tm@(App {}) = applied (spine tm [])
+      go tm@(App {}) = applied (getFnArgs tm)
       go _ = pure False
 
       applied : (TT vs, List (TT vs)) -> Core Bool
@@ -273,6 +266,7 @@ normaliseClosed tm = do
 ||| `fst` and an interface's parents and methods do. Its arity, the
 ||| position of the parameter, the constructor, and the position of the
 ||| argument.
+export
 projection : {auto c : Ref Ctxt Defs} -> Name -> Core (Maybe (Nat, Nat, Name, Nat))
 projection n = do
   defs <- get Ctxt
@@ -330,6 +324,7 @@ mutual
   ||| A projection applied to arguments, when it applies to all of them: the
   ||| field it takes from the constructor its record reduces to, applied to
   ||| the arguments past the projection's own.
+  export
   projected : {auto c : Ref Ctxt Defs} -> Nat -> Name -> List ClosedTerm -> Core (Maybe ClosedTerm)
   projected fuel n args = do
     Just (arity, idx, cn, k) <- projection n
@@ -356,7 +351,7 @@ mutual
 export
 implementationOf : {auto c : Ref Ctxt Defs} -> Nat -> ClosedTerm -> Core ClosedTerm
 implementationOf Z tm = pure tm
-implementationOf (S fuel) tm = case spine tm [] of
+implementationOf (S fuel) tm = case getFnArgs tm of
   (Bind _ _ (Lam {}) sc, a :: as) => implementationOf fuel (betaAll (subst a sc) as)
   (Bind fc _ (Let _ _ v _) sc, as) => implementationOf fuel (foldl (App fc) (subst v sc) as)
   (f@(Ref fc _ n), args) => do
@@ -390,7 +385,7 @@ showTT tm = show <$> toFullNames tm
 ||| erased part) says nothing of the value.
 export
 shapeHead : ClosedTerm -> Maybe (Name, List ClosedTerm)
-shapeHead tm = case spine tm [] of
+shapeHead tm = case getFnArgs tm of
   (Ref _ (DataCon _ _) n, args) => Just (n, args)
   _ => Nothing
 
@@ -402,15 +397,15 @@ shapeHead tm = case spine tm [] of
 ||| form: `runtimeDependent` refuses it wherever a value is needed.
 export
 skeleton : ClosedTerm -> Maybe ClosedTerm
-skeleton tm = case spine tm [] of
+skeleton tm = case getFnArgs tm of
   (con@(Ref fc (DataCon _ _) _), args) =>
     Just (foldl (App fc) con (map (\a => fromMaybe (Erased fc Impossible) (skeleton a)) args))
   _ => Nothing
 
 ||| A runtime value of a type with what its shape says, if anything.
 export
-shaped : a -> Ty -> ClosedTerm -> VarInfo a
-shaped x t s = if isJust (shapeHead s) then Shaped x t s else Runtime x (Just t)
+shaped : a -> Ty -> ClosedTerm -> ClosedTerm -> VarInfo a
+shaped x t ity s = if isJust (shapeHead s) then Shaped x t ity s else Runtime x (Just t) (Just ity)
 
 ||| How many constructors deep a shape says what the value was built with.
 export
@@ -424,7 +419,7 @@ shapeDepth tm = case shapeHead tm of
 export
 cutShape : ClosedTerm -> Nat -> ClosedTerm -> ClosedTerm
 cutShape hole Z _ = hole
-cutShape hole (S d) tm = case spine tm [] of
+cutShape hole (S d) tm = case getFnArgs tm of
   (con@(Ref fc (DataCon _ _) _), args) => foldl (App fc) con (map (cutShape hole d) args)
   _ => hole
 
@@ -676,7 +671,7 @@ cutRuntime = cut 64
 
     cut : {vs : Scope} -> Nat -> TT vs -> Core (TT vs)
     cut fuel tm =
-      if not (mentions isRuntimeVariable tm) then pure tm else case spine tm [] of
+      if not (mentions isRuntimeVariable tm) then pure tm else case getFnArgs tm of
         (Bind fc _ (Lam {}) sc, a :: as) => cut fuel (foldl (App fc) (subst a sc) as)
         (Bind fc x b sc, []) => Bind fc x <$> binder fuel b <*> cut fuel sc
         (TDelayed fc r t, []) => TDelayed fc r <$> cut fuel t
@@ -740,7 +735,5 @@ closeNormalise fc env tm = do
     value : VarInfo a -> ClosedTerm
     value (TypeValue t) = t
     value (Static t _) = t
-    value (Shaped _ _ s) = s
-    -- A quantity-0 variable (a length, a proof) is no runtime value.
-    value (Runtime _ (Just ErasedT)) = Erased fc Placeholder
-    value (Runtime _ _) = runtimeVariable
+    value (Shaped _ _ _ s) = s
+    value (Runtime {}) = runtimeVariable

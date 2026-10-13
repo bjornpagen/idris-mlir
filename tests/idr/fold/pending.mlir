@@ -15,12 +15,12 @@ idr.data @LList box {
   idr.ctor @LCons (i64, !idr.lin<!idr.box<@LList>>)
 }
 
-// CHECK-LABEL: func.func @direct(
+// CHECK-LABEL: idr.func @direct(
 // CHECK-SAME: %[[X:[^:]*]]: i64
-// CHECK: %[[C:.*]] = idr.con @List::@Cons(%[[X]], %{{.*}})
-// CHECK: %[[T:.*]] = idr.field %[[C]][@Cons, 1]
+// CHECK: %[[C:.*]] = {{(idr\.)?}}con @List::@Cons(%[[X]], %{{.*}})
+// CHECK: %[[T:.*]] = {{(idr\.)?}}field %[[C]][@Cons, 1]
 // CHECK: return %[[X]], %[[T]]
-func.func @direct(%x: i64) -> (i64, !idr.box<@List>) {
+idr.func @direct(%x: i64) -> (i64, !idr.box<@List>) {
   %p = idr.dest.pending : !idr.box<@List>
   %c = idr.con @List::@Cons(%x, %p) : (i64, !idr.box<@List>) -> !idr.box<@List>
   %h = idr.field %c[@Cons, 0] : !idr.box<@List> -> i64
@@ -30,13 +30,13 @@ func.func @direct(%x: i64) -> (i64, !idr.box<@List>) {
 
 // The match's taken region is known, so the region replaces it and its
 // arguments become reads of the constructor's fields.
-// CHECK-LABEL: func.func @through_match(
+// CHECK-LABEL: idr.func @through_match(
 // CHECK-SAME: %[[X:[^:]*]]: i64
-// CHECK: %[[C:.*]] = idr.con @List::@Cons(%[[X]], %{{.*}})
-// CHECK: %[[T:.*]] = idr.field %[[C]][@Cons, 1]
-// CHECK-NOT: idr.match
+// CHECK: %[[C:.*]] = {{(idr\.)?}}con @List::@Cons(%[[X]], %{{.*}})
+// CHECK: %[[T:.*]] = {{(idr\.)?}}field %[[C]][@Cons, 1]
+// CHECK-NOT: {{(idr\.| )match }}
 // CHECK: return %[[X]], %[[T]]
-func.func @through_match(%x: i64) -> (i64, !idr.box<@List>) {
+idr.func @through_match(%x: i64) -> (i64, !idr.box<@List>) {
   %p = idr.dest.pending : !idr.box<@List>
   %c = idr.con @List::@Cons(%x, %p) : (i64, !idr.box<@List>) -> !idr.box<@List>
   %r:2 = idr.match %c : !idr.box<@List> -> (i64, !idr.box<@List>) {
@@ -54,12 +54,12 @@ func.func @through_match(%x: i64) -> (i64, !idr.box<@List>) {
 
 // A linear field read once moves out of the constructor into its read,
 // used out of its grade; a pending one has nothing to move.
-// CHECK-LABEL: func.func @at_grade(
+// CHECK-LABEL: idr.func @at_grade(
 // CHECK-SAME: %[[X:[^:]*]]: i64
-// CHECK: %[[C:.*]] = idr.con @LList::@LCons(%[[X]], %{{.*}})
-// CHECK: %[[T:.*]] = idr.field %[[C]][@LCons, 1]
+// CHECK: %[[C:.*]] = {{(idr\.)?}}con @LList::@LCons(%[[X]], %{{.*}})
+// CHECK: %[[T:.*]] = {{(idr\.)?}}field %[[C]][@LCons, 1]
 // CHECK: return %[[T]]
-func.func @at_grade(%x: i64) -> !idr.box<@LList> {
+idr.func @at_grade(%x: i64) -> !idr.box<@LList> {
   %p = idr.dest.pending : !idr.lin<!idr.box<@LList>>
   %c = idr.con @LList::@LCons(%x, %p) : (i64, !idr.lin<!idr.box<@LList>>) -> !idr.box<@LList>
   %t = idr.field %c[@LCons, 1] : !idr.box<@LList> -> !idr.box<@LList>

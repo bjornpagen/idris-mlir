@@ -6,27 +6,26 @@
 # SOURCE is the contract text idris-mlir compiles (a .mlir file), or an
 # Idris program, which tools/compile.sh compiles first, in a copy of the
 # .idr files of its directory, for the text it emits. TAG names a kind of
-# action (idr-eval-call, idr-specialize-clone, idr-raise, or MLIR's own,
-# such as apply-pattern). STDIN is the program's input (default: none).
+# action (idr-specialize-clone, idr-raise, or MLIR's own, such as
+# apply-pattern). STDIN is the program's input (default: none).
 #
-# The reference is the program compiled with --no-eval, which leaves every
-# closed call to runtime. MLIR's debug counter
-# (-mlir-debug-counter=TAG-skip=0,TAG-count=N) lets the first N actions of
-# TAG happen and skips the rest, and a skipped action leaves the IR as it
-# was. The program compiled so is run, and what it prints and its exit
-# status are compared with the reference's. With no action it must behave
-# as the reference, and with every action it must not; a binary search finds
-# the N at which it first differs: action N changes the program, given the
-# N - 1 before it. That action's IR unit, the op it transforms, comes from a
-# compilation that logs the actions of TAG (-log-actions-to).
+# MLIR's debug counter (-mlir-debug-counter=TAG-skip=0,TAG-count=N) lets
+# the first N actions of TAG happen and skips the rest, and a skipped action
+# leaves the IR as it was. Each program compiled so is run, and what it
+# prints and its exit status are compared with those of the reference, the
+# program compiled with no action of TAG. With every action it must not
+# behave as the reference; a binary search finds the N at which it first
+# differs: action N changes the program, given the N - 1 before it. That
+# action's IR unit, the op it transforms, comes from a compilation that logs
+# the actions of TAG (-log-actions-to).
 #
 # Every compilation (with its link) and run is bounded by 300 seconds. The
 # idris-mlir it bisects is the one `make build` makes. A diagnostic does not
 # print the op it is about unless asked: to see it while debugging, run the
 # reproducing command with --mlir-print-op-on-diagnostic. Exit status: 0
-# when the action is found; 1 when there is none to find (the program
-# behaves as the reference, or already differs with no action of TAG); 2 on
-# a usage error or when the reference cannot be built.
+# when the action is found; 1 when there is none to find (with every action
+# the program behaves as the reference); 2 on a usage error or when the
+# reference cannot be built.
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 . "$root/tools/toolchain.sh"
@@ -113,7 +112,7 @@ counter() {
   printf '%s\n' "-mlir-debug-counter=$tag-skip=0,$tag-count=$1"
 }
 
-outcome reference
+outcome reference "$(counter 0)"
 case $(first reference) in
   exit*) ;;
   *)
@@ -131,14 +130,9 @@ if [ -z "$total" ]; then
   sed 's/^/  | /' "$work/all.log" >&2
   exit 2
 fi
-echo "bisect: $total actions of $tag; with --no-eval: $(first reference)"
+echo "bisect: $total actions of $tag; with none: $(first reference)"
 if same all; then
-  echo "bisect: with every action the program does as with --no-eval; nothing to find"
-  exit 1
-fi
-outcome none "$(counter 0)"
-if ! same none; then
-  echo "bisect: with no action of $tag the program already differs ($(first none)); it is not $tag"
+  echo "bisect: with every action the program does as with none; nothing to find"
   exit 1
 fi
 
@@ -152,7 +146,7 @@ while [ $((bad - good)) -gt 1 ]; do
   outcome probe "$(counter "$middle")"
   if same probe; then
     good=$middle
-    echo "bisect: with $middle actions: as with --no-eval"
+    echo "bisect: with $middle actions: as with none"
   else
     bad=$middle
     cp "$work/probe.outcome" "$work/bad.outcome"
@@ -161,7 +155,7 @@ while [ $((bad - good)) -gt 1 ]; do
 done
 
 echo "bisect: action $bad of $tag changes the program"
-echo "  with --no-eval, and with the first $good actions: $(first reference)"
+echo "  with the first $good actions: $(first reference)"
 echo "  with the first $bad actions: $(first bad)"
 diff "$work/reference.outcome" "$work/bad.outcome" | head -n 20 | sed 's/^/  | /'
 echo "  reproduce: idris-mlir $mlir -o program $(counter "$bad")"

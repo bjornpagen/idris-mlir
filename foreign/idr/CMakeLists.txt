@@ -1,7 +1,14 @@
-# The idr dialect, its passes and tools. Everything here faces the
-# MLIR C++ API, so it is quarantine code: headers, TableGen, inheritance.
-# PIN(mlir-cxx-api) — see PINS.md
-# PIN(cmake-module-restat) — see PINS.md
+# The idr dialect, its passes and tools, an in-tree MLIR dialect in
+# upstream's layout: the ODS and the passes' TableGen under include/idr
+# (IR, Transforms), the libraries under lib, one add_mlir_library each, and
+# the tools here.
+
+# The typecheck build's MLIR exports every library of the tree and builds
+# few: a library of ours does not wait for the libraries it links, which
+# only a link needs, and nothing of ours is linked but idris-mlir-tblgen.
+if(IDRIS_MLIR_TYPECHECK)
+	set(CMAKE_OPTIMIZE_DEPENDENCIES ON)
+endif()
 
 find_package(MLIR REQUIRED CONFIG)
 list(APPEND CMAKE_MODULE_PATH "${MLIR_CMAKE_DIR}" "${LLVM_CMAKE_DIR}")
@@ -9,28 +16,20 @@ include(TableGen)
 include(AddLLVM)
 include(AddMLIR)
 
-# TableGen reads the directory's include path.
-include_directories(SYSTEM ${LLVM_INCLUDE_DIRS} ${MLIR_INCLUDE_DIRS})
+# MLIR's and LLVM's headers, the generated ones and Tracy's are system
+# headers, so that the project's warnings apply to our code and not to
+# theirs. TableGen reads the same include path. Every build reads
+# tracy/Tracy.hpp; only the profile build defines TRACY_ENABLE, without
+# which every zone is nothing.
+include_directories(SYSTEM
+	${LLVM_INCLUDE_DIRS}
+	${MLIR_INCLUDE_DIRS}
+	${CMAKE_CURRENT_BINARY_DIR}/include
+	${PROJECT_SOURCE_DIR}/third_party/tracy/public
+)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
-
-set(LLVM_TARGET_DEFINITIONS ${CMAKE_CURRENT_SOURCE_DIR}/include/idr/IdrOps.td)
-mlir_tablegen(include/idr/IdrDialect.h.inc -gen-dialect-decls -dialect=idr)
-mlir_tablegen(include/idr/IdrDialect.cc.inc -gen-dialect-defs -dialect=idr)
-mlir_tablegen(include/idr/IdrTypes.h.inc -gen-typedef-decls -typedefs-dialect=idr)
-mlir_tablegen(include/idr/IdrTypes.cc.inc -gen-typedef-defs -typedefs-dialect=idr)
-mlir_tablegen(include/idr/IdrAttrs.h.inc -gen-attrdef-decls -attrdefs-dialect=idr)
-mlir_tablegen(include/idr/IdrAttrs.cc.inc -gen-attrdef-defs -attrdefs-dialect=idr)
-mlir_tablegen(include/idr/IdrEnums.h.inc -gen-enum-decls)
-mlir_tablegen(include/idr/IdrEnums.cc.inc -gen-enum-defs)
-mlir_tablegen(include/idr/IdrOps.h.inc -gen-op-decls)
-mlir_tablegen(include/idr/IdrOps.cc.inc -gen-op-defs)
-mlir_tablegen(include/idr/IdrInterfaces.h.inc -gen-op-interface-decls)
-mlir_tablegen(include/idr/IdrInterfaces.cc.inc -gen-op-interface-defs)
-set(LLVM_TARGET_DEFINITIONS ${CMAKE_CURRENT_SOURCE_DIR}/include/idr/Passes.td)
-mlir_tablegen(include/idr/Passes.h.inc -gen-pass-decls -name Idr)
-set(LLVM_TARGET_DEFINITIONS ${CMAKE_CURRENT_SOURCE_DIR}/lib/Dialect/Canonicalize.td)
-mlir_tablegen(include/idr/IdrCanonicalize.inc -gen-rewriters)
-add_public_tablegen_target(idr_tablegen)
+separate_arguments(IDR_LLVM_DEFINITIONS NATIVE_COMMAND ${LLVM_DEFINITIONS})
+add_definitions(${IDR_LLVM_DEFINITIONS})
 
 # idris-mlir links the runtime's bitcode into the program (Linker,
 # BitReader, Object), internalizes it (IPO) and writes the runtime it
@@ -39,32 +38,22 @@ add_public_tablegen_target(idr_tablegen)
 # assembly parser.
 llvm_map_components_to_libnames(IDR_LLVM_CODEGEN_LIBS nativecodegen ${LLVM_NATIVE_ARCH} passes linker bitreader bitwriter object ipo)
 
-# What every unit of foreign/idr is compiled with: the generated headers and
-# MLIR's and LLVM's as system headers, so that the project's warnings apply
-# to our code and not to theirs; LLVM's definitions; and the target entry's
-# triple and CPU (CMakeLists.txt), which idr-target writes on every
-# module and idris-mlir prints. Programs are compiled for the triple the
-# runtime is built for.
-add_library(idr_build INTERFACE)
-target_include_directories(idr_build SYSTEM INTERFACE
-	${CMAKE_CURRENT_BINARY_DIR}/include
-	${LLVM_INCLUDE_DIRS}
-	${MLIR_INCLUDE_DIRS}
-)
-target_include_directories(idr_build INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-separate_arguments(IDR_LLVM_DEFINITIONS NATIVE_COMMAND ${LLVM_DEFINITIONS})
-target_compile_definitions(idr_build INTERFACE ${IDR_LLVM_DEFINITIONS})
+# The target entry's triple and CPU (CMakeLists.txt), which idr-target
+# writes on every module and idris-mlir prints. Programs are compiled for
+# the triple the runtime is built for.
 if(NOT CMAKE_CXX_COMPILER_TARGET)
 	message(FATAL_ERROR "CMAKE_CXX_COMPILER_TARGET names the target programs are compiled for; use a preset")
 endif()
-target_compile_definitions(idr_build INTERFACE
+set(IDR_TARGET_DEFINITIONS
 	"IDRIS_MLIR_TARGET_TRIPLE=\"${CMAKE_CXX_COMPILER_TARGET}\""
 	"IDRIS_MLIR_TARGET_CPU=\"${IDRIS_MLIR_TARGET_CPU}\""
 )
-# The target entry's lists, as X-macros of C strings in a generated header
-# (idr/TargetEntry.h): what links a program after its object, the runtime
-# and -o (--target with the triple, the executable flags, the program link
-# flags, GMP), which idris-mlir links with and --print-link-flags prints.
+
+# The target entry's link line, as an X-macro of C strings in a generated
+# header (idr/TargetEntry.h): what links a program after its object, the
+# runtime and -o (--target with the triple, the executable flags, the
+# program link flags, GMP), which idris-mlir links with and
+# --print-link-flags prints.
 function(idr_strings out)
 	set(text "")
 	foreach(item IN LISTS ARGN)
@@ -76,225 +65,13 @@ function(idr_strings out)
 endfunction()
 idr_strings(IDR_LINK_FLAGS "--target=${CMAKE_CXX_COMPILER_TARGET}" ${IDRIS_MLIR_EXECUTABLE_FLAGS}
 	${IDRIS_MLIR_PROGRAM_LINK_FLAGS} ${IDRIS_MLIR_GMP})
-idr_strings(IDR_JIT_LIBRARY_CALLS ${IDRIS_MLIR_JIT_LIBRARY_CALLS})
 file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/include/idr/TargetEntry.h" CONTENT [=[
 // Generated by CMake from the target entry (CMakeLists.txt). Do not edit.
 #pragma once
 
 #define IDRIS_MLIR_LINK_FLAGS(X)@IDR_LINK_FLAGS@
-#define IDRIS_MLIR_JIT_LIBRARY_CALLS(X)@IDR_JIT_LIBRARY_CALLS@
 ]=] @ONLY)
-# Every plain unit reaches idr/Idr.h, which parses most of MLIR's headers:
-# 18 of a unit's 22 seconds. Precompiled once, here, a unit takes 4; every
-# library with plain units reuses it. Module units parse their headers in
-# their global module fragment, where a precompiled header does not belong.
-file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/idr_pch.cc" CONTENT [=[
-// Generated by CMake: the unit that precompiles idr/Idr.h (idr_pch).
-]=])
-add_library(idr_pch OBJECT "${CMAKE_CURRENT_BINARY_DIR}/idr_pch.cc")
-target_link_libraries(idr_pch PRIVATE idr_build idris_mlir_language_profile)
-target_precompile_headers(idr_pch PRIVATE include/idr/Idr.h)
-add_dependencies(idr_pch idr_tablegen)
-# It compiles no code of ours: the lint reads idr/Idr.h in each unit.
-set_target_properties(idr_pch PROPERTIES CXX_CLANG_TIDY "")
 
-include(cmake/IdrLibrary.cmake)
-
-# idr.mlir: MLIR and LLVM, the one module whose global module fragment
-# includes their headers besides idr.dialect's, and what links them.
-idr_library(idr_mlir
-	MODULES
-		lib/Mlir.cppm
-	LINKS
-		MLIRAnalysis
-		MLIRIR
-		MLIRPass
-		MLIRParser
-		MLIRBytecodeReader
-		MLIRBytecodeWriter
-		MLIRTransforms
-		MLIRFuncDialect
-		MLIRFuncTransforms
-		MLIRArithDialect
-		MLIRSCFDialect
-		MLIRSCFTransforms
-		MLIRMemRefDialect
-		MLIRMemRefTransforms
-		# The loops over arrays, the step that makes their loops, and the
-		# vectorizer with the dialects of its tiles.
-		MLIRLinalgDialect
-		MLIRLinalgTransforms
-		MLIRVectorDialect
-		MLIRVectorTransforms
-		MLIRAffineDialect
-		MLIRLinalgUtils
-		MLIRTilingInterface
-		MLIRUBDialect
-		MLIRLLVMDialect
-		MLIRMathDialect
-		MLIRControlFlowDialect
-		MLIRControlFlowInterfaces
-		MLIRCallInterfaces
-		MLIRInferIntRangeInterface
-		MLIRSideEffectInterfaces
-		MLIRSCFToControlFlow
-		MLIRConvertToLLVMPass
-		# The memref descriptor an array's view is (Lower/Arrays.cc).
-		MLIRLLVMCommonConversion
-		MLIRReconcileUnrealizedCasts
-		MLIRTargetLLVMIRExport
-		MLIRTargetLLVMIRTransforms
-		MLIRBuiltinToLLVMIRTranslation
-		MLIRLLVMToLLVMIRTranslation
-		${IDR_LLVM_CODEGEN_LIBS}
-)
-
-# Each area of lib/ lists its own library, or, until it is a module, its
-# plain units in idr_dialect.
-add_library(idr_dialect STATIC)
-foreach(area
-		Canon
-		Canonicalize
-		Defunctionalize
-		Demand
-		Dialect
-		Driver
-		Expect
-		Facts
-		Fold
-		Graph
-		Identity
-		InBounds
-		Inline
-		Isolate
-		Layout
-		Lower
-		Narrow
-		Ops
-		Ownership
-		Ranges
-		Sharing
-		Simplify
-		Specialize
-		Stack
-		Support
-		Tail
-		Target
-		Vectorize
-		Verify
-	)
-	add_subdirectory(lib/${area})
-endforeach()
-
-# idr_dialect: what the tools link. The areas not yet modules are its plain
-# units, above the modules' libraries, with the dialect's definitions and
-# hooks; it links every module's library, and the runtime, natively, for the
-# folders, with GMP, which it calls, linked as the target
-# entry says.
-target_include_directories(idr_dialect PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib)
-target_link_libraries(idr_dialect
-	PUBLIC
-		idr_build
-		idr_mlir
-		idr_ods
-		idr_support
-		idr_graph
-		idr_ranges
-		idr_layout
-		idr_facts
-		idr_target
-		idr_canonicalize
-		idr_expect
-		idr_fold
-		idr_identity
-		idr_inlining
-		idr_isolate
-		idr_stack
-		idr_specialize
-		idr_ownership
-		idr_demand
-		idr_canon
-		idr_ops
-		idr_sharing
-		idr_verify
-		idr_defunctionalize
-		idr_narrow
-		idr_inbounds
-		idr_simplify
-		idr_tail
-		idr_vectorize
-		idr_lower
-		idris_rt
-		${IDRIS_MLIR_GMP}
-	PRIVATE
-		idris_mlir_language_profile
-)
-add_dependencies(idr_dialect idr_tablegen)
-target_precompile_headers(idr_dialect REUSE_FROM idr_pch)
-set_target_properties(idr_dialect PROPERTIES
-	CXX_MODULE_STD OFF
-	CXX_SCAN_FOR_MODULES ON
-)
-
-# Sampling of these tools. One translation unit, from the Tracy tree beside
-# this repo, so the module build and this project's warnings stay on our
-# code. The client listens on localhost and does not broadcast. It is not
-# told to refuse exit: this build runs idris-mlir to prepare the runtime,
-# and that step has to return when no capture is attached. A capture sets
-# TRACY_NO_EXIT=1 so the profiled process flushes before it quits.
-# The client starts from a static constructor. Nothing in our code names a
-# symbol in that archive, so the link would drop it; the tools force-load it.
-set(IDRIS_MLIR_TRACY_DIR "${CMAKE_SOURCE_DIR}/../tracy")
-if(NOT EXISTS "${IDRIS_MLIR_TRACY_DIR}/public/TracyClient.cpp")
-	message(FATAL_ERROR "Tracy client is missing at ${IDRIS_MLIR_TRACY_DIR}")
-endif()
-add_library(idr_tracy STATIC "${IDRIS_MLIR_TRACY_DIR}/public/TracyClient.cpp")
-target_include_directories(idr_tracy PUBLIC "${IDRIS_MLIR_TRACY_DIR}/public")
-target_compile_definitions(idr_tracy PRIVATE
-	TRACY_ENABLE
-	TRACY_ONLY_LOCALHOST
-	TRACY_NO_BROADCAST
-)
-# See lib/TracySampling.h: without this the Apple sampler never starts,
-# and a capture has a time span and no call stacks.
-target_compile_options(idr_tracy PRIVATE
-	"SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/lib/TracySampling.h"
-)
-find_package(Threads REQUIRED)
-target_link_libraries(idr_tracy PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
-set_target_properties(idr_tracy PROPERTIES
-	CXX_STANDARD 20
-	CXX_STANDARD_REQUIRED ON
-	CXX_EXTENSIONS OFF
-	CXX_MODULE_STD OFF
-	CXX_SCAN_FOR_MODULES OFF
-	CXX_CLANG_TIDY ""
-)
-
-add_executable(idris-mlir-opt tools/idris-mlir-opt.cc)
-target_link_libraries(idris-mlir-opt PRIVATE
-	idr_dialect
-	idr_tracy
-	MLIROptLib
-	MLIRRegisterAllDialects
-	MLIRRegisterAllExtensions
-	MLIRRegisterAllPasses
-	idris_mlir_language_profile
-)
-
-add_executable(idris-mlir tools/idris-mlir.cc)
-# idr_driver: the driver, whose pipeline is idr_dialect's; MLIRDebug: the
-# action handlers (debug counters, action logging).
-target_link_libraries(idris-mlir PRIVATE
-	idr_driver
-	idr_dialect
-	idr_tracy
-	MLIRDebug
-	MLIRRegisterAllDialects
-	MLIRRegisterAllExtensions
-	MLIRRegisterAllPasses
-	idris_mlir_language_profile
-)
 # The runtime every program links: the archive, checked before idris-mlir
 # is built, then prepared once by idris-mlir itself (--prepare-runtime)
 # into one object, native code for every executable's link line with the
@@ -307,65 +84,188 @@ target_link_libraries(idris-mlir PRIVATE
 # clang, which links every program and is the C compiler of this build (the
 # preset's toolchain file names it), and the Idris prefix the frontend reads
 # its packages from: the preset's, or what make build gives, the prefix it
-# builds.
+# builds. IdrDriver (lib/CMakeLists.txt) is compiled with these.
 set(IDRIS_MLIR_IDRIS_PREFIX "" CACHE PATH "The Idris prefix idris-mlir's frontend reads its packages from")
 if(IDRIS_MLIR_IDRIS_PREFIX STREQUAL "")
 	message(FATAL_ERROR "IDRIS_MLIR_IDRIS_PREFIX names the Idris prefix the frontend reads; use a preset")
 endif()
 set(IDRIS_MLIR_RUNTIME_PREPARED "${CMAKE_CURRENT_BINARY_DIR}/idris_rt.o")
-target_compile_definitions(idr_driver PRIVATE
+set(IDR_DRIVER_DEFINITIONS
 	"IDRIS_MLIR_RUNTIME=\"${IDRIS_MLIR_RUNTIME_PREPARED}\""
 	"IDRIS_MLIR_RUNTIME_BITCODE_SECTION=\"${IDRIS_MLIR_RUNTIME_BITCODE_SECTION}\""
 	"IDRIS_MLIR_PINNED_CC=\"${CMAKE_C_COMPILER}\""
 	"IDRIS_MLIR_IDRIS_PREFIX=\"${IDRIS_MLIR_IDRIS_PREFIX}\""
 )
-add_dependencies(idris-mlir idris_rt_check)
-set(IDRIS_MLIR_RUNTIME_PREPARED_FILES "${IDRIS_MLIR_RUNTIME_PREPARED}")
-if(IDRIS_MLIR_RUNTIME_BITCODE_SECTION STREQUAL "")
-	# The bitcode, beside the object.
-	list(APPEND IDRIS_MLIR_RUNTIME_PREPARED_FILES "${CMAKE_CURRENT_BINARY_DIR}/idris_rt.bc")
-endif()
-add_custom_command(
-	OUTPUT ${IDRIS_MLIR_RUNTIME_PREPARED_FILES}
-	COMMAND idris-mlir --prepare-runtime "--runtime=${IDRIS_MLIR_RUNTIME_ARCHIVE}"
-		-o "${IDRIS_MLIR_RUNTIME_PREPARED}"
-	DEPENDS idris-mlir idris_rt idris_rt_check
-	COMMENT "Optimizing and compiling the runtime once, for every program"
-	VERBATIM
-)
-add_custom_target(idris_rt_prepared ALL DEPENDS "${IDRIS_MLIR_RUNTIME_PREPARED}")
 
-# Shrinking a module that makes a pass fail.
-add_executable(idris-mlir-reduce tools/idris-mlir-reduce.cc)
-target_link_libraries(idris-mlir-reduce PRIVATE
-	idr_dialect
-	idr_tracy
+# Profiling with Tracy, the profile preset's alone: the client, the zones
+# of every pass and analysis, and, with IDRIS_MLIR_PROFILE_MEMORY, every
+# allocation. Every other build compiles the same zones to nothing.
+# PIN(tracy-profiler) — see PINS.md
+option(IDRIS_MLIR_PROFILE "Instrument the compiler for Tracy (the profile preset)" OFF)
+option(IDRIS_MLIR_PROFILE_MEMORY "With IDRIS_MLIR_PROFILE, track every allocation of the tools" OFF)
+if(IDRIS_MLIR_PROFILE_MEMORY AND NOT IDRIS_MLIR_PROFILE)
+	message(FATAL_ERROR "IDRIS_MLIR_PROFILE_MEMORY needs IDRIS_MLIR_PROFILE; use the profile preset")
+endif()
+if(IDRIS_MLIR_PROFILE)
+	# The client, one translation unit from the pinned submodule, built
+	# before the language profile applies, so this project's warnings stay
+	# on our code. It listens on localhost and does not broadcast. It is not
+	# told to refuse exit: this build runs idris-mlir to prepare the
+	# runtime, and that step has to return when no capture is attached. A
+	# capture sets TRACY_NO_EXIT=1 so the profiled process flushes before it
+	# quits.
+	set(IDR_TRACY_DIR "${PROJECT_SOURCE_DIR}/third_party/tracy")
+	if(NOT EXISTS "${IDR_TRACY_DIR}/public/TracyClient.cpp")
+		message(FATAL_ERROR "the Tracy client is missing at ${IDR_TRACY_DIR}; run: git submodule update --init third_party/tracy")
+	endif()
+	# On demand, the client records only while a capture is connected. The
+	# definitions change the layout of Tracy's zone types, so every unit
+	# here and the client agree on them. Frame pointers and line tables give
+	# the sampler its call stacks.
+	add_compile_definitions(TRACY_ENABLE TRACY_ON_DEMAND)
+	add_compile_options(-fno-omit-frame-pointer -g1)
+	add_library(idr_tracy STATIC "${IDR_TRACY_DIR}/public/TracyClient.cpp")
+	target_compile_definitions(idr_tracy PRIVATE TRACY_ONLY_LOCALHOST TRACY_NO_BROADCAST)
+	# Without the sampling header the Apple sampler never starts, and a
+	# capture has a time span and no call stacks (ProfileSampling.h says
+	# why).
+	target_compile_options(idr_tracy PRIVATE
+		"SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/include/idr/Support/ProfileSampling.h"
+	)
+	find_package(Threads REQUIRED)
+	target_link_libraries(idr_tracy PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
+	set_target_properties(idr_tracy PROPERTIES
+		CXX_STANDARD 20
+		CXX_STANDARD_REQUIRED ON
+		CXX_EXTENSIONS OFF
+		CXX_CLANG_TIDY ""
+	)
+endif()
+
+# Every target below is compiled and linked with the language profile.
+link_libraries(idris_mlir_language_profile)
+
+add_subdirectory(include/idr)
+add_subdirectory(lib)
+
+# The tools, each tools/<tool>.cpp, and what each links: idris-mlir, the
+# driver; idris-mlir-opt; idris-mlir-reduce, which shrinks a module that
+# makes a pass fail.
+set(IDR_TOOLS idris-mlir idris-mlir-opt idris-mlir-reduce)
+set(IDR_TOOL_LINKS_idris-mlir IdrDriver)
+set(IDR_TOOL_LINKS_idris-mlir-opt
+	IdrPipeline
+	IdrSimplify
+	IdrIR
+	IdrSupport
+	idris_rt
+	MLIRIR
+	MLIRSupport
+	MLIRPass
+	MLIROptLib
+	MLIRRegisterAllDialects
+	MLIRRegisterAllExtensions
+	MLIRRegisterAllPasses
+)
+set(IDR_TOOL_LINKS_idris-mlir-reduce
+	IdrPipeline
+	IdrIR
+	MLIRIR
 	MLIRReduceLib
 	MLIRRegisterAllDialects
 	MLIRRegisterAllExtensions
 	MLIRRegisterAllPasses
-	idris_mlir_language_profile
 )
-foreach(tool idris-mlir-opt idris-mlir idris-mlir-reduce)
-	target_link_options(${tool} PRIVATE "LINKER:-force_load,$<TARGET_FILE:idr_tracy>")
-endforeach()
+
+# The typecheck build compiles the tools' units without linking them, into
+# a library that carries what each tool links for its usage requirements,
+# and prepares no runtime, which needs idris-mlir.
+if(IDRIS_MLIR_TYPECHECK)
+	set(IDR_TOOL_SOURCES "")
+	set(IDR_TOOL_LINKS "")
+	foreach(tool IN LISTS IDR_TOOLS)
+		list(APPEND IDR_TOOL_SOURCES tools/${tool}.cpp)
+		list(APPEND IDR_TOOL_LINKS ${IDR_TOOL_LINKS_${tool}})
+	endforeach()
+	list(REMOVE_DUPLICATES IDR_TOOL_LINKS)
+	add_mlir_library(IdrTools
+		${IDR_TOOL_SOURCES}
+
+		EXCLUDE_FROM_LIBMLIR
+		DISABLE_INSTALL
+
+		LINK_LIBS PUBLIC
+		${IDR_TOOL_LINKS}
+	)
+else()
+	foreach(tool IN LISTS IDR_TOOLS)
+		add_executable(${tool} tools/${tool}.cpp)
+		target_link_libraries(${tool} PRIVATE ${IDR_TOOL_LINKS_${tool}})
+	endforeach()
+	add_dependencies(idris-mlir idris_rt_check)
+
+	# The profile build links the client whole into each tool: it starts from
+	# a static constructor, which a link that keeps only what is named would
+	# drop. With IDRIS_MLIR_PROFILE_MEMORY each tool also defines the global
+	# operator new and delete through Tracy; no library holds them, so nothing
+	# that links a library of ours gets them.
+	if(IDRIS_MLIR_PROFILE)
+		foreach(tool IN LISTS IDR_TOOLS)
+			target_link_libraries(${tool} PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,idr_tracy>")
+			if(IDRIS_MLIR_PROFILE_MEMORY)
+				target_sources(${tool} PRIVATE lib/Support/ProfileAlloc.cpp)
+			endif()
+		endforeach()
+	endif()
+
+	set(IDRIS_MLIR_RUNTIME_PREPARED_FILES "${IDRIS_MLIR_RUNTIME_PREPARED}")
+	if(IDRIS_MLIR_RUNTIME_BITCODE_SECTION STREQUAL "")
+		# The bitcode, beside the object.
+		list(APPEND IDRIS_MLIR_RUNTIME_PREPARED_FILES "${CMAKE_CURRENT_BINARY_DIR}/idris_rt.bc")
+	endif()
+	add_custom_command(
+		OUTPUT ${IDRIS_MLIR_RUNTIME_PREPARED_FILES}
+		COMMAND idris-mlir --prepare-runtime "--runtime=${IDRIS_MLIR_RUNTIME_ARCHIVE}"
+			-o "${IDRIS_MLIR_RUNTIME_PREPARED}"
+		DEPENDS idris-mlir idris_rt idris_rt_check
+		COMMENT "Optimizing and compiling the runtime once, for every program"
+		VERBATIM
+	)
+	add_custom_target(idris_rt_prepared ALL DEPENDS "${IDRIS_MLIR_RUNTIME_PREPARED}")
+endif()
 
 # mlir-tblgen with the generator of the Idris side's vocabulary of each
 # dialect Emit writes (tools/dialects.sh, which make build runs). It reads
 # ODS records only, so it links TableGen and nothing of the dialect.
-add_executable(idris-mlir-tblgen tools/idris-mlir-tblgen.cc)
+add_executable(idris-mlir-tblgen tools/idris-mlir-tblgen.cpp)
 target_link_libraries(idris-mlir-tblgen PRIVATE
 	MLIRTblgenLib
 	MLIRTableGen
 	LLVMTableGen
 	LLVMSupport
-	idris_mlir_language_profile
 )
-target_compile_definitions(idris-mlir-tblgen PRIVATE ${IDR_LLVM_DEFINITIONS})
 
-# The tools are plain translation units; idris-mlir imports idr.driver.
-set_target_properties(idris-mlir-opt idris-mlir idris-mlir-reduce idris-mlir-tblgen PROPERTIES
-	CXX_MODULE_STD OFF
-	CXX_SCAN_FOR_MODULES OFF
-)
-set_target_properties(idris-mlir PROPERTIES CXX_SCAN_FOR_MODULES ON)
+# make typecheck's target: every library of ours, the tools' units and
+# idris-mlir-tblgen, the one thing it links (TableGen's libraries alone,
+# which the typecheck build builds).
+if(IDRIS_MLIR_TYPECHECK)
+	function(idr_libraries out dir)
+		set(found "")
+		get_property(targets DIRECTORY "${dir}" PROPERTY BUILDSYSTEM_TARGETS)
+		foreach(target IN LISTS targets)
+			get_target_property(type ${target} TYPE)
+			if(target MATCHES "^Idr" AND type STREQUAL "STATIC_LIBRARY")
+				list(APPEND found ${target})
+			endif()
+		endforeach()
+		get_property(subdirectories DIRECTORY "${dir}" PROPERTY SUBDIRECTORIES)
+		foreach(subdirectory IN LISTS subdirectories)
+			idr_libraries(below "${subdirectory}")
+			list(APPEND found ${below})
+		endforeach()
+		set(${out} ${found} PARENT_SCOPE)
+	endfunction()
+	idr_libraries(IDR_LIBRARIES "${CMAKE_CURRENT_SOURCE_DIR}")
+	add_custom_target(idr-typecheck ALL)
+	add_dependencies(idr-typecheck ${IDR_LIBRARIES} idris-mlir-tblgen)
+endif()

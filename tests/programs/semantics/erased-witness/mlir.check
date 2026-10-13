@@ -1,6 +1,8 @@
 // input: emitted
-// Quantities are types: an erased argument stays a parameter of type
-// !idr.erased, and a linear one has type !idr.lin<T>. (A parameter is
-// printed with its location, hence the {{.*}}.)
-// CHECK-DAG: func.func private @Prog.clamp(%{{[^:]+}}: i64 {{.*}}, %{{[^:]+}}: i64 {{.*}}, %{{[^:]+}}: !idr.erased {{.*}}) -> i64
-// CHECK-DAG: func.func private @Prog.linearId(%{{[^:]+}}: !idr.lin<i64> {{.*}}) -> i64
+// FILECHECK-OPTIONS: --implicit-check-not=idr.erased
+// Quantities are types: an erased argument is no parameter, and a linear
+// one has type !idr.lin<T>. clamp has two parameters, x and hi; its proof
+// is neither passed nor bound. (A parameter is printed with its location,
+// which holds no comma, hence the {{[^,]*}}.)
+// CHECK-DAG: idr.func private @Prog.clamp(%{{[^:]+}}: i64 {{[^,]*}}, %{{[^:]+}}: i64 {{[^,]*}}) -> i64
+// CHECK-DAG: idr.func private @Prog.linearId(%{{[^:]+}}: !idr.lin<i64> {{[^,]*}}) -> i64

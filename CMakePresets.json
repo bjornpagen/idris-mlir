@@ -23,10 +23,28 @@
     },
     {
       "name": "release",
-      "displayName": "Optimized production build",
+      "displayName": "Optimized production build: full LTO, unused sections dropped, no sanitizer traps",
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "hardened",
+      "displayName": "Release build with undefined-behavior traps and the mitigations",
+      "inherits": "release",
+      "cacheVariables": {
+        "IDRIS_MLIR_PRESET_COMPILE_FLAGS": "-fsanitize=undefined;-fsanitize-trap=all;-ftrivial-auto-var-init=zero;-fstack-protector-strong;-fzero-call-used-regs=used-gpr;-fno-delete-null-pointer-checks;-fno-strict-aliasing;-fstrict-flex-arrays=3",
+        "IDRIS_MLIR_PRESET_LINK_FLAGS": "-fsanitize=undefined;-fsanitize-trap=all"
+      }
+    },
+    {
+      "name": "profile",
+      "displayName": "Release build instrumented for Tracy (tools/profile.sh)",
+      "inherits": "release",
+      "cacheVariables": {
+        "IDRIS_MLIR_PROFILE": "ON",
+        "IDRIS_MLIR_PROFILE_MEMORY": "OFF"
       }
     },
     {
@@ -37,11 +55,23 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_CXX_CLANG_TIDY": "${sourceDir}/.toolchain/llvm/bin/clang-tidy;--warnings-as-errors=*"
       }
+    },
+    {
+      "name": "typecheck",
+      "displayName": "foreign/idr compiled by the host's clang against the TableGen-only LLVM/MLIR, nothing linked but idris-mlir-tblgen (make typecheck)",
+      "inherits": "base",
+      "toolchainFile": "${sourceDir}/.toolchain/typecheck/toolchain.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
     }
   ],
   "buildPresets": [
     { "name": "dev", "configurePreset": "dev" },
     { "name": "release", "configurePreset": "release" },
-    { "name": "lint", "configurePreset": "lint" }
+    { "name": "hardened", "configurePreset": "hardened" },
+    { "name": "profile", "configurePreset": "profile" },
+    { "name": "lint", "configurePreset": "lint" },
+    { "name": "typecheck", "configurePreset": "typecheck" }
   ]
 }

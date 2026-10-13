@@ -11,7 +11,7 @@ module attributes {idr.program} {
     idr.ctor @Nil ()
     idr.ctor @Cons (i64, !idr.box<@List>)
   }
-  func.func private @replicate(%n: !idr.nat, %x: i64) -> !idr.box<@List> {
+  idr.func private @replicate(%n: !idr.nat, %x: i64) -> !idr.box<@List> {
     %nil = idr.constant #idr.con<@List::@Nil, []> : !idr.box<@List>
     %r = idr.match_lit %n : !idr.nat -> (!idr.box<@List>) {
     case #idr.big<"0"> {
@@ -19,14 +19,14 @@ module attributes {idr.program} {
     }
     default {
       %m = idr.big.pred %n
-      %t = func.call @replicate(%m, %x) : (!idr.nat, i64) -> !idr.box<@List>
+      %t = idr.call @replicate(%m, %x) : (!idr.nat, i64) -> !idr.box<@List>
       %c = idr.con @List::@Cons(%x, %t) : (i64, !idr.box<@List>) -> !idr.box<@List>
       idr.yield %c : !idr.box<@List>
     }
     }
     return %r : !idr.box<@List>
   }
-  func.func private @take(%n: !idr.nat, %l: !idr.box<@List>) -> !idr.box<@List> {
+  idr.func private @take(%n: !idr.nat, %l: !idr.box<@List>) -> !idr.box<@List> {
     %nil = idr.constant #idr.con<@List::@Nil, []> : !idr.box<@List>
     %r = idr.match_lit %n : !idr.nat -> (!idr.box<@List>) {
     case #idr.big<"0"> {
@@ -36,7 +36,7 @@ module attributes {idr.program} {
       %m = idr.big.pred %n
       %s = idr.match %l : !idr.box<@List> -> (!idr.box<@List>) {
       case @Cons(%h: i64, %rest: !idr.box<@List>) {
-        %t = func.call @take(%m, %rest) : (!idr.nat, !idr.box<@List>) -> !idr.box<@List>
+        %t = idr.call @take(%m, %rest) : (!idr.nat, !idr.box<@List>) -> !idr.box<@List>
         %c = idr.con @List::@Cons(%h, %t) : (i64, !idr.box<@List>) -> !idr.box<@List>
         idr.yield %c : !idr.box<@List>
       }
@@ -49,11 +49,11 @@ module attributes {idr.program} {
     }
     return %r : !idr.box<@List>
   }
-  func.func @Prog.main() -> i64 {
+  idr.func @Prog.main() -> i64 {
     %three = idr.constant #idr.big<"3"> : !idr.nat
     %one = arith.constant 1 : i64
-    %l = func.call @replicate(%three, %one) : (!idr.nat, i64) -> !idr.box<@List>
-    %t = func.call @take(%three, %l) : (!idr.nat, !idr.box<@List>) -> !idr.box<@List>
+    %l = idr.call @replicate(%three, %one) : (!idr.nat, i64) -> !idr.box<@List>
+    %t = idr.call @take(%three, %l) : (!idr.nat, !idr.box<@List>) -> !idr.box<@List>
     %n = idr.match %t : !idr.box<@List> -> (i64) {
     case @Cons(%h: i64, %rest: !idr.box<@List>) {
       idr.yield %h : i64

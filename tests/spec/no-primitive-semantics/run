@@ -1,10 +1,10 @@
 #!/bin/sh
 # No primitive has a meaning in the compiler's Idris code: a primitive
-# means what the runtime computes, and the folders and idr-eval call the
-# runtime's own code, so nothing in compiler/src may compute a primitive's
-# result. A folder, whatever its
-# form, has to do one of three things, and each is looked for in the code
-# of every module (comments and the contents of strings removed):
+# means what the runtime computes, and the folders call the runtime's own
+# code, so nothing in compiler/src may compute a primitive's result. A
+# folder, whatever its form, has to do one of three things, and each is
+# looked for in the code of every module (comments and the contents of
+# strings removed):
 #
 # 1. call an Idris primitive (`prim__*`) to compute a value;
 # 2. make a literal of the middle end (LInt, LChar, LStr, LDouble, LBig)

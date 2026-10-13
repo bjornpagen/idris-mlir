@@ -5,7 +5,7 @@
 // operands rule the crash out. A crash also writes the IO resource, so it
 // stays ordered with output, and two guards are not merged.
 
-// CHECK-LABEL: func.func @may_crash(
+// CHECK-LABEL: idr.func @may_crash(
 // CHECK-SAME: %[[S:.*]]: !idr.str, %[[I:.*]]: i64, %[[B:.*]]: !idr.big, %[[D:.*]]: f64)
 // CHECK-NEXT: %[[N:.*]] = idr.str.length %[[S]]
 // CHECK-NEXT: idr.check.in_bounds %[[I]], %[[N]], "string index out of range"
@@ -16,7 +16,7 @@
 // CHECK-NEXT: idr.check.finite %[[D]], "cast of a non-finite Double"
 // CHECK-NEXT: idr.check.finite %[[D]], "cast of a non-finite Double"
 // CHECK-NEXT: return
-func.func @may_crash(%s: !idr.str, %i: i64, %b: !idr.big, %d: f64) {
+idr.func @may_crash(%s: !idr.str, %i: i64, %b: !idr.big, %d: f64) {
   %n = idr.str.length %s
   %i0 = idr.check.in_bounds %i, %n, "string index out of range"
   %0 = idr.str.index %s, %i0
@@ -37,9 +37,9 @@ func.func @may_crash(%s: !idr.str, %i: i64, %b: !idr.big, %d: f64) {
 
 // The same primitives on operands that rule out the crash are dead code,
 // guards and all.
-// CHECK-LABEL: func.func @cannot_crash(
+// CHECK-LABEL: idr.func @cannot_crash(
 // CHECK-NEXT: return
-func.func @cannot_crash(%s: !idr.str, %c: i32, %x: i64, %b: !idr.big) {
+idr.func @cannot_crash(%s: !idr.str, %c: i32, %x: i64, %b: !idr.big) {
   %lit = idr.constant "h\C3\A9!" : !idr.str
   %two = arith.constant 2 : i64
   %n = idr.str.length %lit
@@ -70,9 +70,9 @@ func.func @cannot_crash(%s: !idr.str, %c: i32, %x: i64, %b: !idr.big) {
 }
 
 // An index past the last character (not the last byte) may crash.
-// CHECK-LABEL: func.func @past_end(
+// CHECK-LABEL: idr.func @past_end(
 // CHECK: idr.check.in_bounds
-func.func @past_end() {
+idr.func @past_end() {
   %lit = idr.constant "h\C3\A9!" : !idr.str
   %three = arith.constant 3 : i64
   %n = idr.str.length %lit
@@ -82,10 +82,10 @@ func.func @past_end() {
 }
 
 // A crash is kept, and two are not merged.
-// CHECK-LABEL: func.func @crash(
-// CHECK: idr.crash "a"
+// CHECK-LABEL: idr.func @crash(
+// CHECK: crash "a"
 // CHECK-NEXT: ub.unreachable
-func.func @crash() {
+idr.func @crash() {
   idr.crash "a"
   ub.unreachable
 }

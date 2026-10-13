@@ -20,7 +20,6 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.MLIR.Text
         , IdrisMLIR.Syntax.Idr
         , IdrisMLIR.Syntax.Builtin
-        , IdrisMLIR.Syntax.Func
         , IdrisMLIR.Syntax.Arith
         , IdrisMLIR.Syntax.Math
         , IdrisMLIR.Syntax.UB
@@ -28,12 +27,10 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.MLIR
         , IdrisMLIR.Dialect.Idr
         , IdrisMLIR.Dialect.Builtin
-        , IdrisMLIR.Dialect.Func
         , IdrisMLIR.Dialect.Arith
         , IdrisMLIR.Dialect.Math
         , IdrisMLIR.Dialect.UB
         , IdrisMLIR.Dialect.MemRef
-        , IdrisMLIR.Emit.Attributes
         , IdrisMLIR.Emit.Index
         , IdrisMLIR.Emit.Monad
         , IdrisMLIR.Emit.Types
@@ -45,6 +42,7 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Frontend.Translate.State
         , IdrisMLIR.Frontend.Translate.Errors
         , IdrisMLIR.Frontend.Translate.Closed
+        , IdrisMLIR.Frontend.Translate.Keys
         , IdrisMLIR.Frontend.Translate.Dictionaries
         , IdrisMLIR.Frontend.Translate.Types
         , IdrisMLIR.Frontend.Translate.Recursion

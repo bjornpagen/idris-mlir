@@ -5,11 +5,11 @@
 #     tools/compile.sh [OPTION]... SOURCE OUTPUT
 #
 # idris-mlir runs in SOURCE's directory, the root of the program's modules,
-# with --no-prelude and OPTION... as given (-p PACKAGE, --no-eval,
-# --demand-in-place, --dump-dir=DIR, --break-shape=KEY). It leaves the
-# executable in build/exec/<name of OUTPUT> there, with its .core, .mlir
-# and .o beside it; idris-mlir makes build/exec. Its output passes through, and the exit status is
-# idris-mlir's (3 for an error of the program's); on success the
+# with --no-prelude and OPTION... as given (-p PACKAGE, --demand-in-place,
+# --dump-dir=DIR, --break-shape=KEY). It leaves the executable in
+# build/exec/<name of OUTPUT> there, with its .core, .mlir and .o beside it;
+# idris-mlir makes build/exec. Its output passes through, and the exit
+# status is idris-mlir's (3 for an error of the program's); on success the
 # executable's path is printed last. The idris-mlir it runs is the one
 # `make build` makes.
 root=$(cd "$(dirname "$0")/.." && pwd)

@@ -34,7 +34,7 @@ module attributes {idr.program} {
     idr.ctor @Nil ()
     idr.ctor @Cons (i64, !idr.box<@List>)
   }
-  func.func private @head(%l: !idr.box<@List>) -> i64 {
+  idr.func private @head(%l: !idr.box<@List>) -> i64 {
     %r = idr.match %l : !idr.box<@List> -> (i64) {
     case @Cons(%h: i64, %t: !idr.box<@List>) {
       idr.yield %h : i64
@@ -46,12 +46,12 @@ module attributes {idr.program} {
     }
     return %r : i64
   }
-  func.func private @local(%x: i64, %t: !idr.box<@List>) -> i64 {
+  idr.func private @local(%x: i64, %t: !idr.box<@List>) -> i64 {
     %c = idr.con @List::@Cons(%x, %t) : (i64, !idr.box<@List>) -> !idr.box<@List>
-    %r = func.call @head(%c) : (!idr.box<@List>) -> i64
+    %r = idr.call @head(%c) : (!idr.box<@List>) -> i64
     return %r : i64
   }
-  func.func private @loop(%n: i64, %t: !idr.box<@List>) -> i64 {
+  idr.func private @loop(%n: i64, %t: !idr.box<@List>) -> i64 {
     %zero = arith.constant 0 : i64
     %r:2 = scf.while (%i = %n, %acc = %zero) : (i64, i64) -> (i64, i64) {
       %more = arith.cmpi ne, %i, %zero : i64
@@ -59,7 +59,7 @@ module attributes {idr.program} {
     } do {
     ^bb0(%j: i64, %a: i64):
       %c = idr.con @List::@Cons(%j, %t) : (i64, !idr.box<@List>) -> !idr.box<@List>
-      %h = func.call @head(%c) : (!idr.box<@List>) -> i64
+      %h = idr.call @head(%c) : (!idr.box<@List>) -> i64
       %b = arith.addi %a, %h : i64
       %one = arith.constant 1 : i64
       %m = arith.subi %j, %one : i64
@@ -67,11 +67,11 @@ module attributes {idr.program} {
     }
     return %r#1 : i64
   }
-  func.func private @returned(%x: i64, %t: !idr.box<@List>) -> !idr.box<@List> {
+  idr.func private @returned(%x: i64, %t: !idr.box<@List>) -> !idr.box<@List> {
     %c = idr.con @List::@Cons(%x, %t) : (i64, !idr.box<@List>) -> !idr.box<@List>
     return %c : !idr.box<@List>
   }
-  func.func @Prog.main() -> i64 {
+  idr.func @Prog.main() -> i64 {
     %zero = arith.constant 0 : i64
     return %zero : i64
   }

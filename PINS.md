@@ -1,10 +1,14 @@
 # PINS.md — the pinned-quirk registry
 
 One entry per pinned workaround: code or build configuration that is
-deliberately wrong by the C++ profile we follow (bjornpagen/cpp-starter)
-because the pinned toolchain, platform or dependency requires it, or a
-deliberate deviation from cpp-starter. Each `PIN(name)` site in the tree
-points at its entry here; the essay lives here, once.
+deliberately other than the profile the C++ follows (upstream MLIR's
+layout and conventions for foreign/idr, an in-tree dialect of headers and
+.cpp; the language profile and configure gate of CMakeLists.txt, adopted
+from bjornpagen/cpp-starter, for the build and the runtime) because the
+pinned toolchain, platform or dependency requires it, a deliberate
+deviation from that profile, or a pinned source the build takes beside
+the toolchain. Each `PIN(name)` site
+in the tree points at its entry here; the essay lives here, once.
 
 A bug in a pinned upstream is fixed by a patch to its source, carried in
 `upstream/<bug>/` and applied by `tools/bootstrap.sh` (upstream/README.md);
@@ -29,22 +33,35 @@ backported half of `int-range-narrowing-exactness` (main's 44a4dbf32).
 Retired with the same bump, which rebuilt stage 2:
 `llvm-force-enable-stats` (stage 2 is built with
 `LLVM_FORCE_ENABLE_STATS`, so the installed `llvm-config.h` says
-statistics count to every includer; `Statistics.cppm`'s `static_assert`
-stays as the check) and `llvm-cxx17-headers` (the stage-2 clang of
-7208ba24 compiled every unit of `foreign/idr`, C++26 against libc++ over
-LLVM's C++17 headers, with no change for the headers). Retired because
-main fixed it: `clang-module-predeclared-new`
-(`upstream/12-clang-module-predeclared-new`, its check and its
-workaround; main's clang compiles the report's unit, where 23.1.2's
-crashed, so `Driver/Retarget.cppm` builds its feature string as
+statistics count to every includer; the `static_assert` of
+foreign/idr/lib/Transforms/Simplify/Simplify.cpp stays as the check) and
+`llvm-cxx17-headers` (the stage-2 clang of 7208ba24 compiled every unit
+of `foreign/idr`, C++26 against libc++ over LLVM's C++17 headers, with no
+change for the headers). Retired because main fixed it:
+`clang-module-predeclared-new` (`upstream/12-clang-module-predeclared-new`,
+its check and its workaround; main's clang compiles the report's unit,
+where 23.1.2's crashed, so the driver builds its feature string as a
 `std::string` again). These retirements were observed where the pin was
 first built, arm64 macOS; `make build` and the suites on each target are
-their check, as for any change. Retired with the one recipe
-(2026-10-09): `stage2-thinlto`. Stage 2 is not LTO on any target: its
-libraries are native code that every build of our tools links as it is,
-a rebuild through the compiler cache relinks without optimizing LLVM
-again, and the tools' few percent of speed is not worth the bootstrap's
-hours. What programs gain from LTO is untouched: idris-mlir joins the
+their check, as for any change. Retired with the cutover to MLIR's layout
+(2026-10-12): `mlir-cxx-api` (foreign/idr follows upstream MLIR's layout,
+headers, TableGen and inheritance, as its profile, so they are no
+deviation; no module wraps MLIR's headers), `zones-on-demand`
+(cpp-starter's `src/` and `unsafe/` zones are no rule of that layout),
+`clang-module-layout-forward-declaration` (no module partition is left in
+foreign/idr, so the unit that crashed the x86_64 clang is gone),
+`cmake-module-restat` (the runtime is headers and .cpp too, so no C++
+module is left in the tree and no BMI is written anew),
+`cmake-import-std-uuid` (no unit imports `std`, so the experimental gate
+and its UUID went), `no-stdexec`
+(nothing here would use senders, so there is no omission to record) and
+`versions-in-lock-file` (the lock as the one source of the accepted
+series is the configure gate's design, said below, not a workaround).
+Retired with the one recipe (2026-10-09): `stage2-thinlto`. Stage 2 is
+not LTO on any target: its libraries are native code that every build of
+our tools links as it is, a rebuild through the compiler cache relinks
+without optimizing LLVM again, and the tools' few percent of speed is not
+worth the bootstrap's hours. What programs gain from LTO is untouched: idris-mlir joins the
 runtime's bitcode with each program's module, and our own code's Release
 build is full LTO.
 
@@ -58,55 +75,6 @@ each, and this file's sweep.
 The accepted toolchain release series live only in `toolchain.lock.json`,
 which the top-level CMake configure gate reads.
 
-## mlir-cxx-api
-
-- symptom: MLIR's C++ API requires inheritance (`Dialect`, `Pass`,
-  `OpRewritePattern`, `OpConversionPattern`), CRTP (`Op<...>`), headers and
-  TableGen-generated `.inc` files included through the preprocessor; all of
-  that is forbidden by the C++ profile
-- sites: `foreign/idr/` — the whole dialect, its passes and its tools
-  (`foreign/idr/tools/`), idris-mlir-tblgen among them: a TableGen backend
-  that reads ODS through `mlir::tblgen` and registers itself with
-  `mlir::GenRegistration`
-- workaround: all MLIR-facing code is quarantine code in `foreign/idr/`;
-  LLVM/MLIR headers and generated files are system includes, so
-  the project's warnings apply to our code only; the targets never import std.
-  The headers are parsed once, by the modules `idr.mlir`
-  (`foreign/idr/lib/Mlir.cppm`) and `idr.dialect`
-  (`foreign/idr/lib/Dialect/Dialect.cppm`), which re-export the names the
-  code uses; what TableGen declares (the dialect, op hooks, pass bases, DRR
-  patterns) stays in plain translation units in the global module
-- retire: when MLIR offers a module-based, inheritance-free API (not expected)
-- upstream: none — MLIR's design
-
-## cmake-module-restat
-
-- symptom: the Ninja rule CMake 4.2 writes for a scanned C++ compile has no
-  `restat`, and clang writes a module interface's BMI anew on every compile
-  of it; so touching an interface unit, even a comment in it, recompiles
-  every unit that imports it, and every unit that imports those. Touching
-  `idr/Idr.h`, TableGen's output or `lib/Mlir.cppm` recompiles every unit
-  that imports anything
-- sites: `foreign/idr/cmake/IdrLibrary.cmake` (the `CXX_MODULES` file set of
-  every module's library) and `runtime/CMakeLists.txt` (`rt.platform`'s)
-- workaround: interface units declare and never define, so that an edit to
-  code recompiles its one implementation unit and nothing else; `idr.mlir`
-  already exports every name the code uses, so it rarely changes
-- retire: when CMake's Ninja generator restats a BMI and clang leaves an
-  unchanged BMI untouched; then a definition may sit in an interface again
-- upstream: none filed — a CMake and clang feature, not a bug
-
-## zones-on-demand
-
-- symptom: cpp-starter's layout has `src/` and `unsafe/` zones, but this
-  project has no C++ outside `foreign/idr/` and `runtime/`; empty zone
-  directories with placeholder `CMakeLists.txt` files are dead weight
-- sites: `CMakeLists.txt` (no `add_subdirectory` for them)
-- workaround: the zones do not exist until their first code does; that
-  change adds the directory, its `CMakeLists.txt` and the `add_subdirectory`
-- retire: when either zone gets code
-- upstream: none — a deviation from cpp-starter
-
 ## remove-dead-values-unreachable
 
 - symptom: at llvmorg-23.1.2 and on main at 7208ba24, `remove-dead-values`
@@ -117,26 +85,20 @@ which the top-level CMake configure gate reads.
   the null operand (`mlir/lib/Transforms/RemoveDeadValues.cpp:661` on main,
   the region-branch canonicalization at `:862`, `Matchers.h:491`). It drops
   the uses of a dead block argument and of a dead result the same way
-- sites: foreign/idr/lib/Simplify/Round.cppm (the simplify round runs
-  `remove-dead-values{canonicalize=false}`); the patch itself has no other
+- sites: foreign/idr/lib/Transforms/Simplify/Round.cpp (the simplify round
+  runs `remove-dead-values{canonicalize=false}`); the patch itself has no other
   site
 - workaround: `upstream/06-remove-dead-values-unreachable/llvm.patch`, the
   pull request: every value the pass erases (function argument, block
   argument, result, result of an erased op) gives its remaining uses a
   ub.poison at its definition, through one helper, `replaceUsesWithPoison`;
   the pass drops no use. A call the pass erases no result of is
-  `remove-dead-values-unchanged-call`'s.
-  Before the patch, idr-prune emptied the
-  code the analyses prove unreachable right
-  before `remove-dead-values`, and `symbol-dce` ran between them; with the
-  patch the two left k-nucleotide's and every-types-export's objects byte
-  for byte as they were, in as many rounds and as much time, so they went.
-  Emptying also did one thing more: it ended the regions a constant rules
-  out in ub.unreachable, so that the match canonicalization saw a match
-  whose other regions crash never complete and cut the code after it. The
-  canonicalization now asks which regions a match can take (the one its
-  constant scrutinee selects), so it needs no emptied region
-  (foreign/idr/lib/Canon/MatchPatterns.cppm, `EndAfterNoYield`)
+  `remove-dead-values-unchanged-call`'s. Nothing of ours empties the code
+  the analyses prove unreachable: the match canonicalization asks which
+  regions a match can take (the one its constant scrutinee selects), so it
+  cuts the code after a match whose other regions never complete without
+  an emptied region (foreign/idr/lib/IR/Canon/MatchPatterns.cpp,
+  `EndAfterNoYield`)
 - retire: drop the patch when the pin has our pull request (or #208881
   together with a fix for block arguments and results)
 - upstream: upstream/06-remove-dead-values-unreachable (function arguments
@@ -156,12 +118,10 @@ which the top-level CMake configure gate reads.
   call would run to the round budget
 - sites: none in our code; the patch. The simplify round runs
   `remove-dead-values{canonicalize=false}` itself
-  (foreign/idr/lib/Simplify/Round.cppm)
+  (foreign/idr/lib/Transforms/Simplify/Round.cpp)
 - workaround: `upstream/16-remove-dead-values-unchanged-call/llvm.patch`, the
   pull request: `eraseOpResults` returns the operation unchanged when it
-  erases no result, as `eraseOperands` does for operands. It replaces
-  `idr-dead-values`, which ran the pass on a copy and kept the module when
-  the copy hashed the same up to operation identity
+  erases no result, as `eraseOperands` does for operands
 - retire: drop the patch when the pin has the fix (in `eraseOpResults` or in
   the pass); the round keeps running `remove-dead-values` as it is
 - upstream: upstream/16-remove-dead-values-unchanged-call (not filed;
@@ -180,7 +140,7 @@ which the top-level CMake configure gate reads.
   ran to the round budget with 26 ops in every round
 - sites: none in our code; the patch. The simplify round runs
   `remove-dead-values{canonicalize=false}` and `cse`
-  (foreign/idr/lib/Simplify/Round.cppm)
+  (foreign/idr/lib/Transforms/Simplify/Round.cpp)
 - workaround: `upstream/22-remove-dead-values-poison-operand/llvm.patch`,
   the pull request: the cleanup keeps an operand defined by `ub.poison`
 - retire: drop the patch when the pin has the fix
@@ -270,9 +230,7 @@ which the top-level CMake configure gate reads.
   value (a parameter of the caller, or the op that made it) and the call
   keeps a null operand ("null operand found"). Arity raising and apply of
   a known closure make such direct calls
-- sites: none in our code; the patch. The poison it passes is no value
-  to evaluate at compile time (foreign/idr/lib/Facts/Evaluation.cppm), as
-  any poison operand is not
+- sites: none in our code; the patch
 - workaround: `upstream/06-remove-dead-values-unreachable/llvm.patch`, which
   gives such an operand `ub.poison` (this bug has no patch of its own)
 - retire: drop the patch when the pin has #208881 or our
@@ -314,21 +272,15 @@ which the top-level CMake configure gate reads.
 - symptom: MLIR's textual parser and printer, and many walks, recurse once
   per level of attribute nesting, so a constant nested a few thousand deep
   overflows an 8 MiB stack with a bare SIGSEGV (6,000 levels of builtin
-  array in `mlir-opt`). Compile-time evaluation builds constants as deep as
-  the program's own values: a computed list of 10,000 elements is a
-  constant nested 10,000 deep
-- sites: foreign/idr/lib/Driver/RunOnLargeStack.cppm (`runOnLargeStack`),
-  foreign/idr/tools/idris-mlir-opt.cc, foreign/idr/lib/Eval/Child.cppm,
-  runtime/start.cc (`idris_rt_run_on_stack`)
-- workaround: idris-mlir runs the whole compilation, idris-mlir-opt
-  its run, and the evaluation child its calls, on the runtime's
-  reserved-stack runner: up to 2^40, 2^40 and (the child, whose calls have
-  stack budgets) twice its calls' largest stack budget of address space,
+  array in `mlir-opt`)
+- sites: foreign/idr/lib/Driver/Main.cpp, foreign/idr/tools/idris-mlir-opt.cpp,
+  runtime/Start/Runner.cpp (`idris_rt_run_on_stack`)
+- workaround: idris-mlir runs the whole compilation, and idris-mlir-opt its
+  run, on the runtime's reserved-stack runner: 2^40 bytes of address space,
   committed as touched, above a guard, so the depth is bounded by memory
   (2^40 bytes is more than a compiling machine has; reserving costs time
-  in proportion to the size, at start, exit and every fork).
-  Running out of it is a named error in the tools and exhaustion in the
-  child. idris-mlir-reduce does not have it
+  in proportion to the size, at start and exit). Running out of it is a
+  named error. idris-mlir-reduce does not have it
 - retire: when MLIR parses, prints and walks nested attributes from a
   worklist; `tests/upstream/recursive-attribute-parser` fails then. There is
   no patch: the fix is a design change across the parser, the printer and
@@ -345,10 +297,10 @@ which the top-level CMake configure gate reads.
   time quadratic in n (3.8 s for a builtin array 32,000 deep, 0.06 s
   from text), and never returns on a file whose attributes
   refer to each other in a cycle (`AttrTypeReader::resolveEntry`,
-  `mlir/lib/Bytecode/Reader/BytecodeReader.cpp:1371-1459`). Compile-time
-  evaluation's results are as deep as the program's values: a computed
-  list of 20,000 elements took 45 s to read back
-- sites: none in our code; the patch
+  `mlir/lib/Bytecode/Reader/BytecodeReader.cpp:1371-1459`). A list
+  constant of 20,000 elements took 45 s to read back
+- sites: none in our code; the patch. idris-mlir reads a `.mlirbc` module
+  as it reads text
 - workaround: `upstream/03-bytecode-deferred-quadratic/llvm.patch`: the
   reader keeps the entries waiting on a deferred parse as a path, each
   waiting on the one above it, so a chain of n deferrals takes O(n) parses
@@ -371,8 +323,8 @@ which the top-level CMake configure gate reads.
   in it never has the same fingerprint twice: on a module at its fixpoint
   the composite pass runs the pipeline past `max-iterations`.
   `-mlir-print-ir-after-change` prints after `sccp` for the same reason
-- sites: foreign/idr/lib/Simplify/Pass.cc (`idr-simplify`, whose loop is a
-  `composite-fixed-point-pass` over the round)
+- sites: foreign/idr/lib/Transforms/Simplify/Simplify.cpp (`idr-simplify`,
+  whose loop is a `composite-fixed-point-pass` over the round)
 - workaround: `upstream/02-composite-fixed-point-sccp/llvm.patch` (the pull
   request): `sccp` hands each constant it reaches to its `OperationFolder`
   (`insertKnownConstant`) and leaves it, so a run that propagates nothing
@@ -384,11 +336,12 @@ which the top-level CMake configure gate reads.
   (`tests/idr/canon/upstream-passes`, `tests/idr/loops/tail-loop`). The
   upstream pass gives its caller no hook per iteration and, with
   `on-convergence-failure=error`, an error of its own, which is not the
-  user error. So `idr-simplify` keeps what is its own around it: two passes
-  that change nothing open and close each round (the round count, the
-  per-round trace remark, the fixpoint remark), the round's statistics
-  declared from the pipeline it gives the pass, and
-  `on-convergence-failure=silent`. The pass runs the pipeline once more
+  user error. So `idr-simplify` keeps what is its own around it:
+  `on-convergence-failure=silent`, and a pass instrumentation
+  (`idr::createSimplifyInstrumentation`, which the pass manager's owner
+  adds, the driver and idris-mlir-opt; `idr-simplify` fails under a
+  manager without it) that counts the rounds and emits the remarks and the
+  round's statistics. The pass runs the pipeline once more
   past `max-iterations` before it stops and does not look at that run (its
   own test expects `test.counter = 4` for `max-iterations=3`), so a loop
   that closed more than `max-rounds` rounds ran out of its budget, which
@@ -400,8 +353,8 @@ which the top-level CMake configure gate reads.
   A fixpoint within `max-rounds` rounds passes, as before; a module over
   the budget costs a round more
 - retire: drop the patch when the pin's `sccp` keeps existing constants.
-  The two round passes and the count go when `composite-fixed-point-pass`
-  tells its caller each iteration and lets it name its failure to converge
+  The instrumentation's count goes when `composite-fixed-point-pass` tells
+  its caller each iteration and lets it name its failure to converge
   (neither is on main at 7208ba24)
 - upstream: upstream/02-composite-fixed-point-sccp (not yet filed; still
   broken on main at 7208ba24); plan in its README: an issue and a pull
@@ -420,7 +373,7 @@ which the top-level CMake configure gate reads.
   its vector code. idr-vectorize tiled such a loop before vectorizing it, and
   its scalar tiles ran the body column by column within each group of rows
 - sites: none in our code; the patch. idr-vectorize decides with the
-  precondition alone (foreign/idr/lib/Vectorize/Tiles.cppm, `vectorizable`),
+  precondition alone (foreign/idr/lib/Transforms/Vectorize/Vectorize.cpp),
   before it changes anything; a generic it refuses stays whole, and
   convert-linalg-to-loops runs its body in the program's order
 - workaround: `upstream/04-vectorize-precondition-body/llvm.patch`, the
@@ -492,13 +445,13 @@ which the top-level CMake configure gate reads.
   `parentTimerIndices`, where `runBeforePass` records adaptors alone
   (`mlir/lib/Pass/PassTiming.cpp:63-67`, `:93-94`). The pipeline's time is
   counted twice, and two pipelines on one op name, one run inside the
-  other, share one timer. idr-simplify, idr-eval, idr-inline, idr-target
-  and idr-canonicalize run pipelines so: without the patch, in
-  `idris-mlir --mlir-timing`, their pipelines are rows of the step beside
-  the pass that runs them, and a step's rows add up to more than the step
-- sites: none in our code; the patch. Each step of `idris-mlir` has a
-  timer of its own (foreign/idr/lib/Driver/Run.cppm), which is the root of
-  the step's pass timing, so the misplaced rows stay inside the step
+  other, share one timer. idr-simplify, idr-inline, idr-rc, idr-narrow,
+  idr-in-bounds, idr-returned-arguments and idr-tail-calls run pipelines
+  so: without the patch, in `idris-mlir --mlir-timing`, their pipelines are
+  rows beside the pass that runs them, and the rows add up to more than
+  the pass
+- sites: none in our code; the patch. idris-mlir runs one pass manager
+  (foreign/idr/lib/Driver/Run.cpp), whose timing is the report
 - workaround: `upstream/19-pass-timing-dynamic-pipeline/llvm.patch`:
   #169615's change, under which every pass records its timer for the
   pipelines it runs, and a test of ours that fails without it
@@ -508,60 +461,18 @@ which the top-level CMake configure gate reads.
   request #169615, whose own test passes without its change); plan in its
   README: our test as a comment on #169615, not posted yet
 
-## clang-module-layout-forward-declaration
-
-- symptom: at llvmorg-23.1.2, the x86_64 Linux clang aborts ("Cannot get
-  layout of forward declarations") generating
-  `DenseMap<Operation *, DenseSetEmpty, ...>` (a `SetVector<Operation *>`'s
-  set) in a module partition that imports a sibling partition holding a
-  `DenseSet<Operation *>`. The clang of 7208ba24 compiles the unit on arm64
-  macOS
-- sites: foreign/idr/lib/Stack/Escape.cppm (the escape analysis's caller
-  and worklist sets)
-- workaround: the sets hold `func::FuncOp`, which is what they hold
-- retire: tests/upstream/clang-module-layout-forward-declaration runs on
-  every target and expects the pinned clang to compile the report's unit.
-  When it passes on every target, this entry, the report and the check go;
-  the sets may stay typed. Where it fails, the crash is reduced and patched
-  (there is no patch yet)
-- upstream: upstream/11-clang-module-layout-forward-declaration (not reduced
-  yet); plan in its README: reduce, then file it, or move the pin past a
-  fix on main
-
 ## platform-gate-x86_64
 
-- symptom: cpp-starter's gate accepts Darwin arm64 only; this project's
-  two first-class targets are x86_64 Linux and arm64 macOS (the user's
-  decision), built by one recipe (`tools/bootstrap.sh`) and checked by the
-  same suites on each
+- symptom: the adopted profile's gate accepts Darwin arm64 only; this
+  project's two first-class targets are x86_64 Linux and arm64 macOS (the
+  user's decision), built by one recipe (`tools/bootstrap.sh`) and checked
+  by the same suites on each
 - sites: CMakeLists.txt — the platform gate, which accepts exactly those
   two hosts, and each target entry's tool flags (`-fcf-protection=full`,
   CET, in the x86_64 Linux entry)
-- workaround: accept Linux x86_64 beside cpp-starter's Darwin arm64; each
-  target entry names its own hardening
+- workaround: accept Linux x86_64 beside Darwin arm64; each target entry
+  names its own hardening
 - retire: never; this is a scope decision
-- upstream: none
-
-## versions-in-lock-file
-
-- symptom: cpp-starter keeps the accepted toolchain series only in the
-  configure gate, but `tools/bootstrap.sh` must build the same pins
-- sites: CMakeLists.txt reads `toolchain.lock.json` (`string(JSON ...)`);
-  tools/bootstrap.sh and tools/verify-pins.sh read it too
-- workaround: one source of truth, the lock file, read by all
-- retire: never; deliberate
-- upstream: none
-
-## no-stdexec
-
-- symptom: cpp-starter depends on stdexec and a wait backend; nothing here
-  uses senders, receivers or an event loop yet
-- sites: CMakeLists.txt (no `FetchContent_Declare(stdexec)`), no contracts
-  runtime link either, since no code uses contracts
-- workaround: omit both until a runtime needs them
-- retire: when code needs them; then adopt cpp-starter's declarations and
-  its `cmake-ld-link-order` entry. Its `gcc-gmf-stdexec-ice` entry stays
-  behind: GCC is gone
 - upstream: none
 
 ## darwin-inert-mitigations
@@ -573,25 +484,12 @@ which the top-level CMake configure gate reads.
   language profile applies: none define `_FORTIFY_SOURCE`, and the arm64
   macOS entry names no branch protection
 - workaround: select the live mitigations in CMake, never behind a C++ `#ifdef`
-- retire: as in cpp-starter
-- upstream: none — platform ABI facts
-
-## cmake-import-std-uuid
-
-- symptom: `import std` is experimental in CMake, gated by
-  `CMAKE_EXPERIMENTAL_CXX_IMPORT_STD`, and the accepted UUID value changes
-  per CMake feature series — a stale UUID silently disables the feature
-- sites: CMakeLists.txt — the configure gate on the pinned CMake series plus
-  `set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "d0edc3af-4c50-42ea-a356-e2862fe7a444")`
-- workaround: pin the CMake series and the UUID together; on any CMake bump
-  re-read `Help/dev/experimental.rst`, update the UUID, and move the lock's
-  accepted series
-- retire: when CMake ships `import std` as a stable feature
-- upstream: none — CMake's deliberate experimental-feature mechanism
+- retire: never; platform ABI facts
+- upstream: none
 
 ## clang-libcxx
 
-- symptom: cpp-starter's profile is GCC with libstdc++; this project's
+- symptom: the adopted profile is GCC with libstdc++; this project's
   compiler is the stage-2 clang of the pinned llvm-project with the pinned
   libc++, statically linked, on both targets. GCC-only diagnostics
   of the profile (`-Wduplicated-cond`, `-Wlogical-op`, `-Wuseless-cast` and
@@ -620,9 +518,9 @@ which the top-level CMake configure gate reads.
   runtimes; the pinned toolchain builds only compiler-rt's builtins, on both
   targets, and on x86_64 Linux ASan does not support static executables
 - sites: CMakePresets.json, which has no `asan-ubsan` preset;
-  tests/spec/cpp-starter checks that it has none
-- workaround: every build keeps trap-mode UBSan (`-fsanitize=undefined
-  -fsanitize-trap=all`), which needs no runtime
+  tests/spec/mlir-layout checks that it has none
+- workaround: the hardened preset builds our tools with trap-mode UBSan
+  (`-fsanitize=undefined -fsanitize-trap=all`), which needs no runtime
 - retire: when a sanitizer build is worth building compiler-rt's
   sanitizers for (and, on musl, dynamic executables); the preset comes
   back then, with what it builds
@@ -641,15 +539,17 @@ which the top-level CMake configure gate reads.
 
 ## runtime-quarantine
 
-- symptom: the runtime is C++ over vendored header libraries (snmalloc,
-  simdutf, fast_float) and exports a C ABI (`idris_rt.h`), so it has headers
-  and preprocessor code, which the C++ profile forbids
+- symptom: the runtime links into every program and into idris-mlir, whose
+  folders call it, so it cannot take the tools' profile: a program links no
+  C++ library, and idris-mlir joins the runtime's bitcode with each
+  program's module. It is C++ over vendored header libraries (snmalloc,
+  simdutf, fast_float) and exports a C ABI (`idris_rt.h`)
 - sites: `runtime/`, every source there
-- workaround: the runtime is quarantine code in its own zone, built with its
-  own profile (no exceptions, no RTTI, no C++ library at link time, its
-  bitcode carried as the target entry says: fat LTO objects on ELF) and
-  checked by `check-archive.sh`
-- retire: never; the vendored libraries are C++ headers
+- workaround: the runtime is built with its own profile (no exceptions, no
+  RTTI, no C++ library at link time, its bitcode carried as the target
+  entry says: fat LTO objects on ELF, the vendored headers as system
+  headers) and checked by `check-archive.sh`
+- retire: never; every program links it
 - upstream: none
 
 ## runtime-cx16
@@ -667,7 +567,7 @@ which the top-level CMake configure gate reads.
 - symptom: simdutf picks its implementation from the environment variable
   `SIMDUTF_FORCE_IMPLEMENTATION` when it is set, so a program's string
   checks could depend on its environment
-- sites: runtime/strings.cc
+- sites: runtime/Strings/Simd.cpp
 - workaround: the runtime selects `detect_best_supported()` once and calls
   that implementation directly
 - retire: never; deliberate
@@ -702,6 +602,32 @@ which the top-level CMake configure gate reads.
   fetch it, they say so and the stamp records `not verified`
 - retire: when the official hosts are reachable and the check has passed
   once
+- upstream: none
+
+## tracy-profiler
+
+- symptom: a profile of the compiler needs Tracy's client in the compiler
+  and its capture tool beside it, and neither is part of the toolchain:
+  the client was read from a sibling checkout (`../tracy`) of whatever
+  version was there, and the capture tool's CMake fetches capstone, zstd,
+  PPQSort and nlohmann/json from the network at configure (CPM)
+- sites: .gitmodules and toolchain.lock.json (`tracy`, v0.14.1 at
+  30997d5c), foreign/idr/CMakeLists.txt (the client, `idr_tracy`, built
+  only with `IDRIS_MLIR_PROFILE`, the profile preset), tools/bootstrap.sh
+  (step `tracy`), toolchain.lock.json (`capstone`, `zstd`, `ppqsort`,
+  `nlohmann_json`)
+- workaround: `third_party/tracy` is a submodule at the release tag the
+  lock records. Every build compiles `tracy/Tracy.hpp`; only the profile
+  preset defines `TRACY_ENABLE` (with `TRACY_ON_DEMAND`) and links the
+  client, so every other build's zones are nothing. The bootstrap builds
+  the capture tool from the same submodule with the stage-2 clang,
+  statically, and gives CPM each source it would fetch as a copy of the
+  lock's pin (`CPM_<name>_SOURCE`), with Tracy's two patches of PPQSort
+  applied as its CMake would; nothing is fetched at configure. The
+  runtime is not instrumented
+- retire: never while the compiler is profiled with Tracy; the pin moves
+  with Tracy's releases, the four sources with what its `cmake/vendor.cmake`
+  names
 - upstream: none
 
 ## idris-support-host-cc

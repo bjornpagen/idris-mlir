@@ -32,28 +32,49 @@ record Holes where
 ||| Parameter classification after instantiation (`Instances.classify`). A
 ||| type parameter and an implementation (a value of an interface's type,
 ||| such as an interface constraint) are compile-time values: they key the
-||| instance and are erased at runtime. An implementation may close over
-||| runtime values (`{vars : _} -> Show (Term vars)` at the scope a term
+||| instance and are not parameters at runtime. An implementation may close
+||| over runtime values (`{vars : _} -> Show (Term vars)` at the scope a term
 ||| has): which implementation it is stays a compile-time value, the values
-||| replaced by markers, and the parameter holds the values (`Holes`). Any
-||| other parameter binds as its binder says; when the rest of the type
-||| depends on its value, the shape of its argument keys the instance too.
+||| replaced by markers, and the parameter holds the values (`Holes`). A
+||| parameter of quantity 0 is no parameter at runtime and keys nothing. Any
+||| other binds as its binder says, with its closed Idris type, which tells
+||| a function-typed value's erased arguments from its runtime ones; when
+||| the rest of the type depends on its value, the shape of its argument
+||| keys the instance too. The kinds stay positional, one per parameter of
+||| the definition's type, as the case tree's scope has one variable per
+||| parameter.
 public export
-data PKind = TypeParam ClosedTerm | DictParam ClosedTerm (Maybe Holes) | ValueParam Binder (Maybe ClosedTerm)
+data PKind = TypeParam ClosedTerm
+           | DictParam ClosedTerm (Maybe Holes)
+           | ErasedParam
+           | ValueParam Binder (Maybe ClosedTerm) ClosedTerm
 
-||| What a parameter binds at runtime: nothing for a compile-time value.
+||| What a parameter binds at runtime, if it is a parameter at runtime.
 export
-runtimeBinder : PKind -> Binder
-runtimeBinder (ValueParam b _) = b
-runtimeBinder (DictParam _ (Just h)) = h.binder
-runtimeBinder _ = Gone
+runtimeBinder : PKind -> Maybe Binder
+runtimeBinder (ValueParam b _ _) = Just b
+runtimeBinder (DictParam _ (Just h)) = Just h.binder
+runtimeBinder _ = Nothing
 
 ||| The compile-time value that keys an instance at this parameter, if any.
 export
 staticOf : PKind -> Maybe ClosedTerm
 staticOf (TypeParam t) = Just t
 staticOf (DictParam t _) = Just t
-staticOf (ValueParam _ shape) = shape
+staticOf ErasedParam = Nothing
+staticOf (ValueParam _ shape _) = shape
+
+||| A full name, printed so that different names print differently: Idris's
+||| `show` prints only the display part of a `DN` and leaves out the index of
+||| a case or with block. The translation's own maps are keyed by it; it is
+||| no part of what the program is called, which `Keys` prints.
+export
+nameKey : Name -> String
+nameKey (NS ns n) = show (NS ns (UN (Basic (nameKey n))))
+nameKey (DN str n) = str ++ "{" ++ nameKey n ++ "}"
+nameKey (CaseBlock outer i) = "case block " ++ show i ++ " in " ++ outer
+nameKey (WithBlock outer i) = "with block " ++ show i ++ " in " ++ outer
+nameKey n = show n
 
 ||| How a function instance came to be: its definition (with the full name
 ||| as `nameKey` prints it), the instance whose translation requested it
@@ -98,23 +119,40 @@ record Pending where
   constructor MkPending
   name : Name
   inst : FnId
+  ||| What the instance is an instance of, as the request found it.
+  key : InstanceKey
   ||| The parameters as the call that requested the instance classified
   ||| them, so that the instance is translated at the same values.
   kinds : List PKind
 
-||| What a constructor instance needs for case trees.
+||| One argument of a constructor, as a data instance has it. Idris does not
+||| put the data type's parameters first (`(::) : {0 len} -> {0 elem} ->
+||| ...`), so every argument says what it is: a parameter, whose value the
+||| instance gives; an argument of quantity 0, which is no field; an
+||| implementation (`Empty : Ord k => ...`), a compile-time value of the
+||| instance (`Dictionaries`), with its type; or runtime field `i`, counting
+||| the runtime fields from 0, with its binder and its Idris type at
+||| the instance.
+public export
+data ArgKind = Param ClosedTerm
+             | ErasedArg
+             | DictArg ClosedTerm
+             | Field Nat Binder ClosedTerm
+
+||| The binder of a runtime field.
+export
+fieldBinder : ArgKind -> Maybe Binder
+fieldBinder (Field _ b _) = Just b
+fieldBinder _ = Nothing
+
+||| What a constructor instance needs for case trees: its arguments, its
+||| full name, and the constructor as Core has it, whose fields are the
+||| runtime ones.
 public export
 record ConLayout where
   constructor MkConLayout
-  params : List ClosedTerm   -- the data instance's type arguments
-  ||| For each argument of the constructor, in order: the position of the
-  ||| data type's parameter it is, or `Nothing` for a field. Idris does not
-  ||| put the parameters first (`(::) : {0 len} -> {0 elem} -> ...`).
-  layout : List (Maybe Nat)
-  ||| The fields that hold an implementation (`Empty : Ord k => ...`), by
-  ||| their position among the fields, with the field's type: compile-time
-  ||| values, erased from the representation (`Dictionaries`).
-  dicts : List (Nat, ClosedTerm)
+  args : List ArgKind
+  name : Name
   con : Con
 
 ||| The one implementation a dictionary field holds in the whole program,
@@ -137,7 +175,7 @@ public export
 record Decl where
   constructor MkDecl
   id : DataId
-  idrisName : Shown
+  key : InstanceKey
   cons : List Con
   loc : Loc
 
@@ -158,6 +196,14 @@ record TS where
   dataOrder : SnocList DataId
   ||| The instances being registered, which a field may refer to.
   building : SortedSet DataId
+  ||| The instances a field referred to while they were being registered:
+  ||| each is declared, whatever its shape, since its values contain
+  ||| themselves.
+  reentered : SortedSet DataId
+  ||| The instances with one constructor and one runtime field, by the type
+  ||| of that field, which is the type of their values: they are not
+  ||| declared, and their constructor is the identity.
+  newtypes : SortedMap DataId Ty
   cons : SortedMap ConId ConLayout
   fns : SortedMap FnId TFn
   fnOrder : SnocList FnId
@@ -170,15 +216,18 @@ record TS where
   ||| (`Recursion`), by `nameKey`, each with whether every loop through it
   ||| terminates.
   loops : SortedMap String Bool
-  ||| Who owns each instance name: names are injective, and
-  ||| a printed form that two instances share is told apart here.
-  owners : SortedMap String (List (Name, List (Maybe ClosedTerm)))
   ||| The instances of each definition by their arguments, up to the names
-  ||| of binders: `(x : a) -> b` and `a -> b` are one type.
-  named : SortedMap String (List (List (Maybe ClosedTerm), String))
+  ||| of binders (`(x : a) -> b` and `a -> b` are one type), bucketed by a
+  ||| hash of the arguments: each with its identity and its key.
+  named : SortedMap String (List (List (Maybe ClosedTerm), (String, InstanceKey)))
+  ||| What each case, with and nested block is called, `<parent>.case<k>`,
+  ||| by `nameKey`, and every definition whose blocks are named, by its own
+  ||| origin (`Keys`). A block's name depends only on the definitions, so
+  ||| each is found once and kept from pass to pass.
+  blockNames : SortedMap String String
   ||| The implementation each dictionary field holds, by constructor and
-  ||| position among the fields; the one part of the state a pass hands to
-  ||| the next (`nextPass`).
+  ||| position among its arguments; the one part of the state a pass hands
+  ||| to the next (`nextPass`).
   dicts : SortedMap (ConId, Nat) Dictionary
   ||| The dictionary fields matched in this pass before any construction
   ||| site gave their implementation: their alternatives were translated as
@@ -220,16 +269,16 @@ record TS where
 
 export
 initState : SortedSet Name -> FC -> TS
-initState ifaces fc = MkTS empty [<] empty empty empty [<] empty emptyQueue fc empty empty empty empty empty empty False Nothing empty ifaces [<] empty empty empty empty
+initState ifaces fc = MkTS empty [<] empty empty empty empty empty [<] empty emptyQueue fc empty empty empty empty empty empty False Nothing empty ifaces [<] empty empty empty empty
 
 ||| The state a pass of the translation starts from: nothing of the last
 ||| pass but the dictionaries it found, the interfaces, the rejections and
-||| what they refused, and what it found of modules, type constructors and
-||| the call graph's components (`places`, `tyCons`, `loops`). A void pass's rejections
-||| stay: the first one found is the one the program is refused with,
-||| whichever pass found it.
+||| what they refused, and what it found of modules, type constructors,
+||| blocks and the call graph's components (`places`, `tyCons`,
+||| `blockNames`, `loops`). A void pass's rejections stay: the first one
+||| found is the one the program is refused with, whichever pass found it.
 export
 nextPass : TS -> TS
 nextPass st = { dicts := st.dicts, rejected := st.rejected, refused := st.refused, places := st.places
-               , tyCons := st.tyCons, loops := st.loops }
+               , tyCons := st.tyCons, loops := st.loops, blockNames := st.blockNames }
                 (initState st.interfaces st.moduleFC)

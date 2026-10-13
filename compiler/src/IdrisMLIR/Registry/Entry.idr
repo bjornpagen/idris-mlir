@@ -100,6 +100,21 @@ Show PrimTy where
   show StringP = "String"
   show WorldP = "%World"
 
+||| How often Idris's type lets a definition use an argument: never at
+||| runtime (0), exactly once (1), or any number of times (ω). The
+||| registry compares a definition's type with this, which is Idris's own
+||| multiplicity and not the dialect's quantity: the dialect has no
+||| quantity 0, since nothing it holds is erased.
+public export
+data Multiplicity = M0 | M1 | Mw
+
+export
+Eq Multiplicity where
+  M0 == M0 = True
+  M1 == M1 = True
+  Mw == Mw = True
+  _ == _ = False
+
 ||| What an entry expects a definition's type to be, compared structurally
 ||| with its normalised checked type (a fingerprint could not explain a
 ||| mismatch). Arity, quantities and heads are exact. `Hole` stands for a
@@ -108,7 +123,7 @@ Show PrimTy where
 ||| variable.
 public export
 data Shape
-  = Pi Quantity Shape Shape
+  = Pi Multiplicity Shape Shape
   | Head Key (List Shape)
   | Prim PrimTy
   | TypeOfTypes
@@ -135,10 +150,10 @@ mutual
   showAt : (argument : Bool) -> Shape -> String
   showAt arg (Pi q a b) = parens arg ("(" ++ quantity q ++ "_ : " ++ showAt False a ++ ") -> " ++ showAt False b)
     where
-      quantity : Quantity -> String
-      quantity Quantity.Many = ""
-      quantity Zero = "0 "
-      quantity One = "1 "
+      quantity : Multiplicity -> String
+      quantity Mw = ""
+      quantity M0 = "0 "
+      quantity M1 = "1 "
   showAt arg (Head k []) = show k
   showAt arg (Head k as@(_ :: _)) = parens arg (show k ++ showArguments as)
   showAt arg (Prim p) = show p

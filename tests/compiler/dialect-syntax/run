@@ -1,20 +1,48 @@
 #!/bin/sh
-# What the frontend writes of the dialects' types and attributes, by the
-# printers generated from their ODS (IdrisMLIR.Syntax.*), is what the
-# dialects' C++ parsers read: syntax-samples writes one sample of every
-# type and attribute of the generated sums, in the long forms the frontend
-# writes, and idris-mlir-opt reads them and prints them back. The
-# transcript is how each reads back: in the spellings the dialect prints,
-# a closure's one result without parentheses, nested constructors as the
-# run they form, the empty set of effects as `none`. The printed module
-# reads back to the same text.
+# What the frontend writes of the dialects, by the printers generated from
+# their ODS (IdrisMLIR.Syntax.* and the head printers of
+# IdrisMLIR.Dialect.*), is what the dialects' C++ parsers read.
+# syntax-samples writes one module twice: once as Emit writes it, each op's
+# head through its dialect's printOp, declarative where the op's format is
+# one the generator prints, and once with every op in the generic form; the
+# samples are one of every type and attribute of the generated sums, in the
+# long forms the frontend writes, and one op per directive of the formats
+# the generator prints. idris-mlir-opt reads both and prints them in the
+# generic form: the two are byte-identical, so every declarative head says
+# what the generic form says. The transcript is how the module reads back
+# in the dialects' own syntax: in the spellings the dialect prints, a
+# closure's one result without parentheses, nested constructors as the run
+# they form, the empty set of effects as `none`; nothing erased is among
+# the samples, since nothing erased exists. That print reads back to the
+# same text.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
-bounded "$root/compiler/build/exec/syntax-samples" > "$work/samples.mlir" 2> "$work/samples.err"
+bounded "$root/compiler/build/exec/syntax-samples" "$work/declarative.mlir" "$work/generic.mlir" \
+  > "$work/samples.out" 2> "$work/samples.err"
 status=$?
 say "samples: exit $status"
-[ "$status" -eq 0 ] || show "$work/samples.err"
+[ "$status" -eq 0 ] || show "$work/samples.out" "$work/samples.err"
 
-bounded "$idris_mlir_opt" --mlir-disable-threading "$work/samples.mlir" -o "$work/printed.mlir" \
+# generic NAME: the samples module NAME.mlir, printed by idris-mlir-opt in
+# the generic form to NAME.generic; nothing, and status 1, saying so, when
+# it does not parse and verify.
+generic() {
+  if ! bounded "$idris_mlir_opt" --mlir-disable-threading --mlir-print-op-generic \
+       --mlir-print-debuginfo "$work/$1.mlir" -o "$work/$1.generic" > "$work/$1.err" 2>&1; then
+    say "generic: the $1 module does not parse and verify"
+    show "$work/$1.err"
+    return 1
+  fi
+}
+if generic declarative && generic generic; then
+  if cmp -s "$work/declarative.generic" "$work/generic.generic"; then
+    say "generic: the declarative and the generic module read back alike"
+  else
+    say "generic: the declarative and the generic module read back differently"
+    diff "$work/declarative.generic" "$work/generic.generic" | head -n 20 | sed 's/^/  | /'
+  fi
+fi
+
+bounded "$idris_mlir_opt" --mlir-disable-threading "$work/declarative.mlir" -o "$work/printed.mlir" \
   > "$work/parse.err" 2>&1
 status=$?
 say "parse: exit $status"

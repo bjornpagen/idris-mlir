@@ -31,7 +31,7 @@
 // ROOT: func.func private @Prog.main() -> i64
 // ROOT: func.func private @Prog.main() {
 module attributes {idr.program} {
-  func.func @Prog.main() -> i64 {
+  idr.func @Prog.main() -> i64 {
     %c = arith.constant 3 : i64
     return %c : i64
   }
@@ -40,7 +40,7 @@ module attributes {idr.program} {
 // -----
 
 module attributes {idr.program} {
-  func.func @Prog.main(%w: !idr.world) -> !idr.world {
+  idr.func @Prog.main(%w: !idr.world) -> !idr.world {
     %s = idr.constant "hi\0A" : !idr.str
     %w1 = idr.io.put_str %s, %w
     return %w1 : !idr.world

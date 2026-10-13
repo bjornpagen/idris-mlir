@@ -5,11 +5,11 @@
 // and the division never runs before it: it takes the guard's result. A
 // division by a nonzero constant needs no guard, and may move anywhere.
 
-// CHECK-LABEL: func.func @dead(
+// CHECK-LABEL: idr.func @dead(
 // CHECK-SAME: %[[X:.*]]: i64, %[[Y:.*]]: i64)
 // CHECK-NEXT: idr.check.nonzero %[[Y]], "division by zero" : i64
 // CHECK-NEXT: return %[[X]]
-func.func @dead(%x: i64, %y: i64) -> i64 {
+idr.func @dead(%x: i64, %y: i64) -> i64 {
   %c3 = arith.constant 3 : i64
   %y1 = idr.check.nonzero %y, "division by zero" : i64
   %q = idr.div signed %x, %y1 : i64
@@ -20,11 +20,11 @@ func.func @dead(%x: i64, %y: i64) -> i64 {
   return %x : i64
 }
 
-// CHECK-LABEL: func.func @guarded(
+// CHECK-LABEL: idr.func @guarded(
 // CHECK: scf.if
 // CHECK-NEXT: %[[G:.*]] = idr.check.nonzero
-// CHECK-NEXT: idr.div signed %{{.*}}, %[[G]]
-func.func @guarded(%b: i1, %x: i64, %y: i64) -> i64 {
+// CHECK-NEXT: div signed %{{.*}}, %[[G]]
+idr.func @guarded(%b: i1, %x: i64, %y: i64) -> i64 {
   %r = scf.if %b -> i64 {
     %y1 = idr.check.nonzero %y, "division by zero" : i64
     %q = idr.div signed %x, %y1 : i64
@@ -36,13 +36,13 @@ func.func @guarded(%b: i1, %x: i64, %y: i64) -> i64 {
 }
 
 // A loop-invariant division leaves the loop only when it cannot crash.
-// CHECK-LABEL: func.func @invariant(
-// CHECK: idr.div signed %{{.*}}, %{{.*}} : i64
+// CHECK-LABEL: idr.func @invariant(
+// CHECK: div signed %{{.*}}, %{{.*}} : i64
 // CHECK: scf.for
 // CHECK: %[[G:.*]] = idr.check.nonzero
-// CHECK: idr.mod signed %{{.*}}, %[[G]]
+// CHECK: mod signed %{{.*}}, %[[G]]
 // CHECK: scf.yield
-func.func @invariant(%x: i64, %y: i64, %n: index) -> i64 {
+idr.func @invariant(%x: i64, %y: i64, %n: index) -> i64 {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
   %c7 = arith.constant 7 : i64

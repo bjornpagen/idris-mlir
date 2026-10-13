@@ -7,6 +7,6 @@
 // carries idr.may_loop. A counted one becomes an scf.for. Other loops may
 // come between.
 // CHECK: scf.{{while|for}} {{.*}}!idr.world
-// CHECK: idr.may_loop
+// CHECK: may_loop
 // CHECK: scf.{{while|for}} {{.*}}!idr.world
-// CHECK: idr.may_loop
+// CHECK: may_loop

@@ -12,20 +12,20 @@
 // inlined in the next round; @pow and @inc are then dead.
 // AGAIN: remark: [Passed] idr-simplify | Category:idr-simplify
 // AGAIN-SAME: fixpoint: round 1 changed nothing
-// CHECK-LABEL: func.func @Main.main(
-// CHECK: call @[[POW:pow\$spec\$[0-9]+]](
-// CHECK-NOT: func.func private @pow(
+// CHECK-LABEL: idr.func @Main.main(
+// CHECK: call @[[POW:pow\.spec[0-9]+]](
+// CHECK-NOT: idr.func private @pow(
 // CHECK-NOT: @inc
-// CHECK: func.func private @[[POW]](
+// CHECK: idr.func private @[[POW]](
 // CHECK: arith.addi
 // CHECK: call @[[POW]](
 module attributes {idr.program} {
-  func.func private @inc(%x: i64) -> i64 attributes {idr.total} {
+  idr.func private @inc(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64
     %y = arith.addi %x, %c1 : i64
     return %y : i64
   }
-  func.func private @pow(%f: !idr.fn<(i64) -> (i64)>, %n: i64, %x: i64) -> i64 attributes {idr.total} {
+  idr.func private @pow(%f: !idr.fn<(i64) -> (i64)>, %n: i64, %x: i64) -> i64 attributes {total} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       idr.yield %x : i64
@@ -34,17 +34,17 @@ module attributes {idr.program} {
       %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
       %c1 = arith.constant 1 : i64
       %m = arith.subi %n, %c1 : i64
-      %r = func.call @pow(%f, %m, %y) : (!idr.fn<(i64) -> (i64)>, i64, i64) -> i64
+      %r = idr.call @pow(%f, %m, %y) : (!idr.fn<(i64) -> (i64)>, i64, i64) -> i64
       idr.yield %r : i64
     }
     }
     return %r : i64
   }
-  func.func @Main.main(%w: !idr.world) -> !idr.world {
+  idr.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_byte %w
     %n = arith.extui %c : i32 to i64
     %f = idr.closure @inc() : () -> !idr.fn<(i64) -> (i64)>
-    %r = func.call @pow(%f, %n, %n) : (!idr.fn<(i64) -> (i64)>, i64, i64) -> i64
+    %r = idr.call @pow(%f, %n, %n) : (!idr.fn<(i64) -> (i64)>, i64, i64) -> i64
     %w2 = idr.io.put_int signed %r, %w1 : i64
     return %w2 : !idr.world
   }

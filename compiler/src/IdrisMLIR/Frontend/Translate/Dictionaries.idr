@@ -93,7 +93,7 @@ definitionsIn _ = []
 ||| defining module the two types are one, and a value of one can leave it
 ||| as the other, holding the first one's implementation.
 opaqueFor : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core (Maybe String)
-opaqueFor impl = case spine impl [] of
+opaqueFor impl = case getFnArgs impl of
   (Ref _ _ n, _) => do
     defs <- get Ctxt
     Just def <- lookupCtxtExact n (gamma defs)
@@ -123,12 +123,13 @@ opaqueFor impl = case spine impl [] of
       pure (if collapseDefault (visibility def) == Public || not typeLevel
                then rest else x :: rest)
 
-||| A construction site gives field `i` of a constructor the implementation
-||| `impl`: the one the field holds, if no site gave another. Two sites of
-||| one constructor agree when their implementations are one, by what each
-||| reduces to (`implementationOf`), not as written: Data.SortedMap's
-||| `Monoid` takes the map's `Ord k` as the first of a pair of constraints,
-||| where `fromList`'s caller names it directly.
+||| A construction site gives the dictionary field at argument `i` of a
+||| constructor the implementation `impl`: the one the field holds, if no
+||| site gave another. Two sites of one constructor agree when their
+||| implementations are one, by what each reduces to (`implementationOf`),
+||| not as written: Data.SortedMap's `Monoid` takes the map's `Ord k` as
+||| the first of a pair of constraints, where `fromList`'s caller names it
+||| directly.
 export
 recordDictionary : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                    FC -> String -> ConId -> ClosedTerm -> Nat -> ClosedTerm -> Core ()
@@ -141,17 +142,18 @@ recordDictionary fc owner cid ty i impl = do
   case lookup (cid, i) st.dicts of
     Just d => unless (d.impl == impl') $ do
       why <- catMaybes <$> traverse opaqueFor [d.impl, impl']
+      let con = maybe (show cid) (\l => show l.name) (lookup cid st.cons)
       reject site owner DictionaryField
-             (show cid.dataId ++ "::" ++ show cid ++ " holds two implementations of " ++ !(showTT ty) ++
+             (con ++ " holds two implementations of " ++ !(showTT ty) ++
               ": " ++ !(showTT d.impl) ++ ", chosen in " ++ d.chooser ++ ", and " ++ !(showTT impl') ++
               ", chosen in " ++ by ++ concatMap ("; " ++) why)
     Nothing =>
       update TState { dicts $= insert (cid, i) (MkDictionary impl' by site)
                     , restart $= (|| contains (cid, i) st.assumed) }
 
-||| The implementation field `i` of a constructor holds, where a match
-||| binds it; `Nothing` when no construction site has given one, which the
-||| match takes as never built.
+||| The implementation the dictionary field at argument `i` of a
+||| constructor holds, where a match binds it; `Nothing` when no
+||| construction site has given one, which the match takes as never built.
 export
 dictionaryOf : {auto s : Ref TState TS} -> ConId -> Nat -> Core (Maybe ClosedTerm)
 dictionaryOf cid i = do

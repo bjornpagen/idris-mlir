@@ -1,0 +1,124 @@
+#!/bin/sh
+# The module the frontend emits is meant to be read, as the dumps are: a
+# symbol is the Idris name of what it defines, never a code-point escape
+# (`$<digits>$`) nor a name Idris made up for a block (`case block in`,
+# `with block in`, `{arg:`); a case or with block of a definition is named
+# after it, `<parent>.case<k>` or `<parent>.with<k>`; nothing Idris erased
+# is written (no `!idr.erased`, no `#idr.erased`); the functions are
+# idr.func, their calls and returns idr.call and idr.return, and nothing of
+# the func dialect is there before lowering; every idr.func and idr.data
+# names the Idris instance it is (`instance`); and every op and block
+# argument carries the location of the Idris code it came from, so that no
+# location, read back, is a position in the module's own text.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+cat > "$work/Main.idr" <<'IDRIS'
+module Main
+
+import Prelude
+
+data Shape = Circle Int | Rect Int Int
+
+area : Shape -> Int
+area (Circle r) = 3 * r * r
+area (Rect w h) = w * h
+
+classify : Int -> String
+classify n = case compare n 10 of
+  LT => "small"
+  EQ => "ten"
+  GT => "large"
+
+sign : Int -> String
+sign n with (n < 0)
+  sign n | True = "negative"
+  sign n | False = "not negative"
+
+main : IO ()
+main = do
+  traverse_ (\s => putStrLn (classify (area s))) [Circle 2, Rect 3 4]
+  putStrLn (sign (area (Rect 2 (-1))))
+  printLn (area (Circle 1))
+IDRIS
+compile_program "$work/Main.idr" Main
+say "compile: exit $compiled"
+if [ "$compiled" -ne 0 ]; then
+  show "$work/compile.out" "$work/compile.err"
+  exit 0
+fi
+emitted=$work/build/exec/Main.mlir
+
+# Every symbol the module names, defined or used, one per line as written:
+# `@` and a bare identifier, or `@` and a quoted name.
+grep -oE '@("([^"\\]|\\.)*"|[A-Za-z0-9_$.]+)' "$emitted" | sort -u > "$work/symbols"
+grep -E '\$[0-9]+\$' "$work/symbols" > "$work/escaped"
+grep -F -e '{arg:' -e 'case block' -e 'with block' "$work/symbols" > "$work/made-up"
+if [ -s "$work/escaped" ] || [ -s "$work/made-up" ]; then
+  say "symbols: some are escaped or made up by Idris"
+  show "$work/escaped" "$work/made-up"
+else
+  say "symbols: no code-point escape, and no name Idris made up for a block"
+fi
+if grep -qE '^@"?Main\.classify\.case[0-9]+' "$work/symbols" &&
+   grep -qE '^@"?Main\.sign\.with[0-9]+' "$work/symbols"; then
+  say "symbols: a case block is <parent>.case<k>, a with block <parent>.with<k>"
+else
+  say "symbols: no Main.classify.case<k> or no Main.sign.with<k>"
+  grep -E 'classify|sign' "$work/symbols" | show
+fi
+
+if grep -qF -e '!idr.erased' -e '#idr.erased' "$emitted"; then
+  say "erased: written"
+  grep -nF -e '!idr.erased' -e '#idr.erased' "$emitted" | show
+else
+  say "erased: nothing"
+fi
+
+if grep -qE '(^|[^A-Za-z0-9_.])func\.(func|call|return)([^A-Za-z0-9_]|$)' "$emitted"; then
+  say "ops: the func dialect before lowering"
+  grep -nE '(^|[^A-Za-z0-9_.])func\.(func|call|return)([^A-Za-z0-9_]|$)' "$emitted" | show
+else
+  say "ops: no func.func, func.call or func.return"
+fi
+
+# The rest reads the module back, every op in the generic form and every
+# location in place: an op whose text carried no location gets its position
+# in the emitted file, which is what the check looks for.
+if ! bounded "$idris_mlir_opt" --mlir-disable-threading --mlir-print-op-generic \
+     --mlir-print-debuginfo --mlir-print-local-scope "$emitted" -o "$work/generic.mlir" \
+     > "$work/parse.err" 2>&1; then
+  say "parse: the emitted module does not parse and verify"
+  show "$work/parse.err"
+  exit 0
+fi
+say "parse: exit 0"
+
+# Each idr.func and idr.data whose instance is missing, by its first line:
+# an op is its first line and, when it has regions, the line that closes
+# them, the next one at its own indentation that starts with `})`, which
+# holds the attributes printed after the regions.
+awk '
+  open == "" && /"idr\.(func|data)"\(/ {
+    match($0, /^ */); indent = RLENGTH; head = $0
+    if ($0 ~ /\(\{$/) { open = head; next }
+    if (head !~ /instance = #idr\.instance</) print head
+    next
+  }
+  open != "" {
+    match($0, /^ */)
+    if (RLENGTH == indent && substr($0, indent + 1, 2) == "})") {
+      if ((open $0) !~ /instance = #idr\.instance</) print open
+      open = ""
+    }
+  }' "$work/generic.mlir" > "$work/no-instance"
+if [ -s "$work/no-instance" ]; then
+  say "instances: some idr.func or idr.data carry none"
+  cut -c 1-200 "$work/no-instance" | show
+else
+  say "instances: every idr.func and idr.data names its own"
+fi
+if grep -qF "\"$emitted\":" "$work/generic.mlir"; then
+  say "locations: some op or block argument carries none of its own"
+  grep -F "\"$emitted\":" "$work/generic.mlir" | cut -c 1-200 | show
+else
+  say "locations: every op and block argument carries its own"
+fi

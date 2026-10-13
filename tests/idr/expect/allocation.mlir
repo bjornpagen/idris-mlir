@@ -18,16 +18,16 @@ module {
     idr.ctor @Nil ()
     idr.ctor @Cons (i64, !idr.box<@List>)
   }
-  func.func @scalar(%x: i64) -> !idr.data<@Pair> {
+  idr.func @scalar(%x: i64) -> !idr.data<@Pair> {
     %p = idr.con @Pair::@MkPair(%x, %x) : (i64, i64) -> !idr.data<@Pair>
     return %p : !idr.data<@Pair>
   }
-  func.func private @cons(%x: i64, %l: !idr.box<@List>) -> !idr.box<@List> {
+  idr.func private @cons(%x: i64, %l: !idr.box<@List>) -> !idr.box<@List> {
     %r = idr.con @List::@Cons(%x, %l) : (i64, !idr.box<@List>) -> !idr.box<@List>
     return %r : !idr.box<@List>
   }
-  func.func @boxes(%x: i64, %l: !idr.box<@List>) -> !idr.box<@List> {
-    %r = func.call @cons(%x, %l) : (i64, !idr.box<@List>) -> !idr.box<@List>
+  idr.func @boxes(%x: i64, %l: !idr.box<@List>) -> !idr.box<@List> {
+    %r = idr.call @cons(%x, %l) : (i64, !idr.box<@List>) -> !idr.box<@List>
     return %r : !idr.box<@List>
   }
 }

@@ -1,8 +1,7 @@
 ||| The fuzzer: programs of closed pure expressions
 ||| over every primitive, each printed from `main`, which the harness
-||| compiles with evaluation and with `--no-eval`, and whose outputs must
-||| agree with each other and with the values their seed's expected files
-||| record (tests/fuzz, `fuzz` in tests/lib/fuzz.sh).
+||| compiles once, and whose outputs must agree with each other and with the
+||| values their seed's expected files record (tests/fuzz, `fuzz` in tests/lib/fuzz.sh).
 |||
 |||     runtests --fuzz-program <seed> <cases> runtime|static
 |||
@@ -13,26 +12,23 @@
 |||   calls in the checked term: upstream/18-elaboration-primitive-folding).
 ||| - `j<n>`, in a function of its leaves, total and self recursive over a
 |||   list of units, called with the literals: a closed call of a total
-|||   function, which idr-eval runs at compile time, and which --no-eval
-|||   leaves to runtime.
+|||   function, which runs at run time.
 ||| - `r<n>`, with its leaves behind `hide<T> 1`, a partial identity (it
 |||   recurses on an Int, so Idris does not prove it terminating): a closed
-|||   call of partial code, which idr-eval runs metered, and which --no-eval
-|||   leaves to runtime.
+|||   call of partial code, which runs at run time.
 |||
-||| The three lines of a case must print the same value, in every build, and
-||| the value the seed's expected file records. A case whose value goes
+||| The three lines of a case must print the same value, and the value the
+||| seed's expected file records. A case whose value goes
 ||| through the libm functions (exp, log, pow and the trigonometric
 ||| functions), which are not correctly rounded, so that the last places of
 ||| their results are the platform's, has lines labelled `L...`; those are
-||| compared among this compiler's builds only, since the expected files are
+||| compared among the case's own lines only, since the expected files are
 ||| every target's.
 |||
 ||| The `runtime` part holds what may exist at runtime: the integer types,
 ||| Double, Char, a small sum type, and strings that are only written or
 ||| taken apart without allocating. The `static` part holds Integer and
-||| every string builder, which may allocate and so exist at compile time
-||| only: it has `d` and `j` lines, and is compiled with evaluation only.
+||| every string builder, which may allocate: it has `d` and `j` lines.
 |||
 ||| Division has a divisor that is a nonzero leaf; casts from Double to an
 ||| integer, from Int to Char and from String take leaves in their domain;
@@ -41,8 +37,8 @@
 |||
 ||| A seed's expected files are the output of its programs: a change to what
 ||| this module draws, or in what order, changes the programs of every seed,
-||| and the files are then written again from the build with evaluation, its
-||| `L` lines aside, and reviewed as any expected output.
+||| and the files are then written again from its build, its `L` lines
+||| aside, and reviewed as any expected output.
 module Fuzz
 
 import Control.Monad.State

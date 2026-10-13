@@ -29,7 +29,7 @@
 // CHECK: %[[R:.*]] = llvm.call @idris_rt_start(%[[P]], %[[NONE]], %{{.*}}, %{{.*}})
 // CHECK: return %[[R]] : i32
 module attributes {idr.program} {
-  func.func @Prog.r(%w: !idr.world) -> !idr.world {
+  idr.func @Prog.r(%w: !idr.world) -> !idr.world {
     %s = idr.constant "h\C3\A9llo\0A" : !idr.str
     %w1 = idr.io.put_str %s, %w
     %c, %w2 = idr.io.get_byte %w1

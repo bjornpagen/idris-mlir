@@ -1,4 +1,4 @@
 // input: after idr-simplify
-// idr-eval is not in the simplify round, so `mk 40` stays a call. The let
+// A closed call runs at run time, so `mk 40` stays a call. The let
 // shares each level, and the walk's print is the run's to check.
 // CHECK: call @Main.mk

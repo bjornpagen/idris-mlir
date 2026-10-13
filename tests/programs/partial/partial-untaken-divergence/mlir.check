@@ -1,6 +1,6 @@
 // input: after idr-simplify
-// idr-eval is not in the simplify round. safeDiv's closed call is inlined.
+// A closed call runs at run time. safeDiv's closed call is inlined.
 // collatz stays a call and runs at run time. What they print is the run's
 // to check.
 // CHECK: call @Main.collatz(
-// CHECK: idr.io.put_
+// CHECK: io.put_

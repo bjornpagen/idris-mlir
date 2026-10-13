@@ -1,4 +1,5 @@
 // RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
+// RUN: idris-mlir-opt %s --canonicalize=test-convergence=true -o /dev/null
 // An IO action that is run twice, as an action forced twice is: its
 // constructor holds the closure of a bind entered into its linear field,
 // and the field read out of the shared action is an ordinary function. The
@@ -15,16 +16,16 @@ idr.data @IORes {
 idr.data @IO {
   idr.ctor @MkIO (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>)
 }
-func.func private @bind(%act: !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>,
+idr.func private @bind(%act: !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>,
                         %w: !idr.world) -> !idr.data<@IORes>
 
-// CHECK-LABEL: func.func @twice(
-// CHECK: %[[C:.*]] = idr.closure @bind(
+// CHECK-LABEL: idr.func @twice(
+// CHECK: %[[C:.*]] = {{(idr\.)?}}closure @bind(
 // CHECK-NEXT: %[[E:.*]] = idr.lin.enter %[[C]]
 // CHECK-NEXT: %[[F:.*]] = idr.lin.use %[[E]]
-// CHECK: idr.apply %[[F]](
-// CHECK: idr.apply %[[F]](
-func.func @twice(%act: !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>,
+// CHECK: apply %[[F]](
+// CHECK: apply %[[F]](
+idr.func @twice(%act: !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>,
                  %w: !idr.world) -> !idr.data<@IORes> {
   %c = idr.closure @bind(%act) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>)
      -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
@@ -41,17 +42,17 @@ func.func @twice(%act: !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>,
 // The action is chosen by a match and read after it: the read moves into
 // each region (case-of-case), where it meets the constructor, and the
 // closure each region builds leaves it entered and used.
-// CHECK-LABEL: func.func @chosen_twice(
-// CHECK: %[[M:.*]] = idr.match_lit
-// CHECK: idr.closure @bind(
+// CHECK-LABEL: idr.func @chosen_twice(
+// CHECK: %[[M:.*]] = {{(idr\.)?}}match_lit
+// CHECK: closure @bind(
 // CHECK-NEXT: idr.lin.enter
 // CHECK-NEXT: idr.lin.use
-// CHECK: idr.closure @bind(
+// CHECK: closure @bind(
 // CHECK-NEXT: idr.lin.enter
 // CHECK-NEXT: idr.lin.use
-// CHECK: idr.apply %[[M]](
-// CHECK: idr.apply %[[M]](
-func.func @chosen_twice(%k: i64,
+// CHECK: apply %[[M]](
+// CHECK: apply %[[M]](
+idr.func @chosen_twice(%k: i64,
                         %a: !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>,
                         %b: !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>,
                         %w: !idr.world) -> !idr.data<@IORes> {
@@ -81,13 +82,13 @@ func.func @chosen_twice(%k: i64,
 }
 
 // Read once and applied once, the closure is the apply's: a call.
-// CHECK-LABEL: func.func @once(
+// CHECK-LABEL: idr.func @once(
 // CHECK-SAME: %[[ACT:[a-z0-9_]+]]: !idr.lin<
 // CHECK-SAME: %[[W:[a-z0-9_]+]]: !idr.world)
-// CHECK-NOT: idr.closure
+// CHECK-NOT: {{(idr\.| )closure }}
 // CHECK: %[[R:.*]] = call @bind(%[[ACT]], %[[W]])
 // CHECK-NEXT: return %[[R]]
-func.func @once(%act: !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>,
+idr.func @once(%act: !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>,
                 %w: !idr.world) -> !idr.data<@IORes> {
   %c = idr.closure @bind(%act) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>)
      -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>

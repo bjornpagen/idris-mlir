@@ -6,7 +6,7 @@
 // positive, a shift of 1 that may land on the sign, and the constant 6 are
 // not powers of two the facts already have, so those masks stay checked.
 module {
-  func.func @shifted(%k: i64, %x: i64, %w: !idr.world) -> !idr.world {
+  idr.func @shifted(%k: i64, %x: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %lim = arith.constant 62 : i64
@@ -31,7 +31,7 @@ module {
     return %r : !idr.world
   }
 
-  func.func @eight(%x: i64, %w: !idr.world) -> !idr.world {
+  idr.func @eight(%x: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %cap = arith.constant 8 : i64
@@ -46,7 +46,7 @@ module {
     return %s1 : !idr.world
   }
 
-  func.func @any(%n: i64, %x: i64, %w: !idr.world) -> !idr.world {
+  idr.func @any(%n: i64, %x: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
@@ -68,7 +68,7 @@ module {
 
   // A shift by 63 sets the sign. The capacity may be the smallest word,
   // and the array made from it is then empty.
-  func.func @sign(%k: i64, %x: i64, %w: !idr.world) -> !idr.world {
+  idr.func @sign(%k: i64, %x: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %lim = arith.constant 63 : i64
@@ -92,7 +92,7 @@ module {
     return %r : !idr.world
   }
 
-  func.func @six(%x: i64, %w: !idr.world) -> !idr.world {
+  idr.func @six(%x: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %cap = arith.constant 6 : i64

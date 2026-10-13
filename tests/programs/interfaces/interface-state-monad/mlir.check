@@ -1,5 +1,7 @@
 // input: emitted
-// FILECHECK-OPTIONS: --implicit-check-not=@Main.Mnd --implicit-check-not=@Main.Loud
+// FILECHECK-OPTIONS: --implicit-check-not=idr.data{{.}}@{{"?}}Main.
 // No dictionary exists at runtime: neither interface's data type is
-// emitted, only the user's state type.
-// CHECK: idr.data @Main.St
+// emitted. Nor is the user's state type: St has one constructor of one
+// runtime field, so a value of it is that field's value, a function, and
+// no data type of Main is declared.
+// CHECK: module attributes {{[{][^}]*}}idr.program

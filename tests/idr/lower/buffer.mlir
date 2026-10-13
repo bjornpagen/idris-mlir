@@ -25,19 +25,19 @@
 // CHECK: llvm.call @idris_rt_crash(
 // CHECK: llvm.call @idris_rt_io_buffer_copy({{.*}}) : (!llvm.ptr, i64, i64, i64, !llvm.ptr, i64, i64) -> ()
 module attributes {idr.program} {
-  func.func @root(%w: !idr.world) -> !idr.world {
+  idr.func @root(%w: !idr.world) -> !idr.world {
     %n = arith.constant 8 : i64
     %z = arith.constant 0 : i8
     %buf, %w1 = idr.array.new [%n], %z, %w : i8 -> !idr.own<memref<?xi8>>
     %b = idr.borrow %buf : !idr.own<memref<?xi8>>
     %i = arith.constant 1 : i64
-    %v, %w2 = func.call @load(%b, %i, %w1) : (memref<?xi8>, i64, !idr.world) -> (i16, !idr.world)
-    %w3 = func.call @store(%b, %i, %v, %w2) : (memref<?xi8>, i64, i16, !idr.world) -> !idr.world
-    %w4 = func.call @copy(%b, %i, %i, %b, %i, %w3) : (memref<?xi8>, i64, i64, memref<?xi8>, i64, !idr.world) -> !idr.world
+    %v, %w2 = idr.call @load(%b, %i, %w1) : (memref<?xi8>, i64, !idr.world) -> (i16, !idr.world)
+    %w3 = idr.call @store(%b, %i, %v, %w2) : (memref<?xi8>, i64, i16, !idr.world) -> !idr.world
+    %w4 = idr.call @copy(%b, %i, %i, %b, %i, %w3) : (memref<?xi8>, i64, i64, memref<?xi8>, i64, !idr.world) -> !idr.world
     idr.drop %buf : !idr.own<memref<?xi8>>
     return %w4 : !idr.world
   }
-  func.func private @load(%buf: memref<?xi8>, %i: i64, %w: !idr.world) -> (i16, !idr.world) {
+  idr.func private @load(%buf: memref<?xi8>, %i: i64, %w: !idr.world) -> (i16, !idr.world) {
     %c0 = arith.constant 0 : index
     %d = memref.dim %buf, %c0 : memref<?xi8>
     %size = arith.index_cast %d : index to i64
@@ -46,7 +46,7 @@ module attributes {idr.program} {
     %v, %w1 = idr.io.buffer_load %buf[%at], %w : memref<?xi8> -> i16
     return %v, %w1 : i16, !idr.world
   }
-  func.func private @store(%buf: memref<?xi8>, %i: i64, %v: i16, %w: !idr.world) -> !idr.world {
+  idr.func private @store(%buf: memref<?xi8>, %i: i64, %v: i16, %w: !idr.world) -> !idr.world {
     %wide = arith.extsi %v : i16 to i32
     %c0 = arith.constant 0 : index
     %d = memref.dim %buf, %c0 : memref<?xi8>
@@ -56,7 +56,7 @@ module attributes {idr.program} {
     %w1 = idr.io.buffer_store %buf[%at], %wide, %w : memref<?xi8>, i32
     return %w1 : !idr.world
   }
-  func.func private @copy(%src: memref<?xi8>, %so: i64, %n: i64, %dst: memref<?xi8>, %do: i64, %w: !idr.world) -> !idr.world {
+  idr.func private @copy(%src: memref<?xi8>, %so: i64, %n: i64, %dst: memref<?xi8>, %do: i64, %w: !idr.world) -> !idr.world {
     %c0 = arith.constant 0 : index
     %ds = memref.dim %src, %c0 : memref<?xi8>
     %ss = arith.index_cast %ds : index to i64

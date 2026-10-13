@@ -8,7 +8,7 @@
 // CHECK: %[[CPU:.*]] = llvm.mlir.constant(65535 : i64) : i64
 // CHECK: llvm.call @idris_rt_start(%{{.*}}, %[[CPU]], %{{.*}}, %{{.*}})
 module attributes {idr.program, llvm.target = #llvm.target<triple = "x86_64-unknown-linux-musl", chip = "x86-64-v3">} {
-  func.func @Prog.main() -> i64 {
+  idr.func @Prog.main() -> i64 {
     %c = arith.constant 7 : i64
     return %c : i64
   }

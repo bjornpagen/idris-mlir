@@ -8,10 +8,10 @@ idr.data @T {
   idr.ctor @C ()
 }
 
-// CHECK-LABEL: func.func @ranges(
+// CHECK-LABEL: idr.func @ranges(
 // CHECK-DAG: %[[TRUE:.*]] = arith.constant true
 // CHECK: return %[[TRUE]], %[[TRUE]], %[[TRUE]], %[[TRUE]], %[[TRUE]], %[[TRUE]]
-func.func @ranges(%t: !idr.data<@T>, %x: i64, %u: i8, %d: f64, %s: !idr.str)
+idr.func @ranges(%t: !idr.data<@T>, %x: i64, %u: i8, %d: f64, %s: !idr.str)
     -> (i1, i1, i1, i1, i1, i1) {
   %three = arith.constant 3 : i64
   %tag = idr.tag %t : !idr.data<@T>
@@ -35,10 +35,10 @@ func.func @ranges(%t: !idr.data<@T>, %x: i64, %u: i8, %d: f64, %s: !idr.str)
 
 // A grade is no barrier to the analysis: a linear tag entered and used has
 // the tag's range.
-// CHECK-LABEL: func.func @linear(
+// CHECK-LABEL: idr.func @linear(
 // CHECK: %[[TRUE:.*]] = arith.constant true
 // CHECK: return %[[TRUE]]
-func.func @linear(%t: !idr.data<@T>) -> i1 {
+idr.func @linear(%t: !idr.data<@T>) -> i1 {
   %three = arith.constant 3 : i64
   %tag = idr.tag %t : !idr.data<@T>
   %l = idr.lin.enter %tag : !idr.lin<i64>
@@ -54,9 +54,9 @@ idr.data @L box {
   idr.ctor @Cons (!idr.lin<i64>, !idr.lin<!idr.box<@L>>)
 }
 
-// CHECK-LABEL: func.func @field(
+// CHECK-LABEL: idr.func @field(
 // CHECK: arith.addi
-func.func @field(%acc: i64, %l: !idr.lin<!idr.box<@L>>) -> i64 {
+idr.func @field(%acc: i64, %l: !idr.lin<!idr.box<@L>>) -> i64 {
   %r = idr.match %l : !idr.lin<!idr.box<@L>> -> (i64) {
   case @Nil() {
     idr.yield %acc : i64

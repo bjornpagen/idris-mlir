@@ -7,5 +7,6 @@
 # offset above it either way: both versions must give the numbers of
 # 64-bit lanes.
 idr-rc: pure-array-loops
-idr-vectorize: vectorized
-idr-narrow-lanes: narrowed-lanes
+# idr-vectorize's module is the one after the function passes it begins,
+# idr-narrow-lanes among them.
+idr-vectorize: vectorized narrowed-lanes

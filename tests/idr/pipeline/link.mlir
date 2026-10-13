@@ -5,7 +5,7 @@
 // Idris source, with the pinned clang and the runtime, into the executable
 // -o names; the object stays beside it, named from it.
 module attributes {idr.program} {
-  func.func @Prog.main() -> i64 {
+  idr.func @Prog.main() -> i64 {
     %c = arith.constant 42 : i64
     return %c : i64
   }

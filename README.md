@@ -1,226 +1,168 @@
 # idris-mlir
 
-An experimental whole-program compiler from unmodified Idris 2 programs over
-the stock Prelude and base to native code through MLIR. The goal is high-level code
-with guaranteed costs. Where the types promise something (in-place reuse of
-linear values, no bounds check), the compiler either
-delivers it or rejects the program with a named rule. It is not a Rust
-replacement for explicit layout and control, and not merely a faster Idris
-backend.
+A whole-program compiler from Idris 2 to native code through MLIR, where
+the types are promises about cost.
 
-```text
-Idris frontend (pinned) → checked TT → Core (Idris: types, monomorphisation, representations)
-  → idr dialect (C++): lambdas and delays as regions, outlined by idr-isolate
-  → the simplify loop: inline, specialize, canonicalize, to a fixpoint
-  → defunctionalize (closures and memo sums), reference counting, loops
-  → idr-lower, idr-entry → LLVM O3 with the runtime
-  → object → linked as the target entry says (static PIE on musl, PIE on libSystem)
-```
+High-level code usually gives up control of its costs. This compiler
+uses what Idris 2's types already prove to take that control back.
+- **Linearity.** A value used exactly once is updated in place, with no
+  runtime test.
+- **Shapes.** A length the types fix removes the bounds check.
+- **Monomorphization.** The whole program is compiled to the code a
+  monomorphic program would be: no dictionaries, no uniform boxing.
 
-Targets: x86_64 Linux (musl, static PIE) and arm64 macOS, both first
-class: one toolchain recipe, one set of presets, the same suites
-(AGENTS.md). What a target is lives in one place, its entry in
-CMakeLists.txt, whose comment lists every fact an entry gives.
+Each promise holds, or the program is refused with an `unsupported` error
+that names the rule and the site. Nothing is miscompiled silently, and
+nothing falls back to a slow path.
+
+## How it works
 
 Idris does types; MLIR does programs. Idris checks the program,
-monomorphises it and decides each value's representation; everything else
-(inlining, specialization, defunctionalization, reference counting and
-loops) happens in MLIR. `idr-eval` is not in that loop: a closed call
-runs at run time. The pass remains, and static normalization replaces it.
+monomorphises it and decides each value's representation. The `idr`
+dialect, an in-tree MLIR dialect in upstream's layout, does everything
+else. Its types carry what Idris proved, `!idr.lin` for a linear value
+and `!idr.own` for an owned one, and MLIR's verifier checks them after
+every pass.
 
-## Why not Lean 4
+```text
+Idris 2 frontend: check, monomorphise, choose representations
+  -> idr dialect: closures and suspensions as regions
+  -> isolate, contify
+  -> simplify: inline, specialize, canonicalize, to a fixed point
+  -> defunctionalize closures into closed sums
+  -> stack cells, reference counting with reuse, tail loops
+  -> narrow integers, prove indices in bounds
+  -> lower to func, memref, linalg and vector; vectorize
+  -> LLVM, linked with the runtime as a static executable
+```
 
-Lean 4 is dependently typed, compiles through precise reference counting
-with borrowing and in-place reuse, and ships a production compiler. Our
-memory plan ports its passes. What Lean
-cannot promise is *when* reuse happens. It tests the count at runtime, so one
-extra reference anywhere silently turns an in-place update into a copy.
-Koka's fully in-place functions check a function's body statically, but
-still decide at runtime whether a call's argument is shared (FP², ICFP 2023).
-Idris 2's quantitative type theory states linearity in the types, and this
-compiler sees the whole program, so it can prove both halves: the callee
-uses the value once, and every caller passes an unshared one. The plan is
-to promise the result. A quantity-1 value that is matched and rebuilt at
-the same size will be updated in place with no runtime test, or the program
-will not compile, with a named reason. The promise will be
-carried as ownership types in the `idr` MLIR dialect, and MLIR's verifier
-will check it again after every pass instead of trusting the frontend.
-Today the counting underneath is in place (below); the static promise is not.
-That promise, more than dependent types alone, is why this compiler exists.
+The function passes run in parallel, on MLIR's own pass manager. Memory is
+reference counted, in the style of Lean 4 and Koka: borrowed where a
+function only reads, reused where a value dies, on the stack where it
+never leaves its frame. The program never runs a tracing collector. A
+call in tail position around a cycle of calls is a guaranteed tail call,
+so a mutual recursion or an IO loop runs in constant stack.
 
-## What compiles today
+What sets it apart from Lean 4 and Koka is when reuse is decided. They
+test the count at run time, so one extra reference turns an in-place
+update into a copy. Quantitative types state linearity in the type, and
+the compiler sees every caller. It can prove the update in place before
+the program runs, or say why it cannot. A program asks for that proof
+with `--demand-in-place`.
 
-Idris 2 programs over the stock Prelude and base, with `main : IO ()`,
-imported explicitly (`--no-prelude` plus `import Prelude`): interfaces
-resolved at compile time, `Integer`, `Nat`, `Double`, strings, lists,
-`Data.Vect`, base's `IOArray` and `Buffer`, `System.File` and
-`System.Directory` on files, directories and the standard streams, the
-environment and the program's arguments, `System.Clock` and `exitWith`. A
-pointer of base's is a handle of the runtime's, never an address. Signals,
-threads and other processes are refused with a named rule. A suspension is
-a memo cell, which its first force writes. Linear arrays and lists, and a
-string iterator with contrib's API, come from the compiler's own
-`libs/mlir-linear`: plain Idris over base's primitives, except for the few
-primitives of the compiler's own that the library declares (an array's
-size; a string read by byte offset). Values
-that remain after the pipeline live in counted cells: `idr-rc` reuses the
-cell of a value that dies, borrows what a function only reads, and the
-verifier checks after every pass that every reference is consumed exactly
-once; cells that never leave their frame are on the stack. A call in tail
-position that goes round a cycle of calls is a guaranteed tail call, so a
-loop through such calls (a mutual recursion, an IO loop through its binds)
-runs in constant stack. With
-`IDRIS_RT_LIVE=1` a program reports how many cells are live when it ends:
-none. What the compiler cannot compile it rejects with a named rule
-(`unsupported (<rule>)`), never miscompiles. The measurements are in
-[bench/](bench/README.md).
+## What compiles
+
+Idris 2 programs over the stock Prelude and base, with `main : IO ()`:
+- interfaces, resolved at compile time;
+- `Integer`, `Nat`, `Double`, strings, lists and `Data.Vect`;
+- base's `IOArray` and `Buffer`;
+- files, directories, the standard streams, the environment, arguments,
+  `System.Clock` and `exitWith`.
+
+Linear arrays, linear lists and a string iterator come from the
+compiler's own package, `libs/mlir-linear`, written in plain Idris over
+base's primitives. A construct whose runtime choices no compile-time
+analysis bounds is refused. So are `%foreign`, threads, signals and
+processes. Every primitive has one meaning, the runtime's, and each
+test's committed expected files are its specification.
 
 ```sh
-idris-mlir --no-prelude Main.idr -o prog
-idris-mlir prog.mlir -c -o prog.o
 make compile SRC=Main.idr OUT=prog
 ```
 
 ## Performance
 
-Twenty-six programs, each built by this compiler, by Idris's own Chez
-Scheme backend, and by clang -O2, measured on 2026-10-03 at 861acdc on an
-x86-64 Linux host, best of 5 runs each:
+Measured before the representation cutover, on 26 programs against
+clang -O2 and against Idris's own Chez Scheme backend, best of 5 runs:
 
 ![This compiler against clang -O2](bench/runs/2026-10-03-861acdc/vs-c.svg)
 
 ![This compiler against Idris on Chez Scheme](bench/runs/2026-10-03-861acdc/vs-chez.svg)
 
-Against clang -O2 on the same algorithm this compiler is faster on 10
-programs, within 15% on 9 and slower on 6. The slow ones are mostly
-programs written as an Idris programmer writes them first, with
-`List Char` where the C has byte buffers (fasta, k-nucleotide,
-reverse-complement) and lists where it has arrays (spectral-norm, whose
-`Linear.Array` version is 1.99x faster than C). Against Idris on Chez
-Scheme 10.4.1 it is faster on 25 of the 26, from 2.25x to 252x; regex-redux
-is 1.2x slower.
+The programs that trail C are mostly written the way an Idris programmer
+writes them first, with `List Char` where the C has byte buffers. The
+`Linear.Array` version of spectral-norm beats C. [bench/](bench/README.md)
+says what each program measures, holds the arm64 macOS record, and
+explains every gap.
 
-These are measurements of one shared x86-64 development container (4
-CPUs), not of a quiet machine: the run-to-run spread reaches 15%, and the C
-column itself moved by up to 2x between days, so each ratio is read
-against its own run's C. ack runs in 4 ms; it measures compile-time
-specialization.
+## Where it is going
 
-On arm64 macOS the record is twenty-seven programs, fasta-redux included,
-measured by the same command on 2026-10-07 at f5a4dff9 on an Apple M2 Max
-(12 CPUs, 16 KiB pages, macOS on AC power; the desktop's own applications
-were running), for CPU apple-m1, with the stack at macOS's 64 MiB hard
-limit. The game programs are at the size the game measures:
+The order is fixed in [proposals/](proposals/README.md):
+1. **The representation cutover.** `idr.func` as the function op, facts
+   in types and inherent attributes, the readable dialect, threaded
+   passes, and Tracy instrumentation throughout.
+2. **Self-hosting.** The compiler compiles itself, deterministically under
+   threads, and the test runner leaves Chez Scheme.
+3. **Sharding.** A whole-program compiler that splits its work across
+   cores and machines, and a runtime of one shard per core.
+4. **Arrays.** A typed array language in the APL tradition, with shapes in
+   dependent types, compiled through MLIR's tensor and linalg stack with
+   fusion. The compiler itself moves to the array style: its tables, its
+   data layouts, and an array interpreter that does compile-time
+   normalization.
 
-![This compiler against clang -O2 on arm64 macOS](bench/runs/2026-10-07-f5a4dff9-darwin-arm64/vs-c.svg)
-
-![This compiler against Idris on Chez Scheme on arm64 macOS](bench/runs/2026-10-07-f5a4dff9-darwin-arm64/vs-chez.svg)
-
-Against clang -O2 it is faster on 8 programs, within 15% on 11 and slower
-on 8 (fannkuch-redux, fasta, fasta-redux, k-nucleotide, pidigits,
-regex-redux, reverse-complement and spectral-norm); against Idris on Chez
-Scheme it is faster on all 27, from 1.12x (regex-redux) to 152x
-(spectral-norm-linear). Its
-[results](bench/runs/2026-10-07-f5a4dff9-darwin-arm64/results.md) hold
-every time and compare each ratio with the previous Mac record's. That
-record's
-[results](bench/runs/2026-10-05-2cb1436-darwin-arm64/results.md) compare
-each ratio with the record before it, whose
-[results](bench/runs/2026-10-04-15f1a53-darwin-arm64/results.md) compare
-them with the Linux record's: against its own C the Mac is behind on the
-allocation-heavy programs (binary-trees, cfold, deriv), on fannkuch-redux
-and on pidigits, and ahead on fib, rbtree and reverse-complement; the
-Mac's C is the faster of the two by up to 3x (fannkuch-redux's runs in
-0.172 s there against 0.546 s), which lowers every ratio against it.
-
-[bench/](bench/README.md) says what each program measures and why each
-gap is what it is; the [full results](bench/runs/2026-10-03-861acdc/results.md)
-hold every compiler's times, the compile times and the comparison with
-the previous run.
+The one foreign world planned is Rust, through generated runtime
+primitives. There is no C interop.
 
 ## Setup
 
-Prerequisites: Git, Make, a host C/C++ compiler, python3 and m4 (to build
-LLVM and GMP) and coreutils' `timeout`; on Linux, the UAPI headers and
-GMP's headers (Idris's support library is a host program); ccache, if the
-host has it, caches the LLVM builds. Chez Scheme does not come from the
-host: `make bootstrap` builds the pinned release, which Idris 2 runs on,
-the same on every host. On Ubuntu 24.04:
+Two first-class targets, built by one recipe: x86_64 Linux (musl, static
+PIE) and arm64 macOS (PIE on libSystem). `make bootstrap` builds every
+pinned tool into `.toolchain/`: CMake, Ninja, a two-stage LLVM and MLIR,
+the target's C library, GMP, Chez Scheme, Idris 2 and Tracy. Nothing comes
+from the host but a C++ compiler and a few build tools, and nothing global
+is modified. The full LLVM build takes hours. `make typecheck` builds only
+TableGen and checks that every unit compiles, in minutes.
+
+On Ubuntu 24.04:
 
 ```sh
 sudo apt-get install -y git make gcc g++ python3 m4 curl linux-libc-dev libgmp-dev ccache
 ```
 
-On arm64 macOS (`tools/host.sh` holds every difference of the host's
-userland), the Command Line Tools give the compiler, the SDK,
-Make, Git, python3, m4, curl and perl (whose clock times what `date`
-cannot), and MacPorts the rest: coreutils for `gtimeout` and `gsha256sum`:
+On arm64 macOS, with the Command Line Tools and MacPorts:
 
 ```sh
 xcode-select --install
-sudo port install coreutils
+sudo port install coreutils ccache
 ```
 
-`make bootstrap` builds the pinned CMake, Ninja, LLVM/MLIR, GMP, Chez
-Scheme and Idris 2 into `.toolchain/`; the steps and their environment are
-at the top of `tools/bootstrap.sh`. It is one recipe on both hosts: a
-stage-1 clang, the target's C library (musl on Linux, the SDK's libSystem
-on macOS), the LLVM runtimes, and a stage-2 LLVM/MLIR built by stage 1
-against them, with the backends of both targets. Only what the operating
-system forces differs (whether an executable is static). The
-long builds take hours and tens of GB of disk; with ccache, a rebuild
-recompiles only what changed. `make build` itself is incremental through
-Ninja and goes through no compiler cache: its units import C++ modules,
-and a cache would have to key each unit on the module interfaces it
-imports as well as on its text and flags.
-Distribution LLVM packages track release branches, not the pinned commit, so
-they are not used.
+Then:
 
 ```sh
 git submodule update --init
-make doctor                  # what the host has, and what is built
-make check                   # the repository: pins, commands, source rules; no build
-make bootstrap               # slow: the pinned LLVM/MLIR, musl, GMP, Chez, Idris
-make build                   # the C++ dev preset and the compiler
-make test                    # compiler, profile, e2e (expected files and the dumps' properties), bench
-make test-idr                # the idr dialect, with FileCheck
-make test-mlir-tools         # each bug in upstream/ on its reproducer, with the pinned tools
-make bench                   # bench/run.sh
+make doctor            # what the host has, and what is built
+make check             # the repository's rules, no build
+make bootstrap         # the pinned toolchain; slow
+make typecheck         # every unit compiles, without the full LLVM
+make build             # the compiler, dev preset
+make test              # programs, rejections, determinism, toolchain, bench
+make test-idr          # the idr dialect, with FileCheck
+make test-mlir-tools   # each upstream bug we carry a patch for
+make bench             # the benchmarks
+make self              # the compiler compiling itself
 ```
 
-Everything is installed under `.toolchain/`; `make` alone lists the commands.
-
-## Where a primitive's meaning comes from
-
-The runtime is the one meaning of every primitive; constant folding and
-compile-time evaluation call it too. That meaning comes from Idris's own
-definition first, then the standard the primitive implements (Unicode,
-IEEE 754, POSIX), then a decision of ours, which `runtime/` states where
-it implements the primitive. There is no oracle: each test's committed
-expected files are its specification.
+The C++ builds through `CMakePresets.json`: `dev`, `release` (full LTO),
+`hardened`, `profile` (Tracy, recorded by `tools/profile.sh`), `lint` and
+`typecheck`. `make build PRESET=<name>` picks one.
 
 ## Layout
 
-- `compiler/`: the Idris side: frontend, Core, `Emit`; `compiler/idris`
-  is the fork of Idris's compiler the frontend runs on, whose TTCs only
-  it reads, so the packages Idris ships are built by the frontend into
-  this checkout's prefix, `build/idris2`.
-- `foreign/idr/`: the `idr` dialect, its passes and the tools.
-- `runtime/`: the runtime every program links, and that folding and
-  compile-time evaluation call.
-- `libs/`: the Idris packages this compiler ships (`mlir-linear`: linear
-  arrays and lists, and a linear string iterator), installed by the
-  frontend into `build/idris2` too.
-- `tests/`: golden tests (`tests/Main.idr`, `tests/README.md`); `bench/`:
-  benchmarks against C and Chez.
-- `proposals/`: designs and the decisions taken on them;
-  `proposals/README.md` is the index.
-- `tools/`: the toolchain's bootstrap and the compile chain;
-  `tools/bisect.sh SOURCE TAG` finds the action of TAG (an evaluation, a
-  clone) after which a program behaves differently than with `--no-eval`.
-- `upstream/`: upstream bugs we carry patches for, each written to be filed.
-- `PINS.md`: every pinned workaround and deviation.
-- `sources/`: vendored papers, upstream docs and source snapshots.
+- `compiler/`: the Idris side, the frontend and `Emit`. `compiler/idris`
+  is our fork of Idris's compiler.
+- `foreign/idr/`: the `idr` dialect, its passes and the tools, in MLIR's
+  `include/` and `lib/` layout.
+- `runtime/`: the runtime every program links, and the one meaning of
+  every primitive.
+- `libs/`: the Idris packages this compiler ships.
+- `tests/`: golden tests, described in `tests/README.md`. `bench/` holds
+  the benchmarks.
+- `proposals/`: designs and the decisions taken on them.
+- `upstream/`: the upstream bugs we carry patches for, each ready to file.
+- `PINS.md`: every pin, deviation and workaround.
+- `sources/`: papers, upstream docs and source snapshots.
+- `tools/`: the bootstrap and the compile chain.
 
 ## License
 

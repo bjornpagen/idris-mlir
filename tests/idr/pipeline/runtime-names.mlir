@@ -16,7 +16,7 @@
 // (one of its functions) or only calls it (the C library's write); under a
 // name of its own the same program compiles and runs.
 module attributes {idr.program} {
-  func.func private @Prog.count(%n: i64) -> i64 {
+  idr.func private @Prog.count(%n: i64) -> i64 {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       %z = arith.constant 0 : i64
@@ -25,16 +25,16 @@ module attributes {idr.program} {
     default {
       %one = arith.constant 1 : i64
       %m = arith.subi %n, %one : i64
-      %t = func.call @Prog.count(%m) : (i64) -> i64
+      %t = idr.call @Prog.count(%m) : (i64) -> i64
       %s = arith.addi %t, %one : i64
       idr.yield %s : i64
     }
     }
     return %r : i64
   }
-  func.func @Prog.main() -> i64 {
+  idr.func @Prog.main() -> i64 {
     %c = arith.constant 7 : i64
-    %r = func.call @Prog.count(%c) : (i64) -> i64
+    %r = idr.call @Prog.count(%c) : (i64) -> i64
     return %r : i64
   }
 }

@@ -1,6 +1,11 @@
 # 0006: a state-of-the-art type checker and elaborator
 
-**Status:** proposed (2026-10-09). Nothing here is built.
+**Status:** proposed (2026-10-09); trimmed 2026-10-12. Nothing here is
+built. The term arena and the evaluator (once §2.1, §2.2, T1, T2 and T6)
+moved to 0016, which builds them as one array program; this proposal
+builds the checker on them: unification, tabled instance search, shape
+arithmetic, decision procedures and the kernel. It starts after
+self-hosting, beside 0016.
 
 **Goal.** The fork's elaborator (compiler/idris, upstream Idris 2's,
 now our code) becomes a type checker that is faster than Lean 4 and F* on
@@ -30,39 +35,14 @@ benchmark.
 
 ## 2. The design, by layer
 
-### 2.1 Terms: flat, hash-consed, with explicit sharing (adopted)
+### 2.1 Terms and evaluation are 0016's (adopted)
 
-- **Representation.** Terms live in an arena as flat nodes (0008's columnar
-  layout), with de Bruijn indices in terms and levels in values.
-  Hash-consing gives every distinct subterm one integer id.
-- **What it deletes.**
-  - Syntactic equality becomes an integer comparison.
-  - Conversion checking only normalises when ids differ.
-  - Normal forms, weak-head normal forms and definitional-equality results
-    are cached in tables indexed by id.
-- **Evidence.**
-  - Lean 4's kernel relies on sharing and caches for exactly this (*read*
-    `code/lean4`, `papers/demoura-2021-lean4`).
-  - Hash-consing is a standard technique (*read*
-    `papers/filliatre-2006-hash-consing`).
-  - Kovács's smalltt shows what careful representation buys over Agda, Coq,
-    Lean and Idris on elaboration benchmarks (*read* `code/smalltt`, whose
-    README holds the comparison).
-
-### 2.2 Evaluation: glued normalisation by evaluation, one interpreter (adopted)
-
-- **Evaluation.** NbE with glued values: an unfolded value plus a cheap
-  delayed form, so conversion can decide without unfolding. Approximate
-  conversion is tried first, and metacontext operations are cheap (*read*
-  `code/smalltt`, `code/elaboration-zoo`).
-- **One interpreter, fast by array math.** Heavy evaluation (proofs by
-  reflection, large `decide`) stays on the same interpreter: there is no
-  compiled tier. Array operations run as whole-array primitives of the
-  runtime, so interpretive overhead is paid per array, not per element
-  (the APL insight). This evaluator is also the program's static
-  normalization (0003): one evaluator for types, proofs and constants.
-  Coq's `native_compute` (*read* `papers/gregoire-2002-strong-reduction`,
-  `papers/boespflug-2011-full-throttle`) is rejected (§5).
+The checker's terms are 0016's hash-consed arena, and its evaluator is
+0016's wavefront machine with glued values, caches by id and approximate
+conversion first. The same machine normalizes the program's static part,
+so types, proofs and constants have one evaluator. Coq's
+`native_compute` (*read* `papers/gregoire-2002-strong-reduction`,
+`papers/boespflug-2011-full-throttle`) is rejected (§5).
 
 ### 2.3 Unification and instance search (adopted)
 
@@ -76,11 +56,14 @@ benchmark.
   warning: overloads combined with constraint solving blow up without
   bounds (*read* `docs/swift`, `papers/benes-2025-simple-essence-of-overloading`).
 
-### 2.4 Shape arithmetic and dependent rewrite (adopted, shared with 0007)
+### 2.4 Shape arithmetic and dependent rewrite
 
-- **Polynomial normalisation of `Nat` expressions in conversion.** Commutative
-  ring laws make `n * m = m * n` and `n + 0 = n` definitional, with no
-  rewrite needed. This is the theory decided in 0007's `types.md`.
+- **Polynomial normalisation of `Nat` expressions in conversion** is not
+  something 0007 depends on any more: its MLIR-first revision keeps Idris's
+  equality unchanged and solves shape arithmetic with a library tactic at
+  quantity 0 (0007 D11). Making commutative ring laws definitional would
+  accept programs upstream Idris refuses, so it is an open question of
+  this proposal's, decided only with that consequence stated.
 - **Rewrite,** in increasing order of reach:
   - Refl elimination when the rewritten side is a variable;
   - telescope generalisation when it is a term;
@@ -171,13 +154,12 @@ the kernel checks.
 | Stage | Content | Proof |
 | --- | --- | --- |
 | T0 | per-phase baseline of elaborating base and the frontend | committed record |
-| T1 | the term arena owned by 0005 (O4), used here | base and the frontend elaborate with identical TTCs; ≥ 1.5× faster than T0 |
-| T2 | glued NbE, caches, approximate conversion. The three normalization rules are 0003's; this stage is where that interpreter is built | smalltt's benchmark set within 1.5× of smalltt; ≥ 2× over T1 on conversion-heavy files |
-| T3 | tabled instance search, bounded | instance-heavy files ≥ 2× over T2; no regression elsewhere |
-| T4 | Nat normalisation in conversion; the rewrite ladder | 0007's shape-equality corpus never blocks; upstream's rewrite failures listed in tests become passes |
+| T1, T2 | (moved: the arena and the evaluator are 0016's A0 to A2) | |
+| T3 | tabled instance search, bounded | instance-heavy files ≥ 2× over 0016's A2; no regression elsewhere |
+| T4 | the rewrite ladder; Nat normalisation in conversion only if §2.4's open question is decided for it | 0007's shape-equality corpus never blocks; upstream's rewrite failures listed in tests become passes |
 | T5 | separate kernel and an independent re-checker in tests | every TTC of base re-checked |
-| T6 | the interpreter's array path, once 0007's arrays exist: array operations as whole-array runtime primitives | reflection benchmarks ≥ 10× over T2 where they use arrays; 0003's 10⁶-word table fixture within budget |
-| T7 | parallel elaboration, after 0009's shards (processes until then) | wall time on base ≤ (1 / cores × 1.5) of T6's |
+| T6 | (moved: the interpreter's array path is 0016's A4) | |
+| T7 | parallel elaboration, after 0009's shards (processes until then) | wall time on base ≤ (1 / cores × 1.5) of T5's |
 | T8 | certificates from SAT/SMT, checked as terms | a fixture where the search succeeds and the kernel checks the result |
 
 The headline target, *conjecture until measured*: elaborating a
@@ -193,16 +175,14 @@ are comparable.
   compatibility and lose the corpus proofs. The fork is changed stage by
   stage, each stage proved by identical TTCs.
 - **Compiled reduction** (Coq's `native_compute`, a JIT inside the type
-  checker): a second compiler inside the first. The interpreter's array
-  path (T6) is the answer to heavy evaluation (0003 D3).
+  checker): a second compiler inside the first. 0016's array machine is
+  the answer to heavy evaluation (its D3).
 
 ## 6. Decisions
 
 - D1. Measure first (T0); every target is a ratio to a recorded baseline.
-- D2. The term arena is 0005's (O4). This proposal builds the interpreter
-  on it: glued NbE, one interpreter, with array operations as whole-array
-  primitives, serving types, proofs and static normalization. The three
-  normalization rules are 0003's.
+- D2. The term arena and the evaluator are 0016's; this proposal builds
+  the checker on them and keeps no second evaluator.
 - D3. Solvers search; the kernel checks; nothing is trusted.
 - D4. A separate small kernel, re-checked in tests.
 - D5. Parallelism by independent definitions and modules; GPU deferred

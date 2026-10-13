@@ -2,7 +2,6 @@
 ||| matches, lambdas, delays and loops as regions.
 module IdrisMLIR.Emit.Bodies
 
-import IdrisMLIR.Dialect.Func as Func
 import IdrisMLIR.Dialect.Idr as Idr
 import IdrisMLIR.Dialect.UB as UB
 import IdrisMLIR.Emit.Index
@@ -48,7 +47,7 @@ operands ix l env [] _ = pure (Just [])
 operands ix l env (a :: as) slots = do
   Just v <- a.result env (typeOf <$> head' slots)
     | Nothing => pure Nothing
-  v' <- coerce ix l (maybe Many binderUse (head' slots)) v
+  v' <- coerce ix l (maybe Many (\b => b.quantity) (head' slots)) v
   map (map (v' ::)) (operands ix l env as (drop 1 slots))
 
 ||| A value as a region or a function returns it: as itself, never linear.
@@ -93,7 +92,7 @@ excluded s = case s.term of
 record Arm where
   constructor MkArm
   key : Maybe MlirAttr
-  arguments : List Value
+  arguments : List Argument
   result : Maybe Val
   statements : List Statement
 
@@ -147,7 +146,7 @@ inFunction act = do
 ||| or, for a body that never returns, `ub.unreachable`, once.
 export
 epilogue : Index -> Loc -> MlirType -> Maybe Val -> List Statement -> E (List Statement)
-epilogue ix l rt (Just v) ops = pure (ops ++ [MkStatement Nothing (Func.returnOp [!(operand ix v)]) (At l)])
+epilogue ix l rt (Just v) ops = pure (ops ++ [MkStatement Nothing (Idr.returnOp [!(operand ix v)]) (At l)])
 epilogue ix l rt Nothing ops =
   pure (if endsUnreachable (reverse ops) then ops
         else ops ++ [MkStatement Nothing UB.unreachableOp (At l)])
@@ -157,16 +156,16 @@ epilogue ix l rt Nothing ops =
     endsUnreachable [] = False
 
 ||| The region of a lambda's or a `Delay`'s body, whose block takes
-||| `params`, and the type of the body's value: its operations, ending in
+||| `arguments`, and the type of the body's value: its operations, ending in
 ||| the yield of that value, or, for a body that never returns, in
 ||| `ub.unreachable`, the type then being the one the context expects.
-deferred : Index -> Loc -> String -> List Val -> Maybe Ty -> E (Maybe Val) -> E (MLIR.Region, Ty)
-deferred ix l what params expected body = do
+deferred : Index -> Loc -> String -> List Argument -> Maybe Ty -> E (Maybe Val) -> E (MLIR.Region, Ty)
+deferred ix l what arguments expected body = do
   (r, ops) <- collect (plain ix l body)
   Just t <- pure (map (.type) r <|> expected)
     | Nothing => internal ("the result type of " ++ what ++ " whose body never returns")
   yields <- yielding ix l r
-  pure (MkRegion !(traverse (operand ix) params) (ops ++ yields), t)
+  pure (MkRegion arguments (ops ++ yields), t)
 
 ||| What a region primitive takes and gives at the types its call fixes:
 ||| its operands' types, its block arguments' (a generated array's index;
@@ -177,22 +176,30 @@ regionSignature ArrayGenerate [e] = Just ([IntT IdrisInt, e, WorldT], [IntT Idri
 regionSignature ArrayFold [e, t] = Just ([ArrayT Rank1 e, t, WorldT], [t, e, IntT IdrisInt], t, t)
 regionSignature _ _ = Nothing
 
+||| A call, a constructor application or a case passes as many values as
+||| what it applies or takes apart takes. A count that differs is a
+||| position the translator did not drop; nothing is written for it.
+saturated : Index -> Loc -> Term n -> String -> (given, taken : Nat) -> E ()
+saturated ix l term what given taken =
+  unless (given == taken) $
+    internal (fastConcat [show l, ": ", what, " passes ", show given, " values; it takes ",
+                          show taken, ": ", showBody (names ix) term 0])
+
 ||| The algebra: one layer of `Term` to its emitter.
 export
 alg : {0 nv : Nat} -> Index -> TermF (Sub Em) nv -> Em nv
 alg ix (VarF l x) env _ = Just <$> force ix l (env x)
 alg ix (LiteralF l x) env _ = Just <$> literal ix l x
-alg ix (ErasedF l) env _ = Just <$> erasedValue ix l
 -- A trusted library's crash of a string ends the program and does not
 -- return. The string is the cause the runtime prints.
 alg ix (PrimAppF l (Op CrashStr) _ as) env _ = do
-  Just [s] <- operands ix l env as [Held Many StrT]
+  Just [s] <- operands ix l env as [MkBinder Many StrT]
     | _ => pure Nothing
   statement l (Idr.crashStrOp !(operand ix s))
   statement l UB.unreachableOp
   pure Nothing
 alg ix (PrimAppF l p _ as) env _ = do
-  Just vs <- operands ix l env as (map (Held Many) (primArgs p))
+  Just vs <- operands ix l env as (map (MkBinder Many) (primArgs p))
     | Nothing => pure Nothing
   Just <$> prim ix l p vs
 -- An IO primitive takes its operands at their own types, and its op is
@@ -201,24 +208,30 @@ alg ix (EffectF l p tys as res) env _ = do
   Just vs <- operands ix l env as []
     | Nothing => pure Nothing
   effect ix l p tys vs res
-alg ix (CallF l fn _ as) env _ = do
+alg ix (CallF l fn stands as) env _ = do
   Just f <- pure (lookup fn ix.fns)
     | Nothing => internal ("a call of " ++ show fn ++ ", which is not in the program")
-  Just vs <- operands ix l env as (toList f.params)
+  sym <- fnSymbol ix fn
+  saturated ix l (Call l fn stands (map (.term) as)) ("a call of " ++ sym) (length as) f.arity
+  Just vs <- operands ix l env as (map snd (toList f.params))
     | Nothing => pure Nothing
   args <- traverse (operand ix) vs
-  Just <$> value ix l f.result (\rt => Func.callOp (mangle fn.name) args [rt])
+  Just <$> value ix l f.result (\rt => Idr.callOp sym args [rt])
 alg ix (ConAppF l c as) env _ = do
   Just k <- pure (lookup c ix.cons)
     | Nothing => internal ("the constructor " ++ show c ++ " of " ++ show c.dataId ++ ", which is not declared")
+  saturated ix l (ConApp l c (map (.term) as)) ("an application of " ++ show c) (length as) (length k.fields)
   Just vs <- operands ix l env as k.fields
     | Nothing => pure Nothing
   Just <$> con ix l k vs
--- A `let` binds an SSA value; its type is its value's.
-alg ix (LetF l u v b) env expected = do
+-- A `let` binds an SSA value; its type is its value's, and its location
+-- the variable's name.
+alg ix (LetF l name q v b) env expected = do
+  before <- newest
   Just x <- v.result env Nothing
     | Nothing => pure Nothing
-  x' <- coerce ix l u x
+  x' <- coerce ix l q x
+  atBinder name before x'
   b.result (bind [x'] env) expected
 -- A match takes its scrutinee at its grade: a linear one is used by the
 -- match, whose cases bind the fields as the constructor holds them and
@@ -235,11 +248,11 @@ alg ix (CaseF l x alts def) env expected = do
   cases <- traverse (alternative before scrut) (filter (\(MkAltF _ _ b) => not (excluded b)) alts)
   dflt <- case def of
     Just e => if excluded e then pure [] else do
-      (args, inner) <- the (E (List Value, Fin nv -> Val)) $ if takenApart
+      (args, inner) <- the (E (List Argument, Fin nv -> Val)) $ if takenApart
         then do
-          back <- (\r => val r scrut.type Once) <$> fresh
+          back <- (\r => val r scrut.type One) <$> fresh
           arg <- operand ix back
-          pure ([arg], matched before back env)
+          pure ([MkArgument arg (At l)], matched before back env)
         else pure ([], env)
       (res, ops) <- collect (plain ix l (e.result inner expected))
       pure [MkArm Nothing args res ops]
@@ -250,19 +263,24 @@ alg ix (CaseF l x alts def) env expected = do
       pure Nothing
     arms => match ix l (Idr.matchOp !(operand ix scrut)) arms
   where
+    -- Each field is a block argument at its pattern variable's name.
     alternative : Val -> Val -> AltF (Sub Em) nv -> E Arm
-    alternative before scrut (MkAltF c fs body) = do
+    alternative before scrut (MkAltF {k} c fs body) = do
+      Just ctor <- pure (lookup c ix.cons)
+        | Nothing => internal ("a case of " ++ show c ++ ", which is not declared")
+      saturated ix l body.term ("a case of " ++ show c) k (length ctor.fields)
       let takenApart = linear scrut.use scrut.type
-      let use = if takenApart then binderUse else const Many
-      vals <- traverse (\f => (\n => val n (typeOf f) (use f)) <$> fresh) fs
-      args <- traverse (operand ix) (toList vals)
+      let use = if takenApart then (\b : Binder => b.quantity) else const Many
+      vals <- traverse (\(_, f) => (\r => val r (typeOf f) (use f)) <$> fresh) fs
+      args <- traverse (\(field, v) => (\o => MkArgument o (Named (fst field) l)) <$> operand ix v)
+                       (zip fs vals)
       -- Inside a case of a linear scrutinee, the scrutinee is the
       -- constructor of the fields the case bound.
       inner <- if takenApart
-        then (\k => matched before (MkVal k scrut.type Many (Just (c, toList vals))) env) <$> fresh
+        then (\r => matched before (MkVal r scrut.type Many (Just (c, toList vals))) env) <$> fresh
         else pure env
       (res, ops) <- collect (plain ix l (body.result (bind vals inner) expected))
-      pure (MkArm (Just (SymbolRefAttr (MkSymbolRef (mangle c.name) []))) args res ops)
+      pure (MkArm (Just (SymbolRefAttr (MkSymbolRef c.name []))) (toList args) res ops)
 alg ix (CaseLitF l x alts def) env expected = do
   let live = filter (not . excluded . snd) alts
   -- A default Idris proved impossible is left out: the last possible
@@ -287,7 +305,7 @@ alg ix (CaseLitF l x alts def) env expected = do
       match ix l (Idr.matchLitOp !(operand ix scrut)) (arms ++ [MkArm Nothing [] res ops])
 -- The predecessor exists only where the value is not zero: the successor's
 -- region computes it, and only it binds it.
-alg ix (CaseNatF l x z s) env expected =
+alg ix (CaseNatF l x z predName s) env expected =
   case (excluded z, excluded s) of
     (True, True) => do
       statement l UB.unreachableOp
@@ -303,39 +321,33 @@ alg ix (CaseNatF l x z s) env expected =
   where
     successor : Val -> E (Maybe Val)
     successor n = do
+      before <- newest
       p <- value ix l NatT (Idr.bigPredOp !(operand ix n))
+      atBinder predName before p
       s.result (bind [p] env) expected
 -- A lambda and a `Delay` are regions whose bodies use the values of their
 -- scope where they are, and run only when the closure is applied or the
 -- suspension forced.
-alg ix (LamF l b body) env expected = do
+alg ix (LamF l name b body) env expected = do
   let result = case expected of
                  Just (FunT _ r) => Just r
                  _ => Nothing
-  p <- val <$> fresh <*> pure (typeOf b) <*> pure (binderUse b)
-  (region, t) <- deferred ix l "a lambda" [p] result (body.result (bind [p] env) result)
+  p <- val <$> fresh <*> pure (typeOf b) <*> pure b.quantity
+  param <- operand ix p
+  (region, t) <- deferred ix l "a lambda" [MkArgument param (Named name l)] result
+                          (body.result (bind [p] env) result)
   Just <$> value ix l (FunT b t) (Idr.lambdaOp region)
 alg ix (AppF l f x) env expected = do
   Just fv <- plain ix l (f.result env Nothing)
     | Nothing => pure Nothing
   FunT a r <- pure fv.type
     | t => internal ("an application of a value of type " ++ show t)
-  -- A parameter that binds nothing takes the erased value, and the
-  -- argument is not evaluated: it may be a proof. Translation passes
-  -- `Erased` when it already knows the function's type; a closure's type
-  -- is known here.
-  Just xv <- argument a
+  Just v <- x.result env (Just (typeOf a))
     | Nothing => pure Nothing
+  xv <- coerce ix l a.quantity v
   callee <- operand ix fv
   arg <- operand ix xv
   Just <$> value ix l r (\rt => Idr.applyOp callee [arg] [rt])
-  where
-    argument : Binder -> E (Maybe Val)
-    argument Gone = Just <$> erasedValue ix l
-    argument b = do
-      Just v <- x.result env (Just (typeOf b))
-        | Nothing => pure Nothing
-      Just <$> coerce ix l (binderUse b) v
 alg ix (SuspendF l body) env expected = do
   let result = case expected of
                  Just (LazyT r) => Just r
@@ -358,12 +370,13 @@ alg ix (RegionF {k} l p tys as body res) env _ = do
     | Nothing => internal ("a region primitive at the types " ++ show tys)
   Just argTys <- pure (toVect k binds)
     | Nothing => internal ("a region primitive whose body binds " ++ show k ++ " values")
-  Just vs <- operands ix l env as (map (Held Many) takes)
+  Just vs <- operands ix l env as (map (MkBinder Many) takes)
     | Nothing => pure Nothing
   args <- traverse (\t => val <$> fresh <*> pure t <*> pure Many) argTys
   (r, ops) <- collect (plain ix l (body.result (bind args env) (Just yielded)))
   yields <- yielding ix l r
-  let region = MkRegion !(traverse (operand ix) (toList args)) (ops ++ yields)
+  arguments <- traverse (\v => (\o => MkArgument o (At l)) <$> operand ix v) (toList args)
+  let region = MkRegion arguments (ops ++ yields)
   out <- fresh
   append (MkStatement (Just out)
            (Idr.regionOp p !(traverse (operand ix) vs) region [!(mlirType ix gives), !(mlirType ix WorldT)])

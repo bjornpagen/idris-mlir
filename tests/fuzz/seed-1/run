@@ -1,9 +1,8 @@
 #!/bin/sh
 # The fuzzer (tests/Fuzz.idr) on seed 1: closed pure expressions over every
-# primitive, compiled with evaluation and with --no-eval, which must agree
-# with each other and print expected-runtime and expected-static, the libm
-# lines aside.
-# Three compilations of a generated program, given half an hour.
+# primitive, compiled once each, whose lines must agree with each other and
+# print expected-runtime and expected-static, the libm lines aside.
+# Two compilations of generated programs, given half an hour.
 test_limit=1800
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 fuzz 1

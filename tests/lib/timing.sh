@@ -1,6 +1,7 @@
 # Every compilation's wall time is recorded under tests/build/timing, one
-# file per test, with the module it emitted; tests/compile-times.sh lists
-# the slowest. The record gates nothing.
+# file per test, with the module it emitted; tests/compile-times.sh compiles
+# each module again and breaks its time down by the pipeline's timing
+# report. The record gates nothing.
 
 # now_ms: the wall clock in milliseconds (now_ns, tools/host.sh).
 now_ms() {

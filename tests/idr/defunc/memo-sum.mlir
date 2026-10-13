@@ -1,5 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
-// RUN: FileCheck %s --implicit-check-not='!idr.lazy' --implicit-check-not=idr.suspend < %t.mlir
+// RUN: FileCheck %s --implicit-check-not='!idr.lazy' --implicit-check-not='{{(idr\.| )suspend }}' < %t.mlir
 // A Lazy value picked at runtime and forced later: its type's key becomes a
 // memo sum, a box, so that every reference sees one cell. It has a
 // constructor per label, named after the label's function, whose fields
@@ -14,21 +14,21 @@
 // CHECK-NEXT: idr.ctor @running ()
 // CHECK-NEXT: idr.ctor @forced (i64)
 // CHECK-NEXT: }
-// CHECK-LABEL: func.func @Main.main(
-// CHECK: idr.match_lit %{{.*}} : i64 -> (!idr.box<@[[L]]>) {
-// CHECK: idr.con @[[L]]::@one() : () -> !idr.box<@[[L]]>
-// CHECK: idr.con @[[L]]::@twice(%{{.*}}) : (i64) -> !idr.box<@[[L]]>
-// CHECK: idr.force %{{.*}} : !idr.box<@[[L]]> -> i64
+// CHECK-LABEL: idr.func @Main.main(
+// CHECK: match_lit %{{.*}} : i64 -> (![[L]]) {
+// CHECK: con @[[L]]::@one() : () -> ![[L]]
+// CHECK: con @[[L]]::@twice(%{{.*}}) : (i64) -> ![[L]]
+// CHECK: force %{{.*}} : ![[L]] -> i64
 module attributes {idr.program} {
-  func.func private @one() -> i64 attributes {idr.total} {
+  idr.func private @one() -> i64 attributes {total} {
     %c = arith.constant 1 : i64
     return %c : i64
   }
-  func.func private @twice(%x: i64) -> i64 attributes {idr.total} {
+  idr.func private @twice(%x: i64) -> i64 attributes {total} {
     %y = arith.addi %x, %x : i64
     return %y : i64
   }
-  func.func @Main.main(%w: !idr.world) -> !idr.world {
+  idr.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_byte %w
     %n = arith.extui %c : i32 to i64
     %t = idr.match_lit %n : i64 -> (!idr.lazy<i64>) {

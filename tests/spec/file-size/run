@@ -1,18 +1,20 @@
 #!/bin/sh
-# No C++ unit of ours (a .cc or a .cppm under foreign/idr or runtime) is over
-# 400 lines: a unit holds one concept, one exported function or the members
-# of one type, and one that grows past a screenful is two.
+# No C++ unit of ours (a .cpp or .h under foreign/idr or of the runtime) is over 400 lines: a unit holds one concept, one
+# function or the members of one type, and one that grows past a screenful
+# is two. The runtime's C ABI, idris_rt.h, is no unit: it is the list of
+# every entry C, generated code and the compiler call, kept in one file.
 #
 # A ratchet: `allowed` lists the units over the limit today, and only
 # shrinks. A unit over the limit that is not listed fails, and so does a
 # listed one that is no longer over it (or gone), so that whoever splits a
-# unit removes its line; the conversion of an area to a module deletes the
-# area's lines.
+# unit removes its line.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 limit=400
 cd "$root" || exit 1
-find foreign/idr runtime -name build -prune -o -type f \( -name '*.cc' -o -name '*.cppm' \) -print |
-  sort > "$work/units"
+{
+  find foreign/idr -name build -prune -o -type f \( -name '*.cpp' -o -name '*.h' \) -print
+  find runtime -name build -prune -o -type f \( -name '*.cpp' -o -name '*.h' \) ! -name idris_rt.h -print
+} | sort > "$work/units"
 if [ -s "$work/units" ]; then say "units: found"; else say "units: none found"; fi
 while IFS= read -r unit; do
   [ "$(wc -l < "$unit")" -gt "$limit" ] && printf '%s\n' "$unit"

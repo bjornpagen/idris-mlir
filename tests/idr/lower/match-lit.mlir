@@ -23,7 +23,7 @@
 // CHECK: scf.if
 // CHECK: llvm.call @idris_rt_big_sub
 module attributes {idr.program} {
-  func.func private @byte(%b: i8) -> i64 {
+  idr.func private @byte(%b: i8) -> i64 {
     %r = idr.match_lit %b : i8 -> (i64) {
     case 1 {
       %x = arith.constant 10 : i64
@@ -40,7 +40,7 @@ module attributes {idr.program} {
     }
     return %r : i64
   }
-  func.func private @word(%s: !idr.str) -> i64 {
+  idr.func private @word(%s: !idr.str) -> i64 {
     %r = idr.match_lit %s : !idr.str -> (i64) {
     case "one" {
       %x = arith.constant 1 : i64
@@ -57,7 +57,7 @@ module attributes {idr.program} {
     }
     return %r : i64
   }
-  func.func private @nat(%n: !idr.big) -> !idr.big {
+  idr.func private @nat(%n: !idr.big) -> !idr.big {
     %r = idr.match_lit %n : !idr.big -> (!idr.big) {
     case #idr.big<"0"> {
       idr.yield %n : !idr.big
@@ -70,13 +70,13 @@ module attributes {idr.program} {
     }
     return %r : !idr.big
   }
-  func.func @Prog.main() -> i64 {
+  idr.func @Prog.main() -> i64 {
     %b = arith.constant 1 : i8
-    %r = func.call @byte(%b) : (i8) -> i64
+    %r = idr.call @byte(%b) : (i8) -> i64
     %s = idr.constant "two" : !idr.str
-    %t = func.call @word(%s) : (!idr.str) -> i64
+    %t = idr.call @word(%s) : (!idr.str) -> i64
     %n = idr.constant #idr.big<"3"> : !idr.big
-    %p = func.call @nat(%n) : (!idr.big) -> !idr.big
+    %p = idr.call @nat(%n) : (!idr.big) -> !idr.big
     %sum = arith.addi %r, %t : i64
     return %sum : i64
   }

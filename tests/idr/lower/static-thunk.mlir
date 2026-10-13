@@ -31,12 +31,12 @@ module attributes {idr.program} {
     idr.ctor @Cons (i64, !idr.box<@lazy$0>)
   }
   // ones = 1 :: ones: its tail is the thunk of the definition itself.
-  func.func private @ones() -> !idr.box<@Stream> attributes {idr.total} {
+  idr.func private @ones() -> !idr.box<@Stream> attributes {total} {
     %s = idr.constant #idr.con<@Stream::@Cons, [1, #idr.con<@lazy$0::@ones, []>]> : !idr.box<@Stream>
     return %s : !idr.box<@Stream>
   }
-  func.func @Prog.main() -> i64 {
-    %s = func.call @ones() : () -> !idr.box<@Stream>
+  idr.func @Prog.main() -> i64 {
+    %s = idr.call @ones() : () -> !idr.box<@Stream>
     %t = idr.field %s[@Cons, 1] : !idr.box<@Stream> -> !idr.box<@lazy$0>
     %u = idr.force %t : !idr.box<@lazy$0> -> !idr.box<@Stream>
     %h = idr.field %u[@Cons, 0] : !idr.box<@Stream> -> i64

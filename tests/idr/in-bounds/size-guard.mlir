@@ -17,7 +17,7 @@ module {
     idr.ctor @MkArray (i64, memref<?xi64>)
   }
 
-  func.func @chained(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
+  idr.func @chained(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %o, %w1 = idr.array.new [%n], %z, %w : i64 -> !idr.own<memref<?xi64>>
     %rec = idr.con @Arr::@MkArray(%n, %o) : (i64, !idr.own<memref<?xi64>>) -> !idr.own<!idr.data<@Arr>>
@@ -41,7 +41,7 @@ module {
     return %r : !idr.world
   }
 
-  func.func @bridged(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
+  idr.func @bridged(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %o, %w1 = idr.array.new [%n], %z, %w : i64 -> !idr.own<memref<?xi64>>
     %rec = idr.con @Arr::@MkArray(%n, %o) : (i64, !idr.own<memref<?xi64>>) -> !idr.own<!idr.data<@Arr>>
@@ -65,7 +65,7 @@ module {
     return %r : !idr.world
   }
 
-  func.func @measured(%o: !idr.own<memref<?xi64>>, %i: i64, %w: !idr.world) -> !idr.world {
+  idr.func @measured(%o: !idr.own<memref<?xi64>>, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %c0 = arith.constant 0 : index
     %ob = idr.borrow %o : !idr.own<memref<?xi64>>
@@ -91,7 +91,7 @@ module {
     return %r : !idr.world
   }
 
-  func.func @pastSize(%n: i64, %k: i64, %i: i64, %w: !idr.world) -> !idr.world {
+  idr.func @pastSize(%n: i64, %k: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %o, %w1 = idr.array.new [%n], %z, %w : i64 -> !idr.own<memref<?xi64>>
     %rec = idr.con @Arr::@MkArray(%k, %o) : (i64, !idr.own<memref<?xi64>>) -> !idr.own<!idr.data<@Arr>>
@@ -115,7 +115,7 @@ module {
     return %r : !idr.world
   }
 
-  func.func @otherMeasured(%p: !idr.own<memref<?xi64>>, %n: i64, %i: i64, %w: !idr.world) -> !idr.world {
+  idr.func @otherMeasured(%p: !idr.own<memref<?xi64>>, %n: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %c0 = arith.constant 0 : index
     %pb = idr.borrow %p : !idr.own<memref<?xi64>>

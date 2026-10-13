@@ -17,20 +17,20 @@
 // the test (Perceus specializes a drop only where the children are used),
 // and is dropped where it dies: `headOnly` reads a list's head, a number,
 // and its tail dies with it; `numbers` reads a cell of two numbers.
-// CHECK-LABEL: func.func private @sumAfterTag(
-// CHECK-NOT: idr.dup
-// CHECK: idr.take
-// CHECK-NOT: idr.dup
+// CHECK-LABEL: idr.func private @sumAfterTag(
+// CHECK-NOT: {{(idr\.| )dup }}
+// CHECK: take
+// CHECK-NOT: {{(idr\.| )dup }}
 // CHECK: return
-// CHECK-LABEL: func.func private @headOnly(
-// CHECK-NOT: idr.take %{{.*}} @L::@C
-// CHECK: idr.drop
-// CHECK-NOT: idr.take %{{.*}} @L::@C
+// CHECK-LABEL: idr.func private @headOnly(
+// CHECK-NOT: {{(idr\.| )take }}%{{.*}} @L::@C
+// CHECK: drop
+// CHECK-NOT: {{(idr\.| )take }}%{{.*}} @L::@C
 // CHECK: return
-// CHECK-LABEL: func.func private @numbers(
-// CHECK-NOT: idr.take %{{.*}} @V::@V1
-// CHECK: idr.drop
-// CHECK-NOT: idr.take %{{.*}} @V::@V1
+// CHECK-LABEL: idr.func private @numbers(
+// CHECK-NOT: {{(idr\.| )take }}%{{.*}} @V::@V1
+// CHECK: drop
+// CHECK-NOT: {{(idr\.| )take }}%{{.*}} @V::@V1
 // CHECK: return
 // LOWER-LABEL: func.func private @tail(
 // LOWER: scf.if
@@ -66,7 +66,7 @@ module attributes {idr.program} {
     idr.ctor @V0 ()
     idr.ctor @V1 (i64, i64)
   }
-  func.func private @build(%n: i64) -> !idr.box<@L> {
+  idr.func private @build(%n: i64) -> !idr.box<@L> {
     %r = idr.match_lit %n : i64 -> (!idr.box<@L>) {
     case 0 {
       %e = idr.constant #idr.con<@L::@N, []> : !idr.box<@L>
@@ -75,21 +75,21 @@ module attributes {idr.program} {
     default {
       %one = arith.constant 1 : i64
       %m = arith.subi %n, %one : i64
-      %t = func.call @build(%m) : (i64) -> !idr.box<@L>
+      %t = idr.call @build(%m) : (i64) -> !idr.box<@L>
       %c = idr.con @L::@C(%n, %t) : (i64, !idr.box<@L>) -> !idr.box<@L>
       idr.yield %c : !idr.box<@L>
     }
     }
     return %r : !idr.box<@L>
   }
-  func.func private @sum(%l: !idr.box<@L>, %acc: i64) -> i64 {
+  idr.func private @sum(%l: !idr.box<@L>, %acc: i64) -> i64 {
     %r = idr.match %l : !idr.box<@L> -> (i64) {
     case @N() {
       idr.yield %acc : i64
     }
     case @C(%h: i64, %t: !idr.box<@L>) {
       %a = arith.addi %acc, %h : i64
-      %s = func.call @sum(%t, %a) : (!idr.box<@L>, i64) -> i64
+      %s = idr.call @sum(%t, %a) : (!idr.box<@L>, i64) -> i64
       idr.yield %s : i64
     }
     }
@@ -97,22 +97,22 @@ module attributes {idr.program} {
   }
   // The list is given back empty, and otherwise read (its tag) before its
   // tail is summed and a list of that length built: it dies after the read.
-  func.func private @sumAfterTag(%l: !idr.box<@L>) -> !idr.box<@L> {
+  idr.func private @sumAfterTag(%l: !idr.box<@L>) -> !idr.box<@L> {
     %r = idr.match %l : !idr.box<@L> -> (!idr.box<@L>) {
     case @N() {
       idr.yield %l : !idr.box<@L>
     }
     case @C(%h: i64, %t: !idr.box<@L>) {
       %k = idr.tag %l : !idr.box<@L>
-      %s = func.call @sum(%t, %k) : (!idr.box<@L>, i64) -> i64
-      %b = func.call @build(%s) : (i64) -> !idr.box<@L>
+      %s = idr.call @sum(%t, %k) : (!idr.box<@L>, i64) -> i64
+      %b = idr.call @build(%s) : (i64) -> !idr.box<@L>
       idr.yield %b : !idr.box<@L>
     }
     }
     return %r : !idr.box<@L>
   }
   // The head, a list, is nothing the result holds.
-  func.func private @tail(%l: !idr.box<@LL>) -> !idr.box<@LL> {
+  idr.func private @tail(%l: !idr.box<@LL>) -> !idr.box<@LL> {
     %r = idr.match %l : !idr.box<@LL> -> (!idr.box<@LL>) {
     case @NN() {
       idr.yield %l : !idr.box<@LL>
@@ -124,7 +124,7 @@ module attributes {idr.program} {
     return %r : !idr.box<@LL>
   }
   // The same, on a list its caller never shares.
-  func.func private @tailX(%l: !idr.box<@LL>) -> !idr.box<@LL> {
+  idr.func private @tailX(%l: !idr.box<@LL>) -> !idr.box<@LL> {
     %r = idr.match %l : !idr.box<@LL> -> (!idr.box<@LL>) {
     case @NN() {
       idr.yield %l : !idr.box<@LL>
@@ -136,8 +136,8 @@ module attributes {idr.program} {
     return %r : !idr.box<@LL>
   }
   // A list of n, read (its tag), and then only its head, a number, used.
-  func.func private @headOnly(%n: i64) -> i64 {
-    %l = func.call @build(%n) : (i64) -> !idr.box<@L>
+  idr.func private @headOnly(%n: i64) -> i64 {
+    %l = idr.call @build(%n) : (i64) -> !idr.box<@L>
     %r = idr.match %l : !idr.box<@L> -> (i64) {
     case @N() {
       %z = arith.constant 0 : i64
@@ -151,13 +151,13 @@ module attributes {idr.program} {
     }
     return %r : i64
   }
-  func.func private @mkV(%n: i64) -> !idr.box<@V> {
+  idr.func private @mkV(%n: i64) -> !idr.box<@V> {
     %v = idr.con @V::@V1(%n, %n) : (i64, i64) -> !idr.box<@V>
     return %v : !idr.box<@V>
   }
   // A cell of two numbers, read (its tag), and then its numbers used.
-  func.func private @numbers(%n: i64) -> i64 {
-    %v = func.call @mkV(%n) : (i64) -> !idr.box<@V>
+  idr.func private @numbers(%n: i64) -> i64 {
+    %v = idr.call @mkV(%n) : (i64) -> !idr.box<@V>
     %r = idr.match %v : !idr.box<@V> -> (i64) {
     case @V0() {
       %z = arith.constant 0 : i64
@@ -172,29 +172,29 @@ module attributes {idr.program} {
     }
     return %r : i64
   }
-  func.func @root(%w: !idr.world) -> !idr.world {
+  idr.func @root(%w: !idr.world) -> !idr.world {
     %three = arith.constant 3 : i64
     %two = arith.constant 2 : i64
     %nn = idr.constant #idr.con<@LL::@NN, []> : !idr.box<@LL>
-    %a = func.call @build(%three) : (i64) -> !idr.box<@L>
-    %r = func.call @sumAfterTag(%a) : (!idr.box<@L>) -> !idr.box<@L>
+    %a = idr.call @build(%three) : (i64) -> !idr.box<@L>
+    %r = idr.call @sumAfterTag(%a) : (!idr.box<@L>) -> !idr.box<@L>
     // Kept by its caller across the call: shared.
-    %x = func.call @build(%three) : (i64) -> !idr.box<@L>
+    %x = idr.call @build(%three) : (i64) -> !idr.box<@L>
     %ll = idr.con @LL::@CC(%x, %nn) : (!idr.box<@L>, !idr.box<@LL>) -> !idr.box<@LL>
-    %t1 = func.call @tail(%ll) : (!idr.box<@LL>) -> !idr.box<@LL>
+    %t1 = idr.call @tail(%ll) : (!idr.box<@LL>) -> !idr.box<@LL>
     %c = idr.tag %ll : !idr.box<@LL>
     // Fresh, and never used again: exclusive.
-    %y = func.call @build(%two) : (i64) -> !idr.box<@L>
+    %y = idr.call @build(%two) : (i64) -> !idr.box<@L>
     %ll2 = idr.con @LL::@CC(%y, %nn) : (!idr.box<@L>, !idr.box<@LL>) -> !idr.box<@LL>
-    %t2 = func.call @tailX(%ll2) : (!idr.box<@LL>) -> !idr.box<@LL>
+    %t2 = idr.call @tailX(%ll2) : (!idr.box<@LL>) -> !idr.box<@LL>
     %d = idr.tag %r : !idr.box<@L>
     %e = idr.tag %t1 : !idr.box<@LL>
     %f = idr.tag %t2 : !idr.box<@LL>
     %cd = arith.addi %c, %d : i64
     %ef = arith.addi %e, %f : i64
     %s = arith.addi %cd, %ef : i64
-    %ho = func.call @headOnly(%three) : (i64) -> i64
-    %nu = func.call @numbers(%two) : (i64) -> i64
+    %ho = idr.call @headOnly(%three) : (i64) -> i64
+    %nu = idr.call @numbers(%two) : (i64) -> i64
     %hn = arith.addi %ho, %nu : i64
     %all = arith.addi %s, %hn : i64
     %w2 = idr.io.put_int signed %all, %w : i64

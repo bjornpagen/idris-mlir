@@ -58,6 +58,18 @@ idris_mlir=$dev_prefix/foreign/idr/idris-mlir
 idris_mlir_front=$dev_prefix/foreign/idr/idris-mlir-front
 idris_mlir_opt=$dev_prefix/foreign/idr/idris-mlir-opt
 idris_mlir_tblgen=$dev_prefix/foreign/idr/idris-mlir-tblgen
+# Tracy's capture tool (tools/bootstrap.sh tracy), which tools/profile.sh
+# runs beside the profile preset's idris-mlir.
+tracy_capture=$toolchain/tracy/bin/tracy-capture
+# `make typecheck`: the typecheck step's prefix (tools/bootstrap.sh
+# typecheck), whose stamp names the TableGen-only LLVM/MLIR build and the
+# patched tree it reads (stamp_field keys llvm_build and tree), and whose
+# toolchain file the typecheck preset reads; the preset and its build
+# directory, where idris-mlir-tblgen is the one tool linked.
+typecheck_toolchain=$toolchain/typecheck
+typecheck_preset=typecheck
+typecheck_prefix=$root/build/$typecheck_preset
+typecheck_tblgen=$typecheck_prefix/foreign/idr/idris-mlir-tblgen
 
 # stamp_field PREFIX KEY: a string of PREFIX/provenance.json, the stamp a
 # bootstrap writes once every step of it succeeded.

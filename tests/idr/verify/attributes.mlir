@@ -1,25 +1,11 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
-// Every attribute is read by someone. An inherent one is its op's; a
-// discardable one names the dialect that verifies it, or is one of the few
-// our own tools read. MLIR asks a dialect only about the names with its
-// prefix, so the idr ops and the functions of a program reject any other.
+// The dialect's discardable attributes are two marks: idr.program on the
+// module of a whole program and idr.stack on an idr.con of a box whose
+// cell never leaves its frame. MLIR asks the dialect about every name with
+// its prefix, so any other is refused, not ignored; an attribute of no
+// dialect is read by whoever wrote it, as idr-expect reads its marks.
 
-idr.data @T {
-  // expected-error @+1 {{has the attribute "quantities", which no dialect defines}}
-  idr.ctor @A (i64) {quantities = ["w"]}
-}
-
-// -----
-
-func.func private @f(%a: i64, %b: i64) -> i64 {
-  // expected-error @+1 {{has the attribute "anything", which no dialect defines}}
-  %q = idr.div signed %a, %b {anything = "goes"} : i64
-  return %q : i64
-}
-
-// -----
-
-func.func private @f(%a: i64, %b: i64) -> i64 {
+idr.func private @f(%a: i64, %b: i64) -> i64 {
   // expected-error @+1 {{has an unknown idr attribute "idr.nonsense"}}
   %q = idr.div signed %a, %b {idr.nonsense} : i64
   return %q : i64
@@ -30,10 +16,10 @@ func.func private @f(%a: i64, %b: i64) -> i64 {
 // A clone's key says what it was copied from; nothing else does.
 module attributes {idr.program} {
   // expected-error @+1 {{has an unknown idr attribute "idr.origin"}}
-  func.func private @f$spec$1(%x: i64) -> i64 attributes {idr.origin = "f"} {
+  idr.func private @f.spec1(%x: i64) -> i64 attributes {idr.origin = "f"} {
     return %x : i64
   }
-  func.func @main() -> i64 {
+  idr.func @main() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
   }
@@ -41,71 +27,52 @@ module attributes {idr.program} {
 
 // -----
 
-module attributes {idr.program} {
-  // expected-error @+1 {{has the attribute "junk", which no dialect defines}}
-  func.func @main() -> i64 attributes {junk} {
-    %c = arith.constant 0 : i64
-    return %c : i64
-  }
+// expected-error @+1 {{expects idr.program as a unit attribute of the module}}
+idr.func private @f() attributes {idr.program} {
+  return
 }
 
 // -----
 
-module attributes {idr.program} {
-  // expected-error @+1 {{has the attribute "junk" on argument 0, which no dialect defines}}
-  func.func private @f(%x: i64 {junk}) -> i64 {
-    return %x : i64
-  }
-  func.func @main() -> i64 {
-    %c = arith.constant 0 : i64
-    return %c : i64
-  }
+idr.data @T {
+  idr.ctor @A (i64)
+}
+idr.func private @f(%x: i64) -> !idr.data<@T> {
+  // expected-error @+1 {{expects idr.stack as a unit attribute of an idr.con of a box}}
+  %t = idr.con @T::@A(%x) {idr.stack} : (i64) -> !idr.data<@T>
+  return %t : !idr.data<@T>
 }
 
 // -----
 
+idr.data @L box {
+  idr.ctor @Nil ()
+}
+idr.func private @f() -> i64 {
+  // expected-error @+1 {{expects idr.stack as a unit attribute of an idr.con of a box}}
+  %l = idr.con @L::@Nil() {idr.stack = 1 : i64} : () -> !idr.box<@L>
+  %z = arith.constant 0 : i64
+  return %z : i64
+}
+
+// -----
+
+// What the verifier accepts: the facts as the function's own, the marks
+// idr-expect reads, and attributes of no dialect.
 module attributes {idr.program} {
-  func.func @main() -> i64 {
-    // expected-error @+1 {{has the attribute "junk", which no dialect defines}}
-    %c = arith.constant {junk} 0 : i64
-    return %c : i64
+  idr.data @L box {
+    idr.ctor @Nil ()
   }
-}
-
-// -----
-
-// Another dialect's attribute is read by no one on an idr op or on a
-// function of a program.
-func.func private @f(%a: i64, %b: i64) -> i64 {
-  // expected-error @+1 {{has the attribute "arith.fastmath", which nothing reads on it}}
-  %q = idr.div signed %a, %b {arith.fastmath = #arith.fastmath<fast>} : i64
-  return %q : i64
-}
-
-// -----
-
-module attributes {idr.program} {
-  // expected-error @+1 {{has the attribute "llvm.emit_c_interface", which nothing reads on it}}
-  func.func @main() -> i64 attributes {llvm.emit_c_interface} {
-    %c = arith.constant 0 : i64
-    return %c : i64
-  }
-}
-
-// -----
-
-// What the verifier accepts: the dialect's own attributes where they
-// belong, and the marks idr-expect reads.
-module attributes {idr.program} {
-  func.func private @f(%x: i64 {idr.hole = 0 : i64}) -> i64
-      attributes {idr.total, idr.effects = #idr.effects<none>,
-                  idr.clone = #idr.clone<@f, #idr.key_apply<"g", 1>>} {
+  idr.func private @f(%x: i64 {sample.x}) -> i64
+      attributes {total, effects = #idr.effects<none>, junk,
+                  clone = #idr.clone<@f, #idr.key_apply<"g", 1>>} {
     %d = idr.div signed %x, %x {expect.facts = "delay"} : i64
     return %d : i64
   }
-  func.func @main() -> i64 {
+  idr.func @main() -> i64 {
     %c = arith.constant 0 : i64
-    %r = func.call @f(%c) {expect.facts = "delay"} : (i64) -> i64
+    %l = idr.con @L::@Nil() {idr.stack} : () -> !idr.box<@L>
+    %r = idr.call @f(%c) {expect.facts = "delay"} : (i64) -> i64
     return %r : i64
   }
 }

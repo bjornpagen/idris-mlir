@@ -8,37 +8,37 @@
 // body, once per iteration, and the value's own reference is dropped after
 // the loop, not in it: the body runs once per element. The second RUN line
 // checks that the owned module lowers.
-// CHECK-LABEL: func.func private @total(
-// CHECK-NOT: idr.dup
-// CHECK-NOT: idr.drop
+// CHECK-LABEL: idr.func private @total(
+// CHECK-NOT: {{(idr\.| )dup }}
+// CHECK-NOT: {{(idr\.| )drop }}
 // CHECK: idr.array.fold
-// CHECK-NOT: idr.dup
-// CHECK-NOT: idr.drop
+// CHECK-NOT: {{(idr\.| )dup }}
+// CHECK-NOT: {{(idr\.| )drop }}
 // CHECK: return
-// CHECK-LABEL: func.func private @lengths(
+// CHECK-LABEL: idr.func private @lengths(
 // CHECK-SAME: %[[S:[^:]*]]: !idr.own<!idr.str>
-// CHECK-NOT: idr.dup
+// CHECK-NOT: {{(idr\.| )dup }}
 // CHECK: idr.array.generate
-// CHECK: %[[V:.*]] = idr.borrow %[[S]]
-// CHECK: idr.dup %[[V]]
-// CHECK: idr.con @Wrap::@W(
+// CHECK: %[[V:.*]] = {{(idr\.)?}}borrow %[[S]]
+// CHECK: dup %[[V]]
+// CHECK: con @Wrap::@W(
 // CHECK: idr.yield
 // CHECK: }
-// CHECK: idr.drop %[[S]]
+// CHECK: drop %[[S]]
 // CHECK: return
 module attributes {idr.program} {
   idr.data @Wrap {
     idr.ctor @W (!idr.str)
   }
-  func.func @root(%w: !idr.world) -> !idr.world {
+  idr.func @root(%w: !idr.world) -> !idr.world {
     %n = arith.constant 3 : i64
     %s = idr.constant "s" : !idr.str
-    %a, %w1 = func.call @squares(%n, %w) : (i64, !idr.world) -> (memref<?xi64>, !idr.world)
-    %t, %w2 = func.call @total(%a, %w1) : (memref<?xi64>, !idr.world) -> (i64, !idr.world)
-    %b, %w3 = func.call @lengths(%n, %s, %w2) : (i64, !idr.str, !idr.world) -> (memref<?xi64>, !idr.world)
+    %a, %w1 = idr.call @squares(%n, %w) : (i64, !idr.world) -> (memref<?xi64>, !idr.world)
+    %t, %w2 = idr.call @total(%a, %w1) : (memref<?xi64>, !idr.world) -> (i64, !idr.world)
+    %b, %w3 = idr.call @lengths(%n, %s, %w2) : (i64, !idr.str, !idr.world) -> (memref<?xi64>, !idr.world)
     return %w3 : !idr.world
   }
-  func.func private @squares(%n: i64, %w: !idr.world) -> (memref<?xi64>, !idr.world) {
+  idr.func private @squares(%n: i64, %w: !idr.world) -> (memref<?xi64>, !idr.world) {
     %zero = arith.constant 0 : i64
     %a, %w1 = idr.array.generate %n, %zero, %w : i64 -> memref<?xi64> (%i: i64) {
       %sq = arith.muli %i, %i : i64
@@ -46,7 +46,7 @@ module attributes {idr.program} {
     }
     return %a, %w1 : memref<?xi64>, !idr.world
   }
-  func.func private @total(%a: memref<?xi64>, %w: !idr.world) -> (i64, !idr.world) {
+  idr.func private @total(%a: memref<?xi64>, %w: !idr.world) -> (i64, !idr.world) {
     %zero = arith.constant 0 : i64
     %s, %w1 = idr.array.fold %a, %zero, %w : memref<?xi64>, i64 -> i64 (%acc: i64, %x: i64, %i: i64) {
       %t = arith.addi %acc, %x : i64
@@ -54,7 +54,7 @@ module attributes {idr.program} {
     }
     return %s, %w1 : i64, !idr.world
   }
-  func.func private @lengths(%n: i64, %s: !idr.str, %w: !idr.world) -> (memref<?xi64>, !idr.world) {
+  idr.func private @lengths(%n: i64, %s: !idr.str, %w: !idr.world) -> (memref<?xi64>, !idr.world) {
     %zero = arith.constant 0 : i64
     %a, %w1 = idr.array.generate %n, %zero, %w : i64 -> memref<?xi64> (%i: i64) {
       %p = idr.con @Wrap::@W(%s) : (!idr.str) -> !idr.data<@Wrap>

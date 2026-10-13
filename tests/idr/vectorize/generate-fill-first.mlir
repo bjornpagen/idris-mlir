@@ -12,7 +12,7 @@
 // CHECK: 385
 // CHECK-NEXT: 457
 module attributes {idr.program} {
-  func.func @root(%w: !idr.world) -> !idr.world {
+  idr.func @root(%w: !idr.world) -> !idr.world {
     %nl = arith.constant 10 : i32
     %zero = arith.constant 0 : i64
     %one = arith.constant 1 : i64

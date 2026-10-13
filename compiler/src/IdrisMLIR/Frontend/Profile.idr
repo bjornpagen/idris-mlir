@@ -18,7 +18,7 @@ import Parser.Lexer.Source
 import IdrisMLIR.Dialect.Idr
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate
-import IdrisMLIR.Frontend.Translate.Types
+import IdrisMLIR.Frontend.Translate.Keys
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.Registry
@@ -74,17 +74,6 @@ firstForbidden [] = Nothing
 firstForbidden (r :: rs) = case forbiddenBy (hooksOf r) of
   Just rule => Just (r, rule)
   Nothing => firstForbidden rs
-
-||| Idris-generated auxiliary definitions belong to their enclosing definition.
-enclosing : Name -> Name
-enclosing (NS ns (CaseBlock outer _)) = NS ns (UN (Basic (strip outer)))
-  where
-    strip : String -> String
-    strip s = if isPrefixOf "case block in " s then strip (substr 14 (length s) s)
-              else if isPrefixOf "with block in " s then strip (substr 14 (length s) s)
-              else s
-enclosing (NS ns (WithBlock outer _)) = NS ns (UN (Basic outer))
-enclosing n = n
 
 ------------------------------------------------------------------------------
 -- Imports
@@ -296,8 +285,10 @@ checkReachable fc roots = go empty empty (map (\r => (r, [], False)) roots) [<]
           Just (Left wrong) => reject (userFC here) key HookShape wrong
           Nothing => reject (userFC here) owner EscapeHatch ("%foreign " ++ key ++ via here)
         _ => pure ()
-      -- A trusted module admits only some of its definitions.
-      when (trusted && not (admits origin (qname (enclosing full)))) $
+      -- A trusted module admits only some of its definitions, and a block
+      -- Idris made of one with it.
+      root <- rootOf full
+      when (trusted && not (admits origin (qname root))) $
         reject (userFC here) owner TrustedLibrary (key ++ " is not admitted from its trusted module" ++ via here)
       refs <- traverse toFullNames (refsOf (hooksOf full) def)
       -- User code may not use what the registry forbids, nor forge a world.

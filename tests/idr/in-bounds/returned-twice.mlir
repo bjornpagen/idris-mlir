@@ -8,20 +8,20 @@
 // second; a run that read what an earlier one found would ask the call for
 // an operand it no longer has.
 module {
-  func.func private @give(%unused: i64, %a: memref<?xi64>) -> memref<?xi64> {
+  idr.func private @give(%unused: i64, %a: memref<?xi64>) -> memref<?xi64> {
     return %a : memref<?xi64>
   }
 
-  func.func private @wrap(%a: memref<?xi64>) -> memref<?xi64> {
+  idr.func private @wrap(%a: memref<?xi64>) -> memref<?xi64> {
     %c0 = arith.constant 0 : i64
-    %b = func.call @give(%c0, %a) : (i64, memref<?xi64>) -> memref<?xi64>
+    %b = idr.call @give(%c0, %a) : (i64, memref<?xi64>) -> memref<?xi64>
     return %b : memref<?xi64>
   }
 
-  func.func @onePastBack(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
+  idr.func @onePastBack(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
-    %b = func.call @wrap(%a) : (memref<?xi64>) -> memref<?xi64>
+    %b = idr.call @wrap(%a) : (memref<?xi64>) -> memref<?xi64>
     %lo = arith.cmpi sge, %i, %z : i64
     %hi = arith.cmpi sle, %i, %n : i64
     %ok = arith.andi %lo, %hi : i1

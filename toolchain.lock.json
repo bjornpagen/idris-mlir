@@ -68,6 +68,37 @@
     "describe": "v2.0-108-g4c0618b",
     "version": "2.0-108"
   },
+  "tracy": {
+    "path": "third_party/tracy",
+    "repository": "https://github.com/wolfpld/tracy.git",
+    "revision": "30997d5ca6bb632cc10807a1da8a6d3de0aeeb3c",
+    "tag": "v0.14.1",
+    "version": "0.14.1"
+  },
+  "capstone": {
+    "repository": "https://github.com/capstone-engine/capstone.git",
+    "revision": "6ef3f4856689e340db794cceec23b155eefb541b",
+    "tag": "6.0.0-Alpha10",
+    "version": "6.0.0-Alpha10"
+  },
+  "zstd": {
+    "repository": "https://github.com/facebook/zstd.git",
+    "revision": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+    "tag": "v1.5.7",
+    "version": "1.5.7"
+  },
+  "ppqsort": {
+    "repository": "https://github.com/GabTux/PPQSort.git",
+    "revision": "21c5a20ca3daf572caaf0a8522db32e27e28fa1d",
+    "tag": "v1.0.6",
+    "version": "1.0.6"
+  },
+  "nlohmann_json": {
+    "repository": "https://github.com/nlohmann/json.git",
+    "revision": "55f93686c01528224f448c19128836e7df245f72",
+    "tag": "v3.12.0",
+    "version": "3.12.0"
+  },
   "chez": {
     "repository": "https://github.com/cisco/ChezScheme.git",
     "revision": "e95a7efbafa2cf3bd5343ea542e6bc909a7ab2c4",

@@ -1,4 +1,5 @@
 // RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
+// RUN: idris-mlir-opt %s --canonicalize=test-convergence=true -o /dev/null
 // Case-of-case: the single consumer of a match's result moves into every
 // region that yields, when in some region it meets a value it folds or
 // canonicalizes against.
@@ -13,9 +14,9 @@ idr.data @P {
 
 // putStr (maybe "none" show m): each region writes its own string, and
 // `show` becomes put_int.
-// CHECK-LABEL: func.func @put_maybe(
-// CHECK-SAME: %[[M:.*]]: !idr.data<@Maybe>, %[[W:.*]]: !idr.world)
-// CHECK: %[[R:.*]] = idr.match %[[M]] : !idr.data<@Maybe> -> (!idr.world) {
+// CHECK-LABEL: idr.func @put_maybe(
+// CHECK-SAME: %[[M:.*]]: !Maybe, %[[W:.*]]: !idr.world)
+// CHECK: %[[R:.*]] = {{(idr\.)?}}match %[[M]] : !Maybe -> (!idr.world) {
 // CHECK-NEXT: case @Nothing() {
 // CHECK-NEXT: %[[W1:.*]] = idr.io.put_str %{{.*}}, %[[W]]
 // CHECK-NEXT: idr.yield %[[W1]] : !idr.world
@@ -26,7 +27,7 @@ idr.data @P {
 // CHECK-NEXT: }
 // CHECK-NEXT: }
 // CHECK-NEXT: return %[[R]]
-func.func @put_maybe(%m: !idr.data<@Maybe>, %w: !idr.world) -> !idr.world {
+idr.func @put_maybe(%m: !idr.data<@Maybe>, %w: !idr.world) -> !idr.world {
   %s = idr.match %m : !idr.data<@Maybe> -> (!idr.str) {
   case @Nothing() {
     %c = idr.constant "none" : !idr.str
@@ -42,15 +43,15 @@ func.func @put_maybe(%m: !idr.data<@Maybe>, %w: !idr.world) -> !idr.world {
 }
 
 // A consumer that folds on a constructor: fst (if b then (1, 2) else p).
-// CHECK-LABEL: func.func @field_of(
-// CHECK-SAME: %{{.*}}: i64, %[[P:.*]]: !idr.data<@P>)
-// CHECK: idr.match_lit
+// CHECK-LABEL: idr.func @field_of(
+// CHECK-SAME: %{{.*}}: i64, %[[P:.*]]: !P)
+// CHECK: match_lit
 // CHECK-NEXT: case 0 {
-// CHECK-NEXT: %[[F:.*]] = idr.field %[[P]][@MkP, 0]
+// CHECK-NEXT: %[[F:.*]] = {{(idr\.)?}}field %[[P]][@MkP, 0]
 // CHECK-NEXT: idr.yield %[[F]] : i64
 // CHECK: default {
 // CHECK-NEXT: idr.yield %{{.*}} : i64
-func.func @field_of(%b: i64, %p: !idr.data<@P>) -> i64 {
+idr.func @field_of(%b: i64, %p: !idr.data<@P>) -> i64 {
   %q = idr.match_lit %b : i64 -> (!idr.data<@P>) {
   case 0 {
     idr.yield %p : !idr.data<@P>
@@ -69,14 +70,14 @@ func.func @field_of(%b: i64, %p: !idr.data<@P>) -> i64 {
 // The consumer does not move up past an op with effects, but a match free
 // of effects moves down past it to the consumer: show m is computed after
 // the character is written, and each region writes its own string.
-// CHECK-LABEL: func.func @past_effect(
+// CHECK-LABEL: idr.func @past_effect(
 // CHECK: idr.io.put_char
-// CHECK-NEXT: idr.match
+// CHECK-NEXT: match
 // CHECK-NEXT: case @Nothing() {
 // CHECK-NEXT: idr.io.put_str
 // CHECK: case @Just(%[[X:.*]]: i64) {
 // CHECK-NEXT: idr.io.put_int signed %[[X]]
-func.func @past_effect(%m: !idr.data<@Maybe>, %w: !idr.world) -> !idr.world {
+idr.func @past_effect(%m: !idr.data<@Maybe>, %w: !idr.world) -> !idr.world {
   %s = idr.match %m : !idr.data<@Maybe> -> (!idr.str) {
   case @Nothing() {
     %c = idr.constant "none" : !idr.str
@@ -95,12 +96,12 @@ func.func @past_effect(%m: !idr.data<@Maybe>, %w: !idr.world) -> !idr.world {
 
 // A match with an effect (a region crashes) does not move past output, and
 // the consumer does not move up past it: both stay.
-// CHECK-LABEL: func.func @both_effects(
-// CHECK: idr.match_lit
-// CHECK: idr.crash
+// CHECK-LABEL: idr.func @both_effects(
+// CHECK: match_lit
+// CHECK: crash
 // CHECK: idr.io.put_char
 // CHECK-NEXT: idr.io.put_str
-func.func @both_effects(%n: i64, %w: !idr.world) -> !idr.world {
+idr.func @both_effects(%n: i64, %w: !idr.world) -> !idr.world {
   %s = idr.match_lit %n : i64 -> (!idr.str) {
   case 0 {
     %c = idr.constant "zero" : !idr.str
@@ -118,14 +119,14 @@ func.func @both_effects(%n: i64, %w: !idr.world) -> !idr.world {
 }
 
 // Nothing to meet: the consumer stays after the match.
-// CHECK-LABEL: func.func @nothing_to_meet(
-// CHECK: idr.match
+// CHECK-LABEL: idr.func @nothing_to_meet(
+// CHECK: match
 // CHECK: case @Just
 // CHECK-NEXT: idr.yield
 // CHECK-NEXT: }
 // CHECK-NEXT: }
 // CHECK-NEXT: idr.io.put_str
-func.func @nothing_to_meet(%m: !idr.data<@Maybe>, %a: !idr.str, %b: !idr.str,
+idr.func @nothing_to_meet(%m: !idr.data<@Maybe>, %a: !idr.str, %b: !idr.str,
                            %w: !idr.world) -> !idr.world {
   %s = idr.match %m : !idr.data<@Maybe> -> (!idr.str) {
   case @Nothing() {
@@ -140,18 +141,18 @@ func.func @nothing_to_meet(%m: !idr.data<@Maybe>, %a: !idr.str, %b: !idr.str,
 }
 
 // A region that crashes does not get the consumer.
-// CHECK-LABEL: func.func @crash_region(
+// CHECK-LABEL: idr.func @crash_region(
 // CHECK: case 0 {
 // CHECK-NEXT: idr.io.put_int
 // CHECK: case 1 {
 // CHECK-NEXT: idr.io.put_str
 // CHECK: default {
-// CHECK-NEXT: idr.crash
+// CHECK-NEXT: crash
 // CHECK-NEXT: ub.unreachable
 // CHECK-NEXT: }
 // CHECK-NEXT: }
 // CHECK-NEXT: return
-func.func @crash_region(%n: i64, %w: !idr.world) -> !idr.world {
+idr.func @crash_region(%n: i64, %w: !idr.world) -> !idr.world {
   %s = idr.match_lit %n : i64 -> (!idr.str) {
   case 0 {
     %t = idr.str.show signed %n : i64
@@ -172,18 +173,18 @@ func.func @crash_region(%n: i64, %w: !idr.world) -> !idr.world {
 
 // A match of a match: the consumer is itself a match, and in each region it
 // meets a known constructor, so each region keeps only the case it takes.
-// CHECK-LABEL: func.func @match_of_match(
+// CHECK-LABEL: idr.func @match_of_match(
 // CHECK-SAME: %[[C:.*]]: i64)
 // CHECK-DAG: %[[ONE:.*]] = arith.constant 1 : i64
 // CHECK-DAG: %[[TWO:.*]] = arith.constant 2 : i64
-// CHECK: %[[R:.*]] = idr.match_lit %[[C]] : i64 -> (i64) {
+// CHECK: %[[R:.*]] = {{(idr\.)?}}match_lit %[[C]] : i64 -> (i64) {
 // CHECK-NEXT: case 0 {
 // CHECK-NEXT: idr.yield %[[ONE]] : i64
 // CHECK: default {
 // CHECK-NEXT: idr.yield %[[TWO]] : i64
-// CHECK-NOT: idr.match
+// CHECK-NOT: {{(idr\.| )match }}
 // CHECK: return %[[R]]
-func.func @match_of_match(%c: i64) -> i64 {
+idr.func @match_of_match(%c: i64) -> i64 {
   %one = arith.constant 1 : i64
   %two = arith.constant 2 : i64
   %p = idr.match_lit %c : i64 -> (!idr.data<@Maybe>) {
@@ -212,17 +213,17 @@ func.func @match_of_match(%c: i64) -> i64 {
 // effects, moves down to it instead, and there the consumer meets each
 // constructor: one match is left, of the literal. The product stays before
 // it: nothing in the region folds against it.
-// CHECK-LABEL: func.func @uses_later(
+// CHECK-LABEL: idr.func @uses_later(
 // CHECK-SAME: %[[C:.*]]: i64)
 // CHECK: %[[K:.*]] = arith.muli %[[C]], %[[C]]
-// CHECK-NEXT: %[[R:.*]] = idr.match_lit %[[C]] : i64 -> (i64) {
+// CHECK-NEXT: %[[R:.*]] = {{(idr\.)?}}match_lit %[[C]] : i64 -> (i64) {
 // CHECK-NEXT: case 0 {
 // CHECK-NEXT: idr.yield %{{.*}} : i64
 // CHECK: default {
 // CHECK-NEXT: idr.yield %[[K]] : i64
-// CHECK-NOT: idr.match
+// CHECK-NOT: {{(idr\.| )match }}
 // CHECK: return %[[R]]
-func.func @uses_later(%c: i64) -> i64 {
+idr.func @uses_later(%c: i64) -> i64 {
   %one = arith.constant 1 : i64
   %p = idr.match_lit %c : i64 -> (!idr.data<@Maybe>) {
   case 0 {
@@ -251,13 +252,13 @@ func.func @uses_later(%c: i64) -> i64 {
 // match, whose regions do. fst (if b then (if c then (1, 2) else (3, 4))
 // else p): the consumer moves through both matches and folds against each
 // pair; only the read of p is left.
-// CHECK-LABEL: func.func @nested(
-// CHECK-SAME: %{{.*}}: i64, %{{.*}}: i64, %[[P:.*]]: !idr.data<@P>)
-// CHECK-NOT: idr.con
-// CHECK: idr.field %[[P]][@MkP, 0]
-// CHECK-NOT: idr.con
+// CHECK-LABEL: idr.func @nested(
+// CHECK-SAME: %{{.*}}: i64, %{{.*}}: i64, %[[P:.*]]: !P)
+// CHECK-NOT: {{(idr\.| )con }}
+// CHECK: field %[[P]][@MkP, 0]
+// CHECK-NOT: {{(idr\.| )con }}
 // CHECK: return
-func.func @nested(%b: i64, %c: i64, %p: !idr.data<@P>) -> i64 {
+idr.func @nested(%b: i64, %c: i64, %p: !idr.data<@P>) -> i64 {
   %q = idr.match_lit %b : i64 -> (!idr.data<@P>) {
   case 0 {
     %inner = idr.match_lit %c : i64 -> (!idr.data<@P>) {
@@ -288,17 +289,17 @@ func.func @nested(%b: i64, %c: i64, %p: !idr.data<@P>) -> i64 {
 // another match nothing after it runs: the region ends in ub.unreachable
 // right after it. Here the consumer that case-of-case moved into that region
 // goes, and the region keeps only the match that crashes.
-// CHECK-LABEL: func.func @never_yields(
+// CHECK-LABEL: idr.func @never_yields(
 // CHECK: case 0 {
-// CHECK-NEXT: idr.match_lit
-// CHECK: idr.crash "zero"
-// CHECK: idr.crash "other"
+// CHECK-NEXT: match_lit
+// CHECK: crash "zero"
+// CHECK: crash "other"
 // CHECK-NEXT: ub.unreachable
 // CHECK-NEXT: }
 // CHECK-NEXT: }
 // CHECK-NEXT: ub.unreachable
 // CHECK-NEXT: }
-func.func @never_yields(%b: i64, %c: i64) -> i64 {
+idr.func @never_yields(%b: i64, %c: i64) -> i64 {
   %q = idr.match_lit %b : i64 -> (!idr.data<@P>) {
   case 0 {
     %inner = idr.match_lit %c : i64 -> (!idr.data<@P>) {
@@ -328,14 +329,14 @@ func.func @never_yields(%b: i64, %c: i64) -> i64 {
 // that region crashes, the match never completes whatever the others
 // yield, and nothing after it runs, here a function body's apply and
 // return.
-// CHECK-LABEL: func.func @taken_never_completes(
-// CHECK-NOT: idr.apply
-// CHECK: idr.crash "taken"
-// CHECK-NOT: idr.apply
+// CHECK-LABEL: idr.func @taken_never_completes(
+// CHECK-NOT: {{(idr\.| )apply }}
+// CHECK: crash "taken"
+// CHECK-NOT: {{(idr\.| )apply }}
 // CHECK-NOT: return
 // CHECK: ub.unreachable
 // CHECK-NEXT: }
-func.func @taken_never_completes(%f: !idr.fn<(i64) -> (i64)>) -> i64 {
+idr.func @taken_never_completes(%f: !idr.fn<(i64) -> (i64)>) -> i64 {
   %t = arith.constant 1 : i64
   %r = idr.match_lit %t : i64 -> (i64) {
   case 0 {

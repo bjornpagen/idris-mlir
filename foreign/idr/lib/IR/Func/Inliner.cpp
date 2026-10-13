@@ -1,0 +1,52 @@
+// The inliner's rules for the dialect, as func's are for its own: every
+// call may be inlined, and every op and region may move into another
+// function. Which calls are worth it, no_inline among them, is idr-inline's
+// decision; a callee that ends in ub.unreachable is decided by the
+// inliner itself, as for func.func.
+
+#include "idr/IR/IdrDialect.h"
+#include "idr/IR/Func.h"
+
+#include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/IRMapping.h"
+#include "mlir/Transforms/InliningUtils.h"
+#include "llvm/ADT/STLExtras.h"
+
+using namespace mlir;
+using namespace idr;
+
+namespace {
+
+struct IdrInlinerInterface : DialectInlinerInterface {
+  using DialectInlinerInterface::DialectInlinerInterface;
+
+  bool isLegalToInline(Operation *, Operation *, bool) const final { return true; }
+  bool isLegalToInline(Region *, Region *, bool, IRMapping &) const final { return true; }
+  bool isLegalToInline(Operation *, Region *, bool, IRMapping &) const final { return true; }
+
+  // A callee of several blocks: each return becomes a branch to the block
+  // after the call, which takes the returned values as its arguments.
+  void handleTerminator(Operation *op, Block *newDest) const final {
+    auto ret = dyn_cast<ReturnOp>(op);
+    if (!ret)
+      return;
+    OpBuilder builder(op);
+    cf::BranchOp::create(builder, op->getLoc(), newDest, ret.getOperands());
+    op->erase();
+  }
+
+  // A callee of one block: the call's results are what its return gives
+  // back, and the inliner erases the return.
+  void handleTerminator(Operation *op, ValueRange valuesToRepl) const final {
+    auto ret = cast<ReturnOp>(op);
+    for (auto [replaced, value] : llvm::zip_equal(valuesToRepl, ret.getOperands()))
+      replaced.replaceAllUsesWith(value);
+  }
+};
+
+} // namespace
+
+void idr::addInlinerInterface(IdrDialect &dialect) {
+  dialect.addInterfaces<IdrInlinerInterface>();
+}

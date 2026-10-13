@@ -41,7 +41,7 @@ module attributes {idr.program} {
     idr.ctor @Blue (f64)
   }
   // The tail of a list that is not empty; a crash otherwise.
-  func.func private @head(%l: !idr.box<@List>) -> !idr.box<@List> {
+  idr.func private @head(%l: !idr.box<@List>) -> !idr.box<@List> {
     %r = idr.match %l : !idr.box<@List> -> (!idr.box<@List>) {
     case @Cons(%x: i64, %t: !idr.box<@List>) {
       %s = arith.addi %x, %x : i64
@@ -55,37 +55,37 @@ module attributes {idr.program} {
     }
     return %r : !idr.box<@List>
   }
-  func.func private @shade(%c: !idr.data<@Colour>) -> i64 {
+  idr.func private @shade(%c: !idr.data<@Colour>) -> i64 {
     %t = idr.tag %c : !idr.data<@Colour>
     return %t : i64
   }
-  func.func private @sign(%x: i64) -> i64 {
+  idr.func private @sign(%x: i64) -> i64 {
     %h = idr.int_head signed %x : i64
     %w = arith.extui %h : i32 to i64
     return %w : i64
   }
-  func.func private @walk(%s: !idr.str, %o: i64) -> i64 {
+  idr.func private @walk(%s: !idr.str, %o: i64) -> i64 {
     %c = idr.str.scalar_at %s, %o
     %e = idr.str.scalar_end %s, %o
     %w = arith.extui %c : i32 to i64
     %r = arith.addi %w, %e : i64
     return %r : i64
   }
-  func.func private @unread(%l: !idr.box<@List>, %n: i64) -> i64 {
+  idr.func private @unread(%l: !idr.box<@List>, %n: i64) -> i64 {
     return %n : i64
   }
-  func.func @Prog.main() -> i64 {
+  idr.func @Prog.main() -> i64 {
     %n = arith.constant 3 : i64
     %nil = idr.con @List::@Nil() : () -> !idr.box<@List>
     %l = idr.con @List::@Cons(%n, %nil) : (i64, !idr.box<@List>) -> !idr.box<@List>
-    %h = func.call @head(%l) : (!idr.box<@List>) -> !idr.box<@List>
+    %h = idr.call @head(%l) : (!idr.box<@List>) -> !idr.box<@List>
     %red = idr.con @Colour::@Red() : () -> !idr.data<@Colour>
-    %s = func.call @shade(%red) : (!idr.data<@Colour>) -> i64
+    %s = idr.call @shade(%red) : (!idr.data<@Colour>) -> i64
     %p = ub.poison : !idr.box<@List>
-    %u = func.call @unread(%p, %s) : (!idr.box<@List>, i64) -> i64
-    %g = func.call @sign(%u) : (i64) -> i64
+    %u = idr.call @unread(%p, %s) : (!idr.box<@List>, i64) -> i64
+    %g = idr.call @sign(%u) : (i64) -> i64
     %str = idr.constant "h\C3\A9llo" : !idr.str
-    %k = func.call @walk(%str, %g) : (!idr.str, i64) -> i64
+    %k = idr.call @walk(%str, %g) : (!idr.str, i64) -> i64
     return %k : i64
   }
 }

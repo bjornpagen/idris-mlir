@@ -6,6 +6,9 @@ module IdrisMLIR.Dialect.MemRef
 import IdrisMLIR.MLIR
 import IdrisMLIR.Syntax.MemRef
 
+import Data.List
+import Data.Maybe
+
 %default total
 
 ------------------------------------------------------------------------------
@@ -227,4 +230,154 @@ viewOp : (source : Value) -> (byteShift : Value) -> (sizes : List Value) -> (res
 viewOp source byteShift sizes result0 =
   MkOp "memref.view" (concat [[source], [byteShift], sizes]) [] [] [] [result0]
 
--- fingerprint: 2738765116-958074 2229022466-12408
+------------------------------------------------------------------------------
+-- Printer
+------------------------------------------------------------------------------
+
+-- An attribute an op's syntax writes without its type, which the parser
+-- is given and does not read.
+covering
+bare : MlirAttr -> String
+bare (IntegerAttr n _) = show n
+bare (FloatAttr d _) = floatLiteral d
+bare a = attrText a
+
+-- The name of the symbol an op declares, as a reference to it writes it.
+covering
+symbolName : MlirAttr -> String
+symbolName (StringAttr s) = symbol s
+symbolName a = attrText a
+
+-- The keyword the printer writes for a AtomicRMWKind.
+covering
+atomicRMWKindKeyword : MlirAttr -> String
+atomicRMWKindKeyword (IntegerAttr 0 _) = "addf"
+atomicRMWKindKeyword (IntegerAttr 1 _) = "addi"
+atomicRMWKindKeyword (IntegerAttr 2 _) = "andi"
+atomicRMWKindKeyword (IntegerAttr 3 _) = "assign"
+atomicRMWKindKeyword (IntegerAttr 4 _) = "maximumf"
+atomicRMWKindKeyword (IntegerAttr 5 _) = "maxnumf"
+atomicRMWKindKeyword (IntegerAttr 6 _) = "maxs"
+atomicRMWKindKeyword (IntegerAttr 7 _) = "maxu"
+atomicRMWKindKeyword (IntegerAttr 8 _) = "minimumf"
+atomicRMWKindKeyword (IntegerAttr 9 _) = "minnumf"
+atomicRMWKindKeyword (IntegerAttr 10 _) = "mins"
+atomicRMWKindKeyword (IntegerAttr 11 _) = "minu"
+atomicRMWKindKeyword (IntegerAttr 12 _) = "mulf"
+atomicRMWKindKeyword (IntegerAttr 13 _) = "muli"
+atomicRMWKindKeyword (IntegerAttr 14 _) = "ori"
+atomicRMWKindKeyword (IntegerAttr 15 _) = "xori"
+atomicRMWKindKeyword a = attrText a
+
+||| An op of the memref dialect in the declarative syntax its ODS
+||| gives, up to its regions: its full name and its syntax, which puts the
+||| regions last, for the caller to write after it. Nothing for an op
+||| written in the generic form: one whose syntax this printer does not
+||| write (each is named below, with the reason), one of another dialect,
+||| and one whose operands, results, regions or attributes are not what its
+||| ODS lets it have, which the generic form carries to the verifier.
+export covering
+printOp : Op -> Maybe String
+printOp (MkOp "memref.alloca_scope.return" o0 props [] attrs []) = do
+  guard (null props)
+  pure (fastConcat ["memref.alloca_scope.return", dictionary "{" "}" attrs, (if not (null o0) then fastConcat [(if null o0 then "" else " " ++ commaSeparated (map (.name) o0)), " :", (if null (map (.type) o0) then "" else " " ++ commaSeparated (map typeText (map (.type) o0)))] else "")])
+
+printOp (MkOp "memref.assume_alignment" [o0] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["alignment"]) props)
+  a0 <- lookup "alignment" props
+  pure (fastConcat ["memref.assume_alignment ", o0.name, ", ", bare a0, dictionary "{" "}" attrs, " : ", typeText o0.type])
+
+printOp (MkOp "memref.atomic_rmw" (o0 :: o1 :: o2) props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["kind"]) props)
+  a0 <- lookup "kind" props
+  pure (fastConcat ["memref.atomic_rmw ", atomicRMWKindKeyword a0, " ", o0.name, ", ", o1.name, "[", commaSeparated (map (.name) o2), "]", dictionary "{" "}" attrs, " : (", typeText o0.type, ", ", typeText o1.type, ") -> ", typeText r0])
+
+printOp (MkOp "memref.atomic_yield" [o0] props [] attrs []) = do
+  guard (null props)
+  pure (fastConcat ["memref.atomic_yield ", o0.name, dictionary "{" "}" attrs, " : ", typeText o0.type])
+
+printOp (MkOp "memref.cast" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["memref.cast ", o0.name, dictionary "{" "}" attrs, " : ", typeText o0.type, " to ", typeText r0])
+
+printOp (MkOp "memref.collapse_shape" [o0] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["reassociation"]) props)
+  a0 <- lookup "reassociation" props
+  pure (fastConcat ["memref.collapse_shape ", o0.name, " ", bare a0, dictionary "{" "}" attrs, " : ", typeText o0.type, " into ", typeText r0])
+
+printOp (MkOp "memref.copy" [o0, o1] props [] attrs []) = do
+  guard (null props)
+  pure (fastConcat ["memref.copy ", o0.name, ", ", o1.name, dictionary "{" "}" attrs, " : ", typeText o0.type, " to ", typeText o1.type])
+
+printOp (MkOp "memref.dealloc" [o0] props [] attrs []) = do
+  guard (null props)
+  pure (fastConcat ["memref.dealloc ", o0.name, dictionary "{" "}" attrs, " : ", typeText o0.type])
+
+printOp (MkOp "memref.dim" [o0, o1] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["memref.dim", dictionary "{" "}" attrs, " ", o0.name, ", ", o1.name, " : ", typeText o0.type])
+
+printOp (MkOp "memref.distinct_objects" o0 props [] attrs r0) = do
+  guard (null props)
+  pure (fastConcat ["memref.distinct_objects", (if null o0 then "" else " " ++ commaSeparated (map (.name) o0)), dictionary "{" "}" attrs, " :", (if null (map (.type) o0) then "" else " " ++ commaSeparated (map typeText (map (.type) o0)))])
+
+printOp (MkOp "memref.dma_wait" (o0 :: orest) props [] attrs []) = do
+  let (o1, otail) = splitAt (minus (length orest) 1) orest
+  [o2] <- pure otail | _ => Nothing
+  guard (null props)
+  pure (fastConcat ["memref.dma_wait ", o0.name, "[", commaSeparated (map (.name) o1), "], ", o2.name, dictionary "{" "}" attrs, " : ", typeText o0.type])
+
+printOp (MkOp "memref.extract_aligned_pointer_as_index" [o0] props [] attrs rs) = do
+  [r0] <- pure rs | _ => Nothing
+  guard (null props)
+  pure (fastConcat ["memref.extract_aligned_pointer_as_index ", o0.name, " : ", typeText o0.type, " ->", (if null (rs) then "" else " " ++ commaSeparated (map typeText (rs))), dictionary "{" "}" attrs])
+
+printOp (MkOp "memref.get_global" [] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["name"]) props)
+  a0 <- lookup "name" props
+  pure (fastConcat ["memref.get_global ", bare a0, " : ", typeText r0, dictionary "{" "}" attrs])
+
+printOp (MkOp "memref.memory_space_cast" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["memref.memory_space_cast ", o0.name, dictionary "{" "}" attrs, " : ", typeText o0.type, " to ", typeText r0])
+
+printOp (MkOp "memref.rank" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["memref.rank ", o0.name, dictionary "{" "}" attrs, " : ", typeText o0.type])
+
+printOp (MkOp "memref.realloc" (o0 :: o1) props [] attrs rs) = do
+  guard (length o1 <= 1)
+  [r0] <- pure rs | _ => Nothing
+  guard (all (\p => elem (fst p) ["alignment"]) props)
+  pure (fastConcat ["memref.realloc ", o0.name, (if not (null o1) then fastConcat ["(", commaSeparated (map (.name) o1), ")"] else ""), maybe "" (\a0 => fastConcat [" alignment = ", bare a0]) (lookup "alignment" props), dictionary "{" "}" attrs, " : ", typeText o0.type, " to", (if null (rs) then "" else " " ++ commaSeparated (map typeText (rs)))])
+
+printOp (MkOp "memref.reshape" os props [] attrs rs) = do
+  [o0, o1] <- pure os | _ => Nothing
+  [r0] <- pure rs | _ => Nothing
+  guard (null props)
+  pure (fastConcat ["memref.reshape ", o0.name, "(", o1.name, ")", dictionary "{" "}" attrs, " : ", signature typeText (MkSignature (map (.type) os) (rs))])
+
+printOp (MkOp "memref.view" (o0 :: o1 :: o2) props [] attrs rs) = do
+  [r0] <- pure rs | _ => Nothing
+  guard (null props)
+  pure (fastConcat ["memref.view ", o0.name, "[", o1.name, "][", commaSeparated (map (.name) o2), "]", dictionary "{" "}" attrs, " : ", typeText o0.type, " to", (if null (rs) then "" else " " ++ commaSeparated (map typeText (rs)))])
+
+printOp _ = Nothing
+
+-- Written in the generic form:
+-- op memref.alloc: its operands or results vary in length in more than one group
+-- op memref.alloca: its operands or results vary in length in more than one group
+-- op memref.alloca_scope: its syntax is C++
+-- op memref.dma_start: its syntax is C++
+-- op memref.expand_shape: its syntax has the directive `custom`
+-- op memref.extract_strided_metadata: its operands or results vary in length in more than one group
+-- op memref.generic_atomic_rmw: its syntax is C++
+-- op memref.global: its syntax has the directive `custom`
+-- op memref.load: its syntax has the directive `oilist`
+-- op memref.prefetch: its syntax is C++
+-- op memref.reinterpret_cast: its syntax has the directive `custom`
+-- op memref.store: its syntax has the directive `oilist`
+-- op memref.subview: its syntax has the directive `custom`
+-- op memref.transpose: its syntax is C++
+
+-- fingerprint: 1377210603-985695 797987619-20626

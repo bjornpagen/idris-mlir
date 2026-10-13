@@ -5,7 +5,7 @@
 // itself. The parser reads a single result in parentheses too, which is how
 // the frontend writes every result list.
 
-// CHECK: func.func private @closures(!idr.fn<(i64) -> i64>, !idr.fn<() -> ()>, !idr.fn<(i64) -> (i64, i64)>, !idr.fn<(i64) -> ((i64) -> i64)>, !idr.fn<(i64) -> !idr.fn<(i64) -> i64>>)
-func.func private @closures(!idr.fn<(i64) -> (i64)>, !idr.fn<() -> ()>,
+// CHECK: idr.func private @closures(!idr.fn<(i64) -> i64>, !idr.fn<() -> ()>, !idr.fn<(i64) -> (i64, i64)>, !idr.fn<(i64) -> ((i64) -> i64)>, !idr.fn<(i64) -> !idr.fn<(i64) -> i64>>)
+idr.func private @closures(!idr.fn<(i64) -> (i64)>, !idr.fn<() -> ()>,
                             !idr.fn<(i64) -> (i64, i64)>, !idr.fn<(i64) -> ((i64) -> (i64))>,
                             !idr.fn<(i64) -> (!idr.fn<(i64) -> (i64)>)>)

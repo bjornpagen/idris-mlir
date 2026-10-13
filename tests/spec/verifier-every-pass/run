@@ -5,8 +5,9 @@
 # name, instead of a later pass or the program going wrong. It does, in every
 # tool and every test: MLIR's pass manager verifies after each pass by
 # default, idris-mlir-opt's -verify-each is on by default, and the pipelines
-# a pass runs itself (idr-simplify's round, idr-inline's cleanup, idr-eval's
-# lowering) inherit the setting of the manager that runs the pass. The
+# a pass runs itself (idr-simplify's round, idr-inline's cleanup, the nested
+# steps of idr-rc, idr-narrow, idr-in-bounds, idr-returned-arguments and
+# idr-tail-calls) inherit the setting of the manager that runs the pass. The
 # manager skips the verifier only after a pass that says it preserved every
 # analysis, which ours say only when they changed nothing.
 #
@@ -27,7 +28,7 @@ call='(enableVerifier|verifyPasses)[[:space:]]*\('
 on='(enableVerifier|verifyPasses)[[:space:]]*\([[:space:]]*(true)?[[:space:]]*\)'
 off_flag='verify-each=(false|0)|disable-verifier'
 searched -print | sort > "$work/files"
-grep -q '^\./foreign/.*\.cc$' "$work/files" && say "C++ sources searched: yes" || say "C++ sources searched: no"
+grep -qE '^\./foreign/.*\.(cpp|h|cc)$' "$work/files" && say "C++ sources searched: yes" || say "C++ sources searched: no"
 grep -q '^\./tests/idr/.*\.mlir$' "$work/files" && say "RUN lines searched: yes" || say "RUN lines searched: no"
 searched ! -name '*.patch' ! -name '*.diff' -exec grep -HnIE "$call" {} + |
   grep -vE "$on" > "$work/off"

@@ -14,11 +14,11 @@ module attributes {idr.program} {
   idr.data @IO {
     idr.ctor @MkIO (!idr.lin<!idr.data<@Step>>)
   }
-  func.func private @action() -> !idr.data<@IO> {
+  idr.func private @action() -> !idr.data<@IO> {
     %c = idr.constant #idr.con<@IO::@MkIO, [#idr.con<@Step::@Bind, [2, 3]>]> : !idr.data<@IO>
     return %c : !idr.data<@IO>
   }
-  func.func @Prog.main() -> i64 {
+  idr.func @Prog.main() -> i64 {
     %z = arith.constant 0 : i64
     return %z : i64
   }

@@ -9,7 +9,7 @@
 // largest word; by an amount from 0 to 255; and from where an outer
 // counter stands.
 module {
-  func.func @upTo(%n: i64, %w: !idr.world) -> !idr.world {
+  idr.func @upTo(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
@@ -29,7 +29,7 @@ module {
     return %r#1 : !idr.world
   }
 
-  func.func @decides(%n: i64, %w: !idr.world) -> !idr.world {
+  idr.func @decides(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %m1 = arith.constant -1 : i64
@@ -64,7 +64,7 @@ module {
   }
 
   // Poison on the way out is not a value the next iteration steps from.
-  func.func @poisonExit(%n: i64, %w: !idr.world) -> !idr.world {
+  idr.func @poisonExit(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
@@ -98,7 +98,7 @@ module {
     return %r#2 : !idr.world
   }
 
-  func.func @down(%n: i64, %w: !idr.world) -> !idr.world {
+  idr.func @down(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %nine = arith.constant 9 : i64
@@ -125,7 +125,7 @@ module {
     return %out : !idr.world
   }
 
-  func.func @byTwo(%n: i64, %w: !idr.world) -> !idr.world {
+  idr.func @byTwo(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %two = arith.constant 2 : i64
     %top = arith.constant 9223372036854775805 : i64
@@ -148,7 +148,7 @@ module {
     return %r#1 : !idr.world
   }
 
-  func.func @byAmount(%b: i8, %w: !idr.world) -> !idr.world {
+  idr.func @byAmount(%b: i8, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %thousand = arith.constant 1000 : i64
     %a, %w1 = idr.array.new [%thousand], %z, %w : i64 -> memref<?xi64>
@@ -169,7 +169,7 @@ module {
     return %r#1 : !idr.world
   }
 
-  func.func @nested(%n: i64, %w: !idr.world) -> !idr.world {
+  idr.func @nested(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>

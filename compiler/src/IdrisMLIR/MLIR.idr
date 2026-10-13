@@ -3,12 +3,15 @@
 ||| dialect's are the constructors of the sums generated from the dialect's
 ||| ODS (IdrisMLIR.Syntax.*), which this module's types and attributes hold;
 ||| each is written in the syntax ODS declares for it, which the dialect's
-||| generated C++ parser reads. An op is written in MLIR's generic form,
-||| which every op has and which ODS says whole: its name, operands,
-||| inherent attributes (its properties), regions, discardable attributes,
-||| types and location; the generated builders make them
+||| generated C++ parser reads. An op is written in its dialect's declarative
+||| format where the dialect's generated printer has one for it (a
+||| `Format`), its regions and location appended here; otherwise in MLIR's
+||| generic form, which every op has and which ODS says whole: its name,
+||| operands, inherent attributes (its properties), regions, discardable
+||| attributes, types and location. The generated builders make the ops
 ||| (IdrisMLIR.Dialect.*). An op's custom syntax is C++ (custom directives,
-||| hand-written parsers), which nothing generated from ODS can know.
+||| hand-written parsers), which nothing generated from ODS can know, so
+||| such an op is written generic.
 module IdrisMLIR.MLIR
 
 import public IdrisMLIR.MLIR.Text
@@ -125,10 +128,20 @@ attrIf name make = maybe [] (\x => [(name, make x)])
 public export
 data Location = At Loc | Named Shown Loc
 
-||| The file and the 1-based line and column of the start.
+||| The span as MLIR writes a `FileLineColRange`, 1-based at both ends: one
+||| point, a range on one line, or a range across lines. Code with no source
+||| is `unknown`.
 span : Loc -> String
-span l = if l.file == "" then "unknown"
-         else quoted l.file ++ ":" ++ show (l.startLine + 1) ++ ":" ++ show (l.startCol + 1)
+span l =
+  if l.file == "" then "unknown"
+  else let sl = l.startLine + 1
+           sc = l.startCol + 1
+           el = l.endLine + 1
+           ec = l.endCol + 1
+           start = fastConcat [quoted l.file, ":", show sl, ":", show sc]
+       in if sl == el && sc == ec then start
+          else if sl == el then fastConcat [start, " to :", show ec]
+          else fastConcat [start, " to ", show el, ":", show ec]
 
 ||| The location's text inside `loc(...)`. Code from a library whose
 ||| diagnostics are reported at the user's caller (the registry's *Report at
@@ -152,6 +165,13 @@ record Value where
   name : String
   type : MlirType
 
+||| A block argument: the value it binds, at the binder's location.
+public export
+record Argument where
+  constructor MkArgument
+  value : Value
+  at : Location
+
 mutual
   ||| An op, as the generated builders make it (IdrisMLIR.Dialect.*).
   public export
@@ -170,7 +190,7 @@ mutual
   public export
   record Region where
     constructor MkRegion
-    arguments : List Value
+    arguments : List Argument
     statements : List Statement
 
   ||| An op where it stands: the name of its results, if it has any, and
@@ -182,12 +202,20 @@ mutual
     op : Op
     at : Location
 
+||| How an op's dialect writes it: its text in the dialect's declarative
+||| format up to its regions, which the format puts last, or Nothing for an
+||| op written generic.
+public export
+Format : Type
+Format = Op -> Maybe String
+
 indent : Nat -> String
 indent d = replicate (2 * d) ' '
 
-||| An attribute dictionary between `opening` and `closing`, if it has any
-||| entries; a unit attribute is its name alone.
-covering
+||| An attribute dictionary between `opening` and `closing`, after a space,
+||| if it has any entries; a unit attribute is its name alone. The generated
+||| printers write an op's `attr-dict` with it.
+export covering
 dictionary : String -> String -> List NamedAttr -> String
 dictionary opening closing [] = ""
 dictionary opening closing as = " " ++ opening ++ commaSeparated (map entry as) ++ closing
@@ -196,10 +224,11 @@ dictionary opening closing as = " " ++ opening ++ commaSeparated (map entry as) 
     entry (name, UnitAttr) = name
     entry (name, a) = name ++ " = " ++ attrText a
 
-||| A block argument or an operand with its type: `%3: i64`.
+||| A block argument with its type and location: `%3: i64 loc(...)`, as
+||| MLIR's own printer writes a block argument's location.
 covering
-typed : Value -> String
-typed v = v.name ++ ": " ++ typeText v.type
+argumentText : Argument -> String
+argumentText a = fastConcat [a.value.name, ": ", typeText a.value.type, " ", location a.at]
 
 ||| The name of an op's results, as its statement binds them.
 named : Maybe String -> Nat -> String
@@ -207,58 +236,92 @@ named (Just r) (S (S k)) = r ++ ":" ++ show (S (S k)) ++ " = "
 named (Just r) _ = r ++ " = "
 named Nothing _ = ""
 
+||| What an op's text puts around its regions: before the first, between
+||| two, and after the last. In the declarative form the head is the
+||| dialect's and each region follows after a space; in the generic form
+||| `"dialect.op"(operands) <{properties}> (` comes before them and
+||| `) {attributes} : type` after.
+covering
+frame : Format -> Op -> (String, String, String)
+frame format o = case format o of
+  Just declared => case o.regions of
+    [] => (declared, "", "")
+    _ => (declared ++ " ", " ", "")
+  Nothing =>
+    let start = fastConcat [quoted o.name, "(", commaSeparated (map (.name) o.operands), ")",
+                            dictionary "<{" "}>" o.properties]
+        end = fastConcat [dictionary "{" "}" o.attributes, " : ",
+                          signature typeText (MkSignature (map (.type) o.operands) o.results)]
+    in case o.regions of
+         [] => (start ++ end, "", "")
+         _ => (start ++ " (", ", ", ")" ++ end)
+
+||| The opening of a region's one block, indented by `d`. The block is
+||| labelled even when it has no arguments: the generic form reads `{}` as
+||| a region of no blocks, and a block of no ops is one only by its label.
+covering
+blockOpening : Nat -> List Argument -> String
+blockOpening d [] = fastConcat ["{\n", indent d, "^bb0:\n"]
+blockOpening d arguments =
+  fastConcat ["{\n", indent d, "^bb0(", commaSeparated (map argumentText arguments), "):\n"]
+
 -- The text is written as pieces, each function's before the `rest` it is
--- given, and joined once (showModule): appending two strings copies both,
--- so building an op's text from its regions' texts would copy every
+-- given, and joined once per top-level op: appending two strings copies
+-- both, so building an op's text from its regions' texts would copy every
 -- statement once per region around it and once per statement after it in
--- its block, which grows with the square of the module.
+-- its block, which grows with the square of the op.
 mutual
-  ||| `"dialect.op"(operands) <{properties}> (regions) {attributes} : type`,
-  ||| its regions indented by `d`.
+  ||| An op, its regions indented by `d`.
   covering
-  opText : Nat -> Op -> List String -> List String
-  opText d (MkOp name operands properties regions attributes results) rest =
-    let after = dictionary "{" "}" attributes :: " : " ::
-                signature typeText (MkSignature (map (.type) operands) results) :: rest
-    in quoted name :: "(" :: commaSeparated (map (.name) operands) :: ")" ::
-       dictionary "<{" "}>" properties ::
-       (case regions of
-          [] => after
-          _ => " (" :: regionsText d regions (")" :: after))
+  opText : Nat -> Format -> Op -> List String -> List String
+  opText d format o rest =
+    let (before, between, after) = frame format o
+    in before :: regionsText d format between o.regions (after :: rest)
 
   covering
-  regionsText : Nat -> List Region -> List String -> List String
-  regionsText d [] rest = rest
-  regionsText d [r] rest = regionText d r rest
-  regionsText d (r :: rs) rest = regionText d r (", " :: regionsText d rs rest)
-
-  ||| The block is labelled even when it has no arguments: the generic form
-  ||| reads `{}` as a region of no blocks, and a block of no ops is one
-  ||| only by its label.
-  covering
-  regionText : Nat -> Region -> List String -> List String
-  regionText d (MkRegion arguments statements) rest =
-    "{\n" :: indent d :: "^bb0" ::
-    (case arguments of
-       [] => ""
-       _ => "(" ++ commaSeparated (map typed arguments) ++ ")") :: ":\n" ::
-    statementsText (S d) statements (indent d :: "}" :: rest)
+  regionsText : Nat -> Format -> String -> List Region -> List String -> List String
+  regionsText d format between [] rest = rest
+  regionsText d format between [r] rest = regionText d format r rest
+  regionsText d format between (r :: rs) rest =
+    regionText d format r (between :: regionsText d format between rs rest)
 
   covering
-  statementsText : Nat -> List Statement -> List String -> List String
-  statementsText d [] rest = rest
-  statementsText d (s :: ss) rest = statementText d s (statementsText d ss rest)
+  regionText : Nat -> Format -> Region -> List String -> List String
+  regionText d format (MkRegion arguments statements) rest =
+    blockOpening d arguments ::
+    statementsText (S d) format statements (indent d :: "}" :: rest)
 
   covering
-  statementText : Nat -> Statement -> List String -> List String
-  statementText d (MkStatement result op at) rest =
+  statementsText : Nat -> Format -> List Statement -> List String -> List String
+  statementsText d format [] rest = rest
+  statementsText d format (s :: ss) rest = statementText d format s (statementsText d format ss rest)
+
+  covering
+  statementText : Nat -> Format -> Statement -> List String -> List String
+  statementText d format (MkStatement result op at) rest =
     indent d :: named result (length op.results) ::
-    opText d op (" " :: location at :: "\n" :: rest)
+    opText d format op (" " :: location at :: "\n" :: rest)
 
-||| A module: its op, in the generic form too, with what it holds, at its
-||| location. MLIR reads a location after the top-level op as it reads one
-||| after any other, and the module keeps it: a diagnostic about the whole
-||| module is reported there.
+||| A module written whole: its op, with what it holds, at its location.
+||| MLIR reads a location after the top-level op as it reads one after any
+||| other, and the module keeps it: a diagnostic about the whole module is
+||| reported there.
 export covering
-showModule : Location -> Op -> String
-showModule at m = fastConcat (opText 0 m [" ", location at, "\n"])
+showModule : Format -> Location -> Op -> String
+showModule format at m = fastConcat (opText 0 format m [" ", location at, "\n"])
+
+||| A module written one top-level op at a time, so that the text of the
+||| whole module is never held: the text before the statements of its one
+||| region and the text after them, with the module's location. The
+||| statements of `m`'s region are not written; the caller writes each
+||| between the two by `topLevel`.
+export covering
+moduleText : Format -> Location -> Op -> (String, String)
+moduleText format at m =
+  let (before, _, after) = frame format m
+  in (before ++ blockOpening 0 [], fastConcat ["}", after, " ", location at, "\n"])
+
+||| A top-level op of a module written by `moduleText`, with its location.
+export covering
+topLevel : Format -> Statement -> String
+topLevel format s = fastConcat (statementText 1 format s [])

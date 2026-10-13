@@ -2,7 +2,7 @@ module Main
 
 import Prelude
 
--- `build 20000` stays a call: idr-eval is not in the simplify round. The
+-- `build 20000` stays a call: a closed call runs at run time. The
 -- walk reads the list at run time. A reading quadratic in the depth would
 -- not finish within the test's time limit.
 build : Int -> List Int

@@ -24,7 +24,7 @@ idris_sources() {
 }
 # The dialect's own sources.
 dialect_sources() {
-  find foreign/idr -type f \( -name '*.cc' -o -name '*.h' -o -name '*.td' -o -name '*.inc' \) | sort
+  find foreign/idr -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.td' -o -name '*.inc' \) | sort
 }
 
 : > "$work/found"

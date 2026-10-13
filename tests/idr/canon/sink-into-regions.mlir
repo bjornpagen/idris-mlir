@@ -1,4 +1,5 @@
 // RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
+// RUN: idris-mlir-opt %s --canonicalize=test-convergence=true -o /dev/null
 // A value free of effects (an allocation aside) that only a match's regions
 // use moves into each region that uses it; there it meets its consumer.
 
@@ -9,16 +10,16 @@ idr.data @Bool {
 
 // putStr (show x) in both regions of a match on b: the string moves into
 // each region, where output fusion writes the number without building it.
-// CHECK-LABEL: func.func @write_in_both(
-// CHECK-SAME: %[[B:.*]]: !idr.data<@Bool>, %[[X:.*]]: i64, %[[W:.*]]: !idr.world)
+// CHECK-LABEL: idr.func @write_in_both(
+// CHECK-SAME: %[[B:.*]]: !Bool, %[[X:.*]]: i64, %[[W:.*]]: !idr.world)
 // CHECK-NOT: idr.str.show
-// CHECK: idr.match %[[B]]
+// CHECK: match %[[B]]
 // CHECK: case @False() {
 // CHECK: idr.io.put_int signed %[[X]]
 // CHECK: case @True() {
 // CHECK: idr.io.put_int signed %[[X]]
 // CHECK-NOT: idr.str.show
-func.func @write_in_both(%b: !idr.data<@Bool>, %x: i64, %w: !idr.world) -> !idr.world {
+idr.func @write_in_both(%b: !idr.data<@Bool>, %x: i64, %w: !idr.world) -> !idr.world {
   %s = idr.str.show signed %x : i64
   %r = idr.match %b : !idr.data<@Bool> -> (!idr.world) {
   case @False() {
@@ -38,10 +39,10 @@ func.func @write_in_both(%b: !idr.data<@Bool>, %x: i64, %w: !idr.world) -> !idr.
 }
 
 // Used by the match itself (its scrutinee): the value stays.
-// CHECK-LABEL: func.func @scrutinee(
+// CHECK-LABEL: idr.func @scrutinee(
 // CHECK: %[[N:.*]] = arith.addi
-// CHECK-NEXT: idr.match_lit %[[N]]
-func.func @scrutinee(%x: i64) -> i64 {
+// CHECK-NEXT: match_lit %[[N]]
+idr.func @scrutinee(%x: i64) -> i64 {
   %n = arith.addi %x, %x : i64
   %r = idr.match_lit %n : i64 -> (i64) {
   case 0 {
@@ -56,33 +57,33 @@ func.func @scrutinee(%x: i64) -> i64 {
 }
 
 // Used after the match too: the value stays.
-// CHECK-LABEL: func.func @used_after(
+// CHECK-LABEL: idr.func @used_after(
 // CHECK: %[[S:.*]] = idr.str.append
-// CHECK: idr.match_lit
+// CHECK: match_lit
 // CHECK: call @keep(%[[S]])
 // CHECK: call @keep(%[[S]])
-func.func private @keep(!idr.str) -> i64
-func.func @used_after(%n: i64, %a: !idr.str, %b: !idr.str) -> i64 {
+idr.func private @keep(!idr.str) -> i64
+idr.func @used_after(%n: i64, %a: !idr.str, %b: !idr.str) -> i64 {
   %s = idr.str.append %a, %b
   %r = idr.match_lit %n : i64 -> (i64) {
   case 0 {
-    %k = func.call @keep(%s) : (!idr.str) -> i64
+    %k = idr.call @keep(%s) : (!idr.str) -> i64
     idr.yield %k : i64
   }
   default {
     idr.yield %n : i64
   }
   }
-  %k2 = func.call @keep(%s) : (!idr.str) -> i64
+  %k2 = idr.call @keep(%s) : (!idr.str) -> i64
   %t = arith.addi %r, %k2 : i64
   return %t : i64
 }
 
 // A value with an effect (a guard, which may crash) stays before the match.
-// CHECK-LABEL: func.func @may_crash(
+// CHECK-LABEL: idr.func @may_crash(
 // CHECK: idr.check.nonzero
-// CHECK: idr.match_lit
-func.func @may_crash(%n: i64, %x: i64, %y: i64) -> i64 {
+// CHECK: match_lit
+idr.func @may_crash(%n: i64, %x: i64, %y: i64) -> i64 {
   %y1 = idr.check.nonzero %y, "division by zero" : i64
   %q = idr.div signed %x, %y1 : i64
   %r = idr.match_lit %n : i64 -> (i64) {

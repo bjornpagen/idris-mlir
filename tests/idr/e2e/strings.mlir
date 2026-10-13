@@ -7,7 +7,7 @@
 // on it.
 // CHECK: 3 98 é 2
 module attributes {idr.program} {
-  func.func private @word(%c: i32) -> !idr.str {
+  idr.func private @word(%c: i32) -> !idr.str {
     %r = idr.match_lit %c : i32 -> (!idr.str) {
     case 97 {
       %s = idr.constant "apple" : !idr.str
@@ -20,7 +20,7 @@ module attributes {idr.program} {
     }
     return %r : !idr.str
   }
-  func.func private @rank(%s: !idr.str) -> i64 {
+  idr.func private @rank(%s: !idr.str) -> i64 {
     %r = idr.match_lit %s : !idr.str -> (i64) {
     case "apple" {
       %one = arith.constant 1 : i64
@@ -37,9 +37,9 @@ module attributes {idr.program} {
     }
     return %r : i64
   }
-  func.func @Prog.main(%w: !idr.world) -> !idr.world {
+  idr.func @Prog.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_byte %w
-    %s = func.call @word(%c) : (i32) -> !idr.str
+    %s = idr.call @word(%c) : (i32) -> !idr.str
     %n = idr.str.length %s
     %w2 = idr.io.put_int signed %n, %w1 : i64
     %sp = arith.constant 32 : i32
@@ -51,7 +51,7 @@ module attributes {idr.program} {
     %e = idr.str.index %s, %one
     %w6 = idr.io.put_char %e, %w5
     %w7 = idr.io.put_char %sp, %w6
-    %r = func.call @rank(%s) : (!idr.str) -> i64
+    %r = idr.call @rank(%s) : (!idr.str) -> i64
     %w8 = idr.io.put_int signed %r, %w7 : i64
     %nl = arith.constant 10 : i32
     %w9 = idr.io.put_char %nl, %w8

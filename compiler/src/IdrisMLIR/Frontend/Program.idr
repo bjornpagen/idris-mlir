@@ -34,21 +34,46 @@ import Libraries.Utils.Path
 
 %default covering
 
-||| A file of the compilation's, in its directory, made first with those it
-||| is in when it does not exist, as Idris's own -o makes its output's.
-||| Not being able to write it is the compiler's failure, as idris-mlir's
-||| own outputs are, not the program's.
+||| The directory a file of the compilation's is in, made first with those
+||| it is in when it does not exist, as Idris's own -o makes its output's.
+||| Not being able to write a file is the compiler's failure, as
+||| idris-mlir's own outputs are, not the program's.
+makeParent : String -> Core ()
+makeParent path = case Libraries.Utils.Path.parent path of
+  Just dir => do
+    Right () <- coreLift (mkdirAll dir)
+      | Left err => throw (InternalError ("cannot write " ++ path ++ ": " ++ show err))
+    pure ()
+  Nothing => pure ()
+
+||| A file of the compilation's.
 write : String -> String -> Core ()
 write path text = do
-  case Libraries.Utils.Path.parent path of
-    Just dir => do
-      Right () <- coreLift (mkdirAll dir)
-        | Left err => throw (InternalError ("cannot write " ++ path ++ ": " ++ show err))
-      pure ()
-    Nothing => pure ()
+  makeParent path
   Right () <- coreLift (writeFile path text)
     | Left err => throw (InternalError ("cannot write " ++ path ++ ": " ++ show err))
   pure ()
+
+||| The module, written as Emit makes it, top-level op by top-level op, so
+||| that no text of the whole module is held. It streams to its path, and a
+||| module Emit gives up on is removed, so a failed emit leaves no partial
+||| module there: its message, with the Core it could not emit, is the
+||| compiler's failure. There is no write beside the path and rename onto
+||| it: base has no rename, and `%foreign` is outside the language this
+||| compiler compiles, which the frontend is written in.
+writeModule : FC -> String -> Source -> Core ()
+writeModule fc path src = do
+  makeParent path
+  Right h <- coreLift (openFile path WriteTruncate)
+    | Left err => throw (InternalError ("cannot write " ++ path ++ ": " ++ show err))
+  emitted <- coreLift (emit h src)
+  coreLift (closeFile h)
+  case emitted of
+    Right () => pure ()
+    Left msg => do
+      ignore (coreLift (removeFile path))
+      ignore (coreLift (fPutStrLn stderr (showSource src)))
+      internal fc ("Emit: " ++ msg)
 
 ||| Nanoseconds on the monotonic clock.
 now : Core Integer
@@ -70,17 +95,6 @@ validated breakShape fc = case !(validate breakShape) of
   Valid => pure ()
   Wrong at owner msg => reject at owner HookShape msg
   NoSuchEntry name => internal fc ("--break-shape=" ++ name ++ " names no entry of the registry")
-
-||| The middle end: Translate's full Core, printed, and `Emit`'s
-||| contract text.
-middle : FC -> Source -> Core (String, String)
-middle fc src = do
-  let core = showSource src
-  Right mlir <- pure (emit src)
-    | Left msg => do
-        ignore (coreLift (fPutStrLn stderr core))
-        internal fc ("Emit: " ++ msg)
-  pure (core, mlir)
 
 isUser : Origin -> Bool
 isUser User = True
@@ -174,11 +188,12 @@ program mainFile breakShape timing corePath mlirPath = do
         reportTimes timing [("checks", t1 - t0), ("reachable", t2 - t1), ("translate", t3 - t2)]
         rejections
   t3 <- now
-  (core, mlir) <- middle fc prog
+  -- The Core is printed once the module is written, so that neither text
+  -- is held while the other is made, and a compilation Emit gives up on
+  -- writes neither.
+  writeModule fc mlirPath prog
+  write corePath (showSource prog)
   t4 <- now
-  write corePath core
-  write mlirPath mlir
-  t5 <- now
   reportTimes timing [ ("checks", t1 - t0), ("reachable", t2 - t1), ("translate", t3 - t2)
-                     , ("print", t4 - t3), ("write", t5 - t4) ]
+                     , ("emit", t4 - t3) ]
   pure []

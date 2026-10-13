@@ -24,16 +24,16 @@ module {
     idr.ctor @running ()
     idr.ctor @forced (i64)
   }
-  func.func private @one() -> i64 attributes {idr.total} {
+  idr.func private @one() -> i64 attributes {total} {
     %c = arith.constant 1 : i64
     return %c : i64
   }
-  func.func private @plus(%x: i64) -> i64 attributes {idr.total} {
+  idr.func private @plus(%x: i64) -> i64 attributes {total} {
     %c = arith.constant 1 : i64
     %y = arith.addi %x, %c : i64
     return %y : i64
   }
-  func.func private @once(%t: !idr.excl<!idr.box<@lazy$0>>) -> i64 {
+  idr.func private @once(%t: !idr.excl<!idr.box<@lazy$0>>) -> i64 {
     %v = idr.force %t : !idr.excl<!idr.box<@lazy$0>> -> i64
     return %v : i64
   }

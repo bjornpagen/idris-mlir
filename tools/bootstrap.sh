@@ -24,8 +24,17 @@
 #             compiler: it runs Idris 2 and bench/'s baseline
 #   idris     Idris 2 and its API (third_party/Idris2), on  -> .toolchain/idris2
 #             the pinned Chez Scheme
+#   tracy     Tracy's capture tool (third_party/tracy),     -> .toolchain/tracy
+#             static, built with the stage-2 clang;
+#             tools/profile.sh runs it
+#   typecheck LLVM and MLIR's TableGen and generated  -> .toolchain/typecheck
+#             headers alone, built with the host's C++
+#             compiler from stage 2's patched tree, and a
+#             toolchain file for the host's compiler
+#             against them (make typecheck); in no other
+#             step, and not in `all`
 #   llvm      stage1, libc, runtimes and stage2
-#   all       every step, in the order above
+#   all       every step but typecheck, in the order above
 #
 # Every host runs the same steps: one recipe builds the toolchain of either
 # target. What the target's operating system forces is decided once, in the
@@ -100,6 +109,9 @@ runtimes_prefix=$toolchain/runtimes
 llvm_prefix=$toolchain/llvm
 chez_prefix=$toolchain/chez
 idris_prefix=$toolchain/idris2
+tracy_prefix=$toolchain/tracy
+tracy_capture=$tracy_prefix/bin/tracy-capture
+typecheck_prefix=$toolchain/typecheck
 llvm_source=$toolchain/llvm-project
 cmake=$cmake_prefix/bin/cmake
 ninja=$ninja_prefix/bin/ninja
@@ -200,7 +212,7 @@ native_cmake_flags() {
 
 usage() {
   if [ $# -gt 0 ]; then printf 'bootstrap: %s\n' "$*" >&2; fi
-  echo 'usage: tools/bootstrap.sh STEP...  (cmake ninja stage1 libc runtimes stage2 gmp chez idris llvm all)' >&2
+  echo 'usage: tools/bootstrap.sh STEP...  (cmake ninja stage1 libc runtimes stage2 gmp chez idris tracy typecheck llvm all)' >&2
   exit 2
 }
 
@@ -208,9 +220,9 @@ usage() {
 steps=
 for arg in "$@"; do
   case $arg in
-    cmake | ninja | stage1 | libc | runtimes | stage2 | gmp | chez | idris) steps="$steps $arg" ;;
+    cmake | ninja | stage1 | libc | runtimes | stage2 | gmp | chez | idris | tracy | typecheck) steps="$steps $arg" ;;
     llvm) steps="$steps stage1 libc runtimes stage2" ;;
-    all) steps="$steps cmake ninja stage1 libc runtimes stage2 gmp chez idris" ;;
+    all) steps="$steps cmake ninja stage1 libc runtimes stage2 gmp chez idris tracy" ;;
     -h | --help)
       sed -n '2,/^$/s/^# \{0,1\}//p' "$0"
       exit 0
@@ -330,6 +342,7 @@ gmp_version=$(lock_value gmp version) || exit 1
 chez_revision=$(lock_value chez revision) || exit 1
 chez_tag=$(lock_value chez tag) || exit 1
 chez_version=$(lock_value chez version) || exit 1
+tracy_tag=$(lock_value tracy tag) || exit 1
 
 # --- Stamps and inputs --------------------------------------------------
 
@@ -372,6 +385,8 @@ stamp_of() {
     stage2) echo "$llvm_prefix/provenance.json" ;;
     chez) echo "$chez_prefix/provenance.json" ;;
     idris) echo "$idris_prefix/provenance.json" ;;
+    tracy) echo "$tracy_prefix/provenance.json" ;;
+    typecheck) echo "$typecheck_prefix/provenance.json" ;;
     *) die "internal error: no step $1" ;;
   esac
 }
@@ -531,6 +546,11 @@ stop_sampling() {
 
 finish() {
   rm -rf "$build"
+  finished
+}
+
+# finished: the step's time, in its output and the summary.
+finished() {
   finish_seconds=$(($(date +%s) - started))
   finish_time=$(printf '%dh%02dm' $((finish_seconds / 3600)) $((finish_seconds % 3600 / 60)))
   say "    done in $finish_time"
@@ -716,7 +736,8 @@ llvm_tree() {
 }
 
 # llvm_tree_done: stage 2, the last step to read the patched copy, has
-# installed what it built from it.
+# installed what it built from it. The typecheck step's build reads the
+# copy in place, and is made again when it is gone.
 llvm_tree_done() {
   rm -rf "$builds/llvm-project" "$builds/llvm-project.inputs"
 }
@@ -846,9 +867,8 @@ CFG
 # this clang's resource directory; GMP is the sysroot beside it, its headers
 # system headers as on Linux; the pinned ld64.lld links dynamic PIE
 # executables. The pinned libc++ is installed beside the clang, where the
-# Darwin driver takes its headers before the SDK's (as system headers) and
-# CMake's import std finds libc++.modules.json; -L makes -lc++ the static
-# libc++.a there, not the SDK's libc++.tbd.
+# Darwin driver takes its headers before the SDK's (as system headers); -L
+# makes -lc++ the static libc++.a there, not the SDK's libc++.tbd.
 config_file_sdk() {
   cat << CFG
 # idris-mlir's toolchain for $triple, written by tools/bootstrap.sh:
@@ -1136,6 +1156,106 @@ recipe_idris() {
   printf '%s\n' "chez $recipe_chez_inputs" "make bootstrap install install-api"
 }
 
+# What Tracy's build would fetch at configure (CPM), each a pin of the lock
+# instead, by the lock's name and the name Tracy's CMake gives it: the
+# disassembler, the compressor, the parallel sort and the JSON reader of its
+# server code.
+tracy_sources='capstone:capstone zstd:zstd ppqsort:PPQSort nlohmann_json:json'
+
+# The capture tool alone, by the stage-2 clang for the target, as every
+# tool here is: no CPU of the building machine's (-march=native), no LTO
+# probe, no linker or compiler cache of Tracy's choosing, no git query (the
+# exported source has none), and every source CPM would fetch given as the
+# pinned copy under the build directory.
+args_tracy() {
+  printf '%s
+' -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_MAKE_PROGRAM=$ninja" \
+    "-DCMAKE_TOOLCHAIN_FILE=$llvm_prefix/toolchain.cmake" \
+    -DNO_ISA_EXTENSIONS=ON -DNO_LTO=ON -DNO_MOLD_LINKER=ON -DNO_CCACHE=ON \
+    -DCMAKE_DISABLE_FIND_PACKAGE_Git=ON -DCPM_USE_LOCAL_PACKAGES=OFF
+  for args_tracy_source in $tracy_sources; do
+    printf '%s\n' "-DCPM_${args_tracy_source#*:}_SOURCE=$builds/tracy/${args_tracy_source%%:*}"
+  done
+}
+
+recipe_tracy() {
+  recipe_tracy_revision=$(submodule third_party/tracy tracy) || exit 1
+  recipe_stage2_inputs=$(inputs stage2) || exit 1
+  printf '%s\n' "tracy $recipe_tracy_revision"
+  for recipe_tracy_source in $tracy_sources; do
+    recipe_tracy_name=${recipe_tracy_source%%:*}
+    recipe_tracy_pin=$(lock_value "$recipe_tracy_name" revision) || exit 1
+    printf '%s\n' "$recipe_tracy_name $recipe_tracy_pin"
+  done
+  printf '%s\n' "stage2 $recipe_stage2_inputs"
+  args_tracy
+}
+
+# What the typecheck step builds: the TableGen tools and libraries, which
+# idris-mlir-tblgen links, and every header LLVM and MLIR generate, which
+# our code includes, directly or through MLIR's (LLVM's *_gen targets, three
+# of them under llvm-headers; mlir-headers). Nothing else of LLVM is
+# compiled, so nothing of ours can be linked but idris-mlir-tblgen.
+typecheck_targets='llvm-tblgen mlir-tblgen MLIRTblgenLib llvm-headers acc_gen analysis_gen vt_gen mlir-headers'
+
+# The typecheck build: stage 2's options that shape the headers our code
+# includes (the triple, the targets, assertions and statistics, which
+# llvm-config.h says to every includer; no RTTI or exceptions), with the
+# host's compilers, which compile our code against it, and none of the
+# host's optional libraries.
+args_typecheck() {
+  printf '%s\n' -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    "-DCMAKE_C_COMPILER=$host_cc" "-DCMAKE_CXX_COMPILER=$host_cxx" "-DCMAKE_MAKE_PROGRAM=$ninja" \
+    -DLLVM_ENABLE_PROJECTS=mlir "-DLLVM_TARGETS_TO_BUILD=$llvm_targets" \
+    "-DLLVM_HOST_TRIPLE=$triple" "-DLLVM_DEFAULT_TARGET_TRIPLE=$triple" \
+    -DLLVM_ENABLE_ASSERTIONS=ON -DLLVM_FORCE_ENABLE_STATS=ON -DLLVM_ENABLE_RTTI=OFF -DLLVM_ENABLE_EH=OFF \
+    -DLLVM_ENABLE_PLUGINS=OFF
+  native_cmake_flags
+  llvm_without_host_libraries
+}
+
+# The CMake toolchain file of the typecheck preset (CMakePresets.json): the
+# host's compilers, by their paths, for the target's triple, MLIR's and
+# LLVM's packages in the typecheck build tree, and IDRIS_MLIR_TYPECHECK,
+# which makes the project a check that our code compiles
+# (CMakeLists.txt). The project's C++26 is spelled for CMake, which does not
+# know every host compiler's flag for it (Apple's clang); every compiler
+# that has C++26 accepts -std=c++2c.
+typecheck_toolchain_file() {
+  typecheck_cc=$(command -v "$host_cc") || die "no $host_cc on PATH"
+  typecheck_cxx=$(command -v "$host_cxx") || die "no $host_cxx on PATH"
+  cat << CMAKE
+# idris-mlir's typecheck toolchain for $triple, written by
+# tools/bootstrap.sh typecheck: the host's compilers against the TableGen-only
+# LLVM/MLIR build in $builds/typecheck-llvm.
+set(CMAKE_C_COMPILER "$typecheck_cc")
+set(CMAKE_CXX_COMPILER "$typecheck_cxx")
+set(CMAKE_C_COMPILER_TARGET "$triple")
+set(CMAKE_CXX_COMPILER_TARGET "$triple")
+set(CMAKE_CXX26_STANDARD_COMPILE_OPTION "-std=c++2c")
+set(CMAKE_CXX26_EXTENSION_COMPILE_OPTION "-std=gnu++2c")
+set(MLIR_DIR "$builds/typecheck-llvm/lib/cmake/mlir" CACHE PATH "the TableGen-only MLIR's package")
+set(LLVM_DIR "$builds/typecheck-llvm/lib/cmake/llvm" CACHE PATH "the TableGen-only LLVM's package")
+set(IDRIS_MLIR_TYPECHECK ON CACHE BOOL "compile our code against the TableGen-only LLVM/MLIR" FORCE)
+CMAKE
+}
+
+# What the typecheck build reads, apart from the targets it builds and the
+# toolchain file written after it, so that another target or a change of
+# the file alone resumes it.
+typecheck_llvm_inputs() {
+  printf '%s\n' "llvm $llvm_revision"
+  patch_inputs llvm
+  printf '%s\n' "host compiler $("$host_cxx" --version 2>&1 | head -n 1)"
+  args_typecheck
+}
+
+recipe_typecheck() {
+  typecheck_llvm_inputs
+  printf '%s\n' "targets $typecheck_targets"
+  typecheck_toolchain_file
+}
+
 # --- Steps --------------------------------------------------------------
 
 step_cmake() {
@@ -1298,7 +1418,7 @@ step_runtimes() {
   run "build the C++ runtimes" "$ninja" -C "$build/runtimes" -j "$jobs"
   run "install the C++ runtimes" "$ninja" -C "$build/runtimes" install
   for runtimes_file in $builtins_files "$cxx_libdir/libc++.a" "$cxx_libdir/libc++abi.a" \
-    "$cxx_libdir/libc++.modules.json" share/libc++/v1/std.cppm include/c++/v1/vector; do
+    include/c++/v1/vector; do
     [ -e "$runtimes_prefix/$runtimes_file" ] || die "the runtimes step installed no $runtimes_file"
   done
   for runtimes_file in $builtins_files "$cxx_libdir/libc++.a"; do
@@ -1362,8 +1482,7 @@ step_stage2() {
     bin/mlir-opt bin/mlir-translate bin/mlir-tblgen bin/FileCheck bin/not bin/count \
     lib/cmake/llvm/LLVMConfig.cmake lib/cmake/mlir/MLIRConfig.cmake lib/libLLVMSupport.a lib/libMLIRIR.a \
     include/mlir/IR/MLIRContext.h "lib/clang/$llvm_major/include/stddef.h" \
-    $builtins_files "$cxx_libdir/libc++.a" "$cxx_libdir/libc++.modules.json" share/libc++/v1/std.cppm \
-    include/c++/v1/vector "bin/$triple.cfg" toolchain.cmake; do
+    $builtins_files "$cxx_libdir/libc++.a" include/c++/v1/vector "bin/$triple.cfg" toolchain.cmake; do
     [ -e "$llvm_prefix/$stage2_file" ] || die "stage 2 installed no $stage2_file"
   done
   version_is "$llvm_prefix/bin/clang" "clang version $llvm_version"
@@ -1376,10 +1495,6 @@ step_stage2() {
   for stage2_file in $builtins_files "$cxx_libdir/libc++.a"; do
     check_native "$llvm_prefix" "$llvm_prefix/$stage2_file"
   done
-  # CMake's import std reads the module manifest where the driver names it.
-  stage2_modules=$("$llvm_prefix/bin/clang++" "--target=$triple" -print-file-name=libc++.modules.json)
-  [ "$(cd "$(dirname "$stage2_modules")" 2> /dev/null && pwd -P)" = "$(cd "$llvm_prefix/$cxx_libdir" && pwd -P)" ] ||
-    die "the pinned clang++ names $stage2_modules as libc++.modules.json, not the one in $llvm_prefix/$cxx_libdir"
   mkdir -p "$build/check"
   printf '#include <stdio.h>\nint main(void) { puts("c ok"); return 0; }\n' > "$build/check/c.c"
   printf '#include <cstdio>\n#include <vector>\nint main() { std::vector<int> v{1, 2}; std::printf("c++ ok %%zu %%d\\n", v.size(), _LIBCPP_VERSION / 10000); }\n' > "$build/check/cc.cc"
@@ -1511,6 +1626,103 @@ idris_make() {
     fi
     cd "$build/src" && make "$@" "PREFIX=$idris_prefix" "SCHEME=$chez" "VERSION_TAG=$idris_version_tag"
   )
+}
+
+# Tracy's capture tool, which tools/profile.sh starts before a compile of
+# the profile preset's idris-mlir: the pinned submodule's, built by the
+# stage-2 clang, statically, and checked as the target's executables are.
+# What its CMake would fetch is each cloned at the lock's revision and
+# exported beside it; PPQSort takes the two patches Tracy's CMake applies
+# to its fetch, from the submodule. PIN(tracy-profiler) — see PINS.md
+step_tracy() {
+  begin tracy "Tracy's capture tool $tracy_tag, with the stage-2 clang" || return 0
+  require cmake ninja stage2 libc
+  need git
+  submodule third_party/tracy tracy > /dev/null
+  build_dir
+  export_source "$root/third_party/tracy" "$build/tracy"
+  for step_tracy_source in $tracy_sources; do
+    step_tracy_name=${step_tracy_source%%:*}
+    clone_pinned "$step_tracy_name" "$build/clones/$step_tracy_name"
+    export_source "$build/clones/$step_tracy_name" "$build/$step_tracy_name"
+  done
+  for step_tracy_patch in ppqsort-nodebug ppqsort-semaphore; do
+    run "apply Tracy's $step_tracy_patch.patch" in_dir "$build/ppqsort" \
+      env "GIT_CEILING_DIRECTORIES=$build" git apply --verbose "$build/tracy/cmake/$step_tracy_patch.patch"
+  done
+  eval "set -- $({ args_tracy; ccache_flags; } | quote_lines)"
+  run configure "$cmake" -S "$build/tracy/capture" -B "$build/out" "$@"
+  run build "$cmake" --build "$build/out" --parallel "$jobs" --target tracy-capture
+  rm -rf "$tracy_prefix"
+  mkdir -p "$tracy_prefix/bin"
+  run install cp "$build/out/tracy-capture" "$tracy_capture"
+  check_executable "$llvm_prefix" "$tracy_capture"
+  # -h prints the version and the usage, and exits 1.
+  step_tracy_usage=$("$tracy_capture" -h 2>&1) || true
+  case $step_tracy_usage in
+    "tracy-capture ${tracy_tag#v} "*) ;;
+    *) die "$tracy_capture -h does not name version ${tracy_tag#v}: $step_tracy_usage" ;;
+  esac
+  write_stamp "$(stamp_of tracy)" step tracy revision "$(lock_value tracy revision)" tag "$tracy_tag" \
+    inputs "$step_inputs" built "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  finish
+}
+
+# The typecheck build: what the host's C++ compiler needs to compile our
+# code against the pinned LLVM/MLIR without stage 2, which takes hours: the
+# patched tree's headers and the ones its TableGen generates, from a build
+# of TableGen alone, and the toolchain file that names them. The build is
+# kept, in .toolchain/build/typecheck-llvm, since the package it exports is
+# that build tree, and so is the patched tree, which the package's include
+# directories name (llvm_tree, without llvm_tree_done). Stage 2 deletes the
+# patched tree once it has installed what it built from it; the step is
+# then made again. The build resumes while what it reads is the same (a
+# failed one too).
+step_typecheck() {
+  typecheck_stamp=$(stamp_of typecheck)
+  if [ -f "$typecheck_stamp" ]; then
+    typecheck_tree=$(stamp_get "$typecheck_stamp" tree)
+    if [ -z "$typecheck_tree" ] || [ ! -f "$typecheck_tree/mlir/include/mlir/IR/OpBase.td" ]; then
+      say "    typecheck: the tree its build reads is gone"
+      rm -f "$typecheck_stamp"
+    fi
+  fi
+  begin typecheck "LLVM/MLIR's TableGen and headers $llvm_name, with the host's C++ compiler" || return 0
+  require cmake ninja
+  need git python3 "$host_cc" "$host_cxx"
+  llvm_tree
+  build=$builds/typecheck-llvm
+  typecheck_key=$(typecheck_llvm_inputs | digest) || exit 1
+  if [ -f "$build/.inputs" ] && [ "$(cat "$build/.inputs")" = "$typecheck_key" ]; then
+    say "    resuming in $build"
+  else
+    rm -rf "$build"
+    mkdir -p "$build"
+    printf '%s\n' "$typecheck_key" > "$build/.inputs"
+  fi
+  eval "set -- $({ args_typecheck; llvm_revision_flags; ccache_flags; } | quote_lines)"
+  run configure "$cmake" -S "$llvm_tree/llvm" -B "$build" "$@" \
+    "-DPython3_EXECUTABLE=$(command -v python3)" \
+    "-DLLVM_PARALLEL_COMPILE_JOBS=$jobs" -DLLVM_PARALLEL_LINK_JOBS=1
+  # shellcheck disable=SC2086 # the targets are words
+  run "build TableGen and the generated headers" "$ninja" -C "$build" -j "$jobs" $typecheck_targets
+  for typecheck_file in bin/llvm-tblgen bin/mlir-tblgen lib/libMLIRTblgenLib.a lib/libMLIRTableGen.a \
+    lib/libLLVMTableGen.a lib/libLLVMSupport.a lib/cmake/llvm/LLVMConfig.cmake \
+    lib/cmake/mlir/MLIRConfig.cmake include/llvm/IR/IntrinsicEnums.inc include/llvm/Frontend/OpenMP/OMP.h.inc \
+    tools/mlir/include/mlir/IR/BuiltinOps.h.inc; do
+    [ -e "$build/$typecheck_file" ] || die "the typecheck build made no $typecheck_file"
+  done
+  version_is "$build/bin/mlir-tblgen" "LLVM version $llvm_version"
+  mkdir -p "$typecheck_prefix"
+  typecheck_toolchain_file > "$typecheck_prefix/toolchain.cmake.new" &&
+    mv "$typecheck_prefix/toolchain.cmake.new" "$typecheck_prefix/toolchain.cmake" ||
+    die "cannot write $typecheck_prefix/toolchain.cmake"
+  write_stamp "$(stamp_of typecheck)" step typecheck revision "$llvm_revision" llvm_revision "$llvm_revision" \
+    "$llvm_name_key" "$llvm_name" version "$llvm_version" triple "$triple" targets "$llvm_targets" \
+    inputs "$step_inputs" patches "$(patch_stamp llvm)" tree "$llvm_tree" llvm_build "$build" \
+    toolchain_file "$typecheck_prefix/toolchain.cmake" \
+    host_compiler "$("$host_cxx" --version 2>&1 | head -n 1)" built "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  finished
 }
 
 # --- Main ---------------------------------------------------------------

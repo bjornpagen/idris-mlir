@@ -1,0 +1,152 @@
+// Integers computed in fewer bits where an analysis proves they fit.
+//
+// idr-narrow makes the bigs and naturals that fit a small plain i64 words,
+// after versioning, across the module, each loop whose natural only
+// descends; the word rewrite then runs per function under the module's
+// Ranges (the bounds of values, Facts; the values carried round loops and
+// out of merges, the joints; the ops, the words). idr-narrow-lanes makes
+// the integer lanes of a vectorized loop compute in 32 bits under a runtime
+// bound on its sizes, found on a copy of the loop (Copy) whose ops' widths
+// it reads.
+#ifndef IDR_TRANSFORMS_NARROW_H
+#define IDR_TRANSFORMS_NARROW_H
+
+#include "idr/Analysis/Ranges.h"
+#include "idr/IR/Ranges.h"
+
+#include "mlir/Analysis/DataFlowFramework.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/OwningOpRef.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/Interfaces/InferIntRangeInterface.h"
+#include "mlir/Pass/Pass.h"
+
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/MapVector.h"
+#include "llvm/ADT/SetVector.h"
+
+#include <cstdint>
+#include <memory>
+
+namespace idr {
+#define GEN_PASS_DECL_IDRNARROW
+#define GEN_PASS_DECL_IDRNARROWLANES
+#include "idr/Transforms/Passes.h.inc"
+} // namespace idr
+
+namespace idr::narrow {
+
+// Whether `type` is a big or a natural, under any grade.
+bool isBig(mlir::Type type);
+
+// The bounds of values: the analysis's, and those of the values the pass
+// makes, which stand for values it analysed. One per function rewritten
+// (one for the module while loops are versioned); nothing it learns
+// outlives the run.
+class Facts {
+public:
+  explicit Facts(const Ranges &analysis) : analysis(analysis) {}
+
+  // Whether the big `value` holds a reference of its own, which a word
+  // taking its place in a consuming use leaves it to drop.
+  bool owned(mlir::Value value) const;
+  // Whether `value` is borrowed once counting ran: it is counted, and holds
+  // no reference of its own.
+  bool borrowed(mlir::Value value) const;
+
+  ranges::Bounds of(mlir::Value value) const;
+  bool fits(mlir::Value value) const { return isBig(value.getType()) && of(value).fits(); }
+  // Nothing among `values` is negative.
+  bool nonNegative(mlir::ValueRange values) const;
+
+  // The word of the big `value`: the integer it was made of, when it was,
+  // or its value converted.
+  mlir::Value word(mlir::OpBuilder &b, mlir::Location loc, mlir::Value value);
+  // The big of type `type` whose value is `word`, with the bounds `bounds`,
+  // which prove it small: it holds no reference, so counting skips it.
+  mlir::Value big(mlir::OpBuilder &b, mlir::Location loc, mlir::Type type, mlir::Value word,
+                  ranges::Bounds bounds);
+
+  // Whether `op` is a conversion made here, which the folds that pair
+  // conversions take, and which is never narrowed again.
+  bool made(mlir::Operation *op) const { return conversions.contains(op); }
+
+private:
+  void convert(mlir::Operation *op) { conversions.insert(op); }
+
+  const Ranges &analysis;
+  llvm::DenseMap<mlir::Value, ranges::Bounds> madeBounds;
+  llvm::DenseSet<mlir::Operation *> conversions;
+};
+
+// The versioning of each scf.while whose natural only descends; adds the
+// loops versioned to `versioned`.
+void populateVersionPatterns(mlir::RewritePatternSet &patterns, Facts &facts,
+                             uint64_t &versioned);
+// The joints (loops and merges) whose carried bigs all fit made words; adds
+// the values made words to `carried`.
+void populateJointPatterns(mlir::RewritePatternSet &patterns, Facts &facts, uint64_t &carried);
+// The ops whose bigs all fit made ops on words; adds the ops rewritten to
+// `narrowed`.
+void populateWordPatterns(mlir::RewritePatternSet &patterns, Facts &facts, uint64_t &narrowed);
+
+// Whether `loop` is vectorized, as its ops say.
+bool isVectorized(mlir::scf::ForOp loop);
+// The values `loop` reads from outside it, in the order of their first use.
+llvm::SetVector<mlir::Value> inputsOf(mlir::scf::ForOp loop);
+// Whether `value` is one the version tests.
+bool testable(mlir::Value value);
+// Whether a word of `range` fits a signed 32-bit one.
+bool fits32(const mlir::ConstantIntRanges &range);
+
+// What an op computes on: whether on integers wider than 32 bits, and
+// whether on lanes of them.
+struct Width {
+  bool wide = false;
+  bool lanes = false;
+};
+Width widthOf(mlir::Operation *op);
+// Whether `loop` computes on lanes of integers wider than 32 bits.
+bool computesWideLanes(mlir::scf::ForOp loop);
+
+// Whether `loop` runs at most once, as upstream's value bounds see its
+// bounds.
+bool runsAtMostOnce(mlir::scf::ForOp loop);
+
+// The copy of a loop in a scratch module: a function of the values the
+// loop reads from outside, each testable one behind arith.minui of itself
+// and the bound, a constant the trials set. The copy owns the scratch
+// module, which is under no op of the program.
+class Copy {
+public:
+  Copy(mlir::Location loc, mlir::scf::ForOp loop, const llvm::SetVector<mlir::Value> &inputs);
+
+  // The analysis of the copy with the bound 2^exponent; none when the
+  // solver fails, which is an internal error.
+  std::unique_ptr<mlir::DataFlowSolver> analyse(unsigned exponent);
+  // Whether, under `solver`'s analysis, every op of the copied loop that
+  // computes on integers wider than 32 bits fits 32 bits.
+  bool fits(mlir::DataFlowSolver &solver);
+  // Narrows the copy under `solver`'s analysis; failure when the patterns
+  // do not converge.
+  mlir::LogicalResult narrow(mlir::DataFlowSolver &solver);
+  // Clones the copy's body at `b`, its arguments standing for `inputs`
+  // again.
+  void cloneInto(mlir::OpBuilder &b, const llvm::SetVector<mlir::Value> &inputs);
+
+private:
+  mlir::OwningOpRef<mlir::ModuleOp> module;
+  mlir::func::FuncOp function;
+  // The copied loop, after the stand-ins.
+  mlir::Operation *copy = nullptr;
+  // The bound: one constant per type of input tested.
+  llvm::MapVector<mlir::Type, mlir::Value> bounds;
+};
+
+} // namespace idr::narrow
+
+#endif // IDR_TRANSFORMS_NARROW_H

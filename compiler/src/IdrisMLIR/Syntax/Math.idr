@@ -27,4 +27,4 @@ Prelude.EqOrd.Eq RoundingMode where
   RoundingMode.ToNearestAway == RoundingMode.ToNearestAway = True
   _ == _ = False
 
--- fingerprint: 3209111772-774983 2742482857-1095
+-- fingerprint: 2450473905-802604 2742482857-1095

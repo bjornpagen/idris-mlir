@@ -8,15 +8,15 @@
 // accumulator changes on every iteration, so it is no fixed parameter and
 // the call is not specialized on it: no clone, no remark, and a second run
 // changes nothing.
-// CHECK-NOT: $spec$
+// CHECK-NOT: .spec
 // CHECK: call @count(
-// CHECK-NOT: $spec$
+// CHECK-NOT: .spec
 // REMARK-NOT: [Missed]
 // AGAIN-NOT: [Missed]
 // AGAIN: remark: [Passed] idr-simplify | Category:idr-simplify
 // AGAIN-SAME: fixpoint: round 1 changed nothing
 module attributes {idr.program} {
-  func.func private @count(%acc: !idr.big, %n: i64) -> !idr.big attributes {idr.total} {
+  idr.func private @count(%acc: !idr.big, %n: i64) -> !idr.big attributes {total} {
     %r = idr.match_lit %n : i64 -> (!idr.big) {
     case 0 {
       idr.yield %acc : !idr.big
@@ -26,17 +26,17 @@ module attributes {idr.program} {
       %c1 = arith.constant 1 : i64
       %a = idr.big.add %acc, %one
       %m = arith.subi %n, %c1 : i64
-      %x = func.call @count(%a, %m) : (!idr.big, i64) -> !idr.big
+      %x = idr.call @count(%a, %m) : (!idr.big, i64) -> !idr.big
       idr.yield %x : !idr.big
     }
     }
     return %r : !idr.big
   }
-  func.func @Main.main(%w: !idr.world) -> !idr.world {
+  idr.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_byte %w
     %n = arith.extui %c : i32 to i64
     %zero = idr.constant #idr.big<"0"> : !idr.big
-    %r = func.call @count(%zero, %n) : (!idr.big, i64) -> !idr.big
+    %r = idr.call @count(%zero, %n) : (!idr.big, i64) -> !idr.big
     %t = idr.big.show %r
     %w2 = idr.io.put_str %t, %w1
     return %w2 : !idr.world

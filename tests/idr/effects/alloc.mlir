@@ -11,19 +11,19 @@ idr.data @L box {
   idr.ctor @Cons (i64, !idr.box<@L>)
 }
 
-// CHECK-LABEL: func.func @merged(
-// CHECK: %[[P:.*]] = idr.con @P::@MkP
-// CHECK-NOT: idr.con
+// CHECK-LABEL: idr.func @merged(
+// CHECK: %[[P:.*]] = {{(idr\.)?}}con @P::@MkP
+// CHECK-NOT: {{(idr\.| )con }}
 // CHECK: return %[[P]], %[[P]]
-func.func @merged(%x: i64) -> (!idr.data<@P>, !idr.data<@P>) {
+idr.func @merged(%x: i64) -> (!idr.data<@P>, !idr.data<@P>) {
   %a = idr.con @P::@MkP(%x, %x) : (i64, i64) -> !idr.data<@P>
   %b = idr.con @P::@MkP(%x, %x) : (i64, i64) -> !idr.data<@P>
   return %a, %b : !idr.data<@P>, !idr.data<@P>
 }
 
-// CHECK-LABEL: func.func @cells(
-// CHECK: %[[A:.*]] = idr.con @L::@Cons
-// CHECK: %[[B:.*]] = idr.con @L::@Cons
+// CHECK-LABEL: idr.func @cells(
+// CHECK: %[[A:.*]] = {{(idr\.)?}}con @L::@Cons
+// CHECK: %[[B:.*]] = {{(idr\.)?}}con @L::@Cons
 // CHECK: %[[S:.*]] = idr.str.append
 // CHECK: %[[T:.*]] = idr.str.append
 // CHECK: %[[G:.*]] = idr.big.add
@@ -31,7 +31,7 @@ func.func @merged(%x: i64) -> (!idr.data<@P>, !idr.data<@P>) {
 // CHECK: %[[P:.*]] = idr.big.pred
 // CHECK: %[[Q:.*]] = idr.big.pred
 // CHECK: return %[[A]], %[[B]], %[[S]], %[[T]], %[[G]], %[[H]], %[[P]], %[[Q]]
-func.func @cells(%x: i64, %l: !idr.box<@L>, %s: !idr.str, %g: !idr.big, %nat: !idr.nat)
+idr.func @cells(%x: i64, %l: !idr.box<@L>, %s: !idr.str, %g: !idr.big, %nat: !idr.nat)
     -> (!idr.box<@L>, !idr.box<@L>, !idr.str, !idr.str, !idr.big, !idr.big, !idr.nat, !idr.nat) {
   %a = idr.con @L::@Cons(%x, %l) : (i64, !idr.box<@L>) -> !idr.box<@L>
   %b = idr.con @L::@Cons(%x, %l) : (i64, !idr.box<@L>) -> !idr.box<@L>
@@ -45,9 +45,9 @@ func.func @cells(%x: i64, %l: !idr.box<@L>, %s: !idr.str, %g: !idr.big, %nat: !i
       : !idr.box<@L>, !idr.box<@L>, !idr.str, !idr.str, !idr.big, !idr.big, !idr.nat, !idr.nat
 }
 
-// CHECK-LABEL: func.func @dead(
+// CHECK-LABEL: idr.func @dead(
 // CHECK-NEXT: return
-func.func @dead(%x: i64, %l: !idr.box<@L>, %s: !idr.str, %g: !idr.big, %c: i32, %nat: !idr.nat) {
+idr.func @dead(%x: i64, %l: !idr.box<@L>, %s: !idr.str, %g: !idr.big, %c: i32, %nat: !idr.nat) {
   %a = idr.con @L::@Cons(%x, %l) : (i64, !idr.box<@L>) -> !idr.box<@L>
   %b = idr.str.append %s, %s
   %d = idr.str.cons %c, %s

@@ -1,6 +1,13 @@
 # 0008: compiler-chosen flattened layouts of algebraic data
 
-**Status:** proposed (2026-10-09). Nothing here is built.
+**Status:** proposed (2026-10-09). Nothing here is built. It is one of the
+three consumers of 0007's array style, with 0005's tables and 0016's
+interpreter: the layouts it chooses are how their columns are stored.
+It starts after self-hosting and sharding's first stages. Since
+2026-10-12 its columnar layout is 0007's representation of an array of
+records, one tensor per field (0007 §4.5); this proposal keeps the
+packed layout and the measured choice of columns for collections that
+are not arrays.
 
 **Sources.** Under `sources/`, topic "Flattened data: packed, columnar and
 nested layouts". The reading notes are in `sources/notes/flattened-data/`.
@@ -11,7 +18,7 @@ nested layouts". The reading notes are in `sources/notes/flattened-data/`.
 ## What it changes
 
 Today one Idris type has one physical layout, and the compiler picks it from
-the type's shape (foreign/idr/include/idr/IdrOps.td, `idr.data`; *read*):
+the type's shape (foreign/idr/include/idr/IR/IdrOps.td, `idr.data`; *read*):
 - a type that contains itself is a boxed cell (`!idr.box`), with reference
   counts, object slots first, and in-place reuse when it is unique;
 - any other type is an unboxed sum (`!idr.data`), spread over whatever holds
@@ -38,7 +45,14 @@ chosen by the compiler from facts the types and analyses already provide:
      column;
    - recursive values are preorder node arrays with parent and child-offset
      columns, Co-dfns style;
-   - erased indices and proofs vanish, and `Fin n` is an integer index.
+   - erased indices and proofs vanish; a `Fin n` that is a coordinate of
+     an array is an `index` at its access, unguarded, and any other `Fin`
+     a natural narrowed where proved (0007 D4).
+
+   Columns are not a type of ours. An array of records is one ranked
+   tensor per field by one-to-N type conversion, which bufferizes to one
+   memref per field (0007 §4.5), and a values-plus-offsets column is a
+   compressed sparse level's positions and coordinates (0007 §3.7, §9).
 
    *Read*: `docs/arrow`, `papers/melnik-2010-dremel`, `docs/parquet-format`,
    `code/zig` (`MultiArrayList`), `code/structarrays`, `code/vector`,
@@ -47,10 +61,12 @@ chosen by the compiler from facts the types and analyses already provide:
 ## The representation, decided by data
 
 **Decision:** one Idris type, several physical layouts: cell, packed or
-columnar. The layout is a property of a value's type at the MLIR level: a
-layout parameter on `!idr.box`/`!idr.data`, or a new `!idr.packed<@T>` and
-`!idr.columns<@T>`. It is never a discardable attribute, so no pass can
-silently lose it.
+columnar. The layout is a property of a value's type at the MLIR level:
+a layout parameter on `!idr.box`/`!idr.data` or a new `!idr.packed<@T>`
+for packed trees, and for columns the tensor types of 0007, one per
+field. `!idr.columns<@T>` is not added: a second representation of what
+a structure of tensors already is. The layout is never a discardable
+attribute, so no pass can silently lose it.
 
 When each layout is legal and chosen:
 - **Packed** needs a tree with no sharing. The exclusive ownership grade
@@ -130,9 +146,10 @@ the compiler's decision, made from facts only the compiler has.
 
 ## Consumers
 
-- **The frontend's term arena (proposal 0005, O4),** shared with the type
-  checker (proposal 0006, T1). Flat, hash-consed terms are that arena.
-  This proposal does not build it.
+- **The term arena and the interpreter's tables (proposal 0016),** shared
+  by the frontend, the type checker and static normalization. Flat,
+  hash-consed terms are that arena; its columns take this proposal's
+  layouts, and 0016 builds it.
 - **The array core (proposal 0007):** records and trees enter array programs
   through columns.
 - **bumbledb's port** (`../bumbledb/proposals/0001-idris-port.md`): its
@@ -157,7 +174,7 @@ the compiler's decision, made from facts only the compiler has.
 | --- | --- | --- |
 | F1 | `Columns t` / `Packed t` views in a trusted library; the compiler derives them | fixtures: map/filter/fold over columns; preorder fold over a packed tree; outputs equal to the cell version |
 | F2 | layout as a type parameter in the `idr` dialect; Layout and idr-rc handle packed and columnar regions | verifier checks; idr-expect properties for one count per region |
-| F3 | automatic columns for arrays of records in the array core | benchmarks: nbody-style records ≥ 1.3× over cells |
+| F3 | columns for collections other than arrays (lists and trees of records), as a conversion to 0007's arrays; arrays of records are columns by 0007's representation, with no gate | benchmarks: nbody-style records ≥ 1.3× over cells |
 | F4 | automatic packing for exclusive, build-once, traverse-whole trees | Gibbon's benchmark programs (tree add1, sum, repmax), ≥ 1.3× over cells and within 1.5× of Gibbon's published numbers on the same machine class |
 | F5 | packed and columnar values as shard messages | 0009's message benchmarks: copy cost per byte against the detach walk |
 
@@ -173,7 +190,8 @@ the compiler's decision, made from facts only the compiler has.
 
 ## Decisions
 
-- D1. The layout is part of the type in the dialect, never an attribute.
+- D1. The layout is part of the type in the dialect, never an attribute;
+  columns are 0007's tensors, one per field, not a type of ours.
 - D2. Packed only with the exclusive grade; columns for collections
   traversed field by field.
 - D3. The opt-in views come first; automatic choices land only per measured

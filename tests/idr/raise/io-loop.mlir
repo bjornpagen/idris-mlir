@@ -12,23 +12,23 @@
 // the call of @countdown that @next makes, applied the same way: it calls
 // the clone itself. The loop is a self tail call with no closure left,
 // which idr-tail-loops makes an scf.while, and which allocates nothing.
-// CHECK-LABEL: func.func @Main.main(
+// CHECK-LABEL: idr.func @Main.main(
 // CHECK: %{{.*}}, %[[W:.*]] = idr.io.get_byte
-// CHECK: call @[[C:countdown\$raise\$[0-9]+]](%{{.*}}, %[[W]]) : (i64, !idr.world) -> !idr.data<@IORes>
-// CHECK: func.func private @[[C]](
-// CHECK-SAME: %[[N:[a-z0-9_]+]]: i64 {{.*}}, %[[W0:[a-z0-9_]+]]: !idr.world {{.*}}) -> !idr.data<@IORes>
+// CHECK: call @[[C:countdown\.raise[0-9]+]](%{{.*}}, %[[W]]) {{.*}}: (i64, !idr.world) -> !IORes
+// CHECK: idr.func private @[[C]](
+// CHECK-SAME: %[[N:[a-z0-9_]+]]: i64, %[[W0:[a-z0-9_]+]]: !idr.world) -> !IORes
 // CHECK-SAME: no_inline
 // CHECK: default {
 // CHECK: %[[W1:.*]] = idr.io.put_int signed %[[N]], %[[W0]] : i64
-// CHECK: %[[R:.*]] = func.call @[[C]](%{{.*}}, %[[W1]])
+// CHECK: %[[R:.*]] = call @[[C]](%{{.*}}, %[[W1]])
 // CHECK-NEXT: idr.yield %[[R]]
-// CHECK-NOT: idr.closure
-// CHECK-NOT: idr.apply
-// CHECK-NOT: func.func private @countdown(
-// CHECK-NOT: func.func private @bind(
-// LOOP: func.func private @countdown$raise${{[0-9]+}}(
+// CHECK-NOT: {{(idr\.| )closure }}
+// CHECK-NOT: {{(idr\.| )apply }}
+// CHECK-NOT: idr.func private @countdown(
+// CHECK-NOT: idr.func private @bind(
+// LOOP: idr.func private @countdown.raise{{[0-9]+}}(
 // LOOP: scf.while
-// LOOP-NOT: call @countdown$raise$
+// LOOP-NOT: call @countdown.raise
 module attributes {idr.program} {
   idr.data @Unit {
     idr.ctor @MkUnit ()
@@ -39,7 +39,7 @@ module attributes {idr.program} {
   idr.data @IO {
     idr.ctor @MkIO (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>)
   }
-  func.func private @countdown(%n: i64) -> !idr.data<@IO> attributes {no_inline} {
+  idr.func private @countdown(%n: i64) -> !idr.data<@IO> attributes {no_inline} {
     %r = idr.match_lit %n : i64 -> (!idr.data<@IO>) {
     case 0 {
       %k = idr.closure @done() : () -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
@@ -60,13 +60,13 @@ module attributes {idr.program} {
     }
     return %r : !idr.data<@IO>
   }
-  func.func private @next(%n: i64, %u: !idr.data<@Unit>) -> !idr.data<@IO> {
+  idr.func private @next(%n: i64, %u: !idr.data<@Unit>) -> !idr.data<@IO> {
     %c1 = arith.constant 1 : i64
     %m = arith.subi %n, %c1 : i64
-    %a = func.call @countdown(%m) : (i64) -> !idr.data<@IO>
+    %a = idr.call @countdown(%m) : (i64) -> !idr.data<@IO>
     return %a : !idr.data<@IO>
   }
-  func.func private @bind(%a: !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>, %k: !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>, %w: !idr.world) -> !idr.data<@IORes> attributes {idr.total} {
+  idr.func private @bind(%a: !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>, %k: !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>, %w: !idr.world) -> !idr.data<@IORes> attributes {total} {
     %a_use = idr.lin.use %a : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
     %r = idr.apply %a_use(%w) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %u = idr.field %r[@MkIORes, 0] : !idr.data<@IORes> -> !idr.data<@Unit>
@@ -77,21 +77,21 @@ module attributes {idr.program} {
     %s = idr.apply %f(%w1) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     return %s : !idr.data<@IORes>
   }
-  func.func private @put(%n: i64, %w: !idr.world) -> !idr.data<@IORes> attributes {idr.total} {
+  idr.func private @put(%n: i64, %w: !idr.world) -> !idr.data<@IORes> attributes {total} {
     %w1 = idr.io.put_int signed %n, %w : i64
     %u = idr.con @Unit::@MkUnit() : () -> !idr.data<@Unit>
     %r = idr.con @IORes::@MkIORes(%u, %w1) : (!idr.data<@Unit>, !idr.world) -> !idr.data<@IORes>
     return %r : !idr.data<@IORes>
   }
-  func.func private @done(%w: !idr.world) -> !idr.data<@IORes> attributes {idr.total} {
+  idr.func private @done(%w: !idr.world) -> !idr.data<@IORes> attributes {total} {
     %u = idr.con @Unit::@MkUnit() : () -> !idr.data<@Unit>
     %r = idr.con @IORes::@MkIORes(%u, %w) : (!idr.data<@Unit>, !idr.world) -> !idr.data<@IORes>
     return %r : !idr.data<@IORes>
   }
-  func.func @Main.main(%w: !idr.world) -> !idr.data<@IORes> {
+  idr.func @Main.main(%w: !idr.world) -> !idr.data<@IORes> {
     %c, %w1 = idr.io.get_byte %w
     %n = arith.extui %c : i32 to i64
-    %a = func.call @countdown(%n) : (i64) -> !idr.data<@IO>
+    %a = idr.call @countdown(%n) : (i64) -> !idr.data<@IO>
     %f = idr.field %a[@MkIO, 0] : !idr.data<@IO> -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     %r = idr.apply %f(%w1) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
     return %r : !idr.data<@IORes>

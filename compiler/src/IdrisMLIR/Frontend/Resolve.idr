@@ -156,16 +156,18 @@ foreignHookOf n specs = map (mapFst (\(e, m) => mismatch e m)) (foreignHook (qna
 -- Shapes
 ------------------------------------------------------------------------------
 
-||| How a value bound with multiplicity 1 or ω is used.
+||| How a runtime value bound with multiplicity 1 or ω is used. A binder of
+||| multiplicity 0 binds no runtime value, so it has no quantity: whoever
+||| meets one leaves the position out.
 export
-useOf : RigCount -> Use
-useOf rig = if isLinear rig then Once else Many
+quantityOf : RigCount -> Quantity
+quantityOf rig = if isLinear rig then One else Many
 
-||| The Core binder of an Idris binder of this multiplicity; the type of what
-||| it binds is computed only when it binds a runtime value.
+||| The Core binder of an Idris binder of multiplicity 1 or ω; the caller
+||| has left out an erased one.
 export
-binderOf : RigCount -> Lazy (Core Ty) -> Core Binder
-binderOf rig t = if isErased rig then pure Gone else Held (useOf rig) <$> t
+binderOf : RigCount -> Core Ty -> Core Binder
+binderOf rig t = MkBinder (quantityOf rig) <$> t
 
 primTy : PrimType -> Maybe PrimTy
 primTy IntType = Just (IntP IdrisInt)
@@ -183,21 +185,17 @@ primTy CharType = Just CharP
 primTy DoubleType = Just DoubleP
 primTy Primitive.WorldType = Just WorldP
 
-spine : Term vars -> List (Term vars) -> (Term vars, List (Term vars))
-spine (App _ f a) as = spine f (a :: as)
-spine f as = (f, as)
-
 ||| The shape of a normalised type whose names are full. What no shape
 ||| describes (a variable, an erased or delayed term) is a hole.
 export
 shapeOf : Term vars -> Shape
 shapeOf (Bind _ _ (Pi _ rig _ a) sc) = Pi (multiplicity rig) (shapeOf a) (shapeOf sc)
   where
-    multiplicity : RigCount -> Quantity
-    multiplicity rig = if isErased rig then Zero else if isLinear rig then One else Quantity.Many
+    multiplicity : RigCount -> Multiplicity
+    multiplicity rig = if isErased rig then M0 else if isLinear rig then M1 else Mw
 shapeOf (PrimVal _ (PrT t)) = maybe Hole Prim (primTy t)
 shapeOf (TType _ _) = TypeOfTypes
-shapeOf tm = case spine tm [] of
+shapeOf tm = case getFnArgs tm of
   (Ref _ _ n, args) => Head (Def (qname n)) (map shapeOf args)
   _ => Hole
 

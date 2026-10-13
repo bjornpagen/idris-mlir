@@ -23,15 +23,15 @@
 // REMARK-SAME: its body is not one the vectorizer takes
 // CRASH: division by zero at Rows.idr:1:1
 module attributes {idr.program} {
-  func.func @root(%w: !idr.world) -> !idr.world {
+  idr.func @root(%w: !idr.world) -> !idr.world {
     %n = arith.constant 4 : i64
     %m = arith.constant 3 : i64
     %one = arith.constant 1 : i64
     %v, %w1 = idr.array.new [%m], %one, %w : i64 -> memref<?xi64>
-    %r, %w2 = func.call @rows(%n, %v, %w1) : (i64, memref<?xi64>, !idr.world) -> (memref<?xi64>, !idr.world)
+    %r, %w2 = idr.call @rows(%n, %v, %w1) : (i64, memref<?xi64>, !idr.world) -> (memref<?xi64>, !idr.world)
     return %w2 : !idr.world
   }
-  func.func private @rows(%n: i64, %v: memref<?xi64>, %w: !idr.world) -> (memref<?xi64>, !idr.world) {
+  idr.func private @rows(%n: i64, %v: memref<?xi64>, %w: !idr.world) -> (memref<?xi64>, !idr.world) {
     %zero = arith.constant 0 : i64
     %ten = arith.constant 10 : i64
     %eleven = arith.constant 11 : i64

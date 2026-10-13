@@ -9,7 +9,8 @@
 // idr-defunctionalize makes a box of each record or closure sum a cell
 // cannot hold, the widest first and ties by name, until every cell fits
 // (cells-fit), and retypes its values everywhere; a second run finds
-// nothing to do. The unfitted input fails cells-fit, by name.
+// nothing to do. The unfitted input fails cells-fit, by name, after whatever
+// the layouts it could not build reported.
 // @S16 is a record of 16 strings, so widths are built by nesting.
 
 // Widest first: @W (256) leaves @Holder's cell at 130, which fits, and
@@ -18,8 +19,8 @@
 // CHECK-DAG: idr.data @W box {
 // CHECK-DAG: idr.data @S16 box {
 // CHECK-DAG: idr.data @V {
-// CHECK: @keepW(%{{.*}}: !idr.lin<!idr.box<@W>>)
-// CHECK: @keepV(%{{.*}}: !idr.data<@V>)
+// CHECK: @keepW(%{{.*}}: !idr.lin<!W>)
+// CHECK: @keepV(%{{.*}}: !V)
 // UNFIT: cells-fit: the cell of @Holder::@h holds 385 counted references
 module attributes {idr.program} {
   idr.data @S16 {
@@ -34,16 +35,16 @@ module attributes {idr.program} {
   idr.data @Holder box {
     idr.ctor @h (!idr.data<@W>, !idr.data<@V>, !idr.str)
   }
-  func.func private @keepW(%w: !idr.lin<!idr.data<@W>>) -> i64 {
+  idr.func private @keepW(%w: !idr.lin<!idr.data<@W>>) -> i64 {
     %v = idr.lin.use %w : !idr.lin<!idr.data<@W>>
     %z = arith.constant 0 : i64
     return %z : i64
   }
-  func.func private @keepV(%v: !idr.data<@V>) -> i64 {
+  idr.func private @keepV(%v: !idr.data<@V>) -> i64 {
     %z = arith.constant 0 : i64
     return %z : i64
   }
-  func.func @main() -> i64 {
+  idr.func @main() -> i64 {
     %z = arith.constant 0 : i64
     return %z : i64
   }
@@ -71,7 +72,7 @@ module attributes {idr.program} {
   idr.data @Two box {
     idr.ctor @t (!idr.data<@P>, !idr.data<@Q>)
   }
-  func.func @main() -> i64 {
+  idr.func @main() -> i64 {
     %z = arith.constant 0 : i64
     return %z : i64
   }
@@ -84,7 +85,7 @@ module attributes {idr.program} {
 // CHECK-LABEL: {{//}} -----
 // CHECK-DAG: idr.data @W box {
 // CHECK-DAG: idr.data @S16 box {
-// CHECK: @first(%{{.*}}: memref<?x!idr.box<@W>>)
+// CHECK: @first(%{{.*}}: memref<?x!W>)
 // UNFIT: cells-fit: an element of an array of @W holds 256 counted references
 module attributes {idr.program} {
   idr.data @S16 {
@@ -93,11 +94,11 @@ module attributes {idr.program} {
   idr.data @W {
     idr.ctor @w (!idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>)
   }
-  func.func private @first(%a: memref<?x!idr.data<@W>>) -> i64 {
+  idr.func private @first(%a: memref<?x!idr.data<@W>>) -> i64 {
     %z = arith.constant 0 : i64
     return %z : i64
   }
-  func.func @main() -> i64 {
+  idr.func @main() -> i64 {
     %z = arith.constant 0 : i64
     return %z : i64
   }
@@ -122,28 +123,28 @@ module attributes {idr.program} {
   idr.data @Cell box {
     idr.ctor @c (!idr.fn<() -> (i64)>, !idr.fn<() -> (i64)>)
   }
-  func.func private @k(%w: !idr.data<@W>) -> i64 {
+  idr.func private @k(%w: !idr.data<@W>) -> i64 {
     %one = arith.constant 1 : i64
     return %one : i64
   }
-  func.func private @strings(%s: !idr.str) -> !idr.data<@S16> {
+  idr.func private @strings(%s: !idr.str) -> !idr.data<@S16> {
     %v = idr.con @S16::@s(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) : (!idr.str, !idr.str, !idr.str, !idr.str, !idr.str, !idr.str, !idr.str, !idr.str, !idr.str, !idr.str, !idr.str, !idr.str, !idr.str, !idr.str, !idr.str, !idr.str) -> !idr.data<@S16>
     return %v : !idr.data<@S16>
   }
-  func.func private @wide(%s: !idr.str) -> !idr.data<@W> {
-    %t = func.call @strings(%s) : (!idr.str) -> !idr.data<@S16>
+  idr.func private @wide(%s: !idr.str) -> !idr.data<@W> {
+    %t = idr.call @strings(%s) : (!idr.str) -> !idr.data<@S16>
     %v = idr.con @W::@w(%t, %t, %t, %t, %t, %t, %t, %t, %t, %t, %t, %t, %t, %t, %t, %t) : (!idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>) -> !idr.data<@W>
     return %v : !idr.data<@W>
   }
-  func.func private @pack(%w: !idr.data<@W>) -> !idr.box<@Cell> {
+  idr.func private @pack(%w: !idr.data<@W>) -> !idr.box<@Cell> {
     %f = idr.closure @k(%w) : (!idr.data<@W>) -> !idr.fn<() -> (i64)>
     %c = idr.con @Cell::@c(%f, %f) : (!idr.fn<() -> (i64)>, !idr.fn<() -> (i64)>) -> !idr.box<@Cell>
     return %c : !idr.box<@Cell>
   }
-  func.func @main() -> i64 {
+  idr.func @main() -> i64 {
     %s = idr.constant "s" : !idr.str
-    %w = func.call @wide(%s) : (!idr.str) -> !idr.data<@W>
-    %c = func.call @pack(%w) : (!idr.data<@W>) -> !idr.box<@Cell>
+    %w = idr.call @wide(%s) : (!idr.str) -> !idr.data<@W>
+    %c = idr.call @pack(%w) : (!idr.data<@W>) -> !idr.box<@Cell>
     %z = arith.constant 0 : i64
     return %z : i64
   }
@@ -162,7 +163,7 @@ module attributes {idr.program} {
   idr.data @Fits box {
     idr.ctor @f (!idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.data<@S16>, !idr.str, !idr.str, !idr.str, !idr.str, !idr.str, !idr.str, !idr.str, !idr.str, !idr.str, !idr.str, !idr.str, !idr.str, !idr.str, !idr.str, !idr.str)
   }
-  func.func @main() -> i64 {
+  idr.func @main() -> i64 {
     %z = arith.constant 0 : i64
     return %z : i64
   }
@@ -192,7 +193,7 @@ module attributes {idr.program} {
   idr.data @Hold box {
     idr.ctor @h (!idr.data<@U>)
   }
-  func.func @main() -> i64 {
+  idr.func @main() -> i64 {
     %z = arith.constant 0 : i64
     return %z : i64
   }

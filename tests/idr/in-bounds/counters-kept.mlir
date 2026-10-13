@@ -7,7 +7,7 @@
 // -1; one that steps down from 0; one that a region passes back as -1 on
 // a path that may go round again; and one that doubles, which wraps.
 module {
-  func.func @mayShrink(%n: i64, %k: i64, %w: !idr.world) -> !idr.world {
+  idr.func @mayShrink(%n: i64, %k: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %r:2 = scf.while (%i = %z, %s = %w1) : (i64, !idr.world) -> (i64, !idr.world) {
@@ -26,7 +26,7 @@ module {
     return %r#1 : !idr.world
   }
 
-  func.func @wraps(%n: i64, %w: !idr.world) -> !idr.world {
+  idr.func @wraps(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %two = arith.constant 2 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
@@ -46,7 +46,7 @@ module {
     return %r#1 : !idr.world
   }
 
-  func.func @unsignedGuard(%n: i64, %w: !idr.world) -> !idr.world {
+  idr.func @unsignedGuard(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
@@ -66,7 +66,7 @@ module {
     return %r#1 : !idr.world
   }
 
-  func.func @belowZero(%n: i64, %w: !idr.world) -> !idr.world {
+  idr.func @belowZero(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %m1 = arith.constant -1 : i64
@@ -87,7 +87,7 @@ module {
     return %r#1 : !idr.world
   }
 
-  func.func @stepsDown(%n: i64, %w: !idr.world) -> !idr.world {
+  idr.func @stepsDown(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %m1 = arith.constant -1 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
@@ -107,7 +107,7 @@ module {
     return %r#1 : !idr.world
   }
 
-  func.func @goesBackNegative(%n: i64, %again: i1, %w: !idr.world) -> !idr.world {
+  idr.func @goesBackNegative(%n: i64, %again: i1, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %m1 = arith.constant -1 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
@@ -138,7 +138,7 @@ module {
     return %r#2 : !idr.world
   }
 
-  func.func @scaled(%n: i64, %w: !idr.world) -> !idr.world {
+  idr.func @scaled(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %two = arith.constant 2 : i64

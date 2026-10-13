@@ -1,6 +1,5 @@
 # The units over 400 lines that are still allowed; tests/spec/file-size/run
 # says why the list only shrinks. Splitting a unit deletes its line.
-# foreign/idr/lib/Mlir.cppm is one list, the names idr.mlir re-exports,
-# and stays.
-foreign/idr/lib/Mlir.cppm
-foreign/idr/tools/idris-mlir-tblgen.cc
+# idris-mlir-tblgen is one TableGen backend, a list of the generator's
+# emitters, and stays.
+foreign/idr/tools/idris-mlir-tblgen.cpp

@@ -18,17 +18,17 @@ module attributes {idr.program} {
     idr.ctor @N ()
     idr.ctor @C (i64, !idr.box<@L>)
   }
-  func.func private @exclusive(%l: !idr.excl<!idr.box<@L>>, %x: i64) -> !idr.excl<!idr.box<@L>> {
+  idr.func private @exclusive(%l: !idr.excl<!idr.box<@L>>, %x: i64) -> !idr.excl<!idr.box<@L>> {
     %w:3 = idr.take %l @L::@C : !idr.excl<!idr.box<@L>> -> (!idr.excl<!idr.token>, i64, !idr.excl<!idr.box<@L>>)
     %c = idr.reuse %w#0 @L::@C(%x, %w#2) : (!idr.excl<!idr.token>, i64, !idr.excl<!idr.box<@L>>) -> !idr.excl<!idr.box<@L>>
     return %c : !idr.excl<!idr.box<@L>>
   }
-  func.func private @owned(%l: !idr.own<!idr.box<@L>>, %x: i64) -> !idr.own<!idr.box<@L>> {
+  idr.func private @owned(%l: !idr.own<!idr.box<@L>>, %x: i64) -> !idr.own<!idr.box<@L>> {
     %w:3 = idr.take %l @L::@C : !idr.own<!idr.box<@L>> -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<@L>>)
     %c = idr.reuse %w#0 @L::@C(%x, %w#2) : (!idr.own<!idr.token>, i64, !idr.own<!idr.box<@L>>) -> !idr.own<!idr.box<@L>>
     return %c : !idr.own<!idr.box<@L>>
   }
-  func.func @Prog.main() -> i64 {
+  idr.func @Prog.main() -> i64 {
     %z = arith.constant 0 : i64
     return %z : i64
   }

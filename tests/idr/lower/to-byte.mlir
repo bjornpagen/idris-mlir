@@ -13,25 +13,25 @@
 // CHECK-NOT: idris_rt_crash
 // CHECK: %[[B:.*]] = arith.trunci %[[X]] : i64 to i8
 // CHECK: return %[[B]]
-// FOLD-LABEL: func.func private @constant(
+// FOLD-LABEL: idr.func private @constant(
 // FOLD-NOT: idr.check.byte
-// FOLD-NOT: idr.to_byte
+// FOLD-NOT: {{(idr\.| )to_byte }}
 // FOLD: %[[C:.*]] = arith.constant -56 : i8
 // FOLD: return %[[C]]
 module attributes {idr.program} {
-  func.func @root(%w: !idr.world) -> !idr.world {
+  idr.func @root(%w: !idr.world) -> !idr.world {
     %in, %w1 = idr.io.get_byte %w
     %x = arith.extui %in : i32 to i64
-    %b = func.call @byte(%x) : (i64) -> i8
-    %c = func.call @constant() : () -> i8
+    %b = idr.call @byte(%x) : (i64) -> i8
+    %c = idr.call @constant() : () -> i8
     return %w1 : !idr.world
   }
-  func.func private @byte(%x: i64) -> i8 {
+  idr.func private @byte(%x: i64) -> i8 {
     %y = idr.check.byte %x, "a byte outside 0 to 255"
     %b = idr.to_byte %y
     return %b : i8
   }
-  func.func private @constant() -> i8 {
+  idr.func private @constant() -> i8 {
     %x = arith.constant 200 : i64
     %y = idr.check.byte %x, "a byte outside 0 to 255"
     %b = idr.to_byte %y

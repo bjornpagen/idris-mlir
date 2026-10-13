@@ -4,7 +4,7 @@
 // explicit already.
 // CHECK: error: idr-rc: the module is already in the owned stage
 module {
-  func.func private @f(%s: !idr.own<!idr.str>) -> !idr.own<!idr.str> {
+  idr.func private @f(%s: !idr.own<!idr.str>) -> !idr.own<!idr.str> {
     return %s : !idr.own<!idr.str>
   }
 }

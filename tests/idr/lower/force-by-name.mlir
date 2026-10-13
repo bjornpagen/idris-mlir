@@ -16,7 +16,7 @@ module {
     idr.ctor @running ()
     idr.ctor @forced (i64)
   }
-  func.func private @shout(%s: !idr.own<!idr.str>) -> i64 attributes {idr.total} {
+  idr.func private @shout(%s: !idr.own<!idr.str>) -> i64 attributes {total} {
     %w = idr.world.new
     %v = idr.borrow %s : !idr.own<!idr.str>
     %w1 = idr.io.put_str %v, %w
@@ -24,7 +24,7 @@ module {
     %c = arith.constant 1 : i64
     return %c : i64
   }
-  func.func private @loud(%t: !idr.box<@lazy$0>) -> i64 {
+  idr.func private @loud(%t: !idr.box<@lazy$0>) -> i64 {
     %v = idr.force %t : !idr.box<@lazy$0> -> i64
     return %v : i64
   }

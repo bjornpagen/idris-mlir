@@ -2,5 +2,5 @@
 // countdown returns an action, and main applies it at once to a world, so
 // idr-specialize calls a clone of countdown that takes the world, and the
 // clone calls itself. This is tests/idr/raise/io-loop.mlir, from Idris.
-// CHECK: call @Main.countdown$raise${{[0-9]+}}(
-// CHECK: func.func private @Main.countdown$raise${{[0-9]+}}({{.*}}!idr.world
+// CHECK: call @Main.countdown.raise{{[0-9]+}}(
+// CHECK: idr.func private @Main.countdown.raise{{[0-9]+}}({{.*}}!idr.world

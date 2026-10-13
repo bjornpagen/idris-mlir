@@ -13,46 +13,46 @@
 // before its call, so it is left to that pass. @both adds two self calls,
 // and @depth inspects its result: neither carries a sum, and the stack
 // grows with the call.
-// CHECK-LABEL: func.func private @length(
-// CHECK: %[[Z:.*]] = idr.constant #idr.big<"0">
-// CHECK: %[[R:.*]] = call @length$acc(%{{[^,]+}}, %[[Z]])
+// CHECK-LABEL: idr.func private @length(
+// CHECK: %[[Z:.*]] = {{(idr\.)?}}constant #idr.big<"0">
+// CHECK: %[[R:.*]] = call @length.acc(%{{[^,]+}}, %[[Z]])
 // CHECK: return %[[R]]
-// CHECK-LABEL: func.func private @length$acc(
+// CHECK-LABEL: idr.func private @length.acc(
 // CHECK-SAME: %[[ACC:[[:alnum:]_]+]]: !idr.nat)
 // CHECK: case @Nil()
 // CHECK: idr.yield %[[ACC]]
 // CHECK: %[[S:.*]] = idr.big.add %[[ACC]], %{{[^:]+}} : !idr.nat
-// CHECK: %[[C:.*]] = func.call @length$acc(%{{[^,]+}}, %[[S]])
+// CHECK: %[[C:.*]] = {{(idr\.)?}}call @length.acc(%{{[^,]+}}, %[[S]])
 // CHECK: idr.yield %[[C]]
-// CHECK-LABEL: func.func private @steps(
-// CHECK: call @steps$acc(
-// CHECK-LABEL: func.func private @steps$acc(
+// CHECK-LABEL: idr.func private @steps(
+// CHECK: call @steps.acc(
+// CHECK-LABEL: idr.func private @steps.acc(
 // CHECK: idr.big.add
-// CHECK: func.call @steps$acc(
-// CHECK-NOT: @count$acc
-// CHECK-LABEL: func.func private @count(
-// CHECK: func.call @count(
-// CHECK-NOT: @both$acc
-// CHECK-LABEL: func.func private @both(
-// CHECK: func.call @both(
-// CHECK-NOT: @depth$acc
-// CHECK-LABEL: func.func private @depth(
-// CHECK: func.call @depth(
+// CHECK: call @steps.acc(
+// CHECK-NOT: @count.acc
+// CHECK-LABEL: idr.func private @count(
+// CHECK: call @count(
+// CHECK-NOT: @both.acc
+// CHECK-LABEL: idr.func private @both(
+// CHECK: call @both(
+// CHECK-NOT: @depth.acc
+// CHECK-LABEL: idr.func private @depth(
+// CHECK: call @depth(
 // A countdown that adds one from zero is the argument, the sum of that
 // many ones. Adding two is the accumulator clone, not the argument.
-// CHECK-LABEL: func.func private @down(
+// CHECK-LABEL: idr.func private @down(
 // CHECK-SAME: %[[N:[[:alnum:]_]+]]: !idr.nat
 // CHECK-NEXT: return %[[N]]
-// CHECK-LABEL: func.func private @twos(
-// CHECK: call @twos$acc(
-// CHECK-LABEL: func.func private @twos$acc(
+// CHECK-LABEL: idr.func private @twos(
+// CHECK: call @twos.acc(
+// CHECK-LABEL: idr.func private @twos.acc(
 // CHECK: idr.big.add
 // The same countdown after simplification has lifted the constants out of
 // the branches. A sum of big ones is the argument as an Integer.
-// CHECK-LABEL: func.func private @down_out(
+// CHECK-LABEL: idr.func private @down_out(
 // CHECK-SAME: %[[N:[[:alnum:]_]+]]: !idr.nat
 // CHECK-NEXT: return %[[N]]
-// CHECK-LABEL: func.func private @as_integer(
+// CHECK-LABEL: idr.func private @as_integer(
 // CHECK-SAME: %[[N:[[:alnum:]_]+]]: !idr.nat
 // CHECK-NEXT: %[[I:.*]] = idr.nat.to_big %[[N]]
 // CHECK-NEXT: return %[[I]]
@@ -64,7 +64,7 @@ module {
     idr.ctor @Cons (i64, !idr.box<@List>)
   }
 
-  func.func private @length(%xs: !idr.box<@List>) -> !idr.nat attributes {idr.total} {
+  idr.func private @length(%xs: !idr.box<@List>) -> !idr.nat attributes {total} {
     %one = idr.constant #idr.big<"1"> : !idr.nat
     %zero = idr.constant #idr.big<"0"> : !idr.nat
     %r = idr.match %xs : !idr.box<@List> -> (!idr.nat) {
@@ -72,7 +72,7 @@ module {
       idr.yield %zero : !idr.nat
     }
     case @Cons(%x: i64, %rest: !idr.box<@List>) {
-      %n = func.call @length(%rest) : (!idr.box<@List>) -> !idr.nat
+      %n = idr.call @length(%rest) : (!idr.box<@List>) -> !idr.nat
       %s = idr.big.add %n, %one : !idr.nat
       idr.yield %s : !idr.nat
     }
@@ -80,7 +80,7 @@ module {
     return %r : !idr.nat
   }
 
-  func.func private @steps(%k: !idr.nat, %n: !idr.nat) -> !idr.nat attributes {idr.total} {
+  idr.func private @steps(%k: !idr.nat, %n: !idr.nat) -> !idr.nat attributes {total} {
     %zero = idr.constant #idr.big<"0"> : !idr.nat
     %r = idr.match_lit %n : !idr.nat -> (!idr.nat) {
     case #idr.big<"0"> {
@@ -88,7 +88,7 @@ module {
     }
     default {
       %p = idr.big.pred %n
-      %c = func.call @steps(%k, %p) : (!idr.nat, !idr.nat) -> !idr.nat
+      %c = idr.call @steps(%k, %p) : (!idr.nat, !idr.nat) -> !idr.nat
       %s = idr.big.add %c, %k : !idr.nat
       idr.yield %s : !idr.nat
     }
@@ -96,7 +96,7 @@ module {
     return %r : !idr.nat
   }
 
-  func.func private @count(%n: !idr.nat, %acc: !idr.nat) -> !idr.nat attributes {idr.total} {
+  idr.func private @count(%n: !idr.nat, %acc: !idr.nat) -> !idr.nat attributes {total} {
     %r = idr.match_lit %n : !idr.nat -> (!idr.nat) {
     case #idr.big<"0"> {
       idr.yield %acc : !idr.nat
@@ -105,14 +105,14 @@ module {
       %p = idr.big.pred %n
       %one = idr.constant #idr.big<"1"> : !idr.nat
       %more = idr.big.add %acc, %one : !idr.nat
-      %s = func.call @count(%p, %more) : (!idr.nat, !idr.nat) -> !idr.nat
+      %s = idr.call @count(%p, %more) : (!idr.nat, !idr.nat) -> !idr.nat
       idr.yield %s : !idr.nat
     }
     }
     return %r : !idr.nat
   }
 
-  func.func private @both(%n: !idr.nat) -> !idr.nat attributes {idr.total} {
+  idr.func private @both(%n: !idr.nat) -> !idr.nat attributes {total} {
     %zero = idr.constant #idr.big<"0"> : !idr.nat
     %r = idr.match_lit %n : !idr.nat -> (!idr.nat) {
     case #idr.big<"0"> {
@@ -120,8 +120,8 @@ module {
     }
     default {
       %p = idr.big.pred %n
-      %a = func.call @both(%p) : (!idr.nat) -> !idr.nat
-      %b = func.call @both(%p) : (!idr.nat) -> !idr.nat
+      %a = idr.call @both(%p) : (!idr.nat) -> !idr.nat
+      %b = idr.call @both(%p) : (!idr.nat) -> !idr.nat
       %s = idr.big.add %a, %b : !idr.nat
       idr.yield %s : !idr.nat
     }
@@ -129,7 +129,7 @@ module {
     return %r : !idr.nat
   }
 
-  func.func private @depth(%xs: !idr.box<@List>) -> !idr.nat attributes {idr.total} {
+  idr.func private @depth(%xs: !idr.box<@List>) -> !idr.nat attributes {total} {
     %zero = idr.constant #idr.big<"0"> : !idr.nat
     %one = idr.constant #idr.big<"1"> : !idr.nat
     %r = idr.match %xs : !idr.box<@List> -> (!idr.nat) {
@@ -137,7 +137,7 @@ module {
       idr.yield %zero : !idr.nat
     }
     case @Cons(%x: i64, %rest: !idr.box<@List>) {
-      %n = func.call @depth(%rest) : (!idr.box<@List>) -> !idr.nat
+      %n = idr.call @depth(%rest) : (!idr.box<@List>) -> !idr.nat
       %s = idr.match_lit %n : !idr.nat -> (!idr.nat) {
       case #idr.big<"0"> {
         idr.yield %zero : !idr.nat
@@ -152,7 +152,7 @@ module {
     return %r : !idr.nat
   }
 
-  func.func private @down(%n: !idr.nat) -> !idr.nat attributes {idr.total} {
+  idr.func private @down(%n: !idr.nat) -> !idr.nat attributes {total} {
     %r = idr.match_lit %n : !idr.nat -> (!idr.nat) {
     case #idr.big<"0"> {
       %zero = idr.constant #idr.big<"0"> : !idr.nat
@@ -160,7 +160,7 @@ module {
     }
     default {
       %p = idr.big.pred %n
-      %c = func.call @down(%p) : (!idr.nat) -> !idr.nat
+      %c = idr.call @down(%p) : (!idr.nat) -> !idr.nat
       %one = idr.constant #idr.big<"1"> : !idr.nat
       %s = idr.big.add %c, %one : !idr.nat
       idr.yield %s : !idr.nat
@@ -169,7 +169,7 @@ module {
     return %r : !idr.nat
   }
 
-  func.func private @twos(%n: !idr.nat) -> !idr.nat attributes {idr.total} {
+  idr.func private @twos(%n: !idr.nat) -> !idr.nat attributes {total} {
     %r = idr.match_lit %n : !idr.nat -> (!idr.nat) {
     case #idr.big<"0"> {
       %zero = idr.constant #idr.big<"0"> : !idr.nat
@@ -177,7 +177,7 @@ module {
     }
     default {
       %p = idr.big.pred %n
-      %c = func.call @twos(%p) : (!idr.nat) -> !idr.nat
+      %c = idr.call @twos(%p) : (!idr.nat) -> !idr.nat
       %two = idr.constant #idr.big<"2"> : !idr.nat
       %s = idr.big.add %c, %two : !idr.nat
       idr.yield %s : !idr.nat
@@ -186,7 +186,7 @@ module {
     return %r : !idr.nat
   }
 
-  func.func private @down_out(%n: !idr.nat) -> !idr.nat attributes {idr.total} {
+  idr.func private @down_out(%n: !idr.nat) -> !idr.nat attributes {total} {
     %one = idr.constant #idr.big<"1"> : !idr.nat
     %zero = idr.constant #idr.big<"0"> : !idr.nat
     %r = idr.match_lit %n : !idr.nat -> (!idr.nat) {
@@ -195,7 +195,7 @@ module {
     }
     default {
       %p = idr.big.pred %n
-      %c = func.call @down_out(%p) : (!idr.nat) -> !idr.nat
+      %c = idr.call @down_out(%p) : (!idr.nat) -> !idr.nat
       %s = idr.big.add %c, %one : !idr.nat
       idr.yield %s : !idr.nat
     }
@@ -203,7 +203,7 @@ module {
     return %r : !idr.nat
   }
 
-  func.func private @as_integer(%n: !idr.nat) -> !idr.big attributes {idr.total} {
+  idr.func private @as_integer(%n: !idr.nat) -> !idr.big attributes {total} {
     %one = idr.constant #idr.big<"1"> : !idr.big
     %zero = idr.constant #idr.big<"0"> : !idr.big
     %r = idr.match_lit %n : !idr.nat -> (!idr.big) {
@@ -212,7 +212,7 @@ module {
     }
     default {
       %p = idr.big.pred %n
-      %c = func.call @as_integer(%p) : (!idr.nat) -> !idr.big
+      %c = idr.call @as_integer(%p) : (!idr.nat) -> !idr.big
       %s = idr.big.add %c, %one : !idr.big
       idr.yield %s : !idr.big
     }

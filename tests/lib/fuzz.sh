@@ -1,5 +1,5 @@
 # The fuzzer (tests/Fuzz.idr): generated closed expressions over every
-# primitive, computed three ways, in two builds, and held to the values its
+# primitive, computed three ways in one build, and held to the values its
 # seed's expected files record.
 
 # The cases of a program: those of the programs whose output a seed's
@@ -44,7 +44,6 @@ fuzz() {
   for fuzz_part in runtime static; do
     : > "$work/fuzz.compiled"
     : > "$work/fuzz.agree"
-    : > "$work/fuzz.noeval"
     : > "$work/fuzz.expected"
     fuzz_check "$fuzz_part"
     fuzz_report "$fuzz_part: every build compiles, runs, exits 0 and writes nothing on stderr" fuzz.compiled

@@ -6,7 +6,7 @@
 // one. The guard of a division by what may be zero is the same crash, at
 // the division's location, when the divisor is zero, and then gives the
 // divisor to the division, which tests nothing itself.
-// CHECK-DAG: llvm.func @idris_rt_crash(!llvm.ptr, i64) attributes {passthrough = ["noreturn"]}
+// CHECK-DAG: llvm.func @idris_rt_crash(!llvm.ptr, i64) attributes {noreturn}
 // CHECK-DAG: llvm.mlir.constant("idris-mlir: unhandled input for Main.name at Main.idr:3:1\0A")
 // CHECK-DAG: llvm.mlir.constant("idris-mlir: division by zero at Main.idr:9:5\0A")
 // CHECK-LABEL: func.func private @Main.name(
@@ -29,7 +29,7 @@
 // CHECK-NOT: idris_rt_crash
 // CHECK: return
 module attributes {idr.program} {
-  func.func private @Main.name(%n: i64) -> !idr.str {
+  idr.func private @Main.name(%n: i64) -> !idr.str {
     %r = idr.match_lit %n : i64 -> (!idr.str) {
     case 1 {
       %s = idr.constant "one" : !idr.str
@@ -42,20 +42,20 @@ module attributes {idr.program} {
     }
     return %r : !idr.str
   }
-  func.func private @Main.never(%n: i64) -> i64 {
+  idr.func private @Main.never(%n: i64) -> i64 {
     idr.crash "unhandled input for Main.never" loc("Main.idr":6:1)
     ub.unreachable
   }
-  func.func private @Main.half(%a: i64, %b: i64) -> i64 {
+  idr.func private @Main.half(%a: i64, %b: i64) -> i64 {
     %c = idr.check.nonzero %b, "division by zero" : i64 loc("Main.idr":9:5)
     %q = idr.div signed %a, %c : i64 loc("Main.idr":9:5)
     return %q : i64
   }
-  func.func @Main.main() -> i64 {
+  idr.func @Main.main() -> i64 {
     %one = arith.constant 1 : i64
-    %s = func.call @Main.name(%one) : (i64) -> !idr.str
-    %n = func.call @Main.never(%one) : (i64) -> i64
-    %h = func.call @Main.half(%n, %one) : (i64, i64) -> i64
+    %s = idr.call @Main.name(%one) : (i64) -> !idr.str
+    %n = idr.call @Main.never(%one) : (i64) -> i64
+    %h = idr.call @Main.half(%n, %one) : (i64, i64) -> i64
     return %h : i64
   }
 }

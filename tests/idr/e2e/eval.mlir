@@ -10,7 +10,7 @@
 // LEFT: llvm.call @fact(
 // LEFT: llvm.call @dashes(
 module attributes {idr.program} {
-  func.func private @fact(%n: i64) -> i64 attributes {idr.total, no_inline} {
+  idr.func private @fact(%n: i64) -> i64 attributes {total, no_inline} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       %one = arith.constant 1 : i64
@@ -19,14 +19,14 @@ module attributes {idr.program} {
     default {
       %one = arith.constant 1 : i64
       %m = arith.subi %n, %one : i64
-      %f = func.call @fact(%m) : (i64) -> i64
+      %f = idr.call @fact(%m) : (i64) -> i64
       %p = arith.muli %n, %f : i64
       idr.yield %p : i64
     }
     }
     return %r : i64
   }
-  func.func private @dashes(%s: !idr.str, %n: i64) -> !idr.str attributes {idr.total, no_inline} {
+  idr.func private @dashes(%s: !idr.str, %n: i64) -> !idr.str attributes {total, no_inline} {
     %r = idr.match_lit %n : i64 -> (!idr.str) {
     case 0 {
       idr.yield %s : !idr.str
@@ -34,7 +34,7 @@ module attributes {idr.program} {
     default {
       %one = arith.constant 1 : i64
       %m = arith.subi %n, %one : i64
-      %rest = func.call @dashes(%s, %m) : (!idr.str, i64) -> !idr.str
+      %rest = idr.call @dashes(%s, %m) : (!idr.str, i64) -> !idr.str
       %dash = arith.constant 45 : i32
       %d = idr.str.cons %dash, %rest
       %x = idr.str.append %s, %d
@@ -43,15 +43,15 @@ module attributes {idr.program} {
     }
     return %r : !idr.str
   }
-  func.func @Prog.main(%w: !idr.world) -> !idr.world {
+  idr.func @Prog.main(%w: !idr.world) -> !idr.world {
     %ten = arith.constant 10 : i64
-    %f = func.call @fact(%ten) : (i64) -> i64
+    %f = idr.call @fact(%ten) : (i64) -> i64
     %w1 = idr.io.put_int signed %f, %w : i64
     %sp = arith.constant 32 : i32
     %w2 = idr.io.put_char %sp, %w1
     %x = idr.constant "x" : !idr.str
     %two = arith.constant 2 : i64
-    %s = func.call @dashes(%x, %two) : (!idr.str, i64) -> !idr.str
+    %s = idr.call @dashes(%x, %two) : (!idr.str, i64) -> !idr.str
     %w3 = idr.io.put_str %s, %w2
     %nl = arith.constant 10 : i32
     %w4 = idr.io.put_char %nl, %w3

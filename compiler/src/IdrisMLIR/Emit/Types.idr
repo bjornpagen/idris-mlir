@@ -13,9 +13,16 @@ import Data.SortedMap
 
 %default total
 
-||| The erased value's type: of quantity zero, and of no carrier.
-erased : MlirType
-erased = Idr (QType Zero Plain NoneType)
+||| The symbol of a function.
+export
+fnSymbol : Index -> FnId -> E String
+fnSymbol ix f = maybe (internal ("a function " ++ show f ++ ", which is not in the program")) pure
+                      (symbolOf ix f)
+
+||| The symbol of a data instance.
+export
+dataSymbol : Index -> DataId -> E String
+dataSymbol ix d = maybe (internal ("unknown data " ++ show d)) pure (dataSymbolOf ix d)
 
 mutual
   ||| The contract type of a Core type.
@@ -29,11 +36,12 @@ mutual
   mlirType ix NatT = pure (Idr NatType)
   -- The world is its carrier at its one grade, (one, plain).
   mlirType ix WorldT = pure (Idr (QType One Plain (Idr WorldType)))
-  mlirType ix ErasedT = pure erased
   mlirType ix (DataT d) = case lookup d ix.datas of
-    Just dt => pure (case dt.repr of
-                       Sop => Idr (DataType (mangle d.name))
-                       Box => Idr (BoxType (mangle d.name)))
+    Just dt => do
+      sym <- dataSymbol ix d
+      pure (case dt.repr of
+              Sop => Idr (DataType sym)
+              Box => Idr (BoxType sym))
     Nothing => internal ("unknown data " ++ show d)
   mlirType ix (FunT a r) =
     pure (Idr (FnType (MkSignature [!(binderType ix a)] [!(mlirType ix r)])))
@@ -44,14 +52,13 @@ mutual
   ||| type, where no pass can lose it.
   export
   binderType : Index -> Binder -> E MlirType
-  binderType ix Gone = pure erased
-  binderType ix (Held u t) =
-    if linear u t then (\c => Idr (QType One Plain c)) <$> mlirType ix t else mlirType ix t
+  binderType ix (MkBinder q t) = heldType ix q t
 
-||| The contract type of a value of type `t` used as `u` says.
-export
-heldType : Index -> Use -> Ty -> E MlirType
-heldType ix u t = binderType ix (Held u t)
+  ||| The contract type of a value of type `t` used as `q` says.
+  export
+  heldType : Index -> Quantity -> Ty -> E MlirType
+  heldType ix q t =
+    if linear q t then (\c => Idr (QType One Plain c)) <$> mlirType ix t else mlirType ix t
 
 ||| A value as an op uses it: its name and its type as it is held.
 export

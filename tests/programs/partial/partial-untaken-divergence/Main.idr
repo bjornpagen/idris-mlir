@@ -2,8 +2,8 @@ module Main
 
 -- Closed calls of partial functions, each of which diverges on a path the
 -- call does not take: `safeDiv x 0` spins forever, and `collatz` is not
--- known to terminate for every start. idr-eval is not in the simplify
--- round, so both calls stay and run at run time, and the program prints
+-- known to terminate for every start. A closed call runs at run
+-- time, so both calls stay and run at run time, and the program prints
 -- what they return.
 
 import Prelude

@@ -4,10 +4,9 @@
 # (fat LTO objects on ELF). idris-mlir prepares their bitcode once
 # (--prepare-runtime, foreign/idr/CMakeLists.txt) into the object every
 # executable links, whose bitcode joins every program's module for inlining;
-# their native code links into idris-mlir itself, where the folders and
-# idr-eval's JIT call it.
-# It includes the vendored libraries' headers, so like foreign/idr it is
-# quarantine code.
+# their native code links into idris-mlir itself, where the folders call it.
+# Every program links it with no C++ library, so it has its own profile,
+# not the tools'.
 # PIN(runtime-quarantine), PIN(runtime-cx16) — see PINS.md
 
 set(IDRIS_MLIR_THIRD_PARTY "${PROJECT_SOURCE_DIR}/third_party")
@@ -20,6 +19,87 @@ foreach(file
 		message(FATAL_ERROR "third_party/${file} is missing; run: git submodule update --init")
 	endif()
 endforeach()
+
+# The runtime's units, one directory per part, each with one header its
+# units share: its memory (Alloc), counting (Rc), strings (Strings), `cast`
+# from String (Numerals), bigs (Big), doubles (Doubles), input and output,
+# the standard streams and base's files, directories, process, terminal,
+# errors and clocks behind the handle table (Io), and the program's entry
+# (Start). The platform layer (Platform) is implemented on every POSIX
+# system by Platform/Posix and on the target's processor by the target
+# entry's unit (IDRIS_MLIR_RUNTIME_CPU_TEST).
+set(IDRIS_RT_SOURCES
+	Alloc/Arrays.cpp
+	Alloc/Blocks.cpp
+	Alloc/Cells.cpp
+	Alloc/Classes.cpp
+	Alloc/Gmp.cpp
+	Rc/Counting.cpp
+	Rc/Freeing.cpp
+	Strings/Concat.cpp
+	Strings/Integers.cpp
+	Strings/Making.cpp
+	Strings/Order.cpp
+	Strings/Replacement.cpp
+	Strings/Scalars.cpp
+	Strings/Show.cpp
+	Strings/Simd.cpp
+	Strings/Utf8.cpp
+	Numerals/Machine.cpp
+	Numerals/Reading.cpp
+	Big/Arithmetic.cpp
+	Big/Bitwise.cpp
+	Big/Compare.cpp
+	Big/Conversions.cpp
+	Big/Digits.cpp
+	Big/Operands.cpp
+	Big/Words.cpp
+	Doubles/Parsing.cpp
+	Doubles/Printing.cpp
+	Doubles/Truncation.cpp
+	Io/Buffer.cpp
+	Io/Bytes.cpp
+	Io/Clock.cpp
+	Io/Directories.cpp
+	Io/Ending.cpp
+	Io/Errors.cpp
+	Io/Files.cpp
+	Io/FileTimes.cpp
+	Io/Handles.cpp
+	Io/Input.cpp
+	Io/Lines.cpp
+	Io/Output.cpp
+	Io/Process.cpp
+	Io/Processors.cpp
+	Io/Scratch.cpp
+	Io/Terminal.cpp
+	Io/Writing.cpp
+	Start/Entry.cpp
+	Start/Runner.cpp
+	Platform/Posix/Clocks.cpp
+	Platform/Posix/Directories.cpp
+	Platform/Posix/Faults.cpp
+	Platform/Posix/Files.cpp
+	Platform/Posix/Memory.cpp
+	Platform/Posix/Process.cpp
+	Platform/Posix/Processors.cpp
+	Platform/Posix/Stacks.cpp
+	Platform/Posix/Terminal.cpp
+	${IDRIS_MLIR_RUNTIME_CPU_TEST}
+)
+
+# What a unit that includes the runtime's headers reads: this directory
+# (idris_rt.h, the C ABI; cpu_features.h; each part's header, by its path
+# from here) and the target entry's list of the processor features programs
+# may be compiled to use, which cpu_features.h includes and idr-lower and
+# idris-mlir read too. idris_rt carries them, with SCOPE, to every library
+# that links it.
+function(idris_rt_headers scope)
+	target_include_directories(idris_rt ${scope} "${CMAKE_CURRENT_SOURCE_DIR}")
+	target_compile_definitions(idris_rt ${scope}
+		"IDRIS_RT_CPU_FEATURES_FILE=\"${IDRIS_MLIR_RUNTIME_CPU_FEATURES}\""
+	)
+endfunction()
 
 # The runtime's profile, in every configuration:
 # - optimized, since optnone bitcode would stay unoptimized in programs;
@@ -51,6 +131,73 @@ set(IDRIS_MLIR_SIMDUTF_DEFINITIONS
 	SIMDUTF_FEATURE_DETECT_ENCODING=0
 )
 
+# How TARGET compiles the runtime's units: the profile, the warnings, the
+# vendored libraries' headers and what they are told.
+function(idris_rt_compile target)
+	target_include_directories(${target} SYSTEM PRIVATE
+		"${IDRIS_MLIR_THIRD_PARTY}/snmalloc/src"
+		"${IDRIS_MLIR_THIRD_PARTY}/simdutf/include"
+		"${IDRIS_MLIR_THIRD_PARTY}/fast_float/include"
+		"${IDRIS_MLIR_THIRD_PARTY}/ryu"
+	)
+	target_compile_definitions(${target} PRIVATE
+		${IDRIS_MLIR_SIMDUTF_DEFINITIONS}
+		# snmalloc: size classes that step by 8 bytes;
+		# no thread teardown of its own, since both of the others need a static
+		# destructor (pthread keys register one with [[gnu::destructor]]) or the
+		# C++ runtime: a thread's cached memory is returned only if the
+		# C library calls _malloc_thread_cleanup, which neither musl nor
+		# libSystem does, and programs are single-threaded; its own small STL;
+		# getentropy and waiting on an address, which every system of the target
+		# entries has (Apple's platform draws entropy from CommonCrypto and waits
+		# with __ulock_wait below a macOS 14.4 deployment target, both in
+		# libSystem); the target entry's page, which its POSIX platforms take
+		# from SNMALLOC_PAGESIZE (Apple's has the same number as a constant, and
+		# Alloc/Classes.cpp checks both); and what the entry says of the system.
+		# snmalloc maps no executable memory, so nothing of MAP_JIT concerns it.
+		SNMALLOC_MIN_ALLOC_STEP_SIZE=8
+		SNMALLOC_USE_THREAD_CLEANUP
+		SNMALLOC_USE_SELF_VENDORED_STL
+		SNMALLOC_PLATFORM_HAS_GETENTROPY
+		SNMALLOC_USE_WAIT_ON_ADDRESS=1
+		SNMALLOC_PAGESIZE=${IDRIS_MLIR_PAGE_SIZE}
+		${IDRIS_MLIR_RUNTIME_DEFINITIONS}
+		# The target's page size, which the runtime's startup check compares
+		# with the system's (Platform/Posix/Memory.cpp). The target entry's one
+		# number.
+		IDRIS_RT_PAGE_SIZE=${IDRIS_MLIR_PAGE_SIZE}
+	)
+	target_link_libraries(${target} PRIVATE idris_mlir_runtime_profile idris_mlir_warnings)
+endfunction()
+
+# The typecheck build (IDRIS_MLIR_TYPECHECK, CMakeLists.txt) compiles the
+# runtime's units with the host's compiler into objects that nothing links,
+# so that it checks them as it checks foreign/idr; idris_rt is then their
+# headers alone. GMP's header is the sysroot's when the bootstrap built GMP
+# there, which the host's compiler does not search, or else the host's; it
+# is copied alone, so that no other header of the sysroot enters the host's
+# compile.
+if(IDRIS_MLIR_TYPECHECK)
+	add_library(idris_rt INTERFACE)
+	idris_rt_headers(INTERFACE)
+	find_file(IDRIS_MLIR_TYPECHECK_GMP_HEADER gmp.h
+		HINTS "${PROJECT_SOURCE_DIR}/.toolchain/sysroot/usr/include"
+		DOC "GMP's header, for the typecheck build's compile of the runtime")
+	if(NOT IDRIS_MLIR_TYPECHECK_GMP_HEADER)
+		message(FATAL_ERROR "the typecheck build compiles the runtime, which includes gmp.h: run tools/bootstrap.sh gmp, or set IDRIS_MLIR_TYPECHECK_GMP_HEADER to the host's gmp.h")
+	endif()
+	configure_file("${IDRIS_MLIR_TYPECHECK_GMP_HEADER}"
+		"${CMAKE_CURRENT_BINARY_DIR}/typecheck-gmp/gmp.h" COPYONLY)
+	add_library(idris_rt_typecheck OBJECT ${IDRIS_RT_SOURCES})
+	target_link_libraries(idris_rt_typecheck PRIVATE idris_rt)
+	idris_rt_compile(idris_rt_typecheck)
+	target_include_directories(idris_rt_typecheck SYSTEM PRIVATE
+		"${CMAKE_CURRENT_BINARY_DIR}/typecheck-gmp")
+	add_custom_target(idris_rt_check)
+	add_dependencies(idris_rt_check idris_rt_typecheck)
+	return()
+endif()
+
 # Vendored code: compiled as upstream writes it, outside our warning set and
 # the lint graph.
 add_library(idris_rt_simdutf OBJECT "${IDRIS_MLIR_THIRD_PARTY}/simdutf/src/simdutf.cpp")
@@ -61,169 +208,31 @@ target_include_directories(idris_rt_simdutf SYSTEM PRIVATE
 target_compile_definitions(idris_rt_simdutf PRIVATE ${IDRIS_MLIR_SIMDUTF_DEFINITIONS})
 target_link_libraries(idris_rt_simdutf PRIVATE idris_mlir_runtime_profile)
 
-# Ryu's shortest digits, which rt.doubles wraps; C, unmodified.
+# Ryu's shortest digits, which Doubles/Printing.cpp wraps; C, unmodified.
 add_library(idris_rt_ryu OBJECT "${IDRIS_MLIR_THIRD_PARTY}/ryu/ryu/d2s.c")
 target_include_directories(idris_rt_ryu SYSTEM PRIVATE "${IDRIS_MLIR_THIRD_PARTY}/ryu")
 target_link_libraries(idris_rt_ryu PRIVATE idris_mlir_runtime_profile)
 
 add_library(idris_rt STATIC
+	${IDRIS_RT_SOURCES}
 	$<TARGET_OBJECTS:idris_rt_simdutf>
 	$<TARGET_OBJECTS:idris_rt_ryu>
 )
-# The runtime's modules, each a private file set of the one archive: its
-# memory (rt.alloc), counting (rt.rc), strings (rt.strings), `cast` from
-# String (rt.numerals), bigs (rt.big), doubles (rt.doubles), input and
-# output, the standard streams and base's files, directories, process,
-# terminal, errors and clocks behind the handle table (rt.io), compile-time
-# evaluation's child (rt.eval) and the program's entry (rt.start).
-target_sources(idris_rt
-	PRIVATE
-		FILE_SET rt_alloc TYPE CXX_MODULES FILES
-			Alloc/Alloc.cppm
-			Alloc/Arrays.cppm
-			Alloc/Blocks.cppm
-			Alloc/Cells.cppm
-			Alloc/Classes.cppm
-			Alloc/Gmp.cppm
-	PRIVATE
-		FILE_SET rt_rc TYPE CXX_MODULES FILES
-			Rc/Rc.cppm
-			Rc/Counting.cppm
-			Rc/Freeing.cppm
-			Rc/Objects.cppm
-	PRIVATE
-		FILE_SET rt_strings TYPE CXX_MODULES FILES
-			Strings/Strings.cppm
-			Strings/Concat.cppm
-			Strings/Integers.cppm
-			Strings/Making.cppm
-			Strings/Order.cppm
-			Strings/Replacement.cppm
-			Strings/Scalars.cppm
-			Strings/Show.cppm
-			Strings/Simd.cppm
-			Strings/Utf8.cppm
-	PRIVATE
-		FILE_SET rt_numerals TYPE CXX_MODULES FILES
-			Numerals/Numerals.cppm
-			Numerals/Machine.cppm
-			Numerals/Reading.cppm
-	PRIVATE
-		FILE_SET rt_big TYPE CXX_MODULES FILES
-			Big/Big.cppm
-			Big/Arithmetic.cppm
-			Big/Bitwise.cppm
-			Big/Compare.cppm
-			Big/Conversions.cppm
-			Big/Digits.cppm
-			Big/Operands.cppm
-			Big/Words.cppm
-	PRIVATE
-		FILE_SET rt_doubles TYPE CXX_MODULES FILES
-			Doubles/Doubles.cppm
-			Doubles/Ieee.cppm
-			Doubles/Parsing.cppm
-			Doubles/Printing.cppm
-			Doubles/Truncation.cppm
-	PRIVATE
-		FILE_SET rt_io TYPE CXX_MODULES FILES
-			Io/Io.cppm
-			Io/Buffer.cppm
-			Io/Bytes.cppm
-			Io/Clock.cppm
-			Io/Directories.cppm
-			Io/Ending.cppm
-			Io/Errors.cppm
-			Io/Files.cppm
-			Io/FileTimes.cppm
-			Io/Handles.cppm
-			Io/Input.cppm
-			Io/Lines.cppm
-			Io/Output.cppm
-			Io/Process.cppm
-			Io/Processors.cppm
-			Io/Scratch.cppm
-			Io/Terminal.cppm
-			Io/Writing.cppm
-	PRIVATE
-		FILE_SET rt_eval TYPE CXX_MODULES FILES
-			Eval/Eval.cppm
-			Eval/Child.cppm
-	PRIVATE
-		FILE_SET rt_start TYPE CXX_MODULES FILES
-			Start/Start.cppm
-			Start/Entry.cppm
-			Start/Runner.cppm
-)
-# rt.platform: the platform layer, a module, implemented on every POSIX
-# system by Platform/Posix's partitions and on the target's processor by
-# the target entry's partition.
-target_sources(idris_rt
-	PRIVATE
-		FILE_SET rt_platform TYPE CXX_MODULES FILES
-			Platform/Platform.cppm
-			Platform/CpuBits.cppm
-			Platform/Posix/Clocks.cppm
-			Platform/Posix/Directories.cppm
-			Platform/Posix/Faults.cppm
-			Platform/Posix/Files.cppm
-			Platform/Posix/Memory.cppm
-			Platform/Posix/Process.cppm
-			Platform/Posix/Processors.cppm
-			Platform/Posix/Stacks.cppm
-			Platform/Posix/Terminal.cppm
-			${IDRIS_MLIR_RUNTIME_CPU_TEST}
-)
-target_include_directories(idris_rt PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-# The target entry's list of the processor features programs may be compiled
-# to use (cpu_features.h), which idr-lower and idris-mlir read too.
-target_compile_definitions(idris_rt PUBLIC
-	"IDRIS_RT_CPU_FEATURES_FILE=\"${IDRIS_MLIR_RUNTIME_CPU_FEATURES}\""
-)
-target_include_directories(idris_rt SYSTEM PRIVATE
-	"${IDRIS_MLIR_THIRD_PARTY}/snmalloc/src"
-	"${IDRIS_MLIR_THIRD_PARTY}/simdutf/include"
-	"${IDRIS_MLIR_THIRD_PARTY}/fast_float/include"
-	"${IDRIS_MLIR_THIRD_PARTY}/ryu"
-)
-target_compile_definitions(idris_rt PRIVATE
-	${IDRIS_MLIR_SIMDUTF_DEFINITIONS}
-	# snmalloc: size classes that step by 8 bytes;
-	# no thread teardown of its own, since both of the others need a static
-	# destructor (pthread keys register one with [[gnu::destructor]]) or the
-	# C++ runtime: a thread's cached memory is returned only if the
-	# C library calls _malloc_thread_cleanup, which neither musl nor
-	# libSystem does, and programs are single-threaded; its own small STL;
-	# getentropy and waiting on an address, which every system of the target
-	# entries has (Apple's platform draws entropy from CommonCrypto and waits
-	# with __ulock_wait below a macOS 14.4 deployment target, both in
-	# libSystem); the target entry's page, which its POSIX platforms take
-	# from SNMALLOC_PAGESIZE (Apple's has the same number as a constant, and
-	# rt.alloc:classes checks both); and what the entry says of the system.
-	# snmalloc maps no executable memory, so nothing of MAP_JIT concerns it.
-	SNMALLOC_MIN_ALLOC_STEP_SIZE=8
-	SNMALLOC_USE_THREAD_CLEANUP
-	SNMALLOC_USE_SELF_VENDORED_STL
-	SNMALLOC_PLATFORM_HAS_GETENTROPY
-	SNMALLOC_USE_WAIT_ON_ADDRESS=1
-	SNMALLOC_PAGESIZE=${IDRIS_MLIR_PAGE_SIZE}
-	${IDRIS_MLIR_RUNTIME_DEFINITIONS}
-	# The target's page size, which the runtime's startup check compares
-	# with the system's (rt.platform:memory). The target entry's one number.
-	IDRIS_RT_PAGE_SIZE=${IDRIS_MLIR_PAGE_SIZE}
-)
+idris_rt_headers(PUBLIC)
+idris_rt_compile(idris_rt)
+# Its bigs call GMP, so whatever links it links GMP.
+target_link_libraries(idris_rt INTERFACE ${IDRIS_MLIR_GMP})
 # The same number for the tests, which build parts of the runtime for
 # another page size and must not assume this one (tests/toolchain).
 file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/page-size" CONTENT "${IDRIS_MLIR_PAGE_SIZE}\n")
 # The library calls code generation makes for the target, as C names (the
 # entry's symbol prefix is a separate fact): the copy and fill functions
-# every target calls, then the target entry's JIT_LIBRARY_CALLS (what
-# LLVM's code for the target calls beyond them, which idr-eval's JIT binds
-# too). The e2e tests read it (tests/lib/heap.sh) to allow a program's
-# object exactly the calls its code generation makes, so the list lives in
-# the target entry and nowhere else.
+# every target calls, then the target entry's IDRIS_MLIR_CODEGEN_LIBRARY_CALLS
+# (what LLVM's code for the target calls beyond them). The e2e tests read it
+# (tests/lib/heap.sh) to allow a program's object exactly the calls its code
+# generation makes, so the list lives in the target entry and nowhere else.
 set(IDRIS_MLIR_CODEGEN_SYMBOLS "")
-foreach(codegen_call memcpy memset memmove ${IDRIS_MLIR_JIT_LIBRARY_CALLS})
+foreach(codegen_call memcpy memset memmove ${IDRIS_MLIR_CODEGEN_LIBRARY_CALLS})
 	string(APPEND IDRIS_MLIR_CODEGEN_SYMBOLS "${codegen_call}\n")
 endforeach()
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/codegen-symbols" "${IDRIS_MLIR_CODEGEN_SYMBOLS}")
@@ -231,15 +240,7 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/codegen-symbols" "${IDRIS_MLIR_CODEGEN_S
 # a test takes off a symbol the linker tool prints (tests/lib/heap.sh).
 file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/symbol-prefix"
 	CONTENT "${IDRIS_MLIR_SYMBOL_PREFIX}\n")
-target_link_libraries(idris_rt PRIVATE idris_mlir_runtime_profile idris_mlir_warnings)
 
-# No target imports std, which links the C++ library; the runtime scans
-# for its own modules, the vendored code has none.
-foreach(target idris_rt_simdutf idris_rt_ryu idris_rt)
-	set_target_properties(${target} PROPERTIES CXX_MODULE_STD OFF)
-endforeach()
-set_target_properties(idris_rt_simdutf idris_rt_ryu PROPERTIES CXX_SCAN_FOR_MODULES OFF)
-set_target_properties(idris_rt PROPERTIES CXX_SCAN_FOR_MODULES ON)
 set_target_properties(idris_rt_simdutf PROPERTIES CXX_CLANG_TIDY "")
 set_target_properties(idris_rt_ryu PROPERTIES C_CLANG_TIDY "")
 set_target_properties(idris_rt PROPERTIES ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")

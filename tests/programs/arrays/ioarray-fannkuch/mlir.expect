@@ -1,5 +1,5 @@
-# fannkuch-redux over base's IOArray, in IO. idr-eval is not in the simplify
-# round, so a closure stays and applying it allocates. After counting, the
+# fannkuch-redux over base's IOArray, in IO. A closed call runs at run
+# time, so a closure stays and applying it allocates. After counting, the
 # loops change no count (the arrays are borrowed, their elements are atoms).
 idr-rc: counts-nothing=@Main.rev counts-nothing=@Main.flips counts-nothing=@Main.next counts-nothing=@Main.copy counts-nothing=@Main.loop
 # The sizes the arrays were made with are carried beside them through every

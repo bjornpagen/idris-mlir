@@ -5,7 +5,7 @@
 // keeps idr.may_loop, the mark of a loop that may not end, down to the
 // object code.
 module attributes {idr.program} {
-  func.func private @count(%n: i64, %acc: i64) -> i64 {
+  idr.func private @count(%n: i64, %acc: i64) -> i64 {
     %zero = arith.constant 0 : i64
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
@@ -16,16 +16,16 @@ module attributes {idr.program} {
       %two = arith.constant 2 : i64
       %m = arith.subi %n, %one : i64
       %a = arith.addi %acc, %two : i64
-      %s = func.call @count(%m, %a) : (i64, i64) -> i64
+      %s = idr.call @count(%m, %a) : (i64, i64) -> i64
       idr.yield %s : i64
     }
     }
     return %r : i64
   }
-  func.func @Prog.main() -> i64 {
+  idr.func @Prog.main() -> i64 {
     %ten = arith.constant 10 : i64
     %zero = arith.constant 0 : i64
-    %r = func.call @count(%ten, %zero) : (i64, i64) -> i64
+    %r = idr.call @count(%ten, %zero) : (i64, i64) -> i64
     return %r : i64
   }
 }

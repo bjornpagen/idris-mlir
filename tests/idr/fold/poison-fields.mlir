@@ -8,31 +8,31 @@
 // field stays an op, and no constant holds poison. So an apply no label
 // reaches, whose result is the program's poison, can build a value and
 // still lower.
-// CHECK-LABEL: func.func @con(
-// CHECK: idr.con @Box::@MkBox(
-// CHECK-LABEL: func.func @closure(
-// CHECK: idr.closure @add(
-// CHECK-LABEL: func.func @suspend(
-// CHECK: idr.suspend @add(
+// CHECK-LABEL: idr.func @con(
+// CHECK: con @Box::@MkBox(
+// CHECK-LABEL: idr.func @closure(
+// CHECK: closure @add(
+// CHECK-LABEL: idr.func @suspend(
+// CHECK: suspend @add(
 module {
   idr.data @Box box {
     idr.ctor @MkBox (i64)
   }
-  func.func private @add(%k: i64, %x: i64) -> i64 attributes {idr.total} {
+  idr.func private @add(%k: i64, %x: i64) -> i64 attributes {total} {
     %r = arith.addi %k, %x : i64
     return %r : i64
   }
-  func.func @con() -> !idr.box<@Box> {
+  idr.func @con() -> !idr.box<@Box> {
     %p = ub.poison : i64
     %b = idr.con @Box::@MkBox(%p) : (i64) -> !idr.box<@Box>
     return %b : !idr.box<@Box>
   }
-  func.func @closure() -> !idr.fn<(i64) -> (i64)> {
+  idr.func @closure() -> !idr.fn<(i64) -> (i64)> {
     %p = ub.poison : i64
     %f = idr.closure @add(%p) : (i64) -> !idr.fn<(i64) -> (i64)>
     return %f : !idr.fn<(i64) -> (i64)>
   }
-  func.func @suspend() -> !idr.lazy<i64> {
+  idr.func @suspend() -> !idr.lazy<i64> {
     %p = ub.poison : i64
     %one = arith.constant 1 : i64
     %t = idr.suspend @add(%p, %one) : (i64, i64) -> !idr.lazy<i64>
@@ -46,12 +46,12 @@ module attributes {idr.program} {
   idr.data @Box box {
     idr.ctor @MkBox (i64)
   }
-  func.func private @wrap(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> !idr.box<@Box> {
+  idr.func private @wrap(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> !idr.box<@Box> {
     %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
     %b = idr.con @Box::@MkBox(%y) : (i64) -> !idr.box<@Box>
     return %b : !idr.box<@Box>
   }
-  func.func @Prog.main() -> i64 {
+  idr.func @Prog.main() -> i64 {
     %z = arith.constant 0 : i64
     return %z : i64
   }

@@ -1,14 +1,18 @@
 # Proposal 0013: Rust as the one foreign world
 
-Status: proposed, 2026-10-04, at 6fda6d8. Nothing here changes the
-compiler. Once the user decides on it, its decisions are recorded here
-and its staged plan (§14) becomes work.
+Status: proposed, 2026-10-04, at 6fda6d8; parked 2026-10-12. Nothing
+here changes the compiler. Parked because self-hosting, sharding and the
+array work come first and none of them needs a foreign world; 0009's P3
+is parked with it. Once the user decides on it, its decisions are
+recorded here and its staged plan (§14) becomes work. Its paths into
+`foreign/idr` are read after the cutover, which moved the dialect into
+MLIR's `include`/`lib` layout and made functions `idr.func`.
 
 Amended 2026-10-09:
 
 - A binding is a generated runtime primitive, not a `%foreign "rust:"`
   convention: §1, §2, §4, §8.1 and §9.2.
-- The LLVM pin is a trunk commit (proposal 0001), and rustc keeps its own
+- The LLVM pin is a trunk commit (PINS.md), and rustc keeps its own
   LLVM: §14 R0 and §15.
 - One crate graph and one surface per program, from the union of every
   package's manifest; selection and slicing of what is bound; the surface
@@ -50,13 +54,13 @@ built them for its own reasons:
   collector cannot give it.
 - **Ownership as grades in the types.** Grades are view (borrow), owned
   and exclusive (`!idr.excl`, proved by `idr.ownership:exclusive` on
-  MLIR's solver and checked after every pass; IdrOps.td:126-150,
+  MLIR's solver and checked after every pass; IdrTypes.td,
   1326-1460). Rust's `&T`, `T` and the uniqueness `&mut T` relies on are
   these three grades. The README's central promise (in-place update with
   no runtime test, or a rejection with a named reason) is the same proof
   obligation a `&mut` argument puts on the caller.
 - **A runtime linked as bitcode into every program.** `linkRuntime`
-  (Driver/LinkRuntime.cppm) joins the prepared runtime's bitcode to the
+  (Driver/LinkRuntime.cpp) joins the prepared runtime's bitcode to the
   program's module before O3, `LinkOnlyNeeded`. Rust code compiled to
   bitcode by a rustc on the same LLVM joins the same way, so a call into
   Rust inlines across the language boundary, in both directions.
@@ -720,7 +724,7 @@ origin, so no user module can claim one.
 
 **The convention is the runtime's own C ABI** (**decision**). A
 binding's shim is called exactly as idr-lower calls an
-`idris_rt_*` function (Lower/RuntimeCalls.cppm), and it follows the same
+`idris_rt_*` function (Conversion/RuntimeCalls.cpp), and it follows the same
 ownership rule: it borrows its arguments and returns an owned result.
 
 - **Arguments:** every value passes as its runtime word, which is a
@@ -737,7 +741,7 @@ the shim is ordinary Rust that rustc lowers as it lowers any Rust.
 
 **Op.** `idr.rust.call @symbol(%world, %args...)`:
 
-- **Callee:** a `func.func private` declaration. The parameter types of
+- **Callee:** a private `idr.func` declaration. The parameter types of
   the declaration carry the modes as grades: a view for `&`, an owned
   reference for a by-value parameter, and a view marked for aliasing
   check for `&mut` (a new permission of the grade, not an attribute).
@@ -865,7 +869,7 @@ rollback : (1 _ : Tx Open) -> IO ()
 
 No Rust call runs at compile time. The compiler has no compile-time
 evaluation feature; it normalizes the static part of the program on the
-type checker's interpreter (0003), which has no foreign world to call
+type checker's interpreter (0016), which has no foreign world to call
 into: a binding's call is stuck there and runs at run time. The stage that
 would have run calls the manifest declares `pure` is withdrawn.
 
@@ -938,7 +942,7 @@ new pool green on both target entries.
   - **Pins:** a `rust` entry in `toolchain.lock.json` (the nightly's date,
     its `rustc-nightly-src` tarball and SHA-256, and the LLVM major it is
     built against) and a `rust` step in `tools/bootstrap.sh`.
-  - **LLVM:** the LLVM pin is a trunk commit (proposal 0001), which
+  - **LLVM:** the LLVM pin is a trunk commit (PINS.md), which
     rustc does not build against (it supports external LLVM 22 and 23,
     rust-lang/rust#163572). The step pins an official nightly with its
     bundled LLVM, and `verify-pins` checks that rustc's LLVM major is not
@@ -972,7 +976,7 @@ new pool green on both target entries.
 - **R3, generics and callbacks.** `IdrisValue` containers and the
   cycle-check edge, callbacks through exported apply entries, and
   `i128`.
-- **R4** is withdrawn: no call runs at compile time (§11, 0003).
+- **R4** is withdrawn: no call runs at compile time (§11, 0016).
 - **R5, async on the Idris executor** (§12), when the runtime has one.
 
 **Size (conjecture):**
@@ -985,8 +989,8 @@ new pool green on both target entries.
 | Compiler: dialect, lowering, driver and runtime | 2–3k |
 | Bootstrap and tests | about 1k |
 
-R0 pins an official nightly, so the bootstrap builds no rustc (proposal
-0001). Whatever Rust the bootstrap or the build compiles later goes
+R0 pins an official nightly, so the bootstrap builds no rustc (PINS.md
+records the pins). Whatever Rust the bootstrap or the build compiles later goes
 through a compiler cache, as the LLVM builds go through ccache
 (`tools/bootstrap.sh`).
 
@@ -1003,7 +1007,7 @@ through a compiler cache, as the LLVM builds go through ccache
   (§14 R0), which decides every Rust layout and calling convention
   itself.
 - **Building MLIR from Rust's LLVM fork instead.** Rejected for now. The
-  toolchain's LLVM is an upstream trunk commit (proposal 0001), and
+  toolchain's LLVM is an upstream trunk commit (PINS.md), and
   PINS.md's MLIR workarounds and `upstream/`'s reproducers are pinned to
   it. rustc ships its own release LLVM (23 since July 2026,
   rust-lang/rust#158734). LTO works as long as rustc's major is not
@@ -1084,4 +1088,5 @@ Each picks the smaller mechanism (§1).
    reads rustdoc's JSON through `rustdoc-types` at the version the rustc
    pin fixes. Rust is a first-class part of the toolchain anyway; a C++
    reader would re-implement that crate by hand. The deviation from
-   cpp-starter is recorded in PINS.md when R1 adds the generator.
+   the MLIR layout of the C++ side is recorded in PINS.md when R1 adds
+   the generator.

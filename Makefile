@@ -5,17 +5,18 @@
 #   make verify-pins       the Idris submodule is at its staged gitlink, unmodified
 #   make check             tests/spec: the pins, the commands and the layout;
 #                          always, without a build
-#   make build             the C++ dev preset, the Idris side's modules of the
+#   make build             the C++ dev preset (PRESET=release, hardened,
+#                          profile or lint for another), the Idris side's modules of the
 #                          dialects (tools/dialects.sh), the fork of Idris's
 #                          compiler (compiler/idris), the frontend, and the
 #                          frontend's prefix: the packages the pinned Idris
 #                          source ships and those in libs/; after any code
 #                          change
-#   make test              tests/compiler, accept, reject, programs (each program twice: with
-#                          its dumps checked, and without compile-time
-#                          evaluation), determinism, registry, toolchain, fuzz,
-#                          two-levels and bench (each benchmark on a small
-#                          input); after compiler changes
+#   make test              tests/compiler, accept, reject, programs (each
+#                          program compiled once, with its dumps checked),
+#                          determinism, registry, toolchain, fuzz, two-levels
+#                          and bench (each benchmark on a small input); after
+#                          compiler changes
 #   make test-idr          tests/idr, the idr dialect, with FileCheck; after C++ or
 #                          contract changes
 #   make test-mlir-tools   tests/upstream, each upstream bug on its reproducer with the
@@ -24,8 +25,15 @@
 #                          idris-mlir, through tools/compile.sh
 #   make bench             bench/run.sh; ARGS='--runs 3 fib' passes arguments
 #   make self              the frontend compiled by itself (tools/self.sh): stages 1, 2
-#                          and 3, without idr-eval, stage 2 the same as stage 3;
-#                          after `make build`
+#                          and 3, stage 2 the same as stage 3; after `make build`
+#   make typecheck         whether the code compiles, without stage 2: foreign/idr by the
+#                          host's clang against a TableGen-only LLVM/MLIR
+#                          (tools/bootstrap.sh typecheck; nothing linked but
+#                          idris-mlir-tblgen), the Idris side's modules of the
+#                          dialects from it, and the Idris typecheck of
+#                          libs/, the fork and the frontend; each part's log
+#                          is in build/typecheck/logs, the C++ errors one per
+#                          line in build/typecheck/errors.log
 #
 # The test commands run tests/Main.idr, a golden runner that runs each test
 # in a process of its own; the whole run ends after 4 hours, so that nothing
@@ -44,8 +52,11 @@ IDRIS_PREFIX := $(call toolchain,idris_prefix)
 IDRIS2 := $(call toolchain,idris2)
 CMAKE := $(call toolchain,cmake)
 # The C++ build's configure preset (CMakePresets.json, through
-# tools/toolchain.sh), the same on every host.
+# tools/toolchain.sh), the same on every host; `make build PRESET=<name>`
+# builds another of CMakePresets.json's, in build/<name>, through the same
+# compiler cache.
 DEV_PRESET := $(call toolchain,dev_preset)
+PRESET := $(DEV_PRESET)
 # idris-mlir, the one command, which the tests run; it runs the frontend
 # beside it, which `build` links there from where Idris builds it.
 COMPILER := $(call toolchain,idris_mlir)
@@ -96,7 +107,9 @@ TIMEOUT_MISSING := $(call toolchain,timeout_missing)
 RUN_TESTS = $(or $(TIMEOUT),$(error $(TIMEOUT_MISSING))) -k 10 14400 $(RUNNER) $(COMPILER)
 
 .PHONY: help bootstrap doctor verify-pins env check build fork frontend prefix libs host-libs \
-        test test-idr test-mlir-tools runner compile bench self self-fork
+        test test-idr test-mlir-tools runner compile bench self self-fork typecheck \
+        typecheck-configure typecheck-tblgen typecheck-cxx typecheck-dialects typecheck-libs \
+        typecheck-fork typecheck-frontend
 .DEFAULT_GOAL := help
 
 # `make` alone lists the commands: the comment that starts this file.
@@ -124,8 +137,8 @@ env:
 # prefix with a frontend older than the fork.
 build:
 	@$(PINS) cmake ninja llvm sysroot
-	cd $(ROOT) && $(CMAKE) --preset $(DEV_PRESET) -DIDRIS_MLIR_IDRIS_PREFIX='$(CHECKOUT_PREFIX)'
-	cd $(ROOT) && $(CMAKE) --build --preset $(DEV_PRESET)
+	cd $(ROOT) && $(CMAKE) --preset $(PRESET) -DIDRIS_MLIR_IDRIS_PREFIX='$(CHECKOUT_PREFIX)'
+	cd $(ROOT) && $(CMAKE) --build --preset $(PRESET)
 	@$(PINS) idris
 	$(ROOT)/tools/dialects.sh generate
 	@$(MAKE) --no-print-directory frontend
@@ -279,3 +292,74 @@ compile:
 bench: libs host-libs
 	@$(PINS) built idris prefix sysroot
 	$(ROOT)/bench/run.sh $(ARGS)
+
+# Whether the code compiles where stage 2 is not built, which takes hours:
+# the typecheck bootstrap step builds LLVM and MLIR's TableGen and headers
+# alone, and the typecheck preset compiles every unit of foreign/idr with
+# the host's clang against them (CMakeLists.txt's IDRIS_MLIR_TYPECHECK).
+# Then the parts below, each with its log in TYPECHECK_LOGS, after the
+# parts it needs (part:needed): idris-mlir-tblgen, the one tool linked,
+# writes the Idris side's modules of the dialects; the C++ build keeps
+# going past a failed unit, and its errors (the compiler's, and TableGen's
+# at the location of the note that follows them) are listed one per line,
+# file:line: message, in TYPECHECK_ERRORS; and the pinned Idris checks
+# libs/ and the fork, installed into HOST_PREFIX as `host-libs` and `fork`
+# install them, since each is a package of the next, and the frontend
+# against them (--typecheck: no code is generated). The summary names each
+# part that failed or did not run; any failure fails the command.
+TYPECHECK_PRESET := $(call toolchain,typecheck_preset)
+TYPECHECK_DIR := $(call toolchain,typecheck_prefix)
+TYPECHECK_LOGS := $(TYPECHECK_DIR)/logs
+TYPECHECK_ERRORS := $(TYPECHECK_DIR)/errors.log
+TYPECHECK_PARTS := configure tblgen:configure cxx:configure dialects:tblgen libs fork:libs frontend:fork
+
+typecheck:
+	$(ROOT)/tools/bootstrap.sh cmake ninja chez idris typecheck
+	@mkdir -p '$(TYPECHECK_LOGS)'; ok=; failed=; skipped=; \
+	for entry in $(TYPECHECK_PARTS); do \
+	  part=$${entry%%:*}; needed=; case $$entry in *:*) needed=$${entry#*:} ;; esac; \
+	  case " $$ok " in *" $$needed "*) ;; *) if [ -n "$$needed" ]; then \
+	    echo "==> typecheck $$part: not run, as $$needed did not succeed"; skipped="$$skipped $$part"; continue; fi ;; esac; \
+	  log='$(TYPECHECK_LOGS)'/$$part.log; echo "==> typecheck $$part (log: $$log)"; \
+	  if $(MAKE) --no-print-directory typecheck-$$part > "$$log" 2>&1; then ok="$$ok $$part"; \
+	  else failed="$$failed $$part"; tail -n 15 "$$log" | sed 's/^/    | /'; fi; \
+	done; \
+	echo '==> typecheck summary'; \
+	echo "    succeeded:$${ok:- none}"; echo "    failed:$${failed:- none}"; echo "    not run:$${skipped:- none}"; \
+	if [ -s '$(TYPECHECK_ERRORS)' ]; then \
+	  echo "    C++ errors: $$(wc -l < '$(TYPECHECK_ERRORS)' | tr -d ' '), one per line in $(TYPECHECK_ERRORS)"; fi; \
+	[ -z "$$failed$$skipped" ]
+
+# Afresh each time: the toolchain file is the bootstrap's, and a cached
+# check would outlive a change of it. Ninja recompiles only what changed.
+typecheck-configure:
+	cd $(ROOT) && $(CMAKE) --preset $(TYPECHECK_PRESET) --fresh
+
+typecheck-tblgen:
+	cd $(ROOT) && $(CMAKE) --build --preset $(TYPECHECK_PRESET) --target idris-mlir-tblgen
+
+typecheck-cxx:
+	@rm -f '$(TYPECHECK_ERRORS)'
+	cd $(ROOT) && { $(CMAKE) --build --preset $(TYPECHECK_PRESET) -- -k 0 2>&1; echo $$? > '$(TYPECHECK_ERRORS).status'; } | \
+	  tee '$(TYPECHECK_DIR)/build.log'
+	@awk -v root='$(ROOT)/' ' \
+	  function out(loc, msg) { line = loc ": " msg; if (!seen[line]++) print line } \
+	  { if (index($$0, root) == 1) $$0 = substr($$0, length(root) + 1) } \
+	  pending != "" && /^[^ :]+:[0-9]+:[0-9]+: note: / { split($$0, f, ":"); out(f[1] ":" f[2], pending); pending = ""; next } \
+	  /^[^ :]+:[0-9]+:[0-9]+: (fatal )?error: / { \
+	    split($$0, f, ":"); msg = $$0; sub(/^[^ :]+:[0-9]+:[0-9]+: (fatal )?error: /, "", msg); out(f[1] ":" f[2], msg); next } \
+	  /^error: / { if (pending != "") out("?", pending); pending = substr($$0, 8) } \
+	  END { if (pending != "") out("?", pending) }' '$(TYPECHECK_DIR)/build.log' > '$(TYPECHECK_ERRORS)'
+	@status=$$(cat '$(TYPECHECK_ERRORS).status'); rm -f '$(TYPECHECK_ERRORS).status'; exit $$status
+
+typecheck-dialects:
+	$(ROOT)/tools/dialects.sh generate typecheck
+
+typecheck-libs: host-libs
+
+typecheck-fork: fork
+
+typecheck-frontend: fork
+	@$(PINS) idris
+	cd $(ROOT)/compiler && export IDRIS2_PREFIX='$(IDRIS_PREFIX)' IDRIS2_PACKAGE_PATH="$(call libdir,$(HOST_PREFIX))" && \
+	  $(IDRIS2) --typecheck idris-mlir.ipkg && $(IDRIS2) --typecheck syntax-samples.ipkg

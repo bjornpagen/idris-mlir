@@ -7,22 +7,22 @@
 // analysis knows nothing of keeps its guard. A loop's bound proves the
 // guards in the loop, where it holds, and not one outside it: the counter
 // the loop ends with is past the length, so a read at it keeps its guard.
-// CHECK-LABEL: func.func @byte(
+// CHECK-LABEL: idr.func @byte(
 // CHECK-NOT: idr.check
 // CHECK: return
-// CHECK-LABEL: func.func @odd(
+// CHECK-LABEL: idr.func @odd(
 // CHECK-NOT: idr.check
 // CHECK: return
-// CHECK-LABEL: func.func @span(
+// CHECK-LABEL: idr.func @span(
 // CHECK-NOT: idr.check
 // CHECK: return
-// CHECK-LABEL: func.func @slot(
+// CHECK-LABEL: idr.func @slot(
 // CHECK-NOT: idr.check
 // CHECK: return
-// CHECK-LABEL: func.func @wide(
+// CHECK-LABEL: idr.func @wide(
 // CHECK: idr.check.byte
 // CHECK: return
-// CHECK-LABEL: func.func @after(
+// CHECK-LABEL: idr.func @after(
 // CHECK: scf.while
 // CHECK: } do {
 // CHECK-NOT: idr.check.in_bounds
@@ -30,7 +30,7 @@
 // CHECK: scf.yield
 // CHECK: idr.check.in_bounds
 // CHECK: idr.array.get
-func.func @byte(%x: i64) -> i8 {
+idr.func @byte(%x: i64) -> i8 {
   %mask = arith.constant 255 : i64
   %low = arith.andi %x, %mask : i64
   %g = idr.check.byte %low, "a byte outside 0 to 255"
@@ -38,7 +38,7 @@ func.func @byte(%x: i64) -> i8 {
   return %b : i8
 }
 
-func.func @odd(%x: i64, %y: i64) -> i64 {
+idr.func @odd(%x: i64, %y: i64) -> i64 {
   %one = arith.constant 1 : i64
   %d = arith.ori %y, %one : i64
   %g = idr.check.nonzero %d, "division by zero" : i64
@@ -46,7 +46,7 @@ func.func @odd(%x: i64, %y: i64) -> i64 {
   return %q : i64
 }
 
-func.func @span(%x: i64) -> i64 {
+idr.func @span(%x: i64) -> i64 {
   %three = arith.constant 3 : i64
   %four = arith.constant 4 : i64
   %eight = arith.constant 8 : i64
@@ -55,7 +55,7 @@ func.func @span(%x: i64) -> i64 {
   return %g : i64
 }
 
-func.func @slot(%x: i64) -> i64 {
+idr.func @slot(%x: i64) -> i64 {
   %seven = arith.constant 7 : i64
   %eight = arith.constant 8 : i64
   %i = arith.andi %x, %seven : i64
@@ -63,13 +63,13 @@ func.func @slot(%x: i64) -> i64 {
   return %g : i64
 }
 
-func.func @wide(%x: i64) -> i8 {
+idr.func @wide(%x: i64) -> i8 {
   %g = idr.check.byte %x, "a byte outside 0 to 255"
   %b = idr.to_byte %g
   return %b : i8
 }
 
-func.func @after(%n: i64, %w: !idr.world) -> (i64, !idr.world) {
+idr.func @after(%n: i64, %w: !idr.world) -> (i64, !idr.world) {
   %z = arith.constant 0 : i64
   %one = arith.constant 1 : i64
   %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>

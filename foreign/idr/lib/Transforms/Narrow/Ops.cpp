@@ -1,0 +1,179 @@
+// An op whose bigs all fit made an op on words.
+
+#include "idr/IR/IdrDialect.h"
+#include "idr/IR/Layout.h"
+#include "idr/Transforms/Narrow.h"
+
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/IR/PatternMatch.h"
+
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/TypeSwitch.h"
+
+using namespace mlir;
+
+namespace idr::narrow {
+
+namespace {
+
+arith::IntegerOverflowFlags noWrap(bool nonNegative) {
+  return nonNegative ? arith::IntegerOverflowFlags::nsw | arith::IntegerOverflowFlags::nuw
+                     : arith::IntegerOverflowFlags::nsw;
+}
+
+// Replaces `op`'s big result by the big of `word`.
+void replaceBig(RewriterBase &rewriter, Facts &facts, Operation *op, Value word) {
+  Value result = op->getResult(0);
+  Value big = facts.big(rewriter, op->getLoc(), result.getType(), word, facts.of(result));
+  rewriter.replaceOp(op, big);
+}
+
+// A match on a big that fits is a match on its word, when every key is a
+// word too.
+bool narrowMatch(RewriterBase &rewriter, Facts &facts, MatchLitOp match) {
+  Value scrutinee = match.getScrutinee();
+  if (!facts.fits(scrutinee))
+    return false;
+  SmallVector<Attribute> keys;
+  for (Attribute key : match.getCases()) {
+    int64_t value = 0;
+    if (cast<BigAttr>(key).getValue().getAsInteger(10, value))
+      return false;
+    keys.push_back(rewriter.getI64IntegerAttr(value));
+  }
+  rewriter.setInsertionPoint(match);
+  Value word = facts.word(rewriter, match.getLoc(), scrutinee);
+  rewriter.modifyOpInPlace(match, [&] {
+    match->setOperand(0, word);
+    match.setCasesAttr(rewriter.getArrayAttr(keys));
+  });
+  return true;
+}
+
+// Rewrites one op whose bigs all fit; false, having changed nothing, when
+// they do not all fit.
+bool narrowOp(RewriterBase &rewriter, Facts &facts, Operation *op) {
+  if (auto match = dyn_cast<MatchLitOp>(op))
+    return narrowMatch(rewriter, facts, match);
+  auto allFit = [&](ValueRange values) {
+    return llvm::all_of(values, [&](Value v) { return !isBig(v.getType()) || facts.fits(v); });
+  };
+  if (!allFit(op->getOperands()) || !allFit(op->getResults()))
+    return false;
+  rewriter.setInsertionPoint(op);
+  Location loc = op->getLoc();
+  auto word = [&](Value v) { return facts.word(rewriter, loc, v); };
+  bool nonNegative = facts.nonNegative(op->getOperands()) && facts.nonNegative(op->getResults());
+  return llvm::TypeSwitch<Operation *, bool>(op)
+      .Case([&](BigAddOp add) {
+        replaceBig(rewriter, facts, op,
+                   arith::AddIOp::create(rewriter, loc, word(add.getLhs()), word(add.getRhs()),
+                                         noWrap(nonNegative)));
+        return true;
+      })
+      .Case([&](BigSubOp sub) {
+        replaceBig(rewriter, facts, op,
+                   arith::SubIOp::create(rewriter, loc, word(sub.getLhs()), word(sub.getRhs()),
+                                         noWrap(nonNegative)));
+        return true;
+      })
+      .Case([&](BigMulOp mul) {
+        replaceBig(rewriter, facts, op,
+                   arith::MulIOp::create(rewriter, loc, word(mul.getLhs()), word(mul.getRhs()),
+                                         noWrap(nonNegative)));
+        return true;
+      })
+      // The operand is at least 1.
+      .Case([&](BigPredOp pred) {
+        Value one = arith::ConstantOp::create(rewriter, loc, rewriter.getI64IntegerAttr(1));
+        replaceBig(rewriter, facts, op,
+                   arith::SubIOp::create(rewriter, loc, word(pred.getValue()), one, noWrap(true)));
+        return true;
+      })
+      .Case([&](BigCmpOp cmp) {
+        rewriter.replaceOpWithNewOp<arith::CmpIOp>(op, layout::signedPredicate(cmp.getPredicate()),
+                                                   word(cmp.getLhs()), word(cmp.getRhs()));
+        return true;
+      })
+      .Case([&](NatFromBigOp clamp) {
+        Value value = word(clamp.getValue());
+        if (!facts.nonNegative(clamp.getValue()))
+          value = arith::MaxSIOp::create(
+              rewriter, loc, value,
+              arith::ConstantOp::create(rewriter, loc, rewriter.getI64IntegerAttr(0)));
+        replaceBig(rewriter, facts, op, value);
+        return true;
+      })
+      // The Integer a natural is takes the natural's reference; the word
+      // takes none, so the natural drops it.
+      .Case([&](NatToBigOp retype) {
+        Value natural = retype.getValue();
+        Value value = word(natural);
+        if (facts.owned(natural))
+          DropOp::create(rewriter, loc, natural);
+        replaceBig(rewriter, facts, op, value);
+        return true;
+      })
+      .Case([&](BigToIntOp toInt) {
+        Value value = word(toInt.getValue());
+        if (value.getType() != toInt.getType())
+          value = arith::TruncIOp::create(rewriter, loc, toInt.getType(), value);
+        rewriter.replaceOp(op, value);
+        return true;
+      })
+      // A guard's result is its operand, so the guard of a big divisor that
+      // fits guards its word, and the divisor is the big of the checked
+      // word. The guard took the big's reference; the word takes none, so
+      // the big drops it.
+      .Case([&](CheckNonzeroOp check) {
+        Value divisor = check.getValue();
+        if (!isBig(divisor.getType()))
+          return false;
+        Value value = word(divisor);
+        Value checked = CheckNonzeroOp::create(rewriter, loc, value.getType(), value,
+                                               check.getCauseAttr());
+        if (facts.owned(divisor))
+          DropOp::create(rewriter, loc, divisor);
+        replaceBig(rewriter, facts, op, checked);
+        return true;
+      })
+      // A big the pass made of a word holds no count. Any other big
+      // proved small keeps its count ops: counting still tracks it (a call's
+      // result, a parameter), and on a small they do nothing at runtime.
+      .Case<DupOp, DropOp>([&](Operation *) {
+        Value value = op->getOperand(0);
+        if (!isBig(value.getType()) || !value.getDefiningOp<BigSmallOp>())
+          return false;
+        rewriter.eraseOp(op);
+        return true;
+      })
+      .Default([](Operation *) { return false; });
+}
+
+// An op on bigs that all fit, reached after the joints made words of what
+// flows round loops and out of merges. A conversion the joints made is
+// left to the folds that pair it, not narrowed again.
+struct NarrowWord : RewritePattern {
+  NarrowWord(MLIRContext *ctx, Facts &facts, uint64_t &narrowed)
+      : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx), facts(facts), narrowed(narrowed) {}
+
+  LogicalResult matchAndRewrite(Operation *op, PatternRewriter &rewriter) const override {
+    if (!isa<MatchLitOp, BigAddOp, BigSubOp, BigMulOp, BigPredOp, BigCmpOp, NatFromBigOp,
+             NatToBigOp, BigToIntOp, CheckNonzeroOp, DupOp, DropOp>(op) ||
+        facts.made(op) || !narrowOp(rewriter, facts, op))
+      return failure();
+    ++narrowed;
+    return success();
+  }
+
+  Facts &facts;
+  uint64_t &narrowed;
+};
+
+} // namespace
+
+void populateWordPatterns(RewritePatternSet &patterns, Facts &facts, uint64_t &narrowed) {
+  patterns.add<NarrowWord>(patterns.getContext(), facts, narrowed);
+}
+
+} // namespace idr::narrow

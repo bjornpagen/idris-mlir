@@ -38,9 +38,9 @@ numbers.
   checks what the compiler accepts, monomorphises and decides
   representations. The `idr` dialect and its passes
   (specialization, defunctionalization, loops, the
-  heap-free check, lowering) are C++ in `foreign/idr/`, following
-  bjornpagen/cpp-starter; `PINS.md` records every deliberate deviation from
-  it and every pinned workaround.
+  heap-free check, lowering) are C++ in `foreign/idr/`, an in-tree MLIR
+  dialect in upstream's layout and conventions; `PINS.md` records every
+  deliberate deviation from it and every pinned workaround.
 - One thing, one representation. A concept the compiler holds twice (the
   dialect's ops, types or primitives mirrored on the Idris side, a fact kept
   in a type and again in an attribute, one analysis computed in two places)
@@ -54,7 +54,7 @@ numbers.
   before the passes that use them.
 - No primitive has an implementation in Idris: its one meaning is the
   runtime's (`runtime/`), which folders call too. A closed call runs at
-  run time. Static normalization (proposal 0003) is what would fold one,
+  run time. Static normalization (proposal 0016) is what would fold one,
   and it is not built.
 - The compiler implements the Idris 2 it can compile to the code a
   monomorphic program would be: every construct whose runtime choices
@@ -101,10 +101,11 @@ numbers.
   error that names the reason; never miscompile silently.
 - No pass may drop what Idris proved: multiplicities, erasure, linearity.
   They are what this compiler exists to exploit, so they live where MLIR
-  cannot lose them: in types (`!idr.erased` for quantity 0, `!idr.lin<T>`
-  for quantity 1), which every transformation must keep and the verifier
-  checks after every pass. A fact kept in a discardable attribute can be
-  dropped silently; do not keep one there.
+  cannot lose them. What Idris erased (quantity 0) is no value of the
+  module: the frontend emits no parameter, field or argument for it.
+  Quantity 1 is a type, `!idr.lin<T>`, which every transformation must
+  keep and the verifier checks after every pass. A fact kept in a
+  discardable attribute can be dropped silently; do not keep one there.
 - Erased does not mean constant. A linear binder does not imply unique heap
   ownership. Indexed vectors do not imply contiguous storage.
 - A bug in a pinned upstream (LLVM, MLIR, clang, lld, Chez Scheme, Idris) is

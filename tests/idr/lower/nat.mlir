@@ -10,7 +10,7 @@
 // CHECK-DAG: constant{{[( ]}}1 : i64
 // CHECK-DAG: constant{{[( ]}}3 : i64
 module attributes {idr.program} {
-  func.func private @naturals(%a: !idr.nat, %b: !idr.nat, %i: !idr.big)
+  idr.func private @naturals(%a: !idr.nat, %b: !idr.nat, %i: !idr.big)
       -> (!idr.nat, !idr.nat, i1, !idr.nat, !idr.nat, !idr.big) {
     %s = idr.big.add %a, %b : !idr.nat
     %p = idr.big.mul %a, %b : !idr.nat
@@ -20,11 +20,11 @@ module attributes {idr.program} {
     %e = idr.nat.to_big %a
     return %s, %p, %c, %d, %n, %e : !idr.nat, !idr.nat, i1, !idr.nat, !idr.nat, !idr.big
   }
-  func.func @Prog.main() -> i64 {
+  idr.func @Prog.main() -> i64 {
     %zero = idr.constant #idr.big<"0"> : !idr.nat
     %one = idr.constant #idr.big<"1"> : !idr.nat
     %i = idr.constant #idr.big<"-5"> : !idr.big
-    %r:6 = func.call @naturals(%zero, %one, %i)
+    %r:6 = idr.call @naturals(%zero, %one, %i)
         : (!idr.nat, !idr.nat, !idr.big) -> (!idr.nat, !idr.nat, i1, !idr.nat, !idr.nat, !idr.big)
     %x = arith.extui %r#2 : i1 to i64
     return %x : i64

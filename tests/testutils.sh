@@ -33,7 +33,7 @@
 #                     stack it runs on; the file says what loops (e2e.sh)
 #     covers          the program uses every run-time export of the prelude
 #                     module the file names, as its Core shows (prelude.sh)
-#     demand-in-place both compilations make the in-place promise
+#     demand-in-place the compilation makes the in-place promise
 #                     (--demand-in-place): a call passes what its
 #                     callee rebuilds in place exclusive, or the program is
 #                     refused (e2e.sh)
@@ -49,7 +49,7 @@
 #     mlir.sh          FileCheck, and the module an mlir.check reads
 #     expect.sh        properties of a module by name (idr-expect), mlir.expect
 #     prelude.sh       a prelude module whose every export a program uses
-#     e2e.sh           the end-to-end programs, each compiled twice, and the
+#     e2e.sh           the end-to-end programs, each compiled once, and the
 #                      generated semantics tests
 #     properties.sh    what holds of every compilation, off its dumps
 #     profile.sh       the profile's accept and reject fixtures
@@ -60,7 +60,6 @@
 #     two-levels.sh    closed terms, compiled, against their recorded values
 #     idris-lex.sh     Idris source, code told from comments and strings
 #     bench.sh         the benchmarks, built and run on small inputs
-#     upstream.sh      clang bugs a unit of ours reproduces, compiled in place
 
 root=${IDRIS_MLIR_ROOT:?IDRIS_MLIR_ROOT must name the repository}
 
@@ -95,7 +94,7 @@ if [ -z "${IDRIS_MLIR_TEST_DEADLINE-}" ]; then
 fi
 
 for lib_file in harness timing compile run heap mlir expect prelude properties e2e \
-                profile determinism lit fuzz two-levels idris-lex bench upstream; do
+                profile determinism lit fuzz two-levels idris-lex bench; do
   . "$root/tests/lib/$lib_file.sh"
 done
 unset lib_file

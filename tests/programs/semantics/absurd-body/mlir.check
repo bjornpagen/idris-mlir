@@ -2,6 +2,6 @@
 // A body that cannot return: impossible alternatives are left out, and no
 // value of the result type is invented; the body is ub.unreachable alone.
 // It never runs.
-// CHECK-LABEL: func.func {{.*}}@Prog.never(
+// CHECK-LABEL: idr.func {{.*}}@Prog.never(
 // CHECK-NEXT: ub.unreachable
 // CHECK-NEXT: }

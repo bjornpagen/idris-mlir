@@ -2,8 +2,8 @@
 # compilation leaves or must not leave.
 
 # compile_program [OPTION]... SOURCE OUTPUT: SOURCE, an IO program,
-# compiled with idris-mlir's OPTION... (-p PACKAGE, --no-eval,
-# --demand-in-place, --dump-dir=DIR, --break-shape=KEY) through
+# compiled with idris-mlir's OPTION... (-p PACKAGE, --demand-in-place,
+# --dump-dir=DIR, --break-shape=KEY) through
 # tools/compile.sh, the one copy of how idris-mlir runs. Its output is in
 # $work/compile.out and $work/compile.err, its exit status in $compiled;
 # its wall time goes to the timing record.

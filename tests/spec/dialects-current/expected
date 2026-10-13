@@ -3,8 +3,6 @@ IdrisMLIR.Syntax.Idr: current
 IdrisMLIR.Dialect.Idr: current
 IdrisMLIR.Syntax.Builtin: current
 IdrisMLIR.Dialect.Builtin: current
-IdrisMLIR.Syntax.Func: current
-IdrisMLIR.Dialect.Func: current
 IdrisMLIR.Syntax.Arith: current
 IdrisMLIR.Dialect.Arith: current
 IdrisMLIR.Syntax.Math: current
@@ -18,8 +16,6 @@ IdrisMLIR.Syntax.Idr: current
 IdrisMLIR.Dialect.Idr: current
 IdrisMLIR.Syntax.Builtin: current
 IdrisMLIR.Dialect.Builtin: current
-IdrisMLIR.Syntax.Func: current
-IdrisMLIR.Dialect.Func: current
 IdrisMLIR.Syntax.Arith: current
 IdrisMLIR.Dialect.Arith: current
 IdrisMLIR.Syntax.Math: current
@@ -33,8 +29,6 @@ IdrisMLIR.Syntax.Idr: stale (make build writes it again)
 IdrisMLIR.Dialect.Idr: stale (make build writes it again)
 IdrisMLIR.Syntax.Builtin: stale (make build writes it again)
 IdrisMLIR.Dialect.Builtin: stale (make build writes it again)
-IdrisMLIR.Syntax.Func: stale (make build writes it again)
-IdrisMLIR.Dialect.Func: stale (make build writes it again)
 IdrisMLIR.Syntax.Arith: stale (make build writes it again)
 IdrisMLIR.Dialect.Arith: stale (make build writes it again)
 IdrisMLIR.Syntax.Math: stale (make build writes it again)

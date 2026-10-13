@@ -10,20 +10,20 @@ idr.data @T box {
 }
 
 // The long forms of the spelled grades print as their spellings.
-// CHECK-LABEL: func.func private @spelled(
-// CHECK-SAME: !idr.lin<!idr.str>, !idr.own<!idr.big>, !idr.excl<!idr.box<@T>>, !idr.erased, !idr.world)
-func.func private @spelled(!idr.q<one, plain, !idr.str>, !idr.q<many, own, !idr.big>,
-                           !idr.q<many, excl, !idr.box<@T>>, !idr.q<zero, plain, none>,
+// CHECK-LABEL: idr.func private @spelled(
+// CHECK-SAME: !idr.lin<!idr.str>, !idr.own<!idr.big>, !idr.excl<!T>, !idr.world)
+idr.func private @spelled(!idr.q<one, plain, !idr.str>, !idr.q<many, own, !idr.big>,
+                           !idr.q<many, excl, !idr.box<@T>>,
                            !idr.q<one, plain, !idr.world_carrier>)
 
 // A grade without a spelling prints written out.
-// CHECK-LABEL: func.func private @long(
-// CHECK-SAME: !idr.q<one, own, !idr.str>, !idr.q<many, borrow, !idr.str>, !idr.q<one, excl, !idr.box<@T>>)
-func.func private @long(!idr.q<one, own, !idr.str>, !idr.q<many, borrow, !idr.str>,
+// CHECK-LABEL: idr.func private @long(
+// CHECK-SAME: !idr.q<one, own, !idr.str>, !idr.q<many, borrow, !idr.str>, !idr.q<one, excl, !T>)
+idr.func private @long(!idr.q<one, own, !idr.str>, !idr.q<many, borrow, !idr.str>,
                         !idr.q<one, excl, !idr.box<@T>>)
 
 // The spellings print as themselves.
-// CHECK-LABEL: func.func private @sugar(
-// CHECK-SAME: !idr.lin<!idr.str>, !idr.own<!idr.big>, !idr.excl<!idr.box<@T>>, !idr.erased, !idr.world)
-func.func private @sugar(!idr.lin<!idr.str>, !idr.own<!idr.big>, !idr.excl<!idr.box<@T>>,
-                         !idr.erased, !idr.world)
+// CHECK-LABEL: idr.func private @sugar(
+// CHECK-SAME: !idr.lin<!idr.str>, !idr.own<!idr.big>, !idr.excl<!T>, !idr.world)
+idr.func private @sugar(!idr.lin<!idr.str>, !idr.own<!idr.big>, !idr.excl<!idr.box<@T>>,
+                         !idr.world)

@@ -132,7 +132,7 @@ suites =
       , pool "programs/io: input and output through the Prelude, System, System.File, System.Directory, System.Clock, System.Info and Buffer" ["programs/io"]
       , pool "programs/prelude: the Prelude and base over strings, lists and doubles" ["programs/prelude"]
       , pool "programs/interfaces: interfaces resolved at compile time" ["programs/interfaces"]
-      , pool "programs/eval: compile-time evaluation and specialization" ["programs/eval"]
+      , pool "programs/eval: closed calls, specialization and arity raising" ["programs/eval"]
       , pool "programs/partial: partial functions, crashes and the stack" ["programs/partial"]
       , pool "programs/stack: loops through calls in tail position in constant stack on long inputs, and recursions a million calls deep" ["programs/stack"]
       , pool "programs/nat: natural numbers" ["programs/nat"]

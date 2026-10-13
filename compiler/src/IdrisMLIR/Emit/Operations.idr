@@ -51,12 +51,12 @@ statement l o = append (MkStatement Nothing o (At l))
 ||| plain value in a linear position enters it (`idr.lin.enter`), as Idris
 ||| lets any value fill a binder of quantity 1.
 export
-coerce : Index -> Loc -> Use -> Val -> E Val
+coerce : Index -> Loc -> Quantity -> Val -> E Val
 coerce ix l use v = case (linear v.use v.type, linear use v.type) of
   (True, False) => value ix l v.type (Idr.linUseOp !(operand ix v))
   (False, True) => do
-    let entered = { use := Once } v
-    t <- heldType ix Once v.type
+    let entered = { use := One } v
+    t <- heldType ix One v.type
     r <- mlirValue l t (Idr.linEnterOp !(operand ix v))
     pure ({ name := r.name } entered)
   _ => pure v
@@ -72,11 +72,6 @@ literal ix l (LDouble d) = value ix l DoubleT (Arith.constantOp (FloatAttr d F64
 literal ix l (LStr s) = value ix l StrT (Idr.constantOp (StringAttr s))
 literal ix l (LBig n) = value ix l BigT (Idr.constantOp (Idr (BigAttr (show n))))
 literal ix l (LNat n) = value ix l NatT (Idr.constantOp (Idr (BigAttr (show n))))
-
-||| The erased value.
-export
-erasedValue : Index -> Loc -> E Val
-erasedValue ix l = value ix l ErasedT (Idr.constantOp (Idr ErasedAttr))
 
 ||| A comparison's result.
 bool : MlirType
@@ -407,14 +402,15 @@ prim ix l IndexBelow vs = do
   pure i
 prim ix l p vs = internal ("the primitive " ++ show p ++ " with " ++ show (length vs) ++ " operands")
 
-||| A constructor application (`idr.con`); a box's allocates.
+||| A constructor application (`idr.con`); a box's allocates. The
+||| constructor is named in its data instance by its own name.
 export
 con : Index -> Loc -> Con -> List Val -> E Val
 con ix l c vs0 = do
-  vs <- traverse (\(f, v) => coerce ix l (binderUse f) v) (zip c.fields vs0)
+  vs <- traverse (\(f, v) => coerce ix l f.quantity v) (zip c.fields vs0)
+  sym <- dataSymbol ix c.id.dataId
   value ix l (DataT c.id.dataId)
-        (Idr.conOp (MkSymbolRef (mangle c.id.dataId.name) [mangle c.id.name])
-                   !(traverse (operand ix) vs))
+        (Idr.conOp (MkSymbolRef sym [c.id.name]) !(traverse (operand ix) vs))
 
 mutual
   ||| The value a variable names: itself, or the constructor a match took

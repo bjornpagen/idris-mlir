@@ -2,7 +2,7 @@ module Main
 
 import Prelude
 
--- `mk 40` stays a call: idr-eval is not in the simplify round. The let
+-- `mk 40` stays a call: a closed call runs at run time. The let
 -- shares each level, a tree of 2^41 - 1 nodes with 41 distinct ones, so
 -- the walk finishes. A copy of the tree at each step would not.
 data T = L | N T T

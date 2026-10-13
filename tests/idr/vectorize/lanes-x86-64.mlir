@@ -85,16 +85,16 @@
 // LLVM-NOT: affine.
 // LLVM-NOT: linalg.
 module attributes {idr.program} {
-  func.func @root(%w: !idr.world) -> !idr.world {
+  idr.func @root(%w: !idr.world) -> !idr.world {
     %n = arith.constant 7 : i64
-    %a, %w1 = func.call @squares(%n, %w) : (i64, !idr.world) -> (memref<?xi64>, !idr.world)
-    %b, %w2 = func.call @eighth(%n, %w1) : (i64, !idr.world) -> (memref<?xi64>, !idr.world)
-    %c, %w3 = func.call @inexact(%n, %w2) : (i64, !idr.world) -> (memref<?xi64>, !idr.world)
-    %v, %w4 = func.call @ones(%n, %w3) : (i64, !idr.world) -> (memref<?xf64>, !idr.world)
-    %r, %w5 = func.call @rows(%n, %v, %w4) : (i64, memref<?xf64>, !idr.world) -> (memref<?xf64>, !idr.world)
+    %a, %w1 = idr.call @squares(%n, %w) : (i64, !idr.world) -> (memref<?xi64>, !idr.world)
+    %b, %w2 = idr.call @eighth(%n, %w1) : (i64, !idr.world) -> (memref<?xi64>, !idr.world)
+    %c, %w3 = idr.call @inexact(%n, %w2) : (i64, !idr.world) -> (memref<?xi64>, !idr.world)
+    %v, %w4 = idr.call @ones(%n, %w3) : (i64, !idr.world) -> (memref<?xf64>, !idr.world)
+    %r, %w5 = idr.call @rows(%n, %v, %w4) : (i64, memref<?xf64>, !idr.world) -> (memref<?xf64>, !idr.world)
     return %w5 : !idr.world
   }
-  func.func private @squares(%n: i64, %w: !idr.world) -> (memref<?xi64>, !idr.world) {
+  idr.func private @squares(%n: i64, %w: !idr.world) -> (memref<?xi64>, !idr.world) {
     %zero = arith.constant 0 : i64
     %a, %w1 = idr.array.generate %n, %zero, %w : i64 -> memref<?xi64> (%i: i64) {
       %sq = arith.muli %i, %i : i64
@@ -102,7 +102,7 @@ module attributes {idr.program} {
     }
     return %a, %w1 : memref<?xi64>, !idr.world
   }
-  func.func private @eighth(%n: i64, %w: !idr.world) -> (memref<?xi64>, !idr.world) {
+  idr.func private @eighth(%n: i64, %w: !idr.world) -> (memref<?xi64>, !idr.world) {
     %zero = arith.constant 0 : i64
     %a, %w1 = idr.array.generate %n, %zero, %w : i64 -> memref<?xi64> (%i: i64) {
       %sq = arith.muli %i, %i : i64
@@ -112,7 +112,7 @@ module attributes {idr.program} {
     }
     return %a, %w1 : memref<?xi64>, !idr.world
   }
-  func.func private @inexact(%n: i64, %w: !idr.world) -> (memref<?xi64>, !idr.world) {
+  idr.func private @inexact(%n: i64, %w: !idr.world) -> (memref<?xi64>, !idr.world) {
     %zero = arith.constant 0 : i64
     %c41 = arith.constant 41 : i64
     %below = arith.constant -2147483649 : i64
@@ -136,12 +136,12 @@ module attributes {idr.program} {
     }
     return %c, %w3 : memref<?xi64>, !idr.world
   }
-  func.func private @ones(%n: i64, %w: !idr.world) -> (memref<?xf64>, !idr.world) {
+  idr.func private @ones(%n: i64, %w: !idr.world) -> (memref<?xf64>, !idr.world) {
     %one = arith.constant 1.0 : f64
     %a, %w1 = idr.array.new [%n], %one, %w : f64 -> memref<?xf64>
     return %a, %w1 : memref<?xf64>, !idr.world
   }
-  func.func private @rows(%n: i64, %v: memref<?xf64>, %w: !idr.world) -> (memref<?xf64>, !idr.world) {
+  idr.func private @rows(%n: i64, %v: memref<?xf64>, %w: !idr.world) -> (memref<?xf64>, !idr.world) {
     %zero = arith.constant 0.0 : f64
     %zeroi = arith.constant 0 : i64
     %one = arith.constant 1 : i64

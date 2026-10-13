@@ -1,12 +1,16 @@
 # 0009: shards
 
-**Status:** proposed, 2026-10-09, against `main` at 651156d4. Nothing here
-is built, run or timed. Its Decisions section is decided: D1 is the
-user's, and D2 to D12 were pinned on the user's delegation by the rule
-that single-thread performance wins the tie ("Rules it keeps"). They
-stand until the user changes them. The staged plan waits for the user's
-"launch". Claims are marked: read, measured, recalled, conjecture,
-decision.
+**Status:** proposed, 2026-10-09, against `main` at 651156d4;
+reprioritized 2026-10-12. Nothing here is built, run or timed. Its
+Decisions section is decided: D1 is the user's, and D2 to D12 were pinned
+on the user's delegation by the rule that single-thread performance wins
+the tie ("Rules it keeps"). They stand until the user changes them.
+Sharding is the second priority, right after self-hosting: P1, P2 and P4
+are that work, in order, with 0011's S0, S1, S2 and S8. P3 (asynchronous
+Rust) is parked with proposal 0013, which it needs. P5 stays on its
+measurements. Its runtime paths are read after the cutover, which made
+the runtime plain `.cpp` and `.h` files. Claims are marked: read,
+measured, recalled, conjecture, decision.
 
 The runtime today is one thread running `main`. This proposal makes it
 many copies of that runtime, one per core, each with its own heap, world
@@ -27,7 +31,7 @@ Each move names the data that changes and the branches it deletes.
   of a waiting thunk, and a second scheduler. A program that never waits
   lowers as today.
 - **Each shard runs a reactor** (§3). Data: a task table, a run queue, an
-  MPSC wake queue and one platform waiter behind `rt.platform`. Deleted:
+  MPSC wake queue and one platform waiter behind the runtime's platform layer (`runtime/Platform/Platform.h`). Deleted:
   the one process-wide runner; there is one per shard.
 - **A shard is one more copy of the single-threaded runtime** (§4, D1).
   Data: the heap, world, top-level constant cells, handle table and output
@@ -49,7 +53,7 @@ Each move names the data that changes and the branches it deletes.
 ## Rules it keeps
 
 - **Both targets, one design.** The waiter is one operation behind
-  `rt.platform`: kqueue on arm64 macOS, epoll on x86_64 Linux (§3). No
+  the platform layer: kqueue on arm64 macOS, epoll on x86_64 Linux (§3). No
   inline assembly, so frames are stackless coroutines from LLVM's
   intrinsics (§2.4).
 - **What Idris proved stays in types.** The join is `!idr.join<T>` at
@@ -90,9 +94,9 @@ where it was paused.
 | Colours its caller | no | no | yes (`wait`) |
 | Crosses shards | as a value: copied | as a value: copied | never |
 
-Closures and thunks are done (proposal 0002): defunctionalization makes
-them sums (read: `foreign/idr/lib/Defunctionalize/Sums.cppm`,
-`foreign/idr/lib/Lower/Closures.cppm`). This proposal adds the third.
+Closures and thunks are done: defunctionalization makes
+them sums (read: `foreign/idr/lib/Transforms/Defunctionalize/Pass.cpp`,
+`foreign/idr/lib/Conversion/Force.cpp`). This proposal adds the third.
 The line falls where the data is known: a thunk's paused state is its
 captures, known in MLIR; a task's is the values live across a wait, known
 exactly only after optimization, so LLVM's CoroSplit computes it. An LLVM
@@ -132,7 +136,7 @@ as `llvm.intr.coro.*`. The ops the LLVM dialect does not spell
 `LLVMOps.td`, `LLVM_CallIntrinsicOp`). CoroSplit and CoroElide already
 run in our pipelines, because `buildPerModuleDefaultPipeline(O3)`
 includes the coroutine passes (read:
-`foreign/idr/lib/Target/Optimize.cppm`; `PassBuilderPipelines.cpp`,
+`foreign/idr/lib/Target/Optimize.cpp`; `PassBuilderPipelines.cpp`,
 `buildCoroWrapper`).
 
 In MLIR the wait is `idr.wait`, a terminator with two successors:
@@ -189,7 +193,7 @@ assembly (excluded) or `makecontext`, which musl does not ship. So the
 compiler colours, as little as it can.
 
 **decision** idr-effects gains a fourth bit, `wait`, beside `io`, `crash`
-and `diverge` (read: `Passes.td`, `idr-effects`), computed like the
+and `diverge` (read: `Transforms/Passes.td`, `idr-effects`), computed like the
 others from the primitives that wait: sockets, timers and sleep; Rust
 `await`; the join of a fork that must interleave with other tasks. Only
 `wait` functions are lowered as coroutines. The world stays the
@@ -232,7 +236,7 @@ today.
 
 #### 3.2 The platform wait
 
-The waiter is one operation behind `rt.platform`:
+The waiter is one operation behind the platform layer:
 
 | Target | Waits on | A post wakes it with |
 |---|---|---|
@@ -327,7 +331,7 @@ enqueued, in one walk of the counted graph it reaches:
 The cells a copy makes are allocated by the sender's allocator and owned
 by the receiver: one owner at a time, with frees going home as remote
 frees. The live-cell counter is per thread (read:
-`runtime/Alloc/Cells.cppm`, `thread_local liveCells`), so the
+`runtime/Alloc/Cells.cpp`, `thread_local liveCells`), so the
 zero-live-cells property is checked on the sum over shards at exit.
 
 #### 5.2 Placement
@@ -360,10 +364,10 @@ D10 decides when it is built.
 ### 6. Top-level constants per shard
 
 A top-level constant is evaluated at most once per shard that demands it
-(D6). Proposal 0002 kept one memo cell per process, because a constant
+(D6). Today there is one memo cell per process, because a constant
 stream's tail is a static thunk referenced from static data, and a
 thread-local address is not a link-time constant (read:
-`foreign/idr/lib/Lower/StaticData.cppm`, the memo cells of thunk kind and
+`foreign/idr/lib/Conversion/StaticData.cpp`, the memo cells of thunk kind and
 `@__idr_release_cafs`).
 
 **decision** The indirection is a state of the memo sum, not a test
@@ -497,7 +501,7 @@ Erased: the shard index on `Here`, `Shard`, `Join` and `Local`; `Here`
 itself; every proof that a `Fin` is in range. Runtime: the `Fin` that
 selects a queue (an `i64` after Nat narrowing),
 `k`, and the message's bytes. Static normalization folds a closed
-placement function of total code (0003), never the core count, which is
+placement function of total code (0016), never the core count, which is
 IO.
 
 #### 7.3 The hop in MLIR and the send check
@@ -618,7 +622,7 @@ the `wait` bit and tail await, a reactor with its wake queue, kick and
 platform wait, runtime-owned sockets and timers behind Rust's async I/O
 traits (proposal 0013 §12 names them), the waker, and cancellation as
 destroy. More shards, lending, taking unstarted messages and io_uring can
-wait. Static normalization covers only total, pure code (0003); waiting
+wait. Static normalization covers only total, pure code (0016); waiting
 is IO, so nothing that waits is normalized.
 
 #### 10.4 Blocking calls offloaded
@@ -671,7 +675,7 @@ measurement.
 **P2. One reactor** (§3, §10.2).
 
 - **Change:** the task table, wake queue and kick; kqueue with
-  `EVFILT_USER` and epoll with eventfd behind `rt.platform`; sleep;
+  `EVFILT_USER` and epoll with eventfd behind the platform layer; sleep;
   same-shard fork and join.
 - **Proof:** two tasks' sleeps overlap; a post from a foreign thread
   wakes a sleeping reactor; both targets.
@@ -711,7 +715,7 @@ before:
   server at saturation spends more than a quarter of its time in
   readiness and transfer system calls;
 - SPMD through upstream's `shard-partition`, after pure array programs
-  are tensors (`proposals/0007-typed-apl/README.md` §3.8), when it runs
+  are tensors (`proposals/0007-typed-apl/README.md` §14), when it runs
   spectral-norm faster than P4's `scf.forall` lowering beyond the
   run-to-run spread.
 
@@ -727,7 +731,7 @@ before:
 - **A thunk as an LLVM coroutine:** a thunk is never paused mid-body, so a
   coroutine with no inner suspend adds a null test on every force (read:
   `sources/papers/peytonjones-1992-stg` §3.1.2) and a frame MLIR cannot
-  see. Proposal 0002 made it a memo sum instead.
+  see. The compiler makes it a memo sum instead.
 - **The async dialect:** a second reference count and a pool beside ours,
   an error channel the language does not have, no operand that says where
   an `async.execute` runs, and an await that blocks a reactor outside
@@ -802,7 +806,7 @@ describe.
 
 - **Output: a buffer per shard.** Each shard writes standard output into
   a buffer of its own, as the single-threaded runtime does today (read:
-  `runtime/Io/Output.cppm`, one 4 KiB buffer a flush writes). No lock is
+  `runtime/Io/Output.cpp`, one 4 KiB buffer a flush writes). No lock is
   on the write path. A flush writes the whole buffer with one `writeAll`
   under the descriptor's lock, so two shards' flushes never interleave,
   whatever the descriptor is: POSIX makes a pipe write atomic only up to
@@ -812,10 +816,10 @@ describe.
   and at its end. Flushing before a post makes output causal: shard A's
   line is in the kernel before shard B can act on A's message.
 - **Standard error** is written unbuffered today (read:
-  `runtime/Io/Ending.cppm`, `writeAll(2, ...)`), so each write is one
+  `runtime/Io/Ending.cpp`, `writeAll(2, ...)`), so each write is one
   `writeAll` under standard error's lock.
 - **Input belongs to shard 0,** with the single-threaded runtime's buffer
-  (read: `runtime/Io/Input.cppm`) and no lock on shard 0's read path. A
+  (read: `runtime/Io/Input.cpp`) and no lock on shard 0's read path. A
   read on another shard is a blocking hop to shard 0: the reader flushes
   its output (so a prompt precedes the read), posts the request, and
   blocks until shard 0 replies with the line, the bytes or the end.
@@ -830,7 +834,7 @@ lock, which locks shard 0's every read.
 
 ### D4. Files and directories
 
-Each shard has its own handle table (read: `runtime/Io/Handles.cppm`,
+Each shard has its own handle table (read: `runtime/Io/Handles.cpp`,
 one table per process today). A handle stays an `int64_t`; slot `i` on
 shard `k` carries `k` above bit 47, so shard 0's handles are today's
 numbers. `0`, `1` and `2` are the standard streams on every shard (D3),
@@ -867,7 +871,7 @@ join's reply flushed its worker, so every line is out.
 
 A top-level constant is evaluated at most once per shard that demands it,
 in that shard's slot (§6). With one shard it is evaluated once, as today.
-Whether a closed call of total code becomes a startup constant is 0003's
+Whether a closed call of total code becomes a startup constant is 0016's
 cost rule. This decision is only that the shard which demands the constant
 computes it. A `trace` in a top-level constant prints once per shard that
 forces it.

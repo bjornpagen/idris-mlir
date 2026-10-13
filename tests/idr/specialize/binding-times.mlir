@@ -23,7 +23,7 @@
 // cycle, but @again's call of @loop, applied as the clone applies it,
 // becomes its call once inlining shows the apply. It recurses where @loop
 // does: @loop's parameter, then what the apply passes.
-// CHECK-DAG: remark: @loop$raise$1: fixed, other
+// CHECK-DAG: remark: @loop.raise1: fixed, other
 // A function on no cycle specializes on anything.
 // CHECK-DAG: remark: @twice: free, free
 module attributes {idr.program} {
@@ -31,21 +31,21 @@ module attributes {idr.program} {
     idr.ctor @Nil ()
     idr.ctor @Cons (i64, !idr.box<@L>)
   }
-  func.func private @map(%f: !idr.fn<(i64) -> (i64)>, %xs: !idr.box<@L>) -> !idr.box<@L> {
+  idr.func private @map(%f: !idr.fn<(i64) -> (i64)>, %xs: !idr.box<@L>) -> !idr.box<@L> {
     %r = idr.match %xs : !idr.box<@L> -> (!idr.box<@L>) {
     case @Nil() {
       idr.yield %xs : !idr.box<@L>
     }
     case @Cons(%h: i64, %t: !idr.box<@L>) {
       %h2 = idr.apply %f(%h) : !idr.fn<(i64) -> (i64)>
-      %t2 = func.call @map(%f, %t) : (!idr.fn<(i64) -> (i64)>, !idr.box<@L>) -> !idr.box<@L>
+      %t2 = idr.call @map(%f, %t) : (!idr.fn<(i64) -> (i64)>, !idr.box<@L>) -> !idr.box<@L>
       %c = idr.con @L::@Cons(%h2, %t2) : (i64, !idr.box<@L>) -> !idr.box<@L>
       idr.yield %c : !idr.box<@L>
     }
     }
     return %r : !idr.box<@L>
   }
-  func.func private @count(%acc: i64, %n: !idr.big) -> i64 {
+  idr.func private @count(%acc: i64, %n: !idr.big) -> i64 {
     %r = idr.match_lit %n : !idr.big -> (i64) {
     case #idr.big<"0"> {
       idr.yield %acc : i64
@@ -55,18 +55,18 @@ module attributes {idr.program} {
       %one = idr.constant #idr.big<"1"> : !idr.big
       %a = arith.addi %acc, %c1 : i64
       %m = idr.big.sub %n, %one
-      %x = func.call @count(%a, %m) : (i64, !idr.big) -> i64
+      %x = idr.call @count(%a, %m) : (i64, !idr.big) -> i64
       idr.yield %x : i64
     }
     }
     return %r : i64
   }
-  func.func private @twice(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 {
+  idr.func private @twice(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 {
     %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
     %z = idr.apply %f(%y) : !idr.fn<(i64) -> (i64)>
     return %z : i64
   }
-  func.func private @iter(%f: !idr.fn<(i64) -> (i64)>, %n: i64, %x: i64) -> i64 {
+  idr.func private @iter(%f: !idr.fn<(i64) -> (i64)>, %n: i64, %x: i64) -> i64 {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
@@ -76,17 +76,17 @@ module attributes {idr.program} {
       %g = idr.closure @twice(%f) : (!idr.fn<(i64) -> (i64)>) -> !idr.fn<(i64) -> (i64)>
       %c1 = arith.constant 1 : i64
       %m = arith.subi %n, %c1 : i64
-      %y = func.call @iter(%g, %m, %x) : (!idr.fn<(i64) -> (i64)>, i64, i64) -> i64
+      %y = idr.call @iter(%g, %m, %x) : (!idr.fn<(i64) -> (i64)>, i64, i64) -> i64
       idr.yield %y : i64
     }
     }
     return %r : i64
   }
-  func.func private @walk(%xs: !idr.box<@L>, %flag: i64) -> i64 {
+  idr.func private @walk(%xs: !idr.box<@L>, %flag: i64) -> i64 {
     %r = idr.match_lit %flag : i64 -> (i64) {
     case 0 {
       %c1 = arith.constant 1 : i64
-      %y = func.call @walk(%xs, %c1) : (!idr.box<@L>, i64) -> i64
+      %y = idr.call @walk(%xs, %c1) : (!idr.box<@L>, i64) -> i64
       idr.yield %y : i64
     }
     default {
@@ -96,7 +96,7 @@ module attributes {idr.program} {
       }
       case @Cons(%h: i64, %t: !idr.box<@L>) {
         %c0 = arith.constant 0 : i64
-        %y = func.call @walk(%t, %c0) : (!idr.box<@L>, i64) -> i64
+        %y = idr.call @walk(%t, %c0) : (!idr.box<@L>, i64) -> i64
         idr.yield %y : i64
       }
       }
@@ -105,38 +105,38 @@ module attributes {idr.program} {
     }
     return %r : i64
   }
-  func.func private @even(%xs: !idr.box<@L>) -> i1 {
+  idr.func private @even(%xs: !idr.box<@L>) -> i1 {
     %r = idr.match %xs : !idr.box<@L> -> (i1) {
     case @Nil() {
       %t = arith.constant true
       idr.yield %t : i1
     }
     case @Cons(%h: i64, %t: !idr.box<@L>) {
-      %y = func.call @odd(%t) : (!idr.box<@L>) -> i1
+      %y = idr.call @odd(%t) : (!idr.box<@L>) -> i1
       idr.yield %y : i1
     }
     }
     return %r : i1
   }
-  func.func private @odd(%xs: !idr.box<@L>) -> i1 {
+  idr.func private @odd(%xs: !idr.box<@L>) -> i1 {
     %t = idr.field %xs[@Cons, 1] : !idr.box<@L> -> !idr.box<@L>
-    %y = func.call @even(%t) : (!idr.box<@L>) -> i1
+    %y = idr.call @even(%t) : (!idr.box<@L>) -> i1
     return %y : i1
   }
-  func.func private @loop(%n: i64) -> !idr.fn<(i64) -> (i64)> {
+  idr.func private @loop(%n: i64) -> !idr.fn<(i64) -> (i64)> {
     %k = idr.closure @again(%n) : (i64) -> !idr.fn<(i64) -> (i64)>
     return %k : !idr.fn<(i64) -> (i64)>
   }
-  func.func private @again(%n: i64, %x: i64) -> i64 {
-    %k = func.call @loop(%n) : (i64) -> !idr.fn<(i64) -> (i64)>
+  idr.func private @again(%n: i64, %x: i64) -> i64 {
+    %k = idr.call @loop(%n) : (i64) -> !idr.fn<(i64) -> (i64)>
     %y = idr.apply %k(%x) : !idr.fn<(i64) -> (i64)>
     return %y : i64
   }
-  func.func private @loop$raise$1(%n: i64 {idr.hole = 0 : i64}, %x: i64 {idr.hole = 1 : i64}) -> i64 attributes {idr.clone = #idr.clone<@loop$raise$1, #idr.key_apply<"loop", 1>>} {
-    %y = func.call @again(%n, %x) : (i64, i64) -> i64
+  idr.func private @loop.raise1(%n: i64, %x: i64) -> i64 attributes {clone = #idr.clone<@loop.raise1, #idr.key_apply<"loop", 1>>} {
+    %y = idr.call @again(%n, %x) : (i64, i64) -> i64
     return %y : i64
   }
-  func.func @Main.main() -> i64 {
+  idr.func @Main.main() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
   }

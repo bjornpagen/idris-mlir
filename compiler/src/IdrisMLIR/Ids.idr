@@ -37,6 +37,17 @@ export
 Show Shown where
   show (MkShown s) = s
 
+||| What a function or data instance is an instance of: the definition and
+||| the compile-time values it was instantiated at, each the
+||| alpha-normalized text the frontend prints. Emit writes it as
+||| #idr.instance and derives the symbol's readable name from it; nothing
+||| else reads the name.
+public export
+record InstanceKey where
+  constructor MkInstanceKey
+  origin : String            -- the definition's printed full name
+  arguments : List String    -- each compile-time argument, alpha-normalized text
+
 export Eq FnId where a == b = a.name == b.name
 export Ord FnId where compare a b = compare a.name b.name
 export Show FnId where show = (.name)

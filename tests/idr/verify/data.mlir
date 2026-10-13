@@ -2,14 +2,14 @@
 
 // A field's quantity is its type: linear fields are !idr.lin.
 idr.data @T {
-  idr.ctor @A (!idr.lin<i64>, !idr.erased, i64)
+  idr.ctor @A (!idr.lin<i64>, i64)
 }
 
 // -----
 
 idr.data @T {
-  // expected-error @+1 {{expects a grade of a plain type, got one of '!idr.erased'}}
-  idr.ctor @A (!idr.lin<!idr.erased>)
+  // expected-error @+1 {{expects a grade of a plain type, got one of '!idr.lin<i64>'}}
+  idr.ctor @A (!idr.lin<!idr.lin<i64>>)
 }
 
 // -----
@@ -51,7 +51,7 @@ idr.data @T {
 
 // -----
 
-func.func @f() {
+idr.func @f() {
   // expected-error @+1 {{expects parent op 'builtin.module'}}
   idr.data @T {
   }

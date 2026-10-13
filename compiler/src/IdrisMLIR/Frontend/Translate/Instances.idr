@@ -13,6 +13,7 @@ import Libraries.Data.List.Thin
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
+import IdrisMLIR.Frontend.Translate.Keys
 import IdrisMLIR.Frontend.Translate.Recursion
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Translate.Types
@@ -53,7 +54,7 @@ shapes : List PKind -> List ClosedTerm
 shapes = map shapeOf
   where
     shapeOf : PKind -> ClosedTerm
-    shapeOf (ValueParam _ (Just s)) = s
+    shapeOf (ValueParam _ (Just s) _) = s
     shapeOf _ = Erased EmptyFC Placeholder
 
 ||| Refuses an instance whose argument at a runtime parameter has a deeper
@@ -89,7 +90,7 @@ growing fc owner n base kinds = do
       from r.parent
 
 ||| Requests a function instance, for parameters classified as the call
-||| gives them, and returns its name. A new instance remembers how it came
+||| gives them, and returns its identity. A new instance remembers how it came
 ||| to be: the chain leads back to the user definition a library instance
 ||| serves (`Dictionaries.chooser`), and through the instances of its own
 ||| definition it comes from (`growing`).
@@ -97,7 +98,8 @@ export
 request : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
           FC -> String -> Name -> List PKind -> Core FnId
 request fc owner n kinds = do
-  inst <- MkFnId <$> instanceName n (map staticOf kinds)
+  (ident, key) <- instanceKey n (map staticOf kinds)
+  let inst = MkFnId ident
   base <- nameKey <$> toFullNames n
   st <- get TState
   unless (contains inst st.seen) $ do
@@ -109,7 +111,7 @@ request fc owner n kinds = do
     update TState { seen $= insert inst
                   , perName $= insert base (S count)
                   , requesters $= insert inst (MkRequest n base st.current kinds)
-                  , queue $= enqueue (MkPending n inst kinds) }
+                  , queue $= enqueue (MkPending n inst key kinds) }
   pure inst
 
 ||| A compile-time value of an argument, computed on demand: normalised for a
@@ -149,7 +151,8 @@ givenArgs = map given
     given (TypeParam t) = Just (known t False)
     given (DictParam t Nothing) = Just (known t True)
     given (DictParam t (Just h)) = Just ({ holed := pure (Just (t, h.types)) } (known t True))
-    given (ValueParam _ shape) = (\t => known t False) <$> shape
+    given ErasedParam = Nothing
+    given (ValueParam _ shape _) = (\t => known t False) <$> shape
 
 nextStatic : ArgValues -> (Maybe ArgValue, ArgValues)
 nextStatic (v :: vs) = (v, vs)
@@ -215,7 +218,7 @@ classify fc owner (S k) (Bind bfc _ (Pi _ rig _ a) sc) vals = do
      else if isErased rig
        then do
          (rest, res) <- classify fc owner k (subst (Erased bfc Placeholder) sc) (skip vals)
-         pure (ValueParam Gone Nothing :: rest, res)
+         pure (ErasedParam :: rest, res)
      else if !(dictionaryBinder rig a') || maybe False (.dictionary) (fst (nextStatic vals))
        then do
          let (Just v, vals') = nextStatic vals
@@ -244,7 +247,7 @@ classify fc owner (S k) (Bind bfc _ (Pi _ rig _ a) sc) vals = do
          holes <- case hole of
                     Just (_, tys) => do
                       held <- coreType fc owner ValueType !(normaliseClosed !(packedType tys))
-                      pure (Just (MkHoles tys (Held Many held)))
+                      pure (Just (MkHoles tys (MkBinder (quantityOf top) held)))
                     Nothing => pure Nothing
          (rest, res) <- classify fc owner k !(normaliseClosed (subst key sc)) vals'
          pure (DictParam key holes :: rest, res)
@@ -280,7 +283,7 @@ classify fc owner (S k) (Bind bfc _ (Pi _ rig _ a) sc) vals = do
            _ => pure Nothing
          let value = fromMaybe (Erased bfc Placeholder) shape
          (rest, res) <- classify fc owner k !(normaliseClosed (subst value sc)) vals'
-         pure (ValueParam (Held (useOf rig) t) shape :: rest, res)
+         pure (ValueParam (MkBinder (quantityOf rig) t) shape a' :: rest, res)
 classify fc owner (S k) ty vals = do
   ty' <- normaliseClosed ty
   case ty' of

@@ -1,6 +1,6 @@
 // input: after idr-simplify
-// idr-eval is not in the simplify round, so the closed calls stay and run
+// A closed call runs at run time, so the closed calls stay and run
 // at run time, Integer operations included. `fib n` stays a call whose
 // argument is read at run time. The values printed are the run's to check.
 // CHECK: call @Main.fib(%{{.*}}) : (i64) -> i64
-// CHECK: idr.big.
+// CHECK: big.

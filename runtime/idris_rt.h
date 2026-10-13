@@ -3,9 +3,8 @@
  * Every helper that idr-lower calls is here. A program inlines the
  * runtime's bitcode where that pays and links the rest natively, so what a
  * program does not call is not in its executable. idris-mlir links the
- * same code natively: the folders of the string and big ops call it, and so
- * does the code idr-eval JITs, so a primitive has one implementation at
- * compile time and at runtime.
+ * same code natively: the folders of the string and big ops call it, so a
+ * primitive has one implementation at compile time and at runtime.
  *
  * The layouts below are shared with idr-lower (foreign/idr/lib/Lower), which
  * writes constants of them into static data. */
@@ -26,8 +25,7 @@ extern "C" {
 /* Every heap object starts with this header.
  *
  * count is how many owned references the object has, or one of two marks:
- * - 0: persistent. Static data, the results of compile-time evaluation and
- *   the cells of its arena are never counted and never freed. Everything a
+ * - 0: persistent. Static data is never counted and never freed. Everything a
  *   persistent object points to is persistent, except a static memo cell
  *   (kind IDRIS_RT_KIND_THUNK), which its first force writes once and whose
  *   forced value is counted and released by idris_rt_caf_release.
@@ -202,8 +200,7 @@ void idris_rt_free(void *block);
 /* A new cell of `size` bytes, a box or a thunk that idr-lower builds (or,
  * with the matching info, anything else the runtime frees): its header is
  * count 1 and `info`, and it counts as a live cell. Exhausted memory ends
- * the process with a crash. In compile-time evaluation's arena the cell is
- * persistent (count 0) instead, and not a live cell. */
+ * the process with a crash. */
 void *idris_rt_cell(size_t size, uint32_t info);
 
 /* A new array of `length` elements (a negative length is 0) with the
@@ -263,7 +260,7 @@ void idris_rt_flush(void);
  * exactly "1", writes the line "idris-rt: live cells N\n" (N in decimal,
  * idris_rt_live_cells) to standard error, so a test can check that a program
  * frees every cell it allocates. A crash reports nothing, and neither does
- * compile-time evaluation, nor idris_rt_io_exit. */
+ * idris_rt_io_exit. */
 void idris_rt_main_return(void);
 void idris_rt_io_put_str(const idris_rt_str *s);
 /* The UTF-8 encoding of the character c: the Prelude's putChar, and what
@@ -419,11 +416,8 @@ int64_t idris_rt_handle_is_null(int64_t handle);
 const idris_rt_str *idris_rt_handle_string(int64_t handle);
 void idris_rt_io_handle_free(int64_t handle);
 /* Writes pending output, then the len bytes of msg to standard error, then
- * ends the process with status IDRIS_RT_CRASHED. Inside an evaluation child
- * (idris_rt_eval_begin) it ends the child as idris_rt_eval_crash does,
- * with the same report on the report descriptor and the same status: lowered
- * code crashes through it alone, in a program and in compile-time
- * evaluation. */
+ * ends the process with status IDRIS_RT_CRASHED: lowered code crashes
+ * through it alone. */
 IDRIS_RT_NORETURN void idris_rt_crash(const char *msg, size_t len);
 /* Ends the program with "idris-mlir: " and the string's bytes. */
 IDRIS_RT_NORETURN void idris_rt_crash_str(const idris_rt_str *s);
@@ -452,17 +446,17 @@ IDRIS_RT_NORETURN void idris_rt_crash_str(const idris_rt_str *s);
  * names any other value, which no parent could tell from its low 8 bits. */
 int idris_rt_start(int64_t (*body)(void), uint64_t cpu_features, int argc, char **argv);
 
-/* The reserved-stack runner, which programs, idris-mlir and compile-time
- * evaluation's child share: runs fn(arg) on a new thread whose stack is
- * reserved address space, committed as it is touched, of the largest size
- * from `most` bytes down by halves to 64 MiB (or `most`, when smaller)
- * that the machine grants, with `guard` inaccessible bytes below it. Both
- * are rounded up to whole pages, and the guard is at least one. A fault on the guard is the stack
- * running out: exhausted() runs, on a signal stack of its own, and must end
- * the process with only async-signal-safe calls. Any other fault gets the
- * action it had before. One runner runs at a time in a process. It checks
- * the page size first, as idris_rt_start does. Returns 0
- * once fn has returned, or -1 when no stack could be reserved. */
+/* The reserved-stack runner, which programs and idris-mlir share: runs
+ * fn(arg) on a new thread whose stack is reserved address space, committed
+ * as it is touched, of the largest size from `most` bytes down by halves to
+ * 64 MiB (or `most`, when smaller) that the machine grants, with `guard`
+ * inaccessible bytes below it. Both are rounded up to whole pages, and the
+ * guard is at least one. A fault on the guard is the stack running out:
+ * exhausted() runs, on a signal stack of its own, and must end the process
+ * with only async-signal-safe calls. Any other fault gets the action it had
+ * before. One runner runs at a time in a process. It checks the page size
+ * first, as idris_rt_start does. Returns 0 once fn has returned, or -1 when
+ * no stack could be reserved. */
 int idris_rt_run_on_stack(void (*fn)(void *), void *arg, size_t most, size_t guard,
                           void (*exhausted)(void));
 
@@ -615,41 +609,6 @@ double idris_rt_parse_double(const char *p, size_t n);
 /* Points GMP's memory functions at the runtime's allocator. The
  * big operations call it themselves before GMP first allocates. */
 void idris_rt_gmp_init(void);
-
-/* Compile-time evaluation. idr-eval runs the calls of a round in a child
- * process, whose code idr-lower wrote as it writes a program's and idr-meter
- * metered. idris_rt_eval_begin, called once in the child, makes every
- * allocation of the runtime use the arena (idris_rt_arena_alloc), and every
- * cell the runtime makes there (idris_rt_cell, strings, bignums) persistent:
- * count 0, not a live cell, so counting does nothing in the child, and a
- * crash (idris_rt_crash) reports to the evaluator. The arena is never freed:
- * the child ends with the round, and memory management is not
- * observable. Only the compiler calls these, natively,
- * never a program (rt.eval annotates them so); the runtime idris-mlir
- * prepares for programs has no entry for them. */
-void idris_rt_eval_begin(int report_fd);
-void *idris_rt_arena_alloc(size_t size);
-/* Writes msg to the report descriptor, then ends the child with
- * IDRIS_RT_EVAL_CRASHED. The evaluator's own runtime code calls it; lowered
- * code never does. */
-IDRIS_RT_NORETURN void idris_rt_eval_crash(const char *msg, size_t len);
-
-/* A call of code Idris does not prove terminating runs metered: from
- * idris_rt_eval_meter until idris_rt_eval_unmetered, it may take `ticks`
- * ticks, allocate `bytes` bytes of arena and use `stack` bytes of stack
- * below the caller of idris_rt_eval_meter, or the child ends with
- * IDRIS_RT_EVAL_OVER_BUDGET. idris_rt_eval_tick, whose calls idr-meter
- * inserts at every function's entry and before every loop that may not end,
- * counts a tick and checks the stack; unmetered it does nothing. */
-void idris_rt_eval_meter(uint64_t ticks, uint64_t bytes, uint64_t stack);
-void idris_rt_eval_unmetered(void);
-void idris_rt_eval_tick(void);
-
-/* The exit statuses of an evaluation child: its calls crashed, the
- * machine refused memory, or a metered call spent its budget. */
-#define IDRIS_RT_EVAL_CRASHED 3
-#define IDRIS_RT_EVAL_EXHAUSTED 4
-#define IDRIS_RT_EVAL_OVER_BUDGET 6
 
 #ifdef __cplusplus
 }

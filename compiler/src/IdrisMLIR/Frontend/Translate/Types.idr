@@ -15,9 +15,11 @@ import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Hooks
+import IdrisMLIR.Frontend.Translate.Keys
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
+import IdrisMLIR.Registry
 import IdrisMLIR.Rule
 import IdrisMLIR.Term
 import IdrisMLIR.Types
@@ -43,52 +45,6 @@ intTy Bits32Type = Just UInt32
 intTy Bits64Type = Just UInt64
 intTy _ = Nothing
 
-||| A full name, printed so that different names print differently: Idris's
-||| `show` prints only the display part of a `DN` and leaves out the index of
-||| a case or with block.
-export
-nameKey : Name -> String
-nameKey (NS ns n) = show (NS ns (UN (Basic (nameKey n))))
-nameKey (DN str n) = str ++ "{" ++ nameKey n ++ "}"
-nameKey (CaseBlock outer i) = "case block " ++ show i ++ " in " ++ outer
-nameKey (WithBlock outer i) = "with block " ++ show i ++ " in " ++ outer
-nameKey n = show n
-
-||| The definition's full name and its arguments' normal forms.
-||| The printed form is made unique by a suffix if a different instance
-||| already prints the same way.
-export
-instanceName : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-               Name -> List (Maybe ClosedTerm) -> Core String
-instanceName n args = do
-  n' <- toFullNames n
-  args' <- traverse (\a => case a of
-                             Just t => Just <$> toFullNames t
-                             Nothing => pure Nothing) args
-  st <- get TState
-  -- Instances are bucketed by a hash of their arguments, so a request
-  -- compares its arguments with the few instances in its bucket, not with
-  -- every instance of the definition.
-  let key = nameKey n' ++ "#" ++ show (hash args')
-  let same = fromMaybe [] (lookup key st.named)
-  -- An instance already named is found by its arguments; only a new one
-  -- is printed, since printing a dictionary's normal form is the costly
-  -- part and most requests are repeats.
-  case find ((== args') . fst) same of
-    Just (_, name) => pure name
-    Nothing => do
-      shown <- traverse showTT (catMaybes args')
-      let printed = nameKey n' ++ (if null shown then "" else "[" ++ joinBy ", " shown ++ "]")
-      let owners = fromMaybe [] (lookup printed st.owners)
-      let name = suffixed printed (length owners)
-      put TState ({ owners $= insert printed (owners ++ [(n', args')])
-                  , named $= insert key ((args', name) :: same) } st)
-      pure name
-  where
-    suffixed : String -> Nat -> String
-    suffixed p Z = p
-    suffixed p k = p ++ "'" ++ show k
-
 ||| A stand-in for the `i`th binder of a constructor's type.
 marker : Nat -> ClosedTerm
 marker i = Ref EmptyFC Bound (MN "idris-mlir-binder" (cast i))
@@ -104,7 +60,7 @@ marker i = Ref EmptyFC Bound (MN "idris-mlir-binder" (cast i))
 paramLayout : List Nat -> List Nat -> ClosedTerm -> List (Maybe Nat)
 paramLayout params kept ty =
   let (n, ret, rigs) = markAll 0 ty
-      args = snd (spine ret [])
+      args = snd (getFnArgs ret)
       found = mapMaybe (\p => (,p) <$> (getAt p args >>= markerOf)) params
   in map (\i => lookup i found >>= given (getAt i rigs)) (upto n)
   where
@@ -161,7 +117,7 @@ dataParams def = case definition def of
     -- The occurrence of the type that a type returns, under its binders.
     occurrence : ClosedTerm -> Maybe (List ClosedTerm)
     occurrence (Bind bfc _ (Pi {}) sc) = occurrence (subst (Erased bfc Placeholder) sc)
-    occurrence tm = case spine tm [] of
+    occurrence tm = case getFnArgs tm of
       (Ref _ _ n, args) => if n == fullname def then Just args else Nothing
       _ => Nothing
     merge : List (Maybe Nat) -> List (Maybe Nat) -> List (Maybe Nat)
@@ -236,7 +192,7 @@ typeParams def params = case definition def of
     represents : Nat -> ClosedTerm -> Bool
     represents p conTy =
       let (bs, ret) = binders 0 conTy in
-      case getAt p (snd (spine ret [])) of
+      case getAt p (snd (getFnArgs ret)) of
         Just (Ref _ _ (MN "idris-mlir-binder" k)) =>
           maybe True (not . isErased . fst) (getAt (cast k) bs) ||
           any (\(rig, a) => not (isErased rig) && mentionsMarker (cast k) a) bs
@@ -245,7 +201,7 @@ typeParams def params = case definition def of
     -- (`x : a`) or a data type (`n : Nat`)?
     valueKind : TT vs -> Bool
     valueKind (Local {}) = True
-    valueKind tm = case spine tm [] of
+    valueKind tm = case getFnArgs tm of
       (Ref _ (TyCon _) _, _) => True
       (PrimVal _ _, _) => True
       _ => False
@@ -338,7 +294,7 @@ outsideIndices picks owner (TDelayed _ _ t) = outsideIndices picks owner t
 -- a function type's result is.
 outsideIndices picks owner (Bind bfc _ (Lam {}) sc) =
   outsideIndices picks owner (subst (Erased bfc Placeholder) sc)
-outsideIndices picks owner tm = case spine tm [] of
+outsideIndices picks owner tm = case getFnArgs tm of
   (Ref _ (TyCon _) n, args) => do
     Just (_, ps) <- paramPositions owner n
       | Nothing => pure (picks tm)
@@ -354,26 +310,6 @@ erasedOutsideIndices : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                        String -> ClosedTerm -> Core Bool
 erasedOutsideIndices = outsideIndices anyErased
 
-||| The arguments of a constructor application that are fields, by layout.
-export
-fieldsOnly : List (Maybe Nat) -> List a -> List a
-fieldsOnly layout xs = go layout xs
-  where
-    go : List (Maybe Nat) -> List a -> List a
-    go (Just _ :: ls) (_ :: ys) = go ls ys
-    go (Nothing :: ls) (y :: ys) = y :: go ls ys
-    go [] ys = ys
-    go _ [] = []
-
-||| The variables a constructor alternative binds, in argument order:
-||| parameters are type values, fields are the alternative's binders.
-export
-arrange : List (Maybe Nat) -> List ClosedTerm -> List (VarInfo a) -> List (VarInfo a)
-arrange [] ps fs = []
-arrange (Just p :: ls) ps fs = TypeValue (fromMaybe (Erased EmptyFC Placeholder) (getAt p ps)) :: arrange ls ps fs
-arrange (Nothing :: ls) ps (f :: fs) = f :: arrange ls ps fs
-arrange (Nothing :: ls) ps [] = []
-
 ||| A type with the indices of every inductive family in it erased, so that
 ||| `Vect 3 Double` and `Vect n Double` name one instance. A type family is
 ||| a lambda (`SortedDMap k (\_ => v)`, `DPair a (\x => p x)`): the indices
@@ -385,7 +321,7 @@ eraseIndices owner (Bind fc x b sc) = do
   b' <- traverse (eraseIndices owner) b
   sc' <- eraseIndices owner sc
   pure (Bind fc x b' sc')
-eraseIndices owner tm = case spine tm [] of
+eraseIndices owner tm = case getFnArgs tm of
   (h@(Ref _ (TyCon _) n), args) => do
     Just (_, ps) <- paramPositions owner n
       | Nothing => pure tm
@@ -421,7 +357,7 @@ export
 implementationType : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                      TT vars -> Core Bool
 implementationType (Bind _ _ (Pi {}) sc) = implementationType sc
-implementationType ty = case spine ty [] of
+implementationType ty = case getFnArgs ty of
   (Ref _ (TyCon _) n, args) => do
     defs <- get Ctxt
     Just def <- lookupCtxtExact n (gamma defs)
@@ -451,7 +387,8 @@ dictionaryBinder rig ty = if isErased rig then pure False else implementationTyp
 mutual
   ||| The Core type of a closed, normalised type. A type that has no runtime
   ||| representation is reported under `rule`: `ValueType`, or `DependentField`
-  ||| for a constructor field.
+  ||| for a constructor field. An argument of quantity 0 is no argument at
+  ||| runtime, so a function type that takes one is the type of its result.
   export
   coreType : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
              FC -> String -> Rule -> ClosedTerm -> Core Ty
@@ -465,15 +402,18 @@ mutual
       IntegerType => pure BigT
       _ => reject fc owner rule (show t ++ " in a runtime position")
   coreType fc owner rule (Bind bfc x (Pi _ rig _ a) sc) = do
-    arg <- binderOf rig (coreType fc owner rule a)
     let rest = subst (Erased bfc Placeholder) sc
-    when (not (isErased rig) && !(erasedOutsideIndices owner rest)) $
-      reject fc owner rule "a function type that depends on its argument"
-    rt <- coreType fc owner rule !(normaliseClosed rest)
-    pure (FunT arg rt)
+    if isErased rig
+       then normaliseClosed rest >>= coreType fc owner rule
+       else do
+         arg <- binderOf rig (coreType fc owner rule a)
+         when !(erasedOutsideIndices owner rest) $
+           reject fc owner rule "a function type that depends on its argument"
+         rt <- coreType fc owner rule !(normaliseClosed rest)
+         pure (FunT arg rt)
   -- `Inf` is a suspension like `Lazy`.
   coreType fc owner rule (TDelayed _ _ t) = LazyT <$> coreType fc owner rule t
-  coreType fc owner rule tm = case spine tm [] of
+  coreType fc owner rule tm = case getFnArgs tm of
     (Ref rfc (TyCon _) n, args) => do
       def <- lookupDef fc owner n
       -- A word type is a machine word whatever its arguments: what a
@@ -488,15 +428,21 @@ mutual
            Just (r, Nothing) => case args of
              [a] => ArrayT r <$> coreType fc owner rule !(normaliseClosed a)
              _ => internal fc "the array type without its one element type"
-           Nothing => DataT <$> dataInstance fc owner n !(traverse normaliseClosed args)
+           Nothing => snd <$> dataInstance fc owner n !(traverse normaliseClosed args)
     (TType _ _, _) => reject fc owner rule "Type in a runtime position"
     (Erased _ _, _) => reject fc owner rule "a type that depends on a runtime or erased value"
     _ => do reject fc owner rule ("unsupported runtime type " ++ !(showTT tm))
 
-  ||| Registers a monomorphic data instance.
+  ||| Registers a monomorphic data instance, once, and gives the type its
+  ||| values have. A data type with one constructor and exactly one runtime
+  ||| field is no declaration: a value of it is the field's value, so its
+  ||| type is the field's. One that a field referred to while it was being
+  ||| registered is declared whatever its shape (`data Rose = MkRose (List
+  ||| Rose)`), since a value of it contains itself and its type cannot be
+  ||| its field's.
   export
   dataInstance : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                 FC -> String -> Name -> List ClosedTerm -> Core DataId
+                 FC -> String -> Name -> List ClosedTerm -> Core (DataId, Ty)
   dataInstance fc owner tcon args0 = do
     def <- lookupDef fc owner tcon
     let tname = show (fullname def)
@@ -509,46 +455,66 @@ mutual
                                     then eraseIndices owner !(canonicalTypeArg a)
                                     else pure (Erased EmptyFC Placeholder))
                      (zip [0 .. length args0] args0)
-    inst <- MkDataId <$> instanceName (fullname def) (map Just args)
+    (ident, key) <- instanceKey (fullname def)
+                                (map (\(i, a) => if elem i keep then Just a else Nothing) (zip [0 .. length args] args))
+    let inst = MkDataId ident
     st <- get TState
-    -- An instance being registered is referred to by its own fields when
-    -- it is recursive; `assemble` makes it a box.
-    if isJust (lookup inst st.datas) || contains inst st.building then pure inst else do
-      TCon arity _ _ _ _ datacons _ <- pure (definition def)
-        | _ => reject fc owner ValueType (tname ++ " is not a data type")
-      let Just datacons = datacons
-        | Nothing => reject fc owner DataType (tname ++ " has no known constructors")
-      put TState ({ building $= insert inst } st)
-      loc <- toLoc (location def)
-      let ps = params
-      conList <- traverse (constructor inst args ps keep) datacons
-      let sorted = sortBy (\a, b => compare a.tag b.tag) conList
-      update TState { building $= delete inst
-                    , datas $= insert inst (MkDecl inst (shown tname) sorted loc)
-                    , dataOrder $= (:< inst) }
-      pure inst
+    case (lookup inst st.datas, lookup inst st.newtypes) of
+      (Just _, _) => pure (inst, DataT inst)
+      (_, Just t) => pure (inst, t)
+      _ =>
+        -- An instance being registered is referred to by its own fields
+        -- when it is recursive; `assemble` makes it a box.
+        if contains inst st.building
+          then do
+            update TState { reentered $= insert inst }
+            pure (inst, DataT inst)
+          else do
+            TCon arity _ _ _ _ datacons _ <- pure (definition def)
+              | _ => reject fc owner ValueType (tname ++ " is not a data type")
+            let Just datacons = datacons
+              | Nothing => reject fc owner DataType (tname ++ " has no known constructors")
+            put TState ({ building $= insert inst } st)
+            loc <- toLoc (location def)
+            conList <- traverse (constructor inst args params keep) datacons
+            let sorted = sortBy (\a, b => compare (fst a).tag (fst b).tag) conList
+            again <- contains inst . (.reentered) <$> get TState
+            let fields : List Ty = case sorted of
+                           [(_, kinds)] => mapMaybe fieldType kinds
+                           _ => []
+            case (again, fields) of
+              (False, [t]) => do
+                update TState { building $= delete inst, newtypes $= insert inst t }
+                pure (inst, t)
+              _ => do
+                update TState { building $= delete inst
+                              , datas $= insert inst (MkDecl inst key (map fst sorted) loc)
+                              , dataOrder $= (:< inst) }
+                pure (inst, DataT inst)
     where
-      ||| The constructor's arguments: a parameter is the instance's, anything
-      ||| else is a field, with its type when it holds an implementation.
-      walk : String -> FC -> List ClosedTerm -> List (Maybe Nat) -> ClosedTerm ->
-             Core (List (Binder, Maybe ClosedTerm))
-      walk cname dfc targs (Just p :: ls) (Bind bfc _ (Pi {}) sc) =
-        walk cname dfc targs ls (subst (fromMaybe (Erased bfc Placeholder) (getAt p targs)) sc)
-      walk cname dfc targs (Nothing :: ls) (Bind bfc _ (Pi _ rig _ a) sc) = do
-        field <- if isErased rig then pure (Gone, Nothing) else do
+      fieldType : ArgKind -> Maybe Ty
+      fieldType (Field _ b _) = Just (typeOf b)
+      fieldType _ = Nothing
+
+      ||| The constructor's arguments: a parameter is the instance's, one of
+      ||| quantity 0 is none, an implementation is a compile-time value of
+      ||| the instance (`Dictionaries`), anything else is the next field.
+      walk : String -> FC -> List ClosedTerm -> Nat -> List (Maybe Nat) -> ClosedTerm -> Core (List ArgKind)
+      walk cname dfc targs i (Just p :: ls) (Bind bfc _ (Pi {}) sc) = do
+        let v = fromMaybe (Erased bfc Placeholder) (getAt p targs)
+        (Param v ::) <$> walk cname dfc targs i ls (subst v sc)
+      walk cname dfc targs i (Nothing :: ls) (Bind bfc _ (Pi _ rig _ a) sc) = do
+        let rest = subst (Erased bfc Placeholder) sc
+        if isErased rig then (ErasedArg ::) <$> walk cname dfc targs i ls rest else do
           a' <- normaliseClosed a
-          -- An implementation is a compile-time value of the instance, not
-          -- a runtime field (`Dictionaries`).
-          if !(dictionaryBinder rig a') then pure (Gone, Just a') else do
+          if !(dictionaryBinder rig a') then (DictArg a' ::) <$> walk cname dfc targs i ls rest else do
             when !(erasedOutsideIndices cname a') $ do
               reject dfc cname DependentField ("a field type that depends on another field: " ++ !(showTT a'))
-            t <- coreType dfc cname DependentField a'
-            pure (Held (useOf rig) t, Nothing)
-        rest <- walk cname dfc targs ls (subst (Erased bfc Placeholder) sc)
-        pure (field :: rest)
-      walk _ _ _ _ _ = pure []
+            b <- binderOf rig (coreType dfc cname DependentField a')
+            (Field i b a' ::) <$> walk cname dfc targs (S i) ls rest
+      walk _ _ _ _ _ _ = pure []
 
-      constructor : DataId -> List ClosedTerm -> List Nat -> List Nat -> Name -> Core Con
+      constructor : DataId -> List ClosedTerm -> List Nat -> List Nat -> Name -> Core (Con, List ArgKind)
       constructor inst targs ps keep dcon = do
         def <- lookupDef fc owner dcon
         let cname = show (fullname def)
@@ -565,8 +531,24 @@ mutual
         when (length layout /= arity) $
           internal (location def) (cname ++ " has " ++ show arity ++ " arguments, but its type binds " ++
                                    show (length layout))
-        fields <- walk cname (location def) targs layout ty
-        let con = MkCon (MkConId inst (shortName (fullname def))) (shown cname) (cast tag) (map fst fields) loc
-        let dicts = mapMaybe (\(i, (_, d)) => (i,) <$> d) (zip [0 .. length fields] fields)
-        update TState { cons $= insert con.id (MkConLayout targs layout dicts con) }
-        pure con
+        kinds <- walk cname (location def) targs 0 layout ty
+        let con = MkCon (MkConId inst (shortName (fullname def))) (shown cname) (cast tag) (mapMaybe fieldBinder kinds) loc
+        update TState { cons $= insert con.id (MkConLayout kinds (fullname def) con) }
+        pure (con, kinds)
+
+||| The data instance a closed, normalised type names, when it is a data
+||| type and not a natural, a machine word or an array: the instance, and
+||| the type its values have, which is its field's for a type with one
+||| runtime field.
+export
+dataOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+         FC -> String -> ClosedTerm -> Core (Maybe (DataId, Ty))
+dataOf fc owner tm = case getFnArgs tm of
+  (Ref _ (TyCon _) n, args) => do
+    def <- lookupDef fc owner n
+    let hs = hooksOf (fullname def)
+    natural <- (.natLike) <$> tyConFacts def
+    if natural || isWordType hs || isJust (arrayElementOf hs) then pure Nothing else do
+      args' <- traverse normaliseClosed args
+      Just <$> dataInstance fc owner n args'
+  _ => pure Nothing

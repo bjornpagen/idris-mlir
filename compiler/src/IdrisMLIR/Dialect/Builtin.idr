@@ -6,6 +6,9 @@ module IdrisMLIR.Dialect.Builtin
 import IdrisMLIR.MLIR
 import IdrisMLIR.Syntax.Builtin
 
+import Data.List
+import Data.Maybe
+
 %default total
 
 ------------------------------------------------------------------------------
@@ -24,4 +27,40 @@ unrealizedConversionCastOp : (inputs : List Value) -> (outputs : List MlirType) 
 unrealizedConversionCastOp inputs outputs =
   MkOp "builtin.unrealized_conversion_cast" inputs [] [] [] outputs
 
--- fingerprint: 816214064-537077 2789806257-1124
+------------------------------------------------------------------------------
+-- Printer
+------------------------------------------------------------------------------
+
+-- An attribute an op's syntax writes without its type, which the parser
+-- is given and does not read.
+covering
+bare : MlirAttr -> String
+bare (IntegerAttr n _) = show n
+bare (FloatAttr d _) = floatLiteral d
+bare a = attrText a
+
+-- The name of the symbol an op declares, as a reference to it writes it.
+covering
+symbolName : MlirAttr -> String
+symbolName (StringAttr s) = symbol s
+symbolName a = attrText a
+
+||| An op of the builtin dialect in the declarative syntax its ODS
+||| gives, up to its regions: its full name and its syntax, which puts the
+||| regions last, for the caller to write after it. Nothing for an op
+||| written in the generic form: one whose syntax this printer does not
+||| write (each is named below, with the reason), one of another dialect,
+||| and one whose operands, results, regions or attributes are not what its
+||| ODS lets it have, which the generic form carries to the verifier.
+export covering
+printOp : Op -> Maybe String
+printOp (MkOp "builtin.unrealized_conversion_cast" o0 props [] attrs r0) = do
+  guard (null props)
+  pure (fastConcat ["builtin.unrealized_conversion_cast", (if not (null o0) then fastConcat [(if null o0 then "" else " " ++ commaSeparated (map (.name) o0)), " :", (if null (map (.type) o0) then "" else " " ++ commaSeparated (map typeText (map (.type) o0)))] else ""), " to", (if null (r0) then "" else " " ++ commaSeparated (map typeText (r0))), dictionary "{" "}" attrs])
+
+printOp _ = Nothing
+
+-- Written in the generic form:
+-- op builtin.module: its syntax has the directive `prop-dict`
+
+-- fingerprint: 4211174231-564698 7541102-2880

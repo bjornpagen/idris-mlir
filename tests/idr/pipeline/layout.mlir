@@ -6,7 +6,7 @@
 // symbol's address in the object is a multiple of 64, on ELF and Mach-O.
 // CHECK: {{[Tt] _?main$}}
 module attributes {idr.program} {
-  func.func @Prog.main() -> i64 {
+  idr.func @Prog.main() -> i64 {
     %c = arith.constant 42 : i64
     return %c : i64
   }

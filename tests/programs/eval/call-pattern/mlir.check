@@ -3,7 +3,7 @@
 // The generic function stays. countUp's counter starts too far up to
 // unroll. `count 3` is a call of the clone that runs the action it returns,
 // with the world.
-// CHECK-DAG: call @Main.ack$spec${{[0-9]+}}(%{{.*}}) : (i64) -> i64
-// CHECK-DAG: func.func private @Main.ack(
+// CHECK-DAG: call @Main.ack.spec{{[0-9]+}}(%{{.*}}) : (i64) -> i64
+// CHECK-DAG: idr.func private @Main.ack(
 // CHECK-DAG: call @Main.countUp(
-// CHECK-DAG: call @Main.count$raise${{[0-9]+}}(%{{.*}}, %{{.*}}) : (i64, !idr.world)
+// CHECK-DAG: call @Main.count.raise{{[0-9]+}}(%{{.*}}, %{{.*}}) : (i64, !idr.world)

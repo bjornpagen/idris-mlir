@@ -4,15 +4,15 @@
 // Here the pair is read twice, so it outlives each call: a clone taking its
 // linear field would use it a second time next to the pair. The pair stays
 // a runtime argument, and the module still verifies after the pass.
-// CHECK-LABEL: func.func private @use(
-// CHECK: call @first(%{{.*}}, %{{.*}}) : (!idr.data<@P>, !idr.world)
-// CHECK: call @first(%{{.*}}, %{{.*}}) : (!idr.data<@P>, !idr.world)
-// CHECK-NOT: $spec$
+// CHECK-LABEL: idr.func private @use(
+// CHECK: call @first(%{{.*}}, %{{.*}}) : (!P, !idr.world)
+// CHECK: call @first(%{{.*}}, %{{.*}}) : (!P, !idr.world)
+// CHECK-NOT: .spec
 module attributes {idr.program} {
   idr.data @P {
     idr.ctor @MkP (!idr.lin<i64>, i64)
   }
-  func.func private @first(%p: !idr.data<@P>, %w: !idr.world) -> !idr.world attributes {idr.total} {
+  idr.func private @first(%p: !idr.data<@P>, %w: !idr.world) -> !idr.world attributes {total} {
     %w1 = idr.match %p : !idr.data<@P> -> (!idr.world) {
     case @MkP(%a: i64, %b: i64) {
       %v = idr.io.put_int signed %a, %w : i64
@@ -21,17 +21,17 @@ module attributes {idr.program} {
     }
     return %w1 : !idr.world
   }
-  func.func private @use(%a: !idr.lin<i64>, %b: i64, %w: !idr.world) -> !idr.world attributes {idr.total} {
+  idr.func private @use(%a: !idr.lin<i64>, %b: i64, %w: !idr.world) -> !idr.world attributes {total} {
     %p = idr.con @P::@MkP(%a, %b) : (!idr.lin<i64>, i64) -> !idr.data<@P>
-    %r = func.call @first(%p, %w) : (!idr.data<@P>, !idr.world) -> !idr.world
-    %s = func.call @first(%p, %r) : (!idr.data<@P>, !idr.world) -> !idr.world
+    %r = idr.call @first(%p, %w) : (!idr.data<@P>, !idr.world) -> !idr.world
+    %s = idr.call @first(%p, %r) : (!idr.data<@P>, !idr.world) -> !idr.world
     return %s : !idr.world
   }
-  func.func @Main.main(%w: !idr.world) -> !idr.world {
+  idr.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_byte %w
     %b = arith.extui %c : i32 to i64
     %a = idr.lin.enter %b : !idr.lin<i64>
-    %r = func.call @use(%a, %b, %w1) : (!idr.lin<i64>, i64, !idr.world) -> !idr.world
+    %r = idr.call @use(%a, %b, %w1) : (!idr.lin<i64>, i64, !idr.world) -> !idr.world
     return %r : !idr.world
   }
 }

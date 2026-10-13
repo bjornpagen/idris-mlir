@@ -1,12 +1,17 @@
 # 0011: a sharded whole-program compiler
 
-**Status:** proposed (2026-10-10). Nothing here is built. Read at 8395d4f7.
-S0–S3 and S5–S7 start once the bootstrap exists and 0003's N2 has removed
-the fork; they do not wait on typed arrays or shards. S4 waits on the
-relational core (0010). S8 waits on shards (0009) and the frontend's
-tables (0005). S0, the measurement, can be recorded on the arm64 toolchain
-that is already built. Array programs inside the compiler wait on 0007,
-and that is not a precondition for S1–S3.
+**Status:** proposed (2026-10-10); reprioritized 2026-10-12. Nothing here
+is built. Read at 8395d4f7. Sharding is the second priority, right after
+self-hosting, and four stages are in it: S0 (the measurement, which the
+self-host plan records on the stage-0 module), S1 (content names), S2
+(units and split LLVM codegen, pulled forward into the self-host plan as
+the first lever on the wall) and S8 (the Idris half on 0009's shards).
+S7 is done: the cutover deleted `idr-eval` and turned MLIR threading on.
+S3 to S6 and S9 to S10 are parked: S4 waits on the relational core
+(0010), which is parked, and the others are taken up only if S0's record
+after self-hosting shows a global fact or a cache as the cost. Array
+programs inside the compiler wait on 0007 and are not a precondition for
+S1 or S2.
 
 **Sources.** `sources/notes/sharded-compilation/whole-program-at-scale.md` (ThinLTO, GCC
 WHOPR, MLton, rustc, MLIR threading, build systems, Zig, Swift, GHC) and
@@ -43,23 +48,28 @@ byte-identical to the serial compile. Whole-program semantics, sharded execution
 
 ## 2. Where the pipeline is whole-program today
 
-*Read* (c50d176d):
-- Every C++ pass in `foreign/idr` is a `ModuleOp` pass, except `idr-canonicalize`
-  (`include/idr/Passes.td`). The pipeline is 25 steps
-  (`lib/Dialect/Registration/PipelineSteps.cc:9-70`), each its own `PassManager`
-  (`lib/Driver/Run.cppm:182-222`).
-- MLIR threading is **off**: `context.disableMultithreading()` "so results do not depend on
-  scheduling, and idr-eval may fork" (`Run.cppm:59-62`). `tests/lib/determinism.sh` already
-  runs `idris-mlir-opt --idr-pipeline` under MLIR's thread pool and compares bytes. 0003
-  replaces it with static normalization in the frontend, and the fork goes.
+*Read* (c50d176d), with what the cutover (0014, 0015) changed since:
+- Every C++ pass in `foreign/idr` was a `ModuleOp` pass, the pipeline 25
+  steps each with its own `PassManager`. After the cutover, rewrites are
+  function passes on `idr.func` under nested pass managers, module passes
+  only compute analyses or change symbols, and the pipeline is one
+  `OpPassManager` (`lib/Transforms/Pipeline.cpp`).
+- MLIR threading was off, because `idr-eval` forked. The pass and the
+  runtime's evaluation entries are deleted and threading is on.
+  `tests/lib/determinism.sh` runs the pipeline under one thread and under
+  the pool and compares bytes.
 - LLVM sees one module: one O3 run with MergeFunctions, one single-threaded codegen, no
-  module splitting (`Target/Optimize.cppm`, `Driver/Emit.cppm`).
-- The frontend hands the C++ side one text file built as one `String`
-  (`Emit.idr:41-52`, `Program.idr:177-180`).
-- Names come from counters and walk order: `<f>$lam<n>`, `<owner>$spec$n`, `name[args]'k`
-  in request order (`Isolate.cppm`, `Specialize/Clones.cppm:95-183`,
-  `Translate/Types.idr:61-90`). Fixpoint detection uses `OperationFingerPrint`, which hashes
-  addresses, not content.
+  module splitting (`Target/Optimize.cpp`, `Driver/Compile.cpp`). This is
+  the term the self-host plan pulls forward as S2's split codegen.
+- The frontend hands the C++ side one text file, now streamed to the file
+  as it is printed rather than built as one `String` (`Emit.idr`).
+- Names come from counters and walk order. After the cutover a frontend symbol is its
+  instance key printed (origin, then arguments), with a `'n` suffix from one counter in
+  source order for keys that print alike; a derived function is `<parent>.<kind><n>`, `n`
+  the parent's count of that kind (`lam`, `delay`, `spec`, `raise`, `capture`). Counts
+  per parent are stable under an edit elsewhere, but not under an edit in the parent:
+  that is what S1's content names fix. The module hash per round (`OperationFingerPrint`)
+  is gone; the round ends on a change flag.
 - There is no persistent cache and no separate compilation; the fork removed upstream's
   incremental code generators (`compiler/idris/README.md:59-70`).
 
@@ -77,11 +87,11 @@ largest cost of a cold self-compile is unmeasured (§10, S0).
 | `idr.program` verifier | type-graph acyclicity, the single root | linearity and owned stage per function, re-checked per unit after every pass |
 | `idr-effects` | io/crash/diverge propagation over calls and closure labels | — |
 | `idr-contify`, `idr-returned-arguments`, `idr-tail-calls` | exactly-one-caller, every-use-is-direct, call cycles | the rewrites |
-| `idr-inline` (MLton size rule, `Inline/Decisions.cppm`) | decisions bottom-up over call-graph SCCs from summary sizes; per-unit import lists (ThinLTO) | inlining imported bodies |
-| `idr-specialize` (`Specialize/Clones.cppm`) | the clone set: requests keyed by (owner, pattern key); the 1024 budget in key order | materializing a clone in its owner's unit (a GCC virtual clone) |
-| `idr-defunctionalize` (`Defunctionalize/Analysis.cppm`) | label flow: which lambdas reach which apply sites (0CFA as Datalog); sums keyed by (closure type, label set) | rewriting applies and constructions |
+| `idr-inline` (MLton size rule, `Analysis/Inline.cpp`) | decisions bottom-up over call-graph SCCs from summary sizes; per-unit import lists (ThinLTO) | inlining imported bodies |
+| `idr-specialize` (`Transforms/Specialize/Clones.cpp`) | the clone set: requests keyed by (owner, pattern key); the 1024 budget in key order | materializing a clone in its owner's unit (a GCC virtual clone) |
+| `idr-defunctionalize` (`Analysis/Labels.cpp`) | label flow: which lambdas reach which apply sites (0CFA as Datalog); sums keyed by (closure type, label set) | rewriting applies and constructions |
 | `idr-stack` | escape summaries per parameter over all calls | marking |
-| `idr-rc` (`Ownership/Exclusive.cppm`, `Borrow.cppm`) | exclusivity as the complement of the monotone "shared somewhere" (§4.3); borrow inference's fixpoint | placing increments and decrements |
+| `idr-rc` (`Analysis/Ownership/Exclusivity.cpp`, `Borrows.cpp`) | exclusivity as the complement of the monotone "shared somewhere" (§4.3); borrow inference's fixpoint | placing increments and decrements |
 | `idr-demand` | verdicts of the in-place promise from exclusivity | — |
 | `idr-narrow`, `idr-in-bounds` | interprocedural ranges and the length relation of private functions (a greatest fixpoint, computed as the complement of a least one) | the rewrites |
 | `Layouts::of` | every cell header, once | — |
@@ -123,7 +133,7 @@ format, copied as a buffer with no detach walk):
 - data containment edges; dictionary construction sites;
 - per call site, whether each argument is passed shared or exclusive *at that site*;
 - the results of static normalization: every closed call of total code in the module,
-  normalized here on the type checker's interpreter (0003), since a closed call needs only
+  normalized here on the type checker's interpreter (0016), since a closed call needs only
   its callees, which the module's imports provide.
 
 Summaries are keyed by the module's content hash, so an unchanged module's summary is reused
@@ -188,7 +198,7 @@ The recipe (sources: `deterministic-fixpoints.md` §9).
 Every global relation only grows within a build, so it is an LVar-style set: the order in
 which deltas arrive cannot change the fixpoint. A tuple's owner shard is the hash of a
 canonical, content-derived key: a definition's hash plus a normalized type-argument vector,
-Merkle-hashed over hash-consed terms (0006 §2.1). Relations that join on a column share a
+Merkle-hashed over hash-consed terms (0016 §3). Relations that join on a column share a
 decomposition (Slog); recursion partitioned on its pivot needs no shuffle (BigDatalog).
 
 ### 4.2 Bulk-synchronous semi-naive rounds
@@ -229,7 +239,7 @@ stable under unrelated edits, which is also what makes the cache hit.
 ### 5.1 The simplify loop is a global fixpoint
 
 Today `idr-simplify` iterates inline, specialize, sccp and canonicalize over the
-whole module, up to 64 rounds (`Passes.td:579`), and specialization creates clones that
+whole module, up to 64 rounds (`Transforms/Passes.td`), and specialization creates clones that
 change the facts. Sharded, it is an **outer fixpoint**:
 
 1. phase 2 freezes the facts; 2. every unit runs one local simplify round to its own
@@ -256,8 +266,8 @@ the cost; the ripple is.
 
 ### 5.3 Static normalization lives in phase 1
 
-0003 replaces the C++ `idr-eval` with static normalization in the frontend, on the type
-checker's interpreter. For this design that means:
+Static normalization runs in the frontend, on the type checker's interpreter (0016); the
+C++ `idr-eval` is deleted. For this design that means:
 - normalization is per module, in phase 1, cached under the module's content hash with the
   rest of its summary;
 - its budget is counted steps, so its results and its over-budget calls are the same on
@@ -329,12 +339,13 @@ the precondition: partitions must not drift under small edits (D4), or nothing h
 0007's parallel lowering accepts (elements that count nothing). Phase 2's array work:
 - sorting and grading keys for canonical order; scan labeling for ids (§4.4);
 - segmented reductions for sizes, use counts and per-site sharing;
-- `accumulate` histograms for partition sizes; size-change closure as Boolean matrix
-  products (0006 §2.7);
+- `accumulate` histograms for partition sizes; size-change composition as products in the
+  `SizeChange` semiring, encoded as `i8`, its closure a relational fixpoint over the
+  checker's triples, not a sum (0007 §11; 0006 §2.7);
 - forward-backward SCC with trimming (Fleischer et al.) with canonical pivots, for call-graph
   and data-graph SCCs.
-All integer: 0007's D15 lets integer reductions split across shards, so nothing here waits on
-float reassociation.
+All integer or finite semirings: 0007's D15 lets those reductions split across shards, so
+nothing here waits on float reassociation.
 
 ## 8. What limits the speedup (the performance ceiling)
 
@@ -382,7 +393,7 @@ Targets (*conjecture*, decided at S0 from the measured serial share):
 | S4 | defunctionalization's label flow in phase 2 (0CFA on 0010) | differential against `idr-defunctionalize`'s analysis; sums identical |
 | S5 | exclusivity, borrow and in-bounds facts as monotone duals | differential; `idr-demand` verdicts identical |
 | S6 | inline and import decisions in phase 2; simplify per SCC unit; specialization requests as deltas; outer rounds; budgets in key order | corpus outputs unchanged; outer round counts recorded; self-compile speedup |
-| S7 | MLIR's pass-manager threading on for nested pipelines, after 0003's N2 removes the fork | `determinism.sh` across thread counts; byte-identical outputs |
+| S7 | (done by the cutover: threading is on, the nested pipelines run in parallel) | `determinism.sh` across thread counts, run by the self-host plan |
 | S8 | the Idris half on 0009 shards: phase 1 per module, 0005's Translate fixpoint sharded, columnar summaries as messages | determinism across shard counts; phase 1 and 2 speedup |
 | S9 | the persisted cache and early cutoff at three levels | no-op rebuild compiles zero units; a one-definition edit recompiles only changed slices |
 | S10 | balance: longest-first placement; the D9 measurement on the compiler's run; GLB-style stealing only if D9's rule fires and it is still not enough | idle time at the last join below 1/10 of shards × wall |
@@ -391,8 +402,10 @@ Targets (*conjecture*, decided at S0 from the measured serial share):
 
 - **Separate compilation with interface files** (GHC, Swift's primary-file mode): it loses
   the instance set, the closure sums and the every-caller fact, so it loses the guarantees.
-- **One module, MLIR threading only**: almost every pass is module-anchored; only the nested
-  inline pipeline would thread.
+- **One module, MLIR threading only, as the end state**: since the cutover every rewrite
+  threads under nested pipelines, which is the first step and is taken. The module-level
+  analyses, the parse, LLVM's optimization and codegen and the frontend stay serial on one
+  module; S2's units are what spread them.
 - **Work stealing over a shared heap**: 0009 rejects it ("every count becomes atomic, tagged
   or traced").
 - **Asynchronous fixpoints**: same result, schedule-dependent round counts and budgets (D2).
@@ -422,7 +435,7 @@ Targets (*conjecture*, decided at S0 from the measured serial share):
 - D4. Partitions are a pure, edit-stable function of content, independent of P; simplify
   units follow SCCs, codegen units follow size.
 - D5. Budgets and refusals are decided in phase 2 in key order.
-- D6. Static normalization (total code only, 0003) runs in phase 1; phases 2 to 4 never run
+- D6. Static normalization (total code only, 0016) runs in phase 1; phases 2 to 4 never run
   program code.
 - D7. The C++ side runs one `MLIRContext` per worker, units as bytecode, results merged by
   name.

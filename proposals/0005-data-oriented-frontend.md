@@ -1,10 +1,14 @@
 # 0005: a data-oriented, array-first frontend
 
-**Status:** proposed (2026-10-10), against `main` at c50d176d. Nothing here
-is built. The arm64 toolchain now builds (8395d4f7); O0 is still
-unmeasured. Early stages (O1, O2, O4–O6) use today's arrays. The end
-state, where compiler tables are rank-polymorphic arrays, waits on 0007.
-O3 and O7 wait on the relational core (0010).
+**Status:** proposed (2026-10-10), against `main` at c50d176d; trimmed
+2026-10-12. Nothing here is built. The interned names (once part of O1)
+and the hash-consed term arena (once O4) moved to 0016, which owns them; this proposal
+builds the rest of the frontend's tables on that arena. It is one of the
+three consumers of 0007's array style (with 0008's layouts and 0016's
+interpreter): its tables are 0007 arrays and its passes 0007 programs.
+It starts after self-hosting and after 0016's A0. O2 is decided by 0014's
+parse measurement. O3 and O7 wait on the relational core (0010), which is
+parked, so they are parked with it.
 
 **Sources.** Under `sources/`: `code/co-dfns` and
 `papers/hsu-2019-data-parallel-compiler` (a compiler as array programs),
@@ -68,8 +72,8 @@ change, and every target below is a ratio to that record.
 | files | one contiguous byte buffer each | |
 | tokens | `kind : u8`, `start : u32` (end from the next start or a length) | Zig's tokenizer (*recalled*) |
 | syntax nodes | `kind`, `main_token`, `subtree_size` (or `parent`), in preorder, so every subtree is a contiguous slice; variable arity in an `extra` column | Co-dfns, Carbon's toolchain (*recalled*); 0008's packed layout |
-| names | interned: `id → (offset, len)`; namespaces are ids | |
-| terms | hash-consed arena: `kind`, `a`, `b`, `extra`; cached `hash`, loose-bound-variable bound, `has_metas` | 0006 §2.1; Lean 4's cached `Expr` data (*recalled*) |
+| names | interned (0016 §3) | |
+| terms | the hash-consed arena (0016 §3) | |
 | metas | `meta → solved term | unsolved` | |
 | constraints | `(lhs, rhs, ctx, blocked_on)` | |
 | defs | `def → name, type, body, multiplicity, totality` | already a growable `Linear.Array` in the fork (*read*: 0004's ledger) |
@@ -153,20 +157,19 @@ exclusive scan for offsets, then scatter: flattening by expansion
 ### 4.6 Elaboration: representation, not SIMD
 A bidirectional elaborator with metavariables is irregular and
 order-dependent within one definition. The gains here are from the
-representation (*conjecture*, sized by 0006's T1 and T2 targets):
+representation (*conjecture*, sized by 0016's A0 and A2 targets):
 - **Hash-consing and id-keyed caches** for weak-head normal forms and
-  conversion results (0006 T1, T2).
+  conversion results (0016 A0, A2).
 - **Postponement as semi-naive evaluation.** Each round's newly solved
   metas (the delta) join the blocked constraints on `blocked_on`; only
   the matches wake. No rescans of a worklist.
 - **Meta-to-meta unification as union-find;** batched conversion dedups
   `(id, id)` pairs before any normalisation.
-- **One evaluator.** Normalization runs on the term arena by NbE, with
-  array operations as whole-array runtime primitives; the same interpreter
-  serves the program's static normalization (0003).
+- **One evaluator.** Normalization runs on 0016's wavefront machine over
+  the arena, which also serves the program's static normalization.
 - **Shape arithmetic as a group-by.** A polynomial is a sparse column of
   `(monomial, coefficient)`; normalising it is a sort and a segmented
-  sum (0007's theory, 0006 §2.4).
+  sum (the library tactic's canonical form, 0007 §3.7; 0006 §2.4).
 - **Parallelism across definitions and modules,** not within one (0006
   §2.7).
 
@@ -175,12 +178,22 @@ representation (*conjecture*, sized by 0006's T1 and T2 targets):
   each group in the 0/1/ω semiring, and compares with the declared
   multiplicity: a segmented reduction. The fork already has the semiring
   (*read*: `compiler/idris/src/Algebra/ZeroOneOmega.idr`,
-  `Algebra/Semiring.idr`); it becomes the combiner of a `linalg.generic`
-  reduction.
-- **Size-change termination** is a closure of small matrices over
-  `Algebra/SizeChange.idr`'s semiring (*read*: `Smaller | Same | Unknown`
-  with `Same` neutral): repeated semiring matrix products to a fixpoint.
-  0006 §2.7 already names this.
+  `Algebra/Semiring.idr`). Occurrences grouped by binder are a
+  compressed level, so the fold is a `sparse_tensor.reduce` over a CSR
+  array of `i8`, `Rig0 = 0`, `Rig1 = 1`, `RigW = 2`, plus
+  `minui(addi(a, b), 2)`: a finite semiring whose laws the fork proves,
+  which 0007 §6 lets a reduction reassociate (*read*: 0007 §6, §9, §11).
+- **Size-change termination** is half an array program. Composing two
+  size-change matrices is a semiring matrix product over
+  `Algebra/SizeChange.idr`'s semiring (*read*: `Smaller | Same | Unknown`,
+  `Same` the product's neutral, `Unknown` the sum's), encoded with the
+  sum's zero at 0 (`Unknown = 0`), not by constructor order; the fork's
+  `Libraries/Data/SparseMatrix.idr` is already DCSR in lists. The closure
+  is not a sum: the checker keeps a set of `(f, h, matrix)` triples
+  (*read*: `Core/Termination/SizeChange.idr:415-417`), and summing them
+  would merge call paths that must stay apart, so the closure is a
+  relational fixpoint (0010), with the composition as its kernel. 0006
+  §2.7 already names this.
 
 ### 4.8 Translate is semi-naive Datalog over the instance table
 Each round:
@@ -229,8 +242,8 @@ scatter-write each op at its offset. With MLIR bytecode instead of a
   the array-shaped ones.
 - **Bootstrap order.** The data-oriented frontend pays off in speed only
   once idris-mlir compiles arrays well: 0007's array core and contiguous
-  runs, both unbuilt. On Chez (stage 0) it should still cut memory; speed
-  shows from stage 1.
+  runs, both unbuilt. That is why it follows self-hosting: on Chez it
+  would cut memory and little else.
 - **Sequential is fine.** Zig and Carbon are fast with sequential
   data-oriented front ends (*recalled*). Parallelism is taken only where a
   phase is regular and measured hot.
@@ -251,13 +264,13 @@ scatter-write each op at its offset. With MLIR bytecode instead of a
 | Stage | Content | Proof |
 | --- | --- | --- |
 | O0 | one baseline: self-compile phases, peak memory, elaboration of base (with 0006 T0) | committed record |
-| O1 | interned names and token SoA; names compared by id. This replaces the name-equality traversal in 0004's ledger. The equality proofs stay 0004's feature 6 | identical TTCs and corpus |
-| O2 | ops table and MLIR bytecode emission | identical module after a bytecode round trip; print ≥ 5× faster than O0 (*conjecture*) |
+| O1 | token SoA over 0016's interned names (A0); names compared by id. This replaces the name-equality traversal in 0004's ledger. The equality proofs stay 0004's feature 6 | identical TTCs and corpus |
+| O2 | ops table and MLIR bytecode emission, if 0014's parse measurement takes bytecode | identical module after a bytecode round trip; print ≥ 5× faster than O0 (*conjecture*) |
 | O3 | Translate as semi-naive over the instance table; reachable as its query | identical Core; translate ≥ 3× faster than O0 (*conjecture*) |
-| O4 | the hash-consed term arena, owned here and shared with the checker (0006 T1) | identical TTCs; 0006 T1's ≥ 1.5× |
-| O5 | flat parse tree; name resolution as the interval join | identical TTCs; parse plus resolve no slower than O4 |
+| O4 | (moved: the term arena is 0016's A0) | |
+| O5 | flat parse tree; name resolution as the interval join | identical TTCs; parse plus resolve no slower than 0016's A0 |
 | O6 | multiplicity and size-change checking as semiring folds | identical totality and multiplicity verdicts on base and the corpus |
-| O7 | elaborator constraint store and postponement on 0010's core | 0006 T2's targets; identical TTCs |
+| O7 | elaborator constraint store and postponement on 0010's core | 0016 A2's targets; identical TTCs |
 | O8 | the compiler's invariants as law queries in test builds | a seeded violation of each law is caught by name |
 
 The thresholds marked *conjecture* become decisions once O0 records the
@@ -286,3 +299,5 @@ baseline.
 - D4. Emission is bytecode from an ops table.
 - D5. Every stage is proved by identical TTCs and the unchanged corpus;
   no stage keeps the tree it replaces.
+- D6. The arena is 0016's; this proposal never keeps a second copy of a
+  term.

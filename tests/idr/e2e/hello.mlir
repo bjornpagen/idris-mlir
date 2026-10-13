@@ -17,7 +17,7 @@ module attributes {idr.program} {
   idr.data @Unit {
     idr.ctor @MkUnit ()
   }
-  func.func @Prog.main(%w: !idr.world) -> (!idr.data<@Unit>, !idr.world) attributes {idr.total} {
+  idr.func @Prog.main(%w: !idr.world) -> (!idr.data<@Unit>, !idr.world) attributes {total} {
     %s = idr.constant "hello " : !idr.str
     %w1 = idr.io.put_str %s, %w
     %c, %w2 = idr.io.get_byte %w1

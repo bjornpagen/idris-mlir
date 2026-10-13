@@ -3,11 +3,11 @@
 
 // expected-error @+1 {{expects exactly one public function (the root), found 2}}
 module attributes {idr.program} {
-  func.func @a() -> i64 {
+  idr.func @a() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
   }
-  func.func @b() -> i64 {
+  idr.func @b() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
   }
@@ -17,7 +17,7 @@ module attributes {idr.program} {
 
 // expected-error @+1 {{expects exactly one public function (the root), found 0}}
 module attributes {idr.program} {
-  func.func private @a() -> i64 {
+  idr.func private @a() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
   }
@@ -27,7 +27,7 @@ module attributes {idr.program} {
 
 module attributes {idr.program} {
   // expected-error @+1 {{is the root, so its type must be () -> i64 or (!idr.world) -> (...), not '(i64) -> i64'}}
-  func.func @a(%x: i64) -> i64 {
+  idr.func @a(%x: i64) -> i64 {
     return %x : i64
   }
 }
@@ -36,7 +36,7 @@ module attributes {idr.program} {
 
 // Both kinds of root.
 module attributes {idr.program} {
-  func.func @a() -> i64 {
+  idr.func @a() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
   }
@@ -45,7 +45,7 @@ module attributes {idr.program} {
 // -----
 
 module attributes {idr.program} {
-  func.func @a(%w: !idr.world) -> (i64, !idr.world) {
+  idr.func @a(%w: !idr.world) -> (i64, !idr.world) {
     %c = arith.constant 0 : i64
     return %c, %w : i64, !idr.world
   }
@@ -62,7 +62,7 @@ module attributes {idr.program} {
   idr.data @U {
     idr.ctor @B (!idr.data<@T>)
   }
-  func.func @a() -> i64 {
+  idr.func @a() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
   }
@@ -82,7 +82,7 @@ module attributes {idr.program} {
     idr.ctor @Nil ()
     idr.ctor @Cons (!idr.data<@T>, !idr.box<@L>)
   }
-  func.func @a() -> i64 {
+  idr.func @a() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
   }
@@ -95,12 +95,12 @@ module attributes {idr.program} {
   idr.data @L box {
     idr.ctor @Nil ()
   }
-  func.func @a() -> i64 {
+  idr.func @a() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
   }
   // expected-error @+1 {{uses '!idr.data<@L>', but @L is declared box, so its values are !idr.box}}
-  func.func private @b(%l: !idr.data<@L>) {
+  idr.func private @b(%l: !idr.data<@L>) {
     return
   }
 }
@@ -111,12 +111,12 @@ module attributes {idr.program} {
   idr.data @T {
     idr.ctor @A ()
   }
-  func.func @a() -> i64 {
+  idr.func @a() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
   }
   // expected-error @+1 {{uses '!idr.box<@T>', but @T is declared unboxed, so its values are !idr.data}}
-  func.func private @b(%t: !idr.box<@T>) {
+  idr.func private @b(%t: !idr.box<@T>) {
     return
   }
 }
@@ -124,12 +124,12 @@ module attributes {idr.program} {
 // -----
 
 module attributes {idr.program} {
-  func.func @a() -> i64 {
-    // expected-error @+1 {{uses an undeclared data type @Nowhere}}
-    %c = idr.constant #idr.erased : !idr.fn<() -> (!idr.data<@Nowhere>)>
+  idr.func @a() -> i64 {
     %z = arith.constant 0 : i64
     return %z : i64
   }
+  // expected-error @+1 {{uses an undeclared data type @Nowhere}}
+  idr.func private @b(!idr.fn<() -> (!idr.data<@Nowhere>)>)
 }
 
 // -----
@@ -138,7 +138,7 @@ module attributes {idr.program} {
 // crashes does: after a match none of whose regions returns, or after a
 // crash.
 module attributes {idr.program} {
-  func.func private @never(%x: i64) -> i64 {
+  idr.func private @never(%x: i64) -> i64 {
     idr.match_lit %x : i64 -> () {
     case 0 {
       idr.crash "zero"
@@ -151,13 +151,13 @@ module attributes {idr.program} {
     }
     ub.unreachable
   }
-  func.func private @crashes() -> i64 {
+  idr.func private @crashes() -> i64 {
     idr.crash "no"
     ub.unreachable
   }
-  func.func @a() -> i64 {
+  idr.func @a() -> i64 {
     %c = arith.constant 0 : i64
-    %r = func.call @never(%c) : (i64) -> i64
+    %r = idr.call @never(%c) : (i64) -> i64
     return %r : i64
   }
 }

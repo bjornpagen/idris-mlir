@@ -1,5 +1,5 @@
 // input: after idr-simplify
-// FILECHECK-OPTIONS: --implicit-check-not=idr.str.length --implicit-check-not=@Main.L::@Cons(
+// FILECHECK-OPTIONS: --implicit-check-not=str.length --implicit-check-not=@Main.L::@Cons(
 // A value picked at runtime is an ordinary value. A match whose consumer
 // folds against its alternatives takes the consumer into each of them
 // (case-of-case): the function and the Lazy value
@@ -7,5 +7,5 @@
 // constant. The list of runtime elements is specialized on its shape, so
 // no box is built at runtime. What is left matches on the runtime
 // characters.
-// CHECK: idr.io.get_byte
-// CHECK: idr.match_lit
+// CHECK: io.get_byte
+// CHECK: match_lit

@@ -8,14 +8,14 @@
 // CHECK-NOT: [Analysis] round
 // CHECK: remark: [Analysis] statistics {{.*}}Category:idr-simplify
 module attributes {idr.program} {
-  func.func private @twice(%x: i64) -> i64 attributes {idr.total} {
+  idr.func private @twice(%x: i64) -> i64 attributes {total} {
     %y = arith.addi %x, %x : i64
     return %y : i64
   }
-  func.func @Prog.main(%w: !idr.world) -> !idr.world {
+  idr.func @Prog.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_byte %w
     %n = arith.extui %c : i32 to i64
-    %t = func.call @twice(%n) : (i64) -> i64
+    %t = idr.call @twice(%n) : (i64) -> i64
     %w2 = idr.io.put_int signed %t, %w1 : i64
     return %w2 : !idr.world
   }

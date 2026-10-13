@@ -8,11 +8,11 @@
 // CHECK-NEXT: idr.ctor @later (i64)
 // CHECK-NEXT: idr.ctor @now ()
 // CHECK: idr.data @Box {
-// CHECK-NEXT: idr.ctor @MkBox (!idr.data<@[[F0]]>)
+// CHECK-NEXT: idr.ctor @MkBox (![[F0]])
 // CHECK-NOT: !idr.fn
-// CHECK-LABEL: func.func @Main.main(
-// CHECK: %[[L:.*]] = idr.field %{{.*}}[@MkBox, 0] : !idr.data<@Box> -> !idr.data<@[[F0]]>
-// CHECK-NEXT: idr.match %[[L]] : !idr.data<@[[F0]]> -> (i64) {
+// CHECK-LABEL: idr.func @Main.main(
+// CHECK: %[[L:.*]] = {{(idr\.)?}}field %{{.*}}[@MkBox, 0] : !Box -> ![[F0]]
+// CHECK-NEXT: match %[[L]] : ![[F0]] -> (i64) {
 // CHECK-NEXT: case @later(%[[X:.*]]: i64) {
 // CHECK-NEXT: call @later(%[[X]]) : (i64) -> i64
 // CHECK: case @now() {
@@ -21,15 +21,15 @@ module attributes {idr.program} {
   idr.data @Box {
     idr.ctor @MkBox (!idr.fn<() -> (i64)>)
   }
-  func.func private @now() -> i64 attributes {idr.total} {
+  idr.func private @now() -> i64 attributes {total} {
     %c = arith.constant 7 : i64
     return %c : i64
   }
-  func.func private @later(%x: i64) -> i64 attributes {idr.total} {
+  idr.func private @later(%x: i64) -> i64 attributes {total} {
     %y = arith.muli %x, %x : i64
     return %y : i64
   }
-  func.func @Main.main(%w: !idr.world) -> !idr.world {
+  idr.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_byte %w
     %n = arith.extui %c : i32 to i64
     %s = idr.match_lit %n : i64 -> (!idr.fn<() -> (i64)>) {

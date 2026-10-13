@@ -1,10 +1,12 @@
 // The hook fires: full Core calls neither `Builtin.rewrite__impl` nor
 // `Builtin.replace`, and each function returns the box it was given: its
-// body ends in a bare variable.
+// body ends in a bare variable. The erased indices are no parameters, and a
+// Box, one constructor of one runtime field, is that field's value: each
+// function has one parameter.
 // CHECK-NOT: Builtin.{{replace|rewrite__impl}}
-// CHECK: Main.commuted (0 Erased) (0 Erased) (w Main.Box
+// CHECK: {{^}}Main.commuted (w {{[^()]*}}) :
 // CHECK: {{^ *#[0-9]+ *$}}
 // CHECK-NOT: Builtin.{{replace|rewrite__impl}}
-// CHECK: Main.padded (0 Erased) (w Main.Box
+// CHECK: {{^}}Main.padded (w {{[^()]*}}) :
 // CHECK: {{^ *#[0-9]+ *$}}
 // CHECK-NOT: Builtin.{{replace|rewrite__impl}}

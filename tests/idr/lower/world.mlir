@@ -7,12 +7,12 @@
 // CHECK-NOT: world
 // CHECK: return
 module attributes {idr.program} {
-  func.func @root(%w: !idr.world) -> !idr.world {
+  idr.func @root(%w: !idr.world) -> !idr.world {
     %c = arith.constant 65 : i32
-    func.call @f(%c) : (i32) -> ()
+    idr.call @f(%c) : (i32) -> ()
     return %w : !idr.world
   }
-  func.func private @f(%c: i32) {
+  idr.func private @f(%c: i32) {
     %w = idr.world.new
     %w1 = idr.io.put_char %c, %w
     return

@@ -1,5 +1,7 @@
 ||| Case trees: Idris's compile-time case trees (`treeCT`) as Core matches.
-||| A match on a compile-time value selects its alternative now.
+||| A match on a compile-time value selects its alternative now, and so does
+||| a match on a value of a type with one runtime field, which is its
+||| field's value.
 module IdrisMLIR.Frontend.Translate.Cases
 
 import Core.Case.CaseTree
@@ -28,10 +30,62 @@ import Data.Vect
 
 %default covering
 
-||| The variables a constructor alternative binds for its fields, in field
-||| order: field `i` is `Bound i`.
-fieldInfos : {k : Nat} -> {0 nv : Nat} -> (bs : Vect k Binder) -> List (VarInfo (Fin (Under k nv)))
-fieldInfos bs = toList (zipWith (\i, b => Runtime (Bound {n = nv} i) (Just (typeOf b))) range bs)
+||| The variables a constructor alternative binds, in argument order: a
+||| parameter is the instance's value, an argument of quantity 0 a
+||| compile-time one, a dictionary field the implementation the program
+||| builds it with (`impls`, by position), and runtime field `i` the
+||| alternative's `Bound i`, with what the value's shape says of it
+||| (`shapes`, by position).
+argInfos : {k : Nat} -> {0 nv : Nat} -> List ArgKind -> List (Nat, ClosedTerm) -> List ClosedTerm ->
+           List (VarInfo (Fin (Under k nv)))
+argInfos kinds impls shapes = zipWith info [0 .. length kinds] kinds
+  where
+    info : Nat -> ArgKind -> VarInfo (Fin (Under k nv))
+    info p (Param v) = TypeValue v
+    info p ErasedArg = TypeValue (Erased EmptyFC Placeholder)
+    info p (DictArg _) = Static (fromMaybe (Erased EmptyFC Placeholder) (lookup p impls)) Nothing
+    info p (Field i b ity) = case natToFin i k of
+      Just f => case getAt p shapes of
+        Just s => shaped (Bound {n = nv} f) (typeOf b) ity s
+        Nothing => Runtime (Bound {n = nv} f) (Just (typeOf b)) (Just ity)
+      Nothing => TypeValue (Erased EmptyFC Placeholder)
+
+||| The positions of a constructor's dictionary fields, among its arguments.
+dictPositions : List ArgKind -> List Nat
+dictPositions kinds = mapMaybe dict (zip [0 .. length kinds] kinds)
+  where
+    dict : (Nat, ArgKind) -> Maybe Nat
+    dict (i, DictArg _) = Just i
+    dict _ = Nothing
+
+||| The implementations a constructor's dictionary fields hold, by
+||| position; `Nothing` when no construction site has given one yet, and
+||| the constructor has no value (`Dictionaries`).
+dictionariesOf : {auto s : Ref TState TS} -> ConId -> List ArgKind -> Core (Maybe (List (Nat, ClosedTerm)))
+dictionariesOf cid kinds = do
+  found <- traverse (\i => map (i,) <$> dictionaryOf cid i) (dictPositions kinds)
+  pure (sequence found)
+
+||| What a runtime variable's binder says of it: its Core type, its Idris
+||| type, the shape of its value, and the variable.
+coreTyOf : VarInfo a -> Maybe Ty
+coreTyOf (Runtime _ t _) = t
+coreTyOf (Shaped _ t _ _) = Just t
+coreTyOf _ = Nothing
+
+idrisTypeOf : VarInfo a -> Maybe ClosedTerm
+idrisTypeOf (Runtime _ _ t) = t
+idrisTypeOf (Shaped _ _ t _) = Just t
+idrisTypeOf _ = Nothing
+
+shapeOf : VarInfo a -> Maybe ClosedTerm
+shapeOf (Shaped _ _ _ s) = Just s
+shapeOf _ = Nothing
+
+variableOf : VarInfo a -> Maybe a
+variableOf (Runtime x _ _) = Just x
+variableOf (Shaped x _ _ _) = Just x
+variableOf _ = Nothing
 
 ||| A leaf no input reaches: `Unreachable` in a covering definition
 ||| (Idris proved no input reaches it), a crash otherwise.
@@ -74,24 +128,29 @@ siblings alts = case mapMaybe conName alts of
   where
     built : TT vs -> Maybe Name
     built (Bind _ _ (Pi {}) sc) = built sc
-    built tm = case spine tm [] of
+    built tm = case getFnArgs tm of
       (Ref _ (TyCon _) tn, _) => Just tn
       _ => Nothing
 
-||| Can the default alternative of a match be taken? Not when the match
-||| names every constructor of the type, nor when it names the one the
-||| value's shape, if known, says it was built with: the default then
-||| stands for no value the match sees. Its code, which may call for
-||| instances no value needs (one a constructor deeper, where a shape keys
-||| the instance), is not translated.
-defaultDead : {auto c : Ref Ctxt Defs} -> Maybe ClosedTerm -> List (CaseAlt vars) -> Core Bool
-defaultDead shape alts = do
+||| Does a match name every constructor of the type? Then its default, which
+||| Idris's tree keeps for the clauses after a complete split, stands for
+||| no value: it is not translated, and the match has none.
+coversAll : {auto c : Ref Ctxt Defs} -> List (CaseAlt vars) -> Core Bool
+coversAll alts = do
   named <- traverse toFullNames (mapMaybe conName alts)
   every <- traverse toFullNames !(siblings alts)
-  built <- case the (Maybe (Name, List ClosedTerm)) (shape >>= shapeHead) of
-    Just (cn, _) => pure (elem !(toFullNames cn) named)
-    Nothing => pure False
-  pure (built || (not (null every) && all (\c => elem c named) every))
+  pure (not (null every) && all (\c => elem c named) every)
+
+||| Does a match name the constructor the value's shape, if known, says it
+||| was built with? Then its default stands for no value the match sees, and
+||| its code, which may call for instances no value needs (one a constructor
+||| deeper, where a shape keys the instance), is not translated.
+builtNamed : {auto c : Ref Ctxt Defs} -> Maybe ClosedTerm -> List (CaseAlt vars) -> Core Bool
+builtNamed shape alts = case the (Maybe (Name, List ClosedTerm)) (shape >>= shapeHead) of
+  Just (cn, _) => do
+    named <- traverse toFullNames (mapMaybe conName alts)
+    pure (elem !(toFullNames cn) named)
+  Nothing => pure False
 
 ||| The type of a variable of a case tree's scope, as its binder gives it:
 ||| a parameter of the definition, or an argument of the constructor an
@@ -119,7 +178,7 @@ telescope k = go 0
 ||| known constructor becomes that view; its arguments stay env positions,
 ||| which is what lining the constructor's result up against the view needs.
 viewOf : Typed -> List (Maybe Known) -> View
-viewOf (MkTyped tm at) known = case spine tm [] of
+viewOf (MkTyped tm at) known = case getFnArgs tm of
   -- An index the type does not place in the environment decides nothing.
   -- One still a variable is `VLocal`: a concrete constructor on the other
   -- side then does not fit. A match records `VRef` through `KnownCon`.
@@ -173,7 +232,7 @@ unifyLearned : {auto c : Ref Ctxt Defs} -> {0 sc : _} -> {0 vs : _} ->
                Core (Maybe (List (Maybe (TT sc))))
 unifyLearned k learned (Local _ _ i _) rhs =
   if i < k then pure (bindPat (minus k (S i)) learned rhs) else pure Nothing
-unifyLearned k learned lhs rhs = case (spine lhs [], spine rhs []) of
+unifyLearned k learned lhs rhs = case (getFnArgs lhs, getFnArgs rhs) of
   ((Ref _ _ n, as), (Ref _ _ m, bs)) => do
     same <- (==) <$> toFullNames n <*> toFullNames m
     if same && length as == length bs then unifyArgs learned (zip as bs) else pure Nothing
@@ -261,7 +320,7 @@ equated k conTy (Just (MkTyped scTy at)) = go k conTy
       pure (case at j of
               Just v => if i < k then [(v, minus k (S i))] else []
               Nothing => [])
-    pairs con sc = case (spine con [], spine sc []) of
+    pairs con sc = case (getFnArgs con, getFnArgs sc) of
       ((Ref _ _ n, as), (Ref _ _ m, bs)) => do
         same <- (==) <$> toFullNames n <*> toFullNames m
         if same && length as == length bs
@@ -284,13 +343,12 @@ bindEquated : Nat -> List (Nat, Nat) -> List (VarInfo b) -> List (VarInfo b)
 bindEquated k eqs env = foldl one (share eqs env) eqs
   where
     runtime : VarInfo b -> Bool
-    runtime (Runtime _ (Just ErasedT)) = False
-    runtime (Runtime _ (Just _)) = True
+    runtime (Runtime _ (Just _) _) = True
     runtime (Shaped {}) = True
     runtime _ = False
 
     erased : VarInfo b -> Bool
-    erased (Runtime _ (Just ErasedT)) = True
+    erased (TypeValue (Erased _ _)) = True
     erased _ = False
 
     setAt : Nat -> VarInfo b -> List (VarInfo b) -> List (VarInfo b)
@@ -338,7 +396,7 @@ forcedEnv env tys known =
   if any isJust known then scan 0 env tys else pure env
   where
     isErasedVar : VarInfo a -> Bool
-    isErasedVar (Runtime _ (Just ErasedT)) = True
+    isErasedVar (TypeValue (Erased _ _)) = True
     isErasedVar _ = False
 
     retarget : List (VarInfo (Fin nv)) -> Typed -> Core (List (VarInfo (Fin nv)))
@@ -365,6 +423,7 @@ forcedEnv env tys known =
         Nothing => pure e
       scan (S i) e' rest
 
+
 mutual
   ||| A case tree over its scope's variables, and their types as their
   ||| binders give them (`Typed`).
@@ -383,47 +442,23 @@ mutual
   tree ctx env tys known Impossible = Unreachable <$> toLoc ctx.fc
   tree ctx env tys known (Case {name} idx _ _ alts) = do
     loc <- toLoc ctx.fc
-    -- What is known of the value's shape rules alternatives out.
-    let shape = case getAt idx env of
-                  Just (Shaped _ _ s) => Just s
-                  _ => Nothing
-    case map plain (getAt idx env) of
-      Just (Runtime i (Just WorldT)) => case alts of
+    case getAt idx env of
+      Just (Runtime i (Just WorldT) _) => case alts of
         [ConstCase WorldVal rhs] => tree ctx env tys known rhs
         _ => internal ctx.fc "an unexpected match on the world"
       -- A match on a quantity-0 value (a proof, an index) is in the
       -- compile-time tree only when its type forces the alternative, as
       -- Idris's erasure check guarantees; its fields are erased too.
-      Just (Runtime i (Just ErasedT)) => forced alts
       Just (TypeValue (Erased _ _)) => forced alts
-      Just (Runtime i (Just (DataT inst))) => do
-        (conAlts, def) <- conAlternatives ctx env tys known shape !(defaultDead shape alts) inst
-                                          (join (getAt idx tys)) idx alts
-        st <- get TState
-        -- Constructors the tree leaves out are impossible when the
-        -- definition is covering, and crash otherwise.
-        let missing = case (def, lookup inst st.datas) of
-                        (Nothing, Just dt) => filter (\c => not (any (\(MkAlt k _ _) => k == c.id) conAlts)) dt.cons
-                        _ => []
-        let absurd = map (\c => MkAlt c.id (fromList c.fields) (missingCase ctx loc)) missing
-        pure (Case loc i (conAlts ++ absurd) def)
-      -- A `Nat`-like value is a natural: a match on its constructors is a
-      -- match on zero.
-      Just (Runtime i (Just NatT)) =>
-        if any isConCase alts then natCase ctx env tys known idx shape loc i alts else literals loc i
-      Just (Runtime i (Just _)) => literals loc i
       -- A match on an implementation selects its alternative now.
       Just (Static t hole) => staticCase ctx env tys known idx t hole alts
+      Just v@(Runtime i _ _) => runtime loc v i
+      Just v@(Shaped i _ _ _) => runtime loc v i
       _ => internal ctx.fc "a match on a compile-time value"
     where
-      -- A shaped value is matched as a runtime value of its type.
-      plain : VarInfo (Fin nv) -> VarInfo (Fin nv)
-      plain (Shaped x t _) = Runtime x (Just t)
-      plain v = v
-
-      isConCase : CaseAlt vars -> Bool
-      isConCase (ConCase {}) = True
-      isConCase _ = False
+      isDelayCase : CaseAlt vars -> Bool
+      isDelayCase (DelayCase {}) = True
+      isDelayCase _ = False
 
       literals : Loc -> Fin nv -> Core (Term nv)
       literals loc i = do
@@ -431,6 +466,61 @@ mutual
         let Just def = def <|> (if ctx.complete then Nothing else Just (missingCase ctx loc))
           | Nothing => reject ctx.fc ctx.owner Match "a literal match without a default"
         pure (CaseLit loc i litAlts def)
+
+      -- The data instance a match's constructors are of, at the value's
+      -- type. The Core type names it when it is a declaration the
+      -- constructor belongs to; a value of a type with one runtime field
+      -- has its field's type, so the Idris type names it then.
+      instanceOf : VarInfo (Fin nv) -> Name -> Core DataId
+      instanceOf v cn = do
+        st <- get TState
+        let fromCore = case coreTyOf v of
+                         Just (DataT d) => case lookup (MkConId d (shortName cn)) st.cons of
+                           Just layout => if layout.name == cn then Just d else Nothing
+                           Nothing => Nothing
+                         _ => Nothing
+        case (fromCore, idrisTypeOf v) of
+          (Just d, _) => pure d
+          (Nothing, Just ity) => do
+            Just (inst, _) <- dataOf ctx.fc ctx.owner !(normaliseClosed ity)
+              | Nothing => internal ctx.fc ("a match on " ++ show cn ++ " at a type that is not data")
+            pure inst
+          (Nothing, Nothing) =>
+            internal ctx.fc ("a match on " ++ show cn ++ " of a value whose type is not known")
+
+      -- A match on a runtime value, by what its alternatives match: a
+      -- natural's constructors, one runtime field's constructor, a
+      -- declaration's constructors, or literals.
+      runtime : Loc -> VarInfo (Fin nv) -> Fin nv -> Core (Term nv)
+      runtime loc v i =
+        if any isDelayCase alts then reject ctx.fc ctx.owner Laziness "a match on a lazy value" else
+        case mapMaybe conName alts of
+          [] => literals loc i
+          (cn :: _) => do
+            def <- lookupDef ctx.fc ctx.owner cn
+            let shape = shapeOf v
+            case natRole def of
+              -- A `Nat`-like value is a natural: a match on its
+              -- constructors is a match on zero.
+              Just _ => natCase ctx env tys known idx shape loc i (idrisTypeOf v) alts
+              Nothing => do
+                inst <- instanceOf v (fullname def)
+                st <- get TState
+                if isJust (lookup inst st.newtypes)
+                   then newtypeCase ctx env tys known idx v inst alts
+                   else do
+                     every <- coversAll alts
+                     built <- builtNamed shape alts
+                     (conAlts, dflt) <- conAlternatives ctx env tys known shape every built inst
+                                                        (join (getAt idx tys)) idx alts
+                     st' <- get TState
+                     -- Constructors the tree leaves out are impossible when
+                     -- the definition is covering, and crash otherwise.
+                     let missing = case (dflt, lookup inst st'.datas) of
+                                     (Nothing, Just dt) => filter (\c => not (any (\(MkAlt k _ _) => k == c.id) conAlts)) dt.cons
+                                     _ => []
+                     let absurd = map (\c => MkAlt c.id (fromList (map (\b => (shown "_", b)) c.fields)) (missingCase ctx loc)) missing
+                     pure (Case loc i (conAlts ++ absurd) dflt)
 
       forced : List (CaseAlt vars) -> Core (Term nv)
       forced [ConCase cn _ args rhs] =
@@ -456,26 +546,31 @@ mutual
   ||| predecessor. The default stands for whichever the tree leaves out.
   natCase : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
             Ctx -> List (VarInfo (Fin nv)) -> List (Maybe Typed) -> List (Maybe Known) -> Nat ->
-            Maybe ClosedTerm -> Loc -> Fin nv ->
+            Maybe ClosedTerm -> Loc -> Fin nv -> Maybe ClosedTerm ->
             List (CaseAlt vars) -> Core (Term nv)
-  natCase ctx env tys known idx shape loc x alts = do
-    (zero, succ, def) <- natAlternatives ctx env tys known idx shape !(defaultDead shape alts) loc x alts
+  natCase ctx env tys known idx shape loc x ity alts = do
+    every <- coversAll alts
+    built <- builtNamed shape alts
+    (zero, succ, def) <- natAlternatives ctx env tys known idx shape ity (every || built) loc x alts
     case (zero, succ, def) of
       (Nothing, Nothing, d) => pure (fromMaybe (missingCase ctx loc) d)
-      (z, s, d) => pure (CaseNat loc x (fromMaybe (fromMaybe (missingCase ctx loc) d) z)
-                                       (fromMaybe (maybe (missingCase ctx loc) (weakenUnder 1) d) s))
+      (z, s, d) => do
+        let (pred, body) = fromMaybe (shown "_", maybe (missingCase ctx loc) (weakenUnder 1) d) s
+        pure (CaseNat loc x (fromMaybe (fromMaybe (missingCase ctx loc) d) z) pred body)
 
   ||| The alternatives of a match on a `Nat`-like value: zero's, the
-  ||| successor's (over the predecessor, its erased arguments compile-time
-  ||| values), and the default, unless no value takes it (`defaultDead`,
-  ||| given as `deadDefault`). The value's shape, if known, rules one of
-  ||| the two out, and gives the predecessor its own.
+  ||| successor's (over the predecessor, named, its erased arguments
+  ||| compile-time values), and the default, unless no value takes it
+  ||| (`deadDefault`). The value's shape, if known, rules one of the two out,
+  ||| and gives the predecessor its own; the predecessor is of the value's
+  ||| type (`ity`).
   natAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                     Ctx -> List (VarInfo (Fin nv)) -> List (Maybe Typed) -> List (Maybe Known) -> Nat ->
-                    Maybe ClosedTerm -> Bool -> Loc -> Fin nv ->
-                    List (CaseAlt vars) -> Core (Maybe (Term nv), Maybe (Term (Under 1 nv)), Maybe (Term nv))
-  natAlternatives ctx env tys known idx shape deadDefault loc x [] = pure (Nothing, Nothing, Nothing)
-  natAlternatives ctx env tys known idx shape deadDefault loc x (ConCase cn _ args rhs :: rest) = do
+                    Maybe ClosedTerm -> Maybe ClosedTerm -> Bool -> Loc -> Fin nv ->
+                    List (CaseAlt vars) ->
+                    Core (Maybe (Term nv), Maybe (Shown, Term (Under 1 nv)), Maybe (Term nv))
+  natAlternatives ctx env tys known idx shape ity deadDefault loc x [] = pure (Nothing, Nothing, Nothing)
+  natAlternatives ctx env tys known idx shape ity deadDefault loc x (ConCase cn _ args rhs :: rest) = do
     def <- lookupDef ctx.fc ctx.owner cn
     isErased <- erasedArgs cn
     dead <- excludedBy shape (fullname def)
@@ -486,20 +581,21 @@ mutual
         z <- if dead then pure (Unreachable loc)
              else tree ctx (map (const (TypeValue (Erased ctx.fc Placeholder))) args ++ env) tys'
                        (underKnown k idx cn known) rhs
-        (_, s, d) <- natAlternatives ctx env tys known idx shape deadDefault loc x rest
+        (_, s, d) <- natAlternatives ctx env tys known idx shape ity deadDefault loc x rest
         pure (Just z, s, d)
       Just Succ => do
         let erased = isErased ++ replicate (length args) False
         let predInfo : VarInfo (Fin (Under 1 nv))
-            predInfo = case predecessor (shapeArgs shape) erased of
-                         Just p => shaped FZ NatT p
-                         Nothing => Runtime FZ (Just NatT)
+            predInfo = case (predecessor (shapeArgs shape) erased, ity) of
+                         (Just p, Just t) => shaped FZ NatT t p
+                         _ => Runtime FZ (Just NatT) ity
         let infos = zipWith (\_, e => if e then TypeValue (Erased ctx.fc Placeholder) else predInfo)
                             args erased
+        let pred = maybe (shown "_") (binderName . fst) (find (not . snd) (zip args erased))
         body <- if dead then pure (Unreachable loc)
                 else tree ctx (under {k = 1} infos env) tys' (underKnown (length infos) idx cn known) rhs
-        (z, _, d) <- natAlternatives ctx env tys known idx shape deadDefault loc x rest
-        pure (z, Just body, d)
+        (z, _, d) <- natAlternatives ctx env tys known idx shape ity deadDefault loc x rest
+        pure (z, Just (pred, body), d)
       Nothing => internal ctx.fc ("a constructor of another type in a match on a Nat-like value")
     where
       -- The successor's one runtime argument, among the shape's.
@@ -507,9 +603,9 @@ mutual
       predecessor (a :: as) (True :: es) = predecessor as es
       predecessor (a :: as) _ = Just a
       predecessor [] _ = Nothing
-  natAlternatives ctx env tys known idx shape deadDefault loc x (DefaultCase rhs :: _) =
+  natAlternatives ctx env tys known idx shape ity deadDefault loc x (DefaultCase rhs :: _) =
     pure (Nothing, Nothing, Just !(if deadDefault then pure (Unreachable loc) else tree ctx env tys known rhs))
-  natAlternatives ctx env tys known idx shape deadDefault loc x (_ :: _) =
+  natAlternatives ctx env tys known idx shape ity deadDefault loc x (_ :: _) =
     internal ctx.fc "an unexpected alternative"
 
   ||| A match on a compile-time value: the implementation is reduced to its
@@ -544,51 +640,99 @@ mutual
       pick cn infos (_ :: rest) = pick cn infos rest
       pick cn infos [] = internal ctx.fc ("no alternative for " ++ show cn)
 
-  ||| The constructor alternatives of a match, each over its fields, and
-  ||| the default, unless no value takes it (`defaultDead`, given as
-  ||| `deadDefault`). The value's shape, if known, rules out every other
-  ||| constructor and gives the fields their shapes.
+  ||| A match on a value of a type with one runtime field, which is the
+  ||| field's value: nothing is matched at runtime, the alternative's
+  ||| arguments stand for what the constructor holds, and its field for the
+  ||| matched value itself, at the field's type.
+  newtypeCase : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
+                Ctx -> List (VarInfo (Fin nv)) -> List (Maybe Typed) -> List (Maybe Known) -> Nat ->
+                VarInfo (Fin nv) -> DataId -> List (CaseAlt vars) -> Core (Term nv)
+  newtypeCase ctx env tys known idx scrutinee inst alts = case find isConCase alts of
+    Just (ConCase cn _ args rhs) => do
+      def <- lookupDef ctx.fc ctx.owner cn
+      let cid = MkConId inst (shortName (fullname def))
+      st <- get TState
+      let Just info = lookup cid st.cons
+        | Nothing => internal ctx.fc ("the constructor " ++ show (fullname def) ++ " is not registered")
+      when (length info.args /= length args) $
+        reject ctx.fc ctx.owner CompiledModule
+               ("constructor " ++ show (fullname def) ++ " binds an unexpected number of arguments")
+      -- A dictionary field no construction site has given is one of no
+      -- value: the alternative is unreachable (`Dictionaries`).
+      Just impls <- dictionariesOf cid info.args
+        | Nothing => Unreachable <$> toLoc ctx.fc
+      let shapes = shapeArgs (shapeOf scrutinee)
+      let infos = zipWith (argInfo impls shapes) [0 .. length info.args] info.args
+      let k = length args
+      let scTy = join (getAt idx tys)
+      eqs <- equated k (type def) scTy
+      tree ctx (bindEquated k eqs (infos ++ env)) !(alternativeTypes cn k scTy tys)
+           (underKnown k idx cn known) rhs
+    _ => case find isDefault alts of
+      Just (DefaultCase rhs) => tree ctx env tys known rhs
+      _ => internal ctx.fc "a match on a value of one field without an alternative"
+    where
+      isConCase : CaseAlt vars -> Bool
+      isConCase (ConCase {}) = True
+      isConCase _ = False
+
+      argInfo : List (Nat, ClosedTerm) -> List ClosedTerm -> Nat -> ArgKind -> VarInfo (Fin nv)
+      argInfo impls shapes p (Param v) = TypeValue v
+      argInfo impls shapes p ErasedArg = TypeValue (Erased EmptyFC Placeholder)
+      argInfo impls shapes p (DictArg _) = Static (fromMaybe (Erased EmptyFC Placeholder) (lookup p impls)) Nothing
+      argInfo impls shapes p (Field _ b ity) = case (variableOf scrutinee, getAt p shapes) of
+        (Just x, Just s) => shaped x (typeOf b) ity s
+        (Just x, Nothing) => Runtime x (Just (typeOf b)) (Just ity)
+        (Nothing, _) => TypeValue (Erased EmptyFC Placeholder)
+
+  ||| The constructor alternatives of a match, each over its fields, named
+  ||| as the alternative names them, and the default: none when the
+  ||| alternatives name every constructor (`every`), unreachable when they
+  ||| name the one the value's shape says it was built with (`built`). The
+  ||| shape, if known, rules out every other constructor and gives the
+  ||| fields their shapes.
   conAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                     Ctx -> List (VarInfo (Fin nv)) -> List (Maybe Typed) -> List (Maybe Known) ->
-                    Maybe ClosedTerm -> Bool -> DataId ->
+                    Maybe ClosedTerm -> Bool -> Bool -> DataId ->
                     Maybe Typed -> Nat -> List (CaseAlt vars) -> Core (List (Alt nv), Maybe (Term nv))
-  conAlternatives ctx env tys known shape deadDefault inst scTy idx [] = pure ([], Nothing)
-  conAlternatives ctx env tys known shape deadDefault inst scTy idx (ConCase cn _ args rhs :: rest) = do
+  conAlternatives ctx env tys known shape every built inst scTy idx [] = pure ([], Nothing)
+  conAlternatives ctx env tys known shape every built inst scTy idx (ConCase cn _ args rhs :: rest) = do
     def <- lookupDef ctx.fc ctx.owner cn
     let cid = MkConId inst (shortName (fullname def))
     st <- get TState
     let Just info = lookup cid st.cons
-      | Nothing => internal ctx.fc ("unknown constructor " ++ cid.name ++ " of " ++ inst.name)
-    let bs = fromList info.con.fields
-    when (length info.layout /= length args) $
-      reject ctx.fc ctx.owner CompiledModule ("constructor " ++ cid.name ++ " binds an unexpected number of arguments")
+      | Nothing => internal ctx.fc ("the constructor " ++ show (fullname def) ++ " is not registered")
+    when (length info.args /= length args) $
+      reject ctx.fc ctx.owner CompiledModule
+             ("constructor " ++ show (fullname def) ++ " binds an unexpected number of arguments")
+    let named = mapMaybe fieldNamed (zip args info.args)
     dead <- excludedBy shape (fullname def)
     -- A dictionary field stands for the one implementation the program
     -- builds it with; before any construction site is known, no value of
     -- the constructor exists and the alternative is unreachable
     -- (`Dictionaries`).
-    dicts <- traverse (\(i, _) => map (i,) <$> dictionaryOf cid i) info.dicts
-    body <- case the (Maybe (List (Nat, ClosedTerm))) (sequence dicts) of
+    found <- dictionariesOf cid info.args
+    body <- case found of
       Just impls => if dead then Unreachable <$> toLoc ctx.fc else do
-        let shapes = fieldsOnly info.layout (shapeArgs shape)
-        let fields = zipWith (\i, f => case (Data.List.lookup i impls, f, getAt i shapes) of
-                                         (Just impl, _, _) => Static impl Nothing
-                                         (Nothing, Runtime x (Just t), Just s) => shaped x t s
-                                         _ => f)
-                             [0 .. length bs] (fieldInfos {nv} bs)
         let k = length args
         eqs <- equated k (type def) scTy
-        let env' = bindEquated k eqs (under {k = length info.con.fields}
-                         (arrange info.layout info.params fields) env)
+        let env' = bindEquated k eqs (under {k = length named}
+                         (argInfos {k = length named} {nv} info.args impls (shapeArgs shape)) env)
         tree ctx env' !(alternativeTypes cn k scTy tys) (underKnown k idx cn known) rhs
       Nothing => Unreachable <$> toLoc ctx.fc
-    (alts, def') <- conAlternatives ctx env tys known shape deadDefault inst scTy idx rest
-    pure (MkAlt cid bs body :: alts, def')
-  conAlternatives ctx env tys known shape deadDefault inst scTy idx (DefaultCase rhs :: _) =
-    pure ([], Just !(if deadDefault then Unreachable <$> toLoc ctx.fc else tree ctx env tys known rhs))
-  conAlternatives ctx env tys known shape deadDefault inst scTy idx (DelayCase {} :: _) =
+    (alts, def') <- conAlternatives ctx env tys known shape every built inst scTy idx rest
+    pure (MkAlt cid (fromList named) body :: alts, def')
+    where
+      fieldNamed : (Name, ArgKind) -> Maybe (Shown, Binder)
+      fieldNamed (n, Field _ b _) = Just (binderName n, b)
+      fieldNamed _ = Nothing
+  conAlternatives ctx env tys known shape every built inst scTy idx (DefaultCase rhs :: _) =
+    if every then pure ([], Nothing) else do
+      d <- if built then Unreachable <$> toLoc ctx.fc else tree ctx env tys known rhs
+      pure ([], Just d)
+  conAlternatives ctx env tys known shape every built inst scTy idx (DelayCase {} :: _) =
     reject ctx.fc ctx.owner Laziness "a match on a lazy value"
-  conAlternatives ctx env tys known shape deadDefault inst scTy idx (ConstCase {} :: _) =
+  conAlternatives ctx env tys known shape every built inst scTy idx (ConstCase {} :: _) =
     internal ctx.fc "a constant alternative in a constructor match"
 
   litAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->

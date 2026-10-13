@@ -1,6 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-effects --canonicalize --idr-expect=holds=moves-out=@update,moves-out=@updateAt -o /dev/null
 // RUN: %status 1 idris-mlir-opt %s --idr-effects --canonicalize --idr-expect=holds=moves-out=@printed,moves-out=@callsIO,moves-out=@forced,moves-out=@applied,moves-out=@inMatch,moves-out=@word -o /dev/null 2> %t.err
 // RUN: FileCheck %s < %t.err
+// RUN: idris-mlir-opt %s --idr-effects --canonicalize=test-convergence=true -o /dev/null
 // A read of an element whose world goes next to a write of the same element
 // moves the element out: a value read to be rebuilt and written back holds
 // the one reference to its cell. An IORef's modify is one, and so is an
@@ -22,7 +23,7 @@ idr.data @R box {
   idr.ctor @MkR (i64, i64)
 }
 
-func.func private @bump(%r: !idr.box<@R>) -> !idr.box<@R> attributes {idr.total} {
+idr.func private @bump(%r: !idr.box<@R>) -> !idr.box<@R> attributes {total} {
   %a = idr.field %r[@MkR, 0] : !idr.box<@R> -> i64
   %b = idr.field %r[@MkR, 1] : !idr.box<@R> -> i64
   %one = arith.constant 1 : i64
@@ -31,71 +32,71 @@ func.func private @bump(%r: !idr.box<@R>) -> !idr.box<@R> attributes {idr.total}
   return %n : !idr.box<@R>
 }
 
-func.func private @sneaky(%s: !idr.str) -> i64 attributes {idr.total} {
+idr.func private @sneaky(%s: !idr.str) -> i64 attributes {total} {
   %v = idr.world.new
   %v1 = idr.io.put_str %s, %v
   %z = arith.constant 0 : i64
   return %z : i64
 }
 
-func.func @update(%ref: memref<!idr.box<@R>>, %w: !idr.world) -> !idr.world {
+idr.func @update(%ref: memref<!idr.box<@R>>, %w: !idr.world) -> !idr.world {
   %r, %w1 = idr.array.get %ref[], %w : memref<!idr.box<@R>> -> !idr.box<@R>
-  %n = func.call @bump(%r) : (!idr.box<@R>) -> !idr.box<@R>
+  %n = idr.call @bump(%r) : (!idr.box<@R>) -> !idr.box<@R>
   %w2 = idr.array.set %ref[], %n, %w1 : memref<!idr.box<@R>>, !idr.box<@R>
   return %w2 : !idr.world
 }
 
-func.func @updateAt(%a: memref<?x!idr.box<@R>>, %i: i64, %w: !idr.world) -> !idr.world {
+idr.func @updateAt(%a: memref<?x!idr.box<@R>>, %i: i64, %w: !idr.world) -> !idr.world {
   %c0 = arith.constant 0 : index
   %d = memref.dim %a, %c0 : memref<?x!idr.box<@R>>
   %len = arith.index_cast %d : index to i64
   %j = idr.check.in_bounds %i, %len, "array index out of bounds"
   %r, %w1 = idr.array.get %a[%j], %w : memref<?x!idr.box<@R>> -> !idr.box<@R>
-  %n = func.call @bump(%r) : (!idr.box<@R>) -> !idr.box<@R>
+  %n = idr.call @bump(%r) : (!idr.box<@R>) -> !idr.box<@R>
   %k = idr.check.in_bounds %i, %len, "array index out of bounds"
   %w2 = idr.array.set %a[%k], %n, %w1 : memref<?x!idr.box<@R>>, !idr.box<@R>
   return %w2 : !idr.world
 }
 
-func.func @printed(%ref: memref<!idr.box<@R>>, %s: !idr.str, %w: !idr.world) -> !idr.world {
+idr.func @printed(%ref: memref<!idr.box<@R>>, %s: !idr.str, %w: !idr.world) -> !idr.world {
   %r, %w1 = idr.array.get %ref[], %w : memref<!idr.box<@R>> -> !idr.box<@R>
   %v = idr.world.new
   %v1 = idr.io.put_str %s, %v
-  %n = func.call @bump(%r) : (!idr.box<@R>) -> !idr.box<@R>
+  %n = idr.call @bump(%r) : (!idr.box<@R>) -> !idr.box<@R>
   %w2 = idr.array.set %ref[], %n, %w1 : memref<!idr.box<@R>>, !idr.box<@R>
   return %w2 : !idr.world
 }
 
-func.func @callsIO(%ref: memref<!idr.box<@R>>, %s: !idr.str, %w: !idr.world) -> (i64, !idr.world) {
+idr.func @callsIO(%ref: memref<!idr.box<@R>>, %s: !idr.str, %w: !idr.world) -> (i64, !idr.world) {
   %r, %w1 = idr.array.get %ref[], %w : memref<!idr.box<@R>> -> !idr.box<@R>
-  %z = func.call @sneaky(%s) : (!idr.str) -> i64
-  %n = func.call @bump(%r) : (!idr.box<@R>) -> !idr.box<@R>
+  %z = idr.call @sneaky(%s) : (!idr.str) -> i64
+  %n = idr.call @bump(%r) : (!idr.box<@R>) -> !idr.box<@R>
   %w2 = idr.array.set %ref[], %n, %w1 : memref<!idr.box<@R>>, !idr.box<@R>
   return %z, %w2 : i64, !idr.world
 }
 
-func.func @forced(%ref: memref<!idr.box<@R>>, %t: !idr.lazy<i64>, %w: !idr.world) -> (i64, !idr.world) {
+idr.func @forced(%ref: memref<!idr.box<@R>>, %t: !idr.lazy<i64>, %w: !idr.world) -> (i64, !idr.world) {
   %r, %w1 = idr.array.get %ref[], %w : memref<!idr.box<@R>> -> !idr.box<@R>
   %x = idr.force %t : !idr.lazy<i64> -> i64
-  %n = func.call @bump(%r) : (!idr.box<@R>) -> !idr.box<@R>
+  %n = idr.call @bump(%r) : (!idr.box<@R>) -> !idr.box<@R>
   %w2 = idr.array.set %ref[], %n, %w1 : memref<!idr.box<@R>>, !idr.box<@R>
   return %x, %w2 : i64, !idr.world
 }
 
-func.func @applied(%ref: memref<!idr.box<@R>>, %f: !idr.fn<(i64) -> (i64)>, %y: i64,
+idr.func @applied(%ref: memref<!idr.box<@R>>, %f: !idr.fn<(i64) -> (i64)>, %y: i64,
                    %w: !idr.world) -> (i64, !idr.world) {
   %r, %w1 = idr.array.get %ref[], %w : memref<!idr.box<@R>> -> !idr.box<@R>
   %x = idr.apply %f(%y) : !idr.fn<(i64) -> (i64)>
-  %n = func.call @bump(%r) : (!idr.box<@R>) -> !idr.box<@R>
+  %n = idr.call @bump(%r) : (!idr.box<@R>) -> !idr.box<@R>
   %w2 = idr.array.set %ref[], %n, %w1 : memref<!idr.box<@R>>, !idr.box<@R>
   return %x, %w2 : i64, !idr.world
 }
 
-func.func @inMatch(%ref: memref<!idr.box<@R>>, %b: i64, %w: !idr.world) -> !idr.world {
+idr.func @inMatch(%ref: memref<!idr.box<@R>>, %b: i64, %w: !idr.world) -> !idr.world {
   %r, %w1 = idr.array.get %ref[], %w : memref<!idr.box<@R>> -> !idr.box<@R>
   %w3 = idr.match_lit %b : i64 -> (!idr.world) {
   case 0 {
-    %n = func.call @bump(%r) : (!idr.box<@R>) -> !idr.box<@R>
+    %n = idr.call @bump(%r) : (!idr.box<@R>) -> !idr.box<@R>
     %w2 = idr.array.set %ref[], %n, %w1 : memref<!idr.box<@R>>, !idr.box<@R>
     idr.yield %w2 : !idr.world
   }
@@ -106,7 +107,7 @@ func.func @inMatch(%ref: memref<!idr.box<@R>>, %b: i64, %w: !idr.world) -> !idr.
   return %w3 : !idr.world
 }
 
-func.func @word(%ref: memref<i64>, %w: !idr.world) -> !idr.world {
+idr.func @word(%ref: memref<i64>, %w: !idr.world) -> !idr.world {
   %x, %w1 = idr.array.get %ref[], %w : memref<i64> -> i64
   %one = arith.constant 1 : i64
   %y = arith.addi %x, %one : i64

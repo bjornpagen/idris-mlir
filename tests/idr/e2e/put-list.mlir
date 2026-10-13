@@ -20,7 +20,7 @@ module attributes {idr.program} {
     idr.ctor @Nil ()
     idr.ctor @Cons (!idr.str, !idr.box<@Strs>)
   }
-  func.func private @pick(%c: i32) -> !idr.str {
+  idr.func private @pick(%c: i32) -> !idr.str {
     %r = idr.match_lit %c : i32 -> (!idr.str) {
     case 121 {
       %s = idr.constant "y" : !idr.str
@@ -33,7 +33,7 @@ module attributes {idr.program} {
     }
     return %r : !idr.str
   }
-  func.func @Prog.main(%w: !idr.world) -> !idr.world {
+  idr.func @Prog.main(%w: !idr.world) -> !idr.world {
     %open = arith.constant 91 : i32
     %close = arith.constant 93 : i32
     %space = arith.constant 32 : i32
@@ -82,7 +82,7 @@ module attributes {idr.program} {
     %m = idr.str.length %kept
     %w20 = idr.io.put_int signed %m, %w19 : i64
     %w21 = idr.io.put_char %newline, %w20
-    %p = func.call @pick(%x) : (i32) -> !idr.str
+    %p = idr.call @pick(%x) : (i32) -> !idr.str
     %w22 = idr.io.put_str %p, %w21
     return %w22 : !idr.world
   }

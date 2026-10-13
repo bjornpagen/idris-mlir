@@ -1,0 +1,6 @@
+data/rbtree: printed, parsed and printed again, the same bytes
+data/rbtree: the emitted text and its print, in the generic form, the same bytes
+data/shapes: printed, parsed and printed again, the same bytes
+data/shapes: the emitted text and its print, in the generic form, the same bytes
+arrays/linarray-combinators: printed, parsed and printed again, the same bytes
+arrays/linarray-combinators: the emitted text and its print, in the generic form, the same bytes

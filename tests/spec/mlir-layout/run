@@ -1,0 +1,100 @@
+#!/bin/sh
+# foreign/idr is an in-tree MLIR dialect in upstream's layout: headers
+# under include/idr and .cpp under lib, no C++20 module, every library one
+# add_mlir_library (add_mlir_dialect_library for the dialect), and a
+# CMakeLists.txt only where a list of the layout is. The build follows the
+# project's profile: the five presets (no asan-ubsan, PINS.md
+# no-sanitizer-runtimes), C++26 with clang and libc++, no exceptions or
+# RTTI, warnings as errors. No state outlives a call but three: the
+# dialect's count of the cells the folders left live (a member the ODS
+# declares), the command-line option objects of the driver and the tools,
+# and an action's function-local type identity, a constant.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+cd "$root" || exit 1
+idr=foreign/idr
+
+sed -n '/"configurePresets"/,/"buildPresets"/p' CMakePresets.json |
+  sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' > "$work/presets"
+for preset in dev release hardened profile lint; do
+  if grep -qx "$preset" "$work/presets"; then say "preset $preset"; else say "preset $preset: missing"; fi
+done
+if grep -qx asan-ubsan "$work/presets"; then say "preset asan-ubsan: present"; else say "no preset asan-ubsan"; fi
+for flag in 'set(CMAKE_CXX_STANDARD 26)' '-fno-exceptions -fno-rtti' '-Werror' \
+            'idris_mlir_language_profile' 'PIN(clang-no-reflection)' 'PIN(clang-libcxx)'; do
+  if grep -qF -- "$flag" CMakeLists.txt; then say "CMakeLists.txt: $flag"; else say "CMakeLists.txt: no $flag"; fi
+done
+# The pinned clang's reflection is a stub, so the profile has no
+# -freflection.
+if grep -v 'PIN(clang-no-reflection)' CMakeLists.txt | grep -qF -- '-freflection'; then
+  say "CMakeLists.txt: -freflection"
+else
+  say "CMakeLists.txt: no -freflection"
+fi
+# The lint graph runs the clang-tidy of stage 2, the one LLVM.
+if grep -qF '.toolchain/llvm/bin/clang-tidy' CMakePresets.json; then
+  say "CMakePresets.json: lint with the stage-2 clang-tidy"
+else
+  say "CMakePresets.json: lint without the stage-2 clang-tidy"
+fi
+
+find "$idr" -name build -prune -o -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.cc' -o -name '*.cppm' \) -print |
+  sort > "$work/units"
+if [ -s "$work/units" ]; then say "units: found"; else say "units: none found"; fi
+
+# No module: no interface unit, and no unit that declares or imports one.
+grep '\.cppm$' "$work/units" > "$work/modules"
+grep -v '\.cppm$' "$work/units" | xargs grep -HnE '^[[:space:]]*(export[[:space:]]+)?(module|import)[[:space:]]+[A-Za-z_.:<"]' \
+  >> "$work/modules" 2> /dev/null
+if [ -s "$work/modules" ]; then
+  say "C++20 modules under $idr:"
+  cat "$work/modules"
+else
+  say "no C++20 module under $idr"
+fi
+
+# Every library is an add_mlir_library; the one add_library is the Tracy
+# client, third-party code the profile build compiles beside ours.
+find "$idr" -name CMakeLists.txt | sort > "$work/lists"
+xargs grep -HnE '^[[:space:]]*add_library\(' < "$work/lists" | grep -v 'add_library(idr_tracy ' > "$work/plain"
+if [ -s "$work/plain" ]; then
+  say "libraries that are not add_mlir_library:"
+  cat "$work/plain"
+else
+  say "every library is an add_mlir_library"
+fi
+if xargs grep -qE '^[[:space:]]*add_mlir_dialect_library\(IdrIR$' < "$work/lists"; then
+  say "IdrIR is an add_mlir_dialect_library"
+else
+  say "IdrIR is not an add_mlir_dialect_library"
+fi
+
+# The lists of the layout, and no other.
+sed 's|^\./||' "$work/lists" > "$work/found"
+for dir in "" include/idr include/idr/IR include/idr/Transforms lib lib/IR lib/Analysis lib/Transforms lib/Support lib/Target; do
+  printf '%s\n' "$idr${dir:+/$dir}/CMakeLists.txt"
+done | sort > "$work/layout"
+comm -23 "$work/found" "$work/layout" > "$work/extra"
+comm -13 "$work/found" "$work/layout" > "$work/missing"
+if [ -s "$work/extra" ] || [ -s "$work/missing" ]; then
+  say "CMakeLists.txt outside the layout:"
+  sed 's/^/  extra /' "$work/extra"
+  sed 's/^/  missing /' "$work/missing"
+else
+  say "a CMakeLists.txt for each list of the layout, and no other"
+fi
+
+# State: nothing thread_local or std::atomic in a unit (the folders' count
+# is the ODS's), and no static variable that is neither constant nor an
+# option or an action's type identity. A static variable is defined by an
+# `=` or ended by a `;` before any parenthesis; a static function has its
+# parameters first, on its line or the next.
+grep -v '\.cppm$' "$work/units" | xargs grep -HnE '\bthread_local\b|std::atomic\b' > "$work/state" 2> /dev/null
+grep -v '\.cppm$' "$work/units" | xargs grep -HnE '^[[:space:]]*static[[:space:]][^(]*[=;]' 2> /dev/null |
+  grep -vE '\bstatic[[:space:]]+(inline[[:space:]]+)?(const|constexpr|constinit)\b' |
+  grep -vE 'cl::(opt|list)<|SelfOwningTypeID' >> "$work/state"
+if [ -s "$work/state" ]; then
+  say "state that outlives a call:"
+  cat "$work/state"
+else
+  say "no thread_local, static mutable or std::atomic but the three"
+fi

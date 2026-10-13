@@ -1,5 +1,5 @@
 ||| The translation's errors, the user's and the compiler's, and its
-||| locations: an Idris location as a Core one and back.
+||| locations: an Idris location as a Core one.
 module IdrisMLIR.Frontend.Translate.Errors
 
 import Core.Context
@@ -85,16 +85,3 @@ toLoc (MkFC (PhysicalPkgSrc file) (sl, sc) (el, ec)) = pure (MkLoc Generated (sh
 toLoc (MkVirtualFC (PhysicalIdrSrc ident) (sl, sc) (el, ec)) =
   toLoc (MkFC (PhysicalIdrSrc ident) (sl, sc) (el, ec))
 toLoc _ = pure noLoc
-
-||| A Core location as an Idris location, for errors raised after
-||| translation: the module is the one Idris named.
-export
-fromLoc : Loc -> FC
-fromLoc l = case l.origin of
-  Generated => if l.file == "" then EmptyFC else MkFC (PhysicalPkgSrc l.file) start end
-  _ => MkFC (PhysicalIdrSrc (nsAsModuleIdent (mkNamespace (show l.place)))) start end
-  where
-    start : FilePos
-    start = (l.startLine, l.startCol)
-    end : FilePos
-    end = (l.endLine, l.endCol)

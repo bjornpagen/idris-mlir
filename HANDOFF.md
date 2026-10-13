@@ -1,4 +1,4 @@
-# Handoff (2026-10-10)
+# Handoff (2026-10-12)
 
 Two independent agents, each started locally in Claude Code in a clone of
 bjornpagen/idris-mlir at `main`. Paste the prompt under each heading as
@@ -6,16 +6,27 @@ the agent's first message. They touch disjoint things: the first works
 in a separate clone of llvm-project and only updates `upstream/` status
 here; the second owns this repository's toolchain and code.
 
-State, updated 2026-10-10.
+State, updated 2026-10-12.
+
+**The cutover.** Proposal 0015 is committed and unbuilt:
+`foreign/idr` is an in-tree MLIR dialect in upstream's layout (headers
+and .cpp, no C++ module), functions are `idr.func` with their facts as
+inherent attributes, analyses run under the analysis manager, the round
+is upstream's composite pass, the runtime is headers and .cpp, the
+frontend emits no erased value, and compile-time evaluation (`idr-eval`,
+its JIT and its child) is gone. It is checked by `make typecheck` alone,
+which compiles every unit of `foreign/idr` against TableGen's headers
+without stage 2; `make build` and the suites have not run on it. Its
+qualification is the 0015 README's "Qualification".
 
 **Toolchain.** Built on arm64 macOS, pin llvm main 7208ba24, one recipe
-(`tools/bootstrap.sh`, into `.toolchain/llvm`). `make build` passes, and
-the generated `Dialect`/`Syntax` modules match what the generator writes.
-`make check` is 26/26, `test-idr` 269/269, `test-mlir-tools` 17/17. A
-stage-2 rebuild takes about 3 minutes with ccache. Two `make test`
-programs, `programs/prelude/every-interfaces-export` and
-`every-types-export`, compile and then hit their time limits; that run is
-left there. `idr-eval` is not in the simplify round. x86_64 Linux is still unbuilt at this pin (proposal 0001).
+(`tools/bootstrap.sh`, into `.toolchain/llvm`). Before the cutover, on
+2026-10-10, `make build` passed, `make check` was 26/26, `test-idr`
+269/269 and `test-mlir-tools` 17/17, and two `make test` programs,
+`programs/prelude/every-interfaces-export` and `every-types-export`,
+compiled and then hit their time limits. A stage-2 rebuild takes about 3
+minutes with ccache. x86_64 Linux is still unbuilt at this pin (0014's
+gate G1).
 
 **Self-hosting.**
 - **Stage 0 compiles itself (2026-10-10).** The frontend, built by the
@@ -37,9 +48,9 @@ left there. `idr-eval` is not in the simplify round. x86_64 Linux is still unbui
   copy of `compiler/src`. Cap the Chez process's memory when running it by
   hand: a translator bug shows as unbounded growth, not as an error.
 - **`make self` (1ce907d3)** builds stages 1 to 3 and checks that stage 2
-  matches stage 3: the same executable, module and Core. The compile passes
-  `--no-eval`. The new tests' end-to-end runs and FileCheck with the native
-  frontend are after that, and the same on x86_64 Linux has not been run.
+  matches stage 3: the same executable, module and Core. The new tests'
+  end-to-end runs and FileCheck with the native frontend are after that,
+  and the same on x86_64 Linux has not been run.
 - **Then:** the test runner off Chez (orchestration in sh, generators
   compiled by idris-mlir, an `--exports` query instead of the stock
   REPL); `tests/toolchain/static-linking` covering `idris-mlir-front`;
@@ -52,19 +63,21 @@ left there. `idr-eval` is not in the simplify round. x86_64 Linux is still unbui
   replace the regressions among them, are proposal 0004.
 
 **Proposals** (`proposals/README.md`), in the order the work starts:
-- 0001: the Linux bootstrap; two arm64 program tests are set aside;
-- 0002: what its qualification has not run;
-- 0003: static normalization; `idr-eval` is out of the simplify round, and N2 deletes the pass;
-- 0004: the compiler features self-hosting asked for;
-- 0005: a data-oriented, array-first frontend, which owns the term arena;
-- 0006: the type checker, which builds the interpreter;
-- 0007: a typed APL;
-- 0008: flattened data;
-- 0009: shards;
-- 0010: the relational core, shared by the compiler and bumbledb;
-- 0011: a sharded whole-program compiler;
-- 0012: OpenTelemetry;
-- 0013: Rust, off the compiler's critical path.
+- 0015: the cutover that executes 0014's stages C and H, committed;
+- 0014: self-hosting (its stage S, §6.1), behind its gate G1 (its §12):
+  what remained of the Linux bootstrap and of the representation cutover;
+- 0007's stage 1: the purge of today's array stack and its MLIR-first
+  rebuild, as one cutover, right after `make self`;
+- 0009 and 0011: sharding (0009's P1, P2 and P4; 0011's S0, S1, S2 and
+  S8);
+- then the array work: 0007's typed array language, with 0016's array
+  interpreter (static normalization on the type checker's evaluator),
+  0005's tables and 0008's flattened data as its consumers, and 0006's
+  type checker on 0016's machine;
+- 0004: the compiler features self-hosting asked for, once `make self`
+  is green;
+- parked: 0010 (the relational core), 0013 (Rust), 0011's S3 to S6 and
+  S9 to S10, and 0009's P3.
 
 The research behind 0006, 0007 and 0008 is in `sources/`, with reading
 notes in `sources/notes/`. Contiguous runs (one run cell for strings,
@@ -91,8 +104,9 @@ to main.
 
 ## Agent 2: done
 
-Its two phases landed: the trunk cutover (20fcfadb, 1677b8cb) and proposal
-0002 (93f5d9c9, 327c2e30, 0451b1b8). What it left open is now the
-repository's own: the bootstrap and the suites on both targets at the pin
-(`proposals/0001-llvm-trunk.md`), and the rest of 0002's qualification
-(`proposals/0002-representation-cutover/README.md`).
+Its two phases landed: the trunk cutover (20fcfadb, 1677b8cb) and the
+representation cutover (93f5d9c9, 327c2e30, 0451b1b8). What it left open
+is now the repository's own: the bootstrap and the suites on both
+targets at the pin, and the rest of the representation cutover's
+qualification, both in 0014's gate G1
+(`proposals/0014-get-back-on-track.md` §12).

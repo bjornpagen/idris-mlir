@@ -5,14 +5,14 @@
 // CHECK-SAME: %[[X:.*]]: i64
 // CHECK: return %[[X]] : i64
 module attributes {idr.program} {
-  func.func private @pass(%x: !idr.lin<i64>) -> i64 {
+  idr.func private @pass(%x: !idr.lin<i64>) -> i64 {
     %v = idr.lin.use %x : !idr.lin<i64>
     return %v : i64
   }
-  func.func @Prog.main() -> i64 {
+  idr.func @Prog.main() -> i64 {
     %c = arith.constant 7 : i64
     %e = idr.lin.enter %c : !idr.lin<i64>
-    %r = func.call @pass(%e) : (!idr.lin<i64>) -> i64
+    %r = idr.call @pass(%e) : (!idr.lin<i64>) -> i64
     return %r : i64
   }
 }

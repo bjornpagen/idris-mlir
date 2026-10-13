@@ -8,7 +8,7 @@
 // byte the empty string, each with a reference the folder releases.
 // "h\C3\A9llo" is h, U+00E9 in two bytes and llo; "a\F0\9F\98\80b" is a,
 // U+1F600 in four bytes and b.
-// CHECK-LABEL: func.func @offsets(
+// CHECK-LABEL: idr.func @offsets(
 // CHECK-DAG: %[[H:.*]] = arith.constant 104 : i32
 // CHECK-DAG: %[[ACUTE:.*]] = arith.constant 233 : i32
 // CHECK-DAG: %[[NONE:.*]] = arith.constant 0 : i32
@@ -17,16 +17,16 @@
 // CHECK-DAG: %[[AT3:.*]] = arith.constant 3 : i64
 // CHECK-DAG: %[[AT5:.*]] = arith.constant 5 : i64
 // CHECK-DAG: %[[AT6:.*]] = arith.constant 6 : i64
-// CHECK-DAG: %[[ALL:.*]] = idr.constant "h\C3\A9llo" : !idr.str
-// CHECK-DAG: %[[FROM1:.*]] = idr.constant "\C3\A9llo" : !idr.str
-// CHECK-DAG: %[[FROM3:.*]] = idr.constant "llo" : !idr.str
-// CHECK-DAG: %[[EMPTY:.*]] = idr.constant "" : !idr.str
-// CHECK-DAG: %[[SMILE:.*]] = idr.constant "\F0\9F\98\80b" : !idr.str
+// CHECK-DAG: %[[ALL:.*]] = {{(idr\.)?}}constant "h\C3\A9llo" : !idr.str
+// CHECK-DAG: %[[FROM1:.*]] = {{(idr\.)?}}constant "\C3\A9llo" : !idr.str
+// CHECK-DAG: %[[FROM3:.*]] = {{(idr\.)?}}constant "llo" : !idr.str
+// CHECK-DAG: %[[EMPTY:.*]] = {{(idr\.)?}}constant "" : !idr.str
+// CHECK-DAG: %[[SMILE:.*]] = {{(idr\.)?}}constant "\F0\9F\98\80b" : !idr.str
 // CHECK-NOT: idr.str.scalar_at
 // CHECK-NOT: idr.str.scalar_end
 // CHECK-NOT: idr.str.drop_bytes
 // CHECK: return %[[H]], %[[H]], %[[ACUTE]], %[[ACUTE]], %[[NONE]], %[[NONE]], %[[EMOJI]], %[[AT1]], %[[AT1]], %[[AT3]], %[[AT3]], %[[AT6]], %[[AT6]], %[[AT6]], %[[AT5]], %[[ALL]], %[[FROM1]], %[[FROM3]], %[[EMPTY]], %[[EMPTY]], %[[SMILE]] :
-func.func @offsets() -> (i32, i32, i32, i32, i32, i32, i32,
+idr.func @offsets() -> (i32, i32, i32, i32, i32, i32, i32,
                          i64, i64, i64, i64, i64, i64, i64, i64,
                          !idr.str, !idr.str, !idr.str, !idr.str, !idr.str, !idr.str) {
   %s = idr.constant "h\C3\A9llo" : !idr.str

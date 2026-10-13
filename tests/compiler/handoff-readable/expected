@@ -1,0 +1,8 @@
+compile: exit 0
+symbols: no code-point escape, and no name Idris made up for a block
+symbols: a case block is <parent>.case<k>, a with block <parent>.with<k>
+erased: nothing
+ops: no func.func, func.call or func.return
+parse: exit 0
+instances: every idr.func and idr.data names its own
+locations: every op and block argument carries its own

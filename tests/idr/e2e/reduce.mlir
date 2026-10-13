@@ -5,11 +5,11 @@
 // idris-mlir-reduce is mlir-reduce with the idr dialect: it shrinks a module
 // to what keeps a test interesting, here any
 // idr.str.append.
-// CHECK: func.func private @twice
+// CHECK: idr.func private @twice
 // CHECK-NEXT: idr.str.append
 // CHECK-NOT: @fact
 module {
-  func.func private @fact(%n: i64) -> i64 attributes {idr.total} {
+  idr.func private @fact(%n: i64) -> i64 attributes {total} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       %one = arith.constant 1 : i64
@@ -18,14 +18,14 @@ module {
     default {
       %one = arith.constant 1 : i64
       %m = arith.subi %n, %one : i64
-      %f = func.call @fact(%m) : (i64) -> i64
+      %f = idr.call @fact(%m) : (i64) -> i64
       %p = arith.muli %n, %f : i64
       idr.yield %p : i64
     }
     }
     return %r : i64
   }
-  func.func private @twice(%s: !idr.str) -> !idr.str attributes {idr.total} {
+  idr.func private @twice(%s: !idr.str) -> !idr.str attributes {total} {
     %r = idr.str.append %s, %s
     return %r : !idr.str
   }

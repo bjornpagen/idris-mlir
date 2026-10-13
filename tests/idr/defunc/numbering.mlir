@@ -20,45 +20,45 @@
 // CHECK-NEXT: }
 // CHECK-NOT: idr.data @fn$3
 // CHECK-NOT: !idr.fn
-// CHECK-LABEL: func.func private @Main.onlyB() -> !idr.data<@fn$0>
-// CHECK-LABEL: func.func private @Main.neg() -> !idr.data<@fn$1>
-// CHECK-LABEL: func.func private @Main.use(
-// CHECK-SAME: %{{.*}}: !idr.data<@fn$2>
+// CHECK-LABEL: idr.func private @Main.onlyB() -> !fn$0
+// CHECK-LABEL: idr.func private @Main.neg() -> !fn$1
+// CHECK-LABEL: idr.func private @Main.use(
+// CHECK-SAME: %{{.*}}: !fn$2
 module attributes {idr.program} {
-  func.func private @Main.a(%x: i64) -> i64 attributes {idr.total} {
+  idr.func private @Main.a(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64
     %y = arith.addi %x, %c1 : i64
     return %y : i64
   }
-  func.func private @Main.b(%x: i64) -> i64 attributes {idr.total} {
+  idr.func private @Main.b(%x: i64) -> i64 attributes {total} {
     %y = arith.addi %x, %x : i64
     return %y : i64
   }
-  func.func private @Main.zneg(%b: i1) -> i1 attributes {idr.total} {
+  idr.func private @Main.zneg(%b: i1) -> i1 attributes {total} {
     %t = arith.constant true
     %r = arith.xori %b, %t : i1
     return %r : i1
   }
-  func.func private @Main.onlyB() -> !idr.fn<(i64) -> (i64)> attributes {idr.total} {
+  idr.func private @Main.onlyB() -> !idr.fn<(i64) -> (i64)> attributes {total} {
     %f = idr.closure @Main.b() : () -> !idr.fn<(i64) -> (i64)>
     return %f : !idr.fn<(i64) -> (i64)>
   }
-  func.func private @Main.neg() -> !idr.fn<(i1) -> (i1)> attributes {idr.total} {
+  idr.func private @Main.neg() -> !idr.fn<(i1) -> (i1)> attributes {total} {
     %f = idr.closure @Main.zneg() : () -> !idr.fn<(i1) -> (i1)>
     return %f : !idr.fn<(i1) -> (i1)>
   }
-  func.func private @Main.use(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 attributes {idr.total} {
+  idr.func private @Main.use(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 attributes {total} {
     %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
     return %y : i64
   }
-  func.func @Main.main(%w: !idr.world) -> !idr.world {
+  idr.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_byte %w
     %n = arith.extui %c : i32 to i64
-    %fb = func.call @Main.onlyB() : () -> !idr.fn<(i64) -> (i64)>
+    %fb = idr.call @Main.onlyB() : () -> !idr.fn<(i64) -> (i64)>
     %fa = idr.closure @Main.a() : () -> !idr.fn<(i64) -> (i64)>
-    %r1 = func.call @Main.use(%fa, %n) : (!idr.fn<(i64) -> (i64)>, i64) -> i64
-    %r2 = func.call @Main.use(%fb, %n) : (!idr.fn<(i64) -> (i64)>, i64) -> i64
-    %g = func.call @Main.neg() : () -> !idr.fn<(i1) -> (i1)>
+    %r1 = idr.call @Main.use(%fa, %n) : (!idr.fn<(i64) -> (i64)>, i64) -> i64
+    %r2 = idr.call @Main.use(%fb, %n) : (!idr.fn<(i64) -> (i64)>, i64) -> i64
+    %g = idr.call @Main.neg() : () -> !idr.fn<(i1) -> (i1)>
     %e = arith.cmpi eq, %r1, %r2 : i64
     %ne = idr.apply %g(%e) : !idr.fn<(i1) -> (i1)>
     %x = arith.extui %ne : i1 to i64

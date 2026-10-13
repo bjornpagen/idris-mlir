@@ -1,0 +1,9 @@
+// input: emitted
+// name and next split on every constructor of Colour, so neither match
+// has a default region. Only name is labelled, so the check does not
+// depend on the order Emit writes the functions in; next is the same
+// split.
+// CHECK-LABEL: idr.func private @Main.name(
+// CHECK: match
+// CHECK-NOT: default
+// CHECK: } loc("Main.name"(

@@ -12,7 +12,7 @@ module attributes {idr.program} {
     idr.ctor @L ()
     idr.ctor @N (!idr.box<@T>, i64, !idr.box<@T>)
   }
-  func.func private @ins(%t: !idr.box<@T>, %k: i64) -> !idr.box<@T> {
+  idr.func private @ins(%t: !idr.box<@T>, %k: i64) -> !idr.box<@T> {
     %leaf = idr.constant #idr.con<@T::@L, []> : !idr.box<@T>
     %r = idr.match %t : !idr.box<@T> -> (!idr.box<@T>) {
     case @L() {
@@ -22,12 +22,12 @@ module attributes {idr.program} {
     case @N(%l: !idr.box<@T>, %x: i64, %rt: !idr.box<@T>) {
       %s = idr.match %rt : !idr.box<@T> -> (!idr.box<@T>) {
       case @L() {
-        %r2 = func.call @ins(%rt, %k) : (!idr.box<@T>, i64) -> !idr.box<@T>
+        %r2 = idr.call @ins(%rt, %k) : (!idr.box<@T>, i64) -> !idr.box<@T>
         %n = idr.con @T::@N(%l, %x, %r2) : (!idr.box<@T>, i64, !idr.box<@T>) -> !idr.box<@T>
         idr.yield %n : !idr.box<@T>
       }
       case @N(%a: !idr.box<@T>, %y: i64, %b: !idr.box<@T>) {
-        %r2 = func.call @ins(%rt, %k) : (!idr.box<@T>, i64) -> !idr.box<@T>
+        %r2 = idr.call @ins(%rt, %k) : (!idr.box<@T>, i64) -> !idr.box<@T>
         %n = idr.con @T::@N(%r2, %y, %l) : (!idr.box<@T>, i64, !idr.box<@T>) -> !idr.box<@T>
         idr.yield %n : !idr.box<@T>
       }
@@ -37,12 +37,12 @@ module attributes {idr.program} {
     }
     return %r : !idr.box<@T>
   }
-  func.func @root(%w: !idr.world) -> !idr.world {
+  idr.func @root(%w: !idr.world) -> !idr.world {
     %leaf = idr.constant #idr.con<@T::@L, []> : !idr.box<@T>
     %c1 = arith.constant 1 : i64
     %c2 = arith.constant 2 : i64
-    %t1 = func.call @ins(%leaf, %c1) : (!idr.box<@T>, i64) -> !idr.box<@T>
-    %t2 = func.call @ins(%t1, %c2) : (!idr.box<@T>, i64) -> !idr.box<@T>
+    %t1 = idr.call @ins(%leaf, %c1) : (!idr.box<@T>, i64) -> !idr.box<@T>
+    %t2 = idr.call @ins(%t1, %c2) : (!idr.box<@T>, i64) -> !idr.box<@T>
     %s = idr.match %t2 : !idr.box<@T> -> (i64) {
     case @L() {
       idr.yield %c1 : i64

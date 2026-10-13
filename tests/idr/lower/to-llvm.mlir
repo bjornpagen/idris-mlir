@@ -12,20 +12,20 @@ module attributes {idr.program} {
     idr.ctor @running ()
     idr.ctor @forced (i64)
   }
-  func.func private @add(%k: i64, %x: i64) -> i64 attributes {idr.total} {
+  idr.func private @add(%k: i64, %x: i64) -> i64 attributes {total} {
     %r = arith.addi %k, %x : i64
     return %r : i64
   }
-  func.func private @run(%t: !idr.box<@lazy$0>) -> i64 {
+  idr.func private @run(%t: !idr.box<@lazy$0>) -> i64 {
     %r = idr.force %t : !idr.box<@lazy$0> -> i64
     return %r : i64
   }
-  func.func @Prog.main() -> i64 {
+  idr.func @Prog.main() -> i64 {
     %c = idr.constant #idr.con<@lazy$0::@add, [40, 2]> : !idr.box<@lazy$0>
     %two = arith.constant 2 : i64
     %d = idr.con @lazy$0::@add(%two, %two) : (i64, i64) -> !idr.box<@lazy$0>
-    %r = func.call @run(%c) : (!idr.box<@lazy$0>) -> i64
-    %s = func.call @run(%d) : (!idr.box<@lazy$0>) -> i64
+    %r = idr.call @run(%c) : (!idr.box<@lazy$0>) -> i64
+    %s = idr.call @run(%d) : (!idr.box<@lazy$0>) -> i64
     %t = arith.addi %r, %s : i64
     return %t : i64
   }

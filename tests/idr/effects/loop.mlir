@@ -2,10 +2,10 @@
 // idr.may_loop keeps a loop that may not terminate, even when its
 // results are unused; an effect-free loop without it is dead code.
 
-// CHECK-LABEL: func.func @kept(
+// CHECK-LABEL: idr.func @kept(
 // CHECK: scf.while
-// CHECK: idr.may_loop
-func.func @kept(%n: i64) {
+// CHECK: may_loop
+idr.func @kept(%n: i64) {
   %r = scf.while (%i = %n) : (i64) -> i64 {
     idr.may_loop
     %c = arith.constant 0 : i64
@@ -18,9 +18,9 @@ func.func @kept(%n: i64) {
   return
 }
 
-// CHECK-LABEL: func.func @removed(
+// CHECK-LABEL: idr.func @removed(
 // CHECK-NEXT: return
-func.func @removed(%n: i64) {
+idr.func @removed(%n: i64) {
   %r = scf.while (%i = %n) : (i64) -> i64 {
     %c = arith.constant 0 : i64
     %go = arith.cmpi ne, %i, %c : i64

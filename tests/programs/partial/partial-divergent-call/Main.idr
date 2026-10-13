@@ -1,7 +1,7 @@
 module Main
 
 -- A closed call of a partial function that never ends: `spin 0`.
--- idr-eval is not in the simplify round, so the call stays and runs at
+-- A closed call runs at run time, so the call stays and runs at
 -- run time, and only on the input 9, which this test does not give. The
 -- closed call of collatz stays and runs too.
 

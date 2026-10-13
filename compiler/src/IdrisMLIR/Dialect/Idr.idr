@@ -6,6 +6,9 @@ module IdrisMLIR.Dialect.Idr
 import IdrisMLIR.MLIR
 import IdrisMLIR.Syntax.Idr
 
+import Data.List
+import Data.Maybe
+
 %default total
 
 ------------------------------------------------------------------------------
@@ -29,35 +32,10 @@ export
 programDiscardable : NamedAttr
 programDiscardable = ("idr.program", UnitAttr)
 
-||| The discardable attribute `idr.total`.
-export
-totalDiscardable : NamedAttr
-totalDiscardable = ("idr.total", UnitAttr)
-
-||| The discardable attribute `idr.break_last`.
-export
-breakLastDiscardable : NamedAttr
-breakLastDiscardable = ("idr.break_last", UnitAttr)
-
-||| The discardable attribute `idr.effects`.
-export
-effectsDiscardable : MlirAttr -> NamedAttr
-effectsDiscardable a = ("idr.effects", a)
-
 ||| The discardable attribute `idr.stack`.
 export
 stackDiscardable : NamedAttr
 stackDiscardable = ("idr.stack", UnitAttr)
-
-||| The discardable attribute `idr.clone`.
-export
-cloneDiscardable : MlirAttr -> NamedAttr
-cloneDiscardable a = ("idr.clone", a)
-
-||| The discardable attribute `idr.hole`.
-export
-holeDiscardable : MlirAttr -> NamedAttr
-holeDiscardable a = ("idr.hole", a)
 
 ------------------------------------------------------------------------------
 -- Ops
@@ -225,6 +203,12 @@ borrowOp : (value : Value) -> (result : MlirType) -> Op
 borrowOp value result =
   MkOp "idr.borrow" [value] [] [] [] [result]
 
+||| `idr.call`: a call of a function by name
+export
+callOp : {default Nothing argAttrs : Maybe (List MlirAttr)} -> {default Nothing resAttrs : Maybe (List MlirAttr)} -> {default Nothing effects : Maybe MlirAttr} -> (callee : String) -> (args : List Value) -> (results : List MlirType) -> Op
+callOp callee args results =
+  MkOp "idr.call" args ([("callee", SymbolRefAttr (MkSymbolRef callee []))] ++ attrIf "arg_attrs" ArrayAttr argAttrs ++ attrIf "res_attrs" ArrayAttr resAttrs ++ attrIf "effects" id effects) [] [] results
+
 ||| `idr.check.byte`: the value, which must be from 0 to 255, else the program crashes
 export
 checkByteOp : (value : Value) -> (cause : String) -> (checked : MlirType) -> Op
@@ -273,7 +257,7 @@ conOp : (ctor : SymbolRef) -> (fields : List Value) -> (result : MlirType) -> Op
 conOp ctor fields result =
   MkOp "idr.con" fields [("ctor", SymbolRefAttr ctor)] [] [] [result]
 
-||| `idr.constant`: a constant: a constructor, closure, string, big or the erased value
+||| `idr.constant`: a constant: a constructor, closure, string or big
 export
 constantOp : (value : MlirAttr) -> (result : MlirType) -> Op
 constantOp value result =
@@ -299,9 +283,9 @@ ctorOp symName fieldTypes =
 
 ||| `idr.data`: declares a monomorphic data type, unboxed or boxed
 export
-dataOp : {default False box : Bool} -> {default False closures : Bool} -> {default False memo : Bool} -> {default Nothing labels : Maybe (List MlirAttr)} -> (symName : String) -> (body : Region) -> Op
+dataOp : {default False box : Bool} -> {default False closures : Bool} -> {default False memo : Bool} -> {default Nothing labels : Maybe (List MlirAttr)} -> {default Nothing instance : Maybe MlirAttr} -> (symName : String) -> (body : Region) -> Op
 dataOp symName body =
-  MkOp "idr.data" [] ([("sym_name", StringAttr symName)] ++ unitIf "box" box ++ unitIf "closures" closures ++ unitIf "memo" memo ++ attrIf "labels" ArrayAttr labels) [body] [] []
+  MkOp "idr.data" [] ([("sym_name", StringAttr symName)] ++ unitIf "box" box ++ unitIf "closures" closures ++ unitIf "memo" memo ++ attrIf "labels" ArrayAttr labels ++ attrIf "instance" id instance) [body] [] []
 
 ||| `idr.delay`: a suspension whose body is its region; its captures are the values it uses from above
 export
@@ -362,6 +346,12 @@ export
 forceOp : (suspension : Value) -> (result : MlirType) -> Op
 forceOp suspension result =
   MkOp "idr.force" [suspension] [] [] [] [result]
+
+||| `idr.func`: a function of the program, with the facts known of it
+export
+funcOp : {default Nothing symVisibility : Maybe String} -> {default Nothing argAttrs : Maybe (List MlirAttr)} -> {default Nothing resAttrs : Maybe (List MlirAttr)} -> {default False total' : Bool} -> {default False breakLast : Bool} -> {default False noInline : Bool} -> {default Nothing effects : Maybe MlirAttr} -> {default Nothing instance : Maybe MlirAttr} -> {default Nothing clone : Maybe MlirAttr} -> (symName : String) -> (functionType : MlirType) -> (body : Region) -> Op
+funcOp symName functionType body =
+  MkOp "idr.func" [] ([("sym_name", StringAttr symName), ("function_type", TypeAttr functionType)] ++ attrIf "sym_visibility" StringAttr symVisibility ++ attrIf "arg_attrs" ArrayAttr argAttrs ++ attrIf "res_attrs" ArrayAttr resAttrs ++ unitIf "total" total' ++ unitIf "break_last" breakLast ++ unitIf "no_inline" noInline ++ attrIf "effects" id effects ++ attrIf "instance" id instance ++ attrIf "clone" id clone) [body] [] []
 
 ||| `idr.handle.is_null`: 1 when a handle is null, else 0
 export
@@ -879,6 +869,12 @@ osOp : (result : MlirType) -> Op
 osOp result =
   MkOp "idr.os" [] [] [] [] [result]
 
+||| `idr.return`: returns from a function
+export
+returnOp : (operands : List Value) -> Op
+returnOp operands =
+  MkOp "idr.return" operands [] [] [] []
+
 ||| `idr.reuse`: builds a boxed constructor in a token's cell, or in a new one when it is null
 export
 reuseOp : (token : Value) -> (ctor : SymbolRef) -> (fields : List Value) -> (result : MlirType) -> Op
@@ -1064,6 +1060,596 @@ export
 yieldOp : (results : List Value) -> Op
 yieldOp results =
   MkOp "idr.yield" results [] [] [] []
+
+------------------------------------------------------------------------------
+-- Printer
+------------------------------------------------------------------------------
+
+-- An attribute an op's syntax writes without its type, which the parser
+-- is given and does not read.
+covering
+bare : MlirAttr -> String
+bare (IntegerAttr n _) = show n
+bare (FloatAttr d _) = floatLiteral d
+bare a = attrText a
+
+-- The name of the symbol an op declares, as a reference to it writes it.
+covering
+symbolName : MlirAttr -> String
+symbolName (StringAttr s) = symbol s
+symbolName a = attrText a
+
+-- The keyword the printer writes for a CmpPredicate.
+covering
+cmpPredicateKeyword : MlirAttr -> String
+cmpPredicateKeyword (IntegerAttr 0 _) = "eq"
+cmpPredicateKeyword (IntegerAttr 1 _) = "lt"
+cmpPredicateKeyword (IntegerAttr 2 _) = "lte"
+cmpPredicateKeyword (IntegerAttr 3 _) = "gt"
+cmpPredicateKeyword (IntegerAttr 4 _) = "gte"
+cmpPredicateKeyword a = attrText a
+
+||| An op of the idr dialect in the declarative syntax its ODS
+||| gives, up to its regions: its full name and its syntax, which puts the
+||| regions last, for the caller to write after it. Nothing for an op
+||| written in the generic form: one whose syntax this printer does not
+||| write (each is named below, with the reason), one of another dialect,
+||| and one whose operands, results, regions or attributes are not what its
+||| ODS lets it have, which the generic form carries to the verifier.
+export covering
+printOp : Op -> Maybe String
+printOp (MkOp "idr.array.get" (o0 :: orest) props [] attrs [r0, r1]) = do
+  let (o1, otail) = splitAt (minus (length orest) 1) orest
+  [o2] <- pure otail | _ => Nothing
+  guard (null props)
+  pure (fastConcat ["idr.array.get ", o0.name, "[", commaSeparated (map (.name) o1), "], ", o2.name, dictionary "{" "}" attrs, " : ", typeText o0.type, " -> ", typeText r0])
+
+printOp (MkOp "idr.array.new" orest props [] attrs [r0, r1]) = do
+  let (o0, otail) = splitAt (minus (length orest) 2) orest
+  [o1, o2] <- pure otail | _ => Nothing
+  guard (null props)
+  pure (fastConcat ["idr.array.new [", commaSeparated (map (.name) o0), "], ", o1.name, ", ", o2.name, dictionary "{" "}" attrs, " : ", typeText o1.type, " -> ", typeText r0])
+
+printOp (MkOp "idr.array.set" (o0 :: orest) props [] attrs [r0]) = do
+  let (o1, otail) = splitAt (minus (length orest) 2) orest
+  [o2, o3] <- pure otail | _ => Nothing
+  guard (null props)
+  pure (fastConcat ["idr.array.set ", o0.name, "[", commaSeparated (map (.name) o1), "], ", o2.name, ", ", o3.name, dictionary "{" "}" attrs, " : ", typeText o0.type, ", ", typeText o2.type])
+
+printOp (MkOp "idr.big.small" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.big.small ", o0.name, dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "idr.big.to_double" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.big.to_double ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.borrow" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.borrow ", o0.name, dictionary "{" "}" attrs, " : ", typeText o0.type])
+
+printOp (MkOp "idr.call" o0 props [] attrs r0) = do
+  guard (all (\p => elem (fst p) ["callee", "arg_attrs", "res_attrs", "effects"]) props)
+  a0 <- lookup "callee" props
+  pure (fastConcat ["idr.call ", bare a0, "(", commaSeparated (map (.name) o0), ")", maybe "" (\a1 => fastConcat [" arg_attrs = ", bare a1]) (lookup "arg_attrs" props), maybe "" (\a2 => fastConcat [" res_attrs = ", bare a2]) (lookup "res_attrs" props), maybe "" (\a3 => fastConcat [" effects = ", attrText a3]) (lookup "effects" props), dictionary "{" "}" attrs, " : ", signature typeText (MkSignature (map (.type) o0) (r0))])
+
+printOp (MkOp "idr.check.byte" [o0] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["cause"]) props)
+  a0 <- lookup "cause" props
+  pure (fastConcat ["idr.check.byte ", o0.name, ", ", bare a0, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.check.finite" [o0] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["cause"]) props)
+  a0 <- lookup "cause" props
+  pure (fastConcat ["idr.check.finite ", o0.name, ", ", bare a0, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.check.in_bounds" [o0, o1] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["cause"]) props)
+  a0 <- lookup "cause" props
+  pure (fastConcat ["idr.check.in_bounds ", o0.name, ", ", o1.name, ", ", bare a0, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.check.nonempty" [o0] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["cause"]) props)
+  a0 <- lookup "cause" props
+  pure (fastConcat ["idr.check.nonempty ", o0.name, ", ", bare a0, dictionary "{" "}" attrs, " : ", typeText o0.type])
+
+printOp (MkOp "idr.check.nonzero" [o0] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["cause"]) props)
+  a0 <- lookup "cause" props
+  pure (fastConcat ["idr.check.nonzero ", o0.name, ", ", bare a0, dictionary "{" "}" attrs, " : ", typeText o0.type])
+
+printOp (MkOp "idr.check.range" [o0, o1, o2] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["cause"]) props)
+  a0 <- lookup "cause" props
+  pure (fastConcat ["idr.check.range ", o0.name, ", ", o1.name, ", ", o2.name, ", ", bare a0, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.closure" o0 props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["callee"]) props)
+  a0 <- lookup "callee" props
+  pure (fastConcat ["idr.closure ", bare a0, "(", commaSeparated (map (.name) o0), ")", dictionary "{" "}" attrs, " : ", signature typeText (MkSignature (map (.type) o0) ([r0]))])
+
+printOp (MkOp "idr.con" o0 props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["ctor"]) props)
+  a0 <- lookup "ctor" props
+  pure (fastConcat ["idr.con ", bare a0, "(", commaSeparated (map (.name) o0), ")", dictionary "{" "}" attrs, " : ", signature typeText (MkSignature (map (.type) o0) ([r0]))])
+
+printOp (MkOp "idr.crash" [] props [] attrs []) = do
+  guard (all (\p => elem (fst p) ["message"]) props)
+  a0 <- lookup "message" props
+  pure (fastConcat ["idr.crash ", bare a0, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.crash_str" [o0] props [] attrs []) = do
+  guard (null props)
+  pure (fastConcat ["idr.crash_str ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.data" [] props [_] attrs []) = do
+  guard (all (\p => elem (fst p) ["sym_name", "box", "closures", "memo", "labels", "instance"]) props)
+  a0 <- lookup "sym_name" props
+  pure (fastConcat ["idr.data ", symbolName a0, (if isJust (lookup "box" props) then " box" else ""), (if isJust (lookup "closures" props) then " closures" else ""), (if isJust (lookup "memo" props) then " memo" else ""), maybe "" (\a1 => fastConcat [" labels ", bare a1]) (lookup "labels" props), maybe "" (\a2 => fastConcat [" instance ", attrText a2]) (lookup "instance" props), dictionary "attributes {" "}" attrs])
+
+printOp (MkOp "idr.delay" [] props [_] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.delay", dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "idr.dest.of" [o0] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["ctor", "index"]) props)
+  a0 <- lookup "ctor" props
+  a1 <- lookup "index" props
+  pure (fastConcat ["idr.dest.of ", o0.name, "[", bare a0, ", ", bare a1, "]", dictionary "{" "}" attrs, " : ", typeText o0.type, " -> ", typeText r0])
+
+printOp (MkOp "idr.dest.pending" [] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.dest.pending", dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "idr.dest.write" [o0, o1] props [] attrs []) = do
+  guard (null props)
+  pure (fastConcat ["idr.dest.write ", o0.name, ", ", o1.name, dictionary "{" "}" attrs, " : ", typeText o0.type, ", ", typeText o1.type])
+
+printOp (MkOp "idr.double_head" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.double_head ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.drop" [o0] props [] attrs []) = do
+  guard (null props)
+  pure (fastConcat ["idr.drop ", o0.name, dictionary "{" "}" attrs, " : ", typeText o0.type])
+
+printOp (MkOp "idr.field" [o0] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["ctor", "index"]) props)
+  a0 <- lookup "ctor" props
+  a1 <- lookup "index" props
+  pure (fastConcat ["idr.field ", o0.name, "[", bare a0, ", ", bare a1, "]", dictionary "{" "}" attrs, " : ", typeText o0.type, " -> ", typeText r0])
+
+printOp (MkOp "idr.force" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.force ", o0.name, dictionary "{" "}" attrs, " : ", typeText o0.type, " -> ", typeText r0])
+
+printOp (MkOp "idr.handle.is_null" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.handle.is_null ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.arg_count" [o0] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.arg_count ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.buffer_copy" [o0, o1, o2, o3, o4, o5] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.buffer_copy ", o0.name, "[", o1.name, ", ", o2.name, "], ", o3.name, "[", o4.name, "], ", o5.name, dictionary "{" "}" attrs, " : ", typeText o0.type, ", ", typeText o3.type])
+
+printOp (MkOp "idr.io.buffer_load" [o0, o1, o2] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.buffer_load ", o0.name, "[", o1.name, "], ", o2.name, dictionary "{" "}" attrs, " : ", typeText o0.type, " -> ", typeText r0])
+
+printOp (MkOp "idr.io.buffer_set_string" [o0, o1, o2, o3] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.buffer_set_string ", o0.name, "[", o1.name, "], ", o2.name, ", ", o3.name, dictionary "{" "}" attrs, " : ", typeText o0.type])
+
+printOp (MkOp "idr.io.buffer_store" [o0, o1, o2, o3] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.buffer_store ", o0.name, "[", o1.name, "], ", o2.name, ", ", o3.name, dictionary "{" "}" attrs, " : ", typeText o0.type, ", ", typeText o2.type])
+
+printOp (MkOp "idr.io.clock_gc_cpu" [o0] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.clock_gc_cpu ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.clock_gc_real" [o0] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.clock_gc_real ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.clock_monotonic" [o0] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.clock_monotonic ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.clock_nanosecond" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.clock_nanosecond ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.clock_process" [o0] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.clock_process ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.clock_second" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.clock_second ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.clock_thread" [o0] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.clock_thread ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.clock_utc" [o0] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.clock_utc ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.clock_valid" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.clock_valid ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.dir_change" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.dir_change ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.dir_close" [o0, o1] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.dir_close ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.dir_create" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.dir_create ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.dir_current" [o0] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.dir_current ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.dir_entry" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.dir_entry ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.dir_open" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.dir_open ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.dir_remove" [o0, o1] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.dir_remove ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.env_get" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.env_get ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.env_pair" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.env_pair ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.env_set" [o0, o1, o2, o3] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.env_set ", o0.name, ", ", o1.name, ", ", o2.name, ", ", o3.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.env_unset" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.env_unset ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.eof" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.eof ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.errno" [o0] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.errno ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.exit" [o0, o1] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.exit ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.file_atime_nsec" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.file_atime_nsec ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.file_atime_sec" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.file_atime_sec ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.file_chmod" [o0, o1, o2] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.file_chmod ", o0.name, ", ", o1.name, ", ", o2.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.file_close" [o0, o1] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.file_close ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.file_ctime_nsec" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.file_ctime_nsec ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.file_ctime_sec" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.file_ctime_sec ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.file_errno" [o0] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.file_errno ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.file_error" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.file_error ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.file_flush" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.file_flush ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.file_is_tty" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.file_is_tty ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.file_mtime_nsec" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.file_mtime_nsec ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.file_mtime_sec" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.file_mtime_sec ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.file_open" [o0, o1, o2] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.file_open ", o0.name, ", ", o1.name, ", ", o2.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.file_poll" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.file_poll ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.file_read_char" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.file_read_char ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.file_read_chars" [o0, o1, o2] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.file_read_chars ", o0.name, ", ", o1.name, ", ", o2.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.file_read_line" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.file_read_line ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.file_remove" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.file_remove ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.file_seek_line" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.file_seek_line ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.file_size" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.file_size ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.file_time" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.file_time ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.file_write_line" [o0, o1, o2] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.file_write_line ", o0.name, ", ", o1.name, ", ", o2.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.get_byte" [o0] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.get_byte ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.handle_free" [o0, o1] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.handle_free ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.n_processors" [o0] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.n_processors ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.pid" [o0] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.pid ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.put_char" [o0, o1] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.put_char ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.put_double" [o0, o1] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.put_double ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.put_list" [o0, o1] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.put_list ", o0.name, ", ", o1.name, dictionary "{" "}" attrs, " : ", typeText o0.type])
+
+printOp (MkOp "idr.io.put_str" [o0, o1] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.put_str ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.read_bytes" [o0, o1, o2, o3, o4] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.read_bytes ", o0.name, ", ", o1.name, "[", o2.name, ", ", o3.name, "], ", o4.name, dictionary "{" "}" attrs, " : ", typeText o1.type])
+
+printOp (MkOp "idr.io.sleep" [o0, o1] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.sleep ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.term_cols" [o0] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.term_cols ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.term_lines" [o0] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.term_lines ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.term_raw" [o0] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.term_raw ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.term_reset" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.term_reset ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.term_setup" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.term_setup ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.time" [o0] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.time ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.usleep" [o0, o1] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.usleep ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.io.write_bytes" [o0, o1, o2, o3, o4] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["idr.io.write_bytes ", o0.name, ", ", o1.name, "[", o2.name, ", ", o3.name, "], ", o4.name, dictionary "{" "}" attrs, " : ", typeText o1.type])
+
+printOp (MkOp "idr.lambda" [] props [_] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.lambda", dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "idr.lin.enter" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.lin.enter ", o0.name, dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "idr.lin.use" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.lin.use ", o0.name, dictionary "{" "}" attrs, " : ", typeText o0.type])
+
+printOp (MkOp "idr.may_loop" [] props [] attrs []) = do
+  guard (null props)
+  pure (fastConcat ["idr.may_loop", dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.return" o0 props [] attrs []) = do
+  guard (null props)
+  pure (fastConcat ["idr.return", dictionary "{" "}" attrs, (if not (null o0) then fastConcat [(if null o0 then "" else " " ++ commaSeparated (map (.name) o0)), " :", (if null (map (.type) o0) then "" else " " ++ commaSeparated (map typeText (map (.type) o0)))] else "")])
+
+printOp (MkOp "idr.reuse" os props [] attrs [r0]) = do
+  (o0 :: o1) <- pure os | _ => Nothing
+  guard (all (\p => elem (fst p) ["ctor"]) props)
+  a0 <- lookup "ctor" props
+  pure (fastConcat ["idr.reuse ", o0.name, " ", bare a0, "(", commaSeparated (map (.name) o1), ")", dictionary "{" "}" attrs, " : ", signature typeText (MkSignature (map (.type) os) ([r0]))])
+
+printOp (MkOp "idr.share" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.share ", o0.name, dictionary "{" "}" attrs, " : ", typeText o0.type])
+
+printOp (MkOp "idr.str.bytes_length" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.str.bytes_length ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.str.cmp" [o0, o1] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["predicate"]) props)
+  a0 <- lookup "predicate" props
+  pure (fastConcat ["idr.str.cmp ", cmpPredicateKeyword a0, " ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.str.concat" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.str.concat ", o0.name, dictionary "{" "}" attrs, " : ", typeText o0.type, " -> ", typeText r0])
+
+printOp (MkOp "idr.str.head" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.str.head ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.str.index" [o0, o1] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.str.index ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.str.length" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.str.length ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.str.pack" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.str.pack ", o0.name, dictionary "{" "}" attrs, " : ", typeText o0.type, " -> ", typeText r0])
+
+printOp (MkOp "idr.str.scalar_at" [o0, o1] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.str.scalar_at ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.str.scalar_end" [o0, o1] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.str.scalar_end ", o0.name, ", ", o1.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.str.to_double" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.str.to_double ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.suspend" o0 props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["callee"]) props)
+  a0 <- lookup "callee" props
+  pure (fastConcat ["idr.suspend ", bare a0, "(", commaSeparated (map (.name) o0), ")", dictionary "{" "}" attrs, " : ", signature typeText (MkSignature (map (.type) o0) ([r0]))])
+
+printOp (MkOp "idr.tag" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.tag ", o0.name, dictionary "{" "}" attrs, " : ", typeText o0.type])
+
+printOp (MkOp "idr.to_byte" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.to_byte ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.to_int" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.to_int ", o0.name, dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "idr.world.new" [] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.world.new", dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.yield" o0 props [] attrs []) = do
+  guard (null props)
+  pure (fastConcat ["idr.yield", dictionary "{" "}" attrs, (if not (null o0) then fastConcat [(if null o0 then "" else " " ++ commaSeparated (map (.name) o0)), " :", (if null (map (.type) o0) then "" else " " ++ commaSeparated (map typeText (map (.type) o0)))] else "")])
+
+printOp _ = Nothing
+
+-- Written in the generic form:
+-- op idr.apply: its syntax has the directive `oilist`
+-- op idr.array.fold: its syntax is C++
+-- op idr.array.generate: its syntax is C++
+-- op idr.big.add: its syntax has the directive `custom`
+-- op idr.big.and: its syntax has the directive `custom`
+-- op idr.big.cmp: its syntax has the directive `custom`
+-- op idr.big.div: its syntax has the directive `custom`
+-- op idr.big.from_double: its syntax has the directive `custom`
+-- op idr.big.from_int: its syntax has the directive `custom`
+-- op idr.big.from_str: its syntax has the directive `custom`
+-- op idr.big.mod: its syntax has the directive `custom`
+-- op idr.big.mul: its syntax has the directive `custom`
+-- op idr.big.neg: its syntax has the directive `custom`
+-- op idr.big.or: its syntax has the directive `custom`
+-- op idr.big.pred: its syntax has the directive `custom`
+-- op idr.big.shl: its syntax has the directive `custom`
+-- op idr.big.show: its syntax has the directive `custom`
+-- op idr.big.shr: its syntax has the directive `custom`
+-- op idr.big.sub: its syntax has the directive `custom`
+-- op idr.big.to_int: its syntax has the directive `custom`
+-- op idr.big.xor: its syntax has the directive `custom`
+-- op idr.constant: its syntax is C++
+-- op idr.ctor: its syntax has the directive `custom`
+-- op idr.div: its syntax has the directive `custom`
+-- op idr.dup: its syntax has the directive `custom`
+-- op idr.func: its syntax is C++
+-- op idr.handle.string: its syntax has the directive `custom`
+-- op idr.int_head: its syntax has the directive `custom`
+-- op idr.io.arg: its syntax has the directive `custom`
+-- op idr.io.buffer_get_string: its syntax has the directive `custom`
+-- op idr.io.get_line: its syntax has the directive `custom`
+-- op idr.io.put_int: its syntax has the directive `custom`
+-- op idr.io.strerror: its syntax has the directive `custom`
+-- op idr.match: its syntax is C++
+-- op idr.match_lit: its syntax is C++
+-- op idr.mod: its syntax has the directive `custom`
+-- op idr.nat.from_big: its syntax has the directive `custom`
+-- op idr.nat.to_big: its syntax has the directive `custom`
+-- op idr.os: its syntax has the directive `custom`
+-- op idr.shl: its syntax has the directive `custom`
+-- op idr.shr: its syntax has the directive `custom`
+-- op idr.str.append: its syntax has the directive `custom`
+-- op idr.str.cons: its syntax has the directive `custom`
+-- op idr.str.drop_bytes: its syntax has the directive `custom`
+-- op idr.str.from_char: its syntax has the directive `custom`
+-- op idr.str.reverse: its syntax has the directive `custom`
+-- op idr.str.show: its syntax has the directive `custom`
+-- op idr.str.substr: its syntax has the directive `custom`
+-- op idr.str.tail: its syntax has the directive `custom`
+-- op idr.str.to_int: its syntax has the directive `custom`
+-- op idr.take: its syntax has the directive `custom`
+-- op idr.to_char: its syntax has the directive `custom`
 
 ------------------------------------------------------------------------------
 -- Primitives
@@ -1456,4 +2042,4 @@ regionOp : IdrRegionPrim -> List Value -> Region -> List MlirType -> Op
 regionOp ArrayGenerate operands body results = MkOp "idr.array.generate" operands [] [body] [] results
 regionOp ArrayFold operands body results = MkOp "idr.array.fold" operands [] [body] [] results
 
--- fingerprint: 276652151-1107546 720766095-62095
+-- fingerprint: 4119024400-1169662 1571912246-92710

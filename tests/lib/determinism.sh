@@ -61,10 +61,14 @@ determinism() {
 # determinism_threads FIXTURE: the fixture's contract module through
 # idris-mlir-opt's idr-pipeline under one thread and under MLIR's pool, and
 # under the pool again: the same module, byte for byte with its locations,
-# and the same statistics. With threading on, MLIR hands a nested
+# the same statistics, and the same remarks of the function passes that
+# emit them (idr-vectorize and idr-narrow-lanes, through the diagnostic
+# engine, which orders what a pass says of each function by the function,
+# whichever thread ran it). With threading on, MLIR hands a nested
 # pipeline's work to the pool's threads even when the pool has one, so
-# per-thread state shows on any host. idr-eval forks under the pool too; it
-# runs on the module, so no worker is busy when it does.
+# per-thread state shows on any host. The remarks print as they are
+# emitted and the statistics when the pipeline ends, after its last remark,
+# from the report's first `===` line on.
 determinism_threads() {
   mkdir "$work/det"
   copy_fixture "$1" "$work/det"
@@ -85,12 +89,16 @@ determinism_threads() {
     [ "$det_run" = one ] && det_flags=--mlir-disable-threading
     # shellcheck disable=SC2086 # empty or one flag
     if ! bounded "$idris_mlir_opt" $det_flags --mlir-print-debuginfo --mlir-pass-statistics \
-        --mlir-pass-statistics-display=list --idr-target --idr-pipeline "$det_input" \
-        -o "$work/$det_run.mlir" 2> "$work/$det_run.stats"; then
+        --mlir-pass-statistics-display=list --remarks-filter=idr-vectorize,idr-narrow-lanes \
+        --idr-target --idr-pipeline "$det_input" \
+        -o "$work/$det_run.mlir" 2> "$work/$det_run.err"; then
       say "$det_run: exit $bounded_status"
-      show "$work/$det_run.stats"
+      show "$work/$det_run.err"
       return
     fi
+    awk 'stats || /^===/ { stats = 1; print > stats_file; next } { print }' \
+      stats_file="$work/$det_run.stats" "$work/$det_run.err" > "$work/$det_run.remarks"
+    [ -f "$work/$det_run.stats" ] || : > "$work/$det_run.stats"
   done
   if cmp -s "$work/one.mlir" "$work/many.mlir"; then
     say "module: identical under one thread and under many"
@@ -106,5 +114,11 @@ determinism_threads() {
     say "statistics: identical under one thread and under many"
   else
     say "statistics: differ between one thread and many"
+  fi
+  if cmp -s "$work/one.remarks" "$work/many.remarks"; then
+    say "remarks: identical under one thread and under many"
+  else
+    say "remarks: differ between one thread and many"
+    diff "$work/one.remarks" "$work/many.remarks" | head -n 20 | sed 's/^/  | /'
   fi
 }

@@ -12,7 +12,7 @@
 // outputs, a stale one from an earlier compilation included.
 // FOREIGN: error: {{.*}}scf.execute_region
 // INPUT: module attributes {idr.program} {
-// INPUT:   func.func @Prog.main() -> i64 {
+// INPUT:   idr.func @Prog.main() -> i64 {
 // INPUT:     %r = scf.execute_region -> i64 {
 // INPUT:       %z = arith.constant 0 : i64
 // INPUT:       scf.yield %z : i64
@@ -21,7 +21,7 @@
 // INPUT:   }
 // INPUT: }
 module attributes {idr.program} {
-  func.func @Prog.main() -> i64 {
+  idr.func @Prog.main() -> i64 {
     %z = arith.constant 0 : i64
     return %z : i64
   }

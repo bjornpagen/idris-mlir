@@ -93,7 +93,7 @@ breaking name es = if any named es then Just (map (\e => if named e then broken 
     named : Entry -> Bool
     named e = show e.key == name && isJust (site e)
     wrong : Shape -> Shape
-    wrong = Pi Quantity.Many (Prim WorldP)
+    wrong = Pi Mw (Prim WorldP)
     break : (k : Key) -> Expect k -> Expect k
     break (Def _) (Typed s) = Typed (wrong s)
     break (Foreign _) (Declared q s) = Declared q (wrong s)

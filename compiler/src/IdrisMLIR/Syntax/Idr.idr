@@ -73,18 +73,16 @@ permissionSpelling Permission.Excl = "excl"
 namespace Quantity
   ||| the number of uses Idris proved of a value
   public export
-  data Quantity = Zero | One | Many
+  data Quantity = One | Many
 
 export
 Prelude.EqOrd.Eq Quantity where
-  Quantity.Zero == Quantity.Zero = True
   Quantity.One == Quantity.One = True
   Quantity.Many == Quantity.Many = True
   _ == _ = False
 
 -- How the syntax below spells each Quantity.
 quantitySpelling : Quantity -> String
-quantitySpelling Quantity.Zero = "zero"
 quantitySpelling Quantity.One = "one"
 quantitySpelling Quantity.Many = "many"
 
@@ -174,8 +172,8 @@ data IdrAttr : (ty : Type) -> (at : Type) -> Type where
   ConAttr : (ctor : SymbolRef) -> (cells : List (List at)) -> (tail : Maybe at) -> (spine : Nat) -> IdrAttr ty at
   ||| `#idr.effects`: what a call of a function may do
   EffectAttr : (value : List Effect) -> IdrAttr ty at
-  ||| `#idr.erased`: the erased value
-  ErasedAttr : IdrAttr ty at
+  ||| `#idr.instance`: the Idris definition and arguments a function or data type is an instance of
+  InstanceAttr : (origin : String) -> (arguments : List at) -> IdrAttr ty at
   ||| `#idr.key_apply`: the key of a clone that applies its callee's result
   KeyApplyAttr : (callee : String) -> (arity : Nat) -> IdrAttr ty at
   ||| `#idr.key_apply_field`: the key of a clone that applies field `index` of `ctor` of its callee's result
@@ -192,7 +190,7 @@ data IdrAttr : (ty : Type) -> (at : Type) -> Type where
 ||| The mnemonics of the idr dialect's attributes.
 export
 idrAttrMnemonics : List String
-idrAttrMnemonics = ["big", "clone", "closure", "con", "effects", "erased", "key_apply", "key_apply_field", "key_closure", "key_con", "key_hole", "spec_key"]
+idrAttrMnemonics = ["big", "clone", "closure", "con", "effects", "instance", "key_apply", "key_apply_field", "key_closure", "key_con", "key_hole", "spec_key"]
 
 ||| The mnemonic of each of the idr dialect's attributes.
 export
@@ -202,7 +200,7 @@ idrAttrMnemonic (CloneAttr _ _) = "clone"
 idrAttrMnemonic (ClosureAttr _ _) = "closure"
 idrAttrMnemonic (ConAttr _ _ _ _) = "con"
 idrAttrMnemonic (EffectAttr _) = "effects"
-idrAttrMnemonic ErasedAttr = "erased"
+idrAttrMnemonic (InstanceAttr _ _) = "instance"
 idrAttrMnemonic (KeyApplyAttr _ _) = "key_apply"
 idrAttrMnemonic (KeyApplyFieldAttr _ _ _ _) = "key_apply_field"
 idrAttrMnemonic (KeyClosureAttr _ _) = "key_closure"
@@ -219,7 +217,7 @@ idrAttrText t a (CloneAttr function key) = fastConcat ["#idr.clone<", (symbol fu
 idrAttrText t a (ClosureAttr callee captures) = fastConcat ["#idr.closure<", (symbol callee), ", ", (array a captures), ">"]
 idrAttrText t a (ConAttr ctor cells tail spine) = fastConcat ["#idr.con<", (symbolRef ctor), ", ", (commaSeparated (map (\v => array a v) cells)), maybe "" (\tail => fastConcat [" tail ", (a tail)]) tail, " along ", (show spine), ">"]
 idrAttrText t a (EffectAttr value) = fastConcat ["#idr.effects<", (effectSpellings value), ">"]
-idrAttrText t a ErasedAttr = "#idr.erased"
+idrAttrText t a (InstanceAttr origin arguments) = fastConcat ["#idr.instance<", (utf8 origin), ", ", (array a arguments), ">"]
 idrAttrText t a (KeyApplyAttr callee arity) = fastConcat ["#idr.key_apply<", (utf8 callee), ", ", (show arity), ">"]
 idrAttrText t a (KeyApplyFieldAttr callee arity ctor index) = fastConcat ["#idr.key_apply_field<", (utf8 callee), ", ", (show arity), ", ", (utf8 ctor), ", ", (show index), ">"]
 idrAttrText t a (KeyClosureAttr callee captures) = fastConcat ["#idr.key_closure<", (utf8 callee), ", ", (array a captures), ">"]
@@ -227,4 +225,4 @@ idrAttrText t a (KeyConAttr data' ctor fields) = fastConcat ["#idr.key_con<", (u
 idrAttrText t a (KeyHoleAttr index) = fastConcat ["#idr.key_hole<", (show index), ">"]
 idrAttrText t a (SpecKeyAttr origin patterns) = fastConcat ["#idr.spec_key<", (utf8 origin), ", ", (array a patterns), ">"]
 
--- fingerprint: 276652151-1107546 1955709702-10511
+-- fingerprint: 4119024400-1169662 3264077907-10630

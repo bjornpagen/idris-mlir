@@ -14,7 +14,7 @@
 // negative, when the divisor is 1 or negative or not a constant, and when
 // an unsigned test of the size does not make that size non-negative.
 module {
-  func.func @onePast(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
+  idr.func @onePast(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %lo = arith.cmpi sge, %i, %z : i64
@@ -33,7 +33,7 @@ module {
     return %r : !idr.world
   }
 
-  func.func @negativeIndex(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
+  idr.func @negativeIndex(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %ok = arith.cmpi slt, %i, %n : i64
@@ -51,7 +51,7 @@ module {
   }
 
   // Above -5 is not above 0: a size of -3 makes an empty array.
-  func.func @negativeSize(%n: i64, %w: !idr.world) -> !idr.world {
+  idr.func @negativeSize(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %m5 = arith.constant -5 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
@@ -69,19 +69,19 @@ module {
     return %r : !idr.world
   }
 
-  func.func @calls(%n: i64, %m: i64, %i: i64, %w: !idr.world) -> !idr.world {
+  idr.func @calls(%n: i64, %m: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %c, %w2 = idr.array.new [%m], %z, %w1 : i64 -> memref<?xi64>
-    %w3 = func.call @unrelated(%m, %a, %i, %w2) : (i64, memref<?xi64>, i64, !idr.world) -> !idr.world
-    %w4 = func.call @mixed(%n, %a, %i, %w3) : (i64, memref<?xi64>, i64, !idr.world) -> !idr.world
-    %w5 = func.call @mixed(%n, %c, %i, %w4) : (i64, memref<?xi64>, i64, !idr.world) -> !idr.world
-    %w6 = func.call @taken(%n, %a, %i, %w5) : (i64, memref<?xi64>, i64, !idr.world) -> !idr.world
-    %w7 = func.call @public(%n, %a, %i, %w6) : (i64, memref<?xi64>, i64, !idr.world) -> !idr.world
+    %w3 = idr.call @unrelated(%m, %a, %i, %w2) : (i64, memref<?xi64>, i64, !idr.world) -> !idr.world
+    %w4 = idr.call @mixed(%n, %a, %i, %w3) : (i64, memref<?xi64>, i64, !idr.world) -> !idr.world
+    %w5 = idr.call @mixed(%n, %c, %i, %w4) : (i64, memref<?xi64>, i64, !idr.world) -> !idr.world
+    %w6 = idr.call @taken(%n, %a, %i, %w5) : (i64, memref<?xi64>, i64, !idr.world) -> !idr.world
+    %w7 = idr.call @public(%n, %a, %i, %w6) : (i64, memref<?xi64>, i64, !idr.world) -> !idr.world
     %f = idr.closure @taken() : () -> !idr.fn<(i64, memref<?xi64>, i64, !idr.world) -> (!idr.world)>
     return %w7 : !idr.world
   }
-  func.func private @unrelated(%n: i64, %a: memref<?xi64>, %i: i64, %w: !idr.world) -> !idr.world {
+  idr.func private @unrelated(%n: i64, %a: memref<?xi64>, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %lo = arith.cmpi sge, %i, %z : i64
     %hi = arith.cmpi slt, %i, %n : i64
@@ -98,7 +98,7 @@ module {
     }
     return %r : !idr.world
   }
-  func.func private @mixed(%n: i64, %a: memref<?xi64>, %i: i64, %w: !idr.world) -> !idr.world {
+  idr.func private @mixed(%n: i64, %a: memref<?xi64>, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %lo = arith.cmpi sge, %i, %z : i64
     %hi = arith.cmpi slt, %i, %n : i64
@@ -115,7 +115,7 @@ module {
     }
     return %r : !idr.world
   }
-  func.func private @taken(%n: i64, %a: memref<?xi64>, %i: i64, %w: !idr.world) -> !idr.world {
+  idr.func private @taken(%n: i64, %a: memref<?xi64>, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %lo = arith.cmpi sge, %i, %z : i64
     %hi = arith.cmpi slt, %i, %n : i64
@@ -132,7 +132,7 @@ module {
     }
     return %r : !idr.world
   }
-  func.func @public(%n: i64, %a: memref<?xi64>, %i: i64, %w: !idr.world) -> !idr.world {
+  idr.func @public(%n: i64, %a: memref<?xi64>, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %lo = arith.cmpi sge, %i, %z : i64
     %hi = arith.cmpi slt, %i, %n : i64
@@ -151,7 +151,7 @@ module {
   }
 
   // The size grows each time round; the array does not.
-  func.func @backEdge(%n: i64, %w: !idr.world) -> !idr.world {
+  idr.func @backEdge(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
@@ -174,15 +174,15 @@ module {
     return %r#3 : !idr.world
   }
 
-  func.func private @makeOff(%n: i64, %w: !idr.world) -> (i64, memref<?xi64>, !idr.world) {
+  idr.func private @makeOff(%n: i64, %w: !idr.world) -> (i64, memref<?xi64>, !idr.world) {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %k = arith.addi %n, %one : i64
     return %k, %a, %w1 : i64, memref<?xi64>, !idr.world
   }
-  func.func @madeOff(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
-    %k, %a, %w1 = func.call @makeOff(%n, %w) : (i64, !idr.world) -> (i64, memref<?xi64>, !idr.world)
+  idr.func @madeOff(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
+    %k, %a, %w1 = idr.call @makeOff(%n, %w) : (i64, !idr.world) -> (i64, memref<?xi64>, !idr.world)
     %z = arith.constant 0 : i64
     %lo = arith.cmpi sge, %i, %z : i64
     %hi = arith.cmpi slt, %i, %k : i64
@@ -200,7 +200,7 @@ module {
     return %r : !idr.world
   }
 
-  func.func @otherSide(%p: i1, %q: i1, %n: i64, %m: i64, %w: !idr.world) -> !idr.world {
+  idr.func @otherSide(%p: i1, %q: i1, %n: i64, %m: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %c, %w2 = idr.array.new [%m], %z, %w1 : i64 -> memref<?xi64>
@@ -220,7 +220,7 @@ module {
     return %r : !idr.world
   }
 
-  func.func @unsignedSize(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
+  idr.func @unsignedSize(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %ok = arith.cmpi ult, %i, %n : i64
@@ -239,7 +239,7 @@ module {
 
   // i + 1 below n proves i below n only without wrapping: at the largest
   // i, i + 1 is the least integer.
-  func.func @wraps(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
+  idr.func @wraps(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
@@ -262,7 +262,7 @@ module {
 
   // The array is real on both paths, the size poison on one: nothing
   // branches on the size, so nothing makes that path no run.
-  func.func @poisonSize(%p: i1, %b: memref<?xi64>, %w: !idr.world) -> !idr.world {
+  idr.func @poisonSize(%p: i1, %b: memref<?xi64>, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %five = arith.constant 5 : i64
     %a, %w1 = idr.array.new [%five], %z, %w : i64 -> memref<?xi64>
@@ -282,7 +282,7 @@ module {
 
   // The before block passes on one more than the size the array was made
   // of, beside that array: the body writes one past its end.
-  func.func @laterSize(%n: i64, %w: !idr.world) -> !idr.world {
+  idr.func @laterSize(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %a0, %w0 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
@@ -304,14 +304,14 @@ module {
     return %r#2 : !idr.world
   }
 
-  func.func private @handOther(%a: memref<?xi64>, %c: memref<?xi64>) -> memref<?xi64> {
+  idr.func private @handOther(%a: memref<?xi64>, %c: memref<?xi64>) -> memref<?xi64> {
     return %c : memref<?xi64>
   }
-  func.func @returnedOther(%n: i64, %m: i64, %i: i64, %w: !idr.world) -> !idr.world {
+  idr.func @returnedOther(%n: i64, %m: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %c, %w2 = idr.array.new [%m], %z, %w1 : i64 -> memref<?xi64>
-    %b = func.call @handOther(%a, %c) : (memref<?xi64>, memref<?xi64>) -> memref<?xi64>
+    %b = idr.call @handOther(%a, %c) : (memref<?xi64>, memref<?xi64>) -> memref<?xi64>
     %lo = arith.cmpi sge, %i, %z : i64
     %hi = arith.cmpi slt, %i, %n : i64
     %ok = arith.andi %lo, %hi : i1
@@ -328,7 +328,7 @@ module {
     return %r : !idr.world
   }
 
-  func.func private @handEither(%a: memref<?xi64>, %n: i64, %w: !idr.world) -> (memref<?xi64>, !idr.world) {
+  idr.func private @handEither(%a: memref<?xi64>, %n: i64, %w: !idr.world) -> (memref<?xi64>, !idr.world) {
     %z = arith.constant 0 : i64
     %neg = arith.cmpi slt, %n, %z : i64
     %negI = arith.extui %neg : i1 to i64
@@ -343,10 +343,10 @@ module {
     }
     return %r#0, %r#1 : memref<?xi64>, !idr.world
   }
-  func.func @returnedEither(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
+  idr.func @returnedEither(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
-    %b, %w2 = func.call @handEither(%a, %n, %w1) : (memref<?xi64>, i64, !idr.world) -> (memref<?xi64>, !idr.world)
+    %b, %w2 = idr.call @handEither(%a, %n, %w1) : (memref<?xi64>, i64, !idr.world) -> (memref<?xi64>, !idr.world)
     %lo = arith.cmpi sge, %i, %z : i64
     %hi = arith.cmpi slt, %i, %n : i64
     %ok = arith.andi %lo, %hi : i1
@@ -363,13 +363,13 @@ module {
     return %r : !idr.world
   }
 
-  func.func private @handFresh(%n: i64, %w: !idr.world) -> (memref<?xi64>, !idr.world) {
+  idr.func private @handFresh(%n: i64, %w: !idr.world) -> (memref<?xi64>, !idr.world) {
     %z = arith.constant 0 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     return %a, %w1 : memref<?xi64>, !idr.world
   }
   // `n >= 0` includes 0, and `0 / 2` is not inside an empty array.
-  func.func @halfZero(%n: i64, %w: !idr.world) -> !idr.world {
+  idr.func @halfZero(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %two = arith.constant 2 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
@@ -389,7 +389,7 @@ module {
   }
 
   // `m < 16` still allows a negative `m`, whose quotient is negative.
-  func.func @underSixteen(%m: i64, %w: !idr.world) -> !idr.world {
+  idr.func @underSixteen(%m: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %n = arith.constant 100 : i64
     %two = arith.constant 2 : i64
@@ -411,7 +411,7 @@ module {
   }
 
   // Dividing by 1 leaves the length, which is not an index into it.
-  func.func @byOne(%n: i64, %w: !idr.world) -> !idr.world {
+  idr.func @byOne(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
@@ -431,7 +431,7 @@ module {
   }
 
   // A negative divisor's Euclidean quotient is not the positive one.
-  func.func @byNegative(%n: i64, %w: !idr.world) -> !idr.world {
+  idr.func @byNegative(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %m2 = arith.constant -2 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
@@ -450,7 +450,7 @@ module {
     return %r : !idr.world
   }
 
-  func.func @byUnknown(%n: i64, %d: i64, %w: !idr.world) -> !idr.world {
+  idr.func @byUnknown(%n: i64, %d: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
     %pos = arith.cmpi sgt, %n, %z : i64
@@ -469,7 +469,7 @@ module {
   }
 
   // The length is non-negative, and it may still be 0.
-  func.func @dimZero(%a: memref<?xi64>, %w: !idr.world) -> !idr.world {
+  idr.func @dimZero(%a: memref<?xi64>, %w: !idr.world) -> !idr.world {
     %c0 = arith.constant 0 : index
     %two = arith.constant 2 : i64
     %len = memref.dim %a, %c0 : memref<?xi64>
@@ -485,7 +485,7 @@ module {
 
   // Unsigned `n > 0` holds for a negative signed `n`. That size is not
   // known non-negative, so its quotient is not a length.
-  func.func @unsignedPositive(%n: i64, %w: !idr.world) -> !idr.world {
+  idr.func @unsignedPositive(%n: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %two = arith.constant 2 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
@@ -504,9 +504,9 @@ module {
     return %r : !idr.world
   }
 
-  func.func @returnedFresh(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
+  idr.func @returnedFresh(%n: i64, %i: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
-    %a, %w1 = func.call @handFresh(%n, %w) : (i64, !idr.world) -> (memref<?xi64>, !idr.world)
+    %a, %w1 = idr.call @handFresh(%n, %w) : (i64, !idr.world) -> (memref<?xi64>, !idr.world)
     %lo = arith.cmpi sge, %i, %z : i64
     %hi = arith.cmpi slt, %i, %n : i64
     %ok = arith.andi %lo, %hi : i1

@@ -7,15 +7,15 @@
 // CHECK: error: expected every-cycle-has-breaker: no loop breaker in the cycle of {{.*}}@{{even|odd}}
 // CHECK-NOT: error:
 module {
-  func.func private @even(%n: i64) -> i64 attributes {no_inline} {
-    %r = func.call @odd(%n) : (i64) -> i64
+  idr.func private @even(%n: i64) -> i64 attributes {no_inline} {
+    %r = idr.call @odd(%n) : (i64) -> i64
     return %r : i64
   }
-  func.func private @odd(%n: i64) -> i64 {
-    %r = func.call @even(%n) : (i64) -> i64
+  idr.func private @odd(%n: i64) -> i64 {
+    %r = idr.call @even(%n) : (i64) -> i64
     return %r : i64
   }
-  func.func private @leaf(%n: i64) -> i64 {
+  idr.func private @leaf(%n: i64) -> i64 {
     return %n : i64
   }
 }

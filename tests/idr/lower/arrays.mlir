@@ -117,29 +117,29 @@ module attributes {idr.program} {
     idr.ctor @None ()
     idr.ctor @Some (!idr.str)
   }
-  func.func @root(%w: !idr.world) -> !idr.world {
+  idr.func @root(%w: !idr.world) -> !idr.world {
     %n = arith.constant 3 : i64
     %i = arith.constant 1 : i64
     %x = idr.con @Opt::@None() : () -> !idr.own<!idr.data<@Opt>>
-    %a, %w1 = func.call @make(%n, %x, %w) : (i64, !idr.own<!idr.data<@Opt>>, !idr.world) -> (!idr.own<memref<?x!idr.data<@Opt>>>, !idr.world)
+    %a, %w1 = idr.call @make(%n, %x, %w) : (i64, !idr.own<!idr.data<@Opt>>, !idr.world) -> (!idr.own<memref<?x!idr.data<@Opt>>>, !idr.world)
     %b = idr.borrow %a : !idr.own<memref<?x!idr.data<@Opt>>>
-    %v, %w2 = func.call @read(%b, %i, %w1) : (memref<?x!idr.data<@Opt>>, i64, !idr.world) -> (!idr.own<!idr.data<@Opt>>, !idr.world)
-    %w3 = func.call @write(%b, %i, %v, %w2) : (memref<?x!idr.data<@Opt>>, i64, !idr.own<!idr.data<@Opt>>, !idr.world) -> !idr.world
-    %l = func.call @length(%b) : (memref<?x!idr.data<@Opt>>) -> index
+    %v, %w2 = idr.call @read(%b, %i, %w1) : (memref<?x!idr.data<@Opt>>, i64, !idr.world) -> (!idr.own<!idr.data<@Opt>>, !idr.world)
+    %w3 = idr.call @write(%b, %i, %v, %w2) : (memref<?x!idr.data<@Opt>>, i64, !idr.own<!idr.data<@Opt>>, !idr.world) -> !idr.world
+    %l = idr.call @length(%b) : (memref<?x!idr.data<@Opt>>) -> index
     idr.drop %a : !idr.own<memref<?x!idr.data<@Opt>>>
     %d = arith.constant 1.5 : f64
-    %e, %w4 = func.call @makeD(%n, %d, %w3) : (i64, f64, !idr.world) -> (!idr.own<memref<?xf64>>, !idr.world)
+    %e, %w4 = idr.call @makeD(%n, %d, %w3) : (i64, f64, !idr.world) -> (!idr.own<memref<?xf64>>, !idr.world)
     %eb = idr.borrow %e : !idr.own<memref<?xf64>>
-    %y, %w5 = func.call @readD(%eb, %i, %w4) : (memref<?xf64>, i64, !idr.world) -> (f64, !idr.world)
-    %w6 = func.call @writeD(%eb, %i, %y, %w5) : (memref<?xf64>, i64, f64, !idr.world) -> !idr.world
+    %y, %w5 = idr.call @readD(%eb, %i, %w4) : (memref<?xf64>, i64, !idr.world) -> (f64, !idr.world)
+    %w6 = idr.call @writeD(%eb, %i, %y, %w5) : (memref<?xf64>, i64, f64, !idr.world) -> !idr.world
     idr.drop %e : !idr.own<memref<?xf64>>
     return %w6 : !idr.world
   }
-  func.func private @make(%n: i64, %x: !idr.own<!idr.data<@Opt>>, %w: !idr.world) -> (!idr.own<memref<?x!idr.data<@Opt>>>, !idr.world) {
+  idr.func private @make(%n: i64, %x: !idr.own<!idr.data<@Opt>>, %w: !idr.world) -> (!idr.own<memref<?x!idr.data<@Opt>>>, !idr.world) {
     %a, %w1 = idr.array.new [%n], %x, %w : !idr.own<!idr.data<@Opt>> -> !idr.own<memref<?x!idr.data<@Opt>>>
     return %a, %w1 : !idr.own<memref<?x!idr.data<@Opt>>>, !idr.world
   }
-  func.func private @read(%a: memref<?x!idr.data<@Opt>>, %i: i64, %w: !idr.world) -> (!idr.own<!idr.data<@Opt>>, !idr.world) {
+  idr.func private @read(%a: memref<?x!idr.data<@Opt>>, %i: i64, %w: !idr.world) -> (!idr.own<!idr.data<@Opt>>, !idr.world) {
     %c0 = arith.constant 0 : index
     %d = memref.dim %a, %c0 : memref<?x!idr.data<@Opt>>
     %n = arith.index_cast %d : index to i64
@@ -147,7 +147,7 @@ module attributes {idr.program} {
     %v, %w1 = idr.array.get %a[%j], %w : memref<?x!idr.data<@Opt>> -> !idr.own<!idr.data<@Opt>>
     return %v, %w1 : !idr.own<!idr.data<@Opt>>, !idr.world
   }
-  func.func private @write(%a: memref<?x!idr.data<@Opt>>, %i: i64, %y: !idr.own<!idr.data<@Opt>>, %w: !idr.world) -> !idr.world {
+  idr.func private @write(%a: memref<?x!idr.data<@Opt>>, %i: i64, %y: !idr.own<!idr.data<@Opt>>, %w: !idr.world) -> !idr.world {
     %c0 = arith.constant 0 : index
     %d = memref.dim %a, %c0 : memref<?x!idr.data<@Opt>>
     %n = arith.index_cast %d : index to i64
@@ -155,21 +155,21 @@ module attributes {idr.program} {
     %w1 = idr.array.set %a[%j], %y, %w : memref<?x!idr.data<@Opt>>, !idr.own<!idr.data<@Opt>>
     return %w1 : !idr.world
   }
-  func.func private @length(%a: memref<?x!idr.data<@Opt>>) -> index {
+  idr.func private @length(%a: memref<?x!idr.data<@Opt>>) -> index {
     %c0 = arith.constant 0 : index
     %n = memref.dim %a, %c0 : memref<?x!idr.data<@Opt>>
     return %n : index
   }
-  func.func private @bytes(%n: i64, %w: !idr.world) -> (!idr.own<memref<?xi8>>, !idr.world) {
+  idr.func private @bytes(%n: i64, %w: !idr.world) -> (!idr.own<memref<?xi8>>, !idr.world) {
     %z = arith.constant 0 : i8
     %a, %w1 = idr.array.new [%n], %z, %w : i8 -> !idr.own<memref<?xi8>>
     return %a, %w1 : !idr.own<memref<?xi8>>, !idr.world
   }
-  func.func private @makeD(%n: i64, %x: f64, %w: !idr.world) -> (!idr.own<memref<?xf64>>, !idr.world) {
+  idr.func private @makeD(%n: i64, %x: f64, %w: !idr.world) -> (!idr.own<memref<?xf64>>, !idr.world) {
     %a, %w1 = idr.array.new [%n], %x, %w : f64 -> !idr.own<memref<?xf64>>
     return %a, %w1 : !idr.own<memref<?xf64>>, !idr.world
   }
-  func.func private @readD(%a: memref<?xf64>, %i: i64, %w: !idr.world) -> (f64, !idr.world) {
+  idr.func private @readD(%a: memref<?xf64>, %i: i64, %w: !idr.world) -> (f64, !idr.world) {
     %c0 = arith.constant 0 : index
     %d = memref.dim %a, %c0 : memref<?xf64>
     %n = arith.index_cast %d : index to i64
@@ -177,7 +177,7 @@ module attributes {idr.program} {
     %v, %w1 = idr.array.get %a[%j], %w : memref<?xf64> -> f64
     return %v, %w1 : f64, !idr.world
   }
-  func.func private @writeD(%a: memref<?xf64>, %i: i64, %y: f64, %w: !idr.world) -> !idr.world {
+  idr.func private @writeD(%a: memref<?xf64>, %i: i64, %y: f64, %w: !idr.world) -> !idr.world {
     %c0 = arith.constant 0 : index
     %d = memref.dim %a, %c0 : memref<?xf64>
     %n = arith.index_cast %d : index to i64
@@ -185,20 +185,20 @@ module attributes {idr.program} {
     %w1 = idr.array.set %a[%j], %y, %w : memref<?xf64>, f64
     return %w1 : !idr.world
   }
-  func.func private @makeRef(%x: !idr.own<!idr.data<@Opt>>, %w: !idr.world) -> (!idr.own<memref<!idr.data<@Opt>>>, !idr.world) {
+  idr.func private @makeRef(%x: !idr.own<!idr.data<@Opt>>, %w: !idr.world) -> (!idr.own<memref<!idr.data<@Opt>>>, !idr.world) {
     %r, %w1 = idr.array.new [], %x, %w : !idr.own<!idr.data<@Opt>> -> !idr.own<memref<!idr.data<@Opt>>>
     return %r, %w1 : !idr.own<memref<!idr.data<@Opt>>>, !idr.world
   }
-  func.func private @readRef(%r: memref<!idr.data<@Opt>>, %w: !idr.world) -> (!idr.own<!idr.data<@Opt>>, !idr.world) {
+  idr.func private @readRef(%r: memref<!idr.data<@Opt>>, %w: !idr.world) -> (!idr.own<!idr.data<@Opt>>, !idr.world) {
     %v, %w1 = idr.array.get %r[], %w : memref<!idr.data<@Opt>> -> !idr.own<!idr.data<@Opt>>
     return %v, %w1 : !idr.own<!idr.data<@Opt>>, !idr.world
   }
-  func.func private @takeRef(%r: memref<!idr.data<@Opt>>, %y: !idr.own<!idr.data<@Opt>>, %w: !idr.world) -> (!idr.own<!idr.data<@Opt>>, !idr.world) {
+  idr.func private @takeRef(%r: memref<!idr.data<@Opt>>, %y: !idr.own<!idr.data<@Opt>>, %w: !idr.world) -> (!idr.own<!idr.data<@Opt>>, !idr.world) {
     %v, %w1 = idr.array.get %r[], %w moves : memref<!idr.data<@Opt>> -> !idr.own<!idr.data<@Opt>>
     %w2 = idr.array.set %r[], %y, %w1 : memref<!idr.data<@Opt>>, !idr.own<!idr.data<@Opt>>
     return %v, %w2 : !idr.own<!idr.data<@Opt>>, !idr.world
   }
-  func.func private @readRefD(%r: memref<f64>, %w: !idr.world) -> (f64, !idr.world) {
+  idr.func private @readRefD(%r: memref<f64>, %w: !idr.world) -> (f64, !idr.world) {
     %v, %w1 = idr.array.get %r[], %w : memref<f64> -> f64
     return %v, %w1 : f64, !idr.world
   }

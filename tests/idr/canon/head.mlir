@@ -1,13 +1,14 @@
 // RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
+// RUN: idris-mlir-opt %s --canonicalize=test-convergence=true -o /dev/null
 // The first character of a string built at runtime.
 
-// CHECK-LABEL: func.func @heads(
+// CHECK-LABEL: idr.func @heads(
 // CHECK-SAME: %[[C:.*]]: i32, %[[S:.*]]: !idr.str, %[[X:.*]]: i64, %[[B:.*]]: i16, %[[D:.*]]: f64)
-// CHECK-NEXT: %[[I:.*]] = idr.int_head signed %[[X]] : i64
-// CHECK-NEXT: %[[U:.*]] = idr.int_head %[[B]] : i16
-// CHECK-NEXT: %[[H:.*]] = idr.double_head %[[D]]
+// CHECK-NEXT: %[[I:.*]] = {{(idr\.)?}}int_head signed %[[X]] : i64
+// CHECK-NEXT: %[[U:.*]] = {{(idr\.)?}}int_head %[[B]] : i16
+// CHECK-NEXT: %[[H:.*]] = {{(idr\.)?}}double_head %[[D]]
 // CHECK-NEXT: return %[[C]], %[[I]], %[[U]], %[[H]]
-func.func @heads(%c: i32, %s: !idr.str, %x: i64, %b: i16, %d: f64) -> (i32, i32, i32, i32) {
+idr.func @heads(%c: i32, %s: !idr.str, %x: i64, %b: i16, %d: f64) -> (i32, i32, i32, i32) {
   %t = idr.str.cons %c, %s
   %h0 = idr.str.head %t
   %u = idr.str.show signed %x : i64
@@ -20,10 +21,10 @@ func.func @heads(%c: i32, %s: !idr.str, %x: i64, %b: i16, %d: f64) -> (i32, i32,
 }
 
 // The head of any other string stays, after its guard, which may crash.
-// CHECK-LABEL: func.func @other(
+// CHECK-LABEL: idr.func @other(
 // CHECK: %[[G:.*]] = idr.check.nonempty
 // CHECK: idr.str.head %[[G]]
-func.func @other(%s: !idr.str) -> i32 {
+idr.func @other(%s: !idr.str) -> i32 {
   %g = idr.check.nonempty %s, "head of an empty string" : !idr.str
   %h = idr.str.head %g
   return %h : i32

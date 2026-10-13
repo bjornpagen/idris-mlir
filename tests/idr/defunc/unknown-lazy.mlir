@@ -4,15 +4,15 @@
 // here a choice made by arith.select, an op the analysis does not see
 // through, between two suspensions.
 module attributes {idr.program} {
-  func.func private @one() -> i64 attributes {idr.total} {
+  idr.func private @one() -> i64 attributes {total} {
     %c = arith.constant 1 : i64
     return %c : i64
   }
-  func.func private @two() -> i64 attributes {idr.total} {
+  idr.func private @two() -> i64 attributes {total} {
     %c = arith.constant 2 : i64
     return %c : i64
   }
-  func.func @Main.main(%w: !idr.world) -> !idr.world {
+  idr.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_byte %w
     %z = arith.constant 65 : i32
     %b = arith.cmpi eq, %c, %z : i32

@@ -12,13 +12,13 @@
 // CHECK: llvm.call @idris_rt_crash(
 // CHECK: return %[[X]] : i64
 module attributes {idr.program} {
-  func.func private @byte(%x: i64) -> i64 {
+  idr.func private @byte(%x: i64) -> i64 {
     %y = idr.check.byte %x, "a byte outside 0 to 255" loc("Prog.idr":6:1)
     return %y : i64
   }
-  func.func @Prog.main() -> i64 {
+  idr.func @Prog.main() -> i64 {
     %c = arith.constant 7 : i64
-    %b = func.call @byte(%c) : (i64) -> i64
+    %b = idr.call @byte(%c) : (i64) -> i64
     return %b : i64
   }
 }

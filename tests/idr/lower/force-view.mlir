@@ -34,23 +34,23 @@ module attributes {idr.program} {
     idr.ctor @running ()
     idr.ctor @forced (i64)
   }
-  func.func private @one() -> i64 attributes {idr.total} {
+  idr.func private @one() -> i64 attributes {total} {
     %c = arith.constant 1 : i64
     return %c : i64
   }
-  func.func private @plus(%x: i64) -> i64 attributes {idr.total} {
+  idr.func private @plus(%x: i64) -> i64 attributes {total} {
     %c = arith.constant 1 : i64
     %y = arith.addi %x, %c : i64
     return %y : i64
   }
-  func.func private @view(%t: !idr.box<@lazy$0>) -> i64 {
+  idr.func private @view(%t: !idr.box<@lazy$0>) -> i64 {
     %v = idr.force %t : !idr.box<@lazy$0> -> i64 loc("Main.idr":9:3)
     return %v : i64
   }
-  func.func @Main.main() -> i64 {
+  idr.func @Main.main() -> i64 {
     %two = arith.constant 2 : i64
     %t = idr.con @lazy$0::@plus(%two) : (i64) -> !idr.box<@lazy$0>
-    %v = func.call @view(%t) : (!idr.box<@lazy$0>) -> i64
+    %v = idr.call @view(%t) : (!idr.box<@lazy$0>) -> i64
     return %v : i64
   }
 }

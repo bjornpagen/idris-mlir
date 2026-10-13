@@ -3,4 +3,4 @@
 // The unused lambda and the unused action leave no code: an idr.closure and
 // an unused call of a pure, total function that cannot crash are dead, and
 // so is "never run". What is written is the run's to check.
-// CHECK: idr.io.put_
+// CHECK: io.put_

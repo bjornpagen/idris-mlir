@@ -1,0 +1,68 @@
+#!/bin/sh
+# The text Emit writes is MLIR the dialects read back without loss: each op
+# in its dialect's syntax where the dialect's format allows and in the
+# generic form elsewhere, a mix the parser reads. For each program below,
+# idris-mlir-opt parses the emitted module and prints it, then parses that
+# print and prints it again: the two prints are byte-identical. And the
+# print says what the emitted text says: both, printed again in the generic
+# form, every location in place, are byte-identical, so the dialects'
+# syntax that the first print chose lost or added nothing Emit wrote.
+#
+# The programs: data and its matches, specialization and reference counts
+# (data/rbtree), constructors, literal matches and erased arguments
+# (data/shapes), and linear arrays, generated and folded
+# (arrays/linarray-combinators).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+
+# opt_print NAME INPUT OUTPUT [FLAG]: idris-mlir-opt prints INPUT to OUTPUT,
+# with its locations and FLAG; says so and fails, naming NAME, if it does
+# not parse and verify.
+opt_print() {
+  # shellcheck disable=SC2086 # empty or one flag
+  if ! bounded "$idris_mlir_opt" --mlir-disable-threading --mlir-print-debuginfo $4 \
+       "$2" -o "$3" > "$work/opt.err" 2>&1; then
+    say "$1: ${2##*/} does not parse and verify"
+    show "$work/opt.err"
+    return 1
+  fi
+}
+
+# round_trip FIXTURE: the round trip of the module FIXTURE's program emits.
+round_trip() {
+  rt_name=${1#"$root/tests/programs/"}
+  rt_dir=$work/$(printf '%s' "$rt_name" | tr '/' '-')
+  mkdir "$rt_dir"
+  copy_fixture "$1" "$rt_dir"
+  rt_packages=
+  if [ -f "$1/packages" ]; then
+    for rt_package in $(cat "$1/packages"); do rt_packages="$rt_packages -p $rt_package"; done
+  fi
+  # shellcheck disable=SC2086 # the packages are words
+  compile_program $rt_packages "$rt_dir/Main.idr" prog
+  if [ "$compiled" -ne 0 ]; then
+    say "$rt_name: compile exit $compiled"
+    show "$work/compile.out" "$work/compile.err"
+    return
+  fi
+  rt_emitted=$rt_dir/build/exec/prog.mlir
+  opt_print "$rt_name" "$rt_emitted" "$rt_dir/printed.mlir" || return
+  opt_print "$rt_name" "$rt_dir/printed.mlir" "$rt_dir/reprinted.mlir" || return
+  if cmp -s "$rt_dir/printed.mlir" "$rt_dir/reprinted.mlir"; then
+    say "$rt_name: printed, parsed and printed again, the same bytes"
+  else
+    say "$rt_name: the print of its print differs"
+    diff "$rt_dir/printed.mlir" "$rt_dir/reprinted.mlir" | head -n 20 | sed 's/^/  | /'
+  fi
+  opt_print "$rt_name" "$rt_emitted" "$rt_dir/emitted-generic.mlir" --mlir-print-op-generic || return
+  opt_print "$rt_name" "$rt_dir/printed.mlir" "$rt_dir/printed-generic.mlir" --mlir-print-op-generic || return
+  if cmp -s "$rt_dir/emitted-generic.mlir" "$rt_dir/printed-generic.mlir"; then
+    say "$rt_name: the emitted text and its print, in the generic form, the same bytes"
+  else
+    say "$rt_name: the emitted text and its print differ in the generic form"
+    diff "$rt_dir/emitted-generic.mlir" "$rt_dir/printed-generic.mlir" | head -n 20 | sed 's/^/  | /'
+  fi
+}
+
+for fixture in data/rbtree data/shapes arrays/linarray-combinators; do
+  round_trip "$root/tests/programs/$fixture"
+done

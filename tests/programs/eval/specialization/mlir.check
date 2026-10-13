@@ -6,7 +6,7 @@
 // and removed. Each copy computes with its own function, in either order
 // (two copies with the same function would share one key, so they would
 // be one copy).
-// CHECK: func.func private @Main.iter$spec${{[0-9]+}}(
+// CHECK: idr.func private @Main.iter.spec{{[0-9]+}}(
 // CHECK: arith.{{addi|muli}}
-// CHECK: func.func private @Main.iter$spec${{[0-9]+}}(
+// CHECK: idr.func private @Main.iter.spec{{[0-9]+}}(
 // CHECK: arith.{{addi|muli}}

@@ -6,6 +6,9 @@ module IdrisMLIR.Dialect.Arith
 import IdrisMLIR.MLIR
 import IdrisMLIR.Syntax.Arith
 
+import Data.List
+import Data.Maybe
+
 %default total
 
 ------------------------------------------------------------------------------
@@ -392,4 +395,305 @@ xoriOp : (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
 xoriOp lhs rhs result =
   MkOp "arith.xori" [lhs, rhs] [] [] [] [result]
 
--- fingerprint: 1127002687-920233 1695437736-17849
+------------------------------------------------------------------------------
+-- Printer
+------------------------------------------------------------------------------
+
+-- An attribute an op's syntax writes without its type, which the parser
+-- is given and does not read.
+covering
+bare : MlirAttr -> String
+bare (IntegerAttr n _) = show n
+bare (FloatAttr d _) = floatLiteral d
+bare a = attrText a
+
+-- The name of the symbol an op declares, as a reference to it writes it.
+covering
+symbolName : MlirAttr -> String
+symbolName (StringAttr s) = symbol s
+symbolName a = attrText a
+
+-- The keyword the printer writes for a CmpFPredicate.
+covering
+cmpFPredicateKeyword : MlirAttr -> String
+cmpFPredicateKeyword (IntegerAttr 0 _) = "false"
+cmpFPredicateKeyword (IntegerAttr 1 _) = "oeq"
+cmpFPredicateKeyword (IntegerAttr 2 _) = "ogt"
+cmpFPredicateKeyword (IntegerAttr 3 _) = "oge"
+cmpFPredicateKeyword (IntegerAttr 4 _) = "olt"
+cmpFPredicateKeyword (IntegerAttr 5 _) = "ole"
+cmpFPredicateKeyword (IntegerAttr 6 _) = "one"
+cmpFPredicateKeyword (IntegerAttr 7 _) = "ord"
+cmpFPredicateKeyword (IntegerAttr 8 _) = "ueq"
+cmpFPredicateKeyword (IntegerAttr 9 _) = "ugt"
+cmpFPredicateKeyword (IntegerAttr 10 _) = "uge"
+cmpFPredicateKeyword (IntegerAttr 11 _) = "ult"
+cmpFPredicateKeyword (IntegerAttr 12 _) = "ule"
+cmpFPredicateKeyword (IntegerAttr 13 _) = "une"
+cmpFPredicateKeyword (IntegerAttr 14 _) = "uno"
+cmpFPredicateKeyword (IntegerAttr 15 _) = "true"
+cmpFPredicateKeyword a = attrText a
+
+-- The keyword the printer writes for a CmpIPredicate.
+covering
+cmpIPredicateKeyword : MlirAttr -> String
+cmpIPredicateKeyword (IntegerAttr 0 _) = "eq"
+cmpIPredicateKeyword (IntegerAttr 1 _) = "ne"
+cmpIPredicateKeyword (IntegerAttr 2 _) = "slt"
+cmpIPredicateKeyword (IntegerAttr 3 _) = "sle"
+cmpIPredicateKeyword (IntegerAttr 4 _) = "sgt"
+cmpIPredicateKeyword (IntegerAttr 5 _) = "sge"
+cmpIPredicateKeyword (IntegerAttr 6 _) = "ult"
+cmpIPredicateKeyword (IntegerAttr 7 _) = "ule"
+cmpIPredicateKeyword (IntegerAttr 8 _) = "ugt"
+cmpIPredicateKeyword (IntegerAttr 9 _) = "uge"
+cmpIPredicateKeyword a = attrText a
+
+-- The keyword the printer writes for a RoundingMode.
+covering
+roundingModeKeyword : MlirAttr -> String
+roundingModeKeyword (IntegerAttr 0 _) = "to_nearest_even"
+roundingModeKeyword (IntegerAttr 1 _) = "downward"
+roundingModeKeyword (IntegerAttr 2 _) = "upward"
+roundingModeKeyword (IntegerAttr 3 _) = "toward_zero"
+roundingModeKeyword (IntegerAttr 4 _) = "to_nearest_away"
+roundingModeKeyword a = attrText a
+
+||| An op of the arith dialect in the declarative syntax its ODS
+||| gives, up to its regions: its full name and its syntax, which puts the
+||| regions last, for the caller to write after it. Nothing for an op
+||| written in the generic form: one whose syntax this printer does not
+||| write (each is named below, with the reason), one of another dialect,
+||| and one whose operands, results, regions or attributes are not what its
+||| ODS lets it have, which the generic form carries to the verifier.
+export covering
+printOp : Op -> Maybe String
+printOp (MkOp "arith.addf" [o0, o1] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["roundingmode", "fastmath"]) props)
+  pure (fastConcat ["arith.addf ", o0.name, ", ", o1.name, maybe "" (\a0 => fastConcat [" ", roundingModeKeyword a0]) (lookup "roundingmode" props), maybe "" (\a1 => fastConcat [" fastmath", attrText a1]) (lookup "fastmath" props), dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.addi" [o0, o1] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["overflowFlags"]) props)
+  pure (fastConcat ["arith.addi ", o0.name, ", ", o1.name, maybe "" (\a0 => fastConcat [" overflow", attrText a0]) (lookup "overflowFlags" props), dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.addui_extended" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["arith.addui_extended ", o0.name, ", ", o1.name, dictionary "{" "}" attrs, " : ", typeText r0, ", ", typeText r1])
+
+printOp (MkOp "arith.andi" [o0, o1] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["arith.andi ", o0.name, ", ", o1.name, dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.bitcast" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["arith.bitcast ", o0.name, dictionary "{" "}" attrs, " : ", typeText o0.type, " to ", typeText r0])
+
+printOp (MkOp "arith.ceildivsi" [o0, o1] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["arith.ceildivsi ", o0.name, ", ", o1.name, dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.ceildivui" [o0, o1] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["arith.ceildivui ", o0.name, ", ", o1.name, dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.cmpf" [o0, o1] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["predicate", "fastmath"]) props)
+  a0 <- lookup "predicate" props
+  pure (fastConcat ["arith.cmpf ", cmpFPredicateKeyword a0, ", ", o0.name, ", ", o1.name, maybe "" (\a1 => fastConcat [" fastmath", attrText a1]) (lookup "fastmath" props), dictionary "{" "}" attrs, " : ", typeText o0.type])
+
+printOp (MkOp "arith.cmpi" [o0, o1] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["predicate"]) props)
+  a0 <- lookup "predicate" props
+  pure (fastConcat ["arith.cmpi ", cmpIPredicateKeyword a0, ", ", o0.name, ", ", o1.name, dictionary "{" "}" attrs, " : ", typeText o0.type])
+
+printOp (MkOp "arith.constant" [] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["value"]) props)
+  a0 <- lookup "value" props
+  pure (fastConcat ["arith.constant", dictionary "{" "}" attrs, " ", attrText a0])
+
+printOp (MkOp "arith.convertf" [o0] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["roundingmode", "fastmath"]) props)
+  pure (fastConcat ["arith.convertf ", o0.name, maybe "" (\a0 => fastConcat [" ", roundingModeKeyword a0]) (lookup "roundingmode" props), maybe "" (\a1 => fastConcat [" fastmath", attrText a1]) (lookup "fastmath" props), dictionary "{" "}" attrs, " : ", typeText o0.type, " to ", typeText r0])
+
+printOp (MkOp "arith.divf" [o0, o1] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["roundingmode", "fastmath"]) props)
+  pure (fastConcat ["arith.divf ", o0.name, ", ", o1.name, maybe "" (\a0 => fastConcat [" ", roundingModeKeyword a0]) (lookup "roundingmode" props), maybe "" (\a1 => fastConcat [" fastmath", attrText a1]) (lookup "fastmath" props), dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.divsi" [o0, o1] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["isExact"]) props)
+  pure (fastConcat ["arith.divsi ", o0.name, ", ", o1.name, (if isJust (lookup "isExact" props) then " exact" else ""), dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.divui" [o0, o1] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["isExact"]) props)
+  pure (fastConcat ["arith.divui ", o0.name, ", ", o1.name, (if isJust (lookup "isExact" props) then " exact" else ""), dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.extf" [o0] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["fastmath"]) props)
+  pure (fastConcat ["arith.extf ", o0.name, maybe "" (\a0 => fastConcat [" fastmath", attrText a0]) (lookup "fastmath" props), dictionary "{" "}" attrs, " : ", typeText o0.type, " to ", typeText r0])
+
+printOp (MkOp "arith.extsi" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["arith.extsi ", o0.name, dictionary "{" "}" attrs, " : ", typeText o0.type, " to ", typeText r0])
+
+printOp (MkOp "arith.extui" [o0] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["nonNeg"]) props)
+  pure (fastConcat ["arith.extui ", o0.name, (if isJust (lookup "nonNeg" props) then " nneg" else ""), dictionary "{" "}" attrs, " : ", typeText o0.type, " to ", typeText r0])
+
+printOp (MkOp "arith.floordivsi" [o0, o1] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["arith.floordivsi ", o0.name, ", ", o1.name, dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.flush_denormals" [o0] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["fastmath"]) props)
+  pure (fastConcat ["arith.flush_denormals ", o0.name, maybe "" (\a0 => fastConcat [" fastmath", attrText a0]) (lookup "fastmath" props), dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.fptosi" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["arith.fptosi ", o0.name, dictionary "{" "}" attrs, " : ", typeText o0.type, " to ", typeText r0])
+
+printOp (MkOp "arith.fptoui" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["arith.fptoui ", o0.name, dictionary "{" "}" attrs, " : ", typeText o0.type, " to ", typeText r0])
+
+printOp (MkOp "arith.index_cast" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["arith.index_cast ", o0.name, dictionary "{" "}" attrs, " : ", typeText o0.type, " to ", typeText r0])
+
+printOp (MkOp "arith.index_castui" [o0] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["nonNeg"]) props)
+  pure (fastConcat ["arith.index_castui ", o0.name, (if isJust (lookup "nonNeg" props) then " nneg" else ""), dictionary "{" "}" attrs, " : ", typeText o0.type, " to ", typeText r0])
+
+printOp (MkOp "arith.maximumf" [o0, o1] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["fastmath"]) props)
+  pure (fastConcat ["arith.maximumf ", o0.name, ", ", o1.name, maybe "" (\a0 => fastConcat [" fastmath", attrText a0]) (lookup "fastmath" props), dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.maximumnumf" [o0, o1] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["fastmath"]) props)
+  pure (fastConcat ["arith.maximumnumf ", o0.name, ", ", o1.name, maybe "" (\a0 => fastConcat [" fastmath", attrText a0]) (lookup "fastmath" props), dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.maxnumf" [o0, o1] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["fastmath"]) props)
+  pure (fastConcat ["arith.maxnumf ", o0.name, ", ", o1.name, maybe "" (\a0 => fastConcat [" fastmath", attrText a0]) (lookup "fastmath" props), dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.maxsi" [o0, o1] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["arith.maxsi ", o0.name, ", ", o1.name, dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.maxui" [o0, o1] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["arith.maxui ", o0.name, ", ", o1.name, dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.minimumf" [o0, o1] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["fastmath"]) props)
+  pure (fastConcat ["arith.minimumf ", o0.name, ", ", o1.name, maybe "" (\a0 => fastConcat [" fastmath", attrText a0]) (lookup "fastmath" props), dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.minimumnumf" [o0, o1] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["fastmath"]) props)
+  pure (fastConcat ["arith.minimumnumf ", o0.name, ", ", o1.name, maybe "" (\a0 => fastConcat [" fastmath", attrText a0]) (lookup "fastmath" props), dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.minnumf" [o0, o1] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["fastmath"]) props)
+  pure (fastConcat ["arith.minnumf ", o0.name, ", ", o1.name, maybe "" (\a0 => fastConcat [" fastmath", attrText a0]) (lookup "fastmath" props), dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.minsi" [o0, o1] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["arith.minsi ", o0.name, ", ", o1.name, dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.minui" [o0, o1] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["arith.minui ", o0.name, ", ", o1.name, dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.mulf" [o0, o1] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["roundingmode", "fastmath"]) props)
+  pure (fastConcat ["arith.mulf ", o0.name, ", ", o1.name, maybe "" (\a0 => fastConcat [" ", roundingModeKeyword a0]) (lookup "roundingmode" props), maybe "" (\a1 => fastConcat [" fastmath", attrText a1]) (lookup "fastmath" props), dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.muli" [o0, o1] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["overflowFlags"]) props)
+  pure (fastConcat ["arith.muli ", o0.name, ", ", o1.name, maybe "" (\a0 => fastConcat [" overflow", attrText a0]) (lookup "overflowFlags" props), dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.mulsi_extended" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["arith.mulsi_extended ", o0.name, ", ", o1.name, dictionary "{" "}" attrs, " : ", typeText o0.type])
+
+printOp (MkOp "arith.mului_extended" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["arith.mului_extended ", o0.name, ", ", o1.name, dictionary "{" "}" attrs, " : ", typeText o0.type])
+
+printOp (MkOp "arith.negf" [o0] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["fastmath"]) props)
+  pure (fastConcat ["arith.negf ", o0.name, maybe "" (\a0 => fastConcat [" fastmath", attrText a0]) (lookup "fastmath" props), dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.ori" [o0, o1] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["arith.ori ", o0.name, ", ", o1.name, dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.remf" [o0, o1] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["fastmath"]) props)
+  pure (fastConcat ["arith.remf ", o0.name, ", ", o1.name, maybe "" (\a0 => fastConcat [" fastmath", attrText a0]) (lookup "fastmath" props), dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.remsi" [o0, o1] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["arith.remsi ", o0.name, ", ", o1.name, dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.remui" [o0, o1] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["arith.remui ", o0.name, ", ", o1.name, dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.scaling_extf" [o0, o1] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["fastmath"]) props)
+  pure (fastConcat ["arith.scaling_extf ", o0.name, ", ", o1.name, maybe "" (\a0 => fastConcat [" fastmath", attrText a0]) (lookup "fastmath" props), dictionary "{" "}" attrs, " : ", typeText o0.type, ", ", typeText o1.type, " to ", typeText r0])
+
+printOp (MkOp "arith.scaling_truncf" [o0, o1] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["roundingmode", "fastmath"]) props)
+  pure (fastConcat ["arith.scaling_truncf ", o0.name, ", ", o1.name, maybe "" (\a0 => fastConcat [" ", roundingModeKeyword a0]) (lookup "roundingmode" props), maybe "" (\a1 => fastConcat [" fastmath", attrText a1]) (lookup "fastmath" props), dictionary "{" "}" attrs, " : ", typeText o0.type, ", ", typeText o1.type, " to ", typeText r0])
+
+printOp (MkOp "arith.shli" [o0, o1] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["overflowFlags"]) props)
+  pure (fastConcat ["arith.shli ", o0.name, ", ", o1.name, maybe "" (\a0 => fastConcat [" overflow", attrText a0]) (lookup "overflowFlags" props), dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.shrsi" [o0, o1] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["isExact"]) props)
+  pure (fastConcat ["arith.shrsi ", o0.name, ", ", o1.name, (if isJust (lookup "isExact" props) then " exact" else ""), dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.shrui" [o0, o1] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["isExact"]) props)
+  pure (fastConcat ["arith.shrui ", o0.name, ", ", o1.name, (if isJust (lookup "isExact" props) then " exact" else ""), dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.sitofp" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["arith.sitofp ", o0.name, dictionary "{" "}" attrs, " : ", typeText o0.type, " to ", typeText r0])
+
+printOp (MkOp "arith.subf" [o0, o1] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["roundingmode", "fastmath"]) props)
+  pure (fastConcat ["arith.subf ", o0.name, ", ", o1.name, maybe "" (\a0 => fastConcat [" ", roundingModeKeyword a0]) (lookup "roundingmode" props), maybe "" (\a1 => fastConcat [" fastmath", attrText a1]) (lookup "fastmath" props), dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.subi" [o0, o1] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["overflowFlags"]) props)
+  pure (fastConcat ["arith.subi ", o0.name, ", ", o1.name, maybe "" (\a0 => fastConcat [" overflow", attrText a0]) (lookup "overflowFlags" props), dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp (MkOp "arith.subui_extended" [o0, o1] props [] attrs [r0, r1]) = do
+  guard (null props)
+  pure (fastConcat ["arith.subui_extended ", o0.name, ", ", o1.name, dictionary "{" "}" attrs, " : ", typeText r0, ", ", typeText r1])
+
+printOp (MkOp "arith.truncf" [o0] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["roundingmode", "fastmath"]) props)
+  pure (fastConcat ["arith.truncf ", o0.name, maybe "" (\a0 => fastConcat [" ", roundingModeKeyword a0]) (lookup "roundingmode" props), maybe "" (\a1 => fastConcat [" fastmath", attrText a1]) (lookup "fastmath" props), dictionary "{" "}" attrs, " : ", typeText o0.type, " to ", typeText r0])
+
+printOp (MkOp "arith.trunci" [o0] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["overflowFlags"]) props)
+  pure (fastConcat ["arith.trunci ", o0.name, maybe "" (\a0 => fastConcat [" overflow", attrText a0]) (lookup "overflowFlags" props), dictionary "{" "}" attrs, " : ", typeText o0.type, " to ", typeText r0])
+
+printOp (MkOp "arith.uitofp" [o0] props [] attrs [r0]) = do
+  guard (all (\p => elem (fst p) ["nonNeg"]) props)
+  pure (fastConcat ["arith.uitofp ", o0.name, (if isJust (lookup "nonNeg" props) then " nneg" else ""), dictionary "{" "}" attrs, " : ", typeText o0.type, " to ", typeText r0])
+
+printOp (MkOp "arith.xori" [o0, o1] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["arith.xori ", o0.name, ", ", o1.name, dictionary "{" "}" attrs, " : ", typeText r0])
+
+printOp _ = Nothing
+
+-- Written in the generic form:
+-- op arith.select: its syntax is C++
+
+-- fingerprint: 3779221140-947854 2854740293-36439

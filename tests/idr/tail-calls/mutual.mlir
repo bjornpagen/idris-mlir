@@ -25,7 +25,7 @@ module attributes {idr.program} {
   idr.data @Nine {
     idr.ctor @Nine (i64, i64, i64, i64, i64, i64, i64, i64, i64)
   }
-  func.func private @a(%n: i64, %acc: i64) -> i64 attributes {no_inline} {
+  idr.func private @a(%n: i64, %acc: i64) -> i64 attributes {no_inline} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       idr.yield %acc : i64
@@ -35,13 +35,13 @@ module attributes {idr.program} {
       %add = arith.constant 1 : i64
       %m = arith.subi %n, %one : i64
       %s = arith.addi %acc, %add : i64
-      %x = func.call @b(%m, %s) : (i64, i64) -> i64
+      %x = idr.call @b(%m, %s) : (i64, i64) -> i64
       idr.yield %x : i64
     }
     }
     return %r : i64
   }
-  func.func private @b(%n: i64, %acc: i64) -> i64 attributes {no_inline} {
+  idr.func private @b(%n: i64, %acc: i64) -> i64 attributes {no_inline} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       idr.yield %acc : i64
@@ -51,13 +51,13 @@ module attributes {idr.program} {
       %add = arith.constant 2 : i64
       %m = arith.subi %n, %one : i64
       %s = arith.addi %acc, %add : i64
-      %x = func.call @c(%m, %s) : (i64, i64) -> i64
+      %x = idr.call @c(%m, %s) : (i64, i64) -> i64
       idr.yield %x : i64
     }
     }
     return %r : i64
   }
-  func.func private @c(%n: i64, %acc: i64) -> i64 attributes {no_inline} {
+  idr.func private @c(%n: i64, %acc: i64) -> i64 attributes {no_inline} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       idr.yield %acc : i64
@@ -67,13 +67,13 @@ module attributes {idr.program} {
       %add = arith.constant 3 : i64
       %m = arith.subi %n, %one : i64
       %s = arith.addi %acc, %add : i64
-      %x = func.call @a(%m, %s) : (i64, i64) -> i64
+      %x = idr.call @a(%m, %s) : (i64, i64) -> i64
       idr.yield %x : i64
     }
     }
     return %r : i64
   }
-  func.func private @spin(%n: i64, %v: !idr.data<@Nine>) -> !idr.data<@Nine> attributes {no_inline} {
+  idr.func private @spin(%n: i64, %v: !idr.data<@Nine>) -> !idr.data<@Nine> attributes {no_inline} {
     %r = idr.match_lit %n : i64 -> (!idr.data<@Nine>) {
     case 0 {
       idr.yield %v : !idr.data<@Nine>
@@ -100,13 +100,13 @@ module attributes {idr.program} {
       %g7 = arith.addi %f7, %one : i64
       %g8 = arith.addi %f8, %one : i64
       %w = idr.con @Nine::@Nine(%g0, %g1, %g2, %g3, %g4, %g5, %g6, %g7, %g8) : (i64, i64, i64, i64, i64, i64, i64, i64, i64) -> !idr.data<@Nine>
-      %x = func.call @turn(%m, %w) : (i64, !idr.data<@Nine>) -> !idr.data<@Nine>
+      %x = idr.call @turn(%m, %w) : (i64, !idr.data<@Nine>) -> !idr.data<@Nine>
       idr.yield %x : !idr.data<@Nine>
     }
     }
     return %r : !idr.data<@Nine>
   }
-  func.func private @turn(%n: i64, %v: !idr.data<@Nine>) -> !idr.data<@Nine> attributes {no_inline} {
+  idr.func private @turn(%n: i64, %v: !idr.data<@Nine>) -> !idr.data<@Nine> attributes {no_inline} {
     %r = idr.match_lit %n : i64 -> (!idr.data<@Nine>) {
     case 0 {
       idr.yield %v : !idr.data<@Nine>
@@ -133,17 +133,17 @@ module attributes {idr.program} {
       %g7 = arith.addi %f7, %one : i64
       %g8 = arith.addi %f8, %one : i64
       %w = idr.con @Nine::@Nine(%g0, %g1, %g2, %g3, %g4, %g5, %g6, %g7, %g8) : (i64, i64, i64, i64, i64, i64, i64, i64, i64) -> !idr.data<@Nine>
-      %x = func.call @spin(%m, %w) : (i64, !idr.data<@Nine>) -> !idr.data<@Nine>
+      %x = idr.call @spin(%m, %w) : (i64, !idr.data<@Nine>) -> !idr.data<@Nine>
       idr.yield %x : !idr.data<@Nine>
     }
     }
     return %r : !idr.data<@Nine>
   }
-  func.func @Prog.main(%w: !idr.world) -> (!idr.data<@Unit>, !idr.world) {
+  idr.func @Prog.main(%w: !idr.world) -> (!idr.data<@Unit>, !idr.world) {
     %nl = arith.constant 10 : i32
     %n = arith.constant 10000000 : i64
     %zero = arith.constant 0 : i64
-    %r = func.call @a(%n, %zero) : (i64, i64) -> i64
+    %r = idr.call @a(%n, %zero) : (i64, i64) -> i64
     %w1 = idr.io.put_int signed %r, %w : i64
     %w2 = idr.io.put_char %nl, %w1
     %k0 = arith.constant 0 : i64
@@ -156,7 +156,7 @@ module attributes {idr.program} {
     %k7 = arith.constant 7 : i64
     %k8 = arith.constant 8 : i64
     %v0 = idr.con @Nine::@Nine(%k0, %k1, %k2, %k3, %k4, %k5, %k6, %k7, %k8) : (i64, i64, i64, i64, i64, i64, i64, i64, i64) -> !idr.data<@Nine>
-    %v = func.call @spin(%n, %v0) : (i64, !idr.data<@Nine>) -> !idr.data<@Nine>
+    %v = idr.call @spin(%n, %v0) : (i64, !idr.data<@Nine>) -> !idr.data<@Nine>
     %first = idr.field %v[@Nine, 0] : !idr.data<@Nine> -> i64
     %last = idr.field %v[@Nine, 8] : !idr.data<@Nine> -> i64
     %w3 = idr.io.put_int signed %first, %w2 : i64

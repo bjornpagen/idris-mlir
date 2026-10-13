@@ -8,7 +8,7 @@
 // 62, and the constant 2^62 doubled all stay checked: the double may be
 // the sign bit, or was never a power of two.
 module {
-  func.func @byTwo(%k: i64, %x: i64, %w: !idr.world) -> !idr.world {
+  idr.func @byTwo(%k: i64, %x: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %two = arith.constant 2 : i64
@@ -34,7 +34,7 @@ module {
     return %r : !idr.world
   }
 
-  func.func @byShift(%k: i64, %x: i64, %w: !idr.world) -> !idr.world {
+  idr.func @byShift(%k: i64, %x: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %lim = arith.constant 61 : i64
@@ -59,7 +59,7 @@ module {
     return %r : !idr.world
   }
 
-  func.func @twice(%k: i64, %x: i64, %w: !idr.world) -> !idr.world {
+  idr.func @twice(%k: i64, %x: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %two = arith.constant 2 : i64
@@ -87,7 +87,7 @@ module {
   }
 
   // 2^62, one past the powers a double of this word can still be.
-  func.func @bounded(%k: i64, %x: i64, %w: !idr.world) -> !idr.world {
+  idr.func @bounded(%k: i64, %x: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %two = arith.constant 2 : i64
@@ -116,7 +116,7 @@ module {
     return %r : !idr.world
   }
 
-  func.func @notPower(%x: i64, %w: !idr.world) -> !idr.world {
+  idr.func @notPower(%x: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %two = arith.constant 2 : i64
@@ -133,7 +133,7 @@ module {
     return %s1 : !idr.world
   }
 
-  func.func @onlyPositive(%n: i64, %x: i64, %w: !idr.world) -> !idr.world {
+  idr.func @onlyPositive(%n: i64, %x: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %two = arith.constant 2 : i64
@@ -155,7 +155,7 @@ module {
     return %r : !idr.world
   }
 
-  func.func @overflow(%k: i64, %x: i64, %w: !idr.world) -> !idr.world {
+  idr.func @overflow(%k: i64, %x: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %two = arith.constant 2 : i64
@@ -181,7 +181,7 @@ module {
     return %r : !idr.world
   }
 
-  func.func @signBit(%x: i64, %w: !idr.world) -> !idr.world {
+  idr.func @signBit(%x: i64, %w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %two = arith.constant 2 : i64

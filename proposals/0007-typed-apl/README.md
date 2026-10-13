@@ -1,132 +1,152 @@
-# 0007: a typed array language, lowered to tensors
+# 0007: a typed array language, MLIR first
 
-**How this proposal is laid out.** This README is the proposal: the language
-a programmer writes, how it lowers, the staged plan and the decisions. Two
-companion files go deeper on one side each, and were written independently
-of it:
-- `compiler.md`: the lowering in depth (scheduling, bufferization meeting
-  the grades, counting after bufferization, sparse arrays, GPU,
-  differentiation, the performance suite and the Futhark baseline);
-- `types.md`: the type theory in depth (shapes, extents and coordinates;
-  shape arithmetic in the fork's elaborator; unification modulo the
-  theory; `rewrite` and `with`).
+**Status:** decided, 2026-10-12: the MLIR-first revision, to be
+executed as one hard cutover with no compatibility owed, right after
+`make self` is green and ahead of sharding. It replaces the earlier
+README and its two companions, `compiler.md` and `types.md`, which were
+three drafts of one design and disagreed on reductions, grades,
+constants and shapes; this file is the one design. The fork's
+`Libraries/Data/Table.idr` (a growable `Linear.Array`),
+`Core/Context/Context.idr` (`Data.IORef`) and `Libraries/Utils/Binary.idr`
+with `Core/Binary/Prims.idr` (`Data.Buffer`) are ported in the same
+change (read: their imports). Every decision below is decided; the rulings that stand behind the
+design are the owner's:
+pure array programs are tensors, rank has no ceiling, and arrays are
+redone "MLIR first", Idris's dependent types mapping onto MLIR's own
+concepts and the optimizations MLIR runs on them, not onto layers of our
+own. Claims are marked: read (the path given), measured, recalled,
+conjecture, decision. `M/` below is the pinned MLIR,
+`.toolchain/build/llvm-project/mlir/` (llvm main 7208ba24).
 
-Where a companion and this README disagree, this README decides. The first
-step of stage 0 is to reconcile them: each companion decision either joins
-this README's Decisions or is struck. It replaces the earlier
-`0004-tensors.md`, and the sources it cites are under `sources/` (topic
-"Array languages and typed array programming"), with reading notes in
-`sources/notes/array-languages/`.
+The array style is the compiler's organizing principle, not one feature
+among others. The frontend's tables (0005), the layouts of their columns
+(0008), the relations of the relational core (0010) and the kernels of
+the array interpreter (0016) are programs in this language, compiled by
+this lowering. The compiler is its own heaviest user.
 
-**Status:** proposed, 2026-10-09; replaces the earlier draft (dense array
-programs as tensors). Two rulings of the user's stand behind it: pure
-array programs are tensors ("tensors should definitely be tensors, pure
-array programs is one of the heavy hitting features of mlir and we cannot
-lose this"), and rank has no ceiling and is lowered to MLIR, not left to
-the library when it is not a literal. Every other decision is taken here,
-in its section or in Decisions, with its reason or the measurement rule
-and threshold that settles it. Claims are marked: read (the path given),
-measured, recalled, conjecture, decision. Paths under `sources/` are the
-library's, including the papers and snapshots this proposal's research
-added (their catalogue rows go to `sources/INDEX.md` with it).
-
-The language is a typed APL hosted in Idris 2. An array's shape is its
-type; a function is written on cells of a fixed shape and lifted over any
-frame; the vocabulary is APL's, J's and BQN's, curated and typed; index
-sets are types, as in Dex. The compiler reads the rank from the form of
-the shape, which the checked type states, gives every array a ranked
-tensor of that rank, and lowers the vocabulary to `tensor` and `linalg`,
-where upstream fuses, tiles, vectorizes and bufferizes it.
+**The ruling, in one sentence.** Every fact Idris proves about an array
+has exactly one image in MLIR, the one upstream already optimizes on: a
+shape is a ranked tensor type, a size fixed by the program is a static
+dimension, a typed index is an access with no guard, a linear thread of
+writes is a destination-passing chain One-Shot Bufferize puts in place,
+an unordered combine is a structured reduction, a sparse format is a
+`#sparse_tensor.encoding`. An op, type or pass of ours exists only where
+upstream has none, and each one names the upstream gap it fills (§20).
 
 ## What it changes
 
-Each move names the data that changes and the branches it deletes.
-
-- **An array's shape is its type, and its rank is the form of that type.**
-  Data: `Array : (0 s : Shape) -> Type -> Type` over `Shape = SnocList
-  Nat`, and a tensor with one dimension per component of the shape's
-  form (§3.1). Deleted: the ceiling of rank 1 on every array the program
-  does not order (today each is a memref of rank 0 or 1), the earlier
-  0007's "rank above 1 only when the rank is a literal" and its fallback
-  for any other rank.
-- **Indices are typed.** Data: `Index s`, one `Fin` per axis (§2.2).
-  Deleted: the guard of every typed access, and the entry test and the
-  second copy of each loop that `Lower/Loops.cppm` builds today to read
-  outside arrays as inputs (§3.5): linalg's precondition that dynamic
-  dimensions agree is what the shape types prove.
-- **The vocabulary is library code over a generating set.** Data: about a
-  dozen primitives the compiler knows by name (§2.5); every other
-  function, `map`, `transpose`, `outer`, `contract` and the rest, is plain
-  Idris over them. Deleted: any case in the compiler per vocabulary
-  function, so a function added to the vocabulary adds none; today's two
-  hooks (`prim__generate`, `prim__foldl`) become the generating set's.
-- **One loop representation.** Data: `idr.array.tabulate`,
-  `idr.array.fold` and `idr.array.scan` on tensors, of any rank, with no
-  world (§3.4). Deleted: `idr.array.generate` and `idr.array.fold` on
-  memrefs, the memref half of `Lower/Loops.cppm`, and the words-only
-  condition on loops.
-- **An array of records, sums or arrays is a structure of tensors.** Data:
-  one tensor per slot of the element, and a nested array of one cell shape
-  flat (§3.1). Deleted: the cell per element for those element types.
-- **A record that holds an array holds a tensor until bufferization.**
-  Data: records and sums of tensors replaced by their slots before
-  One-Shot runs (§3.8). Deleted: any need for bufferization to see
-  through our records.
-- **`Linear.Array`'s frozen array is the dense array of rank 1.** Deleted:
-  `IArray` and its loops (`ifoldl`, `imap`, `map`, `zipWith`, `sum`).
-- **Associativity is read off a combiner's ops.** Deleted: any attribute,
-  flag or proof plumbing that would license reassociation (§3.6).
-- **The interactive loop runs the compiler's own code.** Deleted: any
-  second evaluator of arrays (§2.13).
+- **Sizes are in the type, and the type is MLIR's.** Today no array of
+  the shipped library has a size in its type; the compiler re-derives the
+  relations Idris could have proved with about 3,000 lines of Presburger
+  analysis, and every dimension prints as `?` because the Idris-side
+  syntax cannot write a static one (§1). Here `Array : (0 s : Shape) ->
+  Type -> Type`, and its MLIR image is `tensor<d0 x ... x E>` with a
+  static `di` wherever the program fixes the extent (§2).
+- **A typed access has no guard, and no pass has to remove one.**
+  `idr-in-bounds` is deleted, not improved (§2, §15).
+- **Arrays are values until bufferization, and bufferization is
+  upstream's.** One-Shot Bufferize decides every in-place write, once;
+  a linear thread is a chain it puts in place by its own exact analysis;
+  `--demand-in-place` turns a remaining copy into a refusal through the
+  analysis's own failure (§8).
+- **Loops are upstream ops from the start.** The frontend writes each
+  array loop's sequential meaning in `scf` and `tensor`; a body without
+  effects is raised to `linalg`, where upstream fuses, tiles and
+  vectorizes it (§4, §5). Our own loop ops on memrefs go.
+- **Order is a fact of the representation.** A `linalg` reduction means
+  any order; an ordered fold is an `scf.for` (§6). The one-lane rule
+  that today keeps float sums in order goes.
+- **Sparse arrays and relations are the same tensors with an encoding**
+  (§9, §10), and the compiler's semiring analyses are sparse array
+  programs (§11).
 
 ## 1. What exists
 
-(read: `foreign/idr/include/idr/IdrOps.td`, "Arrays")
+The inventory of 2026-10-12, against the working tree of the cutover
+(read: the paths given; line counts measured with `wc -l`).
 
-- **Arrays are memrefs from birth, of rank 0 or 1.** `Idr_ArrayValue` is
-  "an array of rank 0 or 1 at any grade" (IdrOps.td:1579-1584); the type
-  is a builtin `memref<?xE>` or `memref<E>`, no array type of our own
-  (IdrOps.td:1791-1803). The frontend's `Ty` says the same: `ArrayT Rank
-  Ty` with `Rank = Rank0 | Rank1` (`compiler/src/IdrisMLIR/Types.idr`).
-  `idr.array.new`, `get` and `set` take one size or index per dimension
-  and the world: every array op is IO.
-- **Two loop ops, rank 1, words only.** `idr.array.generate` and
-  `idr.array.fold` (IdrOps.td:1889-1959) run their body once per index in
-  index order. The frontend emits them for `Linear.Array`'s
-  `prim__generate` and `prim__foldl`, found by name in the registry
-  (`compiler/src/IdrisMLIR/Registry/Recognized.idr`, `indexSpaces`),
-  only when every element and accumulator is a machine word
-  (`compiler/src/IdrisMLIR/Frontend/Translate/Terms.idr`, `arrayLoop`).
-- **Lowering is to `linalg.generic` on memrefs**
-  (`foreign/idr/lib/Lower/Loops.cppm`): a generate is a parallel generic
-  from element 1 on, a fold a reduction into a frame slot, a generate of a
-  fold one generic of two dimensions. A generate that reads outside arrays
-  at its index gets a test on entry that every one is long enough, and a
-  second copy of the generic that reads them as inputs.
-- **`idr-vectorize`, `idr-narrow-lanes`, `idr-in-bounds`** (read:
-  `foreign/idr/include/idr/Passes.td`): lanes along parallel dimensions,
-  one lane along a reduction so a float sums in program order, 32-bit
-  versions under a bound, guards erased by Presburger proofs.
-- **The frontend instantiates by form.** A runtime argument whose value
-  the rest of a type reduces on keys the instance by its skeleton, "the
-  constructors it is built with as written, everything else erased"
-  (read: `compiler/src/IdrisMLIR/Frontend/Translate/Instances.idr`,
-  `classify`, `neededShape`; `Closed.idr`, `skeleton`); a recursion that
-  deepens a skeleton is refused as `unsupported (polymorphism)`
-  (`growing`), and a definition gets at most 4096 instances
-  (`instanceBudget`). An erased argument keys nothing today.
-- **The contract's dialects** are idr, builtin, arith, func, math, memref
-  and ub, each with Idris builders generated from its ODS (read:
-  `tools/dialects.sh`).
-- **Static normalization** (0003): the frontend normalizes the static part
-  of the program on the type checker's interpreter; closed calls of total
-  code become values, and partial code is never normalized. `idr-eval` is
-  out of the simplify round; 0003's N2 deletes the pass.
-- **User code may not use `believe_me`**: it is `unsupported (escape
-  hatch)` (read: `tests/reject/escape-hatch-believe-me`).
+**The library.** `libs/mlir-linear/Linear/Array.idr` (289 lines) gives
+`Array a = MkArray Int (ArrayData a)` (linear, the size a runtime `Int`
+beside a backing whose length is the capacity) and `IArray a = MkIArray
+(ArrayData a)` (frozen). Neither has a size index. Every read calls
+`prim__index i n`, a `%foreign "scheme:..."` bounds check, and the two
+primitives the library declares, `prim__arraySize` and `prim__index`,
+are Scheme specs kept so that `bench/` can run these programs on Chez
+(read: `Array.idr:35-49, 94-102, 157, 165`). Base's `Data.IOArray` is a
+record of `maxSize : Int` and `ArrayData (Maybe elem)` that checks every
+index in Idris before calling the primitive. `Data.Vect` compiles as a
+cons list with `n` erased, and `Fin n` becomes `!idr.nat`, its bound
+gone (read: `Translate/Types.idr:233`).
+
+**The frontend** (about 320 lines about arrays, estimated from the
+ranges). `Registry/Primitives.idr:412-503` maps `ArrayData` to a rank-1
+array, IORef's `Mut` to rank 0, `Buffer` to rank 1 of bytes, and the
+library's two primitives by their Scheme spec strings, byte for byte.
+`Registry/Recognized.idr:87-110` finds `prim__generate` and
+`prim__foldl` by name. `Translate/Terms.idr:940-1021` emits the region
+loop only when every type is a machine word, and calls the library
+otherwise. `Types.idr:78-94` has `data Rank = Rank0 | Rank1`, and
+`MLIR.idr:45` prints a memref of rank `n` as `"?x"` repeated: no
+static dimension can be written. `Emit/Operations.idr:180-212` puts an
+`idr.check.in_bounds` against `memref.dim` on every rank-1 `get` and
+`set`.
+
+**The dialect.** No array type of ours: an array is a builtin
+`memref<?xE>` or `memref<E>`, and the idr types implement
+`MemRefElementTypeInterface` (read: `IdrArrayOps.td:15-27`,
+`IdrTypes.td:17-23`). The ops are `idr.array.new`, `get`, `set`, and the
+loops `idr.array.generate` (element 0 is the fill, the body runs from 1)
+and `idr.array.fold`, rank 1, words only, threading the world
+(`IdrArrayOps.td`, 185 lines; `lib/IR/OpsArrays.cpp`, 295). `new` and
+`generate` implement `ReifyRankedShapedTypeOpInterface`, so upstream's
+resolve-dims patterns fold `memref.dim`. Every array op reads and writes
+the one global `IOResource` (read: `IR/Effects.cpp:54-61`).
+
+**The passes.**
+
+| piece | lines | what it does |
+|---|---:|---|
+| `Transforms/InBounds/*` | 3057 | proves guards away with `IntegerPolyhedron` systems: paths, ranges, induction over `scf.while`, the length-size relation through record fields |
+| `Conversion/ArrayLoops.cpp`, `ArrayLoopReads.cpp` | 431 | generate to a parallel `linalg.generic` from element 1, fold to a reduction into a 0-d alloca, reads at the loop index to inputs behind an entry test and a second copy of the loop |
+| `Conversion/Arrays.cpp`, `ArrayView.cpp`, `Buffers.cpp` | 380 | `new` to the runtime's allocator and an `scf.for` fill, get and set to loads and stores or slot GEPs, the descriptor built by hand over the cell |
+| `Transforms/Vectorize` | 217 | a driver over `scf::tileUsingSCF`, `peelForLoopAndSimplifyBounds` and `linalg::vectorize`, with `vectorizeNDExtract=false` |
+| `Narrow/{Lanes,Copy,Widths}.cpp` | 442 | versions a vectorized loop under a bound it searches for, then upstream's `arith-int-range-narrowing` and `ValueBoundsConstraintSet` |
+| `Expect` (array properties) | 360 | `PureArrayLoops`, `InBounds`, `Vectorized`, `NarrowedLanes`, `MovesOut` |
+| `Canon/MoveOut.cpp`, `Verify/Knots.cpp` | 187 | a get that moves a counted element out ahead of a set; no array reaches itself |
+
+**The runtime.** `runtime/Alloc/Arrays.cpp` (30 lines) allocates a
+cell, a header and a `uint64_t length` then the elements
+(`idris_rt.h:160-163`); `Io/Buffer.cpp` (36) is the buffer's side. The
+descriptor's allocated pointer is the cell and its aligned pointer the
+first element (read: `Conversion/ArrayView.cpp`).
+
+**The tests.** `tests/programs/arrays`: 40 tests, 2766 lines.
+`tests/idr`: 36 files that touch `idr.array` or `memref<`, 5456 lines,
+of which `in-bounds/` is 26 files and 2694 lines. Bench programs on
+`Linear.Array`: fannkuch-linear, qsort, spectral-norm-linear, unionfind,
+k-nucleotide; on `Data.IOArray`: fannkuch-redux; on `Data.Buffer`:
+fasta, fasta-redux, mandelbrot-pbm, reverse-complement, k-nucleotide.
+
+**Where a fact Idris could prove is dropped or re-derived.**
+1. Never stated: `Array a` has no size, so a read's index is an `Int`
+   checked at run time, and `InBounds/Relation.cpp` exists to relate the
+   separate size field to the backing.
+2. `Fin n` loses its bound, `Vect n` its length.
+3. Every dimension is dynamic, even a literal one: static shapes never
+   reach linalg or the vectorizer.
+4. Base's `IOArray` checks an index in Idris, Emit adds the access's own
+   guard, and InBounds re-proves the second from the first through the
+   record's fields.
+5. The length is held twice: the SSA length component beside the cell
+   and the cell header's `length` (`Arrays.cpp:1-4, 28`).
+6. "Frozen means immutable" is not in the IR: `IArray` is the same
+   memref, and every read writes the global IO resource, so no CSE,
+   hoisting or alias reasoning applies until lowering.
+7. Linearity is not used: updates are in place because every op is IO
+   on the world (`Array.idr:118-120`).
 
 Measured (`bench/runs/2026-10-07-f5a4dff9-darwin-arm64/results.md`, Apple
-M2 Max, best of 5):
+M2 Max, best of 5; before the cutover):
 
 | benchmark | this compiler | clang -O2 | clang / this |
 |---|---:|---:|---:|
@@ -136,26 +156,73 @@ M2 Max, best of 5):
 | nbody 50000000 | 1.655 s | 1.924 s | 1.16x |
 | mandelbrot 2000 | 0.229 s | 0.231 s | 1.01x |
 
-Missing: rank above 1, array types of anything but words, fusion,
-tiling for the cache, in-place decisions over a whole function,
-parallelism, and any notation for array programs beyond rank-1 loops.
+**What survives** (read, each above): builtin memref and tensor with idr
+element types and no array type of ours; `ReifyRankedShapedTypeOpInterface`
+with upstream's resolve-dims; loops declared through
+`RegionBranchOpInterface`; guards as SSA values, a proof being the
+guard's absence; the Idris-side dialect generated from ODS; float
+reductions in program order; `scf::upliftWhileToForLoop`; the Expect
+property checks; the 30-line allocator; `MoveOut` and `Knots`, since
+counted elements have no upstream counterpart; NarrowLanes' loop
+versioning, since upstream has no versioning pass (recalled).
 
-## 2. The language
+## 2. The correspondence
 
-`libs/mlir-array`, an in-house package in plain Idris over base's
-primitives and `libs/mlir-linear`, as `mlir-linear` is over base's
-(**decision**, D1). Read as written, every definition is the meaning;
-the compiler knows a few by name and lowers them faster with the same
-meaning (§2.5, §3.3). Its modules: `Array` (the types, the generating set,
-the vocabulary, the interfaces), `Array.IndexSet` (§2.7), `Array.Shape`
-(shape lemmas, views, the solver of §2.9), `Array.Ragged` (§2.8),
-`Array.Display` (§2.13).
+One row per thing Idris proves or the program states. The middle column
+is its one image in MLIR; the last is what checks or uses it, upstream's
+mechanism wherever there is one. This table is the design; every later
+section is a row worked out.
 
-The examples of this section type-check (measured: the pinned Idris 2,
-0.8.0-1c630e67c, against a mock of this library with the same types;
-stage 1 commits them as tests).
+| Idris | MLIR | checked or used by |
+|---|---|---|
+| `Array s a`, the rank of `s`'s form | `tensor<d0 x ... x E>`, one dimension per `:<` of the form | the tensor type's verifier; linalg's indexing maps |
+| an extent the program fixes (a literal, or one specialization or normalization makes constant) | a static dimension `N` | `tensor.dim` folds to the constant; static vectorization; `tensor.cast` folding (`M/lib/Dialect/Tensor/IR/TensorOps.cpp:947-1003`) |
+| an extent at quantity 0 | a dynamic dimension `?`, read back with `tensor.dim` from the value | `DimOfDestStyleOp`, `FoldEmptyTensorWithDimOp` and `reifyResultShapes` fold it to the value that made it (`TensorOps.cpp:1024, 1178`) |
+| an extent at quantity many (`Extents s`, `{n : Nat}`) | an `index` value, the operand of `tensor.empty` and `linalg` destinations | `ValueBoundsOpInterface` relates it to every `tensor.dim` of the arrays built from it (`M/include/mlir/Interfaces/ValueBoundsOpInterface.h:281-292`) |
+| two arrays indexed by one size variable | their dynamic dimensions tied to one `index` value by `idr.tie_shape` at the function's entry | `ValueBoundsConstraintSet::areEqual` across calls, through the op's `populateBoundsForShapedValueDim` (§4.3) |
+| `n + m`, `n * m` in a shape | `arith.addi`, `arith.muli` with `nsw nuw` on `index`, or `affine.apply`; `n * m` kept as two dimensions where the type has two | value bounds' arith and affine models; never the `index` dialect, which has no model (`M/lib/Dialect/Index/IR/`) |
+| `Index s`, a coordinate of an array of shape `s` | an `index` per axis at the access; inside a structured op, `linalg.index` | no guard; `linalg.index` carries `0 <= i < dim` (`M/lib/Dialect/Linalg/IR/ValueBoundsOpInterfaceImpl.cpp:20-48`); transfers get `in_bounds = [true]` |
+| a bare `Fin n` with no array | a natural, narrowed where proved, as every `Nat`-shaped value | `idr-narrow` |
+| `x !! i` | `tensor.extract %x[%i...]` | the load's in-bounds precondition, which `memref.load` lowering already assumes (`inbounds` GEP, `MemRefToLLVM.cpp:40-53`) |
+| `update x i v`, a write | `tensor.insert %v into %x[%i...]` | One-Shot Bufferize's in-place analysis |
+| a linear thread of writes (`LArray s a` at quantity 1) | `!idr.lin<tensor<...>>`, unwrapped by `idr.lin.use` into a destination-passing chain | One-Shot's analysis puts it in place; under `--demand-in-place`, `mustBufferizeInPlace` makes a copy a failure (§8) |
+| an element type that is a word or float | the builtin element type | vectorization (`VectorElementTypeInterface` on builtin types) |
+| an element type of ours (a box, a string, a natural) | `tensor<?x!idr.T>`, legal since a tensor takes any non-builtin element (`M/lib/IR/BuiltinTypes.cpp:435`) | tiling, fusion and bufferization, through `MemRefElementTypeInterface`; never vectorized (§4.5) |
+| a record element | one tensor per field, by one-to-N type conversion | multi-result `linalg.generic`; the one representation of columns (§4.5, 0008) |
+| an array of arrays of one cell shape | one tensor, the dimensions concatenated | `expand_shape`, `collapse_shape` |
+| a shape whose rank no analysis fixes (a recursion that builds it deeper) | nothing: `unsupported (polymorphism)` naming the site | the frontend's growing-skeleton refusal, which exists (read: `Translate/Instances.idr`, `growing`) |
+| a combine whose order is unobservable | a `linalg` reduction iterator | upstream's tiling, split-reduction and vectorization, which reassociate it |
+| a combine whose order is observable | `scf.for` with `iter_args` | nothing reorders a loop-carried value |
+| a body that can crash, diverge or touch the world | `scf.for` | `MemoryEffectOpInterface` on its ops, read by the raising (§5) |
+| a pure body | `linalg.generic` (named op where it specializes) | elementwise fusion, tile-and-fuse, vectorization |
+| `SArray fmt s a` | `tensor<..., #sparse_tensor.encoding<{map = ...}>>` | the sparsifier, codegen mode (§9) |
+| a relation | an `i8` sparse tensor with `explicitVal = 1` | co-iteration (§10) |
+| a semiring element | `i8` (or wider), the semiring's zero encoded as 0 | `sparse_tensor.binary`, `unary`, `reduce` regions (§9) |
+| a literal array, a normalized result | `arith.constant dense<...>`, bufferized to an immortal `memref.global` | constant folding; copy on write (§12) |
+| an array a world orders (`IOArray`, `IORef`, `Buffer`) | `memref`, threaded by the world, with `MemRead`/`MemWrite` on that memref | upstream's alias and effect reasoning (§13) |
 
-### 2.1 Arrays, shapes, frames and cells
+Two rows are deliberately not here. **Erased does not mean constant**:
+an extent at quantity 0 is a dynamic dimension unless the program fixes
+it, and its runtime value is the tensor's own, read with `tensor.dim`,
+never assumed. **Indexed vectors do not imply contiguous storage**:
+`Vect n a` stays a list; contiguity is `Array`'s, by the library's
+construction.
+
+## 3. The language
+
+`libs/mlir-array`, in plain Idris over base's primitives and
+`mlir-linear`, a trusted library as `mlir-linear` is (**decision**,
+D1). Read as written, every definition is the meaning; the
+compiler knows a generating set by name and lowers it to upstream ops
+with the same meaning (§4). Modules: `Array` (types, generating set,
+vocabulary, interfaces), `Array.IndexSet`, `Array.Shape` (lemmas, views,
+the solver of §3.7), `Array.Ragged`, `Array.Sparse` (§9), `Array.Display`.
+
+The examples type-check against a mock of this library with the same
+types (measured: the pinned Idris 2, 0.8.0-1c630e67c, by the earlier
+draft's research probes; stage 1 commits them as tests).
+
+### 3.1 Arrays, shapes, frames and cells
 
 ```idris
 Shape : Type
@@ -169,45 +236,33 @@ Vector : Nat -> Type -> Type      -- Vector n = Array [<n]
 Matrix : Nat -> Nat -> Type -> Type
 ```
 
-An array is a shape and an element at every index of it, laid out
-row-major: APL's model (read:
-`sources/papers/iverson-1987-dictionary-of-apl/APLDictionary1.htm`, II.A;
-`sources/docs/bqn/doc/array.md`, "Cells"). Its rank is the length of its
-shape; a rank-0 array is a scalar. Nothing in the model bounds the rank,
-and nothing in this design does.
+An array is a shape and an element at every index of it, row-major:
+APL's model (read: `sources/papers/iverson-1987-dictionary-of-apl/APLDictionary1.htm`,
+II.A). Its rank is the length of its shape. A function from cells of
+shape `c` to cells of shape `d`, applied to an array of shape `f ++ c`,
+applies to each cell, and `f` is the frame (read:
+`sources/papers/bernecky-1983-satn45-rank-operator/satn45a.htm`).
 
-**Frames and cells.** A function from arrays of shape `c` to arrays of
-shape `d`, applied to an array of shape `f ++ c`, applies to each *cell*
-of shape `c`; the leading axes `f` are the *frame*, and the results
-assemble into an array of shape `f ++ d` (read:
-`sources/papers/bernecky-1983-satn45-rank-operator/satn45a.htm`, "If a
-function has rank r, then the subarrays along the last r axes of its
-arguments are the cells"; `sources/docs/bqn/doc/rank.md`, "Frame and
-Cells").
-
-**decision** Shapes are snoc lists, outer axis first (D2). Base's
-`SnocList.(++)` recurses on its right argument (read:
+**decision** (D2) Shapes are snoc lists, outer axis first.
+Base's `SnocList.(++)` recurses on its right argument (read:
 `third_party/Idris2/libs/prelude/Prelude/Types.idr:424-427`), so `f ++
 [<n]` reduces to `f :< n`, and unification finds a frame from the
-argument alone: a function of type `Array (f :< n) a -> Array f b`
-applied to `Array [<3, 4, 5] Int` solves `f = [<3, 4]` (measured: the
-research probes `Probe4`, which passes, and `Probe5`, its cons-list twin,
-which fails with "Can't solve constraint between: [3, 4, 5] and ?s ++
-[?n]"). The cell is what a function's type states; the frame is what
-unification finds: Remora's division, "frames are computed, cells are
-declared" (read: `sources/papers/slepak-2018-constraint/paper.pdf`, §3),
-done by Idris's own unifier.
+argument alone: `Array (f :< n) a -> Array f b` applied to `Array [<3, 4,
+5] Int` solves `f = [<3, 4]` (measured; the cons-list twin fails with
+"Can't solve constraint between: [3, 4, 5] and ?s ++ [?n]"). The cell is
+what a function's type states, the frame what unification finds:
+Remora's division (read: `sources/papers/slepak-2018-constraint/paper.pdf`,
+§3), done by Idris's own unifier.
 
-**decision** A primitive acts on its cells: one whose type takes `Array
-(f :< n) a` acts on the trailing axis, and the frame `f` is iterated (D3).
-That is the rank operator's own definition, so "a primitive acts on its
-cells" and "the rank operator applies to cells" are one rule. The leading
-axis is reached through `transpose`, which costs nothing (§3.5).
+**decision** (D3) A primitive acts on its trailing cells, and
+the frame is iterated; the leading axis is reached through `transpose`,
+which is an indexing map and costs nothing. Agreement between shapes is
+prefix agreement (§3.4).
 
-### 2.2 Indices, extents and the pointful style
+### 3.2 Indices and extents
 
 ```idris
-namespace Extents                 -- a shape at runtime
+namespace Extents                 -- a shape at run time
   data Extents : Shape -> Type where
     Lin  : Extents [<]
     (:<) : Extents s -> (n : Nat) -> Extents (s :< n)
@@ -222,129 +277,52 @@ tabulate : Extents s -> (Index s -> a) -> Array s a
 (!!)     : Array s a -> Index s -> a          -- infixl 10
 ```
 
-`Extents s` is a singleton: its runtime sizes are its index's, so a
-value of it is the shape at runtime and the type says so. `Index s` holds
-a `Fin` per axis, so every index is within its array by type. Both use the
-snoc-list syntax, in namespaces of their own (two `Lin` in one namespace
-collide; measured), so one spelling serves the type, the extents and the
-pattern:
-
-```idris
-m : Matrix 3 4 Double
-m = tabulate [<3, 4] (\[<i, j] => cast (finToNat i * 4 + finToNat j))
-```
-
-`[<3, 4]` is the shape in the type and the extents in the term; `\[<i,
-j] =>` binds the index. A match on extents binds the sizes at runtime:
-`case shape x of e :< n => ...` gives `n`, equal to the index by type
-(the library's `reverse` is written so, to call `Data.Fin.complement`).
-
-**Indexing is total.** `(!!)` takes an `Index s`, so it has no runtime
-check: the README's promise "no bounds check" (read: `README.md`), kept
-by type. An index computed from integers goes through `(!?) : Array s a
--> SnocList Integer -> Maybe a`, `x !? [<2, 7]`, which is `Nothing`
-outside the array: the test is the program's, a comparison, not a crash
-(measured: the literal resolves to the integers). `!` alone is Idris's
-bang notation and reserved (read:
-`third_party/Idris2/src/Parser/Lexer/Source.idr:244-247`), and the
-Prelude's `*` is `infixl 9` (read:
-`third_party/Idris2/libs/prelude/Prelude/Ops.idr:6`), so indexing
-is `!!` at 10: `a !! [<i, p] * b !! [<p, j]` reads as two reads
-multiplied (measured: at 9 it parsed as `((a !! _) * b) !! _`).
-
-**Pointful and point-free are one program.** Dex's matrix product, `for
-i j. sum (for k. x.i.k * y.k.j)` (read:
-`sources/papers/paszke-2021-dex/main.tex:320-343`), is
+`Extents s` is a singleton: its sizes are its index's, so a value of it
+is the shape at run time. `Index s` holds a `Fin` per axis, so every
+index is within its array by type, and `(!!)` has no runtime check. An
+index computed from integers goes through `(!?) : Array s a -> SnocList
+Integer -> Maybe a`, whose test is the program's comparison, not a
+guard. `!` alone is Idris's bang notation, and the Prelude's `*` is
+`infixl 9` (read: `Parser/Lexer/Source.idr:244-247`,
+`Prelude/Ops.idr:6`), so indexing is `!!` at 10: `a !! [<i, p] * b !!
+[<p, j]` is two reads multiplied (measured).
 
 ```idris
 matmul : {m, k, n : Nat} -> Matrix m k Double -> Matrix k n Double -> Matrix m n Double
 matmul a b = tabulate [<m, n] (\[<i, j] => sum (tabulate [<k] (\[<p] => a !! [<i, p] * b !! [<p, j])))
 ```
 
-and its point-free twin is `contract (+) 0 (*) a (transpose b)` (§2.5).
-Both lower to one structured op whose reads are indexing maps (§3.5):
-a pointful body's affine reads are a point-free op's maps, which is where
-the two styles meet (read: `sources/docs/mlir/docs/Dialects/Linalg/_index.md`,
-Properties 2 and 4). `{m, k, n : Nat}` binds the sizes at quantity many,
-so `[<m, n]` is built from them; a function whose sizes are erased reads
-them off its arguments with `shape`.
+Dex's product, `for i j. sum (for k. x.i.k * y.k.j)` (read:
+`sources/papers/paszke-2021-dex/main.tex:320-343`). Its point-free twin
+is `contract (+) 0 (*) a (transpose b)`; both become one `linalg`
+contraction whose reads are indexing maps (§4.2). `{m, k, n : Nat}`
+binds the sizes at quantity many, so they are `index` values; a function
+whose sizes are erased reads them off its arguments with `shape`, which
+is `tensor.dim`.
 
-### 2.3 Arithmetic and the interfaces
+### 3.3 Arithmetic and the interfaces
 
-**decision** Arrays are `Num`, `Neg`, `Fractional` and `Applicative` at
-one shape, with the extents found by search (D5):
+**decision** (D5) Arrays are `Num`, `Neg`, `Fractional` and
+`Applicative` at one shape, the extents found by search:
 
 ```idris
 %hint arrayNum : Num a => {auto ext : Extents s} -> Num (Array s a)
 ```
 
-`(+)` and `(*)` are elementwise at one shape, and a literal is the
-constant array of the shape the context expects, whose extents search
-builds from the constructors when the shape is literal, or takes from
-an `Extents s` in scope. So `2 * m + 1` is a matrix, `printLn (1 + 2)`
-still means what it meant, and a mismatch of shapes is a type error
-(measured, all three). In code polymorphic in its shape, a literal needs
-the shape: `let ext = shape x in x * 2`, or `map (* 2) x`, which needs
-none; without either, search reports "Can't find an implementation for
-Num (Array s Int)" (measured).
+`2 * m + 1` is a matrix, `printLn (1 + 2)` still means what it meant, and
+a mismatch of shapes is a type error (measured). Overloading across
+shapes under the Prelude's names makes `printLn (1 + 2)` ambiguous in
+every module that imports the library (measured), so different shapes
+meet by a named function (§3.4). `Functor`, `Foldable`, `Traversable`,
+`Zippable` and `Show` are base's; **decision** the array's `foldMap` is
+the left fold in index order, so `sum x` adds as `reduce` does (§6),
+where the method's default, a right fold, would add a float array
+backwards (read: `Prelude/Interfaces.idr:273-315`). Idiom brackets apply
+any function elementwise: `[| min m 10 |]`. **decision** (D9)
+names, not glyphs: a glyph gives APL's look without its grammar, and two
+spellings is two names for one thing in every message.
 
-The rejected alternative is overloading `(+)` across shapes under the
-Prelude's names, with array literals: it makes `printLn (1 + 2)` an
-"Ambiguous elaboration" in every module that imports the library
-(measured: both with an array `fromInteger` beside the operators, and
-with a `Num` instance for scalars only). Different shapes meet through
-prefix agreement, named (§2.4).
-
-The rest of the interfaces are base's: `Functor` (`map`, `<$>`: APL's
-each), `Foldable` (`sum`, `foldr`, `all`, `elem`: every element in
-row-major order, APL's `+/,`), `Traversable`, `Zippable` (`zipWith`,
-`unzip`; read: `third_party/Idris2/libs/base/Data/Zippable.idr`), and
-`Show`. The Prelude's `sum` is `foldMap` over the additive monoid, and
-`foldMap` is a method of `Foldable` (read:
-`third_party/Idris2/libs/prelude/Prelude/Interfaces.idr:273-315, 408-409`),
-so **decision** the array's instance defines `foldMap` as the left fold
-in index order: `sum x` adds as `reduce` does (§2.6), where the method's
-default, a right fold, would add a float array backwards.
-
-**Idiom brackets** apply any function elementwise:
-`[| min m 10 |]` (measured); they desugar to `pure` and `<*>`, and a
-namespace may supply its own (read: `third_party/Idris2/src/Idris/Desugar.idr:269-282`).
-`Eq` compares whole arrays; elementwise comparison is `[| x == y |]`.
-
-**decision** Names, not glyphs (D9). Idris accepts any character above
-U+00A0 in an identifier (read:
-`third_party/Idris2/src/Parser/Lexer/Common.idr:73-81`), so `⌽ = reverse`
-is legal Idris (measured), and a user may write it. The library ships no
-glyph module: operators are infix and binary in Idris, so a glyph gives
-APL's look without its grammar (`+⌿` would lex as one operator token),
-and two spellings of every primitive is two names for one thing in every
-message and document. BQN's own author lists "glyphs are hard to type"
-among its problems (read: `sources/docs/bqn/commentary/problems.md`).
-
-**The operators**, all the library defines:
-
-| operator | meaning | fixity |
-|---|---|---|
-| `x !! i` | the element at a typed index | `infixl 10` |
-| `x !? [<i, j]` | the element at integers, `Maybe` | `infixl 10` |
-| `t !@ ix` | the element of a table at an index value (§2.7) | `infixl 10` |
-| `x ++ y` | catenation along the trailing axis | the Prelude's `infixr 7` |
-| `+ - * /`, `negate` | `Num`, `Neg`, `Fractional` at one shape | the Prelude's |
-
-Everything else is a name. Fixity in Idris belongs to the operator's
-name, so `++` keeps the Prelude's, and the reads bind tighter than
-arithmetic (`a !! i * b !! j`).
-
-**Literals and display.** `vector : Vect n a -> Vector n a` and `matrix :
-Vect m (Vect n a) -> Matrix m n a` take Idris's list literals, the
-lengths giving the shape; `nested : Nested s a -> Array s a` does any
-rank. **decision** `show` prints that literal syntax, so a shown array
-reads back; `display` (`Array.Display`) prints the aligned grid, a blank
-line between planes, which the interactive loop shows. The library does
-not re-export `Data.Vect`: list literals in a comprehension became
-ambiguous between `List` and `Vect` when it did (measured).
-
-### 2.4 The rank operator and agreement
+### 3.4 The rank operator and agreement
 
 ```idris
 namespace Cell                    -- a cell's form, sizes left to unification
@@ -352,194 +330,75 @@ namespace Cell                    -- a cell's form, sizes left to unification
     Lin  : Cell [<]
     (:<) : Cell s -> (0 n : Nat) -> Cell (s :< n)
 
-nest  : Cell c -> Array (f ++ c) a -> Array f (Array c a)     -- BQN <⎉k
-merge : Extents c -> Array f (Array c a) -> Array (f ++ c) a  -- BQN >
+nest  : Cell c -> Array (f ++ c) a -> Array f (Array c a)
+merge : Extents c -> Array f (Array c a) -> Array (f ++ c) a
 
 over  : Cell c -> {auto calc : Extents c -> Extents d}
      -> (Array c a -> Array d b) -> Array (f ++ c) a -> Array (f ++ d) b
-over c g x = merge (calc (cellExtents c x)) (map g (nest c x))   -- the trailing c of shape x
+over c g x = merge (calc (cellExtents c x)) (map g (nest c x))
 ```
 
-`over [<_] f x` applies `f` to every rank-1 cell of `x`, the frame
-inferred (measured: `over [<_] reverse`, `over [<_] softmax1` at any
-rank). The cell is stated as a pattern because a function polymorphic in
-its argument's shape leaves the split of `f ++ c` ambiguous (measured:
-the research probe `Probe3`), Remora's rule that inference only
-instantiates (read: `sources/papers/slepak-2020-dissertation/Dissertation.pdf`,
-ch. 6). A cell pattern replaces APL's signed rank and BQN's "negative
-zero" problem (read: `sources/docs/bqn/commentary/problems.md`, "Rank/Depth
-negative zero"): a typed operator takes the cell's form, not a number.
+Rank is merge after each after nest, BQN's identity (read:
+`sources/docs/bqn/doc/rank.md`). **decision** (D6) the empty
+frame is settled by a shape calculator, a value `Extents c -> Extents
+d` that search finds in the common cases (measured), never by running
+the function on a cell of fills (read:
+`sources/papers/hui-1995-rank-uniformity/rank1.htm`, §2). A nested array
+of one cell shape is the flat tensor (§2), so nesting costs nothing.
 
-**The definition is BQN's identity.** `F⎉k x ←→ >F¨<⎉k x` (read:
-`sources/docs/bqn/doc/rank.md`): rank is merge after each after nest. In
-a typed language each piece has a type, and only `merge` needs to know
-the result cell's extents, because an empty frame has no cell to read
-them from.
+Different shapes meet by prefix agreement: one shape is a prefix of the
+other, and the shorter array's elements are reused along the longer's
+trailing axes (read: `sources/docs/j/help/dictionary/dictb.htm`;
+`sources/docs/bqn/doc/leading.md`). The principal frame is read off
+evidence, never computed from lengths (measured: the probe that compares
+lengths gets stuck). In MLIR the reuse is an indexing map that drops the
+trailing dimensions, so `agree (-) m rowMeans` is one generic with a
+broadcasting map and nothing materialized (read:
+`sources/docs/mlir/docs/Dialects/Linalg/_index.md`, Property 2).
+**decision** no NumPy broadcasting and no size-1 stretching: a second
+agreement rule that consults runtime sizes.
 
-**decision** The empty frame is settled by a shape calculator, not by
-running the function (D6). APL takes the empty vector as the result
-cell's shape by convention (read: `satn45a.htm`, "By convention, if the
-frame is empty"); J applies the function "to a cell of fills" (read:
-`sources/docs/j/help/dictionary/dictb.htm`); BQN may try a cell of fills
-and otherwise assumes `⟨⟩`, and lists "empty arrays lose type
-information" as its first problem (read: `sources/docs/bqn/doc/fill.md`;
-`commentary/problems.md`). Hui's uniform functions are the answer: a
-function is uniform when "there is a shape calculator vs ... such that $v
-y ↔ vs $y" (read: `sources/papers/hui-1995-rank-uniformity/rank1.htm`,
-§2). Here the calculator is a value, `Extents c -> Extents d`, and search
-finds it in the common cases: the identity when `d = c`, a literal axis
-added (`Extents [<n] -> Extents [<n, 2]`), a literal cell (measured, all
-three). Where search cannot build it (cells that take sizes from two
-arguments, as a matrix product's do), the program either passes it or
-keeps the frame of results nested:
+### 3.5 The vocabulary
 
-```idris
-batchedAny : Array (f :< m :< k) Double -> Array (f :< k :< n) Double
-          -> Array f (Matrix m n Double)
-batchedAny a b = zipWith matmul' (nest [<_, _] a) (nest [<_, _] b)
-```
+The generating set is the only set of functions the compiler knows by
+name (**decision**, D7); everything else is library code over
+it, and its lowering is what its definition becomes. §4 gives each its
+upstream image.
 
-A nested array of one cell shape is the flat array in memory (§3.1), so
-keeping it nested costs nothing, and its cells' extents are needed only
-by a `merge`. A search that runs before the argument fixes a size can bind
-it wrongly, and the result is a type error, not a miscompile (measured:
-a cell function that ignores its argument; annotate the argument).
-
-**Agreement.** Different shapes meet by prefix agreement: one shape must
-be a prefix of the other, and the shorter array's elements are reused
-along the longer's trailing axes (read: `dictb.htm`, "one frame must be a
-prefix of the other"; `sources/docs/bqn/doc/leading.md`, "Leading axis
-agreement"). The principal frame is one of the two, read off the
-evidence, never computed from lengths (read:
-`sources/papers/slepak-2019-semantics/formalism.tex`, the prefix
-lattice; measured: the research probe `Probe9` infers it, `Probe8`, which
-compares lengths, gets stuck). The evidence is a runtime value, because
-`agree` takes the result's extents from the longer argument and must
-know which it is; its form is the shapes' forms, so in an instance of
-known form it is a constant (§3.2).
-
-```idris
-agree : {auto ok : Agree s t} -> (a -> b -> c) -> Array s a -> Array t b -> Array (principal ok) c
-over2 : Cell c1 -> Cell c2 -> {auto ok : Agree f1 f2} -> {auto calc : ...}
-     -> (Array c1 a -> Array c2 b -> Array d e)
-     -> Array (f1 ++ c1) a -> Array (f2 ++ c2) b -> Array (principal ok ++ d) e
-```
-
-`agree (-) m rowMeans` subtracts each row's mean along its row; `over2
-[<_, _] [<_, _] matmul'` multiplies a stack of matrices by a stack (or by
-one matrix: an empty frame agrees with every frame, which is APL's scalar
-extension); a matrix-vector product is `over2 [<_] [<_] dot m v`, frames
-`[<3]` and `[<]` (measured, all). **decision** No trailing (NumPy)
-broadcasting and no size-1 stretching (D3): it is a second agreement rule
-whose meaning depends on runtime sizes (read:
-`sources/docs/mlir/docs/Traits/Broadcastable.md`), where prefix agreement
-never consults a size.
-
-### 2.5 The vocabulary
-
-`f`, `g` are frames, `s`, `t` shapes, `n`, `m`, `k` sizes. The first table
-is the generating set, the only functions the compiler knows by name
-(D7); the second is library code over it, whose lowering is what its
-definition becomes (§3).
-The glyph columns give each primitive's form on the trailing axis, where
-J's and BQN's own act on the leading one and reach the last through rank.
-
-| Idris | type | APL · J · BQN | lowers to |
-|---|---|---|---|
-| `shape` | `Array s a -> Extents s` | `⍴` · `$` · `≢` | `tensor.dim` per component |
-| `tabulate` | `Extents s -> (Index s -> a) -> Array s a` | `f¨⍳` · `f"0 i.` · `𝔽¨↕` | `idr.array.tabulate` |
-| `(!!)` | `Array s a -> Index s -> a` | `⌷` · `{` · `⊑` | `tensor.extract`; an input in a loop (§3.5) |
-| `foldLast` | `(b -> a -> b) -> Array f b -> Array (f :< n) a -> Array f b` | `f/` · `f/"1` · `𝔽´˘` | `idr.array.fold` |
-| `scanLast` | `(b -> a -> b) -> Array f b -> Array (f :< n) a -> Array (f :< n) b` | `f\` · `f/\"1` · `` 𝔽`˘ `` | `idr.array.scan` |
-| `nest`, `merge` | §2.4 | `⊂⍤k`, `↑` · `<"k`, `>` · `<⎉k`, `>` | nothing (§3.1) |
-| `reshape` | `Extents t -> {auto 0 _ : count s = count t} -> Array s a -> Array t a` | `⍴` · `$` · `⥊` | `tensor.collapse_shape`, `expand_shape` |
-| `take`, `drop` | `(k : Nat) -> {auto 0 _ : LTE k n} -> Array (f :< n) a -> Array (f :< k) a` | `↑⍤1` `↓⍤1` · `{."1` `}."1` · `↑˘` `↓˘` | `tensor.extract_slice` |
-| `(++)` | `Array (f :< n) a -> Array (f :< m) a -> Array (f :< n + m) a` | `,` · `,"1` · `∾˘` | `tensor.concat` |
-| `update` | `Array s a -> Index s -> a -> Array s a` | `@` · `}` · `⌾(i⊸⊑)` | `tensor.insert` |
-| `under` | `View s t -> (Array t a -> Array t a) -> Array s a -> Array s a` | — · `&.` · `⌾` | `extract_slice`, `insert_slice` |
-| `accumulate` | `(b -> a -> b) -> Array t b -> Array s (Index t) -> Array s a -> Array t b` | `⌸` · `/.` · `⊔`; Dex's `+=` | `idr.array.fold` into an array |
-| `freeze`, `thaw` | to and from `Linear.Array` | | `bufferization.to_tensor`, `to_buffer` |
-
-| Idris | type | APL · J · BQN |
+| Idris | type | APL, J, BQN |
 |---|---|---|
-| `map`, `zipWith`, `[\| f x y \|]` | `Functor`, `Zippable`, `Applicative` at one shape | `¨` · `"0` · `¨`; scalar functions |
-| `agree`, `over`, `over2` | §2.4 | scalar extension, `⍤` · `"` · `⎉` |
-| `reduce` | `(a -> a -> a) -> a -> Array (f :< n) a -> Array f a` | `/` · `/"1` · `´˘` |
-| `scan` | `(a -> a -> a) -> a -> Array (f :< n) a -> Array (f :< n) a` | `\` · `/\"1` · `` `˘ `` |
-| `outer` | `(a -> b -> c) -> Array s a -> Array t b -> Array (s ++ t) c` | `∘.f` · `f/` dyad · `⌜` |
-| `contract` | `(c -> c -> c) -> c -> (a -> b -> c) -> Array (f :< k) a -> Array (g :< k) b -> Array (f ++ g) c` | `f.g` · `f/ .g` · `𝔽˝∘𝔾⎉1‿∞` |
-| `transpose`, `permute` | `Array (f :< n :< m) a -> Array (f :< m :< n) a`; any permutation of a known form | `⍉⍤2` · `\|:"2` · `⍉⎉2` |
-| `reverse`, `rotate`, `shift` | trailing axis; `shift` fills | `⌽` · `\|."1` · `⌽˘`; `»˘` `«˘` |
-| `windows` | `(k : Nat) -> {auto 0 _ : LTE k n} -> Array (f :< n) a -> Array (f :< S (minus n k) :< k) a` | `⌺` · `;._3` · `↕` dyad |
-| `iota`, `fill` | `Extents s -> Array s (Index s)`; `Extents s -> a -> Array s a` | `⍳` · `i.` · `↕`; `⍴` |
-| `ravel` | `Array s a -> Vector (count s) a` | `,` · `,` · `⥊` |
-| `filter` | `(a -> Bool) -> Vector n a -> Exists (\m => Vector m a)` | `/` · `#` · `/` |
-| `grade`, `sort` | over `Ord`, a merge sort on `Linear.Array` | `⍋` · `/:` · `⍋` |
-| `select` | `Array s (Index t) -> Array t a -> Array s a` | `⌷` · `{` · `⊏` |
-| `iterate` | `(k : Nat) -> (a -> a) -> a -> a` | `⍣` · `^:` · `⍟` |
+| `shape` | `Array s a -> Extents s` | `⍴`, `$`, `≢` |
+| `tabulate` | `Extents s -> (Index s -> a) -> Array s a` | `f¨⍳` |
+| `(!!)` | `Array s a -> Index s -> a` | `⌷`, `{`, `⊑` |
+| `foldLast` | `(b -> a -> b) -> Array f b -> Array (f :< n) a -> Array f b` | `f/` on the last axis |
+| `scanLast` | `(b -> a -> b) -> Array f b -> Array (f :< n) a -> Array (f :< n) b` | `f\` |
+| `nest`, `merge` | §3.4 | `<⎉k`, `>` |
+| `reshape` | `Extents t -> {auto 0 _ : count s = count t} -> Array s a -> Array t a` | `⍴`, `$`, `⥊` |
+| `take`, `drop` | `(k : Nat) -> {auto 0 _ : LTE k n} -> Array (f :< n) a -> Array (f :< k) a` | `↑`, `↓` |
+| `(++)` | `Array (f :< n) a -> Array (f :< m) a -> Array (f :< n + m) a` | `,` |
+| `pad` | `(lo, hi : Nat) -> a -> Array (f :< n) a -> Array (f :< lo + n + hi) a` | `»`, `«` with fill |
+| `update` | `Array s a -> Index s -> a -> Array s a` | `@`, `}` |
+| `accumulate` | `(b -> a -> b) -> Array t b -> Array s (Index t) -> Array s a -> Array t b` | `⌸`, `/.`, `⊔` |
 
-What is left out, and why. APL's ambivalent symbols (one glyph, monad
-and dyad meaning different things) are one name per function here; BQN
-lists its incoherent pairs among its problems (read:
-`commentary/problems.md`). Depth tests that change a primitive's
-behaviour (read: `sources/docs/bqn/doc/depth.md`) are two functions, or a
-type. Fill elements, the zero-frame probe and permissive assembly
-(padding ragged results) are replaced by types: a ragged result is a
-different type (§2.8), never padded (read: `rank1.htm`, §0, "permissive
-assembly"; `sources/papers/iverson-1987-dictionary-of-apl/APLDictionary1.htm`,
-"assembly"). Trains and tacit composition are Idris's `.` and lambdas: the
-rank of a composition is in its type, so J's `@` against `@:` (per cell
-against whole) is `over c (g . f)` against `g . f`, two different types
-(read: `sources/docs/j/help/dictionary/intro20.htm`).
+Library code over it, each with the form its definition lowers to: `map`,
+`zipWith` and idiom brackets (`linalg.map`); `agree`, `over`, `over2`
+(indexing maps); `reduce` and `scan` (`foldLast`, `scanLast`); `outer`
+and `contract` (a generic with a product map, specialized to
+`linalg.matmul` or `linalg.contract` where it matches); `transpose` and
+`permute` (an indexing map, or `linalg.transpose` where it must be
+materialized); `reverse`, `rotate`, `shift`, `windows` (affine reads);
+`iota`, `fill` (`linalg.index`, `linalg.fill`); `ravel` (`collapse_shape`);
+`filter` (§4.4); `select` (a gather, §4.4); `sort` and `grade` (the
+library's merge sort on `LArray`); `iterate`.
 
-**Under** is structural only: `View s t` is a closed set of selections
-(a row, a column, the diagonal, a window, a swap of the last two axes),
-each a lens whose put writes the selected cells back (read:
-`sources/docs/bqn/doc/under.md`, "Structural Under is the same concept as
-a (lawful) lens"). `under (Column 0) (map negate) m` negates the first
-column (measured). Computational under (`f⌾g` with `g` invertible) is
-composition with a named inverse, `inv . f . g`: a typed language takes
-the inverse as a function, never guesses an obverse (read:
-`sources/docs/j/help/dictionary/d202n.htm`).
+**Under** is structural only: a `View s t` is one of a closed set of
+selections (a row, a column, the diagonal, a window, a swap of the last
+two axes), each a lens (read: `sources/docs/bqn/doc/under.md`), and its
+image is `extract_slice` then `insert_slice`. Fill elements, the
+zero-frame probe and permissive assembly are replaced by types: a ragged
+result is `Ragged`, never padded.
 
-### 2.6 Reductions, scans and their order
-
-`reduce (+) 0 x` reduces the trailing axis from the left in index order,
-one accumulator per frame cell: `reduce (+) 0 m` is the row sums,
-`reduce (+) 0 (transpose m)` the column sums, `sum m` every element.
-**decision** The meaning of every reduction and scan is its left fold in
-index order (D15). A float result is then the same on every target, lane
-width and core count, as today's one-lane rule keeps it (read:
-`Passes.td`, `idr-vectorize`). A parallel float sum is a different
-function with its own fixed order: `reduceBlocked k`, whose meaning is `k`
-interleaved left folds (element `i` into fold `i mod k`) combined in
-order, with `k` a literal of the program. Its order is its definition,
-not a target's: any lane count that divides `k` implements it exactly
-(16 is a multiple of every f64 lane count of 128, 256 and 512-bit
-vectors; recalled), so it prints the same on both targets.
-
-Which combiners the compiler may reassociate is read off their ops:
-integer `+`, `*`, `and`, `or`, `xor`, `min` and `max`, whose definitions
-associate and commute (§3.6). Iverson's partitioning identities are what
-license the split (read:
-`sources/papers/iverson-1980-notation-tool-of-thought/tot1.htm`, §4.2), and
-for these the identity is a fact of the op, needing no proof.
-
-`scan (+) 0 x` is the inclusive prefix sum along the trailing axis. A
-segmented scan is a scan with a lifted combiner over (flag, value) pairs,
-the standard construction, so it needs nothing of its own. Upstream has
-no scan op of this generality (read: `.toolchain/llvm-project/mlir/include/mlir/Dialect/Linalg/IR/LinalgStructuredOps.td`
-has none; `include/mlir/Dialect/Vector/IR/VectorOps.td:3032`,
-`vector.scan`, takes a fixed combining kind); §3.6 adds one.
-
-### 2.7 Index sets as types
-
-Dex types an array by the set of its indices: `n=>a`, where `n` is any
-type with a size and a bijection with `[0, size)`, and a tuple of index
-sets is an index set, which "does not require the type system to solve
-systems of Diophantine equations" to reshape (read:
-`sources/papers/paszke-2021-dex/main.tex:782-831`). Here an index type
-spans a shape:
+### 3.6 Index sets as types
 
 ```idris
 interface IndexSet ix where
@@ -548,878 +407,1010 @@ interface IndexSet ix where
   toIndex   : ix -> Index axes
   fromIndex : Index axes -> ix
 
-{n : Nat} -> IndexSet (Fin n)                        -- axes [<n]
-IndexSet Bool                                        -- axes [<2]
-(IndexSet a, IndexSet b) => IndexSet (a, b)          -- axes (axes a ++ axes b)
-
 data Table : (0 ix : Type) -> Type -> Type where
   MkTable : IndexSet ix => Array (axes {ix}) a -> Table ix a
-
-for  : IndexSet ix => (ix -> a) -> Table ix a
-(!@) : Table ix a -> ix -> a
 ```
 
-A product of index sets is the sum of their ranks: `Table (Fin 2, Fin 3,
-Channel) Int` holds an `Array [<2, 3, 3] Int`, an enumeration
-`Channel` an axis of its own, and `img !@ (1, 2, G)` types the literals
-as `Fin 2` and `Fin 3` from the table (measured, with `for (\(y, x, c)
-=> ...)` building it). So index sets add no second representation: a
-table is an array, and the shape is computed by the instance.
+Dex's index sets (read: `main.tex:782-831`) as an interface whose shape
+is an erased method: `Table (Fin 2, Fin 3, Channel) Int` holds an
+`Array [<2, 3, 3] Int`, and `img !@ (1, 2, G)` types its literals from
+the table (measured). **decision** (D8) a one-parameter
+interface and a data type: a two-parameter one never resolves a product,
+and a synonym loses `ix` (measured). A table is an array, so index sets
+add no second representation, and in MLIR they are nothing at all: the
+tensor of `axes`.
+
+### 3.7 Shapes that depend on data, and shape arithmetic
+
+A size the data decides is the array's own: `filter p xs : Exists (\m =>
+Vector m a)`, its witness erased (read: `Data/DPair.idr:77-80`), and
+`shape ys` gives the length, held once, in the tensor's dimension. A
+ragged array is `Ragged f a`, a flat vector and an offset per row (read:
+`sources/papers/hsu-2019-data-parallel-compiler/`), which is a compressed
+sparse level's positions array and is lowered as one (§9). An equality
+the program cannot prove is a checked conversion, `resize : (n : Nat) ->
+Vector m a -> Maybe (Vector n a)`.
+
+Most shape facts are concatenation, which reduces. The rest:
+1. **Literal shapes need nothing:** search proves `LTE 3 5` and `count
+   [<24] = count [<2, 3, 4]` by computation (measured), and a failure
+   names the rule ("Can't find an implementation for LTE 5 4").
+2. **Symbolic ones are the library's tactic**, `Array.Shape.solve`, by
+   elaborator reflection over a canonical form (concatenation flattened,
+   sizes as sums of sorted monomials), the proof at quantity 0. Frex is
+   the Idris-native precedent, under 1 s up to terms of size 30 (read:
+   `sources/papers/allais-2025-frex/evaluation.tex`). **decision**
+   threshold 1 s per obligation on the corpus's largest shape term.
+3. **Views** for arithmetic patterns: `MkSplit : (q, r : Nat) -> Split d
+   (q * d + r)` (read: `sources/papers/mcbride-2004-view-from-left/view.ps`,
+   §6).
+
+**decision** (D11) Idris's equality is unchanged: no
+normalization of shape arithmetic in the fork's conversion, which would
+accept programs upstream Idris rejects, and no solver beside the
+toolchain. The earlier `types.md`'s definitional arithmetic is deleted
+for that reason.
+
+### 3.8 Linear arrays and in-place updates
 
 ```idris
-grey : {h, w : Nat} -> Table (Fin h, Fin w, Channel) Double -> Table (Fin h, Fin w) Double
-grey img = for (\(y, x) => 0.299 * img !@ (y, x, R) + 0.587 * img !@ (y, x, G) + 0.114 * img !@ (y, x, B))
+export
+data LArray : (0 s : Shape) -> Type -> Type
+
+withArray : Extents s -> a -> ((1 _ : LArray s a) -> Ur b) -> b
+read      : (1 _ : LArray s a) -> Index s -> Res a (const (LArray s a))
+write     : (1 _ : LArray s a) -> Index s -> a -> LArray s a
+freeze    : (1 _ : LArray s a) -> Ur (Array s a)
+thaw      : Array s a -> ((1 _ : LArray s a) -> Ur b) -> b
 ```
 
-**decision** The shape is an erased method of a one-parameter interface
-(D8). A two-parameter interface `IndexSet ix s | ix` resolves `Fin n`
-and `Bool` but never a product, whose head `s ++ t` unification cannot
-match against a known shape (snoc append is stuck on an unknown right
-side), with a determining parameter, an equation in the head or a hint
-(measured, each). A `Table` is a data type, not a synonym, so that `ix`
-stays in the type and drives the literals (measured: the synonym lost it,
-and `(1, 2, G)` defaulted to `Integer`). Ranges and sums of index sets
-(Dex's `RangeFrom`, `Either`) are instances whose axes are one flat axis
-(`[<count s + count t]`), with the `Fin` arithmetic their `toIndex`
-needs.
+**Linearity is not ownership.** A quantity-1 argument promises not to be
+shared in the future, not that it was never shared (read:
+`sources/papers/brady-2021-idris2-qtt/erasure.tex:34-38`), and AGENTS.md
+says so. The library supplies the past: an `LArray` is born fresh
+(`withArray`, and `thaw`, which copies unless its argument is dead) and
+leaves only by `freeze`, so no `LArray` aliases a shared cell. Its writes
+are a chain of `tensor.insert` on one SSA thread, which One-Shot
+bufferizes in place by its own analysis; the type's part is that no old
+version is read again, which is exactly the condition that analysis
+checks (§8).
 
-### 2.8 Shapes that depend on data
+`Linear.Array` is rewritten on `LArray` (**decision**, D19):
+`Linear.Vec a`, the growable array the fork's `Table` needs, is a record
+of an `LArray [<cap] a` and a size `n` with `LTE n cap`, growing by a
+fresh array of twice the capacity and one `insert_slice`. Its `%foreign
+"scheme:..."` primitive specs go: they were kept so `bench/` could run
+these programs on Chez, and AGENTS.md says not to shape a feature so
+that Chez can run it. Its primitives become declared runtime primitives
+of the registry, keyed by name, as base's `%extern` primitives are. The
+Chez column of `bench/` loses the programs that used them.
 
-A size the data decides is the array's own (read:
-`sources/papers/bailly-2023-size-dependent/paper.pdf`, §2.1, witnesses):
-`filter p xs : Exists (\m => Vector m a)` (read:
-`third_party/Idris2/libs/base/Data/DPair.idr:77-80`, `Exists`, whose
-witness is erased), unpacked with `let Evidence _ ys = filter p xs in
-...`, and `shape ys` gives the length, stored once, in the array.
-Bailly et al. name the unpacking that Idris's `(p ** Vect p a)` forces as
-Idris's gap (read: the same paper, §1); `Exists` keeps the unpacking but
-not a second copy of the size.
+### 3.9 Errors and the interactive loop
 
-A rank the data decides is the same: `readArray : IO (Exists (\s =>
-Array s Double))` parses an array of any rank, and every function of the
-library applies to it (§3.1 lowers its shape as one component).
+Shape errors are Idris type errors at the user's line (measured: "When
+unifying: Array [<4] Int and: Array [<3, 4] Int"; "Can't find an
+implementation for Agree [<3, 4] [<4]"). The library names its evidence
+for the rule a reader recognizes (`Agree`, `LTE`, `count`). Idris
+reports a mismatch of two literal sizes as their unary forms;
+**decision** (D12) that message is fixed in the fork's
+unifier error, as the fork's own code, recorded in `PINS.md` with a
+pull request drafted under `upstream/`. There are no runtime shape
+errors in typed code.
 
-A **ragged** array, cells of different shapes, is a different type:
-`Ragged f a`, a frame of rows of different lengths, held as a flat
-vector and an offset per row (Hsu's flat representation of nested data;
-read: `sources/papers/hsu-2019-data-parallel-compiler/`, the parent and
-offset vectors), with segmented scans and reductions (§2.6) over it. An
-array of `Exists`-boxed rows is legal Idris and stays an array of boxes
-(§3.1); `Ragged` is the dense form. Futhark's regularity rule, that no
-array element has an existential size (read:
-`sources/papers/henriksen-2021-size-types/paper.pdf`, §4), is the line
-between `Array f (Array c a)` (one cell shape: flat) and `Ragged`.
+The interactive loop (`idris-mlir repl`, every line compiled and run as
+a linked executable in a child, never on Idris's evaluator or Chez) is
+the earlier draft's D13. It is parked here: it is not on the array
+path, and it moves to 0016's stages once that interpreter exists.
 
-A size equality the program cannot prove is an explicit, checked
-conversion: `resize : (n : Nat) -> Vector m a -> Maybe (Vector n a)`.
-Futhark's benchmark suite needed 66 such coercions in about 12,000 lines,
-mostly where input is read (read: `henriksen-2021-size-types`, §6).
+## 4. The generating set, as upstream ops
 
-### 2.9 Shape arithmetic
+### 4.1 What the frontend emits
 
-Shapes are lists, so most shape facts are concatenation, which reduces:
-`f ++ [<n]` is `f :< n` by computation. Arithmetic on sizes appears in a
-few places: `take` and `slice` (`LTE`), `(++)` (`n + m`), `reshape` and
-`ravel` (`count`, the number of elements of a shape, defined by its own
-clauses so that a message names it), `windows` (`minus`). The library's
-rules:
+**decision** (D13) The frontend writes each primitive's
+sequential meaning in upstream ops, and nothing of ours but the grade
+casts and `idr.tie_shape`:
 
-1. **Literal shapes need nothing.** Search proves `LTE 3 5` and `count
-   [<24] = count [<2, 3, 4]` by computation, so the obligations are
-   `auto` arguments a program never writes (measured: `reshape [<2, 3, 4]`
-   of a 24-vector checks; `reshape [<2, 3, 5]` reports "Can't find an
-   implementation for count [<24] = count [<2, 3, 5]", where base's
-   `product`, a fold, printed as an unreduced `foldr` lambda; `take 5` of a
-   length-4 axis reports "Can't find an implementation for LTE 5 4").
-2. **Symbolic ones are a tactic of the library.** `Array.Shape.solve`, by
-   elaborator reflection, normalizes both sides to a canonical form,
-   concatenation flattened (Remora's canonical shapes; read:
-   `sources/papers/slepak-2019-semantics/formalism.tex:464-524`) and sizes
-   to sums of products with sorted monomials (read:
-   `sources/docs/rocq/doc/sphinx/addendum/ring.rst`;
-   `sources/code/ghc-typelits-natnormalise/src/GHC/TypeLits/Normalise/SOP.hs`),
-   and returns the proof at quantity 0, so it costs nothing at run time.
-   It reads `S k` as `1 + k`, because Idris's reflection hands the goal
-   over normalized (read: `sources/papers/allais-2025-frex/reflection.tex`,
-   the false equation `(x+1)+y = x+S y`). Frex is the Idris-native
-   precedent: under 0.1 s for terms of size 6, under 1 s up to about 30,
-   over 10 s past 45, the cost being the evaluator's (read:
-   `allais-2025-frex/evaluation.tex`). **decision** The tactic's
-   threshold: 1 s per obligation on the largest shape term of the test
-   corpus (a rank-8 reshape is about size 30); past it, the normaliser
-   moves from the evaluator into reflection that builds the proof once.
-3. **Views for arithmetic patterns.** `Split d n` with the one constructor
-   `MkSplit : (q, r : Nat) -> Split d (q * d + r)` lets tiled code match a
-   size as `q * d + r` instead of rewriting into it (read:
-   `sources/papers/mcbride-2004-view-from-left/view.ps`, §6); its indices
-   erase.
-4. **Index sets avoid products** (§2.7): a reshape between `Table (Fin n,
-   Fin m) a` and `Array [<n, m] a` is the identity.
-
-**decision** Idris's equality is not changed (D11): no normalization of
-shape arithmetic in conversion, which would accept programs upstream
-Idris rejects; no solver outside Idris (no oracle, nothing beyond the
-toolchain at compile time). The proof always exists, at quantity 0
-(read: `third_party/Idris2/libs/prelude/Builtin.idr:155-159`,
-`rewrite__impl`, whose rule and motive are at 0 and value at 1).
-
-### 2.10 Quantities and updates in place
-
-Shapes are indices at quantity 0, never read as values; the sizes a
-program computes with are `Extents` values or sizes at quantity many.
-**Erased does not mean constant** is kept exactly: the compiler reads an
-erased shape's *form*, which the checked type states, and never assumes
-its sizes (§3.2).
-
-An array is a value: `update a i x` is a new array, and `a` is unchanged.
-A program that wants the write in place binds the array at quantity 1:
-
-```idris
-step : (1 _ : Array s Double) -> Index s -> Double -> Array s Double
-```
-
-and the compiler then writes in place with no runtime test, or, under
-`--demand-in-place`, rejects the program with `unsupported (uniqueness)`
-naming the write (§3.10). The README's in-place promise covers it: a
-quantity-1 value updated in place, "or the program will not compile, with
-a named reason" (read: `README.md`). An unrestricted array updated after
-it is read again is copied, which is the value meaning.
-
-`Linear.Array` keeps the mutable, growable array threaded at quantity 1
-(push, pop, reserve) for programs that build an array element by element.
-`freeze` hands the rank-1 dense array (`Vector n a` under `Exists`), and
-`thaw` takes one back.
-
-### 2.11 How programs read
-
-Each of these type-checks against the mock (measured).
-
-```idris
-rowSums : Vector 3 Double
-rowSums = reduce (+) 0 m
-
-colSums : Vector 4 Double
-colSums = reduce (+) 0 (transpose m)          -- a view: no transpose is built
-
-centred : Matrix 3 4 Double
-centred = agree (-) m (map (/ 4) rowSums)     -- each row less its mean
-
-clipped : Matrix 3 4 Double
-clipped = [| min m 10 |]
-
-matmul' : Matrix m k Double -> Matrix k n Double -> Matrix m n Double
-matmul' a b = contract (+) 0 (*) a (transpose b)
-
-batched : Array [<8, 64, 32] Double -> Array [<8, 32, 16] Double -> Array [<8, 64, 16] Double
-batched = over2 [<_, _] [<_, _] matmul'
-
-softmax1 : Vector n Double -> Vector n Double
-softmax1 v = let top = foldr max 0 v
-                 e = map (\x => exp (x - top)) v
-                 z = sum e
-             in map (/ z) e
-
-softmax : Array (f :< n) Double -> Array (f :< n) Double    -- any rank
-softmax = over [<_] softmax1
-```
-
-Life, the APL classic (recalled: Dyalog's one-liner, `{↑1 ⍵∨.∧3 4=+/,¯1
-0 1∘.⊖¯1 0 1∘.⌽⊂⍵}`), with the board's extents in scope for the literals:
-
-```idris
-neighbours : Matrix h w Int -> Matrix h w Int
-neighbours b =
-  let ext = shape b
-      shifts = [rotate dy (over [<_] (rotate dx) b) | dy <- [-1, 0, 1], dx <- [-1, 0, 1], (dy, dx) /= (0, 0)]
-  in foldl (+) 0 shifts
-
-life : Matrix h w Bool -> Matrix h w Bool
-life b = let ext = shape b
-             n = neighbours (map (\alive => if alive then 1 else 0) b)
-         in [| rule b n |]
-  where rule : Bool -> Int -> Bool
-        rule alive k = k == 3 || (alive && k == 2)
-```
-
-A histogram, Dex's accumulation with data-dependent destinations (read:
-`main.tex:1781-1811`):
-
-```idris
-histogram : {k : Nat} -> Vector n (Fin k) -> Vector k Int
-histogram xs = accumulate (+) (fill [<k] 0) (map (\i => [<i]) xs) (map (const 1) xs)
-```
-
-spectral-norm's product, dense: a row loop whose element is a sum, which
-§3.6 and §3.7 make one generic of two dimensions, parallel then
-reduction, as `Lower/Loops.cppm` does today for the rank-1 library:
-
-```idris
-mulAv : {n : Nat} -> Vector n Double -> Vector n Double
-mulAv v = tabulate [<n] (\[<i] => sum (tabulate [<n] (\[<j] => a i j * v !! [<j])))
-```
-
-### 2.12 Error messages
-
-Shape errors are Idris type errors, at elaboration, at the user's line,
-naming both shapes or the rule that failed (measured):
-
-| program | message |
+| primitive | emitted |
 |---|---|
-| `m + w`, `[<3, 4]` against `[<4]` | "When unifying: Array [<4] Int and: Array [<3, 4] Int. Mismatch between: [<] and [<3]." |
-| `agree (-) m w`, the same shapes | "Can't find an implementation for Agree [<3, 4] [<4]." |
-| `take 5` of a length-4 axis | "Can't find an implementation for LTE 5 4." |
-| `reshape [<2, 3, 5]` of a 24-vector | "Can't find an implementation for count [<24] = count [<2, 3, 5]." |
-| `matmul'` of `3×4` and `5×2` | "When unifying: Array [<5, 2] Double and: Matrix 4 2 Double. Mismatch between: 1 and 0." |
+| `shape` | `tensor.dim` per dynamic dimension, a constant per static one |
+| `tabulate e f` | `tensor.empty(%dims)` and an `scf.for` nest whose body computes `f` and `tensor.insert`s it at the induction variables |
+| `(!!)` | `tensor.extract` |
+| `foldLast g z x` | an `scf.for` over the last axis carrying the accumulator in `iter_args` (the frame a loop nest around it, or a tensor of accumulators) |
+| `scanLast g z x` | the same loop, inserting each accumulator into a destination |
+| `nest`, `merge` | nothing: the same tensor (§2) |
+| `reshape` | `tensor.collapse_shape` then `expand_shape`, with `output_shape` operands for dynamic dimensions |
+| `take`, `drop` | `tensor.extract_slice` |
+| `(++)` | `tensor.empty(n + m)` and two `tensor.insert_slice`s, which bufferize in place; `tensor.concat` always allocates (read: `M/lib/Dialect/Tensor/Transforms/BufferizableOpInterfaceImpl.cpp:1094`) |
+| `pad` | `tensor.pad` |
+| `update` | `tensor.insert` |
+| `accumulate` | an `scf.for` over the values that extracts at the computed index, combines and inserts (§4.4) |
 
-**decision** The library names its evidence for the rule a reader
-recognizes (`Agree`, `LTE`, `Prefix`, `count`), so a failed search names
-the rule and both shapes. The matrix product's row is Idris reporting
-two literal sizes, 5 and 4, where their unary forms first differ; for
-shapes that reads as nonsense. It is fixed in Idris's unifier error, which names the two
-literals, as a patch under `upstream/` with its report, reproducer,
-`tests/upstream/` check, `PINS.md` entry and plan to send it upstream, as
-AGENTS.md requires (D12). Nothing in `third_party/Idris2` changes.
+`tensor.generate` is not used: it has no destination and always
+allocates (read: `sources/docs/mlir/docs/Bufferization.md`,
+"Destination-Passing Style"), where `tensor.empty` plus a loop is a
+destination `eliminate-empty-tensors` can redirect into its consumer.
 
-There are no runtime shape errors in typed code: the type checker has
-accepted every shape. What can fail at runtime is what the program asks
-for: a `Maybe` from `(!?)` or `resize`, or a crash the program wrote.
+Every loop the frontend writes is the program's meaning, in its order.
+Turning it into a structured op is the MLIR side's decision, made after
+inlining and defunctionalization have shown what the body does (§5). The
+frontend cannot make it: whether `f` may crash depends on code it has
+not inlined. That is the earlier draft's reason for rejecting linalg
+from the frontend, kept, and its own loop ops (`tabulate`, `fold`,
+`scan`, `lift`, `rebase`, `thaw`, `constant`, `alloc`, `copy`, `sort`)
+are deleted: the sequential meaning is already expressible in `scf` and
+`tensor`, so a second spelling of it would be a second representation.
 
-### 2.13 The interactive loop
+### 4.2 Reads become indexing maps
 
-**decision** `idris-mlir repl` evaluates through this compiler, never
-through Idris's evaluator or Chez (D13). A line is an expression in the
-scope of the loaded modules: Idris elaborates it, and its type, shape
-included, is printed (`:t` stops there); the frontend translates it as a
-program whose root displays the value; the pipeline compiles it exactly
-as it compiles a program, links it as an executable, and runs that
-executable in a child. There is no JIT (0003 §7).
-The meaning of every primitive is then the runtime's, which AGENTS.md
-requires, and the loop shows what the compiled program would print.
+A pure body that reads another array at an affine function of the
+induction variables (`x !! [<i]`, `a !! [<i, p]`, `x !! [<i + 1]`) is an
+input of the raised generic with that function as its indexing map; a
+read at the induction variables themselves is the identity map. This is
+today's `ArrayLoopReads.cpp` without its entry test and its second copy
+of the loop: those exist because an untyped read might be out of bounds,
+and a typed one is not. A read at a computed index stays a
+`tensor.extract` in the body (§4.4).
 
-- `:let x = e` adds a definition; `:mlir e` prints the module after the
-  array lowering (§3.4), so a reader sees the generics, their maps and
-  what fused; `:mlir after=<pass> e` after any pass.
-- Values print with `display` (§2.3), the shape first: `[<3, 4] Double`.
-- **Measurement rule.** The first version runs the frontend per line on a
-  generated main file, as `idris-mlir` runs it per program today (read:
-  `foreign/idr/lib/Driver/Frontend.cppm`). When a one-line expression over
-  arrays of up to 10^6 elements takes more than 1 s from line to output
-  on either target, a resident frontend that keeps the session's checked
-  modules is built.
-- Tests are transcripts: an input script and its expected output, as
-  every program test is.
+`transpose`, `agree`'s reuse and a column read are maps, not copies.
+`linalg-fold-into-elementwise` and `linalg-morph-ops` absorb an
+explicit transpose or broadcast into the consumer's maps where one was
+materialized (read: `M/include/mlir/Dialect/Linalg/Transforms/Passes.td`).
 
-Type-driven editing is Idris's own and needs nothing here: shapes are
-types, so a hole in an array program shows its expected type with the
-shapes in it, and case splitting on an `Index` pattern splits its axes
-(recalled: Idris's holes and case split work on any data type).
+### 4.3 Dimensions across calls: `idr.tie_shape`
 
-## 3. How it lowers
+Upstream reasons about a dynamic dimension only through the op that
+made it (read: `ValueBoundsOpInterface.cpp`; `func.func` arguments and
+call results have no model), and there is no upstream op that asserts
+two dynamic dimensions equal: `tensor.cast` refines only toward static
+(read: `TensorOps.td`). Idris proves such equalities everywhere: `zipWith
+f x y` with `x, y : Vector n a` has one `n`.
 
-### 3.1 Representation by form
+**decision** (D14) One op of ours fills the gap:
 
-**decision** (D2, D4) The frontend reads the normal form of every shape
-index as a sequence of **components**: each `:< n` a **dimension**, `Lin`
-nothing, `++` the concatenation of its sides' components, and any other
-subterm (a variable, or a call that does not reduce, such as `replicate k
-2` with `k` a variable) a **segment**: `f ++ g` is two segments, `[<n] ++
-f` a dimension and a segment. An array whose shape has `k`
-components is a ranked tensor of rank `k`, each dimension `?` unless
-static normalization (0003) made it constant. A segment is one dimension
-whose size is the product of its axes (the dissertation's collapse to
-products; read: `sources/papers/slepak-2020-dissertation/Dissertation.pdf`,
-§11.2; `sources/code/remorac/src/remora-internal/map_replicate_ast.ml:129-156`),
-and carries its axes' extents, a `tensor<?xi64>`, beside the array (a
-record of the tensor and that vector, §3.8). `Index s` is one `Fin` per
-dimension (a segment's component is its row-major ordinal, with the
-extents to decompose it when a program matches it), and `Extents s` one
-natural per dimension and the vector per segment.
+```mlir
+%y1 = idr.tie_shape %y dims(%n) : tensor<?xf64>
+```
 
-**Sizes and indices stay naturals; narrowing makes them words**
-(**decision**). `Fin n` and `Nat` are unbounded, so a program may build
-an index or extents past 2^63 with no array behind it and print them; a
-word would print something else. So they keep the representation the
-frontend gives every `Nat`-like value today, a natural that
-`idr-narrow` makes an i64 where it proves the value small (read:
-`IdrOps.td`, `Idr_NatType`; `Passes.td`, `idr-narrow`). A loop's indices
-are small by construction (they come from `linalg.index`). An extent
-becomes a tensor dimension through a checked conversion, the one the
-library's definition makes before it allocates, so an array that exists
-has words for extents, and a `Fin` below one converts to an index
-exactly, with no check. To let `idr-narrow` prove index arithmetic small
-(`finToNat i * 4 + finToNat j`), the range of `tensor.dim` of an array is
-seeded from the target: an extent times its element's size is below
-2^(w-1), `w` the pointer width of the module's data layout (a fact of the
-target's entry, read by every tool). An array whose elements are
-naturals (`Fin`, `Nat`, `Index`) is narrowed the same way, as a web
-through the tensor from the values its loops write to the values its
-reads give, into a tensor of i64; one that is not proved small takes the
-counted path below.
+an identity that states its result's dynamic dimensions are the given
+`index` values. It implements `ValueBoundsOpInterface`
+(`populateBoundsForShapedValueDim`: dimension `k` equals operand `k`) and
+`ReifyRankedShapedTypeOpInterface`, so `areEqual` and dimension folding
+cross a call, and it is `Pure`. The frontend writes it at a function's
+entry: the first array argument indexed by a size variable gives that
+variable's value, `tensor.dim` of it, and every other array argument
+indexed by the same variable is tied to that value. A result is tied at
+the call to the caller's values. Folding it away loses an optimization,
+never a meaning, since the equality is Idris's and holds whether or not
+the op is there. IREE's `flow.tensor.tie_shape` is the precedent
+(recalled).
 
-So a rank-9 literal shape is a rank-9 tensor; `f ++ [<n]` with `f`
-unknown is a rank-2 tensor; an array of a rank read from input is a
-rank-1 tensor and its extents. No tensor is unranked, which linalg could
-not take (read: `LinalgStructuredOps.td:147`, `Variadic<AnyRankedTensor>`),
-and every reassociation between forms is static, which
-`tensor.expand_shape` and `collapse_shape` require (read:
-`include/mlir/Dialect/Tensor/IR/TensorOps.td:1091-1122`).
+Sizes are computed with `arith` (`addi`, `muli`, `subi` with `nsw nuw`)
+or `affine.apply` on `index`, which value bounds models; never the
+`index` dialect, which it does not (read: `M/lib/Dialect/Index/IR/`).
+`n * m` is kept as two dimensions wherever the type has two, because
+value bounds drops a product of two symbols as semi-affine (read:
+`ValueBoundsOpInterface.cpp:236`, "Failed to add bound").
 
-The representation is a function of the normal form, so two types Idris
-converts have one representation. Where a value moves between types that
-are equal only by a proof (`rewrite`, `replace`, which the frontend
-already treats as the identity on their value), the forms may differ, and
-the frontend inserts the reshape between them: a collapse, or an expand
-whose sizes a segment's extents give. `believe_me` cannot move an array
-between types in user code (§1).
+**Static extents.** An extent is static where the checked type's normal
+form at that instance is a literal, and where `idr-specialize` clones a
+callee for a constant `Extents` argument: the clone's entry casts its
+array arguments to the static type with `tensor.cast`, and upstream's
+cast-folding canonicalizations carry the static type into the
+destination-style ops that consume it (read: `FoldTensorCastProducerOp`,
+`TensorOps.cpp`). How far that propagation reaches through our ops is
+measured in stage 2 (conjecture).
 
-**Elements are structures of tensors** (D4). An element type's slots, as
-the frontend lays out an unboxed value, each become a tensor of the
-array's shape: a word one tensor, a record one per field, a sum a tag
-tensor and one per field of each constructor, a `Char` an i32 tensor, an
-enumeration its tag, a natural an i64 tensor once narrowed (above). An
-element `Array c b` appends `c`'s components to the array's: `Array f
-(Array c b)` and `Array (f ++ c) b` are one tensor, and `nest` and
-`merge` are nothing (SaC's with-loop scalarisation, done by the
-representation; read: `sources/papers/grelck-2006-sac/paper.pdf`, §3.4).
-Arrays are values, so storing equal-shaped inner arrays contiguously is
-observationally the library's meaning.
+**Narrowing.** A size that is an array's extent fits `index` by
+construction: the array exists. `Extents` values are naturals; the one
+place a natural becomes an extent is allocation, where the conversion is
+a guarded narrowing (an extent past the address space is the runtime's
+allocation failure). A coordinate is converted at its access, where the
+type says it is below an extent, so that conversion is exact and
+unguarded; inside a loop the coordinates are the loop's induction
+variables, `index` from the start.
 
-**decision** An element with a counted slot (a string, a big, a box, a
-closure, a suspension, an `Exists`-boxed array) keeps today's path: the
-array is the library's record over a memref of cells, compiled as
-written, counted by `idr-rc`. A tensor of counted elements would need a
-reference per element copied and per element read, which no structured
-op takes. **Measurement rule:** a `bench/` program that spends more than
-a quarter of its time in loops over arrays of counted elements reopens
-it, with `memCpyFn` duplicating and loop bodies counting (read:
-`include/mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h:256-344`,
-`allocationFn`, `memCpyFn`).
+### 4.4 Gathers, scatters, filters and scans
 
-### 3.2 Instances keyed by form
+Upstream has the dense, regular part and not these, so this is where
+ops of ours are allowed, each with its upstream gap named.
 
-**decision** An erased argument whose form a representation reads (the
-shape index of an `Array`, `Index`, `Extents`, `Cell` or `Table` in the
-rest of the callee's type) keys the instance by its canonical skeleton:
-its components' kinds, every size erased. This is the mechanism that
-keys runtime arguments by their skeleton today, extended to the erased
-arguments a representation reads (§1). A call at `[<3, 4]` and a call at
-`[<n, m]` share the instance of form `[<_, _]`; a call at `f :< n` with
-`f` a segment has its own. A recursion that peels axes off a statically
-known shape terminates in instances (the shape gets shallower); one that
-deepens it is refused as today; one at a segment stays in its instance,
-where the rank is a runtime value. This is SaC's specialization ladder
-(read: `grelck-2006-sac/paper.pdf`, §2.4, `int[*]`, `int[.,.]`,
-`int[3,7]`) with no rung missing: a known form is a known rank, constant
-sizes are static dimensions, and an unknown form is a segment.
+- **Gather** (`select`, a read at a computed index): a raised generic
+  whose body does `tensor.extract` at the computed index. The
+  vectorizer's n-D extract path makes it a gather or a contiguous load
+  (read: `vectorizeNDExtract`, which `idr-vectorize` turns off today:
+  `Vectorize.cpp:142`; here it is on). No op of ours.
+- **Scatter with a combiner** (`accumulate` whose combiner is
+  reassociable, §6): `idr.scatter`, a destination, indices, values and a
+  combiner region, destination-passing, implementing `TilingInterface`
+  (batch dimensions parallel) and `BufferizableOpInterface`. Gap:
+  `tensor.scatter` has no combiner and no bufferization model (read:
+  `TensorOps.td:1619`; `BufferizableOpInterfaceImpl.cpp:1190-1210`
+  registers no model for it). An `accumulate` whose combiner is not
+  reassociable stays the frontend's loop. IREE's LinalgExt `scatter` is
+  the precedent (recalled).
+- **Scan** (`scanLast` whose combiner is reassociable): `idr.scan`, a
+  combiner region along one axis, destination-passing, `TilingInterface`
+  with the scanned dimension tiled in order and its carry passed
+  between tiles, lowered by the two-pass method. Gap: no `linalg` scan
+  at the pin, and `vector.scan` takes a fixed combining kind on static
+  vectors (read: `LinalgStructuredOps.td` has none;
+  `M/include/mlir/Dialect/Vector/IR/VectorOps.td:3032`). An ordered scan
+  stays the frontend's loop.
+- **Filter and compress**: flags, an exclusive integer scan (`idr.scan`
+  of `addi`), and an `idr.scatter` without a combiner into a tensor of
+  the total's size. Fusion stops there, as it must at a size-changing
+  primitive (read: `sources/docs/bqn/implementation/compile/fusion.md:9-11`).
+- **Sort**: the library's merge sort on `LArray`; a runtime sort is a
+  second meaning of a library function, which §11 forbids.
 
-The reason this is not the earlier draft's "a rank erased at quantity 0
-is not a constant the compiler may assume": that sentence is about
-sizes. A shape's form is part of the checked type at the call, as a
-constructor of a runtime argument is; the compiler reads forms and never
-assumes values.
+**decision** (D16) These two ops are ours until upstream has
+a scatter with a combiner and a scan with a region combiner; then they
+go.
 
-### 3.3 What the frontend emits
+### 4.5 Elements
 
-**decision** The contract gains `tensor` and `bufferization`, with Idris
-builders generated from their ODS as for arith and memref today (D14).
-The generating set's hooks emit:
+- **Words and floats** are the builtin element types, the only ones
+  that vectorize: `VectorElementTypeInterface` is for builtin types and
+  upstream discourages implementing it downstream (read:
+  `M/include/mlir/IR/BuiltinTypeInterfaces.td:23-40`).
+- **Our types** (a box, a string, a natural, a closure) are legal tensor
+  elements, and memref elements through `MemRefElementTypeInterface`,
+  which they implement (read: `IdrTypes.td:23-97`). They tile, fuse and
+  bufferize; they never vectorize.
+- **A counted element** is a tensor element too, with one path, not two
+  (**decision**, D17): bufferization's `memCpyFn` is the
+  runtime's counted copy, which increments every element it copies, and
+  `MoveOut` keeps moving an element out ahead of a write on the
+  bufferized memref. The earlier draft kept counted elements on the
+  memref path by a measurement; one representation is the stronger
+  rule, and stage 2 measures the cost on an array of boxes.
+- **A record element** is one tensor per field, by one-to-N type
+  conversion (`ConversionPatternRewriter::replaceOpWithMultiple`, 1:N
+  `TypeConverter`), and a loop over it is a multi-result
+  `linalg.generic`. This is the one representation of columns: 0008's
+  `!idr.columns<@T>` is replaced by it (0008 is updated). A record that
+  holds an array holds its tensor, split into its fields before
+  bufferization, so bufferization never sees through our records.
+- **A sum element** is decided by 0008's layouts, in these terms: a tag
+  tensor and one tensor per field slot, or a tensor of boxes.
 
-| primitive | op |
-|---|---|
-| `tabulate` | `idr.array.tabulate` (§3.4) |
-| `foldLast`, `accumulate` | `idr.array.fold` |
-| `scanLast` | `idr.array.scan` |
-| `(!!)` | `tensor.extract`, no guard: the `Fin` proved it, and converts exactly (§3.1) |
-| `shape` | `tensor.dim` |
-| `nest`, `merge`, `reshape`, `ravel` | nothing, `tensor.collapse_shape`, `tensor.expand_shape` |
-| `take`, `drop`, `slice`, `(++)` | `tensor.extract_slice`, `tensor.concat` |
-| `update`, `under` | `tensor.insert`, `tensor.insert_slice` of `extract_slice` |
-| `freeze`, `thaw` | `bufferization.to_tensor`, `to_buffer` |
+## 5. Effects, order and the raising
 
-A hook is a faster lowering with the same meaning, so breaking one
-(`--break-shape`) compiles the library's definition and changes no
-result (read: `compiler/src/IdrisMLIR/Registry/Entry.idr`, `Kind`). With
-the type's representation hook broken, the whole library compiles as
-written over memrefs; with an op's hook broken, its definition meets the
-tensor at the record's edge, by `to_buffer` and `to_tensor` (§3.8).
+**decision** (D10, kept from the earlier draft) A loop's form
+is chosen by its body's effects. A body whose ops are all free of
+effects by `MemoryEffectOpInterface` (no `idr.crash`, no world, no call
+whose inherent `effects` say it may write, diverge or crash) is raised
+from `scf.for` to `linalg.generic`, and its loop dimension becomes
+`parallel` (a `tabulate`) or `reduction` (a fold whose combiner is
+reassociable, §6). Any other body stays the frontend's `scf.for`, in
+order. The `parallel` iterator is then the fact that order is
+unobservable, true by representation, and every upstream transform that
+reorders a parallel or reduction dimension is legal on it.
 
-### 3.4 The loop ops and their two lowerings
+The raising is a pattern set of ours, `idr-raise`, run in the round's
+nested function pipeline beside canonicalize, so it applies as soon as
+inlining has made a body pure. Gap: upstream raises `scf.while` to
+`scf.for` (`scf::upliftWhileToForLoop`) and memref loops to affine, but
+has no raising of a tensor `scf.for` to `linalg` (recalled; to be read
+against the pin in stage 2). The pattern recognizes exactly the shapes
+the frontend writes (§4.1), so it is a small inverse of a small emitter,
+not a general loop recognizer. It replaces `ArrayLoops.cpp` and
+`ArrayLoopReads.cpp`.
 
-`idr.array.tabulate` takes one size per component and a body over one
-index per component, yielding the element's slots (or a cell's tensors,
-for an element that is an array); `idr.array.fold` takes the frame's
-accumulators and the array, and its body takes accumulators, element and
-index; `idr.array.scan` is the fold that yields every prefix. All three
-are pure (no world), of any rank, on tensors, and their meaning is the
-library's: the body runs at every index, in row-major order. Their shape
-is known from their sizes, as `array.new`'s is
-(`ReifyRankedShapedTypeOpInterface`), so `tensor.dim` of one folds.
+After raising, a named op is recovered where one matches
+(`linalg-specialize-generic-ops`), for the contractions upstream tiles
+best, and generalized again where fusion needs a generic
+(`linalg-generalize-named-ops`).
 
-**decision** A loop's lowering is chosen by what its body may do (D10):
+## 6. Reductions
 
-- **A body that only computes** (no op that may crash, no call of a
-  function that may crash or diverge, by `idr-effects`' bits; read:
-  `Passes.td`, `idr-effects`) lowers to `linalg.generic`: a tabulate's
-  dimensions parallel, a fold's frame parallel and its axis a reduction.
-  Its order cannot be observed, so linalg's parallel contract holds, and
-  every upstream transformation applies.
-- **Any other body** lowers to an `scf.for` nest in index order over the
-  result, written by `tensor.insert`, which One-Shot makes in place.
+**decision** (D15) One policy. The meaning of every reduction
+and scan is its left fold in index order. A `linalg` reduction iterator
+means any order, as upstream treats it (split-reduction, tiling and
+vectorization reassociate it; recalled), so a fold is raised to one only
+in three cases:
 
-linalg makes a body that conflicts with a parallel iterator undefined
-behaviour (read: `sources/docs/mlir/docs/Dialects/Linalg/_index.md:290-295`),
-and a crash at index 5 of a producer and at index 2 of its consumer
-print different messages once fused. The iterator type is therefore the
-effect fact: a loop that may crash or diverge is never a linalg op, so no
-pass can reorder it, and no pass needs to ask. Today's test that keeps a
-row's crash order (`tests/programs/arrays/linarray-rows-crash-order`)
-holds by representation. Typed indices make bodies crash-free, which is
-what makes them fusible and parallel.
+1. **The combiner is one associative and commutative integer op**:
+   `addi`, `muli`, `andi`, `ori`, `xori`, `minsi`, `minui`, `maxsi`,
+   `maxui` at any width. The law is the op's, by the runtime's meaning of
+   the primitive, needing no proof (read: Iverson's partitioning
+   identities, `sources/papers/iverson-1980-notation-tool-of-thought/tot1.htm`,
+   §4.2).
+2. **The combiner is a finite semiring's, whose laws the fork proves.**
+   The fork's `Semiring` instances for `ZeroOneOmega` and `SizeChange`
+   prove their laws case by case with `Refl` (read:
+   `compiler/idris/src/Algebra/SizeChange.idr:59-109`); a finite carrier's
+   laws are decided exhaustively (27 cases for three elements). The
+   frontend raises a reduction over such a combiner only when the
+   instance's law proofs exist, and the combiner is its `i8` form (§9).
+   The fact is the instance Idris checked, and its image is the op the
+   frontend chose; no attribute records it.
+3. **The program asked for an order of its own**: `reduceBlocked k`, whose
+   meaning is `k` interleaved left folds (element `i` into fold `i mod
+   k`) combined in order, `k` a literal of the program. Its image is
+   exact: an `scf.for` over the `q = n / k` rows of a `[<q, k]` reshape,
+   carrying a `tensor<k x E>` updated by a `linalg.map`, then a fold of
+   the `k` in order. The `k` lanes are a parallel dimension, so it
+   vectorizes on every lane count that divides `k`, and it prints the
+   same on both targets.
 
-The decision is taken by `idr-tensorize`, after the simplify loop,
-`idr-defunctionalize` and `idr-in-bounds`, when a body's calls are known
-and its provable guards are gone.
+Every other fold, a float sum included, is the frontend's `scf.for`. A
+float result is then one result on every target, lane width and core
+count, by representation, and today's rule that gives a reduction
+dimension one lane in `idr-vectorize` is deleted. Fusing a producer into
+an ordered fold is `transform.structured.fuse_into_containing_op` on the
+loop, which is measured on spectral-norm in stage 4 (conjecture: an
+element tile is enough).
 
-### 3.5 Reads become inputs
+The earlier drafts had three policies (the README's ops-only list, a
+compiler that never reassociates with library-fixed trees, and
+`CommutativeMonoid` proofs selecting an unordered op); this one is the
+README's with the semiring case added, and the others are struck.
 
-A `tensor.extract` of an array from outside a loop, at indices that are
-affine functions without symbols of the loop's indices, becomes an input
-of the generic: the array cut by `tensor.extract_slice` to what the loop
-reads, with that map (`Lower/Loops.cppm`'s rule for reads at the loop's
-own index, generalized). The cut is in bounds because `tensor.extract`
-is: its indices are within its tensor, the guard's absence being the
-proof (read: IdrOps.td's accesses, "A proof is the guard's absence"). So
-the entry test and the second copy of the loop that `Loops.cppm` builds
-today are gone for typed reads, and linalg's assumption that "dynamic
-operand dimensions agree with each other" (read: `Linalg/_index.md:141-142`)
-is the shape types'.
+## 7. The pipeline
 
-Through this rule the vocabulary's definitions become structured ops: a
-`transpose` read is a permutation map, which `linalg-specialize-generic-ops`
-can name `linalg.transpose` (read: `include/mlir/Dialect/Linalg/Passes.td:93`);
-an `outer` read projects each argument onto its own dimensions, Remora's
-replication without materializing it (read:
-`sources/code/remora/remora/dynamic/lang/semantics.rkt:92-132`); a
-`windows` read is `d0 + d1`; `contract` and `matmul` are a fold over a
-tabulate, which §3.6 makes one generic of three dimensions, two parallel
-and one reduction. Maps take no symbols (read:
-`lib/Interfaces/IndexingMapOpInterface.cpp:70`), so `reverse` and `rotate`
-stay reads at a computed index in the body, which the vectorizer gathers
-(read: `lib/Dialect/Linalg/Transforms/Vectorization.cpp`,
-`tensorExtractVectorizationPrecondition`). Only projected permutations,
-which frame replication and transposes are, vectorize as transfers
-(read: `Vectorization.cpp:583`).
+Upstream passes wherever upstream has the pass; each of ours names its
+gap. Against today's (read: `foreign/idr/lib/Transforms/Pipeline.cpp`):
 
-### 3.6 Reductions, scans and order
+```text
+idr-isolate, idr-contify
+the round (idr-simplify): ... nested idr.func(idr-identity, canonicalize, cse,
+          idr-raise, idr-redirect) ..., idr-inline, idr-specialize, sccp, ...
+idr-defunctionalize
+nested idr.func:
+  idr-raise                                  final raising, on defunctionalized bodies
+  linalg-generalize-named-ops
+  linalg-fuse-elementwise-ops                upstream's control function
+  transform-interpreter                      the target's schedule (§7.1)
+  linalg-specialize-generic-ops
+  eliminate-empty-tensors
+one-shot-bufferize, or sparsification-and-bufferization when the module
+  holds a sparse tensor                      on idr.func (§8, §20 patch U1, U2)
+nested idr.func(canonicalize, cse)
+idr-stack, idr-accumulate, idr-rc, idr-demand, idr-trmc, idr-tail-loops
+idr-narrow
+idr-lower, idr-entry
+nested func.func:
+  transform-interpreter                      vectorization (§7.1)
+  idr-narrow-lanes
+  convert-linalg-to-loops, canonicalize, cse
+idr-returned-arguments
+... as today to LLVM
+```
 
-**decision** (D15) A reduction dimension is split, tiled across lanes or
-partitioned only when its combiner is associative and commutative by the
-definition of its ops: integer `addi`, `muli`, `andi`, `ori`, `xori`,
-`minsi`, `maxsi`, `minui`, `maxui`. The fact is read off the region each
-time a pass asks, so nothing stores it and nothing can drop it. A float
-combiner keeps program order: one lane, one tile, one shard. A fold whose
-body is a fold of a tabulate (a matrix product's row) fuses into one
-generic, frame parallel and the inner axis a reduction, which today's
-lowering builds by hand at rank 1 (read: `Lower/Loops.cppm`, `reducedBy`)
-and which upstream's elementwise fusion of an all-parallel producer into
-a reduction consumer gives at any rank (conjecture; stage 3's `fused`
-property checks it on `matmul` and `softmax`).
+Deleted from it: `idr-in-bounds`, the array loops of `idr-lower`, and
+`idr-vectorize` as a pass. Bufferization runs once, before counting,
+so `idr-stack`, `idr-rc` and everything after them see memrefs, as they
+do today, and counting needs no tensor model.
 
-A fold into an array at destinations the data names (`accumulate`, a
-histogram) has no linalg form, because a structured op's output map
-cannot read data: Dex's third reduction pattern, "an irregular segmented
-reduction" (read: `sources/papers/paszke-2021-dex/main.tex:1781-1811`). It
-lowers to an `scf.for` in index order whose writes One-Shot puts in
-place. When its combiner associates by its ops, the multicore path gives
-each shard a private destination and combines them in shard order
-(§3.13); otherwise it stays on one shard.
+### 7.1 Schedules are IR
 
-**decision** `idr.array.scan` is ours (D16): a region combiner over the
-trailing axis, several operands, inclusive, modelled on Triton's `tt.scan`
-(read: `sources/code/triton/include/triton/Dialect/Triton/IR/TritonOps.td:876-895`),
-implementing `TilingInterface` on its frame. Its axis is sequential; for
-a combiner associative by its ops it lowers as a two-pass scan (a scan per
-tile, a scan of the tiles' totals, an add), and that is the only place it
-splits. A segmented scan is a scan whose combiner is the lifted one
-(§2.6). Upstream has no such op (§2.6); when one lands, ours goes.
+Tiling for the cache and vectorization are transform-dialect scripts,
+not C++ drivers (**decision**, D20). `idr-target` already
+writes the target's facts into the module; it also writes two named
+sequences built from them: the tile-and-fuse schedule
+(`transform.structured.tile_using_for` or `tile_using_forall`, `fuse`,
+`fuse_into_containing_op`, with tile sizes from DLTI's
+`L1_cache_size_in_bytes`, read: `M/include/mlir/Dialect/DLTI/`), and the
+vectorization schedule (`transform.structured.vectorize` with vector
+sizes from the target's lane width, masked for dynamic shapes, read:
+`M/lib/Dialect/Linalg/Transforms/Vectorization.cpp:376-395`, then
+`apply_patterns` for the lowering patterns). `transform-interpreter`
+runs them. Today's `idr-vectorize` (217 lines of C++ over the same
+upstream functions) becomes the second script; a schedule a reader
+wants to see is printed with the module. Nothing about a target is
+decided outside its entry, as AGENTS.md requires.
 
-### 3.7 Frames of cells and batching
+### 7.2 Fusion
 
-A tabulate whose element is an array (a `map` over `nest`, which `over`
-is) is a frame of cells. **decision** It lowers to `scf.forall` over the
-frame, each iteration's cell computed on `tensor.extract_slice`s and
-written by `tensor.parallel_insert_slice` (read:
-`include/mlir/Dialect/SCF/IR/SCFOps.td`, `scf.forall`), and a pattern of
-ours folds a forall whose body is one generic over the whole cell into
-that generic with the frame's dimensions prepended, parallel. That is
-batching, and it is Hui's integrated rank support: the cells are never
-built, the frame becomes outer loops of the cell's op (read:
-`rank1.htm`, §1, measured there at 1.8x to 157x over building the cells).
-A rank-2 kernel over a frame is then one generic, which upstream tiles
-and vectorizes as it does any.
+Upstream's elementwise fusion as upstream ships it, with upstream's
+default control function (fuse a producer with one use; duplicate
+nothing), and producer-consumer fusion through the tile-and-fuse
+schedule (`tileConsumerAndFuseProducersUsingSCF`, read:
+`M/include/mlir/Dialect/SCF/Transforms/TileUsingInterface.h:444-518`).
+Elementwise fusion needs generics (hence the generalization before it),
+an all-parallel producer with pure tensor semantics, and a permutation
+map on the consumer (read: `ElementwiseOpFusion.cpp:141-190`): exactly
+what §5's raising produces from pure bodies. The earlier `compiler.md`'s
+`idr-fuse`, its control function and its horizontal merge are deleted.
 
-The result's cell extents come from the body's shape, reified without
-its data (`ReifyRankedShapedTypeOpInterface` on the yielded tensor's
-op): Futhark's function slicing, done by upstream's interface (read:
-`sources/papers/henriksen-2017-futhark-thesis/`, §6). A body whose result
-shape depends on its data computes its first cell before the rest. An
-empty frame's cell extents cannot be observed (no index of it exists),
-so they are zero.
+**The first proof** is `map f (map g x)`: one generic, no array
+allocated between the two maps, checked by `idr-expect`'s `fused=@f`
+property (no `tensor.empty` or allocation between two loops of `@f`, and
+every producer with one consumer fused). Then `softmax` and `matmul`;
+then a producer with two consumers, which is not duplicated (its loop
+runs once).
 
-### 3.8 Records, sums and boxes that hold arrays
+## 8. Bufferization and grades
 
-A pair of arrays, an array beside its count, a segment's extents beside
-its tensor: an unboxed record or sum may hold tensors. **decision** The
-first step of `idr-tensorize` replaces every unboxed record or sum that
-holds a tensor by its slots (its tag and each field), across function
-signatures, calls, block arguments, region results and matches, with
-MLIR's one-to-many conversion (read:
-`include/mlir/Transforms/DialectConversion.h`, `OneToNOpAdaptor`,
-`replaceOpWithMultiple`). One-Shot then sees only tensors. A box (a cell
-in the heap) holds a memref: a tensor stored into one is
-`bufferization.to_buffer`, a value read out of one is `to_tensor`, not
-`restrict`, because the box may be shared. This is the earlier draft's
-rule for frozen arrays read out of boxes, kept.
+**decision** (D18) One-Shot Bufferize decides every in-place
+write, once, on `idr.func`, before counting. Its options:
+- `bufferizeFunctionBoundaries`, on `idr.func`, `idr.call` and
+  `idr.return` through models of ours shaped like upstream's
+  `FuncBufferizableOpInterfaceImpl.cpp`, which needs the module driver
+  generalized from `func::FuncOp` (§20, U1).
+- `allocationFn` is the runtime's cell allocator, so a buffer is a cell
+  whose descriptor's allocated pointer is the cell (as today's
+  `ArrayView.cpp`); `memCpyFn` is the runtime's copy, counted for
+  counted elements (§4.5).
+- No ownership-based deallocation: counting frees cells, and that
+  scheme forbids returning a memref that aliases an argument (read:
+  `M/docs/OwnershipBasedBufferDeallocation.md:55-70`), which an in-place
+  thread through a function does. One ownership system, not two.
 
-### 3.9 Fusion, tiling and vectorization
+**The grade is the wrapper.** A linear array is `!idr.lin<tensor<...>>`,
+the grade around the carrier as for every other value, and the verifier
+checks it after every pass. `idr::QType` does not implement
+`TensorLikeType`: a type interface belongs to the class, so every graded
+value, the world and a linear integer included, would become a tensor to
+One-Shot (read: `M/include/mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.td:18-50`).
+The tensor's encoding slot stays free, which `#sparse_tensor.encoding`
+needs; the earlier `compiler.md`'s grade-as-encoding spelling is deleted
+for that reason.
 
-- **Fusion** is upstream's `linalg-fuse-elementwise-ops` (read:
-  `Linalg/Passes.td:167`), on tensors, for generics, which only bodies
-  that compute are (§3.4): Futhark's rule, never duplicate work and never
-  lose parallelism (read: `henriksen-2017-futhark-thesis`, §7), with no
-  read moved past a write, which tensors make impossible to express.
-  Fusion stops at size-changing primitives (`filter`, `accumulate`,
-  `concat`), as BQN's notes argue and linalg does anyway (read:
-  `sources/docs/bqn/implementation/compile/fusion.md`).
-- **Tiling for the cache** is `transform.structured.fuse` on generics of
-  two or more dimensions, the tile's working set at most the L1 data
-  cache read from DLTI (`L1_cache_size_in_bytes`, written by `idr-target`
-  from the target's entry). **Measurement rule:** tiling stays on only
-  where a benchmark it changes gets faster on both targets and none gets
-  slower beyond the run-to-run spread.
-- **Vectorization stays where it is.** The generics bufferize to memref
-  generics, which `idr-vectorize` and `idr-narrow-lanes` treat as today.
+**How One-Shot meets the wrapper**, with no change to its analysis
+(conjecture, settled by stage 2's tests):
+- `idr.lin.enter %t` (tensor into the wrapper) is a **release**: its
+  model declares its operand read and written. One-Shot therefore puts
+  a copy there exactly when `%t`'s buffer is read again after it, or is
+  not writable (a constant, a buffer read from the heap). Past a
+  release, the buffer belongs to the linear thread alone.
+- `idr.lin.use %a` (wrapper to tensor) starts an alias set whose root is
+  writable: the release that made `%a` already made its buffer the
+  thread's. So the writes of a linear thread need no proof at a use.
+- A wrapped function argument or result is not a tensor to the
+  boundary analysis at all: our `idr.func` model converts
+  `!idr.lin<tensor<...>>` to `!idr.lin<memref<...>>`, and the caller's
+  release already happened. A recursive function threading a linear
+  array is therefore in place, where upstream's boundary analysis, which
+  skips recursive call graphs (read: `OneShotModuleBufferize.cpp:481,
+  525`), would assume every operand read and written.
+- A store of a tensor into a cell (a field, a capture, an element, a
+  message of 0009) is a release too; a read from the heap is
+  `bufferization.to_tensor ... restrict`, not writable, so a value
+  operation that writes it copies.
 
-### 3.10 Bufferization and grades
+This keeps AGENTS.md's rule exactly: a linear binder does not imply
+unique ownership, so exclusivity is One-Shot's conclusion at the
+release, from every alias in tensor code, never the grade's assumption.
+`LArray` is born fresh, so for a program on `LArray` the release copies
+nothing (§3.8).
 
-Kept from the earlier draft, whose decisions stand:
+**The in-place promise.** Under `--demand-in-place`, `idr.lin.enter`'s
+model returns `mustBufferizeInPlace`, and One-Shot's `verifyAnalysis`
+then rejects any program that would still copy there, with its own
+conflict ("cannot avoid RaW conflict", read:
+`M/lib/Dialect/Bufferization/Transforms/OneShotAnalysis.cpp:1540-1560`).
+The driver reports it as `unsupported (uniqueness)` naming the write and
+the conflicting read. A copy from a buffer that is not writable is a copy
+under both meanings and is allowed. The analysis is the proof; no pass
+of ours re-derives it.
 
-- `idr-bufferize` is One-Shot Bufferize through
-  `bufferization::runOneShotModuleBufferize`, function boundaries
-  bufferized at the identity layout, `allocationFn` building
-  `idr.array.alloc` (a new array cell of word elements, unspecified until
-  written, as `tensor.empty`'s are), no deallocation pass: counting frees
-  cells.
-- The grade wraps the carrier: `!idr.lin<tensor<...>>` before
-  bufferization and `!idr.lin<memref<...>>` after, `idr::QType`
-  implementing `TensorLikeType` and `BufferLikeType` (read:
-  `include/mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.td:18-41`),
-  and `idr.lin.enter` and `idr.lin.use` implementing
-  `BufferizableOpInterface` as equivalent to their operand.
-- One-Shot decides in place over SSA before `idr-rc`; after it every
-  buffer is an array cell that `idr-rc` grades as any array. Neither
-  consults the other.
-- Recursion: upstream does not analyse recursive boundaries (read:
-  `sources/docs/mlir/docs/Bufferization.md:283-284`). **Measurement
-  rule:** a `bench/` program whose thread stays a copy only because of a
-  recursive boundary is the threshold for extending the module analysis
-  upstream, as a patch under `upstream/`.
-- **The in-place clause.** Under `--demand-in-place` (read: `Passes.td`,
-  `idr-demand`), every write whose array came out of a quantity-1 binder
-  must be in place; one that One-Shot copies is `unsupported (uniqueness)`,
-  naming the write and One-Shot's conflicting read.
+**`bufferization.writable`** on a plain tensor argument is derived from
+the function's type immediately before the pass and never kept as a
+fact between passes: the attribute is discardable (read:
+`BufferizationBase.td:48,57`).
 
-### 3.11 Threads of writes on `Linear.Array`
+**Plain tensors across calls** use upstream's module analysis: a callee
+may write its parameter in place, and each caller copies where it still
+reads the argument. In a recursive call graph upstream assumes every
+operand read and written; the driver reports each copy One-Shot makes
+at such a call as a `missed` remark with its conflict (read:
+`sources/docs/mlir/docs/Bufferization.md`, "Debugging Buffer Copies";
+`BufferizationStatistics::numTensorOutOfPlace`, `Bufferize.h:35`), and
+the first `bench/` program with one in its hot path is the threshold for
+an upstream change that analyzes a call graph cycle to a fixpoint (§20,
+U4).
 
-Kept from the earlier draft: a thread of writes on a `Linear.Array` that
-starts at a new array, runs through SSA and ends where it is frozen or
-stored, becomes `tensor.insert` when One-Shot's analysis of the raised
-thread finds every write in place; a read-after-write conflict, where
-the library's one-object meaning and the tensor's differ, keeps the
-memref ops. A thread bound at quantity 1 never conflicts.
+**`idr.tie_shape`** bufferizes to the same op on the memref, so value
+bounds still relate dimensions after bufferization; `idr-lower` drops it.
 
-### 3.12 Static normalization
+## 9. Sparse arrays and semirings
 
-A closed array expression of total code is a closed total call, so the
-frontend normalizes it (0003): its result becomes a dense constant
-(`arith.constant dense<...>`), up to the static-data cap. The interpreter
-runs each array operation as one whole-array primitive of the runtime, so a
-table built by array operations normalizes at close to native speed; one
-built element by element through a lambda is interpreted per element, and
-past the counted budget it is a startup constant, computed once at native
-speed (0009 D6). A shape that normalization makes constant makes static
-dimensions, and every loop over them a known trip count. Partial array code
-is never normalized.
+**decision** (D21) A sparse array is a dense array's type with
+an encoding, not a second kind of array.
 
-### 3.13 Multicore
+```idris
+data Level = Dense | Compressed | Singleton | LooseCompressed
+record Format (s : Shape) where
+  levels : Vect (rank s) Level
+  order  : Permutation (rank s)
 
-The shard runtime, its fork and join and its lowering of `scf.forall`
-are `proposals/0009-shards.md`'s (§8, stage P4); SPMD through upstream's
-`shard-partition` is its P5, by its rule. What this proposal owns is
-which loops may run on many cores: generics' parallel dimensions, which
-only bodies that compute have (§3.4); reductions split only when their
-combiner associates by its ops (§3.6), so a float result is the same on
-any number of cores; the partitioned extent's lower bound, the extent at
-which the partitioned spectral-norm row loop breaks even on each target,
-rounded up to a power of two and kept in the target's entry.
+export
+data SArray : (0 fmt : Format s) -> (0 s : Shape) -> Type -> Type
+```
 
-## 4. What it deletes
+`fmt` is erased and monomorphised into the tensor's
+`#sparse_tensor.encoding<{map = (d0, d1) -> (d0 : dense, d1 : compressed)}>`,
+so CSR, DCSR, COO and CSF are formats of one type, and the same raised
+generic lowers dense or sparse: the sparsifier decides the loops (read:
+`sources/papers/bik-2022-sparse-mlir/mlir.tex:45-70`). Level types at the
+pin: `dense`, `batch`, `compressed`, `loose_compressed`, `singleton`,
+`structured[n, m]`, with `nonunique`, `nonordered` and `soa` properties
+(read: `M/include/mlir/Dialect/SparseTensor/IR/SparseTensorAttrDefs.td:165-220`).
 
-- The ceiling of rank 1 on arrays the program does not order: they are
-  tensors of any rank, and the memref predicates `Idr_ArrayValue` and
-  `Idr_Rank1ArrayValue`, with the frontend's `Rank0 | Rank1`, stay with
-  the arrays a world orders (`IOArray`, `Buffer`, `IORef`).
-- `idr.array.generate`, `idr.array.fold` on memrefs, and the memref half
-  of `Lower/Loops.cppm`, with its entry test and second copy of a loop.
-- `Linear.Array`'s `IArray`, `ifoldl`, `imap`, `map`, `zipWith`, `sum`,
-  and the registry's `prim__generate` and `prim__foldl` hooks.
-- The words-only condition on loops (`Terms.idr`, `arrayLoop`).
-- The earlier draft's §3.7 and its fallback for a rank that is not a
-  literal.
+**The meaning is the dense array with zeros**, and "zero" is the
+semiring's. The library gives each lifted function its absent cases as
+its own values at zero (`f 0 0`, `f x 0`, `f 0 y`), which become the
+regions of `sparse_tensor.binary` (overlap, left, right) and `unary`, so
+the sparse result is the dense one exactly. Any op is admissible inside
+those regions (read: `M/lib/Dialect/SparseTensor/Utils/Merger.cpp:1244-1270`);
+upstream's own vocabulary already calls them semiring ops (read:
+`Merger.h:107, 169, 193-194`).
 
-## 5. Rules of AGENTS.md it keeps
+**Codegen only.** `enable-runtime-library=false`, which is not the
+default (read: `M/include/mlir/Dialect/SparseTensor/Pipelines/Passes.h:69`),
+gives `sparse-tensor-codegen` and `sparse-buffer-rewrite`. Even then
+`sparse_tensor.new`, `out` and `print` call the C runtime (read:
+`SparseTensorCodegen.cpp:1531`, `SparseTensorRewriting.cpp:1563`), so the
+library never emits them, and the verifier of the contract refuses them.
+Storage growth is `memref.realloc`, lowered through the generic
+allocation functions the runtime provides.
+
+**Elements.** A sparse element must be `f16`, `bf16`, `f32`, `f64`, `i8`,
+`i16`, `i32`, `i64` or a complex float (read: `isValidPrimaryType`,
+`M/lib/Dialect/SparseTensor/IR/SparseTensorDialect.cpp:922-930`); `i1`
+is not one. Any other element is `unsupported (sparse element)`.
+
+**Semirings as `i8`.** A finite semiring is encoded as small integers
+with its additive zero at 0, because `implicitVal` supports only 0 (read:
+`SparseTensorAttrDefs.td:218-222`, "For now, we only support `0`"). The
+encoding comes from the `Semiring` instance, not from constructor order:
+`SizeChange = Smaller | Same | Unknown` has `plusNeutral = Unknown`
+(read: `Algebra/SizeChange.idr:8, 56`), so tag order would give the
+wrong zero.
+
+| semiring | encoding | plus | times |
+|---|---|---|---|
+| `ZeroOneOmega` (read: `Algebra/ZeroOneOmega.idr:9`) | `Rig0 = 0`, `Rig1 = 1`, `RigW = 2` | `minui(addi(a, b), 2)` | `minui(muli(a, b), 2)` |
+| `SizeChange`, plus `max` in information order, times `<+>` | `Unknown = 0`, `Same = 1`, `Smaller = 2` | `maxui(a, b)` | `minui(muli(a, b), 2)` |
+| Boolean (existence) | `0`, `1` | `ori` | `andi` |
+| counting | the integer | `addi` | `muli` |
+| min-plus (shortest paths) | `i64`, with no implicit zero (dense) | `minsi` | `addi` |
+
+Each is two ops at most, so `reduce` and `binary` regions hold them.
+Their laws are decided exhaustively by the fork's own proofs, which is
+reduction case 2 of §6. Min-plus's zero is infinity, not 0, so it stays
+dense until upstream supports another implicit value.
+
+**Storage.** Positions, coordinates and values are value arrays in a
+library record; `sparse_tensor.assemble` at use, `disassemble` into
+fresh cells at results. `assemble` "does not perform any sanity test"
+(read: `SparseTensorOps.td:76-79`), so the library's constructors check
+or prove its invariants. The sparsifier's temporaries are its own
+`memref.alloc` with its own frees (read: `SparseTensorCodegen.cpp:139-142`).
+**Measurement:** if `disassemble`'s copies take more than 5% of spmv's
+time, an upstream change routes the sparse codegen's allocations
+through the bufferization options' `allocationFn` (§20, U3).
+
+**A linear sparse array** is not offered: in-place sparse updates are
+the sparsifier's own insertion on fresh tensors, and the wrapper rule of
+§8 applies unchanged if it is ever needed, because the encoding slot is
+free.
+
+## 10. Relations as sparse arrays
+
+A relation is a sparse array of Booleans; a conjunctive query is an
+einsum: `Q[a, b, c] = R[a, b] * S[b, c] * T[a, c]` (read: 0010 §5; recalled:
+`sources/papers/kjolstad-2017-taco`). The pieces, all upstream:
+
+| relational | sparse array | MLIR |
+|---|---|---|
+| a relation `R(a, b)` | `SArray fmt [<na, nb] I8`, `explicitVal = 1`: coordinates only, which is a trie | `#sparse_tensor.encoding<{..., explicitVal = 1 : i8}>` |
+| an index | a format: CSR is a two-level trie, COO a list of tuples | level types |
+| a natural join | a product, co-iterating on the shared variable | `linalg.generic` over sparse operands, or `sparse_tensor.coiterate` |
+| `EXISTS`, `COUNT`, `SUM`, `MIN` | a contraction in the Boolean, counting, sum or min-plus semiring | `sparse_tensor.reduce` in a reduction |
+| a selection | `sparse_tensor.select` | |
+| set difference (a semi-naive delta) | `binary` with an empty overlap region | |
+| a recursive query | the delta's fixpoint | `scf.while` around the round |
+
+The coordinates of a relation are dense integers, so every name in it
+is interned first: 0005's typed ids are this section's precondition.
+
+**What this subset is.** Plans fixed at compile time: the formats, the
+variable order and the join order are the program's. **What it is not**
+(read, from the sparsifier's loop emitter): co-iteration merges two
+sorted levels with two pointers, linear in the sum of their sizes, not
+in the smaller one, so a sparse join here is not worst-case optimal
+(recalled: leapfrog triejoin's bound). There are no hash levels, no lazy
+levels, no runtime choice of format or variable order, and no indexes
+chosen from statistics.
+
+**The boundary with 0010** (**decision**, D22). A plan that
+fits this subset is emitted as a sparse array program and compiled by
+this lowering. Everything else stays 0010's: COLT's lazy tries, hash
+tries, the Free Join planner and its generic-join end, galloping
+intersection for worst-case optimal joins, indexes chosen from
+statistics, plan variants, e-graphs, and the database's storage, laws
+and log shared with bumbledb. 0010's interpreter is specialized for a
+plan that does not fit; it is never a second route for one that does.
+
+## 11. The compiler's own consumers
+
+Each consumer is assigned to dense, sparse or 0010, honestly.
+
+- **0005's multiplicity check is a sparse reduction.** Occurrences
+  grouped by binder are a compressed level; the check folds each group in
+  the 0/1/ω semiring and compares the sum with the declared quantity.
+  That is `sparse_tensor.reduce` over a CSR array of `i8`, reduction
+  case 2 of §6.
+- **Size-change termination is half array, half relation.** Composing
+  two size-change matrices is a semiring matrix product in `SizeChange`,
+  a sparse `linalg.matmul`-shaped generic over DCSR operands: the fork's
+  `Libraries/Data/SparseMatrix.idr` is already DCSR in lists (read). The
+  closure is not a sum: the checker keeps a set of `(f, h, matrix)`
+  triples (read: `Core/Termination/SizeChange.idr:415-417`, its work
+  list), and summing them would merge call paths that must stay apart.
+  The closure is a relational fixpoint over that set, 0010's.
+- **0016's kernels are where linalg is weakest.** The wavefront machine's
+  steps are a stable group by term kind (a sort or a counting scatter),
+  gathers of children from the arena, compaction of finished rows, and
+  scatters of results: gathers, scatters and filters, where fusion stops
+  (§4.4). Its dense parts (per-kind arithmetic on a gathered batch) fuse
+  as any map does. 0016's kernels are written as ordinary programs in
+  this language, using `select`, `idr.scatter` and `filter`; there is no
+  whole-array primitive of the runtime for them, which would be a second
+  implementation of library functions.
+- **0005's tables** are dense arrays of interned ids, one tensor per
+  column (§4.5).
+- **0008's layouts** are §4.5's one-to-N conversion of records, chosen
+  by 0008's measurements.
+
+## 12. Constants and static normalization
+
+**decision** (D23) One answer. A literal array, or the result
+of a closed total computation that static normalization (0016) produces,
+is `arith.constant dense<...> : tensor<...>` for word and float
+elements, which bufferizes to a non-writable `memref.global` (read: the
+Arith bufferization model). It is immortal: its descriptor's allocated
+pointer is a static cell header of the runtime's persistent kind (count
+0, never freed; read: `runtime/idris_rt.h`), placed beside the data and
+not in front of it, and its aligned pointer the global's data. Counting
+treats it as it treats every persistent cell, and a write copies it,
+which is the value meaning. A constant of any other element is built at
+startup. The earlier `idr.array.constant` op is deleted: the header
+need not be in front of the data, because the runtime reads it through
+the allocated pointer (read: `Conversion/ArrayView.cpp`, "The
+descriptor's allocated pointer is the cell"). That `memref.get_global`
+lowering, which sets the two pointers, is the one pattern of ours it
+needs (conjecture, checked in stage 2).
+
+Static normalization itself is 0016's: no array operation runs at
+compile time until it exists, and then it runs as this lowering compiles
+it, never as a second implementation.
+
+## 13. Arrays a world orders
+
+`IOArray`, `IORef` and `Buffer` are base's, unmodified, and stay memrefs
+threaded by the world: their meaning is mutation in program order.
+**decision** (D24) Each op declares `MemRead` or `MemWrite`
+on its memref operand instead of on the one global `IOResource`, so
+upstream's alias and effect reasoning separates two arrays, and reads of
+a buffer no write reaches can be hoisted and CSE'd. The world operand
+keeps the order with every other effect. Their accesses keep the
+primitive's guard, the runtime's meaning of an access outside the array.
+With `idr-in-bounds` gone, base's `IOArray` checks an index in Idris and
+the primitive checks it again; **measurement**: fannkuch-redux and the
+`Buffer` programs within the run-to-run spread of today's record, else
+the replacement is a local pattern relating `newArray`'s size operand to
+`memref.dim` where value bounds can read it, never the Presburger engine
+again.
+
+`freeze` and `thaw` between an `LArray` and an `IOArray` are
+`bufferization.to_tensor ... restrict` (not writable) and a release.
+
+## 14. Multicore, and devices later
+
+After 0009's P4, a parallel dimension of a raised generic is tiled with
+`scf.forall` and partitioned across shards by 0009's rule, with
+`shard.grid`, `sharding-propagation` and `shard-partition` for region
+SPMD where it applies (read: the pinned `shard` dialect). A reduction
+across shards is legal exactly when §6 says its order is not observed,
+so outputs are identical on one shard and on all. Devices come later
+through the same tensor level: nothing above tiling assumes a CPU, and
+a device is a target entry. Static linking decides which devices are
+possible; the earlier `compiler.md`'s analysis of that (AMD through
+KFD on Linux, Metal through SPIR-V on macOS; recalled) is kept for when
+the work starts, as is its note that forward-mode differentiation is a
+record of two words and reverse mode a library over the generating set,
+which is closed under transposition.
+
+## 15. What it deletes
+
+Measured line counts from §1; what replaces each.
+
+| layer | lines | deleted | replaced by |
+|---|---:|---|---|
+| library | 289 | `Linear/Array.idr`, its Scheme specs, `IArray` | `LArray`, `Linear.Vec`, `libs/mlir-array` (§3.8) |
+| frontend | ~320 | `Rank0 \| Rank1`, the spec-string matches, `indexSpaces`, `arrayLoop`'s words-only rule, the per-access guard, `MLIR.idr`'s rank-only memref | ranked tensor types with static dimensions; the generating set's emission (§4.1) |
+| dialect | ~707 | `idr.array.new`, `get`, `set`, `generate`, `fold` on unordered arrays, `OpsArrays.cpp` | upstream `tensor` ops; `idr.tie_shape`, `idr.scan`, `idr.scatter` (§4.3, §4.4) |
+| conversion | 811 | `ArrayLoops`, `ArrayLoopReads`, `Arrays`, `ArrayView`, `Buffers` for unordered arrays | `idr-raise`; One-Shot with the runtime's allocator; the constant pattern (§12) |
+| transforms | 4076 | `InBounds` (3057), `Vectorize` (217), the one-lane reduction rule, Expect's `InBounds` and `PureArrayLoops` | typed accesses; the vectorization script; §6's representation of order; `fused`, `structured-loops`, `in-place` properties |
+| runtime | ~90 | the array-loop entry points | the allocator and copy as One-Shot's hooks |
+| **code** | **~6,300** | | |
+
+Kept and rebuilt on the new form: `MoveOut` and `Knots` (187 lines),
+NarrowLanes' versioning (442), the Vectorize driver's logic as a script,
+and the world-ordered half of `Arrays.cpp` and `Buffers.cpp` for
+`IOArray`, `IORef` and `Buffer`. Tests: the 40 programs of
+`tests/programs/arrays` keep their expected outputs where the program
+still means the same (the purge changes their source to the new
+library, not their output); the 26 `in-bounds/` dialect tests go with
+the pass; the rest of the 36 dialect files are rewritten to the new
+ops.
+
+## 16. Rules of AGENTS.md it keeps
 
 - **Idris does types; MLIR does programs.** Shapes, ranks, agreement and
-  uniformity are Idris types, checked by Idris; the frontend reads forms
-  to choose representations; which loops are parallel, what fuses and
-  what is in place are decided in MLIR, from the ops.
-- **One thing, one representation.** One array type, one loop family,
-  one index type; index sets compute a shape rather than add a second
-  kind of array; associativity is read off ops rather than stored; a
-  nested array of one cell shape is the flat one.
-- **Facts in types.** Quantity 1 wraps the tensor and the memref
-  (§3.10); in-bounds is the guard's absence; the effect that keeps a loop
-  in order is its representation (§3.4). No fact lives in a discardable
-  attribute.
-- **Erased does not mean constant.** Forms are read, sizes never assumed
-  (§3.2). **Indexed vectors do not imply contiguous storage**: arrays are
-  contiguous by the library's construction, `Vect` stays a list.
-- **No primitive has an implementation in Idris.** The array library is
-  not a primitive: its definitions are plain Idris over base's primitives,
-  whose one meaning is the runtime's; the hooks are faster lowerings of
-  the same definitions.
-- **No oracle.** Expected files are the specification; a test runs with
-  and without hooks against the same files. The interactive loop runs the
-  compiler's code.
-- **Never miscompile silently.** A body whose order is observable is
-  never reordered; a counted element keeps its counted path; a size or
-  an index is a word only where it is proved to fit; a coercion between
-  representations is inserted, never assumed.
-- **Both targets, nothing per target outside the entry.** Lane counts,
-  the L1 size and the partition bound come from the target's entry;
-  `reduceBlocked`'s fan-out is the program's, not a target's.
-- **Only `IdrisMLIR.Frontend.*` imports Idris's modules; `third_party`
-  is unmodified.** The error-message fix is a patch under `upstream/`.
-- **Static linking.** The interactive loop runs a line as a linked
-  executable in a child (0003 §7). Nothing of ours is loaded at run time.
+  uniformity are Idris types, checked by Idris. The frontend reads forms
+  to choose ranked tensor types and writes each loop's sequential
+  meaning; which loops are parallel, what fuses and what is in place are
+  decided in MLIR, by upstream's passes, from the ops.
+- **One thing, one representation.** One array type (the tensor), one
+  loop meaning (the frontend's `scf.for`, raised where pure), one index
+  type, one in-place analysis (One-Shot's), one representation of
+  columns (N tensors), one answer for constants, one reduction policy.
+- **Facts in types.** Rank and static extents are the tensor type;
+  quantity 1 wraps the tensor; in-bounds is the guard's absence; order is
+  the choice between a loop and a structured op. No fact lives in a
+  discardable attribute: `bufferization.writable` is derived just before
+  the pass that reads it.
+- **Erased does not mean constant**; **indexed vectors do not imply
+  contiguous storage**; **a linear binder does not imply unique
+  ownership** (§2, §8).
+- **No primitive has an implementation in Idris**, and no library
+  function has one in the runtime (§11).
+- **A megamorphic construct is refused**: a rank that grows at each call
+  is `unsupported (polymorphism)` (§2).
+- **No oracle**: expected files are the specification; nothing is
+  shaped so that Chez can run it (§3.8).
+- **Never miscompile silently**: an observable order is never
+  reordered; a counted element keeps its counts; a narrowing is guarded
+  unless the type proves it exact.
+- **Both targets, nothing per target outside the entry**: tile sizes,
+  lane widths and cache sizes come from the target's DLTI facts, written
+  by `idr-target` into the schedules (§7.1).
+- **Static linking**: no sparse runtime library, no `library_call`, no
+  OpenMP or async runtime.
+- **An upstream bug or gap is fixed upstream**: the patches of §20,
+  each with its report, reproducer, `tests/upstream/` check, `PINS.md`
+  entry and plan.
 
-## 6. Staged plan
+## 17. Staged plan
 
-Each stage passes `make check`, `make build`, `make test`, `make
-test-idr` and `make test-mlir-tools` on both targets, and runs `bench/` on
-both. New benchmarks, each with a C counterpart in `bench/c/` and no
-Chez column (nothing here is shaped for Chez): `matmul` (1024, f64, the C
-an `ikj` triple loop), `heat` (a 2-D five-point Jacobi step, 2048², 100
-steps), `spectral-norm-dense` (spectral-norm over this library, against
-`spectral-norm.c`), `prefix-sum` (an inclusive scan of 10^8 i64),
-`histogram` (10^8 bytes into 256 bins). A ratio is read against its own
-run's C; parity is within the run-to-run spread (`bench/README.md`).
+Every stage passes `make check`, `make build`, `make test`, `make
+test-idr` and `make test-mlir-tools` on both targets and runs `bench/` on
+both. Stage 1 lands right after `make self`, ahead of sharding; the rest
+follow in order. New benchmarks, each
+with a C counterpart in `bench/c/` and no Chez column: `matmul` (1024,
+f64, the C an `ikj` triple loop), `heat` (a 2-D five-point Jacobi step,
+2048², 100 steps), `spectral-norm-dense`, `prefix-sum` (an inclusive scan
+of 10^8 i64), `histogram` (10^8 bytes into 256 bins), `spmv` (CSR, a
+SuiteSparse matrix vendored under `sources/`).
 
-1. **The language, as written.** `libs/mlir-array` with the types, the
-   generating set over base's primitives and `Linear.Array`, the
-   vocabulary, the interfaces, `IndexSet`, `Display`; the notation checks
-   of §2 committed as type-level tests; type-error fixtures whose expected
-   transcript is the error, one per rule; the `upstream/` patch for
-   literal size mismatches (D12). Proof: a test per vocabulary entry
-   against its expected output; the benchmarks run and are recorded as
-   this stage's baseline (rank-1 loops over the flat backing, through
-   today's hooks).
-2. **Tensors by form.** The contract gains `tensor` and `bufferization`;
-   the frontend's representation by components (§3.1) and instances by
-   form (§3.2); the generating set's hooks (§3.3); `idr-tensorize` (record
-   decomposition, the two lowerings, reads as inputs), `idr-bufferize`,
-   grades over tensors; the range of `tensor.dim` seeded from the pointer
-   width (§3.1); `IArray` and the rank-1 loop ops go. Proof: stage
-   1's expected outputs unchanged, and unchanged with every hook broken;
-   new `idr-expect` properties, `structured-loops=@f` (every array loop of
-   `@f` is a linalg op, its frame parallel) and `typed-reads=@f` (no guard
-   and no entry test on a typed read in `@f`) and `word-loops=@f` (no op on
-   a big or a natural left in a loop of `@f`), the last on the `Fin`
-   arithmetic of §2.11's examples; `vectorized` where it held;
-   spectral-norm-linear within the spread of 0.596 s; `spectral-norm-dense`
-   at least at spectral-norm-linear's ratio to C.
-3. **Fusion, batching, tiling.** Proof: `fused=@f` (no array allocated
-   between two loops of `@f`) on `map f (map g x)`, `softmax` and `matmul`;
-   `batched` is one generic (`structured-loops`); `matmul` and `heat` at
-   parity with their C or faster on both targets, else the tiling
-   measurement rule decides what stays.
-4. **Order.** `idr.array.scan`, its two-pass lowering, integer reductions
-   across lanes, `reduceBlocked`. Proof: integer reductions and scans
-   vectorized across lanes (`vectorized`), float reductions in program
-   order (their outputs bit-equal to the in-order meaning in the expected
-   files); `prefix-sum` at parity with its C.
-5. **Index sets, shapes that depend on data, shape arithmetic.**
-   `for` and `Table`, `filter`, `Ragged`, `accumulate`, `resize`,
-   `Array.Shape.solve` and the views; arrays of naturals narrowed through
-   the tensor (§3.1). The solver waits on 0006's rewrite ladder (T4) where
-   a shape does not already reduce. Proof: tests; `word-loops` on `histogram` and on a
-   gather through `select`; `histogram` at parity with its C; the tactic
-   within its threshold (§2.9) on the corpus.
-6. **Threads of writes and the in-place clause** (§3.10, §3.11). Proof:
-   `in-place-thread=@f` (every write of `@f` in a raised thread and no
-   copy inserted); a reject fixture under `--demand-in-place`;
-   fannkuch-linear at parity with clang.
-7. **The interactive loop** (§2.13). Proof: transcript tests; the latency
-   rule measured on both targets and its outcome recorded.
-8. **Multicore** (§3.13), after 0009's P4. Proof: 0009's rules for P4
-   and P5; `heat` and `matmul` outputs identical on one shard and on all.
+1. **The purge and the rebuild, as one cutover.** `libs/mlir-array`'s
+   core (`Array`, `Extents`, `Index`, the generating set, `LArray`,
+   `Linear.Vec`); the frontend's ranked tensor types and the emission of
+   §4.1; `idr.tie_shape`; `idr-raise`; One-Shot on `idr.func` with the
+   U1 patch, the release model of §8 and the runtime's allocator; per-
+   memref effects on the world-ordered ops; every deletion of §15; the
+   fork's `Table`, `IORef` and `Buffer` users ported in the same change.
+   Proof: every array program's expected output unchanged; `make self`
+   green and stage 2 equal to stage 3; new `idr-expect` properties
+   `structured-loops=@f` (every pure array loop of `@f` is a linalg op),
+   `typed-reads=@f` (no guard on a typed access) and `in-place=@f` (no
+   copy of an array in `@f`), the last on fannkuch-linear and qsort; a
+   reject fixture under `--demand-in-place` naming One-Shot's conflict;
+   the eleven array benchmarks within the run-to-run spread of today's
+   record or faster, spectral-norm-linear within that of 0.596 s on the
+   Mac.
+2. **Static extents.** The literal and specialized cases of §4.3, the
+   cast propagation measured, `vectorizeNDExtract` on. Proof: a fixture
+   whose expected module has static dimensions through a specialized
+   call; `vectorized` on the static programs without masks;
+   `spectral-norm-dense` at least at spectral-norm-linear's ratio to C.
+3. **Fusion and schedules** (§7.1, §7.2). Proof, in this order: `fused` on
+   `map f (map g x)`, then `softmax` and `matmul`; a producer with two
+   consumers not duplicated; `matmul` and `heat` at parity with their C
+   on both targets, else the tile sizes are what the measurement
+   changes.
+4. **Order.** `idr.scan`, `idr.scatter`, `reduceBlocked`, the finite
+   semiring case of §6. Proof: integer reductions and scans vectorized
+   across lanes; float reductions bit-equal to the in-order meaning;
+   `prefix-sum` and `histogram` at parity with their C; producer fusion
+   into an ordered fold measured on spectral-norm.
+5. **Index sets, data-dependent shapes and shape arithmetic.** `Table`,
+   `filter`, `Ragged`, `accumulate`, `resize`, `Array.Shape.solve`, the
+   views. Proof: tests; the tactic within its threshold on the corpus.
+6. **Sparse** (§9). `SArray`, codegen only, the U2 patch, `i8`
+   semirings. Proof: `spmv` within 1.5x of its C (decision; the CSR C
+   loop is the bound), no symbol of the sparse runtime in any linked
+   program (`tests/toolchain/static-linking` extended), the semiring
+   tables' laws as type-level tests.
+7. **Relations and the compiler's consumers** (§10, §11). The
+   multiplicity check as a sparse reduction and size-change composition
+   as a semiring product, behind the fork's existing results: identical
+   verdicts on base and the corpus (0005's gate), and the 0010 boundary
+   rule applied to the first relational consumer.
+8. **Multicore** (§14), after 0009's P4. Proof: 0009's rules; `heat` and
+   `matmul` outputs identical on one shard and on all.
 
-## 7. Rejected alternatives
+## 18. Rejected alternatives
 
-- **Rank only where it is a literal** (the earlier draft): it read a
-  form, which the type states, as if it were a value. Forms are static;
-  sizes are not (§3.2).
-- **An unranked tensor or a runtime-rank descriptor for every array.**
-  linalg takes ranked operands only, and reassociations are static;
-  segments give dynamic rank with ranked tensors (§3.1).
-- **Leading-axis primitives (J, BQN).** Typed by shape calculators on
-  the whole shape (`major s`), they get stuck on a variable frame
-  (`major (f :< n)`), where trailing-axis types infer the frame by
-  unification; the leading axis is a free transpose away (§2.1, §3.5).
-- **Trailing (NumPy) broadcasting and size-1 stretching**: a second
-  agreement rule, decided by runtime sizes (§2.4).
-- **Implicit lifting at application** (Remora) **or by elaboration**
-  (AUTOMAP, which removes 54% of explicit maps at 2.5x type-checking
-  time; read: `sources/papers/schenck-2024-automap/paper.pdf`, §1-2):
-  either is a change to Idris's elaborator, which is upstream's and
-  unmodified. `over`, `agree` and `map` are explicit, short and typed.
-- **Arithmetic overloaded across shapes under the Prelude's names**:
-  ambiguous elaboration of ordinary arithmetic (measured, §2.3).
-- **A glyph module** (§2.3).
-- **A shape index language of its own** (DML, Remora, Qube) or Dex's
-  value-dependent types with syntactic equality: Idris's terms are the
-  index language, and its equality is definitional.
-- **A word-equation or SMT solver in the compiler or the checker**, and
-  **shape arithmetic in Idris's conversion**: an oracle beside the
-  toolchain, or programs accepted here and refused upstream (§2.9).
-- **Fill elements and the zero-frame probe** (APL, J, BQN): a calculator
-  or a nested result settles the empty frame by type (§2.4).
-- **Emitting linalg from the frontend**: whether a body may crash or
-  diverge is known only after inlining and defunctionalization, so the
-  frontend emits a loop with the library's order and the MLIR side
-  chooses (§3.4).
-- **Reassociating float reductions, or proofs that license it for user
-  monoids.** Floats do not associate; a parallel float sum is a function
-  with its own order (`reduceBlocked`). A user monoid in a hot loop is
-  the measurement that would add a lawful-monoid entry point.
-- **Nested arrays as a cell per row**: an array of one cell shape is
-  flat by representation (§3.1); a ragged one is `Ragged`.
-- **Tensors of counted elements now** (§3.1, its measurement rule).
-- **`tensor.generate`**, which has no destination and always allocates
-  (read: `Bufferization.md`, "Destination-Passing Style"); **`tensor.gather`
-  and `tensor.scatter`**, which have no bufferization model (read:
-  `lib/Dialect/Tensor/Transforms/BufferizableOpInterfaceImpl.cpp:1190-1210`
-  registers neither); **`linalg` `library_call`**, a dynamically linked
-  call; the sparse runtime library; `ShardToMPI`, OpenMP and the async
-  runtime: each a C runtime or a shared library, outside AGENTS.md.
+- **The segment, or collapsed dimension, for a shape that grows** (the
+  earlier companions): a uniform form for a megamorphic construct, which
+  AGENTS.md refuses. Refused here, and only a shape variable passed
+  through uninspected is ever dynamic.
+- **An unranked tensor or a runtime-rank descriptor**: linalg takes
+  ranked operands only, and reassociations are static.
+- **Loop ops of ours on tensors** (`tabulate`, `fold`, `scan` with an
+  effect-chosen lowering, the earlier README; `lift` and `idr-batch`, the
+  earlier `compiler.md`): the sequential meaning is already `scf` and
+  `tensor`, so a second spelling is a second representation. The
+  parallel forms are `linalg`, raised.
+- **Emitting `linalg` from the frontend**: whether a body may crash is
+  known only after inlining and defunctionalization.
+- **The grade as the tensor's encoding during bufferization** (the
+  earlier `compiler.md`): it takes the slot `#sparse_tensor.encoding`
+  needs. **`idr::QType` as a `TensorLikeType`**: it makes the world a
+  tensor to One-Shot.
+- **Lowering `idr.func` to `func.func` before bufferization, to avoid
+  U1**: counting, the stack pass and the tail passes would then run on
+  `func.func`, and the function op would change meaning mid-pipeline,
+  against 0014's one function op until lowering. **Bufferizing after
+  counting**: counting would need a model of tensors, and the cells it
+  counts would not exist yet.
+- **Keeping `idr-in-bounds`, or porting it onto value bounds**: its facts
+  are Idris's, so the right image is no guard, not a proof of a guard
+  away. What remains (world-ordered accesses) is measured (§13).
+- **`tensor.generate`, `tensor.concat`, `tensor.gather`,
+  `tensor.scatter`** (§4.1, §4.4): no destination, always allocating, no
+  bufferization model.
 - **Ownership-based buffer deallocation**: a second ownership system
-  beside counting.
-- **An interactive loop on Idris's evaluator or Chez**: a second meaning
-  of every primitive.
-- **Autotuned thresholds and user-visible schedules** (Futhark's
-  incremental flattening, Triton, Halide, TVM; read:
-  `sources/papers/henriksen-2019-incremental-flattening/paper.pdf`, §4.2):
-  non-reproducible builds, and a second program beside the program.
-  Thresholds come from the target's entry; schedules are the compiler's.
+  beside counting, which also refuses an in-place thread through a
+  function.
+- **A whole-array runtime primitive per vocabulary function** (for the
+  interpreter, or for folding): a second implementation of library code.
+- **`idr.array.constant` and a cell header in front of constant data**:
+  `memref.global` with the header beside it is enough (§12).
+- **Reassociating float reductions, or any user monoid on a proof
+  alone**: floats do not associate, and a general monoid in a hot loop is
+  the measurement that would add it. Finite semirings are decided
+  exhaustively and are the one proof-licensed case.
+- **Shape arithmetic in Idris's conversion** (the earlier `types.md`),
+  a word-equation or SMT solver, a shape index language of its own:
+  programs accepted here and refused upstream, or a solver beside the
+  toolchain.
+- **Trailing (NumPy) broadcasting and size-1 stretching**; **leading-axis
+  primitives**; **implicit lifting** (Remora, AUTOMAP; read:
+  `sources/papers/schenck-2024-automap/paper.pdf`, §1-2); **a glyph
+  module**; **arithmetic overloaded across shapes**: the earlier README's
+  reasons, kept (§3).
+- **The sparse runtime library**, `linalg` `library_call`, `ShardToMPI`,
+  OpenMP, the async runtime: C runtimes or shared libraries.
+- **Autotuned thresholds and user-visible schedules**: non-reproducible
+  builds and a second program beside the program. Schedules are the
+  compiler's, from the target's facts, printed with the module.
 
-## 8. Decisions
+## 19. Decisions
 
-**D1. The library** is `libs/mlir-array`, in plain Idris over base's
-primitives and `mlir-linear`, a trusted library as `mlir-linear` is.
-Reason: AGENTS.md's rule for what the compiler ships beyond base; its
-definitions are the meaning, and a hook can be broken without changing a
-result.
+Decided by the owner, 2026-10-12.
 
-**D2. Shapes are snoc lists, and rank is the form** (§2.1, §3.1, §3.2).
-Reason: unification infers frames on snoc lists and not on cons lists
-(measured); the form is in the checked type at every call, so reading it
-is reading Idris's proof, not assuming a value.
+- **D1.** The library is `libs/mlir-array`, plain Idris over base and
+  `mlir-linear`, trusted (§3).
+- **D2.** Shapes are snoc lists; rank is the form of the shape (§3.1).
+- **D3.** Primitives act on trailing cells; agreement is prefix
+  agreement, as an indexing map (§3.1, §3.4).
+- **D4.** A coordinate is `index` at its access, unguarded because its
+  type bounds it by an extent; a bare `Fin` stays a natural; an extent
+  enters `index` at allocation, guarded (§2, §4.3).
+- **D5.** Arithmetic at one shape, extents by search (§3.3).
+- **D6.** Rank is `merge . map . nest`, the empty frame settled by a
+  calculator (§3.4).
+- **D7.** A generating set known by name; the vocabulary is library code
+  (§3.5).
+- **D8.** Index sets are a one-parameter interface; `Table` is a data
+  type (§3.6).
+- **D9.** Names, not glyphs (§3.3).
+- **D10.** A loop's form is chosen by its body's effects, read through
+  `MemoryEffectOpInterface`, by `idr-raise` (§5).
+- **D11.** Idris's equality is unchanged; shape arithmetic is the
+  library's tactic (§3.7).
+- **D12.** Literal size mismatches are reported as the literals, by a
+  fix in the fork recorded in `PINS.md` (§3.9).
+- **D13.** The frontend writes each primitive's sequential meaning in
+  upstream `scf` and `tensor` ops (§4.1).
+- **D14.** `idr.tie_shape` ties dynamic dimensions across calls through
+  `ValueBoundsOpInterface`; sizes are `arith` or `affine` on `index`
+  (§4.3).
+- **D15.** Reductions mean their left fold; `linalg` reductions only for
+  a single integer op, a finite semiring with proved laws, or
+  `reduceBlocked k` (§6).
+- **D16.** `idr.scan` and `idr.scatter` are ours until upstream has a
+  region-combiner scan and a combining scatter (§4.4).
+- **D17.** Counted elements are tensor elements, with a counted
+  `memCpyFn` (§4.5).
+- **D18.** One-Shot Bufferize on `idr.func`, before counting, with the
+  runtime's allocator and no ownership deallocation; the grade is the
+  wrapper, `lin.enter` a release; `--demand-in-place` is
+  `mustBufferizeInPlace` (§8).
+- **D19.** `Linear.Array` is rewritten on `LArray`; its Scheme specs go
+  (§3.8).
+- **D20.** Tiling and vectorization are transform scripts written from
+  the target's facts (§7.1).
+- **D21.** A sparse array is the dense type with an encoding, codegen
+  only, semirings as `i8` with the zero at 0 (§9).
+- **D22.** A relational plan that fits the sparse subset is a sparse
+  array program; everything else is 0010's (§10).
+- **D23.** Constants are `arith.constant dense`, an immortal
+  `memref.global` with the header beside it (§12).
+- **D24.** World-ordered arrays declare their effects on their memref
+  (§13).
+- **D25.** A rank no analysis fixes is refused; the segment scheme is
+  deleted (§2, §18).
 
-**D3. Primitives act on their trailing cells; agreement is prefix
-agreement** (§2.1, §2.4). Reason: one rule for primitives and the rank
-operator, frames inferred without calculators, and an agreement that
-never consults a runtime size.
+## 20. Upstream used, and the patches it needs
 
-**D4. Indices are `Fin`s; sizes and indices stay naturals, narrowed to
-words where proved, with tensor extents bounded by the address space;
-elements are structures of tensors; nested arrays of one cell shape are
-flat** (§2.2, §3.1). Reason: no check on a typed access (the README's
-promise), linalg's dimension agreement by type, crash-free bodies; a
-word where a natural may not fit would print a different number; one
-tensor per slot keeps loops on words.
-
-**D5. Arithmetic at one shape, extents by search; agreement named**
-(§2.3). Reason: measured: overloading across shapes makes ordinary
-arithmetic ambiguous; this form passes every probe.
-
-**D6. Rank is `merge ∘ map ∘ nest`, the empty frame settled by a
-calculator** (§2.4). Reason: BQN's identity as the definition; Hui's
-uniformity as a type; search finds the calculator in the common cases
-(measured), and a nested result needs none.
-
-**D7. A generating set of hooked primitives; the vocabulary is library
-code** (§2.5). Reason: the smallest surface the compiler must keep equal
-to the library; everything else becomes structured ops by §3.5.
-
-**D8. Index sets are a one-parameter interface with an erased shape;
-`Table` is a data type** (§2.7). Reason: measured: the only form whose
-products resolve and whose literals type.
-
-**D9. Names, not glyphs** (§2.3).
-
-**D10. A loop's lowering is chosen by its body's effects** (§3.4).
-Reason: the parallel iterator is the fact that order is unobservable, so
-it must be true by representation.
-
-**D11. Idris's equality is unchanged; shape arithmetic is the library's
-tactic, with a threshold** (§2.9).
-
-**D12. Literal size mismatches are reported as the literals**, by a patch
-to Idris's unifier error under `upstream/`, with its report, reproducer,
-check and plan (§2.12). Reason: the language's diagnostics are shape
-errors, and today's message for the commonest one names unary remainders.
-
-**D13. The interactive loop runs the compiler's code, with a latency
-rule** (§2.13). Reason: one meaning per primitive.
-
-**D14. The contract gains `tensor` and `bufferization`; linalg is the
-MLIR side's** (§3.3, §3.4). Reason: views and edges have no effects and
-are upstream's ops from birth; loops need the effect decision first.
-
-**D15. Reductions and scans mean their left fold; reassociation is read
-off the combiner's ops; parallel float sums are `reduceBlocked`** (§2.6,
-§3.6). Reason: results identical on every target, lane width and core
-count, with no stored fact.
-
-**D16. `idr.array.scan` is ours until upstream has a scan with a region
-combiner** (§3.6).
-
-**D17. Counted elements keep the counted path, by measurement** (§3.1).
-
-**D18. Records and sums of tensors are replaced by their slots before
-bufferization; boxes hold memrefs** (§3.8).
-
-## 9. Upstream used
-
-| Mechanism | For |
+| mechanism | for |
 |---|---|
-| `tensor` (`empty`, `extract`, `insert`, `dim`, `extract_slice`, `insert_slice`, `concat`, `expand_shape`, `collapse_shape`, `parallel_insert_slice`) | views, reads, updates, reshapes (§3.3) |
-| `linalg.generic`, `linalg-specialize-generic-ops`, `linalg-fuse-elementwise-ops`, `TilingInterface` | loops, fusion, tiling (§3.4, §3.9) |
-| `scf.for`, `scf.forall` | loops in order; frames of cells (§3.4, §3.7) |
-| `ReifyRankedShapedTypeOpInterface` | cell extents without data (§3.7) |
-| One-to-many dialect conversion | records of tensors (§3.8) |
-| One-Shot Bufferize, `TensorLikeType`, `BufferLikeType`, `BufferizableOpInterface`, `allocationFn` | bufferization and grades (§3.10) |
-| `bufferization.to_tensor`, `to_buffer` | edges with boxes and `Linear.Array` (§3.8) |
-| `transform.structured.fuse`, DLTI `L1_cache_size_in_bytes` | tiling (§3.9) |
-| `linalg::vectorize` (through `idr-vectorize`) | lanes (§3.9) |
-| `shard.grid`, `sharding-propagation`, `shard-partition` | SPMD, by 0009's rule (§3.13) |
+| `tensor` (`empty`, `extract`, `insert`, `dim`, `extract_slice`, `insert_slice`, `expand_shape`, `collapse_shape`, `pad`, `cast`) | values, reads, writes, views, reshapes (§4.1) |
+| `scf.for`, `scf.forall`, `scf.while`, `scf::upliftWhileToForLoop` | ordered loops, tiles, fixpoints |
+| `linalg.generic`, `map`, `reduce`, `fill`, `matmul`, `contract`, `transpose`, `broadcast` | structured loops (§5) |
+| `linalg-generalize-named-ops`, `linalg-specialize-generic-ops`, `linalg-fuse-elementwise-ops`, `linalg-fold-into-elementwise`, `linalg-morph-ops` | fusion (§7.2) |
+| `TilingInterface`, `tileConsumerAndFuseProducersUsingSCF`, `transform.structured.*`, `transform-interpreter`, DLTI | schedules (§7.1) |
+| `linalg::vectorize` with masks and input vector sizes | lanes (§7.1) |
+| `ValueBoundsOpInterface`, `ReifyRankedShapedTypeOpInterface`, resolve-dims, `IntegerRangeAnalysis` | dimensions and narrowing (§4.3) |
+| One-Shot Bufferize, `BufferizableOpInterface`, `eliminate-empty-tensors`, `to_tensor restrict`, `allocationFn`, `memCpyFn`, `verifyAnalysis` | in place (§8) |
+| one-to-N type conversion | record elements (§4.5) |
+| `sparse_tensor` encodings, `binary`, `unary`, `reduce`, `select`, `coiterate`, `assemble`, `disassemble`, `sparse-tensor-codegen` | sparse arrays and relations (§9, §10) |
+| `arith.constant dense`, `memref.global` | constants (§12) |
+| `MemoryEffectOpInterface` | the raising (§5); world-ordered arrays (§13) |
+| `shard.grid`, `sharding-propagation`, `shard-partition` | SPMD, by 0009's rule (§14) |
+
+**Gaps filled by ours**, each to go when upstream fills it:
+`idr.tie_shape` (no op ties dynamic dimensions across calls),
+`idr.scan` (no region-combiner scan), `idr.scatter` (no combining scatter
+with a bufferization model), `idr-raise` (no raising of tensor loops to
+linalg; recalled, to be read against the pin), the `memref.get_global`
+lowering for immortal constants.
+
+**Patches**, each under `upstream/<bug>/mlir.patch` with its report,
+reproducer, `tests/upstream/` check, `PINS.md` entry and plan:
+- **U1. One-Shot module bufferization on `FunctionOpInterface` and
+  `CallOpInterface`.** The pinned driver names `func::FuncOp` 29 times
+  and `FunctionOpInterface` never (read:
+  `M/lib/Dialect/Bufferization/Transforms/OneShotModuleBufferize.cpp`),
+  while upstream's own deallocation passes already take
+  `FunctionOpInterface` (read: `OwnershipBasedBufferDeallocation.cpp:168`).
+  Upstream has discussed generalizing it (recalled, not read: to be
+  checked against llvm main before writing ours, and a backport
+  preferred). Plan: the generalization with a test-dialect function op
+  in its test, sent to llvm-project's bufferization owners. Needed by
+  stage 1.
+- **U2. The sparse passes on `FunctionOpInterface`.** `stage-sparse-ops`,
+  `sparse-space-collapse` and `lower-sparse-iteration-to-scf` are anchored
+  on `func::FuncOp` (read: `M/include/mlir/Dialect/SparseTensor/Transforms/Passes.td:196,
+  534, 546`). Plan: `InterfacePass<FunctionOpInterface>`, as other
+  upstream passes have moved. Needed by stage 6.
+- **U3. Sparse codegen's allocations through `allocationFn`**, by the
+  measurement of §9.
+- **U4. Boundary analysis of a recursive call graph to a fixpoint**, by
+  the measurement of §8.
+
+## 21. What the owner settled
+
+1. **The purge comes right after `make self`,** ahead of sharding.
+   Today's arrays are deleted and the stack rebuilt in one cutover; the
+   fork's `Table`, `IORef` and `Buffer` users are ported in it, and
+   `make self` stays green across it.
+2. **One path for counted elements** (D17). A regression stage 1
+   measures is a reason to make the counted copy faster, not to keep a
+   second path.
+3. **The release model of §8** is the design. If One-Shot does not
+   accept it, the fallback is the grade carried as the tensor's encoding
+   inside the one pass, with linear sparse arrays refused; nothing else.
+4. **The Chez column** of `bench/` loses the `Linear.Array` programs
+   (D19). The C column is the comparison that matters.
+5. **U1 is a patch** to bufferization's module driver, generalized from
+   `func.func` to `FunctionOpInterface` and `CallOpInterface`, carried
+   under `upstream/` with its plan; no driver of ours.

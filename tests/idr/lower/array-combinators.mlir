@@ -76,17 +76,17 @@
 // LLVM-NOT: memref.
 // LLVM-NOT: unrealized_conversion_cast
 module attributes {idr.program} {
-  func.func @root(%w: !idr.world) -> !idr.world {
+  idr.func @root(%w: !idr.world) -> !idr.world {
     %n = arith.constant 4 : i64
-    %a, %w1 = func.call @squares(%n, %w) : (i64, !idr.world) -> (memref<?xi64>, !idr.world)
-    %s, %w2 = func.call @total(%a, %w1) : (memref<?xi64>, !idr.world) -> (i64, !idr.world)
-    %v, %w3 = func.call @ones(%n, %w2) : (i64, !idr.world) -> (memref<?xf64>, !idr.world)
-    %r, %w4 = func.call @rows(%n, %v, %w3) : (i64, memref<?xf64>, !idr.world) -> (memref<?xf64>, !idr.world)
-    %z, %w5 = func.call @zip(%v, %r, %n, %w4) : (memref<?xf64>, memref<?xf64>, i64, !idr.world) -> (memref<?xf64>, !idr.world)
+    %a, %w1 = idr.call @squares(%n, %w) : (i64, !idr.world) -> (memref<?xi64>, !idr.world)
+    %s, %w2 = idr.call @total(%a, %w1) : (memref<?xi64>, !idr.world) -> (i64, !idr.world)
+    %v, %w3 = idr.call @ones(%n, %w2) : (i64, !idr.world) -> (memref<?xf64>, !idr.world)
+    %r, %w4 = idr.call @rows(%n, %v, %w3) : (i64, memref<?xf64>, !idr.world) -> (memref<?xf64>, !idr.world)
+    %z, %w5 = idr.call @zip(%v, %r, %n, %w4) : (memref<?xf64>, memref<?xf64>, i64, !idr.world) -> (memref<?xf64>, !idr.world)
     return %w5 : !idr.world
   }
   // generate n (\i => i * i)
-  func.func private @squares(%n: i64, %w: !idr.world) -> (memref<?xi64>, !idr.world) {
+  idr.func private @squares(%n: i64, %w: !idr.world) -> (memref<?xi64>, !idr.world) {
     %zero = arith.constant 0 : i64
     %a, %w1 = idr.array.generate %n, %zero, %w : i64 -> memref<?xi64> (%i: i64) {
       %sq = arith.muli %i, %i : i64
@@ -95,7 +95,7 @@ module attributes {idr.program} {
     return %a, %w1 : memref<?xi64>, !idr.world
   }
   // foldl (+) 0
-  func.func private @total(%a: memref<?xi64>, %w: !idr.world) -> (i64, !idr.world) {
+  idr.func private @total(%a: memref<?xi64>, %w: !idr.world) -> (i64, !idr.world) {
     %zero = arith.constant 0 : i64
     %s, %w1 = idr.array.fold %a, %zero, %w : memref<?xi64>, i64 -> i64 (%acc: i64, %x: i64, %i: i64) {
       %t = arith.addi %acc, %x : i64
@@ -103,14 +103,14 @@ module attributes {idr.program} {
     }
     return %s, %w1 : i64, !idr.world
   }
-  func.func private @ones(%n: i64, %w: !idr.world) -> (memref<?xf64>, !idr.world) {
+  idr.func private @ones(%n: i64, %w: !idr.world) -> (memref<?xf64>, !idr.world) {
     %one = arith.constant 1.0 : f64
     %a, %w1 = idr.array.new [%n], %one, %w : f64 -> memref<?xf64>
     return %a, %w1 : memref<?xf64>, !idr.world
   }
   // generate n (\i => ifoldl (\acc, j, x => acc + x / (i + j + 1)) 0.0 v): each
   // element a row's reduction over v, the fold's world forged in the body.
-  func.func private @rows(%n: i64, %v: memref<?xf64>, %w: !idr.world) -> (memref<?xf64>, !idr.world) {
+  idr.func private @rows(%n: i64, %v: memref<?xf64>, %w: !idr.world) -> (memref<?xf64>, !idr.world) {
     %zero = arith.constant 0.0 : f64
     %one = arith.constant 1 : i64
     %r, %w1 = idr.array.generate %n, %zero, %w : f64 -> memref<?xf64> (%i: i64) {
@@ -128,7 +128,7 @@ module attributes {idr.program} {
     return %r, %w1 : memref<?xf64>, !idr.world
   }
   // zipWith (*) u v: each element the product of u's and v's at its index.
-  func.func private @zip(%u: memref<?xf64>, %v: memref<?xf64>, %n: i64, %w: !idr.world) -> (memref<?xf64>, !idr.world) {
+  idr.func private @zip(%u: memref<?xf64>, %v: memref<?xf64>, %n: i64, %w: !idr.world) -> (memref<?xf64>, !idr.world) {
     %zero = arith.constant 0.0 : f64
     %r, %w1 = idr.array.generate %n, %zero, %w : f64 -> memref<?xf64> (%i: i64) {
       %w0 = idr.world.new

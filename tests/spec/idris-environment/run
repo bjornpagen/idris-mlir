@@ -1,6 +1,8 @@
 #!/bin/sh
 # The commands run the pinned Idris and inherit no package path from another
 # installation: make's environment, with the caller's set to other values.
+# The variables are a set, printed in the C locale's order: the order make
+# prints them in depends on the caller's locale.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 (
   unset MAKEFLAGS MAKELEVEL MFLAGS
@@ -8,4 +10,4 @@
     make --no-print-directory -s -C "$root" env
 ) > "$work/env" 2>&1
 say "make env: exit $?"
-grep -v '^CHEZ=' "$work/env" | sed "s|$root|<root>|g"
+grep -v '^CHEZ=' "$work/env" | sed "s|$root|<root>|g" | LC_ALL=C sort

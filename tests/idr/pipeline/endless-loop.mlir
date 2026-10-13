@@ -6,15 +6,15 @@
 // progress, so neither MLIR nor LLVM deletes it. The program is still
 // running when its time is up.
 module attributes {idr.program} {
-  func.func private @Prog.spin(%n: i64) -> i64 {
+  idr.func private @Prog.spin(%n: i64) -> i64 {
     %c1 = arith.constant 1 : i64
     %m = arith.addi %n, %c1 : i64
-    %r = func.call @Prog.spin(%m) : (i64) -> i64
+    %r = idr.call @Prog.spin(%m) : (i64) -> i64
     return %r : i64
   }
-  func.func @Prog.main() -> i64 {
+  idr.func @Prog.main() -> i64 {
     %c = arith.constant 1 : i64
-    %r = func.call @Prog.spin(%c) : (i64) -> i64
+    %r = idr.call @Prog.spin(%c) : (i64) -> i64
     return %r : i64
   }
 }

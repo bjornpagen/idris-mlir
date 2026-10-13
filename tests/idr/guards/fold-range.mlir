@@ -5,11 +5,11 @@
 // the size, a negative offset, and one whose end overflows keep their
 // guard, to crash where it runs. A guard of what an identical guard, of the
 // same count and size, already checked folds too.
-// CHECK-LABEL: func.func @proving(
+// CHECK-LABEL: idr.func @proving(
 // CHECK-NOT: idr.check.range
 // CHECK: %[[O:.*]] = arith.constant 4 : i64
 // CHECK: return %[[O]], %[[O]]
-func.func @proving() -> (i64, i64) {
+idr.func @proving() -> (i64, i64) {
   %four = arith.constant 4 : i64
   %eight = arith.constant 8 : i64
   %zero = arith.constant 0 : i64
@@ -18,12 +18,12 @@ func.func @proving() -> (i64, i64) {
   return %g, %h : i64, i64
 }
 
-// CHECK-LABEL: func.func @failing(
+// CHECK-LABEL: idr.func @failing(
 // CHECK: idr.check.range %{{.*}}, %{{.*}}, %{{.*}}, "a byte range outside the buffer"
 // CHECK: idr.check.range %{{.*}}, %{{.*}}, %{{.*}}, "a byte range outside the buffer"
 // CHECK: idr.check.range %{{.*}}, %{{.*}}, %{{.*}}, "a byte range outside the buffer"
 // CHECK: return
-func.func @failing() -> (i64, i64, i64) {
+idr.func @failing() -> (i64, i64, i64) {
   %five = arith.constant 5 : i64
   %four = arith.constant 4 : i64
   %eight = arith.constant 8 : i64
@@ -36,12 +36,12 @@ func.func @failing() -> (i64, i64, i64) {
   return %g, %h, %k : i64, i64, i64
 }
 
-// CHECK-LABEL: func.func @again(
+// CHECK-LABEL: idr.func @again(
 // CHECK-SAME: %[[O:[^:]*]]: i64, %[[N:[^:]*]]: i64, %[[S:[^:]*]]: i64)
 // CHECK: %[[G:.*]] = idr.check.range %[[O]], %[[N]], %[[S]], "a byte range outside the buffer"
 // CHECK-NOT: idr.check.range
 // CHECK: return %[[G]], %[[G]]
-func.func @again(%o: i64, %n: i64, %s: i64) -> (i64, i64) {
+idr.func @again(%o: i64, %n: i64, %s: i64) -> (i64, i64) {
   %g = idr.check.range %o, %n, %s, "a byte range outside the buffer"
   %h = idr.check.range %g, %n, %s, "a byte range outside the buffer"
   return %g, %h : i64, i64

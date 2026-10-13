@@ -10,26 +10,26 @@
 // NONE: error: expected one-clone: no call of @loop or of a clone of it
 // TWO: error: expected one-clone: the calls of @iter reach @iter$a @iter$b
 // TWO-COPIES: module {
-// TWO-COPIES:   func.func private @iter$a(%n: i64) -> i64 attributes {idr.clone = #idr.clone<@iter$a, #idr.spec_key<"iter", [#idr.key_hole<0>]>>} {
+// TWO-COPIES:   idr.func private @iter$a(%n: i64) -> i64 attributes {clone = #idr.clone<@iter$a, #idr.spec_key<"iter", [#idr.key_hole<0>]>>} {
 // TWO-COPIES:     return %n : i64
 // TWO-COPIES:   }
-// TWO-COPIES:   func.func private @iter$b(%n: i64) -> i64 attributes {idr.clone = #idr.clone<@iter$b, #idr.spec_key<"iter", [#idr.key_hole<0>]>>} {
+// TWO-COPIES:   idr.func private @iter$b(%n: i64) -> i64 attributes {clone = #idr.clone<@iter$b, #idr.spec_key<"iter", [#idr.key_hole<0>]>>} {
 // TWO-COPIES:     return %n : i64
 // TWO-COPIES:   }
-// TWO-COPIES:   func.func @main(%n: i64) -> (i64, i64) {
-// TWO-COPIES:     %a = func.call @iter$a(%n) : (i64) -> i64
-// TWO-COPIES:     %b = func.call @iter$b(%n) : (i64) -> i64
+// TWO-COPIES:   idr.func @main(%n: i64) -> (i64, i64) {
+// TWO-COPIES:     %a = call @iter$a(%n) : (i64) -> i64
+// TWO-COPIES:     %b = call @iter$b(%n) : (i64) -> i64
 // TWO-COPIES:     return %a, %b : i64, i64
 // TWO-COPIES:   }
 // TWO-COPIES: }
 module {
-  func.func private @iter$a(%n: i64) -> i64 attributes {idr.clone = #idr.clone<@iter$a, #idr.spec_key<"iter", [#idr.key_hole<0>]>>} {
-    %r = func.call @iter$a(%n) : (i64) -> i64
+  idr.func private @iter$a(%n: i64) -> i64 attributes {clone = #idr.clone<@iter$a, #idr.spec_key<"iter", [#idr.key_hole<0>]>>} {
+    %r = idr.call @iter$a(%n) : (i64) -> i64
     return %r : i64
   }
-  func.func @main(%n: i64) -> (i64, i64) {
-    %a = func.call @iter$a(%n) : (i64) -> i64
-    %b = func.call @iter$a(%n) : (i64) -> i64
+  idr.func @main(%n: i64) -> (i64, i64) {
+    %a = idr.call @iter$a(%n) : (i64) -> i64
+    %b = idr.call @iter$a(%n) : (i64) -> i64
     return %a, %b : i64, i64
   }
 }

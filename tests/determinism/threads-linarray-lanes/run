@@ -1,0 +1,15 @@
+#!/bin/sh
+# tests/programs/arrays/linarray-lanes-wide's contract module through
+# idr-pipeline under one thread and under the pool, byte for byte, its
+# remarks included: its loops are vectorized and given 32-bit versions, so
+# idr-vectorize and idr-narrow-lanes, function passes that run on the
+# pool's threads, each say something of every loop they meet.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+determinism_threads "$root/tests/programs/arrays/linarray-lanes-wide"
+if grep -q 'idr-vectorize' "$work/one.remarks" 2> /dev/null &&
+   grep -q 'idr-narrow-lanes' "$work/one.remarks" 2> /dev/null; then
+  say "remarks: idr-vectorize and idr-narrow-lanes both remark"
+else
+  say "remarks: idr-vectorize or idr-narrow-lanes said nothing"
+  show "$work/one.remarks"
+fi

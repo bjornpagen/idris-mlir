@@ -15,7 +15,7 @@ module attributes {idr.program} {
   idr.data @P box {
     idr.ctor @P (i64, i64)
   }
-  func.func private @field(%b: i1, %p: !idr.own<!idr.box<@P>>) -> i64 {
+  idr.func private @field(%b: i1, %p: !idr.own<!idr.box<@P>>) -> i64 {
     %v = idr.borrow %p : !idr.own<!idr.box<@P>>
     %x = idr.field %v[@P, 0] : !idr.box<@P> -> i64
     %y = idr.field %v[@P, 1] : !idr.box<@P> -> i64
@@ -30,7 +30,7 @@ module attributes {idr.program} {
     }
     return %r : i64
   }
-  func.func @Prog.main() -> i64 {
+  idr.func @Prog.main() -> i64 {
     %z = arith.constant 0 : i64
     return %z : i64
   }
@@ -42,7 +42,7 @@ module attributes {idr.program} {
   idr.data @P box {
     idr.ctor @P (i64, i64)
   }
-  func.func private @tag(%b: i1, %p: !idr.own<!idr.box<@P>>) -> i64 {
+  idr.func private @tag(%b: i1, %p: !idr.own<!idr.box<@P>>) -> i64 {
     %v = idr.borrow %p : !idr.own<!idr.box<@P>>
     %t = idr.tag %v : !idr.box<@P>
     %y = idr.field %v[@P, 1] : !idr.box<@P> -> i64
@@ -57,7 +57,7 @@ module attributes {idr.program} {
     }
     return %r : i64
   }
-  func.func @Prog.main() -> i64 {
+  idr.func @Prog.main() -> i64 {
     %z = arith.constant 0 : i64
     return %z : i64
   }

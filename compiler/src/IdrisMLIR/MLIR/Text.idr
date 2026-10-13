@@ -14,17 +14,6 @@ import Data.String
 -- Names
 ------------------------------------------------------------------------------
 
-||| Injective mangling into MLIR symbol text. Characters outside
-||| `[A-Za-z0-9_.]`, `$` included, are written `$<code point>$`.
-export
-mangle : String -> String
-mangle s = concatMap escape (unpack s)
-  where
-    escape : Char -> String
-    escape c = if isAlphaNum c || c == '_' || c == '.'
-                  then singleton c
-                  else "$" ++ show (ord c) ++ "$"
-
 hex : Int -> String
 hex n = let digits = unpack "0123456789ABCDEF" in
         pack [ fromMaybe '0' (getAt (cast (n `div` 16)) digits)
@@ -57,13 +46,20 @@ utf8 s = "\"" ++ concatMap enc (unpack s) ++ "\""
       else byte (0xF0 + n `div` 262144) ++ byte (0x80 + (n `div` 4096) `mod` 64)
            ++ byte (0x80 + (n `div` 64) `mod` 64) ++ byte (0x80 + n `mod` 64)
 
-||| A symbol reference, `@name`, for mangled text. A name that is not an
-||| MLIR bare identifier (one starting with a digit or `$`) is quoted.
+||| A symbol reference, `@name`: the name itself when it is an MLIR bare
+||| identifier (a letter or `_`, then letters, digits, `_`, `$` and `.`),
+||| else the string literal of its UTF-8 bytes, as a string attribute writes
+||| it, so that `@"…"` in a reference and `sym_name = "…"` in the
+||| declaration name the same symbol.
 export
 symbol : String -> String
-symbol m = case unpack m of
-  (c :: _) => if isAlpha c || c == '_' then "@" ++ m else "@" ++ quoted m
-  [] => "@\"\""
+symbol name = if bare (unpack name) then "@" ++ name else "@" ++ utf8 name
+  where
+    rest : Char -> Bool
+    rest c = isAlphaNum c || c == '_' || c == '$' || c == '.'
+    bare : List Char -> Bool
+    bare (c :: cs) = (isAlpha c || c == '_') && all rest cs
+    bare [] = False
 
 ------------------------------------------------------------------------------
 -- Lists
@@ -88,7 +84,7 @@ array a xs = fastConcat ["[", commaSeparated (map a xs), "]"]
 -- Symbol references and signatures
 ------------------------------------------------------------------------------
 
-||| A symbol nested in others, by the mangled name of each: `@T::@C` is
+||| A symbol nested in others, by the name of each: `@T::@C` is
 ||| `MkSymbolRef "T" ["C"]`, and a flat one has no nested names.
 public export
 record SymbolRef where

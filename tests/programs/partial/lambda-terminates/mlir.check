@@ -2,7 +2,8 @@
 // main is not total; each function idr-isolate outlines from it is, since
 // its own body has no loop: whether a call of it may diverge is what it
 // reaches (idr-effects). The outlined functions are found by name, in
-// whatever order the pass inserts them.
-// CHECK-DAG: func.func private @Main.main() -> !idr.data<{{[^>]*}}> {
-// CHECK-DAG: func.func private @Main.main$lam{{[0-9]+}}({{.*}}) -> !idr.data<{{[^>]*}}> attributes {idr.total} {
-// CHECK-DAG: func.func private @Main.main$lam{{[0-9]+}}({{.*}}) -> !idr.data<{{[^>]*}}> attributes {idr.total} {
+// whatever order the pass inserts them. main's only fact is the Idris
+// definition it is an instance of.
+// CHECK-DAG: idr.func private @Main.main() -> !idr.data<{{[^>]*}}> attributes {instance = #idr.instance<"Main.main"{{[^>]*}}>} {
+// CHECK-DAG: idr.func private @Main.main.lam{{[0-9]+}}({{.*}}) -> !idr.data<{{[^>]*}}> attributes {{[{].*}}total{{.*}} {
+// CHECK-DAG: idr.func private @Main.main.lam{{[0-9]+}}({{.*}}) -> !idr.data<{{[^>]*}}> attributes {{[{].*}}total{{.*}} {

@@ -6,14 +6,14 @@
 // so the interprocedural passes see callers they cannot know: sccp folds no
 // 3 into it, no case is pruned as unreachable, and the counter stays a
 // parameter.
-// CHECK-LABEL: func.func private @count$raise$1(
+// CHECK-LABEL: idr.func private @count.raise1(
 // CHECK-SAME: %[[K:[a-z0-9_]+]]: i64
-// CHECK: idr.match_lit %[[K]]
+// CHECK: match_lit %[[K]]
 // CHECK: case 0 {
 // CHECK-NEXT: idr.io.put_int
 // CHECK: arith.subi %[[K]]
 module attributes {idr.program} {
-  func.func private @count$raise$1(%k: i64 {idr.hole = 0 : i64}, %w: !idr.world {idr.hole = 1 : i64}) -> !idr.world attributes {idr.clone = #idr.clone<@count$raise$1, #idr.key_apply<"count", 1>>} {
+  idr.func private @count.raise1(%k: i64, %w: !idr.world) -> !idr.world attributes {clone = #idr.clone<@count.raise1, #idr.key_apply<"count", 1>>} {
     %r = idr.match_lit %k : i64 -> (!idr.world) {
     case 0 {
       %w1 = idr.io.put_int signed %k, %w : i64
@@ -23,15 +23,15 @@ module attributes {idr.program} {
       %one = arith.constant 1 : i64
       %n = arith.subi %k, %one : i64
       %w1 = idr.io.put_int signed %k, %w : i64
-      %w2 = func.call @count$raise$1(%n, %w1) : (i64, !idr.world) -> !idr.world
+      %w2 = idr.call @count.raise1(%n, %w1) : (i64, !idr.world) -> !idr.world
       idr.yield %w2 : !idr.world
     }
     }
     return %r : !idr.world
   }
-  func.func @Main.main(%w: !idr.world) -> !idr.world {
+  idr.func @Main.main(%w: !idr.world) -> !idr.world {
     %three = arith.constant 3 : i64
-    %r = func.call @count$raise$1(%three, %w) : (i64, !idr.world) -> !idr.world
+    %r = idr.call @count.raise1(%three, %w) : (i64, !idr.world) -> !idr.world
     return %r : !idr.world
   }
 }

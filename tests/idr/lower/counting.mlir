@@ -19,12 +19,13 @@
 // An unused counted slot is empty.
 // CHECK: llvm.mlir.zero : !llvm.ptr
 // CHECK-LABEL: func.func private @drop(
+// CHECK-SAME: %[[L:[^:]*]]: !llvm.ptr
 // CHECK: %[[T:.*]] = scf.if %{{.*}} -> (!llvm.ptr) {
 // CHECK-NEXT: llvm.call @idris_rt_dec(
-// CHECK-NEXT: scf.yield %arg0 : !llvm.ptr
+// CHECK-NEXT: scf.yield %[[L]] : !llvm.ptr
 // CHECK-NEXT: } else {
 // CHECK-NOT: llvm.call @idris_rt_inc(
-// CHECK: llvm.call @idris_rt_dec(%arg0) {{.*}}: (!llvm.ptr) -> ()
+// CHECK: llvm.call @idris_rt_dec(%[[L]]) {{.*}}: (!llvm.ptr) -> ()
 // CHECK-NOT: llvm.call @idris_rt_dec(
 // CHECK: llvm.call @idris_rt_free_cell(%[[T]]) {{.*}}: (!llvm.ptr) -> ()
 // A reference to static data (a constant box, a constant string) runs
@@ -50,17 +51,17 @@ module attributes {idr.program} {
     idr.ctor @A (!idr.str)
     idr.ctor @B (i64)
   }
-  func.func private @counts(%s: !idr.str, %d: !idr.own<!idr.data<@S>>, %b: !idr.own<!idr.big>) -> !idr.own<!idr.str> {
+  idr.func private @counts(%s: !idr.str, %d: !idr.own<!idr.data<@S>>, %b: !idr.own<!idr.big>) -> !idr.own<!idr.str> {
     %o = idr.dup %s : !idr.str
     idr.drop %d : !idr.own<!idr.data<@S>>
     idr.drop %b : !idr.own<!idr.big>
     return %o : !idr.own<!idr.str>
   }
-  func.func private @unused(%x: i64) -> !idr.own<!idr.data<@S>> {
+  idr.func private @unused(%x: i64) -> !idr.own<!idr.data<@S>> {
     %d = idr.con @S::@B(%x) : (i64) -> !idr.own<!idr.data<@S>>
     return %d : !idr.own<!idr.data<@S>>
   }
-  func.func private @drop(%l: !idr.own<!idr.box<@L>>) -> i64 {
+  idr.func private @drop(%l: !idr.own<!idr.box<@L>>) -> i64 {
     %v = idr.borrow %l : !idr.own<!idr.box<@L>>
     %r = idr.match %v : !idr.box<@L> -> (i64) {
     case @C(%h: i64, %t: !idr.box<@L>) {
@@ -77,7 +78,7 @@ module attributes {idr.program} {
     }
     return %r : i64
   }
-  func.func private @static(%x: i64) -> (!idr.own<!idr.box<@L>>, !idr.own<!idr.str>) {
+  idr.func private @static(%x: i64) -> (!idr.own<!idr.box<@L>>, !idr.own<!idr.str>) {
     %n = idr.constant #idr.con<@L::@N, []> : !idr.box<@L>
     %s = idr.constant "static" : !idr.str
     %r = idr.match_lit %x : i64 -> (!idr.own<!idr.box<@L>>) {
@@ -94,7 +95,7 @@ module attributes {idr.program} {
     %t = idr.dup %s : !idr.str
     return %r, %t : !idr.own<!idr.box<@L>>, !idr.own<!idr.str>
   }
-  func.func private @rebuild(%l: !idr.own<!idr.box<@L>>) -> !idr.own<!idr.box<@L>> {
+  idr.func private @rebuild(%l: !idr.own<!idr.box<@L>>) -> !idr.own<!idr.box<@L>> {
     %v = idr.borrow %l : !idr.own<!idr.box<@L>>
     %r = idr.match %v : !idr.box<@L> -> (!idr.own<!idr.box<@L>>) {
     case @C(%h: i64, %t: !idr.box<@L>) {
@@ -108,7 +109,7 @@ module attributes {idr.program} {
     }
     return %r : !idr.own<!idr.box<@L>>
   }
-  func.func @Prog.main() -> i64 {
+  idr.func @Prog.main() -> i64 {
     %z = arith.constant 0 : i64
     return %z : i64
   }

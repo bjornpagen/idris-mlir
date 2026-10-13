@@ -1,10 +1,14 @@
 # 0004: the compiler features self-hosting asked for
 
-**Status:** a sketch to flesh out, 2026-10-10. Nothing of the six features
-is built. Stage 0 of self-hosting compiled the frontend (c50d176d), and
-`make self` (1ce907d3) shows stage 2 identical to stage 3. The ledger below
-is those rewrites. Claims are marked: read, measured, recalled,
-conjecture, decision.
+**Status:** a sketch to flesh out, 2026-10-10; updated 2026-10-12 against
+the cutover (0014, executed by 0015), which is committed and unbuilt
+until the owner's machine runs it. Nothing of the six features is built.
+Stage 0 of self-hosting compiled the frontend (c50d176d), and `make self`
+(1ce907d3) shows stage 2 identical to stage 3 on the small stages; the
+whole frontend has never been through the C++ pipeline (0014 §1). The
+ledger below is those rewrites. This proposal is not on the self-host
+path: §"Where it sits" says what the plan needs from it. Claims are
+marked: read, measured, recalled, conjecture, decision.
 
 To compile itself, the fork of Idris's compiler (`compiler/idris`) and the
 frontend were rewritten wherever this compiler refused their code. Each
@@ -74,10 +78,50 @@ Same cost and no loss that matters; nothing to gain by changing them.
 |---|---|---|
 | names, constants and scopes compared as values; `nameEq`, `scopeEq`, `constantEq`, `DecEq Namespace` gone, and where a proof retyped a term the term is rebuilt at the type it needs (`compat`, `compatCaseTree`, `renamedVarAt`) | the proofs, and a traversal that rebuilds a term where a proof retyped it for nothing | 6, then the retyping proofs instead of the rebuilds |
 | a TTC's local variable decides its `IsVar` proof from the scope (`isVarAt`) | a walk of the scope for each variable read | 6, if the proof can come from the comparison already made; else measured on the TTC load |
-| a scope coercion is a traversal (`embedTerm`, `compatTerm`, `map embed`); `Cast (Doc Void) (Doc ann)` rebuilds the document | a rebuild of every node | the `idr-identity` pass (written, unbuilt): measured to fire on each |
+| a scope coercion is a traversal (`embedTerm`, `compatTerm`, `map embed`); `Cast (Doc Void) (Doc ann)` rebuilds the document | a rebuild of every node | the `idr-identity` pass, in the round's function pipeline since the cutover: measured to fire on each |
 | `Libraries.Text.Token`: `match` gives text, each user converts | the token's value typed by its kind | 3, if it is free; two small parsers use it |
 | `Libraries.Text.Lexer.Tokenizer.Compose`: the tag a `String` | a typed tag; string comparisons | 4, if the tag type is then free |
 | Levenshtein over lists of rows | an array | `mlir-linear`'s `Array`, if the bench shows the cost |
+
+## What the cutover settled
+
+The cutover took the handoff's diet (0014 §5.1), and part of it is what
+these features would have built. *Read* (`0015-cutover-swarm/contracts.md`,
+the handoff section; unbuilt):
+
+- **No quantity zero reaches the dialect.** An erased parameter, field,
+  argument, capture or binder is not emitted, and the erased grade is gone
+  from the dialect. Where an erased value sits in a runtime position the
+  frontend cannot drop, it refuses with `unsupported (type)`, naming the
+  term and its head. Features 3 and 5 are what would compile some of
+  those refusals; until then the refusal is the precise message the bar
+  asks for.
+- **No newtype.** A data type with one constructor and one runtime field
+  is its field. The ledger's "a scope coercion is a traversal" rows lose
+  their constructor cost here, before `idr-identity` sees them.
+- **Saturated methods and arity.** A method whose implementation the
+  instance fixes is one direct, saturated `idr.call`, and a definition is
+  emitted at its syntactic arity. That is the bounded case of the
+  evidence above, now emitted as direct code rather than recovered by
+  specialization.
+- **A forced constructor's erased variable is the runtime field it equals**
+  (6aa2b517). That is the representational half of
+  feature 1; the match on the index replacing the match on the proof is
+  still to build (*recalled*: to check against the fixture set).
+- **Readable names.** A symbol is its instance key printed; a feature's
+  clones and sums read in a dump as the types they are for.
+
+## Where it sits in the self-host plan
+
+Self-hosting is the first priority (0014, stage S): integrate the
+cutover, get it green on the owner's machine, break the wall by
+measurement (0011's S2 pulled forward for parallel LLVM codegen), then
+the handoff's size and the pipeline's memory, then `make self` with
+outputs identical under one thread and the pool, then the test runner
+off Chez. None of that needs a feature here: the fork already compiles
+as rewritten. This proposal starts when `make self` is green, in the
+order below, each feature landing only if the native self-compile is no
+slower for it; feature 6 waits on 0016's interned names (A0).
 
 ## The bar: no runtime price, decided at compile time
 
@@ -103,7 +147,7 @@ boxed.
 Roughly in order of cost (conjecture). Each lands in the Idris side
 (classification, instances) and in the `idr` dialect's passes
 (`foreign/idr/`), which already specialize and defunctionalize; the
-static part of the program is normalized in the frontend (0003).
+static part of the program will be normalized in the frontend (0016).
 
 1. **An erased match forced by a runtime value.** A match on an erased
    proof (`First`, `Later`) that a runtime index determines is compiled as
@@ -127,7 +171,7 @@ static part of the program is normalized in the frontend (0003).
      in the argument's shape), the instance is specialized on it, as
      `neededShape` already specializes on a parameter's shape: the result
      type reduces and the call is monomorphic. Static normalization
-     (0003) finds more of the value in the frontend, where the instance is
+     (0016) will find more of the value in the frontend, where the instance is
      decided, and the `idr` specialization pass extends this across
      calls.
    - Where it is not, the type is the closed sum of the type's whole-
@@ -165,7 +209,7 @@ static part of the program is normalized in the frontend (0003).
    compiled to the primitive's test alone, with the `Refl` gone. The
    fork's `nameEq`, `scopeEq` and the rest then come back as upstream wrote
    them, at the cost of the comparison they already make. The traversal
-   that comparison costs is replaced by interned names (0005 O1). The
+   that comparison costs is replaced by interned names (0016 A0). The
    proofs are this feature.
 
 ## Staged plan
@@ -195,6 +239,7 @@ Each stage is one feature, in the order above:
   refused rather than compiled to a large switch: a measurement rule to
   write here, from the bench.
 - How 3's sum meets proposal 0008's flattened layouts and the grades
-  (`!idr.lin`, `!idr.erased`): a variant must keep its payload's grade.
+  (`!idr.lin`, the ownership grades): a variant must keep its payload's
+  grade. A quantity-0 payload is not a field at all since the cutover.
 - Whether `TokenKind` comes back: it needs 3, and its only users are two
   small parsers.

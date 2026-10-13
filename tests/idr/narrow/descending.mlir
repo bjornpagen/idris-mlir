@@ -12,7 +12,7 @@
 // TAGGED: error: expected word-loop: @parity computes on bigs in each of its loops
 // COUNT: error: expected word-loop: @count computes on bigs in each of its loops
 module {
-  func.func private @parity(%n: !idr.nat, %odd: i1) -> i1 attributes {idr.total} {
+  idr.func private @parity(%n: !idr.nat, %odd: i1) -> i1 attributes {total} {
     %r = idr.match_lit %n : !idr.nat -> (i1) {
     case #idr.big<"0"> {
       idr.yield %odd : i1
@@ -21,13 +21,13 @@ module {
       %k = idr.big.pred %n
       %true = arith.constant true
       %flip = arith.xori %odd, %true : i1
-      %s = func.call @parity(%k, %flip) : (!idr.nat, i1) -> i1
+      %s = idr.call @parity(%k, %flip) : (!idr.nat, i1) -> i1
       idr.yield %s : i1
     }
     }
     return %r : i1
   }
-  func.func private @count(%n: !idr.nat, %acc: !idr.nat) -> !idr.nat attributes {idr.total} {
+  idr.func private @count(%n: !idr.nat, %acc: !idr.nat) -> !idr.nat attributes {total} {
     %r = idr.match_lit %n : !idr.nat -> (!idr.nat) {
     case #idr.big<"0"> {
       idr.yield %acc : !idr.nat
@@ -36,17 +36,17 @@ module {
       %k = idr.big.pred %n
       %two = idr.constant #idr.big<"2"> : !idr.nat
       %more = idr.big.add %acc, %two : !idr.nat
-      %s = func.call @count(%k, %more) : (!idr.nat, !idr.nat) -> !idr.nat
+      %s = idr.call @count(%k, %more) : (!idr.nat, !idr.nat) -> !idr.nat
       idr.yield %s : !idr.nat
     }
     }
     return %r : !idr.nat
   }
-  func.func @Main.main(%n: !idr.nat) -> (i1, !idr.nat) {
+  idr.func @Main.main(%n: !idr.nat) -> (i1, !idr.nat) {
     %false = arith.constant false
-    %p = func.call @parity(%n, %false) : (!idr.nat, i1) -> i1
+    %p = idr.call @parity(%n, %false) : (!idr.nat, i1) -> i1
     %zero = idr.constant #idr.big<"0"> : !idr.nat
-    %c = func.call @count(%n, %zero) : (!idr.nat, !idr.nat) -> !idr.nat
+    %c = idr.call @count(%n, %zero) : (!idr.nat, !idr.nat) -> !idr.nat
     return %p, %c : i1, !idr.nat
   }
 }

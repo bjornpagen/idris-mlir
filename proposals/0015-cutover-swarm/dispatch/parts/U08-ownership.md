@@ -1,0 +1,634 @@
+# U08 — Reference counting: analyses, signatures, then per-function placement
+
+Mandatory findings: none
+
+## Permitted outcome
+
+1. **Three analyses in `IdrAnalysis`.** `idr::Borrows` (borrow inference,
+   its fixpoint over the module in its constructor), `idr::Reuses` (where
+   each function's dead boxes are taken apart and which constructors get
+   their cells) and `idr::Exclusivity` (today's sparse analysis on MLIR's
+   solver, frozen into tables). None mutates IR. Mandatory.
+2. **`idr-rc` as a `ModuleOp` pass that writes signatures and runs the
+   per-function work nested.** It writes the owned grades `Borrows`
+   decides into every `idr.func` signature, runs `idr.func(idr-rc-place)`
+   through `runPipeline`, specializes functions on the grade of their
+   callers' values (symbol changes only), writes the `excl` grades
+   `Exclusivity` proves into every signature, and runs
+   `idr.func(idr-rc-commit)`. Mandatory.
+3. **`idr-rc-place` as an `idr::FuncOp` pass**: the reuse rewrite at the
+   sites `Reuses` decided, then today's reshaping and placement of counts,
+   on one function, reading the module's analyses through
+   `getCachedParentAnalysis`. Mandatory.
+4. **`idr-rc-commit` as an `idr::FuncOp` pass**: the `excl` grades and
+   `idr.share` ops of one function from the cached `Exclusivity`.
+   Mandatory (see Escalate if: it needs a `Passes.td` entry).
+5. **The library as plain C++** under `IDR/Transforms/Ownership/*.cpp` and
+   `INC/Transforms/Ownership.h`; the analyses under `IDR/Analysis` with
+   `INC/Analysis/Ownership.h`; every `.cppm` of `IDR/Ownership` but
+   `Verify.cppm` deleted. Mandatory.
+6. **Consumer adaptations**: `idr-narrow` (U11) and `idr-expect` (U15) read
+   `isStatic`, `inOwnedStage` and `readFrom` from `idr/Analysis/Ownership.h`
+   under the names they have today. This lane supplies them; it edits
+   neither consumer. Mandatory.
+
+## Owner / exclusive writes
+
+New, from `ownership.json`:
+
+- `IDR/Transforms/Ownership` (the `IdrOwnership` library, eleven `.cpp`
+  files, listed under Implement).
+- `IDR/Analysis/Ownership.cpp` as `ownership.json` spells it. The 400-line
+  rule makes it a directory of five files (Implement; Escalate if).
+- `INC/Analysis/Ownership.h`, `INC/Transforms/Ownership.h`.
+
+Deleted (every one of these, by name):
+`IDR/Ownership/ArrayLoop.cppm`, `IDR/Ownership/Borrow.cppm`,
+`IDR/Ownership/Borrowed.cppm`, `IDR/Ownership/Callee.cppm`,
+`IDR/Ownership/Cells.cppm`, `IDR/Ownership/Checker.cppm`,
+`IDR/Ownership/Classes.cppm`, `IDR/Ownership/Commit.cppm`,
+`IDR/Ownership/Counting.cppm`, `IDR/Ownership/Counts.cppm`,
+`IDR/Ownership/Exclusive.cppm`, `IDR/Ownership/ExclusiveAnalysis.cppm`,
+`IDR/Ownership/Fields.cppm`, `IDR/Ownership/Followed.cppm`,
+`IDR/Ownership/InOwnedStage.cppm`, `IDR/Ownership/IsStatic.cppm`,
+`IDR/Ownership/KeepsCountedField.cppm`, `IDR/Ownership/Loops.cppm`,
+`IDR/Ownership/NoConstants.cppm`, `IDR/Ownership/OnlyReads.cppm`,
+`IDR/Ownership/OpChecks.cppm`, `IDR/Ownership/Ops.cc`,
+`IDR/Ownership/Ownership.cppm`, `IDR/Ownership/Placement.cppm`,
+`IDR/Ownership/Rc.cc`, `IDR/Ownership/Rc.cppm`,
+`IDR/Ownership/ReachesOnlyAtoms.cppm`, `IDR/Ownership/ReadFrom.cppm`,
+`IDR/Ownership/References.cppm`, `IDR/Ownership/Regions.cppm`,
+`IDR/Ownership/Reshape.cppm`, `IDR/Ownership/Reuse.cppm`,
+`IDR/Ownership/ShareTainted.cppm`, `IDR/Ownership/Specialize.cppm`,
+`IDR/Ownership/Take.cppm`, `IDR/Ownership/TakeAtEntry.cppm`,
+`IDR/Ownership/TakeFields.cppm`, `IDR/Ownership/UsedAfter.cppm`,
+`IDR/Ownership/UseOf.cppm`, `IDR/Ownership/UsersIn.cppm`,
+`IDR/Ownership/WhereDies.cppm`.
+
+**Excluded:**
+
+- `IDR/Ownership/Verify.cppm` and `IDR/Ownership/CMakeLists.txt`: U02's and
+  the coordinator's.
+- The owned stage's walk (`Checker.cppm`, `Loops.cppm`, `References.cppm`):
+  this lane deletes the files; the walk becomes `idr.func`'s region
+  verifier in `IDR/IR/Func` (C4, U02). Do not re-house it here.
+- The hooks of the ownership ops (`Ops.cc`, `OpChecks.cppm`: `DupOp::verify`,
+  `ReuseOp::verifySymbolUses`, `TakeOp::getToken`, `TakeOp::getFields`,
+  `ctorOf`, `movedField`, `movesAs`): this lane deletes the files; the
+  hooks are `IDR/IR/OpsOwnership.cpp` (U01).
+- `INC/Transforms/Passes.td`, every `CMakeLists.txt`: the coordinator's.
+  The text this lane needs is under Outputs.
+- `IDR/Transforms/Demand` (U13), `IDR/Transforms/Narrow` (U11),
+  `IDR/Transforms/Expect` (U15), `IDR/IR/Layout` (U10).
+- Every test: U21 writes `T/idr/rc/*` and `T/idr/ownership/*` on
+  `idr.func`; U22 keeps `T/programs/linear/*/mlir.expect`.
+
+## Read first
+
+- `contracts.md` C0, C1.1, C1.2 (`Idr_FuncOp`, `Idr_CallOp`,
+  `Idr_CloneAttr`), C1.3, C1.4, C2.0, C2.1, C2.2, C2.3, C4.
+- `findings.md` F-pass-1, F-state-1, F-state-4, F-fact-1.
+- `IDR/Ownership/Rc.cppm`, all of it: the order of the pass today
+  (reuse :42-51, borrows :52-54, counts :55-63, exclusivity :80-85).
+- `IDR/Ownership/Borrow.cppm`: the rules :1-26, the start state :57-66,
+  the worklist :68-83, the writes :84-102, the collection :171-202.
+- `IDR/Ownership/Reuse.cppm`: `reusable` :85-93, `dies` :98-102, `fits`
+  :107-127, `reuseAt` :131-147, `readBoxes` :67-79.
+- `IDR/Ownership/Counts.cppm` :50-63 (the three steps of counting a
+  function); `Classes.cppm` :27-46; `Reshape.cppm` :34-47, :85-121,
+  :126-152, :163-206; `Placement.cppm` :53-78, :123-177, :203-236.
+- `IDR/Ownership/Exclusive.cppm` :44-85 (the solve, the rounds, the
+  erase); `ExclusiveAnalysis.cppm` :27-68; `Cells.cppm` :16-51;
+  `NoConstants.cppm` :12-35; `Specialize.cppm` :37-67, :96-109;
+  `Commit.cppm` :24-111, :147-165; `ShareTainted.cppm` :41-78.
+- `IDR/Ownership/WhereDies.cppm` :14-48, `UsersIn.cppm`, `UsedAfter.cppm`,
+  `ReadFrom.cppm`, `IsStatic.cppm`, `UseOf.cppm`, `ArrayLoop.cppm`,
+  `ReachesOnlyAtoms.cppm`, `Followed.cppm`, `OnlyReads.cppm`,
+  `InOwnedStage.cppm`, `Counting.cppm`: the vocabulary, one concept each.
+- `IDR/Ownership/Take.cppm`, `TakeAtEntry.cppm`, `TakeFields.cppm`,
+  `Fields.cppm`, `KeepsCountedField.cppm`.
+- `IDR/Ownership/Checker.cppm`, `Loops.cppm`, `References.cppm` and
+  `Verify.cppm`, to know what leaves this library (C4) and what the walk
+  reads of the vocabulary (`Checker.cppm` :12-15, `References.cppm` :66,
+  :87-89).
+- `IDR/Dialect/Effects/Consumed.cc` :9-30: what `consumes` answers for a
+  call, and through what lookup.
+- `IDR/Dialect/Verify/Attributes.cc` :36-44, :55-62: how the owned stage's
+  verifier and the `idr.stack` check are reached today.
+- `IDR/Demand/Demand.cppm` :40-53, :91-100: what `idr-demand` reads.
+- `IDR/Narrow/Facts.cppm` :26, :40; `IDR/Narrow/Words.cppm` :43;
+  `IDR/Expect/ResetsUnshared.cppm` :25: the consumers of the vocabulary.
+- `IDR/Layout/Layouts.cppm` :20-52 (`box(CtorOp)`), `IDR/Layout/Cells.cppm`
+  :29-34 (`Cell::size`).
+- `INC/IdrOps.td` :1966-2111 (the ownership section), :2160-2171
+  (`Idr_CloneAttr` and why a clone names itself), :60-77 (the dialect's
+  discardable attributes, where `stack` is declared).
+- `INC/Passes.td` :543-592 (`IdrRc`), :594-608 (`IdrDemand`).
+- `sources/docs/mlir/docs/PassManagement.md`: "Querying Analyses",
+  "Preserving Analyses", "Dynamic Pass Pipelines".
+- `sources/docs/mlir/docs/Tutorials/DataFlowAnalysis.md`;
+  `sources/code/mlir/include/mlir/Analysis/DataFlow/SparseAnalysis.h`
+  :183-275 (the forward analysis, `visitCallableOperation`), :296-360;
+  `sources/code/mlir/include/mlir/Analysis/DataFlow/DeadCodeAnalysis.h`
+  :75-110, :170-191.
+
+## Fixed decisions
+
+**The order of `idr-rc`.** Five steps, in `runOnOperation`:
+
+1. Refuse a module in the owned stage with today's error
+   (`Rc.cppm:72-73`); `inOwnedStage(ModuleOp)` is one walk.
+2. When `reuse` is on, `getAnalysis<Reuses>()`. Then
+   `getAnalysis<Borrows>()`, and write its answer into every signature:
+   a counted parameter it owns and every counted result become
+   `idr::owned(T)` (`Borrow.cppm:84-102`); the entry block's argument
+   types follow. Nothing else of a body changes here.
+3. Build `OpPassManager nested(ModuleOp::getOperationName())`,
+   `nested.nest<idr::FuncOp>().addPass(createIdrRcPlace(options))` with
+   the `reuse` and `sink` options, and `runPipeline(nested,
+   getOperation())`. Failure is the pass's failure.
+4. Exclusivity. `removeCloneAttr()` on every function (the accessor; today
+   `Exclusive.cppm:47-48`); `shareTainted` (today
+   `ShareTainted.cppm:47-78`, one module walk inserting `idr.share` before
+   consuming uses of tainted roots); then the loop of
+   `Exclusive.cppm:60-71`: `Exclusivity &solved = getAnalysis<Exclusivity>()`;
+   if specialization redirects a call, call
+   `getAnalysisManager().invalidate(kept)` where `kept` is a
+   `PreservedAnalyses` that preserves `SymbolTable`, `Borrows` and
+   `Reuses`, so that the next `getAnalysis<Exclusivity>()` solves again;
+   the rounds are bounded by the number of calls as today, and a round
+   past that is `idr-rc: specializing on exclusivity did not settle`.
+   The last solve stays cached. Then the signatures: a parameter whose
+   entry argument the solve proved exclusive and a result every live
+   return makes exclusive (`Commit.cppm:46-62`) get
+   `graded({quantity, Permission::Excl}, unrestricted(T))`; the entry
+   arguments follow. Then every call's result types are set from its
+   callee's signature (`Commit.cppm:66-70`), a module walk that reads
+   signatures only.
+5. `runPipeline` of `idr.func(idr-rc-commit)`. Then erase every original
+   that specialization copied and nothing uses, through the `SymbolTable`
+   analysis (`Exclusive.cppm:77-82`; the uses from one
+   `SymbolTable::getSymbolUses(&module.getBodyRegion())`).
+   `markAnalysesPreserved<Holds, TypeGraph, Layouts>()`: the pass changes
+   no `idr.data`.
+
+Steps 2 and 4 write signatures on the module, steps 3 and 5 rewrite
+bodies per function. Exclusivity runs after placement because it reads
+the dups placement inserts (`Exclusive.cppm:9-10`,
+`ShareTainted.cppm:53`, `ExclusiveAnalysis.cppm:40-42`); borrow inference
+runs before placement because placement reads the grades
+(`Classes.cppm:39-43`). C1.3's one sentence collapses this; Escalate if
+has the text.
+
+**Why placement per function is sound.** The owned stage's rule is a
+property of grades (C4): what a use does with a reference is decided by
+the grade of the value and of the position, and a call's position is the
+callee's parameter grade (`Consumed.cc:19-28`). After step 2 every
+signature is final until step 4, and no function pass writes a
+signature: `idr-rc-place` sets the types of its own body's values and
+block arguments, and sets an entry argument to `owned(T)` only where the
+signature already says so (`Placement.cppm:74-77` on an argument already
+graded is the identity). So a function's placement reads its own body,
+its own signature and its callees' signatures, all fixed, through the
+`SymbolTable` the module pass holds; two functions never read what the
+other writes. The verifier of `idr.func` after `idr-rc-place` reads the
+same: a function is in the owned stage once its signature or body holds
+an owned value, and its rule holds of it alone.
+
+**`Borrows`** (`INC/Analysis/Ownership.h`, namespace `idr`). Constructor
+`(Operation *module, AnalysisManager &am)`: reads
+`am.getAnalysis<SymbolTable>()` and `am.getCachedAnalysis<Reuses>()`.
+Today's inference (`Borrow.cppm:43-214`) with these changes:
+
+- A value a reuse site takes apart needs a reference of its own: for
+  every site of `Reuses`, `own(site.box)` (today `Borrow.cppm:175` reads
+  the `idr.take` the rewrite had already placed). With `Reuses` not
+  cached (the `reuse` option off) there are no sites, which is today's
+  behaviour with the option off.
+- The call cycles come from the calls the inference collects anyway
+  (`Borrow.cppm:108-123`), as components of `llvm::scc_iterator` over a
+  local adjacency; no graph library.
+- `counted(Type)` is a memo over `holdsReferences` filled during
+  construction and read-only after it.
+- API: `enum class Param { Untracked, Borrowed, Owned }`;
+  `ArrayRef<Param> params(idr::FuncOp) const`;
+  `ArrayRef<bool> countedResults(idr::FuncOp) const`;
+  `unsigned borrowed() const` (the statistic);
+  `bool isInvalidated(const AnalysisManager::PreservedAnalyses &)`
+  returns true (preserved by none, C2.1).
+
+**`Reuses`** (same header). Constructor `(Operation *module,
+AnalysisManager &am)`: reads `am.getAnalysis<SymbolTable>()` and
+`am.getAnalysis<Layouts>()`. For each function, today's `Reuser`
+(`Reuse.cppm:41-152`) with the rewrite taken out: `whereDies` with calls
+ungraded (`Reuse.cppm:99`), `fits` by `Layouts::box(ctor).size`, and a set
+of constructors already claimed on this function, so that two dead boxes
+never get one constructor (today the first rewrite made the `idr.con` an
+`idr.reuse`, which the second no longer saw). Matches inner first, then
+`readBoxes`, as today.
+
+- `struct Site { Value box; CtorOp ctor; Block *block; Operation *after;
+  Block *fields; SmallVector<ConOp> cons; }`: the take goes right after
+  `after` in `block`, or at the block's start when `after` is null;
+  `fields` is the case region that bound the fields, or null.
+- API: `ArrayRef<Site> sites(idr::FuncOp) const` in rewrite order;
+  `bool isInvalidated(…)` returns true.
+- Computed per function in parallel (`parallelForEach` over the
+  functions); a function's sites depend on its body and `Layouts` only.
+
+**`Exclusivity`** (same header). Constructor `(Operation *module)`: runs
+a `DataFlowSolver` with `setInterprocedural(true)`, `DeadCodeAnalysis`,
+`NoConstants` and `ExclusiveAnalysis` (`Exclusive.cppm:61-65`), then
+copies what the passes read into tables and drops the solver:
+`DenseMap<Value, Sharing> sharing` for every followed value,
+`DenseSet<Block *> live`, per function the known callers
+(`PredecessorState` after the callable, when all are known,
+`Specialize.cppm:43-45`) and the known returns (`PredecessorState` after
+one of its calls, `Commit.cppm:26-33`, :46-50). A failed solve is
+`bool failed() const`, and `idr-rc` fails on it.
+
+- API: `enum class Sharing { Unknown, Exclusive, Shared }` (today
+  `Cells.cppm:16`); `Sharing of(Value) const` (Unknown for a value the
+  solve never reached); `bool live(Block *) const`;
+  `std::optional<ArrayRef<Operation *>> callers(idr::FuncOp) const`;
+  `std::optional<ArrayRef<Operation *>> returns(idr::FuncOp) const`;
+  `bool isInvalidated(…)` returns true.
+- The lattice, the transfer function and the reachability-only constant
+  analysis are today's (`Cells.cppm`, `ExclusiveAnalysis.cppm`,
+  `NoConstants.cppm`), private to `Exclusivity.cpp`. The `idr.stack` read
+  in the transfer function goes through the helper below.
+- Per function it is consulted by Value: `idr-rc-commit` asks `of(v)` for
+  each block argument and result of its function and `live(block)` for
+  the poison case of `meet` (`Commit.cppm:157-163`). No function pass
+  touches a solver.
+
+**`idr-rc-place`** (`::idr::FuncOp`). `getCachedParentAnalysis<SymbolTable>()`
+and, when `reuse` is on, `getCachedParentAnalysis<Reuses>()`; either
+absent is an internal error and the pass fails. Then, on its function:
+the reuse rewrite at each site (`takeAt` at the site, one `idr.reuse` for
+each constructor in `site.cons`, `Reuse.cppm:135-146`), then
+`Reshape::check`, `rewriteSelects`, `takeApart`, `ownFields`,
+`sinkConsumers` when `sink`, then `Placement::run` (`Counts.cppm:52-62`).
+`Classes` reads a parameter's grade from its type: a counted parameter
+that is not owned is borrowed (today `Borrowed.cppm:15-16` with the stage
+true). `whereDies` inside this pass runs with calls graded. The pass
+preserves nothing.
+
+**`idr-rc-commit`** (`::idr::FuncOp`). `getCachedParentAnalysis<Exclusivity>()`
+and `getCachedParentAnalysis<SymbolTable>()`. Today's `Commit::run`
+without its signature half: mark every block argument and result the
+solve proved exclusive (`Commit.cppm:39-45`, :122-140), then `meet` at
+every position (`Commit.cppm:73-100`: a call's arguments against the
+callee's signature, a return's operands against its own signature, a
+yield's against its match's results, a suspend's captures against the
+callee's signature), then erase every `idr.share` of a value that is not
+exclusive (`Commit.cppm:104-109`). The pass preserves nothing.
+
+**Specialization on grade** (`Specialize.cpp`). Today's
+`Specialize::run` (`Specialize.cppm:37-67`) over `Exclusivity::callers`
+and `of`. The copy is made with `fn.clone()`, named the original's symbol
+followed by `'excl`, and inserted through the `SymbolTable` analysis,
+which keeps names unique. Whether a function is a copy is membership in
+the set of copies made, never a read of its name (`Specialize.cppm:41`
+reads a suffix; C2.3 forbids it). A copy keeps the original's `instance`
+and has no `clone`.
+
+**`idr.stack`.** Read only through `IdrDialect::StackAttrHelper`
+(`isAttrPresent` on the `idr.con` or `idr.reuse`), at today's three
+reads (`Reuse.cppm:89`, `:110`, `ExclusiveAnalysis.cppm:32`). No string
+`"idr.stack"` in this library.
+
+**`clone`.** Removed from every function at step 4 through
+`removeCloneAttr()`; nothing after `idr-rc` reads it. Nothing of this
+library reads `clone` or `instance`.
+
+**The vocabulary.** `isStatic`, `readFrom`, `usersIn`, `usedAfter`,
+`whereDies`, `isArrayLoop`, `useOf`, `reachesOnlyAtoms`, `followed`,
+`onlyReads`, `inOwnedStage(idr::FuncOp)`, `inOwnedStage(ModuleOp)` and
+the memo `Counted` (constructed from a `SymbolTable &` and the module,
+`bool operator()(Type)`) are declared in `INC/Analysis/Ownership.h` in
+namespace `idr::ownership` and defined in `IdrAnalysis`, because the
+analyses and the passes read them and a transforms library may not be
+read by the analysis library. `useOf(OpOperand &, SymbolTable &)` hands
+the table to `consumes`. Each is today's partition of the same name;
+none keeps state.
+
+**No state.** Every analysis is read-only after its constructor. A pass
+holds nothing across runs; a per-function memo lives in the run. Nothing
+is `thread_local`, atomic or `static` mutable.
+
+**Options and statistics.** `idr-rc` keeps `reuse` and `sink` and hands
+both to `idr-rc-place`; its statistics are `numBorrowed` and
+`numExclusive`. `idr-rc-place` carries `numTakes`, `numReuses`,
+`numDups`, `numDrops` (today all six are `IdrRc`'s, `Passes.td:586-591`).
+No new option, no new number.
+
+**What `idr-demand` reads of this lane.** Nothing of the library.
+`idr-demand` reads the grades in the types (`isExclusive`, `isLinear`,
+`Demand.cppm:47`, `:97`) and the ops (`idr.take`, `idr.reuse`,
+`ReuseOp::getToken`, `Demand.cppm:44-46`), which are the dialect's. The
+grades are the fact; no analysis restates them.
+
+## Inputs
+
+- `idr.func` (C1.2): `getArgumentTypes`, `getResultTypes`,
+  `setFunctionType`, `getBody`, `isExternal`, `isPublic`
+  (`SymbolOpInterface`), `removeCloneAttr`, `clone()`; `idr.call`:
+  `getCallee`, `getCalleeAttr`, `getArgOperands`, `setCalleeAttr`;
+  `idr.return`.
+- `getAnalysis<SymbolTable>()` on the module and
+  `getCachedParentAnalysis<SymbolTable>()` in the function passes (C2.0);
+  `AnalysisManager::invalidate(const PreservedAnalyses &)`
+  (`PassManagement.md`, "Preserving Analyses").
+- `idr::Layouts` (C2.1, U10): `box(CtorOp)` with `.size`
+  (`Layouts.cppm:51`, `Cells.cppm:34`), read by `Reuses` through
+  `am.getAnalysis<Layouts>()`.
+- `idr::Holds`, `idr::TypeGraph` (C2.1, U03): named in
+  `markAnalysesPreserved` only.
+- From `idr/IR/IdrDialect.h` (C1.1): `holdsReferences`, `lookupCtor`,
+  `lookupData`, `fieldType`, `getSumName`, `isMemo`, `consumes`,
+  `isOwned`, `owned`, `view`, `isExclusive`, `graded`, `gradeOf`,
+  `atQuantity`, `unrestricted`, `quantityOf`, the ops and types of the
+  ownership section (`INC/IdrOps.td:1982-2111`), `ConAttr`,
+  `IdrDialect::StackAttrHelper` (C2.2).
+- `inTailPosition(Operation *)` and
+  `inTailPositionModuloConstructor(idr::CallOp)` (today
+  `IDR/Graph/InTailPosition.cppm:18`,
+  `IDR/Graph/InTailPositionModuloConstructor.cppm:20`), read by `Borrows`
+  (`Borrow.cppm:184`) from `idr/IR/IdrDialect.h` (Escalate if).
+- MLIR: `DataFlowSolver`, `DeadCodeAnalysis`, `SparseForwardDataFlowAnalysis`,
+  `Lattice`, `ConstantValue`, `PredecessorState`, `Executable`
+  (`sources/code/mlir/include/mlir/Analysis/DataFlow/*.h`);
+  `OpPassManager`, `Pass::runPipeline`; `llvm::scc_iterator`;
+  `parallelForEach`.
+
+## Outputs
+
+- `INC/Analysis/Ownership.h`: `idr::Borrows`, `idr::Reuses`,
+  `idr::Exclusivity`, and `idr::ownership::{isStatic, readFrom, usersIn,
+  usedAfter, whereDies, isArrayLoop, useOf, reachesOnlyAtoms, followed,
+  onlyReads, inOwnedStage, Counted}`.
+- `INC/Transforms/Ownership.h`: `GEN_PASS_DECL_IDRRC`,
+  `GEN_PASS_DECL_IDRRCPLACE`, `GEN_PASS_DECL_IDRRCCOMMIT` over
+  `idr/Transforms/Passes.h.inc`, and the library's shared classes
+  (`Classes`, `Reshape`, `Placement`, the take helpers, the reuse
+  rewrite, `Specialize`, the per-function commit, `shareTainted`).
+- The passes `idr-rc`, `idr-rc-place`, `idr-rc-commit`, registered by
+  U14's `Pipeline.cpp` through the generated registration.
+- Consumers: `idr-narrow` (`isStatic`, `inOwnedStage(ModuleOp)`),
+  `idr-expect` (`readFrom`), `idr-demand` (none), the function verifier
+  (none from this library; C4 and Escalate if).
+- Hub text for `INC/Transforms/Passes.td`, reported in the handoff:
+  `IdrRcPlace : Pass<"idr-rc-place", "::idr::FuncOp">` with options
+  `reuse` and `sink` (today's text, `Passes.td:576-579`) and statistics
+  `numTakes`, `numReuses`, `numDups`, `numDrops` (`Passes.td:586-589`);
+  `IdrRcCommit : Pass<"idr-rc-commit", "::idr::FuncOp">` with the summary
+  "Write the exclusive grades idr-rc proved into one function and share
+  an exclusive value into each owned position"; `IdrRc` keeps `reuse`,
+  `sink`, `numBorrowed`, `numExclusive`, and its description loses the
+  words about scopes (`Passes.td:581-583`).
+- The unit lists of `IdrAnalysis` (five files) and `IdrOwnership`
+  (eleven files), for the coordinator's `CMakeLists.txt`.
+
+## Implement
+
+Every `.cpp` includes `idr/IR/IdrDialect.h` first among ours, then the
+MLIR headers it uses by name. Comments say why, in today's density; the
+partition headers' explanations (`Borrow.cppm:1-26`, `Counts.cppm:1-33`,
+`Reuse.cppm:1-20`, `Exclusive.cppm:1-22`) move to the units that hold
+the code.
+
+`IdrAnalysis`, `IDR/Analysis/Ownership/` (the directory spelled
+`IDR/Analysis/Ownership.cpp` in `ownership.json`; Escalate if):
+
+- `Values.cpp`: `isStatic`, `readFrom`, `isArrayLoop`, `useOf`,
+  `followed`, `reachesOnlyAtoms`, `inOwnedStage` (both forms), `Counted`.
+  Absorbs `IsStatic`, `ReadFrom`, `ArrayLoop`, `UseOf`, `Followed`,
+  `ReachesOnlyAtoms`, `InOwnedStage`, `Counting`, `Callee`.
+  `reachesOnlyAtoms` finds the declaration through the `SymbolTable` it
+  is handed (today `ReachesOnlyAtoms.cppm:29` scans).
+- `Uses.cpp`: `heldIn`, `usersIn`, `usedAfter`, `whereDies(Value, Block &,
+  bool callsGraded, function_ref<…>)`, `onlyReads`. Absorbs `UsersIn`,
+  `UsedAfter`, `WhereDies`, `OnlyReads`.
+- `Borrows.cpp`: the inference as Fixed decisions says. Absorbs `Borrow`,
+  `Borrowed`.
+- `Reuses.cpp`: the decision as Fixed decisions says. Absorbs the
+  deciding half of `Reuse` (`:45-79`, `:85-127`).
+- `Exclusivity.cpp`: the lattice, the transfer function, the
+  reachability-only constant analysis, the solve, the tables. Absorbs
+  `Cells`, `ExclusiveAnalysis`, `NoConstants`, and the solve of
+  `Exclusive` (`:61-65`).
+
+`IdrOwnership`, `IDR/Transforms/Ownership/`:
+
+- `Rc.cpp`: the `idr-rc` pass (`GEN_PASS_DEF_IDRRC`), the five steps,
+  the nested pipelines, the statistics. Absorbs `Rc.cc`, `Rc.cppm`, the
+  rounds of `Exclusive` (`:56-71`).
+- `Signatures.cpp`: the owned grades from `Borrows` into signatures and
+  entry arguments; the `excl` grades from `Exclusivity` into signatures,
+  entry arguments and call results. Absorbs `Borrow.cppm:84-102`,
+  `Commit.cppm:46-70`.
+- `Share.cpp`: `shareTainted`. Absorbs `ShareTainted`.
+- `Specialize.cpp`: the copies and the redirects, the erase of originals
+  nothing uses. Absorbs `Specialize`, `Exclusive.cppm:74-82`.
+- `Place.cpp`: the `idr-rc-place` pass (`GEN_PASS_DEF_IDRRCPLACE`), the
+  parent lookups, the sequence of Fixed decisions. Absorbs `Counts`.
+- `Reuse.cpp`: the rewrite at a `Reuses::Site`. Absorbs
+  `Reuse.cppm:131-147`.
+- `Take.cpp`: `takeAt`, `takeAtEntry`, `takeFields`, `eachField`,
+  `fromPoint`, `keepsCountedField`. Absorbs `Take`, `TakeAtEntry`,
+  `TakeFields`, `Fields`, `KeepsCountedField`.
+- `Classes.cpp`: `Classes`, `usedIn`, `endsInCrash`. Absorbs `Classes`,
+  `Regions`.
+- `Reshape.cpp`: `Reshape` as today. Absorbs `Reshape`.
+- `Placement.cpp`: `Placement` as today. Absorbs `Placement`.
+- `Commit.cpp`: the `idr-rc-commit` pass (`GEN_PASS_DEF_IDRRCCOMMIT`) and
+  the per-function commit. Absorbs `Commit.cppm:39-45`, `:73-109`,
+  `:114-165`.
+
+What changes in the logic, beyond the moves above: `callee(call)` is
+`symbols.lookup<idr::FuncOp>(call.getCalleeAttr().getAttr())` on the
+`SymbolTable` the caller holds, never a scan (`Callee.cppm:11-13`,
+`Commit.cppm:28`, `KeepsCountedField.cppm:24`, `Take.cppm:25`,
+`TakeAtEntry.cppm:19`, `TakeFields.cppm:20` each build a
+`SymbolTableCollection` today; the helpers take a `SymbolTable &`).
+`func::FuncOp`, `func::CallOp`, `func::ReturnOp` become `idr::FuncOp`,
+`idr::CallOp`, `idr::ReturnOp` everywhere (`Checker.cppm:52` and the
+others). The failure paths are today's: `Reshape::check`'s two errors
+(`Reshape.cppm:38`, `:41-43`), the commit's disagreement with the solver
+(`Commit.cppm:160-161`), the unsettled specialization
+(`Exclusive.cppm:70`), a failed solve, and the stage error
+(`Rc.cppm:73`); each is `signalPassFailure` after the diagnostic.
+
+## Delete
+
+- Every partition of `idr.ownership` (`IDR/Ownership/*.cppm` but
+  `Verify.cppm`) and the two glue units `IDR/Ownership/Ops.cc`,
+  `IDR/Ownership/Rc.cc`; the `export module` and `import idr.` lines go
+  with them.
+- `SymbolScope` at `Rc.cppm:41`, `Exclusive.cppm:54`,
+  `ShareTainted.cppm:50`: the `SymbolTable` analysis replaces each.
+- `Counting`'s `ownedStage` flag (`Counting.cppm:20`, `:34`) and
+  `isBorrowed`'s (`Borrowed.cppm:15`): the function passes run after the
+  signatures are graded, and the reuse decision runs before them.
+- The `$excl` suffix test (`Specialize.cppm:41`, `:70`).
+- `"idr.stack"` as a string in this library (`Reuse.cppm:89`, `:110`,
+  `ExclusiveAnalysis.cppm:32`, `Checker.cppm:85`).
+- `fn->removeAttr("idr.clone")` (`Exclusive.cppm:48`).
+- The `RcOptions` and `RcCounts` structs (`Rc.cppm:24-32`): the pass
+  options and statistics are the generated ones.
+- `Checker.cppm`, `Loops.cppm`, `References.cppm` (the walk goes to
+  `idr.func`'s verifier, C4), `Ops.cc`, `OpChecks.cppm` (the ops' hooks
+  go to `IDR/IR/OpsOwnership.cpp`, C1.1): deleted here, re-housed by
+  their owners from the pin.
+
+## NOT TO DO
+
+- Do not run reuse insertion after borrow inference. A parameter is
+  owned because a reuse site takes it apart (`Borrow.cppm:175`,
+  `Reuse.cppm:82-85`); with the order reversed `@map` in
+  `T/idr/rc/counts.mlir` borrows its list and reuses nothing.
+- Do not compute exclusivity before placement, and do not re-derive
+  placement's dups to do so.
+- Do not keep a `DataFlowSolver` alive past `Exclusivity`'s constructor,
+  and do not read a solver from a function pass.
+- Do not write a signature from a function pass, and do not read a
+  function's body from another function's pass.
+- Do not rewrite a body from `idr-rc` beyond `shareTainted` and the type
+  writes of Fixed decisions step 4; every other rewrite is nested.
+- Do not re-house the owned stage's walk or the ops' hooks here (U02,
+  U01).
+- Do not add an `idr.stack` writer, a layout, or a reading of `instance`.
+- Do not add `References` (U03) as a dependency of `Borrows`: its edges
+  include closure labels, which would change which functions share a
+  cycle.
+- Do not merge `reuse=false` away: `T/idr/expect/counting.mlir:2` states
+  the property without reuse.
+- Do not add a `symbol-dce` step, an option, a limit or a statistic.
+- Do not edit `T/*`, `INC/Transforms/Passes.td`, any `CMakeLists.txt`,
+  `IDR/Transforms/Demand`, `IDR/Transforms/Narrow`, `IDR/Transforms/Expect`.
+
+## Stop and return
+
+Done when the sixteen `.cpp` files and two headers exist, every path
+under Delete is gone, and the three passes compile against the
+declarations of C1.2 and the hub text under Outputs. Return the changed
+paths against the outcomes, the two unit lists, the hub text,
+`Verification: NotRun (swarm policy)`, and the seams below as reported,
+not resolved. Report, without stopping: any helper of the vocabulary the
+function verifier (U02) turns out to need; any symbol of `IDR/Graph` or
+`IDR/Layout` this library still names once those move.
+
+## Acceptance
+
+- `T/idr/rc/counts.mlir` (U21, on `idr.func`): after `--idr-rc`,
+  `reuses-in-place=@map`, `counts-nothing=@sum`, `counts-nothing=@scalars`
+  hold; `@sum`'s list parameter stays a plain `!idr.box<@L>`; `@both`'s
+  first string is `!idr.own<!idr.str>` with one `idr.dup` of its view.
+- `T/idr/rc/consumed.mlir`, `take-at-death.mlir`: `resets-unshared` and
+  `reuses-every-cell` hold. `T/idr/rc/atom-pairs.mlir`,
+  `dies-apart.mlir`, `exclusive.mlir`, `kept-fields.mlir`, `returned.mlir`:
+  the `tests-nothing` and `counts-nothing` properties hold where stated
+  and fail where the fixture says `%status 1`.
+- `T/idr/rc/arrays.mlir`, `array-loops.mlir`, `loops.mlir`: the counts
+  through the array loops and the scf loops as checked; `--idr-lower`
+  after `--idr-rc` succeeds.
+- `T/idr/rc/twice.mlir`: `idr-rc: the module is already in the owned
+  stage`, status 1.
+- `T/idr/rc/live.mlir`: `idris-rt: live cells 0`.
+- `T/idr/rc/verify.mlir` and `T/idr/ownership/owned-stage.mlir`: the
+  diagnostics are the function verifier's (U02); this lane's part is that
+  `--idr-rc` on the first module of `owned-stage.mlir` prints an
+  `idr.drop` and no word `stage`.
+- `T/idr/expect/counting.mlir`: `reuses-in-place=@map` holds with
+  `--idr-rc` and fails with `--idr-rc=reuse=false`.
+- `T/programs/linear/*/mlir.expect` (fifteen programs): every `idr-rc:`
+  line holds of the module dumped after `idr-rc` (`T/lib/expect.sh:16-45`),
+  for example `tests-nothing=@Main.rev counts-nothing=@Main.rev
+  reuses-in-place=@Main.rev` in `leet-reverse-list`.
+- Every program of the suite: `idris-rt: live cells 0` under
+  `IDRIS_RT_LIVE=1` (`T/lib/run.sh:17-40`), and the same bytes on stdout
+  as at 25890d32 (C0).
+- `T/determinism/threads-*`: byte-identical output. Each function's
+  rewrite depends on its body and the frozen analyses; `Reuses` records
+  sites in walk order; copies are inserted in module order.
+- `-mlir-timing` on `every-interfaces-export`: `Borrows`, `Reuses` and
+  the `Exclusivity` solves appear as analyses; no `SymbolTable` is built
+  outside the analysis manager.
+- **Tempting partial:** keeping `idr-rc` as one module walk that places
+  every function in turn. Rejected: it is the serialization C1.3
+  removes, and `T/determinism/threads-*` would measure no parallelism.
+- **Tempting partial:** reading `Exclusivity` from `idr-rc-place`.
+  Rejected: the solve needs the dups placement makes.
+
+## Escalate if
+
+- **C1.3's order.** "signatures from `Borrows` and `Exclusivity`; then
+  runs `idr-rc-place` nested" cannot be one step: exclusivity reads the
+  dups placement inserts (`Exclusive.cppm:9-10`, `ShareTainted.cppm:53`,
+  `ExclusiveAnalysis.cppm:40-42`). The order is Fixed decisions' five
+  steps, and the commit of `excl` grades into bodies is a function pass,
+  `idr-rc-commit`, which `INC/Transforms/Passes.td` must declare (text
+  under Outputs). Report; build to the five steps.
+- **One analysis file.** `ownership.json` gives `IDR/Analysis/Ownership.cpp`
+  for what today is `Borrow.cppm` (226 lines), `Exclusive.cppm`,
+  `ExclusiveAnalysis.cppm`, `Cells.cppm`, `NoConstants.cppm`,
+  `Followed.cppm`, `ReachesOnlyAtoms.cppm` (378 lines together) and the
+  reuse decision (about 150 of `Reuse.cppm`'s 165). The 400-line rule
+  (C0) needs a directory, `IDR/Analysis/Ownership/`, with the five files
+  under Implement. Request the `ownership.json` line change; write the
+  five files.
+- **`Reuses` is a third analysis.** C2.1 lists `Borrows` and
+  `Exclusivity` for `Ownership.h`. Request the row gain `idr::Reuses`
+  ("where each function's dead boxes are taken apart and which
+  constructors get their cells; none").
+- **`StackAttrHelper` and the dialect's list of discardable attributes.**
+  C2.2 and C4 keep `idr.stack` read through `IdrDialect::StackAttrHelper`,
+  which TableGen generates from the list C1.2 removes (`INC/IdrOps.td:64-77`;
+  `Attributes.cc:57` is today's one use). Request C1.2 keep the list with
+  `program` and `stack` only.
+- **`instance` as symbol uses.** `Idr_InstanceAttr` (C1.2) holds a
+  `FlatSymbolRefAttr` origin and symbols of implementations. A reference
+  that is no call makes MLIR's interprocedural analyses treat the named
+  function's callers as unknown (the reason `Idr_CloneAttr` names itself,
+  `INC/IdrOps.td:2166-2170`; `DeadCodeAnalysis.h:189-191`;
+  `SparseAnalysis.h:260-268`). Every function whose instance has no
+  arguments names itself (C6.3: its symbol is its origin), so
+  `Exclusivity` would share every parameter of every such function, and
+  the round's `sccp` and `remove-dead-values` lose the same. The erase of
+  unused originals (Fixed decisions step 5) sees the same uses. Request
+  C1.2 make `origin` and the implementation arguments `StringAttr`.
+- **The vocabulary's home.** The function verifier (C4, U02) reads
+  `isStatic`, `useOf`, `isArrayLoop`, `reachesOnlyAtoms`, `readFrom`
+  (`Checker.cppm:12-15`, `References.cppm:66`, `:87-89`), and `IdrIR`
+  cannot include `idr/Analysis/Ownership.h`. Request that C1.1 name
+  `INC/IR/Grades.h` (U01) as their home; this lane then deletes its
+  definitions and includes that header. Until a ruling, they are
+  `IdrAnalysis`'s as Fixed decisions says.
+- **`consumes` for `idr.call`.** C1.2 gives `idr.call` `Idr_Consumes<"0">`,
+  which answers true for every argument through `ConsumingOpInterface`
+  (`Consumed.cc:11-12`), while a call consumes only what its callee's
+  parameter grade says (`Consumed.cc:19-28`), through a lookup C2.0
+  deletes. Every placement query goes through `consumes`
+  (`Placement.cppm:92`, `WhereDies.cppm:36`, `UseOf.cppm:23`). Request
+  C2.2 state the spelling (`consumes(OpOperand &, SymbolTable &)` with
+  the call case before the interface); this lane calls it with the table
+  it holds.
+- **Tail position.** `inTailPosition` and
+  `inTailPositionModuloConstructor` live in `IDR/Graph`, which U03
+  deletes, and nine libraries read them. Request a home in `IdrIR`
+  (`idr/IR/IdrDialect.h`).
+- **`Layouts` as an analysis.** `Layouts::of` fails with
+  `unsupported (layout)` (`Layouts.cppm:21-31`); an analysis constructor
+  cannot. Request the failure signal's spelling; `Reuses` and `idr-rc`
+  fail on it.
+- **`AnalysisManager::invalidate`** is not public at the pin, or
+  `getCachedParentAnalysis` does not see the module's analyses from a
+  pipeline run through `runPipeline`. Report the signature found; the
+  alternative is constructing `Exclusivity` per round and caching the
+  last through `getAnalysis` once more.
+- **A body rewrite in a module pass.** `shareTainted` inserts `idr.share`
+  in bodies from `idr-rc`, because its taint crosses functions
+  (`ShareTainted.cppm:62-70`). If the coordinator rules it must be
+  nested, it needs a module analysis of the borrowed parameters each
+  function dups and a fourth function pass; report, do not add either.

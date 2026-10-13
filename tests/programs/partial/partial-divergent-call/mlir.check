@@ -1,5 +1,5 @@
 // input: after idr-simplify
-// idr-eval is not in the simplify round, so both closed calls stay.
+// A closed call runs at run time, so both closed calls stay.
 // `spin 0` runs only on the input 9, which this test does not give.
 // The values printed are the run's to check.
 // CHECK: call @Main.spin(

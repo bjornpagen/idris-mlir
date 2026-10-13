@@ -1,5 +1,11 @@
 # Investigation: Is the Idris → `idr` MLIR handoff too low level?
 
+**Status:** answered. Proposal 0014 took up its questions and the cutover
+(proposal 0015) decided them: the frontend emits no erased value and no
+newtype, names are readable quoted symbols with locations, and the
+dialect's functions are `idr.func`. The IR it quotes is the handoff at
+25890d32; the brief is kept as the record those proposals cite.
+
 > **Audience:** coding agent working in `github.com/bjornpagen/idris-mlir`
 > **Mode:** investigate and report first. Do **not** start refactoring until the report in §9 is written and reviewed.
 > **Context:** The textual MLIR the Idris frontend emits (the `idr` dialect in generic form, with mangled `$40$`-style names, `idr.q<zero, plain, none>` erased arguments, `MkCore`/`MkIO` wrappers, etc.) **is the handoff point** between the Idris frontend and the C++ MLIR code. The worry is that this boundary sits too low: the frontend hands C++ an IR that is verbose, under-optimized, and missing semantic information that only the frontend has, which forces the C++ side to rediscover facts the frontend already knew.

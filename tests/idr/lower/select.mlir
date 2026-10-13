@@ -10,11 +10,11 @@ module attributes {idr.program} {
     idr.ctor @A (i64)
     idr.ctor @B ()
   }
-  func.func private @pick(%c: i1, %x: !idr.data<@T>, %y: !idr.data<@T>) -> !idr.data<@T> {
+  idr.func private @pick(%c: i1, %x: !idr.data<@T>, %y: !idr.data<@T>) -> !idr.data<@T> {
     %r = arith.select %c, %x, %y : !idr.data<@T>
     return %r : !idr.data<@T>
   }
-  func.func @Prog.main() -> i64 {
+  idr.func @Prog.main() -> i64 {
     %z = arith.constant 0 : i64
     return %z : i64
   }

@@ -8,19 +8,19 @@
 // idr-contify inlines it into its one caller. A function called twice, one
 // a closure names, and one only its own call reaches are not continuations,
 // and stay.
-// BEFORE: error: expected contified: @step$case is called once, from @step, and is still a function
-// CHECK-NOT: func.func private @step$case
-// CHECK-DAG: func.func private @twice
-// CHECK-DAG: func.func private @named
-// CHECK-DAG: func.func private @lonely
+// BEFORE: error: expected contified: @step.case1 is called once, from @step, and is still a function
+// CHECK-NOT: idr.func private @step.case1
+// CHECK-DAG: idr.func private @twice
+// CHECK-DAG: idr.func private @named
+// CHECK-DAG: idr.func private @lonely
 module attributes {idr.program} {
-  func.func private @step(%n: i64, %acc: i64) -> i64 {
+  idr.func private @step(%n: i64, %acc: i64) -> i64 {
     %c0 = arith.constant 0 : i64
     %done = arith.cmpi sle, %n, %c0 : i64
-    %r = func.call @step$case(%done, %n, %acc) : (i1, i64, i64) -> i64
+    %r = idr.call @step.case1(%done, %n, %acc) : (i1, i64, i64) -> i64
     return %r : i64
   }
-  func.func private @step$case(%done: i1, %n: i64, %acc: i64) -> i64 {
+  idr.func private @step.case1(%done: i1, %n: i64, %acc: i64) -> i64 {
     %r = idr.match_lit %done : i1 -> (i64) {
     case 1 {
       idr.yield %acc : i64
@@ -28,32 +28,32 @@ module attributes {idr.program} {
     default {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %n, %c1 : i64
-      %a = func.call @twice(%acc) : (i64) -> i64
-      %s = func.call @step(%m, %a) : (i64, i64) -> i64
+      %a = idr.call @twice(%acc) : (i64) -> i64
+      %s = idr.call @step(%m, %a) : (i64, i64) -> i64
       idr.yield %s : i64
     }
     }
     return %r : i64
   }
-  func.func private @twice(%x: i64) -> i64 {
+  idr.func private @twice(%x: i64) -> i64 {
     %y = arith.addi %x, %x : i64
     return %y : i64
   }
-  func.func private @named(%x: i64) -> i64 {
+  idr.func private @named(%x: i64) -> i64 {
     return %x : i64
   }
-  func.func private @lonely(%x: i64) -> i64 {
-    %y = func.call @lonely(%x) : (i64) -> i64
+  idr.func private @lonely(%x: i64) -> i64 {
+    %y = idr.call @lonely(%x) : (i64) -> i64
     return %y : i64
   }
-  func.func @root(%w: !idr.world) -> !idr.world {
+  idr.func @root(%w: !idr.world) -> !idr.world {
     %c0 = arith.constant 0 : i64
     %n = arith.constant 7 : i64
-    %t = func.call @twice(%n) : (i64) -> i64
+    %t = idr.call @twice(%n) : (i64) -> i64
     %f = idr.closure @named() : () -> !idr.fn<(i64) -> (i64)>
-    %g = func.call @named(%t) : (i64) -> i64
+    %g = idr.call @named(%t) : (i64) -> i64
     %v = idr.apply %f(%g) : !idr.fn<(i64) -> (i64)>
-    %r = func.call @step(%v, %c0) : (i64, i64) -> i64
+    %r = idr.call @step(%v, %c0) : (i64, i64) -> i64
     %w2 = idr.io.put_int signed %r, %w : i64
     return %w2 : !idr.world
   }

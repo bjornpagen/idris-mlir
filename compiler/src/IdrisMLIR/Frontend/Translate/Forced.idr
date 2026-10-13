@@ -124,7 +124,7 @@ mutual
     if erased tm || decidesNothing view then pure (Just [])
     else case tm of
       Local _ _ i _ => pure (Just (localEq arity i view))
-      _ => case (spine tm [], view) of
+      _ => case (getFnArgs tm, view) of
         ((Ref _ _ n, as), VRef m bs) => do
           same <- (==) <$> toFullNames n <*> toFullNames m
           if same && length as == length bs

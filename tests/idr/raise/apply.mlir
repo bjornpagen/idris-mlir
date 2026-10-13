@@ -9,36 +9,36 @@
 // meets the closure each region builds and becomes a call. Every tail
 // applies a known closure of a total function, and the callee is total, so
 // the clone is total. A second run changes nothing.
-// CHECK-LABEL: func.func private @pick(
-// CHECK-SAME: -> !idr.fn<(i64) -> i64> attributes {idr.total}
-// CHECK-LABEL: func.func private @use(
+// CHECK-LABEL: idr.func private @pick(
+// CHECK-SAME: -> !idr.fn<(i64) -> i64> attributes {total}
+// CHECK-LABEL: idr.func private @use(
 // CHECK-SAME: %[[N:[a-z0-9_]+]]: i64, %[[X:[a-z0-9_]+]]: i64)
 // CHECK: %[[Y:.*]] = arith.addi %[[X]]
-// CHECK-NEXT: %[[R:.*]] = call @[[PICK:pick\$raise\$[0-9]+]](%[[N]], %[[Y]]) : (i64, i64) -> i64
+// CHECK-NEXT: %[[R:.*]] = call @[[PICK:pick\.raise[0-9]+]](%[[N]], %[[Y]]) : (i64, i64) -> i64
 // CHECK-NEXT: return %[[R]]
-// CHECK-NOT: idr.apply
-// CHECK: func.func private @[[PICK]](
-// CHECK-SAME: %[[A:[a-z0-9_]+]]: i64 {{.*}}, %[[B:[a-z0-9_]+]]: i64 {{.*}}) -> i64
-// CHECK-SAME: idr.total
-// CHECK-NEXT: %[[M:.*]] = idr.match_lit %[[A]] : i64 -> (i64) {
+// CHECK-NOT: {{(idr\.| )apply }}
+// CHECK: idr.func private @[[PICK]](
+// CHECK-SAME: %[[A:[a-z0-9_]+]]: i64, %[[B:[a-z0-9_]+]]: i64) -> i64
+// CHECK-SAME: total
+// CHECK-NEXT: %[[M:.*]] = {{(idr\.)?}}match_lit %[[A]] : i64 -> (i64) {
 // CHECK-NEXT: case 0 {
-// CHECK-NEXT: %[[S:.*]] = func.call @sub(%[[A]], %[[B]]) : (i64, i64) -> i64
+// CHECK-NEXT: %[[S:.*]] = call @sub(%[[A]], %[[B]]) : (i64, i64) -> i64
 // CHECK-NEXT: idr.yield %[[S]] : i64
 // CHECK: default {
-// CHECK-NEXT: %[[P:.*]] = func.call @add(%[[A]], %[[B]]) : (i64, i64) -> i64
+// CHECK-NEXT: %[[P:.*]] = call @add(%[[A]], %[[B]]) : (i64, i64) -> i64
 // CHECK-NEXT: idr.yield %[[P]] : i64
 // CHECK: return %[[M]] : i64
-// CHECK-NOT: idr.apply
+// CHECK-NOT: {{(idr\.| )apply }}
 module attributes {idr.program} {
-  func.func private @add(%a: i64, %x: i64) -> i64 attributes {idr.total} {
+  idr.func private @add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64
     return %y : i64
   }
-  func.func private @sub(%a: i64, %x: i64) -> i64 attributes {idr.total} {
+  idr.func private @sub(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.subi %a, %x : i64
     return %y : i64
   }
-  func.func private @pick(%a: i64) -> !idr.fn<(i64) -> (i64)> attributes {idr.total} {
+  idr.func private @pick(%a: i64) -> !idr.fn<(i64) -> (i64)> attributes {total} {
     %r = idr.match_lit %a : i64 -> (!idr.fn<(i64) -> (i64)>) {
     case 0 {
       %f = idr.closure @sub(%a) : (i64) -> !idr.fn<(i64) -> (i64)>
@@ -51,14 +51,14 @@ module attributes {idr.program} {
     }
     return %r : !idr.fn<(i64) -> (i64)>
   }
-  func.func private @use(%n: i64, %x: i64) -> i64 attributes {idr.total} {
-    %f = func.call @pick(%n) : (i64) -> !idr.fn<(i64) -> (i64)>
+  idr.func private @use(%n: i64, %x: i64) -> i64 attributes {total} {
+    %f = idr.call @pick(%n) : (i64) -> !idr.fn<(i64) -> (i64)>
     %c1 = arith.constant 1 : i64
     %y = arith.addi %x, %c1 : i64
     %r = idr.apply %f(%y) : !idr.fn<(i64) -> (i64)>
     return %r : i64
   }
-  func.func @Main.main() -> i64 {
+  idr.func @Main.main() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64
   }

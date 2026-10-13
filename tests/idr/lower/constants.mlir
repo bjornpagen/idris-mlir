@@ -33,7 +33,7 @@ module attributes {idr.program} {
     idr.ctor @I (i64)
     idr.ctor @D (f64)
   }
-  func.func private @values() -> (!idr.str, !idr.str, !idr.big, !idr.big, !idr.box<@List>,
+  idr.func private @values() -> (!idr.str, !idr.str, !idr.big, !idr.big, !idr.box<@List>,
                                   !idr.data<@Num>) {
     %s1 = idr.constant "h\C3\A9!" : !idr.str
     %s2 = idr.constant "h\C3\A9!" : !idr.str
@@ -44,8 +44,8 @@ module attributes {idr.program} {
     return %s1, %s2, %small, %large, %l, %n
         : !idr.str, !idr.str, !idr.big, !idr.big, !idr.box<@List>, !idr.data<@Num>
   }
-  func.func @Prog.main() -> i64 {
-    %v:6 = func.call @values() : () -> (!idr.str, !idr.str, !idr.big, !idr.big, !idr.box<@List>,
+  idr.func @Prog.main() -> i64 {
+    %v:6 = idr.call @values() : () -> (!idr.str, !idr.str, !idr.big, !idr.big, !idr.box<@List>,
                                         !idr.data<@Num>)
     %z = arith.constant 0 : i64
     return %z : i64

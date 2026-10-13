@@ -11,79 +11,76 @@ module attributes {idr.program} {
   // CHECK: idr.data @Main.Shape {
   // CHECK-NEXT: idr.ctor @Circle (f64)
   // CHECK-NEXT: idr.ctor @Rect (f64, f64)
-  // CHECK-NEXT: idr.ctor @Proven (!idr.erased, i64)
+  // CHECK-NEXT: idr.ctor @Proven (i64)
   idr.data @Main.Shape {
     idr.ctor @Circle (f64)
     idr.ctor @Rect (f64, f64)
-    idr.ctor @Proven (!idr.erased, i64)
+    idr.ctor @Proven (i64)
   }
   // CHECK: idr.data @List box {
   // CHECK-NEXT: idr.ctor @Nil ()
-  // CHECK-NEXT: idr.ctor @"$58$$58$" (i64, !idr.box<@List>)
+  // CHECK-NEXT: idr.ctor @"$58$$58$" (i64, !List)
   idr.data @List box {
     idr.ctor @Nil ()
     idr.ctor @"$58$$58$" (i64, !idr.box<@List>)
   }
   // CHECK: idr.data @Fields {
-  // CHECK-NEXT: idr.ctor @All (i8, i16, i32, i64, f64, !idr.str, !idr.big, !idr.world, !idr.fn<(i64) -> i64>, !idr.fn<() -> ()>, !idr.data<@Main.Shape>, !idr.box<@List>)
+  // CHECK-NEXT: idr.ctor @All (i8, i16, i32, i64, f64, !idr.str, !idr.big, !idr.world, !idr.fn<(i64) -> i64>, !idr.fn<() -> ()>, !Shape, !List)
   idr.data @Fields {
     idr.ctor @All (i8, i16, i32, i64, f64, !idr.str, !idr.big, !idr.world,
                          !idr.fn<(i64) -> (i64)>, !idr.fn<() -> ()>,
                          !idr.data<@Main.Shape>, !idr.box<@List>)
-       
   }
 
-  func.func private @inc(%k: i64, %x: i64) -> i64 {
+  idr.func private @inc(%k: i64, %x: i64) -> i64 {
     %r = arith.addi %k, %x : i64
     return %r : i64
   }
 
-  // CHECK-LABEL: func.func private @values
-  func.func private @values(%x: i64, %d: f64,
+  // CHECK-LABEL: idr.func private @values
+  idr.func private @values(%x: i64, %d: f64,
                             %s: !idr.data<@Main.Shape>,
                             %l: !idr.box<@List>)
-      -> (i64, f64, i64, i64) attributes {idr.total} {
-    // CHECK: idr.constant #idr.con<@Main.Shape::@Rect, [1.000000e+00, 2.000000e+00]> : !idr.data<@Main.Shape>
+      -> (i64, f64, i64, i64) attributes {total} {
+    // CHECK: constant #idr.con<@Main.Shape::@Rect, [1.000000e+00, 2.000000e+00]> : !Shape
     %c0 = idr.constant #idr.con<@Main.Shape::@Rect, [1.0 : f64, 2.0 : f64]> : !idr.data<@Main.Shape>
-    // CHECK: idr.constant #idr.con<@List::@"$58$$58$", [7, #idr.con<@List::@Nil, []>]> : !idr.box<@List>
+    // CHECK: constant #idr.con<@List::@"$58$$58$", [7, #idr.con<@List::@Nil, []>]> : !List
     %c1 = idr.constant #idr.con<@List::@"$58$$58$", [7 : i64, #idr.con<@List::@Nil, []>]> : !idr.box<@List>
-    // CHECK: idr.constant #idr.closure<@inc, [1]> : !idr.fn<(i64) -> i64>
+    // CHECK: constant #idr.closure<@inc, [1]> : !idr.fn<(i64) -> i64>
     %c2 = idr.constant #idr.closure<@inc, [1 : i64]> : !idr.fn<(i64) -> (i64)>
-    // CHECK: idr.constant #idr.big<"-123456789012345678901234567890"> : !idr.big
+    // CHECK: constant #idr.big<"-123456789012345678901234567890"> : !idr.big
     %c3 = idr.constant #idr.big<"-123456789012345678901234567890"> : !idr.big
-    // CHECK: idr.constant #idr.erased : !idr.erased
-    %c4 = idr.constant #idr.erased : !idr.erased
-    // CHECK: idr.constant "hello\0A" : !idr.str
+    // CHECK: constant "hello\0A" : !idr.str
     %c5 = idr.constant "hello\n" : !idr.str
-    // CHECK: idr.con @Main.Shape::@Circle(%{{.*}}) : (f64) -> !idr.data<@Main.Shape>
+    // CHECK: con @Main.Shape::@Circle(%{{.*}}) : (f64) -> !Shape
     %v0 = idr.con @Main.Shape::@Circle(%d) : (f64) -> !idr.data<@Main.Shape>
-    // CHECK: idr.con @List::@"$58$$58$"(%{{.*}}, %{{.*}}) : (i64, !idr.box<@List>) -> !idr.box<@List>
+    // CHECK: con @List::@"$58$$58$"(%{{.*}}, %{{.*}}) : (i64, !List) -> !List
     %v1 = idr.con @List::@"$58$$58$"(%x, %l) : (i64, !idr.box<@List>) -> !idr.box<@List>
-    // CHECK: idr.field %{{.*}}[@Circle, 0] : !idr.data<@Main.Shape> -> f64
+    // CHECK: field %{{.*}}[@Circle, 0] : !Shape -> f64
     %f0 = idr.field %s[@Circle, 0] : !idr.data<@Main.Shape> -> f64
-    // CHECK: idr.field %{{.*}}[@"$58$$58$", 0] : !idr.box<@List> -> i64
+    // CHECK: field %{{.*}}[@"$58$$58$", 0] : !List -> i64
     %f1 = idr.field %l[@"$58$$58$", 0] : !idr.box<@List> -> i64
-    // CHECK: idr.tag %{{.*}} : !idr.data<@Main.Shape>
+    // CHECK: tag %{{.*}} : !Shape
     %t0 = idr.tag %s : !idr.data<@Main.Shape>
-    // CHECK: idr.tag %{{.*}} : !idr.box<@List>
+    // CHECK: tag %{{.*}} : !List
     %t1 = idr.tag %l : !idr.box<@List>
     return %f1, %f0, %t0, %t1 : i64, f64, i64, i64
   }
 
-  // CHECK-LABEL: func.func private @matches
-  func.func private @matches(%s: !idr.data<@Main.Shape>,
+  // CHECK-LABEL: idr.func private @matches
+  idr.func private @matches(%s: !idr.data<@Main.Shape>,
                              %n: i64, %c: i32,
                              %b: i1, %t: !idr.str,
                              %g: !idr.big, %w: !idr.world)
       -> (f64, !idr.world) {
-    // CHECK: %{{.*}}:2 = idr.match %{{.*}} : !idr.data<@Main.Shape> -> (f64, !idr.world) {
+    // CHECK: %{{.*}}:2 = {{(idr\.)?}}match %{{.*}} : !Shape -> (f64, !idr.world) {
     // CHECK-NEXT: case @Circle(%[[R:.*]]: f64) {
     // CHECK-NEXT: idr.yield %[[R]], %{{.*}} : f64, !idr.world
     // CHECK-NEXT: }
     // CHECK-NEXT: case @Rect(%[[W:.*]]: f64, %[[H:.*]]: f64) {
     // CHECK-NEXT: arith.mulf %[[W]], %[[H]] : f64
     // CHECK: default {
-    // CHECK-NEXT: idr.crash "unhandled input for Main.f"
+    // CHECK-NEXT: crash "unhandled input for Main.f"
     // CHECK-NEXT: ub.unreachable
     // CHECK-NEXT: }
     // CHECK-NEXT: }
@@ -101,21 +98,21 @@ module attributes {idr.program} {
     }
     }
     // A match of no results, and one with every region left out.
-    // CHECK: idr.match %{{.*}} : !idr.data<@Main.Shape> -> () {
-    // CHECK-NEXT: case @Proven(%{{.*}}: !idr.erased, %{{.*}}: i64) {
+    // CHECK: match %{{.*}} : !Shape -> () {
+    // CHECK-NEXT: case @Proven(%{{.*}}: i64) {
     // CHECK-NEXT: idr.yield
     // CHECK-NEXT: }
     // CHECK-NEXT: }
     idr.match %s : !idr.data<@Main.Shape> -> () {
-    case @Proven(%e: !idr.erased, %v: i64) {
+    case @Proven(%v: i64) {
       idr.yield
     }
     }
-    // CHECK: idr.match %{{.*}} : !idr.data<@Main.Shape> -> (i64) {
+    // CHECK: match %{{.*}} : !Shape -> (i64) {
     // CHECK-NEXT: }
     %none = idr.match %s : !idr.data<@Main.Shape> -> (i64) {
     }
-    // CHECK: idr.match_lit %{{.*}} : i64 -> (i64) {
+    // CHECK: match_lit %{{.*}} : i64 -> (i64) {
     // CHECK-NEXT: case 0 {
     // CHECK: case -9223372036854775808 {
     // CHECK: default {
@@ -131,7 +128,7 @@ module attributes {idr.program} {
     }
     }
     // Characters are i32, flags i1.
-    // CHECK: idr.match_lit %{{.*}} : i32 -> (i64) {
+    // CHECK: match_lit %{{.*}} : i32 -> (i64) {
     // CHECK-NEXT: case 955 {
     %j = idr.match_lit %c : i32 -> (i64) {
     case 955 {
@@ -141,7 +138,7 @@ module attributes {idr.program} {
       idr.yield %n : i64
     }
     }
-    // CHECK: idr.match_lit %{{.*}} : i1 -> (i64) {
+    // CHECK: match_lit %{{.*}} : i1 -> (i64) {
     // CHECK-NEXT: case true {
     %k = idr.match_lit %b : i1 -> (i64) {
     case true {
@@ -151,7 +148,7 @@ module attributes {idr.program} {
       idr.yield %n : i64
     }
     }
-    // CHECK: idr.match_lit %{{.*}} : !idr.str -> (i64) {
+    // CHECK: match_lit %{{.*}} : !idr.str -> (i64) {
     // CHECK-NEXT: case "" {
     // CHECK: case "a\0Ab" {
     %l = idr.match_lit %t : !idr.str -> (i64) {
@@ -165,7 +162,7 @@ module attributes {idr.program} {
       idr.yield %n : i64
     }
     }
-    // CHECK: idr.match_lit %{{.*}} : !idr.big -> (i64) {
+    // CHECK: match_lit %{{.*}} : !idr.big -> (i64) {
     // CHECK-NEXT: case #idr.big<"0"> {
     %m = idr.match_lit %g : !idr.big -> (i64) {
     case #idr.big<"0"> {
@@ -178,41 +175,41 @@ module attributes {idr.program} {
     return %r#0, %r#1 : f64, !idr.world
   }
 
-  // CHECK-LABEL: func.func private @closures
-  func.func private @closures(%x: i64) -> i64 {
-    // CHECK: %[[C:.*]] = idr.closure @inc(%{{.*}}) : (i64) -> !idr.fn<(i64) -> i64>
+  // CHECK-LABEL: idr.func private @closures
+  idr.func private @closures(%x: i64) -> i64 {
+    // CHECK: %[[C:.*]] = {{(idr\.)?}}closure @inc(%{{.*}}) : (i64) -> !idr.fn<(i64) -> i64>
     %c = idr.closure @inc(%x) : (i64) -> !idr.fn<(i64) -> (i64)>
-    // CHECK: idr.apply %[[C]](%{{.*}}) : !idr.fn<(i64) -> i64>
+    // CHECK: apply %[[C]](%{{.*}}) : !idr.fn<(i64) -> i64>
     %r = idr.apply %c(%x) : !idr.fn<(i64) -> (i64)>
-    // CHECK: idr.closure @inc() : () -> !idr.fn<(i64, i64) -> i64>
+    // CHECK: closure @inc() : () -> !idr.fn<(i64, i64) -> i64>
     %d = idr.closure @inc() : () -> !idr.fn<(i64, i64) -> (i64)>
     return %r : i64
   }
 
-  // CHECK-LABEL: func.func private @scalars
-  func.func private @scalars(%x: i64, %y: i8,
+  // CHECK-LABEL: idr.func private @scalars
+  idr.func private @scalars(%x: i64, %y: i8,
                              %d: f64) {
-    // CHECK: idr.div signed %{{.*}}, %{{.*}} : i64
+    // CHECK: div signed %{{.*}}, %{{.*}} : i64
     %a = idr.div signed %x, %x : i64
-    // CHECK: idr.mod %{{.*}}, %{{.*}} : i8
+    // CHECK: mod %{{.*}}, %{{.*}} : i8
     %b = idr.mod unsigned %y, %y : i8
-    // CHECK: idr.to_char signed %{{.*}} : i64
+    // CHECK: to_char signed %{{.*}} : i64
     %c = idr.to_char signed %x : i64
-    // CHECK: idr.to_int %{{.*}} : i32
+    // CHECK: to_int %{{.*}} : i32
     %e = idr.to_int %d : i32
-    // CHECK: idr.double_head %{{.*}}
+    // CHECK: double_head %{{.*}}
     %f = idr.double_head %d
-    // CHECK: idr.int_head signed %{{.*}} : i64
+    // CHECK: int_head signed %{{.*}} : i64
     %g = idr.int_head signed %x : i64
-    // CHECK: idr.int_head %{{.*}} : i8
+    // CHECK: int_head %{{.*}} : i8
     %h = idr.int_head %y : i8
-    // CHECK: idr.may_loop
+    // CHECK: may_loop
     idr.may_loop
     return
   }
 
-  // CHECK-LABEL: func.func private @strings
-  func.func private @strings(%s: !idr.str, %c: i32,
+  // CHECK-LABEL: idr.func private @strings
+  idr.func private @strings(%s: !idr.str, %c: i32,
                              %x: i64, %y: i8,
                              %d: f64) {
     // CHECK: idr.str.append %{{.*}}, %{{.*}}
@@ -258,8 +255,8 @@ module attributes {idr.program} {
     return
   }
 
-  // CHECK-LABEL: func.func private @bigs
-  func.func private @bigs(%a: !idr.big, %x: i64,
+  // CHECK-LABEL: idr.func private @bigs
+  idr.func private @bigs(%a: !idr.big, %x: i64,
                           %d: f64, %s: !idr.str) {
     // CHECK: idr.big.add %{{.*}}, %{{.*}}
     %0 = idr.big.add %a, %a
@@ -302,9 +299,9 @@ module attributes {idr.program} {
 
   // The big ops that keep naturals natural write the type; the others take
   // and give Integers only.
-  // CHECK-LABEL: func.func private @naturals
-  func.func private @naturals(%n: !idr.nat, %a: !idr.big) {
-    // CHECK: idr.constant #idr.big<"3"> : !idr.nat
+  // CHECK-LABEL: idr.func private @naturals
+  idr.func private @naturals(%n: !idr.nat, %a: !idr.big) {
+    // CHECK: constant #idr.big<"3"> : !idr.nat
     %three = idr.constant #idr.big<"3"> : !idr.nat
     // CHECK: idr.big.add %{{.*}}, %{{.*}} : !idr.nat
     %0 = idr.big.add %n, %three : !idr.nat
@@ -323,8 +320,8 @@ module attributes {idr.program} {
 
   // An IORef is an array of rank 0: made, read and written with no size and
   // no index. The read that moves its element out says so.
-  // CHECK-LABEL: func.func private @ref
-  func.func private @ref(%v: !idr.str, %s: !idr.str, %w0: !idr.world) -> (!idr.str, !idr.world) {
+  // CHECK-LABEL: idr.func private @ref
+  idr.func private @ref(%v: !idr.str, %s: !idr.str, %w0: !idr.world) -> (!idr.str, !idr.world) {
     // CHECK: idr.array.new [], %{{.*}}, %{{.*}} : !idr.str -> memref<!idr.str>
     %r, %w1 = idr.array.new [], %v, %w0 : !idr.str -> memref<!idr.str>
     // CHECK: idr.array.get %{{.*}}[], %{{.*}} moves : memref<!idr.str> -> !idr.str
@@ -334,8 +331,8 @@ module attributes {idr.program} {
     return %x, %w3 : !idr.str, !idr.world
   }
 
-  // CHECK-LABEL: func.func @Main.main
-  func.func @Main.main(%w0: !idr.world) -> !idr.world attributes {idr.total} {
+  // CHECK-LABEL: idr.func @Main.main
+  idr.func @Main.main(%w0: !idr.world) -> !idr.world attributes {total} {
     %s = idr.constant "hi" : !idr.str
     %c = arith.constant 65 : i32
     %n = arith.constant -1 : i64

@@ -6,16 +6,16 @@
 // shared, as its key is the callee and the elimination. In @Main.main the
 // world each region applies differs, output having been done in one; the
 // call, which is total and does no IO, moves past that output.
-// CHECK-LABEL: func.func @Main.main(
-// CHECK: idr.match_lit
+// CHECK-LABEL: idr.func @Main.main(
+// CHECK: match_lit
 // CHECK: case 0 {
-// CHECK-NEXT: %[[A:.*]] = func.call @[[C:greet\$raise\$[0-9]+]](%{{.*}}, %{{.*}}) : (i64, !idr.world) -> !idr.data<@IORes>
+// CHECK-NEXT: %[[A:.*]] = call @[[C:greet\.raise[0-9]+]](%{{.*}}, %{{.*}}) {{.*}}: (i64, !idr.world) -> !IORes
 // CHECK-NEXT: idr.yield %[[A]]
 // CHECK: default {
 // CHECK: %[[W:.*]] = idr.io.put_int
-// CHECK-NEXT: %[[B:.*]] = func.call @[[C]](%{{.*}}, %[[W]]) : (i64, !idr.world) -> !idr.data<@IORes>
+// CHECK-NEXT: %[[B:.*]] = call @[[C]](%{{.*}}, %[[W]]) {{.*}}: (i64, !idr.world) -> !IORes
 // CHECK-NEXT: idr.yield %[[B]]
-// CHECK-NOT: idr.apply
+// CHECK-NOT: {{(idr\.| )apply }}
 module attributes {idr.program} {
   idr.data @Unit {
     idr.ctor @MkUnit ()
@@ -26,18 +26,18 @@ module attributes {idr.program} {
   idr.data @IO {
     idr.ctor @MkIO (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>)
   }
-  func.func private @put(%n: i64, %w: !idr.world) -> !idr.data<@IORes> attributes {idr.effects = #idr.effects<io>, idr.total} {
+  idr.func private @put(%n: i64, %w: !idr.world) -> !idr.data<@IORes> attributes {effects = #idr.effects<io>, total} {
     %w1 = idr.io.put_int signed %n, %w : i64
     %u = idr.con @Unit::@MkUnit() : () -> !idr.data<@Unit>
     %r = idr.con @IORes::@MkIORes(%u, %w1) : (!idr.data<@Unit>, !idr.world) -> !idr.data<@IORes>
     return %r : !idr.data<@IORes>
   }
-  func.func private @done(%w: !idr.world) -> !idr.data<@IORes> attributes {idr.effects = #idr.effects<none>, idr.total} {
+  idr.func private @done(%w: !idr.world) -> !idr.data<@IORes> attributes {effects = #idr.effects<none>, total} {
     %u = idr.con @Unit::@MkUnit() : () -> !idr.data<@Unit>
     %r = idr.con @IORes::@MkIORes(%u, %w) : (!idr.data<@Unit>, !idr.world) -> !idr.data<@IORes>
     return %r : !idr.data<@IORes>
   }
-  func.func private @greet(%n: i64) -> !idr.data<@IO> attributes {idr.effects = #idr.effects<none>, idr.total, no_inline} {
+  idr.func private @greet(%n: i64) -> !idr.data<@IO> attributes {effects = #idr.effects<none>, total, no_inline} {
     %done = idr.constant #idr.con<@IO::@MkIO, [#idr.closure<@done, []>]> : !idr.data<@IO>
     %r = idr.match_lit %n : i64 -> (!idr.data<@IO>) {
     case 0 {
@@ -52,10 +52,10 @@ module attributes {idr.program} {
     }
     return %r : !idr.data<@IO>
   }
-  func.func @Main.main(%w: !idr.world) -> !idr.data<@IORes> attributes {idr.effects = #idr.effects<io>} {
+  idr.func @Main.main(%w: !idr.world) -> !idr.data<@IORes> attributes {effects = #idr.effects<io>} {
     %c, %w1 = idr.io.get_byte %w
     %n = arith.extui %c : i32 to i64
-    %a = func.call @greet(%n) : (i64) -> !idr.data<@IO>
+    %a = idr.call @greet(%n) : (i64) -> !idr.data<@IO>
     %r = idr.match_lit %n : i64 -> (!idr.data<@IORes>) {
     case 0 {
       %f = idr.field %a[@MkIO, 0] : !idr.data<@IO> -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>

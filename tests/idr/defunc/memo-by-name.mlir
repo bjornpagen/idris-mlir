@@ -11,13 +11,13 @@
 // CHECK-DAG: idr.ctor @sized (i64){{$}}
 // CHECK-DAG: idr.ctor @shout (){{$}}
 module attributes {idr.program} {
-  func.func private @traced(%x: i64) -> i64 attributes {idr.total} {
+  idr.func private @traced(%x: i64) -> i64 attributes {total} {
     %w = idr.world.new
     %s = idr.constant "forced\0A" : !idr.str
     %w1 = idr.io.put_str %s, %w
     return %x : i64
   }
-  func.func private @sized(%n: i64) -> i64 attributes {idr.total} {
+  idr.func private @sized(%n: i64) -> i64 attributes {total} {
     %w = idr.world.new
     %z = arith.constant 0 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
@@ -26,14 +26,14 @@ module attributes {idr.program} {
     %l = arith.index_cast %d : index to i64
     return %l : i64
   }
-  func.func private @shout() -> i64 attributes {idr.total} {
+  idr.func private @shout() -> i64 attributes {total} {
     %w = idr.world.new
     %s = idr.constant "once\0A" : !idr.str
     %w1 = idr.io.put_str %s, %w
     %c = arith.constant 1 : i64
     return %c : i64
   }
-  func.func @Main.main(%w: !idr.world) -> !idr.world {
+  idr.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_byte %w
     %n = arith.extui %c : i32 to i64
     %t = idr.suspend @traced(%n) : (i64) -> !idr.lazy<i64>

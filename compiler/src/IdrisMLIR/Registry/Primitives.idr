@@ -51,8 +51,8 @@ io a = Head (Def (MkQName ["PrimIO"] "IO")) [a]
 ||| The type of an IO primitive: its arguments, each at quantity ω, then the
 ||| world, and the `IORes` of its result.
 ioType : List Shape -> Shape -> Shape
-ioType [] r = Pi One world (ioRes r)
-ioType (a :: as) r = Pi Quantity.Many a (ioType as r)
+ioType [] r = Pi M1 world (ioRes r)
+ioType (a :: as) r = Pi Mw a (ioType as r)
 
 ------------------------------------------------------------------------------
 -- The table
@@ -63,7 +63,7 @@ ioType (a :: as) r = Pi Quantity.Many a (ioType as r)
 ||| writes.
 programRoot : Entry
 programRoot = MkEntry (Def (MkQName ["PrimIO"] "unsafePerformIO"))
-                      (Typed (Pi Zero TypeOfTypes (Pi Quantity.Many (io Hole) Hole)))
+                      (Typed (Pi M0 TypeOfTypes (Pi Mw (io Hole) Hole)))
                       ProgramRoot [ProgramShape]
 
 ||| An IO primitive of `Prelude.IO`, by its spec, with the name that
@@ -87,7 +87,7 @@ arrayData a = Head (Def (MkQName arrayPrims "ArrayData")) [a]
 ||| is the last argument.
 cellPrimitive : List String -> String -> Shape -> IdrPrim -> Entry
 cellPrimitive space name shape p =
-  MkEntry (Def (MkQName space name)) (Typed (Pi Zero TypeOfTypes shape)) (ArrayCall p) [IOPrimitive]
+  MkEntry (Def (MkQName space name)) (Typed (Pi M0 TypeOfTypes shape)) (ArrayCall p) [IOPrimitive]
 
 ||| An array primitive of base's `Data.IOArray.Prims`.
 arrayPrimitive : String -> Shape -> IdrPrim -> Entry
@@ -182,11 +182,11 @@ dbl = Prim DoubleP
 
 ||| A value written at a byte offset: buffer, offset, value, world.
 stored : Shape -> Shape
-stored val = Pi Quantity.Many buffer (Pi Quantity.Many int (Pi Quantity.Many val (Pi One world (ioRes unit))))
+stored val = Pi Mw buffer (Pi Mw int (Pi Mw val (Pi M1 world (ioRes unit))))
 
 ||| A value read at a byte offset: buffer, offset, world.
 loaded : Shape -> Shape
-loaded val = Pi Quantity.Many buffer (Pi Quantity.Many int (Pi One world (ioRes val)))
+loaded val = Pi Mw buffer (Pi Mw int (Pi M1 world (ioRes val)))
 
 ||| A deprecated `%foreign` buffer name. The text names the replacement.
 deprecatedForeign : String -> String -> Shape -> String -> Entry
@@ -233,10 +233,10 @@ files =
   , cPrimitive "idris2_stdout" fileVirtual "prim__stdout" anyPtr (Handle (LInt UInt64 1))
   , cPrimitive "idris2_stderr" fileVirtual "prim__stderr" anyPtr (Handle (LInt UInt64 2))
   , cCall "idris2_writeBufferData" fileBuffer "prim__writeBufferData"
-          (Pi Quantity.Many anyPtr (Pi Quantity.Many buffer (Pi Quantity.Many int (Pi Quantity.Many int (Pi One world (ioRes int)))))) WriteBytes
+          (Pi Mw anyPtr (Pi Mw buffer (Pi Mw int (Pi Mw int (Pi M1 world (ioRes int)))))) WriteBytes
   , cCall "idris2_readBufferData" fileBuffer "prim__readBufferData"
-          (Pi Quantity.Many anyPtr (Pi Quantity.Many buffer (Pi Quantity.Many int (Pi Quantity.Many int (Pi One world (ioRes int)))))) ReadBytes
-  , cCall "idris2_eof" fileReadWrite "prim__eof" (Pi Quantity.Many anyPtr (Pi One world (ioRes int))) Eof
+          (Pi Mw anyPtr (Pi Mw buffer (Pi Mw int (Pi Mw int (Pi M1 world (ioRes int)))))) ReadBytes
+  , cCall "idris2_eof" fileReadWrite "prim__eof" (Pi Mw anyPtr (Pi M1 world (ioRes int))) Eof
   , cCall "idris2_openFile" fileHandle "prim__open" (ioType [str, str] anyPtr) FileOpen
   , cCall "idris2_closeFile" fileHandle "prim__close" (ioType [anyPtr] unit) FileClose
   , cCall "idris2_fileError" fileError "prim__error" (ioType [anyPtr] int) FileError
@@ -363,15 +363,15 @@ clocks =
 handles : List Entry
 handles =
   [ MkEntry (Def (MkQName ["PrimIO"] "AnyPtr")) (Typed TypeOfTypes) WordType [IOPrimitive]
-  , MkEntry (Def (MkQName ["PrimIO"] "Ptr")) (Typed (Pi Quantity.Many TypeOfTypes TypeOfTypes)) WordType [IOPrimitive]
+  , MkEntry (Def (MkQName ["PrimIO"] "Ptr")) (Typed (Pi Mw TypeOfTypes TypeOfTypes)) WordType [IOPrimitive]
   , MkEntry (Foreign (MkSpec "C" "idris2_isNull"))
-            (Declared (MkQName ["PrimIO"] "prim__nullAnyPtr") (Pi Quantity.Many anyPtr int))
+            (Declared (MkQName ["PrimIO"] "prim__nullAnyPtr") (Pi Mw anyPtr int))
             (IOCall HandleIsNull []) [Primitive]
   , MkEntry (Foreign (MkSpec "C" "idris2_getNull"))
             (Declared (MkQName ["PrimIO"] "prim__getNullAnyPtr") anyPtr)
             (Handle (LInt UInt64 18446744073709551615)) [Primitive]
   , MkEntry (Foreign (MkSpec "C" "idris2_getString"))
-            (Declared (MkQName ["Prelude", "IO"] "prim__getString") (Pi Quantity.Many strPtr str))
+            (Declared (MkQName ["Prelude", "IO"] "prim__getString") (Pi Mw strPtr str))
             (IOCall HandleString []) [Primitive]
   , cCall "idris2_free" ["System", "FFI"] "prim__free" (ioType [anyPtr] unit) HandleFree ]
 
@@ -384,7 +384,7 @@ iteratorModule = ["Linear", "String", "Iterator"]
 ||| string, a byte offset, and what the op gives there.
 iteratorPrimitive : String -> Shape -> IdrPrim -> Entry
 iteratorPrimitive name result p =
-  MkEntry (Def (MkQName iteratorModule name)) (Typed (Pi Quantity.Many str (Pi Quantity.Many int result))) (IOCall p []) [Primitive]
+  MkEntry (Def (MkQName iteratorModule name)) (Typed (Pi Mw str (Pi Mw int result))) (IOCall p []) [Primitive]
 
 ||| The in-house string iterator's primitives. An offset is any Int: each
 ||| op means something at every one, so its calls have no guard.
@@ -400,33 +400,33 @@ primitives : List Entry
 primitives =
   [ programRoot
   , ioPrimitive (MkSpec "C" "idris2_putStr") "prim__putStr"
-                (Pi Quantity.Many (Prim StringP) (Pi One world (ioRes unit))) PutStr
+                (Pi Mw (Prim StringP) (Pi M1 world (ioRes unit))) PutStr
   , ioPrimitive (MkSpec "C" "putchar") "prim__putChar"
-                (Pi Quantity.Many (Prim CharP) (Pi One world (ioRes unit))) PutChar
+                (Pi Mw (Prim CharP) (Pi M1 world (ioRes unit))) PutChar
   -- The Prelude's getChar reads one byte.
   , ioPrimitive (MkSpec "C" "getchar") "prim__getChar"
-                (Pi One world (ioRes (Prim CharP))) GetByte
+                (Pi M1 world (ioRes (Prim CharP))) GetByte
   -- The Prelude's getLine: a line without its end, "" at the end of input.
   , ioPrimitive (MkSpec "C" "idris2_getStr") "prim__getStr"
-                (Pi One world (ioRes (Prim StringP))) GetLine
-  , MkEntry (Def (MkQName arrayPrims "ArrayData")) (Typed (Pi Quantity.Many TypeOfTypes TypeOfTypes))
+                (Pi M1 world (ioRes (Prim StringP))) GetLine
+  , MkEntry (Def (MkQName arrayPrims "ArrayData")) (Typed (Pi Mw TypeOfTypes TypeOfTypes))
             (ArrayType Rank1 Nothing) [IOPrimitive]
   , arrayPrimitive "prim__newArray"
-                   (Pi Quantity.Many int (Pi Quantity.Many Hole (Pi One world (ioRes (arrayData Hole))))) ArrayNew
+                   (Pi Mw int (Pi Mw Hole (Pi M1 world (ioRes (arrayData Hole))))) ArrayNew
   , arrayPrimitive "prim__arrayGet"
-                   (Pi Quantity.Many (arrayData Hole) (Pi Quantity.Many int (Pi One world (ioRes Hole)))) ArrayGet
+                   (Pi Mw (arrayData Hole) (Pi Mw int (Pi M1 world (ioRes Hole)))) ArrayGet
   , arrayPrimitive "prim__arraySet"
-                   (Pi Quantity.Many (arrayData Hole) (Pi Quantity.Many int (Pi Quantity.Many Hole (Pi One world (ioRes unit))))) ArraySet
+                   (Pi Mw (arrayData Hole) (Pi Mw int (Pi Mw Hole (Pi M1 world (ioRes unit))))) ArraySet
   -- An IORef is an array of rank 0: `Mut a` is `memref<E>`, its one
   -- element the value, made, read and written through the world as an
   -- array's elements are, with no size and no index. Control.Monad.ST's
   -- references are IORefs, run by base's unsafePerformIO.
-  , MkEntry (Def (MkQName iorefModule "Mut")) (Typed (Pi Quantity.Many TypeOfTypes TypeOfTypes))
+  , MkEntry (Def (MkQName iorefModule "Mut")) (Typed (Pi Mw TypeOfTypes TypeOfTypes))
             (ArrayType Rank0 Nothing) [IOPrimitive]
-  , cellPrimitive iorefModule "prim__newIORef" (Pi Quantity.Many Hole (Pi One world (ioRes (mut Hole)))) ArrayNew
-  , cellPrimitive iorefModule "prim__readIORef" (Pi Quantity.Many (mut Hole) (Pi One world (ioRes Hole))) ArrayGet
+  , cellPrimitive iorefModule "prim__newIORef" (Pi Mw Hole (Pi M1 world (ioRes (mut Hole)))) ArrayNew
+  , cellPrimitive iorefModule "prim__readIORef" (Pi Mw (mut Hole) (Pi M1 world (ioRes Hole))) ArrayGet
   , cellPrimitive iorefModule "prim__writeIORef"
-                  (Pi Quantity.Many (mut Hole) (Pi Quantity.Many Hole (Pi One world (ioRes unit)))) ArraySet
+                  (Pi Mw (mut Hole) (Pi Mw Hole (Pi M1 world (ioRes unit)))) ArraySet
   -- The length of an array, which the backend contract lacks: the in-house
   -- linear array library declares it by Chez's spec, `vector-length` of the
   -- vector `ArrayData` is there (after the erased type argument Chez passes
@@ -434,7 +434,7 @@ primitives =
   -- meaning, the memref's dimension.
   , MkEntry (Foreign (MkSpec "scheme" "(lambda (ty v) (vector-length v))"))
             (Declared (MkQName ["Linear", "Array"] "prim__arraySize")
-                      (Pi Zero TypeOfTypes (Pi Quantity.Many (arrayData Hole) int)))
+                      (Pi M0 TypeOfTypes (Pi Mw (arrayData Hole) int)))
             ArraySize [Primitive]
   -- An index checked against a bound, which the backend contract lacks:
   -- the in-house linear array library checks each index against its
@@ -443,7 +443,7 @@ primitives =
   -- is the key, so it must be the library's byte for byte; it holds no
   -- comma, at which a spec's function ends.
   , MkEntry (Foreign (MkSpec "scheme" "(lambda (i n) (if (and (<= 0 i) (< i n)) i (error #f \"array index out of bounds\")))"))
-            (Declared (MkQName ["Linear", "Array"] "prim__index") (Pi Quantity.Many int (Pi Quantity.Many int int)))
+            (Declared (MkQName ["Linear", "Array"] "prim__index") (Pi Mw int (Pi Mw int int)))
             (PrimCall IndexBelow) [Primitive]
   -- base's Data.Buffer is an array of bytes. A new one is a new array, of
   -- zero bytes: the fill is the zero byte, which base's call does not
@@ -455,22 +455,22 @@ primitives =
   -- byte spec with the Bits8 operations; the declared name picks the entry.
   , MkEntry (Def (MkQName bufferModule "Buffer")) (Typed TypeOfTypes) (ArrayType Rank1 (Just byte)) [IOPrimitive]
   , MkEntry (Foreign (MkSpec "scheme" "blodwen-new-buffer"))
-            (Declared (MkQName bufferModule "prim__newBuffer") (Pi Quantity.Many int (Pi One world (ioRes buffer))))
+            (Declared (MkQName bufferModule "prim__newBuffer") (Pi Mw int (Pi M1 world (ioRes buffer))))
             (IOCall ArrayNew [LInt UInt8 0]) [IOPrimitive]
   , deprecatedForeign "blodwen-buffer-setbyte" "prim__setByte"
-                      (Pi Quantity.Many buffer (Pi Quantity.Many int (Pi Quantity.Many int (Pi One world (ioRes unit)))))
+                      (Pi Mw buffer (Pi Mw int (Pi Mw int (Pi M1 world (ioRes unit)))))
                       "setByte is deprecated; use setBits8"
   , deprecatedDef "setByte" "setByte is deprecated; use setBits8"
   , bufferPrimitive "blodwen-buffer-setbyte" "prim__setBits8"
-                    (Pi Quantity.Many buffer (Pi Quantity.Many int (Pi Quantity.Many bits8 (Pi One world (ioRes unit))))) ArraySet
+                    (Pi Mw buffer (Pi Mw int (Pi Mw bits8 (Pi M1 world (ioRes unit))))) ArraySet
   , deprecatedForeign "blodwen-buffer-getbyte" "prim__getByte"
-                      (Pi Quantity.Many buffer (Pi Quantity.Many int (Pi One world (ioRes int))))
+                      (Pi Mw buffer (Pi Mw int (Pi M1 world (ioRes int))))
                       "getByte is deprecated; use getBits8"
   , deprecatedDef "getByte" "getByte is deprecated; use getBits8"
   , bufferPrimitive "blodwen-buffer-getbyte" "prim__getBits8"
-                    (Pi Quantity.Many buffer (Pi Quantity.Many int (Pi One world (ioRes bits8)))) ArrayGet
+                    (Pi Mw buffer (Pi Mw int (Pi M1 world (ioRes bits8)))) ArrayGet
   , MkEntry (Foreign (MkSpec "scheme" "blodwen-buffer-size"))
-            (Declared (MkQName bufferModule "prim__bufferSize") (Pi Quantity.Many buffer int))
+            (Declared (MkQName bufferModule "prim__bufferSize") (Pi Mw buffer int))
             (PrimCall (ArrayLength byte)) [Primitive]
   , bufferStore "blodwen-buffer-setbits16" "prim__setBits16" (stored (intOf UInt16))
   , bufferLoad "blodwen-buffer-getbits16" "prim__getBits16" (loaded (intOf UInt16))
@@ -491,16 +491,16 @@ primitives =
   , bufferStore "blodwen-buffer-setdouble" "prim__setDouble" (stored dbl)
   , bufferLoad "blodwen-buffer-getdouble" "prim__getDouble" (loaded dbl)
   , MkEntry (Foreign (MkSpec "scheme" "blodwen-stringbytelen"))
-            (Declared (MkQName bufferModule "stringByteLength") (Pi Quantity.Many (Prim StringP) int))
+            (Declared (MkQName bufferModule "stringByteLength") (Pi Mw (Prim StringP) int))
             (IOCall StrBytesLength []) [Primitive]
   , bufferPrimitive "blodwen-buffer-setstring" "prim__setString"
-                    (Pi Quantity.Many buffer (Pi Quantity.Many int (Pi Quantity.Many (Prim StringP) (Pi One world (ioRes unit)))))
+                    (Pi Mw buffer (Pi Mw int (Pi Mw (Prim StringP) (Pi M1 world (ioRes unit)))))
                     BufferSetString
   , bufferPrimitive "blodwen-buffer-getstring" "prim__getString"
-                    (Pi Quantity.Many buffer (Pi Quantity.Many int (Pi Quantity.Many int (Pi One world (ioRes (Prim StringP))))))
+                    (Pi Mw buffer (Pi Mw int (Pi Mw int (Pi M1 world (ioRes (Prim StringP))))))
                     BufferGetString
   , bufferPrimitive "blodwen-buffer-copydata" "prim__copyData"
-                    (Pi Quantity.Many buffer (Pi Quantity.Many int (Pi Quantity.Many int (Pi Quantity.Many buffer (Pi Quantity.Many int (Pi One world (ioRes unit)))))))
+                    (Pi Mw buffer (Pi Mw int (Pi Mw int (Pi Mw buffer (Pi Mw int (Pi M1 world (ioRes unit)))))))
                     BufferCopy
   , deprecatedDef "bufferData" "bufferData is deprecated; use bufferData'"
   -- Strings built from lists. The Prelude's pack is strCons by strCons, a
@@ -512,15 +512,15 @@ primitives =
   -- (idr.str.pack, idr.str.concat); fastUnpack stands for unpack, a loop
   -- already.
   , MkEntry (Def (MkQName preludeTypes "pack"))
-            (Typed (Pi Quantity.Many (list (Prim CharP)) (Prim StringP))) (Builds StrPack) [Primitive]
+            (Typed (Pi Mw (list (Prim CharP)) (Prim StringP))) (Builds StrPack) [Primitive]
   , MkEntry (Foreign (MkSpec "scheme" "string-pack"))
-            (Declared (MkQName preludeTypes "fastPack") (Pi Quantity.Many (list (Prim CharP)) (Prim StringP)))
+            (Declared (MkQName preludeTypes "fastPack") (Pi Mw (list (Prim CharP)) (Prim StringP)))
             (Builds StrPack) [Primitive]
   , MkEntry (Foreign (MkSpec "scheme" "string-concat"))
-            (Declared (MkQName preludeTypes "fastConcat") (Pi Quantity.Many (list (Prim StringP)) (Prim StringP)))
+            (Declared (MkQName preludeTypes "fastConcat") (Pi Mw (list (Prim StringP)) (Prim StringP)))
             (Builds StrConcat) [Primitive]
   , MkEntry (Foreign (MkSpec "scheme" "string-unpack"))
-            (Declared (MkQName preludeTypes "fastUnpack") (Pi Quantity.Many (Prim StringP) (list (Prim CharP))))
+            (Declared (MkQName preludeTypes "fastUnpack") (Pi Mw (Prim StringP) (list (Prim CharP))))
             (Alias (MkQName preludeTypes "unpack")) [Primitive]
   -- System.Info. The operating system and the backend name are strings the
   -- compiler substitutes: the first is the target triple's, the second the
@@ -533,6 +533,6 @@ primitives =
             (Typed (Prim StringP)) (SystemInfo BackendName) [Primitive]
   , MkEntry (Foreign (MkSpec "C" "idris2_getNProcessors"))
             (Declared (MkQName ["System", "Info"] "prim__getNProcessors")
-                      (Pi One world (ioRes int)))
+                      (Pi M1 world (ioRes int)))
             (IOCall NProcessors []) [IOPrimitive] ] ++
   files ++ directories ++ process ++ terminal ++ errors ++ clocks ++ handles ++ iterators
