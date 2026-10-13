@@ -89,7 +89,7 @@ determinism_threads() {
     [ "$det_run" = one ] && det_flags=--mlir-disable-threading
     # shellcheck disable=SC2086 # empty or one flag
     if ! bounded "$idris_mlir_opt" $det_flags --mlir-print-debuginfo --mlir-pass-statistics \
-        --mlir-pass-statistics-display=list --remarks-filter=idr-vectorize,idr-narrow-lanes \
+        --mlir-pass-statistics-display=list '--remarks-filter=idr-vectorize|idr-narrow-lanes' \
         --idr-target --idr-pipeline "$det_input" \
         -o "$work/$det_run.mlir" 2> "$work/$det_run.err"; then
       say "$det_run: exit $bounded_status"
