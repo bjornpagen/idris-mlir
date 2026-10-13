@@ -770,10 +770,10 @@ def IdrExpect : Pass<"idr-expect", "::mlir::ModuleOp"> {
         for a constructor with fields is reused, and none is freed;
       - `contified`: no private function is called once, from another
         function, and used nowhere else;
-      - `quantities-kept=<file>`: every parameter, every field a match
-        binds and every constructor field that the module in <file> (the
-        emitted module) declares has the quantity it has there, one or
-        many;
+      - `quantities-kept=<file>`: every parameter of a function or a
+        lambda, every field a match binds and every constructor field
+        that the module in <file> (the emitted module) declares has the
+        quantity it has there, one or many;
       - `facts-as-marked`: every op marked `expect.facts = "..."` answers,
         through the dialect's effects, the questions the mark lists, of
         `drop move delay` in that order: whether it may be dropped (an

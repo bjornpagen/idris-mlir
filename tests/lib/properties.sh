@@ -79,10 +79,10 @@ simplify_idempotent() {
 
 # quantities_kept EMITTED DUMPS: no step of the pipeline drops or widens a
 # quantity Idris proved: after each step, up to lowering, where quantities
-# end with the idr dialect, every parameter of an idr.func and every
-# constructor field has the quantity, linear or unrestricted, it has in the
-# emitted module (idr-expect's quantities-kept, which reads the idr.func
-# signatures). The emitted module holds no quantity zero: what Idris erased
+# end with the idr dialect, every parameter of an idr.func or an idr.lambda
+# and every constructor field has the quantity, linear or unrestricted, it
+# has in the emitted module (idr-expect's quantities-kept, which reads the
+# binders' types). The emitted module holds no quantity zero: what Idris erased
 # is no parameter. A binder is found by its source location, its names
 # removed, so a step that renames or clones a function still meets it; the
 # dumps print their locations.

@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-expect=holds=quantities-kept=%s -o /dev/null
 // RUN: cp %s %t.emitted.mlir
-// RUN: sed 's/%h: !idr.lin<i64>/%h: i64/; s/(!idr.lin<i64>) -> i64/(i64) -> i64/; s/idr.lin.enter %x : !idr.lin<i64>/arith.addi %x, %x : i64/' %t.emitted.mlir > %t.widened.mlir
+// RUN: sed 's/%h: !idr.lin<i64>/%h: i64/; s/call @consume(%e) : (!idr.lin<i64>) -> i64/call @consume(%e) : (i64) -> i64/; s/idr.lin.enter %x : !idr.lin<i64>/arith.addi %x, %x : i64/' %t.emitted.mlir > %t.widened.mlir
 // RUN: %status 1 idris-mlir-opt %t.widened.mlir --idr-expect=holds=quantities-kept=%t.emitted.mlir -o /dev/null 2> %t.widened.err
 // RUN: FileCheck %s --check-prefix=WIDENED < %t.widened.err
 // RUN: sed 's/(!idr.lin<i64>, i64)/(i64, i64)/; s/%a: !idr.lin<i64>/%a: i64/' %t.emitted.mlir > %t.field.mlir
@@ -9,13 +9,18 @@
 // RUN: sed 's/!idr.lin<!idr.data<@Handle>>/!idr.data<@Handle>/g; s/%a: !idr.lin<i64>/%a: i64/' %t.emitted.mlir > %t.bound.mlir
 // RUN: %status 1 idris-mlir-opt %t.bound.mlir --idr-expect=holds=quantities-kept=%t.emitted.mlir -o /dev/null 2> %t.bound.err
 // RUN: FileCheck %s --check-prefix=BOUND < %t.bound.err
+// RUN: sed 's/%l: !idr.lin<i64>/%l: i64/; s/!idr.fn<(!idr.lin<i64>) -> i32>/!idr.fn<(i64) -> i32>/g; s/idr.lin.use %l : !idr.lin<i64>/arith.addi %l, %l : i64/' %t.emitted.mlir > %t.lam.mlir
+// RUN: %status 1 idris-mlir-opt %t.lam.mlir --idr-expect=holds=quantities-kept=%t.emitted.mlir -o /dev/null 2> %t.lam.err
+// RUN: FileCheck %s --check-prefix=LAMBDA < %t.lam.err
 // The module as emitted keeps its quantities, which are its types. A
 // linear parameter made unrestricted, a linear constructor field made
-// unrestricted, and a field a match bound linearly (of a linear value)
-// bound unrestricted (of the value made unrestricted) are each an error.
+// unrestricted, a field a match bound linearly (of a linear value)
+// bound unrestricted (of the value made unrestricted), and a lambda's
+// linear parameter made unrestricted are each an error.
 // WIDENED: error: expected quantities-kept: parameter 0 of @consume has quantity w, and Idris proved 1
 // FIELD: error: expected quantities-kept: the fields of @Handle::@MkHandle have other quantities than Idris proved
 // BOUND: error: expected quantities-kept: bound field 0 of @open has quantity w, and Idris proved 1
+// LAMBDA: error: expected quantities-kept: parameter 0 of @lam has quantity w, and Idris proved 1
 module {
   idr.data @Handle {
     idr.ctor @MkHandle (!idr.lin<i64>, i64)
@@ -36,5 +41,14 @@ module {
     %e = idr.lin.enter %x : !idr.lin<i64>
     %r = idr.call @consume(%e) : (!idr.lin<i64>) -> i64
     return %r : i64
+  }
+  idr.func private @lam() -> !idr.fn<(!idr.lin<i64>) -> i32> {
+    %f = idr.lambda : !idr.fn<(!idr.lin<i64>) -> i32> {
+    ^bb0(%l: !idr.lin<i64>):
+      %u = idr.lin.use %l : !idr.lin<i64>
+      %t = arith.trunci %u : i64 to i32
+      idr.yield %t : i32
+    }
+    return %f : !idr.fn<(!idr.lin<i64>) -> i32>
   }
 }
