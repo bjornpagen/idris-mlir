@@ -31,14 +31,15 @@ Each `NN-<bug>/` is one bug. `NN` is the order to file in: lower first.
   the stock Idris only builds stage 0 (the fork, the frontend and the test
   runner) and the benchmarks' Chez baseline, and the Idris that elaborates
   programs, prelude and base is the fork in compiler/idris, whose fixes are
-  its own code (its README). Idris's
-  rules for sending are its own (its CONTRIBUTING.md); the bug's README
-  says where it goes.
-- `pull-request.diff`: the pull request for a change this repository does
-  not carry as a patch (08, 17; 18 and 20, whose changes the fork carries
-  as its own code), which the bootstrap therefore never applies. Apply it
-  with `git apply` (18's and 20's to third_party/Idris2's pin); the commit
-  message comes from `submission.md`, never from the file's header.
+  its own code (its README). Nothing goes to Idris (**Idris** under
+  **Rules for sending**).
+- `pull-request.diff`: for LLVM, the pull request for a change this
+  repository does not carry as a patch (08, 17), which the bootstrap
+  therefore never applies; apply it with `git apply`, and take the commit
+  message from `submission.md`, never from the file's header. For Idris
+  (18, 20, 21), the change the fork carries as its own code, laid out
+  against third_party/Idris2's pin with the test upstream's suite would
+  hold: the record a re-sync of the fork reads, never sent.
 - `tests/upstream/<bug>/` (bug name without the number): this repository's
   check that the pinned tools still need the patch, or are fixed by it.
 - `PINS.md`, entry `## <bug>` (or the name it gives): why we carry it and
@@ -79,10 +80,10 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 10 | recursive-attribute-parser | an RFC on Discourse first | not ready; no patch; still reproduces at 7208ba24 (arm64 macOS) |
 | 16 | remove-dead-values-unchanged-call | issue + PR: `eraseOpResults` keeps an op it erases no result of, as `eraseOperands` does | carried (0451b1b8); not filed; `check-mlir` not run on main; the toolchain is not yet rebuilt with it |
 | 17 | sccp-revert-unset-property | PR: sccp copies the properties storage around a simulated fold, so it reverts a property the fold set on an op that had none | not ready: not carried (the compiler is not affected); no `mlir-opt` with it built; `check-mlir` not run |
-| 18 | elaboration-primitive-folding | issue + PR on idris-lang/Idris2: elaboration leaves primitives to the backend | carried as fork code (compiler/idris), not as a patch; upstream's suite not run with it; not filed |
+| 18 | elaboration-primitive-folding | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | 19 | pass-timing-dynamic-pipeline | a test, as a comment on #169615 (open; its own test passes without its change) | ready, not posted; carried: #169615's change and our test; still broken on main at 626eeb8e; the toolchain is not yet rebuilt with it |
-| 20 | evaluator-char-text | issue + PR on idris-lang/Idris2: the evaluator's text of a Char is the Char, not its escape | carried as fork code (compiler/idris), not as a patch; upstream's suite not run with it; not filed |
-| 21 | termination-closure | issue + PR on idris-lang/Idris2: a termination check closes over the calls inside components and records what it settles | carried as fork code (compiler/idris), not as a patch; upstream's suite not run with it; not filed |
+| 20 | evaluator-char-text | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
+| 21 | termination-closure | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | 22 | remove-dead-values-poison-operand | issue + PR: the cleanup keeps an operand that is already poison | carried; not filed; `check-mlir` not run on main |
 
 Gone when the pin moved from llvmorg-23.1.2 to main at 7208ba24, each
@@ -107,6 +108,16 @@ and changes how `lookup` searches.
 
 These are not optional.
 
+- **Idris.** Nothing written here goes to idris-lang/Idris2: no issue,
+  pull request, commit or comment. Its CONTRIBUTING.md ("Things We Will
+  Not Accept", at the pin and on main as of 2026-10-13) wants all of
+  them written and submitted by humans and will not consider anything
+  that arises from generative AI or a coding agent. A bug of Idris's is
+  fixed in the fork as its own code (AGENTS.md); its `pull-request.diff`
+  is the record of that change against the pin, which a re-sync reads to
+  drop it once upstream has fixed the bug its own way. Whether Bjorn
+  reports such a bug is his call, in his own words; nothing is drafted
+  for it, and no agent posts there.
 - **Author.** Bjorn, as an individual, outside any employer: his own
   name and the public email on his GitHub account, no employer anywhere,
   no Co-authored-by, no @mentions.

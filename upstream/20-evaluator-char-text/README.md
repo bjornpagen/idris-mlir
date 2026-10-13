@@ -56,7 +56,7 @@ and strips the quotes, but keeps the escape inside them.
 
 ## The fix
 
-`pull-request.diff`, against the pin, is the pull request: `castString` of
+`pull-request.diff`, against the pin, is the change: `castString` of
 a Char is `prim__cast_CharString c`, the primitive itself, run by the
 Scheme that runs Idris, as `strCons` and `strSubstr` already are; the
 import of `Libraries.Utils.String`, used only for `stripQuotes`, goes.
@@ -70,7 +70,7 @@ consumes is the fork in compiler/idris, which carries the fix as its own
 code: there every operation the evaluator computes calls the primitive of
 its name (`Core.Primitives`; compiler/idris/README.md). The stock Idris
 only builds stage 0 and the benchmarks' Chez baseline, which do not depend
-on it, so it stays unpatched; the pull request is drafted as
+on it, so it stays unpatched; the change is recorded as
 `pull-request.diff`, which the bootstrap does not apply.
 
 ## Testing at the pin
@@ -84,14 +84,20 @@ change (arm64 macOS, 2026-10-09).
 
 ## Upstreaming plan
 
-Status: not filed; carried as the fork's code.
+Status: carried as the fork's code; nothing goes to idris-lang/Idris2
+from here. Idris accepts no contribution that arises from generative AI
+or a coding agent, issues, pull requests, commits and comments alike
+(upstream/README.md, **Idris**), and this report, the diff and the fork's
+change were written with one.
 
-- Where: an issue on idris-lang/Idris2 (the `newline` proof above, refused,
-  and its converse, accepted), and a pull request against `main`, one
-  commit, `pull-request.diff`, with a CHANGELOG_NEXT.md entry. It is
-  independent of 18 and smaller, so it may go first.
-- Before filing: search the tracker for `stripQuotes`, `castString` and
-  Char casts at compile time; build the change on then-current `main` and
-  run its suite, `evaluator007` included.
-- When it goes: when a re-sync of the fork brings upstream's fix; then this
-  report, `tests/upstream/evaluator-char-text` and the PINS.md lines go.
+- `pull-request.diff` is the record of what the fork changed against the
+  pin, laid out as a stock checkout with the upstream test
+  (`evaluator007`) it would carry. At a re-sync of compiler/idris
+  (compiler/idris/README.md) it says what to look for upstream: if
+  upstream has fixed the bug its own way, the fork takes upstream's code
+  and drops this change; if not, the change is carried forward onto the
+  new base.
+- When upstream's fix arrives: this directory,
+  `tests/upstream/evaluator-char-text` and the PINS.md entry go.
+- Whether to report the bug upstream is Bjorn's call alone, in his own
+  words and from his own understanding; nothing here is drafted for it.

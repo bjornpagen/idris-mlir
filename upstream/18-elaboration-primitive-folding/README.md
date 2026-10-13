@@ -89,7 +89,7 @@ A literal of a primitive type is still the constant it denotes (`small =
 
 ## The fix
 
-`pull-request.diff`, against the pin, is the pull request:
+`pull-request.diff`, against the pin, is the change:
 
 - `evalDef` reduces a primitive under the condition the evaluator already
   applies to `let`: not in `holesOnly` or `argHolesOnly` mode, unless
@@ -145,7 +145,7 @@ PINS.md `idris-fork` and `elaboration-primitive-folding`). The stock Idris
 the bootstrap builds only builds stage 0, the fork, the frontend and the
 test runner, which do not depend on what elaboration folds, and the
 benchmarks' Chez baseline, which runs on the Chez whose meaning the fold
-computes, so it stays unpatched. The pull request is still one we intend to send, drafted as
+computes, so it stays unpatched. The change is recorded as
 `pull-request.diff`, which the bootstrap does not apply.
 
 ## Testing at the pin
@@ -186,24 +186,21 @@ runtime's documented meaning.
 
 ## Upstreaming plan
 
-Status: not filed; carried as the fork's code, not yet run through
-upstream's suite.
+Status: carried as the fork's code; nothing goes to idris-lang/Idris2
+from here. Idris accepts no contribution that arises from generative AI
+or a coding agent, issues, pull requests, commits and comments alike
+(upstream/README.md, **Idris**), and this report, the diff and the fork's
+change were written with one.
 
-- Where: an issue on idris-lang/Idris2 (the reproducer, with RefC's
-  `0.100000` against the checked `"0.1"` for `prim__cast_DoubleString 0.1`,
-  and Node's `Infinity` against `"+inf.0"`), and a pull request against
-  `main`, one commit, `pull-request.diff`, with a CHANGELOG_NEXT.md
-  entry.
-  Before filing: search the tracker for elaboration constant folding and
-  `normaliseArgHoles`; build the change on then-current `main` and run its
-  suite, updating the expected files whose printed definitions keep their
-  calls, and say which in the pull request.
-- The change review may question: a left-hand-side literal whose
-  conversion needs a backend-dependent primitive is refused. The
-  alternative, keeping `normaliseAll` on the left, accepts a pattern whose
-  value is the host's; the pull request names both.
-- Separately, an issue for `castString` of a Char (`show`'s escape for
-  a non-ASCII character), which the REPL's evaluation still shows.
-- The fork's change goes when a re-sync of compiler/idris brings
-  upstream's fix (compiler/idris/README.md); then this directory, its
-  check and its `PINS.md` entry go.
+- `pull-request.diff` is the record of what the fork changed against the
+  pin, laid out as a stock checkout with the upstream test
+  (`evaluator006`) it would carry. At a re-sync of compiler/idris
+  (compiler/idris/README.md) it says what to look for upstream: if
+  upstream has fixed the bug its own way, the fork takes upstream's code
+  and drops this change; if not, the change is carried forward onto the
+  new base.
+- When upstream's fix arrives: this directory,
+  `tests/upstream/elaboration-primitive-folding` and the PINS.md entry
+  go.
+- Whether to report the bug upstream is Bjorn's call alone, in his own
+  words and from his own understanding; nothing here is drafted for it.

@@ -41,7 +41,7 @@ terminating is not searched again.
 
 ## The fix
 
-`pull-request.diff`, against the pin, is the pull request:
+`pull-request.diff`, against the pin, is the change:
 
 - `insideComponents` finds the strongly connected components of the calls
   the walk collected (Tarjan's algorithm) and keeps the calls inside one.
@@ -76,7 +76,7 @@ code (commit 96bea9f1); the stock Idris only builds stage 0 and the
 benchmarks' Chez baseline. The fork goes further for its own translator,
 which asks a narrower question (whether every loop through a function
 terminates, `loopsTerminate`, decided per component from the weakest
-graphs of each pair's paths); that is not part of the pull request.
+graphs of each pair's paths); that is not part of the diff.
 
 ## Testing at the pin
 
@@ -91,13 +91,20 @@ frontend, which the pinned checker does not finish within the step limit.
 
 ## Upstreaming plan
 
-Status: not filed; carried as the fork's code.
+Status: carried as the fork's code; nothing goes to idris-lang/Idris2
+from here. Idris accepts no contribution that arises from generative AI
+or a coding agent, issues, pull requests, commits and comments alike
+(upstream/README.md, **Idris**), and this report, the diff and the fork's
+change were written with one.
 
-- Where: an issue on idris-lang/Idris2 (`Reach.idr` and its times), and a
-  pull request against `main`, one commit, `pull-request.diff`, with a
-  CHANGELOG_NEXT.md entry under the compiler's performance.
-- Before filing: search the tracker for slow totality checking of
-  `covering` code; build the change on then-current `main` and run its
-  suite, `total032` included; time `Reach.idr` before and after there.
-- When it goes: when a re-sync of the fork brings upstream's fix; then this
-  report, `tests/upstream/termination-closure` and the PINS.md entry go.
+- `pull-request.diff` is the record of what the fork changed against the
+  pin, laid out as a stock checkout with the upstream test (`total032`)
+  it would carry. At a re-sync of compiler/idris
+  (compiler/idris/README.md) it says what to look for upstream: if
+  upstream has fixed the bug its own way, the fork takes upstream's code
+  and drops this change; if not, the change is carried forward onto the
+  new base.
+- When upstream's fix arrives: this directory,
+  `tests/upstream/termination-closure` and the PINS.md entry go.
+- Whether to report the bug upstream is Bjorn's call alone, in his own
+  words and from his own understanding; nothing here is drafted for it.

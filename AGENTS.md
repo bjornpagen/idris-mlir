@@ -122,10 +122,11 @@ numbers.
   the upstream test, its status); sending it is separate work. A patch goes
   when the pin moves past upstream's fix (see upstream/README.md). The fork
   of Idris's compiler (`compiler/idris`) is ours: a bug in its upstream
-  code is fixed there, as its own code, recorded in `PINS.md` with its
-  plan to upstream (a pull request drafted against the pin goes in
-  `upstream/<bug>/pull-request.diff`), and the fix goes when a re-sync of
-  the fork brings upstream's. A patch to the stock Idris is only for what
+  code is fixed there, as its own code, recorded in `PINS.md`, with the
+  change against the pin in `upstream/<bug>/pull-request.diff` for the
+  re-sync to read, and the fix goes when a re-sync of the fork brings
+  upstream's. Nothing is sent to Idris: it takes no contribution written
+  with generative AI or a coding agent (upstream/README.md). A patch to the stock Idris is only for what
   it still builds (the fork, the frontend, the test runner).
 - Tests check behaviour: exit status, produced artifacts, the property a
   pass guarantees. Not clone numbers, function order or SSA names. A test

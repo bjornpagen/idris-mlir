@@ -185,9 +185,9 @@ which the top-level CMake configure gate reads.
 - retire: when a re-sync of the fork brings upstream's fix, the fork's
   change is upstream's; then the report, its check and this entry go; the
   generators stay as they are
-- upstream: upstream/18-elaboration-primitive-folding (not filed; upstream's
-  own suite not run with the change); plan in its README: an issue and a
-  pull request on idris-lang/Idris2
+- upstream: upstream/18-elaboration-primitive-folding; nothing is sent,
+  since Idris takes no tool-written contribution (upstream/README.md,
+  **Idris**); its diff records the change for re-syncs
 
 ## termination-closure
 
@@ -216,9 +216,9 @@ which the top-level CMake configure gate reads.
 - retire: when a re-sync of the fork brings upstream's fix, the fork's
   change is upstream's; then the report, `tests/upstream/termination-closure`
   and this entry go
-- upstream: upstream/21-termination-closure (not filed; upstream's own suite
-  not run with the change); plan in its README: an issue and a pull request
-  on idris-lang/Idris2
+- upstream: upstream/21-termination-closure; nothing is sent, since Idris
+  takes no tool-written contribution (upstream/README.md, **Idris**); its
+  diff records the change for re-syncs
 
 ## remove-dead-values-address-taken
 
@@ -653,10 +653,10 @@ which the top-level CMake configure gate reads.
   should take
 - retire: never as a whole. Each bug fix goes when an Idris bump brings
   upstream's fix (the re-sync merge in compiler/idris/README.md shows it)
-- upstream: not filed; the `clean` path, the unimported
-  `Core.AutoSearch` and Levenshtein's empty strings are each an issue and
-  a pull request (with a test in its `tests/`) on
-  idris-lang/Idris2; elaboration's folding is
-  upstream/18-elaboration-primitive-folding, and the Char's text
-  upstream/20-evaluator-char-text (the one-line fix; the fork's calls by
-  name are its own)
+- upstream: nothing is sent, since Idris takes no tool-written
+  contribution (upstream/README.md, **Idris**); the `clean` path, the
+  unimported `Core.AutoSearch` and Levenshtein's empty strings are the
+  fork's own fixes, which a re-sync checks against upstream's code;
+  elaboration's folding is upstream/18-elaboration-primitive-folding, and
+  the Char's text upstream/20-evaluator-char-text (the one-line fix; the
+  fork's calls by name are its own)
