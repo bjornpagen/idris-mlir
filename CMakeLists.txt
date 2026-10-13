@@ -256,8 +256,10 @@ if(NOT IDRIS_MLIR_HAS_LIBCXX)
 	message(FATAL_ERROR "production builds require the pinned libc++")
 endif()
 
-# Warnings are errors, for every target with our own C++ (the runtime too).
-# PIN(clang-libcxx): a warning only GCC spells is left out — see PINS.md
+# Warnings are errors, for every target with our own C++ (the runtime too),
+# in the typecheck build as in every preset: a slice that only printed
+# them let through what the first real build then refused.
+# PIN(clang-libcxx): a warning only GCC spells is left out; see PINS.md.
 add_library(idris_mlir_warnings INTERFACE)
 target_compile_options(idris_mlir_warnings INTERFACE
 	-Werror
@@ -276,11 +278,6 @@ target_compile_options(idris_mlir_warnings INTERFACE
 	-Werror=format-security
 	-Wimplicit-fallthrough
 )
-# The host's clang warns otherwise than the pinned one: the typecheck build
-# prints its warnings and fails on errors alone.
-if(IDRIS_MLIR_TYPECHECK)
-	target_compile_options(idris_mlir_warnings INTERFACE -Wno-error)
-endif()
 
 # The language profile of our tools. No FP contraction anywhere. The Release
 # build of our code is full LTO, linked with LLVM's and MLIR's libraries as
