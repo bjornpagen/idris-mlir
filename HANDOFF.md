@@ -1,29 +1,43 @@
-# Checkpoint (2026-10-13, profiling/speedup pass, in progress)
+# Checkpoint (2026-10-13, profiling/speedup pass)
 
 Gate on arm64 macOS (x86_64 Linux NotRun): make check 26/26,
-make test-idr 280/280, make test-mlir-tools 16/16, make test 408/415.
-Fixed since the cutover's first suites: defunctionalize unifies the
-result slot of one lazy cell's suspension labels (the labels-lost
-cluster); isolate outlines an evaluated delay of a closure or
-suspension; idr-in-bounds decides integer emptiness by branching on
-the simplex's fractional coordinates under a budget (qsort's pass:
-unfinished at 180s, now 0.5s, same guards erased), in
-Transforms/InBounds/Empty.cpp; synthetic world binders are named
-$world, so no quantity key collides with a user's w. The prelude
-coverage checker knows saturated method names in Core and asks :di
-which unused exports are implementations. CSE's statistics are an
-upstream bug (assignment, not accumulation): upstream/23 carries the
-patch; the toolchain rebuild with it was still running at this
-checkpoint, and make build refuses until it lands.
+make test-idr 280/280, make test-mlir-tools 17/17, make test 412/415,
+determinism 7/7, fuzz seed-1 and seed-2 pass. Fixed since the
+cutover's first suites: defunctionalize unifies the result slot of one
+lazy cell's suspension labels (the labels-lost cluster); isolate
+outlines an evaluated delay of a closure or suspension;
+idr-in-bounds decides integer emptiness by branching on the simplex's
+fractional coordinates under a budget (qsort's pass: unfinished at
+180s, now 0.5s, same guards erased), in Transforms/InBounds/Empty.cpp;
+synthetic world binders are named $world, so no quantity key collides
+with a user's w; inline's preparation and inliner cycle together, so
+a do-block unfolds within a round instead of one statement per round
+(the fuzz fixpoint failures); the frontend names a block referred to
+only from a definition's type (referencesOf walks types last). CSE's
+statistics were an upstream bug (assignment, not accumulation):
+upstream/23 carries the patch and the toolchain is rebuilt with it.
 
-Remaining failures: determinism/threads-* (the CSE patch),
-fuzz/seed-1 and seed-2 (simplify fixpoint), linarray-fannkuch
-(idr-rc built a dup in rev), every-types-export (2 live cells at
-exit), implementation-runtime-scope (frontend: a packed
-implementation's projection is applied to the wrong variable under
-case binders; Core already wrong, fst of the matched term). Then:
-compile-time record and stage-0 profile, full bench --record,
-make self. Nothing below this section has been re-checked yet.
+Compile times: tests/compile-times.sh recorded 490 compilations
+(/tmp/compile-times-2026-10-13.md); IdrSimplify dominates. A
+time-trace profile of every-interfaces-export is in bench/profiles/
+(15.2s total: IdrSimplify 9.8s, IdrInline 6.4s across 5 rounds,
+Canonicalizer 4.8s across 7062 runs). The full bench is recorded in
+bench/runs/2026-10-13-9a1b7b1-darwin-arm64/, the only record kept:
+against clang, 6 faster, 13 within 15%, 8 slower; against Chez,
+faster on all 27 (1.2x-154x); bench compiles take 0.8-5.4s.
+
+Remaining failures: linarray-fannkuch (idr-rc built a dup in rev),
+every-types-export (2 live cells at exit), implementation-runtime-scope
+(frontend: a packed implementation's projection is applied to the
+wrong variable under case binders; Core already wrong, fst of the
+matched term). make self now gets past naming Idris.Package's blocks
+and stops in stage 1 at Prelude.Show.show: an implementation built by
+projecting a runtime dependent pair (a pair of Show dictionaries for
+(ZeroOneOmega, (Term, (Term, Term)))) is refused as chosen at runtime,
+and the holed path in classify does not apply to it. Stage 2 = stage 3
+is unproven until that specialization case is handled. The stage-0
+module profile is still owed once a self module exists. Nothing below
+this section has been re-checked yet.
 
 # Handoff (2026-10-12)
 
