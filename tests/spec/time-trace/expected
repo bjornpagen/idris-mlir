@@ -1,4 +1,4 @@
 the culled profiler: no mention outside proposals and third_party
-no profile build: no IDRIS_MLIR_PROFILE
+no profile build: no profile option in the tree
 --time-trace is Profile.cpp's option
 tools/profile.sh runs --time-trace

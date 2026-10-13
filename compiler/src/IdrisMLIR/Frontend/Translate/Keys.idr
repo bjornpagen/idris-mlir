@@ -119,18 +119,18 @@ mutual
   altRefs acc (DefaultCase sc) = treeRefs acc sc
 
 ||| What a definition refers to: its compile-time tree's references, then
-||| its runtime tree's and its clauses' terms, which the translation also
-||| takes references from when it unfolds a definition: a block whose call
-||| the trees compiled away is still referred to there. For a solved
-||| metavariable these are its solution's.
+||| its clauses' terms, which the translation also takes references from
+||| when it unfolds a definition: a block whose call the tree compiled away
+||| is still referred to there. The runtime tree is never read: it is built
+||| from the same clauses after erasure, so it refers to nothing they do
+||| not. For a solved metavariable these are its solution's.
 referencesOf : {auto c : Ref Ctxt Defs} -> Name -> Core (List Reference)
 referencesOf n = do
   defs <- get Ctxt
   Just def <- lookupCtxtExact n (gamma defs)
     | Nothing => pure []
   pure (case definition def of
-          PMDef _ _ tree treeRT pats =>
-            treeRefs [<] tree <>> (treeRefs [<] treeRT <>> concatMap patRefs pats)
+          PMDef _ _ tree _ pats => treeRefs [<] tree <>> concatMap patRefs pats
           _ => [])
   where
     patRefs : (vs : Scope ** (Env Term vs, Term vs, Term vs)) -> List Reference

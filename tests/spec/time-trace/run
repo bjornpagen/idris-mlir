@@ -3,9 +3,10 @@
 # culled for it is named nowhere outside the proposals that record the
 # decision and third_party, there is no profile build, and the one place
 # the --time-trace option is defined is the profile's support library.
-# The culled name is spelled in pieces so this test is not its own hit.
+# The culled names are spelled in pieces so this test is not its own hit.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 culled='trac''y'
+build='IDRIS_MLIR_''PROFILE'
 (cd "$root" && git grep -il "$culled" -- . ':!third_party' ':!proposals') > "$work/mentions"
 if [ -s "$work/mentions" ]; then
   say "the culled profiler is mentioned in:"
@@ -13,12 +14,12 @@ if [ -s "$work/mentions" ]; then
 else
   say "the culled profiler: no mention outside proposals and third_party"
 fi
-(cd "$root" && git grep -ln 'IDRIS_MLIR_PROFILE' -- . ':!third_party' ':!proposals') > "$work/build"
+(cd "$root" && git grep -ln "$build" -- . ':!third_party' ':!proposals') > "$work/build"
 if [ -s "$work/build" ]; then
   say "a profile build remains in:"
   cat "$work/build"
 else
-  say "no profile build: no IDRIS_MLIR_PROFILE"
+  say "no profile build: no profile option in the tree"
 fi
 if grep -q '"time-trace"' "$root/foreign/idr/lib/Support/Profile.cpp"; then
   say "--time-trace is Profile.cpp's option"
