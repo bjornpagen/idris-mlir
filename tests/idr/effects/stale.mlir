@@ -43,9 +43,9 @@ idr.func private @run(%f: !idr.data<@fn$0>, %x: i64) -> i64 attributes {total, e
 idr.func @main(%f: !idr.data<@fn$0>, %x: i64) {
   %a = idr.call @unknown(%x) {expect.facts = ""} : (i64) -> i64
   %sc = idr.constant #idr.con<@fn$0::@crashes, []> : !idr.data<@fn$0>
-  %b = idr.call @run(%sc, %x) {effects = #idr.effects<crash>, expect.facts = "delay"} : (!idr.data<@fn$0>, i64) -> i64
+  %b = idr.call @run(%sc, %x) effects = <crash> {expect.facts = "delay"} : (!idr.data<@fn$0>, i64) -> i64
   %ss = idr.con @fn$0::@square() : () -> !idr.data<@fn$0>
-  %c = idr.call @run(%ss, %x) {effects = #idr.effects<none>, expect.facts = "drop move delay"} : (!idr.data<@fn$0>, i64) -> i64
+  %c = idr.call @run(%ss, %x) effects = <none> {expect.facts = "drop move delay"} : (!idr.data<@fn$0>, i64) -> i64
   %d = idr.call @run(%f, %x) {expect.facts = ""} : (!idr.data<@fn$0>, i64) -> i64
   return
 }

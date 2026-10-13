@@ -1,4 +1,6 @@
-// RUN: idris-mlir-opt %s --idr-tail-calls | FileCheck %s
+// RUN: idris-mlir-opt %s --idr-target --idr-tail-calls | FileCheck %s
+// idr-target first, as in the pipeline: idr-tail-calls reads the module's
+// #llvm.target to learn what the target returns in registers.
 // What idr-tail-calls takes for a call in tail position on a cycle of calls,
 // which it makes a guaranteed tail call, and what it leaves a call. @hub
 // calls each function tested, and each callee calls @hub back: all of them

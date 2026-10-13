@@ -14,7 +14,7 @@
 // CHECK-LABEL: idr.func private @use(
 // CHECK-SAME: %[[N:[a-z0-9_]+]]: i64, %[[X:[a-z0-9_]+]]: i64)
 // CHECK: %[[Y:.*]] = arith.addi %[[X]]
-// CHECK-NEXT: %[[R:.*]] = call @[[PICK:pick\.raise[0-9]+]](%[[N]], %[[Y]]) : (i64, i64) -> i64
+// CHECK-NEXT: %[[R:.*]] = {{(idr\.)?}}call @[[PICK:pick\.raise[0-9]+]](%[[N]], %[[Y]]) : (i64, i64) -> i64
 // CHECK-NEXT: return %[[R]]
 // CHECK-NOT: {{(idr\.| )apply }}
 // CHECK: idr.func private @[[PICK]](
@@ -22,10 +22,10 @@
 // CHECK-SAME: total
 // CHECK-NEXT: %[[M:.*]] = {{(idr\.)?}}match_lit %[[A]] : i64 -> (i64) {
 // CHECK-NEXT: case 0 {
-// CHECK-NEXT: %[[S:.*]] = call @sub(%[[A]], %[[B]]) : (i64, i64) -> i64
+// CHECK-NEXT: %[[S:.*]] = {{(idr\.)?}}call @sub(%[[A]], %[[B]]) : (i64, i64) -> i64
 // CHECK-NEXT: idr.yield %[[S]] : i64
 // CHECK: default {
-// CHECK-NEXT: %[[P:.*]] = call @add(%[[A]], %[[B]]) : (i64, i64) -> i64
+// CHECK-NEXT: %[[P:.*]] = {{(idr\.)?}}call @add(%[[A]], %[[B]]) : (i64, i64) -> i64
 // CHECK-NEXT: idr.yield %[[P]] : i64
 // CHECK: return %[[M]] : i64
 // CHECK-NOT: {{(idr\.| )apply }}

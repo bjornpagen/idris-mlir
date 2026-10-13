@@ -14,13 +14,13 @@
 // which idr-tail-loops makes an scf.while, and which allocates nothing.
 // CHECK-LABEL: idr.func @Main.main(
 // CHECK: %{{.*}}, %[[W:.*]] = idr.io.get_byte
-// CHECK: call @[[C:countdown\.raise[0-9]+]](%{{.*}}, %[[W]]) {{.*}}: (i64, !idr.world) -> !IORes
+// CHECK: {{(idr\.)?}}call @[[C:countdown\.raise[0-9]+]](%{{.*}}, %[[W]]) {{.*}}: (i64, !idr.world) -> !IORes
 // CHECK: idr.func private @[[C]](
 // CHECK-SAME: %[[N:[a-z0-9_]+]]: i64, %[[W0:[a-z0-9_]+]]: !idr.world) -> !IORes
 // CHECK-SAME: no_inline
 // CHECK: default {
 // CHECK: %[[W1:.*]] = idr.io.put_int signed %[[N]], %[[W0]] : i64
-// CHECK: %[[R:.*]] = call @[[C]](%{{.*}}, %[[W1]])
+// CHECK: %[[R:.*]] = {{(idr\.)?}}call @[[C]](%{{.*}}, %[[W1]])
 // CHECK-NEXT: idr.yield %[[R]]
 // CHECK-NOT: {{(idr\.| )closure }}
 // CHECK-NOT: {{(idr\.| )apply }}

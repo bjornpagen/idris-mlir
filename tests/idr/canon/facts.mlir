@@ -43,10 +43,10 @@ idr.func private @applies(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 attribute
 // CHECK: call @crashes
 // CHECK-NOT: call @square
 idr.func @unused(%x: i64) {
-  %a = idr.call @square(%x) {effects = #idr.effects<none>} : (i64) -> i64
+  %a = idr.call @square(%x) effects = <none> : (i64) -> i64
   %b = idr.call @unknown(%x) : (i64) -> i64
-  %c = idr.call @partial(%x) {effects = #idr.effects<diverge>} : (i64) -> i64
-  %d = idr.call @crashes(%x) {effects = #idr.effects<crash>} : (i64) -> i64
+  %c = idr.call @partial(%x) effects = <diverge> : (i64) -> i64
+  %d = idr.call @crashes(%x) effects = <crash> : (i64) -> i64
   return
 }
 
@@ -72,7 +72,7 @@ idr.func @across_computing(%n: i64, %x: i64, %w: !idr.world) -> (!idr.world, i64
     ub.unreachable
   }
   }
-  %q = idr.call @square(%x) {effects = #idr.effects<none>} : (i64) -> i64
+  %q = idr.call @square(%x) effects = <none> : (i64) -> i64
   %w1 = idr.io.put_str %s, %w
   return %w1, %q : !idr.world, i64
 }
@@ -97,7 +97,7 @@ idr.func @across_crashing(%n: i64, %x: i64, %w: !idr.world) -> (!idr.world, i64)
     ub.unreachable
   }
   }
-  %q = idr.call @crashes(%x) {effects = #idr.effects<crash>} : (i64) -> i64
+  %q = idr.call @crashes(%x) effects = <crash> : (i64) -> i64
   %w1 = idr.io.put_str %s, %w
   return %w1, %q : !idr.world, i64
 }

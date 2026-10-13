@@ -12,13 +12,13 @@
 // callee's proof that its own body's loops end (total).
 // CHECK-LABEL: idr.func private @twice(
 // CHECK-SAME: %[[IO:[a-z0-9_]+]]: !IO, %[[V:[a-z0-9_]+]]: !idr.world
-// CHECK-NEXT: %[[S:.*]] = call @[[SAME:same\.raise[0-9]+]](%[[IO]], %[[V]])
+// CHECK-NEXT: %[[S:.*]] = {{(idr\.)?}}call @[[SAME:same\.raise[0-9]+]](%[[IO]], %[[V]])
 // CHECK-NEXT: return %[[S]]
 // CHECK-LABEL: idr.func @Main.main(
 // CHECK-SAME: %[[W:[a-z0-9_]+]]: !idr.world
 // CHECK: %[[C:.*]], %[[W1:.*]] = idr.io.get_byte %[[W]]
 // CHECK: %[[N:.*]] = arith.extui %[[C]]
-// CHECK-NEXT: %[[R:.*]] = call @[[GREET:greet\.raise[0-9]+]](%[[N]], %[[W1]]) : (i64, !idr.world) -> !IORes
+// CHECK-NEXT: %[[R:.*]] = {{(idr\.)?}}call @[[GREET:greet\.raise[0-9]+]](%[[N]], %[[W1]]) : (i64, !idr.world) -> !IORes
 // CHECK-NEXT: return %[[R]]
 // CHECK: idr.func private @[[SAME]](
 // CHECK-SAME: %[[X:[a-z0-9_]+]]: !IO, %[[Y:[a-z0-9_]+]]: !idr.world) -> !IORes
@@ -30,10 +30,10 @@
 // CHECK-SAME: %[[A:[a-z0-9_]+]]: i64, %[[B:[a-z0-9_]+]]: !idr.world) -> !IORes
 // CHECK-SAME: effects = #idr.effects<io>{{.*}}total
 // CHECK: case 0 {
-// CHECK-NEXT: %[[D:.*]] = call @done(%[[B]])
+// CHECK-NEXT: %[[D:.*]] = {{(idr\.)?}}call @done(%[[B]])
 // CHECK-NEXT: idr.yield %[[D]] : !IORes
 // CHECK: default {
-// CHECK-NEXT: %[[P:.*]] = call @put(%[[A]], %[[B]])
+// CHECK-NEXT: %[[P:.*]] = {{(idr\.)?}}call @put(%[[A]], %[[B]])
 // CHECK-NEXT: idr.yield %[[P]] : !IORes
 module attributes {idr.program} {
   idr.data @Unit {

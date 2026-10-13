@@ -12,7 +12,7 @@ idr.func @io(%w: !idr.world) -> !idr.world {
   %w2 = idr.io.put_char %c, %w1
   %x, %w3 = idr.io.get_byte %w2
   %y, %w4 = idr.io.get_byte %w3
-  return %w : !idr.world
+  return %w4 : !idr.world
 }
 
 // A forged world (a trusted library's unsafePerformIO) starts a chain of

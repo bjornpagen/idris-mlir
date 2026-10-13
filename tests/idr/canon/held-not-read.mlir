@@ -157,7 +157,7 @@ idr.func @closed_call(%a: i64) -> i64 {
     idr.yield %k : i64
   }
   }
-  %y = idr.call @twice(%x) {effects = #idr.effects<none>} : (i64) -> i64
+  %y = idr.call @twice(%x) effects = <none> : (i64) -> i64
   return %y : i64
 }
 // CHECK-LABEL: idr.func @open_call(
@@ -175,6 +175,6 @@ idr.func @open_call(%a: i64, %b: i64) -> i64 {
     idr.yield %k : i64
   }
   }
-  %y = idr.call @both(%x, %b) {effects = #idr.effects<none>} : (i64, i64) -> i64
+  %y = idr.call @both(%x, %b) effects = <none> : (i64, i64) -> i64
   return %y : i64
 }

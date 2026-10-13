@@ -9,11 +9,11 @@
 // CHECK-LABEL: idr.func @Main.main(
 // CHECK: match_lit
 // CHECK: case 0 {
-// CHECK-NEXT: %[[A:.*]] = call @[[C:greet\.raise[0-9]+]](%{{.*}}, %{{.*}}) {{.*}}: (i64, !idr.world) -> !IORes
+// CHECK-NEXT: %[[A:.*]] = {{(idr\.)?}}call @[[C:greet\.raise[0-9]+]](%{{.*}}, %{{.*}}) {{.*}}: (i64, !idr.world) -> !IORes
 // CHECK-NEXT: idr.yield %[[A]]
 // CHECK: default {
 // CHECK: %[[W:.*]] = idr.io.put_int
-// CHECK-NEXT: %[[B:.*]] = call @[[C]](%{{.*}}, %[[W]]) {{.*}}: (i64, !idr.world) -> !IORes
+// CHECK-NEXT: %[[B:.*]] = {{(idr\.)?}}call @[[C]](%{{.*}}, %[[W]]) {{.*}}: (i64, !idr.world) -> !IORes
 // CHECK-NEXT: idr.yield %[[B]]
 // CHECK-NOT: {{(idr\.| )apply }}
 module attributes {idr.program} {

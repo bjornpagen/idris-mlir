@@ -154,7 +154,8 @@ OpFoldResult FieldOp::fold(FoldAdaptor adaptor) {
 }
 
 // A field of a value whose constructor is known where it is read: a
-// constant, or an idr.con. The fold of a field of a constant is an
+// constant, an idr.con, or the case of an enclosing match on the same
+// value, whose region argument the field is. The fold of a field of a constant is an
 // attribute, and a constant is no linear value: folding shares equal
 // constants, and a shared linear value would be used twice. A linear field
 // of a constant is its value entered into the linear type instead, one
@@ -173,6 +174,28 @@ LogicalResult FieldOp::canonicalize(FieldOp field, PatternRewriter &rewriter) {
         (quantityOf(operand.getType()) == Quantity::One && !fieldReadOnce(built.getResult(), index)))
       return failure();
     rewriter.replaceOp(field, heldAs(rewriter, field.getLoc(), operand, type));
+    return success();
+  }
+  // A field read in the case of an enclosing match on the same value is
+  // that region's argument: the match already took the value apart. The
+  // scrutinee must be the value itself, not the value in a linear
+  // position: a match that takes a linear value apart moves its fields
+  // out, and a read of the value it was entered from is a second read
+  // the argument cannot stand in for. A linear field moves out too, so
+  // only a read that is the argument's one use takes it.
+  for (Region *region = field->getParentRegion(); region; region = region->getParentRegion()) {
+    auto outer = dyn_cast<MatchOp>(region->getParentOp());
+    if (!outer || outer.getScrutinee() != field.getValue())
+      continue;
+    unsigned index = region->getRegionNumber();
+    if (index >= outer.getCases().size())
+      continue;
+    if (cast<FlatSymbolRefAttr>(outer.getCases()[index]).getAttr() != field.getCtorAttr().getAttr())
+      break;
+    Value argument = region->front().getArgument(static_cast<unsigned>(field.getIndex()));
+    if (quantityOf(type) == Quantity::One && !argument.use_empty())
+      return failure();
+    rewriter.replaceOp(field, heldAs(rewriter, field.getLoc(), argument, type));
     return success();
   }
   ConAttr con;

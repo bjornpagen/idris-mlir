@@ -102,8 +102,8 @@ idr.func private @finishes(%r: !idr.data<@IORes>) -> !idr.world attributes {tota
 // Crashes flow through calls, and around a cycle of calls.
 // CHECK-LABEL: idr.func private @calls(
 // CHECK-SAME: effects = #idr.effects<io, crash>
-// CHECK: call @divides(%{{.*}}) {effects = #idr.effects<crash>}
-// CHECK: call @writes(%{{.*}}) {effects = #idr.effects<io>}
+// CHECK: call @divides(%{{.*}}) effects = <crash>
+// CHECK: call @writes(%{{.*}}) effects = <io>
 idr.func private @calls(%x: i64, %w: !idr.world) -> !idr.world attributes {total} {
   %q = idr.call @divides(%x) : (i64) -> i64
   %w1 = idr.call @writes(%w) : (!idr.world) -> !idr.world
@@ -178,7 +178,7 @@ idr.func private @applies(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 attribute
 // the call that passes it may crash when @applies applies it.
 // CHECK-LABEL: idr.func private @passes_divider(
 // CHECK-SAME: effects = #idr.effects<crash>
-// CHECK: call @applies(%{{.*}}, %{{.*}}) {effects = #idr.effects<crash>}
+// CHECK: call @applies(%{{.*}}, %{{.*}}) effects = <crash>
 idr.func private @passes_divider(%x: i64) -> i64 attributes {total} {
   %c = idr.closure @divides() : () -> !idr.fn<(i64) -> (i64)>
   %r = idr.call @applies(%c, %x) : (!idr.fn<(i64) -> (i64)>, i64) -> i64
