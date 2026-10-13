@@ -757,7 +757,7 @@ mutual
         where
           exits : {0 m : Nat} -> List (Term m) -> Term m
           exits ns = case last' ns of
-            Just act => Lam loc (shown "w") (MkBinder (quantityOf linear) WorldT)
+            Just act => Lam loc (shown "$world") (MkBinder (quantityOf linear) WorldT)
                           (Let loc (shown "exited") (quantityOf top) (App loc (weakenUnder 1 act) (Var loc FZ))
                                (Unreachable loc))
             Nothing => Unreachable loc

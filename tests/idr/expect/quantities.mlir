@@ -14,7 +14,7 @@
 // RUN: FileCheck %s --check-prefix=LAMBDA < %t.lam.err
 // RUN: sed '/@build.trmc/d' %t.emitted.mlir > %t.noclone.mlir
 // RUN: idris-mlir-opt %s --idr-expect=holds=quantities-kept=%t.noclone.mlir -o /dev/null
-// RUN: sed 's/%t: !idr.lin<i64>/%t: i64/' %t.emitted.mlir > %t.span.mlir
+// RUN: sed 's/%w: !idr.lin<i64>/%w: i64/' %t.emitted.mlir > %t.span.mlir
 // RUN: %status 1 idris-mlir-opt %t.span.mlir --idr-expect=holds=quantities-kept=%t.emitted.mlir -o /dev/null 2> %t.span.err
 // RUN: FileCheck %s --check-prefix=SPAN < %t.span.err
 // The module as emitted keeps its quantities, which are its types. A
@@ -67,7 +67,7 @@ module {
     return %n : i64
   }
   idr.func private @build.trmc(%n: i64 loc("arg"("Main.idr":22:1 to :17)), %h: !idr.lin<i64> loc("build"("Main.idr":22:1 to :17))) -> i64 { return %n : i64 }
-  idr.func private @wide(%t: !idr.lin<i64> loc("t"("Main.idr":30:1 to :20)), %a: i64 loc("arg"("Main.idr":30:1 to :20))) -> i64 {
+  idr.func private @wide(%w: !idr.lin<i64> loc("t"("Main.idr":30:1 to :20)), %a: i64 loc("arg"("Main.idr":30:1 to :20))) -> i64 {
     return %a : i64
   }
 }

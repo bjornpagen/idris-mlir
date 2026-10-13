@@ -284,6 +284,7 @@ add_mlir_library(IdrInBounds
 	InBounds/Returned.cpp
 	InBounds/Guards.cpp
 	InBounds/System.cpp
+	InBounds/Empty.cpp
 	InBounds/Paths.cpp
 	InBounds/Induction.cpp
 	InBounds/Quotients.cpp

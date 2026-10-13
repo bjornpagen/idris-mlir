@@ -55,4 +55,4 @@ same rc
 same rc leak
 same rc crash
 say "the prepared runtime needs:"
-"$llvm_bin/llvm-nm" --no-llvm-bc --undefined-only --format=just-symbols "$runtime" | sort -u | sed 's/^/  /'
+"$llvm_bin/llvm-nm" --no-llvm-bc --undefined-only --format=just-symbols "$runtime" | LC_ALL=C sort -u | sed 's/^/  /'

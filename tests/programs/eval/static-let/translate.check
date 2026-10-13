@@ -5,4 +5,5 @@ evaluates while elaborating only below 100: here 100 is still a call, which
 the simplify loop folds (mlir.check).
 CHECK-LABEL: Main.main :
 CHECK: let {{[^:=]*}}= \({{[^)]*}}) =>
-CHECK-SAME: add_Int(#0, {{.*}}fromInteger{{.*}} 100
+CHECK-SAME: add_Int(#0, let {{[^=]*}}= 100:Integer
+CHECK: fromInteger{{.*}} #0)

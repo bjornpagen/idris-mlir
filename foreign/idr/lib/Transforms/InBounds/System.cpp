@@ -23,8 +23,6 @@
 #include "idr/IR/Grades.h"
 #include "idr/Transforms/InBounds.h"
 
-#include "mlir/Analysis/Presburger/IntegerRelation.h"
-#include "mlir/Analysis/Presburger/PresburgerSpace.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Matchers.h"
@@ -36,8 +34,6 @@
 
 using namespace mlir;
 using llvm::DynamicAPInt;
-using mlir::presburger::IntegerPolyhedron;
-using mlir::presburger::PresburgerSpace;
 
 namespace idr::inbounds {
 
@@ -239,25 +235,6 @@ bool System::sameClamp(Value a, Value b) {
   if (!a.getType().isInteger(64) || !b.getType().isInteger(64))
     return false;
   return emptyWith((clamped(a) - clamped(b)).plus(-1)) && emptyWith((clamped(b) - clamped(a)).plus(-1));
-}
-
-bool System::emptyWith(const Linear &extra) const {
-  IntegerPolyhedron polyhedron(PresburgerSpace::getSetSpace(count));
-  auto dense = [&](const Linear &e) {
-    SmallVector<DynamicAPInt> row(count + 1, DynamicAPInt(0));
-    for (const auto &[column, c] : e.terms)
-      row[column] += c;
-    row[count] += e.constant;
-    return row;
-  };
-  for (const Row &row : rows) {
-    if (row.equality)
-      polyhedron.addEquality(dense(row.e));
-    else
-      polyhedron.addInequality(dense(row.e));
-  }
-  polyhedron.addInequality(dense(extra));
-  return polyhedron.isIntegerEmpty();
 }
 
 bool System::nonNegative(Value value) {

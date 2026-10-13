@@ -149,6 +149,8 @@ private:
   void widen();
   void move(mlir::Operation *at, const Key &from, const Key &to);
   void constantSources(mlir::Attribute attr, const Key &slot);
+  void gatherSources();
+  void unifySuspensions();
   void connect();
   void connect(ApplyOp apply);
 

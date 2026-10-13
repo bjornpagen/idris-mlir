@@ -1,3 +1,30 @@
+# Checkpoint (2026-10-13, profiling/speedup pass, in progress)
+
+Gate on arm64 macOS (x86_64 Linux NotRun): make check 26/26,
+make test-idr 280/280, make test-mlir-tools 16/16, make test 408/415.
+Fixed since the cutover's first suites: defunctionalize unifies the
+result slot of one lazy cell's suspension labels (the labels-lost
+cluster); isolate outlines an evaluated delay of a closure or
+suspension; idr-in-bounds decides integer emptiness by branching on
+the simplex's fractional coordinates under a budget (qsort's pass:
+unfinished at 180s, now 0.5s, same guards erased), in
+Transforms/InBounds/Empty.cpp; synthetic world binders are named
+$world, so no quantity key collides with a user's w. The prelude
+coverage checker knows saturated method names in Core and asks :di
+which unused exports are implementations. CSE's statistics are an
+upstream bug (assignment, not accumulation): upstream/23 carries the
+patch; the toolchain rebuild with it was still running at this
+checkpoint, and make build refuses until it lands.
+
+Remaining failures: determinism/threads-* (the CSE patch),
+fuzz/seed-1 and seed-2 (simplify fixpoint), linarray-fannkuch
+(idr-rc built a dup in rev), every-types-export (2 live cells at
+exit), implementation-runtime-scope (frontend: a packed
+implementation's projection is applied to the wrong variable under
+case binders; Core already wrong, fst of the matched term). Then:
+compile-time record and stage-0 profile, full bench --record,
+make self. Nothing below this section has been re-checked yet.
+
 # Handoff (2026-10-12)
 
 Two independent agents, each started locally in Claude Code in a clone of

@@ -125,9 +125,11 @@ void Slots::constantSources(Attribute attr, const Key &slot) {
     });
 }
 
-// The moves between slots, the slot each keyed operand moves into, and the
-// labels each closure or suspension puts in a slot.
-void Slots::connect() {
+// The labels each closure or suspension puts in a slot, and the keys of
+// evaluated suspensions, gathered before the moves: the labels of one
+// lazy slot return into its one forced slot (unifySuspensions), which
+// the moves then read.
+void Slots::gatherSources() {
   module.walk([&](Operation *op) {
     if (auto closure = dyn_cast<ClosureOp>(op))
       sources.push_back({closure.getCalleeAttr().getAttr(), values.lookup(closure.getResult())});
@@ -137,6 +139,73 @@ void Slots::connect() {
       evaluated.insert(values.lookup(delay.getResult()));
     if (auto constant = dyn_cast<ConstantOp>(op))
       constantSources(constant.getValue(), values.lookup(constant.getResult()));
+  });
+}
+
+// The labels of one lazy slot return into its cell's one `forced` field,
+// and a force calls each label expecting that field's type, so they
+// return into one slot: the join of what each returns. A label of
+// several lazy slots joins them all, so the labels linked by a slot form
+// one component with one result key. A component whose result the
+// analysis does not know, or whose labels return different types, is
+// left as it is, for the decision to refuse.
+void Slots::unifySuspensions() {
+  llvm::DenseMap<StringAttr, StringAttr> parent;
+  auto find = [&](StringAttr label) {
+    StringAttr root = label;
+    while (parent[root] != root)
+      root = parent[root];
+    while (parent[label] != root) {
+      StringAttr next = parent[label];
+      parent[label] = root;
+      label = next;
+    }
+    return root;
+  };
+  llvm::DenseMap<Key, SmallVector<StringAttr>> bySlot;
+  for (auto &[label, slot] : sources)
+    if (isLazy(slot)) {
+      parent.try_emplace(label, label);
+      bySlot[slot].push_back(label);
+    }
+  for (auto &entry : bySlot) {
+    const SmallVector<StringAttr> &labels = entry.second;
+    for (StringAttr label : llvm::ArrayRef<StringAttr>(labels).drop_front())
+      parent[find(label)] = find(labels.front());
+  }
+  llvm::DenseMap<StringAttr, LabelSet> joined;
+  llvm::DenseMap<StringAttr, Type> types;
+  llvm::DenseSet<StringAttr> refused;
+  for (auto &entry : parent) {
+    StringAttr label = entry.first;
+    StringAttr root = find(label);
+    const Signature *sig = signature(label);
+    if (!sig || sig->external || sig->results.size() != 1 || !sig->results[0].first ||
+        !sig->results[0].second) {
+      refused.insert(root);
+      continue;
+    }
+    LabelSet labels;
+    labels.names.assign(sig->results[0].second.getAsRange<StringAttr>().begin(),
+                        sig->results[0].second.getAsRange<StringAttr>().end());
+    joined[root] = LabelSet::join(joined[root], labels);
+    Type &type = types[root];
+    if (!type)
+      type = sig->results[0].first;
+    else if (type != sig->results[0].first)
+      refused.insert(root);
+  }
+  for (auto &entry : parent) {
+    StringAttr label = entry.first;
+    StringAttr root = find(label);
+    if (!refused.contains(root))
+      functions[label].results[0] = keyOf(types[root], joined[root]);
+  }
+}
+
+// The moves between slots and the slot each keyed operand moves into.
+void Slots::connect() {
+  module.walk([&](Operation *op) {
     if (auto call = dyn_cast<CallOp>(op)) {
       StringAttr callee = call.getCalleeAttr().getAttr();
       for (OpResult value : call.getResults())

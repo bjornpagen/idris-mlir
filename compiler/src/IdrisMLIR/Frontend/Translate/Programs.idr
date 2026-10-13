@@ -178,7 +178,9 @@ translateIOProgram fc main = do
   let FunT (MkBinder _ WorldT) res@(DataT _) = mainFn.result
     | _ => notIO
   loc <- toLoc (location !(lookupDef fc owner main))
-  -- w is the parameter; main's value is its action.
+  -- $world is the parameter; main's value is its action. The name is no
+  -- Idris binder's: a binder is known by its name over its definition's
+  -- span, and this synthetic one shares main's.
   let body : Term 1
       body = App loc (Call loc inst Nothing []) (Var loc FZ)
   let rootId = MkFnId "$idris-mlir.root"
@@ -187,6 +189,6 @@ translateIOProgram fc main = do
   -- facts are the registry's. It has no loop of its own; what main does is
   -- main's, which the passes find through the call.
   let facts = MkFacts True
-  let root = MkTFn rootId (MkInstanceKey rootId.name []) 1 [(shown "w", MkBinder (quantityOf linear) WorldT)]
+  let root = MkTFn rootId (MkInstanceKey rootId.name []) 1 [(shown "$world", MkBinder (quantityOf linear) WorldT)]
                    res body loc facts
   pure (Just ({ fns $= (++ [root]) } src))

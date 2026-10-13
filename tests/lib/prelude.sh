@@ -5,7 +5,9 @@
 # written down here. Which the program uses is this compiler's: its Core
 # (prog.core) names every definition once the frontend has resolved it,
 # by its full name, namespaces and all, as Prelude.Types.List.length[Int](,
-# a constructor after its type, as Prelude.Types.(<=>)[...]::MkEquivalence(,
+# a saturated method with its instance suffixed, as
+# Prelude.Num.fromInteger_Num_Int(, a constructor after its type, as
+# Prelude.Types.(<=>)[...]::MkEquivalence(,
 # and a definition the compiler's registry lowers another way in braces
 # after what its call became, as add_Nat{Prelude.Types.plus}(. And the
 # program's output is held to its expected-stdout as every e2e program's
@@ -28,9 +30,11 @@
 # them as it uses any other export. Three of them the registry translates
 # to a value, a pointer cast to the handle it is given and the null pointer
 # to the null handle, which leaves no call for Core to name: each is used
-# when the program's own code calls it. The decided exclusions and those
-# three are the only names written down here, and a later export is still
-# asked of the compiler.
+# when the program's own code calls it. So is an implementation, a hint
+# whose body is %search among them, which the pinned Idris's :di names by
+# its compile-time tree. The decided exclusions and those three are the
+# only names written down here, and a later export is still asked of the
+# compiler.
 
 # The pinned prelude's source, from which the pinned Idris built the
 # prelude it loads: its IDE mode names a definition's module by the file it
@@ -254,6 +258,24 @@ decided_exclusion() {
   return 1
 }
 
+# implementations NAME...: the full NAMEs that are implementations, one
+# per line, all asked of one session of the pinned Idris: :di prints a
+# definition's compile-time tree, and an implementation's is one interface
+# record, built by its constructor (MkSemigroup (...)) or named where it
+# was defined (Num implementation at ...), a hint whose body is %search
+# among them. This compiler resolves every implementation at compile
+# time and never builds the record, so Core names only the saturated
+# calls it typed, each by its own instance: an implementation is used
+# when the program's own code names it, as a registry value is.
+implementations() {
+  { for im_name in "$@"; do printf ':di %s\n' "$im_name"; done; printf ':q\n'; } |
+    (cd "$work" && pinned_idris --no-banner --no-color) 2> /dev/null |
+    awk -v names="$*" '
+      BEGIN { n = split(names, asked, " ") }
+      /^Main> / { current = asked[++i] }
+      /^Compile time tree: (Mk[A-Z][A-Za-z0-9_.]*([ (]|$)|.* implementation at )/ { print current }'
+}
+
 # registry_value FULL: whether the registry translates a call of FULL to a
 # value, which leaves no call for Core to name: a pointer cast is the
 # identity on the handle it is given (prim__castPtr, prim__forgetPtr), and
@@ -271,16 +293,27 @@ registry_value() {
 
 # source_calls FULL FIXTURE: whether the program's own code, the Idris files
 # of FIXTURE with comments and strings left out (idris_lex), names the
-# definition of full name FULL, bare or qualified. For a registry value
-# that is a call: one applied to less than all its arguments would be the
-# definition itself, whose body the program cannot run.
+# definition of full name FULL, bare or qualified by any tail of its
+# namespace (Bool.Semigroup.Any for Prelude.Interfaces.Bool.Semigroup.Any).
+# For a registry value that is a call: one applied to less than all its
+# arguments would be the definition itself, whose body the program cannot
+# run.
 source_calls() {
   sc_bare=${1##*.}
-  sc_space=$(printf '%s' "${1%.*}" | sed 's/\./\\./g')
+  sc_rest=${1%.*}
+  sc_alts=
+  while [ -n "$sc_rest" ]; do
+    sc_alts="$sc_alts|$(printf '%s' "$sc_rest" | sed 's/\./\\./g')\\."
+    case $sc_rest in
+      *.*) sc_rest=${sc_rest#*.} ;;
+      *) sc_rest= ;;
+    esac
+  done
+  sc_alts=${sc_alts#|}
   find "$2" -name build -prune -o -name '*.idr' -print > "$work/covers-sources"
   while IFS= read -r sc_file; do
     if idris_lex code "$sc_file" |
-       grep -qE "(^|[^A-Za-z0-9_'.])($sc_space\\.)?$sc_bare([^A-Za-z0-9_']|\$)"; then
+       grep -qE "(^|[^A-Za-z0-9_'.])(${sc_alts})?$sc_bare([^A-Za-z0-9_']|\$)"; then
       return 0
     fi
   done < "$work/covers-sources"
@@ -351,10 +384,12 @@ covers_prelude() {
   : > "$work/escape-hatches"
   : > "$work/decided"
   : > "$work/missing"
+  # shellcheck disable=SC2046 # one name per line, each a word
+  implementations $(cut -f 1 "$work/unused") > "$work/implementations"
   while IFS="$(printf '\t')" read -r cp_full cp_implicit; do
     if decided_exclusion "$cp_full"; then
       printf '%s\n' "$cp_full" >> "$work/decided"
-    elif registry_value "$cp_full" && source_calls "$cp_full" "$cp_fixture"; then
+    elif (registry_value "$cp_full" || grep -qxF -- "$cp_full" "$work/implementations") && source_calls "$cp_full" "$cp_fixture"; then
       cp_used=$((cp_used + 1))
     elif [ -n "$cp_implicit" ] && escape_hatch "$cp_module" "$cp_full" "$cp_implicit"; then
       printf '%s\n' "$cp_full" >> "$work/escape-hatches"
@@ -392,7 +427,10 @@ names_in() {
 # core_uses NAME CORE: whether CORE names the definition of full name NAME:
 # as NAME followed by what ends a name in Core, the brace that closes the
 # definition a lowered primitive stands for among them (anything after an
-# operator's or a projection's closing parenthesis), or as a constructor,
+# operator's or a projection's closing parenthesis); as a saturated method
+# call, NAME with its instance suffixed after an underscore
+# (Prelude.Num.fromInteger_Num_Int(, an operator's inside its parentheses,
+# Prelude.Num.(-_Neg_Int)(); or as a constructor,
 # NS.Type::name( with the type's arguments in brackets after its name, NS
 # the constructor's namespace, the type one name or an operator in
 # parentheses, and an operator without its parentheses
@@ -429,9 +467,17 @@ core_uses() {
       qualified = space
       gsub(/[][\\.^$*+?(){}|]/, "\\\\&", qualified)
       type_before = "(^|[^A-Za-z0-9_.])" qualified "\\.([A-Za-z0-9_'\'']+|\\([^()]*\\))$"
+      escaped = full
+      gsub(/[][\\.^$*+?(){}|]/, "\\\\&", escaped)
+      escaped_bare = bare
+      gsub(/[][\\.^$*+?(){}|]/, "\\\\&", escaped_bare)
+      suffixed = "(^|[^A-Za-z0-9_.])" qualified "\\.\\(" escaped_bare "_[A-Za-z0-9_.$]+\\)?\\("
+      if (!closed)
+        suffixed = "(^|[^A-Za-z0-9_.])(" escaped "_[A-Za-z0-9_.$]+\\(|" qualified "\\.\\(" escaped_bare "_[A-Za-z0-9_.$]+\\)?\\()"
     }
     {
       line = $0
+      if (line ~ suffixed) { found = 1; exit }
       at = 0
       while ((i = index(substr(line, at + 1), full)) > 0) {
         at += i

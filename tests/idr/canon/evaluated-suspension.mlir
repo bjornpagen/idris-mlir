@@ -27,6 +27,10 @@ idr.func @evaluated(%x: i64) -> !idr.lazy<i64> {
 
 // ISOLATE-LABEL: idr.func @computed(
 // ISOLATE: suspend @computed.delay{{[0-9]+}}(
+// A body that computes stays a body.
+// CANON-LABEL: idr.func @computed(
+// CANON: delay
+// CANON-NEXT: arith.muli
 idr.func @computed(%x: i64) -> !idr.lazy<i64> {
   %t = idr.delay : !idr.lazy<i64> {
     %y = arith.muli %x, %x : i64
@@ -60,8 +64,3 @@ idr.func @built(%x: i64, %y: i64) -> !idr.lazy<!idr.data<@P>> {
   }
   return %t : !idr.lazy<!idr.data<@P>>
 }
-
-// A body that computes stays a body.
-// CANON-LABEL: idr.func @computed(
-// CANON: delay
-// CANON-NEXT: arith.muli

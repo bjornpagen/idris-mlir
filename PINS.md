@@ -148,6 +148,24 @@ which the top-level CMake configure gate reads.
   `check-mlir` not run on main); plan in its README: an issue and a pull
   request
 
+## cse-statistic-assignment
+
+- symptom: on main at 7208ba24, `CSE::runOnOperation`
+  (`mlir/lib/Transforms/CSE.cpp:46-47`) assigns each run's counts to its
+  `num-cse'd`/`num-dce'd` statistics instead of accumulating them, so a
+  nested CSE's reported total is the last function's count of each
+  clone: `tests/determinism/threads-*` compare one module's statistics
+  under one thread and under many and fail (234 under many, 0 under one,
+  on rbtree), the module itself identical
+- sites: none in our code; the patch. CSE runs nested in the simplify
+  round and the pipeline's canonicalize step
+  (foreign/idr/lib/Transforms/Pipeline.cpp)
+- workaround: `upstream/23-cse-statistic-assignment/llvm.patch`: CSE
+  accumulates, with a test of the total under one thread and many
+- retire: drop the patch when the pin has the fix
+- upstream: upstream/23-cse-statistic-assignment (not filed); plan in
+  its README: one pull request, no issue
+
 ## elaboration-primitive-folding
 
 - symptom: at the pinned Idris, elaboration normalises every checked term

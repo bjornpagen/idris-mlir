@@ -4,6 +4,6 @@
 // reaches (idr-effects). The outlined functions are found by name, in
 // whatever order the pass inserts them. main's only fact is the Idris
 // definition it is an instance of.
-// CHECK-DAG: idr.func private @Main.main() -> !idr.data<{{[^>]*}}> attributes {instance = #idr.instance<"Main.main"{{[^>]*}}>} {
-// CHECK-DAG: idr.func private @Main.main.lam{{[0-9]+}}({{.*}}) -> !idr.data<{{[^>]*}}> attributes {{[{].*}}total{{.*}} {
-// CHECK-DAG: idr.func private @Main.main.lam{{[0-9]+}}({{.*}}) -> !idr.data<{{[^>]*}}> attributes {{[{].*}}total{{.*}} {
+// CHECK-DAG: idr.func private @Main.main() -> {{.*}} attributes {instance = #idr.instance<"Main.main", []>} {
+// CHECK-DAG: idr.func private @Main.main.lam{{[0-9]+}}({{.*}}) -> {{.*}} attributes {{[{].*}}total{{.*}} {
+// CHECK-DAG: idr.func private @Main.main.lam{{[0-9]+}}({{.*}}) -> {{.*}} attributes {{[{].*}}total{{.*}} {

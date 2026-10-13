@@ -1,0 +1,48 @@
+diff --git a/mlir/lib/Transforms/CSE.cpp b/mlir/lib/Transforms/CSE.cpp
+index f7afa03e2..ef43ab3f6 100644
+--- a/mlir/lib/Transforms/CSE.cpp
++++ b/mlir/lib/Transforms/CSE.cpp
+@@ -43,8 +43,8 @@ void CSE::runOnOperation() {
+   eliminateCommonSubExpressions(rewriter, domInfo, getOperation(), &changed,
+                                 &cseCount, &dceCount);
+ 
+-  numCSE = cseCount;
+-  numDCE = dceCount;
++  numCSE += cseCount;
++  numDCE += dceCount;
+ 
+   // If there was no change to the IR, we mark all analyses as preserved.
+   if (!changed)
+diff --git a/mlir/test/Transforms/cse-statistics.mlir b/mlir/test/Transforms/cse-statistics.mlir
+new file mode 100644
+index 000000000..da5034e7d
+--- /dev/null
++++ b/mlir/test/Transforms/cse-statistics.mlir
+@@ -0,0 +1,27 @@
++// RUN: mlir-opt %s -pass-pipeline='builtin.module(func.func(cse))' -mlir-pass-statistics -mlir-pass-statistics-display=list -mlir-disable-threading 2>&1 | FileCheck %s
++// RUN: mlir-opt %s -pass-pipeline='builtin.module(func.func(cse))' -mlir-pass-statistics -mlir-pass-statistics-display=list 2>&1 | FileCheck %s
++
++// The statistics of a nested CSE accumulate over every function it ran
++// on: 1 operation in @f and 2 in @g, the same under one thread and many.
++// CHECK: CSEPass
++// CHECK-NEXT: (S) 3 num-cse'd
++
++func.func @f(%a: i32) -> i32 {
++  %x = arith.addi %a, %a : i32
++  %y = arith.addi %a, %a : i32
++  %r = arith.addi %x, %y : i32
++  return %r : i32
++}
++
++func.func @g(%a: i32) -> i32 {
++  %x = arith.muli %a, %a : i32
++  %y = arith.muli %a, %a : i32
++  %z = arith.muli %a, %a : i32
++  %r = arith.addi %x, %y : i32
++  %s = arith.addi %r, %z : i32
++  return %s : i32
++}
++
++func.func @h(%a: i32) -> i32 {
++  return %a : i32
++}

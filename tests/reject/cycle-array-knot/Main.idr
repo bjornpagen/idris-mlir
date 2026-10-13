@@ -1,5 +1,5 @@
 -- expect: cycle, line 15
--- message: Main.Node -> array of
+-- message: Maybe[Main.Node] -> array of Prelude.Types.Maybe[Main.Node]
 module Main
 
 import Prelude

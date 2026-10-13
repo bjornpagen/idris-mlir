@@ -67,7 +67,7 @@ cons x xs = Idr (ConAttr (list "Cons") [[x, xs]] Nothing 0)
 
 ||| What a declaration is an instance of: an Idris definition at a type.
 maybeNat : MlirAttr
-maybeNat = Idr (InstanceAttr "Prelude.Types.Maybe" [StringAttr "Prelude.Types.Nat"])
+maybeNat = Idr (InstanceAttr "Maybe" [StringAttr "Nat"])
 
 types : List MlirType
 types =

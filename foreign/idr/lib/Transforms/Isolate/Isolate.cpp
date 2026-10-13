@@ -12,7 +12,10 @@
 //
 // An evaluated suspension, a delay whose body only yields a value from
 // above, stays: forcing it computes nothing, and the dialect folds a force
-// of it to the value.
+// of it to the value. One whose value is a closure or a suspension is
+// outlined like any other: a cell already forced holds it in its forced
+// state, whose slot the keys of its type do not follow, so as a label of
+// the cell it is one the analysis of labels sees.
 #include "idr/Transforms/Isolate.h"
 
 #include "idr/Analysis/Holds.h"
@@ -74,8 +77,12 @@ void Isolate::runOnOperation() {
   module.walk<WalkOrder::PostOrder>([&](Operation *op) {
     if (isa<idr::LambdaOp>(op))
       bodies.push_back(op);
-    else if (auto delay = dyn_cast<idr::DelayOp>(op); delay && !idr::evaluatedValue(delay))
-      bodies.push_back(op);
+    else if (auto delay = dyn_cast<idr::DelayOp>(op)) {
+      Value evaluated = idr::evaluatedValue(delay);
+      if (!evaluated || idr::isClosureType(evaluated.getType()) ||
+          idr::isLazyType(evaluated.getType()))
+        bodies.push_back(op);
+    }
   });
   if (bodies.empty())
     return markAllAnalysesPreserved();

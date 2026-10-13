@@ -1,4 +1,4 @@
--- expect: cycle, line 14
+-- expect: cycle, line 16
 -- message: an IORef of
 module Main
 

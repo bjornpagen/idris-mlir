@@ -28,6 +28,8 @@ Slots::Slots(ModuleOp top, Labels &labels, SymbolTable &symbols)
   keyFunctions();
   keyValues();
   widen();
+  gatherSources();
+  unifySuspensions();
   keyForces();
   order();
   connect();
