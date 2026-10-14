@@ -10,14 +10,18 @@ import public Libraries.Text.Token
 
 %default total
 
-||| Parse a terminal based on a kind of token.
+-- The rule that names a kind reads the text as that kind means it, where
+-- the type of what it reads is known: a value converted here would have a
+-- type computed from the kind, which is a runtime argument.
+||| Parse a terminal based on a kind of token, giving the text that was
+||| recognised.
 export
-match : (Eq k, TokenKind k) =>
+match : Eq k =>
         (kind : k) ->
-        Grammar state (Token k) True (TokType kind)
+        Grammar state (Token k) True String
 match k = terminal "Unrecognised input" $
     \t => if t.kind == k
-             then Just $ tokValue k t.text
+             then Just t.text
              else Nothing
 
 ||| Optionally parse a thing, with a default value if the grammar doesn't

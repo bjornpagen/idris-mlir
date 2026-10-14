@@ -146,13 +146,6 @@ PathToken = Token PathTokenKind
 PathGrammar : Bool -> Type -> Type
 PathGrammar = Grammar () PathToken
 
-TokenKind PathTokenKind where
-  TokType PTText = String
-  TokType (PTPunct _) = ()
-
-  tokValue PTText x = x
-  tokValue (PTPunct _) _ = ()
-
 pathTokenMap : TokenMap PathToken
 pathTokenMap = toTokenMap $
   [ (is '/', PTPunct '/')
@@ -165,9 +158,13 @@ pathTokenMap = toTokenMap $
 lexPath : String -> List (WithBounds PathToken)
 lexPath str = let (tokens, _, _, _) = lex pathTokenMap str in tokens
 
+-- Punctuation: the kind names the character, so its text says nothing more.
+punct : Char -> PathGrammar True ()
+punct c = ignore $ match $ PTPunct c
+
 -- match both '/' and '\\' regardless of the platform.
 bodySeparator : PathGrammar True ()
-bodySeparator = (match $ PTPunct '\\') <|> (match $ PTPunct '/')
+bodySeparator = punct '\\' <|> punct '/'
 
 -- Windows will automatically translate '/' to '\\'. And the verbatim prefix,
 -- i.e., `\\?\`, can be used to disable the translation.
@@ -178,8 +175,8 @@ verbatim : PathGrammar True ()
 verbatim =
   do
     ignore $ count (exactly 2) $ match $ PTPunct '\\'
-    match $ PTPunct '?'
-    match $ PTPunct '\\'
+    punct '?'
+    punct '\\'
     pure ()
 
 -- Example: \\server\share
@@ -210,7 +207,7 @@ disk =
     disk <- case unpack text of
               (disk :: xs) => pure disk
               [] => fail "Expects disk"
-    match $ PTPunct ':'
+    punct ':'
     pure $ Disk (toUpper disk)
 
 -- Example: \\?\C:

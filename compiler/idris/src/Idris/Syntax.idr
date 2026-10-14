@@ -442,7 +442,7 @@ mutual
        PrimDecls : Name -> Directive
        CGAction : String -> String -> Directive
        Names : Name -> List String -> Directive
-       StartExpr : PTerm' nm -> Directive
+       StartExpr : PTerm -> Directive
        Overloadable : Name -> Directive
        Extension : LangExt -> Directive
        DefaultTotality : TotalReq -> Directive
