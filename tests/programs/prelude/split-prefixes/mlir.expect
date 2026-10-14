@@ -1,5 +1,6 @@
 # span (break is one too) and splitAt (inlined into putChunks) end their
 # input with a static pair of empty lists, which reaches no cell but the
 # empty list's atom: their results are exclusive, so nothing the program
-# takes apart or builds in tests a count.
-idr-rc: tests-nothing=@Data.List.span tests-nothing=@Main.putChunks tests-nothing=@$idris-mlir.root
+# takes apart or builds in tests a count. putChunks itself is inlined
+# into the root by idr-simplify, so its body is checked there.
+idr-rc: tests-nothing=@Data.List.span tests-nothing=@$idris-mlir.root

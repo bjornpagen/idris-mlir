@@ -93,6 +93,10 @@ void pipeline(Sink &sink, const idr::PipelineOptions &options) {
   // function of its own, its captures leading, so that every later pass
   // sees the symbol form.
   sink.top(idr::createIdrIsolate());
+  // On the symbol form isolation leaves, before anything weighs a
+  // function's uses: of each group of functions that are one function
+  // twice over, the rest of the pipeline sees one.
+  sink.top(idr::createIdrDeduplicate());
   // Before the simplify loop, while each case block still has the one call
   // its parent makes: case-of-case would copy that call.
   sink.top(idr::createIdrContify());

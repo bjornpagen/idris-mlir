@@ -8,6 +8,7 @@
 // needs every one.
 #include "idr/Conversion/Passes.h"
 #include "idr/Target/Target.h"
+#include "idr/Transforms/Deduplicate.h"
 #include "idr/Transforms/Defunctionalize.h"
 #include "idr/Transforms/Demand.h"
 #include "idr/Transforms/Effects.h"

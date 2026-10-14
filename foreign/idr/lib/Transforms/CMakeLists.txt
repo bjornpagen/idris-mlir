@@ -78,12 +78,13 @@ add_mlir_library(IdrSpecialize
 	MLIRArithDialect
 )
 
-# idr-stack, idr-identity, idr-isolate and idr-demand.
+# idr-stack, idr-identity, idr-isolate, idr-demand and idr-deduplicate.
 add_mlir_library(IdrSmallPasses
 	Stack/Stack.cpp
 	Identity/Identity.cpp
 	Isolate/Isolate.cpp
 	Demand/Demand.cpp
+	Deduplicate/Deduplicate.cpp
 
 	EXCLUDE_FROM_LIBMLIR
 	DISABLE_INSTALL
