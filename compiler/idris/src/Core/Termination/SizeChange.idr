@@ -8,8 +8,8 @@ import Libraries.Data.NameMap
 
 import Libraries.Data.SparseMatrix
 
+import Data.List
 import Data.List1
-import Data.SortedSet
 
 %default covering
 
@@ -46,76 +46,10 @@ public export
 CallSeq : {- f g -} Type
 CallSeq = List (FC, Name)
 
-||| An edge from f to g is given by:
-|||   the actual changes in g with respect to f
-|||   the sequence in the call graph leading from f to g
-||| The path is only here for error-reporting purposes
-record Graph {- f g -} where
-  constructor MkGraph
-  change : Change {- f g -}
-  seq : CallSeq {- f g -}
-
-||| Sc graphs to be added
-WorkList : Type
-WorkList = SortedSet (Name, Name, Graph)
-
-||| Transitively-closed (modulo work list) set of sc-graphs
-||| Note: oh if only we had dependent name maps!
-SCSet : Type
-SCSet = NameMap {- \ f => -}
-      $ NameMap {- \ g => -}
-      $ SortedSet $ Graph {- f g -}
-
-------------------------------------------------------------------------
--- Instances
-
--- ignore call sequence
-Eq Graph where
-  (==) a1 a2 = a1.change == a2.change
-
-Ord Graph where
-  compare a1 a2 = compare a1.change a2.change
-
-Show Graph where
-  show a = show a.change ++ "\n    via call seq: " ++ show a.seq ++ "\n"
-
-------------------------------------------------------------------------
--- Utility functions
-
-||| Empty set of sc-graphs
-initSCSet : SCSet
-initSCSet = empty
-
-lookupMap : Name -> NameMap (NameMap v) -> NameMap v
-lookupMap n m = fromMaybe empty (lookup n m)
-
-lookupSet : Ord v => Name -> NameMap (SortedSet v) -> SortedSet v
-lookupSet n m = fromMaybe empty (lookup n m)
-
-lookupGraphs : Name -> Name -> SCSet -> SortedSet Graph
-lookupGraphs f g = lookupSet g . lookupMap f
-
-||| Smart filter: only keep the paths starting from f
-selectDom : Name -> SCSet -> SCSet
-selectDom f s = insert f (lookupMap f s) empty
-
-||| Smart filter: only keep the paths ending in g
-selectCod : Name -> SCSet -> SCSet
-selectCod g s = map (\m => insert g (lookupSet g m) empty) s
-
-foldl : (acc -> Name -> Name -> Graph -> acc) -> acc -> SCSet -> acc
-foldl f_acc acc
-    = foldlNames (\acc, f =>
-        foldlNames (\acc, g =>
-          foldl (\acc, c => f_acc acc f g c) acc)
-          acc)
-        acc
-
-insertGraph : (f, g : Name) -> Graph {- f g -} -> SCSet -> SCSet
-insertGraph f g ch s
-  = let s_f = lookupMap f s in
-    let s_fg = lookupSet g s_f in
-    insert f (insert g (insert ch s_fg) s_f) s
+||| A call a search reached: its caller, its callee, how each argument of
+||| the callee relates to the caller's, and where it is.
+Call : Type
+Call = (Name, Name, Change, FC)
 
 ------------------------------------------------------------------------
 -- Actual size-change computations
@@ -126,70 +60,6 @@ composeChange : Change {- f g -} -> Change {- g h -} -> Change {- f h -}
 composeChange
     -- We use the SizeChange monoid: Unknown is a 0, Same is a neutral
     = mult
-
-||| Diagrammatic composition:
-||| Given an (Graph f g) and an (Graph g h), compute an (Graph f h)
-composeGraph : Graph {- f g -} -> Graph {- g h -} -> Graph {- f h -}
-composeGraph a1 a2
-    = MkGraph
-        (composeChange a1.change a2.change)
-        (a1.seq ++ a2.seq)
-
-||| Precompose a give an sc-graph & insert it in the worklist (unless it's already known)
-preCompose : (f : Name) -> Graph {- f g -} -> -- /!\ g bound later
-             SCSet ->
-             WorkList ->
-             (g : Name) -> (h : Name) -> Graph {- g h -} ->
-             WorkList
-preCompose f ch1 s work _ h ch2
-   = let ch : Graph {- f h -} = composeGraph ch1 ch2 in
-     if contains ch (lookupGraphs f h s) then
-       work
-     else
-       insert (f, h, ch) work
-
-||| Precompose a given Arg change & insert it in the worklist (unless it's already known)
-postCompose : (h : Name) -> Graph {- g h -} -> -- /!\ g bound later
-              SCSet ->
-              WorkList ->
-              (f : Name) -> (g : Name) -> Graph {- f g -} ->
-              WorkList
-postCompose h ch2 s work f _ ch1
-   = let ch : Graph {- f h -} = composeGraph ch1 ch2 in
-     if contains ch (lookupGraphs f h s) then
-       work
-     else
-       insert (f, h, ch) work
-
-mutual
-  addGraph : (f, g : Name) -> Graph {- f g -} ->
-             WorkList ->
-             SCSet ->
-             SCSet
-  addGraph f g ch work s_in
-      = let s = insertGraph f g ch s_in
-            -- Now that (ch : Graph f g) has been added, we need to update
-            -- the graph with the paths it has extended i.e.
-
-            -- the ones start in g
-            after = selectDom g s
-            work_pre = foldl (preCompose f ch s) work after
-
-            -- and the ones ending in f
-            before = selectCod f s
-            work_post = foldl (postCompose g ch s) work_pre before in
-
-        -- And then we need to close over all of these new paths too
-        transitiveClosure work_post s
-
-  transitiveClosure : WorkList ->
-                      SCSet ->
-                      SCSet
-  transitiveClosure work s
-      = case pop work of
-             Nothing => s
-             Just ((f, g, ch), work) =>
-               addGraph f g ch work s
 
 -- find (potential) chain of calls to given function (inclusive)
 prefixCallSeq : NameMap (FC, Name) -> (g : Name) -> {- Exists \ f => -} CallSeq {- f g -}
@@ -204,35 +74,6 @@ prefixCallSeq pred g = go g []
           else
             go f ((l, g) :: seq)
 
--- returns `Just a` iff there is no self-decreasing arc,
--- i.e. there is no argument `n` with `a.change_{n,n} === Smaller`
-checkNonDesc : (a : Graph) -> Maybe Graph
-checkNonDesc a = if any selfDecArc a.change then Nothing else Just a
-  where
-    selfDecArc : (Nat, Vector1 SizeChange) -> Bool
-    selfDecArc (i, xs) = lookupOrd i xs == Just Smaller
-
-||| Finding non-terminating loops
-findLoops : SCSet ->
-            NameMap {- $ \ f => -} (Maybe (Graph {- f f -} ))
-findLoops s
-    = -- An `SCSet` is non-terminating iff it contains a size graph that is
-      -- idempotent, i.e. stable under self-composition,
-      let loops = filterEndos (\a => composeChange a.change a.change == a.change) s in
-      -- and has no self-decreasing arcs.
-      map (foldMap checkNonDesc) loops
-    where
-      filterEndos : (Graph -> Bool) -> SCSet -> NameMap (List Graph)
-      filterEndos p = mapWithKey (\f, m => filter p (Prelude.toList (lookupSet f m)))
-
-findNonTerminatingLoop : SCSet -> Maybe (Name, Graph)
-findNonTerminatingLoop s = findNonTerminating (findLoops s)
-    where
-      -- select first non-terminating loop
-      -- TODO: find smallest
-      findNonTerminating : NameMap (Maybe Graph) -> Maybe (Name, Graph)
-      findNonTerminating = foldlNames (\acc, g, m => map (g,) m <+> acc) empty
-
 ||| Steps in a call sequence leading to a loop are also problematic
 setPrefixTerminating : {auto c : Ref Ctxt Defs} ->
                        CallSeq -> Name -> Core ()
@@ -246,8 +87,8 @@ addFunctions : {auto c : Ref Ctxt Defs} ->
               Defs ->
               List GlobalDef -> -- functions we're adding
               NameMap (FC, Name) -> -- functions we've already seen (and their predecessor)
-              WorkList ->
-              Core (Either Terminating (WorkList, NameMap (FC, Name)))
+              List Call ->
+              Core (Either Terminating (List Call, NameMap (FC, Name)))
 addFunctions defs [] pred work
     = pure $ Right (work, pred)
 addFunctions defs (d1 :: ds) pred work
@@ -261,20 +102,20 @@ addFunctions defs (d1 :: ds) pred work
          let (ds, pred, work) = foldl addCall (ds, pred, work) (filter isUnchecked calls)
          addFunctions defs ds pred work
   where
-    resolveCall : List (GlobalDef, FC, (Name, Name, Graph)) ->
+    resolveCall : List (GlobalDef, FC, Call) ->
                   SCCall ->
-                  Core (List (GlobalDef, FC, (Name, Name, Graph)))
+                  Core (List (GlobalDef, FC, Call))
     resolveCall calls (MkSCCall g ch l)
         = do Just d2 <- lookupCtxtExact g (gamma defs)
                 | Nothing => do logC "totality.termination.calc" 7 $ do pure "Not found: \{show g}"
                                 pure calls
-             pure ((d2, l, (d1.fullname, d2.fullname, MkGraph ch [(l, d2.fullname)])) :: calls)
+             pure ((d2, l, (d1.fullname, d2.fullname, ch, l)) :: calls)
 
-    addCall : (List GlobalDef, NameMap (FC, Name), WorkList) ->
-                  (GlobalDef, FC, (Name, Name, Graph)) ->
-                  (List GlobalDef, NameMap (FC, Name), WorkList)
+    addCall : (List GlobalDef, NameMap (FC, Name), List Call) ->
+                  (GlobalDef, FC, Call) ->
+                  (List GlobalDef, NameMap (FC, Name), List Call)
     addCall (ds, pred, work_in) (d2, l, c)
-        = let work = insert c work_in in
+        = let work = c :: work_in in
           case lookup d2.fullname pred of
                Just _ =>
                  (ds, pred, work)
@@ -296,8 +137,8 @@ addFunctions defs (d1 :: ds) pred work
 initWork : {auto c : Ref Ctxt Defs} ->
            Defs ->
            GlobalDef -> -- entry
-           Core (Either Terminating (WorkList, NameMap (FC, Name)))
-initWork defs def = addFunctions defs [def] (insert def.fullname (def.location, def.fullname) empty) empty
+           Core (Either Terminating (List Call, NameMap (FC, Name)))
+initWork defs def = addFunctions defs [def] (insert def.fullname (def.location, def.fullname) empty) []
 
 ||| The strongly connected components of the graph of the calls in a work
 ||| list, as each function's component (Tarjan's algorithm). A path from a
@@ -345,19 +186,19 @@ mutual
                           then { low $= insert v (min (lowOf st v) j) } st
                           else st
 
-||| The calls of a work list that are inside a component. The closure over
-||| them holds exactly the graphs from a function to one of its own
-||| component that the closure over every call holds, found in the same
-||| order: a call that leaves a component never composes into a path that
-||| comes back to it.
-insideComponents : WorkList -> WorkList
+||| The calls inside components, by caller, each caller's in the order of
+||| their callees and graphs. Every loop is among them: a call that leaves
+||| a component is on no path back to it.
+insideComponents : List Call -> NameMap (List (Name, Change, FC))
 insideComponents work
-    = let calls = foldl (\m, (f, g, _) => insert f (g :: fromMaybe [] (lookup f m)) m)
-                        (the (NameMap (List Name)) empty) (Prelude.toList work)
+    = let calls = foldl (\m, (f, g, _, _) => insert f (g :: fromMaybe [] (lookup f m)) m)
+                        (the (NameMap (List Name)) empty) work
           st = foldlNames (\st, v, _ => if isJust (lookup v st.index) then st else connect calls st v)
                           (MkComponents 0 empty empty [] empty empty 0) calls
           same = \f, g => lookup f st.component == lookup g st.component in
-      fromList (filter (\(f, g, _) => same f g) (Prelude.toList work))
+      foldr (\(f, g, x, l), m => if same f g then insert f ((g, x, l) :: fromMaybe [] (lookup f m)) m else m)
+            (the (NameMap (List (Name, Change, FC))) empty)
+            (sortBy (comparing (\(f, g, x, _) => (f, g, x))) work)
 
 ||| `weaker g h`: `h` says at least what `g` says of every argument: each
 ||| arc of `g` is one of `h`'s, as strong or stronger (a missing entry is no
@@ -386,37 +227,36 @@ nonDescending g = go 1024 g
                     then not (any (\(i, xs) => Vector1.lookupOrd i xs == Just Smaller) p)
                     else go k (composeChange p g)
 
-||| For each pair of functions of a component, the weakest graphs of the
-||| paths from one to the other: those no other path's graph is weaker
-||| than. They decide what the closure over every path's graph decides.
-||| Composition keeps the order (weaker parts make a weaker path), so every
-||| path's graph has one here at least as weak; and a loop that fails to
-||| decrease still fails when its graph says less, since the powers of a
-||| weaker graph are weaker and a strict arc of a weaker graph is one of the
-||| stronger's. So a loop without decrease exists exactly when one of these
-||| has none. A pair keeps a handful of graphs where the closure keeps
-||| every one, each composed with all the others.
-Weakest : Type
-Weakest = NameMap (NameMap (List Change))
+||| A loop through `f` that fails to decrease some argument each time
+||| round, if there is one, as its calls. The walks from `f` are extended
+||| one call at a time, breadth first, and each function they reach keeps
+||| only the weakest graphs of the walks to it, those no other walk's graph
+||| is weaker than: composition keeps the order, so a walk whose graph is no
+||| weaker than one kept extends only to walks no weaker than that one's,
+||| and a loop that fails to decrease still fails with a weaker graph, since
+||| the powers of a weaker graph are weaker and a strict arc of a weaker
+||| graph is one of the stronger's. So a loop without decrease exists
+||| exactly when one of the graphs kept at `f` has none, and the first walk
+||| back to `f` that has none, one of the fewest calls, is the loop. A
+||| function's own loops are walks from it: the paths between every other
+||| pair of its component are no part of the answer.
+loopFrom : NameMap (List (Name, Change, FC)) -> Name -> Maybe CallSeq
+loopFrom out f = go (map (\(h, x, l) => (h, x, [(l, h)])) (callsOf f)) [] empty
+  where
+    callsOf : Name -> List (Name, Change, FC)
+    callsOf g = fromMaybe [] (lookup g out)
 
-weakestOf : Name -> Name -> Weakest -> List Change
-weakestOf f g w = fromMaybe [] (lookup g (lookupMap f w))
-
-||| Adds the graphs of a work list, and the paths each makes with those
-||| already there, to the weakest graphs. A graph is added only when none
-||| there is weaker, and it replaces those it is weaker than; a graph once
-||| bettered never comes back, so this ends.
-closeWeakest : List (Name, Name, Change) -> Weakest -> Weakest
-closeWeakest [] w = w
-closeWeakest ((f, h, x) :: work) w
-    = let old = weakestOf f h w in
-      if any (\y => weaker y x) old then closeWeakest work w else
-        let w' = insert f (insert h (x :: filter (not . weaker x) old) (lookupMap f w)) w
-            after = concatMap (\(k, zs) => map (\z => (f, k, composeChange x z)) zs)
-                              (Libraries.Data.NameMap.toList (lookupMap h w'))
-            before = concatMap (\(e, m) => map (\v => (e, h, composeChange v x)) (fromMaybe [] (lookup f m)))
-                               (Libraries.Data.NameMap.toList w') in
-        closeWeakest (after ++ before ++ work) w'
+    -- Each walk: where it is, its graph, and its calls, the last first.
+    go : List (Name, Change, CallSeq) -> List (Name, Change, CallSeq) -> NameMap (List Change) ->
+         Maybe CallSeq
+    go [] [] kept = Nothing
+    go [] next kept = go (reverse next) [] kept
+    go ((h, x, p) :: rest) next kept
+        = let old = fromMaybe [] (lookup h kept) in
+          if any (\y => weaker y x) old then go rest next kept
+          else if h == f && nonDescending x then Just (reverse p)
+          else go rest (foldl (\acc, (k, z, l) => (k, composeChange x z, (l, k) :: p) :: acc) next (callsOf h))
+                  (insert h (x :: filter (not . weaker x) old) kept)
 
 ||| For each function of a strongly connected component of the call graph,
 ||| given the calls between its functions (caller, callee, and how each
@@ -426,8 +266,9 @@ closeWeakest ((f, h, x) :: work) w
 export
 loopsTerminate : List (Name, Name, Matrix SizeChange) -> List Name -> List (Name, Bool)
 loopsTerminate calls members
-    = let w = closeWeakest calls empty in
-      map (\f => (f, not (any nonDescending (weakestOf f f w)))) members
+    = let out = foldl (\m, (f, h, x) => insert f ((h, x, EmptyFC) :: fromMaybe [] (lookup f m)) m)
+                      (the (NameMap (List (Name, Change, FC))) empty) (reverse calls) in
+      map (\f => (f, isNothing (loopFrom out f))) members
 
 ||| The names a definition refers to, with those of its case blocks, which
 ||| are checked as part of it.
@@ -521,6 +362,14 @@ settle defs visited
                Just _ => spread users acc ns
                Nothing => spread users (insert n () acc) (fromMaybe [] (lookup n users) ++ ns)
 
+||| The last of the functions given, in name order, with a loop that fails
+||| to decrease, and the loop: the one a failed search records.
+lastLoop : NameMap (List (Name, Change, FC)) -> List Name -> Maybe (Name, CallSeq)
+lastLoop out [] = Nothing
+lastLoop out (g :: gs) = case loopFrom out g of
+  Just loop => Just (g, loop)
+  Nothing => lastLoop out gs
+
 export
 calcTerminating : {auto c : Ref Ctxt Defs} ->
                   FC -> Name -> Core Terminating
@@ -533,12 +382,12 @@ calcTerminating loc n
            | bad => pure bad
          Right (work, pred) <- initWork defs def
            | Left bad => pure bad
-         let s = transitiveClosure (insideComponents work) initSCSet
-         let Nothing = findNonTerminatingLoop s
+         let inside = insideComponents work
+         let Nothing = lastLoop inside (reverse (keys inside))
            | Just (g, loop) =>
                ifThenElse (def.fullname == g)
-                 (pure $ NotTerminating (RecPath loop.seq))
-                 (do setTerminating EmptyFC g (NotTerminating (RecPath loop.seq))
+                 (pure $ NotTerminating (RecPath loop))
+                 (do setTerminating EmptyFC g (NotTerminating (RecPath loop))
                      let init = prefixCallSeq pred g
                      setPrefixTerminating init g
                      pure $ NotTerminating (BadPath init g))
