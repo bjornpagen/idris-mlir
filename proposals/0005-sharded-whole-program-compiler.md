@@ -6,8 +6,9 @@ deleted `idr-eval` and turned MLIR threading on) and the serial
 preparations 0003 landed (deduplication by content, IntRange nested,
 RemoveDeadValues once at the fixpoint, labels in one walk). Sharding
 follows 0002's stage 1, which follows self-hosting, except where a
-stage is pulled forward on measurement: S0 is 0003's F0 record, taken
-now on the existing stage-0 corpus, and S2 (split LLVM codegen) is
+stage is pulled forward on measurement: S0 is taken
+(`bench/profiles/2026-10-14-f0-stage0.md`; its thresholds are 0003
+§4's), and S2 (split LLVM codegen) is
 taken as soon as that record names codegen — it is also the controlled
 experiment that prices whole-module LLVM optimization (§2). S3 to S6
 and S9 to S10 are taken up when S0's record calls for them, in §10's
@@ -445,9 +446,8 @@ Targets (*conjecture*, decided at S0 from the measured serial share):
 - The hash: BLAKE3 through Rust interop (0012) or a runtime primitive; width and collision
   policy.
 - Memory per C++ worker with its own `MLIRContext` (re-uniqued types): S0 and S2 measure it.
-- The largest SCC of the self-compile after inlining: before inlining
-  it is 174 of 58,235 (0003 §2, *measured* 2026-10-14); S0 re-measures
-  after inlining, and only a qualitative change reopens this.
+- The largest SCC of the self-compile after inlining: answered by S0
+  (24 of 28,276 after six rounds; 0003 §2). Units follow SCCs.
 - Where the cache index lives: 0011's core in-process, or bumbledb as a shared cache over S3.
 - Whether the Idris half should drive the C++ half (a self-hosted driver) once 0012 lands.
 

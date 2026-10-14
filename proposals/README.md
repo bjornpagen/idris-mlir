@@ -93,9 +93,10 @@ the numbering then in force.
   Deletes the whole-module Simplify fixed point and every multiplier
   under it (module fingerprints, per-round analysis rebuilds, uncached
   symbol scans, serial dataflow per round, the text handoff) for one
-  bottom-up SCC pipeline with bounded inner per-function work. F1 has
-  partly landed (§2's record); F0, F2 to F5 remain. Its F3 is 0005's
-  S6 done once, serially.
+  bottom-up SCC pipeline with bounded inner per-function work. F0 is
+  recorded and the first fixes landed (§2); two InlineCleanup
+  refactors were measured and reverted (§2.1); F2 to F5 remain, F3
+  being 0005's S6 done once, serially.
 - [0004](0004-shards.md): shards, the concurrency runtime. One copy of
   the single-threaded runtime per core, task frames for computations
   that wait, a reactor per shard, values crossing only inside

@@ -1,3 +1,23 @@
+# Checkpoint (2026-10-14, F0 and the bankruptcy)
+
+The proposals were cut over to current-state documents (dcb087d2:
+the cutover packet deleted, 0003-0013 renumbered to 0002-0012;
+0001 keeps only G1 and self-hosting). Every worktree lane of the
+perf round and the older self-host work is merged into main
+(b4713f66); gate on arm64 macOS at 7a27fd34: check 26/26, test-idr
+286/286, test 415/415 (x86_64 Linux still NotRun). One CPU budget
+(tools/host.sh: IDRIS_MLIR_NCPU, else every CPU) now threads the
+Makefile, bootstrap, the runner and the driver's --num-threads.
+
+F0 is recorded (bench/profiles/2026-10-14-f0-stage0.md): Simplify
+round 1 is 447 s with one InlineCleanup instance at 211 s; sixteen
+rounds do not reach a fixpoint; the largest post-inlining SCC is 24
+functions. Two InlineCleanup refactors (strict worklist confinement;
+deferring simplifyRegions to a once-after-inlining pass) were built,
+measured slower or wrong, and reverted the same day -- proposal 0003
+§2.1 records both. No code changes land until the owner approves the
+rewritten proposals (0003 §4 is the design awaiting that approval).
+
 # Checkpoint (2026-10-13, profiling/speedup pass)
 
 Gate on arm64 macOS (x86_64 Linux NotRun): make check 26/26,
