@@ -9,6 +9,7 @@ import Core.Env
 import Core.Hash
 import Core.Normalise
 import Core.TT
+import Core.Value
 import Libraries.Data.NatSet
 
 import IdrisMLIR.Frontend.Resolve
@@ -17,6 +18,7 @@ import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Hooks
 import IdrisMLIR.Frontend.Translate.Keys
 import IdrisMLIR.Frontend.Translate.State
+import IdrisMLIR.Frontend.Translate.Prof
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.Registry
@@ -173,7 +175,7 @@ typeParams def params = case definition def of
     let types = filter (\i => elem i params && not (fromMaybe False (getAt i values))) [0 .. minus arity 1]
     tys <- traverse (\n => map (map type) (lookupCtxtExact n (gamma defs))) (fromMaybe [] cons)
     -- Without its constructors, every type parameter counts.
-    case the (Maybe (List ClosedTerm)) (sequence tys) of
+    if null types then pure [] else case the (Maybe (List ClosedTerm)) (sequence tys) of
       Just ts@(_ :: _) => do
         conTys <- traverse normaliseClosed ts
         pure (filter (\i => any (represents i) conTys) types)
@@ -416,7 +418,7 @@ mutual
   coreType fc owner rule (TDelayed _ _ t) = LazyT <$> coreType fc owner rule t
   coreType fc owner rule tm = case getFnArgs tm of
     (Ref rfc (TyCon _) n, args) => do
-      def <- lookupDef fc owner n
+      def <- timed "coreType.lookupDef" (lookupDef fc owner n)
       -- A word type is a machine word whatever its arguments: what a
       -- `Ptr t` points to names what its handle holds, not its
       -- representation.
@@ -427,7 +429,7 @@ mutual
          else case arrayElementOf (hooksOf (fullname def)) of
            Just (r, Just e) => pure (ArrayT r e)
            Just (r, Nothing) => case args of
-             [a] => ArrayT r <$> coreType fc owner rule !(normaliseClosed a)
+             [a] => ArrayT r <$> coreType fc owner rule !(normaliseRepr a)
              _ => internal fc "the array type without its one element type"
            Nothing => snd <$> dataInstance fc owner n !(traverse normaliseClosed args)
     (TType _ _, _) => reject fc owner rule "Type in a runtime position"
@@ -521,7 +523,7 @@ mutual
         -- The type as written may hide its binders behind a definition
         -- (`a -@ b` is `(1 _ : a) -> b`); its normal form shows each one,
         -- with the quantity that makes a field linear.
-        ty <- normaliseClosed (type def)
+        ty <- if fixRepr then normaliseTypeKeeping (Just !(toFullNames tcon)) (type def) else normaliseClosed (type def)
         let layout = paramLayout ps keep ty
         -- Every match binds `arity` arguments: a layout of another length
         -- would misplace every field after the first difference.

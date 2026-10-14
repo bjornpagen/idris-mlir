@@ -13,6 +13,7 @@ import Core.TT
 import Libraries.Data.List.SizeOf
 
 import IdrisMLIR.Frontend.Translate.Errors
+import IdrisMLIR.Frontend.Translate.Prof
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Rule
 import IdrisMLIR.Term
@@ -179,7 +180,7 @@ solved tm =
   if hasMeta tm
      then do
        defs <- get Ctxt
-       normaliseHoles defs [] tm
+       timed "solved.normaliseHoles" (normaliseHoles defs [] tm)
      else pure tm
 
 ||| A metavariable applied to its arguments, as the solution the type checker
@@ -229,7 +230,7 @@ quantities n = do
 ||| `n`, while `MkBox {v = n}` holds `n` itself.
 export
 runtimeDependent : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core Bool
-runtimeDependent = go
+runtimeDependent t = timed "runtimeDependent" (go t)
   where
     anyM : List (TT vs) -> (TT vs -> Core Bool) -> Core Bool
     anyM [] f = pure False
@@ -408,7 +409,7 @@ erasedArgs n = do
 ||| says nothing to the reader.
 export
 showTT : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core String
-showTT tm = show <$> toFullNames tm
+showTT tm = timed "showTT" (show <$> toFullNames tm)
 
 ||| What a shape says a value was built with: a constructor, with the
 ||| shapes of its arguments. A shape that is no constructor application (an

@@ -38,6 +38,7 @@ import Libraries.Data.WithDefault
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.State
+import IdrisMLIR.Frontend.Translate.Prof
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.Registry.Libraries
@@ -134,8 +135,8 @@ export
 recordDictionary : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                    FC -> String -> ConId -> ClosedTerm -> Nat -> ClosedTerm -> Core ()
 recordDictionary fc owner cid ty i impl = do
-  impl' <- toFullNames !(implementationOf 64 impl)
-  chosen <- chooser
+  impl' <- timed "recordDictionary.implementationOf" (toFullNames !(implementationOf 64 impl))
+  chosen <- timed "recordDictionary.chooser" chooser
   let site = maybe fc snd chosen
   let by = maybe owner (show . fst) chosen
   st <- get TState
@@ -147,7 +148,9 @@ recordDictionary fc owner cid ty i impl = do
              (con ++ " holds two implementations of " ++ !(showTT ty) ++
               ": " ++ !(showTT d.impl) ++ ", chosen in " ++ d.chooser ++ ", and " ++ !(showTT impl') ++
               ", chosen in " ++ by ++ concatMap ("; " ++) why)
-    Nothing =>
+    Nothing => do
+      when (contains (cid, i) st.assumed) $
+        progress ("RESTART " ++ show cid.dataId ++ "::" ++ show cid ++ " field " ++ show i ++ " by " ++ by)
       update TState { dicts $= insert (cid, i) (MkDictionary impl' by site)
                     , restart $= (|| contains (cid, i) st.assumed) }
 

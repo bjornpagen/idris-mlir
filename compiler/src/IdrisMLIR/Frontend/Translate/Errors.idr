@@ -9,6 +9,7 @@ import Core.TT
 
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.State
+import IdrisMLIR.Frontend.Translate.Prof
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.Registry.Libraries
@@ -50,6 +51,7 @@ noting : {auto s : Ref TState TS} -> Core a -> Core (Maybe a)
 noting part = catch (Just <$> part) $ \err => case err of
   InternalError _ => throw err
   _ => do
+    count "noting.caught"
     st <- get TState
     let shown = show err
     unless (any (\e => show e == shown) st.rejected) $

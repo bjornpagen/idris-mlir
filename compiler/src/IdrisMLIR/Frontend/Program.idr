@@ -17,6 +17,7 @@ import IdrisMLIR.Term
 import IdrisMLIR.Frontend.Profile
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate
+import IdrisMLIR.Frontend.Translate.Prof
 import IdrisMLIR.Registry.Libraries
 import IdrisMLIR.Registry.Primitives
 
@@ -143,6 +144,8 @@ program : {auto c : Ref Ctxt Defs} -> {auto syn : Ref Syn SyntaxInfo} ->
           (mainFile : ModuleIdent) -> (breakShape : Maybe String) ->
           (timing : Maybe String) -> (corePath, mlirPath : String) -> Core (List Error)
 program mainFile breakShape timing corePath mlirPath = do
+  progress "PROGRAM start"
+  calibrate
   t0 <- now
   -- The interfaces of every module Idris loaded for the program, which
   -- Idris keeps with their syntax rather than with their definitions.
@@ -183,8 +186,12 @@ program mainFile breakShape timing corePath mlirPath = do
     Nothing => reject fc programEntry ProgramShape
                  ("loads " ++ show m ++ ", a module of the project whose source is missing")
   t1 <- now
+  dump "after checks"
+  progress "CHECKS done"
   checkReachable fc [main]
   t2 <- now
+  dump "after reachable"
+  progress "REACHABLE done"
   Just prog <- translateIOProgram fc main
     | Nothing => do
         t3 <- now
