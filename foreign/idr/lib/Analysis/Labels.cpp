@@ -128,17 +128,23 @@ public:
     if (!apply)
       return SparseForwardDataFlowAnalysis::visitCallOperation(call, operands, results);
     const LabelSet &callee = static_cast<const LabelLattice *>(operands[0])->getValue();
+    ProgramPoint *point = getProgramPointAfter(apply);
     if (callee.unknown) {
+      // Any label of the callee's type may be called, so every one of
+      // them takes the arguments.
+      for (StringAttr label : sites.labelsFor(cast<FnType>(apply.getCallee().getType())))
+        if (FuncOp fn = sites.function(label))
+          joinApplyArgs(apply, operands, fn);
       AbstractSparseForwardDataFlowAnalysis::setAllToEntryStates(results);
       return success();
     }
-    ProgramPoint *point = getProgramPointAfter(apply);
     for (StringAttr label : callee.names) {
       FuncOp fn = sites.function(label);
       if (!fn || fn.isExternal()) {
         AbstractSparseForwardDataFlowAnalysis::setAllToEntryStates(results);
         return success();
       }
+      joinApplyArgs(apply, operands, fn);
       eachReturn(fn, [&](ReturnOp ret) {
         for (auto [operand, result] : llvm::zip(ret.getOperands(), results))
           join(result, *getLatticeElementFor(point, operand));
@@ -148,7 +154,9 @@ public:
   }
 
   // The entry arguments of a function: from its calls, its closures and
-  // suspensions, and the idr.apply ops that may call it.
+  // suspensions. An idr.apply joins its own arguments into the entries
+  // of the labels its callee may hold, in visitCallOperation, which the
+  // solver revisits when the callee or an argument changes.
   void visitCallableOperation(CallableOpInterface callable,
                               ArrayRef<AbstractSparseLattice *> arguments) override {
     auto fn = dyn_cast<FuncOp>(callable.getOperation());
@@ -172,19 +180,11 @@ public:
     auto joinCaptures = [&](ArrayAttr captures) {
       for (auto [capture, argument] : llvm::zip(captures, arguments))
         if (auto closure = dyn_cast<ClosureAttr>(capture))
-          propagateIfChanged(argument, static_cast<LabelLattice *>(argument)->join(
+          propagateIfChanged(argument, static_cast<LabelLattice *>(argument)->joinLabels(
                                            LabelSet::of(closure.getCallee().getAttr())));
     };
     llvm::for_each(sites.closureConstants(name), joinCaptures);
     llvm::for_each(sites.suspensionConstants(name), joinCaptures);
-
-    for (ApplyOp apply : sites.appliesFor(name)) {
-      if (!getLatticeElementFor(point, apply.getCallee())->getValue().mayHold(name))
-        continue;
-      size_t k = apply.getArgs().size();
-      for (auto [operand, argument] : llvm::zip(apply.getArgs(), arguments.take_back(k)))
-        join(argument, *getLatticeElementFor(point, operand));
-    }
   }
 
   // The arguments of a case region of idr.match are the fields of its
@@ -209,7 +209,7 @@ public:
       ProgramPoint *point = getProgramPointBefore(&region->front());
       for (auto [input, lattice] : llvm::zip(inputs, lattices))
         if (isKeyed(input.getType()) && cast<BlockArgument>(input).getArgNumber() == 1)
-          propagateIfChanged(lattice, lattice->join(readElements(point, fold.getArrayType())));
+          propagateIfChanged(lattice, lattice->joinLabels(readElements(point, fold.getArrayType())));
         else
           setToEntryState(lattice);
       return;
@@ -222,17 +222,33 @@ public:
     ProgramPoint *point = getProgramPointBefore(&region->front());
     for (auto [input, lattice] : llvm::zip(inputs, lattices))
       if (isKeyed(input.getType()))
-        propagateIfChanged(lattice, lattice->join(readField(
+        propagateIfChanged(lattice, lattice->joinLabels(readField(
                                         point, ref, cast<BlockArgument>(input).getArgNumber())));
   }
 
   void setToEntryState(LabelLattice *lattice) override {
-    propagateIfChanged(lattice, lattice->join(LabelSet::top()));
+    propagateIfChanged(lattice, lattice->joinLabels(LabelSet::top()));
   }
 
 private:
+  // The arguments of `apply` into the last arguments of `fn`, which take
+  // them after its captures. `operands` are the apply's lattices, its
+  // callee first. The entry lattices are written, not read for a
+  // dependency: their uses are revisited through the join's own
+  // propagation, and the apply is revisited through its operands.
+  void joinApplyArgs(ApplyOp apply, ArrayRef<const AbstractSparseLattice *> operands, FuncOp fn) {
+    if (fn.isExternal())
+      return;
+    ArrayRef<BlockArgument> entry = fn.getBody().front().getArguments();
+    size_t k = apply.getArgs().size();
+    if (entry.size() < k)
+      return;
+    for (auto [i, argument] : llvm::enumerate(entry.take_back(k)))
+      join(getLatticeElement(argument), *operands[1 + i]);
+  }
+
   LogicalResult set(LabelLattice *lattice, const LabelSet &labels) {
-    propagateIfChanged(lattice, lattice->join(labels));
+    propagateIfChanged(lattice, lattice->joinLabels(labels));
     return success();
   }
 
