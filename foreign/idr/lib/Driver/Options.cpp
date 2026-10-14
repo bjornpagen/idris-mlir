@@ -5,7 +5,9 @@
 #include "idr/Driver/Options.h"
 
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Threading.h"
 
+#include <algorithm>
 #include <string>
 
 namespace cl = llvm::cl;
@@ -112,5 +114,20 @@ cl::opt<bool> printLinkFlags("print-link-flags",
 cl::opt<bool> printTargetCpu("print-target-cpu",
                              cl::desc("Print the CPU code is compiled for, and exit"),
                              cl::init(false));
+// The size of the MLIR thread pool a compilation runs its function
+// passes on. Output bytes do not depend on it; it exists so a compile
+// leaves the machine usable, and so a caller running compilations in
+// parallel can divide its own budget among them.
+cl::opt<unsigned> numThreads(
+    "num-threads",
+    cl::desc("Threads for the pipeline's parallel function passes (default: every CPU); "
+             "output bytes do not depend on it"),
+    cl::init(0));
+
+unsigned threadBudget() {
+  if (numThreads > 0)
+    return numThreads;
+  return std::max(1u, llvm::hardware_concurrency().compute_thread_count());
+}
 
 } // namespace idr::driver

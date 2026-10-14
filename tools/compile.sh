@@ -5,7 +5,9 @@
 #     tools/compile.sh [OPTION]... SOURCE OUTPUT
 #
 # idris-mlir runs in SOURCE's directory, the root of the program's modules,
-# with --no-prelude and OPTION... as given (-p PACKAGE, --demand-in-place,
+# with --no-prelude, the one CPU budget as --num-threads (tools/host.sh:
+# IDRIS_MLIR_NCPU, else every CPU; an OPTION naming --num-threads comes
+# later and wins) and OPTION... as given (-p PACKAGE, --demand-in-place,
 # --dump-dir=DIR, --break-shape=KEY). It leaves the executable in
 # build/exec/<name of OUTPUT> there, with its .core, .mlir and .o beside it;
 # idris-mlir makes build/exec. Its output passes through, and the exit
@@ -34,7 +36,7 @@ shift "$n"
 directory=$(cd "$(dirname "$source")" && pwd)
 name=${output##*/}
 cd "$directory" || exit 1
-"$idris_mlir" --no-prelude "$@" "${source##*/}" -o "build/exec/$name"
+"$idris_mlir" --no-prelude --num-threads="$ncpu" "$@" "${source##*/}" -o "build/exec/$name"
 status=$?
 [ "$status" -eq 0 ] || { echo "error: compiling $source failed" >&2; exit "$status"; }
 echo "$directory/build/exec/$name"

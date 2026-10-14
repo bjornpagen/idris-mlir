@@ -45,6 +45,7 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetSelect.h"
+#include "llvm/Support/ThreadPool.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/TargetParser/Triple.h"
 #include "llvm/Transforms/IPO/Internalize.h"
@@ -222,7 +223,18 @@ int idr::driver::run(llvm::StringRef modulePath, llvm::StringRef objectPath,
   mlir::DialectRegistry handoff;
   handoff.insert<idr::IdrDialect, mlir::arith::ArithDialect, mlir::math::MathDialect,
                  mlir::ub::UBDialect, mlir::memref::MemRefDialect>();
-  mlir::MLIRContext context(handoff);
+  // The pool the function passes run on, sized by --num-threads (every
+  // CPU by default); declared before the context so it outlives it, as
+  // upstream's tools declare theirs. --mlir-disable-threading still
+  // wins, the context then ignoring it.
+  llvm::ThreadPoolStrategy strategy;
+  strategy.ThreadsRequested = threadBudget();
+  llvm::StdThreadPool pool(strategy);
+  // Created disabled so the pool can be set (setThreadPool requires
+  // it and enables threading itself); --mlir-disable-threading keeps
+  // it disabled, as upstream's tools arrange the same pair.
+  mlir::MLIRContext context(handoff, mlir::MLIRContext::Threading::DISABLED);
+  context.setThreadPool(pool);
   llvm::Triple triple(targetTriple);
   const llvm::Target *target = nativeTarget(triple);
   if (!target)

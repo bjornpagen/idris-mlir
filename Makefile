@@ -40,7 +40,8 @@
 # can hold the tree for ever, each command a test runs after 60 s and each
 # test after 300 s, or what its run script sets. They take only='NAME...'
 # and except='NAME...' (substrings of test paths such as
-# programs/basic/hello), threads=N (default: the number of CPUs) and
+# programs/basic/hello), threads=N (default: NCPU, the one CPU budget
+# below) and
 # INTERACTIVE=--interactive (offer to accept new output). Each ends with the
 # number of tests that passed and the list of those that failed, and fails
 # if any did.
@@ -95,7 +96,13 @@ export IDRIS_MLIR_ROOT := $(ROOT)
 export IDRIS_MLIR_HOST_NAMES := $(call toolchain,host_names)
 export CHEZ := $(call toolchain,chez_scheme)
 
-threads ?= $(shell nproc 2> /dev/null || getconf _NPROCESSORS_ONLN 2> /dev/null || echo 1)
+# The one CPU budget (tools/host.sh: IDRIS_MLIR_NCPU, else every CPU):
+# make's own job count, the test runner's threads, bootstrap's jobs and
+# each compilation's --num-threads all read this one number. Set
+# NCPU=N (or IDRIS_MLIR_NCPU=N) to leave the machine headroom.
+NCPU ?= $(call toolchain,ncpu)
+export IDRIS_MLIR_NCPU := $(NCPU)
+threads ?= $(NCPU)
 only ?=
 except ?=
 INTERACTIVE ?=
@@ -138,7 +145,7 @@ env:
 build:
 	@$(PINS) cmake ninja llvm sysroot
 	cd $(ROOT) && $(CMAKE) --preset $(PRESET) -DIDRIS_MLIR_IDRIS_PREFIX='$(CHECKOUT_PREFIX)'
-	cd $(ROOT) && $(CMAKE) --build --preset $(PRESET)
+	cd $(ROOT) && $(CMAKE) --build --preset $(PRESET) --parallel $(NCPU)
 	@$(PINS) idris
 	$(ROOT)/tools/dialects.sh generate
 	@$(MAKE) --no-print-directory frontend
@@ -336,11 +343,11 @@ typecheck-configure:
 	cd $(ROOT) && $(CMAKE) --preset $(TYPECHECK_PRESET) --fresh
 
 typecheck-tblgen:
-	cd $(ROOT) && $(CMAKE) --build --preset $(TYPECHECK_PRESET) --target idris-mlir-tblgen
+	cd $(ROOT) && $(CMAKE) --build --preset $(TYPECHECK_PRESET) --parallel $(NCPU) --target idris-mlir-tblgen
 
 typecheck-cxx:
 	@rm -f '$(TYPECHECK_ERRORS)'
-	cd $(ROOT) && { $(CMAKE) --build --preset $(TYPECHECK_PRESET) -- -k 0 2>&1; echo $$? > '$(TYPECHECK_ERRORS).status'; } | \
+	cd $(ROOT) && { $(CMAKE) --build --preset $(TYPECHECK_PRESET) --parallel $(NCPU) -- -k 0 2>&1; echo $$? > '$(TYPECHECK_ERRORS).status'; } | \
 	  tee '$(TYPECHECK_DIR)/build.log'
 	@awk -v root='$(ROOT)/' ' \
 	  function out(loc, msg) { line = loc ": " msg; if (!seen[line]++) print line } \

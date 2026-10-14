@@ -39,7 +39,7 @@ stage() {
   echo "==> stage $n, compiled by ${compiler#"$root"/}"
   started=$(date +%s)
   (cd "$self/src" && /usr/bin/time -l "$compiler" --prefix "$checkout_prefix" \
-     -p idris-compiler -p mlir-linear -mlir-timing \
+     --num-threads="$ncpu" -p idris-compiler -p mlir-linear -mlir-timing \
      IdrisMLIR/Frontend/Driver.idr -o "$out/idris-mlir-front") \
     > "$out/stdout" 2> "$out/stderr"
   status=$?

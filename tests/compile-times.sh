@@ -332,7 +332,7 @@ if [ -n "$tree" ]; then
     flags=
     [ "$threads" = one ] && flags=--mlir-disable-threading
     # shellcheck disable=SC2086 # empty or one flag
-    limited "$idris_mlir" -c "$tree" -o "$tmp/object.o" $flags --mlir-timing \
+    limited "$idris_mlir" -c "$tree" -o "$tmp/object.o" --num-threads="$ncpu" $flags --mlir-timing \
       --mlir-timing-display=tree --mlir-output-format=json > "$tmp/report" 2>&1
     rows "$tmp/report" > "$tmp/rows"
     echo
@@ -366,7 +366,7 @@ while IFS="$tab" read -r ms test status what module n; do
   # starts with.
   options=${what#compile}
   # shellcheck disable=SC2086 # the options are words
-  limited "$idris_mlir" -c "$module" -o "$tmp/object.o" $options --mlir-timing \
+  limited "$idris_mlir" -c "$module" -o "$tmp/object.o" --num-threads="$ncpu" $options --mlir-timing \
     --mlir-timing-display=tree --mlir-output-format=json > "$tmp/report" 2>&1
   columns=$(breakdown "$tmp/report")
   [ -n "$columns" ] || columns='n/a n/a n/a n/a n/a n/a n/a'

@@ -24,6 +24,26 @@ case $(uname -s) in
   *) host_names="$host_names $(uname -s | tr '[:upper:]' '[:lower:]')" ;;
 esac
 
+# The one CPU budget every build, test and compile in this repository
+# runs under: IDRIS_MLIR_NCPU when it names a positive count, else every
+# CPU of the machine. The default is maximal on purpose; a caller that
+# wants headroom sets the variable once (the Makefile exports its NCPU
+# as it, so nested scripts agree), and each layer -- make's job count,
+# the test runner's threads, bootstrap's jobs, a compilation's
+# --num-threads -- reads the same number here. $ncpu is that budget;
+# $ncpu_total is the machine's count.
+case $(uname -s) in
+  Darwin) ncpu_total=$(sysctl -n hw.ncpu 2> /dev/null) || ncpu_total= ;;
+  *) ncpu_total=$(getconf _NPROCESSORS_ONLN 2> /dev/null) || ncpu_total= ;;
+esac
+case $ncpu_total in '' | *[!0-9]* | 0) ncpu_total=1 ;; esac
+ncpu=$ncpu_total
+case ${IDRIS_MLIR_NCPU:-} in
+  '' | *[!0-9]* | 0) ;;
+  *) ncpu=$IDRIS_MLIR_NCPU ;;
+esac
+if [ "$ncpu" -gt "$ncpu_total" ]; then ncpu=$ncpu_total; fi
+
 # host_path NAME...: the first of NAME that is on PATH or in MacPorts'
 # bin, printing its path, or nothing.
 host_path() {

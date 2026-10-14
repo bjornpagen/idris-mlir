@@ -59,7 +59,8 @@
 # Environment:
 #   IDRIS_MLIR_TOOLCHAIN   the directory instead of .toolchain
 #
-# The builds run as many compile jobs as there are cores, at most one per
+# The builds run as many compile jobs as the one CPU budget allows
+# (tools/host.sh: IDRIS_MLIR_NCPU, else every core), at most one per
 # 5 GiB of memory, and one link at a time. ccache on PATH, or MacPorts' if
 # there is one, is the compiler launcher of every C and C++ compile, with
 # its cache in .toolchain/ccache, capped at 1T: room for many pins and
@@ -231,6 +232,7 @@ memory_kib=$(memory_kib 2> /dev/null) || memory_kib=0
 case $memory_kib in '' | *[!0-9]*) memory_kib=0 ;; esac
 jobs=$((memory_kib / 5242880))
 if [ "$jobs" -gt "$cores" ]; then jobs=$cores; fi
+if [ "$jobs" -gt "$ncpu" ]; then jobs=$ncpu; fi
 if [ "$jobs" -lt 1 ]; then jobs=1; fi
 
 # ccache, the compiler launcher of every C and C++ compile the steps run

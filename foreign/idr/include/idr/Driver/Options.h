@@ -35,6 +35,13 @@ extern llvm::cl::opt<bool> prepareRuntime;
 extern llvm::cl::opt<bool> printTargetTriple;
 extern llvm::cl::opt<bool> printLinkFlags;
 extern llvm::cl::opt<bool> printTargetCpu;
+extern llvm::cl::opt<unsigned> numThreads;
+
+// The threads a compilation may use: --num-threads when given, else
+// every CPU. The default is maximal; a caller that wants headroom (our
+// build and test scripts do, through IDRIS_MLIR_NCPU) says so with the
+// flag. Output bytes do not depend on it.
+unsigned threadBudget();
 
 // Exit statuses, the frontend's too: an internal error or a contract
 // violation is 1, a usage error 2, and any error of the program's 3: a
