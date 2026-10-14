@@ -115,10 +115,12 @@ default.
 **Seams to recheck at G1** (read before the cutover build; paths have
 moved since, so each is re-read, not assumed): which memo labels are
 `by_name` is a list in `Transforms/Defunctionalize/ByName.cpp` where a
-trait would say it once; `closureLabel` does not see memo labels;
-`--demand` with `--without idr-demand` is accepted silently; an
+trait would say it once; `closureLabel` does not see memo labels; an
 `array.new` fill function that never returns is an internal error; a
-partially applied `castPtr` is still rejected.
+partially applied `castPtr` is still rejected. (Rechecked and closed
+2026-10-14: `--demand-in-place` with `--without idr-demand` or
+`--without in-place` is a usage error naming both, tested in
+`tests/idr/pipeline/steps.mlir`.)
 
 ## 4. Measures
 

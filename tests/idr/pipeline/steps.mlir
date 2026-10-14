@@ -15,8 +15,10 @@
 // RUN: %status 2 idris-mlir -c %s -o %t.bad.o --without=idr-sinking
 // RUN: %status 2 idris-mlir -c %s -o %t.bad.o --without=idr-redirect
 // RUN: %status 2 idris-mlir -c %s -o %t.bad.o --without=idr-rc-place
-// RUN: %status 2 idris-mlir -c %s -o %t.bad.o --demand-in-place --without=idr-demand
-// RUN: %status 2 idris-mlir -c %s -o %t.bad.o --demand-in-place --without=in-place
+// RUN: %status 2 idris-mlir -c %s -o %t.bad.o --demand-in-place --without=idr-demand 2> %t.demand.err
+// RUN: FileCheck --check-prefix=DEMAND %s < %t.demand.err
+// RUN: %status 2 idris-mlir -c %s -o %t.bad.o --demand-in-place --without=in-place 2> %t.inplace.err
+// RUN: FileCheck --check-prefix=INPLACE %s < %t.inplace.err
 // RUN: idris-mlir -c %s -o %t.without.o --without=idr-demand
 // idris-mlir dumps the module after each pass its manager runs, one file
 // per pass, `<NN>-<pass>.mlir` numbered in order from 01, the first
@@ -32,6 +34,8 @@
 // --demand-in-place of the checker --without leaves out is a usage error
 // too, never a promise kept by not looking; leaving idr-demand out
 // without asking is a measurement like any other.
+// DEMAND: idris-mlir: --demand-in-place with --without idr-demand
+// INPLACE: idris-mlir: --demand-in-place with --without in-place
 module attributes {idr.program} {
   idr.func @Prog.main() -> i64 {
     %c = arith.constant 42 : i64
