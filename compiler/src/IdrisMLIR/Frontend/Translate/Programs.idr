@@ -14,6 +14,7 @@ import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Instances
 import IdrisMLIR.Frontend.Translate.State
+import IdrisMLIR.Frontend.Translate.Prof
 import IdrisMLIR.Frontend.Translate.Terms
 import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Graph
@@ -34,7 +35,7 @@ import Data.Vect
 
 ||| Idris's termination checker reports the definition terminating.
 isTotal : {auto c : Ref Ctxt Defs} -> FC -> Name -> Core Bool
-isTotal fc n = do
+isTotal fc n = if stubTotal then pure False else do
   t <- catch (checkTotal fc n) (\_ => pure Unchecked)
   pure (case t of
           IsTerminating => True
@@ -43,6 +44,9 @@ isTotal fc n = do
 ||| Translates one function instance.
 translateInstance : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Pending -> Core ()
 translateInstance p = do
+  setTracing p.inst.name
+  progress ("INST " ++ p.inst.name)
+  t0 <- nowNs
   update TState { current := Just p.inst }
   def <- lookupDef EmptyFC (show p.name) p.name
   let owner = show (fullname def)
@@ -57,13 +61,19 @@ translateInstance p = do
   let complete = case isCovering (totality def) of
                    MissingCases _ => False
                    _ => True
-  (kinds, resTy) <- classify fc owner (length args) (type def) (givenArgs p.kinds)
-  result <- coreType fc owner ValueType !(normaliseClosed resTy)
+  (kinds, resTy) <- timed "inst.classify" (classify fc owner (length args) (type def) (givenArgs p.kinds))
+  result <- timed "inst.result" (coreType fc owner ValueType !(normaliseRepr resTy))
   -- Parameter i is variable i, as in the case tree's scope.
   let env = zipWith info (Data.Fin.List.allFins (length kinds)) kinds
-  body <- tree (MkCtx owner fc complete) env (telescope (length args) (type def)) treeCT
+  body <- timed "inst.tree" (tree (MkCtx owner fc complete) env (telescope (length args) (type def)) treeCT)
+  progress "  body done"
   loc <- toLoc fc
-  tot <- isTotal fc p.name
+  tot <- timed "inst.isTotal" (isTotal fc p.name)
+  t1 <- nowNs
+  note "inst.total" (t1 - t0) 0
+  when (t1 - t0 > 100000000) $ progress ("SLOW " ++ show ((t1 - t0) `div` 1000000) ++ " ms " ++ p.inst.name)
+  count ("inst.count")
+  tick
   let facts = MkFacts (MkFact tot FromIdris)
   update TState { fns $= insert p.inst (MkTFn p.inst (shown owner) (length kinds)
                                               (map runtimeBinder (fromList kinds)) result body loc facts)
@@ -92,7 +102,7 @@ drain = do
       Nothing <- noting (translateInstance p)
         | Just () => do
             st' <- get TState
-            unless st'.restart drain
+            unless (st'.restart && not fixContinue) drain
       after <- get TState
       put TState ({ rejected := after.rejected, refused := after.refused } before)
       drain
@@ -102,6 +112,8 @@ drain = do
 ||| from the dictionaries the last one found.
 translateFrom : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> FC -> Name -> Core (Maybe FnId)
 translateFrom fc main = do
+  count "pass"
+  progress "PASS"
   update TState nextPass
   Just inst <- noting (request fc (show main) main [])
     | Nothing => pure Nothing
@@ -142,7 +154,8 @@ translateIOProgram : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                      FC -> Name -> Core (Maybe Source)
 translateIOProgram fc main = do
   Just inst <- translateFrom fc main
-    | Nothing => pure Nothing
+    | Nothing => do dump "translate (failed)"; pure Nothing
+  dump "translate"
   st <- get TState
   let [<] = st.rejected
     | _ => pure Nothing

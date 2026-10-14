@@ -15,6 +15,7 @@ import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Recursion
 import IdrisMLIR.Frontend.Translate.State
+import IdrisMLIR.Frontend.Translate.Prof
 import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Ids
 import IdrisMLIR.Rule
@@ -74,6 +75,7 @@ growing fc owner n base kinds = do
     from : Maybe FnId -> Core ()
     from Nothing = pure ()
     from (Just inst) = do
+      count "growing.step"
       st <- get TState
       let Just r = lookup inst st.requesters
         | Nothing => pure ()
@@ -96,13 +98,14 @@ growing fc owner n base kinds = do
 export
 request : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
           FC -> String -> Name -> List PKind -> Core FnId
-request fc owner n kinds = do
-  inst <- MkFnId <$> instanceName n (map staticOf kinds)
-  base <- nameKey <$> toFullNames n
+request fc owner n kinds = timed "request" $ do
+  inst <- MkFnId <$> timed "request.instanceName" (instanceName n (map staticOf kinds))
+  base <- nameKey <$> timed "request.toFullNames" (toFullNames n)
   st <- get TState
   unless (contains inst st.seen) $ do
-    checkRecursion n
-    growing fc owner n base kinds
+    count "request.new"
+    timed "request.checkRecursion" (checkRecursion n)
+    timed "request.growing" (growing fc owner n base kinds)
     let count = fromMaybe 0 (lookup base st.perName)
     when (count >= instanceBudget) $
       reject fc owner CompileBudget ("more than " ++ show instanceBudget ++ " instances of " ++ base)
@@ -166,7 +169,7 @@ neededShape owner rest shape = go 0
     go : Nat -> Core (Maybe ClosedTerm)
     go d =
       if d > shapeDepth shape then pure (Just shape) else do
-        ty <- normaliseClosed (rest (cutShape unknownPart d shape))
+        ty <- timed "neededShape.norm" (normaliseRepr (rest (cutShape unknownPart d shape)))
         if !(outsideIndices mentionsUnknown owner ty)
            then go (S d)
            else pure (if d == 0 then Nothing else Just (cutShape (Erased EmptyFC Impossible) d shape))
@@ -194,29 +197,28 @@ skip = Data.List.drop 1
 
 ||| Walks a callee's type over its arguments: which are type parameters or
 ||| implementations, which are erased, which are runtime (and their types).
-export
-classify : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+classifyGo : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
            FC -> String -> Nat -> ClosedTerm -> ArgValues ->
            Core (List PKind, ClosedTerm)
-classify fc owner Z ty _ = pure ([], ty)
-classify fc owner (S k) (Bind bfc _ (Pi _ rig _ a) sc) vals = do
-  a' <- normaliseClosed a
+classifyGo fc owner Z ty _ = pure ([], ty)
+classifyGo fc owner (S k) (Bind bfc _ (Pi _ rig _ a) sc) vals = do
+  a' <- timed "classify.norm.binder" (normaliseRepr a)
   if isErased rig && isTypeLike a'
      then do
        let (Just v, vals') = nextStatic vals
          | _ => reject fc owner StaticArgument "a type argument that is not known statically"
-       val <- v.normalised
-       (rest, res) <- classify fc owner k !(normaliseClosed (subst val sc)) vals'
+       val <- timed "classify.argNormalised" v.normalised
+       (rest, res) <- classifyGo fc owner k !(timed "classify.norm.rest" (normaliseRepr (subst val sc))) vals'
        pure (TypeParam val :: rest, res)
      else if isErased rig
        then do
-         (rest, res) <- classify fc owner k (subst (Erased bfc Placeholder) sc) (skip vals)
+         (rest, res) <- classifyGo fc owner k (subst (Erased bfc Placeholder) sc) (skip vals)
          pure (ValueParam Gone Nothing :: rest, res)
      else if !(dictionaryBinder rig a') || maybe False (.dictionary) (fst (nextStatic vals))
        then do
          let (Just v, vals') = nextStatic vals
            | _ => reject fc owner StaticArgument "an implementation that is not known statically"
-         written <- v.written
+         written <- timed "classify.argWritten" v.written
          -- An implementation can be a function of a runtime value
          -- (`{y : a} -> Show (p y)`, applied to the first component of a
          -- dependent pair), which Idris resolved at every value: constant
@@ -224,15 +226,15 @@ classify fc owner (S k) (Bind bfc _ (Pi _ rig _ a) sc) vals = do
          -- What the function returns is then a compile-time value, seen
          -- once the projections and applications that lead to it are
          -- reduced; one that still needs the value is chosen at runtime.
-         val <- if !(runtimeDependent written) then implementationOf 64 written else pure written
-         when !(runtimeDependent val) $
+         val <- if !(runtimeDependent written) then timed "classify.implementationOf" (implementationOf 64 written) else pure written
+         when !(runtimeDependent val) $ do
            reject fc owner RuntimeClosure ("an implementation chosen at runtime: " ++ !(showTT val))
-         (rest, res) <- classify fc owner k !(normaliseClosed (subst val sc)) vals'
+         (rest, res) <- classifyGo fc owner k !(timed "classify.norm.rest" (normaliseRepr (subst val sc))) vals'
          pure (DictParam val :: rest, res)
        else do
-         when !(erasedOutsideIndices owner a') $
+         when !(timed "classify.erasedOutsideIndices" (erasedOutsideIndices owner a')) $ do
            reject fc owner ValueType ("a parameter type that depends on another argument: " ++ !(showTT a'))
-         t <- coreType fc owner ValueType a'
+         t <- timed "classify.coreType" (coreType fc owner ValueType a')
          -- The rest of the type may have to reduce on the parameter's value
          -- (`treeDelete : (n : Nat) -> ... -> Either (Tree n k v o) (delType n k v o)`
          -- in Data.SortedMap, where `delType` reduces on the constructors of
@@ -255,15 +257,21 @@ classify fc owner (S k) (Bind bfc _ (Pi _ rig _ a) sc) vals = do
          let (v, vals') = nextStatic vals
          shape <- case (isNothing (shrink sc (Drop Refl)), v) of
            (True, Just arg) => do
-             Just found <- argumentShape owner (\x => subst x sc) arg
+             Just found <- timed "classify.argumentShape" (argumentShape owner (\x => subst x sc) arg)
                | Nothing => pure Nothing
-             neededShape owner (\x => subst x sc) found
+             timed "classify.neededShape" (neededShape owner (\x => subst x sc) found)
            _ => pure Nothing
          let value = fromMaybe (Erased bfc Placeholder) shape
-         (rest, res) <- classify fc owner k !(normaliseClosed (subst value sc)) vals'
+         (rest, res) <- classifyGo fc owner k !(timed "classify.norm.rest" (normaliseRepr (subst value sc))) vals'
          pure (ValueParam (Held (useOf rig) t) shape :: rest, res)
-classify fc owner (S k) ty vals = do
-  ty' <- normaliseClosed ty
+classifyGo fc owner (S k) ty vals = do
+  ty' <- timed "classify.norm.head" (normaliseRepr ty)
   case ty' of
-    Bind {} => classify fc owner (S k) ty' vals
+    Bind {} => classifyGo fc owner (S k) ty' vals
     _ => internal fc "more arguments than the type has binders"
+
+export
+classify : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+           FC -> String -> Nat -> ClosedTerm -> ArgValues ->
+           Core (List PKind, ClosedTerm)
+classify fc owner n ty vals = timedSz "classify" (cast n) (classifyGo fc owner n ty vals)

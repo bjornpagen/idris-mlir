@@ -12,6 +12,7 @@ import Core.TT
 import Libraries.Data.List.SizeOf
 
 import IdrisMLIR.Frontend.Translate.Errors
+import IdrisMLIR.Frontend.Translate.Prof
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Rule
 import IdrisMLIR.Term
@@ -104,7 +105,24 @@ closeNormalise : {auto c : Ref Ctxt Defs} -> {vars : Scope} ->
 closeNormalise fc env tm = do
   let closed = foldl (App fc) (wrapLams fc tm) (reverse (map value env))
   defs <- get Ctxt
-  normaliseAll defs [] closed
+  seenBefore "norm.close" closed
+  let sz = ttSize closed
+  when !tracing $ trace ("norm.close enter size " ++ show sz ++ " " ++ substr 0 400 (show !(toFullNames closed)))
+  r <- timedSz "norm.close" sz (normaliseAll defs [] closed)
+  when !tracing $ trace ("norm.close exit size " ++ show (ttSize r))
+  pure r
+  where
+    value : VarInfo a -> ClosedTerm
+    value (TypeValue t) = t
+    value (Static t) = t
+    value (Shaped _ _ s) = s
+    value (Runtime _ _) = Erased fc Placeholder
+
+||| A term in scope closed over the values the environment gives its
+||| variables (`closeNormalise`'s, before normalisation).
+export
+closeApplied : {vars : Scope} -> FC -> List (VarInfo a) -> TT vars -> ClosedTerm
+closeApplied fc env tm = foldl (App fc) (wrapLams fc tm) (reverse (map value env))
   where
     value : VarInfo a -> ClosedTerm
     value (TypeValue t) = t
@@ -189,7 +207,7 @@ solved tm =
   if hasMeta tm
      then do
        defs <- get Ctxt
-       normaliseHoles defs [] tm
+       timed "solved.normaliseHoles" (normaliseHoles defs [] tm)
      else pure tm
 
 ||| A metavariable applied to its arguments, as the solution the type checker
@@ -238,7 +256,7 @@ quantities n = do
 ||| `n`, while `MkBox {v = n}` holds `n` itself.
 export
 runtimeDependent : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core Bool
-runtimeDependent = go
+runtimeDependent t = timed "runtimeDependent" (go t)
   where
     anyM : List (TT vs) -> (TT vs -> Core Bool) -> Core Bool
     anyM [] f = pure False
@@ -278,7 +296,12 @@ export
 normaliseClosed : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core ClosedTerm
 normaliseClosed tm = do
   defs <- get Ctxt
-  normaliseAll defs [] tm
+  seenBefore "norm.closed" tm
+  let sz = ttSize tm
+  when !tracing $ trace ("norm.closed enter size " ++ show sz ++ " " ++ substr 0 400 (show !(toFullNames tm)))
+  r <- timedSz "norm.closed" sz (normaliseAll defs [] tm)
+  when !tracing $ trace ("norm.closed exit size " ++ show (ttSize r))
+  pure r
 
 ||| A projection: a definition that matches one of its parameters against
 ||| one constructor and returns one of that constructor's arguments, as
@@ -334,7 +357,7 @@ mutual
       normalised : Core (Maybe (Name, List ClosedTerm))
       normalised = do
         defs <- get Ctxt
-        tm' <- normalise defs [] tm
+        tm' <- timed "whnf.normalise" (normalise defs [] tm)
         pure (case spineC tm' [] of
                 (Ref _ (DataCon _ _) n, args) => Just (n, args)
                 _ => Nothing)
@@ -395,7 +418,7 @@ erasedArgs n = do
 ||| says nothing to the reader.
 export
 showTT : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core String
-showTT tm = show <$> toFullNames tm
+showTT tm = timed "showTT" (show <$> toFullNames tm)
 
 ||| What a shape says a value was built with: a constructor, with the
 ||| shapes of its arguments. A shape that is no constructor application (an

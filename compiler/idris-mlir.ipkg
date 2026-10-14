@@ -42,6 +42,7 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Emit.Declarations
         , IdrisMLIR.Emit
         , IdrisMLIR.Frontend.Resolve
+        , IdrisMLIR.Frontend.Translate.Prof
         , IdrisMLIR.Frontend.Translate.State
         , IdrisMLIR.Frontend.Translate.Errors
         , IdrisMLIR.Frontend.Translate.Closed

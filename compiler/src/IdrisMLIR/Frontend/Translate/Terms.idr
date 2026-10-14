@@ -17,6 +17,7 @@ import IdrisMLIR.Frontend.Translate.Hooks
 import IdrisMLIR.Frontend.Translate.Instances
 import IdrisMLIR.Frontend.Translate.Primitives
 import IdrisMLIR.Frontend.Translate.State
+import IdrisMLIR.Frontend.Translate.Prof
 import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
@@ -142,7 +143,7 @@ mutual
        else Let loc (useOf rig) <$> term ctx env val <*> term ctx env' sc
   term ctx env (Bind fc x (Lam lfc rig _ ty) sc) = do
     loc <- toLoc (bestFC ctx fc)
-    b <- binderOf rig (coreType (bestFC ctx fc) ctx.owner ValueType !(closeNormalise fc env ty))
+    b <- binderOf rig (coreType (bestFC ctx fc) ctx.owner ValueType !(timed "term.lam.closeNormalise" (closeNormaliseRepr fc env ty)))
     body <- term ctx (under {k = 1} [Runtime FZ (Just (typeOf b))] env) sc
     pure (Lam loc b body)
   term ctx env (TDelay fc _ _ arg) = suspend ctx env fc arg
@@ -174,6 +175,8 @@ mutual
     -- What a hook lowers a call of this definition to stands for it, the
     -- registry's entry it applied.
     let lowered = Just (shown (show full))
+    _ <- timed "hooksOf.one" (pure () >>= \_ => pure (length (hooksOf full)))
+    _ <- timed "application.lookupDef" (lookupDef fc ctx.owner name)
     case definition def of
       -- A hook for the identity on the one runtime argument, the last its
       -- type takes (`replace`, `rewrite__impl`, which `rewrite` elaborates
@@ -242,7 +245,7 @@ mutual
       isImplementation _ = False
 
       argValue : TT vars -> Maybe ArgValue
-      argValue x = Just (MkArgValue (closeNormalise afc env x) (solved (closeWritten afc env x)) (isImplementation x))
+      argValue x = Just (MkArgValue (timed "argValue.closeNormalise" (closeNormaliseRepr afc env x)) (timed "argValue.written" (solved (closeWritten afc env x))) (isImplementation x))
 
       argValues : List (TT vars) -> ArgValues
       argValues = map argValue
@@ -264,7 +267,7 @@ mutual
 
       call : FC -> Loc -> Name -> Maybe Shown -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term nv)
       call fc loc name lowered arity ty xs = do
-        (kinds, _) <- classify fc ctx.owner arity ty (argValues (take arity xs))
+        (kinds, _) <- timed "call.classify" (classify fc ctx.owner arity ty (argValues (take arity xs)))
         inst <- request fc ctx.owner name kinds
         given <- arguments loc kinds (take arity xs)
         finish loc kinds given (Call loc inst lowered) (drop arity xs)
@@ -369,12 +372,12 @@ mutual
 
       constructor : FC -> Loc -> GlobalDef -> Nat -> List (TT vars) -> Core (Term nv)
       constructor fc loc def arity xs = do
-        (kinds, resTy) <- classify fc ctx.owner arity (type def) (argValues (take arity xs))
+        (kinds, resTy) <- timed "con.classify" (classify fc ctx.owner arity (type def) (argValues (take arity xs)))
         given <- arguments loc kinds (take arity xs)
         case natRole def of
           Just role => natConstructor fc loc role kinds given (drop arity xs)
           Nothing => do
-            DataT inst <- coreType fc ctx.owner ValueType !(normaliseClosed resTy)
+            DataT inst <- timed "con.coreType" (coreType fc ctx.owner ValueType !(normaliseRepr resTy))
               | _ => internal fc "a constructor of a type that is not data"
             -- The data type's parameters are not fields, wherever they are
             -- among the constructor's arguments; a type argument that is
@@ -388,7 +391,7 @@ mutual
             -- field holds, for the whole program.
             for_ (zip [0 .. length fieldKinds] fieldKinds) $ \(i, kind) =>
               case (Data.List.lookup i info.dicts, kind) of
-                (Just ty, DictParam t) => recordDictionary fc ctx.owner cid ty i t
+                (Just ty, DictParam t) => timed "recordDictionary" (recordDictionary fc ctx.owner cid ty i t)
                 (Just _, _) => internal fc ("a runtime value for a dictionary field of " ++ cid.name)
                 (Nothing, DictParam _) => internal fc ("an implementation for a runtime field of " ++ cid.name)
                 _ => pure ()
@@ -458,7 +461,7 @@ mutual
         (kinds, resTy) <- classify fc ctx.owner arity ty []
         if primPerformsIO p
            then do
-             result <- normaliseClosed resTy
+             result <- normaliseRepr resTy
              DataT res <- coreType fc ctx.owner ValueType result
                | _ => internal fc "an IO primitive with an unexpected type"
              tys <- wordOf p kinds result
@@ -539,7 +542,7 @@ mutual
       arrayCall fc loc arity p ty xs = do
         (kinds, [el], given, resTy) <- arrayOperands fc loc arity ty xs
           | _ => internal fc "an array primitive without its one element type"
-        DataT res <- coreType fc ctx.owner ValueType !(normaliseClosed resTy)
+        DataT res <- coreType fc ctx.owner ValueType !(normaliseRepr resTy)
           | _ => internal fc "an array primitive with an unexpected type"
         finish loc kinds given (\ys => Effect loc p [el] ys res) (drop arity xs)
 
@@ -552,7 +555,7 @@ mutual
       arrayLoop : FC -> Loc -> IdrRegionPrim -> Name -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term nv)
       arrayLoop fc loc loop name arity ty xs = do
         (kinds, tys, given, resTy) <- arrayOperands fc loc arity ty xs
-        DataT res <- coreType fc ctx.owner ValueType !(normaliseClosed resTy)
+        DataT res <- coreType fc ctx.owner ValueType !(normaliseRepr resTy)
           | _ => internal fc "an array loop with an unexpected type"
         if all word tys
            then finish loc kinds given (loopTerm loc loop tys res) (drop arity xs)

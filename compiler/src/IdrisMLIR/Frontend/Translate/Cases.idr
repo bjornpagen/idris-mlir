@@ -11,6 +11,7 @@ import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Dictionaries
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.State
+import IdrisMLIR.Frontend.Translate.Prof
 import IdrisMLIR.Frontend.Translate.Terms
 import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Ids
@@ -83,7 +84,7 @@ siblings alts = case mapMaybe conName alts of
 ||| instances no value needs (one a constructor deeper, where a shape keys
 ||| the instance), is not translated.
 defaultDead : {auto c : Ref Ctxt Defs} -> Maybe ClosedTerm -> List (CaseAlt vars) -> Core Bool
-defaultDead shape alts = do
+defaultDead shape alts = timed "defaultDead" $ do
   named <- traverse toFullNames (mapMaybe conName alts)
   every <- traverse toFullNames !(siblings alts)
   built <- case the (Maybe (Name, List ClosedTerm)) (shape >>= shapeHead) of
@@ -310,7 +311,7 @@ mutual
   staticCase : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                Ctx -> List (VarInfo (Fin nv)) -> List (Maybe Typed) -> ClosedTerm -> List (CaseAlt vars) -> Core (Term nv)
   staticCase ctx env tys t alts = do
-    Just (cn, cargs) <- whnf 64 t
+    Just (cn, cargs) <- timed "staticCase.whnf" (whnf 64 t)
       | Nothing => reject ctx.fc ctx.owner RuntimeClosure
                      ("an implementation that does not reduce to its constructor: " ++ !(showTT t))
     cn <- toFullNames cn
@@ -362,7 +363,7 @@ mutual
                                          (Nothing, Runtime x (Just t), Just s) => shaped x t s
                                          _ => f)
                              [0 .. length bs] (fieldInfos {nv} bs)
-        eqs <- equated (length args) (type def) scTy
+        eqs <- timed "equated" (equated (length args) (type def) scTy)
         tree ctx (bindEquated (length args) eqs (under {k = length info.con.fields} (arrange info.layout info.params fields) env))
              !(alternativeTypes cn (length args) tys) rhs
       Nothing => Unreachable <$> toLoc ctx.fc

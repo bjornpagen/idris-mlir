@@ -15,6 +15,7 @@ import Libraries.Data.SparseMatrix
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.State
+import IdrisMLIR.Frontend.Translate.Prof
 import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Rule
 
@@ -50,6 +51,7 @@ record Search where
 ||| A definition as a node, with its calls to definitions that exist.
 node : {auto c : Ref Ctxt Defs} -> Name -> Core (Maybe Node)
 node n = do
+  count "recursion.node"
   defs <- get Ctxt
   Just def <- lookupCtxtExact n (gamma defs)
     | Nothing => pure Nothing

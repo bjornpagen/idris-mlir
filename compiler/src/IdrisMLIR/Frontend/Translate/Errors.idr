@@ -9,6 +9,7 @@ import Core.TT
 
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.State
+import IdrisMLIR.Frontend.Translate.Prof
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.Registry.Libraries
@@ -16,6 +17,8 @@ import IdrisMLIR.Rule
 
 import Data.Maybe
 import Data.SnocList
+import Data.IORef
+import Data.SortedMap
 
 %default covering
 
@@ -49,6 +52,7 @@ noting : {auto s : Ref TState TS} -> Core a -> Core (Maybe a)
 noting part = catch (Just <$> part) $ \err => case err of
   InternalError _ => throw err
   _ => do
+    count "noting.caught"
     st <- get TState
     let shown = show err
     unless (any (\e => show e == shown) st.rejected) $
@@ -67,15 +71,33 @@ rejections = pure ((!(get TState)).rejected <>> [])
 
 ||| An Idris location as a Core location, with the source file resolved and
 ||| the origin the registry gives its module. A package file is in no module.
+%noinline
+modMemo : Lazy (IORef (SortedMap String (Origin, String)))
+modMemo = delay (unsafePerformIO (mkRef 8 empty))
+
 export
 toLoc : {auto c : Ref Ctxt Defs} -> FC -> Core Loc
-toLoc fc@(MkFC (PhysicalIdrSrc ident) (sl, sc) (el, ec)) = do
-  file <- fromMaybe "" <$> moduleSource fc ident
-  pure (MkLoc !(originOf ident) (shown (show ident)) file sl sc el ec)
-toLoc (MkFC (PhysicalPkgSrc file) (sl, sc) (el, ec)) = pure (MkLoc Generated (shown "") file sl sc el ec)
-toLoc (MkVirtualFC (PhysicalIdrSrc ident) (sl, sc) (el, ec)) =
-  toLoc (MkFC (PhysicalIdrSrc ident) (sl, sc) (el, ec))
-toLoc _ = pure noLoc
+toLoc fc = timed "toLoc" (toLoc' fc)
+  where
+    moduleFacts : FC -> ModuleIdent -> Core (Origin, String)
+    moduleFacts fc ident = do
+      file <- fromMaybe "" <$> timed "toLoc.moduleSource" (moduleSource fc ident)
+      origin <- timed "toLoc.originOf" (originOf ident)
+      pure (origin, file)
+    toLoc' : FC -> Core Loc
+    toLoc' fc@(MkFC (PhysicalIdrSrc ident) (sl, sc) (el, ec)) = do
+      (origin, file) <- if not fixLoc then moduleFacts fc ident else do
+        let k = show ident
+        Nothing <- lookup k <$> coreLift (readIORef (force modMemo))
+          | Just r => pure r
+        r <- moduleFacts fc ident
+        coreLift (modifyIORef (force modMemo) (insert k r))
+        pure r
+      pure (MkLoc origin (shown (show ident)) file sl sc el ec)
+    toLoc' (MkFC (PhysicalPkgSrc file) (sl, sc) (el, ec)) = pure (MkLoc Generated (shown "") file sl sc el ec)
+    toLoc' (MkVirtualFC (PhysicalIdrSrc ident) (sl, sc) (el, ec)) =
+      toLoc' (MkFC (PhysicalIdrSrc ident) (sl, sc) (el, ec))
+    toLoc' _ = pure noLoc
 
 ||| A Core location as an Idris location, for errors raised after
 ||| translation: the module is the one Idris named.

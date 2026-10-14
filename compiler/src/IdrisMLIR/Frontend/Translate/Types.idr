@@ -9,6 +9,7 @@ import Core.Env
 import Core.Hash
 import Core.Normalise
 import Core.TT
+import Core.Value
 import Libraries.Data.NatSet
 
 import IdrisMLIR.Frontend.Resolve
@@ -16,6 +17,7 @@ import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Hooks
 import IdrisMLIR.Frontend.Translate.State
+import IdrisMLIR.Frontend.Translate.Prof
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.Rule
@@ -62,22 +64,24 @@ instanceName : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                Name -> List (Maybe ClosedTerm) -> Core String
 instanceName n args = do
   n' <- toFullNames n
-  args' <- traverse (\a => case a of
+  args' <- timedSz "instanceName.toFullNames" (sum (map (maybe 0 ttSize) args)) (traverse (\a => case a of
                              Just t => Just <$> toFullNames t
-                             Nothing => pure Nothing) args
+                             Nothing => pure Nothing) args)
   st <- get TState
   -- Instances are bucketed by a hash of their arguments, so a request
   -- compares its arguments with the few instances in its bucket, not with
   -- every instance of the definition.
-  let key = nameKey n' ++ "#" ++ show (hash args')
+  key <- timed "instanceName.hash" (pure () >>= \_ => pure (nameKey n' ++ "#" ++ show (hash args')))
   let same = fromMaybe [] (lookup key st.named)
+  count ("instanceName.bucket." ++ show (length same))
   -- An instance already named is found by its arguments; only a new one
   -- is printed, since printing a dictionary's normal form is the costly
   -- part and most requests are repeats.
-  case find ((== args') . fst) same of
+  found <- timed "instanceName.find" (pure () >>= \_ => pure (find ((== args') . fst) same))
+  case found of
     Just (_, name) => pure name
     Nothing => do
-      shown <- traverse showTT (catMaybes args')
+      shown <- timed "instanceName.show" (traverse showTT (catMaybes args'))
       let printed = nameKey n' ++ (if null shown then "" else "[" ++ joinBy ", " shown ++ "]")
       let owners = fromMaybe [] (lookup printed st.owners)
       let name = suffixed printed (length owners)
@@ -203,8 +207,8 @@ mentionsMarker _ _ = False
 ||| has values of one representation, so one instance serves them all, and
 ||| a type abstraction over it, `{0 s : Type} -> ST s Int`, is a value of
 ||| that one instance once applied to whatever type.
-typeParams : {auto c : Ref Ctxt Defs} -> GlobalDef -> Core (List Nat)
-typeParams def = case definition def of
+typeParamsGo : {auto c : Ref Ctxt Defs} -> GlobalDef -> Core (List Nat)
+typeParamsGo def = case definition def of
   TCon arity _ _ _ _ cons _ => do
     params <- dataParams def
     defs <- get Ctxt
@@ -217,7 +221,7 @@ typeParams def = case definition def of
     let types = filter (\i => elem i params && not (fromMaybe False (getAt i values))) [0 .. minus arity 1]
     tys <- traverse (\n => map (map type) (lookupCtxtExact n (gamma defs))) (fromMaybe [] cons)
     -- Without its constructors, every type parameter counts.
-    case the (Maybe (List ClosedTerm)) (sequence tys) of
+    if null types then pure [] else case the (Maybe (List ClosedTerm)) (sequence tys) of
       Just ts@(_ :: _) => do
         conTys <- traverse normaliseClosed ts
         pure (filter (\i => any (represents i) conTys) types)
@@ -252,14 +256,106 @@ typeParams def = case definition def of
     kinds (Bind _ _ (Pi _ _ _ a) sc) = valueKind a :: kinds sc
     kinds _ = []
 
+typeParams : {auto c : Ref Ctxt Defs} -> GlobalDef -> Core (List Nat)
+typeParams def = if not fixTP then typeParams' def else do
+  let k = show (fullname def)
+  Nothing <- lookupTP k
+    | Just r => pure r
+  r <- typeParams' def
+  insertTP k r
+  pure r
+  where
+    typeParams' : GlobalDef -> Core (List Nat)
+    typeParams' def = timed "typeParams.compute" (typeParamsGo def)
+
 ||| The type arguments of a type constructor, and its arity.
 paramPositions : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                  String -> Name -> Core (Maybe (Nat, List Nat))
-paramPositions owner n = do
-  def <- lookupDef EmptyFC owner n
-  case definition def of
-    TCon arity _ _ _ _ _ _ => pure (Just (arity, !(typeParams def)))
-    _ => pure Nothing
+paramPositions owner n = timed "paramPositions" $ if not fixTP then compute else do
+  Nothing <- lookupPP n
+    | Just r => pure r
+  r <- compute
+  insertPP n r
+  pure r
+  where
+    compute : Core (Maybe (Nat, List Nat))
+    compute = do
+      def <- lookupDef EmptyFC owner n
+      case definition def of
+        TCon arity _ _ _ _ _ _ => pure (Just (arity, !(typeParams def)))
+        _ => pure Nothing
+
+||| A closed type normalised as far as a representation reads it: to its
+||| head, and then, under a function type, the binder's type and the
+||| scope; under a suspension, what it suspends; and under a type
+||| constructor, its type parameters (`typeParams`), each in turn. Every
+||| other argument of a type constructor, an index or a value parameter,
+||| is erased: no representation reads it (`dataInstance` erases it too),
+||| and it may be any computation on a runtime value (`Tree (parse wdir)`),
+||| which the compiler must not run. Anything else is its normal form.
+export
+normaliseTypeKeeping : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Maybe Name -> ClosedTerm -> Core ClosedTerm
+normaliseTypeKeeping own tm = timedSz "normaliseType" (ttSize tm) $ do
+  defs <- get Ctxt
+  when !tracing $ trace ("normaliseType enter " ++ substr 0 300 (show !(toFullNames tm)))
+  r <- go defs 0 True !(nfOpts withAll defs [] tm)
+  when !tracing $ trace "normaliseType exit"
+  pure r
+  where
+    under : Defs -> Int -> Bool -> FC -> (x : Name) -> (Defs -> Closure [] -> Core (NF [])) -> Core (Term [x])
+    -- `top`: the result type of a constructor's type, whose arguments
+    -- (`own`'s, all of them) say where its parameters are.
+    go : Defs -> Int -> Bool -> NF [] -> Core ClosedTerm
+    go defs k top (NTCon fc n ar args) = do
+      mine <- if top && isJust own then (\f => Just f == own) <$> toFullNames n else pure False
+      keep <- the (Core (List Nat)) $ if mine then pure [0 .. length args] else do
+        Just (_, keep) <- paramPositions "" n
+          | Nothing => pure [0 .. length args]
+        pure keep
+      args' <- traverse (\(i, (afc, cl)) =>
+                           if Prelude.Types.elem i keep then (afc,) <$> go defs k False !(evalClosure defs cl)
+                                          else pure (afc, Erased afc Placeholder))
+                        (zip [0 .. length args] args)
+      pure (applyStackWithFC (Ref fc (TyCon ar) n) args')
+    go defs k top (NBind fc x (Pi pfc rig pinfo a) sc) = do
+      a' <- go defs k False !(evalClosure defs a)
+      pinfo' <- traverse (quote defs []) pinfo
+      pure (Bind fc x (Pi pfc rig pinfo' a') !(under defs k top fc x sc))
+    go defs k top (NBind fc x (Lam pfc rig pinfo a) sc) = do
+      a' <- go defs k False !(evalClosure defs a)
+      pinfo' <- traverse (quote defs []) pinfo
+      pure (Bind fc x (Lam pfc rig pinfo' a') !(under defs k False fc x sc))
+    go defs k top (NDelayed fc r t) = TDelayed fc r <$> go defs k False t
+    go defs k top nf = do
+      when !tracing $ trace "normaliseType quote"
+      quote defs [] nf
+
+    under defs k top fc x sc = do
+      let var = MN "idris-mlir-pi" k
+      body <- go defs (k + 1) top !(sc defs (toClosure defaultOpts [] (Ref fc Bound var)))
+      pure (refsToLocals (Add x var None) body)
+
+export
+normaliseType : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> ClosedTerm -> Core ClosedTerm
+normaliseType = normaliseTypeKeeping Nothing
+
+||| `closeNormalise` as far as a representation reads the term
+||| (`normaliseType`).
+export
+closeNormaliseType : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
+                     FC -> List (VarInfo a) -> TT vars -> Core ClosedTerm
+closeNormaliseType fc env tm = normaliseType (closeApplied fc env tm)
+
+||| The normaliser a representation's consumer uses: the full normal form,
+||| or, with the measured fix, `normaliseType`.
+export
+normaliseRepr : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> ClosedTerm -> Core ClosedTerm
+normaliseRepr = if fixRepr then normaliseType else normaliseClosed
+
+export
+closeNormaliseRepr : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
+                     FC -> List (VarInfo a) -> TT vars -> Core ClosedTerm
+closeNormaliseRepr fc env tm = if fixRepr then closeNormaliseType fc env tm else closeNormalise fc env tm
 
 ||| Does a type mention what the test picks other than as an index of an
 ||| inductive family? Indices exist at compile time only, so a type that
@@ -284,6 +380,14 @@ outsideIndices picks owner (Bind bfc _ (Pi _ _ _ a) sc) = do
 -- A suspension of a type depends on what the type depends on: `coreType`
 -- represents `Lazy t` as a suspension of `t`'s representation.
 outsideIndices picks owner (TDelayed _ _ t) = outsideIndices picks owner t
+-- A type-level function (the second component's type of a dependent pair)
+-- as a function type, when the representation normaliser has erased its
+-- indices.
+outsideIndices picks owner tm@(Bind bfc _ (Lam _ _ _ a) sc) =
+  if not fixRepr then pure (picks tm) else do
+    inA <- outsideIndices picks owner a
+    inB <- outsideIndices picks owner (subst (Erased bfc Placeholder) sc)
+    pure (inA || inB)
 outsideIndices picks owner tm = case spine tm [] of
   (Ref _ (TyCon _) n, args) => do
     Just (_, ps) <- paramPositions owner n
@@ -441,26 +545,30 @@ mutual
     let rest = subst (Erased bfc Placeholder) sc
     when (not (isErased rig) && !(erasedOutsideIndices owner rest)) $
       reject fc owner rule "a function type that depends on its argument"
-    rt <- coreType fc owner rule !(normaliseClosed rest)
+    rt <- coreType fc owner rule !(timed "coreType.normRest" (normaliseRepr rest))
     pure (FunT arg rt)
   -- `Inf` is a suspension like `Lazy`.
   coreType fc owner rule (TDelayed _ _ t) = LazyT <$> coreType fc owner rule t
   coreType fc owner rule tm = case spine tm [] of
     (Ref rfc (TyCon _) n, args) => do
-      def <- lookupDef fc owner n
+      def <- timed "coreType.lookupDef" (lookupDef fc owner n)
       -- A word type is a machine word whatever its arguments: what a
       -- `Ptr t` points to names what its handle holds, not its
       -- representation.
-      if !(natLike def)
+      nl <- timed "coreType.natLike" (natLike def)
+      _ <- timed "coreType.hooks" (pure () >>= \_ => pure (isWordType (hooksOf (fullname def))))
+      if nl
          then pure NatT
          else if isWordType (hooksOf (fullname def))
            then pure (IntT UInt64)
          else case arrayElementOf (hooksOf (fullname def)) of
            Just (r, Just e) => pure (ArrayT r e)
            Just (r, Nothing) => case args of
-             [a] => ArrayT r <$> coreType fc owner rule !(normaliseClosed a)
+             [a] => ArrayT r <$> coreType fc owner rule !(normaliseRepr a)
              _ => internal fc "the array type without its one element type"
-           Nothing => DataT <$> dataInstance fc owner n !(traverse normaliseClosed args)
+           Nothing => DataT <$> dataInstance fc owner n !(timed "coreType.normArgs"
+                                                      (if fixRepr then (\t => snd (spine t [])) <$> normaliseType tm
+                                                                  else traverse normaliseClosed args))
     (TType _ _, _) => reject fc owner rule "Type in a runtime position"
     (Erased _ _, _) => reject fc owner rule "a type that depends on a runtime or erased value"
     _ => reject fc owner rule ("unsupported runtime type " ++ !(showTT tm))
@@ -469,16 +577,16 @@ mutual
   export
   dataInstance : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                  FC -> String -> Name -> List ClosedTerm -> Core DataId
-  dataInstance fc owner tcon args0 = do
+  dataInstance fc owner tcon args0 = timed "dataInstance" $ do
     def <- lookupDef fc owner tcon
     let tname = show (fullname def)
     -- An index is compile-time information; instances differ by
     -- their parameters only.
-    keep <- typeParams def
-    args <- traverse (\(i, a) => if elem i keep then eraseIndices owner a
+    keep <- timed "dataInstance.typeParams" (typeParams def)
+    args <- timed "dataInstance.eraseIndices" $ traverse (\(i, a) => if elem i keep then eraseIndices owner a
                                   else pure (Erased EmptyFC Placeholder))
                      (zip [0 .. length args0] args0)
-    inst <- MkDataId <$> instanceName (fullname def) (map Just args)
+    inst <- MkDataId <$> timed "dataInstance.instanceName" (instanceName (fullname def) (map Just args))
     st <- get TState
     -- An instance being registered is referred to by its own fields when
     -- it is recursive; `assemble` makes it a box.
@@ -491,7 +599,8 @@ mutual
       put TState ({ building $= insert inst } st)
       loc <- toLoc (location def)
       let ps = params
-      conList <- traverse (constructor inst args ps keep) datacons
+      count "dataInstance.new"
+      conList <- timed "dataInstance.constructors" (traverse (constructor inst args ps keep) datacons)
       let sorted = sortBy (\a, b => compare a.tag b.tag) conList
       update TState { building $= delete inst
                     , datas $= insert inst (MkDecl inst (shown tname) sorted loc)
@@ -506,11 +615,11 @@ mutual
         walk cname dfc targs ls (subst (fromMaybe (Erased bfc Placeholder) (getAt p targs)) sc)
       walk cname dfc targs (Nothing :: ls) (Bind bfc _ (Pi _ rig _ a) sc) = do
         field <- if isErased rig then pure (Gone, Nothing) else do
-          a' <- normaliseClosed a
+          a' <- normaliseRepr a
           -- An implementation is a compile-time value of the instance, not
           -- a runtime field (`Dictionaries`).
           if !(dictionaryBinder rig a') then pure (Gone, Just a') else do
-            when !(erasedOutsideIndices cname a') $
+            when !(erasedOutsideIndices cname a') $ do
               reject dfc cname DependentField ("a field type that depends on another field: " ++ !(showTT a'))
             t <- coreType dfc cname DependentField a'
             pure (Held (useOf rig) t, Nothing)
@@ -528,7 +637,7 @@ mutual
         -- The type as written may hide its binders behind a definition
         -- (`a -@ b` is `(1 _ : a) -> b`); its normal form shows each one,
         -- with the quantity that makes a field linear.
-        ty <- normaliseClosed (type def)
+        ty <- if fixRepr then normaliseTypeKeeping (Just !(toFullNames tcon)) (type def) else normaliseClosed (type def)
         let layout = paramLayout ps keep ty
         -- Every match binds `arity` arguments: a layout of another length
         -- would misplace every field after the first difference.
