@@ -56,6 +56,16 @@ bytecode as the handoff format; and whole transforms cached by content
 key (bytecode of the input with locations stripped, plus pipeline
 identity), so a hit skips the passes entirely.
 
+Mojo is evidence here, not a template (*decision*, D6): where upstream
+MLIR has the mechanism — the inliner's own SCC order and async callable
+pipelines, `GreedyRewriteConfig`, analyses and their preservation,
+bytecode — this proposal uses upstream's, configured, and stays an
+in-tree dialect in upstream's conventions (AGENTS.md), because that is
+what survives LLVM pins. A Mojo-shaped custom replacement (their own
+canonicalizer, their own inliner) is taken only where a stage's record
+shows upstream cannot express the need, and then as the smallest
+upstream-shaped pass of our own, with the deviation recorded in PINS.md.
+
 The maximal version of this proposal is therefore not knob-tuning. It
 deletes the fixed-point round structure and replaces it with that shape,
 adapted to the facts only this compiler has: instances and specialization
@@ -157,14 +167,19 @@ fork-join runtime inside the compiler (our C++ side uses LLVM's pool,
 
 ## 4. The architecture after this proposal
 
-One pipeline, run once, in pipeline order — the Mojo shape with our
-facts kept where they live today (types, inherent attributes, analyses):
+One pipeline, run once, in pipeline order — the shape §3 evidences,
+built from upstream mechanisms first (D6), with our facts kept where
+they live today (types, inherent attributes, analyses):
 
 1. Isolate, Contify as today (already cheap at self scale; *measured*
    in F0, else they join the list).
 2. Duplicate-function elimination, then dead-symbol elimination: the
    module that enters optimization is the deduplicated one.
-3. One SCC pass over the call graph, bottom-up: per SCC, inline and
+3. One SCC pass over the call graph, bottom-up — upstream's inliner
+   first (its SCC order, async callable pipelines and iteration control,
+   with our decisions in its interface and preparation passes, where
+   they already live), a pass of our own only if F3's record shows the
+   interface cannot carry a decision we need: per SCC, inline and
    specialize decisions taken once from analyses (sizes, effects, holds —
    the facts RoundFacts computes today, computed once and preserved as
    analyses), with a fixed inner per-function pipeline (our Identity
@@ -308,3 +323,8 @@ measurement exists (*decision*; the absolute numbers land in F0's record):
 - D5. This proposal ends where 0006 begins: units, persisted cache and
   split codegen are sharding's, and F5 hands over by number, not by
   absorbing them.
+- D6. Upstream MLIR mechanisms first (§1): Mojo is evidence for what
+  works and what it costs, never the shape copied. A custom replacement
+  for an upstream pass or utility needs a stage record showing upstream
+  cannot express the need, and a PINS.md entry; a configuration of an
+  upstream mechanism needs neither.
