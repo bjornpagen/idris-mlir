@@ -109,6 +109,13 @@ void buildDeadValueRemoval(OpPassManager &pm) {
   pm.addPass(createSymbolDCEPass());
 }
 
+struct Census {
+  unsigned functions = 0, clones = 0;
+  uint64_t ops = 0;
+};
+
+Census takeCensus(ModuleOp module);
+
 struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
   using IdrSimplifyBase::IdrSimplifyBase;
   Simplify() = default;
@@ -117,7 +124,8 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
   // modules at once. The copy runs a copy of the loop (the composite copies
   // its round) and is handed a record of its own when it runs.
   Simplify(const Simplify &other)
-      : IdrSimplifyBase(other), loop(other.loop), removal(other.removal), limit(other.limit) {}
+      : IdrSimplifyBase(other), loop(other.loop), removal(other.removal), pre(other.pre),
+        delta(other.delta), post(other.post), limit(other.limit) {}
 
   LogicalResult initialize(MLIRContext *) override {
     limit = std::min(static_cast<unsigned>(maxRounds),
@@ -128,6 +136,12 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
                                                ConvergenceFailureAction::Silent));
     removal = OpPassManager(ModuleOp::getOperationName());
     buildDeadValueRemoval(removal);
+    pre = OpPassManager(ModuleOp::getOperationName());
+    idr::buildSimplifySCCPre(pre);
+    delta = OpPassManager(ModuleOp::getOperationName());
+    idr::buildSimplifySCCDelta(delta);
+    post = OpPassManager(ModuleOp::getOperationName());
+    idr::buildSimplifySCCPost(post);
     return success();
   }
 
@@ -140,6 +154,53 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
     OpPassManager dead(ModuleOp::getOperationName());
     buildDeadValueRemoval(dead);
     dead.getDependentDialects(registry);
+    OpPassManager scc(ModuleOp::getOperationName());
+    idr::buildSimplifySCCPre(scc);
+    idr::buildSimplifySCCDelta(scc);
+    idr::buildSimplifySCCPost(scc);
+    scc.getDependentDialects(registry);
+  }
+
+  // The SCC pipeline (--scc-pipeline): the pre step once, the delta
+  // while it makes clones (each delta decided once; specialization is
+  // finite by its own budget, and max-rounds bounds the deltas as it
+  // bounds rounds), the post step once -- then the same removal loop
+  // as the rounds: a removal that changed the module resumes the
+  // pipeline on what it exposed. The record's round count counts
+  // delta iterations, so the remarks and the budget error read the
+  // same under either loop.
+  LogicalResult runSCCPipeline(ModuleOp module) {
+    while (true) {
+      if (failed(runPipeline(pre, module)))
+        return failure();
+      while (true) {
+        // A delta ends when it changed nothing, by the same
+        // fingerprint the removal loop judges by: clone growth alone
+        // misses the inlining a delta's own canonicalization exposes
+        // (a call no clone was needed to reach).
+        OperationFingerPrint before(module.getOperation());
+        if (failed(runPipeline(delta, module)))
+          return failure();
+        ++rounds->closed;
+        ++numRounds;
+        if (rounds->closed > limit) {
+          emitError(module.getLoc())
+              << "unsupported (compile-time budget): idr-simplify did not "
+                 "reach a fixpoint in "
+              << static_cast<unsigned>(maxRounds) << " rounds";
+          return failure();
+        }
+        if (OperationFingerPrint(module.getOperation()) == before)
+          break;
+      }
+      if (failed(runPipeline(post, module)))
+        return failure();
+      OperationFingerPrint before(module.getOperation());
+      if (failed(runPipeline(removal, module)))
+        return failure();
+      if (OperationFingerPrint(module.getOperation()) == before)
+        return success();
+    }
   }
 
   Pass *composite() { return &*loop.getPasses().begin(); }
@@ -150,6 +211,11 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
       emitError(module.getLoc()) << "internal error: idr-simplify runs only under a pass manager "
                                     "that registered its instrumentation";
       return signalPassFailure();
+    }
+    if (sccPipeline) {
+      if (failed(runSCCPipeline(module)))
+        return signalPassFailure();
+      return;
     }
     // Upstream's pass takes a budget of one round at least; a budget of none
     // is spent before the first.
@@ -190,6 +256,8 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
   OpPassManager loop;
   // The removal between round fixpoints (buildDeadValueRemoval).
   OpPassManager removal;
+  // The SCC pipeline's three parts (--scc-pipeline).
+  OpPassManager pre, delta, post;
   // The rounds the loop may take, as many as upstream's pass can count.
   unsigned limit = 0;
   // This run's record, which the instrumentation opens before the run and
@@ -198,11 +266,6 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
 };
 
 // What the module holds after a round.
-struct Census {
-  unsigned functions = 0, clones = 0;
-  uint64_t ops = 0;
-};
-
 Census takeCensus(ModuleOp module) {
   Census census;
   for (idr::FuncOp fn : module.getOps<idr::FuncOp>()) {

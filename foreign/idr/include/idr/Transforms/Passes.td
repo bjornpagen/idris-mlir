@@ -610,6 +610,9 @@ def IdrSimplify : Pass<"idr-simplify", "::mlir::ModuleOp"> {
   let options = [
     Option<"maxRounds", "max-rounds", "unsigned", "64",
            "The round budget: the most rounds a fixpoint may take">,
+    Option<"sccPipeline", "scc-pipeline", "bool", "false",
+           "The bottom-up SCC pipeline instead of the rounds; max-rounds then "
+           "bounds its delta iterations">,
   ];
   let statistics = [
     Statistic<"numRounds", "rounds", "Rounds run">,

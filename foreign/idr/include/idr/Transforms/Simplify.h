@@ -23,6 +23,16 @@ namespace idr {
 // builtin.module, in order.
 void buildSimplifyRound(mlir::OpPassManager &pm);
 
+// The bottom-up SCC pipeline in three parts: what runs once before
+// inlining (effects, constants, loop breakers, the facts, the
+// per-function step), one delta iteration (inline, specialize, the
+// per-function step that reads the clones it made), and what runs
+// once after the deltas stop (constants, the per-function step,
+// symbol DCE). idr-simplify loops the delta while it makes clones.
+void buildSimplifySCCPre(mlir::OpPassManager &pm);
+void buildSimplifySCCDelta(mlir::OpPassManager &pm);
+void buildSimplifySCCPost(mlir::OpPassManager &pm);
+
 // The instrumentation that counts, times and traces the rounds of every
 // idr-simplify the manager runs, and reports their statistics. The
 // manager's owner adds it; idr-simplify fails under a manager without it.
