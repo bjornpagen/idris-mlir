@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The functions a property names. A test names the function the
 // programmer wrote, by its symbol or by its Idris definition, and a
 // property stated of it holds of every copy the passes made of it: a

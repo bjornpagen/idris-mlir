@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Writing and reading bytes on a handle: a range of a byte array
 // (Data.Buffer's transfers), and the text base writes and reads.
 // PIN(runtime-quarantine) — see PINS.md

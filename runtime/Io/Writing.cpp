@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Writing bytes to a file descriptor.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Io/Io.h"

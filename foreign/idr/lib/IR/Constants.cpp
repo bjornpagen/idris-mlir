@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr.constant: the dialect's values, stored untyped, and the check of
 // every symbol a constant names, through its fields and captures, once per
 // module verify through the collection the symbol-use walk hands over.

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: BSD-3-Clause
+-- Copyright (c) 2020 Edwin Brady
 ||| A simple module to process 'literate' documents.
 |||
 ||| The module uses a lexer to split the document into code blocks,

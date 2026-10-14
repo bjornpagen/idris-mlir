@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The runtime read from what --runtime names: prepared bitcode, or the
 // archive's members, each checked and stripped of what only separate
 // compilation needs, linked into one module.

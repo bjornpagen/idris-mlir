@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # make doctor: what the build needs and what is built. It
 # reports problems and never fails. IDRIS_MLIR_TOOLCHAIN and
 # IDRIS_MLIR_IDRIS_SOURCE are as in tools/verify-pins.sh.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // A read of an element whose next IO is a write of the same element moves
 // the element out. The array gives up its reference instead of the read
 // taking another, so a value read only to be rebuilt and written back (an

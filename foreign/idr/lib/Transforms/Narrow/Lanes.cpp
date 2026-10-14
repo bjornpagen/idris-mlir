@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-narrow-lanes: the integer lanes of a vectorized loop compute in 32
 // bits under a runtime bound on its index space. A loop over an array
 // computes its indices as the 64-bit Int the program wrote (idr-lower

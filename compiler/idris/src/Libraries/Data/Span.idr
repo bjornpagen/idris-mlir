@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: BSD-3-Clause
+-- Copyright (c) 2020 Edwin Brady
 -- This ought to go into base at some future point
 module Libraries.Data.Span
 

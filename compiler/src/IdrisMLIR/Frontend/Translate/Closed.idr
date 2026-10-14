@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| Terms as closed values: types and implementations are compile-time
 ||| values, closed TT terms, which the translation substitutes, normalises
 ||| and reduces to their constructors.

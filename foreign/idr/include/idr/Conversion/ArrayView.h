@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // An array of words as the memref convert-to-llvm addresses: a descriptor
 // over the array's cell.
 

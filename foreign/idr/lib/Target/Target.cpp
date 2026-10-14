@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // MLIR's side of the target: idr-target, which decides it once, and what
 // later passes read of it. The triple and the CPU are the build's (the
 // runtime is built for the triple, and its bitcode joins the program);

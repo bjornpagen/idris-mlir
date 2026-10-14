@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The ops of the owned stage, which idr-rc writes, and the linear
 // positions a value enters and is used out of.
 

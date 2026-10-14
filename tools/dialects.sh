@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The Idris side's vocabulary of the dialects Emit writes, the contract's:
 # two modules per dialect, generated from the dialect's ODS by
 # idris-mlir-tblgen: its syntax, compiler/src/IdrisMLIR/Syntax/<Name>.idr

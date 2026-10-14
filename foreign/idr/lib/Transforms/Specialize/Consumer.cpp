@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // When a call may be raised, and the key of its raised clone.
 //
 // Raising moves the callee's body from the call to its consumer, so nothing

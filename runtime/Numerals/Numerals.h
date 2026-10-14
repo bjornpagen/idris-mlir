@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // rt::numerals: `cast` from String. Idris documents no syntax for it and its
 // backends disagree, so the cast reads what Idris's own syntax writes: a
 // literal of the target type, with an optional sign before it, as the whole

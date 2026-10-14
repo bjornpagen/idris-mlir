@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Raising: the single consumer of a call's result, an apply of it (of one
 // field of it, `idr.field %r[@C, i]`, for an action in a constructor such
 // as `MkIO f`, and through the one use of a linear value; the result may

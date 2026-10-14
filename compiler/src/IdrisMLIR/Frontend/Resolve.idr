@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| The frontend's side of the registry: Idris's names, modules and types as
 ||| the registry's names, origins and shapes, and the validation of every
 ||| entry against the loaded context. This module converts and asks; the

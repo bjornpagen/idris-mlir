@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The patterns of crashes, forged worlds, loops that need not end, and the
 // scalar operations whose meaning is more than arith's.
 

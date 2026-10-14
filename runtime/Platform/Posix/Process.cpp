@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The process's environment, its id, waiting, the time, its end, and
 // errno, on a POSIX system: Linux and macOS alike.
 // PIN(runtime-quarantine) — see PINS.md

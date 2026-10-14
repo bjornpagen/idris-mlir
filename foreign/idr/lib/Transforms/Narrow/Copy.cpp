@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The copy of a vectorized loop in a scratch module, where the bound on its
 // sizes is tried and its integer ops narrowed. The copy's inputs are its
 // function's arguments, so the analysis sees no bound on them but the

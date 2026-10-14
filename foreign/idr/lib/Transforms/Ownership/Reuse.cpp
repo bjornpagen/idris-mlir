@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The reuse rewrite at the sites Reuses decided: idr.take where the box
 // dies, idr.reuse for each constructor that gets its cell.
 #include "idr/Analysis/Ownership.h"

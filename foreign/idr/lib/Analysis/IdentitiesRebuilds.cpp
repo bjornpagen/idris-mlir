@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Whether a function gives back one of its arguments, under what is
 // assumed of the calls it makes, read off the record of its one walk.
 //

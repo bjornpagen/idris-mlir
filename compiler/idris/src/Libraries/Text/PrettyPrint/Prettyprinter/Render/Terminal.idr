@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: BSD-3-Clause
+-- Copyright (c) 2020 Edwin Brady
 module Libraries.Text.PrettyPrint.Prettyprinter.Render.Terminal
 
 import Data.Maybe

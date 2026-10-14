@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The features of an AArch64 processor, as function multiversioning tests
 // them. There is no __builtin_cpu_init on AArch64: Apple's compiler-rt reads
 // the bits from sysctl only when a function asks, in

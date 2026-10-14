@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The conversion's patterns for idr.call and idr.return: each moves its
 // values between its own slots and those of the function it calls or
 // returns from, which are keyed by the function, not by its types.

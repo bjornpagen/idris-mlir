@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // What idr-tail-calls decides on the whole module, before it rewrites any
 // function: which calls become guaranteed tail calls, which functions take
 // `tailcc`, and which results go through memory.

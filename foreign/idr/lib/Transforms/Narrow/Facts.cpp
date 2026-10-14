@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The bounds of values, as the analysis found them and as the pass makes
 // them, and the words and bigs that stand for each other.
 

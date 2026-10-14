@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Address space, by the page, on a POSIX system.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Platform/Platform.h"

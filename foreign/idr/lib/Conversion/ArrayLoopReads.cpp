@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The reads of a generate's body at its own index, and the copy of its
 // generic that takes the arrays read as inputs where every index is within
 // them.

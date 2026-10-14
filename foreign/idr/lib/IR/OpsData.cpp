@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Data declarations: idr.data and its constructors, idr.ctor. A box's
 // declaration is refused here, at parse, when its tag would not fit the
 // runtime's header, so no later pass meets one.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // folds-balanced: the folders call the runtime natively, and every owned
 // reference they take from it they release, so no fold leaves a cell live.
 // What each fold left is counted on the context, so the check holds

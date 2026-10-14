@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // What a value of a type may hold: a world, or a closure, through the
 // fields of the data it is. Two bits per declaration, computed for every
 // declaration at once in the constructor and never changed afterwards, so

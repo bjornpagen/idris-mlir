@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // An array a call gives back. The result is that array when every return is
 // the argument the caller passed: the same value, or a borrow, a share, a
 // linear enter, a linear use, or a constructor rebuilt from it, including

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Raw memory, which is not a cell (GMP's scratch integers, scratch
 // buffers), from snmalloc.
 // PIN(runtime-quarantine) — see PINS.md

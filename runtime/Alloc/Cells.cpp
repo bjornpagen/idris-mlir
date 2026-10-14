@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Cells, the memory the runtime counts while it lives.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"

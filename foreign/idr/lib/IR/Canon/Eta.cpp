@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Record eta: a constructor rebuilt from the fields of a value of that
 // constructor, which is the value. ConOp's folder asks it.
 

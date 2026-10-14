@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The pins: the Idris submodule at its staged gitlink,
 # and the provenance stamps of the tools built under .toolchain/, which
 # commands refuse when missing or stale.

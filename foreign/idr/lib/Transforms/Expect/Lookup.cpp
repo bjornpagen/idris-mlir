@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The properties idr-expect checks, by name.
 
 #include "idr/Transforms/Expect.h"

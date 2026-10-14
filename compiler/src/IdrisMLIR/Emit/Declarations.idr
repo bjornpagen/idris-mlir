@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| The module's declarations: data instances and functions, each named by
 ||| its symbol and stating its key as `#idr.instance`.
 module IdrisMLIR.Emit.Declarations

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 //===- Accumulate.cpp - idr-accumulate ------------------------------------===//
 //
 // A self call whose result a tail position adds becomes a tail call that

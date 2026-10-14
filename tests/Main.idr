@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| The golden test runner, on Idris's
 ||| own `Test.Golden`, as third_party/Idris2/tests/Main.idr.
 |||

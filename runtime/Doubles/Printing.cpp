@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The text of a double.
 //
 // Idris leaves the text of a Double to each backend, and IEEE 754 fixes

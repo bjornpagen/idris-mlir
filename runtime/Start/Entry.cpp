@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The program's entry, idris_rt_start: the processor test, the program's
 // arguments, its stack, and its exit status. rt::io reads the program's
 // arguments from here, so rt::start does not use rt::io.

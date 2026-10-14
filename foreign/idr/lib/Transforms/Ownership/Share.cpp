@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The values a view of which takes a reference of its own, shared where
 // they are consumed, before exclusivity's solve. The taint crosses
 // calls: a callee that dups a parameter it borrows taints what its callers

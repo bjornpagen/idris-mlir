@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The mangling of program symbols.
 
 #include "idr/Conversion/Mangle.h"

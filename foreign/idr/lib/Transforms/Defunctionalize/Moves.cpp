@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // How values move between the slots of the module, the labels each closure,
 // suspension or constant puts in a slot, and where a value moves somewhere
 // the analysis does not follow.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The runtime on the LLVM side: read from what --runtime names, prepared
 // once for every program (--prepare-runtime), and joined with each
 // program's module, raised to the program's CPU.

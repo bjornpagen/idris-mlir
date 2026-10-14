@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| Qualified Idris names as the registry writes them. Values of `QName` are
 ||| written only in the registry: the frontend turns Idris's names into them
 ||| to ask it, and the registry does every comparison.

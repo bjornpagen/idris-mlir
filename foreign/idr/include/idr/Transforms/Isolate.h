@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-isolate: every idr.lambda and every idr.delay but an evaluated one,
 // outlined into a function of its own.
 #ifndef IDR_TRANSFORMS_ISOLATE_H

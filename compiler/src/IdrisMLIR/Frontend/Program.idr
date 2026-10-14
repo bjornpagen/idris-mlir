@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| A program, once Idris has built its main file: the user's `main` checked
 ||| against the profile, translated to Core and emitted as MLIR, the Core and
 ||| the module written to the paths idris-mlir names. Nothing runs a tool:

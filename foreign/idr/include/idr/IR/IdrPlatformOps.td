@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Base's surface beyond the Prelude's IO, as runtime primitives: files,
 // directories, the process, the terminal, errors and clocks (System.File,
 // System.Directory, System, System.Term, System.Errno, System.Clock), and the

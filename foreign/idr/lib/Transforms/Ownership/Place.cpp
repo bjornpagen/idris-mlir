@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-rc-place: the references of one function made explicit, after
 // idr-rc graded every signature: the reuse rewrite at the sites Reuses
 // decided, then the reshaping and the placement of the counts. It reads the

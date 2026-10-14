@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-expect: checks the properties it is given, by name, and changes
 // nothing. A request is `name` or `name=argument`; an unknown name is an
 // error, so a misspelled property cannot pass.

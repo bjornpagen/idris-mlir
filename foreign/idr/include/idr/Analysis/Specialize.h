@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // What specialization decides by: the clones the module holds, by key, and
 // the binding time of every parameter. Both are read by name, the symbol a
 // call's callee gives without resolving anything, so a function pass asks

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // What the owned stage's verifier and the ownership passes share: what a
 // use does with a reference, which values no count reaches, and whether a
 // function is in the owned stage. The grades are the stage: a value of

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| toolchain.lock.json pins every tool the build uses:
 ||| each entry records the exact version, the source repository, the commit,
 ||| and a tag or a `git describe`; where the configure gate accepts a release

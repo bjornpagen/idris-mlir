@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Strongly connected components, for every graph of ours that must find its
 // cycles or be gone through callees first: the references among functions,
 // the containment among types, the keys of closure sums. The graphs are our

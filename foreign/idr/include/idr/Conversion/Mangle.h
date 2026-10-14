@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The one mangling of a program symbol, applied where idr-lower hands the
 // program's functions to the dialects bound for LLVM.
 

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The key of a call: a clone is keyed by its owner (the function it was
 // first cloned from) and the patterns of the owner's parameters, so that
 // keys made at calls of the owner and of its clones compare.

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| Full Core to the contract: one module of the `idr`, `arith`, `math`,
 ||| `memref` and `ub` dialects, each op made by its builder, which is
 ||| generated from the op's ODS (IdrisMLIR.Dialect.*). An op is written in

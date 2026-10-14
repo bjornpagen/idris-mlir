@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The passes of one round of the simplify loop, in order.
 
 #include "idr/IR/IdrDialect.h"

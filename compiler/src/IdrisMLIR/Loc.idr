@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| Source locations, kept independent of Idris's `FC` so that the middle end
 ||| does not import the Idris compiler.
 module IdrisMLIR.Loc

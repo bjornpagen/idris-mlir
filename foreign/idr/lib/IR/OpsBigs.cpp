@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The ranges of the ops on bigs and naturals, from their bounds, and the
 // verifier of the one op that may make a natural of an integer.
 

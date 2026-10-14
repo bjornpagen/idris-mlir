@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The patterns of the ops that count references: calls of the runtime,
 // which LTO inlines.
 

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Which functions share a cycle of calls, for the escape analysis's tail
 // rule and the frame budget. A call names its callee, and an idr.apply may
 // call any function whose address is taken (a closure, a closure constant,

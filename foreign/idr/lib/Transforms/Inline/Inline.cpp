@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-inline: the force preparation, then MLIR's inliner, deciding what to
 // inline as InlineDecisions does. A caller that takes in a body without
 // Idris's proof of termination loses its own (FuncOp::absorb).

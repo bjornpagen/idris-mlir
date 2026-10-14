@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // How a tagged action prints, out of the template so that every action
 // shares one definition.
 

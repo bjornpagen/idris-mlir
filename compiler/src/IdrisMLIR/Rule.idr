@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| The reasons the frontend gives for a rejection, as data, so a misspelt
 ||| reason is a type error, not a wrong message. Each is shown as the short
 ||| phrase of `unsupported (<phrase>): ...`, and only shown: the pipeline

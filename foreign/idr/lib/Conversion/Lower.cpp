@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-lower, which takes idr to func, arith, math, scf, ub and llvm: phase
 // 0 (the program's functions as func.func under their mangled names, once
 // the facts handed to LLVM are read), phase 1 (matches and loops over

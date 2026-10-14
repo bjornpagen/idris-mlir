@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // What an op of the idr dialect declares once, for every pass to derive
 // from: the resources of its effects, its base class, and its traits and
 // interfaces, whose C++ halves are in IdrDialect.h.

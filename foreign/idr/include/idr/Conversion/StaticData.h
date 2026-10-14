@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The constants idr-lower writes as globals of the module, each written
 // once: strings, bigs outside the small range, boxes, among them the memo
 // cells of constant thunks, and the messages of crashes; and

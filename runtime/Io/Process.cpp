@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Base's process (System): its arguments, its environment, waiting, the time
 // and its id.
 // PIN(runtime-quarantine) — see PINS.md

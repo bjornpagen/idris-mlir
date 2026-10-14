@@ -1,0 +1,6 @@
+licenses: every in-scope file names its licence
+ports: none yet
+LICENSES/0BSD.txt
+LICENSES/Apache-2.0.txt
+LICENSES/LLVM-exception.txt
+LICENSES/BSD-3-Clause.txt

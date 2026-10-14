@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Closures and suspensions. idr.closure captures a function's leading
 // parameters, and idr.apply runs one. idr.suspend builds a cell and does
 // not run its function; idr.force reads that cell, and the first entry

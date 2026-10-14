@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: BSD-3-Clause
+-- Copyright (c) 2020 Edwin Brady
 module Idris.ProcessIdr
 
 -- Core.Unify declares `search` and Core.AutoSearch defines it, so a program

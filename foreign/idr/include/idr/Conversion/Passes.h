@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The lowering's passes: idr-lower, idr-entry and idr-tail-calls, which
 // take a program out of the idr dialect.
 #ifndef IDR_CONVERSION_PASSES_H

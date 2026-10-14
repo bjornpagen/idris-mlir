@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The text base reads from and writes to a handle (System.File.ReadWrite):
 // lines, characters and strings. Standard input is read through its buffer,
 // which getLine reads too, so the two interleave on one input without losing

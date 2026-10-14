@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The handle table, which stands for every pointer base holds. A handle is
 // an int64_t: 0, 1 and 2 are the standard streams, -1 is null, and handle
 // i + 3 is slot i of the table, which holds an open file, an open directory,

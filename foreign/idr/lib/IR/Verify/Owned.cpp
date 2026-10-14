@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The owned stage's rule for one function: each reference is consumed
 // exactly once on every path, and a view is used only while its owner
 // holds its reference. The grades say which is which (`!idr.own<T>` holds

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The rules of the module, which the dialect runs through `idr.program`
 // before the ops inside are verified, so they assume nothing their
 // verifiers check: one root, every sum or box type naming a declaration of

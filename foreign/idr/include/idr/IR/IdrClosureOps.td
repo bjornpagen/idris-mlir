@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The closures and suspensions of the idr dialect, and what runs them.
 
 #ifndef IDR_CLOSURE_OPS

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Output of a list (idr.io.put_list) takes one step of the list it meets: a
 // constant list, the nil among them, is written as the string it folds to,
 // and a cell as its element before the rest. Each step creates ops, which a

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The labels (functions) each closure or suspension may hold, or unknown: a
 // sparse forward dataflow analysis on MLIR's framework, interprocedural,
 // solved once in the constructor. Values reach fields through one lattice

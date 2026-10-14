@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // in-bounds, bounds-checked and no-guards: which guards a function keeps.
 // A proof is the guard's absence: idr-in-bounds and the guards' folders
 // erase a guard whose condition holds where it runs, and lowering checks

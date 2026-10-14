@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| The components of the call graph, found in the size-change graphs that
 ||| Idris's termination checker keeps for every definition (`sizeChange`),
 ||| and what each says of its recursion. A call in a recursive component

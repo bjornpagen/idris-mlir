@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Phase 0 of idr-lower: the program's functions as the dialects bound for
 // LLVM name them.
 

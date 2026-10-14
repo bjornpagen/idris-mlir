@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The grades: what Idris proved of a value, kept in its type where no pass
 // can drop it, and the questions every pass asks of a graded type or value.
 // They are declared over mlir::Type and mlir::Value, before the dialect's

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // A scalar's UTF-8 bytes.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Strings/Strings.h"

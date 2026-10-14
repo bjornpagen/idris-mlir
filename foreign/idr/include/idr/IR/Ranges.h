@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The integer ranges of bigs and naturals, which the dialect's range hooks
 // state and idr-narrow reads. Integer range analysis carries them as it
 // carries any integer's: 64-bit signed bounds, here on the value a big

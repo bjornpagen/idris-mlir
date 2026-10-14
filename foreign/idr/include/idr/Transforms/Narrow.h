@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Integers computed in fewer bits where an analysis proves they fit.
 //
 // idr-narrow makes the bigs and naturals that fit a small plain i64 words,

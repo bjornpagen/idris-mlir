@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // What each function may do, from what its body does itself and what it
 // reaches. The bodies separate: each is walked on a worker into its own
 // slot, for the ops that crash and the worlds it forges, and nothing else

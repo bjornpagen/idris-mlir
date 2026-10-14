@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The canonicalizations of the dialect's ops besides their members: the
 // patterns of idr.match and idr.match_lit (a match rebuilt, the values a
 // consumer folds against, merging, case-of-case and sinking), the helpers

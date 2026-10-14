@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-expect: properties of a module that tests state by name, instead of
 // matching the ops that happen to show them. Each property is a function
 // that reports every place it fails, one error each, and changes nothing.

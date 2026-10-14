@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // What idr-lower adds to a module besides converted ops: calls of the
 // runtime's C functions, cells, counting, static data and crashes.
 

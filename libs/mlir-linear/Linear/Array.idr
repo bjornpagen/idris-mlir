@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| Mutable arrays, used linearly: one array object, threaded through every
 ||| read and write at quantity 1, so that each operation updates it in place
 ||| and no two references to it exist.

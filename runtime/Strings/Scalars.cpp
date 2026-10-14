@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // A string as its scalars: its length, a scalar at an index, slices, and
 // the reverse; and by byte offset, as an iterator walks it.
 // PIN(runtime-quarantine) — see PINS.md

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The simplify loop, the round it repeats, and the passes only it runs
 // (loop breakers, the round's facts) or that prepare for it (contify).
 #ifndef IDR_TRANSFORMS_SIMPLIFY_H

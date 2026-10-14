@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The address of a span of a byte array, and the copies and strings
 // Data.Buffer builds on it, and that a transfer to a handle reads or writes.
 // The span lies in the array: the compiler's range check before the call is

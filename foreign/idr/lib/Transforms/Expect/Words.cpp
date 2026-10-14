@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // word-loop: what idr-narrow guarantees of a loop whose naturals it proves
 // small, stated as the absence of any big in the loop rather than as the ops
 // that happen to replace them.

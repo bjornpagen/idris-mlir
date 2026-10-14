@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Phase 2 of idr-lower: the conversion patterns of each idr op and type,
 // with the layouts and the runtime they lower with.
 

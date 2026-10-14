@@ -1,8 +1,12 @@
 # 0001: licensing: every file says whose it is
 
-**Status:** decided by the owner 2026-10-14; first in the queue, done
-before any other coding. Nothing here is built yet except the audit
-in §2. Claims are marked: *read* (the path), *measured*, *decision*.
+**Status:** decided by the owner 2026-10-14 and built the same day:
+L1 to L4 are in the tree (LICENSES/, NOTICE, the sweep, the fork
+script, `tests/spec/licenses` — check is 27/27 with it). What
+remains is only §5's GMP question, which is the owner's with
+counsel, and §7's deferred rename. This proposal is deleted when
+the owner accepts the built state. Claims are marked: *read* (the
+path), *measured*, *decision*.
 This file is the record of the policy; it is not legal advice, and
 the one item that needs a lawyer's eye is named as such in §5.
 
@@ -156,7 +160,42 @@ Then porting is open for business: the first port is expected to
 be Mojo's inliner shape in 0004's F3, under §4, and its stage
 record names the revision taken.
 
-## 7. What this is not
+## 7. The layout the licenses live in
+
+License is per file (the SPDX line), never per directory — a port
+lives where the code belongs structurally, with its provenance on
+its face. Directories answer "what system is this", headers answer
+"whose is it". The current layout already mostly does that; the
+audit (*read*, 2026-10-14) and the two changes this proposal makes
+to it:
+
+| Directory | What it is | License part |
+| --- | --- | --- |
+| `LICENSES/`, `LICENSE`, `NOTICE` | the obvious place: every text, the inventory, the attribution | — |
+| `foreign/idr/` | the `idr` dialect and driver (C++), in upstream MLIR's in-tree layout | ours; ports inside it keep Apache headers |
+| `compiler/src/` | the frontend (Idris) | ours |
+| `compiler/idris/` | the fork of Idris's compiler | BSD-3-Clause, one license per tree |
+| `runtime/`, `libs/` | the runtime; the Idris packages we ship | ours |
+| `tests/`, `bench/`, `tools/` | tests, benchmarks, build/driver scripts | ours (fixtures excluded from headers, listed in `tools/licenses.sh`) |
+| `third_party/` | unmodified submodule pins | theirs, untouched |
+| `upstream/` | bug reports and patches against pinned upstreams | ours; the patch targets keep theirs |
+| `sources/` | the research library (papers, snapshots, notes) | each item's own, provenance in place |
+| `proposals/` | designs, in work order | ours |
+
+Changes made with this proposal: `LICENSES/` and `NOTICE` exist;
+`foreign/README.md` (new in L2's commit) states what `foreign/`
+means — code laid out as its upstream lays it out, where ports
+land with provenance — so the name stops being folklore.
+
+Deferred to its own approved change, deliberately not bundled
+here: renaming `foreign/idr/` (to `mlir/` or `dialect/`) so
+`foreign/` could mean only vendored ports. It touches CMake
+presets, PINS.md, bootstrap paths and every `#include` root for a
+naming gain; it is worth doing exactly once, when the first
+whole-unit Mojo port (0004 F3's scheduler is the candidate) makes
+the distinction load-bearing, and not before.
+
+## 8. What this is not
 
 Not a relicensing of anything upstream, not a CLA, not a promise
 about GMP, not a gate on reading upstream code (reading was never

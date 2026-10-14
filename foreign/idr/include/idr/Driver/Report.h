@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Every diagnostic idris-mlir prints of its own. One shape: the tool's
 // name, the message, a newline. The exit status is the caller's; a signal
 // handler cannot use this, and writes the same words itself.

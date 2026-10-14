@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-effects: `effects` on every idr.func, from the Effects analysis, and
 // on every idr.call, from its callee's and from what the closures it is
 // given may do when applied. A call carries its own fact for two reasons.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // counted-loop: what idr-tail-loops guarantees of a function's loops,
 // stated as a property of the loops, not as the ops that happen to show
 // it.

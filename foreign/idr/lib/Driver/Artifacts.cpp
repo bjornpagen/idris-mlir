@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The files of one compilation, named before anything runs, and each
 // output written whole or not at all, into directories made for it.
 

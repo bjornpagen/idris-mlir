@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The bounds of bigs and naturals, and the ranges of values never negative.
 
 #include "idr/IR/Ranges.h"

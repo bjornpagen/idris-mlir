@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| What an entry of the registry is: the
 ||| key the compiler knows a library definition by, the shape it expects
 ||| the definition to have, and the hook, what the compiler does with it.

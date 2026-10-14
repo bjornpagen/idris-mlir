@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Standard input, through a buffer that a read fills: the Prelude's getLine
 // and base's reads of the handle 0 share it.
 // PIN(runtime-quarantine) — see PINS.md

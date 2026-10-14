@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| Core's types as the contract's, in the dialects' vocabulary.
 module IdrisMLIR.Emit.Types
 

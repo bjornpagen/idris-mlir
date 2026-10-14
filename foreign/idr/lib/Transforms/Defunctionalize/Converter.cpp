@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The types of the conversion and the one materialization between them.
 //
 // A value's type is its slot's: the value conversion answers it from the

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The sums declared for the converted keys, before the conversion that
 // gives the slots their types.
 

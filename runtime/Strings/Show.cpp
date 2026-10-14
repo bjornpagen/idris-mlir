@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The text of an integer as a string.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Strings/Strings.h"

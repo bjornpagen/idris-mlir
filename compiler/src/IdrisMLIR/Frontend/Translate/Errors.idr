@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| The translation's errors, the user's and the compiler's, and its
 ||| locations: an Idris location as a Core one.
 module IdrisMLIR.Frontend.Translate.Errors

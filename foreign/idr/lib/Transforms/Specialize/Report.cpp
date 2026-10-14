@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-binding-times: a remark on every function with a body, the binding
 // time of each of its parameters as idr-specialize decides on it, free for
 // each parameter of a function on no cycle. It changes nothing.

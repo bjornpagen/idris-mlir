@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Passes of the idr dialect. Each is built by its generated constructor,
 // with its options struct; none declares a constructor of its own. A pass
 // anchored on ::idr::FuncOp runs under a nested pass manager and touches

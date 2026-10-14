@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // rt::rc: reference counting over the header's count, and freeing. An
 // object that dies releases its references from a worklist threaded through
 // the dying cells themselves, as Lean's runtime frees (lean_del_core), so

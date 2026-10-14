@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-vectorize: each linalg.generic with a parallel dimension (a loop over
 // an array, as idr-lower leaves it) is tiled by the target's lanes along its
 // parallel dimensions and by one along its reductions, its tile loop peeled

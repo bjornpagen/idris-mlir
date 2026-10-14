@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| Category 1 of the registry: Idris's own
 ||| backend contract, which the compiler must implement. None of it is
 ||| privileged knowledge: Idris requires it of every backend.

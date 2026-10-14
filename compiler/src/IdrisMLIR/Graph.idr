@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| The nodes on a cycle of a finite graph, in a deterministic order, so the
 ||| output does not depend on map iteration: which data instances are
 ||| recursive, and so boxes (`Term.Repr`). The program's call graph is

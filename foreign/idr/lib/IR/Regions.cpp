@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // How control enters and leaves every region op of the dialect: a match
 // and an array loop branch into their regions, as region branch ops, and
 // the yield that ends a region goes on where its parent says. idr.lambda

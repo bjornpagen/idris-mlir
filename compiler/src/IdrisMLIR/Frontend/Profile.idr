@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| Profile rules checked on checked TT and on the source: pragmas, escape
 ||| hatches, trusted modules. The rest is checked during translation. Which
 ||| modules are trusted, what they admit and which definitions are escape

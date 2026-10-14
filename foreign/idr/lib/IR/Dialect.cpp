@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The idr dialect's generated definition: its types, attributes and enums
 // as TableGen defines them, the spellings of its types (the generated
 // parser and printer are local to the unit that holds the definitions), its

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // What idr-rc decides before it rewrites anything: which parameters are
 // borrowed (Borrows), where each function's dead boxes are taken apart and
 // which constructors get their cells (Reuses), and which owned values hold

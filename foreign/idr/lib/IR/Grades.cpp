@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The grades: a type at a grade, its spellings, what its grade says of how
 // a value may be used and what it owns, and the values seen through the
 // positions their grades put them in. Whether two accesses name one element

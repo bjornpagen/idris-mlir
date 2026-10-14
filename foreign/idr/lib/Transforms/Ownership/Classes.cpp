@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The class of each value of a function, as counting places it:
 // untracked, static, borrowed or owned; and what counting asks of a region:
 // whether a value is used in it, and whether its block ends in a crash,

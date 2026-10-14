@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The checks of the dialect's attributes beyond their syntax: a big has one
 // spelling, and an instance key is text.
 

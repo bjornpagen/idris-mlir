@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Bigs as GMP reads and writes them: a view of an operand, and a result
 // given its one representation.
 // PIN(runtime-quarantine) — see PINS.md

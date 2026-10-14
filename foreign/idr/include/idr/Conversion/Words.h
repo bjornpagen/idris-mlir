@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The values cells, static data and idr-lower's patterns are built from:
 // the pointer type, constant words as LLVM writes them, the address
 // of a component of a cell and the alignment it has there, and the empty

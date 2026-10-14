@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // no-closures: after defunctionalization, or where a test says every
 // closure is gone, none is built, applied or kept as a constant.
 

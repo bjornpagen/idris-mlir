@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-stack: the cells of boxes that never leave their frame, built on the
 // stack.
 #ifndef IDR_TRANSFORMS_STACK_H

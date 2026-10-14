@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Running a function on a reserved stack, behind a guard whose fault is the
 // stack running out.
 // PIN(runtime-quarantine) — see PINS.md

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // An op whose bigs all fit made an op on words.
 
 #include "idr/IR/IdrDialect.h"

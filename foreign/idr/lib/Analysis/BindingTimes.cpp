@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The binding times of every parameter.
 //
 // The classes are found by abstract interpretation: each function on a

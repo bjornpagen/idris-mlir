@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The errno base reads after a call that failed (System.Errno, System.File's
 // FileError), saved by the runtime when the call fails, so that nothing the
 // runtime does in between can change it.

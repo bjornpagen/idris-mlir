@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The closure an apply runs, which its canonicalization turns into a call.
 
 #include "idr/IR/IdrDialect.h"

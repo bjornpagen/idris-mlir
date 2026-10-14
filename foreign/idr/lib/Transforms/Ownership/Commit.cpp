@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-rc-commit: what exclusivity's solve proved, written into one
 // function's types once idr-rc has written it into every signature: the
 // values it proved exclusive get the grade, and where an exclusive value

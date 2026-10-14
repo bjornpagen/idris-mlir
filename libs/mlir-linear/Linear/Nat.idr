@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| Linear naturals: a natural whose every successor is used exactly once,
 ||| as upstream's `Data.Linear.LNat` has them.
 module Linear.Nat

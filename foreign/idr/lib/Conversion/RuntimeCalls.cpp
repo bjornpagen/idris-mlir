@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The patterns of the ops that call the runtime (the CallsRuntime trait),
 // and of the comparisons whose runtime function orders its operands.
 

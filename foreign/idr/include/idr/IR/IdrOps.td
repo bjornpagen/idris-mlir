@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The idr dialect: the contract between the Idris compiler and the C++ side.
 // Every fact about an op is declared once, in this file or in the family it
 // includes; the C++ in lib/IR and every pass derive from it. TableGen reads

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The canonicalization patterns of idr.match and idr.match_lit, which their
 // getCanonicalizationPatterns add after upstream's region patterns, and how
 // a match whose taken region is known is replaced by it.

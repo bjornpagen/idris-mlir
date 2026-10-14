@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The dialect's passes and idris-mlir's pipeline: every idr pass's
 // constructor and their registration, from the one .td, and the pipeline
 // built from those constructors.

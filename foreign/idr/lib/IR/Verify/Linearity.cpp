@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Worlds and !idr.lin values: every value of quantity one is used at most
 // once on every path. Its type says where it may go; this says how often.
 // One walk numbers the body; each linear value then costs its holders.

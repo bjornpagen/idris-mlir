@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // One compilation, timed and profiled as a whole: the frontend and the link
 // as child processes, the pipeline and LLVM in process.
 

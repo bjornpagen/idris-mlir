@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // tests-nothing: a function tests no count and no null.
 
 #include "idr/Transforms/Expect.h"

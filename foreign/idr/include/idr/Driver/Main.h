@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idris-mlir's entry, which the tool's `main` calls: MLIR's and LLVM's
 // options with its own, the --print options, which answer what the build
 // decided, and the compilation.

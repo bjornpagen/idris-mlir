@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // What a value of each type of the module can hold a reference to: the
 // containment among its declarations and arrays, and its cycles. The
 // module verifier builds one directly to refuse a type that contains itself

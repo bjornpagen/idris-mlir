@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Sums, differences, products, quotients and remainders of bigs, negation,
 // and the Nat of an Integer.
 //

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // How a property reports where it fails.
 
 #include "idr/Transforms/Expect.h"

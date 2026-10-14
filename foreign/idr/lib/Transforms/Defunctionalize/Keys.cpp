@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The key of every slot that holds a closure or a suspension (its type and
 // the labels the analysis found for it), in the order the module shows
 // them, and the type each slot has once its key is decided.

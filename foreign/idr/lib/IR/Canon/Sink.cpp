@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // A value computed in the match's block that only the match's regions use
 // moves into each region that uses it, when there it meets a consumer that
 // folds against it: output of a string it builds, a consumer a match of its

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The escape analysis of boxes: which cells can outlive the frame that
 // builds them.
 //

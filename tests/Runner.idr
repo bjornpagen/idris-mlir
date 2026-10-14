@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| The runner of the golden tests, with no threads: every test runs in a
 ||| process of its own (tests/runner/one.sh), as many at once as asked,
 ||| through xargs. Test.Golden's runner trades tests and results between

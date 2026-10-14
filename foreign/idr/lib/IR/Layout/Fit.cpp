@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The boxes that make cells fit their headers. A cell's header counts its
 // object slots in a few bits, and an unboxed sum spreads its slots over
 // every cell that holds it, so a record nested in a record can make a cell

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Borrow inference: a parameter the function never needs a reference of
 // its own for is borrowed, and its callers keep the reference, which saves
 // an idr.dup and an idr.drop per call.

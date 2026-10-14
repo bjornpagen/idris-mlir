@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // facts-as-marked: what the dialect answers about an op, stated on the op.
 // A test marks an op `expect.facts = "..."` with the questions the answer is
 // yes to, among `drop`, `move` and `delay`, and the property fails

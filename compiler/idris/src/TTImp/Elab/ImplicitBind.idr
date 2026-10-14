@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: BSD-3-Clause
+-- Copyright (c) 2020 Edwin Brady
 module TTImp.Elab.ImplicitBind
 -- Machinery needed for handling implicit name bindings (either pattern
 -- variables or unbound implicits as type variables)

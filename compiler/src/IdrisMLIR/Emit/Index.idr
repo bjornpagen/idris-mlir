@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| The program's declarations, by name, as the emitters look them up, and
 ||| the symbol each is written under.
 module IdrisMLIR.Emit.Index

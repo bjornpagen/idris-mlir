@@ -1,4 +1,6 @@
 # The host's tools where GNU/Linux and macOS (BSD userland, MacPorts)
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # differ, decided in one place: sourced by tools/toolchain.sh, and so by
 # every script that sources it, and by tools/bootstrap.sh, bench/run.sh,
 # tools/doctor.sh and the Makefile's runner. Sourcing it runs nothing

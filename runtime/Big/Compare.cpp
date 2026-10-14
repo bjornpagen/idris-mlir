@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The order of two bigs.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Big/Big.h"

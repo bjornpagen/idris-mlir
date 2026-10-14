@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The guards: each folds to its operand where the operand shows that its
 // condition holds, and narrows the operand's range by the condition. And
 // what every folder of a total op and the six pure total ops ask of them:

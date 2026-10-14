@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // reuses-in-place: what reference counting left in a function, stated as
 // the property a test wants of it: it builds in reused cells.
 

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // One compilation, the whole chain: the frontend for Idris source, the
 // pipeline and LLVM in process, and the link by the pinned clang, each
 // timed under one root, so that -mlir-timing reports the whole command.

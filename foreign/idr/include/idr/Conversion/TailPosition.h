@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Whether a call on the LLVM dialect is in tail position, as idr-tail-calls
 // decides it: by what the path from the call to a return decides alone.
 

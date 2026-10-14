@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The owned walk through a block and the ops with regions: a match, a
 // branch on a condition and a loop over an array. Each returns whether the
 // end of what it walked is reached, or failure after reporting a

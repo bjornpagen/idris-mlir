@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-round-facts: the analyses the round's function step reads, computed
 // on the module just before it.
 //

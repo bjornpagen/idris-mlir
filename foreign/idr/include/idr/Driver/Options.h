@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idris-mlir's command line, its exit statuses and the triple it compiles
 // for. Every option is defined in one unit (Options.cpp), so that they
 // register, and --help lists them, in the order they are written there.

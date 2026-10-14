@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-in-bounds: every guard that can never crash is erased. The module's
 // Lengths is computed first, so that the proofs, nested per function, find
 // it and the SymbolTable cached on the module; the pass counts the guards

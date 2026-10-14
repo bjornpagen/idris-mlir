@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: BSD-3-Clause
+-- Copyright (c) 2020 Edwin Brady
 ||| Checking a %builtin pragma is correct.
 -- If we get more builtins it might be wise to move each builtin to its own file.
 module TTImp.ProcessBuiltin

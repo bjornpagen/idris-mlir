@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| Function instances and programs: each instance requested is translated
 ||| in turn, and the program is assembled with each data instance's
 ||| representation.

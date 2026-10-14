@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| Identifiers. Each kind of name is its own type, so a function name cannot
 ||| be used where a data type is meant.
 module IdrisMLIR.Ids

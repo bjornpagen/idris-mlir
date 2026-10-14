@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The idr dialect and the enums every other part of its ODS names: the
 // halves of a grade.
 

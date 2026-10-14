@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| The fuzzer: programs of closed pure expressions
 ||| over every primitive, each printed from `main`, which the harness
 ||| compiles once, and whose outputs must agree with each other and with the

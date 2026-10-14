@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The zones of passes and analyses, on LLVM's time trace: one MLIR pass
 // instrumentation on the manager of idris-mlir and of idris-mlir-opt,
 // which every nested and dynamic pipeline run under it (the round's, the

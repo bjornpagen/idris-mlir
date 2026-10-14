@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The analysis behind idr-in-bounds: everything a proof needs of the whole
 // module, computed once and then only read. The calls of each private
 // function, the returns of each function, what each result gives back and

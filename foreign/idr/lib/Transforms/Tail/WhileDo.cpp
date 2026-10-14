@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 //===- WhileDo.cpp - The while-do loop of a body that is a decision -------===//
 //
 // A function whose body ends in a match with one region that calls itself

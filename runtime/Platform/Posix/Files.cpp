@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Files, through the C library's streams, and what the system says of an
 // open descriptor, on a POSIX system. Where Linux and macOS differ, in the
 // fields of a stat's times, one function holds it.

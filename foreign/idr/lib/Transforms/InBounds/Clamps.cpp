@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // A size the array was made from relates when it is that operand, or the
 // same integer clamped at 0, on either side. A branch (a match, an if) or a
 // select or a max has that clamp when every side does, which for a side is

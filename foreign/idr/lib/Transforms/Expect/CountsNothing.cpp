@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // counts-nothing: a function counts no reference.
 
 #include "idr/Transforms/Expect.h"

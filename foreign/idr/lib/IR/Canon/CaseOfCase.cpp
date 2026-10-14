@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Case-of-case. The single consumer of a result of a match, another match
 // included, moves into every region that yields, when in at least one of
 // them it then meets a value it folds or canonicalizes against. The

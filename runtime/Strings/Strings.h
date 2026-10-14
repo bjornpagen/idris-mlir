@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // rt::strings: strings, UTF-8 bytes with their scalar count and an ASCII
 // flag, over simdutf, and the text of integers and scalars. A string is one
 // cell, header, lengths and bytes together, so freeing it is freeing the

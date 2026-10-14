@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Transforms as actions of MLIR's action framework, so that a debug counter
 // (-mlir-debug-counter=<tag>-skip=N,<tag>-count=M) can bisect them and
 // -log-actions-to can list them. A skipped action is a transform that does

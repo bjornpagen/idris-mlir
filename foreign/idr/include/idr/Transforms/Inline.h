@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-inline: the force preparation, then MLIR's inliner deciding as MLton
 // does. (`inline` is a keyword, so the area's namespace is `inlining`.)
 //

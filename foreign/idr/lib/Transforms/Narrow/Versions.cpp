@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // A loop whose natural only descends, versioned so that its copy proves the
 // natural small.
 

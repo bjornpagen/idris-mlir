@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // How a program ends: returning from main, base's exit, or a crash.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Io/Io.h"

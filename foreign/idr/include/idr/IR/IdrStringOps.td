@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The ops of the idr dialect on strings.
 
 #ifndef IDR_STRING_OPS

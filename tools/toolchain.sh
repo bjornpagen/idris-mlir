@@ -1,4 +1,6 @@
 # Where the pinned tools are, in one place: sourced, with $root
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # set to the repository, by the Makefile, tools/compile.sh, tools/bisect.sh,
 # tools/verify-pins.sh, tools/doctor.sh, bench/run.sh, tests/testutils.sh and
 # tests/upstream-idris/as-idris.

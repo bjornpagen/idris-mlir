@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| Table-driven integer semantics over every integer type.
 |||
 ||| Each generated program is the `Prog` module of an ordinary end-to-end

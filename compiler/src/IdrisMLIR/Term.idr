@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| Full Core: the higher-order language
 ||| that `Frontend.Translate` produces from checked TT and `Emit` writes as
 ||| MLIR.

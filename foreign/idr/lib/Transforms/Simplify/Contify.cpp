@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-contify: a private idr.func whose one use is a call from another
 // function is inlined there, with MLIR's inlineCall, and erased.
 //

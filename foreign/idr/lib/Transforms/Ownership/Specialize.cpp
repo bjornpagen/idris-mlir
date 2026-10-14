@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // A function specialized on the grade of its callers' values. A function
 // called with exclusive values from some callers and shared ones from
 // others would take its parameters shared, and test every cell for all of

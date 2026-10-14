@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Euclidean division of a non-negative word by a positive constant, as a
 // constraint. The identity is the op's. Signed division is Euclidean, so
 // the remainder is in `[0, d)`; unsigned division of a non-negative word by

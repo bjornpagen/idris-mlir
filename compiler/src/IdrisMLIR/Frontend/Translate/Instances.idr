@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| Function instances: requesting one, and classifying a callee's
 ||| parameters as compile-time values (types and implementations, which key
 ||| the instance), erased ones, and runtime ones, whose argument's shape

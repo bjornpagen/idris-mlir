@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-deduplicate: of each group of private idr.funcs with the same type,
 // the same facts and bodies that match op for op, the first stays and every
 // use of the others names it.
@@ -5,17 +7,16 @@
 // Monomorphisation writes one function per instantiation, and what Idris
 // erased is gone from some of them alike: PrimIO.fromPrim and PrimIO.toPrim
 // at one type are both the identity on the action they are given, and a
-// stage0 module holds some fifteen hundred such second copies. Each one is
-// work for every later pass and code in the program. LLVM's MergeFunctions
-// does this for llvm functions, by a hash and then a comparison; this pass
+// stage0 module holds some fifteen hundred such second copies, each work
+// for every later pass. LLVM's MergeFunctions does this for llvm
+// functions, by a hash and then a comparison; this pass
 // is that shape on idr.func, where the facts a merge must not lose (total,
 // effects, the quantities in the types) are in the comparison, and where
 // MLIR's symbol user map rewrites the uses.
 //
 // Two bodies match when their ops, operands, types, attributes and regions
-// match in order, locations aside, a symbol reference to the function
-// itself counting as the same reference in each: two self-recursive copies
-// are one function. A reference to any other function must name the same
+// match in order, locations aside, a self-reference counting as the same
+// in each. A reference to any other function must name the same
 // one in both, so a pair alike only once their callees are merged is left
 // for a later run of the pass. The pass is its own fixpoint's first step:
 // run it again and the callers of what it merged may merge in turn.

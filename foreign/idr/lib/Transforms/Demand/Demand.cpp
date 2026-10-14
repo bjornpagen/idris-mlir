@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-demand: the promise a program can be asked to keep, checked on the
 // grades idr-rc wrote, when it is asked to; it changes nothing.
 //

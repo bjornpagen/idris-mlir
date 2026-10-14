@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| MLIR's textual form, as `Emit` writes it. A type and an attribute are
 ||| data: the builtin ones the frontend uses are constructors here, and each
 ||| dialect's are the constructors of the sums generated from the dialect's

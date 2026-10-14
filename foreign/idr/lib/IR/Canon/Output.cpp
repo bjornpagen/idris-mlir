@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Output and the first character of a string being built: the DRR patterns
 // of Canonicalize.td, and the empty string, which DRR cannot match. Output
 // of a list (idr.io.put_list) takes one step of the list it meets

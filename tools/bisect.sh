@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Finds the action of one tag that changes what a program does.
 #
 #     tools/bisect.sh SOURCE TAG [STDIN]

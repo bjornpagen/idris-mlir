@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // A constructor value and what reads it: idr.con, which allocates a box's
 // cell, idr.field, idr.tag and idr.dest.of, the destination of a field a
 // cell was built without. Their folds and canonicalizations are here

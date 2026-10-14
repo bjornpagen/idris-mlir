@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idris-mlir's options, defined in the order --help lists them. They are the
 // command line's: written once by ParseCommandLineOptions, before anything
 // reads them.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Arrays, one cell holding a length and its elements (idris_rt_array). The
 // compiler reads and writes the elements itself, with the layout it chose;
 // the runtime allocates the cell and frees it (rt::rc).

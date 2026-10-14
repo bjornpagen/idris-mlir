@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-redirect: a call whose key names a clone the module already holds
 // calls that clone, function by function. It is the redirect half of
 // idr-specialize: it makes no clone, and a key the table lacks waits for

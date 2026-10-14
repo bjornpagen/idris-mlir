@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // resets-unshared: every take that may reuse a cell tests one its function
 // never gives a second reference.
 

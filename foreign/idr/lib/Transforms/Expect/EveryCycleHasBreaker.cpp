@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // every-cycle-has-breaker: inlining ends because every cycle of references
 // among the functions it may inline is cut by a loop breaker (no_inline).
 // Which function of a cycle breaks it is the passes' choice; that one

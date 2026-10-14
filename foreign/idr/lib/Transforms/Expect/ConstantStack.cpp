@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // constant-stack: what idr-tail-loops and idr-tail-calls guarantee of a
 // function, stated as a property of the graph of references, not as the
 // ops that happen to show it. It is stated of a lowered module as well as

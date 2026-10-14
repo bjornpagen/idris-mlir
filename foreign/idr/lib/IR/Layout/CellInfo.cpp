@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The info word of a cell's header, as the runtime's idris_rt_info packs it.
 
 #include "idr/IR/IdrDialect.h"

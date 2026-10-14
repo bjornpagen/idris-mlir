@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 //===- Loop.cpp - The general loop: a payload at every tail position ------===//
 //
 // A function with a self tail call whose body is not a decision becomes

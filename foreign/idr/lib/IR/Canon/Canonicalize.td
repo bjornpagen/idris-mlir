@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The canonicalizations of the idr dialect that DRR can state. The others are
 // in Output.cpp and the other units beside it.
 

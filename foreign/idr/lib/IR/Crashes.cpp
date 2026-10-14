@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The facts that rule out a crash, which a guard folds away on, and what a
 // crash reports.
 

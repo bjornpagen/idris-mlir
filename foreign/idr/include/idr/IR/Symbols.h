@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The one home of symbol lookup. A pass or an analysis holds a table and
 // asks it, in O(1); a verifySymbolUses asks the collection it is handed. Code
 // MLIR calls with no table in hand (a folder, an effect query, a range, a

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: BSD-3-Clause
+-- Copyright (c) 2020 Edwin Brady
 module IdrisPaths
 
 -- Upstream's build generates this module with the version and the install

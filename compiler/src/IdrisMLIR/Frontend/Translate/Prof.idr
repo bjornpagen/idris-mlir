@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| Audit instrumentation only (never committed): cumulative call counts and
 ||| nanoseconds per key, kept in a global IORef, dumped to stderr.
 module IdrisMLIR.Frontend.Translate.Prof

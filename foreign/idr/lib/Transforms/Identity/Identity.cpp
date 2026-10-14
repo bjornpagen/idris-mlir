@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-identity: every call of a function that gives back one of its
 // arguments becomes that argument, held at the quantity of the call's
 // result. Once Idris's indices are erased, a function that only rebuilds

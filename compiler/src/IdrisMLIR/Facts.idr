@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| The facts about a function that Idris proved and the passes read, which
 ||| Emit writes as the function's own attributes.
 module IdrisMLIR.Facts

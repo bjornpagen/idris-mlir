@@ -11,6 +11,21 @@ LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
 OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
 PERFORMANCE OF THIS SOFTWARE.
 
-compiler/idris/ is derived from Idris 2 (https://github.com/idris-lang/Idris2)
-and is distributed under its own BSD-3 licence, in compiler/idris/LICENSE,
-not under the licence above.
+That is this repository's own licence (SPDX: 0BSD), and it is not the
+only one here. Every file names its own on its first line
+(`SPDX-License-Identifier:`); the full texts are in LICENSES/.
+The parts:
+
+- Ours (0BSD): everything not named below.
+- compiler/idris/ is derived from Idris 2
+  (https://github.com/idris-lang/Idris2) and is distributed under its
+  own BSD-3-Clause licence, in compiler/idris/LICENSE.
+- Files ported from Modular's Mojo compiler or derived from
+  MLIR/LLVM carry Apache-2.0 WITH LLVM-exception, their upstream
+  copyright kept in place (NOTICE). A port is recorded in PINS.md
+  with its source, revision and changes.
+- third_party/ holds unmodified pins under their own licences;
+  LICENSES/THIRD-PARTY.md inventories what reaches a shipped binary.
+- sources/ holds snapshots of papers and upstream documentation,
+  each under its own terms with its provenance in place; it is a
+  library, not part of the software.

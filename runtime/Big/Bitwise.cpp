@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The bitwise operations of bigs, in two's complement, and their shifts.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-tail-calls: every call the program makes in tail position on a cycle
 // of calls is a guaranteed tail call, so that a recursion through such calls
 // runs in constant stack. Idris has no loop but recursion: an IO loop or a

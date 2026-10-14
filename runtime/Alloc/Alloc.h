@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // rt::alloc: the runtime's memory: raw blocks, cells, which it counts while
 // they live, the allocation entry points over snmalloc, arrays, and GMP's
 // allocation through it.

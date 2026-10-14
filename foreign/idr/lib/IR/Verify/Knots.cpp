@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // No array can hold a reference to itself. Idris is strict and its data
 // immutable, so a new object only points at objects that exist before it,
 // and the heap is acyclic: what lets counting free everything, with a

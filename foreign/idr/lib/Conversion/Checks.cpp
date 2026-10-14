@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The patterns of the guards. A guard is the test of its condition, the crash
 // with its cause where the test fails, and then its operand, which the op it
 // guards takes. That op's own lowering tests nothing, so a guard a proof

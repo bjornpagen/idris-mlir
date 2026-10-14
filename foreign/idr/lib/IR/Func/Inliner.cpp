@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The inliner's rules for the dialect, as func's are for its own: every
 // call may be inlined, and every op and region may move into another
 // function. Which calls are worth it, no_inline among them, is idr-inline's

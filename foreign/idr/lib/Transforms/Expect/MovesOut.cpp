@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // moves-out: a read of an array's element whose next IO writes that
 // element moves it out, stated as the property a test wants of it: some
 // read gives the reference the array held, so the value it rebuilds holds

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| Strings read front to back by a linear iterator, with the API of
 ||| upstream's contrib `Data.String.Iterator`, so that a program reads the
 ||| same over either. An iterator is a byte offset into the string's UTF-8,

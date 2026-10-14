@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // one-clone: every call of a function, or of a clone of it, calls one and
 // the same function: the calls share one specialization (or none was
 // made), however many copies the passes made on the way.

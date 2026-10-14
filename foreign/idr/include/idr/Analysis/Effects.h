@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // What a call of each function may do besides computing its results:
 // perform IO, crash, or fail to return, as the dialect's Effect bits. The
 // analysis is built whole in its constructor, each body walked on a worker

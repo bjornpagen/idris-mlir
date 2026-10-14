@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: BSD-3-Clause
+-- Copyright (c) 2020 Edwin Brady
 ||| Reading and writing 'Defs' from/to a binary file. In order to be saved, a
 ||| name must have been flagged using 'toSave'. (Otherwise we'd save out
 ||| everything, not just the things in the current file).

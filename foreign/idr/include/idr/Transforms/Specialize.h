@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Specialization: idr-specialize, which clones a callee for a consumed
 // result (raising) and for the static parts of its arguments
 // (specialization), and calls the clone; idr-redirect, which calls a clone

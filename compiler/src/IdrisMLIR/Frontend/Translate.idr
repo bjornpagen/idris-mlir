@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| Checked TT to full Core. Reads compile-time case trees (`treeCT`) and
 ||| types; monomorphises on demand, with Idris's own normalizer doing all
 ||| type-level computation.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The string ops: the builders that walk a list, the rules and ranges of
 // the others, when an index or a head may run before its guard, and the
 // output and head canonicalizations. What a list op's own types say is its

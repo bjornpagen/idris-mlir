@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // What of a function may point into its frame.
 
 #include "idr/Conversion/Frame.h"

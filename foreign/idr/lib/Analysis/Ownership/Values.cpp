@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Which values hold references, as one run counts them, and which ones
 // exclusivity follows.
 #include "idr/Analysis/Ownership.h"

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // pure-array-loops: the bodies of the loops over arrays only compute.
 
 #include "idr/Transforms/Expect.h"

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-narrow: the bigs and naturals integer range analysis proves fit a
 // small become plain i64 words, and a loop whose natural only descends is
 // versioned so that its copy proves it.

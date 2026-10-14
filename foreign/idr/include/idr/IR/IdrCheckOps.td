@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // What may crash or not return in the idr dialect: a crash, a loop that
 // may not end, and the guards whose conditions the total ops need.
 

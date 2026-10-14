@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| What each instance is called, and what tells two instances apart. An
 ||| instance is its definition and its compile-time arguments up to the
 ||| names of binders: that is its identity, which nothing prints. Its key is

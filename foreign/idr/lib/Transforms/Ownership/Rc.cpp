@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-rc: every reference made explicit. Five steps, each on what the one
 // before left:
 //   1. a module already in the owned stage is refused;

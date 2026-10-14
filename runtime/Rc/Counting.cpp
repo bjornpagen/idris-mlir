@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The C ABI's reference counting. A saturated count is not counted, so an
 // increment reaches UINT32_MAX at most and stays there.
 // PIN(runtime-quarantine) — see PINS.md

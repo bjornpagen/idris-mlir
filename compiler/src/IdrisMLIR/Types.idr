@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| Types, literals and primitives of Core.
 |||
 ||| There is one type language: every type of full Core exists at runtime,

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Standard output, through a buffer that a flush writes.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Doubles/Doubles.h"

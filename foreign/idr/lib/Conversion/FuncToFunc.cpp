@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Phase 0 of idr-lower: idr.func, idr.call and idr.return become func.func,
 // func.call and func.return under the mangled names. What LLVM learns of a
 // function's values was read before this; its other facts were for the

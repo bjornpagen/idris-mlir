@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: BSD-3-Clause
+-- Copyright (c) 2020 Edwin Brady
 ||| A Idris port of the prettyprinter library [1] and
 ||| the ANSI terminal backend [2].
 |||

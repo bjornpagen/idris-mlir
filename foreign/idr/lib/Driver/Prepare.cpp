@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The prepared runtime: one optimized module, written as native code with
 // its bitcode beside or inside it.
 

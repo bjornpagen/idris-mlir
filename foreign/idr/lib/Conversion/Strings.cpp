@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The patterns of the string builders over lists: idr.str.pack over a list of
 // characters and idr.str.concat over a list of strings; and of
 // idr.io.put_list, which writes such a list. The list is a box of a nil

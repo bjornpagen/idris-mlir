@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The values a consumer moved into a match's regions meets there: the
 // profit of case-of-case and of moving a value into regions. A consumer
 // meets a value where it folds or canonicalizes against it: a match takes

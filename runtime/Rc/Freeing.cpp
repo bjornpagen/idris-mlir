@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Releasing a dead cell's references and freeing it, through the dying
 // list.
 // PIN(runtime-quarantine) — see PINS.md

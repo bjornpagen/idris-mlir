@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The types of the idr dialect, and the constraints its ops state over them.
 
 #ifndef IDR_TYPES

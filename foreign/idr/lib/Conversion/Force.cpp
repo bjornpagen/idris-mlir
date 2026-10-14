@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Phase 2 of idr-lower for the force of a memo cell. idr-defunctionalize
 // makes each lazy type a memo sum, whose cell is in one of its states: a
 // label with the captures of the label's function, `running` while a force

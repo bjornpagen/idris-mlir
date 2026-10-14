@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // no-heap-allocation: nothing allocates a heap cell, in one function and
 // what it may call, or in the whole module. This is how a test states that
 // a value stays off the heap, whatever ops show it.

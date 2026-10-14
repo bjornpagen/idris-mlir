@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The bounds an scf.while keeps the integers it carries in, at every
 // iteration. MLIR's integer range analysis gives a carried value the join
 // of the value it starts with and of every value a back edge passes, but

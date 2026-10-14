@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr.func: its text, the shape of its clone fact, and the rules of one
 // function, which run after the ops of its body are verified and in
 // parallel with every other function's.

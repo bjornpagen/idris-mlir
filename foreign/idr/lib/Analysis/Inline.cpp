@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The inline decisions, in three phases: what each function names, read
 // from References in parallel, one slot per function; the counts of calls,
 // merged in module order, and the components of the call graph; the rule,

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // rt::big: bigs, Integer and the Nat-like types. A value that fits in 63
 // bits is a tagged word, and any other is a GMP integer, so each integer has
 // one representation; every operation returns the small form when the

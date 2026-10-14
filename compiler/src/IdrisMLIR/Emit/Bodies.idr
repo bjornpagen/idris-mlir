@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| Function bodies: the algebra of the fold that writes a term, its
 ||| matches, lambdas, delays and loops as regions.
 module IdrisMLIR.Emit.Bodies

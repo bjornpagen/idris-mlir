@@ -2042,4 +2042,4 @@ regionOp : IdrRegionPrim -> List Value -> Region -> List MlirType -> Op
 regionOp ArrayGenerate operands body results = MkOp "idr.array.generate" operands [] [body] [] results
 regionOp ArrayFold operands body results = MkOp "idr.array.fold" operands [] [body] [] results
 
--- fingerprint: 119706907-1171045 1571912246-92710
+-- fingerprint: 683772573-1171112 1571912246-92710

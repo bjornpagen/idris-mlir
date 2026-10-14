@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The code counting changes before it places a count: what it cannot
 // count, selects, values taken apart where they die, fields that take a
 // reference of their own, and consumers moved past the reads that follow

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The idr dialect: what TableGen generates from IdrOps.td, with what the
 // generated code needs declared around it, in the order it needs it: the
 // grades, the resources, the traits and the guards' vocabulary before the

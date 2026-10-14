@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Base's files (System.File): opening and closing one, its stream's state,
 // and the files at a path. An open file is a slot of the handle table holding
 // the C library's stream; the standard streams are the handles 0, 1 and 2,

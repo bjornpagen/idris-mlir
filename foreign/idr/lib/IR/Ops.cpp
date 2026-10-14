@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The idr ops, as TableGen defines them, with what the generated code calls
 // by name and so must find declared before it: the custom directives of the
 // ops' assembly formats, and the folders idr.div and idr.mod, and idr.shl

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Phase 1 of idr-lower for the loops over an array's index space, after the
 // matches: idr.array.generate and idr.array.fold become linalg.generic over
 // the arrays, still on idr types.

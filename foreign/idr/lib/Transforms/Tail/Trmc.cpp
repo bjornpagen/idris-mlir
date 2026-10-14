@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 //===- Trmc.cpp - idr-trmc ------------------------------------------------===//
 //
 // A self call whose result is a field of the boxed constructor a tail

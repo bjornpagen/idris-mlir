@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // What the folders of the string and big ops, and of double_head and
 // int_head, share: each converts its constant operands to runtime values,
 // calls the runtime's own C function, which idris-mlir links natively, and

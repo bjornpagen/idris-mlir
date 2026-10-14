@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The attributes of the idr dialect: its constants, what a call may do,
 // the keys of clones and the instances a declaration is of.
 

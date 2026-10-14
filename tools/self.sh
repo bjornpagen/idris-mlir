@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The frontend compiled by itself: the stages of self-hosting, after
 # `make build` and the fork installed into the frontend's prefix (`make
 # self` makes both first).

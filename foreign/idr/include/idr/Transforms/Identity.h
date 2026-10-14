@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-identity: every call of a function that gives back one of its
 // arguments, made that argument.
 #ifndef IDR_TRANSFORMS_IDENTITY_H

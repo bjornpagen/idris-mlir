@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: BSD-3-Clause
+-- Copyright (c) 2020 Edwin Brady
 ||| Is there a more common name for this transformer?
 ||| `ListT m a` is for `m (List a)` rather than this more progressive thing
 

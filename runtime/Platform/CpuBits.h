@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The bits of IDRIS_RT_CPU_FEATURES the processor state already holds. Both
 // processor files read them here, after their own startup. The startup is
 // the target difference; the bits are not.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The dialect's types beyond what TableGen generates: the canonical forms
 // of !idr.q, the destination's carrier, and the names the printer gives a
 // value of each type. A graded value takes its carrier's name, so a world

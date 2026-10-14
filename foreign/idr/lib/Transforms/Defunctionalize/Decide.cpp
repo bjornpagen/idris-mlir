@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Which keys become sums: those whose labels are known, not empty and fit
 // the type, unless a value can reach the key only as a closure; boxed when
 // the key is on a cycle of captures. Every lazy key whose labels are known,

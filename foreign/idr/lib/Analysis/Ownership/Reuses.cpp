@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Reset/reuse insertion's decisions, on functional code whose match
 // regions end in their join point.
 //

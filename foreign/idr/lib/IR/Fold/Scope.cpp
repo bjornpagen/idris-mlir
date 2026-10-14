@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The runtime references one fold holds, and the count of the cells it
 // leaves live.
 

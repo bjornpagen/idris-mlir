@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Making a clone, the facts it starts with, and the boundary between two
 // generations of a run of idr-specialize.
 #include "idr/IR/IdrDialect.h"

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Which boxes may outlive the frame that builds them, and which functions
 // may have more than one frame live at a time: what idr-stack decides by.
 //

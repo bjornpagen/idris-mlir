@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: BSD-3-Clause
+-- Copyright (c) 2020 Edwin Brady
 -- like name map, but able to return ambiguous names
 module Libraries.Data.ANameMap
 

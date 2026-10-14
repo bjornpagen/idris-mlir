@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The processor features an x86-64 program may be compiled to use and
 // idris_rt_start tests (cpu_features.h): those of the microarchitecture
 // levels v2, v3 and v4 above the baseline. On x86-64 the name

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // A file's times (System.File.Meta's fileTime): read at once into a file-time
 // handle, which base reads field by field and then frees.
 // PIN(runtime-quarantine) — see PINS.md

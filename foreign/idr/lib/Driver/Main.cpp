@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idris-mlir's entry: the command line, the --print options and the
 // compilation, on a stack of its own.
 

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The dialect's attributes on other ops and on the arguments of functions.
 // What a function is known to be is idr.func's own, inherent and verified
 // with it; what is left are the module's mark of a whole program and

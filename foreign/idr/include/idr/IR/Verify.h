@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The verifier of a program: the module's rules, which the dialect runs
 // from `idr.program` before the ops inside are verified, and the rules of
 // one function, which idr.func's region verifier runs after its body's ops

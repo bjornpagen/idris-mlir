@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| Linear lists: a list whose spine and elements are used exactly once,
 ||| as upstream's `Data.Linear.LList` has them, so that a program written
 ||| over either reads the same. An element used freely is wrapped in `!*`.

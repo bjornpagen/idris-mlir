@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The labels each closure or suspension may hold, a sparse forward dataflow
 // analysis on MLIR's framework, interprocedural, that joins itself what the
 // framework does not follow: the captures of closures and suspensions and

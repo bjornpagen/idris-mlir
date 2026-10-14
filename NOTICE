@@ -1,0 +1,16 @@
+idris-mlir
+Copyright (c) 2026 Bjorn Pagen
+
+This product includes software under the Apache License 2.0 with
+LLVM Exceptions: the LLVM Project (MLIR and LLVM, linked into the
+tools), and any files ported from Modular's Mojo compiler, each
+carrying its upstream copyright and SPDX line in place. Every port
+is recorded in PINS.md with its source, revision and changes.
+
+compiler/idris/ is derived from Idris 2
+(https://github.com/idris-lang/Idris2), Copyright (c) 2020
+Edwin Brady, under the BSD 3-Clause license in
+compiler/idris/LICENSE.
+
+Third-party components in shipped binaries are inventoried in
+LICENSES/THIRD-PARTY.md.

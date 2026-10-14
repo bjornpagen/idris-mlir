@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // contified: every continuation became part of the function it continues.
 // A private function whose one use is a call from another function, which
 // it calls back, is a continuation of that function (a case block of

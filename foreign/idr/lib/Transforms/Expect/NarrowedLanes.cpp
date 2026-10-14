@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // narrowed-lanes: after idr-narrow-lanes, some loop computes integer lanes
 // in 32 bits or fewer, and every wider one has a 32-bit version beside it.
 

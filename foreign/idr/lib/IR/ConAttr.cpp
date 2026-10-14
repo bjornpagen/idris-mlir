@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // #idr.con: a constant constructor, named @T::@C, held plain or, for a list
 // or any other chain of one constructor through one field, as a flat run of
 // its cells, so that a constant as long as the data it is stays one level

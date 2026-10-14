@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The force preparation: two rewrites of forces into calls that the inliner
 // can then see through. Neither is a canonicalization pattern. One builds a
 // function, which inside the inliner's pipeline would come after the call

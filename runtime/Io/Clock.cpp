@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Base's clocks (System.Clock). An OSClock is an immediate value,
 // seconds << 30 | nanoseconds, so reading a clock allocates nothing and
 // leaves nothing to free. Nanoseconds fit 30 bits, and seconds below 2^33

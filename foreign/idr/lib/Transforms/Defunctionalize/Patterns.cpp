@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The conversion's patterns for the closures, suspensions, applies, forces,
 // constants and declarations, and the generic one that retypes every other
 // op. Each takes its operands as the conversion remapped them and moves a

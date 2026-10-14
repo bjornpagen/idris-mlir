@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // What an op does besides computing its results: where a use takes over
 // the reference its value holds, as the op that uses it declares, and what
 // taking it over is to every other pass; the effects of IO on buffers and

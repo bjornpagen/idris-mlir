@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-deduplicate: one of each group of private idr.funcs whose type,
 // facts and body are the same stays, and every use of the others names it.
 #ifndef IDR_TRANSFORMS_DEDUPLICATE_H

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // How the dialect reads in text: the names the printer gives the results
 // of its ops and the arguments of a match's cases, and the aliases of its
 // data types and of its large constants. A name or an alias that comes

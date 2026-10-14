@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The references of every function, from one walk of each body. A
 // reference is what the body names that may run while it runs: the callee
 // of an idr.call, the label of an idr.closure or an idr.suspend, the label

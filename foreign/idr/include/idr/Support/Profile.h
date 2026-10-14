@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Profiling with LLVM's time trace: the one header that includes it.
 // Every build compiles these macros; nothing is a special build. A trace
 // is a run-time choice, --time-trace=<file> on a tool, as clang's

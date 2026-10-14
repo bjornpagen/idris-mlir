@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The runtime's C functions as idr-lower calls them, and the crashes it
 // reports through them.
 

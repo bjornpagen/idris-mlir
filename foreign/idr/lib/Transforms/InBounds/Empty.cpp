@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Whether a system with one more inequality has no integer point, which
 // is what a proof asks of it. No rational point is no integer point, and
 // MLIR's simplex decides that directly; what it leaves is branched on

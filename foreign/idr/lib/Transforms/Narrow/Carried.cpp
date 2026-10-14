@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The values that flow around loops and out of merges made words where
 // every value that may flow there fits: the webs' joints.
 

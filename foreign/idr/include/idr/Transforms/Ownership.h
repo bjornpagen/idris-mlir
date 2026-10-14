@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-rc: every reference made explicit, after which the module is in the
 // owned stage, which its grades say and the verifier checks after every
 // later pass. The module pass decides on the module and writes signatures;

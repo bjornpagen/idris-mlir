@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Calling a clone: the one way a call becomes a call of a clone, for the
 // module pass that made the clone and for the function pass that finds it
 // in the table. It reads the clone's record, never the clone.

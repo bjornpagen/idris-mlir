@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // `cast` from String to a machine integer: its value modulo 2^64.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Numerals/Numerals.h"

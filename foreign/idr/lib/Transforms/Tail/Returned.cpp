@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 //===- Returned.cpp - Which results are always one of the arguments -------===//
 //
 // A value threaded through a function and given back (a linear array

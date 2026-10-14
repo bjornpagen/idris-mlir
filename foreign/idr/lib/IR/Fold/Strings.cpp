@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The folders of the string ops: each calls the runtime's own C function on
 // its constant operands, as Fold.h says. Then the string a constant list of
 // characters packs to, or a constant list of strings concatenates to, which

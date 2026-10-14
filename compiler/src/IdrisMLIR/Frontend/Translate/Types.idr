@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| Types and data instances: the Core type of a closed Idris type, and the
 ||| monomorphic data instances it names, registered as they are met.
 module IdrisMLIR.Frontend.Translate.Types

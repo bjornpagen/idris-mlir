@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // GMP's memory functions over the runtime's allocator. GMP cannot recover
 // from a failed allocation; rt::alloc::allocate ends the process with a
 // crash instead of returning.

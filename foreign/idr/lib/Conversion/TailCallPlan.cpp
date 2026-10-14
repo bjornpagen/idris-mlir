@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The plan of idr-tail-calls, over the lowered module as it stands.
 
 #include "idr/Conversion/Frame.h"

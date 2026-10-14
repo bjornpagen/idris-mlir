@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // quantities-kept: no pass drops or widens a quantity Idris proved. A
 // quantity is a type's (quantityOf), one or many; a parameter of a
 // function or a lambda, a field a match binds or a constructor field the

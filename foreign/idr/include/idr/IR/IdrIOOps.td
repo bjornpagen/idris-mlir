@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The IO ops of the idr dialect: what the Prelude's IO and its buffers do.
 
 #ifndef IDR_IO_OPS

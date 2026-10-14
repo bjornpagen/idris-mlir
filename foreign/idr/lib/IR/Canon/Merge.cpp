@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Identical regions of a match merge. Upstream's region patterns merge
 // results, not regions, and a match region is one block, which the block
 // merging of region simplification never sees two of.

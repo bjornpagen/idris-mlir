@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Symbol lookup: from the table a pass holds, from the collection a
 // symbol-use verifier is handed, or, for code MLIR calls with no table in
 // hand, by a scan of the nearest symbol table's top level. A pass never

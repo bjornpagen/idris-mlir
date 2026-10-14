@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Phase 1 of idr-lower: matches become scf, still on idr types.
 
 #include "idr/IR/IdrDialect.h"

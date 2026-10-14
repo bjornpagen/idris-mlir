@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Which labels of the memo sums are `by_name`. A trusted library's effect
 // happens where its value is demanded, so a cell whose label reaches an
 // effect the program's outside can observe runs it at every force instead

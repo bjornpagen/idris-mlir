@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The module's target, decided once (idr-target), and the LLVM side of the
 // pipeline: the machine a program is compiled for, LLVM's pipeline for it,
 // and the width of its vector registers.

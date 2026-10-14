@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idris-mlir-tblgen: mlir-tblgen with two more generators, which write a
 // dialect's vocabulary for the Idris side from the dialect's ODS, in two
 // modules:

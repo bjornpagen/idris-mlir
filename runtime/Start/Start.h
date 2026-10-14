@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // rt::start: the program's entry and the reserved-stack runner. A program's
 // main calls idris_rt_start, which checks the processor, keeps the
 // program's arguments and runs the program on a reserved stack, so that

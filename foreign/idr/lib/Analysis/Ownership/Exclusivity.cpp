@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Exclusivity: which owned values hold the only reference to every cell
 // of their cell graph that a take could hand out, so that taking them
 // apart needs no count test, and building in their cells no null test.

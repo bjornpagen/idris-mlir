@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // `x & (c - 1)` is below `c` when `c` is a positive power of two. The mask
 // is then the low bits, and those bits of any word are a remainder in
 // `[0, c)`. The same shape with a capacity the facts do not pin to one

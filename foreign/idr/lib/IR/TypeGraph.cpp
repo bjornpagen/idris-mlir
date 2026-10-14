@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The containment among the module's types. Idris is strict and never
 // writes data once made, so a new object only points at objects that exist
 // before it, and the heap is acyclic: what lets counting free everything,

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Where a value is used, and where it dies on each path of a block: what
 // reset/reuse insertion decides by, and what explicit counting places by.
 #include "idr/Analysis/Ownership.h"

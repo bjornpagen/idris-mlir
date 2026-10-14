@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The in-process part of a compilation: the idr pipeline in one pass
 // manager, then LLVM, from a module to an object.
 

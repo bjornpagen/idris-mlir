@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // What the path to a guard says of its integers. Each op enclosing the
 // guard ran the region it is in for a reason: a match took the case of its
 // scrutinee's value, an scf.if its condition's side, a loop's body runs

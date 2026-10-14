@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // What a vectorized loop computes on, what it reads from outside, and how
 // often it runs.
 

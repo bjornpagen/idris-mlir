@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // reuses-every-cell: every cell a take yields for a constructor with fields
 // is reused, not freed.
 

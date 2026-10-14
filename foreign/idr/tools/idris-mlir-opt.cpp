@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idris-mlir-opt: mlir-opt with the idr dialect, passes and pipeline
 // registered. Like idris-mlir, it runs on the runtime's reserved-stack
 // runner, on a stack of 2^40 bytes, so the nested constants MLIR's parser

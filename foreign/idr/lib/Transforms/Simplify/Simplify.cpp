@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-simplify: the simplify loop. One round runs the passes
 // buildSimplifyRound adds, in order; rounds repeat until one leaves the
 // module unchanged. Then remove-dead-values and symbol-dce run once: RDV's
@@ -15,11 +17,9 @@
 // `unsupported (compile-time budget)`, not a hang.
 //
 // The loop is upstream's composite-fixed-point-pass over the round, told
-// to stop silently when its budget runs out. It runs one round past the
-// budget before it stops, and does not look at what that round changed: a
-// module whose fixpoint takes at most `max-rounds` rounds passes, and one
-// over the budget costs a round more, which is how this pass tells the two
-// apart.
+// to stop silently when its budget runs out; it runs one round past the
+// budget before it stops, which is how this pass tells a module within
+// budget from one over it.
 //
 // PIN(simplify-structural-fixpoint) — see PINS.md
 // "Unchanged" is the composite's structural fingerprint of the module,

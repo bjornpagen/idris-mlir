@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| Idris's primitives as Core's: each has one meaning, the runtime's, so
 ||| this only names them: the op of the dialect each is, or the operation
 ||| its types choose.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-stack: a box whose cell never leaves its frame is built on the stack.
 //
 // An idr.con of a box gets the dialect's `stack` mark when the escape

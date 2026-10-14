@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The ops of the owned stage: idr.dup, idr.drop, idr.reuse and idr.take,
 // and what their symbols must name: the constructor a symbol names and the
 // types of the fields that move. That the module is in the owned stage

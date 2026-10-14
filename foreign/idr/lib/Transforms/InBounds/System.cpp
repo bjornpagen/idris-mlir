@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // What is known of the integers at one guard, as a system of linear
 // constraints over the integers that MLIR's Presburger library decides
 // exactly. A column is an SSA integer, as its latest value at the guard, or

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Whether a value of a type may hold a world or a closure, for every
 // declaration at once. A declaration may hold one when a field of one of
 // its constructors is one, seen through its grade, when it is a sum of

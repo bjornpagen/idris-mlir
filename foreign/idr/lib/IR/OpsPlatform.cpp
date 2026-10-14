@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // What the ops on the platform compute: idr.os, folded to the string of the
 // operating system the target triple names; and the buffer and byte
 // transfer ops, a machine word at a byte offset, a copy, a string written

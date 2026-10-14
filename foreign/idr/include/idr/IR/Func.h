@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // What the dialect registers for idr.func, idr.call and idr.return beyond
 // their ops: the inliner's rules, which mirror func's for its own.
 #ifndef IDR_IR_FUNC_H

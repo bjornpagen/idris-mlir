@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Profiles one compilation with LLVM's time trace.
 #
 #     tools/profile.sh [--name NAME] [--] ARGUMENT...

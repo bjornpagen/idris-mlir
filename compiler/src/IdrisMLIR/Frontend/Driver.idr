@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| idris-mlir-front, the Idris side of idris-mlir: a function from files to
 ||| files. Given a program's main file, Idris builds it and the modules it
 ||| imports, reading and writing their TTCs, and the frontend writes the

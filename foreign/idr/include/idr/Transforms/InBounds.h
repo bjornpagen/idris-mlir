@@ -1,11 +1,11 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The guards that can never crash, erased, so that a proof is the guard's
 // absence and lowering has nothing to check. A proof is a system of linear
 // constraints over the integers (System) from the path to the guard, the
 // bounds its loops keep their counters in (Induction), and which integers
-// are the lengths of which arrays (Lengths). idr-in-bounds builds Lengths
-// once for the module, then proves each function on its own
-// (idr-in-bounds-prove): everything a proof needs of another function is a
-// table of Lengths, filled before any guard goes.
+// are the lengths of which arrays (Lengths), built once for the module;
+// each function is then proved on its own (idr-in-bounds-prove) from it.
 #ifndef IDR_TRANSFORMS_INBOUNDS_H
 #define IDR_TRANSFORMS_INBOUNDS_H
 

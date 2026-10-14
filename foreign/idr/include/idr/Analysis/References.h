@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // What each function's body names: the functions it may run while it runs,
 // the edges every cycle of references follows, and how large the body is.
 // The passes that follow calls and closures ask the same questions of every

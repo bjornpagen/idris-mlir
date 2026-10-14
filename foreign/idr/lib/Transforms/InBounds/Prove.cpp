@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // A guard is erased when its condition holds wherever it runs, so it can
 // never crash. A guard of an index holds when no integers satisfy what is
 // known at it together with an index outside its length, `i < 0` or

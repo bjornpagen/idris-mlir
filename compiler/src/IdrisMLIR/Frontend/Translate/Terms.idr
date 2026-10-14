@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| Terms: a TT term in scope, with an environment saying what each of its
 ||| variables stands for, as a Core term. A call requests the instance it
 ||| calls, or, for a method of an implementation the call fixes, calls the

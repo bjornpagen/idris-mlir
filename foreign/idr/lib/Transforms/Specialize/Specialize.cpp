@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-specialize: one run raises, then specializes, every call of every
 // function, and of every clone made on the way, and calls the clones.
 //

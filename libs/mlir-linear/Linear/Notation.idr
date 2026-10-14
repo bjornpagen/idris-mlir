@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| The notation of linear programs: linear implication and the
 ||| unrestricted modality, spelled as upstream's `Data.Linear.Notation`
 ||| spells them, so that a program reads the same over either.

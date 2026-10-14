@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Compiles an Idris program with idris-mlir: the one copy of how `make
 # compile`, the tests and the benchmarks run it.
 #

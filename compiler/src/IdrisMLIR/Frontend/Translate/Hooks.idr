@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| What the registry's hooks make of a definition's calls.
 module IdrisMLIR.Frontend.Translate.Hooks
 

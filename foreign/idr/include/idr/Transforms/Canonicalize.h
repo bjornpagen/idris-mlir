@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The one configuration every canonicalizer this compiler builds runs
 // with: upstream's canonicalizer, configured, never a replacement for it.
 //

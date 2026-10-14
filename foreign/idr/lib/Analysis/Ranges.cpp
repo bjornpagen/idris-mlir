@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The seeded range analysis: MLIR's integer range analysis, seeing a natural
 // as at least 0 and the program's poison as any value, solved once over the
 // module across calls.

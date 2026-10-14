@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The cycles of the graphs the properties of recursion are stated over:
 // references among functions, as the loop breakers and the inliner see
 // them, or symbol uses after lowering.

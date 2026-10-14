@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The ops on arrays: new, get, set, and the loops generate and fold, with
 // their rules, their syntax, their shapes and their effects. How control
 // enters and leaves a loop's body is the region ops' unit's.

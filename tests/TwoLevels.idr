@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| The two levels: closed terms, over every primitive and over a corpus of
 ||| total Prelude functions, each with its value as an Idris term, which the
 ||| corpus's expected file records (tests/two-levels/terms/expected-<corpus>),

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Explicit counting: the grades, idr.dup and idr.drop that make every
 // reference consumed exactly once on every path. It runs on functional
 // code, where a match region's yield is the join point and recursion is

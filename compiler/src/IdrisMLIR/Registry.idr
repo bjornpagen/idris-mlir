@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| The registry of privileged knowledge.
 |||
 ||| No language features in the compiler: features are Idris libraries, and

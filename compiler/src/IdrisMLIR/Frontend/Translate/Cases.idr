@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| Case trees: Idris's compile-time case trees (`treeCT`) as Core matches.
 ||| A match on a compile-time value selects its alternative now, and so does
 ||| a match on a value of a type with one runtime field, which is its

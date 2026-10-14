@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Specialization: a call is redirected to a clone of its callee in which
 // the static parts of its arguments are substituted, and whose parameters
 // are their runtime leaves, parameter p holding hole p of the key.

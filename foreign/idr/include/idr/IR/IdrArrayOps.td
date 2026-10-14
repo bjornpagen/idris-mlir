@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The ops of the idr dialect on arrays, and the loops over them.
 
 #ifndef IDR_ARRAY_OPS

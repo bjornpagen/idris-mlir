@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 //===- ReturnedArguments.cpp - idr-returned-arguments ---------------------===//
 //
 // A result that a function always returns as one of its arguments is

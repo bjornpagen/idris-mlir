@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The patterns of cells and unboxed sums, and of the changes of grade and
 // kind that have no runtime form.
 

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The base of phase 2's patterns: the layouts and the runtime they lower
 // with.
 

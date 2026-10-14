@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The module's closures and suspensions, gathered once for the analysis of
 // their labels: the closure and suspension ops and constants of each label,
 // the applies and the labels each may call, and the functions that escape.

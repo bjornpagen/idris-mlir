@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // What a compilation reads and writes. The input's kind is its extension,
 // and every file the compilation writes is named from one base, so that
 // what it leaves is known before anything runs. Each output is written

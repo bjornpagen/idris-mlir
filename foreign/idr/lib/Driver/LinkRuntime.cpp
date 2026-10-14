@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The runtime's bitcode linked into the program's module, and its functions
 // raised to the program's CPU.
 

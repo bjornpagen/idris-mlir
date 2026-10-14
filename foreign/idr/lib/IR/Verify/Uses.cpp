@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // What a use does with a reference in the owned stage, which values no
 // count reaches, and the one predicate the stage is decided by: shared by
 // the owned walk and the ownership passes, so each has one meaning.

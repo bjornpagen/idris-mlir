@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Which integers are the lengths of which arrays. `related(n, a)` holds
 // when, wherever `n` and `a` are both in scope, the array `a` has
 // `max(n, 0)` elements: what `idr.array.new [%n]` gives, and what the

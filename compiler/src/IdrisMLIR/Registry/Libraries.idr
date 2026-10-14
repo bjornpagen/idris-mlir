@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| The library table: where code comes from, and what each purpose of the
 ||| compiler makes of each library. The purposes differ: only `Trusted` and
 ||| `Admitted` cover base, `BreakLast` leaves out the Prelude, and `Admitted`

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-isolate: the body of every idr.lambda and idr.delay gets a private
 // function of its own, and the op becomes an idr.closure or an idr.suspend
 // of it over the values the body uses from above.

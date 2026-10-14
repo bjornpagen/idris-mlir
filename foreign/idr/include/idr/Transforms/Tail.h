@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 //===- Tail.h - What becomes of a function's tail positions ---------------===//
 //
 // A self tail call becomes the next iteration of a loop (idr-tail-loops:

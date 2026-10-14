@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idris-mlir's pipeline, from the idr dialect to the LLVM dialect, written
 // once as a sequence of constructor calls. What builds it and what lists
 // the names --without may give both read that one sequence, so no list of

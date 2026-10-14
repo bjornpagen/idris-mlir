@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The grades idr-rc's analyses decide, written into the signatures before
 // the bodies are rewritten: the owned grades of borrow inference before
 // placement, which reads them, and the excl grades of exclusivity before

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The functions that give back an argument: the candidates, the walks, and
 // the greatest fixpoint over them. IdentitiesRecord.cpp walks a function;
 // IdentitiesRebuilds.cpp says why the assumptions that are left hold.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // A big's word: a small value, tagged, or a large one's cell. The accessors
 // are inline in Big/Big.h; the layout they read is checked here.
 // PIN(runtime-quarantine) — see PINS.md

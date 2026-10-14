@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idris-mlir-reduce: mlir-reduce with the idr dialect and passes registered,
 // for shrinking a module that makes a pass fail.
 

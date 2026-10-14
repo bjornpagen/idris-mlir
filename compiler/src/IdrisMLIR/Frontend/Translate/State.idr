@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| The translation's state: the data and function instances registered so
 ||| far, and the function instances waiting to be translated.
 module IdrisMLIR.Frontend.Translate.State

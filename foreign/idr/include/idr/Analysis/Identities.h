@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The functions of a module that give back one of their arguments, found
 // together: what idr-identity makes every call of them.
 //

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The terminal of standard input and output, on a POSIX system: raw mode
 // through termios, and its size through TIOCGWINSZ, which Linux and macOS
 // both define.

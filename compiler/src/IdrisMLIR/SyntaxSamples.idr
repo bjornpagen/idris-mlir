@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| One sample of every type and attribute of the dialects' generated
 ||| syntax (IdrisMLIR.Syntax.*), and of every directive of the ops'
 ||| declarative syntax the generated printers write (IdrisMLIR.Dialect.*),

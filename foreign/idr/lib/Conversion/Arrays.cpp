@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The patterns of arrays. An array is one cell (idris_rt_array) of a length
 // and its elements, and beside the cell its size in each dimension, the
 // memref's (Layouts::components): an array of rank 1 its length, an IORef,

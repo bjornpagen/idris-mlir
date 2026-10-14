@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The guards, idr.check.*. Each gives its operand as its result once its
 // condition held, and a guard of an index is the check of the array access
 // that takes that result as its index, directly or through the access's own

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The owned walk through the scf loops idr-tail-loops makes: an scf.while
 // that carries a function's parameters and then its results, and the
 // scf.for it makes of a counted one.

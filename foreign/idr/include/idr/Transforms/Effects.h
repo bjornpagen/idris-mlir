@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-effects: what each function and each call may do, written on the
 // idr.func and the idr.call as their own `effects`.
 #ifndef IDR_TRANSFORMS_EFFECTS_H

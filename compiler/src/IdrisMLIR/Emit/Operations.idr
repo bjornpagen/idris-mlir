@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| The operations of the contract that one layer of a term becomes:
 ||| literals, primitives, constructor applications and effects, each made by
 ||| its op's builder (IdrisMLIR.Dialect.*). A partial primitive is a guard

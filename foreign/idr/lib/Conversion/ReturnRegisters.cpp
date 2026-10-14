@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Whether a result of a `tailcc` function comes back in registers.
 
 #include "idr/Conversion/ReturnRegisters.h"

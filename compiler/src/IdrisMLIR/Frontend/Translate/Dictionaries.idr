@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| Dictionaries held in constructor fields.
 |||
 ||| An implementation is a compile-time value: a function's interface

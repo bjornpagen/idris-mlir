@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Which functions idr-inline inlines, decided from the references among
 // functions before anything is inlined.
 #ifndef IDR_ANALYSIS_INLINE_H

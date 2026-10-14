@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Bigs as decimal text, and read from digits of any base.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"

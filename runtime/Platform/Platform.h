@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // rt::platform: what the runtime asks of the operating system and the
 // processor, behind one interface whose implementations a target entry
 // (CMakeLists.txt) picks: Platform/Posix's serve every POSIX system, and

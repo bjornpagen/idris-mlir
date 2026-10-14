@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The words idr-lower builds cells, static data and patterns from.
 
 #include "idr/IR/IdrDialect.h"

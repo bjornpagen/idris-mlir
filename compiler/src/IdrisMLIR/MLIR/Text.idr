@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| The pieces of MLIR's text that every printer shares: names, string and
 ||| number literals, symbol references, function signatures and lists. A
 ||| leaf, so that the generated syntax of each dialect (IdrisMLIR.Syntax.*)

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 //===- AccumulatorPlan.cpp - What an accumulator tail is ------------------===//
 //
 // `length (x :: xs) = S (length xs)` is an addition of the recursive

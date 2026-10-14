@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The clones of a module by key.
 //
 // A clone carries its key in its clone fact, which names the clone too, so

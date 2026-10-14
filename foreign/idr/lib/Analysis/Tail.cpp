@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Tail position, and tail position modulo a constructor.
 
 #include "idr/Analysis/Tail.h"

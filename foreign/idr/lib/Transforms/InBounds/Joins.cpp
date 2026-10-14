@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The values bound from several places, each from one value per place: the
 // arguments a region branch forwards and the results it gives (scf.while,
 // scf.for, scf.if, idr.match, idr.match_lit, the loops over arrays), a

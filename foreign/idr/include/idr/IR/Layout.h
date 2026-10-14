@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // How idr values are represented at runtime, as the runtime (idris_rt.h)
 // reads them: the cells of boxes, memo sums and arrays and the slots of
 // unboxed sums, decided once per module for its target (Layouts); and the

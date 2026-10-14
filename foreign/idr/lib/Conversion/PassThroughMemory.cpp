@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The functions on a tail call whose result does not fit the return
 // registers write it through a pointer instead.
 

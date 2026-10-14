@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // A match rebuilt with other results or regions, which every
 // canonicalization that changes a match's shape makes. A match carries no
 // discardable attribute, so the rebuilt one has nothing to take over.

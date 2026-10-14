@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The allocation entry points over snmalloc, one per size class, and the
 // general ones. snmalloc::alloc<S>() fixes the size class at compile time,
 // so after LTO an allocation inlines into generated code as a thread-local

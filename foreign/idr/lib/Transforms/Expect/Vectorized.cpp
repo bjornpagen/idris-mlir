@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // vectorized: after idr-vectorize, some loop computes on vectors, and none
 // over words with a parallel dimension stays scalar.
 

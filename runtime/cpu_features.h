@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The processor features a program may be compiled to use and
 // idris_rt_start tests: the target entry's list (CMakeLists.txt), the
 // header IDRIS_RT_CPU_FEATURES_FILE names. Each is X(bit, test, name):

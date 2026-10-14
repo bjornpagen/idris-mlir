@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| Category 2 of the registry: ordinary
 ||| library definitions the compiler treats specially. This is the
 ||| privileged-knowledge table: each entry makes its definition faster or

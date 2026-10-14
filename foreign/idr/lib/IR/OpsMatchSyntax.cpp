@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The syntax of idr.match and idr.match_lit: a head they share, then a case
 // per key and a default. Apart from the matches' rules, which would push
 // that unit past its size.

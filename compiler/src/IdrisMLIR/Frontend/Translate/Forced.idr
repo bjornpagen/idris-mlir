@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| Which constructor a scrutinee's type can still be when its indices are
 ||| only partly known. A variable index matches no constructor; an erased
 ||| index matches any.

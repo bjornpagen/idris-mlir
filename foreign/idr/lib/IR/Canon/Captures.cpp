@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The constant captures of a closure constant, as the call an apply of it
 // becomes passes them, and the fields a constructor or a suspension folds
 // with.

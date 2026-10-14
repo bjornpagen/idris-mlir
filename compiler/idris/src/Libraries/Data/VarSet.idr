@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: BSD-3-Clause
+-- Copyright (c) 2020 Edwin Brady
 module Libraries.Data.VarSet
 
 -- If we had defined these functions in the same file as `VarSet`,

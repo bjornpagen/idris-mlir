@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # compiler/idris/ is upstream Idris 2's compiler, forked at the gitlink of
 # third_party/Idris2 and pruned to what our frontend needs. MODULES lists
 # the upstream source files it keeps, relative to src/, one per line.

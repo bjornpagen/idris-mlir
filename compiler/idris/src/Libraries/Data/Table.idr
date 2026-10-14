@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: BSD-3-Clause
+-- Copyright (c) 2020 Edwin Brady
 ||| A table of entries indexed by Int, each slot empty until it is written,
 ||| on a growable linear array: its size is the number of slots claimed. A
 ||| slot past it is empty to read and not there to write. The table is

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Base's directories (System.Directory): the current one, making and removing
 // one, and reading one's entries through a directory handle.
 // PIN(runtime-quarantine) — see PINS.md

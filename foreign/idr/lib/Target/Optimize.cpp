@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // LLVM's side of the target: the machine a program is compiled for, and
 // LLVM's pipeline for it.
 

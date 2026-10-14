@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // breaks-last: a cycle that holds a function that does not break last
 // never breaks at one that does, unless at a clone, the newest of which
 // breaks its cycle whatever it is.

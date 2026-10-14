@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Patterns: taking a value's shape, rebuilding the value a shape stands
 // for, what a key asks of a shape, and erasing a shape a call no longer
 // reads.

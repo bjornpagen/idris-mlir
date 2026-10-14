@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Phase 2 of idr-lower, for bigs and naturals: each op computes its small
 // case inline and calls the runtime only when an operand is a GMP integer or
 // the result leaves the small range.

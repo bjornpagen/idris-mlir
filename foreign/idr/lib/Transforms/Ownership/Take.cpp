@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Taking a value apart: a box where it dies, a scrutinee where a case
 // region begins, an unboxed sum where it is defined; and whether a take
 // where a box dies saves anything over a drop.

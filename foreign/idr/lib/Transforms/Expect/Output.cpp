@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // output-fused: no string is built only to be written. Output of a
 // concatenation, of a character before a string, of one character or of a
 // number writes its pieces instead, and output of a list packed or

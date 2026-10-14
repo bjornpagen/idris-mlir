@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-entry, which makes the root idr-lower lowered the program's entry.
 
 #include "idr/IR/IdrDialect.h"

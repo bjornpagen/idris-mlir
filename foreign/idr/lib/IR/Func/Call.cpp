@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr.call and idr.return. A call's callee is read once per module verify,
 // from the collection MLIR shares among every symbol user, and nowhere
 // else: what a call may do is its own `effects`, which idr-effects writes

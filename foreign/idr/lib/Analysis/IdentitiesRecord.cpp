@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The one walk of a function whose arguments might be given back.
 //
 // A return gives back the argument x when its value is x rebuilt: x

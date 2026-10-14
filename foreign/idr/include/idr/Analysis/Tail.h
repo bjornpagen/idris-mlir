@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Where what an op computes is what its function returns: the last op
 // before the function's idr.return, or before the idr.yield of a match
 // region whose match is in tail position itself, when the terminator

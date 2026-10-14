@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: BSD-3-Clause
+-- Copyright (c) 2020 Edwin Brady
 ||| Provides semantic versioning `Version` type and utilities.
 ||| See [semver](https://semver.org/) for proper definition of semantic versioning
 module Libraries.Data.Version

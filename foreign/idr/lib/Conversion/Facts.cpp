@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // What idr-lower tells LLVM about the values functions take and return.
 
 #include "idr/IR/IdrDialect.h"

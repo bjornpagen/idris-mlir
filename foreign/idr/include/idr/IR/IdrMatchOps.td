@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The matches of the idr dialect: on a constructor and on a literal.
 
 #ifndef IDR_MATCH_OPS

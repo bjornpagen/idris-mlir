@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // A machine word in a buffer of bytes. The buffer is the array cell and its
 // length. The word is at its offset from the first byte, where the op's guard
 // found its bytes within that length, or a proof did where it removed the

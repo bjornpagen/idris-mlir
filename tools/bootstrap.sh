@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # The pinned toolchain, built from source into .toolchain/.
 #
 #     tools/bootstrap.sh STEP...          (make bootstrap runs `all`)

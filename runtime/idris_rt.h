@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 /* The runtime's C interface.
  *
  * Every helper that idr-lower calls is here. A program inlines the

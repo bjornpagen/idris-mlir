@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-defunctionalize: closures and suspensions of known labels become sums,
 // by one dialect conversion of the module.
 //

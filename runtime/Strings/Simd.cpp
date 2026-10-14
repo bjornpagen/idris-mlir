@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The simdutf implementation every string function calls, and the C ABI's
 // count and check over it.
 // PIN(runtime-quarantine), PIN(simdutf-dispatch) — see PINS.md

@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: BSD-3-Clause
+-- Copyright (c) 2020 Edwin Brady
 ||| A payload with metadata attached: its location, its name, its quantity,
 ||| its documentation and the like.
 |||

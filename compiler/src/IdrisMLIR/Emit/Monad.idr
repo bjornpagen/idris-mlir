@@ -1,3 +1,5 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
 ||| The emission monad: the operations of the region being written, and
 ||| fresh SSA names.
 module IdrisMLIR.Emit.Monad

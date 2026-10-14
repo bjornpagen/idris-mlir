@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // Base's terminal (System, System.Term): raw mode on standard input, and the
 // size of the terminal.
 // PIN(runtime-quarantine) — see PINS.md

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The processor features an AArch64 program may be compiled to use and
 // idris_rt_start tests (cpu_features.h): those of apple-m1 and the Apple
 // CPUs after it that function multiversioning names and compiler-rt looks

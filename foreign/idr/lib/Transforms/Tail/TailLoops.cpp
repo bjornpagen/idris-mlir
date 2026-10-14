@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 //===- TailLoops.cpp - idr-tail-loops -------------------------------------===//
 //
 // Self tail calls become loops, one function at a time.

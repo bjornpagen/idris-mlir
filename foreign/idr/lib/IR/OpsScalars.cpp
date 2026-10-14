@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // The conversions of scalars: to a character, a byte or an integer, and
 // the first character of a number's text; when a division or a conversion
 // may run before the guard of its operand; and idr.lin.enter and

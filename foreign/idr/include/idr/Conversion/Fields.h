@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // What the owned stage settled about the fields of the ops that count
 // references, read before phase 2 of idr-lower forgets it.
 

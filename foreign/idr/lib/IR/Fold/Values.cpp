@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // An op's constants as the runtime takes them, and the runtime's results as
 // constants: integers, comparisons, a call of a big operation on two
 // constants, and the elements of a constant list.

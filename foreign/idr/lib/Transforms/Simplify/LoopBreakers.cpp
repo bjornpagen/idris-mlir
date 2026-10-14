@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr-loop-breakers: every cycle of references among the idr.func that may
 // be inlined keeps a loop breaker, in every round of the simplify loop.
 //

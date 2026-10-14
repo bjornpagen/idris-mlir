@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // idr.match and idr.match_lit: their rules, the region each takes for a
 // known key, and their canonicalization. A case's fields are checked
 // against the scrutinee's declaration once per module verify, through the

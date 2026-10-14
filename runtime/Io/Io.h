@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 // rt::io: the program's input and output, and its end: standard output and
 // input through static buffers; base's files, directories, process,
 // terminal, errors and clocks over the platform layer (rt::platform), whose
