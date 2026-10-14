@@ -202,16 +202,16 @@ alg ix (EffectF l p tys as res) env _ = do
     | Nothing => pure Nothing
   effect ix l p tys vs res
 alg ix (CallF l fn _ as) env _ = do
-  Just f <- pure (lookup fn ix.fns)
+  Just (f, symbol) <- pure (lookup fn ix.fns)
     | Nothing => internal ("a call of " ++ show fn ++ ", which is not in the program")
   Just vs <- operands ix l env as (toList f.params)
     | Nothing => pure Nothing
   args <- traverse (operand ix) vs
-  Just <$> value ix l f.result (\rt => Func.callOp (mangle fn.name) args [rt])
+  Just <$> value ix l f.result (\rt => Func.callOp symbol args [rt])
 alg ix (ConAppF l c as) env _ = do
   Just k <- pure (lookup c ix.cons)
     | Nothing => internal ("the constructor " ++ show c ++ " of " ++ show c.dataId ++ ", which is not declared")
-  Just vs <- operands ix l env as k.fields
+  Just vs <- operands ix l env as (fst k).fields
     | Nothing => pure Nothing
   Just <$> con ix l k vs
 -- A `let` binds an SSA value; its type is its value's.

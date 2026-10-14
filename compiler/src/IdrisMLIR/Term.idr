@@ -364,9 +364,13 @@ indent : Nat -> String
 indent d = replicate (2 * d) ' '
 
 ||| What the printer makes of a term in scope `n`: given each variable's de
-||| Bruijn index (`#0` is the innermost) and the indentation depth.
+||| Bruijn index (`#0` is the innermost) and the indentation depth, its text
+||| as pieces, before the `rest` it is given. The pieces are joined once, per
+||| declaration: appending a subterm's text to the text around it would copy
+||| it once for every term it is in and for every alternative before it in
+||| its match, which grows with the square of the body.
 Printed : Nat -> Type
-Printed n = (Fin n -> Nat) -> Nat -> String
+Printed n = (Fin n -> Nat) -> Nat -> List String -> List String
 
 ||| The indices under a binder of `k` variables.
 under : {k : Nat} -> (Fin n -> Nat) -> Fin (Under k n) -> Nat
@@ -390,62 +394,89 @@ regionName : IdrRegionPrim -> String
 regionName ArrayGenerate = "ArrayGenerate"
 regionName ArrayFold = "ArrayFold"
 
+||| Arguments in parentheses, separated by commas.
+arguments : (Fin n -> Nat) -> Nat -> List (Printed n) -> List String -> List String
+arguments ix d as rest = "(" :: go as
+  where
+    go : List (Printed n) -> List String
+    go [] = ")" :: rest
+    go [a] = a ix d (")" :: rest)
+    go (a :: as') = a ix d (", " :: go as')
+
 printer : TermF Printed n -> Printed n
-printer (VarF _ x) ix d = "#" ++ show (ix x)
-printer (LiteralF _ x) ix d = show x
-printer (ErasedF _) ix d = "erased"
-printer (PrimAppF _ p stands as) ix d = show p ++ standing stands ++ "(" ++ joinBy ", " (map (\a => a ix d) as) ++ ")"
-printer (EffectF _ p tys as _) ix d =
-  "io." ++ show (Op p) ++ typeArgs tys ++ "(" ++ joinBy ", " (map (\a => a ix d) as) ++ ")"
-printer (CallF _ fn stands as) ix d = show fn ++ standing stands ++ "(" ++ joinBy ", " (map (\a => a ix d) as) ++ ")"
-printer (ConAppF _ c as) ix d =
-  show c.dataId ++ "::" ++ show c ++ "(" ++ joinBy ", " (map (\a => a ix d) as) ++ ")"
-printer (LetF _ q v b) ix d =
-  "let " ++ show q ++ " = " ++ v ix (S d) ++ "\n" ++ indent d ++ b (under {k = 1} ix) d
-printer (CaseF _ x alts def) ix d =
-  "case #" ++ show (ix x) ++ " of" ++ concatMap alt alts ++
-  maybe "" (\e => "\n" ++ indent (S d) ++ "_ => " ++ e ix (S (S d))) def
+printer (VarF _ x) ix d rest = "#" :: show (ix x) :: rest
+printer (LiteralF _ x) ix d rest = show x :: rest
+printer (ErasedF _) ix d rest = "erased" :: rest
+printer (PrimAppF _ p stands as) ix d rest = show p :: standing stands :: arguments ix d as rest
+printer (EffectF _ p tys as _) ix d rest =
+  "io." :: show (Op p) :: typeArgs tys :: arguments ix d as rest
+printer (CallF _ fn stands as) ix d rest = show fn :: standing stands :: arguments ix d as rest
+printer (ConAppF _ c as) ix d rest = show c.dataId :: "::" :: show c :: arguments ix d as rest
+printer (LetF _ q v b) ix d rest =
+  "let " :: show q :: " = " :: v ix (S d) ("\n" :: indent d :: b (under {k = 1} ix) d rest)
+printer (CaseF _ x alts def) ix d rest =
+  "case #" :: show (ix x) :: " of" ::
+  foldr alt (maybe rest (\e => "\n" :: indent (S d) :: "_ => " :: e ix (S (S d)) rest) def) alts
   where
-    alt : AltF Printed n -> String
-    alt (MkAltF {k} c fs body) =
-      "\n" ++ indent (S d) ++ show c ++ "/" ++ show (length fs) ++ " => " ++ body (under {k} ix) (S (S d))
-printer (CaseLitF _ x alts def) ix d =
-  "case #" ++ show (ix x) ++ " of" ++
-  concatMap (\(k, e) => "\n" ++ indent (S d) ++ show k ++ " => " ++ e ix (S (S d))) alts ++
-  "\n" ++ indent (S d) ++ "_ => " ++ def ix (S (S d))
-printer (CaseNatF _ x z s) ix d =
-  "case #" ++ show (ix x) ++ " of" ++
-  "\n" ++ indent (S d) ++ "0 => " ++ z ix (S (S d)) ++
-  "\n" ++ indent (S d) ++ "S _ => " ++ s (under {k = 1} ix) (S (S d))
-printer (LamF _ b body) ix d = "\\(" ++ show b ++ ") => " ++ body (under {k = 1} ix) d
-printer (AppF _ f x) ix d = "(" ++ f ix d ++ " " ++ x ix d ++ ")"
-printer (SuspendF _ body) ix d = "delay (" ++ body ix d ++ ")"
-printer (ResumeF _ e) ix d = "force (" ++ e ix d ++ ")"
-printer (UnreachableF _) ix d = "unreachable"
-printer (CrashF _ m) ix d = "crash " ++ show m
-printer (NewWorldF _) ix d = "new-world"
-printer (SystemOsF _) ix d = "os"
-printer (RegionF {k} _ p tys as body _) ix d =
-  "io." ++ regionName p ++ typeArgs tys ++ "(" ++ joinBy ", " (map (\a => a ix d) as) ++ ")/" ++
-  show k ++ " => " ++ body (under {k} ix) d
+    alt : AltF Printed n -> List String -> List String
+    alt (MkAltF {k} c fs body) after =
+      "\n" :: indent (S d) :: show c :: "/" :: show (length fs) :: " => " ::
+      body (under {k} ix) (S (S d)) after
+printer (CaseLitF _ x alts def) ix d rest =
+  "case #" :: show (ix x) :: " of" ::
+  foldr (\(k, e), after => "\n" :: indent (S d) :: show k :: " => " :: e ix (S (S d)) after)
+        ("\n" :: indent (S d) :: "_ => " :: def ix (S (S d)) rest) alts
+printer (CaseNatF _ x z s) ix d rest =
+  "case #" :: show (ix x) :: " of" ::
+  "\n" :: indent (S d) :: "0 => " ::
+  z ix (S (S d)) ("\n" :: indent (S d) :: "S _ => " :: s (under {k = 1} ix) (S (S d)) rest)
+printer (LamF _ b body) ix d rest = "\\(" :: show b :: ") => " :: body (under {k = 1} ix) d rest
+printer (AppF _ f x) ix d rest = "(" :: f ix d (" " :: x ix d (")" :: rest))
+printer (SuspendF _ body) ix d rest = "delay (" :: body ix d (")" :: rest)
+printer (ResumeF _ e) ix d rest = "force (" :: e ix d (")" :: rest)
+printer (UnreachableF _) ix d rest = "unreachable" :: rest
+printer (CrashF _ m) ix d rest = "crash " :: show m :: rest
+printer (NewWorldF _) ix d rest = "new-world" :: rest
+printer (SystemOsF _) ix d rest = "os" :: rest
+printer (RegionF {k} _ p tys as body _) ix d rest =
+  "io." :: regionName p :: typeArgs tys ::
+  arguments ix d as ("/" :: show k :: " => " :: body (under {k} ix) d rest)
 
-||| A function body, parameter `i` being `#i`.
-export
-showBody : Term n -> Nat -> String
-showBody t = cata printer t finToNat
+||| A function body, parameter `i` being `#i`, at depth `d`, before `rest`.
+bodyText : Term n -> Nat -> List String -> List String
+bodyText t = cata printer t finToNat
 
+repr : Repr -> String
+repr Sop = ""
+repr Box = " (box)"
+
+||| A data instance's declaration, and the line that ends it.
+dataText : IdrisMLIR.Term.Data -> String
+dataText d =
+  fastConcat ("data " :: show d.id :: repr d.repr ::
+              foldr (\c, after => "\n  " :: show c.id :: " tag " :: show c.tag :: " (" ::
+                                  joinBy ", " (map show c.fields) :: ")" :: after)
+                    ["\n\n"] d.cons)
+
+||| A function's declaration, and the line that ends it.
+fnText : TFn -> String
+fnText f =
+  fastConcat (show f.id :: " " ::
+              foldr (\b, after => "(" :: show b :: ") " :: after)
+                    (": " :: show f.result :: " =\n  " :: bodyText f.body 1 ["\n\n"])
+                    (toList f.params))
+
+||| The Core of a program as the dump writes it, one text per declaration
+||| in order (its data instances, its functions, its root), each made only
+||| when it is forced. A dump is the size of the program: written one
+||| text at a time, it is never one string, and each text is dropped once
+||| written.
 export
-showSource : Source -> String
-showSource p = unlines (map dataDecl p.datas ++ map fnDecl p.fns ++ ["root " ++ show p.root])
+sourceTexts : Source -> List (Lazy String)
+sourceTexts p =
+  map dataLater p.datas ++ map fnLater p.fns ++ ["root " ++ show p.root ++ "\n"]
   where
-    repr : Repr -> String
-    repr Sop = ""
-    repr Box = " (box)"
-    dataDecl : IdrisMLIR.Term.Data -> String
-    dataDecl d = "data " ++ show d.id ++ repr d.repr ++
-                 concatMap (\c => "\n  " ++ show c.id ++ " tag " ++ show c.tag ++ " (" ++
-                   joinBy ", " (map show c.fields) ++ ")") d.cons ++ "\n"
-    fnDecl : TFn -> String
-    fnDecl f = show f.id ++ " " ++
-               concatMap (\b => "(" ++ show b ++ ") ") (toList f.params) ++
-               ": " ++ show f.result ++ " =\n  " ++ showBody f.body 1 ++ "\n"
+    dataLater : IdrisMLIR.Term.Data -> Lazy String
+    dataLater d = dataText d
+    fnLater : TFn -> Lazy String
+    fnLater f = fnText f

@@ -33,20 +33,33 @@ import Data.List
 
 %default total
 
-||| The contract text of a program: the `idr` module idris-mlir reads. The
-||| module is at the root's location, which is main's, so that whatever the
-||| pipeline reports about the whole program is at the user's code.
+||| The contract text of a program, the `idr` module idris-mlir reads, as
+||| texts in order: the text before its declarations, each declaration's
+||| (its data instances', then its functions'), and the text after them. A
+||| declaration is emitted and printed only when its text is forced, and
+||| dropped once its text is written, so that neither the module's ops nor
+||| its text, which are the size of the program, ever exist whole. A
+||| declaration `Emit` cannot write is the error its text is. The module is
+||| at the root's location, which is main's, so that whatever the pipeline
+||| reports about the whole program is at the user's code.
 export covering
-emit : Source -> Either String String
+emit : Source -> Either String (List (Lazy (Either String String)))
 emit src = do
   let Just root = find (\f => f.id == src.root) src.fns
     | Nothing => Left "the root function is missing"
   let ix = index src
-  let start = MkES 0 [<]
-  (_, statements) <- runStateT start $ do
-    datas <- traverse (dataDecl ix) src.datas
-    fns <- traverse (function ix src.root) src.fns
-    pure (datas ++ fns)
-  pure (showModule (At root.loc)
-                   ({ attributes := [Idr.programDiscardable] }
-                      (Builtin.moduleOp (MkRegion [] statements))))
+  let (before, after) = moduleFrame (At root.loc)
+                          ({ attributes := [Idr.programDiscardable] }
+                             (Builtin.moduleOp (MkRegion [] [])))
+  pure (Right before :: map (dataText ix) src.datas ++ map (fnText ix src.root) src.fns ++
+        [Right after])
+  where
+    -- Each declaration is emitted from the state a module starts in:
+    -- a function numbers its own values from 0 and gives back the state it
+    -- was given, and a data instance numbers none.
+    declaration : E Statement -> Either String String
+    declaration act = topLevel <$> evalStateT (MkES 0 [<]) act
+    dataText : Index -> Data -> Lazy (Either String String)
+    dataText ix d = declaration (dataDecl ix d)
+    fnText : Index -> FnId -> TFn -> Lazy (Either String String)
+    fnText ix root f = declaration (function ix root f)

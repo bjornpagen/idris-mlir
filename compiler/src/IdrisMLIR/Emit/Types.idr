@@ -31,9 +31,9 @@ mutual
   mlirType ix WorldT = pure (Idr (QType One Plain (Idr WorldType)))
   mlirType ix ErasedT = pure erased
   mlirType ix (DataT d) = case lookup d ix.datas of
-    Just dt => pure (case dt.repr of
-                       Sop => Idr (DataType (mangle d.name))
-                       Box => Idr (BoxType (mangle d.name)))
+    Just (dt, symbol) => pure (case dt.repr of
+                                 Sop => Idr (DataType symbol)
+                                 Box => Idr (BoxType symbol))
     Nothing => internal ("unknown data " ++ show d)
   mlirType ix (FunT a r) =
     pure (Idr (FnType (MkSignature [!(binderType ix a)] [!(mlirType ix r)])))

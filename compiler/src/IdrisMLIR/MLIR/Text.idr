@@ -16,9 +16,14 @@ import Data.String
 
 ||| Injective mangling into MLIR symbol text. Characters outside
 ||| `[A-Za-z0-9_.]`, `$` included, are written `$<code point>$`.
+|||
+||| Each of these escapers joins its characters' texts once: `concatMap`
+||| over a list appends to what it has built so far, copying it for every
+||| character, which grows with the square of the name, and an instance's
+||| name runs to thousands of characters.
 export
 mangle : String -> String
-mangle s = concatMap escape (unpack s)
+mangle s = fastConcat (map escape (unpack s))
   where
     escape : Char -> String
     escape c = if isAlphaNum c || c == '_' || c == '.'
@@ -33,7 +38,7 @@ hex n = let digits = unpack "0123456789ABCDEF" in
 ||| A string literal with MLIR's escapes, for text that is ASCII.
 export
 quoted : String -> String
-quoted s = "\"" ++ concatMap esc (unpack s) ++ "\""
+quoted s = fastConcat ("\"" :: map esc (unpack s) ++ ["\""])
   where
     esc : Char -> String
     esc '"' = "\\\""
@@ -43,7 +48,7 @@ quoted s = "\"" ++ concatMap esc (unpack s) ++ "\""
 ||| A string as the UTF-8 bytes of a string attribute.
 export
 utf8 : String -> String
-utf8 s = "\"" ++ concatMap enc (unpack s) ++ "\""
+utf8 s = fastConcat ("\"" :: map enc (unpack s) ++ ["\""])
   where
     byte : Int -> String
     byte b = if b >= 32 && b < 127 && b /= 34 && b /= 92 then singleton (chr b) else "\\" ++ hex b
@@ -69,10 +74,11 @@ symbol m = case unpack m of
 -- Lists
 ------------------------------------------------------------------------------
 
-||| Texts separated by `sep`.
+||| Texts separated by `sep`, joined once (`joinBy` appends each to all
+||| before it).
 export
 separated : String -> List String -> String
-separated sep = joinBy sep
+separated sep xs = fastConcat (intersperse sep xs)
 
 ||| Texts separated by commas.
 export
@@ -98,7 +104,7 @@ record SymbolRef where
 
 export
 symbolRef : SymbolRef -> String
-symbolRef r = joinBy "::" (map symbol (r.root :: r.nested))
+symbolRef r = separated "::" (map symbol (r.root :: r.nested))
 
 ||| What a function takes and gives: a builtin function type's, or a
 ||| closure's.

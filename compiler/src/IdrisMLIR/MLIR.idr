@@ -217,32 +217,41 @@ mutual
   ||| its regions indented by `d`.
   covering
   opText : Nat -> Op -> List String -> List String
-  opText d (MkOp name operands properties regions attributes results) rest =
+  opText d op = opWith op (map (regionText d) op.regions)
+
+  ||| An op, each of its regions written by the function given for it.
+  covering
+  opWith : Op -> List (List String -> List String) -> List String -> List String
+  opWith (MkOp name operands properties _ attributes results) regions rest =
     let after = dictionary "{" "}" attributes :: " : " ::
                 signature typeText (MkSignature (map (.type) operands) results) :: rest
     in quoted name :: "(" :: commaSeparated (map (.name) operands) :: ")" ::
        dictionary "<{" "}>" properties ::
        (case regions of
           [] => after
-          _ => " (" :: regionsText d regions (")" :: after))
+          _ => " (" :: regionsText regions (")" :: after))
 
   covering
-  regionsText : Nat -> List Region -> List String -> List String
-  regionsText d [] rest = rest
-  regionsText d [r] rest = regionText d r rest
-  regionsText d (r :: rs) rest = regionText d r (", " :: regionsText d rs rest)
+  regionsText : List (List String -> List String) -> List String -> List String
+  regionsText [] rest = rest
+  regionsText [r] rest = r rest
+  regionsText (r :: rs) rest = r (", " :: regionsText rs rest)
 
-  ||| The block is labelled even when it has no arguments: the generic form
-  ||| reads `{}` as a region of no blocks, and a block of no ops is one
-  ||| only by its label.
   covering
   regionText : Nat -> Region -> List String -> List String
-  regionText d (MkRegion arguments statements) rest =
+  regionText d (MkRegion arguments statements) = blockText d arguments (statementsText (S d) statements)
+
+  ||| A region's one block, its ops written by `ops`. The block is labelled
+  ||| even when it has no arguments: the generic form reads `{}` as a region
+  ||| of no blocks, and a block of no ops is one only by its label.
+  covering
+  blockText : Nat -> List Value -> (List String -> List String) -> List String -> List String
+  blockText d arguments ops rest =
     "{\n" :: indent d :: "^bb0" ::
     (case arguments of
        [] => ""
        _ => "(" ++ commaSeparated (map typed arguments) ++ ")") :: ":\n" ::
-    statementsText (S d) statements (indent d :: "}" :: rest)
+    ops (indent d :: "}" :: rest)
 
   covering
   statementsText : Nat -> List Statement -> List String -> List String
@@ -262,3 +271,22 @@ mutual
 export covering
 showModule : Location -> Op -> String
 showModule at m = fastConcat (opText 0 m [" ", location at, "\n"])
+
+||| A module written a statement at a time, as its statements are made: the
+||| text of the module `m`, an op of one region whose block is left empty,
+||| before where its statements go and after them, each statement's text
+||| being `topLevel`'s. The block's ops are written by a function given the
+||| rest of the text: one that drops it leaves what comes before them, and
+||| one that keeps it what comes before and after.
+export covering
+moduleFrame : Location -> Op -> (String, String)
+moduleFrame at m =
+  let end = [" ", location at, "\n"]
+      before = opWith m [blockText 0 [] (const [])] end
+      around = opWith m [blockText 0 [] id] end
+  in (fastConcat before, fastConcat (drop (length before) around))
+
+||| A statement of a module's block, as `showModule` writes it there.
+export covering
+topLevel : Statement -> String
+topLevel s = fastConcat (statementText 1 s [])
