@@ -583,7 +583,7 @@ def IdrSimplify : Pass<"idr-simplify", "::mlir::ModuleOp"> {
       idr-inline
       idr-specialize
       sccp
-      int-range-optimizations
+      idr.func(int-range-optimizations)
       remove-dead-values{canonicalize=false}
       symbol-dce
 
