@@ -54,7 +54,6 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
-#include "llvm/Support/FormatVariadic.h"
 
 #include <algorithm>
 #include <chrono>
@@ -109,13 +108,6 @@ void buildDeadValueRemoval(OpPassManager &pm) {
   pm.addPass(createSymbolDCEPass());
 }
 
-struct Census {
-  unsigned functions = 0, clones = 0;
-  uint64_t ops = 0;
-};
-
-Census takeCensus(ModuleOp module);
-
 struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
   using IdrSimplifyBase::IdrSimplifyBase;
   Simplify() = default;
@@ -161,48 +153,6 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
     scc.getDependentDialects(registry);
   }
 
-  // The SCC pipeline (--scc-pipeline): the pre step once, the delta
-  // while it makes clones (each delta decided once; specialization is
-  // finite by its own budget, and max-rounds bounds the deltas as it
-  // bounds rounds), the post step once -- then the same removal loop
-  // as the rounds: a removal that changed the module resumes the
-  // pipeline on what it exposed. The record's round count counts
-  // delta iterations, so the remarks and the budget error read the
-  // same under either loop.
-  LogicalResult runSCCPipeline(ModuleOp module) {
-    while (true) {
-      if (failed(runPipeline(pre, module)))
-        return failure();
-      while (true) {
-        // A delta ends when it changed nothing, by the same
-        // fingerprint the removal loop judges by: clone growth alone
-        // misses the inlining a delta's own canonicalization exposes
-        // (a call no clone was needed to reach).
-        OperationFingerPrint before(module.getOperation());
-        if (failed(runPipeline(delta, module)))
-          return failure();
-        ++rounds->closed;
-        ++numRounds;
-        if (rounds->closed > limit) {
-          emitError(module.getLoc())
-              << "unsupported (compile-time budget): idr-simplify did not "
-                 "reach a fixpoint in "
-              << static_cast<unsigned>(maxRounds) << " rounds";
-          return failure();
-        }
-        if (OperationFingerPrint(module.getOperation()) == before)
-          break;
-      }
-      if (failed(runPipeline(post, module)))
-        return failure();
-      OperationFingerPrint before(module.getOperation());
-      if (failed(runPipeline(removal, module)))
-        return failure();
-      if (OperationFingerPrint(module.getOperation()) == before)
-        return success();
-    }
-  }
-
   Pass *composite() { return &*loop.getPasses().begin(); }
 
   void runOnOperation() override {
@@ -213,7 +163,14 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
       return signalPassFailure();
     }
     if (sccPipeline) {
-      if (failed(runSCCPipeline(module)))
+      // The record's round count counts delta iterations, so the
+      // remarks and the budget error read the same under either loop.
+      unsigned before = rounds->closed;
+      LogicalResult ran = idr::runSimplifySCCPipeline(
+          module, [&](OpPassManager &pm) { return runPipeline(pm, module); }, pre, delta,
+          post, removal, limit, static_cast<unsigned>(maxRounds), rounds->closed);
+      numRounds += rounds->closed - before;
+      if (failed(ran))
         return signalPassFailure();
       return;
     }
@@ -264,43 +221,6 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
   // closes after it.
   Rounds *rounds = nullptr;
 };
-
-// What the module holds after a round.
-Census takeCensus(ModuleOp module) {
-  Census census;
-  for (idr::FuncOp fn : module.getOps<idr::FuncOp>()) {
-    ++census.functions;
-    if (fn.getClone())
-      ++census.clones;
-  }
-  module.walk([&](Operation *) { ++census.ops; });
-  return census;
-}
-
-// The remark after round `round`: what the module holds, and how long the
-// round took.
-void traceRound(ModuleOp module, unsigned round, Clock::duration took,
-                llvm::function_ref<const Census &()> census) {
-  remark::detail::InFlightRemark out = remark::analysis(
-      module.getLoc(), remark::RemarkOpts::name("round").category("idr-simplify"));
-  // The census walks the module: only for a remark someone reads.
-  if (!out)
-    return;
-  const Census &counts = census();
-  double ms = std::chrono::duration<double, std::milli>(took).count();
-  out << remark::metric("round", round) << remark::metric("functions", counts.functions)
-      << remark::metric("clones", counts.clones) << remark::metric("ops", counts.ops)
-      << remark::metric("ms", llvm::formatv("{0:f3}", ms).str());
-}
-
-// The statistics of the round's passes, which -mlir-pass-statistics never
-// prints: the passes run in the composite's pipeline, not the manager's.
-void reportStatistics(ModuleOp module, const std::map<std::string, uint64_t> &totals) {
-  if (remark::detail::InFlightRemark out = remark::analysis(
-          module.getLoc(), remark::RemarkOpts::name("statistics").category("idr-simplify")))
-    for (const auto &[name, total] : totals)
-      out << remark::metric(name, total);
-}
 
 SmallVector<uint64_t, 4> valuesOf(Pass *pass) {
   SmallVector<uint64_t, 4> values;
@@ -401,13 +321,13 @@ public:
     }
     // On the pass thread, after the round: the census sees the module as
     // the round left it, and is taken at most once.
-    std::optional<Census> counts;
-    auto census = [&]() -> const Census & {
+    std::optional<idr::SimplifyCensus> counts;
+    auto census = [&]() -> const idr::SimplifyCensus & {
       if (!counts)
-        counts = takeCensus(cast<ModuleOp>(module));
+        counts = idr::takeSimplifyCensus(cast<ModuleOp>(module));
       return *counts;
     };
-    traceRound(cast<ModuleOp>(module), round, took, census);
+    idr::traceSimplifyRound(cast<ModuleOp>(module), round, took, census);
     IDR_INSTANT("round");
   }
 
@@ -446,7 +366,7 @@ private:
       remark::passed(module.getLoc(),
                      remark::RemarkOpts::name("idr-simplify").category("idr-simplify"))
           << remark::add("fixpoint: round {0} changed nothing", record->closed);
-    reportStatistics(module, record->totals);
+    idr::reportSimplifyStatistics(module, record->totals);
   }
 
   // The nests' hooks arrive from worker threads.

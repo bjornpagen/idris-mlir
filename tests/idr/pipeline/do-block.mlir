@@ -2,6 +2,8 @@
 // RUN: FileCheck %s < %t.mlir
 // RUN: FileCheck %s --check-prefix=ROUNDS < %t.err
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
+// RUN: idris-mlir-opt %s --pass-pipeline="builtin.module(idr-simplify{scc-pipeline=true})" > %t.scc.mlir
+// RUN: diff %t.mlir %t.scc.mlir
 // A do block of 16 statements, in the shape Emit gives it: statement k is
 // @sk, the thunk `putStr "k" >> rest` that `>>` delays, whose action is
 // @bind of @put and of @seq, which forces the thunk of the next statement.
@@ -11,6 +13,9 @@
 // unfolds in one round, not one statement or two per round: the loop ends
 // within three rounds, however long the block, and no closure is left:
 // each action's closure, linear as an IO action is, becomes a call.
+// The SCC pipeline (--scc-pipeline) reaches the same module: what the
+// rounds discover by repetition, its bottom-up order and deltas
+// provide by construction, so the two outputs are byte-identical.
 // CHECK-LABEL: idr.func @Main.main(
 // CHECK: idr.io.put_str
 // CHECK: idr.io.put_str

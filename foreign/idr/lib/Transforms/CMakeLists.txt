@@ -110,6 +110,7 @@ add_mlir_library(IdrSimplify
 	Simplify/Simplify.cpp
 	Simplify/Round.cpp
 	Simplify/Scc.cpp
+	Simplify/Trace.cpp
 	Simplify/RoundFacts.cpp
 	Simplify/LoopBreakers.cpp
 	Simplify/Contify.cpp

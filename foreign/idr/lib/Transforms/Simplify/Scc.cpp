@@ -16,6 +16,7 @@
 #include "idr/Transforms/Simplify.h"
 
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
+#include "mlir/IR/OperationSupport.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
 
@@ -73,4 +74,39 @@ void idr::buildSimplifySCCPost(OpPassManager &pm) {
   functionStep(pm);
   pm.nest<idr::FuncOp>().addPass(arith::createIntRangeOptimizationsPass());
   pm.addPass(createSymbolDCEPass());
+}
+
+LogicalResult idr::runSimplifySCCPipeline(
+    ModuleOp module, llvm::function_ref<LogicalResult(OpPassManager &)> run,
+    OpPassManager &pre, OpPassManager &delta, OpPassManager &post,
+    OpPassManager &removal, unsigned limit, unsigned maxRounds, unsigned &deltas) {
+  while (true) {
+    if (failed(run(pre)))
+      return failure();
+    while (true) {
+      // A delta ends when it changed nothing, by the same fingerprint
+      // the removal loop judges by: clone growth alone misses the
+      // inlining a delta's own canonicalization exposes (a call no
+      // clone was needed to reach).
+      OperationFingerPrint before(module.getOperation());
+      if (failed(run(delta)))
+        return failure();
+      ++deltas;
+      if (deltas > limit) {
+        module.emitError() << "unsupported (compile-time budget): idr-simplify did not "
+                              "reach a fixpoint in "
+                           << maxRounds << " rounds";
+        return failure();
+      }
+      if (OperationFingerPrint(module.getOperation()) == before)
+        break;
+    }
+    if (failed(run(post)))
+      return failure();
+    OperationFingerPrint before(module.getOperation());
+    if (failed(run(removal)))
+      return failure();
+    if (OperationFingerPrint(module.getOperation()) == before)
+      return success();
+  }
 }
