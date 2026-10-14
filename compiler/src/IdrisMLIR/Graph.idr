@@ -3,6 +3,7 @@
 ||| MLIR's (`idr-loop-breakers`, `idr-effects`).
 module IdrisMLIR.Graph
 
+import Control.Monad.Identity
 import Data.List
 import Data.Maybe
 import Data.SortedMap
