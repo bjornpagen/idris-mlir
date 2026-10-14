@@ -429,9 +429,9 @@ mutual
   forceAll ix l (v :: vs) = (::) <$> force ix l v <*> forceAll ix l vs
 
 ||| The one constructor of a data instance.
-only : Index -> DataId -> E (Con, SymbolRef)
-only ix d = case (\(dt, _) => dt.cons) <$> lookup d ix.datas of
-  Just [c] => maybe (internal (show c.id ++ " is not declared")) pure (lookup c.id ix.cons)
+only : Index -> DataId -> E Con
+only ix d = case (.cons) <$> lookup d ix.datas of
+  Just [c] => pure c
   _ => internal (show d ++ " does not have exactly one constructor")
 
 ||| The `IORes` of an IO operation's result and its next world.
@@ -440,9 +440,9 @@ ioResult : Index -> Loc -> DataId -> Val -> Val -> E Val
 ioResult ix l res x w = con ix l !(only ix res) [x, w]
 
 ||| The unit of a data instance whose one constructor has no fields.
-unitOf : Index -> Ty -> Maybe (Con, SymbolRef)
-unitOf ix (DataT d) = case (\(dt, _) => dt.cons) <$> lookup d ix.datas of
-  Just [c] => if null c.fields then lookup c.id ix.cons else Nothing
+unitOf : Index -> Ty -> Maybe Con
+unitOf ix (DataT d) = case (.cons) <$> lookup d ix.datas of
+  Just [c] => if null c.fields then Just c else Nothing
   _ => Nothing
 unitOf ix _ = Nothing
 
@@ -472,7 +472,7 @@ effect ix l p types vs res = do
   unless (primPerformsIO p) $
     internal (show (Op p) ++ ", which performs no IO, as an effect")
   mk <- only ix res
-  [x, _] <- pure (map typeOf (fst mk).fields)
+  [x, _] <- pure (map typeOf mk.fields)
     | _ => internal (show res ++ " does not hold a value and a world")
   args <- traverse (operand ix) !(guarded ix l (Op p) types vs)
   let unit = unitOf ix x

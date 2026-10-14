@@ -15,7 +15,6 @@ import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Forced
 import IdrisMLIR.Frontend.Translate.Instances
 import IdrisMLIR.Frontend.Translate.State
-import IdrisMLIR.Frontend.Translate.Prof
 import IdrisMLIR.Frontend.Translate.Terms
 import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Graph
@@ -40,9 +39,6 @@ import Data.Vect
 ||| one variable per parameter of the definition's type.
 translateInstance : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Pending -> Core ()
 translateInstance p = do
-  setTracing p.inst.name
-  progress ("INST " ++ p.inst.name)
-  t0 <- nowNs
   update TState { current := Just p.inst }
   def <- lookupDef EmptyFC (show p.name) p.name
   let owner = show (fullname def)
@@ -130,8 +126,6 @@ drain = do
 ||| from the dictionaries the last one found.
 translateFrom : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> FC -> Name -> Core (Maybe FnId)
 translateFrom fc main = do
-  count "pass"
-  progress "PASS"
   update TState nextPass
   Just inst <- noting (request fc (show main) main [])
     | Nothing => pure Nothing
@@ -173,8 +167,7 @@ translateIOProgram : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                      FC -> Name -> Core (Maybe Source)
 translateIOProgram fc main = do
   Just inst <- translateFrom fc main
-    | Nothing => do dump "translate (failed)"; pure Nothing
-  dump "translate"
+    | Nothing => pure Nothing
   st <- get TState
   let [<] = st.rejected
     | _ => pure Nothing

@@ -22,7 +22,6 @@ import IdrisMLIR.Frontend.Translate.Hooks
 import IdrisMLIR.Frontend.Translate.Instances
 import IdrisMLIR.Frontend.Translate.Primitives
 import IdrisMLIR.Frontend.Translate.State
-import IdrisMLIR.Frontend.Translate.Prof
 import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
@@ -346,8 +345,6 @@ mutual
     -- What a hook lowers a call of this definition to stands for it, the
     -- registry's entry it applied.
     let lowered = Just (shown (show full))
-    _ <- timed "hooksOf.one" (pure () >>= \_ => pure (length (hooksOf full)))
-    _ <- timed "application.lookupDef" (lookupDef fc ctx.owner name)
     case definition def of
       -- A hook for the identity on the one runtime argument, the last its
       -- type takes (`replace`, `rewrite__impl`, which `rewrite` elaborates
@@ -830,7 +827,7 @@ mutual
       -- runtime field the field itself, since such a value is its field's.
       constructor : FC -> Loc -> GlobalDef -> Nat -> List (TT vars) -> Core (Term nv)
       constructor fc loc def arity xs = do
-        (kinds, resTy) <- timed "con.classify" (classify fc ctx.owner arity (type def) (argValues (take arity xs)))
+        (kinds, resTy) <- classify fc ctx.owner arity (type def) (argValues (take arity xs))
         given <- arguments loc kinds (take arity xs)
         case natRole def of
           Just role => natConstructor fc loc role kinds arity given resTy xs
@@ -928,7 +925,7 @@ mutual
         (kinds, resTy) <- classify fc ctx.owner arity ty []
         if primPerformsIO p
            then do
-             result <- normaliseRepr resTy
+             result <- normaliseClosed resTy
              DataT res <- coreType fc ctx.owner ValueType result
                | _ => internal fc "an IO primitive with an unexpected type"
              tys <- wordOf p kinds result
@@ -1001,7 +998,7 @@ mutual
       arrayCall fc loc arity p ty xs = do
         (kinds, [el], given, resTy) <- arrayOperands fc loc arity ty xs
           | _ => internal fc "an array primitive without its one element type"
-        DataT res <- coreType fc ctx.owner ValueType !(normaliseRepr resTy)
+        DataT res <- coreType fc ctx.owner ValueType !(normaliseClosed resTy)
           | _ => internal fc "an array primitive with an unexpected type"
         finish loc kinds arity given (\ys => Effect loc p [el] ys res) resTy xs
 
@@ -1014,7 +1011,7 @@ mutual
       arrayLoop : FC -> Loc -> IdrRegionPrim -> Name -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term nv)
       arrayLoop fc loc loop n arity ty xs = do
         (kinds, tys, given, resTy) <- arrayOperands fc loc arity ty xs
-        DataT res <- coreType fc ctx.owner ValueType !(normaliseRepr resTy)
+        DataT res <- coreType fc ctx.owner ValueType !(normaliseClosed resTy)
           | _ => internal fc "an array loop with an unexpected type"
         if all word tys
            then finish loc kinds arity given (loopTerm loc loop tys res) resTy xs

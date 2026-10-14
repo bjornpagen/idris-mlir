@@ -8,8 +8,8 @@ import Libraries.Data.NameMap
 
 import Libraries.Data.SparseMatrix
 
-import Data.List
 import Data.List1
+import Data.SortedSet
 
 %default covering
 
@@ -220,6 +220,35 @@ prefixCallSeq pred g = go g []
           else
             go f ((l, g) :: seq)
 
+-- returns `Just a` iff there is no self-decreasing arc,
+-- i.e. there is no argument `n` with `a.change_{n,n} === Smaller`
+checkNonDesc : (a : Graph) -> Maybe Graph
+checkNonDesc a = if any selfDecArc a.change then Nothing else Just a
+  where
+    selfDecArc : (Nat, Vector1 SizeChange) -> Bool
+    selfDecArc (i, xs) = lookupOrd i xs == Just Smaller
+
+||| Finding non-terminating loops
+findLoops : SCSet ->
+            NameMap {- $ \ f => -} (Maybe (Graph {- f f -} ))
+findLoops s
+    = -- An `SCSet` is non-terminating iff it contains a size graph that is
+      -- idempotent, i.e. stable under self-composition,
+      let loops = filterEndos (\a => composeChange a.change a.change == a.change) s in
+      -- and has no self-decreasing arcs.
+      map (foldMap checkNonDesc) loops
+    where
+      filterEndos : (Graph -> Bool) -> SCSet -> NameMap (List Graph)
+      filterEndos p = mapWithKey (\f, m => filter p (Prelude.toList (lookupSet f m)))
+
+findNonTerminatingLoop : SCSet -> Maybe (Name, Graph)
+findNonTerminatingLoop s = findNonTerminating (findLoops s)
+    where
+      -- select first non-terminating loop
+      -- TODO: find smallest
+      findNonTerminating : NameMap (Maybe Graph) -> Maybe (Name, Graph)
+      findNonTerminating = foldlNames (\acc, g, m => map (g,) m <+> acc) empty
+
 ||| Steps in a call sequence leading to a loop are also problematic
 setPrefixTerminating : {auto c : Ref Ctxt Defs} ->
                        CallSeq -> Name -> Core ()
@@ -233,8 +262,8 @@ addFunctions : {auto c : Ref Ctxt Defs} ->
               Defs ->
               List GlobalDef -> -- functions we're adding
               NameMap (FC, Name) -> -- functions we've already seen (and their predecessor)
-              List Call ->
-              Core (Either Terminating (List Call, NameMap (FC, Name)))
+              WorkList ->
+              Core (Either Terminating (WorkList, NameMap (FC, Name)))
 addFunctions defs [] pred work
     = pure $ Right (work, pred)
 addFunctions defs (d1 :: ds) pred work
@@ -248,20 +277,20 @@ addFunctions defs (d1 :: ds) pred work
          let (ds, pred, work) = foldl addCall (ds, pred, work) (filter isUnchecked calls)
          addFunctions defs ds pred work
   where
-    resolveCall : List (GlobalDef, FC, Call) ->
+    resolveCall : List (GlobalDef, FC, (Name, Name, Graph)) ->
                   SCCall ->
-                  Core (List (GlobalDef, FC, Call))
+                  Core (List (GlobalDef, FC, (Name, Name, Graph)))
     resolveCall calls (MkSCCall g ch l)
         = do Just d2 <- lookupCtxtExact g (gamma defs)
                 | Nothing => do logC "totality.termination.calc" 7 $ do pure "Not found: \{show g}"
                                 pure calls
              pure ((d2, l, (d1.fullname, d2.fullname, MkGraph ch (Call l d2.fullname))) :: calls)
 
-    addCall : (List GlobalDef, NameMap (FC, Name), List Call) ->
-                  (GlobalDef, FC, Call) ->
-                  (List GlobalDef, NameMap (FC, Name), List Call)
+    addCall : (List GlobalDef, NameMap (FC, Name), WorkList) ->
+                  (GlobalDef, FC, (Name, Name, Graph)) ->
+                  (List GlobalDef, NameMap (FC, Name), WorkList)
     addCall (ds, pred, work_in) (d2, l, c)
-        = let work = c :: work_in in
+        = let work = insert c work_in in
           case lookup d2.fullname pred of
                Just _ =>
                  (ds, pred, work)
@@ -283,8 +312,8 @@ addFunctions defs (d1 :: ds) pred work
 initWork : {auto c : Ref Ctxt Defs} ->
            Defs ->
            GlobalDef -> -- entry
-           Core (Either Terminating (List Call, NameMap (FC, Name)))
-initWork defs def = addFunctions defs [def] (insert def.fullname (def.location, def.fullname) empty) []
+           Core (Either Terminating (WorkList, NameMap (FC, Name)))
+initWork defs def = addFunctions defs [def] (insert def.fullname (def.location, def.fullname) empty) empty
 
 ||| The strongly connected components of the graph of the calls in a work
 ||| list, as each function's component (Tarjan's algorithm). A path from a
@@ -332,19 +361,19 @@ mutual
                           then { low $= insert v (min (lowOf st v) j) } st
                           else st
 
-||| The calls inside components, by caller, each caller's in the order of
-||| their callees and graphs. Every loop is among them: a call that leaves
-||| a component is on no path back to it.
-insideComponents : List Call -> NameMap (List (Name, Change, FC))
+||| The calls of a work list that are inside a component. The closure over
+||| them holds exactly the graphs from a function to one of its own
+||| component that the closure over every call holds, found in the same
+||| order: a call that leaves a component never composes into a path that
+||| comes back to it.
+insideComponents : WorkList -> WorkList
 insideComponents work
-    = let calls = foldl (\m, (f, g, _, _) => insert f (g :: fromMaybe [] (lookup f m)) m)
-                        (the (NameMap (List Name)) empty) work
+    = let calls = foldl (\m, (f, g, _) => insert f (g :: fromMaybe [] (lookup f m)) m)
+                        (the (NameMap (List Name)) empty) (Prelude.toList work)
           st = foldlNames (\st, v, _ => if isJust (lookup v st.index) then st else connect calls st v)
                           (MkComponents 0 empty empty [] empty empty 0) calls
           same = \f, g => lookup f st.component == lookup g st.component in
-      foldr (\(f, g, x, l), m => if same f g then insert f ((g, x, l) :: fromMaybe [] (lookup f m)) m else m)
-            (the (NameMap (List (Name, Change, FC))) empty)
-            (sortBy (comparing (\(f, g, x, _) => (f, g, x))) work)
+      fromList (filter (\(f, g, _) => same f g) (Prelude.toList work))
 
 ||| `weaker g h`: `h` says at least what `g` says of every argument: each
 ||| arc of `g` is one of `h`'s, as strong or stronger (a missing entry is no
@@ -519,14 +548,6 @@ settle defs visited
                Just _ => spread users acc ns
                Nothing => spread users (insert n () acc) (fromMaybe [] (lookup n users) ++ ns)
 
-||| The last of the functions given, in name order, with a loop that fails
-||| to decrease, and the loop: the one a failed search records.
-lastLoop : NameMap (List (Name, Change, FC)) -> List Name -> Maybe (Name, CallSeq)
-lastLoop out [] = Nothing
-lastLoop out (g :: gs) = case loopFrom out g of
-  Just loop => Just (g, loop)
-  Nothing => lastLoop out gs
-
 export
 calcTerminating : {auto c : Ref Ctxt Defs} ->
                   FC -> Name -> Core Terminating
@@ -539,8 +560,8 @@ calcTerminating loc n
            | bad => pure bad
          Right (work, pred) <- initWork defs def
            | Left bad => pure bad
-         let inside = insideComponents work
-         let Nothing = lastLoop inside (reverse (keys inside))
+         let s = transitiveClosure (insideComponents work) initSCSet
+         let Nothing = findNonTerminatingLoop s
            | Just (g, loop) =>
                let loopSeq = callSeq loop.path in
                ifThenElse (def.fullname == g)

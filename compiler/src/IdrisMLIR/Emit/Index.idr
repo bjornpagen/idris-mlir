@@ -3,7 +3,6 @@
 module IdrisMLIR.Emit.Index
 
 import IdrisMLIR.Ids
-import IdrisMLIR.MLIR.Text
 import IdrisMLIR.Term
 
 import Data.List
@@ -12,10 +11,6 @@ import Data.SortedMap
 
 %default total
 
-||| Each declaration with its symbol, which every reference to it writes:
-||| mangled once, where it is declared, rather than at each reference, as
-||| an instance's name runs to thousands of characters and is referred to
-||| from every call.
 public export
 record Index where
   constructor MkIndex

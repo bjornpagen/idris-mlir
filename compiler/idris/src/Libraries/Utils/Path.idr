@@ -154,70 +154,23 @@ lexPath str = lexFrom [] [] (unpack str)
              then lexFrom (Punct c :: ended run acc) [] cs
              else lexFrom acc (c :: run) cs
 
-pathTokenMap : TokenMap PathToken
-pathTokenMap = toTokenMap $
-  [ (is '/', PTPunct '/')
-  , (is '\\', PTPunct '\\')
-  , (is ':', PTPunct ':')
-  , (is '?', PTPunct '?')
-  , (some $ non $ oneOf "/\\:?", PTText)
-  ]
-
-lexPath : String -> List (WithBounds PathToken)
-lexPath str = let (tokens, _, _, _) = lex pathTokenMap str in tokens
-
--- Punctuation: the kind names the character, so its text says nothing more.
-punct : Char -> PathGrammar True ()
-punct c = ignore $ match $ PTPunct c
-
--- match both '/' and '\\' regardless of the platform.
-bodySeparator : PathGrammar True ()
-bodySeparator = ignore (match $ PTPunct '\\') <|> ignore (match $ PTPunct '/')
-
--- Windows will automatically translate '/' to '\\'. And the verbatim prefix,
--- i.e., `\\?\`, can be used to disable the translation.
--- However, we just parse it and ignore it.
---
--- Example: \\?\
-verbatim : PathGrammar True ()
-verbatim =
-  do
-    ignore $ count (exactly 2) $ match $ PTPunct '\\'
-    ignore $ match $ PTPunct '?'
-    ignore $ match $ PTPunct '\\'
-    pure ()
-
--- Example: \\server\share
-unc : PathGrammar True Volume
-unc =
-  do
-    ignore $ count (exactly 2) $ match $ PTPunct '\\'
-    server <- match PTText
-    bodySeparator
-    share <- match PTText
-    pure $ UNC server share
-
--- Example: \\?\server\share
-verbatimUnc : PathGrammar True Volume
-verbatimUnc =
-  do
-    verbatim
-    server <- match PTText
-    bodySeparator
-    share <- match PTText
-    pure $ UNC server share
+-- Both '/' and '\\' separate, regardless of the platform.
+isSeparator : PathToken -> Bool
+isSeparator (Punct c) = c == '/' || c == '\\'
+isSeparator (Text _) = False
 
 -- A volume is a disk: a text, whose first character names it, and a colon.
 -- Example: C:
-disk : PathGrammar True Volume
-disk =
-  do
-    text <- match PTText
-    disk <- case unpack text of
-              (disk :: xs) => pure disk
-              [] => fail "Expects disk"
-    ignore $ match $ PTPunct ':'
-    pure $ Disk (toUpper disk)
+-- A UNC share (`\\server\share`) or a verbatim prefix (`\\?\`) is not one,
+-- but separators and names, as Idris has always read them: upstream's
+-- grammar for them asked for `count (exactly 2)` backslashes, which never
+-- succeeds.
+parseVolume : List PathToken -> (Maybe Volume, List PathToken)
+parseVolume (Text text :: Punct ':' :: rest)
+    = case strUncons text of
+           Just (disk, _) => (Just (Disk (toUpper disk)), rest)
+           Nothing => (Nothing, Text text :: Punct ':' :: rest)
+parseVolume ts = (Nothing, ts)
 
 parseBody : String -> Body
 parseBody ".." = ParentDir

@@ -14,7 +14,6 @@ import IdrisMLIR.Frontend.Translate.Dictionaries
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Forced
 import IdrisMLIR.Frontend.Translate.State
-import IdrisMLIR.Frontend.Translate.Prof
 import IdrisMLIR.Frontend.Translate.Terms
 import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Ids

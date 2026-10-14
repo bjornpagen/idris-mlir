@@ -392,13 +392,9 @@ indent : Nat -> String
 indent d = replicate (2 * d) ' '
 
 ||| What the printer makes of a term in scope `n`: given each variable's de
-||| Bruijn index (`#0` is the innermost) and the indentation depth, its text
-||| as pieces, before the `rest` it is given. The pieces are joined once, per
-||| declaration: appending a subterm's text to the text around it would copy
-||| it once for every term it is in and for every alternative before it in
-||| its match, which grows with the square of the body.
+||| Bruijn index (`#0` is the innermost) and the indentation depth.
 Printed : Nat -> Type
-Printed n = (Fin n -> Nat) -> Nat -> List String -> List String
+Printed n = (Fin n -> Nat) -> Nat -> String
 
 ||| The indices under a binder of `k` variables.
 under : {k : Nat} -> (Fin n -> Nat) -> Fin (Under k n) -> Nat
@@ -467,31 +463,6 @@ export
 showBody : Names -> Term n -> Nat -> String
 showBody names t = cata (printer names) t finToNat
 
-repr : Repr -> String
-repr Sop = ""
-repr Box = " (box)"
-
-||| A data instance's declaration, and the line that ends it.
-dataText : IdrisMLIR.Term.Data -> String
-dataText d =
-  fastConcat ("data " :: show d.id :: repr d.repr ::
-              foldr (\c, after => "\n  " :: show c.id :: " tag " :: show c.tag :: " (" ::
-                                  joinBy ", " (map show c.fields) :: ")" :: after)
-                    ["\n\n"] d.cons)
-
-||| A function's declaration, and the line that ends it.
-fnText : TFn -> String
-fnText f =
-  fastConcat (show f.id :: " " ::
-              foldr (\b, after => "(" :: show b :: ") " :: after)
-                    (": " :: show f.result :: " =\n  " :: bodyText f.body 1 ["\n\n"])
-                    (toList f.params))
-
-||| The Core of a program as the dump writes it, one text per declaration
-||| in order (its data instances, its functions, its root), each made only
-||| when it is forced. A dump is the size of the program: written one
-||| text at a time, it is never one string, and each text is dropped once
-||| written.
 export
 showSource : Source -> String
 showSource p =

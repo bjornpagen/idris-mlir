@@ -17,7 +17,6 @@ import IdrisMLIR.Term
 import IdrisMLIR.Frontend.Profile
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate
-import IdrisMLIR.Frontend.Translate.Prof
 import IdrisMLIR.Registry.Libraries
 import IdrisMLIR.Registry.Primitives
 
@@ -86,10 +85,7 @@ now = toNano <$> coreLift (clockTime Monotonic)
 reportTimes : Maybe String -> List (String, Integer) -> Core ()
 reportTimes Nothing _ = pure ()
 reportTimes (Just path) times =
-  writeAll path (map line times)
-  where
-    line : (String, Integer) -> Lazy String
-    line (name, ns) = name ++ "\t" ++ show (ns `div` 1000000) ++ "\n"
+  write path (concatMap (\(name, ns) => name ++ "\t" ++ show (ns `div` 1000000) ++ "\n") times)
 
 ||| The registry's entries against the loaded context, once, before
 ||| anything uses them; `--break-shape` breaks the one it names.
@@ -144,8 +140,6 @@ program : {auto c : Ref Ctxt Defs} -> {auto syn : Ref Syn SyntaxInfo} ->
           (mainFile : ModuleIdent) -> (breakShape : Maybe String) ->
           (timing : Maybe String) -> (corePath, mlirPath : String) -> Core (List Error)
 program mainFile breakShape timing corePath mlirPath = do
-  progress "PROGRAM start"
-  calibrate
   t0 <- now
   -- The interfaces of every module Idris loaded for the program, which
   -- Idris keeps with their syntax rather than with their definitions.
@@ -186,12 +180,8 @@ program mainFile breakShape timing corePath mlirPath = do
     Nothing => reject fc programEntry ProgramShape
                  ("loads " ++ show m ++ ", a module of the project whose source is missing")
   t1 <- now
-  dump "after checks"
-  progress "CHECKS done"
   checkReachable fc [main]
   t2 <- now
-  dump "after reachable"
-  progress "REACHABLE done"
   Just prog <- translateIOProgram fc main
     | Nothing => do
         t3 <- now
