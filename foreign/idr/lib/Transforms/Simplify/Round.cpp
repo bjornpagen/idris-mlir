@@ -1,6 +1,7 @@
 // The passes of one round of the simplify loop, in order.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/Transforms/Canonicalize.h"
 #include "idr/Transforms/Simplify.h"
 
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
@@ -32,7 +33,7 @@ void idr::buildSimplifyRound(OpPassManager &pm) {
   // function that only rebuilds its argument is gone before the inliner
   // weighs it or copies a level of the rebuild into its caller.
   fn.addPass(createIdrIdentity());
-  fn.addPass(createCanonicalizerPass());
+  fn.addPass(idr::createCanonicalizerPass());
   fn.addPass(createCSEPass());
   fn.addPass(createIdrRedirect());
   // idr-inline inlines the calls the size rule allows until an iteration

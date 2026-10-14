@@ -4,6 +4,7 @@
 // names exists beside it.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/Transforms/Canonicalize.h"
 #include "idr/Transforms/Pipeline.h"
 
 #include "mlir/Conversion/Passes.h"
@@ -99,7 +100,7 @@ void pipeline(Sink &sink, const idr::PipelineOptions &options) {
   sink.top(idr::createIdrSimplify());
   sink.top(idr::createIdrDefunctionalize());
   sink.group(functions);
-  sink.nested(mlir::createCanonicalizerPass());
+  sink.nested(idr::createCanonicalizerPass());
   // A cell that never leaves its frame goes on the stack before counting,
   // which reuses only the cells of the heap. Counting runs on functional
   // code, where recursion is still a call and a match's yield is its join
@@ -136,7 +137,7 @@ void pipeline(Sink &sink, const idr::PipelineOptions &options) {
   sink.nested(idr::createIdrVectorize());
   sink.nested(idr::createIdrNarrowLanes());
   sink.nested(mlir::createConvertLinalgToLoopsPass());
-  sink.nested(mlir::createCanonicalizerPass());
+  sink.nested(idr::createCanonicalizerPass());
   sink.nested(mlir::createCSEPass());
   // On lowered code, where a threaded value given back is its argument
   // component by component; a join that then yields the same value on
@@ -148,7 +149,7 @@ void pipeline(Sink &sink, const idr::PipelineOptions &options) {
   // Each of these reads one function, so they run over the functions in
   // parallel.
   sink.group(lowered);
-  sink.nested(mlir::createCanonicalizerPass());
+  sink.nested(idr::createCanonicalizerPass());
   sink.nested(mlir::createCSEPass());
   sink.nested(mlir::createConvertVectorToSCFPass());
   sink.nested(mlir::memref::createExpandStridedMetadataPass());

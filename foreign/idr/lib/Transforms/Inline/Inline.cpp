@@ -19,6 +19,7 @@
 // the next cycle would repeat it.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/Transforms/Canonicalize.h"
 #include "idr/Transforms/Inline.h"
 #include "idr/Analysis/Inline.h"
 #include "idr/Analysis/References.h"
@@ -47,7 +48,7 @@ namespace {
 // What the inliner runs on a function an iteration inlined into. Every
 // callable is an idr.func, so this one pipeline is anchored there.
 void componentPipeline(OpPassManager &pm) {
-  pm.addPass(createCanonicalizerPass());
+  pm.addPass(idr::createCanonicalizerPass());
   pm.addPass(createCSEPass());
 }
 
