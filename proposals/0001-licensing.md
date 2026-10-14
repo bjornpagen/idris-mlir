@@ -1,12 +1,15 @@
 # 0001: licensing: every file says whose it is
 
-**Status:** decided by the owner 2026-10-14 and built the same day:
-L1 to L4 are in the tree (LICENSES/, NOTICE, the sweep, the fork
-script, `tests/spec/licenses` — check is 27/27 with it). What
-remains is only §5's GMP question, which is the owner's with
-counsel, and §7's deferred rename. This proposal is deleted when
-the owner accepts the built state. Claims are marked: *read* (the
-path), *measured*, *decision*.
+**Status:** decided by the owner 2026-10-14, built and pushed the
+same day (3a275cf0): L1 to L4 are in the tree (LICENSES/, NOTICE,
+the sweep, the fork script, `tests/spec/licenses` — `make check`
+27/27 with it, *measured* 2026-10-14 at 552d682a with the full
+suite green). What remains is only §5's GMP question, which is
+the owner's with counsel, and §7's deferred rename. This proposal
+is deleted when the owner accepts the built state. The sections
+below are the policy as built; §2's audit describes the tree
+*before* the sweep and is kept as the record of what was found.
+Claims are marked: *read* (the path), *measured*, *decision*.
 This file is the record of the policy; it is not legal advice, and
 the one item that needs a lawyer's eye is named as such in §5.
 
@@ -147,18 +150,24 @@ acceptable", the follow-up is an arithmetic-library decision
 (a permissive bignum, or GMP under terms counsel approves) as its
 own proposal -- not a reason to delay identifiers.
 
-## 6. Stages
+## 6. Stages — built (3a275cf0, 2026-10-14)
 
-| Stage | Work | Proof |
-| --- | --- | --- |
-| L1 | `LICENSES/` texts, root `NOTICE`, the root `LICENSE` naming the three parts with the exact identifier (§3), `LICENSES/THIRD-PARTY.md` | identifiers resolve against the SPDX list; texts byte-equal to the canonical ones |
-| L2 | The sweep: SPDX + copyright line on every source file of ours (`foreign/`, `compiler/src/`, `runtime/`, `libs/`, `tools/`, `tests/` fixtures excluded where a header would change expected output -- those are listed, not silently skipped) | a spec test (below) enumerates the tree and finds none missing |
-| L3 | The fork: SPDX lines on `compiler/idris/` files, by a script kept in `tools/` so a re-sync reapplies it; the diff to the pin stays header-only | re-running the script on a pristine pin reproduces the tree byte-for-byte outside recorded fork changes |
-| L4 | The gate: `tests/spec/licenses` -- every in-scope file names an identifier from the allowed set, every ported file (listed in PINS.md) carries upstream copyright + changes line, `LICENSES/` holds each used text | `make check` green; deleting a header anywhere fails it (shown once in the stage's record) |
-
-Then porting is open for business: the first port is expected to
-be Mojo's inliner shape in 0004's F3, under §4, and its stage
-record names the revision taken.
+L1 to L4 landed in one change: `LICENSES/` (0BSD, Apache-2.0,
+LLVM-exception, BSD-3-Clause texts and `THIRD-PARTY.md`), root
+`NOTICE` and `LICENSE`, the SPDX sweep over every in-scope file
+(`tools/licenses.sh` holds the scope and the listed fixture
+exclusions; the generated `compiler/src/IdrisMLIR/Syntax/` and
+`Dialect/` trees are excluded because their generator emits
+them, and the generator is in scope), the fork script, and the
+gate at `tests/spec/licenses`. The gate was proven both ways
+when built: deleting one header made it fail, restoring it made
+`make check` pass (*measured*). The root text matched the SPDX
+`0BSD` template exactly (ISC minus the attribution-reproduction
+sentence), so §3's conditional resolved to `0BSD`. Porting is
+open for business under §4; no port has landed yet — 0004's F3
+as built (§2.2 there) is our own code under upstream's inliner,
+not a Mojo port, and the first port's stage record will name
+the revision taken.
 
 ## 7. The layout the licenses live in
 

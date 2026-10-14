@@ -1,3 +1,28 @@
+# Checkpoint (2026-10-14 evening, licensing built; F3 under measurement)
+
+The owner approved the rewritten proposals and the bankruptcy
+ended. Licensing (0001) is built and pushed (3a275cf0): SPDX on
+every file, LICENSES/, NOTICE, tests/spec/licenses gating it;
+only the GMP question (owner, with counsel) and the deferred
+foreign/idr rename remain there. F3's first serial form is built
+opt-in as idr-simplify's scc-pipeline (552d682a; rounds stay the
+default), byte-identical to the rounds on do-block in 3 deltas,
+with that identity now maintained coverage in
+tests/idr/pipeline/do-block.mlir. Gate on arm64 macOS at
+552d682a (NCPU=6): build clean, check 27/27, test-idr 286/286,
+test 415/415 (x86_64 Linux still NotRun). An uncommitted split
+(Scc.cpp driver, Simplify/Trace.cpp; Simplify.cpp 463 -> 383
+lines for spec/file-size, pure movement) lands with the corpus
+verdict. That verdict run -- scc-pipeline over
+/tmp/f0/post-contify.mlir, throttled, command in proposal 0004
+§2.2 -- started 2026-10-14 17:03 CDT and was still running at
+18:04 (86 CPU-minutes, no output yet); 0004 §2.2 holds the
+procedure for whoever reads its result. Do not start a
+duplicate. Everything is on main in the one checkout: the last
+stale remote branches (fully merged, zero unique commits) were
+deleted 2026-10-14; no branches, no worktrees, by the owner's
+standing rule.
+
 # Checkpoint (2026-10-14, F0 and the bankruptcy)
 
 The proposals were cut over to current-state documents (dcb087d2:

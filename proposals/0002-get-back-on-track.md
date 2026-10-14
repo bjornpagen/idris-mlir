@@ -2,16 +2,20 @@
 
 **Status:** decided 2026-10-12; the cutover it designed is built and
 this file now keeps only what remains, trimmed 2026-10-14 at
-b4713f66. The cutover (the deleted `0003-cutover-swarm/` packet, whose
-unfinished qualification is §3 here) landed the design whole: an
-in-tree MLIR dialect in upstream's layout, `idr.func` with inherent
-facts, analyses under the pass manager, function passes in parallel,
-no erased value emitted, profiling through the pass manager. On arm64
-macOS at b4713f66 the gate is green: `make check` 26/26, `make
-test-idr` 286/286, `make test` 415/415 (*measured* 2026-10-14).
-x86_64 Linux is NotRun. Self-hosting (§2) is not done: stage 1 has
-never finished. Claims are marked: *read* (the path), *measured* (the
-record), *conjecture*, *decision*.
+b4713f66 and re-trimmed the same day at 552d682a. The cutover (the
+deleted `0003-cutover-swarm/` packet, whose unfinished
+qualification is §3 here) landed the design whole: an in-tree MLIR
+dialect in upstream's layout, `idr.func` with inherent facts,
+analyses under the pass manager, function passes in parallel, no
+erased value emitted, profiling through the pass manager. On arm64
+macOS at 552d682a the gate is green: `make check` 27/27 (0001's
+licenses gate is the 27th), `make test-idr` 286/286, `make test`
+415/415 (*measured* 2026-10-14 at `NCPU=6`). Licensing (0001) is
+built; G0 is taken as 0004's F0. x86_64 Linux is NotRun.
+Self-hosting (§2) is not done: stage 1 has never finished, and
+step 3 is being executed in 0004 (F3's corpus verdict run in
+flight, 0004 §2.2). Claims are marked: *read* (the path),
+*measured* (the record), *conjecture*, *decision*.
 
 **The one sentence.** What remains of the wall is in 0004 and 0006:
 the whole program stays the unit of meaning and stops being the unit
@@ -23,9 +27,9 @@ targets and the road to a compiler that compiles itself.
 | Stage | Status |
 | --- | --- |
 | C1 to C5, H1, H2 (the cutover) | done: built, arm64 gate green above |
-| G0 (baseline record) | remains, as 0004's F0 on the existing stage-0 corpus |
+| G0 (baseline record) | done, as 0004's F0 (`bench/profiles/2026-10-14-f0-stage0.md`) |
 | G1 (both targets, §3) | remains: x86_64 Linux NotRun, bench unrun |
-| S (self-hosting, §2) | remains: at step 3 |
+| S (self-hosting, §2) | remains: at step 3, executed in 0004 (§2.2 there is the live status) |
 
 ## 2. Self-hosting
 

@@ -22,23 +22,33 @@ specification. A proposal that is done is deleted. One nearly done
 keeps only what remains. A proposal can start before a later one it
 partly needs; the stages that wait are named here.
 
-## Where the work stands (2026-10-14, at 2295e06b)
+## Where the work stands (2026-10-14 18:04 CDT, at 552d682a)
 
-**Code bankruptcy is declared: no code changes land until the owner
-approves these proposals.** First in the queue is licensing (0001):
-SPDX provenance on every file, so that porting state of the art --
-Mojo's where Mojo is structurally better, MLIR's everywhere else --
-is mechanical and auditable. Then the compile-time refactor (0004),
-whose measurement (F0) is taken and whose two attempted shortcuts
-are measured, reverted and recorded in its §2.1.
+**Approved and executing.** The code bankruptcy ended 2026-10-14
+when the owner approved these proposals as rewritten. Licensing
+(0001) is built and pushed (3a275cf0): SPDX provenance on every
+file, `LICENSES/` and `NOTICE` in place, `tests/spec/licenses`
+gating it. The compile-time refactor (0004) is the active work:
+F0 taken, the first fixes landed (§2), two shortcuts measured and
+reverted (§2.1), and F3's first serial form — the opt-in
+`scc-pipeline` — built, gated, and under stage-0 corpus
+measurement at this moment; **0004 §2.2 is the live status**,
+including the exact run in flight and the verdict procedure when
+it terminates. Everything is on `main` in the one checkout: no
+branches, no worktrees, locally or on the remote (*decision*,
+the owner's standing rule, restated 2026-10-14). Agent-run heavy
+work on the owner's 12-CPU machine uses `NCPU=6`; tool defaults
+stay maximalist (7a27fd34).
 
-The cutover is built and, on arm64 macOS, green: `make check` 26/26,
-`make test-idr` 286/286, `make test` 415/415 (*measured* 2026-10-14).
-x86_64 Linux has still not run the cutover tree: G1 (0002 §12) is
-NotRun there, never green. Stage 1 of `make self` has still never
-finished: the frontend emits the whole of itself (58,236 functions,
-~300 MB of text, ~140 s) and the C++ pipeline does not finish on it.
-That one fact orders the queue.
+The tree is, on arm64 macOS, green: `make build` clean,
+`make check` 27/27, `make test-idr` 286/286, `make test` 415/415
+(*measured* 2026-10-14 at `NCPU=6`, including the F3 code; an
+uncommitted file-size split of Simplify lands with the corpus
+verdict, 0004 §2.2). x86_64 Linux has still not run this tree:
+G1 (0002 §3) is NotRun there, never green. Stage 1 of `make self`
+has still never finished: the frontend emits the whole of itself
+(58,236 functions, ~300 MB of text, ~140 s) and the C++ pipeline
+does not finish on it. That one fact orders the queue.
 
 The first compile-time round (0004's F1, in part) landed 2026-10-13
 and 2026-10-14 and is recorded in 0004 §2: one Simplify round on the
@@ -88,7 +98,10 @@ force.
   SPDX provenance across the tree -- ours (0BSD), Mojo/MLIR ports
   (Apache-2.0 WITH LLVM-exception), the Idris fork (BSD-3-Clause) --
   the porting protocol that takes state of the art fearlessly, and
-  the third-party inventory. Done first; decided 2026-10-14.
+  the third-party inventory. **Built and pushed 2026-10-14**
+  (3a275cf0); only §5's GMP question (owner, with counsel) and §7's
+  deferred `foreign/idr/` rename remain, and the file is the policy
+  record until the owner accepts the built state and it is deleted.
 - [0002](0002-get-back-on-track.md): get back on track. The design the
   cutover executed; what remains is G1 (§12: x86_64 Linux, the bench on
   both targets, compile times) and self-hosting (§6.1). Deleted when
@@ -105,8 +118,10 @@ force.
   symbol scans, serial dataflow per round, the text handoff) for one
   bottom-up SCC pipeline with bounded inner per-function work. F0 is
   recorded and the first fixes landed (§2); two InlineCleanup
-  refactors were measured and reverted (§2.1); F2 to F5 remain, F3
-  being 0006's S6 done once, serially.
+  refactors were measured and reverted (§2.1); **F3's first serial
+  form is built opt-in (`scc-pipeline`, 552d682a), fully gated, and
+  its stage-0 corpus verdict run is in flight (§2.2)**; F3's full
+  ready-set design, F4 and F5 remain, in measurement order.
 - [0005](0005-shards.md): shards, the concurrency runtime. One copy of
   the single-threaded runtime per core, task frames for computations
   that wait, a reactor per shard, values crossing only inside

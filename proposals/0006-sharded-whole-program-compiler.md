@@ -1,10 +1,13 @@
 # 0006: a sharded whole-program compiler
 
 **Status:** proposed 2026-10-10; reprioritized 2026-10-12; updated
-2026-10-14 at b4713f66. Nothing here is built except S7 (the cutover
+2026-10-14 at 552d682a. Nothing here is built except S7 (the cutover
 deleted `idr-eval` and turned MLIR threading on) and the serial
 preparations 0004 landed (deduplication by content, IntRange nested,
-RemoveDeadValues once at the fixpoint, labels in one walk). Sharding
+RemoveDeadValues once at the fixpoint, labels in one walk, and F3's
+first serial form — the opt-in SCC pipeline whose corpus verdict
+is in flight, 0004 §2.2; it is this proposal's phase-3 unit in
+serial rehearsal, and its result reorders nothing here yet). Sharding
 follows 0003's stage 1, which follows self-hosting, except where a
 stage is pulled forward on measurement: S0 is taken
 (`bench/profiles/2026-10-14-f0-stage0.md`; its thresholds are 0004

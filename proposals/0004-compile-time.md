@@ -1,14 +1,19 @@
 # 0004: compile time: one fast serial pipeline
 
-**Status:** current as of 2026-10-14 at 7a27fd34. This file states
-where compile time stands and the one refactor that remains; it
-overwrites the earlier drafts and their decisions, which git history
-holds. F0 (the measurement) is done and recorded in §2 and in
+**Status:** current as of 2026-10-14 18:04 CDT at 552d682a plus the
+uncommitted split named in §2.2. This file states where compile
+time stands and the one refactor that remains; it overwrites the
+earlier drafts and their decisions, which git history holds. F0
+(the measurement) is done and recorded in §2 and in
 `bench/profiles/2026-10-14-f0-stage0.md`. The first round of fixes
-landed 2026-10-13/14 (§2). The refactor in §4 is designed, not built;
-two smaller refactors were built, measured and reverted (§2.1). Its
-gate is self-hosting (0002 §2 step 5). Claims are marked: *read* (the
-path), *measured* (the record), *conjecture*, *decision*.
+landed 2026-10-13/14 (§2). The owner approved the proposals
+2026-10-14 ("all approved. go forth."); licensing (0001) is built
+and pushed, and F3's first serial form is built, gated, and under
+corpus measurement right now (§2.2, which is the live status other
+agents should read first). Two smaller refactors were built,
+measured and reverted (§2.1). The gate is self-hosting (0002 §2
+step 5). Claims are marked: *read* (the path), *measured* (the
+record), *conjecture*, *decision*.
 
 **Sources.** The pinned MLIR tree (`.toolchain/llvm-project/mlir`);
 the Mojo compiler in the owner's clone at `~/Documents/modular`
@@ -125,6 +130,106 @@ evaluation joins deltas and never re-derives totals
 cleanup is the delta step with the total re-derived around it, per
 iteration, inside rounds that repeat it again.
 
+## 2.2 F3 as built; the verdict run in flight (2026-10-14, live)
+
+**Built and pushed** (552d682a): `idr-simplify` gained an opt-in
+`scc-pipeline` option (default off; the rounds stay the default).
+Under it, `idr::runSimplifySCCPipeline`
+(`foreign/idr/lib/Transforms/Simplify/Scc.cpp`) runs a pre part
+once (effects, SCCP, loop breakers, RoundFacts, the per-function
+step of identity/canonicalize/CSE/redirect), then a delta
+(inline, specialize, RoundFacts, the per-function step) until one
+delta changes nothing — termination by the module's structural
+fingerprint, not by clone count, because a delta that makes no
+clone can still expose inlining (*measured*: clone-count
+termination left `@done` uninlined on do-block) — then a post
+part once (SCCP, RoundFacts, the per-function step, IntRange,
+SymbolDCE), then the existing RemoveDeadValues removal, resuming
+the pipeline when a removal changed the module. `max-rounds`
+bounds deltas; the instrumentation's round count counts deltas,
+so remarks and the budget error read the same under either loop.
+This is deliberately **not yet §4's full design**: there is no
+ready-set engine, no size-budgeted inline decisions, no bottom-up
+SCCP summaries, and no parallelism; the inliner's own bottom-up
+SCC order plus counted deltas are the serial rehearsal whose only
+question is whether deleting the round multiplier converges at
+self scale. F2 has no separate commit: the investigation found
+true analysis preservation mostly impossible under mutating
+nested steps, so its recomputation cost is attacked by running
+the facts once per part instead of once per round, here.
+
+**Split for the file-size gate** (uncommitted in the working tree
+as this is written; lands with the verdict): the F3 addition took
+`Simplify.cpp` to 463 lines against `tests/spec/file-size`'s 400.
+The SCC driver loop moved into Scc.cpp beside its pipelines and
+the census/remark reporting into `Simplify/Trace.cpp`, leaving
+`Simplify.cpp` at 383 lines holding the loop and its
+instrumentation. Pure movement: output byte-identical before and
+after (*measured*, do-block, both pipelines).
+
+**Gates on this tree** (*measured* 2026-10-14, arm64 macOS,
+`NCPU=6` — half the 12 CPUs, the owner's standing override; tool
+defaults stay maximalist per 7a27fd34): `make build` clean,
+`make check` 27/27, `make test-idr` 286/286, `make test` 415/415.
+On `tests/idr/pipeline/do-block.mlir` the SCC pipeline reaches
+its fixpoint in 3 deltas with output byte-identical to the rounds
+(*measured*, `cmp` clean, remark `fixpoint: round 3 changed
+nothing`), and that test now runs `scc-pipeline=true` and diffs
+against the rounds output as maintained coverage (2/2 under
+`make test-idr only=idr/pipeline/do-block`). x86_64 Linux is
+still NotRun (0002 §3).
+
+**The verdict run, in flight now.** Started 2026-10-14 17:03 CDT
+on the owner's machine, still running at 18:04 (elapsed 1h00m,
+86 CPU-minutes, ~1 GB RSS, sampled inside
+`idr::runSimplifySCCPipeline` running a pipeline part; output
+files stay empty until the tool writes at exit). The exact
+command (`/tmp/f3-corpus-verdict.sh`):
+
+```
+/usr/bin/time -l nice -n 10 taskpolicy -b \
+  build/dev/foreign/idr/idris-mlir-opt /tmp/f0/post-contify.mlir \
+  '--pass-pipeline=builtin.module(idr-simplify{scc-pipeline=true})' \
+  -mlir-timing --mlir-pass-statistics \
+  -o /tmp/f0/scc-out.mlir --remarks-filter-passed=idr-simplify
+```
+
+Input is the post-contify stage-0 module (158 MB; the raw
+emission is `/tmp/idris-mlir-stage0.mlir`, and `/tmp/f0/round1`
+to `round16.mlir` are the manual round trajectory §2 cites). The
+throttling is deliberate (the opt tool has no thread cap, so
+background QoS is how the half-CPU policy is honored), which
+means **wall time from this run is not directly comparable** to
+§2's unthrottled round walls; total CPU time, the delta count,
+and whether it reaches a fixpoint at all are the comparable
+facts. For scale: §2's 16 unthrottled rounds cost roughly
+34 wall-minutes without converging, and this throttled run has
+passed 86 (efficiency-core) CPU-minutes without terminating, so
+nothing yet shows the SCC pipeline faster — only that it is
+progressing. An earlier throttled attempt the same day was
+cancelled at 21 CPU-minutes still inside its first delta's
+inlining; do not start a duplicate of the current run.
+
+**When it terminates, the verdict procedure is:** read the exit
+status, the `fixpoint` remark and delta count, total/user time
+and peak RSS from `/tmp/f0/scc-timing.txt`; confirm the output is
+itself a fixpoint (one further `idr-simplify` of either shape
+changes nothing); compare size and census against
+`/tmp/f0/round16.mlir`. §4 F3's landing rule then decides, not
+taste: it must beat 600 s wall-equivalent to the rounds'
+fixpoint with byte-identical corpus and suite output and
+determinism at 1/2/8 threads before the default flips — and
+because this run is throttled, a keep decision still owes an
+identical-conditions A/B (both pipelines, same starting module,
+same QoS; the method that caught §2.1's false win). If it
+converges slowly or not at all, the built form stays opt-in or
+is reverted, the numbers replace this section's snapshot, and
+the next attack is §4's remaining design (ready-set engine,
+size budgets) or F5's giant-function trace — in measurement
+order, not by preference. Only after Simplify converges does
+the tail (defunctionalize, RC, LLVM, 0006 S2) get its first
+self-scale contact.
+
 ## 3. The casework, inventoried
 
 Each mechanism exists only because cleanup runs per iteration inside
@@ -154,14 +259,22 @@ One representation-first change in measured stages. §6's landing
 rule governs every stage; a stage that misses its threshold is
 reverted, as both attempts in §2.1 were.
 
-**F2 — Analyses stay alive.** RoundFacts, the call graph and the
-symbol tables become preserved analyses across the nest
-(`markAnalysesPreserved` where true today by construction; upstream's
-analysis manager already invalidates on change). Delete the discard
-that forces rebuilds. Lands when at least half the measured per-round
-rebuild (~25 user-s in round 1) is gone at identical bytes.
+**F2 — Analyses stay alive.** (No separate stage landed: the
+2026-10-14 investigation found true preservation mostly
+impossible under mutating nested steps, so F3's built form
+attacks the same cost by computing the facts once per pipeline
+part instead of once per round, §2.2. This stage revives only if
+the post-F3 record still names rebuilds.) RoundFacts, the call
+graph and the symbol tables become preserved analyses across the
+nest (`markAnalysesPreserved` where true today by construction;
+upstream's analysis manager already invalidates on change).
+Delete the discard that forces rebuilds. Lands when at least
+half the measured per-round rebuild (~25 user-s in round 1) is
+gone at identical bytes.
 
-**F3 — The SCC pipeline (the refactor).** Delete `idr-simplify`'s
+**F3 — The SCC pipeline (the refactor).** (First serial form
+built opt-in and under corpus measurement, §2.2; what follows is
+the full design it rehearses.) Delete `idr-simplify`'s
 round structure. In its place, one module pass built as a ready-set
 engine over the SCC DAG, specified once so serial and parallel
 execution are two schedulers over the same work: a unit (one SCC)
