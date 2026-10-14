@@ -1,7 +1,7 @@
-# 0008: compiler-chosen flattened layouts of algebraic data
+# 0009: compiler-chosen flattened layouts of algebraic data
 
 **Status:** proposed (2026-10-09). Nothing here is built. It is one of the
-three consumers of 0003's array style, with 0007's tables and 0006's
+three consumers of 0003's array style, with 0008's tables and 0007's
 interpreter: the layouts it chooses are how their columns are stored.
 It starts after self-hosting and sharding's first stages. Since
 2026-10-12 its columnar layout is 0003's representation of an array of
@@ -138,7 +138,7 @@ the compiler's decision, made from facts only the compiler has.
   Gibbon's work on mostly-serialized heaps avoids per-node work (*read*
   `papers/koparkar-2024-mostly-serialized-gc`). Reuse in place applies to the
   whole region when it is unique.
-- **Packed data is the message format between shards** (proposal 0004). A
+- **Packed data is the message format between shards** (proposal 0005). A
   packed or columnar value crosses by copying its buffer, with no detach
   walk, like GHC's compact regions (*read*
   `papers/yang-2015-compact-normal-forms`). The send check is unchanged: a
@@ -146,10 +146,10 @@ the compiler's decision, made from facts only the compiler has.
 
 ## Consumers
 
-- **The term arena and the interpreter's tables (proposal 0006),** shared
+- **The term arena and the interpreter's tables (proposal 0007),** shared
   by the frontend, the type checker and static normalization. Flat,
   hash-consed terms are that arena; its columns take this proposal's
-  layouts, and 0006 builds it.
+  layouts, and 0007 builds it.
 - **The array core (proposal 0003):** records and trees enter array programs
   through columns.
 - **bumbledb's port** (`../bumbledb/proposals/0001-idris-port.md`): its
@@ -176,7 +176,7 @@ the compiler's decision, made from facts only the compiler has.
 | F2 | layout as a type parameter in the `idr` dialect; Layout and idr-rc handle packed and columnar regions | verifier checks; idr-expect properties for one count per region |
 | F3 | columns for collections other than arrays (lists and trees of records), as a conversion to 0003's arrays; arrays of records are columns by 0003's representation, with no gate | benchmarks: nbody-style records ≥ 1.3× over cells |
 | F4 | automatic packing for exclusive, build-once, traverse-whole trees | Gibbon's benchmark programs (tree add1, sum, repmax), ≥ 1.3× over cells and within 1.5× of Gibbon's published numbers on the same machine class |
-| F5 | packed and columnar values as shard messages | 0004's message benchmarks: copy cost per byte against the detach walk |
+| F5 | packed and columnar values as shard messages | 0005's message benchmarks: copy cost per byte against the detach walk |
 
 ## Rejected alternatives
 

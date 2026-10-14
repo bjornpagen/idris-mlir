@@ -1,10 +1,10 @@
-# 0011: the relational core, `mlir-relational`
+# 0012: the relational core, `mlir-relational`
 
 **Status:** proposed (2026-10-10); parked 2026-10-12. Nothing here is
 built. Parked because nothing on the path to self-hosting or sharding
-needs it: its consumers (0007's O3 and O7, 0005's S4, 0009's search) come
+needs it: its consumers (0008's O3 and O7, 0006's S4, 0010's search) come
 after both, and it is taken up when the first of them starts. It is the
-proposal 0009 D6 promised, written because 0007 names its first
+proposal 0010 D6 promised, written because 0008 names its first
 consumer. It takes over §4.5 of `../bumbledb/proposals/0001-idris-port.md`
 on this side; that file keeps what is about the database. Since
 2026-10-12 its fixed-plan joins and aggregates are 0003's sparse half
@@ -102,7 +102,7 @@ From bumbledb, without storage, laws and the log (*read*: its README and
 Each layer is built on the one below. No storage and no IO: the library
 is the functional and array core, and the shell belongs to consumers.
 
-1. **Relations and joins:** typed relations as columnar arrays (0008's
+1. **Relations and joins:** typed relations as columnar arrays (0009's
    columns), COLT, Free Join and the generic-join end, selections,
    anti-probes, exact folds and aggregates, the planner, and the executor
    as an interpreter.
@@ -115,7 +115,7 @@ is the functional and array core, and the shell belongs to consumers.
 
 **Prepared queries are specialized, not compiled by a query compiler.** A
 query known at compile time is a closed call of the interpreter on a
-constant query. The planner is total, so static normalization (0006)
+constant query. The planner is total, so static normalization (0007)
 computes the plan in the frontend; `idr-specialize` clones the
 executor for it, defunctionalization and inlining remove dispatch, and
 `linalg` fusion merges each pipeline into one loop nest: the first Futamura
@@ -132,10 +132,10 @@ guard on image statistics picks one (bumbledb 0001 §4.4).
 
 ## 4. Consumers
 
-- **The frontend (0007):** the instance fixpoint, reachability, name
+- **The frontend (0008):** the instance fixpoint, reachability, name
   resolution's interval join, multiplicity and size-change folds,
   postponement as semi-naive evaluation.
-- **The elaborator (0009):** constraints as relations, meta unification
+- **The elaborator (0010):** constraints as relations, meta unification
   as union-find, shape and rewrite equalities as e-graph saturation, so
   `n * m = m * n` never blocks a user.
 - **bumbledb's port:** the core plus storage, laws, the log and shards.
@@ -163,7 +163,7 @@ Inventory, each with its limit:
 | `linalg`, `vector`, LLVM backends | The tail of a query compiler: fusion, tiling, vectorization to NEON, SVE, AVX-512 and wasm SIMD128. The scalar twin is the same source at width 1; hand NEON and runtime dispatch go. | Hash probes and data-dependent control are weak in `linalg`. |
 | One-Shot Bufferize | Tensors have value semantics and bufferization decides in-place writes: Idris's "functional but in place" at the array level. 0003 keeps `!idr.lin` as the wrapper around the tensor, its entry a release One-Shot copies at only when the buffer is still read (*read*: 0003 §8). Images immutable, arenas and aggregation state in place, by one mechanism. | |
 | Typed indices | A pool or table index typed by its pool's extent (`Index s`) is an access with no guard (*read*: 0003 §2, D4); `idr-in-bounds` is deleted by 0003, so COLT's pools are written over typed indices. | An index the library cannot type goes through `Maybe`, the program's own test. |
-| `idr-specialize` on constant arguments | A plan computed by static normalization specializes the executor. | The planner must be total: only total code is normalized (0006). |
+| `idr-specialize` on constant arguments | A plan computed by static normalization specializes the executor. | The planner must be total: only total code is normalized (0007). |
 | The verifier | Erased plan proofs and grades survive lowering because they are re-checked after every pass. | |
 | `shard` | Hash-partitioned relations are a sharding annotation; where to reshuffle is propagation (*read*: 0003 §14). | Upstream propagates over parallel array dimensions, not joins. A join whose atoms are not co-partitioned on a shared variable needs a shuffle or HyperCube-style partitioning (*recalled*); this is open. |
 | Greedy pattern rewriting | A fixpoint rewrite engine, destructive. | Layer 3 is the non-destructive version. |
@@ -190,8 +190,8 @@ A LingoDB-style relational dialect is not the primary path (§8).
 - e-matching and saturation within 1.5× of egglog on its benchmarks;
 - joins at ≥ 80% of bumbledb's Rust engine on its read families, with its
   oracle (2,879 cases in its 1.3.0 suite) as the correctness gate;
-- for each consumer, its own proposal's gate (0007's stages, 0006's A2,
-  0009's T4).
+- for each consumer, its own proposal's gate (0008's stages, 0007's A2,
+  0010's T4).
 
 A caution on prepared-query speedups (*recalled*: Kersten et al., VLDB
 2018): compiled and vectorized engines each win on different queries and
@@ -214,11 +214,11 @@ alone (*conjecture*).
 
 | Stage | Content | Proof |
 | --- | --- | --- |
-| R1 | layer 1: relations as 0008 columns, COLT, Free Join, the planner, the interpreter | bumbledb's oracle cases for reads; read families ≥ 80% of the Rust engine |
+| R1 | layer 1: relations as 0009 columns, COLT, Free Join, the planner, the interpreter | bumbledb's oracle cases for reads; read families ≥ 80% of the Rust engine |
 | R2 | layer 2: semi-naive fixpoints | within 1.5× of Soufflé (compiled) |
-| R3 | first consumer: 0007 O3, Translate's instance fixpoint | identical Core; O3's threshold |
+| R3 | first consumer: 0008 O3, Translate's instance fixpoint | identical Core; O3's threshold |
 | R4 | layer 3: e-graphs, relational e-matching, slotted binders | within 1.5× of egglog |
-| R5 | the elaborator on the library (0009 T4) | 0003's shape-equality corpus never blocks; base elaborates no slower |
+| R5 | the elaborator on the library (0010 T4) | 0003's shape-equality corpus never blocks; base elaborates no slower |
 | R6 | prepared-query specialization and plan variants (D1) | bumbledb's scenario queries, prepared, against the Rust engine |
 
 ## 9. Rejected alternatives
@@ -238,7 +238,7 @@ alone (*conjecture*).
   is specialized only for one that does not (D5; 0003 D22). Specializing the
   interpreter for a plan that fits would be a second compilation of the
   same query.
-- **Trusting a solver for equalities:** 0009 §2.5; saturation finds, the
+- **Trusting a solver for equalities:** 0010 §2.5; saturation finds, the
   kernel checks.
 
 ## 10. Decisions

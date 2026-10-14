@@ -1,4 +1,4 @@
-# 0010: the compiler features self-hosting asked for
+# 0011: the compiler features self-hosting asked for
 
 **Status:** a sketch to flesh out, 2026-10-10; updated 2026-10-12 against
 the cutover (0001, executed by 0002), which is committed and builds;
@@ -115,13 +115,13 @@ the handoff section; unbuilt):
 
 Self-hosting is the first priority (0001, stage S): integrate the
 cutover, get it green on the owner's machine, break the wall by
-measurement (0005's S2 pulled forward for parallel LLVM codegen), then
+measurement (0006's S2 pulled forward for parallel LLVM codegen), then
 the handoff's size and the pipeline's memory, then `make self` with
 outputs identical under one thread and the pool, then the test runner
 off Chez. None of that needs a feature here: the fork already compiles
 as rewritten. This proposal starts when `make self` is green, in the
 order below, each feature landing only if the native self-compile is no
-slower for it; feature 6 waits on 0006's interned names (A0).
+slower for it; feature 6 waits on 0007's interned names (A0).
 
 ## The bar: no runtime price, decided at compile time
 
@@ -147,7 +147,7 @@ boxed.
 Roughly in order of cost (conjecture). Each lands in the Idris side
 (classification, instances) and in the `idr` dialect's passes
 (`foreign/idr/`), which already specialize and defunctionalize; the
-static part of the program will be normalized in the frontend (0006).
+static part of the program will be normalized in the frontend (0007).
 
 1. **An erased match forced by a runtime value.** A match on an erased
    proof (`First`, `Later`) that a runtime index determines is compiled as
@@ -171,7 +171,7 @@ static part of the program will be normalized in the frontend (0006).
      in the argument's shape), the instance is specialized on it, as
      `neededShape` already specializes on a parameter's shape: the result
      type reduces and the call is monomorphic. Static normalization
-     (0006) will find more of the value in the frontend, where the instance is
+     (0007) will find more of the value in the frontend, where the instance is
      decided, and the `idr` specialization pass extends this across
      calls.
    - Where it is not, the type is the closed sum of the type's whole-
@@ -182,7 +182,7 @@ static part of the program will be normalized in the frontend (0006).
      value at the use refines the type in each branch to one variant,
      which the dialect's canonicalization turns into the variant's
      payload with no test. A field type computed from another field is
-     the same sum inside the data's layout (proposal 0008's flattened
+     the same sum inside the data's layout (proposal 0009's flattened
      layouts place it), so `ActType`'s action is stored unboxed.
 4. **Existentials** (`SeqEat`, a tokenizer's hidden tag, a hidden name
    type). A constructor that hides a type is, in the whole program, built
@@ -209,7 +209,7 @@ static part of the program will be normalized in the frontend (0006).
    compiled to the primitive's test alone, with the `Refl` gone. The
    fork's `nameEq`, `scopeEq` and the rest then come back as upstream wrote
    them, at the cost of the comparison they already make. The traversal
-   that comparison costs is replaced by interned names (0006 A0). The
+   that comparison costs is replaced by interned names (0007 A0). The
    proofs are this feature.
 
 ## Staged plan
@@ -238,7 +238,7 @@ Each stage is one feature, in the order above:
 - The bound on a sum's variants (3, 4, 5) past which the program is
   refused rather than compiled to a large switch: a measurement rule to
   write here, from the bench.
-- How 3's sum meets proposal 0008's flattened layouts and the grades
+- How 3's sum meets proposal 0009's flattened layouts and the grades
   (`!idr.lin`, the ownership grades): a variant must keep its payload's
   grade. A quantity-0 payload is not a field at all since the cutover.
 - Whether `TokenKind` comes back: it needs 3, and its only users are two

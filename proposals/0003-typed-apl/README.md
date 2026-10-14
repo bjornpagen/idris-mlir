@@ -19,9 +19,9 @@ conjecture, decision. `M/` below is the pinned MLIR,
 `.toolchain/build/llvm-project/mlir/` (llvm main 7208ba24).
 
 The array style is the compiler's organizing principle, not one feature
-among others. The frontend's tables (0007), the layouts of their columns
-(0008), the relations of the relational core (0011) and the kernels of
-the array interpreter (0006) are programs in this language, compiled by
+among others. The frontend's tables (0008), the layouts of their columns
+(0009), the relations of the relational core (0012) and the kernels of
+the array interpreter (0007) are programs in this language, compiled by
 this lowering. The compiler is its own heaviest user.
 
 **The ruling, in one sentence.** Every fact Idris proves about an array
@@ -188,7 +188,7 @@ section is a row worked out.
 | a linear thread of writes (`LArray s a` at quantity 1) | `!idr.lin<tensor<...>>`, unwrapped by `idr.lin.use` into a destination-passing chain | One-Shot's analysis puts it in place; under `--demand-in-place`, `mustBufferizeInPlace` makes a copy a failure (§8) |
 | an element type that is a word or float | the builtin element type | vectorization (`VectorElementTypeInterface` on builtin types) |
 | an element type of ours (a box, a string, a natural) | `tensor<?x!idr.T>`, legal since a tensor takes any non-builtin element (`M/lib/IR/BuiltinTypes.cpp:435`) | tiling, fusion and bufferization, through `MemRefElementTypeInterface`; never vectorized (§4.5) |
-| a record element | one tensor per field, by one-to-N type conversion | multi-result `linalg.generic`; the one representation of columns (§4.5, 0008) |
+| a record element | one tensor per field, by one-to-N type conversion | multi-result `linalg.generic`; the one representation of columns (§4.5, 0009) |
 | an array of arrays of one cell shape | one tensor, the dimensions concatenated | `expand_shape`, `collapse_shape` |
 | a shape whose rank no analysis fixes (a recursion that builds it deeper) | nothing: `unsupported (polymorphism)` naming the site | the frontend's growing-skeleton refusal, which exists (read: `Translate/Instances.idr`, `growing`) |
 | a combine whose order is unobservable | a `linalg` reduction iterator | upstream's tiling, split-reduction and vectorization, which reassociate it |
@@ -500,7 +500,7 @@ errors in typed code.
 The interactive loop (`idris-mlir repl`, every line compiled and run as
 a linked executable in a child, never on Idris's evaluator or Chez) is
 the earlier draft's D13. It is parked here: it is not on the array
-path, and it moves to 0006's stages once that interpreter exists.
+path, and it moves to 0007's stages once that interpreter exists.
 
 ## 4. The generating set, as upstream ops
 
@@ -667,11 +667,11 @@ go.
 - **A record element** is one tensor per field, by one-to-N type
   conversion (`ConversionPatternRewriter::replaceOpWithMultiple`, 1:N
   `TypeConverter`), and a loop over it is a multi-result
-  `linalg.generic`. This is the one representation of columns: 0008's
-  `!idr.columns<@T>` is replaced by it (0008 is updated). A record that
+  `linalg.generic`. This is the one representation of columns: 0009's
+  `!idr.columns<@T>` is replaced by it (0009 is updated). A record that
   holds an array holds its tensor, split into its fields before
   bufferization, so bufferization never sees through our records.
-- **A sum element** is decided by 0008's layouts, in these terms: a tag
+- **A sum element** is decided by 0009's layouts, in these terms: a tag
   tensor and one tensor per field slot, or a tensor of boxes.
 
 ## 5. Effects, order and the raising
@@ -866,7 +866,7 @@ for that reason.
   skips recursive call graphs (read: `OneShotModuleBufferize.cpp:481,
   525`), would assume every operand read and written.
 - A store of a tensor into a cell (a field, a capture, an element, a
-  message of 0004) is a release too; a read from the heap is
+  message of 0005) is a release too; a read from the heap is
   `bufferization.to_tensor ... restrict`, not writable, so a value
   operation that writes it copies.
 
@@ -991,7 +991,7 @@ free.
 ## 10. Relations as sparse arrays
 
 A relation is a sparse array of Booleans; a conjunctive query is an
-einsum: `Q[a, b, c] = R[a, b] * S[b, c] * T[a, c]` (read: 0011 §5; recalled:
+einsum: `Q[a, b, c] = R[a, b] * S[b, c] * T[a, c]` (read: 0012 §5; recalled:
 `sources/papers/kjolstad-2017-taco`). The pieces, all upstream:
 
 | relational | sparse array | MLIR |
@@ -1005,7 +1005,7 @@ einsum: `Q[a, b, c] = R[a, b] * S[b, c] * T[a, c]` (read: 0011 §5; recalled:
 | a recursive query | the delta's fixpoint | `scf.while` around the round |
 
 The coordinates of a relation are dense integers, so every name in it
-is interned first: 0007's typed ids are this section's precondition.
+is interned first: 0008's typed ids are this section's precondition.
 
 **What this subset is.** Plans fixed at compile time: the formats, the
 variable order and the join order are the program's. **What it is not**
@@ -1016,20 +1016,20 @@ in the smaller one, so a sparse join here is not worst-case optimal
 levels, no runtime choice of format or variable order, and no indexes
 chosen from statistics.
 
-**The boundary with 0011** (**decision**, D22). A plan that
+**The boundary with 0012** (**decision**, D22). A plan that
 fits this subset is emitted as a sparse array program and compiled by
-this lowering. Everything else stays 0011's: COLT's lazy tries, hash
+this lowering. Everything else stays 0012's: COLT's lazy tries, hash
 tries, the Free Join planner and its generic-join end, galloping
 intersection for worst-case optimal joins, indexes chosen from
 statistics, plan variants, e-graphs, and the database's storage, laws
-and log shared with bumbledb. 0011's interpreter is specialized for a
+and log shared with bumbledb. 0012's interpreter is specialized for a
 plan that does not fit; it is never a second route for one that does.
 
 ## 11. The compiler's own consumers
 
-Each consumer is assigned to dense, sparse or 0011, honestly.
+Each consumer is assigned to dense, sparse or 0012, honestly.
 
-- **0007's multiplicity check is a sparse reduction.** Occurrences
+- **0008's multiplicity check is a sparse reduction.** Occurrences
   grouped by binder are a compressed level; the check folds each group in
   the 0/1/ω semiring and compares the sum with the declared quantity.
   That is `sparse_tensor.reduce` over a CSR array of `i8`, reduction
@@ -1041,25 +1041,25 @@ Each consumer is assigned to dense, sparse or 0011, honestly.
   closure is not a sum: the checker keeps a set of `(f, h, matrix)`
   triples (read: `Core/Termination/SizeChange.idr:415-417`, its work
   list), and summing them would merge call paths that must stay apart.
-  The closure is a relational fixpoint over that set, 0011's.
-- **0006's kernels are where linalg is weakest.** The wavefront machine's
+  The closure is a relational fixpoint over that set, 0012's.
+- **0007's kernels are where linalg is weakest.** The wavefront machine's
   steps are a stable group by term kind (a sort or a counting scatter),
   gathers of children from the arena, compaction of finished rows, and
   scatters of results: gathers, scatters and filters, where fusion stops
   (§4.4). Its dense parts (per-kind arithmetic on a gathered batch) fuse
-  as any map does. 0006's kernels are written as ordinary programs in
+  as any map does. 0007's kernels are written as ordinary programs in
   this language, using `select`, `idr.scatter` and `filter`; there is no
   whole-array primitive of the runtime for them, which would be a second
   implementation of library functions.
-- **0007's tables** are dense arrays of interned ids, one tensor per
+- **0008's tables** are dense arrays of interned ids, one tensor per
   column (§4.5).
-- **0008's layouts** are §4.5's one-to-N conversion of records, chosen
-  by 0008's measurements.
+- **0009's layouts** are §4.5's one-to-N conversion of records, chosen
+  by 0009's measurements.
 
 ## 12. Constants and static normalization
 
 **decision** (D23) One answer. A literal array, or the result
-of a closed total computation that static normalization (0006) produces,
+of a closed total computation that static normalization (0007) produces,
 is `arith.constant dense<...> : tensor<...>` for word and float
 elements, which bufferizes to a non-writable `memref.global` (read: the
 Arith bufferization model). It is immortal: its descriptor's allocated
@@ -1075,7 +1075,7 @@ descriptor's allocated pointer is the cell"). That `memref.get_global`
 lowering, which sets the two pointers, is the one pattern of ours it
 needs (conjecture, checked in stage 2).
 
-Static normalization itself is 0006's: no array operation runs at
+Static normalization itself is 0007's: no array operation runs at
 compile time until it exists, and then it runs as this lowering compiles
 it, never as a second implementation.
 
@@ -1101,8 +1101,8 @@ again.
 
 ## 14. Multicore, and devices later
 
-After 0004's P4, a parallel dimension of a raised generic is tiled with
-`scf.forall` and partitioned across shards by 0004's rule, with
+After 0005's P4, a parallel dimension of a raised generic is tiled with
+`scf.forall` and partitioned across shards by 0005's rule, with
 `shard.grid`, `sharding-propagation` and `shard-partition` for region
 SPMD where it applies (read: the pinned `shard` dialect). A reduction
 across shards is legal exactly when §6 says its order is not observed,
@@ -1230,9 +1230,9 @@ SuiteSparse matrix vendored under `sources/`).
 7. **Relations and the compiler's consumers** (§10, §11). The
    multiplicity check as a sparse reduction and size-change composition
    as a semiring product, behind the fork's existing results: identical
-   verdicts on base and the corpus (0007's gate), and the 0011 boundary
+   verdicts on base and the corpus (0008's gate), and the 0012 boundary
    rule applied to the first relational consumer.
-8. **Multicore** (§14), after 0004's P4. Proof: 0004's rules; `heat` and
+8. **Multicore** (§14), after 0005's P4. Proof: 0005's rules; `heat` and
    `matmul` outputs identical on one shard and on all.
 
 ## 18. Rejected alternatives
@@ -1341,7 +1341,7 @@ Decided by the owner, 2026-10-12.
 - **D21.** A sparse array is the dense type with an encoding, codegen
   only, semirings as `i8` with the zero at 0 (§9).
 - **D22.** A relational plan that fits the sparse subset is a sparse
-  array program; everything else is 0011's (§10).
+  array program; everything else is 0012's (§10).
 - **D23.** Constants are `arith.constant dense`, an immortal
   `memref.global` with the header beside it (§12).
 - **D24.** World-ordered arrays declare their effects on their memref
@@ -1365,7 +1365,7 @@ Decided by the owner, 2026-10-12.
 | `sparse_tensor` encodings, `binary`, `unary`, `reduce`, `select`, `coiterate`, `assemble`, `disassemble`, `sparse-tensor-codegen` | sparse arrays and relations (§9, §10) |
 | `arith.constant dense`, `memref.global` | constants (§12) |
 | `MemoryEffectOpInterface` | the raising (§5); world-ordered arrays (§13) |
-| `shard.grid`, `sharding-propagation`, `shard-partition` | SPMD, by 0004's rule (§14) |
+| `shard.grid`, `sharding-propagation`, `shard-partition` | SPMD, by 0005's rule (§14) |
 
 **Gaps filled by ours**, each to go when upstream fills it:
 `idr.tie_shape` (no op ties dynamic dimensions across calls),

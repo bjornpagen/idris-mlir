@@ -135,7 +135,7 @@ gate G1).
   emission's memory (9.1 GB for a 405 MB text module: the print-write
   patch in the scratch audit, and R7's bytecode rule, now measurable).
 - The rewrites self-hosting forced, and the compiler features that would
-  replace the regressions among them, are proposal 0010.
+  replace the regressions among them, are proposal 0011.
 
 **Proposals** (`proposals/README.md`), in their numbered order, which
 is the order the work is done:
@@ -145,18 +145,18 @@ is the order the work is done:
   qualifying it is 0001 §6.1's first steps;
 - 0003's stage 1: the purge of today's array stack and its MLIR-first
   rebuild, as one cutover, right after `make self`;
-- 0004 and 0005: sharding (0004's P1, P2 and P4; 0005's S0, S1, S2 and
+- 0005 and 0006: sharding (0005's P1, P2 and P4; 0006's S0, S1, S2 and
   S8);
-- then the array work: 0003's typed array language, with 0006's array
+- then the array work: 0003's typed array language, with 0007's array
   interpreter (static normalization on the type checker's evaluator),
-  0007's tables and 0008's flattened data as its consumers, and 0009's
-  type checker on 0006's machine;
-- 0010: the compiler features self-hosting asked for, once `make self`
+  0008's tables and 0009's flattened data as its consumers, and 0010's
+  type checker on 0007's machine;
+- 0011: the compiler features self-hosting asked for, once `make self`
   is green;
-- parked: 0011 (the relational core), 0012 (Rust), 0005's S3 to S6 and
-  S9 to S10, and 0004's P3.
+- parked: 0012 (the relational core), 0013 (Rust), 0006's S3 to S6 and
+  S9 to S10, and 0005's P3.
 
-The research behind 0009, 0003 and 0008 is in `sources/`, with reading
+The research behind 0010, 0003 and 0009 is in `sources/`, with reading
 notes in `sources/notes/`. Contiguous runs (one run cell for strings,
 arrays and buffers) has no proposal yet. The LLVM submissions are in
 `upstream/`; their status table says which is next.

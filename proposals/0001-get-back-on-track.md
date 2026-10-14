@@ -80,7 +80,7 @@ constant factors on symbol lookups and type walks and published scope
 chains to worker threads through atomics on the dialect object. None
 touches the three terms above, and the note after them says so.
 96e1d308 also deleted `idr-eval` and the JIT, which the static normalization plan
-scheduled after its replacement exists (now 0006); it does not. The second compilation of every e2e test,
+scheduled after its replacement exists (now 0007); it does not. The second compilation of every e2e test,
 "without evaluation", now compiles the same program twice.
 
 The ground, *read* (§12, HANDOFF.md): `make test` is not green on
@@ -309,7 +309,7 @@ digits, as MLton's `-loop-passes` default). The passes that stay ours
 (specialize and raise, defunctionalize, rc with borrow and exclusivity,
 trmc, tail loops, narrow, in-bounds, stack, demand) are decisions MLIR
 cannot take, as the 2026-10-02 survey found; each is re-housed along
-0005 §2.1's line, its analysis in step 1 and its rewrite in step 2, not
+0006 §2.1's line, its analysis in step 1 and its rewrite in step 2, not
 rewritten.
 
 ### 5.4 Verification: at the level the pass ran
@@ -362,7 +362,7 @@ thread and under the pool. Where a stage changes no behaviour, the
 
 | Stage | Change | Proof |
 | --- | --- | --- |
-| G0 | Baseline. Bootstrap on arm64; `make test` with timing; `tests/compile-times.sh`; `-mlir-timing` in tree mode and `--stats` on `every-interfaces-export` and the ten slowest; function, op and byte counts of the stage-0 dump by the brief's script. 0005's S0 is this stage. | a committed record in this directory |
+| G0 | Baseline. Bootstrap on arm64; `make test` with timing; `tests/compile-times.sh`; `-mlir-timing` in tree mode and `--stats` on `every-interfaces-export` and the ten slowest; function, op and byte counts of the stage-0 dump by the brief's script. 0006's S0 is this stage. | a committed record in this directory |
 | C1 | `foreign/idr` as an MLIR project (§5.5); `mlir-cxx-api` and the module-layout pin retired; ccache on `make build` | no behaviour change; `test-idr` 269 green; rebuild times recorded |
 | C2 | Verification at the level the pass ran (§5.4); `idr.func` (§5.2) with linear linearity | the two set-aside programs pass within their limits |
 | C3 | Analyses replace caches (§5.2); the deletions named there | suite compile total not worse; `(A)` rows show each analysis computed once per round |
@@ -396,7 +396,7 @@ compiles itself, each one measured before the next starts.
    with `-mlir-timing` and a time trace (`tools/profile.sh`): the
    first time the C++ side finishes on it. The pass or analysis that
    dominates is fixed first. LLVM's single module is the term no pass
-   change touches, so 0005's S2 (units, split codegen, an ordered link)
+   change touches, so 0006's S2 (units, split codegen, an ordered link)
    is pulled forward here and taken as soon as the record shows codegen
    as the cost.
 4. **The diet and the memory.** The stage-0 dump's functions, operations
@@ -410,8 +410,8 @@ compiles itself, each one measured before the next starts.
    `Runner.idr`) compiled by the self-hosted compiler, so `make test`
    needs no Chez at all; Chez stays only as the host of stage 0.
 
-Then sharding: 0005's S0, S1, S2 (if step 3 has not already taken it)
-and S8, with 0004's P1, P2 and P4.
+Then sharding: 0006's S0, S1, S2 (if step 3 has not already taken it)
+and S8, with 0005's P1, P2 and P4.
 
 Arrays come right after `make self`, ruled by the owner on 2026-10-12,
 ahead of sharding: 0003's stage 1 lands as one hard cutover. It purges today's array stack (the
@@ -440,9 +440,9 @@ same change, and `make self` stays green across it.
 
 - **Cutting constant factors further** (the path of the last three
   commits): lookups and memos leave the three terms of §1 in place.
-- **The sharded compiler (0005) now**: the in-process split of §5.3 is
+- **The sharded compiler (0006) now**: the in-process split of §5.3 is
   its precondition and most of its gain on one machine; sharding across
-  processes is for later and needs 0011.
+  processes is for later and needs 0012.
 - **Parametric `!idr.data<@T, [...]>`** (the brief's §3.12): a change to
   every pass's type handling for no effect on the wall. Deferred to a
   proposal of its own with a measurement.
@@ -453,7 +453,7 @@ same change, and `make self` stays green across it.
   cached.
 - **A larger round budget or longer test limits**: they hide the bug the
   two programs show.
-- **Static normalization (0006) as the fix**: it shrinks what the
+- **Static normalization (0007) as the fix**: it shrinks what the
   frontend emits later and is wanted, but it does not change how the
   C++ side walks what it is given.
 - **A fresh C++ side**: the decisions in the passes are right and tested
@@ -509,10 +509,10 @@ off stay as they are. No other rule of AGENTS.md changes: the grades stay
 in types, the verifier still checks after every pass, tests still check
 behaviour.
 
-Static normalization is now 0006's. Its differential against
+Static normalization is now 0007's. Its differential against
 `idr-eval` is gone with the pass (96e1d308, and the cutover deleted what
 remained), so it is proved against the committed outputs of
-`tests/programs/eval` and the corpus instead; 0006 records that.
+`tests/programs/eval` and the corpus instead; 0007 records that.
 
 ## 11. Open questions for the owner
 

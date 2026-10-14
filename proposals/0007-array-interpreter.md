@@ -1,10 +1,10 @@
-# 0006: the array interpreter
+# 0007: the array interpreter
 
 **Status:** proposed (2026-10-12). Nothing here is built. It takes over
 three earlier plans: static normalization (the former static-normalization proposal, decided by the
 owner on 2026-10-10, whose decisions D1 to D5 stand here word for word),
-the frontend's interned names and term arena (0007's O1 and O4), and the
-type checker's evaluator (0009's §2.2, T2 and T6). Compile-time
+the frontend's interned names and term arena (0008's O1 and O4), and the
+type checker's evaluator (0010's §2.2, T2 and T6). Compile-time
 evaluation is already gone: `idr-eval`, its JIT and its forked child left
 the C++ side, the runtime's evaluation entries left `runtime/`, and MLIR
 threading is on. Work starts once the compiler hosts itself (0001, stage
@@ -59,7 +59,7 @@ What happens to a call, by how much of it is static:
   0; arrays of words as dense constants, 0003 §12); a function becomes a
   specialized function. If the cost rule refuses it, it stays a
   **top-level constant computed once at startup**, at native speed, once
-  per shard that demands it (0004 D6). The program's startup *is* the
+  per shard that demands it (0005 D6). The program's startup *is* the
   compiled tier.
 - **A partly static call** specializes only on the arguments that **steer
   control**: types, dictionaries, shapes, and constructors the callee
@@ -77,7 +77,7 @@ What happens to a call, by how much of it is static:
 ## 3. The representation: one arena, as columns
 
 *Decision.* The fork's terms, the frontend's TT and the interpreter's code
-are one table, owned here and used by 0007's frontend and 0009's checker.
+are one table, owned here and used by 0008's frontend and 0010's checker.
 No pass copies it into a second form.
 
 | Table | Columns | Notes |
@@ -87,7 +87,7 @@ No pass copies it into a second form.
 | values | `kind`, `head`, `env` (a slice of an environment column), `spine` (a slice of a spine column), `unfolded` (a value id or none) | levels, not indices; glued: the head and spine are the cheap form, `unfolded` the unfolded one |
 | caches | `term → whnf`, `term → normal form`, `(term, term) → convertible` | indexed by id; a hit costs a gather |
 
-Every id is a type indexed by its table, erased to a word (0007 D1):
+Every id is a type indexed by its table, erased to a word (0008 D1):
 `TermId a` cannot index a value table, and `idr-in-bounds` erases the
 bounds check it proves. The hash-cons table is open addressing over the
 `hash` column (*recalled*: Filliâtre and Conchon's hash-consing, Lean 4's
@@ -95,7 +95,7 @@ cached `Expr` data, both under `sources/`).
 
 What falls out: syntactic equality is an integer compare; conversion
 normalizes only when ids differ; a normal form is computed once per id;
-memory is a few large arrays, one count per region (0008 D4), not
+memory is a few large arrays, one count per region (0009 D4), not
 millions of cells. Spans are free: a node names its token.
 
 ## 4. The machine: wavefront evaluation
@@ -148,7 +148,7 @@ on every machine, thread count and shard count.
 
 **Parallel by construction.** Each kernel is data-parallel over its
 segment. Once 0003's arrays exist, the kernels are written in its
-vocabulary, so the compiler fuses and vectorizes them (§6); once 0004's
+vocabulary, so the compiler fuses and vectorizes them (§6); once 0005's
 shards exist, a segment splits across shards with the same result.
 
 ## 5. Arrays in interpreted code
@@ -172,7 +172,7 @@ measures that a wide `tabulate` interprets fast enough).
 
 The interpreter is written in the typed array style it interprets. Its
 tables are 0003 arrays, its kernels are 0003 programs over them, and its
-columns take 0008's layouts. When 0003's stage 3 lands, a kernel such as
+columns take 0009's layouts. When 0003's stage 3 lands, a kernel such as
 "gather the environment slot of every variable row, then build the value
 rows" is a `map` over a gather, which `linalg-fuse-elementwise-ops` fuses
 into one loop with no intermediate array, checked by `idr-expect`'s
@@ -195,11 +195,11 @@ static normalization extends that to the value level at the same point,
 so a choice computed by recursion reaches the instance decision that
 needs it. A closed call needs only its callees, which a module's imports
 provide, so normalization runs per module and is cached under the
-module's content hash (0005 S1). **The C++ pipeline never runs program
+module's content hash (0006 S1). **The C++ pipeline never runs program
 code.**
 
 The type checker uses the same arena, machine and caches for conversion,
-unification's evaluation and proofs by reflection (0009 builds tabled
+unification's evaluation and proofs by reflection (0010 builds tabled
 search, shape arithmetic, the rewrite ladder and the kernel on top of
 it).
 
@@ -239,13 +239,13 @@ is not taken until it is not.
 
 | Stage | Content | Proof |
 | --- | --- | --- |
-| A0 | interned names and the hash-consed term arena in the fork, typed ids; the frontend reads TT from it | identical TTCs and corpus; elaboration of base and the frontend ≥ 1.5× faster than 0009's T0 record |
+| A0 | interned names and the hash-consed term arena in the fork, typed ids; the frontend reads TT from it | identical TTCs and corpus; elaboration of base and the frontend ≥ 1.5× faster than 0010's T0 record |
 | A1 | the wavefront machine on the arena, weak head normal form only; a direct recursive evaluator on the same arena as the measuring stick, deleted after | **the gate:** on the checker's own normalizations (base, the frontend, smalltt's benchmark set) the machine is within the run-to-run spread of the direct evaluator where one row is live, and faster where many are (a `tabulate` corpus); the machine is fixed until both hold |
 | A2 | glued values, the caches, approximate conversion; the fork's checker on the machine | smalltt's benchmark set within 1.5× of smalltt; ≥ 2× over A0 on conversion-heavy files |
 | A3 | static normalization in the frontend: closed total calls to values, control-steering specialization, the counted budget, startup constants beyond it; §9's rules | `tests/programs/eval` and the corpus unchanged; D5's matrix green; byte-identical across thread counts |
 | A4 | arrays in interpreted code as wide wavefronts (§5), after 0003's stage 1 | a table of 10⁶ words built by array operations normalizes within the budget; reflection benchmarks ≥ 10× over A2 where they use arrays |
 | A5 | the kernels as 0003 programs, after its stage 3 | `fused` holds on every kernel; wide-wavefront benchmarks faster than A4 |
-| A6 | segments across shards, after 0004's P4 | identical results at every shard count; wall time on the A1 corpus recorded |
+| A6 | segments across shards, after 0005's P4 | identical results at every shard count; wall time on the A1 corpus recorded |
 
 ## 11. Rejected alternatives
 
