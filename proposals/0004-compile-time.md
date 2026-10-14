@@ -1,19 +1,22 @@
 # 0004: compile time: one fast serial pipeline
 
-**Status:** current as of 2026-10-14 18:04 CDT at 552d682a plus the
-uncommitted split named in §2.2. This file states where compile
-time stands and the one refactor that remains; it overwrites the
-earlier drafts and their decisions, which git history holds. F0
-(the measurement) is done and recorded in §2 and in
-`bench/profiles/2026-10-14-f0-stage0.md`. The first round of fixes
-landed 2026-10-13/14 (§2). The owner approved the proposals
-2026-10-14 ("all approved. go forth."); licensing (0001) is built
-and pushed, and F3's first serial form is built, gated, and under
-corpus measurement right now (§2.2, which is the live status other
-agents should read first). Two smaller refactors were built,
-measured and reverted (§2.1). The gate is self-hosting (0002 §2
-step 5). Claims are marked: *read* (the path), *measured* (the
-record), *conjecture*, *decision*.
+**Status:** current as of 2026-10-14 18:10 CDT. This file states
+where compile time stands and the one refactor that remains; it
+overwrites the earlier drafts and their decisions, which git
+history holds. F0 (the measurement) is done and recorded in §2
+and in `bench/profiles/2026-10-14-f0-stage0.md`. The first round
+of fixes landed 2026-10-13/14 (§2). The owner approved the
+proposals 2026-10-14 ("all approved. go forth."); licensing
+(0001) is built and pushed, and F3's first serial form was built
+and gated (§2.2). **That built form is now pinned as a problem
+for re-evaluation (§2.3, the live status other agents should
+read first): it landed as an opt-in second code path, which the
+owner has called out as exactly the fallback/configuration slop
+this compiler does not carry. The corpus verdict run was killed
+by the owner at 18:10 without a verdict.** Two smaller
+refactors were built, measured and reverted (§2.1). The gate is
+self-hosting (0002 §2 step 5). Claims are marked: *read* (the
+path), *measured* (the record), *conjecture*, *decision*.
 
 **Sources.** The pinned MLIR tree (`.toolchain/llvm-project/mlir`);
 the Mojo compiler in the owner's clone at `~/Documents/modular`
@@ -130,7 +133,7 @@ evaluation joins deltas and never re-derives totals
 cleanup is the delta step with the total re-derived around it, per
 iteration, inside rounds that repeat it again.
 
-## 2.2 F3 as built; the verdict run in flight (2026-10-14, live)
+## 2.2 F3 as built; the verdict run, killed without a verdict (2026-10-14)
 
 **Built and pushed** (552d682a): `idr-simplify` gained an opt-in
 `scc-pipeline` option (default off; the rounds stay the default).
@@ -158,8 +161,9 @@ true analysis preservation mostly impossible under mutating
 nested steps, so its recomputation cost is attacked by running
 the facts once per part instead of once per round, here.
 
-**Split for the file-size gate** (uncommitted in the working tree
-as this is written; lands with the verdict): the F3 addition took
+**Split for the file-size gate** (committed with §2.3's pin; the
+split is pure movement and survives either re-evaluation
+answer): the F3 addition took
 `Simplify.cpp` to 463 lines against `tests/spec/file-size`'s 400.
 The SCC driver loop moved into Scc.cpp beside its pipelines and
 the census/remark reporting into `Simplify/Trace.cpp`, leaving
@@ -179,12 +183,14 @@ against the rounds output as maintained coverage (2/2 under
 `make test-idr only=idr/pipeline/do-block`). x86_64 Linux is
 still NotRun (0002 §3).
 
-**The verdict run, in flight now.** Started 2026-10-14 17:03 CDT
-on the owner's machine, still running at 18:04 (elapsed 1h00m,
-86 CPU-minutes, ~1 GB RSS, sampled inside
-`idr::runSimplifySCCPipeline` running a pipeline part; output
-files stay empty until the tool writes at exit). The exact
-command (`/tmp/f3-corpus-verdict.sh`):
+**The verdict run, killed.** Started 2026-10-14 17:03 CDT on
+the owner's machine; sampled inside `idr::runSimplifySCCPipeline`
+at 36 and 86 CPU-minutes, ~1 GB RSS, output files empty (the
+tool writes only at exit); **killed by the owner at 18:10 CDT
+after ~66 wall-minutes and at least 90 observed CPU-minutes,
+with no output and no verdict** — the owner's judgement being
+that it was not ending soon enough to be the way this gets
+decided. The exact command was (`/tmp/f3-corpus-verdict.sh`):
 
 ```
 /usr/bin/time -l nice -n 10 taskpolicy -b \
@@ -203,32 +209,101 @@ means **wall time from this run is not directly comparable** to
 §2's unthrottled round walls; total CPU time, the delta count,
 and whether it reaches a fixpoint at all are the comparable
 facts. For scale: §2's 16 unthrottled rounds cost roughly
-34 wall-minutes without converging, and this throttled run has
-passed 86 (efficiency-core) CPU-minutes without terminating, so
-nothing yet shows the SCC pipeline faster — only that it is
+34 wall-minutes without converging, and the killed run passed
+90 (efficiency-core) CPU-minutes without terminating, so
+nothing shows the SCC pipeline faster — only that it was
 progressing. An earlier throttled attempt the same day was
 cancelled at 21 CPU-minutes still inside its first delta's
-inlining; do not start a duplicate of the current run.
+inlining. There is no verdict, and §2.3 pins what gets
+re-evaluated before anyone reruns this.
 
-**When it terminates, the verdict procedure is:** read the exit
-status, the `fixpoint` remark and delta count, total/user time
-and peak RSS from `/tmp/f0/scc-timing.txt`; confirm the output is
-itself a fixpoint (one further `idr-simplify` of either shape
-changes nothing); compare size and census against
-`/tmp/f0/round16.mlir`. §4 F3's landing rule then decides, not
-taste: it must beat 600 s wall-equivalent to the rounds'
-fixpoint with byte-identical corpus and suite output and
-determinism at 1/2/8 threads before the default flips — and
-because this run is throttled, a keep decision still owes an
-identical-conditions A/B (both pipelines, same starting module,
-same QoS; the method that caught §2.1's false win). If it
-converges slowly or not at all, the built form stays opt-in or
-is reverted, the numbers replace this section's snapshot, and
-the next attack is §4's remaining design (ready-set engine,
-size budgets) or F5's giant-function trace — in measurement
-order, not by preference. Only after Simplify converges does
-the tail (defunctionalize, RC, LLVM, 0006 S2) get its first
-self-scale contact.
+## 2.3 Pinned problem: the optional path itself (owner, 2026-10-14)
+
+**The problem, in the owner's terms:** F3 landed as an *opt-in*
+— a behavior-selecting pass option, default off, with the old
+rounds kept as the fallback. This compiler is free of
+fallbacks and configuration: one thing, one representation, one
+behavior (AGENTS.md; §1's deletion list). Two code paths for one
+pass means every future change pays twice, every test proves
+half, and the unexercised path rots while looking supported.
+**This state is pinned for re-evaluation and no further work
+builds on the option until it is resolved** — in particular, do
+not rerun the corpus "to decide the flip"; the flip framing is
+what is being re-evaluated.
+
+How it got here, for the record: §6's landing rule (measure or
+revert) was read as needing both pipelines in one binary to A/B
+them; the A/B scaffolding was then checkpoint-committed to
+`main` (552d682a, "corpus verdict pending") instead of staying a
+local probe; the verdict run stalled, and the scaffolding froze
+into the tree, acquiring a maintained test *for the flag* and
+proposal prose describing "opt-in" as a steady state. None of
+that was necessary: §2.1's experiments the same day were A/B'd
+old-binary against new-binary under identical conditions, which
+needs no option in the tree at all.
+
+**The pointless casework this one option created** (every item
+exists only to keep two behaviors alive; §3's inventory is the
+older list this extends):
+
+- The option itself (`Passes.td` `scc-pipeline`, default
+  `false`), the `if (sccPipeline)` branch in
+  `Simplify::runOnOperation`, and three extra `OpPassManager`
+  members (`pre`/`delta`/`post`) beside `loop`/`removal`,
+  copied in the pass's copy constructor and built in
+  `initialize`/`getDependentDialects` whether or not they run.
+- Naming lies to keep both loops' reporting identical: deltas
+  increment the instrumentation's *round* count, so the remark
+  says "fixpoint: round 3" for three deltas; `max-rounds`
+  silently bounds deltas instead; the `rounds` statistic counts
+  whichever loop ran. One counter, two meanings.
+- Asymmetric observability: the instrumentation's per-round
+  census/timing traces key on the composite's pipelines, so the
+  rounds are traced and the deltas are not — the killed run
+  could not even report how many deltas it had completed.
+  Ninety CPU-minutes bought no progress signal.
+- Test and doc casework: do-block RUN lines whose only purpose
+  is diffing the two paths against each other; proposal and
+  commit prose maintaining "pending" as a status; a budget test
+  (`tests/idr/obs/budget.mlir`) whose semantics name rounds the
+  other path does not have.
+- Casework the SCC path *kept* despite §1 promising its
+  deletion: a whole-module fingerprint taken around every delta
+  and every removal as change detection; RoundFacts recomputed
+  per delta; SCCP run twice (pre and post); the serial
+  RemoveDeadValues resume loop unchanged. Deleting the round
+  multiplier while keeping its change-detection and resumption
+  machinery is half the refactor wearing the whole one's name.
+
+**To re-evaluate (owner decision, then work):**
+
+1. **One path, decided.** Either the SCC pipeline becomes
+   `idr-simplify` — option, rounds, composite, `Round.cpp` and
+   the round-shaped reporting deleted in the same change — or
+   F3 is reverted whole and §4 is re-attacked. No third state,
+   and no default-flip intermediate: a default is just an
+   option with better PR.
+2. **Measurement without options.** A/B by binary: two commits,
+   two builds, identical conditions (the §2.1 method). A
+   behavior-selecting pass option is not a measurement
+   instrument and does not land on `main` again. (For scale:
+   the tree today has five pass options total — `max-rounds` the
+   budget, `scc-pipeline`, RC's `reuse`/`sink` toggles, and
+   demand's `in-place`, whose opt-in status is itself an open
+   owner decision in 0002 §3; `idr-expect`'s `holds` is a test
+   API, a different thing. The re-evaluation says which of
+   these survive as budgets/test APIs and which are the same
+   slop in older clothes.)
+3. **What either answer owes before it is called done:** the
+   full suite run against the one remaining behavior (today's
+   green suite proves the rounds; the SCC path has run exactly
+   one lit test), determinism at 1/2/8 threads, and a bounded,
+   observable corpus measurement — per-delta census remarks
+   first, so a run reports progress instead of silence; a
+   time-boxed identical-conditions A/B from a named starting
+   module (e.g. `/tmp/f0/round16.mlir`) rather than an open-ended
+   wait for a fixpoint. §6's thresholds still decide keep/revert;
+   they just no longer license keeping both.
 
 ## 3. The casework, inventoried
 
@@ -273,8 +348,10 @@ half the measured per-round rebuild (~25 user-s in round 1) is
 gone at identical bytes.
 
 **F3 — The SCC pipeline (the refactor).** (First serial form
-built opt-in and under corpus measurement, §2.2; what follows is
-the full design it rehearses.) Delete `idr-simplify`'s
+built opt-in, corpus run killed without a verdict, and the
+opt-in state itself pinned as a problem for re-evaluation,
+§2.2–§2.3; what follows is the full design it rehearses.)
+Delete `idr-simplify`'s
 round structure. In its place, one module pass built as a ready-set
 engine over the SCC DAG, specified once so serial and parallel
 execution are two schedulers over the same work: a unit (one SCC)

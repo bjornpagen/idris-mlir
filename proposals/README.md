@@ -30,11 +30,14 @@ when the owner approved these proposals as rewritten. Licensing
 file, `LICENSES/` and `NOTICE` in place, `tests/spec/licenses`
 gating it. The compile-time refactor (0004) is the active work:
 F0 taken, the first fixes landed (§2), two shortcuts measured and
-reverted (§2.1), and F3's first serial form — the opt-in
-`scc-pipeline` — built, gated, and under stage-0 corpus
-measurement at this moment; **0004 §2.2 is the live status**,
-including the exact run in flight and the verdict procedure when
-it terminates. Everything is on `main` in the one checkout: no
+reverted (§2.1), and F3's first serial form built as an opt-in
+`scc-pipeline` (§2.2). **That opt-in state is pinned as a problem
+for re-evaluation (0004 §2.3, the live status): one pass, two
+code paths, a fallback kept as default — the configuration slop
+this compiler does not carry. The corpus verdict run was killed
+by the owner 2026-10-14 without a verdict; nothing builds on
+the option until the re-evaluation decides one path or a
+revert.** Everything is on `main` in the one checkout: no
 branches, no worktrees, locally or on the remote (*decision*,
 the owner's standing rule, restated 2026-10-14). Agent-run heavy
 work on the owner's 12-CPU machine uses `NCPU=6`; tool defaults
@@ -42,9 +45,8 @@ stay maximalist (7a27fd34).
 
 The tree is, on arm64 macOS, green: `make build` clean,
 `make check` 27/27, `make test-idr` 286/286, `make test` 415/415
-(*measured* 2026-10-14 at `NCPU=6`, including the F3 code; an
-uncommitted file-size split of Simplify lands with the corpus
-verdict, 0004 §2.2). x86_64 Linux has still not run this tree:
+(*measured* 2026-10-14 at `NCPU=6`, including the F3 code and
+its file-size split, 0004 §2.2). x86_64 Linux has still not run this tree:
 G1 (0002 §3) is NotRun there, never green. Stage 1 of `make self`
 has still never finished: the frontend emits the whole of itself
 (58,236 functions, ~300 MB of text, ~140 s) and the C++ pipeline
@@ -119,9 +121,11 @@ force.
   bottom-up SCC pipeline with bounded inner per-function work. F0 is
   recorded and the first fixes landed (§2); two InlineCleanup
   refactors were measured and reverted (§2.1); **F3's first serial
-  form is built opt-in (`scc-pipeline`, 552d682a), fully gated, and
-  its stage-0 corpus verdict run is in flight (§2.2)**; F3's full
-  ready-set design, F4 and F5 remain, in measurement order.
+  form was built opt-in (`scc-pipeline`, 552d682a) and fully gated,
+  its corpus run was killed without a verdict, and the opt-in
+  two-path state is pinned as a problem for re-evaluation (§2.3)**;
+  F3's full ready-set design, F4 and F5 remain, in measurement
+  order.
 - [0005](0005-shards.md): shards, the concurrency runtime. One copy of
   the single-threaded runtime per core, task frames for computations
   that wait, a reactor per shard, values crossing only inside
