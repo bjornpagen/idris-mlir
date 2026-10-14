@@ -60,6 +60,15 @@ CtorOp idr::constructorOf(Operation *from, SymbolRefAttr ctor) {
   return lookupCtor(data, ctor.getLeafReference());
 }
 
+Type idr::listElement(DataOp data) {
+  if (!data)
+    return {};
+  for (CtorOp ctor : data.getBody().front().getOps<CtorOp>())
+    if (ctor.getFieldTypes().size() == 2)
+      return ctor.getFieldType(0);
+  return {};
+}
+
 // The list is a box of two constructors, a nil without fields and a cons
 // of an `element` and the list itself.
 CtorOp idr::listCons(Operation *op, DataOp data, Type list, Type element) {

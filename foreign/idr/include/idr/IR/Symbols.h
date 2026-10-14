@@ -44,6 +44,10 @@ CtorOp constructorOf(mlir::Operation *from, mlir::SymbolRefAttr ctor);
 // null with an error at `op`.
 CtorOp listCons(mlir::Operation *op, DataOp data, mlir::Type list, mlir::Type element);
 
+// What the list `data` declares holds: the first field of its constructor
+// of two fields, the cons; null when it has none, or there is no `data`.
+mlir::Type listElement(DataOp data);
+
 // Whether a value of `type` holds a reference a count accounts for;
 // `declaration` finds an unboxed sum's declaration, from a table, a
 // collection or a scan, as the caller has it.

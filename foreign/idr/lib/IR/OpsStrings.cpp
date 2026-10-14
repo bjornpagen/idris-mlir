@@ -25,15 +25,6 @@ LogicalResult verifyListBox(Operation *op, Value list) {
   return success();
 }
 
-// What a list holds: the first field of its declaration's constructor of
-// two fields, the cons; null when it has none.
-Type elementOf(DataOp data) {
-  for (CtorOp ctor : data.getBody().front().getOps<CtorOp>())
-    if (ctor.getFieldTypes().size() == 2)
-      return ctor.getFieldType(0);
-  return {};
-}
-
 } // namespace
 
 LogicalResult StrPackOp::verify() { return verifyListBox(*this, getList()); }
@@ -54,19 +45,13 @@ LogicalResult StrConcatOp::verifySymbolUses(SymbolTableCollection &symbols) {
              : failure();
 }
 
-// With no table in hand: one scan of the module's top level.
-Type PutListOp::getElementType() {
-  DataOp data = declarationOf(*this, getList().getType());
-  return data ? elementOf(data) : Type();
-}
-
 LogicalResult PutListOp::verify() { return verifyListBox(*this, getList()); }
 
 // A list pack or concat walks.
 LogicalResult PutListOp::verifySymbolUses(SymbolTableCollection &symbols) {
   Type list = getList().getType();
   DataOp data = lookupData(symbols, *this, list);
-  Type element = data ? elementOf(data) : Type();
+  Type element = listElement(data);
   if (!isa_and_nonnull<StrType>(element) && element != IntegerType::get(getContext(), 32))
     return emitOpError("writes a list of characters or of strings, not ") << list;
   return listCons(*this, data, list, element) ? success() : failure();
