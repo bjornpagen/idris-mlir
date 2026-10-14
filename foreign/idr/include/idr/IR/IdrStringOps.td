@@ -77,11 +77,6 @@ def Idr_PutListOp : Idr_Op<"io.put_list", [Idr_PerformsIO, Idr_ObservableIO, Idr
   let assemblyFormat = "$list `,` $world attr-dict `:` type($list)";
   let hasVerifier = 1;
   let hasCanonicalizer = 1;
-  let extraClassDeclaration = [{
-    // What the list holds: i32, a character, or !idr.str; null when it is
-    // not a list of either, which the verifier refuses.
-    ::mlir::Type getElementType();
-  }];
 }
 
 // `signed` or `unsigned` for an integer, nothing for a Double.

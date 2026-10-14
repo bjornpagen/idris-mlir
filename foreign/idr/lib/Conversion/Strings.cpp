@@ -160,9 +160,9 @@ struct LowerPutList : IdrPattern<PutListOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(PutListOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    Type element = op.getElementType();
-    CtorOp cons = listCons(op, lookupData(runtime.symbols(), op.getList().getType()),
-                           op.getList().getType(), element);
+    DataOp data = lookupData(runtime.symbols(), op.getList().getType());
+    Type element = listElement(data);
+    CtorOp cons = listCons(op, data, op.getList().getType(), element);
     if (!cons)
       return failure();
     StringRef put = isa<StrType>(element) ? "idris_rt_io_put_str" : "idris_rt_io_put_char";

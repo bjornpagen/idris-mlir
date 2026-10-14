@@ -35,19 +35,17 @@ Value readOf(Value field, StringAttr ctor, unsigned index) {
   return match.getScrutinee();
 }
 
-// Whether `value` is known to be built by `ctor` where `at` is: the type has
-// no other constructor, or `at` is in the case of a match on the value that
-// `ctor` takes.
-bool knownCtor(Value value, CtorOp ctor, Operation *at) {
-  if (cast<DataOp>(ctor->getParentOp()).getCtors().size() == 1)
-    return true;
+// Whether `value` is known to be built by the constructor `ctor` names
+// where `at` is, because `at` is in the case of a match on the value that
+// `ctor` takes: read from the match itself, with no declaration looked up.
+bool knownFromMatch(Value value, StringAttr ctor, Operation *at) {
   for (Region *region = at->getParentRegion(); region; region = region->getParentRegion()) {
     auto match = dyn_cast<MatchOp>(region->getParentOp());
     if (!match || throughLinear(match.getScrutinee()) != throughLinear(value))
       continue;
     unsigned index = region->getRegionNumber();
     if (index < match.getCases().size() &&
-        cast<FlatSymbolRefAttr>(match.getCases()[index]).getAttr() == ctor.getSymNameAttr())
+        cast<FlatSymbolRefAttr>(match.getCases()[index]).getAttr() == ctor)
       return true;
   }
   return false;
@@ -61,8 +59,11 @@ namespace idr::canon {
 // and the constructor is the one reader of each linear field. Those reads
 // then die with it, so each linear field of x is still taken once: by what
 // takes x in the constructor's place. Any other field is a value, which
-// other readers may share with x. The declaration is looked up, one scan of
-// the module, only once every field reads the one source.
+// other readers may share with x. An enclosing match that took x apart
+// proves C on its own, as MatchOp::verifySymbolUses checked its cases, so
+// the declaration is looked up, one scan of the module, only where no match
+// proves it, and only to ask whether the type has another constructor at
+// all: once every field reads the one source, either way.
 Value eta(ConOp con) {
   auto fields = con.getFields();
   StringAttr name = con.getCtor().getLeafReference();
@@ -75,8 +76,10 @@ Value eta(ConOp con) {
   }
   if (!source || source.getType() != con.getType())
     return {};
+  if (knownFromMatch(source, name, con))
+    return source;
   CtorOp ctor = constructorOf(con, con.getCtor());
-  if (!ctor || !knownCtor(source, ctor, con))
+  if (!ctor || cast<DataOp>(ctor->getParentOp()).getCtors().size() != 1)
     return {};
   return source;
 }
