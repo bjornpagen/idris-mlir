@@ -166,6 +166,10 @@ pathTokenMap = toTokenMap $
 lexPath : String -> List (WithBounds PathToken)
 lexPath str = let (tokens, _, _, _) = lex pathTokenMap str in tokens
 
+-- Punctuation: the kind names the character, so its text says nothing more.
+punct : Char -> PathGrammar True ()
+punct c = ignore $ match $ PTPunct c
+
 -- match both '/' and '\\' regardless of the platform.
 bodySeparator : PathGrammar True ()
 bodySeparator = ignore (match $ PTPunct '\\') <|> ignore (match $ PTPunct '/')

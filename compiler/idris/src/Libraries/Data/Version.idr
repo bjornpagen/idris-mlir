@@ -80,6 +80,10 @@ lexVersion str =
     tokens
 
 
+-- A number: its text, read as a natural.
+number : Grammar () VersionToken True Nat
+number = stringToNatOrZ <$> match VersionNum
+
 versionParser : Grammar () VersionToken True Version
 versionParser = do
   maj <- stringToNatOrZ <$> match VersionNum
