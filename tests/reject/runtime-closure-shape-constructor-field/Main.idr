@@ -1,12 +1,13 @@
--- expect: runtime closure, line 25
+-- expect: runtime closure, line 26
 -- message: an implementation chosen at runtime: (Main.MkSize (Prelude.Types.S [__]))
 module Main
 
 import Prelude
 
--- As runtime-closure-shape-auto-implicit, with the implementation built of
--- the shaped argument given to a constructor's constraint, which holds a
--- compile-time value.
+-- As implementation-shape-value (programs/interfaces), with the
+-- implementation built of the shaped argument given to a constructor's
+-- constraint, which holds one compile-time implementation for the whole
+-- program, not a value passed at runtime.
 
 Res : Nat -> Type
 Res Z = String

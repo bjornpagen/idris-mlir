@@ -306,7 +306,11 @@ void ForceOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRContex
 // as its one use, as the verifier requires. A constant's captures are
 // built at the callee's parameter types, which only its signature says:
 // the one function this hook reads with no table in hand, a scan of the
-// module's top level, while no pass writes a signature.
+// module's top level, while no pass writes a signature. A cached table is
+// not the hook's to keep: canonicalization patterns are shared between
+// the threads a pass manager clones for and outlive the functions an
+// inliner erases between its iterations, so a table held here would be
+// raced on and stale. With no captures there is no signature to read.
 LogicalResult ApplyOp::canonicalize(ApplyOp apply, PatternRewriter &rewriter) {
   Value closureValue = canon::closureOf(apply);
   FlatSymbolRefAttr callee;
@@ -316,17 +320,19 @@ LogicalResult ApplyOp::canonicalize(ApplyOp apply, PatternRewriter &rewriter) {
     llvm::append_range(operands, closure.getCaptures());
   } else if (ClosureAttr constant; matchPattern(closureValue, m_Constant(&constant))) {
     callee = constant.getCallee();
-    auto fn = SymbolTable::lookupNearestSymbolFrom<FuncOp>(apply, callee.getAttr());
-    if (!fn || constant.getCaptures().size() > fn.getArgumentTypes().size())
-      return failure();
-    auto captures = llvm::zip(constant.getCaptures(), fn.getArgumentTypes());
-    if (!llvm::all_of(captures, [](auto capture) {
-          auto [value, type] = capture;
-          return canon::buildable(value, type);
-        }))
-      return failure();
-    for (auto [value, type] : captures)
-      operands.push_back(canon::materialize(rewriter, apply.getLoc(), value, type));
+    if (!constant.getCaptures().empty()) {
+      auto fn = SymbolTable::lookupNearestSymbolFrom<FuncOp>(apply, callee.getAttr());
+      if (!fn || constant.getCaptures().size() > fn.getArgumentTypes().size())
+        return failure();
+      auto captures = llvm::zip(constant.getCaptures(), fn.getArgumentTypes());
+      if (!llvm::all_of(captures, [](auto capture) {
+            auto [value, type] = capture;
+            return canon::buildable(value, type);
+          }))
+        return failure();
+      for (auto [value, type] : captures)
+        operands.push_back(canon::materialize(rewriter, apply.getLoc(), value, type));
+    }
   } else {
     return failure();
   }

@@ -160,6 +160,17 @@ hasMeta = mentions metaTerm
     metaTerm (Meta {}) = True
     metaTerm _ = False
 
+||| Does a term mention a part that stands for a runtime value, wherever
+||| it stands (`runtimeDependent`'s two markers)?
+export
+hasRuntimePart : TT vars -> Bool
+hasRuntimePart = mentions part
+  where
+    part : TT vs -> Bool
+    part (Erased _ Impossible) = True
+    part (Ref _ _ (MN "idris-mlir-hole" _)) = True
+    part _ = False
+
 ||| A written form with the solutions of its metavariables filled in, and
 ||| nothing else evaluated.
 export
@@ -253,6 +264,7 @@ runtimeDependent = go
       arguments (True :: es) (_ :: as) = arguments es as
       arguments es (a :: as) = if !(go a) then pure True else arguments (drop 1 es) as
 
+
 ||| The normal form of a closed term, its definitions unfolded as in
 ||| `closeNormalise`.
 export
@@ -260,6 +272,25 @@ normaliseClosed : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core ClosedTerm
 normaliseClosed tm = do
   defs <- get Ctxt
   normaliseTypes defs [] tm
+
+||| A runtime value an implementation closes over, where its compile-time
+||| form stands, by its number among the values (`holeMarker`, below with
+||| the values it stands among).
+export
+holeMarker : Nat -> ClosedTerm
+
+||| A closed term normalised by Idris's normaliser, its markers kept
+||| (`normaliseKeeping`, below with the markers).
+export
+normaliseKeeping : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core ClosedTerm
+
+||| A closed term expanded by Idris's normaliser, implementations unfolded
+||| to their constructors: the form a projection's field is taken from
+||| (`whnf`), in which an argument an implementation took erased can
+||| stand where its own blocks take it at runtime.
+export
+expandClosed : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core ClosedTerm
+expandClosed tm = normaliseKeeping tm
 
 ||| A projection: a definition that matches one of its parameters against
 ||| one constructor and returns one of that constructor's arguments, as
@@ -315,8 +346,7 @@ mutual
       spineC f as = (f, as)
       normalised : Core (Maybe (Name, List ClosedTerm))
       normalised = do
-        defs <- get Ctxt
-        tm' <- normalise defs [] tm
+        tm' <- normaliseKeeping tm
         pure (case spineC tm' [] of
                 (Ref _ (DataCon _ _) n, args) => Just (n, args)
                 _ => Nothing)
@@ -432,14 +462,46 @@ export
 unknownPart : ClosedTerm
 unknownPart = Ref EmptyFC Func (MN "idris-mlir-unknown" 0)
 
-||| A runtime value an implementation closes over, where its compile-time
-||| form stands (`PKind.DictParam`, `VarInfo.Static`), by its number among
-||| the values (`Holes`): a bound name that no binder binds, which
-||| reduction treats as the variable it stands for, and which a translation
-||| of the implementation replaces with the value (`Terms.term`).
-export
-holeMarker : Nat -> ClosedTerm
+-- The marker itself (declared with `expandClosed` above): a bound name
+-- that no binder binds, which a translation of the implementation
+-- replaces with the value (`Terms.term`, by `refToLocal`, which takes
+-- bound names).
 holeMarker i = Ref EmptyFC Bound (MN "idris-mlir-hole" (cast i))
+
+||| A marker as normalisation is given it: a function reference to a name
+||| no definition has, which quoting leaves as it is at any depth.
+heldMarker : Nat -> ClosedTerm
+heldMarker i = Ref EmptyFC Func (MN "idris-mlir-hole-held" (cast i))
+
+||| The numbers of the markers a term holds.
+holeIndices : TT vars -> List Nat
+holeIndices tm = nub (go tm)
+  where
+    go : TT vs -> List Nat
+    go (Ref _ _ (MN "idris-mlir-hole" i)) = [cast i]
+    go (Bind _ _ b sc) = go (binderType b) ++ binderVal b ++ go sc
+      where
+        binderVal : TTBinder (TT vs) -> List Nat
+        binderVal (Let _ _ v _) = go v
+        binderVal (PLet _ _ v _) = go v
+        binderVal _ = []
+    go (App _ f a) = go f ++ go a
+    go (As _ _ _ p) = go p
+    go (TDelayed _ _ t) = go t
+    go (TDelay _ _ t a) = go t ++ go a
+    go (TForce _ _ t) = go t
+    go (Meta _ _ _ args) = concatMap go args
+    go (Erased _ (Dotted t)) = go t
+    go _ = []
+
+-- Normalised with markers kept (declared above): each renamed to what
+-- normalisation leaves standing, and back.
+normaliseKeeping tm = do
+  defs <- get Ctxt
+  let is = holeIndices tm
+  let renamed = foldl (\t, i => substName (MN "idris-mlir-hole" (cast i)) (heldMarker i) t) tm is
+  nf <- normalise defs [] renamed
+  pure (foldl (\t, i => substName (MN "idris-mlir-hole-held" (cast i)) (holeMarker i) t) nf is)
 
 ||| Replaces each marker of the values an implementation closes over with
 ||| the term for its value, by number.

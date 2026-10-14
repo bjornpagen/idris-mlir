@@ -1,7 +1,7 @@
 # Checkpoint (2026-10-13, profiling/speedup pass)
 
 Gate on arm64 macOS (x86_64 Linux NotRun): make check 26/26,
-make test-idr 280/280, make test-mlir-tools 17/17, make test 412/415,
+make test-idr 282/282, make test-mlir-tools 17/17, make test 415/415,
 determinism 7/7, fuzz seed-1 and seed-2 pass. Fixed since the
 cutover's first suites: defunctionalize unifies the result slot of one
 lazy cell's suspension labels (the labels-lost cluster); isolate
@@ -26,18 +26,45 @@ bench/runs/2026-10-13-9a1b7b1-darwin-arm64/, the only record kept:
 against clang, 6 faster, 13 within 15%, 8 slower; against Chez,
 faster on all 27 (1.2x-154x); bench compiles take 0.8-5.4s.
 
-Remaining failures: linarray-fannkuch (idr-rc built a dup in rev),
-every-types-export (2 live cells at exit), implementation-runtime-scope
-(frontend: a packed implementation's projection is applied to the
-wrong variable under case binders; Core already wrong, fst of the
-matched term). make self now gets past naming Idris.Package's blocks
-and stops in stage 1 at Prelude.Show.show: an implementation built by
-projecting a runtime dependent pair (a pair of Show dictionaries for
-(ZeroOneOmega, (Term, (Term, Term)))) is refused as chosen at runtime,
-and the holed path in classify does not apply to it. Stage 2 = stage 3
-is unproven until that specialization case is handled. The stage-0
-module profile is still owed once a self module exists. Nothing below
-this section has been re-checked yet.
+The last three failures are fixed. linarray-fannkuch: idr-rc dup'd an
+array's memref field in rev because the consumer that keeps its root
+alive (lin.enter for the recursive call) sat before the writes through
+the field; sinkConsumers now counts uses of fields read from a consumed
+value as reads and runs before ownFields, so the entry sinks past the
+writes and no count changes (Transforms/Ownership/Reshape.cpp).
+every-types-export: its 2 live cells are the top-level cyclic stream
+`powers` (cons cell and suspension), which reference counting does not
+collect; the fixture carries a live-cells mark of 2, as stream-share
+and memo-shared-stream do. implementation-runtime-scope and stage 1's
+Prelude.Show.show refusal were one frontend bug in three parts:
+dependence of a dictionary is now also judged on its expanded form
+(a case block of `Show (Term vars)` takes the erased `vars` at
+runtime, so the dictionary closes over it: Instances.classify with
+Closed.expandClosed); the holed walk now walks any constructor of an
+implementation, not only a constraint pair, so an expanded
+dictionary's method closures are found values (Terms.holed gives);
+and Idris's normaliser quotes the bound hole marker as the innermost
+variable, capturing it, so marker-holding terms are normalised with
+markers renamed to function references and back
+(Closed.normaliseKeeping, in whnf and expandClosed) — that capture
+was the packed projection applied to the matched term. A dictionary
+built of a shaped runtime argument (`MkSize n` at shape `S _`) is
+accordingly accepted with the value passed (programs/interfaces/
+implementation-shape-value, moved out of reject/); in a constructor's
+dictionary field it is still refused, now naming the implementation
+as written. ApplyOp::canonicalize no longer reads a signature for a
+constant closure without captures; a cached symbol table there is
+raced on and stale (tried, crashed in the inliner's workers, reverted
+with the reason in OpsClosures.cpp).
+
+Self-hosting: stage 1's frontend now translates the whole frontend
+(58k functions, 308 MB module; frontend ~140s of the run) and the
+pipeline is the long pole: one stage-1 attempt ran 51 minutes in
+IdrSimplify/IdrInline (single busy thread in the inliner's callable
+canonicalization; samples in the session) without finishing, and was
+stopped to land the fixes above. Stage 2 = stage 3 is still unproven;
+the stage-0 profile is stage 1's own -mlir-timing when it lands.
+Nothing below this section has been re-checked yet.
 
 # Handoff (2026-10-12)
 

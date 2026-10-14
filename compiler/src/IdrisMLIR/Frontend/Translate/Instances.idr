@@ -234,8 +234,18 @@ classify fc owner (S k) (Bind bfc _ (Pi _ rig _ a) sc) vals = do
          val <- if !(runtimeDependent written) then implementationOf 64 written else pure written
          -- One that a definition gives without matching on a runtime value
          -- it closes over (`{vars : _} -> Show (Term vars)`) is chosen now
-         -- all the same, and only the value is passed at runtime.
-         dependent <- runtimeDependent val
+         -- all the same, and only the value is passed at runtime. What
+         -- written holds only in an erased argument can still be needed
+         -- at runtime once the implementation is expanded to its
+         -- constructor, whose own blocks take that argument as an
+         -- ordinary parameter (a case block of `Show (Term vars)` takes
+         -- `vars` so), so dependence is judged on the expanded form too;
+         -- an argument expansion keeps only in types (a grammar's
+         -- consumption index) is no dependence.
+         dependent <- if !(runtimeDependent val) then pure True
+                        else if hasRuntimePart written
+                               then runtimeDependent !(expandClosed written)
+                               else pure False
          hole <- the (Core (Maybe (ClosedTerm, List ClosedTerm))) (if dependent then v.holed else pure Nothing)
          -- The message is made in its own `do`: a `!` lifts to its
          -- statement, and would make it whether or not it is needed.

@@ -1,13 +1,16 @@
--- expect: runtime closure, line 23
--- message: an implementation chosen at runtime: (Main.MkSize (Prelude.Types.S [__]))
 module Main
 
 import Prelude
 
 -- The type of viaFun depends on n (through Res), so each call's instance
 -- knows the shape of its argument: `S _` for `S k`. What the shape does not
--- say is a runtime value, so building an implementation of it, a
--- compile-time value, is an implementation chosen at runtime.
+-- say is a runtime value, and the implementation built of it, `MkSize n`,
+-- closes over that value: which implementation it is stays known at
+-- compile time, and only `n` is passed at runtime, as with
+-- `Show (Term names)` and its scope (implementation-runtime-scope). Held
+-- in a constructor's dictionary field it would have to be one
+-- implementation for the whole program, which is refused
+-- (reject/runtime-closure-shape-constructor-field).
 
 Res : Nat -> Type
 Res Z = String

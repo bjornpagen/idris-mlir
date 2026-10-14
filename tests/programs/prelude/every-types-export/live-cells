@@ -1,0 +1,4 @@
+2
+The top-level stream `powers` is a cycle (its delayed tail maps over
+itself), and reference counting does not collect it, so its cons cell
+and its suspension are live when main returns.

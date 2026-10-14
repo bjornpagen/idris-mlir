@@ -556,21 +556,28 @@ mutual
                 holders _ [] = []
 
             -- Does a definition give an implementation without matching on
-            -- its arguments: one with one right-hand side, or the pair that
-            -- holds a tuple of constraints?
+            -- its arguments: one with one right-hand side, or a constructor
+            -- of an implementation (the pair that holds a tuple of
+            -- constraints, or an interface's own constructor, which an
+            -- expanded implementation is already built with: its fields
+            -- that are functions are the closures it closes over values
+            -- with)?
             gives : GlobalDef -> Core Bool
             gives def = case definition def of
               PMDef _ _ (STerm {}) _ _ => pure True
-              DCon {} => case resultOf (type def) of
-                Just tn => isPairType !(toFullNames tn)
-                Nothing => pure False
+              DCon {} => resultIsImpl (type def)
               _ => pure False
               where
-                resultOf : TT vs -> Maybe Name
-                resultOf (Bind _ _ (Pi {}) sc) = resultOf sc
-                resultOf tm = case getFnArgs tm of
-                  (Ref _ (TyCon _) tn, _) => Just tn
-                  _ => Nothing
+                -- The constructor's result, under its binders: an
+                -- interface's own type, or a pair (whose components the
+                -- binders name, so the pair is known by its type's name,
+                -- not by what it pairs here).
+                resultIsImpl : TT vs -> Core Bool
+                resultIsImpl (Bind _ _ (Pi {}) sc) = resultIsImpl sc
+                resultIsImpl tm = case getFnArgs tm of
+                  (Ref _ (TyCon _) tn, _) => if !(isPairType !(toFullNames tn))
+                                                then pure True else implementationType tm
+                  _ => pure False
 
             parts : Nat -> ClosedTerm -> List (TT vars) -> Core (Maybe (List ClosedTerm, Found nv))
             parts _ _ [] = pure (Just ([], []))
@@ -837,8 +844,12 @@ mutual
               case (arg, kind) of
                 (DictArg ty, DictParam t Nothing) => recordDictionary fc ctx.owner cid ty i t
                 -- A field holds one implementation for the whole program.
+                -- The message names the implementation as written at the
+                -- site, not its key, whose markers stand for the values.
                 (DictArg _, DictParam t (Just _)) => do
-                  impl <- showTT t
+                  impl <- case getAt i xs of
+                            Just x => showTT (closeWritten fc env x)
+                            Nothing => showTT t
                   reject fc ctx.owner RuntimeClosure ("an implementation chosen at runtime: " ++ impl)
                 (DictArg _, _) => internal fc ("a runtime value for a dictionary field of " ++ show (fullname def))
                 (_, DictParam _ _) => internal fc ("an implementation for a runtime field of " ++ show (fullname def))

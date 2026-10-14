@@ -134,8 +134,8 @@ void reuseAt(mlir::RewriterBase &rewriter, llvm::ArrayRef<Reuses::Site> sites, C
 
 // The code counting changes before it places a count, after it checked it
 // can count the function: selects, values taken apart where they die,
-// fields that take a reference of their own, and, with `sink`, consumers
-// moved past the reads that follow them.
+// with `sink` consumers moved past the reads that follow them, and fields
+// that take a reference of their own.
 mlir::LogicalResult reshape(mlir::RewriterBase &rewriter, FuncOp fn, Counted &counted,
                             Classes &classes, mlir::SymbolTable &symbols, bool sink);
 

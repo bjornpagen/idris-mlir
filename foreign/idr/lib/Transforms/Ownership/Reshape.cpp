@@ -181,11 +181,20 @@ public:
           for (OpOperand &operand : link->getOpOperands()) {
             if (!consumes(operand, &symbols) || classes.classOf(operand.get()) != Class::Owned)
               continue;
-            for (OpOperand &other : operand.get().getUses())
-              if (Operation *top = block->findAncestorOpInBlock(*other.getOwner());
-                  top && !llvm::is_contained(chain, top) && op->isBeforeInBlock(top) &&
-                  top->isBeforeInBlock(target))
-                reads = true;
+            // The value, and the fields read from it: the inlined code
+            // around an array goes on reading and writing the array's
+            // memref field while the array itself is what enters its
+            // grade for the next call.
+            SmallVector<Value> readValues{operand.get()};
+            for (Operation *user : operand.get().getUsers())
+              if (isa<FieldOp>(user) && user->getNumResults() == 1)
+                readValues.push_back(user->getResult(0));
+            for (Value readValue : readValues)
+              for (OpOperand &other : readValue.getUses())
+                if (Operation *top = block->findAncestorOpInBlock(*other.getOwner());
+                    top && !llvm::is_contained(chain, top) && op->isBeforeInBlock(top) &&
+                    top->isBeforeInBlock(target))
+                  reads = true;
           }
         if (!reads)
           continue;
@@ -321,9 +330,12 @@ LogicalResult reshape(RewriterBase &rewriter, FuncOp fn, Counted &counted, Class
     return failure();
   reshaping.rewriteSelects();
   reshaping.takeApart();
-  reshaping.ownFields();
+  // Consumers move past the reads that follow them before a field takes
+  // a reference of its own: moved, the consumer is what keeps the field's
+  // root alive at those reads, so the field needs none.
   if (sink)
     reshaping.sinkConsumers();
+  reshaping.ownFields();
   return success();
 }
 
