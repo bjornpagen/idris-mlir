@@ -51,7 +51,17 @@ void idr::buildSimplifyRound(OpPassManager &pm) {
   // budget is an assertion of its own.
   pm.addPass(createIdrSpecialize());
   pm.addPass(createSCCPPass());
-  pm.addPass(arith::createIntRangeOptimizationsPass());
+  // int-range-optimizations nested per function, where it runs in
+  // parallel and solves each function on its own: on the stage-0 module
+  // one round's module solve took 30 s of wall against 3 s nested, for
+  // two changed bodies in 37,386. The ranges it no longer carries across
+  // a call are the ones inlining, which ran just before, has already
+  // brought inside one function, and a caller-to-callee range the round
+  // still needs is found again by the module solves idr-narrow and
+  // idr-in-bounds run later (idr::Ranges). SCCP stays on the module: its
+  // constants cross calls in both directions, closure constants among
+  // them, on which loop-breaker marking and the rounds' end depend.
+  pm.nest<idr::FuncOp>().addPass(arith::createIntRangeOptimizationsPass());
   // remove-dead-values without its own canonicalization, which folds
   // region-branch patterns on the matches alone: a field one of them folds
   // leaves the constructor it read dead but in place, still holding a world
