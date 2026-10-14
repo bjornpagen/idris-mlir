@@ -21,6 +21,7 @@ import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Translate.Types
+import IdrisMLIR.Graph
 import IdrisMLIR.Rule
 
 import Data.List
@@ -39,19 +40,6 @@ record Node where
   location : FC
   calls : List SCCall
 
-||| Tarjan's search for the components, from one definition: each
-||| definition met gets a number in the order met, and the least number of
-||| one still on the stack that it reaches.
-record Search where
-  constructor MkSearch
-  next : Nat
-  number : SortedMap String Nat
-  low : SortedMap String Nat
-  stack : List String
-  onStack : SortedSet String
-  nodes : SortedMap String Node
-  found : List (List String)
-
 ||| A definition as a node, with its calls to definitions that exist.
 node : {auto c : Ref Ctxt Defs} -> Name -> Core (Maybe Node)
 node n = do
@@ -62,38 +50,17 @@ node n = do
   calls <- traverse (\call => pure ({ fnCall := !(toFullNames call.fnCall) } call)) (sizeChange def)
   pure (Just (MkNode full (location def) calls))
 
-mutual
-  ||| Visits a definition not visited yet: its component is found once
-  ||| every definition it reaches is.
-  visit : {auto c : Ref Ctxt Defs} -> SortedMap String Bool -> Node -> Search -> Core Search
-  visit done v s0 = do
-    let key = nameKey v.name
-    let s1 = { next $= S, number $= insert key s0.next, low $= insert key s0.next
-             , stack $= (key ::), onStack $= insert key, nodes $= insert key v } s0
-    s2 <- successors done key (map (.fnCall) v.calls) s1
-    if lookup key s2.low /= lookup key s2.number then pure s2 else do
-      let (members, rest) = break (== key) s2.stack
-      pure ({ stack := drop 1 rest
-            , onStack $= \on => foldl (flip delete) on (key :: members)
-            , found $= ((key :: members) ::) } s2)
-
-  successors : {auto c : Ref Ctxt Defs} -> SortedMap String Bool -> String -> List Name -> Search ->
-               Core Search
-  successors done key [] s = pure s
-  successors done key (w :: ws) s = do
-    let wkey = nameKey w
-    s' <- if isJust (lookup wkey done) then pure s else
-            case lookup wkey s.number of
-              Just n => pure (if contains wkey s.onStack then lower key n s else s)
-              Nothing => do
-                Just wn <- node w
-                  | Nothing => pure s
-                after <- visit done wn s
-                pure (maybe after (\n => lower key n after) (lookup wkey after.low))
-    successors done key ws s'
-    where
-      lower : String -> Nat -> Search -> Search
-      lower k n st = { low $= \m => insert k (min n (fromMaybe n (lookup k m))) m } st
+||| The call graph as Idris's termination checker keeps it: a definition is
+||| a node, known by `nameKey`, and each of its calls an edge, but for one
+||| to a definition whose component was checked before (`done`). A
+||| definition is looked up only when the search first meets it, and a name
+||| with none is no node.
+callGraph : {auto c : Ref Ctxt Defs} -> SortedMap String Bool -> Graph Core String Node
+callGraph done = MkGraph (nameKey . (.name)) edges
+  where
+    edges : Node -> List (String, Core (Maybe Node))
+    edges v = filter (\(callee, _) => not (isJust (lookup callee done)))
+                     (map (\call => (nameKey call.fnCall, node call.fnCall)) v.calls)
 
 ||| The positions of a definition's type or implementation arguments, which
 ||| key its instances.
@@ -125,17 +92,16 @@ same i call = case Data.List.lookup i call.fnArgs of
 ||| type or an implementation only as the caller got it. Each call that
 ||| does not is rejected, and the whole component is refused: its
 ||| instances would never end, so the translation leaves them out.
-checkComponent : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                 SortedMap String Node -> List String -> Core ()
-checkComponent nodes members = do
-  let inside = the (SortedSet String) (fromList members)
-  let callers = mapMaybe (\m => lookup m nodes) members
+checkComponent : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> List (String, Node) -> Core ()
+checkComponent members = do
+  let inside = the (SortedSet String) (fromList (map fst members))
+  let callers = map snd members
   let calls = [ (caller.name, call.fnCall, call.fnArgs)
               | caller <- callers, call <- caller.calls, contains (nameKey call.fnCall) inside ]
   let verdicts = loopsTerminate calls (map (.name) callers)
   update TState { loops $= \m => foldl (\m', (n, v) => insert (nameKey n) v m') m verdicts }
   let recursive = case members of
-                    [one] => maybe False (any (\call => nameKey call.fnCall == one) . (.calls)) (lookup one nodes)
+                    [(one, caller)] => any (\call => nameKey call.fnCall == one) caller.calls
                     _ => True
   when recursive $ do
     wrong <- for callers $ \caller =>
@@ -159,5 +125,5 @@ checkRecursion n = do
   unless (isJust (lookup (nameKey full) st.loops)) $ do
     Just start <- node full
       | Nothing => pure ()
-    result <- visit st.loops start (MkSearch 0 empty empty [] empty empty [])
-    for_ result.found (checkComponent result.nodes)
+    found <- components @{CORE} (callGraph st.loops) [start]
+    for_ found checkComponent

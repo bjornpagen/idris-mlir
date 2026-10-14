@@ -34,21 +34,51 @@ import Libraries.Utils.Path
 
 %default covering
 
+||| Not being able to write a file of the compilation's is the compiler's
+||| failure, as idris-mlir's own outputs are, not the program's.
+cannotWrite : String -> FileError -> Core a
+cannotWrite path err = throw (InternalError ("cannot write " ++ path ++ ": " ++ show err))
+
 ||| A file of the compilation's, in its directory, made first with those it
-||| is in when it does not exist, as Idris's own -o makes its output's.
-||| Not being able to write it is the compiler's failure, as idris-mlir's
-||| own outputs are, not the program's.
-write : String -> String -> Core ()
-write path text = do
+||| is in when it does not exist, as Idris's own -o makes its output's,
+||| written text by text: each text is made as it is written, so that a
+||| file the size of the program is never one string. A text that is an
+||| error ends the writing, and the file is removed: a compilation that
+||| fails writes nothing.
+writeTexts : String -> List (Lazy (Either String String)) -> Core (Either String ())
+writeTexts path texts = do
   case Libraries.Utils.Path.parent path of
     Just dir => do
       Right () <- coreLift (mkdirAll dir)
-        | Left err => throw (InternalError ("cannot write " ++ path ++ ": " ++ show err))
+        | Left err => cannotWrite path err
       pure ()
     Nothing => pure ()
-  Right () <- coreLift (writeFile path text)
-    | Left err => throw (InternalError ("cannot write " ++ path ++ ": " ++ show err))
-  pure ()
+  Right h <- coreLift (openFile path WriteTruncate)
+    | Left err => cannotWrite path err
+  written <- each h texts
+  coreLift (closeFile h)
+  case written of
+    Left _ => ignore (coreLift (removeFile path))
+    Right () => pure ()
+  pure written
+  where
+    -- Each text is made only once the one before it is written, and is
+    -- garbage once written.
+    each : File -> List (Lazy (Either String String)) -> Core (Either String ())
+    each h [] = pure (Right ())
+    each h (t :: ts) = case Force t of
+      Left msg => pure (Left msg)
+      Right text => do
+        Right () <- coreLift (fPutStr h text)
+          | Left err => do coreLift (closeFile h); cannotWrite path err
+        each h ts
+
+||| A file every text of which is one.
+writeAll : String -> List (Lazy String) -> Core ()
+writeAll path texts = ignore (writeTexts path (map right texts))
+  where
+    right : Lazy String -> Lazy (Either String String)
+    right t = Right (Force t)
 
 ||| Nanoseconds on the monotonic clock.
 now : Core Integer
@@ -60,7 +90,10 @@ now = toNano <$> coreLift (clockTime Monotonic)
 reportTimes : Maybe String -> List (String, Integer) -> Core ()
 reportTimes Nothing _ = pure ()
 reportTimes (Just path) times =
-  write path (concatMap (\(name, ns) => name ++ "\t" ++ show (ns `div` 1000000) ++ "\n") times)
+  writeAll path (map line times)
+  where
+    line : (String, Integer) -> Lazy String
+    line (name, ns) = name ++ "\t" ++ show (ns `div` 1000000) ++ "\n"
 
 ||| The registry's entries against the loaded context, once, before
 ||| anything uses them; `--break-shape` breaks the one it names.
@@ -71,16 +104,18 @@ validated breakShape fc = case !(validate breakShape) of
   Wrong at owner msg => reject at owner HookShape msg
   NoSuchEntry name => internal fc ("--break-shape=" ++ name ++ " names no entry of the registry")
 
-||| The middle end: Translate's full Core, printed, and `Emit`'s
-||| contract text.
-middle : FC -> Source -> Core (String, String)
-middle fc src = do
-  let core = showSource src
-  Right mlir <- pure (emit src)
+||| The middle end: `Emit`'s contract text written at `mlirPath`, then
+||| Translate's full Core, printed, at `corePath`. What `Emit` cannot write
+||| is the compiler's error, reported after the Core, on stderr, and then
+||| neither is written.
+middle : FC -> Source -> (corePath, mlirPath : String) -> Core ()
+middle fc src corePath mlirPath = do
+  Right () <- either (pure . Left) (writeTexts mlirPath) (emit src)
     | Left msg => do
-        ignore (coreLift (fPutStrLn stderr core))
+        for_ (sourceTexts src) $ \t => ignore (coreLift (fPutStr stderr (Force t)))
+        ignore (coreLift (fPutStrLn stderr ""))
         internal fc ("Emit: " ++ msg)
-  pure (core, mlir)
+  writeAll corePath (sourceTexts src)
 
 isUser : Origin -> Bool
 isUser User = True
@@ -174,11 +209,8 @@ program mainFile breakShape timing corePath mlirPath = do
         reportTimes timing [("checks", t1 - t0), ("reachable", t2 - t1), ("translate", t3 - t2)]
         rejections
   t3 <- now
-  (core, mlir) <- middle fc prog
+  middle fc prog corePath mlirPath
   t4 <- now
-  write corePath core
-  write mlirPath mlir
-  t5 <- now
   reportTimes timing [ ("checks", t1 - t0), ("reachable", t2 - t1), ("translate", t3 - t2)
-                     , ("print", t4 - t3), ("write", t5 - t4) ]
+                     , ("emit", t4 - t3) ]
   pure []
