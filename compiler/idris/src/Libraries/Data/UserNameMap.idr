@@ -96,39 +96,41 @@ treeLookup k (Branch3 t1 k1 t2 k2 t3) =
   else
     treeLookup k t3
 
-treeInsert' : Key -> v -> Tree n v -> Either (Tree n v) (Tree n v, Key, Tree n v)
-treeInsert' k v (Leaf k' v') =
+-- `k` bound to `v` in the tree, or, where it is bound already, to `f v` of
+-- its value there.
+treeInsert' : (f : v -> v -> v) -> Key -> v -> Tree n v -> Either (Tree n v) (Tree n v, Key, Tree n v)
+treeInsert' f k v (Leaf k' v') =
   case compare k k' of
     LT => Right (Leaf k v, k, Leaf k' v')
-    EQ => Left (Leaf k v)
+    EQ => Left (Leaf k (f v v'))
     GT => Right (Leaf k' v', k', Leaf k v)
-treeInsert' k v (Branch2 t1 k' t2) =
+treeInsert' f k v (Branch2 t1 k' t2) =
   if k <= k' then
-    case treeInsert' k v t1 of
+    case treeInsert' f k v t1 of
       Left t1' => Left (Branch2 t1' k' t2)
       Right (a, b, c) => Left (Branch3 a b c k' t2)
   else
-    case treeInsert' k v t2 of
+    case treeInsert' f k v t2 of
       Left t2' => Left (Branch2 t1 k' t2')
       Right (a, b, c) => Left (Branch3 t1 k' a b c)
-treeInsert' k v (Branch3 t1 k1 t2 k2 t3) =
+treeInsert' f k v (Branch3 t1 k1 t2 k2 t3) =
   if k <= k1 then
-    case treeInsert' k v t1 of
+    case treeInsert' f k v t1 of
       Left t1' => Left (Branch3 t1' k1 t2 k2 t3)
       Right (a, b, c) => Right (Branch2 a b c, k1, Branch2 t2 k2 t3)
   else
     if k <= k2 then
-      case treeInsert' k v t2 of
+      case treeInsert' f k v t2 of
         Left t2' => Left (Branch3 t1 k1 t2' k2 t3)
         Right (a, b, c) => Right (Branch2 t1 k1 a, b, Branch2 c k2 t3)
     else
-      case treeInsert' k v t3 of
+      case treeInsert' f k v t3 of
         Left t3' => Left (Branch3 t1 k1 t2 k2 t3')
         Right (a, b, c) => Right (Branch2 t1 k1 t2, k2, Branch2 a b c)
 
-treeInsert : Key -> v -> Tree n v -> Either (Tree n v) (Tree (S n) v)
-treeInsert k v t =
-  case treeInsert' k v t of
+treeInsert : (f : v -> v -> v) -> Key -> v -> Tree n v -> Either (Tree n v) (Tree (S n) v)
+treeInsert f k v t =
+  case treeInsert' f k v t of
     Left t' => Left t'
     Right (a, b, c) => Right (Branch2 a b c)
 
@@ -225,13 +227,19 @@ lookupName n dict = case userNameRoot n of
   Nothing  => Nothing
   Just un => lookup un dict
 
+||| The map with `k` bound to `v`, or, where `k` is bound already, to `f v`
+||| of its value there: one search, where a lookup and an insertion are two.
 export
-insert : UserName -> v -> UserNameMap v -> UserNameMap v
-insert k v Empty = M Z (Leaf k v)
-insert k v (M _ t) =
-  case treeInsert k v t of
+insertWith : (f : v -> v -> v) -> UserName -> v -> UserNameMap v -> UserNameMap v
+insertWith f k v Empty = M Z (Leaf k v)
+insertWith f k v (M _ t) =
+  case treeInsert f k v t of
     Left t' => (M _ t')
     Right t' => (M _ t')
+
+export
+insert : UserName -> v -> UserNameMap v -> UserNameMap v
+insert = insertWith const
 
 export
 insertFrom : List (UserName, v) -> UserNameMap v -> UserNameMap v

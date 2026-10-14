@@ -155,8 +155,13 @@ isParentOf : (given, candidate : Namespace) -> Bool
 isParentOf (MkNS ms) (MkNS ns)
   -- This is not a typo: namespaces are stored in reverse order so a namespace is
   -- a prefix of another if its reversed list of identifiers is a suffix of that
-  -- other's list of identifiers
-  = isSuffixOf ms ns
+  -- other's list of identifiers: what is left of it once its extra identifiers
+  -- are dropped. (`isSuffixOf` would reverse both lists, on every call, and
+  -- the elaborator asks for each name it resolves against every namespace in
+  -- scope.)
+  = let lm = length ms
+        ln = length ns in
+        lm <= ln && drop (ln `minus` lm) ns == ms
 
 ||| When writing qualified names users often do not want to spell out the full
 ||| namespace, rightly considering that an unambiguous segment should be enough.

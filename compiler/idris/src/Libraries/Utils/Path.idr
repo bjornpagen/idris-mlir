@@ -10,9 +10,6 @@ import Data.String
 import Libraries.Utils.String
 
 import Libraries.Data.String.Extra
-import Libraries.Text.Token
-import Libraries.Text.Lexer
-import Libraries.Text.Parser
 
 import System.Info
 import System.File
@@ -133,18 +130,29 @@ Show Path where
 -- Parser
 --------------------------------------------------------------------------------
 
-data PathTokenKind = PTText | PTPunct Char
+-- Paths are parsed by hand, in one pass over their characters: every search
+-- for a module's TTC parses some fifty, so a lexer and a grammar built from
+-- combinators, which upstream used, were a tenth of elaboration.
 
-Eq PathTokenKind where
-  (==) PTText PTText = True
-  (==) (PTPunct c1) (PTPunct c2) = c1 == c2
-  (==) _ _ = False
+-- A path's tokens: each of the characters '/', '\\', ':' and '?' alone, and
+-- each run of the others.
+data PathToken = Punct Char | Text String
 
-PathToken : Type
-PathToken = Token PathTokenKind
+lexPath : String -> List PathToken
+lexPath str = lexFrom [] [] (unpack str)
+  where
+    -- the text being read, its characters last first, ended before `acc`,
+    -- the tokens read before it, last first
+    ended : List Char -> List PathToken -> List PathToken
+    ended [] acc = acc
+    ended run acc = Text (pack (reverse run)) :: acc
 
-PathGrammar : Bool -> Type -> Type
-PathGrammar = Grammar () PathToken
+    lexFrom : List PathToken -> List Char -> List Char -> List PathToken
+    lexFrom acc run [] = reverse (ended run acc)
+    lexFrom acc run (c :: cs)
+        = if c == '/' || c == '\\' || c == ':' || c == '?'
+             then lexFrom (Punct c :: ended run acc) [] cs
+             else lexFrom acc (c :: run) cs
 
 pathTokenMap : TokenMap PathToken
 pathTokenMap = toTokenMap $
@@ -195,6 +203,7 @@ verbatimUnc =
     share <- match PTText
     pure $ UNC server share
 
+-- A volume is a disk: a text, whose first character names it, and a colon.
 -- Example: C:
 disk : PathGrammar True Volume
 disk =
@@ -206,43 +215,24 @@ disk =
     ignore $ match $ PTPunct ':'
     pure $ Disk (toUpper disk)
 
--- Example: \\?\C:
-verbatimDisk : PathGrammar True Volume
-verbatimDisk =
-  do
-    verbatim
-    disk <- disk
-    pure disk
+parseBody : String -> Body
+parseBody ".." = ParentDir
+parseBody "." = CurDir
+parseBody normal = Normal normal
 
-parseVolume : PathGrammar True Volume
-parseVolume =
-      verbatimUnc
-  <|> verbatimDisk
-  <|> unc
-  <|> disk
-
-parseBody : PathGrammar True Body
-parseBody =
-  do
-    text <- match PTText
-    the (PathGrammar False _) $
-      case text of
-        ".." => pure ParentDir
-        "." => pure CurDir
-        normal => pure (Normal normal)
-
-parsePath : PathGrammar False Path
-parsePath =
-  do
-    vol <- optional parseVolume
-    root <- optional (some bodySeparator)
-    body <- sepBy (some bodySeparator) parseBody
-    trailSep <- optional (some bodySeparator)
-    let body = filter (\case Normal s => trimStart s /= ""; _ => True) body
-    let body = case body of
-                [] => []
-                (x::xs) => x :: delete CurDir xs
-    pure $ MkPath vol (isJust root) body (isJust trailSep)
+-- The names that follow the root, up to the first ':' or '?', where the
+-- path ends (what follows is ignored); each run of separators between two
+-- names is one separator. With whether separators follow the last name.
+parseBodies : List PathToken -> (List Body, Bool)
+parseBodies = bodiesFrom [] False
+  where
+    bodiesFrom : List Body -> (trailSep : Bool) -> List PathToken -> (List Body, Bool)
+    bodiesFrom acc trailSep (Text text :: ts) = bodiesFrom (parseBody text :: acc) False ts
+    bodiesFrom acc trailSep (t :: ts)
+        = if isSeparator t
+             then bodiesFrom acc True ts
+             else (reverse acc, trailSep)
+    bodiesFrom acc trailSep [] = (reverse acc, trailSep)
 
 ||| Parses a String into Path.
 |||
@@ -254,8 +244,8 @@ parsePath =
 ||| - Both slash('/') and backslash('\\') are parsed as valid directory separator,
 |||   regardless of the platform;
 ||| - Any characters in the body in allowed, e.g., glob like "/root/*";
-||| - Verbatim prefix(`\\?\`) that disables the forward slash is ignored (for
-|||   Windows only).
+||| - A UNC share (`\\server\share`) or a verbatim prefix (`\\?\`) is not a
+|||   volume: its backslashes are a root, and the names after it its body.
 ||| - Repeated separators are ignored, therefore, "a/b" and "a//b" both have "a"
 |||   and "b" as bodies.
 ||| - "." in the body are removed, unless they are at the beginning of the path.
@@ -269,9 +259,17 @@ parsePath =
 export
 parse : String -> Path
 parse str =
-  case parse parsePath (lexPath str) of
-    Right (_, path, _) => path
-    _ => emptyPath
+  let (vol, ts) = parseVolume (lexPath str)
+      root = case ts of
+               (t :: _) => isSeparator t
+               [] => False
+      -- after the root, the names: separators cannot come first
+      (body, trailSep) = parseBodies (dropWhile isSeparator ts)
+      body = filter (\case Normal s => trimStart s /= ""; _ => True) body
+      body = case body of
+               [] => []
+               (x::xs) => x :: delete CurDir xs
+  in MkPath vol root body trailSep
 
 --------------------------------------------------------------------------------
 -- Utils
