@@ -1,11 +1,18 @@
 // idr-simplify: the simplify loop. One round runs the passes
 // buildSimplifyRound adds, in order; rounds repeat until one leaves the
-// module unchanged, so running the loop again changes nothing. The loop
-// ends because every member of a round is finite: loop breakers stop
-// inlining at every cycle, and specialization makes finitely many clones.
-// The round budget, `max-rounds`, asserts it: a module that still changes
-// after that many rounds is the user error `unsupported (compile-time
-// budget)`, not a hang.
+// module unchanged. Then remove-dead-values and symbol-dce run once: RDV's
+// module liveness analysis is serial, so it pays its cost once per round
+// fixpoint instead of once per round. If that removal changed the module
+// (the structural fingerprint decides, as it decides a round's fixpoint),
+// the rounds resume on what it exposed, and so on until a removal changes
+// nothing; the module is then at the fixpoint of rounds and removal alike,
+// so running the loop again changes nothing. The loop ends because every
+// member of a round is finite: loop breakers stop inlining at every cycle,
+// specialization makes finitely many clones, and each removal that changes
+// the module erases a value, an argument or an op. The round budget,
+// `max-rounds`, asserts it, counting every round of every resumption: a
+// module that still changes after that many rounds is the user error
+// `unsupported (compile-time budget)`, not a hang.
 //
 // The loop is upstream's composite-fixed-point-pass over the round, told
 // to stop silently when its budget runs out. It runs one round past the
@@ -17,8 +24,12 @@
 // PIN(simplify-structural-fixpoint) — see PINS.md
 // "Unchanged" is the composite's structural fingerprint of the module,
 // taken once per round. sccp keeps the constants the module already
-// holds, and remove-dead-values keeps a call it erases no result of, so a
-// round at the fixpoint keeps the fingerprint.
+// holds, so a round at the fixpoint keeps the fingerprint. The same
+// fingerprint is taken around the removal between round fixpoints:
+// remove-dead-values keeps a call it erases no result of and a poison
+// operand it finds already poisoned (the remove-dead-values pins), so a
+// removal that erases nothing keeps it too, and only a removal that
+// changed the module resumes the rounds.
 //
 // A pass sees no instrumentation, and the round runs in the composite's
 // pipeline, whose statistics the pass manager never prints. So the loop's
@@ -33,6 +44,7 @@
 #include "idr/Support/Profile.h"
 
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/Remarks.h"
 #include "mlir/Pass/PassInstrumentation.h"
 #include "mlir/Pass/PassManager.h"
@@ -83,6 +95,20 @@ struct Rounds {
   llvm::DenseMap<Pass *, SmallVector<uint64_t, 4>> inFlight;
 };
 
+// The removal run once the rounds reach their fixpoint: remove-dead-values
+// without its own canonicalization, which folds region-branch patterns on
+// the matches alone: a field one of them folds leaves the constructor it
+// read dead but in place, still holding a world or a linear value that the
+// fold's user now holds too. A removal that changed the module resumes the
+// rounds, whose canonicalization runs on everything and erases what is
+// dead; symbol-dce then takes the functions nothing names any more.
+void buildDeadValueRemoval(OpPassManager &pm) {
+  RemoveDeadValuesPassOptions dead;
+  dead.canonicalize = false;
+  pm.addPass(createRemoveDeadValuesPass(dead));
+  pm.addPass(createSymbolDCEPass());
+}
+
 struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
   using IdrSimplifyBase::IdrSimplifyBase;
   Simplify() = default;
@@ -90,7 +116,8 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
   // The pass manager copies a pass it has initialized, to run it on several
   // modules at once. The copy runs a copy of the loop (the composite copies
   // its round) and is handed a record of its own when it runs.
-  Simplify(const Simplify &other) : IdrSimplifyBase(other), loop(other.loop), limit(other.limit) {}
+  Simplify(const Simplify &other)
+      : IdrSimplifyBase(other), loop(other.loop), removal(other.removal), limit(other.limit) {}
 
   LogicalResult initialize(MLIRContext *) override {
     limit = std::min(static_cast<unsigned>(maxRounds),
@@ -99,14 +126,20 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
     loop.addPass(createCompositeFixedPointPass("IdrSimplifyRound", idr::buildSimplifyRound,
                                                static_cast<int>(limit),
                                                ConvergenceFailureAction::Silent));
+    removal = OpPassManager(ModuleOp::getOperationName());
+    buildDeadValueRemoval(removal);
     return success();
   }
 
-  // The dialects a round's passes create must be loaded before any pass runs.
+  // The dialects the passes of a round and of the removal create must be
+  // loaded before any pass runs.
   void getDependentDialects(DialectRegistry &registry) const override {
     OpPassManager round(ModuleOp::getOperationName());
     idr::buildSimplifyRound(round);
     round.getDependentDialects(registry);
+    OpPassManager dead(ModuleOp::getOperationName());
+    buildDeadValueRemoval(dead);
+    dead.getDependentDialects(registry);
   }
 
   Pass *composite() { return &*loop.getPasses().begin(); }
@@ -121,14 +154,32 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
     // Upstream's pass takes a budget of one round at least; a budget of none
     // is spent before the first.
     if (limit != 0) {
-      LogicalResult ran = runPipeline(loop, module);
-      numRounds += rounds->closed;
-      // The pass that failed reported why; the budget did not run out.
-      if (failed(ran))
-        return signalPassFailure();
-      // A loop that reaches its fixpoint closes at most `limit` rounds.
-      if (rounds->closed <= limit)
-        return;
+      while (true) {
+        LogicalResult ran = runPipeline(loop, module);
+        // The pass that failed reported why; the budget did not run out.
+        if (failed(ran)) {
+          numRounds += rounds->closed;
+          return signalPassFailure();
+        }
+        // A loop that reaches its fixpoint closes at most `limit` rounds,
+        // across every resumption the removals between them caused.
+        if (rounds->closed > limit) {
+          numRounds += rounds->closed;
+          break;
+        }
+        // The rounds changed nothing: run the removal. Only a removal that
+        // changed the module resumes them; one that did not is the joint
+        // fixpoint the loop runs to.
+        OperationFingerPrint before(module.getOperation());
+        if (failed(runPipeline(removal, module))) {
+          numRounds += rounds->closed;
+          return signalPassFailure();
+        }
+        if (OperationFingerPrint(module.getOperation()) == before) {
+          numRounds += rounds->closed;
+          return;
+        }
+      }
     }
     emitError(module.getLoc()) << "unsupported (compile-time budget): idr-simplify did not "
                                   "reach a fixpoint in "
@@ -137,6 +188,8 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
   }
 
   OpPassManager loop;
+  // The removal between round fixpoints (buildDeadValueRemoval).
+  OpPassManager removal;
   // The rounds the loop may take, as many as upstream's pass can count.
   unsigned limit = 0;
   // This run's record, which the instrumentation opens before the run and

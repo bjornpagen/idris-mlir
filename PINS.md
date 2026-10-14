@@ -85,9 +85,9 @@ which the top-level CMake configure gate reads.
   the null operand (`mlir/lib/Transforms/RemoveDeadValues.cpp:661` on main,
   the region-branch canonicalization at `:862`, `Matchers.h:491`). It drops
   the uses of a dead block argument and of a dead result the same way
-- sites: foreign/idr/lib/Transforms/Simplify/Round.cpp (the simplify round
-  runs `remove-dead-values{canonicalize=false}`); the patch itself has no other
-  site
+- sites: foreign/idr/lib/Transforms/Simplify/Simplify.cpp (idr-simplify
+  runs `remove-dead-values{canonicalize=false}` between its round
+  fixpoints); the patch itself has no other site
 - workaround: `upstream/06-remove-dead-values-unreachable/llvm.patch`, the
   pull request: every value the pass erases (function argument, block
   argument, result, result of an erased op) gives its remaining uses a
@@ -116,14 +116,15 @@ which the top-level CMake configure gate reads.
   same, but `OperationFingerPrint` changes, so a simplify round at its
   fixpoint would never keep the fingerprint, and every program with such a
   call would run to the round budget
-- sites: none in our code; the patch. The simplify round runs
-  `remove-dead-values{canonicalize=false}` itself
-  (foreign/idr/lib/Transforms/Simplify/Round.cpp)
+- sites: none in our code; the patch. idr-simplify runs
+  `remove-dead-values{canonicalize=false}` between its round fixpoints
+  and resumes the rounds only when the removal changed the module's
+  fingerprint (foreign/idr/lib/Transforms/Simplify/Simplify.cpp)
 - workaround: `upstream/16-remove-dead-values-unchanged-call/llvm.patch`, the
   pull request: `eraseOpResults` returns the operation unchanged when it
   erases no result, as `eraseOperands` does for operands
 - retire: drop the patch when the pin has the fix (in `eraseOpResults` or in
-  the pass); the round keeps running `remove-dead-values` as it is
+  the pass); idr-simplify keeps running `remove-dead-values` as it is
 - upstream: upstream/16-remove-dead-values-unchanged-call (not filed;
   `check-mlir` not run on main); plan in its README: an issue and a pull
   request
@@ -138,9 +139,11 @@ which the top-level CMake configure gate reads.
   merges the new poison back, so the simplify round never reaches its
   fixpoint on a module with such a value: `tests/idr/vectorize/rows-aarch64`
   ran to the round budget with 26 ops in every round
-- sites: none in our code; the patch. The simplify round runs
-  `remove-dead-values{canonicalize=false}` and `cse`
-  (foreign/idr/lib/Transforms/Simplify/Round.cpp)
+- sites: none in our code; the patch. idr-simplify runs
+  `remove-dead-values{canonicalize=false}` between its round fixpoints
+  and the round runs `cse`
+  (foreign/idr/lib/Transforms/Simplify/Simplify.cpp,
+  foreign/idr/lib/Transforms/Simplify/Round.cpp)
 - workaround: `upstream/22-remove-dead-values-poison-operand/llvm.patch`,
   the pull request: the cleanup keeps an operand defined by `ub.poison`
 - retire: drop the patch when the pin has the fix
@@ -349,8 +352,10 @@ which the top-level CMake configure gate reads.
   keeps the module's fingerprint. `idr-simplify` runs
   `composite-fixed-point-pass` over the round, with `max-iterations` its
   `max-rounds`. A round at the fixpoint keeps the fingerprint: `sccp` no
-  longer remakes constants, and `remove-dead-values` keeps a call it erases
-  no result of (`remove-dead-values-unchanged-call`)
+  longer remakes constants. Between round fixpoints a
+  `remove-dead-values` that erases nothing keeps it too: it keeps a call
+  it erases no result of (`remove-dead-values-unchanged-call`) and an
+  operand already poisoned (`remove-dead-values-poison-operand`)
   (`tests/idr/canon/upstream-passes`, `tests/idr/loops/tail-loop`). The
   upstream pass gives its caller no hook per iteration and, with
   `on-convergence-failure=error`, an error of its own, which is not the
