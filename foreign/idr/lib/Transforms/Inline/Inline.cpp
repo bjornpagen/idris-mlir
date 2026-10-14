@@ -129,10 +129,12 @@ struct Inline : idr::impl::IdrInlineBase<Inline> {
       // Until an iteration inlines nothing: the size rule, decided once, bounds
       // what can be inlined, and a do block of n statements needs n iterations.
       config.setMaxInliningIterations(std::numeric_limits<unsigned>::max());
+      bool clonedAny = false;
       // On the pass thread, in the inliner's sequential phase.
-      config.setCloneCallback([&marks, clone = config.getCloneCallback()](
+      config.setCloneCallback([&marks, &clonedAny, clone = config.getCloneCallback()](
                                   OpBuilder &builder, Region *src, Block *inlineBlock,
                                   Block *postInsertBlock, IRMapping &mapper, bool cloned) {
+        clonedAny = true;
         if (auto into = inlineBlock->getParent()->getParentOfType<idr::FuncOp>()) {
           into.absorb(dyn_cast<idr::FuncOp>(src->getParentOp()));
           if (auto it = marks.find(into); it != marks.end())
@@ -159,16 +161,22 @@ struct Inline : idr::impl::IdrInlineBase<Inline> {
       };
 
       // The inliner also erases a function that was dead before it started,
-      // with nothing inlined, so the module itself says whether it changed.
-      OperationFingerPrint before(module);
-      // Taken after the preparation, so it holds what the preparation built. A
-      // pipeline on a nested function runs under that function's own manager,
-      // so the module's analyses, this graph among them, stand meanwhile.
+      // with nothing inlined. A clone (the callback above) or a change in
+      // the function count is every change it makes: the pipelines it runs
+      // touch only marked functions, which only a clone marks, and it
+      // otherwise erases dead callables. Two whole-module fingerprints per
+      // cycle bought nothing over those signals; the cycle guard above
+      // keeps the one hash that detects a returning shape.
+      auto functionsBefore = llvm::range_size(module.getOps<idr::FuncOp>());
+      clonedAny = false;
+      // A pipeline on a nested function runs under that function's own
+      // manager, so the module's analyses, this graph among them, stand
+      // meanwhile.
       CallGraph &graph = getAnalysis<CallGraph>();
       Inliner inliner(module, graph, *this, getAnalysisManager(), runner, config, profitable);
       if (failed(inliner.doInlining()))
         return signalPassFailure();
-      if (before == OperationFingerPrint(module) && !prepared)
+      if (!clonedAny && functionsBefore == llvm::range_size(module.getOps<idr::FuncOp>()) && !prepared)
         return preserveUnchanged();
       everInlined = true;
       // A marked body may have been rewritten anywhere by its pipeline, and the

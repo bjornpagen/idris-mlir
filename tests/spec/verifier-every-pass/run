@@ -21,7 +21,7 @@
 cd "$root" || exit 1
 searched() {
   find . \( -name third_party -o -name .toolchain -o -name build -o -name .git -o -name sources \
-            -o -name .claude -o -path ./tests/spec/verifier-every-pass \) -prune \
+            -o -name .claude -o -name .muse -o -path ./tests/spec/verifier-every-pass \) -prune \
      -o -type f ! -name '*.md' ! -name output "$@"
 }
 call='(enableVerifier|verifyPasses)[[:space:]]*\('
