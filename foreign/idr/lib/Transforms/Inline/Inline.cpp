@@ -20,6 +20,7 @@
 // the next cycle would repeat it.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/Transforms/Canonicalize.h"
 #include "idr/Transforms/Inline.h"
 #include "idr/Analysis/Inline.h"
 #include "idr/Analysis/References.h"
