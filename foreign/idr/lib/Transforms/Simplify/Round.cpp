@@ -62,13 +62,15 @@ void idr::buildSimplifyRound(OpPassManager &pm) {
   // constants cross calls in both directions, closure constants among
   // them, on which loop-breaker marking and the rounds' end depend.
   pm.nest<idr::FuncOp>().addPass(arith::createIntRangeOptimizationsPass());
-  // remove-dead-values without its own canonicalization, which folds
-  // region-branch patterns on the matches alone: a field one of them folds
-  // leaves the constructor it read dead but in place, still holding a world
-  // or a linear value that the fold's user now holds too. The next round's
-  // canonicalization runs on everything and erases what is dead.
-  RemoveDeadValuesPassOptions dead;
-  dead.canonicalize = false;
-  pm.addPass(createRemoveDeadValuesPass(dead));
+  // No remove-dead-values in the round: its module liveness analysis is
+  // serial and costs as much on a round that changes little as on one that
+  // changes much (on the stage-0 module, some 40 s of a 385 s first round,
+  // and rounds repeat). The round's own members already erase what is
+  // locally dead -- canonicalize and CSE inside each function, SCCP across
+  // calls, and symbol-dce here for functions nothing names -- so what only
+  // RDV removes (a live-looking parameter or result no caller reads, and
+  // the computations feeding it) is removed once the rounds reach their
+  // fixpoint, in Simplify.cpp, which resumes the rounds when that removal
+  // changes the module.
   pm.addPass(createSymbolDCEPass());
 }

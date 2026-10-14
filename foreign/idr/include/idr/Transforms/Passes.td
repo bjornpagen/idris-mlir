@@ -584,12 +584,20 @@ def IdrSimplify : Pass<"idr-simplify", "::mlir::ModuleOp"> {
       idr-specialize
       sccp
       idr.func(int-range-optimizations)
-      remove-dead-values{canonicalize=false}
       symbol-dce
 
+    Once the rounds reach their fixpoint,
+    `remove-dead-values{canonicalize=false}` and `symbol-dce` run once --
+    RDV's serial module liveness analysis pays once per round fixpoint,
+    not once per round; the round's canonicalize, CSE, SCCP and
+    symbol-dce already erase what is locally dead. If the removal changed
+    the module, the rounds resume on what it exposed, and so on until a
+    removal changes nothing: the fixpoint of rounds and removal alike.
+
     Every member of the round is finite, so the rounds end; `max-rounds`
-    asserts it: a module that still changes after that many rounds is the
-    error `unsupported (compile-time budget)`. The round's statistics are
+    asserts it, counting every round of every resumption: a module that
+    still changes after that many rounds is the error
+    `unsupported (compile-time budget)`. The round's statistics are
     reported as `<pass>.<statistic>` in the loop's statistics remark.
     Remarks in the category idr-simplify, from the loop's instrumentation,
     without which the pass fails: an `Analysis` remark after each round
