@@ -1,4 +1,4 @@
-# 0003: compile time: one fast serial pipeline
+# 0004: compile time: one fast serial pipeline
 
 **Status:** current as of 2026-10-14 at 7a27fd34. This file states
 where compile time stands and the one refactor that remains; it
@@ -7,7 +7,7 @@ holds. F0 (the measurement) is done and recorded in §2 and in
 `bench/profiles/2026-10-14-f0-stage0.md`. The first round of fixes
 landed 2026-10-13/14 (§2). The refactor in §4 is designed, not built;
 two smaller refactors were built, measured and reverted (§2.1). Its
-gate is self-hosting (0001 §2 step 5). Claims are marked: *read* (the
+gate is self-hosting (0002 §2 step 5). Claims are marked: *read* (the
 path), *measured* (the record), *conjecture*, *decision*.
 
 **Sources.** The pinned MLIR tree (`.toolchain/llvm-project/mlir`);
@@ -19,7 +19,7 @@ read lane by lane; the InlineCleanup evidence is
 
 ## 1. The thesis
 
-**Sharding divides T1; this proposal cuts it.** 0005 bounds sharded
+**Sharding divides T1; this proposal cuts it.** 0006 bounds sharded
 time by T1/P + T-infinity and demands one shard be no slower than the
 serial pipeline. Measured on the stage-0 self module, the serial
 pipeline's cost is not the passes' necessary work; it is repetitions
@@ -30,7 +30,7 @@ bottom-up pass over the call graph's SCCs, in which every decision
 (inline, specialize, propagate) is taken once, against callees
 already final, and every body is canonicalized a bounded number of
 times.** That is the shape Mojo's pipeline proves out (§3) and the
-serial rehearsal of 0005's phase-3 unit.
+serial rehearsal of 0006's phase-3 unit.
 
 What is deleted, by name, with no compatibility owed: the Simplify
 round structure and its composite fixed point; module fingerprints as
@@ -38,7 +38,7 @@ change detection; seed marks in discardable attributes and the walks
 and sweeps that maintain them; per-round analysis rebuilds; the
 per-iteration post-inline cleanup; unbounded inlining growth with no
 size accounting. What never changes: every whole-program guarantee
-fact (0005 §1), byte-identical output at any thread count, the
+fact (0006 §1), byte-identical output at any thread count, the
 verifier after every pass, refusals as `unsupported`.
 
 ## 2. Where the time goes (F0, measured 2026-10-14)
@@ -136,7 +136,7 @@ representation on the right:
 | Seed marks in a discardable attribute (`idr.inlined`), a pre-walk to find them, a module sweep to remove leftovers | Cleanup runs once per callable, when its callees are final: no marks, because "what changed" is the callable itself |
 | Whole-module SHA1 fingerprints (Simplify loop, inliner cycle guard, composite) | Change as a returned flag from the one pass that knows; an emptying worklist is the fixed point |
 | 64-round composite fixed point + RDV-resume loop | One bottom-up SCC pass; specialization requests return as content-keyed deltas against finished SCCs, counted |
-| RoundFacts and module analyses rebuilt per round (nest discards them) | Preserved MLIR analyses, invalidated by the pass manager; later, 0005's summaries |
+| RoundFacts and module analyses rebuilt per round (nest discards them) | Preserved MLIR analyses, invalidated by the pass manager; later, 0006's summaries |
 | Serial SCCP and SymbolDCE per round | Constants and reachability as bottom-up facts computed once; the passes that consume them stay per function |
 | Unconditional unreachable sweeps before patterns | Patterns never see a body mid-inline: the callable is final-form when cleaned |
 | Unbounded inlining growth (ops x2.6, one function at 152k ops) | Inline decisions as facts with a size budget, decided once per SCC (Mojo's heuristic shape), so growth is accounted, not emergent |
@@ -162,22 +162,44 @@ that forces rebuilds. Lands when at least half the measured per-round
 rebuild (~25 user-s in round 1) is gone at identical bytes.
 
 **F3 — The SCC pipeline (the refactor).** Delete `idr-simplify`'s
-round structure. In its place, one module pass that:
+round structure. In its place, one module pass built as a ready-set
+engine over the SCC DAG, specified once so serial and parallel
+execution are two schedulers over the same work: a unit (one SCC)
+is ready when its callees are final; serial drains the ready set in
+canonical sorted order, parallel drains it with the pool and merges
+in the same order — determinism by construction (scan labeling,
+canonical SCC pivots;
+`sources/notes/sharded-compilation/deterministic-fixpoints.md` §3,
+§5, §9), tasks carrying ids and fact slices, never bodies
+(Blumofe–Leiserson's bound, there §2). Weakly-connected components
+are not the unit (one holds 99.7% of the stage-0 module, *measured*
+2026-10-14) and neither are namespaces (17% locality, §2). Facts a
+unit consumes are monotone sets read frozen, in hash-consed/sorted
+representations — MLton's sub-2-second 0CFA is a representation
+result first (`whole-program-at-scale.md` §3), and our 54 s label
+walk says ours are not there yet. The pass:
 
 1. computes the call graph once and its SCCs in bottom-up order
    (upstream `CallGraph` + `llvm::scc_iterator`, the traversal the
    inliner itself uses, `Inliner.cpp`'s `CGSCC` machinery read in the
    investigation);
-2. per SCC, runs upstream's inliner with our decisions as its
-   analysis input, then the bounded inner per-function pipeline
-   (identity, canonicalize with the one config in `Canonicalize.h`,
-   CSE, redirect, int-range) **once per callable** — Mojo's ready-set
-   shape (`AutomaticInline.cpp:439-491`): a callable is processed
-   when its callees are final, so the do-block chain unfolds in the
-   order itself;
-3. takes specialization requests as content-keyed deltas: a request
+2. per ready SCC, runs upstream's inliner with our decisions as its
+   analysis input — decisions carrying a size budget, so growth is
+   accounted per SCC and a 152k-op monster is refused at decision
+   time, not discovered in a trace — then the bounded inner
+   per-function pipeline (identity, canonicalize with the one config
+   in `Canonicalize.h`, CSE, redirect, int-range) **once per
+   callable**: Mojo's ready-set shape
+   (`AutomaticInline.cpp:439-491`), ported outright under 0001's
+   protocol where its structure beats upstream's inliner driver for
+   this, upstream's where it does not, decided file by file in the
+   stage record, never by taste. A callable is processed when its
+   callees are final, so the do-block chain unfolds in the order
+   itself;
+3. takes specialization requests as content-keyed deltas (GCC's
+   virtual clones, `whole-program-at-scale.md` §2): a request
    against a finished SCC re-queues exactly the affected SCCs,
-   counted, each request decided once (0005 §3.5's virtual clones in
+   counted, each request decided once (0006 §3.5's virtual clones in
    serial form);
 4. runs SCCP's interprocedural half as bottom-up constant summaries
    during the same pass (callee summaries first; the measured reason
@@ -201,16 +223,16 @@ in the corpus tooling. Lands on identical bytes everywhere.
 its order: today that list is the giant-function tail (a 152k-op
 function bounds any per-function work; if it still dominates, an
 outline splitting pass is designed then, from its trace), the
-frontend's 140 s and 9.1 GB (0007's ground), and the LLVM tail once
-it can run (0005 S2 measures it).
+frontend's 140 s and 9.1 GB (0008's ground), and the LLVM tail once
+it can run (0006 S2 measures it).
 
 ## 5. What this is not
 
 Not separate compilation, not softened budgets, not threads as the
 answer (parallelism divides what this cuts), not verifiers off, not
-a second representation of any fact. Sharding (0005) consumes this
-design unchanged: F3's SCC unit *is* 0005's phase-3 unit, its
-summaries are 0005's, and nothing here is redone there.
+a second representation of any fact. Sharding (0006) consumes this
+design unchanged: F3's SCC unit *is* 0006's phase-3 unit, its
+summaries are 0006's, and nothing here is redone there.
 
 ## 6. The landing rule
 

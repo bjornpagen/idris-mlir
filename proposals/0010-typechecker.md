@@ -1,11 +1,11 @@
-# 0009: a state-of-the-art type checker and elaborator
+# 0010: a state-of-the-art type checker and elaborator
 
 **Status:** proposed (2026-10-09); trimmed 2026-10-12. Nothing here is
 built. The term arena and the evaluator (once §2.1, §2.2, T1, T2 and T6)
-moved to 0006, which builds them as one array program; this proposal
+moved to 0007, which builds them as one array program; this proposal
 builds the checker on them: unification, tabled instance search, shape
 arithmetic, decision procedures and the kernel. It starts after
-self-hosting, beside 0006.
+self-hosting, beside 0007.
 
 **Goal.** The fork's elaborator (compiler/idris, upstream Idris 2's,
 now our code) becomes a type checker that is faster than Lean 4 and F* on
@@ -14,7 +14,7 @@ measurable workloads, while implementing Idris 2 fully.
 **Sources.** Under `sources/`, topic "Fast dependent type checking and
 elaboration"; reading notes in `sources/notes/type-checking/`.
 
-**Leads, not mandates.** Array programming (0002), flattened data (0008), a
+**Leads, not mandates.** Array programming (0003), flattened data (0009), a
 relational core, and SMT were all candidates. This proposal keeps what the
 evidence supports and says why for each.
 
@@ -35,10 +35,10 @@ benchmark.
 
 ## 2. The design, by layer
 
-### 2.1 Terms and evaluation are 0006's (adopted)
+### 2.1 Terms and evaluation are 0007's (adopted)
 
-The checker's terms are 0006's hash-consed arena, and its evaluator is
-0006's wavefront machine with glued values, caches by id and approximate
+The checker's terms are 0007's hash-consed arena, and its evaluator is
+0007's wavefront machine with glued values, caches by id and approximate
 conversion first. The same machine normalizes the program's static part,
 so types, proofs and constants have one evaluator. Coq's
 `native_compute` (*read* `papers/gregoire-2002-strong-reduction`,
@@ -59,9 +59,9 @@ so types, proofs and constants have one evaluator. Coq's
 ### 2.4 Shape arithmetic and dependent rewrite
 
 - **Polynomial normalisation of `Nat` expressions in conversion** is not
-  something 0002 depends on any more: its MLIR-first revision keeps Idris's
+  something 0003 depends on any more: its MLIR-first revision keeps Idris's
   equality unchanged and solves shape arithmetic with a library tactic at
-  quantity 0 (0002 D11). Making commutative ring laws definitional would
+  quantity 0 (0003 D11). Making commutative ring laws definitional would
   accept programs upstream Idris refuses, so it is an open question of
   this proposal's, decided only with that consequence stated.
 - **Rewrite,** in increasing order of reach:
@@ -116,7 +116,7 @@ the kernel checks.
   - Definitions whose signatures are known check independently.
   - Modules check in dependency order.
   - Both are maps over the module graph: one frontend process per module
-    today, and shards (0004) once they exist.
+    today, and shards (0005) once they exist.
 
   Isabelle's and Coq's asynchronous proof processing are the precedent
   (*read* `papers/wenzel-2009-parallel-isabelle`, `papers/barras-2015-async-coq`),
@@ -129,7 +129,7 @@ the kernel checks.
 - **Datalog and the relational core:** used for the constraint store and for
   e-graph closure of equalities (*read* `papers/jordan-2016-souffle`,
   `papers/madsen-2016-datalog-to-flix`, `papers/bembenek-2020-formulog`). The
-  library is the shared `mlir-relational` of proposal 0011, and is not
+  library is the shared `mlir-relational` of proposal 0012, and is not
   duplicated here.
 - **Rejected for now: GPU type checking and interaction-net normalisation.**
   The evidence is research-grade: the GPU front ends in Voetter's thesis
@@ -154,12 +154,12 @@ the kernel checks.
 | Stage | Content | Proof |
 | --- | --- | --- |
 | T0 | per-phase baseline of elaborating base and the frontend | committed record |
-| T1, T2 | (moved: the arena and the evaluator are 0006's A0 to A2) | |
-| T3 | tabled instance search, bounded | instance-heavy files ≥ 2× over 0006's A2; no regression elsewhere |
-| T4 | the rewrite ladder; Nat normalisation in conversion only if §2.4's open question is decided for it | 0002's shape-equality corpus never blocks; upstream's rewrite failures listed in tests become passes |
+| T1, T2 | (moved: the arena and the evaluator are 0007's A0 to A2) | |
+| T3 | tabled instance search, bounded | instance-heavy files ≥ 2× over 0007's A2; no regression elsewhere |
+| T4 | the rewrite ladder; Nat normalisation in conversion only if §2.4's open question is decided for it | 0003's shape-equality corpus never blocks; upstream's rewrite failures listed in tests become passes |
 | T5 | separate kernel and an independent re-checker in tests | every TTC of base re-checked |
-| T6 | (moved: the interpreter's array path is 0006's A4) | |
-| T7 | parallel elaboration, after 0004's shards (processes until then) | wall time on base ≤ (1 / cores × 1.5) of T5's |
+| T6 | (moved: the interpreter's array path is 0007's A4) | |
+| T7 | parallel elaboration, after 0005's shards (processes until then) | wall time on base ≤ (1 / cores × 1.5) of T5's |
 | T8 | certificates from SAT/SMT, checked as terms | a fixture where the search succeeds and the kernel checks the result |
 
 The headline target, *conjecture until measured*: elaborating a
@@ -175,16 +175,16 @@ are comparable.
   compatibility and lose the corpus proofs. The fork is changed stage by
   stage, each stage proved by identical TTCs.
 - **Compiled reduction** (Coq's `native_compute`, a JIT inside the type
-  checker): a second compiler inside the first. 0006's array machine is
+  checker): a second compiler inside the first. 0007's array machine is
   the answer to heavy evaluation (its D3).
 
 ## 6. Decisions
 
 - D1. Measure first (T0); every target is a ratio to a recorded baseline.
-- D2. The term arena and the evaluator are 0006's; this proposal builds
+- D2. The term arena and the evaluator are 0007's; this proposal builds
   the checker on them and keeps no second evaluator.
 - D3. Solvers search; the kernel checks; nothing is trusted.
 - D4. A separate small kernel, re-checked in tests.
 - D5. Parallelism by independent definitions and modules; GPU deferred
   until measured.
-- D6. The relational core is proposal 0011's library, not a copy here.
+- D6. The relational core is proposal 0012's library, not a copy here.

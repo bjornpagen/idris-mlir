@@ -1,8 +1,9 @@
 # Checkpoint (2026-10-14, F0 and the bankruptcy)
 
 The proposals were cut over to current-state documents (dcb087d2:
-the cutover packet deleted, 0003-0013 renumbered to 0002-0012;
-0001 keeps only G1 and self-hosting). Every worktree lane of the
+the cutover packet deleted and the queue closed up; then licensing
+took 0001 and every other proposal moved up one, maps in those
+commits). Every worktree lane of the
 perf round and the older self-host work is merged into main
 (b4713f66); gate on arm64 macOS at 7a27fd34: check 26/26, test-idr
 286/286, test 415/415 (x86_64 Linux still NotRun). One CPU budget
@@ -14,9 +15,12 @@ round 1 is 447 s with one InlineCleanup instance at 211 s; sixteen
 rounds do not reach a fixpoint; the largest post-inlining SCC is 24
 functions. Two InlineCleanup refactors (strict worklist confinement;
 deferring simplifyRegions to a once-after-inlining pass) were built,
-measured slower or wrong, and reverted the same day -- proposal 0003
-§2.1 records both. No code changes land until the owner approves the
-rewritten proposals (0003 §4 is the design awaiting that approval).
+measured slower or wrong, and reverted the same day -- proposal 0004
+§2.1 records both. Licensing (0001: SPDX provenance everywhere, the
+Mojo/MLIR porting protocol, the third-party inventory with GMP
+named) is first in the queue. No code changes land until the owner
+approves the rewritten proposals (0004 §4 is the design awaiting
+that approval).
 
 # Checkpoint (2026-10-13, profiling/speedup pass)
 

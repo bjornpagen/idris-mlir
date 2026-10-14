@@ -1,14 +1,14 @@
-# 0011: the relational core, `mlir-relational`
+# 0012: the relational core, `mlir-relational`
 
 **Status:** proposed (2026-10-10); parked 2026-10-12. Nothing here is
 built. Parked because nothing on the path to self-hosting or sharding
-needs it: its consumers (0007's O3 and O7, 0005's S4, 0009's search) come
+needs it: its consumers (0008's O3 and O7, 0006's S4, 0010's search) come
 after both, and it is taken up when the first of them starts. It is the
-proposal 0009 D6 promised, written because 0007 names its first
-consumer. It takes over §4.5 of `../bumbledb/proposals/0001-idris-port.md`
+proposal 0010 D6 promised, written because 0008 names its first
+consumer. It takes over §4.5 of `../bumbledb/proposals/0002-idris-port.md`
 on this side; that file keeps what is about the database. Since
-2026-10-12 its fixed-plan joins and aggregates are 0002's sparse half
-(0002 §10); this proposal keeps what that subset cannot express (D5).
+2026-10-12 its fixed-plan joins and aggregates are 0003's sparse half
+(0003 §10); this proposal keeps what that subset cannot express (D5).
 
 **Sources.** Under `sources/`: `papers/zhang-2022-relational-ematching`,
 `papers/zhang-2023-egglog`, `papers/willsey-2021-egg`,
@@ -102,7 +102,7 @@ From bumbledb, without storage, laws and the log (*read*: its README and
 Each layer is built on the one below. No storage and no IO: the library
 is the functional and array core, and the shell belongs to consumers.
 
-1. **Relations and joins:** typed relations as columnar arrays (0008's
+1. **Relations and joins:** typed relations as columnar arrays (0009's
    columns), COLT, Free Join and the generic-join end, selections,
    anti-probes, exact folds and aggregates, the planner, and the executor
    as an interpreter.
@@ -115,7 +115,7 @@ is the functional and array core, and the shell belongs to consumers.
 
 **Prepared queries are specialized, not compiled by a query compiler.** A
 query known at compile time is a closed call of the interpreter on a
-constant query. The planner is total, so static normalization (0006)
+constant query. The planner is total, so static normalization (0007)
 computes the plan in the frontend; `idr-specialize` clones the
 executor for it, defunctionalization and inlining remove dispatch, and
 `linalg` fusion merges each pipeline into one loop nest: the first Futamura
@@ -128,14 +128,14 @@ plan is static; COLT forcing, exact-versus-estimated key counts and the
 cover chosen per node depend on data, so they stay dynamic, and the
 interpreter separates them from the plan by construction (binding-time
 separation). A prepared query compiles at most 4 plan variants and a
-guard on image statistics picks one (bumbledb 0001 §4.4).
+guard on image statistics picks one (bumbledb 0002 §4.4).
 
 ## 4. Consumers
 
-- **The frontend (0007):** the instance fixpoint, reachability, name
+- **The frontend (0008):** the instance fixpoint, reachability, name
   resolution's interval join, multiplicity and size-change folds,
   postponement as semi-naive evaluation.
-- **The elaborator (0009):** constraints as relations, meta unification
+- **The elaborator (0010):** constraints as relations, meta unification
   as union-find, shape and rewrite equalities as e-graph saturation, so
   `n * m = m * n` never blocks a user.
 - **bumbledb's port:** the core plus storage, laws, the log and shards.
@@ -159,19 +159,19 @@ Inventory, each with its limit:
 
 | Mechanism | What it gives the core | Limit |
 | --- | --- | --- |
-| `sparse_tensor` | A relation is a sparse tensor of `i8` with `explicitVal = 1`, coordinates only, which is a trie (`i1` is not a valid sparse element: *read*, `isValidPrimaryType`, `SparseTensorDialect.cpp:922`); a conjunctive query is an einsum (`Q[a,b,c] = R[a,b]·S[b,c]·T[a,c]`). Level formats (dense, compressed, singleton) are trie levels: CSR is a two-level trie, and COLT's row-pinning singleton child is the singleton level's idea. Aggregates are semiring contractions in `reduce` regions. This fixed-plan part is 0002's sparse half (0002 §9, §10), and is not built twice (*read*: 0002). | Integer and float elements only; sorted coordinates, not hash maps; formats and variable order fixed at compile time where COLT forces lazily. Co-iteration merges sorted levels with two pointers, linear in the sum of their sizes, so a sparse join is not worst-case optimal (*recalled*: leapfrog triejoin's bound in the smaller size). A lowering target for plans that fit, not the engine. |
+| `sparse_tensor` | A relation is a sparse tensor of `i8` with `explicitVal = 1`, coordinates only, which is a trie (`i1` is not a valid sparse element: *read*, `isValidPrimaryType`, `SparseTensorDialect.cpp:922`); a conjunctive query is an einsum (`Q[a,b,c] = R[a,b]·S[b,c]·T[a,c]`). Level formats (dense, compressed, singleton) are trie levels: CSR is a two-level trie, and COLT's row-pinning singleton child is the singleton level's idea. Aggregates are semiring contractions in `reduce` regions. This fixed-plan part is 0003's sparse half (0003 §9, §10), and is not built twice (*read*: 0003). | Integer and float elements only; sorted coordinates, not hash maps; formats and variable order fixed at compile time where COLT forces lazily. Co-iteration merges sorted levels with two pointers, linear in the sum of their sizes, so a sparse join is not worst-case optimal (*recalled*: leapfrog triejoin's bound in the smaller size). A lowering target for plans that fit, not the engine. |
 | `linalg`, `vector`, LLVM backends | The tail of a query compiler: fusion, tiling, vectorization to NEON, SVE, AVX-512 and wasm SIMD128. The scalar twin is the same source at width 1; hand NEON and runtime dispatch go. | Hash probes and data-dependent control are weak in `linalg`. |
-| One-Shot Bufferize | Tensors have value semantics and bufferization decides in-place writes: Idris's "functional but in place" at the array level. 0002 keeps `!idr.lin` as the wrapper around the tensor, its entry a release One-Shot copies at only when the buffer is still read (*read*: 0002 §8). Images immutable, arenas and aggregation state in place, by one mechanism. | |
-| Typed indices | A pool or table index typed by its pool's extent (`Index s`) is an access with no guard (*read*: 0002 §2, D4); `idr-in-bounds` is deleted by 0002, so COLT's pools are written over typed indices. | An index the library cannot type goes through `Maybe`, the program's own test. |
-| `idr-specialize` on constant arguments | A plan computed by static normalization specializes the executor. | The planner must be total: only total code is normalized (0006). |
+| One-Shot Bufferize | Tensors have value semantics and bufferization decides in-place writes: Idris's "functional but in place" at the array level. 0003 keeps `!idr.lin` as the wrapper around the tensor, its entry a release One-Shot copies at only when the buffer is still read (*read*: 0003 §8). Images immutable, arenas and aggregation state in place, by one mechanism. | |
+| Typed indices | A pool or table index typed by its pool's extent (`Index s`) is an access with no guard (*read*: 0003 §2, D4); `idr-in-bounds` is deleted by 0003, so COLT's pools are written over typed indices. | An index the library cannot type goes through `Maybe`, the program's own test. |
+| `idr-specialize` on constant arguments | A plan computed by static normalization specializes the executor. | The planner must be total: only total code is normalized (0007). |
 | The verifier | Erased plan proofs and grades survive lowering because they are re-checked after every pass. | |
-| `shard` | Hash-partitioned relations are a sharding annotation; where to reshuffle is propagation (*read*: 0002 §14). | Upstream propagates over parallel array dimensions, not joins. A join whose atoms are not co-partitioned on a shared variable needs a shuffle or HyperCube-style partitioning (*recalled*); this is open. |
+| `shard` | Hash-partitioned relations are a sharding annotation; where to reshuffle is propagation (*read*: 0003 §14). | Upstream propagates over parallel array dimensions, not joins. A join whose atoms are not co-partitioned on a shared variable needs a shuffle or HyperCube-style partitioning (*recalled*); this is open. |
 | Greedy pattern rewriting | A fixpoint rewrite engine, destructive. | Layer 3 is the non-destructive version. |
 
 **Decision (D5), proposed 2026-10-12:** a plan whose formats, variable
 order and join order are fixed at compile time, and which needs no hash
 level, lazy level or worst-case optimal intersection, is emitted as a
-sparse array program of 0002 (§10 there) and compiled by its lowering.
+sparse array program of 0003 (§10 there) and compiled by its lowering.
 Every other plan runs the interpreter, specialized as §3 says. What stays
 here is what the sparse subset cannot express: COLT's lazy tries, hash
 tries, the Free Join planner and its generic-join end, galloping
@@ -180,7 +180,7 @@ and the storage, laws and log shared with bumbledb.
 
 **Decision (D3):** what upstream lacks (hash tables, strings, tries,
 data-dependent control) becomes `idr` ops or runtime primitives, never
-hand code in the library, as bumbledb 0001 §4.2's measurement rule says.
+hand code in the library, as bumbledb 0002 §4.2's measurement rule says.
 A LingoDB-style relational dialect is not the primary path (§8).
 
 ## 6. Gates
@@ -190,8 +190,8 @@ A LingoDB-style relational dialect is not the primary path (§8).
 - e-matching and saturation within 1.5× of egglog on its benchmarks;
 - joins at ≥ 80% of bumbledb's Rust engine on its read families, with its
   oracle (2,879 cases in its 1.3.0 suite) as the correctness gate;
-- for each consumer, its own proposal's gate (0007's stages, 0006's A2,
-  0009's T4).
+- for each consumer, its own proposal's gate (0008's stages, 0007's A2,
+  0010's T4).
 
 A caution on prepared-query speedups (*recalled*: Kersten et al., VLDB
 2018): compiled and vectorized engines each win on different queries and
@@ -203,7 +203,7 @@ alone (*conjecture*).
 ## 7. Rules it keeps
 
 - **No runtime library:** no `sparse_tensor` runtime, OpenMP or async
-  runtime; everything static (AGENTS.md; 0002 §9).
+  runtime; everything static (AGENTS.md; 0003 §9).
 - **Both targets;** nothing per target outside the target entry.
 - **One thing, one representation:** D2.
 - **Facts in types:** a plan is `ValidatedPlan q`, an erased proof
@@ -214,11 +214,11 @@ alone (*conjecture*).
 
 | Stage | Content | Proof |
 | --- | --- | --- |
-| R1 | layer 1: relations as 0008 columns, COLT, Free Join, the planner, the interpreter | bumbledb's oracle cases for reads; read families ≥ 80% of the Rust engine |
+| R1 | layer 1: relations as 0009 columns, COLT, Free Join, the planner, the interpreter | bumbledb's oracle cases for reads; read families ≥ 80% of the Rust engine |
 | R2 | layer 2: semi-naive fixpoints | within 1.5× of Soufflé (compiled) |
-| R3 | first consumer: 0007 O3, Translate's instance fixpoint | identical Core; O3's threshold |
+| R3 | first consumer: 0008 O3, Translate's instance fixpoint | identical Core; O3's threshold |
 | R4 | layer 3: e-graphs, relational e-matching, slotted binders | within 1.5× of egglog |
-| R5 | the elaborator on the library (0009 T4) | 0002's shape-equality corpus never blocks; base elaborates no slower |
+| R5 | the elaborator on the library (0010 T4) | 0003's shape-equality corpus never blocks; base elaborates no slower |
 | R6 | prepared-query specialization and plan variants (D1) | bumbledb's scenario queries, prepared, against the Rust engine |
 
 ## 9. Rejected alternatives
@@ -234,11 +234,11 @@ alone (*conjecture*).
 - **`sparse_tensor` as the join engine:** its limits in §5; it stays a
   lowering target where a plan fits it.
 - **Two routes for one plan:** a prepared query that fits the sparse
-  subset is emitted as a 0002 sparse array program, and the interpreter
-  is specialized only for one that does not (D5; 0002 D22). Specializing the
+  subset is emitted as a 0003 sparse array program, and the interpreter
+  is specialized only for one that does not (D5; 0003 D22). Specializing the
   interpreter for a plan that fits would be a second compilation of the
   same query.
-- **Trusting a solver for equalities:** 0009 §2.5; saturation finds, the
+- **Trusting a solver for equalities:** 0010 §2.5; saturation finds, the
   kernel checks.
 
 ## 10. Decisions
@@ -252,5 +252,5 @@ alone (*conjecture*).
   it as a package.
 - D5. A plan that fits the sparse subset (fixed formats, variable order
   and join order; no hash or lazy level; no worst-case optimal
-  intersection) is a 0002 sparse array program; every other plan runs
+  intersection) is a 0003 sparse array program; every other plan runs
   the specialized interpreter (§5).

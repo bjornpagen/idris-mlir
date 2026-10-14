@@ -1,11 +1,11 @@
-# 0008: compiler-chosen flattened layouts of algebraic data
+# 0009: compiler-chosen flattened layouts of algebraic data
 
 **Status:** proposed (2026-10-09). Nothing here is built. It is one of the
-three consumers of 0002's array style, with 0007's tables and 0006's
+three consumers of 0003's array style, with 0008's tables and 0007's
 interpreter: the layouts it chooses are how their columns are stored.
 It starts after self-hosting and sharding's first stages. Since
-2026-10-12 its columnar layout is 0002's representation of an array of
-records, one tensor per field (0002 §4.5); this proposal keeps the
+2026-10-12 its columnar layout is 0003's representation of an array of
+records, one tensor per field (0003 §4.5); this proposal keeps the
 packed layout and the measured choice of columns for collections that
 are not arrays.
 
@@ -47,12 +47,12 @@ chosen by the compiler from facts the types and analyses already provide:
      columns, Co-dfns style;
    - erased indices and proofs vanish; a `Fin n` that is a coordinate of
      an array is an `index` at its access, unguarded, and any other `Fin`
-     a natural narrowed where proved (0002 D4).
+     a natural narrowed where proved (0003 D4).
 
    Columns are not a type of ours. An array of records is one ranked
    tensor per field by one-to-N type conversion, which bufferizes to one
-   memref per field (0002 §4.5), and a values-plus-offsets column is a
-   compressed sparse level's positions and coordinates (0002 §3.7, §9).
+   memref per field (0003 §4.5), and a values-plus-offsets column is a
+   compressed sparse level's positions and coordinates (0003 §3.7, §9).
 
    *Read*: `docs/arrow`, `papers/melnik-2010-dremel`, `docs/parquet-format`,
    `code/zig` (`MultiArrayList`), `code/structarrays`, `code/vector`,
@@ -63,7 +63,7 @@ chosen by the compiler from facts the types and analyses already provide:
 **Decision:** one Idris type, several physical layouts: cell, packed or
 columnar. The layout is a property of a value's type at the MLIR level:
 a layout parameter on `!idr.box`/`!idr.data` or a new `!idr.packed<@T>`
-for packed trees, and for columns the tensor types of 0002, one per
+for packed trees, and for columns the tensor types of 0003, one per
 field. `!idr.columns<@T>` is not added: a second representation of what
 a structure of tensors already is. The layout is never a discardable
 attribute, so no pass can silently lose it.
@@ -82,7 +82,7 @@ When each layout is legal and chosen:
   value is updated in place piecewise.
 - **Columns** hold a collection of values of one type that is traversed
   field by field (a map over one field, a filter, an aggregate), and every
-  array of records the array core touches (proposal 0002 — typed APL). An
+  array of records the array core touches (proposal 0003 — typed APL). An
   array of records becomes structure-of-arrays with no programmer action.
 - **The measurement rule.** The automatic choice is on by default only for
   cases a fixture proves faster: at least 1.3× over the cell layout, on the
@@ -118,7 +118,7 @@ the compiler's decision, made from facts only the compiler has.
   - binders are segmented scans;
   - a rewrite is gather, scatter and compaction;
   - all of it lowers to `linalg` through the array core and fuses with
-    neighbouring array code (proposal 0002).
+    neighbouring array code (proposal 0003).
 
   Segmented reductions follow Futhark's and NESL's (*read*
   `papers/larsen-2017-segmented-reductions`,
@@ -138,7 +138,7 @@ the compiler's decision, made from facts only the compiler has.
   Gibbon's work on mostly-serialized heaps avoids per-node work (*read*
   `papers/koparkar-2024-mostly-serialized-gc`). Reuse in place applies to the
   whole region when it is unique.
-- **Packed data is the message format between shards** (proposal 0004). A
+- **Packed data is the message format between shards** (proposal 0005). A
   packed or columnar value crosses by copying its buffer, with no detach
   walk, like GHC's compact regions (*read*
   `papers/yang-2015-compact-normal-forms`). The send check is unchanged: a
@@ -146,13 +146,13 @@ the compiler's decision, made from facts only the compiler has.
 
 ## Consumers
 
-- **The term arena and the interpreter's tables (proposal 0006),** shared
+- **The term arena and the interpreter's tables (proposal 0007),** shared
   by the frontend, the type checker and static normalization. Flat,
   hash-consed terms are that arena; its columns take this proposal's
-  layouts, and 0006 builds it.
-- **The array core (proposal 0002):** records and trees enter array programs
+  layouts, and 0007 builds it.
+- **The array core (proposal 0003):** records and trees enter array programs
   through columns.
-- **bumbledb's port** (`../bumbledb/proposals/0001-idris-port.md`): its
+- **bumbledb's port** (`../bumbledb/proposals/0002-idris-port.md`): its
   images are columns already.
 - **The frontend's own passes,** once self-hosted: Translate and Emit over
   columnar TT.
@@ -174,9 +174,9 @@ the compiler's decision, made from facts only the compiler has.
 | --- | --- | --- |
 | F1 | `Columns t` / `Packed t` views in a trusted library; the compiler derives them | fixtures: map/filter/fold over columns; preorder fold over a packed tree; outputs equal to the cell version |
 | F2 | layout as a type parameter in the `idr` dialect; Layout and idr-rc handle packed and columnar regions | verifier checks; idr-expect properties for one count per region |
-| F3 | columns for collections other than arrays (lists and trees of records), as a conversion to 0002's arrays; arrays of records are columns by 0002's representation, with no gate | benchmarks: nbody-style records ≥ 1.3× over cells |
+| F3 | columns for collections other than arrays (lists and trees of records), as a conversion to 0003's arrays; arrays of records are columns by 0003's representation, with no gate | benchmarks: nbody-style records ≥ 1.3× over cells |
 | F4 | automatic packing for exclusive, build-once, traverse-whole trees | Gibbon's benchmark programs (tree add1, sum, repmax), ≥ 1.3× over cells and within 1.5× of Gibbon's published numbers on the same machine class |
-| F5 | packed and columnar values as shard messages | 0004's message benchmarks: copy cost per byte against the detach walk |
+| F5 | packed and columnar values as shard messages | 0005's message benchmarks: copy cost per byte against the detach walk |
 
 ## Rejected alternatives
 
@@ -191,7 +191,7 @@ the compiler's decision, made from facts only the compiler has.
 ## Decisions
 
 - D1. The layout is part of the type in the dialect, never an attribute;
-  columns are 0002's tensors, one per field, not a type of ours.
+  columns are 0003's tensors, one per field, not a type of ours.
 - D2. Packed only with the exclusive grade; columns for collections
   traversed field by field.
 - D3. The opt-in views come first; automatic choices land only per measured

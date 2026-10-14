@@ -1,13 +1,13 @@
-# 0007: a data-oriented, array-first frontend
+# 0008: a data-oriented, array-first frontend
 
 **Status:** proposed (2026-10-10), against `main` at c50d176d; trimmed
 2026-10-12. Nothing here is built. The interned names (once part of O1)
-and the hash-consed term arena (once O4) moved to 0006, which owns them; this proposal
+and the hash-consed term arena (once O4) moved to 0007, which owns them; this proposal
 builds the rest of the frontend's tables on that arena. It is one of the
-three consumers of 0002's array style (with 0008's layouts and 0006's
-interpreter): its tables are 0002 arrays and its passes 0002 programs.
-It starts after self-hosting and after 0006's A0. O2 is decided by 0001's
-parse measurement. O3 and O7 wait on the relational core (0011), which is
+three consumers of 0003's array style (with 0009's layouts and 0007's
+interpreter): its tables are 0003 arrays and its passes 0003 programs.
+It starts after self-hosting and after 0007's A0. O2 is decided by 0002's
+parse measurement. O3 and O7 wait on the relational core (0012), which is
 parked, so they are parked with it.
 
 **Sources.** Under `sources/`: `code/co-dfns` and
@@ -35,10 +35,10 @@ gathers, scatters, compaction, segmented folds, joins and fixpoints.
 It is Brooks's "show me your tables" applied to the compiler itself, and
 it is the same data model as bumbledb (relations as columnar images,
 SIMD kernels, Free Join, semi-naive fixpoints). The relational parts run
-on the shared relational core of proposal 0011; the array parts run on
-the typed APL of proposal 0002; the layouts are proposal 0008's.
+on the shared relational core of proposal 0012; the array parts run on
+the typed APL of proposal 0003; the layouts are proposal 0009's.
 
-It is not a from-scratch rewrite (0009 §5 rejects that): each stage
+It is not a from-scratch rewrite (0010 §5 rejects that): each stage
 changes one representation inside the fork, proved by identical TTCs and
 the unchanged corpus.
 
@@ -58,10 +58,10 @@ module (58,305 functions, 7,664 data types). Phases:
 
 Translate and print are 88% of the run. Both are pointer chasing: a
 worklist over trees of cells, and a tree serialized to text. Elaboration
-is not in this profile (it runs when the fork installs, about 75 s); 0009
+is not in this profile (it runs when the fork installs, about 75 s); 0010
 T0 records it.
 
-0010 records a different self-compile figure (87 s, 1.8 GB on stage 0).
+0011 records a different self-compile figure (87 s, 1.8 GB on stage 0).
 **Decision (D0):** stage O0 re-measures both on one commit before any
 change, and every target below is a ratio to that record.
 
@@ -71,22 +71,22 @@ change, and every target below is a ratio to that record.
 | --- | --- | --- |
 | files | one contiguous byte buffer each | |
 | tokens | `kind : u8`, `start : u32` (end from the next start or a length) | Zig's tokenizer (*recalled*) |
-| syntax nodes | `kind`, `main_token`, `subtree_size` (or `parent`), in preorder, so every subtree is a contiguous slice; variable arity in an `extra` column | Co-dfns, Carbon's toolchain (*recalled*); 0008's packed layout |
-| names | interned (0006 §3) | |
-| terms | the hash-consed arena (0006 §3) | |
+| syntax nodes | `kind`, `main_token`, `subtree_size` (or `parent`), in preorder, so every subtree is a contiguous slice; variable arity in an `extra` column | Co-dfns, Carbon's toolchain (*recalled*); 0009's packed layout |
+| names | interned (0007 §3) | |
+| terms | the hash-consed arena (0007 §3) | |
 | metas | `meta → solved term | unsolved` | |
 | constraints | `(lhs, rhs, ctx, blocked_on)` | |
-| defs | `def → name, type, body, multiplicity, totality` | already a growable `Linear.Array` in the fork (*read*: 0010's ledger) |
+| defs | `def → name, type, body, multiplicity, totality` | already a growable `Linear.Array` in the fork (*read*: 0011's ledger) |
 | instances | `(def, type arguments…) → instance` | Translate's monomorphisation |
 | ops | `(opcode, operands, result types, region slices)` | MLIR bytecode |
 
 What falls out at once:
 - **Equality is an integer compare** for names, terms and types. This also
-  replaces a 0010 regression ("names, constants and scopes compared as
-  values") without waiting for 0010's feature 6.
+  replaces a 0011 regression ("names, constants and scopes compared as
+  values") without waiting for 0011's feature 6.
 - **Spans are free.** A node names its token, a token its offset; no
   location side-table threads through every function.
-- **Memory is a few large arrays,** one count per region (0008 D4), not
+- **Memory is a few large arrays,** one count per region (0009 D4), not
   millions of cells. The 9.1 GB peak is the first thing this should cut,
   on Chez as well as natively (*conjecture*).
 
@@ -126,7 +126,7 @@ array, with no allocation per token.
 
 ### 4.3 Parsing
 A sequential parser with an explicit stack writes the preorder node
-arrays: no recursion, no closures, as Carbon does (*recalled*). 0010's
+arrays: no recursion, no closures, as Carbon does (*recalled*). 0011's
 ledger already turned the combinator library into direct code (*read*);
 this goes one step further, so its output is tables, not cells. Operator
 resolution (fixities are declared in source) stays sequential, over a
@@ -134,7 +134,7 @@ flat token slice.
 
 **Decision (D2):** parsing stays sequential. Parallel parsing (Pareas,
 *recalled*) is research-grade, and Idris's grammar (user fixities,
-indentation, interpolation, pragmas) is its hardest case; 0009 §2.7
+indentation, interpolation, pragmas) is its hardest case; 0010 §2.7
 already defers GPU front ends.
 
 ### 4.4 Name resolution is an interval join
@@ -157,20 +157,20 @@ exclusive scan for offsets, then scatter: flattening by expansion
 ### 4.6 Elaboration: representation, not SIMD
 A bidirectional elaborator with metavariables is irregular and
 order-dependent within one definition. The gains here are from the
-representation (*conjecture*, sized by 0006's A0 and A2 targets):
+representation (*conjecture*, sized by 0007's A0 and A2 targets):
 - **Hash-consing and id-keyed caches** for weak-head normal forms and
-  conversion results (0006 A0, A2).
+  conversion results (0007 A0, A2).
 - **Postponement as semi-naive evaluation.** Each round's newly solved
   metas (the delta) join the blocked constraints on `blocked_on`; only
   the matches wake. No rescans of a worklist.
 - **Meta-to-meta unification as union-find;** batched conversion dedups
   `(id, id)` pairs before any normalisation.
-- **One evaluator.** Normalization runs on 0006's wavefront machine over
+- **One evaluator.** Normalization runs on 0007's wavefront machine over
   the arena, which also serves the program's static normalization.
 - **Shape arithmetic as a group-by.** A polynomial is a sparse column of
   `(monomial, coefficient)`; normalising it is a sort and a segmented
-  sum (the library tactic's canonical form, 0002 §3.7; 0009 §2.4).
-- **Parallelism across definitions and modules,** not within one (0009
+  sum (the library tactic's canonical form, 0003 §3.7; 0010 §2.4).
+- **Parallelism across definitions and modules,** not within one (0010
   §2.7).
 
 ### 4.7 Multiplicities and termination are semiring folds
@@ -182,7 +182,7 @@ representation (*conjecture*, sized by 0006's A0 and A2 targets):
   compressed level, so the fold is a `sparse_tensor.reduce` over a CSR
   array of `i8`, `Rig0 = 0`, `Rig1 = 1`, `RigW = 2`, plus
   `minui(addi(a, b), 2)`: a finite semiring whose laws the fork proves,
-  which 0002 §6 lets a reduction reassociate (*read*: 0002 §6, §9, §11).
+  which 0003 §6 lets a reduction reassociate (*read*: 0003 §6, §9, §11).
 - **Size-change termination** is half an array program. Composing two
   size-change matrices is a semiring matrix product over
   `Algebra/SizeChange.idr`'s semiring (*read*: `Smaller | Same | Unknown`,
@@ -192,7 +192,7 @@ representation (*conjecture*, sized by 0006's A0 and A2 targets):
   is not a sum: the checker keeps a set of `(f, h, matrix)` triples
   (*read*: `Core/Termination/SizeChange.idr:415-417`), and summing them
   would merge call paths that must stay apart, so the closure is a
-  relational fixpoint (0011), with the composition as its kernel. 0009
+  relational fixpoint (0012), with the composition as its kernel. 0010
   §2.7 already names this.
 
 ### 4.8 Translate is semi-naive Datalog over the instance table
@@ -205,7 +205,7 @@ Each round:
    known;
 5. what remains is the next delta.
 
-"Reachable" (4.2 s) is the same query without substitution. 0010's rule
+"Reachable" (4.2 s) is the same query without substitution. 0011's rule
 (refuse when an instance set grows without bound) is exactly the case in
 which Datalog with function symbols stops terminating, so the refusal has
 a precise meaning in this representation: the delta never empties.
@@ -222,7 +222,7 @@ scatter-write each op at its offset. With MLIR bytecode instead of a
   exactly one binder" is a key. "Every parent precedes its child" is an
   order law. "Every instance is reachable from `main`" is a containment.
   In test builds they run as compiled law queries over the compiler's own
-  state (bumbledb's judge, `../bumbledb/proposals/0001-idris-port.md`
+  state (bumbledb's judge, `../bumbledb/proposals/0002-idris-port.md`
   §4.3), a mechanical backstop for "reject with a named rule, never
   miscompile".
 - **Incremental compilation has an obvious shape** (*conjecture*, not
@@ -232,7 +232,7 @@ scatter-write each op at its offset. With MLIR bytecode instead of a
   underneath instead of a memo table.
 - **The relational core gets its first consumer.** The constraint store,
   union-find, the interval join, the instance fixpoint and the
-  size-change closure are layers 1 and 2 of proposal 0011.
+  size-change closure are layers 1 and 2 of proposal 0012.
 
 ## 6. Limits, honestly
 
@@ -241,7 +241,7 @@ scatter-write each op at its offset. With MLIR bytecode instead of a
   desugaring, multiplicity checking, emission and the fixpoint phases are
   the array-shaped ones.
 - **Bootstrap order.** The data-oriented frontend pays off in speed only
-  once idris-mlir compiles arrays well: 0002's array core and contiguous
+  once idris-mlir compiles arrays well: 0003's array core and contiguous
   runs, both unbuilt. That is why it follows self-hosting: on Chez it
   would cut memory and little else.
 - **Sequential is fine.** Zig and Carbon are fast with sequential
@@ -254,7 +254,7 @@ scatter-write each op at its offset. With MLIR bytecode instead of a
   definition context; only the representation of that TT changes.
 - **One thing, one representation.** A table replaces its tree; no pass
   keeps the old form beside the new one. The relational mechanisms live
-  once, in 0011's library.
+  once, in 0012's library.
 - **No primitive implemented in Idris;** array and relational operations
   lower through the array core and the dialect.
 - **Deterministic, byte-identical outputs;** both targets.
@@ -263,14 +263,14 @@ scatter-write each op at its offset. With MLIR bytecode instead of a
 
 | Stage | Content | Proof |
 | --- | --- | --- |
-| O0 | one baseline: self-compile phases, peak memory, elaboration of base (with 0009 T0) | committed record |
-| O1 | token SoA over 0006's interned names (A0); names compared by id. This replaces the name-equality traversal in 0010's ledger. The equality proofs stay 0010's feature 6 | identical TTCs and corpus |
-| O2 | ops table and MLIR bytecode emission, if 0001's parse measurement takes bytecode | identical module after a bytecode round trip; print ≥ 5× faster than O0 (*conjecture*) |
+| O0 | one baseline: self-compile phases, peak memory, elaboration of base (with 0010 T0) | committed record |
+| O1 | token SoA over 0007's interned names (A0); names compared by id. This replaces the name-equality traversal in 0011's ledger. The equality proofs stay 0011's feature 6 | identical TTCs and corpus |
+| O2 | ops table and MLIR bytecode emission, if 0002's parse measurement takes bytecode | identical module after a bytecode round trip; print ≥ 5× faster than O0 (*conjecture*) |
 | O3 | Translate as semi-naive over the instance table; reachable as its query | identical Core; translate ≥ 3× faster than O0 (*conjecture*) |
-| O4 | (moved: the term arena is 0006's A0) | |
-| O5 | flat parse tree; name resolution as the interval join | identical TTCs; parse plus resolve no slower than 0006's A0 |
+| O4 | (moved: the term arena is 0007's A0) | |
+| O5 | flat parse tree; name resolution as the interval join | identical TTCs; parse plus resolve no slower than 0007's A0 |
 | O6 | multiplicity and size-change checking as semiring folds | identical totality and multiplicity verdicts on base and the corpus |
-| O7 | elaborator constraint store and postponement on 0011's core | 0006 A2's targets; identical TTCs |
+| O7 | elaborator constraint store and postponement on 0012's core | 0007 A2's targets; identical TTCs |
 | O8 | the compiler's invariants as law queries in test builds | a seeded violation of each law is caught by name |
 
 The thresholds marked *conjecture* become decisions once O0 records the
@@ -279,14 +279,14 @@ baseline.
 ## 9. Rejected alternatives
 
 - **A from-scratch frontend:** loses Idris 2 compatibility and the corpus
-  proofs (0009 §5).
-- **Full flattening of everything** (DPH): 0008 rejects it; layouts are
+  proofs (0010 §5).
+- **Full flattening of everything** (DPH): 0009 rejects it; layouts are
   chosen where the access pattern pays.
 - **Untyped `u32` ids, Zig style:** the type checker can carry the
   invariant for free (D1).
 - **A parallel parser now:** D2.
 - **The frontend's own Datalog or union-find:** that would be a second
-  copy of 0011's mechanism.
+  copy of 0012's mechanism.
 
 ## 10. Decisions
 
@@ -295,9 +295,9 @@ baseline.
 - D1. Every table id is a type indexed by its table, erased to a word.
 - D2. Lexing is array-shaped; parsing stays sequential, writing tables.
 - D3. Translate is a semi-naive fixpoint over the instance table, and an
-  unbounded instance set is the refusal 0010 already names.
+  unbounded instance set is the refusal 0011 already names.
 - D4. Emission is bytecode from an ops table.
 - D5. Every stage is proved by identical TTCs and the unchanged corpus;
   no stage keeps the tree it replaces.
-- D6. The arena is 0006's; this proposal never keeps a second copy of a
+- D6. The arena is 0007's; this proposal never keeps a second copy of a
   term.

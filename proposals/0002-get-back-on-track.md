@@ -1,8 +1,8 @@
-# 0001: get back on track — what remains
+# 0002: get back on track — what remains
 
 **Status:** decided 2026-10-12; the cutover it designed is built and
 this file now keeps only what remains, trimmed 2026-10-14 at
-b4713f66. The cutover (the deleted `0002-cutover-swarm/` packet, whose
+b4713f66. The cutover (the deleted `0003-cutover-swarm/` packet, whose
 unfinished qualification is §3 here) landed the design whole: an
 in-tree MLIR dialect in upstream's layout, `idr.func` with inherent
 facts, analyses under the pass manager, function passes in parallel,
@@ -13,7 +13,7 @@ x86_64 Linux is NotRun. Self-hosting (§2) is not done: stage 1 has
 never finished. Claims are marked: *read* (the path), *measured* (the
 record), *conjecture*, *decision*.
 
-**The one sentence.** What remains of the wall is in 0003 and 0005:
+**The one sentence.** What remains of the wall is in 0004 and 0006:
 the whole program stays the unit of meaning and stops being the unit
 of work. This proposal holds the gate that proves the cutover on both
 targets and the road to a compiler that compiles itself.
@@ -23,7 +23,7 @@ targets and the road to a compiler that compiles itself.
 | Stage | Status |
 | --- | --- |
 | C1 to C5, H1, H2 (the cutover) | done: built, arm64 gate green above |
-| G0 (baseline record) | remains, as 0003's F0 on the existing stage-0 corpus |
+| G0 (baseline record) | remains, as 0004's F0 on the existing stage-0 corpus |
 | G1 (both targets, §3) | remains: x86_64 Linux NotRun, bench unrun |
 | S (self-hosting, §2) | remains: at step 3 |
 
@@ -38,13 +38,13 @@ Each step is measured before the next starts.
 3. **Break the wall by measurement.** The pipeline on the stage-0
    module (58,236 functions, ~300 MB of text; the frontend takes
    ~140 s of a stage-1 attempt) with `-mlir-timing` and a time trace:
-   the first time the C++ side finishes on it. This is 0003's F0 and
-   0005's S0, one record. The first compile-time round already landed
-   against it (0003 §2): one Simplify round fell from 1,321 s to
+   the first time the C++ side finishes on it. This is 0004's F0 and
+   0006's S0, one record. The first compile-time round already landed
+   against it (0004 §2): one Simplify round fell from 1,321 s to
    385 s (dev build), and stage 1 still did not finish in 4 h 23 min
    on the pre-round compiler, nor in the restarted attempt that
-   followed. What dominates next is fixed first, in 0003's order.
-   0005's S2 (units, split LLVM codegen, an ordered link) is taken as
+   followed. What dominates next is fixed first, in 0004's order.
+   0006's S2 (units, split LLVM codegen, an ordered link) is taken as
    soon as the record shows codegen as the cost.
 4. **The diet and the memory.** The stage-0 dump's functions,
    operations and bytes, and the peak resident memory of the frontend
@@ -59,9 +59,9 @@ Each step is measured before the next starts.
    self-hosted compiler, so `make test` needs no Chez at all; Chez
    stays only as the host of stage 0.
 
-Then, in queue order: 0002's stage 1 (the array purge as one hard
+Then, in queue order: 0003's stage 1 (the array purge as one hard
 cutover; `make self` stays green across it, its fork users ported in
-the same change), then sharding: 0005's stages with 0004's P1, P2
+the same change), then sharding: 0006's stages with 0005's P1, P2
 and P4.
 
 ## 3. G1: what the cutover still owes
@@ -136,20 +136,20 @@ partially applied `castPtr` is still rejected. (Rechecked and closed
 
 - D1 (owner): this proposal first; self-hosting follows; then
   sharding. Amended 2026-10-13 (compile time inserted) and 2026-10-14
-  (0002's stage 1 after `make self`, ahead of sharding; see the
+  (0003's stage 1 after `make self`, ahead of sharding; see the
   proposals index for the queue).
 - D2: `foreign/idr` is an in-tree MLIR dialect in upstream's layout,
   no C++20 modules. Built.
 - D3: every rewrite is a function pass under a nested pass manager;
   module passes only compute analyses or change symbols. Built; the
-  Simplify round's remaining module members are 0003's to delete.
+  Simplify round's remaining module members are 0004's to delete.
 - D4: one representation per fact. Built; AGENTS.md carries it.
 - D5: the frontend emits no erased value. Built.
 - D6: the round ends on a change flag, bounded. Superseded in part:
-  the round still fingerprints the module (`Simplify.cpp`), and 0003
+  the round still fingerprints the module (`Simplify.cpp`), and 0004
   deletes the round structure itself.
 - D7: a stage lands only with its proof; a stage that makes the
   compile-time record worse is not taken until it does not. Stands,
-  as 0003's D1.
+  as 0004's D1.
 - D8 (owner): profiling is LLVM's time trace through the pass
   manager; Tracy is out of the tree. Built.
