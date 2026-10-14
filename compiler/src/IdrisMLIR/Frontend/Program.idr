@@ -85,7 +85,10 @@ now = toNano <$> coreLift (clockTime Monotonic)
 reportTimes : Maybe String -> List (String, Integer) -> Core ()
 reportTimes Nothing _ = pure ()
 reportTimes (Just path) times =
-  write path (concatMap (\(name, ns) => name ++ "\t" ++ show (ns `div` 1000000) ++ "\n") times)
+  writeAll path (map line times)
+  where
+    line : (String, Integer) -> Lazy String
+    line (name, ns) = name ++ "\t" ++ show (ns `div` 1000000) ++ "\n"
 
 ||| The registry's entries against the loaded context, once, before
 ||| anything uses them; `--break-shape` breaks the one it names.
