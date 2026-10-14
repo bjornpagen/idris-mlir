@@ -164,9 +164,11 @@ when built: deleting one header made it fail, restoring it made
 `make check` pass (*measured*). The root text matched the SPDX
 `0BSD` template exactly (ISC minus the attribution-reproduction
 sentence), so §3's conditional resolved to `0BSD`. Porting is
-open for business under §4; no port has landed yet — 0004's F3
-as built (§2.2 there) is our own code under upstream's inliner,
-not a Mojo port, and the first port's stage record will name
+open for business under §4; no port has landed yet: the opt-in SCC
+pipeline of 552d682a (0004 §3.3) is our own code under upstream's
+inliner, not a Mojo port, and 0004 §8 ranks what its cutover ports
+and rebuilds (EliminateDuplicateFunctions ported, the ready set
+rebuilt on Mojo's design), so the first port's stage record will name
 the revision taken.
 
 ## 7. The layout the licenses live in
@@ -201,7 +203,7 @@ here: renaming `foreign/idr/` (to `mlir/` or `dialect/`) so
 `foreign/` could mean only vendored ports. It touches CMake
 presets, PINS.md, bootstrap paths and every `#include` root for a
 naming gain; it is worth doing exactly once, when the first
-whole-unit Mojo port (0004 F3's scheduler is the candidate) makes
+whole-unit Mojo port (0004 §8's EliminateDuplicateFunctions is the candidate) makes
 the distinction load-bearing, and not before.
 
 ## 8. What this is not

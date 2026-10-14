@@ -13,8 +13,8 @@ licenses gate is the 27th), `make test-idr` 286/286, `make test`
 415/415 (*measured* 2026-10-14 at `NCPU=6`). Licensing (0001) is
 built; G0 is taken as 0004's F0. x86_64 Linux is NotRun.
 Self-hosting (§2) is not done: stage 1 has never finished, and
-step 3 is being executed in 0004 (F3's corpus verdict run in
-flight, 0004 §2.2). Claims are marked: *read* (the path),
+step 3 waits on 0004's pipeline cutover, designed and awaiting
+approval (0004 §10). Claims are marked: *read* (the path),
 *measured* (the record), *conjecture*, *decision*.
 
 **The one sentence.** What remains of the wall is in 0004 and 0006:
@@ -44,7 +44,7 @@ Each step is measured before the next starts.
    ~140 s of a stage-1 attempt) with `-mlir-timing` and a time trace:
    the first time the C++ side finishes on it. This is 0004's F0 and
    0006's S0, one record. The first compile-time round already landed
-   against it (0004 §2): one Simplify round fell from 1,321 s to
+   against it (0004 §3.1): one Simplify round fell from 1,321 s to
    385 s (dev build), and stage 1 still did not finish in 4 h 23 min
    on the pre-round compiler, nor in the restarted attempt that
    followed. What dominates next is fixed first, in 0004's order.

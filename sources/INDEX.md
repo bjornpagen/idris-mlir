@@ -1233,4 +1233,4 @@ why unification belongs outside the kernel.
 
 ## Reading notes
 
-`notes/` holds the deep-dive notes written while these sources were read (array-languages, flattened-data, type-checking, sharded-compilation): what each source says and what idris-mlir should take from it, cited to the stored files. Proposals 0007, 0008, 0006 and 0011 build on them.
+`notes/` holds the deep-dive notes written while these sources were read (array-languages, flattened-data, type-checking, sharded-compilation, compile-pipeline): what each source says and what idris-mlir should take from it, cited to the stored files. Proposals 0007, 0008, 0006 and 0011 build on them.

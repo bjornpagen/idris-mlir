@@ -23,3 +23,18 @@ contify, useless and remove-unused, and the RSSA representation and layout.
 
 **Correction.** RSSA lives under `mlton/backend/` (`ssa2-to-rssa.fun`, `rssa.fun`,
 `packed-representation.fun`), not in a `mlton/rssa/` directory.
+
+**Addendum, 2026-10-14.** For the pipeline cutover proposal
+(`notes/compile-pipeline/mlton.md`), 27 more files at the same revision
+`aa2fd1ad9b91375903a4253cfcf1ea5ef2754f37`, fetched from the same raw URL pattern: the
+driver (`mlton/main/compile.fun`, `mlton/main/main.fun`), the controls
+(`mlton/control/control.sml`, `control.sig`, `control-flags.sml`, `control-flags.sig`), the
+pass lists (`mlton/xml/xml-simplify.fun`, `sxml-simplify.fun`, `mlton/ssa/simplify.fun`,
+`simplify2.fun`, `mlton/backend/rssa-simplify.fun`), the passes the report reads
+(`mlton/xml/shrink.fun`, `polyvariance.fun`, `monomorphise.fun`, `simplify-types.fun`,
+`mlton/ssa/shrink.fun`, `introduce-loops.fun`, `loop-unroll.fun`, `known-case.fun`,
+`mlton/core-ml/core-ml-simplify.fun`, `dead-code.fun`, `mlton/backend/backend.fun`,
+`chunkify.fun`), the code generators (`mlton/codegen/c-codegen/c-codegen.fun`,
+`mlton/codegen/llvm-codegen/llvm-codegen.fun`) and the C runtime's chunk interface
+(`include/c-chunk.h`, `include/c-main.h`). `closure-convert.fun` was fetched again and is
+byte-identical to the stored one. Files: 43 in all.

@@ -1,18 +1,22 @@
 # 0006: a sharded whole-program compiler
 
 **Status:** proposed 2026-10-10; reprioritized 2026-10-12; updated
-2026-10-14 at 552d682a. Nothing here is built except S7 (the cutover
-deleted `idr-eval` and turned MLIR threading on) and the serial
-preparations 0004 landed (deduplication by content, IntRange nested,
-RemoveDeadValues once at the fixpoint, labels in one walk, and F3's
-first serial form — the opt-in SCC pipeline whose corpus verdict
-is in flight, 0004 §2.2; it is this proposal's phase-3 unit in
-serial rehearsal, and its result reorders nothing here yet). Sharding
+2026-10-14. Nothing here is built except S7 (the cutover deleted
+`idr-eval` and turned MLIR threading on) and the serial preparations
+0004's first round landed (deduplication by content, IntRange nested,
+RemoveDeadValues once at the fixpoint, labels in one walk). 0004 is now
+the pipeline cutover that this proposal consumes unchanged: defunctionalization
+total by analysis, so inlining is pure optimization; one bottom-up ready
+set over call-graph SCCs, which is this proposal's phase-3 unit with a
+serial scheduler (0004 §9); and the code generation baseline, size-balanced
+bins of SCCs split for parallel LLVM codegen, which is this proposal's S2 and
+its codegen units (0004 §5, decided there with D4's rule). The opt-in SCC
+pipeline of 552d682a is deleted by that cutover (0004 §3.3). Sharding
 follows 0003's stage 1, which follows self-hosting, except where a
 stage is pulled forward on measurement: S0 is taken
 (`bench/profiles/2026-10-14-f0-stage0.md`; its thresholds are 0004
-§4's), and S2 (split LLVM codegen) is
-taken as soon as that record names codegen — it is also the controlled
+§10's), and S2 (split LLVM codegen) is
+taken by 0004's cutover (its lane L7) — it is also the controlled
 experiment that prices whole-module LLVM optimization (§2). S3 to S6
 and S9 to S10 are taken up when S0's record calls for them, in §10's
 order; S4 additionally waits on the relational core (0012). This is a
@@ -76,19 +80,22 @@ byte-identical to the serial compile. Whole-program semantics, sharded execution
   module passes compute analyses or change symbols, the pipeline is one
   `OpPassManager` (`lib/Transforms/Pipeline.cpp`), and MLIR threading is
   on. What still holds the whole module is the Simplify round structure
-  and its serial members (0004 §2), not the pass shapes.
+  and its serial members (0004 §3.1), not the pass shapes; 0004's cutover
+  deletes them.
 - LLVM sees one module: one per-module O3 run with MergeFunctions
   (`lib/Target/Optimize.cpp`), one single-threaded codegen and one
   object (`lib/Driver/Artifacts.cpp`), no module splitting. This is
   S2's term, and S2 doubles as the experiment that prices it.
 - The frontend hands the C++ side one text file, streamed as printed
-  (`Emit.idr`, `lib/Driver/Run.cpp` parses it as text): 0004 F4's term.
+  (`Emit.idr`, `lib/Driver/Run.cpp` parses it as text): 0004 §4 stage 1
+  makes it bytecode.
 - A frontend symbol is its instance key printed (origin, then
   arguments), with counter suffixes for keys that print alike and for
   derived functions (`<parent>.<kind><n>`). Counts per parent are
   stable under an edit elsewhere, not under an edit in the parent: S1's
-  content names fix that. The Simplify loop still fingerprints the
-  module per round (`Simplify.cpp`); 0004 F1/F3 deletes it.
+  content names fix that, and 0004 takes them (its D18). The Simplify
+  loop still fingerprints the module per round (`Simplify.cpp`); 0004's
+  cutover deletes it (0004 §6).
 - Identical bodies are already merged by content where the dialect can
   see them (`idr-deduplicate`, 7,505 of 107,732 post-isolate functions
   on the self module): phase 2's dedup (§3.5) generalizes a mechanism
@@ -99,7 +106,7 @@ byte-identical to the serial compile. Whole-program semantics, sharded execution
 measure) emitting 58,236 functions. The C++ side has run on that
 module in pieces — one Simplify round at 385 s after 0004's first
 round of fixes, individual passes timed — and has never finished it.
-The call graph it must partition is measured in 0004 §2: largest
+The call graph it must partition is measured in 0004 §3.1: largest
 direct-call SCC 174, 93% singletons, and only 17% of distinct
 origin-to-origin call pairs inside one Idris module, which is why
 units follow SCCs (§3.4) and modules only group them. The full cold
@@ -264,21 +271,26 @@ stable under unrelated edits, which is also what makes the cache hit.
 
 ## 5. The hard parts
 
-### 5.1 The simplify loop is a global fixpoint
+### 5.1 The optimizer is a ready set, not a global fixpoint
 
-Today `idr-simplify` iterates inline, specialize, sccp and canonicalize over the
-whole module, up to 64 rounds (`Transforms/Passes.td`), and specialization creates clones that
-change the facts. Sharded, it is an **outer fixpoint**:
+0004's cutover replaces `idr-simplify`'s whole-module rounds with one
+bottom-up ready set over call-graph SCCs, each function processed once
+after its callees are final, and specialization requests as content-keyed
+nodes in the same ready set (0004 §4.6 to §4.8). Defunctionalization runs
+before it and is total by analysis (0004 §2), so nothing the optimizer
+does decides acceptance. Sharded, the same work is an **outer delta loop**:
 
-1. phase 2 freezes the facts; 2. every unit runs one local simplify round to its own
-fixpoint; 3. units emit specialization requests and newly needed instances as content-keyed
-tuples; 4. phase 2 takes them as a delta, re-runs only the affected fixpoints semi-naively,
-re-slices only the affected units; 5. repeat until no delta.
+1. phase 2 freezes the facts; 2. every unit drains its part of the ready
+set; 3. units emit specialization requests and newly needed instances as
+content-keyed tuples; 4. phase 2 takes them as a delta, re-runs only the
+affected summaries semi-naively, re-slices only the affected units; 5.
+repeat until no delta.
 
-Budgets (1024 clones per owner, 4096 instances per definition, 64 rounds) are spent **in phase
-2, in key order** (D5), never in arrival order, so a budget's refusals are the same for every
-schedule. A clone is a GCC-style virtual clone: a descriptor (owner, pattern key) that the
-owner's unit materializes.
+Budgets (1024 clones per owner, 4096 instances per definition) stop
+optimizing and never refuse a program (0004 §2.5, D17). They are spent **in
+phase 2, in key order** (D5), never in arrival order, so where optimization
+stops is the same for every schedule. A clone is a GCC-style virtual clone: a
+descriptor (owner, pattern key) that the owner's unit materializes.
 
 *Conjecture:* most units reach their fixpoint in one or two outer rounds, because
 specialization requests cluster in a few hot owners. S6 measures the round count on the
@@ -383,7 +395,7 @@ By Brent's bound, time on P shards is at most T1/P + T∞. The terms that do not
 | --- | --- | --- |
 | phase 2's global reductions and barriers | rounds × barrier cost | few rounds (semi-naive; facts only grow) |
 | the largest simplify unit | the largest call-graph SCC after inlining | codegen units split it after simplify (§3.4); SCC size is reported per build |
-| the outer simplify rounds | the specialization round count | measured in S6 |
+| the outer delta rounds | the specialization round count | measured in S6 |
 | the link | linker parallelism | lld-style parallel linking (measured: clang's debug link 104 s with GNU ld, 5.3 s with lld) |
 | summary I/O | GCC's WPA was mostly type and declaration streaming | flat columnar summaries, read as buffers |
 
@@ -416,11 +428,11 @@ Targets (*conjecture*, decided at S0 from the measured serial share):
 | --- | --- | --- |
 | S0 | measure: the C++ pipeline on the self-compile module (the arm64 toolchain is built, 8395d4f7); per pass, the time in its global part against its local part; LLVM's share | committed record; the per-pass split decides §8's targets |
 | S1 | content names: `$lam<h>`, `$spec<h>`, instance names by hash; sort at every hand-off | corpus outputs unchanged; names stable under an unrelated edit (a fixture) |
-| S2 | units: per-unit bytecode from the frontend; split LLVM codegen; parallel local passes with one context per worker; ordered link | executables byte-identical across worker counts 1, 2, 8; compile-time speedup on bench |
+| S2 | units: per-unit bytecode from the frontend; split LLVM codegen (taken by 0004's cutover, its §5 and lane L7); parallel local passes with one context per worker; ordered link | executables byte-identical across worker counts 1, 2, 8; compile-time speedup on bench |
 | S3 | summaries and phase 2 for the cheap facts: reachability, effects, layouts, the type graph, contify, returned arguments, tail calls | differential: phase 2's facts equal the module passes' on the corpus and the self-compile |
 | S4 | defunctionalization's label flow in phase 2 (0CFA on 0012) | differential against `idr-defunctionalize`'s analysis; sums identical |
 | S5 | exclusivity, borrow and in-bounds facts as monotone duals | differential; `idr-demand` verdicts identical |
-| S6 | inline and import decisions in phase 2; simplify per SCC unit; specialization requests as deltas; outer rounds; budgets in key order | corpus outputs unchanged; outer round counts recorded; self-compile speedup |
+| S6 | the ready set of 0004 §4.6 drained by shards: inline and import decisions in phase 2, specialization requests as deltas, outer delta rounds, budgets in key order | corpus outputs unchanged; outer round counts recorded; self-compile speedup |
 | S7 | (done by the cutover: threading is on, the nested pipelines run in parallel) | `determinism.sh` across thread counts, run by the self-host plan |
 | S8 | the Idris half on 0005 shards: phase 1 per module, 0008's Translate fixpoint sharded, columnar summaries as messages | determinism across shard counts; phase 1 and 2 speedup |
 | S9 | the persisted cache and early cutoff at three levels | no-op rebuild compiles zero units; a one-definition edit recompiles only changed slices |
@@ -450,7 +462,7 @@ Targets (*conjecture*, decided at S0 from the measured serial share):
   policy.
 - Memory per C++ worker with its own `MLIRContext` (re-uniqued types): S0 and S2 measure it.
 - The largest SCC of the self-compile after inlining: answered by S0
-  (24 of 28,276 after six rounds; 0004 §2). Units follow SCCs.
+  (24 of 28,276 after six rounds; 0004 §3.1). Units follow SCCs.
 - Where the cache index lives: 0012's core in-process, or bumbledb as a shared cache over S3.
 - Whether the Idris half should drive the C++ half (a self-hosted driver) once 0013 lands.
 
@@ -462,7 +474,8 @@ Targets (*conjecture*, decided at S0 from the measured serial share):
   hashes, then scan labels after freeze.
 - D4. Partitions are a pure, edit-stable function of content, independent of P; simplify
   units follow SCCs, codegen units follow size.
-- D5. Budgets and refusals are decided in phase 2 in key order.
+- D5. Budgets are spent in phase 2 in key order; a spent budget stops
+  optimizing and never refuses (0004 D17).
 - D6. Static normalization (total code only, 0007) runs in phase 1; phases 2 to 4 never run
   program code.
 - D7. The C++ side runs one `MLIRContext` per worker, units as bytecode, results merged by

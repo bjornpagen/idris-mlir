@@ -5,7 +5,7 @@ The cutover it was written against is built and its arm64 gate is
 green (proposals index, "Where the work stands"). Nothing of the six
 features is built. Stage 0 of self-hosting compiled the frontend
 (c50d176d); the whole frontend has been through pieces of the C++
-pipeline in profiling and has never finished it (0004 §2). The
+pipeline in profiling and has never finished it (0004 §3.1). The
 ledger below is those rewrites. This proposal is not on the self-host
 path: §"Where it sits" says what the plan needs from it. Claims are
 marked: read, measured, recalled, conjecture, decision.

@@ -233,6 +233,7 @@ facts were merged.
 | `code/idris2/`, `docs/idris2/` | BSD-3-Clause (verify) |
 | `docs/ghc/` | BSD-3-Clause (verify) |
 | `code/mlton/`, `docs/mlton/` | MLton license, HPND-style (verify) |
+| `code/modular/` | Apache-2.0 WITH LLVM-exception (the repository's `LICENSE`, kept in the snapshot) |
 | `code/tinygrad/`, `docs/tinygrad/` | MIT |
 | `docs/ssa-book/` | free book (verify) |
 | `code/co-dfns/` | AGPL-3.0-or-later (dual-licensed on request); excerpts for study only, never copied into this repository's code |
@@ -322,7 +323,8 @@ counts include the files the addenda add.
 | --- | --- | --- | --- | --- | --- |
 | [`code/idris2/`](code/idris2/SNAPSHOT.md) | `idris-lang/Idris2` | `1c630e67c386629a0fbbc6b78a59176fde7f0a76` (submodule pin) | 38 (30, and 8 in the [2026-10-09 addendum](code/idris2/SNAPSHOT.dependent-equality.md)) | E, D, I, cross-cutting, dependent-equality | `code-idris2`, `code-idris-transform`, `code-idris-rewrite` |
 | [`code/mlir/`](code/mlir/SNAPSHOT.md) | `llvm/llvm-project`, `mlir/` | main at `7208ba24ca2894729cd394475a00d2a7b605e642` | 132 (94, and 38 in the [2026-10-09 addendum](code/mlir/SNAPSHOT.addendum.md)) | F, B, I, G, mlir-stack | `code-mlir`, `apl-mlir-stack` |
-| [`code/mlton/`](code/mlton/SNAPSHOT.md) | `MLton/mlton` | `aa2fd1ad9b91375903a4253cfcf1ea5ef2754f37` | 16 | D, G | `code-mlton` |
+| [`code/mlton/`](code/mlton/SNAPSHOT.md) | `MLton/mlton` | `aa2fd1ad9b91375903a4253cfcf1ea5ef2754f37` | 43 (16, and 27 in the 2026-10-14 addendum) | D, G, compile-pipeline | `code-mlton` |
+| [`code/modular/`](code/modular/SNAPSHOT.md) | `modular/modular` | `9211931` (main, 2026-10-14, shallow clone) | 18 (17 and `LICENSE`) | compile-pipeline | none: taken 2026-10-14 for proposal 0004 |
 | [`code/tinygrad/`](code/tinygrad/SNAPSHOT.md) | `tinygrad/tinygrad` | `b1a9b35bdd89ed2ed3fa69e0786210fbd268b33a` | 19 | A, G, H | `code-tinygrad` |
 | [`docs/ghc/`](docs/ghc/SNAPSHOT.md) | GHC commentary wiki; GHC users guide | none: live hosts (users guide `latest` = the 9.14.1 series) | 22 | D, E, cross-cutting | `docs-ghc`, `docs-ghc-stg-cmm-rts`, `docs-ghc-specialise-specConstr`, `pointers-ghc` |
 | [`docs/idris2/`](docs/idris2/SNAPSHOT.md) | `idris-lang/Idris2` | `1c630e67c386629a0fbbc6b78a59176fde7f0a76` (submodule pin) | 71 | E, D | `docs-idris2` |

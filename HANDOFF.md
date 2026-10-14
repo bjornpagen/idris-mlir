@@ -1,3 +1,24 @@
+# Checkpoint (2026-10-14 night, the pipeline cutover designed)
+
+Proposal 0004 is rewritten as the pipeline cutover and awaits the
+owner's approval; no code changes until then. It answers first
+whether inlining can be pure optimization: yes, by making
+defunctionalization total by analysis alone, as MLton's closure
+conversion is (closed world as a verified invariant, one flow
+interface, a forced-state anchor keyed by the lazy value's type, no
+unknown label set; 0004 §2). Then one bottom-up ready set over
+call-graph SCCs replaces the Simplify rounds (each function cleaned
+once, after its callees are final), and code generation is split into
+size-balanced bins of SCCs for parallel LLVM (0004 §4, §5). §6 is the
+deletion table; §10 the lanes, to be run on the owner's machine with
+builds and suites at each integration. The opt-in scc-pipeline of
+552d682a is deleted by the cutover. The research is stored verbatim
+in sources/notes/compile-pipeline/ (MLton, code generation
+partitioning, Mojo, upstream MLIR and LLVM, the casework audit), with
+27 more MLton files in sources/code/mlton and a Mojo snapshot at
+9211931 in sources/code/modular (the full clone is at
+~/Documents/modular, read only).
+
 # Checkpoint (2026-10-14 evening, licensing built; F3 opt-in pinned as a problem)
 
 The owner approved the rewritten proposals and the bankruptcy

@@ -22,22 +22,23 @@ specification. A proposal that is done is deleted. One nearly done
 keeps only what remains. A proposal can start before a later one it
 partly needs; the stages that wait are named here.
 
-## Where the work stands (2026-10-14 18:04 CDT, at 552d682a)
+## Where the work stands (2026-10-14 evening)
 
 **Approved and executing.** The code bankruptcy ended 2026-10-14
 when the owner approved these proposals as rewritten. Licensing
 (0001) is built and pushed (3a275cf0): SPDX provenance on every
 file, `LICENSES/` and `NOTICE` in place, `tests/spec/licenses`
-gating it. The compile-time refactor (0004) is the active work:
-F0 taken, the first fixes landed (§2), two shortcuts measured and
-reverted (§2.1), and F3's first serial form built as an opt-in
-`scc-pipeline` (§2.2). **That opt-in state is pinned as a problem
-for re-evaluation (0004 §2.3, the live status): one pass, two
-code paths, a fallback kept as default — the configuration slop
-this compiler does not carry. The corpus verdict run was killed
-by the owner 2026-10-14 without a verdict; nothing builds on
-the option until the re-evaluation decides one path or a
-revert.** Everything is on `main` in the one checkout: no
+gating it. **0004 is rewritten as the pipeline cutover and awaits the
+owner's approval; nothing of it is coded before.** It answers the
+question first: defunctionalization becomes total by analysis alone,
+so inlining is pure optimization and no budget decides acceptance
+(0004 §2). Then one bottom-up ready set over call-graph SCCs replaces
+the Simplify rounds, and code generation is split into size-balanced
+units for parallel LLVM. The research behind it is stored verbatim in
+`sources/notes/compile-pipeline/`, with the MLton and Mojo sources it
+cites. The opt-in `scc-pipeline` of 552d682a, whose corpus run was
+killed without a verdict, is deleted by the cutover (0004 §3.3).
+Everything is on `main` in the one checkout: no
 branches, no worktrees, locally or on the remote (*decision*,
 the owner's standing rule, restated 2026-10-14). Agent-run heavy
 work on the owner's 12-CPU machine uses `NCPU=6`; tool defaults
@@ -45,15 +46,15 @@ stay maximalist (7a27fd34).
 
 The tree is, on arm64 macOS, green: `make build` clean,
 `make check` 27/27, `make test-idr` 286/286, `make test` 415/415
-(*measured* 2026-10-14 at `NCPU=6`, including the F3 code and
-its file-size split, 0004 §2.2). x86_64 Linux has still not run this tree:
+(*measured* 2026-10-14 at `NCPU=6`, at 552d682a and its file-size
+split, 0004 §3.3). x86_64 Linux has still not run this tree:
 G1 (0002 §3) is NotRun there, never green. Stage 1 of `make self`
 has still never finished: the frontend emits the whole of itself
 (58,236 functions, ~300 MB of text, ~140 s) and the C++ pipeline
 does not finish on it. That one fact orders the queue.
 
 The first compile-time round (0004's F1, in part) landed 2026-10-13
-and 2026-10-14 and is recorded in 0004 §2: one Simplify round on the
+and 2026-10-14 and is recorded in 0004 §3.1: one Simplify round on the
 stage-0 module fell from 1,321 s to 385 s (dev build, *measured* in
 the commits). The rounds themselves, the text handoff and LLVM's
 single module remain. They are the wall, and 0004 and 0006 are written
@@ -76,9 +77,9 @@ The order of the work, decided by the owner on 2026-10-12, amended
 maximalist cutover with no compatibility owed to any legacy mechanism
 the new shape replaces: 0001 first (licensing, so every port after it
 is clean); then 0002 (G1, then self-hosting §2, whose step 3 is
-0004's F0 record -- taken -- and takes 0006's split codegen as soon
-as the record names codegen); 0004's remaining stages interleaved
-with it, because stage 1 cannot finish without them; 0003's stage 1 (the
+0004's F0 record, taken); 0004's cutover, once approved, before
+0002's remaining self-host steps, because stage 1 cannot finish
+without it (it also takes 0006's split codegen, S2); 0003's stage 1 (the
 array purge) right after `make self`; then sharding (0005's P1, P2 and
 P4 with 0006's S-stages). After them the array style is the organizing
 principle: 0003's typed array language, with 0007's interpreter,
@@ -114,18 +115,19 @@ force.
   upstream optimizes on. Stage 1 purges today's array stack (about
   6,300 lines, `idr-in-bounds` among them) in one cutover right after
   `make self`; the later stages follow sharding. Decided 2026-10-12.
-- [0004](0004-compile-time.md): compile time: one fast serial pipeline.
-  Deletes the whole-module Simplify fixed point and every multiplier
-  under it (module fingerprints, per-round analysis rebuilds, uncached
-  symbol scans, serial dataflow per round, the text handoff) for one
-  bottom-up SCC pipeline with bounded inner per-function work. F0 is
-  recorded and the first fixes landed (§2); two InlineCleanup
-  refactors were measured and reverted (§2.1); **F3's first serial
-  form was built opt-in (`scc-pipeline`, 552d682a) and fully gated,
-  its corpus run was killed without a verdict, and the opt-in
-  two-path state is pinned as a problem for re-evaluation (§2.3)**;
-  F3's full ready-set design, F4 and F5 remain, in measurement
-  order.
+- [0004](0004-compile-time.md): whole-program facts, a fixed optimizer,
+  parallel code generation. The pipeline cutover, design only and
+  awaiting approval: defunctionalization total by analysis (closed
+  world, one flow interface, a forced-state anchor, no unknown label
+  set), so inlining is pure optimization; one bottom-up ready set over
+  call-graph SCCs with each function cleaned once after its callees are
+  final; specialization as content-keyed nodes; constants and effects as
+  SCC summaries; code generation in size-balanced bins of SCCs, split for
+  parallel LLVM; and a deletion table of every option, toggle,
+  fingerprint, seed mark and budget-as-rejection the research found.
+  Built on five reports (`sources/notes/compile-pipeline/`) and MLton's
+  and Mojo's sources. Executed as one hard cutover on the owner's
+  machine (§10).
 - [0005](0005-shards.md): shards, the concurrency runtime. One copy of
   the single-threaded runtime per core, task frames for computations
   that wait, a reactor per shard, values crossing only inside
@@ -133,8 +135,9 @@ force.
 - [0006](0006-sharded-whole-program-compiler.md): a sharded
   whole-program compiler. Summaries per module, guarantee facts from
   summaries alone, work per SCC/codegen unit with fact slices and
-  import lists, content-named partitions, an ordered link. S2 (split
-  LLVM codegen) is pulled into 0002 §6.1 step 3.
+  import lists, content-named partitions, an ordered link. It consumes
+  0004's cutover unchanged: 0004's ready set is its phase-3 unit with a
+  serial scheduler, and 0004 takes its S2 (split LLVM codegen).
 - [0007](0007-array-interpreter.md): the array interpreter. Static
   normalization and the type checker's evaluator as one array program
   over a hash-consed term arena. Starts after self-hosting.
