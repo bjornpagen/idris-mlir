@@ -54,7 +54,7 @@ numbers.
   before the passes that use them.
 - No primitive has an implementation in Idris: its one meaning is the
   runtime's (`runtime/`), which folders call too. A closed call runs at
-  run time. Static normalization (proposal 0007) is what would fold one,
+  run time. Static normalization (proposal 0006) is what would fold one,
   and it is not built.
 - The compiler implements the Idris 2 it can compile to the code a
   monomorphic program would be: every construct whose runtime choices
@@ -88,7 +88,7 @@ numbers.
   `%foreign` or the extern; never ignore the pragma. A `Data.Buffer`
   operation is a runtime primitive, with its one meaning in `runtime/`. There
   is no C interop now or later: the one foreign world planned is Rust
-  (proposal 0013), and a C library is reached only through a Rust `-sys`
+  (proposal 0012), and a C library is reached only through a Rust `-sys`
   crate and the safe crate over it.
 - Only `IdrisMLIR.Frontend.*` may import the fork of Idris's compiler
   (`compiler/idris`), and the fork never imports `IdrisMLIR.*`.

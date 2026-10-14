@@ -22,118 +22,106 @@ specification. A proposal that is done is deleted. One nearly done
 keeps only what remains. A proposal can start before a later one it
 partly needs; the stages that wait are named here.
 
-The order of the work, decided by the owner on 2026-10-12 and amended
-2026-10-13 to insert 0004: 0001 now (qualifying its packet 0002 is its
-§6.1's first steps, self-hosting the rest); then 0003's stage 1 (the
-array purge and MLIR-first rebuild, one cutover that ports the fork's
-array users); then 0004 (compile time: the serial pipeline made fast,
-its stages interleavable with 0003's stage 1, its F0 the stage-1
-self-compile record 0006's S0 wants); then sharding (0005's P1, P2 and
-P4 with 0006's S0, S1, S2 and S8). After them the array style is
-the organizing principle: 0003's typed array language, with 0007's
-interpreter, 0008's tables and 0009's layouts as its consumers, and
-0010's checker on 0007's machine; 0012's fixed-plan joins are 0003's
-sparse half. 0011's features may start any time after `make self`;
-nothing waits on them. Parked, with the reason in each status line:
-0012, 0013, 0006's S3 to S6 and S9 to S10, and 0005's P3.
+## Where the work stands (2026-10-14, at b4713f66)
 
-- [0001](0001-get-back-on-track.md): get back on track. The self-host
-  wall is representational: a handoff larger than the program, facts held
-  in several places, and every pass a module pass verifying the whole
-  program. The design the cutover executes, the self-host plan (§6.1),
-  and what remained of the LLVM pin and of the representation cutover
-  (§12), which is its gate G1. Executed by 0002.
-- [0002](0002-cutover-swarm/README.md): the cutover swarm. 0001 as one
-  cutover with no compatibility owed: the C++ side as an in-tree MLIR
-  dialect in upstream's layout with `.cpp` and `.h`, `idr.func` with
-  inherent facts, analyses under the pass manager, function passes in
-  parallel with threading on, the frontend emitting no erased value and
-  readable names with locations, and profiling through the pass
-  manager (a time trace since D8, in 0001).
-  Committed, and it builds; deleted once G1 qualifies it.
-- [0003](0003-typed-apl/README.md): a typed array language, MLIR first.
+The cutover (former 0002, deleted in this renumbering; its remains are
+0001's §12) is built and, on arm64 macOS, green: `make check` 26/26,
+`make test-idr` 286/286, `make test` 415/415 (*measured* 2026-10-14).
+x86_64 Linux has still not run the cutover tree: G1 (0001 §12) is
+NotRun there, never green. Stage 1 of `make self` has still never
+finished: the frontend emits the whole of itself (58,236 functions,
+~300 MB of text, ~140 s) and the C++ pipeline does not finish on it.
+That one fact orders the queue.
+
+The first compile-time round (0003's F1, in part) landed 2026-10-13
+and 2026-10-14 and is recorded in 0003 §2: one Simplify round on the
+stage-0 module fell from 1,321 s to 385 s (dev build, *measured* in
+the commits). The rounds themselves, the text handoff and LLVM's
+single module remain. They are the wall, and 0003 and 0005 are written
+as one architecture in two steps: **the whole program stays the unit
+of meaning and stops being the unit of work.** Every fact a guarantee
+rests on (the instance set, closure sums, exclusivity, layouts) stays
+whole-program forever; every body of work (rewrites, LLVM, codegen)
+moves to the smallest boundary its facts allow — call-graph SCCs for
+`idr` passes, size-balanced units for LLVM. On the stage-0 module the
+largest direct-call SCC is 174 of 58,235 functions and 93% are
+singletons (*measured* 2026-10-14 over the corpus's `idr.call` edges;
+closure applies are not in that graph, so it is a lower bound on
+coupling, re-measured after inlining at F0). Namespaces are not that
+boundary: 17% of distinct origin-to-origin direct-call pairs stay in
+one module (*measured*, same probe). Modules produce summaries and
+keep partitions stable under edits; SCCs do the work.
+
+The order of the work, decided by the owner on 2026-10-12, amended
+2026-10-13 to insert compile time, and re-cut 2026-10-14 as one
+maximalist cutover with no compatibility owed to any legacy mechanism
+the new shape replaces: 0001 now (G1, then self-hosting §6.1, whose
+step 3 is 0003's F0 record and takes 0005's split codegen as soon as
+the record names codegen); 0003's remaining stages interleaved with
+§6.1, because stage 1 cannot finish without them; 0002's stage 1 (the
+array purge) right after `make self`; then sharding (0004's P1, P2 and
+P4 with 0005's S-stages). After them the array style is the organizing
+principle: 0002's typed array language, with 0006's interpreter,
+0007's tables and 0008's layouts as its consumers, and 0009's checker
+on 0006's machine; 0011's fixed-plan joins are 0002's sparse half.
+0010's features may start any time after `make self`; nothing waits on
+them. Parked, with the reason in each status line: 0011, 0012, 0005's
+S3 to S6 and S9 to S10 until the F0/S0 record calls for them, and
+0004's P3.
+
+Renumbering of 2026-10-14 (this commit): the cutover packet
+`0002-cutover-swarm/` is deleted, its unfinished qualification folded
+into 0001 §12; 0003→0002 (typed APL), 0004→0003 (compile time),
+0005→0004 (shards), 0006→0005 (sharded compiler), 0007→0006 (array
+interpreter), 0008→0007 (data-oriented frontend), 0009→0008
+(flattened data), 0010→0009 (type checker), 0011→0010 (self-host
+features), 0012→0011 (relational core), 0013→0012 (Rust interop).
+Dated records (`HANDOFF.md` entries, `bench/runs/`, `sources/`) keep
+the numbering then in force.
+
+- [0001](0001-get-back-on-track.md): get back on track. The design the
+  cutover executed; what remains is G1 (§12: x86_64 Linux, the bench on
+  both targets, compile times) and self-hosting (§6.1). Deleted when
+  §6.1 step 5 (`make self`, stage 2 byte-identical to stage 3) is
+  recorded in HANDOFF.md.
+- [0002](0002-typed-apl/README.md): a typed array language, MLIR first.
   Every fact Idris proves about an array has one image in MLIR, the one
-  upstream optimizes on: shapes as ranked tensor types with static
-  dimensions where the program fixes them, typed indices as accesses with
-  no guard, linear threads as destination-passing chains One-Shot
-  Bufferize puts in place, unordered combines as `linalg` reductions,
-  formats as `#sparse_tensor.encoding`. Its sparse half carries relations
-  and the compiler's semiring analyses (0008's multiplicity check,
-  size-change composition). Stage 1 purges today's array stack (about
-  6,300 lines, `idr-in-bounds` among them) in one cutover, right after
-  self-hosting; the language's later stages follow sharding, with 0007,
-  0008 and 0009 as consumers. Decided by the owner, 2026-10-12.
-- [0004](0004-compile-time.md): compile time: one fast serial pipeline.
-  Sharding divides T1; this cuts it, before sharding: the whole-module
-  Simplify fixed point (13 passes to 64 rounds, a SHA1 fingerprint of
-  the module per round, analyses rebuilt per round, uncached symbol
-  scans) replaced by one flat pass list in the shape Mojo's KGEN proves
-  — duplicate functions merged first, one bottom-up SCC inline and
-  specialize pass with a bounded inner per-function pipeline, region
-  simplification off, serial dataflow nested per function, bytecode
-  handoff and content-keyed per-function memos in-process. Measured in
-  stages against the stage-0 self module (its F0 is 0006's S0), each
-  landing only if faster, byte-identical and deterministic at 1/2/8
-  threads; target at least 10x on the stage-1 pipeline. Inserted by the
-  owner, 2026-10-13, renumbering 0004-0012 to 0005-0013. Proposed.
-- [0005](0005-shards.md): shards, the concurrency runtime. One copy of
+  upstream optimizes on. Stage 1 purges today's array stack (about
+  6,300 lines, `idr-in-bounds` among them) in one cutover right after
+  `make self`; the later stages follow sharding. Decided 2026-10-12.
+- [0003](0003-compile-time.md): compile time: one fast serial pipeline.
+  Deletes the whole-module Simplify fixed point and every multiplier
+  under it (module fingerprints, per-round analysis rebuilds, uncached
+  symbol scans, serial dataflow per round, the text handoff) for one
+  bottom-up SCC pipeline with bounded inner per-function work. F1 has
+  partly landed (§2's record); F0, F2 to F5 remain. Its F3 is 0005's
+  S6 done once, serially.
+- [0004](0004-shards.md): shards, the concurrency runtime. One copy of
   the single-threaded runtime per core, task frames for computations
-  that wait, a reactor per shard, values crossing only inside messages.
-  P1, P2 and P4 are the sharding work, with 0006; P3 is parked with
-  0013. Its decisions are taken.
-- [0006](0006-sharded-whole-program-compiler.md): a sharded
-  whole-program compiler. The whole program stays the unit of meaning
-  and stops being the unit of work. S0, S1, S2 and S8 are the sharding
-  work, with 0005, and S2 is pulled into 0001's self-host plan as the
-  first lever on LLVM's single module. S7 is done by the cutover. S3 to
-  S6 and S9 to S10 are parked. Proposed.
-- [0007](0007-array-interpreter.md): the array interpreter. Static
-  normalization and the type checker's evaluator as one array program:
-  the hash-consed term arena as columns, and a wavefront machine that
-  advances every live state at once, one kernel per kind of term per
-  step, with array operations as whole-array runtime primitives. Takes
-  over the former static-normalization proposal (its decisions D1 to D5
-  kept), 0008's arena and 0010's evaluator. Its first stage after the
-  arena is a measured gate against a plain loop. Starts after
-  self-hosting. Proposed.
-- [0008](0008-data-oriented-frontend.md): a data-oriented, array-first
-  frontend. The compiler's state as columnar tables keyed by typed ids,
-  each pass as table operations, on 0007's arena. A consumer of 0003's
-  array style. O2 waits on 0001's parse measurement; O3 and O7 are
-  parked with 0012. Proposed.
-- [0009](0009-flattened-data.md): compiler-chosen flattened layouts of
-  algebraic data. Packed preorder trees when the exclusive grade proves
-  no sharing, columnar layouts for collections and arrays of records,
-  one reference count per region, packed data as the shard message
-  format. A consumer of 0003's array style; 0007's arena takes its
-  layouts. Shard messages wait on 0005. Proposed.
-- [0010](0010-typechecker.md): a state-of-the-art type checker for the
-  fork, built on 0007's arena and machine: tabled search, shape
-  arithmetic and a rewrite ladder, solvers that search while the kernel
-  checks, and a separate small kernel, each stage measured against a
-  baseline. T7 waits on 0005. Proposed.
-- [0011](0011-self-host-features.md): the compiler features
-  self-hosting asked for. A ledger of every rewrite self-hosting forced,
-  and the features, each compiled away on the whole program (an erased
-  match a runtime index forces, polymorphic recursion, dependent result
-  and field types as specializations or closed sums, existentials and
-  runtime types as defunctionalized sums, equality a primitive decides
-  with its proof), no slower than the code they replace. The cutover
-  settled part of the diet these touch (no quantity zero, no newtype,
-  saturated methods). May start any time after `make self`; ordered
-  here because nothing waits on it. A sketch.
-- [0012](0012-relational-core.md): the relational core,
-  `libs/mlir-relational`: worst-case optimal joins, semi-naive
-  fixpoints, e-graphs with relational e-matching. Parked: nothing on
-  the path to self-hosting or sharding needs it; it is taken up when
-  its first consumer (0008's O3 and O7, 0006's S4, 0010's search)
-  starts.
-- [0013](0013-rust-interop.md): Rust as the one foreign world. Bindings
-  are generated from rustdoc's JSON as runtime primitives, shims are
-  linked as bitcode, Rust values live in counted cells, and ownership
-  becomes the compiler's grades. Parked: nothing before the array work
-  needs a foreign world.
+  that wait, a reactor per shard, values crossing only inside
+  messages. Its decisions are taken.
+- [0005](0005-sharded-whole-program-compiler.md): a sharded
+  whole-program compiler. Summaries per module, guarantee facts from
+  summaries alone, work per SCC/codegen unit with fact slices and
+  import lists, content-named partitions, an ordered link. S2 (split
+  LLVM codegen) is pulled into 0001 §6.1 step 3.
+- [0006](0006-array-interpreter.md): the array interpreter. Static
+  normalization and the type checker's evaluator as one array program
+  over a hash-consed term arena. Starts after self-hosting.
+- [0007](0007-data-oriented-frontend.md): a data-oriented, array-first
+  frontend: compiler state as columnar tables on 0006's arena.
+- [0008](0008-flattened-data.md): compiler-chosen flattened layouts of
+  algebraic data, packed and columnar, chosen per value by proof.
+- [0009](0009-typechecker.md): a state-of-the-art type checker for the
+  fork, built on 0006's arena and machine.
+- [0010](0010-self-host-features.md): the compiler features
+  self-hosting asked for, each compiled away on the whole program at
+  no runtime price. A sketch; may start after `make self`.
+- [0011](0011-relational-core.md): the relational core,
+  `libs/mlir-relational`. Parked until its first consumer starts.
+- [0012](0012-rust-interop.md): Rust as the one foreign world. Parked:
+  nothing before the array work needs a foreign world.
 
 Contiguous runs (one run cell for strings, arrays and buffers) have no
-proposal. A wasm32 target entry for bumbledb's TypeScript package is not
-proposed; it is a target, and it is not the evaluator.
+proposal. A wasm32 target entry for bumbledb's TypeScript package is
+not proposed; it is a target, and it is not the evaluator.

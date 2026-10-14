@@ -1,8 +1,8 @@
-# Proposal 0013: Rust as the one foreign world
+# Proposal 0012: Rust as the one foreign world
 
 Status: proposed, 2026-10-04, at 6fda6d8; parked 2026-10-12. Nothing
 here changes the compiler. Parked because self-hosting, sharding and the
-array work come first and none of them needs a foreign world; 0005's P3
+array work come first and none of them needs a foreign world; 0004's P3
 is parked with it. Once the user decides on it, its decisions are
 recorded here and its staged plan (§14) becomes work. Its paths into
 `foreign/idr` are read after the cutover, which moved the dialect into
@@ -869,7 +869,7 @@ rollback : (1 _ : Tx Open) -> IO ()
 
 No Rust call runs at compile time. The compiler has no compile-time
 evaluation feature; it normalizes the static part of the program on the
-type checker's interpreter (0007), which has no foreign world to call
+type checker's interpreter (0006), which has no foreign world to call
 into: a binding's call is stuck there and runs at run time. The stage that
 would have run calls the manifest declares `pure` is withdrawn.
 
@@ -976,7 +976,7 @@ new pool green on both target entries.
 - **R3, generics and callbacks.** `IdrisValue` containers and the
   cycle-check edge, callbacks through exported apply entries, and
   `i128`.
-- **R4** is withdrawn: no call runs at compile time (§11, 0007).
+- **R4** is withdrawn: no call runs at compile time (§11, 0006).
 - **R5, async on the Idris executor** (§12), when the runtime has one.
 
 **Size (conjecture):**
