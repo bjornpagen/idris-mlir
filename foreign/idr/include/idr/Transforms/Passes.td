@@ -279,6 +279,35 @@ def IdrContify : Pass<"idr-contify", "::mlir::ModuleOp"> {
   ];
 }
 
+def IdrDeduplicate : Pass<"idr-deduplicate", "::mlir::ModuleOp"> {
+  let summary = "Keep one of each group of private functions with identical bodies";
+  let description = [{
+    Monomorphisation makes one function per instantiation, and erasure
+    leaves some of them the same function twice over: the same type, the
+    same facts (`instance`, `total`, `break_last`, `effects`, the
+    arguments' and results' attributes) and bodies that match op for
+    op, locations aside, a reference to the function itself counting as
+    the same in each. Of such a group the first in module order stays;
+    every use of the others (a call's callee, a closure's or
+    suspension's label, a constant that names one) names it instead, and
+    the others are erased. The one kept is `no_inline` when any of the
+    group was.
+
+    A function is left alone when it is not private, has no body, is a
+    clone, is an instance of a definition (its name is that
+    definition's provenance, which a check looks a function up by), is
+    named by a declaration's `labels` or by another function's clone
+    fact, or is used by an op of any other kind; and a group is left
+    alone when one of its functions uses another, whose merging would
+    rewrite the recursion between them.
+  }];
+  let statistics = [
+    Statistic<"numGroups", "groups", "Groups of identical functions merged">,
+    Statistic<"numMerged", "merged", "Duplicate functions erased">,
+  ];
+  let dependentDialects = ["::idr::IdrDialect"];
+}
+
 def IdrIdentity : Pass<"idr-identity", "::idr::FuncOp"> {
   let summary = "Make every call of a function that gives back one of its arguments that argument";
   let description = [{
