@@ -59,16 +59,60 @@ struct LabelSet {
   static LabelSet join(const LabelSet &a, const LabelSet &b) {
     if (a.unknown || b.unknown)
       return top();
+    if (a.names.empty())
+      return b;
+    if (b.names.empty())
+      return a;
+    // One merge into a vector sized for both. A name both hold is one
+    // uniqued StringAttr, so it is met by identity and only a name held
+    // by one side pays the order's comparison: a join that adds nothing,
+    // the solver's common case at a fixpoint it rechecks, is a walk of
+    // pointer compares and one allocation, not a set_union growing by
+    // reallocation under string compares.
     LabelSet out;
-    std::set_union(a.names.begin(), a.names.end(), b.names.begin(), b.names.end(),
-                   std::back_inserter(out.names), [](mlir::StringAttr x, mlir::StringAttr y) {
-                     return x.getValue() < y.getValue();
-                   });
+    out.names.reserve(a.names.size() + b.names.size());
+    size_t i = 0, j = 0;
+    while (i < a.names.size() && j < b.names.size()) {
+      mlir::StringAttr x = a.names[i], y = b.names[j];
+      if (x == y) {
+        out.names.push_back(x);
+        ++i;
+        ++j;
+      } else if (x.getValue() < y.getValue()) {
+        out.names.push_back(x);
+        ++i;
+      } else {
+        out.names.push_back(y);
+        ++j;
+      }
+    }
+    out.names.append(a.names.begin() + static_cast<std::ptrdiff_t>(i), a.names.end());
+    out.names.append(b.names.begin() + static_cast<std::ptrdiff_t>(j), b.names.end());
     return out;
   }
 
   bool mayHold(mlir::StringAttr name) const {
     return unknown || llvm::is_contained(names, name);
+  }
+
+  // Whether joining `other` would add nothing: the same sorted walk as
+  // the merge, allocating nothing, so a lattice rechecked at its
+  // fixpoint answers NoChange without building the joined set (which
+  // the framework then joins twice more to check monotonicity).
+  bool contains(const LabelSet &other) const {
+    if (unknown)
+      return true;
+    if (other.unknown || other.names.size() > names.size())
+      return false;
+    size_t i = 0;
+    for (mlir::StringAttr y : other.names) {
+      while (i < names.size() && names[i] != y && names[i].getValue() < y.getValue())
+        ++i;
+      if (i == names.size() || names[i] != y)
+        return false;
+      ++i;
+    }
+    return true;
   }
 
   bool operator==(const LabelSet &other) const {
@@ -89,6 +133,21 @@ struct LabelSet {
 struct LabelLattice : mlir::dataflow::Lattice<LabelSet> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(LabelLattice)
   using Lattice::Lattice;
+  using Lattice::join;
+
+  // A join that adds nothing is answered by the subset walk alone; one
+  // that grows the set takes the framework's join, checks included.
+  mlir::ChangeResult join(const mlir::dataflow::AbstractSparseLattice &rhs) override {
+    if (getValue().contains(static_cast<const LabelLattice &>(rhs).getValue()))
+      return mlir::ChangeResult::NoChange;
+    return Lattice::join(rhs);
+  }
+
+  mlir::ChangeResult joinLabels(const LabelSet &rhs) {
+    if (getValue().contains(rhs))
+      return mlir::ChangeResult::NoChange;
+    return Lattice::join(rhs);
+  }
 };
 
 // A field of a constructor: (data type, constructor, index).
@@ -124,10 +183,12 @@ struct FieldLabels : mlir::AnalysisState {
   using AnalysisState::AnalysisState;
 
   mlir::ChangeResult join(const LabelSet &other) {
+    if (value.contains(other))
+      return mlir::ChangeResult::NoChange;
     LabelSet joined = LabelSet::join(value, other);
     if (joined == value)
       return mlir::ChangeResult::NoChange;
-    value = joined;
+    value = std::move(joined);
     return mlir::ChangeResult::Change;
   }
 
@@ -205,12 +266,12 @@ public:
     return find(suspendConstants, label);
   }
   llvm::ArrayRef<ApplyOp> applies() const { return applyOps; }
-  // The applies that may call `label`, the function of a closure op or a
-  // closure constant: those whose callee's type is its signature without
-  // its captures. A suspension's function is no label.
-  llvm::ArrayRef<ApplyOp> appliesFor(mlir::StringAttr label) const {
-    return find(candidates, label);
-  }
+  // The labels an apply of a callee of `type` may call, the functions of
+  // closure ops and closure constants: those whose signature without its
+  // captures is `type`. A suspension's function is no label. Only an
+  // apply whose callee's labels are unknown needs them; a known callee
+  // names its own.
+  llvm::ArrayRef<mlir::StringAttr> labelsFor(FnType type) const { return find(byType, type); }
   // Whether `fn` is referenced other than by a call, a closure or a
   // constant, or is public: whoever names it may call it with anything.
   bool escapes(FuncOp fn) const {
@@ -243,7 +304,7 @@ private:
   llvm::DenseMap<mlir::StringAttr, llvm::SmallVector<SuspendOp>> suspendOps;
   llvm::DenseMap<mlir::StringAttr, llvm::SmallVector<mlir::ArrayAttr>> suspendConstants;
   llvm::SmallVector<ApplyOp> applyOps;
-  llvm::DenseMap<mlir::StringAttr, llvm::SmallVector<ApplyOp>> candidates;
+  llvm::DenseMap<FnType, llvm::SmallVector<mlir::StringAttr>> byType;
   llvm::DenseSet<mlir::StringAttr> escaping;
   // holdsClosure's answers for every part of the module's constants.
   llvm::DenseMap<mlir::Attribute, bool> closureFree;

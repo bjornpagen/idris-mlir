@@ -89,25 +89,22 @@ void Labels::gather(Operation *module) {
 
   // An apply may call a label whose signature ends in its callee's type:
   // the label takes its captures first, then the closure type's arguments.
-  // Each apply is filed once under every label of a closure that fits it,
-  // so that a function's entry is joined from its own applies and never
-  // from a scan of all of them.
-  llvm::DenseMap<FnType, SmallVector<ApplyOp>> byType;
-  for (ApplyOp apply : applyOps)
-    byType[cast<FnType>(apply.getCallee().getType())].push_back(apply);
-  auto file = [&](StringAttr label) {
-    FuncOp fn = function(label);
-    if (!fn || candidates.count(label))
-      return;
-    SmallVector<ApplyOp> &into = candidates[label];
-    ArrayRef<Type> inputs = fn.getArgumentTypes();
-    for (size_t k = 0; k <= inputs.size(); ++k) {
-      auto type = FnType::get(fn.getContext(), inputs.take_back(k), fn.getResultTypes());
-      if (auto it = byType.find(type); it != byType.end())
-        llvm::append_range(into, it->second);
-    }
-  };
-  if (!byType.empty()) {
+  // Each label is filed once under every closure type it fits, for the
+  // applies whose callee's labels are unknown: a known callee names the
+  // labels itself, and its apply joins its arguments into their entries,
+  // so no entry is ever joined from a scan of the applies that fit it by
+  // type alone.
+  if (!applyOps.empty()) {
+    llvm::DenseSet<StringAttr> filed;
+    auto file = [&](StringAttr label) {
+      FuncOp fn = function(label);
+      if (!fn || !filed.insert(label).second)
+        return;
+      ArrayRef<Type> inputs = fn.getArgumentTypes();
+      for (size_t k = 0; k <= inputs.size(); ++k)
+        byType[FnType::get(fn.getContext(), inputs.take_back(k), fn.getResultTypes())]
+            .push_back(label);
+    };
     for (auto &entry : closureOps)
       file(entry.first);
     for (auto &entry : constantClosures)
