@@ -46,14 +46,30 @@ public export
 CallSeq : {- f g -} Type
 CallSeq = List (FC, Name)
 
+||| How the path of a graph was made: one call, or the paths of two graphs
+||| composed, the first's calls then the second's. Composing two graphs
+||| makes one step of a path, which shares the two it is made of; listing
+||| the calls copies them, and a closure composes paths of paths, whose
+||| calls can double at each step. Only the loop a failed check reports has
+||| its calls listed.
+data CallPath {- f g -} = Call FC Name | Then CallPath CallPath
+
+||| The calls of a path, in order.
+callSeq : CallPath {- f g -} -> CallSeq {- f g -}
+callSeq p = go p []
+  where
+    go : CallPath -> CallSeq -> CallSeq
+    go (Call l g) seq = (l, g) :: seq
+    go (Then p1 p2) seq = go p1 (go p2 seq)
+
 ||| An edge from f to g is given by:
 |||   the actual changes in g with respect to f
-|||   the sequence in the call graph leading from f to g
+|||   the path in the call graph leading from f to g
 ||| The path is only here for error-reporting purposes
 record Graph {- f g -} where
   constructor MkGraph
   change : Change {- f g -}
-  seq : CallSeq {- f g -}
+  path : CallPath {- f g -}
 
 ||| Sc graphs to be added
 WorkList : Type
@@ -69,7 +85,7 @@ SCSet = NameMap {- \ f => -}
 ------------------------------------------------------------------------
 -- Instances
 
--- ignore call sequence
+-- ignore the path
 Eq Graph where
   (==) a1 a2 = a1.change == a2.change
 
@@ -77,7 +93,7 @@ Ord Graph where
   compare a1 a2 = compare a1.change a2.change
 
 Show Graph where
-  show a = show a.change ++ "\n    via call seq: " ++ show a.seq ++ "\n"
+  show a = show a.change ++ "\n    via call seq: " ++ show (callSeq a.path) ++ "\n"
 
 ------------------------------------------------------------------------
 -- Utility functions
@@ -133,7 +149,7 @@ composeGraph : Graph {- f g -} -> Graph {- g h -} -> Graph {- f h -}
 composeGraph a1 a2
     = MkGraph
         (composeChange a1.change a2.change)
-        (a1.seq ++ a2.seq)
+        (Then a1.path a2.path)
 
 ||| Precompose a give an sc-graph & insert it in the worklist (unless it's already known)
 preCompose : (f : Name) -> Graph {- f g -} -> -- /!\ g bound later
@@ -268,7 +284,7 @@ addFunctions defs (d1 :: ds) pred work
         = do Just d2 <- lookupCtxtExact g (gamma defs)
                 | Nothing => do logC "totality.termination.calc" 7 $ do pure "Not found: \{show g}"
                                 pure calls
-             pure ((d2, l, (d1.fullname, d2.fullname, MkGraph ch [(l, d2.fullname)])) :: calls)
+             pure ((d2, l, (d1.fullname, d2.fullname, MkGraph ch (Call l d2.fullname))) :: calls)
 
     addCall : (List GlobalDef, NameMap (FC, Name), WorkList) ->
                   (GlobalDef, FC, (Name, Name, Graph)) ->
@@ -370,53 +386,63 @@ weaker g h = all row g
       Nothing => False
       Just ys => all (\(j, x) => maybe False (x <=) (Vector1.lookupOrd j ys)) (forget xs)
 
-||| Does going round a loop with this graph, from a function to itself,
-||| fail to decrease? Going round any number of times is a power of the
-||| graph, and some power is idempotent, unchanged by composing with
-||| itself: the loop decreases each time round exactly when that power
-||| takes some argument to a strictly smaller one of itself. A power that
-||| is not found within the fuel counts as failing, so that the answer is
-||| never a decrease that was not shown.
-nonDescending : Change -> Bool
-nonDescending g = go 1024 g
+||| The power of a graph that composing with itself leaves unchanged, when
+||| one is found within the fuel. Going round a loop with the graph any
+||| number of times is a power of it, and some power is idempotent: the
+||| loop decreases each time round exactly when that power takes some
+||| argument to a strictly smaller one of itself.
+idempotentPower : Change -> Maybe Change
+idempotentPower g = go 1024 g
   where
-    go : Nat -> Change -> Bool
-    go Z _ = True
-    go (S k) p = if composeChange p p == p
-                    then not (any (\(i, xs) => Vector1.lookupOrd i xs == Just Smaller) p)
-                    else go k (composeChange p g)
+    go : Nat -> Change -> Maybe Change
+    go Z _ = Nothing
+    go (S k) p = if composeChange p p == p then Just p else go k (composeChange p g)
 
-||| For each pair of functions of a component, the weakest graphs of the
-||| paths from one to the other: those no other path's graph is weaker
-||| than. They decide what the closure over every path's graph decides.
-||| Composition keeps the order (weaker parts make a weaker path), so every
-||| path's graph has one here at least as weak; and a loop that fails to
+||| Does a graph take some argument to a strictly smaller one of itself?
+decreases : Change -> Bool
+decreases p = any (\(i, xs) => Vector1.lookupOrd i xs == Just Smaller) p
+
+||| Does going round a loop with this graph, from a function to itself,
+||| fail to decrease? A power that is not found within the fuel counts as
+||| failing, so that the answer is never a decrease that was not shown.
+nonDescending : Change -> Bool
+nonDescending g = maybe True (not . decreases) (idempotentPower g)
+
+||| Whether every loop through `f` decreases some argument each time round,
+||| given the calls of its component by caller. The walks from `f` are
+||| extended one call at a time, breadth first, and each function they
+||| reach keeps only the weakest graphs of the walks to it, those no other
+||| walk's graph is weaker than: composition keeps the order (weaker parts
+||| make a weaker walk), so a walk no weaker than one kept extends only to
+||| walks no weaker than that one's, and what each function keeps in the
+||| end are the weakest graphs of every walk to it. A loop that fails to
 ||| decrease still fails when its graph says less, since the powers of a
 ||| weaker graph are weaker and a strict arc of a weaker graph is one of the
-||| stronger's. So a loop without decrease exists exactly when one of these
-||| has none. A pair keeps a handful of graphs where the closure keeps
-||| every one, each composed with all the others.
-Weakest : Type
-Weakest = NameMap (NameMap (List Change))
+||| stronger's; so a loop without decrease exists exactly when one of those
+||| kept at `f` has none. A walk back to `f` whose idempotent power shows no
+||| decrease decides as soon as it is found: the weakest graph under it
+||| fails too, its own power found within the fuel or not. One that fails
+||| only for want of fuel decides nothing before the end, since a weaker
+||| one may still show a decrease. The loops through `f` are walks from it:
+||| the paths between the other pairs of its component are no part of its
+||| answer.
+loopsFrom : NameMap (List (Name, Change)) -> Name -> Bool
+loopsFrom out f = go (callsOf f) [] empty
+  where
+    callsOf : Name -> List (Name, Change)
+    callsOf g = fromMaybe [] (lookup g out)
 
-weakestOf : Name -> Name -> Weakest -> List Change
-weakestOf f g w = fromMaybe [] (lookup g (lookupMap f w))
-
-||| Adds the graphs of a work list, and the paths each makes with those
-||| already there, to the weakest graphs. A graph is added only when none
-||| there is weaker, and it replaces those it is weaker than; a graph once
-||| bettered never comes back, so this ends.
-closeWeakest : List (Name, Name, Change) -> Weakest -> Weakest
-closeWeakest [] w = w
-closeWeakest ((f, h, x) :: work) w
-    = let old = weakestOf f h w in
-      if any (\y => weaker y x) old then closeWeakest work w else
-        let w' = insert f (insert h (x :: filter (not . weaker x) old) (lookupMap f w)) w
-            after = concatMap (\(k, zs) => map (\z => (f, k, composeChange x z)) zs)
-                              (Libraries.Data.NameMap.toList (lookupMap h w'))
-            before = concatMap (\(e, m) => map (\v => (e, h, composeChange v x)) (fromMaybe [] (lookup f m)))
-                               (Libraries.Data.NameMap.toList w') in
-        closeWeakest (after ++ before ++ work) w'
+    -- The walks being extended and those one call longer (the last first),
+    -- each as the function it ends at and its graph.
+    go : List (Name, Change) -> List (Name, Change) -> NameMap (List Change) -> Bool
+    go [] [] kept = not (any nonDescending (fromMaybe [] (lookup f kept)))
+    go [] longer kept = go (reverse longer) [] kept
+    go ((h, x) :: walks) longer kept
+        = let old = fromMaybe [] (lookup h kept) in
+          if any (\y => weaker y x) old then go walks longer kept
+          else if h == f && maybe False (not . decreases) (idempotentPower x) then False
+          else go walks (foldl (\acc, (k, z) => (k, composeChange x z) :: acc) longer (callsOf h))
+                  (insert h (x :: filter (not . weaker x) old) kept)
 
 ||| For each function of a strongly connected component of the call graph,
 ||| given the calls between its functions (caller, callee, and how each
@@ -426,8 +452,9 @@ closeWeakest ((f, h, x) :: work) w
 export
 loopsTerminate : List (Name, Name, Matrix SizeChange) -> List Name -> List (Name, Bool)
 loopsTerminate calls members
-    = let w = closeWeakest calls empty in
-      map (\f => (f, not (any nonDescending (weakestOf f f w)))) members
+    = let out = foldr (\(f, h, x), m => insert f ((h, x) :: fromMaybe [] (lookup f m)) m)
+                      (the (NameMap (List (Name, Change))) empty) calls in
+      map (\f => (f, loopsFrom out f)) members
 
 ||| The names a definition refers to, with those of its case blocks, which
 ||| are checked as part of it.
@@ -536,9 +563,10 @@ calcTerminating loc n
          let s = transitiveClosure (insideComponents work) initSCSet
          let Nothing = findNonTerminatingLoop s
            | Just (g, loop) =>
+               let loopSeq = callSeq loop.path in
                ifThenElse (def.fullname == g)
-                 (pure $ NotTerminating (RecPath loop.seq))
-                 (do setTerminating EmptyFC g (NotTerminating (RecPath loop.seq))
+                 (pure $ NotTerminating (RecPath loopSeq))
+                 (do setTerminating EmptyFC g (NotTerminating (RecPath loopSeq))
                      let init = prefixCallSeq pred g
                      setPrefixTerminating init g
                      pure $ NotTerminating (BadPath init g))
