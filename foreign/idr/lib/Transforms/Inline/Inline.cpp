@@ -45,9 +45,18 @@ namespace idr {
 namespace {
 
 // What the inliner runs on a function an iteration inlined into. Every
-// callable is an idr.func, so this one pipeline is anchored there.
+// callable is an idr.func, so this one pipeline is anchored there. One
+// greedy iteration: the worklist itself propagates a rewrite's
+// consequences within the iteration, and what one iteration leaves the
+// next inlining iteration, or the round's own parallel function step,
+// takes up — where the canonicalizer's default ten iterations re-seed
+// the whole function after every round of rewrites, on every inlining
+// iteration, serially per component. The traversal restates the
+// canonicalizer pass's own default, which a bare config does not have.
 void componentPipeline(OpPassManager &pm) {
-  pm.addPass(createCanonicalizerPass());
+  pm.addPass(createCanonicalizerPass(GreedyRewriteConfig()
+                                         .setUseTopDownTraversal()
+                                         .setMaxIterations(1)));
   pm.addPass(createCSEPass());
 }
 
