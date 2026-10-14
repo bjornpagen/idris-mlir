@@ -2,13 +2,14 @@
 // inline as InlineDecisions does. A caller that takes in a body without
 // Idris's proof of termination loses its own (FuncOp::absorb).
 //
-// Between iterations the inliner canonicalizes and CSEs the functions of a
-// component, so that an apply one iteration exposed is a call the next one
-// inlines: a do block unfolds in one round. It does so only on a function
-// an iteration inlined into. Every other function is as the round's
-// parallel function step left it, and the inliner optimizes one component
-// at a time, so running the pipeline on it would canonicalize the module a
-// second time, serially across components.
+// Between iterations the inliner canonicalizes the ops an iteration
+// inlined (InlineCleanup, below), so that an apply one iteration exposed
+// is a call the next one inlines: a do block unfolds in one round. It
+// does so only on a function an iteration inlined into. Every other
+// function is as the round's parallel function step left it, and the
+// inliner optimizes one component at a time, so running the pipeline on
+// it would canonicalize the module a second time, serially across
+// components.
 //
 // The preparation and the inliner repeat together until a cycle of the
 // two changes nothing: inlining one statement of a do block exposes the
@@ -27,13 +28,17 @@
 #include "idr/IR/Layout.h"
 
 #include "mlir/Analysis/CallGraph.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/Inliner.h"
 #include "mlir/Transforms/Passes.h"
+#include "mlir/Transforms/RegionUtils.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 
 #include <limits>
+#include <memory>
 
 using namespace mlir;
 
@@ -46,10 +51,109 @@ namespace {
 
 // What the inliner runs on a function an iteration inlined into. Every
 // callable is an idr.func, so this one pipeline is anchored there.
-void componentPipeline(OpPassManager &pm) {
-  pm.addPass(createCanonicalizerPass());
-  pm.addPass(createCSEPass());
-}
+//
+// Between inlining iterations only what inlining itself exposed needs
+// folding -- an apply of a known closure, a match on a known
+// constructor -- so that the next iteration reads it as a call. The
+// clone callback marks the ops a clone inserted with this attribute,
+// and the cleanup below runs the canonicalization patterns on those
+// ops and their immediate neighbours alone, the driver following
+// operands and users from there. Canonicalizing the whole
+// body instead re-walks it once per inlining iteration that touched
+// it: a function at the head of a long chain of inlines (the root of
+// a large program) is marked hundreds of times, each run trying every
+// pattern on tens of thousands of ops the round's function step
+// already canonicalized, and each run but the last is discarded by
+// the next inline into it. What the scoped run cannot reach -- a
+// defining op outside the marks that must fold first, region
+// simplification, the duplicates a CSE would merge -- the next
+// round's parallel canonicalize and CSE do, in full, once.
+constexpr StringLiteral kSeedAttr = "idr.inlined";
+
+struct InlineCleanup : PassWrapper<InlineCleanup, OperationPass<idr::FuncOp>> {
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(InlineCleanup)
+
+  StringRef getArgument() const final { return "idr-inline-cleanup"; }
+  StringRef getDescription() const final {
+    return "Canonicalize the ops an inlining iteration inserted";
+  }
+
+  // The canonicalization patterns of every loaded dialect, as the
+  // canonicalizer pass collects them, frozen once per pass copy.
+  LogicalResult initialize(MLIRContext *context) override {
+    RewritePatternSet owning(context);
+    for (Dialect *dialect : context->getLoadedDialects())
+      dialect->getCanonicalizationPatterns(owning);
+    for (RegisteredOperationName op : context->getRegisteredOperations())
+      op.getCanonicalizationPatterns(owning, context);
+    patterns = std::make_shared<FrozenRewritePatternSet>(std::move(owning));
+    return success();
+  }
+
+  void runOnOperation() override {
+    idr::FuncOp fn = getOperation();
+    bool marked = false;
+    fn.walk([&](Operation *op) {
+      if (op->hasAttr(kSeedAttr)) {
+        marked = true;
+        return WalkResult::interrupt();
+      }
+      return WalkResult::advance();
+    });
+    if (!marked)
+      return markAllAnalysesPreserved();
+    IRRewriter rewriter(fn.getContext());
+    // As the greedy driver does before its patterns: a body inlined
+    // here may end in ub.unreachable, leaving the continuation no
+    // path reaches, and patterns are unsafe on unreachable ops. The
+    // marks on the erased ops go with them; the seeds are read off
+    // what is left.
+    (void)eraseUnreachableBlocks(rewriter, fn.getBody());
+    SmallVector<Operation *> seeds;
+    fn.walk([&](Operation *op) {
+      if (op->hasAttr(kSeedAttr)) {
+        op->removeAttr(kSeedAttr);
+        seeds.push_back(op);
+      }
+    });
+    // What inlining exposed is as often in the caller as in the body
+    // it inserted: an apply of the closure the body returns, a match
+    // on the constructor an inserted op reads a field of. The driver
+    // follows operands and users of an op it rewrites, but an op it
+    // never visits stays unvisited however its neighbours changed, so
+    // the seeds are joined by their immediate users and the ops that
+    // define their operands.
+    llvm::DenseSet<Operation *> seen(seeds.begin(), seeds.end());
+    auto join = [&](Operation *op) {
+      if (op && fn->isAncestor(op) && seen.insert(op).second)
+        seeds.push_back(op);
+    };
+    for (size_t at = 0, count = seeds.size(); at < count; ++at) {
+      Operation *op = seeds[at];
+      for (Value result : op->getResults())
+        for (Operation *user : result.getUsers())
+          join(user);
+      for (Value operand : op->getOperands())
+        join(operand.getDefiningOp());
+    }
+    if (!seeds.empty()) {
+      GreedyRewriteConfig config;
+      config.setScope(&fn.getBody());
+      // Best-effort, as canonicalization is: non-convergence leaves
+      // valid IR for the next round's full canonicalize.
+      (void)applyOpPatternsGreedily(seeds, *patterns, config);
+    }
+    // The structural half of a canonicalize, which the op-list
+    // driver does not do: dead block arguments and the blocks the
+    // patterns left unreachable. No block merging, as under the
+    // canonicalizer's normal region simplification.
+    (void)simplifyRegions(rewriter, fn.getBody(), /*mergeBlocks=*/false);
+  }
+
+  std::shared_ptr<const FrozenRewritePatternSet> patterns;
+};
+
+void componentPipeline(OpPassManager &pm) { pm.addPass(std::make_unique<InlineCleanup>()); }
 
 struct Inline : idr::impl::IdrInlineBase<Inline> {
   using IdrInlineBase::IdrInlineBase;
@@ -141,6 +245,16 @@ struct Inline : idr::impl::IdrInlineBase<Inline> {
             it->second = true;
         }
         clone(builder, src, inlineBlock, postInsertBlock, mapper, cloned);
+        // The ops just inserted, in the blocks the clone made between
+        // the call's block and its continuation: the seeds of the
+        // cleanup the runner runs on this function. An attribute, not
+        // a list of pointers: inlining goes on erasing and merging
+        // around them before the cleanup reads the marks off the ops
+        // that are still there.
+        UnitAttr seed = UnitAttr::get(builder.getContext());
+        for (Block &block : llvm::make_range(std::next(inlineBlock->getIterator()),
+                                             postInsertBlock->getIterator()))
+          block.walk([&](Operation *op) { op->setAttr(kSeedAttr, seed); });
       });
       auto profitable = [&inlinable](const Inliner::ResolvedCall &call) {
         Region *region = call.targetNode->getCallableRegion();
@@ -176,6 +290,12 @@ struct Inline : idr::impl::IdrInlineBase<Inline> {
       Inliner inliner(module, graph, *this, getAnalysisManager(), runner, config, profitable);
       if (failed(inliner.doInlining()))
         return signalPassFailure();
+      // A function the inliner never ran the cleanup on (one holding a
+      // nested callable, which its SCC step skips) keeps its seed
+      // marks; no mark outlives the cycle that made it.
+      if (clonedAny)
+        for (idr::FuncOp fn : module.getOps<idr::FuncOp>())
+          fn.walk([&](Operation *op) { op->removeAttr(kSeedAttr); });
       if (!clonedAny && functionsBefore == llvm::range_size(module.getOps<idr::FuncOp>()) && !prepared)
         return preserveUnchanged();
       everInlined = true;

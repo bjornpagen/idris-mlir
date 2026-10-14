@@ -228,9 +228,9 @@ def IdrInline : Pass<"idr-inline", "::mlir::ModuleOp"> {
     a closure that only forces a captured suspension calls the
     suspension's function in its place, and a force of a constant
     suspension used once, where its label cannot be running, becomes the
-    call. After an iteration, `canonicalize` and `cse` run only on a
-    function it inlined into; the round's function step canonicalizes
-    every other.
+    call. After an iteration, the canonicalization patterns run only on
+    the ops it inlined into a function, and their immediate neighbours;
+    the round's function step canonicalizes every function in full.
   }];
   let statistics = [
     Statistic<"numInlinable", "inlinable", "Functions the size rule lets inline">,
