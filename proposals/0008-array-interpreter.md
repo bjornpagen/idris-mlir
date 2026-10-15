@@ -1,9 +1,9 @@
-# 0007: the array interpreter
+# 0008: the array interpreter
 
 **Status:** proposed 2026-10-12; reconciled 2026-10-14 with 0004's
 pipeline cutover and decided the same day: every question is decided
 but the one in §13, which restates two of the owner's rulings, and
-what A3's folds mean on the Chez host, asked once in 0006 §12 (default:
+what A3's folds mean on the Chez host, asked once in 0007 §12 (default:
 a native stage 0 from A3, D19). Nothing
 here is built. The tree today (*measured*, 0002 and 0004 §0): the
 cutover 0002 designed is committed and builds on arm64 macOS, where
@@ -23,13 +23,13 @@ It takes over three earlier plans: static normalization (the former
 static-normalization proposal, decided by the owner on 2026-10-10: D1,
 D2 and D4 stand here word for word, and D3 and D5 are restated in §12,
 each with its reason), the frontend's interned names and term arena
-(0008's O1 and O4), and the type checker's evaluator (0010's former
+(0009's O1 and O4), and the type checker's evaluator (0011's former
 §2.2, T1, T2 and T6). In the queue it follows sharding's first stages
 (`proposals/README.md`). A0 to A3 need only `make self` (0002 §2, step
 5), which 0004's cutover precedes; A4 waits on 0003's stage 1; A5 on
 0003's stage 5, the last its kernels' vocabulary needs (fusion at
 stage 3, `idr.scan` and `idr.scatter` at 4, `filter` at 5); A6 on
-0005's P4; A7, the interactive loop, on A0. Claims are marked: *read*,
+0006's P4; A7, the interactive loop, on A0. Claims are marked: *read*,
 *measured*, *recalled*, *conjecture*, *decision*.
 
 **The idea.** A dependently typed compiler needs no "comptime" feature: its
@@ -111,12 +111,12 @@ What happens to a call, by how much of it is static:
   as any closure constant.
 - **A closed call the cost rule refuses** becomes a top-level constant:
   one static memo cell, forced at its first demand and never again, at
-  native speed, once per shard that demands it (0005 D6). It is the
+  native speed, once per shard that demands it (0006 D6). It is the
   shared arity-0 cell Emit already writes for a lazy constant
   (`compiler/src/IdrisMLIR/Emit/Declarations.idr:67-70`) and the
   runtime's static memo cell, released at exit
   (`runtime/idris_rt.h:30-33, 226-230`); under shards it is the memo
-  sum's `Static i` state, naming the demanding shard's slot (0005 §6).
+  sum's `Static i` state, naming the demanding shard's slot (0006 §6).
   The program's first demand *is* the compiled tier. *Decision:* first
   demand, never startup. The budget stopped before the call ended, so a
   failing primitive may be inside it, and it must fail where the program
@@ -157,7 +157,7 @@ What happens to a call, by how much of it is static:
 ## 3. The representation: one arena, as columns
 
 *Decision.* The fork's terms, the frontend's TT and the interpreter's code
-are one table, owned here and used by 0008's frontend and 0010's checker.
+are one table, owned here and used by 0009's frontend and 0011's checker.
 No pass copies it into a second form.
 
 | Table | Columns | Notes |
@@ -167,7 +167,7 @@ No pass copies it into a second form.
 | values | `kind`, `head`, `env` (a slice of an environment column), `spine` (a slice of a spine column), `unfolded` (a value id or none) | levels, not indices; glued: the head and spine are the cheap form, `unfolded` the unfolded one; never hash-consed |
 | caches | `closed term → whnf`, `closed term → normal form`, `(term, term) → convertible` as success and failure sets, and a transient set for terms with metas | indexed by id; a hit costs a gather |
 
-Every id is a type indexed by its table, erased to a word (0008 D1):
+Every id is a type indexed by its table, erased to a word (0009 D1):
 `TermId a` cannot index a value table. A read through such an id has no
 guard, because its type bounds it by the table's extent, so it is an
 `index` at its access (0003 D4, §3.2); no pass proves a check away, and
@@ -184,18 +184,18 @@ is an integer (`code/nanoda_lib/src/util.rs:34-69, 394-400`) (*read*
 through `elaborators.md` §3).
 
 *Decision:* the `hash` column holds the frontend's one content hash,
-XXH3's 128-bit variant written in plain Idris over `Bits64` (0006 D16,
-which closed the question 0006 §12 once held, and checks the Idris copy
+XXH3's 128-bit variant written in plain Idris over `Bits64` (0007 D16,
+which closed the question 0007 §12 once held, and checks the Idris copy
 against the algorithm's published test values). It is a Merkle hash of
 a node's kind, payload and children's hashes, so equal subterms hash
 equally wherever they are interned, and a generated name carries its
-low 64 bits (0006 §4.5). The table probes with its low 64
-bits, and a hit compares the node's columns, never the hash alone (0006
-§11 rejects trusting hash equality). Reason: 0006 keys owner shards,
-summaries and symbol names by exactly this hash over these terms (0006
+low 64 bits (0007 §4.5). The table probes with its low 64
+bits, and a hit compares the node's columns, never the hash alone (0007
+§11 rejects trusting hash equality). Reason: 0007 keys owner shards,
+summaries and symbol names by exactly this hash over these terms (0007
 §4.1, §4.5), so one column serves the table and the names, and a name
 taken without it would walk the term again. Its cost is 16 bytes a
-node, about what the node's other columns take (*conjecture*); 0010's
+node, about what the node's other columns take (*conjecture*); 0011's
 T0 and A0's record show it.
 
 Values follow smalltt: de Bruijn indices in terms, levels in values,
@@ -212,7 +212,7 @@ Five rules about the arena, each a *decision*:
   (`elaborators.md` §3, §12).
 - **Spans are not in terms.** A hash-consed node is shared by every
   occurrence, so it has no one position. The elaborator reports at the
-  syntax node it is elaborating, which names its token (0008 §3).
+  syntax node it is elaborating, which names its token (0009 §3).
   Today every TT constructor carries an `FC`
   (`compiler/idris/src/Core/TT/Term.idr:100-124`), which would make two
   equal terms at two places two nodes. The fork already drops them
@@ -230,7 +230,7 @@ Five rules about the arena, each a *decision*:
   own modules, checked in the same run, lose the column inside a
   definition in those messages; the elaborator's own errors keep it.
   This supersedes the earlier "spans are free: a node names its token",
-  which is true of 0008's syntax nodes, not of terms.
+  which is true of 0009's syntax nodes, not of terms.
 - **The loose-bound-variable column is a full word, and checked.** Lean's
   kernel packed the range into 20 bits, and an overflow check that
   returned 0 turned every skip on, a soundness bug found by a failing
@@ -245,12 +245,12 @@ Five rules about the arena, each a *decision*:
   is written from content: a TTC keeps its tree format, writing each
   term by its structure (`Core/TTC.idr:392-477`), so no id and no
   interning order reaches it, and a name uses the `hash` column (0004
-  D18; 0006 D3). Filliâtre's tags do not survive serialization either
+  D18; 0007 D3). Filliâtre's tags do not survive serialization either
   (`columnar.md` §6). *Decision:* A0 does not change the TTC format. A
   format that writes each distinct subterm once would make TTCs smaller
   and loading them a gather, but it is a second change with its own
-  cost; it is taken only if 0010's T0 shows TTC loading above 5% of
-  elaboration, 0008 D0's rule for a representation change.
+  cost; it is taken only if 0011's T0 shows TTC loading above 5% of
+  elaboration, 0009 D0's rule for a representation change.
 - **Two lifetimes, in the id's type.** The arena has a persistent part,
   which holds checked definitions and what TTCs hold, and a temporary
   part for one definition's check or one normalization, dropped when it
@@ -265,7 +265,7 @@ Five rules about the arena, each a *decision*:
   new, with its hash unchanged; caches that outlive a check key on
   persistent ids only (*decision*). Reason: an arena that only grows
   would keep every intermediate term of every check until exit, and
-  the frontend already peaks at 9.1 GB on Chez (0008 §2).
+  the frontend already peaks at 9.1 GB on Chez (0009 §2).
 
 The caches hold only what their key decides (*decision*, from Lean's
 kernel and elaborator, *read* through `elaborators.md` §4): a closed,
@@ -278,7 +278,7 @@ postponed a constraint (`code/lean4/src/Lean/Meta/ExprDefEq.lean:2438-2480`).
 
 What falls out: syntactic equality is an integer compare; conversion
 normalizes only when ids differ; a normal form is computed once per id;
-memory is a few large arrays, each one counted cell (0009 D4), not
+memory is a few large arrays, each one counted cell (0010 D4), not
 millions of cells.
 
 ## 4. The machine: wavefront evaluation
@@ -331,7 +331,7 @@ substitutions, and strong confluence makes the number of reductions
 independent of their order (*read*:
 `papers/taelin-2024-hvm2/HVM2.typst:13, 378, 409-411, 750`). The
 wavefront takes the many-redexes-at-once idea and not the atomics: its
-rows advance in lockstep in a deterministic order, and 0005 has no
+rows advance in lockstep in a deterministic order, and 0006 has no
 shared heap. smalltt shows what a careful glued evaluator buys over Agda,
 Coq, Lean and Idris (*read* through `elaborators.md` §10, which read
 smalltt's README at `ea99b0f4`; `code/smalltt/SNAPSHOT.md` lists the
@@ -354,7 +354,7 @@ on every machine, thread count and shard count.
 
 **Parallel by construction.** Each kernel is data-parallel over its
 segment. Once 0003's arrays exist, the kernels are written in its
-vocabulary, so the compiler fuses and vectorizes them (§6); once 0005's
+vocabulary, so the compiler fuses and vectorizes them (§6); once 0006's
 shards exist, a segment splits across shards with the same result.
 
 ## 5. Arrays in interpreted code
@@ -388,7 +388,7 @@ fast enough).
 
 The interpreter is written in the typed array style it interprets. Its
 tables are 0003 arrays, its kernels are 0003 programs over them, and its
-columns take 0009's layouts (one tensor per field, 0003 §4.5). When
+columns take 0010's layouts (one tensor per field, 0003 §4.5). When
 0003's stage 3 lands, a kernel such as "gather the environment slot of
 every variable row, then build the value rows" is a `map` over a gather,
 which `linalg-fuse-elementwise-ops` fuses into one loop with no
@@ -421,14 +421,14 @@ normalization extends that to the value level at the same point, so a
 choice computed by recursion reaches the instance decision that needs
 it. A closed call needs only its callees, which a module's imports
 provide, so normalization runs per module and is cached under the
-module's content hash with the rest of its summary (0006 §3.1, §5.3).
-**The C++ pipeline never runs program code** (0006 D6: phases 2 to 4
+module's content hash with the rest of its summary (0007 §3.1, §5.3).
+**The C++ pipeline never runs program code** (0007 D6: phases 2 to 4
 run none, on any schedule). What leaves the frontend
 is ordinary IR (constants, closure constants, memo cells), which 0004's
 pipeline compiles like any other; no pass of 0004 knows static
 normalization exists.
 
-**Stage 0 from A3** (*decision* with the owner's question in 0006 §12,
+**Stage 0 from A3** (*decision* with the owner's question in 0007 §12,
 default taken). `make self`'s stage 0 runs the frontend on Chez
 (`tools/self.sh:13-14`). From A3 the normalizer folds a primitive by
 calling `runtime/` (§5), which has no meaning there, and a fold computed
@@ -441,14 +441,14 @@ frontend, which compiles the current source natively into stage 1, so
 no fold ever runs on Chez and the interpreter has no host case. Reason:
 any test of the host inside the interpreter would be a second path, and
 a fold on Chez would put a Chez meaning into output. The same fact, no
-meaning of ours on the Chez host, is what 0006 §12 asks about shards,
+meaning of ours on the Chez host, is what 0007 §12 asks about shards,
 so the owner answers both together. A3 changes `tools/self.sh`'s stage
 0 in the same change; AGENTS.md's Chez exception (the host side of the
 frontend) is unchanged, since stock Idris on Chez still builds a
 frontend, the seed commit's.
 
 The type checker uses the same arena, machine and caches for conversion,
-unification's evaluation and proofs by reflection (0010 builds tabled
+unification's evaluation and proofs by reflection (0011 builds tabled
 search, shape arithmetic, the rewrite ladder and the kernel on top of
 it).
 
@@ -468,7 +468,7 @@ frontend loading what the line imports (*conjecture*: the fork installs
 in about 75 s on Chez, HANDOFF.md, and a line compiles almost nothing
 of its own), which A0's arena changes, so a
 loop measured before A0 would measure a representation about to go
-(0008 D0's reason for measuring after the change that replaces what is
+(0009 D0's reason for measuring after the change that replaces what is
 measured). A7 builds the loop as a child per line, then measures the
 latency rule; a miss builds the resident frontend in the same stage: one
 child process that keeps the loaded context between lines and compiles
@@ -506,13 +506,13 @@ beside the form it replaces.
 
 | Stage | Content | Proof |
 | --- | --- | --- |
-| A0 | interned names and the hash-consed term arena in the fork, typed ids, its two lifetimes and its 128-bit `hash` column; the fork's evaluator (`Core/Normalise/Eval.idr`, `Quote.idr`, `Convert.idr`) reads terms from the arena, its strategy unchanged; the frontend reads TT from it; TTCs keep their tree format (§3) | identical TTCs and corpus; elaboration of base and the frontend ≥ 1.5× faster than 0010's T0 record; peak resident memory of elaborating them no higher than T0's |
+| A0 | interned names and the hash-consed term arena in the fork, typed ids, its two lifetimes and its 128-bit `hash` column; the fork's evaluator (`Core/Normalise/Eval.idr`, `Quote.idr`, `Convert.idr`) reads terms from the arena, its strategy unchanged; the frontend reads TT from it; TTCs keep their tree format (§3) | identical TTCs and corpus; elaboration of base and the frontend ≥ 1.5× faster than 0011's T0 record; peak resident memory of elaborating them no higher than T0's |
 | A1 | the wavefront machine replaces A0's evaluator in one change: weak head normal form and the read-back the checker needs | **the gate,** A1's binary against A0's on the checker's own normalizations (base, the frontend, smalltt's benchmark set), best of five: at most 2% slower where one row is live, and more than 2% faster where many are (a `tabulate` corpus); 2% is 0004 §10's runtime margin applied to the checker as a program (0003 D35 on why not the run-to-run spread). A machine that misses either is reworked before it lands, and until then A0's evaluator is the only one |
 | A2 | glued values, the caches of §3, approximate conversion, on the machine | smalltt's benchmark set within 1.5× of smalltt; ≥ 2× over A0 on conversion-heavy files |
-| A3 | static normalization in the frontend: closed total calls to values, the frontend's share of control-steering specialization (§2), the counted budget, first-demand constants beyond it; closed array results built at startup until 0003's stage 2, dense constants after it (§2); §9's rules; stage 0 from the last commit before A3 (§7, default of 0006 §12) | `tests/programs/eval` and the corpus unchanged in output; every test of static normalization holds its computations closed and on input (D5); byte-identical across thread counts; `make self` green from the native stage 0; no bench program's runtime or peak resident memory worse than the stage before by more than 2% |
+| A3 | static normalization in the frontend: closed total calls to values, the frontend's share of control-steering specialization (§2), the counted budget, first-demand constants beyond it; closed array results built at startup until 0003's stage 2, dense constants after it (§2); §9's rules; stage 0 from the last commit before A3 (§7, default of 0007 §12) | `tests/programs/eval` and the corpus unchanged in output; every test of static normalization holds its computations closed and on input (D5); byte-identical across thread counts; `make self` green from the native stage 0; no bench program's runtime or peak resident memory worse than the stage before by more than 2% |
 | A4 | arrays in interpreted code as wide wavefronts (§5), after 0003's stage 1 | a table of 10⁶ words built by array operations normalizes within the budget; reflection benchmarks ≥ 10× over A2 where they use arrays |
 | A5 | the kernels as 0003 programs, after its stage 5 (§6) | `fused` holds on every kernel whose steps are elementwise; wide-wavefront benchmarks faster than A4 |
-| A6 | segments across shards, after 0005's P4 | identical results at every shard count; wall time on the A1 corpus recorded |
+| A6 | segments across shards, after 0006's P4 | identical results at every shard count; wall time on the A1 corpus recorded |
 | A7 | the interactive loop (§8), after A0: a child per line, then the latency rule measured, and the resident frontend built in the same stage if it misses | every line's output equal to the same expression compiled as a program; the latency of the 10⁶-element case recorded on both targets |
 
 A3's memory bound is a *decision*: 2% is the bar 0004 §10 sets for
@@ -617,7 +617,7 @@ memory bar is one too: the arena exists to cut memory as well as time
   the persistent part, and caches across checks key on persistent ids.
   Reason: memory, by nanoda's design (§3).
 - D16. The `hash` column is the frontend's content hash, XXH3-128
-  (0006 D16), a Merkle hash per node, probed by its low word and never
+  (0007 D16), a Merkle hash per node, probed by its low word and never
   trusted alone. Reason: names and summaries are keyed by it (§3).
 - D17. The interactive loop is stage A7, after A0, with the latency
   rule deciding the resident frontend in that stage. Reason: the
@@ -627,7 +627,7 @@ memory bar is one too: the arena exists to cut memory as well as time
   result is built at startup. Reason: a dense constant needs a static
   shape and 0003 §12's lowering, both stage 2's (0003 D40).
 - D19. From A3, `make self`'s stage 0 is the native frontend of the
-  last commit before A3, by the default of 0006 §12's owner question.
+  last commit before A3, by the default of 0007 §12's owner question.
   Reason: a fold calls `runtime/`, which has no meaning on Chez, and a
   host case in the interpreter would be a second path (§7).
 
@@ -639,5 +639,5 @@ memory bar is one too: the arena exists to cut memory as well as time
    needs a switch 0004 D2 forbids.
 
 What A3's folds mean on the Chez host that runs stage 0 is the owner's
-too, asked once in 0006 §12 with the shards question that rests on the
+too, asked once in 0007 §12 with the shards question that rests on the
 same fact; its default here is D19.

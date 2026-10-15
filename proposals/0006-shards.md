@@ -1,8 +1,8 @@
-# 0005: shards
+# 0006: shards
 
 **Status:** proposed, 2026-10-09, against `main` at 651156d4;
 reprioritized 2026-10-12; reconciled 2026-10-14 with 0004's pipeline
-cutover and with 0006. Nothing here is built, run or timed. Its
+cutover and with 0007. Nothing here is built, run or timed. Its
 Decisions section is decided: D1 is the user's, and D2 to D12 were pinned
 on the user's delegation by the rule that single-thread performance wins
 the tie ("Rules it keeps"); D13 follows from AGENTS.md.
@@ -16,12 +16,12 @@ deletes it). x86_64 Linux has not run this tree (0002's G1 is NotRun
 there), so P2's epoll half targets a system that has not yet run it.
 
 Sharding follows 0003's stage 1, which follows self-hosting: P1, P2
-and P4 are that work, in order. 0006's S0, S1 and S2's first step are
+and P4 are that work, in order. 0007's S0, S1 and S2's first step are
 taken by 0004's cutover, before any of it. The compiler's own Idris
-half runs on these shards too, by the owner's decision (0006 §5.4, §12):
+half runs on these shards too, by the owner's decision (0007 §5.4, §12):
 single-threaded until this framework exists, then on its shards from
 stage 1 of `make self`; stage 0 runs on Chez and stays single-threaded.
-P3 (asynchronous Rust) is parked with proposal 0013, which it needs. P5
+P3 (asynchronous Rust) is parked with proposal 0014, which it needs. P5
 stays on its measurements. Runtime and compiler paths were re-read at
 3de67510 on 2026-10-14 and again at ccaba89c, where the code is
 unchanged; `M/` and `L/` are the pinned MLIR and LLVM trees under
@@ -618,7 +618,7 @@ range. `Here` is linear, so it is a value of the module with no runtime
 component, as the world is; the send check therefore sees its type
 (§7.3). Runtime: the `Fin` that selects a queue (an `i64` after Nat
 narrowing), `k`, and the message's bytes. Static normalization folds a closed
-placement function of total code (0007), never the core count, which is
+placement function of total code (0008), never the core count, which is
 IO.
 
 #### 7.3 The hop in MLIR and the send check
@@ -790,7 +790,7 @@ shape of pure fork/join.
 
 #### 10.3 `FutT`
 
-`Rust (FutT a)` is a counted foreign cell (proposal 0013 §9.1) holding a
+`Rust (FutT a)` is a counted foreign cell (proposal 0014 §9.1) holding a
 pinned Rust future. The binding's `await` is a loop in a `wait` function:
 poll through the shim with this task's waker; on `Ready a`, return `a`;
 on `Pending`, `idr.wait` for a wake of this slot, then poll again. Rust
@@ -800,17 +800,17 @@ must be `Send + Sync`, and a one-word waker is.
 Before a Rust async import is honest, one shard needs the task frame,
 the `wait` bit and tail await, a reactor with its wake queue, kick and
 platform wait, runtime-owned sockets and timers behind Rust's async I/O
-traits (proposal 0013 §12 names them), the waker, and cancellation as
+traits (proposal 0014 §12 names them), the waker, and cancellation as
 destroy. More shards, lending, taking unstarted messages and io_uring can
-wait. Static normalization covers only total, pure code (0007); waiting
+wait. Static normalization covers only total, pure code (0008); waiting
 is IO, so nothing that waits is normalized.
 
 #### 10.4 Blocking calls offloaded
 
 Synchronous bindings are generated runtime primitives that run on the
-calling shard, in world order (proposal 0013 §9.2). Once a reactor
+calling shard, in world order (proposal 0014 §9.2). Once a reactor
 exists, the manifest marks blocking items in its `[blocking]` table,
-which arrives with P3 (0013 §5), and each becomes a wait run on
+which arrives with P3 (0014 §5), and each becomes a wait run on
 a runtime-owned offload thread that runs Rust only: the arguments move
 into Rust's ownership (`IdrisValue: !Send` already enforces it), the
 completion is posted to the shard, and user code does not change, since
@@ -832,7 +832,7 @@ The send check here answers the same question per message, not per thread:
   because nothing on the sender can reach it.
 
   Decision: the send check accepts a value at the exclusive grade as a
-  move, and its region goes with it. That is the same fact 0009's packed
+  move, and its region goes with it. That is the same fact 0010's packed
   layout relies on. Everything else crosses by copy, as decided above.
 - **Noncopyable types and `borrowing`/`consuming`** (0377, 0390, 0427):
   ownership added to a language after the fact. Idris's quantities have
@@ -870,7 +870,7 @@ measurement.
 
 - **Change:** the `FutT` loop, the one-word waker, runtime sockets and
   timers behind Rust's I/O traits, and the blocking offload, driven by
-  the manifest's `[blocking]` table (0013 §5, §10.4).
+  the manifest's `[blocking]` table (0014 §5, §10.4).
 - **Proof:** a hyper client and server on one shard against their
   committed expected files; cancellation frees the Rust future
   (`IDRIS_RT_LIVE=1` reports zero); a crate graph enabling tokio's `rt`
@@ -960,7 +960,7 @@ before:
 - **A Rust future as our coroutine handle:** rustc compiles a future into
   its own state machine, a foreign value; the frame that polls it is ours
   (§10.3).
-- **A tokio island** on threads of its own (proposal 0013 §3).
+- **A tokio island** on threads of its own (proposal 0014 §3).
 - **Tokio's `Arc` waker:** an allocation and an atomic count per task
   and wake, where one word does (§10.2).
 - **The standard streams as waits:** it colours every batch program that
@@ -1092,9 +1092,9 @@ join's reply flushed its worker, so every line is out.
 
 A top-level constant is evaluated at most once per shard that demands it,
 in that shard's slot (§6). With one shard it is evaluated once, as today.
-Whether a closed call of total code becomes such a constant is 0007's
-cost rule, and 0007 computes it at its first demand, never at startup
-(0007 §2, D3). This decision is only that the shard which demands the
+Whether a closed call of total code becomes such a constant is 0008's
+cost rule, and 0008 computes it at its first demand, never at startup
+(0008 §2, D3). This decision is only that the shard which demands the
 constant computes it. A `trace` in a top-level constant prints once per
 shard that forces it. This amends the reason a static constant
 memoizes, that a top-level constant names one value evaluated once:
@@ -1202,7 +1202,7 @@ the second step elision is impossible by construction, the frame is allocated
 from the shard's size-class fast path (§3.1), and the per-call count is
 recorded beside the bench. Reason: making the partition keep a
 coroutine with its callers would be a branch in a pure function of
-content (0004 §5.3, 0006 D4), and the idr-level inliner already inlines
+content (0004 §5.3, 0007 D4), and the idr-level inliner already inlines
 a small wait function before idr-lower makes it a coroutine (0004
 §4.7). If the recorded cross-unit count shows on a bench program's
 runtime by more than 2%, best of five (0004 §10), the fix is reduced to LLVM as above or made
@@ -1215,7 +1215,7 @@ graph enables none of tokio's `rt`, `net` or `time` features, and is
 generic over the async I/O traits the runtime implements (hyper 1.x, h2,
 `tokio-postgres` over a provided stream, the AWS SDK with a provided
 connector; recalled). The generator rejects any other graph as
-`unsupported (rust async)` (proposal 0013 §12). P3's fixture is a hyper
+`unsupported (rust async)` (proposal 0014 §12). P3's fixture is a hyper
 client and server.
 
 ### D13. The library's operations are runtime primitives
@@ -1232,5 +1232,5 @@ program runs these operations on a host without this runtime, Chez
 included, which AGENTS.md already says no feature is shaped for. The
 compiler's own Idris half is therefore single-threaded until these
 shards exist and then runs on them, from stage 1 of `make self`; stage
-0, on Chez, stays single-threaded (0006 §5.4, §12, the owner's
+0, on Chez, stays single-threaded (0007 §5.4, §12, the owner's
 decision).

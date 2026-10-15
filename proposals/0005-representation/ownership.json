@@ -1,0 +1,222 @@
+{
+ "proposal": "proposals/0005-representation/README.md",
+ "note": "R11 owns tests/upstream/24-*; R18 owns the rest of tests/",
+ "lanes": {
+  "R01": [
+   "foreign/idr/include/idr/IR/IdrTypes.td",
+   "foreign/idr/include/idr/IR/IdrAttrs.td",
+   "foreign/idr/include/idr/IR/IdrBase.td",
+   "foreign/idr/include/idr/IR/IdrInterfaces.td",
+   "foreign/idr/include/idr/IR/Symbols.h",
+   "foreign/idr/include/idr/IR/TypeGraph.h",
+   "foreign/idr/include/idr/IR/Layout.h",
+   "foreign/idr/include/idr/IR/Grades.h",
+   "foreign/idr/lib/IR/Types.cpp",
+   "foreign/idr/lib/IR/Attrs.cpp",
+   "foreign/idr/lib/IR/ConAttr.cpp",
+   "foreign/idr/lib/IR/TypeGraph.cpp",
+   "foreign/idr/lib/IR/Symbols.cpp",
+   "foreign/idr/lib/IR/Grades.cpp",
+   "foreign/idr/lib/IR/Asm.cpp",
+   "foreign/idr/lib/IR/Layout/**",
+   "foreign/idr/include/idr/Analysis/Holds.h",
+   "foreign/idr/lib/Analysis/Holds.cpp"
+  ],
+  "R02": [
+   "foreign/idr/include/idr/IR/IdrOps.td",
+   "foreign/idr/include/idr/IR/IdrMatchOps.td",
+   "foreign/idr/include/idr/IR/IdrClosureOps.td",
+   "foreign/idr/include/idr/IR/IdrCheckOps.td",
+   "foreign/idr/include/idr/IR/IdrScalarOps.td",
+   "foreign/idr/include/idr/IR/IdrStringOps.td",
+   "foreign/idr/include/idr/IR/IdrBigOps.td",
+   "foreign/idr/include/idr/IR/IdrIOOps.td",
+   "foreign/idr/include/idr/IR/IdrOwnershipOps.td",
+   "foreign/idr/include/idr/IR/IdrPlatformOps.td",
+   "foreign/idr/include/idr/IR/IdrDialect.h",
+   "foreign/idr/include/idr/IR/Func.h",
+   "foreign/idr/include/idr/IR/Ownership.h",
+   "foreign/idr/include/idr/IR/Ranges.h",
+   "foreign/idr/lib/IR/Dialect.cpp",
+   "foreign/idr/lib/IR/Ops.cpp",
+   "foreign/idr/lib/IR/OpsBigs.cpp",
+   "foreign/idr/lib/IR/OpsChecks.cpp",
+   "foreign/idr/lib/IR/OpsClosures.cpp",
+   "foreign/idr/lib/IR/OpsCon.cpp",
+   "foreign/idr/lib/IR/OpsMatch.cpp",
+   "foreign/idr/lib/IR/OpsMatchSyntax.cpp",
+   "foreign/idr/lib/IR/OpsOwnership.cpp",
+   "foreign/idr/lib/IR/OpsPlatform.cpp",
+   "foreign/idr/lib/IR/OpsScalars.cpp",
+   "foreign/idr/lib/IR/OpsStrings.cpp",
+   "foreign/idr/lib/IR/Func/**",
+   "foreign/idr/lib/IR/Constants.cpp",
+   "foreign/idr/lib/IR/Crashes.cpp",
+   "foreign/idr/lib/IR/Regions.cpp",
+   "foreign/idr/lib/IR/Ranges.cpp"
+  ],
+  "R03": [
+   "foreign/idr/include/idr/IR/IdrFlow.td",
+   "foreign/idr/include/idr/IR/Flow.h",
+   "foreign/idr/include/idr/IR/FlowEdges.h",
+   "foreign/idr/lib/IR/Flow.cpp",
+   "foreign/idr/lib/IR/Effects.cpp",
+   "foreign/idr/include/idr/Analysis/Escapes.h",
+   "foreign/idr/lib/Analysis/Escapes.cpp",
+   "foreign/idr/lib/Analysis/EscapesCycles.cpp",
+   "foreign/idr/lib/Analysis/Ownership/Exclusivity.cpp"
+  ],
+  "R04": [
+   "foreign/idr/include/idr/IR/Verify.h",
+   "foreign/idr/lib/IR/Verify/**"
+  ],
+  "R05": [
+   "foreign/idr/include/idr/IR/Canon.h",
+   "foreign/idr/include/idr/IR/Fold.h",
+   "foreign/idr/lib/IR/Canon/**",
+   "foreign/idr/lib/IR/Fold/**",
+   "foreign/idr/include/idr/Transforms/Canonicalize.h"
+  ],
+  "R06": [
+   "foreign/idr/include/idr/Transforms/Defunctionalize.h",
+   "foreign/idr/lib/Transforms/Defunctionalize/**",
+   "foreign/idr/include/idr/Analysis/Labels.h",
+   "foreign/idr/lib/Analysis/Labels.cpp",
+   "foreign/idr/lib/Analysis/LabelSites.cpp"
+  ],
+  "R07": [
+   "foreign/idr/include/idr/Transforms/Optimize.h",
+   "foreign/idr/include/idr/Transforms/Effects.h",
+   "foreign/idr/include/idr/Transforms/Inline.h",
+   "foreign/idr/include/idr/Transforms/Identity.h",
+   "foreign/idr/lib/Transforms/Optimize/**",
+   "foreign/idr/lib/Transforms/Effects/**",
+   "foreign/idr/lib/Transforms/Inline/**",
+   "foreign/idr/lib/Transforms/Identity/**",
+   "foreign/idr/include/idr/Analysis/Effects.h",
+   "foreign/idr/include/idr/Analysis/Constants.h",
+   "foreign/idr/include/idr/Analysis/Identities.h",
+   "foreign/idr/include/idr/Analysis/Inline.h",
+   "foreign/idr/include/idr/Analysis/Specialize.h",
+   "foreign/idr/include/idr/Analysis/References.h",
+   "foreign/idr/lib/Analysis/Effects.cpp",
+   "foreign/idr/lib/Analysis/Constants.cpp",
+   "foreign/idr/lib/Analysis/Identities.cpp",
+   "foreign/idr/lib/Analysis/IdentitiesRecord.cpp",
+   "foreign/idr/lib/Analysis/IdentitiesRebuilds.cpp",
+   "foreign/idr/lib/Analysis/Inline.cpp",
+   "foreign/idr/lib/Analysis/References.cpp",
+   "foreign/idr/lib/Analysis/BindingTimes.cpp"
+  ],
+  "R08": [
+   "foreign/idr/include/idr/Transforms/Specialize.h",
+   "foreign/idr/include/idr/Transforms/Deduplicate.h",
+   "foreign/idr/lib/Transforms/Specialize/**",
+   "foreign/idr/lib/Transforms/Deduplicate/**"
+  ],
+  "R09": [
+   "foreign/idr/include/idr/Transforms/Ownership.h",
+   "foreign/idr/include/idr/Transforms/Stack.h",
+   "foreign/idr/include/idr/Transforms/Tail.h",
+   "foreign/idr/include/idr/Transforms/Narrow.h",
+   "foreign/idr/include/idr/Transforms/Demand.h",
+   "foreign/idr/lib/Transforms/Ownership/**",
+   "foreign/idr/lib/Transforms/Stack/**",
+   "foreign/idr/lib/Transforms/Tail/**",
+   "foreign/idr/lib/Transforms/Narrow/**",
+   "foreign/idr/lib/Transforms/Demand/**",
+   "foreign/idr/include/idr/Analysis/Ownership.h",
+   "foreign/idr/lib/Analysis/Ownership/Borrows.cpp",
+   "foreign/idr/lib/Analysis/Ownership/Reuses.cpp",
+   "foreign/idr/lib/Analysis/Ownership/Uses.cpp",
+   "foreign/idr/lib/Analysis/Ownership/Values.cpp",
+   "foreign/idr/include/idr/Analysis/Tail.h",
+   "foreign/idr/lib/Analysis/Tail.cpp",
+   "foreign/idr/include/idr/Analysis/Ranges.h",
+   "foreign/idr/lib/Analysis/Ranges.cpp"
+  ],
+  "R10": [
+   "foreign/idr/include/idr/IR/IdrArrayOps.td",
+   "foreign/idr/lib/IR/OpsArrays.cpp",
+   "foreign/idr/include/idr/Transforms/StructureLoops.h",
+   "foreign/idr/include/idr/Transforms/Columns.h",
+   "foreign/idr/lib/Transforms/StructureLoops/**",
+   "foreign/idr/lib/Transforms/Columns/**"
+  ],
+  "R11": [
+   "foreign/idr/include/idr/Transforms/Bufferize.h",
+   "foreign/idr/include/idr/Transforms/BufferizeModels.h",
+   "foreign/idr/lib/Transforms/Bufferize/**",
+   "upstream/24-one-shot-module-function-interface/**",
+   "tests/upstream/24-one-shot-module-function-interface/**"
+  ],
+  "R12": [
+   "foreign/idr/include/idr/Conversion/**",
+   "foreign/idr/lib/Conversion/**"
+  ],
+  "R13": [
+   "foreign/idr/tools/idris-mlir-tblgen.cpp",
+   "runtime/**",
+   "compiler/src/IdrisMLIR/Syntax/**",
+   "compiler/src/IdrisMLIR/Dialect/**"
+  ],
+  "R14": [
+   "compiler/src/IdrisMLIR/Frontend/**",
+   "compiler/src/IdrisMLIR/Registry/**",
+   "compiler/src/IdrisMLIR/Registry.idr",
+   "compiler/src/IdrisMLIR/Graph.idr",
+   "compiler/src/IdrisMLIR/Types.idr",
+   "compiler/src/IdrisMLIR/Facts.idr",
+   "compiler/src/IdrisMLIR/Term.idr",
+   "compiler/src/IdrisMLIR/Ids.idr",
+   "compiler/src/IdrisMLIR/Loc.idr"
+  ],
+  "R15": [
+   "compiler/src/IdrisMLIR/Emit/**",
+   "compiler/src/IdrisMLIR/Emit.idr",
+   "compiler/src/IdrisMLIR/MLIR.idr",
+   "compiler/src/IdrisMLIR/MLIR/**",
+   "compiler/src/IdrisMLIR/SyntaxSamples.idr",
+   "upstream/25-bytecode-unregistered-properties/**"
+  ],
+  "R16": [
+   "libs/**"
+  ],
+  "R17": [
+   "foreign/idr/include/idr/Transforms/Passes.td",
+   "foreign/idr/include/idr/Transforms/Pipeline.h",
+   "foreign/idr/lib/Transforms/Pipeline.cpp",
+   "foreign/idr/include/idr/Target/**",
+   "foreign/idr/lib/Target/**",
+   "foreign/idr/include/idr/Driver/**",
+   "foreign/idr/lib/Driver/**",
+   "foreign/idr/include/idr/Support/**",
+   "foreign/idr/lib/Support/**",
+   "foreign/idr/tools/idris-mlir.cpp",
+   "foreign/idr/tools/idris-mlir-opt.cpp",
+   "foreign/idr/tools/idris-mlir-reduce.cpp",
+   "tools/self.sh",
+   "tools/host.sh"
+  ],
+  "R18": [
+   "tests/**",
+   "foreign/idr/lib/Transforms/Expect/**",
+   "foreign/idr/include/idr/Transforms/Expect.h"
+  ],
+  "coordinator": [
+   "**/CMakeLists.txt",
+   "CMakePresets.json",
+   "Makefile",
+   "AGENTS.md",
+   "README.md",
+   "HANDOFF.md",
+   "PINS.md",
+   "proposals/**",
+   "upstream/README.md",
+   "bench/**",
+   "tools/*.sh (but self.sh, host.sh)",
+   "compiler/idris-mlir.ipkg",
+   "compiler/idris/**"
+  ]
+ }
+}

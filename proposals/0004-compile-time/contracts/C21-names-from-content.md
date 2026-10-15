@@ -1,7 +1,7 @@
 ## C21 Names from content
 
 Producers: U01 (the C++ helper) and U14 (the Idris function), with the
-shared test vectors below. Decision: 0004 D18 (as 0006 D16 decided), §4
+shared test vectors below. Decision: 0004 D18 (as 0007 D16 decided), §4
 stage 1, §6's row "Names from counters and module order".
 
 ### 1. The hash and the name
@@ -105,5 +105,5 @@ Name vectors: `contentName("Main.foo", "lam", "")` is
 
 U02, U03, U04, U08, U09, U10 (the C++ helper); U14 (the Idris function,
 its own names and instance symbols, which take `contentHash` of the
-instance's identity, 0008 §4.10); U17, U18 (fixtures check a name's
+instance's identity, 0009 §4.10); U17, U18 (fixtures check a name's
 owner prefix and kind, never its digits).

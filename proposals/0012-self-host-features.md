@@ -1,4 +1,4 @@
-# 0011: the compiler features self-hosting asked for
+# 0012: the compiler features self-hosting asked for
 
 **Status:** approved with the queue on 2026-10-14 (proposals index).
 Written 2026-10-10 as a sketch; fleshed out and decided 2026-10-14
@@ -110,7 +110,7 @@ program's own promises, not constructs, and are not this proposal's
 (`unsupported (layout)`, `foreign/idr/lib/IR/Layout/Layouts.cpp:95`,
 `lib/IR/OpsData.cpp:93-98` until 0004 D29 moves it to the identified
 type's verifier, `lib/IR/Layout/CellInfo.cpp:20-25`), a limit
-of the runtime's header (`runtime/idris_rt.h:106-107`) that 0009 records
+of the runtime's header (`runtime/idris_rt.h:106-107`) that 0010 records
 (its "What it changes") and no proposal yet lifts; a knot through a
 mutable cell (`unsupported (cycle)`, `lib/IR/Verify/Knots.cpp:100`; the
 acyclic heap); and a broken in-place promise (`unsupported
@@ -223,7 +223,7 @@ emitted any more):
 
 Self-hosting comes first (0002 §2). Steps 1 and 2 are done; step 3's
 record is 0004's F0, and the wall is 0004's pipeline cutover, which takes
-0006's S2's first step (code generation split after one whole-module
+0007's S2's first step (code generation split after one whole-module
 O3) inside it, its lane L7; the split before O3 follows (0004 §5.4).
 Steps 4 to 6 follow the cutover: the diet and the memory (a record),
 `make self` (stage 2 byte-identical to stage 3; `tests/determinism` at
@@ -241,7 +241,7 @@ cutover, which is one change with `make self` green across it; of this
 file's work that is only the Levenshtein row (the context table's move
 onto base's `Data.IOArray` is 0003's own, its D38). The six features edit the frontend's translation of instances, types,
 dictionaries and matches, beside the array translation 0003's stage 1
-replaces (0003 §15). Feature 6 does not wait for 0007's interned names
+replaces (0003 §15). Feature 6 does not wait for 0008's interned names
 (D8).
 
 ## The bar: no runtime price, decided at compile time
@@ -272,7 +272,7 @@ whole program's types and decides every set below (AGENTS.md: Idris does
 types). What it emits is ordinary `idr` data and calls, which 0004's
 pipeline compiles like any other; no pass of 0004 has a case for any of
 these features, since a C++ branch per feature is what the
-representation rule forbids. Static normalization (0007's A3) will find
+representation rule forbids. Static normalization (0008's A3) will find
 more values known in the frontend, where the instance is decided.
 
 1. **An erased match forced by a runtime value.** A match on an erased
@@ -362,7 +362,7 @@ more values known in the frontend, where the instance is decided.
      in the argument's shape), the instance is specialized on it, as
      `neededShape` already specializes on a parameter's shape
      (`Instances.idr:163-181`): the result type reduces and the call is
-     monomorphic. Static normalization (0007) will find more of the
+     monomorphic. Static normalization (0008) will find more of the
      value in the frontend, and 0004's specialization on known
      constructors (0004 §4.8) extends this across calls.
    - Where it is not, the type is the closed sum of the type's whole-
@@ -373,7 +373,7 @@ more values known in the frontend, where the instance is decided.
      sum's match with that arm alone reachable (Idris proved the others
      impossible), and canonicalization turns it into the variant's
      payload with no test. A field type computed from another field is
-     the same sum inside the data's layout (proposal 0009's flattened
+     the same sum inside the data's layout (proposal 0010's flattened
      layouts place it), so `ActType`'s action is stored unboxed.
    - **The image** (*decision*) is computed in the frontend from the type
      function itself, never from a flow analysis of runtime values, which
@@ -394,7 +394,7 @@ more values known in the frontend, where the instance is decided.
      built. Reason: an untagged union whose discriminant is another value
      would be a second kind of sum in the dialect, one concept held
      twice; whether the tag shares storage with the value is a layout,
-     0009's to choose by measurement. A non-recursive sum is unboxed,
+     0010's to choose by measurement. A non-recursive sum is unboxed,
      and its tag is as wide as its count needs
      (`foreign/idr/lib/IR/OpsData.cpp:91-92`, *read*).
 4. **Existentials** (`SeqEat`, a tokenizer's hidden tag, a hidden name
@@ -420,7 +420,7 @@ more values known in the frontend, where the instance is decided.
      from `main` (`Dictionaries.idr:22-30`;
      `Translate/Programs.idr:126-136`, *read*); that resume loop goes
      with the one-implementation rule.
-     0008's O3 is the same fixpoint as tables (0008 §4.8).
+     0009's O3 is the same fixpoint as tables (0009 §4.8).
 5. **Types at runtime** (`KeyVal` holding a `Type`, a match on `{a =
    Name}`). *Decision:* built, last, as feature 4's relation for a field
    or argument with no payload. A `Type` held at runtime is a witness
@@ -462,8 +462,8 @@ more values known in the frontend, where the instance is decided.
    - The fork's `nameEq`, `scopeEq` and the rest then come back as
      upstream wrote them, at the cost of the comparison they already
      make, and the proofs retype terms where the fork now rebuilds them.
-     The comparison's own cost, strings compared by traversal, is 0008's
-     O1 over 0007's interned names (A0); under them `nameEq` decides by
+     The comparison's own cost, strings compared by traversal, is 0009's
+     O1 over 0008's interned names (A0); under them `nameEq` decides by
      id with the same rule.
    - **Base's deprecated names** (*decision*), in the same stage, since
      it edits the profile's rules: `setByte`, `getByte` and `bufferData`
@@ -531,7 +531,7 @@ deprecated entries and the fork's equality code. Each stage has:
   bound on a sum's variants is set here. The runtime header's 2^16 tags
   for a boxed sum (`runtime/idris_rt.h:106`, refused today at
   `OpsData.cpp:93-98`, the `idr.data` verifier, and after 0004 D29 by
-  the identified type's verifier) are a representation limit that 0009
+  the identified type's verifier) are a representation limit that 0010
   records and no proposal yet lifts, the one 0004 D48 names for closure
   sums too; each stage records its largest boxed sum against it
   (Measures).
@@ -545,7 +545,7 @@ deprecated entries and the fork's equality code. Each stage has:
   worklist; the dictionary restart goes.
 - D7. Feature 5 is built, as feature 4's relation without a payload.
 - D8. Feature 6's three cases for `believe_me` in a trusted library; it
-  does not wait for 0007's A0, and the churn when A0 lands is accepted
+  does not wait for 0008's A0, and the churn when A0 lands is accepted
   (0004 D5).
 - D9. Every feature is built in the frontend; no pass of 0004 has a case
   for one.

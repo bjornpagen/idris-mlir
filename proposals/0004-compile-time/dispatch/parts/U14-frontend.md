@@ -9,7 +9,7 @@ emitted Core and module. All are Mandatory unless marked.
    `Translate/Instances.idr`'s `request` refuses a new instance of a
    definition exactly when, against an instance of the same definition
    on its request chain, its static arguments are smaller in no
-   position and larger in one, by the size of their normal forms (0011
+   position and larger in one, by the size of their normal forms (0012
    D4, 0004 D40). The refusal is `unsupported (polymorphism)` at the
    requesting call, with the message C20 fixes. No count, budget or
    blanket refusal decides acceptance in the frontend any more.
@@ -17,7 +17,7 @@ emitted Core and module. All are Mandatory unless marked.
    `IdrisMLIR.Ids` holds XXH3's 128-bit hash in plain Idris over
    `Bits64`, the UTF-8 bytes of a string, 16-digit hex, and
    `contentName`, exactly as C21 declares them.
-3. **Mandatory. Instance symbols by the key alone (0008 §4.10, 0006 §4.5).**
+3. **Mandatory. Instance symbols by the key alone (0009 §4.10, 0007 §4.5).**
    The key printer reports whether its print dropped part of the
    instance's identity; `InstanceKey` carries that report with the low
    64 bits of the identity hash; `Term.keyText` is the symbol (the
@@ -133,11 +133,11 @@ ownership.json's U14 entry, every path:
   bullet, `README.md:675-778`), the §6 rows at `README.md:1245` (the
   frontend's owner clause), `1256`, `1262-1263`, `1265`, `1267`,
   `1270-1271`; D18, D19, D29, D36, D40, D42, D43.
-- 0011 (`proposals/0011-self-host-features.md`): "What stays refused",
+- 0012 (`proposals/0012-self-host-features.md`): "What stays refused",
   feature 2 (the rule, why it is total, what it deletes), D4.
-- 0008 §4.10 (`proposals/0008-data-oriented-frontend.md:434-560`): the
+- 0009 §4.10 (`proposals/0009-data-oriented-frontend.md:434-560`): the
   instance-symbol rule and what the print drops.
-- 0006 §4.4, §4.5, D16 (`proposals/0006-sharded-whole-program-compiler.md:434-470, 990-1000`).
+- 0007 §4.4, §4.5, D16 (`proposals/0007-sharded-whole-program-compiler.md:434-470, 990-1000`).
 - 0003 (`proposals/0003-typed-apl/README.md`): §2 (the correspondence),
   §3.1, §3.2, §3.5, §3.8, §4.1, §4.3, §13, §15's frontend row, §17
   stage 1, D2, D4, D13, D14, D19, D25, D37, D39.
@@ -165,7 +165,7 @@ ownership.json's U14 entry, every path:
 
 ## Fixed decisions
 
-- **The rule (0011 D4).** A request of a new instance of definition `d`
+- **The rule (0012 D4).** A request of a new instance of definition `d`
   (its `nameKey`), with static vector `v` (one entry per parameter of
   `d`'s type: the value `staticOf` gives, a form for a form parameter,
   and none elsewhere), walks the chain of requesters from the instance
@@ -406,12 +406,12 @@ are `unsupported (polymorphism)`.
   case: a `Functor`-style method recursing at a finite set of types
   compiles (U18's fixture).
 - **A hash over every key whose print repeats another, or a widened
-  name on collision.** Rejected by 0008 §4.10 and 0006 §4.5: one key's
+  name on collision.** Rejected by 0009 §4.10 and 0007 §4.5: one key's
   symbol would depend on another key. Acceptance case: the symbol is a
   function of the key alone; editing one definition changes no other
   symbol (U18's name-stability fixture).
 - **Suffixing every symbol with its hash.** Rejected: unreadable, and
-  0008 decides the suffix only where the print loses identity.
+  0009 decides the suffix only where the print loses identity.
   Acceptance case: a key with no loss prints bare.
 - **Renaming `$world` to another reserved name.** Rejected: a name chosen
   to dodge a collision is the sentinel again. Acceptance case: the
@@ -445,7 +445,7 @@ are `unsupported (polymorphism)`.
   XXH3 test passes C21's vectors; every array program of
   `tests/programs/arrays` keeps its expected output; the corpus emits.
 - Every number written cites its authority (C20's size measure is
-  0011 D4's; the 16 hex digits and 64 bits are D18's).
+  0012 D4's; the 16 hex digits and 64 bits are D18's).
 
 ## Stop and return
 

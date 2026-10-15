@@ -2,7 +2,7 @@
 
 Producer: U14. Every declaration below is in `compiler/src/IdrisMLIR/`
 and is written by U14 alone. Authority: 0004 §2.5, §4 stage 1, D18,
-D19, D29, D40, D43; 0011 feature 2 and D4; 0008 §4.10; 0003 §2, §3,
+D19, D29, D40, D43; 0012 feature 2 and D4; 0009 §4.10; 0003 §2, §3,
 §4.1, §4.3, D2, D4, D13, D14, D25, D37, D39. Line numbers are the tree
 at `a3e61f3a`.
 
@@ -527,7 +527,7 @@ D18). A missing type or implementation argument stays
 - `tests/reject/polymorphism-nested`: refused by the rule at the
   recursive call, line 8 (the header's `line 6` becomes `line 8`).
 - A recursion that passes a changed type or implementation within a
-  finite set now compiles; none is in the corpus (0011's table: "none
+  finite set now compiles; none is in the corpus (0012's table: "none
   for the bounded case").
 - No program refused for more than 4,096 instances of one definition
   is known; none changes.

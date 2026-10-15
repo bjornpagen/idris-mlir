@@ -43,7 +43,7 @@ item is externally observable in a test's `run`, `expected` or fixture.
    inputs** (0004 D43): each break of a registry entry is a fixture whose
    own module defines the keyed name at another shape.
 9. **Mandatory. Determinism at 1, 2 and 8 threads**, byte for byte, and
-   the name-stability edit fixture (0006 S1): one definition edited, every
+   the name-stability edit fixture (0007 S1): one definition edited, every
    other symbol unchanged.
 10. **Mandatory.** `tests/upstream-idris/common.sh`'s `rejection_skip`
     reads the refusal's rule (C04), never its message.
@@ -133,7 +133,7 @@ ownership.json's U18 entry, each path named:
 - 0003 `README.md`: §3.1-§3.2 and §3.8 (the library, `LArray`), §8 (the
   in-place promise is `LArray`'s, never a refusal of a program), §15's
   tests paragraph, §17 stage 1's proof, §21 item 4, D19, D25, D27, D37.
-- 0011 "What stays refused" and feature 2 (the rule, what it deletes, what
+- 0012 "What stays refused" and feature 2 (the rule, what it deletes, what
   it refuses that is bounded); 0002 §2 step 6, §3 (the bench, the
   upstream-idris scan, `castPtr`), D18, D20.
 - `array-drafts.json` entry 1 ("TESTS and BENCH"): §2.3's substitution

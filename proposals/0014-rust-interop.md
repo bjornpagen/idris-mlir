@@ -1,4 +1,4 @@
-# Proposal 0013: Rust as the one foreign world
+# Proposal 0014: Rust as the one foreign world
 
 **Status:** proposed 2026-10-04 at 6fda6d8; parked 2026-10-12, in the
 queue the owner approved on 2026-10-14 (`proposals/README.md`);
@@ -7,8 +7,8 @@ throughout: there is no open question (§16, §17). Nothing here is
 built, and nothing here changes the compiler until it is taken up. It
 is parked because nothing before the array work needs a foreign world:
 the cutover, self-hosting, 0003's purge and sharding's first stages do
-not. Waiting with it: 0005's P3 (asynchronous Rust on the reactor),
-0010's T8 (solvers reached as Rust crates, 0010 §2.5) and bumbledb's
+not. Waiting with it: 0006's P3 (asynchronous Rust on the reactor),
+0011's T8 (solvers reached as Rust crates, 0011 §2.5) and bumbledb's
 storage (LMDB through heed, bumbledb 0003 §3). It is taken up when the
 first of them starts, and its staged plan (§14) then becomes work.
 
@@ -33,7 +33,7 @@ Amended 2026-10-14, for 0004's cutover (each item decided in §17):
   the verifier states it (§7.7).
 - No `linkRust`: the shim archive is read and linked by the runtime's
   own reader and link, and so takes the runtime's two cases and its
-  namespace group at both of 0006's steps (§9.3).
+  namespace group at both of 0007's steps (§9.3).
 - No stack placement of foreign cells: `idr.stack` is an inherent
   property of `idr.con` (0004 §4 stage 11), and the shim makes every
   foreign cell (§7.4, §9.1).
@@ -44,8 +44,8 @@ Amended 2026-10-14, for 0004's cutover (each item decided in §17):
   from the C++ side (§7.6).
 - The trust home is `Bindings`, since `Generated` already names the
   origin of code in no module (§8.1).
-- Async Rust is 0005 §10's; §12 keeps only this proposal's half, and
-  the `[blocking]` table 0005 §10.4 assumes comes with its P3 (§5).
+- Async Rust is 0006 §10's; §12 keeps only this proposal's half, and
+  the `[blocking]` table 0006 §10.4 assumes comes with its P3 (§5).
 - A binding is declared with `%extern`, as `mlir-linear`'s primitives
   are, and its registry entry holds the shim's symbol once; no
   `%foreign` label is written, and no `%foreign` is admitted beyond
@@ -254,9 +254,9 @@ the design:
   give a second scheduler and I/O the runtime cannot see.
 - **Rust code that calls into Idris from another thread.** The runtime is
   single-threaded and its counts are plain arithmetic
-  (`idris_rt.h:27-38`). Under 0005's shards the rule is the same, stated
+  (`idris_rt.h:27-38`). Under 0006's shards the rule is the same, stated
   there for every foreign thread: it may wake a shard, never touch a
-  count, a cell or a world (0005 §3.3).
+  count, a cell or a world (0006 §3.3).
 - **Rust types as Idris values without a handle.** The exception is the
   scalars and strings of §7.2.
 - **Dynamic linking of Rust,** in any form: a Rust `cdylib`, `dlopen`,
@@ -264,8 +264,8 @@ the design:
 
 **Later, staged (§14):**
 
-- async Rust polled from 0005's task frames on its reactor, which is
-  0005's P3, after its P2 (§12; 0005 §10);
+- async Rust polled from 0006's task frames on its reactor, which is
+  0006's P3, after its P2 (§12; 0006 §10);
 - protocol overlays in Brady's style (§10).
 
 ## 4. The pieces
@@ -370,8 +370,8 @@ rusqlite   = ["rusqlite::Connection::*", "rusqlite::Statement::*"]
   listed in the generator's report with its reason, never silently
   dropped.
 - **Blocking items** (*decision*): a `[blocking]` table, per crate or per
-  item like `[pure]`, comes with 0005's P3, which offloads each item it
-  names to a runtime-owned thread (0005 §10.4). Before P3 there is no
+  item like `[pure]`, comes with 0006's P3, which offloads each item it
+  names to a runtime-owned thread (0006 §10.4). Before P3 there is no
   reactor to offload to, so the table does not exist and every call runs
   on the calling thread, in world order; P3 adds the table and its one
   meaning together.
@@ -459,7 +459,7 @@ content, never from a counter (0004 D18).
 **Mangling** (*decision*). The shim crate and its whole graph, `std`
 included, build with `-Csymbol-mangling-version=v0`, whose symbols use
 only `[_0-9a-zA-Z]` (*recalled*), so every Rust function has a name
-without a dot, as the runtime's C identifiers do. 0006 §3.4 puts every
+without a dot, as the runtime's C identifiers do. 0007 §3.4 puts every
 dotless name in one namespace group, the runtime's, so Rust's functions
 join that group by the same rule and the partitioner needs none of its
 own (0004 §5.3 item 2). Reason: legacy mangling writes `..` inside impl
@@ -855,10 +855,10 @@ may allocate, since the allocator frees a block from any thread
 - handles are `!Send` on the Idris side, because a handle is an Idris
   value.
 
-0005's shards keep this rule as it is: a foreign thread may wake a
+0006's shards keep this rule as it is: a foreign thread may wake a
 shard and free raw blocks remotely, and may never touch a count, a cell
-or a world (0005 §3.3); a blocking Rust call is offloaded to a
-runtime-owned thread whose arguments move into Rust's ownership (0005
+or a world (0006 §3.3); a blocking Rust call is offloaded to a
+runtime-owned thread whose arguments move into Rust's ownership (0006
 §10.4).
 
 ## 9. The compiler
@@ -889,8 +889,8 @@ own drop glue, `IdrisValue` included.
   compile time (§11), so static data never holds one. A top-level value
   that holds a Rust value is a static memo cell whose forced value is the
   foreign cell: counted, and released at exit by `idris_rt_caf_release`
-  (`idris_rt.h:226-230`), so its destructor runs then (0007 §2's
-  first-demand constants; per shard under 0005, 0005 §6).
+  (`idris_rt.h:226-230`), so its destructor runs then (0008 §2's
+  first-demand constants; per shard under 0006, 0006 §6).
 - **Never in a frame** (*decision*): the shim makes every foreign cell,
   through the runtime's allocator (§9.4), and `idr-stack`'s placement is
   an inherent property of `idr.con` (0004 §4 stage 11), which builds
@@ -1027,10 +1027,10 @@ its one definition, and otherwise definitions compiled with the program
 the optimized module is cut into bins after one O3 (0004 §4 stages
 13-15), and at its second step, where each unit links the same bodies
 before its own O3 by the same link and the reached definitions are
-defined once in the runtime's namespace group (0006 §3.5). Rust's
+defined once in the runtime's namespace group (0007 §3.5). Rust's
 definitions fall in that group by their dotless names (§6, Mangling;
-0006 §3.4). Reason: a step of Rust's own would be a third case at
-0006's second step, which 0006 decides against ("the second step keeps
+0007 §3.4). Reason: a step of Rust's own would be a third case at
+0007's second step, which 0007 decides against ("the second step keeps
 today's two cases and adds no third"), and a second representation of
 "a part of the runtime".
 
@@ -1088,7 +1088,7 @@ entry's bitcode flags), so its bitcode joins as well. The program binds
 the Rust crate, never the C below it: the generator binds no item whose
 signature exposes a raw C type or pointer (`rust pointer` in §9.5), so a
 `-sys` crate's own raw API is not bound, only safe crates over it. A
-`-sys` crate over C++ (a SAT or SMT solver for 0010's T8, 0010 §2.5)
+`-sys` crate over C++ (a SAT or SMT solver for 0011's T8, 0011 §2.5)
 is built the same way, with `CXX` the pinned clang++ and the pinned
 static libc++, never the system's (AGENTS.md). A build script that
 downloads anything fails, because the build is offline. That is the
@@ -1166,26 +1166,26 @@ rollback : (1 _ : Tx Open) -> IO ()
 ## 11. Compile-time evaluation
 
 No Rust call runs at compile time. The compiler has no compile-time
-evaluation feature (`idr-eval` and its JIT left the C++ side, 0007's
+evaluation feature (`idr-eval` and its JIT left the C++ side, 0008's
 status); it normalizes the static part of the program on the type
-checker's interpreter (0007), where code that reaches a world, a forged
-one included, is stuck and runs at run time (0007 §2). Every binding
+checker's interpreter (0008), where code that reaches a world, a forged
+one included, is stuck and runs at run time (0008 §2). Every binding
 reaches one (§9.2), so a binding's call is stuck there and runs at run
 time. The stage that would have run calls the manifest declares `pure`
 is withdrawn.
 
-## 12. Async: 0005's reactor is the executor
+## 12. Async: 0006's reactor is the executor
 
 Async Rust is out of v1 because the runtime has no scheduler: a program
 is one runner thread running `main` (`idris_rt_start`,
-`runtime/idris_rt.h:433-461`). The design of async Rust is 0005 §10's,
+`runtime/idris_rt.h:433-461`). The design of async Rust is 0006 §10's,
 and this file does not restate it: the executor is the shard's reactor,
 a future is a task frame, a waker is one word, and `Rust (FutT a)` is a
 counted foreign cell of §9.1 holding a pinned future, polled through a
-shim with the task's waker (0005 §10.1 to §10.3); a blocking Rust call
-is offloaded (0005 §10.4). It is 0005's P3, after its P2, and it needs
+shim with the task's waker (0006 §10.1 to §10.3); a blocking Rust call
+is offloaded (0006 §10.4). It is 0006's P3, after its P2, and it needs
 this proposal's foreign cells and shims (R1, R2) first. Which crates
-work is 0005 D12's rule, computed per crate graph.
+work is 0006 D12's rule, computed per crate graph.
 
 What stays here is this proposal's half:
 - **I/O traits:** Rust's async I/O traits (`tokio::io::{AsyncRead,
@@ -1310,11 +1310,11 @@ cutover, with nothing kept beside it (0004 D2).
     signature through dead-value removal); a stored `'static` callback on
     a `Shared` handle; an Idris key type for `RMap`, which is a type
     error, in `tests/reject`.
-- **R4** is withdrawn: no Rust call runs at compile time (§11); 0007's
+- **R4** is withdrawn: no Rust call runs at compile time (§11); 0008's
   static normalization runs closed calls of total Idris code, and a
   binding's call reaches a world, so it is stuck and runs at run time
-  (0007 §2).
-- **R5, async on the reactor**, is 0005's P3, not a stage here (§12).
+  (0008 §2).
+- **R5, async on the reactor**, is 0006's P3, not a stage here (§12).
 
 **Size (conjecture):**
 
@@ -1412,7 +1412,7 @@ measured need. R0 checks that no program's build rebuilds `std`.
   Rejected: layouts are decided per program, so a shim cannot know one.
   A result handle costs what O3 leaves of it, recorded at R2 (§7.4).
 - **A `linkRust` step beside the runtime's link.** Rejected (§9.3): it
-  would be a third case at 0006's second step and a second
+  would be a third case at 0007's second step and a second
   representation of a part of the runtime.
 - **An exported apply entry per callback sum.** Rejected (§7.7): a public
   function beside the root breaks 0004's verified closed world.
@@ -1477,9 +1477,9 @@ earlier text left open. There is no open question for the owner.
 12. **One runtime link** (§9.3). The shim archive is read and linked by
     the runtime's reader and link; there is no `linkRust`. Reason: the
     runtime's two cases and its namespace group then hold for Rust at
-    both of 0006's steps, with no third case.
+    both of 0007's steps, with no third case.
 13. **v0 mangling** (§6). Reason: every Rust function is a dotless name
-    and joins the runtime's namespace group by 0006 §3.4's rule.
+    and joins the runtime's namespace group by 0007 §3.4's rule.
 14. **No foreign cell in a frame** (§7.4, §9.1). Reason: `idr.stack` is a
     property of `idr.con`, and the shim makes every foreign cell; the
     result handle's cost is LLVM's to remove and is recorded, not gated.
@@ -1494,7 +1494,7 @@ earlier text left open. There is no open question for the owner.
 18. **Overlays live in their project** (§10). Reason: an installed
     package outside the table is never reached, and no proposal makes
     third-party packages trusted.
-19. **Async is 0005's** (§12). This file keeps the I/O traits, the tokio
+19. **Async is 0006's** (§12). This file keeps the I/O traits, the tokio
     refusal and, with P3, the `[blocking]` table (§5).
 20. **`std` is built once per target entry by the bootstrap** (§14).
     Reason: its flags are the entry's; cargo's target directory is the

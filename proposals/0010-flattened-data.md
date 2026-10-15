@@ -1,4 +1,4 @@
-# 0009: compiler-chosen flattened layouts of algebraic data
+# 0010: compiler-chosen flattened layouts of algebraic data
 
 **Status:** proposed 2026-10-09; reconciled with 0003 on 2026-10-12 and
 with 0004's pipeline cutover on 2026-10-14, and decided the same day.
@@ -10,9 +10,9 @@ Simplify rounds, and 0004's cutover deletes the rounds and that
 pipeline together. x86_64 Linux is NotRun. `make self` has never
 finished; 0004's cutover is what it waits on.
 
-It is one of the three consumers of 0003's array style, with 0008's
-tables and 0007's interpreter: the layouts it chooses are how their
-columns are stored. In the queue it follows 0008, and it starts after
+It is one of the three consumers of 0003's array style, with 0009's
+tables and 0008's interpreter: the layouts it chooses are how their
+columns are stored. In the queue it follows 0009, and it starts after
 `make self` and sharding's first stages. Columns are 0003's
 representation of an array of records, one tensor per field (0003 §4.5);
 this proposal decides what 0003 §4.5 leaves to it (an array of sums),
@@ -329,37 +329,37 @@ the compiler's decision, made from facts only the compiler has.
   §3: `multi_array_list.zig:20-24, 166-201`), would need a bufferization
   model of ours beside upstream's, which 0003 rules out.
 - **Packed and columnar data are the message format between shards**
-  (0005). A value at the exclusive grade crosses as a move and its region
-  goes with it (0005, "Lessons from Swift's concurrency model"); any other
+  (0006). A value at the exclusive grade crosses as a move and its region
+  goes with it (0006, "Lessons from Swift's concurrency model"); any other
   packed or columnar value crosses by copying its buffers, with no detach
   walk, like GHC's compact regions (*read* through `packed-trees.md` §8:
   `papers/yang-2015-compact-normal-forms`). The send check is unchanged: a
   region holds no mutable cell.
 - **The compiler's own process boundary carries columns, never packed
-  buffers** (*decision*). 0006 runs the compiler's Idris half as
-  processes and passes summaries between them as files (0006 §5.4), so
+  buffers** (*decision*). 0007 runs the compiler's Idris half as
+  processes and passes summaries between them as files (0007 §5.4), so
   it is the one place a layout of this proposal could be read from a
   file. A summary is a
-  set of columnar relations (0006 §3.1), and its reader checks every id
+  set of columnar relations (0007 §3.1), and its reader checks every id
   column once against the extent of the table it indexes, which turns
   the file's words into typed ids: the guarded entry 0003 D4 gives an
-  extent, so every read after it is unguarded (0008 D1). A packed buffer
+  extent, so every read after it is unguarded (0009 D1). A packed buffer
   would need its whole tree walked to check its offsets, the trusted
   header or unchecked reader D11 keeps out, so none crosses as a file.
 
 ## Consumers
 
-- **The term arena and the interpreter's tables (proposal 0007),** shared
+- **The term arena and the interpreter's tables (proposal 0008),** shared
   by the frontend, the type checker and static normalization. Hash-consed
   terms share subterms, so the arena is a DAG and is never packed: its
-  tables are columns, arrays of records keyed by id (0007 §3), and 0007
+  tables are columns, arrays of records keyed by id (0008 §3), and 0008
   builds them.
 - **The array core (proposal 0003):** records, sums and trees enter array
   programs through columns.
 - **bumbledb's port** (`../bumbledb/proposals/0003-idris-port.md`): its
   images are columns already.
-- **The frontend's own passes,** once self-hosted: 0008's syntax nodes and
-  full Core in preorder are the columnar form of a tree (0008 §3).
+- **The frontend's own passes,** once self-hosted: 0009's syntax nodes and
+  full Core in preorder are the columnar form of a tree (0009 §3).
 
 ## Rules it keeps
 
@@ -393,7 +393,7 @@ the compiler's decision, made from facts only the compiler has.
 | F2 | F1; 0003's one-to-N conversion of record elements (0003 §4.5) | `!idr.packed<T>` in the `idr` dialect, verified after every pass; idr-rc's commit and idr-lower handle packed buffers; arrays of sums through the `SumLayout` one-to-N conversion | verifier checks; `idr-expect` properties: one count per packed buffer, one array cell per column |
 | F3 | F2 | columns for collections other than arrays (lists and trees of records traversed field by field), as a conversion to 0003's arrays right before its arrays stage | benchmarks: nbody-style records ≥ 1.3× over cells |
 | F4 | F2 | automatic packing for exclusive, build-once, traverse-whole trees, chosen between idr-rc's exclusive grades and its commit | Gibbon's benchmark programs (tree add1, sum, repmax) ≥ 1.3× over cells on both targets, and within 1.5× of Gibbon's published numbers on x86_64 Linux; a fixture per drop the commit folds into the buffer's one decrement |
-| F5 | F2; 0005's P4 | packed and columnar values as shard messages | 0005's message benchmarks: copy cost per byte against the detach walk |
+| F5 | F2; 0006's P4 | packed and columnar values as shard messages | 0006's message benchmarks: copy cost per byte against the detach walk |
 
 F4's second bar is on x86_64 Linux only (*decision*): every Gibbon result
 was measured on x86 Xeon or Threadripper machines, and none on ARM or

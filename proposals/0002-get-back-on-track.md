@@ -28,7 +28,7 @@ after 0004's pipeline cutover, which is designed and awaits the
 owner's approval (0004 §0, §10). Claims are marked: *read* (the path),
 *measured* (the record), *recalled*, *conjecture*, *decision*.
 
-**The one sentence.** The wall is 0004's cutover, and sharding (0006)
+**The one sentence.** The wall is 0004's cutover, and sharding (0007)
 comes after it: the whole program stays the unit of meaning and stops
 being the unit of work. This proposal holds the gate that proves the
 tree on both targets, before that cutover and after it, and the road
@@ -53,7 +53,7 @@ tree after 0004's cutover.
 2. **Green on the owner's machine.** Done on arm64 macOS (the gate
    above).
 3. **Break the wall.** The record is taken: 0004's F0, which is also
-   0006's S0 (0004 §3.1). The frontend is not the wall: it emits the
+   0007's S0 (0004 §3.1). The frontend is not the wall: it emits the
    stage-0 module, 58,236 functions and about 300 MB of text (294 MB in
    F0's generic form), in about 140 s. Simplify's rounds are: round 1
    takes 447 s, sixteen rounds reach no fixpoint, and Simplify alone
@@ -70,7 +70,7 @@ tree after 0004's cutover.
    the first time, within 0004 §10's thresholds (the optimizer segment
    under 600 s of wall, the label solve under 10 s), recorded with
    `-mlir-timing` and the time trace (`tools/profile.sh`), by binary
-   from the saved module (0004 D22). 0006's S2's first step (code
+   from the saved module (0004 D22). 0007's S2's first step (code
    generation split after one whole-module O3) is taken inside that
    cutover, its lane L7; its second step, the split before O3, follows
    it (0004 §5.4, §10).
@@ -86,7 +86,7 @@ tree after 0004's cutover.
    record, not a gate. It holds `make self` back only if a stage does
    not fit the owner's machine; then the stage the record names is fixed
    first, in the proposal whose design it is (the frontend's memory is
-   0008's ground; the pipeline's next cost is on 0004 §10's list after
+   0009's ground; the pipeline's next cost is on 0004 §10's list after
    the cutover). Reason: stage 0 already ran at 9.1 GB on that machine,
    and a reduction that blocks nothing belongs to the proposal that
    owns the design. *Decision:* peak memory is measured by one function
@@ -156,8 +156,8 @@ to live.
 
 Then, in queue order: 0003's stage 1 (the array purge as one hard
 cutover; `make self` stays green across it, its fork users ported in
-the same change), then sharding: 0006's stages with 0005's P1, P2 and
-P4. 0011's features may start any time after step 5.
+the same change), then sharding: 0007's stages with 0006's P1, P2 and
+P4. 0012's features may start any time after step 5.
 
 ## 3. G1: what the tree still owes on both targets
 

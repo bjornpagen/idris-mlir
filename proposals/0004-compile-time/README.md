@@ -287,13 +287,13 @@ budget (casework-audit §2).
 
 ### 2.5 What is still refused, and where
 
-- **The frontend's refusals**, whose whole account is 0011's "What
-  stays refused" (0011 D16): the megamorphic constructs AGENTS.md
+- **The frontend's refusals**, whose whole account is 0012's "What
+  stays refused" (0012 D16): the megamorphic constructs AGENTS.md
   defines, an implementation chosen by a runtime value and a recursion
   that builds its type deeper at each call, each named with its site and
   the unbounded value; what is outside the language, `%foreign`,
   threads, collector finalizers and raw pointers among them; and, until
-  0011's six features land, the bounded constructs the frontend does not
+  0012's six features land, the bounded constructs the frontend does not
   compile yet (an erased match forced by a runtime value, bounded
   polymorphic recursion, a type computed from a runtime value, an
   existential, a type at runtime, an equality a primitive decides), each
@@ -302,10 +302,10 @@ budget (casework-audit §2).
   refusal of a megamorphic construct is left to the C++ side
   (casework-audit §2).
 - **The one representation limit:** a boxed sum past the header's 2^16
-  tags (§2.4 step 5), `unsupported (layout)`, as 0011 D3 records for
+  tags (§2.4 step 5), `unsupported (layout)`, as 0012 D3 records for
   every boxed sum. No program is known to reach it; lane L2 records the
   largest boxed closure sum on the corpus and stage 0, and lifting the
-  limit belongs to 0009, which records it, if a record ever names it.
+  limit belongs to 0010, which records it, if a record ever names it.
 - **A broken invariant is an internal error**, never `unsupported`: a
   verifier failure after a pass, a lattice that reached a state the
   argument rules out, a termination argument that does not hold.
@@ -331,8 +331,8 @@ budget (casework-audit §2).
   (`Frontend/Translate/Instances.idr:38-39, 110-112`, *read*), a backstop
   for calls Idris's size-change graphs do not record. The cutover deletes
   it (D40, the owner's ruling of 2026-10-14 that a count never decides
-  acceptance). Lane L1 lands 0011's feature 2, the request-chain rule
-  (0011 D4), which refuses an instance only where its chain of requests
+  acceptance). Lane L1 lands 0012's feature 2, the request-chain rule
+  (0012 D4), which refuses an instance only where its chain of requests
   grows, naming the site and the growing value, and which replaces
   `checkComponent`'s blanket refusal. That changes which programs the
   frontend accepts, so the cutover's proof carries a named acceptance
@@ -684,7 +684,7 @@ runs per unit. *Decision* for every stage unless marked.
    - Generated names are derived from content: the owner's name and a hash
      of the structural key, never a counter (`.lam<n>`, `.delay<n>`,
      `Isolate.cpp:124-125`, and every other counter-named symbol, §6).
-     *Decision* (as 0006 D16 decided, taken here because the cutover
+     *Decision* (as 0007 D16 decided, taken here because the cutover
      writes the names): the hash is XXH3's 128-bit variant, LLVM's on
      the C++ side (`L/include/llvm/Support/xxhash.h:58-70`) and a copy in
      plain Idris over `Bits64` in the frontend, checked against the
@@ -692,13 +692,13 @@ runs per unit. *Decision* for every stage unless marked.
      generated name carries the low 64 bits as 16 hex digits, and two
      keys whose names collide are caught where the name is interned, by
      full equality of the keys, as an internal error, never a merge and
-     never a widened name (0006 §4.5).
+     never a widened name (0007 §4.5).
    - An instance's symbol is its key printed, and the frontend's repeats
      `p'n` on keys that print alike (`compiler/src/IdrisMLIR/Emit/
      Index.idr:21-60`), a counter in program order, go: the symbol is the
      printed key, followed by the low 64 bits of the instance's identity
      hash where the key's print drops part of its identity, a rule of
-     the key alone (0008 §4.10, D7).
+     the key alone (0009 §4.10, D7).
    - A hook applied below its arity is eta-expanded in symbol form, so
      that the partial application is a closure whose body is the
      saturated call, and the profile's assumption that the hook answers
@@ -827,7 +827,7 @@ runs per unit. *Decision* for every stage unless marked.
      pattern upstream's inliner uses (`M/lib/Transforms/Utils/Inliner.cpp:
      526-567`), so the verifier and the instrumentation stay on.
    - **What the inner pipeline reads, and where each fact comes from**
-     (*decision*, as 0006 D20 decided; RoundFacts computes all of them
+     (*decision*, as 0007 D20 decided; RoundFacts computes all of them
      today, `Simplify/RoundFacts.cpp:39-43`, because a nested pass manager
      drops module analyses, upstream-mlir-llvm §3). `Holds`, two bits per
      declaration over the type graph (`include/idr/Analysis/Holds.h:3-6`),
@@ -877,7 +877,7 @@ runs per unit. *Decision* for every stage unless marked.
    deleted. Size is the op count the formula reads today
    (`References::ops`, `Inline.cpp:108`). `calls(f)` is the number of
    `f`'s call sites when the optimizer starts, frozen (*decision*, as
-   0006 D11 decided): no count inside an SCC is ever read, since a
+   0007 D11 decided): no count inside an SCC is ever read, since a
    function on a cycle, the only kind with a call site inside its own
    SCC, is never inlined; no caller of `f` runs before `f` is final, so
    the frozen count is the count at `f`'s finality (*conjecture*,
@@ -919,7 +919,7 @@ runs per unit. *Decision* for every stage unless marked.
    (`code/modular/Mojo/lib/Elaborator/Elaborator.cpp:1675-1693, 1746-1756,
    2944-2989`, mojo §4). `kClonesPerOwner` stays as a budget that stops
    specializing, never as a check that refuses (D39, §2.5), counted per
-   requesting node (*decision*, as 0006 D5 decided): the distinct keys
+   requesting node (*decision*, as 0007 D5 decided): the distinct keys
    one node requests of one owner, in its call-site order, an
    already-made key counted like a new one; a request past the 1,024th is
    not made, and its argument stays a runtime leaf, as the binding-time
@@ -972,9 +972,9 @@ runs per unit. *Decision* for every stage unless marked.
    containment (D38).
 10. **Dead values once:** upstream RemoveDeadValues and SymbolDCE at the end of
     the optimizer, once (65 s and 7.65 GB on the round-16 module, *measured*).
-    Liveness is a least fixpoint, which 0006 shards by its S3 rule and
+    Liveness is a least fixpoint, which 0007 shards by its S3 rule and
     never per SCC, since argument liveness flows from callees and result
-    liveness from callers (0006 D19).
+    liveness from callers (0007 D19).
     From 0003's stage 1, the arrays stage runs here, between dead values
     and memory: structuring, fusion and the schedules per function, then
     One-Shot on the whole program, then a per-function clean (0003 §7,
@@ -1086,7 +1086,7 @@ byte-identical at 1, 2 and 8 threads, checked by `tests/determinism`
 ### 5.3 The decision
 
 *Decision:* **size-balanced bins of SCCs, grouped by top-level namespace,**
-which agrees with 0006 D4:
+which agrees with 0007 D4:
 
 1. **The bin count does not depend on threads.** The target is a fixed
    size, so the objects and the executable are the same for every worker
@@ -1113,8 +1113,8 @@ which agrees with 0006 D4:
    stay inside one), read from the symbol's name, whose dots the mangling
    keeps (`Conversion/Mangle.h:15-20`). Every name with no dot falls
    into one namespace group by the same rule: the runtime's definitions,
-   whose names are C identifiers, and later 0013's v0-mangled Rust
-   names, so neither needs a rule of its own (as 0006 §3.4 says).
+   whose names are C identifiers, and later 0014's v0-mangled Rust
+   names, so neither needs a rule of its own (as 0007 §3.4 says).
    Within a group, order SCCs by
    content hash and cut by content, between a minimum and a maximum size.
    *Decision* (D41): an SCC of size s closes its bin when the bin holds at least
@@ -1206,8 +1206,8 @@ which agrees with 0006 D4:
   translations ever share an `MLIRContext`: upstream neither documents
   nor tests concurrent translation of sibling modules on one context
   (upstream-mlir-llvm §5), each translation needs its own `LLVMContext`
-  anyway (`L/include/llvm/IR/LLVMContext.h:62-67`), and 0006 takes the
-  same contexts for its codegen units (0006 D7), so no ThreadSanitizer run
+  anyway (`L/include/llvm/IR/LLVMContext.h:62-67`), and 0007 takes the
+  same contexts for its codegen units (0007 D7), so no ThreadSanitizer run
   is needed to permit anything; S2 translates once, on the whole module,
   and the question does not arise there. The
   interprocedural facts LLVM would lose across units are emitted from our
@@ -1244,7 +1244,7 @@ replaces it with a better branch.
 | The `idr.inlined` seed marks | `Inline.cpp:74, 98-121, 257-260, 299-301` (5088d7a8) | A discardable attribute marks what an iteration inlined, a pre-walk finds it, a module sweep removes leftovers | A function is cleaned once, when it is final: what changed is the function itself |
 | `InlineCleanup` per iteration with `simplifyRegions` and `eraseUnreachableBlocks` | `Inline.cpp:76-157, 143-153` | Upstream's inliner re-optimizes every SCC node on every iteration | The inner per-function pipeline, once per function (§4.6) |
 | `LoopBreakers`, and every fact and test that exists only for it: the inherent `break_last` on `idr.func` (`include/idr/IR/IdrOps.td:20, 36`; the pass descriptions that name it, `Passes.td:136, 256, 289`); the frontend's `BreakLast` purpose and its table column (`compiler/src/IdrisMLIR/Registry/Libraries.idr:5, 50-52, 60-78`) and Emit's writer (`Emit/Declarations.idr:51, 73`; the generated `Dialect/Idr.idr:354`); the copies made at `Isolate/Isolate.cpp:136` and `Inline/Prepare.cpp:129`; Deduplicate's comparison of it (`Deduplicate.cpp:192, 263`); the `no_inline` marks the pass writes; `idr-expect`'s `breaks-last` and `every-cycle-has-breaker` (`Passes.td:783-788`; `Expect/BreaksLast.cpp`, `Expect/EveryCycleHasBreaker.cpp`) and their tests (`tests/idr/expect/breaks-last.mlir`, `breaks-last/run`, `breakers.mlir`, `tests/idr/loops/breakers.mlir`, and the properties in six `tests/programs` `mlir.expect` files) | `Simplify/LoopBreakers.cpp:15-20` | Inlining repeats across rounds and must not unroll a cycle | Recursive SCC members are never inlined into each other; the bottom-up order needs no marks, so nothing reads `break_last` after the cutover. Owners: L1 the frontend's purpose, column and writer; L5 `IdrOps.td` and the generated module; L3 the pass and its readers in `Inline/`; L2 Isolate's copy; L6 Deduplicate's comparison; L8 the two properties and their tests |
-| `RoundFacts` | `Simplify/RoundFacts.cpp:6-15, 39-43` | A nested pass manager drops module analyses, so facts are recomputed before every nest | Each fact gets one home, as 0006 D20 decided (§4 stage 6): `Holds` a type fact frozen before the optimizer; `Identities` a stage-9 summary whose greatest fixpoint is taken inside each SCC; `BindingTimes` per SCC from its own bodies when it is ready; `CloneTable` gone with the key-named nodes; the symbol table the ready-set driver's |
+| `RoundFacts` | `Simplify/RoundFacts.cpp:6-15, 39-43` | A nested pass manager drops module analyses, so facts are recomputed before every nest | Each fact gets one home, as 0007 D20 decided (§4 stage 6): `Holds` a type fact frozen before the optimizer; `Identities` a stage-9 summary whose greatest fixpoint is taken inside each SCC; `BindingTimes` per SCC from its own bodies when it is ready; `CloneTable` gone with the key-named nodes; the symbol table the ready-set driver's |
 | The `CloneAttr` self-reference and its special cases | `include/idr/IR/IdrAttrs.td:232-243`; `Analysis/LabelSites.cpp:118-122`; `Transforms/Ownership/Rc.cpp:70-73`; `Deduplicate/Deduplicate.cpp:316-320` | A clone names itself so that SCCP, dead-code analysis and RDV treat it as having unknown callers that later rounds fill | No rounds: a clone is an ordinary private function made once, named from its key |
 | `unsupported (compile-time budget)` from the rounds and from specialization | `Simplify.cpp:207-209`; `Simplify/Scc.cpp:96-98`; `Specialize/Clones.cpp:30-33`, with `kClonesPerOwner`'s comment (`include/idr/Analysis/Specialize.h:56-59`) and the pass descriptions (`Passes.td:178, 599-602`) | Assertions about the optimizer's termination reported as rejections of the user's program | Budgets stop optimizing; a broken termination argument is an internal error (§2.5) |
 | The closure analysis's unknown element, `labelsFor`, the sealing cascade, `escapes`, `unsupported (runtime closure)` and `unsupported (laziness)` | `include/idr/Analysis/Labels.h:55`; `LabelSites.cpp:92-114`; `Defunctionalize/Decide.cpp:97-184, 158-164, 204-219`; `Defunctionalize/Pass.cpp:43-50, 96-101` | A gap in what the analysis follows becomes unknown, and unknown spreads | Closed world, one flow interface, the forced anchor, no unknown (§2.2) |
@@ -1263,7 +1263,7 @@ replaces it with a better branch.
 | The lookup-dodging branches and the module-scanning declaration lookups | `IR/Canon/MatchPatterns.cpp:101-121`; `Canon/Eta.cpp:43-87`; `IR/OpsClosures.cpp:325-326`; the uncached scans through `IR/Symbols.cpp:51-62` (0768bc9f, 4d207761): `IR/OpsClosures.cpp:274, 326`, `IR/OpsCon.cpp:233, 250`, `Canon/MatchPatterns.cpp:114`, `Canon/MoveOut.cpp:66`, `Canon/Eta.cpp:83`, `Verify/Owned.cpp:56`, `Transforms/Tail/WhileDo.cpp:201` (*read*: nine, plus seven cached lookups through a `SymbolTableCollection` in `verifySymbolUses`; the research counted 20) | `!idr.data<@T>` keeps its constructors in a symbol, so a pattern scans the module to read a type | Types that carry their declaration: identified types with bodies, as LLVM's identified structs carry theirs; a pattern reads the type (D29, §4 stage 1) |
 | `listElement`'s "any two-field constructor is the cons" | `IR/Symbols.cpp:65-72` | The list's role guessed from its shape | The declaration carries the role as a type fact |
 | Deduplicate's refusal of functions with an `instance` fact | `Deduplicate.cpp:183-195, 322-331` | `idr-expect` looks functions up by provenance name, so a test API constrains an optimization | `idr-expect` finds functions by structure and facts, not names |
-| Names from counters and module order | `.lam<n>`/`.delay<n>` (`Isolate.cpp:124-125`); `.capture<n>` (`Inline/Prepare.cpp:126`); `.spec<n>`/`.raise<n>` (`Clones.cpp:40-41`); `fn$<n>`/`lazy$<n>` by first appearance (`Defunctionalize/Decide.cpp:188-198`); `.acc` (`Tail/Accumulate.cpp:119`), `.trmc` (`Tail/Trmc.cpp:167`) and `.excl` (`Ownership/Specialize.cpp:51`), whose collisions the symbol table renames in insertion order; the frontend's `'n` repeats on keys that print alike (`compiler/src/IdrisMLIR/Emit/Index.idr:21-60`); the lowering's static-data globals `__idr_msg_`, `__idr_caf_`, `__idr_box_`, `__idr_str_` and `__idr_big_` numbered by one counter in creation order (`Conversion/StaticData.cpp:42, 189, 246, 276, 315`), which at §5.4's second step reach other units | Creation order reaches output | Names from keys: the owner and a hash of the structural key, at D18's width; instance symbols by 0008 §4.10's rule, the printed key followed by the low 64 bits of the identity hash where the print drops part of the identity (§4 stage 1); static data under the reserved prefix `__idr.` (§5.3 item 3), named by the hash of its content. Owners: L1 the frontend's, L2 `fn$`/`lazy$`, L3 `.capture`/`.spec`/`.raise`, L9 `.acc`/`.trmc`/`.excl` and static data |
+| Names from counters and module order | `.lam<n>`/`.delay<n>` (`Isolate.cpp:124-125`); `.capture<n>` (`Inline/Prepare.cpp:126`); `.spec<n>`/`.raise<n>` (`Clones.cpp:40-41`); `fn$<n>`/`lazy$<n>` by first appearance (`Defunctionalize/Decide.cpp:188-198`); `.acc` (`Tail/Accumulate.cpp:119`), `.trmc` (`Tail/Trmc.cpp:167`) and `.excl` (`Ownership/Specialize.cpp:51`), whose collisions the symbol table renames in insertion order; the frontend's `'n` repeats on keys that print alike (`compiler/src/IdrisMLIR/Emit/Index.idr:21-60`); the lowering's static-data globals `__idr_msg_`, `__idr_caf_`, `__idr_box_`, `__idr_str_` and `__idr_big_` numbered by one counter in creation order (`Conversion/StaticData.cpp:42, 189, 246, 276, 315`), which at §5.4's second step reach other units | Creation order reaches output | Names from keys: the owner and a hash of the structural key, at D18's width; instance symbols by 0009 §4.10's rule, the printed key followed by the low 64 bits of the identity hash where the print drops part of the identity (§4 stage 1); static data under the reserved prefix `__idr.` (§5.3 item 3), named by the hash of its content. Owners: L1 the frontend's, L2 `fn$`/`lazy$`, L3 `.capture`/`.spec`/`.raise`, L9 `.acc`/`.trmc`/`.excl` and static data |
 | The driver's decision by message prefix `"unsupported ("` | `Run.cpp:248-254`; `tests/upstream-idris/common.sh:115-127`'s `rejection_skip`, which matches the same text | A refusal recognized by its text | A refusal carries its rule as structured data on the diagnostic, which the driver reads (D42), and `rejection_skip` reads the rule (L8). The four parts of a precise rejection the owner asked for (what was found, where, why, what form compiles) are fields 0002 adds to this data after the cutover, since they change the reject tests' expected text, which D42's proof holds fixed (0002 D17) |
 | The test hook `--break-shape` | `lib/Driver/Options.cpp:41-45`; `Compile.cpp:41-42`; `Main.cpp:160`; the frontend's own option, `compiler/src/IdrisMLIR/Frontend/Driver.idr:17, 87, 110, 118, 140-142, 178-179, 188, 273-275`; `Frontend/Resolve.idr:216-230`; `Frontend/Program.idr:93-99, 142-144`; its tests, `tests/registry/broken-entry/run:3, 14`, `string-iterator/run:4, 13`, `base-surface/run:9-18` and `tests/compiler/frontend-command-line/run:70`; documented at `tests/lib/compile.sh:6` and `tools/compile.sh:13` | A hidden option makes the frontend break a registry entry so that the registry tests can see the validation refuse it: a behaviour the compiler has only for a test | The tests give the validation an input it refuses (D43); the research's inventory missed this option |
 | `idr-rc`'s exclusivity loop | `Transforms/Ownership/Rc.cpp:79-99` | Bounded by the number of calls, with an internal error if it "did not settle" | Each function's grade contexts computed as a key set first, then each copy made once |
@@ -1338,7 +1338,7 @@ re-evaluated against this design (*decision* for each verdict):
   analyses, `:673-679`). Remains useful: the units read stage facts computed
   by a module step, and the inner pipeline runs through `runPipeline`. Taken
   when the post-cutover record shows analysis rebuilds above 5% of the
-  optimizer segment's wall, 0006 §10's part-of-wall rule.
+  optimizer segment's wall, 0007 §10's part-of-wall rule.
 - **A dirty-node option for the inliner.** Unnecessary: the ready-set driver
   calls `mlir::inlineCall` directly and runs its own pipeline once per function.
 - **Inlining in place through A to B to A** (`Inliner.cpp:729-734` against
@@ -1397,9 +1397,9 @@ pool suffices); MCLinker and
 AGENTS.md's upstream rule); `PerThreadPassManagers` (upstream has the pattern,
 and Mojo's turns off the verifier); the Canonicalizer (our configuration
 already matches: region simplification off, `Canonicalize.h:33-37`; the lesson
-is where it runs); `Cache/` (about 1,000 lines): 0006's S9 rebuilds its
+is where it runs); `Cache/` (about 1,000 lines): 0007's S9 rebuilds its
 design, content-addressed blobs, on `llvm/Support/xxhash.h` in about 200
-lines (0006 D15, D16), so no line of it is ported.
+lines (0007 D15, D16), so no line of it is ported.
 
 **Licensing steps** (0001 §1, §3, §4; mojo §6). Every Modular file is
 Apache-2.0 WITH LLVM-exception, and every C++ and TableGen file under
@@ -1422,19 +1422,19 @@ and every Modular line number in both files is `9211931`'s.
 
 ## 9. Ready for sharding
 
-Every unit of this design is 0006's unit, so 0006 consumes it unchanged
-(casework-audit §3). Four rules 0006 decided are rules the cutover itself
-runs, so they are taken here and 0006 points at them: the clone budget
-per requesting node (0006 D5; §4 stage 8, D39), `calls(f)` frozen with
-one call per specialization request (0006 D11; §4 stage 7, D14), the
-name hash and its width (0006 D16; §4 stage 1, D18) and the homes of
-RoundFacts' facts (0006 D20; §4 stage 6, §6).
+Every unit of this design is 0007's unit, so 0007 consumes it unchanged
+(casework-audit §3). Four rules 0007 decided are rules the cutover itself
+runs, so they are taken here and 0007 points at them: the clone budget
+per requesting node (0007 D5; §4 stage 8, D39), `calls(f)` frozen with
+one call per specialization request (0007 D11; §4 stage 7, D14), the
+name hash and its width (0007 D16; §4 stage 1, D18) and the homes of
+RoundFacts' facts (0007 D20; §4 stage 6, §6).
 
 - **Inherent, whole-program, decided once and read frozen:** defunctionalization's
   label sets and sums (the conversion is per function); `idr-rc`'s borrow and
   exclusivity grades (placement and commit already nested, `Rc.cpp:66, 101`);
   layouts; the tail-call cycle plan; escape summaries; ranges; reachability.
-  These are 0006's phase 2.
+  These are 0007's phase 2.
 - **Accidental, and deleted here:** the rounds; RoundFacts; LoopBreakers;
   RemoveDeadValues per round; InlineCleanup's serial work on singleton SCCs;
   symbol creation serialized and named by order; the mutable shared
@@ -1445,14 +1445,14 @@ RoundFacts' facts (0006 D20; §4 stage 6, §6).
 - **Module passes for one symbol or one use count** (Isolate, Contify,
   Deduplicate, Accumulate, Trmc) either go (Isolate, today's Contify) or become
   per-unit work over decided facts.
-- **The ready set is 0006's phase 3.** The cutover drains it with MLIR's
+- **The ready set is 0007's phase 3.** The cutover drains it with MLIR's
   thread pool in one process and merges in canonical order, so one
-  thread and many write the same bytes (stage 6; 0006 S7, taken by L3).
+  thread and many write the same bytes (stage 6; 0007 S7, taken by L3).
   Sharding swaps the scheduler and keeps the one `MLIRContext` for every
-  stage up to lowering, codegen units taking contexts of their own (0006
+  stage up to lowering, codegen units taking contexts of their own (0007
   D7, this file's D30); per-worker contexts for the stages before
-  lowering come only by 0006's S6 rule. Nothing here is redone there.
-- **The codegen bins are 0006's codegen units** (0006 §3.4, D4), with the same
+  lowering come only by 0007's S6 rule. Nothing here is redone there.
+- **The codegen bins are 0007's codegen units** (0007 §3.4, D4), with the same
   rule: a pure, edit-stable function of content, independent of the shard count.
 
 ## 10. The cutover plan
@@ -1488,14 +1488,14 @@ disjoint-write table and its validator.
 | Lane | Owns | Work | Proof |
 | --- | --- | --- | --- |
 | L0, the baseline | `bench/profiles/`, `/tmp/f0/` | Run the old binary's defunctionalize on the round-16 module and record directive.lam4's op and key (§2.6); time-boxed timings of the old pipeline from the saved post-contify module; the old binary's `--demand-in-place` run over the 27 programs that load `mlir-linear` and make no promise, 22 tests and five bench programs (§2.9); G1's run before the cutover on the same commit (0002 §3, D14): the bench and `tests/compile-times.sh` on both targets, the baselines §10's 5% and 2% compare against, each record committed under `bench/profiles/`; keep the modules and the commands that regenerate them | committed records, one old binary named by all of them |
-| L1, emission | `compiler/src/IdrisMLIR/`: `Emit.idr`, `Emit/`, `Frontend/`, `MLIR.idr`, `MLIR/`, `Registry/`; `compiler/idris-mlir.ipkg` | Symbol-form closures and suspensions, an evaluated one as `idr.delay %value` (D37); names from content at D18's width, with the plain-Idris XXH3-128 checked against its published test values; instance symbols injective by 0008 §4.10's rule, the `'n` repeats deleted (`Emit/Index.idr:21-60`; 0006 S1); every hook applied below its arity eta-expanded in symbol form, so the partial application is a closure whose body is the saturated call (0002 D18; §4 stage 1); binder identity (no `$world`, no hole sentinel); data types written as identified types with bodies (D29) and the in-place fact from the registry (D19); the bytecode writer (D36); no `idr.program` written (D28); no `break_last` written and the `BreakLast` purpose and column deleted (§6); delete `Prof.idr` and the frontend's half of `--break-shape` (D43); 0011 feature 2's request-chain rule (0011 D4), deleting `instanceBudget`, its `compile-time budget` rule and `checkComponent`'s blanket refusal (D40) | corpus emits; the programs whose acceptance changes listed, each accepted with its expected output or refused naming its growth; every program's expected output unchanged; the bytecode read time recorded against the 11.7 s text parse |
+| L1, emission | `compiler/src/IdrisMLIR/`: `Emit.idr`, `Emit/`, `Frontend/`, `MLIR.idr`, `MLIR/`, `Registry/`; `compiler/idris-mlir.ipkg` | Symbol-form closures and suspensions, an evaluated one as `idr.delay %value` (D37); names from content at D18's width, with the plain-Idris XXH3-128 checked against its published test values; instance symbols injective by 0009 §4.10's rule, the `'n` repeats deleted (`Emit/Index.idr:21-60`; 0007 S1); every hook applied below its arity eta-expanded in symbol form, so the partial application is a closure whose body is the saturated call (0002 D18; §4 stage 1); binder identity (no `$world`, no hole sentinel); data types written as identified types with bodies (D29) and the in-place fact from the registry (D19); the bytecode writer (D36); no `idr.program` written (D28); no `break_last` written and the `BreakLast` purpose and column deleted (§6); delete `Prof.idr` and the frontend's half of `--break-shape` (D43); 0012 feature 2's request-chain rule (0012 D4), deleting `instanceBudget`, its `compile-time budget` rule and `checkComponent`'s blanket refusal (D40) | corpus emits; the programs whose acceptance changes listed, each accepted with its expected output or refused naming its growth; every program's expected output unchanged; the bytecode read time recorded against the 11.7 s text parse |
 | L2, total defunctionalization | `include/idr/Analysis/Labels.h`; `lib/Analysis/Labels.cpp`, `LabelSites.cpp`; `include/idr/Transforms/Defunctionalize.h`; `lib/Transforms/Defunctionalize/` but `ByName.cpp`; `lib/Transforms/Isolate/`; the flow interface's own files (new: `include/idr/IR/IdrFlow.td`, `lib/IR/Flow.cpp`) | The flow interface (D8), the forced-state anchor (D9), no unknown (D10), the external and escaping cases of the label analysis deleted (D7), MLton's representation choices (D12), `fits` as an assertion (D27), the sums made after the effects summary with D29's bodies (D34), the per-function conversion, placement after deduplication (D11); `idr-isolate` deleted once L1 writes the symbol form; the list of ops that declare the interface, for L5 | every former source of unknown has a fixture that now converts; the grade fixtures (§2.9); the corpus and stage 0 pass the verifier; the solve under 10 s on stage 0; per-key constructor counts, post-optimizer dispatch counts and the largest boxed closure sum recorded on stage 0 (§2.5, §2.8); suites green |
 | L3, the first-order optimizer | `lib/Transforms/Simplify/`, `Inline/`, `Specialize/`, `Effects/`, `Identity/`; `lib/Transforms/Defunctionalize/ByName.cpp`; `lib/Analysis/Inline.cpp`, `References.cpp`, `BindingTimes.cpp`, `Specialize.cpp`, `Effects.cpp`, `Holds.cpp`, `Identities*.cpp` with their headers; `include/idr/Transforms/Canonicalize.h`; `include/idr/Support/`; the constants summary (new) | The ready set as `idr-optimize` (D13; §6's registry table); decisions with the caller cap (D14, D25), `calls(f)` frozen with one call per specialization request (§4 stage 7); the inner pipeline once and the bounded local loop; one canonicalization configuration and one pattern set collected once (§6); specialization nodes (D15), the clone budget per requesting node (D39); the homes of RoundFacts' facts: `Holds` frozen, `Identities` a stage-9 summary per SCC, `BindingTimes` per SCC when ready (§4 stage 6); contification (§4 stage 5); the effects summary with its observable bit, first called by L2's pass (D34), and the constants summary (D16); call-site effects written once, at the caller's readiness for callees outside its SCC (D38); dead values once; delete the rounds and every row of §6 that §4 deletes, LoopBreakers and its readers in `Inline/` among them, and `SimplifyInstrumentation`'s registration in `Run.cpp:120` and `tools/idris-mlir-opt.cpp` (L4 writes those lines) | suites green; stage 0's optimizer under the threshold below; D25's record; the calls left after the optimizer, old binary against new, on the corpus and stage 0 (§4 stage 9); determinism 1/2/8 |
 | L4, the driver and options | `lib/Driver/` but `Artifacts.cpp`; `lib/Transforms/Pipeline.cpp`; `include/idr/Transforms/Passes.td`, `Demand.h`, `Pipeline.h`, `CMakeLists.txt`; `include/idr/Driver/`; `lib/Transforms/CMakeLists.txt`, `lib/Analysis/CMakeLists.txt`; `lib/Transforms/Demand/`; `tools/idris-mlir.cpp`, `idris-mlir-opt.cpp`, `idris-mlir-reduce.cpp`; `tools/compile.sh`; `bench/README.md` | Delete `--without`, `--dump-dir`, the toggles, `--demand-in-place` (idr-demand then reads the type fact) and `--break-shape` (D43), and the debug counter's registration in `idris-mlir` (`Main.cpp:99`, kept in `idris-mlir-opt`); structured refusals (D42); the pass registry of §6's table; the pipeline's order as §4 gives it, written as each lane lands its stage; `tools/compile.sh:12-13` and `bench/README.md`'s ablation section (`:156` on) restated without the deleted options | suites green; no option selects behaviour (a spec check over `Passes.td` and `Options.cpp`) |
 | L5, IR facts | `include/idr/IR/` and `lib/IR/` but L2's flow files; `tools/idris-mlir-tblgen.cpp`; `compiler/src/IdrisMLIR/Rule.idr`, `Dialect/` and `Syntax/` (generated from L5's ODS, checked by `tests/spec/dialects-current`) | `idr.stack` inherent; the root as the one public function, the module rules from its verifier, no external `idr.func`, no `idr.program` (D28, D31); identified types with bodies and every lookup they delete, the `idr.data` and `idr.ctor` ops deleted, the generator taught the types for the Idris side (D29); `break_last` deleted from `idr.func` (§6); `listElement`'s role; `idr.delay %value` (D37); the call-site effects verifier checking equality (D38); the rule enum, its Idris `Rule` generated and `Rule.idr` deleted (D42); the interface declarations L2 lists; the generated modules regenerated | suites green; no discardable attribute declared (`IdrBase.td:58` empty) and no declaration lookup on a data type left in `lib/` (spec checks) |
 | L6, ports and upstream | `upstream/`, `PINS.md`, `lib/Transforms/Deduplicate/` with `include/idr/Transforms/Deduplicate.h` | EliminateDuplicateFunctions ported (§8 rank 4), with the `instance` refusal and the `break_last` comparison deleted once L8's `idr-expect` finds functions by structure; 02, 16 and 22 retired, their reports kept as submissions with `pull-request.diff` and their PINS entries moved to the retired list (D23); the Presburger patch that replaces `Empty.cpp` (L9 deletes the file and calls the patched API) and the region-simplifier report (§7) | `tests/upstream` green; `tests/spec/licenses` green |
 | L7, code generation | `lib/Target/`, `include/idr/Target/`; `lib/Driver/Artifacts.cpp` | §5's partitioning (D20, D26, D41), dotless names in one namespace group (§5.3 item 2), and S2's split code generation (D21); the archive for `-c` (D32); tail calls (D33) and inline assembly checked on both targets; the call from `Run.cpp`'s LLVM half into it (L4 writes that line) | executables byte-identical at 1, 2 and 8 threads; bench compile times and each corpus program's bin count recorded; the edit fixture of D41 |
-| L8, tests | `tests/`; `lib/Transforms/Expect/` with `include/idr/Transforms/Expect.h` | Delete the tests of deleted mechanisms: `tests/idr/obs/budget.mlir`, `round-failure.mlir`, `round-trace.mlir`, `tests/idr/specialize/budget.mlir` (it becomes a test that specialization stops and the program runs), `tests/idr/pipeline/steps.mlir`'s usage errors, the do-block A/B lines, the `--demand-in-place` fixture files with `tests/lib/e2e.sh:38, 64` and `tests/lib/profile.sh:38, 47`, the `breaks-last` and `every-cycle-has-breaker` properties and their tests (§6); move every `--dump-dir` reader to `-mlir-print-ir-tree-dir` (§6's row) and `tests/idr/obs/debug-counter.mlir` to `idris-mlir-opt`; restate every test that runs `idr-simplify`, `idr-inline` or `idr-specialize` on `idr-optimize` (§6's registry table), and brittle fixtures as properties; the 82 fragments with several public functions and the 15 files with bodiless functions rewritten for D28 before L5's verifier lands; the registry tests (`broken-entry`, `string-iterator`, `base-surface`) and `tests/compiler/frontend-command-line` on D43's fixtures; a fixture for a partially applied `castPtr` (0002 D18); `tests/upstream-idris/common.sh`'s `rejection_skip` reading the refusal's rule instead of its text (D42, 0002 §3); the `-c` readers of D32; `idr-expect` finding functions by structure and facts, not names; the name-stability edit fixture of 0006 S1 (one definition edited, every other symbol unchanged); the totality fixtures and the determinism checks at 1, 2 and 8 threads | the suites themselves |
+| L8, tests | `tests/`; `lib/Transforms/Expect/` with `include/idr/Transforms/Expect.h` | Delete the tests of deleted mechanisms: `tests/idr/obs/budget.mlir`, `round-failure.mlir`, `round-trace.mlir`, `tests/idr/specialize/budget.mlir` (it becomes a test that specialization stops and the program runs), `tests/idr/pipeline/steps.mlir`'s usage errors, the do-block A/B lines, the `--demand-in-place` fixture files with `tests/lib/e2e.sh:38, 64` and `tests/lib/profile.sh:38, 47`, the `breaks-last` and `every-cycle-has-breaker` properties and their tests (§6); move every `--dump-dir` reader to `-mlir-print-ir-tree-dir` (§6's row) and `tests/idr/obs/debug-counter.mlir` to `idris-mlir-opt`; restate every test that runs `idr-simplify`, `idr-inline` or `idr-specialize` on `idr-optimize` (§6's registry table), and brittle fixtures as properties; the 82 fragments with several public functions and the 15 files with bodiless functions rewritten for D28 before L5's verifier lands; the registry tests (`broken-entry`, `string-iterator`, `base-surface`) and `tests/compiler/frontend-command-line` on D43's fixtures; a fixture for a partially applied `castPtr` (0002 D18); `tests/upstream-idris/common.sh`'s `rejection_skip` reading the refusal's rule instead of its text (D42, 0002 §3); the `-c` readers of D32; `idr-expect` finding functions by structure and facts, not names; the name-stability edit fixture of 0007 S1 (one definition edited, every other symbol unchanged); the totality fixtures and the determinism checks at 1, 2 and 8 threads | the suites themselves |
 | L9, memory and lowering | `lib/Transforms/Ownership/`, `Stack/`, `Tail/`, `InBounds/`, `Narrow/`, `Vectorize/` with their headers; `lib/Analysis/Ownership/`, `Escapes*.cpp`, `Ranges.cpp`, `Tail.cpp`; `lib/Conversion/`, `include/idr/Conversion/` | Stages 11 and 12: `idr-rc`'s grade contexts as a key set, each copy made once (§6); `.acc`, `.trmc` and `.excl` named from their keys, and the static-data globals named by content under `__idr.` (D18, §6); the readers of `idr.stack` on L5's property; the lowering per function, the runtime's declarations created up front from the decided set; `InBounds/Empty.cpp` replaced by L6's Presburger patch; the `isExternal()` tests of these passes deleted (D7) | suites green; determinism 1/2/8; the tail's timings on stage 0 recorded |
 
 **Order:** L0; then L5's identified types and L1 together (they meet at
@@ -1504,7 +1504,7 @@ L3; then L4 and L6; then L7; L9 alongside L2 and L3 once L5's `idr.stack`
 property has landed, since it shares no file with them; L8 alongside each.
 After the cutover: §5.4's split before O3, then whatever the new record names
 next (the giant-function tail if the caller cap leaves one; the frontend's
-140 s and 9.1 GB, 0008's ground; the LLVM tail once measurable, 0006 S2).
+140 s and 9.1 GB, 0009's ground; the LLVM tail once measurable, 0007 S2).
 
 **Measurement** (*decision*): old binary against new binary, two commits, two
 builds, under identical conditions on performance cores, from a named saved
@@ -1568,7 +1568,7 @@ kept beside the old form.
   two or more, or one that calls itself), delete originals, and add a
   per-caller size cap. `calls(f)` is `f`'s call sites when the optimizer
   starts, frozen, and a specialization node counts one call per request
-  (as 0006 D11 decided). Reason: the rule is right, applied once; a cycle's
+  (as 0007 D11 decided). Reason: the rule is right, applied once; a cycle's
   member could never lose its original; the cap bounds what single-call
   absorption builds; a count read when a node is final would be an
   arrival count under the pool (§4 stage 7).
@@ -1583,10 +1583,10 @@ kept beside the old form.
   XXH3-128 hash of the structural key, LLVM's in C++ and a plain-Idris
   copy in the frontend checked against the published test values, a name
   carrying the low 64 bits as 16 hex digits and a collision an internal
-  error (as 0006 D16 decided); instance symbols by 0008 §4.10's rule,
+  error (as 0007 D16 decided); instance symbols by 0009 §4.10's rule,
   which deletes the frontend's `'n` repeats; static data named by
   content under `__idr.` (§4 stage 1, §6). Reason: creation order must
-  not reach output, and one width is what 0006's sharding needs.
+  not reach output, and one width is what 0007's sharding needs.
 - D19. Facts live in types and inherent properties: `idr.stack` inherent, the
   stage read from types, the in-place promise a type fact.
 - D20. Codegen units are size-balanced bins of SCCs grouped by top-level
@@ -1675,7 +1675,7 @@ homes of RoundFacts' facts and the header's tag limit.
   the main thread and translated and optimized in an `MLIRContext` and an
   `LLVMContext` of its own. Reason: upstream neither documents nor tests
   concurrent translation on one context (upstream-mlir-llvm §5), and a
-  context per unit needs no such promise, which is the shape 0006 D7 takes
+  context per unit needs no such promise, which is the shape 0007 D7 takes
   for its codegen units. Checked at the second step by determinism at 1, 2
   and 8 threads and the time trace's share of the bytecode write.
 - D31. There is no stage marker: each function's stage is already read from
@@ -1707,10 +1707,10 @@ homes of RoundFacts' facts and the header's tag limit.
   output tests' bytes.
 - D35. Polyvariance is not built. Reason: defunctionalization's
   acceptance never depends on it (§2.4; MLton's closure conversion is
-  exact with it off, `xml/polyvariance.fun:433-436`), and from 0005's P4
+  exact with it off, `xml/polyvariance.fun:433-436`), and from 0006's P4
   the send check reads the same 0CFA sets, frozen, so a change of
   precision would change which forks are accepted, a language change
-  for a proposal of its own and never a bench decision (0005 §7.3);
+  for a proposal of its own and never a bench decision (0006 §7.3);
   what it buys, smaller sets at
   higher-order call sites, specialization on a known constructor (§4 stage
   8) recovers after the solve, on demand, where MLton duplicates before it
@@ -1745,7 +1745,7 @@ homes of RoundFacts' facts and the header's tag limit.
   the finiteness argument its comment names (`Specialize.h:56-58`),
   counted per requesting node: the distinct keys one node requests of one
   owner, in call-site order, an already-made key counted like a new one
-  (as 0006 D5 decided; §4 stage 8). Reason: a finite set of static
+  (as 0007 D5 decided; §4 stage 8). Reason: a finite set of static
   patterns can pass 1,024 in a large program, and termination rests on
   the binding-time rule and each key's node being made once (§2.5); and
   counted owner-wide as requests arrive, which call stays unspecialized
@@ -1755,7 +1755,7 @@ homes of RoundFacts' facts and the header's tag limit.
   threads.
 - D40. The cutover deletes the frontend's instance bound
   (`Instances.idr:38-39, 110-112`) and `checkComponent`'s blanket refusal:
-  lane L1 lands 0011 D4's request-chain rule, which refuses only a chain
+  lane L1 lands 0012 D4's request-chain rule, which refuses only a chain
   of requests that grows and names the site and the growing value. Decided
   by the owner (2026-10-14): acceptance is a property of the program,
   never of a count, and the project holds it as a rule (AGENTS.md).
@@ -1775,7 +1775,7 @@ homes of RoundFacts' facts and the header's tag limit.
   Checked by determinism at 1, 2 and 8 threads and an edit fixture whose
   unrelated bins keep their members at S2, and their bytes from §5.4's
   second step, since a whole-module O3 may change any bin before it
-  (0006 S2's proof).
+  (0007 S2's proof).
 - D42. A refusal names its rule as data: one rule enum declared in the
   dialect's ODS, its C++ from ODS and its Idris `Rule` generated by
   `idris-mlir-tblgen` beside `Dialect/Idr.idr`, which deletes the
@@ -1826,19 +1826,19 @@ homes of RoundFacts' facts and the header's tag limit.
 - D47. RoundFacts' facts get one home each: `Holds` a type fact frozen
   before the optimizer, `Identities` a stage-9 summary with its greatest
   fixpoint inside each SCC, `BindingTimes` per SCC when the SCC is
-  ready, `CloneTable` gone, the symbol table the driver's (as 0006 D20
+  ready, `CloneTable` gone, the symbol table the driver's (as 0007 D20
   decided; §4 stage 6). Reason: each fact then has the scope it
   quantifies over, and nothing is recomputed per nest.
 - D48. The one representation limit the totality argument leaves is the
   runtime header's 2^16 tags for a boxed sum, refused as `unsupported
   (layout)`; L2 records the largest boxed closure sum on stage 0 (§2.4
   step 5, §2.5). Reason: it is a limit of the cell's representation,
-  which 0009 records for every boxed sum (0011 D3), not a count of
-  anything the optimizer does; lifting it is 0009's if a record names
+  which 0010 records for every boxed sum (0012 D3), not a count of
+  anything the optimizer does; lifting it is 0010's if a record names
   it.
 
 **No question is left for the owner.** The one this section held,
-whether the cutover takes 0011 D4 and deletes the instance bound, the
+whether the cutover takes 0012 D4 and deletes the instance bound, the
 owner settled on 2026-10-14 (D40).
 
 ## 12. Sources

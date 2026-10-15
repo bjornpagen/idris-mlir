@@ -3,8 +3,8 @@
 Producer of this half: U14. The C++ half (the helper over
 `llvm::xxh3_128bits`) is U01's, in its own C21 file; both halves
 implement the one rule below and are checked against the one table of
-vectors below. Authority: 0004 §4 stage 1 and D18, 0006 §4.4, §4.5 and
-D16, 0008 §4.10.
+vectors below. Authority: 0004 §4 stage 1 and D18, 0007 §4.4, §4.5 and
+D16, 0009 §4.10.
 
 ### The rule (both halves)
 
@@ -24,7 +24,7 @@ D16, 0008 §4.10.
   `.acc`, `.trmc`, `.excl`, by their lanes).
 - An instance's symbol is C20's `keyText`: its key printed, followed by
   `;` and `hex16` of its identity hash exactly when the print dropped
-  part of the identity (0008 §4.10).
+  part of the identity (0009 §4.10).
 - Two different keys whose names meet are caught where the name is
   interned, by full equality of the keys, and that is an internal error:
   never a merge, never a counter, never a widened name.
@@ -70,7 +70,7 @@ contentName owner kind key = owner ++ "." ++ kind ++ "." ++ contentHash key
 Invariants: every function is total and pure, in plain Idris over
 `Bits8` and `Bits64` (base's modular arithmetic, `Data.Bits`), with no
 `%foreign`, no primitive of ours and no IO, so the frontend computes the
-same values on Chez at stage 0 and natively after (0006 D16). The port
+same values on Chez at stage 0 and natively after (0007 D16). The port
 follows the reference's length classes exactly: 0, 1 to 3, 4 to 8, 9 to
 16, 17 to 128, 129 to 240, and the long hash in blocks of 16 stripes of
 64 bytes with the secret's last stripe for the scramble. The 64 by 64

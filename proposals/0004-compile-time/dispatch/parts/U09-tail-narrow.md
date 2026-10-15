@@ -97,7 +97,7 @@ Nothing new.
   a unit); §6 rows "lookup-dodging branches" (line 1262), "Names from
   counters" (line 1265), "`InBounds/Empty.cpp`" (line 1269); D7, D18,
   D29, D38 (lines 1545-1548, 1581-1588, 1661-1672, 1732-1743).
-- 0006 §4.5 (`proposals/0006-sharded-whole-program-compiler.md:447-470`):
+- 0007 §4.5 (`proposals/0007-sharded-whole-program-compiler.md:447-470`):
   the name's width and the collision rule.
 - 0003 (`proposals/0003-typed-apl/README.md`): §1's table (lines
   145-153); §2's table (lines 237-255) and D4 (line 1796); §6 (lines
@@ -383,12 +383,12 @@ deletes (`Expect/InBounds.cpp`).
   module that already holds the copy's name is refused with the internal
   error, not renamed.
 - *Retry with a counter or a widened hash when the name is taken.*
-  Rejected by D18 and 0006 §4.5: a collision is an internal error, never
+  Rejected by D18 and 0007 §4.5: a collision is an internal error, never
   a widened name.
 - *Make the key the owner's body, or its printed form, "to be safe".*
   Rejected: the owner and the kind are already in the name, and a
   function has at most one copy of each kind; a body in the key makes the
-  name move with every edit, against 0006's name stability.
+  name move with every edit, against 0007's name stability.
 - *Keep a `declarationOf` fallback in `WhileDo` for a type without a body.*
   Rejected: an identified type without a body is refused by the verifier
   (C01, D29). Acceptance: no `declarationOf`, `lookupCtor`, `DataOp` or

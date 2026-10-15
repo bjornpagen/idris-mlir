@@ -102,7 +102,7 @@ bool idr::inlining::worthInlining(const Facts &callee, bool noInline) {
   final body (Mojo measures the callee after its own pipeline,
   `sources/code/modular/Mojo/lib/Transforms/AutomaticInline.cpp:161-166`).
 - **calls(f)** is frozen when idr-optimize begins: the number of `idr.call`
-  ops in the module whose callee is `f` (0004 §4 stage 7, D14, as 0006
+  ops in the module whose callee is `f` (0004 §4 stage 7, D14, as 0007
   D11 decided). A constructor or a dispatch match naming `f` is no call:
   after defunctionalization every apply is a dispatch whose arms are
   direct calls, which are counted (C06 postcondition 3). No count is ever

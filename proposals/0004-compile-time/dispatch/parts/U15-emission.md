@@ -81,9 +81,9 @@ Nothing is deleted whole.
   lines 1245 (Emit's writer of the cycle mark), 1252 (the region round
   trip), 1260 (the program mark) and 1265 (names from counters); D18,
   D28, D29, D36, D37 (lines 1581-1588, 1647-1672, 1723-1732).
-- 0008 §4.9 and §4.10 (`proposals/0008-data-oriented-frontend.md:404-548`):
+- 0009 §4.9 and §4.10 (`proposals/0009-data-oriented-frontend.md:404-548`):
   the attribute and type table, the lambda key, instance symbols.
-- 0006 §4.5 (`proposals/0006-sharded-whole-program-compiler.md:447-466`):
+- 0007 §4.5 (`proposals/0007-sharded-whole-program-compiler.md:447-466`):
   the name's width and the collision rule.
 - 0003 (`proposals/0003-typed-apl/README.md`): §2's table (lines
   227-266); §4.1 (lines 611-648); §4.3 (lines 666-736); §4.5 (lines
@@ -92,7 +92,7 @@ Nothing is deleted whole.
 - `array-drafts.json`'s FRONTEND entry, §1, §2 and §7 (the earlier draft
   of `Dim`, the tensor printer, the emission of each primitive and
   `fit`): what still holds is in C22; its `idr-raise` is now
-  `idr-structure-loops`, its proposal number 0007 is 0003, and the
+  `idr-structure-loops`, its proposal number 0008 is 0003, and the
   frontend writes no `scf.parallel` in stage 1.
 - The lane's sources, whole: `Emit.idr` (`:45-100`), `Emit/Bodies.idr`
   (`:160-170` deferred, `:330-358` lambda and delay, `:366-386` region
@@ -326,7 +326,7 @@ Failure paths: every Emit failure is `Left` with a message, which
   value said once (D37); a delay of a constructor would become a memo
   label. Acceptance case: `memo-shared-stream` and `stream-share` keep
   their outputs and live-cell marks.
-- **Keeping `p'n` for symbols that print alike.** Rejected (0008 §4.10).
+- **Keeping `p'n` for symbols that print alike.** Rejected (0009 §4.10).
   Acceptance case: no counter in `Emit/Index.idr`; a repeat is internal.
 - **Interning bytecode entries by structural equality of `MlirType`.**
   Rejected: text is what the entry is; one text, one entry.
@@ -347,7 +347,7 @@ Failure paths: every Emit failure is `Left` with a message, which
   `tests/compiler/dialect-syntax` passes on the bytecode samples; the
   bytecode read time on the stage-0 module is recorded against the
   11.7 s text parse (D36), and the attribute and type section's size
-  beside it (0008 §4.9's O0); determinism at 1, 2 and 8 threads (the
+  beside it (0009 §4.9's O0); determinism at 1, 2 and 8 threads (the
   file is a function of the program).
 
 ## Stop and return

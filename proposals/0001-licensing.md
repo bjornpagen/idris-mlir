@@ -305,7 +305,7 @@ rebuilds. 0004's lane L6 lands the port under this protocol, with
 `LICENSES/THIRD-PARTY.md` names every pin and submodule that
 reaches a shipped binary, its license, and what the binary therefore
 carries; it is kept by the same change that adds or moves a pin.
-0013's crate graph, when it is unparked, enters it by the same rule.
+0014's crate graph, when it is unparked, enters it by the same rule.
 GMP is its one non-permissive entry.
 
 **What reaches a binary** (*read*). The runtime calls GMP for
@@ -452,7 +452,7 @@ upstream lays it out, where ports land with provenance.
 deferred until a whole vendored unit made the distinction load-bearing.
 None is planned: the one Modular port (EliminateDuplicateFunctions,
 301 lines) adapts into `foreign/idr/lib/Transforms/`, AsyncRT never
-comes (0004 §8), and 0013's parked `foreign/rust/bind/` is our own code
+comes (0004 §8), and 0014's parked `foreign/rust/bind/` is our own code
 in cargo's layout, which `foreign/README.md`'s definition already
 covers. A rename would touch CMake presets, PINS.md, bootstrap paths
 and every `#include` root for no change in meaning. A proposal that

@@ -287,7 +287,7 @@ generates both: `Dialect.Tensor` has `emptyOp`, `extractOp`, `insertOp`,
   definition order (parameters `%0`... then each result in order). Two
   bodies of one owner with one key are one function: it is written once
   and both ops name it. Two keys on one name are an internal error,
-  never a merge (0006 §4.5).
+  never a merge (0007 §4.5).
 
 ### 6. Data types (D29, C01)
 
@@ -307,7 +307,7 @@ generates both: `Dialect.Tensor` has `emptyOp`, `extractOp`, `insertOp`,
   `M/lib/Dialect/LLVMIR/IR/LLVMTypeSyntax.cpp:143-199`). Emit builds the
   `MlirType` with the stack of types whose bodies it is spelling. In the
   bytecode each distinct spelling is one entry and every use its number
-  (0008 §4.9).
+  (0009 §4.9).
 - Ops name a constructor by its name within its value's type (C02's
   `idr.con`, `idr.field`, `idr.take`, `idr.reuse`, `idr.dest.of`
   builders); a match's case keys are the constructors' flat names, as
