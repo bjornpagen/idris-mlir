@@ -1,0 +1,296 @@
+{
+  "coordinator": {
+    "writes": [
+      "compiler/idris-mlir.ipkg",
+      "tests/tests.ipkg",
+      "CMakeLists.txt",
+      "foreign/idr/CMakeLists.txt",
+      "foreign/idr/lib/CMakeLists.txt",
+      "foreign/idr/lib/IR/CMakeLists.txt",
+      "foreign/idr/lib/Analysis/CMakeLists.txt",
+      "foreign/idr/lib/Transforms/CMakeLists.txt",
+      "foreign/idr/include/idr/IR/CMakeLists.txt",
+      "foreign/idr/include/idr/Transforms/CMakeLists.txt",
+      "runtime/CMakeLists.txt",
+      "Makefile",
+      "PINS.md",
+      "upstream/README.md",
+      "proposals/**",
+      "HANDOFF.md",
+      "tools/policies.txt",
+      "compiler/src/IdrisMLIR/Dialect/**",
+      "compiler/src/IdrisMLIR/Syntax/**",
+      ".gitignore",
+      "tests/upstream/**",
+      "compiler/idris/idris-compiler.ipkg"
+    ],
+    "findings": []
+  },
+  "K1": {
+    "writes": [
+      "foreign/idr/lib/Transforms/Contracts/**",
+      "foreign/idr/include/idr/Transforms/Contracts.h",
+      "foreign/idr/tools/idris-mlir-opt.cpp",
+      "tests/idr/contracts/**"
+    ],
+    "findings": [
+      "F01"
+    ]
+  },
+  "K2": {
+    "writes": [
+      "foreign/idr/include/idr/Transforms/Passes.td",
+      "foreign/idr/include/idr/Transforms/InnerPasses.td",
+      "foreign/idr/tools/idris-mlir-tblgen.cpp",
+      "foreign/idr/lib/Transforms/Optimize/**",
+      "foreign/idr/include/idr/Transforms/Optimize.h",
+      "tests/idr/roles/**"
+    ],
+    "findings": [
+      "F04",
+      "F05"
+    ]
+  },
+  "K3": {
+    "writes": [
+      "foreign/idr/lib/Transforms/**",
+      "foreign/idr/include/idr/Support/Actions.h",
+      "tests/idr/actions/**"
+    ],
+    "excludes": [
+      "foreign/idr/lib/Transforms/Optimize/**",
+      "foreign/idr/lib/Transforms/Expect/**",
+      "foreign/idr/lib/Transforms/Contracts/**",
+      "foreign/idr/lib/Transforms/CMakeLists.txt"
+    ],
+    "findings": [
+      "F03"
+    ]
+  },
+  "E": {
+    "writes": [
+      "foreign/idr/lib/Transforms/Expect/**",
+      "foreign/idr/include/idr/Transforms/Expect.h",
+      "tests/idr/expect/**"
+    ],
+    "findings": [
+      "F21"
+    ]
+  },
+  "F": {
+    "writes": [
+      "foreign/idr/include/idr/IR/**",
+      "foreign/idr/lib/IR/**",
+      "foreign/idr/tools/idris-mlir-reduce.cpp",
+      "foreign/idr/lib/Analysis/Effects.cpp",
+      "foreign/idr/include/idr/Analysis/Effects.h"
+    ],
+    "excludes": [
+      "foreign/idr/include/idr/IR/IdrStringOps.td",
+      "foreign/idr/include/idr/IR/CMakeLists.txt",
+      "foreign/idr/lib/IR/OpsStrings.cpp",
+      "foreign/idr/lib/IR/Fold/Strings.cpp",
+      "foreign/idr/lib/IR/CMakeLists.txt"
+    ],
+    "findings": [
+      "F02",
+      "F06",
+      "F07",
+      "F22"
+    ]
+  },
+  "G": {
+    "writes": [
+      "foreign/idr/include/idr/Driver/**",
+      "foreign/idr/lib/Driver/**"
+    ],
+    "findings": [
+      "F08",
+      "F09"
+    ]
+  },
+  "B": {
+    "writes": [
+      "foreign/idr/unittests/**"
+    ],
+    "findings": [
+      "F10"
+    ]
+  },
+  "P": {
+    "writes": [
+      "foreign/idr/include/idr/IR/IdrStringOps.td",
+      "foreign/idr/lib/IR/OpsStrings.cpp",
+      "foreign/idr/lib/IR/Fold/Strings.cpp",
+      "compiler/src/IdrisMLIR/Registry/**",
+      "compiler/src/IdrisMLIR/Emit/Operations.idr",
+      "runtime/Strings/**",
+      "libs/**",
+      "tests/registry/**"
+    ],
+    "findings": [
+      "F14"
+    ]
+  },
+  "I": {
+    "writes": [
+      "compiler/src/IdrisMLIR/**",
+      "compiler/idris/src/Idris/Host.idr",
+      "compiler/idris/README.md"
+    ],
+    "excludes": [
+      "compiler/src/IdrisMLIR/Registry/**",
+      "compiler/src/IdrisMLIR/Emit/Operations.idr",
+      "compiler/src/IdrisMLIR/Proof/**",
+      "compiler/src/IdrisMLIR/Frontend/Finite.idr",
+      "compiler/src/IdrisMLIR/Frontend/Translate/Keys.idr",
+      "compiler/src/IdrisMLIR/Frontend/Translate/Terms.idr",
+      "compiler/src/IdrisMLIR/Frontend/Translate/Programs.idr",
+      "compiler/src/IdrisMLIR/Frontend/Translate/Cases.idr",
+      "compiler/src/IdrisMLIR/Dialect/**",
+      "compiler/src/IdrisMLIR/Syntax/**"
+    ],
+    "findings": [
+      "F11"
+    ]
+  },
+  "T": {
+    "writes": [
+      "compiler/src/IdrisMLIR/Frontend/Translate/Terms.idr",
+      "compiler/src/IdrisMLIR/Frontend/Translate/Programs.idr",
+      "compiler/src/IdrisMLIR/Frontend/Translate/Cases.idr"
+    ],
+    "findings": [
+      "F12"
+    ]
+  },
+  "Q": {
+    "writes": [
+      "compiler/src/IdrisMLIR/Proof/**",
+      "compiler/src/IdrisMLIR/Frontend/Finite.idr",
+      "compiler/src/IdrisMLIR/Frontend/Translate/Keys.idr"
+    ],
+    "findings": [
+      "F13"
+    ]
+  },
+  "N": {
+    "writes": [
+      "tests/Gen.idr",
+      "tests/Prims.idr",
+      "tests/Fuzz.idr",
+      "tests/Sem.idr",
+      "tests/TwoLevels.idr",
+      "tests/fuzz/**",
+      "tests/two-levels/**",
+      "tests/programs/semantics/**",
+      "tests/lib/fuzz.sh"
+    ],
+    "findings": [
+      "F15"
+    ]
+  },
+  "R1": {
+    "writes": [
+      "tests/toolchain/lib/**",
+      "tests/toolchain/runtime-bigs/**",
+      "tests/toolchain/runtime-text/**"
+    ],
+    "findings": [
+      "F16"
+    ],
+    "excludes": [
+      "tests/toolchain/lib/utf8model.h"
+    ]
+  },
+  "R2": {
+    "writes": [
+      "tests/toolchain/runtime-doubles/**",
+      "tests/toolchain/runtime-utf8/**",
+      "tests/toolchain/runtime-strings/**",
+      "tests/toolchain/double-print/**",
+      "tests/toolchain/lib/utf8model.h"
+    ],
+    "findings": []
+  },
+  "R3": {
+    "writes": [
+      "runtime/**",
+      "tests/toolchain/**"
+    ],
+    "excludes": [
+      "runtime/Strings/**",
+      "runtime/CMakeLists.txt",
+      "tests/toolchain/lib/**",
+      "tests/toolchain/runtime-bigs/**",
+      "tests/toolchain/runtime-text/**",
+      "tests/toolchain/runtime-doubles/**",
+      "tests/toolchain/runtime-utf8/**",
+      "tests/toolchain/runtime-strings/**",
+      "tests/toolchain/double-print/**"
+    ],
+    "findings": [
+      "F17"
+    ]
+  },
+  "X1": {
+    "writes": [
+      "tests/idr/**",
+      "tests/lib/lit.sh"
+    ],
+    "excludes": [
+      "tests/idr/expect/**",
+      "tests/idr/contracts/**",
+      "tests/idr/roles/**",
+      "tests/idr/actions/**"
+    ],
+    "findings": [
+      "F18"
+    ]
+  },
+  "X2": {
+    "writes": [
+      "tests/programs/**",
+      "tests/accept/**",
+      "tests/reject/**",
+      "tests/bench/**",
+      "tests/lib/profile.sh",
+      "tests/lib/e2e.sh",
+      "tests/lib/expect.sh",
+      "tests/lib/run.sh",
+      "tests/lib/heap.sh"
+    ],
+    "excludes": [
+      "tests/programs/semantics/**"
+    ],
+    "findings": [
+      "F19"
+    ]
+  },
+  "X3": {
+    "writes": [
+      "tests/spec/**",
+      "tests/determinism/**",
+      "tests/compiler/**",
+      "tests/lib/**",
+      "tests/Main.idr",
+      "tests/Runner.idr",
+      "tests/Lock.idr",
+      "tests/testutils.sh",
+      "tests/README.md",
+      "tests/ACCEPTANCE.md"
+    ],
+    "excludes": [
+      "tests/lib/lit.sh",
+      "tests/lib/fuzz.sh",
+      "tests/lib/profile.sh",
+      "tests/lib/e2e.sh",
+      "tests/lib/expect.sh",
+      "tests/lib/run.sh",
+      "tests/lib/heap.sh"
+    ],
+    "findings": [
+      "F20"
+    ]
+  }
+}

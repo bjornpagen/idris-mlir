@@ -50,7 +50,12 @@ numbers.
   idris-mlir compiles and uses nothing only one host has. Linearity is a
   performance property, never a correctness one: a linear program means the
   same under both hosts, and idris-mlir's optimizations of it (update in
-  place, no counting) only make it faster.
+  place, no counting) only make it faster. A primitive of `libs/` (an
+  `%extern`) means only what `runtime/` says, so a program that reaches one
+  runs under idris-mlir alone, and nothing the stock host runs reaches one.
+  Neither host is given an escape hatch to compile it: a trust the frontend
+  takes in Idris's compiler is stated in the fork, which is Idris's compiler,
+  and one it takes in itself is `covering`, never asserted.
 - One thing, one representation. A concept the compiler holds twice (the
   dialect's ops, types or primitives mirrored on the Idris side, a fact kept
   in a type and again in an attribute, one analysis computed in two places)
