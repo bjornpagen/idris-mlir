@@ -99,6 +99,17 @@ numbers.
   not modify the user's global compiler installation or shell configuration.
 - Reject what the compiler cannot compile with an explicit `unsupported`
   error that names the reason; never miscompile silently.
+- Acceptance is a property of the program, never of the optimizer. Every
+  analysis a refusal rests on is total on the programs the frontend
+  admits: defunctionalization makes every closure set of the closed,
+  monomorphic module a sum, and the only refusals are the frontend's, each
+  naming a construct whose choices no compile-time analysis bounds.
+  Inlining, specialization, constant propagation and every other pass that
+  only makes code faster or smaller terminate by construction (a fixed
+  sequence, a bottom-up order) and may stop at a budget; a spent budget
+  leaves the program less optimized and never rejects it. A round count, a
+  fixpoint that has to be reached, or any other count is never a reason to
+  refuse a program.
 - No pass may drop what Idris proved: multiplicities, erasure, linearity.
   They are what this compiler exists to exploit, so they live where MLIR
   cannot lose them. What Idris erased (quantity 0) is no value of the
@@ -120,7 +131,9 @@ numbers.
   `PINS.md` entry in the same change, and delete the workaround it
   replaces. Every patch has a written plan to upstream it (where it goes,
   the upstream test, its status); sending it is separate work. A patch goes
-  when the pin moves past upstream's fix (see upstream/README.md). The fork
+  when the pin moves past upstream's fix, or when nothing in the tree
+  reaches the bug any more, its report kept as a submission (see
+  upstream/README.md). The fork
   of Idris's compiler (`compiler/idris`) is ours: a bug in its upstream
   code is fixed there, as its own code, recorded in `PINS.md`, with the
   change against the pin in `upstream/<bug>/pull-request.diff` for the

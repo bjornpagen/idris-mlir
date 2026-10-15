@@ -22,138 +22,244 @@ specification. A proposal that is done is deleted. One nearly done
 keeps only what remains. A proposal can start before a later one it
 partly needs; the stages that wait are named here.
 
-## Where the work stands (2026-10-14 evening)
+## Where the work stands (2026-10-14 night)
 
-**Approved and executing.** The code bankruptcy ended 2026-10-14
-when the owner approved these proposals as rewritten. Licensing
-(0001) is built and pushed (3a275cf0): SPDX provenance on every
-file, `LICENSES/` and `NOTICE` in place, `tests/spec/licenses`
-gating it. **0004 is rewritten as the pipeline cutover and awaits the
-owner's approval; nothing of it is coded before.** It answers the
-question first: defunctionalization becomes total by analysis alone,
-so inlining is pure optimization and no budget decides acceptance
-(0004 §2). Then one bottom-up ready set over call-graph SCCs replaces
-the Simplify rounds, and code generation is split into size-balanced
-units for parallel LLVM. The research behind it is stored verbatim in
-`sources/notes/compile-pipeline/`, with the MLton and Mojo sources it
-cites. The opt-in `scc-pipeline` of 552d682a, whose corpus run was
-killed without a verdict, is deleted by the cutover (0004 §3.3).
-Everything is on `main` in the one checkout: no
-branches, no worktrees, locally or on the remote (*decision*,
-the owner's standing rule, restated 2026-10-14). Agent-run heavy
-work on the owner's 12-CPU machine uses `NCPU=6`; tool defaults
-stay maximalist (7a27fd34).
+**0004 awaits the owner's approval; nothing of it is coded before.**
+The owner approved the queue as rewritten on 2026-10-14, which ended
+the code bankruptcy. 0004 was then rewritten as the pipeline cutover
+(3de67510), and every other proposal on the path, 0001 to 0011, was
+reconciled with it the same day (db27189e and the pass after it): made
+consistent with the cutover, its open questions decided with their
+reasons, its claims cited. Licensing (0001) is built and pushed (3a275cf0). After the
+approval comes the cutover's swarm packet, written from 0004 §10 under
+the repository's packet rules (`.claude/skills/compile-swarm-proposal`,
+28a76e26); 0001's L5 and L6 land before the packet fixes its disjoint
+writes, since they touch files 0004's lanes own (0001's status).
+Everything is on `main` in the one checkout: no branches,
+no worktrees, locally or on the remote (*decision*, the owner's
+standing rule, restated 2026-10-14). Agent-run heavy work on the
+owner's 12-CPU machine uses `NCPU=6`; tool defaults stay maximalist
+(7a27fd34).
 
-The tree is, on arm64 macOS, green: `make build` clean,
-`make check` 27/27, `make test-idr` 286/286, `make test` 415/415
-(*measured* 2026-10-14 at `NCPU=6`, at 552d682a and its file-size
-split, 0004 §3.3). x86_64 Linux has still not run this tree:
-G1 (0002 §3) is NotRun there, never green. Stage 1 of `make self`
-has still never finished: the frontend emits the whole of itself
-(58,236 functions, ~300 MB of text, ~140 s) and the C++ pipeline
-does not finish on it. That one fact orders the queue.
+0004 answers its question first: defunctionalization becomes total by
+analysis alone, as MLton's closure conversion is (a verified closed
+world, one flow interface, a forced-state anchor per lazy value type,
+no unknown element in the label set; 0004 §2), so inlining,
+specialization and every budget are pure optimization and never
+reject a program. Then one bottom-up ready set over the call graph's
+SCCs replaces the Simplify rounds: each function is cleaned once, after
+its callees are final, under MLton's inline formula applied once and a
+per-caller cap of 10,000 ops (0004 §4 stage 7). Constants and effects
+are SCC summaries, names come from content, facts live in types and
+inherent properties, and code generation is split into size-balanced
+bins of SCCs grouped by top-level namespace, 2^15 LLVM instructions
+each, so their count follows the program's size and never the thread
+count (0004 §5.3). No option, toggle, fallback or dual path survives
+(0004 D2, §6). The research is stored verbatim in
+`sources/notes/compile-pipeline/`, with the MLton
+(`sources/code/mlton`, 43 files at aa2fd1ad) and Mojo
+(`sources/code/modular`, at 9211931) sources it cites. The opt-in
+`scc-pipeline` of 552d682a, whose corpus run was killed without a
+verdict, is deleted by the cutover (0004 §3.3, §6).
 
-The first compile-time round (0004's F1, in part) landed 2026-10-13
-and 2026-10-14 and is recorded in 0004 §3.1: one Simplify round on the
-stage-0 module fell from 1,321 s to 385 s (dev build, *measured* in
-the commits). The rounds themselves, the text handoff and LLVM's
-single module remain. They are the wall, and 0004 and 0006 are written
-as one architecture in two steps: **the whole program stays the unit
-of meaning and stops being the unit of work.** Every fact a guarantee
-rests on (the instance set, closure sums, exclusivity, layouts) stays
-whole-program forever; every body of work (rewrites, LLVM, codegen)
-moves to the smallest boundary its facts allow — call-graph SCCs for
-`idr` passes, size-balanced units for LLVM. On the stage-0 module the
-largest direct-call SCC is 174 of 58,235 functions and 93% are
-singletons (*measured* 2026-10-14 over the corpus's `idr.call` edges;
-closure applies are not in that graph, so it is a lower bound on
-coupling, re-measured after inlining at F0). Namespaces are not that
-boundary: 17% of distinct origin-to-origin direct-call pairs stay in
-one module (*measured*, same probe). Modules produce summaries and
-keep partitions stable under edits; SCCs do the work.
+The tree, on arm64 macOS: the cutover 0002 designed is committed and
+builds. Its gate was green at 7a27fd34, before the opt-in SCC
+pipeline (`make check` 26/26, `make test-idr` 286/286, `make test`
+415/415), and at 552d682a and its file-size split df5d8742, which
+added that opt-in, default off, with 0001's licenses gate (`make
+build` clean, `make check` 27/27, 286/286, 415/415); *measured*
+2026-10-14 at `NCPU=6`, both runs on the Simplify rounds. The cutover
+deletes the opt-in and the rounds together and must reproduce the
+rounds' 415/415. `make check` is 27/27 at ccaba89c and on the tree of
+the pass after it (*measured* 2026-10-14 on the typecheck machine;
+0002 §3 closed `spec/time-trace` at ccaba89c). x86_64 Linux has not run this tree: 0002's G1 is NotRun there,
+never green. Stage 1 of `make self` has never finished: the frontend
+emits the whole of itself (58,236 functions, about 300 MB of text,
+about 140 s) and the C++ pipeline does not finish on it (0004 §3.1).
+That one fact orders the queue.
+
+The first compile-time round landed 2026-10-13 and 2026-10-14 and is
+recorded in 0004 §3.1: one explicit Simplify round on the stage-0
+module fell from 1,321 s to 385 s (dev build; *measured*, 5088d7a8),
+and the suite record from 248.8 s to 167.9 s over 429 compilations
+(*recalled*: the suite record was not kept, and G1's run before the
+cutover re-records it, 0002 §3). The rounds remain: sixteen of them reach no fixpoint, and
+Simplify alone extrapolates past 2,000 s unfinished (*measured*,
+`bench/profiles/2026-10-14-f0-stage0.md`, F0). 0004 and 0006 are one
+architecture in two steps: **the whole program stays the unit of
+meaning and stops being the unit of work.** Every fact a guarantee
+rests on (the instance set, closure sums, quantities, exclusivity,
+layouts) is decided once, on the whole program, and read frozen;
+every body of work moves to the smallest boundary its facts allow:
+call-graph SCCs for the `idr` passes, size-balanced bins for LLVM.
+The structure is there: at emission the largest direct-call SCC is 174
+of 58,235 functions and 93% are singletons, and after six rounds the
+largest is 24 of 28,276 (*measured*, F0; closure applies are not edges
+of that graph, and after the cutover every apply is a dispatch of
+direct calls, 0004 §2.7). Idris modules are not that boundary: 17% of
+distinct origin-to-origin direct-call pairs stay in one module and 49%
+in one top-level namespace (*measured*, F0), which is why bins are
+grouped by namespace and cut by content (0004 §5.3). 0006 shards the
+same pipeline: summaries per module keep partitions stable under
+edits, and the ready set's nodes and the bins are its units.
 
 The order of the work, decided by the owner on 2026-10-12, amended
 2026-10-13 to insert compile time, and re-cut 2026-10-14 as one
 maximalist cutover with no compatibility owed to any legacy mechanism
-the new shape replaces: 0001 first (licensing, so every port after it
-is clean); then 0002 (G1, then self-hosting §2, whose step 3 is
-0004's F0 record, taken); 0004's cutover, once approved, before
-0002's remaining self-host steps, because stage 1 cannot finish
-without it (it also takes 0006's split codegen, S2); 0003's stage 1 (the
-array purge) right after `make self`; then sharding (0005's P1, P2 and
-P4 with 0006's S-stages). After them the array style is the organizing
-principle: 0003's typed array language, with 0007's interpreter,
-0008's tables and 0009's layouts as its consumers, and 0010's checker
-on 0007's machine; 0012's fixed-plan joins are 0003's sparse half.
-0011's features may start any time after `make self`; nothing waits on
-them. Parked, with the reason in each status line: 0012, 0013, 0006's
-S3 to S6 and S9 to S10 until the F0/S0 record calls for them, and
-0005's P3.
+the new shape replaces (0002 D1): 0001 first (licensing, so every port
+after it is clean); then 0002's G1 on the tree before the cutover,
+beside 0004's lane L0 and on the commit L0 records its baseline on
+(0002 §3, D14);
+0004's cutover, once approved, before 0002's remaining self-host
+steps, because stage 1 cannot finish without it (it takes 0006's
+first S0 record, S1 and S2's first step); G1 again on the tree after
+it; 0002's self-host steps 4 and 5 (the diet and memory record, then
+`make self`); 0003's stage 1 (the array purge) right after `make
+self`, which 0002's step 6 (the test runner off Chez) does not gate;
+then sharding (0005's P1, P2 and P4 with 0006's S-stages). After them
+the array style is the organizing principle: 0003's stages 2 to 8,
+with 0007's interpreter, 0008's tables and 0009's layouts as its
+consumers, and 0010's checker on 0007's machine; 0012's fixed-plan
+joins are 0003's sparse half. 0011's features may start any time after
+`make self`; nothing waits on them.
+
+Stages that wait on something besides the queue, each with its rule in
+its proposal: 0006's S3 to S6, each taken when S0's second record (from
+the cutover's integration builds) shows its part above 5% of
+one-worker wall; 0006's S9 (the cache) after S2's second step; 0006's
+S8 and S10 (the Idris half in parallel) after 0008's O3; 0005's P5,
+each item on its measurement. Parked, with the reason in each status
+line: 0012, until its first consumer starts, which is 0008's O3 (R1
+and R2 are built before it); 0013, which nothing before the array work
+needs, and with it 0005's P3 and 0010's T8.
+
+Questions only the owner can settle, each with its default taken in
+the proposal that owns it: 0001 §5 (GMP's licence, with counsel) and
+0001 §9 (whether a port's changes note names only what changed, which
+amends his D1; default yes, path and revision in PINS.md alone), 0002
+§5 (where G1's x86_64 Linux leg runs), 0006 §12 (one fact, no meaning of ours on the Chez host
+that runs stage 0, with two consequences: the compiler's Idris half
+on 0005's shards, default processes; and 0007's A3 folds, default
+that from A3 stage 0 is the native frontend of the last commit before
+A3, which stock Idris on Chez builds) and 0007 §13 (the restated forms
+of the owner's D3 and D5 for static normalization). Every other
+question in the queue is decided.
 
 Renumberings of 2026-10-14: first the built cutover packet was
 deleted and the queue closed up (dcb087d2 holds that map); then
-licensing took 0001 and every other proposal moved up one (this
-commit's message holds the map). Dated records (`HANDOFF.md`
+licensing took 0001 and every other proposal moved up one (77994b30
+holds that map). Dated records (`HANDOFF.md`
 entries, `bench/runs/`, `sources/`) keep the numbering then in
 force.
 
 - [0001](0001-licensing.md): licensing: every file says whose it is.
-  SPDX provenance across the tree -- ours (0BSD), Mojo/MLIR ports
-  (Apache-2.0 WITH LLVM-exception), the Idris fork (BSD-3-Clause) --
-  the porting protocol that takes state of the art fearlessly, and
-  the third-party inventory. **Built and pushed 2026-10-14**
-  (3a275cf0); only §5's GMP question (owner, with counsel) and §7's
-  deferred `foreign/idr/` rename remain, and the file is the policy
-  record until the owner accepts the built state and it is deleted.
+  SPDX provenance across the tree (ours 0BSD; Mojo and MLIR ports
+  Apache-2.0 WITH LLVM-exception; the Idris fork BSD-3-Clause), the
+  porting protocol that takes the state of the art fearlessly, and the
+  third-party inventory. **Built and pushed 2026-10-14** (3a275cf0,
+  L1 to L4). What remains is L5 (the dialect generator writes its own
+  SPDX line) and L6 (the sweep's scope is every tracked file less one
+  listed exclusion set, and the gate reads its facts from the data that
+  holds them), both proved by `make check` on the typecheck machine.
+  §5's GMP question is the owner's, with counsel; its default is
+  LGPL-3.0 §4(d)(0) through a relink kit (D7). Whether a port's changes
+  note names only what changed is his too (§9; default yes). The
+  `foreign/idr/` rename is decided against (D8). L5 and L6 land before
+  0004's packet (D12). Deleted when L5 and L6 are built and the owner
+  accepts the built state.
 - [0002](0002-get-back-on-track.md): get back on track. The design the
-  cutover executed; what remains is G1 (§12: x86_64 Linux, the bench on
-  both targets, compile times) and self-hosting (§6.1). Deleted when
-  §6.1 step 5 (`make self`, stage 2 byte-identical to stage 3) is
-  recorded in HANDOFF.md.
+  cutover executed; what remains is G1 (§3: x86_64 Linux, the bench on
+  both targets, compile times), run once before 0004's cutover and once
+  after it, and self-hosting (§2), whose steps 4 to 6 follow the
+  cutover. One question is the owner's: where G1's Linux leg runs
+  (default: a native x86_64 Linux machine of the owner's). Deleted when
+  G1 is green on both targets after 0004's cutover and §2's steps 5 and
+  6 are recorded in HANDOFF.md (D13).
 - [0003](0003-typed-apl/README.md): a typed array language, MLIR first.
   Every fact Idris proves about an array has one image in MLIR, the one
   upstream optimizes on. Stage 1 purges today's array stack (about
-  6,300 lines, `idr-in-bounds` among them) in one cutover right after
-  `make self`; the later stages follow sharding. Decided 2026-10-12.
+  6,300 lines, `idr-in-bounds` among them) and rebuilds it in one hard
+  cutover, after 0004's and right after `make self`; stages 2 to 7
+  follow sharding, and stage 8 needs 0005's P4. Decided 2026-10-12,
+  reconciled with 0004 on 2026-10-14; design only.
 - [0004](0004-compile-time.md): whole-program facts, a fixed optimizer,
   parallel code generation. The pipeline cutover, design only and
-  awaiting approval: defunctionalization total by analysis (closed
-  world, one flow interface, a forced-state anchor, no unknown label
-  set), so inlining is pure optimization; one bottom-up ready set over
-  call-graph SCCs with each function cleaned once after its callees are
-  final; specialization as content-keyed nodes; constants and effects as
-  SCC summaries; code generation in size-balanced bins of SCCs, split for
-  parallel LLVM; and a deletion table of every option, toggle,
-  fingerprint, seed mark and budget-as-rejection the research found.
-  Built on five reports (`sources/notes/compile-pipeline/`) and MLton's
-  and Mojo's sources. Executed as one hard cutover on the owner's
-  machine (§10).
+  awaiting the owner's approval: defunctionalization total by analysis
+  (a verified closed world, one flow interface, a forced-state anchor,
+  no unknown label set), so inlining is pure optimization; one
+  bottom-up ready set over call-graph SCCs, each function cleaned once
+  after its callees are final, with MLton's inline formula applied once
+  and a per-caller cap; specialization as content-keyed nodes in the
+  same ready set; constants and effects as SCC summaries; names from
+  content; facts in types and inherent properties; code generation in
+  size-balanced bins of SCCs, split for parallel LLVM; and a deletion
+  table of every option, toggle, fingerprint, seed mark and
+  budget-as-refusal the research found. Every question is decided:
+  the owner approved the cutover and ruled that a count never decides
+  acceptance, so the frontend's instance budget goes in it too (D40). Built on five reports (`sources/notes/compile-pipeline/`) and
+  MLton's and Mojo's sources. Executed as one hard cutover, in lanes
+  that each own their files outright, on the owner's machine (§10).
 - [0005](0005-shards.md): shards, the concurrency runtime. One copy of
   the single-threaded runtime per core, task frames for computations
-  that wait, a reactor per shard, values crossing only inside
-  messages. Its decisions are taken.
+  that wait, a reactor per shard, values crossing only inside messages.
+  Its decisions are taken (D1 the owner's, D2 to D12 on his
+  delegation, D13 from AGENTS.md); nothing is built. P1, P2 and P4
+  follow 0003's stage 1; P3 is parked with 0013; P5 waits on its
+  measurements.
 - [0006](0006-sharded-whole-program-compiler.md): a sharded
   whole-program compiler. Summaries per module, guarantee facts from
-  summaries alone, work per SCC/codegen unit with fact slices and
-  import lists, content-named partitions, an ordered link. It consumes
-  0004's cutover unchanged: 0004's ready set is its phase-3 unit with a
-  serial scheduler, and 0004 takes its S2 (split LLVM codegen).
+  summaries alone, work per ready-set node and codegen bin with fact
+  slices, content-named partitions, an ordered link, and a persistent
+  cache with early cutoff. It consumes 0004's cutover unchanged: 0004's
+  ready set, drained by MLIR's thread pool in one process (0006 S7,
+  taken by 0004's L3), is its phase-3 unit, and the cutover takes its
+  first S0 record (F0), S1 (content names) and S2's first step (split
+  codegen after one whole-module O3), with four of its rules (D5, D11,
+  D16, D20), which 0004 now states. S2's second step, the split before
+  O3, follows the cutover; S3 to S6, S8 to S10 wait as the paragraph
+  above says. One question is the owner's (§12: what a registry
+  primitive means on the Chez host that runs stage 0, for the Idris
+  half on 0005's shards, default processes, and for 0007's A3 folds,
+  default a native stage 0 from A3).
 - [0007](0007-array-interpreter.md): the array interpreter. Static
   normalization and the type checker's evaluator as one array program
-  over a hash-consed term arena. Starts after self-hosting.
+  over a hash-consed term arena, which also holds the frontend's
+  interned names. In the queue after sharding's first stages; A0 to A3
+  need only `make self` (A3's dense array constants wait on 0003's
+  stage 2), A4 waits on 0003's stage 1, A5 on its stage 5, A6 on 0005's
+  P4, and A7, the interactive loop, on A0. Its one question restates
+  two of the owner's rulings (§13: D3 and D5; default: the restated
+  forms); what A3's folds mean on the Chez host is 0006 §12's.
 - [0008](0008-data-oriented-frontend.md): a data-oriented, array-first
-  frontend: compiler state as columnar tables on 0007's arena.
+  frontend: compiler state as columnar tables on 0007's arena. It
+  consumes the emission 0004's lane L1 writes, and its O2 writes 0004's
+  bytecode from an ops table; O3, Translate's instance fixpoint, is
+  0012's first consumer. O0 is taken at `make self` with 0010's T0;
+  O1 onward start after 0007's A0, in the order O0's measured costs
+  give.
 - [0009](0009-flattened-data.md): compiler-chosen flattened layouts of
-  algebraic data, packed and columnar, chosen per value by proof.
+  algebraic data, packed and columnar, each a type over the one
+  declaration, chosen per value by proof. It follows 0008, starts after
+  `make self` and sharding's first stages, and builds on 0004's data
+  types that carry their constructors (0004 D29).
 - [0010](0010-typechecker.md): a state-of-the-art type checker for the
-  fork, built on 0007's arena and machine.
+  fork, built on 0007's arena and machine: tabled instance search, the
+  rewrite ladder, a separate kernel and parallel checking. T0 is
+  recorded at `make self` with 0008's O0; T3 onward follows 0007's A2;
+  T7's shard step waits on 0006 §12 (under its default, processes, it
+  is not taken); T8 is parked with 0013.
 - [0011](0011-self-host-features.md): the compiler features
   self-hosting asked for, each compiled away on the whole program at
-  no runtime price. A sketch; may start after `make self`.
+  no runtime price; only megamorphic constructs stay refused. May start
+  after `make self`; nothing waits on it. Its one question is 0004's
+  (when the instance budget goes; default: with feature 2, after
+  `make self`).
 - [0012](0012-relational-core.md): the relational core,
-  `libs/mlir-relational`. Parked until its first consumer starts.
+  `libs/mlir-relational`. Parked until its first consumer, 0008's O3,
+  starts; R1 and R2 are built before it.
 - [0013](0013-rust-interop.md): Rust as the one foreign world. Parked:
-  nothing before the array work needs a foreign world.
+  nothing before the array work needs a foreign world; 0005's P3 and
+  0010's T8 wait with it.
 
 Contiguous runs (one run cell for strings, arrays and buffers) have no
 proposal. A wasm32 target entry for bumbledb's TypeScript package is

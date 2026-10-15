@@ -1,23 +1,83 @@
-# Checkpoint (2026-10-14 night, the pipeline cutover designed)
+# Checkpoint (2026-10-14 night, the pipeline cutover designed and the queue reconciled)
 
-Proposal 0004 is rewritten as the pipeline cutover and awaits the
-owner's approval; no code changes until then. It answers first
-whether inlining can be pure optimization: yes, by making
+Proposal 0004 is rewritten as the pipeline cutover (3de67510) and
+awaits the owner's approval; no code changes until then. It answers
+first whether inlining can be pure optimization: yes, by making
 defunctionalization total by analysis alone, as MLton's closure
 conversion is (closed world as a verified invariant, one flow
 interface, a forced-state anchor keyed by the lazy value's type, no
-unknown label set; 0004 §2). Then one bottom-up ready set over
-call-graph SCCs replaces the Simplify rounds (each function cleaned
-once, after its callees are final), and code generation is split into
-size-balanced bins of SCCs for parallel LLVM (0004 §4, §5). §6 is the
-deletion table; §10 the lanes, to be run on the owner's machine with
-builds and suites at each integration. The opt-in scc-pipeline of
-552d682a is deleted by the cutover. The research is stored verbatim
-in sources/notes/compile-pipeline/ (MLton, code generation
-partitioning, Mojo, upstream MLIR and LLVM, the casework audit), with
-27 more MLton files in sources/code/mlton and a Mojo snapshot at
-9211931 in sources/code/modular (the full clone is at
-~/Documents/modular, read only).
+unknown element in the label set; 0004 §2). Then one bottom-up ready
+set over call-graph SCCs replaces the Simplify rounds (each function
+cleaned once, after its callees are final, under MLton's inline
+formula applied once and a per-caller cap of 10,000 ops), and code
+generation is split into size-balanced bins of SCCs, 2^15 LLVM
+instructions each, for parallel LLVM (0004 §4, §5). §6 is the
+deletion table; §10 the lanes, each owning its files outright (D44),
+run on the owner's machine with builds and suites at each
+integration. The opt-in scc-pipeline of 552d682a is deleted by the
+cutover. Every question in 0004 is decided. The owner approved the
+cutover and ruled that a count never decides acceptance, so it also
+takes 0011 D4, the request-chain rule that replaces the frontend's
+instance budget (D40); AGENTS.md holds that as a project rule. The
+swarm packet is written next, then the cutover runs as one wave.
+
+Every proposal on the path, 0001 to 0011, was reconciled with 0004 the
+same day (db27189e, and the passes committed with this entry): each made
+consistent with the cutover, its open questions decided with their
+reasons, its claims cited; proposals/README.md's entries and priority
+paragraph now match them. A cross-proposal check then fixed what the
+files said differently. 0004 now states four rules 0006 had decided
+but the cutover runs (the clone budget per requesting node, `calls(f)`
+frozen, the XXH3-128 name hash, the homes of RoundFacts' facts), names
+the pass registry after the cutover (`idr-optimize` is the ready set),
+gives every build list, header and generated module a lane, writes
+call-site effects when a caller becomes ready, deletes `break_last`
+with LoopBreakers, and names the header's 2^16 tags as the one
+representation limit left. D23 now keeps upstream patches 02, 16 and
+22 carried until the pin moves, as AGENTS.md binds; the seam the
+earlier entry left for the owner is closed, and AGENTS.md is unchanged.
+Instance symbols carry their identity hash by a rule of the key alone
+(0008 §4.10); every measurement threshold is 0004 §10's margin, never a
+run-to-run spread; the precise rejection messages are 0002's change
+after the cutover, not the cutover's. 0012 and 0013 stay parked, each
+with its reason in its status line. 0011 puts 0004's question too, with
+the same default.
+
+Besides it, the questions only the owner can settle, each with its
+default taken in its proposal: GMP's licence, with counsel (0001 §5);
+whether a port's changes note names only what changed (0001 §9;
+default yes, path and revision in PINS.md alone); where G1's x86_64
+Linux leg runs (0002 §5); what a registry primitive means on the Chez
+host that runs stage 0, for the compiler's Idris half on shards
+(default processes) and for 0007's A3 folds (default: from A3, stage 0
+is the native frontend of the last commit before A3) (0006 §12); and
+the restated forms of the owner's D3 and D5 for static normalization
+(0007 §13).
+
+The tree: `make check` 27/27 at ccaba89c and on the working tree this
+entry is committed with (typecheck machine, 2026-10-14); spec/time-trace
+leaves sources/ out of its mention search, since the research notes
+there are kept verbatim. The gate on arm64 macOS was last green at
+552d682a (NCPU=6: build clean, check 27/27, test-idr 286/286, test
+415/415), on the rounds, as at 7a27fd34 before the opt-in; the cutover
+must reproduce the rounds' 415/415. x86_64 Linux is NotRun. Stage 1 of
+`make self` has never finished. Next: 0001's L5 and L6 on the typecheck
+machine, before the packet fixes its disjoint writes, since they touch
+`foreign/idr/tools/idris-mlir-tblgen.cpp` and `tests/spec/licenses`,
+which 0004's L5 and L8 own; the owner's approval of 0004; then the
+cutover's swarm packet, written from 0004 §10 under
+.claude/skills/compile-swarm-proposal (28a76e26); G1's run before the
+cutover is taken beside lane L0, on the commit L0 records its baseline
+on, and commits the bench and compile-time records it compares against
+(0002 §3, D19); before it, bench/run.sh stops comparing the Chez
+column's output (0002 D20).
+
+The research is stored verbatim in sources/notes/compile-pipeline/
+(MLton, code generation partitioning, Mojo, upstream MLIR and LLVM,
+the casework audit), with 27 more MLton files in sources/code/mlton
+(43 in all, at aa2fd1ad) and a Mojo snapshot at 9211931 in
+sources/code/modular (the full clone is at ~/Documents/modular, read
+only).
 
 # Checkpoint (2026-10-14 evening, licensing built; F3 opt-in pinned as a problem)
 

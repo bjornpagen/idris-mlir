@@ -1,11 +1,14 @@
 # 0009: compiler-chosen flattened layouts of algebraic data
 
 **Status:** proposed 2026-10-09; reconciled with 0003 on 2026-10-12 and
-with 0004's pipeline cutover on 2026-10-14. Nothing here is built. The
-tree today: the cutover 0002 designed is committed and builds on arm64
-macOS, where the last gate (`make test` 415/415; 0004 §3.3) ran the
-default Simplify rounds, not the opt-in SCC pipeline that landed beside
-them and that 0004 deletes; x86_64 Linux has not run (NotRun).
+with 0004's pipeline cutover on 2026-10-14, and decided the same day.
+Nothing here is built. The tree today (*measured*, 0002 and 0004 §0):
+the cutover 0002 designed is committed and builds on arm64 macOS, where
+`make test` was 415/415 at 7a27fd34, before the opt-in SCC pipeline,
+and again at 552d682a with it off by default; both runs took the
+Simplify rounds, and 0004's cutover deletes the rounds and that
+pipeline together. x86_64 Linux is NotRun. `make self` has never
+finished; 0004's cutover is what it waits on.
 
 It is one of the three consumers of 0003's array style, with 0008's
 tables and 0007's interpreter: the layouts it chooses are how their
@@ -15,7 +18,8 @@ representation of an array of records, one tensor per field (0003 §4.5);
 this proposal decides what 0003 §4.5 leaves to it (an array of sums),
 adds the packed layout, and makes the measured choice for collections
 that are not arrays. It builds on 0004's data types that carry their
-constructors (0004 §11, open question 5), which land in 0004's lane L1.
+constructors (0004 §4.1, D29), which 0004's lanes L5 and L1 land
+together (0004 §10).
 
 **Sources.** `sources/notes/flattened-data/`, which read the stored
 papers and code and cite them by section and line:
@@ -44,14 +48,21 @@ declaration from the type's shape (*read*):
   unique (`foreign/idr/include/idr/IR/IdrTypes.td:30-38`;
   `IdrOps.td:117-160`). A header counts at most 255 object slots and
   65,536 tags (`runtime/idris_rt.h:106-107`), and Fit boxes records to fit
-  it (`lib/IR/Layout/Fit.cpp:1-9`).
+  it (`lib/IR/Layout/Fit.cpp:1-9`). After 0004's cutover boxing is the
+  value's type alone, `!idr.box` around the identified type, and no
+  longer a flag of the declaration as well (0004 D29).
 - `!idr.data<@T>` for any other type: an unboxed sum, a tag of 8, 16 or
   32 bits, then slots shared between constructors, each component taking
   the first free slot of its type and countedness, spread over whatever
   holds the value (`IdrTypes.td:25-29`; `lib/IR/Layout/Components.cpp:33-77`;
   `include/idr/IR/Layout.h:106-126`). A counted slot holds null in every
   constructor that does not use it, "so that the references of a sum are
-  exactly its counted slots" (`Layout.h:106-109`).
+  exactly its counted slots" (`Layout.h:106-109`). The layout is computed
+  from the declaration, which `Components::sum` finds today by the
+  type's symbol in a table of the module's declarations it builds
+  (`Components.cpp:23, 30-35`); after 0004's cutover it reads the
+  constructors from the type, which carries them, and that table goes
+  with the nominal form, as the module-scanning lookups do (0004 §6).
 - An array is an array of structs: each element laid out as a cell of one
   field, less the header (`lib/IR/Layout/Layouts.cpp:157-178`;
   `runtime/idris_rt.h:152-165`). Nothing in the compiler is a structure
@@ -83,9 +94,9 @@ by the compiler from facts the types and analyses already provide:
    - erased indices and proofs vanish: what Idris erased is no value of
      the module, so it has no column (AGENTS.md; the frontend emits no
      field for it, which supersedes `columnar.md` §8.4's `!idr.erased`,
-     a type the cutover deleted); a `Fin n` that is a coordinate of an array is an
-     `index` at its access, unguarded, and any other `Fin` a natural
-     narrowed where proved (0003 D4).
+     a type the cutover deleted); a `Fin n` that is a coordinate of an
+     array is an `index` at its access, unguarded, and any other `Fin` a
+     natural narrowed where proved (0003 D4).
 
    Columns are not a type of ours. An array of records is one ranked
    tensor per field by one-to-N type conversion, which bufferizes to one
@@ -93,7 +104,10 @@ by the compiler from facts the types and analyses already provide:
 
    *Read* through `columnar.md`: `docs/arrow`, `papers/melnik-2010-dremel`,
    `docs/parquet-format`, `code/zig` (`MultiArrayList`), `code/structarrays`,
-   `code/vector`; `papers/hsu-2019-data-parallel-compiler` (*recalled*).
+   `code/vector`. The Co-dfns node arrays are *read* in
+   `code/co-dfns/cmp/TT.apl:1-6`, whose passes take the tree as parent,
+   depth, type and kind columns, and in
+   `papers/hsu-2019-data-parallel-compiler`.
 
 ## The representation, decided by data
 
@@ -102,8 +116,9 @@ columnar. Each layout is a type over the one declaration:
 - **cell** is today's `!idr.data` or `!idr.box`;
 - **packed** is `!idr.packed<T>`, whose parameter `T` is the data type.
   After 0004's cutover `T` carries its constructors as an identified type
-  with a body, so a pass reads the constructors from the type and never
-  from a module lookup;
+  with a body set once, so a pass reads the constructors from the type
+  and never from a module lookup, and `!idr.packed` wraps it as
+  `!idr.box` does (0004 D29);
 - **columns** are 0003's tensors, one per component. `!idr.columns<@T>`
   is not added: a second representation of what a structure of tensors
   already is.
@@ -118,7 +133,10 @@ silently lose it; LoCal's located types are the precedent, checked
 between passes (*read* through `packed-trees.md` §9.1: LoCal §3.2, §4;
 `code/gibbon/gibbon-compiler/src/Gibbon/Compiler.hs`). `!idr.packed` is
 ours because no upstream dialect has a type for a preorder-serialized
-algebraic value (*recalled*; read against the pin before F2).
+algebraic value: no upstream dialect defines a sum, union or variant
+type at all (*read*: a search of the type definitions in the pinned
+`M/include/mlir/**/*.td`, 2026-10-14), so none can describe a serialized
+one.
 
 ### Sums in columns
 
@@ -143,21 +161,27 @@ converter. The counted-slot invariant carries over: a counted column is
 null wherever its constructor does not use it, so releasing an array's
 references scans the counted columns with no tag dispatch (`columnar.md`
 §8.2). The tag column keeps the cell's tag type: a one-bit tag tensor
-would be a second layout of the tag, and `memref<?xi1>` lowers to a byte
-per element anyway (*recalled*). Arrow's dense union is not taken for
-arrays: its per-constructor children have data-dependent lengths and an
-offsets array, so a map over it is a gather, not an elementwise
-`linalg.generic` (`Columnar.rst:874-889`).
+would be a second layout of the tag, and `memref<?xi1>` takes a byte per
+element anyway, since LLVM stores an `i1` in a whole byte (*read*:
+`getTypeStoreSize` rounds a type's bits up to a multiple of 8,
+`L/include/llvm/IR/DataLayout.h:579-597`). Arrow's dense union is not
+taken for arrays: its per-constructor children have data-dependent
+lengths and an offsets array, so a map over it is a gather, not an
+elementwise `linalg.generic` (`Columnar.rst:874-889`).
 
 ## When each layout is legal and chosen
 
 - **Packed** needs a tree with no sharing. The exclusive grade
   (`!idr.excl<T>`, the spelling of `!idr.q<many, excl, T>`,
   `IdrTypes.td:116-143`) proves no sharing. The acyclic heap guarantees
-  trees, never cyclic graphs (AGENTS.md; a pure strict language builds
-  DAGs and never cycles, *read* through `packed-trees.md` §2: LoCal §6). A
-  value whose grade is not exclusive keeps the cell layout. This deletes
-  the special cases packed systems need for sharing: in LoCal-era Gibbon,
+  trees, never cyclic graphs: a new object points only at objects older
+  than it, and the one cell written after it exists, an array, is
+  refused a type that reaches it again (*read*:
+  `lib/IR/Verify/Knots.cpp:3-10`, `unsupported (cycle)` at `:100`); a
+  pure strict language builds DAGs and never cycles (*read* through
+  `packed-trees.md` §2: LoCal §6). A value whose grade is not exclusive
+  keeps the cell layout. This deletes the special cases packed systems
+  need for sharing: in LoCal-era Gibbon,
   an indirection constructor added to every datatype (*read* through
   `packed-trees.md` §2: LoCal §5;
   `code/gibbon/gibbon-compiler/src/Gibbon/Passes/RemoveCopies.hs`). Here
@@ -177,20 +201,40 @@ offsets array, so a map over it is a gather, not an elementwise
   invariant, and every closure is a sum whose applies are direct calls
   (0004 §2.2, §2.7). That is the closed world Gibbon's representation
   selection also needs (*read* through `packed-trees.md` §2: ParLoCal §4).
-  The choice reads idr-rc's exclusivity grades, which 0004 decides
-  whole-program before counting is placed per function (0004 §4.11, §9),
-  and it is made in that gap, so counting sees a packed value as one cell.
-  It is one of the layouts 0004 decides whole-program before lowering
-  (0004 §1, §4.12); each function's types then convert per function.
+  The choice reads idr-rc's exclusive grades, and they exist only after
+  counting is placed: idr-rc writes the owned grades, places counting
+  per function, then solves exclusivity and writes `!idr.excl<T>`, then
+  commits (*read*: `lib/Transforms/Ownership/Rc.cpp:60-101`), because
+  the solve "reads the dups placement made, so it runs after placement"
+  (`lib/Analysis/Ownership/Exclusivity.cpp:22-24`). *Decision:* the
+  packed choice is a module step between the exclusive grades and the commit,
+  reading the grades as a frozen fact of that stage (0004 §4.11, §9).
+  It needs no change to placement: a value is exclusive only if no
+  `idr.dup` reaches any cell of its graph (any dup makes it shared,
+  `Exclusivity.cpp:11-20`), so placement left an exclusive tree only
+  moves and drops, and the commit is where the tree's per-cell drops
+  become the buffer's one decrement, at the use of the traversal's end
+  cursor (F4 proves it). This supersedes the earlier "before counting is
+  placed", which the order of idr-rc rules out. It is one of the layouts
+  0004 decides whole-program before lowering (0004 §1, §4.12); each
+  function's types then convert per function.
 - **Columns** hold a collection of values of one type that is traversed
   field by field (a map over one field, a filter, an aggregate), and every
   array of records or sums the array core touches (0003). An array of
   records or sums becomes structure-of-arrays by representation, with no
-  programmer action and no measurement gate.
+  programmer action and no measurement gate. *Decision:* the choice of
+  columns for a collection that is not an array (F3) is a whole-program
+  step right before 0003's arrays stage, which runs after dead-value
+  removal and before the memory passes (0003 D26). Reason: a column is a
+  tensor, which the arrays stage's structuring, fusion and One-Shot
+  Bufferize must see, while packing is a cell layout that idr-rc's
+  commit must see; each choice sits before the passes that read it.
 - **The measurement rule.** The automatic choice for anything that is not
-  an array is on by default only for cases a fixture proves faster: at
-  least 1.3× over the cell layout, on the benchmark set below. Every other
-  case is opt-in (next section) until it is measured.
+  an array covers a case only once a fixture proves it at least 1.3×
+  over the cell layout, on the benchmark set below. The case is then
+  part of the compiler's rule, written in the compiler, never an option
+  (0004 D2). A case not yet proved stays in cells unless the program
+  writes `Packed t` (next section).
 
 ## The opt-in first
 
@@ -215,6 +259,11 @@ spelling of it and is not added.
   quantities already express (a cursor is linear, a reader is total).
   Allais does it in plain Idris 2 as a library, with erased trees as
   indices (*read* through `packed-trees.md` §3, §9.8).
+- **No grade is needed.** The builder writes the tree once, in order, so
+  it has no sharing inside by construction, and a `Packed t` is one
+  buffer from the frontend on. Sharing the buffer itself is a counted
+  reference to one cell, which the format allows; the exclusive grade
+  is what the automatic choice needs, because it starts from cells.
 
 This is not user metaprogramming. Elaborator reflection in user code is
 refused by the frontend's profile, and it is the wrong layer: the layout is
@@ -286,6 +335,17 @@ the compiler's decision, made from facts only the compiler has.
   walk, like GHC's compact regions (*read* through `packed-trees.md` §8:
   `papers/yang-2015-compact-normal-forms`). The send check is unchanged: a
   region holds no mutable cell.
+- **The compiler's own process boundary carries columns, never packed
+  buffers** (*decision*). 0006 runs the compiler's Idris half as
+  processes and passes summaries between them as files (0006 §5.4), so
+  it is the one place a layout of this proposal could be read from a
+  file. A summary is a
+  set of columnar relations (0006 §3.1), and its reader checks every id
+  column once against the extent of the table it indexes, which turns
+  the file's words into typed ids: the guarded entry 0003 D4 gives an
+  extent, so every read after it is unguarded (0008 D1). A packed buffer
+  would need its whole tree walked to check its offsets, the trusted
+  header or unchecked reader D11 keeps out, so none crosses as a file.
 
 ## Consumers
 
@@ -318,20 +378,22 @@ the compiler's decision, made from facts only the compiler has.
 - **No way in from outside.** Packed data is only built by the program or
   received from its own shards; nothing loads it from a file, so no
   trusted header or unchecked reader exists (`packed-trees.md` §10 names
-  Allais's and CNF's).
+  Allais's and CNF's). The compiler's own files between its processes
+  carry columns, read with every id checked (§"Reference counting and
+  messages").
 - **No oracle; behaviour is the specification.** A layout change is
   invisible to a program's output, and the corpus proves it.
 - **Both targets.** No layout is target-specific.
 
 ## Staged plan, each stage with its proof
 
-| Stage | Content | Proof |
-| --- | --- | --- |
-| F1 | `Packed t` in a trusted library: the linear builder and cursors; the compiler derives it from the data type's declaration | fixtures: a preorder fold over a packed tree, build and traverse; outputs equal to the cell version |
-| F2 | `!idr.packed<T>` in the `idr` dialect, verified after every pass; idr-rc and idr-lower handle packed buffers; arrays of sums through the `SumLayout` one-to-N conversion | verifier checks; `idr-expect` properties: one count per packed buffer, one array cell per column |
-| F3 | columns for collections other than arrays (lists and trees of records traversed field by field), as a conversion to 0003's arrays | benchmarks: nbody-style records ≥ 1.3× over cells |
-| F4 | automatic packing for exclusive, build-once, traverse-whole trees, decided with the layouts before lowering | Gibbon's benchmark programs (tree add1, sum, repmax) ≥ 1.3× over cells on both targets, and within 1.5× of Gibbon's published numbers on x86_64 Linux |
-| F5 | packed and columnar values as shard messages | 0005's message benchmarks: copy cost per byte against the detach walk |
+| Stage | Needs | Content | Proof |
+| --- | --- | --- | --- |
+| F1 | 0004's identified data types | `Packed t` in a trusted library: the linear builder and cursors; the compiler derives it from the data type's declaration | fixtures: a preorder fold over a packed tree, build and traverse; outputs equal to the cell version |
+| F2 | F1; 0003's one-to-N conversion of record elements (0003 §4.5) | `!idr.packed<T>` in the `idr` dialect, verified after every pass; idr-rc's commit and idr-lower handle packed buffers; arrays of sums through the `SumLayout` one-to-N conversion | verifier checks; `idr-expect` properties: one count per packed buffer, one array cell per column |
+| F3 | F2 | columns for collections other than arrays (lists and trees of records traversed field by field), as a conversion to 0003's arrays right before its arrays stage | benchmarks: nbody-style records ≥ 1.3× over cells |
+| F4 | F2 | automatic packing for exclusive, build-once, traverse-whole trees, chosen between idr-rc's exclusive grades and its commit | Gibbon's benchmark programs (tree add1, sum, repmax) ≥ 1.3× over cells on both targets, and within 1.5× of Gibbon's published numbers on x86_64 Linux; a fixture per drop the commit folds into the buffer's one decrement |
+| F5 | F2; 0005's P4 | packed and columnar values as shard messages | 0005's message benchmarks: copy cost per byte against the detach walk |
 
 F4's second bar is on x86_64 Linux only (*decision*): every Gibbon result
 was measured on x86 Xeon or Threadripper machines, and none on ARM or
@@ -361,11 +423,20 @@ macOS (*read* through `packed-trees.md` §11).
   format.
 - **Marmoset's ILP for field order:** a solver outside the toolchain for a
   choice the greedy walk makes.
+- **Choosing packing before counting is placed:** the exclusive grades
+  it reads exist only after placement (§"When each layout is legal and
+  chosen").
+- **Packed buffers as the files between the compiler's processes:**
+  their offsets would need a checking walk; summaries cross as columns
+  with checked ids.
+- **An option that turns an automatic choice on:** a proved case is the
+  compiler's rule, and an unproved one stays in cells (0004 D2).
 
 ## Decisions
 
 - D1. Each layout is a type over the one declaration: cell as today,
-  packed as `!idr.packed<T>`, columns as 0003's tensors; never an
+  packed as `!idr.packed<T>`, a wrapper around the identified type as
+  `!idr.box` is after 0004 D29, columns as 0003's tensors; never an
   attribute, never a parameter inside the identified type.
 - D2. Packed only at the exclusive grade, without offsets: sharing and
   random access select cells. Columns for collections traversed field by
@@ -386,10 +457,18 @@ macOS (*read* through `packed-trees.md` §11).
   subtrees, never from offsets inside a buffer.
 - D9. Field order in a packed constructor follows the traversals that read
   it, by a greedy walk over the access graph.
-- D10. The packed choice reads idr-rc's whole-program exclusivity grades
-  and is made before counting is placed, with the other layouts 0004
-  decides before lowering.
+- D10 (restated 2026-10-14). The packed choice reads idr-rc's exclusive
+  grades and is made after they are written and before the commit, with
+  the other layouts 0004 decides before lowering; placement is
+  unchanged, and the commit folds the tree's drops into one.
 - D11. Packed data is built only by the program; nothing loads it from
-  outside.
+  outside. The compiler's own files between its processes carry
+  columns, whose ids the reader checks once against their tables.
+- D12. Columns for a collection that is not an array are chosen right
+  before 0003's arrays stage (0003 D26), so its passes see them as
+  tensors.
+- D13. A proved automatic case is part of the compiler's rule; an
+  unproved one stays in cells unless the program writes `Packed t`.
+  There is no option.
 
 There is no open question for the owner.

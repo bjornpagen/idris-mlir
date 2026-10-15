@@ -3,29 +3,38 @@
 **Status:** decided by the owner 2026-10-12 (§19, §21), reconciled
 2026-10-14 with 0004's pipeline cutover; design only, nothing of it is
 coded (read: no `idr.tie_shape`, `LArray` or `libs/mlir-array` in the
-tree). Stage 1 is one hard cutover with no compatibility owed. It lands
-after 0004's cutover, which it builds on, and right after `make self`
-(0002 §2 step 5), ahead of sharding; stages 2 to 8 follow sharding, in
-the queue's order (proposals/README.md). The tree it starts from: the
-cutover 0002 designed is committed and builds on arm64 macOS, where the
-gate was green at 552d682a (`make check` 27/27, `make test-idr`
-286/286, `make test` 415/415; *measured* 2026-10-14 at `NCPU=6`, with
-the Simplify rounds as the default path; the opt-in `scc-pipeline` that
-landed there, default off, is deleted by 0004's cutover). x86_64 Linux
-is NotRun. Where 0004 now owns a topic (the pipeline's order and how a
-function is cleaned, promises as facts of the library's types, names
-from content, refusals as structured data, budgets that never reject,
-the upstream queue), this file states only what arrays add and points
-there.
+tree). Stage 1 is one hard cutover with no compatibility owed. In the
+queue (proposals/README.md) it lands after 0004's cutover, which it
+builds on and which awaits the owner's approval, and right after `make
+self` (0002 §2 step 5), ahead of sharding; stages 2 to 8 follow
+sharding, in order. The tree it starts from: the cutover 0002 designed
+is committed and builds on arm64 macOS. Its gate there was green before
+the opt-in SCC pipeline (7a27fd34: `make check` 26/26, `make test-idr`
+286/286, `make test` 415/415) and at 552d682a, which added that opt-in,
+default off, with 0001's licenses gate (27/27, 286/286, 415/415);
+*measured* 2026-10-14 at `NCPU=6`, both on the Simplify rounds, the
+default path (read: HANDOFF.md, 0002's status). 0004's cutover deletes
+the opt-in and the rounds, and must reproduce the rounds' 415/415.
+`make check` is 27/27 at ccaba89c (*measured* on the typecheck machine,
+2026-10-14). x86_64 Linux is NotRun; `make self` is recorded on both
+targets before stage 1 starts (0002 §2 step 5), and stage 1, like every
+stage, is done only when it passes on both. Where 0004 now owns a topic
+(the pipeline's order and how a function is cleaned, promises as facts
+of the library's types, names from content, refusals as structured
+data, budgets that never reject, measurement, the upstream queue), this
+file states only what arrays add and points there.
 
 This file replaced the earlier
 README and its two companions, `compiler.md` and `types.md`, which were
 three drafts of one design and disagreed on reductions, grades,
-constants and shapes; this file is the one design. The fork's
-`Libraries/Data/Table.idr` (a growable `Linear.Array`),
-`Core/Context/Context.idr` (`Data.IORef`) and `Libraries/Utils/Binary.idr`
-with `Core/Binary/Prims.idr` (`Data.Buffer`) are ported in the same
-change (read: their imports; `Table.idr:15` imports `Linear.Array`).
+constants and shapes; this file is the one design. Stage 1 changes the
+fork's array users in the same change (read: their imports;
+`Table.idr:15` imports `Linear.Array`): `Libraries/Data/Table.idr`, a
+growable `Linear.Array` the compiler's context holds in a `Ref`, moves
+onto base's `Data.IOArray` (§3.8, D38); `Core/Context/Context.idr`
+(`Data.IORef`) and `Libraries/Utils/Binary.idr` with
+`Core/Binary/Prims.idr` (`Data.Buffer`) keep their source, base being
+unmodified, and compile through §13's world-ordered memrefs.
 Every decision below is decided; the rulings that stand behind the
 design are the owner's:
 pure array programs are tensors, rank has no ceiling, and arrays are
@@ -201,8 +210,9 @@ fannkuch-linear and spectral-norm (lists) took twice as long after the
 cutover, and k-nucleotide and reverse-complement became 3 and 11 times
 faster; neither record says why (measured: the two records; the causes
 are not known). x86_64 Linux has no record. The 2026-10-13 record is the
-baseline stage 1 is measured against until a newer one replaces it
-(§17).
+latest published one, and it predates 0004's cutover: stage 1 is
+measured against the commit before it, binary against binary, and its
+own run replaces this record (§17, D35).
 
 **What survives** (read, each above): builtin memref and tensor with idr
 element types and no array type of ours; `ReifyRankedShapedTypeOpInterface`
@@ -526,14 +536,57 @@ version is read again, which is exactly the condition that analysis
 checks (§8).
 
 `Linear.Array` is rewritten on `LArray` (**decision**, D19):
-`Linear.Vec a`, the growable array the fork's `Table` needs, is a record
-of an `LArray [<cap] a` and a size `n` with `LTE n cap`, growing by a
-fresh array of twice the capacity and one `insert_slice`. Its `%foreign
+`Linear.Vec a`, the growable linear array, is a record of an
+`LArray [<cap] a` and a size `n` with `LTE n cap`, growing by a fresh
+array of twice the capacity and one `insert_slice`. Its `%foreign
 "scheme:..."` primitive specs go: they were kept so `bench/` could run
 these programs on Chez, and AGENTS.md says not to shape a feature so
-that Chez can run it. Its primitives become declared runtime primitives
-of the registry, keyed by name, as base's `%extern` primitives are. The
-Chez column of `bench/` loses the programs that used them.
+that Chez can run it.
+
+**No primitive of its own** (**decision**, D37). The earlier text made
+the library's two primitives declared runtime primitives of the
+registry; the typed design supersedes both. `prim__index`, the bounds
+check, is what a typed index makes unnecessary (§3.2). `prim__arraySize`,
+the backing's length, cannot give a shape of rank above one, whose
+backing length is the product of its extents, so an `LArray` carries its
+`Extents s`, a singleton of its shape that cannot drift from it, and its
+MLIR image is the tensor's dimensions (`shape`, §4.1), held once. So
+`LArray` is plain Idris over base's `Data.IOArray.Prims` (D1), its
+writes updating the backing in place under the library's trust as
+`Linear.Array`'s do today (read: `Array.idr:136, 144`), a meaning that
+is right on every backend because no old version is read. The frontend
+never emits that body: it knows the type and the operations by name and
+writes §8's chain. Reason, beyond the rank: the frontend's host build
+runs on Chez, AGENTS.md's one exception and stage 0 of `make self`
+(read: `tools/self.sh:12-14`), and base's primitives are the ones Idris's
+Chez backend and the runtime both implement, so nothing of ours needs a
+Chez meaning and nothing is shaped for Chez. Whether the Chez column of
+`bench/` keeps the programs rewritten on the library is incidental: it
+keeps one only where Idris's Chez backend runs it as written
+(conjecture: nothing in the library is Chez-specific; §21 item 4).
+
+**The fork's table** (**decision**, D38). `Libraries/Data/Table.idr` is
+a growable table the compiler's context holds in a `Ref`, an `IORef`
+(read: `Core/Context/Context.idr:401`; `Core/Core.idr:1050-1058`), and
+threads through it on every access (`threadRef`, `Core/Core.idr:1071-1077`).
+An `LArray` cannot live there: none exists unrestricted (above), and
+§8's `restrict writable` for a linear array read from a cell (D33) rests
+on exactly that. Today's table gets its array unrestricted from
+`mkArray` (read: `Table.idr`, `newTable`; `Array.idr:118-124`), the hole
+the new library closes. Its meaning is mutation in program order of a
+table the world orders, which is §13's case, so it moves onto base's
+`Data.IOArray`, keeping the doubling growth that makes claiming `n`
+slots copy fewer than `2n` entries. `Table.idr` is the fork's only
+importer of `mlir-linear` (read: `Table.idr:10-12`; no other `import
+Linear.` under `compiler/`), so the fork's `depends = mlir-linear`
+(read: `compiler/idris/idris-compiler.ipkg:6`) goes in the same change,
+and the fork's build no longer waits on our libraries installed for the
+pinned Idris (read: `Makefile:186`, the fork's stamp on `host-libs`;
+the bench's Chez baseline still installs them, `Makefile:230-236,
+299`). A later fork module that
+threads an `LArray` (0011's Levenshtein row, if its bench calls for it)
+brings back a dependency on our libraries, and D37 is what lets the
+host run it.
 
 ### 3.9 Errors and the interactive loop
 
@@ -543,8 +596,10 @@ implementation for Agree [<3, 4] [<4]"). The library names its evidence
 for the rule a reader recognizes (`Agree`, `LTE`, `count`). Idris
 reports a mismatch of two literal sizes as their unary forms;
 **decision** (D12) that message is fixed in the fork's
-unifier error, as the fork's own code, recorded in `PINS.md` with a
-pull request drafted under `upstream/`. There are no runtime shape
+unifier error, as the fork's own code, recorded in `PINS.md`, with the
+change against the pin in `upstream/<bug>/pull-request.diff` for the
+re-sync to read, never sent (AGENTS.md: Idris takes no contribution
+written with a coding agent). There are no runtime shape
 errors in typed code.
 
 The interactive loop (`idris-mlir repl`, every line compiled and run as
@@ -651,11 +706,24 @@ is 0004's specialization node for (callee, pattern), made once, named
 from its key and scheduled in the same ready set as every other
 function (0004 §4.8). Today's keys already take a constant as its own
 key, under the binding-time rules (read:
-`lib/Transforms/Specialize/Keys.cpp:6-10, 39-60`). The clone's entry
+`lib/Transforms/Specialize/Keys.cpp:6-10, 39-60`; a plain constant is
+its own key at `:47`). **decision** (D39) For an array argument the
+static pattern is a type: where the caller's tensor is more static than
+the callee's parameter, MLIR's call typing makes the frontend write a
+`tensor.cast` to the parameter's type at the call, and the cast's source
+type is the argument's pattern, under the same binding-time rules as any
+static value. The fact is already in a type, so the key reads it and
+nothing records it again. A clone the budget does not make
+(`kClonesPerOwner`) leaves the extent dynamic: the same program, less
+optimized, never a refusal (0004 §2.5). The clone's entry
 casts its array arguments to the static type with `tensor.cast`, and
 upstream's cast-folding canonicalizations, run by 0004's inner
 per-function pipeline, carry the static type into the destination-style
-ops that consume it (read: `FoldTensorCastProducerOp`, `TensorOps.cpp`).
+ops that consume it (read: `FoldTensorCastProducerOp`, `TensorOps.cpp`;
+the one configuration is upstream's canonicalizer,
+`include/idr/Transforms/Canonicalize.h:33-44`, which collects every
+loaded dialect's and registered op's patterns,
+`M/lib/Transforms/Canonicalizer.cpp:75-80`).
 How far that propagation reaches through our ops is measured in stage 2
 (conjecture).
 
@@ -751,7 +819,13 @@ fact an image.
   that moves a whole tensor (`insert`'s destination, the slices, `cast`,
   the reshapes, `idr.tie_shape`, a loop-carried tensor) carries no label
   set of its own, since the anchor, not the tensor value, holds the
-  labels. So 0004's verifier, which refuses a closure- or lazy-typed
+  labels. A closure carried by one of the frontend's loops (a fold whose
+  accumulator has a function type) moves along `scf.for`'s region edges
+  and `scf.yield`'s operands, which upstream declares through
+  `RegionBranchOpInterface` (read: `M/include/mlir/Dialect/SCF/IR/SCFOps.td:167`,
+  and `:1240`, `ReturnLike`) and 0004's flow rule reads as it reads a
+  match's (0004 §2.2), so the loops need no model of ours (**decision**,
+  D41). So 0004's verifier, which refuses a closure- or lazy-typed
   operand on an op without the interface (0004 §2.2), accepts every
   array program, and closure flow is still held once.
 - **A counted element** is a tensor element too, with one path, not two
@@ -827,7 +901,10 @@ and scan is its left fold in index order. A `linalg` reduction iterator
 means any order, as upstream treats it (split-reduction turns one
 reduction dimension into a parallel one and a second reduction, read:
 `M/include/mlir/Dialect/Linalg/Transforms/Transforms.h:1218-1266`;
-tiling and vectorization reassociate it too, recalled), so a fold is
+tiling a reduction computes partial reductions in parallel and merges
+them after the loop, read:
+`M/include/mlir/Dialect/SCF/Transforms/TileUsingInterface.h:493-520`;
+vectorization reassociates it too, recalled), so a fold is
 structured as one only in three cases:
 
 1. **The combiner is one associative and commutative integer op**:
@@ -884,9 +961,12 @@ Upstream passes wherever upstream has the pass; each of ours names its
 gap. The order is 0004's (§4 there), which this proposal does not
 restate: it adds one stage, the arrays stage, between 0004's dead-value
 removal (its stage 10) and its memory passes (its stage 11), and it
-replaces today's vectorization group after lowering in the place it
-holds (read: `foreign/idr/lib/Transforms/Pipeline.cpp:142-147`). Each
-line of ours names the stage of §17 that adds it.
+replaces today's vectorization group in the place it holds inside the
+lowering tail, after `idr-entry` and before `idr-returned-arguments`
+(read: `foreign/idr/lib/Transforms/Pipeline.cpp:134-151`), which 0004's
+stage 12 keeps as today. Nothing here runs inside 0004's inner
+per-function pipeline, and nothing repeats: each step below runs once.
+Each line of ours names the stage of §17 that adds it.
 
 ```text
 0004 §4, stages 1 to 10, as 0004 writes them; what arrays rely on there:
@@ -905,16 +985,19 @@ the arrays stage:
     eliminate-empty-tensors        stage 1
   one-shot-bufferize               stage 1   whole program, on idr.func (§8; U1)
     (sparsification-and-bufferization in its place from stage 6; §9, U2)
+    ending with the wrapper's one type conversion (§8, D42)
   nested idr.func, in parallel:
     canonicalize, cse              stage 1   0004's one configuration
 0004 §4, stage 11: idr-stack, idr-accumulate, idr-rc, idr-demand, idr-trmc,
   idr-tail-loops, idr-narrow       (idr-in-bounds deleted at stage 1)
-0004 §4, stage 12: idr-lower, idr-entry
-nested func.func, in parallel:
-  transform-interpreter            stage 1   the vectorization schedule (§7.1)
-  idr-narrow-lanes                 stage 1   rebuilt on the new form
-  convert-linalg-to-loops, canonicalize, cse
-idr-returned-arguments, then 0004 §4, stages 13 to 16
+0004 §4, stage 12: idr-lower, idr-entry, then in today's place of the
+  vectorization group, nested func.func, in parallel:
+    transform-interpreter          stage 1   the vectorization schedule (§7.1)
+    idr-narrow-lanes               stage 1   rebuilt on the new form
+    convert-linalg-to-loops, canonicalize, cse
+  then the rest of stage 12's lowering tail as 0004 keeps it, from
+  idr-returned-arguments to idr-tail-calls
+0004 §4, stages 13 to 16
 ```
 
 **Why a stage of its own, and why there** (**decision**, D26).
@@ -1068,7 +1151,9 @@ needs; the earlier `compiler.md`'s grade-as-encoding spelling is deleted
 for that reason.
 
 **How One-Shot meets the wrapper**, with no change to its analysis
-(conjecture, settled by stage 1's tests, which land the model):
+(conjecture, settled by stage 1's tests, which land the model; the two
+ops exist today, `include/idr/IR/IdrOwnershipOps.td:182-204`, read, and
+stage 1 gives them bufferization models):
 - `idr.lin.enter %t` (tensor into the wrapper) is a **release**: its
   model declares its operand read and written. One-Shot therefore puts
   a copy there exactly when `%t`'s buffer is read again after it, or is
@@ -1092,6 +1177,22 @@ for that reason.
   release, and no other reference can read it, because a record that
   holds an `LArray` is itself linear by the library's construction (no
   unrestricted `LArray` exists to build one from, §3.8).
+- A wrapped tensor that crosses a block or region boundary (a branch
+  that 0004's contification or a multi-block inlining made, a match's
+  yield, a loop-carried value) is no tensor to the analysis either, so
+  the analysis needs nothing there: the use beyond the boundary starts
+  its own writable root, and the enter before it is a release. Only the
+  rewrite must retype it, and One-Shot's own block-signature rewrite
+  converts tensor-like arguments only (read:
+  `M/lib/Dialect/Bufferization/Transforms/Bufferize.cpp:403-418`). So
+  the bufferization step ends with one type conversion of ours, applied
+  once to each function: `!idr.lin<T>` becomes `!idr.lin<B>`, where `B`
+  is the buffer type One-Shot gave `T`, with the identity layout of the
+  runtime's cell, on every block and region argument and op result that
+  carries a wrapper (**decision**, D42). It is the conversion our
+  `idr.func` model applies to signatures, so the wrapper's types change
+  in one place, and the grade is kept, as the verifier checks after the
+  step.
 
 This keeps AGENTS.md's rule exactly: a linear binder does not imply
 unique ownership, so exclusivity is One-Shot's conclusion at the
@@ -1124,6 +1225,20 @@ the meaning, under every reading, and is allowed. The analysis is the proof; no 
 it, and `idr-demand` keeps checking only the promise of cells on the
 grades `idr-rc` wrote (0004 §4.11): the two promises live on two
 representations, tensors and cells, and neither is held twice.
+
+**Where the links are** (**decision**, D43). The canonicalizer folds a
+use of an enter, and an enter of a use read nowhere else, to the value
+itself, for every linear value (read: `LinUseOp::fold`,
+`LinEnterOp::fold`, `lib/IR/OpsScalars.cpp:130-145`), and it runs in
+0004's inner pipeline before the arrays stage. So inside one function a
+thread reaches One-Shot as a plain chain of destinations, which its
+analysis puts in place because nothing reads an old version, and the
+links left are at the thread's boundaries: a call's argument or result,
+a block or region argument, a cell. The promise is checked there, every
+time. The folds keep no tensor case: one rule for every linear value is
+the representation, and an unfolded pair would be the value said twice.
+Inside a function the in-place chain is One-Shot's conclusion, and
+`in-place=@f` (§17) checks it on the suites' programs.
 
 **`bufferization.writable`** on a plain tensor argument is derived from
 the function's type immediately before the pass and never kept as a
@@ -1287,23 +1402,30 @@ Each consumer is assigned to dense, sparse or 0012, honestly.
   two size-change matrices is a semiring matrix product in `SizeChange`,
   a sparse `linalg.matmul`-shaped generic over DCSR operands: the fork's
   `Libraries/Data/SparseMatrix.idr` is already DCSR in lists (read). The
-  closure is not a sum: the checker keeps a set of `(f, h, matrix)`
-  triples (read: `Core/Termination/SizeChange.idr:415-417` [77-78, 167, 180], its work
-  list), and summing them would merge call paths that must stay apart.
-  The closure is a relational fixpoint over that set, 0012's.
+  closure is not a sum: `loopsFrom` keeps, per function reached, only
+  the weakest graphs of the walks to it under `weaker` (read:
+  `Core/Termination/SizeChange.idr:383-384, 413-459`), and summing them
+  would merge walks whose verdicts differ. The elaborator's triple
+  closure (`:77-85, 183-208`, used at `:565`), the second copy of the
+  same analysis, goes for it (0010 D13, 0008's O6). The closure is a
+  relational fixpoint with subsumption, 0012's (its D9).
 - **0007's kernels are where linalg is weakest.** The wavefront machine's
   steps are a stable group by term kind (a sort or a counting scatter),
   gathers of children from the arena, compaction of finished rows, and
   scatters of results: gathers, scatters and filters, where fusion stops
   (§4.4). Its dense parts (per-kind arithmetic on a gathered batch) fuse
   as any map does. 0007's kernels are written as ordinary programs in
-  this language, using `select`, `idr.scatter` and `filter`; there is no
+  this language, using `select`, `idr.scatter`, `idr.scan` and `filter`,
+  every combiner one `addi` (the counting sort's histogram and exclusive
+  scan, compaction's flags and scan; §4.4, D16); there is no
   whole-array primitive of the runtime for them, which would be a second
   implementation of library functions.
 - **0008's tables** are dense arrays of interned ids, one tensor per
   column (§4.5).
-- **0009's layouts** are §4.5's one-to-N conversion of records, chosen
-  by 0009's measurements.
+- **0009's layouts**: arrays of records and of sums are columns by
+  representation, through §4.5's one-to-N conversion (0009 D3, D6);
+  0009's 1.3x measurements choose only for collections that are not
+  arrays (0009 D12).
 
 ## 12. Constants and static normalization
 
@@ -1322,7 +1444,18 @@ need not be in front of the data, because the runtime reads it through
 the allocated pointer (read: `Conversion/ArrayView.cpp`, "The
 descriptor's allocated pointer is the cell"). That `memref.get_global`
 lowering, which sets the two pointers, is the one pattern of ours it
-needs (conjecture, checked in stage 2).
+needs (conjecture, checked in stage 2). **decision** (D40) Constants
+land at stage 2, not stage 1: a dense constant needs a static shape
+(read: `DenseTypedElementsAttr::getRaw` asserts one,
+`M/lib/IR/BuiltinAttributes.cpp:1219`), stage 1's dimensions are all
+dynamic (§4.3's static extents are stage 2), and the frontend writes no
+constant tensor (§4.1), whose ops fold to none (read: `InsertOp::fold`
+returns only an unchanged splat destination,
+`M/lib/Dialect/Tensor/IR/TensorOps.cpp:1659-1667`). So before stage 2
+the pattern would have nothing to lower. Its producer is 0007's static
+normalization, whose closed array results of words need stage 2 first;
+until both exist, a closed array result is built at startup, as a
+constant of any other element is.
 
 Static normalization itself is 0007's: no array operation runs at
 compile time until it exists, and then it runs as this lowering compiles
@@ -1340,20 +1473,27 @@ keeps the order with every other effect. Their accesses keep the
 primitive's guard, the runtime's meaning of an access outside the array.
 With `idr-in-bounds` gone, base's `IOArray` checks an index in Idris and
 the primitive checks it again; **measurement**: fannkuch-redux and the
-`Buffer` programs within the run-to-run spread of today's record, else
+`Buffer` programs within D35's 2% of the commit before stage 1, else
 the replacement is a local pattern relating `newArray`'s size operand to
 `memref.dim` where value bounds can read it, never the Presburger engine
-again.
+again. The fork's context table is one of these arrays from stage 1
+(§3.8, D38), so the self-compile's wall, recorded at stage 1, prices the
+double check on the compiler's own hottest table.
 
 `freeze` and `thaw` between an `LArray` and an `IOArray` are
 `bufferization.to_tensor ... restrict` (not writable) and a release.
 
 ## 14. Multicore, and devices later
 
-After 0005's P4, a parallel dimension of a structured generic is tiled with
-`scf.forall` and partitioned across shards by 0005's rule, with
-`shard.grid`, `sharding-propagation` and `shard-partition` for region
-SPMD where it applies (read: the pinned `shard` dialect). A reduction
+After 0005's P4 (this file's stage 8), a parallel dimension of a
+structured generic is tiled with `scf.forall` by the tile-and-fuse
+schedule and lowered by 0005 §8 alone, a fork per shard and a join;
+`shard.grid` supplies only the grid and the running index (0005 §7.3;
+read: the pinned `shard` dialect). `sharding-propagation` and
+`shard-partition`, region SPMD, are not a second lowering beside it:
+0005's P5 takes them only to replace that lowering whole, on its
+measurement, naming what lowers their collectives, since `ShardToMPI`
+is rejected (§18). A reduction
 across shards is legal exactly when §6 says its order is not observed,
 so outputs are identical on one shard and on all. Devices come later
 through the same tensor level: nothing above tiling assumes a CPU, and
@@ -1370,7 +1510,7 @@ Measured line counts from §1; what replaces each.
 
 | layer | lines | deleted | replaced by |
 |---|---:|---|---|
-| library | 289 | `Linear/Array.idr`, its Scheme specs, `IArray` | `LArray`, `Linear.Vec`, `libs/mlir-array` (§3.8) |
+| library | 289 | `Linear/Array.idr`, its Scheme specs and its two primitives, `IArray`; the fork's dependency on `mlir-linear` | `LArray`, `Linear.Vec`, `libs/mlir-array`, over base's primitives; the fork's `Table` on base's `IOArray` (§3.8) |
 | frontend | ~320 | `Rank0 \| Rank1`, the spec-string matches, `indexSpaces`, `arrayLoop`'s words-only rule, the per-access guard, `MLIR.idr`'s rank-only memref | ranked tensor types with static dimensions; the generating set's emission (§4.1) |
 | dialect | ~707 | `idr.array.new`, `get`, `set`, `generate`, `fold` on unordered arrays, `OpsArrays.cpp` | upstream `tensor` ops; `idr.tie_shape`, `idr.scan`, `idr.scatter` (§4.3, §4.4) |
 | conversion | 811 | `ArrayLoops`, `ArrayLoopReads`, `Arrays`, `ArrayView`, `Buffers` for unordered arrays | `idr-structure-loops`; One-Shot with the runtime's allocator; the constant pattern (§12) |
@@ -1418,7 +1558,9 @@ rewritten to the new ops.
   is an internal error, never `unsupported` (a copy at a link, §8; 0004
   §2.5).
 - **No oracle**: expected files are the specification; nothing is
-  shaped so that Chez can run it (§3.8).
+  shaped so that Chez can run it (§3.8). The frontend's host build on
+  Chez, AGENTS.md's one exception, runs the fork through base's own
+  primitives, since the library adds none (D37, D38).
 - **Never miscompile silently**: an observable order is never
   reordered; a counted element keeps its counts; a narrowing is guarded
   unless the type proves it exact.
@@ -1448,13 +1590,27 @@ stages 2 to 7 follow sharding (0005's P1, P2 and P4 with 0006's
 S-stages), in order, and stage 8 needs 0005's P4.
 
 **Measurement** (**decision**, D35), 0004 §10's rule applied to arrays:
-old binary against new, two commits, two builds, under identical
-conditions; no stage adds an option to compare by. The runtime baseline
-is the latest `bench/runs/` record before the stage, today 2026-10-13 at
-9a1b7b12 (§1), on each target that has one. The compile-time threshold
-is 0004's: no bench program's compile time regresses by more than 5%. A
-stage that misses its threshold is reworked or reverted whole, never
-kept beside the old form. New benchmarks, each
+old binary against new, two commits, two builds, run beside each other
+under identical conditions on performance cores; no stage adds an
+option to compare by. The baseline is the commit before the stage, on
+each target. The latest `bench/runs/` record (today 2026-10-13 at
+9a1b7b12, §1, which predates 0004's cutover) is the published
+reference, and the stage's own run replaces it. The thresholds are
+0004's: no bench program's runtime worse than the baseline by more than
+2%, nor its compile time by more than 5%. A margin, not a spread: on
+the record's ten array programs the second-best of five runs is at most
+2.0% above the best (*measured*, `bench/runs/2026-10-13-9a1b7b1-darwin-arm64/samples.tsv`:
+reverse-complement 0.555 and 0.566 s, fannkuch-linear 49.205 and
+50.132 s, the rest closer), while the spread of all five reaches 97%
+(unionfind's first run, 0.190 s against 0.096 s), so a threshold
+written as "the run-to-run spread", as the earlier text had it, would
+bound nothing. The margin sits just above the noise of the best-of-five
+statistic on the noisiest program. **Parity** with a C counterpart
+(stages 3 and 4) is the same margin (**decision**, D36): this
+compiler's best of five at most 2% above the C's, on each target.
+Reason: one margin for every comparison, 0004's. A stage that misses
+its threshold is reworked or reverted whole, never kept beside the old
+form. New benchmarks, each
 with a C counterpart in `bench/c/` and no Chez column: `matmul` (1024,
 f64, the C an `ikj` triple loop), `heat` (a 2-D five-point Jacobi step,
 2048², 100 steps), `spectral-norm-dense`, `prefix-sum` (an inclusive scan
@@ -1467,33 +1623,48 @@ SuiteSparse matrix vendored under `sources/`).
    §4.1; `idr.tie_shape`; the arrays stage of §7 with
    `idr-structure-loops`, `eliminate-empty-tensors` and One-Shot on
    `idr.func` with the U1 patch, the release model of §8, links as
-   `mustBufferizeInPlace` and the runtime's allocator; the element flow
+   `mustBufferizeInPlace`, the wrapper's one type conversion (D42) and
+   the runtime's allocator; the element flow
    rule over `ShapedType` and the flow interface's external models on
    `tensor.insert`, `extract` and `pad` (§4.5); the vectorization
    schedule, the schedule library's loading and `idr-target`'s
    `max_vector_op_width` (§7.1); NarrowLanes rebuilt; per-memref effects
-   on the world-ordered ops; every deletion of §15; the fork's `Table`,
-   `IORef` and `Buffer` users ported in the same change.
+   on the world-ordered ops; every deletion of §15; record elements as
+   one tensor per field by the one-to-N type conversion of §4.5 (D44);
+   in the same change, the fork's `Table` moved onto base's `IOArray`
+   and its `mlir-linear` dependency dropped (D38), its `IORef` and
+   `Buffer` users recompiled through §13's mapping.
    Proof: every array program's expected output unchanged; `make self`
    green and stage 2 equal to stage 3; new `idr-expect` properties
    `structured-loops=@f` (every pure array loop of `@f` is a linalg op),
    `typed-reads=@f` (no guard on a typed access) and `in-place=@f` (no
    copy of an array in `@f`), the last on fannkuch-linear and qsort; a
    dialect fixture in which a link's buffer is read after its release
-   reports the internal error with One-Shot's conflict; 0004's verifier
+   reports the internal error with One-Shot's conflict; a dialect
+   fixture in which a linear array crosses a branch and a match's yield
+   bufferizes with its grade kept; a dialect fixture in which an array
+   of a two-field record is two tensors through the arrays stage and two
+   memrefs after it; 0004's verifier
    accepting every corpus module with a closure element; a
    ThreadSanitizer run clean over the per-function interpreter; the ten
    array benchmarks of §1 (k-nucleotide uses both `Linear.Array` and
-   `Data.Buffer`) within the run-to-run spread of the baseline or
-   faster, spectral-norm-linear within that of 0.606 s on the Mac; the
-   arrays stage's wall on the self-host module recorded, and no bench
-   program's compile time up by more than 5%.
-2. **Static extents.** The literal and specialized cases of §4.3, the
-   cast propagation measured, `vectorizeNDExtract` on in the
-   vectorization schedule. Proof: a fixture whose expected module has
+   `Data.Buffer`) within D35's 2% of the baseline or faster, among them
+   spectral-norm-linear, the program whose vectors the vectorization
+   schedule must keep (1.90x C on the 2026-10-13 record); the arrays
+   stage's wall and the self-compile's wall on the self-host module
+   recorded, and no bench program's compile time up by more than 5%.
+2. **Static extents.** The literal and specialized cases of §4.3 with
+   D39's key, the cast propagation measured, `vectorizeNDExtract` on in
+   the vectorization schedule, and the immortal constants of §12 (D40).
+   Proof: a fixture whose expected module has
    static dimensions through a specialization node; `vectorized` on the
    static programs without masks; `spectral-norm-dense` at least at
-   spectral-norm-linear's ratio to C.
+   spectral-norm-linear's ratio to C; a dialect fixture in which an
+   `arith.constant dense` array bufferizes to a `memref.global` whose
+   descriptor's allocated pointer is a persistent header, with no
+   allocation for it, and a write to it copies (the frontend writes no
+   constant tensor, §4.1; 0007's static normalization is the first
+   producer of one).
 3. **Fusion and schedules** (§7.1, §7.2): generalization, elementwise
    fusion, the tile-and-fuse schedule, specialization of generics, and
    the L1 size in each target's entry. Proof, in this order: `fused` on
@@ -1520,9 +1691,11 @@ SuiteSparse matrix vendored under `sources/`).
    fixture for a `String` element.
 7. **Relations and the compiler's consumers** (§10, §11). The
    multiplicity check as a sparse reduction and size-change composition
-   as a semiring product, behind the fork's existing results: identical
-   verdicts on base and the corpus (0008's gate), and the 0012 boundary
-   rule applied to the first relational consumer.
+   as a semiring product, behind the fork's existing results, and the
+   elaborator's `calcTerminating` triple closure deleted for `loopsFrom`,
+   which carries the call path its message names (0010 D13; 0008's O6):
+   identical verdicts and messages on base and the corpus (0008's gate),
+   and the 0012 boundary rule applied to the first relational consumer.
 8. **Multicore** (§14), after 0005's P4. Proof: 0005's rules; `heat` and
    `matmul` outputs identical on one shard and on all.
 
@@ -1600,6 +1773,17 @@ SuiteSparse matrix vendored under `sources/`).
 - **Autotuned thresholds and user-visible schedules**: non-reproducible
   builds and a second program beside the program. Schedules are the
   compiler's, from the target's facts, printed with the module.
+- **`LArray`'s size and check as runtime primitives of the registry**
+  (the earlier text of §3.8): the size cannot give a shape of rank above
+  one, the check is what a typed index removes, and the frontend's host
+  build on Chez would have no meaning for either (D37).
+- **The fork's table on `LArray`, or a linear cell to hold one in a
+  `Ref`**: an unrestricted handle to a linear array is the alias D33's
+  `restrict writable` rules out, and a table the world orders is
+  already §13's `IOArray` (D38).
+- **Keeping every link through the canonicalizer**, a tensor case in
+  the folds of `idr.lin.enter` and `idr.lin.use`: a branch on the
+  carrier in a rule that holds for every linear value (D43).
 
 ## 19. Decisions
 
@@ -1709,9 +1893,65 @@ decision, with its reason):
   bufferization, with its failing test fixed and the function analysis
   state generalized with it; it is 0004 §7's item 5. Reason: AGENTS.md
   prefers upstream's fix, backported, to one of ours (§20).
-- **D35.** Measurement is 0004 §10's: binary against binary, the latest
-  record before the stage as the baseline, no compile-time regression
-  over 5%, determinism at 1, 2 and 8 threads (§17).
+- **D35.** Measurement is 0004 §10's: binary against binary, the commit
+  before the stage as the baseline, run beside it on each target (the
+  latest `bench/runs/` record the published reference the stage's run
+  replaces); no runtime regression over 2% and no compile-time
+  regression over 5%; determinism at 1, 2 and 8 threads. Amended
+  2026-10-14 from "the latest record as the baseline" and "within the
+  run-to-run spread": a stored record is not a run under identical
+  conditions, and the spread of five runs reaches 97% on the record
+  while the best-to-second-best gap is at most 2.0% (§17).
+
+Taken 2026-10-14 in the same reconciliation, each closing a case the
+text had left open or got wrong:
+
+- **D36.** Parity with a C counterpart is this compiler's best of five
+  at most 2% above the C's, on each target. Reason: one margin for
+  every comparison, 0004's, and it sits above the statistic's noise on
+  the record (§17).
+- **D37.** `LArray` and `Linear.Vec` have no primitive of their own:
+  plain Idris over base's `Data.IOArray.Prims`, the extents carried as
+  `Extents s`, the bounds check gone with typed indices. Supersedes the
+  earlier text's "declared runtime primitives of the registry". Reason:
+  the backing's length cannot give a shape of rank above one, and the
+  frontend's host build on Chez then needs no meaning of ours (§3.8).
+- **D38.** The fork's `Table` moves onto base's `Data.IOArray` with its
+  doubling growth, and the fork's `mlir-linear` dependency goes.
+  Reason: the table lives in a `Ref`, no unrestricted `LArray` exists
+  (D33 rests on that), and its meaning is mutation in program order,
+  §13's case (§3.8).
+- **D39.** The static pattern of an array argument is the source type of
+  the `tensor.cast` the frontend writes at the call, under today's
+  binding-time rules; a clone the budget does not make leaves the extent
+  dynamic. Reason: the fact is already a type, and a budget never
+  rejects (§4.3; 0004 §2.5).
+- **D40.** The immortal-constant lowering lands at stage 2. Reason: a
+  dense constant needs a static shape, which stage 2 brings, and no
+  stage-1 program holds one (§12).
+- **D41.** A closure carried by a frontend loop flows along `scf`'s
+  region edges, read through upstream's `RegionBranchOpInterface` by
+  0004's flow rule; no model of ours. Reason: upstream already declares
+  those edges (§4.5).
+- **D42.** The bufferization step ends with one type conversion of ours,
+  `!idr.lin<T>` to `!idr.lin<B>` with `B` One-Shot's buffer type for `T`
+  in the cell's identity layout, on every block and region argument and
+  result that carries a wrapper. Reason: the wrapper is no tensor to
+  One-Shot, whose block-signature rewrite converts tensor-like types
+  only, so the analysis needs nothing and the rewrite needs this, in one
+  place (§8).
+- **D43.** The canonicalizer's folds of an enter and a use stay as they
+  are for every linear value; the in-place promise is checked at the
+  links that survive, the thread's boundaries. Reason: one fold rule for
+  every linear value; inside a function the chain is One-Shot's
+  conclusion, checked by `in-place=@f` (§8).
+- **D44.** Record elements become one tensor per field, by the one-to-N
+  type conversion of §4.5, at stage 1. Reason: §4.5 makes it the one
+  representation of a record element, and stage 1 is the cutover that
+  fixes the representation of every element kind (words, ours, counted,
+  closures, records), so no array program is compiled one way at stage
+  1 and another later; 0009's F2 (arrays of sums through `SumLayout`'s
+  one-to-N) and 0008's tables then find it in place.
 
 ## 20. Upstream used, and the patches it needs
 
@@ -1732,7 +1972,7 @@ decision, with its reason):
 | `scf.parallel`, `scf.reduce` | the frontend's unordered fold (§6) |
 | `transform.dlti.query`, `TransformDialect::loadIntoLibraryModule`, `dlti.target_system_spec` | schedules read per target, run per function (§7.1) |
 | `sparsification-and-bufferization` | bufferization from stage 6 (§7, §9) |
-| `shard.grid`, `sharding-propagation`, `shard-partition` | SPMD, by 0005's rule (§14) |
+| `shard.grid` | the grid and running index of 0005 §8's fork-and-join lowering of `scf.forall` (§14); `sharding-propagation` and `shard-partition` only if 0005's P5 replaces that lowering whole |
 
 **Gaps filled by ours**, each to go when upstream fills it:
 `idr.tie_shape` (no op ties dynamic dimensions across calls),
@@ -1790,7 +2030,9 @@ policy as `upstream/README.md` requires. They share one queue with
    after 0004's cutover, which `make self` needs (the queue,
    proposals/README.md). Today's arrays are deleted and the stack
    rebuilt in one cutover; the fork's `Table`, `IORef` and `Buffer`
-   users are ported in it, and `make self` stays green across it.
+   users are ported in it, and `make self` stays green across it. (How,
+   reconciled 2026-10-14: `Table` onto base's `IOArray`, D38; the
+   `IORef` and `Buffer` users unchanged in source, §13.)
 2. **One path for counted elements** (D17). A regression stage 1
    measures is a reason to make the counted copy faster, not to keep a
    second path.
@@ -1799,7 +2041,13 @@ policy as `upstream/README.md` requires. They share one queue with
    tensor's encoding inside the one pass, with linear sparse arrays
    refused; nothing else, and never both in the tree (0004 D2).
 4. **The Chez column** of `bench/` loses the `Linear.Array` programs
-   (D19). The C column is the comparison that matters.
+   (D19). The C column is the comparison that matters. (Reconciled
+   2026-10-14: with D37 the rewritten programs need nothing of ours on
+   Chez, so the column keeps whichever Idris's Chez backend runs as
+   written; nothing is shaped for it either way. The column is timing
+   only: its output is never compared with the reference, since that
+   would make Chez's meaning a gate, which AGENTS.md's no-oracle rule
+   forbids; 0002 D20 removes the comparison before G1's bench run.)
 5. **U1 is a patch** to bufferization's module driver, generalized from
    `func.func` to `FunctionOpInterface` and `CallOpInterface`, carried
    under `upstream/` with its plan; no driver of ours.

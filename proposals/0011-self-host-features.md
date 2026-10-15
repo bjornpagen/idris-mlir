@@ -2,7 +2,10 @@
 
 **Status:** approved with the queue on 2026-10-14 (proposals index).
 Written 2026-10-10 as a sketch; fleshed out and decided 2026-10-14
-against 0004's pipeline cutover. Nothing of the six features is built.
+against 0004's pipeline cutover, every question decided. Feature 2 lands
+in 0004's cutover (lane L1), ahead of the others, by the owner's ruling
+that a count never decides acceptance (0004 D40). Nothing of the six
+features is built.
 
 The tree (*measured*, HANDOFF.md, 0002): the cutover of 0002 is
 committed and builds on arm64 macOS, where `make test` was 415/415 at
@@ -39,12 +42,14 @@ runtime values), and once the compiler compiled that case it accepted the
 code unchanged; `op @{choose k}`, which picks the implementation by a
 runtime value, stays refused (*read*: `Translate/Instances.idr:255`,
 `Translate/Terms.idr:855`; `tests/reject/runtime-closure-implementation`).
-Paths under `Translate/` are in `compiler/src/IdrisMLIR/Frontend/`.
+Paths under `Translate/` are in `compiler/src/IdrisMLIR/Frontend/`, and
+those under `Frontend/` and `Registry/` in `compiler/src/IdrisMLIR/`.
 
 ## What stays refused
 
 *Decision*, agreeing with 0004 §2.5, which owns the rule for the whole
-compiler:
+compiler. This section is the frontend's whole account, which 0004 §2.5
+summarizes as the frontend's megamorphic refusals:
 
 - **Megamorphic constructs,** refused by the frontend with the site and
   the value whose set is unbounded: an implementation chosen by a runtime
@@ -54,8 +59,29 @@ compiler:
   the second exact.
 - **What is outside the language,** which no feature here touches
   (AGENTS.md): `%foreign`, threads, collector finalizers, raw pointers,
-  signal handlers, processes, and escape hatches, forged worlds and
-  pragmas in user code.
+  signal handlers, processes, and escape hatches (`believe_me` outside
+  feature 6's cases, `idris_crash`, a hole), forged worlds and pragmas in
+  user code.
+- **What is not a program, or a toolchain at odds with itself** (*read*,
+  the rules' sites): no `main`, or a `main` that is not `IO ()`
+  (`program`, `Frontend/Program.idr:120-121`, `Translate/Programs.idr:177`);
+  a registry entry that does not fit the library it names (`hook`,
+  `identity hook`, `Translate/Terms.idr:389, 780-784`); a definition an
+  installed module lacks or a constructor that is not one (`compiled
+  module`, `Translate/Closed.idr:600`, `Types.idr:521`); a definition that
+  is not a pattern-matching one (`definition`, `Programs.idr:53`); a data
+  type with no constructors known (`data type`, `Types.idr:479`). None is
+  a refusal of a construct, and none changes here.
+- **A primitive the runtime does not define** (*decision*): a fixed-width
+  negation (`Translate/Terms.idr:885`) and the casts the frontend has no
+  op for, `Char` to and from `Double` and `String` to `Char`
+  (`Translate/Primitives.idr:45-46, 91`; `Terms.idr:892`). A primitive's
+  one meaning is the runtime's (AGENTS.md), and it has none for these;
+  neither the prelude nor base calls them (*read*: a search of
+  `third_party/Idris2/libs/prelude` and `base` finds no use; the prelude
+  negates by subtraction, `Prelude/Num.idr:118-120, 146-148`). One is
+  added to `runtime/` with its documented semantics and its test when a
+  program needs it; until then `unsupported (primitive)` names it.
 - **No other construct.** No budget, no cap on a sum's variants, no
   count of instances and no optimization decides whether a program
   compiles, in the frontend or in the pipeline (0004 §2.5). A finite set
@@ -63,31 +89,53 @@ compiler:
   set to a `case` with one arm per lambda, with no cap, no refusal and no
   boxed fallback (0004 §2.3).
 
+Two counts still refuse today. 0004's cutover deletes the pipeline's
+`unsupported (compile-time budget)` from its three sites (0004 §2.5,
+§6); the frontend's `instanceBudget` is a fourth (`Translate/
+Instances.idr:34-39, 110-112`), which feature 2 deletes inside the
+cutover (0004 D40), so after it no count refuses a program. The other is the
+runtime's cell header (below), a representation limit.
+
+The C++ side's `unsupported (runtime closure)` and `unsupported
+(laziness)`, which defunctionalize reports today
+(`foreign/idr/lib/Transforms/Defunctionalize/Pass.cpp:43-50, 96-101`),
+go with 0004's cutover, whose label sets have no unknown element (0004
+§2.2, §6). The frontend's rules of the same names, below, are other
+refusals: an implementation closing over runtime values in a
+constructor, and a match on `Delay`.
+
 The pipeline's other refusals are about representation limits and the
 program's own promises, not constructs, and are not this proposal's
 (*read*): a cell past its header's counted slots or tags
 (`unsupported (layout)`, `foreign/idr/lib/IR/Layout/Layouts.cpp:95`,
-`lib/IR/OpsData.cpp:93-98`; 0009's ground), a knot through a mutable cell
-(`unsupported (cycle)`, `lib/IR/Verify/Knots.cpp:100`; the acyclic heap),
-and a broken in-place promise (`unsupported (uniqueness)`,
-`lib/Transforms/Demand/Demand.cpp:79`; a fact of `mlir-linear`'s types
-after 0004 §4.1). None of them is a budget.
+`lib/IR/OpsData.cpp:93-98` until 0004 D29 moves it to the identified
+type's verifier, `lib/IR/Layout/CellInfo.cpp:20-25`), a limit
+of the runtime's header (`runtime/idris_rt.h:106-107`) that 0009 records
+(its "What it changes") and no proposal yet lifts; a knot through a
+mutable cell (`unsupported (cycle)`, `lib/IR/Verify/Knots.cpp:100`; the
+acyclic heap); and a broken in-place promise (`unsupported
+(uniqueness)`, `lib/Transforms/Demand/Demand.cpp:79`; a fact of
+`mlir-linear`'s types after 0004 §4.1). None of them is a budget the
+compiler sets.
 
 Every other refusal the frontend makes today, on a construct inside the
 language, is a missing feature (*read*: the rules are
-`compiler/src/IdrisMLIR/Rule.idr:12-39`; the sites and fixtures below):
+`compiler/src/IdrisMLIR/Rule.idr:11-39`; the sites and fixtures below):
 
 | Refusal today, `unsupported (<rule>)` | Where | Fixture | Removed by |
 | --- | --- | --- | --- |
 | `match`: a match on an erased value, between constructors a runtime index tells apart | `Translate/Cases.idr:534-539` | none yet; the fork's `shuffleVars`, `updateLocal` and `removeArgVars` were rewritten around it | 1 |
 | `laziness`: a match on `Delay` (not asked by self-hosting; taken so the end state holds) | `Cases.idr:498, 736` | none | 1's stage: a force bound to the pattern's variable, as upstream compiles `DelayCase` (`third_party/Idris2/src/Compiler/CompileExpr.idr:322-327`, *read*) |
-| `polymorphism`: a recursive component that passes a type or implementation other than its own, unchanged, even when the set it reaches is finite | `Translate/Recursion.idr:139-152` | none for the bounded case | 2 |
-| `compile-time budget`: more than 4,096 instances of one definition | `Translate/Instances.idr:32-39, 110-112` | none | 2, whose termination argument deletes it |
+| `primitive`: a match on a `Double` literal (not asked by self-hosting; taken so the end state holds) | `Cases.idr:749` | `primitive-double-match` | 1's stage: the runtime's `Double` equality tested against each literal in the alternatives' order (D13) |
+| `polymorphism`: a recursive component that passes a type or implementation other than its own, unchanged, even when the set it reaches is finite | `Translate/Recursion.idr:142-153` | none for the bounded case | 2 |
+| `compile-time budget`: more than 4,096 instances of one definition | `Translate/Instances.idr:34-39, 110-112` | none | 2, whose termination argument deletes it |
 | `type`: a type computed from a runtime value, or `Type` in a runtime position | `Translate/Types.idr:435-437`; `Terms.idr:137, 318` | `type-dependent` | 3 (a computed type), 5 (a type held) |
+| `string primitive`: a match on a constant with no literal, a primitive type such as `Int` held as a value | `Cases.idr:747`; `Terms.idr:51-65` | none | 5 (a type held at runtime) |
 | `dependent field`: a field whose type depends on another field, a `Type` field among them | `Types.idr:509-512` | `dependent-field-type-field` | 3, 5 |
 | `dictionary field`: one constructor built with two implementations | `Translate/Dictionaries.idr:87-112, 135-157` | `dictionary-field-two-implementations`, `dictionary-field-opaque-type` | 4 |
 | `runtime closure`: a constructor's constraint given an implementation that closes over runtime values | the message of `Instances.idr:255` (9326d1b8) | `runtime-closure-scope-constructor-field`, `runtime-closure-shape-constructor-field` | 4 |
 | `static argument`: a type or implementation argument not known statically, or a partial application missing one | `Instances.idr:214-227`; `Terms.idr:668-670` | none | 5 (a type held at runtime), 4 (an implementation held) |
+| `deprecated`: a call of `setByte`, `getByte` or `bufferData`, which base marks `%deprecate` (`third_party/Idris2/libs/base/Data/Buffer.idr:63-65, 86-88, 384-387`) | `Registry/Primitives.idr:462-471, 507`; `Frontend/Profile.idr:261, 285`; `Terms.idr:357, 388` | none | 6's stage, which edits the profile's rules (D14) |
 
 ## The ledger: every change self-hosting forced
 
@@ -103,7 +151,7 @@ precision.
 | `IdrisMLIR.Term`: `Term n` with `Fin n` variables, from a nested datatype (`Term a`, `Under k a`) | A variable is one natural, a machine word, where the nested form made it a chain of `Free` cells as deep as the binders around it; weakening is index arithmetic (`shift`) in one monomorphic traversal (`cata`, `rename`), where the nested form rebuilt the whole term at a new type at every binder. Both are well scoped. |
 | `Core.WithData`: one concrete record per combination of metadata | Fixed fields with fixed types, laid out as a record, where upstream's extensible record was a list of key/value pairs holding a `Type` at runtime, read by a search of the list. Upstream's TTC bytes are kept. |
 | `Libraries.Text.Parser.Core`: a grammar is the parser, a closure | No interpretation step: upstream's deep embedding was walked by `doParse` at every step; here each combinator is its clause. Defunctionalization turns the closures into a sum, and each apply whose constructor is known folds to a direct call (0004 §2.7). The `assert_total` marks say where upstream's interpreter asserted the same recursion. |
-| the context table on a growable `Linear.Array` | Written in place, grown by doubling, where upstream copied an `IOArray` 10000 slots longer at each fill. 0003's stage 1 ports it to `Linear.Vec` over `LArray` (0003 §3.8, D19); it stays an improvement. |
+| the context table on a growable `Linear.Array` | Written in place, grown by doubling, where upstream copied an `IOArray` 10000 slots longer at each fill. 0003's stage 1 moves it onto base's `Data.IOArray` with the doubling kept, since a table in a `Ref` cannot hold an `LArray` (0003 §3.8, D38); it stays an improvement over upstream's growth by 10000 slots. |
 | `shuffleVars`, `updateLocal`, `removeArgVars` match the position | The match the program runs anyway, on the runtime position; the proof was never a runtime value. |
 | the delayed-elaboration knot cut; the shunting yard's stack as a value | No cycle through a mutable cell (the acyclic heap). |
 | primitives backed by base's | One meaning per primitive, the runtime's. |
@@ -133,7 +181,7 @@ Same cost and no loss that matters; nothing to gain by changing them.
 |---|---|---|
 | names, constants and scopes compared as values; `nameEq`, `scopeEq`, `constantEq`, `DecEq Namespace` gone, and where a proof retyped a term the term is rebuilt at the type it needs (`compat`, `compatCaseTree`, `renamedVarAt`) | the proofs, and a traversal that rebuilds a term where a proof retyped it for nothing | 6, then the retyping proofs instead of the rebuilds |
 | a TTC's local variable decides its `IsVar` proof from the scope (`isVarAt`) | a walk of the scope for each variable read | 6, whose first case admits upstream's forged proof where it is used only at quantity 0; else measured on the TTC load |
-| a scope coercion is a traversal (`embedTerm`, `compatTerm`, `map embed`); `Cast (Doc Void) (Doc ann)` rebuilds the document | a rebuild of every node | `idr-identity` in 0004's inner per-function pipeline (0004 §4.6); a stage checks with `idr-expect`'s `not-called` that each call is gone |
+| a scope coercion is a traversal (`embedTerm`, `compatTerm`, `map embed`); `Cast (Doc Void) (Doc ann)` rebuilds the document | a rebuild of every node | `idr-identity` in 0004's inner per-function pipeline (0004 §4.6); feature 1's stage, which adds the stages' `idr-expect` property, checks each of them with `not-called` (`foreign/idr/lib/Transforms/Expect/NotCalled.cpp:3-20`), and a call left is fixed in `idr-identity`, not here |
 | `Libraries.Text.Token`: `match` gives text, each user converts | the token's value typed by its kind | 3 (D11) |
 | `Libraries.Text.Lexer.Tokenizer.Compose`: the tag a `String` | a typed tag; string comparisons | 4 (D11) |
 | Levenshtein over lists of rows | an array | `Linear.Vec` over 0003's `LArray`, after 0003's stage 1, if the bench shows the cost |
@@ -166,27 +214,32 @@ emitted any more):
   `Cases.idr:534-539`.
 - **Readable names.** A symbol is its instance key printed; a feature's
   sums read in a dump as the types they are for. What the pipeline
-  generates is named from content, the owner and a hash of the structural
-  key (0004 §4.1, D18).
+  generates is still named from counters today (`.lam<n>`, `.spec<n>`
+  and the rest, 0004 §6); after 0004's cutover it is named from content,
+  the owner and a hash of the structural key (0004 §4.1, D18), so a
+  feature's sums and their clones keep readable, order-free names.
 
 ## Where it sits in the self-host plan
 
 Self-hosting comes first (0002 §2). Steps 1 and 2 are done; step 3's
 record is 0004's F0, and the wall is 0004's pipeline cutover, which takes
-0006's S2 (split LLVM codegen) inside it (0004 §5.4, lane L7). Steps 4 to
-6 follow the cutover: the diet and the memory (a record), `make self`
-(stage 2 byte-identical to stage 3, every stage byte-identical at 1, 2
-and 8 threads), and the test runner off Chez. Then, in queue order,
+0006's S2's first step (code generation split after one whole-module
+O3) inside it, its lane L7; the split before O3 follows (0004 §5.4).
+Steps 4 to 6 follow the cutover: the diet and the memory (a record),
+`make self` (stage 2 byte-identical to stage 3; `tests/determinism` at
+1, 2 and 8 threads on every suite run, and step 5's one self-compile at
+three thread counts, 0002 D16), and the test runner off Chez. Then, in queue order,
 0003's stage 1 and sharding. None of that needs a feature here: the fork
 compiles as rewritten.
 
 *Decision:* this proposal's stages may start any time after `make self`
 (0002 §2 step 5), as 0002 and the proposals index say; nothing waits on
-them. Each lands only if the native self-compile is no slower for it. A
+them. Each lands only if the native self-compile is no slower for it,
+by the bar below. A
 change that edits what 0003's stage-1 cutover edits waits for that
 cutover, which is one change with `make self` green across it; of this
-file's work that is only the Levenshtein row and the context table. The
-six features edit the frontend's translation of instances, types,
+file's work that is only the Levenshtein row (the context table's move
+onto base's `Data.IOArray` is 0003's own, its D38). The six features edit the frontend's translation of instances, types,
 dictionaries and matches, beside the array translation 0003's stage 1
 replaces (0003 §15). Feature 6 does not wait for 0007's interned names
 (D8).
@@ -235,26 +288,40 @@ more values known in the frontend, where the instance is decided.
    invariant (0004 §2.5), not a refusal; until then it stays the `match`
    refusal, which names the runtime value to match on. The same stage
    compiles a match on `Delay` as a force bound to its variable, which is
-   upstream's meaning of it (the table above).
+   upstream's meaning of it, and a match on a `Double` literal as the
+   runtime's `Double` equality tested against each literal in the
+   alternatives' order, which is the meaning the checker's own evaluator
+   gives it: it matches a constant alternative by `==` on constants
+   (`compiler/idris/src/Core/Normalise/Eval.idr:441-443`), which for a
+   `Double` is the primitive's equality (`Core/TT/Primitive.idr:205`),
+   *read* (D13).
 2. **Polymorphic recursion, bounded.** A group of definitions that calls
    itself at other types or implementations (a `Functor` method calling
    `map` through the implementation at a type it binds; a nested datatype
    such as a finger tree) has, in the whole program, the instance set the
    frontend's worklist reaches (`Instances.request`,
-   `Instances.idr:100-118`). When it is finite, each instance is
+   `Instances.idr:102-117`). When it is finite, each instance is
    monomorphic and every call direct; when it grows, the program is
    refused naming the type that grows.
    - **The rule** (*decision*). The worklist decides finiteness itself, on
      each request chain: an instance, the instance that first requested
      it, and so on back to `main`, which `growing` already walks
-     (`Instances.idr:62-92`). A new instance of a definition is refused
+     (`Instances.idr:63-93`). A new instance of a definition is refused
      when, against an ancestor instance of the same definition on its
      chain, its static arguments (types, implementations, and the shapes
      `neededShape` keeps, `Instances.idr:163-181`) are smaller in no
      position and larger in one, by the size of their normal forms, a
      literal counted by its magnitude. The refusal names the definition,
      the argument and both keys. That is the megamorphic case: a
-     recursion that builds its type deeper at each call.
+     recursion that builds its type deeper at each call. `growing` is
+     this rule's first form: it walks the same chain but compares only
+     the shapes at runtime parameters, by depth, and refuses when one is
+     deeper whatever the others do. It becomes the rule rather than
+     staying beside it, since two checks of one property would each need
+     every new case. The rule accepts a chain where one position deepens
+     while another shrinks, which still ends by the argument below, and
+     refuses a type or an implementation that grows, which `growing`
+     does not see.
    - **Why it is total** (*conjecture*, checked by the stage's tests).
      On one chain the instances of one definition have distinct keys,
      and finitely many keys share one vector of sizes. By Dickson's
@@ -264,12 +331,13 @@ more values known in the frontend, where the instance is decided.
      finitely branching, is finite (König's lemma). The worklist ends on
      every program, which is what the budget guarded.
    - **What it deletes** (*decision*). The blanket refusal of
-     `checkComponent` (`Recursion.idr:139-152`), which refuses any
-     changed static argument, bounded or not; and `instanceBudget` with
-     its `compile-time budget` refusal (`Instances.idr:32-39, 110-112`),
-     which exists for calls Idris's size-change graphs do not record
-     (under `assert_total`, or through a local function, as its comment
-     says). The rule reads the worklist's own requests, which see every
+     `checkComponent` (`Recursion.idr:142-153`), which refuses any
+     changed static argument, bounded or not; `growing` as a check of
+     its own; and `instanceBudget`, its `compile-time budget` refusal and
+     the `CompileBudget` rule (`Instances.idr:34-39, 110-112`;
+     `Rule.idr:37`). The budget exists for calls Idris's size-change
+     graphs do not record (under `assert_total`, or through a local
+     function, as its comment says). The rule reads the worklist's own requests, which see every
      call. The loop verdicts `checkComponent` computes stay. This is
      0004's rule applied to the frontend: no budget decides acceptance.
    - **What it refuses that is bounded:** a recursion that builds a
@@ -277,8 +345,15 @@ more values known in the frontend, where the instance is decided.
      with no argument getting smaller. It is refused by name; no budget
      would tell it from one that never stops, and its shape is the one
      AGENTS.md calls megamorphic. The precedent is the well-quasi-order
-     test that stops supercompilation (*recalled*: Sørensen, Glück and
-     Jones, `papers/sorensen-1996-positive-supercompiler`, not re-read).
+     test that stops supercompilation: the standard one is the
+     homeomorphic embedding, a well-quasi-order by Kruskal's tree theorem,
+     which stops a sequence at the first pair i < j where the earlier
+     term embeds in the later (*read*
+     `papers/mitchell-2010-rethinking-supercompilation`, §5.1.2). Ours is
+     the coarser order of size vectors (Dickson's lemma) over the static
+     arguments. This file once cited Sørensen, Glück and Jones
+     (`papers/sorensen-1996-positive-supercompiler`) for it; a search of
+     that paper's text finds no such test, and the citation is replaced.
    - Not a reason to bring back the frontend's nested `Term a`: its
      `Fin n` form is the better representation (the ledger).
 3. **A result or field type computed from a runtime value**
@@ -313,7 +388,8 @@ more values known in the frontend, where the instance is decided.
      type's set is unbounded: the program is refused as megamorphic,
      naming the type function and the value (`Ints` of
      `polymorphism-growing-shape` has such an image).
-   - **The sum** (*decision*) is an ordinary `idr.data`, one constructor
+   - **The sum** (*decision*) is an ordinary data type, an identified
+     type whose body holds its constructors (0004 D29), one constructor
      per image type, its tag written from the value where the result is
      built. Reason: an untagged union whose discriminant is another value
      would be a second kind of sum in the dialect, one concept held
@@ -389,13 +465,26 @@ more values known in the frontend, where the instance is decided.
      The comparison's own cost, strings compared by traversal, is 0008's
      O1 over 0007's interned names (A0); under them `nameEq` decides by
      id with the same rule.
+   - **Base's deprecated names** (*decision*), in the same stage, since
+     it edits the profile's rules: `setByte`, `getByte` and `bufferData`
+     compile as base defines them. Idris reports `%deprecate` as a
+     warning (`compiler/idris/src/Core/Core.idr:84`), so a program that
+     calls them is an Idris program over base, and the compiler's refusal
+     (`compiler/src/IdrisMLIR/Registry/Primitives.idr:462-471, 507`) is a
+     policy beyond the language, which D1's middle way does not admit.
+     `getByte` is `getBits8` widened to `Int`, `bufferData` is
+     `bufferData'` widened, and `setByte` stores its `Int` cast to
+     `Bits8`, the language's cast, where base leaves a value outside 0 to
+     255 to each backend ("Assumes val is in the range 0-255",
+     `third_party/Idris2/libs/base/Data/Buffer.idr:61`). The `deprecated`
+     rule goes with them (`Rule.idr:38-39`).
 
 ## Staged plan
 
 Each stage is one feature, in the order above, but 5 lands right after
 4, whose relation it reuses, and 6 may land at any point after `make
-self`, since it touches only the profile's rule and the fork's equality
-code. Each stage has:
+self`, since it touches only the profile's rules, the registry's three
+deprecated entries and the fork's equality code. Each stage has:
 - its tests: programs with expected output; each reject fixture the
   table above assigns to the feature moved to `tests/programs` or
   `tests/accept` with its expected output; reject tests for the
@@ -407,18 +496,22 @@ code. Each stage has:
 - the regressions in the ledger it replaces, replaced in the same change;
 - `make test`, `make test-idr` and the emitted corpus unchanged except
   where the feature turns a refusal into a program by design; `make self`
-  green, stage 2 byte-identical to stage 3, every stage byte-identical at
-  1, 2 and 8 threads;
+  green, stage 2 byte-identical to stage 3, with `tests/determinism` at
+  1, 2 and 8 threads on every suite run (0002 D16);
 - the bench and the native self-compile, old binary against new under
-  identical conditions (0004 §10): no slower beyond the run-to-run
-  spread, no more memory, or the replacement is not taken and the stage
-  says why.
+  identical conditions (0004 §10), best of five: no bench program's
+  runtime worse by more than 2% and the native self-compile's wall
+  worse by more than 5% (0004 §10's margins; 0003 D35 on why not the
+  run-to-run spread), no more memory, or the replacement is not taken
+  and the stage says why.
 
 ## Measures
 
 - Runtime: the bench and the native self-compile, the code that uses a
-  feature against the code it replaces; the bar is "no slower".
+  feature against the code it replaces; the bar is the staged plan's,
+  0004 §10's margins (2% runtime, 5% compile time, best of five).
 - Compile time: the extra instances and sum variants each feature makes,
+  and the largest boxed sum it builds against the header's 2^16 tags,
   recorded per stage (a record, never a refusal), and the native
   self-compile's wall time and peak resident memory, first recorded at
   `make self`. No native figure exists yet. The Chez stage-0 run (137 s
@@ -433,14 +526,21 @@ code. Each stage has:
 - D2. The bar: every feature compiled away, no runtime price, decided at
   compile time.
 - D3. Of the constructs inside the language, only megamorphic ones stay
-  refused; what is outside the language stays out. No bound on a sum's
-  variants. A boxed sum past the runtime header's 2^16 tags
-  (`runtime/idris_rt.h:106`, refused at `OpsData.cpp:93-98`) is a layout
-  limit, 0009's ground, not a bound on the program.
-- D4. Feature 2's rule on request chains; it deletes `checkComponent`'s
-  blanket refusal and the instance budget.
+  refused; what is outside the language stays out; a primitive the
+  runtime does not define is a runtime addition, not a feature (D15). No
+  bound on a sum's variants is set here. The runtime header's 2^16 tags
+  for a boxed sum (`runtime/idris_rt.h:106`, refused today at
+  `OpsData.cpp:93-98`, the `idr.data` verifier, and after 0004 D29 by
+  the identified type's verifier) are a representation limit that 0009
+  records and no proposal yet lifts, the one 0004 D48 names for closure
+  sums too; each stage records its largest boxed sum against it
+  (Measures).
+- D4. Feature 2's rule on request chains, which `growing` becomes; it
+  deletes `checkComponent`'s blanket refusal, `growing` as a check of its
+  own, and the instance budget with its `compile-time budget` rule.
 - D5. Feature 3's image comes from the type function's clauses; its sum
-  is an ordinary `idr.data`.
+  is an ordinary data type, an identified type whose body holds its
+  constructors (0004 D29).
 - D6. Feature 4 is a monotone witness relation in the instance
   worklist; the dictionary restart goes.
 - D7. Feature 5 is built, as feature 4's relation without a payload.
@@ -460,7 +560,31 @@ code. Each stage has:
   otherwise the rewrite stays, by D1's first rule.
 - D12. The stages start after `make self`; a change to what 0003's stage
   1 edits waits for it.
+- D13. A match on a `Double` literal is the runtime's `Double` equality
+  tested against each literal in the alternatives' order, the meaning the
+  checker's own evaluator gives the pattern; it lands in feature 1's
+  stage, beside the match on `Delay`.
+- D14. Base's three deprecated buffer names compile as base defines
+  them, in feature 6's stage, and the `deprecated` rule goes. Reason:
+  Idris warns and accepts, and D1 refuses no bounded construct.
+- D15. A primitive the runtime does not define (a fixed-width negation,
+  the `Char`-`Double` and `String`-`Char` casts) stays `unsupported
+  (primitive)`; neither the prelude nor base calls one, and a program
+  that needs one gets it in `runtime/` with its documented semantics.
+- D16. The frontend's whole account of what it refuses is this file's
+  "What stays refused"; 0004 §2.5 summarizes it.
 
-No question is open. The three this file held are decided: the bound on
-a sum's variants (D3: none), how a sum meets layouts and grades (D5,
-D10), and whether `TokenKind` comes back (D11).
+**Open, for the owner.**
+
+1. **When the frontend's instance budget goes.** Decided by the owner
+   (2026-10-14): in 0004's cutover. Feature 2's request-chain rule
+   lands in lane L1, which owns `Frontend/Translate`, and deletes the
+   budget, its `compile-time budget` rule and `checkComponent`'s blanket
+   refusal (0004 D40). The rule is proved on base, the fork and the
+   corpus within that lane's acceptance, and the programs whose
+   acceptance changes are listed there. After the cutover no count
+   refuses a program.
+
+The three questions this file held before are decided: the bound on a
+sum's variants (D3: none set here), how a sum meets layouts and grades
+(D5, D10), and whether `TokenKind` comes back (D11).

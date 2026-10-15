@@ -1,27 +1,35 @@
 # 0008: a data-oriented, array-first frontend
 
 **Status:** proposed 2026-10-10 against `main` at c50d176d; trimmed
-2026-10-12; reconciled 2026-10-14 with 0004's pipeline cutover. Nothing
-here is built. The tree today: the cutover 0002 designed is committed
-and builds on arm64 macOS, where the last gate (`make test` 415/415;
-0004 §3.3) ran the default Simplify rounds, not the opt-in SCC pipeline
-that landed beside them and that 0004 deletes; x86_64 Linux has not run
-(NotRun).
+2026-10-12; reconciled 2026-10-14 with 0004's pipeline cutover and
+decided the same day. Nothing here is built. The tree today
+(*measured*, 0002 and 0004 §0): the cutover 0002 designed is committed
+and builds on arm64 macOS, where `make test` was 415/415 at 7a27fd34,
+before the opt-in SCC pipeline, and again at 552d682a with it off by
+default; both runs took the Simplify rounds, and 0004's cutover deletes
+the rounds and that pipeline together. x86_64 Linux is NotRun. `make
+self` has never finished; 0004's cutover is what it waits on.
 
 The interned names (once part of O1) and the hash-consed term arena
 (once O4) moved to 0007, which owns them; this proposal builds the rest
 of the frontend's tables on that arena. It is one of the three consumers
 of 0003's array style (with 0009's layouts and 0007's interpreter): its
 tables are 0003 arrays and its passes 0003 programs. In the queue it
-follows 0007; its stages start after `make self` and 0007's A0.
+follows 0007. O0 is taken at `make self` with 0010's T0, before 0007's
+A0, whose proof is a ratio to that record; O1 onward start after A0,
+each with the further needs §8 names.
 
 0004's cutover changes emission first, in its lane L1: closures and
 suspensions in symbol form, names derived from content, binder identity,
-data types that carry their constructors, the in-place promise as a type
-fact and the bytecode handoff (0004 §4.1). This proposal consumes those
-changes and decides how its tables hold each one (§4.10); its O2 writes
-0004's bytecode from an ops table. O3 and O7 wait on the relational core
-(0012), which is parked, so they are parked with it.
+data types that carry their constructors, the root as the module's one
+public function with no mark, the in-place promise as a type fact and
+the bytecode handoff (0004 §4.1, D28, D29, D36). L1 makes them on today's trees. This proposal consumes
+those changes and decides how its tables hold each one (§4.10); its O2
+writes 0004's bytecode from an ops table. O3 is the relational core's
+first consumer (0012's R3), so 0012, parked until a consumer starts
+(0012 §0), is taken up for it: R1 and R2 are built before O3. O5's
+interval join, O7's constraint store and O8's laws are 0012's too
+(its layers 1 to 3).
 
 **Sources.** Under `sources/`:
 - notes: `notes/flattened-data/columnar.md` §3 (Zig's `MultiArrayList`,
@@ -35,8 +43,11 @@ changes and decides how its tables hold each one (§4.10); its O2 writes
   `elsman-2019-flattening-by-expansion`, `filliatre-2006-hash-consing`,
   `jordan-2016-souffle`, `langdale-2019-parsing-json`,
   `mytkowicz-2014-data-parallel-fsm`, `voetter-2021-gpu-frontend-thesis`;
-- code: `code/co-dfns`, `code/zig`, `code/pareas`, `code/simdjson`,
-  `code/smalltt`, `code/lean4`.
+- code: `code/co-dfns` (read: `cmp/TT.apl`), `code/zig`, `code/pareas`,
+  `code/simdjson`, `code/smalltt`, `code/lean4`;
+- read directly for this text: `papers/hsu-2019-data-parallel-compiler`
+  (the repository's text extraction, `hsu-dissertation.pdf.txt`) and
+  `papers/langdale-2019-parsing-json/simdjson.tex`.
 
 bumbledb is read at `../bumbledb` (c0e7708a): its kernels
 `crates/bumbledb/src/exec/kernel/filter.rs` and `compact.rs`, its interval
@@ -77,11 +88,12 @@ the unchanged corpus.
 
 ## 2. Where the time goes (the baseline)
 
-Three records exist, and they disagree:
+Two records exist, both of stage 0 (the frontend on Chez):
 
-- *Measured* (HANDOFF.md, 2026-10-10, arm64 macOS): stage 0 compiling its
-  own sources took 137 s at 9.1 GB peak and emitted a 405 MB MLIR text
-  module (58,305 functions, 7,664 data types). Phases:
+- *Measured* (HANDOFF.md, 2026-10-10, arm64 macOS, at c50d176d): stage 0
+  compiling its own sources took 137 s at 9.1 GB peak and emitted a
+  405 MB MLIR text module (58,305 functions, 7,664 data types) and a
+  74 MB Core. Phases:
 
   | Phase | Time |
   | --- | --- |
@@ -91,26 +103,38 @@ Three records exist, and they disagree:
   | print (Core → MLIR text) | 40 s |
   | write | 0.9 s |
 
-- *Measured* (0011, "Measures"): 87 s and 1.8 GB on stage 0, with no
-  phases recorded.
 - *Measured* (`bench/profiles/2026-10-14-f0-stage0.md`): the dump 0004's
   F0 starts from, 58,236 functions in 294 MB of generic-form text, about
   140 s to write; 100,198 functions once `idr-isolate` outlines the
   closures.
 
+A third figure, "87 s and 1.8 GB on stage 0", was once given in 0011;
+0011 now records that it was written at 4c87ad0f, half an hour before
+stage 0 first compiled the whole frontend at c50d176d, and is superseded
+by the first record (0011, "Measures"). It is not a record.
+
 Translate and print are 88% of the 2026-10-10 run. Both are pointer
 chasing: a worklist over trees of cells, and a tree serialized to text.
 Elaboration is not in these profiles (it runs when the fork installs,
-about 75 s); 0010's T0 records it.
+about 75 s); 0010's T0 records it. The frontend writes its phases with
+`--timing`, one `phase<TAB>ms` line each: today checks, reachable,
+translate and emit, with print and write folded into emit (*read*:
+`compiler/src/IdrisMLIR/Frontend/Program.idr:84-90, 185-200`;
+`Frontend/Driver.idr:17`). It is a record the run writes, not a switch
+of behaviour, so 0004's deletion of options does not touch it.
 
-**Decision (D0):** stage O0 measures once, on one commit after 0004's
-cutover, and reconciles the three records. After the cutover emission
-writes bytecode, symbol-form closures and content names, so a record
-taken before it measures a printer that no longer exists. Every
-threshold below is a ratio to O0, and a stage whose phase is under 5% of
-the frontend's wall at O0 is not taken: the plan is ordered by measured
-cost, and a representation change that cannot move the total by 5% does
-not pay for its churn.
+**Decision (D0):** stage O0 measures once, natively, at `make self`, on
+the self-compiled frontend and on one commit with 0010's T0, on both
+targets; the same run on stage 0 is recorded beside it and is no
+target. Reasons: after 0004's cutover emission writes bytecode,
+symbol-form closures and content names, so a record taken before it
+measures a printer that no longer exists; the stages below change the
+self-hosted frontend, and on Chez its representation buys memory and
+little else (§6); and 0011's "Measures" already says the Chez figures
+measure Chez. Every threshold below is a ratio to O0, and a stage whose
+phase is under 5% of the frontend's wall at O0 is not taken: the plan is
+ordered by measured cost, and a representation change that cannot move
+the total by 5% does not pay for its churn.
 
 ## 3. The representation: the compiler's state as a schema
 
@@ -118,34 +142,44 @@ not pay for its churn.
 | --- | --- | --- |
 | files | one contiguous byte buffer each | |
 | tokens | `kind : u8`, `start : u32` (end from the next start or a length) | Zig's `tokens`, a `MultiArrayList` (*read* through `columnar.md` §3: `code/zig/lib/std/zig/Ast.zig:17-31`) |
-| syntax nodes | `kind`, `main_token`, `subtree_size`, in preorder, so every subtree is a contiguous slice `[pre, pre + size)`; variable arity in an `extra` column decoded by `kind` | Zig's node `{tag, main_token, data}` (*read*, same: `Ast.zig:3014-3086`); Co-dfns, Carbon's toolchain (*recalled*); 0009's packed layout |
+| syntax nodes | `kind`, `main_token`, `subtree_size`, in preorder, so every subtree is a contiguous slice `[pre, pre + size)`; variable arity in an `extra` column decoded by `kind` | Zig's node `{tag, main_token, data}` (*read*, same: `Ast.zig:3014-3086`); Co-dfns's node columns (*read*: `code/co-dfns/cmp/TT.apl:1-6`); Carbon's toolchain (*read* through `whole-program-at-scale.md` §7); 0009's packed layout |
 | names | interned (0007 §3) | |
 | terms | the hash-consed arena (0007 §3) | |
 | metas | `meta → solved term | unsolved` | |
 | constraints | `(lhs, rhs, ctx, blocked_on)` | |
-| defs | `def → name, type, body, multiplicity, totality` | already a growable `Linear.Array` in the fork (*read*: 0011's ledger, `proposals/0011-self-host-features.md:51`; `compiler/idris/src/Libraries/Data/Table.idr`) |
+| defs | `def → name, type, body, multiplicity, totality, location` | already a growable `Linear.Array` in the fork (*read*: `compiler/idris/src/Libraries/Data/Table.idr:3-12`, the only module of the fork that imports `Linear.Array`; 0011's ledger, its improvements table); 0003's stage 1 moves it onto base's `Data.IOArray`, keeping its doubling growth, and drops the fork's `mlir-linear` dependency, since a table held in a `Ref` cannot hold an `LArray` (0003 §3.8, D38) |
 | instances | `(def, compile-time arguments…) → instance`, with its requester | Translate's monomorphisation and its requester chain (`Translate/Instances.idr:99-117`) |
-| core | per function instance, its body in preorder: `kind`, `subtree_size`, binder ids, operand slices | full Core, Translate's output and Emit's input (`IdrisMLIR/Term.idr:330-362`) |
-| datatypes | `datatype → key, constructor slice`; a constructor row holds its field types, their quantities and its role | the declarations 0004 makes types carry (§4.10) |
+| core | per function instance, its body in preorder: `kind`, `subtree_size`, binder ids, operand slices; the function row holds its location, and nodes hold none (0007 §3) | full Core, Translate's output and Emit's input (`IdrisMLIR/Term.idr:330-362`), where today every node carries a `Loc` (`:82-112`) |
+| datatypes | `datatype → key, constructor slice, in-place fact`; a constructor row holds its field types, their quantities and its role | the declarations 0004 makes types carry (§4.10) |
 | ops | `(opcode, operands, result types, region slices)` | MLIR bytecode |
 
 Two layout choices, each a *decision*:
 - **`subtree_size`, not `parent`.** The interval `[pre, pre + size)` is
   what name resolution (§4.4) and lambda lifting (§4.10) read; a parent
-  column is one segmented scan of it, and storing both would keep one
-  fact twice.
+  column is derived from it where a pass needs one, and storing both
+  would keep one fact twice. The derivation is two passes: with +1 at
+  each node and −1 one past its subtree, a node's depth is the inclusive
+  prefix sum at it, less one; and a node's parent is the last earlier
+  node one level up, which is how Hsu derives Co-dfns's parent vector
+  from its depth vector (*read*: `papers/hsu-2019-data-parallel-compiler/
+  hsu-dissertation.pdf.txt:719-760`). Co-dfns itself keeps both `p` and
+  `d` columns (`TT.apl:2`); its passes walk up the tree, and ours read
+  intervals.
 - **Core is a table.** It is the state Translate hands to Emit; a tree of
   it beside the tables would be one concept held twice, so it moves to
   the table in the stage that moves Emit (O2).
 
 What falls out at once:
 - **Equality is an integer compare** for names, terms and types. This also
-  replaces a 0011 regression ("names, constants and scopes compared as
-  values") without waiting for 0011's feature 6.
+  makes the comparison in a 0011 regression ("names, constants and
+  scopes compared as values") an id compare; the proofs that regression
+  lost stay 0011's feature 6 (O1).
 - **Spans are free.** A syntax node names its token, a token its offset;
   no location side-table threads through every function. Terms carry no
   spans, since a hash-consed term is shared by every occurrence (0007
-  §3); the elaborator reports at the syntax node it elaborates.
+  §3); the elaborator reports at the syntax node it elaborates, and
+  Translate and Emit at the definition, as they already do for every
+  definition read from a TTC (0007 §3, D10).
 - **Memory is a few large arrays,** each one counted cell (0009 D4), not
   millions of cells. The 9.1 GB peak is the first thing this should cut,
   on Chez as well as natively (*conjecture*).
@@ -175,9 +209,16 @@ every table id is a type indexed by its table; no pass handles a bare
 
 ### 4.1 Lexing: classify, scan, compact
 - A byte-class kernel produces bitmasks; string-literal parity is a
-  prefix XOR (simdjson, *recalled*: `code/simdjson`,
-  `papers/langdale-2019-parsing-json`); nested-comment depth is a prefix
-  sum of ±1; token starts come from compaction.
+  prefix XOR over the unescaped-quote bits, which simdjson computes with
+  one carry-less multiply by a word of ones, or with shifts and XORs
+  (*read*: `papers/langdale-2019-parsing-json/simdjson.tex:595-598,
+  1488`); nested-comment depth is a prefix sum of ±1; token starts come
+  from compaction. *Decision:* the shift-and-XOR form, six steps for a
+  64-bit word in plain Idris over `Bits64`. The pinned LLVM has a
+  target-independent `llvm.clmul` (*read*:
+  `L/include/llvm/IR/Intrinsics.td:1642`), but reaching it would add a
+  primitive, with its meaning in `runtime/`, for one kernel; it is taken
+  only if O0 leaves lexing above D0's 5%.
 - A DFA can also run as a scan over composed transition functions,
   because composition is associative (Hillis and Steele 1986, *recalled*;
   Mytkowicz et al., `papers/mytkowicz-2014-data-parallel-fsm`, stored and
@@ -198,8 +239,9 @@ A sequential parser with an explicit stack writes the preorder node
 arrays: no recursion, no closures, as Carbon does (*read* through
 `whole-program-at-scale.md` §7: "data in vectors", parsing without
 semantic context; its speed targets unverified). 0011's ledger already
-turned the combinator library into direct code (*read*:
-`proposals/0011-self-host-features.md:50`); this goes one step further,
+turned the combinator library into direct code (*read*: 0011, "The
+ledger", the row for `Libraries.Text.Parser.Core`: each combinator is
+its clause, with no interpretation step); this goes one step further,
 so its output is tables, not cells. Operator resolution (fixities are
 declared in source) stays sequential, over a flat token slice.
 
@@ -212,9 +254,12 @@ front ends.
 ### 4.4 Name resolution is an interval join
 - Each binder covers a preorder interval `[pre, pre + size)`. A reference
   resolves to the deepest binder of the same name whose interval contains
-  it: an Allen "during" join with a max-depth fold, which is bumbledb's
-  interval machinery (`src/allen.rs`) used directly (*conjecture* that it
-  beats a scope stack; measured at stage O5).
+  it: an Allen "during" join with a max-depth fold. The join is 0012's
+  layer 1, whose kernels include Allen masks (0012 §3), with bumbledb's
+  interval machinery (`src/allen.rs`) as the reference implementation;
+  the frontend keeps no join of its own (§9). *Conjecture* that it beats
+  a scope stack; measured at stage O5, whose threshold a sequential
+  resolution over the same tables meets if the join does not.
 - De Bruijn conversion follows from a binder-depth scan: index = depth at
   the reference − depth at the binder − 1.
 - Imports and namespaces are a join of references against module export
@@ -238,9 +283,9 @@ representation (*conjecture*, sized by 0007's A0 and A2 targets):
   metas (the delta) join the blocked constraints on `blocked_on`; only
   the matches wake. The fork retries every postponed constraint by
   scanning all guesses until none progresses
-  (`compiler/idris/src/Core/Unify.idr:1516-1523`, `solveConstraints`;
-  *read* through `elaborators.md` §11), which is quadratic or worse when
-  many wait.
+  (`compiler/idris/src/Core/Unify.idr:1515-1522`, `solveConstraints`;
+  *read* at ccaba89c, first through `elaborators.md` §11), which is
+  quadratic or worse when many wait.
 - **Meta-to-meta unification as union-find,** since a solution is an
   equality; conversion's cache is never one, since conversion with
   unfolding is not transitive (0007 §3). Batched conversion dedups
@@ -262,7 +307,9 @@ representation (*conjecture*, sized by 0007's A0 and A2 targets):
   compressed level, so the fold is a `sparse_tensor.reduce` over a CSR
   array of `i8`, `Rig0 = 0`, `Rig1 = 1`, `RigW = 2`, plus
   `minui(addi(a, b), 2)`: a finite semiring whose laws the fork proves,
-  which 0003 §6 lets a reduction reassociate (*read*: 0003 §6, §9, §11).
+  which 0003 §6 lets a reduction reassociate, written by the frontend as
+  an `scf.parallel` with an `scf.reduce` (*read*: 0003 §6, §9, §11,
+  D32).
 - **Size-change termination** is half an array program. Composing two
   size-change graphs (`composeChange`,
   `compiler/idris/src/Core/Termination/SizeChange.idr:143`) is a semiring
@@ -271,16 +318,33 @@ representation (*conjecture*, sized by 0007's A0 and A2 targets):
   encoded with the sum's zero at 0 (`Unknown = 0`), not by constructor
   order; the fork's `Libraries/Data/SparseMatrix.idr` is already DCSR in
   lists (`Matrix a = Vector (Vector1 a)`, `:111-112`). The closure is not
-  a sum. For each function `f` of a component, the checker extends walks
-  from `f` breadth first and keeps, per function reached, only the
+  a sum, and the fork holds it twice (*read*; 0010 §2.6). The
+  elaborator's `calcTerminating` closes `(f, g, graph)` triples
+  transitively within each component (`Core/Termination/SizeChange.idr:
+  77-85, 183-208`, used at `:565`); `upstream/21-termination-closure`
+  restricted that closure to components and did not remove it (PINS.md,
+  `termination-closure`: "the elaborator's checks of `total` code still
+  do"). The frontend's loop verdict (`loopsTerminate`, `:455-459`,
+  called from `Translate/Recursion.idr:137`) extends walks from each
+  function `f` breadth first and keeps, per function reached, only the
   weakest graphs of the walks to it, an antichain under `weaker`
-  (*read*: `loopsFrom`, `Core/Termination/SizeChange.idr:413-447`;
-  `weaker`, `:383-384`; per component, `loopsTerminate`, `:449-459`).
-  Summing graphs would merge walks whose verdicts differ, so the closure
-  is a relational fixpoint with subsumption (0012), with the composition
-  as its kernel. 0010 §2.7 already names it. This supersedes the earlier
-  reading of a set of `(f, h, matrix)` triples, which the fork no longer
-  keeps.
+  (`loopsFrom`, `:413-452`; `weaker`, `:383-384`). Summing graphs would
+  merge walks whose verdicts differ, so the closure is a relational
+  fixpoint with subsumption (0012 D9), with the composition as its
+  kernel; the triple closure goes for it (0010 D13). This supersedes the
+  earlier text, which said the fork no longer keeps the triples.
+
+*Decision:* both folds are executed as 0003's stage 7, "the multiplicity
+check as a sparse reduction and size-change composition as a semiring
+product", whose gate is this proposal's (identical verdicts on base and
+the corpus), and O6 below names that stage rather than doing the work
+twice. The same stage deletes the triple closure: `loopsFrom` carries
+the call path the checker's message names (`SizeChange.idr:565-574`),
+and the proof is identical totality verdicts and messages (0010 §2.6,
+D13). Reason: the kernels are 0003 programs over its sparse arrays
+(stage 6) and finite semirings (stage 4), so 0003's plan owns when they
+land; one piece of work has one place in the queue, and one analysis
+held twice is one representation too many.
 
 ### 4.8 Translate is semi-naive Datalog over the instance table
 Each round:
@@ -297,26 +361,45 @@ Each round:
 The refusal of an unbounded instance set is decided per request today,
 before the request joins (*read*). `checkRecursion` refuses a recursive
 component that passes a type or an implementation other than its own,
-unchanged, judged on Idris's size-change graphs
-(`Translate/Recursion.idr:120-165`). `growing` refuses an instance whose
+unchanged, judged on Idris's size-change graphs (`checkComponent`,
+`Translate/Recursion.idr:130-165`). `growing` refuses an instance whose
 argument at a runtime parameter is deeper than at an instance of the same
 definition in its requester chain, and names the parameter
-(`Translate/Instances.idr:62-93`). In the semi-naive form both are filters
-on the delta, applied to each new row against its requester chain, so the
-refusal still names the site and the value that grows, as AGENTS.md
-requires of a megamorphic construct.
+(`Translate/Instances.idr:62-93`). A third check counts:
+`instanceBudget` refuses the 4,097th instance of one definition as
+`unsupported (compile-time budget)` (`Translate/Instances.idr:33-39,
+110-112`; the rule `CompileBudget`, `IdrisMLIR/Rule.idr:37, 69`), a
+backstop for calls Idris's size-change graphs do not record (under
+`assert_total`, or through a local function).
 
-A third check counts: `instanceBudget` refuses the 4,097th instance of
-one definition as `unsupported (compile-time budget)`
-(`Translate/Instances.idr:33-39, 111-112`), a backstop for calls Idris's
-size-change graphs do not record (under `assert_total`, or through a
-local function). 0004 D17 deletes refusals by budget. *Decision:* O3's
-fixpoint has no count. A delta that would need one means the filters
-missed a growing chain, which is an internal error naming the definition,
-and the filter is what gets fixed. *Conjecture:* applying `growing`'s
-depth test to the compile-time positions of the key as well (types and
-implementations, not only runtime shapes) closes the calls Idris does not
-record; O3 checks it on base and the corpus before the count goes.
+Two other proposals own what replaces them. 0011's feature 2 makes one
+rule on request chains, which `growing` becomes: a new instance is
+refused when, against an ancestor instance of the same definition on
+its chain, its static arguments are smaller in no position and larger in
+one; the rule names the definition, the argument and both keys, and it
+deletes `checkComponent`'s blanket refusal, `growing` as a check of its
+own, and the count with its rule (0011 D4). Its argument for ending
+without a count is Dickson's lemma on each chain and König's on the
+finitely branching request tree (*conjecture* there, checked by its
+stage's tests). 0004's cutover leaves the count in place until that rule
+lands, because the rule changes which programs are accepted, which the
+cutover's proof does not cover; whether the cutover takes it anyway is
+0004's one open question (0004 §2.5, D40, §11).
+
+*Decision:* O3 changes no acceptance. In the semi-naive form the
+frontend's refusals, as they stand when O3 lands, are filters on the
+delta, applied to each new row against its requester chain, so a refusal
+still names the site and the value that grows, as AGENTS.md requires of
+a megamorphic construct. After 0011's feature 2 that is the request-chain
+rule alone, and the fixpoint has no count, since the rule's argument is
+what ends it; if O3 lands first, it carries the count unchanged as a
+check on the delta, and feature 2 deletes it there. Reason: the count is
+a rule of the language the frontend accepts, which 0011 owns, and a
+representation change proved by identical Core (D5) cannot also change
+what is accepted. This makes the earlier "O3's fixpoint has no count"
+conditional on 0011's feature 2, whose argument is what lets the
+fixpoint end without one; on its own it left nothing to end a fixpoint
+the filters did not bound.
 
 ### 4.9 Emission is bytecode serialization
 0004 decides the handoff: the frontend writes MLIR bytecode, the driver
@@ -329,18 +412,24 @@ scatter-write each op at its offset (O2).
 
 The attribute and type section is a table too: the writer numbers each
 distinct attribute and type once and writes an offset per entry (*read*:
-`M/lib/Bytecode/Writer/BytecodeWriter.cpp:885-940`). A mutable type, which
-0004's data types that carry their constructors are, is written as its
-textual form inside the bytecode, since the pinned writer has no custom
-encoding for one (*read*: `BytecodeWriter.cpp:894-899`, "We don't
-currently support custom encoded mutable types"). The LLVM dialect, whose
-identified structs are the precedent, registers no type encodings at all
-(*read*: `M/include/mlir/Dialect/LLVMIR/LLVMDialectBytecode.td`,
-`LLVMDialectTypes` with empty `elems`). *Decision:* each data type's body
-is one entry of the types section, printed once; every use is its number.
-*Conjecture:* with 7,664 data types (HANDOFF, 2026-10-10) those entries
-are small next to the ops; O0 measures them, and a custom encoding for
-mutable types becomes an upstream patch only if O0 names them as a cost.
+`M/lib/Bytecode/Writer/BytecodeWriter.cpp:885-940`). How an entry is
+written is 0004's decision (§4.1 there, D36): every attribute and type as its
+assembly, the bytecode's own fallback encoding (`emitAttrOrTypeRawImpl`,
+`BytecodeWriter.cpp:889-892`). The pinned writer takes that form itself
+for every mutable type, which 0004's data types that carry their
+constructors are ("We don't currently support custom encoded mutable
+types", `:894-899`), and the LLVM dialect, whose identified structs are
+the precedent, registers no type encodings at all
+(`M/include/mlir/Dialect/LLVMIR/LLVMDialectBytecode.td:371`, empty
+`elems`). A recursive data type then names itself in its text, so no
+cycle of section entries reaches the reader, which hangs on one
+(`upstream/03-bytecode-deferred-quadratic/README.md`). *Decision:* the
+table's part is the numbering: each distinct attribute and type is one
+entry, printed once, a data type's body with it, and every use is its
+number. *Conjecture:* with 7,664 data types (HANDOFF, 2026-10-10) those
+entries are small next to the ops; O0 measures them, and a custom
+encoding becomes an upstream patch only if O0 names the section as a
+cost.
 
 ### 4.10 What 0004's emission asks of the tables
 Each change 0004 makes to emission (0004 §4.1, §6) has one form in the
@@ -355,11 +444,12 @@ emitted (D5).
   written today at `Emit/Bodies.idr:337-341`) that `idr-isolate` outlines
   (0004 §2.7); a suspension of a value Emit already holds stays the
   region-free `idr.delay %value` (0004 §4.1). Full Core keeps a lambda's
-  body in the scope it is written in (`IdrisMLIR/Term.idr:20, 110`). In the core table a lambda is a slice
-  `[pre, pre + size)`; its captures are the variable occurrences in the
-  slice whose binder lies outside it, one interval query over the
-  binder-depth column (§4.4's machinery); lifting it is a gather of the
-  slice into a function row. The ops table holds no region for a lambda.
+  body in the scope it is written in (`IdrisMLIR/Term.idr:20-22, 108-110`).
+  In the core table a lambda is a slice `[pre, pre + size)`; its
+  captures are the variable occurrences in the slice whose binder lies
+  outside it, one interval query over the binder-depth column (§4.4's
+  machinery); lifting it is a gather of the slice into a function row.
+  The ops table holds no region for a lambda.
 - **Names derived from content.** A generated function's name is its
   owner's name and a hash of its structural key (0004 §4.1). The core
   table's subtree hash is one segmented fold in reverse preorder, so every
@@ -369,20 +459,65 @@ emitted (D5).
   a name once, a hash join against the names written. A collision of two
   different keys on one hash is caught where the name is interned, by
   comparing the keys, and is an internal error, never a merge (0006 §11
-  rejects trusting hash equality). An instance's symbol is its key
-  printed (`IdrisMLIR/Term.idr:364-372`). Today a key that prints like an
-  earlier one takes `'n`, its repeat number in program order
-  (`Emit/Index.idr:21-60`): a counter, which 0004's names from content
-  remove. The names table holds the printed key, which must therefore be
-  injective.
+  rejects trusting hash equality).
+- **Instance symbols.** An instance's symbol is its key printed
+  (`IdrisMLIR/Term.idr:364-372`), and the print is not injective by
+  design: an instance is its definition and its compile-time arguments
+  up to the names of binders, "its identity, which nothing prints", and
+  the key is how it reads (*read*: `Translate/Keys.idr:3-10`; `render`
+  prints an erased argument as `_` and drops an as-pattern's name,
+  `:282, 287`). So today a key that prints like an earlier one takes
+  `'n`, its repeat number in program order (`Emit/Index.idr:21-60`), a
+  counter. 0006 §4.5 needs the symbol made injective, so that the
+  repeats go. In the tables an instance's identity is its definition's
+  id and its argument term ids, which are de Bruijn terms of the arena,
+  so the binder names are already out and its hash is the combination of
+  their `hash` columns (0007 §3). *Decision:* whether a key's symbol
+  carries its identity hash is decided by the key alone. The printer
+  reports whether its print dropped part of the identity, as it prints:
+  a dotted erased argument printed `_`, an as-pattern's name, a binder
+  it skips, a meta's arguments, an annotation a lambda or a let leaves
+  unprinted, an implicit kind it prints as another, an inner name it
+  prints for a `DN`, or an integer constant whose type its `show` leaves
+  out (*read*: `render`, `Translate/Keys.idr:270-305`; `Show Constant`,
+  `compiler/idris/src/Core/TT/Primitive.idr:133-148`, prints `5` for an
+  `Int` and a `Bits8` alike). A key whose print dropped nothing is its
+  symbol; a key whose print dropped something is its print, a `;`, and
+  the low 64 bits of its identity hash as 16 hex digits (0006 §4.5,
+  D16). No print ends in `;` and 16 hex digits, since a print shows `;`
+  only inside a string or character literal, which ends in its quote,
+  and names never contain it (*recalled*: Idris's identifier and
+  operator characters exclude `;`; L1 checks it), so a suffixed symbol
+  never equals a bare one. Two identities whose symbols still meet are caught where the
+  name is interned, by full equality, and that is an internal error,
+  never a merge (0006 §4.4, §4.5), which also exposes a loss the printer
+  failed to report. Reasons: one key's symbol is a function of that key,
+  never of the program's other keys, which 0006 §4.5 needs for names
+  stable under an unrelated edit and its S1 fixture checks; the common
+  symbol stays readable; and the print keeps what it is for, how an
+  instance reads. The cost: a lossy key carries its hash even when no
+  other key prints like it. This supersedes two earlier forms: "the
+  printed key must be injective" as a property of the print itself,
+  which the key's own design rules out; and a hash on every key of a
+  group that prints alike, which renamed an existing key when the
+  program gained one printing like it, making one key's name depend on
+  another (0006 §11 rejects that for widened names, and for the same
+  reason).
 - **Data types that carry their constructors.** `!idr.data<@T>` names a
   symbol today (`include/idr/IR/IdrTypes.td:25-29`) whose constructors
   are `idr.ctor` ops in an `idr.data` body (`IdrOps.td:117, 163`), which
   patterns find by scanning the module (0004 §6). 0004 makes the type
-  carry its declaration, an identified type with a body (0004 §11, open
-  question 5). The datatypes table is that declaration: one row per data
-  instance, its constructor slice with field types, quantities and roles;
-  emission writes each type once (§4.9). The role a pass needs (the
+  carry its declaration, an identified type whose body is set once
+  (0004 §4.1, D29), built by its lane L5 and emitted by L1 together
+  (0004 §10); the `idr.data` and `idr.ctor` ops go, and an op names a
+  constructor by its name within its value's type. The body holds the
+  constructors in tag order with their field types, the sum's kind, the
+  frontend's `instance`, the registry's role and the in-place promise
+  (D29). The datatypes table is that body for what the frontend makes:
+  one row per data instance, its key, its constructor slice in tag order
+  with field types, quantities and roles, and its in-place fact; the
+  closure and memo sums are defunctionalization's, made in C++.
+  Emission writes each type once (§4.9). The role a pass needs (the
   list's cons, 0004 §6's `listElement` row) is a column the frontend
   fills from the Idris declaration it translated, never a guess from
   shape.
@@ -396,14 +531,33 @@ emitted (D5).
   (0004 §4.1).
 - **The in-place promise** is a column of the datatypes table for
   `mlir-linear`'s types, written into the type (0004 §4.1), never a flag.
+  The frontend fills it from the registry, which already holds what the
+  frontend knows of library definitions and which 0004 makes name the
+  types rebuilt in place and exclusive (`Registry/Libraries.idr`;
+  0004 §4.1); `idr-demand` checks it on every program.
+- **The root.** The root is the module's one public `idr.func`, as the
+  module rules already find it; 0004 adds no `root` property, which
+  would hold publicity twice, and stops writing the discardable
+  `idr.program` mark (0004 §4.1, D28; written today at
+  `Dialect/Idr.idr:30-33`). Full Core already holds the root as one
+  function id (`Source.root`, `IdrisMLIR/Term.idr:354-362`), named
+  `$idris-mlir.root`, a fixed name and no counter
+  (`Translate/Programs.idr:188`). In the tables it is that id, a single
+  value beside the function table rather than a column, and the ops
+  table writes that function's op public and every other private, as
+  Emit does today (`Emit/Declarations.idr:71`).
 
 ## 5. What appears once the state is tables
 
 - **The compiler's invariants become laws.** "Every reference resolves to
   exactly one binder" is a key. "Every parent precedes its child" is an
   order law. "Every instance is reachable from `main`" is a containment.
-  In test builds they run as compiled law queries over the compiler's own
-  state, as bumbledb's judge runs its laws (`../bumbledb/proposals/0003-idris-port.md`
+  They run on every compilation, as the dialect's verifier runs after
+  every pass (0004 §4 stage 6), as compiled law queries over the
+  compiler's own state (*decision*: a check that runs in one build and
+  not in the build that ships is a behaviour that depends on the build,
+  which 0004 D2 rules out, and it would be off where the backstop
+  matters; O8's proof bounds its cost), as bumbledb's judge runs its laws (`../bumbledb/proposals/0003-idris-port.md`
   §4.3, "Laws compile too": a key is a group count above one, a
   containment an anti-join; `crates/bumbledb/src/schema/judge.rs`), a
   mechanical backstop for "reject with a named rule, never miscompile".
@@ -413,9 +567,10 @@ emitted (D5).
   `judge_incremental` does (`src/schema/judge.rs:217`). It is rustc's
   query system with a database underneath instead of a memo table.
   0006's cache (its S9) is where it would land.
-- **The relational core gets its first consumer.** The constraint store,
-  union-find, the interval join, the instance fixpoint and the
-  size-change closure are layers 1 and 2 of proposal 0012.
+- **The relational core gets its first consumer.** The interval join
+  and the law queries are layer 1 of proposal 0012, the instance
+  fixpoint, the constraint store and the size-change closure layer 2,
+  and union-find layer 3 (0012 §3).
 
 ## 6. Limits, honestly
 
@@ -427,9 +582,13 @@ emitted (D5).
   once idris-mlir compiles arrays well: 0003's array core and contiguous
   runs, both unbuilt (contiguous runs have no proposal). That is why it
   follows self-hosting: on Chez it would cut memory and little else.
-- **Sequential is fine.** Zig and Carbon are fast with sequential
-  data-oriented front ends (*recalled*). Parallelism is taken only where a
-  phase is regular and measured hot.
+- **Sequential is fine.** Zig runs its semantic analysis on one thread
+  and fans out only code generation, and builds itself in 8.6 s with a
+  separate code generation thread (*measured* by its developers, read
+  through `whole-program-at-scale.md` §7); Carbon keeps its data in
+  vectors and parses without semantic context, though its speed targets
+  are talk figures, unverified (same note). Parallelism is taken only
+  where a phase is regular and measured hot.
 
 ## 7. Rules it keeps
 
@@ -445,27 +604,31 @@ emitted (D5).
 - **Facts in types.** A data type carries its constructors and their
   roles; quantities stay in the types.
 - **No refusal by budget** (0004 D17): a megamorphic construct is refused
-  by a rule that names the site and the growing value.
+  by a rule that names the site and the growing value. The frontend's
+  last count goes with 0011's feature 2, not with a stage here (§4.8).
 - **Deterministic, byte-identical outputs;** both targets.
 
 ## 8. Staged plan, ordered by measured cost
 
-| Stage | Content | Proof |
-| --- | --- | --- |
-| O0 | one baseline after 0004's cutover: self-compile phases, peak memory, elaboration of base (with 0010 T0); the three records reconciled | committed record |
-| O1 | token SoA over 0007's interned names (A0); names compared by id. This replaces the name-equality traversal in 0011's ledger. The equality proofs stay 0011's feature 6 | identical TTCs and corpus |
-| O2 | the core, datatypes and ops tables; lambdas lifted by interval queries, names from slice hashes, data types written once; 0004's bytecode written from the ops table by a size scan and a scatter | the same bytecode bytes as 0004's L1 writer on the corpus and the stage-0 self-compile; emission ≥ 5× faster than O0 |
-| O3 | Translate as semi-naive over the instance table; reachable as its query; the refusals as filters on the delta; no count | identical Core; translate ≥ 3× faster than O0 |
-| O4 | (moved: the term arena is 0007's A0) | |
-| O5 | flat parse tree; name resolution as the interval join | identical TTCs; parse plus resolve no slower than 0007's A0 |
-| O6 | multiplicity checking as a semiring fold; size-change composition as a semiring product (the closure stays the fork's `loopsFrom` until 0012) | identical totality and multiplicity verdicts on base and the corpus |
-| O7 | elaborator constraint store and postponement on 0012's core | 0007 A2's targets; identical TTCs |
-| O8 | the compiler's invariants as law queries in test builds | a seeded violation of each law is caught by name |
+| Stage | Needs | Content | Proof |
+| --- | --- | --- | --- |
+| O0 | `make self` | one baseline, natively at `make self` on one commit with 0010's T0, on both targets, the stage-0 run beside it: self-compile phases by `--timing`, peak memory, elaboration of base | committed record under `bench/profiles/` |
+| O1 | 0007's A0 | token SoA over 0007's interned names; names compared by id. This replaces the name-equality traversal in 0011's ledger. The equality proofs stay 0011's feature 6 | identical TTCs and corpus |
+| O2 | 0003's stage 1; 0004's L1 | the core, datatypes and ops tables; lambdas lifted by interval queries, names from slice hashes, instance symbols by §4.10's rule, data types written once, the root as one id; 0004's bytecode written from the ops table by a size scan and a scatter | the same bytecode bytes as 0004's L1 writer on the corpus and the stage-0 self-compile; emission ≥ 5× faster than O0 |
+| O3 | 0012's R1 and R2 (O3 is R3) | Translate as semi-naive over the instance table; reachable as its query; the refusals as they stand as filters on the delta (after 0011's feature 2, its request-chain rule and no count) | identical Core; translate ≥ 3× faster than O0 |
+| O4 | | (moved: the term arena is 0007's A0) | |
+| O5 | 0012's R1 for the join | flat parse tree; name resolution as the interval join | identical TTCs; parse plus resolve no slower than 0007's A0 |
+| O6 | 0003's stages 4 and 6 | executed as 0003's stage 7 (§4.7): multiplicity checking as a semiring fold; size-change composition as a semiring product (the closure stays the fork's `loopsFrom` until 0012); the elaborator's `calcTerminating` triple closure deleted for `loopsFrom`, which carries the call path its message names (0010 D13) | identical totality and multiplicity verdicts, and identical totality messages, on base and the corpus |
+| O7 | 0012's R2 and R4 | elaborator constraint store and postponement on 0012's core; meta-to-meta unification on its union-find | 0007 A2's targets; identical TTCs |
+| O8 | 0012's R1 | the compiler's invariants as law queries on every compilation (§5) | a seeded violation of each law is caught by name; the queries under 5% of the frontend's wall at O0 |
 
 The thresholds of O2 and O3 are *decisions*, ratios to O0's phase: the
 factor a representation change must buy on a phase D0 has shown to be
 worth one. A stage that misses its threshold is reworked or not taken,
-and never kept beside the tree it replaces (0004 §10).
+and never kept beside the tree it replaces (0004 §10). The order among
+the stages whose needs are met is O0's measured cost, largest phase
+first (D0); on the 2026-10-10 record that is translate (O3), then
+emission (O2), then the rest (*conjecture* until O0).
 
 ## 9. Rejected alternatives
 
@@ -483,26 +646,42 @@ and never kept beside the tree it replaces (0004 §10).
 - **Symbols numbered by order of appearance** (`'n` repeats, `.lam<n>`):
   creation order reaching output (0004 D18).
 - **A count of instances as the refusal:** a budget deciding acceptance
-  (0004 D17).
+  (0004 D17); 0011's request-chain rule replaces it (0011 D4).
+- **O3 changing which programs are accepted:** a representation change
+  is proved by identical Core; the rule that decides acceptance is
+  0011's (§4.8).
+- **An injective printed key:** the key's print is how an instance
+  reads, and making it carry every distinction would make every symbol
+  carry what only lossy ones need (§4.10).
+- **A hash on every key of a group that prints alike:** one key's
+  symbol would depend on another key, so an unrelated edit could rename
+  it (§4.10; 0006 §4.5).
 - **Data types as symbols a lookup resolves:** the nominal form 0004
   replaces with types that carry their declaration.
-- **Both `subtree_size` and `parent` stored:** one is a scan of the
-  other.
+- **Both `subtree_size` and `parent` stored:** one is derived from the
+  other in two passes (§3).
+- **A carry-less multiply for the quote mask:** a new primitive for one
+  kernel, before O0 shows lexing matters (§4.1).
+- **The 0011 figure of 87 s and 1.8 GB as a baseline:** 0011 itself
+  records that it predates stage 0 compiling the whole frontend (§2).
 
 ## 10. Decisions
 
-- D0. Measure first (O0), after 0004's cutover; the three recorded
-  self-compile figures are reconciled on one commit; a stage whose phase
-  is under 5% of the frontend's wall at O0 is not taken.
+- D0. Measure first (O0), natively at `make self` on one commit with
+  0010's T0, on both targets, the stage-0 run beside it as no target; a
+  stage whose phase is under 5% of the frontend's wall at O0 is not
+  taken.
 - D1. Every table id is a type indexed by its table, erased to a word; a
   read through it is unguarded (0003 D4); an `extra` slice is decoded by
   a type its `kind` decides.
 - D2. Lexing is array-shaped; parsing stays sequential, writing tables.
 - D3. Translate is a semi-naive fixpoint over the instance table; its
-  refusals are filters on the delta that name the site and the growing
-  value; it has no count.
+  refusals, as they stand when O3 lands, are filters on the delta that
+  name the site and the growing value; O3 changes no acceptance, and
+  after 0011's feature 2 the fixpoint has no count.
 - D4. Emission writes 0004's bytecode from an ops table by a size scan
-  and a scatter; a data type is one textual entry of the types section.
+  and a scatter; every attribute and type is one textual entry of its
+  section (0004 §4.1), printed once, a data type's body with it.
 - D5. Every stage is proved by identical TTCs, the unchanged corpus and,
   from O2, identical bytecode; no stage keeps the tree it replaces.
 - D6. The arena is 0007's; this proposal never keeps a second copy of a
@@ -510,9 +689,27 @@ and never kept beside the tree it replaces (0004 §10).
 - D7. 0004's emission changes have one form each in the tables: a lambda
   is a core slice lifted with its captures by an interval query; a
   generated name is the owner and the slice's hash; an instance's symbol
-  is its injective printed key; a data type is a datatypes row with its
-  constructors, quantities and roles; a binder is a row.
+  is its printed key, followed by `;` and the low 64 bits of its
+  identity hash when the printer reports that its print dropped part of
+  the identity, a rule of the key alone (§4.10; 0006 §4.5); a data type is a datatypes row with its
+  constructors, quantities, roles and in-place fact; a binder is a row;
+  the root is one function id.
 - D8. Syntax nodes and Core store `subtree_size`, not `parent`.
-- D9. Full Core is a table in preorder, moved in O2 with Emit.
+- D9. Full Core is a table in preorder, moved in O2 with Emit; the
+  function row holds the location, and nodes hold none.
+- D10. The quote mask is a prefix XOR by shifts in plain Idris; a
+  carry-less multiply waits on O0.
+- D11. O6 is executed as 0003's stage 7, with this proposal's gate,
+  and deletes the elaborator's triple closure for `loopsFrom` (0010
+  D13).
+- D12. O3, O5's join, O7 and O8 are built on 0012; O3 is its first
+  consumer and takes it out of parking.
+- D13. The law queries run on every compilation, never in test builds
+  alone, under 5% of the frontend's wall at O0 (§5). Reason: 0004 D2,
+  and a backstop for "never miscompile silently" is needed in the build
+  that ships.
+- D14. An instance's symbol carries its identity hash exactly when its
+  key's print dropped part of the identity, a rule of the key alone
+  (§4.10). Reason: no symbol may depend on another key (0006 §4.5).
 
 There is no open question for the owner.
