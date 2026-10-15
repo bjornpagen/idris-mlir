@@ -11,32 +11,39 @@
 // CHECK-NOT: in @other
 
 !R = !idr.data<"R", plain [@MkR(i64, i64)]>
-idr.func private @bump(%r: !idr.box<!R>) -> !idr.box<!R> attributes {total} {
-  %a = idr.field %r[@MkR, 0] : !idr.box<!R> -> i64
-  %b = idr.field %r[@MkR, 1] : !idr.box<!R> -> i64
-  %one = arith.constant 1 : i64
-  %a1 = arith.addi %a, %one : i64
-  %n = idr.con @MkR(%a1, %b) : (i64, i64) -> !idr.box<!R>
-  return %n : !idr.box<!R>
-}
+idr.program @"array-memref-effects" root(@root) stage(first) {
+  idr.func @bump(%r: !idr.box<!R>) -> !idr.box<!R> attributes {total} {
+    %a = idr.field %r : !idr.box<!R> @MkR[0] -> i64
+    %b = idr.field %r : !idr.box<!R> @MkR[1] -> i64
+    %one = arith.constant 1 : i64
+    %a1 = arith.addi %a, %one : i64
+    %n = idr.con !idr.box<!R> @MkR(%a1 : i64, %b : i64)
+    return %n : !idr.box<!R>
+  }
 
-idr.func private @other(%ref: memref<!idr.box<!R>, #idr.world>, %count: memref<i64, #idr.world>, %w: !idr.world) -> !idr.world {
-  %r, %w1 = idr.array.get %ref[], %w : memref<!idr.box<!R>, #idr.world> -> !idr.box<!R>
-  %v = idr.world.new
-  %z = arith.constant 0 : i64
-  %v1 = idr.array.set %count[], %z, %v : memref<i64, #idr.world>, i64
-  %n = idr.call @bump(%r) : (!idr.box<!R>) -> !idr.box<!R>
-  %w2 = idr.array.set %ref[], %n, %w1 : memref<!idr.box<!R>, #idr.world>, !idr.box<!R>
-  return %w2 : !idr.world
-}
+  idr.func @other(%ref: memref<!idr.box<!R>, #idr.world>, %count: memref<i64, #idr.world>, %w: !idr.world) -> !idr.world {
+    %r, %w1 = idr.array.get %ref[], %w : memref<!idr.box<!R>, #idr.world> -> !idr.box<!R>
+    %v = idr.world.new
+    %z = arith.constant 0 : i64
+    %v1 = idr.array.set %count[], %z, %v : memref<i64, #idr.world>, i64
+    %n = idr.call @bump(%r) : (!idr.box<!R>) -> !idr.box<!R>
+    %w2 = idr.array.set %ref[], %n, %w1 : memref<!idr.box<!R>, #idr.world>, !idr.box<!R>
+    return %w2 : !idr.world
+  }
 
-idr.func private @same(%ref: memref<!idr.box<!R>, #idr.world>, %alias: memref<!idr.box<!R>, #idr.world>, %w: !idr.world) -> !idr.world {
-  %r, %w1 = idr.array.get %ref[], %w : memref<!idr.box<!R>, #idr.world> -> !idr.box<!R>
-  %v = idr.world.new
-  %z = arith.constant 0 : i64
-  %x = idr.con @MkR(%z, %z) : (i64, i64) -> !idr.box<!R>
-  %v1 = idr.array.set %alias[], %x, %v : memref<!idr.box<!R>, #idr.world>, !idr.box<!R>
-  %n = idr.call @bump(%r) : (!idr.box<!R>) -> !idr.box<!R>
-  %w2 = idr.array.set %ref[], %n, %w1 : memref<!idr.box<!R>, #idr.world>, !idr.box<!R>
-  return %w2 : !idr.world
+  idr.func @same(%ref: memref<!idr.box<!R>, #idr.world>, %alias: memref<!idr.box<!R>, #idr.world>, %w: !idr.world) -> !idr.world {
+    %r, %w1 = idr.array.get %ref[], %w : memref<!idr.box<!R>, #idr.world> -> !idr.box<!R>
+    %v = idr.world.new
+    %z = arith.constant 0 : i64
+    %x = idr.con !idr.box<!R> @MkR(%z : i64, %z : i64)
+    %v1 = idr.array.set %alias[], %x, %v : memref<!idr.box<!R>, #idr.world>, !idr.box<!R>
+    %n = idr.call @bump(%r) : (!idr.box<!R>) -> !idr.box<!R>
+    %w2 = idr.array.set %ref[], %n, %w1 : memref<!idr.box<!R>, #idr.world>, !idr.box<!R>
+    return %w2 : !idr.world
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
 }

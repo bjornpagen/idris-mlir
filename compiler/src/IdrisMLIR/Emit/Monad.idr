@@ -80,16 +80,15 @@ linear One _ = True
 linear Many _ = False
 
 mutual
-  ||| How a value in scope is held: as the one SSA value its name names; as
-  ||| a constructor a match took apart, which a reference builds again from
-  ||| its fields as the region holds them; or, an array of records, as its
-  ||| columns, one value per field of the record, each an array of that
-  ||| field. A match uses a linear scrutinee, so a variable naming it inside
-  ||| a case region names the constructor of the fields the region bound.
-  ||| Taken apart or in columns, a value's `name` is a key no operation
-  ||| defines, which `matched` (Bodies) renames by.
+  ||| How a value in scope is held: as the one SSA value its name names, or
+  ||| as a constructor a match took apart, which a reference builds again
+  ||| from its fields as the region holds them. A match uses a linear
+  ||| scrutinee, so a variable naming it inside a case region names the
+  ||| constructor of the fields the region bound. Taken apart, a value's
+  ||| `name` is a key no operation defines, which `matched` (Bodies) renames
+  ||| by.
   public export
-  data Parts = Whole | Taken ConId (List Val) | Columns (List Val)
+  data Parts = Whole | Taken ConId (List Val)
 
   ||| A value in scope: its SSA name, its type, how often it may be used,
   ||| and how it is held.

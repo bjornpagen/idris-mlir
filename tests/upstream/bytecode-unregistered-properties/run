@@ -1,0 +1,27 @@
+#!/bin/sh
+# The upstream bug upstream/25-bytecode-unregistered-properties still
+# reproduces with the pinned tools: an op mlir-opt writes to bytecode
+# without its dialect, its properties kept as an attribute, is read by
+# idris-mlir-opt, which has the dialect, through the op's native property
+# reader, and the read fails. The same op written as text reads back, so
+# the failure is the bytecode reader's. This repository carries no patch
+# for it (the README says why). When this fails, the bug is fixed: the
+# report and this test go (upstream/README.md).
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+input=$root/upstream/25-bytecode-unregistered-properties/written-unregistered.mlir
+if ! bounded "$llvm_bin/mlir-opt" -allow-unregistered-dialect -emit-bytecode "$input" \
+     -o "$work/written.mlirbc" > "$work/write.err" 2>&1; then
+  say "write: mlir-opt cannot write the op, which is not this bug"
+  show "$work/write.err"
+  exit 0
+fi
+if ! bounded "$idris_mlir_opt" "$input" -o /dev/null > "$work/text.err" 2>&1; then
+  say "text: idris-mlir-opt cannot read the op as text, which is not this bug"
+  show "$work/text.err"
+  exit 0
+fi
+if bounded "$idris_mlir_opt" "$work/written.mlirbc" -o /dev/null > "$work/read.err" 2>&1; then
+  say "bytecode: no longer reproduces (idris-mlir-opt reads the op mlir-opt wrote)"
+else
+  say "bytecode: still reproduces (the op's properties are read by its native reader)"
+fi

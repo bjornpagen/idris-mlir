@@ -14,7 +14,7 @@
 // CHECK: hello x y
 // CHECK-NEXT: -42 65535 255 1.5 1e22 inf
 !Unit = !idr.data<"Unit", plain [@MkUnit()]>
-module {
+idr.program @hello root(@Prog.main) stage(higher) {
   idr.func @Prog.main(%w: !idr.world) -> (!Unit, !idr.world) attributes {total} {
     %s = idr.constant "hello " : !idr.str
     %w1 = idr.io.put_str %s, %w

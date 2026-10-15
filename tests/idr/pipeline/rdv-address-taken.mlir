@@ -4,20 +4,20 @@
 // and finds %y, which @g passes to the parameter @f never reads, dead: the
 // parameter of @g goes, and the call passes poison in its place. Raising
 // and apply of a known closure make such calls.
-// CHECK-LABEL: idr.func private @g(
+// CHECK-LABEL: idr.func @g(
 // CHECK-SAME: %[[X:[a-z0-9_]+]]: i64) -> i64
 // CHECK-NEXT: %[[P:.*]] = ub.poison : i64
 // CHECK-NEXT: %[[R:.*]] = call @f(%[[X]], %[[P]]) : (i64, i64) -> i64
 // CHECK-NEXT: return %[[R]]
-module {
-  idr.func private @f(%a: i64, %b: i64) -> i64 attributes {total} {
+idr.program @"rdv-address-taken" root(@Main.main) stage(higher) {
+  idr.func @f(%a: i64, %b: i64) -> i64 attributes {total} {
     return %a : i64
   }
-  idr.func private @g(%x: i64, %y: i64) -> i64 attributes {total} {
+  idr.func @g(%x: i64, %y: i64) -> i64 attributes {total} {
     %r = idr.call @f(%x, %y) : (i64, i64) -> i64
     return %r : i64
   }
-  idr.func private @h(%x: i64) -> !idr.fn<(i64) -> (i64)> attributes {total} {
+  idr.func @h(%x: i64) -> !idr.fn<(i64) -> (i64)> attributes {total} {
     %c = idr.closure @f(%x) : (i64) -> !idr.fn<(i64) -> (i64)>
     return %c : !idr.fn<(i64) -> (i64)>
   }

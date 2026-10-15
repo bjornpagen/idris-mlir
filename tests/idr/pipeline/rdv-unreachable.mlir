@@ -6,7 +6,7 @@
 // their remaining uses poison: the module stays valid
 // (upstream/06-remove-dead-values-unreachable). With its canonicalization the
 // dead region goes, and symbol-dce then removes @g.
-// CHECK-LABEL: idr.func private @g(
+// CHECK-LABEL: idr.func @g(
 // CHECK-NEXT: %[[P:.*]] = ub.poison : i64
 // CHECK-NEXT: match_lit %[[P]]
 // CHECK-LABEL: idr.func @Main.main(
@@ -18,8 +18,8 @@
 // CANON-LABEL: idr.func @Main.main(
 // CANON-NOT: {{(idr\.| )match_lit }}
 // CANON: return
-module {
-  idr.func private @g(%x: i64) -> i64 {
+idr.program @"rdv-unreachable" root(@Main.main) stage(first) {
+  idr.func @g(%x: i64) -> i64 {
     %r = idr.match_lit %x : i64 -> (i64) {
     case 7 {
       idr.crash "seven"

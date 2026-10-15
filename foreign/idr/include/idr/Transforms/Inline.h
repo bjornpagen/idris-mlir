@@ -9,6 +9,7 @@
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/Transforms/InliningUtils.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
 
 namespace idr::optimize {
@@ -22,6 +23,12 @@ struct Step {
   unsigned inlined = 0;
   unsigned capped = 0;
 };
+
+// Whether `callee`'s body may take the place of `call`: a body of several
+// blocks, or one whose terminator does not return to the call (it ends in
+// ub.unreachable), goes in as blocks of its own, which only a region that
+// may hold several blocks can take, as upstream's inliner decides it.
+bool fitsRegion(mlir::InlinerInterface &interface, idr::CallOp call, idr::FuncOp callee);
 
 // Inlines, in walk order, each idr.call `caller` holds when the step
 // starts whose callee's node, as `nodeOf` answers it, is final and worth

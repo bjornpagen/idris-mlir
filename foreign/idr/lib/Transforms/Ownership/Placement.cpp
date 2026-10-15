@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Bjorn Pagen
 // Explicit counting: the grades, idr.dup and idr.drop that make every
 // reference consumed exactly once on every path. It runs on functional
-// code, where a match region's yield is the join point and recursion is
+// code, where a region's terminator is the join point and recursion is
 // still a call.
 //
 // Each value is placed on its own, along the ops of the block that
@@ -11,12 +11,16 @@
 //     last use on each path. A use that consumes a reference while the
 //     value is still needed afterwards consumes an idr.dup of a view of it
 //     instead; a last use that only reads is followed by an idr.drop; a
-//     value nothing uses is dropped where it is defined. A match region
-//     the value is not used in drops it on entry, unless it is still
-//     needed after the match, and a region that ends in a crash is left
-//     alone;
-//   - a view (a borrowed parameter, a field, a constant) holds none: each
-//     use that consumes one consumes an idr.dup of it;
+//     value nothing uses is dropped where it is defined. An op that
+//     decides (a match, an update of one element) moves it into each
+//     region, and a region the value is not used in drops it on entry,
+//     unless it is still needed after the op, or the op writes it; a
+//     region that ends in a crash is left alone. Any other op
+//     with regions (a loop) holds it for as long as it runs, each use
+//     inside taking a view of it, and its last use is the op itself;
+//   - a view (a borrowed parameter, a field, a constant, each at the view
+//     grade `view(T)`, which is plain for a buffer's) holds none: each use
+//     that consumes one consumes an idr.dup of it;
 //   - a field is a view when every use of it comes while the value it is
 //     read from is still alive: a borrowed parameter, or an owned value
 //     that is used again after it. Otherwise it takes a reference of its
@@ -42,8 +46,8 @@
 
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/MapVector.h"
-#include "llvm/ADT/SmallPtrSet.h"
 
 using namespace mlir;
 
@@ -60,7 +64,8 @@ public:
   Placement(RewriterBase &rewriter, FuncOp fn, Classes &classes, SymbolTable &symbols)
       : rewriter(rewriter), fn(fn), classes(classes), symbols(symbols) {}
 
-  // Places every value of the function and materializes the counts.
+  // Places every value of the function, materializes the counts, and
+  // grades the views that are left.
   void run() {
     SmallVector<std::tuple<Value, Block *, Operation *>> values;
     fn.walk<WalkOrder::PreOrder>([&](Block *block) {
@@ -73,15 +78,15 @@ public:
     for (auto [value, block, def] : values)
       plan(value, *block, def);
     materialize();
+    gradeViews();
   }
 
 private:
   // A value that stands for one without holding a reference: poison, a
-  // pending field, a small big. It is owned by type, and no count reaches
-  // it.
+  // small big. It is owned by type, and no count reaches it.
   static bool phantom(Value value) {
     Operation *def = value.getDefiningOp();
-    return isa_and_nonnull<ub::PoisonOp, PendingOp, BigSmallOp>(def);
+    return isa_and_nonnull<ub::PoisonOp, BigSmallOp>(def);
   }
 
   void plan(Value value, Block &block, Operation *def) {
@@ -90,12 +95,16 @@ private:
       return;
     case Class::Static:
       // A value that stands for one is owned by type; a constant is a
-      // view, which each consuming use takes a reference of its own to (no
-      // count reaches static data, so the dup runs nothing).
-      if (phantom(value))
+      // view, at the view grade, which each consuming use takes a reference
+      // of its own to (no count reaches static data, so the dup runs
+      // nothing). What is read from one is graded as every read is.
+      if (phantom(value)) {
         value.setType(owned(value.getType()));
-      else
-        placeBorrowed(value, block, def);
+        return;
+      }
+      if (!readFrom(value) && def && !def->hasTrait<ResultCarriesOperand>())
+        value.setType(view(value.getType()));
+      placeBorrowed(value, block, def);
       return;
     case Class::Borrowed:
       placeBorrowed(value, block, def);
@@ -120,10 +129,23 @@ private:
     return {consumes, borrows};
   }
 
-  // Whether `operand` takes over the reference its value holds: where its
-  // op declares so, and at a force this placement gives its cell owned.
-  bool takes(OpOperand &operand) {
-    return consumes(operand, &symbols) || forced.contains(operand.getOwner());
+  // Whether `operand` takes over the reference its value holds, as its op
+  // declares.
+  bool takes(OpOperand &operand) { return consumes(operand, &symbols); }
+
+  // Whether `op` writes `value`, one of its own operands, and so holds it
+  // until it is done: an update writes its element back into its array
+  // once its region has run, so no region of it may drop the array, as a
+  // region of a match drops what the match only read as it began.
+  static bool writes(Operation *op, Value value) {
+    auto effects = dyn_cast<MemoryEffectOpInterface>(op);
+    if (!effects)
+      return false;
+    SmallVector<MemoryEffects::EffectInstance> instances;
+    effects.getEffects(instances);
+    return llvm::any_of(instances, [&](const MemoryEffects::EffectInstance &instance) {
+      return isa<MemoryEffects::Write>(instance.getEffect()) && instance.getValue() == value;
+    });
   }
 
   // The changes right after `def` in `block`, or at its start when null.
@@ -163,7 +185,7 @@ private:
     }
     for (auto [i, user] : llvm::enumerate(users)) {
       bool last = i + 1 == users.size() && !keep;
-      if (user->getNumRegions() != 0 && !isIndexLoop(user)) {
+      if (decides(user) && !writes(user, value)) {
         // Each region takes the reference, or drops it on entry.
         for (Region &region : user->getRegions()) {
           if (region.empty())
@@ -179,26 +201,18 @@ private:
         continue;
       }
       auto [consumes, borrows] = usesBy(value, user);
-      // The body of a loop runs once per index it covers: a value from
-      // outside it holds its reference throughout, each use inside taking a
-      // view (or a dup, to consume), and the loop reads the value for as
-      // long as it runs.
-      if (isIndexLoop(user))
-        for (Region &region : user->getRegions())
-          if (!region.empty() && usedIn(value, region)) {
-            placeBorrowed(value, region.front(), nullptr);
-            ++borrows;
-          }
+      // An op that does not decide may run its regions any number of
+      // times: a value from outside it holds its reference throughout,
+      // each use inside taking a view (or a dup, to consume), and the op
+      // reads the value for as long as it runs.
+      for (Region &region : user->getRegions())
+        if (!region.empty() && usedIn(value, region)) {
+          placeBorrowed(value, region.front(), nullptr);
+          ++borrows;
+        }
       if (!last) {
         incBeforeOp(user, value, consumes);
         continue;
-      }
-      // A force reads its cell, except where the cell dies: there it takes
-      // the cell over, owned, so that a cell nothing else holds is forced
-      // once and freed instead of keeping a memo no one will read.
-      if (isa<ForceOp>(user)) {
-        forced.insert(user);
-        return;
       }
       if (borrows == 0 && consumes > 0) {
         incBeforeOp(user, value, consumes - 1);
@@ -210,15 +224,16 @@ private:
     }
   }
 
-  // `value` holds no reference; each use that consumes one gets its own. A
-  // match only reads its scrutinee; a loop's operands are placed as any
-  // op's, and the uses inside its body as the uses in a match's regions.
+  // `value` holds no reference; each use that consumes one gets its own. An
+  // op that decides only reads what it decides on; any other op's operands
+  // are placed as any op's, and the uses inside its regions as the uses in
+  // the regions of one that decides.
   void placeBorrowed(Value value, Block &block, Operation *after) {
     for (Operation *user : usersIn(value, block, after)) {
       for (Region &region : user->getRegions())
         if (!region.empty() && usedIn(value, region))
           placeBorrowed(value, region.front(), nullptr);
-      if (user->getNumRegions() == 0 || isIndexLoop(user))
+      if (!decides(user))
         incBeforeOp(user, value, usesBy(value, user).first);
     }
   }
@@ -275,12 +290,39 @@ private:
     }
   }
 
+  // Every read now reads a view, so what it reads is a view too: a field
+  // read and a field a match binds are at their value's grade times the
+  // field's (fieldType), which for a view is the view grade, and the
+  // default region of a match takes back what the match took. A walk in
+  // order reaches each read after the value it reads.
+  void gradeViews() {
+    fn.walk<WalkOrder::PreOrder>([&](Operation *op) {
+      if (auto read = dyn_cast<FieldOp>(op)) {
+        const Ctor &ctor = read.getDataType().getCtor(static_cast<unsigned>(read.getTag()));
+        read.getResult().setType(fieldType(read.getValue().getType(),
+                                           ctor.fields[static_cast<unsigned>(read.getIndex())]));
+        return;
+      }
+      auto match = dyn_cast<MatchOp>(op);
+      if (!match)
+        return;
+      Type scrutinee = match.getScrutinee().getType();
+      DataType data = match.getDataType();
+      for (unsigned index = 0, e = static_cast<unsigned>(match.getCases().size()); index < e;
+           ++index) {
+        ArrayRef<Type> fields = data.getCtor(match.getCaseTag(index)).fields;
+        for (BlockArgument arg : match.getCaseRegion(index).getArguments())
+          arg.setType(fieldType(scrutinee, fields[arg.getArgNumber()]));
+      }
+      if (Region *fallback = match.getDefaultRegion(); fallback && fallback->getNumArguments() == 1)
+        fallback->getArgument(0).setType(scrutinee);
+    });
+  }
+
   RewriterBase &rewriter;
   FuncOp fn;
   Classes &classes;
   SymbolTable &symbols;
-  // The forces that take their cells over, where the cells die.
-  llvm::SmallPtrSet<Operation *, 4> forced;
   // What goes right before each op.
   llvm::MapVector<Operation *, Changes> changes;
 };

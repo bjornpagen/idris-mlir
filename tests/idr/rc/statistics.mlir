@@ -11,9 +11,9 @@
 // CHECK-DAG: (S) {{[1-9][0-9]*}} reuses
 // CHECK-DAG: (S) {{[0-9]+}} dups
 // CHECK-DAG: (S) {{[0-9]+}} drops
-!L = !idr.data<"L", list [@N(), @C(i64, !idr.box<!idr.data<"L">>)]>
-module {
-  idr.func private @bump(%l: !idr.box<!L>) -> !idr.box<!L> {
+!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
+idr.program @statistics root(@root) stage(first) {
+  idr.func @bump(%l: !idr.box<!L>) -> !idr.box<!L> {
     %n = idr.constant #idr.con<@N, []> : !idr.box<!L>
     %c1 = arith.constant 1 : i64
     %r = idr.match %l : !idr.box<!L> -> (!idr.box<!L>) {
@@ -23,7 +23,7 @@ module {
     case @C(%h: i64, %t: !idr.box<!L>) {
       %h2 = arith.addi %h, %c1 : i64
       %t2 = idr.call @bump(%t) : (!idr.box<!L>) -> !idr.box<!L>
-      %c = idr.con @C(%h2, %t2) : (i64, !idr.box<!L>) -> !idr.box<!L>
+      %c = idr.con !idr.box<!L> @C(%h2 : i64, %t2 : !idr.box<!L>)
       idr.yield %c : !idr.box<!L>
     }
     }
@@ -32,7 +32,7 @@ module {
   idr.func @root(%w: !idr.world) -> !idr.world {
     %x = arith.constant 7 : i64
     %n = idr.constant #idr.con<@N, []> : !idr.box<!L>
-    %l = idr.con @C(%x, %n) : (i64, !idr.box<!L>) -> !idr.box<!L>
+    %l = idr.con !idr.box<!L> @C(%x : i64, %n : !idr.box<!L>)
     %b = idr.call @bump(%l) : (!idr.box<!L>) -> !idr.box<!L>
     %s = idr.match %b : !idr.box<!L> -> (i64) {
     case @N() {

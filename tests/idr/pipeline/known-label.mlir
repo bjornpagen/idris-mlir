@@ -6,13 +6,13 @@
 // sum. The optimizer specializes @pow on it, so the copy's dispatch has
 // one arm, a direct call of @inc, which it inlines: no call of @inc is
 // left, and every call of @pow reaches the one copy.
-module {
-  idr.func private @inc(%x: i64) -> i64 attributes {total} {
+idr.program @"known-label" root(@Main.main) stage(higher) {
+  idr.func @inc(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64
     %y = arith.addi %x, %c1 : i64
     return %y : i64
   }
-  idr.func private @pow(%f: !idr.fn<(i64) -> (i64)>, %n: i64, %x: i64) -> i64 attributes {total} {
+  idr.func @pow(%f: !idr.fn<(i64) -> (i64)>, %n: i64, %x: i64) -> i64 attributes {total} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       idr.yield %x : i64

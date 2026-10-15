@@ -6,9 +6,6 @@ module IdrisMLIR.Dialect.UB
 import IdrisMLIR.MLIR
 import IdrisMLIR.Syntax.UB
 
-import Data.List
-import Data.Maybe
-
 %default total
 
 ------------------------------------------------------------------------------
@@ -27,41 +24,4 @@ unreachableOp : Op
 unreachableOp =
   MkOp "ub.unreachable" [] [] [] [] []
 
-------------------------------------------------------------------------------
--- Printer
-------------------------------------------------------------------------------
-
--- An attribute an op's syntax writes without its type, which the parser
--- is given and does not read.
-covering
-bare : MlirAttr -> String
-bare (IntegerAttr n _) = show n
-bare (FloatAttr d _) = floatLiteral d
-bare a = attrText a
-
--- The name of the symbol an op declares, as a reference to it writes it.
-covering
-symbolName : MlirAttr -> String
-symbolName (StringAttr s) = symbol s
-symbolName a = attrText a
-
-||| An op of the ub dialect in the declarative syntax its ODS
-||| gives, up to its regions: its full name and its syntax, which puts the
-||| regions last, for the caller to write after it. Nothing for an op
-||| written in the generic form: one whose syntax this printer does not
-||| write (each is named below, with the reason), one of another dialect,
-||| and one whose operands, results, regions or attributes are not what its
-||| ODS lets it have, which the generic form carries to the verifier.
-export covering
-printOp : Op -> Maybe String
-printOp (MkOp "ub.poison" [] props [] attrs [r0]) = do
-  guard (all (\p => elem (fst p) ["value"]) props)
-  pure (fastConcat ["ub.poison", dictionary "{" "}" attrs, maybe "" (\a0 => fastConcat [" <", attrText a0, ">"]) (lookup "value" props), " : ", typeText r0])
-
-printOp (MkOp "ub.unreachable" [] props [] attrs []) = do
-  guard (null props)
-  pure (fastConcat ["ub.unreachable", dictionary "{" "}" attrs])
-
-printOp _ = Nothing
-
--- fingerprint: 3470314320-508383 1994899040-2382
+-- fingerprint: 2718966743-523708 3718968843-792

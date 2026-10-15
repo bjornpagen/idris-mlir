@@ -34,13 +34,19 @@ changes, as any golden test's. No other implementation is asked.
   or `expected-exit` beside one also runs it.
 - `reject/<name>/`: programs rejected with one `unsupported (<rule>)` on
   the line the header `-- expect: <rule>, line N` names; the name starts
-  with the rule. A `packages` file beside a fixture of either kind names
+  with the rule, one of the rules the build's generated list names
+  (`lib/rules.sh`). A `packages` file beside a fixture of either kind names
   the packages it compiles with.
 - `compiler/`, `registry/`, `determinism/`, `toolchain/`, `fuzz/`,
   `two-levels/`, `bench/`: the other pools of `make test`, named for what
   they check.
 - `idr/<pass>/`: the dialect suite, one directory per pass or concern; a
-  test is `name.mlir` with its `RUN:` lines beside `name/run`.
+  test is `name.mlir` with its `RUN:` lines beside `name/run`. A module of
+  it is one `idr.program`, which names its root and its stage (`higher`
+  before defunctionalization, `first` after it, `owned` after counting,
+  `lowered` after lowering), and a property of it is stated with
+  idr-expect, FileCheck kept for printed syntax and text the runtime
+  prints.
 - `upstream/`: the reproducers of the bugs recorded in `../upstream/`.
 - `lib/`: the helpers `testutils.sh` sources, one file per concern;
   `templates/`: a minimal test of each kind to copy.

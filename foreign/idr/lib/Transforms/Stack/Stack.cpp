@@ -28,7 +28,6 @@
 #include "idr/IR/TypeGraph.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
 #include "llvm/ADT/SmallVector.h"
@@ -48,26 +47,27 @@ constexpr unsigned recursiveFrameLimit = 64;
 
 struct Stack : idr::impl::IdrStackBase<Stack> {
   void runOnOperation() override {
-    ModuleOp module = getOperation();
+    idr::ProgramOp program = getOperation();
     const idr::Layouts &layouts = getAnalysis<idr::Layouts>();
     if (failed(layouts.valid()))
       return signalPassFailure();
     const idr::Escapes &escapes = getAnalysis<idr::Escapes>();
     if (failed(escapes.solved())) {
-      module.emitError("internal error: idr-stack's escape analysis did not reach its fixpoint");
+      program.emitError("internal error: idr-stack's escape analysis failed");
       return signalPassFailure();
     }
-    // The decision, on the module as it stands: the cons whose property is
-    // to change.
+    // The decision, on the program as it stands: the cons whose property
+    // is to change.
     SmallVector<std::pair<idr::ConOp, bool>> changes;
-    for (idr::FuncOp fn : module.getOps<idr::FuncOp>()) {
+    for (idr::FuncOp fn : program.getOps<idr::FuncOp>()) {
       unsigned left = escapes.recursive(fn) ? recursiveFrameLimit : frameLimit;
       fn.walk<WalkOrder::PreOrder>([&](idr::ConOp con) {
         bool marked = false;
-        if (isa<idr::BoxType>(con.getType())) {
+        if (isa<idr::BoxType>(con.getResult().getType())) {
           ++numBoxes;
           if (!escapes.mayEscape(con)) {
-            unsigned size = layouts.box(con.getDataType(), con.getTag()).size;
+            unsigned size =
+                layouts.box(con.getDataType(), static_cast<unsigned>(con.getTag())).size;
             if (size <= cellLimit && size <= left) {
               left -= size;
               marked = true;

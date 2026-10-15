@@ -1,22 +1,17 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Memrefs: their descriptors (Arrays.h), the cells the runtime allocates
-// for them, their constants, and the arrays a world orders; the ops on
-// buffers are Memrefs.cpp's. An access tests nothing itself: its index is
-// within the array, by its type or by the guard before it.
-//
-// An element is laid out as a cell's fields are, object slots first
-// (Layouts::element), and addressed by its slots' offsets from the
-// element's start, since a memref element has one type and no count. A
-// word element is the one slot of its own type, so the arrays a world
-// orders write every element the same way. The reads and writes of words in
-// buffers are left to upstream, which lowers and vectorizes them: they and
-// the linalg ops over words see the memref their components describe.
+// The cells memrefs live in, which the runtime allocates or which are
+// constants, and the arrays a world orders: their reads, writes and updates
+// in place. A memref's runtime form is Descriptors.cpp's, an element's place
+// Elements.cpp's, and the other ops on buffers Memrefs.cpp's. An access
+// tests nothing itself: its index is within the array, by its type or by
+// the guard before it.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Layout.h"
 #include "idr/Conversion/Arrays.h"
+#include "idr/Conversion/Elements.h"
 #include "idr/Conversion/IdrPattern.h"
 #include "idr/Conversion/Patterns.h"
 #include "idr/Conversion/Runtime.h"
@@ -30,8 +25,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/Support/MathExtras.h"
 
-// The runtime's C ABI: an array's cell is its header and length, then the
-// elements, aligned to a word.
+// The runtime's C ABI: the size of its words.
 #include "idris_rt.h"
 
 using namespace mlir;
@@ -40,46 +34,6 @@ namespace idr::conversion {
 
 namespace {
 
-// Where a memref's layout puts its fields: an identity layout fixes the
-// offset at 0 and computes the strides from the sizes; any other gives each
-// as a number or as dynamic.
-struct LayoutFields {
-  bool identity = true;
-  int64_t offset = 0;
-  SmallVector<int64_t> strides;
-};
-
-LayoutFields layoutFields(MemRefType type) {
-  LayoutFields fields;
-  if (type.getLayout().isIdentity())
-    return fields;
-  fields.identity = false;
-  // A buffer's layout is the identity or strided (Layouts' components hold
-  // the same fields), which always has strides and an offset.
-  (void)type.getStridesAndOffset(fields.strides, fields.offset);
-  return fields;
-}
-
-Attribute word(OpBuilder &b, int64_t value) { return b.getI64IntegerAttr(value); }
-
-// The row-major strides of `sizes`: the product of the sizes after each.
-SmallVector<OpFoldResult> rowMajor(OpBuilder &b, Location loc, ArrayRef<OpFoldResult> sizes) {
-  SmallVector<OpFoldResult> strides(sizes.size());
-  OpFoldResult running = word(b, 1);
-  for (size_t k = sizes.size(); k-- > 0;) {
-    strides[k] = running;
-    std::optional<int64_t> known = getConstantIntValue(running);
-    std::optional<int64_t> size = getConstantIntValue(sizes[k]);
-    if (known && size)
-      running = word(b, *known * *size);
-    else if (known == 1)
-      running = sizes[k];
-    else
-      running = arith::MulIOp::create(b, loc, asWord(b, loc, running), asWord(b, loc, sizes[k]))
-                    .getResult();
-  }
-  return strides;
-}
 
 // A new cell of `count` elements of `element`, from the runtime: fresh
 // memory, which no other pointer reaches. Said at the call (the runtime's
@@ -111,9 +65,7 @@ struct LowerAlloc : IdrPattern<memref::AllocOp> {
         alignment && *alignment > IDRIS_RT_WORD_BYTES)
       return op.emitError() << "internal error: idr-lower: an allocation aligned to "
                             << *alignment << " bytes, past a cell's element";
-    FailureOr<layout::Element> element = elementOf(op, type.getElementType(), layouts);
-    if (failed(element))
-      return failure();
+    layout::Element element = layouts.element(type.getElementType());
     // The product saturates at each step, so a later empty extent still
     // makes it 0.
     uint64_t known = 1;
@@ -133,13 +85,15 @@ struct LowerAlloc : IdrPattern<memref::AllocOp> {
                                       LLVM::ExtractValueOp::create(rewriter, loc, product, 1), most,
                                       LLVM::ExtractValueOp::create(rewriter, loc, product, 0));
     }
-    components[0] = newCell(rewriter, loc, runtime, count, *element);
+    components[0] = newCell(rewriter, loc, runtime, count, element);
     rewriter.replaceOpWithMultiple(op, {components});
     return success();
   }
 };
 
-// A constant array: its static cell, the header in front of the data.
+// A constant array: its static cell, the header in front of the data. Its
+// value is any constant elements bufferization gave the global: dense, a
+// resource, or another form, each written as the cell's data.
 struct LowerGetGlobal : IdrPattern<memref::GetGlobalOp> {
   LowerGetGlobal(const TypeConverter &converter, MLIRContext *ctx, const Layouts &layouts,
                  Runtime &runtime, const DenseMap<StringAttr, memref::GlobalOp> &globals)
@@ -148,8 +102,8 @@ struct LowerGetGlobal : IdrPattern<memref::GetGlobalOp> {
   LogicalResult matchAndRewrite(memref::GetGlobalOp op, OneToNOpAdaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     memref::GlobalOp global = globals.lookup(op.getNameAttr().getAttr());
-    if (!global || !global.getConstant() || !global.getInitialValue() ||
-        !isa<DenseElementsAttr>(*global.getInitialValue()) ||
+    std::optional<Attribute> initial = global ? global.getInitialValue() : std::nullopt;
+    if (!global || !global.getConstant() || !initial || !isa<ElementsAttr>(*initial) ||
         !holdsWords(global.getType()))
       return op.emitError() << "internal error: idr-lower: @" << op.getName()
                             << " is no constant array of words";
@@ -167,27 +121,23 @@ struct LowerGetGlobal : IdrPattern<memref::GetGlobalOp> {
 
 // A new array a world orders, of the given sizes (a negative size is an
 // empty dimension; an array of rank 0 has one element), each element the
-// fill: its components stored in each element, each counted one taking a
-// reference per element, and the fill's own given up after.
+// fill: its components placed in each element, each counted one taking a
+// reference per element, and the fill's own given up after. A static fill
+// takes none: its count is the runtime's persistent mark.
 struct LowerArrayNew : IdrPattern<ArrayNewOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(ArrayNewOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    FailureOr<layout::Element> element =
-        elementOf(op, op.getArrayType().getElementType(), layouts);
-    if (failed(element))
-      return failure();
+    layout::Element element = layouts.element(op.getArrayType().getElementType());
     Value zero = arith::ConstantIntOp::create(rewriter, loc, 0, 64);
     SmallVector<Value> sizes;
     for (ValueRange size : adaptor.getSizes())
       sizes.push_back(arith::MaxSIOp::create(rewriter, loc, size.front(), zero));
     Value count = countOf(rewriter, loc, getAsOpFoldResult(sizes));
-    Value cell = newCell(rewriter, loc, runtime, count, *element);
+    Value cell = newCell(rewriter, loc, runtime, count, element);
     ValueRange fill = adaptor.getFill();
     SmallVector<bool> counted = layouts.counted(op.getFill().getType());
-    for (auto [i, component] : llvm::enumerate(fill))
-      counted[i] = counted[i] && !StaticData::isStatic(component);
     Value lower = arith::ConstantIndexOp::create(rewriter, loc, 0);
     Value upper = arith::IndexCastOp::create(rewriter, loc, rewriter.getIndexType(), count);
     Value step = arith::ConstantIndexOp::create(rewriter, loc, 1);
@@ -196,11 +146,11 @@ struct LowerArrayNew : IdrPattern<ArrayNewOp> {
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(loop.getBody());
       Value at = indexWord(rewriter, loc, loop.getInductionVar());
-      Descriptor d{cell, word(rewriter, 0), {}, {}};
+      Descriptor d{cell, rewriter.getI64IntegerAttr(0), {}, {}};
       d.sizes.push_back(OpFoldResult(count));
-      d.strides.push_back(word(rewriter, 1));
-      runtime.store(rewriter, loc, elementAddress(rewriter, loc, d, at, element->stride),
-                    element->slots, fill);
+      d.strides.push_back(rewriter.getI64IntegerAttr(1));
+      placeElement(rewriter, loc, runtime, elementAddress(rewriter, loc, d, at, element.stride),
+                   element, fill);
       runtime.inc(rewriter, loc, fill, counted);
     }
     runtime.dec(rewriter, loc, fill, counted);
@@ -211,167 +161,107 @@ struct LowerArrayNew : IdrPattern<ArrayNewOp> {
   }
 };
 
-// An element of an array a world orders. A read takes a reference of each
-// counted component, which the array keeps its own of; a read that moves the
-// element out takes the array's instead, and leaves the element's counted
-// slots empty for the write that follows it, whose release of the old
-// element then releases nothing. A write releases the old element and moves
-// the new one in.
+// The address of the element of an array a world orders at its indices.
 template <typename OpT>
-struct LowerArrayAccess : IdrPattern<OpT> {
-  using IdrPattern<OpT>::IdrPattern;
-  LogicalResult matchAndRewrite(OpT op, typename IdrPattern<OpT>::OneToNOpAdaptor adaptor,
+Value addressOf(OpT op, typename IdrPattern<OpT>::OneToNOpAdaptor adaptor,
+                const layout::Element &element, ConversionPatternRewriter &rewriter) {
+  Location loc = op.getLoc();
+  Descriptor d = unpack(rewriter, loc, op.getArrayType(), adaptor.getArray());
+  SmallVector<Value> indices;
+  for (ValueRange index : adaptor.getIndices())
+    indices.push_back(index.front());
+  return elementAddress(rewriter, loc, d, indices, element.stride);
+}
+
+// An element of an array a world orders, which keeps its own reference:
+// the read takes one of its own.
+struct LowerArrayGet : IdrPattern<ArrayGetOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(ArrayGetOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    constexpr bool reading = std::is_same_v<OpT, ArrayGetOp>;
     Location loc = op.getLoc();
-    MemRefType type = op.getArrayType();
-    FailureOr<layout::Element> element = elementOf(op, type.getElementType(), this->layouts);
-    if (failed(element))
-      return failure();
-    Descriptor d = unpack(rewriter, loc, type, adaptor.getArray());
-    SmallVector<Value> indices;
-    for (ValueRange index : adaptor.getIndices())
-      indices.push_back(index.front());
-    Value at = elementAddress(rewriter, loc, d, indices, element->stride);
-    SmallVector<bool> counted = this->layouts.counted(op.getValue().getType());
-    if constexpr (reading) {
-      SmallVector<Value> value = readElement(rewriter, loc, this->runtime, at, *element);
-      if (op.getMoves()) {
-        SmallVector<layout::Slot> held;
-        SmallVector<Value> nothing;
-        for (auto [slot, isCounted] : llvm::zip_equal(element->slots, counted))
-          if (isCounted) {
-            held.push_back(slot);
-            nothing.push_back(nullComponent(rewriter, loc, slot.type));
-          }
-        this->runtime.store(rewriter, loc, at, held, nothing);
-      } else {
-        this->runtime.inc(rewriter, loc, value, counted);
-      }
-      rewriter.replaceOpWithMultiple(op, {value, SmallVector<Value>{}});
-    } else {
-      writeElement(rewriter, loc, this->runtime, this->layouts, at, *element,
-                   op.getValue().getType(), adaptor.getValue());
-      rewriter.replaceOpWithMultiple(op, {SmallVector<Value>{}});
+    layout::Element element = layouts.element(op.getArrayType().getElementType());
+    Value at = addressOf(op, adaptor, element, rewriter);
+    SmallVector<Value> value = readElement(rewriter, loc, runtime, at, element);
+    runtime.inc(rewriter, loc, value, layouts.counted(op.getValue().getType()));
+    rewriter.replaceOpWithMultiple(op, {value, SmallVector<Value>{}});
+    return success();
+  }
+};
+
+// A write releases the old element and moves the new one in.
+struct LowerArraySet : IdrPattern<ArraySetOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(ArraySetOp op, OneToNOpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    layout::Element element = layouts.element(op.getArrayType().getElementType());
+    Value at = addressOf(op, adaptor, element, rewriter);
+    writeElement(rewriter, op.getLoc(), runtime, layouts, at, element, op.getValue().getType(),
+                 adaptor.getValue());
+    rewriter.replaceOpWithMultiple(op, {SmallVector<Value>{}});
+    return success();
+  }
+};
+
+// An element rebuilt in its place. It moves out into the region with the
+// reference the array held, the region runs once, here, as an
+// scf.execute_region whose yield is the region's, and the first value it
+// yields moves back in over the place it left, which holds nothing to
+// release; the values after it are the op's results, before the world,
+// which is nothing. A region that never returns ends as it is, in
+// ub.unreachable.
+struct LowerArrayUpdate : IdrPattern<ArrayUpdateOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(ArrayUpdateOp op, OneToNOpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Type elementType = op.getArrayType().getElementType();
+    layout::Element element = layouts.element(elementType);
+    Value at = addressOf(op, adaptor, element, rewriter);
+    SmallVector<Value> old = takeElement(rewriter, loc, runtime, layouts, at, element, elementType);
+    // What the region yields: the element, then each result.
+    SmallVector<SmallVector<Type>> yielded{layouts.components(elementType)};
+    for (Type out : op.getOuts().getTypes())
+      yielded.push_back(layouts.components(out));
+    SmallVector<Type> flat;
+    for (ArrayRef<Type> components : yielded)
+      llvm::append_range(flat, components);
+    TypeConverter::SignatureConversion entry(op.getBody()->getNumArguments());
+    entry.remapInput(0, old);
+    rewriter.applySignatureConversion(op.getBody(), entry, getTypeConverter());
+    auto run = scf::ExecuteRegionOp::create(rewriter, loc, flat);
+    rewriter.inlineRegionBefore(op.getRegion(), run.getRegion(), run.getRegion().end());
+    ValueRange values = run.getResults();
+    placeElement(rewriter, loc, runtime, at, element, values.take_front(yielded.front().size()));
+    values = values.drop_front(yielded.front().size());
+    SmallVector<SmallVector<Value>> results;
+    for (ArrayRef<Type> out : ArrayRef(yielded).drop_front()) {
+      results.push_back(SmallVector<Value>(values.take_front(out.size())));
+      values = values.drop_front(out.size());
     }
+    results.emplace_back();
+    rewriter.replaceOpWithMultiple(op, std::move(results));
+    return success();
+  }
+};
+
+// The end of an update's region: its values, component by component, are
+// the region's results. No other op of the generating set reaches the
+// lowering: idr-structure-loops has made each loops.
+struct LowerArrayYield : IdrPattern<ArrayYieldOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(ArrayYieldOp op, OneToNOpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Value> flat;
+    for (ValueRange value : adaptor.getValues())
+      llvm::append_range(flat, value);
+    rewriter.replaceOpWithNewOp<scf::YieldOp>(op, flat);
     return success();
   }
 };
 
 } // namespace
 
-Value indexWord(OpBuilder &b, Location loc, Value index) {
-  return arith::IndexCastOp::create(b, loc, b.getI64Type(), index);
-}
-
-Value asIndex(OpBuilder &b, Location loc, OpFoldResult field) {
-  if (auto attr = dyn_cast<Attribute>(field))
-    return arith::ConstantIndexOp::create(b, loc, cast<IntegerAttr>(attr).getInt());
-  return arith::IndexCastOp::create(b, loc, b.getIndexType(), cast<Value>(field));
-}
-
-FailureOr<layout::Element> elementOf(Operation *op, Type element, const Layouts &layouts) {
-  std::expected<layout::Element, std::string> laid = layouts.element(element);
-  if (!laid)
-    return refuse(op, Rule::Layout) << "an array of " << element << " cannot be built: "
-                                    << laid.error();
-  return std::move(*laid);
-}
-
-Value countOf(OpBuilder &b, Location loc, ArrayRef<OpFoldResult> sizes) {
-  Value count = arith::ConstantIntOp::create(b, loc, 1, 64);
-  for (OpFoldResult size : sizes)
-    count = b.createOrFold<arith::MulIOp>(loc, count, asWord(b, loc, size));
-  return count;
-}
-
-SmallVector<Value> readElement(OpBuilder &b, Location loc, Runtime &runtime, Value address,
-                               const layout::Element &element) {
-  return runtime.load(b, loc, address, element.slots);
-}
-
-void writeElement(OpBuilder &b, Location loc, Runtime &runtime, const Layouts &layouts,
-                  Value address, const layout::Element &element, Type type, ValueRange value) {
-  SmallVector<bool> counted = layouts.counted(type);
-  if (llvm::is_contained(counted, true))
-    runtime.dec(b, loc, readElement(b, loc, runtime, address, element), counted);
-  runtime.store(b, loc, address, element.slots, value);
-}
-
-bool holdsWords(MemRefType type) { return isa<IntegerType, FloatType>(type.getElementType()); }
-
-Descriptor unpack(OpBuilder &b, Location loc, MemRefType type, ValueRange components) {
-  LayoutFields fields = layoutFields(type);
-  Descriptor d;
-  auto next = components.begin();
-  d.cell = *next++;
-  d.offset = fields.identity || !ShapedType::isDynamic(fields.offset)
-                 ? OpFoldResult(word(b, fields.offset))
-                 : OpFoldResult(*next++);
-  for (int64_t extent : type.getShape())
-    d.sizes.push_back(ShapedType::isDynamic(extent) ? OpFoldResult(*next++)
-                                                    : OpFoldResult(word(b, extent)));
-  if (fields.identity) {
-    d.strides = rowMajor(b, loc, d.sizes);
-  } else {
-    for (int64_t stride : fields.strides)
-      d.strides.push_back(ShapedType::isDynamic(stride) ? OpFoldResult(*next++)
-                                                        : OpFoldResult(word(b, stride)));
-  }
-  assert(next == components.end() && "a memref's components are its descriptor's free fields");
-  return d;
-}
-
-SmallVector<Value> pack(OpBuilder &b, Location loc, MemRefType type, const Descriptor &d) {
-  LayoutFields fields = layoutFields(type);
-  SmallVector<Value> components{d.cell};
-  if (!fields.identity && ShapedType::isDynamic(fields.offset))
-    components.push_back(asWord(b, loc, d.offset));
-  for (auto [extent, size] : llvm::zip_equal(type.getShape(), d.sizes))
-    if (ShapedType::isDynamic(extent))
-      components.push_back(asWord(b, loc, size));
-  if (!fields.identity)
-    for (auto [field, stride] : llvm::zip_equal(fields.strides, d.strides))
-      if (ShapedType::isDynamic(field))
-        components.push_back(asWord(b, loc, stride));
-  return components;
-}
-
-Value asWord(OpBuilder &b, Location loc, OpFoldResult field) {
-  if (auto attr = dyn_cast<Attribute>(field))
-    return arith::ConstantIntOp::create(b, loc, cast<IntegerAttr>(attr).getInt(), 64);
-  return cast<Value>(field);
-}
-
-Value elementsOf(OpBuilder &b, Location loc, Value cell) {
-  return LLVM::GEPOp::create(b, loc, ptrType(b.getContext()), b.getI8Type(), cell,
-                             ArrayRef<LLVM::GEPArg>{static_cast<int32_t>(sizeof(idris_rt_array))},
-                             LLVM::GEPNoWrapFlags::inbounds);
-}
-
-Value elementAddress(OpBuilder &b, Location loc, const Descriptor &d, ValueRange indices,
-                     unsigned stride) {
-  // The element's place among the allocation's: the offset, then each index
-  // along its stride, all in elements.
-  OpFoldResult place = d.offset;
-  for (auto [index, along] : llvm::zip(indices, d.strides)) {
-    Value step = getConstantIntValue(along) == 1
-                     ? index
-                     : arith::MulIOp::create(b, loc, index, asWord(b, loc, along)).getResult();
-    if (getConstantIntValue(place) == 0)
-      place = step;
-    else
-      place = arith::AddIOp::create(b, loc, asWord(b, loc, place), step).getResult();
-  }
-  Value first = elementsOf(b, loc, d.cell);
-  if (getConstantIntValue(place) == 0)
-    return first;
-  Value bytes = asWord(b, loc, place);
-  if (stride != 1)
-    bytes = arith::MulIOp::create(b, loc, bytes, arith::ConstantIntOp::create(b, loc, stride, 64));
-  return LLVM::GEPOp::create(b, loc, ptrType(b.getContext()), b.getI8Type(), first,
-                             ArrayRef<LLVM::GEPArg>{bytes}, LLVM::GEPNoWrapFlags::inbounds);
-}
 
 // The patterns of the cells memrefs live in, constant or allocated, and of
 // the arrays a world orders.
@@ -379,8 +269,8 @@ void populateArrayPatterns(RewritePatternSet &patterns, const TypeConverter &con
                            const Layouts &layouts, Runtime &runtime,
                            const DenseMap<StringAttr, memref::GlobalOp> &globals) {
   MLIRContext *ctx = patterns.getContext();
-  patterns.add<LowerAlloc, LowerArrayNew, LowerArrayAccess<ArrayGetOp>,
-               LowerArrayAccess<ArraySetOp>>(converter, ctx, layouts, runtime);
+  patterns.add<LowerAlloc, LowerArrayNew, LowerArrayGet, LowerArraySet, LowerArrayUpdate,
+               LowerArrayYield>(converter, ctx, layouts, runtime);
   patterns.add<LowerGetGlobal>(converter, ctx, layouts, runtime, globals);
 }
 

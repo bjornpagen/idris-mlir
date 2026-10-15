@@ -8,29 +8,34 @@
 // back, and remove-dead-values keeps both: the function's verifier, which
 // counts the references of a function holding an owned value, checks the
 // module after the pass.
-// BEFORE-LABEL: idr.func private @plain(
+// BEFORE-LABEL: idr.func @plain(
 // BEFORE-NOT: {{(idr\.| )con }}
 // BEFORE: return
-// AFTER-LABEL: idr.func private @owned(
-// AFTER: %[[P:.*]] = con @P(%{{.*}}) : (!idr.own<!idr.str>) -> !idr.own<!P>
+// AFTER-LABEL: idr.func @owned(
+// AFTER: %[[P:.*]] = con !idr.own<!P> @P(%{{.*}} : !idr.own<!idr.str>)
 // AFTER: drop %[[P]] : !idr.own<!P>
 // AFTER: return
 !P = !idr.data<"P", plain [@P(!idr.str)]>
-module {
-  idr.func private @plain(%s: !idr.str) -> i64 {
-    %p = idr.con @P(%s) : (!idr.str) -> !P
+idr.program @"consumed-effects" root(@root) stage(owned) {
+  idr.func @plain(%s: !idr.q<many, borrow, !idr.str>) -> i64 {
+    %p = idr.con !idr.q<many, borrow, !P> @P(%s : !idr.q<many, borrow, !idr.str>)
     %z = arith.constant 0 : i64
     return %z : i64
   }
-  idr.func private @owned(%s: !idr.own<!idr.str>) -> i64 {
-    %p = idr.con @P(%s) : (!idr.own<!idr.str>) -> !idr.own<!P>
+  idr.func @owned(%s: !idr.own<!idr.str>) -> i64 {
+    %p = idr.con !idr.own<!P> @P(%s : !idr.own<!idr.str>)
     idr.drop %p : !idr.own<!P>
     %z = arith.constant 0 : i64
     return %z : i64
   }
-  idr.func private @main(%s: !idr.str, %t: !idr.own<!idr.str>) -> (i64, i64) {
-    %a = idr.call @plain(%s) : (!idr.str) -> i64
+  idr.func @main(%s: !idr.q<many, borrow, !idr.str>, %t: !idr.own<!idr.str>) -> (i64, i64) {
+    %a = idr.call @plain(%s) : (!idr.q<many, borrow, !idr.str>) -> i64
     %b = idr.call @owned(%t) : (!idr.own<!idr.str>) -> i64
     return %a, %b : i64, i64
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
   }
 }

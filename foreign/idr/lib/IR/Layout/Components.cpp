@@ -15,8 +15,7 @@ using namespace mlir;
 
 namespace idr::layout {
 
-Components::Components(ModuleOp m, ArrayRef<DataType> boxed)
-    : module(m), asBoxes(boxed.begin(), boxed.end()) {}
+Components::Components(Operation *root) : root(root) {}
 
 const SumLayout *Components::computed(DataType type) const {
   auto it = sums.find(type);
@@ -28,7 +27,7 @@ const SumLayout &Components::sum(DataType type) {
     return *known;
   SumLayout layout;
   ArrayRef<Ctor> ctors = type.getCtors();
-  Builder b(module.getContext());
+  Builder b(root->getContext());
   if (ctors.size() >= 2) {
     unsigned width = ctors.size() <= 256 ? 8u : ctors.size() <= 65536 ? 16u : 32u;
     layout.tag = b.getIntegerType(width);
@@ -90,52 +89,42 @@ unsigned descriptorWords(ShapedType array) {
 
 } // namespace
 
+// An array is its cell and what of its descriptor its type leaves to the
+// value. A bounds check compares two registers, so the one a program's own
+// test made redundant folds away, where a load of the length from the cell,
+// which the stores into the cell may alias, would stay in every loop.
 SmallVector<Type> Components::componentsWith(Type type, SumOf sumOf) const {
-  MLIRContext *ctx = module->getContext();
+  MLIRContext *ctx = root->getContext();
   // Linearity is a fact for the passes; at runtime the value is itself. A
   // world is no value at all.
   if (isWorld(type))
     return {};
   type = unrestricted(type);
-  // A destination is the address of a field's word.
-  if (isa<StrType, BoxType, FnType, TokenType, DestType>(type))
-    return {LLVM::LLVMPointerType::get(ctx)};
-  // An array is its cell and what of its descriptor its type leaves to the
-  // value. A bounds check compares two registers, so the one a program's
-  // own test made redundant folds away, where a load of the length from the
-  // cell, which the stores into the cell may alias, would stay in every
-  // loop.
-  if (auto array = dyn_cast<ShapedType>(type)) {
+  if (auto data = dyn_cast<DataType>(type))
+    return sumOf(data).types();
+  if (isa<RankedTensorType, MemRefType>(type)) {
     SmallVector<Type> out{LLVM::LLVMPointerType::get(ctx)};
-    out.append(descriptorWords(array), IntegerType::get(ctx, 64));
+    out.append(descriptorWords(cast<ShapedType>(type)), IntegerType::get(ctx, 64));
     return out;
   }
+  // A big's word is a small integer or a cell's address. Every other value
+  // that holds a reference is the address of its cell, and a destination
+  // the address of the word it fills.
   if (isa<BigType, NatType>(type))
     return {IntegerType::get(ctx, 64)};
-  if (auto data = dyn_cast<DataType>(type)) {
-    if (asBoxes.contains(data))
-      return {LLVM::LLVMPointerType::get(ctx)};
-    return sumOf(data).types();
-  }
+  if (holdsReferences(type) || isa<DestType>(type))
+    return {LLVM::LLVMPointerType::get(ctx)};
   return {type};
 }
 
+// A component is counted where the value it is holds a reference itself: a
+// cell's address, a big's word, an array's cell. A sum's slots are counted
+// as its layout says.
 SmallVector<bool> Components::countedWith(Type type, SumOf sumOf) const {
   if (isWorld(type))
     return {};
   type = unrestricted(type);
-  if (isa<StrType, BoxType, FnType, TokenType, BigType, NatType>(type))
-    return {true};
-  if (auto array = dyn_cast<ShapedType>(type)) {
-    SmallVector<bool> out{true};
-    out.append(descriptorWords(array), false);
-    return out;
-  }
-  if (isa<DestType>(type))
-    return {false};
   if (auto data = dyn_cast<DataType>(type)) {
-    if (asBoxes.contains(data))
-      return {true};
     const SumLayout &layout = sumOf(data);
     SmallVector<bool> all;
     if (layout.tag)
@@ -143,7 +132,12 @@ SmallVector<bool> Components::countedWith(Type type, SumOf sumOf) const {
     all.append(layout.counted.begin(), layout.counted.end());
     return all;
   }
-  return {false};
+  if (isa<RankedTensorType, MemRefType>(type)) {
+    SmallVector<bool> out{true};
+    out.append(descriptorWords(cast<ShapedType>(type)), false);
+    return out;
+  }
+  return {holdsReferences(type)};
 }
 
 SmallVector<Type> Components::components(Type type) {
@@ -164,7 +158,5 @@ unsigned Components::objects(ArrayRef<Type> types) {
     all += objects(type);
   return all;
 }
-
-ModuleOp Components::getModule() const { return module; }
 
 } // namespace idr::layout

@@ -36,19 +36,19 @@ entries = primitives ++ recognized
 ||| The hooks of each definition the registry names, by its qualified name,
 ||| in the entries' order: the definitions' keys indexed once, since every
 ||| definition the compiler reaches and every call it translates asks.
-defHooks : SortedMap (List String, String) (List Hook)
+defHooks : SortedMap (List String, String) Hooks
 defHooks = foldl add empty entries
   where
-    add : SortedMap (List String, String) (List Hook) -> Entry -> SortedMap (List String, String) (List Hook)
+    add : SortedMap (List String, String) Hooks -> Entry -> SortedMap (List String, String) Hooks
     add m e = case e.key of
-      Def q => insert (q.space, q.name) (fromMaybe [] (lookup (q.space, q.name) m) ++ [e.hook]) m
+      Def q => insert (q.space, q.name) (withHook (fromMaybe noHooks (lookup (q.space, q.name) m)) e.hook) m
       _ => m
 
-||| The hooks of a key, one per entry that has it.
+||| The hooks of a key: those of every entry that has it.
 export
-hooks : Key -> List Hook
-hooks (Def q) = fromMaybe [] (lookup (q.space, q.name) defHooks)
-hooks k = map (.hook) (filter (\e => e.key == k) entries)
+hooks : Key -> Hooks
+hooks (Def q) = fromMaybe noHooks (lookup (q.space, q.name) defHooks)
+hooks k = foldl withHook noHooks (map (.hook) (filter (\e => e.key == k) entries))
 
 ||| Does a definition's spec list declare an entry's spec?
 export
@@ -64,7 +64,7 @@ declaredAt e = fst <$> site e
 ||| hook if it is the definition the entry names; otherwise the entry and
 ||| its mismatch.
 export
-foreignHook : QName -> List String -> Maybe (Either (Entry, Mismatch) Hook)
+foreignHook : QName -> List String -> Maybe (Either (Entry, Mismatch) Hooks)
 foreignHook q specs = do
   -- Two entries may declare one spec at two names (Chez names one
   -- bytevector operation for a deprecated Int spelling and for Bits8, and
@@ -74,8 +74,8 @@ foreignHook q specs = do
          Just e => Just e
          Nothing => find (\e => declares e specs) entries
   pure (case site e of
-          Just (declared, _) => if declared == q then Right e.hook else Left (e, DeclaredBy q)
-          Nothing => Right e.hook)
+          Just (declared, _) => if declared == q then Right (withHook noHooks e.hook) else Left (e, DeclaredBy q)
+          Nothing => Right (withHook noHooks e.hook))
 
 ||| Is a registry name in one of these modules (given by their paths,
 ||| outermost first)? Every entry's definition is in the module its

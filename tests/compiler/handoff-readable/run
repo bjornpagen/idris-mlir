@@ -4,8 +4,10 @@
 # (`$<digits>$`) nor a name Idris made up for a block (`case block in`,
 # `with block in`, `{arg:`); a case or with block of a definition is named
 # after it, `<parent>.case<k>` or `<parent>.with<k>`; nothing Idris erased
-# is written (no `!idr.erased`, no `#idr.erased`); the functions are
-# idr.func, their calls and returns idr.call and idr.return, and nothing of
+# is written (no `!idr.erased`, no `#idr.erased`); the program is one
+# idr.program, at the stage before defunctionalization, which names its
+# root; the functions are idr.func, their calls and returns idr.call and
+# idr.return, and nothing of
 # the func dialect is there before lowering; every idr.func, and every data
 # type, whose body is its declaration, names the Idris instance it is
 # (`instance`); and every op and block argument carries the location of
@@ -83,6 +85,14 @@ else
   say "erased: nothing"
 fi
 
+if [ "$(grep -cE '^ *idr\.program @("([^"\\]|\\.)*"|[A-Za-z0-9_$.]+) root\(@("([^"\\]|\\.)*"|[A-Za-z0-9_$.]+)\) stage\(higher\) \{$' "$emitted")" = 1 ] &&
+   [ "$(grep -cE '^ *idr\.program ' "$emitted")" = 1 ]; then
+  say "program: one idr.program, at stage higher, which names its root"
+else
+  say "program: not one idr.program at stage higher naming its root"
+  grep -nE 'idr\.program' "$emitted" | cut -c 1-200 | show
+fi
+
 if grep -qE '(^|[^A-Za-z0-9_.])func\.(func|call|return)([^A-Za-z0-9_]|$)' "$emitted"; then
   say "ops: the func dialect before lowering"
   grep -nE '(^|[^A-Za-z0-9_.])func\.(func|call|return)([^A-Za-z0-9_]|$)' "$emitted" | show
@@ -131,8 +141,9 @@ fi
 # The forms the module no longer has: a closure or a suspension as a region
 # (each is a function, named by idr.closure or idr.suspend), a data type
 # declared by an op (its type's body declares it), and a discardable
-# attribute (a fact is a type or an op's own property).
-grep -nE '"idr\.lambda"|"idr\.delay"\([^)]*\) \(\{|"idr\.(data|ctor)"|idr\.(program|stack)' \
+# attribute (a fact is a type or an op's own property; the program is the
+# op "idr.program", never a mark).
+grep -nE '"idr\.lambda"|"idr\.delay"\([^)]*\) \(\{|"idr\.(data|ctor)"|(^|[^"])idr\.(program|stack)' \
   "$work/generic.mlir" | cut -c 1-200 > "$work/old-forms"
 if [ -s "$work/old-forms" ]; then
   say "forms: a region closure or suspension, a data op or a discardable attribute"

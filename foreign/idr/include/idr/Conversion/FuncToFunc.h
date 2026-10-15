@@ -6,18 +6,21 @@
 #ifndef IDR_CONVERSION_FUNCTOFUNC_H
 #define IDR_CONVERSION_FUNCTOFUNC_H
 
-#include "mlir/IR/PatternMatch.h"
+#include "idr/IR/IdrDialect.h"
+
 #include "mlir/IR/SymbolTable.h"
 
 namespace idr::conversion {
 
-// Every idr.func becomes a func.func at the same location, of the same type
-// and visibility, named by its mangled symbol, with its body and none of its
-// facts; every idr.call a func.call of the mangled callee, and every
-// idr.return a func.return. `symbols`, the module's table, follows each
-// function under its new name. For the walk driver, which visits a body
-// before its function.
-void populateFuncToFuncPatterns(mlir::RewritePatternSet &patterns, mlir::SymbolTable &symbols);
+// Every idr.func of `program` becomes, where it is, a func.func at the
+// same location, of the same type, named by its mangled symbol, with its
+// body and none of its facts: private, but for the program's root, which
+// the outside enters and so stays public. The program's root then names it
+// by that name. Every idr.call becomes a func.call of the mangled callee,
+// and every idr.return a func.return. `symbols`, the program's table,
+// follows each function under its new name. Fails, having reported it,
+// where a name meets another symbol of the program.
+mlir::LogicalResult lowerFunctions(ProgramOp program, mlir::SymbolTable &symbols);
 
 } // namespace idr::conversion
 

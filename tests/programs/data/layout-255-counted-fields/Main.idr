@@ -3,9 +3,11 @@ module Main
 import Prelude
 
 -- A cell's header counts its object slots in 8 bits, so 255 counted
--- references are the most a cell holds. A record is unboxed, so its 254
--- strings go into the cell of N with N's tail: 255, which fits. It is
--- built from input and freed, every field with it.
+-- references are the most the header itself counts; a cell of more holds
+-- their count in a word after it (layout-256-counted-fields). A record is
+-- unboxed, so its 254 strings go into the cell of N with N's tail: 255,
+-- which the header counts. It is built from input and freed, every field
+-- with it.
 data R = MkR String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String
 
 data T = E | N R T

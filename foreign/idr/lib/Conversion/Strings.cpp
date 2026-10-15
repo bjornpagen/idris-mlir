@@ -32,14 +32,9 @@ namespace idr::conversion {
 
 namespace {
 
-// The list a builder or an output walks: base's list, which its type's
-// kind names (the ops' verifiers hold it to that), nil its constructor 0
-// and cons its constructor 1.
-DataType listOf(Type type) {
-  DataType list = dataTypeOf(type);
-  assert(list && list.getKind() == SumKind::BaseList && "a list op's list is base's list");
-  return list;
-}
+// The list a builder or an output walks: base's list, whose body says
+// which constructor is the cons (the ops' verifiers hold it to that).
+DataType listOf(Type type) { return dataTypeOf(type); }
 
 // The body of a walk: the head's components and the values the walk
 // carries, giving the carried values after this element.
@@ -59,16 +54,16 @@ SmallVector<Value> walk(OpBuilder &b, Location loc, const Layouts &layouts, Runt
   auto loop = scf::WhileOp::create(
       b, loc, types, operands,
       [&](OpBuilder &before, Location l, ValueRange args) {
-        Value tag = runtime.loadTag(before, l, args[0]);
-        Value consTag = arith::ConstantOp::create(
-            before, l, before.getIntegerAttr(tag.getType(), int64_t{DataType::listCons}));
+        Value tag = runtime.loadTag(before, l, args[0], list, layouts);
+        Value consTag = arith::ConstantIntOp::create(before, l, list.getConsTag(), 64);
         Value isCons = arith::CmpIOp::create(before, l, arith::CmpIPredicate::eq, tag, consTag);
         scf::ConditionOp::create(before, l, isCons, args);
       },
       [&](OpBuilder &after, Location l, ValueRange args) {
-        const layout::Cell &layout = layouts.box(list, DataType::listCons);
-        SmallVector<Value> head = runtime.load(after, l, args[0], layout.fields[0]);
-        SmallVector<Value> rest = runtime.load(after, l, args[0], layout.fields[1]);
+        const layout::Cell &layout = layouts.box(list, list.getConsTag());
+        Value cons = args[0];
+        SmallVector<Value> head = runtime.load(after, l, cons, cellAlignment(), layout.fields[0]);
+        SmallVector<Value> rest = runtime.load(after, l, cons, cellAlignment(), layout.fields[1]);
         SmallVector<Value> carried = step(after, l, head, args.drop_front());
         SmallVector<Value> yields{rest.front()};
         yields.append(carried.begin(), carried.end());
@@ -168,8 +163,9 @@ struct LowerPutList : IdrPattern<PutListOp> {
   LogicalResult matchAndRewrite(PutListOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     DataType list = listOf(op.getList().getType());
-    StringRef put = isa<StrType>(unrestricted(list.getListElement())) ? "idris_rt_io_put_str"
-                                                                       : "idris_rt_io_put_char";
+    Type element = list.getCtor(list.getConsTag()).fields[0];
+    StringRef put = isa<StrType>(unrestricted(element)) ? "idris_rt_io_put_str"
+                                                        : "idris_rt_io_put_char";
     walk(rewriter, op.getLoc(), layouts, runtime, list, adaptor.getList().front(), {},
          [&](OpBuilder &b, Location l, ValueRange head, ValueRange) {
            runtime.call(b, l, put, Type(), head.front());

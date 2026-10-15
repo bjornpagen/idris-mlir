@@ -13,12 +13,33 @@
 
 #include "idr/Transforms/Expect.h"
 
+#include "idr/IR/IdrDialect.h"
+
 #include "mlir/IR/Location.h"
 #include "llvm/ADT/SmallVector.h"
 
 using namespace mlir;
 
 namespace idr::expect {
+
+Operation *programOf(ModuleOp module) {
+  for (ProgramOp program : module.getOps<ProgramOp>())
+    return program;
+  return module;
+}
+
+SmallVector<FunctionOpInterface> functionsOf(ModuleOp module) {
+  return llvm::to_vector(programOf(module)->getRegion(0).getOps<FunctionOpInterface>());
+}
+
+// The table is the analysis of the program's own op, so it lives as long as
+// the pass's analyses and is built by whichever property asks first.
+SymbolTable &symbolsOf(ModuleOp module, AnalysisManager &analyses) {
+  Operation *program = programOf(module);
+  if (program == module.getOperation())
+    return analyses.getAnalysis<SymbolTable>();
+  return analyses.nest(program).getAnalysis<SymbolTable>();
+}
 
 // A location names `f` where a NameLoc called `f` is reached through the
 // names and the fusions that wrap it: Emit's library wrapper is a fusion,
@@ -48,7 +69,7 @@ SmallVector<FunctionOpInterface> named(ModuleOp module, StringRef function, Stri
     fail(module.getLoc(), property) << "no function named";
     return functions;
   }
-  for (auto fn : module.getOps<FunctionOpInterface>())
+  for (FunctionOpInterface fn : functionsOf(module))
     if (names(fn, f))
       functions.push_back(fn);
   if (functions.empty())

@@ -3,4 +3,4 @@
 // The subset's proof is no argument: describe has one parameter, x, and
 // no projection of the proof is made, so nothing computes the proof at
 // runtime.
-// CHECK: idr.func private @Main.describe(%{{[^:,]+}}: {{[^,]*}}) ->
+// CHECK: idr.func @Main.describe(%{{[^:,]+}}: {{[^,]*}}) ->

@@ -9,6 +9,7 @@
 include "idr/IR/IdrAttrs.td"
 include "idr/IR/IdrInterfaces.td"
 include "idr/IR/IdrArrayOps.td"
+include "mlir/Interfaces/ViewLikeInterface.td"
 
 //===----------------------------------------------------------------------===//
 // Ownership
@@ -23,28 +24,22 @@ include "idr/IR/IdrArrayOps.td"
 // no count reaches. A module that holds an owned or exclusive value is in
 // the owned stage, which its grades say and no attribute restates, and the
 // verifier checks the stage's rule there, in each idr.func's region
-// verifier (lib/IR/Verify). The ops
+// verifier (lib/IR/Verify), once its program's stage is `owned`. The ops
 // below read and write the counts in cell headers and may free cells, so no
-// pass reorders, merges or drops them.
+// pass reorders, merges or drops them. Each holds, takes or gives a counted
+// reference, and declares how it moves (FlowOpInterface).
 
 def Idr_TokenType : Idr_Type<"Token", "token", [
     DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>]> {
   let summary = "the memory of a cell whose fields idr.take moved out, or null";
 }
 
-// The values that hold references: a string, a big or natural (a small one
-// holds none), a box, a closure, a token, an array or a buffer of any rank,
-// extents and layout, and a sum held in place with a slot of any of these;
-// at any grade, since a linear field read from a cell that lives on needs a
-// reference of its own.
-def Idr_CountedValueType : AnyTypeOf<[Idr_DataType, Idr_BoxType, Idr_FnType, Idr_LazyType,
-                                      Idr_StrType, Idr_BigType, Idr_NatType, Idr_TokenType,
-                                      AnyMemRef]>;
-def Idr_CountedType : AnyTypeOf<[Idr_CountedValueType,
-    Type<And<[CPred<"::llvm::isa<::idr::QType>($_self)">,
-              SubstLeaves<"$_self", "::idr::unrestricted($_self)",
-                          Idr_CountedValueType.predicate>]>,
-         "a graded value that holds references">]>;
+// A value the owned stage counts, at any grade: what its type says it holds
+// (isCounted, ValueFactsTypeInterface), never a list of types here. A
+// linear field read from a cell that lives on needs a reference of its own,
+// so the grade does not matter.
+def Idr_CountedType : Type<CPred<"::idr::isCounted($_self)">,
+                           "a value the owned stage counts", "::mlir::Type">;
 
 // A value that holds one reference of its own, and a view, which holds
 // none.
@@ -61,7 +56,7 @@ class Idr_OwnedOp<string mnemonic, list<Trait> traits = []> : Idr_Op<mnemonic, t
   let hasVerifier = 1;
 }
 
-def Idr_DupOp : Idr_OwnedOp<"dup"> {
+def Idr_DupOp : Idr_OwnedOp<"dup", [DeclareOpInterfaceMethods<Idr_FlowOpInterface>]> {
   let summary = "a reference of its own to a value that holds none";
   let description = [{
     The value is a view: what it holds lives on, and the result holds one
@@ -79,7 +74,7 @@ def Idr_DupOp : Idr_OwnedOp<"dup"> {
   }];
 }
 
-def Idr_DropOp : Idr_OwnedOp<"drop", [Idr_Consumes<"0">]> {
+def Idr_DropOp : Idr_OwnedOp<"drop", [DeclareOpInterfaceMethods<Idr_FlowOpInterface>]> {
   let summary = "consumes a reference, and frees the value with its last";
   let description = [{
     Freeing a cell drops its fields' references in turn. The drop of a
@@ -93,8 +88,11 @@ def Idr_DropOp : Idr_OwnedOp<"drop", [Idr_Consumes<"0">]> {
 // A view of an owned value: reads (a field, a tag, a match, a borrowed
 // argument) take views, and a view lives only while its owner holds its
 // reference: every use of it comes before the owner's consuming use on
-// each path. It has no runtime form.
-def Idr_BorrowOp : Idr_Op<"borrow", [Pure,
+// each path. It has no runtime form: the result is the operand's value,
+// at a grade that holds no reference.
+def Idr_BorrowOp : Idr_Op<"borrow", [Pure, Idr_ResultCarriesOperand,
+    DeclareOpInterfaceMethods<ViewLikeOpInterface>,
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
     TypesMatchWith<"the view is the value without its reference", "value", "result",
                    "::idr::view($_self)">]> {
   let summary = "a view of an owned value, alive while its owner holds its reference";
@@ -107,7 +105,8 @@ def Idr_BorrowOp : Idr_Op<"borrow", [Pure,
 // exclusive value (`!idr.excl<T>`, which idr-rc proves) given to a position
 // that takes an owned one, or a value some view of which took a reference
 // of its own (idr.dup) before this, its consuming use. Nothing at runtime.
-def Idr_ShareOp : Idr_Op<"share", [Idr_ConsumesOnly<"0">,
+def Idr_ShareOp : Idr_Op<"share", [Idr_ConsumesOnly<"0">, Idr_ResultCarriesOperand,
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
     TypesMatchWith<"the result is the value with its exclusivity forgotten", "value", "result",
                    "::idr::owned(::idr::view($_self))">]> {
   let summary = "gives an owned value on as owned, whatever it alone reached";
@@ -124,54 +123,71 @@ def Idr_OwnedToken : Type<And<[CPred<"::idr::isOwned($_self)">,
   let builderCall = "::idr::owned(::idr::TokenType::get($_builder.getContext()))";
 }
 
-// The constructor is named within the result's data type, as idr.con's.
-def Idr_ReuseOp : Idr_OwnedOp<"reuse", [Idr_Consumes<"0, 1">]> {
+// The constructor is its tag in the result's data type, as idr.con's, and
+// so are its holes and their destinations.
+def Idr_ReuseOp : Idr_OwnedOp<"reuse", [DeclareOpInterfaceMethods<Idr_FlowOpInterface>]> {
   let summary = "builds a boxed constructor in a token's cell, or in a new one when it is null";
-  let arguments = (ins Arg<Idr_OwnedToken, "", [MemWrite]>:$token, FlatSymbolRefAttr:$ctor,
-                       Variadic<AnyType>:$fields);
-  let results = (outs Res<Idr_BoxValue, "", [MemAlloc]>:$result);
+  let arguments = (ins Arg<Idr_OwnedToken, "", [MemWrite]>:$token, I32Attr:$tag,
+                       Variadic<AnyType>:$fields, DefaultValuedAttr<DenseI32ArrayAttr, "{}">:$holes);
+  let results = (outs Res<Idr_BoxValue, "", [MemAlloc]>:$result, Variadic<Idr_DestType>:$dests);
+  // `idr.reuse %tok !T @Cons(%x : i64, dest)`, as idr.con, in the token's
+  // cell.
   let assemblyFormat = [{
-    $token $ctor `(` $fields `)` attr-dict `:` functional-type(operands, $result)
+    $token type($result) custom<CtorRef>(ref(type($result)), $tag)
+    custom<Fields>($fields, type($fields), $holes) attr-dict
+    custom<Dests>(type($dests), ref(type($result)), ref($tag), ref($holes))
   }];
+  let builders = [
+    // The constructor `tag` of `type` built in `token`'s cell with
+    // `fields`, and a destination for each of `holes`.
+    OpBuilder<(ins "::mlir::Type":$type, "::mlir::Value":$token, "unsigned":$tag,
+                   "::mlir::ValueRange":$fields, CArg<"::llvm::ArrayRef<int32_t>", "{}">:$holes)>
+  ];
   let extraClassDeclaration = [{
-    // The data type of the result, and the constructor's tag in it.
+    // The data type of the result.
     ::idr::DataType getDataType();
-    unsigned getTag();
+    // The value given for field `index` of the constructor, or null for a
+    // hole; and the destination of a hole, or null for a field given.
+    ::mlir::Value getField(unsigned index);
+    ::mlir::Value getDest(unsigned index);
   }];
 }
 
 // Where a match's scrutinee dies in one of its case regions, which knows
 // the constructor: the fields move out of it, so none is counted twice. The
-// constructor is named within the value's data type.
-def Idr_TakeOp : Idr_OwnedOp<"take", [Idr_Consumes<"0">]> {
+// constructor is its tag in the value's data type.
+def Idr_TakeOp : Idr_OwnedOp<"take", [DeclareOpInterfaceMethods<Idr_FlowOpInterface>]> {
   let summary = "consumes a constructor value, each of its fields keeping a reference of its own";
   let description = [{
-    The results are the fields of `ctor`, which built the value, each with
-    a reference of its own; for a box, a token comes first. When the box
-    held the only reference to its cell, the fields move out of it with no
-    count changed and the token is the cell, to build another constructor
-    in or to free; otherwise each field gets one more reference, the box
-    one fewer, and the token is null. An unboxed sum is its fields already,
-    so taking it apart changes no count.
+    The results are the fields of the constructor `tag`, which built the
+    value, each with a reference of its own; for a box, a token comes first.
+    When the box held the only reference to its cell, the fields move out
+    of it with no count changed and the token is the cell, to build another
+    constructor in or to free; otherwise each field gets one more reference,
+    the box one fewer, and the token is null. An unboxed sum is its fields
+    already, so taking it apart changes no count.
   }];
   let arguments = (ins Arg<Idr_OwnType, "", [MemRead, MemWrite, MemFree]>:$value,
-                       FlatSymbolRefAttr:$ctor);
+                       I32Attr:$tag);
   let results = (outs Variadic<AnyType>:$results);
-  let assemblyFormat = "$value $ctor attr-dict `:` type($value) `->` custom<ResultTypes>(type($results))";
+  // `idr.take %v : !idr.own<!T> @Cons -> (!idr.own<!idr.token>, i64)`
+  let assemblyFormat = [{
+    $value `:` type($value) custom<CtorRef>(ref(type($value)), $tag) attr-dict
+    `->` custom<ResultTypes>(type($results))
+  }];
   let extraClassDeclaration = [{
     // The token, for a box; null for an unboxed sum.
     ::mlir::Value getToken();
     ::mlir::ResultRange getFields();
-    // The data type of the value, and the constructor's tag in it.
+    // The data type of the value.
     ::idr::DataType getDataType();
-    unsigned getTag();
   }];
 }
 
 // Takes over the fresh reference of a buffer memref.alloc made, whose
 // result is a plain memref: the owned stage's one way into a grade for an
 // allocation of upstream's. Nothing at runtime.
-def Idr_OwnAdoptOp : Idr_Op<"own.adopt", [Pure,
+def Idr_OwnAdoptOp : Idr_Op<"own.adopt", [Pure, DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
     TypesMatchWith<"the result is the buffer owned", "memref", "result",
                    "::idr::owned($_self)">]> {
   let summary = "takes over the fresh reference of a buffer memref.alloc made";
@@ -184,7 +200,7 @@ def Idr_OwnAdoptOp : Idr_Op<"own.adopt", [Pure,
 // Hands an owned value's reference to the memref.store that writes it,
 // whose value is the plain carrier. Nothing at runtime: the store releases
 // the element it overwrites and the value moves in.
-def Idr_OwnGiveOp : Idr_Op<"own.give", [Idr_Consumes<"0">,
+def Idr_OwnGiveOp : Idr_Op<"own.give", [DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     TypesMatchWith<"the result is the value without its reference", "value", "result",
                    "::idr::view($_self)">]> {
@@ -199,10 +215,11 @@ def Idr_OwnGiveOp : Idr_Op<"own.give", [Idr_Consumes<"0">,
 // Linearity
 //===----------------------------------------------------------------------===//
 
-// The two ops that move a value into and out of a linear type. Each makes
-// a new value, allocated on a resource of its own: an allocation is never
-// merged with another (two entries of one value stay two linear values) and
-// is removed when unused. Both lower to nothing. An entry used at once, or
+// The two ops that move a value into and out of a linear type. Each gives
+// the value at another quantity (Idr_ResultCarriesOperand), as a new value
+// allocated on a resource of its own: an allocation is never merged with
+// another (two entries of one value stay two linear values) and is removed
+// when unused. Both lower to nothing. An entry used at once, or
 // a use entered at once, is the value itself: nothing ran in the linear
 // position, and each value that remains keeps its type, so the fold loses
 // no quantity. A closure or a suspension holding a linear value is the
@@ -215,7 +232,8 @@ def Idr_OwnGiveOp : Idr_Op<"own.give", [Idr_Consumes<"0">,
 // from then on.
 // Neither hides the value from an analysis: the integer range of what
 // enters is that of what is used.
-def Idr_LinEnterOp : Idr_Op<"lin.enter", [Idr_Consumes<"0">,
+def Idr_LinEnterOp : Idr_Op<"lin.enter", [Idr_ResultCarriesOperand,
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
     DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>,
     TypesMatchWith<"the operand is the value at any quantity", "result", "value",
                    "::idr::atQuantity($_self, ::idr::Quantity::Many)">,
@@ -228,7 +246,8 @@ def Idr_LinEnterOp : Idr_Op<"lin.enter", [Idr_Consumes<"0">,
 }
 
 // The one use of a linear value, where it becomes an ordinary one.
-def Idr_LinUseOp : Idr_Op<"lin.use", [Idr_Consumes<"0">,
+def Idr_LinUseOp : Idr_Op<"lin.use", [Idr_ResultCarriesOperand,
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
     TypesMatchWith<"the result is the value at any quantity", "linear", "result",
                    "::idr::atQuantity($_self, ::idr::Quantity::Many)">,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRangesFromOptional"]>]> {

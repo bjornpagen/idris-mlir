@@ -8,7 +8,6 @@
 
 #include "idr/IR/IdrDialect.h"
 
-#include "mlir/IR/BuiltinOps.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
@@ -26,7 +25,7 @@ public:
   // the time a reuse is converted the take that made its token is a test
   // and some loads. So it is read from every reuse after phase 1, before
   // the conversion starts.
-  explicit Fields(mlir::ModuleOp module);
+  explicit Fields(mlir::Operation *program);
 
   // For a reuse of the constructor its token's take took apart: for each
   // field, whether the cell holds it already, because the reuse gives it

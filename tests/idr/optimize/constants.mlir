@@ -8,8 +8,8 @@
 // CHECK-NOT: call @seven
 // CHECK: %[[C:.*]] = arith.constant 8 : i64
 // CHECK: return %[[C]] : i64
-module {
-  idr.func private @seven(%n: i64) -> i64 attributes {total} {
+idr.program @constants root(@main) stage(first) {
+  idr.func @seven(%n: i64) -> i64 attributes {total} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       %c = arith.constant 7 : i64

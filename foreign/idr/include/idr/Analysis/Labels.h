@@ -1,19 +1,27 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The labels (functions) each closure and suspension of the module may be:
+// The labels (functions) each closure and suspension of the program may be:
 // MLton's 0CFA on the edges the ops declare through the flow interface,
 // solved once in the constructor.
 //
+// The flow interface says how every carrier moves: closures, suspensions
+// and counted references. Only a closure or a suspension carries a label,
+// so the solve keeps the edges that carry one, and no other; a constant is
+// looked into wherever it is held, since a constructor of any data type may
+// hold a closure in a field.
+//
 // A point is a value of a closure or lazy carrier, a parameter or result of
 // a function, or an anchor (a field of a data type, the elements of a
-// shaped type, the forced state of a lazy type). Points are nodes of a
-// union-find; a class holds the set of labels its points may be, the
-// classes its labels flow into, and the dispatches its labels run. A set
-// is a sorted array of label numbers, made once per distinct content, and
-// only the difference between sets is propagated. There is no unknown: the
-// world is closed, every op that moves a closure declares how, and a set is
-// a finite set of the module's functions. A value of any other type has no
-// node and holds no label.
+// shaped type, the forced state of a lazy type), one for every value of
+// its kind, whatever value an edge names it through. Points are nodes of a
+// union-find; a class holds the set of labels its points may be, the set
+// it has sent on, the classes its labels flow into, and the dispatches its
+// labels run. A set is a sorted array of label numbers, made once per
+// distinct content; only a class's own sets are made, and the labels sent
+// on are the difference between them, which is never kept. There is no
+// unknown: the world is closed, every op that moves a closure declares
+// how, and a set is a finite set of the program's functions. A value of any
+// other carrier has no node and holds no label.
 //
 // The analysis changes nothing, and nothing in it is filled on first ask
 // but each set's attribute.
@@ -38,6 +46,13 @@
 #include <vector>
 
 namespace idr {
+
+// Whether a value of `type` carries labels: a closure or a suspension, at
+// any grade. A value of any other type carries none, whatever it holds: an
+// anchor holds the labels of its parts.
+inline bool carriesLabels(mlir::Type type) {
+  return !(Carriers::of(type) & Carriers::labels()).empty();
+}
 
 // The index in its constructor of field `i` of a run's cell, which holds
 // every field but the spine.
@@ -68,19 +83,22 @@ using Node = unsigned;
 // A set of labels, by its number among the distinct sets; 0 is the empty
 // set.
 using SetId = unsigned;
+// A label, by its number, given when it is first met.
+using Label = std::uint32_t;
 
 // A dispatch: a call through a value, which runs each label its callee
 // holds. `handled` keeps a label's edges from being added twice.
 struct Dispatch {
   mlir::CallOpInterface call;
-  llvm::DenseSet<std::uint32_t> handled;
+  llvm::DenseSet<Label> handled;
 };
 
-// What a class of the union-find holds; only a root's is current.
+// What a class of the union-find holds; only a root's is current. Every
+// successor and dispatch has been given `sent` at least, so the class owes
+// them `set` less `sent`, and is queued exactly while it owes something.
 struct Class {
   SetId set = 0;
-  // Labels in `set` not yet sent to `successors` and `dispatches`.
-  SetId pending = 0;
+  SetId sent = 0;
   bool queued = false;
   llvm::SmallVector<Node, 2> successors;
   llvm::SmallVector<unsigned, 1> dispatches;
@@ -97,8 +115,8 @@ public:
   }
 
   // Building.
-  void add(const FlowEdges::Edge &edge);
-  void walk(mlir::Operation *module);
+  void add(mlir::Operation *op, const FlowEdges::Edge &edge);
+  void walk(mlir::Operation *program);
 
   // Solving, then freezing: every path compressed and every set's
   // attribute made, so the answers below read and never write, from any
@@ -107,35 +125,36 @@ public:
 
   // Answers.
   mlir::ArrayAttr labelsOf(const FlowPoint &point) const;
+  mlir::ArrayAttr labelsOf(const FlowAnchor &anchor) const;
   mlir::ArrayAttr attrOf(SetId set) const;
   std::optional<FlowPoint> sinkOf(mlir::OpOperand &operand) const;
-  llvm::ArrayRef<mlir::Operation *> dispatchOps() const { return dispatchList; }
   FuncOp function(mlir::StringAttr label) const { return table.lookup<FuncOp>(label); }
 
 private:
   // Points.
   std::optional<Node> lookup(const FlowPoint &point) const;
+  std::optional<Node> lookup(const FlowAnchor &anchor) const;
   Node nodeOf(const FlowPoint &point);
+  Node nodeOf(const FlowAnchor &anchor);
   Node fresh();
   Node find(Node node) const;
 
   // Labels and sets.
   void freeze();
-  std::uint32_t labelId(mlir::FlatSymbolRefAttr label);
-  SetId intern(llvm::ArrayRef<std::uint32_t> ids);
-  SetId join(SetId a, SetId b);
-  SetId minus(SetId a, SetId b);
+  Label labelId(mlir::FlatSymbolRefAttr label);
+  SetId intern(llvm::ArrayRef<Label> ids);
 
   // Edges.
-  void flow(const FlowPoint &from, const FlowPoint &to);
+  void flow(mlir::Operation *op, const FlowPoint &from, const FlowPoint &to, bool lazy);
+  void sink(mlir::OpOperand &use, const FlowPoint &to);
   void link(Node from, Node to, bool lazy);
   void include(Node from, Node to);
   void unify(Node a, Node b);
-  void addLabels(Node to, SetId set);
-  void fire(unsigned dispatch, SetId set);
-  void expand(mlir::Attribute part, const FlowPoint &at, mlir::Type carrier);
+  void addLabels(Node to, llvm::ArrayRef<Label> labels);
+  void queue(Node root);
+  void fire(unsigned dispatch, llvm::ArrayRef<Label> labels);
+  void expand(mlir::Attribute part, llvm::function_ref<Node()> at, mlir::Type carrier);
   bool holdsClosure(mlir::Attribute part);
-  mlir::Type carrierOf(const FlowPoint &point) const;
 
   mlir::SymbolTable &table;
   mlir::MLIRContext *context;
@@ -153,20 +172,20 @@ private:
   // Labels by number, numbered as met; a set is sorted by number, and its
   // attribute by name.
   std::vector<mlir::FlatSymbolRefAttr> labelNames;
-  llvm::DenseMap<mlir::StringAttr, std::uint32_t> labelIds;
+  llvm::DenseMap<mlir::StringAttr, Label> labelIds;
   llvm::BumpPtrAllocator storage;
-  std::vector<llvm::ArrayRef<std::uint32_t>> sets;
-  llvm::DenseMap<llvm::ArrayRef<std::uint32_t>, SetId> setIds;
-  llvm::DenseMap<std::pair<SetId, SetId>, SetId> joins;
+  std::vector<llvm::ArrayRef<Label>> sets;
+  llvm::DenseMap<llvm::ArrayRef<Label>, SetId> setIds;
   llvm::DenseMap<SetId, mlir::ArrayAttr> attrs;
 
-  // Each operand's one sink, the dispatches, and the constant parts
-  // already expanded at a point.
+  // Each operand's one sink, the dispatches, the closure constants already
+  // expanded at a point, and the constructor constants already laid out at
+  // their anchors.
   llvm::DenseMap<mlir::OpOperand *, FlowPoint> sinks;
   std::vector<Dispatch> dispatches;
-  std::vector<mlir::Operation *> dispatchList;
   llvm::DenseSet<std::pair<mlir::Attribute, Node>> expanded;
-  // Whether each part of the module's constants holds a closure, each part
+  llvm::DenseSet<mlir::Attribute> laid;
+  // Whether each part of the program's constants holds a closure, each part
   // answered once.
   llvm::DenseMap<mlir::Attribute, bool> holding;
 
@@ -177,7 +196,7 @@ private:
 
 class Labels {
 public:
-  Labels(mlir::Operation *module, mlir::AnalysisManager &am);
+  Labels(mlir::Operation *program, mlir::AnalysisManager &am);
 
   bool isInvalidated(const mlir::AnalysisManager::PreservedAnalyses &pa) const {
     return !pa.isPreserved<Labels>() || !pa.isPreserved<mlir::SymbolTable>();
@@ -185,26 +204,25 @@ public:
 
   // The labels a closure or suspension at a point may be: a uniqued
   // ArrayAttr of FlatSymbolRefAttr in name order, the empty ArrayAttr where
-  // no label reaches. A point whose carrier is not keyed holds the empty
-  // set. Two equal sets are one attribute.
+  // no label reaches. A point whose carrier carries no label holds the
+  // empty set. Two equal sets are one attribute. A part of a value is its
+  // anchor, the same for every value of its kind.
   mlir::ArrayAttr labelsOf(mlir::Value value) const;
   mlir::ArrayAttr labelsOf(const FlowPoint &point) const;
+  mlir::ArrayAttr labelsOf(const FlowAnchor &anchor) const;
 
-  // The labels `op` runs: an idr.apply those of its callee, an idr.force of
-  // a lazy cell those of its cell; the empty set for any other op.
+  // The labels `op` runs: an idr.apply those of its callee, an idr.force
+  // those of its cell; the empty set for any other op.
   mlir::ArrayAttr runs(mlir::Operation *op) const;
 
   // The one point `operand` moves its value into at its op, or nothing: an
-  // operand of a carrier that is not keyed, and the callee and the
+  // operand of a carrier that carries no label, and the callee and the
   // arguments of a dispatch, which move per label.
   std::optional<FlowPoint> sinkOf(mlir::OpOperand &operand) const {
     return graph.sinkOf(operand);
   }
 
-  // The dispatches of the module, in walk order.
-  llvm::ArrayRef<mlir::Operation *> dispatches() const { return graph.dispatchOps(); }
-
-  // The function of `label`, from the module's table.
+  // The function of `label`, from the program's table.
   FuncOp function(mlir::StringAttr label) const { return graph.function(label); }
 
 private:

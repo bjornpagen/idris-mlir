@@ -12,9 +12,9 @@
 #include <stdint.h>
 #include <string.h>
 
-extern "C" void idris_rt_io_buffer_copy(idris_rt_array *, const char *src, int64_t,
-                                        int64_t srcOffset, int64_t n, idris_rt_array *, char *dst,
-                                        int64_t, int64_t dstOffset) {
+extern "C" void idris_rt_io_buffer_copy(idris_rt_array *, char *src, int64_t, int64_t srcOffset,
+                                        int64_t n, idris_rt_array *, char *dst, int64_t,
+                                        int64_t dstOffset) {
   memmove(dst + dstOffset, src + srcOffset, static_cast<size_t>(n));
 }
 
@@ -24,7 +24,7 @@ extern "C" void idris_rt_io_buffer_set_string(idris_rt_array *, char *bytes, int
   memcpy(bytes + offset, idris_rt_str_bytes(str), static_cast<size_t>(n));
 }
 
-extern "C" const idris_rt_str *idris_rt_io_buffer_get_string(idris_rt_array *, const char *bytes,
+extern "C" const idris_rt_str *idris_rt_io_buffer_get_string(idris_rt_array *, char *bytes,
                                                              int64_t, int64_t offset, int64_t n) {
   return idris_rt_str_from_bytes(bytes + offset, static_cast<size_t>(n));
 }

@@ -99,9 +99,9 @@ implement against these names whether or not the owner has landed them.
 - With D1's `fn` the call graph is complete: `forcedLabels`, every hand-built call graph, and the label-equals-function convention go. Deduplication renames labels freely with `SymbolTable::replaceAllSymbolUses`.
 
 **D3. The program and its stage are an op** (R02 defines; R04 verifies; R17 nests the pipeline; R15 emits; every pass lane re-anchors).
-- `idr.program @name root(@f) stage(higher|first|owned) { idr.func ... }` has `SymbolTable`, `IsolatedFromAbove`, `SingleBlock` and `NoTerminator`. Every `idr.func` inside is private. The root is the property, not publicity, so "one public function" and the root count go. This reverses 0004 D28, whose reason (publicity already holds the root) no longer stands once publicity holds nothing.
+- `idr.program @name root(@f) stage(higher|first|owned|lowered) { idr.func ... }` has `SymbolTable`, `IsolatedFromAbove`, `SingleBlock` and `NoTerminator`. Every `idr.func` inside is private. The root is the property, not publicity, so "one public function" and the root count go. This reverses 0004 D28, whose reason (publicity already holds the root) no longer stands once publicity holds nothing.
 - `ProgramOp` API: `getRoot()`, `getStage()`, `setStage(Stage)`, the symbol table.
-- idr-defunctionalize sets `first` and idr-rc sets `owned`. idr-lower and idr-entry move the program's functions into the `builtin.module` and erase the op.
+- idr-defunctionalize sets `first`, idr-rc sets `owned`, and idr-lower lowers the functions in place and sets `lowered` (the root renamed to its mangled `func.func`); idr-entry moves the program's contents into the `builtin.module` and erases the op. An `idr.func`'s visibility is derived, not stored: Public exactly for its program's root, so upstream passes see the root as the entry point.
 - R04's region verifier makes:
   - `!idr.fn`, `!idr.lazy`, `idr.apply` and `idr.force` illegal past `higher`;
   - own and excl grades illegal before `owned`;
@@ -200,7 +200,7 @@ implement against these names whether or not the owner has landed them.
 **D18. Bufferization through upstream's own models** (R11).
 - Patch 24 is extended upstream: One-Shot's function-boundary models become written over `FunctionOpInterface`/`CallOpInterface`, not `func::CallOp`. The patch, its report, reproducer, `tests/upstream` check and PINS entry are updated in this change.
 - `Bufferize/Functions.cpp`'s re-implementation goes.
-- `!idr.lin<T>` implements `TensorLikeType`/`BufferLikeType`, so the grade survives bufferization and the post-hoc `DataRemap` (`Bufferize.cpp:254-263`) goes.
+- Not adopted (lane R11's finding): `!idr.lin<T>` as `TensorLikeType`/`BufferLikeType`. Type interfaces attach per class, and `QType` is also the world and every linear scalar, so the world would become a tensor to One-Shot. 0003 rejected this already (§8, §18). The grade stays opaque to One-Shot, and the one post-bufferization `DataRemap` stays, its status checked, as the retyping of block arguments, iteration arguments and bodies that One-Shot cannot do.
 
 **D19. A big op names its word op in ODS** (R02 marks; R13 generates): one `bigToWord` table replaces `Narrow/Ops.cpp:69-110,163-164`, `Conversion/Bigs.cpp:266` and `RuntimeCalls.cpp:56`.
 

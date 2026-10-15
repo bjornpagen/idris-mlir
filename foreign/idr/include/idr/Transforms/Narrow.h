@@ -141,9 +141,8 @@ public:
   // Whether, under `solver`'s analysis, every op of the copied loop that
   // computes on integers wider than 32 bits fits 32 bits.
   bool fits(mlir::DataFlowSolver &solver);
-  // Narrows the copy under `solver`'s analysis; failure when the patterns
-  // do not converge.
-  mlir::LogicalResult narrow(mlir::DataFlowSolver &solver);
+  // Narrows the copy under `solver`'s analysis.
+  void narrow(mlir::DataFlowSolver &solver);
   // Clones the copy's body at `b`, its arguments standing for `inputs`
   // again.
   void cloneInto(mlir::OpBuilder &b, const llvm::SetVector<mlir::Value> &inputs);

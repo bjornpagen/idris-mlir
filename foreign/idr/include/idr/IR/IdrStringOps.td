@@ -14,25 +14,30 @@ include "idr/IR/IdrInterfaces.td"
 
 // A string builder allocates its result (MemAlloc).
 class Idr_StrBuilderOp<string mnemonic, list<Trait> traits = []>
-    : Idr_Op<"str." # mnemonic, !listconcat(traits, [Idr_CallsRuntime])> {
+    : Idr_Op<"str." # mnemonic, traits> {
   // Folded by calling the runtime (lib/IR/Fold).
   let hasFolder = 1;
   let results = (outs Res<Idr_StrValue, "", [MemAlloc]>:$result);
 }
 
-def Idr_StrAppendOp : Idr_StrBuilderOp<"append", [Idr_Primitive]> {
+def Idr_StrAppendOp : Idr_StrBuilderOp<"append", [Idr_Runtime<"idris_rt_str_append">, Idr_Primitive]> {
   let summary = "the concatenation of two strings";
-  let arguments = (ins Idr_StrType:$lhs, Idr_StrType:$rhs);
-  let assemblyFormat = "$lhs `,` $rhs attr-dict custom<StrResult>(type($result))";
+  let arguments = (ins Idr_StrRead:$lhs, Idr_StrRead:$rhs);
+  let assemblyFormat = [{
+    custom<StrRead>($lhs, type($lhs)) `,` custom<StrRead>($rhs, type($rhs)) attr-dict
+    custom<StrResult>(type($result))
+  }];
 }
 
-def Idr_StrConsOp : Idr_StrBuilderOp<"cons", [Idr_Primitive]> {
+def Idr_StrConsOp : Idr_StrBuilderOp<"cons", [Idr_Runtime<"idris_rt_str_cons">, Idr_Primitive]> {
   let summary = "a character before a string";
-  let arguments = (ins I32:$head, Idr_StrType:$tail);
-  let assemblyFormat = "$head `,` $tail attr-dict custom<StrResult>(type($result))";
+  let arguments = (ins I32:$head, Idr_StrRead:$tail);
+  let assemblyFormat = [{
+    $head `,` custom<StrRead>($tail, type($tail)) attr-dict custom<StrResult>(type($result))
+  }];
 }
 
-def Idr_StrFromCharOp : Idr_StrBuilderOp<"from_char", [Idr_Primitive]> {
+def Idr_StrFromCharOp : Idr_StrBuilderOp<"from_char", [Idr_Runtime<"idris_rt_str_from_char">, Idr_Primitive]> {
   let summary = "the string of one character";
   let arguments = (ins I32:$value);
   let assemblyFormat = "$value attr-dict custom<StrResult>(type($result))";
@@ -43,7 +48,8 @@ def Idr_StrFromCharOp : Idr_StrBuilderOp<"from_char", [Idr_Primitive]> {
 // box of a nil without fields and a cons of the element and the rest; the
 // op walks it twice, once for the size of the result and once to write it.
 // The list is base's: a box of a data type of kind `list`, whose body says
-// its shape.
+// its shape. The walk is the op's own lowering: it calls no runtime
+// function of its own.
 def Idr_StrPackOp : Idr_StrBuilderOp<"pack", [Idr_Primitive]> {
   let summary = "the string of a list of characters, built once";
   let arguments = (ins Idr_SumValue:$list);
@@ -65,7 +71,7 @@ def Idr_StrConcatOp : Idr_StrBuilderOp<"concat", [Idr_Primitive]> {
 // built. Where the op meets the list's constructor it takes one step of
 // the walk: the nil writes nothing, and a cell writes its element before
 // the rest, so a cell built only to be written is not built. It is IO, as
-// the idr.io ops are, but calls no runtime function named after it: its
+// the idr.io ops are, but calls no runtime function of its own: its
 // lowering walks the list (lib/Conversion). The list is base's, as pack's
 // and concat's are.
 def Idr_PutListOp : Idr_Op<"io.put_list", [Idr_PerformsIO, Idr_ObservableIO, Idr_Primitive,
@@ -79,7 +85,7 @@ def Idr_PutListOp : Idr_Op<"io.put_list", [Idr_PerformsIO, Idr_ObservableIO, Idr
 }
 
 // `signed` or `unsigned` for an integer, nothing for a Double.
-def Idr_StrShowOp : Idr_StrBuilderOp<"show"> {
+def Idr_StrShowOp : Idr_StrBuilderOp<"show", [Idr_Runtime<"idris_rt_str_show">]> {
   let summary = "the text of a number, as prim__cast_TString writes it";
   let arguments = (ins UnitAttr:$is_signed, AnyTypeOf<[Idr_Int, F64]>:$value);
   let assemblyFormat = [{
@@ -88,129 +94,143 @@ def Idr_StrShowOp : Idr_StrBuilderOp<"show"> {
   let hasVerifier = 1;
 }
 
-def Idr_StrSubstrOp : Idr_StrBuilderOp<"substr", [Idr_Primitive]> {
+def Idr_StrSubstrOp : Idr_StrBuilderOp<"substr", [Idr_Runtime<"idris_rt_str_substr">, Idr_Primitive]> {
   let summary = "the characters of a string from a start, at most a length";
-  let arguments = (ins Idr_StrType:$str, I64:$start, I64:$length);
-  let assemblyFormat = "$str `,` $start `,` $length attr-dict custom<StrResult>(type($result))";
+  let arguments = (ins Idr_StrRead:$str, I64:$start, I64:$length);
+  let assemblyFormat = [{
+    custom<StrRead>($str, type($str)) `,` $start `,` $length attr-dict
+    custom<StrResult>(type($result))
+  }];
 }
 
-def Idr_StrReverseOp : Idr_StrBuilderOp<"reverse", [Idr_Primitive]> {
+def Idr_StrReverseOp : Idr_StrBuilderOp<"reverse", [Idr_Runtime<"idris_rt_str_reverse">, Idr_Primitive]> {
   let summary = "the characters of a string in reverse order";
-  let arguments = (ins Idr_StrType:$str);
-  let assemblyFormat = "$str attr-dict custom<StrResult>(type($result))";
+  let arguments = (ins Idr_StrRead:$str);
+  let assemblyFormat = [{
+    custom<StrRead>($str, type($str)) attr-dict custom<StrResult>(type($result))
+  }];
 }
 
 // The string is not empty: idr.check.nonempty guards it. A new string,
 // allocated like a builder's.
-def Idr_StrTailOp : Idr_Op<"str.tail", [Idr_CallsRuntime, Idr_Primitive]> {
+def Idr_StrTailOp : Idr_Op<"str.tail", [Idr_Runtime<"idris_rt_str_tail">, Idr_Primitive,
+    Idr_Guarded<"str", "Nonempty", "tail of an empty string">]> {
   // Folded by calling the runtime (lib/IR/Fold).
   let hasFolder = 1;
   let summary = "a string without its first character, of a string that is not empty";
-  let arguments = (ins Idr_StrType:$str);
+  let arguments = (ins Idr_StrRead:$str);
   let results = (outs Res<Idr_StrValue, "", [MemAlloc]>:$result);
-  let assemblyFormat = "$str attr-dict custom<StrResult>(type($result))";
+  let assemblyFormat = [{
+    custom<StrRead>($str, type($str)) attr-dict custom<StrResult>(type($result))
+  }];
 }
 
-def Idr_StrLengthOp : Idr_Op<"str.length", [Pure, Idr_CallsRuntime, Idr_Primitive,
+def Idr_StrLengthOp : Idr_Op<"str.length", [Pure, Idr_Runtime<"idris_rt_str_length">, Idr_Primitive,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   // Folded by calling the runtime (lib/IR/Fold).
   let hasFolder = 1;
   let summary = "the number of characters of a string";
-  let arguments = (ins Idr_StrType:$str);
+  let arguments = (ins Idr_StrRead:$str);
   let results = (outs I64:$result);
-  let assemblyFormat = "$str attr-dict";
+  let assemblyFormat = "custom<StrRead>($str, type($str)) attr-dict";
 }
 
 // The number of bytes of a string, the length of its UTF-8, interior zeros
 // included. Folded by calling the runtime, as str.length is.
-def Idr_StrBytesLengthOp : Idr_Op<"str.bytes_length", [Pure, Idr_CallsRuntime, Idr_Primitive]> {
+def Idr_StrBytesLengthOp : Idr_Op<"str.bytes_length", [Pure, Idr_Runtime<"idris_rt_str_bytes_length">, Idr_Primitive]> {
   let hasFolder = 1;
   let summary = "the number of bytes of a string";
-  let arguments = (ins Idr_StrType:$str);
+  let arguments = (ins Idr_StrRead:$str);
   let results = (outs I64:$result);
-  let assemblyFormat = "$str attr-dict";
+  let assemblyFormat = "custom<StrRead>($str, type($str)) attr-dict";
 }
 
 // A string by byte offset, as the linear string iterator walks it. Every
 // offset has a meaning, so these ops need no guard: it is clamped to the
 // string's bytes, and an offset inside a character's encoding stands for
 // the start of that character. Folded by calling the runtime.
-def Idr_StrScalarAtOp : Idr_Op<"str.scalar_at", [Pure, Idr_CallsRuntime, Idr_Primitive,
+def Idr_StrScalarAtOp : Idr_Op<"str.scalar_at", [Pure, Idr_Runtime<"idris_rt_str_scalar_at">, Idr_Primitive,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   let hasFolder = 1;
   let summary = "the character that starts at a byte offset, 0 at the end";
-  let arguments = (ins Idr_StrType:$str, I64:$offset);
+  let arguments = (ins Idr_StrRead:$str, I64:$offset);
   let results = (outs I32:$result);
-  let assemblyFormat = "$str `,` $offset attr-dict";
+  let assemblyFormat = "custom<StrRead>($str, type($str)) `,` $offset attr-dict";
 }
 
-def Idr_StrScalarEndOp : Idr_Op<"str.scalar_end", [Pure, Idr_CallsRuntime, Idr_Primitive,
+def Idr_StrScalarEndOp : Idr_Op<"str.scalar_end", [Pure, Idr_Runtime<"idris_rt_str_scalar_end">, Idr_Primitive,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   let hasFolder = 1;
   let summary = "the byte offset after the character at a byte offset";
-  let arguments = (ins Idr_StrType:$str, I64:$offset);
+  let arguments = (ins Idr_StrRead:$str, I64:$offset);
   let results = (outs I64:$result);
-  let assemblyFormat = "$str `,` $offset attr-dict";
+  let assemblyFormat = "custom<StrRead>($str, type($str)) `,` $offset attr-dict";
 }
 
-def Idr_StrDropBytesOp : Idr_StrBuilderOp<"drop_bytes", [Idr_Primitive]> {
+def Idr_StrDropBytesOp : Idr_StrBuilderOp<"drop_bytes", [Idr_Runtime<"idris_rt_str_drop_bytes">, Idr_Primitive]> {
   let summary = "the characters of a string from a byte offset on";
-  let arguments = (ins Idr_StrType:$str, I64:$offset);
-  let assemblyFormat = "$str `,` $offset attr-dict custom<StrResult>(type($result))";
+  let arguments = (ins Idr_StrRead:$str, I64:$offset);
+  let assemblyFormat = [{
+    custom<StrRead>($str, type($str)) `,` $offset attr-dict custom<StrResult>(type($result))
+  }];
 }
 
 // The index is at least 0 and below the string's length: idr.check.in_bounds
-// guards it.
-def Idr_StrIndexOp : Idr_Op<"str.index", [Idr_CallsRuntime, NoMemoryEffect,
+// guards it, against this string.
+def Idr_StrIndexOp : Idr_Op<"str.index", [Idr_Runtime<"idris_rt_str_index">, NoMemoryEffect,
+    Idr_Guarded<"index, str", "InBounds", "string index out of range">,
     DeclareOpInterfaceMethods<ConditionallySpeculatable>, Idr_Primitive]> {
   // Folded by calling the runtime (lib/IR/Fold).
   let hasFolder = 1;
   let summary = "the character at an index within the string";
-  let arguments = (ins Idr_StrType:$str, I64:$index);
+  let arguments = (ins Idr_StrRead:$str, I64:$index);
   let results = (outs I32:$result);
-  let assemblyFormat = "$str `,` $index attr-dict";
+  let assemblyFormat = "custom<StrRead>($str, type($str)) `,` $index attr-dict";
 }
 
 // The string is not empty: idr.check.nonempty guards it.
-def Idr_StrHeadOp : Idr_Op<"str.head", [Idr_CallsRuntime, NoMemoryEffect,
+def Idr_StrHeadOp : Idr_Op<"str.head", [Idr_Runtime<"idris_rt_str_head">, NoMemoryEffect,
+    Idr_Guarded<"str", "Nonempty", "head of an empty string">,
     DeclareOpInterfaceMethods<ConditionallySpeculatable>, Idr_Primitive]> {
   // Folded by calling the runtime (lib/IR/Fold).
   let hasFolder = 1;
   let summary = "the first character of a string that is not empty";
-  let arguments = (ins Idr_StrType:$str);
+  let arguments = (ins Idr_StrRead:$str);
   let results = (outs I32:$result);
-  let assemblyFormat = "$str attr-dict";
+  let assemblyFormat = "custom<StrRead>($str, type($str)) attr-dict";
   let hasCanonicalizer = 1;
 }
 
-def Idr_StrCmpOp : Idr_Op<"str.cmp", [Pure, Idr_CallsRuntime]> {
+def Idr_StrCmpOp : Idr_Op<"str.cmp", [Pure, Idr_Runtime<"idris_rt_str_cmp">]> {
   // Folded by calling the runtime (lib/IR/Fold).
   let hasFolder = 1;
   let summary = "compares two strings";
-  let arguments = (ins Idr_CmpPredicate:$predicate, Idr_StrType:$lhs,
-                       Idr_StrType:$rhs);
+  let arguments = (ins Idr_CmpPredicate:$predicate, Idr_StrRead:$lhs,
+                       Idr_StrRead:$rhs);
   let results = (outs I1:$result);
-  let assemblyFormat = "$predicate $lhs `,` $rhs attr-dict";
-}
-
-def Idr_StrToIntOp : Idr_Op<"str.to_int", [Pure, Idr_CallsRuntime]> {
-  // Folded by calling the runtime (lib/IR/Fold).
-  let hasFolder = 1;
-  let summary = "a string as an integer, as prim__cast_StringT reads it";
-  let arguments = (ins UnitAttr:$is_signed, Idr_StrType:$str);
-  let results = (outs Idr_Int:$result);
   let assemblyFormat = [{
-    custom<Signedness>($is_signed) `` $str attr-dict `:` type($result)
+    $predicate custom<StrRead>($lhs, type($lhs)) `,` custom<StrRead>($rhs, type($rhs)) attr-dict
   }];
 }
 
-def Idr_StrToDoubleOp : Idr_Op<"str.to_double", [Pure, Idr_CallsRuntime, Idr_Primitive]> {
+def Idr_StrToIntOp : Idr_Op<"str.to_int", [Pure, Idr_Runtime<"idris_rt_str_to_int">]> {
+  // Folded by calling the runtime (lib/IR/Fold).
+  let hasFolder = 1;
+  let summary = "a string as an integer, as prim__cast_StringT reads it";
+  let arguments = (ins UnitAttr:$is_signed, Idr_StrRead:$str);
+  let results = (outs Idr_Int:$result);
+  let assemblyFormat = [{
+    custom<Signedness>($is_signed) `` custom<StrRead>($str, type($str)) attr-dict `:` type($result)
+  }];
+}
+
+def Idr_StrToDoubleOp : Idr_Op<"str.to_double", [Pure, Idr_Runtime<"idris_rt_str_to_double">, Idr_Primitive]> {
   // Folded by calling the runtime (lib/IR/Fold).
   let hasFolder = 1;
   let summary = "a string as a Double, as prim__cast_StringDouble reads it";
-  let arguments = (ins Idr_StrType:$str);
+  let arguments = (ins Idr_StrRead:$str);
   let results = (outs F64:$result);
-  let assemblyFormat = "$str attr-dict";
+  let assemblyFormat = "custom<StrRead>($str, type($str)) attr-dict";
 }
 
 #endif // IDR_STRING_OPS

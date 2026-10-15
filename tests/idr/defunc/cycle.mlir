@@ -13,27 +13,27 @@
 // CHECK-NOT: !idr.fn
 // CHECK-NOT: {{(idr\.| )closure }}
 // CHECK-NOT: {{(idr\.| )apply }}
-// CHECK-LABEL: idr.func private @Main.p(
+// CHECK-LABEL: idr.func @Main.p(
 // CHECK-SAME: !{{[A-Za-z0-9_$.]+}}
-// CHECK-LABEL: idr.func private @Main.ping(
+// CHECK-LABEL: idr.func @Main.ping(
 // CHECK-SAME: -> !{{[A-Za-z0-9_$.]+}}
-// CHECK: con @Main.p(
-module {
-  idr.func private @Main.zero(%x: i64) -> i64 attributes {total} {
+// CHECK: con {{.*}}@Main.p(
+idr.program @cycle root(@Main.main) stage(higher) {
+  idr.func @Main.zero(%x: i64) -> i64 attributes {total} {
     return %x : i64
   }
-  idr.func private @Main.p(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 attributes {total} {
+  idr.func @Main.p(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64
     %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
     %z = arith.addi %y, %c1 : i64
     return %z : i64
   }
-  idr.func private @Main.q(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 attributes {total} {
+  idr.func @Main.q(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 attributes {total} {
     %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
     %z = arith.addi %y, %y : i64
     return %z : i64
   }
-  idr.func private @Main.ping(%n: i64) -> !idr.fn<(i64) -> (i64)> {
+  idr.func @Main.ping(%n: i64) -> !idr.fn<(i64) -> (i64)> {
     %r = idr.match_lit %n : i64 -> (!idr.fn<(i64) -> (i64)>) {
     case 0 {
       %f = idr.closure @Main.zero() : () -> !idr.fn<(i64) -> (i64)>
@@ -49,7 +49,7 @@ module {
     }
     return %r : !idr.fn<(i64) -> (i64)>
   }
-  idr.func private @Main.pong(%n: i64) -> !idr.fn<(i64) -> (i64)> {
+  idr.func @Main.pong(%n: i64) -> !idr.fn<(i64) -> (i64)> {
     %c1 = arith.constant 1 : i64
     %m = arith.subi %n, %c1 : i64
     %g = idr.call @Main.ping(%m) : (i64) -> !idr.fn<(i64) -> (i64)>

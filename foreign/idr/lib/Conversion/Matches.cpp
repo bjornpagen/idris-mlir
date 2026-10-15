@@ -11,6 +11,8 @@
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/PatternMatch.h"
 
+#include <optional>
+
 using namespace mlir;
 
 namespace idr::conversion {
@@ -38,20 +40,17 @@ void moveBody(RewriterBase &rewriter, Region &from, Block *into, ValueRange args
 }
 
 // What a case region's arguments stand for, read at the end of `into`: the
-// fields of the constructor `ctor` names (its tag `tag`) read from the
-// scrutinee's value, each held as the region binds it, or for the default
-// region (no `ctor`) the scrutinee itself. `data` is the scrutinee's type.
+// fields of the constructor `tag` read from the scrutinee's value, each held
+// as the region binds it, or for the default region (no tag) the scrutinee
+// itself.
 SmallVector<Value> readFields(RewriterBase &rewriter, Region &region, Block *into, Value value,
-                              DataType data, FlatSymbolRefAttr ctor, unsigned tag) {
+                              std::optional<unsigned> tag) {
   rewriter.setInsertionPointToEnd(into);
   SmallVector<Value> fields;
   for (BlockArgument field : region.front().getArguments()) {
     Value read = value;
-    unsigned index = field.getArgNumber();
-    if (ctor)
-      read = FieldOp::create(rewriter, field.getLoc(),
-                             fieldType(value.getType(), data.getCtor(tag).fields[index]), value,
-                             ctor, rewriter.getI64IntegerAttr(index));
+    if (tag)
+      read = FieldOp::create(rewriter, field.getLoc(), value, *tag, field.getArgNumber());
     fields.push_back(heldAs(rewriter, field.getLoc(), read, field.getType()));
   }
   return fields;
@@ -65,15 +64,11 @@ void lowerMatch(RewriterBase &rewriter, MatchOp op) {
   rewriter.setInsertionPoint(op);
   Value scrutinee =
       heldAs(rewriter, loc, op.getScrutinee(), unrestricted(op.getScrutinee().getType()));
-  DataType data = op.getDataType();
-  auto names = llvm::to_vector(op.getCases().getAsRange<FlatSymbolRefAttr>());
-  unsigned cases = static_cast<unsigned>(names.size());
+  auto cases = static_cast<unsigned>(op.getCases().size());
   Region *fallback = op.getDefaultRegion();
-  FlatSymbolRefAttr fallbackCtor;
-  unsigned fallbackTag = 0;
+  std::optional<unsigned> fallbackTag;
   if (!fallback) {
     fallback = &op.getCaseRegion(--cases);
-    fallbackCtor = names[cases];
     fallbackTag = op.getCaseTag(cases);
   }
   SmallVector<int64_t> tags;
@@ -83,14 +78,14 @@ void lowerMatch(RewriterBase &rewriter, MatchOp op) {
   Value index = arith::IndexCastOp::create(rewriter, loc, rewriter.getIndexType(), tag);
   TypeRange results = op.getResultTypes();
   auto switchOp = scf::IndexSwitchOp::create(rewriter, loc, results, index, tags, cases);
-  auto move = [&](Region &from, Region &to, FlatSymbolRefAttr ctor, unsigned tag) {
+  auto move = [&](Region &from, Region &to, std::optional<unsigned> ctor) {
     Block *into = rewriter.createBlock(&to);
-    SmallVector<Value> fields = readFields(rewriter, from, into, scrutinee, data, ctor, tag);
+    SmallVector<Value> fields = readFields(rewriter, from, into, scrutinee, ctor);
     moveBody(rewriter, from, into, fields, results);
   };
   for (unsigned i = 0; i < cases; ++i)
-    move(op.getCaseRegion(i), switchOp.getCaseRegions()[i], names[i], op.getCaseTag(i));
-  move(*fallback, switchOp.getDefaultRegion(), fallbackCtor, fallbackTag);
+    move(op.getCaseRegion(i), switchOp.getCaseRegions()[i], op.getCaseTag(i));
+  move(*fallback, switchOp.getDefaultRegion(), fallbackTag);
   rewriter.replaceOp(op, switchOp.getResults());
 }
 

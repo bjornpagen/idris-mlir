@@ -65,7 +65,7 @@ void Record::fill(std::size_t node) {
       break;
     auto src = static_cast<std::size_t>(nodes[node].src);
     bool deflt = nodes[node].deflt;
-    StringAttr ctor = nodes[node].ctor;
+    unsigned tag = nodes[node].tag;
     unsigned arg = nodes[node].arg;
     Type type = nodes[node].type;
     fill(src);
@@ -74,7 +74,7 @@ void Record::fill(std::size_t node) {
       if (!scr)
         continue;
       memo[node].parts[slot] =
-          deflt ? scr : std::optional<unsigned>(parts[slot].field(*scr, ctor, arg, type));
+          deflt ? scr : std::optional<unsigned>(parts[slot].field(*scr, tag, arg, type));
     }
     break;
   }
@@ -88,13 +88,13 @@ void Record::fill(std::size_t node) {
     if (nodes[node].memo)
       break;
     auto src = static_cast<std::size_t>(nodes[node].src);
-    StringAttr ctor = nodes[node].ctor;
+    unsigned tag = nodes[node].tag;
     unsigned arg = nodes[node].arg;
     Type type = nodes[node].type;
     fill(src);
     for (unsigned slot = 0; slot < slots; ++slot)
       if (std::optional<unsigned> of = memo[src].parts[slot])
-        memo[node].parts[slot] = parts[slot].field(*of, ctor, arg, type);
+        memo[node].parts[slot] = parts[slot].field(*of, tag, arg, type);
     break;
   }
   case Node::Pred: {
@@ -144,25 +144,25 @@ std::optional<unsigned> Record::partOf(int node, unsigned slot) {
   return memo[id].parts[slot];
 }
 
-StringAttr Record::singleCtor(Type type) {
+std::optional<unsigned> Record::singleCtor(Type type) {
   if (auto it = oneCtor.find(type); it != oneCtor.end())
     return it->second;
-  StringAttr ctor;
+  std::optional<unsigned> tag;
   if (DataType data = dataTypeOf(type); data && data.getCtors().size() == 1)
-    ctor = data.getCtors().front().name;
-  oneCtor[type] = ctor;
-  return ctor;
+    tag = 0;
+  oneCtor[type] = tag;
+  return tag;
 }
 
-Record::Known Record::knownAt(unsigned part, ArrayRef<Frame> frames,
-                                                      unsigned slot) {
+Record::Known Record::knownAt(unsigned part, ArrayRef<Frame> frames, unsigned slot) {
   for (const Frame &frame : frames) {
     std::optional<unsigned> scrutinee = partOf(frame.scrutinee, slot);
-    if (!scrutinee || *scrutinee != part || !frame.named)
+    if (!scrutinee || *scrutinee != part)
       continue;
-    if (frame.lit)
-      return {{}, frame.literal};
-    return {frame.ctor, {}};
+    if (frame.lit && frame.literal)
+      return {std::nullopt, frame.literal};
+    if (!frame.lit && frame.tag)
+      return {frame.tag, {}};
   }
   return {singleCtor(parts[slot][part].type), {}};
 }
@@ -187,14 +187,13 @@ bool Record::rebuilds(int node, unsigned part, ArrayRef<Frame> frames, unsigned 
   }
 }
 
-bool Record::rebuildsCon(std::size_t node, unsigned part, ArrayRef<Frame> frames,
-                                     unsigned slot) {
+bool Record::rebuildsCon(std::size_t node, unsigned part, ArrayRef<Frame> frames, unsigned slot) {
   const Node &con = nodes[node];
-  if (con.memo || knownAt(part, frames, slot).ctor != con.ctor ||
+  if (con.memo || knownAt(part, frames, slot).tag != con.tag ||
       unrestricted(con.type) != parts[slot][part].type)
     return false;
   for (auto [at, field] : llvm::enumerate(con.ops)) {
-    unsigned sub = parts[slot].field(part, con.ctor, static_cast<unsigned>(at), con.types[at]);
+    unsigned sub = parts[slot].field(part, con.tag, static_cast<unsigned>(at), con.types[at]);
     if (!rebuilds(field, sub, frames, slot))
       return false;
   }
@@ -204,7 +203,7 @@ bool Record::rebuildsCon(std::size_t node, unsigned part, ArrayRef<Frame> frames
 // `S k` is n where k is n's predecessor: n is not zero, as the predecessor
 // op that k was read through shows by running at all.
 bool Record::rebuildsSuccessor(std::size_t node, unsigned part, ArrayRef<Frame> frames,
-                                           unsigned slot) {
+                               unsigned slot) {
   if (!isa<NatType>(parts[slot][part].type) || nodes[node].src < 0)
     return false;
   return rebuilds(nodes[node].src, parts[slot].predecessor(part), frames, slot);
@@ -225,11 +224,11 @@ bool Record::rebuildsJoin(std::size_t node, unsigned part, unsigned slot) {
 }
 
 bool Record::rebuildsConstant(std::size_t node, unsigned part, ArrayRef<Frame> frames,
-                                          unsigned slot) {
+                              unsigned slot) {
   Known known = knownAt(part, frames, slot);
   if (known.literal)
     return nodes[node].attr == known.literal;
-  if (!nodes[node].isCon || nodes[node].conRun || !known.ctor || nodes[node].ctor != known.ctor ||
+  if (!nodes[node].isCon || nodes[node].conRun || known.tag != nodes[node].tag ||
       unrestricted(nodes[node].type) != parts[slot][part].type)
     return false;
   return nodes[node].fieldless;
@@ -267,8 +266,7 @@ void Record::evaluate(const Assumed &assumed) {
   live = nullptr;
 }
 
-SmallVector<unsigned, 1> Record::givesBack(ArrayRef<unsigned> asked,
-                                                        const Assumed &assumed) {
+SmallVector<unsigned, 1> Record::givesBack(ArrayRef<unsigned> asked, const Assumed &assumed) {
   if (!cached || !stable(assumed))
     evaluate(assumed);
   SmallVector<unsigned, 1> kept;

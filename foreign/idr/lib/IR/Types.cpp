@@ -1,17 +1,22 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The dialect's types: their generated definitions and their spellings,
-// with the storage of a data type, which they need complete; the data
-// type's body, set once and checked when it is; the canonical forms of
-// !idr.q, the destination's carrier, and the names the printer gives a
+// with the storage of a data type, which they need complete, and what
+// touches it: the body, made with the type, and the facts of what its
+// values hold, kept beside it under the context's lock; the canonical forms
+// of !idr.q, the destination's carrier, and the names the printer gives a
 // value of each type. A graded value takes its carrier's name, so a world
-// is %w and a linear string %s.
+// is %w and a linear string %s. How a body is checked and written is
+// lib/IR/DataBody.cpp's, and what a value holds lib/IR/ValueFacts.cpp's.
 
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include "llvm/Support/ErrorHandling.h"
+
+#include <array>
 
 using namespace mlir;
 using namespace idr;
@@ -22,12 +27,24 @@ using namespace idr;
 
 namespace idr::detail {
 
-// A data type is identified by its name, the key, which holds no type, so
-// upstream's walkers and replacers see the type as an atom. The body is the
-// mutable part, set once as an LLVM identified struct's is
+// What a value of a data type holds, kept, and asked for: the two other
+// changes of a data type's storage, each made under the context's lock.
+struct KeptFacts {
+  uint8_t bits;
+};
+struct ReadFacts {
+  uint8_t *into;
+};
+
+// A data type is identified by its name, the key, which holds no type. The
+// body is the mutable part, set once as an LLVM identified struct's is
 // (TypeDetail.h's mutate): a second setting succeeds only with the same
 // body. The constructors and their fields live in the context's allocator,
-// as the type does, and so does an index of the tags by name.
+// as the type does, and so do an index of the tags by name and the tag of
+// each role a sum has one of. What a value of the type holds is kept beside
+// the body once it is known; it is written and read as the body is set,
+// through the uniquer's mutate, under the lock the context takes for it, so
+// threads that ask at once each see the bits whole.
 struct DataTypeStorage : TypeStorage {
   using KeyTy = StringRef;
 
@@ -40,23 +57,37 @@ struct DataTypeStorage : TypeStorage {
   }
   KeyTy getAsKey() const { return name; }
 
-  LogicalResult mutate(TypeStorageAllocator &allocator, SumKind newKind, ArrayRef<Ctor> newCtors,
-                       InstanceAttr newInstance) {
+  LogicalResult mutate(TypeStorageAllocator &allocator, const DataType::Body &body) {
     if (initialized)
-      return success(kind == newKind && instance == newInstance && ctors == newCtors);
+      return success(kind == body.kind && instance == body.instance &&
+                     ctors == ArrayRef<Ctor>(body.ctors));
     SmallVector<Ctor> copied;
-    copied.reserve(newCtors.size());
-    for (const Ctor &ctor : newCtors)
-      copied.push_back({ctor.name, allocator.copyInto(ctor.fields), ctor.byName});
+    copied.reserve(body.ctors.size());
+    for (const Ctor &ctor : body.ctors)
+      copied.push_back(
+          {ctor.name, allocator.copyInto(ctor.fields), ctor.byName, ctor.role, ctor.fn});
     ctors = allocator.copyInto(ArrayRef<Ctor>(copied));
-    SmallVector<unsigned> order = llvm::to_vector(llvm::seq<unsigned>(0, static_cast<unsigned>(ctors.size())));
+    SmallVector<unsigned> order =
+        llvm::to_vector(llvm::seq<unsigned>(0, static_cast<unsigned>(ctors.size())));
     llvm::sort(order, [&](unsigned a, unsigned b) {
       return ctors[a].name.getValue() < ctors[b].name.getValue();
     });
     byName = allocator.copyInto(ArrayRef<unsigned>(order));
-    kind = newKind;
-    instance = newInstance;
+    for (auto [tag, ctor] : llvm::enumerate(ctors))
+      roleTags[static_cast<unsigned>(ctor.role)] = static_cast<unsigned>(tag);
+    kind = body.kind;
+    instance = body.instance;
     initialized = true;
+    return success();
+  }
+
+  LogicalResult mutate(TypeStorageAllocator &, KeptFacts kept) {
+    facts = kept.bits;
+    return success();
+  }
+
+  LogicalResult mutate(TypeStorageAllocator &, ReadFacts read) {
+    *read.into = facts;
     return success();
   }
 
@@ -67,6 +98,11 @@ struct DataTypeStorage : TypeStorage {
   InstanceAttr instance;
   // The tags, in the order of their constructors' names.
   ArrayRef<unsigned> byName;
+  // By role, the tag of the constructor a sum has one of in that role; the
+  // body's rules say which roles those are.
+  std::array<unsigned, 6> roleTags{};
+  // What a value holds, ValueFacts.cpp's bits, none until they are known.
+  uint8_t facts = 0;
 };
 
 } // namespace idr::detail
@@ -74,11 +110,14 @@ struct DataTypeStorage : TypeStorage {
 #define GET_TYPEDEF_CLASSES
 #include "idr/IR/IdrTypes.cpp.inc"
 
+#include "idr/IR/IdrTypeInterfaces.cpp.inc"
+
 void IdrDialect::registerTypes() {
   addTypes<
 #define GET_TYPEDEF_LIST
 #include "idr/IR/IdrTypes.cpp.inc"
       >();
+  registerValueFacts();
 }
 
 //===----------------------------------------------------------------------===//
@@ -89,20 +128,15 @@ DataType DataType::get(MLIRContext *context, StringRef identifier) {
   return Base::get(context, identifier);
 }
 
-DataType DataType::getChecked(function_ref<InFlightDiagnostic()> emitError, MLIRContext *context,
-                              StringRef identifier) {
-  if (identifier.empty()) {
-    emitError() << "expects a data type to have a name";
-    return {};
-  }
-  return Base::get(context, identifier);
-}
-
 StringRef DataType::getName() const { return getImpl()->name; }
-bool DataType::hasBody() const { return getImpl()->initialized; }
 SumKind DataType::getKind() const { return getImpl()->kind; }
 ArrayRef<Ctor> DataType::getCtors() const { return getImpl()->ctors; }
-const Ctor &DataType::getCtor(unsigned tag) const { return getImpl()->ctors[tag]; }
+
+const Ctor &DataType::getCtor(unsigned tag) const {
+  assert(tag < getImpl()->ctors.size() && "a constructor of the data type");
+  return getImpl()->ctors[tag];
+}
+
 InstanceAttr DataType::getInstance() const { return getImpl()->instance; }
 
 std::optional<unsigned> DataType::getTag(StringRef ctor) const {
@@ -115,161 +149,70 @@ std::optional<unsigned> DataType::getTag(StringRef ctor) const {
   return *it;
 }
 
-bool DataType::isLabel(unsigned tag) const {
-  if (isClosures())
-    return true;
-  return isMemo() && tag < getRunningTag();
+unsigned DataType::roleTag(CtorRole role) const {
+  unsigned tag = getImpl()->roleTags[static_cast<unsigned>(role)];
+  assert(tag < getImpl()->ctors.size() && getImpl()->ctors[tag].role == role &&
+         "a role the data type has one constructor of");
+  return tag;
 }
 
-namespace {
-
-// The rules of a well-formed sum, checked once, when its body is set: so a
-// type with a body has them, and no op that meets one checks them again.
-LogicalResult checkBody(DataType type, function_ref<InFlightDiagnostic()> emitError, SumKind kind,
-                        ArrayRef<Ctor> ctors) {
-  StringRef name = type.getName();
-  llvm::SmallDenseSet<StringAttr, 8> names;
-  for (const Ctor &ctor : ctors) {
-    if (!ctor.name || ctor.name.getValue().empty())
-      return emitError() << "the data type \"" << name << "\" has a constructor without a name";
-    if (!names.insert(ctor.name).second)
-      return emitError() << "the data type \"" << name << "\" has two constructors @"
-                         << ctor.name.getValue();
-    for (Type field : ctor.fields)
-      if (!isFieldType(field))
-        return emitError() << "the constructor @" << ctor.name.getValue() << " of \"" << name
-                           << "\" has a field of unsupported type " << field;
-  }
-  if (kind == SumKind::Memo) {
-    size_t n = ctors.size();
-    if (n < 2 || ctors[n - 2].name.getValue() != memoRunning || !ctors[n - 2].fields.empty() ||
-        ctors[n - 1].name.getValue() != memoForced || ctors[n - 1].fields.size() != 1)
-      return emitError() << "the memo sum \"" << name << "\" ends in its states @" << memoRunning
-                         << ", with no field, and @" << memoForced << ", with the value";
-    // Only a label runs at a force, so only a label is by name.
-    if (ctors[n - 2].byName || ctors[n - 1].byName)
-      return emitError() << "the memo sum \"" << name
-                         << "\" has a state by_name, which only a label is";
-    return success();
-  }
-  for (const Ctor &ctor : ctors)
-    if (ctor.byName)
-      return emitError() << "the constructor @" << ctor.name.getValue() << " of \"" << name
-                         << "\" is by_name, which only a label of a memo sum is";
-  if (kind == SumKind::BaseList) {
-    // The string ops walk and build base's list by its shape, which the
-    // registry names and this states once.
-    bool shaped = ctors.size() == 2 && ctors[DataType::listNil].fields.empty() &&
-                  ctors[DataType::listCons].fields.size() == 2 &&
-                  unrestricted(ctors[DataType::listCons].fields[1]) == BoxType::get(type);
-    if (!shaped)
-      return emitError() << "the list \"" << name
-                         << "\" is a nil without fields, then a cons of an element and the list "
-                            "in a box";
-  }
-  return success();
+void DataType::walkLabels(DataType type, function_ref<void(Attribute)> walk) {
+  for (const Ctor &ctor : type.getCtors())
+    if (ctor.fn)
+      walk(ctor.fn);
 }
 
-} // namespace
+// A body is set once, so a label's function cannot be replaced inside the
+// type: the type with the new label is another type, and so is every type
+// whose body holds it, which only a remap of the whole module makes
+// (DataRemap, given the rename). A replacer that reaches a label here,
+// renaming it as replaceAllSymbolUses would, would leave every value of
+// the type naming the old function.
+Type DataType::replaceLabels(DataType type, ArrayRef<Attribute> labels) {
+  ArrayRef<Attribute> rest = labels;
+  for (const Ctor &ctor : type.getCtors()) {
+    if (!ctor.fn)
+      continue;
+    if (rest.empty() || rest.front() != ctor.fn)
+      llvm::reportFatalInternalError(
+          "the label @" + ctor.name.getValue() + " of the data type \"" + type.getName() +
+          "\" renamed in place; a renamed label's data types are remade (DataRemap)");
+    rest = rest.drop_front();
+  }
+  return type;
+}
 
-LogicalResult DataType::setBody(function_ref<InFlightDiagnostic()> emitError, SumKind kind,
-                                ArrayRef<Ctor> ctors, InstanceAttr instance) {
-  if (failed(checkBody(*this, emitError, kind, ctors)))
+bool DataType::bodySet() const { return getImpl()->initialized; }
+
+uint8_t DataType::knownFacts() const {
+  uint8_t bits = 0;
+  (void)DataType(*this).mutate(detail::ReadFacts{&bits});
+  return bits;
+}
+
+void DataType::keepFacts(uint8_t bits) const {
+  (void)DataType(*this).mutate(detail::KeptFacts{bits});
+}
+
+LogicalResult DataType::setBody(function_ref<InFlightDiagnostic()> emitError, const Body &body) {
+  if (failed(verifyBody(*this, emitError, body)))
     return failure();
-  if (failed(Base::mutate(kind, ctors, instance)))
+  if (failed(Base::mutate(body)))
     return emitError() << "the data type \"" << getName() << "\" has another body already";
   return success();
 }
 
-// `<"T">` inside the type's own body, `<"T", kind [@C(fields), ...]
-// instance #idr.instance<...>>` everywhere else: the way LLVM writes an
-// identified struct, which ends a cycle of types at its name.
-void DataType::print(AsmPrinter &printer) const {
-  FailureOr<AsmPrinter::CyclicPrintReset> cyclic = printer.tryStartCyclicPrint(*this);
-  printer << '<';
-  printer.printString(getName());
-  if (failed(cyclic) || !hasBody()) {
-    printer << '>';
-    return;
-  }
-  printer << ", " << stringifySumKind(getKind()) << " [";
-  llvm::interleaveComma(getCtors(), printer, [&](const Ctor &ctor) {
-    printer.printSymbolName(ctor.name.getValue());
-    printer << '(';
-    llvm::interleaveComma(ctor.fields, printer);
-    printer << ')';
-    if (ctor.byName)
-      printer << " by_name";
-  });
-  printer << ']';
-  if (InstanceAttr instance = getInstance())
-    printer << " instance " << instance;
-  printer << '>';
-}
-
-Type DataType::parse(AsmParser &parser) {
-  MLIRContext *context = parser.getContext();
-  SMLoc nameLoc = parser.getCurrentLocation();
-  std::string identifier;
-  if (parser.parseLess() || parser.parseString(&identifier))
-    return {};
-  DataType type = getChecked([&] { return parser.emitError(nameLoc); }, context, identifier);
-  if (!type)
-    return {};
-  // The name alone: only where the type's own body is being read, which
-  // has the body to come.
-  if (succeeded(parser.parseOptionalGreater())) {
-    if (succeeded(parser.tryStartCyclicParse(type))) {
-      parser.emitError(nameLoc, "a data type is written without its body only inside its own body");
-      return {};
-    }
-    return type;
-  }
-  FailureOr<AsmParser::CyclicParseReset> cyclic = parser.tryStartCyclicParse(type);
-  if (failed(cyclic)) {
-    parser.emitError(nameLoc) << "the data type \"" << identifier
-                              << "\" is written with its body inside its own body";
-    return {};
-  }
-  if (parser.parseComma())
-    return {};
-  SMLoc kindLoc = parser.getCurrentLocation();
-  StringRef keyword;
-  if (parser.parseKeyword(&keyword))
-    return {};
-  std::optional<SumKind> kind = symbolizeSumKind(keyword);
-  if (!kind) {
-    parser.emitError(kindLoc, "expects the kind of sum: plain, list, in_place, closures or memo");
-    return {};
-  }
-  SMLoc bodyLoc = parser.getCurrentLocation();
-  SmallVector<StringAttr> names;
-  SmallVector<SmallVector<Type>> fields;
-  SmallVector<bool> byName;
-  auto parseCtor = [&]() -> ParseResult {
-    StringAttr ctorName;
-    SmallVector<Type> ctorFields;
-    if (parser.parseSymbolName(ctorName) ||
-        parser.parseCommaSeparatedList(AsmParser::Delimiter::Paren, [&]() {
-          return parser.parseType(ctorFields.emplace_back());
-        }))
-      return failure();
-    names.push_back(ctorName);
-    fields.push_back(std::move(ctorFields));
-    byName.push_back(succeeded(parser.parseOptionalKeyword("by_name")));
-    return success();
+DataType DataType::define(MLIRContext *context, StringRef identifier,
+                          function_ref<Body(DataType self)> body) {
+  auto emitError = [&] {
+    return mlir::emitError(UnknownLoc::get(context)) << "internal error: ";
   };
-  if (parser.parseCommaSeparatedList(AsmParser::Delimiter::Square, parseCtor))
+  if (identifier.empty()) {
+    emitError() << "a data type has no name";
     return {};
-  InstanceAttr instance;
-  if (succeeded(parser.parseOptionalKeyword("instance")) && parser.parseAttribute(instance))
-    return {};
-  if (parser.parseGreater())
-    return {};
-  SmallVector<Ctor> ctors;
-  for (auto [ctorName, ctorFields, isByName] : llvm::zip_equal(names, fields, byName))
-    ctors.push_back({ctorName, ctorFields, isByName});
-  if (failed(type.setBody([&] { return parser.emitError(bodyLoc); }, *kind, ctors, instance)))
+  }
+  DataType type = get(context, identifier);
+  if (failed(type.setBody(emitError, body(type))))
     return {};
   return type;
 }

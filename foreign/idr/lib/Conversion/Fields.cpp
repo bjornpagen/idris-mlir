@@ -14,12 +14,11 @@ namespace idr::conversion {
 
 namespace {
 
-// The value a field was given on as: through the changes of grade that
-// have no runtime form (idr.share, idr.lin.enter, idr.lin.use) to the
-// value that holds the reference.
+// The value a field was given on as: through the changes of grade, which
+// have no runtime form, to the value that holds the reference.
 Value moved(Value value) {
   while (Operation *def = value.getDefiningOp()) {
-    if (!isa<ShareOp, LinEnterOp, LinUseOp>(def))
+    if (!def->hasTrait<ResultCarriesOperand>())
       break;
     value = def->getOperand(0);
   }
@@ -28,14 +27,16 @@ Value moved(Value value) {
 
 } // namespace
 
-Fields::Fields(ModuleOp module) {
-  module.walk([&](ReuseOp reuse) {
+Fields::Fields(Operation *program) {
+  program->walk([&](ReuseOp reuse) {
     auto take = reuse.getToken().getDefiningOp<TakeOp>();
-    if (!take || take.getCtor() != reuse.getCtor())
+    if (!take || take.getDataType() != reuse.getDataType() || take.getTag() != reuse.getTag())
       return;
     SmallVector<bool> &mask = keptFields[reuse];
-    for (auto [field, taken] : llvm::zip_equal(reuse.getFields(), take.getFields()))
-      mask.push_back(moved(field) == taken);
+    for (auto [index, taken] : llvm::enumerate(take.getFields())) {
+      Value field = reuse.getField(static_cast<unsigned>(index));
+      mask.push_back(field && moved(field) == taken);
+    }
   });
 }
 

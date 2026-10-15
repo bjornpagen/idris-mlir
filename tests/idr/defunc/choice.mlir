@@ -8,20 +8,20 @@
 // left is no closure.
 // CHECK: ![[F0:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@add(i64), @dbl()]
 // CHECK-NOT: !idr.fn
-module {
-  idr.func private @add(%a: i64, %x: i64) -> i64 attributes {total} {
+idr.program @choice root(@Main.main) stage(higher) {
+  idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64
     return %y : i64
   }
-  idr.func private @dbl(%x: i64) -> i64 attributes {total} {
+  idr.func @dbl(%x: i64) -> i64 attributes {total} {
     %y = arith.addi %x, %x : i64
     return %y : i64
   }
-  // CHECK-LABEL: idr.func private @pick(
+  // CHECK-LABEL: idr.func @pick(
   // CHECK-SAME: -> ![[F0]]
-  // CHECK: con @add(%{{.*}}) : (i64) -> ![[F0]]
-  // CHECK: con @dbl() : () -> ![[F0]]
-  idr.func private @pick(%n: i64) -> !idr.fn<(i64) -> (i64)> attributes {total} {
+  // CHECK: con ![[F0]] @add(%{{.*}} : i64)
+  // CHECK: con ![[F0]] @dbl()
+  idr.func @pick(%n: i64) -> !idr.fn<(i64) -> (i64)> attributes {total} {
     %r = idr.match_lit %n : i64 -> (!idr.fn<(i64) -> (i64)>) {
     case 0 {
       %c1 = arith.constant 1 : i64

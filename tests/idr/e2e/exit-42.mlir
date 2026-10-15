@@ -4,8 +4,8 @@
 // A `main : Int` root: its result, 42, is the exit status. The area comes
 // from a function that is not total, so it is not evaluated and runs.
 !Shape = !idr.data<"Shape", plain [@Circle(i64), @Rect(i64, i64)]>
-module {
-  idr.func private @area(%s: !Shape) -> i64 {
+idr.program @"exit-42" root(@Prog.main) stage(higher) {
+  idr.func @area(%s: !Shape) -> i64 {
     %r = idr.match %s : !Shape -> (i64) {
     case @Circle(%x: i64) {
       %c3 = arith.constant 3 : i64
@@ -23,7 +23,7 @@ module {
   idr.func @Prog.main() -> i64 {
     %c6 = arith.constant 6 : i64
     %c7 = arith.constant 7 : i64
-    %s = idr.con @Rect(%c6, %c7) : (i64, i64) -> !Shape
+    %s = idr.con !Shape @Rect(%c6 : i64, %c7 : i64)
     %a = idr.call @area(%s) : (!Shape) -> i64
     return %a : i64
   }

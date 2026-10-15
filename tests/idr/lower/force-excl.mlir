@@ -1,35 +1,51 @@
-// RUN: idris-mlir-opt %s --idr-lower | FileCheck %s --implicit-check-not=llvm.store
-// The force of a memo cell nothing else holds is its only one, so nothing
-// is memoized: the captures, or the value, move out, the cell's memory
-// goes, and the cell is never written. A cell in a label's state calls the
-// label's function directly with its captures after its memory is freed.
-// CHECK-LABEL: func.func private @once(
-// CHECK: llvm.call @idris_rt_crash(
-// CHECK: scf.index_switch
-// CHECK: case 0 {
-// CHECK: llvm.call @idris_rt_free_cell(
-// CHECK: call @one() : () -> i64
-// CHECK: case 1 {
-// CHECK: %[[X:.*]] = llvm.load
-// CHECK: llvm.call @idris_rt_free_cell(
-// CHECK: call @plus(%[[X]]) : (i64) -> i64
-// CHECK: default {
-// CHECK: llvm.load
-// CHECK: llvm.call @idris_rt_free_cell(
-// CHECK: return
-!lazy$0 = !idr.data<"lazy$0", memo [@one(), @plus(i64), @running(), @forced(i64)]>
-module {
-  idr.func private @one() -> i64 attributes {total} {
+// RUN: idris-mlir-opt %s --idr-lower '--idr-expect=holds=lowered,direct-calls,writes-nothing=@once,calls=@once:@one,calls=@once:@plus,calls-only=@once:[@one,@plus,@idris_rt_free_cell,@idris_rt_crash],crash-sites=@once:1' -o /dev/null
+// NEEDS-ACCEPTANCE: the form a force of an exclusive memo cell takes after idr-rc (R09, R06): its state taken apart and its token freed, with no idr.memo.enter or idr.memo.settle; and the syntax of idr.take of a constructor without fields.
+// A memo cell nothing else holds is forced once, so nothing is memoized:
+// its captures, or its value, move out of it, its memory goes, and the
+// cell is never written. A cell in a label's state calls the label's
+// function directly with its captures, after its memory is freed.
+!Thunk = !idr.data<"Thunk", memo [@one() label @one, @plus(i64) label @plus, @running() running, @forced(i64) forced]>
+idr.program @"force-excl" root(@Main.main) stage(owned) {
+  idr.func @one() -> i64 attributes {total} {
     %c = arith.constant 1 : i64
     return %c : i64
   }
-  idr.func private @plus(%x: i64) -> i64 attributes {total} {
+  idr.func @plus(%x: i64) -> i64 attributes {total} {
     %c = arith.constant 1 : i64
     %y = arith.addi %x, %c : i64
     return %y : i64
   }
-  idr.func private @once(%t: !idr.excl<!idr.box<!lazy$0>>) -> i64 {
-    %v = idr.force %t : !idr.excl<!idr.box<!lazy$0>> -> i64
+  idr.func @once(%t: !idr.excl<!idr.box<!Thunk>>) -> i64 {
+    %v = idr.borrow %t : !idr.excl<!idr.box<!Thunk>>
+    %r = idr.match %v : !idr.q<many, borrow, !idr.box<!Thunk>> -> (i64) {
+    case @one() {
+      %k = idr.take %t : !idr.excl<!idr.box<!Thunk>> @one -> (!idr.excl<!idr.token>)
+      idr.drop %k : !idr.excl<!idr.token>
+      %y = idr.call @one() : () -> i64
+      idr.yield %y : i64
+    }
+    case @plus(%x: i64) {
+      %k:2 = idr.take %t : !idr.excl<!idr.box<!Thunk>> @plus -> (!idr.excl<!idr.token>, i64)
+      idr.drop %k#0 : !idr.excl<!idr.token>
+      %y = idr.call @plus(%k#1) : (i64) -> i64
+      idr.yield %y : i64
+    }
+    case @running() {
+      idr.crash "a suspension forced itself"
+      ub.unreachable
+    }
+    case @forced(%f: i64) {
+      %k:2 = idr.take %t : !idr.excl<!idr.box<!Thunk>> @forced -> (!idr.excl<!idr.token>, i64)
+      idr.drop %k#0 : !idr.excl<!idr.token>
+      idr.yield %k#1 : i64
+    }
+    }
+    return %r : i64
+  }
+  idr.func @Main.main() -> i64 {
+    %two = arith.constant 2 : i64
+    %t = idr.con !idr.excl<!idr.box<!Thunk>> @plus(%two : i64)
+    %v = idr.call @once(%t) : (!idr.excl<!idr.box<!Thunk>>) -> i64
     return %v : i64
   }
 }

@@ -5,7 +5,7 @@
 // Every function starts on a 64-byte line, main among them: each function
 // symbol's address in the object is a multiple of 64, on ELF and Mach-O.
 // CHECK: {{[Tt] _?main$}}
-module {
+idr.program @layout root(@Prog.main) stage(higher) {
   idr.func @Prog.main() -> i64 {
     %c = arith.constant 42 : i64
     return %c : i64

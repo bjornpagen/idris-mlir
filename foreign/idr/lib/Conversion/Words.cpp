@@ -29,8 +29,10 @@ Value at(OpBuilder &b, Location loc, Value cell, unsigned offset) {
                              ArrayRef<LLVM::GEPArg>{static_cast<int32_t>(offset)});
 }
 
-unsigned alignAt(unsigned offset) {
-  return static_cast<unsigned>(llvm::MinAlign(IDRIS_RT_WORD_BYTES, offset));
+unsigned cellAlignment() { return IDRIS_RT_WORD_BYTES; }
+
+unsigned alignAt(unsigned base, unsigned offset) {
+  return static_cast<unsigned>(llvm::MinAlign(base, offset));
 }
 
 Value nullComponent(OpBuilder &b, Location loc, Type component) {

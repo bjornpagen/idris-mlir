@@ -18,8 +18,9 @@ namespace idr {
 
 namespace bufferize {
 
-// The bufferization models of the idr ops that hold tensors, and of
-// ub.poison, which upstream gives none.
+// The bufferization models of the idr ops that hold tensors, upstream's
+// own for idr.func, idr.call and idr.return, and of ub.poison, which
+// upstream gives none.
 void registerModels(mlir::DialectRegistry &registry);
 
 // Whether `op` copies an array because a write could not be in place: a

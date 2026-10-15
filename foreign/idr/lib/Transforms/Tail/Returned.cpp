@@ -16,19 +16,20 @@
 // Only a private function every use of which is a direct call changes its
 // signature. A result that is an argument on some paths only stays, and so
 // does one returned only by calls that never return (unconstrained at the
-// fixpoint). The fixpoint is serial: what one function's returns are
-// depends on what its callees' are, as the solve stands.
+// fixpoint).
 //
 //===----------------------------------------------------------------------===//
 
 #include "idr/Transforms/Tail.h"
 
+#include "mlir/Analysis/CallGraph.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/SymbolTable.h"
+#include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/SetVector.h"
 
 using namespace mlir;
@@ -161,43 +162,46 @@ Returned::Returned(Operation *op) {
     calls.push_back(uses);
   }
 
-  // A function is walked again only when a callee's result changed: a
-  // result only meets down from unconstrained, so the greatest fixpoint
-  // does not depend on the order, and walking every function whenever any
-  // one changed would walk the module once per function on a chain of
-  // calls.
-  auto callerOf = [&](Operation *call) -> std::optional<unsigned> {
-    auto caller = call->getParentOfType<func::FuncOp>();
-    auto it = caller ? slots.find(caller.getSymNameAttr()) : slots.end();
-    return it != slots.end() ? std::optional<unsigned>(it->second) : std::nullopt;
-  };
-  SmallVector<llvm::SetVector<unsigned>> callers(eligible.size());
-  for (auto [callee, uses] : llvm::enumerate(calls))
-    for (Operation *call : uses)
-      if (std::optional<unsigned> caller = callerOf(call))
-        callers[callee].insert(*caller);
+  // What a function returns depends on what its callees return, never on
+  // its callers, so the cycles of the call graph are solved callees first,
+  // each once every function it calls outside it is final. Within one, a
+  // function is walked again only when a callee on it changed: a result
+  // only meets down from unconstrained, twice at most, so the walks end, and
+  // the greatest fixpoint does not depend on their order.
   SmallVector<SmallVector<Known>> results;
   for (func::FuncOp fn : eligible)
     results.emplace_back(fn.getNumResults(), Known());
   Solver solver(slots, results);
-  llvm::SetVector<unsigned> work;
-  for (unsigned i = static_cast<unsigned>(eligible.size()); i > 0; --i)
-    work.insert(i - 1);
-  while (!work.empty()) {
-    unsigned i = work.pop_back_val();
-    func::FuncOp fn = eligible[i];
-    // A func.return ends a block of the body, so the returns are the
-    // terminators of its blocks.
-    SmallVector<Known> now(fn.getNumResults(), Known());
-    for (Block &block : fn.getBody())
-      if (auto ret = dyn_cast<func::ReturnOp>(block.getTerminator()))
-        for (auto [r, operand] : llvm::enumerate(ret.getOperands()))
-          now[r] = now[r].meet(solver.argumentOf(fn, operand));
-    if (now == results[i])
-      continue;
-    results[i] = std::move(now);
-    for (unsigned caller : callers[i])
-      work.insert(caller);
+  const CallGraph graph(module);
+  for (auto scc = llvm::scc_begin(&graph); !scc.isAtEnd(); ++scc) {
+    llvm::SetVector<unsigned> cycle;
+    for (const CallGraphNode *node : *scc)
+      if (!node->isExternal())
+        if (auto fn = dyn_cast<func::FuncOp>(node->getCallableRegion()->getParentOp()))
+          if (auto it = slots.find(fn.getSymNameAttr()); it != slots.end())
+            cycle.insert(it->second);
+    llvm::SetVector<unsigned> work;
+    for (unsigned i : llvm::reverse(cycle))
+      work.insert(i);
+    while (!work.empty()) {
+      unsigned i = work.pop_back_val();
+      func::FuncOp fn = eligible[i];
+      // A func.return ends a block of the body, so the returns are the
+      // terminators of its blocks.
+      SmallVector<Known> now(fn.getNumResults(), Known());
+      for (Block &block : fn.getBody())
+        if (auto ret = dyn_cast<func::ReturnOp>(block.getTerminator()))
+          for (auto [r, operand] : llvm::enumerate(ret.getOperands()))
+            now[r] = now[r].meet(solver.argumentOf(fn, operand));
+      if (now == results[i])
+        continue;
+      results[i] = std::move(now);
+      for (Operation *call : calls[i])
+        if (auto caller = call->getParentOfType<func::FuncOp>())
+          if (auto it = slots.find(caller.getSymNameAttr());
+              it != slots.end() && cycle.contains(it->second))
+            work.insert(it->second);
+    }
   }
 
   for (auto [i, fn] : llvm::enumerate(eligible)) {

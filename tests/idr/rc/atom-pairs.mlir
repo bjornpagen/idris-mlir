@@ -12,21 +12,21 @@
 // reverse-complement's '>' :: hdr does (@header). A static pair holding a
 // cell with fields is not built only of atoms: a take would hand out that
 // cell, so @withCell's result stays owned, and its take tests the count.
-// CHECK-LABEL: idr.func private @span(
+// CHECK-LABEL: idr.func @span(
 // CHECK-SAME: -> !idr.excl<!P>
-// CHECK-LABEL: idr.func private @break(
+// CHECK-LABEL: idr.func @break(
 // CHECK-SAME: -> !idr.excl<!P>
-// CHECK-LABEL: idr.func private @splitAt(
+// CHECK-LABEL: idr.func @splitAt(
 // CHECK-SAME: -> !idr.excl<!P>
-// CHECK-LABEL: idr.func private @withCell(
+// CHECK-LABEL: idr.func @withCell(
 // CHECK-SAME: -> !idr.own<!P>
-// CHECK-LABEL: idr.func private @header(
+// CHECK-LABEL: idr.func @header(
 // CHECK-SAME: -> !idr.excl<!idr.box<!L>>
 // SHARED: error: expected tests-nothing: idr.take in @withCell tests a value of '!idr.own<!idr.data<"P"{{.*}}>>', which is not exclusive
-!L = !idr.data<"L", list [@N(), @C(i32, !idr.box<!idr.data<"L">>)]>
+!L = !idr.data<"L", list [@N() nil, @C(i32, !idr.box<!idr.data<"L">>) cons]>
 !P = !idr.data<"P", plain [@MkPair(!idr.box<!L>, !idr.box<!L>)]>
-module {
-  idr.func private @build(%n: i32) -> !idr.box<!L> {
+idr.program @"atom-pairs" root(@root) stage(first) {
+  idr.func @build(%n: i32) -> !idr.box<!L> {
     %k = arith.extsi %n : i32 to i64
     %r = idr.match_lit %k : i64 -> (!idr.box<!L>) {
     case 0 {
@@ -37,14 +37,14 @@ module {
       %one = arith.constant 1 : i32
       %m = arith.subi %n, %one : i32
       %t = idr.call @build(%m) : (i32) -> !idr.box<!L>
-      %c = idr.con @C(%n, %t) : (i32, !idr.box<!L>) -> !idr.box<!L>
+      %c = idr.con !idr.box<!L> @C(%n : i32, %t : !idr.box<!L>)
       idr.yield %c : !idr.box<!L>
     }
     }
     return %r : !idr.box<!L>
   }
   // span (< 10): the longest prefix of elements below 10, and the rest.
-  idr.func private @span(%xs: !idr.box<!L>) -> !P {
+  idr.func @span(%xs: !idr.box<!L>) -> !P {
     %empty = idr.constant #idr.con<@MkPair, [#idr.con<@N, []>, #idr.con<@N, []>]> : !P
     %nil = idr.constant #idr.con<@N, []> : !idr.box<!L>
     %r = idr.match %xs : !idr.box<!L> -> (!P) {
@@ -57,15 +57,15 @@ module {
       %k = arith.extui %below : i1 to i64
       %s = idr.match_lit %k : i64 -> (!P) {
       case 0 {
-        %p = idr.con @MkPair(%nil, %xs) : (!idr.box<!L>, !idr.box<!L>) -> !P
+        %p = idr.con !P @MkPair(%nil : !idr.box<!L>, %xs : !idr.box<!L>)
         idr.yield %p : !P
       }
       default {
         %rest = idr.call @span(%t) : (!idr.box<!L>) -> !P
         %q = idr.match %rest : !P -> (!P) {
         case @MkPair(%ys: !idr.box<!L>, %zs: !idr.box<!L>) {
-          %c = idr.con @C(%h, %ys) : (i32, !idr.box<!L>) -> !idr.box<!L>
-          %p = idr.con @MkPair(%c, %zs) : (!idr.box<!L>, !idr.box<!L>) -> !P
+          %c = idr.con !idr.box<!L> @C(%h : i32, %ys : !idr.box<!L>)
+          %p = idr.con !P @MkPair(%c : !idr.box<!L>, %zs : !idr.box<!L>)
           idr.yield %p : !P
         }
         }
@@ -78,7 +78,7 @@ module {
     return %r : !P
   }
   // break (== 10): the prefix before the first 10, and the rest from it.
-  idr.func private @break(%xs: !idr.box<!L>) -> !P {
+  idr.func @break(%xs: !idr.box<!L>) -> !P {
     %empty = idr.constant #idr.con<@MkPair, [#idr.con<@N, []>, #idr.con<@N, []>]> : !P
     %nil = idr.constant #idr.con<@N, []> : !idr.box<!L>
     %r = idr.match %xs : !idr.box<!L> -> (!P) {
@@ -94,15 +94,15 @@ module {
         %rest = idr.call @break(%t) : (!idr.box<!L>) -> !P
         %q = idr.match %rest : !P -> (!P) {
         case @MkPair(%ys: !idr.box<!L>, %zs: !idr.box<!L>) {
-          %c = idr.con @C(%h, %ys) : (i32, !idr.box<!L>) -> !idr.box<!L>
-          %p = idr.con @MkPair(%c, %zs) : (!idr.box<!L>, !idr.box<!L>) -> !P
+          %c = idr.con !idr.box<!L> @C(%h : i32, %ys : !idr.box<!L>)
+          %p = idr.con !P @MkPair(%c : !idr.box<!L>, %zs : !idr.box<!L>)
           idr.yield %p : !P
         }
         }
         idr.yield %q : !P
       }
       default {
-        %p = idr.con @MkPair(%nil, %xs) : (!idr.box<!L>, !idr.box<!L>) -> !P
+        %p = idr.con !P @MkPair(%nil : !idr.box<!L>, %xs : !idr.box<!L>)
         idr.yield %p : !P
       }
       }
@@ -112,12 +112,12 @@ module {
     return %r : !P
   }
   // splitAt n: the first n elements, and the rest.
-  idr.func private @splitAt(%n: i64, %xs: !idr.box<!L>) -> !P {
+  idr.func @splitAt(%n: i64, %xs: !idr.box<!L>) -> !P {
     %empty = idr.constant #idr.con<@MkPair, [#idr.con<@N, []>, #idr.con<@N, []>]> : !P
     %nil = idr.constant #idr.con<@N, []> : !idr.box<!L>
     %r = idr.match_lit %n : i64 -> (!P) {
     case 0 {
-      %p = idr.con @MkPair(%nil, %xs) : (!idr.box<!L>, !idr.box<!L>) -> !P
+      %p = idr.con !P @MkPair(%nil : !idr.box<!L>, %xs : !idr.box<!L>)
       idr.yield %p : !P
     }
     default {
@@ -131,8 +131,8 @@ module {
         %rest = idr.call @splitAt(%m, %t) : (i64, !idr.box<!L>) -> !P
         %q = idr.match %rest : !P -> (!P) {
         case @MkPair(%ys: !idr.box<!L>, %zs: !idr.box<!L>) {
-          %c = idr.con @C(%h, %ys) : (i32, !idr.box<!L>) -> !idr.box<!L>
-          %p = idr.con @MkPair(%c, %zs) : (!idr.box<!L>, !idr.box<!L>) -> !P
+          %c = idr.con !idr.box<!L> @C(%h : i32, %ys : !idr.box<!L>)
+          %p = idr.con !P @MkPair(%c : !idr.box<!L>, %zs : !idr.box<!L>)
           idr.yield %p : !P
         }
         }
@@ -145,7 +145,7 @@ module {
     return %r : !P
   }
   // span (< 10) again, ending in a static pair whose first list is a cell.
-  idr.func private @withCell(%xs: !idr.box<!L>) -> !P {
+  idr.func @withCell(%xs: !idr.box<!L>) -> !P {
     %ended = idr.constant #idr.con<@MkPair, [#idr.con<@C, [0 : i32, #idr.con<@N, []>]>, #idr.con<@N, []>]> : !P
     %nil = idr.constant #idr.con<@N, []> : !idr.box<!L>
     %r = idr.match %xs : !idr.box<!L> -> (!P) {
@@ -158,15 +158,15 @@ module {
       %k = arith.extui %below : i1 to i64
       %s = idr.match_lit %k : i64 -> (!P) {
       case 0 {
-        %p = idr.con @MkPair(%nil, %xs) : (!idr.box<!L>, !idr.box<!L>) -> !P
+        %p = idr.con !P @MkPair(%nil : !idr.box<!L>, %xs : !idr.box<!L>)
         idr.yield %p : !P
       }
       default {
         %rest = idr.call @withCell(%t) : (!idr.box<!L>) -> !P
         %q = idr.match %rest : !P -> (!P) {
         case @MkPair(%ys: !idr.box<!L>, %zs: !idr.box<!L>) {
-          %c = idr.con @C(%h, %ys) : (i32, !idr.box<!L>) -> !idr.box<!L>
-          %p = idr.con @MkPair(%c, %zs) : (!idr.box<!L>, !idr.box<!L>) -> !P
+          %c = idr.con !idr.box<!L> @C(%h : i32, %ys : !idr.box<!L>)
+          %p = idr.con !P @MkPair(%c : !idr.box<!L>, %zs : !idr.box<!L>)
           idr.yield %p : !P
         }
         }
@@ -179,18 +179,18 @@ module {
     return %r : !P
   }
   // '>' :: hdr, where hdr is what break gives before the first 10.
-  idr.func private @header(%xs: !idr.box<!L>) -> !idr.box<!L> {
+  idr.func @header(%xs: !idr.box<!L>) -> !idr.box<!L> {
     %p = idr.call @break(%xs) : (!idr.box<!L>) -> !P
     %r = idr.match %p : !P -> (!idr.box<!L>) {
     case @MkPair(%hdr: !idr.box<!L>, %rest: !idr.box<!L>) {
       %gt = arith.constant 62 : i32
-      %c = idr.con @C(%gt, %hdr) : (i32, !idr.box<!L>) -> !idr.box<!L>
+      %c = idr.con !idr.box<!L> @C(%gt : i32, %hdr : !idr.box<!L>)
       idr.yield %c : !idr.box<!L>
     }
     }
     return %r : !idr.box<!L>
   }
-  idr.func private @sum(%l: !idr.box<!L>, %acc: i32) -> i32 {
+  idr.func @sum(%l: !idr.box<!L>, %acc: i32) -> i32 {
     %r = idr.match %l : !idr.box<!L> -> (i32) {
     case @N() {
       idr.yield %acc : i32
@@ -204,7 +204,7 @@ module {
     return %r : i32
   }
   // The first list's sum, times 1000, plus the second's.
-  idr.func private @sums(%p: !P) -> i32 {
+  idr.func @sums(%p: !P) -> i32 {
     %r = idr.match %p : !P -> (i32) {
     case @MkPair(%a: !idr.box<!L>, %b: !idr.box<!L>) {
       %z = arith.constant 0 : i32

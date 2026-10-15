@@ -7,9 +7,11 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ownership.h"
+#include "idr/IR/Verify.h"
 
 #include "mlir/IR/Block.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/iterator.h"
 
@@ -33,6 +35,12 @@ SmallVector<Operation *> holders(Uses &&uses, Block &block, Operation *after) {
   return users;
 }
 
+// Whether a use of `value` is inside `op`, in one of its regions.
+bool usedWithin(Value value, Operation *op) {
+  return llvm::any_of(value.getUses(),
+                      [&](OpOperand &use) { return op->isProperAncestor(use.getOwner()); });
+}
+
 } // namespace
 
 Operation *heldIn(Block &block, OpOperand &use, Operation *after) {
@@ -50,20 +58,38 @@ SmallVector<Operation *> usersIn(ArrayRef<OpOperand *> uses, Block &block, Opera
   return holders(llvm::make_pointee_range(uses), block, after);
 }
 
+// Its regions are alternatives, as the owned stage's verifier reads them,
+// and its entry goes into one of them: an op whose entry may also leave it
+// (an scf.if with no else) holds what its region reads, which is what the
+// verifier's path around the region asks.
+bool decides(Operation *op) {
+  auto branch = dyn_cast<RegionBranchOpInterface>(op);
+  if (!branch || !verify::alternatives(branch))
+    return false;
+  SmallVector<RegionSuccessor> entries;
+  branch.getSuccessorRegions(RegionBranchPoint::parent(), entries);
+  return !entries.empty() &&
+         llvm::none_of(entries, [](RegionSuccessor s) { return s.isOperation(); });
+}
+
+// The reference is there at `op` when the value has a use after the op
+// that holds `op` at some level, and inside an op that does not decide
+// when that op uses it anywhere inside: it holds the value as long as it
+// runs. A use inside an op that decides is no reason: the region that
+// holds `op` may have dropped the value on entry, or after its last use
+// there, while another region used it.
 bool usedAfter(Value value, Operation *op) {
   Block *home = value.getParentBlock();
   for (Operation *at = op; at; at = at->getParentOp()) {
     Block *block = at->getBlock();
     if (!block)
       return false;
-    // A use later in this block, or inside an op that is: the uses usersIn
-    // lists after `at`.
     if (!usersIn(value, *block, at).empty())
       return true;
-    if (block == home || isa<FuncOp>(block->getParentOp()))
+    Operation *parent = block->getParentOp();
+    if (block == home || isa<FuncOp>(parent))
       return false;
-    // The body of a loop runs again: the next iteration uses the value.
-    if (isIndexLoop(block->getParentOp()))
+    if (!decides(parent) && usedWithin(value, parent))
       return true;
   }
   return false;
@@ -89,9 +115,10 @@ void whereDies(ArrayRef<OpOperand *> uses, Block &block, SymbolTable *graded,
         return use->getOwner() == last && consumes(*use, graded);
       }))
     return;
-  // The body of a loop over indices runs once per index, and a value from
-  // outside it is alive throughout: the value dies after the loop.
-  if (last->getNumRegions() != 0 && !isIndexLoop(last)) {
+  // An op that decides moves the value into each of its regions, where it
+  // dies on each path; any other holds it for as long as it runs, and it
+  // dies after the op.
+  if (decides(last)) {
     for (Region &region : last->getRegions())
       if (!region.empty())
         whereDies(uses, region.front(), graded, at);
@@ -115,16 +142,14 @@ bool fromPoint(Block &block, Block::iterator at, OpOperand &use) {
   return heldIn(block, use, after);
 }
 
-void eachField(ArrayRef<OpOperand *> uses, DataType data, unsigned tag, Block *fields,
+void eachField(ArrayRef<OpOperand *> uses, unsigned tag, Block *fields,
                function_ref<void(Value, unsigned)> f) {
   if (fields)
     for (BlockArgument arg : fields->getArguments())
       f(arg, arg.getArgNumber());
-  // A constructor's name is unique within its type's body.
-  mlir::StringAttr name = data.getCtor(tag).name;
   for (OpOperand *use : uses)
     if (auto read = dyn_cast<FieldOp>(use->getOwner());
-        read && read.getCtorAttr().getAttr() == name)
+        read && static_cast<unsigned>(read.getTag()) == tag)
       f(read.getResult(), static_cast<unsigned>(read.getIndex()));
 }
 
@@ -142,7 +167,7 @@ FieldOp onlyReads(Type type, ArrayRef<OpOperand *> uses) {
   FieldOp first;
   for (OpOperand *use : uses) {
     auto read = dyn_cast<FieldOp>(use->getOwner());
-    if (!read || (first && read.getCtorAttr() != first.getCtorAttr()))
+    if (!read || (first && read.getTag() != first.getTag()))
       return nullptr;
     if (!first || (read->getBlock() == first->getBlock() && read->isBeforeInBlock(first)))
       first = read;

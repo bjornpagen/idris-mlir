@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idr-contify: a private idr.func whose one use is a call from another
-// function on a cycle of calls with it becomes part of that function: its
-// body moves into the call, with MLIR's inlineCall, and the function goes.
+// idr-contify: an idr.func other than the program's root whose one use is a
+// call from another function on a cycle of calls with it becomes part of
+// that function: its body moves into the call, with MLIR's inlineCall, and
+// the function goes.
 //
 // This is MLton's contification (Fluet and Weeks, Contification Using
 // Dominators) where a body of regions can hold it. A function with one
@@ -23,24 +24,30 @@
 // build the giant bodies the cap exists to prevent.
 //
 // The parent keeps Idris's proof of termination only if the case block had
-// it too (FuncOp::absorb). Each move erases a function, so the pass ends;
-// a move changes which functions are on a cycle together, so the cycles
-// are taken anew for each sweep.
+// it too (FuncOp::absorb). One sweep over the functions, in program order,
+// moves every function that qualifies, the components and the users taken
+// once before it. A move erases a function whose one edge in comes from its
+// caller in its own component, so every path through it now runs through
+// the caller: no other function changes component, and no other function
+// gains or loses a use, since a moved call keeps its op. A function's body
+// only grows blocks and a call stays in the region that holds it, so a
+// function that does not fit its call site when the sweep reaches it never
+// fits later. Nothing qualifies after the sweep that did not before it.
 
 #include "idr/Transforms/Optimize.h"
 
+#include "idr/Analysis/Effects.h"
 #include "idr/Analysis/Holds.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/TypeGraph.h"
-#include "idr/Support/Scc.h"
+#include "idr/Transforms/Inline.h"
 
-#include "mlir/IR/BuiltinOps.h"
+#include "mlir/Analysis/CallGraph.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Transforms/Inliner.h"
 #include "mlir/Transforms/InliningUtils.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -53,86 +60,53 @@ using namespace mlir;
 
 namespace {
 
-// The component of the call graph each function is in, by its position in
-// module order.
-llvm::DenseMap<Operation *, unsigned> componentsOf(MutableArrayRef<idr::FuncOp> fns,
-                                                    SymbolTable &symbols) {
-  llvm::DenseMap<Operation *, unsigned> index;
-  for (auto [at, fn] : llvm::enumerate(fns))
-    index.try_emplace(fn, static_cast<unsigned>(at));
-  SmallVector<SmallVector<unsigned>> successors(fns.size());
-  for (auto [at, fn] : llvm::enumerate(fns)) {
-    llvm::SmallDenseSet<unsigned, 8> seen;
-    fn.getBody().walk<WalkOrder::PreOrder>([&](idr::CallOp call) {
-      auto callee = symbols.lookup<idr::FuncOp>(call.getCalleeAttr().getAttr());
-      auto found = callee ? index.find(callee) : index.end();
-      if (found != index.end() && seen.insert(found->second).second)
-        successors[at].push_back(found->second);
-    });
-  }
+// The component of the call graph each function is in, by its number.
+llvm::DenseMap<Operation *, unsigned> componentsOf(const CallGraph &graph) {
   llvm::DenseMap<Operation *, unsigned> component;
-  for (auto [number, members] : llvm::enumerate(idr::components(successors)))
-    for (unsigned at : members)
-      component.try_emplace(fns[at], static_cast<unsigned>(number));
+  for (auto [number, members] : llvm::enumerate(idr::callGraphComponents(graph)))
+    for (idr::FuncOp fn : members)
+      component.try_emplace(fn, static_cast<unsigned>(number));
   return component;
 }
 
-// Whether `fn`'s body may take the place of `call`: a body of several
-// blocks, or one that does not return to the call (it ends in
-// ub.unreachable), goes in as blocks of its own, which a match region,
-// holding one block, cannot take.
-bool fitsRegion(InlinerInterface &interface, idr::CallOp call, idr::FuncOp fn) {
-  Region &body = fn.getBody();
-  bool needsBlocks =
-      llvm::hasNItemsOrMore(body, /*N=*/2) || !interface.allowSingleBlockOptimization(body);
-  if (!needsBlocks)
-    return true;
-  Operation *parent = call->getParentOp();
-  return parent->getName() == fn->getName() || !parent->mightHaveTrait<OpTrait::SingleBlock>();
-}
-
 // Moves every function of one call from another member of its component
-// into that call; how many.
-unsigned contify(ModuleOp module, SymbolTable &symbols) {
+// into that call; how many. The root is also called from outside the
+// program, so it never moves.
+unsigned contify(idr::ProgramOp program, SymbolTable &symbols, const CallGraph &graph) {
   unsigned contified = 0;
-  InlinerInterface interface(module.getContext());
+  InlinerInterface interface(program.getContext());
   InlinerConfig config;
-  for (bool changed = true; changed;) {
-    changed = false;
-    SmallVector<idr::FuncOp> fns(module.getOps<idr::FuncOp>());
-    llvm::DenseMap<Operation *, unsigned> component = componentsOf(fns, symbols);
-    // The users of every function as the sweep begins. A body moved into
-    // its caller keeps its uses, now in the caller; the one call moved
-    // goes with the function it named.
-    SymbolTableCollection tables;
-    SymbolUserMap users(tables, module);
-    for (idr::FuncOp fn : fns) {
-      if (!fn.isPrivate())
-        continue;
-      ArrayRef<Operation *> uses = users.getUsers(fn);
-      if (uses.size() != 1)
-        continue;
-      auto call = dyn_cast<idr::CallOp>(uses.front());
-      auto caller = call ? call->getParentOfType<idr::FuncOp>() : idr::FuncOp();
-      if (!caller || caller == fn || component.lookup(caller) != component.lookup(fn) ||
-          !fitsRegion(interface, call, fn))
-        continue;
-      if (failed(inlineCall(interface, config.getCloneCallback(), call, fn, &fn.getBody(),
-                            /*shouldCloneInlinedRegion=*/false)))
-        continue;
-      caller.absorb(fn);
-      call.erase();
-      symbols.erase(fn);
-      ++contified;
-      changed = true;
-    }
+  SmallVector<idr::FuncOp> fns(program.getOps<idr::FuncOp>());
+  llvm::DenseMap<Operation *, unsigned> component = componentsOf(graph);
+  // The users of every function as the sweep begins. A body moved into its
+  // caller keeps its uses, now in the caller; the one call moved goes with
+  // the function it named.
+  SymbolTableCollection tables;
+  SymbolUserMap users(tables, program);
+  for (idr::FuncOp fn : fns) {
+    ArrayRef<Operation *> uses = users.getUsers(fn);
+    if (uses.size() != 1 || fn.getSymName() == program.getRoot())
+      continue;
+    auto call = dyn_cast<idr::CallOp>(uses.front());
+    auto caller = call ? call->getParentOfType<idr::FuncOp>() : idr::FuncOp();
+    if (!caller || caller == fn || component.lookup(caller) != component.lookup(fn) ||
+        !idr::inlining::fitsRegion(interface, call, fn))
+      continue;
+    if (failed(inlineCall(interface, config.getCloneCallback(), call, fn, &fn.getBody(),
+                          /*shouldCloneInlinedRegion=*/false)))
+      continue;
+    caller.absorb(fn);
+    call.erase();
+    symbols.erase(fn);
+    ++contified;
   }
   return contified;
 }
 
 struct Contify : idr::impl::IdrContifyBase<Contify> {
   void runOnOperation() override {
-    unsigned contified = contify(getOperation(), getAnalysis<SymbolTable>());
+    unsigned contified =
+        contify(getOperation(), getAnalysis<SymbolTable>(), getAnalysis<CallGraph>());
     numContified += contified;
     if (!contified)
       return markAllAnalysesPreserved();

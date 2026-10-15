@@ -54,14 +54,13 @@ LogicalResult noHeapAllocation(ModuleOp module, AnalysisManager &analyses, Strin
   llvm::DenseSet<Operation *> seen;
   SymbolTable *symbols = nullptr;
   if (function.empty()) {
-    for (auto fn : module.getOps<FunctionOpInterface>())
-      reached.push_back(fn);
+    reached = functionsOf(module);
   } else {
     reached = named(module, function, property);
     if (reached.empty())
       return failure();
     seen.insert(reached.begin(), reached.end());
-    symbols = &analyses.getAnalysis<SymbolTable>();
+    symbols = &symbolsOf(module, analyses);
   }
   bool held = true;
   for (size_t next = 0; next < reached.size(); ++next) {

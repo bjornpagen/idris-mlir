@@ -1,6 +1,6 @@
-# The host's tools where GNU/Linux and macOS (BSD userland, MacPorts)
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
+# The host's tools where GNU/Linux and macOS (BSD userland, MacPorts)
 # differ, decided in one place: sourced by tools/toolchain.sh, and so by
 # every script that sources it, and by tools/bootstrap.sh, bench/run.sh,
 # tools/doctor.sh and the Makefile's runner. Sourcing it runs nothing
@@ -129,6 +129,45 @@ memory_used_kib() {
   else
     echo 0
   fi
+}
+
+# The unit getrusage counts a process's peak resident set size in: bytes
+# on macOS, KiB on Linux.
+case $(uname -s) in
+  Darwin) peak_rss_unit=1024 ;;
+  *) peak_rss_unit=1 ;;
+esac
+
+# peak_memory FILE CMD...: runs CMD, whose output and exit status are its
+# own (128 plus the signal that killed it), and writes to FILE the most
+# memory it, or a process it waited for, held resident at once, in KiB, on
+# one line: the getrusage that wait4 returns with its status. Through
+# python3, which the host provides for the bootstrap: a host may have no
+# /usr/bin/time, and where it has one, its options and units differ.
+peak_memory() {
+  peak_memory_file=$1
+  shift
+  python3 -I -c '
+import os, sys
+path, unit, argv = sys.argv[1], int(sys.argv[2]), sys.argv[3:]
+pid = os.fork()
+if pid == 0:
+    try:
+        os.execvp(argv[0], argv)
+    except OSError as error:
+        print(f"{argv[0]}: {error.strerror}", file=sys.stderr)
+    os._exit(127)
+while True:
+    try:
+        _, status, usage = os.wait4(pid, 0)
+        break
+    except KeyboardInterrupt:
+        # The interrupt reached CMD too, which ends as it handles it.
+        continue
+with open(path, "w") as out:
+    print(usage.ru_maxrss // unit, file=out)
+sys.exit(128 + os.WTERMSIG(status) if os.WIFSIGNALED(status) else os.WEXITSTATUS(status))
+' "$peak_memory_file" "$peak_rss_unit" "$@"
 }
 
 # cpu_name: the processor's name, for a benchmark table's header:

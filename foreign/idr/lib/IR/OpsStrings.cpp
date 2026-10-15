@@ -24,7 +24,7 @@ namespace {
 // element is one of `elements`.
 LogicalResult verifyList(Operation *op, Value list, ArrayRef<Type> elements) {
   DataType data = dataTypeOf(list.getType());
-  if (!isBoxed(list.getType()) || !data || !data.hasBody() || data.getKind() != SumKind::BaseList)
+  if (!isBoxed(list.getType()) || !data || data.getKind() != SumKind::BaseList)
     return op->emitOpError("walks base's list, a box of a nil and a cons, not ") << list.getType();
   if (!llvm::is_contained(elements, data.getListElement()))
     return op->emitOpError("walks a list of ") << data.getListElement() << ", not of "
@@ -69,14 +69,13 @@ void StrScalarEndOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeF
 }
 
 // An index past the string's end reads outside it, so it stays below its
-// guard against this string's length, or below the path that proved the
-// guard away.
+// guard against this string, or below the path that proved the guard away.
 Speculation::Speculatability StrIndexOp::getSpeculatability() {
-  return checkSpeculatability(*this, getIndexMutable().getOperandNumber());
+  return guardedSpeculatability<CheckInBoundsOp>(getIndex(), getStr());
 }
 
 Speculation::Speculatability StrHeadOp::getSpeculatability() {
-  return checkSpeculatability(*this, getStrMutable().getOperandNumber());
+  return guardedSpeculatability<CheckNonemptyOp>(getStr());
 }
 
 // Output and the first character of a string being built are taken apart

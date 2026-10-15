@@ -27,12 +27,12 @@ struct DropEmptyStringCase : OpRewritePattern<MatchLitOp> {
     if (it == op.getCases().end() || !knownNonEmpty(op.getScrutinee()))
       return failure();
     auto dropped = static_cast<unsigned>(it - op.getCases().begin());
-    SmallVector<Attribute> cases;
+    SmallVector<unsigned> cases;
     SmallVector<Region *> regions;
     for (unsigned index = 0, count = op->getNumRegions(); index < count; ++index)
       if (index != dropped) {
         if (index < op.getCases().size())
-          cases.push_back(op.getCases()[index]);
+          cases.push_back(index);
         regions.push_back(&op->getRegion(index));
       }
     rewriter.replaceOp(op, canon::rebuildMatch(rewriter, op, op.getResultTypes(), cases, regions));
@@ -94,20 +94,16 @@ namespace idr::canon {
 
 // A case's argument is the declared field at the scrutinee's grade; read
 // from the value seen through a linear position, it is the field at that
-// value's grade, which the scrutinee's data type says, and the read is then
-// held as the argument.
+// value's grade, as idr.field reads it, and the read is then held as the
+// argument.
 Value readField(OpBuilder &builder, Location loc, Value value) {
   auto arg = cast<BlockArgument>(value);
   auto match = cast<MatchOp>(arg.getOwner()->getParentOp());
   unsigned region = arg.getOwner()->getParent()->getRegionNumber();
   if (region >= match.getCases().size())
     return match.getScrutinee();
-  auto ctor = cast<FlatSymbolRefAttr>(match.getCases()[region]);
-  Value source = throughLinear(match.getScrutinee());
-  const Ctor &declared = match.getDataType().getCtor(match.getCaseTag(region));
-  Type type = fieldType(source.getType(), declared.fields[arg.getArgNumber()]);
-  Value field = FieldOp::create(builder, loc, type, source, ctor,
-                                builder.getI64IntegerAttr(arg.getArgNumber()));
+  Value field = FieldOp::create(builder, loc, throughLinear(match.getScrutinee()),
+                                match.getCaseTag(region), arg.getArgNumber());
   return heldAs(builder, loc, field, arg.getType());
 }
 

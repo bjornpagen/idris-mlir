@@ -9,6 +9,7 @@ import Core.TT
 
 import IdrisMLIR.Dialect.Idr as Idr
 import IdrisMLIR.Frontend.Translate.Types
+import IdrisMLIR.Syntax.Idr
 import IdrisMLIR.Types
 
 %default covering
@@ -57,12 +58,12 @@ arith (BOr t) = Just (Or, t)
 arith (BXOr t) = Just (Xor, t)
 arith _ = Nothing
 
-comparison : PrimFn k -> Maybe (Cmp, PrimType)
-comparison (LT t) = Just (CLt, t)
-comparison (LTE t) = Just (CLte, t)
-comparison (EQ t) = Just (CEq, t)
-comparison (GTE t) = Just (CGte, t)
-comparison (GT t) = Just (CGt, t)
+comparison : PrimFn k -> Maybe (CmpPredicate, PrimType)
+comparison (LT t) = Just (CmpPredicate.Lt, t)
+comparison (LTE t) = Just (CmpPredicate.Lte, t)
+comparison (EQ t) = Just (CmpPredicate.Eq, t)
+comparison (GTE t) = Just (CmpPredicate.Gte, t)
+comparison (GT t) = Just (CmpPredicate.Gt, t)
 comparison _ = Nothing
 
 ||| Integer primitives: `idr.big.*`.

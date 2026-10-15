@@ -14,8 +14,6 @@
 
 #include "llvm/ADT/STLExtras.h"
 
-#include <string>
-
 using namespace mlir;
 
 namespace idr::narrow {
@@ -93,7 +91,7 @@ void version(RewriterBase &rewriter, Facts &facts, scf::WhileOp loop, unsigned i
   Value init = loop.getInits()[index];
   Type nat = init.getType();
   rewriter.setInsertionPoint(loop);
-  std::string max = std::to_string(ranges::smallMax);
+  APInt max(64, static_cast<uint64_t>(ranges::smallMax), /*isSigned=*/true);
   Value bound = ConstantOp::create(rewriter, loc, nat, BigAttr::get(ctx, max));
   Value small = BigCmpOp::create(rewriter, loc, CmpPredicate::lte, init, bound);
   auto branch = scf::IfOp::create(rewriter, loc, loop.getResultTypes(), small,

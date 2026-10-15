@@ -10,11 +10,11 @@
 // the property of a function that nothing calls.
 // NONE: error: expected one-clone: no call of @loop or of a copy of it
 // TWO: error: expected one-clone: the calls of @iter reach @iter$a @iter$b
-// TWO-COPIES: module {
-// TWO-COPIES:   idr.func private @iter$a(%n: i64) -> i64 {
+// TWO-COPIES: idr.program @"two-copies" root(@main) stage(first) {
+// TWO-COPIES:   idr.func @iter$a(%n: i64) -> i64 {
 // TWO-COPIES:     return %n : i64
 // TWO-COPIES:   } loc("iter")
-// TWO-COPIES:   idr.func private @iter$b(%n: i64) -> i64 {
+// TWO-COPIES:   idr.func @iter$b(%n: i64) -> i64 {
 // TWO-COPIES:     return %n : i64
 // TWO-COPIES:   } loc("iter")
 // TWO-COPIES:   idr.func @main() -> i64 {
@@ -25,8 +25,8 @@
 // TWO-COPIES:     return %s : i64
 // TWO-COPIES:   }
 // TWO-COPIES: }
-module {
-  idr.func private @iter$a(%n: i64) -> i64 {
+idr.program @"one-clone" root(@main) stage(first) {
+  idr.func @iter$a(%n: i64) -> i64 {
     %r = idr.call @iter$a(%n) : (i64) -> i64
     return %r : i64
   } loc("iter")

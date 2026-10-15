@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The layouts of the values of a module, computed whole when a pass first
-// asks for them.
+// asks for them. Every cell and element can be built: a count the header
+// cannot hold, a tag beyond its field and an element too large for an
+// array's header each have a representation, so no count refuses a
+// program.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
@@ -33,10 +36,9 @@ std::pair<unsigned, unsigned> measure(const DataLayout &target, Type component) 
 
 } // namespace
 
-Layouts::Layouts(Operation *op) : Components(cast<ModuleOp>(op)) {
-  ModuleOp m = getModule();
-  MLIRContext *ctx = m.getContext();
-  DataLayout target(m);
+Layouts::Layouts(Operation *op) : Components(op) {
+  MLIRContext *ctx = op->getContext();
+  DataLayout target = DataLayout::closest(op);
   auto record = [&](Type component) {
     if (!measures.contains(component))
       measures.try_emplace(component, measure(target, component));
@@ -49,9 +51,9 @@ Layouts::Layouts(Operation *op) : Components(cast<ModuleOp>(op)) {
   Type pointer = LLVM::LLVMPointerType::get(ctx);
   auto [pointerSize, pointerAlignment] = measure(target, pointer);
   if (pointerSize != IDRIS_RT_WORD_BYTES || pointerAlignment != IDRIS_RT_WORD_BYTES) {
-    m.emitError() << "the module's target is not the runtime's: its pointers take "
-                  << pointerSize << " bytes at an alignment of " << pointerAlignment
-                  << ", and the runtime's object slots are words of " << IDRIS_RT_WORD_BYTES;
+    op->emitError() << "the module's target is not the runtime's: its pointers take "
+                    << pointerSize << " bytes at an alignment of " << pointerAlignment
+                    << ", and the runtime's object slots are words of " << IDRIS_RT_WORD_BYTES;
     fits = false;
     return;
   }
@@ -66,7 +68,7 @@ Layouts::Layouts(Operation *op) : Components(cast<ModuleOp>(op)) {
   // Every data type a value or a body holds, with how it is held: the
   // sums held in place are slots, and the data types held in a box are
   // cells.
-  TypeGraph graph(m.getOperation());
+  TypeGraph graph(op);
   SmallVector<DataType> types;
   for (unsigned at = 0, n = graph.size(); at < n; ++at)
     if (DataType data = graph.declaration(at))
@@ -84,30 +86,22 @@ Layouts::Layouts(Operation *op) : Components(cast<ModuleOp>(op)) {
     DataType data = graph.declaration(at);
     if (!data || !graph.boxed(at))
       continue;
-    // A memo cell is allocated in one state and written into another, the
-    // value a force stores over the captures it took, so every state's
-    // cell is as large as the largest.
+    // A sum of more constructors than a header's tag holds keeps each
+    // one's group in every cell. A memo cell is allocated in one state and
+    // written into another, the value a force stores over the captures it
+    // took, so every state's cell is as large as the largest.
+    bool grouped = data.getCtors().size() > IDRIS_RT_TAG_LIMIT;
     bool memo = data.isMemo();
     unsigned size = 0;
     for (auto [tag, ctor] : llvm::enumerate(data.getCtors())) {
-      std::expected<layout::Cell, std::string> cell = cellOf(ctor.fields, [&](unsigned objs) {
-        return memo ? layout::CellInfo::thunk(tag, objs) : layout::CellInfo::box(tag, objs);
-      });
-      if (!cell) {
-        refuse(m, Rule::Layout) << "a cell of the constructor @" << ctor.name.getValue()
-                                << " of \"" << data.getName()
-                                << "\" cannot be built: " << cell.error();
-        fits = false;
-        continue;
-      }
-      size = std::max(size, cell->size);
-      boxes.try_emplace({data, static_cast<unsigned>(tag)}, std::move(*cell));
+      layout::Cell cell = cellOf(ctor.fields, tag, grouped, memo);
+      size = std::max(size, cell.size);
+      boxes.try_emplace({data, static_cast<unsigned>(tag)}, std::move(cell));
     }
     if (memo)
       for (unsigned tag = 0, count = static_cast<unsigned>(data.getCtors().size()); tag < count;
            ++tag)
-        if (auto it = boxes.find({data, tag}); it != boxes.end())
-          it->second.size = size;
+        boxes.find({data, tag})->second.size = size;
   }
 }
 
@@ -143,13 +137,13 @@ const layout::SumLayout &Layouts::sum(DataType type) const {
 unsigned Layouts::sizeOf(Type component) const {
   if (auto it = measures.find(component); it != measures.end())
     return it->second.first;
-  return measure(DataLayout(getModule()), component).first;
+  return measure(DataLayout::closest(getRoot()), component).first;
 }
 
 unsigned Layouts::alignmentOf(Type component) const {
   if (auto it = measures.find(component); it != measures.end())
     return it->second.second;
-  return measure(DataLayout(getModule()), component).second;
+  return measure(DataLayout::closest(getRoot()), component).second;
 }
 
 bool Layouts::isMemo(Type type) const {
@@ -161,13 +155,12 @@ bool Layouts::isMemo(Type type) const {
 // offsets start at the element, and the stride is the element's size at
 // its own alignment, so that a byte element takes one byte and a buffer's
 // bytes are contiguous; an element with an object slot takes whole words.
-std::expected<layout::Element, std::string> Layouts::element(Type type) const {
-  std::expected<layout::Cell, std::string> cell =
-      cellOf(type, [](unsigned objs) { return layout::CellInfo::box(0, objs); });
-  if (!cell)
-    return std::unexpected(std::move(cell.error()));
+// One whose size the array's header cannot hold, or whose object slots it
+// cannot count, is held in a cell of its own, one pointer in the array.
+layout::Element Layouts::element(Type type) const {
+  layout::Cell cell = cellOf(type, /*tag=*/0, /*grouped=*/false, /*memo=*/false);
   constexpr unsigned header = sizeof(idris_rt_header);
-  SmallVector<layout::Slot> slots = std::move(cell->fields.front());
+  SmallVector<layout::Slot> slots = cell.fields.front();
   unsigned end = 0, alignment = 1;
   for (layout::Slot &slot : slots) {
     slot.offset -= header;
@@ -175,16 +168,22 @@ std::expected<layout::Element, std::string> Layouts::element(Type type) const {
     alignment = std::max(alignment, alignmentOf(slot.type));
   }
   unsigned stride = static_cast<unsigned>(llvm::alignTo(end, alignment));
-  std::expected<layout::CellInfo, std::string> info = layout::CellInfo::array(stride, cell->objs);
-  if (!info)
-    return std::unexpected(std::move(info.error()));
-  return layout::Element{std::move(slots), stride, *info};
+  if (!cell.countWord && stride < IDRIS_RT_TAG_LIMIT)
+    return layout::Element{std::move(slots), stride, layout::CellInfo::array(stride, cell.objs),
+                           std::nullopt};
+  Type pointer = LLVM::LLVMPointerType::get(getRoot()->getContext());
+  return layout::Element{{layout::Slot{pointer, 0}},
+                         IDRIS_RT_WORD_BYTES,
+                         layout::CellInfo::array(IDRIS_RT_WORD_BYTES, 1),
+                         std::move(cell)};
 }
 
-std::expected<layout::Cell, std::string>
-Layouts::cellOf(ArrayRef<Type> fieldTypes,
-                function_ref<std::expected<layout::CellInfo, std::string>(unsigned objs)> info)
-    const {
+// The header, the count word when the header cannot count the object slots
+// (and in every cell of a sum with a group), then the object slots, each a
+// word, so contiguous: the group, then the counted components. Then the
+// other components.
+layout::Cell Layouts::cellOf(ArrayRef<Type> fieldTypes, uint64_t tag, bool grouped,
+                             bool memo) const {
   SmallVector<SmallVector<layout::Slot>> fields;
   SmallVector<SmallVector<bool>> countedness;
   for (Type field : fieldTypes) {
@@ -195,8 +194,16 @@ Layouts::cellOf(ArrayRef<Type> fieldTypes,
     countedness.push_back(counted(field));
   }
   SmallVector<std::pair<unsigned, unsigned>> order;
-  unsigned objs = objects(fieldTypes);
+  unsigned objs = objects(fieldTypes) + (grouped ? 1 : 0);
+  bool countWord = grouped || objs > layout::mostObjects;
   unsigned at = sizeof(idris_rt_header);
+  if (countWord)
+    at += IDRIS_RT_WORD_BYTES;
+  std::optional<layout::Slot> group;
+  if (grouped) {
+    group = layout::Slot{IntegerType::get(getRoot()->getContext(), 64), at};
+    at += IDRIS_RT_WORD_BYTES;
+  }
   auto place = [&](unsigned field, unsigned component) {
     layout::Slot &slot = fields[field][component];
     at = static_cast<unsigned>(llvm::alignTo(at, alignmentOf(slot.type)));
@@ -205,7 +212,6 @@ Layouts::cellOf(ArrayRef<Type> fieldTypes,
     order.push_back({field, component});
   };
   auto count = static_cast<unsigned>(fieldTypes.size());
-  // The object slots, each a word, so contiguous.
   for (unsigned f = 0; f < count; ++f)
     for (unsigned c = 0; c < fields[f].size(); ++c)
       if (countedness[f][c])
@@ -223,12 +229,16 @@ Layouts::cellOf(ArrayRef<Type> fieldTypes,
   });
   for (auto [f, c] : others)
     place(f, c);
-  std::expected<layout::CellInfo, std::string> header = info(objs);
-  if (!header)
-    return std::unexpected(std::move(header.error()));
+  std::optional<unsigned> headerObjs = countWord ? std::nullopt : std::optional<unsigned>(objs);
+  layout::CellInfo info =
+      memo ? layout::CellInfo::thunk(tag, headerObjs) : layout::CellInfo::box(tag, headerObjs);
   return layout::Cell{std::move(fields),
-                      static_cast<unsigned>(llvm::alignTo(at, IDRIS_RT_WORD_BYTES)), objs,
-                      std::move(order), *header};
+                      static_cast<unsigned>(llvm::alignTo(at, IDRIS_RT_WORD_BYTES)),
+                      objs,
+                      std::move(order),
+                      info,
+                      countWord,
+                      group};
 }
 
 const layout::Cell &Layouts::box(DataType type, unsigned tag) const {

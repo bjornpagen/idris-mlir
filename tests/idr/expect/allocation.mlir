@@ -11,18 +11,23 @@
 // ALL: error: expected no-heap-allocation: idr.con allocates in @cons
 // ALL-NOT: error:
 !Pair = !idr.data<"Pair", plain [@MkPair(i64, i64)]>
-!List = !idr.data<"List", list [@Nil(), @Cons(i64, !idr.box<!idr.data<"List">>)]>
-module {
-  idr.func private @scalar(%x: i64) -> !Pair {
-    %p = idr.con @MkPair(%x, %x) : (i64, i64) -> !Pair
+!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
+idr.program @allocation root(@root) stage(first) {
+  idr.func @scalar(%x: i64) -> !Pair {
+    %p = idr.con !Pair @MkPair(%x : i64, %x : i64)
     return %p : !Pair
   }
-  idr.func private @cons(%x: i64, %l: !idr.box<!List>) -> !idr.box<!List> {
-    %r = idr.con @Cons(%x, %l) : (i64, !idr.box<!List>) -> !idr.box<!List>
+  idr.func @cons(%x: i64, %l: !idr.box<!List>) -> !idr.box<!List> {
+    %r = idr.con !idr.box<!List> @Cons(%x : i64, %l : !idr.box<!List>)
     return %r : !idr.box<!List>
   }
-  idr.func private @boxes(%x: i64, %l: !idr.box<!List>) -> !idr.box<!List> {
+  idr.func @boxes(%x: i64, %l: !idr.box<!List>) -> !idr.box<!List> {
     %r = idr.call @cons(%x, %l) : (i64, !idr.box<!List>) -> !idr.box<!List>
     return %r : !idr.box<!List>
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
   }
 }

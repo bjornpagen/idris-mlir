@@ -16,16 +16,16 @@
 // CHECK: call @{{pair\.raise\.[0-9a-f]+}}(
 // CHECK: call @[[F]](
 !Pair = !idr.data<"Pair", plain [@MkPair(!idr.fn<(i64) -> (i64)>, !idr.fn<(i64) -> (i64)>)]>
-module {
-  idr.func private @add(%a: i64, %x: i64) -> i64 attributes {total} {
+idr.program @"shared-key" root(@Main.main) stage(higher) {
+  idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64
     return %y : i64
   }
-  idr.func private @sub(%a: i64, %x: i64) -> i64 attributes {total} {
+  idr.func @sub(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.subi %a, %x : i64
     return %y : i64
   }
-  idr.func private @f(%a: i64, %k: i64) -> !idr.fn<(i64) -> (i64)> {
+  idr.func @f(%a: i64, %k: i64) -> !idr.fn<(i64) -> (i64)> {
     %r = idr.match_lit %k : i64 -> (!idr.fn<(i64) -> (i64)>) {
     case 0 {
       %v = idr.closure @add(%a) : (i64) -> !idr.fn<(i64) -> (i64)>
@@ -40,7 +40,7 @@ module {
     }
     return %r : !idr.fn<(i64) -> (i64)>
   }
-  idr.func private @g(%a: i64, %k: i64) -> !idr.fn<(i64) -> (i64)> {
+  idr.func @g(%a: i64, %k: i64) -> !idr.fn<(i64) -> (i64)> {
     %r = idr.match_lit %k : i64 -> (!idr.fn<(i64) -> (i64)>) {
     case 0 {
       %v = idr.closure @sub(%a) : (i64) -> !idr.fn<(i64) -> (i64)>
@@ -55,12 +55,12 @@ module {
     }
     return %r : !idr.fn<(i64) -> (i64)>
   }
-  idr.func private @pair(%a: i64, %k: i64) -> !Pair {
+  idr.func @pair(%a: i64, %k: i64) -> !Pair {
     %r = idr.match_lit %k : i64 -> (!Pair) {
     case 0 {
       %p = idr.closure @add(%a) : (i64) -> !idr.fn<(i64) -> (i64)>
       %q = idr.closure @sub(%a) : (i64) -> !idr.fn<(i64) -> (i64)>
-      %v = idr.con @MkPair(%p, %q) : (!idr.fn<(i64) -> (i64)>, !idr.fn<(i64) -> (i64)>) -> !Pair
+      %v = idr.con !Pair @MkPair(%p : !idr.fn<(i64) -> (i64)>, %q : !idr.fn<(i64) -> (i64)>)
       idr.yield %v : !Pair
     }
     default {
@@ -84,10 +84,10 @@ module {
     %f2 = idr.call @f(%x, %n) : (i64, i64) -> !idr.fn<(i64) -> (i64)>
     %r3 = idr.apply %f2(%n) : !idr.fn<(i64) -> (i64)>
     %p = idr.call @pair(%n, %x) : (i64, i64) -> !Pair
-    %p0 = idr.field %p[@MkPair, 0] : !Pair -> !idr.fn<(i64) -> (i64)>
+    %p0 = idr.field %p : !Pair @MkPair[0] -> !idr.fn<(i64) -> (i64)>
     %r4 = idr.apply %p0(%x) : !idr.fn<(i64) -> (i64)>
     %q = idr.call @pair(%x, %n) : (i64, i64) -> !Pair
-    %q1 = idr.field %q[@MkPair, 1] : !Pair -> !idr.fn<(i64) -> (i64)>
+    %q1 = idr.field %q : !Pair @MkPair[1] -> !idr.fn<(i64) -> (i64)>
     %r5 = idr.apply %q1(%n) : !idr.fn<(i64) -> (i64)>
     %f3 = idr.call @f(%c3, %x) : (i64, i64) -> !idr.fn<(i64) -> (i64)>
     %r6 = idr.apply %f3(%x) : !idr.fn<(i64) -> (i64)>

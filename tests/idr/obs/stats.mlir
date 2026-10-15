@@ -17,8 +17,8 @@
 // CHECK-DAG: (S) {{ *[0-9]+}} boxed -
 // CHECK-DAG: (S) {{ *[0-9]+}} sums -
 // QUIET-NOT: statistics
-module {
-  idr.func private @fact(%n: i64) -> i64 attributes {total} {
+idr.program @stats root(@Prog.main) stage(higher) {
+  idr.func @fact(%n: i64) -> i64 attributes {total} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       %one = arith.constant 1 : i64

@@ -3,7 +3,7 @@
 // idr-rc-place: the references of one function made explicit, after
 // idr-rc graded every signature: the reuse rewrite at the sites Reuses
 // decided, then the reshaping and the placement of the counts. It reads the
-// module's analyses idr-rc computed before running it, and writes nothing
+// program's analyses idr-rc computed before running it, and writes nothing
 // outside its function: an entry argument it grades owned is one the
 // signature already made owned.
 #include "idr/Analysis/Ownership.h"
@@ -38,10 +38,9 @@ struct RcPlace : PassWrapper<RcPlace, OperationPass<FuncOp>> {
       return signalPassFailure();
     }
     IRRewriter rewriter(fn.getContext());
-    Counted counted;
-    reuseAt(rewriter, reuses->get().sites(fn), counted);
-    Classes classes(fn, counted);
-    if (failed(reshape(rewriter, fn, counted, classes, symbols->get())))
+    reuseAt(rewriter, reuses->get().sites(fn));
+    Classes classes(fn);
+    if (failed(reshape(rewriter, fn, classes, symbols->get())))
       return signalPassFailure();
     place(rewriter, fn, classes, symbols->get());
   }

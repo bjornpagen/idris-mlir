@@ -69,6 +69,12 @@ underKnown k idx cn known =
         (Just (KnownCon cn (argPositions k)))
         (replicate k Nothing ++ map (shiftKnown k) known)
 
+||| The known-list after `k` variables are bound in front, none of them
+||| known.
+export
+underBinders : Nat -> List (Maybe Known) -> List (Maybe Known)
+underBinders k known = replicate k Nothing ++ map (shiftKnown k) known
+
 ||| The constructors of a type name. A name that is not such a type has
 ||| none, as does a type whose constructors are not recorded.
 export

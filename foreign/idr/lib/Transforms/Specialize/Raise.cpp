@@ -12,10 +12,10 @@
 // regions. There it meets the constructor the body built and is case of a
 // known constructor, which the copy's own pipeline folds. Its parameters
 // are the callee's, then the consumer's free values. Where a tail is a call
-// whose result the consumer meets again, the node's own redirect walk, run
-// when it is built, makes it a call of the node for that callee and this
-// consumer: the node itself, where the tail is the callee's own recursion,
-// which idr-tail-loops makes a loop.
+// whose result the consumer meets again, the node's own redirect walk makes
+// it a call of the node for that callee and this consumer: the node itself,
+// where the tail is the callee's own recursion, which idr-tail-loops makes
+// a loop.
 //
 // It is built from the key alone: the consumer is read back from the form
 // the key holds, and each op it adds takes the location of the terminator
@@ -23,7 +23,6 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/Specialize.h"
 
-#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Parser/Parser.h"
@@ -35,25 +34,22 @@ namespace idr::specialize::detail {
 
 namespace {
 
-// A match like `op` whose results have `types`, with `op`'s regions.
-template <typename M>
-Operation *retyped(RewriterBase &rewriter, M op, TypeRange types) {
-  rewriter.setInsertionPoint(op);
-  auto fresh = M::create(rewriter, op.getLoc(), types, op.getScrutinee(), op.getCases(),
-                         op->getNumRegions());
-  for (auto [to, from] : llvm::zip(fresh->getRegions(), op->getRegions()))
+// A match like `match`, with its scrutinee, cases and regions, whose
+// results have `types`.
+Operation *retyped(RewriterBase &rewriter, Operation *match, TypeRange types) {
+  rewriter.setInsertionPoint(match);
+  OperationState state(match->getLoc(), match->getName(), match->getOperands(), types,
+                       match->getDiscardableAttrDictionary().getValue());
+  state.propertiesAttr = match->getPropertiesAsAttribute();
+  for (unsigned i = 0; i < match->getNumRegions(); ++i)
+    state.addRegion();
+  Operation *fresh = rewriter.create(state);
+  for (auto [to, from] : llvm::zip(fresh->getRegions(), match->getRegions()))
     rewriter.inlineRegionBefore(from, to, to.end());
   return fresh;
 }
 
-void replaceOperand(RewriterBase &rewriter, Operation *op, unsigned index, ValueRange values) {
-  SmallVector<Value> operands(op->getOperands());
-  operands.erase(operands.begin() + index);
-  operands.insert(operands.begin() + index, values.begin(), values.end());
-  rewriter.modifyOpInPlace(op, [&] { op->setOperands(operands); });
-}
-
-// Every op, region argument and nested op of `op` at `loc`.
+// Every op, block argument and nested op of `op` at `loc`.
 void locate(Operation *op, Location loc) {
   op->walk([&](Operation *inner) {
     inner->setLoc(loc);
@@ -62,6 +58,13 @@ void locate(Operation *op, Location loc) {
         for (BlockArgument arg : block.getArguments())
           arg.setLoc(loc);
   });
+}
+
+void replaceOperand(RewriterBase &rewriter, Operation *op, unsigned index, ValueRange values) {
+  SmallVector<Value> operands(op->getOperands());
+  operands.erase(operands.begin() + index);
+  operands.insert(operands.begin() + index, values.begin(), values.end());
+  rewriter.modifyOpInPlace(op, [&] { op->setOperands(operands); });
 }
 
 // Makes the consumer `consumer` take operand `index` of `term`, a return or
@@ -85,8 +88,7 @@ void push(RewriterBase &rewriter, Operation *term, unsigned index, idr::FuncOp c
     SmallVector<Type> fresh(types.take_front(k));
     llvm::append_range(fresh, results);
     llvm::append_range(fresh, types.drop_front(k + 1));
-    Operation *made = isa<MatchOp>(match) ? retyped(rewriter, cast<MatchOp>(match), fresh)
-                                          : retyped(rewriter, cast<MatchLitOp>(match), fresh);
+    Operation *made = retyped(rewriter, match, fresh);
     unsigned n = static_cast<unsigned>(results.size());
     for (unsigned i = 0; i < match->getNumResults(); ++i)
       if (i != k)
@@ -130,7 +132,6 @@ FailureOr<idr::FuncOp> buildRaise(idr::FuncOp callee, KeyRaiseAttr key, StringAt
   // it; what it may do is written once its component is final.
   auto clone = cast<idr::FuncOp>(callee->clone());
   clone.setSymName(name.getValue());
-  clone.setPrivate();
   clone.removeEffectsAttr();
   clone.removeResAttrsAttr();
 

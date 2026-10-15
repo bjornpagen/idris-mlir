@@ -22,9 +22,9 @@
 // CHECK-NEXT: 5
 !Unit = !idr.data<"Unit", plain [@MkUnit()]>
 !IORes = !idr.data<"IORes", plain [@MkIORes(!Unit, !idr.world)]>
-!List = !idr.data<"List", list [@Nil(), @Cons(i64, !idr.box<!idr.data<"List">>)]>
-module {
-  idr.func private @upto(%i: i64, %n: i64, %acc: i64) -> i64 attributes {total} {
+!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
+idr.program @loops root(@Prog.main) stage(higher) {
+  idr.func @upto(%i: i64, %n: i64, %acc: i64) -> i64 attributes {total} {
     %lt = arith.cmpi slt, %i, %n : i64
     %b = arith.extui %lt : i1 to i64
     %r = idr.match_lit %b : i64 -> (i64) {
@@ -43,7 +43,7 @@ module {
     return %r : i64
   }
   // until i n = if i < n then until (i + 3) n else i
-  idr.func private @until(%i: i64, %n: i64) -> i64 attributes {total} {
+  idr.func @until(%i: i64, %n: i64) -> i64 attributes {total} {
     %lt = arith.cmpi slt, %i, %n : i64
     %b = arith.extui %lt : i1 to i64
     %r = idr.match_lit %b : i64 -> (i64) {
@@ -59,7 +59,7 @@ module {
     }
     return %r : i64
   }
-  idr.func private @count(%acc: i64, %n: i64) -> i64 attributes {total} {
+  idr.func @count(%acc: i64, %n: i64) -> i64 attributes {total} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       idr.yield %acc : i64
@@ -74,7 +74,7 @@ module {
     }
     return %r : i64
   }
-  idr.func private @sum(%acc: i64, %xs: !idr.box<!List>) -> i64 attributes {total} {
+  idr.func @sum(%acc: i64, %xs: !idr.box<!List>) -> i64 attributes {total} {
     %r = idr.match %xs : !idr.box<!List> -> (i64) {
     case @Nil() {
       idr.yield %acc : i64
@@ -87,7 +87,7 @@ module {
     }
     return %r : i64
   }
-  idr.func private @echo(%n: i64, %w: !idr.world) -> !idr.world attributes {total} {
+  idr.func @echo(%n: i64, %w: !idr.world) -> !idr.world attributes {total} {
     %nl = arith.constant 10 : i32
     %w1 = idr.io.put_int signed %n, %w : i64
     %w2 = idr.io.put_char %nl, %w1
@@ -104,21 +104,21 @@ module {
     }
     return %r : !idr.world
   }
-  idr.func private @traverse(%xs: !idr.box<!List>, %w: !idr.world) -> !IORes attributes {total} {
+  idr.func @traverse(%xs: !idr.box<!List>, %w: !idr.world) -> !IORes attributes {total} {
     %unit = idr.constant #idr.con<@MkUnit, []> : !Unit
     %nl = arith.constant 10 : i32
     %r = idr.match %xs : !idr.box<!List> -> (!IORes) {
     case @Nil() {
-      %done = idr.con @MkIORes(%unit, %w) : (!Unit, !idr.world) -> !IORes
+      %done = idr.con !IORes @MkIORes(%unit : !Unit, %w : !idr.world)
       idr.yield %done : !IORes
     }
     case @Cons(%x: i64, %rest: !idr.box<!List>) {
       %w1 = idr.io.put_int signed %x, %w : i64
       %w2 = idr.io.put_char %nl, %w1
       %next = idr.call @traverse(%rest, %w2) : (!idr.box<!List>, !idr.world) -> !IORes
-      %u = idr.field %next[@MkIORes, 0] : !IORes -> !Unit
-      %w3 = idr.field %next[@MkIORes, 1] : !IORes -> !idr.world
-      %again = idr.con @MkIORes(%u, %w3) : (!Unit, !idr.world) -> !IORes
+      %u = idr.field %next : !IORes @MkIORes[0] -> !Unit
+      %w3 = idr.field %next : !IORes @MkIORes[1] -> !idr.world
+      %again = idr.con !IORes @MkIORes(%u : !Unit, %w3 : !idr.world)
       idr.yield %again : !IORes
     }
     }
@@ -132,10 +132,10 @@ module {
     %c3 = arith.constant 3 : i64
     %c7 = arith.constant 7 : i64
     %c10 = arith.constant 10 : i64
-    %nil = idr.con @Nil() : () -> !idr.box<!List>
-    %l3 = idr.con @Cons(%c3, %nil) : (i64, !idr.box<!List>) -> !idr.box<!List>
-    %l2 = idr.con @Cons(%c2, %l3) : (i64, !idr.box<!List>) -> !idr.box<!List>
-    %l1 = idr.con @Cons(%c1, %l2) : (i64, !idr.box<!List>) -> !idr.box<!List>
+    %nil = idr.con !idr.box<!List> @Nil()
+    %l3 = idr.con !idr.box<!List> @Cons(%c3 : i64, %nil : !idr.box<!List>)
+    %l2 = idr.con !idr.box<!List> @Cons(%c2 : i64, %l3 : !idr.box<!List>)
+    %l1 = idr.con !idr.box<!List> @Cons(%c1 : i64, %l2 : !idr.box<!List>)
     %u = idr.call @upto(%c0, %c10, %c0) : (i64, i64, i64) -> i64
     %w1 = idr.io.put_int signed %u, %w : i64
     %w2 = idr.io.put_char %nl, %w1
@@ -147,8 +147,8 @@ module {
     %w6 = idr.io.put_char %nl, %w5
     %w7 = idr.call @echo(%c3, %w6) : (i64, !idr.world) -> !idr.world
     %r = idr.call @traverse(%l1, %w7) : (!idr.box<!List>, !idr.world) -> !IORes
-    %unit = idr.field %r[@MkIORes, 0] : !IORes -> !Unit
-    %w8 = idr.field %r[@MkIORes, 1] : !IORes -> !idr.world
+    %unit = idr.field %r : !IORes @MkIORes[0] -> !Unit
+    %w8 = idr.field %r : !IORes @MkIORes[1] -> !idr.world
     %c5 = arith.constant 5 : i64
     %f = idr.call @until(%c0, %c10) : (i64, i64) -> i64
     %w9 = idr.io.put_int signed %f, %w8 : i64

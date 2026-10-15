@@ -75,11 +75,11 @@ struct MergeIdenticalRegions : OpRewritePattern<Match> {
     }
     if (!fallback)
       return failure();
-    SmallVector<Attribute> cases;
+    SmallVector<unsigned> cases;
     SmallVector<Region *> regions;
     for (unsigned i = 0; i < count; ++i)
       if (&op.getCaseRegion(i) != fallback && !sameBody(op.getCaseRegion(i), *fallback)) {
-        cases.push_back(op.getCases()[i]);
+        cases.push_back(i);
         regions.push_back(&op.getCaseRegion(i));
       }
     if (regions.size() + 1 == op.getRegions().size() && fallback == op.getDefaultRegion())

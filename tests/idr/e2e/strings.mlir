@@ -6,8 +6,8 @@
 // the length and the characters of a string picked at runtime, and a match
 // on it.
 // CHECK: 3 98 é 2
-module {
-  idr.func private @word(%c: i32) -> !idr.str {
+idr.program @strings root(@Prog.main) stage(higher) {
+  idr.func @word(%c: i32) -> !idr.str {
     %r = idr.match_lit %c : i32 -> (!idr.str) {
     case 97 {
       %s = idr.constant "apple" : !idr.str
@@ -20,7 +20,7 @@ module {
     }
     return %r : !idr.str
   }
-  idr.func private @rank(%s: !idr.str) -> i64 {
+  idr.func @rank(%s: !idr.str) -> i64 {
     %r = idr.match_lit %s : !idr.str -> (i64) {
     case "apple" {
       %one = arith.constant 1 : i64

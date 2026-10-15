@@ -1,8 +1,7 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
 ||| Function instances and programs: each instance requested is translated
-||| in turn, and the program is assembled with each data instance's
-||| representation.
+||| in turn, and the program is assembled from what they registered.
 module IdrisMLIR.Frontend.Translate.Programs
 
 import Core.Context
@@ -20,7 +19,6 @@ import IdrisMLIR.Frontend.Translate.Shapes
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Translate.Terms
 import IdrisMLIR.Frontend.Translate.Types
-import IdrisMLIR.Graph
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
@@ -161,26 +159,15 @@ translateFrom fc main = do
   st <- get TState
   if st.restart then translateFrom fc main else pure (Just inst)
 
-||| The program, with each data instance's representation: a box when it
-||| contains itself, through the fields of any data (not through closures,
-||| which are values of their own), and an unboxed sum otherwise. A record
-||| decided Sop here may still become a box in idr-defunctionalize, when a
-||| cell holding its values would count more references than a header can:
-||| that measure is idr.layout's, not one held here too.
+||| The program: its data and function instances in the order they were
+||| registered. Whether a value of a data instance is boxed is the
+||| dialect's to decide, from the whole type graph, once.
 assemble : {auto s : Ref TState TS} -> FnId -> Core Source
 assemble root = do
   st <- get TState
-  let decls = the (List Decl) (mapMaybe (\n => lookup n st.datas) (st.dataOrder <>> []))
-  let contained = \d => maybe [] (\decl => concatMap (mapMaybe dataField . (.fields)) decl.cons)
-                                 (lookup d st.datas)
-  let boxes = cyclic contained (map (.id) decls)
-  let datas = map (\d : Decl => MkData d.id d.key d.cons d.loc (if contains d.id boxes then Box else Sop) d.promise) decls
+  let datas = mapMaybe (\n => lookup n st.datas) (st.dataOrder <>> [])
   let fns = mapMaybe (\n => lookup n st.fns) (st.fnOrder <>> [])
   pure (MkSource datas fns root)
-  where
-    dataField : Binder -> Maybe DataId
-    dataField (MkBinder _ (DataT d)) = Just d
-    dataField _ = Nothing
 
 ||| An IO program. The root is `unsafePerformIO main` written
 ||| directly as world-passing code, which is what `unsafePerformIO`,

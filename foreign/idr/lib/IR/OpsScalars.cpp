@@ -35,7 +35,7 @@ void ToCharOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn setR
 // A value its guard refuses folds to nothing: the program never converts
 // it, since the guard crashes first.
 OpFoldResult ToByteOp::fold(FoldAdaptor adaptor) {
-  if (!checkHolds(CheckKind::Byte, adaptor.getValue()))
+  if (!CheckByteOp::holds(adaptor.getValue()))
     return {};
   return IntegerAttr::get(getType(), cast<IntegerAttr>(adaptor.getValue()).getValue().trunc(8));
 }
@@ -45,11 +45,11 @@ void ToByteOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn setR
 }
 
 Speculation::Speculatability ToByteOp::getSpeculatability() {
-  return checkSpeculatability(*this, getValueMutable().getOperandNumber());
+  return guardedSpeculatability<CheckByteOp>(getValue());
 }
 
 OpFoldResult ToIntOp::fold(FoldAdaptor adaptor) {
-  if (!checkHolds(CheckKind::Finite, adaptor.getValue()))
+  if (!CheckFiniteOp::holds(adaptor.getValue()))
     return {};
   auto value = cast<FloatAttr>(adaptor.getValue());
   // Truncated exactly, then wrapped: 1100 bits hold any finite double.
@@ -60,17 +60,17 @@ OpFoldResult ToIntOp::fold(FoldAdaptor adaptor) {
 }
 
 Speculation::Speculatability ToIntOp::getSpeculatability() {
-  return checkSpeculatability(*this, getValueMutable().getOperandNumber());
+  return guardedSpeculatability<CheckFiniteOp>(getValue());
 }
 
 // A division by a divisor its guard has not checked could fault, so it
 // stays below the guard, or below the path that proved the guard away.
 Speculation::Speculatability DivOp::getSpeculatability() {
-  return checkSpeculatability(*this, getRhsMutable().getOperandNumber());
+  return guardedSpeculatability<CheckNonzeroOp>(getRhs());
 }
 
 Speculation::Speculatability ModOp::getSpeculatability() {
-  return checkSpeculatability(*this, getRhsMutable().getOperandNumber());
+  return guardedSpeculatability<CheckNonzeroOp>(getRhs());
 }
 
 // '-', a digit, or the first letter of `inf` or `nan`.

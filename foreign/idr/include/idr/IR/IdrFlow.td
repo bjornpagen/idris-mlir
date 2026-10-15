@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The flow interface: how an op that holds, takes or gives a closure or a
-// suspension says where it moves. Its vocabulary is idr/IR/Flow.h, which
-// includes what this file generates; every op holds it as an external
-// model, whose edges are in lib/IR/Flow.cpp.
+// The flow interface: how an op says where what it holds, takes or gives
+// moves. Its vocabulary is idr/IR/FlowEdges.h, which also includes what
+// this file generates; each op of ours that has an edge to declare holds
+// the interface in its ODS, and upstream's ops hold it as external models
+// (idr::registerFlowInterfaceExternalModels).
 
 #ifndef IDR_FLOW
 #define IDR_FLOW
@@ -13,18 +14,28 @@ include "mlir/IR/OpBase.td"
 def Idr_FlowOpInterface : OpInterface<"FlowOpInterface"> {
   let cppNamespace = "::idr";
   let description = [{
-    An op that holds, takes or gives a closure or a suspension declares
-    how each one moves: into its results or region arguments, into an
-    anchor, into a function's parameters or results, or through a
-    dispatch. It declares only edges no upstream interface declares: a
-    branch's and a region branch's forwarded values are read from
-    BranchOpInterface and RegionBranchOpInterface.
+    An op that moves a value holding a carrier (the labels of a closure or
+    of a suspension, or a counted reference) declares each move: into its
+    results or region arguments, into or out of a part of a value (a
+    field, the elements, the forced state, a capture, a hole), into a
+    function's parameters or results, or through a dispatch; which uses
+    it takes over and which it ends; which results are new; which labels
+    and constants it makes. A use it declares no edge for is only read
+    while the op runs. It declares only what no upstream interface
+    declares: what a branch or a region branch forwards is read from
+    BranchOpInterface and RegionBranchOpInterface (idr::forwardedValues),
+    so a terminator that only forwards holds no flow interface.
+
+    Every op of ours with an edge to declare holds it, and so does an op
+    that reads a box or a sum in place without moving it (idr.tag,
+    idr.memo.enter), so that readers know the read is all it does. An op
+    without it is unknown to the readers that follow references: what it
+    takes may go anywhere, and what it gives may be shared.
   }];
   let methods = [
     InterfaceMethod<[{
-        Adds to `edges` every edge along which a closure or a suspension
-        this op holds, takes or gives moves. An op with no value of a
-        closure or lazy carrier adds nothing.
+        Adds to `edges` every edge along which something this op holds,
+        takes or gives moves.
       }],
       "void", "getFlowEdges", (ins "::idr::FlowEdges &":$edges)>,
   ];

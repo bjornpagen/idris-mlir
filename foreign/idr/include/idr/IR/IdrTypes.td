@@ -5,14 +5,17 @@
 #ifndef IDR_TYPES
 #define IDR_TYPES
 
-include "idr/IR/IdrBase.td"
+include "idr/IR/IdrInterfaces.td"
 
 //===----------------------------------------------------------------------===//
 // Types
 //===----------------------------------------------------------------------===//
 
+// Every type of the dialect is the type of a value, and says what a value
+// of it holds (lib/IR/Types.cpp).
 class Idr_Type<string name, string typeMnemonic, list<Trait> traits = []>
-    : TypeDef<Idr_Dialect, name, traits> {
+    : TypeDef<Idr_Dialect, name,
+              !listconcat(traits, [DeclareTypeInterfaceMethods<Idr_ValueFactsTypeInterface>])> {
   let mnemonic = typeMnemonic;
 }
 
@@ -24,65 +27,123 @@ class Idr_Type<string name, string typeMnemonic, list<Trait> traits = []>
 // a suspension, `tok` a token; a grade suggests its carrier's.
 
 // A data type, identified by its name, whose body is its declaration: the
-// kind of sum it is, its constructors in tag order (each a name and its
-// fields' types, and for a memo sum's label whether every force runs it),
-// and the Idris instance it is of. The body is set once, when the type is
-// made, as an LLVM identified struct's is: every fact in it is decided
-// before then, and a pass that would change one makes a new type
-// (DataRemap). So a pattern or a verifier reads the type, never the module,
-// and the type is an atom to upstream's walkers: its body holds the types
-// of its fields, not sub-elements of its own. Written
-// `!idr.data<"T", kind [@C(fields), ...] instance #idr.instance<...>>`, and
-// `!idr.data<"T">` only inside its own body (lib/IR/Types.cpp).
+// kind of sum it is, its constructors in tag order (each a name, its
+// fields' types, its role, the function of a label, and for a memo sum's
+// label whether every force runs it), and the Idris instance it is of. The
+// body comes with the type, as an LLVM identified struct's does: the type
+// is made with it (define), every fact in it is decided before then, and a
+// pass that would change one makes a new type (DataRemap). Only the parser
+// and define ever see the type without its body, so no reader asks whether
+// it has one. A pattern or a verifier reads the type, never the module.
+// What a value of the type holds is computed once from the body and kept
+// with it. To upstream's walkers the type's sub-elements are its labels'
+// functions alone, so a symbol use of a label is a use of the type: its
+// fields are types of their own, which the walkers do not enter. Written
+// `!idr.data<"T", kind [@C(fields) role, ...] instance #idr.instance<...>>`,
+// and `!idr.data<"T">` only inside its own body (lib/IR/Types.cpp).
 def Idr_DataType : Idr_Type<"Data", "data", [MutableType, MemRefElementTypeInterface]> {
   let summary = "a data type, identified by its name, whose body is its constructors";
   let parameters = (ins StringRefParameter<"the data type's identifier">:$name);
   // The kinds of sum a body says it is, which idris-mlir-tblgen writes the
-  // body's syntax with.
+  // body's syntax with, and the roles its constructors play.
   I32EnumAttr bodyKinds = Idr_SumKind;
+  I32EnumAttr ctorRoles = Idr_CtorRole;
   let storageClass = "DataTypeStorage";
   let genStorageClass = 0;
   let skipDefaultBuilders = 1;
   let hasCustomAssemblyFormat = 1;
   let extraClassDeclaration = [{
-    // The data type named `name`, made without a body if the context has
-    // none of that name: the same type for the context's whole life.
-    static DataType get(::mlir::MLIRContext *context, ::llvm::StringRef identifier);
-    static DataType getChecked(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-                               ::mlir::MLIRContext *context, ::llvm::StringRef identifier);
-    // Sets the body, once: the same body again succeeds; another one, or
-    // one that is no well-formed sum, fails with `emitError`'s error.
-    ::mlir::LogicalResult setBody(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-                                  ::idr::SumKind kind, ::llvm::ArrayRef<::idr::Ctor> ctors,
-                                  ::idr::InstanceAttr instance);
-    bool hasBody() const;
+    // A body: the kind of sum, the constructors in tag order, the instance.
+    // Each constructor's fields are a view, of storage that outlives the
+    // call that hands the body over.
+    struct Body {
+      ::idr::SumKind kind = ::idr::SumKind::Plain;
+      ::llvm::SmallVector<::idr::Ctor> ctors;
+      ::idr::InstanceAttr instance;
+    };
+
+    // The data type named `identifier`, with the body `body` gives for it: the
+    // type it is handed is the one being made, which the body may hold, as
+    // may the body of a type `body` defines in turn. A type of that name
+    // with this body already is that type. Null, after an internal error at
+    // no location of the context, when the body is no well-formed sum or
+    // the name has another body.
+    static DataType define(::mlir::MLIRContext *context, ::llvm::StringRef identifier,
+                           ::llvm::function_ref<Body(DataType self)> body);
+
     ::idr::SumKind getKind() const;
-    // In tag order; empty without a body.
+    // In tag order.
     ::llvm::ArrayRef<::idr::Ctor> getCtors() const;
     const ::idr::Ctor &getCtor(unsigned tag) const;
     ::idr::InstanceAttr getInstance() const;
-    // The tag of the constructor named `name`, or nothing.
+    // The tag of the constructor named `name`, or nothing: how the parsers
+    // read a constructor written by its name. Every other reader holds the
+    // tag.
     std::optional<unsigned> getTag(::llvm::StringRef ctor) const;
-    bool isMemo() const { return hasBody() && getKind() == ::idr::SumKind::Memo; }
-    bool isClosures() const { return hasBody() && getKind() == ::idr::SumKind::Closures; }
-    // A label's constructor: each of a closure sum's, each of a memo sum's
-    // but its two states.
-    bool isLabel(unsigned tag) const;
-    // A memo sum's states: its last two constructors.
-    unsigned getRunningTag() const { return static_cast<unsigned>(getCtors().size()) - 2; }
-    unsigned getForcedTag() const { return static_cast<unsigned>(getCtors().size()) - 1; }
-    // Base's list: nil, then cons of an element and the list.
-    static constexpr unsigned listNil = 0, listCons = 1;
-    ::mlir::Type getListElement() const { return getCtor(listCons).fields[0]; }
+    bool isMemo() const { return getKind() == ::idr::SumKind::Memo; }
+    bool isClosures() const { return getKind() == ::idr::SumKind::Closures; }
+    // The constructor of each role a sum has exactly one of: a memo sum's
+    // states, base list's nil and cons. Asked of a sum of another kind, it
+    // is the caller's error.
+    unsigned getRunningTag() const { return roleTag(::idr::CtorRole::Running); }
+    unsigned getForcedTag() const { return roleTag(::idr::CtorRole::Forced); }
+    unsigned getNilTag() const { return roleTag(::idr::CtorRole::ListNil); }
+    unsigned getConsTag() const { return roleTag(::idr::CtorRole::ListCons); }
+    // Base list's element: cons's first field.
+    ::mlir::Type getListElement() const { return getCtor(getConsTag()).fields[0]; }
+
+    // To upstream's walkers and replacers, the type's sub-elements are its
+    // labels' functions, in tag order: a symbol use of the type is a use of
+    // each, which SymbolDCE and every symbol-use query see.
+    static auto getWalkImmediateSubElementsFn() {
+      return [](auto instance, ::llvm::function_ref<void(::mlir::Attribute)> walkAttrs,
+                ::llvm::function_ref<void(::mlir::Type)>) {
+        walkLabels(::llvm::cast<DataType>(instance), walkAttrs);
+      };
+    }
+    static auto getReplaceImmediateSubElementsFn() {
+      return [](auto instance, ::llvm::ArrayRef<::mlir::Attribute> labels,
+                ::llvm::ArrayRef<::mlir::Type>) -> ::mlir::Type {
+        return replaceLabels(::llvm::cast<DataType>(instance), labels);
+      };
+    }
+
+  private:
+    // The type of the name, made without a body if the context has none of
+    // that name: what the parser reads a name into and define makes.
+    static DataType get(::mlir::MLIRContext *context, ::llvm::StringRef identifier);
+    // Sets the body, once: the same body again succeeds; another one, or
+    // one that is no well-formed sum, fails with `emitError`'s error.
+    ::mlir::LogicalResult setBody(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+                                  const Body &body);
+    unsigned roleTag(::idr::CtorRole role) const;
+    // The rules of a well-formed sum, which a body is checked by once, when
+    // it is set (lib/IR/DataBody.cpp).
+    static ::mlir::LogicalResult verifyBody(DataType type,
+                                            ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+                                            const Body &body);
+    // The facts of ValueFactsTypeInterface, computed at the first question
+    // for every data type the answer depends on, and kept beside the body
+    // (lib/IR/ValueFacts.cpp). They are read and kept under the context's
+    // lock for the type, as the body is set; none until they are known.
+    unsigned facts() const;
+    uint8_t knownFacts() const;
+    void keepFacts(uint8_t bits) const;
+    // Whether the body is set yet: false only while the parser or define
+    // makes the type, when no fact of it is final.
+    bool bodySet() const;
+    static void walkLabels(DataType type, ::llvm::function_ref<void(::mlir::Attribute)> walk);
+    static ::mlir::Type replaceLabels(DataType type, ::llvm::ArrayRef<::mlir::Attribute> labels);
+
+  public:
   }];
 }
 
 // A value of a data type held through a cell: a reference to the cell,
 // which holds the constructor's tag in its header. Boxing is the value's
-// type alone, never a fact of the data type: a type that contains itself is
-// held through a box somewhere on the way, and a record or closure sum
-// whose values would make the cells holding them count more references
-// than a header can is boxed where it is held (layout::fit).
+// type alone, never a fact of the data type: a type that contains itself in
+// place is held through a box, which layout::fit decides from the module's
+// types and makes everywhere the type is held.
 def Idr_BoxType : Idr_Type<"Box", "box", [MemRefElementTypeInterface]> {
   let summary = "a reference to a cell that holds a value of a data type";
   let parameters = (ins "::idr::DataType":$data);

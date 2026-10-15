@@ -23,20 +23,21 @@ Class Classes::classOf(Value value) {
   // ops: a fresh allocation's, which its idr.own.adopt takes over, and the
   // one an idr.own.give hands to the store that consumes it. Counting
   // places nothing for either; the boundary op is its one use.
-  if (!counted(value.getType()) ||
-      isa_and_nonnull<mlir::memref::AllocOp, OwnGiveOp>(value.getDefiningOp()))
+  Operation *def = value.getDefiningOp();
+  if (!counted(value.getType()) || isa_and_nonnull<mlir::memref::AllocOp, OwnGiveOp>(def))
     return Class::Untracked;
-  if (isStatic(value))
+  // An op that only changes a grade but takes its operand over (a linear
+  // position) holds what that operand holds once counted: a static operand
+  // gets a reference of its own there, which no count reaches but which
+  // the grade says, so what the op gives is owned.
+  bool takesOver = def && def->hasTrait<ResultCarriesOperand>() && consumes(def->getOpOperand(0));
+  if (isStatic(value) && !takesOver)
     return Class::Static;
   auto known = classes.find(value);
   if (known != classes.end())
     return known->second;
   Class result = Class::Owned;
-  // An element of a buffer may be written while a view of it would still
-  // be read, which a field of a cell never is: it takes a reference of its
-  // own where it is read.
-  bool element = bool(value.getDefiningOp<mlir::memref::LoadOp>());
-  if (Value from = readFrom(value); from && !element) {
+  if (Value from = readFrom(value); from && !isCountedElement(value)) {
     if (llvm::all_of(value.getUsers(), [&](Operation *user) { return aliveAt(from, user); }))
       result = Class::Borrowed;
   } else if (auto arg = dyn_cast<BlockArgument>(value);
@@ -53,16 +54,20 @@ Class Classes::classOf(Value value) {
 // Whether `value` still holds a reference, or lives as long as the call,
 // where `op` uses what was read from it: an owned value is used again
 // after `op`, and a borrowed one is read from a value that is alive
-// there, or is a parameter.
+// there, or is a parameter. The reference of an owned value is where
+// placement keeps it: up to its last use in each block that holds `op`,
+// through every op that does not decide and uses it inside, and into the
+// region of a deciding op only when that region uses it.
 bool Classes::aliveAt(Value value, Operation *op) {
   switch (classOf(value)) {
   case Class::Untracked:
   case Class::Static:
     return true;
   case Class::Owned:
-    // Used again after `op`, or inside a region of it: a match uses its
-    // scrutinee as it starts, so a use in one of its regions keeps it
-    // alive there too. usedIn is what counting asks of a region.
+    // Used again after `op`, or inside a region of it: an op with regions
+    // reads what it reads as it starts, so a use in one of its regions
+    // keeps the value alive there too. usedIn is what counting asks of a
+    // region.
     return usedAfter(value, op) ||
            llvm::any_of(op->getRegions(), [&](Region &region) { return usedIn(value, region); });
   case Class::Borrowed:

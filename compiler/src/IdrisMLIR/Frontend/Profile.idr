@@ -20,7 +20,7 @@ import Parser.Lexer.Source
 import IdrisMLIR.Dialect.Idr
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate
-import IdrisMLIR.Frontend.Translate.Keys
+import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.Registry
@@ -42,13 +42,6 @@ import System.File
 -- Hooks and definitions
 ------------------------------------------------------------------------------
 
-||| The rule under which the registry forbids a definition or spelling in the
-||| user's code, if it does.
-forbiddenBy : List Hook -> Maybe Rule
-forbiddenBy [] = Nothing
-forbiddenBy (Forbidden rule :: _) = Just rule
-forbiddenBy (_ :: hs) = forbiddenBy hs
-
 ||| What a refusal of a forbidden definition says. Threads, finalizers, raw
 ||| memory, signals and processes name why they are outside the language;
 ||| every other forbidden definition is a use of it.
@@ -67,14 +60,14 @@ exclusion _ n = "uses " ++ n
 ||| any arity (a call below it is a closure over the saturated call), and
 ||| the exit's `believe_me` is translated as an action that does not
 ||| return: the escape hatch in each body is the hook's, not the program's.
-answersForBody : List Hook -> Bool
-answersForBody hs = identityOnLast hs || isJust (exitOf hs) || isJust (generatingOf hs)
+answersForBody : Hooks -> Bool
+answersForBody hs = hs.identityOnLast || isJust hs.exits || isJust hs.generating
 
 ||| The first of the definitions a user definition refers to that the
 ||| registry forbids in the user's code, with its rule.
 firstForbidden : List Name -> Maybe (Name, Rule)
 firstForbidden [] = Nothing
-firstForbidden (r :: rs) = case forbiddenBy (hooksOf r) of
+firstForbidden (r :: rs) = case (hooksOf r).forbidden of
   Just rule => Just (r, rule)
   Nothing => firstForbidden rs
 
@@ -140,7 +133,7 @@ checkPragmas ident path = do
     ||| reduces `prim__believe_me` applied to a value during elaboration, so
     ||| it can vanish from TT.
     spelled : WithBounds Token -> String -> Core ()
-    spelled tok n = case forbiddenBy (hooks (Spelling n)) of
+    spelled tok n = case (hooks (Spelling n)).forbidden of
       Just rule => do
         found n
         reject (at tok) (show ident) rule ("the escape hatch " ++ n)
@@ -186,7 +179,7 @@ treeMentionsWorld _ = False
 ||| What a definition refers to, with the metavariables its body mentions:
 ||| the translation follows a solved one to its solution. Of a definition
 ||| whose hook answers for its body, only the type.
-refsOf : List Hook -> GlobalDef -> List Name
+refsOf : Hooks -> GlobalDef -> List Name
 refsOf hs def =
   let fromType = keys (getRefs (UN (Basic "")) (type def)) in
   case definition def of
@@ -249,7 +242,7 @@ checkReachable fc roots = go empty empty (map (\r => (r, [], False)) roots) [<]
       -- outside the language wherever they are reached. The world's
       -- forbidden operations are not: the program root is one, and user
       -- code is refused where it names them.
-      case forbiddenBy (hooksOf full) of
+      case (hooksOf full).forbidden of
         Just Threads => reject (userFC here) owner Threads (exclusion Threads key ++ via here)
         Just Finalizer => reject (userFC here) owner Finalizer (exclusion Finalizer key ++ via here)
         Just RawPointer => reject (userFC here) owner RawPointer (exclusion RawPointer key ++ via here)
@@ -258,13 +251,13 @@ checkReachable fc roots = go empty empty (map (\r => (r, [], False)) roots) [<]
         _ => pure ()
       -- A deprecated name is rejected wherever it is reached. The hook's
       -- text names the replacement.
-      case deprecatedOf (hooksOf full) of
+      case (hooksOf full).deprecated of
         Just msg => reject (userFC here) owner Deprecated msg
         Nothing => pure ()
       -- A trusted library may crash with a string. The reach has to come
       -- from a trusted definition: a user's call of the same function is
       -- still an escape hatch, and believe_me stays one either way.
-      let libraryCrash = fromTrusted && libraryCrashOf (hooksOf full)
+      let libraryCrash = fromTrusted && (hooksOf full).libraryCrash
       let builtinCrash = fromTrusted && case definition def of
                                           Builtin Crash => True
                                           _ => False
@@ -276,15 +269,16 @@ checkReachable fc roots = go empty empty (map (\r => (r, [], False)) roots) [<]
         Builtin Crash => unless fromTrusted $
           reject (userFC here) owner EscapeHatch ("idris_crash" ++ via here)
         Hole {} => reject (userFC here) owner EscapeHatch ("the hole " ++ key ++ via here)
-        -- Only the IO primitives the registry lists may be reached: an
-        -- `%extern` one by its name, a `%foreign` one by its spec.
+        -- Only the declarations the registry gives a meaning may be
+        -- reached: an `%extern` one by its name, a `%foreign` one by its
+        -- spec.
         ExternDef _ =>
-          unless (isJust (ioCallOf (hooksOf full)) || isJust (arrayCallOf (hooksOf full)) ||
-                  isJust (systemFactOf (hooksOf full))) $
+          unless (meansExtern (hooksOf full)) $
             reject (userFC here) owner EscapeHatch ("%extern " ++ key ++ via here)
         ForeignDef _ specs => case foreignHookOf full specs of
-          Just (Right (Deprecated msg)) => reject (userFC here) owner Deprecated msg
-          Just (Right _) => pure ()
+          Just (Right hs) => case hs.deprecated of
+            Just msg => reject (userFC here) owner Deprecated msg
+            Nothing => pure ()
           Just (Left wrong) => reject (userFC here) key HookShape wrong
           Nothing => reject (userFC here) owner EscapeHatch ("%foreign " ++ key ++ via here)
         _ => pure ()

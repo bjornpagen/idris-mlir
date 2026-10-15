@@ -3,10 +3,9 @@
 ||| Types, literals and primitives of Core.
 |||
 ||| There is one type language: every type of full Core exists at runtime,
-||| and MLIR removes abstraction. A data instance records its
-||| representation where it is declared (`Term.Data`), so `DataT` names the
-||| instance and nothing more. Types Idris flags
-||| `ZERO`/`SUCC` are not data at all: they are `NatT`.
+||| and MLIR removes abstraction. A data instance is declared once
+||| (`Term.Data`), so `DataT` names the instance and nothing more. Types
+||| Idris flags `ZERO`/`SUCC` are not data at all: they are `NatT`.
 module IdrisMLIR.Types
 
 import IdrisMLIR.Dialect.Idr
@@ -79,37 +78,23 @@ signed _ = True
 -- Types
 ------------------------------------------------------------------------------
 
-||| How an array is held: a value of the array language, a tensor, or an
-||| array a world orders, a memref.
-public export
-data ArrayKind = ValueArray | OrderedArray
-
-export
-Eq ArrayKind where
-  ValueArray == ValueArray = True
-  OrderedArray == OrderedArray = True
-  _ == _ = False
-
 mutual
   ||| The types of Core. `BigT` is `Integer`; `NatT` is `Nat` and every
   ||| `Nat`-like type, an integer that is never negative, the same
   ||| big at runtime; `FunT` is a closure, binding its argument as a lambda
   ||| does; `LazyT` is a suspension, one cell whose value is shared by every
-  ||| force; `DataT` is a data instance, whose declaration says
-  ||| whether it is an unboxed sum or a box. `TensorT` is a value of the
-  ||| array language (`Array s a`, `LArray s a`): a ranked tensor of its
-  ||| element, one dimension per axis of the form of `s`, outermost first,
-  ||| static where the shape's normal form at the instance is a literal; an
-  ||| array of arrays is one tensor, the element's dimensions after the
-  ||| shape's, so its element is never a tensor or a memref. `MemRefT` is an
-  ||| array a world orders, read and written through the world: base's
-  ||| `ArrayData` and `Buffer`, of one dynamic dimension, and the one cell of
-  ||| an IORef, of none; its element is never a tensor. `ColumnsT` is an
-  ||| array of either kind whose element is a record (one constructor of
-  ||| two fields or more, not containing itself): one array per field, in
-  ||| field order, each of the array's kind and dimensions and of its
-  ||| field's type, a field that is a value array adding its dimensions
-  ||| after the array's (0003 D44).
+  ||| force; `DataT` is a data instance, whatever it holds: how its values
+  ||| are laid out, boxed or not, is the dialect's to decide. `TensorT` is a
+  ||| value of the array language (`Array s a`, `LArray s a`): a ranked
+  ||| tensor of its element, one dimension per axis of the form of `s`,
+  ||| outermost first, static where the shape's normal form at the instance
+  ||| is a literal; an array of arrays is one tensor, the element's
+  ||| dimensions after the shape's, so its element is never a tensor or a
+  ||| memref. An array of records is a tensor of the record's data
+  ||| instance, which the dialect splits into one tensor per field.
+  ||| `MemRefT` is an array a world orders, read and written through the
+  ||| world: base's `ArrayData` and `Buffer`, of one dynamic dimension, and
+  ||| the one cell of an IORef, of none; its element is never a tensor.
   public export
   data Ty = IntT IntTy | CharT | DoubleT | StrT | BigT | NatT | WorldT
           | DataT DataId
@@ -117,7 +102,6 @@ mutual
           | LazyT Ty
           | TensorT (List Dim) Ty
           | MemRefT (List Dim) Ty
-          | ColumnsT ArrayKind (List Dim) DataId
 
   ||| What a parameter, a lambda, an arrow or a constructor field binds: a
   ||| value of a type, used as Idris proved. A binder of quantity zero binds
@@ -147,7 +131,6 @@ mutual
   sameTy (LazyT a) (LazyT b) = sameTy a b
   sameTy (TensorT ds a) (TensorT es b) = ds == es && sameTy a b
   sameTy (MemRefT ds a) (MemRefT es b) = ds == es && sameTy a b
-  sameTy (ColumnsT k ds r) (ColumnsT k' es r') = k == k' && ds == es && r == r'
   sameTy _ _ = False
 
   sameBinder : Binder -> Binder -> Bool
@@ -184,15 +167,6 @@ mutual
       dimText Dynamic = "?"
   tyText name (MemRefT [] a) = "Mut (" ++ tyText name a ++ ")"
   tyText name (MemRefT _ a) = "Array (" ++ tyText name a ++ ")"
-  tyText name (ColumnsT k ds r) =
-    "Columns " ++ kindText k ++ " [<" ++ joinBy ", " (map dimText ds) ++ "] (" ++ name r ++ ")"
-    where
-      kindText : ArrayKind -> String
-      kindText ValueArray = "value"
-      kindText OrderedArray = "ordered"
-      dimText : Dim -> String
-      dimText (Static n) = show n
-      dimText Dynamic = "?"
 
   ||| `1 T` or `w T`, as the Core dump writes a binder.
   export
@@ -212,7 +186,6 @@ Show Binder where
 public export
 tensorDims : Ty -> List Dim
 tensorDims (TensorT ds _) = ds
-tensorDims (ColumnsT ValueArray ds _) = ds
 tensorDims _ = []
 
 ||| A type as a closure's binder or result, or a suspension's value, holds
@@ -221,7 +194,6 @@ tensorDims _ = []
 export
 dynamicDims : Ty -> Ty
 dynamicDims (TensorT ds e) = TensorT (map (const Dynamic) ds) e
-dynamicDims (ColumnsT k ds r) = ColumnsT k (map (const Dynamic) ds) r
 dynamicDims (FunT (MkBinder q a) r) = FunT (MkBinder q (dynamicDims a)) (dynamicDims r)
 dynamicDims (LazyT a) = LazyT (dynamicDims a)
 dynamicDims t = t
@@ -232,7 +204,8 @@ dynamicDims t = t
 
 ||| An operation of the array language on tensors (`Term.Tensor`). An axis
 ||| is counted from 0, outermost first; the axis of `Take`, `Drop`, `Concat`
-||| and `Pad` is the shape's last, before the cell's.
+||| and `Pad` is the shape's last, before the cell's, and `Transpose`'s the
+||| shape's last but one.
 public export
 data TensorOp
   = ||| [x]: the extent of axis k of x, a natural.
@@ -249,6 +222,8 @@ data TensorOp
     Drop Nat
   | ||| [x, y]: x then y along the axis.
     Concat Nat
+  | ||| [x]: x with the axis and the one after it swapped.
+    Transpose Nat
   | ||| (x :: extents): x's elements in row-major order at the result's
     ||| shape, its extents given outermost first; the result's dimensions
     ||| after them are the cell's.
@@ -265,6 +240,7 @@ Eq TensorOp where
   Take a == Take b = a == b
   Drop a == Drop b = a == b
   Concat a == Concat b = a == b
+  Transpose a == Transpose b = a == b
   Reshape == Reshape = True
   Pad a == Pad b = a == b
   _ == _ = False
@@ -277,6 +253,7 @@ Show TensorOp where
   show (Take a) = "take" ++ show a
   show (Drop a) = "drop" ++ show a
   show (Concat a) = "concat" ++ show a
+  show (Transpose a) = "transpose" ++ show a
   show Reshape = "reshape"
   show (Pad a) = "pad" ++ show a
 
@@ -295,39 +272,6 @@ export
 Show Reduction where
   show FoldLast = "fold_last"
   show ScanLast = "scan_last"
-
-------------------------------------------------------------------------------
--- What the registry says of data
-------------------------------------------------------------------------------
-
-||| The part a constructor plays that a pass needs and cannot read off its
-||| shape: the list's nil and cons, which the string builders take apart.
-public export
-data Role = ListNil | ListCons
-
-export
-Eq Role where
-  ListNil == ListNil = True
-  ListCons == ListCons = True
-  _ == _ = False
-
-export
-Show Role where
-  show ListNil = "list_nil"
-  show ListCons = "list_cons"
-
-||| A promise a library type makes of its values, which every program is
-||| checked against: its cells are rebuilt in place and held exclusive.
-public export
-data Promise = InPlace
-
-export
-Eq Promise where
-  InPlace == InPlace = True
-
-export
-Show Promise where
-  show InPlace = "in_place"
 
 ------------------------------------------------------------------------------
 -- Literals
@@ -368,9 +312,6 @@ data ArithOp = Add | Sub | Mul | Div | Mod | And | Or | Xor
 public export
 data Shift = ShiftLeft | ShiftRight
 
-public export
-data Cmp = CLt | CLte | CEq | CGte | CGt
-
 ||| Double arithmetic.
 public export
 data FArith = FAdd | FSub | FMul | FDiv
@@ -392,15 +333,15 @@ data Scalar = SInt IntTy | SChar | SDouble
 public export
 data Prim
   = IntOp ArithOp IntTy | IntShift Shift IntTy | FloatOp FArith | Negate | Math MathFn
-  | Compare Cmp Scalar | Cast Scalar Scalar
-  | StrCompare Cmp
+  | Compare CmpPredicate Scalar | Cast Scalar Scalar
+  | StrCompare CmpPredicate
   | ||| A scalar shown as a string.
     ToStr Scalar
   | ||| A string read as a number.
     FromStr Scalar
-  | BigCompare Cmp
+  | BigCompare CmpPredicate
   | ToBig Scalar | FromBig Scalar
-  | NatCompare Cmp
+  | NatCompare CmpPredicate
   | ||| The number of elements of an array a world orders, of this element
     ||| type: the dimension of its memref.
     ArrayLength Ty
@@ -418,14 +359,6 @@ Show ArithOp where
   show And = "and"
   show Or = "or"
   show Xor = "xor"
-
-export
-Show Cmp where
-  show CLt = "lt"
-  show CLte = "lte"
-  show CEq = "eq"
-  show CGte = "gte"
-  show CGt = "gt"
 
 export
 Show Scalar where

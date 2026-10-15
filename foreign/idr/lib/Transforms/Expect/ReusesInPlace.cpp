@@ -27,8 +27,10 @@ LogicalResult reusesInPlace(ModuleOp module, AnalysisManager &, StringRef functi
       if (isa<ReuseOp>(op))
         reused = true;
       auto con = dyn_cast<ConOp>(op);
-      if (con && isa<BoxType>(unrestricted(con.getType()))) {
-        fail(op->getLoc(), property) << "a box of " << con.getCtor() << " gets a fresh cell in "
+      if (con && isa<BoxType>(unrestricted(con.getResult().getType()))) {
+        fail(op->getLoc(), property) << "a box of @"
+                                     << con.getDataType().getCtor(con.getTag()).name.getValue()
+                                     << " gets a fresh cell in "
                                      << where(op);
         held = false;
       }

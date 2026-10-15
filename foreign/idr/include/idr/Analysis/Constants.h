@@ -15,11 +15,8 @@
 #include "mlir/Analysis/DataFlow/ConstantPropagationAnalysis.h"
 #include "mlir/IR/Operation.h"
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
-
-#include <optional>
-#include <shared_mutex>
 
 namespace idr {
 
@@ -27,37 +24,25 @@ namespace idr {
 // uninitialized where the function has no return, a constant, or unknown.
 using ConstantResults = llvm::SmallVector<mlir::dataflow::ConstantValue, 1>;
 
-// The constants summaries of one run of the ready set, built empty by the
-// module's analysis manager. The ready set publishes a component's when the
-// component is final; idr-constants reads them from any thread. A function
-// is never read before its component is published, so a call within a
-// component assumes nothing of its callee and no answer depends on the
-// order in which a component's members ran.
-class ConstantSummaries {
-public:
-  explicit ConstantSummaries(mlir::Operation *module);
+// What `fn` returns, read from its final body: idr-constants ran last on
+// it and replaced every value its solve held constant, so a return's
+// operand is a constant exactly where the solve found one. The body is the
+// fact; nothing holds a copy of the solve between the function's last step
+// and its component's end.
+ConstantResults returnedConstants(idr::FuncOp fn);
 
-  // The published results of the function named `callee`, or none while
-  // its component is not final.
-  std::optional<ConstantResults> lookup(mlir::StringAttr callee) const;
-
-  // When every member of `component` is final: what each returns, read from
-  // its final body, published for its callers. idr-constants ran last on
-  // each body and replaced every operand its solve held constant, so a
-  // return's operand is a constant exactly where the solve found one.
-  void publish(llvm::ArrayRef<idr::FuncOp> component);
-
-private:
-  mutable std::shared_mutex mutex;
-  llvm::DenseMap<mlir::StringAttr, ConstantResults> published;
-};
+// The results of the function named `callee` as its callers may read them:
+// null while its component is not final, so that a call within a component
+// assumes nothing of its callee and no answer depends on the order in which
+// a component's members ran.
+using ConstantsOf = llvm::function_ref<const ConstantResults *(mlir::StringAttr callee)>;
 
 // Upstream's sparse constant propagation on one function, with a call's
-// results taken from its callee's published summary: the hook upstream
-// gives a solve that does not enter callees.
+// results taken from its callee's summary: the hook upstream gives a solve
+// that does not enter callees. `constantsOf` outlives the solver.
 class SummarizedConstantPropagation : public mlir::dataflow::SparseConstantPropagation {
 public:
-  SummarizedConstantPropagation(mlir::DataFlowSolver &solver, const ConstantSummaries &summaries);
+  SummarizedConstantPropagation(mlir::DataFlowSolver &solver, ConstantsOf constantsOf);
 
   void visitExternalCall(
       mlir::CallOpInterface call,
@@ -65,7 +50,7 @@ public:
       llvm::ArrayRef<mlir::dataflow::Lattice<mlir::dataflow::ConstantValue> *> results) override;
 
 private:
-  const ConstantSummaries &summaries;
+  ConstantsOf constantsOf;
 };
 
 } // namespace idr

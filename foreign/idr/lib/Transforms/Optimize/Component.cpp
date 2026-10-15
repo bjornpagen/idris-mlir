@@ -5,18 +5,20 @@
 // writes its own members alone: every component of a wave is another, so
 // the turns run in parallel and each is a function of what it reads.
 //
-// A member taken up first gets its calls' effects and its component's
-// binding times and identities; then each member runs its loop: inline its
-// calls into final callees, run the inner pipeline, and follow what the
+// The members a turn takes up get their binding times and what they give
+// back, solved over them; then each member runs its loop: inline its calls
+// into final callees, run the inner pipeline, and follow what the
 // pipeline's redirect step requested. A request of a node final before the
 // wave is followed at once; any other parks the member until the wave
-// ends, since only then is the node in the module and taken up. A member
-// resumed runs the pipeline once more, so a call of a node now final takes
-// the node's effects. The loop ends when an iteration after the first
-// inlines nothing and follows no request: every inline takes a call into a
-// final callee, the final callees below a function are a finite DAG whose
-// cycles are never inlined, and the keys a function can request are finite
-// and requested once.
+// ends, since only then is the node in the program and taken up. A member
+// resumed runs the pipeline once more, so a call of a node now final is
+// read with the node's summary. The loop ends when an iteration after the
+// first inlines nothing and follows no request: every inline takes a call
+// into a final callee, the final callees below a function are a finite DAG
+// whose cycles are never inlined, and the keys a function can request are
+// finite and requested once. When every member is done the component's
+// summaries are read off its final bodies; they are published between
+// waves.
 
 #include "idr/Transforms/Optimize.h"
 
@@ -80,9 +82,10 @@ LogicalResult Scheduler::runInner(FuncOp fn) {
 }
 
 // The table gives each node to one claimant, which builds it detached: the
-// build reads only its owner, which is final. Which turn of a wave builds
-// a node changes nothing, since its body is a function of its key and its
-// owner.
+// build reads only its owner, which is final, and requests nothing, the
+// node's calls being its own turns' to redirect. Which turn of a wave
+// builds a node changes nothing, since its body is a function of its key
+// and its owner.
 LogicalResult Scheduler::build(ArrayRef<specialize::Node *> requests, Turn &turn) {
   const specialize::Nodes &nodes = analyses.nodes;
   for (specialize::Node *made : requests) {
@@ -90,10 +93,7 @@ LogicalResult Scheduler::build(ArrayRef<specialize::Node *> requests, Turn &turn
       continue;
     if (failed(nodes.build(*made)))
       return failure();
-    SmallVector<specialize::Node *> more = nodes.takeRequests(made->fn);
-    turn.built.push_back({made, more});
-    if (failed(build(more, turn)))
-      return failure();
+    turn.built.push_back(made);
   }
   return success();
 }
@@ -128,32 +128,54 @@ FailureOr<bool> Scheduler::runMember(Node *node, bool resumed, Turn &turn) {
   }
 }
 
+// Every callee outside the component is final now, the nodes a member
+// asked for among them, so the component's summaries are read off its
+// final bodies. Nothing outside the component reads them before settle
+// makes it final.
 void Scheduler::finish(Scc &scc) {
   SmallVector<FuncOp> fns = functionsOf(scc.members);
-  // Every callee outside the component is final now, the nodes a member
-  // asked for among them: a call redirected to one before it was final
-  // takes its entry here, then the entries and the calls inside follow.
-  writeCallEffectsOnReady(fns, analyses.symbols);
-  writeEntriesOnFinal(fns, analyses.holds, analyses.symbols);
-  analyses.summaries.publish(fns);
+  Effect effects = componentEffects(fns, analyses.symbols);
   for (Node *member : scc.members) {
+    Summary &summary = member->summary;
+    summary.effects = effects;
+    summary.constants = returnedConstants(member->fn);
     bool self = false;
-    member->facts.size = inlineSize(member->fn);
-    readCalls(member->fn, member->facts.leaf, self);
-    member->facts.onCycle = scc.members.size() > 1 || self;
+    summary.facts.size = inlineSize(member->fn);
+    readCalls(member->fn, summary.facts.leaf, self);
+    summary.facts.onCycle = scc.members.size() > 1 || self;
   }
+}
+
+// A function the program held gets its binding times from the bodies of
+// the members taken up with it; a made node inherited its owner's when it
+// went into the program. What each gives back is solved over the members
+// taken up, a callee outside them read as its own component's turn or its
+// publication left it.
+void Scheduler::takeUp(ArrayRef<Node *> starters) {
+  SmallVector<Node *> held;
+  for (Node *member : starters)
+    if (!member->made)
+      held.push_back(member);
+  SmallVector<SmallVector<BindingTime>> times = bindingTimesOf(functionsOf(held));
+  for (auto [member, each] : llvm::zip_equal(held, times))
+    member->summary.times = std::move(each);
+
+  const Node &reader = *starters.front();
+  auto outside = [&](StringAttr callee) -> identities::Callee {
+    FuncOp fn = analyses.set.lookup(callee);
+    return {analyses.set.givesBack(reader, callee),
+            fn && !bitEnumContainsAny(entryOf(fn), Effect::diverge)};
+  };
+  SmallVector<std::optional<unsigned>> given =
+      identities::givesBackOf(functionsOf(starters), outside);
+  for (auto [member, each] : llvm::zip_equal(starters, given))
+    member->summary.givesBack = each;
 }
 
 LogicalResult Scheduler::turn(Turn &work) {
   profile::ThreadTrace trace;
-  if (!work.starters.empty()) {
-    SmallVector<FuncOp> fns = functionsOf(work.starters);
-    // First: identities rely on a callee returning by the effects its
-    // calls carry.
-    writeCallEffectsOnReady(fns, analyses.symbols);
-    analyses.times.solve(fns);
-    analyses.identities.solve(fns);
-  }
+  if (!work.starters.empty())
+    takeUp(work.starters);
   for (Node *member : work.starters) {
     FailureOr<bool> parked = false;
     // A member the debug counter skips is left as it is, done.

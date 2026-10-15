@@ -6,19 +6,20 @@
 // In a case region of a match on a box that is dead after the match, the
 // box's constructor is known, so is its cell's size. whereDies finds where
 // the box dies on each path of the region: after its last use there, or,
-// when that use is a match, inside each of that match's regions. A last
+// when that use decides (a match), inside each of its regions. A last
 // use that consumes the box (a call, a constructor) is where it dies, and
 // its cell goes with it: nothing is taken on that path. Elsewhere `fits`
 // looks ahead on the same path for the first constructor of a box with a
-// cell of the same size, going into the regions of the matches it meets,
+// cell of the same size, going into the regions of the ops that decide,
 // and builds it in the dead box's cell instead: idr.take where the box dies,
 // idr.reuse for the constructor. idr-rc-place makes both; placement then
 // drops the token on the paths that do not reuse it. Inner matches are
 // done first, so that their scrutinees, which die later, get the
 // constructors built after them.
 //
-// A box that is static, borrowed or built in the stack frame (its con's
-// `stack`) is left alone: its cell is not the program's to reuse.
+// A box that is static, borrowed, built in the stack frame (its con's
+// `stack`) or a memo cell is left alone: its cell is not the program's to
+// reuse.
 //
 // Each decision is taken on the function as the takes before it leave it:
 // a take gives the reads of the box's fields after it fields of its own,
@@ -99,7 +100,8 @@ private:
     for (Block &block : fn.getBody())
       visit(block);
     for (auto [box, first] : boxes)
-      dies(box, first.getDataType(), first.getTag(), *first->getBlock(), nullptr);
+      dies(box, first.getDataType(), static_cast<unsigned>(first.getTag()), *first->getBlock(),
+           nullptr);
   }
 
   // Each value of `block` as a post-order walk meets it, a take's fields
@@ -151,8 +153,10 @@ private:
 
   // Whether `box` holds its own reference: not static, not a stack cell.
   // A take's field always does. Borrow inference keeps a parameter that is
-  // taken apart owned.
+  // taken apart owned. A memo cell is no one's to reuse: a force writes it.
   bool reusable(const Held &box) {
+    if (isMemoCell(typeOf(box)))
+      return false;
     for (Value value = box.value; value; value = readFrom(value)) {
       if (isStatic(value))
         return false;
@@ -181,21 +185,23 @@ private:
   }
 
   // The first constructor on each path from `at` whose cell fits, or
-  // false when there is none. The body of a loop over indices runs once
-  // per index, so a constructor in it cannot take the one cell. A
-  // constructor an earlier take has is a reuse already, and passed over.
+  // false when there is none. Only the regions of an op that decides are
+  // on a path: any other runs its regions any number of times, so a
+  // constructor there cannot take the one cell. A constructor an earlier
+  // take has is a reuse already, and passed over.
   bool fits(unsigned size, Block &block, Block::iterator at, SmallVectorImpl<ConOp> &found) {
     for (Operation &op : llvm::make_range(at, block.end())) {
       if (auto con = dyn_cast<ConOp>(op)) {
-        if (!claimed.contains(con) && isa<BoxType>(unrestricted(con.getType())) &&
-            !con.getStack() && !con.getDataType().getCtor(con.getTag()).fields.empty() &&
-            layouts.box(con.getDataType(), con.getTag()).size == size) {
+        auto tag = static_cast<unsigned>(con.getTag());
+        if (!claimed.contains(con) && isa<BoxType>(unrestricted(con.getResult().getType())) &&
+            !con.getStack() && !con.getDataType().getCtor(tag).fields.empty() &&
+            layouts.box(con.getDataType(), tag).size == size) {
           found.push_back(con);
           return true;
         }
         continue;
       }
-      if (op.getNumRegions() == 0 || isIndexLoop(&op))
+      if (!decides(&op))
         continue;
       bool any = false;
       for (Region &region : op.getRegions())
@@ -228,7 +234,7 @@ private:
     sites.push_back(std::move(site));
     Type boxType = typeOf(box);
     ArrayRef<Type> fieldTypes = data.getCtor(tag).fields;
-    eachField(uses, data, tag, fields, [&](Value field, unsigned number) {
+    eachField(uses, tag, fields, [&](Value field, unsigned number) {
       unsigned virt = virtualFor(index, number, fieldType(boxType, fieldTypes[number]));
       for (OpOperand &use : field.getUses())
         if (!moved.contains(&use) && fromPoint(where, at, use)) {
@@ -263,13 +269,13 @@ private:
 
 // Each function's sites depend on its body, the data types and the
 // layouts alone, so they are found in parallel, one slot per function.
-Reuses::Reuses(Operation *module, AnalysisManager &am) {
+Reuses::Reuses(Operation *program, AnalysisManager &am) {
   const Layouts &layouts = am.getAnalysis<Layouts>();
   if (failed(layouts.valid()))
     return;
-  SmallVector<FuncOp> functions(cast<ModuleOp>(module).getOps<FuncOp>());
+  SmallVector<FuncOp> functions(cast<ProgramOp>(program).getOps<FuncOp>());
   SmallVector<SmallVector<Site>> slots(functions.size());
-  parallelForEach(module->getContext(), llvm::seq<size_t>(0, functions.size()), [&](size_t index) {
+  parallelForEach(program->getContext(), llvm::seq<size_t>(0, functions.size()), [&](size_t index) {
     slots[index] = Decider(functions[index], layouts).run();
   });
   for (auto [fn, found] : llvm::zip_equal(functions, slots))

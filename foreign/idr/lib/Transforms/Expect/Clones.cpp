@@ -19,7 +19,7 @@ LogicalResult oneClone(ModuleOp module, AnalysisManager &analyses, StringRef fun
   StringRef origin = function.ltrim('@');
   if (origin.empty())
     return fail(module.getLoc(), property) << "name the function, as one-clone=@f";
-  SymbolTable &symbols = analyses.getAnalysis<SymbolTable>();
+  SymbolTable &symbols = symbolsOf(module, analyses);
   llvm::SetVector<StringRef> targets;
   module.walk([&](CallOp call) {
     auto callee = symbols.lookup<FunctionOpInterface>(call.getCalleeAttr().getAttr());

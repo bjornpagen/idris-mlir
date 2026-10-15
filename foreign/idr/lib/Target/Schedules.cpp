@@ -92,15 +92,17 @@ constexpr llvm::StringLiteral libraryBody = R"mlir((%root: !transform.any_op {tr
 }
 )mlir";
 
-// The widest word the generic computes, in bits: its operands' elements
-// and its body's values, so that every vector of a tile fits one register.
-unsigned widestWord(linalg::GenericOp op) {
+// The widest word the generic computes, in bits, as the module's data
+// layout sizes it: its operands' elements and its body's values, the
+// indices linalg.index gives among them, which the lowering makes words of
+// the layout's index width. Every vector of a tile then fits one register.
+unsigned widestWord(linalg::GenericOp op, const DataLayout &layout) {
   unsigned bits = 8;
   auto note = [&](Type type) {
     if (auto shaped = dyn_cast<ShapedType>(type))
       type = shaped.getElementType();
-    if (type.isIntOrFloat())
-      bits = std::max(bits, type.getIntOrFloatBitWidth());
+    if (type.isIntOrIndexOrFloat())
+      bits = std::max(bits, static_cast<unsigned>(layout.getTypeSizeInBits(type).getFixedValue()));
   };
   for (Value operand : op->getOperands())
     note(operand.getType());
@@ -113,9 +115,9 @@ unsigned widestWord(linalg::GenericOp op) {
 
 // The width of the target's vector registers, as idr-target wrote it on
 // the module, or nothing.
-std::optional<std::int64_t> vectorWidth(Operation *op) {
+std::optional<std::int64_t> vectorWidth(Operation *op, const DataLayout &layout) {
   MLIRContext *ctx = op->getContext();
-  std::optional<Attribute> width = DataLayout::closest(op).getDevicePropertyValue(
+  std::optional<Attribute> width = layout.getDevicePropertyValue(
       StringAttr::get(ctx, idr::target::cpuDevice), StringAttr::get(ctx, idr::target::vectorWidthKey));
   auto bits = width ? dyn_cast<IntegerAttr>(*width) : IntegerAttr();
   if (!bits || bits.getInt() <= 0)
@@ -134,12 +136,13 @@ FailureOr<bool> vectorizeLoop(RewriterBase &rewriter, linalg::GenericOp op) {
   if (!op.hasPureBufferSemantics() || op.getNumParallelLoops() == 0)
     return false;
   Location loc = op.getLoc();
-  std::optional<std::int64_t> width = vectorWidth(op);
+  DataLayout layout = DataLayout::closest(op);
+  std::optional<std::int64_t> width = vectorWidth(op, layout);
   if (!width) {
     op.emitError("internal error: the module states no max_vector_op_width for its CPU");
     return failure();
   }
-  std::int64_t lanes = std::max<std::int64_t>(1, *width / widestWord(op));
+  std::int64_t lanes = std::max<std::int64_t>(1, *width / widestWord(op, layout));
   SmallVector<utils::IteratorType> iterators = op.getIteratorTypesArray();
   unsigned laneDim = 0;
   for (auto [dim, iterator] : llvm::enumerate(iterators))

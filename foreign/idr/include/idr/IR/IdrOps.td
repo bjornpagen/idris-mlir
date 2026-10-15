@@ -12,28 +12,102 @@ include "idr/IR/IdrAttrs.td"
 include "idr/IR/IdrInterfaces.td"
 
 //===----------------------------------------------------------------------===//
+// What an op reads
+//===----------------------------------------------------------------------===//
+
+// A value an op reads in place and does not take over: plain before idr-rc,
+// and after it the view the owned stage grades Borrow. A value used once,
+// or one that holds a reference of its own, is no read: taking it is a
+// move, which a reading op does not make. Every op family names its read
+// operands by these.
+class Idr_Read<string cppType, string name>
+    : Type<And<[CPred<"::llvm::isa<" # cppType # ">(::idr::unrestricted($_self))">,
+                CPred<"::idr::quantityOf($_self) == ::idr::Quantity::Many">,
+                CPred<"!::idr::isOwned($_self)">]>, name, "::mlir::Type">;
+def Idr_StrRead : Idr_Read<"::idr::StrType", "a string, read in place">;
+def Idr_BigRead : Idr_Read<"::idr::BigType", "an Integer, read in place">;
+def Idr_NatRead : Idr_Read<"::idr::NatType", "a natural, read in place">;
+def Idr_BigOrNatRead : Idr_Read<"::idr::BigType, ::idr::NatType",
+                                "an Integer or a natural, read in place">;
+def Idr_SumRead : Idr_Read<"::idr::DataType, ::idr::BoxType", "a constructor value, read in place">;
+
+//===----------------------------------------------------------------------===//
+// The program
+//===----------------------------------------------------------------------===//
+
+// What a program's functions may hold, the stage the pipeline has brought
+// it to: `higher`, closures and suspensions, before idr-defunctionalize;
+// `first`, the first-order program it makes, every closure a sum and every
+// force a call; `owned`, every reference counted, after idr-rc; `lowered`,
+// after idr-lower, upstream's functions and globals in place of idr.func,
+// whose root keeps the visibility upstream stores for it. The stage is the
+// program's, said once, so that no pass finds it by walking the functions
+// and no verifier guesses it from a grade.
+def Idr_Stage : I32EnumAttr<"Stage", "what the functions of a program may hold", [
+    I32EnumAttrCase<"Higher", 0, "higher">, I32EnumAttrCase<"First", 1, "first">,
+    I32EnumAttrCase<"Owned", 2, "owned">, I32EnumAttrCase<"Lowered", 3, "lowered">]> {
+  let cppNamespace = "::idr";
+}
+
+// A closed program: its functions, every one defined, and the one that
+// runs it, `root`, a property of the program: a function's visibility is
+// read from it, never stored, so nothing counts public functions to find
+// the root. Its symbol-use verifier runs the program's rules
+// (verify::program) once per verification of the module that holds it,
+// after every op is verified, and never when a pass manager verifies the
+// program or one of its functions. Other symbols a pass puts in it (the
+// globals of static data) live beside the functions.
+def Idr_ProgramOp : Idr_Op<"program", [SymbolTable, IsolatedFromAbove, SingleBlock,
+    NoTerminator, Symbol, SymbolName, DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
+  let summary = "a closed program: its functions, its root and its stage";
+  let arguments = (ins SymbolNameAttr:$sym_name, FlatSymbolRefAttr:$root, Idr_Stage:$stage);
+  let regions = (region SizedRegion<1>:$bodyRegion);
+  let assemblyFormat = [{
+    $sym_name `root` `(` $root `)` `stage` `(` $stage `)` attr-dict-with-keyword $bodyRegion
+  }];
+  let hasRegionVerifier = 1;
+  let skipDefaultBuilders = 1;
+  let builders = [
+    // An empty program, its block made.
+    OpBuilder<(ins "::llvm::StringRef":$name, "::llvm::StringRef":$root, "::idr::Stage":$stage)>
+  ];
+  let extraClassDeclaration = [{
+    // The root, found in the program's own table, while it is an idr.func:
+    // null once the program is lowered, when the root is upstream's
+    // function that getRoot names.
+    FuncOp lookupRoot();
+    // A program is the whole of what runs: nothing outside it discards it.
+    ::mlir::SymbolTable::Visibility getVisibility() {
+      return ::mlir::SymbolTable::Visibility::Public;
+    }
+    void setVisibility(::mlir::SymbolTable::Visibility) {}
+  }];
+}
+
+//===----------------------------------------------------------------------===//
 // Functions
 //===----------------------------------------------------------------------===//
 
-// The function of a monomorphic program, and what is known of it: what
-// Idris proved (total), what the passes find (effects), what keeps a cell
-// shared (no_inline) and what it is an instance of. Each is inherent, so
-// no pass drops one without changing the op, and every reader uses the
-// generated accessor. The program is closed: every function has a body,
-// and the one public function is the root, whose symbol-use verifier runs
-// the module's rules (verify::program) once per verification of the
-// module, after every op is verified and never when a pass manager
-// verifies one function. Its region verifier owns the rules of one
-// function: every linear value used once on every path, and the owned
-// stage's counting. effects absent means the function may do anything; no
-// writer stores the full set io, crash, diverge: it removes the attribute.
+// The function of a program, and what is known of it: what Idris proved
+// (total), what the passes find (effects), what keeps a cell shared
+// (no_inline) and what it is an instance of. Each is inherent, so no pass
+// drops one without changing the op, and every reader uses the generated
+// accessor. Every function is defined. Its visibility is no fact of its
+// own: it is public exactly when it is its program's root, which nothing
+// in the program calls and no pass may discard, and private otherwise, so
+// that upstream's symbol walks, which never read the program's `root`,
+// keep the root and may drop any other function without uses. Its region
+// verifier owns the rules of one function at its program's stage: the
+// flow of closures before idr-defunctionalize, every linear value used
+// once on every path, and the owned stage's counting. effects absent means
+// the function may do anything; no writer stores the full set io, crash,
+// diverge: it removes the attribute.
 def Idr_FuncOp : Idr_Op<"func", [AffineScope, AutomaticAllocationScope,
-    SymbolName, SymbolVisibility, FunctionOpInterface, IsolatedFromAbove,
-    OpAsmOpInterface, DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
+    SymbolName, FunctionOpInterface, IsolatedFromAbove,
+    HasParent<"ProgramOp">, OpAsmOpInterface]> {
   let summary = "a function of the program, with the facts known of it";
   let arguments = (ins SymbolNameAttr:$sym_name,
                        TypeAttrOf<FunctionType>:$function_type,
-                       OptionalAttr<StrAttr>:$sym_visibility,
                        OptionalAttr<DictArrayAttr>:$arg_attrs,
                        OptionalAttr<DictArrayAttr>:$res_attrs,
                        UnitAttr:$total, UnitAttr:$no_inline,
@@ -56,32 +130,46 @@ def Idr_FuncOp : Idr_Op<"func", [AffineScope, AutomaticAllocationScope,
     // A body that takes in a callee without Idris's proof of termination
     // loses its own: what inlining and contification record.
     void absorb(FuncOp callee) { if (!callee || !callee.getTotal()) setTotal(false); }
+    // The program this function is of.
+    ProgramOp getProgram();
+    // Whether this is its program's root.
+    bool isRoot();
+    // Symbol's visibility, read off the program's root: public for the
+    // root, private for every other function. isPublic, isPrivate and
+    // canDiscardOnUseEmpty all ask this. Setting it changes nothing: the
+    // root is the program's to name.
+    ::mlir::SymbolTable::Visibility getVisibility() {
+      return isRoot() ? ::mlir::SymbolTable::Visibility::Public
+                      : ::mlir::SymbolTable::Visibility::Private;
+    }
+    void setVisibility(::mlir::SymbolTable::Visibility) {}
   }];
 }
 
-// A call of a function by name. What it may do is its own effects, a copy
-// of its callee's kept because an effect query has no symbol table; a call
-// without one may do anything. The callee's effects is the authority:
-// verifySymbolUses refuses a call whose effects is not its callee's, so a
-// pass that makes a call, or changes its callee, writes the callee's. It
-// takes over an argument the callee's parameter owns: consumesOperand
-// reads the operand's type, which verifySymbolUses makes the parameter's.
+// A call of a function by name. What it may do is its callee's effects,
+// which only a symbol table reaches (idr::effectsOf): to a query without
+// one, such as an upstream pass's, a call may do anything a function may,
+// so none drops, merges or moves one past another effect. Its arguments
+// move into its callee's parameters (its flow), each taken over where the
+// parameter owns it.
 def Idr_CallOp : Idr_Op<"call", [CallOpInterface,
     DeclareOpInterfaceMethods<SymbolUserOpInterface>,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-    DeclareOpInterfaceMethods<Idr_ConsumingOpInterface, ["consumesOperand"]>,
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
     DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>]> {
   let summary = "a call of a function by name";
   let arguments = (ins FlatSymbolRefAttr:$callee, Variadic<AnyType>:$args,
                        OptionalAttr<DictArrayAttr>:$arg_attrs,
-                       OptionalAttr<DictArrayAttr>:$res_attrs,
-                       OptionalAttr<Idr_EffectAttr>:$effects);
+                       OptionalAttr<DictArrayAttr>:$res_attrs);
   let results = (outs Variadic<AnyType>:$results);
   let assemblyFormat = [{
     $callee `(` $args `)` (`arg_attrs` `=` $arg_attrs^)?
-    (`res_attrs` `=` $res_attrs^)? (`effects` `=` $effects^)? attr-dict `:`
-    functional-type($args, $results)
+    (`res_attrs` `=` $res_attrs^)? attr-dict `:` functional-type($args, $results)
   }];
+  let builders = [
+    // A call of `callee`, whose results are the function's.
+    OpBuilder<(ins "FuncOp":$callee, CArg<"::mlir::ValueRange", "{}">:$args)>
+  ];
   let extraClassDeclaration = [{
     ::mlir::CallInterfaceCallable getCallableForCallee() { return getCalleeAttr(); }
     void setCalleeFromCallable(::mlir::CallInterfaceCallable callee) {
@@ -98,7 +186,7 @@ def Idr_CallOp : Idr_Op<"call", [CallOpInterface,
 // lists the returns of a function reads the terminators of the body's
 // blocks.
 def Idr_ReturnOp : Idr_Op<"return", [Idr_ConsumesOnly<"0">, HasParent<"FuncOp">,
-    ReturnLike, Terminator]> {
+    ReturnLike, Terminator, DeclareOpInterfaceMethods<Idr_FlowOpInterface>]> {
   let summary = "returns from a function";
   let arguments = (ins Variadic<AnyType>:$operands);
   let assemblyFormat = "attr-dict ($operands^ `:` type($operands))?";
@@ -113,6 +201,7 @@ def Idr_ReturnOp : Idr_Op<"return", [Idr_ConsumesOnly<"0">, HasParent<"FuncOp">,
 // any other constant is not an integer, and has none.
 def Idr_ConstantOp : Idr_Op<"constant", [ConstantLike, Pure,
     DeclareOpInterfaceMethods<SymbolUserOpInterface>,
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
     DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   let summary = "a constant: a constructor, closure, string or big";
@@ -129,27 +218,51 @@ def Idr_ConstantOp : Idr_Op<"constant", [ConstantLike, Pure,
 }
 
 // A box's idr.con allocates its result; any other is Pure, until idr-rc
-// makes its fields owned, which it takes over. The constructor is named
-// within the result's data type: a label's, of a closure or memo sum, is
-// the label function's symbol, so building one is a use of the label.
-// `stack`: idr-stack's cell that never leaves its frame, stack memory.
+// makes its fields owned, which it takes over. The constructor is its tag
+// in the result's data type, written by name. A field it is built without,
+// a hole, is written later, once, through the destination the op gives for
+// it: a recursion that returns a constructor around its own result, `Cons
+// x (copy xs)`, builds the constructor first and gives the hole to the
+// recursive call to write once it has the value, so a cell's fields are
+// written top down and the recursion is a tail call, which idr-tail-loops
+// makes a loop. `holes` are the holes' field indices, ascending; the fields
+// given are the rest, in order; the results are the value and then one
+// destination per hole. A constructor with a hole is never static, and
+// nothing reads the hole before it is written. `stack`: idr-stack's cell
+// that never leaves its frame, stack memory.
 def Idr_ConOp : Idr_Op<"con", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>,
     DeclareOpInterfaceMethods<ConditionallySpeculatable>,
-    Idr_Consumes<"0">]> {
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface>]> {
   let summary = "builds a constructor value";
-  let arguments = (ins FlatSymbolRefAttr:$ctor, Variadic<AnyType>:$fields, UnitAttr:$stack);
-  let results = (outs Idr_SumValue:$result);
+  let arguments = (ins I32Attr:$tag, Variadic<AnyType>:$fields,
+                       DefaultValuedAttr<DenseI32ArrayAttr, "{}">:$holes, UnitAttr:$stack);
+  let results = (outs Idr_SumValue:$result, Variadic<Idr_DestType>:$dests);
+  // `idr.con !T @Cons(%x : i64, dest)`: the value's type, then the
+  // constructor's name in it, then the fields, a hole written `dest`; each
+  // hole's destination is the word of its field.
   let assemblyFormat = [{
-    $ctor `(` $fields `)` (`stack` $stack^)? attr-dict `:` functional-type($fields, $result)
+    type($result) custom<CtorRef>(ref(type($result)), $tag)
+    custom<Fields>($fields, type($fields), $holes) (`stack` $stack^)? attr-dict
+    custom<Dests>(type($dests), ref(type($result)), ref($tag), ref($holes))
   }];
   let hasFolder = 1;
   let hasVerifier = 1;
+  let builders = [
+    // The constructor `tag` of `type` with `fields`, and a destination for
+    // each of `holes`.
+    OpBuilder<(ins "::mlir::Type":$type, "unsigned":$tag, "::mlir::ValueRange":$fields,
+                   CArg<"::llvm::ArrayRef<int32_t>", "{}">:$holes,
+                   CArg<"bool", "false">:$stack)>
+  ];
   let extraClassDeclaration = [{
-    // The data type of the result, and the constructor's tag in it.
+    // The data type of the result.
     ::idr::DataType getDataType();
-    unsigned getTag();
+    // The value given for field `index` of the constructor, or null for a
+    // hole; and the destination of a hole, or null for a field given.
+    ::mlir::Value getField(unsigned index);
+    ::mlir::Value getDest(unsigned index);
   }];
 }
 
@@ -162,28 +275,35 @@ def Idr_ConOp : Idr_Op<"con", [
 // or after the test of its tag, and moves nowhere it would run without them
 // (it is not speculatable). Neither read has a memory effect though a box's
 // loads from the cell, because a cell never changes while a reference to it
-// is live: it is written when it is built (a field built pending once more,
-// through its destination, before anything reads it), and reused only
-// through the token of a box idr.take consumed. In the owned stage, where
-// references end, the verifier refuses a read through a view once the
-// reference the view borrows is gone, so a pass that moves a read past its
-// cell's drop fails there instead of reading a freed cell.
+// is live: it is written when it is built (a hole once more, through its
+// destination, before anything reads it), and reused only through the
+// token of a box idr.take consumed. In the owned stage, where references
+// end, the verifier refuses a read through a view once the reference the
+// view borrows is gone, so a pass that moves a read past its cell's drop
+// fails there instead of reading a freed cell. The constructor is its tag,
+// written by name.
 def Idr_FieldOp : Idr_Op<"field", [NoMemoryEffect,
-    DeclareOpInterfaceMethods<ConditionallySpeculatable>]> {
+    DeclareOpInterfaceMethods<ConditionallySpeculatable>,
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface>]> {
   let summary = "reads a field of a constructor value";
-  let arguments = (ins Idr_SumType:$value, FlatSymbolRefAttr:$ctor,
-                       I64Attr:$index);
+  let arguments = (ins Idr_SumRead:$value, I32Attr:$tag, I64Attr:$index);
   let results = (outs AnyType:$result);
+  // `idr.field %v : !T @Cons[1] -> i64`
   let assemblyFormat = [{
-    $value `[` $ctor `,` $index `]` attr-dict `:` type($value) `->` type($result)
+    $value `:` type($value) custom<CtorRef>(ref(type($value)), $tag) `[` $index `]` attr-dict
+    `->` type($result)
   }];
   let hasFolder = 1;
   let hasCanonicalizeMethod = 1;
   let hasVerifier = 1;
+  let builders = [
+    // Field `index` of the constructor `tag` of `value`, read at the
+    // value's grade times the field's.
+    OpBuilder<(ins "::mlir::Value":$value, "unsigned":$tag, "unsigned":$index)>
+  ];
   let extraClassDeclaration = [{
-    // The data type of the value read, and the constructor's tag in it.
+    // The data type of the value read.
     ::idr::DataType getDataType();
-    unsigned getTag();
   }];
 }
 
@@ -191,58 +311,22 @@ def Idr_FieldOp : Idr_Op<"field", [NoMemoryEffect,
 // type has. It is Pure though it may load the cell's header, for
 // idr.field's reason: a cell never changes while a reference to it is
 // live, and the owned stage refuses a read once the reference is gone.
-def Idr_TagOp : Idr_Op<"tag", [Pure,
+def Idr_TagOp : Idr_Op<"tag", [Pure, DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   let summary = "the constructor tag of a value";
-  let arguments = (ins Idr_SumType:$value);
+  let arguments = (ins Idr_SumRead:$value);
   let results = (outs I64:$result);
   let assemblyFormat = "$value attr-dict `:` type($value)";
   let hasFolder = 1;
-}
-
-//===----------------------------------------------------------------------===//
-// Destinations
-//===----------------------------------------------------------------------===//
-
-// A recursion that returns a constructor around its own result, `Cons x
-// (copy xs)`, builds the constructor first, without that field, and gives
-// the field to the recursive call as a destination to write once it has
-// the value: a cell's field is then written top down and the recursion is
-// a tail call, so idr-tail-loops makes it a loop.
-
-def Idr_PendingOp : Idr_Op<"dest.pending", [Pure]> {
-  let summary = "the operand of a constructor for a field it is built without";
-  let description = [{
-    No value: the field is written later, through the destination
-    `idr.dest.of` names. A constructor with a pending field is never
-    static, and nothing reads the field before it is written.
-  }];
-  let results = (outs AnyType:$result);
-  let assemblyFormat = "attr-dict `:` type($result)";
-}
-
-def Idr_DestOfOp : Idr_Op<"dest.of", [Pure]> {
-  let summary = "the destination that is a pending field of a cell just built";
-  let arguments = (ins Idr_BoxType:$value, FlatSymbolRefAttr:$ctor, I64Attr:$index);
-  let results = (outs Idr_DestType:$result);
-  let assemblyFormat = [{
-    $value `[` $ctor `,` $index `]` attr-dict `:` type($value) `->` type($result)
-  }];
-  let hasVerifier = 1;
-  let extraClassDeclaration = [{
-    // The data type of the cell, and the constructor's tag in it.
-    ::idr::DataType getDataType();
-    unsigned getTag();
-  }];
 }
 
 // The value is what the destination holds, owned or exclusive.
 def Idr_DestWriteOp : Idr_Op<"dest.write", [
     PredOpTrait<"the value is what the destination holds, owned",
       And<[CPred<"::idr::isOwned($value.getType())">,
-           CPred<"::idr::view($value.getType()) == ::llvm::cast<::idr::DestType>($dest.getType()).getValue()">]>>,
-    Idr_Consumes<"1">]> {
-  let summary = "writes the value of a pending field, consuming its reference";
+           CPred<"::idr::unrestricted($value.getType()) == ::idr::unrestricted(::llvm::cast<::idr::DestType>($dest.getType()).getValue())">]>>,
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface>]> {
+  let summary = "writes the value of a hole, consuming its reference";
   let arguments = (ins Arg<Idr_DestType, "", [MemWrite]>:$dest, AnyType:$value);
   let assemblyFormat = "$dest `,` $value attr-dict `:` type($dest) `,` type($value)";
 }

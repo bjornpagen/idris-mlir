@@ -8,24 +8,24 @@
 // is one its function never gives a second reference, and the node taken
 // apart is reused by the node built after the call.
 !T = !idr.data<"T", plain [@L(), @N(!idr.box<!idr.data<"T">>, i64, !idr.box<!idr.data<"T">>)]>
-module {
-  idr.func private @ins(%t: !idr.box<!T>, %k: i64) -> !idr.box<!T> {
+idr.program @consumed root(@root) stage(first) {
+  idr.func @ins(%t: !idr.box<!T>, %k: i64) -> !idr.box<!T> {
     %leaf = idr.constant #idr.con<@L, []> : !idr.box<!T>
     %r = idr.match %t : !idr.box<!T> -> (!idr.box<!T>) {
     case @L() {
-      %n = idr.con @N(%leaf, %k, %leaf) : (!idr.box<!T>, i64, !idr.box<!T>) -> !idr.box<!T>
+      %n = idr.con !idr.box<!T> @N(%leaf : !idr.box<!T>, %k : i64, %leaf : !idr.box<!T>)
       idr.yield %n : !idr.box<!T>
     }
     case @N(%l: !idr.box<!T>, %x: i64, %rt: !idr.box<!T>) {
       %s = idr.match %rt : !idr.box<!T> -> (!idr.box<!T>) {
       case @L() {
         %r2 = idr.call @ins(%rt, %k) : (!idr.box<!T>, i64) -> !idr.box<!T>
-        %n = idr.con @N(%l, %x, %r2) : (!idr.box<!T>, i64, !idr.box<!T>) -> !idr.box<!T>
+        %n = idr.con !idr.box<!T> @N(%l : !idr.box<!T>, %x : i64, %r2 : !idr.box<!T>)
         idr.yield %n : !idr.box<!T>
       }
       case @N(%a: !idr.box<!T>, %y: i64, %b: !idr.box<!T>) {
         %r2 = idr.call @ins(%rt, %k) : (!idr.box<!T>, i64) -> !idr.box<!T>
-        %n = idr.con @N(%r2, %y, %l) : (!idr.box<!T>, i64, !idr.box<!T>) -> !idr.box<!T>
+        %n = idr.con !idr.box<!T> @N(%r2 : !idr.box<!T>, %y : i64, %l : !idr.box<!T>)
         idr.yield %n : !idr.box<!T>
       }
       }

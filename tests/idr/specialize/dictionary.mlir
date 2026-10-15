@@ -11,23 +11,23 @@
 // and every call made from it reaches the one copy.
 // CHECK: idr.func @Main.main(
 !Num = !idr.data<"Num", plain [@MkNum(!idr.fn<(i64, i64) -> (i64)>, !idr.fn<(i64) -> (i64)>)]>
-module {
-  idr.func private @plus(%a: i64, %b: i64) -> i64 attributes {total} {
+idr.program @dictionary root(@Main.main) stage(higher) {
+  idr.func @plus(%a: i64, %b: i64) -> i64 attributes {total} {
     %c = arith.addi %a, %b : i64
     return %c : i64
   }
-  idr.func private @neg(%a: i64) -> i64 attributes {total} {
+  idr.func @neg(%a: i64) -> i64 attributes {total} {
     %z = arith.constant 0 : i64
     %c = arith.subi %z, %a : i64
     return %c : i64
   }
-  idr.func private @sumTo(%d: !Num, %n: i64, %acc: i64) -> i64 {
+  idr.func @sumTo(%d: !Num, %n: i64, %acc: i64) -> i64 {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       idr.yield %acc : i64
     }
     default {
-      %plus = idr.field %d[@MkNum, 0] : !Num -> !idr.fn<(i64, i64) -> (i64)>
+      %plus = idr.field %d : !Num @MkNum[0] -> !idr.fn<(i64, i64) -> (i64)>
       %a = idr.apply %plus(%acc, %n) : !idr.fn<(i64, i64) -> (i64)>
       %c1 = arith.constant 1 : i64
       %m = arith.subi %n, %c1 : i64
@@ -42,7 +42,7 @@ module {
     %x = arith.extui %c : i32 to i64
     %p = idr.closure @plus() : () -> !idr.fn<(i64, i64) -> (i64)>
     %n = idr.closure @neg() : () -> !idr.fn<(i64) -> (i64)>
-    %d = idr.con @MkNum(%p, %n) : (!idr.fn<(i64, i64) -> (i64)>, !idr.fn<(i64) -> (i64)>) -> !Num
+    %d = idr.con !Num @MkNum(%p : !idr.fn<(i64, i64) -> (i64)>, %n : !idr.fn<(i64) -> (i64)>)
     %z = arith.constant 0 : i64
     %r = idr.call @sumTo(%d, %x, %z) : (!Num, i64, i64) -> i64
     %w2 = idr.io.put_int signed %r, %w1 : i64

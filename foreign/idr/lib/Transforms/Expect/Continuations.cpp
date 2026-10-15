@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // contified: every continuation became part of the function it continues.
-// A private function whose one use is a call from another function, which
-// it calls back, is a continuation of that function (a case block of
+// A function whose one use is a call from another function, which it
+// calls back, is a continuation of that function (a case block of
 // Idris's recursion through an `if`), which MLIR's inliner never inlines,
 // and idr-contify inlines it there; which functions it was is the passes'
 // business, that none is left is the property.
@@ -18,14 +18,13 @@ using namespace mlir;
 namespace idr::expect {
 
 // The users are counted as idr-contify counts them, by upstream's map of
-// symbol users.
+// symbol users. The root is called by no function of the program, so it
+// is no continuation.
 LogicalResult contified(ModuleOp module, AnalysisManager &, StringRef) {
   SymbolTableCollection tables;
-  SymbolUserMap users(tables, module);
+  SymbolUserMap users(tables, programOf(module));
   bool held = true;
-  for (FuncOp fn : module.getOps<FuncOp>()) {
-    if (fn.isPublic())
-      continue;
+  for (FuncOp fn : programOf(module)->getRegion(0).getOps<FuncOp>()) {
     ArrayRef<Operation *> uses = users.getUsers(fn);
     if (uses.size() != 1)
       continue;

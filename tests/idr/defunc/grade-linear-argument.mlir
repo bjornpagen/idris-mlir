@@ -12,8 +12,8 @@
 // CHECK: case @consume(
 // CHECK: call @consume(
 !Box = !idr.data<"Box", plain [@MkBox(!idr.fn<(!idr.lin<i64>) -> (i64)>)]>
-module {
-  idr.func private @consume(%k: i64, %x: !idr.lin<i64>) -> i64 attributes {total} {
+idr.program @"grade-linear-argument" root(@main) stage(higher) {
+  idr.func @consume(%k: i64, %x: !idr.lin<i64>) -> i64 attributes {total} {
     %v = idr.lin.use %x : !idr.lin<i64>
     %r = arith.addi %k, %v : i64
     return %r : i64
@@ -21,7 +21,7 @@ module {
   idr.func @main() -> i64 {
     %k = arith.constant 1 : i64
     %f = idr.closure @consume(%k) : (i64) -> !idr.fn<(!idr.lin<i64>) -> (i64)>
-    %b = idr.con @MkBox(%f) : (!idr.fn<(!idr.lin<i64>) -> (i64)>) -> !Box
+    %b = idr.con !Box @MkBox(%f : !idr.fn<(!idr.lin<i64>) -> (i64)>)
     %r = idr.match %b : !Box -> (i64) {
     case @MkBox(%g: !idr.fn<(!idr.lin<i64>) -> (i64)>) {
       %two = arith.constant 2 : i64

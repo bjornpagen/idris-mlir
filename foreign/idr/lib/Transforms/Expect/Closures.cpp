@@ -11,23 +11,28 @@ using namespace mlir;
 
 namespace idr::expect {
 
-// No closure is built, applied or kept as a constant.
-LogicalResult noClosures(ModuleOp module, AnalysisManager &, StringRef) {
+// No closure is built, applied or kept as a constant, anywhere or in the
+// function the argument names.
+LogicalResult noClosures(ModuleOp module, AnalysisManager &, StringRef function) {
+  SmallVector<Operation *> roots = rootsOf(module, function, "no-closures");
+  if (roots.empty())
+    return failure();
   bool held = true;
-  module.walk([&](Operation *op) {
-    StringRef found;
-    if (isa<ClosureOp>(op))
-      found = "a closure is built";
-    else if (isa<ApplyOp>(op))
-      found = "a closure is applied";
-    else if (auto constant = dyn_cast<ConstantOp>(op);
-             constant && isa<ClosureAttr>(constant.getValue()) && !isa<LazyType>(constant.getType()))
-      found = "a closure is a constant";
-    else
-      return;
-    fail(op->getLoc(), "no-closures") << found << " in " << where(op);
-    held = false;
-  });
+  for (Operation *root : roots)
+    root->walk([&](Operation *op) {
+      StringRef found;
+      if (isa<ClosureOp>(op))
+        found = "a closure is built";
+      else if (isa<ApplyOp>(op))
+        found = "a closure is applied";
+      else if (auto constant = dyn_cast<ConstantOp>(op);
+               constant && isa<ClosureAttr>(constant.getValue()) && !isa<LazyType>(constant.getType()))
+        found = "a closure is a constant";
+      else
+        return;
+      fail(op->getLoc(), "no-closures") << found << " in " << where(op);
+      held = false;
+    });
   return success(held);
 }
 

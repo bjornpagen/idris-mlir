@@ -6,8 +6,8 @@
 // skips a cycle of calls and would assume every operand read and written;
 // the caller's release already made the buffer the thread's, and each
 // link inside @go is in place by the analysis's own check.
-module {
-  idr.func private @go(%a: !idr.lin<tensor<?xi64>>, %k: i64) -> !idr.lin<tensor<?xi64>> {
+idr.program @"recursive-thread" root(@root) stage(first) {
+  idr.func @go(%a: !idr.lin<tensor<?xi64>>, %k: i64) -> !idr.lin<tensor<?xi64>> {
     %r = idr.match_lit %k : i64 -> (!idr.lin<tensor<?xi64>>) {
     case 0 {
       idr.yield %a : !idr.lin<tensor<?xi64>>

@@ -24,6 +24,11 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+// The word op of each big op that names one: BigToWord.
+#include "idr/IR/IdrBigToWord.inc"
+
+#include <type_traits>
+
 using namespace mlir;
 
 namespace idr::conversion {
@@ -59,10 +64,21 @@ Value unlessCold(OpBuilder &b, Location loc, Value ok, Value fast,
   return branch.getResult(0);
 }
 
+// The cold path: the runtime function of `op` on its words `args`, one per
+// operand.
 template <typename OpT>
-Value callRuntime(OpBuilder &b, Location loc, Runtime &runtime, Type result, ValueRange args) {
-  return runtime.call(b, loc, OpT::getHelper(), result, args);
+Value callRuntime(OpBuilder &b, Runtime &runtime, OpT op, ValueRange args) {
+  SmallVector<ValueRange> operands;
+  for (unsigned i = 0; i < args.size(); ++i)
+    operands.push_back(args.slice(i, 1));
+  return runtime.call(b, op, runtimeFunctionOf(op), operands);
 }
+
+// The word op `OpT` names, and its constant second operand, if any.
+template <typename OpT>
+using WordOf = typename BigToWord<OpT>::Op;
+template <typename OpT>
+constexpr bool hasWordConstant = requires { BigToWord<OpT>::constant; };
 
 // The sum, difference and product: both operands small, and no overflow.
 template <typename OpT>
@@ -70,19 +86,21 @@ struct LowerBigArith : IdrPattern<OpT> {
   using IdrPattern<OpT>::IdrPattern;
   LogicalResult matchAndRewrite(OpT op, typename OpT::Adaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
+    using Word = WordOf<OpT>;
     Location loc = op.getLoc();
     Value a = adaptor.getLhs(), b = adaptor.getRhs();
     Value one = arith::ConstantIntOp::create(rewriter, loc, 1, 64);
     Value bTwice = arith::SubIOp::create(rewriter, loc, b, one);
     Value result, overflow;
-    if constexpr (std::is_same_v<OpT, BigAddOp>) {
+    if constexpr (std::is_same_v<Word, arith::AddIOp>) {
       std::tie(result, overflow) =
           withOverflow<LLVM::SAddWithOverflowOp>(rewriter, loc, a, bTwice);
-    } else if constexpr (std::is_same_v<OpT, BigSubOp>) {
+    } else if constexpr (std::is_same_v<Word, arith::SubIOp>) {
       std::tie(result, overflow) =
           withOverflow<LLVM::SSubWithOverflowOp>(rewriter, loc, a, bTwice);
     } else {
-      static_assert(std::is_same_v<OpT, BigMulOp>);
+      static_assert(std::is_same_v<Word, arith::MulIOp>,
+                    "a big op's word op has a small case here");
       Value aValue = arith::ShRSIOp::create(rewriter, loc, a, one);
       Value product;
       std::tie(product, overflow) =
@@ -95,41 +113,53 @@ struct LowerBigArith : IdrPattern<OpT> {
                                        arith::ConstantOp::create(rewriter, loc,
                                                                  rewriter.getBoolAttr(true)));
     Value ok = arith::AndIOp::create(rewriter, loc, small, fits);
-    rewriter.replaceOp(op, unlessCold(rewriter, loc, ok, result, [&](OpBuilder &cold, Location at) {
-                         return callRuntime<OpT>(cold, at, this->runtime, a.getType(),
-                                                 ValueRange{a, b});
+    rewriter.replaceOp(op, unlessCold(rewriter, loc, ok, result, [&](OpBuilder &cold, Location) {
+                         return callRuntime(cold, this->runtime, op, ValueRange{a, b});
                        }));
     return success();
   }
 };
 
-// A small word computed inline, the runtime's function when the word is a
-// GMP integer. A predecessor is the word minus 2, which cannot overflow: a
-// small natural that is not zero is at least the word 3. A natural from an
-// Integer is the word, or the small 0 (the word 1) when a small word is
-// negative.
+// The word op applied to a constant, in place: the word less twice the
+// constant is the small big of the value less the constant. A predecessor's
+// operand is a natural that is not zero, at least the constant, so the
+// difference cannot overflow.
 template <typename OpT>
-struct LowerSmallUnary : IdrPattern<OpT> {
+struct LowerSmallStep : IdrPattern<OpT> {
+  using IdrPattern<OpT>::IdrPattern;
+  LogicalResult matchAndRewrite(OpT op, typename OpT::Adaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    static_assert(std::is_same_v<WordOf<OpT>, arith::SubIOp>,
+                  "a big op's word op on a constant has a small case here");
+    Location loc = op.getLoc();
+    Value a = adaptor.getValue();
+    Value step = arith::ConstantIntOp::create(rewriter, loc, 2 * BigToWord<OpT>::constant, 64);
+    Value result = arith::SubIOp::create(rewriter, loc, a, step, arith::IntegerOverflowFlags::nsw);
+    rewriter.replaceOp(op, unlessCold(rewriter, loc, lowBit(rewriter, loc, a), result,
+                                      [&](OpBuilder &cold, Location) {
+                                        return callRuntime(cold, this->runtime, op, a);
+                                      }));
+    return success();
+  }
+};
+
+// The larger of the value and a constant: a small word's order is its
+// value's, so it is the larger of the word and the constant's small word.
+// A natural from an Integer is the word, or the small 0 (the word 1) when a
+// small word is negative.
+template <typename OpT>
+struct LowerSmallMax : IdrPattern<OpT> {
   using IdrPattern<OpT>::IdrPattern;
   LogicalResult matchAndRewrite(OpT op, typename OpT::Adaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     Value a = adaptor.getValue();
-    Value result;
-    if constexpr (std::is_same_v<OpT, BigPredOp>) {
-      Value two = arith::ConstantIntOp::create(rewriter, loc, 2, 64);
-      result = arith::SubIOp::create(rewriter, loc, a, two, arith::IntegerOverflowFlags::nsw);
-    } else {
-      static_assert(std::is_same_v<OpT, NatFromBigOp>);
-      Value zero = arith::ConstantIntOp::create(rewriter, loc, 0, 64);
-      Value one = arith::ConstantIntOp::create(rewriter, loc, 1, 64);
-      Value negative = arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::slt, a, zero);
-      result = arith::SelectOp::create(rewriter, loc, negative, one, a);
-    }
+    Value least =
+        arith::ConstantIntOp::create(rewriter, loc, 2 * BigToWord<OpT>::constant + 1, 64);
+    Value result = arith::MaxSIOp::create(rewriter, loc, a, least);
     rewriter.replaceOp(op, unlessCold(rewriter, loc, lowBit(rewriter, loc, a), result,
-                                      [&](OpBuilder &cold, Location at) {
-                                        return callRuntime<OpT>(cold, at, this->runtime,
-                                                                a.getType(), a);
+                                      [&](OpBuilder &cold, Location) {
+                                        return callRuntime(cold, this->runtime, op, a);
                                       }));
     return success();
   }
@@ -139,9 +169,10 @@ struct LowerSmallUnary : IdrPattern<OpT> {
 // representation, so equality needs only one small operand: a small word
 // equals nothing but itself. The runtime's three-way comparison decides the
 // rest.
-struct LowerBigCmp : IdrPattern<BigCmpOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(BigCmpOp op, OpAdaptor adaptor,
+template <typename OpT>
+struct LowerBigCmp : IdrPattern<OpT> {
+  using IdrPattern<OpT>::IdrPattern;
+  LogicalResult matchAndRewrite(OpT op, typename OpT::Adaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     Value a = adaptor.getLhs(), b = adaptor.getRhs();
@@ -151,8 +182,7 @@ struct LowerBigCmp : IdrPattern<BigCmpOp> {
                    ? lowBit(rewriter, loc, arith::OrIOp::create(rewriter, loc, a, b))
                    : lowBit(rewriter, loc, arith::AndIOp::create(rewriter, loc, a, b));
     rewriter.replaceOp(op, unlessCold(rewriter, loc, ok, result, [&](OpBuilder &cold, Location at) {
-                         Value order = callRuntime<BigCmpOp>(cold, at, runtime, cold.getI32Type(),
-                                                             ValueRange{a, b});
+                         Value order = callRuntime(cold, this->runtime, op, ValueRange{a, b});
                          Value zero = arith::ConstantIntOp::create(cold, at, 0, 32);
                          return arith::CmpIOp::create(cold, at, predicate, order, zero).getResult();
                        }));
@@ -193,9 +223,8 @@ struct LowerBigFromInt : IdrPattern<BigFromIntOp> {
                                  arith::ConstantIntOp::create(rewriter, loc, int64_t{1} << 62, 64));
     }
     Value result = arith::OrIOp::create(rewriter, loc, twice, one);
-    std::string name = (BigFromIntOp::getHelper() + (isSigned ? "_s" : "_u")).str();
-    rewriter.replaceOp(op, unlessCold(rewriter, loc, ok, result, [&](OpBuilder &cold, Location at) {
-                         return runtime.call(cold, at, name, i64, x);
+    rewriter.replaceOp(op, unlessCold(rewriter, loc, ok, result, [&](OpBuilder &cold, Location) {
+                         return callRuntime(cold, runtime, op, x);
                        }));
     return success();
   }
@@ -217,18 +246,18 @@ struct LowerBigSmall : IdrPattern<BigSmallOp> {
 
 // A big as an integer, wrapped to its width: a small one is its value, the
 // word shifted right; the runtime gives a GMP integer's low 64 bits.
-struct LowerBigToInt : IdrPattern<BigToIntOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(BigToIntOp op, OpAdaptor adaptor,
+template <typename OpT>
+struct LowerBigToInt : IdrPattern<OpT> {
+  using IdrPattern<OpT>::IdrPattern;
+  LogicalResult matchAndRewrite(OpT op, typename OpT::Adaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     Value a = adaptor.getValue();
     Value one = arith::ConstantIntOp::create(rewriter, loc, 1, 64);
     Value value = arith::ShRSIOp::create(rewriter, loc, a, one);
     Value word = unlessCold(rewriter, loc, lowBit(rewriter, loc, a), value,
-                            [&](OpBuilder &cold, Location at) {
-                              return callRuntime<BigToIntOp>(cold, at, runtime,
-                                                             cold.getI64Type(), a);
+                            [&](OpBuilder &cold, Location) {
+                              return callRuntime(cold, this->runtime, op, a);
                             });
     Type type = op.getType();
     if (type != word.getType())
@@ -258,15 +287,46 @@ struct LowerNatToExtent : IdrPattern<NatToExtentOp> {
   }
 };
 
+// The small case of the big op `OpT`, by the word op it names.
+template <typename OpT>
+void addSmallCase(RewritePatternSet &patterns, const TypeConverter &converter,
+                  const Layouts &layouts, Runtime &runtime) {
+  using Word = WordOf<OpT>;
+  MLIRContext *ctx = patterns.getContext();
+  if constexpr (std::is_void_v<Word>)
+    patterns.add<LowerAsItself<OpT>>(converter, ctx, layouts, runtime);
+  else if constexpr (std::is_same_v<Word, arith::CmpIOp>)
+    patterns.add<LowerBigCmp<OpT>>(converter, ctx, layouts, runtime, ownLowering);
+  else if constexpr (std::is_same_v<Word, arith::MaxSIOp>)
+    patterns.add<LowerSmallMax<OpT>>(converter, ctx, layouts, runtime, ownLowering);
+  else if constexpr (std::is_same_v<Word, arith::TruncIOp>)
+    patterns.add<LowerBigToInt<OpT>>(converter, ctx, layouts, runtime, ownLowering);
+  else if constexpr (hasWordConstant<OpT>)
+    patterns.add<LowerSmallStep<OpT>>(converter, ctx, layouts, runtime, ownLowering);
+  else
+    patterns.add<LowerBigArith<OpT>>(converter, ctx, layouts, runtime, ownLowering);
+}
+
+template <typename... Ops>
+void addSmallCases(RewritePatternSet &patterns, const TypeConverter &converter,
+                   const Layouts &layouts, Runtime &runtime) {
+  (addSmallCase<Ops>(patterns, converter, layouts, runtime), ...);
+}
+
 } // namespace
 
-// The patterns of bigs and naturals, whose small case is inline.
+// The patterns of bigs and naturals, whose small case is inline: each op
+// that names a word op, and the integers made bigs, ahead of the call of
+// the op's runtime function; and the ops that are a word alone.
 void populateBigPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                          const Layouts &layouts, Runtime &runtime) {
-  patterns.add<LowerBigArith<BigAddOp>, LowerBigArith<BigSubOp>, LowerBigArith<BigMulOp>,
-               LowerSmallUnary<BigPredOp>, LowerSmallUnary<NatFromBigOp>, LowerBigCmp,
-               LowerBigFromInt, LowerBigSmall, LowerBigToInt, LowerNatToExtent>(
-      converter, patterns.getContext(), layouts, runtime);
+  MLIRContext *ctx = patterns.getContext();
+  addSmallCases<
+#define GET_BIG_TO_WORD_LIST
+#include "idr/IR/IdrBigToWord.inc"
+      >(patterns, converter, layouts, runtime);
+  patterns.add<LowerBigFromInt>(converter, ctx, layouts, runtime, ownLowering);
+  patterns.add<LowerBigSmall, LowerNatToExtent>(converter, ctx, layouts, runtime);
 }
 
 } // namespace idr::conversion

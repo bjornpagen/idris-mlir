@@ -16,14 +16,14 @@
 // CHECK-NEXT: nan
 // CHECK-NEXT: -inf
 // CHECK-NEXT: -2 0 7
-module {
-  idr.func private @line(%x: f64, %w: !idr.world) -> !idr.world {
+idr.program @doubles root(@Prog.main) stage(higher) {
+  idr.func @line(%x: f64, %w: !idr.world) -> !idr.world {
     %w1 = idr.io.put_double %x, %w
     %nl = arith.constant 10 : i32
     %w2 = idr.io.put_char %nl, %w1
     return %w2 : !idr.world
   }
-  idr.func private @pass(%x: f64) -> f64 {
+  idr.func @pass(%x: f64) -> f64 {
     return %x : f64
   }
   idr.func @Prog.main(%w: !idr.world) -> !idr.world {

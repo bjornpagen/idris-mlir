@@ -1,22 +1,19 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idr-optimize: the ready set over the module, then the functions nothing
-// names any more erased, serially, in module order.
+// idr-optimize: the ready set over the program, then the functions nothing
+// names any more erased, serially, in program order.
 //
-// A module pass, as upstream's inliner is: inlining reads a sibling of the
-// function it rewrites, which a nested pass may not, and the ready set is
-// what makes the read safe, since a callee is read only once it is final
-// and nothing writes it again. Every other rewrite is a pass of the inner
-// pipeline, run with runPipeline so that the verifier and the manager's
-// instrumentation run on each function as they would under a nest. The
-// analyses those passes read are taken here, before any task, so that
-// each finds its module's through its parent's cache.
+// A pass on the program, as upstream's inliner is on its module: inlining
+// reads a sibling of the function it rewrites, which a nested pass may
+// not, and the ready set is what makes the read safe, since a callee is
+// read only once it is final and nothing writes it again. Every other
+// rewrite is a pass of the inner pipeline, run with runPipeline so that
+// the verifier and the manager's instrumentation run on each function as
+// they would under a nest. The analyses those passes read are taken here,
+// before any task, so that each finds its program's through its parent's
+// cache: the ready set, which holds every summary.
 
-#include "idr/Analysis/Constants.h"
 #include "idr/Analysis/Holds.h"
-#include "idr/Analysis/Identities.h"
-#include "idr/Analysis/References.h"
-#include "idr/Analysis/Specialize.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/TypeGraph.h"
@@ -26,7 +23,6 @@
 #include "idr/Transforms/Optimize.h"
 #include "idr/Transforms/Specialize.h"
 
-#include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/IR/Remarks.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Threading.h"
@@ -37,6 +33,8 @@
 #include "llvm/ADT/Statistic.h"
 
 #include <algorithm>
+#include <cassert>
+#include <optional>
 
 namespace idr {
 #define GEN_PASS_DEF_IDROPTIMIZE
@@ -53,16 +51,19 @@ using namespace mlir;
 static_assert(LLVM_ENABLE_STATS, "pass statistics need an LLVM built with LLVM_FORCE_ENABLE_STATS");
 
 void idr::optimize::buildInnerPipeline(OpPassManager &pm) {
-  // Before canonicalization, on the effects the component's call sites
-  // were given when it was taken up: a call of a function that only
-  // rebuilds its argument is gone before anything weighs it.
+  // Before canonicalization, on what the component solved when it was
+  // taken up: a call of a function that only rebuilds its argument is gone
+  // before anything weighs it.
   pm.addPass(idr::createIdrIdentity());
   pm.addPass(idr::createCanonicalizerPass());
+  // A call is opaque to canonicalize and CSE, which cannot read its callee;
+  // the summaries can, so the calls of pure callees go or merge here, and
+  // CSE then merges what their operands' merging made equal.
+  pm.addPass(idr::optimize::createPureCallsPass());
   pm.addPass(createCSEPass());
   // On what canonicalization and CSE left: a call whose arguments are
   // known constructors asks for its specialization and calls it.
   pm.addPass(idr::createIdrRedirect());
-  pm.addPass(arith::createIntRangeOptimizationsPass());
   // Last, so that the body a caller's summary is read from is the one this
   // solve left.
   pm.addPass(idr::createIdrConstants());
@@ -70,37 +71,37 @@ void idr::optimize::buildInnerPipeline(OpPassManager &pm) {
 
 namespace {
 
-// Erases every private function no symbol use reaches from a public one,
-// in module order; how many. Each body's uses are read on a worker into a
-// slot of its own, and the reach is taken from the slots in module order.
-unsigned eraseDead(ModuleOp module, SymbolTable &symbols) {
-  SmallVector<idr::FuncOp> fns(module.getOps<idr::FuncOp>());
+// Erases every function no symbol use reaches from the root, in program
+// order; how many. Each function's uses, upstream's (its attributes and
+// its body's), are read on a worker into a slot of its own, and the reach
+// is taken from the slots. Each function joins the live set once, so the
+// reach ends.
+unsigned eraseDead(idr::ProgramOp program, SymbolTable &symbols) {
+  SmallVector<idr::FuncOp> fns(program.getOps<idr::FuncOp>());
   llvm::DenseMap<Operation *, unsigned> index;
   for (auto [at, fn] : llvm::enumerate(fns))
     index.try_emplace(fn, static_cast<unsigned>(at));
   SmallVector<SmallVector<unsigned>> uses(fns.size());
-  parallelFor(module.getContext(), 0, fns.size(), [&](size_t at) {
+  parallelFor(program.getContext(), 0, fns.size(), [&](size_t at) {
     llvm::SmallDenseSet<unsigned, 8> seen;
-    fns[at].getBody().walk([&](Operation *op) {
-      idr::walkStoredAttributes(op, [&](Attribute attr) {
-        auto ref = dyn_cast<FlatSymbolRefAttr>(attr);
-        auto target = ref ? symbols.lookup<idr::FuncOp>(ref.getAttr()) : idr::FuncOp();
-        if (!target)
-          return;
-        unsigned to = index.lookup(target);
-        if (seen.insert(to).second)
-          uses[at].push_back(to);
-      });
-    });
+    std::optional<SymbolTable::UseRange> found =
+        SymbolTable::getSymbolUses(fns[at].getOperation());
+    assert(found && "an idr.func holds no op that may hold a symbol table unknown to it");
+    for (const SymbolTable::SymbolUse &use : *found) {
+      auto target = symbols.lookup<idr::FuncOp>(use.getSymbolRef().getRootReference());
+      if (!target)
+        continue;
+      unsigned to = index.lookup(target);
+      if (seen.insert(to).second)
+        uses[at].push_back(to);
+    }
   });
+  auto root = symbols.lookup<idr::FuncOp>(program.getRoot());
+  assert(root && "a verified program's root is one of its functions");
   SmallVector<bool> live(fns.size(), false);
-  SmallVector<unsigned> work;
-  for (auto [at, fn] : llvm::enumerate(fns)) {
-    if (!fn.isPublic())
-      continue;
-    live[at] = true;
-    work.push_back(static_cast<unsigned>(at));
-  }
+  unsigned start = index.lookup(root);
+  live[start] = true;
+  SmallVector<unsigned> work{start};
   while (!work.empty()) {
     unsigned at = work.pop_back_val();
     for (unsigned to : uses[at]) {
@@ -112,7 +113,7 @@ unsigned eraseDead(ModuleOp module, SymbolTable &symbols) {
   }
   unsigned erased = 0;
   for (auto [at, fn] : llvm::enumerate(fns)) {
-    if (live[at] || fn.isPublic())
+    if (live[at])
       continue;
     symbols.erase(fn);
     ++erased;
@@ -131,22 +132,20 @@ struct Optimize : idr::impl::IdrOptimizeBase<Optimize> {
   }
 
   void runOnOperation() override {
-    ModuleOp module = getOperation();
+    idr::ProgramOp program = getOperation();
     SymbolTable &symbols = getAnalysis<SymbolTable>();
     const idr::Holds &holds = getAnalysis<idr::Holds>();
-    idr::ConstantSummaries &summaries = getAnalysis<idr::ConstantSummaries>();
-    idr::BindingTimes &times = getAnalysis<idr::BindingTimes>();
-    idr::Identities &identities = getAnalysis<idr::Identities>();
     const idr::specialize::Nodes &nodes = getAnalysis<idr::specialize::Nodes>();
     idr::optimize::ReadySet &set = getAnalysis<idr::optimize::ReadySet>();
-    nodes.start(set, times, holds);
+    // The ready set is the node table's schedule and its binding times.
+    nodes.start(set, set, holds);
     // Every function's analysis manager exists before any task, so a
     // pipeline's own nesting finds it instead of inserting it.
-    for (idr::FuncOp fn : module.getOps<idr::FuncOp>())
+    for (idr::FuncOp fn : program.getOps<idr::FuncOp>())
       (void)getAnalysisManager().nest(fn);
 
     idr::optimize::Scheduler scheduler(
-        {module, set, symbols, holds, summaries, times, identities, nodes, getAnalysisManager()},
+        {program, set, symbols, nodes, getAnalysisManager()},
         [this](OpPassManager &pm, Operation *op) { return runPipeline(pm, op); });
     LogicalResult ran = scheduler.run();
     numInlined += scheduler.inlined();
@@ -156,17 +155,17 @@ struct Optimize : idr::impl::IdrOptimizeBase<Optimize> {
       return signalPassFailure();
 
     int64_t largest = 0;
-    for (idr::FuncOp fn : module.getOps<idr::FuncOp>())
+    for (idr::FuncOp fn : program.getOps<idr::FuncOp>())
       if (idr::optimize::Node *node = set.nodeOf(fn.getSymNameAttr()))
-        largest = std::max(largest, node->facts.size);
-    unsigned erased = eraseDead(module, symbols);
+        largest = std::max(largest, node->summary.facts.size);
+    unsigned erased = eraseDead(program, symbols);
     numErased += erased;
     if (remark::detail::InFlightRemark finished = remark::analysis(
-            module.getLoc(), remark::RemarkOpts::name("finished").category("idr-optimize")))
+            program.getLoc(), remark::RemarkOpts::name("finished").category("idr-optimize")))
       finished << remark::metric("nodes", set.nodeCount()) << remark::metric("made", scheduler.made())
                << remark::metric("largest", largest) << remark::metric("capped", scheduler.capped());
-    // No type changed; every other analysis, the ready set and the
-    // summaries of this run included, is stale.
+    // No type changed; every other analysis, the ready set that held this
+    // run's summaries included, is stale.
     markAnalysesPreserved<idr::Holds, idr::TypeGraph, idr::Layouts>();
   }
 };

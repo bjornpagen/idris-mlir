@@ -4,6 +4,6 @@
 // function stays. countUp's counter starts too far up to unroll. `count 3`
 // is a call of the copy that runs the action it returns, with the world.
 // CHECK-DAG: call @Main.ack.spec.{{[^(]+}}(%{{.*}}){{.*}}: (i64) -> i64
-// CHECK-DAG: idr.func private @Main.ack(
+// CHECK-DAG: idr.func @Main.ack(
 // CHECK-DAG: call @Main.countUp(
 // CHECK-DAG: call @Main.count.raise.{{[^(]+}}(%{{.*}}, %{{.*}}){{.*}}: (i64, !idr.world)

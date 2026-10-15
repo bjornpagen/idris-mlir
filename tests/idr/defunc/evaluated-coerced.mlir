@@ -9,16 +9,16 @@
 // that does not run: only a key no value ever reaches gives poison.
 // CHECK: ![[M:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, memo [@later(i64), @running(), @forced(i64)]
 // CHECK-LABEL: idr.func @Main.main(
-// CHECK: %[[NOW:.*]] = {{(idr\.)?}}con @forced(%{{.*}}) : (i64) -> !idr.box<![[M]]>
-// CHECK: %[[LATER:.*]] = {{(idr\.)?}}con @later(%{{.*}}) : (i64) -> !idr.box<![[M]]>
+// CHECK: %[[NOW:.*]] = {{(idr\.)?}}con !idr.box<![[M]]> @forced(%{{.*}} : i64)
+// CHECK: %[[LATER:.*]] = {{(idr\.)?}}con !idr.box<![[M]]> @later(%{{.*}} : i64)
 // CHECK: call @use(%[[NOW]])
 // CHECK: call @use(%[[LATER]])
-module {
-  idr.func private @later(%x: i64) -> i64 attributes {total} {
+idr.program @"evaluated-coerced" root(@Main.main) stage(higher) {
+  idr.func @later(%x: i64) -> i64 attributes {total} {
     %y = arith.muli %x, %x : i64
     return %y : i64
   }
-  idr.func private @use(%l: !idr.lazy<i64>) -> i64 {
+  idr.func @use(%l: !idr.lazy<i64>) -> i64 {
     %v = idr.force %l : !idr.lazy<i64> -> i64
     return %v : i64
   }

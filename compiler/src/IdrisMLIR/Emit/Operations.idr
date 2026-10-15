@@ -2,8 +2,9 @@
 -- Copyright (c) 2026 Bjorn Pagen
 ||| The operations of the contract that one layer of a term becomes:
 ||| literals, primitives, constructor applications and effects, each made by
-||| its op's builder (IdrisMLIR.Dialect.*). A partial primitive is a guard
-||| and a total op: the guard checks the operand, and the op takes the
+||| its op's builder (IdrisMLIR.Dialect.*). Every op is written after its
+||| guards, which its ODS declares (Idr.guardsOf): a partial op is a guard
+||| and a total op, the guard checking the operand, and the op taking the
 ||| guard's result in the operand's place, so it stays below its check.
 module IdrisMLIR.Emit.Operations
 
@@ -27,13 +28,100 @@ import Data.SortedMap
 
 %default total
 
+------------------------------------------------------------------------------
+-- Guards
+------------------------------------------------------------------------------
+
+||| An op of one result of type `t`, written as it is: a guard's own work,
+||| which has no guard of its own.
+unguarded : Loc -> MlirType -> (MlirType -> Op) -> E Value
+unguarded l t build = do
+  r <- fresh
+  append (MkStatement (Just r) (build t) (At l))
+  pure (MkValue r t)
+
+||| The length of an array a world orders, its memref's dimension, as an
+||| `Int`.
+memrefLength : Loc -> Value -> E Value
+memrefLength l a = do
+  zero <- unguarded l IndexType (Arith.constantOp (IntegerAttr 0 IndexType))
+  n <- unguarded l IndexType (MemRef.dimOp a zero)
+  unguarded l (IntegerType 64) (Arith.indexCastOp n)
+
+||| The bytes of a machine word a buffer stores or loads.
+wordSize : Ty -> Maybe Integer
+wordSize (IntT t) = Just (cast (width t) `div` 8)
+wordSize DoubleT = Just 8
+wordSize _ = Nothing
+
+||| `xs` with its element at `i` replaced by `x`.
+setAt : Nat -> a -> List a -> List a
+setAt Z x (_ :: ys) = x :: ys
+setAt (S i) x (y :: ys) = y :: setAt i x ys
+setAt _ _ [] = []
+
+||| `o` after its guards: each written here, in order, at `l`, and `o`
+||| taking each guard's result in place of the operand it checks. An op
+||| without guards is itself. `types` are an effect's type arguments, which
+||| give a stored or loaded word its size.
+guarded : Loc -> List Ty -> Op -> E Op
+guarded l types o = foldlM check o (guardsOf o)
+  where
+    operandAt : Op -> Nat -> E Value
+    operandAt o i = maybe (internal (o.name ++ " without its operand " ++ show i)) pure (getAt i o.operands)
+
+    -- A count of bytes, as an `Int`: an operand's value, a string
+    -- operand's bytes, an array operand's length, or the word an effect
+    -- stores or loads.
+    count : Op -> Count -> E Value
+    count o (CountAt i) = operandAt o i
+    count o (BytesOf i) = unguarded l (IntegerType 64) (Idr.strBytesLengthOp !(operandAt o i))
+    count o (LengthOf i) = memrefLength l !(operandAt o i)
+    count o WordSize = case map wordSize types of
+      [Just n] => unguarded l (IntegerType 64) (Arith.constantOp (IntegerAttr n (IntegerType 64)))
+      _ => internal (o.name ++ " at the types " ++ show types)
+
+    check : Op -> Guard -> E Op
+    check o g = do
+      x <- operandAt o g.operand
+      build <- the (E (MlirType -> Op)) $ case g.check of
+        Nonzero => pure (Idr.checkNonzeroOp x g.cause)
+        Nonempty => pure (Idr.checkNonemptyOp x g.cause)
+        Byte => pure (Idr.checkByteOp x g.cause)
+        Finite => pure (Idr.checkFiniteOp x g.cause)
+        InBounds i => pure (Idr.checkInBoundsOp x !(operandAt o i) g.cause)
+        InRange c size => pure (Idr.checkRangeOp x !(count o c) !(count o size) g.cause)
+      checked <- unguarded l x.type build
+      pure ({ operands $= setAt g.operand checked } o)
+
+------------------------------------------------------------------------------
+-- Writing ops
+------------------------------------------------------------------------------
+
+||| An op where it stands, after its guards, and the names of its results:
+||| one per result type, `name#i` of one name for several.
+placed : Loc -> List Ty -> Op -> E (List String)
+placed l types o = do
+  o' <- guarded l types o
+  case o'.results of
+    [] => [] <$ append (MkStatement Nothing o' (At l))
+    [_] => do
+      r <- fresh
+      append (MkStatement (Just r) o' (At l))
+      pure [r]
+    ts => do
+      r <- fresh
+      append (MkStatement (Just r) o' (At l))
+      pure (zipWith (\i, _ => r ++ "#" ++ show i) [0 .. length ts] ts)
+
 ||| An op with one result, of an MLIR type that is no Core type's (a
 ||| condition, an index).
 export
 mlirValue : Loc -> MlirType -> (MlirType -> Op) -> E Value
 mlirValue l t build = do
+  o <- guarded l [] (build t)
   r <- fresh
-  append (MkStatement (Just r) (build t) (At l))
+  append (MkStatement (Just r) o (At l))
   pure (MkValue r t)
 
 ||| An op with one result, of a Core type, held as itself.
@@ -46,42 +134,19 @@ value ix l t build = do
 ||| An op without results.
 export
 statement : Loc -> Op -> E ()
-statement l o = append (MkStatement Nothing o (At l))
+statement l o = ignore (placed l [] o)
 
 ||| An op, and the names of its results, one per result type.
 export
 resultNames : Loc -> Op -> E (List String)
-resultNames l o = case o.results of
-  [] => [] <$ statement l o
-  [_] => do
-    r <- fresh
-    append (MkStatement (Just r) o (At l))
-    pure [r]
-  ts => do
-    r <- fresh
-    append (MkStatement (Just r) o (At l))
-    pure (zipWith (\i, _ => r ++ "#" ++ show i) [0 .. length ts] ts)
-
-||| An op whose results are a value of a Core type, held as itself: one
-||| result, or one per column of an array of records.
-export
-values : Index -> Loc -> Ty -> (List MlirType -> Op) -> E Val
-values ix l t build = do
-  names <- resultNames l (build !(heldTypes ix Many t))
-  fst <$> fromNames ix t Many names
+resultNames l = placed l []
 
 ||| A value where the contract expects it used as `use`. A linear value
 ||| where a plain one is expected is used (`idr.lin.use`), its one use; a
 ||| plain value in a linear position enters it (`idr.lin.enter`), as Idris
 ||| lets any value fill a binder of quantity 1.
-||| An array of records is held as its columns, each used or entered.
 export
 coerce : Index -> Loc -> Quantity -> Val -> E Val
-coerce ix l use (MkVal n t u (Columns ps)) = (\ps' => MkVal n t use (Columns ps')) <$> coerceAll ps
-  where
-    coerceAll : List Val -> E (List Val)
-    coerceAll [] = pure []
-    coerceAll (p :: rest) = (::) <$> coerce ix l use p <*> coerceAll rest
 coerce ix l use v = case (linear v.use v.type, linear use v.type) of
   (True, False) => value ix l v.type (Idr.linUseOp !(operand ix v))
   (False, True) => do
@@ -90,6 +155,10 @@ coerce ix l use v = case (linear v.use v.type, linear use v.type) of
     r <- mlirValue l t (Idr.linEnterOp !(operand ix v))
     pure ({ name := r.name } entered)
   _ => pure v
+
+------------------------------------------------------------------------------
+-- Literals
+------------------------------------------------------------------------------
 
 ||| A literal: integers and doubles are `arith.constant`,
 ||| strings and bigs `idr.constant`.
@@ -100,36 +169,32 @@ literal ix l (LInt t n) = value ix l (IntT t)
 literal ix l (LChar c) = value ix l CharT (Arith.constantOp (IntegerAttr c (IntegerType 32)))
 literal ix l (LDouble d) = value ix l DoubleT (Arith.constantOp (FloatAttr d F64Type))
 literal ix l (LStr s) = value ix l StrT (Idr.constantOp (StringAttr s))
-literal ix l (LBig n) = value ix l BigT (Idr.constantOp (Idr (BigAttr (show n))))
-literal ix l (LNat n) = value ix l NatT (Idr.constantOp (Idr (BigAttr (show n))))
+literal ix l (LBig n) = value ix l BigT (Idr.constantOp (Idr (BigAttr n)))
+literal ix l (LNat n) = value ix l NatT (Idr.constantOp (Idr (BigAttr (cast n))))
+
+------------------------------------------------------------------------------
+-- Primitives
+------------------------------------------------------------------------------
 
 ||| A comparison's result.
 bool : MlirType
 bool = IntegerType 1
 
 ||| The `arith.cmpi` predicate: `Char`s compare as code points.
-cmpi : Cmp -> Bool -> CmpIPredicate
-cmpi CEq _ = CmpIPredicate.Eq
-cmpi CLt s = if s then CmpIPredicate.Slt else CmpIPredicate.Ult
-cmpi CLte s = if s then CmpIPredicate.Sle else CmpIPredicate.Ule
-cmpi CGt s = if s then CmpIPredicate.Sgt else CmpIPredicate.Ugt
-cmpi CGte s = if s then CmpIPredicate.Sge else CmpIPredicate.Uge
+cmpi : CmpPredicate -> Bool -> CmpIPredicate
+cmpi CmpPredicate.Eq _ = CmpIPredicate.Eq
+cmpi CmpPredicate.Lt s = if s then CmpIPredicate.Slt else CmpIPredicate.Ult
+cmpi CmpPredicate.Lte s = if s then CmpIPredicate.Sle else CmpIPredicate.Ule
+cmpi CmpPredicate.Gt s = if s then CmpIPredicate.Sgt else CmpIPredicate.Ugt
+cmpi CmpPredicate.Gte s = if s then CmpIPredicate.Sge else CmpIPredicate.Uge
 
 ||| The `arith.cmpf` predicate: ordered, so false on NaN.
-cmpf : Cmp -> CmpFPredicate
-cmpf CEq = CmpFPredicate.OEQ
-cmpf CLt = CmpFPredicate.OLT
-cmpf CLte = CmpFPredicate.OLE
-cmpf CGt = CmpFPredicate.OGT
-cmpf CGte = CmpFPredicate.OGE
-
-||| The predicate of a comparison of strings, bigs or naturals.
-predicate : Cmp -> CmpPredicate
-predicate CEq = CmpPredicate.Eq
-predicate CLt = CmpPredicate.Lt
-predicate CLte = CmpPredicate.Lte
-predicate CGt = CmpPredicate.Gt
-predicate CGte = CmpPredicate.Gte
+cmpf : CmpPredicate -> CmpFPredicate
+cmpf CmpPredicate.Eq = CmpFPredicate.OEQ
+cmpf CmpPredicate.Lt = CmpFPredicate.OLT
+cmpf CmpPredicate.Lte = CmpFPredicate.OLE
+cmpf CmpPredicate.Gt = CmpFPredicate.OGT
+cmpf CmpPredicate.Gte = CmpFPredicate.OGE
 
 ||| The `math` op of a C library function or exact operation, on its
 ||| operands.
@@ -178,139 +243,11 @@ intLike (SInt t) = Just (width t, signed t)
 intLike SChar = Just (32, False)
 intLike SDouble = Nothing
 
-------------------------------------------------------------------------------
--- Guards
-------------------------------------------------------------------------------
-
-||| The length of an array: its memref's dimension, an index, as an `Int`;
-||| an array of records has its first column's.
-arrayLength : Index -> Loc -> Val -> E Val
-arrayLength ix l (MkVal _ _ _ (Columns (c :: _))) = arrayLength ix l c
-arrayLength ix l a = do
-  zero <- mlirValue l IndexType (Arith.constantOp (IntegerAttr 0 IndexType))
-  n <- mlirValue l IndexType (MemRef.dimOp !(operand ix a) zero)
-  value ix l (IntT IdrisInt) (Arith.indexCastOp n)
-
-||| How many bytes from an offset a buffer operation touches: the operand at
-||| an index, the size of the word an effect stores or loads (its type
-||| argument), or the bytes of the string at an index.
-data Count = CountAt Nat | WordSize | BytesOf Nat
-
-||| What a guard (`idr.check.*`) checks of the operand it guards, with the
-||| other operands it reads by their index among the primitive's: an index
-||| below the length of the string or array at an index, or an offset whose
-||| bytes lie in the buffer at an index.
-data Guard = Nonzero | Nonempty | Byte | Finite | IndexIn Nat | RangeIn Count Nat
-
-divisionByZero, nonFinite, outOfBounds, outsideBuffer : String
-divisionByZero = "division by zero"
-nonFinite = "cast of a non-finite Double"
-outOfBounds = "array index out of bounds"
-outsideBuffer = "a byte range outside the buffer"
-
-||| An access of an array a world orders keeps its guard, the runtime's
-||| meaning of an index outside the array: its index below the length of
-||| the array before it, for an array of one dimension. An IORef's one
-||| element has no index.
-indexGuards : List Val -> List (Guard, Nat, String)
-indexGuards (a :: _) = case a.type of
-  MemRefT [_] _ => [(IndexIn 0, 1, outOfBounds)]
-  ColumnsT OrderedArray [_] _ => [(IndexIn 0, 1, outOfBounds)]
-  _ => []
-indexGuards [] = []
-
-||| The guards of a partial primitive on its operands, each with the index of
-||| the operand it guards and the cause its crash reports; none for a total
-||| one.
-guardOf : Prim -> List Val -> List (Guard, Nat, String)
-guardOf (IntOp Div _) _ = [(Nonzero, 1, divisionByZero)]
-guardOf (IntOp Mod _) _ = [(Nonzero, 1, divisionByZero)]
-guardOf (Op BigDiv) _ = [(Nonzero, 1, divisionByZero)]
-guardOf (Op BigMod) _ = [(Nonzero, 1, divisionByZero)]
-guardOf (Op ToByte) _ = [(Byte, 0, "a byte outside 0 to 255")]
-guardOf (Op ToInt) _ = [(Finite, 0, nonFinite)]
-guardOf (Op BigFromDouble) _ = [(Finite, 0, nonFinite)]
-guardOf (Op StrIndex) _ = [(IndexIn 0, 1, "string index out of range")]
-guardOf (Op StrHead) _ = [(Nonempty, 0, "head of an empty string")]
-guardOf (Op StrTail) _ = [(Nonempty, 0, "tail of an empty string")]
-guardOf (Op ArrayGet) vs = indexGuards vs
-guardOf (Op ArraySet) vs = indexGuards vs
-guardOf (Op WriteBytes) _ = [(RangeIn (CountAt 3) 1, 2, outsideBuffer)]
-guardOf (Op ReadBytes) _ = [(RangeIn (CountAt 3) 1, 2, outsideBuffer)]
-guardOf (Op BufferGetString) _ = [(RangeIn (CountAt 2) 0, 1, outsideBuffer)]
-guardOf (Op BufferLoad) _ = [(RangeIn WordSize 0, 1, outsideBuffer)]
-guardOf (Op BufferStore) _ = [(RangeIn WordSize 0, 1, outsideBuffer)]
-guardOf (Op BufferSetString) _ = [(RangeIn (BytesOf 2) 0, 1, outsideBuffer)]
-guardOf (Op BufferCopy) _ =
-  [(RangeIn (CountAt 2) 0, 1, outsideBuffer), (RangeIn (CountAt 2) 3, 4, outsideBuffer)]
-guardOf _ _ = []
-
-||| The bytes of a machine word a buffer stores or loads.
-wordSize : Ty -> Maybe Integer
-wordSize (IntT t) = Just (cast (width t) `div` 8)
-wordSize DoubleT = Just 8
-wordSize _ = Nothing
-
-||| `xs` with its element at `i` replaced by `x`.
-setAt : Nat -> a -> List a -> List a
-setAt Z x (_ :: ys) = x :: ys
-setAt (S i) x (y :: ys) = y :: setAt i x ys
-setAt _ _ [] = []
-
-||| The guards of the primitive `p` on its operands, written here, right
-||| before the primitive and at its location: the operands, each guard's
-||| result in place of the operand it guards. `types` are an effect's type
-||| arguments, which give a stored or loaded word its size.
-guarded : Index -> Loc -> Prim -> List Ty -> List Val -> E (List Val)
-guarded ix l p types vs = foldlM checkOne vs (guardOf p vs)
-  where
-    operandAt : List Val -> Nat -> E Val
-    operandAt ws i =
-      maybe (internal (show p ++ " without its operand " ++ show i)) pure (getAt i ws)
-
-    lengthOf : Val -> E Val
-    lengthOf s = case s.type of
-      StrT => value ix l (IntT IdrisInt) (Idr.strLengthOp !(operand ix s))
-      MemRefT _ _ => arrayLength ix l s
-      ColumnsT OrderedArray _ _ => arrayLength ix l s
-      t => internal ("the length of a value of type " ++ show t)
-
-    countOf : List Val -> Count -> E Val
-    countOf ws (CountAt i) = operandAt ws i
-    countOf ws (BytesOf i) =
-      value ix l (IntT IdrisInt) (Idr.strBytesLengthOp !(operand ix !(operandAt ws i)))
-    countOf ws WordSize = case map wordSize types of
-      [Just n] => value ix l (IntT IdrisInt) (Arith.constantOp (IntegerAttr n (IntegerType 64)))
-      _ => internal (show p ++ " at the types " ++ show types)
-
-    checkOne : List Val -> (Guard, Nat, String) -> E (List Val)
-    checkOne ws (g, i, cause) = do
-      v <- operandAt ws i
-      x <- operand ix v
-      build <- the (E (MlirType -> Op)) $ case g of
-        Nonzero => pure (Idr.checkNonzeroOp x cause)
-        Nonempty => pure (Idr.checkNonemptyOp x cause)
-        Byte => pure (Idr.checkByteOp x cause)
-        Finite => pure (Idr.checkFiniteOp x cause)
-        IndexIn s => do
-          n <- lengthOf !(operandAt ws s)
-          pure (Idr.checkInBoundsOp x !(operand ix n) cause)
-        RangeIn c b => do
-          n <- countOf ws c
-          size <- arrayLength ix l !(operandAt ws b)
-          pure (Idr.checkRangeOp x !(operand ix n) !(operand ix size) cause)
-      checked <- mlirValue l x.type build
-      pure (setAt i (val checked.name v.type v.use) ws)
-
-------------------------------------------------------------------------------
--- Primitives
-------------------------------------------------------------------------------
-
-||| A pure primitive of the dialect on its operands, after its guards,
-||| giving a value of type `t`.
-pureOp : Index -> Loc -> IdrPrim -> List Val -> Ty -> E Val
-pureOp ix l p vs t = do
-  args <- traverse (operand ix) !(guarded ix l (Op p) [] vs)
+||| A pure primitive of the dialect on its operands, giving a value of type
+||| `t`.
+primValue : Index -> Loc -> IdrPrim -> List Val -> Ty -> E Val
+primValue ix l p vs t = do
+  args <- traverse (operand ix) vs
   value ix l t (\r => primOp p args [r])
 
 ||| What a pure primitive of the dialect gives, at Core's type: a string, an
@@ -354,14 +291,12 @@ resultOf p _ = case p of
   _ => internal ("the primitive " ++ show (Op p) ++ ", which gives no value of a type of its own")
 
 ||| A primitive, on operands in Idris's order (an op of the dialect's in the
-||| op's), after its guards.
+||| op's).
 export
 prim : Index -> Loc -> Prim -> List Val -> E Val
-prim ix l (Op p) vs = pureOp ix l p vs !(resultOf p vs)
-prim ix l (IntOp op t) [a, b] = do
-  [x, y] <- traverse (operand ix) !(guarded ix l (IntOp op t) [] [a, b])
-    | _ => internal ("the guards of " ++ show (IntOp op t) ++ " changed its operands")
-  value ix l (IntT t) (intArith op (signed t) x y)
+prim ix l (Op p) vs = primValue ix l p vs !(resultOf p vs)
+prim ix l (IntOp op t) [a, b] =
+  value ix l (IntT t) (intArith op (signed t) !(operand ix a) !(operand ix b))
 prim ix l (IntShift s t) [a, b] = do
   x <- operand ix a
   y <- operand ix b
@@ -387,7 +322,7 @@ prim ix l (Cast from to) [a] = case (from, to) of
   (SInt f, SDouble) => do
     x <- operand ix a
     value ix l DoubleT (if signed f then Arith.sitofpOp x else Arith.uitofpOp x)
-  (SDouble, SInt t) => pureOp ix l ToInt [a] (IntT t)
+  (SDouble, SInt t) => primValue ix l ToInt [a] (IntT t)
   (SDouble, SDouble) => pure a
   (SChar, SChar) => pure a
   (f, t) => case (intLike f, intLike t) of
@@ -399,19 +334,19 @@ prim ix l (Cast from to) [a] = case (from, to) of
         value ix l (scalarTy t) (if fs then Arith.extsiOp x else Arith.extuiOp x)
     _ => internal ("a cast from " ++ show f ++ " to " ++ show t)
 prim ix l (StrCompare c) [a, b] =
-  extend ix l !(mlirValue l bool (Idr.strCmpOp (predicate c) !(operand ix a) !(operand ix b)))
+  extend ix l !(mlirValue l bool (Idr.strCmpOp c !(operand ix a) !(operand ix b)))
 prim ix l (ToStr (SInt t)) [x] = value ix l StrT (Idr.strShowOp {isSigned = signed t} !(operand ix x))
-prim ix l (ToStr SChar) [c] = pureOp ix l StrFromChar [c] StrT
+prim ix l (ToStr SChar) [c] = primValue ix l StrFromChar [c] StrT
 prim ix l (ToStr SDouble) [x] = value ix l StrT (Idr.strShowOp !(operand ix x))
 prim ix l (FromStr (SInt t)) [s] = value ix l (IntT t) (Idr.strToIntOp {isSigned = signed t} !(operand ix s))
-prim ix l (FromStr SDouble) [s] = pureOp ix l StrToDouble [s] DoubleT
+prim ix l (FromStr SDouble) [s] = primValue ix l StrToDouble [s] DoubleT
 prim ix l (BigCompare c) [a, b] =
-  extend ix l !(mlirValue l bool (Idr.bigCmpOp (predicate c) !(operand ix a) !(operand ix b)))
+  extend ix l !(mlirValue l bool (Idr.bigCmpOp c !(operand ix a) !(operand ix b)))
 prim ix l (ToBig (SInt t)) [x] = value ix l BigT (Idr.bigFromIntOp {isSigned = signed t} !(operand ix x))
 prim ix l (ToBig SChar) [c] = value ix l BigT (Idr.bigFromIntOp !(operand ix c))
-prim ix l (ToBig SDouble) [d] = pureOp ix l BigFromDouble [d] BigT
-prim ix l (FromBig (SInt t)) [b] = pureOp ix l BigToInt [b] (IntT t)
-prim ix l (FromBig SDouble) [b] = pureOp ix l BigToDouble [b] DoubleT
+prim ix l (ToBig SDouble) [d] = primValue ix l BigFromDouble [d] BigT
+prim ix l (FromBig (SInt t)) [b] = primValue ix l BigToInt [b] (IntT t)
+prim ix l (FromBig SDouble) [b] = primValue ix l BigToDouble [b] DoubleT
 -- The code point if the integer is one, else 0; `idr.to_char`
 -- decides for the integers an `i64` holds, and 0 stands for the rest.
 prim ix l (FromBig SChar) [b] = do
@@ -426,22 +361,29 @@ prim ix l (FromBig SChar) [b] = do
   m <- mlirValue l (IntegerType 64) (Arith.selectOp inRange n !(operand ix outside))
   value ix l CharT (Idr.toCharOp {isSigned = True} m)
 prim ix l (NatCompare c) [a, b] =
-  extend ix l !(mlirValue l bool (Idr.bigCmpOp (predicate c) !(operand ix a) !(operand ix b)))
-prim ix l (ArrayLength _) [a] = arrayLength ix l a
+  extend ix l !(mlirValue l bool (Idr.bigCmpOp c !(operand ix a) !(operand ix b)))
+prim ix l (ArrayLength _) [a] = do
+  n <- memrefLength l !(operand ix a)
+  pure (val n.name (IntT IdrisInt) Many)
 prim ix l p vs = internal ("the primitive " ++ show p ++ " with " ++ show (length vs) ++ " operands")
 
-||| A constructor application (`idr.con`); a box's allocates. The
-||| constructor is named by its name within its value's type.
+------------------------------------------------------------------------------
+-- Constructors
+------------------------------------------------------------------------------
+
+||| A constructor application (`idr.con`): the constructor is its tag within
+||| its value's type, built with every field (no hole).
 export
 con : Index -> Loc -> Con -> List Val -> E Val
 con ix l c vs0 = do
   vs <- traverse (\(f, v) => coerce ix l f.quantity v) (zip c.fields vs0)
-  value ix l (DataT c.id.dataId) (Idr.conOp c.id.name (concat !(traverse (operandsOf ix) vs)))
+  fields <- traverse (operand ix) vs
+  value ix l (DataT c.id.dataId) (\t => Idr.conOp (cast c.tag) fields t [])
 
 mutual
   ||| The value a variable names: itself, or the constructor a match took
   ||| apart, built again from its fields as the region holds them; in the
-  ||| owned stage the cell it came from is reused. Columns stay columns.
+  ||| owned stage the cell it came from is reused.
   export
   force : Index -> Loc -> Val -> E Val
   force ix l (MkVal n t u (Taken c fs)) = do
@@ -466,29 +408,6 @@ export
 ioResult : Index -> Loc -> DataId -> Val -> Val -> E Val
 ioResult ix l res x w = con ix l !(only ix res) [x, w]
 
-||| The fields of a value of a record: those a match took apart, or each
-||| read by `idr.field` from the value held plainly, at the types a plain
-||| record gives them; a field that is an array of records is read as its
-||| columns, which follow one another among the record's values.
-export
-fieldsOf : Index -> Loc -> Val -> E (List Val)
-fieldsOf ix l (MkVal _ _ _ (Taken _ fs)) = pure fs
-fieldsOf ix l v = case v.type of
-  DataT r => do
-    c <- only ix r
-    src <- operand ix !(coerce ix l Many v)
-    fields c src 0 c.fields
-  t => internal ("the fields of a value of type " ++ show t)
-  where
-    fields : Con -> Value -> Nat -> List Binder -> E (List Val)
-    fields c src at [] = pure []
-    fields c src at (b :: bs) = do
-      ts <- heldTypes ix Many b.type
-      names <- traverse (\(i, t) => (.name) <$> mlirValue l t (Idr.fieldOp src c.id.name (cast i)))
-                        (zip [at .. at + length ts] ts)
-      (f, _) <- fromNames ix b.type Many names
-      (f ::) <$> fields c src (at + length ts) bs
-
 ||| The unit of a data instance whose one constructor has no fields.
 unitOf : Index -> Ty -> Maybe Con
 unitOf ix (DataT d) = case (.cons) <$> lookup d ix.datas of
@@ -496,13 +415,18 @@ unitOf ix (DataT d) = case (.cons) <$> lookup d ix.datas of
   _ => Nothing
 unitOf ix _ = Nothing
 
+------------------------------------------------------------------------------
+-- Effects
+------------------------------------------------------------------------------
+
 ||| An effect: the primitive `p`, which performs IO, on its operands, after
 ||| its guards, and the `IORes` instance `res` of its value and the next
 ||| world. `types` are the types its call fixes (a buffer word's). The
 ||| primitive takes the world as its last operand (one without operands
 ||| makes a world) and gives the next as its last result. A unit value
 ||| carries nothing, so the op gives no result for it: the unit is built
-||| after it.
+||| after it. `idr.array.get` always yields the element: its type has a
+||| value result even when the element is a unit.
 export
 effect : Index -> Loc -> IdrPrim -> List Ty -> List Val -> DataId -> E (Maybe Val)
 effect ix l p types vs res = do
@@ -511,78 +435,18 @@ effect ix l p types vs res = do
   mk <- only ix res
   [x, _] <- pure (map typeOf mk.fields)
     | _ => internal (show res ++ " does not hold a value and a world")
-  case (p, x, map (.parts) (head' vs)) of
-    (ArrayNew, ColumnsT OrderedArray ds r, _) => Just <$> newColumns mk x ds r
-    (ArrayGet, _, Just (Columns cols)) => Just <$> getColumns mk x cols
-    (ArraySet, _, Just (Columns cols)) => Just <$> setColumns mk x cols
-    _ => whole mk x
-  where
-    world : E MlirType
-    world = mlirType ix WorldT
-    -- An array of records a world orders is one array per column, each
-    -- made, read and written in turn, the world threaded through them; an
-    -- access is checked once, against the first column's length.
-    newColumns : Con -> Ty -> List Dim -> DataId -> E Val
-    newColumns mk x ds r = do
-      let (sizes, rest) = splitAt (minus (length vs) 2) vs
-      [fill, w0] <- pure rest
-        | _ => internal "a new array of records without its fill and world"
-      sizeOps <- traverse (operand ix) sizes
-      fields <- fieldsOf ix l fill
-      cols <- columnsOf ix OrderedArray ds r
-      (made, w) <- foldlM (\(acc, w), (t, f) => do
-                             [a, w'] <- resultNames l (primOp ArrayNew (sizeOps ++ [!(operand ix f), !(operand ix w)])
-                                                         [!(mlirType ix t), !world])
-                               | _ => internal "a new column without its array and world"
-                             pure (acc :< val a t Many, val w' WorldT Many))
-                          ([<], w0) (zip cols fields)
-      key <- fresh
-      con ix l mk [MkVal key x Many (Columns (made <>> [])), w]
-    getColumns : Con -> Ty -> List Val -> E Val
-    getColumns mk x cols = do
-      [_, i, w0] <- guarded ix l (Op p) types vs
-        | _ => internal "a read of an array of records without its index and world"
-      DataT r <- pure x
-        | t => internal ("a read of an array of records giving " ++ show t)
-      c <- only ix r
-      (elems, w) <- foldlM (\(acc, w), (col, f) => do
-                              [e, w'] <- resultNames l (primOp ArrayGet [!(operand ix col), !(operand ix i), !(operand ix w)]
-                                                          [!(heldType ix Many f.type), !world])
-                                | _ => internal "a read of a column without its element and world"
-                              pure (acc :< val e f.type Many, val w' WorldT Many))
-                           ([<], w0) (zip cols c.fields)
-      con ix l mk [!(con ix l c (elems <>> [])), w]
-    setColumns : Con -> Ty -> List Val -> E Val
-    setColumns mk x cols = do
-      [_, i, v, w0] <- guarded ix l (Op p) types vs
-        | _ => internal "a write of an array of records without its index, value and world"
-      fields <- fieldsOf ix l v
-      w <- foldlM (\w, (col, f) => do
-                     [w'] <- resultNames l (primOp ArraySet [!(operand ix col), !(operand ix i), !(operand ix f), !(operand ix w)]
-                                              [!world])
-                       | _ => internal "a write of a column without the next world"
-                     pure (val w' WorldT Many))
-                  w0 (zip cols fields)
-      Just u <- pure (unitOf ix x)
-        | Nothing => internal "a write of an array whose value is not a unit"
-      con ix l mk [!(con ix l u []), w]
-    whole : Con -> Ty -> E (Maybe Val)
-    whole mk x = do
-      args <- traverse (operand ix) !(guarded ix l (Op p) types vs)
-      let unit = unitOf ix x
-      -- `idr.array.get` always yields the element: its type has a value
-      -- result even when the element is a unit, which carries nothing. Other
-      -- effects build that unit after the op and give no result for it.
-      gives <- case (p, unit) of
-        (ArrayGet, _) => (\t => [t]) <$> mlirType ix x
-        (_, Just _) => pure []
-        (_, Nothing) => (\t => [t]) <$> mlirType ix x
-      names <- resultNames l (primOp p args (gives ++ [!(mlirType ix WorldT)]))
-      v <- case (p, unit, head' names) of
-        (ArrayGet, _, Just n) => pure (val n x Many)
-        (_, Just u, _) => con ix l u []
-        (_, Nothing, Just n) => pure (val n x Many)
-        _ => internal (show (Op p) ++ " without its value")
-      Just w <- pure (last' names)
-        | Nothing => internal (show (Op p) ++ " without the next world")
-      Just <$> con ix l mk [v, val w WorldT Many]
+  args <- traverse (operand ix) vs
+  let unit = unitOf ix x
+  gives <- case (p, unit) of
+    (ArrayGet, _) => (\t => [t]) <$> mlirType ix x
+    (_, Just _) => pure []
+    (_, Nothing) => (\t => [t]) <$> mlirType ix x
+  names <- placed l types (primOp p args (gives ++ [!(mlirType ix WorldT)]))
+  v <- case (p, unit, head' names) of
+    (ArrayGet, _, Just n) => pure (val n x Many)
+    (_, Just u, _) => con ix l u []
+    (_, Nothing, Just n) => pure (val n x Many)
+    _ => internal (show (Op p) ++ " without its value")
+  Just w <- pure (last' names)
+    | Nothing => internal (show (Op p) ++ " without the next world")
+  Just <$> con ix l mk [v, val w WorldT Many]

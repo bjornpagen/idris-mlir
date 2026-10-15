@@ -95,7 +95,10 @@ set(IDRIS_RT_SOURCES
 # idris-mlir read too. idris_rt carries them, with SCOPE, to every library
 # that links it.
 function(idris_rt_headers scope)
-	target_include_directories(idris_rt ${scope} "${CMAKE_CURRENT_SOURCE_DIR}")
+	target_include_directories(idris_rt ${scope} "${CMAKE_CURRENT_SOURCE_DIR}"
+		# idris_rt_ops.h: the C declarations of the functions the dialect's
+		# ops call, generated from their ODS (foreign/idr/include/idr/IR).
+		"${PROJECT_BINARY_DIR}/foreign/idr/include/idr/IR")
 	target_compile_definitions(idris_rt ${scope}
 		"IDRIS_RT_CPU_FEATURES_FILE=\"${IDRIS_MLIR_RUNTIME_CPU_FEATURES}\""
 	)
@@ -193,6 +196,7 @@ if(IDRIS_MLIR_TYPECHECK)
 	idris_rt_compile(idris_rt_typecheck)
 	target_include_directories(idris_rt_typecheck SYSTEM PRIVATE
 		"${CMAKE_CURRENT_BINARY_DIR}/typecheck-gmp")
+	add_dependencies(idris_rt_typecheck IdrRuntimeAbiIncGen)
 	add_custom_target(idris_rt_check)
 	add_dependencies(idris_rt_check idris_rt_typecheck)
 	return()
@@ -220,6 +224,7 @@ add_library(idris_rt STATIC
 )
 idris_rt_headers(PUBLIC)
 idris_rt_compile(idris_rt)
+add_dependencies(idris_rt IdrRuntimeAbiIncGen)
 # Its bigs call GMP, so whatever links it links GMP.
 target_link_libraries(idris_rt INTERFACE ${IDRIS_MLIR_GMP})
 # The same number for the tests, which build parts of the runtime for

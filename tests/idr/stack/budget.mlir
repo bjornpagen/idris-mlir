@@ -7,46 +7,46 @@
 // of calls, which may have many frames live at once (@recursive: the third
 // cell of 24 bytes stays on the heap).
 
-// CHECK-LABEL: idr.func private @largest(
-// CHECK: con @Big(%{{[^)]*}}) stack :
-// CHECK-LABEL: idr.func private @large(
+// CHECK-LABEL: idr.func @largest(
+// CHECK: con {{.*}}@Big({{[^)]*}}) stack
+// CHECK-LABEL: idr.func @large(
 // CHECK-NOT: ) stack :
 // CHECK: return
-// CHECK-LABEL: idr.func private @frame(
-// CHECK-COUNT-4: con @Big(%{{[^)]*}}) stack :
-// CHECK-NEXT: con @Big(%{{[^)]*}}) :
-// CHECK-LABEL: idr.func private @recursive(
-// CHECK: con @Cons(%{{[^)]*}}) stack :
-// CHECK-NEXT: con @Cons(%{{[^)]*}}) stack :
-// CHECK-NEXT: con @Cons(%{{[^)]*}}) :
+// CHECK-LABEL: idr.func @frame(
+// CHECK-COUNT-4: con {{.*}}@Big({{[^)]*}}) stack
+// CHECK-NEXT: con {{.*}}@Big({{[^)]*}}){{$}}
+// CHECK-LABEL: idr.func @recursive(
+// CHECK: con {{.*}}@Cons({{[^)]*}}) stack
+// CHECK-NEXT: con {{.*}}@Cons({{[^)]*}}) stack
+// CHECK-NEXT: con {{.*}}@Cons({{[^)]*}}){{$}}
 !Big = !idr.data<"Big", plain [@Big(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64)]>
 !Huge = !idr.data<"Huge", plain [@Huge(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64)]>
-!List = !idr.data<"List", list [@Nil(), @Cons(i64, !idr.box<!idr.data<"List">>)]>
-module {
-  idr.func private @firstBig(%b: !idr.box<!Big>) -> i64 {
-    %x = idr.field %b[@Big, 0] : !idr.box<!Big> -> i64
+!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
+idr.program @budget root(@Prog.main) stage(first) {
+  idr.func @firstBig(%b: !idr.box<!Big>) -> i64 {
+    %x = idr.field %b : !idr.box<!Big> @Big[0] -> i64
     return %x : i64
   }
-  idr.func private @firstHuge(%b: !idr.box<!Huge>) -> i64 {
-    %x = idr.field %b[@Huge, 0] : !idr.box<!Huge> -> i64
+  idr.func @firstHuge(%b: !idr.box<!Huge>) -> i64 {
+    %x = idr.field %b : !idr.box<!Huge> @Huge[0] -> i64
     return %x : i64
   }
-  idr.func private @largest(%a: i64) -> i64 {
-    %b = idr.con @Big(%a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a) : (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> !idr.box<!Big>
+  idr.func @largest(%a: i64) -> i64 {
+    %b = idr.con !idr.box<!Big> @Big(%a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64)
     %x = idr.call @firstBig(%b) : (!idr.box<!Big>) -> i64
     return %x : i64
   }
-  idr.func private @large(%a: i64) -> i64 {
-    %b = idr.con @Huge(%a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a) : (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> !idr.box<!Huge>
+  idr.func @large(%a: i64) -> i64 {
+    %b = idr.con !idr.box<!Huge> @Huge(%a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64)
     %x = idr.call @firstHuge(%b) : (!idr.box<!Huge>) -> i64
     return %x : i64
   }
-  idr.func private @frame(%a: i64) -> i64 {
-    %b0 = idr.con @Big(%a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a) : (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> !idr.box<!Big>
-    %b1 = idr.con @Big(%a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a) : (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> !idr.box<!Big>
-    %b2 = idr.con @Big(%a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a) : (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> !idr.box<!Big>
-    %b3 = idr.con @Big(%a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a) : (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> !idr.box<!Big>
-    %b4 = idr.con @Big(%a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a, %a) : (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> !idr.box<!Big>
+  idr.func @frame(%a: i64) -> i64 {
+    %b0 = idr.con !idr.box<!Big> @Big(%a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64)
+    %b1 = idr.con !idr.box<!Big> @Big(%a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64)
+    %b2 = idr.con !idr.box<!Big> @Big(%a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64)
+    %b3 = idr.con !idr.box<!Big> @Big(%a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64)
+    %b4 = idr.con !idr.box<!Big> @Big(%a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64, %a : i64)
     %x0 = idr.call @firstBig(%b0) : (!idr.box<!Big>) -> i64
     %x1 = idr.call @firstBig(%b1) : (!idr.box<!Big>) -> i64
     %x2 = idr.call @firstBig(%b2) : (!idr.box<!Big>) -> i64
@@ -59,10 +59,10 @@ module {
     return %s4 : i64
   }
   // recursive n = if n == 0 then 0 else head [n] + head [n] + head [n] + recursive (n - 1)
-  idr.func private @recursive(%a: i64, %t: !idr.box<!List>) -> i64 {
-    %c0 = idr.con @Cons(%a, %t) : (i64, !idr.box<!List>) -> !idr.box<!List>
-    %c1 = idr.con @Cons(%a, %t) : (i64, !idr.box<!List>) -> !idr.box<!List>
-    %c2 = idr.con @Cons(%a, %t) : (i64, !idr.box<!List>) -> !idr.box<!List>
+  idr.func @recursive(%a: i64, %t: !idr.box<!List>) -> i64 {
+    %c0 = idr.con !idr.box<!List> @Cons(%a : i64, %t : !idr.box<!List>)
+    %c1 = idr.con !idr.box<!List> @Cons(%a : i64, %t : !idr.box<!List>)
+    %c2 = idr.con !idr.box<!List> @Cons(%a : i64, %t : !idr.box<!List>)
     %r = idr.match_lit %a : i64 -> (i64) {
     case 0 {
       idr.yield %a : i64
@@ -82,7 +82,7 @@ module {
     }
     return %r : i64
   }
-  idr.func private @head(%l: !idr.box<!List>) -> i64 {
+  idr.func @head(%l: !idr.box<!List>) -> i64 {
     %r = idr.match %l : !idr.box<!List> -> (i64) {
     case @Cons(%h: i64, %t: !idr.box<!List>) {
       idr.yield %h : i64

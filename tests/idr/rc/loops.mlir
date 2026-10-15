@@ -1,20 +1,20 @@
-// RUN: idris-mlir-opt %s --idr-stack --idr-rc --idr-tail-loops | FileCheck %s
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-stack,idr-rc,idr.func(idr-tail-loops)))' | FileCheck %s
 // Counting runs on functional code, and idr-tail-loops turns what it
 // counted into loops, which keep the owned stage's rule (idris-mlir-opt
 // verifies it after each pass). A consumer that only reads its list borrows
 // it, and its loop carries the borrowed list with no count changed; a string
 // built along the way is carried owned.
-// CHECK-LABEL: idr.func private @sumAcc(
+// CHECK-LABEL: idr.func @sumAcc(
 // CHECK-SAME: %{{.*}}: i64, %{{.*}}: !idr.box<!L>)
 // CHECK: scf.while
 // CHECK-NOT: {{(idr\.| )dup }}
 // CHECK-NOT: {{(idr\.| )drop }}
-// CHECK-LABEL: idr.func private @drain(
+// CHECK-LABEL: idr.func @drain(
 // CHECK-SAME: %{{.*}}: !idr.box<!L>, %{{.*}}: !idr.own<!idr.str>)
 // CHECK: scf.while
-!L = !idr.data<"L", list [@N(), @C(i64, !idr.box<!idr.data<"L">>)]>
-module {
-  idr.func private @sumAcc(%acc: i64, %l: !idr.box<!L>) -> i64 attributes {total} {
+!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
+idr.program @loops root(@root) stage(first) {
+  idr.func @sumAcc(%acc: i64, %l: !idr.box<!L>) -> i64 attributes {total} {
     %r = idr.match %l : !idr.box<!L> -> (i64) {
     case @N() {
       idr.yield %acc : i64
@@ -27,7 +27,7 @@ module {
     }
     return %r : i64
   }
-  idr.func private @drain(%l: !idr.box<!L>, %s: !idr.str) -> !idr.str attributes {total} {
+  idr.func @drain(%l: !idr.box<!L>, %s: !idr.str) -> !idr.str attributes {total} {
     %r = idr.match %l : !idr.box<!L> -> (!idr.str) {
     case @N() {
       idr.yield %s : !idr.str

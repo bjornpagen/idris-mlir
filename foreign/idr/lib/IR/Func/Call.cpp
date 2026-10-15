@@ -1,23 +1,22 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idr.call and idr.return. A call's callee is read once per module verify,
-// from the collection MLIR shares among every symbol user, and nowhere
-// else: what a call may do is its own `effects`, a copy of its callee's,
-// and what it takes over is its operands' grades, which the callee's
-// parameters are. So canonicalize, CSE and remove-dead-values ask a call
-// from any thread, and the answer costs its operands and results.
+// idr.call and idr.return. A call's callee is read through a symbol table:
+// once per module verify, from the collection MLIR shares among every
+// symbol user, and by every pass that asks what a call may do
+// (idr::effectsOf). The callee's effects are the one copy; the call holds
+// none. What a call takes over is its flow's: each argument moves into its
+// callee's parameter, which owns it or not.
 //
-// IO is a read and a write of the IO resource, as the idr.io ops declare
-// it; a possible crash writes the crash resource and a function that may
-// not return the divergence resource, each with a write of the IO resource
-// too, as idr.crash and idr.may_loop declare theirs, so that neither
-// moves, merges, goes, or is reordered with output. A result that is not a
-// scalar is a fresh value the call allocates on the lin resource (no heap,
-// a value no pass may merge with another, as idr.lin.enter declares its
-// own), which keeps CSE from merging two calls that make cells and still
-// lets an unused one go.
+// To a question asked without a symbol table, the effects an upstream pass
+// reads off the op, a call may do anything a function may: IO, a read and a
+// write of the IO resource as the idr.io ops declare it; a crash, a write
+// of the crash resource; and not returning, a write of the divergence
+// resource, as idr.crash and idr.may_loop declare theirs. So no such pass
+// drops, merges or reorders a call; the passes that know the callee do,
+// through effectsOf.
 
-#include "idr/IR/IdrDialect.h"
+#include "idr/IR/Func.h"
+
 #include "idr/IR/Grades.h"
 
 #include "mlir/IR/BuiltinTypes.h"
@@ -27,21 +26,17 @@
 using namespace mlir;
 using namespace idr;
 
-namespace {
-
-// What a call or a function may do: its effects, or everything when it
-// has none, which no writer stores.
-Effect mayDo(EffectAttr effects) {
-  return effects ? effects.getValue() : Effect::io | Effect::crash | Effect::diverge;
+void idr::CallOp::build(OpBuilder &builder, OperationState &state, FuncOp callee,
+                        ValueRange args) {
+  build(builder, state, callee.getResultTypes(), FlatSymbolRefAttr::get(callee.getSymNameAttr()),
+        args, /*arg_attrs=*/nullptr, /*res_attrs=*/nullptr);
 }
-
-} // namespace
 
 LogicalResult idr::CallOp::verifySymbolUses(SymbolTableCollection &symbols) {
   FlatSymbolRefAttr name = getCalleeAttr();
   auto fn = symbols.lookupNearestSymbolFrom<FuncOp>(getOperation(), name);
   if (!fn)
-    return emitOpError("calls ") << name << ", which the module does not define as an idr.func";
+    return emitOpError("calls ") << name << ", which the program does not define as an idr.func";
   // Each operand's type is its parameter's, grade included, so that what
   // the call takes over is read from the call alone.
   ArrayRef<Type> inputs = fn.getArgumentTypes();
@@ -60,47 +55,26 @@ LogicalResult idr::CallOp::verifySymbolUses(SymbolTableCollection &symbols) {
     if (std::get<0>(pair) != std::get<1>(pair))
       return emitOpError("expects ") << std::get<0>(pair) << " as result " << index << " of "
                                      << name << ", which returns " << std::get<1>(pair);
-  // A call says what its callee may do, no more and no less: the callee's
-  // facts are the authority, the call's a copy kept because an effect
-  // query has no symbol table. A closure passed to a call is none after
-  // idr-defunctionalize, so nothing else adds to it.
-  Effect carried = mayDo(getEffectsAttr());
-  Effect callee = mayDo(fn.getEffectsAttr());
-  if (carried != callee)
-    return emitOpError("carries effects ")
-           << EffectAttr::get(getContext(), carried) << ", but " << name << " may do "
-           << EffectAttr::get(getContext(), callee);
   return success();
 }
 
 void idr::CallOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  Effect bits = mayDo(getEffectsAttr());
-  bool io = bitEnumContainsAll(bits, Effect::io);
-  bool crash = bitEnumContainsAll(bits, Effect::crash);
-  bool diverge = bitEnumContainsAll(bits, Effect::diverge);
-  if (io) {
-    effects.emplace_back(MemoryEffects::Read::get(), IOResource::get());
-    effects.emplace_back(MemoryEffects::Write::get(), IOResource::get());
-  }
-  if (crash)
-    effects.emplace_back(MemoryEffects::Write::get(), CrashResource::get());
-  if (diverge)
-    effects.emplace_back(MemoryEffects::Write::get(), DivergenceResource::get());
-  if ((crash || diverge) && !io)
-    effects.emplace_back(MemoryEffects::Write::get(), IOResource::get());
+  effects.emplace_back(MemoryEffects::Read::get(), IOResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), IOResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), CrashResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), DivergenceResource::get());
   consumedEffects(getOperation(), effects);
-  for (OpResult result : getOperation()->getResults()) {
-    Type type = unrestricted(result.getType());
-    if (!type.isIntOrIndexOrFloat() && !isWorld(type))
-      effects.emplace_back(MemoryEffects::Allocate::get(), result, LinResource::get());
-  }
 }
 
-// The callee takes over an argument whose parameter it owns, and the
-// operand's type is that parameter's.
-bool idr::CallOp::consumesOperand(unsigned number) {
-  return isOwned(getOperation()->getOperand(number).getType());
+Effect idr::effectsOf(CallOpInterface call, SymbolTableCollection &symbols) {
+  auto name = dyn_cast<SymbolRefAttr>(call.getCallableForCallee());
+  if (!name)
+    return anyEffect;
+  auto fn = symbols.lookupNearestSymbolFrom<FuncOp>(call.getOperation(), name);
+  if (!fn || !fn.getEffectsAttr())
+    return anyEffect;
+  return fn.getEffectsAttr().getValue();
 }
 
 LogicalResult idr::ReturnOp::verify() {

@@ -12,6 +12,11 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
 
+// The word op of each big op that names one: BigToWord.
+#include "idr/IR/IdrBigToWord.inc"
+
+#include <type_traits>
+
 using namespace mlir;
 
 namespace idr::narrow {
@@ -38,10 +43,10 @@ bool narrowMatch(RewriterBase &rewriter, Facts &facts, MatchLitOp match) {
     return false;
   SmallVector<Attribute> keys;
   for (Attribute key : match.getCases()) {
-    int64_t value = 0;
-    if (cast<BigAttr>(key).getValue().getAsInteger(10, value))
+    const APInt &value = cast<BigAttr>(key).getValue();
+    if (value.getSignificantBits() > 64)
       return false;
-    keys.push_back(rewriter.getI64IntegerAttr(value));
+    keys.push_back(rewriter.getI64IntegerAttr(value.getSExtValue()));
   }
   rewriter.setInsertionPoint(match);
   Value word = facts.word(rewriter, match.getLoc(), scrutinee);
@@ -49,6 +54,63 @@ bool narrowMatch(RewriterBase &rewriter, Facts &facts, MatchLitOp match) {
     match->setOperand(0, word);
     match.setCasesAttr(rewriter.getArrayAttr(keys));
   });
+  return true;
+}
+
+// The word of what the big op `big` computes, on the words of its
+// operands: the word op it names (BigToWord) applied to them and, where it
+// names one, to its constant after them; the word itself where it names no
+// op. A sum, difference or product carries no wrap, and none unsigned when
+// nothing is negative; a comparison is its predicate on words, signed; a
+// conversion to an integer narrower than the word truncates; the larger of
+// a value that is not negative and 0 is the value.
+template <typename OpT>
+Value wordOf(RewriterBase &rewriter, Facts &facts, OpT big, bool nonNegative) {
+  using Word = typename BigToWord<OpT>::Op;
+  Location loc = big.getLoc();
+  SmallVector<Value> words;
+  for (Value operand : big->getOperands())
+    words.push_back(facts.word(rewriter, loc, operand));
+  auto constant = [&](int64_t value) {
+    return arith::ConstantOp::create(rewriter, loc, rewriter.getI64IntegerAttr(value));
+  };
+  if constexpr (std::is_void_v<Word>) {
+    return words.front();
+  } else if constexpr (std::is_same_v<Word, arith::CmpIOp>) {
+    return arith::CmpIOp::create(rewriter, loc, layout::signedPredicate(big.getPredicate()),
+                                 words[0], words[1]);
+  } else if constexpr (std::is_same_v<Word, arith::TruncIOp>) {
+    Type type = big.getType();
+    return type == words.front().getType()
+               ? words.front()
+               : Value(arith::TruncIOp::create(rewriter, loc, type, words.front()));
+  } else if constexpr (std::is_same_v<Word, arith::MaxSIOp>) {
+    return nonNegative ? words.front()
+                       : Value(arith::MaxSIOp::create(rewriter, loc, words.front(),
+                                                      constant(BigToWord<OpT>::constant)));
+  } else {
+    Value rhs;
+    if constexpr (requires { BigToWord<OpT>::constant; })
+      rhs = constant(BigToWord<OpT>::constant);
+    else
+      rhs = words[1];
+    return Word::create(rewriter, loc, words.front(), rhs, noWrap(nonNegative));
+  }
+}
+
+// A big op whose bigs all fit made its word op. What it took over the
+// word takes nothing of, so the big it took drops its reference there.
+template <typename OpT>
+bool narrowBig(RewriterBase &rewriter, Facts &facts, OpT big, bool nonNegative) {
+  Location loc = big.getLoc();
+  Value word = wordOf(rewriter, facts, big, nonNegative);
+  for (OpOperand &operand : big->getOpOperands())
+    if (consumes(operand) && facts.owned(operand.get()))
+      DropOp::create(rewriter, loc, operand.get());
+  if (isBig(big->getResult(0).getType()))
+    replaceBig(rewriter, facts, big, word);
+  else
+    rewriter.replaceOp(big, word);
   return true;
 }
 
@@ -64,65 +126,12 @@ bool narrowOp(RewriterBase &rewriter, Facts &facts, Operation *op) {
     return false;
   rewriter.setInsertionPoint(op);
   Location loc = op->getLoc();
-  auto word = [&](Value v) { return facts.word(rewriter, loc, v); };
   bool nonNegative = facts.nonNegative(op->getOperands()) && facts.nonNegative(op->getResults());
   return llvm::TypeSwitch<Operation *, bool>(op)
-      .Case([&](BigAddOp add) {
-        replaceBig(rewriter, facts, op,
-                   arith::AddIOp::create(rewriter, loc, word(add.getLhs()), word(add.getRhs()),
-                                         noWrap(nonNegative)));
-        return true;
-      })
-      .Case([&](BigSubOp sub) {
-        replaceBig(rewriter, facts, op,
-                   arith::SubIOp::create(rewriter, loc, word(sub.getLhs()), word(sub.getRhs()),
-                                         noWrap(nonNegative)));
-        return true;
-      })
-      .Case([&](BigMulOp mul) {
-        replaceBig(rewriter, facts, op,
-                   arith::MulIOp::create(rewriter, loc, word(mul.getLhs()), word(mul.getRhs()),
-                                         noWrap(nonNegative)));
-        return true;
-      })
-      // The operand is at least 1.
-      .Case([&](BigPredOp pred) {
-        Value one = arith::ConstantOp::create(rewriter, loc, rewriter.getI64IntegerAttr(1));
-        replaceBig(rewriter, facts, op,
-                   arith::SubIOp::create(rewriter, loc, word(pred.getValue()), one, noWrap(true)));
-        return true;
-      })
-      .Case([&](BigCmpOp cmp) {
-        rewriter.replaceOpWithNewOp<arith::CmpIOp>(op, layout::signedPredicate(cmp.getPredicate()),
-                                                   word(cmp.getLhs()), word(cmp.getRhs()));
-        return true;
-      })
-      .Case([&](NatFromBigOp clamp) {
-        Value value = word(clamp.getValue());
-        if (!facts.nonNegative(clamp.getValue()))
-          value = arith::MaxSIOp::create(
-              rewriter, loc, value,
-              arith::ConstantOp::create(rewriter, loc, rewriter.getI64IntegerAttr(0)));
-        replaceBig(rewriter, facts, op, value);
-        return true;
-      })
-      // The Integer a natural is takes the natural's reference; the word
-      // takes none, so the natural drops it.
-      .Case([&](NatToBigOp retype) {
-        Value natural = retype.getValue();
-        Value value = word(natural);
-        if (facts.owned(natural))
-          DropOp::create(rewriter, loc, natural);
-        replaceBig(rewriter, facts, op, value);
-        return true;
-      })
-      .Case([&](BigToIntOp toInt) {
-        Value value = word(toInt.getValue());
-        if (value.getType() != toInt.getType())
-          value = arith::TruncIOp::create(rewriter, loc, toInt.getType(), value);
-        rewriter.replaceOp(op, value);
-        return true;
-      })
+      .Case<
+#define GET_BIG_TO_WORD_LIST
+#include "idr/IR/IdrBigToWord.inc"
+          >([&](auto big) { return narrowBig(rewriter, facts, big, nonNegative); })
       // A guard's result is its operand, so the guard of a big divisor that
       // fits guards its word, and the divisor is the big of the checked
       // word. The guard took the big's reference; the word takes none, so
@@ -131,7 +140,7 @@ bool narrowOp(RewriterBase &rewriter, Facts &facts, Operation *op) {
         Value divisor = check.getValue();
         if (!isBig(divisor.getType()))
           return false;
-        Value value = word(divisor);
+        Value value = facts.word(rewriter, loc, divisor);
         Value checked = CheckNonzeroOp::create(rewriter, loc, value.getType(), value,
                                                check.getCauseAttr());
         if (facts.owned(divisor))
@@ -160,8 +169,10 @@ struct NarrowWord : RewritePattern {
       : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx), facts(facts), narrowed(narrowed) {}
 
   LogicalResult matchAndRewrite(Operation *op, PatternRewriter &rewriter) const override {
-    if (!isa<MatchLitOp, BigAddOp, BigSubOp, BigMulOp, BigPredOp, BigCmpOp, NatFromBigOp,
-             NatToBigOp, BigToIntOp, CheckNonzeroOp, DupOp, DropOp>(op) ||
+    if (!isa<MatchLitOp, CheckNonzeroOp, DupOp, DropOp,
+#define GET_BIG_TO_WORD_LIST
+#include "idr/IR/IdrBigToWord.inc"
+             >(op) ||
         facts.made(op) || !narrowOp(rewriter, facts, op))
       return failure();
     ++narrowed;

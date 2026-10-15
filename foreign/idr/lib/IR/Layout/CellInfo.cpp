@@ -5,9 +5,9 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 
-#include "llvm/ADT/Twine.h"
-
 #include "idris_rt.h"
+
+#include <cassert>
 
 using namespace mlir;
 
@@ -15,42 +15,28 @@ namespace idr::layout {
 
 CellInfo::CellInfo(uint32_t word) noexcept : bits(word) {}
 
-std::expected<CellInfo, std::string> CellInfo::constructor(uint64_t tag, uint64_t objs,
-                                                           uint32_t kind) noexcept {
-  if (tag >= IDRIS_RT_TAG_LIMIT)
-    return std::unexpected(("its tag is " + Twine(tag) + ", and a cell's tag is below " +
-                            Twine(IDRIS_RT_TAG_LIMIT))
-                               .str());
-  if (objs > mostObjects)
-    return std::unexpected(("it holds " + Twine(objs) +
-                            " counted references (strings, boxed values, closures, "
-                            "Integers, Nats), and a cell holds at most " +
-                            Twine(mostObjects))
-                               .str());
-  return CellInfo(idris_rt_info(static_cast<uint32_t>(tag), static_cast<uint32_t>(objs), kind));
+// The header holds the tag within its group, the cell's group word the
+// rest; and the count of object slots, or the mark that the word after the
+// header holds it.
+CellInfo CellInfo::constructor(uint64_t tag, std::optional<unsigned> objs,
+                               uint32_t kind) noexcept {
+  assert((!objs || *objs <= mostObjects) && "a count the header's field holds");
+  uint32_t field = objs ? *objs : IDRIS_RT_OBJS_WIDE;
+  return CellInfo(idris_rt_info(static_cast<uint32_t>(tag & tagMask), field, kind));
 }
 
-std::expected<CellInfo, std::string> CellInfo::box(uint64_t tag, uint64_t objs) noexcept {
+CellInfo CellInfo::box(uint64_t tag, std::optional<unsigned> objs) noexcept {
   return constructor(tag, objs, IDRIS_RT_KIND_BOX);
 }
 
-std::expected<CellInfo, std::string> CellInfo::thunk(uint64_t tag, uint64_t objs) noexcept {
+CellInfo CellInfo::thunk(uint64_t tag, std::optional<unsigned> objs) noexcept {
   return constructor(tag, objs, IDRIS_RT_KIND_THUNK);
 }
 
-std::expected<CellInfo, std::string> CellInfo::array(uint64_t stride, uint64_t objs) noexcept {
-  if (stride >= IDRIS_RT_TAG_LIMIT)
-    return std::unexpected(("an element takes " + Twine(stride) +
-                            " bytes, and an array's element takes fewer than " +
-                            Twine(IDRIS_RT_TAG_LIMIT))
-                               .str());
-  if (objs > mostObjects)
-    return std::unexpected(("an element holds " + Twine(objs) +
-                            " counted references, and an array's element holds at most " +
-                            Twine(mostObjects))
-                               .str());
-  return CellInfo(idris_rt_info(static_cast<uint32_t>(stride), static_cast<uint32_t>(objs),
-                                IDRIS_RT_KIND_ARRAY));
+CellInfo CellInfo::array(unsigned stride, unsigned objs) noexcept {
+  assert(stride < IDRIS_RT_TAG_LIMIT && objs <= mostObjects &&
+         "an element the array's header describes, as Layouts::element lays one out");
+  return CellInfo(idris_rt_info(stride, objs, IDRIS_RT_KIND_ARRAY));
 }
 
 CellInfo CellInfo::string(bool ascii) noexcept {

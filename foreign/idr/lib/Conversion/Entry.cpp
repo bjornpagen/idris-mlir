@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idr-entry, which makes the root idr-lower lowered the program's entry.
+// idr-entry, which takes the program idr-lower lowered apart into the
+// module and makes its root the program's entry.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
@@ -15,6 +16,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Pass/Pass.h"
+#include "llvm/ADT/STLExtras.h"
 
 // The target entry's list of CPU features, an X-macro, and the runtime's
 // C ABI, whose feature bits it names.
@@ -32,16 +34,31 @@ namespace idr::conversion {
 
 namespace {
 
-// The root: the one public function, whatever its mangled name.
-FailureOr<func::FuncOp> findRoot(ModuleOp module, SymbolTable &symbols) {
-  SmallVector<func::FuncOp> roots;
-  for (auto fn : module.getOps<func::FuncOp>())
-    if (fn.isPublic())
-      roots.push_back(fn);
-  if (roots.size() != 1 || symbols.lookup("main"))
-    return module.emitError("internal error: idr-entry needs exactly one public function, "
-                            "the root, and no @main");
-  return roots.front();
+// Every op of the lowered `program` moves into the module before it, each
+// symbol into `symbols`, the module's table, and the program goes; gives
+// its root, which the program names by the lowered function's name.
+FailureOr<func::FuncOp> takeApart(ProgramOp program, SymbolTable &symbols) {
+  auto root =
+      dyn_cast_or_null<func::FuncOp>(SymbolTable::lookupSymbolIn(program, program.getRootAttr()));
+  if (!root)
+    return program.emitError() << "internal error: idr-entry: the root @" << program.getRoot()
+                               << " is no function idr-lower lowered";
+  SmallVector<Operation *> moved;
+  for (Operation &op : llvm::make_early_inc_range(program->getRegion(0).front())) {
+    op.moveBefore(program);
+    moved.push_back(&op);
+  }
+  symbols.erase(program);
+  for (Operation *op : moved) {
+    auto name = op->getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName());
+    if (!name)
+      continue;
+    if (symbols.lookup(name))
+      return op->emitError() << "internal error: idr-entry: @" << name.getValue()
+                             << " names another symbol of the module";
+    symbols.insert(op);
+  }
+  return root;
 }
 
 // The IDRIS_RT_CPU_FEATURES bits of the features the module's target
@@ -74,22 +91,24 @@ LLVM::LLVMFuncOp runtimeFunction(ModuleOp module, SymbolTable &symbols, StringRe
   return fn;
 }
 
-// The root, the only public function, becomes private, and @__idr_main runs
+// The root becomes private like every other function, and @__idr_main runs
 // it. Its lowered type is its kind: `() -> i64` returns the exit status; an
 // IO root, whose world and unit result lower to nothing, is `() -> ()`, and
 // the status is then 0. Either way @__idr_main then releases what the static
 // thunks hold once forced (@__idr_release_cafs, which idr-lower makes in
-// every module), so that it is not counted as live, and ends in
+// every program), so that it is not counted as live, and ends in
 // idris_rt_main_return, which writes pending output and, when asked, how
 // many cells are still live. @main hands @__idr_main and the program's
 // arguments to the runtime's entry, idris_rt_start, which runs it on a
 // reserved stack once the CPU has shown it has the features the module's
 // target enables, and which ends a status outside 0 to 255 as a crash.
-LogicalResult makeEntry(ModuleOp module, SymbolTable &symbols) {
-  FailureOr<func::FuncOp> found = findRoot(module, symbols);
+LogicalResult makeEntry(ModuleOp module, ProgramOp program, SymbolTable &symbols) {
+  FailureOr<func::FuncOp> found = takeApart(program, symbols);
   if (failed(found))
     return failure();
   func::FuncOp root = *found;
+  if (symbols.lookup("main"))
+    return module.emitError("internal error: idr-entry: @main names a symbol already");
   FunctionType kind = root.getFunctionType();
   bool status = kind.getNumResults() == 1 && kind.getResult(0).isInteger(64);
   if (kind.getNumInputs() != 0 || (kind.getNumResults() != 0 && !status))
@@ -145,8 +164,11 @@ struct Entry : idr::impl::IdrEntryBase<Entry> {
   using IdrEntryBase::IdrEntryBase;
 
   void runOnOperation() override {
-    if (failed(makeEntry(getOperation(), getAnalysis<SymbolTable>())))
-      return signalPassFailure();
+    ModuleOp module = getOperation();
+    SymbolTable &symbols = getAnalysis<SymbolTable>();
+    for (ProgramOp program : llvm::make_early_inc_range(module.getOps<ProgramOp>()))
+      if (failed(makeEntry(module, program, symbols)))
+        return signalPassFailure();
     // Every symbol it adds goes through the table, and no declaration
     // changes.
     markAnalysesPreserved<SymbolTable, Layouts, TypeGraph, Holds>();

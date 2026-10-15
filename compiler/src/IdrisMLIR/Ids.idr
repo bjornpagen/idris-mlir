@@ -62,7 +62,7 @@ public export
 record InstanceKey where
   constructor MkInstanceKey
   origin : String            -- the definition's printed full name
-  arguments : List String    -- each compile-time argument, alpha-normalized text
+  arguments : List String    -- each position up to the last that keys, alpha-normalized text or `-`
   print : KeyPrint
 
 export Eq FnId where a == b = a.name == b.name

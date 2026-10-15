@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // idr.match and idr.match_lit: their rules, the region each takes for a
-// known key, and their canonicalization. A case's fields are checked
-// against the scrutinee's data type, whose body is in the type.
+// known key, and their canonicalization. A case of idr.match is a
+// constructor's tag, whose fields are checked against the scrutinee's data
+// type, whose body is in the type.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Canon.h"
@@ -34,11 +35,13 @@ LogicalResult verifyMatchRegions(Operation *op) {
 }
 
 // The region of `Match` taken for the key `key`: its case, else the default.
-template <typename Match>
-Region *takenRegion(Match op, Attribute key) {
-  const auto *it = llvm::find(op.getCases(), key);
-  if (it != op.getCases().end())
-    return &op.getCaseRegion(static_cast<unsigned>(it - op.getCases().begin()));
+// A key is a literal of idr.match_lit, or a tag of idr.match.
+template <typename Match, typename Key>
+Region *takenRegion(Match op, Key key) {
+  auto cases = op.getCases();
+  const auto *it = llvm::find(cases, key);
+  if (it != cases.end())
+    return &op.getCaseRegion(static_cast<unsigned>(it - cases.begin()));
   return op.getDefaultRegion();
 }
 
@@ -61,7 +64,7 @@ Region *takenFromEnclosing(Match op) {
     if (index < outer.getCases().size())
       return takenRegion(op, outer.getCases()[index]);
     Region *fallback = op.getDefaultRegion();
-    if (fallback && llvm::all_of(op.getCases(), [&](Attribute key) {
+    if (fallback && llvm::all_of(op.getCases(), [&](auto key) {
           return llvm::is_contained(outer.getCases(), key);
         }))
       return fallback;
@@ -79,27 +82,24 @@ LogicalResult MatchOp::verify() {
   size_t cases = getCases().size();
   if (getRegions().size() != cases && getRegions().size() != cases + 1)
     return emitOpError("expects one region per case and at most one default");
-  DataType data = getDataType();
-  if (!data || !data.hasBody())
-    return emitOpError("matches ") << getScrutinee().getType() << ", which has no body";
-  llvm::SmallDenseSet<Attribute> seen;
-  for (auto [index, name] : llvm::enumerate(getCases())) {
-    auto ctor = dyn_cast<FlatSymbolRefAttr>(name);
+  llvm::SmallDenseSet<int32_t> seen;
+  for (auto [index, tag] : llvm::enumerate(getCases())) {
+    if (tag < 0)
+      return emitOpError("has a case for constructor ") << tag;
+    const Ctor *ctor =
+        idr::detail::ctorAt(*this, getScrutinee().getType(), static_cast<unsigned>(tag));
     if (!ctor)
-      return emitOpError("expects constructor names as cases, got ") << name;
-    if (!seen.insert(name).second)
-      return emitOpError("has two cases for ") << name;
-    std::optional<unsigned> tag = data.getTag(ctor.getValue());
-    if (!tag)
-      return emitOpError("has a case for ")
-             << name << ", which is not a constructor of " << getScrutinee().getType();
+      return failure();
+    if (!seen.insert(tag).second)
+      return emitOpError("has two cases for constructor ") << tag;
     SmallVector<Type> expected;
-    for (Type field : data.getCtor(*tag).fields)
+    for (Type field : ctor->fields)
       expected.push_back(fieldType(getScrutinee().getType(), field));
     TypeRange args = getCaseRegion(static_cast<unsigned>(index)).getArgumentTypes();
     if (args != TypeRange(expected))
-      return emitOpError("case ") << name << " must take the constructor's fields at the "
-                                  << "scrutinee's grade, " << expected;
+      return emitOpError("case @") << ctor->name.getValue()
+                                   << " must take the constructor's fields at the "
+                                   << "scrutinee's grade, " << expected;
   }
   if (Region *fallback = getDefaultRegion()) {
     TypeRange args = fallback->getArgumentTypes();
@@ -114,33 +114,37 @@ LogicalResult MatchOp::verifyRegions() { return verifyMatchRegions(*this); }
 
 DataType MatchOp::getDataType() { return dataTypeOf(getScrutinee().getType()); }
 
-unsigned MatchOp::getCaseTag(unsigned index) {
-  return *getDataType().getTag(cast<FlatSymbolRefAttr>(getCases()[index]).getValue());
+void MatchOp::build(OpBuilder &builder, OperationState &state, TypeRange results,
+                    Value scrutinee, ArrayRef<unsigned> tags, unsigned regions) {
+  SmallVector<int32_t> cases;
+  for (unsigned tag : tags)
+    cases.push_back(static_cast<int32_t>(tag));
+  build(builder, state, results, scrutinee, ArrayRef<int32_t>(cases), regions);
 }
 
 // A constant constructor, or the constructor of the idr.con that built the
 // scrutinee, also through a linear position; else what an enclosing match
 // on the same value established.
 Region *MatchOp::getTakenRegion(Attribute value) {
-  FlatSymbolRefAttr ctor;
+  std::optional<int32_t> tag;
   Value source = throughLinear(getScrutinee());
   ConAttr constant;
   if (auto con = dyn_cast_or_null<ConAttr>(value))
-    ctor = con.getCtor();
+    tag = static_cast<int32_t>(con.getTag());
   else if (auto built = source.getDefiningOp<ConOp>())
-    ctor = built.getCtorAttr();
+    tag = static_cast<int32_t>(built.getTag());
   else if (matchPattern(source, m_Constant(&constant)))
-    ctor = constant.getCtor();
-  if (!ctor)
+    tag = static_cast<int32_t>(constant.getTag());
+  if (!tag)
     return takenFromEnclosing(*this);
-  return takenRegion(*this, ctor);
+  return takenRegion(*this, *tag);
 }
 
 // Keys are distinct literals of the scrutinee's type, and a default is required.
 LogicalResult MatchLitOp::verify() {
   if (getRegions().size() != getCases().size() + 1)
     return emitOpError("expects one region per case and a default");
-  Type type = getScrutinee().getType();
+  Type type = unrestricted(getScrutinee().getType());
   llvm::SmallDenseSet<Attribute> seen;
   for (Attribute key : getCases()) {
     bool typed = TypeSwitch<Type, bool>(type)
@@ -152,7 +156,7 @@ LogicalResult MatchLitOp::verify() {
                      .Case([&](BigType) { return isa<BigAttr>(key); })
                      .Case([&](NatType) {
                        auto big = dyn_cast<BigAttr>(key);
-                       return big && !big.getValue().starts_with("-");
+                       return big && !big.getValue().isNegative();
                      })
                      .Default([](Type) { return false; });
     if (!typed)

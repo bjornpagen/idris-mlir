@@ -144,14 +144,14 @@ moduleSource fc ident = do
 
 ||| The hooks of a definition, by its full name.
 export
-hooksOf : Name -> List Hook
+hooksOf : Name -> Hooks
 hooksOf n = hooks (Def (qname n))
 
 ||| What the registry makes of a `%foreign` definition, by its full name and
 ||| the specs Idris recorded for it: nothing, its hook, or the message of
 ||| a shape mismatch when another definition declares an entry's spec.
 export
-foreignHookOf : Name -> List String -> Maybe (Either String Hook)
+foreignHookOf : Name -> List String -> Maybe (Either String Hooks)
 foreignHookOf n specs = map (mapFst (\(e, m) => mismatch e m)) (foreignHook (qname n) specs)
 
 ------------------------------------------------------------------------------
@@ -238,8 +238,16 @@ validate = check entries
                          (Foreign _, ForeignDef _ specs) => declares e specs
                          (Foreign _, _) => False
                          _ => True
-        if not declared then pure (Wrong (location def) (show q) (mismatch e Undeclared)) else do
-          ty <- toFullNames !(normalise defs Env.Nil (type def))
-          let found = shapeOf ty
-          if conforms expected found then check es
-             else pure (Wrong (location def) (show q) (mismatch e (Found found)))
+        if not declared then pure (Wrong (location def) (show q) (mismatch e Undeclared)) else
+          case expected of
+            -- A bodiless declaration is its own shape: there is nothing of
+            -- its type to compare, only that no body gives it a second
+            -- meaning.
+            IsBodiless => case definition def of
+              ExternDef _ => check es
+              _ => pure (Wrong (location def) (show q) (mismatch e Bodied))
+            HasShape shape => do
+              ty <- toFullNames !(normalise defs Env.Nil (type def))
+              let found = shapeOf ty
+              if conforms shape found then check es
+                 else pure (Wrong (location def) (show q) (mismatch e (Found found)))

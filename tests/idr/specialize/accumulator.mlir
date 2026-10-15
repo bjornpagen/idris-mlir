@@ -5,15 +5,15 @@
 // call of @count, which is on a cycle and so never inlined, keeps its
 // constant and runs as a loop.
 // CHECK: call @count(%{{.*}}, %{{.*}}) : (i64, !idr.big) -> i64
-module {
-  idr.func private @count(%acc: i64, %n: !idr.big) -> i64 attributes {total} {
+idr.program @accumulator root(@Main.main) stage(first) {
+  idr.func @count(%acc: i64, %n: !idr.big) -> i64 attributes {total} {
     %r = idr.match_lit %n : !idr.big -> (i64) {
-    case #idr.big<"0"> {
+    case #idr.big<0> {
       idr.yield %acc : i64
     }
     default {
       %c1 = arith.constant 1 : i64
-      %one = idr.constant #idr.big<"1"> : !idr.big
+      %one = idr.constant #idr.big<1> : !idr.big
       %a = arith.addi %acc, %c1 : i64
       %m = idr.big.sub %n, %one
       %x = idr.call @count(%a, %m) : (i64, !idr.big) -> i64
@@ -22,8 +22,8 @@ module {
     }
     return %r : i64
   }
-  idr.func private @use(%acc: i64) -> i64 attributes {total} {
-    %c100 = idr.constant #idr.big<"100"> : !idr.big
+  idr.func @use(%acc: i64) -> i64 attributes {total} {
+    %c100 = idr.constant #idr.big<100> : !idr.big
     %r = idr.call @count(%acc, %c100) : (i64, !idr.big) -> i64
     return %r : i64
   }

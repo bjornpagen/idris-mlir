@@ -6,9 +6,9 @@
 // way the counting went: a list mapped in place, a list read and then
 // consumed, a shared list mapped into fresh cells while it is still read
 // afterwards, and lists of which only the head is used.
-!L = !idr.data<"L", list [@N(), @C(i64, !idr.box<!idr.data<"L">>)]>
-module {
-  idr.func private @build(%n: i64) -> !idr.box<!L> {
+!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
+idr.program @live root(@Prog.main) stage(higher) {
+  idr.func @build(%n: i64) -> !idr.box<!L> {
     %r = idr.match_lit %n : i64 -> (!idr.box<!L>) {
     case 0 {
       %e = idr.constant #idr.con<@N, []> : !idr.box<!L>
@@ -18,13 +18,13 @@ module {
       %one = arith.constant 1 : i64
       %m = arith.subi %n, %one : i64
       %t = idr.call @build(%m) : (i64) -> !idr.box<!L>
-      %c = idr.con @C(%n, %t) : (i64, !idr.box<!L>) -> !idr.box<!L>
+      %c = idr.con !idr.box<!L> @C(%n : i64, %t : !idr.box<!L>)
       idr.yield %c : !idr.box<!L>
     }
     }
     return %r : !idr.box<!L>
   }
-  idr.func private @map(%l: !idr.box<!L>) -> !idr.box<!L> {
+  idr.func @map(%l: !idr.box<!L>) -> !idr.box<!L> {
     %r = idr.match %l : !idr.box<!L> -> (!idr.box<!L>) {
     case @N() {
       %e = idr.constant #idr.con<@N, []> : !idr.box<!L>
@@ -33,13 +33,13 @@ module {
     case @C(%h: i64, %t: !idr.box<!L>) {
       %h2 = arith.muli %h, %h : i64
       %t2 = idr.call @map(%t) : (!idr.box<!L>) -> !idr.box<!L>
-      %c = idr.con @C(%h2, %t2) : (i64, !idr.box<!L>) -> !idr.box<!L>
+      %c = idr.con !idr.box<!L> @C(%h2 : i64, %t2 : !idr.box<!L>)
       idr.yield %c : !idr.box<!L>
     }
     }
     return %r : !idr.box<!L>
   }
-  idr.func private @sum(%l: !idr.box<!L>, %acc: i64) -> i64 {
+  idr.func @sum(%l: !idr.box<!L>, %acc: i64) -> i64 {
     %r = idr.match %l : !idr.box<!L> -> (i64) {
     case @N() {
       idr.yield %acc : i64
@@ -52,7 +52,7 @@ module {
     }
     return %r : i64
   }
-  idr.func private @head(%l: !idr.box<!L>) -> i64 {
+  idr.func @head(%l: !idr.box<!L>) -> i64 {
     %r = idr.match %l : !idr.box<!L> -> (i64) {
     case @N() {
       %z = arith.constant 0 : i64

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // A constructor value and what reads it: idr.con, which allocates a box's
-// cell, idr.field, idr.tag and idr.dest.of, the destination of a field a
-// cell was built without. Their folds and canonicalizations are here
-// beside them. Each names a constructor within its value's data type, whose
-// body says the constructor's tag and fields, so nothing here reads the
-// module.
+// cell and gives the destination of each field it is built without,
+// idr.field and idr.tag. Their folds and canonicalizations are here beside
+// them. Each holds a constructor's tag in its value's data type, whose body
+// says the constructor's fields, so nothing here reads the module or looks
+// a constructor up by name.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Canon.h"
@@ -32,7 +32,7 @@ using namespace idr;
 // those references held where nothing consumes them.
 void ConOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  if (isa<BoxType>(unrestricted(getType()))) {
+  if (isa<BoxType>(unrestricted(getResult().getType()))) {
     SideEffects::Resource *memory = getStack()
                                         ? static_cast<SideEffects::Resource *>(
                                               SideEffects::AutomaticAllocationScopeResource::get())
@@ -49,67 +49,128 @@ void ConOp::getEffects(
 // hoisted out of a branch, it would take a reference on a path that never
 // gave it one.
 Speculation::Speculatability ConOp::getSpeculatability() {
-  if (isa<BoxType>(unrestricted(getType())) ||
+  if (isa<BoxType>(unrestricted(getResult().getType())) ||
       llvm::any_of(getFields(), [](Value field) { return isOwned(field.getType()); }))
     return Speculation::NotSpeculatable;
   return Speculation::Speculatable;
 }
 
-DataType ConOp::getDataType() { return dataTypeOf(getType()); }
-unsigned ConOp::getTag() { return *getDataType().getTag(getCtor()); }
+DataType ConOp::getDataType() { return dataTypeOf(getResult().getType()); }
 
-namespace {
-
-// The constructor `ctor` of the data type of a value of `type`, or null
-// after an error at `op`: the type has a body, and the constructor is in it.
-const Ctor *ctorOf(Operation *op, Type type, FlatSymbolRefAttr ctor) {
-  DataType data = dataTypeOf(type);
-  if (!data || !data.hasBody()) {
-    op->emitOpError("names a constructor of ") << type << ", which has no body";
-    return nullptr;
-  }
-  std::optional<unsigned> tag = data.getTag(ctor.getValue());
-  if (!tag) {
-    op->emitOpError("names ") << ctor << ", which is not a constructor of \"" << data.getName()
-                              << "\"";
-    return nullptr;
-  }
-  return &data.getCtor(*tag);
+// The type of the destination of field `index` of `ctor`: the field's word,
+// whatever grade the field is held at.
+Type idr::detail::destOf(const Ctor &ctor, int32_t index) {
+  Type field = ctor.fields[static_cast<size_t>(index)];
+  return DestType::get(field.getContext(), unrestricted(field));
 }
 
-} // namespace
+Value idr::detail::givenField(ValueRange fields, ArrayRef<int32_t> holes, unsigned index) {
+  const int32_t *hole = llvm::lower_bound(holes, static_cast<int32_t>(index));
+  if (hole != holes.end() && *hole == static_cast<int32_t>(index))
+    return Value();
+  return fields[index - static_cast<unsigned>(hole - holes.begin())];
+}
 
-// The constructor is one of the result's type, and the fields are its: in
-// the owned stage a field that holds references is owned (or exclusive),
-// and moves into the cell. A cell idr-stack keeps in its frame is a box's.
+Value idr::detail::holeDest(ResultRange dests, ArrayRef<int32_t> holes, unsigned index) {
+  const int32_t *hole = llvm::lower_bound(holes, static_cast<int32_t>(index));
+  if (hole == holes.end() || *hole != static_cast<int32_t>(index))
+    return Value();
+  return dests[static_cast<unsigned>(hole - holes.begin())];
+}
+
+Value ConOp::getField(unsigned index) {
+  return idr::detail::givenField(getFields(), getHoles(), index);
+}
+Value ConOp::getDest(unsigned index) { return idr::detail::holeDest(getDests(), getHoles(), index); }
+
+void ConOp::build(OpBuilder &builder, OperationState &state, Type type, unsigned tag,
+                  ValueRange fields, ArrayRef<int32_t> holes, bool stack) {
+  const Ctor &ctor = dataTypeOf(type).getCtor(tag);
+  SmallVector<Type> dests;
+  for (int32_t hole : holes)
+    dests.push_back(idr::detail::destOf(ctor, hole));
+  build(builder, state, type, dests, tag, fields, holes, stack);
+}
+
+// The parser and every builder give a tag of the type; a tag out of range
+// is a hand-built op's.
+const Ctor *idr::detail::ctorAt(Operation *op, Type type, unsigned tag) {
+  DataType data = dataTypeOf(type);
+  if (!data) {
+    op->emitOpError("names a constructor of ") << type << ", which is no data type";
+    return nullptr;
+  }
+  if (tag >= data.getCtors().size()) {
+    op->emitOpError("names constructor ") << tag << " of \"" << data.getName() << "\", which has "
+                                          << data.getCtors().size();
+    return nullptr;
+  }
+  return &data.getCtor(tag);
+}
+
+// The holes are distinct fields of `ctor`, ascending, of a box's cell, and
+// the rest of its fields are given; each destination is the word of its
+// hole.
+LogicalResult idr::detail::verifyHoles(Operation *op, const Ctor &ctor, ArrayRef<int32_t> holes,
+                                       size_t fields, TypeRange dests) {
+  if (!holes.empty() && !isBoxed(op->getResult(0).getType()))
+    return op->emitOpError("has holes, which only a box's cell has");
+  for (auto [i, hole] : llvm::enumerate(holes))
+    if (hole < 0 || static_cast<size_t>(hole) >= ctor.fields.size() ||
+        (i > 0 && holes[i - 1] >= hole))
+      return op->emitOpError("expects its holes to be distinct fields, ascending");
+  if (fields + holes.size() != ctor.fields.size())
+    return op->emitOpError("expects ") << ctor.fields.size() - holes.size() << " fields";
+  if (dests.size() != holes.size())
+    return op->emitOpError("expects a destination per hole");
+  for (auto [hole, dest] : llvm::zip_equal(holes, dests))
+    if (dest != destOf(ctor, hole))
+      return op->emitOpError("gives ") << dest << " for field " << hole << ", whose destination is "
+                                       << destOf(ctor, hole);
+  return success();
+}
+
+// The constructor is one of the result's type, and the fields given are
+// its, the holes aside: in the owned stage a field that holds references
+// is owned (or exclusive), and moves into the cell. A cell idr-stack keeps
+// in its frame is a box's.
 LogicalResult ConOp::verify() {
-  if (getStack() && !isa<BoxType>(unrestricted(getType())))
+  if (getStack() && !isa<BoxType>(unrestricted(getResult().getType())))
     return emitOpError("is kept on the stack, which only a box's cell is");
-  const Ctor *ctor = ctorOf(*this, getType(), getCtorAttr());
-  if (!ctor)
+  const Ctor *ctor = idr::detail::ctorAt(*this, getResult().getType(), getTag());
+  if (!ctor || failed(idr::detail::verifyHoles(*this, *ctor, getHoles(), getFields().size(),
+                                          getDests().getTypes())))
     return failure();
-  if (ctor->fields.size() != getFields().size())
-    return emitOpError("expects ") << ctor->fields.size() << " fields";
-  for (auto [expected, value] : llvm::zip(ctor->fields, getFields()))
-    if (expected != value.getType() && !(isOwned(value.getType()) && view(value.getType()) == expected))
+  for (unsigned index = 0, n = static_cast<unsigned>(ctor->fields.size()); index < n; ++index) {
+    Value value = getField(index);
+    Type expected = ctor->fields[index];
+    if (value && expected != value.getType() &&
+        !(isOwned(value.getType()) && view(value.getType()) == expected))
       return emitOpError("field has type ") << value.getType() << ", expected " << expected;
+  }
   return success();
 }
 
 // A constructor of constants is a constant, and a constructor rebuilt from
-// the fields of a value of that constructor is the value (record eta).
-OpFoldResult ConOp::fold(FoldAdaptor adaptor) {
-  if (Value value = canon::eta(*this))
-    return value;
-  // A field folds only as a constant the dialect builds at its type. A
-  // poison field is the program's value where control never arrives, which
-  // no constant holds: the constructor stays an op around it, and idr-lower
-  // builds it.
+// the fields of a value of that constructor is the value (record eta). One
+// with a hole is neither: the hole has no value until it is written.
+LogicalResult ConOp::fold(FoldAdaptor adaptor, SmallVectorImpl<OpFoldResult> &results) {
+  if (!getHoles().empty())
+    return failure();
+  if (Value value = canon::eta(*this)) {
+    results.push_back(value);
+    return success();
+  }
+  // A field folds only as a constant a constant constructor holds at its
+  // type, which is no array. A poison field is the program's value where
+  // control never arrives, which no constant holds: the constructor stays
+  // an op around it, and idr-lower builds it.
   for (auto [field, operand] : llvm::zip_equal(adaptor.getFields(), getFields()))
     if (!field || !canon::buildable(field, operand.getType()))
-      return {};
-  return ConAttr::get(getContext(), getDataType(), getCtorAttr(),
-                      ArrayAttr::get(getContext(), adaptor.getFields()));
+      return failure();
+  results.push_back(ConAttr::get(getContext(), getDataType(), getTag(),
+                                 ArrayAttr::get(getContext(), adaptor.getFields())));
+  return success();
 }
 
 //===----------------------------------------------------------------------===//
@@ -126,10 +187,15 @@ Speculation::Speculatability FieldOp::getSpeculatability() {
 }
 
 DataType FieldOp::getDataType() { return dataTypeOf(getValue().getType()); }
-unsigned FieldOp::getTag() { return *getDataType().getTag(getCtor()); }
+
+void FieldOp::build(OpBuilder &builder, OperationState &state, Value value, unsigned tag,
+                    unsigned index) {
+  Type field = dataTypeOf(value.getType()).getCtor(tag).fields[index];
+  build(builder, state, fieldType(value.getType(), field), value, tag, uint64_t{index});
+}
 
 LogicalResult FieldOp::verify() {
-  const Ctor *ctor = ctorOf(*this, getValue().getType(), getCtorAttr());
+  const Ctor *ctor = idr::detail::ctorAt(*this, getValue().getType(), getTag());
   if (!ctor)
     return failure();
   if (getIndex() >= ctor->fields.size())
@@ -145,18 +211,17 @@ LogicalResult FieldOp::verify() {
 // A field of a known constructor, built by idr.con or constant, also when
 // it passed a linear position on the way. A linear field moves out of the
 // constructor, so only the constructor's one read takes it: otherwise it
-// would be used twice. A field the constructor was built without
-// (idr.dest.pending) has no value until its destination is written, so a
-// read of it is not the pending operand: it stays a read of the cell.
+// would be used twice. A hole of the constructor has no value until its
+// destination is written, so a read of it stays a read of the cell.
 OpFoldResult FieldOp::fold(FoldAdaptor adaptor) {
   auto index = static_cast<unsigned>(getIndex());
   Value source = throughLinear(getValue());
   if (auto con = source.getDefiningOp<ConOp>())
-    if (con.getCtorAttr() == getCtorAttr()) {
+    if (con.getTag() == getTag()) {
       // A field read at another grade than the constructor took it is
       // the canonicalizer's, which holds it as read.
-      Value field = con.getFields()[index];
-      if (!field.getDefiningOp<PendingOp>() && field.getType() == getType() &&
+      Value field = con.getField(index);
+      if (field && field.getType() == getType() &&
           (quantityOf(field.getType()) != Quantity::One || fieldReadOnce(con.getResult(), index)))
         return field;
     }
@@ -165,7 +230,7 @@ OpFoldResult FieldOp::fold(FoldAdaptor adaptor) {
   auto con = dyn_cast_or_null<ConAttr>(adaptor.getValue());
   if (!con)
     matchPattern(source, m_Constant(&con));
-  if (con && con.getCtor() == getCtorAttr()) {
+  if (con && con.getTag() == getTag()) {
     // One field of the first cell, read in place: off a run's spine that
     // costs nothing however long the run is, where listing every field
     // would build the rest of the run. A run's cells hold all the fields
@@ -188,13 +253,13 @@ LogicalResult FieldOp::canonicalize(FieldOp field, PatternRewriter &rewriter) {
   Type type = field.getType();
   // A field of a known constructor read at another grade than the
   // constructor took it: the operand, held as read. A linear operand moves
-  // out, so only the one read takes it; a pending operand (a field the
-  // constructor was built without) is no value yet, and is never read.
+  // out, so only the one read takes it; a hole is no value yet, and is
+  // never read.
   if (auto built = throughLinear(field.getValue()).getDefiningOp<ConOp>();
-      built && built.getCtorAttr() == field.getCtorAttr()) {
+      built && built.getTag() == field.getTag()) {
     auto index = static_cast<unsigned>(field.getIndex());
-    Value operand = built.getFields()[index];
-    if (operand.getDefiningOp<PendingOp>() || operand.getType() == type ||
+    Value operand = built.getField(index);
+    if (!operand || operand.getType() == type ||
         (quantityOf(operand.getType()) == Quantity::One && !fieldReadOnce(built.getResult(), index)))
       return failure();
     rewriter.replaceOp(field, heldAs(rewriter, field.getLoc(), operand, type));
@@ -214,7 +279,7 @@ LogicalResult FieldOp::canonicalize(FieldOp field, PatternRewriter &rewriter) {
     unsigned index = region->getRegionNumber();
     if (index >= outer.getCases().size())
       continue;
-    if (outer.getCases()[index] != field.getCtorAttr())
+    if (outer.getCaseTag(index) != field.getTag())
       break;
     Value argument = region->front().getArgument(static_cast<unsigned>(field.getIndex()));
     if (quantityOf(type) == Quantity::One && !argument.use_empty())
@@ -224,7 +289,7 @@ LogicalResult FieldOp::canonicalize(FieldOp field, PatternRewriter &rewriter) {
   }
   ConAttr con;
   if (!isLinear(type) || !matchPattern(throughLinear(field.getValue()), m_Constant(&con)) ||
-      con.getCtor() != field.getCtorAttr())
+      con.getTag() != field.getTag())
     return failure();
   Attribute value = con.getFields()[static_cast<unsigned>(field.getIndex())];
   Dialect *dialect = rewriter.getContext()->getLoadedDialect<IdrDialect>();
@@ -243,21 +308,18 @@ LogicalResult FieldOp::canonicalize(FieldOp field, PatternRewriter &rewriter) {
 // type of one constructor, read from the value's data type.
 OpFoldResult TagOp::fold(FoldAdaptor adaptor) {
   DataType data = dataTypeOf(getValue().getType());
-  if (!data || !data.hasBody())
+  if (!data)
     return {};
   Value source = throughLinear(getValue());
-  FlatSymbolRefAttr known;
+  std::optional<unsigned> tag;
   if (auto con = source.getDefiningOp<ConOp>()) {
-    known = con.getCtorAttr();
+    tag = con.getTag();
   } else {
     auto constant = dyn_cast_or_null<ConAttr>(adaptor.getValue());
     if (constant || matchPattern(source, m_Constant(&constant)))
-      known = constant.getCtor();
+      tag = constant.getTag();
   }
-  std::optional<unsigned> tag;
-  if (known)
-    tag = data.getTag(known.getValue());
-  else if (data.getCtors().size() == 1)
+  if (!tag && data.getCtors().size() == 1)
     tag = 0;
   if (!tag)
     return {};
@@ -270,47 +332,4 @@ void TagOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn setResu
   unsigned width = getType().getIntOrFloatBitWidth();
   setResultRange(getResult(), count == 0 ? ConstantIntRanges::maxRange(width)
                                          : idr::ranges::nonNegative(width, 0, count - 1));
-}
-
-//===----------------------------------------------------------------------===//
-// idr.dest.of
-//===----------------------------------------------------------------------===//
-
-DataType DestOfOp::getDataType() { return dataTypeOf(getValue().getType()); }
-unsigned DestOfOp::getTag() { return *getDataType().getTag(getCtor()); }
-
-// The cell was built here, by an idr.con or idr.reuse of the constructor,
-// with the field pending: a destination names a field that has no value
-// yet, and nothing else does. In the owned stage the cell is owned and
-// the destination reads it through a view. A destination is the field's
-// word, whatever grade the field is held at.
-LogicalResult DestOfOp::verify() {
-  const Ctor *field = ctorOf(*this, getValue().getType(), getCtorAttr());
-  if (!field)
-    return failure();
-  if (getIndex() >= field->fields.size())
-    return emitOpError("field index out of range");
-  if (unrestricted(field->fields[static_cast<unsigned>(getIndex())]) != getType().getValue())
-    return emitOpError("destination type does not match the field type");
-  Value cell = getValue();
-  if (auto borrow = cell.getDefiningOp<BorrowOp>())
-    cell = borrow.getValue();
-  Operation *made = cell.getDefiningOp();
-  ValueRange fields;
-  FlatSymbolRefAttr ctor;
-  if (auto con = dyn_cast_or_null<ConOp>(made)) {
-    fields = con.getFields();
-    ctor = con.getCtorAttr();
-  } else if (auto reuse = dyn_cast_or_null<ReuseOp>(made)) {
-    fields = reuse.getFields();
-    ctor = reuse.getCtorAttr();
-  } else {
-    return emitOpError("expects the cell of an idr.con or idr.reuse");
-  }
-  auto index = static_cast<unsigned>(getIndex());
-  if (ctor != getCtorAttr())
-    return emitOpError("names a field of ") << getCtorAttr() << ", which did not build the cell";
-  if (index >= fields.size() || !fields[index].getDefiningOp<PendingOp>())
-    return emitOpError("names a field the cell was built with");
-  return success();
 }

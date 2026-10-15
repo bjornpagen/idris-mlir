@@ -10,8 +10,8 @@
 // CHECK: case @add(
 // CHECK: call @add(
 !Box = !idr.data<"Box", plain [@MkBox(!idr.fn<(i64) -> (i64)>)]>
-module {
-  idr.func private @add(%k: i64, %x: i64) -> i64 attributes {total} {
+idr.program @"grade-plain" root(@main) stage(higher) {
+  idr.func @add(%k: i64, %x: i64) -> i64 attributes {total} {
     %r = arith.addi %k, %x : i64
     return %r : i64
   }
@@ -20,7 +20,7 @@ module {
     %f = idr.closure @add(%k) : (i64) -> !idr.fn<(i64) -> (i64)>
     %fl = idr.lin.enter %f : !idr.lin<!idr.fn<(i64) -> (i64)>>
     %fu = idr.lin.use %fl : !idr.lin<!idr.fn<(i64) -> (i64)>>
-    %b = idr.con @MkBox(%fu) : (!idr.fn<(i64) -> (i64)>) -> !Box
+    %b = idr.con !Box @MkBox(%fu : !idr.fn<(i64) -> (i64)>)
     %r = idr.match %b : !Box -> (i64) {
     case @MkBox(%g: !idr.fn<(i64) -> (i64)>) {
       %two = arith.constant 2 : i64

@@ -4,7 +4,8 @@
 // generated code needs declared around it, in the order it needs it: the
 // grades, the resources, the traits, the guards' vocabulary and a data
 // type's constructors before the generated attributes, types and
-// interfaces, and those before the ops.
+// interfaces, the flow vocabulary and its interface before the ops, and
+// what reads the ops after them.
 #ifndef IDR_IR_IDRDIALECT_H
 #define IDR_IR_IDRDIALECT_H
 
@@ -24,6 +25,7 @@
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Interfaces/ValueBoundsOpInterface.h"
+#include "mlir/Interfaces/ViewLikeInterface.h"
 
 #include <algorithm>
 #include <atomic>
@@ -65,11 +67,11 @@ struct ReferenceResource : mlir::SideEffects::Resource::Base<ReferenceResource> 
   llvm::StringRef getName() const final { return "idr.reference"; }
 };
 
-// Whether `operand`'s position takes over the reference its value holds: an
-// idr op says so by ConsumingOpInterface (an idr.call by its operand's
-// grade, which is its callee's parameter's); a return, a yield of scf, a
-// condition's carried values and a while's inits do. Given `symbols`, an
-// idr.call answers from its callee's parameter through that table instead.
+// Whether `operand`'s position takes over the reference its value holds,
+// as the edges of its op's flow say (lib/IR/Effects.cpp): a use the op
+// moves on or ends, a forwarded value, or an argument whose parameter owns
+// it, which the program's stage says how to read. Given `symbols`, a call's
+// callee is found through that table.
 bool consumes(mlir::OpOperand &operand, mlir::SymbolTable *symbols = nullptr);
 
 // A Free of ReferenceResource on each operand of `op` that `consumes`
@@ -92,23 +94,23 @@ bool performsIO(mlir::Operation *op);
 // trait exists only as a base of its op: the op's mlir::Op base constructs
 // it, and nothing else may.
 
-// The runtime function the op lowers to, named after the op:
-// `idr.str.append` calls `idris_rt_str_append` (`Idr_CallsRuntime`).
+// An op that lowers to a call of a runtime function (`Idr_Runtime`), which
+// its ODS names: the table idris-mlir-tblgen writes from the marks says
+// which, and the runtime's prototypes are generated from the same marks.
 template <typename ConcreteType>
 class CallsRuntime : public mlir::OpTrait::TraitBase<ConcreteType, CallsRuntime> {
-public:
-  static llvm::StringRef getHelper() {
-    static const std::string helper = [] {
-      std::string name = "idris_rt_";
-      name += ConcreteType::getOperationName().drop_front(sizeof("idr.") - 1);
-      std::replace(name.begin(), name.end(), '.', '_');
-      return name;
-    }();
-    return helper;
-  }
-
 private:
   CallsRuntime() = default;
+  friend ConcreteType;
+  template <typename, template <typename> class...> friend class mlir::Op;
+};
+
+// An op that does not return (`Idr_NoReturn`): the runtime function it
+// calls is noreturn, and what follows it is unreachable.
+template <typename ConcreteType>
+class NoReturn : public mlir::OpTrait::TraitBase<ConcreteType, NoReturn> {
+private:
+  NoReturn() = default;
   friend ConcreteType;
   template <typename, template <typename> class...> friend class mlir::Op;
 };
@@ -176,19 +178,14 @@ template <bool Allocates> struct MayCrash {
   };
 };
 
-// The trait behind Idr_Consumes: the ODS operand groups an op takes over.
+// The trait behind Idr_ConsumesOnly: an op whose only effect is what it
+// takes over, which its flow says, reports that (consumedEffects). The
+// operand groups it is written with say nothing more.
 template <unsigned... Groups>
 struct ConsumesOperands {
   template <typename ConcreteType>
   class Impl : public mlir::OpTrait::TraitBase<ConcreteType, Impl> {
   public:
-    bool consumedByTrait(unsigned number) {
-      auto *op = static_cast<ConcreteType *>(this);
-      return ((number >= op->getODSOperandIndexAndLength(Groups).first &&
-               number < op->getODSOperandIndexAndLength(Groups).first +
-                            op->getODSOperandIndexAndLength(Groups).second) || ...);
-    }
-    // Used by ops whose only effect is what they take over (Idr_ConsumesOnly).
     void getEffects(llvm::SmallVectorImpl<
         mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>> &effects) {
       consumedEffects(this->getOperation(), effects);
@@ -197,8 +194,9 @@ struct ConsumesOperands {
 };
 
 // The result is the operand's value at whatever grade the result has: an
-// op that computes a new value of its operands' type, which the owned
-// stage then owns.
+// op that only changes a grade (a linear position, a view, an exclusive
+// value given on as owned), which a pass looks through by this trait, and
+// through ViewLikeOpInterface where it asks for views.
 template <typename ConcreteType>
 class ResultCarriesOperand : public mlir::OpTrait::TraitBase<ConcreteType, ResultCarriesOperand> {
 public:
@@ -217,23 +215,6 @@ bool knownNonZero(mlir::Value value);
 bool knownFinite(mlir::Value value);
 bool knownNonEmpty(mlir::Value value);
 
-// The condition a guard (idr.check.*) checks.
-enum class CheckKind { Nonzero, InBounds, Nonempty, Byte, Finite, Range };
-
-// Whether the condition of a guard of `kind` holds of `constants`, the
-// guard's operands in order: what a guard's folder and every total op's
-// folder ask before computing. A null one is not a constant, and the
-// condition does not hold of it.
-bool checkHolds(CheckKind kind, mlir::ArrayRef<mlir::Attribute> constants);
-
-// Whether the pure total op `op` may run before the condition that guards
-// it: each of its operands that `guarded` numbers is the result of its
-// guard (for an index, the guard against the length of the op's own
-// string), or a constant the guard's condition holds of. A guard proved
-// away by the path that reaches the op so leaves the op below that path.
-mlir::Speculation::Speculatability checkSpeculatability(mlir::Operation *op,
-                                                       mlir::ArrayRef<unsigned> guarded);
-
 // Whether output of `str` writes the pieces it is built from and never the
 // string (the output fusion of the canonicalization's rewrites): a
 // concatenation, a character before a string, one character, a number, or
@@ -249,15 +230,20 @@ struct DataTypeStorage;
 class DataType;
 
 // One constructor of a data type's body (DataType). Its tag is its
-// position in the body; its name is unique there, and for a label of a
-// closure or memo sum it is the label function's symbol. `byName`: a memo
-// sum's label whose function reaches an observable effect, so that the
-// effect happens where the value is demanded: its cell is never written,
-// and every force runs the function.
+// position in the body, and its name is unique there. `role` is what the
+// constructor is to the passes that read it: base's nil or cons, a label of
+// a closure or memo sum, a memo cell's Running or Forced state, or plain.
+// `fn` is the label's function, exactly when the role is Label, so a label
+// is never found by its name. `byName`: a memo sum's label whose function
+// reaches an observable effect, so that the effect happens where the value
+// is demanded: its cell is never written, and every force runs the
+// function.
 struct Ctor {
   mlir::StringAttr name;
   llvm::ArrayRef<mlir::Type> fields;
   bool byName = false;
+  CtorRole role = CtorRole::Plain;
+  mlir::FlatSymbolRefAttr fn;
   bool operator==(const Ctor &) const = default;
 };
 
@@ -270,7 +256,12 @@ struct Ctor {
 
 #include "idr/IR/IdrDialect.h.inc"
 
+// How a value moves, and the flow interface every op that moves one holds,
+// which the ops name.
+#include "idr/IR/FlowEdges.h"
+
 #include "idr/IR/IdrInterfaces.h.inc"
+#include "idr/IR/IdrTypeInterfaces.h.inc"
 
 #define GET_TYPEDEF_CLASSES
 #include "idr/IR/IdrTypes.h.inc"
@@ -280,12 +271,29 @@ struct Ctor {
 
 namespace idr {
 
-// The two constructors every memo sum has after its labels: a suspension
-// whose force is running, and a forced one, which holds its value. Every
-// pass that builds a memo sum names them by these; a reader takes their
-// tags from the type (DataType::getRunningTag, getForcedTag).
+// The names a memo sum gives its two states, which their roles
+// (CtorRole::Running, CtorRole::Forced) identify; a reader finds them by
+// role, never by name.
 inline constexpr llvm::StringLiteral memoRunning = "running";
 inline constexpr llvm::StringLiteral memoForced = "forced";
+
+// Whether the pure total op that reads `guarded` may run before the guard
+// `Guard` that its ODS names (Idr_Guarded): `guarded` is the result of such
+// a guard whose other operands are `against`, the op's own operands its
+// condition reads beside it (for a string index, the string), or a
+// constant the condition holds of with them. A guard proved away by the
+// path that reaches the op so leaves the op below that path.
+mlir::Speculation::Speculatability
+guardedSpeculatability(mlir::Value guarded, mlir::ValueRange against,
+                       llvm::function_ref<bool(mlir::Operation *)> isGuard,
+                       llvm::function_ref<bool(llvm::ArrayRef<mlir::Attribute>)> holds);
+template <typename Guard>
+mlir::Speculation::Speculatability guardedSpeculatability(mlir::Value guarded,
+                                                          mlir::ValueRange against = {}) {
+  return guardedSpeculatability(
+      guarded, against, [](mlir::Operation *op) { return mlir::isa<Guard>(op); },
+      &Guard::holds);
+}
 
 // The most static data a folded constant may take: a folded op whose result
 // can outgrow its operands (a big shifted left). A larger one would make the
@@ -314,6 +322,21 @@ namespace detail {
 // Adds the dialect's asm interface: the aliases of its data types and of
 // its large constants.
 void addAsmInterface(IdrDialect &dialect);
+
+// What the ops that hold a constructor's tag share (lib/IR/OpsCon.cpp): the
+// constructor `tag` of the data type of a value of `type`, or null after an
+// error at `op`; the rule of the holes of a constructor built with `fields`
+// values given and `dests` destinations given back; and, for a constructor
+// built with `fields` and `holes`, the value given for field `index`, or
+// null for a hole, and the destination of a hole, or null for a field
+// given.
+const Ctor *ctorAt(mlir::Operation *op, mlir::Type type, unsigned tag);
+mlir::LogicalResult verifyHoles(mlir::Operation *op, const Ctor &ctor,
+                                llvm::ArrayRef<int32_t> holes, size_t fields,
+                                mlir::TypeRange dests);
+mlir::Value givenField(mlir::ValueRange fields, llvm::ArrayRef<int32_t> holes, unsigned index);
+mlir::Value holeDest(mlir::ResultRange dests, llvm::ArrayRef<int32_t> holes, unsigned index);
+mlir::Type destOf(const Ctor &ctor, int32_t index);
 } // namespace detail
 
 } // namespace idr

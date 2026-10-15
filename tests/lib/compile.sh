@@ -94,7 +94,9 @@ no_artifacts() {
 }
 
 # rejection_reason: the reason of a user error in the last compilation's
-# output (`unsupported (<reason>)`), or nothing.
+# output, `unsupported (<reason>)` with <reason> a rule's phrase
+# (lib/rules.sh), or nothing.
 rejection_reason() {
-  cat "$work/compile.out" "$work/compile.err" | grep -o 'unsupported ([a-z][a-z -]*)' | head -n 1
+  rejection_rule=$(cat "$work/compile.out" "$work/compile.err" | refusal_rule)
+  [ -z "$rejection_rule" ] || say "unsupported ($rejection_rule)"
 }

@@ -25,9 +25,9 @@ Attribute untyped(Attribute value) {
   return TypeSwitch<Attribute, Attribute>(value)
       .Case([&](ConAttr con) {
         if (con.isRun())
-          return ConAttr::getRun(ctx, con.getData(), con.getCtor(), con.getSpine(),
+          return ConAttr::getRun(ctx, con.getData(), con.getTag(), con.getSpine(),
                                  con.getRunCells(), con.getTail());
-        return ConAttr::get(ctx, con.getData(), con.getCtor(), con.getFields());
+        return ConAttr::get(ctx, con.getData(), con.getTag(), con.getFields());
       })
       .Case([&](ClosureAttr closure) {
         return ClosureAttr::get(ctx, closure.getCallee(), closure.getCaptures());
@@ -114,22 +114,17 @@ LogicalResult verifyConstant(Operation *op, SymbolTableCollection &symbols, Attr
     auto con = dyn_cast<ConAttr>(value);
     if (!con)
       return verifyClosure(op, symbols, value, type, checked);
-    DataType data = con.getData();
-    if (!data.hasBody())
-      return op->emitOpError("has a constant of \"") << data.getName() << "\", which has no body";
-    std::optional<unsigned> tag = data.getTag(con.getCtor().getValue());
-    if (!tag)
-      return op->emitOpError("has a constant of ")
-             << con.getCtor() << ", which is not a constructor of \"" << data.getName() << "\"";
-    SmallVector<Type> fields(data.getCtor(*tag).fields);
+    const Ctor &ctor = con.getCtor();
+    SmallVector<Type> fields(ctor.fields);
     if (!con.isRun())
       return verifyConstants(op, symbols, con.getFields(), fields, checked);
     // Each cell after the first is the field along the spine of the one
     // before, so that field holds the constructor's own type.
     unsigned spine = con.getSpine();
     if (spine >= fields.size() || unrestricted(fields[spine]) != type)
-      return op->emitOpError("has a run of ")
-             << con.getCtor() << " along field " << spine << ", which does not hold " << type;
+      return op->emitOpError("has a run of @")
+             << ctor.name.getValue() << " along field " << spine << ", which does not hold "
+             << type;
     fields.erase(fields.begin() + spine);
     for (ArrayAttr cell : con.getRunCells())
       if (failed(verifyConstants(op, symbols, cell, fields, checked)))
@@ -142,19 +137,20 @@ LogicalResult verifyConstant(Operation *op, SymbolTableCollection &symbols, Attr
 } // namespace
 
 // The kinds of value idr.constant holds, stored untyped; scalars are
-// arith.constant's. Every constant is unrestricted: a static value is used
-// any number of times, and a linear value of it is entered from it, an
-// owned one taken (idr.dup).
+// arith.constant's. A constant is static data, read in place: used any
+// number of times, plain before idr-rc and its view (Borrow) after it. A
+// linear value of it is entered from it, an owned one taken (idr.dup).
 bool ConstantOp::isBuildableWith(Attribute value, Type type) {
-  if (untyped(value) != value || type != unrestricted(type))
+  if (untyped(value) != value || gradeOf(type).quantity != Quantity::Many || isOwned(type))
     return false;
+  type = unrestricted(type);
   if (auto con = dyn_cast<ConAttr>(value))
     return dataTypeOf(type) == con.getData();
   return (isa<ClosureAttr>(value) && (isa<FnType>(type) || isa<LazyType>(type))) ||
          (isa<BigAttr>(value) && isa<BigType>(type)) ||
          // A natural constant is never negative: the type proves it.
          (isa<BigAttr>(value) && isa<NatType>(type) &&
-          !cast<BigAttr>(value).getValue().starts_with("-")) ||
+          !cast<BigAttr>(value).getValue().isNegative()) ||
          (isa<StringAttr>(value) && isa<StrType>(type));
 }
 
@@ -214,5 +210,5 @@ OpFoldResult ConstantOp::fold(FoldAdaptor) { return getValue(); }
 
 LogicalResult ConstantOp::verifySymbolUses(SymbolTableCollection &symbols) {
   Checked checked;
-  return verifyConstant(*this, symbols, getValue(), getType(), checked);
+  return verifyConstant(*this, symbols, getValue(), unrestricted(getType()), checked);
 }

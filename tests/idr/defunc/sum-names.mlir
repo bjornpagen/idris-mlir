@@ -1,5 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
-// RUN: awk 'BEGIN { ORS = "" } NR == 1, /^module \{/ { print $0 "\n"; next } /^  idr\.func/ { n++ } /^\}$/ { for (i = 0; i <= n; i++) print c[i == 0 ? 0 : n + 1 - i]; print $0 "\n"; next } { c[n] = c[n] $0 "\n" }' %s > %t.reversed.mlir
+// RUN: awk 'BEGIN { ORS = "" } NR == 1, /^idr\.program / { print $0 "\n"; next } /^  idr\.func/ { n++ } /^\}$/ { for (i = 0; i <= n; i++) print c[i == 0 ? 0 : n + 1 - i]; print $0 "\n"; next } { c[n] = c[n] $0 "\n" }' %s > %t.reversed.mlir
 // RUN: idris-mlir-opt %t.reversed.mlir --idr-defunctionalize > %t2.mlir
 // RUN: grep '= !idr.data<' %t.mlir | sort > %t.sums
 // RUN: grep '= !idr.data<' %t2.mlir | sort > %t2.sums
@@ -17,34 +17,34 @@
 // CHECK-DAG: ![[N:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@Main.zneg()]
 // CHECK-DAG: ![[AB:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@Main.a(), @Main.b()]
 // CHECK-NOT: !idr.fn
-// CHECK-LABEL: idr.func private @Main.onlyB() -> ![[B]]
-// CHECK-LABEL: idr.func private @Main.neg() -> ![[N]]
-// CHECK-LABEL: idr.func private @Main.use(
+// CHECK-LABEL: idr.func @Main.onlyB() -> ![[B]]
+// CHECK-LABEL: idr.func @Main.neg() -> ![[N]]
+// CHECK-LABEL: idr.func @Main.use(
 // CHECK-SAME: %{{.*}}: ![[AB]]
-module {
-  idr.func private @Main.a(%x: i64) -> i64 attributes {total} {
+idr.program @"sum-names" root(@Main.main) stage(higher) {
+  idr.func @Main.a(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64
     %y = arith.addi %x, %c1 : i64
     return %y : i64
   }
-  idr.func private @Main.b(%x: i64) -> i64 attributes {total} {
+  idr.func @Main.b(%x: i64) -> i64 attributes {total} {
     %y = arith.addi %x, %x : i64
     return %y : i64
   }
-  idr.func private @Main.zneg(%b: i1) -> i1 attributes {total} {
+  idr.func @Main.zneg(%b: i1) -> i1 attributes {total} {
     %t = arith.constant true
     %r = arith.xori %b, %t : i1
     return %r : i1
   }
-  idr.func private @Main.onlyB() -> !idr.fn<(i64) -> (i64)> attributes {total} {
+  idr.func @Main.onlyB() -> !idr.fn<(i64) -> (i64)> attributes {total} {
     %f = idr.closure @Main.b() : () -> !idr.fn<(i64) -> (i64)>
     return %f : !idr.fn<(i64) -> (i64)>
   }
-  idr.func private @Main.neg() -> !idr.fn<(i1) -> (i1)> attributes {total} {
+  idr.func @Main.neg() -> !idr.fn<(i1) -> (i1)> attributes {total} {
     %f = idr.closure @Main.zneg() : () -> !idr.fn<(i1) -> (i1)>
     return %f : !idr.fn<(i1) -> (i1)>
   }
-  idr.func private @Main.use(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 attributes {total} {
+  idr.func @Main.use(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 attributes {total} {
     %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
     return %y : i64
   }

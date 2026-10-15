@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What a static datum is named: the hash of its content, which names
+// What a static datum is named: the digest of its content, which names
 // everything the datum points at by that thing's own name, so that two
 // constants of one content are one global whatever wrote them, and no
-// order of writing reaches a name.
+// order of writing reaches a name. An attribute or a type is digested from
+// its canonical text, which no printing flag reaches and which is printed
+// once for each attribute and type, however many data hold it.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
@@ -24,30 +26,24 @@ namespace {
 // takes, since C never names a symbol with a dot.
 constexpr llvm::StringLiteral owner = "__idr";
 
+// A digest as the words of a key.
+std::string hex(Digest digest) {
+  std::string text;
+  llvm::raw_string_ostream(text) << digest;
+  return text;
+}
+
 } // namespace
 
-std::string StaticData::printed(Attribute attr) {
-  std::string text;
-  llvm::raw_string_ostream os(text);
-  attr.print(os);
-  return text;
-}
-
-std::string StaticData::printed(Type type) {
-  std::string text;
-  llvm::raw_string_ostream os(text);
-  type.print(os);
-  return text;
-}
-
-StaticData::Named StaticData::intern(Location loc, StringRef kind, std::string key) {
+StaticData::Named StaticData::intern(Location loc, StringRef kind, Digest key) {
   FailureOr<StringAttr> name = names.intern(loc, owner, kind, key);
   collision = collision || failed(name);
-  return {failed(name) ? contentName(owner, kind, key) : name->str(), std::move(key)};
+  return {failed(name) ? contentName(owner, kind, key) : name->str(), key};
 }
 
-std::string StaticData::cellKey(Type type, const Ctor &ctor, ArrayRef<std::string> fields) {
-  return printed(type) + " " + ctor.name.getValue().str() + "(" + llvm::join(fields, ", ") + ")";
+Digest StaticData::cellKey(Type type, const Ctor &ctor, ArrayRef<std::string> fields) {
+  return digestOf(hex(canonicalHash(type)) + " " + ctor.name.getValue().str() + "(" +
+                  llvm::join(fields, ", ") + ")");
 }
 
 std::string StaticData::fieldKey(Location loc, Attribute value, Type type) {
@@ -55,16 +51,16 @@ std::string StaticData::fieldKey(Location loc, Attribute value, Type type) {
     return "world";
   type = unrestricted(type);
   if (auto text = dyn_cast<StringAttr>(value))
-    return "&" + intern(loc, "str", text.getValue().str()).name;
+    return "&" + intern(loc, "str", digestOf(text.getValue())).name;
   if (isa<BigAttr, IntegerAttr, FloatAttr>(value))
-    return printed(value);
+    return hex(canonicalHash(value));
   auto con = cast<ConAttr>(value);
-  if (auto data = dyn_cast<DataType>(type)) {
-    const Ctor &ctor = data.getCtor(*data.getTag(con.getCtor().getValue()));
+  if (isa<DataType>(type)) {
+    const Ctor &ctor = con.getCtor();
     SmallVector<std::string> fields;
     for (auto [i, field] : llvm::enumerate(con.getFields()))
       fields.push_back(fieldKey(loc, field, ctor.fields[i]));
-    return cellKey(type, ctor, fields);
+    return hex(cellKey(type, ctor, fields));
   }
   return "&" + boxName(loc, con, type).name;
 }
@@ -83,13 +79,11 @@ StaticData::Named StaticData::boxName(Location loc, ConAttr con, Type type) {
   if (con.isRun()) {
     named = runNames(loc, con, type).front();
   } else {
-    DataType data = dataTypeOf(type);
-    unsigned tag = *data.getTag(con.getCtor().getValue());
-    const Ctor &ctor = data.getCtor(tag);
+    const Ctor &ctor = con.getCtor();
     SmallVector<std::string> fields;
     for (auto [i, field] : llvm::enumerate(con.getFields()))
       fields.push_back(fieldKey(loc, field, ctor.fields[i]));
-    named = intern(loc, kindOf(data, tag), cellKey(type, ctor, fields));
+    named = intern(loc, kindOf(con.getData(), con.getTag()), cellKey(type, ctor, fields));
   }
   boxNames.try_emplace({con, type}, named);
   return named;
@@ -97,9 +91,9 @@ StaticData::Named StaticData::boxName(Location loc, ConAttr con, Type type) {
 
 // The names of a run's cells, first to last, each from the cells after it.
 SmallVector<StaticData::Named> StaticData::runNames(Location loc, ConAttr con, Type type) {
-  DataType data = dataTypeOf(type);
-  unsigned tag = *data.getTag(con.getCtor().getValue());
-  const Ctor &ctor = data.getCtor(tag);
+  DataType data = con.getData();
+  unsigned tag = con.getTag();
+  const Ctor &ctor = con.getCtor();
   unsigned spine = con.getSpine();
   Type spineType = unrestricted(ctor.fields[spine]);
   ArrayRef<ArrayAttr> cells = con.getRunCells();

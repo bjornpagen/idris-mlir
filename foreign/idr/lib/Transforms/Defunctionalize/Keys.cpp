@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The key of every slot (its carrier and the labels the solve found for
-// it), every key the module may ask for, and the plan each function's
+// it), every key the program may ask for, and the plan each function's
 // conversion reads.
 
 #include "idr/IR/IdrDialect.h"
@@ -34,10 +34,17 @@ unsigned arity(Type carrier) {
 
 // Every function's signature is keyed first, since every other key of a
 // parameter or a result reads it; then the widening, which reads the sinks;
-// then every key the module may ask for; then the cycles that box a key.
-Slots::Slots(ModuleOp top, Labels &labels, SymbolTable &symbols)
-    : module(top), analysis(labels), table(symbols), ctx(top.getContext()) {
-  for (FuncOp fn : module.getOps<FuncOp>()) {
+// then every key the program may ask for, from every value and every type
+// any op, value or attribute names.
+Slots::Slots(ProgramOp top, Labels &labels, SymbolTable &symbols)
+    : program(top), analysis(labels), table(symbols), ctx(top.getContext()) {
+  types.addWalk([this](DataType data) { noteData(data); });
+  types.addWalk([this](ShapedType shaped) {
+    Type element = shaped.getElementType();
+    if (carriesLabels(element))
+      noteKey(elementKey(element));
+  });
+  for (FuncOp fn : program.getOps<FuncOp>()) {
     Signature &sig = signatures[fn.getSymNameAttr()];
     sig.type = fn.getFunctionType();
     for (BlockArgument arg : fn.getArguments())
@@ -47,13 +54,13 @@ Slots::Slots(ModuleOp top, Labels &labels, SymbolTable &symbols)
       sig.results.push_back(keyWith(type, FlowPoint::result(name, static_cast<unsigned>(j))));
   }
   widen();
-  for (FuncOp fn : module.getOps<FuncOp>()) {
+  for (FuncOp fn : program.getOps<FuncOp>()) {
     const Signature &sig = signatures.find(fn.getSymNameAttr())->second;
-    for (auto [type, key] : llvm::zip_equal(sig.type.getInputs(), sig.arguments))
-      key.first ? noteKey(key) : noteType(type);
-    for (auto [type, key] : llvm::zip_equal(sig.type.getResults(), sig.results))
-      key.first ? noteKey(key) : noteType(type);
+    for (const Key &key : llvm::concat<const Key>(sig.arguments, sig.results))
+      noteKey(key);
+    // The function itself is walked too: its type is an attribute of it.
     fn.walk([&](Operation *op) {
+      types.walk(op->getAttrDictionary());
       for (Value result : op->getResults())
         noteValue(result);
       for (Region &region : op->getRegions())
@@ -62,43 +69,58 @@ Slots::Slots(ModuleOp top, Labels &labels, SymbolTable &symbols)
             noteValue(arg);
     });
   }
-  decide();
 }
 
 // The key of a slot of `carrier` at `point`: none for a carrier that holds
 // no label.
 Key Slots::keyWith(Type carrier, const FlowPoint &point) const {
-  if (!isKeyed(carrier))
+  if (!carriesLabels(carrier))
     return {};
   return {unrestricted(carrier), analysis.labelsOf(point)};
 }
 
 // The key of what is held at `point`. A parameter's and a result's are
 // their function's, keyed once before anything else, so that no function
-// is read while another converts.
+// is read while another converts; a part's is its anchor's.
 Key Slots::keyAt(const FlowPoint &point) const {
   switch (point.kind) {
   case FlowPoint::Kind::Operand:
     return keyOf(point.operand->get());
   case FlowPoint::Kind::Value:
     return keyWith(point.value.getType(), point);
+  case FlowPoint::Kind::Part:
+    return anchorKey(point.anchor);
   case FlowPoint::Kind::Parameter:
     return argumentKey(point.function.getAttr(), point.index);
   case FlowPoint::Kind::Result:
     return resultKey(point.function.getAttr(), point.index);
-  case FlowPoint::Kind::Anchor:
-    switch (point.anchor.kind) {
-    case FlowAnchor::Kind::Field:
-      return keyWith(
-          cast<DataType>(point.anchor.type).getCtor(point.anchor.ctor).fields[point.anchor.field],
-          point);
-    case FlowAnchor::Kind::Elements:
-      return keyWith(point.anchor.type, point);
-    case FlowAnchor::Kind::Forced:
-      return keyWith(cast<LazyType>(point.anchor.type).getValue(), point);
-    }
   }
   llvm_unreachable("every kind of point is listed");
+}
+
+// The key of what every value of a kind holds at `anchor`. What a closure
+// or a suspension holds as a capture, and what a hole is written with, is
+// moved as a reference alone: a capture's labels are its label's
+// parameter's, and a hole is made after this pass.
+Key Slots::anchorKey(const FlowAnchor &anchor) const {
+  Type carrier;
+  switch (anchor.kind) {
+  case FlowAnchor::Kind::Field:
+    carrier = cast<DataType>(anchor.type).getCtor(anchor.ctor).fields[anchor.field];
+    break;
+  case FlowAnchor::Kind::Elements:
+    carrier = anchor.type;
+    break;
+  case FlowAnchor::Kind::Forced:
+    carrier = cast<LazyType>(anchor.type).getValue();
+    break;
+  case FlowAnchor::Kind::Capture:
+  case FlowAnchor::Kind::Hole:
+    return {};
+  }
+  if (!carriesLabels(carrier))
+    return {};
+  return {unrestricted(carrier), analysis.labelsOf(anchor)};
 }
 
 Key Slots::keyOf(Value value) const {
@@ -114,20 +136,18 @@ Key Slots::argumentKey(StringAttr fn, unsigned index) const {
 Key Slots::resultKey(StringAttr fn, unsigned index) const { return signature(fn).results[index]; }
 
 Key Slots::fieldKey(DataType data, unsigned tag, unsigned index) const {
-  return keyAt(FlowPoint::of(FlowAnchor::fieldOf(data, tag, index)));
+  return anchorKey(FlowAnchor::fieldOf(data, tag, index));
 }
 
-Key Slots::elementKey(Type element) const {
-  return keyAt(FlowPoint::of(FlowAnchor::elementsOf(element)));
-}
+Key Slots::elementKey(Type element) const { return anchorKey(FlowAnchor::elementsOf(element)); }
 
 Key Slots::forcedKey(Type lazy) const {
-  return keyAt(FlowPoint::of(FlowAnchor::forcedOf(unrestricted(lazy))));
+  return anchorKey(FlowAnchor::forcedOf(unrestricted(lazy)));
 }
 
 const Signature &Slots::signature(StringAttr fn) const {
   auto it = signatures.find(fn);
-  assert(it != signatures.end() && "every function of the module is keyed");
+  assert(it != signatures.end() && "every function of the program is keyed");
   return it->second;
 }
 
@@ -138,49 +158,46 @@ unsigned Slots::captures(StringAttr label, Type carrier) const {
 }
 
 //===----------------------------------------------------------------------===//
-// Every key the module may ask for
+// Every key the program may ask for
 //===----------------------------------------------------------------------===//
 
 void Slots::noteValue(Value value) {
-  if (isKeyed(value.getType()))
-    return noteKey(keyOf(value));
+  if (carriesLabels(value.getType()))
+    noteKey(keyOf(value));
   noteType(value.getType());
 }
 
 // The slots a type holds that are not values: the fields of each data type
-// it names, transitively, and the elements of each shaped type in it.
-void Slots::noteType(Type type) {
-  type = unrestricted(type);
-  if (auto box = dyn_cast<BoxType>(type))
-    return noteType(box.getData());
-  if (auto shaped = dyn_cast<ShapedType>(type)) {
-    Type element = shaped.getElementType();
-    return isKeyed(element) ? noteKey(elementKey(element)) : noteType(element);
-  }
-  auto data = dyn_cast<DataType>(type);
-  if (!data || !data.hasBody() || !notedTypes.insert(data).second)
-    return;
+// met anywhere in it, a closure's or a suspension's signature included,
+// and the elements of each shaped type in it. The remap looks into every
+// type the program names, so every key it may ask for is noted here. The
+// walker meets each type once over the whole decision, so a type shared by
+// many others is looked into once.
+void Slots::noteType(Type type) { types.walk(type); }
+
+// A data type's body is not a part of the type to the walker, so its
+// fields are walked from here.
+void Slots::noteData(DataType data) {
   for (auto [tag, ctor] : llvm::enumerate(data.getCtors()))
-    for (auto [i, field] : llvm::enumerate(ctor.fields))
-      isKeyed(field) ? noteKey(fieldKey(data, static_cast<unsigned>(tag), static_cast<unsigned>(i)))
-                     : noteType(field);
+    for (auto [i, field] : llvm::enumerate(ctor.fields)) {
+      if (carriesLabels(field))
+        noteKey(fieldKey(data, static_cast<unsigned>(tag), static_cast<unsigned>(i)));
+      noteType(field);
+    }
 }
 
-// A key, and the keys its sum's body holds: a closure's captures, a
-// suspension's parameters and the value its cell holds once forced.
+// A key, and the forced state a lazy key's cell holds once forced. A
+// closure's captures are its label's parameters, whose keys every
+// signature has noted.
 void Slots::noteKey(const Key &key) {
-  if (!key.first || !sums.insert({key, DataType()}).second)
+  if (!key.first || !sums.insert({key, Sum()}).second)
     return;
-  bool lazy = isLazy(key);
-  for (auto label : key.second.getAsRange<FlatSymbolRefAttr>()) {
-    const Signature &sig = signature(label.getAttr());
-    for (unsigned i = 0, n = captures(label.getAttr(), key.first); i < n; ++i)
-      sig.arguments[i].first ? noteKey(sig.arguments[i]) : noteType(sig.type.getInput(i));
-  }
-  if (!lazy)
+  if (!isLazy(key))
     return;
   Type value = cast<LazyType>(key.first).getValue();
-  isKeyed(value) ? noteKey(forcedKey(key.first)) : noteType(value);
+  if (carriesLabels(value))
+    noteKey(forcedKey(key.first));
+  noteType(value);
 }
 
 //===----------------------------------------------------------------------===//
@@ -189,17 +206,16 @@ void Slots::noteKey(const Key &key) {
 
 // Read from the decision and the solve alone, for this function's own
 // values, before its conversion starts: no other function is read, so the
-// plans of several functions are made while others convert.
+// plans of several functions are made while others convert. Only a closure
+// or a suspension changes its type in the conversion.
 Plan Slots::plan(FuncOp fn) const {
   Plan out;
   auto add = [&](Value value) {
-    if (isKeyed(value.getType())) {
-      Key key = keyOf(value);
-      out.keys[value] = key;
-      out.types[value] = typeOf(value.getType(), key);
-    } else {
-      out.types[value] = mapped(value.getType());
-    }
+    if (!carriesLabels(value.getType()))
+      return;
+    Key key = keyOf(value);
+    out.keys[value] = key;
+    out.types[value] = typeOf(value.getType(), key);
   };
   fn.walk([&](Operation *op) {
     for (Value result : op->getResults())
@@ -209,7 +225,7 @@ Plan Slots::plan(FuncOp fn) const {
         for (Value arg : block.getArguments())
           add(arg);
     for (OpOperand &use : op->getOpOperands())
-      if (isKeyed(use.get().getType()))
+      if (carriesLabels(use.get().getType()))
         if (std::optional<FlowPoint> sink = analysis.sinkOf(use))
           out.sinks[&use] = keyAt(*sink);
   });

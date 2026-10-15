@@ -8,26 +8,26 @@
 // by get and set, so a function that does only that borrows it (a plain
 // parameter). The second RUN line checks that the owned module lowers.
 
-// CHECK-LABEL: idr.func private @make(
-// CHECK: %[[X:.*]] = {{(idr\.)?}}con @Some(%{{.*}}) {{.*}} -> !idr.{{own|excl}}<!Opt>
+// CHECK-LABEL: idr.func @make(
+// CHECK: %[[X:.*]] = {{(idr\.)?}}con !idr.{{own|excl}}<!Opt> @Some(
 // CHECK-NOT: {{(idr\.| )dup }}
 // CHECK: %[[A:.*]], %{{.*}} = idr.array.new [%{{.*}}], %[[X]], %{{.*}} : !idr.{{own|excl}}<!Opt> -> !idr.own<memref<?x!Opt, #idr.world>>
 // CHECK-NEXT: return %[[A]]
-// CHECK-LABEL: idr.func private @read(
+// CHECK-LABEL: idr.func @read(
 // CHECK-SAME: %[[B:[^:]*]]: memref<?x!Opt, #idr.world>
 // CHECK: %[[V:.*]], %{{.*}} = idr.array.get %[[B]][%{{.*}}], %{{.*}} : memref<?x!Opt, #idr.world> -> !idr.own<!Opt>
 // CHECK-NEXT: return %[[V]]
-// CHECK-LABEL: idr.func private @write(
+// CHECK-LABEL: idr.func @write(
 // CHECK-SAME: %[[C:[^:]*]]: memref<?x!Opt, #idr.world>, %[[S:[^:]*]]: !idr.own<!idr.str>
-// CHECK: %[[Y:.*]] = {{(idr\.)?}}con @Some(%[[S]])
+// CHECK: %[[Y:.*]] = {{(idr\.)?}}con {{.*}}@Some(%[[S]] : {{[^)]*}})
 // CHECK-NOT: {{(idr\.| )dup }}
 // CHECK: idr.array.set %[[C]][%{{.*}}], %[[Y]], %{{.*}} : memref<?x!Opt, #idr.world>, !idr.{{own|excl}}<!Opt>
 // CHECK-NOT: {{(idr\.| )drop }}
-// CHECK-LABEL: idr.func private @unused(
+// CHECK-LABEL: idr.func @unused(
 // CHECK: %[[U:.*]], %{{.*}} = idr.array.get
 // CHECK-NEXT: drop %[[U]]
 !Opt = !idr.data<"Opt", plain [@None(), @Some(!idr.str)]>
-module {
+idr.program @arrays root(@root) stage(first) {
   idr.func @root(%w: !idr.world) -> !idr.world {
     %n = arith.constant 3 : i64
     %i = arith.constant 1 : i64
@@ -38,21 +38,21 @@ module {
     %w4 = idr.call @unused(%a, %i, %w3) : (memref<?x!Opt, #idr.world>, i64, !idr.world) -> !idr.world
     return %w4 : !idr.world
   }
-  idr.func private @make(%n: i64, %s: !idr.str, %w: !idr.world) -> (memref<?x!Opt, #idr.world>, !idr.world) {
-    %x = idr.con @Some(%s) : (!idr.str) -> !Opt
+  idr.func @make(%n: i64, %s: !idr.str, %w: !idr.world) -> (memref<?x!Opt, #idr.world>, !idr.world) {
+    %x = idr.con !Opt @Some(%s : !idr.str)
     %a, %w1 = idr.array.new [%n], %x, %w : !Opt -> memref<?x!Opt, #idr.world>
     return %a, %w1 : memref<?x!Opt, #idr.world>, !idr.world
   }
-  idr.func private @read(%a: memref<?x!Opt, #idr.world>, %i: i64, %w: !idr.world) -> (!Opt, !idr.world) {
+  idr.func @read(%a: memref<?x!Opt, #idr.world>, %i: i64, %w: !idr.world) -> (!Opt, !idr.world) {
     %v, %w1 = idr.array.get %a[%i], %w : memref<?x!Opt, #idr.world> -> !Opt
     return %v, %w1 : !Opt, !idr.world
   }
-  idr.func private @write(%a: memref<?x!Opt, #idr.world>, %s: !idr.str, %i: i64, %w: !idr.world) -> !idr.world {
-    %y = idr.con @Some(%s) : (!idr.str) -> !Opt
+  idr.func @write(%a: memref<?x!Opt, #idr.world>, %s: !idr.str, %i: i64, %w: !idr.world) -> !idr.world {
+    %y = idr.con !Opt @Some(%s : !idr.str)
     %w1 = idr.array.set %a[%i], %y, %w : memref<?x!Opt, #idr.world>, !Opt
     return %w1 : !idr.world
   }
-  idr.func private @unused(%a: memref<?x!Opt, #idr.world>, %i: i64, %w: !idr.world) -> !idr.world {
+  idr.func @unused(%a: memref<?x!Opt, #idr.world>, %i: i64, %w: !idr.world) -> !idr.world {
     %v, %w1 = idr.array.get %a[%i], %w : memref<?x!Opt, #idr.world> -> !Opt
     return %w1 : !idr.world
   }

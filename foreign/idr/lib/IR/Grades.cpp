@@ -49,15 +49,23 @@ bool idr::isOwned(Type type) {
   return permission == Permission::Own || permission == Permission::Excl;
 }
 
+// A value that holds no reference of its own, plain or a borrow, comes to
+// hold one; own and excl stay.
 Type idr::owned(Type type) {
   Grade grade = gradeOf(type);
-  if (grade.permission == Permission::Plain)
+  if (grade.permission == Permission::Plain || grade.permission == Permission::Borrow)
     grade.permission = Permission::Own;
   return graded(grade, unrestricted(type));
 }
 
+// At the owned stage a value of ours that holds no reference of its own is
+// a borrow, the grade that says so, never plain. A builtin buffer stays
+// plain: upstream's memref ops take no graded operand, and the world has
+// only its own grade.
 Type idr::view(Type type) {
-  return graded({gradeOf(type).quantity, Permission::Plain}, unrestricted(type));
+  Type value = unrestricted(type);
+  bool ours = isa<IdrDialect>(value.getDialect()) && !isWorld(value);
+  return graded({gradeOf(type).quantity, ours ? Permission::Borrow : Permission::Plain}, value);
 }
 
 Type idr::atQuantity(Type type, Quantity quantity) {
@@ -99,18 +107,13 @@ Value idr::throughLinear(Value value) {
 
 // A view or a share of an owned array is that array, and so is the array a
 // linear position was entered with: what counting and linearity make of an
-// array changes which value names it, not which cell it is.
+// array changes which value names it, not which cell it is. Every op that
+// only changes a grade says so (ResultCarriesOperand).
 Value idr::arrayRoot(Value array) {
-  while (true) {
-    Value next = throughLinear(array);
-    if (auto borrow = next.getDefiningOp<BorrowOp>())
-      next = borrow.getValue();
-    else if (auto share = next.getDefiningOp<ShareOp>())
-      next = share.getValue();
-    if (next == array)
-      return array;
-    array = next;
-  }
+  for (Operation *grade = array.getDefiningOp();
+       grade && grade->hasTrait<ResultCarriesOperand>(); grade = array.getDefiningOp())
+    array = grade->getOperand(0);
+  return array;
 }
 
 bool idr::fieldReadOnce(Value value, unsigned index) {
@@ -119,7 +122,7 @@ bool idr::fieldReadOnce(Value value, unsigned index) {
   while (!work.empty()) {
     Value held = work.pop_back_val();
     for (Operation *user : held.getUsers()) {
-      if (isa<LinEnterOp, LinUseOp>(user)) {
+      if (user->hasTrait<ResultCarriesOperand>()) {
         work.push_back(user->getResult(0));
         continue;
       }
@@ -141,7 +144,8 @@ bool idr::holdsLinear(Value value) {
                       [](Type type) { return quantityOf(type) == Quantity::One; });
 }
 
-// Not at all, or once: run by its one user, or entered into a linear type.
+// Not at all, or once: run by its one user, or given a grade of quantity
+// one, which only changes its grade.
 bool idr::takenOnce(Value value) {
   if (value.use_empty())
     return true;
@@ -152,14 +156,18 @@ bool idr::takenOnce(Value value) {
     return apply.getCallee() == value;
   if (auto force = dyn_cast<ForceOp>(user))
     return force.getSuspension() == value;
-  return isa<LinEnterOp>(user);
+  return user->hasTrait<ResultCarriesOperand>() &&
+         quantityOf(user->getResult(0).getType()) == Quantity::One;
 }
 
 Type idr::fieldType(Type scrutinee, Type field) {
   if (isWorld(field))
     return field;
-  return graded({times(quantityOf(scrutinee), quantityOf(field)), Permission::Plain},
-                unrestricted(field));
+  Type plain = graded({times(quantityOf(scrutinee), quantityOf(field)), Permission::Plain},
+                      unrestricted(field));
+  // Before counting no value is graded; after it, a field read out of a
+  // value is a view of that value.
+  return gradeOf(scrutinee).permission == Permission::Plain ? plain : view(plain);
 }
 
 Value idr::heldAs(OpBuilder &b, Location loc, Value value, Type type) {
@@ -195,14 +203,18 @@ bool isValueArray(Type type) {
 
 } // namespace
 
+// A runtime value of ours is an element type of memref, which its ODS says
+// beside it, and so a field's type; the dialect's other types (a grade, the
+// world's carrier, a token, a destination) are no values a cell holds.
 bool idr::isFieldType(Type type) {
   if (isWorld(type))
     return true;
   type = unrestricted(type);
   if (auto integer = dyn_cast<IntegerType>(type))
     return integer.isSignless() && llvm::is_contained({8u, 16u, 32u, 64u}, integer.getWidth());
-  return isa<Float64Type, DataType, BoxType, FnType, LazyType, StrType, BigType, NatType>(type) ||
-         isArray(type) || isValueArray(type);
+  if (isa<IdrDialect>(type.getDialect()))
+    return isa<MemRefElementTypeInterface>(type);
+  return isa<Float64Type>(type) || isArray(type) || isValueArray(type);
 }
 
 // An array a world orders: at most one dimension, each dynamic, in the

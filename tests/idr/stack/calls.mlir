@@ -1,4 +1,4 @@
-// RUN: idris-mlir-opt %s --idr-stack --idr-tail-loops | FileCheck %s
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-stack,idr.func(idr-tail-loops)))' | FileCheck %s
 // A cell passed to a parameter that its callee only reads is live only while
 // the call runs, inside the caller's frame: marked. That holds through
 // recursion (@sum passes the tail to itself), mutual recursion (@evens and
@@ -7,22 +7,22 @@
 // it (@same), stores it (@push), or passes it to a parameter that escapes
 // (@viaSame). Every callee has a body, so every parameter is one of these.
 
-// CHECK-LABEL: idr.func private @callers(
-// CHECK: %[[SUM:.*]] = {{(idr\.)?}}con @Cons(%{{[^)]*}}) stack :
-// CHECK: %[[EVENS:.*]] = {{(idr\.)?}}con @Cons(%{{[^)]*}}) stack :
-// CHECK: %[[LOOP:.*]] = {{(idr\.)?}}con @Cons(%{{[^)]*}}) stack :
-// CHECK: %[[SAME:.*]] = {{(idr\.)?}}con @Cons(%{{[^)]*}}) :
-// CHECK: %[[VIA:.*]] = {{(idr\.)?}}con @Cons(%{{[^)]*}}) :
-// CHECK: %[[PUSH:.*]] = {{(idr\.)?}}con @Cons(%{{[^)]*}}) :
+// CHECK-LABEL: idr.func @callers(
+// CHECK: %[[SUM:.*]] = {{(idr\.)?}}con {{.*}}@Cons({{[^)]*}}) stack
+// CHECK: %[[EVENS:.*]] = {{(idr\.)?}}con {{.*}}@Cons({{[^)]*}}) stack
+// CHECK: %[[LOOP:.*]] = {{(idr\.)?}}con {{.*}}@Cons({{[^)]*}}) stack
+// CHECK: %[[SAME:.*]] = {{(idr\.)?}}con {{.*}}@Cons({{[^)]*}}){{$}}
+// CHECK: %[[VIA:.*]] = {{(idr\.)?}}con {{.*}}@Cons({{[^)]*}}){{$}}
+// CHECK: %[[PUSH:.*]] = {{(idr\.)?}}con {{.*}}@Cons({{[^)]*}}){{$}}
 // CHECK: call @sum(%[[SUM]])
 // CHECK: call @evens(%[[EVENS]])
 // CHECK: call @sumAcc(%{{.*}}, %[[LOOP]])
 // CHECK: call @same(%[[SAME]])
 // CHECK: call @viaSame(%[[VIA]])
 // CHECK: call @push(%[[PUSH]])
-!List = !idr.data<"List", list [@Nil(), @Cons(i64, !idr.box<!idr.data<"List">>)]>
-module {
-  idr.func private @sum(%l: !idr.box<!List>) -> i64 {
+!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
+idr.program @calls root(@Prog.main) stage(first) {
+  idr.func @sum(%l: !idr.box<!List>) -> i64 {
     %r = idr.match %l : !idr.box<!List> -> (i64) {
     case @Cons(%h: i64, %t: !idr.box<!List>) {
       %s = idr.call @sum(%t) : (!idr.box<!List>) -> i64
@@ -36,7 +36,7 @@ module {
     }
     return %r : i64
   }
-  idr.func private @evens(%l: !idr.box<!List>) -> i64 {
+  idr.func @evens(%l: !idr.box<!List>) -> i64 {
     %r = idr.match %l : !idr.box<!List> -> (i64) {
     case @Cons(%h: i64, %t: !idr.box<!List>) {
       %s = idr.call @odds(%t) : (!idr.box<!List>) -> i64
@@ -50,7 +50,7 @@ module {
     }
     return %r : i64
   }
-  idr.func private @odds(%l: !idr.box<!List>) -> i64 {
+  idr.func @odds(%l: !idr.box<!List>) -> i64 {
     %r = idr.match %l : !idr.box<!List> -> (i64) {
     case @Cons(%h: i64, %t: !idr.box<!List>) {
       %s = idr.call @evens(%t) : (!idr.box<!List>) -> i64
@@ -63,7 +63,7 @@ module {
     }
     return %r : i64
   }
-  idr.func private @sumAcc(%acc: i64, %l: !idr.box<!List>) -> i64 {
+  idr.func @sumAcc(%acc: i64, %l: !idr.box<!List>) -> i64 {
     %r = idr.match %l : !idr.box<!List> -> (i64) {
     case @Cons(%h: i64, %t: !idr.box<!List>) {
       %a = arith.addi %acc, %h : i64
@@ -76,26 +76,26 @@ module {
     }
     return %r : i64
   }
-  idr.func private @same(%l: !idr.box<!List>) -> !idr.box<!List> {
+  idr.func @same(%l: !idr.box<!List>) -> !idr.box<!List> {
     return %l : !idr.box<!List>
   }
-  idr.func private @viaSame(%l: !idr.box<!List>) -> i64 {
+  idr.func @viaSame(%l: !idr.box<!List>) -> i64 {
     %m = idr.call @same(%l) : (!idr.box<!List>) -> !idr.box<!List>
     %s = idr.call @sum(%m) : (!idr.box<!List>) -> i64
     return %s : i64
   }
-  idr.func private @push(%l: !idr.box<!List>) -> !idr.box<!List> {
+  idr.func @push(%l: !idr.box<!List>) -> !idr.box<!List> {
     %zero = arith.constant 0 : i64
-    %c = idr.con @Cons(%zero, %l) : (i64, !idr.box<!List>) -> !idr.box<!List>
+    %c = idr.con !idr.box<!List> @Cons(%zero : i64, %l : !idr.box<!List>)
     return %c : !idr.box<!List>
   }
-  idr.func private @callers(%x: i64, %t: !idr.box<!List>) -> i64 {
-    %a = idr.con @Cons(%x, %t) : (i64, !idr.box<!List>) -> !idr.box<!List>
-    %b = idr.con @Cons(%x, %t) : (i64, !idr.box<!List>) -> !idr.box<!List>
-    %c = idr.con @Cons(%x, %t) : (i64, !idr.box<!List>) -> !idr.box<!List>
-    %d = idr.con @Cons(%x, %t) : (i64, !idr.box<!List>) -> !idr.box<!List>
-    %e = idr.con @Cons(%x, %t) : (i64, !idr.box<!List>) -> !idr.box<!List>
-    %f = idr.con @Cons(%x, %t) : (i64, !idr.box<!List>) -> !idr.box<!List>
+  idr.func @callers(%x: i64, %t: !idr.box<!List>) -> i64 {
+    %a = idr.con !idr.box<!List> @Cons(%x : i64, %t : !idr.box<!List>)
+    %b = idr.con !idr.box<!List> @Cons(%x : i64, %t : !idr.box<!List>)
+    %c = idr.con !idr.box<!List> @Cons(%x : i64, %t : !idr.box<!List>)
+    %d = idr.con !idr.box<!List> @Cons(%x : i64, %t : !idr.box<!List>)
+    %e = idr.con !idr.box<!List> @Cons(%x : i64, %t : !idr.box<!List>)
+    %f = idr.con !idr.box<!List> @Cons(%x : i64, %t : !idr.box<!List>)
     %ra = idr.call @sum(%a) : (!idr.box<!List>) -> i64
     %rb = idr.call @evens(%b) : (!idr.box<!List>) -> i64
     %rc = idr.call @sumAcc(%x, %c) : (i64, !idr.box<!List>) -> i64

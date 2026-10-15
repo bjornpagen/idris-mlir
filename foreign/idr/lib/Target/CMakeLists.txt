@@ -8,6 +8,7 @@ add_mlir_library(IdrTarget
 	Optimize.cpp
 	Schedules.cpp
 	Partition.cpp
+	Extract.cpp
 
 	EXCLUDE_FROM_LIBMLIR
 	DISABLE_INSTALL

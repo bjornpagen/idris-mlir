@@ -52,9 +52,10 @@ bool isLinear(mlir::Type type);
 bool isWorld(mlir::Type type);
 
 // The owned stage's grades: a value that holds a reference of its own
-// (own, or excl), and the view of it, which holds none. `owned` and `view`
-// keep the quantity and change the permission; `atQuantity` keeps the
-// permission and changes the quantity.
+// (own, or excl), and the view of it, which holds none: a borrow for a type
+// of ours, plain for a builtin buffer, which upstream's ops take ungraded.
+// `owned` and `view` keep the quantity and change the permission;
+// `atQuantity` keeps the permission and changes the quantity.
 bool isOwned(mlir::Type type);
 mlir::Type owned(mlir::Type type);
 mlir::Type view(mlir::Type type);
@@ -120,8 +121,9 @@ bool takenOnce(mlir::Value value);
 // the field's value at the product of the scrutinee's quantity and the
 // field's, as Idris binds a pattern variable (a linear field of a value
 // used many times is used many times; a field of a linear value is used as
-// the field says). The world, which is only ever at its own grade, stays
-// the world.
+// the field says). Once counting has graded the scrutinee, the field is a
+// view of it, as view() gives one. The world, which is only ever at its own
+// grade, stays the world.
 mlir::Type fieldType(mlir::Type scrutinee, mlir::Type field);
 
 // `value` held as `type`, its own type at another quantity: entered into a
@@ -137,6 +139,15 @@ bool sameCarriers(Expected &&expected, Actual &&actual) {
     return gradeOf(a).quantity == gradeOf(b).quantity && unrestricted(a) == unrestricted(b);
   });
 }
+
+// What a value of `type` holds, as the type's ValueFactsTypeInterface
+// answers (IdrInterfaces.td): every type of the dialect and every builtin
+// type a value may have answers it. A type of another dialect, which only
+// the lowering makes, is no value of the program and holds none of these.
+bool holdsReferences(mlir::Type type);
+bool holdsWorld(mlir::Type type);
+bool holdsClosure(mlir::Type type);
+bool isCounted(mlir::Type type);
 
 // The types a field of a constructor may have: the world, a word, a
 // runtime type of ours, an array a world orders, and a value array, a

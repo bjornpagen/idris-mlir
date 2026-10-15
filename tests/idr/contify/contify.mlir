@@ -9,18 +9,18 @@
 // a closure names, and one only its own call reaches are not continuations,
 // and stay.
 // BEFORE: error: expected contified: @step.case1 is called once, from @step, and is still a function
-// CHECK-NOT: idr.func private @step.case1
-// CHECK-DAG: idr.func private @twice
-// CHECK-DAG: idr.func private @named
-// CHECK-DAG: idr.func private @lonely
-module {
-  idr.func private @step(%n: i64, %acc: i64) -> i64 {
+// CHECK-NOT: idr.func @step.case1
+// CHECK-DAG: idr.func @twice
+// CHECK-DAG: idr.func @named
+// CHECK-DAG: idr.func @lonely
+idr.program @contify root(@root) stage(higher) {
+  idr.func @step(%n: i64, %acc: i64) -> i64 {
     %c0 = arith.constant 0 : i64
     %done = arith.cmpi sle, %n, %c0 : i64
     %r = idr.call @step.case1(%done, %n, %acc) : (i1, i64, i64) -> i64
     return %r : i64
   }
-  idr.func private @step.case1(%done: i1, %n: i64, %acc: i64) -> i64 {
+  idr.func @step.case1(%done: i1, %n: i64, %acc: i64) -> i64 {
     %r = idr.match_lit %done : i1 -> (i64) {
     case 1 {
       idr.yield %acc : i64
@@ -35,14 +35,14 @@ module {
     }
     return %r : i64
   }
-  idr.func private @twice(%x: i64) -> i64 {
+  idr.func @twice(%x: i64) -> i64 {
     %y = arith.addi %x, %x : i64
     return %y : i64
   }
-  idr.func private @named(%x: i64) -> i64 {
+  idr.func @named(%x: i64) -> i64 {
     return %x : i64
   }
-  idr.func private @lonely(%x: i64) -> i64 {
+  idr.func @lonely(%x: i64) -> i64 {
     %y = idr.call @lonely(%x) : (i64) -> i64
     return %y : i64
   }

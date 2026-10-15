@@ -11,6 +11,7 @@
 #include "idr/Conversion/Passes.h"
 #include "idr/Target/Target.h"
 #include "idr/Transforms/Bufferize.h"
+#include "idr/Transforms/Columns.h"
 #include "idr/Transforms/Deduplicate.h"
 #include "idr/Transforms/Defunctionalize.h"
 #include "idr/Transforms/Demand.h"
@@ -35,7 +36,9 @@ namespace idr {
 #include "idr/Transforms/Passes.h.inc"
 
 // idris-mlir's pipeline, idr-deduplicate to idr-tail-calls, into `pm`, a
-// manager on builtin.module. Never idr-target: the driver runs it first,
+// manager on the builtin.module that holds the program: the program's
+// passes nested on its idr.program, the rest on the module once idr-entry
+// has taken the program apart. Never idr-target: the driver runs it first,
 // and idris-mlir-opt runs it by name.
 void buildPipeline(mlir::OpPassManager &pm);
 

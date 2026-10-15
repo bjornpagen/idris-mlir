@@ -9,8 +9,8 @@
 // TIMING-DAG: IdrLower
 // TIMING-DAG: LLVM
 !List = !idr.data<"List", plain [@Nil(), @Cons(i64, !idr.str, !idr.box<!idr.data<"List">>)]>
-module {
-  idr.func private @name(%n: i64) -> !idr.str attributes {total} {
+idr.program @statics root(@Prog.main) stage(higher) {
+  idr.func @name(%n: i64) -> !idr.str attributes {total} {
     %r = idr.match_lit %n : i64 -> (!idr.str) {
     case 1 {
       %s = idr.constant "one" : !idr.str
@@ -35,10 +35,10 @@ module {
     }
     return %r : !idr.str
   }
-  idr.func private @range(%n: i64) -> !idr.box<!List> attributes {total, no_inline} {
+  idr.func @range(%n: i64) -> !idr.box<!List> attributes {total, no_inline} {
     %r = idr.match_lit %n : i64 -> (!idr.box<!List>) {
     case 0 {
-      %nil = idr.con @Nil() : () -> !idr.box<!List>
+      %nil = idr.con !idr.box<!List> @Nil()
       idr.yield %nil : !idr.box<!List>
     }
     default {
@@ -46,13 +46,13 @@ module {
       %m = arith.subi %n, %one : i64
       %rest = idr.call @range(%m) : (i64) -> !idr.box<!List>
       %s = idr.call @name(%n) : (i64) -> !idr.str
-      %c = idr.con @Cons(%n, %s, %rest) : (i64, !idr.str, !idr.box<!List>) -> !idr.box<!List>
+      %c = idr.con !idr.box<!List> @Cons(%n : i64, %s : !idr.str, %rest : !idr.box<!List>)
       idr.yield %c : !idr.box<!List>
     }
     }
     return %r : !idr.box<!List>
   }
-  idr.func private @walk(%l: !idr.box<!List>, %w: !idr.world) -> !idr.world attributes {no_inline} {
+  idr.func @walk(%l: !idr.box<!List>, %w: !idr.world) -> !idr.world attributes {no_inline} {
     %r = idr.match %l : !idr.box<!List> -> (!idr.world) {
     case @Cons(%n: i64, %s: !idr.str, %t: !idr.box<!List>) {
       %w1 = idr.io.put_int signed %n, %w : i64

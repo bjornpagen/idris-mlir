@@ -83,24 +83,25 @@ private:
   idris_rt_header *top = nullptr;
 };
 
-// A cell's object slots: right after the header, one word each, in a thunk
-// as in a box. Strings and bignums have none.
-void **slotsOf(idris_rt_header *cell) {
-  return static_cast<void **>(static_cast<void *>(cell + 1));
-}
-
-void releaseSlots(void **slots, uint32_t objs, Dying &dying) {
-  for (uint32_t i = 0; i < objs; ++i)
+void releaseSlots(void **slots, uint64_t objs, Dying &dying) {
+  for (uint64_t i = 0; i < objs; ++i)
     if (idris_rt_header *dead = rt::rc::lastReference(slots[i]))
       dying.push(dead);
 }
 
 // Releases what a cell owns besides its memory: its object slots, which an
-// array has per element. A bignum's digits are in its cell.
+// array has per element. A box's or a thunk's are right after the header,
+// one word each, or, when the header's objs is IDRIS_RT_OBJS_WIDE, after the
+// word that counts them. Strings and bignums have none, and a bignum's
+// digits are in its cell. Dying keeps objs, so a dying cell is read alike.
 void releaseOwned(idris_rt_header *cell, Dying &dying) {
   uint32_t objs = idris_rt_info_objs(cell->info);
   if (idris_rt_info_kind(cell->info) != IDRIS_RT_KIND_ARRAY) {
-    releaseSlots(slotsOf(cell), objs, dying);
+    auto *after = static_cast<uint64_t *>(static_cast<void *>(cell + 1));
+    if (objs == IDRIS_RT_OBJS_WIDE)
+      releaseSlots(static_cast<void **>(static_cast<void *>(after + 1)), *after, dying);
+    else
+      releaseSlots(static_cast<void **>(static_cast<void *>(after)), objs, dying);
     return;
   }
   if (objs == 0)

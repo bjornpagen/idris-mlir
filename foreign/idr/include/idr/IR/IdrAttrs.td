@@ -39,47 +39,43 @@ class Idr_Attr<string name, string attrMnemonic, dag params = (ins)>
 // canonicalizing, so it can make a run that is not canonical, which the
 // verifier rejects.
 //
-// The constructor is named within its data type, which the attribute holds:
+// The constructor is its tag in its data type, which the attribute holds:
 // a constant is untyped, and the cells of a run are one type's, so two
-// constructors of one name in two types (the `Just` of a `Maybe (Maybe
-// Int)` and of its `Maybe Int`) never join. The name is a flat reference,
-// as every op's, so a constant of a label's constructor is a use of the
-// label. The type is the constant's identity, held in place: a value of the
-// type may be a box of it.
+// constructors in two types (the `Just` of a `Maybe (Maybe Int)` and of its
+// `Maybe Int`) never join. A constant of a label is a use of the label's
+// function through its data type, whose sub-elements the labels are. The
+// type is the constant's identity, held in place: a value of the type may
+// be a box of it.
 //
-// It is written as it is stored: a plain constructor as its one cell,
-// `<!T, @C, [fields]>`, and a run as its cells, its tail and the field it
-// runs along, `<!T, @C, [a], [b] tail t along 1>`, `along 0` left out. Each
-// optional group starts with its keyword, so the parser tries the keyword
-// and not the attribute after it, and the cells, a list without brackets,
-// end at it. The generated parser builds through the getChecked below,
-// which gives the attribute `get` gives for the same value, however it was
-// written.
+// It is written as it is stored, the constructor by its name: a plain
+// constructor as its one cell, `<!T, @C, [fields]>`, and a run as its
+// cells, its tail and the field it runs along, `<!T, @C, [a], [b] tail t
+// along 1>`, `along 0` left out (lib/IR/ConAttr.cpp). Any form is read into
+// the attribute `get` gives for the same value, however it was written.
 def Idr_ConAttr : Idr_Attr<"Con", "con",
-    (ins "::idr::DataType":$data, "::mlir::FlatSymbolRefAttr":$ctor,
+    (ins "::idr::DataType":$data, "unsigned":$tag,
          ArrayRefParameter<"::mlir::ArrayAttr">:$cells,
          OptionalParameter<"::mlir::Attribute">:$tail,
          DefaultValuedParameter<"unsigned", "0">:$spine)> {
   let summary = "a constructor of a sum or box, its fields as attributes, a list's cells flat";
-  let assemblyFormat =
-      "`<` qualified($data) `,` $ctor `,` $cells (`tail` $tail^)? (`along` $spine^)? `>`";
+  let hasCustomAssemblyFormat = 1;
   let genVerifyDecl = 1;
   let skipDefaultBuilders = 1;
   let builders = [
-    // A run when one field is a run of `ctor` along that field, or the
-    // second cell of one; otherwise the plain con.
-    AttrBuilder<(ins "::idr::DataType":$data, "::mlir::FlatSymbolRefAttr":$ctor,
-                     "::mlir::ArrayAttr":$fields)>
+    // A run when one field is a run of the constructor along that field, or
+    // the second cell of one; otherwise the plain con.
+    AttrBuilder<(ins "::idr::DataType":$data, "unsigned":$tag, "::mlir::ArrayAttr":$fields)>
   ];
   let extraClassDeclaration = [{
     // What repeated `get` gives for the cells `cells` (each one's fields
     // without the spine field) linked through field `spine` and ending in
     // `tail`, built in O(n).
-    static ConAttr getRun(::mlir::MLIRContext *context, ::idr::DataType data,
-                          ::mlir::FlatSymbolRefAttr ctor, unsigned spine,
-                          ::llvm::ArrayRef<::mlir::ArrayAttr> cells, ::mlir::Attribute tail);
-    // The constructor's tag in its data type.
-    unsigned getTag() const;
+    static ConAttr getRun(::mlir::MLIRContext *context, ::idr::DataType data, unsigned tag,
+                          unsigned spine, ::llvm::ArrayRef<::mlir::ArrayAttr> cells,
+                          ::mlir::Attribute tail);
+    // The constructor, in its data type's body. Out of line: the data type is
+    // declared after the attributes, whose instances its body holds.
+    const ::idr::Ctor &getCtor() const;
     // A run has a tail; a plain con has none.
     bool isRun() const { return static_cast<bool>(getTail()); }
     // The number of cells: 1 for a plain con.
@@ -96,41 +92,37 @@ def Idr_ConAttr : Idr_Attr<"Con", "con",
     // the rest of the run.
     ::mlir::ArrayAttr getFields() const;
     // The attribute of a constructor written as its stored parameters, as
-    // the generated parser reads them: what `get` gives for the value they
-    // say, a run where its cells form one, or null after an error.
+    // the parser reads them: what `get` gives for the value they say, a run
+    // where its cells form one, or null after an error.
     static ConAttr getChecked(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-                              ::mlir::MLIRContext *context, ::idr::DataType data,
-                              ::mlir::FlatSymbolRefAttr ctor,
+                              ::mlir::MLIRContext *context, ::idr::DataType data, unsigned tag,
                               ::llvm::ArrayRef<::mlir::ArrayAttr> cells, ::mlir::Attribute tail,
                               unsigned spine, ::mlir::Type type);
   private:
     // The attribute of stored parameters that get, getRun and the parser
     // have made canonical. ODS completes the storage only in the unit that
     // registers it, so these reach Base::get and Base::getChecked there.
-    static ConAttr getStored(::mlir::MLIRContext *context, ::idr::DataType data,
-                             ::mlir::FlatSymbolRefAttr ctor,
+    static ConAttr getStored(::mlir::MLIRContext *context, ::idr::DataType data, unsigned tag,
                              ::llvm::ArrayRef<::mlir::ArrayAttr> cells, ::mlir::Attribute tail,
                              unsigned spine, ::mlir::Type type);
     static ConAttr getStoredChecked(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
                                     ::mlir::MLIRContext *context, ::idr::DataType data,
-                                    ::mlir::FlatSymbolRefAttr ctor,
-                                    ::llvm::ArrayRef<::mlir::ArrayAttr> cells,
+                                    unsigned tag, ::llvm::ArrayRef<::mlir::ArrayAttr> cells,
                                     ::mlir::Attribute tail, unsigned spine, ::mlir::Type type);
   public:
   }];
   let extraClassDefinition = [{
     $cppClass $cppClass::getStored(::mlir::MLIRContext *context, ::idr::DataType data,
-                                   ::mlir::FlatSymbolRefAttr ctor,
-                                   ::llvm::ArrayRef<::mlir::ArrayAttr> cells,
+                                   unsigned tag, ::llvm::ArrayRef<::mlir::ArrayAttr> cells,
                                    ::mlir::Attribute tail, unsigned spine, ::mlir::Type type) {
-      return Base::get(context, data, ctor, cells, tail, spine, type);
+      return Base::get(context, data, tag, cells, tail, spine, type);
     }
     $cppClass $cppClass::getStoredChecked(
         ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-        ::mlir::MLIRContext *context, ::idr::DataType data, ::mlir::FlatSymbolRefAttr ctor,
+        ::mlir::MLIRContext *context, ::idr::DataType data, unsigned tag,
         ::llvm::ArrayRef<::mlir::ArrayAttr> cells, ::mlir::Attribute tail, unsigned spine,
         ::mlir::Type type) {
-      return Base::getChecked(emitError, context, data, ctor, cells, tail, spine, type);
+      return Base::getChecked(emitError, context, data, tag, cells, tail, spine, type);
     }
   }];
 }
@@ -146,13 +138,28 @@ def Idr_ClosureAttr : Idr_Attr<"Closure", "closure",
   ];
 }
 
-def Idr_BigAttr : Idr_Attr<"Big", "big",
-    (ins StringRefParameter<"the decimal digits">:$value)> {
-  let summary = "an integer of any size, in canonical decimal";
+// An integer at its fewest signed bits, so that equal integers are equal
+// attributes, written in decimal.
+def Idr_IntegerParameter : APIntParameter<"an integer at its fewest signed bits"> {
+  let parser = [{
+    [&]() -> ::mlir::FailureOr<::llvm::APInt> {
+      ::llvm::APInt value;
+      if ($_parser.parseInteger(value))
+        return ::mlir::failure();
+      return value.sextOrTrunc(value.getSignificantBits());
+    }()
+  }];
+  let printer = "$_self.print($_printer.getStream(), /*isSigned=*/true)";
+}
+
+def Idr_BigAttr : Idr_Attr<"Big", "big", (ins Idr_IntegerParameter:$value)> {
+  let summary = "an integer of any size";
   let assemblyFormat = "`<` $value `>`";
   let builders = [
-    AttrBuilder<(ins "::llvm::StringRef":$value), [{
-      return $_get($_ctxt, value, ::mlir::NoneType::get($_ctxt));
+    // `value` at its fewest signed bits, the one width the attribute holds.
+    AttrBuilder<(ins "const ::llvm::APInt &":$value), [{
+      return $_get($_ctxt, value.sextOrTrunc(value.getSignificantBits()),
+                   ::mlir::NoneType::get($_ctxt));
     }]>
   ];
   let genVerifyDecl = 1;
@@ -208,11 +215,12 @@ def Idr_KeyHoleAttr : Idr_KeyAttr<"KeyHole", "key_hole"> {
   let assemblyFormat = "`<` $index `>`";
 }
 
+// A constructor in a key is its tag, as everywhere: the key's position
+// says the data type, which the key does not repeat.
 def Idr_KeyConAttr : Idr_KeyAttr<"KeyCon", "key_con"> {
-  let summary = "a constructor `@ctor` of the data type `data` in a key, over the patterns of its fields";
-  let parameters = (ins "::mlir::StringAttr":$data, "::mlir::StringAttr":$ctor,
-                        "::mlir::ArrayAttr":$fields);
-  let assemblyFormat = "`<` $data `,` $ctor `,` $fields `>`";
+  let summary = "the constructor `tag` in a key, over the patterns of its fields";
+  let parameters = (ins "unsigned":$tag, "::mlir::ArrayAttr":$fields);
+  let assemblyFormat = "`<` $tag `,` $fields `>`";
 }
 
 // A clone that specializes: the patterns of its origin's parameters, a key

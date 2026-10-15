@@ -21,7 +21,7 @@ LogicalResult notCalled(ModuleOp module, AnalysisManager &analyses, StringRef fu
   StringRef f = function.ltrim('@');
   if (f.empty())
     return fail(module.getLoc(), property) << "name the function, as not-called=@f";
-  SymbolTable &symbols = analyses.getAnalysis<SymbolTable>();
+  SymbolTable &symbols = symbolsOf(module, analyses);
   bool held = true;
   module.walk([&](CallOp call) {
     auto callee = symbols.lookup<FunctionOpInterface>(call.getCalleeAttr().getAttr());

@@ -18,13 +18,16 @@ add_mlir_library(IdrConversion
 	Conversion/Matches.cpp
 	Conversion/Words.cpp
 	Conversion/Runtime.cpp
+	Conversion/RuntimeCells.cpp
 	Conversion/StaticData.cpp
 	Conversion/StaticNames.cpp
 	Conversion/Cells.cpp
 	Conversion/Counting.cpp
 	Conversion/Fields.cpp
-	Conversion/Force.cpp
+	Conversion/MemoCells.cpp
 	Conversion/Arrays.cpp
+	Conversion/Descriptors.cpp
+	Conversion/Elements.cpp
 	Conversion/Memrefs.cpp
 	Conversion/Buffers.cpp
 	Conversion/Bigs.cpp
@@ -77,6 +80,7 @@ add_mlir_library(IdrConversion
 	MLIRLLVMDialect
 	# The memref descriptor an array's view is.
 	MLIRLLVMCommonConversion
+	MLIRMemRefToLLVM
 	# How the target returns a result: LLVM's types and target machine.
 	MLIRTargetLLVMIRExport
 	MLIRTargetLLVMIRTransforms

@@ -24,10 +24,14 @@ mlir::Value i32Constant(mlir::OpBuilder &b, mlir::Location loc, int64_t value);
 // The address of the byte `offset` of `cell`.
 mlir::Value at(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell, unsigned offset);
 
-// The alignment of the component at `offset` in a cell, which is
-// word-aligned: LLVM would otherwise take the alignment of the type from a
-// data layout that the translation does not have yet.
-unsigned alignAt(unsigned offset);
+// The alignment a cell's start has: the runtime's word, for a cell it
+// allocated, a static one, or a slot of a frame.
+unsigned cellAlignment();
+
+// The alignment of the component at `offset` from an address aligned to
+// `base`: LLVM would otherwise take the alignment of the type from a data
+// layout that the translation does not have yet.
+unsigned alignAt(unsigned base, unsigned offset);
 
 // The empty value of a counted component: a null pointer, or the word 0.
 mlir::Value nullComponent(mlir::OpBuilder &b, mlir::Location loc, mlir::Type component);

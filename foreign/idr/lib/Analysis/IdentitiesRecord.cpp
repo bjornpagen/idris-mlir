@@ -15,20 +15,21 @@
 // is.
 //
 // The function must also only compute: each op only allocates its results
-// (a call as its own effects say), or is a match whose regions only
+// (a call as its callee's effects say), or is a match whose regions only
 // compute, or a call assumed to give back what it is passed that it may
 // rely on. A region that ends in ub.unreachable and does nothing else on
-// the way is one Idris proved is never taken. In the owned stage, where a
-// value holds or borrows a reference, nothing gives back anything: a
-// counted value cannot stand for a fresh one.
+// the way is one Idris proved is never taken. A function of a program in
+// the owned stage has no candidates, so no value walked here holds or
+// borrows a reference.
 //
 // The walk leaves the part each value is of every candidate argument, and
 // the calls whose result is an operand while the callee is assumed to give
 // that operand back. It reads the function's own body, the data types its
-// values are of, and the entries of the component's members, and writes
-// nothing outside the record.
+// values are of, the entries of the component's members and what `outside`
+// says of every other callee, and writes nothing outside the record.
 #include "idr/Analysis/Identities.h"
 
+#include "idr/Analysis/Effects.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
@@ -43,29 +44,25 @@ namespace idr::identities {
 
 namespace {
 
+// A big or natural constant one: what a successor adds.
 bool isOne(Value value) {
-  Attribute constant;
-  auto big = matchPattern(value, m_Constant(&constant)) ? dyn_cast<BigAttr>(constant) : BigAttr();
-  return big && big.getValue() == "1";
-}
-
-StringAttr caseCtor(MatchOp match, unsigned region) {
-  return cast<FlatSymbolRefAttr>(match.getCases()[region]).getAttr();
+  BigAttr big;
+  return matchPattern(value, m_Constant(&big)) && big.getValue().isOne();
 }
 
 } // namespace
 
-Record::Record(FuncOp fn, ArrayRef<unsigned> candidates, const Members &members)
-    : fn(fn), members(members) {
+Record::Record(FuncOp fn, ArrayRef<unsigned> candidates, const Members &members, Outside outside)
+    : fn(fn), members(members), outside(outside) {
   for (unsigned argument : candidates) {
     index.try_emplace(argument, static_cast<unsigned>(arguments.size()));
     arguments.push_back(argument);
     parts.emplace_back(fn.getArgumentTypes()[argument]);
   }
-  // Walk the body once. An owned value, a terminator this question cannot
-  // keep, or an op that does not only allocate ends it: nothing is given
-  // back, under any argument and any later assumptions, so the rest of the
-  // body is not needed and is not walked again.
+  // Walk the body once. A terminator this question cannot keep, or an op
+  // that does not only allocate, ends it: nothing is given back, under any
+  // argument and any later assumptions, so the rest of the body is not
+  // needed and is not walked again.
   if (arguments.empty() || !scan(fn.getBody())) {
     possible = false;
     nodes.clear();
@@ -82,21 +79,17 @@ bool Record::memoType(Type type) {
   return data && data.isMemo();
 }
 
-// The one constructor of the scrutinee's type that no case of `match`
-// names, which its default region therefore takes, if there is one.
-StringAttr Record::remaining(MatchOp match) {
-  DataType data = dataTypeOf(match.getScrutinee().getType());
-  if (!data)
-    return {};
-  ArrayRef<Ctor> ctors = data.getCtors();
-  if (ctors.size() != match.getCases().size() + 1)
-    return {};
-  for (const Ctor &ctor : ctors)
-    if (llvm::none_of(match.getCases(), [&](Attribute named) {
-          return cast<FlatSymbolRefAttr>(named).getAttr() == ctor.name;
-        }))
-      return ctor.name;
-  return {};
+// The tag of the one constructor of the scrutinee's type that no case of
+// `match` names, which its default region therefore takes, if there is one.
+std::optional<unsigned> Record::remaining(MatchOp match) {
+  DataType data = match.getDataType();
+  auto cases = static_cast<unsigned>(match.getCases().size());
+  if (data.getCtors().size() != cases + 1)
+    return std::nullopt;
+  SmallVector<bool> named(cases + 1, false);
+  for (unsigned index = 0; index < cases; ++index)
+    named[match.getCaseTag(index)] = true;
+  return static_cast<unsigned>(llvm::find(named, false) - named.begin());
 }
 
 int Record::place(Value value, Node node) {
@@ -127,11 +120,11 @@ int Record::internArg(BlockArgument arg) {
     node.arg = arg.getArgNumber();
     node.type = arg.getType();
     node.memo = memoType(match.getScrutinee().getType());
-    unsigned region = block->getParent()->getRegionNumber();
-    if (region >= match.getCases().size())
+    Region *region = block->getParent();
+    if (region == match.getDefaultRegion())
       node.deflt = true;
     else
-      node.ctor = caseCtor(match, region);
+      node.tag = match.getCaseTag(region->getRegionNumber());
   }
   return place(arg, std::move(node));
 }
@@ -143,12 +136,12 @@ int Record::defineCall(CallOp call) {
   Node node;
   node.kind = Node::Call;
   node.callee = call.getCalleeAttr().getAttr();
-  // A callee of the component is known by its own entry; any other by the
-  // call's, which it was given when the component became ready. Without
-  // one it may do anything, so it is not known to return.
-  FuncOp member = members.lookup(node.callee);
-  std::optional<Effect> effects = member ? member.getEffects() : call.getEffects();
-  node.returns = effects && !bitEnumContainsAny(*effects, Effect::diverge);
+  // A callee of the component is known by its own entry; any other by what
+  // `outside` says of it.
+  if (FuncOp member = members.lookup(node.callee))
+    node.returns = !bitEnumContainsAny(entryOf(member), Effect::diverge);
+  else
+    node.returns = outside(node.callee).returns;
   node.allocates = onlyAllocates(call);
   for (Value operand : call.getArgs())
     node.ops.push_back(intern(operand));
@@ -171,10 +164,8 @@ void Record::encodeConst(Node &node, Value value, Attribute constant) {
   node.conRun = con.isRun();
   if (node.conRun)
     return;
-  node.ctor = con.getCtor().getAttr();
-  DataType data = dataTypeOf(value.getType());
-  std::optional<unsigned> tag = data ? data.getTag(node.ctor.getValue()) : std::nullopt;
-  node.fieldless = tag && data.getCtor(*tag).fields.empty();
+  node.tag = con.getTag();
+  node.fieldless = con.getData().getCtor(node.tag).fields.empty();
 }
 
 int Record::internJoin(Operation *op, unsigned number) {
@@ -225,13 +216,13 @@ int Record::internResult(OpResult result) {
   if (auto call = dyn_cast<CallOp>(op))
     return defineCall(call);
   Node node;
-  if (isa<LinEnterOp, LinUseOp>(op)) {
+  if (op->hasTrait<ResultCarriesOperand>()) {
     node.kind = Node::Copy;
     node.src = intern(op->getOperand(0));
   } else if (auto read = dyn_cast<FieldOp>(op)) {
     node.kind = Node::Field;
     node.src = intern(read.getValue());
-    node.ctor = read.getCtorAttr().getAttr();
+    node.tag = static_cast<unsigned>(read.getTag());
     node.arg = static_cast<unsigned>(read.getIndex());
     node.type = read.getType();
     node.memo = memoType(read.getValue().getType());
@@ -240,9 +231,9 @@ int Record::internResult(OpResult result) {
     node.src = intern(pred.getValue());
   } else if (auto con = dyn_cast<ConOp>(op)) {
     node.kind = Node::Con;
-    node.ctor = con.getCtorAttr().getAttr();
-    node.type = con.getType();
-    node.memo = memoType(con.getType());
+    node.tag = static_cast<unsigned>(con.getTag());
+    node.type = con.getResult().getType();
+    node.memo = memoType(node.type);
     for (Value field : con.getFields()) {
       node.ops.push_back(intern(field));
       node.types.push_back(field.getType());
@@ -267,26 +258,19 @@ SmallVector<Record::Frame, 2> Record::framesAt(Operation *at) {
     Operation *parent = region->getParentOp();
     if (parent == fn.getOperation())
       break;
-    unsigned regionNumber = region->getRegionNumber();
     if (auto match = dyn_cast<MatchOp>(parent)) {
       Frame frame;
       frame.scrutinee = intern(match.getScrutinee());
-      if (regionNumber < match.getCases().size()) {
-        frame.named = true;
-        frame.ctor = caseCtor(match, regionNumber);
-      } else if (StringAttr rest = remaining(match)) {
-        frame.named = true;
-        frame.ctor = rest;
-      }
+      frame.tag = region == match.getDefaultRegion()
+                      ? remaining(match)
+                      : std::optional<unsigned>(match.getCaseTag(region->getRegionNumber()));
       frames.push_back(frame);
     } else if (auto literal = dyn_cast<MatchLitOp>(parent)) {
       Frame frame;
       frame.lit = true;
       frame.scrutinee = intern(literal.getScrutinee());
-      if (regionNumber < literal.getCases().size()) {
-        frame.named = true;
-        frame.literal = literal.getCases()[regionNumber];
-      }
+      if (region != literal.getDefaultRegion())
+        frame.literal = literal.getCases()[region->getRegionNumber()];
       frames.push_back(frame);
     }
   }
@@ -305,8 +289,6 @@ bool Record::record(ReturnOp ret) {
 // other op must only allocate, and is not opened again.
 bool Record::scan(Region &region) {
   for (Block &block : region) {
-    if (llvm::any_of(block.getArgumentTypes(), owns))
-      return false;
     for (BlockArgument arg : block.getArguments())
       intern(arg);
     for (Operation &op : block)
@@ -317,8 +299,6 @@ bool Record::scan(Region &region) {
 }
 
 bool Record::accept(Operation &op) {
-  if (llvm::any_of(op.getResultTypes(), owns))
-    return false;
   if (op.hasTrait<OpTrait::IsTerminator>()) {
     if (auto ret = dyn_cast<ReturnOp>(op))
       return record(ret);

@@ -8,43 +8,48 @@
 // field stays an op, and no constant holds poison. So an apply no label
 // reaches, whose result is the program's poison, can build a value and
 // still lower.
-// CHECK-LABEL: idr.func private @con(
-// CHECK: con @MkBox(
-// CHECK-LABEL: idr.func private @closure(
+// CHECK-LABEL: idr.func @con(
+// CHECK: con {{.*}}@MkBox(
+// CHECK-LABEL: idr.func @closure(
 // CHECK: closure @add(
-// CHECK-LABEL: idr.func private @suspend(
+// CHECK-LABEL: idr.func @suspend(
 // CHECK: suspend @add(
 !Box = !idr.data<"Box", plain [@MkBox(i64)]>
-module {
-  idr.func private @add(%k: i64, %x: i64) -> i64 attributes {total} {
+idr.program @"poison-fields" root(@root) stage(higher) {
+  idr.func @add(%k: i64, %x: i64) -> i64 attributes {total} {
     %r = arith.addi %k, %x : i64
     return %r : i64
   }
-  idr.func private @con() -> !idr.box<!Box> {
+  idr.func @con() -> !idr.box<!Box> {
     %p = ub.poison : i64
-    %b = idr.con @MkBox(%p) : (i64) -> !idr.box<!Box>
+    %b = idr.con !idr.box<!Box> @MkBox(%p : i64)
     return %b : !idr.box<!Box>
   }
-  idr.func private @closure() -> !idr.fn<(i64) -> (i64)> {
+  idr.func @closure() -> !idr.fn<(i64) -> (i64)> {
     %p = ub.poison : i64
     %f = idr.closure @add(%p) : (i64) -> !idr.fn<(i64) -> (i64)>
     return %f : !idr.fn<(i64) -> (i64)>
   }
-  idr.func private @suspend() -> !idr.lazy<i64> {
+  idr.func @suspend() -> !idr.lazy<i64> {
     %p = ub.poison : i64
     %one = arith.constant 1 : i64
     %t = idr.suspend @add(%p, %one) : (i64, i64) -> !idr.lazy<i64>
     return %t : !idr.lazy<i64>
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
   }
 }
 
 // -----
 
 !Box = !idr.data<"Box", plain [@MkBox(i64)]>
-module {
-  idr.func private @wrap(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> !idr.box<!Box> {
+idr.program @"poison-fields" root(@Prog.main) stage(higher) {
+  idr.func @wrap(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> !idr.box<!Box> {
     %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
-    %b = idr.con @MkBox(%y) : (i64) -> !idr.box<!Box>
+    %b = idr.con !idr.box<!Box> @MkBox(%y : i64)
     return %b : !idr.box<!Box>
   }
   idr.func @Prog.main() -> i64 {

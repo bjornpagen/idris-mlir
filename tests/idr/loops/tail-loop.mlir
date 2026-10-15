@@ -1,4 +1,4 @@
-// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.func(idr-tail-loops))' -o %t.mlir
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-rc,idr.func(idr-tail-loops)))' -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=constant-stack=@count,constant-stack=@upto,constant-stack=@spin,constant-stack=@sum,constant-stack=@echo -o /dev/null
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=counted-loop=@upto,counted-loop=@until -o /dev/null
 // RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=counted-loop=@count -o /dev/null 2> %t.count.err
@@ -6,6 +6,7 @@
 // RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=constant-stack=@fib -o /dev/null 2> %t.fib.err
 // RUN: FileCheck %s --check-prefix=FIB < %t.fib.err
 // RUN: idris-mlir-opt %t.mlir --inline --canonicalize | FileCheck %s --check-prefix=KEPT
+// NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded (R04), so the checks are of the counted program; confirm them against it.
 // A self tail call in a region of a match whose results are returned
 // becomes a loop, so the stack stays constant; a call that is not in tail
 // position stays, and the stack grows with it. A loop that counts up to a
@@ -20,9 +21,9 @@
 // KEPT: may_loop
 // KEPT-NOT: {{(idr\.| )may_loop }}
 // KEPT: call @fib
-!List = !idr.data<"List", list [@Nil(), @Cons(i64, !idr.box<!idr.data<"List">>)]>
-module {
-  idr.func private @count(%acc: i64, %n: i64) -> i64 attributes {total} {
+!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
+idr.program @"tail-loop" root(@Main.main) stage(first) {
+  idr.func @count(%acc: i64, %n: i64) -> i64 attributes {total} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       idr.yield %acc : i64
@@ -38,7 +39,7 @@ module {
     return %r : i64
   }
   // upto i n acc = if i < n then upto (i + 1) n (acc + i * i) else acc
-  idr.func private @upto(%i: i64, %n: i64, %acc: i64) -> i64 attributes {total} {
+  idr.func @upto(%i: i64, %n: i64, %acc: i64) -> i64 attributes {total} {
     %lt = arith.cmpi slt, %i, %n : i64
     %b = arith.extui %lt : i1 to i64
     %r = idr.match_lit %b : i64 -> (i64) {
@@ -57,7 +58,7 @@ module {
     return %r : i64
   }
   // until i n = if i < n then until (i + 3) n else i
-  idr.func private @until(%i: i64, %n: i64) -> i64 attributes {total} {
+  idr.func @until(%i: i64, %n: i64) -> i64 attributes {total} {
     %lt = arith.cmpi slt, %i, %n : i64
     %b = arith.extui %lt : i1 to i64
     %r = idr.match_lit %b : i64 -> (i64) {
@@ -74,14 +75,14 @@ module {
     return %r : i64
   }
   // spin x = spin (x + 1)
-  idr.func private @spin(%x: i64) -> i64 {
+  idr.func @spin(%x: i64) -> i64 {
     %c1 = arith.constant 1 : i64
     %y = arith.addi %x, %c1 : i64
     %r = idr.call @spin(%y) : (i64) -> i64
     return %r : i64
   }
   // sum acc (x :: xs) = sum (acc + x) xs
-  idr.func private @sum(%acc: i64, %xs: !idr.box<!List>) -> i64 attributes {total} {
+  idr.func @sum(%acc: i64, %xs: !idr.box<!List>) -> i64 attributes {total} {
     %r = idr.match %xs : !idr.box<!List> -> (i64) {
     case @Nil() {
       idr.yield %acc : i64
@@ -96,7 +97,7 @@ module {
   }
   // echo n = do printLn n; if n == 0 then pure () else echo (n - 1): what
   // the body computes before the decision, the world, goes round too.
-  idr.func private @echo(%n: i64, %w: !idr.world) -> !idr.world attributes {total} {
+  idr.func @echo(%n: i64, %w: !idr.world) -> !idr.world attributes {total} {
     %w1 = idr.io.put_int signed %n, %w : i64
     %r = idr.match_lit %n : i64 -> (!idr.world) {
     case 0 {
@@ -111,7 +112,7 @@ module {
     }
     return %r : !idr.world
   }
-  idr.func private @fib(%n: i64) -> i64 {
+  idr.func @fib(%n: i64) -> i64 {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       idr.yield %n : i64
@@ -133,9 +134,9 @@ module {
     return %r : i64
   }
   idr.func @Main.main(%w: !idr.world) -> (i64, i64, i64, !idr.world) {
-    %nil = idr.con @Nil() : () -> !idr.box<!List>
+    %nil = idr.con !idr.box<!List> @Nil()
     %c7 = arith.constant 7 : i64
-    %xs = idr.con @Cons(%c7, %nil) : (i64, !idr.box<!List>) -> !idr.box<!List>
+    %xs = idr.con !idr.box<!List> @Cons(%c7 : i64, %nil : !idr.box<!List>)
     %c0 = arith.constant 0 : i64
     %c9 = arith.constant 9 : i64
     %a = idr.call @count(%c0, %c9) : (i64, i64) -> i64

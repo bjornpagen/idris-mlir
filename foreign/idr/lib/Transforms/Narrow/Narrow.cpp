@@ -5,10 +5,10 @@
 // versioned so that its copy proves it.
 //
 // The analysis is MLIR's, seeing our ops through their ranges, solved once
-// for the module (Ranges); this pass only reads it and rewrites. Nothing it
-// learns is stored: the rewritten IR is the fact. Versioning runs on the
-// module, since a versioned loop's copy holds values the solve never saw
-// and the module is solved again after it; the word rewrite then runs on
+// for the program (Ranges); this pass only reads it and rewrites. Nothing
+// it learns is stored: the rewritten IR is the fact. Versioning runs on the
+// program, since a versioned loop's copy holds values the solve never saw
+// and the program is solved again after it; the word rewrite then runs on
 // each function in parallel, each verified on its own. A narrowed op
 // becomes `arith` on the values, which idr.big.to_int and idr.big.from_int
 // convert where the web meets a big it does not prove; the pairs they form
@@ -25,7 +25,6 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
-#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Pass/AnalysisManager.h"
 #include "mlir/Pass/Pass.h"
@@ -49,7 +48,7 @@ namespace idr::narrow {
 namespace {
 
 // The word rewrite of one function, under the ranges idr-narrow solved for
-// the module. It runs only inside idr-narrow and keeps no statistics: what
+// the program. It runs only inside idr-narrow and keeps no statistics: what
 // it counts only says whether it changed anything.
 struct NarrowWords : PassWrapper<NarrowWords, OperationPass<FuncOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(NarrowWords)
@@ -63,7 +62,7 @@ struct NarrowWords : PassWrapper<NarrowWords, OperationPass<FuncOp>> {
     FuncOp fn = getOperation();
     std::optional<std::reference_wrapper<Ranges>> ranges = getCachedParentAnalysis<Ranges>();
     if (!ranges) {
-      fn.emitError("internal error: idr-narrow: the ranges of the module are not available to "
+      fn.emitError("internal error: idr-narrow: the ranges of the program are not available to "
                    "its functions");
       return signalPassFailure();
     }
@@ -105,9 +104,9 @@ struct Narrow : idr::impl::IdrNarrowBase<Narrow> {
   using IdrNarrowBase::IdrNarrowBase;
 
   void runOnOperation() override {
-    ModuleOp module = getOperation();
+    ProgramOp program = getOperation();
     auto unsolved = [&] {
-      module.emitError("internal error: idr-narrow: the range analysis failed");
+      program.emitError("internal error: idr-narrow: the range analysis failed");
       signalPassFailure();
     };
     uint64_t versioned = 0;
@@ -118,10 +117,10 @@ struct Narrow : idr::impl::IdrNarrowBase<Narrow> {
       Facts facts(ranges);
       RewritePatternSet patterns(&getContext());
       populateVersionPatterns(patterns, facts, versioned);
-      walkAndApplyPatterns(module, std::move(patterns));
+      walkAndApplyPatterns(program, std::move(patterns));
     }
     // A versioned loop's copy holds values the first solve never saw, and
-    // nothing else of the module is worth keeping across it. Otherwise the
+    // nothing else of the program is worth keeping across it. Otherwise the
     // first solve is the one the functions read.
     if (versioned != 0) {
       getAnalysisManager().invalidate(AnalysisManager::PreservedAnalyses());
@@ -129,12 +128,12 @@ struct Narrow : idr::impl::IdrNarrowBase<Narrow> {
         return unsolved();
     }
 
-    // The functions read the module's ranges as their parent's; no
+    // The functions read the program's ranges as their parent's; no
     // reference to it is held across the nested run, after which it is
     // gone.
-    OpPassManager nested(ModuleOp::getOperationName());
+    OpPassManager nested(ProgramOp::getOperationName());
     nested.nest<FuncOp>().addPass(std::make_unique<NarrowWords>());
-    if (failed(runPipeline(nested, module)))
+    if (failed(runPipeline(nested, program)))
       return signalPassFailure();
     numVersioned += versioned;
     // No declaration changes, and no symbol is added or removed.

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // Calling a node: the one way a call becomes a call of a specialization or
-// raise node. It needs only the node's name and, once the node is final,
-// its effects: the node's function need not exist yet.
+// raise node. It needs only the node's name: the node's function need not
+// exist yet, and what a call may do is its callee's.
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/Specialize.h"
 
@@ -13,7 +13,7 @@ using namespace mlir;
 namespace idr::specialize::detail {
 
 idr::CallOp redirect(RewriterBase &rewriter, idr::CallOp call, FlatSymbolRefAttr target,
-                     idr::EffectAttr effects, const Want &want) {
+                     const Want &want) {
   // Raising replaces what the dispatch returns; specialization the call.
   // Either way the node returns what the replaced op does.
   Operation *replaced = want.consumer ? static_cast<Operation *>(want.consumer->dispatch)
@@ -21,7 +21,7 @@ idr::CallOp redirect(RewriterBase &rewriter, idr::CallOp call, FlatSymbolRefAttr
   rewriter.setInsertionPoint(replaced);
   auto fresh = idr::CallOp::create(rewriter, call.getLoc(), replaced->getResultTypes(), target,
                                    want.operands, /*arg_attrs=*/ArrayAttr(),
-                                   /*res_attrs=*/ArrayAttr(), effects);
+                                   /*res_attrs=*/ArrayAttr());
   SmallVector<Value> old(call.getArgs());
   rewriter.replaceOp(replaced, fresh.getResults());
   if (const std::optional<Consumer> &consumer = want.consumer) {

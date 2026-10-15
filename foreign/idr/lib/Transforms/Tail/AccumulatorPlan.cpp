@@ -35,14 +35,18 @@ using namespace mlir;
 namespace idr::tail {
 namespace {
 
-// Whether `value` is the constant natural or integer whose decimal text
-// is `digits`.
-bool isDigits(Value value, StringRef digits) {
+// The constant natural or integer `value` is, when it is one.
+std::optional<APInt> constantOf(Value value) {
   auto constant = value.getDefiningOp<ConstantOp>();
-  if (!constant)
-    return false;
-  auto big = dyn_cast<BigAttr>(constant.getValue());
-  return big && big.getValue() == digits;
+  auto big = constant ? dyn_cast<BigAttr>(constant.getValue()) : BigAttr();
+  if (!big)
+    return std::nullopt;
+  return big.getValue();
+}
+
+bool isOne(Value value) {
+  std::optional<APInt> constant = constantOf(value);
+  return constant && constant->isOne();
 }
 
 // The one value `block` yields past its constants, or null.
@@ -90,7 +94,7 @@ bool addsOneToPredecessor(Block &block, FuncOp fn, BlockArgument arg) {
     return false;
   Value sum = call.getResult(0);
   Value addend = add.getLhs() == sum ? add.getRhs() : add.getRhs() == sum ? add.getLhs() : Value();
-  if (!addend || !isDigits(addend, "1"))
+  if (!addend || !isOne(addend))
     return false;
   auto yield = dyn_cast<YieldOp>(block.getTerminator());
   return yield && yield.getNumOperands() == 1 && yield.getOperand(0) == add.getResult();
@@ -146,7 +150,10 @@ bool refersToItselfOnlyByCall(FuncOp fn) {
 
 } // namespace
 
-bool isZero(Value value) { return isDigits(value, "0"); }
+bool isZero(Value value) {
+  std::optional<APInt> constant = constantOf(value);
+  return constant && constant->isZero();
+}
 
 void clearBlock(RewriterBase &rewriter, Block &block) {
   for (Operation &op : llvm::make_early_inc_range(llvm::reverse(block)))
@@ -180,7 +187,7 @@ bool isCountdown(FuncOp fn) {
   if (match.getCases().size() != 1 || !match.getDefaultRegion())
     return false;
   auto zeroCase = dyn_cast<BigAttr>(match.getCases()[0]);
-  if (!zeroCase || zeroCase.getValue() != "0")
+  if (!zeroCase || !zeroCase.getValue().isZero())
     return false;
 
   Region &zero = match.getCaseRegion(0);

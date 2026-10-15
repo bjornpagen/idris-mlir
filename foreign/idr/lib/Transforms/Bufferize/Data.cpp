@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Cells and matches: idr.con stores a tensor into a cell, idr.field and
-// idr.force read one from the heap, and idr.match, idr.match_lit and
-// idr.yield join the arrays their cases give.
+// Cells and matches: idr.con stores a tensor into a cell and
+// idr.memo.settle into a memo cell, idr.field reads one from the heap, and
+// idr.match, idr.match_lit and idr.yield join the arrays their cases give.
 //
 // A store into a cell is a release, as an entry into a linear type is:
 // whatever else still reads the buffer makes One-Shot copy it there, and
@@ -26,7 +26,9 @@ using namespace mlir::bufferization;
 
 namespace {
 
-struct ConModel : BufferizableOpInterface::ExternalModel<ConModel, idr::ConOp> {
+// idr.con and idr.memo.settle: each tensor operand is stored in a cell.
+template <typename Store>
+struct StoreModel : BufferizableOpInterface::ExternalModel<StoreModel<Store>, Store> {
   bool bufferizesToMemoryRead(Operation *, OpOperand &, const AnalysisState &) const {
     return true;
   }
@@ -51,9 +53,8 @@ struct ConModel : BufferizableOpInterface::ExternalModel<ConModel, idr::ConOp> {
   }
 };
 
-// idr.field and idr.force: a tensor read from the heap.
-template <typename Read>
-struct HeapReadModel : BufferizableOpInterface::ExternalModel<HeapReadModel<Read>, Read> {
+// idr.field: a tensor read from the heap.
+struct HeapReadModel : BufferizableOpInterface::ExternalModel<HeapReadModel, idr::FieldOp> {
   AliasingOpOperandList getAliasingOpOperands(Operation *, Value, const AnalysisState &) const {
     return {};
   }
@@ -70,7 +71,7 @@ struct HeapReadModel : BufferizableOpInterface::ExternalModel<HeapReadModel<Read
                           BufferizationState &) const {
     Operation *bufferized = rewriter.clone(*op);
     for (OpResult result : bufferized->getResults())
-      result.setType(idr::bufferize::boundaryType(result.getType()));
+      result.setType(idr::bufferize::heldType(result.getType()));
     replaceOpWithBufferizedValues(rewriter, op, bufferized->getResults());
     return success();
   }
@@ -217,9 +218,9 @@ struct YieldModel : BufferizableOpInterface::ExternalModel<YieldModel, idr::Yiel
 } // namespace
 
 void idr::bufferize::attachDataModels(MLIRContext *ctx) {
-  idr::ConOp::attachInterface<ConModel>(*ctx);
-  idr::FieldOp::attachInterface<HeapReadModel<idr::FieldOp>>(*ctx);
-  idr::ForceOp::attachInterface<HeapReadModel<idr::ForceOp>>(*ctx);
+  idr::ConOp::attachInterface<StoreModel<idr::ConOp>>(*ctx);
+  idr::MemoSettleOp::attachInterface<StoreModel<idr::MemoSettleOp>>(*ctx);
+  idr::FieldOp::attachInterface<HeapReadModel>(*ctx);
   idr::MatchOp::attachInterface<MatchModel<idr::MatchOp>>(*ctx);
   idr::MatchLitOp::attachInterface<MatchModel<idr::MatchLitOp>>(*ctx);
   idr::YieldOp::attachInterface<YieldModel>(*ctx);

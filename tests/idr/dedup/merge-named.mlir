@@ -10,18 +10,18 @@
 // either definition, here by the names its locations carry, finds the one
 // function: every call of either reaches one function, and the code of
 // @b is still called, as @A.inst.
-// CHECK-NOT: idr.func private @B.inst
-// CHECK: idr.func private @A.inst(
+// CHECK-NOT: idr.func @B.inst
+// CHECK: idr.func @A.inst(
 // CHECK: idr.func @root(
 // CHECK: call @A.inst(
 // CHECK: call @A.inst(
-module {
-  idr.func private @A.inst(%x: i64) -> i64 attributes {instance = #idr.instance<"Prog.fA", ["Int"]>, total} {
+idr.program @"merge-named" root(@root) stage(higher) {
+  idr.func @A.inst(%x: i64) -> i64 attributes {instance = #idr.instance<"Prog.fA", ["Int"]>, total} {
     %c = arith.constant 3 : i64
     %y = arith.muli %x, %c : i64
     return %y : i64
   } loc("a")
-  idr.func private @B.inst(%x: i64) -> i64 attributes {instance = #idr.instance<"Prog.fB", ["Int"]>, total} {
+  idr.func @B.inst(%x: i64) -> i64 attributes {instance = #idr.instance<"Prog.fB", ["Int"]>, total} {
     %c = arith.constant 3 : i64
     %y = arith.muli %x, %c : i64
     return %y : i64

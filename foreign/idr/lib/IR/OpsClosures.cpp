@@ -4,9 +4,11 @@
 // parameters, and idr.apply runs one. idr.suspend builds a cell and does
 // not run its function; idr.force reads that cell, and the first entry
 // computes the value and leaves it there. After idr-defunctionalize the cell
-// is a box of a memo sum, and a force reads its state. A suspension of a
-// value that already exists, idr.delay, is evaluated where it is built:
-// forcing it computes nothing, and the force is the value.
+// is a box of a memo sum, a force is a call of its dispatch, and the
+// dispatch writes the cell's state through idr.memo.enter and
+// idr.memo.settle. A suspension of a value that already exists, idr.delay,
+// is evaluated where it is built: forcing it computes nothing, and the
+// force is the value.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Canon.h"
@@ -21,13 +23,11 @@ using namespace idr;
 
 namespace {
 
-// A call of `callee` in place of a force or an apply. Neither carried
-// effects, so the call carries none either: the next idr-effects writes
-// them.
+// A call of `callee` in place of a force: what it may do is the callee's.
 CallOp callOf(OpBuilder &builder, Location loc, FlatSymbolRefAttr callee, TypeRange results,
               ValueRange args) {
   return CallOp::create(builder, loc, results, callee, args, /*arg_attrs=*/nullptr,
-                        /*res_attrs=*/nullptr, /*effects=*/nullptr);
+                        /*res_attrs=*/nullptr);
 }
 
 // A suspension nothing else uses is this call. The body runs once, where
@@ -198,39 +198,24 @@ OpFoldResult SuspendOp::fold(FoldAdaptor adaptor) {
 // idr.force
 //===----------------------------------------------------------------------===//
 
-// The value a suspension holds; a memo sum's `forced` state holds it once
-// the cell is a box, which its type says.
+// The value a suspension holds.
 LogicalResult ForceOp::verify() {
-  Type cell = unrestricted(getSuspension().getType());
-  Type value;
-  if (auto lazy = dyn_cast<LazyType>(cell)) {
-    value = lazy.getValue();
-  } else {
-    DataType data = cast<BoxType>(cell).getData();
-    if (!data.isMemo())
-      return emitOpError("forces ") << cell << ", which is not a memo sum";
-    value = data.getCtor(data.getForcedTag()).fields[0];
-  }
+  Type value = cast<LazyType>(unrestricted(getSuspension().getType())).getValue();
   if (unrestricted(getResult().getType()) != unrestricted(value))
     return emitOpError("forces ") << getSuspension().getType() << " to " << getResult().getType();
   return success();
 }
 
-// A view of a cell that memoizes has no effects: an unused force is
-// erased. Not speculatable, so it is not moved onto a path that did not
-// force. The write that shares the value is the lowering of this op, not a
-// second effect. A force that takes its cell over, its operand owned, frees
-// it; a force of a sum with a `by_name` label may run that label's output,
-// and stays in order with output, which the sum's type says.
+// A force is strict, as a call is: its first entry runs a function nothing
+// here bounds, which may crash or not return, each ordered with output as a
+// call that may do either is. The write that shares the value is the
+// force's own, not a second effect. Not speculatable, so it is not moved
+// onto a path that did not force.
 void ForceOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  Type cell = getSuspension().getType();
-  if (isOwned(cell))
-    effects.emplace_back(MemoryEffects::Free::get(), &getSuspensionMutable(),
-                         ReferenceResource::get());
-  DataType data = dataTypeOf(cell);
-  if (data && llvm::any_of(data.getCtors(), [](const Ctor &ctor) { return ctor.byName; }))
-    effects.emplace_back(MemoryEffects::Write::get(), IOResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), CrashResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), DivergenceResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), IOResource::get());
 }
 
 // The force of an evaluated suspension is the value it holds. A linear
@@ -250,4 +235,22 @@ OpFoldResult ForceOp::fold(FoldAdaptor) {
 
 void ForceOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRContext *context) {
   results.add<ForceOfOneUse, ForceInOneCase>(context);
+}
+
+//===----------------------------------------------------------------------===//
+// idr.memo.settle
+//===----------------------------------------------------------------------===//
+
+// The value is what the cell's Forced state holds.
+LogicalResult MemoSettleOp::verify() {
+  DataType memo = cast<BoxType>(unrestricted(getCell().getType())).getData();
+  const Ctor *forced = llvm::find_if(
+      memo.getCtors(), [](const Ctor &ctor) { return ctor.role == CtorRole::Forced; });
+  if (forced == memo.getCtors().end() || forced->fields.size() != 1)
+    return emitOpError("settles ") << getCell().getType() << ", whose memo sum has no Forced "
+                                   << "state holding one value";
+  if (unrestricted(getValue().getType()) != unrestricted(forced->fields.front()))
+    return emitOpError("settles ") << getCell().getType() << " with " << getValue().getType()
+                                   << ", where its Forced state holds " << forced->fields.front();
+  return success();
 }

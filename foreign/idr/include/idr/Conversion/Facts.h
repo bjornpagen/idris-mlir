@@ -9,9 +9,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 
-#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/SymbolTable.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 
@@ -21,16 +19,16 @@ namespace idr::conversion {
 
 class Facts {
 public:
-  // Reads each function's idr signature, and the parameters some call
-  // passes poison, before phase 0 renames the functions and the conversion
-  // takes the types apart; each is kept under the function's mangled name,
-  // the name it has from phase 0 on. A force calls a memo label's function
-  // directly, its captures in order as its parameters, but that call is
-  // made by the conversion: before it, the call is the label's
-  // constructor, built new or in a reused cell, whose fields are the
-  // captures. The memo sum's other two states, running and forced, have no
-  // function.
-  Facts(mlir::ModuleOp module, mlir::SymbolTable &symbols);
+  // Reads each function of the program, its idr signature and the
+  // parameters some call passes poison, before phase 0 renames the
+  // functions and the conversion takes the types apart; each is kept under
+  // the function's mangled name, the name it has from phase 0 on. A memo
+  // label's function is called by its sum's dispatch function with the
+  // fields a force reads from the cell, its captures in order as its
+  // parameters: so the label's constructor, built new or in a reused cell,
+  // passes its fields to the function as a call passes its arguments. The
+  // memo sum's other two states, running and forced, have no function.
+  explicit Facts(ProgramOp program);
 
   // After the conversion, marks each function's parameters and result:
   //   - a box, a closure or a string is a pointer to a cell, never null,
@@ -43,7 +41,7 @@ public:
   void apply(const Layouts &layouts);
 
 private:
-  mlir::ModuleOp module;
+  ProgramOp program;
   llvm::DenseMap<mlir::StringAttr, mlir::FunctionType> signatures;
   llvm::DenseSet<std::pair<mlir::StringAttr, unsigned>> poisoned;
 };

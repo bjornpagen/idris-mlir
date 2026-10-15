@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The runtime references one fold holds, and the count of the cells it
-// leaves live.
+// leaves live. A big constant is the big its decimal text reads as, and a
+// big's constant is the integer its text shows: the functions of
+// big.from_str and big.show, so a constant means what the program's own
+// conversions make of it. The integer a constant holds is read signed.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Fold.h"
 
-#include "idris_rt.h"
-
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/MLIRContext.h"
+#include "llvm/ADT/APInt.h"
+#include "llvm/ADT/SmallString.h"
 
 using namespace mlir;
 
@@ -33,7 +36,9 @@ const idris_rt_str *Scope::str(StringAttr value) {
 }
 
 idris_rt_big Scope::big(BigAttr value) {
-  return keep(idris_rt_big_from_str(str(StringAttr::get(ctx, value.getValue()))));
+  llvm::SmallString<32> text;
+  value.getValue().toStringSigned(text);
+  return keep(runtime<BigFromStrOp>(str(StringAttr::get(ctx, text))));
 }
 
 const idris_rt_str *Scope::keep(const idris_rt_str *s) {
@@ -53,8 +58,11 @@ Attribute Scope::attr(const idris_rt_str *s) {
 
 Attribute Scope::attr(idris_rt_big b) {
   keep(b);
-  const idris_rt_str *text = keep(idris_rt_big_show(b));
-  return BigAttr::get(ctx, StringRef(idris_rt_str_bytes(text), text->bytes));
+  const idris_rt_str *shown = keep(runtime<BigShowOp>(b));
+  StringRef text(idris_rt_str_bytes(shown), shown->bytes);
+  // The bits the text needs read unsigned, and one for the sign, which a
+  // positive value's top bit would otherwise be.
+  return BigAttr::get(ctx, APInt(APInt::getBitsNeeded(text, 10) + 1, text, 10));
 }
 
 } // namespace idr::fold

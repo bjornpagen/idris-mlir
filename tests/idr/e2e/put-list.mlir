@@ -11,10 +11,10 @@
 // OUT: [xé€😀] [xé€😀] 4
 // OUT-NEXT: [ab-x] [ab-x] 4
 // ERR: idris-mlir: done
-!Chars = !idr.data<"Chars", list [@Nil(), @Cons(i32, !idr.box<!idr.data<"Chars">>)]>
-!Strs = !idr.data<"Strs", list [@Nil(), @Cons(!idr.str, !idr.box<!idr.data<"Strs">>)]>
-module {
-  idr.func private @pick(%c: i32) -> !idr.str {
+!Chars = !idr.data<"Chars", list [@Nil() nil, @Cons(i32, !idr.box<!idr.data<"Chars">>) cons]>
+!Strs = !idr.data<"Strs", list [@Nil() nil, @Cons(!idr.str, !idr.box<!idr.data<"Strs">>) cons]>
+idr.program @"put-list" root(@Prog.main) stage(higher) {
+  idr.func @pick(%c: i32) -> !idr.str {
     %r = idr.match_lit %c : i32 -> (!idr.str) {
     case 121 {
       %s = idr.constant "y" : !idr.str
@@ -33,14 +33,14 @@ module {
     %space = arith.constant 32 : i32
     %newline = arith.constant 10 : i32
     %x, %w1 = idr.io.get_byte %w
-    %cnil = idr.con @Nil() : () -> !idr.box<!Chars>
+    %cnil = idr.con !idr.box<!Chars> @Nil()
     %grin = arith.constant 128512 : i32
     %euro = arith.constant 8364 : i32
     %e = arith.constant 233 : i32
-    %c3 = idr.con @Cons(%grin, %cnil) : (i32, !idr.box<!Chars>) -> !idr.box<!Chars>
-    %c2 = idr.con @Cons(%euro, %c3) : (i32, !idr.box<!Chars>) -> !idr.box<!Chars>
-    %c1 = idr.con @Cons(%e, %c2) : (i32, !idr.box<!Chars>) -> !idr.box<!Chars>
-    %cs = idr.con @Cons(%x, %c1) : (i32, !idr.box<!Chars>) -> !idr.box<!Chars>
+    %c3 = idr.con !idr.box<!Chars> @Cons(%grin : i32, %cnil : !idr.box<!Chars>)
+    %c2 = idr.con !idr.box<!Chars> @Cons(%euro : i32, %c3 : !idr.box<!Chars>)
+    %c1 = idr.con !idr.box<!Chars> @Cons(%e : i32, %c2 : !idr.box<!Chars>)
+    %cs = idr.con !idr.box<!Chars> @Cons(%x : i32, %c1 : !idr.box<!Chars>)
     // Written as it is walked.
     %w2 = idr.io.put_char %open, %w1
     %walked = idr.str.pack %cs : !idr.box<!Chars> -> !idr.str
@@ -56,13 +56,13 @@ module {
     %n = idr.str.length %built
     %w10 = idr.io.put_int signed %n, %w9 : i64
     %w11 = idr.io.put_char %newline, %w10
-    %snil = idr.con @Nil() : () -> !idr.box<!Strs>
+    %snil = idr.con !idr.box<!Strs> @Nil()
     %ab = idr.constant "ab" : !idr.str
     %dash = idr.constant "-" : !idr.str
     %xs = idr.str.from_char %x
-    %s3 = idr.con @Cons(%xs, %snil) : (!idr.str, !idr.box<!Strs>) -> !idr.box<!Strs>
-    %s2 = idr.con @Cons(%dash, %s3) : (!idr.str, !idr.box<!Strs>) -> !idr.box<!Strs>
-    %ss = idr.con @Cons(%ab, %s2) : (!idr.str, !idr.box<!Strs>) -> !idr.box<!Strs>
+    %s3 = idr.con !idr.box<!Strs> @Cons(%xs : !idr.str, %snil : !idr.box<!Strs>)
+    %s2 = idr.con !idr.box<!Strs> @Cons(%dash : !idr.str, %s3 : !idr.box<!Strs>)
+    %ss = idr.con !idr.box<!Strs> @Cons(%ab : !idr.str, %s2 : !idr.box<!Strs>)
     %w12 = idr.io.put_char %open, %w11
     %joined = idr.str.concat %ss : !idr.box<!Strs> -> !idr.str
     %w13 = idr.io.put_str %joined, %w12

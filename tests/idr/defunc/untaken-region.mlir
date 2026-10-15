@@ -8,18 +8,18 @@
 // So @g's apply is a dispatch over @add, the call passes the closure's
 // constructor, and nothing is poison; which regions run is the
 // optimizer's to find afterwards, as a case of a known literal.
-// CHECK-LABEL: idr.func private @g(
+// CHECK-LABEL: idr.func @g(
 // CHECK: case @add(
 // CHECK: call @add(
 // CHECK-LABEL: idr.func @Prog.main(
-// CHECK: con @add(
+// CHECK: con {{.*}}@add(
 // CHECK: call @g(
-module {
-  idr.func private @add(%k: i64, %x: i64) -> i64 attributes {total} {
+idr.program @"untaken-region" root(@Prog.main) stage(higher) {
+  idr.func @add(%k: i64, %x: i64) -> i64 attributes {total} {
     %r = arith.addi %k, %x : i64
     return %r : i64
   }
-  idr.func private @g(%f: !idr.fn<(i64) -> (i64)>) -> i64 {
+  idr.func @g(%f: !idr.fn<(i64) -> (i64)>) -> i64 {
     %one = arith.constant 1 : i64
     %r = idr.apply %f(%one) : !idr.fn<(i64) -> (i64)>
     return %r : i64

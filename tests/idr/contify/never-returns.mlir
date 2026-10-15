@@ -3,12 +3,12 @@
 // ub.unreachable. Inlined, its body would be a block of its own after the
 // call's, and the match region that makes the call holds one block. The
 // call stays, as the inliner leaves it.
-// CHECK-LABEL: idr.func private @spin(
+// CHECK-LABEL: idr.func @spin(
 // CHECK: match_lit
 // CHECK: call @spin.case1(
-// CHECK: idr.func private @spin.case1(
-module {
-  idr.func private @spin(%n: i64) -> i64 {
+// CHECK: idr.func @spin.case1(
+idr.program @"never-returns" root(@root) stage(first) {
+  idr.func @spin(%n: i64) -> i64 {
     %c0 = arith.constant 0 : i64
     %more = arith.cmpi sgt, %n, %c0 : i64
     %r = idr.match_lit %more : i1 -> (i64) {
@@ -22,7 +22,7 @@ module {
     }
     return %r : i64
   }
-  idr.func private @spin.case1(%n: i64) -> i64 {
+  idr.func @spin.case1(%n: i64) -> i64 {
     %c1 = arith.constant 1 : i64
     %m = arith.subi %n, %c1 : i64
     %s = idr.call @spin(%m) : (i64) -> i64

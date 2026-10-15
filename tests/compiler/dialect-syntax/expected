@@ -1,4 +1,4 @@
-NEEDS-ACCEPTANCE: the samples' print in the dialects' syntax after the cutover (identified data types with bodies instead of idr.data and idr.ctor, symbol-form closures instead of the lambda and delay regions, no program mark, tensor and scf samples); the print below is the one before it, and the three status lines are the check
+NEEDS-ACCEPTANCE: the samples' print in the dialects' syntax after 0005 (R15): the program wrapper (idr.program, the root and the stage), the array ops, data bodies with their constructors' roles, tags in place of constructor names where an op holds a tag, and no scf loop or #idr.con sample; the print below is the one before it, and the three status lines are the check
 samples: exit 0
 parse: exit 0
 !T = !idr.box<@T>

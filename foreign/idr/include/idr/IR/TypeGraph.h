@@ -3,10 +3,10 @@
 // What a value of each type of the module can hold a reference to: the
 // containment among its data types and arrays, and its cycles, read from
 // the types the module's values are of and the bodies those hold. The
-// module verifier builds one directly to refuse a type that contains itself
-// and an array that can reach itself; a pass takes it from the analysis
-// manager, and it never changes once built, so function passes may read it
-// from any thread.
+// verifier builds one directly to refuse a type that contains itself and an
+// array that can reach itself, and layout::fit to decide the boxes; a pass
+// takes it from the analysis manager, and it never changes once built, so
+// function passes may read it from any thread.
 #ifndef IDR_IR_TYPEGRAPH_H
 #define IDR_IR_TYPEGRAPH_H
 
@@ -15,17 +15,31 @@
 #include "mlir/Pass/AnalysisManager.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <optional>
 
 namespace idr {
 
-// A node is a data type or an array; an edge goes from a data type to what
-// its constructors' fields name, held in place or in a box, and from an
-// array to what its element names, through grades. Every data type is
-// numbered first, in the order of their names, so the numbering is the
-// module's content alone; the arrays follow, as their holders meet them.
+// One step down the containment among types, said once for the type graph
+// and for the facts a data type keeps of what its values hold: what a value
+// or a field of `type` names, seen through its grade. A data type held in
+// place or in a box goes to `data`, with whether it is held in place; an
+// array a world orders, to `array`, which names what its element names
+// through its cell; a value array (a tensor, or its buffer) is looked
+// through, its element held out of place; anything else, which names no
+// type, goes to `leaf`.
+void forEachNamed(mlir::Type type, llvm::function_ref<void(DataType data, bool inPlace)> data,
+                  llvm::function_ref<void(mlir::MemRefType array)> array,
+                  llvm::function_ref<void(mlir::Type leaf)> leaf);
+
+// A node is a data type or an array a world orders; an edge goes from a
+// data type to what its constructors' fields name (forEachNamed), held in
+// place, in a box or in a value array's elements, and from an array to what
+// its element names. Every data type is numbered first, in the order of
+// their names, so the numbering is the module's content alone; the arrays
+// follow, as their holders meet them.
 class TypeGraph {
 public:
   explicit TypeGraph(mlir::Operation *module);
@@ -46,7 +60,7 @@ public:
   // whether some holds it in place.
   bool boxed(unsigned at) const { return heldBoxed[at]; }
   bool inlined(unsigned at) const { return heldInPlace[at]; }
-  llvm::ArrayRef<unsigned> successors(unsigned at) const { return edges[at]; }
+  llvm::ArrayRef<unsigned> successors(unsigned at) const { return successorsOf[at]; }
   // The strongly connected components, callees first.
   llvm::ArrayRef<llvm::SmallVector<unsigned>> components() const { return parts; }
 
@@ -62,13 +76,12 @@ public:
 
 private:
   unsigned insert(mlir::Type type);
-  // Notes how a value or a field of `type` holds what it names.
-  void held(mlir::Type type);
-  void edge(unsigned from, mlir::Type type);
+  // The edges from `from` to what a field or an element of `type` names.
+  void edges(unsigned from, mlir::Type type);
 
   llvm::SmallVector<mlir::Type> types;
   llvm::SmallVector<bool> heldBoxed, heldInPlace;
-  llvm::SmallVector<llvm::SmallVector<unsigned>> edges;
+  llvm::SmallVector<llvm::SmallVector<unsigned>> successorsOf;
   // For each node, its successors held in place.
   llvm::SmallVector<llvm::SmallVector<unsigned>> inPlace;
   llvm::DenseMap<mlir::Type, unsigned> index;

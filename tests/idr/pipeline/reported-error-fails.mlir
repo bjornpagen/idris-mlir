@@ -8,7 +8,7 @@
 // open as an error and runs without it: idris-mlir then stops with a
 // usage error and writes no object. Without the error the module compiles.
 // CHECK: error: {{.*}}--log-actions-to
-module {
+idr.program @"reported-error-fails" root(@Prog.main) stage(higher) {
   idr.func @Prog.main() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64

@@ -87,7 +87,10 @@ Width widthOf(Operation *op) {
 
 // The greatest set: an op reached from the argument stays while each use of
 // its results is the yield's operand that carries the argument round or an
-// op that stays. An op nothing reads is on no path to the yield.
+// op that stays. An op nothing reads is on no path to the yield. Every op
+// starts kept; one that does not feed only the set leaves it, and then the
+// kept ops that feed it are asked again. An op leaves once, so the asking
+// ends with the set.
 llvm::DenseSet<Operation *> accumulations(Operation *root) {
   llvm::DenseSet<Operation *> carried;
   root->walk([&](scf::ForOp loop) {
@@ -103,19 +106,20 @@ llvm::DenseSet<Operation *> accumulations(Operation *root) {
           if (user->hasTrait<OpTrait::Elementwise>() && reached.insert(user))
             llvm::append_range(work, user->getResults());
       llvm::DenseSet<Operation *> kept(reached.begin(), reached.end());
-      for (bool changed = true; changed;) {
-        changed = false;
-        for (Operation *op : reached) {
-          if (!kept.contains(op))
-            continue;
-          bool feeds = !op->use_empty() && llvm::all_of(op->getUses(), [&](OpOperand &use) {
-            return &use == &next || kept.contains(use.getOwner());
-          });
-          if (!feeds) {
-            kept.erase(op);
-            changed = true;
-          }
-        }
+      auto feeds = [&](Operation *op) {
+        return !op->use_empty() && llvm::all_of(op->getUses(), [&](OpOperand &use) {
+          return &use == &next || kept.contains(use.getOwner());
+        });
+      };
+      SmallVector<Operation *> asked(reached.begin(), reached.end());
+      while (!asked.empty()) {
+        Operation *op = asked.pop_back_val();
+        if (!kept.contains(op) || feeds(op))
+          continue;
+        kept.erase(op);
+        for (Value operand : op->getOperands())
+          if (Operation *def = operand.getDefiningOp(); def && kept.contains(def))
+            asked.push_back(def);
       }
       carried.insert(kept.begin(), kept.end());
     }

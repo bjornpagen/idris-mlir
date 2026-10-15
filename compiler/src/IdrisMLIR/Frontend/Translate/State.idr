@@ -176,19 +176,6 @@ record Dictionary where
 export
 data TState : Type where
 
-||| A data instance as it is registered. Its representation is decided once
-||| every instance is known (`assemble`): a box exactly when its
-||| containment is recursive.
-public export
-record Decl where
-  constructor MkDecl
-  id : DataId
-  key : InstanceKey
-  cons : List Con
-  loc : Loc
-  ||| The promise its type's values keep, which the registry names.
-  promise : Maybe Promise
-
 ||| What the translation reads of a type constructor's definition: its
 ||| parameters, the type parameters among them that a value represents, and
 ||| whether it is `Nat`-like.
@@ -202,7 +189,7 @@ record TyConFacts where
 public export
 record TS where
   constructor MkTS
-  datas : SortedMap DataId Decl
+  datas : SortedMap DataId IdrisMLIR.Term.Data
   dataOrder : SnocList DataId
   ||| The instances being registered, which a field may refer to.
   building : SortedSet DataId

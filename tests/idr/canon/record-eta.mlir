@@ -1,4 +1,4 @@
-// RUN: idris-mlir-opt %s --canonicalize --idr-tail-loops -o %t.mlir
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(canonicalize,idr.func(idr-tail-loops)))' -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=constant-stack=@traverse,constant-stack=@known -o /dev/null
 // RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=constant-stack=@shared -o /dev/null 2> %t.shared.err
 // RUN: FileCheck %s --check-prefix=SHARED < %t.shared.err
@@ -18,25 +18,25 @@
 // is the node, so it allocates nothing.
 !Unit = !idr.data<"Unit", plain [@MkUnit()]>
 !IORes = !idr.data<"IORes", plain [@MkIORes(!Unit, !idr.world)]>
-!List = !idr.data<"List", list [@Nil(), @Cons(i64, !idr.box<!idr.data<"List">>)]>
+!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
 !RB = !idr.data<"RB", plain [@E(), @TB(!idr.box<!idr.data<"RB">>, i64, !idr.box<!idr.data<"RB">>)]>
 !Pair = !idr.data<"Pair", plain [@Left(i64, i64), @Right(i64, i64)]>
-module {
+idr.program @"record-eta" root(@root) stage(first) {
 
   // traverse_ printLn xs, as the Prelude's foldr over IO raises it.
-  idr.func private @traverse(%xs: !idr.box<!List>, %w: !idr.world) -> !IORes {
+  idr.func @traverse(%xs: !idr.box<!List>, %w: !idr.world) -> !IORes {
     %unit = idr.constant #idr.con<@MkUnit, []> : !Unit
     %r = idr.match %xs : !idr.box<!List> -> (!IORes) {
     case @Nil() {
-      %done = idr.con @MkIORes(%unit, %w) : (!Unit, !idr.world) -> !IORes
+      %done = idr.con !IORes @MkIORes(%unit : !Unit, %w : !idr.world)
       idr.yield %done : !IORes
     }
     case @Cons(%x: i64, %rest: !idr.box<!List>) {
       %w1 = idr.io.put_int signed %x, %w : i64
       %next = idr.call @traverse(%rest, %w1) : (!idr.box<!List>, !idr.world) -> !IORes
-      %u = idr.field %next[@MkIORes, 0] : !IORes -> !Unit
-      %w2 = idr.field %next[@MkIORes, 1] : !IORes -> !idr.world
-      %again = idr.con @MkIORes(%u, %w2) : (!Unit, !idr.world) -> !IORes
+      %u = idr.field %next : !IORes @MkIORes[0] -> !Unit
+      %w2 = idr.field %next : !IORes @MkIORes[1] -> !idr.world
+      %again = idr.con !IORes @MkIORes(%u : !Unit, %w2 : !idr.world)
       idr.yield %again : !IORes
     }
     }
@@ -44,17 +44,17 @@ module {
   }
 
   // A field that is also read elsewhere keeps the constructor.
-  idr.func private @shared(%xs: !idr.box<!List>, %n: i64) -> (!Pair, i64) {
+  idr.func @shared(%xs: !idr.box<!List>, %n: i64) -> (!Pair, i64) {
     %r:2 = idr.match %xs : !idr.box<!List> -> (!Pair, i64) {
     case @Nil() {
-      %p = idr.con @Left(%n, %n) : (i64, i64) -> !Pair
+      %p = idr.con !Pair @Left(%n : i64, %n : i64)
       idr.yield %p, %n : !Pair, i64
     }
     case @Cons(%x: i64, %rest: !idr.box<!List>) {
       %next:2 = idr.call @shared(%rest, %x) : (!idr.box<!List>, i64) -> (!Pair, i64)
-      %a = idr.field %next#0[@Left, 0] : !Pair -> i64
-      %b = idr.field %next#0[@Left, 1] : !Pair -> i64
-      %again = idr.con @Left(%a, %b) : (i64, i64) -> !Pair
+      %a = idr.field %next#0 : !Pair @Left[0] -> i64
+      %b = idr.field %next#0 : !Pair @Left[1] -> i64
+      %again = idr.con !Pair @Left(%a : i64, %b : i64)
       %s = arith.addi %a, %x : i64
       idr.yield %again, %s : !Pair, i64
     }
@@ -64,18 +64,18 @@ module {
 
   // @Pair has two constructors: rebuilding @Left from a value that may be
   // @Right would change it.
-  idr.func private @unknown(%xs: !idr.box<!List>) -> !Pair {
+  idr.func @unknown(%xs: !idr.box<!List>) -> !Pair {
     %r = idr.match %xs : !idr.box<!List> -> (!Pair) {
     case @Nil() {
       %z = arith.constant 0 : i64
-      %p = idr.con @Right(%z, %z) : (i64, i64) -> !Pair
+      %p = idr.con !Pair @Right(%z : i64, %z : i64)
       idr.yield %p : !Pair
     }
     case @Cons(%x: i64, %rest: !idr.box<!List>) {
       %next = idr.call @unknown(%rest) : (!idr.box<!List>) -> !Pair
-      %a = idr.field %next[@Left, 0] : !Pair -> i64
-      %b = idr.field %next[@Left, 1] : !Pair -> i64
-      %again = idr.con @Left(%a, %b) : (i64, i64) -> !Pair
+      %a = idr.field %next : !Pair @Left[0] -> i64
+      %b = idr.field %next : !Pair @Left[1] -> i64
+      %again = idr.con !Pair @Left(%a : i64, %b : i64)
       idr.yield %again : !Pair
     }
     }
@@ -84,22 +84,22 @@ module {
 
   // Where a match has taken a value apart, the case's own fields rebuild
   // its constructor: each region is the value again.
-  idr.func private @known(%xs: !idr.box<!List>) -> !Pair {
+  idr.func @known(%xs: !idr.box<!List>) -> !Pair {
     %r = idr.match %xs : !idr.box<!List> -> (!Pair) {
     case @Nil() {
       %z = arith.constant 0 : i64
-      %p = idr.con @Right(%z, %z) : (i64, i64) -> !Pair
+      %p = idr.con !Pair @Right(%z : i64, %z : i64)
       idr.yield %p : !Pair
     }
     case @Cons(%x: i64, %rest: !idr.box<!List>) {
       %next = idr.call @known(%rest) : (!idr.box<!List>) -> !Pair
       %s = idr.match %next : !Pair -> (!Pair) {
       case @Left(%a: i64, %b: i64) {
-        %l = idr.con @Left(%a, %b) : (i64, i64) -> !Pair
+        %l = idr.con !Pair @Left(%a : i64, %b : i64)
         idr.yield %l : !Pair
       }
       case @Right(%a: i64, %b: i64) {
-        %q = idr.con @Right(%a, %b) : (i64, i64) -> !Pair
+        %q = idr.con !Pair @Right(%a : i64, %b : i64)
         idr.yield %q : !Pair
       }
       }
@@ -109,25 +109,30 @@ module {
     return %r : !Pair
   }
 
-  idr.func private @reindex(%t: !idr.box<!RB>) -> !idr.box<!RB> {
+  idr.func @reindex(%t: !idr.box<!RB>) -> !idr.box<!RB> {
     %r = idr.match %t : !idr.box<!RB> -> (!idr.box<!RB>) {
     case @E() {
       idr.yield %t : !idr.box<!RB>
     }
     case @TB(%l: !idr.box<!RB>, %x: i64, %rr: !idr.box<!RB>) {
-      %again = idr.con @TB(%l, %x, %rr) : (!idr.box<!RB>, i64, !idr.box<!RB>) -> !idr.box<!RB>
+      %again = idr.con !idr.box<!RB> @TB(%l : !idr.box<!RB>, %x : i64, %rr : !idr.box<!RB>)
       idr.yield %again : !idr.box<!RB>
     }
     }
     return %r : !idr.box<!RB>
   }
 
-  idr.func private @Prog.main(%xs: !idr.box<!List>, %w: !idr.world) -> (!IORes, !Pair, i64, !Pair, !Pair) {
+  idr.func @Prog.main(%xs: !idr.box<!List>, %w: !idr.world) -> (!IORes, !Pair, i64, !Pair, !Pair) {
     %c3 = arith.constant 3 : i64
     %a = idr.call @traverse(%xs, %w) : (!idr.box<!List>, !idr.world) -> !IORes
     %b:2 = idr.call @shared(%xs, %c3) : (!idr.box<!List>, i64) -> (!Pair, i64)
     %c = idr.call @unknown(%xs) : (!idr.box<!List>) -> !Pair
     %d = idr.call @known(%xs) : (!idr.box<!List>) -> !Pair
     return %a, %b#0, %b#1, %c, %d : !IORes, !Pair, i64, !Pair, !Pair
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
   }
 }

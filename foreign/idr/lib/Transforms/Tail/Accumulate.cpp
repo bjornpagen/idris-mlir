@@ -10,11 +10,11 @@
 // Counting borrows a call's result and drops it after the addition, so this
 // runs first, while the result is still what the tail adds.
 //
-// The pass stays at the module: each clone is a new symbol in the module's
-// block, which no pass on one function may add. It plans and rewrites one
-// function at a time, in module order, and enters each clone in the table
-// it holds, right after its function, under a name made from the
-// function's and the kind `acc`, so no order reaches the name.
+// The pass stays at the program: each clone is a new symbol in the
+// program's block, which no pass on one function may add. It plans and
+// rewrites one function at a time, in program order, and enters each clone
+// in the table it holds, right after its function, under a name made from
+// the function's and the kind `acc`, so no order reaches the name.
 //
 //===----------------------------------------------------------------------===//
 
@@ -43,13 +43,12 @@ namespace {
 
 // A call of `clone` in place of `call`, with `carried` after its arguments.
 // The clone is the same recursion with the same facts, so the call does
-// what the old one did: its effects are the clone's.
+// what the old one did.
 CallOp retarget(RewriterBase &rewriter, CallOp call, FuncOp clone, Value carried) {
   SmallVector<Value> args(call.getArgs());
   args.push_back(carried);
-  auto neu = CallOp::create(rewriter, call.getLoc(), clone.getResultTypes(),
-                            FlatSymbolRefAttr::get(clone.getSymNameAttr()), args,
-                            /*arg_attrs=*/ArrayAttr(), call.getResAttrsAttr(), clone.getEffectsAttr());
+  auto neu = CallOp::create(rewriter, call.getLoc(), clone, args);
+  neu.setResAttrsAttr(call.getResAttrsAttr());
   neu->setDiscardableAttrs(call->getDiscardableAttrDictionary());
   return neu;
 }
@@ -99,12 +98,12 @@ void rewriteClone(RewriterBase &rewriter, FuncOp clone, ArrayRef<Site> sites, co
 
 struct Accumulate : impl::IdrAccumulateBase<Accumulate> {
   void runOnOperation() override {
-    ModuleOp module = getOperation();
-    MLIRContext *ctx = module.getContext();
+    ProgramOp program = getOperation();
+    MLIRContext *ctx = program.getContext();
     SymbolTable &symbols = getAnalysis<SymbolTable>();
     IRRewriter rewriter(ctx);
     bool changed = false;
-    for (FuncOp fn : llvm::make_early_inc_range(module.getOps<FuncOp>())) {
+    for (FuncOp fn : llvm::make_early_inc_range(program.getOps<FuncOp>())) {
       if (isCountdown(fn)) {
         returnArgument(fn, rewriter);
         changed = true;
@@ -121,7 +120,6 @@ struct Accumulate : impl::IdrAccumulateBase<Accumulate> {
       IRMapping mapping;
       auto clone = cast<FuncOp>(fn->clone(mapping));
       clone.setSymNameAttr(*name);
-      clone.setPrivate();
       (void)clone.insertArgument(clone.getNumArguments(), result, DictionaryAttr(), fn.getLoc());
       symbols.insert(clone, std::next(fn->getIterator()));
       rewriteClone(rewriter, clone, sites, mapping, clone.getArguments().back());
@@ -135,12 +133,11 @@ struct Accumulate : impl::IdrAccumulateBase<Accumulate> {
       Block &entry = fn.getBody().front();
       clearBlock(rewriter, entry);
       rewriter.setInsertionPointToStart(&entry);
-      Value zero = ConstantOp::create(rewriter, fn.getLoc(), result, BigAttr::get(ctx, "0"));
+      Value zero =
+          ConstantOp::create(rewriter, fn.getLoc(), result, BigAttr::get(ctx, APInt(1, 0)));
       SmallVector<Value> args(entry.getArguments());
       args.push_back(zero);
-      auto call = CallOp::create(rewriter, fn.getLoc(), fn.getResultTypes(),
-                                 FlatSymbolRefAttr::get(clone.getSymNameAttr()), args,
-                                 /*arg_attrs=*/ArrayAttr(), /*res_attrs=*/ArrayAttr(), clone.getEffectsAttr());
+      auto call = CallOp::create(rewriter, fn.getLoc(), clone, args);
       ReturnOp::create(rewriter, fn.getLoc(), call.getResults());
     }
     if (!changed)

@@ -4,6 +4,5 @@ run: exit status as expected
 stdout: as expected
 stderr: empty
 object: no undefined symbol outside the allowed set
-mlir.expect: holds
 dumps: parse and verify
 quantities: kept

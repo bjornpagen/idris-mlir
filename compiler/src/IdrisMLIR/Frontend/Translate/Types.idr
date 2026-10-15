@@ -16,7 +16,6 @@ import Libraries.Data.NatSet
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
-import IdrisMLIR.Frontend.Translate.Hooks
 import IdrisMLIR.Frontend.Translate.Keys
 import IdrisMLIR.Frontend.Translate.Shapes
 import IdrisMLIR.Frontend.Translate.State
@@ -426,45 +425,13 @@ dictionaryBinder : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                    RigCount -> TT vars -> Core Bool
 dictionaryBinder rig ty = if isErased rig then pure False else implementationType ty
 
-||| Whether an array of this kind whose element is this data instance is
-||| held as one array per field (0003 D44): the instance is a record (one
-||| constructor of two fields or more), registered and not containing
-||| itself, and an array of this kind can hold each field as its element (a
-||| value array a field that is no array a world orders; an array a world
-||| orders a field that is no array at all, since a memref holds no shaped
-||| value). Any other element is one array of that element.
-columnar : {auto s : Ref TState TS} -> ArrayKind -> DataId -> Core Bool
-columnar kind r = do
-  st <- get TState
-  if contains r st.building || contains r st.reentered then pure False else
-    pure (case map (.cons) (lookup r st.datas) of
-            Just [con] => length con.fields >= 2 && all (holds kind . typeOf) con.fields
-            _ => False)
-  where
-    holds : ArrayKind -> Ty -> Bool
-    holds ValueArray (MemRefT _ _) = False
-    holds ValueArray (ColumnsT OrderedArray _ _) = False
-    holds ValueArray _ = True
-    holds OrderedArray (TensorT _ _) = False
-    holds OrderedArray (MemRefT _ _) = False
-    holds OrderedArray (ColumnsT _ _ _) = False
-    holds OrderedArray _ = True
-
-||| An array of a kind, of these dimensions, of this element: one array per
-||| field when the element is a record that splits, one array of the
-||| element otherwise; an array of value arrays is one, the element's
-||| dimensions after these.
-arrayOf : {auto s : Ref TState TS} -> ArrayKind -> List Dim -> Ty -> Core Ty
-arrayOf ValueArray ds (TensorT cs el) = pure (TensorT (ds ++ cs) el)
-arrayOf ValueArray ds (ColumnsT ValueArray cs r) = pure (ColumnsT ValueArray (ds ++ cs) r)
-arrayOf kind ds e@(DataT r) =
-  if !(columnar kind r) then pure (ColumnsT kind ds r) else pure (plain kind ds e)
-  where
-    plain : ArrayKind -> List Dim -> Ty -> Ty
-    plain ValueArray = TensorT
-    plain OrderedArray = MemRefT
-arrayOf ValueArray ds e = pure (TensorT ds e)
-arrayOf OrderedArray ds e = pure (MemRefT ds e)
+||| A value array of these dimensions of this element: an array of value
+||| arrays is one, the element's dimensions after these. An array of
+||| records is a tensor of the record, whatever the record holds: the
+||| dialect splits it into one tensor per field.
+valueArrayOf : List Dim -> Ty -> Ty
+valueArrayOf ds (TensorT cs el) = TensorT (ds ++ cs) el
+valueArrayOf ds e = TensorT ds e
 
 mutual
   ||| The Core type of a closed, normalised type. A type that has no runtime
@@ -505,28 +472,26 @@ mutual
       let hs = hooksOf (fullname def)
       if (!(tyConFacts def)).natLike
          then pure NatT
-         else if isWordType hs
+         else if hs.wordType
            then pure (IntT UInt64)
-         else case orderedArrayOf hs of
+         else case hs.orderedArray of
            Just (ds, Just e) => pure (MemRefT ds e)
            Just (ds, Nothing) => case args of
              [a] => do
                e <- coreType fc owner rule !(normaliseClosed a)
                case e of
                  TensorT _ _ => reject fc owner rule ("an array a world orders holding an array value: " ++ !(showTT tm))
-                 ColumnsT ValueArray _ _ => reject fc owner rule ("an array a world orders holding an array value: " ++ !(showTT tm))
-                 _ => arrayOf OrderedArray ds e
+                 _ => pure (MemRefT ds e)
              _ => internal fc "the array type without its one element type"
            Nothing =>
-             if isValueArray hs
+             if hs.valueArray
                then case args of
                  [shape, a] => do
                    ds <- shapeDims fc owner shape
                    e <- coreType fc owner rule !(normaliseClosed a)
                    case e of
                      MemRefT _ _ => reject fc owner rule ("an array value holding an array a world orders: " ++ !(showTT tm))
-                     ColumnsT OrderedArray _ _ => reject fc owner rule ("an array value holding an array a world orders: " ++ !(showTT tm))
-                     _ => arrayOf ValueArray ds e
+                     _ => pure (valueArrayOf ds e)
                  _ => internal fc "a value array without its shape and element"
                else snd <$> dataInstance fc owner n !(traverse normaliseClosed args)
     (TType _ _, _) => reject fc owner rule "Type in a runtime position"
@@ -564,7 +529,7 @@ mutual
       (_, Just b) => pure (inst, typeOf b)
       _ =>
         -- An instance being registered is referred to by its own fields
-        -- when it is recursive; `assemble` makes it a box.
+        -- when it is recursive: it is declared, whatever its shape.
         if contains inst st.building
           then do
             update TState { reentered $= insert inst }
@@ -588,8 +553,8 @@ mutual
                 pure (inst, typeOf b)
               _ => do
                 update TState { building $= delete inst
-                              , datas $= insert inst (MkDecl inst key (map fst sorted) loc
-                                                             (promiseOf (hooksOf (fullname def))))
+                              , datas $= insert inst (MkData inst key (map fst sorted) loc
+                                                             (fromMaybe SumKind.Plain (hooksOf (fullname def)).sumOf))
                               , dataOrder $= (:< inst) }
                 pure (inst, DataT inst)
     where
@@ -630,7 +595,7 @@ mutual
                                    show (length layout))
         kinds <- walk cname (location def) targs 0 layout ty
         let con = MkCon (MkConId inst (shortName (fullname def))) (shown cname) (cast tag) (mapMaybe fieldBinder kinds) loc
-                        (roleOf (hooksOf (fullname def)))
+                        (fromMaybe CtorRole.Plain (hooksOf (fullname def)).plays)
         update TState { cons $= insert con.id (MkConLayout kinds (fullname def) con) }
         pure (con, kinds)
 
@@ -647,7 +612,7 @@ mutual
       def <- lookupDef fc owner n
       let hs = hooksOf (fullname def)
       natural <- (.natLike) <$> tyConFacts def
-      if natural || isWordType hs || isJust (orderedArrayOf hs) || isValueArray hs then pure Nothing else do
+      if natural || hs.wordType || isJust hs.orderedArray || hs.valueArray then pure Nothing else do
         args' <- traverse normaliseClosed args
         Just <$> dataInstance fc owner n args'
     _ => pure Nothing

@@ -21,45 +21,63 @@
 #include "mlir/Pass/PassRegistry.h"
 #include "mlir/Transforms/Passes.h"
 
-// The pipeline. A group, `pm.nest<T>()`, runs its passes over every op of
-// kind T directly inside the module, in parallel; each group is a manager
-// of its own. LLVM's own pipeline runs in idris-mlir, after it.
+// The pipeline. A group, `nest<T>()`, runs its passes over every op of kind
+// T directly inside the op its manager runs on, in parallel; each group is
+// a manager of its own. The program is one idr.program in the module, so
+// its passes are a group on it, its functions' passes a group inside that,
+// and the passes after lowering, once idr-entry has moved the program's
+// functions into the module, groups on the module's func.func. LLVM's own
+// pipeline runs in idris-mlir, after it.
 void idr::buildPipeline(mlir::OpPassManager &pm) {
+  mlir::OpPassManager &program = pm.nest<idr::ProgramOp>();
   // Of each class of functions that are one function twice over, the rest
   // of the pipeline sees one, so the label sets are made over fewer
   // functions.
-  pm.addPass(idr::createIdrDeduplicate());
-  // Before the optimizer: every closure becomes a constructor and every
-  // apply a dispatch of direct calls, so every later pass is first-order
-  // and the call graph sees every call.
-  pm.addPass(idr::createIdrDefunctionalize());
+  program.addPass(idr::createIdrDeduplicate());
+  // Before the optimizer: every closure becomes a constructor, every apply
+  // a dispatch of direct calls and every force a call of its sum's
+  // dispatch, so every later pass is first-order and the call graph sees
+  // every call.
+  program.addPass(idr::createIdrDefunctionalize());
   // Before inlining, while each continuation still returns to the one
   // place it was made for: case-of-case would copy the call of it.
-  pm.addPass(idr::createIdrContify());
+  program.addPass(idr::createIdrContify());
   // Each function once, after its callees are final.
-  pm.addPass(idr::createIdrOptimize());
-  // What only a module liveness analysis removes (a parameter or result no
-  // caller reads, and what feeds it), once, on the optimized module. The
-  // removal's own canonicalization is off: it folds region-branch patterns
-  // on the matches alone, and a field one of them folds leaves the
-  // constructor it read dead but in place, still holding a world or a
-  // linear value that the fold's user now holds too. symbol-dce then takes
-  // the functions nothing names any more.
+  program.addPass(idr::createIdrOptimize());
+  // A tensor of records becomes its columns on the optimized bodies, before
+  // the liveness analysis below, so that a column nothing reads goes with
+  // the rest of what no caller reads.
+  program.addPass(idr::createIdrColumns());
+  // What the conversion leaves for folding: a record built from its columns'
+  // elements only to be taken apart again, and a field read of it.
+  {
+    mlir::OpPassManager &functions = program.nest<idr::FuncOp>();
+    functions.addPass(idr::createCanonicalizerPass());
+    functions.addPass(mlir::createCSEPass());
+  }
+  // What only a liveness analysis of the whole program removes (a
+  // parameter or result no caller reads, and what feeds it), once, on the
+  // optimized program. The root keeps its signature and its body: it is
+  // the program's entry, the one function whose symbol is public, so both
+  // passes take it to be called from outside. The removal's own
+  // canonicalization is off: it folds region-branch patterns on the
+  // matches alone, and a field one of them folds leaves the constructor it
+  // read dead but in place, still holding a world or a linear value that
+  // the fold's user now holds too. symbol-dce then takes the functions
+  // nothing names any more.
   mlir::RemoveDeadValuesPassOptions dead;
   dead.canonicalize = false;
-  pm.addPass(mlir::createRemoveDeadValuesPass(dead));
-  pm.addPass(mlir::createSymbolDCEPass());
+  program.addPass(mlir::createRemoveDeadValuesPass(dead));
+  program.addPass(mlir::createSymbolDCEPass());
   // The arrays stage, on final bodies: inlining has already put together
-  // what it will, every call's effects are final, and the loops are still
-  // the scf loops dead-value removal trims. Each pure loop over a tensor
-  // becomes a linalg op.
-  pm.nest<idr::FuncOp>().addPass(idr::createIdrStructureLoops());
-  // On the module: only there does the analysis see function boundaries.
-  pm.addPass(mlir::bufferization::createEmptyTensorEliminationPass());
-  // Before counting, which sees buffers and needs no model of tensors.
-  pm.addPass(idr::createIdrBufferize());
+  // what it will and every callee's effects are final. Each array op becomes
+  // a linalg op or its ordered loop nest.
+  program.nest<idr::FuncOp>().addPass(idr::createIdrStructureLoops());
+  // Before counting, which sees buffers and needs no model of tensors. It
+  // eliminates empty tensors itself, on its own module analysis.
+  program.addPass(idr::createIdrBufferize());
   {
-    mlir::OpPassManager &functions = pm.nest<idr::FuncOp>();
+    mlir::OpPassManager &functions = program.nest<idr::FuncOp>();
     functions.addPass(idr::createCanonicalizerPass());
     functions.addPass(mlir::createCSEPass());
   }
@@ -67,21 +85,24 @@ void idr::buildPipeline(mlir::OpPassManager &pm) {
   // which reuses only the cells of the heap. Counting runs on functional
   // code, where recursion is still a call and a match's yield is its join
   // point; every later pass keeps its rule.
-  pm.addPass(idr::createIdrStack());
+  program.addPass(idr::createIdrStack());
   // While a self call's result is still the operand of the addition a tail
   // returns. Counting borrows that result and drops it after the addition,
   // and the call would no longer be the tail.
-  pm.addPass(idr::createIdrAccumulate());
-  pm.addPass(idr::createIdrRc());
+  program.addPass(idr::createIdrAccumulate());
+  program.addPass(idr::createIdrRc());
   // On the grades counting wrote: the promise the program's types make.
-  pm.addPass(idr::createIdrDemand());
-  pm.addPass(idr::createIdrTrmc());
-  pm.nest<idr::FuncOp>().addPass(idr::createIdrTailLoops());
+  program.addPass(idr::createIdrDemand());
+  program.addPass(idr::createIdrTrmc());
+  program.nest<idr::FuncOp>().addPass(idr::createIdrTailLoops());
   // On loops, which it versions, and after counting, whose counts of the
   // bigs it proves small it removes.
-  pm.addPass(idr::createIdrNarrow());
+  program.addPass(idr::createIdrNarrow());
+  // On the module, which the program leaves: the lowering converts the
+  // program's functions where they are, and idr-entry moves them into the
+  // module, makes the program's root its entry, @main, and erases the
+  // program.
   pm.addPass(idr::createIdrLower());
-  // The lowered root becomes the program's entry, @main.
   pm.addPass(idr::createIdrEntry());
   // The loops over arrays are linalg ops after lowering: the vectorization
   // schedule computes each on the target's lanes, and upstream makes the

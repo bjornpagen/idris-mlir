@@ -1,12 +1,20 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The label solve: a worklist over the classes of a union-find, each class
-// holding its set of labels, the nodes its labels flow into and the
-// dispatches its labels run. A class sends only what it gained since it
-// last sent; a dispatch adds the edges of each label as it arrives; two
-// classes that hold one cell are merged, never coerced. The sets are the
-// least solution of the edges, so they do not depend on the walk's or the
-// worklist's order.
+// holding its set of labels, the set it has sent on, the nodes its labels
+// flow into and the dispatches its labels run. A class sends only what it
+// gained since it last sent; a dispatch adds the edges of each label as it
+// arrives; two classes that hold one cell are merged, never coerced. The
+// sets are the least solution of the edges, so they do not depend on the
+// walk's or the worklist's order.
+//
+// Only a class's sets are made, each once per distinct content: what a
+// class gains and what it sends are differences computed where they are
+// used and never kept, so the table of sets grows with what the classes
+// hold and not with the traffic between them. The worklist ends because a
+// class is queued only when its set grew or two classes merged, a set only
+// grows within the program's finite set of labels, and the classes only
+// merge.
 
 #include "idr/Analysis/Labels.h"
 
@@ -16,8 +24,10 @@
 #include "mlir/IR/SymbolTable.h"
 
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/DenseSet.h"
 
 #include <algorithm>
+#include <iterator>
 
 using namespace mlir;
 
@@ -28,52 +38,26 @@ namespace idr::labels {
 //===----------------------------------------------------------------------===//
 
 // A label's number, given when it is first met.
-std::uint32_t Graph::labelId(FlatSymbolRefAttr label) {
-  auto [it, made] =
-      labelIds.try_emplace(label.getAttr(), static_cast<std::uint32_t>(labelNames.size()));
+Label Graph::labelId(FlatSymbolRefAttr label) {
+  auto [it, made] = labelIds.try_emplace(label.getAttr(), static_cast<Label>(labelNames.size()));
   if (made)
     labelNames.push_back(label);
   return it->second;
 }
 
 // The set of `ids`, sorted, made once: two equal sets are one number.
-SetId Graph::intern(ArrayRef<std::uint32_t> ids) {
+SetId Graph::intern(ArrayRef<Label> ids) {
   if (ids.empty())
     return 0;
   if (auto it = setIds.find(ids); it != setIds.end())
     return it->second;
-  std::uint32_t *kept = storage.Allocate<std::uint32_t>(ids.size());
+  Label *kept = storage.Allocate<Label>(ids.size());
   std::copy(ids.begin(), ids.end(), kept);
-  ArrayRef<std::uint32_t> made(kept, ids.size());
+  ArrayRef<Label> made(kept, ids.size());
   SetId id = static_cast<SetId>(sets.size());
   sets.push_back(made);
   setIds.try_emplace(made, id);
   return id;
-}
-
-SetId Graph::join(SetId a, SetId b) {
-  if (a == b || b == 0)
-    return a;
-  if (a == 0)
-    return b;
-  auto key = a < b ? std::make_pair(a, b) : std::make_pair(b, a);
-  if (auto it = joins.find(key); it != joins.end())
-    return it->second;
-  SmallVector<std::uint32_t> merged;
-  std::set_union(sets[a].begin(), sets[a].end(), sets[b].begin(), sets[b].end(),
-                 std::back_inserter(merged));
-  SetId out = intern(merged);
-  joins.try_emplace(key, out);
-  return out;
-}
-
-SetId Graph::minus(SetId a, SetId b) {
-  if (a == 0 || b == 0 || a == b)
-    return a == b ? 0 : a;
-  SmallVector<std::uint32_t> left;
-  std::set_difference(sets[a].begin(), sets[a].end(), sets[b].begin(), sets[b].end(),
-                      std::back_inserter(left));
-  return intern(left);
 }
 
 //===----------------------------------------------------------------------===//
@@ -101,59 +85,76 @@ void Graph::link(Node from, Node to, bool lazy) {
     include(from, to);
 }
 
+// A successor added now is given the whole set at once, so it is owed
+// nothing of what the class sent before.
 void Graph::include(Node from, Node to) {
   Node source = find(from);
   if (source == find(to))
     return;
   classes[source].successors.push_back(to);
-  addLabels(to, classes[source].set);
+  addLabels(to, sets[classes[source].set]);
 }
 
-// One class for both. Each side's successors and dispatches have seen its
-// own set but what it had pending; the merged class owes each of them the
-// other's labels too, so it holds as pending everything only one side had
-// and both sides' pending. A receiver takes only what it lacks.
+// One class for both. Each side's successors and dispatches have been given
+// what that side sent; the merged lists have been given what both sides
+// sent, so the merged class owes them its set less that. A successor met
+// twice, or one in the merged class itself, is kept once or dropped: it
+// would only be given the same labels again.
 void Graph::unify(Node a, Node b) {
   Node x = find(a), y = find(b);
   if (x == y)
     return;
-  SetId owed = join(join(classes[x].pending, classes[y].pending),
-                    join(minus(classes[x].set, classes[y].set),
-                         minus(classes[y].set, classes[x].set)));
-  parents[y] = x;
   Class &into = classes[x];
   Class &from = classes[y];
-  into.set = join(into.set, from.set);
-  into.pending = owed;
+  ArrayRef<Label> intoSet = sets[into.set], fromSet = sets[from.set];
+  ArrayRef<Label> intoSent = sets[into.sent], fromSent = sets[from.sent];
+  SmallVector<Label> both, sent;
+  std::set_union(intoSet.begin(), intoSet.end(), fromSet.begin(), fromSet.end(),
+                 std::back_inserter(both));
+  std::set_intersection(intoSent.begin(), intoSent.end(), fromSent.begin(), fromSent.end(),
+                        std::back_inserter(sent));
+  parents[y] = x;
+  into.set = intern(both);
+  into.sent = intern(sent);
   llvm::append_range(into.successors, from.successors);
   llvm::append_range(into.dispatches, from.dispatches);
   from = Class();
-  if (into.pending && !into.queued) {
-    into.queued = true;
-    worklist.push_back(x);
-  }
+  llvm::SmallDenseSet<Node, 8> roots;
+  llvm::erase_if(into.successors, [&](Node next) {
+    Node root = find(next);
+    return root == x || !roots.insert(root).second;
+  });
+  queue(x);
 }
 
-void Graph::addLabels(Node to, SetId set) {
-  if (set == 0)
+// `labels`, sorted by number, arrive at `to`'s class, which takes what it
+// lacks.
+void Graph::addLabels(Node to, ArrayRef<Label> labels) {
+  if (labels.empty())
     return;
   Node root = find(to);
-  SetId added = minus(set, classes[root].set);
-  if (added == 0)
+  ArrayRef<Label> held = sets[classes[root].set];
+  SmallVector<Label> merged;
+  std::set_union(held.begin(), held.end(), labels.begin(), labels.end(),
+                 std::back_inserter(merged));
+  if (merged.size() == held.size())
     return;
-  Class &target = classes[root];
-  target.set = join(target.set, added);
-  target.pending = join(target.pending, added);
-  if (!target.queued) {
-    target.queued = true;
-    worklist.push_back(root);
-  }
+  classes[root].set = intern(merged);
+  queue(root);
 }
 
-// Each label of `set` the dispatch has not yet run takes the call's
+void Graph::queue(Node root) {
+  Class &owing = classes[root];
+  if (owing.queued || owing.set == owing.sent)
+    return;
+  owing.queued = true;
+  worklist.push_back(root);
+}
+
+// Each label of `labels` the dispatch has not yet run takes the call's
 // arguments after its captures and gives its results to the call's.
-void Graph::fire(unsigned index, SetId set) {
-  for (std::uint32_t id : sets[set]) {
+void Graph::fire(unsigned index, ArrayRef<Label> labels) {
+  for (Label id : labels) {
     if (!dispatches[index].handled.insert(id).second)
       continue;
     CallOpInterface call = dispatches[index].call;
@@ -164,12 +165,12 @@ void Graph::fire(unsigned index, SetId set) {
            "a label fits the carrier of the callee that holds it");
     unsigned captures = fn.getNumArguments() - static_cast<unsigned>(args.size());
     for (auto [i, arg] : llvm::enumerate(args))
-      if (isKeyed(arg.getType()))
+      if (carriesLabels(arg.getType()))
         link(nodeOf(FlowPoint::of(arg)),
              nodeOf(FlowPoint::parameter(label, captures + static_cast<unsigned>(i))),
              isLazyType(arg.getType()));
     for (auto [j, result] : llvm::enumerate(call->getResults()))
-      if (isKeyed(result.getType()))
+      if (carriesLabels(result.getType()))
         link(nodeOf(FlowPoint::result(label, static_cast<unsigned>(j))),
              nodeOf(FlowPoint::of(result)), isLazyType(result.getType()));
   }
@@ -179,25 +180,28 @@ void Graph::solve() {
   while (!worklist.empty()) {
     Node node = worklist.back();
     worklist.pop_back();
-    // A class merged away handed its pending labels to its root, which was
-    // queued then.
+    // A class merged away is its root's now, which the merge queued.
     if (find(node) != node)
       continue;
-    classes[node].queued = false;
-    SetId sent = classes[node].pending;
-    classes[node].pending = 0;
-    if (sent == 0)
+    Class &owing = classes[node];
+    owing.queued = false;
+    if (owing.set == owing.sent)
       continue;
+    ArrayRef<Label> set = sets[owing.set], sent = sets[owing.sent];
+    SmallVector<Label> gained;
+    std::set_difference(set.begin(), set.end(), sent.begin(), sent.end(),
+                        std::back_inserter(gained));
+    owing.sent = owing.set;
     // The lists are walked as they were: a dispatch may merge this class
-    // into another, which then owes its lists what either side lacked, and
-    // what is added to them meanwhile was given the whole set when it was
-    // added.
-    SmallVector<Node> successors = llvm::to_vector(classes[node].successors);
-    SmallVector<unsigned> runs = llvm::to_vector(classes[node].dispatches);
+    // into another, which then owes the merged lists what both sides had
+    // not sent, and what is added to them meanwhile was given the whole
+    // set when it was added.
+    SmallVector<Node> successors = llvm::to_vector(owing.successors);
+    SmallVector<unsigned> runs = llvm::to_vector(owing.dispatches);
     for (Node next : successors)
-      addLabels(next, sent);
+      addLabels(next, gained);
     for (unsigned run : runs)
-      fire(run, sent);
+      fire(run, gained);
   }
   freeze();
 }
@@ -215,7 +219,7 @@ void Graph::freeze() {
     if (attrs.count(set))
       continue;
     SmallVector<FlatSymbolRefAttr> names;
-    for (std::uint32_t id : sets[set])
+    for (Label id : sets[set])
       names.push_back(labelNames[id]);
     llvm::sort(names, [](FlatSymbolRefAttr a, FlatSymbolRefAttr b) {
       return a.getValue() < b.getValue();
@@ -242,12 +246,17 @@ ArrayAttr Graph::labelsOf(const FlowPoint &point) const {
   return attrOf(node ? classes[find(*node)].set : 0);
 }
 
+ArrayAttr Graph::labelsOf(const FlowAnchor &anchor) const {
+  std::optional<Node> node = lookup(anchor);
+  return attrOf(node ? classes[find(*node)].set : 0);
+}
+
 } // namespace idr::labels
 
 namespace idr {
 
-Labels::Labels(Operation *module, AnalysisManager &am) : graph(am.getAnalysis<SymbolTable>()) {
-  graph.walk(module);
+Labels::Labels(Operation *program, AnalysisManager &am) : graph(am.getAnalysis<SymbolTable>()) {
+  graph.walk(program);
   graph.solve();
 }
 
@@ -257,10 +266,12 @@ ArrayAttr Labels::labelsOf(Value value) const {
 
 ArrayAttr Labels::labelsOf(const FlowPoint &point) const { return graph.labelsOf(point); }
 
+ArrayAttr Labels::labelsOf(const FlowAnchor &anchor) const { return graph.labelsOf(anchor); }
+
 ArrayAttr Labels::runs(Operation *op) const {
   if (auto apply = dyn_cast<ApplyOp>(op))
     return labelsOf(apply.getCallee());
-  if (auto force = dyn_cast<ForceOp>(op); force && isLazyType(force.getSuspension().getType()))
+  if (auto force = dyn_cast<ForceOp>(op))
     return labelsOf(force.getSuspension());
   return graph.attrOf(0);
 }

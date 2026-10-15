@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// How the dialect reads in text: the names the printer gives the results
-// of its ops and the arguments of a match's cases, and the aliases of its
-// data types and of its large constants. A name or an alias that comes
-// from a symbol is that symbol's characters, shortened for the reader by
-// one helper; nothing is decided from them. Every hook builds its name in a
-// buffer of its own and keeps nothing: the printer runs them from any
-// thread an instrumentation prints on.
+// How the dialect reads in text: a constructor written by its name and read
+// back into its tag, the names the printer gives the results of its ops and
+// the arguments of a match's cases, and the aliases of its data types and
+// of its large constants. A name or an alias that comes from a symbol is
+// that symbol's characters, shortened for the reader by one helper; nothing
+// is decided from them. Every hook builds its name in a buffer of its own
+// and keeps nothing: the printer runs them from any thread an
+// instrumentation prints on.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Symbols.h"
 
 #include "mlir/IR/OpImplementation.h"
 #include "llvm/ADT/SmallString.h"
@@ -105,10 +107,48 @@ struct IdrAsmInterface : OpAsmDialectInterface {
   }
 };
 
+// The constructor `tag` of the data type of `type`, or null where the
+// printer meets an op the verifier would reject.
+const Ctor *ctorOf(Type type, int64_t tag) {
+  DataType data = dataTypeOf(type);
+  if (!data || tag < 0 || static_cast<uint64_t>(tag) >= data.getCtors().size())
+    return nullptr;
+  return &data.getCtor(static_cast<unsigned>(tag));
+}
+
 // A constructor's name in lower case: `@Nil` is `nil`.
-std::string ctorName(FlatSymbolRefAttr ctor) { return ctor.getValue().lower(); }
+std::string ctorName(const Ctor &ctor) { return ctor.name.getValue().lower(); }
 
 } // namespace
+
+//===----------------------------------------------------------------------===//
+// A constructor by its name
+//===----------------------------------------------------------------------===//
+
+ParseResult idr::parseCtorRef(AsmParser &parser, Type type, IntegerAttr &tag) {
+  SMLoc loc = parser.getCurrentLocation();
+  StringAttr name;
+  if (parser.parseSymbolName(name))
+    return failure();
+  DataType data = dataTypeOf(type);
+  if (!data)
+    return parser.emitError(loc) << "expects a constructor of a data type, not of " << type;
+  std::optional<unsigned> found = data.getTag(name.getValue());
+  if (!found)
+    return parser.emitError(loc) << "the data type \"" << data.getName()
+                                 << "\" has no constructor @" << name.getValue();
+  tag = parser.getBuilder().getI32IntegerAttr(static_cast<int32_t>(*found));
+  return success();
+}
+
+// A tag the type has no constructor of is printed as a number, which no
+// parser reads back: only an op the verifier rejects holds one.
+void idr::printCtorRef(OpAsmPrinter &printer, Operation *, Type type, IntegerAttr tag) {
+  if (const Ctor *ctor = tag ? ctorOf(type, tag.getInt()) : nullptr)
+    printer.printSymbolName(ctor->name.getValue());
+  else
+    printer << "<<no constructor " << tag << ">>";
+}
 
 void idr::detail::addAsmInterface(IdrDialect &dialect) {
   dialect.addInterfaces<IdrAsmInterface>();
@@ -124,11 +164,13 @@ void ConstantOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
   else if (isa<ClosureAttr>(value))
     setNameFn(getResult(), isa<LazyType>(carrier) ? "thunk" : "clo");
   else if (auto con = dyn_cast<ConAttr>(value))
-    setNameFn(getResult(), ctorName(con.getCtor()));
+    if (const Ctor *ctor = ctorOf(con.getData(), con.getTag()))
+      setNameFn(getResult(), ctorName(*ctor));
 }
 
 void ConOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
-  setNameFn(getResult(), ctorName(getCtorAttr()));
+  if (const Ctor *ctor = ctorOf(getResult().getType(), getTag()))
+    setNameFn(getResult(), ctorName(*ctor));
 }
 
 void ClosureOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The buffers of one function in the form counting counts, made before
-// idr-rc reads the module: reset/reuse and borrow inference decide by which
+// idr-rc reads the program: reset/reuse and borrow inference decide by which
 // use consumes a value, so they read the loads, stores and boundaries that
 // placement then counts.
 #include "idr/Analysis/Ownership.h"
@@ -23,13 +23,14 @@ namespace {
 // references becomes its scf.for loops: a payload's arguments have the
 // element's type, which no grade may change, and a named op's region is
 // rebuilt where it is parsed. The loops' loads and stores are what counting
-// grades. A loop over words keeps its form.
-LogicalResult loopCountedElements(RewriterBase &rewriter, FuncOp fn, Counted &counted) {
+// grades. A loop over words keeps its form. The loops load every input
+// element whether the payload reads it or not; an element nothing reads
+// takes no reference, so its load is no read at all, and goes.
+LogicalResult loopCountedElements(RewriterBase &rewriter, FuncOp fn) {
   SmallVector<linalg::LinalgOp> loops;
   fn.walk([&](linalg::LinalgOp loop) {
     if (loop.hasPureBufferSemantics() &&
-        llvm::any_of(loop.getBlock()->getArgumentTypes(),
-                     [&](Type type) { return counted(type); }))
+        llvm::any_of(loop.getBlock()->getArgumentTypes(), [](Type type) { return counted(type); }))
       loops.push_back(loop);
   });
   for (linalg::LinalgOp loop : loops) {
@@ -39,6 +40,13 @@ LogicalResult loopCountedElements(RewriterBase &rewriter, FuncOp fn, Counted &co
                                "references has no loops of its own");
     rewriter.eraseOp(loop);
   }
+  SmallVector<memref::LoadOp> unread;
+  fn.walk([&](memref::LoadOp load) {
+    if (load->use_empty() && counted(load.getType()))
+      unread.push_back(load);
+  });
+  for (memref::LoadOp load : unread)
+    rewriter.eraseOp(load);
   return success();
 }
 
@@ -48,7 +56,7 @@ LogicalResult loopCountedElements(RewriterBase &rewriter, FuncOp fn, Counted &co
 // the value a store of an element that holds references writes is handed
 // to it by an idr.own.give, which consumes the owned value and gives the
 // store its plain carrier. Neither changes a count.
-void boundaries(RewriterBase &rewriter, FuncOp fn, Counted &counted) {
+void boundaries(RewriterBase &rewriter, FuncOp fn) {
   SmallVector<memref::AllocOp> allocs;
   SmallVector<memref::StoreOp> stores;
   fn.walk([&](Operation *op) {
@@ -75,10 +83,9 @@ void boundaries(RewriterBase &rewriter, FuncOp fn, Counted &counted) {
 
 LogicalResult bufferForms(FuncOp fn) {
   IRRewriter rewriter(fn.getContext());
-  Counted counted;
-  if (failed(loopCountedElements(rewriter, fn, counted)))
+  if (failed(loopCountedElements(rewriter, fn)))
     return failure();
-  boundaries(rewriter, fn, counted);
+  boundaries(rewriter, fn);
   return success();
 }
 

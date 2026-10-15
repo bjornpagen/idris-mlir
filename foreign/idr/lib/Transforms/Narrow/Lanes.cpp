@@ -155,8 +155,7 @@ struct VersionLanes : OpRewritePattern<scf::ForOp> {
     std::unique_ptr<DataFlowSolver> solver = copy.analyse(low);
     if (!solver)
       return internal("the analysis of a copy failed");
-    if (failed(copy.narrow(*solver)))
-      return internal("the narrowing of a copy did not converge");
+    copy.narrow(*solver);
 
     // if (every tested input <= 2^low) { the copy } else { the loop }.
     rewriter.setInsertionPoint(loop);

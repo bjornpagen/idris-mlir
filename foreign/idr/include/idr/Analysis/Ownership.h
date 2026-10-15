@@ -7,14 +7,15 @@
 // vocabulary of placement those analyses and idr-rc's passes share: where a
 // value is used, where it dies, and which values hold references.
 //
-// A value holds references when its type does (a string, a big, a box, a
-// buffer, a reuse token, or an unboxed sum with a slot of one of these).
-// In the owned stage its grade says what it holds:
+// A value holds references when its type says so (ValueFactsTypeInterface:
+// a string, a big, a box, a buffer, a reuse token, or an unboxed sum with a
+// slot of one of these). In the owned stage its grade says what it holds:
 //   - owned (`!idr.own<T>`): one reference of its own, which exactly one
 //     use on every path consumes. Results of calls, constructors,
 //     primitives, matches and loops are owned, and so are the parameters
 //     that borrow inference leaves owned;
-//   - a view (plain T): none; it lives as long as what it was read from. A
+//   - a view (the view grade, `view(T)`; a buffer's view and static data
+//     stay plain): none; it lives as long as what it was read from. A
 //     borrowed parameter lives as long as the call, a field of a
 //     constructor (an idr.field, or a field a match region binds), a view
 //     of a buffer (a subview, a cast, a reshape) and an idr.borrow as long
@@ -31,7 +32,6 @@
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/IR/Block.h"
-#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Pass/AnalysisManager.h"
@@ -60,19 +60,30 @@ llvm::SmallVector<mlir::Operation *> usersIn(mlir::Value value, mlir::Block &blo
 llvm::SmallVector<mlir::Operation *> usersIn(llvm::ArrayRef<mlir::OpOperand *> uses,
                                              mlir::Block &block, mlir::Operation *after);
 
-// Whether `value` is used after `op`: later in its block, or after an op
-// that holds that block, up to the block that defines it; always, from
-// inside the body of a loop the value comes from outside of.
+// Whether each run of `op` enters exactly one of its regions, once, and
+// leaves it back to `op`, as RegionBranchOpInterface says: a match, an
+// scf.if with both branches, an scf.index_switch. Counting moves a value
+// from outside into each such region, which consumes or drops it there.
+// Any other op with regions may run one many times or none (a loop, a
+// branch with no else, a structured op on buffers): it holds a value from
+// outside for as long as it runs, and its regions only read it.
+bool decides(mlir::Operation *op);
+
+// Whether `value` is used after `op`, where the reference it holds must
+// still be there: later in the block of `op`, or after an op that holds
+// that block, up to the block that defines it; and anywhere inside an op
+// that does not decide (a loop) and uses the value inside, which holds it
+// for as long as it runs. A use of a view of the value is not a use of it:
+// whether the value outlives the view is what the caller asks.
 bool usedAfter(mlir::Value value, mlir::Operation *op);
 
 // Where a value whose uses are `uses`, which `block` holds a reference to,
 // dies on each path of the block: at its start when nothing there uses it,
-// after its last use, or inside each region of that use when it has
-// regions (not the body of a loop over indices, which the value
-// outlives). Nowhere on a path whose last use consumes it. Calls `at` with
-// each point. `graded` is the table through which a call's consumption is
-// read from its callee's grade; null before borrow inference has graded
-// the signatures, when every call may consume its arguments.
+// after its last use, or inside each region of that use when it decides.
+// Nowhere on a path whose last use consumes it. Calls `at` with each point.
+// `graded` is the table through which a call's consumption is read from its
+// callee's grade; null before borrow inference has graded the signatures,
+// when every call may consume its arguments.
 void whereDies(llvm::ArrayRef<mlir::OpOperand *> uses, mlir::Block &block,
                mlir::SymbolTable *graded,
                llvm::function_ref<void(mlir::Block &, mlir::Block::iterator)> at);
@@ -84,11 +95,11 @@ void whereDies(mlir::Value value, mlir::Block &block, mlir::SymbolTable *graded,
 bool fromPoint(mlir::Block &block, mlir::Block::iterator at, mlir::OpOperand &use);
 
 // The fields of a box whose uses are `uses`, built by the constructor
-// `tag` of `data`, that a take of it gives: the arguments of `fields` (the
-// case region that bound them, when one did) and the results of the
-// idr.field reads of the box, each with its index.
-void eachField(llvm::ArrayRef<mlir::OpOperand *> uses, DataType data, unsigned tag,
-               mlir::Block *fields, llvm::function_ref<void(mlir::Value, unsigned)> f);
+// `tag`, that a take of it gives: the arguments of `fields` (the case
+// region that bound them, when one did) and the results of the idr.field
+// reads of the box, each with its index.
+void eachField(llvm::ArrayRef<mlir::OpOperand *> uses, unsigned tag, mlir::Block *fields,
+               llvm::function_ref<void(mlir::Value, unsigned)> f);
 
 // The first read of a box that no match takes apart and whose every use
 // reads a field of one constructor, the point from which the box's
@@ -101,32 +112,38 @@ FieldOp onlyReads(mlir::Type type, llvm::ArrayRef<mlir::OpOperand *> uses);
 // sums (whose slots may hold boxes), and the tokens of their cells.
 bool followed(mlir::Value value);
 
-// Which values hold references: a type's answer is idr::holdsReferences,
-// asked once per type of one run. A memo of the run that holds it, never
-// shared between threads.
-class Counted {
-public:
-  bool operator()(mlir::Type type);
+// Whether a value of `type` holds references, as the type answers.
+bool counted(mlir::Type type);
 
-  // Whether `value` holds references: its type does, and it is not static.
-  bool tracked(mlir::Value value);
+// Whether `value` holds references: its type does, and it is not static.
+bool tracked(mlir::Value value);
 
-private:
-  llvm::DenseMap<mlir::Type, bool> answers;
-};
+// Whether a value of `type` is a memo cell, the box of a memo sum: the one
+// cell that changes while references to it live, as a force writes its
+// state. So its constructor is not known under a match on it, and it is
+// never taken apart or built in; and no function takes one over, so the
+// dispatch that writes it reads a view of its caller's.
+bool isMemoCell(mlir::Type type);
+
+// Whether `value` is an element read from a buffer that holds references.
+// It takes a reference of its own where it is read: the buffer may be
+// written while a view of the element would still be read, which a field
+// of a cell never is. So it is never a view, and the buffer it was read
+// from needs nothing for it.
+bool isCountedElement(mlir::Value value);
 
 } // namespace idr::ownership
 
 namespace idr {
 
-// Borrow inference: which parameters of the module's functions are
+// Borrow inference: which parameters of the program's functions are
 // borrowed, a view of the caller's value, and which are owned. A parameter
 // that a reuse site takes apart is owned, so it reads Reuses.
 class Borrows {
 public:
   enum class Param : uint8_t { Untracked, Borrowed, Owned };
 
-  Borrows(mlir::Operation *module, mlir::AnalysisManager &am);
+  Borrows(mlir::Operation *program, mlir::AnalysisManager &am);
 
   // Unless it, the Reuses it read and the SymbolTable are all preserved.
   bool isInvalidated(const mlir::AnalysisManager::PreservedAnalyses &pa) const;
@@ -168,7 +185,7 @@ public:
     llvm::SmallVector<ConOp> cons;
   };
 
-  Reuses(mlir::Operation *module, mlir::AnalysisManager &am);
+  Reuses(mlir::Operation *program, mlir::AnalysisManager &am);
 
   // Unless it, the SymbolTable and the Layouts are all preserved.
   bool isInvalidated(const mlir::AnalysisManager::PreservedAnalyses &pa) const;
@@ -191,7 +208,7 @@ public:
   // reference may reach.
   enum class Sharing : uint8_t { Unknown, Exclusive, Shared };
 
-  Exclusivity(mlir::Operation *module, mlir::AnalysisManager &am);
+  Exclusivity(mlir::Operation *program, mlir::AnalysisManager &am);
 
   // Unless it and the SymbolTable are preserved.
   bool isInvalidated(const mlir::AnalysisManager::PreservedAnalyses &pa) const;

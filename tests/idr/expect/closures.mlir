@@ -7,28 +7,33 @@
 // CHECK-DAG: error: expected no-closures: a closure is built in @make
 // CHECK-DAG: error: expected no-closures: a closure is applied in @use
 // CHECK-DAG: error: expected no-closures: a closure is a constant in @known
-// CLEAN: module {
-// CLEAN:   idr.func private @main(%x: i64) -> i64 {
+// CLEAN: idr.program @clean root(@main) stage(first) {
+// CLEAN:   idr.func @main(%x: i64) -> i64 {
 // CLEAN:     %one = arith.constant 1 : i64
 // CLEAN:     %r = arith.addi %x, %one : i64
 // CLEAN:     return %r : i64
 // CLEAN:   }
 // CLEAN: }
-module {
-  idr.func private @add(%x: i64, %y: i64) -> i64 {
+idr.program @closures root(@root) stage(higher) {
+  idr.func @add(%x: i64, %y: i64) -> i64 {
     %r = arith.addi %x, %y : i64
     return %r : i64
   }
-  idr.func private @make(%x: i64) -> !idr.fn<(i64) -> (i64)> {
+  idr.func @make(%x: i64) -> !idr.fn<(i64) -> (i64)> {
     %f = idr.closure @add(%x) : (i64) -> !idr.fn<(i64) -> (i64)>
     return %f : !idr.fn<(i64) -> (i64)>
   }
-  idr.func private @use(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 {
+  idr.func @use(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 {
     %r = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
     return %r : i64
   }
-  idr.func private @known() -> !idr.fn<(i64, i64) -> (i64)> {
+  idr.func @known() -> !idr.fn<(i64, i64) -> (i64)> {
     %f = idr.constant #idr.closure<@add, []> : !idr.fn<(i64, i64) -> (i64)>
     return %f : !idr.fn<(i64, i64) -> (i64)>
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
   }
 }

@@ -1,26 +1,30 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // idr-defunctionalize: every closure and suspension becomes a constructor of
-// a sum, every apply a match over its callee's sum.
+// a sum, every apply a match over its callee's sum, every force a call of
+// its memo sum's dispatch function.
 //
 // The solve finds every slot's labels, with no unknown: every key becomes a
 // sum, so the pass refuses nothing, and fails only when the compiler broke
-// its own invariant. The effects summary is computed next, over the calls
-// and the labels each apply and force runs, so that each memo sum's body is
-// set once with its `by_name` labels. Every sum and every remade type is
-// made, then each function converts on its own, in parallel, reading the
-// decision and a plan of its own values: under its target no closure,
-// suspension, apply or evaluated suspension is legal, nor any value,
-// signature or constant until it has its slot's type. Folding is off in the
-// driver: a closure or a suspension folded into a constant there would be a
-// value the decision never saw. Then every function's entry is written,
-// and, every type being final, the boxes that make each cell fit are made.
+// its own invariant. The labels whose runs the outside observes are found
+// next, over the calls and the labels each apply and force runs, so that
+// each memo sum is made once with its `by_name` labels. Every sum is made
+// and every dispatch function defined, then each function converts on its
+// own, in parallel, reading the decision and a plan of its own values:
+// under its target no closure, suspension, apply, force or evaluated
+// suspension is legal, nor any value, signature or constant of a closure or
+// a suspension until it has its slot's type. Folding is off in the driver:
+// a closure or a suspension folded into a constant there would be a value
+// the decision never saw. Then the types that hold a slot are made anew,
+// every type is final, the boxes are decided, and the program, first-order
+// now, has every function's effects solved over its call graph, which sees
+// every function a force runs, and enters the first stage.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/Analysis/Effects.h"
-#include "idr/Analysis/Holds.h"
 #include "idr/Analysis/Labels.h"
 #include "idr/IR/Layout.h"
+#include "idr/IR/TypeGraph.h"
 #include "idr/Transforms/Defunctionalize.h"
 
 #include "mlir/Dialect/UB/IR/UBOps.h"
@@ -30,7 +34,10 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
+
+#include <algorithm>
 
 namespace idr {
 #define GEN_PASS_DEF_IDRDEFUNCTIONALIZE
@@ -51,8 +58,10 @@ void addTarget(ConversionTarget &target, const SlotTypeConverter &types) {
   const SlotTypeConverter *converter = &types;
   const Slots *slots = &types.slots();
   // A closure or a suspension is a constructor of its key's sum, an apply a
-  // match, and an evaluated suspension its memo sum's forced state.
-  target.addIllegalOp<idr::ClosureOp, idr::SuspendOp, idr::ApplyOp, idr::DelayOp>();
+  // match, a force a call, and an evaluated suspension its memo sum's
+  // Forced state.
+  target.addIllegalOp<idr::ClosureOp, idr::SuspendOp, idr::ApplyOp, idr::ForceOp,
+                      idr::DelayOp>();
   target.addDynamicallyLegalOp<idr::FuncOp>([=](idr::FuncOp fn) {
     if (fn.getFunctionType() != slots->signature(fn.getSymNameAttr()).converted)
       return false;
@@ -65,10 +74,6 @@ void addTarget(ConversionTarget &target, const SlotTypeConverter &types) {
     Attribute converted = slots->constantOf(constant);
     return converter->legal(constant.getResult()) &&
            (!converted || converted == constant.getValue());
-  });
-  target.addDynamicallyLegalOp<idr::ForceOp>([=](idr::ForceOp force) {
-    return !idr::isLazyType(force.getSuspension().getType()) &&
-           converter->legal(force.getResult());
   });
   target.markUnknownOpDynamicallyLegal([=](Operation *op) { return converter->legal(op); });
 }
@@ -97,32 +102,42 @@ LogicalResult convert(idr::FuncOp fn, const Slots &slots) {
 
 struct Defunctionalize : idr::impl::IdrDefunctionalizeBase<Defunctionalize> {
   void runOnOperation() override {
-    ModuleOp module = getOperation();
+    idr::ProgramOp program = getOperation();
     SymbolTable &symbols = getAnalysis<SymbolTable>();
     idr::Labels &labels = getAnalysis<idr::Labels>();
-    const idr::Holds &holds = getAnalysis<idr::Holds>();
-    idr::ModuleEffects effects(
-        module, holds, symbols,
-        [&](Operation *op, SmallVectorImpl<idr::FuncOp> &run) {
+    llvm::DenseSet<idr::FuncOp> observed = idr::observableRuns(
+        program, symbols, [&](Operation *op, SmallVectorImpl<idr::FuncOp> &run) {
           for (auto label : labels.runs(op).getAsRange<FlatSymbolRefAttr>())
             run.push_back(labels.function(label.getAttr()));
         });
-    Slots slots(module, labels, symbols);
-    if (failed(slots.declare([&](idr::FuncOp label) { return effects.byName(label); })))
+    Slots slots(program, labels, symbols);
+    if (failed(slots.declare([&](idr::FuncOp label) { return observed.contains(label); })))
       return signalPassFailure();
-    if (slots.keyed()) {
-      SmallVector<idr::FuncOp> functions(module.getOps<idr::FuncOp>());
-      if (failed(failableParallelForEach(&getContext(), functions, [&](idr::FuncOp fn) {
-            return convert(fn, slots);
-          })))
-        return signalPassFailure();
-    }
-    effects.writeEntries();
-    numBoxed += idr::layout::fit(module);
+    SmallVector<idr::FuncOp> functions(program.getOps<idr::FuncOp>());
+    slots.defineForces();
+    if (failed(failableParallelForEach(&getContext(), functions, [&](idr::FuncOp fn) {
+          return convert(fn, slots);
+        })))
+      return signalPassFailure();
+    if (failed(slots.remake()))
+      return signalPassFailure();
+    FailureOr<unsigned> boxed = idr::layout::fit(program);
+    if (failed(boxed))
+      return signalPassFailure();
+    numBoxed += *boxed;
     numSums += slots.numSums();
     numConstructors += slots.numConstructors();
-    if (slots.largestBoxedSum() > largestBoxedSum)
-      largestBoxedSum = slots.largestBoxedSum();
+    // The type graph of the final types, built here: one cached from before
+    // this pass would hold the types it replaced.
+    idr::TypeGraph graph(program);
+    unsigned largest = 0;
+    for (unsigned at = 0, n = graph.size(); at < n; ++at)
+      if (idr::DataType data = graph.declaration(at); data && data.isClosures() && graph.boxed(at))
+        largest = std::max(largest, static_cast<unsigned>(data.getCtors().size()));
+    if (largest > largestBoxedSum)
+      largestBoxedSum = largest;
+    idr::solveEffects(program);
+    program.setStage(idr::Stage::First);
   }
 };
 

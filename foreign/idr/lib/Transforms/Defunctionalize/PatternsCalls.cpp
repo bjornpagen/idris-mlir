@@ -22,8 +22,8 @@ namespace {
 
 // A call passes each argument in its callee's parameter slot and returns
 // its callee's result, then moves it into its own slot. The call is the
-// same call of the same callee, so it keeps what it carries, its effects
-// among them.
+// same call of the same callee, so it keeps its parameter and result
+// attributes; what it may do is its callee's.
 struct CallPattern : SlotPattern<CallOp> {
   using SlotPattern::SlotPattern;
 
@@ -35,11 +35,11 @@ struct CallPattern : SlotPattern<CallOp> {
       return failure();
     auto made = CallOp::create(rewriter, call.getLoc(), sig.converted.getResults(),
                                call.getCalleeAttr(), operands, call.getArgAttrsAttr(),
-                               call.getResAttrsAttr(), call.getEffectsAttr());
+                               call.getResAttrsAttr());
     SmallVector<Value> results;
     for (auto [j, result] : llvm::enumerate(call.getResults())) {
       Value value = made.getResult(static_cast<unsigned>(j));
-      if (isKeyed(result.getType())) {
+      if (carriesLabels(result.getType())) {
         value = converter().coerce(rewriter, call.getLoc(), value, sig.results[j],
                                    converter().keyOf(result), converter().typeOf(result));
         if (!value)

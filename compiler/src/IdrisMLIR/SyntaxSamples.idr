@@ -7,16 +7,16 @@
 ||| bytecode file (IdrisMLIR.MLIR.Bytecode), at the path its command line
 ||| names. The module's discardable attributes hold the type and attribute
 ||| samples, each kept as its text, which the dialects' C++ parsers read;
-||| its region holds functions of op samples: properties of each kind,
-||| absent and present, variadic operands of several groups, several
+||| its program holds functions of op samples: inherent attributes of each
+||| kind, absent and present, variadic operands of several groups, several
 ||| results, regions nested in regions using the values around them, block
 ||| arguments, closures and suspensions of functions, a suspended value, an
-||| array built and read, and a loop. The round trip
+||| array built, read, transposed, folded, scanned and made in the world's
+||| order. The round trip
 ||| (tests/compiler/dialect-syntax) has idris-mlir-opt read the file and
 ||| print it, so that what the Idris side writes is what MLIR reads. Every
 ||| grade a frontend writes long is sampled, the ones the dialect spells
-||| shorter among them, and a constructor's cells nested as Idris writes
-||| them, which the parser reads as a run.
+||| shorter among them.
 |||
 ||| A generated sum that gains a constructor gains a mnemonic: this program
 ||| exits 1, naming every mnemonic of a sum MLIR.idr holds that no sample
@@ -26,7 +26,6 @@ module IdrisMLIR.SyntaxSamples
 import IdrisMLIR.Dialect.Arith as Arith
 import IdrisMLIR.Dialect.Builtin as Builtin
 import IdrisMLIR.Dialect.Idr as Idr
-import IdrisMLIR.Dialect.SCF as SCF
 import IdrisMLIR.Dialect.Tensor as Tensor
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
@@ -53,52 +52,42 @@ i64 = IntegerType 64
 world : MlirType
 world = Idr (QType One Plain (Idr WorldType))
 
-||| A list of naturals: base's list, recursive through a box of itself,
-||| which its own body names by its name alone.
+||| A constructor of no part a pass needs.
+plainCtor : String -> List MlirType -> IdrCtor MlirType
+plainCtor name fields = MkIdrCtor name fields False CtorRole.Plain Nothing
+
+||| A list of naturals: base's list, recursive through itself, which its
+||| own body names by its name alone, as the frontend writes it: the
+||| dialect boxes what a cycle runs through.
 natList : MlirType
 natList =
   Idr (DataType "List[Nat]"
         (Just (MkIdrSum BaseList
-                 [ MkIdrCtor "Nil" [] False
-                 , MkIdrCtor "Cons" [Idr NatType, Idr (BoxType (Idr (DataType "List[Nat]" Nothing)))] False ]
+                 [ MkIdrCtor "Nil" [] False CtorRole.ListNil Nothing
+                 , MkIdrCtor "Cons" [Idr NatType, Idr (DataType "List[Nat]" Nothing)] False CtorRole.ListCons Nothing ]
                  (Just ("Prelude.Types.List", ["Prelude.Types.Nat"])))))
 
 ||| A plain sum of two constructors, one holding a list: another type's
 ||| body spelled whole inside it.
 dataT : MlirType
 dataT =
-  Idr (DataType "T" (Just (MkIdrSum Plain [MkIdrCtor "A" [i64, natList] False, MkIdrCtor "Nil" [] False]
-                                    Nothing)))
+  Idr (DataType "T" (Just (MkIdrSum Plain [plainCtor "A" [i64, natList], plainCtor "Nil" []] Nothing)))
 
-||| Each kind of sum the dialect has.
+||| Each kind of sum the dialect has, and each part a constructor plays: a
+||| label names its function.
 kinds : List MlirType
 kinds =
-  [ Idr (DataType "Pairs" (Just (MkIdrSum InPlace [MkIdrCtor "P" [Idr (QType One Plain i64)] False] Nothing)))
-  , Idr (DataType "fn$sample" (Just (MkIdrSum Closures [MkIdrCtor "callee" [i64] False] Nothing)))
+  [ Idr (DataType "Pairs" (Just (MkIdrSum InPlace [plainCtor "P" [Idr (QType One Plain i64)]] Nothing)))
+  , Idr (DataType "fn$sample"
+          (Just (MkIdrSum Closures [MkIdrCtor "callee" [i64] False CtorRole.Label (Just "callee")] Nothing)))
   , Idr (DataType "lazy$sample"
-          (Just (MkIdrSum Memo [ MkIdrCtor "callee" [] True, MkIdrCtor "running" [] False
-                               , MkIdrCtor "forced" [i64] False ] Nothing)))
+          (Just (MkIdrSum Memo [ MkIdrCtor "callee" [] True CtorRole.Label (Just "callee")
+                               , MkIdrCtor "running" [] False CtorRole.Running Nothing
+                               , MkIdrCtor "forced" [i64] False CtorRole.Forced Nothing ] Nothing)))
   ]
 
 int : Integer -> MlirAttr
 int n = IntegerAttr n i64
-
-||| A list of integers, whose constants the constructor samples are.
-intList : MlirType
-intList =
-  Idr (DataType "List[Int]"
-        (Just (MkIdrSum BaseList
-                 [ MkIdrCtor "Nil" [] False
-                 , MkIdrCtor "Cons" [i64, Idr (BoxType (Idr (DataType "List[Int]" Nothing)))] False ]
-                 (Just ("Prelude.Types.List", ["Prelude.Types.Int"])))))
-
-nil : MlirAttr
-nil = Idr (ConAttr intList "Nil" [[]] Nothing 0)
-
-||| `Cons x xs`, a plain constructor of one cell, of its data type and
-||| named within it.
-cons : MlirAttr -> MlirAttr -> MlirAttr
-cons x xs = Idr (ConAttr intList "Cons" [[x, xs]] Nothing 0)
 
 ||| What a declaration is an instance of: an Idris definition at a type.
 maybeNat : MlirAttr
@@ -140,17 +129,14 @@ key = Idr (SpecKeyAttr "f" [Idr (KeyHoleAttr 0), int 7])
 
 attrs : List MlirAttr
 attrs =
-  [ Idr (BigAttr "-12345678901234567890")
+  [ Idr (BigAttr (-12345678901234567890))
   , Idr (ClosureAttr "g" [int 1, StringAttr "two"])
-  , nil
-  , cons (int 1) (cons (int 2) (cons (int 3) nil))
-  , Idr (ConAttr intList "Cons" [[int 1], [int 2]] (Just nil) 1)
   , Idr (EffectAttr [])
   , Idr (EffectAttr [Io, Crash])
   , maybeNat
   , Idr (KeyRaiseAttr "f" "idr.match")
-  , Idr (RuleAttr Rule.Layout)
-  , Idr (KeyConAttr "List" "Cons" [Idr (KeyHoleAttr 2), Idr (KeyConAttr "List" "Nil" [])])
+  , Idr (RuleAttr Rule.Cycle)
+  , Idr (KeyConAttr 1 [Idr (KeyHoleAttr 2), Idr (KeyConAttr 0 [])])
   , Idr (KeyHoleAttr 3)
   , key
   , Idr WorldSpaceAttr
@@ -224,8 +210,8 @@ block vs ss = MkRegion (map (\v => MkArgument v (At noLoc)) vs) ss
 index : Integer -> Op
 index n = Arith.constantOp (IntegerAttr n IndexType) IndexType
 
-||| One op of each shape, in a function of the values they use. Every
-||| function is private: the samples are a fragment, no program's root.
+||| One op of each shape, in a function of the values they use: the root
+||| the program names.
 sample : Statement
 sample =
   let v = MkValue "%v" dataT
@@ -237,18 +223,21 @@ sample =
       fn = Idr (FnType (MkSignature [i64] [i64]))
       lazy = Idr (LazyType i64)
       vec = RankedTensorType [Dynamic] i64
+      scalar = RankedTensorType [] i64
+      matrix = RankedTensorType [Static 2, Static 3] i64
+      i = MkValue "%i" IndexType
       c0 = MkValue "%c0" IndexType
       c1 = MkValue "%c1" IndexType
       c4 = MkValue "%c4" IndexType
-  in stmt (Idr.funcOp {symVisibility = Just "private", instance = Just maybeNat} "sample"
+  in stmt (Idr.funcOp {instance = Just maybeNat} "sample"
             (FunctionType (MkSignature [dataT, i64, str, world] [i64, world]))
             (block [v, n, s, w0]
                [ binding "%tag" (Idr.tagOp v i64)
-               , binding "%field" (Idr.fieldOp v "A" 0 i64)
-                 -- A constructor named within its type, of none and of
-                 -- fields, one of another type.
-               , binding "%nil" (Idr.conOp "Nil" [] natList)
-               , binding "%a" (Idr.conOp "A" [n, MkValue "%nil" natList] dataT)
+                 -- A field and constructors, each named by its tag: of
+                 -- none and of fields, one of another type.
+               , binding "%field" (Idr.fieldOp v 0 0 i64)
+               , binding "%nil" (Idr.conOp 0 [] natList [])
+               , binding "%a" (Idr.conOp 0 [n, MkValue "%nil" natList] dataT [])
                , binding "%checked" (Idr.checkNonzeroOp n "div" i64)
                , binding "%cmp" (Idr.strCmpOp CmpPredicate.Lt s s (IntegerType 1))
                , binding "%lin" (Idr.linEnterOp n lin)
@@ -261,63 +250,84 @@ sample =
                , binding "%applied" (Idr.applyOp (MkValue "%f" fn) [n] [i64])
                  -- A match whose region uses a value from above and holds a
                  -- match of its own.
-               , binding "%m" (Idr.matchOp v [SymbolRefAttr (MkSymbolRef "A" []), SymbolRefAttr (MkSymbolRef "Nil" [])]
+               , binding "%m" (Idr.matchOp v [0, 1]
                                  [ block [MkValue "%y" i64, MkValue "%ys" natList]
                                      [ binding "%inner" (Idr.matchLitOp n [int 0]
                                          [ block [] [stmt (Idr.yieldOp [MkValue "%y" i64])]
                                          , block [] [stmt (Idr.yieldOp [n])] ] [i64])
                                      , stmt (Idr.yieldOp [MkValue "%inner" i64]) ]
                                  , block [] [stmt (Idr.yieldOp [MkValue "%checked" i64])] ] [i64])
-                 -- An array made, written, read and looped over.
+                 -- An array made from its indices, written, read, sliced,
+                 -- transposed, folded and scanned.
                , binding "%c0" (index 0)
                , binding "%c1" (index 1)
                , binding "%c4" (index 4)
-               , binding "%t" (Tensor.emptyOp [c4] vec)
+               , binding "%t" (Idr.tabulateOp [c4]
+                                 (block [i] [ binding "%iv" (Arith.indexCastOp i i64)
+                                            , stmt (Idr.arrayYieldOp [MkValue "%iv" i64]) ]) [vec])
                , binding "%t1" (Tensor.insertOp n (MkValue "%t" vec) [c0] vec)
                , binding "%e" (Tensor.extractOp (MkValue "%t1" vec) [c1] i64)
-               , binding "%slice" (Tensor.extractSliceOp (MkValue "%t1" vec) [] [] [] (DenseI64ArrayAttr [1])
-                                     (DenseI64ArrayAttr [2]) (DenseI64ArrayAttr [1]) (RankedTensorType [Static 2] i64))
-               , binding "%sum" (SCF.forOp c0 c4 c1 [n]
-                                   (block [MkValue "%i" IndexType, MkValue "%acc" i64]
-                                      [ binding "%el" (Tensor.extractOp (MkValue "%t1" vec) [MkValue "%i" IndexType] i64)
-                                      , binding "%acc1" (Arith.addiOp (MkValue "%acc" i64) (MkValue "%el" i64) i64)
-                                      , stmt (SCF.yieldOp [MkValue "%acc1" i64]) ]) [i64])
-                 -- Operands and results of the world, two results.
+               , binding "%slice" (Tensor.extractSliceOp (MkValue "%t1" vec) [] [] [] [1] [2] [1]
+                                     (RankedTensorType [Static 2] i64))
+               , binding "%mat" (Tensor.emptyOp [] matrix)
+               , binding "%tr" (Idr.transposeOp (MkValue "%mat" matrix) [1, 0]
+                                  (RankedTensorType [Static 3, Static 2] i64))
+               , binding "%z" (Tensor.fromElementsOp [n] scalar)
+               , binding "%sum" (Idr.foldLastOp [MkValue "%z" scalar] c4 (accumulate "fold") [scalar])
+               , binding "%sums" (Idr.scanLastOp [MkValue "%z" scalar] c4 (accumulate "scan") [vec])
+                 -- Operands and results of the world, two results, and an
+                 -- array made in the world's order.
                , binding "%w1" (Idr.ioPutStrOp s w0 world)
-               , binding "%b" (Idr.ioGetByteOp (MkValue "%w1" world) (IntegerType 32) world)
+               , binding "%io" (Idr.tabulateIoOp [c4] (MkValue "%w1" world)
+                                  (block [i, MkValue "%ww" world]
+                                     [stmt (Idr.arrayYieldOp [n, MkValue "%ww" world])]) [vec] world)
+               , binding "%b" (Idr.ioGetByteOp (MkValue "%io#1" world) (IntegerType 32) world)
                , binding "%r" (Idr.callOp "callee" [n] [i64])
                  -- A discardable attribute, on an op of no operands and no
                  -- results.
                , stmt ({ attributes := [("sample.y", UnitAttr)] } Idr.mayLoopOp)
                , stmt (Idr.returnOp [MkValue "%r" i64, MkValue "%b#1" world])
                ]))
+  where
+    -- A fold's region: the index along its axis and the accumulator, the
+    -- array's element there added to it.
+    accumulate : String -> Region
+    accumulate stem =
+      let j = MkValue ("%" ++ stem ++ "j") IndexType
+          acc = MkValue ("%" ++ stem ++ "acc") i64
+          el = MkValue ("%" ++ stem ++ "el") i64
+          next = MkValue ("%" ++ stem ++ "next") i64
+      in block [j, acc] [ binding el.name (Tensor.extractOp (MkValue "%t1" (RankedTensorType [Dynamic] i64)) [j] i64)
+                        , binding next.name (Arith.addiOp acc el i64)
+                        , stmt (Idr.arrayYieldOp [next]) ]
 
 ||| A function called and closed over by `@sample`.
 callee : Statement
 callee =
   let a = MkValue "%a" i64
-  in stmt (Idr.funcOp {symVisibility = Just "private", total' = True} "callee"
+  in stmt (Idr.funcOp {total' = True} "callee"
             (FunctionType (MkSignature [i64] [i64])) (block [a] [stmt (Idr.returnOp [a])]))
 
 ||| A function `@sample` suspends.
 thunk : Statement
 thunk =
   let a = MkValue "%a" i64
-  in stmt (Idr.funcOp {symVisibility = Just "private", noInline = True} "thunk"
+  in stmt (Idr.funcOp {noInline = True} "thunk"
             (FunctionType (MkSignature [i64] [i64])) (block [a] [stmt (Idr.returnOp [a])]))
 
 ||| A function that returns nothing.
 nothing : Statement
 nothing =
-  stmt (Idr.funcOp {symVisibility = Just "private"} "nothing" (FunctionType (MkSignature [] []))
+  stmt (Idr.funcOp "nothing" (FunctionType (MkSignature [] []))
          (block [] [stmt (Idr.returnOp [])]))
 
-||| The module: the type and attribute samples as its discardable
-||| attributes, and the op samples in its region.
-sampleModule : Op
-sampleModule =
-  { attributes := named "sample.t" (map TypeAttr types) ++ named "sample.a" attrs }
-    (Builtin.moduleOp (block [] []))
+||| The module, with the type and attribute samples as its discardable
+||| attributes, and the program of the op samples, whose root is `@sample`.
+containers : List Container
+containers =
+  [ (At noLoc, \body => { attributes := named "sample.t" (map TypeAttr types) ++ named "sample.a" attrs }
+                          (Builtin.moduleOp body))
+  , (At noLoc, Idr.programOp "samples" "sample" Stage.Higher) ]
 
 ||| Writes the samples to `path`.
 covering
@@ -331,7 +341,7 @@ writeSamples path = do
     pure ()
   Right h <- openFile path WriteTruncate
     | Left e => die ("syntax-samples: writing " ++ path ++ ": " ++ show e)
-  Right () <- finish w h (At noLoc) sampleModule
+  Right () <- finish w h containers
     | Left e => die ("syntax-samples: " ++ e)
   closeFile h
 

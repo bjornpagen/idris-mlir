@@ -37,11 +37,10 @@ void ConstantOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn se
   auto big = dyn_cast<BigAttr>(getValue());
   if (!big || !isa<BigType, NatType>(unrestricted(getType())))
     return;
-  int64_t value = 0;
   // A value outside i64 is outside the small range too.
   Bounds bounds;
-  if (!big.getValue().getAsInteger(10, value))
-    bounds = idr::ranges::bounded(value, value);
+  if (std::optional<int64_t> value = big.getValue().trySExtValue())
+    bounds = idr::ranges::bounded(*value, *value);
   setResultRange(getResult(), idr::ranges::rangeOf(ofType(bounds, unrestricted(getType()))));
 }
 

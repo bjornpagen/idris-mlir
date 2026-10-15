@@ -10,8 +10,8 @@
 // CHECK: case @make(
 // CHECK: call @make(
 !Box = !idr.data<"Box", plain [@MkBox(!idr.lin<!idr.fn<(i64) -> (!idr.lin<i64>)>>)]>
-module {
-  idr.func private @make(%k: i64, %x: i64) -> !idr.lin<i64> attributes {total} {
+idr.program @"grade-linear-result" root(@main) stage(higher) {
+  idr.func @make(%k: i64, %x: i64) -> !idr.lin<i64> attributes {total} {
     %s = arith.addi %k, %x : i64
     %r = idr.lin.enter %s : !idr.lin<i64>
     return %r : !idr.lin<i64>
@@ -20,7 +20,7 @@ module {
     %k = arith.constant 1 : i64
     %f = idr.closure @make(%k) : (i64) -> !idr.fn<(i64) -> (!idr.lin<i64>)>
     %fl = idr.lin.enter %f : !idr.lin<!idr.fn<(i64) -> (!idr.lin<i64>)>>
-    %b = idr.con @MkBox(%fl) : (!idr.lin<!idr.fn<(i64) -> (!idr.lin<i64>)>>) -> !idr.lin<!Box>
+    %b = idr.con !idr.lin<!Box> @MkBox(%fl : !idr.lin<!idr.fn<(i64) -> (!idr.lin<i64>)>>)
     %r = idr.match %b : !idr.lin<!Box> -> (i64) {
     case @MkBox(%g: !idr.lin<!idr.fn<(i64) -> (!idr.lin<i64>)>>) {
       %two = arith.constant 2 : i64

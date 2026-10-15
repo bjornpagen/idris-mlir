@@ -4,30 +4,39 @@
 //
 // A wave is the turn of every component that can go on, read off what is
 // final; its turns run in parallel and touch disjoint components. Between
-// two waves no turn runs, so this is where the module, its symbol table,
-// the ready set's maps and the analysis manager's children change: the
-// pass's pipeline on a function nests an analysis manager for it, and
-// nesting a new function inserts into a map that pipelines on other
-// functions read. So the nodes the turns built go into the module here,
-// after their owners and by name, the components that finished become
-// final, and the requests the turns could not follow are recorded as waits
-// on the nodes they name.
+// two waves no turn runs, so this is where the program, its symbol table,
+// the ready set's maps, the summaries' publication and the analysis
+// manager's children change: the pass's pipeline on a function nests an
+// analysis manager for it, and nesting a new function inserts into a map
+// that pipelines on other functions read. So the nodes the turns built go
+// into the program here, after their owners and by name, the components
+// that finished become final and publish their summaries, and the requests
+// the turns could not follow are recorded as waits on the nodes they name.
 //
-// A request may close a cycle: a node asks for one that is parked, through
-// requests, on the asker's own component. Every component on the cycle
-// then becomes one, whose members finish together and never inline one
-// another. Each wave's waits are recorded in a fixed order, built nodes by
-// name after the turns in wave order, and the cycles they close do not
+// A made node waits, as every function does, on what it calls: a raise
+// node's body takes in its requester's dispatch, which may call the
+// requester's own component, not final yet. So each built node waits on
+// every function it calls that is not final.
+//
+// A wait may close a cycle: a node waits on one that waits, through
+// requests and calls, on the node's own component. Every component on the
+// cycle then becomes one, whose members finish together and never inline
+// one another. Each wave's waits are recorded in a fixed order, built nodes
+// by name after the turns in wave order, and the cycles they close do not
 // depend on that order, so neither do the components.
 
 #include "idr/Transforms/Optimize.h"
 
+#include "idr/Analysis/Effects.h"
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/IR/Remarks.h"
 #include "mlir/IR/Threading.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/SmallVector.h"
+
+#include <cassert>
 
 using namespace mlir;
 
@@ -35,7 +44,7 @@ namespace idr::optimize {
 
 // The components that can go on, in the ready set's order: those whose
 // callees are final, each with the members it takes up (all of those not
-// taken up yet, once every one of them is in the module and parked on
+// taken up yet, once every one of them is in the program and parked on
 // nothing) and the parked members whose waits are all met.
 SmallVector<Turn> Scheduler::nextWave() {
   SmallVector<Turn> wave;
@@ -54,7 +63,7 @@ SmallVector<Turn> Scheduler::nextWave() {
         startable = false;
         break;
       case Node::State::Waiting:
-        startable = startable && member->inModule && member->waitsOn.empty();
+        startable = startable && member->inProgram && member->waitsOn.empty();
         unstarted.push_back(member);
         break;
       case Node::State::Parked:
@@ -74,17 +83,17 @@ SmallVector<Turn> Scheduler::nextWave() {
 }
 
 // The ready-set node of a node of the table, made the first time it is
-// asked for, with a component of its own whose callees, its owner's, are
-// all final.
+// asked for, with a component of its own. What it calls that is not final
+// it waits on once it is built (waitOnCalls).
 Node *Scheduler::nodeOfMade(specialize::Node *made) {
   ReadySet &set = analyses.set;
   if (Node *found = set.byMade.lookup(made))
     return found;
   auto node = std::make_unique<Node>();
   node->made = made;
-  node->facts.calls = 1;
+  node->summary.facts.calls = 1;
   node->state = Node::State::Unbuilt;
-  node->inModule = false;
+  node->inProgram = false;
   auto scc = std::make_unique<Scc>();
   scc->members.push_back(node.get());
   node->scc = scc.get();
@@ -95,8 +104,8 @@ Node *Scheduler::nodeOfMade(specialize::Node *made) {
   return out;
 }
 
-// Whether a member of `from` is parked, through requests, on a member of
-// `to`.
+// Whether a member of `from` waits, through requests and calls, on a member
+// of `to`.
 bool Scheduler::reaches(Scc &from, Scc &to) {
   llvm::SmallPtrSet<Scc *, 8> seen{&from};
   SmallVector<Scc *> work{&from};
@@ -116,9 +125,12 @@ bool Scheduler::reaches(Scc &from, Scc &to) {
 }
 
 // Every component on a path of waits from `from` to `into` joins `into`,
-// and the waits between its members go. Only made nodes are waited on, so
-// every component a merge takes in is a made node's.
-LogicalResult Scheduler::merge(Scc &into, Scc &from) {
+// and the waits between its members go. A component on such a path has a
+// member waiting, so it was taken up, or it is a made node's own: either
+// way its callees are all final, and only its callers carry over. A
+// caller keeps one count per component it called, so its entries stay one
+// per component that was merged.
+void Scheduler::merge(Scc &into, Scc &from) {
   SmallVector<Scc *> forward{&from};
   llvm::SmallPtrSet<Scc *, 8> seen{&from};
   for (size_t at = 0; at < forward.size(); ++at)
@@ -129,14 +141,14 @@ LogicalResult Scheduler::merge(Scc &into, Scc &from) {
   for (Scc *scc : forward) {
     if (scc != &from && !reaches(*scc, into))
       continue;
-    if (!scc->callers.empty() || scc->unfinishedCallees != 0)
-      return analyses.module.emitError("internal error: idr-optimize: a cycle of requests "
-                                       "reaches a function the module held");
+    assert(scc->unfinishedCallees == 0 && "a component on a path of waits has its callees final");
     for (Node *member : scc->members) {
       member->scc = &into;
       into.members.push_back(member);
     }
+    llvm::append_range(into.callers, scc->callers);
     scc->members.clear();
+    scc->callers.clear();
     scc->mergedInto = &into;
   }
   for (Node *member : into.members) {
@@ -147,49 +159,66 @@ LogicalResult Scheduler::merge(Scc &into, Scc &from) {
       return true;
     });
   }
-  return success();
 }
 
-// `requester` asked for `node`: nothing to wait on when the node is final
-// or in its own component; a wait otherwise, or a merge when the wait
-// would close a cycle.
-LogicalResult Scheduler::want(Node *requester, Node *node) {
+// `requester` waits on `node`, which it asked for or calls: nothing to wait
+// on when the node is final or in its own component; a wait otherwise, or
+// a merge when the wait would close a cycle.
+void Scheduler::want(Node *requester, Node *node) {
   if (node->isFinal())
-    return success();
+    return;
   Scc &mine = requester->scc->leader();
   Scc &theirs = node->scc->leader();
   if (&mine == &theirs)
-    return success();
+    return;
   if (reaches(theirs, mine))
     return merge(mine, theirs);
   if (!llvm::is_contained(requester->waitsOn, node)) {
     requester->waitsOn.push_back(node);
     node->waiters.push_back(requester);
   }
-  return success();
 }
 
-// A built node goes into the module: after its owner and the owner's nodes
+// A built node waits on each function its body calls that is not final.
+// Its body is its owner's, with a requester's dispatch for a raise, and its
+// build redirected nothing, so every callee is a function of the program.
+void Scheduler::waitOnCalls(Node *node) {
+  SmallVector<Node *> callees;
+  node->fn.getBody().walk(
+      [&](CallOp call) { callees.push_back(analyses.set.nodeOf(call.getCalleeAttr().getAttr())); });
+  for (Node *callee : callees) {
+    assert(callee && "a built node calls functions of the program");
+    want(node, callee);
+  }
+}
+
+// A built node goes into the program: after its owner and the owner's nodes
 // whose names sort before its own (the table places it), into the symbol
-// table and the ready set's map, and into the analysis manager.
+// table and the ready set's map, and into the analysis manager. Its binding
+// times are what its build inherited from its owner.
 LogicalResult Scheduler::insert(Node *node) {
   StringAttr name = node->fn.getSymNameAttr();
   // A name is its key's, so a function already holding it is a collision
   // of the hash, never a reason to rename.
   if (analyses.symbols.lookup(name))
     return node->fn.emitError() << "internal error: idr-optimize: the specialization @"
-                                << name.getValue() << " meets a function of the module";
-  analyses.nodes.insert(*node->made, analyses.module);
+                                << name.getValue() << " meets a function of the program";
+  analyses.nodes.insert(*node->made, analyses.program);
   analyses.symbols.insert(node->fn);
   analyses.set.byName.try_emplace(name, node);
   (void)analyses.am.nest(node->fn);
-  node->inModule = true;
+  node->summary.times = std::move(node->made->times);
+  node->inProgram = true;
   ++numMade;
   return success();
 }
 
+// The component's summaries become readable by every other component, and
+// its entry becomes its members' `effects`, which the passes of every later
+// wave read.
 void Scheduler::finalize(Scc &scc) {
   for (Node *member : scc.members) {
+    setEntry(member->fn, member->summary.effects);
     member->final = true;
     ++numFinal;
   }
@@ -203,7 +232,7 @@ void Scheduler::finalize(Scc &scc) {
 }
 
 LogicalResult Scheduler::settle(MutableArrayRef<Turn> wave) {
-  SmallVector<std::pair<specialize::Node *, SmallVector<specialize::Node *>>> built;
+  SmallVector<specialize::Node *> built;
   SmallVector<Node *> requesters;
   for (Turn &turn : wave) {
     numInlined += turn.inlined;
@@ -214,10 +243,10 @@ LogicalResult Scheduler::settle(MutableArrayRef<Turn> wave) {
         requesters.push_back(member);
   }
   // Which turn built a node changes nothing; the name fixes the order.
-  llvm::sort(built, [](const auto &lhs, const auto &rhs) {
-    return lhs.first->name.getValue() < rhs.first->name.getValue();
+  llvm::sort(built, [](specialize::Node *lhs, specialize::Node *rhs) {
+    return lhs->name.getValue() < rhs->name.getValue();
   });
-  for (auto &[made, requests] : built) {
+  for (specialize::Node *made : built) {
     Node *node = nodeOfMade(made);
     node->fn = made->fn;
     node->state = Node::State::Waiting;
@@ -229,30 +258,34 @@ LogicalResult Scheduler::settle(MutableArrayRef<Turn> wave) {
       finalize(*turn.scc);
   for (Node *requester : requesters) {
     for (specialize::Node *made : requester->asked)
-      if (failed(want(requester, nodeOfMade(made))))
-        return failure();
+      want(requester, nodeOfMade(made));
     requester->asked.clear();
   }
-  for (auto &[made, requests] : built)
-    for (specialize::Node *request : requests)
-      if (failed(want(analyses.set.byMade.lookup(made), nodeOfMade(request))))
-        return failure();
+  for (specialize::Node *made : built)
+    waitOnCalls(analyses.set.byMade.lookup(made));
   return success();
 }
 
 LogicalResult Scheduler::run() {
-  MLIRContext *context = analyses.module.getContext();
+  MLIRContext *context = analyses.program.getContext();
   while (true) {
     SmallVector<Turn> wave = nextWave();
     if (wave.empty())
       break;
-    if (failed(failableParallelForEach(context, wave, [&](Turn &work) { return turn(work); })))
-      return failure();
-    if (failed(settle(wave)))
+    // An action handler (a debug counter, an action log) counts and writes
+    // from one thread: while the context has one, the wave's turns run one
+    // after another, in wave order. The turns are disjoint, so the output
+    // is the same either way.
+    LogicalResult ran = success();
+    if (context->hasActionHandler())
+      ran = success(llvm::all_of(wave, [&](Turn &work) { return succeeded(turn(work)); }));
+    else
+      ran = failableParallelForEach(context, wave, [&](Turn &work) { return turn(work); });
+    if (failed(ran) || failed(settle(wave)))
       return failure();
     // From the pass thread, where no turn runs: how far the run is.
     if (remark::detail::InFlightRemark progress = remark::analysis(
-            analyses.module.getLoc(), remark::RemarkOpts::name("progress").category("idr-optimize")))
+            analyses.program.getLoc(), remark::RemarkOpts::name("progress").category("idr-optimize")))
       progress << remark::metric("final", numFinal) << remark::metric("nodes", analyses.set.all.size())
                << remark::metric("made", numMade);
   }
@@ -262,9 +295,9 @@ LogicalResult Scheduler::run() {
     if (node->fn)
       return node->fn.emitError() << "internal error: idr-optimize: the ready set stopped with @"
                                   << node->fn.getSymName() << " not final";
-    return analyses.module.emitError() << "internal error: idr-optimize: the ready set stopped "
-                                          "with @"
-                                       << node->made->name.getValue() << " never built";
+    return analyses.program.emitError() << "internal error: idr-optimize: the ready set stopped "
+                                           "with @"
+                                        << node->made->name.getValue() << " never built";
   }
   return success();
 }

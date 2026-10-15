@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Every type the conversion writes, made before any function converts:
-// each key's sum by name, the data types whose bodies hold a slot remade
-// with the slots' sums, then each sum's body, set once. A closure sum has a
-// constructor per label, named by the label's function, holding its
-// captures at their grades; a memo sum one per label, holding every
-// parameter, `by_name` when the effects summary says its runs are
-// observed, then `running` and `forced` with the value. Then each
-// signature and each constant as its slots have it.
+// Every sum the conversion writes, made with its body before any function
+// converts, and the types made anew once every function has. A closure sum
+// has a constructor per label, of role Label, naming the label's function
+// and holding its captures at their grades; a memo sum one per label,
+// holding every parameter, `by_name` when the label's runs are observed,
+// then its Running state and its Forced state, which holds the value. A
+// capture that is a closure or a suspension is held as its key's sum, and
+// any other as the type the program gave it: sums hold sums, which the
+// definitions of one another tie, and a data type of the program that
+// holds a slot is made anew after the conversion, with every type that
+// holds it, a sum among them. Then each signature, each memo sum's dispatch
+// function's, and each constant as its slots have it.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/Analysis/Labels.h"
@@ -25,72 +29,56 @@ using namespace mlir;
 
 namespace idr::defunctionalize {
 
+namespace {
+
+// The value of a sum held in a slot of `type`: a memo sum's cell is shared
+// by every holder of it, so forcing one holder forces them all, and its
+// value is always a box. Whether a closure sum is held in a box is decided
+// for it as for every data type, by the cycles of the type graph, once
+// every type is final.
+Type held(Type type, bool lazy, DataType sum) {
+  Type value = lazy ? Type(BoxType::get(sum)) : Type(sum);
+  return isLinear(type) ? linear(value) : value;
+}
+
+} // namespace
+
 Type Slots::sumOf(const Key &key) const {
   auto it = sums.find(key);
-  assert(it != sums.end() && it->second && "every key of the module has a sum");
-  DataType sum = it->second;
-  if (isLazy(key) || cyclic.contains(key))
-    return BoxType::get(sum);
-  return sum;
+  assert(it != sums.end() && it->second.type && "every key of the program has a sum");
+  return held(key.first, isLazy(key), it->second.type);
 }
 
 Type Slots::typeOf(Type type, const Key &key) const {
   if (!key.first)
-    return mapped(type);
-  Type sum = sumOf(key);
-  return isLinear(type) ? linear(sum) : sum;
+    return type;
+  auto it = sums.find(key);
+  assert(it != sums.end() && it->second.type && "every key of the program has a sum");
+  return held(type, isLazy(key), it->second.type);
 }
 
-Type Slots::mapped(Type type) const {
-  auto it = mappedTypes.find(type);
-  return it == mappedTypes.end() ? type : it->second;
+unsigned Slots::labelTag(const Key &key, FlatSymbolRefAttr label) const {
+  ArrayRef<Attribute> labels = key.second.getValue();
+  const Attribute *at = llvm::partition_point(labels, [&](Attribute one) {
+    return cast<FlatSymbolRefAttr>(one).getValue() < label.getValue();
+  });
+  assert(at != labels.end() && *at == label && "a label of a slot is a label of its key");
+  return static_cast<unsigned>(at - labels.begin());
 }
 
-void Slots::remember(Type type) {
-  if (!isKeyed(type))
-    mappedTypes.try_emplace(type, remap->map(type));
+FlatSymbolRefAttr Slots::forceOf(const Key &key) const {
+  FlatSymbolRefAttr force = forces.lookup(key);
+  assert(force && "every lazy key of the program has a dispatch function");
+  return force;
 }
 
 LogicalResult Slots::declare(function_ref<bool(FuncOp)> byName) {
   if (failed(name()))
     return failure();
-  // A closure or suspension in a body is a field's slot, keyed by the
-  // field's anchor; one inside a shaped type is an element's, keyed by its
-  // element type's. Any other is a value's, which the conversion keys by
-  // its slot, and which the remap does not change.
-  remap.emplace(
-      module, "defun",
-      [this](Type type, DataType owner, unsigned tag, unsigned field) -> std::optional<Type> {
-        if (owner && isKeyed(type))
-          return typeOf(type, fieldKey(owner, tag, field));
-        auto shaped = dyn_cast<ShapedType>(unrestricted(type));
-        if (!shaped || !isKeyed(shaped.getElementType()))
-          return std::nullopt;
-        Type element = shaped.getElementType();
-        return graded(gradeOf(type), shaped.clone(typeOf(element, elementKey(element))));
-      });
-  if (failed(remap->status()))
-    return failure();
-  // Every type the decision and the conversion will ask the remap for: the
-  // module's values' and signatures', and the parameters and forced values
-  // the sums' bodies hold.
-  module.walk([&](Operation *op) {
-    for (Type type : op->getResultTypes())
-      remember(type);
-    for (Region &region : op->getRegions())
-      for (Block &block : region)
-        for (Type type : block.getArgumentTypes())
-          remember(type);
-  });
-  for (auto &entry : signatures) {
-    for (Type type : entry.second.type.getInputs())
-      remember(type);
-    for (Type type : entry.second.type.getResults())
-      remember(type);
-  }
   for (auto &entry : sums)
-    if (isLazy(entry.first))
-      remember(cast<LazyType>(entry.first.first).getValue());
+    define(entry.first, byName);
+  if (broken)
+    return failure();
   for (auto &entry : signatures) {
     Signature &sig = entry.second;
     SmallVector<Type> inputs, results;
@@ -100,25 +88,67 @@ LogicalResult Slots::declare(function_ref<bool(FuncOp)> byName) {
       results.push_back(typeOf(type, key));
     sig.converted = FunctionType::get(ctx, inputs, results);
   }
+  // Each memo sum's dispatch function takes the cell and gives the value
+  // its forced state holds. Its name is the sum's, which the key's content
+  // made, and no Idris name holds the sum's `$`, so no function of the
+  // program has it already.
   for (auto &[key, sum] : sums) {
-    SmallVector<SmallVector<Type>> fields;
-    SmallVector<Ctor> ctors = constructors(key, byName, fields);
-    SumKind kind = isLazy(key) ? SumKind::Memo : SumKind::Closures;
-    auto error = [&] { return module.emitError("internal error: idr-defunctionalize: "); };
-    if (failed(sum.setBody(error, kind, ctors, InstanceAttr())))
-      return failure();
+    if (!isLazy(key))
+      continue;
+    auto name = StringAttr::get(ctx, sum.name.getValue() + ".force");
+    if (signatures.count(name))
+      return program.emitError("internal error: idr-defunctionalize: two dispatch functions "
+                               "are named ")
+             << name;
+    Key forced = forcedKey(key.first);
+    Type cell = sumOf(key);
+    Type value = typeOf(cast<LazyType>(key.first).getValue(), forced);
+    Signature &sig = signatures[name];
+    sig.converted = sig.type = FunctionType::get(ctx, ArrayRef<Type>(cell), ArrayRef<Type>(value));
+    sig.arguments.push_back(Key());
+    sig.results.push_back(forced);
+    forces[key] = FlatSymbolRefAttr::get(name);
   }
-  module.walk([&](ConstantOp constant) {
+  program.walk([&](ConstantOp constant) {
     Value result = constant.getResult();
     constants[constant] = convertConstant(constant.getValue(), keyOf(result));
   });
   return success();
 }
 
-// The constructors of `key`'s sum, in tag order; `fields` holds their field
-// types.
-SmallVector<Ctor> Slots::constructors(const Key &key, function_ref<bool(FuncOp)> byName,
-                                      SmallVectorImpl<SmallVector<Type>> &fields) const {
+// The sum of `key`, made the first time it is asked for. Its body may hold
+// the sums of other keys, which are made in turn and may hold this one:
+// `define` hands the body the type being made, which is kept before the
+// body is, so that a sum asked for again while its body is made is that
+// type.
+DataType Slots::define(const Key &key, function_ref<bool(FuncOp)> byName) {
+  Sum &sum = sums.find(key)->second;
+  if (sum.type)
+    return sum.type;
+  // The fields of the body, which outlive the callback that hands it over.
+  SmallVector<SmallVector<Type>> fields;
+  DataType made = DataType::define(ctx, sum.name.getValue(), [&](DataType self) {
+    sum.type = self;
+    return body(key, byName, fields);
+  });
+  if (!made)
+    broken = true;
+  sum.type = made;
+  return made;
+}
+
+// The type of a capture or forced value of type `type` held in a slot of
+// `key`: its key's sum, or, in a slot of no key, the type itself.
+Type Slots::slotType(Type type, const Key &key, function_ref<bool(FuncOp)> byName) {
+  if (!key.first)
+    return type;
+  return held(type, isLazy(key), define(key, byName));
+}
+
+// The body of `key`'s sum: its labels in name order, then a memo sum's
+// states; `fields` holds their field types.
+DataType::Body Slots::body(const Key &key, function_ref<bool(FuncOp)> byName,
+                           SmallVectorImpl<SmallVector<Type>> &fields) {
   bool lazy = isLazy(key);
   ArrayRef<Attribute> labels = key.second.getValue();
   fields.resize(labels.size() + (lazy ? 2 : 0));
@@ -126,20 +156,49 @@ SmallVector<Ctor> Slots::constructors(const Key &key, function_ref<bool(FuncOp)>
     StringAttr label = cast<FlatSymbolRefAttr>(attr).getAttr();
     const Signature &sig = signature(label);
     for (unsigned i = 0, n = captures(label, key.first); i < n; ++i)
-      fields[at].push_back(typeOf(sig.type.getInput(i), sig.arguments[i]));
+      fields[at].push_back(slotType(sig.type.getInput(i), sig.arguments[i], byName));
   }
-  SmallVector<Ctor> ctors;
+  if (lazy) {
+    Type value = cast<LazyType>(key.first).getValue();
+    fields[labels.size() + 1].push_back(slotType(value, forcedKey(key.first), byName));
+  }
+  DataType::Body made;
+  made.kind = lazy ? SumKind::Memo : SumKind::Closures;
   for (auto [at, attr] : llvm::enumerate(labels)) {
-    StringAttr label = cast<FlatSymbolRefAttr>(attr).getAttr();
-    ctors.push_back({label, fields[at], lazy && byName(analysis.function(label))});
+    auto label = cast<FlatSymbolRefAttr>(attr);
+    made.ctors.push_back({label.getAttr(), fields[at],
+                          lazy && byName(analysis.function(label.getAttr())), CtorRole::Label,
+                          label});
   }
-  if (!lazy)
-    return ctors;
-  Type value = cast<LazyType>(key.first).getValue();
-  fields[labels.size() + 1].push_back(typeOf(value, forcedKey(key.first)));
-  ctors.push_back({StringAttr::get(ctx, memoRunning), fields[labels.size()], false});
-  ctors.push_back({StringAttr::get(ctx, memoForced), fields[labels.size() + 1], false});
-  return ctors;
+  if (lazy) {
+    made.ctors.push_back({StringAttr::get(ctx, memoRunning), fields[labels.size()], false,
+                          CtorRole::Running, FlatSymbolRefAttr()});
+    made.ctors.push_back({StringAttr::get(ctx, memoForced), fields[labels.size() + 1], false,
+                          CtorRole::Forced, FlatSymbolRefAttr()});
+  }
+  return made;
+}
+
+// A closure or suspension in a body is a field's slot, keyed by the
+// field's anchor; one inside a shaped type is an element's, keyed by its
+// element type's. Any other is a value's, which the conversion has given
+// its slot's type already.
+LogicalResult Slots::remake() {
+  DataRemap remap(
+      program, "defun",
+      [this](Type type, DataType owner, unsigned tag, unsigned field) -> std::optional<Type> {
+        if (owner && carriesLabels(type))
+          return typeOf(type, fieldKey(owner, tag, field));
+        auto shaped = dyn_cast<ShapedType>(unrestricted(type));
+        if (!shaped || !carriesLabels(shaped.getElementType()))
+          return std::nullopt;
+        Type element = shaped.getElementType();
+        return graded(gradeOf(type), shaped.clone(typeOf(element, elementKey(element))));
+      });
+  if (failed(remap.status()))
+    return failure();
+  remap.retype(program);
+  return success();
 }
 
 // Whether a closure is inside `attr`, each part answered once.
@@ -158,32 +217,30 @@ bool Slots::holdsClosure(Attribute attr) {
 }
 
 // The constant `attr`, held in a slot of `slot`, with each closure and
-// suspension in it the constructor of its label in its slot's sum, and each
-// constructor of a remade type one of the type it became. A shared part in
-// one slot is converted once.
+// suspension in it the constructor of its label in its slot's sum. A
+// constructor of the program's types stays of its type, which the remap
+// makes anew with the rest. A shared part in one slot is converted once.
 Attribute Slots::convertConstant(Attribute attr, const Key &slot) {
-  auto con = dyn_cast<ConAttr>(attr);
-  bool remade = con && dataTypeOf(remap->map(con.getData())) != con.getData();
-  if (!remade && !holdsClosure(attr))
+  if (!holdsClosure(attr))
     return attr;
   if (auto it = convertedParts.find({attr, slot}); it != convertedParts.end())
     return it->second;
   Attribute result;
   if (auto closure = dyn_cast<ClosureAttr>(attr)) {
-    StringAttr label = closure.getCallee().getAttr();
-    const Signature &sig = signature(label);
+    FlatSymbolRefAttr label = closure.getCallee();
+    const Signature &sig = signature(label.getAttr());
     SmallVector<Attribute> captures;
     for (auto [i, capture] : llvm::enumerate(closure.getCaptures()))
       captures.push_back(convertConstant(capture, sig.arguments[i]));
-    result = ConAttr::get(ctx, sums.lookup(slot), closure.getCallee(), ArrayAttr::get(ctx, captures));
+    result = ConAttr::get(ctx, sums.find(slot)->second.type, labelTag(slot, label),
+                          ArrayAttr::get(ctx, captures));
   } else {
+    auto con = cast<ConAttr>(attr);
     DataType data = con.getData();
-    DataType made = dataTypeOf(remap->map(data));
-    std::optional<unsigned> tag = data.getTag(con.getCtor().getValue());
-    assert(tag && "a constant's constructor is one of its type's");
-    ArrayRef<Type> declared = data.getCtor(*tag).fields;
+    unsigned tag = con.getTag();
+    ArrayRef<Type> declared = data.getCtor(tag).fields;
     auto field = [&](Attribute value, unsigned i) {
-      return convertConstant(value, isKeyed(declared[i]) ? fieldKey(data, *tag, i) : Key());
+      return convertConstant(value, carriesLabels(declared[i]) ? fieldKey(data, tag, i) : Key());
     };
     auto cell = [&](ArrayAttr fields, function_ref<unsigned(unsigned)> index) {
       SmallVector<Attribute> out;
@@ -192,16 +249,14 @@ Attribute Slots::convertConstant(Attribute attr, const Key &slot) {
       return ArrayAttr::get(ctx, out);
     };
     if (!con.isRun()) {
-      result = ConAttr::get(ctx, made, con.getCtor(),
-                            cell(con.getFields(), [](unsigned i) { return i; }));
+      result = ConAttr::get(ctx, data, tag, cell(con.getFields(), [](unsigned i) { return i; }));
     } else {
       // A run is converted cell by cell, its tail in the last cell's spine.
       unsigned spine = con.getSpine();
       SmallVector<ArrayAttr> cells;
       for (ArrayAttr one : con.getRunCells())
         cells.push_back(cell(one, [&](unsigned i) { return cellField(i, spine); }));
-      result =
-          ConAttr::getRun(ctx, made, con.getCtor(), spine, cells, field(con.getTail(), spine));
+      result = ConAttr::getRun(ctx, data, tag, spine, cells, field(con.getTail(), spine));
     }
   }
   convertedParts[{attr, slot}] = result;

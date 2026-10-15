@@ -1,4 +1,4 @@
-// RUN: awk 'BEGIN { ORS = "" } NR == 1, /^module \{/ { print $0 "\n"; next } /^  idr\.func/ { n++ } /^\}$/ { for (i = 0; i <= n; i++) print c[i == 0 ? 0 : n + 1 - i]; print $0 "\n"; next } { c[n] = c[n] $0 "\n" }' %s > %t.reversed.mlir
+// RUN: awk 'BEGIN { ORS = "" } NR == 1, /^idr\.program / { print $0 "\n"; next } /^  idr\.func/ { n++ } /^\}$/ { for (i = 0; i <= n; i++) print c[i == 0 ? 0 : n + 1 - i]; print $0 "\n"; next } { c[n] = c[n] $0 "\n" }' %s > %t.reversed.mlir
 // RUN: idris-mlir-opt %s --idr-optimize -o %t.mlir
 // RUN: idris-mlir-opt %t.reversed.mlir --idr-optimize -o %t.reversed.out.mlir
 // RUN: sed -n 's/^ *idr\.func \(private \)\{0,1\}@\([^(]*\)(.*/\2/p' %t.mlir | sort > %t.names
@@ -11,8 +11,8 @@
 // in: the same module with its functions in reverse order (the first RUN
 // line writes it) gives the same set of symbols, the specializations of
 // @apply on 1 and 2 and of @scale on 3 among them.
-module {
-  idr.func private @apply(%k: i64, %n: i64) -> i64 attributes {total} {
+idr.program @reorder root(@Main.main) stage(first) {
+  idr.func @apply(%k: i64, %n: i64) -> i64 attributes {total} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       idr.yield %k : i64
@@ -27,7 +27,7 @@ module {
     }
     return %r : i64
   }
-  idr.func private @scale(%k: i64, %n: i64) -> i64 attributes {total} {
+  idr.func @scale(%k: i64, %n: i64) -> i64 attributes {total} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       idr.yield %k : i64

@@ -10,15 +10,15 @@
 // nothing calls; @kept is called, and so is a copy of Prog.twice.
 // KEPT: error: expected not-called: @kept is still called, as @kept, in @main
 // COPY: error: expected not-called: @Prog.twice is still called, as @Prog.twice.spec.0123456789abcdef, in @main
-module {
-  idr.func private @gone(%x: i64) -> i64 {
+idr.program @"not-called" root(@main) stage(first) {
+  idr.func @gone(%x: i64) -> i64 {
     return %x : i64
   }
-  idr.func private @kept(%x: i64) -> i64 {
+  idr.func @kept(%x: i64) -> i64 {
     %y = arith.addi %x, %x : i64
     return %y : i64
   }
-  idr.func private @Prog.twice.spec.0123456789abcdef(%x: i64) -> i64 {
+  idr.func @Prog.twice.spec.0123456789abcdef(%x: i64) -> i64 {
     %y = arith.muli %x, %x : i64
     return %y : i64
   } loc("Prog.twice"("Prog.idr":3:1))

@@ -11,8 +11,8 @@
 // CHECK-LABEL: idr.func @Main.main(
 // CHECK: case @add(
 // CHECK: call @add(
-module {
-  idr.func private @add(%k: i64, %x: i64) -> i64 attributes {total} {
+idr.program @"evaluated-keyed" root(@Main.main) stage(higher) {
+  idr.func @add(%k: i64, %x: i64) -> i64 attributes {total} {
     %r = arith.addi %k, %x : i64
     return %r : i64
   }
@@ -36,8 +36,8 @@ module {
 // CHECK-LABEL: idr.func @Main.main(
 // CHECK: force
 // CHECK: force
-module {
-  idr.func private @one() -> i64 attributes {total} {
+idr.program @"evaluated-keyed" root(@Main.main) stage(higher) {
+  idr.func @one() -> i64 attributes {total} {
     %c = arith.constant 1 : i64
     return %c : i64
   }

@@ -8,32 +8,32 @@
 
 // NEEDS-ACCEPTANCE: the aliases the printer gives the data types (C01 §4) and their spelling.
 // CHECK-DAG: !Shape = !idr.data<"Main.Shape", plain [@Circle(f64), @Rect(f64, f64), @Proven(i64)]>
-// CHECK-DAG: !List = !idr.data<"List", list [@Nil(), @"$58$$58$"(i64, !idr.box<!idr.data<"List">>)]>
+// CHECK-DAG: !List = !idr.data<"List", list [@Nil() nil, @"$58$$58$"(i64, !idr.box<!idr.data<"List">>) cons]>
 // CHECK-DAG: !Fields = !idr.data<"Fields", plain [@All(i8, i16, i32, i64, f64, !idr.str, !idr.big, !idr.world, !idr.fn<(i64) -> i64>, !idr.fn<() -> ()>, !Shape, !idr.box<!List>)]>
 // CHECK-LABEL: module {
 !Main.Shape = !idr.data<"Main.Shape", plain [@Circle(f64), @Rect(f64, f64), @Proven(i64)]>
-!List = !idr.data<"List", list [@Nil(), @"$58$$58$"(i64, !idr.box<!idr.data<"List">>)]>
+!List = !idr.data<"List", list [@Nil() nil, @"$58$$58$"(i64, !idr.box<!idr.data<"List">>) cons]>
 !Fields = !idr.data<"Fields", plain [@All(i8, i16, i32, i64, f64, !idr.str, !idr.big, !idr.world, !idr.fn<(i64) -> (i64)>, !idr.fn<() -> ()>, !Main.Shape, !idr.box<!List>)]>
-module {
-  idr.func private @inc(%k: i64, %x: i64) -> i64 {
+idr.program @roundtrip root(@Main.main) stage(higher) {
+  idr.func @inc(%k: i64, %x: i64) -> i64 {
     %r = arith.addi %k, %x : i64
     return %r : i64
   }
 
   // An array tied to the sizes Idris proved equal: a tensor before
   // bufferization, the buffer after it.
-  // CHECK-LABEL: idr.func private @ties
+  // CHECK-LABEL: idr.func @ties
   // CHECK: {{(idr\.)?}}tie_shape %{{.*}} dims(%{{.*}}) : tensor<?x4xf64>
   // CHECK: {{(idr\.)?}}tie_shape %{{.*}} dims(%{{.*}}) : memref<?xi64>
-  idr.func private @ties(%t: tensor<?x4xf64>, %m: memref<?xi64>, %n: index)
+  idr.func @ties(%t: tensor<?x4xf64>, %m: memref<?xi64>, %n: index)
       -> (tensor<?x4xf64>, memref<?xi64>) {
     %t1 = idr.tie_shape %t dims(%n) : tensor<?x4xf64>
     %m1 = idr.tie_shape %m dims(%n) : memref<?xi64>
     return %t1, %m1 : tensor<?x4xf64>, memref<?xi64>
   }
 
-  // CHECK-LABEL: idr.func private @values
-  idr.func private @values(%x: i64, %d: f64,
+  // CHECK-LABEL: idr.func @values
+  idr.func @values(%x: i64, %d: f64,
                             %s: !Main.Shape,
                             %l: !idr.box<!List>)
       -> (i64, f64, i64, i64) attributes {total} {
@@ -43,18 +43,18 @@ module {
     %c1 = idr.constant #idr.con<@"$58$$58$", [7 : i64, #idr.con<@Nil, []>]> : !idr.box<!List>
     // CHECK: constant #idr.closure<@inc, [1]> : !idr.fn<(i64) -> i64>
     %c2 = idr.constant #idr.closure<@inc, [1 : i64]> : !idr.fn<(i64) -> (i64)>
-    // CHECK: constant #idr.big<"-123456789012345678901234567890"> : !idr.big
-    %c3 = idr.constant #idr.big<"-123456789012345678901234567890"> : !idr.big
+    // CHECK: constant #idr.big<-123456789012345678901234567890> : !idr.big
+    %c3 = idr.constant #idr.big<-123456789012345678901234567890> : !idr.big
     // CHECK: constant "hello\0A" : !idr.str
     %c5 = idr.constant "hello\n" : !idr.str
-    // CHECK: con @Circle(%{{.*}}) : (f64) -> !Shape
-    %v0 = idr.con @Circle(%d) : (f64) -> !Main.Shape
-    // CHECK: con @"$58$$58$"(%{{.*}}, %{{.*}}) : (i64, !idr.box<!List>) -> !idr.box<!List>
-    %v1 = idr.con @"$58$$58$"(%x, %l) : (i64, !idr.box<!List>) -> !idr.box<!List>
-    // CHECK: field %{{.*}}[@Circle, 0] : !Shape -> f64
-    %f0 = idr.field %s[@Circle, 0] : !Main.Shape -> f64
-    // CHECK: field %{{.*}}[@"$58$$58$", 0] : !idr.box<!List> -> i64
-    %f1 = idr.field %l[@"$58$$58$", 0] : !idr.box<!List> -> i64
+    // CHECK: con !Shape @Circle(%{{.*}} : f64)
+    %v0 = idr.con !Main.Shape @Circle(%d : f64)
+    // CHECK: con !idr.box<!List> @"$58$$58$"(%{{.*}} : i64, %{{.*}} : !idr.box<!List>)
+    %v1 = idr.con !idr.box<!List> @"$58$$58$"(%x : i64, %l : !idr.box<!List>)
+    // CHECK: field %{{.*}} : !Shape @Circle[0] -> f64
+    %f0 = idr.field %s : !Main.Shape @Circle[0] -> f64
+    // CHECK: field %{{.*}} : !idr.box<!List> @"$58$$58$"[0] -> i64
+    %f1 = idr.field %l : !idr.box<!List> @"$58$$58$"[0] -> i64
     // CHECK: tag %{{.*}} : !Shape
     %t0 = idr.tag %s : !Main.Shape
     // CHECK: tag %{{.*}} : !idr.box<!List>
@@ -62,8 +62,8 @@ module {
     return %f1, %f0, %t0, %t1 : i64, f64, i64, i64
   }
 
-  // CHECK-LABEL: idr.func private @matches
-  idr.func private @matches(%s: !Main.Shape,
+  // CHECK-LABEL: idr.func @matches
+  idr.func @matches(%s: !Main.Shape,
                              %n: i64, %c: i32,
                              %b: i1, %t: !idr.str,
                              %g: !idr.big, %w: !idr.world)
@@ -158,9 +158,9 @@ module {
     }
     }
     // CHECK: match_lit %{{.*}} : !idr.big -> (i64) {
-    // CHECK-NEXT: case #idr.big<"0"> {
+    // CHECK-NEXT: case #idr.big<0> {
     %m = idr.match_lit %g : !idr.big -> (i64) {
-    case #idr.big<"0"> {
+    case #idr.big<0> {
       idr.yield %n : i64
     }
     default {
@@ -170,8 +170,8 @@ module {
     return %r#0, %r#1 : f64, !idr.world
   }
 
-  // CHECK-LABEL: idr.func private @closures
-  idr.func private @closures(%x: i64) -> i64 {
+  // CHECK-LABEL: idr.func @closures
+  idr.func @closures(%x: i64) -> i64 {
     // CHECK: %[[C:.*]] = {{(idr\.)?}}closure @inc(%{{.*}}) : (i64) -> !idr.fn<(i64) -> i64>
     %c = idr.closure @inc(%x) : (i64) -> !idr.fn<(i64) -> (i64)>
     // CHECK: apply %[[C]](%{{.*}}) : !idr.fn<(i64) -> i64>
@@ -181,8 +181,8 @@ module {
     return %r : i64
   }
 
-  // CHECK-LABEL: idr.func private @scalars
-  idr.func private @scalars(%x: i64, %y: i8,
+  // CHECK-LABEL: idr.func @scalars
+  idr.func @scalars(%x: i64, %y: i8,
                              %d: f64) {
     // CHECK: div signed %{{.*}}, %{{.*}} : i64
     %a = idr.div signed %x, %x : i64
@@ -203,8 +203,8 @@ module {
     return
   }
 
-  // CHECK-LABEL: idr.func private @strings
-  idr.func private @strings(%s: !idr.str, %c: i32,
+  // CHECK-LABEL: idr.func @strings
+  idr.func @strings(%s: !idr.str, %c: i32,
                              %x: i64, %y: i8,
                              %d: f64) {
     // CHECK: idr.str.append %{{.*}}, %{{.*}}
@@ -250,8 +250,8 @@ module {
     return
   }
 
-  // CHECK-LABEL: idr.func private @bigs
-  idr.func private @bigs(%a: !idr.big, %x: i64,
+  // CHECK-LABEL: idr.func @bigs
+  idr.func @bigs(%a: !idr.big, %x: i64,
                           %d: f64, %s: !idr.str) {
     // CHECK: idr.big.add %{{.*}}, %{{.*}}
     %0 = idr.big.add %a, %a
@@ -294,10 +294,10 @@ module {
 
   // The big ops that keep naturals natural write the type; the others take
   // and give Integers only.
-  // CHECK-LABEL: idr.func private @naturals
-  idr.func private @naturals(%n: !idr.nat, %a: !idr.big) {
-    // CHECK: constant #idr.big<"3"> : !idr.nat
-    %three = idr.constant #idr.big<"3"> : !idr.nat
+  // CHECK-LABEL: idr.func @naturals
+  idr.func @naturals(%n: !idr.nat, %a: !idr.big) {
+    // CHECK: constant #idr.big<3> : !idr.nat
+    %three = idr.constant #idr.big<3> : !idr.nat
     // CHECK: idr.big.add %{{.*}}, %{{.*}} : !idr.nat
     %0 = idr.big.add %n, %three : !idr.nat
     // CHECK: idr.big.mul %{{.*}}, %{{.*}} : !idr.nat
@@ -313,17 +313,21 @@ module {
     return
   }
 
-  // An IORef is an array of rank 0: made, read and written with no size and
-  // no index. The read that moves its element out says so.
-  // CHECK-LABEL: idr.func private @ref
-  idr.func private @ref(%v: !idr.str, %s: !idr.str, %w0: !idr.world) -> (!idr.str, !idr.world) {
+  // An IORef is an array of rank 0: made, read, written and updated in
+  // place with no size and no index. An exchange is an update whose region
+  // gives the new element back and the old one out.
+  // CHECK-LABEL: idr.func @ref
+  idr.func @ref(%v: !idr.str, %s: !idr.str, %w0: !idr.world) -> (!idr.str, !idr.world) {
     // CHECK: idr.array.new [], %{{.*}}, %{{.*}} : !idr.str -> memref<!idr.str, #idr.world>
     %r, %w1 = idr.array.new [], %v, %w0 : !idr.str -> memref<!idr.str, #idr.world>
-    // CHECK: idr.array.get %{{.*}}[], %{{.*}} moves : memref<!idr.str, #idr.world> -> !idr.str
-    %x, %w2 = idr.array.get %r[], %w1 moves : memref<!idr.str, #idr.world> -> !idr.str
-    // CHECK: idr.array.set %{{.*}}[], %{{.*}}, %{{.*}} : memref<!idr.str, #idr.world>, !idr.str
-    %w3 = idr.array.set %r[], %s, %w2 : memref<!idr.str, #idr.world>, !idr.str
-    return %x, %w3 : !idr.str, !idr.world
+    // CHECK: idr.array.update %{{.*}}[], %{{.*}} {
+    // CHECK: idr.array.yield %{{.*}}, %{{.*}} : !idr.str, !idr.str
+    // CHECK: } : memref<!idr.str, #idr.world> -> !idr.str
+    %x, %w2 = idr.array.update %r[], %w1 {
+    ^bb0(%old: !idr.str):
+      idr.array.yield %s, %old : !idr.str, !idr.str
+    } : memref<!idr.str, #idr.world> -> !idr.str
+    return %x, %w2 : !idr.str, !idr.world
   }
 
   // CHECK-LABEL: idr.func @Main.main

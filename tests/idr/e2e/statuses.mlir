@@ -11,7 +11,7 @@
 // status 1, and no output. A failed compilation leaves none of its
 // outputs, a stale one from an earlier compilation included.
 // FOREIGN: error: {{.*}}scf.execute_region
-// INPUT: module {
+// INPUT: idr.program @foreign root(@Prog.main) stage(higher) {
 // INPUT:   idr.func @Prog.main() -> i64 {
 // INPUT:     %r = scf.execute_region -> i64 {
 // INPUT:       %z = arith.constant 0 : i64
@@ -20,7 +20,7 @@
 // INPUT:     return %r : i64
 // INPUT:   }
 // INPUT: }
-module {
+idr.program @statuses root(@Prog.main) stage(higher) {
   idr.func @Prog.main() -> i64 {
     %z = arith.constant 0 : i64
     return %z : i64

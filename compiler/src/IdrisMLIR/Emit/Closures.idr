@@ -68,6 +68,7 @@ numbered st (Uses _) = st
 numbered st (Binds v) = { next $= S, names $= insert v.name ("%" ++ show st.next) } st
 numbered st (Defines name results) =
   let fresh = "%" ++ show st.next
+      ofResults : List (String, String)
       ofResults = case results of
         [_] => []
         rs => zipWith (\i, old => (old, fresh ++ "#" ++ show i)) [0 .. length rs] rs
@@ -85,11 +86,11 @@ renumbered r = renameRegion (renamedBy (walkRegion numbered (MkNumbering 0 empty
 -- The function
 ------------------------------------------------------------------------------
 
-||| The function of a body, private and total: it has no loop of its own,
-||| since a recursion goes through a function of the program, which carries
-||| its own proof or its absence.
+||| The function of a body, total: it has no loop of its own, since a
+||| recursion goes through a function of the program, which carries its own
+||| proof or its absence.
 functionOp : String -> MlirType -> Region -> Op
-functionOp sym type body = Idr.funcOp {symVisibility = Just "private", total' = True} sym type body
+functionOp sym type body = Idr.funcOp {total' = True} sym type body
 
 ||| The function a lambda's or a delay's body becomes, among its owner's,
 ||| and its symbol and captures. `params` are the arguments the body binds

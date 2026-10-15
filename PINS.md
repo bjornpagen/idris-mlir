@@ -69,6 +69,14 @@ point are gone: `simplify-structural-fixpoint`
 submissions, each with its pull request as `pull-request.diff`, which the
 bootstrap does not apply, and a check that the pin still has the bug
 (upstream/README.md, **When nothing reaches the bug**).
+Never carried: `bytecode-unregistered-properties`
+(`upstream/25-bytecode-unregistered-properties`, found 2026-10-15). The
+pinned reader reads an op written unregistered as if its properties were
+a properties index; the frontend writes each op's inherent attributes in
+its attribute dictionary, which the reader moves into properties, so
+nothing in the tree reaches the bug. Its report, reproducer and pull
+request are kept as a submission, with `tests/upstream/bytecode-unregistered-properties`
+checking that the pin still has it.
 Retired with the one recipe (2026-10-09): `stage2-thinlto`. Stage 2 is
 not LTO on any target: its libraries are native code that every build of
 our tools links as it is, a rebuild through the compiler cache relinks
@@ -407,35 +415,42 @@ which the top-level CMake configure gate reads.
 
 - symptom: on main at 7208ba24, One-Shot Module Bufferize knows only the
   func dialect: it collects `func::FuncOp` and walks `func::CallOp`
-  (`mlir/lib/Dialect/Bufferization/Transforms/OneShotModuleBufferize.cpp:315-378`,
-  29 sites of `func::FuncOp`, none of `FunctionOpInterface`), keys
-  `FuncAnalysisState` by `func::FuncOp`
-  (`FuncBufferizableOpInterfaceImpl.h:57-70`), keeps the queries its models
-  read `static`, and its function-argument type converter takes a
-  `func::FuncOp` (`BufferizableOpInterface.h:271-273`). So no boundary of
-  an idr.func is analyzed, and a linear array threaded through a call
-  could not be written in place across it. It also refuses a function
-  none of whose blocks returns (`:139-145`), which every function that
-  only crashes is
-- sites: none in our code; the patch. idr-bufferize runs the module driver
-  on idr.func (foreign/idr/lib/Transforms/Bufferize), whose models of
-  idr.func, idr.call and idr.return read the boundary analysis through the
-  queries the patch exports; the pipeline's empty tensor elimination runs
-  its analysis on the module
-- workaround: `upstream/24-one-shot-module-function-interface/llvm.patch`,
-  the pull request, a reland of upstream's reverted #110322: the driver,
-  its analysis state and the type converter on `FunctionOpInterface` and
-  `CallOpInterface`, the functions limited to function ops with a
-  `BufferizableOpInterface` implementation (a `transform.named_sequence`,
-  the revert's cause, stays an other op), the queries exported, and a
-  function that never returns analyzed with no aliasing result
-- retire: drop the patch when the pin's driver takes `FunctionOpInterface`
-  and bufferizes a function that never returns
-  (`tests/upstream/one-shot-module-function-interface` then passes with
-  the pristine tools); the models stay
-- upstream: upstream/24-one-shot-module-function-interface (not filed;
-  not built; upstream main is the pin's at 2026-10-14); plan in its
-  README: one pull request, a reland of #110322
+  (`mlir/lib/Dialect/Bufferization/Transforms/OneShotModuleBufferize.cpp:315-378`),
+  keys `FuncAnalysisState` by `func::FuncOp` (`FuncBufferizableOpInterfaceImpl.h:57-70`),
+  writes its boundary models on func's ops (`FuncBufferizableOpInterfaceImpl.cpp:162-535`)
+  with their queries `static`, and its function-argument type converter
+  takes a `func::FuncOp` (`BufferizableOpInterface.h:271-273`). It refuses a
+  function none of whose blocks returns (`:139-145`), which every function
+  that only crashes is. A call result is writable whatever its callee
+  returns (`BufferizableOpInterface.td:460-466`), so a caller writes in place
+  a constant's global or a heap array a callee returns. Empty tensor
+  elimination sees function boundaries only on a `ModuleOp`
+  (`EmptyTensorElimination.cpp:210`), and `getGlobalFor` puts a constant's
+  global in the enclosing `ModuleOp` (`BufferUtils.cpp:105`), outside
+  idr.program, where its `memref.get_global` does not find it and a pass on
+  the program may not write
+- sites: none in our code; the patch. idr-bufferize (foreign/idr/lib/Transforms/Bufferize)
+  runs the module driver on idr.program, attaches upstream's
+  `func_ext::FuncOpBufferizableModel`, `CallOpBufferizableModel` and
+  `ReturnOpBufferizableModel` to idr.func, idr.call and idr.return, and runs
+  empty tensor elimination on a module analysis of its own
+- workaround: `upstream/24-one-shot-module-function-interface/llvm.patch`, three
+  pull requests in one diff: a reland of upstream's reverted #110322 (the
+  driver, its state, the models and the type converter on
+  `FunctionOpInterface`, `CallOpInterface` and `ReturnLike`; the functions
+  limited to function ops with a `BufferizableOpInterface` implementation,
+  so a `transform.named_sequence`, the revert's cause, stays an other op;
+  the models public templates and their queries exported; a function that
+  never returns analyzed with no aliasing result); the return values that
+  may not be writable recorded per function and read by the call model's
+  `isWritable`; and the nearest symbol table for empty tensor elimination's
+  module analysis and for a constant's global
+- retire: drop each part when the pin carries upstream's fix for it; the
+  patch goes when all have (`tests/upstream/one-shot-module-function-interface`
+  then passes with the pristine tools); the models stay upstream's templates
+- upstream: upstream/24-one-shot-module-function-interface (not filed; not
+  built; upstream main is the pin's at 2026-10-14); plan in its README:
+  three pull requests, the reland of #110322 first
 
 ## eliminate-duplicate-functions
 

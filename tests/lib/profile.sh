@@ -50,18 +50,26 @@ profile_compile() {
 # profile_reject FIXTURE: `tests/reject/<reason>-<desc>/`, a directory holding
 # Main.idr and its other modules, whose first
 # line is `-- expect: <reason>, line <n>` (and then, optionally,
-# `-- message: <text>`), <reason> being the phrase the compiler gives and the
-# name starting with it, words joined by dashes. It is rejected with exit
-# status 3 and exactly one `unsupported (<reason>)`, reported on line n, and
-# leaves no artifact.
+# `-- message: <text>`), <reason> being the phrase of one of the rules
+# (lib/rules.sh) and the name starting with it, words joined by dashes. It
+# is rejected with exit status 3 and exactly one `unsupported (<reason>)`,
+# reported on line n, and leaves no artifact.
 profile_reject() {
   if [ -d "$1" ]; then reject_main=$1/Main.idr; else reject_main=$1; fi
   reject_name=$(fixture_name "$1")
   reject_expect=$(header "$reject_main" expect)
-  reject_reason=$(printf '%s\n' "$reject_expect" | sed -n 's/^\([a-z][a-z -]*[a-z]\), line \([0-9][0-9]*\)$/\1/p')
-  reject_line=$(printf '%s\n' "$reject_expect" | sed -n 's/^\([a-z][a-z -]*[a-z]\), line \([0-9][0-9]*\)$/\2/p')
+  reject_reason=$(printf '%s\n' "$reject_expect" | sed -n 's/^\(.*\), line \([0-9][0-9]*\)$/\1/p')
+  reject_line=$(printf '%s\n' "$reject_expect" | sed -n 's/^\(.*\), line \([0-9][0-9]*\)$/\2/p')
   if [ -z "$reject_reason" ]; then
     say "$reject_name: the first line must be '-- expect: <reason>, line <n>'"
+    return
+  fi
+  if [ ! -f "$rules_list" ]; then
+    say "$reject_name: no list of the rules (IdrRules.txt, which the build writes)"
+    return
+  fi
+  if ! rule_category "$reject_reason" > /dev/null; then
+    say "$reject_name: $reject_reason is no rule's phrase"
     return
   fi
   reject_prefix=$(printf '%s' "$reject_reason" | tr ' ' '-')

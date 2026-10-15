@@ -71,7 +71,7 @@ private:
 // module call nothing back.
 LogicalResult constantStack(ModuleOp module, AnalysisManager &analyses, StringRef function) {
   constexpr StringRef property = "constant-stack";
-  SymbolTable &symbols = analyses.getAnalysis<SymbolTable>();
+  SymbolTable &symbols = symbolsOf(module, analyses);
   SmallVector<Operation *> reached = llvm::map_to_vector(
       named(module, function, property),
       [](FunctionOpInterface fn) -> Operation * { return fn; });

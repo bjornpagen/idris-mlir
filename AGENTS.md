@@ -103,7 +103,12 @@ numbers.
   analysis a refusal rests on is total on the programs the frontend
   admits: defunctionalization makes every closure set of the closed,
   monomorphic module a sum, and the only refusals are the frontend's, each
-  naming a construct whose choices no compile-time analysis bounds.
+  naming a construct whose choices no compile-time analysis bounds, and
+  two of constructs outside the language's memory model, each on a total
+  analysis: a reference knot counting could never free, and a library's
+  in-place promise exclusivity cannot meet. Every refusal's rule carries
+  its category in ODS, and no representation limit refuses a program: a
+  limit is lifted by a representation.
   Inlining, specialization, constant propagation and every other pass that
   only makes code faster or smaller terminate by construction (a fixed
   sequence, a bottom-up order) and may stop at a budget; a spent budget

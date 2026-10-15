@@ -1,25 +1,22 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What specialization decides by: the binding time of every parameter,
-// written once per function: for a function the module held, when its
-// component of the direct calls is ready, from the component's bodies; for
-// a node, when it is built, from its owner's. Read by name, the symbol a
-// call's callee gives, from any worker.
+// What specialization decides by: the binding time of every parameter.
+// idr-optimize's ready set computes them once per function, on the
+// function's summary: for a function the program held, when its component
+// is taken up, from the component's bodies; for a node, its owner's by its
+// key, from its build. Read by name, the symbol a call's callee gives,
+// from any worker, once the function is final.
 #ifndef IDR_ANALYSIS_SPECIALIZE_H
 #define IDR_ANALYSIS_SPECIALIZE_H
 
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/Pass/AnalysisManager.h"
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 
 #include <cstdint>
-#include <optional>
-#include <shared_mutex>
 
 namespace idr {
 
@@ -46,7 +43,8 @@ llvm::StringRef nameOf(BindingTime time);
 //     unchanged in the same position: one specialization serves the whole
 //     recursion, whose calls then have its key;
 //   - decreasing when every such call passes a proper part of it: a field
-//     of it, an argument of a region of a match on it, or its predecessor
+//     of it, an argument of a case of a match on it (the default region's
+//     argument is the scrutinee itself, no part of it), or its predecessor
 //     as a Nat (`idr.big.pred`, defined on non-zero values only); the keys
 //     shrink along the chain of specializations;
 //   - bounded when every such call passes it or a proper part of it: the
@@ -60,28 +58,15 @@ llvm::StringRef nameOf(BindingTime time);
 llvm::SmallVector<llvm::SmallVector<BindingTime>>
 bindingTimesOf(llvm::ArrayRef<idr::FuncOp> component);
 
-// The binding times of a run of idr-optimize, by function name. Built empty
-// by the module's analysis manager.
+// The binding times a specialization reads: those of the functions whose
+// component of idr-optimize's ready set is final, where they no longer
+// change. The ready set answers; safe from any worker.
 class BindingTimes {
 public:
-  BindingTimes(mlir::Operation *module, mlir::AnalysisManager &am);
-  ~BindingTimes();
-  bool isInvalidated(const mlir::AnalysisManager::PreservedAnalyses &pa) const;
-
-  // Each member of `component` without binding times gets them from
-  // bindingTimesOf, over the members that have none. Safe on disjoint
-  // components from different workers.
-  void solve(llvm::ArrayRef<idr::FuncOp> component);
-  // A node's, written once by its build: its owner's, by its key.
-  void inherit(mlir::StringAttr fn, llvm::SmallVector<BindingTime> times);
-
-  // None for a function that has none yet, or past its parameters.
-  std::optional<BindingTime> of(mlir::StringAttr fn, unsigned index) const;
-  llvm::SmallVector<BindingTime> of(mlir::StringAttr fn) const;
-
-private:
-  mutable std::shared_mutex mutex;
-  llvm::DenseMap<mlir::StringAttr, llvm::SmallVector<BindingTime>> times;
+  virtual ~BindingTimes() = default;
+  // One per parameter of the final function named `fn`; empty while its
+  // component is not final.
+  virtual llvm::SmallVector<BindingTime> of(mlir::StringAttr fn) const = 0;
 };
 
 } // namespace idr

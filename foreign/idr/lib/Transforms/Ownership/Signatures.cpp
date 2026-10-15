@@ -17,30 +17,31 @@ using namespace mlir;
 namespace idr::ownership {
 
 // An owned parameter and every result that holds references are owned
-// (`!idr.own<T>`); a borrowed parameter keeps its plain type, a view of
-// the caller's value.
-void writeOwnedGrades(ModuleOp module, const Borrows &borrows) {
-  for (FuncOp fn : module.getOps<FuncOp>()) {
+// (`!idr.own<T>`); a borrowed parameter is a view of the caller's value,
+// at the view grade.
+void writeOwnedGrades(ProgramOp program, const Borrows &borrows) {
+  for (FuncOp fn : program.getOps<FuncOp>()) {
     SmallVector<Type> params(fn.getArgumentTypes());
     for (auto [index, param] : llvm::enumerate(borrows.params(fn))) {
-      if (param != Borrows::Param::Owned)
+      if (param == Borrows::Param::Untracked)
         continue;
-      params[index] = owned(params[index]);
+      params[index] =
+          param == Borrows::Param::Owned ? owned(params[index]) : view(params[index]);
       fn.getArgument(static_cast<unsigned>(index)).setType(params[index]);
     }
     SmallVector<Type> results(fn.getResultTypes());
     for (auto [result, counted] : llvm::zip_equal(results, borrows.countedResults(fn)))
       if (counted)
         result = owned(result);
-    fn.setFunctionType(FunctionType::get(module.getContext(), params, results));
+    fn.setFunctionType(FunctionType::get(program.getContext(), params, results));
   }
 }
 
 // A parameter is exclusive when the solve proved its entry argument so: it
 // saw every caller and each passes an exclusive value. A result is when
 // every return the solve reached makes it so.
-void writeExclusiveGrades(ModuleOp module, const Exclusivity &solved, SymbolTable &symbols) {
-  for (FuncOp fn : module.getOps<FuncOp>()) {
+void writeExclusiveGrades(ProgramOp program, const Exclusivity &solved, SymbolTable &symbols) {
+  for (FuncOp fn : program.getOps<FuncOp>()) {
     for (BlockArgument arg : fn.getArguments())
       if (solved.proves(arg))
         arg.setType(exclusive(arg.getType()));
@@ -56,10 +57,10 @@ void writeExclusiveGrades(ModuleOp module, const Exclusivity &solved, SymbolTabl
           type = exclusive(type);
       }
     fn.setFunctionType(FunctionType::get(
-        module.getContext(), llvm::to_vector(fn.getBody().getArgumentTypes()), results));
+        program.getContext(), llvm::to_vector(fn.getBody().getArgumentTypes()), results));
   }
   // A call's results are its callee's.
-  module.walk([&](CallOp call) {
+  program.walk([&](CallOp call) {
     if (auto callee = symbols.lookup<FuncOp>(call.getCalleeAttr().getAttr()))
       for (auto [result, type] : llvm::zip(call.getResults(), callee.getResultTypes()))
         result.setType(type);

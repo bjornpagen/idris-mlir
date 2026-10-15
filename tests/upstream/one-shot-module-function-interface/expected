@@ -1,3 +1,8 @@
+NEEDS-ACCEPTANCE: written before a toolchain carried the extended patch 24 (upstream's boundary models on FunctionOpInterface and CallOpInterface, results that are not writable, the nearest symbol table) and before idr-bufferize used those models on idr.program: confirm each line below.
 named-sequence: the payload bufferizes and the sequence is left as it is
 no-return: a function that never returns bufferizes, and so does its caller
+non-writable-result: the caller writes a copy of the constant the callee returns
+symbol-table: the elimination sees the call's boundary on a gpu.module
 idr-call: the callee writes its argument in place and neither function copies
+idr-call: the returned constant is copied before it is written
+idr-call: the constant's global is a symbol of the program

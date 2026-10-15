@@ -1,16 +1,16 @@
-// RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
-// RUN: FileCheck %s --implicit-check-not='{{(idr\.| )delay }}' < %t.mlir
+// RUN: idris-mlir-opt %s --idr-defunctionalize -o %t.mlir
+// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=builds=@Main.main,forces-nothing=@Main.main,no-closures -o /dev/null
+// RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %s --canonicalize=test-convergence=true -o /dev/null
-// NEEDS-ACCEPTANCE: the memo sum's spelling as C01 prints an identified type, and its constructor names, as C06 makes them.
+// NEEDS-ACCEPTANCE: the memo sum's printed body as R01 prints an identified type with its roles (D1), and that the force became a call of the sum's dispatch (D2, R06), so no force is left.
 // An evaluated suspension, `idr.delay %value`, is a cell already forced.
 // Its key has a memo sum like any lazy key, with no label of its own, and
-// the delay becomes the sum's `forced` constructor holding the value; the
-// force keeps its op and reads the box.
-// CHECK: ![[L:[A-Za-z_][A-Za-z0-9_.$]*]] = !idr.data<"{{[^"]*}}", memo [@running(), @forced(i64)]>
-// CHECK-LABEL: idr.func @Main.main(
-// CHECK: %[[C:.*]] = {{(idr\.)?}}con @forced(%{{.*}}) : (i64) -> !idr.box<![[L]]>
-// CHECK: force %[[C]] : !idr.box<![[L]]> -> i64
-module {
+// the delay becomes the sum's forced constructor holding the value, built
+// at run time; the force is a call of the sum's dispatch, which reads the
+// cell, so no force is left, and no suspension type either (the program's
+// stage is first). The sum's body is how it prints.
+// CHECK: = !idr.data<"{{[^"]*}}", memo [@running() running, @forced(i64) forced]>
+idr.program @"evaluated-memo" root(@Main.main) stage(higher) {
   idr.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_byte %w
     %n = arith.extui %c : i32 to i64

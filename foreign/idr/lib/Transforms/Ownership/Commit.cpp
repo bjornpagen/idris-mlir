@@ -3,9 +3,11 @@
 // idr-rc-commit: what exclusivity's solve proved, written into one
 // function's types once idr-rc has written it into every signature: the
 // values it proved exclusive get the grade, and where an exclusive value
-// meets a position typed owned (a call's argument, a return, a yield), it
-// is shared into it.
+// meets a position typed owned (a call's argument, a return, and whatever
+// a branch or a region branch forwards it to: a loop's carried value, its
+// result, a match's result), it is shared into it.
 #include "idr/Analysis/Ownership.h"
+#include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/Ownership.h"
@@ -75,9 +77,10 @@ LogicalResult commit(FuncOp fn, const Exclusivity &solved, SymbolTable &symbols)
         take(call.getArgOperandsMutable(), callee.getArgumentTypes());
     } else if (auto ret = dyn_cast<ReturnOp>(op)) {
       take(ret->getOpOperands(), fn.getResultTypes());
-    } else if (auto yield = dyn_cast<YieldOp>(op)) {
-      take(yield->getOpOperands(), yield->getParentOp()->getResultTypes());
     }
+    forwardedValues(op, [&](OpOperand &operand, Value input) {
+      positions.emplace_back(&operand, input.getType());
+    });
   });
   IRRewriter rewriter(fn.getContext());
   for (auto [operand, expected] : positions)

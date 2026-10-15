@@ -6,34 +6,34 @@
 // @ended the dead @N would give its non-cell to the @MkB built after it,
 // and in @atom the dead @MkB would give its cell to an @N. Neither is a
 // reuse site; both constructors stay idr.con.
-// CHECK-LABEL: idr.func private @ended(
-// CHECK: con @MkB(
+// CHECK-LABEL: idr.func @ended(
+// CHECK: con {{.*}}@MkB(
 // CHECK-NOT: reuse
-// CHECK-LABEL: idr.func private @atom(
-// CHECK: con @N(
+// CHECK-LABEL: idr.func @atom(
+// CHECK: con {{.*}}@N(
 // CHECK-NOT: reuse
 // CHECK-LABEL: idr.func @root(
 !U = !idr.data<"U", plain [@MkU()]>
 !B = !idr.data<"B", plain [@MkB(!U)]>
-!L = !idr.data<"L", list [@N(), @C(i64, !idr.box<!idr.data<"L">>)]>
-module {
-  idr.func private @ended(%l: !idr.box<!L>, %u: !U) -> !idr.box<!B> {
+!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
+idr.program @"atom-reuse" root(@root) stage(first) {
+  idr.func @ended(%l: !idr.box<!L>, %u: !U) -> !idr.box<!B> {
     %r = idr.match %l : !idr.box<!L> -> (!idr.box<!B>) {
     case @N() {
-      %b = idr.con @MkB(%u) : (!U) -> !idr.box<!B>
+      %b = idr.con !idr.box<!B> @MkB(%u : !U)
       idr.yield %b : !idr.box<!B>
     }
     case @C(%h: i64, %t: !idr.box<!L>) {
-      %b = idr.con @MkB(%u) : (!U) -> !idr.box<!B>
+      %b = idr.con !idr.box<!B> @MkB(%u : !U)
       idr.yield %b : !idr.box<!B>
     }
     }
     return %r : !idr.box<!B>
   }
-  idr.func private @atom(%b: !idr.box<!B>) -> !idr.box<!L> {
+  idr.func @atom(%b: !idr.box<!B>) -> !idr.box<!L> {
     %r = idr.match %b : !idr.box<!B> -> (!idr.box<!L>) {
     case @MkB(%u: !U) {
-      %n = idr.con @N() : () -> !idr.box<!L>
+      %n = idr.con !idr.box<!L> @N()
       idr.yield %n : !idr.box<!L>
     }
     }

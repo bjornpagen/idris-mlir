@@ -4,96 +4,82 @@
 // its own for is borrowed, and its callers keep the reference, which saves
 // an idr.dup and an idr.drop per call.
 //
-// Every parameter starts borrowed and becomes owned, until nothing changes
-// in the module, when it or a field read from it
+// Every parameter starts borrowed and becomes owned when it or a field read
+// from it
 //   - is taken apart (its cell is reused only if it is owned);
 //   - is passed to an owned parameter of a call;
 //   - is itself stored in a constructor;
-//   - is returned, or yielded by a match, whose results are owned;
+//   - is returned, or forwarded on (a match's yield, the value a loop
+//     carries round), which owns what it holds;
 // and when an owned value is passed to it by a tail call from the same
 // cycle of calls, which would otherwise have to drop its reference after
 // the call, so that the call would no longer be a tail call. A self call
 // whose result a tail position puts in a constructor counts as one:
 // idr-trmc makes it a tail call that writes the field, unless a drop sits
-// between the call and the constructor.
-// The public root keeps its parameters owned: its caller is not a call
+// between the call and the constructor. An element read from a buffer
+// takes a reference of its own where it is read: it is owned, and owning
+// it asks nothing of the buffer.
+// The program's root keeps its parameters owned: its caller is not a call
 // this analysis sees. A parameter of quantity 1 is owned too: Idris proved
 // the function uses it once, so it moves to that use and is never counted.
+// A memo cell is never owned: a force writes it while its caller still
+// reads it, so the dispatch that forces it reads a view.
+//
+// What a function's parameters need depends on its own body, on its
+// callees' parameters, and through a tail call on what the functions of
+// its cycle pass it. So the cycles of the call graph are solved callees
+// first, each once every function it calls outside it is final.
 //
 // The takes of reset/reuse are its decisions, not ops yet: each one owns
 // its box where the take will go, in the order a walk would meet it.
 #include "idr/Analysis/Ownership.h"
 
-#include "idr/Analysis/References.h"
 #include "idr/Analysis/Tail.h"
+#include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ownership.h"
-#include "idr/Support/Scc.h"
 
-#include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/Threading.h"
-#include "llvm/ADT/Sequence.h"
+#include "mlir/Analysis/CallGraph.h"
+#include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/SetVector.h"
 
 using namespace mlir;
-using idr::ownership::Counted;
 using idr::ownership::readFrom;
+using idr::ownership::tracked;
 
 namespace idr {
 
 namespace {
 
-// What one function contributes before the fixpoint, found on its own: the
-// functions it calls.
-struct Local {
-  SmallVector<FuncOp> callees;
-};
-
 class Inference {
 public:
-  Inference(ModuleOp module, SymbolTable &symbols, const Reuses &reuses)
-      : module(module), symbols(symbols), reuses(reuses) {}
+  Inference(ProgramOp program, SymbolTable &symbols, const Reuses &reuses)
+      : program(program), symbols(symbols), reuses(reuses) {}
 
   void run(DenseMap<Operation *, SmallVector<Borrows::Param>> &paramsOf,
            DenseMap<Operation *, SmallVector<bool>> &resultsOf, unsigned &borrowed) {
-    SmallVector<FuncOp> all(module.getOps<FuncOp>());
-    SmallVector<Local> locals(all.size());
-    parallelForEach(module.getContext(), llvm::seq<size_t>(0, all.size()),
-                    [&](size_t index) { locals[index] = local(all[index]); });
-    for (auto [fn, found] : llvm::zip_equal(all, locals)) {
-      functions.push_back(fn);
-      for (FuncOp g : found.callees)
-        callers[g].insert(fn);
-    }
+    FuncOp root = program.lookupRoot();
+    SmallVector<FuncOp> functions(program.getOps<FuncOp>());
     for (FuncOp fn : functions) {
-      bool fixed = fn.isPublic();
-      SmallVector<bool> params;
-      for (Type type : fn.getArgumentTypes())
-        params.push_back(fixed || !counted(type) || quantityOf(type) == Quantity::One);
-      owned[fn] = std::move(params);
-    }
-    findCycles(all, locals);
-    // A parameter only ever becomes owned, so a function is walked again
-    // only when its own parameter or a callee's did. Walking every function
-    // whenever any parameter changed walks the module once per parameter.
-    llvm::SetVector<FuncOp> work;
-    for (FuncOp fn : llvm::reverse(functions))
-      work.insert(fn);
-    while (!work.empty()) {
-      collect(work.pop_back_val());
-      for (FuncOp fn : dirtied) {
-        work.insert(fn);
-        if (auto callersOf = callers.find(fn); callersOf != callers.end())
-          for (FuncOp caller : callersOf->second)
-            work.insert(caller);
+      bool fixed = fn == root;
+      SmallVector<bool> params, views;
+      for (Type type : fn.getArgumentTypes()) {
+        bool view = !fixed && ownership::isMemoCell(type);
+        views.push_back(view);
+        params.push_back(!view && (fixed || !ownership::counted(type) ||
+                                   quantityOf(type) == Quantity::One));
       }
-      dirtied.clear();
+      owned[fn] = std::move(params);
+      viewsOf[fn] = std::move(views);
     }
+    const CallGraph graph(program);
+    for (auto scc = llvm::scc_begin(&graph); !scc.isAtEnd(); ++scc)
+      solve(*scc);
     for (FuncOp fn : functions) {
       SmallVector<Borrows::Param> &params = paramsOf[fn];
       for (auto [type, holds] : llvm::zip_equal(fn.getArgumentTypes(), owned[fn])) {
-        if (!counted(type)) {
+        if (!ownership::counted(type)) {
           params.push_back(Borrows::Param::Untracked);
           continue;
         }
@@ -102,32 +88,47 @@ public:
       }
       SmallVector<bool> &results = resultsOf[fn];
       for (Type result : fn.getResultTypes())
-        results.push_back(counted(result));
+        results.push_back(ownership::counted(result));
     }
   }
 
 private:
-  // The part of the start state one function decides alone; it reads the
-  // table, which no one writes while the workers run.
-  Local local(FuncOp fn) {
-    Local found;
-    fn->walk([&](CallOp call) {
-      if (auto g = symbols.lookup<FuncOp>(call.getCalleeAttr().getAttr()))
-        found.callees.push_back(g);
-    });
-    return found;
+  static FuncOp functionOf(const CallGraphNode *node) {
+    return cast<FuncOp>(node->getCallableRegion()->getParentOp());
   }
 
-  // The cycles of calls, for the tail calls to keep.
-  void findCycles(ArrayRef<FuncOp> all, ArrayRef<Local> locals) {
-    DenseMap<FuncOp, ArrayRef<FuncOp>> calls;
-    for (auto [fn, found] : llvm::zip_equal(all, locals))
-      calls[fn] = found.callees;
-    auto components = stronglyConnected<FuncOp>(
-        functions, [&](FuncOp fn) { return SmallVector<FuncOp>(calls.lookup(fn)); });
-    for (auto [index, component] : llvm::enumerate(components))
-      for (FuncOp fn : component)
-        cycleOf[fn] = static_cast<unsigned>(index);
+  // One cycle of calls, every function it calls outside it final. A
+  // function is walked again only when its own parameter or that of a
+  // function it calls on the cycle became owned; a parameter becomes owned
+  // once, so the walks end, and walking every function of the cycle
+  // whenever any parameter changed would walk it once per parameter.
+  void solve(ArrayRef<CallGraphNode *> nodes) {
+    cycle.clear();
+    for (const CallGraphNode *node : nodes)
+      if (!node->isExternal())
+        cycle.insert(functionOf(node));
+    if (cycle.empty())
+      return;
+    DenseMap<FuncOp, llvm::SetVector<FuncOp>> callers;
+    for (const CallGraphNode *node : nodes)
+      if (!node->isExternal())
+        for (const CallGraphNode::Edge &edge : *node)
+          if (edge.isCall() && !edge.getTarget()->isExternal())
+            if (FuncOp callee = functionOf(edge.getTarget()); cycle.contains(callee))
+              callers[callee].insert(functionOf(node));
+    llvm::SetVector<FuncOp> work;
+    for (FuncOp fn : llvm::reverse(cycle))
+      work.insert(fn);
+    while (!work.empty()) {
+      collect(work.pop_back_val());
+      for (FuncOp fn : dirtied) {
+        work.insert(fn);
+        if (auto of = callers.find(fn); of != callers.end())
+          for (FuncOp caller : of->second)
+            work.insert(caller);
+      }
+      dirtied.clear();
+    }
   }
 
   // The parameter `value` is of the function being collected, if it is one.
@@ -140,15 +141,15 @@ private:
 
   void ownParam(FuncOp fn, unsigned index) {
     SmallVector<bool> &params = owned[fn];
-    if (index < params.size() && !params[index]) {
+    if (index < params.size() && !params[index] && !viewsOf[fn][index]) {
       params[index] = true;
       dirtied.insert(fn);
     }
   }
 
-  // `value` needs a reference of its own.
+  // `value` needs a reference of its own. An element has one already.
   void own(Value value) {
-    if (!counted.tracked(value))
+    if (!tracked(value) || ownership::isCountedElement(value))
       return;
     if (std::optional<unsigned> index = paramIndex(value)) {
       ownParam(current, *index);
@@ -161,16 +162,18 @@ private:
   }
 
   void ownIfParam(Value value) {
-    if (paramIndex(value) && counted.tracked(value))
+    if (paramIndex(value) && tracked(value))
       own(value);
   }
 
   // Whether `value` holds a reference of its own in the function.
   bool isOwned(Value value) {
-    if (!counted.tracked(value))
+    if (!tracked(value))
       return false;
     if (std::optional<unsigned> index = paramIndex(value))
       return owned[current][*index];
+    if (ownership::isCountedElement(value))
+      return true;
     if (Value from = readFrom(value))
       return ownedFields.contains(value) || isOwned(from);
     return true;
@@ -212,31 +215,35 @@ private:
       for (auto [index, arg] : llvm::enumerate(call.getArgOperands()))
         if (it == owned.end() || index >= it->second.size() || it->second[index])
           own(arg);
-      if (it != owned.end() && cycleOf.lookup(g) == cycleOf.lookup(current) &&
+      if (it != owned.end() && cycle.contains(g) &&
           (tail::inTailPosition(call) || tail::inTailPositionModuloConstructor(call)))
         for (auto [index, arg] : llvm::enumerate(call.getArgOperands()))
           if (isOwned(arg))
             ownParam(g, static_cast<unsigned>(index));
-    } else if (isa<ConOp>(op)) {
+      return;
+    }
+    if (isa<ConOp>(op)) {
       for (Value operand : op->getOperands())
         ownIfParam(operand);
-    } else if (isa<ReturnOp, YieldOp>(op)) {
-      // Borrowed, a returned parameter would need a reference of its own
-      // to leave the call with, and the caller's value would be shared
-      // from then on.
+      return;
+    }
+    // Borrowed, a returned or forwarded parameter would need a reference
+    // of its own to move on with, and the caller's value would be shared
+    // from then on.
+    if (isa<ReturnOp>(op))
       for (Value operand : op->getOperands())
         own(operand);
-    }
+    forwardedValues(op, [&](OpOperand &operand, Value) { own(operand.get()); });
   }
 
-  ModuleOp module;
+  ProgramOp program;
   SymbolTable &symbols;
-  Counted counted;
   const Reuses &reuses;
-  SmallVector<FuncOp> functions;
   DenseMap<FuncOp, SmallVector<bool>> owned;
-  DenseMap<FuncOp, unsigned> cycleOf;
-  DenseMap<FuncOp, llvm::SetVector<FuncOp>> callers;
+  // The parameters that are views whatever the function does with them.
+  DenseMap<FuncOp, SmallVector<bool>> viewsOf;
+  // The functions of the cycle being solved.
+  llvm::SetVector<FuncOp> cycle;
   FuncOp current;
   DenseSet<Value> ownedFields;
   DenseMap<Operation *, SmallVector<Value>> takenAfter;
@@ -246,9 +253,9 @@ private:
 
 } // namespace
 
-Borrows::Borrows(Operation *module, AnalysisManager &am) {
+Borrows::Borrows(Operation *program, AnalysisManager &am) {
   const Reuses &reuses = am.getAnalysis<Reuses>();
-  Inference(cast<ModuleOp>(module), am.getAnalysis<SymbolTable>(), reuses)
+  Inference(cast<ProgramOp>(program), am.getAnalysis<SymbolTable>(), reuses)
       .run(paramsOf, resultsOf, numBorrowed);
 }
 

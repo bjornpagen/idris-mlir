@@ -5,6 +5,6 @@
 // main's, its kind (`lam`) and its key's hash, found here by the name, in
 // whatever order the frontend writes them. main's only fact is the Idris
 // definition it is an instance of.
-// CHECK-DAG: idr.func private @Main.main() -> {{.*}} attributes {instance = #idr.instance<"Main.main", []>} {
-// CHECK-DAG: idr.func private @Main.main.lam.{{[^(]+}}({{.*}}) -> {{.*}} attributes {{[{].*}}total{{.*}} {
-// CHECK-DAG: idr.func private @Main.main.lam.{{[^(]+}}({{.*}}) -> {{.*}} attributes {{[{].*}}total{{.*}} {
+// CHECK-DAG: idr.func @Main.main() -> {{.*}} attributes {instance = #idr.instance<"Main.main", []>} {
+// CHECK-DAG: idr.func @Main.main.lam.{{[^(]+}}({{.*}}) -> {{.*}} attributes {{[{].*}}total{{.*}} {
+// CHECK-DAG: idr.func @Main.main.lam.{{[^(]+}}({{.*}}) -> {{.*}} attributes {{[{].*}}total{{.*}} {

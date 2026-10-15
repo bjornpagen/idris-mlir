@@ -3,12 +3,16 @@
 // idr-bufferize: One-Shot Bufferize on the whole program, once.
 //
 // Which buffer a call may write in place is a fact across calls, so the
-// analysis is the module's: upstream's module driver orders the functions
-// callee first and analyzes each, and the models of this directory tell it
-// what each idr op does with a tensor. The driver's steps are written out
-// (analysis, copies, rewrite) so that what the analysis found is read
-// between them: a copy forced at a call on a cycle of calls is a remark,
-// and a failed analysis is reported at the op it concerns.
+// analysis is the program's: upstream's module driver orders the functions
+// callee first and analyzes each, upstream's own function-boundary models
+// read idr.func, idr.call and idr.return through FunctionOpInterface,
+// CallOpInterface and ReturnLike, as they read func's, and the models of
+// this directory tell it what every other idr op does with a tensor. The
+// driver's steps are written out (empty tensor elimination, analysis,
+// copies, rewrite) so that every analysis of the program is this pass's,
+// with its options, and a failed one is reported here: a copy forced at a
+// call on a cycle of calls is a remark, and an analysis that fails is the
+// compiler's broken invariant.
 //
 // A buffer is a cell of the runtime: an allocation is memref.alloc, which
 // idr-lower makes the runtime's cell, and a copy is memref.copy, the
@@ -17,10 +21,11 @@
 // system and not two.
 //
 // A linear array is no tensor to One-Shot, and nor is a data type that
-// holds one: the wrapper and the body are ours. Once every tensor has its
-// buffer, one retyping of the module turns every tensor left inside another
-// type into its cell's buffer type, so a wrapper keeps its grade around the
-// buffer and a body holds the buffer.
+// holds one: a type interface belongs to its class, and the class of a
+// linear array is that of every grade, the world's included. Once every
+// tensor has its buffer, one retyping of the program turns every tensor
+// left inside another type into its cell's buffer type, so a wrapper keeps
+// its grade around the buffer and a body holds the buffer.
 #include "idr/Transforms/Bufferize.h"
 
 #include "idr/Transforms/BufferizeModels.h"
@@ -31,16 +36,17 @@
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.h"
 #include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
+#include "mlir/Dialect/Bufferization/Transforms/FuncBufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotModuleBufferize.h"
 #include "mlir/Dialect/Bufferization/Transforms/Transforms.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
-#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Diagnostics.h"
-#include "mlir/IR/Dominance.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Remarks.h"
+#include "mlir/Interfaces/CallInterfaces.h"
 
 #include "llvm/ADT/SmallVector.h"
 
@@ -56,6 +62,7 @@ namespace idr {
 
 using namespace mlir;
 using namespace mlir::bufferization;
+namespace calls = mlir::bufferization::func_ext;
 
 MemRefType idr::bufferize::bufferType(RankedTensorType type) {
   return cast<MemRefType>(getMemRefTypeWithStaticIdentityLayout(type));
@@ -65,7 +72,7 @@ BufferLikeType idr::bufferize::cellType(Value value) {
   return cast<BufferLikeType>(bufferType(cast<RankedTensorType>(value.getType())));
 }
 
-Type idr::bufferize::boundaryType(Type type) {
+Type idr::bufferize::heldType(Type type) {
   if (auto tensor = dyn_cast<RankedTensorType>(type))
     return bufferType(tensor);
   return type;
@@ -85,7 +92,9 @@ FailureOr<Value> idr::bufferize::cellBuffer(RewriterBase &rewriter, Value value,
 
 void idr::bufferize::registerModels(DialectRegistry &registry) {
   registry.addExtension(+[](MLIRContext *ctx, idr::IdrDialect *) {
-    attachFunctionModels(ctx);
+    idr::FuncOp::attachInterface<calls::FuncOpBufferizableModel<idr::FuncOp>>(*ctx);
+    idr::CallOp::attachInterface<calls::CallOpBufferizableModel<idr::CallOp>>(*ctx);
+    idr::ReturnOp::attachInterface<calls::ReturnOpBufferizableModel<idr::ReturnOp>>(*ctx);
     attachLinearModels(ctx);
     attachDataModels(ctx);
     attachTieShapeModel(ctx);
@@ -122,13 +131,15 @@ auto keepErrors(SmallVectorImpl<Kept> &kept) {
   };
 }
 
-// No program reaches a failure of One-Shot: a linear array aliases nothing
-// by the library's construction, and every op that holds a tensor has a
-// model. So each is the compiler's broken invariant.
-void reportInternal(ModuleOp module, ArrayRef<Kept> kept) {
+// No program reaches a failure of One-Shot: a link is an entry nothing
+// touches after, a release whose buffer a later write would overwrite was
+// given a buffer of its own, and every op that holds a tensor has a model.
+// So each is the compiler's broken invariant, reported with One-Shot's own
+// words.
+void reportInternal(idr::ProgramOp program, ArrayRef<Kept> kept) {
   if (kept.empty()) {
-    module.emitError("internal error: idr-bufferize: One-Shot Bufferize failed without a "
-                     "diagnostic");
+    program.emitError("internal error: idr-bufferize: One-Shot Bufferize failed without a "
+                      "diagnostic");
     return;
   }
   for (const Kept &error : kept) {
@@ -139,51 +150,18 @@ void reportInternal(ModuleOp module, ArrayRef<Kept> kept) {
   }
 }
 
-// A link must bufferize in place, so a read of its buffer after the
-// release fails One-Shot's check before any decision. The error names the
-// link and each read its release comes before on every path, with
-// One-Shot's own message; where no link has such a read, One-Shot's errors
-// are what there is to say.
-void reportAnalysisFailure(ModuleOp module, const OneShotAnalysisState &state,
-                           ArrayRef<Kept> kept) {
-  std::string why = kept.empty() ? "One-Shot's analysis failed" : kept.front().message;
-  bool named = false;
-  for (idr::FuncOp fn : module.getOps<idr::FuncOp>()) {
-    DominanceInfo dominance(fn);
-    fn.walk([&](idr::LinEnterOp enter) {
-      OpOperand &released = enter->getOpOperand(0);
-      if (!isa<TensorLikeType>(released.get().getType()) || !idr::bufferize::isLink(enter, state))
-        return;
-      SmallVector<Operation *> reads;
-      for (OpOperand &use : released.get().getUses())
-        if (use.getOwner() != enter.getOperation() &&
-            dominance.properlyDominates(enter.getOperation(), use.getOwner()) &&
-            state.bufferizesToMemoryRead(use))
-          reads.push_back(use.getOwner());
-      if (reads.empty())
-        return;
-      InFlightDiagnostic error =
-          enter.emitError() << "internal error: idr-bufferize: the linear array released here "
-                               "is read after its release: "
-                            << why;
-      for (Operation *read : reads)
-        error.attachNote(read->getLoc()) << "read here";
-      named = true;
-    });
-  }
-  if (!named)
-    reportInternal(module, kept);
-}
-
 // Upstream's module analysis does not summarize a function on a cycle of
 // calls, and assumes that a call of one reads and writes every operand.
 // Each copy that assumption makes is a remark, for the program whose hot
 // path would want the analysis to reach a cycle's fixpoint.
-void remarkCopiesAtCycles(ModuleOp module, const OneShotAnalysisState &state) {
-  if (!module->getContext()->getRemarkEngine())
+void remarkCopiesAtCycles(idr::ProgramOp program, const OneShotAnalysisState &state) {
+  if (!program->getContext()->getRemarkEngine())
     return;
-  module.walk([&](idr::CallOp call) {
-    if (idr::bufferize::analyzedCallee(call, state))
+  program.walk([&](idr::CallOp call) {
+    FunctionOpInterface callee =
+        calls::getCalledFunction(cast<CallOpInterface>(call.getOperation()), state);
+    if (callee &&
+        calls::getFuncOpAnalysisState(state, callee) == calls::FuncOpAnalysisState::Analyzed)
       return;
     for (OpOperand &arg : call->getOpOperands())
       if (isa<TensorLikeType>(arg.get().getType()) && !state.isInPlace(arg))
@@ -205,7 +183,7 @@ struct Bufferize : idr::impl::IdrBufferizeBase<Bufferize> {
   }
 
   void runOnOperation() override {
-    ModuleOp module = getOperation();
+    idr::ProgramOp program = getOperation();
     MLIRContext *ctx = &getContext();
 
     OneShotBufferizationOptions options;
@@ -225,42 +203,67 @@ struct Bufferize : idr::impl::IdrBufferizeBase<Bufferize> {
     // one it replaced.
     options.allowReturnAllocsFromLoops = true;
 
-    OneShotAnalysisState analysis(module, options);
-    BufferizationStatistics statistics;
+    idr::bufferize::prepare(program, options);
+
     SmallVector<Kept> kept;
+    // A tensor.empty whose array is inserted into a slice of another becomes
+    // that slice, decided on an analysis of its own, since the elimination
+    // changes the program the analysis below must see.
+    {
+      OneShotAnalysisState elimination(program, options);
+      bool eliminated;
+      {
+        ScopedDiagnosticHandler keep(ctx, keepErrors(kept));
+        IRRewriter rewriter(ctx);
+        eliminated = succeeded(analyzeModuleOp(program, elimination)) &&
+                     succeeded(eliminateEmptyTensors(rewriter, program, elimination));
+      }
+      if (!eliminated) {
+        reportInternal(program, kept);
+        return signalPassFailure();
+      }
+    }
+
+    OneShotAnalysisState analysis(program, options);
+    BufferizationStatistics statistics;
     bool analyzed;
     {
       ScopedDiagnosticHandler keep(ctx, keepErrors(kept));
-      analyzed = succeeded(analyzeModuleOp(module, analysis, &statistics));
+      analyzed = succeeded(analyzeModuleOp(program, analysis, &statistics));
     }
     if (!analyzed) {
-      reportAnalysisFailure(module, analysis, kept);
+      reportInternal(program, kept);
       return signalPassFailure();
     }
-    remarkCopiesAtCycles(module, analysis);
+    remarkCopiesAtCycles(program, analysis);
 
     BufferizationState rewrite;
     bool rewritten;
     {
       ScopedDiagnosticHandler keep(ctx, keepErrors(kept));
-      rewritten = succeeded(insertTensorCopies(module, analysis, rewrite)) &&
-                  succeeded(bufferizeModuleOp(module, options, rewrite, &statistics));
+      rewritten = succeeded(insertTensorCopies(program, analysis, rewrite)) &&
+                  succeeded(bufferizeModuleOp(program, options, rewrite, &statistics));
     }
     if (!rewritten) {
-      reportInternal(module, kept);
+      reportInternal(program, kept);
       return signalPassFailure();
     }
 
-    // Every tensor left is inside another type: a wrapper, a body, a
-    // signature. Each becomes its cell's buffer, and a data type whose body
-    // held one becomes a new type of its own.
+    // Every tensor left in a function is inside another type: a wrapper, a
+    // body, a signature. Each becomes its cell's buffer, and a data type
+    // whose body held one becomes a new type of its own. The values are the
+    // functions'; the initial value of a constant's global, beside them in
+    // the program, is a constant of tensor type, whatever buffer holds it.
     auto toBuffer = [](Type type, idr::DataType, unsigned, unsigned) -> std::optional<Type> {
       if (auto tensor = dyn_cast<RankedTensorType>(type))
         return idr::bufferize::bufferType(tensor);
       return std::nullopt;
     };
-    idr::DataRemap buffers(module, "buffers", toBuffer);
-    buffers.retype(module);
+    idr::DataRemap buffers(program, "buffers", toBuffer);
+    for (idr::FuncOp fn : program.getOps<idr::FuncOp>())
+      buffers.retype(fn);
+    if (failed(buffers.status()))
+      return signalPassFailure();
 
     numAllocs += static_cast<uint64_t>(statistics.numBufferAlloc);
     numInPlace += static_cast<uint64_t>(statistics.numTensorInPlace);

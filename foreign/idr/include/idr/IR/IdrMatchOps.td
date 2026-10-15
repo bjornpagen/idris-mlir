@@ -39,9 +39,10 @@ class Idr_MatchOpBase<string mnemonic, list<Trait> traits = []>
 }
 
 // A case's arguments are named by the pattern variables' locations, else
-// f0, f1, ... by position. A case names a constructor within the
-// scrutinee's data type, whose body the verifier reads.
+// f0, f1, ... by position. A case is a constructor's tag in the
+// scrutinee's data type, whose body the verifier reads, written by name.
 def Idr_MatchOp : Idr_MatchOpBase<"match", [
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
     DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmBlockArgumentNames"]>]> {
   let summary = "branches on the constructor of a sum or box, taking it apart at its grade";
   let description = [{
@@ -51,12 +52,17 @@ def Idr_MatchOp : Idr_MatchOpBase<"match", [
     The default region binds nothing, or takes a scrutinee no case took
     apart back at its type.
   }];
-  let arguments = (ins Idr_SumView:$scrutinee, ArrayAttr:$cases);
+  let arguments = (ins Idr_SumView:$scrutinee, DenseI32ArrayAttr:$cases);
+  let builders = [
+    // A match on `scrutinee` with a region per tag of `tags`, and one more
+    // for the default when `regions` says so.
+    OpBuilder<(ins "::mlir::TypeRange":$results, "::mlir::Value":$scrutinee,
+                   "::llvm::ArrayRef<unsigned>":$tags, "unsigned":$regions)>
+  ];
   let extraClassDeclaration = matchClassDeclaration # [{
-    // The data type of the scrutinee, and the tag of the constructor case
-    // `index` names.
+    // The data type of the scrutinee, and the tag case `index` takes.
     ::idr::DataType getDataType();
-    unsigned getCaseTag(unsigned index);
+    unsigned getCaseTag(unsigned index) { return static_cast<unsigned>(getCases()[index]); }
   }];
 }
 
@@ -64,8 +70,8 @@ def Idr_MatchOp : Idr_MatchOpBase<"match", [
 // on its condition, so that each branch consumes what it yields.
 def Idr_MatchLitOp : Idr_MatchOpBase<"match_lit"> {
   let summary = "branches on the value of a condition, integer, string, big or natural";
-  let arguments = (ins AnyTypeOf<[I1, Idr_Int, Idr_StrType, Idr_BigType,
-                                  Idr_NatType]>:$scrutinee,
+  let arguments = (ins AnyTypeOf<[I1, Idr_Int, Idr_StrRead, Idr_BigRead,
+                                  Idr_NatRead]>:$scrutinee,
                        ArrayAttr:$cases);
 }
 

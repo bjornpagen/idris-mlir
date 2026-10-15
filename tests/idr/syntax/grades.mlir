@@ -7,26 +7,33 @@
 
 
 // The long forms of the spelled grades print as their spellings.
-// CHECK-LABEL: idr.func private @spelled(
+// CHECK-LABEL: idr.func @spelled(
 // CHECK-SAME: %{{[^:]*}}: !idr.lin<!idr.str>, %{{[^:]*}}: !idr.own<!idr.big>, %{{[^:]*}}: !idr.excl<!idr.box<!T>>, %{{[^:]*}}: !idr.world)
 !T = !idr.data<"T", plain [@A()]>
-idr.func private @spelled(%a0: !idr.q<one, plain, !idr.str>, %a1: !idr.q<many, own, !idr.big>, %a2: !idr.q<many, excl, !idr.box<!T>>, %a3: !idr.q<one, plain, !idr.world_carrier>) {
-  idr.crash "no body"
-  ub.unreachable
-}
+idr.program @grades root(@root) stage(owned) {
+  idr.func @spelled(%a0: !idr.q<one, plain, !idr.str>, %a1: !idr.q<many, own, !idr.big>, %a2: !idr.q<many, excl, !idr.box<!T>>, %a3: !idr.q<one, plain, !idr.world_carrier>) {
+    idr.crash "no body"
+    ub.unreachable
+  }
 
-// A grade without a spelling prints written out.
-// CHECK-LABEL: idr.func private @long(
-// CHECK-SAME: %{{[^:]*}}: !idr.q<one, own, !idr.str>, %{{[^:]*}}: !idr.q<many, borrow, !idr.str>, %{{[^:]*}}: !idr.q<one, excl, !idr.box<!T>>)
-idr.func private @long(%a0: !idr.q<one, own, !idr.str>, %a1: !idr.q<many, borrow, !idr.str>, %a2: !idr.q<one, excl, !idr.box<!T>>) {
-  idr.crash "no body"
-  ub.unreachable
-}
+  // A grade without a spelling prints written out.
+  // CHECK-LABEL: idr.func @long(
+  // CHECK-SAME: %{{[^:]*}}: !idr.q<one, own, !idr.str>, %{{[^:]*}}: !idr.q<many, borrow, !idr.str>, %{{[^:]*}}: !idr.q<one, excl, !idr.box<!T>>)
+  idr.func @long(%a0: !idr.q<one, own, !idr.str>, %a1: !idr.q<many, borrow, !idr.str>, %a2: !idr.q<one, excl, !idr.box<!T>>) {
+    idr.crash "no body"
+    ub.unreachable
+  }
 
-// The spellings print as themselves.
-// CHECK-LABEL: idr.func private @sugar(
-// CHECK-SAME: %{{[^:]*}}: !idr.lin<!idr.str>, %{{[^:]*}}: !idr.own<!idr.big>, %{{[^:]*}}: !idr.excl<!idr.box<!T>>, %{{[^:]*}}: !idr.world)
-idr.func private @sugar(%a0: !idr.lin<!idr.str>, %a1: !idr.own<!idr.big>, %a2: !idr.excl<!idr.box<!T>>, %a3: !idr.world) {
-  idr.crash "no body"
-  ub.unreachable
+  // The spellings print as themselves.
+  // CHECK-LABEL: idr.func @sugar(
+  // CHECK-SAME: %{{[^:]*}}: !idr.lin<!idr.str>, %{{[^:]*}}: !idr.own<!idr.big>, %{{[^:]*}}: !idr.excl<!idr.box<!T>>, %{{[^:]*}}: !idr.world)
+  idr.func @sugar(%a0: !idr.lin<!idr.str>, %a1: !idr.own<!idr.big>, %a2: !idr.excl<!idr.box<!T>>, %a3: !idr.world) {
+    idr.crash "no body"
+    ub.unreachable
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
 }

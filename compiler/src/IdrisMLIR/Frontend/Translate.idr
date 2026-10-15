@@ -10,6 +10,5 @@
 module IdrisMLIR.Frontend.Translate
 
 import public IdrisMLIR.Frontend.Translate.Errors
-import public IdrisMLIR.Frontend.Translate.Hooks
 import public IdrisMLIR.Frontend.Translate.Programs
 import public IdrisMLIR.Frontend.Translate.State

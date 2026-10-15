@@ -6,11 +6,11 @@
 // it runs nowhere, and its results are poison. A curried apply, whose
 // result is applied in turn, gives a closure no label reaches either, so
 // that apply is poison too, and nothing is left to apply.
-// CHECK-LABEL: idr.func private @both(
+// CHECK-LABEL: idr.func @both(
 // CHECK: %[[R:.*]] = ub.poison : i64
 // CHECK: return %[[R]] : i64
-module {
-  idr.func private @both(%f: !idr.fn<(i64) -> (!idr.fn<(i64) -> (i64)>)>, %x: i64, %y: i64) -> i64 {
+idr.program @"curried-apply-poison" root(@Prog.main) stage(higher) {
+  idr.func @both(%f: !idr.fn<(i64) -> (!idr.fn<(i64) -> (i64)>)>, %x: i64, %y: i64) -> i64 {
     %g = idr.apply %f(%x) : !idr.fn<(i64) -> (!idr.fn<(i64) -> (i64)>)>
     %r = idr.apply %g(%y) : !idr.fn<(i64) -> (i64)>
     return %r : i64

@@ -136,7 +136,7 @@ export
 recordDictionary : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                    FC -> String -> ConId -> ClosedTerm -> Nat -> ClosedTerm -> Core ()
 recordDictionary fc owner cid ty i impl = do
-  impl' <- toFullNames !(implementationOf 64 impl)
+  impl' <- toFullNames !(implementationOf impl)
   chosen <- chooser
   let site = maybe fc snd chosen
   let by = maybe owner (show . fst) chosen

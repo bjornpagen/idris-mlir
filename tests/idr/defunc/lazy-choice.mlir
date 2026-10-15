@@ -11,12 +11,12 @@
 // CHECK: ![[M:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, memo [@one(), @two(), @running(), @forced(i64)]
 // CHECK-LABEL: idr.func @Main.main(
 // CHECK: force %{{.*}} : !idr.box<![[M]]> -> i64
-module {
-  idr.func private @one() -> i64 attributes {total} {
+idr.program @"lazy-choice" root(@Main.main) stage(higher) {
+  idr.func @one() -> i64 attributes {total} {
     %c = arith.constant 1 : i64
     return %c : i64
   }
-  idr.func private @two() -> i64 attributes {total} {
+  idr.func @two() -> i64 attributes {total} {
     %c = arith.constant 2 : i64
     return %c : i64
   }

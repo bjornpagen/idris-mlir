@@ -1,16 +1,8 @@
-// RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
-module {
-  // CHECK-LABEL: idr.func private @divfold
-  // CHECK-DAG: %[[M4:.*]] = arith.constant -4 : i64
-  // CHECK-DAG: %[[ONE:.*]] = arith.constant 1 : i64
-  // CHECK-DAG: %[[MIN:.*]] = arith.constant -9223372036854775808 : i64
-  // CHECK-DAG: %[[ZERO:.*]] = arith.constant 0 : i64
-  // CHECK-DAG: %[[U35:.*]] = arith.constant 35 : i8
+// RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=returns=@divfold:-4/1/-9223372036854775808/0/35/_ -o /dev/null
+idr.program @division root(@root) stage(first) {
   // A division by zero is not folded: its guard crashes before it runs, and
   // the folder computes nothing a program never reaches.
-  // CHECK: %[[Z:.*]] = {{(idr\.)?}}div signed %{{.*}}, %[[ZERO]] : i64
-  // CHECK: return %[[M4]], %[[ONE]], %[[MIN]], %[[ZERO]], %[[U35]], %[[Z]]
-  idr.func private @divfold() -> (i64, i64, i64, i64, i8, i64) {
+  idr.func @divfold() -> (i64, i64, i64, i64, i8, i64) {
     %m7 = arith.constant -7 : i64
     %c2 = arith.constant 2 : i64
     %m2 = arith.constant -2 : i64
@@ -26,5 +18,10 @@ module {
     %e = idr.div %u250, %u7 : i8
     %z = idr.div signed %c2, %c0 : i64
     return %a, %b, %c, %d, %e, %z : i64, i64, i64, i64, i8, i64
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
   }
 }

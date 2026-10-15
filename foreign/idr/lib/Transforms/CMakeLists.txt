@@ -76,8 +76,10 @@ add_mlir_library(IdrSpecialize
 	IdrIR
 	IdrAnalysis
 	IdrSupport
+	IdrSmallPasses
 	MLIRIR
 	MLIRPass
+	MLIRAnalysis
 	MLIRParser
 	MLIRRewrite
 	MLIRTransformUtils
@@ -118,6 +120,7 @@ add_mlir_library(IdrOptimize
 	Optimize/Component.cpp
 	Optimize/Waves.cpp
 	Optimize/Contify.cpp
+	Optimize/PureCalls.cpp
 
 	EXCLUDE_FROM_LIBMLIR
 	DISABLE_INSTALL
@@ -153,6 +156,7 @@ add_mlir_library(IdrDefunctionalize
 	Defunctionalize/Converter.cpp
 	Defunctionalize/Patterns.cpp
 	Defunctionalize/PatternsCalls.cpp
+	Defunctionalize/Forces.cpp
 
 	EXCLUDE_FROM_LIBMLIR
 	DISABLE_INSTALL
@@ -232,6 +236,7 @@ add_mlir_library(IdrTail
 	IdrAnalysis
 	MLIRIR
 	MLIRPass
+	MLIRAnalysis
 	MLIRRewrite
 	MLIRTransformUtils
 	MLIRSideEffectInterfaces
@@ -288,7 +293,7 @@ add_mlir_library(IdrNarrow
 # bufferization models of the dialect's ops.
 add_mlir_library(IdrBufferize
 	Bufferize/Bufferize.cpp
-	Bufferize/Functions.cpp
+	Bufferize/Releases.cpp
 	Bufferize/Linear.cpp
 	Bufferize/Data.cpp
 	Bufferize/Values.cpp
@@ -308,6 +313,8 @@ add_mlir_library(IdrBufferize
 	MLIRBufferizationDialect
 	MLIRBufferizationTransforms
 	MLIRMemRefDialect
+	MLIRCallInterfaces
+	MLIRTensorDialect
 	MLIRLinalgDialect
 	MLIRUBDialect
 	MLIRFunctionInterfaces
@@ -317,8 +324,10 @@ add_mlir_library(IdrBufferize
 # idr-structure-loops: an array's loops as linalg.generic and scf.
 add_mlir_library(IdrStructureLoops
 	StructureLoops/StructureLoops.cpp
-	StructureLoops/Plans.cpp
-	StructureLoops/Generics.cpp
+	StructureLoops/Forms.cpp
+	StructureLoops/Linalg.cpp
+	StructureLoops/Lowering.cpp
+	StructureLoops/Nests.cpp
 
 	EXCLUDE_FROM_LIBMLIR
 	DISABLE_INSTALL
@@ -338,6 +347,39 @@ add_mlir_library(IdrStructureLoops
 	MLIRLinalgDialect
 	MLIRSCFDialect
 	MLIRTensorDialect
+	MLIRArithUtils
+	MLIRUBDialect
+	MLIRDialectUtils
+)
+
+# idr-columns: an array of records as one array per field, by upstream's
+# one-to-N type conversion, before the array ops are lowered.
+add_mlir_library(IdrColumns
+	Columns/Columns.cpp
+	Columns/Calls.cpp
+	Columns/Tensors.cpp
+	Columns/ArrayOps.cpp
+	Columns/Records.cpp
+
+	EXCLUDE_FROM_LIBMLIR
+	DISABLE_INSTALL
+	PARTIAL_SOURCES_INTENDED
+
+	DEPENDS
+	IdrOpsIncGen
+	IdrPassesIncGen
+
+	LINK_LIBS PUBLIC
+	IdrIR
+	IdrStructureLoops
+	MLIRIR
+	MLIRPass
+	MLIRTransformUtils
+	MLIRSCFDialect
+	MLIRSCFTransforms
+	MLIRTensorDialect
+	MLIRArithDialect
+	MLIRUBDialect
 )
 
 # idr-expect: the named properties tests state.
@@ -348,27 +390,46 @@ add_mlir_library(IdrExpect
 	Expect/Named.cpp
 	Expect/Cycles.cpp
 	Expect/Allocation.cpp
-	Expect/CellsFit.cpp
+	Expect/Apart.cpp
+	Expect/Arguments.cpp
+	Expect/ByName.cpp
+	Expect/Calls.cpp
 	Expect/Clones.cpp
 	Expect/Closures.cpp
+	Expect/ComputesNothing.cpp
 	Expect/ConstantStack.cpp
 	Expect/Continuations.cpp
 	Expect/CountedLoop.cpp
 	Expect/CountsNothing.cpp
+	Expect/CrashSites.cpp
+	Expect/DimsKnown.cpp
+	Expect/Does.cpp
 	Expect/Facts.cpp
 	Expect/Folds.cpp
 	Expect/Fused.cpp
+	Expect/Growth.cpp
 	Expect/Guards.cpp
 	Expect/InPlace.cpp
+	Expect/LinkerNames.cpp
+	Expect/Lowered.cpp
+	Expect/Memory.cpp
 	Expect/MovesOut.cpp
 	Expect/NarrowedLanes.cpp
 	Expect/NotCalled.cpp
 	Expect/Output.cpp
+	Expect/Paths.cpp
+	Expect/Placement.cpp
+	Expect/Proved.cpp
 	Expect/Quantities.cpp
+	Expect/Reaches.cpp
 	Expect/ResetsUnshared.cpp
+	Expect/Returns.cpp
 	Expect/ReusesEveryCell.cpp
 	Expect/ReusesInPlace.cpp
+	Expect/Signature.cpp
 	Expect/Sizes.cpp
+	Expect/SolvedEffects.cpp
+	Expect/Stage.cpp
 	Expect/StructuredLoops.cpp
 	Expect/TestsNothing.cpp
 	Expect/TypedReads.cpp
@@ -433,6 +494,7 @@ add_mlir_library(IdrPipeline
 	IdrNarrow
 	IdrBufferize
 	IdrStructureLoops
+	IdrColumns
 	IdrSmallPasses
 	IdrExpect
 	IdrEffects

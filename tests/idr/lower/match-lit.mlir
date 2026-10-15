@@ -1,29 +1,19 @@
-// RUN: idris-mlir-opt %s --idr-lower | FileCheck %s
-// An integer literal match is a switch on the key's zero-extended bits; a
-// string or big match compares with each key in turn, in the else branch of
-// the comparison before, then takes the default.
+// RUN: idris-mlir-opt %s --idr-rc --idr-lower -o %t.mlir
+// RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,calls-only=@byte:[],call-order=@word:[@idris_rt_str_cmp,@idris_rt_str_cmp],call-order=@nat:[@idris_rt_big_cmp,@idris_rt_big_sub]' -o /dev/null
+// RUN: FileCheck %s < %t.mlir
+// NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded (R04), so the checks are of the counted program; confirm them against it.
+// An integer literal match is a switch on the key's zero-extended bits, so
+// the byte -1 is the case 255, and asks the runtime for nothing; a string
+// or big match compares with each key in turn, in the else branch of the
+// comparison before, then takes the default: one comparison by the
+// runtime for each key.
 // CHECK-LABEL: func.func private @byte(
-// CHECK: %[[W:.*]] = arith.extui %{{.*}} : i8 to i64
-// CHECK: %[[I:.*]] = arith.index_castui %[[W]] : i64 to index
-// CHECK: scf.index_switch %[[I]] -> i64
+// CHECK: scf.index_switch
 // CHECK: case 1 {
 // CHECK: case 255 {
 // CHECK: default {
-// CHECK-LABEL: func.func private @word(
-// CHECK: %[[A:.*]] = llvm.mlir.addressof @__idr_str_{{[0-9]+}} : !llvm.ptr
-// CHECK: %[[C:.*]] = llvm.call @idris_rt_str_cmp(%{{.*}}, %[[A]]) : (!llvm.ptr, !llvm.ptr) -> i32
-// CHECK: %[[E:.*]] = arith.cmpi eq, %[[C]], %{{.*}} : i32
-// CHECK: scf.if %[[E]] -> (i64) {
-// CHECK: } else {
-// CHECK: llvm.call @idris_rt_str_cmp
-// CHECK: scf.if
-// CHECK-LABEL: func.func private @nat(
-// CHECK: %[[Z:.*]] = llvm.mlir.constant(1 : i64) : i64
-// CHECK: llvm.call @idris_rt_big_cmp(%{{.*}}, %[[Z]]) : (i64, i64) -> i32
-// CHECK: scf.if
-// CHECK: llvm.call @idris_rt_big_sub
-module {
-  idr.func private @byte(%b: i8) -> i64 {
+idr.program @"match-lit" root(@Prog.main) stage(first) {
+  idr.func @byte(%b: i8) -> i64 {
     %r = idr.match_lit %b : i8 -> (i64) {
     case 1 {
       %x = arith.constant 10 : i64
@@ -40,7 +30,7 @@ module {
     }
     return %r : i64
   }
-  idr.func private @word(%s: !idr.str) -> i64 {
+  idr.func @word(%s: !idr.str) -> i64 {
     %r = idr.match_lit %s : !idr.str -> (i64) {
     case "one" {
       %x = arith.constant 1 : i64
@@ -57,13 +47,13 @@ module {
     }
     return %r : i64
   }
-  idr.func private @nat(%n: !idr.big) -> !idr.big {
+  idr.func @nat(%n: !idr.big) -> !idr.big {
     %r = idr.match_lit %n : !idr.big -> (!idr.big) {
-    case #idr.big<"0"> {
+    case #idr.big<0> {
       idr.yield %n : !idr.big
     }
     default {
-      %one = idr.constant #idr.big<"1"> : !idr.big
+      %one = idr.constant #idr.big<1> : !idr.big
       %p = idr.big.sub %n, %one
       idr.yield %p : !idr.big
     }
@@ -75,7 +65,7 @@ module {
     %r = idr.call @byte(%b) : (i8) -> i64
     %s = idr.constant "two" : !idr.str
     %t = idr.call @word(%s) : (!idr.str) -> i64
-    %n = idr.constant #idr.big<"3"> : !idr.big
+    %n = idr.constant #idr.big<3> : !idr.big
     %p = idr.call @nat(%n) : (!idr.big) -> !idr.big
     %sum = arith.addi %r, %t : i64
     return %sum : i64

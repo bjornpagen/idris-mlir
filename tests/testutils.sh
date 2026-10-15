@@ -39,6 +39,7 @@
 #
 #     harness.sh       the work directory, bounded commands, output, fixtures
 #     timing.sh        the record of every compilation's wall time
+#     rules.sh         the rules a refusal names, from their generated list
 #     compile.sh       compiling a program, and the artifacts it leaves
 #     run.sh           running a compiled program
 #     heap.sh          the C library calls an e2e program's objects may make
@@ -90,7 +91,7 @@ if [ -z "${IDRIS_MLIR_TEST_DEADLINE-}" ]; then
   exit "$deadline_status"
 fi
 
-for lib_file in harness timing compile run heap mlir expect prelude properties e2e \
+for lib_file in harness timing rules compile run heap mlir expect prelude properties e2e \
                 profile determinism lit fuzz two-levels idris-lex bench; do
   . "$root/tests/lib/$lib_file.sh"
 done

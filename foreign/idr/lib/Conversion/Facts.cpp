@@ -24,10 +24,14 @@ namespace idr::conversion {
 
 namespace {
 
-// Whether a value of `type` is one pointer to a cell: a box or a string.
-// idr-lower reads these facts after idr-defunctionalize, where every
-// closure and suspension is already a box, so the box says it once. Static
-// data and live cells alike are 8-aligned and start with an 8-byte header.
+// Whether a value of `type` is one pointer to a cell, never empty: a box or
+// a string. idr-lower reads these facts after idr-defunctionalize, where
+// every closure and suspension is already a box, so the box says it once.
+// Static data and live cells alike are 8-aligned and start with an 8-byte
+// header. A counted value is not enough: a big's word is a pointer only
+// when it is not small, a reuse token is null where its cell was shared,
+// and a sum held in place leaves the slots of the other constructors
+// empty.
 bool isCell(Type type) { return isa<BoxType, StrType>(unrestricted(type)); }
 
 // The attributes of a pointer to a cell.
@@ -66,37 +70,31 @@ SmallVector<SmallVector<NamedAttribute>> componentFacts(Type type, bool mayBeNul
 
 } // namespace
 
-Facts::Facts(ModuleOp m, SymbolTable &symbols) : module(m) {
-  MLIRContext *ctx = module.getContext();
-  // Each function's name as LLVM will have it, mangled once.
-  DenseMap<Operation *, StringAttr> mangled;
-  for (auto fn : module.getOps<idr::FuncOp>()) {
-    StringAttr name = StringAttr::get(ctx, mangle(fn.getSymName()));
-    mangled[fn] = name;
-    signatures[name] = fn.getFunctionType();
-  }
-  // A label's constructor is named by its function, which the force of a
-  // memo label calls with the constructor's fields.
-  auto labelFunction = [&](auto build) -> idr::FuncOp {
-    if (!build.getDataType().isLabel(build.getTag()))
-      return {};
-    return symbols.lookup<idr::FuncOp>(build.getCtor());
+Facts::Facts(ProgramOp p) : program(p) {
+  MLIRContext *ctx = program.getContext();
+  auto mangled = [&](StringRef name) { return StringAttr::get(ctx, mangle(name)); };
+  // A label's constructor names its function in the sum's body.
+  auto labelFunction = [](DataType data, unsigned tag) {
+    const Ctor &ctor = data.getCtor(tag);
+    return ctor.role == CtorRole::Label ? ctor.fn : FlatSymbolRefAttr();
   };
-  module.walk([&](Operation *op) {
-    idr::FuncOp callee;
+  for (auto fn : program->getRegion(0).getOps<idr::FuncOp>())
+    signatures[mangled(fn.getSymName())] = fn.getFunctionType();
+  program.walk([&](Operation *op) {
+    FlatSymbolRefAttr callee;
     OperandRange passed = op->getOperands();
     if (auto call = dyn_cast<idr::CallOp>(op)) {
-      callee = symbols.lookup<idr::FuncOp>(call.getCalleeAttr().getAttr());
+      callee = call.getCalleeAttr();
     } else if (auto con = dyn_cast<ConOp>(op)) {
-      callee = labelFunction(con);
+      callee = labelFunction(con.getDataType(), con.getTag());
       passed = con.getFields();
     } else if (auto reuse = dyn_cast<ReuseOp>(op)) {
-      callee = labelFunction(reuse);
+      callee = labelFunction(reuse.getDataType(), reuse.getTag());
       passed = reuse.getFields();
     }
     if (!callee)
       return;
-    StringAttr name = mangled.lookup(callee);
+    StringAttr name = mangled(callee.getValue());
     for (auto [index, value] : llvm::enumerate(passed))
       if (value.getDefiningOp<ub::PoisonOp>())
         poisoned.insert({name, static_cast<unsigned>(index)});
@@ -104,8 +102,8 @@ Facts::Facts(ModuleOp m, SymbolTable &symbols) : module(m) {
 }
 
 void Facts::apply(const Layouts &layouts) {
-  Builder b(module.getContext());
-  for (auto fn : module.getOps<func::FuncOp>()) {
+  Builder b(program.getContext());
+  for (auto fn : program->getRegion(0).getOps<func::FuncOp>()) {
     auto it = signatures.find(fn.getSymNameAttr());
     if (it == signatures.end())
       continue;

@@ -18,10 +18,10 @@
 // argument is a function, which makes the callee's applications of it
 // direct calls; for data it would only re-abstract what the regions know.
 //
-// The consumer is looked for in a region of the match, or one match
-// deeper, since a helper's `if` over two actions, inlined into a region,
-// leaves the closures the bind folds against in the regions of a match the
-// region yields the result of.
+// The consumer is looked for in a region of the match, or in a region of a
+// match such a region yields the result of, since a helper's `if` over two
+// actions, inlined into a region, leaves the closures the bind folds
+// against in the regions of a match the region yields the result of.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Canon.h"
@@ -36,11 +36,17 @@ using namespace idr;
 
 namespace {
 
-// The use that reads the value `use` holds: past the linear positions it
-// only passes, entered and used at once, each the one use of the last.
+// Whether the op holding `use` only changes the grade of the value there
+// (enters a linear position, or uses one): its result is that value.
+bool regrades(OpOperand &use) {
+  return use.getOperandNumber() == 0 && use.getOwner()->hasTrait<ResultCarriesOperand>();
+}
+
+// The use that reads the value `use` holds: past the ops that only change
+// its grade, each the one use of the last.
 OpOperand &reader(OpOperand &use) {
   OpOperand *at = &use;
-  while (isa<LinEnterOp, LinUseOp>(at->getOwner())) {
+  while (regrades(*at)) {
     Value held = at->getOwner()->getResult(0);
     if (!held.hasOneUse())
       break;
@@ -102,25 +108,28 @@ bool foldsWith(OpOperand &use, Attribute constant) {
   return folded;
 }
 
-// Whether some region of the match that defines `result` yields, as that
-// result, a value that feeds the consumer holding `use`, or, while `deeper`
-// is above 0, the result of a match one of whose regions does so in turn:
-// case-of-case moves the consumer on into that match. The bound keeps the
-// question as cheap as the matches are wide, however deep they nest, and
-// a consumer moves only toward a value it meets within that many moves.
-bool yieldsFeeding(OpResult result, OpOperand &use, unsigned deeper) {
-  Operation *match = result.getOwner();
-  return llvm::any_of(match->getRegions(), [&](Region &region) {
+// Whether some region of the match that defines `result` ends in a yield
+// whose value as that result satisfies `holds`.
+template <typename Pred>
+bool someYield(OpResult result, Pred holds) {
+  return llvm::any_of(result.getOwner()->getRegions(), [&](Region &region) {
     auto yield = dyn_cast<YieldOp>(region.front().getTerminator());
-    if (!yield)
-      return false;
-    Value value = yield.getOperand(result.getResultNumber());
-    if (canon::feeds(value, use))
+    return yield && holds(yield.getOperand(result.getResultNumber()));
+  });
+}
+
+// Whether some region of the match that defines `result` yields, as that
+// result, a value that feeds the consumer holding `use`, or the result of a
+// match one of whose regions yields such a value: case-of-case moves the
+// consumer on into that match. Those two levels are the question, however
+// deep the matches nest, so it costs what the two matches are wide.
+bool yieldsFeeding(OpResult result, OpOperand &use) {
+  auto feedsUse = [&](Value value) { return canon::feeds(value, use); };
+  return someYield(result, [&](Value value) {
+    if (feedsUse(value))
       return true;
     auto inner = dyn_cast<OpResult>(value);
-    if (deeper == 0 || !inner || !isa<MatchOp, MatchLitOp>(inner.getOwner()))
-      return false;
-    return yieldsFeeding(inner, use, deeper - 1);
+    return inner && isa<MatchOp, MatchLitOp>(inner.getOwner()) && someYield(inner, feedsUse);
   });
 }
 
@@ -167,7 +176,7 @@ bool feeds(Value value, OpOperand &use) {
   // enters it into a linear type (its verifier's rule): moved to where the
   // closure is made, such a use is not a profit but its place.
   if (isa_and_nonnull<ClosureOp>(def) && holdsLinear(value) &&
-      isa<LinEnterOp, ApplyOp>(use.getOwner()))
+      (isa<ApplyOp>(use.getOwner()) || regrades(use)))
     return true;
   OpOperand &read = reader(use);
   Operation *consumer = read.getOwner();
@@ -193,14 +202,15 @@ bool feeds(Value value, OpOperand &use) {
     return true;
   if (isa<idr::CallOp>(consumer))
     return isClosureType(value.getType()) || (constant && closedWith(read));
-  if (auto con = dyn_cast<ConOp>(consumer); con && isa<BoxType>(unrestricted(con.getType())))
+  if (auto con = dyn_cast<ConOp>(consumer);
+      con && isa<BoxType>(unrestricted(con.getResult().getType())))
     return false;
   return constant && foldsWith(read, constant);
 }
 
 bool meetsInSomeRegion(OpResult result, Operation *consumer) {
   return llvm::any_of(consumer->getOpOperands(), [&](OpOperand &use) {
-    return use.get() == result && yieldsFeeding(result, use, /*deeper=*/1);
+    return use.get() == result && yieldsFeeding(result, use);
   });
 }
 

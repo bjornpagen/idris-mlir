@@ -21,13 +21,7 @@
 
 using namespace mlir;
 
-namespace {
-
-// Whether `callee`'s body may take the place of `call`: a body of several
-// blocks, or one whose terminator does not return to the call (it ends in
-// ub.unreachable), goes in as blocks of its own, which only a region that
-// may hold several blocks can take, as upstream's inliner decides it.
-bool fitsRegion(InlinerInterface &interface, idr::CallOp call, idr::FuncOp callee) {
+bool idr::inlining::fitsRegion(InlinerInterface &interface, CallOp call, FuncOp callee) {
   Region &body = callee.getBody();
   bool needsBlocks =
       llvm::hasNItemsOrMore(body, /*N=*/2) || !interface.allowSingleBlockOptimization(body);
@@ -36,8 +30,6 @@ bool fitsRegion(InlinerInterface &interface, idr::CallOp call, idr::FuncOp calle
   Operation *parent = call->getParentOp();
   return parent->getName() == callee->getName() || !parent->mightHaveTrait<OpTrait::SingleBlock>();
 }
-
-} // namespace
 
 idr::inlining::Step
 idr::inlining::inlineCalls(FuncOp caller,
@@ -57,9 +49,10 @@ idr::inlining::inlineCalls(FuncOp caller,
     if (!callee || !callee->isFinal())
       continue;
     FuncOp fn = callee->fn;
-    if (!worthInlining(callee->facts, fn.getNoInline()) || !fitsRegion(interface, call, fn))
+    const Facts &facts = callee->summary.facts;
+    if (!worthInlining(facts, fn.getNoInline()) || !fitsRegion(interface, call, fn))
       continue;
-    if (!fitsCap(size, callee->facts.size)) {
+    if (!fitsCap(size, facts.size)) {
       ++step.capped;
       continue;
     }
@@ -68,7 +61,7 @@ idr::inlining::inlineCalls(FuncOp caller,
       continue;
     caller.absorb(fn);
     call.erase();
-    size += callee->facts.size - 1;
+    size += facts.size - 1;
     ++step.inlined;
   }
   return step;

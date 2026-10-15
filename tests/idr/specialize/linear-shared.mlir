@@ -8,9 +8,9 @@
 // CHECK-LABEL: idr.func @Main.main(
 // CHECK-COUNT-2: call @first(
 !P = !idr.data<"P", plain [@MkP(!idr.lin<i64>, i64)]>
-module {
+idr.program @"linear-shared" root(@Main.main) stage(first) {
   // Prints the pair's linear field once its counter is down to 0.
-  idr.func private @first(%p: !P, %n: i64, %w: !idr.world) -> !idr.world attributes {total} {
+  idr.func @first(%p: !P, %n: i64, %w: !idr.world) -> !idr.world attributes {total} {
     %r = idr.match_lit %n : i64 -> (!idr.world) {
     case 0 {
       %w1 = idr.match %p : !P -> (!idr.world) {
@@ -30,8 +30,8 @@ module {
     }
     return %r : !idr.world
   }
-  idr.func private @use(%a: !idr.lin<i64>, %b: i64, %n: i64, %w: !idr.world) -> !idr.world attributes {total} {
-    %p = idr.con @MkP(%a, %b) : (!idr.lin<i64>, i64) -> !P
+  idr.func @use(%a: !idr.lin<i64>, %b: i64, %n: i64, %w: !idr.world) -> !idr.world attributes {total} {
+    %p = idr.con !P @MkP(%a : !idr.lin<i64>, %b : i64)
     %r = idr.call @first(%p, %n, %w) : (!P, i64, !idr.world) -> !idr.world
     %s = idr.call @first(%p, %n, %r) : (!P, i64, !idr.world) -> !idr.world
     return %s : !idr.world

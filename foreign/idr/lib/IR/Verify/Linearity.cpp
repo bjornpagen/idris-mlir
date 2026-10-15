@@ -3,6 +3,8 @@
 // Worlds and !idr.lin values: every value of quantity one is used at most
 // once on every path. Its type says where it may go; this says how often.
 // One walk numbers the body; each linear value then costs its holders.
+// Which regions of an op exclude each other is the owned walk's question
+// too: both ask RegionBranchOpInterface, here.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
@@ -19,17 +21,48 @@
 using namespace mlir;
 using namespace idr;
 
-namespace {
-
-// Whether each region of `branch` returns straight to it, so that at most
-// one runs: the regions of a match or of an scf.if, not those of a loop.
-bool exclusiveRegions(RegionBranchOpInterface branch) {
+// Each region returns straight to the op: the regions of a match or of an
+// scf.if, not those of a loop.
+bool idr::verify::alternatives(RegionBranchOpInterface branch) {
   return llvm::all_of(branch->getRegions(), [&](Region &region) {
     SmallVector<RegionSuccessor> next;
     branch.getSuccessorRegions(region, next);
     return llvm::all_of(next, [](RegionSuccessor &successor) { return successor.isOperation(); });
   });
 }
+
+namespace {
+
+// One pre-order walk of a function's body: the place of every op in it,
+// and every value of quantity one in walk order. Pre-order numbers the ops
+// of one region in block order, so comparing two places orders the ops of
+// a region without touching a block's order cache, which other threads'
+// verifiers read.
+class Numbering {
+public:
+  explicit Numbering(FuncOp fn) {
+    auto collect = [&](ValueRange values) {
+      for (Value value : values)
+        if (quantityOf(value.getType()) == Quantity::One)
+          linear.push_back(value);
+    };
+    unsigned next = 0;
+    fn->walk<WalkOrder::PreOrder>([&](Operation *op) {
+      places.try_emplace(op, next++);
+      collect(op->getResults());
+      for (Region &region : op->getRegions())
+        for (Block &block : region)
+          collect(block.getArguments());
+    });
+  }
+
+  unsigned place(Operation *op) const { return places.lookup(op); }
+  ArrayRef<Value> linearValues() const { return linear; }
+
+private:
+  DenseMap<Operation *, unsigned> places;
+  SmallVector<Value> linear;
+};
 
 // The uses of one linear value, counted on the worst path. The regions of
 // a match, and of any op whose regions exclude each other, are alternative
@@ -38,7 +71,7 @@ bool exclusiveRegions(RegionBranchOpInterface branch) {
 // that ends in ub.unreachable, counts every use in it.
 class LinearUses {
 public:
-  LinearUses(Value value, const verify::Numbering &numbering) : value(value) {
+  LinearUses(Value value, const Numbering &numbering) : value(value) {
     Region *home = value.getParentRegion();
     for (OpOperand &use : value.getUses())
       for (Operation *op = use.getOwner(); op; op = op->getParentOp()) {
@@ -84,7 +117,7 @@ private:
     if (op->getNumRegions() == 0)
       return total;
     auto branch = dyn_cast<RegionBranchOpInterface>(op);
-    bool exclusive = branch && exclusiveRegions(branch);
+    bool exclusive = branch && verify::alternatives(branch);
     unsigned regions = 0;
     for (unsigned index = 0, e = op->getNumRegions(); index < e; ++index) {
       unsigned uses = count(op->getRegion(index));
@@ -103,24 +136,8 @@ private:
 
 } // namespace
 
-idr::verify::Numbering::Numbering(FuncOp fn) {
-  auto collect = [&](ValueRange values) {
-    for (Value value : values)
-      if (quantityOf(value.getType()) == Quantity::One)
-        linear.push_back(value);
-  };
-  unsigned next = 0;
-  fn->walk<WalkOrder::PreOrder>([&](Operation *op) {
-    places.try_emplace(op, next++);
-    collect(op->getResults());
-    for (Region &region : op->getRegions())
-      for (Block &block : region)
-        collect(block.getArguments());
-    stage = stage || definesOwned(op);
-  });
-}
-
-LogicalResult idr::verify::linearity(const Numbering &numbering) {
+LogicalResult idr::verify::linearity(FuncOp fn) {
+  Numbering numbering(fn);
   for (Value value : numbering.linearValues()) {
     // A constant holds nothing a use could take: the folder materializes
     // one wherever it is needed, merges equal ones and hoists them out of

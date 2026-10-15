@@ -4,7 +4,7 @@
 // own, and adds its meter after it (idr-meter), so idr-lower takes no
 // option that would lower a module another way.
 // CHECK: no such option jit
-module {
+idr.program @"no-mode" root(@Prog.main) stage(owned) {
   idr.func @Prog.main() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64

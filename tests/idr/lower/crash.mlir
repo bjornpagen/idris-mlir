@@ -1,35 +1,18 @@
-// RUN: idris-mlir-opt %s --idr-lower | FileCheck %s
+// RUN: idris-mlir-opt %s --idr-rc --idr-lower -o %t.mlir
+// RUN: idris-mlir-opt %t.mlir '--idr-expect=holds=lowered,crash-sites=@Main.name:1,crash-sites=@Main.never:1,never-returns=@Main.never,crash-sites=@Main.half:1,calls-only=@Main.half:[@idris_rt_crash]' -o /dev/null
+// RUN: FileCheck %s < %t.mlir
+// NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded (R04), so the checks are of the counted program; confirm them against it.
 // idr.crash calls the runtime's crash, which does not return, with its
-// message and location; a function that never returns ends in
-// ub.unreachable after it, and in a match region (now scf) the region
-// yields a value that is never used: poison, or for a reference an empty
-// one. The guard of a division by what may be zero is the same crash, at
-// the division's location, when the divisor is zero, and then gives the
-// divisor to the division, which tests nothing itself.
-// CHECK-DAG: llvm.func @idris_rt_crash(!llvm.ptr, i64) attributes {noreturn}
+// message and location; a function that never returns ends after it, with
+// no return. The guard of a division by what may be zero is the same
+// crash, at the division's location, when the divisor is zero, and then
+// gives the divisor to the division, which tests nothing itself: the
+// function may crash at that one place. What a crash prints is the
+// program's output, so the messages are checked as written.
 // CHECK-DAG: llvm.mlir.constant("idris-mlir: unhandled input for Main.name at Main.idr:3:1\0A")
 // CHECK-DAG: llvm.mlir.constant("idris-mlir: division by zero at Main.idr:9:5\0A")
-// CHECK-LABEL: func.func private @Main.name(
-// CHECK: scf.index_switch
-// CHECK: default {
-// CHECK: llvm.call @idris_rt_crash(%{{.*}}, %{{.*}}) {{.*}}: (!llvm.ptr, i64) -> ()
-// CHECK-NEXT: %[[P:.*]] = llvm.mlir.zero : !llvm.ptr
-// CHECK-NEXT: scf.yield %[[P]] : !llvm.ptr
-// CHECK-LABEL: func.func private @Main.never(
-// CHECK: llvm.call @idris_rt_crash
-// CHECK-NEXT: ub.unreachable
-// CHECK-LABEL: func.func private @Main.half(
-// CHECK-SAME: %{{[^:]+}}: i64, %[[B:[^:]+]]: i64
-// CHECK: %[[Z:.*]] = arith.cmpi eq, %[[B]], %{{.*}} : i64
-// CHECK: scf.if %[[Z]] {
-// CHECK: llvm.call @idris_rt_crash
-// CHECK: }
-// CHECK-NOT: idris_rt_crash
-// CHECK: arith.divsi
-// CHECK-NOT: idris_rt_crash
-// CHECK: return
-module {
-  idr.func private @Main.name(%n: i64) -> !idr.str {
+idr.program @crash root(@Main.main) stage(first) {
+  idr.func @Main.name(%n: i64) -> !idr.str {
     %r = idr.match_lit %n : i64 -> (!idr.str) {
     case 1 {
       %s = idr.constant "one" : !idr.str
@@ -42,11 +25,11 @@ module {
     }
     return %r : !idr.str
   }
-  idr.func private @Main.never(%n: i64) -> i64 {
+  idr.func @Main.never(%n: i64) -> i64 {
     idr.crash "unhandled input for Main.never" loc("Main.idr":6:1)
     ub.unreachable
   }
-  idr.func private @Main.half(%a: i64, %b: i64) -> i64 {
+  idr.func @Main.half(%a: i64, %b: i64) -> i64 {
     %c = idr.check.nonzero %b, "division by zero" : i64 loc("Main.idr":9:5)
     %q = idr.div signed %a, %c : i64 loc("Main.idr":9:5)
     return %q : i64

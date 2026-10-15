@@ -17,17 +17,17 @@
 // the test (Perceus specializes a drop only where the children are used),
 // and is dropped where it dies: `headOnly` reads a list's head, a number,
 // and its tail dies with it; `numbers` reads a cell of two numbers.
-// CHECK-LABEL: idr.func private @sumAfterTag(
+// CHECK-LABEL: idr.func @sumAfterTag(
 // CHECK-NOT: {{(idr\.| )dup }}
 // CHECK: take
 // CHECK-NOT: {{(idr\.| )dup }}
 // CHECK: return
-// CHECK-LABEL: idr.func private @headOnly(
+// CHECK-LABEL: idr.func @headOnly(
 // CHECK-NOT: {{(idr\.| )take }}%{{.*}} @C
 // CHECK: drop
 // CHECK-NOT: {{(idr\.| )take }}%{{.*}} @C
 // CHECK: return
-// CHECK-LABEL: idr.func private @numbers(
+// CHECK-LABEL: idr.func @numbers(
 // CHECK-NOT: {{(idr\.| )take }}%{{.*}} @V1
 // CHECK: drop
 // CHECK-NOT: {{(idr\.| )take }}%{{.*}} @V1
@@ -53,11 +53,11 @@
 // LOWER: llvm.call @idris_rt_free_cell(
 // LOWER-NOT: idris_rt_dec
 // LOWER: return
-!L = !idr.data<"L", list [@N(), @C(i64, !idr.box<!idr.data<"L">>)]>
-!LL = !idr.data<"LL", list [@NN(), @CC(!idr.box<!L>, !idr.box<!idr.data<"LL">>)]>
+!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
+!LL = !idr.data<"LL", list [@NN() nil, @CC(!idr.box<!L>, !idr.box<!idr.data<"LL">>) cons]>
 !V = !idr.data<"V", plain [@V0(), @V1(i64, i64)]>
-module {
-  idr.func private @build(%n: i64) -> !idr.box<!L> {
+idr.program @"dies-apart" root(@root) stage(first) {
+  idr.func @build(%n: i64) -> !idr.box<!L> {
     %r = idr.match_lit %n : i64 -> (!idr.box<!L>) {
     case 0 {
       %e = idr.constant #idr.con<@N, []> : !idr.box<!L>
@@ -67,13 +67,13 @@ module {
       %one = arith.constant 1 : i64
       %m = arith.subi %n, %one : i64
       %t = idr.call @build(%m) : (i64) -> !idr.box<!L>
-      %c = idr.con @C(%n, %t) : (i64, !idr.box<!L>) -> !idr.box<!L>
+      %c = idr.con !idr.box<!L> @C(%n : i64, %t : !idr.box<!L>)
       idr.yield %c : !idr.box<!L>
     }
     }
     return %r : !idr.box<!L>
   }
-  idr.func private @sum(%l: !idr.box<!L>, %acc: i64) -> i64 {
+  idr.func @sum(%l: !idr.box<!L>, %acc: i64) -> i64 {
     %r = idr.match %l : !idr.box<!L> -> (i64) {
     case @N() {
       idr.yield %acc : i64
@@ -88,7 +88,7 @@ module {
   }
   // The list is given back empty, and otherwise read (its tag) before its
   // tail is summed and a list of that length built: it dies after the read.
-  idr.func private @sumAfterTag(%l: !idr.box<!L>) -> !idr.box<!L> {
+  idr.func @sumAfterTag(%l: !idr.box<!L>) -> !idr.box<!L> {
     %r = idr.match %l : !idr.box<!L> -> (!idr.box<!L>) {
     case @N() {
       idr.yield %l : !idr.box<!L>
@@ -103,7 +103,7 @@ module {
     return %r : !idr.box<!L>
   }
   // The head, a list, is nothing the result holds.
-  idr.func private @tail(%l: !idr.box<!LL>) -> !idr.box<!LL> {
+  idr.func @tail(%l: !idr.box<!LL>) -> !idr.box<!LL> {
     %r = idr.match %l : !idr.box<!LL> -> (!idr.box<!LL>) {
     case @NN() {
       idr.yield %l : !idr.box<!LL>
@@ -115,7 +115,7 @@ module {
     return %r : !idr.box<!LL>
   }
   // The same, on a list its caller never shares.
-  idr.func private @tailX(%l: !idr.box<!LL>) -> !idr.box<!LL> {
+  idr.func @tailX(%l: !idr.box<!LL>) -> !idr.box<!LL> {
     %r = idr.match %l : !idr.box<!LL> -> (!idr.box<!LL>) {
     case @NN() {
       idr.yield %l : !idr.box<!LL>
@@ -127,7 +127,7 @@ module {
     return %r : !idr.box<!LL>
   }
   // A list of n, read (its tag), and then only its head, a number, used.
-  idr.func private @headOnly(%n: i64) -> i64 {
+  idr.func @headOnly(%n: i64) -> i64 {
     %l = idr.call @build(%n) : (i64) -> !idr.box<!L>
     %r = idr.match %l : !idr.box<!L> -> (i64) {
     case @N() {
@@ -142,12 +142,12 @@ module {
     }
     return %r : i64
   }
-  idr.func private @mkV(%n: i64) -> !idr.box<!V> {
-    %v = idr.con @V1(%n, %n) : (i64, i64) -> !idr.box<!V>
+  idr.func @mkV(%n: i64) -> !idr.box<!V> {
+    %v = idr.con !idr.box<!V> @V1(%n : i64, %n : i64)
     return %v : !idr.box<!V>
   }
   // A cell of two numbers, read (its tag), and then its numbers used.
-  idr.func private @numbers(%n: i64) -> i64 {
+  idr.func @numbers(%n: i64) -> i64 {
     %v = idr.call @mkV(%n) : (i64) -> !idr.box<!V>
     %r = idr.match %v : !idr.box<!V> -> (i64) {
     case @V0() {
@@ -171,12 +171,12 @@ module {
     %r = idr.call @sumAfterTag(%a) : (!idr.box<!L>) -> !idr.box<!L>
     // Kept by its caller across the call: shared.
     %x = idr.call @build(%three) : (i64) -> !idr.box<!L>
-    %ll = idr.con @CC(%x, %nn) : (!idr.box<!L>, !idr.box<!LL>) -> !idr.box<!LL>
+    %ll = idr.con !idr.box<!LL> @CC(%x : !idr.box<!L>, %nn : !idr.box<!LL>)
     %t1 = idr.call @tail(%ll) : (!idr.box<!LL>) -> !idr.box<!LL>
     %c = idr.tag %ll : !idr.box<!LL>
     // Fresh, and never used again: exclusive.
     %y = idr.call @build(%two) : (i64) -> !idr.box<!L>
-    %ll2 = idr.con @CC(%y, %nn) : (!idr.box<!L>, !idr.box<!LL>) -> !idr.box<!LL>
+    %ll2 = idr.con !idr.box<!LL> @CC(%y : !idr.box<!L>, %nn : !idr.box<!LL>)
     %t2 = idr.call @tailX(%ll2) : (!idr.box<!LL>) -> !idr.box<!LL>
     %d = idr.tag %r : !idr.box<!L>
     %e = idr.tag %t1 : !idr.box<!LL>

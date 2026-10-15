@@ -14,7 +14,6 @@ import Core.TT
 
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Closed
-import IdrisMLIR.Frontend.Translate.Hooks
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
@@ -63,7 +62,7 @@ arrayShape : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core (Maybe (ClosedTerm, 
 arrayShape tm = case getFnArgs tm of
   (Ref _ (TyCon _) n, [s, a]) => do
     full <- toFullNames n
-    pure (if isValueArray (hooksOf full) then Just (s, a) else Nothing)
+    pure (if (hooksOf full).valueArray then Just (s, a) else Nothing)
   _ => pure Nothing
 
 ||| A parameter put in a type to see whether a value array's shape mentions
@@ -88,7 +87,7 @@ formNeeded rest = do
   where
     inShape : TT vs -> Bool
     inShape tm = case getFnArgs tm of
-      (Ref _ (TyCon _) n, [s, _]) => isValueArray (hooksOf n) && mentions isFormProbe s
+      (Ref _ (TyCon _) n, [s, _]) => (hooksOf n).valueArray && mentions isFormProbe s
       _ => False
 
 ------------------------------------------------------------------------------
@@ -109,13 +108,16 @@ Eq SizeVar where
 
 ||| A stand-in for a size variable while a definition's type is read, by
 ||| its source: a reference to a definition that does not exist, at which
-||| reduction stops.
+||| reduction stops, numbered by the parameter, and for an axis applied to
+||| another such reference numbered by the axis, so that every parameter
+||| and every axis has its own.
 sourceRef : SizeVar -> ClosedTerm
-sourceRef (Axis i j) = Ref EmptyFC Func (MN "idris-mlir-axis" (cast i * 4096 + cast j))
+sourceRef (Axis i j) =
+  App EmptyFC (Ref EmptyFC Func (MN "idris-mlir-axis" (cast i))) (Ref EmptyFC Func (MN "idris-mlir-axis-at" (cast j)))
 sourceRef (Size i) = Ref EmptyFC Func (MN "idris-mlir-size" (cast i))
 
 sourceOf : ClosedTerm -> Maybe SizeVar
-sourceOf (Ref _ _ (MN "idris-mlir-axis" k)) = Just (Axis (cast (k `div` 4096)) (cast (k `mod` 4096)))
+sourceOf (App _ (Ref _ _ (MN "idris-mlir-axis" i)) (Ref _ _ (MN "idris-mlir-axis-at" j))) = Just (Axis (cast i) (cast j))
 sourceOf (Ref _ _ (MN "idris-mlir-size" k)) = Just (Size (cast k))
 sourceOf _ = Nothing
 
@@ -173,12 +175,10 @@ sizedTelescope arity ty kinds = go 0 arity ty kinds
         Bind {} => go i (S k) t' ks
         _ => pure ([], t')
 
-||| The dimensions a tie can state of a value of this type: a value array's,
-||| one array or one per field.
+||| The dimensions a tie can state of a value of this type: a value array's.
 export
 valueDims : Ty -> Maybe (List Dim)
 valueDims (TensorT ds _) = Just ds
-valueDims (ColumnsT ValueArray ds _) = Just ds
 valueDims _ = Nothing
 
 ||| The runtime parameter a position is, counting only the parameters that
@@ -190,6 +190,14 @@ runtimeIndex kinds i =
      then Just (length (mapMaybe runtimeBinder (take i kinds)))
      else Nothing
 
+||| The runtime parameter a position is, when Idris lets it be used any
+||| number of times: only such a value can also witness a dimension, since
+||| a value used once is used by the call or the body it is given to.
+unrestricted : List PKind -> Nat -> Maybe Nat
+unrestricted kinds i = case getAt i kinds >>= runtimeBinder of
+  Just (MkBinder Many _) => runtimeIndex kinds i
+  _ => Nothing
+
 ||| How a dimension's value is had from the runtime parameters: the
 ||| natural at runtime parameter `r`, or axis `k` of the array at runtime
 ||| parameter `r`.
@@ -197,10 +205,11 @@ public export
 data Witness = NatAt Nat | AxisAt Nat Nat
 
 ||| For each runtime parameter of quantity many whose type is a tensor, the
-||| witness of each of its dimensions that another parameter fixes first:
-||| a runtime natural that is the size, or the earliest array dimension of
-||| the same source, in parameter then axis order (which is itself left
-||| unstated). A static dimension and one no size variable fixes have none.
+||| witness of each of its dimensions that another parameter of quantity
+||| many fixes first: a runtime natural that is the size, or the earliest
+||| array dimension of the same source, in parameter then axis order (which
+||| is itself left unstated). A static dimension, one no size variable
+||| fixes and one only a parameter used once fixes have none.
 export
 entryWitnesses : {auto c : Ref Ctxt Defs} ->
                  List PKind -> List (Nat, PKind, ClosedTerm) -> Core (List (Nat, List (Maybe Witness)))
@@ -230,7 +239,7 @@ entryWitnesses kinds params = do
 
     witness : List (SizeVar, Nat, Nat) -> Nat -> Nat -> Dim -> Maybe SizeVar -> Maybe Witness
     witness seen r k Dynamic (Just s) = case s of
-      Size i => case runtimeIndex kinds i of
+      Size i => case unrestricted kinds i of
         Just n => Just (NatAt n)
         Nothing => earliest
       _ => earliest
@@ -247,8 +256,9 @@ entryWitnesses kinds params = do
       if any isJust ws then Just (r, ws) else Nothing
 
 ||| The witnesses of a call's result: each dynamic dimension of the result
-||| type whose source one of the call's runtime arguments has, a natural
-||| argument or a dimension of an array argument.
+||| type whose source one of the call's runtime arguments of quantity many
+||| has, a natural argument or a dimension of an array argument. An argument
+||| used once is the call's, and witnesses nothing after it.
 export
 resultWitnesses : {auto c : Ref Ctxt Defs} ->
                   List PKind -> List (Nat, PKind, ClosedTerm) -> ClosedTerm -> Ty -> Core (List (Maybe Witness))
@@ -261,7 +271,7 @@ resultWitnesses kinds params res rt = case valueDims rt of
     pure (zipWith (witness seen) ds (srcs ++ replicate (length ds) Nothing))
   where
     sourced : (Nat, PKind, ClosedTerm) -> Core (Maybe (List (SizeVar, Nat, Nat)))
-    sourced (i, ValueParam (MkBinder _ t) _ _, a) = case valueDims t of
+    sourced (i, ValueParam (MkBinder Many t) _ _, a) = case valueDims t of
       Just pds => do
         Just r <- pure (runtimeIndex kinds i)
           | Nothing => pure Nothing
@@ -275,7 +285,7 @@ resultWitnesses kinds params res rt = case valueDims rt of
 
     witness : List (SizeVar, Nat, Nat) -> Dim -> Maybe SizeVar -> Maybe Witness
     witness seen Dynamic (Just s) = case s of
-      Size i => case runtimeIndex kinds i of
+      Size i => case unrestricted kinds i of
         Just n => Just (NatAt n)
         Nothing => fromArray
       _ => fromArray
@@ -295,14 +305,15 @@ witnessTerm loc vs (AxisAt r k) = (\v => Tensor loc (Extent k) NatT [Var loc v])
 -- Binding
 ------------------------------------------------------------------------------
 
-||| Each term bound by a `let` at quantity many, left to right, and the body
-||| built over the variables that hold them, in the same order, with the
-||| renaming of the scope outside. A value used more than once, or in an
-||| order of its own, is evaluated once, where the call put it.
+||| Each term bound by a `let` at the quantity of the parameter it is given
+||| for, left to right, and the body built over the variables that hold
+||| them, in the same order, with the renaming of the scope outside. A value
+||| used more than once, or in an order of its own, is evaluated once, where
+||| the call put it; one Idris lets the callee use once stays used once.
 export
-bindAll : {0 m : Nat} -> Loc -> List (Term m) ->
+bindAll : {0 m : Nat} -> Loc -> List (Quantity, Term m) ->
           ({0 p : Nat} -> (Fin m -> Fin p) -> List (Fin p) -> Term p) -> Term m
 bindAll loc [] k = k id []
-bindAll loc (t :: ts) k =
-  Let loc (shown "argument") Many t
-      (bindAll loc (map (weakenUnder 1) ts) (\ren, vs => k (ren . FS) (ren FZ :: vs)))
+bindAll loc ((q, t) :: ts) k =
+  Let loc (shown "argument") q t
+      (bindAll loc (map (map (weakenUnder 1)) ts) (\ren, vs => k (ren . FS) (ren FZ :: vs)))

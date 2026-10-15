@@ -8,8 +8,8 @@
 // meaning says, and the thread writes the copy. The copy is allowed; it
 // is what in-place reports.
 // CHECK: expected in-place: memref.copy copies a buffer in @reads
-module {
-  idr.func private @reads(%n: index) -> i64 {
+idr.program @"release-copies" root(@root) stage(first) {
+  idr.func @reads(%n: index) -> i64 {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %e = tensor.empty(%n) : tensor<?xi64>

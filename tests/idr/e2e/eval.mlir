@@ -9,8 +9,8 @@
 // CHECK: 3628800 x-x-x
 // LEFT: llvm.call @fact(
 // LEFT: llvm.call @dashes(
-module {
-  idr.func private @fact(%n: i64) -> i64 attributes {total, no_inline} {
+idr.program @eval root(@Prog.main) stage(higher) {
+  idr.func @fact(%n: i64) -> i64 attributes {total, no_inline} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       %one = arith.constant 1 : i64
@@ -26,7 +26,7 @@ module {
     }
     return %r : i64
   }
-  idr.func private @dashes(%s: !idr.str, %n: i64) -> !idr.str attributes {total, no_inline} {
+  idr.func @dashes(%s: !idr.str, %n: i64) -> !idr.str attributes {total, no_inline} {
     %r = idr.match_lit %n : i64 -> (!idr.str) {
     case 0 {
       idr.yield %s : !idr.str

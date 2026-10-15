@@ -13,8 +13,8 @@
 // LEFT: error: expected structured-loops: a loop over an array with a body that only computes is still scf.for in @left
 // NONE: error: expected structured-loops: no structured op in @none
 #map = affine_map<(d0) -> (d0)>
-module {
-  idr.func private @done(%x: tensor<?xi64>) -> tensor<?xi64> {
+idr.program @"structured-loops" root(@root) stage(first) {
+  idr.func @done(%x: tensor<?xi64>) -> tensor<?xi64> {
     %c0 = arith.constant 0 : index
     %n = tensor.dim %x, %c0 : tensor<?xi64>
     %e = tensor.empty(%n) : tensor<?xi64>
@@ -26,7 +26,7 @@ module {
     } -> tensor<?xi64>
     return %y : tensor<?xi64>
   }
-  idr.func private @left(%x: tensor<?xi64>) -> tensor<?xi64> {
+  idr.func @left(%x: tensor<?xi64>) -> tensor<?xi64> {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %n = tensor.dim %x, %c0 : tensor<?xi64>
@@ -39,7 +39,7 @@ module {
     }
     return %y : tensor<?xi64>
   }
-  idr.func private @ordered(%x: tensor<?xf64>) -> (tensor<?xf64>, f64) {
+  idr.func @ordered(%x: tensor<?xf64>) -> (tensor<?xf64>, f64) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %z = arith.constant 0.0 : f64
@@ -58,7 +58,12 @@ module {
     }
     return %y, %sum : tensor<?xf64>, f64
   }
-  idr.func private @none(%x: i64) -> i64 {
+  idr.func @none(%x: i64) -> i64 {
     return %x : i64
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
   }
 }

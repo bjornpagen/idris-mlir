@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The closures and suspensions of the idr dialect, and what runs them.
+// The closures and suspensions of the idr dialect, what runs them, and the
+// writes of a memo cell that a force's dispatch makes.
 
 #ifndef IDR_CLOSURE_OPS
 #define IDR_CLOSURE_OPS
@@ -15,6 +16,7 @@ include "idr/IR/IdrInterfaces.td"
 // A closure takes its captures over.
 def Idr_ClosureOp : Idr_Op<"closure", [Idr_ConsumesOnly<"0">,
     DeclareOpInterfaceMethods<SymbolUserOpInterface>,
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
     DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>]> {
   let summary = "a closure of a function: its leading parameters are the captures";
   let arguments = (ins FlatSymbolRefAttr:$callee, Variadic<AnyType>:$captures);
@@ -32,6 +34,7 @@ def Idr_ClosureOp : Idr_Op<"closure", [Idr_ConsumesOnly<"0">,
 // same attribute a closure uses, at this type.
 def Idr_SuspendOp : Idr_Op<"suspend", [Idr_ConsumesOnly<"0">,
     DeclareOpInterfaceMethods<SymbolUserOpInterface>,
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
     DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>]> {
   let summary = "a suspension of a function: every parameter is a capture";
   let arguments = (ins FlatSymbolRefAttr:$callee, Variadic<AnyType>:$captures);
@@ -49,6 +52,7 @@ def Idr_SuspendOp : Idr_Op<"suspend", [Idr_ConsumesOnly<"0">,
 // runs nothing. idr-defunctionalize makes it idr.con of the memo sum's
 // forced state.
 def Idr_DelayOp : Idr_Op<"delay", [Idr_ConsumesOnly<"0">,
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
     DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>]> {
   let summary = "a suspension already evaluated: it holds its operand";
   let arguments = (ins AnyType:$value);
@@ -57,22 +61,23 @@ def Idr_DelayOp : Idr_Op<"delay", [Idr_ConsumesOnly<"0">,
   let hasVerifier = 1;
 }
 
-// Reads the cell: a suspension, or, after idr-defunctionalize, the box of a
-// memo sum. Not a call of a shared suspension: that would run the body at
-// every use. A suspension with this one use is the call, at this point. Its
-// effects are the cell's: none for a view of a cell that memoizes, so an
-// unused force is erased; the cell freed when the force takes it over; the
-// IO resource when a label of its sum is `by_name`, which the sum's type
-// says. Not speculatable, so one is not hoisted into a path that did not
-// force. Whether it takes its cell over is where it is, its operand's last
-// use, as for a match's scrutinee, not a fact of the op, so it does not
-// declare consumption. A force of an evaluated suspension folds to its
-// value where the types are equal.
+// Reads the cell of a suspension, before idr-defunctionalize: after it a
+// force is a call of its memo sum's dispatch, which idr.memo.enter and
+// idr.memo.settle write the cell in. Not a call of a shared suspension:
+// that would run the body at every use. A suspension with this one use is
+// the call, at this point. A force is strict, as a call is: its first entry
+// runs a function nothing here bounds, which may crash, not return, or
+// reach output, so it is ordered as a crash is and never hoisted onto a
+// path that did not force. Whether it takes its cell over is where it is,
+// its operand's last use, as for a match's scrutinee, not a fact of the
+// op, so it does not declare consumption. A force of an evaluated
+// suspension folds to its value where the types are equal.
 def Idr_ForceOp : Idr_Op<"force", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
     DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>]> {
   let summary = "the value of a suspension, computed on the first force and shared";
-  let arguments = (ins AnyTypeOf<[Idr_LazyValue, Idr_BoxValue]>:$suspension);
+  let arguments = (ins Idr_LazyValue:$suspension);
   let results = (outs AnyType:$result);
   let assemblyFormat = "$suspension attr-dict `:` type($suspension) `->` type($result)";
   let hasVerifier = 1;
@@ -90,7 +95,8 @@ def Idr_ApplyOp : Idr_Op<"apply", [CallOpInterface,
     TypesMatchWith<"callee result types match result types", "callee", "results",
                    "::llvm::cast<FnType>($_self).getResults()",
                    "::idr::sameCarriers">,
-    Idr_Consumes<"1">, DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>]> {
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
+    DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>]> {
   let summary = "applies a closure to arguments";
   let arguments = (ins Idr_FnType:$callee, Variadic<AnyType>:$args,
                        OptionalAttr<DictArrayAttr>:$arg_attrs,
@@ -114,6 +120,38 @@ def Idr_ApplyOp : Idr_Op<"apply", [CallOpInterface,
     ::mlir::Operation::operand_range getArgOperands() { return getArgs(); }
     ::mlir::MutableOperandRange getArgOperandsMutable() { return getArgsMutable(); }
   }];
+}
+
+//===----------------------------------------------------------------------===//
+// Memo cells
+//===----------------------------------------------------------------------===//
+
+// The cell of a memo sum, which the dispatch of a force reads and writes: a
+// view, plain before idr-rc and borrowed after it. A memo cell is the one
+// cell that changes while references to it live, and only through these
+// ops, each a write of the cell.
+def Idr_MemoCell : Type<And<[
+    CPred<"::llvm::isa<::idr::BoxType>(::idr::unrestricted($_self))">,
+    CPred<"::llvm::cast<::idr::BoxType>(::idr::unrestricted($_self)).getData().isMemo()">,
+    CPred<"!::idr::isOwned($_self)">]>,
+    "a view of the box of a memo sum", "::mlir::Type">;
+
+// The cell's force has begun: its state becomes Running, so a force that
+// reaches the cell again before this one settles it finds the loop. The
+// label's captures were read before it; the label's function runs after.
+def Idr_MemoEnterOp : Idr_Op<"memo.enter", [DeclareOpInterfaceMethods<Idr_FlowOpInterface>]> {
+  let summary = "marks a memo cell's force as running";
+  let arguments = (ins Arg<Idr_MemoCell, "", [MemWrite]>:$cell);
+  let assemblyFormat = "$cell attr-dict `:` type($cell)";
+}
+
+// The cell's force has its value: its state becomes Forced, holding it,
+// and every later force reads it. The value moves into the cell.
+def Idr_MemoSettleOp : Idr_Op<"memo.settle", [DeclareOpInterfaceMethods<Idr_FlowOpInterface>]> {
+  let summary = "stores a memo cell's value, its force done";
+  let arguments = (ins Arg<Idr_MemoCell, "", [MemWrite]>:$cell, AnyType:$value);
+  let assemblyFormat = "$cell `,` $value attr-dict `:` type($cell) `,` type($value)";
+  let hasVerifier = 1;
 }
 
 #endif // IDR_CLOSURE_OPS

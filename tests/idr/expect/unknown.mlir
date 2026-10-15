@@ -9,8 +9,13 @@
 // GONE-DAG: error: idr-expect: no property named in-bounds
 // GONE-DAG: error: idr-expect: no property named bounds-checked
 // GONE-DAG: error: idr-expect: no property named pure-array-loops
-module {
-  idr.func private @f(%x: i64) -> i64 {
+idr.program @unknown root(@root) stage(first) {
+  idr.func @f(%x: i64) -> i64 {
     return %x : i64
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
   }
 }

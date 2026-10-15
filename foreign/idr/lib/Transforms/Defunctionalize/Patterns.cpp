@@ -5,7 +5,8 @@
 // op. Each takes its operands as the conversion remapped them and moves a
 // value into its slot through the converter, so a coercion is made once per
 // use that needs it. Another function is read only through the decision's
-// signature table, never through its op, which converts on another thread.
+// signature table, never through its op, which converts on another thread;
+// what a constructor of a sum runs is the function it names.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/Analysis/Labels.h"
@@ -20,6 +21,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/Sequence.h"
 
 using namespace mlir;
 
@@ -27,28 +29,21 @@ namespace idr::defunctionalize {
 
 namespace {
 
-// The field types of the constructor named `name` of the sum a value of
-// `sum` is: a label's captures, or a memo state's value.
-ArrayRef<Type> fieldsOf(Type sum, StringRef name) {
-  DataType data = dataTypeOf(sum);
-  std::optional<unsigned> tag = data.getTag(name);
-  assert(tag && "every label of a key has its constructor in the key's sum");
-  return data.getCtor(*tag).fields;
-}
-
 // A closure or a suspension of `label` is its label's constructor in its
 // key's sum, its captures moved into the label's parameters and held as the
 // constructor's fields.
 LogicalResult construct(Operation *op, FlatSymbolRefAttr label, ValueRange captures,
                         const SlotTypeConverter &converter, ConversionPatternRewriter &rewriter) {
-  Type sum = converter.typeOf(op->getResult(0));
+  Value made = op->getResult(0);
+  Type sum = converter.typeOf(made);
+  unsigned tag = converter.slots().labelTag(converter.keyOf(made), label);
   SmallVector<Value> moved;
   if (failed(converter.coerceOperands(rewriter, op, captures, moved)))
     return failure();
   SmallVector<Value> held;
-  for (auto [value, type] : llvm::zip_equal(moved, fieldsOf(sum, label.getValue())))
+  for (auto [value, type] : llvm::zip_equal(moved, dataTypeOf(sum).getCtor(tag).fields))
     held.push_back(heldAs(rewriter, op->getLoc(), value, type));
-  rewriter.replaceOpWithNewOp<ConOp>(op, sum, label, held);
+  rewriter.replaceOpWithNewOp<ConOp>(op, sum, tag, held);
   return success();
 }
 
@@ -68,48 +63,49 @@ struct SuspendPattern : SlotPattern<SuspendOp> {
   }
 };
 
-// An evaluated suspension is a cell already forced: its memo sum's `forced`
-// constructor, holding the value moved into the forced state's slot.
+// An evaluated suspension is a cell already forced: its memo sum's Forced
+// state, holding the value moved into the forced state's slot.
 struct DelayPattern : SlotPattern<DelayOp> {
   using SlotPattern::SlotPattern;
   LogicalResult matchAndRewrite(DelayOp op, OpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Type sum = converter().typeOf(op.getResult());
+    DataType memo = dataTypeOf(sum);
+    unsigned forced = memo.getForcedTag();
     Value moved = converter().coerceOperand(rewriter, op.getValueMutable(), adaptor.getValue());
     if (!moved)
       return failure();
-    Value held = heldAs(rewriter, op.getLoc(), moved, fieldsOf(sum, memoForced).front());
-    rewriter.replaceOpWithNewOp<ConOp>(op, sum,
-                                       FlatSymbolRefAttr::get(op.getContext(), memoForced),
-                                       ValueRange{held});
+    Value held = heldAs(rewriter, op.getLoc(), moved, memo.getCtor(forced).fields.front());
+    rewriter.replaceOpWithNewOp<ConOp>(op, sum, forced, ValueRange{held});
     return success();
   }
 };
 
-// An apply is a match over its callee's sum, each region calling its label
-// with the captures, then the arguments. A callee no label reaches is no
-// value the program has: that apply never runs.
+// An apply is a match over its callee's sum, each region calling the
+// function its constructor names with the captures, then the arguments. A
+// sum without a constructor is no value the program has: that apply never
+// runs.
 struct ApplyPattern : SlotPattern<ApplyOp> {
   using SlotPattern::SlotPattern;
   LogicalResult matchAndRewrite(ApplyOp apply, OpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = apply.getLoc();
-    Key callee = converter().keyOf(apply.getCallee());
     SmallVector<Type> types;
     for (Value own : apply.getResults())
       types.push_back(converter().typeOf(own));
-    if (Slots::isEmpty(callee)) {
+    Value closure = adaptor.getCallee();
+    ArrayRef<Ctor> labels = dataTypeOf(closure.getType()).getCtors();
+    if (labels.empty()) {
       SmallVector<Value> poison;
       for (Type type : types)
         poison.push_back(ub::PoisonOp::create(rewriter, loc, type));
       rewriter.replaceOp(apply, poison);
       return success();
     }
-    Value closure = adaptor.getCallee();
-    auto match = MatchOp::create(rewriter, loc, types, closure, callee.second,
-                                 static_cast<unsigned>(callee.second.size()));
-    for (auto [label, region] :
-         llvm::zip(callee.second.getAsRange<FlatSymbolRefAttr>(), match.getRegions()))
+    auto tags = llvm::to_vector(llvm::seq<unsigned>(0, static_cast<unsigned>(labels.size())));
+    auto match = MatchOp::create(rewriter, loc, types, closure, ArrayRef<unsigned>(tags),
+                                 static_cast<unsigned>(labels.size()));
+    for (auto [label, region] : llvm::zip_equal(labels, match.getRegions()))
       if (failed(call(apply, adaptor, label, region, closure, rewriter)))
         return failure();
     rewriter.replaceOp(apply, match.getResults());
@@ -117,35 +113,34 @@ struct ApplyPattern : SlotPattern<ApplyOp> {
   }
 
   // The region of `label`: its captures bound at the scrutinee's grade and
-  // held as its parameters, each argument moved into its slot, and each
-  // result out of the label's into the apply's.
-  LogicalResult call(ApplyOp apply, OpAdaptor adaptor, FlatSymbolRefAttr label, Region &region,
+  // held as its function's parameters, each argument moved into its slot,
+  // and each result out of the function's into the apply's.
+  LogicalResult call(ApplyOp apply, OpAdaptor adaptor, const Ctor &label, Region &region,
                      Value closure, ConversionPatternRewriter &rewriter) const {
     const Slots &keys = slots();
     Location loc = apply.getLoc();
-    const Signature &sig = keys.signature(label.getAttr());
+    const Signature &sig = keys.signature(label.fn.getAttr());
     size_t args = apply.getArgs().size();
     // The label fits the callee's carrier, by the verifier of the op that
     // named it and the carriers of the edges it came along.
     if (sig.type.getNumInputs() < args) {
       apply.emitError("internal error: idr-defunctionalize: ")
-          << label << " takes fewer parameters than the apply passes";
+          << label.fn << " takes fewer parameters than the apply passes";
       return failure();
     }
     unsigned captures = sig.type.getNumInputs() - static_cast<unsigned>(args);
     OpBuilder::InsertionGuard guard(rewriter);
-    ArrayRef<Type> params = fieldsOf(closure.getType(), label.getValue());
     SmallVector<Type> bound;
-    for (Type param : params)
+    for (Type param : label.fields)
       bound.push_back(fieldType(closure.getType(), param));
     Block *block = rewriter.createBlock(&region, region.end(), bound,
                                         SmallVector<Location>(bound.size(), loc));
     SmallVector<Value> operands;
-    for (auto [capture, param] : llvm::zip_equal(block->getArguments(), params))
+    for (auto [capture, param] : llvm::zip_equal(block->getArguments(), label.fields))
       operands.push_back(heldAs(rewriter, loc, capture, param));
     for (auto [i, arg] : llvm::enumerate(apply.getArgs())) {
       Value value = adaptor.getArgs()[i];
-      if (isKeyed(arg.getType())) {
+      if (carriesLabels(arg.getType())) {
         Key to = sig.arguments[captures + i];
         value = converter().coerce(rewriter, loc, value, converter().keyOf(arg), to,
                                    keys.typeOf(arg.getType(), to));
@@ -154,12 +149,12 @@ struct ApplyPattern : SlotPattern<ApplyOp> {
       }
       operands.push_back(value);
     }
-    auto made = CallOp::create(rewriter, loc, sig.converted.getResults(), label, operands,
-                               /*arg_attrs=*/nullptr, /*res_attrs=*/nullptr, /*effects=*/nullptr);
+    auto made = CallOp::create(rewriter, loc, sig.converted.getResults(), label.fn, operands,
+                               /*arg_attrs=*/nullptr, /*res_attrs=*/nullptr);
     SmallVector<Value> yields;
     for (auto [j, own] : llvm::enumerate(apply.getResults())) {
       Value value = made.getResult(static_cast<unsigned>(j));
-      if (isKeyed(own.getType())) {
+      if (carriesLabels(own.getType())) {
         value = converter().coerce(rewriter, loc, value, sig.results[j], converter().keyOf(own),
                                    converter().typeOf(own));
         if (!value)
@@ -172,14 +167,30 @@ struct ApplyPattern : SlotPattern<ApplyOp> {
   }
 };
 
-// A force keeps its op and takes the cell's memo sum; the switch on the
-// cell's state is the lowering's.
+// A force is a call of its cell's dispatch function, the cell taken at the
+// function's grade, and the value moved out of the forced state's slot
+// into the force's.
 struct ForcePattern : SlotPattern<ForceOp> {
   using SlotPattern::SlotPattern;
   LogicalResult matchAndRewrite(ForceOp force, OpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<ForceOp>(force, converter().typeOf(force.getResult()),
-                                         adaptor.getSuspension());
+    Location loc = force.getLoc();
+    FlatSymbolRefAttr dispatch = slots().forceOf(converter().keyOf(force.getSuspension()));
+    const Signature &sig = slots().signature(dispatch.getAttr());
+    Value cell = heldAs(rewriter, loc, adaptor.getSuspension(), sig.converted.getInput(0));
+    auto made = CallOp::create(rewriter, loc, sig.converted.getResults(), dispatch,
+                               ValueRange{cell}, /*arg_attrs=*/nullptr, /*res_attrs=*/nullptr);
+    Value value = made.getResult(0);
+    Value own = force.getResult();
+    Type forced = cast<LazyType>(unrestricted(force.getSuspension().getType())).getValue();
+    if (carriesLabels(forced)) {
+      Key to = converter().keyOf(own);
+      value = converter().coerce(rewriter, loc, value, sig.results.front(), to,
+                                 slots().typeOf(forced, to));
+      if (!value)
+        return failure();
+    }
+    rewriter.replaceOp(force, heldAs(rewriter, loc, value, converter().typeOf(own)));
     return success();
   }
 };

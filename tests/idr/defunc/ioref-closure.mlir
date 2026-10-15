@@ -11,12 +11,12 @@
 // CHECK-LABEL: idr.func @Main.main(
 // CHECK-DAG: call @add(
 // CHECK-DAG: call @dbl(
-module {
-  idr.func private @add(%a: i64, %x: i64) -> i64 attributes {total} {
+idr.program @"ioref-closure" root(@Main.main) stage(higher) {
+  idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64
     return %y : i64
   }
-  idr.func private @dbl(%x: i64) -> i64 attributes {total} {
+  idr.func @dbl(%x: i64) -> i64 attributes {total} {
     %y = arith.addi %x, %x : i64
     return %y : i64
   }

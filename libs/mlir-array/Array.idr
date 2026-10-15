@@ -5,8 +5,9 @@
 |||
 ||| Nothing here sees how an array is held: every definition is written
 ||| over the generating set, and compiles as written to what those
-||| functions become. Every fold here means its left fold in index order,
-||| so a sum of floats adds in the order a program reads, on every target.
+||| functions become. Every fold here but `foldr`, the right fold its name
+||| asks for, means its left fold in index order, so a sum of floats adds
+||| in the order a program reads, on every target.
 module Array
 
 import public Array.Core
@@ -63,6 +64,13 @@ x !? is = map (x !!) (index (shape x) is)
 0 counted : (e : Extents s) -> count s = count [<volume e]
 counted e = sym (trans (multOneLeftNeutral (volume e)) (volumeIsCount e))
 
+||| The right fold of the first `k` elements of `v` onto `acc`, the last of
+||| them combined first: a list's right fold of the elements, without the
+||| list, in a loop that keeps nothing but the accumulator.
+foldBack : (a -> b -> b) -> Vector n a -> (k : Nat) -> (0 _ : LTE k n) -> b -> b
+foldBack g v Z _ acc = acc
+foldBack g v (S k) fits acc = foldBack g v k (lteSuccLeft fits) (g (v !! [<natToFinLT k {prf = fits}]) acc)
+
 export
 Functor (Array s) where
   map f x = tabulate (shape x) (\i => f (x !! i))
@@ -74,13 +82,72 @@ export
 Foldable (Array s) where
   foldl g z x =
     let e = shape x in foldLast g (scalar z) (reshape [<volume e] @{counted e} x) !! [<]
-  foldr g z x = foldr g z (toList x)
+  foldr g z x =
+    let e = shape x in foldBack g (reshape [<volume e] @{counted e} x) (volume e) reflexive z
   toList x = foldl (:<) [<] x <>> []
   null x = volume (shape x) == 0
   foldMap f x = foldl (\acc, v => acc <+> f v) neutral x
 
-||| Arrays of one shape, combined element by element.
+||| Arrays of one shape, combined element by element. `unzipWith` applies
+||| `f` once at each index and takes both arrays from its results.
 export
 Zippable (Array s) where
   zipWith f x y = tabulate (shape x) (\i => f (x !! i) (y !! i))
-  unzipWith f x = (map (fst . f) x, map (snd . f) x)
+  unzipWith f x = let ys = map f x in (map fst ys, map snd ys)
+
+------------------------------------------------------------------------------
+-- Linear arrays, element by element
+------------------------------------------------------------------------------
+
+||| `step` at every position of an axis of `n`, in order, each given the
+||| state the one before it returned. The state is linear, so it may be a
+||| linear array each step reads or writes in place.
+along : (n : Nat) -> ((1 _ : t) -> Fin n -> t) -> (1 _ : t) -> t
+along n step st = go Z n Refl st
+  where
+    -- `done` positions are visited and `left` remain; the position visited
+    -- next is `done`, below `n` because one remains.
+    go : (done, left : Nat) -> (0 _ : done + left = n) -> (1 _ : t) -> t
+    go done Z _ st = st
+    go done (S left) prf st =
+      let 0 next = trans (plusSuccRightSucc done left) prf in
+      go (S done) left next
+        (step st (natToFinLT done {prf = replace {p = LTE (S done)} next (lteAddRight (S done))}))
+
+||| `step` at every index of the extents, in row-major order with the last
+||| axis fastest, each given the state the one before it returned.
+visit : Extents s -> ((1 _ : t) -> Index s -> t) -> (1 _ : t) -> t
+visit [<] step st = step st [<]
+visit (e :< n) step st = visit e (\st, p => along n (\st, j => step st (p :< j)) st) st
+
+namespace LArray
+  ||| The array with each element replaced by `f` of it, in place, in
+  ||| row-major order.
+  export
+  map : (a -> a) -> (1 _ : LArray s a) -> LArray s a
+  map f arr =
+    let e # arr = LArray.shape arr in
+    visit e (\arr, i => let x # arr = LArray.read arr i in LArray.write arr i (f x)) arr
+
+  ||| The left fold of the elements in row-major order, and the array given
+  ||| back unchanged.
+  export
+  foldl : (b -> a -> b) -> b -> (1 _ : LArray s a) -> Res b (const (LArray s a))
+  foldl g z arr =
+    let e # arr = LArray.shape arr in
+    visit e (\(acc # arr), i => let x # arr = LArray.read arr i in g acc x # arr) (z # arr)
+
+  ||| Each element replaced, in place, by what `f` gives for its index, the
+  ||| element and the state, the elements taken in row-major order and the
+  ||| state threaded from each to the next; the last state, and the array
+  ||| given back. The state is linear, so it may be another linear array,
+  ||| read or written at each index.
+  export
+  traverse : (Index s -> a -> (1 _ : t) -> Res a (const t)) -> (1 _ : t) -> (1 _ : LArray s a) ->
+             LPair t (LArray s a)
+  traverse f st arr =
+    let e # arr = LArray.shape arr in
+    visit e (\(before # arr), i =>
+      let x # arr = LArray.read arr i
+          y # after = f i x before
+      in after # LArray.write arr i y) (st # arr)

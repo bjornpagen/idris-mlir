@@ -7,8 +7,15 @@
 
 // A field's quantity is its type: linear fields are !idr.lin.
 !T = !idr.data<"T", plain [@A(!idr.lin<i64>, i64)]>
-idr.func private @f(%t: !T) -> !T {
-  return %t : !T
+idr.program @data root(@root) stage(first) {
+  idr.func @f(%t: !T) -> !T {
+    return %t : !T
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
 }
 
 // -----
@@ -47,13 +54,13 @@ idr.func private @f(%t: !T) -> !T {
 
 // A memo sum ends in its two states: running, then forced with the value.
 // expected-error @+1 {{running}}
-!M = !idr.data<"M", memo [@f(), @forced(i64)]>
+!M = !idr.data<"M", memo [@f() running, @forced(i64) forced]>
 
 // -----
 
 // Base's list: nil, then a cons of an element and a box of the list.
 // expected-error @+1 {{list}}
-!L = !idr.data<"L", list [@Nil(), @Cons(i64)]>
+!L = !idr.data<"L", list [@Nil() nil, @Cons(i64) cons]>
 
 // -----
 

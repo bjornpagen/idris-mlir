@@ -9,13 +9,14 @@
 // return's operands among them, and the ready set reads the summary from
 // there when the component finishes.
 //
-// The summaries are idr-optimize's, cached on the module for the length of
-// its run, and read here through the parent; a function never reads
-// another function's body.
+// The summaries are on the nodes of idr-optimize's ready set, cached on the
+// program for the length of its run, and read here through the parent; a
+// function never reads another function's body.
 #include "idr/Transforms/Effects.h"
 
 #include "idr/Analysis/Constants.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Transforms/Optimize.h"
 
 #include "mlir/Analysis/DataFlow/DeadCodeAnalysis.h"
 #include "mlir/Analysis/DataFlowFramework.h"
@@ -57,14 +58,23 @@ bool replaceWithConstant(DataFlowSolver &solver, OperationFolder &folder, OpBuil
   return true;
 }
 
+// What the rewrite did: how many values it replaced, and whether it
+// changed the body at all. Gathering the constants already there may move
+// one to the front of its region, or replace one by an equal one met
+// before, without replacing any value the solve found.
+struct Rewritten {
+  unsigned replaced = 0;
+  bool changed = false;
+};
+
 // The rewrite of the solve over the body of `fn`, blocks before the regions
 // they hold, so that a constant met first is the one the folder hands out
 // for its value. An op every result of which became a constant goes when
-// nothing else keeps it, its regions with it. How many values it replaced.
-unsigned rewrite(DataFlowSolver &solver, idr::FuncOp fn) {
+// nothing else keeps it, its regions with it.
+Rewritten rewrite(DataFlowSolver &solver, idr::FuncOp fn) {
   OperationFolder folder(fn.getContext());
   OpBuilder builder(fn.getContext());
-  unsigned replaced = 0;
+  Rewritten out;
   SmallVector<Block *> blocks;
   auto enqueue = [&](MutableArrayRef<Region> regions) {
     for (Region &region : regions)
@@ -76,18 +86,22 @@ unsigned rewrite(DataFlowSolver &solver, idr::FuncOp fn) {
     Block *block = blocks.pop_back_val();
     builder.setInsertionPointToStart(block);
     for (BlockArgument argument : block->getArguments())
-      replaced += replaceWithConstant(solver, folder, builder, argument);
+      out.replaced += replaceWithConstant(solver, folder, builder, argument);
     for (Operation &op : llvm::make_early_inc_range(*block)) {
       Attribute held;
       if (matchPattern(&op, m_Constant(&held))) {
-        folder.insertKnownConstant(&op, held);
+        Block *in = op.getBlock();
+        Operation *before = op.getPrevNode();
+        // False when `op` was replaced, and so erased.
+        bool kept = folder.insertKnownConstant(&op, held);
+        out.changed = out.changed || !kept || op.getBlock() != in || op.getPrevNode() != before;
         continue;
       }
       builder.setInsertionPoint(&op);
-      unsigned before = replaced;
+      unsigned before = out.replaced;
       for (Value result : op.getResults())
-        replaced += replaceWithConstant(solver, folder, builder, result);
-      if (op.getNumResults() != 0 && replaced - before == op.getNumResults() &&
+        out.replaced += replaceWithConstant(solver, folder, builder, result);
+      if (op.getNumResults() != 0 && out.replaced - before == op.getNumResults() &&
           wouldOpBeTriviallyDead(&op)) {
         op.erase();
         continue;
@@ -95,28 +109,34 @@ unsigned rewrite(DataFlowSolver &solver, idr::FuncOp fn) {
       enqueue(op.getRegions());
     }
   }
-  return replaced;
+  out.changed = out.changed || out.replaced != 0;
+  return out;
 }
 
 struct IdrConstantsPass : idr::impl::IdrConstantsBase<IdrConstantsPass> {
   void runOnOperation() override {
     idr::FuncOp fn = getOperation();
-    auto summaries = getCachedParentAnalysis<idr::ConstantSummaries>();
-    if (!summaries) {
-      fn.emitError("internal error: idr-constants runs inside idr-optimize, which holds the "
-                   "constants summaries of its module");
+    auto set = getCachedParentAnalysis<idr::optimize::ReadySet>();
+    if (!set) {
+      fn.emitError("internal error: idr-constants runs inside idr-optimize, whose ready set "
+                   "holds the summaries of its program");
       return signalPassFailure();
     }
+    const idr::optimize::ReadySet &ready = set->get();
+    auto constantsOf = [&](StringAttr callee) -> const idr::ConstantResults * {
+      const idr::optimize::Summary *summary = ready.summaryOf(callee);
+      return summary ? &summary->constants : nullptr;
+    };
     // A function holds no symbol table, so the solve resolves no callee:
     // every call is the hook's.
     DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
     solver.load<dataflow::DeadCodeAnalysis>();
-    solver.load<idr::SummarizedConstantPropagation>(summaries->get());
+    solver.load<idr::SummarizedConstantPropagation>(constantsOf);
     if (failed(solver.initializeAndRun(fn)))
       return signalPassFailure();
-    unsigned replaced = rewrite(solver, fn);
-    numConstants += replaced;
-    if (replaced == 0)
+    Rewritten done = rewrite(solver, fn);
+    numConstants += done.replaced;
+    if (!done.changed)
       markAllAnalysesPreserved();
   }
 };

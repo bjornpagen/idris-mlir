@@ -13,15 +13,15 @@
 // CHECK: ![[L:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, memo [@one(), @twice(i64), @running(), @forced(i64)]
 // CHECK-LABEL: idr.func @Main.main(
 // CHECK: match_lit %{{.*}} : i64 -> (!idr.box<![[L]]>) {
-// CHECK: con @one() : () -> !idr.box<![[L]]>
-// CHECK: con @twice(%{{.*}}) : (i64) -> !idr.box<![[L]]>
+// CHECK: con !idr.box<![[L]]> @one()
+// CHECK: con !idr.box<![[L]]> @twice(%{{.*}} : i64)
 // CHECK: force %{{.*}} : !idr.box<![[L]]> -> i64
-module {
-  idr.func private @one() -> i64 attributes {total} {
+idr.program @"memo-sum" root(@Main.main) stage(higher) {
+  idr.func @one() -> i64 attributes {total} {
     %c = arith.constant 1 : i64
     return %c : i64
   }
-  idr.func private @twice(%x: i64) -> i64 attributes {total} {
+  idr.func @twice(%x: i64) -> i64 attributes {total} {
     %y = arith.addi %x, %x : i64
     return %y : i64
   }

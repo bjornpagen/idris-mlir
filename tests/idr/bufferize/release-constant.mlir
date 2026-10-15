@@ -7,8 +7,8 @@
 // under every reading of the program, and bufferization succeeds with the
 // copy in place of the write.
 // CHECK: expected in-place: memref.copy copies a buffer in @thawed
-module {
-  idr.func private @thawed() -> i64 {
+idr.program @"release-constant" root(@root) stage(first) {
+  idr.func @thawed() -> i64 {
     %c0 = arith.constant 0 : index
     %c = arith.constant dense<[1, 2, 3]> : tensor<3xi64>
     %l = idr.lin.enter %c : !idr.lin<tensor<3xi64>>

@@ -11,13 +11,14 @@
 // idris-mlir prints the module after each pass its manager runs through
 // upstream's IR printer, into a tree of files: the module's own passes as
 // `<n>_<pass>.mlir`, numbered in order from 0, the first idr-target, which
-// sets the build's target; a pass run on every function prints into each
-// function's directory below. idris-mlir-opt's idr-pipeline is that same
+// sets the build's target; a pass run on the program prints into the
+// program's directory below, and one run on every function into each
+// function's directory below that. idris-mlir-opt's idr-pipeline is that same
 // pipeline, on the module idr-target has given the build's target, as
 // idris-mlir gives it: the module it ends with is the one idris-mlir
 // printed last. Which steps there are, and their order, are the
 // pipeline's own business; no option of the compiler leaves one out.
-module {
+idr.program @steps root(@Prog.main) stage(higher) {
   idr.func @Prog.main() -> i64 {
     %c = arith.constant 42 : i64
     return %c : i64

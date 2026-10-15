@@ -1,5 +1,5 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
-// RUN: idris-mlir-opt %t.mlir --pass-pipeline='builtin.module(idr.func(idr-tail-loops))' -o %t.loops.mlir
+// RUN: idris-mlir-opt %t.mlir --pass-pipeline='builtin.module(idr.program(idr.func(idr-tail-loops)))' -o %t.loops.mlir
 // RUN: idris-mlir-opt %t.loops.mlir --idr-expect=holds=constant-stack=@Main.main,no-heap-allocation=@Main.main -o /dev/null
 // NEEDS-ACCEPTANCE: that the loop is left as one self tail call with no dispatch over a box, as C06's sums and C07's cleanup make it.
 // An IO loop, in the shape Emit gives it: @countdown returns the action
@@ -15,24 +15,24 @@
 !Unit = !idr.data<"Unit", plain [@MkUnit()]>
 !IORes = !idr.data<"IORes", plain [@MkIORes(!Unit, !idr.world)]>
 !IO = !idr.data<"IO", plain [@MkIO(!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)]>
-module {
-  idr.func private @put(%n: i64, %w: !idr.world) -> !IORes attributes {total} {
+idr.program @"io-loop" root(@Main.main) stage(higher) {
+  idr.func @put(%n: i64, %w: !idr.world) -> !IORes attributes {total} {
     %w1 = idr.io.put_int signed %n, %w : i64
-    %u = idr.con @MkUnit() : () -> !Unit
-    %r = idr.con @MkIORes(%u, %w1) : (!Unit, !idr.world) -> !IORes
+    %u = idr.con !Unit @MkUnit()
+    %r = idr.con !IORes @MkIORes(%u : !Unit, %w1 : !idr.world)
     return %r : !IORes
   }
-  idr.func private @done(%w: !idr.world) -> !IORes attributes {total} {
-    %u = idr.con @MkUnit() : () -> !Unit
-    %r = idr.con @MkIORes(%u, %w) : (!Unit, !idr.world) -> !IORes
+  idr.func @done(%w: !idr.world) -> !IORes attributes {total} {
+    %u = idr.con !Unit @MkUnit()
+    %r = idr.con !IORes @MkIORes(%u : !Unit, %w : !idr.world)
     return %r : !IORes
   }
-  idr.func private @countdown(%n: i64) -> !IO {
+  idr.func @countdown(%n: i64) -> !IO {
     %r = idr.match_lit %n : i64 -> (!IO) {
     case 0 {
       %k = idr.closure @done() : () -> !idr.fn<(!idr.world) -> (!IORes)>
       %k_lin = idr.lin.enter %k : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>
-      %io = idr.con @MkIO(%k_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>) -> !IO
+      %io = idr.con !IO @MkIO(%k_lin : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)
       idr.yield %io : !IO
     }
     default {
@@ -42,26 +42,26 @@ module {
       %then_lin = idr.lin.enter %then : !idr.lin<!idr.fn<(!Unit) -> (!IO)>>
       %k = idr.closure @bind(%p_lin, %then_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>, !idr.lin<!idr.fn<(!Unit) -> (!IO)>>) -> !idr.fn<(!idr.world) -> (!IORes)>
       %k_lin = idr.lin.enter %k : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>
-      %io = idr.con @MkIO(%k_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>) -> !IO
+      %io = idr.con !IO @MkIO(%k_lin : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)
       idr.yield %io : !IO
     }
     }
     return %r : !IO
   }
-  idr.func private @next(%n: i64, %u: !Unit) -> !IO {
+  idr.func @next(%n: i64, %u: !Unit) -> !IO {
     %c1 = arith.constant 1 : i64
     %m = arith.subi %n, %c1 : i64
     %a = idr.call @countdown(%m) : (i64) -> !IO
     return %a : !IO
   }
-  idr.func private @bind(%a: !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>, %k: !idr.lin<!idr.fn<(!Unit) -> (!IO)>>, %w: !idr.world) -> !IORes attributes {total} {
+  idr.func @bind(%a: !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>, %k: !idr.lin<!idr.fn<(!Unit) -> (!IO)>>, %w: !idr.world) -> !IORes attributes {total} {
     %a_use = idr.lin.use %a : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>
     %r = idr.apply %a_use(%w) : !idr.fn<(!idr.world) -> (!IORes)>
-    %u = idr.field %r[@MkIORes, 0] : !IORes -> !Unit
-    %w1 = idr.field %r[@MkIORes, 1] : !IORes -> !idr.world
+    %u = idr.field %r : !IORes @MkIORes[0] -> !Unit
+    %w1 = idr.field %r : !IORes @MkIORes[1] -> !idr.world
     %k_use = idr.lin.use %k : !idr.lin<!idr.fn<(!Unit) -> (!IO)>>
     %io = idr.apply %k_use(%u) : !idr.fn<(!Unit) -> (!IO)>
-    %f = idr.field %io[@MkIO, 0] : !IO -> !idr.fn<(!idr.world) -> (!IORes)>
+    %f = idr.field %io : !IO @MkIO[0] -> !idr.fn<(!idr.world) -> (!IORes)>
     %s = idr.apply %f(%w1) : !idr.fn<(!idr.world) -> (!IORes)>
     return %s : !IORes
   }
@@ -69,7 +69,7 @@ module {
     %c, %w1 = idr.io.get_byte %w
     %n = arith.extui %c : i32 to i64
     %a = idr.call @countdown(%n) : (i64) -> !IO
-    %f = idr.field %a[@MkIO, 0] : !IO -> !idr.fn<(!idr.world) -> (!IORes)>
+    %f = idr.field %a : !IO @MkIO[0] -> !idr.fn<(!idr.world) -> (!IORes)>
     %r = idr.apply %f(%w1) : !idr.fn<(!idr.world) -> (!IORes)>
     return %r : !IORes
   }

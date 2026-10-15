@@ -2,19 +2,27 @@
 // Copyright (c) 2026 Bjorn Pagen
 // What the folders of the string and big ops, and of double_head and
 // int_head, share: each converts its constant operands to runtime values,
-// calls the runtime's own C function, which idris-mlir links natively, and
-// converts the result back. A primitive has one implementation, at compile
-// time and at runtime; nothing here computes one. A total op is not folded
-// where the condition of its guard fails on its constants (idr::checkHolds):
-// the guard crashes there first, at runtime. The folders themselves (the
-// ops' `fold` hooks) are the units of lib/IR/Fold.
+// calls the runtime's own C function for its op, which idris-mlir links
+// natively, and converts the result back. A primitive has one
+// implementation, at compile time and at runtime; nothing here computes
+// one. Which C function an op calls is its ODS's fact, through the table
+// idris-mlir-tblgen generates from it (idr::runtime::Abi), never a name
+// written here. A total op is not folded where the condition of its guard
+// fails on its constants (the guard op's `holds`): the guard crashes there
+// first, at runtime. The folders themselves (the ops' `fold` hooks) are the
+// units of lib/IR/Fold.
 #ifndef IDR_IR_FOLD_H
 #define IDR_IR_FOLD_H
 
 #include "idr/IR/IdrDialect.h"
 
-// The runtime's C ABI: its strings and bigs.
+// The runtime's C ABI: its strings and bigs, how a fold makes and releases
+// them, and the prototypes of every op's function, which the runtime's
+// header takes from the ODS.
 #include "idris_rt.h"
+
+// Each op's functions, typed as those prototypes declare them.
+#include "idr/IR/IdrRuntimeAbi.inc"
 
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -28,6 +36,24 @@
 
 namespace idr::fold {
 
+// The runtime's function of the op `Op` applied to `args`, each of the C
+// type the function takes.
+template <typename Op, typename... Args>
+auto runtime(Args... args) {
+  return ::idr::runtime::Abi<Op>::function(args...);
+}
+
+// The runtime's function of the op `Op` on an integer operand, as the op
+// reads it: its signed function on the word sign-extended to an int64_t,
+// its unsigned one on the word zero-extended to a uint64_t. Such an op has
+// one function for each, which its ODS names.
+template <typename Op>
+auto runtimeOfWord(mlir::IntegerAttr value, bool isSigned) {
+  using Abi = ::idr::runtime::Abi<Op>;
+  return isSigned ? Abi::signedFunction(value.getValue().getSExtValue())
+                  : Abi::unsignedFunction(value.getValue().getZExtValue());
+}
+
 // The owned references one fold holds, released together when it ends.
 // Every runtime operation returns an owned reference, even when what it
 // returns is one of its arguments (appending the empty string gives the
@@ -36,7 +62,8 @@ namespace idr::fold {
 // releases each once; and counts on the context the cells it leaves live,
 // read on the thread that folds: the runtime counts by thread, and a fold
 // never changes thread. Scopes do not nest on one thread; a nested pair
-// would count an inner leak twice.
+// would count an inner leak twice. A guard's `holds` opens one of its own,
+// so a folder asks it before it opens its scope.
 class Scope {
 public:
   explicit Scope(mlir::MLIRContext *c);
@@ -69,8 +96,6 @@ mlir::OpFoldResult strUnary(mlir::MLIRContext *ctx, mlir::Attribute operand, Fn 
   return fn(scope, scope.str(s));
 }
 
-using BigOp = idris_rt_big (*)(idris_rt_big, idris_rt_big);
-
 // `fn` of two constant strings; nothing when either is no constant.
 template <typename Fn>
 mlir::OpFoldResult strBinary(mlir::MLIRContext *ctx, mlir::Attribute lhs, mlir::Attribute rhs,
@@ -93,13 +118,17 @@ mlir::OpFoldResult bigUnary(mlir::MLIRContext *ctx, mlir::Attribute operand, Fn 
   return fn(scope, scope.big(a));
 }
 
-// `op` of two constant bigs; nothing when either is no constant.
-mlir::OpFoldResult bigBinary(mlir::MLIRContext *ctx, mlir::Attribute lhs, mlir::Attribute rhs,
-                             BigOp op);
-
-// The 64-bit value of an integer operand, extended as the op's signedness
-// says.
-int64_t extended(mlir::IntegerAttr value, bool isSigned);
+// The runtime's function of `Op` on two constant bigs; nothing when either
+// is no constant.
+template <typename Op>
+mlir::OpFoldResult bigBinary(mlir::MLIRContext *ctx, mlir::Attribute lhs, mlir::Attribute rhs) {
+  auto a = mlir::dyn_cast_or_null<BigAttr>(lhs);
+  auto b = mlir::dyn_cast_or_null<BigAttr>(rhs);
+  if (!a || !b)
+    return {};
+  Scope scope(ctx);
+  return scope.attr(runtime<Op>(scope.big(a), scope.big(b)));
+}
 
 // A runtime result modulo 2^64 as an integer of `type`.
 mlir::Attribute wrapped(mlir::Type type, int64_t value);
@@ -108,11 +137,10 @@ mlir::Attribute wrapped(mlir::Type type, int64_t value);
 // (negative, zero or positive), as a constant.
 mlir::Attribute compared(mlir::MLIRContext *ctx, CmpPredicate predicate, int32_t order);
 
-// The elements of a constant list: a chain of constructors of two fields
-// ending in one of none; nothing for any other constant. A run along the
-// second field is a stretch of the chain, read a cell at a time and then
-// its tail, never through the rest of the run that reading the field would
-// build.
+// The elements of a constant list: a chain of its type's cons cells ending
+// in its nil; nothing for any other constant. A run along the rest is a
+// stretch of the chain, read a cell at a time and then its tail, never
+// through the rest of the run that reading the field would build.
 std::optional<llvm::SmallVector<mlir::Attribute>> listElements(mlir::Attribute list);
 
 } // namespace idr::fold

@@ -1,212 +1,145 @@
-// RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
-// RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=output-fused -o /dev/null
+// RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=output-fused,no-heap-allocation=@append,\
+// RUN: no-heap-allocation=@cons,no-heap-allocation=@from_char,no-heap-allocation=@shows,\
+// RUN: no-heap-allocation=@lists,no-heap-allocation=@line,no-heap-allocation=@constant_list,\
+// RUN: returns-argument=@nil:0,builds-nothing=@cell,no-heap-allocation=@cell,\
+// RUN: no-heap-allocation=@cells_of_strings,builds=@cell_kept,no-heap-allocation=@packed_in_a_region -o /dev/null
 // RUN: idris-mlir-opt %s --canonicalize=test-convergence=true -o /dev/null
 // A string built only to be written is written piece by piece, in the
-// same order, through the world.
+// same order, through the world: nothing is built for output alone, so a
+// function that only writes allocates nothing, and one whose string or
+// cell has another use keeps it for that use.
 
 // "n = " ++ show n ++ "\n": three writes.
-// CHECK-LABEL: idr.func private @append(
-// CHECK-SAME: %[[N:.*]]: i64, %[[W:.*]]: !idr.world)
-// CHECK-DAG: %[[A:.*]] = {{(idr\.)?}}constant "n = " : !idr.str
-// CHECK-DAG: %[[NL:.*]] = {{(idr\.)?}}constant "\0A" : !idr.str
-// CHECK: %[[W1:.*]] = idr.io.put_str %[[A]], %[[W]]
-// CHECK-NEXT: %[[W2:.*]] = idr.io.put_int signed %[[N]], %[[W1]] : i64
-// CHECK-NEXT: %[[W3:.*]] = idr.io.put_str %[[NL]], %[[W2]]
-// CHECK-NEXT: return %[[W3]]
-!Chars = !idr.data<"Chars", list [@Nil(), @Cons(i32, !idr.box<!idr.data<"Chars">>)]>
-!Strs = !idr.data<"Strs", list [@Nil(), @Cons(!idr.str, !idr.box<!idr.data<"Strs">>)]>
-idr.func private @append(%n: i64, %w: !idr.world) -> !idr.world {
-  %a = idr.constant "n = " : !idr.str
-  %nl = idr.constant "\n" : !idr.str
-  %s = idr.str.show signed %n : i64
-  %t = idr.str.append %s, %nl
-  %u = idr.str.append %a, %t
-  %w1 = idr.io.put_str %u, %w
-  return %w1 : !idr.world
-}
-
-// CHECK-LABEL: idr.func private @cons(
-// CHECK-SAME: %[[C:.*]]: i32, %[[S:.*]]: !idr.str, %[[W:.*]]: !idr.world)
-// CHECK-NEXT: %[[W1:.*]] = idr.io.put_char %[[C]], %[[W]]
-// CHECK-NEXT: %[[W2:.*]] = idr.io.put_str %[[S]], %[[W1]]
-// CHECK-NEXT: return %[[W2]]
-idr.func private @cons(%c: i32, %s: !idr.str, %w: !idr.world) -> !idr.world {
-  %t = idr.str.cons %c, %s
-  %w1 = idr.io.put_str %t, %w
-  return %w1 : !idr.world
-}
-
-// CHECK-LABEL: idr.func private @from_char(
-// CHECK-SAME: %[[C:.*]]: i32, %[[W:.*]]: !idr.world)
-// CHECK-NEXT: %[[W1:.*]] = idr.io.put_char %[[C]], %[[W]]
-// CHECK-NEXT: return %[[W1]]
-idr.func private @from_char(%c: i32, %w: !idr.world) -> !idr.world {
-  %t = idr.str.from_char %c
-  %w1 = idr.io.put_str %t, %w
-  return %w1 : !idr.world
-}
-
-// CHECK-LABEL: idr.func private @shows(
-// CHECK-SAME: %[[B:.*]]: i8, %[[D:.*]]: f64, %[[W:.*]]: !idr.world)
-// CHECK-NEXT: %[[W1:.*]] = idr.io.put_int %[[B]], %[[W]] : i8
-// CHECK-NEXT: %[[W2:.*]] = idr.io.put_double %[[D]], %[[W1]]
-// CHECK-NEXT: return %[[W2]]
-idr.func private @shows(%b: i8, %d: f64, %w: !idr.world) -> !idr.world {
-  %s = idr.str.show unsigned %b : i8
-  %w1 = idr.io.put_str %s, %w
-  %t = idr.str.show %d : f64
-  %w2 = idr.io.put_str %t, %w1
-  return %w2 : !idr.world
-}
-
-// A string with another use is still written piece by piece; it stays for
-// that use.
-// CHECK-LABEL: idr.func private @shared(
-// CHECK: %[[S:.*]] = idr.str.from_char
-// CHECK: idr.io.put_char
-// CHECK: return %{{.*}}, %[[S]]
-idr.func private @shared(%c: i32, %w: !idr.world) -> (!idr.world, !idr.str) {
-  %s = idr.str.from_char %c
-  %w1 = idr.io.put_str %s, %w
-  return %w1, %s : !idr.world, !idr.str
-}
-
-
-// putStr (pack cs) and putStr (concat ss): each list is written as it is
-// walked, and no string is built.
-// CHECK-LABEL: idr.func private @lists(
-// CHECK-SAME: %[[CS:.*]]: !idr.box<!Chars>, %[[SS:.*]]: !idr.box<!Strs>, %[[W:.*]]: !idr.world)
-// CHECK-NEXT: %[[W1:.*]] = idr.io.put_list %[[CS]], %[[W]] : !idr.box<!Chars>
-// CHECK-NEXT: %[[W2:.*]] = idr.io.put_list %[[SS]], %[[W1]] : !idr.box<!Strs>
-// CHECK-NEXT: return %[[W2]]
-idr.func private @lists(%cs: !idr.box<!Chars>, %ss: !idr.box<!Strs>, %w: !idr.world) -> !idr.world {
-  %s = idr.str.pack %cs : !idr.box<!Chars> -> !idr.str
-  %w1 = idr.io.put_str %s, %w
-  %t = idr.str.concat %ss : !idr.box<!Strs> -> !idr.str
-  %w2 = idr.io.put_str %t, %w1
-  return %w2 : !idr.world
-}
-
-// putStrLn (pack cs): the line's characters, then its end.
-// CHECK-LABEL: idr.func private @line(
-// CHECK-SAME: %[[CS:.*]]: !idr.box<!Chars>, %[[W:.*]]: !idr.world)
-// CHECK: %[[W1:.*]] = idr.io.put_list %[[CS]], %[[W]] : !idr.box<!Chars>
-// CHECK-NEXT: %[[W2:.*]] = idr.io.put_str %{{.*}}, %[[W1]]
-// CHECK-NEXT: return %[[W2]]
-idr.func private @line(%cs: !idr.box<!Chars>, %w: !idr.world) -> !idr.world {
-  %nl = idr.constant "\n" : !idr.str
-  %s = idr.str.pack %cs : !idr.box<!Chars> -> !idr.str
-  %l = idr.str.append %s, %nl
-  %w1 = idr.io.put_str %l, %w
-  return %w1 : !idr.world
-}
-
-// A packed string with another use is built anyway, and written as it is.
-// CHECK-LABEL: idr.func private @packed_and_kept(
-// CHECK: %[[S:.*]] = idr.str.pack
-// CHECK-NEXT: idr.io.put_str %[[S]]
-// CHECK: return %{{.*}}, %[[S]]
-idr.func private @packed_and_kept(%cs: !idr.box<!Chars>, %w: !idr.world) -> (!idr.world, !idr.str) {
-  %s = idr.str.pack %cs : !idr.box<!Chars> -> !idr.str
-  %w1 = idr.io.put_str %s, %w
-  return %w1, %s : !idr.world, !idr.str
-}
-
-// A list that is a constant is written as the string it packs to, which is
-// what writing its pack wrote: compile-time evaluation can make the list a
-// constant after the output of its pack became a walk.
-// CHECK-LABEL: idr.func private @constant_list(
-// CHECK-SAME: %[[W:.*]]: !idr.world)
-// CHECK-NEXT: %[[S:.*]] = {{(idr\.)?}}constant "hi" : !idr.str
-// CHECK-NEXT: %[[W1:.*]] = idr.io.put_str %[[S]], %[[W]]
-// CHECK-NEXT: return %[[W1]]
-idr.func private @constant_list(%w: !idr.world) -> !idr.world {
-  %cs = idr.constant #idr.con<@Cons, [104 : i32, #idr.con<@Cons, [105 : i32, #idr.con<@Nil, []>]>]> : !idr.box<!Chars>
-  %w1 = idr.io.put_list %cs, %w : !idr.box<!Chars>
-  return %w1 : !idr.world
-}
-
-// Writing the nil writes nothing.
-// CHECK-LABEL: idr.func private @nil(
-// CHECK-SAME: %[[W:.*]]: !idr.world)
-// CHECK-NEXT: return %[[W]]
-idr.func private @nil(%w: !idr.world) -> !idr.world {
-  %ss = idr.con @Nil() : () -> !idr.box<!Strs>
-  %w1 = idr.io.put_list %ss, %w : !idr.box<!Strs>
-  return %w1 : !idr.world
-}
-
-// Writing a cell writes its element, then the rest, and the cell built
-// only to be written is not built: putStrLn (pack ('>' :: header)) writes
-// the character, then the header as it walks it.
-// CHECK-LABEL: idr.func private @cell(
-// CHECK-SAME: %[[H:[a-z0-9_]+]]: !idr.box<!Chars>, %[[W:[a-z0-9_]+]]: !idr.world)
-// CHECK-NOT: {{(idr\.| )con }}@
-// CHECK: %[[W1:.*]] = idr.io.put_char %{{.*}}, %[[W]]
-// CHECK-NEXT: %[[W2:.*]] = idr.io.put_list %[[H]], %[[W1]] : !idr.box<!Chars>
-// CHECK-NOT: {{(idr\.| )con }}@
-// CHECK: return
-idr.func private @cell(%header: !idr.box<!Chars>, %w: !idr.world) -> !idr.world {
-  %gt = arith.constant 62 : i32
-  %l = idr.con @Cons(%gt, %header) : (i32, !idr.box<!Chars>) -> !idr.box<!Chars>
-  %s = idr.str.pack %l : !idr.box<!Chars> -> !idr.str
-  %nl = idr.constant "\n" : !idr.str
-  %t = idr.str.append %s, %nl
-  %w1 = idr.io.put_str %t, %w
-  return %w1 : !idr.world
-}
-
-// The cells of a list of strings: each string as put_str writes it, the
-// last cell's tail a constant nil, which writes nothing.
-// CHECK-LABEL: idr.func private @cells_of_strings(
-// CHECK-SAME: %[[A:[a-z0-9_]+]]: !idr.str, %[[B:[a-z0-9_]+]]: !idr.str, %[[W:[a-z0-9_]+]]: !idr.world)
-// CHECK-NEXT: %[[W1:.*]] = idr.io.put_str %[[A]], %[[W]]
-// CHECK-NEXT: %[[W2:.*]] = idr.io.put_str %[[B]], %[[W1]]
-// CHECK-NEXT: return %[[W2]]
-idr.func private @cells_of_strings(%a: !idr.str, %b: !idr.str, %w: !idr.world) -> !idr.world {
-  %nil = idr.con @Nil() : () -> !idr.box<!Strs>
-  %l1 = idr.con @Cons(%b, %nil) : (!idr.str, !idr.box<!Strs>) -> !idr.box<!Strs>
-  %l2 = idr.con @Cons(%a, %l1) : (!idr.str, !idr.box<!Strs>) -> !idr.box<!Strs>
-  %s = idr.str.concat %l2 : !idr.box<!Strs> -> !idr.str
-  %w1 = idr.io.put_str %s, %w
-  return %w1 : !idr.world
-}
-
-// A cell with another use is built anyway: it is written as it is walked.
-// CHECK-LABEL: idr.func private @cell_kept(
-// CHECK: %[[L:.*]] = {{(idr\.)?}}con @Cons
-// CHECK-NEXT: idr.io.put_list %[[L]]
-// CHECK: return %{{.*}}, %[[L]]
-idr.func private @cell_kept(%header: !idr.box<!Chars>, %w: !idr.world) -> (!idr.world, !idr.box<!Chars>) {
-  %gt = arith.constant 62 : i32
-  %l = idr.con @Cons(%gt, %header) : (i32, !idr.box<!Chars>) -> !idr.box<!Chars>
-  %w1 = idr.io.put_list %l, %w : !idr.box<!Chars>
-  return %w1, %l : !idr.world, !idr.box<!Chars>
-}
-
-// Output of a string that one region of a match packs, and another takes
-// as a constant, moves into the match: the region that packs writes its
-// list as it walks it, the other writes its string.
-// CHECK-LABEL: idr.func private @packed_in_a_region(
-// CHECK-SAME: %[[CS:[a-z0-9_]+]]: !idr.box<!Chars>, %[[W:[a-z0-9_]+]]: !idr.world)
-// CHECK-NOT: idr.str.pack
-// CHECK: case 0 {
-// CHECK-NEXT: idr.io.put_list %[[CS]], %[[W]] : !idr.box<!Chars>
-// CHECK: default {
-// CHECK: idr.io.put_str %{{.*}}, %[[W]]
-// CHECK-NOT: idr.str.pack
-// CHECK: return
-idr.func private @packed_in_a_region(%a: i64, %cs: !idr.box<!Chars>, %w: !idr.world) -> !idr.world {
-  %s = idr.match_lit %a : i64 -> (!idr.str) {
-  case 0 {
-    %p = idr.str.pack %cs : !idr.box<!Chars> -> !idr.str
-    idr.yield %p : !idr.str
+!Chars = !idr.data<"Chars", list [@Nil() nil, @Cons(i32, !idr.box<!idr.data<"Chars">>) cons]>
+!Strs = !idr.data<"Strs", list [@Nil() nil, @Cons(!idr.str, !idr.box<!idr.data<"Strs">>) cons]>
+idr.program @"output-fusion" root(@constant_list) stage(first) {
+  idr.func @append(%n: i64, %w: !idr.world) -> !idr.world {
+    %a = idr.constant "n = " : !idr.str
+    %nl = idr.constant "\n" : !idr.str
+    %s = idr.str.show signed %n : i64
+    %t = idr.str.append %s, %nl
+    %u = idr.str.append %a, %t
+    %w1 = idr.io.put_str %u, %w
+    return %w1 : !idr.world
   }
-  default {
-    %k = idr.constant "none" : !idr.str
-    idr.yield %k : !idr.str
+
+  idr.func @cons(%c: i32, %s: !idr.str, %w: !idr.world) -> !idr.world {
+    %t = idr.str.cons %c, %s
+    %w1 = idr.io.put_str %t, %w
+    return %w1 : !idr.world
   }
+
+  idr.func @from_char(%c: i32, %w: !idr.world) -> !idr.world {
+    %t = idr.str.from_char %c
+    %w1 = idr.io.put_str %t, %w
+    return %w1 : !idr.world
   }
-  %w1 = idr.io.put_str %s, %w
-  return %w1 : !idr.world
+
+  idr.func @shows(%b: i8, %d: f64, %w: !idr.world) -> !idr.world {
+    %s = idr.str.show unsigned %b : i8
+    %w1 = idr.io.put_str %s, %w
+    %t = idr.str.show %d : f64
+    %w2 = idr.io.put_str %t, %w1
+    return %w2 : !idr.world
+  }
+
+  // A string with another use is still written piece by piece; it stays for
+  // that use.
+  idr.func @shared(%c: i32, %w: !idr.world) -> (!idr.world, !idr.str) {
+    %s = idr.str.from_char %c
+    %w1 = idr.io.put_str %s, %w
+    return %w1, %s : !idr.world, !idr.str
+  }
+
+  // putStr (pack cs) and putStr (concat ss): each list is written as it is
+  // walked, and no string is built.
+  idr.func @lists(%cs: !idr.box<!Chars>, %ss: !idr.box<!Strs>, %w: !idr.world) -> !idr.world {
+    %s = idr.str.pack %cs : !idr.box<!Chars> -> !idr.str
+    %w1 = idr.io.put_str %s, %w
+    %t = idr.str.concat %ss : !idr.box<!Strs> -> !idr.str
+    %w2 = idr.io.put_str %t, %w1
+    return %w2 : !idr.world
+  }
+
+  // putStrLn (pack cs): the line's characters, then its end.
+  idr.func @line(%cs: !idr.box<!Chars>, %w: !idr.world) -> !idr.world {
+    %nl = idr.constant "\n" : !idr.str
+    %s = idr.str.pack %cs : !idr.box<!Chars> -> !idr.str
+    %l = idr.str.append %s, %nl
+    %w1 = idr.io.put_str %l, %w
+    return %w1 : !idr.world
+  }
+
+  // A packed string with another use is built anyway, and written as it is.
+  idr.func @packed_and_kept(%cs: !idr.box<!Chars>, %w: !idr.world) -> (!idr.world, !idr.str) {
+    %s = idr.str.pack %cs : !idr.box<!Chars> -> !idr.str
+    %w1 = idr.io.put_str %s, %w
+    return %w1, %s : !idr.world, !idr.str
+  }
+
+  // A list that is a constant is written as the string it packs to, which is
+  // what writing its pack wrote: compile-time evaluation can make the list a
+  // constant after the output of its pack became a walk.
+  idr.func @constant_list(%w: !idr.world) -> !idr.world {
+    %cs = idr.constant #idr.con<@Cons, [104 : i32, #idr.con<@Cons, [105 : i32, #idr.con<@Nil, []>]>]> : !idr.box<!Chars>
+    %w1 = idr.io.put_list %cs, %w : !idr.box<!Chars>
+    return %w1 : !idr.world
+  }
+
+  // Writing the nil writes nothing.
+  idr.func @nil(%w: !idr.world) -> !idr.world {
+    %ss = idr.con !idr.box<!Strs> @Nil()
+    %w1 = idr.io.put_list %ss, %w : !idr.box<!Strs>
+    return %w1 : !idr.world
+  }
+
+  // Writing a cell writes its element, then the rest, and the cell built
+  // only to be written is not built: putStrLn (pack ('>' :: header)) writes
+  // the character, then the header as it walks it.
+  idr.func @cell(%header: !idr.box<!Chars>, %w: !idr.world) -> !idr.world {
+    %gt = arith.constant 62 : i32
+    %l = idr.con !idr.box<!Chars> @Cons(%gt : i32, %header : !idr.box<!Chars>)
+    %s = idr.str.pack %l : !idr.box<!Chars> -> !idr.str
+    %nl = idr.constant "\n" : !idr.str
+    %t = idr.str.append %s, %nl
+    %w1 = idr.io.put_str %t, %w
+    return %w1 : !idr.world
+  }
+
+  // The cells of a list of strings: each string as put_str writes it, the
+  // last cell's tail a constant nil, which writes nothing.
+  idr.func @cells_of_strings(%a: !idr.str, %b: !idr.str, %w: !idr.world) -> !idr.world {
+    %nil = idr.con !idr.box<!Strs> @Nil()
+    %l1 = idr.con !idr.box<!Strs> @Cons(%b : !idr.str, %nil : !idr.box<!Strs>)
+    %l2 = idr.con !idr.box<!Strs> @Cons(%a : !idr.str, %l1 : !idr.box<!Strs>)
+    %s = idr.str.concat %l2 : !idr.box<!Strs> -> !idr.str
+    %w1 = idr.io.put_str %s, %w
+    return %w1 : !idr.world
+  }
+
+  // A cell with another use is built anyway: it is written as it is walked.
+  idr.func @cell_kept(%header: !idr.box<!Chars>, %w: !idr.world) -> (!idr.world, !idr.box<!Chars>) {
+    %gt = arith.constant 62 : i32
+    %l = idr.con !idr.box<!Chars> @Cons(%gt : i32, %header : !idr.box<!Chars>)
+    %w1 = idr.io.put_list %l, %w : !idr.box<!Chars>
+    return %w1, %l : !idr.world, !idr.box<!Chars>
+  }
+
+  // Output of a string that one region of a match packs, and another takes
+  // as a constant, moves into the match: the region that packs writes its
+  // list as it walks it, the other writes its string.
+  idr.func @packed_in_a_region(%a: i64, %cs: !idr.box<!Chars>, %w: !idr.world) -> !idr.world {
+    %s = idr.match_lit %a : i64 -> (!idr.str) {
+    case 0 {
+      %p = idr.str.pack %cs : !idr.box<!Chars> -> !idr.str
+      idr.yield %p : !idr.str
+    }
+    default {
+      %k = idr.constant "none" : !idr.str
+      idr.yield %k : !idr.str
+    }
+    }
+    %w1 = idr.io.put_str %s, %w
+    return %w1 : !idr.world
+  }
 }

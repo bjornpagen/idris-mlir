@@ -12,11 +12,11 @@
 // CHECK: ![[F1:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@Main.add(i64)]
 // CHECK: ![[F2:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@Main.add(i64), @Main.inc()]
 // CHECK-NOT: !idr.fn
-// CHECK-LABEL: idr.func private @Main.mkInc()
+// CHECK-LABEL: idr.func @Main.mkInc()
 // CHECK-SAME: -> ![[F0]]
-// CHECK-LABEL: idr.func private @Main.mkAdd(
+// CHECK-LABEL: idr.func @Main.mkAdd(
 // CHECK-SAME: -> ![[F1]]
-// CHECK-LABEL: idr.func private @Main.use(
+// CHECK-LABEL: idr.func @Main.use(
 // CHECK-SAME: %{{.*}}: ![[F2]]
 // CHECK-LABEL: idr.func @Main.main(
 // CHECK: %[[I:.*]] = call @Main.mkInc() : () -> ![[F0]]
@@ -24,12 +24,12 @@
 // The calls:
 // CHECK: %[[I2:.*]] = {{(idr\.)?}}match %[[I]] : ![[F0]] -> (![[F2]]) {
 // CHECK-NEXT: case @Main.inc() {
-// CHECK-NEXT: %[[C:.*]] = {{(idr\.)?}}con @Main.inc() : () -> ![[F2]]
+// CHECK-NEXT: %[[C:.*]] = {{(idr\.)?}}con ![[F2]] @Main.inc()
 // CHECK-NEXT: idr.yield %[[C]] : ![[F2]]
 // CHECK: call @Main.use(%[[I2]], %{{.*}}) : (![[F2]], i64) -> i64
 // CHECK: %[[A2:.*]] = {{(idr\.)?}}match %[[A]] : ![[F1]] -> (![[F2]]) {
 // CHECK-NEXT: case @Main.add(%[[X:.*]]: i64) {
-// CHECK-NEXT: %[[D:.*]] = {{(idr\.)?}}con @Main.add(%[[X]]) : (i64) -> ![[F2]]
+// CHECK-NEXT: %[[D:.*]] = {{(idr\.)?}}con ![[F2]] @Main.add(%[[X]] : i64)
 // CHECK-NEXT: idr.yield %[[D]] : ![[F2]]
 // CHECK: call @Main.use(%[[A2]], %{{.*}}) : (![[F2]], i64) -> i64
 // The join:
@@ -40,25 +40,25 @@
 // CHECK: default {
 // CHECK-NEXT: %[[K:.*]] = {{(idr\.)?}}match %[[A]] : ![[F1]] -> (![[F2]]) {
 // CHECK: idr.yield %[[K]] : ![[F2]]
-module {
-  idr.func private @Main.inc(%x: i64) -> i64 attributes {total} {
+idr.program @coerce root(@Main.main) stage(higher) {
+  idr.func @Main.inc(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64
     %y = arith.addi %x, %c1 : i64
     return %y : i64
   }
-  idr.func private @Main.add(%a: i64, %x: i64) -> i64 attributes {total} {
+  idr.func @Main.add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64
     return %y : i64
   }
-  idr.func private @Main.mkInc() -> !idr.fn<(i64) -> (i64)> attributes {total} {
+  idr.func @Main.mkInc() -> !idr.fn<(i64) -> (i64)> attributes {total} {
     %f = idr.closure @Main.inc() : () -> !idr.fn<(i64) -> (i64)>
     return %f : !idr.fn<(i64) -> (i64)>
   }
-  idr.func private @Main.mkAdd(%a: i64) -> !idr.fn<(i64) -> (i64)> attributes {total} {
+  idr.func @Main.mkAdd(%a: i64) -> !idr.fn<(i64) -> (i64)> attributes {total} {
     %f = idr.closure @Main.add(%a) : (i64) -> !idr.fn<(i64) -> (i64)>
     return %f : !idr.fn<(i64) -> (i64)>
   }
-  idr.func private @Main.use(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 attributes {total} {
+  idr.func @Main.use(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 attributes {total} {
     %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
     return %y : i64
   }

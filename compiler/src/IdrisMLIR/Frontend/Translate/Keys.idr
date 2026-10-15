@@ -61,26 +61,6 @@ blockOf (WithBlock _ _) = Just WithB
 blockOf (Nested _ inner) = Just (NestedB (plainOrigin inner))
 blockOf _ = Nothing
 
-||| The outermost definition named in the string Idris gives a case or with
-||| block for its parent: `case block in f`, `with block in f`, or `f,go`
-||| for a block of `f`'s nested `go`.
-outermost : String -> String
-outermost s =
-  if isPrefixOf "case block in " s || isPrefixOf "with block in " s
-     then outermost (substr 14 (length s) s)
-     else pack (takeWhile (/= ',') (unpack s))
-
-||| The definition a case, with or nested block belongs to, through every
-||| block between: a case or with block's parent is a string, in the
-||| block's namespace; a nested function's parent is its place in the
-||| context.
-export
-rootOf : {auto c : Ref Ctxt Defs} -> Name -> Core Name
-rootOf (NS ns (CaseBlock outer _)) = pure (NS ns (UN (Basic (outermost outer))))
-rootOf (NS ns (WithBlock outer _)) = pure (NS ns (UN (Basic (outermost outer))))
-rootOf (NS _ (Nested (outer, _) _)) = rootOf !(toFullNames (Resolved outer))
-rootOf n = pure n
-
 ------------------------------------------------------------------------------
 -- Blocks by position
 ------------------------------------------------------------------------------
@@ -446,6 +426,14 @@ identityText n args = do
 -- Identities and keys
 ------------------------------------------------------------------------------
 
+||| The positions a key prints, a position that keys nothing as `-`, which
+||| no compile-time value prints as: every position up to the last that
+||| keys the instance. The definition fixes how many positions it has, so
+||| the ones after the last that keys tell no two instances apart, and a
+||| definition that keys nothing prints none.
+keyed : {auto c : Ref Ctxt Defs} -> List (Maybe ClosedTerm) -> Core (List (String, Bool))
+keyed args = traverse (maybe (pure ("-", False)) argumentText) (reverse (dropWhile isNothing (reverse args)))
+
 ||| The identity and the key of the instance of a definition at its
 ||| compile-time arguments (`Nothing` at a position that keys nothing). The
 ||| identity is the instance's symbol, its key printed (`keyText`), which
@@ -470,7 +458,7 @@ instanceKey n args = do
     Just (_, found) => pure found
     Nothing => do
       origin <- keyOrigin full
-      printed <- traverse argumentText (catMaybes args')
+      printed <- keyed args'
       print <- if any snd printed
                  then (\t => Lossy (xxh3_128 (utf8 t)).low) <$> identityText full args'
                  else pure Whole

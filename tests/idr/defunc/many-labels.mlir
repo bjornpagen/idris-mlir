@@ -11,36 +11,36 @@
 // CHECK: ![[F1:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@aa(), @bb(i64), @cc(), @dd(), @ee(i64), @ff(), @mid(), @zz()]
 // CHECK-NOT: !idr.fn
 !Box = !idr.data<"Box", plain [@Box(!idr.fn<(i64) -> (i64)>)]>
-module {
-  idr.func private @zz(%x: i64) -> i64 attributes {total} {
+idr.program @"many-labels" root(@Main.main) stage(higher) {
+  idr.func @zz(%x: i64) -> i64 attributes {total} {
     return %x : i64
   }
-  idr.func private @mid(%x: i64) -> i64 attributes {total} {
+  idr.func @mid(%x: i64) -> i64 attributes {total} {
     %y = arith.addi %x, %x : i64
     return %y : i64
   }
-  idr.func private @aa(%x: i64) -> i64 attributes {total} {
+  idr.func @aa(%x: i64) -> i64 attributes {total} {
     return %x : i64
   }
-  idr.func private @ff(%x: i64) -> i64 attributes {total} {
+  idr.func @ff(%x: i64) -> i64 attributes {total} {
     return %x : i64
   }
-  idr.func private @bb(%a: i64, %x: i64) -> i64 attributes {total} {
+  idr.func @bb(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64
     return %y : i64
   }
-  idr.func private @ee(%a: i64, %x: i64) -> i64 attributes {total} {
+  idr.func @ee(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.subi %x, %a : i64
     return %y : i64
   }
-  idr.func private @cc(%x: i64) -> i64 attributes {total} {
+  idr.func @cc(%x: i64) -> i64 attributes {total} {
     return %x : i64
   }
-  idr.func private @dd(%x: i64) -> i64 attributes {total} {
+  idr.func @dd(%x: i64) -> i64 attributes {total} {
     return %x : i64
   }
-  // CHECK-LABEL: idr.func private @pick(
-  idr.func private @pick(%n: i64) -> !idr.fn<(i64) -> (i64)> attributes {total} {
+  // CHECK-LABEL: idr.func @pick(
+  idr.func @pick(%n: i64) -> !idr.fn<(i64) -> (i64)> attributes {total} {
     %c1 = arith.constant 1 : i64
     %r = idr.match_lit %n : i64 -> (!idr.fn<(i64) -> (i64)>) {
     case 0 {
@@ -49,8 +49,8 @@ module {
     }
     case 1 {
       %f = idr.closure @mid() : () -> !idr.fn<(i64) -> (i64)>
-      %b = idr.con @Box(%f) : (!idr.fn<(i64) -> (i64)>) -> !Box
-      %g = idr.field %b[@Box, 0] : !Box -> !idr.fn<(i64) -> (i64)>
+      %b = idr.con !Box @Box(%f : !idr.fn<(i64) -> (i64)>)
+      %g = idr.field %b : !Box @Box[0] -> !idr.fn<(i64) -> (i64)>
       idr.yield %g : !idr.fn<(i64) -> (i64)>
     }
     case 2 {
@@ -59,14 +59,14 @@ module {
     }
     case 3 {
       %f = idr.closure @ff() : () -> !idr.fn<(i64) -> (i64)>
-      %b = idr.con @Box(%f) : (!idr.fn<(i64) -> (i64)>) -> !Box
-      %g = idr.field %b[@Box, 0] : !Box -> !idr.fn<(i64) -> (i64)>
+      %b = idr.con !Box @Box(%f : !idr.fn<(i64) -> (i64)>)
+      %g = idr.field %b : !Box @Box[0] -> !idr.fn<(i64) -> (i64)>
       idr.yield %g : !idr.fn<(i64) -> (i64)>
     }
     case 4 {
       %f = idr.closure @bb(%c1) : (i64) -> !idr.fn<(i64) -> (i64)>
-      %b = idr.con @Box(%f) : (!idr.fn<(i64) -> (i64)>) -> !Box
-      %g = idr.field %b[@Box, 0] : !Box -> !idr.fn<(i64) -> (i64)>
+      %b = idr.con !Box @Box(%f : !idr.fn<(i64) -> (i64)>)
+      %g = idr.field %b : !Box @Box[0] -> !idr.fn<(i64) -> (i64)>
       idr.yield %g : !idr.fn<(i64) -> (i64)>
     }
     case 5 {
@@ -75,8 +75,8 @@ module {
     }
     case 6 {
       %f = idr.closure @cc() : () -> !idr.fn<(i64) -> (i64)>
-      %b = idr.con @Box(%f) : (!idr.fn<(i64) -> (i64)>) -> !Box
-      %g = idr.field %b[@Box, 0] : !Box -> !idr.fn<(i64) -> (i64)>
+      %b = idr.con !Box @Box(%f : !idr.fn<(i64) -> (i64)>)
+      %g = idr.field %b : !Box @Box[0] -> !idr.fn<(i64) -> (i64)>
       idr.yield %g : !idr.fn<(i64) -> (i64)>
     }
     default {

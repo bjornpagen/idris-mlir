@@ -12,11 +12,11 @@
 // the two callers. A call, and a closure naming one of them, name the one
 // kept, whose location is the fusion of its members', and a second run
 // changes nothing.
-// CHECK-NOT: idr.func private @B
-// CHECK: idr.func private @A.inc(
-// CHECK: idr.func private @A.twice(
-// CHECK: idr.func private @A.id(
-// CHECK: idr.func private @A.down(
+// CHECK-NOT: idr.func @B
+// CHECK: idr.func @A.inc(
+// CHECK: idr.func @A.twice(
+// CHECK: idr.func @A.id(
+// CHECK: idr.func @A.down(
 // CHECK: idr.func @root(
 // CHECK: call @A.inc(
 // CHECK: call @A.inc(
@@ -26,34 +26,34 @@
 // CHECK: call @A.twice(
 // CHECK: call @A.twice(
 // LOC: loc(fused[
-module {
-  idr.func private @A.inc(%x: i64) -> i64 attributes {total} {
+idr.program @merge root(@root) stage(higher) {
+  idr.func @A.inc(%x: i64) -> i64 attributes {total} {
     %c = arith.constant 1 : i64
     %y = arith.addi %x, %c : i64
     return %y : i64
   }
-  idr.func private @B.inc(%x: i64) -> i64 attributes {total} {
+  idr.func @B.inc(%x: i64) -> i64 attributes {total} {
     %c = arith.constant 1 : i64
     %y = arith.addi %x, %c : i64
     return %y : i64
   }
-  idr.func private @A.twice(%x: i64) -> i64 attributes {total} {
+  idr.func @A.twice(%x: i64) -> i64 attributes {total} {
     %y = idr.call @A.inc(%x) : (i64) -> i64
     %z = idr.call @A.inc(%y) : (i64) -> i64
     return %z : i64
   }
-  idr.func private @B.twice(%x: i64) -> i64 attributes {total} {
+  idr.func @B.twice(%x: i64) -> i64 attributes {total} {
     %y = idr.call @B.inc(%x) : (i64) -> i64
     %z = idr.call @B.inc(%y) : (i64) -> i64
     return %z : i64
   }
-  idr.func private @A.id(%x: i64) -> i64 attributes {total} {
+  idr.func @A.id(%x: i64) -> i64 attributes {total} {
     return %x : i64
   }
-  idr.func private @B.id(%x: i64) -> i64 attributes {total} {
+  idr.func @B.id(%x: i64) -> i64 attributes {total} {
     return %x : i64
   }
-  idr.func private @A.down(%n: i64, %acc: i64) -> i64 attributes {total} {
+  idr.func @A.down(%n: i64, %acc: i64) -> i64 attributes {total} {
     %c0 = arith.constant 0 : i64
     %done = arith.cmpi sle, %n, %c0 : i64
     %r = idr.match_lit %done : i1 -> (i64) {
@@ -70,7 +70,7 @@ module {
     }
     return %r : i64
   }
-  idr.func private @B.down(%n: i64, %acc: i64) -> i64 attributes {total} {
+  idr.func @B.down(%n: i64, %acc: i64) -> i64 attributes {total} {
     %c0 = arith.constant 0 : i64
     %done = arith.cmpi sle, %n, %c0 : i64
     %r = idr.match_lit %done : i1 -> (i64) {

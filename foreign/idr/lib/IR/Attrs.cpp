@@ -1,25 +1,20 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The checks of the dialect's attributes beyond their syntax: a big has one
-// spelling, and an instance key is text. And refusals: the one place their
+// width, and an instance key is text. And refusals: the one place their
 // words are written, with the rule carried as data in the diagnostic.
 
 #include "idr/IR/IdrDialect.h"
 
-#include "llvm/ADT/StringExtras.h"
-
 using namespace mlir;
 using namespace idr;
 
-// One spelling per integer, so that equal bigs are equal attributes.
-LogicalResult BigAttr::verify(function_ref<InFlightDiagnostic()> emitError,
-                              StringRef value, Type) {
-  StringRef digits = value;
-  digits.consume_front("-");
-  bool canonical = !digits.empty() && llvm::all_of(digits, llvm::isDigit) &&
-                   (digits == "0" ? value == "0" : digits.front() != '0');
-  if (!canonical)
-    return emitError() << "expects a big in canonical decimal, got \"" << value << "\"";
+// One width per integer, its fewest signed bits, so that equal bigs are
+// equal attributes.
+LogicalResult BigAttr::verify(function_ref<InFlightDiagnostic()> emitError, APInt value, Type) {
+  if (value.getBitWidth() != value.getSignificantBits())
+    return emitError() << "expects a big at its fewest signed bits, "
+                       << value.getSignificantBits() << ", got " << value.getBitWidth();
   return success();
 }
 

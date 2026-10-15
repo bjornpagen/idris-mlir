@@ -1,26 +1,33 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The runtime's C functions as idr-lower calls them, the crashes it
-// reports through them, and the merge of what the workers wrote.
+// reports through them, counting, and the merge of what the workers wrote;
+// the reads and writes of a cell are RuntimeCells.cpp's.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Grades.h"
 #include "idr/IR/Layout.h"
+#include "idr/Conversion/Arrays.h"
 #include "idr/Conversion/Runtime.h"
 #include "idr/Conversion/StaticData.h"
 #include "idr/Conversion/Words.h"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Location.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/Support/raw_ostream.h"
 
 // The runtime's C ABI: the size of its words and the stack mark of a cell's
 // info are macros.
 #include "idris_rt.h"
 
+#include <cassert>
 #include <string>
 
 using namespace mlir;
@@ -53,37 +60,125 @@ std::string crashMessage(Location loc, StringRef cause) {
   return ("idris-mlir: " + cause + (where.empty() ? "" : " at " + where) + "\n").str();
 }
 
+// Whether a function takes an operand of type `type` as `kind`: the kinds of
+// an operand of several kinds tell a double from an integer, and an
+// integer's signedness, which its op says.
+bool takes(idr::runtime::Kind kind, Type type, std::optional<bool> isSigned) {
+  using idr::runtime::Kind;
+  type = unrestricted(type);
+  switch (kind) {
+  case Kind::Double:
+    return type.isF64();
+  case Kind::Signed:
+    return type.isInteger() && isSigned == true;
+  case Kind::Unsigned:
+    return type.isInteger() && isSigned == false;
+  default:
+    return true;
+  }
+}
+
+// The C type of a function's result.
+Type resultType(MLIRContext *ctx, idr::runtime::Kind kind) {
+  using idr::runtime::Kind;
+  switch (kind) {
+  case Kind::Int32:
+  case Kind::Order:
+    return IntegerType::get(ctx, 32);
+  case Kind::Int64:
+  case Kind::Wrapped:
+  case Kind::Big:
+    return IntegerType::get(ctx, 64);
+  case Kind::Double:
+    return Float64Type::get(ctx);
+  case Kind::Str:
+    return LLVM::LLVMPointerType::get(ctx);
+  default:
+    return {};
+  }
+}
+
 } // namespace
 
-Runtime::Runtime(ModuleOp m, const Layouts &l, const DataLayoutAnalysis &dataLayouts)
-    : module(m),
-      llvmTypes(m.getContext(), LowerToLLVMOptions(m.getContext(), dataLayouts.getAtOrAbove(m)),
-                &dataLayouts),
-      statics(m, l) {}
+const idr::runtime::Function &functionTaking(ArrayRef<idr::runtime::Function> functions,
+                                             TypeRange operands, std::optional<bool> isSigned) {
+  const idr::runtime::Function *found = llvm::find_if(functions, [&](const auto &function) {
+    return llvm::all_of(llvm::zip_equal(function.operands, operands), [&](auto pair) {
+      return takes(std::get<0>(pair), std::get<1>(pair), isSigned);
+    });
+  });
+  assert(found != functions.end() && "the table has a function for each kind of each operand");
+  return *found;
+}
+
+// The converter reads no data layout of its own: the options carry what
+// it needs, and a worker's queries would fill the shared layout's caches.
+Runtime::Runtime(Location at, const Layouts &l, const LowerToLLVMOptions &options)
+    : llvmTypes(at.getContext(), options, /*analysis=*/nullptr), statics(at, l) {}
 
 Value Runtime::call(OpBuilder &b, Location loc, StringRef name, Type result, ValueRange args) {
-  LLVM::CallOp op = callOp(b, loc, name, result, args);
+  LLVM::CallOp op = callOp(b, loc, name, result, args, /*noreturn=*/false);
   return result ? op.getResult() : Value();
+}
+
+Value Runtime::call(OpBuilder &b, Operation *op, const idr::runtime::Function &function,
+                    ArrayRef<ValueRange> operands) {
+  using idr::runtime::Kind;
+  Location loc = op->getLoc();
+  Type i64 = b.getI64Type();
+  SmallVector<Value> args;
+  for (auto [kind, components] : llvm::zip_equal(function.operands, operands)) {
+    switch (kind) {
+    case Kind::World:
+      break;
+    case Kind::Buffer:
+      // No value holds a buffer's first byte: it is right after its cell's
+      // header.
+      args.push_back(components.front());
+      args.push_back(elementsOf(b, loc, components.front()));
+      llvm::append_range(args, components.drop_front());
+      break;
+    case Kind::Signed:
+    case Kind::Unsigned: {
+      Value integer = components.front();
+      if (integer.getType() != i64)
+        integer = kind == Kind::Signed ? Value(arith::ExtSIOp::create(b, loc, i64, integer))
+                                       : Value(arith::ExtUIOp::create(b, loc, i64, integer));
+      args.push_back(integer);
+      break;
+    }
+    default:
+      args.push_back(components.front());
+    }
+  }
+  Type result = resultType(b.getContext(), function.result);
+  LLVM::CallOp call = callOp(b, loc, function.symbol, result, args, function.noreturn);
+  return result ? call.getResult() : Value();
 }
 
 // The call names its callee, which no worker declares: two workers would
 // declare it twice, and a declaration made while functions are converted
 // lands in the order they are. One function has one type, whichever call
-// is the first to name it.
+// is the first to name it. A function that does not return says so at
+// each call too, since linking the runtime replaces the declaration's
+// attributes by the definition's.
 LLVM::CallOp Runtime::callOp(OpBuilder &b, Location loc, StringRef name, Type result,
-                             ValueRange args) {
+                             ValueRange args, bool noreturn) {
   Type returns = result ? result : LLVM::LLVMVoidType::get(b.getContext());
   auto type = LLVM::LLVMFunctionType::get(returns, llvm::to_vector(args.getTypes()));
-  auto [it, inserted] = called.try_emplace(name, type);
-  if (!inserted && it->second != type) {
+  auto [it, inserted] = called.try_emplace(name, Callee{type, noreturn});
+  if (!inserted && (it->second.type != type || it->second.noreturn != noreturn)) {
     emitError(loc) << "internal error: idr-lower: the runtime function " << name
-                   << " is called as " << type << " and as " << it->second;
+                   << " is called as " << type << " and as " << it->second.type;
     mistyped = true;
   }
   SmallVector<Type, 1> results;
   if (result)
     results.push_back(result);
-  return LLVM::CallOp::create(b, loc, results, name, args);
+  auto call = LLVM::CallOp::create(b, loc, results, name, args);
+  if (noreturn)
+    call.setNoreturn(true);
+  return call;
 }
 
 void Runtime::crash(OpBuilder &b, Location loc, StringRef cause) {
@@ -91,12 +186,10 @@ void Runtime::crash(OpBuilder &b, Location loc, StringRef cause) {
   Value ptr = statics.message(b, loc, text);
   Value len = i64Constant(b, loc, static_cast<int64_t>(text.size()));
   // The call is cold, and what leads only to it: LLVM lays the crash
-  // checks out of the way of the paths that run. The call site says so
-  // itself, since linking the runtime replaces the declaration's
-  // attributes by the definition's.
-  LLVM::CallOp call = callOp(b, loc, "idris_rt_crash", Type(), ValueRange{ptr, len});
+  // checks out of the way of the paths that run.
+  LLVM::CallOp call =
+      callOp(b, loc, "idris_rt_crash", Type(), ValueRange{ptr, len}, /*noreturn=*/true);
   call.setCold(true);
-  call.setNoreturn(true);
 }
 
 void Runtime::crashIf(OpBuilder &b, Location loc, Value condition, StringRef cause) {
@@ -113,62 +206,12 @@ void Runtime::mayLoop(OpBuilder &b, Location loc) {
   LLVM::CallIntrinsicOp::create(b, loc, b.getStringAttr("llvm.sideeffect"), ValueRange{});
 }
 
-Value Runtime::allocate(OpBuilder &b, Location loc, unsigned size, layout::CellInfo info) {
-  return call(b, loc, "idris_rt_cell", ptrType(b.getContext()),
-              ValueRange{i64Constant(b, loc, size), i32Constant(b, loc, info.word())});
-}
-
-void Runtime::storeHeader(OpBuilder &b, Location loc, Value cell, layout::CellInfo info) {
-  LLVM::StoreOp::create(b, loc, i32Constant(b, loc, 1), cell, alignAt(0));
-  storeInfo(b, loc, cell, i32Constant(b, loc, info.word()));
-}
-
-Value Runtime::loadInfo(OpBuilder &b, Location loc, Value cell) {
-  return LLVM::LoadOp::create(b, loc, b.getI32Type(), at(b, loc, cell, 4), alignAt(4));
-}
-
-void Runtime::storeInfo(OpBuilder &b, Location loc, Value cell, Value info) {
-  LLVM::StoreOp::create(b, loc, info, at(b, loc, cell, 4), alignAt(4));
-}
-
-void Runtime::store(OpBuilder &b, Location loc, Value cell, ArrayRef<layout::Slot> slots,
-                    ValueRange values) {
-  for (auto [slot, value] : llvm::zip_equal(slots, values))
-    LLVM::StoreOp::create(b, loc, value, at(b, loc, cell, slot.offset), alignAt(slot.offset));
-}
-
-SmallVector<Value> Runtime::load(OpBuilder &b, Location loc, Value cell,
-                                 ArrayRef<layout::Slot> slots) {
-  SmallVector<Value> values;
-  for (const layout::Slot &slot : slots)
-    values.push_back(LLVM::LoadOp::create(b, loc, slot.type, at(b, loc, cell, slot.offset),
-                                          alignAt(slot.offset)));
-  return values;
-}
-
-void Runtime::storeWord(OpBuilder &b, Location loc, Value address, Value value) {
-  LLVM::StoreOp::create(b, loc, value, address, IDRIS_RT_WORD_BYTES);
-}
-
-Value Runtime::loadTag(OpBuilder &b, Location loc, Value cell) {
-  return LLVM::AndOp::create(b, loc, loadInfo(b, loc, cell), i32Constant(b, loc, layout::tagMask));
-}
-
 void Runtime::inc(OpBuilder &b, Location loc, ValueRange components, ArrayRef<bool> counted) {
   countEach(b, loc, "idris_rt_inc", components, counted);
 }
 
 void Runtime::dec(OpBuilder &b, Location loc, ValueRange components, ArrayRef<bool> counted) {
   countEach(b, loc, "idris_rt_dec", components, counted);
-}
-
-Value Runtime::exclusive(OpBuilder &b, Location loc, Value cell) {
-  Value count = LLVM::LoadOp::create(b, loc, b.getI32Type(), cell, alignAt(0));
-  Value info = loadInfo(b, loc, cell);
-  Value one = LLVM::ICmpOp::create(b, loc, LLVM::ICmpPredicate::eq, count, i32Constant(b, loc, 1));
-  Value stack = LLVM::AndOp::create(b, loc, info, i32Constant(b, loc, IDRIS_RT_STACK_CELL));
-  Value heap = LLVM::ICmpOp::create(b, loc, LLVM::ICmpPredicate::eq, stack, i32Constant(b, loc, 0));
-  return LLVM::AndOp::create(b, loc, one, heap);
 }
 
 SmallVector<Value> Runtime::constant(OpBuilder &b, Location loc, Attribute value, Type type) {
@@ -184,32 +227,34 @@ namespace {
 // The declaration of the runtime function `name` of type `type`, detached.
 // The C ABI has the caller extend an argument narrower than 32 bits, and the
 // runtime's narrow parameters are unsigned (a byte): without zeroext, a
-// caller would pass garbage in the upper bits. A crash or an exit does not
-// return, which lets LLVM treat what follows as unreachable.
-LLVM::LLVMFuncOp declaration(ModuleOp module, StringRef name, LLVM::LLVMFunctionType type) {
-  OpBuilder b(module.getContext());
-  auto callee = LLVM::LLVMFuncOp::create(b, module.getLoc(), name, type);
+// caller would pass garbage in the upper bits. A function that does not
+// return lets LLVM treat what follows its call as unreachable.
+LLVM::LLVMFuncOp declaration(Location loc, StringRef name, LLVM::LLVMFunctionType type,
+                             bool noreturn) {
+  OpBuilder b(loc.getContext());
+  auto callee = LLVM::LLVMFuncOp::create(b, loc, name, type);
   for (auto [i, arg] : llvm::enumerate(type.getParams()))
     if (auto integer = dyn_cast<IntegerType>(arg); integer && integer.getWidth() < 32)
       callee.setArgAttr(static_cast<unsigned>(i), LLVM::LLVMDialect::getZExtAttrName(),
                         b.getUnitAttr());
-  if (name == "idris_rt_crash" || name == "idris_rt_crash_str" || name == "idris_rt_io_exit")
+  if (noreturn)
     callee.setNoreturn(true);
   return callee;
 }
 
 } // namespace
 
-LogicalResult Runtime::merge(ModuleOp module, SymbolTable &symbols, ArrayRef<Runtime *> workers) {
-  MLIRContext *ctx = module.getContext();
-  Location loc = module.getLoc();
+LogicalResult Runtime::merge(Operation *program, SymbolTable &symbols,
+                             ArrayRef<Runtime *> workers) {
+  MLIRContext *ctx = program->getContext();
+  Location loc = program->getLoc();
   bool merged = true;
-  llvm::StringMap<LLVM::LLVMFunctionType> functions;
-  auto require = [&](StringRef name, LLVM::LLVMFunctionType type) {
-    auto [it, inserted] = functions.try_emplace(name, type);
-    if (!inserted && it->second != type) {
+  llvm::StringMap<Callee> functions;
+  auto require = [&](StringRef name, Callee callee) {
+    auto [it, inserted] = functions.try_emplace(name, callee);
+    if (!inserted && (it->second.type != callee.type || it->second.noreturn != callee.noreturn)) {
       emitError(loc) << "internal error: idr-lower: the runtime function " << name
-                     << " is called as " << type << " and as " << it->second;
+                     << " is called as " << callee.type << " and as " << it->second.type;
       merged = false;
     }
   };
@@ -224,8 +269,9 @@ LogicalResult Runtime::merge(ModuleOp module, SymbolTable &symbols, ArrayRef<Run
     for (const auto &entry : worker->statics.written()) {
       auto [it, inserted] = data.try_emplace(entry.getKey(), entry.getValue());
       if (!inserted && it->second.key != entry.getValue().key) {
-        emitError(loc) << "internal error: two keys name " << entry.getKey() << ": "
-                       << it->second.key << " and " << entry.getValue().key;
+        std::string keys;
+        llvm::raw_string_ostream(keys) << it->second.key << " and " << entry.getValue().key;
+        emitError(loc) << "internal error: two keys name " << entry.getKey() << ": " << keys;
         merged = false;
       }
     }
@@ -235,12 +281,12 @@ LogicalResult Runtime::merge(ModuleOp module, SymbolTable &symbols, ArrayRef<Run
   Type ptr = LLVM::LLVMPointerType::get(ctx);
   StringRef cafRelease = "idris_rt_caf_release";
   if (!memoCells.empty())
-    require(cafRelease, LLVM::LLVMFunctionType::get(LLVM::LLVMVoidType::get(ctx), ptr));
+    require(cafRelease, Callee{LLVM::LLVMFunctionType::get(LLVM::LLVMVoidType::get(ctx), ptr)});
   if (!merged)
     return failure();
 
-  // Each before the module's first op, so in the order inserted.
-  Block *body = module.getBody();
+  // Each before the program's first op, so in the order inserted.
+  Block *body = &program->getRegion(0).front();
   Block::iterator first = body->begin();
   auto enter = [&](Operation *op, StringRef name) {
     if (symbols.lookup(name)) {
@@ -259,8 +305,10 @@ LogicalResult Runtime::merge(ModuleOp module, SymbolTable &symbols, ArrayRef<Run
     llvm::sort(names);
     return names;
   };
-  for (StringRef name : sorted(functions))
-    enter(declaration(module, name, functions.lookup(name)), name);
+  for (StringRef name : sorted(functions)) {
+    const Callee &callee = functions.find(name)->second;
+    enter(declaration(loc, name, callee.type, callee.noreturn), name);
+  }
   for (StringRef name : sorted(data)) {
     LLVM::GlobalOp global = data.lookup(name).global;
     global->remove();
@@ -288,7 +336,7 @@ LogicalResult Runtime::merge(ModuleOp module, SymbolTable &symbols, ArrayRef<Run
 void Runtime::countEach(OpBuilder &b, Location loc, StringRef name, ValueRange components,
                         ArrayRef<bool> counted) {
   for (auto [component, isCounted] : llvm::zip_equal(components, counted)) {
-    if (!isCounted)
+    if (!isCounted || StaticData::isStatic(component))
       continue;
     Value pointer = component;
     if (!isa<LLVM::LLVMPointerType>(pointer.getType()))

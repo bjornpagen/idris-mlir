@@ -4,9 +4,9 @@ import Prelude
 
 -- A cell's header counts its object slots in 8 bits, and a record is
 -- unboxed, spread over the cell that holds it: R's two S of 128 strings
--- would put 257 counted references in the cell of N. idr-defunctionalize
--- makes R a box, so N holds one reference to it, and then S, so R's own
--- cell holds two. The last string is read back, and every cell is freed.
+-- put 257 counted references in the cell of N, more than the header
+-- counts, so the cell's count is a word after its header. The last string
+-- is read back, and every cell is freed.
 data S = MkS String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String String
 
 data R = MkR S S

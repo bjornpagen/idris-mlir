@@ -38,17 +38,20 @@ extern "C" {
  *   instead of freeing it while it is still in use.
  *
  * info is tag | objs << 16 | kind << 24, with bit 31 marking a stack cell.
- * Freeing reads only objs, kind and bit 31, and an array's tag and length
- * when its elements hold objects, so the runtime frees any cell without
- * knowing its type.
+ * Freeing reads only objs (and the word that counts a wide cell's slots),
+ * kind and bit 31, and an array's tag and length when its elements hold
+ * objects, so the runtime frees any cell without knowing its type.
  * - tag (bits 0-15): a box's constructor tag, a thunk's state (the
  *   constructor of its memo sum it holds), a string's ASCII flag in bit 0
  *   (set only when every byte is ASCII), an array's element size in bytes;
  *   0 for a bignum.
  * - objs (bits 16-23): the number of object slots, one word
  *   (IDRIS_RT_WORD_BYTES) each. A box's and a thunk's are the first objs
- *   slots right after the header. Strings and bignums have none. An array's
- *   are per element: its first objs words (idris_rt_array).
+ *   slots right after the header, unless objs is IDRIS_RT_OBJS_WIDE: then
+ *   the word right after the header (a uint64_t) is their number, and they
+ *   come right after that word. Strings and bignums have none. An array's
+ *   are per element: its first objs words (idris_rt_array), fewer than
+ *   IDRIS_RT_OBJS_WIDE, since an element with more is held boxed.
  * - kind (bits 24-30): one of the IDRIS_RT_KIND_ values.
  * - bit 31: a stack cell, which the compiler builds in a frame; its memory
  *   belongs to that frame and it is never a live cell (idris_rt_live_cells).
@@ -105,6 +108,9 @@ IDRIS_RT_STATIC_ASSERT(sizeof(idris_rt_header) == IDRIS_RT_WORD_BYTES,
 
 #define IDRIS_RT_TAG_LIMIT 0x10000u
 #define IDRIS_RT_OBJS_LIMIT 0x100u
+/* The objs of a box or a thunk with too many object slots for the field to
+ * count, which a word after the header counts instead. */
+#define IDRIS_RT_OBJS_WIDE (IDRIS_RT_OBJS_LIMIT - 1u)
 
 /* Constant words are built at compile time in C++ too. */
 #ifdef __cplusplus
@@ -186,10 +192,17 @@ typedef struct idris_rt_memref {
 } idris_rt_memref;
 
 /* A box is the header (kind IDRIS_RT_KIND_BOX, the constructor's tag), then
- * the constructor's fields, object slots first. A thunk is the same with kind
+ * the constructor's fields, object slots first (after their number, when
+ * there are IDRIS_RT_OBJS_WIDE or more). A thunk is the same with kind
  * IDRIS_RT_KIND_THUNK: the tag of the state it is in, then that state's
  * fields, in a cell as large as its largest state. A cell holds no code
  * address. Their field layouts are idr-lower's. */
+
+/* The functions each op that calls the runtime names (its Idr_Runtime),
+ * declared from the dialect's ODS, so that a definition here that does not
+ * take its op's operands and give its op's result fails to compile. Each
+ * one's meaning is documented below with the runtime's other functions. */
+#include "idris_rt_ops.h"
 
 /* Allocation of raw memory, which is not a cell: nothing counts it. The size
  * classes with an allocate and a free entry
@@ -298,18 +311,15 @@ void idris_rt_flush(void);
  * frees every cell it allocates. A crash reports nothing, and neither does
  * idris_rt_io_exit. */
 void idris_rt_main_return(void);
-void idris_rt_io_put_str(const idris_rt_str *s);
-/* The UTF-8 encoding of the character c: the Prelude's putChar, and what
- * writing a one-character string writes. A Char is a Unicode scalar value,
- * so c is written whole, where both stock backends call C's putchar, as the
- * Prelude declares putChar, and write its low byte. */
-void idris_rt_io_put_char(int32_t c);
-/* The decimal text of a signed or an unsigned integer, which idr-lower
- * extends to 64 bits as its type's signedness says. */
-void idris_rt_io_put_int_s(int64_t value);
-void idris_rt_io_put_int_u(uint64_t value);
-/* The text of a double, as idris_rt_str_show_f64 writes it. */
-void idris_rt_io_put_double(double value);
+/* idris_rt_io_put_str writes a string's bytes. idris_rt_io_put_char writes
+ * the UTF-8 encoding of a character: the Prelude's putChar, and what writing
+ * a one-character string writes. A Char is a Unicode scalar value, so it is
+ * written whole, where both stock backends call C's putchar, as the Prelude
+ * declares putChar, and write its low byte. idris_rt_io_put_int_s and
+ * idris_rt_io_put_int_u write the decimal text of a signed or an unsigned
+ * integer, which idr-lower extends to 64 bits as its type's signedness says.
+ * idris_rt_io_put_double writes the text of a double, as
+ * idris_rt_str_show_f64 writes it. */
 /* A string built in place by idr.str.pack and idr.str.concat, which know
  * its size from a first pass: a new string of `bytes` bytes and `scalars`
  * scalar values (`ascii` nonzero when every byte is ASCII), whose bytes
@@ -319,53 +329,42 @@ void idris_rt_io_put_double(double value);
 idris_rt_str *idris_rt_str_alloc(int64_t bytes, int64_t scalars, int32_t ascii);
 int64_t idris_rt_str_put_char(idris_rt_str *s, int64_t offset, int32_t c);
 int64_t idris_rt_str_put_str(idris_rt_str *s, int64_t offset, const idris_rt_str *part);
-/* The byte length of a string, and whether every byte is ASCII. */
-int64_t idris_rt_str_bytes_length(const idris_rt_str *s);
+/* idris_rt_str_bytes_length gives the byte length of a string, and
+ * idris_rt_str_is_ascii whether every byte of it is ASCII. */
 int32_t idris_rt_str_is_ascii(const idris_rt_str *s);
-/* One byte, or 255 at the end of input. */
-int32_t idris_rt_io_get_byte(void);
-/* A line of input without its end, the Prelude's getLine: the bytes up to
- * the next '\n', which is consumed, without that '\n' or the "\r\n" it
- * ends; the rest of the input when no '\n' is left, and the empty string at
- * the end of input. The bytes are decoded as idris_rt_str_from_bytes
- * decodes them. A new string. */
-const idris_rt_str *idris_rt_io_get_line(void);
+/* idris_rt_io_get_byte reads one byte, or gives 255 at the end of input.
+ * idris_rt_io_get_line reads a line of input without its end, the Prelude's
+ * getLine: the bytes up to the next '\n', which is consumed, without that
+ * '\n' or the "\r\n" it ends; the rest of the input when no '\n' is left,
+ * and the empty string at the end of input. The bytes are decoded as
+ * idris_rt_str_from_bytes decodes them. A new string. */
 /* A byte array (a Data.Buffer) is passed as its cell, its first byte (the
  * cell's first element, which idr-lower computes at the call) and its size.
  * Only the first byte is read: every span lies in the array, since
  * idr.check.range tests it against the size before the call, and an address
  * in the array is `bytes + offset`, which need not be aligned. */
-/* Bytes [offset, offset + count) of a byte array to a handle: 1 is standard
- * output, through the output buffer and in order with every other write to
- * it; 2 is standard error; any other is a file the program opened
- * (idris_rt_io_file_open). Gives the count written. */
-int64_t idris_rt_io_write_bytes(int64_t handle, idris_rt_array *cell, const char *bytes,
-                                int64_t size, int64_t offset, int64_t count);
-/* Bytes from a handle into [offset, offset + count) of a byte array: 0 is
- * standard input, through the input buffer idris_rt_io_get_line reads too,
- * and any other a file the program opened. Gives the count read, 0 at the
- * end of input. */
-int64_t idris_rt_io_read_bytes(int64_t handle, idris_rt_array *cell, char *bytes, int64_t size,
-                               int64_t offset, int64_t count);
-/* 1 once a read on the handle met the end of its input, as C's feof reports
- * it, else 0: standard input, or a file the program opened. */
-int64_t idris_rt_io_eof(int64_t handle);
-/* How many processors are online, read when asked. -1 when the system does
- * not say, which System.Info.getNProcessors turns into Nothing. */
-int64_t idris_rt_io_n_processors(void);
-/* Copies `n` bytes from one byte array to another. The ranges may
- * overlap. */
-void idris_rt_io_buffer_copy(idris_rt_array *src_cell, const char *src, int64_t src_size,
-                             int64_t src_offset, int64_t n, idris_rt_array *dst_cell, char *dst,
-                             int64_t dst_size, int64_t dst_offset);
-/* Writes a string's bytes at `offset`. The span is the string's byte
- * length. */
-void idris_rt_io_buffer_set_string(idris_rt_array *cell, char *bytes, int64_t size,
-                                   int64_t offset, const idris_rt_str *str);
-/* The bytes [offset, offset + n) of a byte array as a string. Ill-formed
- * UTF-8 is replaced as idris_rt_str_from_bytes replaces it. A new string. */
-const idris_rt_str *idris_rt_io_buffer_get_string(idris_rt_array *cell, const char *bytes,
-                                                  int64_t size, int64_t offset, int64_t n);
+/* idris_rt_io_write_bytes writes the bytes [offset, offset + count) of a
+ * byte array to a handle: 1 is standard output, through the output buffer
+ * and in order with every other write to it; 2 is standard error; any other
+ * is a file the program opened (idris_rt_io_file_open). Gives the count
+ * written.
+ * idris_rt_io_read_bytes reads bytes from a handle into [offset, offset +
+ * count) of a byte array: 0 is standard input, through the input buffer
+ * idris_rt_io_get_line reads too, and any other a file the program opened.
+ * Gives the count read, 0 at the end of input.
+ * idris_rt_io_eof gives 1 once a read on the handle met the end of its
+ * input, as C's feof reports it, else 0: standard input, or a file the
+ * program opened.
+ * idris_rt_io_n_processors gives how many processors are online, read when
+ * asked; -1 when the system does not say, which System.Info.getNProcessors
+ * turns into Nothing.
+ * idris_rt_io_buffer_copy copies `len` bytes from one byte array to
+ * another. The ranges may overlap.
+ * idris_rt_io_buffer_set_string writes a string's bytes at `offset`. The
+ * span is the string's byte length.
+ * idris_rt_io_buffer_get_string gives the bytes [offset, offset + len) of a
+ * byte array as a string. Ill-formed UTF-8 is replaced as
+ * idris_rt_str_from_bytes replaces it. A new string. */
 
 /* Base's files, directories, process, terminal, errors and clocks
  * (System.File, System.Directory, System, System.Term, System.Errno,
@@ -384,76 +383,17 @@ const idris_rt_str *idris_rt_io_buffer_get_string(idris_rt_array *cell, const ch
  * call of its kind, or closing its directory, releases it, and freeing its
  * handle does nothing. An OSClock is seconds << 30 | nanoseconds, or -1 when
  * it is not valid. A failing call sets the runtime's saved errno, which
- * idris_rt_io_errno and idris_rt_io_file_errno read. */
-int64_t idris_rt_io_file_open(const idris_rt_str *path, const idris_rt_str *mode);
-void idris_rt_io_file_close(int64_t file);
-int64_t idris_rt_io_file_error(int64_t file);
-int64_t idris_rt_io_file_errno(void);
-int64_t idris_rt_io_file_read_line(int64_t file);
-int64_t idris_rt_io_file_read_chars(int64_t max, int64_t file);
-int64_t idris_rt_io_file_read_char(int64_t file);
-int64_t idris_rt_io_file_write_line(int64_t file, const idris_rt_str *line);
-int64_t idris_rt_io_file_flush(int64_t file);
-int64_t idris_rt_io_file_seek_line(int64_t file);
-int64_t idris_rt_io_file_remove(const idris_rt_str *path);
-int64_t idris_rt_io_file_size(int64_t file);
-int64_t idris_rt_io_file_poll(int64_t file);
-int64_t idris_rt_io_file_is_tty(int64_t file);
-int64_t idris_rt_io_file_time(int64_t file);
-int64_t idris_rt_io_file_atime_sec(int64_t time);
-int64_t idris_rt_io_file_atime_nsec(int64_t time);
-int64_t idris_rt_io_file_mtime_sec(int64_t time);
-int64_t idris_rt_io_file_mtime_nsec(int64_t time);
-int64_t idris_rt_io_file_ctime_sec(int64_t time);
-int64_t idris_rt_io_file_ctime_nsec(int64_t time);
-int64_t idris_rt_io_file_chmod(const idris_rt_str *path, int64_t mode);
-int64_t idris_rt_io_dir_current(void);
-int64_t idris_rt_io_dir_change(const idris_rt_str *path);
-int64_t idris_rt_io_dir_create(const idris_rt_str *path);
-void idris_rt_io_dir_remove(const idris_rt_str *path);
-int64_t idris_rt_io_dir_open(const idris_rt_str *path);
-void idris_rt_io_dir_close(int64_t dir);
-int64_t idris_rt_io_dir_entry(int64_t dir);
-int64_t idris_rt_io_arg_count(void);
-const idris_rt_str *idris_rt_io_arg(int64_t index);
-int64_t idris_rt_io_env_get(const idris_rt_str *name);
-int64_t idris_rt_io_env_pair(int64_t index);
-int64_t idris_rt_io_env_set(const idris_rt_str *name, const idris_rt_str *value, int64_t overwrite);
-int64_t idris_rt_io_env_unset(const idris_rt_str *name);
-void idris_rt_io_sleep(int64_t seconds);
-void idris_rt_io_usleep(int64_t microseconds);
-int64_t idris_rt_io_time(void);
-int64_t idris_rt_io_pid(void);
-/* Writes pending output and ends the process with the status, reporting no
- * live cells. */
-IDRIS_RT_NORETURN void idris_rt_io_exit(int64_t status);
-int64_t idris_rt_io_term_raw(void);
-void idris_rt_io_term_reset(void);
-void idris_rt_io_term_setup(void);
-int64_t idris_rt_io_term_cols(void);
-int64_t idris_rt_io_term_lines(void);
-int64_t idris_rt_io_errno(void);
-const idris_rt_str *idris_rt_io_strerror(int64_t code);
-int64_t idris_rt_io_clock_monotonic(void);
-int64_t idris_rt_io_clock_utc(void);
-int64_t idris_rt_io_clock_process(void);
-int64_t idris_rt_io_clock_thread(void);
-int64_t idris_rt_io_clock_gc_cpu(void);
-int64_t idris_rt_io_clock_gc_real(void);
-int64_t idris_rt_io_clock_valid(int64_t clock);
-int64_t idris_rt_io_clock_second(int64_t clock);
-int64_t idris_rt_io_clock_nanosecond(int64_t clock);
-/* 1 when the handle is null (-1), else 0. */
-int64_t idris_rt_handle_is_null(int64_t handle);
-/* The string a string handle holds, with one more reference. */
-const idris_rt_str *idris_rt_handle_string(int64_t handle);
-void idris_rt_io_handle_free(int64_t handle);
+ * idris_rt_io_errno and idris_rt_io_file_errno read.
+ * idris_rt_io_exit writes pending output and ends the process with the
+ * status, reporting no live cells. idris_rt_handle_is_null gives 1 when the
+ * handle is null (-1), else 0. idris_rt_handle_string gives the string a
+ * string handle holds, with one more reference. */
 /* Writes pending output, then the len bytes of msg to standard error, then
  * ends the process with status IDRIS_RT_CRASHED: lowered code crashes
  * through it alone. */
 IDRIS_RT_NORETURN void idris_rt_crash(const char *msg, size_t len);
-/* Ends the program with "idris-mlir: " and the string's bytes. */
-IDRIS_RT_NORETURN void idris_rt_crash_str(const idris_rt_str *s);
+/* idris_rt_crash_str ends the program with "idris-mlir: " and the string's
+ * bytes. */
 
 /* The exit status of a program that the runtime ends with a message on
  * standard error ("idris-mlir: <cause>"): a crash, the stack running out, a
@@ -493,46 +433,39 @@ int idris_rt_start(int64_t (*body)(void), uint64_t cpu_features, int argc, char 
 int idris_rt_run_on_stack(void (*fn)(void *), void *arg, size_t most, size_t guard,
                           void (*exhausted)(void));
 
-/* Doubles. x truncated toward zero, modulo 2^64; x is
- * finite (idr-lower checks it first). */
-int64_t idris_rt_to_int(double x);
-/* The first character of the text of a double (idris_rt_str_show_f64):
- * '-', a digit, or the 'i' of inf or the 'n' of nan. */
-int32_t idris_rt_double_head(double x);
-/* The first character of the decimal text of a signed or unsigned integer. */
-int32_t idris_rt_int_head_s(int64_t value);
-int32_t idris_rt_int_head_u(uint64_t value);
+/* Doubles. idris_rt_to_int gives a double truncated toward zero, modulo
+ * 2^64; the double is finite (idr-lower checks it first).
+ * idris_rt_double_head gives the first character of the text of a double
+ * (idris_rt_str_show_f64): '-', a digit, or the 'i' of inf or the 'n' of
+ * nan. idris_rt_int_head_s and idris_rt_int_head_u give the first character
+ * of the decimal text of a signed or unsigned integer. */
 
 /* Strings. Strings are immutable; each operation borrows its arguments and
  * returns an owned string: a new one, a persistent one (the empty string), or
  * an argument with one more reference (appending the empty string, reversing
  * an empty one). Preconditions, which idr-lower
  * checks and crashes on before the call: idris_rt_str_index needs
- * 0 <= i < length, idris_rt_str_head and idris_rt_str_tail a nonempty
- * string. */
-const idris_rt_str *idris_rt_str_append(const idris_rt_str *a, const idris_rt_str *b);
-const idris_rt_str *idris_rt_str_cons(int32_t c, const idris_rt_str *s);
-const idris_rt_str *idris_rt_str_from_char(int32_t c);
-const idris_rt_str *idris_rt_str_show_s(int64_t value);
-const idris_rt_str *idris_rt_str_show_u(uint64_t value);
-/* The text of a double, which reads back as it (idris_rt_str_to_double): the
- * fewest significant digits that do, the nearest of those to the double, and
- * of two equally near the one whose last digit is even; positional from 1e-3
- * up to 1e10, with a digit after the point (0.001, 100.0), else in
- * scientific notation (1e21, 1.5e-7, 5e-324); inf, -inf and nan, a NaN
- * whatever its sign; -0.0 with its sign. */
-const idris_rt_str *idris_rt_str_show_f64(double value);
-/* The number of scalar values. */
-int64_t idris_rt_str_length(const idris_rt_str *s);
-int32_t idris_rt_str_index(const idris_rt_str *s, int64_t i);
-int32_t idris_rt_str_head(const idris_rt_str *s);
-const idris_rt_str *idris_rt_str_tail(const idris_rt_str *s);
-/* The Prelude's substr: the scalars from `start`, at most `len` of them; ""
- * when the start is past the end, and only those left when fewer than `len`
- * are. A negative start or length, which only a call of the primitive itself
- * passes, counts as 0. */
-const idris_rt_str *idris_rt_str_substr(const idris_rt_str *s, int64_t start, int64_t len);
-const idris_rt_str *idris_rt_str_reverse(const idris_rt_str *s);
+ * 0 <= index < length, idris_rt_str_head and idris_rt_str_tail a nonempty
+ * string.
+ * - idris_rt_str_append, idris_rt_str_cons, idris_rt_str_from_char: the
+ *   concatenation of two strings, a character before a string, the string
+ *   of one character.
+ * - idris_rt_str_show_s, idris_rt_str_show_u: the decimal text of a signed
+ *   or an unsigned integer.
+ * - idris_rt_str_show_f64: the text of a double, which reads back as it
+ *   (idris_rt_str_to_double): the fewest significant digits that do, the
+ *   nearest of those to the double, and of two equally near the one whose
+ *   last digit is even; positional from 1e-3 up to 1e10, with a digit after
+ *   the point (0.001, 100.0), else in scientific notation (1e21, 1.5e-7,
+ *   5e-324); inf, -inf and nan, a NaN whatever its sign; -0.0 with its sign.
+ * - idris_rt_str_length: the number of scalar values; idris_rt_str_index,
+ *   idris_rt_str_head: the scalar at an index, the first; idris_rt_str_tail:
+ *   the string without its first scalar; idris_rt_str_reverse: its scalars
+ *   in reverse order.
+ * - idris_rt_str_substr: the Prelude's substr, the scalars from `start`, at
+ *   most `length` of them; "" when the start is past the end, and only
+ *   those left when fewer than `length` are. A negative start or length,
+ *   which only a call of the primitive itself passes, counts as 0. */
 /* A string by byte offset, as the linear string iterator walks it. Every
  * offset has a meaning: it is clamped to [0, bytes], and one inside a
  * scalar's encoding stands for the start of that scalar.
@@ -542,15 +475,12 @@ const idris_rt_str *idris_rt_str_reverse(const idris_rt_str *s);
  *   length at the end.
  * - idris_rt_str_drop_bytes: the scalars from there on: the string itself
  *   (one more reference) from 0, the persistent empty one at the end, and
- *   otherwise a new string, which keeps the ASCII flag of `s`. */
-int32_t idris_rt_str_scalar_at(const idris_rt_str *s, int64_t offset);
-int64_t idris_rt_str_scalar_end(const idris_rt_str *s, int64_t offset);
-const idris_rt_str *idris_rt_str_drop_bytes(const idris_rt_str *s, int64_t offset);
-/* Negative, zero or positive as a is before, equal to or after b in the
- * order of their scalar values, Unicode's code point order, which is the
- * byte order of their UTF-8. */
-int32_t idris_rt_str_cmp(const idris_rt_str *a, const idris_rt_str *b);
-/* `cast` from String: the whole string is an optional sign (`+` or `-`)
+ *   otherwise a new string, which keeps the ASCII flag of the string. */
+/* idris_rt_str_cmp gives negative, zero or positive as its first string is
+ * before, equal to or after its second in the order of their scalar values,
+ * Unicode's code point order, which is the byte order of their UTF-8. */
+/* `cast` from String (idris_rt_str_to_int, idris_rt_str_to_double,
+ * idris_rt_big_from_str): the whole string is an optional sign (`+` or `-`)
  * and a literal of the target type as Idris writes it; any other string
  * is 0.
  * - to an integer: an integer literal, decimal digits or 0b, 0o, 0x or 0X
@@ -564,8 +494,6 @@ int32_t idris_rt_str_cmp(const idris_rt_str *a, const idris_rt_str *b);
  *   case, give an infinity and NaN.
  * idris_rt_str_to_int returns the result modulo 2^64; idr-lower wraps it to
  * the op's width. */
-double idris_rt_str_to_double(const idris_rt_str *s);
-int64_t idris_rt_str_to_int(const idris_rt_str *s);
 /* The string of n bytes of well-formed UTF-8 at p: a new string, or the
  * persistent empty one. */
 const idris_rt_str *idris_rt_str_from_utf8(const char *p, size_t n);
@@ -585,44 +513,33 @@ const char *idris_rt_str_bytes(const idris_rt_str *s);
  * bitwise operations and the shifts are those of the infinite two's
  * complement representation, as upstream Idris's test suite requires of
  * every backend (its integers test of Chez, RefC and Node); the divisor is
- * nonzero (idr-lower checks it first). */
-idris_rt_big idris_rt_big_add(idris_rt_big a, idris_rt_big b);
-idris_rt_big idris_rt_big_sub(idris_rt_big a, idris_rt_big b);
-idris_rt_big idris_rt_big_mul(idris_rt_big a, idris_rt_big b);
-idris_rt_big idris_rt_big_div(idris_rt_big a, idris_rt_big b);
-idris_rt_big idris_rt_big_mod(idris_rt_big a, idris_rt_big b);
-idris_rt_big idris_rt_big_and(idris_rt_big a, idris_rt_big b);
-idris_rt_big idris_rt_big_or(idris_rt_big a, idris_rt_big b);
-idris_rt_big idris_rt_big_xor(idris_rt_big a, idris_rt_big b);
-/* a moved n places, left (idr.big.shl) or right (idr.big.shr), the other
- * way when n is negative, as Scheme's ash moves it: a left shift is
- * a * 2^n, a right shift the floor of a / 2^n, so it fills with the sign.
- * A shift toward zero, and any shift of 0, is defined for every amount. A
- * left shift whose result no integer can hold (more than 2^31 - 1 limbs)
- * ends the process as exhausted memory does. */
-idris_rt_big idris_rt_big_shl(idris_rt_big a, idris_rt_big n);
-idris_rt_big idris_rt_big_shr(idris_rt_big a, idris_rt_big n);
-idris_rt_big idris_rt_big_neg(idris_rt_big a);
-/* a - 1, for a natural that is not zero (idr.big.pred). */
-idris_rt_big idris_rt_big_pred(idris_rt_big a);
-/* An Integer as a natural: 0 if it is negative, else itself
- * (idr.nat.from_big, Idris's integerToNat). */
-idris_rt_big idris_rt_nat_from_big(idris_rt_big a);
-/* Negative, zero or positive as a < b, a = b or a > b. */
-int32_t idris_rt_big_cmp(idris_rt_big a, idris_rt_big b);
-idris_rt_big idris_rt_big_from_int_s(int64_t value);
-idris_rt_big idris_rt_big_from_int_u(uint64_t value);
-/* The value modulo 2^64; idr-lower wraps it to the op's width. */
-int64_t idris_rt_big_to_int(idris_rt_big a);
-/* x truncated toward zero; x is finite (idr-lower checks it first). */
-idris_rt_big idris_rt_big_from_double(double x);
-/* The double nearest to a, ties to even, an infinity past the largest: the
- * conversion of IEEE 754 under its default rounding. */
-double idris_rt_big_to_double(idris_rt_big a);
-/* A new string. */
-const idris_rt_str *idris_rt_big_show(idris_rt_big a);
-/* The integer cast of idris_rt_str_to_int, without the wrapping. */
-idris_rt_big idris_rt_big_from_str(const idris_rt_str *s);
+ * nonzero (idr-lower checks it first).
+ * - idris_rt_big_add, _sub, _mul, _div, _mod, _and, _or, _xor, _neg: the
+ *   arithmetic and the bitwise operations.
+ * - idris_rt_big_shl, idris_rt_big_shr: a value moved `amount` places, left
+ *   or right, the other way when the amount is negative, as Scheme's ash
+ *   moves it: a left shift is value * 2^amount, a right shift the floor of
+ *   value / 2^amount, so it fills with the sign. A shift toward zero, and
+ *   any shift of 0, is defined for every amount. A left shift whose result
+ *   no integer can hold (more than 2^31 - 1 limbs) ends the process as
+ *   exhausted memory does.
+ * - idris_rt_big_pred: the value minus 1, for a natural that is not zero.
+ * - idris_rt_nat_from_big: an Integer as a natural, 0 if it is negative,
+ *   else itself (Idris's integerToNat).
+ * - idris_rt_big_cmp: negative, zero or positive as its first operand is
+ *   less than, equal to or greater than its second.
+ * - idris_rt_big_from_int_s, idris_rt_big_from_int_u: a signed or an
+ *   unsigned integer as a big.
+ * - idris_rt_big_to_int: the value modulo 2^64; idr-lower wraps it to the
+ *   op's width.
+ * - idris_rt_big_from_double: a double truncated toward zero; it is finite
+ *   (idr-lower checks it first).
+ * - idris_rt_big_to_double: the double nearest to the value, ties to even,
+ *   an infinity past the largest: the conversion of IEEE 754 under its
+ *   default rounding.
+ * - idris_rt_big_show: its decimal text, a new string.
+ * - idris_rt_big_from_str: the integer cast of idris_rt_str_to_int, without
+ *   the wrapping. */
 
 /* Dropping the reference an operation returned, for callers that own it and
  * hold a string or a big rather than a pointer: the compiler's folders, which

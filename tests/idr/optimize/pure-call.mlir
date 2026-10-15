@@ -8,8 +8,8 @@
 // is gone, though @sum, on a cycle of its own, is never inlined. @spin is
 // the same function without Idris's proof that it ends: its call may
 // diverge, and stays.
-module {
-  idr.func private @sum(%n: i64, %acc: i64) -> i64 attributes {total} {
+idr.program @"pure-call" root(@Main.main) stage(first) {
+  idr.func @sum(%n: i64, %acc: i64) -> i64 attributes {total} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       idr.yield %acc : i64
@@ -24,7 +24,7 @@ module {
     }
     return %r : i64
   }
-  idr.func private @spin(%n: i64, %acc: i64) -> i64 {
+  idr.func @spin(%n: i64, %acc: i64) -> i64 {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       idr.yield %acc : i64

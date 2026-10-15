@@ -11,7 +11,6 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
 
@@ -28,67 +27,25 @@ bool constant(Value value, Attribute &out) {
          matchPattern(value, m_Constant(&out));
 }
 
-// A chain of nodes counts a big down by one at a time; past this it is too
-// long to unroll anyway, so the exact count does not matter.
-constexpr uint64_t countless = uint64_t(1) << 32;
-
-// The size of `value` as a tree, up to countless. A constant shares its
-// parts, so each part is measured once, in `sizes`, however often it
-// occurs. A run measures as the constructors it stands for, each cell read
-// once: its tail, and each cell one with its fields.
-uint64_t constantSize(Attribute value, llvm::DenseMap<Attribute, uint64_t> &sizes) {
-  if (auto known = sizes.find(value); known != sizes.end())
-    return known->second;
-  auto sum = [&](ArrayAttr parts) {
-    uint64_t size = 1;
-    for (Attribute part : parts)
-      size = std::min(countless, size + constantSize(part, sizes));
-    return size;
-  };
-  uint64_t size = 0;
-  if (auto con = dyn_cast<ConAttr>(value); con && con.isRun()) {
-    size = constantSize(con.getTail(), sizes);
-    for (ArrayAttr cell : con.getRunCells())
-      size = std::min(countless, size + sum(cell));
-  } else if (con) {
-    size = sum(con.getFields());
-  } else if (auto big = dyn_cast<BigAttr>(value)) {
-    StringRef digits = big.getValue();
-    digits.consume_front("-");
-    uint64_t n = 0;
-    size = digits.size() > 9 || digits.getAsInteger(10, n) ? countless : n;
-  }
-  return sizes[value] = size;
-}
-
-uint64_t constantSize(Attribute value) {
-  llvm::DenseMap<Attribute, uint64_t> sizes;
-  return constantSize(value, sizes);
-}
-
-uint64_t sizeOf(const Pattern &pattern) {
-  auto sum = [](const std::vector<Pattern> &parts) {
-    uint64_t size = 1;
-    for (const Pattern &part : parts)
-      size += sizeOf(part);
-    return size;
-  };
-  return std::visit(Match{[](const Hole &) { return uint64_t(0); },
-                          [](const Constant &c) { return constantSize(c.value); },
-                          [&](const Con &con) { return sum(con.fields); },
-                          [](const Linear &linear) { return sizeOf(linear.value.front()); }},
-                    pattern.node);
+// The constructor that builds `value` whole: an idr.con with every field
+// given. One with holes leaves fields to be written through its
+// destinations, after it, so what it builds is not known where it is.
+ConOp builtBy(Value value) {
+  auto con = value.getDefiningOp<ConOp>();
+  return con && con.getHoles().empty() ? con : ConOp();
 }
 
 // Whether `op` builds part of a shape, which the node's call takes apart.
-bool isShapeOp(Operation *op) { return isa_and_nonnull<ConOp, LinEnterOp>(op); }
+bool isShapeOp(Operation *op) {
+  if (auto con = dyn_cast_if_present<ConOp>(op))
+    return con.getHoles().empty();
+  return isa_and_nonnull<LinEnterOp>(op);
+}
 
-// The field types of constructor `ctor` of the data type a value of `type`
+// The field types of constructor `tag` of the data type a value of `type`
 // is of.
-ArrayRef<Type> fieldTypes(Type type, StringAttr ctor) {
-  DataType data = dataTypeOf(type);
-  std::optional<unsigned> tag = data ? data.getTag(ctor.getValue()) : std::nullopt;
-  return tag ? data.getCtor(*tag).fields : ArrayRef<Type>();
+ArrayRef<Type> fieldTypes(Type type, unsigned tag) {
+  return dataTypeOf(type).getCtor(tag).fields;
 }
 
 // Whether a position of `type` is linear: a value there entered a linear
@@ -114,8 +71,8 @@ Pattern shapeOf(Value value, SmallVectorImpl<Value> &leaves) {
   Attribute known;
   if (constant(value, known))
     return {Constant{known}, value.getType()};
-  if (auto con = value.getDefiningOp<ConOp>())
-    return {Con{con.getCtorAttr(), shapesOf(con.getFields())}, value.getType()};
+  if (ConOp con = builtBy(value))
+    return {Con{static_cast<unsigned>(con.getTag()), shapesOf(con.getFields())}, value.getType()};
   if (auto enter = value.getDefiningOp<LinEnterOp>()) {
     Pattern inner = shapeOf(enter.getValue(), leaves);
     if (!inner.isHole())
@@ -149,27 +106,12 @@ bool hasStructure(const Pattern &pattern) {
                     pattern.node);
 }
 
-// How long a chain of nodes that each take a proper part of the value can
-// be: its constructors, the value of a big, which counts down by one, and a
-// lone machine integer, a counter; a negative one has no end. Scalars
-// inside a structure take no part apart.
-uint64_t unrollSize(const Pattern &pattern) {
-  // A machine integer on its own is a counter, counted down to zero; one
-  // below zero only goes on. Inside a structure it is an element.
-  if (const auto *c = std::get_if<Constant>(&pattern.node))
-    if (auto integer = dyn_cast<IntegerAttr>(c->value); integer && isa<IntegerType>(integer.getType())) {
-      const APInt &n = integer.getValue();
-      return n.isNegative() || n.getActiveBits() > 32 ? countless : n.getZExtValue();
-    }
-  return sizeOf(pattern);
-}
-
 // Whether `value` is closed: a constant, or a constructor of closed values.
 bool isClosed(Value value) {
   if (matchPattern(value, m_Constant()))
     return true;
-  Operation *def = value.getDefiningOp();
-  return isa_and_nonnull<ConOp>(def) && llvm::all_of(def->getOperands(), isClosed);
+  ConOp con = builtBy(value);
+  return con && llvm::all_of(con.getFields(), isClosed);
 }
 
 // Whether the shape of `value` has no use but the one that reads it: each
@@ -205,18 +147,18 @@ void eraseUnused(RewriterBase &rewriter, ArrayRef<Value> values) {
 // A key's pattern rebuilt at a position of `type`: a hole is the parameter
 // that holds it, a linear position enters what is rebuilt inside it, a
 // constructor is built over its fields at their declared types, and a
-// scalar is the constant the dialect materializes.
+// constant is the one the dialect materializes.
 Value rebuild(OpBuilder &b, Location loc, Attribute pattern, Type type, ArrayRef<Value> holes) {
   if (auto hole = dyn_cast<KeyHoleAttr>(pattern))
     return holes[hole.getIndex()];
   if (isLinearPosition(type))
     return LinEnterOp::create(b, loc, type, rebuild(b, loc, pattern, unrestricted(type), holes));
   if (auto con = dyn_cast<KeyConAttr>(pattern)) {
-    ArrayRef<Type> types = fieldTypes(type, con.getCtor());
+    ArrayRef<Type> types = fieldTypes(type, con.getTag());
     SmallVector<Value> fields;
     for (auto [field, fieldType] : llvm::zip_equal(con.getFields(), types))
       fields.push_back(rebuild(b, loc, field, fieldType, holes));
-    return ConOp::create(b, loc, type, FlatSymbolRefAttr::get(con.getCtor()), fields);
+    return ConOp::create(b, loc, type, con.getTag(), fields).getResult();
   }
   Dialect *idr = b.getContext()->getLoadedDialect<IdrDialect>();
   return idr->materializeConstant(b, pattern, type, loc)->getResult(0);
@@ -230,7 +172,7 @@ void holeTypes(Attribute pattern, Type type, SmallVectorImpl<Type> &out) {
   auto con = dyn_cast<KeyConAttr>(pattern);
   if (!con)
     return;
-  ArrayRef<Type> types = fieldTypes(unrestricted(type), con.getCtor());
+  ArrayRef<Type> types = fieldTypes(unrestricted(type), con.getTag());
   for (auto [field, fieldType] : llvm::zip_equal(con.getFields(), types))
     holeTypes(field, fieldType, out);
 }

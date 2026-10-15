@@ -21,19 +21,26 @@ add_mlir_dialect_library(IdrIR
 	OpsStrings.cpp
 	OpsBigs.cpp
 	OpsArrays.cpp
+	OpsGenerating.cpp
+	OpsTabulate.cpp
+	OpsFolds.cpp
 	OpsChecks.cpp
 	OpsOwnership.cpp
 	OpsPlatform.cpp
 	Types.cpp
+	DataBody.cpp
+	ValueFacts.cpp
 	Attrs.cpp
 	ConAttr.cpp
 	Grades.cpp
 	Effects.cpp
 	Flow.cpp
+	FlowOps.cpp
 	Crashes.cpp
 	Ranges.cpp
 	Asm.cpp
 	Symbols.cpp
+	ContentNames.cpp
 	Regions.cpp
 	Constants.cpp
 	TypeGraph.cpp
@@ -45,8 +52,8 @@ add_mlir_dialect_library(IdrIR
 	Verify/Knots.cpp
 	Verify/Linearity.cpp
 	Verify/Owned.cpp
+	Verify/OwnedOps.cpp
 	Verify/OwnedRegions.cpp
-	Verify/OwnedLoops.cpp
 	Verify/Uses.cpp
 	Canon/MatchPatterns.cpp
 	Canon/CaseOfCase.cpp
@@ -90,6 +97,8 @@ add_mlir_dialect_library(IdrIR
 	MLIRTensorDialect
 	MLIRMemRefDialect
 	MLIRLinalgDialect
+	MLIRFuncDialect
+	MLIRDialectUtils
 	MLIRMemRefTransforms
 	MLIRFunctionInterfaces
 	MLIRCallInterfaces

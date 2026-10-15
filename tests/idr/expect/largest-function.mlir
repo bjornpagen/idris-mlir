@@ -10,11 +10,11 @@
 // SMALL: error: expected largest-function: @big holds {{[0-9]+}} operations, more than 4
 // SMALL-NOT: @small
 // BAD: error: expected largest-function: name the bound, as largest-function=<n>
-module {
-  idr.func private @small(%x: i64) -> i64 {
+idr.program @"largest-function" root(@main) stage(first) {
+  idr.func @small(%x: i64) -> i64 {
     return %x : i64
   }
-  idr.func private @big(%x: i64) -> i64 {
+  idr.func @big(%x: i64) -> i64 {
     %a = arith.addi %x, %x : i64
     %b = arith.muli %a, %a : i64
     %c = arith.subi %b, %x : i64

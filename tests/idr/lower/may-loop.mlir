@@ -1,15 +1,10 @@
-// RUN: idris-mlir-opt %s --idr-lower --canonicalize | FileCheck %s
+// RUN: idris-mlir-opt %s --idr-lower --canonicalize --idr-expect=holds=lowered,loops=@spin:1 -o /dev/null
 // idr.may_loop, which idr-tail-loops puts in the loops of functions that
 // are not total, becomes an effect in the loop's body that no MLIR pass
-// removes and LLVM keeps in place: llvm.sideeffect, which emits no
-// instruction. So an unused loop that may not terminate stays.
-// CHECK-LABEL: func.func private @spin(
-// CHECK: scf.while
-// CHECK: } do {
-// CHECK: llvm.call_intrinsic "llvm.sideeffect"()
-// CHECK: scf.yield
-module {
-  idr.func private @spin(%n: i64) {
+// removes and LLVM keeps in place, and that emits no instruction. So an
+// unused loop that may not terminate stays.
+idr.program @"may-loop" root(@Prog.main) stage(owned) {
+  idr.func @spin(%n: i64) {
     %r = scf.while (%x = %n) : (i64) -> i64 {
       %zero = arith.constant 0 : i64
       %more = arith.cmpi ne, %x, %zero : i64

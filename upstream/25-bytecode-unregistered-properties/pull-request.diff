@@ -1,0 +1,108 @@
+diff --git a/mlir/lib/Bytecode/Reader/BytecodeReader.cpp b/mlir/lib/Bytecode/Reader/BytecodeReader.cpp
+index 96ead28..c6c860a 100644
+--- a/mlir/lib/Bytecode/Reader/BytecodeReader.cpp
++++ b/mlir/lib/Bytecode/Reader/BytecodeReader.cpp
+@@ -1260,8 +1260,11 @@ public:
+     return success();
+   }
+ 
++  /// Read the properties of `opName`, which `wasRegistered` says was
++  /// registered where the bytecode was written, into `opState`.
+   LogicalResult read(Location fileLoc, DialectReader &dialectReader,
+-                     OperationName *opName, OperationState &opState) const {
++                     OperationName *opName, bool wasRegistered,
++                     OperationState &opState) const {
+     uint64_t propertiesIdx;
+     if (failed(dialectReader.readVarInt(propertiesIdx)))
+       return failure();
+@@ -1290,6 +1293,11 @@ public:
+         StringRef(rawProperties.begin(), rawProperties.size()), fileLoc);
+     DialectReader propReader = dialectReader.withEncodingReader(reader);
+ 
++    // An op that was not registered where it was written stored its
++    // properties as an attribute, whether or not it is registered here.
++    if (!wasRegistered)
++      return propReader.readAttribute(opState.propertiesAttr);
++
+     auto *iface = opName->getInterface<BytecodeOpInterface>();
+     if (iface)
+       return iface->readProperties(propReader, opState);
+@@ -2591,21 +2599,14 @@ BytecodeReader::Impl::parseOpWithoutRegions(EncodingReader &reader,
+                        "Unexpected missing `wasRegistered` opname flag at "
+                        "bytecode version ")
+              << version << " with properties.";
+-    // When an operation is emitted without being registered, the properties are
+-    // stored as an attribute. Otherwise the op must implement the bytecode
+-    // interface and control the serialization.
+-    if (wasRegistered) {
+-      DialectReader dialectReader(attrTypeReader, stringReader, resourceReader,
+-                                  dialectsMap, reader, version);
+-      if (failed(
+-              propertiesReader.read(fileLoc, dialectReader, &*opName, opState)))
+-        return failure();
+-    } else {
+-      // If the operation wasn't registered when it was emitted, the properties
+-      // was serialized as an attribute.
+-      if (failed(parseAttribute(reader, opState.propertiesAttr)))
+-        return failure();
+-    }
++    // The properties are in the properties section: as an attribute when the
++    // operation was emitted without being registered, else in the encoding
++    // its bytecode interface controls.
++    DialectReader dialectReader(attrTypeReader, stringReader, resourceReader,
++                                dialectsMap, reader, version);
++    if (failed(propertiesReader.read(fileLoc, dialectReader, &*opName,
++                                     *wasRegistered, opState)))
++      return failure();
+   }
+ 
+   /// Parse the results of the operation.
+diff --git a/mlir/unittests/IR/OpPropertiesTest.cpp b/mlir/unittests/IR/OpPropertiesTest.cpp
+index ba966bf..8918e54 100644
+--- a/mlir/unittests/IR/OpPropertiesTest.cpp
++++ b/mlir/unittests/IR/OpPropertiesTest.cpp
+@@ -6,6 +6,7 @@
+ //
+ //===----------------------------------------------------------------------===//
+ 
++#include "mlir/Bytecode/BytecodeWriter.h"
+ #include "mlir/IR/Attributes.h"
+ #include "mlir/IR/OpDefinition.h"
+ #include "mlir/IR/OperationSupport.h"
+@@ -288,6 +289,36 @@ TEST(OpPropertiesTest, FailedProperties) {
+                diagnosticStr.c_str());
+ }
+ 
++// An operation written as bytecode where its dialect is not loaded stores its
++// properties as an attribute; read where it is registered, its properties are
++// set from that attribute.
++TEST(OpPropertiesTest, BytecodeWrittenUnregistered) {
++  std::string bytecode;
++  {
++    MLIRContext context;
++    context.allowUnregisteredDialects();
++    ParserConfig config(&context);
++    OwningOpRef<Operation *> op = parseSourceString(mlirSrc, config);
++    ASSERT_TRUE(op.get() != nullptr);
++    ASSERT_FALSE(op->isRegistered());
++    llvm::raw_string_ostream os(bytecode);
++    ASSERT_TRUE(succeeded(writeBytecodeToFile(op.get(), os)));
++  }
++  MLIRContext context;
++  context.getOrLoadDialect<TestOpPropertiesDialect>();
++  ParserConfig config(&context);
++  OwningOpRef<Operation *> op = parseSourceString(bytecode, config);
++  ASSERT_TRUE(op.get() != nullptr);
++  auto opWithProp = dyn_cast<OpWithProperties>(op.get());
++  ASSERT_TRUE(opWithProp);
++  TestProperties &prop = opWithProp.getProperties();
++  EXPECT_EQ(prop.a, -42);
++  EXPECT_EQ(prop.b, -42.0f);
++  EXPECT_EQ(prop.array, (std::vector<int64_t>{40, 41}));
++  ASSERT_TRUE(prop.label);
++  EXPECT_EQ(*prop.label, "bar foo");
++}
++
+ TEST(OpPropertiesTest, DefaultValues) {
+   MLIRContext context;
+   context.getOrLoadDialect<TestOpPropertiesDialect>();

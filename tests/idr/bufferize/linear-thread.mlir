@@ -7,12 +7,12 @@
 // its caller, and nothing is copied, in @fill or anywhere: the root's
 // fresh array is a thread's head no one reads after it, so its release
 // copies nothing either. The grade is kept on the buffer.
-// CHECK-LABEL: idr.func private @fill(
+// CHECK-LABEL: idr.func @fill(
 // CHECK-SAME: !idr.lin<memref<?xi64>>
 // CHECK-NOT: tensor<
 // CHECK: return
-module {
-  idr.func private @fill(%a: !idr.lin<tensor<?xi64>>, %n: index) -> !idr.lin<tensor<?xi64>> {
+idr.program @"linear-thread" root(@root) stage(first) {
+  idr.func @fill(%a: !idr.lin<tensor<?xi64>>, %n: index) -> !idr.lin<tensor<?xi64>> {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %t = idr.lin.use %a : !idr.lin<tensor<?xi64>>

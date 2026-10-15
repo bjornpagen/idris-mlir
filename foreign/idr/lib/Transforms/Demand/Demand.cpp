@@ -16,7 +16,6 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
 
-#include "mlir/IR/BuiltinOps.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 
@@ -30,13 +29,13 @@ using namespace mlir;
 namespace {
 
 // The value `value` is, seen through the positions that hand it on as
-// itself: a linear position (idr.lin.enter, idr.lin.use), a view of it
-// (idr.borrow, which a match reads), and the default region of a match on
-// it, which takes the scrutinee back at its type.
+// itself: an op that only changes its grade (a linear position, a view of
+// it, which a match reads), and the default region of a match on it, which
+// takes the scrutinee back at its type.
 Value itself(Value value) {
   for (;;) {
     if (Operation *def = value.getDefiningOp()) {
-      if (!isa<idr::LinEnterOp, idr::LinUseOp, idr::BorrowOp>(def))
+      if (!def->hasTrait<idr::ResultCarriesOperand>())
         return value;
       value = def->getOperand(0);
       continue;
@@ -53,7 +52,7 @@ Value itself(Value value) {
 // kind in_place.
 bool promises(Type type) {
   idr::DataType data = idr::dataTypeOf(type);
-  return data && data.hasBody() && data.getKind() == idr::SumKind::InPlace;
+  return data && data.getKind() == idr::SumKind::InPlace;
 }
 
 // The parameters `fn` promises to rebuild in place: those of quantity 1 of
@@ -98,16 +97,16 @@ void report(Broken broken) {
 // rebuild in place exclusive (`!idr.excl<T>`): a refusal at each call that
 // shares it (passes what an idr.dup made), with a note at the idr.dup, or,
 // when none does, at each call that passes it owned or as a view.
-LogicalResult checkInPlace(ModuleOp module) {
+LogicalResult checkInPlace(idr::ProgramOp program) {
   DenseMap<StringAttr, SmallVector<unsigned>> promised;
-  for (idr::FuncOp fn : module.getOps<idr::FuncOp>())
+  for (idr::FuncOp fn : program.getOps<idr::FuncOp>())
     if (SmallVector<unsigned> params = rebuilt(fn); !params.empty())
       promised[fn.getSymNameAttr()] = std::move(params);
   if (promised.empty())
     return success();
 
   SmallVector<Broken> broken;
-  for (idr::FuncOp caller : module.getOps<idr::FuncOp>())
+  for (idr::FuncOp caller : program.getOps<idr::FuncOp>())
     caller.walk([&](idr::CallOp call) {
       auto found = promised.find(call.getCalleeAttr().getAttr());
       if (found == promised.end())

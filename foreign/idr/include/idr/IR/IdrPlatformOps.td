@@ -5,9 +5,9 @@
 // System.Directory, System, System.Term, System.Errno, System.Clock), and the
 // handles that stand for pointers.
 //
-// Each op's one meaning is the runtime function it calls, named after it
-// (`idr.io.file_open` calls `idris_rt_io_file_open`), and documented beside
-// that function, for both targets. A failing call sets the runtime's saved
+// Each op's one meaning is the runtime function it calls, which its ODS
+// names (`idr.io.file_open` calls `idris_rt_io_file_open`), documented
+// beside that function, for both targets. A failing call sets the runtime's saved
 // errno, which idr.io.errno and idr.io.file_errno read.
 //
 // A pointer is a handle, an i64: 0, 1 and 2 are the standard streams, -1 (all
@@ -22,6 +22,7 @@
 #define IDR_PLATFORM_OPS
 
 include "idr/IR/IdrIOOps.td"
+include "idr/IR/IdrCheckOps.td"
 
 // An IO primitive of base: it takes the world and gives the next, and calls
 // its runtime function with its other operands.
@@ -42,9 +43,9 @@ class Idr_HandleQueryOp<string mnemonic, string what>
 // function it stands for gives it.
 class Idr_PathOp<string mnemonic, string what> : Idr_PlatformIOOp<mnemonic> {
   let summary = what;
-  let arguments = (ins Idr_StrType:$path, Idr_WorldType:$world);
+  let arguments = (ins Idr_StrRead:$path, Idr_WorldType:$world);
   let results = (outs I64:$result, Idr_WorldType:$next);
-  let assemblyFormat = "$path `,` $world attr-dict";
+  let assemblyFormat = "custom<StrRead>($path, type($path)) `,` $world attr-dict";
 }
 
 // An op of the world alone, giving an Int.
@@ -69,9 +70,12 @@ class Idr_ActionOp<string mnemonic, string what> : Idr_PlatformIOOp<mnemonic> {
 
 def Idr_FileOpenOp : Idr_PlatformIOOp<"file_open"> {
   let summary = "opens the file at a path in a mode, as fopen does: a file handle, or null";
-  let arguments = (ins Idr_StrType:$path, Idr_StrType:$mode, Idr_WorldType:$world);
+  let arguments = (ins Idr_StrRead:$path, Idr_StrRead:$mode, Idr_WorldType:$world);
   let results = (outs I64:$file, Idr_WorldType:$next);
-  let assemblyFormat = "$path `,` $mode `,` $world attr-dict";
+  let assemblyFormat = [{
+    custom<StrRead>($path, type($path)) `,` custom<StrRead>($mode, type($mode)) `,` $world
+    attr-dict
+  }];
 }
 
 def Idr_FileCloseOp : Idr_PlatformIOOp<"file_close"> {
@@ -104,9 +108,9 @@ def Idr_FileReadCharOp : Idr_HandleQueryOp<"file_read_char",
 
 def Idr_FileWriteLineOp : Idr_PlatformIOOp<"file_write_line"> {
   let summary = "writes a string to a file";
-  let arguments = (ins I64:$file, Idr_StrType:$line, Idr_WorldType:$world);
+  let arguments = (ins I64:$file, Idr_StrRead:$line, Idr_WorldType:$world);
   let results = (outs I64:$result, Idr_WorldType:$next);
-  let assemblyFormat = "$file `,` $line `,` $world attr-dict";
+  let assemblyFormat = "$file `,` custom<StrRead>($line, type($line)) `,` $world attr-dict";
 }
 
 def Idr_FileFlushOp : Idr_HandleQueryOp<"file_flush",
@@ -145,9 +149,9 @@ def Idr_FileCtimeNsecOp : Idr_HandleQueryOp<"file_ctime_nsec",
 
 def Idr_FileChmodOp : Idr_PlatformIOOp<"file_chmod"> {
   let summary = "sets the mode of the file at a path";
-  let arguments = (ins Idr_StrType:$path, I64:$mode, Idr_WorldType:$world);
+  let arguments = (ins Idr_StrRead:$path, I64:$mode, Idr_WorldType:$world);
   let results = (outs I64:$result, Idr_WorldType:$next);
-  let assemblyFormat = "$path `,` $mode `,` $world attr-dict";
+  let assemblyFormat = "custom<StrRead>($path, type($path)) `,` $mode `,` $world attr-dict";
 }
 
 //===----------------------------------------------------------------------===//
@@ -165,16 +169,16 @@ def Idr_DirCreateOp : Idr_PathOp<"dir_create", "creates a directory at a path">;
 
 def Idr_DirRemoveOp : Idr_PlatformIOOp<"dir_remove"> {
   let summary = "removes the directory at a path";
-  let arguments = (ins Idr_StrType:$path, Idr_WorldType:$world);
+  let arguments = (ins Idr_StrRead:$path, Idr_WorldType:$world);
   let results = (outs Idr_WorldType:$next);
-  let assemblyFormat = "$path `,` $world attr-dict";
+  let assemblyFormat = "custom<StrRead>($path, type($path)) `,` $world attr-dict";
 }
 
 def Idr_DirOpenOp : Idr_PlatformIOOp<"dir_open"> {
   let summary = "opens the directory at a path: a directory handle, or null";
-  let arguments = (ins Idr_StrType:$path, Idr_WorldType:$world);
+  let arguments = (ins Idr_StrRead:$path, Idr_WorldType:$world);
   let results = (outs I64:$dir, Idr_WorldType:$next);
-  let assemblyFormat = "$path `,` $world attr-dict";
+  let assemblyFormat = "custom<StrRead>($path, type($path)) `,` $world attr-dict";
 }
 
 def Idr_DirCloseOp : Idr_PlatformIOOp<"dir_close"> {
@@ -208,9 +212,9 @@ def Idr_ArgOp : Idr_PlatformIOOp<"arg"> {
 // library's: the next environment operation replaces it.
 def Idr_EnvGetOp : Idr_PlatformIOOp<"env_get"> {
   let summary = "the value of an environment variable, as a string handle, or null";
-  let arguments = (ins Idr_StrType:$name, Idr_WorldType:$world);
+  let arguments = (ins Idr_StrRead:$name, Idr_WorldType:$world);
   let results = (outs I64:$value, Idr_WorldType:$next);
-  let assemblyFormat = "$name `,` $world attr-dict";
+  let assemblyFormat = "custom<StrRead>($name, type($name)) `,` $world attr-dict";
 }
 
 def Idr_EnvPairOp : Idr_PlatformIOOp<"env_pair"> {
@@ -222,17 +226,20 @@ def Idr_EnvPairOp : Idr_PlatformIOOp<"env_pair"> {
 
 def Idr_EnvSetOp : Idr_PlatformIOOp<"env_set"> {
   let summary = "sets an environment variable, unless it is set and `overwrite` is 0";
-  let arguments = (ins Idr_StrType:$name, Idr_StrType:$value, I64:$overwrite,
+  let arguments = (ins Idr_StrRead:$name, Idr_StrRead:$value, I64:$overwrite,
                        Idr_WorldType:$world);
   let results = (outs I64:$result, Idr_WorldType:$next);
-  let assemblyFormat = "$name `,` $value `,` $overwrite `,` $world attr-dict";
+  let assemblyFormat = [{
+    custom<StrRead>($name, type($name)) `,` custom<StrRead>($value, type($value)) `,` $overwrite
+    `,` $world attr-dict
+  }];
 }
 
 def Idr_EnvUnsetOp : Idr_PlatformIOOp<"env_unset"> {
   let summary = "removes an environment variable";
-  let arguments = (ins Idr_StrType:$name, Idr_WorldType:$world);
+  let arguments = (ins Idr_StrRead:$name, Idr_WorldType:$world);
   let results = (outs I64:$result, Idr_WorldType:$next);
-  let assemblyFormat = "$name `,` $world attr-dict";
+  let assemblyFormat = "custom<StrRead>($name, type($name)) `,` $world attr-dict";
 }
 
 def Idr_SleepOp : Idr_PlatformIOOp<"sleep"> {
@@ -255,7 +262,7 @@ def Idr_PidOp : Idr_ReadingOp<"pid", "the process's id">;
 
 // Base's exitWith, which the registry recognizes by name, follows it with
 // ub.unreachable.
-def Idr_ExitOp : Idr_PlatformIOOp<"exit"> {
+def Idr_ExitOp : Idr_PlatformIOOp<"exit", [Idr_NoReturn]> {
   let summary = "writes pending output and ends the process with a status; does not return";
   let arguments = (ins I64:$status, Idr_WorldType:$world);
   let results = (outs Idr_WorldType:$next);
@@ -286,7 +293,8 @@ def Idr_ErrnoOp : Idr_ReadingOp<"errno", "the saved errno of the last failing ca
 
 // The text is the C library's, the same at every call: IO in the world's
 // order, but nothing the program's outside observes, so not Idr_IOOp.
-def Idr_StrerrorOp : Idr_Op<"io.strerror", [Idr_PerformsIO, Idr_CallsRuntime, Idr_Primitive,
+def Idr_StrerrorOp : Idr_Op<"io.strerror", [Idr_PerformsIO, Idr_Runtime<"idris_rt_io_strerror">,
+    Idr_Primitive,
     MemoryEffects<[MemRead<Idr_IOResource>, MemWrite<Idr_IOResource>]>]> {
   let summary = "the text of an error number, a new string";
   let arguments = (ins I64:$code, Idr_WorldType:$world);
@@ -325,7 +333,8 @@ def Idr_ClockNanosecondOp : Idr_ClockQueryOp<"clock_nanosecond",
 //===----------------------------------------------------------------------===//
 
 // Base's nullPtr and nullAnyPtr.
-def Idr_HandleIsNullOp : Idr_Op<"handle.is_null", [Pure, Idr_CallsRuntime, Idr_Primitive]> {
+def Idr_HandleIsNullOp : Idr_Op<"handle.is_null", [Pure, Idr_Runtime<"idris_rt_handle_is_null">,
+    Idr_Primitive]> {
   let summary = "1 when a handle is null, else 0";
   let arguments = (ins I64:$handle);
   let results = (outs I64:$is_null);
@@ -334,7 +343,8 @@ def Idr_HandleIsNullOp : Idr_Op<"handle.is_null", [Pure, Idr_CallsRuntime, Idr_P
 
 // Base's getString. It reads the slot, so it stays before the slot's release
 // in the order of IO.
-def Idr_HandleStringOp : Idr_Op<"handle.string", [Idr_CallsRuntime, Idr_Primitive,
+def Idr_HandleStringOp : Idr_Op<"handle.string", [Idr_Runtime<"idris_rt_handle_string">,
+    Idr_Primitive,
     MemoryEffects<[MemRead<Idr_IOResource>]>]> {
   let summary = "the string a string handle holds, with a reference of its own";
   let arguments = (ins I64:$handle);

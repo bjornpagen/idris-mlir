@@ -183,9 +183,10 @@ const llvm::Target *idr::driver::nativeTarget(const llvm::Triple &triple) {
 }
 
 int idr::driver::run(Artifacts &artifacts, mlir::TimingScope &rootTiming) {
-  // The module is parsed with exactly the dialects the frontend writes, so
-  // an op of any other fails to parse. The rest load after. The context
-  // runs the function groups over the functions in parallel unless
+  // The module holds one idr.program, which the pipeline's program passes
+  // run nested on. It is parsed with exactly the dialects the frontend
+  // writes, so an op of any other fails to parse. The rest load after. The
+  // context runs the function groups over the functions in parallel unless
   // --mlir-disable-threading; two compiles of one module are the same bytes
   // either way, since no pass keeps state a worker thread shares.
   mlir::DialectRegistry handoff;

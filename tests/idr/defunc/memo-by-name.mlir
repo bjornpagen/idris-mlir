@@ -12,19 +12,19 @@
 // clock reading is one, and an error's text, the same at every call, is
 // none, though both are IO in the world's order.
 // NEEDS-ACCEPTANCE: the memo sum's printed constructors, as C01's printer writes them.
-// CHECK-DAG: @traced(i64) by_name
+// CHECK-DAG: @traced(i64) label @traced by_name
 // CHECK-DAG: @sized(i64){{[],]}}
 // CHECK-DAG: @shout(){{[],]}}
-// CHECK-DAG: @clocked(i64) by_name
+// CHECK-DAG: @clocked(i64) label @clocked by_name
 // CHECK-DAG: @errtext(i64){{[],]}}
-module {
-  idr.func private @traced(%x: i64) -> i64 attributes {total} {
+idr.program @"memo-by-name" root(@Main.main) stage(higher) {
+  idr.func @traced(%x: i64) -> i64 attributes {total} {
     %w = idr.world.new
     %s = idr.constant "forced\0A" : !idr.str
     %w1 = idr.io.put_str %s, %w
     return %x : i64
   }
-  idr.func private @sized(%n: i64) -> i64 attributes {total} {
+  idr.func @sized(%n: i64) -> i64 attributes {total} {
     %w = idr.world.new
     %z = arith.constant 0 : i64
     %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64, #idr.world>
@@ -33,20 +33,20 @@ module {
     %l = arith.index_cast %d : index to i64
     return %l : i64
   }
-  idr.func private @shout() -> i64 attributes {total} {
+  idr.func @shout() -> i64 attributes {total} {
     %w = idr.world.new
     %s = idr.constant "once\0A" : !idr.str
     %w1 = idr.io.put_str %s, %w
     %c = arith.constant 1 : i64
     return %c : i64
   }
-  idr.func private @clocked(%x: i64) -> i64 attributes {total} {
+  idr.func @clocked(%x: i64) -> i64 attributes {total} {
     %w = idr.world.new
     %t, %w1 = idr.io.clock_monotonic %w
     %r = arith.addi %t, %x : i64
     return %r : i64
   }
-  idr.func private @errtext(%x: i64) -> i64 attributes {total} {
+  idr.func @errtext(%x: i64) -> i64 attributes {total} {
     %w = idr.world.new
     %s, %w1 = idr.io.strerror %x, %w : !idr.str
     return %x : i64

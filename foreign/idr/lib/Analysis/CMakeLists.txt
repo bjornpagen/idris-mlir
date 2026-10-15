@@ -1,7 +1,6 @@
 # The analyses the pass manager caches and invalidates: what the passes
 # ask of the whole module, each immutable once built.
 add_mlir_library(IdrAnalysis
-	References.cpp
 	Effects.cpp
 	Holds.cpp
 	Inline.cpp

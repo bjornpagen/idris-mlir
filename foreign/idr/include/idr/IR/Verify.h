@@ -1,31 +1,33 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The verifier of a program: the module's rules, which the root's
-// symbol-use verifier runs once the module's ops are verified, and the rules
-// of one function, which idr.func's region verifier runs after its body's
-// ops are, in parallel with every other function's. Nothing here keeps a table
-// or an answer beyond one verify, so the verifiers of different functions
-// share nothing they write.
+// The verifier of a program, at the stage its idr.program says: the
+// program's rules (its root, its data types and the cells its reuses build
+// in), which the program's symbol-use verifier runs once every op of it is
+// verified, on one thread; and the rules of one function at its program's
+// stage, which idr.func's region verifier runs after its body's ops are, in
+// parallel with every other function's. A function's rules read the
+// function, the types its values have and its program's stage, and nothing
+// else of the module, so no pass rewriting a sibling function races them;
+// nothing keeps a table or an answer beyond one verify.
 #ifndef IDR_IR_VERIFY_H
 #define IDR_IR_VERIFY_H
 
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Layout.h"
 #include "idr/IR/Ownership.h"
 
-#include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/MapVector.h"
+#include "llvm/ADT/STLFunctionalExtras.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <optional>
-#include <utility>
-#include <variant>
 
 namespace idr {
 
@@ -33,57 +35,47 @@ class TypeGraph;
 
 namespace verify {
 
-// The rules of the module, which its root's symbol-use verifier runs: one
-// public function, the root; every data type a value or a body holds has a body; a box's
-// data type has at most IDRIS_RT_TAG_LIMIT constructors, else the refusal
-// `layout`; a memo sum is held only in a box; containment in place is
-// acyclic; and no array can hold a reference to itself, else the refusal
-// `cycle`.
-mlir::LogicalResult program(mlir::ModuleOp module);
+// The rules of the program: its root is an idr.func of it that takes a
+// world or returns an i64; a memo sum is held only in a box; no array can
+// hold a reference to itself, else the refusal `cycle`; past the higher
+// stage containment in place is acyclic and no data type has a field of a
+// closure or a suspension; and at the owned stage every idr.reuse builds in
+// a cell of its own size. A lowered program is upstream's functions and
+// globals, and its one rule is that its root names a func.func of it.
+mlir::LogicalResult program(ProgramOp program);
 
 // No array can hold a reference to itself, by the cycles of `graph`.
-mlir::LogicalResult knots(mlir::ModuleOp module, const TypeGraph &graph);
+mlir::LogicalResult knots(ProgramOp program, const TypeGraph &graph);
 
-// Whether `op` defines a value of grade own or excl: a result, or an
-// argument of a block of one of its regions. A function is in the owned
-// stage exactly when it or an op in it does.
-bool definesOwned(mlir::Operation *op);
-
-// One pre-order walk of a function's body: the place of every op in it,
-// every value of quantity one in walk order, and whether the function is
-// in the owned stage. Pre-order numbers the ops of one region in block
-// order, so comparing two places orders the ops of a region without
-// touching a block's order cache, which other threads' verifiers read.
-class Numbering {
-public:
-  explicit Numbering(FuncOp fn);
-
-  unsigned place(mlir::Operation *op) const { return places.lookup(op); }
-  llvm::ArrayRef<mlir::Value> linearValues() const { return linear; }
-  bool owned() const { return stage; }
-
-private:
-  llvm::DenseMap<mlir::Operation *, unsigned> places;
-  llvm::SmallVector<mlir::Value> linear;
-  bool stage = false;
-};
+// The rules of one function at its program's stage: what the stage lets
+// its values hold (past higher no closure or suspension, before owned no
+// own or excl grade, at owned no plain value of ours that holds
+// references); closures' flow while they exist; every linear value used at
+// most once on every path; and at owned, the counting rule (owned).
+mlir::LogicalResult function(FuncOp fn);
 
 // Every value of quantity one, a world or an !idr.lin, is used at most
-// once on every path of the function `numbering` walked.
-mlir::LogicalResult linearity(const Numbering &numbering);
+// once on every path of `fn`.
+mlir::LogicalResult linearity(FuncOp fn);
 
 // The owned stage's rule for one function: each reference is consumed
-// exactly once on every path, a view is used only while its owner holds
-// its reference, and every idr.reuse builds in a cell of its own size.
+// exactly once on every path, and a view is used only while what it was
+// read from holds its reference.
 mlir::LogicalResult owned(FuncOp fn);
 
+// Whether at most one region of `branch` runs: each returns straight to
+// the op, as a match's or an scf.if's do, and none to another region.
+bool alternatives(mlir::RegionBranchOpInterface branch);
+
 // The walk of one function in the owned stage: the references each value
-// in scope holds, followed along the ops, through the regions of a match
-// as alternatives that must agree where they meet again, and through the
-// loops over indices and the scf loops idr-tail-loops makes. It lives for
-// one verify of one function, and so do its answers: what it asks of each
-// type is asked once, and the cells' layouts are built at most once, at
-// the first reuse.
+// in scope holds, followed along the ops. Where an op forwards values
+// (forwardedValues: a region branch's entry, a terminator of its regions),
+// an owned value moves on with its reference and a view passes on as a view
+// of what its owner became on the same edge. The regions of an op that
+// return straight to it are alternatives, which must agree on the values
+// from outside where they meet again; any other op's regions may run again
+// or after one another, and each leaves the values from outside as it found
+// them. It lives for one verify of one function, and so do its answers.
 class OwnedWalk {
 public:
   explicit OwnedWalk(FuncOp fn);
@@ -91,24 +83,36 @@ public:
   mlir::LogicalResult check();
 
 private:
-  // The references a value held before a change, so that a match's
-  // regions start from the same state.
+  // The references a value held before a change, so that each region of
+  // an op starts from the same state.
   struct Change {
     mlir::Value value;
     std::optional<int> old;
   };
 
-  // Whether a value of `type` holds a reference, asked once per type
-  // (Owned.cpp).
-  bool counts(mlir::Type type);
+  // What an op with regions forwards, and to where: for each value a
+  // forwarded operand becomes (a result, or an argument of a region's
+  // entry block), the operands forwarded into it; for each forwarded
+  // operand, the values it becomes, one per successor.
+  struct Forwarding {
+    llvm::MapVector<mlir::Value, llvm::SmallVector<mlir::OpOperand *, 2>> into;
+    llvm::DenseMap<mlir::OpOperand *, llvm::SmallVector<mlir::Value, 2>> to;
 
-  // The references in scope (Owned.cpp).
+    void add(mlir::Operation *from);
+    bool forwards(mlir::OpOperand &operand) const { return to.contains(&operand); }
+  };
+
+  // What a value is to the walk (Owned.cpp).
+  bool counts(mlir::Type type);
   bool tracked(mlir::Value value);
+  bool carried(mlir::Value value);
   bool isView(mlir::Value value);
   bool alive(mlir::Value value);
+
+  // The references in scope (Owned.cpp).
   void set(mlir::Value value, int references);
-  void define(mlir::Value value, int references, mlir::Value owner = mlir::Value(),
-              bool borrowed = false);
+  void carry(mlir::Value value);
+  void viewOf(mlir::Value value, llvm::ArrayRef<mlir::Value> from);
   void undo(size_t mark);
   llvm::MapVector<mlir::Value, int> changesSince(size_t mark);
   mlir::InFlightDiagnostic fail(mlir::Operation &op, mlir::Value value, const llvm::Twine &what);
@@ -116,35 +120,44 @@ private:
   mlir::LogicalResult use(mlir::Operation &op, mlir::Value value);
   mlir::LogicalResult settled(mlir::Block &block, mlir::Operation &at);
 
-  // One op (Owned.cpp).
+  // One op without regions (OwnedOps.cpp).
   mlir::LogicalResult visit(mlir::Operation &op);
-  ownership::Use useKind(mlir::OpOperand &operand);
-  bool reachesOnlyAtoms(mlir::Value value);
-  mlir::LogicalResult fits(ReuseOp reuse);
+  mlir::LogicalResult regrade(mlir::Operation &op);
+  mlir::LogicalResult loaded(mlir::Operation &op);
+  mlir::LogicalResult exclusive(mlir::Operation &op);
+  mlir::LogicalResult operands(mlir::Operation &op,
+                               const llvm::DenseSet<mlir::OpOperand *> &forwarded);
+  bool storedBy(mlir::OpOperand &operand);
+  bool takesCarried(mlir::OpOperand &operand);
+  llvm::SmallVector<mlir::Value> readBy(mlir::Operation &op,
+                                        const llvm::DenseSet<mlir::OpOperand *> &forwarded);
+  mlir::LogicalResult make(mlir::Operation &op, mlir::Value value,
+                           llvm::ArrayRef<mlir::Value> from);
 
   // Blocks and the ops with regions (OwnedRegions.cpp).
   mlir::FailureOr<bool> walk(mlir::Block &block);
   mlir::FailureOr<bool> walkRegions(mlir::Operation &op);
-  mlir::FailureOr<bool> walkMatch(mlir::Operation &op, mlir::Value scrutinee);
-  mlir::FailureOr<bool> walkIndexLoop(mlir::Operation &op);
-
-  // The scf loops (OwnedLoops.cpp).
-  mlir::Value slotOwner(mlir::Operation *loop, unsigned slot);
-  void passOn(mlir::Value value, mlir::Value owner);
-  mlir::FailureOr<bool> walkLoop(mlir::scf::WhileOp loop);
-  std::variant<unsigned, mlir::Value> viewOf(mlir::Value value, mlir::Block &before);
-  mlir::FailureOr<bool> walkFor(mlir::scf::ForOp loop);
+  mlir::LogicalResult enter(mlir::Operation &op, const Forwarding &forwarding,
+                            mlir::Value input, llvm::ArrayRef<mlir::Value> reads,
+                            llvm::function_ref<bool(mlir::Operation *)> given);
+  mlir::FailureOr<llvm::SmallVector<mlir::Value>>
+  ownersAcross(mlir::Operation &op, const Forwarding &forwarding, mlir::OpOperand &operand,
+               mlir::Value input);
+  bool payload(const Forwarding &forwarding, mlir::Value input);
+  mlir::LogicalResult backEdges(mlir::Operation &op, const Forwarding &forwarding,
+                                const llvm::SmallPtrSetImpl<mlir::Operation *> &reached);
 
   FuncOp fn;
   llvm::DenseMap<mlir::Type, bool> counted;
-  std::optional<Layouts> layouts;
   llvm::DenseMap<mlir::Value, int> held;
-  llvm::DenseMap<mlir::Value, mlir::Value> owners;
+  // The values that hold a reference their plain type cannot say, on its
+  // way across the boundary with upstream's buffer ops.
+  llvm::DenseSet<mlir::Value> transit;
+  // For each view, the values that hold the references it was read from:
+  // it is alive while each of them is. None: it is alive throughout, a
+  // borrowed parameter, which its caller keeps alive, or read from one.
+  llvm::DenseMap<mlir::Value, llvm::SmallVector<mlir::Value, 1>> owners;
   llvm::SmallVector<Change> log;
-  // For each loop, the owner of each borrowed slot.
-  llvm::DenseMap<mlir::Operation *, llvm::SmallVector<mlir::Value>> loops;
-  // The match results that pass a borrowed slot on, with its owner.
-  llvm::DenseMap<mlir::Value, mlir::Value> passedOn;
 };
 
 } // namespace verify

@@ -20,12 +20,19 @@ bool buildsBox(Operation *op) {
   return isa_and_nonnull<ConOp, ReuseOp>(op) && isa<BoxType>(unrestricted(op->getResult(0).getType()));
 }
 
-// The operands of the box an idr.con or idr.reuse builds that are its
-// fields: an idr.reuse takes the cell it reuses first.
-MutableArrayRef<OpOperand> fieldsOf(Operation *op) {
+// The value an idr.con or idr.reuse builds its field `index` of, or null
+// for a hole, and how many fields its constructor has.
+Value fieldOf(Operation *op, unsigned index) {
   if (auto con = dyn_cast<ConOp>(op))
-    return con.getFieldsMutable();
-  return cast<ReuseOp>(op).getFieldsMutable();
+    return con.getField(index);
+  return cast<ReuseOp>(op).getField(index);
+}
+
+size_t fieldCount(Operation *op) {
+  if (auto con = dyn_cast<ConOp>(op))
+    return con.getDataType().getCtor(static_cast<unsigned>(con.getTag())).fields.size();
+  auto reuse = cast<ReuseOp>(op);
+  return reuse.getDataType().getCtor(static_cast<unsigned>(reuse.getTag())).fields.size();
 }
 
 } // namespace
@@ -64,11 +71,13 @@ std::optional<Modulo> moduloAt(Block &block, FuncOp fn) {
   Operation *built = terminator->getPrevNode();
   if (!passesOnPrevious(terminator) || !buildsBox(built))
     return std::nullopt;
-  for (auto [index, field] : llvm::enumerate(fieldsOf(built))) {
+  for (unsigned index = 0, e = static_cast<unsigned>(fieldCount(built)); index < e; ++index) {
+    Value source = fieldOf(built, index);
+    if (!source)
+      continue;
     SmallVector<Operation *, 2> grades;
-    Value source = field.get();
     while (Operation *def = source.getDefiningOp()) {
-      if (!isa<LinEnterOp, LinUseOp>(def) || !def->hasOneUse())
+      if (!def->hasTrait<ResultCarriesOperand>() || !def->hasOneUse())
         break;
       grades.push_back(def);
       source = def->getOperand(0);
@@ -82,7 +91,7 @@ std::optional<Modulo> moduloAt(Block &block, FuncOp fn) {
       movable = movable &&
                 (llvm::is_contained(grades, op) || (isMemoryEffectFree(op) && isSpeculatable(op)));
     if (movable)
-      return Modulo{call, built, static_cast<unsigned>(index), &field, std::move(grades)};
+      return Modulo{call, built, index, std::move(grades)};
   }
   return std::nullopt;
 }

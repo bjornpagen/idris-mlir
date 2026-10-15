@@ -7,17 +7,17 @@
 // inlines them: each dispatch then meets the constructor the inlined body
 // built and folds to a direct call, inlined in turn. No call of the chain
 // is left.
-module {
-  idr.func private @add(%a: i64, %x: i64) -> i64 attributes {total} {
+idr.program @chain root(@Main.main) stage(higher) {
+  idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64
     return %y : i64
   }
-  idr.func private @curry(%a: i64, %x: i64) -> !idr.fn<(i64) -> i64> attributes {total} {
+  idr.func @curry(%a: i64, %x: i64) -> !idr.fn<(i64) -> i64> attributes {total} {
     %s = arith.addi %a, %x : i64
     %f = idr.closure @add(%s) : (i64) -> !idr.fn<(i64) -> i64>
     return %f : !idr.fn<(i64) -> i64>
   }
-  idr.func private @mk(%a: i64) -> !idr.fn<(i64) -> !idr.fn<(i64) -> i64>> attributes {total} {
+  idr.func @mk(%a: i64) -> !idr.fn<(i64) -> !idr.fn<(i64) -> i64>> attributes {total} {
     %f = idr.closure @curry(%a) : (i64) -> !idr.fn<(i64) -> !idr.fn<(i64) -> i64>>
     return %f : !idr.fn<(i64) -> !idr.fn<(i64) -> i64>>
   }

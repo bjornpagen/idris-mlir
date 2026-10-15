@@ -20,12 +20,12 @@
 // CHECK-NEXT: match_lit
 // CHECK: call @[[PMK:pmk\.raise\.[0-9a-f]+]](
 // CHECK: call @[[PMK]](
-module {
-  idr.func private @add(%a: i64, %x: i64) -> i64 attributes {total} {
+idr.program @"not-raised" root(@Main.main) stage(higher) {
+  idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64
     return %y : i64
   }
-  idr.func private @mk(%a: i64, %k: i64) -> !idr.fn<(i64) -> (i64)> {
+  idr.func @mk(%a: i64, %k: i64) -> !idr.fn<(i64) -> (i64)> {
     %r = idr.match_lit %k : i64 -> (!idr.fn<(i64) -> (i64)>) {
     case 0 {
       %v = idr.closure @add(%a) : (i64) -> !idr.fn<(i64) -> (i64)>
@@ -40,7 +40,7 @@ module {
     }
     return %r : !idr.fn<(i64) -> (i64)>
   }
-  idr.func private @pmk(%a: i64, %k: i64) -> !idr.fn<(i64) -> (i64)> attributes {total} {
+  idr.func @pmk(%a: i64, %k: i64) -> !idr.fn<(i64) -> (i64)> attributes {total} {
     %r = idr.match_lit %k : i64 -> (!idr.fn<(i64) -> (i64)>) {
     case 0 {
       %v = idr.closure @add(%a) : (i64) -> !idr.fn<(i64) -> (i64)>

@@ -5,19 +5,19 @@
 // the closure grows on every iteration, so f is no static parameter of
 // @iter, and the loop is not specialized on it however static the first
 // closure is: @iter is still called, and every call reaches one function.
-module {
-  idr.func private @Main.inc(%x: i64) -> i64 attributes {total} {
+idr.program @"growing-function" root(@Main.main) stage(higher) {
+  idr.func @Main.inc(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64
     %y = arith.addi %x, %c1 : i64
     return %y : i64
   }
-  idr.func private @Main.after(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 attributes {total} {
+  idr.func @Main.after(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 attributes {total} {
     %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
     %c1 = arith.constant 1 : i64
     %z = arith.addi %y, %c1 : i64
     return %z : i64
   }
-  idr.func private @Main.iter(%f: !idr.fn<(i64) -> (i64)>, %n: i64, %x: i64) -> i64 attributes {total} {
+  idr.func @Main.iter(%f: !idr.fn<(i64) -> (i64)>, %n: i64, %x: i64) -> i64 attributes {total} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>

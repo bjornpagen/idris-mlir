@@ -12,24 +12,17 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
 
-#include <mutex>
-
 using namespace mlir;
 
-namespace idr {
-
-namespace identities {
-
-bool owns(Type type) { return gradeOf(type).permission != Permission::Plain; }
+namespace idr::identities {
 
 SmallVector<unsigned, 1> candidates(FuncOp fn) {
   SmallVector<unsigned, 1> found;
-  if (fn.getNumResults() != 1)
+  if (fn.getNumResults() != 1 || fn.getProgram().getStage() >= Stage::Owned)
     return found;
   ArrayRef<Type> arguments = fn.getArgumentTypes();
   Type result = fn.getResultTypes().front();
-  if (owns(result) || llvm::any_of(arguments, owns) ||
-      llvm::any_of(arguments, [](Type type) { return isWorld(type); }))
+  if (llvm::any_of(arguments, [](Type type) { return isWorld(type); }))
     return found;
   for (auto [index, type] : llvm::enumerate(arguments))
     if (unrestricted(type) == unrestricted(result))
@@ -37,19 +30,19 @@ SmallVector<unsigned, 1> candidates(FuncOp fn) {
   return found;
 }
 
-Parts::Parts(Type argument) { parts.push_back({0, {}, 0, 0, unrestricted(argument)}); }
+Parts::Parts(Type argument) {
+  parts.push_back({0, std::nullopt, 0, 0, unrestricted(argument)});
+}
 
-unsigned Parts::step(unsigned parent, StringAttr ctor, unsigned index, Type type) {
-  auto [it, inserted] = steps.try_emplace(std::make_tuple(parent, ctor, index),
+unsigned Parts::step(unsigned parent, std::optional<unsigned> tag, unsigned index, Type type) {
+  auto [it, inserted] = steps.try_emplace(std::make_tuple(parent, tag, index),
                                           static_cast<unsigned>(parts.size()));
   if (inserted)
-    parts.push_back({parent, ctor, index, parts[parent].depth + 1, unrestricted(type)});
+    parts.push_back({parent, tag, index, parts[parent].depth + 1, unrestricted(type)});
   return it->second;
 }
 
-SmallVector<std::optional<unsigned>>
-givesBackOf(ArrayRef<FuncOp> component,
-            llvm::function_ref<std::optional<unsigned>(StringAttr)> outside) {
+SmallVector<std::optional<unsigned>> givesBackOf(ArrayRef<FuncOp> component, Outside outside) {
   Members members;
   for (FuncOp fn : component)
     members[fn.getSymNameAttr()] = fn;
@@ -71,7 +64,7 @@ givesBackOf(ArrayRef<FuncOp> component,
       StringAttr callee = call.getCalleeAttr().getAttr();
       if (members.contains(callee) || assumed.contains(callee))
         return;
-      if (std::optional<unsigned> given = outside(callee))
+      if (std::optional<unsigned> given = outside(callee).givesBack)
         assumed[callee] = {*given};
     });
 
@@ -85,7 +78,7 @@ givesBackOf(ArrayRef<FuncOp> component,
   SmallVector<Walked, 0> walked(walkable.size());
   for (auto [slot, at] : llvm::enumerate(walkable)) {
     FuncOp fn = component[at];
-    walked[slot].record.emplace(fn, assumed.find(fn.getSymNameAttr())->second, members);
+    walked[slot].record.emplace(fn, assumed.find(fn.getSymNameAttr())->second, members, outside);
     fn.walk([&](CallOp call) {
       StringAttr callee = call.getCalleeAttr().getAttr();
       if (members.contains(callee))
@@ -129,35 +122,4 @@ givesBackOf(ArrayRef<FuncOp> component,
   return out;
 }
 
-} // namespace identities
-
-Identities::Identities(Operation *, AnalysisManager &) {}
-
-Identities::~Identities() = default;
-
-bool Identities::isInvalidated(const AnalysisManager::PreservedAnalyses &pa) const {
-  return !pa.isPreserved<Identities>();
-}
-
-void Identities::solve(ArrayRef<FuncOp> component) {
-  auto outside = [&](StringAttr callee) -> std::optional<unsigned> {
-    std::shared_lock lock(mutex);
-    if (auto it = found.find(callee); it != found.end())
-      return it->second;
-    return std::nullopt;
-  };
-  SmallVector<std::optional<unsigned>> given = identities::givesBackOf(component, outside);
-  std::unique_lock lock(mutex);
-  for (auto [fn, each] : llvm::zip_equal(component, given))
-    if (each)
-      found[FuncOp(fn).getSymNameAttr()] = *each;
-}
-
-std::optional<unsigned> Identities::givesBack(StringAttr function) const {
-  std::shared_lock lock(mutex);
-  if (auto it = found.find(function); it != found.end())
-    return it->second;
-  return std::nullopt;
-}
-
-} // namespace idr
+} // namespace idr::identities

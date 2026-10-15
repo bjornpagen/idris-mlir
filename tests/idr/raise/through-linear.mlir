@@ -8,16 +8,16 @@
 // directly, which it inlines: nothing is called.
 !IORes = !idr.data<"IORes", plain [@MkIORes(i64, !idr.world)]>
 !IO = !idr.data<"IO", plain [@MkIO(!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)]>
-module {
-  idr.func private @put(%n: i64, %w: !idr.world) -> !IORes attributes {total} {
+idr.program @"through-linear" root(@Main.main) stage(higher) {
+  idr.func @put(%n: i64, %w: !idr.world) -> !IORes attributes {total} {
     %w1 = idr.io.put_int signed %n, %w : i64
-    %r = idr.con @MkIORes(%n, %w1) : (i64, !idr.world) -> !IORes
+    %r = idr.con !IORes @MkIORes(%n : i64, %w1 : !idr.world)
     return %r : !IORes
   }
-  idr.func private @greet(%n: i64) -> !IO attributes {total} {
+  idr.func @greet(%n: i64) -> !IO attributes {total} {
     %k = idr.closure @put(%n) : (i64) -> !idr.fn<(!idr.world) -> (!IORes)>
     %k_lin = idr.lin.enter %k : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>
-    %io = idr.con @MkIO(%k_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>) -> !IO
+    %io = idr.con !IO @MkIO(%k_lin : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)
     return %io : !IO
   }
   idr.func @Main.main(%w: !idr.world) -> !IORes {
@@ -26,7 +26,7 @@ module {
     %io = idr.call @greet(%n) : (i64) -> !IO
     %in = idr.lin.enter %io : !idr.lin<!IO>
     %out = idr.lin.use %in : !idr.lin<!IO>
-    %f = idr.field %out[@MkIO, 0] : !IO -> !idr.fn<(!idr.world) -> (!IORes)>
+    %f = idr.field %out : !IO @MkIO[0] -> !idr.fn<(!idr.world) -> (!IORes)>
     %r = idr.apply %f(%w1) : !idr.fn<(!idr.world) -> (!IORes)>
     return %r : !IORes
   }

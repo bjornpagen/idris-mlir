@@ -8,9 +8,7 @@
 // asked for it, so every schedule builds the same function: each op it
 // adds takes the location of the parameter it replaces. A call of the
 // owner in it with the node's own key, a fixed parameter passed on
-// unchanged, becomes the node's own call when the node's own redirect walk
-// runs, as it is built: that, and the finite supply of keys the binding
-// times allow, is why specialization ends.
+// unchanged, becomes the node's own call when its first turn redirects it.
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/Specialize.h"
 
@@ -34,7 +32,6 @@ FailureOr<idr::FuncOp> buildSpec(idr::FuncOp from, SpecKeyAttr key, StringAttr n
   // it; what it may do is written once its component is final.
   auto clone = cast<idr::FuncOp>(from->clone());
   clone.setSymName(name.getValue());
-  clone.setPrivate();
   clone.removeEffectsAttr();
 
   SmallVector<unsigned> positions;

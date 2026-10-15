@@ -38,10 +38,10 @@ readInt = go 0
 run : Int -> (List (Nat, Nat), List Int)
 run k = unrestricted $ withVec 3 (the Int 7) (\v =>
   let d0 # a0 = dims v
-      d1 # a1 = dims (reserve a0 1 0)
-      d2 # a2 = dims (reserve a1 3 0)
-      d3 # a3 = dims (reserve a2 (cast (the Int (-5))) 0)
-      d4 # a4 = dims (reserve a3 (cast k) 0)
+      d1 # a1 = dims (reserve a0 1)
+      d2 # a2 = dims (reserve a1 3)
+      d3 # a3 = dims (reserve a2 (cast (the Int (-5))))
+      d4 # a4 = dims (reserve a3 (cast k))
       d5 # a5 = dims (pushFrom a4 1 k)
       d6 # a6 = dims (push a5 (k + 1))
       MkBang (n ** f) = Vec.freeze a6

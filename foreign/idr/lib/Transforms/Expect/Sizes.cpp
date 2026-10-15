@@ -20,7 +20,10 @@ LogicalResult largestFunction(ModuleOp module, AnalysisManager &, StringRef argu
   if (argument.getAsInteger(10, bound) || bound < 0)
     return fail(module.getLoc(), property) << "name the bound, as largest-function=<n>";
   bool held = true;
-  for (FuncOp fn : module.getOps<FuncOp>()) {
+  for (FunctionOpInterface each : functionsOf(module)) {
+    auto fn = dyn_cast<FuncOp>(each.getOperation());
+    if (!fn)
+      continue;
     int64_t size = inlineSize(fn);
     if (size <= bound)
       continue;

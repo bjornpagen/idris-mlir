@@ -3,26 +3,30 @@
 // The escape analysis of boxes: which cells can outlive the frame that
 // builds them.
 //
-// The rules, by use, for a value that may hold a cell:
-//   - forwarded by a region branch (a yield to its match's results, the
-//     initial values and terminators of an scf.while to its arguments and
-//     results), to an arith.select's result, or into and out of a linear
-//     type: what reaches the value it goes to, in the same way. Linearity
-//     has no runtime form, and a value used once may still be used where it
+// The rules, by use, for a value that may hold a cell, read from the
+// reference edges of the use's op (idr/IR/Flow.h):
+//   - moved or read whole into a value (forwarded by a branch or a region
+//     branch, chosen by a select, handed into or out of a linear type):
+//     what reaches the value it goes to, in the same way. Linearity has no
+//     runtime form, and a value used once may still be used where it
 //     escapes;
-//   - read (idr.field, the fields a match binds): what is reachable from it
-//     reaches what the read gives; its own reference reaches nothing, and
-//     idr.tag reads nothing that holds one;
-//   - stored in a constructor: everything reachable from it, its own
-//     reference too, is reachable from the constructor's value;
-//   - taken apart by a match of quantity one: the match leaves the cell to
+//   - read out of as a part (a field read, the fields a match binds): what
+//     is reachable from it reaches what the read gives; its own reference
+//     reaches nothing;
+//   - moved into a part of a value (stored in a constructor): everything
+//     reachable from it, its own reference too, is reachable from that
+//     value. A part of a value this analysis does not follow (an array, a
+//     tensor) is memory it cannot see, so the cell escapes;
+//   - only read while the op runs (a use its op declares no edge for, as
+//     idr.tag's): nothing;
+//   - dispatched on by a match of quantity one: the match leaves the cell to
 //     build in again, so its own reference goes with it;
 //   - passed to a call: it escapes when that parameter's summary does. A
 //     cell passed to a parameter that does not escape is live only while
 //     the call runs, inside the caller's frame;
-//   - returned, or used by any op this analysis does not know: it escapes.
-//     A returned cell is in a frame that is gone whatever the caller does
-//     with it, so the return is never the callers' to decide.
+//   - returned, given up, or used by an op that declares no flow: it
+//     escapes. A returned cell is in a frame that is gone whatever the
+//     caller does with it, so the return is never the callers' to decide.
 //
 // The cell an idr.con builds lives in one stack slot per con, in its
 // function's entry block. So it also escapes when the con may run again in
@@ -41,12 +45,12 @@
 #include "idr/Analysis/Escapes.h"
 
 #include "idr/Analysis/Tail.h"
+#include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/Analysis/DataFlow/DeadCodeAnalysis.h"
 #include "mlir/Analysis/DataFlow/SparseAnalysis.h"
-#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Iterators.h"
 #include "llvm/ADT/STLExtras.h"
@@ -154,33 +158,15 @@ bool together(const DenseMap<Operation *, unsigned> &component, Operation *a, Op
   return at != component.end() && bt != component.end() && at->second == bt->second;
 }
 
-// The scf.while ops around `con`, innermost first, which may run it again
-// in its frame. Nothing when the con is somewhere else than in regions of
-// matches and loops of one block each, in a function of `module`.
-std::optional<SmallVector<Operation *, 2>> loopsAround(ConOp con, Operation *module) {
-  SmallVector<Operation *, 2> loops;
-  for (Operation *op = con;; op = op->getParentOp()) {
-    Region *region = op->getParentRegion();
-    if (!region || !region->hasOneBlock())
-      return std::nullopt;
-    Operation *parent = region->getParentOp();
-    if (isa<FuncOp>(parent) && parent->getParentOp() == module)
-      return loops;
-    if (isa<scf::WhileOp>(parent))
-      loops.push_back(parent);
-    else if (!isa<MatchOp, MatchLitOp>(parent))
-      return std::nullopt;
-  }
-}
-
 // The rules above, on upstream's backward base. The base forwards along
-// region branches; the ops whose rule is not the base's are taken before it.
-class Flow : public SparseBackwardDataFlowAnalysis<EscapeLattice> {
+// branches and region branches; every other op's uses are what its edges
+// say, and a call's are the callee's summaries.
+class Solve : public SparseBackwardDataFlowAnalysis<EscapeLattice> {
 public:
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(Flow)
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(Solve)
 
-  Flow(DataFlowSolver &solver, SymbolTableCollection &unresolved, SymbolTable &symbols,
-       const DenseMap<Operation *, unsigned> &component)
+  Solve(DataFlowSolver &solver, SymbolTableCollection &unresolved, SymbolTable &symbols,
+        const DenseMap<Operation *, unsigned> &component)
       : SparseBackwardDataFlowAnalysis(solver, unresolved), symbols(symbols),
         component(component) {}
 
@@ -206,16 +192,17 @@ private:
   void reach(EscapeLattice *lattice, const Escape &update) {
     propagateIfChanged(lattice, lattice->meet(update));
   }
+  void follow(Operation *op, const FlowEdges::Edge &edge);
   void visitCall(CallOp call);
 
   SymbolTable &symbols;
   const DenseMap<Operation *, unsigned> &component;
 };
 
-LogicalResult Flow::initialize(Operation *top) {
+LogicalResult Solve::initialize(Operation *top) {
   // The base visits an op only where its block is executable. Every block
   // is: the frame question is asked of every function, called from this
-  // module or not, as the rules above read every use.
+  // program or not, as the rules above read every use.
   top->walk([&](Block *block) {
     auto *live = getOrCreate<Executable>(getProgramPointBefore(block));
     propagateIfChanged(live, live->setToLive());
@@ -230,7 +217,7 @@ LogicalResult Flow::initialize(Operation *top) {
   return failure(walked.wasInterrupted());
 }
 
-LogicalResult Flow::visit(ProgramPoint *point) {
+LogicalResult Solve::visit(ProgramPoint *point) {
   if (point->isBlockStart())
     return success();
   Operation *op = point->getPrevOp();
@@ -248,78 +235,100 @@ LogicalResult Flow::visit(ProgramPoint *point) {
   Escape update;
   update.shallow.loops.push_back(loop);
   update.deep.loops.push_back(loop);
-  for (Value operand : op->getOperands())
-    if (holdsCells(operand.getType()))
-      reach(getLatticeElement(operand), update);
+  forwardedValues(op, [&](OpOperand &use, Value) {
+    if (holdsCells(use.get().getType()))
+      reach(getLatticeElement(use.get()), update);
+  });
   return success();
 }
 
-LogicalResult Flow::visitOperation(Operation *op, ArrayRef<EscapeLattice *> operands,
-                                   ArrayRef<const EscapeLattice *> results) {
-  auto each = [&](const Escape &update) {
-    for (auto [operand, lattice] : llvm::zip(op->getOperands(), operands))
-      if (holdsCells(operand.getType()))
-        reach(lattice, update);
-  };
-  if (isa<TagOp>(op))
-    return success();
-  if (isa<FieldOp>(op)) {
-    Escape update;
-    // What the read gives is reachable from the scrutinee only when it
-    // holds a cell; a word read out of it reaches nothing.
-    if (holdsCells(op->getResult(0).getType()))
-      update.deep = results[0]->getValue().deep;
-    each(update);
-    return success();
-  }
-  if (isa<ConOp>(op)) {
-    Escape update;
-    update.shallow = results[0]->getValue().deep;
-    update.deep = results[0]->getValue().deep;
-    each(update);
-    return success();
-  }
-  if (isa<arith::SelectOp, LinEnterOp, LinUseOp>(op)) {
-    const Escape &result = results[0]->getValue();
-    Escape update;
-    update.shallow = part(op->getResult(0), result, Mode::Shallow);
-    update.deep = result.deep;
-    each(update);
-    return success();
-  }
-  each(lost());
-  return success();
-}
-
-// The one operand of a region branch the base does not forward that holds
-// a cell is a match's scrutinee: its case regions' arguments are its
-// fields.
-void Flow::visitBranchOperand(OpOperand &operand) {
-  Value value = operand.get();
-  if (!holdsCells(value.getType()))
+// What one reference edge of `op` makes of the value it moves or reads, from
+// the state of where it goes. A value goes whole into another (what reaches
+// that one reaches it, its own reference as that one's own), into a part of
+// another (all of it is reachable from that one), or out of a part of it
+// (only what is reachable from it reaches what the read gives).
+void Solve::follow(Operation *op, const FlowEdges::Edge &edge) {
+  using Kind = FlowEdges::Edge::Kind;
+  if (edge.kind == Kind::Dispatch) {
+    for (Value arg : cast<CallOpInterface>(edge.call).getArgOperands())
+      if (holdsCells(arg.getType()))
+        setToExitState(getLatticeElement(arg));
     return;
-  EscapeLattice *lattice = getLatticeElement(value);
-  auto match = dyn_cast<MatchOp>(operand.getOwner());
-  if (!match)
+  }
+  Value source = edge.from.getValue();
+  if ((edge.kind != Kind::Flow && edge.kind != Kind::Release) || !source ||
+      !holdsCells(source.getType()))
+    return;
+  EscapeLattice *lattice = getLatticeElement(source);
+  bool outOfPart = edge.from.kind == FlowPoint::Kind::Part;
+  Value target = edge.to.getValue();
+  if (edge.kind == Kind::Release || !target)
     return setToExitState(lattice);
+  if (!holdsCells(target.getType())) {
+    // A word, a string, read out of a part holds no cell; anything moved
+    // into what this analysis does not follow is memory it cannot see.
+    if (!outOfPart)
+      setToExitState(lattice);
+    return;
+  }
+  const Escape &there = getOrCreateFor<EscapeLattice>(getProgramPointAfter(op), target)->getValue();
   Escape update;
-  update.shallow.escapes = isBox(value.getType()) && quantityOf(value.getType()) == Quantity::One;
-  ProgramPoint *after = getProgramPointAfter(match);
-  for (Region &region : match.getRegions())
-    for (BlockArgument field : region.getArguments())
-      if (holdsCells(field.getType()))
-        update.deep.add(getOrCreateFor<EscapeLattice>(after, field)->getValue().deep);
+  update.deep = there.deep;
+  if (!outOfPart)
+    update.shallow = edge.to.kind == FlowPoint::Kind::Part ? there.deep
+                                                           : part(target, there, Mode::Shallow);
   reach(lattice, update);
 }
 
-void Flow::visitCallOperand(OpOperand &operand) {
+LogicalResult Solve::visitOperation(Operation *op, ArrayRef<EscapeLattice *> operands,
+                                    ArrayRef<const EscapeLattice *>) {
+  if (!declaresFlow(op)) {
+    for (auto [operand, lattice] : llvm::zip(op->getOperands(), operands))
+      if (holdsCells(operand.getType()))
+        setToExitState(lattice);
+    return success();
+  }
+  FlowEdges edges;
+  flowEdgesOf(op, edges);
+  for (const FlowEdges::Edge &edge : edges.edges())
+    if (edge.carries(Carrier::Reference))
+      follow(op, edge);
+  return success();
+}
+
+// An operand of a region branch, or of a terminator of one, that the base
+// does not forward: what the op's edges say of it, as of any use. A box of
+// quantity one a region branch dispatches on dies there, and its cell is
+// left to build in again.
+void Solve::visitBranchOperand(OpOperand &operand) {
+  Value value = operand.get();
+  if (!holdsCells(value.getType()))
+    return;
+  Operation *op = operand.getOwner();
+  auto flow = dyn_cast<FlowOpInterface>(op);
+  if (!flow)
+    return setToExitState(getLatticeElement(value));
+  FlowEdges edges;
+  flow.getFlowEdges(edges);
+  for (const FlowEdges::Edge &edge : edges.edges())
+    if (edge.carries(Carrier::Reference) && edge.from.getValue() == value)
+      follow(op, edge);
+  if (isa<RegionBranchOpInterface>(op) && isBox(value.getType()) &&
+      quantityOf(value.getType()) == Quantity::One) {
+    Escape update;
+    update.shallow.escapes = true;
+    reach(getLatticeElement(value), update);
+  }
+}
+
+void Solve::visitCallOperand(OpOperand &operand) {
   if (holdsCells(operand.get().getType()))
     setToExitState(getLatticeElement(operand.get()));
 }
 
-// Every callee is a function of the module with a body: a call's symbol
+// Every callee is a function of the program with a body: a call's symbol
 // use is verified, and no function is without one.
-void Flow::visitCall(CallOp call) {
+void Solve::visitCall(CallOp call) {
   auto callee = symbols.lookup<FuncOp>(call.getCalleeAttr().getAttr());
   bool ends = tail::inTailPosition(call) &&
               together(component, call->getParentOfType<FuncOp>(), callee);
@@ -343,12 +352,11 @@ void Flow::visitCall(CallOp call) {
 
 } // namespace
 
-Escapes::Escapes(Operation *op, AnalysisManager &am) : module(op) {
-  SymbolTable &symbols = am.getAnalysis<SymbolTable>();
-  findCycles(cast<ModuleOp>(op), symbols);
-  // One solve over the module: the parameters' summaries, the cons and the
+Escapes::Escapes(Operation *op, AnalysisManager &am) : program(op) {
+  findCycles(am);
+  // One solve over the program: the parameters' summaries, the cons and the
   // loops are one fixpoint, so nothing is solved twice.
-  solver.load<Flow>(unresolved, symbols, component);
+  solver.load<Solve>(unresolved, am.getAnalysis<SymbolTable>(), component);
   status = solver.initializeAndRun(op);
 }
 
@@ -357,7 +365,7 @@ bool Escapes::isInvalidated(const AnalysisManager::PreservedAnalyses &pa) const 
 }
 
 bool Escapes::mayEscape(ConOp con) const {
-  std::optional<SmallVector<Operation *, 2>> loops = loopsAround(con, module);
+  std::optional<SmallVector<Operation *, 2>> loops = loopsAround(con);
   if (!loops)
     return true;
   Value cell = con.getResult();

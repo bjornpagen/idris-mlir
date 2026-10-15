@@ -8,12 +8,12 @@
 // CHECK-NOT: {{(idr\.| )con }}
 // CHECK: call @{{sumN\.spec\.[0-9a-f]+}}(
 !P = !idr.data<"P", plain [@MkP(i64, i64)]>
-module {
-  idr.func private @sumN(%p: !P, %q: !P, %n: i64) -> i64 {
+idr.program @twice root(@Main.main) stage(first) {
+  idr.func @sumN(%p: !P, %q: !P, %n: i64) -> i64 {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
-      %a = idr.field %p[@MkP, 0] : !P -> i64
-      %b = idr.field %q[@MkP, 1] : !P -> i64
+      %a = idr.field %p : !P @MkP[0] -> i64
+      %b = idr.field %q : !P @MkP[1] -> i64
       %s = arith.addi %a, %b : i64
       idr.yield %s : i64
     }
@@ -26,8 +26,8 @@ module {
     }
     return %r : i64
   }
-  idr.func private @use(%a: i64, %b: i64) -> i64 {
-    %p = idr.con @MkP(%a, %b) : (i64, i64) -> !P
+  idr.func @use(%a: i64, %b: i64) -> i64 {
+    %p = idr.con !P @MkP(%a : i64, %b : i64)
     %r = idr.call @sumN(%p, %p, %a) : (!P, !P, i64) -> i64
     return %r : i64
   }

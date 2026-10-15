@@ -96,12 +96,8 @@ private:
     unsigned kept = op->getNumResults();
     SmallVector<Type> types(op->getResultTypes());
     llvm::append_range(types, consumer->getResultTypes());
-    SmallVector<Region *> regions = llvm::map_to_vector(
-        op.getRegions(), [](Region &region) { return &region; });
-    rewriter.setInsertionPoint(op);
-    Match fresh =
-        canon::rebuildMatch(rewriter, op, types, llvm::to_vector(op.getCases()), regions);
-    for (Region &region : fresh.getRegions()) {
+    Operation *fresh = canon::rebuildMatch(rewriter, op, types);
+    for (Region &region : fresh->getRegions()) {
       auto yield = dyn_cast<YieldOp>(region.front().getTerminator());
       if (!yield)
         continue;

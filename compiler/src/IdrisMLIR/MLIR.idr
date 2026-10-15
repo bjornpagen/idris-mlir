@@ -8,10 +8,11 @@
 ||| which the dialect's generated C++ parser reads. The handoff is MLIR
 ||| bytecode (IdrisMLIR.MLIR.Bytecode), which keeps every attribute and type
 ||| as that text, the bytecode's own encoding of one a dialect gives no
-||| other, and every op as its parts: name, operands, inherent attributes
-||| (its properties), regions, discardable attributes, result types and
-||| location. The generated builders make the ops (IdrisMLIR.Dialect.*). An
-||| op's text, in MLIR's generic form, is only what a content key hashes.
+||| other, and every op as its parts: name, operands, attributes (its
+||| inherent ones, which become its properties when it is made, with its
+||| discardable ones), regions, result types and location. The generated
+||| builders make the ops (IdrisMLIR.Dialect.*). An op's text, in MLIR's
+||| generic form, is only what a content key hashes.
 module IdrisMLIR.MLIR
 
 import public IdrisMLIR.MLIR.Text
@@ -179,9 +180,8 @@ attrIf : String -> (a -> MlirAttr) -> Maybe a -> List NamedAttr
 attrIf name make = maybe [] (\x => [(name, make x)])
 
 ||| An attribute dictionary between `opening` and `closing`, after a space,
-||| if it has any entries. The generated printers write an op's `attr-dict`
-||| with it.
-export covering
+||| if it has any entries.
+covering
 dictionary : String -> String -> List NamedAttr -> String
 dictionary opening closing [] = ""
 dictionary opening closing as = " " ++ opening ++ commaSeparated (map entryText as) ++ closing

@@ -1,12 +1,7 @@
-// RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
-module {
+// RUN: idris-mlir-opt %s --canonicalize --idr-expect=holds=returns=@finite:-2/44/-8446744073709551616,returns=@nan:_,crash-sites=@nan:1 -o /dev/null
+idr.program @"to-int" root(@nan) stage(first) {
   // Finite constants truncate toward zero and wrap to the result width.
-  // CHECK-LABEL: idr.func private @finite
-  // CHECK-DAG: %[[A:.*]] = arith.constant -2 : i64
-  // CHECK-DAG: %[[B:.*]] = arith.constant 44 : i8
-  // CHECK-DAG: %[[C:.*]] = arith.constant -8446744073709551616 : i64
-  // CHECK: return %[[A]], %[[B]], %[[C]]
-  idr.func private @finite() -> (i64, i8, i64) {
+  idr.func @finite() -> (i64, i8, i64) {
     %a = arith.constant -2.75 : f64
     %b = arith.constant 300.5 : f64
     %c = arith.constant 1.0e19 : f64
@@ -19,12 +14,6 @@ module {
   // because it crashes; a dead cast goes, and so does the guard of a finite
   // constant. A cast of NaN with no guard before it does not fold either:
   // NaN has no Int to fold to.
-  // CHECK-LABEL: idr.func @nan
-  // CHECK: idr.check.finite %{{.*}}, "cast of a non-finite Double"
-  // CHECK-NOT: idr.check.finite
-  // CHECK: %[[R:.*]] = {{(idr\.)?}}to_int %{{.*}} : i64
-  // CHECK-NOT: {{(idr\.| )to_int }}
-  // CHECK: return %[[R]]
   idr.func @nan() -> i64 {
     %n = arith.constant 0x7FF8000000000000 : f64
     %f = arith.constant 1.5 : f64

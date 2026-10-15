@@ -8,8 +8,8 @@
 // CHECK-DAG: llvm.call @idris_rt_array_new(
 // CHECK-DAG: llvm.call @idris_rt_memref_copy(
 // CHECK-DAG: llvm.intr.memcpy
-module {
-  idr.func private @words(%n: index) -> i64 {
+idr.program @"runtime-cells" root(@root) stage(first) {
+  idr.func @words(%n: index) -> i64 {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %e = tensor.empty(%n) : tensor<?xi64>
@@ -27,7 +27,7 @@ module {
     %s = arith.addi %before, %after : i64
     return %s : i64
   }
-  idr.func private @strings(%n: index, %s: !idr.str) -> !idr.str {
+  idr.func @strings(%n: index, %s: !idr.str) -> !idr.str {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %e = tensor.empty(%n) : tensor<?x!idr.str>

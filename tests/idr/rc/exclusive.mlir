@@ -10,29 +10,29 @@
 // list a caller uses again is shared, and the function it then goes to
 // takes its cells apart with the runtime test; where the same function
 // also gets fresh lists, those calls go to a copy specialized on the grade.
-// CHECK-LABEL: idr.func private @build(
+// CHECK-LABEL: idr.func @build(
 // CHECK-SAME: -> !idr.excl<!idr.box<!L>>
-// CHECK-LABEL: idr.func private @bump(
+// CHECK-LABEL: idr.func @bump(
 // CHECK-SAME: %{{.*}}: !idr.excl<!idr.box<!L>>) -> !idr.excl<!idr.box<!L>>
 // A nullary constructor is its atom: its take yields nothing.
-// CHECK: take %{{.*}} @N : !idr.excl<!idr.box<!L>> -> ()
-// CHECK: take %{{.*}} @C : !idr.excl<!idr.box<!L>> -> (!idr.excl<!idr.token>, i64, !idr.excl<!idr.box<!L>>)
-// CHECK-LABEL: idr.func private @bump2(
+// CHECK: take %{{.*}} : !idr.excl<!idr.box<!L>> @N -> ()
+// CHECK: take %{{.*}} : !idr.excl<!idr.box<!L>> @C -> (!idr.excl<!idr.token>, i64, !idr.excl<!idr.box<!L>>)
+// CHECK-LABEL: idr.func @bump2(
 // CHECK-SAME: %{{.*}}: !idr.own<!idr.box<!L>>) -> !idr.excl<!idr.box<!L>>
-// CHECK: take %{{.*}} @C : !idr.own<!idr.box<!L>> -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<!L>>)
+// CHECK: take %{{.*}} : !idr.own<!idr.box<!L>> @C -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<!L>>)
 // The calls of @bump2 with an exclusive list go to a copy of their own,
 // whose takes test no count.
-// CHECK-LABEL: idr.func private @[[EXCL:bump2\.excl\.[0-9a-f]+]](
+// CHECK-LABEL: idr.func @[[EXCL:bump2\.excl\.[0-9a-f]+]](
 // CHECK-SAME: %{{.*}}: !idr.excl<!idr.box<!L>>) -> !idr.excl<!idr.box<!L>>
-// CHECK: take %{{.*}} @C : !idr.excl<!idr.box<!L>> ->
+// CHECK: take %{{.*}} : !idr.excl<!idr.box<!L>> @C ->
 // CHECK: call @[[EXCL]](
 // CHECK-LABEL: idr.func @root(
 // CHECK: share %{{.*}} : !idr.excl<!idr.box<!L>>
 // CHECK: call @[[EXCL]](
 // SHARED: error: expected tests-nothing: idr.take in @bump2 tests a value of '!idr.own<!idr.box<!idr.data<"L"{{.*}}>>>', which is not exclusive
-!L = !idr.data<"L", list [@N(), @C(i64, !idr.box<!idr.data<"L">>)]>
-module {
-  idr.func private @build(%n: i64) -> !idr.box<!L> {
+!L = !idr.data<"L", list [@N() nil, @C(i64, !idr.box<!idr.data<"L">>) cons]>
+idr.program @exclusive root(@root) stage(first) {
+  idr.func @build(%n: i64) -> !idr.box<!L> {
     %r = idr.match_lit %n : i64 -> (!idr.box<!L>) {
     case 0 {
       %e = idr.constant #idr.con<@N, []> : !idr.box<!L>
@@ -42,13 +42,13 @@ module {
       %one = arith.constant 1 : i64
       %m = arith.subi %n, %one : i64
       %t = idr.call @build(%m) : (i64) -> !idr.box<!L>
-      %c = idr.con @C(%n, %t) : (i64, !idr.box<!L>) -> !idr.box<!L>
+      %c = idr.con !idr.box<!L> @C(%n : i64, %t : !idr.box<!L>)
       idr.yield %c : !idr.box<!L>
     }
     }
     return %r : !idr.box<!L>
   }
-  idr.func private @bump(%l: !idr.box<!L>) -> !idr.box<!L> {
+  idr.func @bump(%l: !idr.box<!L>) -> !idr.box<!L> {
     %n = idr.constant #idr.con<@N, []> : !idr.box<!L>
     %r = idr.match %l : !idr.box<!L> -> (!idr.box<!L>) {
     case @N() {
@@ -58,13 +58,13 @@ module {
       %one = arith.constant 1 : i64
       %h2 = arith.addi %h, %one : i64
       %t2 = idr.call @bump(%t) : (!idr.box<!L>) -> !idr.box<!L>
-      %c = idr.con @C(%h2, %t2) : (i64, !idr.box<!L>) -> !idr.box<!L>
+      %c = idr.con !idr.box<!L> @C(%h2 : i64, %t2 : !idr.box<!L>)
       idr.yield %c : !idr.box<!L>
     }
     }
     return %r : !idr.box<!L>
   }
-  idr.func private @bump2(%l: !idr.box<!L>) -> !idr.box<!L> {
+  idr.func @bump2(%l: !idr.box<!L>) -> !idr.box<!L> {
     %n = idr.constant #idr.con<@N, []> : !idr.box<!L>
     %r = idr.match %l : !idr.box<!L> -> (!idr.box<!L>) {
     case @N() {
@@ -74,13 +74,13 @@ module {
       %one = arith.constant 1 : i64
       %h2 = arith.addi %h, %one : i64
       %t2 = idr.call @bump2(%t) : (!idr.box<!L>) -> !idr.box<!L>
-      %c = idr.con @C(%h2, %t2) : (i64, !idr.box<!L>) -> !idr.box<!L>
+      %c = idr.con !idr.box<!L> @C(%h2 : i64, %t2 : !idr.box<!L>)
       idr.yield %c : !idr.box<!L>
     }
     }
     return %r : !idr.box<!L>
   }
-  idr.func private @sum(%l: !idr.box<!L>, %acc: i64) -> i64 {
+  idr.func @sum(%l: !idr.box<!L>, %acc: i64) -> i64 {
     %r = idr.match %l : !idr.box<!L> -> (i64) {
     case @N() {
       idr.yield %acc : i64
@@ -93,7 +93,7 @@ module {
     }
     return %r : i64
   }
-  idr.func private @keep(%l: !idr.box<!L>) -> !idr.box<!L> {
+  idr.func @keep(%l: !idr.box<!L>) -> !idr.box<!L> {
     return %l : !idr.box<!L>
   }
   idr.func @root(%w: !idr.world) -> !idr.world {

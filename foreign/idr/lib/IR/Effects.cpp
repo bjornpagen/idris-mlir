@@ -1,45 +1,70 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What an op does besides computing its results: where a use takes over
-// the reference its value holds, as the op that uses it declares, and what
-// taking it over is to every other pass; the effects of IO on buffers and
-// arrays; and whether an op, with everything in it, only computes or may
-// perform IO.
+// What an op does besides computing its results: which uses take over the
+// reference their value holds, as the op's flow says (lib/IR/Flow.cpp), and
+// what taking it over is to every other pass; and whether an op, with
+// everything in it, only computes or may perform IO.
 
+#include "idr/IR/Flow.h"
+#include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 
-#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
+#include "llvm/ADT/SmallPtrSet.h"
 
 using namespace mlir;
 using namespace idr;
 
-bool idr::consumes(OpOperand &operand, SymbolTable *symbols) {
-  Operation *op = operand.getOwner();
-  // A call takes an argument over unless the callee borrows the parameter:
-  // a borrowed one is a view, plain, where one the callee takes is owned.
-  // Before idr-rc grades the signatures no parameter is owned yet, and
-  // idr-rc's reuse insertion, which runs then, takes every call to consume
-  // its arguments itself; idr-rc reads the callee's grade through its table
-  // while the operands are not yet retyped to it.
-  if (symbols)
-    if (auto call = dyn_cast<CallOp>(op)) {
-      auto fn = symbols->lookup<FuncOp>(call.getCalleeAttr().getAttr());
-      unsigned index = operand.getOperandNumber();
-      return !fn || index >= fn.getArgumentTypes().size() ||
-             isOwned(fn.getArgumentTypes()[index]);
+namespace {
+
+// Whether parameter `index` of `function`, which `use` moves into, takes it
+// over: whether it is owned. idr-rc writes the owned grades into the
+// signatures, and the program becomes owned, before its placement gives
+// the operands their parameters' grades; so while it places, only the
+// callee's signature says, and placement asks with its table, which then
+// decides at any stage. Asked without one, the operand's grade answers: a
+// verified call's operand is at its parameter's grade, and before idr-rc
+// nothing is owned.
+bool ownsParameter(OpOperand &use, FlatSymbolRefAttr function, unsigned index,
+                   SymbolTable *symbols) {
+  if (!symbols)
+    return isOwned(use.get().getType());
+  return isOwned(symbols->lookup<FuncOp>(function.getAttr()).getArgumentTypes()[index]);
+}
+
+// Each use of `op` that takes over the reference its value holds, as the
+// edges of the reference carrier say: a use the op moves somewhere (into a
+// result, a part, a function's result, or a parameter that owns it), a use
+// it ends, and the arguments of a dispatch. A forwarded value moves on with
+// its reference. A use may be named more than once.
+void eachTaken(Operation *op, SymbolTable *symbols, function_ref<void(OpOperand &)> taken) {
+  FlowEdges edges;
+  flowEdgesOf(op, edges);
+  for (const FlowEdges::Edge &edge : edges.edges()) {
+    if (!edge.carries(Carrier::Reference))
+      continue;
+    if (edge.kind == FlowEdges::Edge::Kind::Dispatch) {
+      MutableOperandRange args = cast<CallOpInterface>(edge.call).getArgOperandsMutable();
+      for (unsigned i = 0, n = args.size(); i < n; ++i)
+        taken(args[i]);
+      continue;
     }
-  if (auto consuming = dyn_cast<ConsumingOpInterface>(op))
-    return consuming.consumesOperand(operand.getOperandNumber());
-  // What a loop carries into its next iteration or out of it moves on with
-  // its references. A counted loop's bounds and step are indices.
-  if (isa<scf::YieldOp, scf::WhileOp>(op))
-    return true;
-  if (auto loop = dyn_cast<scf::ForOp>(op))
-    return operand.getOperandNumber() >= loop.getNumControlOperands();
-  if (auto condition = dyn_cast<scf::ConditionOp>(op))
-    return &operand != &condition.getConditionMutable();
-  return false;
+    if (!edge.from.takes())
+      continue;
+    OpOperand &use = *edge.from.operand;
+    if (edge.kind == FlowEdges::Edge::Kind::Flow && edge.to.kind == FlowPoint::Kind::Parameter &&
+        !ownsParameter(use, edge.to.function, edge.to.index, symbols))
+      continue;
+    taken(use);
+  }
+}
+
+} // namespace
+
+bool idr::consumes(OpOperand &operand, SymbolTable *symbols) {
+  bool found = false;
+  eachTaken(operand.getOwner(), symbols, [&](OpOperand &use) { found |= &use == &operand; });
+  return found;
 }
 
 // A Free on the reference resource is what keeps an op that takes an owned
@@ -48,9 +73,13 @@ bool idr::consumes(OpOperand &operand, SymbolTable *symbols) {
 // effects let it be.
 void idr::consumedEffects(
     Operation *op, SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  for (OpOperand &operand : op->getOpOperands())
-    if (isOwned(operand.get().getType()) && consumes(operand))
-      effects.emplace_back(MemoryEffects::Free::get(), &operand, ReferenceResource::get());
+  if (llvm::none_of(op->getOperandTypes(), [](Type type) { return isOwned(type); }))
+    return;
+  llvm::SmallPtrSet<OpOperand *, 4> freed;
+  eachTaken(op, nullptr, [&](OpOperand &use) {
+    if (isOwned(use.get().getType()) && freed.insert(&use).second)
+      effects.emplace_back(MemoryEffects::Free::get(), &use, ReferenceResource::get());
+  });
 }
 
 namespace {
@@ -59,15 +88,18 @@ namespace {
 // or all of them are allocations of its results; IO, when it reads the IO
 // resource (a crash and a loop that may not end only write it, which
 // orders them after output without making them output); otherwise
-// something. An op whose effects MLIR does not know may do anything.
+// something. An op says so through MemoryEffectOpInterface, even when its
+// regions' effects are part of its own (idr.array.update reads and writes
+// its array); one that declares nothing has no effects of its own when its
+// regions' are its effects, and may do anything when MLIR knows none.
 enum class Does { Nothing, IO, Something };
 
 Does does(Operation *op) {
-  if (op->hasTrait<OpTrait::HasRecursiveMemoryEffects>() || isa<ub::UnreachableOp>(op))
+  if (isa<ub::UnreachableOp>(op))
     return Does::Nothing;
   auto iface = dyn_cast<MemoryEffectOpInterface>(op);
   if (!iface)
-    return Does::Something;
+    return op->hasTrait<OpTrait::HasRecursiveMemoryEffects>() ? Does::Nothing : Does::Something;
   SmallVector<MemoryEffects::EffectInstance> effects;
   iface.getEffects(effects);
   Does out = Does::Nothing;
@@ -81,19 +113,28 @@ Does does(Operation *op) {
   return out;
 }
 
+// Whether `stop` holds of what some op whose effects are part of `root`'s
+// does: `root` itself, and the ops in the regions of every such op whose
+// effects include its regions' (RecursiveMemoryEffects), as upstream's
+// getEffectsRecursively gathers them. Any other op's regions are in what
+// it declares.
+bool anyDoes(Operation *root, function_ref<bool(Does)> stop) {
+  return root
+      ->walk<WalkOrder::PreOrder>([&](Operation *op) {
+        if (stop(does(op)))
+          return WalkResult::interrupt();
+        return op->hasTrait<OpTrait::HasRecursiveMemoryEffects>() ? WalkResult::advance()
+                                                                 : WalkResult::skip();
+      })
+      .wasInterrupted();
+}
+
 } // namespace
 
 bool idr::onlyAllocates(Operation *op) {
-  return !op->walk([](Operation *inner) {
-              return does(inner) == Does::Nothing ? WalkResult::advance()
-                                                  : WalkResult::interrupt();
-            })
-              .wasInterrupted();
+  return !anyDoes(op, [](Does what) { return what != Does::Nothing; });
 }
 
 bool idr::performsIO(Operation *op) {
-  return op->walk([](Operation *inner) {
-             return does(inner) == Does::IO ? WalkResult::interrupt() : WalkResult::advance();
-           })
-      .wasInterrupted();
+  return anyDoes(op, [](Does what) { return what == Does::IO; });
 }

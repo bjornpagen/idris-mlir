@@ -3,13 +3,17 @@
 // The values that flow around loops and out of merges made words where
 // every value that may flow there fits: the webs' joints.
 
+#include "idr/IR/Flow.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/Narrow.h"
 
-#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
 
+#include "llvm/ADT/EquivalenceClasses.h"
+#include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SetVector.h"
 
 using namespace mlir;
 
@@ -55,67 +59,52 @@ void passWord(RewriterBase &rewriter, Facts &facts, Operation *op, unsigned inde
 }
 
 // The values that flow around `op`, a loop, or out of it, a merge, made
-// words where every value that may flow there fits; how many.
+// words where every value that may flow there fits; how many. What flows
+// is what `op` and the terminators of its regions forward: each forwarded
+// operand moves into the values it becomes, and the values one operand
+// becomes, with every operand that moves into any of them, are one joint,
+// as a loop's argument and its result are one with its start and what
+// each iteration yields. A region that ends the program forwards nothing.
 unsigned narrowCarried(RewriterBase &rewriter, Facts &facts, Operation *op) {
+  SmallVector<std::pair<OpOperand *, Value>> edges;
+  auto add = [&](Operation *from) {
+    forwardedValues(from, [&](OpOperand &operand, Value input) {
+      if (isBig(input.getType()))
+        edges.emplace_back(&operand, input);
+    });
+  };
+  add(op);
+  for (Region &region : op->getRegions())
+    for (Block &block : region)
+      if (!block.empty() && block.back().hasTrait<OpTrait::IsTerminator>())
+        add(&block.back());
+  // The joints, each the class of its values under the operands they
+  // share, in the order their first value is met.
+  llvm::EquivalenceClasses<void *> joints;
+  for (auto [operand, input] : edges)
+    joints.unionSets(input.getAsOpaquePointer(), operand);
+  llvm::MapVector<void *, std::pair<SmallVector<OpOperand *>, SetVector<Value>>> members;
+  for (auto [operand, input] : edges) {
+    auto &[operands, inputs] = members[joints.getLeaderValue(operand)];
+    if (!llvm::is_contained(operands, operand))
+      operands.push_back(operand);
+    inputs.insert(input);
+  }
   unsigned count = 0;
-  if (auto loop = dyn_cast<scf::WhileOp>(op)) {
-    Block &before = loop.getBefore().front();
-    Block &after = loop.getAfter().front();
-    auto yield = cast<scf::YieldOp>(after.getTerminator());
-    auto condition = loop.getConditionOp();
-    for (BlockArgument arg : before.getArguments()) {
-      unsigned i = arg.getArgNumber();
-      if (!facts.fits(arg) || !facts.fits(loop.getInits()[i]) || !facts.fits(yield.getOperand(i)))
-        continue;
-      passWord(rewriter, facts, loop, i);
-      passWord(rewriter, facts, yield, i);
-      narrowArgument(rewriter, facts, arg);
-      ++count;
+  for (auto &[leader, joint] : members) {
+    auto &[operands, inputs] = joint;
+    if (!llvm::all_of(inputs, [&](Value input) { return facts.fits(input); }) ||
+        !llvm::all_of(operands, [&](OpOperand *operand) { return facts.fits(operand->get()); }))
+      continue;
+    for (OpOperand *operand : operands)
+      passWord(rewriter, facts, operand->getOwner(), operand->getOperandNumber());
+    for (Value input : inputs) {
+      if (auto arg = dyn_cast<BlockArgument>(input))
+        narrowArgument(rewriter, facts, arg);
+      else
+        narrowResult(rewriter, facts, cast<OpResult>(input));
     }
-    for (BlockArgument arg : after.getArguments()) {
-      unsigned j = arg.getArgNumber();
-      OpResult result = loop->getResult(j);
-      if (!facts.fits(arg) || !facts.fits(result) || !facts.fits(condition.getArgs()[j]))
-        continue;
-      passWord(rewriter, facts, condition, j + 1);
-      narrowArgument(rewriter, facts, arg);
-      narrowResult(rewriter, facts, result);
-      ++count;
-    }
-    return count;
-  }
-  if (auto loop = dyn_cast<scf::ForOp>(op)) {
-    auto yield = cast<scf::YieldOp>(loop.getBody()->getTerminator());
-    for (auto [i, arg] : llvm::enumerate(loop.getRegionIterArgs())) {
-      OpResult result = loop->getResult(static_cast<unsigned>(i));
-      if (!facts.fits(arg) || !facts.fits(result) || !facts.fits(loop.getInitArgs()[i]) ||
-          !facts.fits(yield.getOperand(static_cast<unsigned>(i))))
-        continue;
-      passWord(rewriter, facts, loop, loop.getNumControlOperands() + static_cast<unsigned>(i));
-      passWord(rewriter, facts, yield, static_cast<unsigned>(i));
-      narrowArgument(rewriter, facts, arg);
-      narrowResult(rewriter, facts, result);
-      ++count;
-    }
-    return count;
-  }
-  // A merge: every region's yield gives the result, but for a region that
-  // ends the program, which yields nothing.
-  if (isa<scf::IfOp, scf::IndexSwitchOp, MatchOp, MatchLitOp>(op)) {
-    SmallVector<Operation *> yields;
-    for (Region &region : op->getRegions())
-      if (!region.empty() && region.front().getTerminator()->getNumOperands() == op->getNumResults())
-        yields.push_back(region.front().getTerminator());
-    for (OpResult result : op->getResults()) {
-      unsigned k = result.getResultNumber();
-      if (!facts.fits(result) ||
-          !llvm::all_of(yields, [&](Operation *y) { return facts.fits(y->getOperand(k)); }))
-        continue;
-      for (Operation *y : yields)
-        passWord(rewriter, facts, y, k);
-      narrowResult(rewriter, facts, result);
-      ++count;
-    }
+    ++count;
   }
   return count;
 }
@@ -127,7 +116,7 @@ struct NarrowJoint : RewritePattern {
       : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx), facts(facts), carried(carried) {}
 
   LogicalResult matchAndRewrite(Operation *op, PatternRewriter &rewriter) const override {
-    if (!isa<scf::WhileOp, scf::ForOp, scf::IfOp, scf::IndexSwitchOp, MatchOp, MatchLitOp>(op))
+    if (!isa<RegionBranchOpInterface>(op))
       return failure();
     unsigned count = narrowCarried(rewriter, facts, op);
     if (count == 0)

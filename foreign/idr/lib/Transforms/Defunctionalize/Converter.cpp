@@ -3,15 +3,16 @@
 // The types of one function's conversion and the one materialization
 // between them.
 //
-// A value's type is its plan's: a slot's is its key's sum, any other the
-// type remade. A type alone answers every type that names no closure or
-// suspension carrier; a carrier has no type of its own without the slot
-// that holds it, so the value's plan answers.
+// A closure's or a suspension's type is its plan's, its key's sum: a
+// carrier has no type of its own without the slot that holds it. Any other
+// type is itself; the types that hold a slot are made anew once every
+// function has converted.
 //
 // Where a value moves between slots of two keys (an operand into the slot
 // its op moves it to, and through a dispatch into and out of a label), the
 // patterns ask for the target materialization: a match that rebuilds each
-// constructor of the one sum in the other, whose labels hold the first's.
+// constructor of the one sum in the other, whose labels hold the first's,
+// each label found by the function its constructor names.
 // No source materialization exists: a value left in its old type is one
 // nothing lowers, so a conversion that needs one fails.
 
@@ -26,7 +27,9 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/Sequence.h"
 
 #include <optional>
 
@@ -36,37 +39,42 @@ namespace idr::defunctionalize {
 
 namespace {
 
-// `value`, a value of one sum, as a value of the sum `to`: a match over
-// its constructors, each case binding the fields at the scrutinee's grade
-// and building the constructor of the same name in `to` with them held as
-// its fields. Null, with nothing built, when `to` lacks one of them.
+// `value`, a value of one closure sum, as a value of the closure sum `to`:
+// a match over its constructors, each case binding the fields at the
+// scrutinee's grade and building the constructor of `to` that names the
+// same function, with them held as its fields. Null, with nothing built,
+// when `to` lacks one of them. A memo sum's cell is never rebuilt: the copy
+// would not be the cell its other holders force.
 Value rebuildIn(OpBuilder &b, Location loc, Type to, Value value) {
   Type from = value.getType();
   DataType source = dataTypeOf(from), target = dataTypeOf(to);
-  if (!source || !target || source.isMemo() != target.isMemo())
+  if (!source || !target || !source.isClosures() || !target.isClosures())
     return nullptr;
+  llvm::DenseMap<Attribute, unsigned> tagOf;
+  for (auto [tag, ctor] : llvm::enumerate(target.getCtors()))
+    tagOf.try_emplace(ctor.fn, static_cast<unsigned>(tag));
+  ArrayRef<Ctor> ctors = source.getCtors();
   SmallVector<unsigned> tags;
-  SmallVector<Attribute> cases;
-  for (const Ctor &ctor : source.getCtors()) {
-    std::optional<unsigned> tag = target.getTag(ctor.name.getValue());
-    if (!tag || target.getCtor(*tag).fields.size() != ctor.fields.size())
+  for (const Ctor &ctor : ctors) {
+    auto it = tagOf.find(ctor.fn);
+    if (it == tagOf.end() || target.getCtor(it->second).fields.size() != ctor.fields.size())
       return nullptr;
-    tags.push_back(*tag);
-    cases.push_back(FlatSymbolRefAttr::get(ctor.name));
+    tags.push_back(it->second);
   }
   OpBuilder::InsertionGuard guard(b);
-  auto made = MatchOp::create(b, loc, TypeRange{to}, value, b.getArrayAttr(cases),
-                              static_cast<unsigned>(cases.size()));
-  for (auto [ctor, tag, region] : llvm::zip(source.getCtors(), tags, made.getRegions())) {
+  auto cases = llvm::to_vector(llvm::seq<unsigned>(0, static_cast<unsigned>(ctors.size())));
+  auto made = MatchOp::create(b, loc, TypeRange{to}, value, ArrayRef<unsigned>(cases),
+                              static_cast<unsigned>(ctors.size()));
+  for (auto [ctor, tag, region] : llvm::zip_equal(ctors, tags, made.getRegions())) {
     SmallVector<Type> bound;
     for (Type field : ctor.fields)
       bound.push_back(fieldType(from, field));
     Block *block =
         b.createBlock(&region, region.end(), bound, SmallVector<Location>(bound.size(), loc));
     SmallVector<Value> held;
-    for (auto [arg, type] : llvm::zip(block->getArguments(), target.getCtor(tag).fields))
+    for (auto [arg, type] : llvm::zip_equal(block->getArguments(), target.getCtor(tag).fields))
       held.push_back(heldAs(b, loc, arg, type));
-    Value rebuilt = ConOp::create(b, loc, to, FlatSymbolRefAttr::get(ctor.name), held);
+    Value rebuilt = ConOp::create(b, loc, to, tag, held).getResult();
     YieldOp::create(b, loc, rebuilt);
   }
   return made.getResult(0);
@@ -91,16 +99,16 @@ Value rebuild(OpBuilder &b, Type to, Value value, Location loc) {
 SlotTypeConverter::SlotTypeConverter(const Slots &slots, const Plan &plan)
     : decision(slots), own(plan) {
   // The most recently added conversion is tried first. The type alone
-  // answers, once per type, every type that names no closure or suspension
-  // carrier; it declines a carrier, and the value's plan answers.
+  // answers every type that is no closure or suspension, itself; it
+  // declines a carrier, and the value's plan answers.
   addConversion([this](Value value, SmallVectorImpl<Type> &out) -> std::optional<LogicalResult> {
     out.push_back(typeOf(value));
     return success();
   });
-  addConversion([this](Type type) -> std::optional<Type> {
-    if (isKeyed(type))
+  addConversion([](Type type) -> std::optional<Type> {
+    if (carriesLabels(type))
       return std::nullopt;
-    return decision.mapped(type);
+    return type;
   });
   addTargetMaterialization([](OpBuilder &b, Type to, ValueRange inputs, Location loc) -> Value {
     if (inputs.size() != 1)

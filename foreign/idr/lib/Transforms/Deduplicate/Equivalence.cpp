@@ -2,10 +2,15 @@
 // Copyright (c) 2026 Bjorn Pagen
 // When two idr.funcs are one function twice over: the same facts, and
 // bodies whose ops, operands, types, attributes and regions match in order,
-// locations aside, a reference to the function itself counting as the same
-// in each. A reference to any other function must name the same one in
-// both: idr-deduplicate renames those to the one kept of their class before
-// it compares their callers, which is what makes its merging transitive.
+// locations aside. Each is read through the renames of the classes found
+// before it, so callers that differ only in which copy they name are one
+// function; that is what makes idr-deduplicate's merging transitive before
+// it renames anything.
+//
+// A reference to the function itself is read as the other function's name.
+// One that calls itself where the other calls the first is then one with
+// it: the first is the fixpoint of its body, and the other is that body
+// applied to the first, the same function.
 //
 // The facts are every attribute of the function but its name and
 // `instance`. The name is what differs; `instance` is where the function
@@ -16,6 +21,7 @@
 
 #include "idr/Transforms/Deduplicate.h"
 
+#include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/BuiltinAttributes.h"
 
 #include "llvm/ADT/DenseMap.h"
@@ -25,79 +31,32 @@ using namespace mlir;
 
 namespace {
 
-//===----------------------------------------------------------------------===//
-// Attributes, a reference to the function itself counting as one reference
-//===----------------------------------------------------------------------===//
+using Renames = idr::DataRemap::Renames;
 
-// The hash of `attr` as the comparison below compares it: inside arrays and
-// dictionaries piece by piece, so that a symbol reference is met on its
-// own; anything else by its uniqued value, in which a reference no array or
-// dictionary holds still names its function, and two copies whose only
-// difference is such a self reference are simply not found.
-llvm::hash_code hashAttr(Attribute attr, StringAttr self) {
-  if (!attr)
-    return llvm::hash_code{};
-  if (auto ref = dyn_cast<SymbolRefAttr>(attr)) {
-    if (ref.getRootReference() != self)
-      return hash_value(attr);
-    llvm::hash_code hash = llvm::hash_value(StringRef("idr.self"));
-    for (FlatSymbolRefAttr nested : ref.getNestedReferences())
-      hash = llvm::hash_combine(hash, nested.getAttr());
-    return hash;
+// A function's attributes as a comparison reads them: a reference to the
+// function itself as `as`, a reference to a function merged before as the
+// one kept of its class, and a data type as it is: its labels are renamed
+// by a remap of the whole program, never by a reading.
+class Reading {
+public:
+  Reading(StringAttr self, StringAttr as, const Renames &renames) {
+    replacer.addReplacement([](idr::DataType data) -> std::pair<Type, WalkResult> {
+      return {data, WalkResult::skip()};
+    });
+    replacer.addReplacement([self, as, &renames](SymbolRefAttr ref) -> std::pair<Attribute, WalkResult> {
+      StringAttr root = ref.getRootReference();
+      StringAttr read = root == self ? as : renames.lookup(root);
+      if (!read)
+        return {ref, WalkResult::skip()};
+      return {SymbolRefAttr::get(read, ref.getNestedReferences()), WalkResult::skip()};
+    });
   }
-  if (auto array = dyn_cast<ArrayAttr>(attr)) {
-    llvm::hash_code hash = llvm::hash_combine(array.size());
-    for (Attribute element : array)
-      hash = llvm::hash_combine(hash, hashAttr(element, self));
-    return hash;
-  }
-  if (auto dict = dyn_cast<DictionaryAttr>(attr)) {
-    llvm::hash_code hash = llvm::hash_combine(dict.size());
-    for (NamedAttribute element : dict)
-      hash = llvm::hash_combine(hash, element.getName(), hashAttr(element.getValue(), self));
-    return hash;
-  }
-  return hash_value(attr);
-}
 
-// Whether `lhs`, read in a function named `lhsSelf`, and `rhs`, in one named
-// `rhsSelf`, say the same thing.
-bool sameAttr(Attribute lhs, StringAttr lhsSelf, Attribute rhs, StringAttr rhsSelf) {
-  if (!lhs || !rhs)
-    return lhs == rhs;
-  auto lhsRef = dyn_cast<SymbolRefAttr>(lhs);
-  auto rhsRef = dyn_cast<SymbolRefAttr>(rhs);
-  if (lhsRef || rhsRef) {
-    if (!lhsRef || !rhsRef)
-      return false;
-    if (lhsRef.getRootReference() == lhsSelf && rhsRef.getRootReference() == rhsSelf)
-      return lhsRef.getNestedReferences() == rhsRef.getNestedReferences();
-    return lhs == rhs;
-  }
-  if (auto lhsArray = dyn_cast<ArrayAttr>(lhs)) {
-    auto rhsArray = dyn_cast<ArrayAttr>(rhs);
-    return rhsArray && lhsArray.size() == rhsArray.size() &&
-           llvm::all_of_zip(lhsArray, rhsArray, [&](Attribute l, Attribute r) {
-             return sameAttr(l, lhsSelf, r, rhsSelf);
-           });
-  }
-  if (auto lhsDict = dyn_cast<DictionaryAttr>(lhs)) {
-    auto rhsDict = dyn_cast<DictionaryAttr>(rhs);
-    return rhsDict && lhsDict.size() == rhsDict.size() &&
-           llvm::all_of_zip(lhsDict, rhsDict, [&](NamedAttribute l, NamedAttribute r) {
-             return l.getName() == r.getName() && sameAttr(l.getValue(), lhsSelf, r.getValue(), rhsSelf);
-           });
-  }
-  return lhs == rhs;
-}
+  Attribute operator()(Attribute attr) { return attr ? replacer.replace(attr) : attr; }
 
-// The attributes of an op the comparison reads: its dictionary and its
-// properties, which between them hold every inherent attribute (a call's
-// callee, a constructor's name) and every discardable one.
-bool sameAttrs(Operation *lhs, StringAttr lhsSelf, Operation *rhs, StringAttr rhsSelf) {
-  return sameAttr(lhs->getAttrDictionary(), lhsSelf, rhs->getAttrDictionary(), rhsSelf) &&
-         sameAttr(lhs->getPropertiesAsAttribute(), lhsSelf, rhs->getPropertiesAsAttribute(), rhsSelf);
-}
+private:
+  AttrTypeReplacer replacer;
+};
 
 // A function's facts: its attributes but its name and where it came from,
 // in the dictionary's sorted order.
@@ -116,7 +75,7 @@ SmallVector<NamedAttribute> factsOf(idr::FuncOp fn) {
 //===----------------------------------------------------------------------===//
 
 struct BodyHash {
-  explicit BodyHash(StringAttr self) : self(self) {}
+  explicit BodyHash(Reading &read) : read(read) {}
 
   unsigned value(Value v) {
     auto [found, inserted] = values.try_emplace(v, nextValue);
@@ -134,8 +93,8 @@ struct BodyHash {
       hash = llvm::hash_combine(hash, result.getType());
       value(result);
     }
-    hash = llvm::hash_combine(hash, hashAttr(op.getAttrDictionary(), self),
-                              hashAttr(op.getPropertiesAsAttribute(), self));
+    hash = llvm::hash_combine(hash, read(op.getAttrDictionary()),
+                              read(op.getPropertiesAsAttribute()));
     // A successor's operands are among the operands hashed above; which of
     // them go to which successor is an attribute of the op.
     for (Block *successor : op.getSuccessors())
@@ -159,7 +118,7 @@ struct BodyHash {
         this->op(op);
   }
 
-  StringAttr self;
+  Reading &read;
   llvm::hash_code hash;
   DenseMap<Value, unsigned> values;
   DenseMap<Block *, unsigned> blocks;
@@ -172,7 +131,12 @@ struct BodyHash {
 //===----------------------------------------------------------------------===//
 
 struct BodyEqual {
-  BodyEqual(StringAttr lhsSelf, StringAttr rhsSelf) : lhsSelf(lhsSelf), rhsSelf(rhsSelf) {}
+  BodyEqual(Reading &lhsRead, Reading &rhsRead) : lhsRead(lhsRead), rhsRead(rhsRead) {}
+
+  bool sameAttrs(Operation *lhs, Operation *rhs) {
+    return lhsRead(lhs->getAttrDictionary()) == rhsRead(rhs->getAttrDictionary()) &&
+           lhsRead(lhs->getPropertiesAsAttribute()) == rhsRead(rhs->getPropertiesAsAttribute());
+  }
 
   bool op(Operation *lhs, Operation *rhs) {
     if (lhs->getName() != rhs->getName() || lhs->getNumOperands() != rhs->getNumOperands() ||
@@ -188,7 +152,7 @@ struct BodyEqual {
         return false;
       values[l] = r;
     }
-    if (!sameAttrs(lhs, lhsSelf, rhs, rhsSelf))
+    if (!sameAttrs(lhs, rhs))
       return false;
     for (auto [l, r] : llvm::zip(lhs->getSuccessors(), rhs->getSuccessors()))
       if (blocks.lookup(l) != r)
@@ -224,7 +188,7 @@ struct BodyEqual {
     return true;
   }
 
-  StringAttr lhsSelf, rhsSelf;
+  Reading &lhsRead, &rhsRead;
   DenseMap<Value, Value> values;
   DenseMap<Block *, Block *> blocks;
 };
@@ -233,27 +197,29 @@ struct BodyEqual {
 
 namespace idr::deduplicate {
 
-llvm::hash_code hashFunction(FuncOp fn) {
-  StringAttr self = fn.getSymNameAttr();
+llvm::hash_code hashFunction(FuncOp fn, const Renames &renames) {
+  // Every function's own name reads alike here, so copies hash alike.
+  Reading read(fn.getSymNameAttr(), StringAttr::get(fn.getContext()), renames);
   llvm::hash_code hash;
   for (NamedAttribute fact : factsOf(fn))
-    hash = llvm::hash_combine(hash, fact.getName(), hashAttr(fact.getValue(), self));
-  BodyHash body(self);
+    hash = llvm::hash_combine(hash, fact.getName(), read(fact.getValue()));
+  BodyHash body(read);
   body.region(fn.getBody());
   return llvm::hash_combine(hash, body.hash);
 }
 
-bool sameFunction(FuncOp lhs, FuncOp rhs) {
+bool sameFunction(FuncOp lhs, FuncOp rhs, const Renames &renames) {
   StringAttr lhsSelf = lhs.getSymNameAttr();
-  StringAttr rhsSelf = rhs.getSymNameAttr();
+  Reading lhsRead(lhsSelf, lhsSelf, renames);
+  Reading rhsRead(rhs.getSymNameAttr(), lhsSelf, renames);
   SmallVector<NamedAttribute> lhsFacts = factsOf(lhs);
   SmallVector<NamedAttribute> rhsFacts = factsOf(rhs);
   if (lhsFacts.size() != rhsFacts.size() ||
       !llvm::all_of_zip(lhsFacts, rhsFacts, [&](NamedAttribute l, NamedAttribute r) {
-        return l.getName() == r.getName() && sameAttr(l.getValue(), lhsSelf, r.getValue(), rhsSelf);
+        return l.getName() == r.getName() && lhsRead(l.getValue()) == rhsRead(r.getValue());
       }))
     return false;
-  BodyEqual body(lhsSelf, rhsSelf);
+  BodyEqual body(lhsRead, rhsRead);
   return body.region(lhs.getBody(), rhs.getBody());
 }
 

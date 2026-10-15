@@ -12,28 +12,46 @@ include "idr/IR/IdrInterfaces.td"
 // Bigs
 //===----------------------------------------------------------------------===//
 
+// A big op whose value, where every big it takes and gives fits a small, is
+// a word op on the bigs' words: `op`, the arith op's C++ class, applied to
+// the words and, for a unary op, to the constant `constant` as its second
+// operand; none (`op` empty) where the word is the value itself. The small
+// case of each big op is said here once: idr-narrow and the lowering read
+// it from the table idris-mlir-tblgen writes from these marks.
+class Idr_WordOp<string op, string constant = ""> {
+  string wordOp = op;
+  string wordConstant = constant;
+}
+
 // An op that makes a big allocates its result (MemAlloc).
 class Idr_BigBinaryOp<string mnemonic, string what, list<Trait> traits = []>
-    : Idr_Op<"big." # mnemonic, !listconcat([Idr_CallsRuntime, Idr_Primitive], traits)> {
+    : Idr_Op<"big." # mnemonic, !listconcat([Idr_Runtime<"idris_rt_big_" # mnemonic>,
+                                             Idr_Primitive], traits)> {
   // Folded by calling the runtime (lib/IR/Fold).
   let hasFolder = 1;
   let summary = what # " of two bigs";
-  let arguments = (ins Idr_BigType:$lhs, Idr_BigType:$rhs);
+  let arguments = (ins Idr_BigRead:$lhs, Idr_BigRead:$rhs);
   let results = (outs Res<Idr_BigValue, "", [MemAlloc]>:$result);
-  let assemblyFormat = "$lhs `,` $rhs attr-dict custom<BigResult>(type($result))";
+  let assemblyFormat = [{
+    custom<BigRead>($lhs, type($lhs)) `,` custom<BigRead>($rhs, type($rhs)) attr-dict
+    custom<BigResult>(type($result))
+  }];
 }
 
 // The sum and the product of two naturals are natural, so these take
 // Integers or naturals, and give what they take: Nat's plus and mult are
 // these ops. The type is written only for naturals: `: !idr.nat`.
-class Idr_BigNaturalOp<string mnemonic, string what>
-    : Idr_Op<"big." # mnemonic, [Idr_CallsRuntime, Idr_Primitive, AllTypesMatch<["lhs", "rhs"]>,
-                                 Idr_ResultCarriesOperand,
-                                 DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
+class Idr_BigNaturalOp<string mnemonic, string what, string wordOp>
+    : Idr_Op<"big." # mnemonic, [Idr_Runtime<"idris_rt_big_" # mnemonic>, Idr_Primitive,
+                                 AllTypesMatch<["lhs", "rhs"]>,
+                                 PredOpTrait<"the result is the operands' value type at any grade",
+                                   CPred<"::idr::unrestricted($result.getType()) == ::idr::unrestricted($lhs.getType())">>,
+                                 DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]>,
+      Idr_WordOp<wordOp> {
   // Folded by calling the runtime (lib/IR/Fold).
   let hasFolder = 1;
   let summary = what # " of two bigs or two naturals";
-  let arguments = (ins Idr_BigOrNat:$lhs, Idr_BigOrNat:$rhs);
+  let arguments = (ins Idr_BigOrNatRead:$lhs, Idr_BigOrNatRead:$rhs);
   let results = (outs Res<Idr_BigOrNatValue, "", [MemAlloc]>:$result);
   // The operands' type, written for naturals; the result's when it is
   // the operands' at another grade: `-> !idr.own<!idr.nat>`.
@@ -43,9 +61,10 @@ class Idr_BigNaturalOp<string mnemonic, string what>
   }];
 }
 
-def Idr_BigAddOp : Idr_BigNaturalOp<"add", "the sum">;
-def Idr_BigSubOp : Idr_BigBinaryOp<"sub", "the difference", [DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]>;
-def Idr_BigMulOp : Idr_BigNaturalOp<"mul", "the product">;
+def Idr_BigAddOp : Idr_BigNaturalOp<"add", "the sum", "::mlir::arith::AddIOp">;
+def Idr_BigSubOp : Idr_BigBinaryOp<"sub", "the difference", [DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]>,
+    Idr_WordOp<"::mlir::arith::SubIOp">;
+def Idr_BigMulOp : Idr_BigNaturalOp<"mul", "the product", "::mlir::arith::MulIOp">;
 def Idr_BigAndOp : Idr_BigBinaryOp<"and", "the bitwise and">;
 def Idr_BigOrOp : Idr_BigBinaryOp<"or", "the bitwise or">;
 def Idr_BigXorOp : Idr_BigBinaryOp<"xor", "the bitwise xor">;
@@ -60,12 +79,15 @@ def Idr_BigXorOp : Idr_BigBinaryOp<"xor", "the bitwise xor">;
 // shift's result may be far larger than its operands, so its folder folds
 // only a constant within idr::constantBytes.
 class Idr_BigShiftOp<string mnemonic, bit isLeft>
-    : Idr_Op<"big." # mnemonic, [Idr_CallsRuntime, Idr_Primitive]> {
+    : Idr_Op<"big." # mnemonic, [Idr_Runtime<"idris_rt_big_" # mnemonic>, Idr_Primitive]> {
   // Folded by calling the runtime (lib/IR/Fold).
   let hasFolder = 1;
-  let arguments = (ins Idr_BigType:$value, Idr_BigType:$amount);
+  let arguments = (ins Idr_BigRead:$value, Idr_BigRead:$amount);
   let results = (outs Res<Idr_BigValue, "", [MemAlloc]>:$result);
-  let assemblyFormat = "$value `,` $amount attr-dict custom<BigResult>(type($result))";
+  let assemblyFormat = [{
+    custom<BigRead>($value, type($value)) `,` custom<BigRead>($amount, type($amount)) attr-dict
+    custom<BigResult>(type($result))
+  }];
   let extraClassDeclaration = "static constexpr bool left = "
                               # !if(isLeft, "true", "false") # ";";
 }
@@ -79,25 +101,31 @@ def Idr_BigShrOp : Idr_BigShiftOp<"shr", 0> {
 
 // The divisor is not zero: idr.check.nonzero guards it.
 class Idr_BigDivisionOp<string mnemonic, string what>
-    : Idr_Op<"big." # mnemonic, [Idr_CallsRuntime, Idr_Primitive]> {
+    : Idr_Op<"big." # mnemonic, [Idr_Runtime<"idris_rt_big_" # mnemonic>, Idr_Primitive,
+                                 Idr_Guarded<"rhs", "Nonzero", "division by zero">]> {
   // Folded by calling the runtime (lib/IR/Fold).
   let hasFolder = 1;
   let summary = what # " of two bigs, as Integer's div and mod, by a divisor that is not zero";
-  let arguments = (ins Idr_BigType:$lhs, Idr_BigType:$rhs);
+  let arguments = (ins Idr_BigRead:$lhs, Idr_BigRead:$rhs);
   let results = (outs Res<Idr_BigValue, "", [MemAlloc]>:$result);
-  let assemblyFormat = "$lhs `,` $rhs attr-dict custom<BigResult>(type($result))";
+  let assemblyFormat = [{
+    custom<BigRead>($lhs, type($lhs)) `,` custom<BigRead>($rhs, type($rhs)) attr-dict
+    custom<BigResult>(type($result))
+  }];
 }
 
 def Idr_BigDivOp : Idr_BigDivisionOp<"div", "the quotient">;
 def Idr_BigModOp : Idr_BigDivisionOp<"mod", "the remainder">;
 
-def Idr_BigNegOp : Idr_Op<"big.neg", [Idr_CallsRuntime, Idr_Primitive]> {
+def Idr_BigNegOp : Idr_Op<"big.neg", [Idr_Runtime<"idris_rt_big_neg">, Idr_Primitive]> {
   // Folded by calling the runtime (lib/IR/Fold).
   let hasFolder = 1;
   let summary = "the negation of a big";
-  let arguments = (ins Idr_BigType:$value);
+  let arguments = (ins Idr_BigRead:$value);
   let results = (outs Res<Idr_BigValue, "", [MemAlloc]>:$result);
-  let assemblyFormat = "$value attr-dict custom<BigResult>(type($result))";
+  let assemblyFormat = [{
+    custom<BigRead>($value, type($value)) attr-dict custom<BigResult>(type($result))
+  }];
 }
 
 // The frontend writes it where a match on a natural found it is not zero,
@@ -105,25 +133,29 @@ def Idr_BigNegOp : Idr_Op<"big.neg", [Idr_CallsRuntime, Idr_Primitive]> {
 // arithmetic. That the operand is not zero is also why the result is
 // natural. A small operand's predecessor is computed inline; a GMP one's
 // is a new big, so the op allocates its result like the other big ops.
-def Idr_BigPredOp : Idr_Op<"big.pred", [Idr_CallsRuntime,
-    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
+def Idr_BigPredOp : Idr_Op<"big.pred", [Idr_Runtime<"idris_rt_big_pred">,
+    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]>,
+    Idr_WordOp<"::mlir::arith::SubIOp", "1"> {
   // Folded by calling the runtime (lib/IR/Fold).
   let hasFolder = 1;
   let summary = "the predecessor of a natural that is not zero";
-  let arguments = (ins Idr_NatType:$value);
+  let arguments = (ins Idr_NatRead:$value);
   let results = (outs Res<Idr_NatValue, "", [MemAlloc]>:$result);
-  let assemblyFormat = "$value attr-dict custom<NatResult>(type($result))";
+  let assemblyFormat = [{
+    custom<NatRead>($value, type($value)) attr-dict custom<NatResult>(type($result))
+  }];
 }
 
 // Two naturals compare as the Integers they are: Nat's equalNat and
 // compareNat are this op. The type is written only for naturals.
-def Idr_BigCmpOp : Idr_Op<"big.cmp", [Pure, Idr_CallsRuntime,
-    AllTypesMatch<["lhs", "rhs"]>, DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
+def Idr_BigCmpOp : Idr_Op<"big.cmp", [Pure, Idr_Runtime<"idris_rt_big_cmp">,
+    AllTypesMatch<["lhs", "rhs"]>, DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]>,
+    Idr_WordOp<"::mlir::arith::CmpIOp"> {
   // Folded by calling the runtime (lib/IR/Fold).
   let hasFolder = 1;
   let summary = "compares two bigs or two naturals";
-  let arguments = (ins Idr_CmpPredicate:$predicate, Idr_BigOrNat:$lhs,
-                       Idr_BigOrNat:$rhs);
+  let arguments = (ins Idr_CmpPredicate:$predicate, Idr_BigOrNatRead:$lhs,
+                       Idr_BigOrNatRead:$rhs);
   let results = (outs I1:$result);
   let assemblyFormat = "$predicate $lhs `,` $rhs attr-dict custom<BigResult>(type($lhs))";
 }
@@ -132,9 +164,11 @@ def Idr_BigCmpOp : Idr_Op<"big.cmp", [Pure, Idr_CallsRuntime,
 // another type. It costs nothing at runtime, and hands its operand's
 // reference to its result.
 def Idr_NatToBigOp : Idr_Op<"nat.to_big", [Idr_ConsumesOnly<"0">, Idr_Primitive,
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface>,
     TypesMatchWith<"the Integer is the natural at its grade", "value", "result",
                    "::idr::graded(::idr::gradeOf($_self), ::idr::BigType::get($_self.getContext()))">,
-    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
+    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]>,
+    Idr_WordOp<""> {
   let hasFolder = 1;
   let summary = "a natural as an Integer";
   let arguments = (ins Idr_NatValue:$value);
@@ -145,19 +179,22 @@ def Idr_NatToBigOp : Idr_Op<"nat.to_big", [Idr_ConsumesOnly<"0">, Idr_Primitive,
 // The only op that makes a natural of an Integer, so the one that must
 // keep it non-negative: a negative Integer is 0, as Nat's integerToNat
 // and minus (the difference of the Integers, clamped) say.
-def Idr_NatFromBigOp : Idr_Op<"nat.from_big", [Idr_CallsRuntime, Idr_Primitive, DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
+def Idr_NatFromBigOp : Idr_Op<"nat.from_big", [Idr_Runtime<"idris_rt_nat_from_big">, Idr_Primitive, DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]>,
+    Idr_WordOp<"::mlir::arith::MaxSIOp", "0"> {
   // Folded by calling the runtime (lib/IR/Fold).
   let hasFolder = 1;
   let summary = "an Integer as a natural, 0 if it is negative";
-  let arguments = (ins Idr_BigType:$value);
+  let arguments = (ins Idr_BigRead:$value);
   let results = (outs Res<Idr_NatValue, "", [MemAlloc]>:$result);
-  let assemblyFormat = "$value attr-dict custom<NatResult>(type($result))";
+  let assemblyFormat = [{
+    custom<BigRead>($value, type($value)) attr-dict custom<NatResult>(type($result))
+  }];
 }
 
 // An integer as an Integer, or, read as unsigned, as a natural: an unsigned
 // integer is never negative, so the verifier admits a natural result only
 // for one (idr-narrow writes it where a natural leaves a word).
-def Idr_BigFromIntOp : Idr_Op<"big.from_int", [Idr_CallsRuntime, DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
+def Idr_BigFromIntOp : Idr_Op<"big.from_int", [Idr_Runtime<"idris_rt_big_from_int">, DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   // Folded by calling the runtime (lib/IR/Fold).
   let hasFolder = 1;
   let hasVerifier = 1;
@@ -184,17 +221,18 @@ def Idr_BigSmallOp : Idr_Op<"big.small", [Pure, DeclareOpInterfaceMethods<InferI
 }
 
 // A natural's value is its Integer's, so both convert alike.
-def Idr_BigToIntOp : Idr_Op<"big.to_int", [Pure, Idr_CallsRuntime, Idr_Primitive, DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
+def Idr_BigToIntOp : Idr_Op<"big.to_int", [Pure, Idr_Runtime<"idris_rt_big_to_int">, Idr_Primitive, DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]>,
+    Idr_WordOp<"::mlir::arith::TruncIOp"> {
   // Folded by calling the runtime (lib/IR/Fold).
   let hasFolder = 1;
   let summary = "a big or a natural as an integer, wrapped to its width";
-  let arguments = (ins Idr_BigOrNat:$value);
+  let arguments = (ins Idr_BigOrNatRead:$value);
   let results = (outs Idr_Int:$result);
   let assemblyFormat = "$value attr-dict `:` type($result) custom<BigResult>(type($value))";
 }
 
 // The Double is finite: idr.check.finite guards it.
-def Idr_BigFromDoubleOp : Idr_Op<"big.from_double", [Idr_CallsRuntime, Idr_Primitive]> {
+def Idr_BigFromDoubleOp : Idr_Op<"big.from_double", [Idr_Runtime<"idris_rt_big_from_double">, Idr_Guarded<"value", "Finite", "cast of a non-finite Double">, Idr_Primitive]> {
   // Folded by calling the runtime (lib/IR/Fold).
   let hasFolder = 1;
   let summary = "a finite Double truncated to a big";
@@ -203,31 +241,35 @@ def Idr_BigFromDoubleOp : Idr_Op<"big.from_double", [Idr_CallsRuntime, Idr_Primi
   let assemblyFormat = "$value attr-dict custom<BigResult>(type($result))";
 }
 
-def Idr_BigToDoubleOp : Idr_Op<"big.to_double", [Pure, Idr_CallsRuntime, Idr_Primitive]> {
+def Idr_BigToDoubleOp : Idr_Op<"big.to_double", [Pure, Idr_Runtime<"idris_rt_big_to_double">, Idr_Primitive]> {
   // Folded by calling the runtime (lib/IR/Fold).
   let hasFolder = 1;
   let summary = "a big as the nearest Double";
-  let arguments = (ins Idr_BigType:$value);
+  let arguments = (ins Idr_BigRead:$value);
   let results = (outs F64:$result);
-  let assemblyFormat = "$value attr-dict";
+  let assemblyFormat = "custom<BigRead>($value, type($value)) attr-dict";
 }
 
-def Idr_BigShowOp : Idr_Op<"big.show", [Idr_CallsRuntime, Idr_Primitive]> {
+def Idr_BigShowOp : Idr_Op<"big.show", [Idr_Runtime<"idris_rt_big_show">, Idr_Primitive]> {
   // Folded by calling the runtime (lib/IR/Fold).
   let hasFolder = 1;
   let summary = "the decimal text of a big";
-  let arguments = (ins Idr_BigType:$value);
+  let arguments = (ins Idr_BigRead:$value);
   let results = (outs Res<Idr_StrValue, "", [MemAlloc]>:$result);
-  let assemblyFormat = "$value attr-dict custom<StrResult>(type($result))";
+  let assemblyFormat = [{
+    custom<BigRead>($value, type($value)) attr-dict custom<StrResult>(type($result))
+  }];
 }
 
-def Idr_BigFromStrOp : Idr_Op<"big.from_str", [Idr_CallsRuntime, Idr_Primitive]> {
+def Idr_BigFromStrOp : Idr_Op<"big.from_str", [Idr_Runtime<"idris_rt_big_from_str">, Idr_Primitive]> {
   // Folded by calling the runtime (lib/IR/Fold).
   let hasFolder = 1;
   let summary = "a string as a big, as prim__cast_StringInteger reads it";
-  let arguments = (ins Idr_StrType:$str);
+  let arguments = (ins Idr_StrRead:$str);
   let results = (outs Res<Idr_BigValue, "", [MemAlloc]>:$result);
-  let assemblyFormat = "$str attr-dict custom<BigResult>(type($result))";
+  let assemblyFormat = [{
+    custom<StrRead>($str, type($str)) attr-dict custom<BigResult>(type($result))
+  }];
 }
 
 def Idr_ArrayValue : Type<CPred<"::idr::isArray(::idr::unrestricted($_self))">,

@@ -8,9 +8,8 @@
 // component that it reaches, once for each assignment of abstract values to
 // its parameters, so the interpretation ends. The calls between the
 // component's functions are the only edges: after defunctionalization a
-// closure's recursion is a direct call in a dispatch, and a force runs a
-// label with fields no call passes, so it never makes a chain of
-// specializations.
+// closure's recursion is a direct call in a dispatch, and a force is a call
+// of its memo sum's dispatch function, which calls the label.
 #include "idr/Analysis/Specialize.h"
 
 #include "idr/IR/IdrDialect.h"
@@ -22,7 +21,6 @@
 #include "llvm/ADT/SmallVectorExtras.h"
 #include "llvm/Support/ErrorHandling.h"
 
-#include <mutex>
 #include <set>
 #include <utility>
 
@@ -136,7 +134,11 @@ void Interpreter::visit(idr::FuncOp fn, ArrayRef<Abstract> args) {
         if (arg.getArgNumber() < args.size())
           out = args[arg.getArgNumber()];
       } else if (auto match = dyn_cast<MatchOp>(parent)) {
-        out = Abstract::partOf(self(self, match.getScrutinee()));
+        // A case binds the fields of the scrutinee; the default region
+        // takes the scrutinee itself back.
+        Abstract scrutinee = self(self, match.getScrutinee());
+        out = arg.getOwner()->getParent() == match.getDefaultRegion() ? scrutinee
+                                                                      : Abstract::partOf(scrutinee);
       }
     } else if (Operation *def = value.getDefiningOp()) {
       if (auto field = dyn_cast<FieldOp>(def))
@@ -204,49 +206,6 @@ SmallVector<SmallVector<BindingTime>> bindingTimesOf(ArrayRef<idr::FuncOp> compo
       out.push_back(Interpreter(fn, members).run());
   }
   return out;
-}
-
-BindingTimes::BindingTimes(Operation *, AnalysisManager &) {}
-
-BindingTimes::~BindingTimes() = default;
-
-bool BindingTimes::isInvalidated(const AnalysisManager::PreservedAnalyses &pa) const {
-  return !pa.isPreserved<BindingTimes>();
-}
-
-void BindingTimes::solve(ArrayRef<idr::FuncOp> component) {
-  SmallVector<idr::FuncOp> open;
-  {
-    std::shared_lock lock(mutex);
-    for (idr::FuncOp fn : component)
-      if (!times.contains(fn.getSymNameAttr()))
-        open.push_back(fn);
-  }
-  if (open.empty())
-    return;
-  SmallVector<SmallVector<BindingTime>> found = bindingTimesOf(open);
-  std::unique_lock lock(mutex);
-  for (auto [fn, each] : llvm::zip_equal(open, found))
-    times.try_emplace(fn.getSymNameAttr(), std::move(each));
-}
-
-void BindingTimes::inherit(StringAttr fn, SmallVector<BindingTime> given) {
-  std::unique_lock lock(mutex);
-  times.try_emplace(fn, std::move(given));
-}
-
-std::optional<BindingTime> BindingTimes::of(StringAttr fn, unsigned index) const {
-  std::shared_lock lock(mutex);
-  auto it = times.find(fn);
-  if (it == times.end() || index >= it->second.size())
-    return std::nullopt;
-  return it->second[index];
-}
-
-SmallVector<BindingTime> BindingTimes::of(StringAttr fn) const {
-  std::shared_lock lock(mutex);
-  auto it = times.find(fn);
-  return it == times.end() ? SmallVector<BindingTime>() : it->second;
 }
 
 } // namespace idr

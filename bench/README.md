@@ -5,7 +5,9 @@ runs it on one input (`make bench ARGS='--runs 3 fib tak'` runs fewer):
 this compiler on `bench/<name>/Main.idr` (ordinary Idris over the stock
 Prelude and base, or over the typed arrays of `libs/mlir-array`, `Array`
 and the growable `Linear.Vec`, where `bench/<name>/packages` says so); the
-same source through the stock Chez backend; and the pinned clang at `-O2`
+same source through the stock Chez backend (none for a program over
+`libs/mlir-array`, whose generating set has no meaning but this compiler's);
+and the pinned clang at `-O2`
 on `bench/c/<name>.c`, linked
 as `idris-mlir --print-link-flags` says the target links a program (a
 static PIE on musl, a dynamic executable on Darwin), for this

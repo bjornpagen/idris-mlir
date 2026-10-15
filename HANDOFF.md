@@ -1,3 +1,72 @@
+# Checkpoint (2026-10-15, 0005 integrated on the typecheck machine)
+
+Proposal 0005 (one representation for every fact, and no fuel) ran as one
+wave of eighteen lanes (proposals/0005-representation/: the design,
+ownership.json, obligations.md) on top of the cutover, and is integrated:
+`make typecheck` passes every part (configure, tblgen, cxx, dialects,
+libs, fork, frontend) and `make check` is 32/32. Nothing is built or run;
+the owner's machine owes what the entry below lists, now against this tree.
+
+What changed, by decision (0005 §4):
+- A constructor is its tag, with a role (`ListNil`, `ListCons`, `Label`,
+  `Running`, `Forced`); a label holds its function. A force is a call to a
+  per-memo-sum dispatch (`<sum>.force`), so `mlir::CallGraph` is the one call
+  graph; the hand-built graphs and the force edges are gone.
+- The program is `idr.program @p root(@f) stage(higher|first|owned|lowered)`;
+  an `idr.func`'s visibility is derived (public exactly for the root). The
+  stage rules are its verifier's; stage inference is deleted. In-place
+  containment is checked from stage first on (fit boxes in
+  defunctionalization; the frontend holds every type in place).
+- No fuel and no count refusal: the frontend's reduction is structural
+  (head path plus Idris's totality); specialization stops by the
+  request-chain rule and keys only parameters passed unchanged along a
+  recursion (no unrolling of counters or static tables); the layout limits
+  are representations (a two-level tag, a count word, a boxed element);
+  the 1024-step owner caps, the int-range and lowering iteration limits,
+  and every to-a-fixpoint loop are gone. Every Rule case has a category;
+  Cycle and Uniqueness are OutsideLanguage (AGENTS.md says so now).
+- One flow interface for closures, suspensions and counted references,
+  declared in ODS; one value-facts type interface; the runtime ABI, the
+  guards, the rule list, the constructor roles and the big-to-word table
+  generated from ODS (a runtime/ODS mismatch is a compile error); one
+  summary per function, published at the wave barrier; no effects on a
+  call (an inner-pipeline step erases and merges pure calls from the
+  callee's summary); boxing decided once, in C++.
+- Arrays are ops end to end (`idr.tabulate`, `tabulate_io`, `fold_last`,
+  `scan_last`, `transpose`, `array.update`), lowered one to one; record
+  arrays become columns by upstream's one-to-N conversion (`idr-columns`,
+  right after the optimizer); mlir-array's generating set is bodiless
+  `%extern`s; bufferization uses upstream's function models (patch 24
+  extended: interface models, non-writable call results, symbol-table
+  scope); memrefs inside a function lower through upstream's patterns.
+- The bytecode writer uses the attribute-dictionary encoding (the pinned
+  reader's unregistered-properties path is broken: upstream/25, kept as a
+  submission); every inherent value an op holds is an attribute-backed
+  property, and the generator refuses any other.
+- The 35 bugs found by reading the cutover (0005 §7) are fixed in their
+  lanes, among them the two that stopped every program (bytecode; the flow
+  walk at every match), the owned verifier's rejection of buffers, the
+  type graph's reference across a reallocation, the parallel lowering's
+  data race, a use-after-free of a view in a loop, and flag-dependent
+  content names.
+
+Owed on the owner's machine, before anything else:
+1. `make bootstrap` (patch 24 changed again), `make build`.
+2. `make test`, `make test-idr`, `make test-mlir-tools`, with the 134
+   `NEEDS-ACCEPTANCE` files (`git grep -l NEEDS-ACCEPTANCE -- tests`).
+   Known mismatches to settle while accepting: R18's tests that read a
+   callee's effects at a call (facts-as-marked, queries, alloc,
+   call-effects) predate the no-effects-on-calls ruling; Sink and
+   case-of-case no longer move calls (a call reports every effect), which
+   may cost the raise its dispatch in a few fixtures; idr-rc makes one
+   copy per function (every followed parameter exclusive).
+3. Determinism at 1, 2 and 8 threads; the bench; `make self` (tools/self.sh
+   now compares the `.mlirbc` and records peak memory on both targets).
+4. Fork bug to fix next, in the fork (ours): `checkCaseDelayed`
+   (`compiler/idris/src/TTImp/Elab/Case.idr:394-404`) retries a scrutinee at
+   linear only on a bare LinearMisuse, so an ambiguous name on the right of
+   a linear pattern `let` fails.
+
 # Checkpoint (2026-10-14, late, the cutover wave integrated on the typecheck machine)
 
 Proposal 0004 (the pipeline cutover) and 0003's stage 1 (the MLIR-first

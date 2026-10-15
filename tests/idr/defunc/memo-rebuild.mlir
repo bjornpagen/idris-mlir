@@ -9,20 +9,20 @@
 // state, so the force in @use does not run @one again. No cell is rebuilt.
 // CHECK: ![[M:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, memo [@one(), @two(), @running(), @forced(i64)]
 // CHECK-LABEL: idr.func @Main.main(
-// CHECK: %[[CELL:.*]] = {{(idr\.)?}}con @one() : () -> !idr.box<![[M]]>
+// CHECK: %[[CELL:.*]] = {{(idr\.)?}}con !idr.box<![[M]]> @one()
 // CHECK: force %[[CELL]] : !idr.box<![[M]]> -> i64
 // CHECK-NOT: case @running
 // CHECK: call @use(%[[CELL]])
-module {
-  idr.func private @one() -> i64 attributes {total} {
+idr.program @"memo-rebuild" root(@Main.main) stage(higher) {
+  idr.func @one() -> i64 attributes {total} {
     %c = arith.constant 1 : i64
     return %c : i64
   }
-  idr.func private @two() -> i64 attributes {total} {
+  idr.func @two() -> i64 attributes {total} {
     %c = arith.constant 2 : i64
     return %c : i64
   }
-  idr.func private @use(%l: !idr.lazy<i64>) -> i64 {
+  idr.func @use(%l: !idr.lazy<i64>) -> i64 {
     %v = idr.force %l : !idr.lazy<i64> -> i64
     return %v : i64
   }

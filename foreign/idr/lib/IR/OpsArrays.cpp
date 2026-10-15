@@ -1,21 +1,21 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The ops on arrays a world orders (new, get, set), with their rules, their
-// shapes and their effects; the extent of an array to be made; and the tie
-// of an array's dimensions to sizes, with what value bounds and the folding
-// of a dimension read from it.
+// The ops on arrays a world orders (new, get, set, update), with their
+// rules, their shapes, their effects and how an element moves; the extent
+// of an array to be made; and the tie of an array's dimensions to sizes,
+// with what value bounds and the folding of a dimension read from it.
 
-#include "idr/IR/IdrDialect.h"
+#include "idr/IR/Arrays.h"
 #include "idr/IR/Canon.h"
 #include "idr/IR/Ranges.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/Interfaces/ValueBoundsOpInterface.h"
 
 using namespace mlir;
 using namespace idr;
+using namespace idr::arrays;
 
 namespace {
 
@@ -65,33 +65,19 @@ bool idr::sameElement(Value array, ValueRange indices, Value otherArray, ValueRa
          llvm::equal(indices, otherIndices, sameIndex);
 }
 
+//===----------------------------------------------------------------------===//
+// Arrays a world orders
+//===----------------------------------------------------------------------===//
+
 LogicalResult ArrayNewOp::verify() {
   if (failed(verifyCount(*this, getSizes().size(), "sizes", getArrayType())))
     return failure();
   return verifyElement(*this, "the fill", getFill().getType(), getArrayType());
 }
 
-// A read that moves its element out leaves the element's place empty, so
-// the next IO on its world, its world's one use, is the write that fills
-// that place again, in its block: anything else between would see the
-// empty place. A machine word is never counted and does not move. Whether
-// an element of any other type holds a reference may change as passes run
-// (defunctionalization makes a closure a sum, of captured words only, say),
-// so it is MoveOutBeforeSet's to ask, and a read that moves an element
-// holding none only empties nothing.
 LogicalResult ArrayGetOp::verify() {
   if (failed(verifyCount(*this, getIndices().size(), "indices", getArrayType())))
     return failure();
-  if (getMoves()) {
-    if (getArrayType().getElementType().isIntOrIndexOrFloat())
-      return emitOpError("moves out a machine word, which holds no reference");
-    auto set = getNext().hasOneUse() ? dyn_cast<ArraySetOp>(*getNext().getUsers().begin())
-                                     : ArraySetOp();
-    if (!set || set->getBlock() != (*this)->getBlock() ||
-        !sameElement(getArray(), getIndices(), set.getArray(), set.getIndices()))
-      return emitOpError("moves its element out, but its world does not go next to a write of "
-                         "that element in its block");
-  }
   return verifyElement(*this, "the result", getValue().getType(), getArrayType());
 }
 
@@ -101,9 +87,48 @@ LogicalResult ArraySetOp::verify() {
   return verifyElement(*this, "the value", getValue().getType(), getArrayType());
 }
 
-// The read before a write of the same element moves the element out.
+// The read before a write of the same element, with nothing between that
+// may read the array, is that element's update.
 void ArraySetOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRContext *context) {
   canon::addMoveOutPatterns(results, context);
+}
+
+// The region binds the element alone, at the array's element type at any
+// grade.
+LogicalResult ArrayUpdateOp::verify() {
+  if (failed(verifyCount(*this, getIndices().size(), "indices", getArrayType())))
+    return failure();
+  if (getBody()->getNumArguments() != 1)
+    return emitOpError("binds ") << getBody()->getNumArguments()
+                                 << " values in its region, where it binds the element alone";
+  return verifyElement(*this, "the element", getElement().getType(), getArrayType());
+}
+
+// The region yields the element, at any grade, then each result.
+LogicalResult ArrayUpdateOp::verifyRegions() {
+  SmallVector<Type> types{getArrayType().getElementType()};
+  llvm::append_range(types, getOuts().getTypes());
+  return verifyEnd(*this, types, [](unsigned at) { return at == 0; });
+}
+
+// The region runs once, between the read and the write.
+void ArrayUpdateOp::getSuccessorRegions(RegionBranchPoint point,
+                                        SmallVectorImpl<RegionSuccessor> &regions) {
+  if (point.isParent())
+    regions.push_back(RegionSuccessor(&getRegion()));
+  else
+    regions.push_back(RegionSuccessor(getOperation()));
+}
+
+ValueRange ArrayUpdateOp::getSuccessorInputs(RegionSuccessor successor) {
+  if (successor.isOperation())
+    return getOuts();
+  return ValueRange();
+}
+
+void ArrayUpdateOp::getRegionInvocationBounds(ArrayRef<Attribute>,
+                                              SmallVectorImpl<InvocationBounds> &bounds) {
+  bounds.emplace_back(1, 1);
 }
 
 // Each dimension of the new array is its size clamped at 0, as an index:
@@ -123,11 +148,11 @@ LogicalResult ArrayNewOp::reifyResultShapes(OpBuilder &b,
 }
 
 // Each op's effects are on the array it touches, in the default resource:
-// a new array is allocated and written with its fill, a read reads it (and
-// writes it when it empties the element's place), and a write reads the
-// old element, to release it, and writes the new one. The world orders
-// them with every other effect; an access crashes on no index, the index
-// being its guard's to check.
+// a new array is allocated and written with its fill, a read reads it, a
+// write reads the old element, to release it, and writes the new one, and
+// an update reads the element out and writes the new one in. The world
+// orders them with every other effect; an access crashes on no index, the
+// index being its guard's to check.
 void ArrayNewOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
   auto array = cast<OpResult>(getArray());
@@ -136,10 +161,8 @@ void ArrayNewOp::getEffects(
 }
 void ArrayGetOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  OpOperand *array = &getArrayMutable();
-  effects.emplace_back(MemoryEffects::Read::get(), array, SideEffects::DefaultResource::get());
-  if (getMoves())
-    effects.emplace_back(MemoryEffects::Write::get(), array, SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Read::get(), &getArrayMutable(),
+                       SideEffects::DefaultResource::get());
 }
 void ArraySetOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
@@ -147,6 +170,33 @@ void ArraySetOp::getEffects(
   effects.emplace_back(MemoryEffects::Read::get(), array, SideEffects::DefaultResource::get());
   effects.emplace_back(MemoryEffects::Write::get(), array, SideEffects::DefaultResource::get());
 }
+void ArrayUpdateOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
+  OpOperand *array = &getArrayMutable();
+  effects.emplace_back(MemoryEffects::Read::get(), array, SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), array, SideEffects::DefaultResource::get());
+}
+
+// An element moves in through the fill, which every element holds, and
+// through a write; out through a read, and out of an update's place into
+// its region, whose yield moves it back in.
+void ArrayNewOp::getFlowEdges(FlowEdges &edges) {
+  edges.flow(FlowPoint::of(getFillMutable()), elementsOf(getArray()));
+  edges.fresh(getArray());
+}
+void ArrayGetOp::getFlowEdges(FlowEdges &edges) {
+  edges.flow(elementsOf(getArray()), FlowPoint::of(getValue()));
+}
+void ArraySetOp::getFlowEdges(FlowEdges &edges) {
+  edges.flow(FlowPoint::of(getValueMutable()), elementsOf(getArray()));
+}
+void ArrayUpdateOp::getFlowEdges(FlowEdges &edges) {
+  edges.flow(elementsOf(getArray()), FlowPoint::of(getElement()));
+}
+
+//===----------------------------------------------------------------------===//
+// The extent of an array to be made
+//===----------------------------------------------------------------------===//
 
 // Any natural may be past the small range, so the conversion may always
 // fail: as the allocation of that many elements would.
@@ -156,11 +206,13 @@ std::optional<StringRef> NatToExtentOp::getCrashCause() { return StringRef("arra
 // to fail where it runs.
 OpFoldResult NatToExtentOp::fold(FoldAdaptor adaptor) {
   auto big = dyn_cast_or_null<BigAttr>(adaptor.getNatural());
-  int64_t value = 0;
-  if (!big || big.getValue().getAsInteger(10, value) || value < 0 ||
-      value > idr::ranges::smallMax)
+  if (!big)
     return {};
-  return IntegerAttr::get(IndexType::get(getContext()), value);
+  const APInt &value = big.getValue();
+  if (value.isNegative() || value.getSignificantBits() > 64 ||
+      value.getSExtValue() > idr::ranges::smallMax)
+    return {};
+  return IntegerAttr::get(IndexType::get(getContext()), value.getSExtValue());
 }
 
 // The natural's range, within what the op lets through: 0 to the largest
@@ -177,6 +229,10 @@ void NatToExtentOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
                                   APInt(64, static_cast<uint64_t>(hi), /*isSigned=*/true)));
 }
 
+//===----------------------------------------------------------------------===//
+// Dimensions across calls
+//===----------------------------------------------------------------------===//
+
 // One size per dynamic dimension. A world-ordered array's length is its
 // own, so it is never tied.
 LogicalResult TieShapeOp::verify() {
@@ -190,6 +246,8 @@ LogicalResult TieShapeOp::verify() {
     return emitOpError("ties ") << type << ", an array a world orders, whose length is its own";
   return success();
 }
+
+Value TieShapeOp::getViewSource() { return getValue(); }
 
 // No dynamic dimension, nothing to say; the same sizes said twice, once.
 OpFoldResult TieShapeOp::fold(FoldAdaptor) {

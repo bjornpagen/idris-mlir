@@ -18,7 +18,7 @@ namespace idr::ownership {
 // site rebuilt as a reuse, which stands where the constructor stood. What
 // was rebuilt is looked up by the old value and op, which are gone and so
 // are never asked anything.
-void reuseAt(RewriterBase &rewriter, ArrayRef<Reuses::Site> sites, Counted &counted) {
+void reuseAt(RewriterBase &rewriter, ArrayRef<Reuses::Site> sites) {
   SmallVector<TakeOp> takes;
   DenseMap<Value, Value> rebuiltValues;
   DenseMap<Operation *, Operation *> rebuiltOps;
@@ -30,17 +30,17 @@ void reuseAt(RewriterBase &rewriter, ArrayRef<Reuses::Site> sites, Counted &coun
     if (Operation *reuse = rebuiltOps.lookup(after))
       after = reuse;
     Block::iterator at = after ? std::next(after->getIterator()) : site.block->begin();
-    TakeOp take =
-        takeAt(rewriter, box, site.data, site.tag, *site.block, at, site.fields, counted);
+    TakeOp take = takeAt(rewriter, box, site.data, site.tag, *site.block, at, site.fields);
     takes.push_back(take);
     Value cell = take.getToken();
     for (ConOp con : site.cons) {
       rewriter.setInsertionPoint(con);
-      auto reuse = ReuseOp::create(rewriter, con.getLoc(), con.getType(), cell, con.getCtor(),
-                                   con.getFields());
+      auto reuse =
+          ReuseOp::create(rewriter, con.getLoc(), con.getResult().getType(), cell,
+                          static_cast<unsigned>(con.getTag()), con.getFields(), con.getHoles());
       rebuiltValues[con.getResult()] = reuse.getResult();
       rebuiltOps[con] = reuse;
-      rewriter.replaceOp(con, reuse.getResult());
+      rewriter.replaceOp(con, reuse);
     }
   }
 }

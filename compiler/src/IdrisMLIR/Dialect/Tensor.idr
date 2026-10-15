@@ -6,9 +6,6 @@ module IdrisMLIR.Dialect.Tensor
 import IdrisMLIR.MLIR
 import IdrisMLIR.Syntax.Tensor
 
-import Data.List
-import Data.Maybe
-
 %default total
 
 ------------------------------------------------------------------------------
@@ -53,9 +50,9 @@ emptyOp dynamicSizes result =
 
 ||| `tensor.expand_shape`: operation to produce a tensor with a higher rank
 export
-expandShapeOp : (src : Value) -> (reassociation : List MlirAttr) -> (outputShape : List Value) -> (staticOutputShape : MlirAttr) -> (result : MlirType) -> Op
+expandShapeOp : (src : Value) -> (reassociation : List MlirAttr) -> (outputShape : List Value) -> (staticOutputShape : List Integer) -> (result : MlirType) -> Op
 expandShapeOp src reassociation outputShape staticOutputShape result =
-  MkOp "tensor.expand_shape" (concat [[src], outputShape]) [("reassociation", ArrayAttr reassociation), ("static_output_shape", staticOutputShape)] [] [] [result]
+  MkOp "tensor.expand_shape" (concat [[src], outputShape]) [("reassociation", ArrayAttr reassociation), ("static_output_shape", DenseI64ArrayAttr staticOutputShape)] [] [] [result]
 
 ||| `tensor.extract`: element extraction operation
 export
@@ -65,9 +62,9 @@ extractOp tensor indices result =
 
 ||| `tensor.extract_slice`: extract slice operation
 export
-extractSliceOp : (source : Value) -> (offsets : List Value) -> (sizes : List Value) -> (strides : List Value) -> (staticOffsets : MlirAttr) -> (staticSizes : MlirAttr) -> (staticStrides : MlirAttr) -> (result : MlirType) -> Op
+extractSliceOp : (source : Value) -> (offsets : List Value) -> (sizes : List Value) -> (strides : List Value) -> (staticOffsets : List Integer) -> (staticSizes : List Integer) -> (staticStrides : List Integer) -> (result : MlirType) -> Op
 extractSliceOp source offsets sizes strides staticOffsets staticSizes staticStrides result =
-  MkOp "tensor.extract_slice" (concat [[source], offsets, sizes, strides]) [("static_offsets", staticOffsets), ("static_sizes", staticSizes), ("static_strides", staticStrides), ("operandSegmentSizes", DenseI32ArrayAttr [1, length offsets, length sizes, length strides])] [] [] [result]
+  MkOp "tensor.extract_slice" (concat [[source], offsets, sizes, strides]) [("static_offsets", DenseI64ArrayAttr staticOffsets), ("static_sizes", DenseI64ArrayAttr staticSizes), ("static_strides", DenseI64ArrayAttr staticStrides), ("operandSegmentSizes", DenseI32ArrayAttr [1, length offsets, length sizes, length strides])] [] [] [result]
 
 ||| `tensor.from_elements`: tensor from elements operation.
 export
@@ -77,9 +74,9 @@ fromElementsOp elements result =
 
 ||| `tensor.gather`: gather a subset of a tensor at specified indices
 export
-gatherOp : {default False unique : Bool} -> (source : Value) -> (indices : Value) -> (gatherDims : MlirAttr) -> (result : MlirType) -> Op
+gatherOp : {default False unique : Bool} -> (source : Value) -> (indices : Value) -> (gatherDims : List Integer) -> (result : MlirType) -> Op
 gatherOp source indices gatherDims result =
-  MkOp "tensor.gather" [source, indices] ([("gather_dims", gatherDims)] ++ unitIf "unique" unique) [] [] [result]
+  MkOp "tensor.gather" [source, indices] ([("gather_dims", DenseI64ArrayAttr gatherDims)] ++ unitIf "unique" unique) [] [] [result]
 
 ||| `tensor.generate`: Creates a dynamically sized tensor from elements
 export
@@ -95,21 +92,21 @@ insertOp scalar dest indices result =
 
 ||| `tensor.insert_slice`: insert_slice operation
 export
-insertSliceOp : (source : Value) -> (dest : Value) -> (offsets : List Value) -> (sizes : List Value) -> (strides : List Value) -> (staticOffsets : MlirAttr) -> (staticSizes : MlirAttr) -> (staticStrides : MlirAttr) -> (result : MlirType) -> Op
+insertSliceOp : (source : Value) -> (dest : Value) -> (offsets : List Value) -> (sizes : List Value) -> (strides : List Value) -> (staticOffsets : List Integer) -> (staticSizes : List Integer) -> (staticStrides : List Integer) -> (result : MlirType) -> Op
 insertSliceOp source dest offsets sizes strides staticOffsets staticSizes staticStrides result =
-  MkOp "tensor.insert_slice" (concat [[source], [dest], offsets, sizes, strides]) [("static_offsets", staticOffsets), ("static_sizes", staticSizes), ("static_strides", staticStrides), ("operandSegmentSizes", DenseI32ArrayAttr [1, 1, length offsets, length sizes, length strides])] [] [] [result]
+  MkOp "tensor.insert_slice" (concat [[source], [dest], offsets, sizes, strides]) [("static_offsets", DenseI64ArrayAttr staticOffsets), ("static_sizes", DenseI64ArrayAttr staticSizes), ("static_strides", DenseI64ArrayAttr staticStrides), ("operandSegmentSizes", DenseI32ArrayAttr [1, 1, length offsets, length sizes, length strides])] [] [] [result]
 
 ||| `tensor.pad`: tensor pad operation
 export
-padOp : {default False nofold : Bool} -> (source : Value) -> (low : List Value) -> (high : List Value) -> (staticLow : MlirAttr) -> (staticHigh : MlirAttr) -> (region : Region) -> (result : MlirType) -> Op
+padOp : {default False nofold : Bool} -> (source : Value) -> (low : List Value) -> (high : List Value) -> (staticLow : List Integer) -> (staticHigh : List Integer) -> (region : Region) -> (result : MlirType) -> Op
 padOp source low high staticLow staticHigh region result =
-  MkOp "tensor.pad" (concat [[source], low, high]) ([("static_low", staticLow), ("static_high", staticHigh)] ++ unitIf "nofold" nofold ++ [("operandSegmentSizes", DenseI32ArrayAttr [1, length low, length high])]) [region] [] [result]
+  MkOp "tensor.pad" (concat [[source], low, high]) ([("static_low", DenseI64ArrayAttr staticLow), ("static_high", DenseI64ArrayAttr staticHigh)] ++ unitIf "nofold" nofold ++ [("operandSegmentSizes", DenseI32ArrayAttr [1, length low, length high])]) [region] [] [result]
 
 ||| `tensor.parallel_insert_slice`: Specify the tensor slice update of a single thread of a parent     InParallelOpInterface op.
 export
-parallelInsertSliceOp : (source : Value) -> (dest : Value) -> (offsets : List Value) -> (sizes : List Value) -> (strides : List Value) -> (staticOffsets : MlirAttr) -> (staticSizes : MlirAttr) -> (staticStrides : MlirAttr) -> Op
+parallelInsertSliceOp : (source : Value) -> (dest : Value) -> (offsets : List Value) -> (sizes : List Value) -> (strides : List Value) -> (staticOffsets : List Integer) -> (staticSizes : List Integer) -> (staticStrides : List Integer) -> Op
 parallelInsertSliceOp source dest offsets sizes strides staticOffsets staticSizes staticStrides =
-  MkOp "tensor.parallel_insert_slice" (concat [[source], [dest], offsets, sizes, strides]) [("static_offsets", staticOffsets), ("static_sizes", staticSizes), ("static_strides", staticStrides), ("operandSegmentSizes", DenseI32ArrayAttr [1, 1, length offsets, length sizes, length strides])] [] [] []
+  MkOp "tensor.parallel_insert_slice" (concat [[source], [dest], offsets, sizes, strides]) [("static_offsets", DenseI64ArrayAttr staticOffsets), ("static_sizes", DenseI64ArrayAttr staticSizes), ("static_strides", DenseI64ArrayAttr staticStrides), ("operandSegmentSizes", DenseI32ArrayAttr [1, 1, length offsets, length sizes, length strides])] [] [] []
 
 ||| `tensor.rank`: rank operation
 export
@@ -125,9 +122,9 @@ reshapeOp source shape result =
 
 ||| `tensor.scatter`: scatter a tensor into a destination tensor at specified indices
 export
-scatterOp : {default False unique : Bool} -> (source : Value) -> (dest : Value) -> (indices : Value) -> (scatterDims : MlirAttr) -> (result : MlirType) -> Op
+scatterOp : {default False unique : Bool} -> (source : Value) -> (dest : Value) -> (indices : Value) -> (scatterDims : List Integer) -> (result : MlirType) -> Op
 scatterOp source dest indices scatterDims result =
-  MkOp "tensor.scatter" [source, dest, indices] ([("scatter_dims", scatterDims)] ++ unitIf "unique" unique) [] [] [result]
+  MkOp "tensor.scatter" [source, dest, indices] ([("scatter_dims", DenseI64ArrayAttr scatterDims)] ++ unitIf "unique" unique) [] [] [result]
 
 ||| `tensor.splat`: tensor splat or broadcast operation
 export
@@ -141,113 +138,4 @@ yieldOp : (value : Value) -> Op
 yieldOp value =
   MkOp "tensor.yield" [value] [] [] [] []
 
-------------------------------------------------------------------------------
--- Printer
-------------------------------------------------------------------------------
-
--- An attribute an op's syntax writes without its type, which the parser
--- is given and does not read.
-covering
-bare : MlirAttr -> String
-bare (IntegerAttr n _) = show n
-bare (FloatAttr d _) = floatLiteral d
-bare a = attrText a
-
--- The name of the symbol an op declares, as a reference to it writes it.
-covering
-symbolName : MlirAttr -> String
-symbolName (StringAttr s) = symbol s
-symbolName a = attrText a
-
-||| An op of the tensor dialect in the declarative syntax its ODS
-||| gives, up to its regions: its full name and its syntax, which puts the
-||| regions last, for the caller to write after it. Nothing for an op
-||| written in the generic form: one whose syntax this printer does not
-||| write (each is named below, with the reason), one of another dialect,
-||| and one whose operands, results, regions or attributes are not what its
-||| ODS lets it have, which the generic form carries to the verifier.
-export covering
-printOp : Op -> Maybe String
-printOp (MkOp "tensor.bitcast" [o0] props [] attrs [r0]) = do
-  guard (null props)
-  pure (fastConcat ["tensor.bitcast ", o0.name, dictionary "{" "}" attrs, " : ", typeText o0.type, " to ", typeText r0])
-
-printOp (MkOp "tensor.cast" [o0] props [] attrs [r0]) = do
-  guard (null props)
-  pure (fastConcat ["tensor.cast ", o0.name, dictionary "{" "}" attrs, " : ", typeText o0.type, " to ", typeText r0])
-
-printOp (MkOp "tensor.collapse_shape" [o0] props [] attrs [r0]) = do
-  guard (all (\p => elem (fst p) ["reassociation"]) props)
-  a0 <- lookup "reassociation" props
-  pure (fastConcat ["tensor.collapse_shape ", o0.name, " ", bare a0, dictionary "{" "}" attrs, " : ", typeText o0.type, " into ", typeText r0])
-
-printOp (MkOp "tensor.concat" os props [] attrs rs) = do
-  let o0 = os
-  [r0] <- pure rs | _ => Nothing
-  guard (all (\p => elem (fst p) ["dim"]) props)
-  a0 <- lookup "dim" props
-  pure (fastConcat ["tensor.concat dim (", bare a0, ")", (if null o0 then "" else " " ++ commaSeparated (map (.name) o0)), dictionary "{" "}" attrs, " : ", signature typeText (MkSignature (map (.type) os) (rs))])
-
-printOp (MkOp "tensor.dim" [o0, o1] props [] attrs [r0]) = do
-  guard (null props)
-  pure (fastConcat ["tensor.dim", dictionary "{" "}" attrs, " ", o0.name, ", ", o1.name, " : ", typeText o0.type])
-
-printOp (MkOp "tensor.empty" o0 props [] attrs [r0]) = do
-  guard (null props)
-  pure (fastConcat ["tensor.empty (", commaSeparated (map (.name) o0), ")", dictionary "{" "}" attrs, " : ", typeText r0])
-
-printOp (MkOp "tensor.extract" (o0 :: o1) props [] attrs [r0]) = do
-  guard (null props)
-  pure (fastConcat ["tensor.extract ", o0.name, "[", commaSeparated (map (.name) o1), "]", dictionary "{" "}" attrs, " : ", typeText o0.type])
-
-printOp (MkOp "tensor.from_elements" o0 props [] attrs [r0]) = do
-  guard (null props)
-  pure (fastConcat ["tensor.from_elements", (if null o0 then "" else " " ++ commaSeparated (map (.name) o0)), dictionary "{" "}" attrs, " : ", typeText r0])
-
-printOp (MkOp "tensor.gather" os props [] attrs rs) = do
-  [o0, o1] <- pure os | _ => Nothing
-  [r0] <- pure rs | _ => Nothing
-  guard (all (\p => elem (fst p) ["gather_dims", "unique"]) props)
-  a0 <- lookup "gather_dims" props
-  pure (fastConcat ["tensor.gather ", o0.name, "[", o1.name, "] gather_dims (", attrText a0, ")", (if isJust (lookup "unique" props) then " unique" else ""), dictionary "{" "}" attrs, " : ", signature typeText (MkSignature (map (.type) os) (rs))])
-
-printOp (MkOp "tensor.insert" (o0 :: o1 :: o2) props [] attrs [r0]) = do
-  guard (null props)
-  pure (fastConcat ["tensor.insert ", o0.name, " into ", o1.name, "[", commaSeparated (map (.name) o2), "]", dictionary "{" "}" attrs, " : ", typeText o1.type])
-
-printOp (MkOp "tensor.rank" [o0] props [] attrs [r0]) = do
-  guard (null props)
-  pure (fastConcat ["tensor.rank ", o0.name, dictionary "{" "}" attrs, " : ", typeText o0.type])
-
-printOp (MkOp "tensor.reshape" os props [] attrs rs) = do
-  [o0, o1] <- pure os | _ => Nothing
-  [r0] <- pure rs | _ => Nothing
-  guard (null props)
-  pure (fastConcat ["tensor.reshape ", o0.name, "(", o1.name, ")", dictionary "{" "}" attrs, " : ", signature typeText (MkSignature (map (.type) os) (rs))])
-
-printOp (MkOp "tensor.scatter" os props [] attrs rs) = do
-  [o0, o1, o2] <- pure os | _ => Nothing
-  [r0] <- pure rs | _ => Nothing
-  guard (all (\p => elem (fst p) ["scatter_dims", "unique"]) props)
-  a0 <- lookup "scatter_dims" props
-  pure (fastConcat ["tensor.scatter ", o0.name, " into ", o1.name, "[", o2.name, "] scatter_dims (", attrText a0, ")", (if isJust (lookup "unique" props) then " unique" else ""), dictionary "{" "}" attrs, " : ", signature typeText (MkSignature (map (.type) os) (rs))])
-
-printOp (MkOp "tensor.splat" (o0 :: o1) props [] attrs [r0]) = do
-  guard (null props)
-  pure (fastConcat ["tensor.splat ", o0.name, (if not (null o1) then fastConcat ["[", commaSeparated (map (.name) o1), "]"] else ""), dictionary "{" "}" attrs, " : ", typeText r0])
-
-printOp (MkOp "tensor.yield" [o0] props [] attrs []) = do
-  guard (null props)
-  pure (fastConcat ["tensor.yield ", o0.name, dictionary "{" "}" attrs, " : ", typeText o0.type])
-
-printOp _ = Nothing
-
--- Written in the generic form:
--- op tensor.expand_shape: its syntax has the directive `custom`
--- op tensor.extract_slice: its syntax has the directive `custom`
--- op tensor.generate: its syntax has a region before its end
--- op tensor.insert_slice: its syntax has the directive `custom`
--- op tensor.pad: its syntax has the directive `custom`
--- op tensor.parallel_insert_slice: its syntax has the directive `custom`
-
--- fingerprint: 500827795-729014 796677588-13345
+-- fingerprint: 3635469486-744339 2963797108-7888

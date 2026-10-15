@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The folders of the big ops: each calls the runtime's own C function on its
-// constant operands, as Fold.h says.
+// The folders of the big ops: each calls the runtime's function of its op
+// on its constant operands, as Fold.h says.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Fold.h"
-
-#include "idris_rt.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 
@@ -17,28 +15,28 @@ namespace idr {
 using fold::bigBinary;
 using fold::bigUnary;
 using fold::compared;
-using fold::extended;
+using fold::runtimeOfWord;
 using fold::Scope;
 using fold::strUnary;
 using fold::wrapped;
 
 OpFoldResult BigAddOp::fold(FoldAdaptor adaptor) {
-  return bigBinary(getContext(), adaptor.getLhs(), adaptor.getRhs(), idris_rt_big_add);
+  return bigBinary<BigAddOp>(getContext(), adaptor.getLhs(), adaptor.getRhs());
 }
 OpFoldResult BigSubOp::fold(FoldAdaptor adaptor) {
-  return bigBinary(getContext(), adaptor.getLhs(), adaptor.getRhs(), idris_rt_big_sub);
+  return bigBinary<BigSubOp>(getContext(), adaptor.getLhs(), adaptor.getRhs());
 }
 OpFoldResult BigMulOp::fold(FoldAdaptor adaptor) {
-  return bigBinary(getContext(), adaptor.getLhs(), adaptor.getRhs(), idris_rt_big_mul);
+  return bigBinary<BigMulOp>(getContext(), adaptor.getLhs(), adaptor.getRhs());
 }
 OpFoldResult BigAndOp::fold(FoldAdaptor adaptor) {
-  return bigBinary(getContext(), adaptor.getLhs(), adaptor.getRhs(), idris_rt_big_and);
+  return bigBinary<BigAndOp>(getContext(), adaptor.getLhs(), adaptor.getRhs());
 }
 OpFoldResult BigOrOp::fold(FoldAdaptor adaptor) {
-  return bigBinary(getContext(), adaptor.getLhs(), adaptor.getRhs(), idris_rt_big_or);
+  return bigBinary<BigOrOp>(getContext(), adaptor.getLhs(), adaptor.getRhs());
 }
 OpFoldResult BigXorOp::fold(FoldAdaptor adaptor) {
-  return bigBinary(getContext(), adaptor.getLhs(), adaptor.getRhs(), idris_rt_big_xor);
+  return bigBinary<BigXorOp>(getContext(), adaptor.getLhs(), adaptor.getRhs());
 }
 
 namespace {
@@ -47,19 +45,15 @@ namespace {
 // other way when the amount is negative) makes a constant within
 // constantBytes. The runtime computes the fold here, in the compiler, so a
 // result past the budget is never made. A shift toward zero, or of 0,
-// shrinks or keeps its operand. A shift away from zero has at most the
-// operand's bits plus the amount, and a decimal digit is less than 4 bits.
-// An amount past 2^64 is past every budget.
+// shrinks or keeps its operand; one away from zero has at most the
+// operand's bits plus the amount. An amount past 2^64 is past every budget.
 bool foldable(BigAttr value, BigAttr amount, bool left) {
-  StringRef digits = amount.getValue();
-  bool negative = digits.consume_front('-');
-  if (left == negative || value.getValue() == "0")
+  const APInt &places = amount.getValue();
+  if (left == places.isNegative() || value.getValue().isZero())
     return true;
-  uint64_t places;
-  if (digits.getAsInteger(10, places))
-    return false;
   constexpr uint64_t bits = 8 * constantBytes;
-  return places <= bits && 4 * value.getValue().size() <= bits - places;
+  std::optional<uint64_t> count = places.abs().tryZExtValue();
+  return count && *count <= bits && value.getValue().getSignificantBits() <= bits - *count;
 }
 
 template <typename OpT>
@@ -68,7 +62,7 @@ OpFoldResult bigShift(OpT op, typename OpT::FoldAdaptor adaptor) {
   auto amount = dyn_cast_or_null<BigAttr>(adaptor.getAmount());
   if (!value || !amount || !foldable(value, amount, OpT::left))
     return {};
-  return bigBinary(op.getContext(), value, amount, OpT::left ? idris_rt_big_shl : idris_rt_big_shr);
+  return bigBinary<OpT>(op.getContext(), value, amount);
 }
 
 } // namespace
@@ -79,19 +73,19 @@ OpFoldResult BigShrOp::fold(FoldAdaptor adaptor) { return bigShift(*this, adapto
 // Nothing by a divisor its guard refuses, zero: the program never divides
 // by it, since the guard crashes first.
 OpFoldResult BigDivOp::fold(FoldAdaptor adaptor) {
-  if (!checkHolds(CheckKind::Nonzero, adaptor.getRhs()))
+  if (!CheckNonzeroOp::holds({adaptor.getRhs()}))
     return {};
-  return bigBinary(getContext(), adaptor.getLhs(), adaptor.getRhs(), idris_rt_big_div);
+  return bigBinary<BigDivOp>(getContext(), adaptor.getLhs(), adaptor.getRhs());
 }
 OpFoldResult BigModOp::fold(FoldAdaptor adaptor) {
-  if (!checkHolds(CheckKind::Nonzero, adaptor.getRhs()))
+  if (!CheckNonzeroOp::holds({adaptor.getRhs()}))
     return {};
-  return bigBinary(getContext(), adaptor.getLhs(), adaptor.getRhs(), idris_rt_big_mod);
+  return bigBinary<BigModOp>(getContext(), adaptor.getLhs(), adaptor.getRhs());
 }
 
 OpFoldResult BigNegOp::fold(FoldAdaptor adaptor) {
   return bigUnary(getContext(), adaptor.getValue(), [](Scope &scope, idris_rt_big a) {
-    return scope.attr(idris_rt_big_neg(a));
+    return scope.attr(fold::runtime<BigNegOp>(a));
   });
 }
 
@@ -99,10 +93,10 @@ OpFoldResult BigNegOp::fold(FoldAdaptor adaptor) {
 // it excludes, and stays as it is.
 OpFoldResult BigPredOp::fold(FoldAdaptor adaptor) {
   auto a = dyn_cast_or_null<BigAttr>(adaptor.getValue());
-  if (!a || a.getValue() == "0")
+  if (!a || a.getValue().isZero())
     return {};
   Scope scope(getContext());
-  return scope.attr(idris_rt_big_pred(scope.big(a)));
+  return scope.attr(fold::runtime<BigPredOp>(scope.big(a)));
 }
 
 // The constant is the same value under the other type, which the
@@ -113,7 +107,7 @@ OpFoldResult NatToBigOp::fold(FoldAdaptor adaptor) {
 
 OpFoldResult NatFromBigOp::fold(FoldAdaptor adaptor) {
   return bigUnary(getContext(), adaptor.getValue(), [](Scope &scope, idris_rt_big a) {
-    return scope.attr(idris_rt_nat_from_big(a));
+    return scope.attr(fold::runtime<NatFromBigOp>(a));
   });
 }
 
@@ -122,7 +116,7 @@ OpFoldResult BigCmpOp::fold(FoldAdaptor adaptor) {
   if (!a || !b)
     return {};
   Scope scope(getContext());
-  return compared(getContext(), getPredicate(), idris_rt_big_cmp(scope.big(a), scope.big(b)));
+  return compared(getContext(), getPredicate(), fold::runtime<BigCmpOp>(scope.big(a), scope.big(b)));
 }
 
 OpFoldResult BigFromIntOp::fold(FoldAdaptor adaptor) {
@@ -130,17 +124,17 @@ OpFoldResult BigFromIntOp::fold(FoldAdaptor adaptor) {
   if (!n)
     return {};
   Scope scope(getContext());
-  int64_t value = extended(n, getIsSigned());
-  return scope.attr(getIsSigned() ? idris_rt_big_from_int_s(value)
-                                  : idris_rt_big_from_int_u(static_cast<uint64_t>(value)));
+  return scope.attr(runtimeOfWord<BigFromIntOp>(n, getIsSigned()));
 }
 
+// A small is the Integer of its word, read signed, as big.from_int makes
+// it.
 OpFoldResult BigSmallOp::fold(FoldAdaptor adaptor) {
   auto n = dyn_cast_or_null<IntegerAttr>(adaptor.getValue());
   if (!n)
     return {};
   Scope scope(getContext());
-  return scope.attr(idris_rt_big_from_int_s(n.getValue().getSExtValue()));
+  return scope.attr(runtimeOfWord<BigFromIntOp>(n, /*isSigned=*/true));
 }
 
 OpFoldResult BigToIntOp::fold(FoldAdaptor adaptor) {
@@ -157,34 +151,34 @@ OpFoldResult BigToIntOp::fold(FoldAdaptor adaptor) {
   if (!a)
     return {};
   Scope scope(getContext());
-  return wrapped(getType(), idris_rt_big_to_int(scope.big(a)));
+  return wrapped(getType(), fold::runtime<BigToIntOp>(scope.big(a)));
 }
 
 // Nothing of a Double its guard refuses, one that is not finite.
 OpFoldResult BigFromDoubleOp::fold(FoldAdaptor adaptor) {
-  if (!checkHolds(CheckKind::Finite, adaptor.getValue()))
+  if (!CheckFiniteOp::holds({adaptor.getValue()}))
     return {};
   auto d = cast<FloatAttr>(adaptor.getValue());
   Scope scope(getContext());
-  return scope.attr(idris_rt_big_from_double(d.getValueAsDouble()));
+  return scope.attr(fold::runtime<BigFromDoubleOp>(d.getValueAsDouble()));
 }
 
 OpFoldResult BigToDoubleOp::fold(FoldAdaptor adaptor) {
   Type type = getType();
   return bigUnary(getContext(), adaptor.getValue(), [&](Scope &, idris_rt_big a) {
-    return FloatAttr::get(type, idris_rt_big_to_double(a));
+    return FloatAttr::get(type, fold::runtime<BigToDoubleOp>(a));
   });
 }
 
 OpFoldResult BigShowOp::fold(FoldAdaptor adaptor) {
   return bigUnary(getContext(), adaptor.getValue(), [](Scope &scope, idris_rt_big a) {
-    return scope.attr(idris_rt_big_show(a));
+    return scope.attr(fold::runtime<BigShowOp>(a));
   });
 }
 
 OpFoldResult BigFromStrOp::fold(FoldAdaptor adaptor) {
   return strUnary(getContext(), adaptor.getStr(), [](Scope &scope, const idris_rt_str *s) {
-    return scope.attr(idris_rt_big_from_str(s));
+    return scope.attr(fold::runtime<BigFromStrOp>(s));
   });
 }
 

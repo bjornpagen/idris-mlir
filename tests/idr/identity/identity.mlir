@@ -23,68 +23,68 @@
 !Term = !idr.data<"Term", plain [@Var(!idr.nat), @App(!idr.box<!idr.data<"Term">>, !idr.box<!idr.data<"Term">>), @Lam(!idr.box<!idr.data<"Term">>), @Lit(!idr.big)]>
 !Tree = !idr.data<"Tree", plain [@Leaf(!idr.nat), @Node(!idr.box<!idr.data<"Forest", plain [@Done(), @More(!idr.box<!idr.data<"Tree">>, !idr.box<!idr.data<"Forest">>)]>>)]>
 !Forest = !idr.data<"Forest", plain [@Done(), @More(!idr.box<!idr.data<"Tree", plain [@Leaf(!idr.nat), @Node(!idr.box<!idr.data<"Forest">>)]>>, !idr.box<!idr.data<"Forest">>)]>
-module {
+idr.program @identity root(@root) stage(first) {
   // weaken FZ = FZ; weaken (FS k) = FS (weaken k)
-  idr.func private @weaken(%i: !idr.nat) -> !idr.nat attributes {total} {
+  idr.func @weaken(%i: !idr.nat) -> !idr.nat attributes {total} {
     %r = idr.match_lit %i : !idr.nat -> (!idr.nat) {
-    case #idr.big<"0"> {
-      %z = idr.constant #idr.big<"0"> : !idr.nat
+    case #idr.big<0> {
+      %z = idr.constant #idr.big<0> : !idr.nat
       idr.yield %z : !idr.nat
     }
     default {
       %k = idr.big.pred %i
       %w = idr.call @weaken(%k) : (!idr.nat) -> !idr.nat
-      %one = idr.constant #idr.big<"1"> : !idr.nat
+      %one = idr.constant #idr.big<1> : !idr.nat
       %s = idr.big.add %w, %one : !idr.nat
       idr.yield %s : !idr.nat
     }
     }
     return %r : !idr.nat
   }
-  idr.func private @weakenTerm(%t: !idr.box<!Term>) -> !idr.box<!Term> attributes {total} {
+  idr.func @weakenTerm(%t: !idr.box<!Term>) -> !idr.box<!Term> attributes {total} {
     %r = idr.match %t : !idr.box<!Term> -> (!idr.box<!Term>) {
     case @Var(%i: !idr.nat) {
       %j = idr.call @weaken(%i) : (!idr.nat) -> !idr.nat
-      %v = idr.con @Var(%j) : (!idr.nat) -> !idr.box<!Term>
+      %v = idr.con !idr.box<!Term> @Var(%j : !idr.nat)
       idr.yield %v : !idr.box<!Term>
     }
     case @App(%f: !idr.box<!Term>, %a: !idr.box<!Term>) {
       %f2 = idr.call @weakenTerm(%f) : (!idr.box<!Term>) -> !idr.box<!Term>
       %a2 = idr.call @weakenTerm(%a) : (!idr.box<!Term>) -> !idr.box<!Term>
-      %c = idr.con @App(%f2, %a2) : (!idr.box<!Term>, !idr.box<!Term>) -> !idr.box<!Term>
+      %c = idr.con !idr.box<!Term> @App(%f2 : !idr.box<!Term>, %a2 : !idr.box<!Term>)
       idr.yield %c : !idr.box<!Term>
     }
     case @Lam(%b: !idr.box<!Term>) {
       %b2 = idr.call @weakenTerm(%b) : (!idr.box<!Term>) -> !idr.box<!Term>
-      %c = idr.con @Lam(%b2) : (!idr.box<!Term>) -> !idr.box<!Term>
+      %c = idr.con !idr.box<!Term> @Lam(%b2 : !idr.box<!Term>)
       idr.yield %c : !idr.box<!Term>
     }
     case @Lit(%x: !idr.big) {
-      %c = idr.con @Lit(%x) : (!idr.big) -> !idr.box<!Term>
+      %c = idr.con !idr.box<!Term> @Lit(%x : !idr.big)
       idr.yield %c : !idr.box<!Term>
     }
     }
     return %r : !idr.box<!Term>
   }
   // The count goes one up under each binder, and is never given back.
-  idr.func private @weakenUnder(%d: !idr.nat, %t: !idr.box<!Term>) -> !idr.box<!Term> attributes {total} {
+  idr.func @weakenUnder(%d: !idr.nat, %t: !idr.box<!Term>) -> !idr.box<!Term> attributes {total} {
     %r = idr.match %t : !idr.box<!Term> -> (!idr.box<!Term>) {
     case @Var(%i: !idr.nat) {
       %j = idr.call @weaken(%i) : (!idr.nat) -> !idr.nat
-      %v = idr.con @Var(%j) : (!idr.nat) -> !idr.box<!Term>
+      %v = idr.con !idr.box<!Term> @Var(%j : !idr.nat)
       idr.yield %v : !idr.box<!Term>
     }
     case @App(%f: !idr.box<!Term>, %a: !idr.box<!Term>) {
       %f2 = idr.call @weakenUnder(%d, %f) : (!idr.nat, !idr.box<!Term>) -> !idr.box<!Term>
       %a2 = idr.call @weakenUnder(%d, %a) : (!idr.nat, !idr.box<!Term>) -> !idr.box<!Term>
-      %c = idr.con @App(%f2, %a2) : (!idr.box<!Term>, !idr.box<!Term>) -> !idr.box<!Term>
+      %c = idr.con !idr.box<!Term> @App(%f2 : !idr.box<!Term>, %a2 : !idr.box<!Term>)
       idr.yield %c : !idr.box<!Term>
     }
     case @Lam(%b: !idr.box<!Term>) {
-      %one = idr.constant #idr.big<"1"> : !idr.nat
+      %one = idr.constant #idr.big<1> : !idr.nat
       %d1 = idr.big.add %d, %one : !idr.nat
       %b2 = idr.call @weakenUnder(%d1, %b) : (!idr.nat, !idr.box<!Term>) -> !idr.box<!Term>
-      %c = idr.con @Lam(%b2) : (!idr.box<!Term>) -> !idr.box<!Term>
+      %c = idr.con !idr.box<!Term> @Lam(%b2 : !idr.box<!Term>)
       idr.yield %c : !idr.box<!Term>
     }
     case @Lit(%x: !idr.big) {
@@ -93,17 +93,17 @@ module {
     }
     return %r : !idr.box<!Term>
   }
-  idr.func private @weakenTree(%t: !idr.box<!Tree>) -> !idr.box<!Tree> attributes {total} {
+  idr.func @weakenTree(%t: !idr.box<!Tree>) -> !idr.box<!Tree> attributes {total} {
     %r = idr.match %t : !idr.box<!Tree> -> (!idr.box<!Tree>) {
     case @Leaf(%i: !idr.nat) {
       // Idris proved a leaf's index is never zero.
       %l = idr.match_lit %i : !idr.nat -> (!idr.box<!Tree>) {
-      case #idr.big<"0"> {
+      case #idr.big<0> {
         ub.unreachable
       }
       default {
         %j = idr.call @weaken(%i) : (!idr.nat) -> !idr.nat
-        %v = idr.con @Leaf(%j) : (!idr.nat) -> !idr.box<!Tree>
+        %v = idr.con !idr.box<!Tree> @Leaf(%j : !idr.nat)
         idr.yield %v : !idr.box<!Tree>
       }
       }
@@ -111,32 +111,32 @@ module {
     }
     case @Node(%f: !idr.box<!Forest>) {
       %f2 = idr.call @weakenForest(%f) : (!idr.box<!Forest>) -> !idr.box<!Forest>
-      %v = idr.con @Node(%f2) : (!idr.box<!Forest>) -> !idr.box<!Tree>
+      %v = idr.con !idr.box<!Tree> @Node(%f2 : !idr.box<!Forest>)
       idr.yield %v : !idr.box<!Tree>
     }
     }
     return %r : !idr.box<!Tree>
   }
-  idr.func private @weakenForest(%f: !idr.box<!Forest>) -> !idr.box<!Forest> attributes {total} {
+  idr.func @weakenForest(%f: !idr.box<!Forest>) -> !idr.box<!Forest> attributes {total} {
     %r = idr.match %f : !idr.box<!Forest> -> (!idr.box<!Forest>) {
     case @Done() {
-      %v = idr.con @Done() : () -> !idr.box<!Forest>
+      %v = idr.con !idr.box<!Forest> @Done()
       idr.yield %v : !idr.box<!Forest>
     }
     case @More(%t: !idr.box<!Tree>, %rest: !idr.box<!Forest>) {
       %t2 = idr.call @weakenTree(%t) : (!idr.box<!Tree>) -> !idr.box<!Tree>
       %rest2 = idr.call @weakenForest(%rest) : (!idr.box<!Forest>) -> !idr.box<!Forest>
-      %v = idr.con @More(%t2, %rest2) : (!idr.box<!Tree>, !idr.box<!Forest>) -> !idr.box<!Forest>
+      %v = idr.con !idr.box<!Forest> @More(%t2 : !idr.box<!Tree>, %rest2 : !idr.box<!Forest>)
       idr.yield %v : !idr.box<!Forest>
     }
     }
     return %r : !idr.box<!Forest>
   }
   // A linear argument: the match takes it apart, or gives it back.
-  idr.func private @same(%x: !idr.lin<!idr.box<!Forest>>) -> !idr.box<!Forest> attributes {total} {
+  idr.func @same(%x: !idr.lin<!idr.box<!Forest>>) -> !idr.box<!Forest> attributes {total} {
     %r = idr.match %x : !idr.lin<!idr.box<!Forest>> -> (!idr.box<!Forest>) {
     case @Done() {
-      %v = idr.con @Done() : () -> !idr.box<!Forest>
+      %v = idr.con !idr.box<!Forest> @Done()
       idr.yield %v : !idr.box<!Forest>
     }
     default(%back: !idr.lin<!idr.box<!Forest>>) {
@@ -147,7 +147,7 @@ module {
     return %r : !idr.box<!Forest>
   }
   // Counts n down, passing x on whole each time; Idris proved it ends.
-  idr.func private @carry(%n: i64, %x: !idr.box<!Forest>) -> !idr.box<!Forest> attributes {total} {
+  idr.func @carry(%n: i64, %x: !idr.box<!Forest>) -> !idr.box<!Forest> attributes {total} {
     %r = idr.match_lit %n : i64 -> (!idr.box<!Forest>) {
     case 0 {
       idr.yield %x : !idr.box<!Forest>
@@ -163,12 +163,12 @@ module {
   }
   // Calls itself on its whole argument, as @carry does, but never ends,
   // and Idris did not prove it does.
-  idr.func private @loops(%x: !idr.box<!Forest>) -> !idr.box<!Forest> {
+  idr.func @loops(%x: !idr.box<!Forest>) -> !idr.box<!Forest> {
     %r = idr.call @loops(%x) : (!idr.box<!Forest>) -> !idr.box<!Forest>
     return %r : !idr.box<!Forest>
   }
   // @carry without the proof.
-  idr.func private @drift(%n: i64, %x: !idr.box<!Forest>) -> !idr.box<!Forest> {
+  idr.func @drift(%n: i64, %x: !idr.box<!Forest>) -> !idr.box<!Forest> {
     %r = idr.match_lit %n : i64 -> (!idr.box<!Forest>) {
     case 0 {
       idr.yield %x : !idr.box<!Forest>
@@ -182,7 +182,7 @@ module {
     }
     return %r : !idr.box<!Forest>
   }
-  idr.func private @crashes(%x: !idr.box<!Forest>) -> !idr.box<!Forest> attributes {total} {
+  idr.func @crashes(%x: !idr.box<!Forest>) -> !idr.box<!Forest> attributes {total} {
     %r = idr.match %x : !idr.box<!Forest> -> (!idr.box<!Forest>) {
     case @Done() {
       idr.yield %x : !idr.box<!Forest>
@@ -194,25 +194,25 @@ module {
     }
     return %r : !idr.box<!Forest>
   }
-  idr.func private @zero(%i: !idr.nat) -> !idr.nat attributes {total} {
+  idr.func @zero(%i: !idr.nat) -> !idr.nat attributes {total} {
     %r = idr.match_lit %i : !idr.nat -> (!idr.nat) {
-    case #idr.big<"0"> {
-      %z = idr.constant #idr.big<"0"> : !idr.nat
+    case #idr.big<0> {
+      %z = idr.constant #idr.big<0> : !idr.nat
       idr.yield %z : !idr.nat
     }
     default {
-      %z = idr.constant #idr.big<"0"> : !idr.nat
+      %z = idr.constant #idr.big<0> : !idr.nat
       idr.yield %z : !idr.nat
     }
     }
     return %r : !idr.nat
   }
-  idr.func private @flip(%t: !idr.box<!Term>) -> !idr.box<!Term> attributes {total} {
+  idr.func @flip(%t: !idr.box<!Term>) -> !idr.box<!Term> attributes {total} {
     %r = idr.match %t : !idr.box<!Term> -> (!idr.box<!Term>) {
     case @App(%f: !idr.box<!Term>, %a: !idr.box<!Term>) {
       %f2 = idr.call @flip(%f) : (!idr.box<!Term>) -> !idr.box<!Term>
       %a2 = idr.call @flip(%a) : (!idr.box<!Term>) -> !idr.box<!Term>
-      %c = idr.con @App(%a2, %f2) : (!idr.box<!Term>, !idr.box<!Term>) -> !idr.box<!Term>
+      %c = idr.con !idr.box<!Term> @App(%a2 : !idr.box<!Term>, %f2 : !idr.box<!Term>)
       idr.yield %c : !idr.box<!Term>
     }
     default {
@@ -224,11 +224,11 @@ module {
   // Gives back its argument only if @flip does, on a part below it: in
   // whatever order the functions are checked, it keeps its call once @flip
   // is found not to.
-  idr.func private @leans(%t: !idr.box<!Term>) -> !idr.box<!Term> attributes {total} {
+  idr.func @leans(%t: !idr.box<!Term>) -> !idr.box<!Term> attributes {total} {
     %r = idr.match %t : !idr.box<!Term> -> (!idr.box<!Term>) {
     case @App(%f: !idr.box<!Term>, %a: !idr.box<!Term>) {
       %f2 = idr.call @flip(%f) : (!idr.box<!Term>) -> !idr.box<!Term>
-      %c = idr.con @App(%f2, %a) : (!idr.box<!Term>, !idr.box<!Term>) -> !idr.box<!Term>
+      %c = idr.con !idr.box<!Term> @App(%f2 : !idr.box<!Term>, %a : !idr.box<!Term>)
       idr.yield %c : !idr.box<!Term>
     }
     default {
@@ -238,10 +238,10 @@ module {
     return %r : !idr.box<!Term>
   }
   // Two arguments of the type it gives back; it gives back the second.
-  idr.func private @second(%x: !idr.box<!Forest>, %y: !idr.box<!Forest>) -> !idr.box<!Forest> attributes {total} {
+  idr.func @second(%x: !idr.box<!Forest>, %y: !idr.box<!Forest>) -> !idr.box<!Forest> attributes {total} {
     return %y : !idr.box<!Forest>
   }
-  idr.func private @main(%t: !idr.box<!Term>, %f: !idr.box<!Forest>, %i: !idr.nat, %d: !idr.nat, %k: i64) -> (!idr.box<!Term>, !idr.box<!Term>, !idr.box<!Forest>, !idr.nat, !idr.box<!Forest>, !idr.box<!Forest>, !idr.box<!Forest>, !idr.nat, !idr.box<!Term>, !idr.box<!Forest>, !idr.box<!Forest>, !idr.box<!Term>, !idr.box<!Forest>) {
+  idr.func @main(%t: !idr.box<!Term>, %f: !idr.box<!Forest>, %i: !idr.nat, %d: !idr.nat, %k: i64) -> (!idr.box<!Term>, !idr.box<!Term>, !idr.box<!Forest>, !idr.nat, !idr.box<!Forest>, !idr.box<!Forest>, !idr.box<!Forest>, !idr.nat, !idr.box<!Term>, !idr.box<!Forest>, !idr.box<!Forest>, !idr.box<!Term>, !idr.box<!Forest>) {
     %t1 = idr.call @weakenTerm(%t) : (!idr.box<!Term>) -> !idr.box<!Term>
     %t2 = idr.call @weakenUnder(%d, %t1) : (!idr.nat, !idr.box<!Term>) -> !idr.box<!Term>
     %f1 = idr.call @weakenForest(%f) : (!idr.box<!Forest>) -> !idr.box<!Forest>
@@ -259,36 +259,36 @@ module {
     return %t1, %t2, %f1, %j, %f2, %f3, %f4, %z, %s, %c, %r, %l, %g : !idr.box<!Term>, !idr.box<!Term>, !idr.box<!Forest>, !idr.nat, !idr.box<!Forest>, !idr.box<!Forest>, !idr.box<!Forest>, !idr.nat, !idr.box<!Term>, !idr.box<!Forest>, !idr.box<!Forest>, !idr.box<!Term>, !idr.box<!Forest>
   }
   // Values known only at run time: loops, which nothing inlines.
-  idr.func private @term(%k: i64) -> !idr.box<!Term> {
+  idr.func @term(%k: i64) -> !idr.box<!Term> {
     %r = idr.match_lit %k : i64 -> (!idr.box<!Term>) {
     case 0 {
-      %z = idr.constant #idr.big<"0"> : !idr.nat
-      %v = idr.con @Var(%z) : (!idr.nat) -> !idr.box<!Term>
+      %z = idr.constant #idr.big<0> : !idr.nat
+      %v = idr.con !idr.box<!Term> @Var(%z : !idr.nat)
       idr.yield %v : !idr.box<!Term>
     }
     default {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %k, %c1 : i64
       %a = idr.call @term(%m) : (i64) -> !idr.box<!Term>
-      %v = idr.con @Lam(%a) : (!idr.box<!Term>) -> !idr.box<!Term>
+      %v = idr.con !idr.box<!Term> @Lam(%a : !idr.box<!Term>)
       idr.yield %v : !idr.box<!Term>
     }
     }
     return %r : !idr.box<!Term>
   }
-  idr.func private @forest(%k: i64) -> !idr.box<!Forest> {
+  idr.func @forest(%k: i64) -> !idr.box<!Forest> {
     %r = idr.match_lit %k : i64 -> (!idr.box<!Forest>) {
     case 0 {
-      %v = idr.con @Done() : () -> !idr.box<!Forest>
+      %v = idr.con !idr.box<!Forest> @Done()
       idr.yield %v : !idr.box<!Forest>
     }
     default {
       %c1 = arith.constant 1 : i64
       %m = arith.subi %k, %c1 : i64
-      %z = idr.constant #idr.big<"0"> : !idr.nat
-      %l = idr.con @Leaf(%z) : (!idr.nat) -> !idr.box<!Tree>
+      %z = idr.constant #idr.big<0> : !idr.nat
+      %l = idr.con !idr.box<!Tree> @Leaf(%z : !idr.nat)
       %rest = idr.call @forest(%m) : (i64) -> !idr.box<!Forest>
-      %v = idr.con @More(%l, %rest) : (!idr.box<!Tree>, !idr.box<!Forest>) -> !idr.box<!Forest>
+      %v = idr.con !idr.box<!Forest> @More(%l : !idr.box<!Tree>, %rest : !idr.box<!Forest>)
       idr.yield %v : !idr.box<!Forest>
     }
     }
@@ -299,8 +299,8 @@ module {
     %k = arith.extui %c : i32 to i64
     %t = idr.call @term(%k) : (i64) -> !idr.box<!Term>
     %f = idr.call @forest(%k) : (i64) -> !idr.box<!Forest>
-    %i = idr.constant #idr.big<"2"> : !idr.nat
-    %d = idr.constant #idr.big<"1"> : !idr.nat
+    %i = idr.constant #idr.big<2> : !idr.nat
+    %d = idr.constant #idr.big<1> : !idr.nat
     %r:13 = idr.call @main(%t, %f, %i, %d, %k) : (!idr.box<!Term>, !idr.box<!Forest>, !idr.nat, !idr.nat, i64) -> (!idr.box<!Term>, !idr.box<!Term>, !idr.box<!Forest>, !idr.nat, !idr.box<!Forest>, !idr.box<!Forest>, !idr.box<!Forest>, !idr.nat, !idr.box<!Term>, !idr.box<!Forest>, !idr.box<!Forest>, !idr.box<!Term>, !idr.box<!Forest>)
     return %w1, %r#0, %r#1, %r#2, %r#3, %r#4, %r#5, %r#6, %r#7, %r#8, %r#9, %r#10, %r#11, %r#12 : !idr.world, !idr.box<!Term>, !idr.box<!Term>, !idr.box<!Forest>, !idr.nat, !idr.box<!Forest>, !idr.box<!Forest>, !idr.box<!Forest>, !idr.nat, !idr.box<!Term>, !idr.box<!Forest>, !idr.box<!Forest>, !idr.box<!Term>, !idr.box<!Forest>
   }

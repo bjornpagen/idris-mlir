@@ -8,28 +8,28 @@
 // labels, and the force gives that slot's sum.
 // CHECK: ![[F:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@inc(), @twice(){{.*}}]
 // CHECK: ![[L:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, memo [@give.inc(), @give.twice(), @running(), @forced(![[F]])]
-// CHECK: idr.func private @give.inc() -> ![[F]]
-// CHECK: idr.func private @give.twice() -> ![[F]]
+// CHECK: idr.func @give.inc() -> ![[F]]
+// CHECK: idr.func @give.twice() -> ![[F]]
 // CHECK-LABEL: idr.func @Main.main(
 // CHECK: force %{{.*}} : !idr.box<![[L]]> -> ![[F]]
 // CHECK: match %{{.*}} : ![[F]] -> (i64) {
 // CHECK: case @inc() {
 // CHECK: case @twice() {
-module {
-  idr.func private @inc(%x: i64) -> i64 attributes {total} {
+idr.program @"memo-forced-join" root(@Main.main) stage(higher) {
+  idr.func @inc(%x: i64) -> i64 attributes {total} {
     %c = arith.constant 1 : i64
     %y = arith.addi %x, %c : i64
     return %y : i64
   }
-  idr.func private @twice(%x: i64) -> i64 attributes {total} {
+  idr.func @twice(%x: i64) -> i64 attributes {total} {
     %y = arith.addi %x, %x : i64
     return %y : i64
   }
-  idr.func private @give.inc() -> !idr.fn<(i64) -> i64> attributes {total} {
+  idr.func @give.inc() -> !idr.fn<(i64) -> i64> attributes {total} {
     %f = idr.closure @inc() : () -> !idr.fn<(i64) -> i64>
     return %f : !idr.fn<(i64) -> i64>
   }
-  idr.func private @give.twice() -> !idr.fn<(i64) -> i64> attributes {total} {
+  idr.func @give.twice() -> !idr.fn<(i64) -> i64> attributes {total} {
     %f = idr.closure @twice() : () -> !idr.fn<(i64) -> i64>
     return %f : !idr.fn<(i64) -> i64>
   }

@@ -2,13 +2,16 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The idr ops, as TableGen defines them, with what the generated code calls
 // by name and so must find declared before it: the custom directives of the
-// ops' assembly formats, and the folders idr.div and idr.mod, and idr.shl
-// and idr.shr, share through IdrScalarOps.td. Every other hook of an op is
-// defined in the unit of its family.
+// ops' assembly formats (a constructor's name is Symbols.h's CtorRef), and
+// the folders idr.div and idr.mod, and idr.shl and idr.shr, share through
+// IdrScalarOps.td. Every other hook of an op is defined in the unit of its
+// family.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Symbols.h"
 
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/OpImplementation.h"
 #include "llvm/ADT/DenseSet.h"
 
@@ -120,6 +123,107 @@ void printNatResult(OpAsmPrinter &printer, Operation *, Type type) {
   printResultAtGrade(printer, type, NatType::get(type.getContext()));
 }
 
+// A value an op reads in place: its operand, after `borrow` when it is the
+// view the owned stage grades Borrow, and plain otherwise.
+ParseResult parseRead(OpAsmParser &parser, OpAsmParser::UnresolvedOperand &operand, Type &type,
+                      Type plain) {
+  type = succeeded(parser.parseOptionalKeyword("borrow")) ? view(plain) : plain;
+  return parser.parseOperand(operand);
+}
+
+void printRead(OpAsmPrinter &printer, Value operand, Type type) {
+  if (gradeOf(type).permission == Permission::Borrow)
+    printer << "borrow ";
+  printer << operand;
+}
+
+ParseResult parseStrRead(OpAsmParser &parser, OpAsmParser::UnresolvedOperand &operand,
+                         Type &type) {
+  return parseRead(parser, operand, type, StrType::get(parser.getContext()));
+}
+
+void printStrRead(OpAsmPrinter &printer, Operation *, Value operand, Type type) {
+  printRead(printer, operand, type);
+}
+
+ParseResult parseBigRead(OpAsmParser &parser, OpAsmParser::UnresolvedOperand &operand,
+                         Type &type) {
+  return parseRead(parser, operand, type, BigType::get(parser.getContext()));
+}
+
+void printBigRead(OpAsmPrinter &printer, Operation *, Value operand, Type type) {
+  printRead(printer, operand, type);
+}
+
+ParseResult parseNatRead(OpAsmParser &parser, OpAsmParser::UnresolvedOperand &operand,
+                         Type &type) {
+  return parseRead(parser, operand, type, NatType::get(parser.getContext()));
+}
+
+void printNatRead(OpAsmPrinter &printer, Operation *, Value operand, Type type) {
+  printRead(printer, operand, type);
+}
+
+// `(%a : A, dest, %b : B)`: the fields of a constructor, each given with its
+// type, and a hole, a field written later through its destination, as
+// `dest`. `holes` are the holes' field indices, ascending, held only when
+// there is one.
+ParseResult parseFields(OpAsmParser &parser,
+                        SmallVectorImpl<OpAsmParser::UnresolvedOperand> &fields,
+                        SmallVectorImpl<Type> &types, DenseI32ArrayAttr &holes) {
+  SmallVector<int32_t> at;
+  int32_t index = 0;
+  if (parser.parseCommaSeparatedList(OpAsmParser::Delimiter::Paren, [&]() -> ParseResult {
+        if (succeeded(parser.parseOptionalKeyword("dest")))
+          at.push_back(index);
+        else if (parser.parseOperand(fields.emplace_back()) ||
+                 parser.parseColonType(types.emplace_back()))
+          return failure();
+        ++index;
+        return success();
+      }))
+    return failure();
+  if (!at.empty())
+    holes = parser.getBuilder().getDenseI32ArrayAttr(at);
+  return success();
+}
+
+void printFields(OpAsmPrinter &printer, Operation *, OperandRange fields, TypeRange types,
+                 DenseI32ArrayAttr holes) {
+  ArrayRef<int32_t> at = holes ? holes.asArrayRef() : ArrayRef<int32_t>();
+  printer << '(';
+  size_t given = 0;
+  for (size_t index = 0, n = fields.size() + at.size(); index < n; ++index) {
+    if (index)
+      printer << ", ";
+    if (given == fields.size() || llvm::is_contained(at, static_cast<int32_t>(index))) {
+      printer << "dest";
+      continue;
+    }
+    printer << fields[given] << " : " << types[given];
+    ++given;
+  }
+  printer << ')';
+}
+
+// Nothing: each destination is the word of its hole, a field of the
+// constructor `tag` of `type`, which the parser reads off the type. A hole
+// the constructor does not have gives no destination, and the verifier
+// refuses the op.
+ParseResult parseDests(OpAsmParser &, SmallVectorImpl<Type> &dests, Type type, IntegerAttr tag,
+                       DenseI32ArrayAttr holes) {
+  DataType data = dataTypeOf(type);
+  if (!holes || !data || !tag || tag.getValue().getZExtValue() >= data.getCtors().size())
+    return success();
+  const Ctor &ctor = data.getCtor(static_cast<unsigned>(tag.getValue().getZExtValue()));
+  for (int32_t hole : holes.asArrayRef())
+    if (hole >= 0 && static_cast<size_t>(hole) < ctor.fields.size())
+      dests.push_back(idr::detail::destOf(ctor, hole));
+  return success();
+}
+
+void printDests(OpAsmPrinter &, Operation *, TypeRange, Type, IntegerAttr, DenseI32ArrayAttr) {}
+
 //===----------------------------------------------------------------------===//
 // Division and shifts, shared through IdrScalarOps.td
 //===----------------------------------------------------------------------===//
@@ -157,7 +261,7 @@ concept DivisionOp = requires(Division op) {
 template <DivisionOp Division>
 OpFoldResult foldDivision(Division op, typename Division::FoldAdaptor adaptor) {
   auto rhs = dyn_cast_or_null<IntegerAttr>(adaptor.getRhs());
-  if (!rhs || !checkHolds(CheckKind::Nonzero, adaptor.getRhs()))
+  if (!rhs || !CheckNonzeroOp::holds(adaptor.getRhs()))
     return {};
   if (rhs.getValue().isOne())
     return Division::quotient ? OpFoldResult(op.getLhs())

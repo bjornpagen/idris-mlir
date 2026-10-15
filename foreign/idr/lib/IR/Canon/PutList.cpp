@@ -42,14 +42,17 @@ struct PutListOfConstant : OpRewritePattern<PutListOp> {
 
 // Writing a cell writes its element, as put_char or put_str does, then the
 // rest of the list; the cell, built only to be written, is not built. A
-// cell with another use stays, and is written as it is walked. The list is
-// base's, whose cons is its type's constructor `listCons`, of the element,
-// a character or a string, and the rest.
+// cell with another use stays, and is written as it is walked, and so does
+// one with a hole, its rest still to be written. The list is base's, whose
+// body says which constructor is its cons, of the element, a character or
+// a string, and the rest.
 struct PutListOfCons : OpRewritePattern<PutListOp> {
   using OpRewritePattern::OpRewritePattern;
   LogicalResult matchAndRewrite(PutListOp op, PatternRewriter &rewriter) const final {
     auto cell = op.getList().getDefiningOp<ConOp>();
-    if (!cell || !cell->hasOneUse() || cell.getTag() != DataType::listCons)
+    if (!cell || !cell->hasOneUse() ||
+        cell.getDataType().getCtor(cell.getTag()).role != CtorRole::ListCons ||
+        !cell.getHoles().empty())
       return failure();
     Value head = cell.getFields()[0];
     Type element = head.getType();

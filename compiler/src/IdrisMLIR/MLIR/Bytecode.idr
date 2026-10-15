@@ -5,16 +5,22 @@
 ||| version 6, the pinned reader's current one; every attribute and type as
 ||| its text, the bytecode's own fallback, which a recursive data type needs,
 ||| since its text names itself and no cycle of entries reaches the reader;
-||| every op name recorded as not registered, so that the reader takes an
-||| op's properties as one dictionary and sets them as the generic text
-||| form's parse does, and the writer needs no op's native encoding of its
-||| properties. The module op and each op of its block are isolated, their
-||| regions in a section of their own; nothing nested is.
+||| every op name recorded as registered, as it is where the file is read;
+||| every op's inherent attributes in its one attribute dictionary, with its
+||| discardable ones. Creating an op moves each inherent attribute into its
+||| properties (`Operation::setAttrs`), as MLIR's generic text accepts them
+||| mixed in, so the writer needs no op's native encoding of its properties
+||| and the properties section is empty. That carries every property the
+||| Idris side writes: each is an attribute, since the generated builders
+||| write no other kind (a property with a default is left at it). The ops
+||| that hold the program (the module, the program) and each op of the
+||| innermost one's block are isolated, their regions in a section of their
+||| own; nothing nested in those is.
 |||
 ||| Numbers are given in first use: of a string, a dialect, an op name, an
 ||| attribute or a type by its text. Bytes are written one by one, so no
-||| byte order is assumed. The ops of the module are encoded as Emit
-||| finishes each, so no value of the whole module is held.
+||| byte order is assumed. The functions are encoded as Emit finishes each,
+||| so no value of the whole module is held.
 module IdrisMLIR.MLIR.Bytecode
 
 import IdrisMLIR.MLIR
@@ -171,7 +177,7 @@ entriesOf t = (<>> []) <$> readIORef t.entries
 
 ||| The strings, dialects (by their name's string), op names (by dialect
 ||| and name), attributes and types (by dialect and text) of a module, and
-||| its top-level ops, encoded.
+||| the ops of its innermost container's block, encoded.
 export
 record Writer where
   constructor MkWriter
@@ -180,7 +186,7 @@ record Writer where
   opNameTable : Numbered (Nat, Nat)
   attrTable : Numbered (Nat, String)
   typeTable : Numbered (Nat, String)
-  ||| The top-level ops, encoded, how many, and how many values they define.
+  ||| Those ops, encoded, how many, and how many values they define.
   body : Bytes
   count : IORef Nat
   values : IORef Nat
@@ -252,12 +258,11 @@ bindRegion scope base r =
       in bindStatements m' (next + length s.op.results) ss
 
 ||| The bits of an op's mask, one for each part it has.
-hasAttrs, hasResults, hasOperands, hasRegions, hasProperties : Nat
+hasAttrs, hasResults, hasOperands, hasRegions : Nat
 hasAttrs = 1
 hasResults = 2
 hasOperands = 4
 hasRegions = 16
-hasProperties = 64
 
 ||| The bit `b` of a mask when a part is present.
 bit : Bool -> Nat -> Nat
@@ -265,21 +270,18 @@ bit present b = if present then b else 0
 
 mutual
   ||| An op up to its regions: its name, the mask of its parts, its
-  ||| location, its attributes and properties as a dictionary each, its
-  ||| result types and its operands' numbers.
+  ||| location, its inherent and discardable attributes as one dictionary,
+  ||| its result types and its operands' numbers.
   covering
   encodeHead : Writer -> Bytes -> Scope -> Statement -> W ()
   encodeHead w out scope (MkStatement _ o at) = do
+    let attributes = o.properties ++ o.attributes
     varint out !(opNameNumber w o.name)
-    byte out (cast (bit (not (null o.attributes)) hasAttrs + bit (not (null o.results)) hasResults
-                    + bit (not (null o.operands)) hasOperands + bit (not (null o.regions)) hasRegions
-                    + bit (not (null o.properties)) hasProperties))
+    byte out (cast (bit (not (null attributes)) hasAttrs + bit (not (null o.results)) hasResults
+                    + bit (not (null o.operands)) hasOperands + bit (not (null o.regions)) hasRegions))
     varint out !(locationNumber w at)
-    unless (null o.attributes) $ do
-      n <- attrNumber w (DictionaryAttr o.attributes)
-      varint out n
-    unless (null o.properties) $ do
-      n <- attrNumber w (DictionaryAttr o.properties)
+    unless (null attributes) $ do
+      n <- attrNumber w (DictionaryAttr attributes)
       varint out n
     unless (null o.results) $ do
       varint out (length o.results)
@@ -332,8 +334,9 @@ encodeIsolated w out s = do
     traverse_ (encodeRegion w regions SortedMap.empty 0) s.op.regions
     section out 4 regions
 
-||| Encodes one top-level op of the module, isolated, after those before
-||| it. Its results, if any, are no value another top-level op uses.
+||| Encodes one op of the innermost container's block (`finish`), isolated,
+||| after those before it. Its results, if any, are no value another of
+||| those ops uses.
 export covering
 writeTopLevel : Writer -> Statement -> IO (Either String ())
 writeTopLevel w s = runEitherT $ do
@@ -372,26 +375,47 @@ writeBytes h bs = do
     | Left (e, _) => throwE ("writing the module: " ++ show e)
   pure ()
 
-||| Writes the file: the header, then the IR (the module op `m` at `at`,
-||| whose one region holds the ops given to `writeTopLevel`, in order; `m`'s
-||| own region holds none), the attributes and types, the dialects and op
-||| names, the strings, and the properties, which no op holds natively.
+||| An op that holds others in its one region, which the writer fills: the
+||| op given that region, and its location.
+public export
+Container : Type
+Container = (Location, Region -> Op)
+
+mutual
+  ||| The ops of a block: the first container, its region holding the
+  ||| rest, or, past the last container, the ops given to `writeTopLevel`.
+  ||| A container is isolated, its region in a section of its own, whose
+  ||| values are its block's: the next container's results, or those ops'.
+  covering
+  block : Writer -> Bytes -> List Container -> W ()
+  block w out [] = do
+    varintFlag out !(readIORef w.count) False
+    append out w.body
+  block w out ((at, make) :: rest) = do
+    varintFlag out 1 False
+    encodeHead w out SortedMap.empty (MkStatement Nothing (make (MkRegion [] [])) at)
+    varintFlag out 1 True
+    region <- newBytes
+    varint region 1
+    varint region !(defined w rest)
+    block w region rest
+    section out 4 region
+
+  ||| The values the region of a container defines directly.
+  defined : Writer -> List Container -> W Nat
+  defined w [] = readIORef w.values
+  defined w ((_, make) :: _) = pure (length (make (MkRegion [] [])).results)
+
+||| Writes the file: the header, then the IR, whose top-level block holds
+||| the first of `containers`, each holding the next and the last the ops
+||| given to `writeTopLevel`, in order; then the attributes and types, the
+||| dialects and op names, the strings, and the properties, which no op
+||| holds natively.
 export covering
-finish : Writer -> File -> Location -> Op -> IO (Either String ())
-finish w h at m = runEitherT $ do
-  let [MkRegion [] []] = m.regions
-    | _ => throwE "the module op holds a region of its own ops"
-  -- The IR: the top-level block, holding the module op.
+finish : Writer -> File -> List Container -> IO (Either String ())
+finish w h containers = runEitherT $ do
   ir <- newBytes
-  varintFlag ir 1 False
-  encodeHead w ir SortedMap.empty (MkStatement Nothing m at)
-  varintFlag ir 1 True
-  region <- newBytes
-  varint region 1
-  varint region !(readIORef w.values)
-  varintFlag region !(readIORef w.count) False
-  append region w.body
-  section ir 4 region
+  block w ir containers
   -- What the IR numbered, now complete.
   attrs <- entriesOf w.attrTable
   types <- entriesOf w.typeTable
@@ -410,7 +434,7 @@ finish w h at m = runEitherT $ do
   traverse_ (\(d, ns) => do
                varint ds d
                varint ds (length ns)
-               traverse_ (\s => varintFlag ds s False) ns)
+               traverse_ (\s => varintFlag ds s True) ns)
             (runs ops)
   strings <- entriesOf w.stringTable
   ss <- newBytes

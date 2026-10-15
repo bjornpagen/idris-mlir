@@ -39,8 +39,8 @@ Key Slots::sinkKey(OpOperand &use) const {
 // A closure, suspension or constant whose every use moves it into slots of
 // one key with its labels and more takes that key.
 void Slots::widen() {
-  module.walk([&](Operation *op) {
-    if (!isa<ClosureOp, SuspendOp, ConstantOp>(op) || !isKeyed(op->getResultTypes()[0]))
+  program.walk([&](Operation *op) {
+    if (!isa<ClosureOp, SuspendOp, ConstantOp>(op) || !carriesLabels(op->getResultTypes()[0]))
       return;
     Value value = op->getResult(0);
     std::optional<Key> common;

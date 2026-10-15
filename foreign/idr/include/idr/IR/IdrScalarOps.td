@@ -15,6 +15,7 @@ include "idr/IR/IdrInterfaces.td"
 // The divisor is not zero: idr.check.nonzero guards it.
 class Idr_DivisionOp<string mnemonic, bit isQuotient>
     : Idr_Op<mnemonic, [SameOperandsAndResultType, NoMemoryEffect,
+                        Idr_Guarded<"rhs", "Nonzero", "division by zero">,
                         DeclareOpInterfaceMethods<ConditionallySpeculatable>]> {
   let arguments = (ins UnitAttr:$is_signed, Idr_Int:$lhs, Idr_Int:$rhs);
   let results = (outs Idr_Int:$result);
@@ -82,6 +83,7 @@ def Idr_ToCharOp : Idr_Op<"to_char", [Pure,
 // An Int written as a byte of a buffer, which is 0 to 255: idr.check.byte
 // guards it, as Chez's bytevector-u8-set! refuses any other.
 def Idr_ToByteOp : Idr_Op<"to_byte", [NoMemoryEffect,
+    Idr_Guarded<"value", "Byte", "a byte outside 0 to 255">,
     DeclareOpInterfaceMethods<ConditionallySpeculatable>, Idr_Primitive,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   let summary = "an Int from 0 to 255 as a byte";
@@ -93,7 +95,8 @@ def Idr_ToByteOp : Idr_Op<"to_byte", [NoMemoryEffect,
 
 // Truncates toward zero and wraps to the result width. The Double is
 // finite: idr.check.finite guards it.
-def Idr_ToIntOp : Idr_Op<"to_int", [Idr_CallsRuntime, NoMemoryEffect,
+def Idr_ToIntOp : Idr_Op<"to_int", [Idr_Runtime<"idris_rt_to_int">, NoMemoryEffect,
+    Idr_Guarded<"value", "Finite", "cast of a non-finite Double">,
     DeclareOpInterfaceMethods<ConditionallySpeculatable>, Idr_Primitive]> {
   let summary = "a finite Double as an integer, truncated and wrapped";
   let arguments = (ins F64:$value);
@@ -103,7 +106,8 @@ def Idr_ToIntOp : Idr_Op<"to_int", [Idr_CallsRuntime, NoMemoryEffect,
 }
 
 // The first character of prim__cast_DoubleString.
-def Idr_DoubleHeadOp : Idr_Op<"double_head", [Pure, Idr_CallsRuntime, Idr_Primitive,
+def Idr_DoubleHeadOp : Idr_Op<"double_head", [Pure, Idr_Runtime<"idris_rt_double_head">,
+    Idr_Primitive,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   // Folded by calling the runtime (lib/IR/Fold).
   let hasFolder = 1;
@@ -114,7 +118,7 @@ def Idr_DoubleHeadOp : Idr_Op<"double_head", [Pure, Idr_CallsRuntime, Idr_Primit
 }
 
 // The first character of the decimal text of an integer.
-def Idr_IntHeadOp : Idr_Op<"int_head", [Pure, Idr_CallsRuntime,
+def Idr_IntHeadOp : Idr_Op<"int_head", [Pure, Idr_Runtime<"idris_rt_int_head">,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
   // Folded by calling the runtime (lib/IR/Fold).
   let hasFolder = 1;

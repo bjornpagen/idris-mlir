@@ -12,12 +12,12 @@
 // cannot hold of a module before bufferization.
 // COPIED: error: expected in-place: memref.copy copies a buffer in @copied
 // NONE: error: expected in-place: no buffer in @none
-module {
-  idr.func private @written(%m: memref<?xi64>, %i: index, %v: i64) -> memref<?xi64> {
+idr.program @"in-place" root(@root) stage(first) {
+  idr.func @written(%m: memref<?xi64>, %i: index, %v: i64) -> memref<?xi64> {
     memref.store %v, %m[%i] : memref<?xi64>
     return %m : memref<?xi64>
   }
-  idr.func private @copied(%m: memref<?xi64>, %i: index, %v: i64) -> memref<?xi64> {
+  idr.func @copied(%m: memref<?xi64>, %i: index, %v: i64) -> memref<?xi64> {
     %c0 = arith.constant 0 : index
     %n = memref.dim %m, %c0 : memref<?xi64>
     %a = memref.alloc(%n) : memref<?xi64>
@@ -25,14 +25,19 @@ module {
     memref.store %v, %a[%i] : memref<?xi64>
     return %a : memref<?xi64>
   }
-  idr.func private @appended(%m: memref<?xi64>, %x: memref<?xi64>, %at: index) -> memref<?xi64> {
+  idr.func @appended(%m: memref<?xi64>, %x: memref<?xi64>, %at: index) -> memref<?xi64> {
     %c0 = arith.constant 0 : index
     %n = memref.dim %x, %c0 : memref<?xi64>
     %view = memref.subview %m[%at] [%n] [1] : memref<?xi64> to memref<?xi64, strided<[1], offset: ?>>
     memref.copy %x, %view : memref<?xi64> to memref<?xi64, strided<[1], offset: ?>>
     return %m : memref<?xi64>
   }
-  idr.func private @none(%x: i64) -> i64 {
+  idr.func @none(%x: i64) -> i64 {
     return %x : i64
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
   }
 }

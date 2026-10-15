@@ -1,22 +1,27 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// A memref at runtime, as idr-lower holds it (Layouts::components): its
-// cell, then the offset, each size and each stride its type leaves dynamic.
-// The cell is the runtime's array cell, or a constant's static cell, whose
-// header is in front of its data as every cell's is; so the element at
-// index 0 is always right after the header, and the descriptor's aligned
-// pointer, which upstream's memref ops read, is computed from the cell and
-// never held. A view changes the offset, the sizes and the strides, never
-// the cell.
+// A memref at runtime. Across a function's boundary and in a cell's field
+// it is its components (Layouts::components): its cell, then the offset,
+// each size and each stride its type leaves dynamic. Inside a function it
+// is the descriptor upstream's memref ops read, built from the components
+// where an op uses it: the allocated pointer is the cell, the aligned
+// pointer the cell past its header, and the offset, sizes and strides are
+// the components or the numbers the type fixes. The cell is the runtime's
+// array cell, or a constant's static cell, whose header is in front of its
+// data as every cell's is; so the element at index 0 is always right after
+// the header, and the aligned pointer is never held. A view changes the
+// offset, the sizes and the strides, never the cell.
 
 #ifndef IDR_CONVERSION_ARRAYS_H
 #define IDR_CONVERSION_ARRAYS_H
 
 #include "idr/Conversion/Runtime.h"
 
+#include "mlir/Conversion/LLVMCommon/TypeConverter.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpDefinition.h"
+#include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -38,6 +43,12 @@ struct Descriptor {
 // and its vectorizer reads.
 bool holdsWords(mlir::MemRefType type);
 
+// Whether the ops on a memref of `type` that upstream vectorizes (the loads
+// and stores of its elements, and linalg) stay for the passes after
+// idr-lower: its elements are words, in the memory convert-to-llvm knows,
+// the default.
+bool leftToUpstream(mlir::MemRefType type);
+
 // The descriptor of a value of `type` from its components.
 Descriptor unpack(mlir::OpBuilder &b, mlir::Location loc, mlir::MemRefType type,
                   mlir::ValueRange components);
@@ -46,6 +57,30 @@ Descriptor unpack(mlir::OpBuilder &b, mlir::Location loc, mlir::MemRefType type,
 // leaves dynamic, as an i64.
 llvm::SmallVector<mlir::Value> pack(mlir::OpBuilder &b, mlir::Location loc, mlir::MemRefType type,
                                     const Descriptor &descriptor);
+
+// The LLVM descriptor of type `llvmType` of a memref of `type`, built from
+// its components: what upstream's memref ops read where they use it.
+mlir::Value descriptorOf(mlir::OpBuilder &b, mlir::Location loc, mlir::Type llvmType,
+                         mlir::MemRefType type, mlir::ValueRange components);
+
+// The components of a memref of `type` from its LLVM descriptor, where a
+// value an upstream op made leaves the function or enters a cell: the
+// allocated pointer, which is the cell, and each field the type leaves
+// dynamic.
+llvm::SmallVector<mlir::Value> componentsOf(mlir::OpBuilder &b, mlir::Location loc,
+                                            mlir::MemRefType type, mlir::Value descriptor);
+
+// Teaches the two converters of idr-lower each other's memrefs, so that
+// the conversion moves a memref between them at each use: `components`,
+// the converter of idr's ops, function boundaries and cells, takes a
+// descriptor apart into components; `descriptors`, the converter of
+// upstream's memref patterns, builds a descriptor from components, lays an
+// element of ours out as its bytes, and puts the world's memory in address
+// space 0. A legal op that holds a memref (a word's load or store, a linalg
+// op over words) gets the memref cast from its descriptor, which meets the
+// inverse cast in convert-to-llvm.
+void addMemrefConversions(mlir::TypeConverter &components, mlir::LLVMTypeConverter &descriptors,
+                          const Layouts &layouts);
 
 // A field as an i64 value.
 mlir::Value asWord(mlir::OpBuilder &b, mlir::Location loc, mlir::OpFoldResult field);
@@ -66,32 +101,6 @@ mlir::Value asIndex(mlir::OpBuilder &b, mlir::Location loc, mlir::OpFoldResult f
 // The number of elements `sizes` cover, as an i64.
 mlir::Value countOf(mlir::OpBuilder &b, mlir::Location loc,
                     llvm::ArrayRef<mlir::OpFoldResult> sizes);
-
-// The layout of an element of a buffer of `element`, or the refusal at `op`
-// by the rule `layout`: a buffer of an element no cell can hold cannot be
-// made.
-mlir::FailureOr<layout::Element> elementOf(mlir::Operation *op, mlir::Type element,
-                                           const Layouts &layouts);
-
-// The value of the element at `address`: its slots, with no reference of
-// its own.
-llvm::SmallVector<mlir::Value> readElement(mlir::OpBuilder &b, mlir::Location loc,
-                                           Runtime &runtime, mlir::Value address,
-                                           const layout::Element &element);
-
-// Writes `value`, of `type`, over the element at `address`: what the place
-// held loses the reference it had, and `value` moves in with its own. An
-// empty place releases nothing.
-void writeElement(mlir::OpBuilder &b, mlir::Location loc, Runtime &runtime,
-                  const Layouts &layouts, mlir::Value address, const layout::Element &element,
-                  mlir::Type type, mlir::ValueRange value);
-
-// A memref of words as the legal ops that hold it read it: the descriptor
-// convert-to-llvm reads for `type`, built over its components, cast to the
-// memref by a cast that meets its inverse in convert-to-llvm. Null for a
-// memref whose element is not a word, which no legal op holds.
-mlir::Value toMemref(mlir::OpBuilder &b, mlir::Location loc, const Runtime &runtime,
-                     mlir::MemRefType type, mlir::ValueRange components);
 
 } // namespace idr::conversion
 

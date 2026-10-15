@@ -29,7 +29,9 @@ LogicalResult reusesEveryCell(ModuleOp module, AnalysisManager &, StringRef func
       // to reuse.
       if (take.getDataType().getCtor(take.getTag()).fields.empty())
         return;
-      fail(drop.getLoc(), property) << "the cell of " << take.getCtor() << " is freed, not reused, in "
+      fail(drop.getLoc(), property) << "the cell of @"
+                                    << take.getDataType().getCtor(take.getTag()).name.getValue()
+                                    << " is freed, not reused, in "
                                     << where(drop);
       held = false;
     });

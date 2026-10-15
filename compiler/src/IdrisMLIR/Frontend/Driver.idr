@@ -17,8 +17,8 @@
 |||     [--timing FILE] --core FILE -o FILE SOURCE
 |||                       the program whose main file is SOURCE
 |||     --check SOURCE    SOURCE and what it imports, built and checked
-|||     --build PACKAGE.ipkg, --install PACKAGE.ipkg, --typecheck
-|||     PACKAGE.ipkg, --clean PACKAGE.ipkg
+|||     [--timing FILE] --build PACKAGE.ipkg, --install PACKAGE.ipkg,
+|||     --typecheck PACKAGE.ipkg, --clean PACKAGE.ipkg
 |||                       Idris's package commands
 |||     --libdir          the prefix's directory of packages, printed
 |||
@@ -72,8 +72,10 @@ data Task
     Compile (Maybe String) String String String
   | ||| A main file and what it imports, built and checked.
     Check String
-  | ||| One of Idris's package commands on a package file.
-    PackageCommand PkgCommand String
+  | ||| One of Idris's package commands on a package file, its time written
+    ||| at the path when given, with Idris's own phases printed as it runs
+    ||| them.
+    PackageCommand (Maybe String) PkgCommand String
   | ||| The directory of packages under the prefix.
     LibDir
 
@@ -108,7 +110,7 @@ synopsis = """
         usage: idris-mlir-front --prefix DIR [--package-path DIR]... [-p PACKAGE]... [--no-prelude] TASK
           TASK: [--timing FILE] --core FILE -o FILE SOURCE
               | --check SOURCE
-              | --build|--install|--typecheck|--clean PACKAGE.ipkg
+              | [--timing FILE] --build|--install|--typecheck|--clean PACKAGE.ipkg
               | --libdir
         """
 
@@ -164,16 +166,18 @@ parse a (flag :: rest) =
 taskOf : Arguments -> Either String Task
 taskOf a = case (a.check, a.package, a.libDir) of
   (Nothing, Nothing, False) => compile
-  (Just f, Nothing, False) => do onlyFor "--check"; Right (Check f)
-  (Nothing, Just (cmd, f), False) => do onlyFor "a package command"; Right (PackageCommand cmd f)
-  (Nothing, Nothing, True) => do onlyFor "--libdir"; Right LibDir
+  (Just f, Nothing, False) => do onlyFor "--check"; untimed "--check"; Right (Check f)
+  (Nothing, Just (cmd, f), False) => do onlyFor "a package command"; Right (PackageCommand a.timing cmd f)
+  (Nothing, Nothing, True) => do onlyFor "--libdir"; untimed "--libdir"; Right LibDir
   _ => Left "--check, a package command and --libdir are tasks of their own"
   where
     onlyFor : String -> Either String ()
     onlyFor task =
-      if isJust a.corePath || isJust a.output || isJust a.timing || not (null a.sources)
-        then Left (task ++ " takes no source, --core, -o or --timing")
+      if isJust a.corePath || isJust a.output || not (null a.sources)
+        then Left (task ++ " takes no source, --core or -o")
         else Right ()
+    untimed : String -> Either String ()
+    untimed task = if isJust a.timing then Left (task ++ " takes no --timing") else Right ()
     compile : Either String Task
     compile = do
       let Just core = a.corePath
@@ -276,9 +280,15 @@ perform (Compile timing core out source) = do
         coreLift (exitWith (statusOfAll errs))
   pure ()
 perform (Check source) = ignore (built source)
-perform (PackageCommand cmd file) = do
+perform (PackageCommand timing cmd file) = do
   p <- newRef PostS defaultPost
+  -- Timed, Idris prints its own phases as it runs them (`logTime`), and
+  -- the command's whole time is the file's.
+  when (isJust timing) $ setSession ({ logTimings := Just 1 } !getSession)
+  start <- now
   ignore (processPackageOpts [Package cmd (Just file)])
+  end <- now
+  reportTimes timing [(pack (dropWhile (== '-') (unpack (show cmd))), end - start)]
 perform LibDir = coreLift (putStrLn !pkgGlobalDirectory)
 
 frontend : Run -> Core ()

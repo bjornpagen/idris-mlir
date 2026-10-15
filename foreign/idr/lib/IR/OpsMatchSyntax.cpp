@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The syntax of idr.match and idr.match_lit: a head they share, then a case
-// per key and a default. Apart from the matches' rules, which would push
-// that unit past its size.
+// per key and a default. An idr.match case is a constructor's tag, written
+// by its name in the scrutinee's data type (CtorRef, Symbols.h), which the
+// head has read. Apart from the matches' rules, which would push that unit
+// past its size.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Symbols.h"
 
 #include "mlir/IR/OpImplementation.h"
 
@@ -12,6 +15,32 @@ using namespace mlir;
 using namespace idr;
 
 namespace {
+
+// The attribute dictionary of a match, whose cases its syntax spells: a
+// `cases` in the dictionary would become that property when the op is
+// created, silently in place of the clauses' keys. Check the dictionary's
+// inherent facts first, as the generic parser does, and refuse a restated
+// one.
+ParseResult parseAttrs(OpAsmParser &parser, OperationState &result,
+                       ArrayRef<StringRef> spelled) {
+  SMLoc loc = parser.getCurrentLocation();
+  if (parser.parseOptionalAttrDictWithKeyword(result.attributes))
+    return failure();
+  std::optional<RegisteredOperationName> info = result.name.getRegisteredInfo();
+  if (info && failed(info->verifyInherentAttrs(result.attributes,
+                                               [&]() { return parser.emitError(loc); })))
+    return failure();
+  for (StringRef name : spelled)
+    if (result.attributes.get(name))
+      return parser.emitError(loc, "inherent attribute '")
+             << name << "' cannot be parsed from attr-dict when strict properties in assembly "
+             << "format is enabled";
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// Matches
+//===----------------------------------------------------------------------===//
 
 // Parses `{ case <key> <region> ... default[(<args>)] <region> }`;
 // `parseCase` parses a key and its region.
@@ -32,7 +61,9 @@ ParseResult parseMatchBody(OpAsmParser &parser, OperationState &result,
   return parser.parseRBrace();
 }
 
-// `%v : T -> (R...) attributes {...}`, the part both matches share.
+// `%v : T -> (R...) attributes {...}`, the part both matches share. The
+// cases are spelled by the case clauses and set as a property by the
+// caller.
 ParseResult parseMatchHead(OpAsmParser &parser, OperationState &result, Type &scrutineeType) {
   OpAsmParser::UnresolvedOperand scrutinee;
   SmallVector<Type> resultTypes;
@@ -40,25 +71,9 @@ ParseResult parseMatchHead(OpAsmParser &parser, OperationState &result, Type &sc
       parser.parseArrow() ||
       parser.parseCommaSeparatedList(OpAsmParser::Delimiter::Paren,
                                      [&] { return parser.parseType(resultTypes.emplace_back()); }) ||
-      parser.resolveOperand(scrutinee, scrutineeType, result.operands))
+      parser.resolveOperand(scrutinee, scrutineeType, result.operands) ||
+      parseAttrs(parser, result, {"cases"}))
     return failure();
-  SMLoc attrsLoc = parser.getCurrentLocation();
-  if (parser.parseOptionalAttrDictWithKeyword(result.attributes))
-    return failure();
-  // The cases are spelled by the case clauses and set as a property by
-  // the caller; a `cases` in the dict would become that property when
-  // the op is created, overriding the clauses' keys, or vanish if of
-  // the wrong kind. Check the dict's inherent facts first, as the
-  // generic parser does, and refuse the restated one.
-  std::optional<RegisteredOperationName> info = result.name.getRegisteredInfo();
-  if (info && failed(info->verifyInherentAttrs(result.attributes, [&]() {
-        return parser.emitError(attrsLoc);
-      })))
-    return failure();
-  if (result.attributes.get("cases"))
-    return parser.emitError(attrsLoc, "inherent attribute 'cases' cannot be parsed from "
-                                      "attr-dict when strict properties in assembly format "
-                                      "is enabled");
   result.addTypes(resultTypes);
   return success();
 }
@@ -99,27 +114,29 @@ void printMatch(Match op, OpAsmPrinter &printer, function_ref<void(unsigned)> pr
 // `idr.match %v : T -> (R...) { case @C(%x: A) {...} ... default {...} }`
 ParseResult MatchOp::parse(OpAsmParser &parser, OperationState &result) {
   Type scrutineeType;
-  SmallVector<Attribute> cases;
+  SmallVector<int32_t> cases;
   if (parseMatchHead(parser, result, scrutineeType) ||
       parseMatchBody(parser, result, [&](Region &region) -> ParseResult {
-        StringAttr name;
+        IntegerAttr tag;
         SmallVector<OpAsmParser::Argument> fields;
-        if (parser.parseSymbolName(name) ||
+        if (parseCtorRef(parser, scrutineeType, tag) ||
             parser.parseArgumentList(fields, OpAsmParser::Delimiter::Paren,
                                      /*allowType=*/true) ||
             parser.parseRegion(region, fields))
           return failure();
-        cases.push_back(FlatSymbolRefAttr::get(name));
+        cases.push_back(static_cast<int32_t>(tag.getInt()));
         return success();
       }))
     return failure();
-  result.getOrAddProperties<Properties>().cases = parser.getBuilder().getArrayAttr(cases);
+  result.getOrAddProperties<Properties>().cases = parser.getBuilder().getDenseI32ArrayAttr(cases);
   return success();
 }
 
 void MatchOp::print(OpAsmPrinter &printer) {
   printMatch(*this, printer, [&](unsigned index) {
-    printer << getCases()[index] << '(';
+    printCtorRef(printer, *this, getScrutinee().getType(),
+                 Builder(getContext()).getI32IntegerAttr(getCases()[index]));
+    printer << '(';
     llvm::interleaveComma(getCaseRegion(index).getArguments(), printer,
                           [&](BlockArgument arg) { printer.printRegionArgument(arg); });
     printer << ')';
@@ -162,8 +179,11 @@ ParseResult MatchLitOp::parse(OpAsmParser &parser, OperationState &result) {
       return failure();
     return Attribute(big);
   };
-  if (parseMatchHead(parser, result, type) ||
-      parseMatchBody(parser, result, [&](Region &region) -> ParseResult {
+  if (parseMatchHead(parser, result, type))
+    return failure();
+  // A key is a literal of the value read, whatever its view's grade.
+  type = unrestricted(type);
+  if (parseMatchBody(parser, result, [&](Region &region) -> ParseResult {
         FailureOr<Attribute> key = parseKey();
         if (failed(key) || parser.parseRegion(region))
           return failure();

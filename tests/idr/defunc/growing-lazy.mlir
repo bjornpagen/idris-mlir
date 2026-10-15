@@ -9,21 +9,21 @@
 // CHECK: ![[F:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [{{.*}}]
 // CHECK-NOT: !idr.fn
 // CHECK-NOT: {{(idr\.| )closure }}
-// CHECK-LABEL: idr.func private @Main.later(
+// CHECK-LABEL: idr.func @Main.later(
 // CHECK-SAME: -> !idr.box<![[F]]>
-// CHECK: con @Main.force(%{{.*}}) : (!idr.box<![[F]]>) -> !idr.box<![[F]]>
-module {
-  idr.func private @Main.one() -> i64 attributes {total} {
+// CHECK: con !idr.box<![[F]]> @Main.force(%{{.*}} : !idr.box<![[F]]>)
+idr.program @"growing-lazy" root(@Main.main) stage(higher) {
+  idr.func @Main.one() -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64
     return %c1 : i64
   }
-  idr.func private @Main.force(%l: !idr.fn<() -> (i64)>) -> i64 attributes {total} {
+  idr.func @Main.force(%l: !idr.fn<() -> (i64)>) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64
     %v = idr.apply %l() : !idr.fn<() -> (i64)>
     %r = arith.addi %v, %c1 : i64
     return %r : i64
   }
-  idr.func private @Main.later(%n: i64) -> !idr.fn<() -> (i64)> {
+  idr.func @Main.later(%n: i64) -> !idr.fn<() -> (i64)> {
     %r = idr.match_lit %n : i64 -> (!idr.fn<() -> (i64)>) {
     case 0 {
       %f = idr.closure @Main.one() : () -> !idr.fn<() -> (i64)>

@@ -86,7 +86,8 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 20 | evaluator-char-text | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | 21 | termination-closure | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | 22 | remove-dead-values-poison-operand | issue + PR: the cleanup keeps an operand that is already poison | not filed; not carried since the pipeline cutover (nothing in the tree reaches it); `check-mlir` not run on main |
-| 24 | one-shot-module-function-interface | PR: One-Shot Module Bufferize on `FunctionOpInterface`, and a function that never returns (a reland of #110322, reverted by #113124) | carried; not filed; not built; `check-mlir` not run |
+| 24 | one-shot-module-function-interface | three PRs: One-Shot Module Bufferize on `FunctionOpInterface` with the models as public templates and a function that never returns (a reland of #110322, reverted by #113124); a call result writable only if its callee returns a writable buffer; the nearest symbol table, not ModuleOp, in empty tensor elimination and getGlobalFor | carried; not filed; not built; `check-mlir` not run |
+| 25 | bytecode-unregistered-properties | issue + PR: the reader tests the presence of the `wasRegistered` flag, not its value, so an op written unregistered has its properties attribute read as a properties index; the PR passes the writer's flag into `PropertiesSectionReader::read` and deletes the dead branch (`OpPropertiesTest.BytecodeWrittenUnregistered`) | not carried (nothing in the tree reaches it: the frontend writes inherent attributes in the attribute dictionary); not filed; `check-mlir` not run |
 
 Gone when the pin moved from llvmorg-23.1.2 to main at 7208ba24, each
 with its check and its PINS.md entry: 13 (uplift-final-counter) and 14

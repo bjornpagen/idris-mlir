@@ -12,27 +12,31 @@
 // each, where the uses it reaches may take it: out of the frame, into a
 // tail call that ends the frame, or round a loop that builds the next
 // iteration's cell in the same slot. A parameter's own state is its
-// summary over the module's calls, as the least solution, so a parameter
+// summary over the program's calls, as the least solution, so a parameter
 // a function only passes to itself does not escape through that call.
+// What each use does with a value is what its op's flow says of the
+// references it moves (idr/IR/Flow.h).
 #ifndef IDR_ANALYSIS_ESCAPES_H
 #define IDR_ANALYSIS_ESCAPES_H
 
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/Analysis/DataFlowFramework.h"
-#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Pass/AnalysisManager.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SmallVector.h"
+
+#include <optional>
 
 namespace idr {
 
 class Escapes {
 public:
-  // Finds the cycles of calls of `module`, then solves the escapes of every
-  // value of its functions at once.
-  Escapes(mlir::Operation *module, mlir::AnalysisManager &am);
+  // Finds the cycles of calls of `program`, an idr.program, then solves the
+  // escapes of every value of its functions at once.
+  Escapes(mlir::Operation *program, mlir::AnalysisManager &am);
   bool isInvalidated(const mlir::AnalysisManager::PreservedAnalyses &pa) const;
 
   // Whether the solve reached its fixpoint; no answer below holds if not.
@@ -50,11 +54,16 @@ public:
   bool recursive(FuncOp fn) const;
 
 private:
-  // The cycles of calls among the module's functions: a call names its
-  // callee. Each function's component, and the functions on a cycle.
-  void findCycles(mlir::ModuleOp module, mlir::SymbolTable &symbols);
+  // The cycles of calls among the program's functions, on its call graph.
+  // Each function's component, and the functions on a cycle.
+  void findCycles(mlir::AnalysisManager &am);
 
-  mlir::Operation *module;
+  // The scf.while ops around `con`, innermost first, which may run it
+  // again in its frame; nothing when it is anywhere else than in regions of
+  // matches and loops of one block each, in a function of the program.
+  std::optional<llvm::SmallVector<mlir::Operation *, 2>> loopsAround(ConOp con) const;
+
+  mlir::Operation *program;
   llvm::DenseMap<mlir::Operation *, unsigned> component;
   llvm::DenseSet<mlir::Operation *> onCycle;
   // The collection the backward base is built with. idr.call reaches the

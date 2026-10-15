@@ -9,18 +9,18 @@
 // root, a pair that call each other, a leaf and a caller of the leaf, and
 // no argument a specialization could take as static: five nodes, each
 // begun once, whatever the bounded loop that follows a node does.
-module {
-  idr.func private @leaf(%x: i64) -> i64 attributes {total} {
+idr.program @once root(@Main.main) stage(first) {
+  idr.func @leaf(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64
     %y = arith.addi %x, %c1 : i64
     return %y : i64
   }
-  idr.func private @twice(%x: i64) -> i64 attributes {total} {
+  idr.func @twice(%x: i64) -> i64 attributes {total} {
     %a = idr.call @leaf(%x) : (i64) -> i64
     %b = idr.call @leaf(%a) : (i64) -> i64
     return %b : i64
   }
-  idr.func private @even(%n: i64, %x: i64) -> i64 {
+  idr.func @even(%n: i64, %x: i64) -> i64 {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       idr.yield %x : i64
@@ -34,7 +34,7 @@ module {
     }
     return %r : i64
   }
-  idr.func private @odd(%n: i64, %x: i64) -> i64 {
+  idr.func @odd(%n: i64, %x: i64) -> i64 {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       %z = arith.constant 0 : i64

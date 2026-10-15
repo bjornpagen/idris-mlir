@@ -7,33 +7,32 @@
 // the dispatch that is all its one use does with it, the match an apply
 // became. Nothing may run between the call and the dispatch that could
 // tell: the dispatch and its steps are in the call's block, and either the
-// call only computes (it performs no IO, cannot crash and returns; building
-// actions is no IO), or every op between it and the dispatch only computes.
-// A call that passes a world is never raised: the callee's body would take
-// part in the world chain.
+// call only computes (its callee performs no IO, cannot crash and returns;
+// building actions is no IO), or every op between it and the dispatch only
+// computes. A call that passes a world is never raised: the callee's body
+// would take part in the world chain.
 //
 // A raise node is keyed by its callee and its consumer's form: the consumer
 // written as a function of the call's result and the values it reads from
-// outside, printed. The node is built from that text, so it is a function
-// of its key, whichever call asked for it.
+// outside, in canonical text. The node is built from that text, so it is a
+// function of its key, whichever call asked for it.
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
 #include "idr/Analysis/Holds.h"
+#include "idr/Transforms/Deduplicate.h"
 #include "idr/Transforms/Specialize.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
-#include "mlir/IR/OperationSupport.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
-#include "llvm/Support/raw_ostream.h"
 
 using namespace mlir;
 
 namespace idr::specialize::detail {
 
-std::optional<Consumer> consumerOf(idr::CallOp call, const Holds &holds) {
+std::optional<Consumer> consumerOf(idr::CallOp call, idr::FuncOp callee, const Holds &holds) {
   if (call->getNumResults() != 1 || !call->getResult(0).hasOneUse())
     return std::nullopt;
   // The operands have the callee's parameter types, so a world one of them
@@ -44,11 +43,9 @@ std::optional<Consumer> consumerOf(idr::CallOp call, const Holds &holds) {
   if (!e || e->dispatch->getBlock() != call->getBlock())
     return std::nullopt;
   // A call that only computes may run later, after anything between it and
-  // its consumer; any other only after ops that only compute. A call's
-  // effects are its callee's, and every one of them is more than
-  // computing. A call without effects may do anything, and the ops between
-  // are walked.
-  if (!idr::onlyAllocates(call))
+  // its consumer; any other only after ops that only compute. What a call
+  // does is its callee's entry, final here.
+  if (callee.getEffects() != idr::Effect::none)
     for (Operation *op = call->getNextNode(); op != e->dispatch.getOperation();
          op = op->getNextNode())
       if (!idr::onlyAllocates(op))
@@ -98,7 +95,6 @@ OwningOpRef<idr::FuncOp> consumerFunction(idr::CallOp call, const Consumer &cons
   OpBuilder b(ctx);
   idr::FuncOp::Properties properties;
   properties.setSymName(b.getStringAttr("consumer"));
-  properties.setSymVisibility(b.getStringAttr("private"));
   properties.setFunctionType(
       TypeAttr::get(FunctionType::get(ctx, inputs, dispatch.getResultTypes())));
   auto fn = idr::FuncOp::create(b, loc, TypeRange(), ValueRange(), properties);
@@ -115,19 +111,37 @@ OwningOpRef<idr::FuncOp> consumerFunction(idr::CallOp call, const Consumer &cons
   return fn;
 }
 
-// The consumer printed in the generic form, without locations: equal text
-// is equal code on equal values, and the parser reads it back. Its own type
-// aliases come first, so a data type's body is written once.
-std::string formOf(idr::FuncOp consumer) {
-  std::string text;
-  llvm::raw_string_ostream os(text);
-  consumer->print(os, OpPrintingFlags().printGenericOpForm().enableDebugInfo(false));
-  return text;
+// Two consumers have one form exactly when they are one function: equal
+// code on equal values, which is what idr-deduplicate compares. So a
+// consumer is printed only when no consumer met before is it.
+StringAttr Forms::formOf(OwningOpRef<idr::FuncOp> consumer) {
+  unsigned hash = static_cast<unsigned>(
+      static_cast<size_t>(idr::deduplicate::hashFunction(*consumer)));
+  auto known = [&]() -> StringAttr {
+    auto bucket = byHash.find(hash);
+    if (bucket == byHash.end())
+      return {};
+    for (auto &[met, form] : bucket->second)
+      if (idr::deduplicate::sameFunction(*met, *consumer))
+        return form;
+    return {};
+  };
+  {
+    std::lock_guard lock(mutex);
+    if (StringAttr form = known())
+      return form;
+  }
+  StringAttr form = StringAttr::get(consumer->getContext(), canonicalText(consumer->getOperation()));
+  std::lock_guard lock(mutex);
+  if (StringAttr met = known())
+    return met;
+  byHash[hash].emplace_back(std::move(consumer), form);
+  return form;
 }
 
 std::optional<Want> decide(idr::CallOp call, const Node *requester, idr::FuncOp callee,
-                           const Node *calleeNode, const BindingTimes &times,
-                           const Holds &holds) {
+                           const Node *calleeNode, ArrayRef<BindingTime> seen,
+                           const Holds &holds, Forms &forms) {
   MLIRContext *ctx = call.getContext();
   StringAttr name = call.getCalleeAttr().getAttr();
 
@@ -138,14 +152,13 @@ std::optional<Want> decide(idr::CallOp call, const Node *requester, idr::FuncOp 
   Region &body = callee.getBody();
   if (!isa_and_nonnull<SpecKeyAttr>(own) && body.hasOneBlock() &&
       isa<idr::ReturnOp>(body.front().getTerminator()))
-    if (std::optional<Consumer> consumer = consumerOf(call, holds)) {
+    if (std::optional<Consumer> consumer = consumerOf(call, callee, holds)) {
       SmallVector<Value> free;
-      OwningOpRef<idr::FuncOp> fn = consumerFunction(call, *consumer, free);
-      std::string form = formOf(*fn);
+      StringAttr form = forms.formOf(consumerFunction(call, *consumer, free));
       auto ownRaise = dyn_cast_or_null<KeyRaiseAttr>(own);
-      if (!ownRaise || ownRaise.getConsumer().getValue() == form) {
+      if (!ownRaise || ownRaise.getConsumer() == form) {
         Want want;
-        want.key = KeyRaiseAttr::get(ctx, name, StringAttr::get(ctx, form));
+        want.key = KeyRaiseAttr::get(ctx, name, form);
         want.owner = name;
         llvm::append_range(want.operands, call.getArgs());
         llvm::append_range(want.operands, free);
@@ -156,7 +169,7 @@ std::optional<Want> decide(idr::CallOp call, const Node *requester, idr::FuncOp 
 
   // A call of a spec node is keyed over the node's owner's parameters.
   auto spec = calleeNode ? dyn_cast<SpecKeyAttr>(calleeNode->key) : SpecKeyAttr();
-  std::optional<Composed> composed = composeKey(call, spec, times);
+  std::optional<Composed> composed = composeKey(call, spec, seen);
   if (!composed)
     return std::nullopt;
   Want want;

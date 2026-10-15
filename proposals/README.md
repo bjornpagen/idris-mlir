@@ -27,8 +27,8 @@ partly needs; the stages that wait are named here.
 **0004's cutover and 0003's stage 1 are coded and integrated** (c7aa7b62,
 5d5f3312): `make typecheck` passes every part and `make check` is green on
 the typecheck machine; nothing is built or run yet, which the owner's
-machine owes (HANDOFF.md). **0005 executes now**, as one swarm wave of
-eighteen lanes: the audit of the cutover's tree found facts held by
+machine owes (HANDOFF.md). **0005 is coded and integrated** (one swarm wave of eighteen lanes,
+`make typecheck` and `make check` green on the typecheck machine): the audit of the cutover's tree found facts held by
 convention, concepts held two to four times, refusals by fuel and count,
 and 35 bugs by reading, and 0005 decides each one. The queue after it
 moved down by one on 2026-10-15 (0005-0013 became 0006-0014).

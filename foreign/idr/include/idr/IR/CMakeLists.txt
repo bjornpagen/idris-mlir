@@ -1,14 +1,35 @@
+# What the ODS says beside its ops for the rest of the tree, written by
+# idris-mlir-tblgen: the runtime's C functions the ops call, as C declares
+# them (idris_rt_ops.h, which runtime/idris_rt.h includes) and as the
+# lowering and the folders read them (IdrRuntimeAbi.inc); the word op of
+# each big op (IdrBigToWord.inc); the rules a refusal names, with their
+# categories, for the tests (IdrRules.txt). They come first, so that the
+# ops' headers' target, made after them, depends on them, and everything
+# that waits on the ops' headers waits on these too.
+set(TABLEGEN_OUTPUT "")
+set(IDR_TABLEGEN_EXE idris-mlir-tblgen)
+set(IDR_TABLEGEN_TARGET idris-mlir-tblgen)
+set(LLVM_TARGET_DEFINITIONS IdrOps.td)
+tablegen(IDR idris_rt_ops.h -gen-runtime-abi-decls)
+tablegen(IDR IdrRuntimeAbi.inc -gen-runtime-abi-defs)
+tablegen(IDR IdrBigToWord.inc -gen-big-to-word)
+tablegen(IDR IdrRules.txt -gen-rule-list)
+add_public_tablegen_target(IdrRuntimeAbiIncGen)
+set(TABLEGEN_OUTPUT "")
+
 # The dialect's declarations and definitions, generated from the ODS into
 # include/idr/IR, which IdrDialect.h includes: enums, attributes, the
 # dialect, the op interfaces, types and ops (IdrOpsIncGen). IdrOps.td
 # includes every other part of the ODS. The interface generator writes only
 # the interfaces of the file it is given, so it reads IdrInterfaces.td, which
-# defines every op interface of the dialect but one. The flow interface is
-# held by every op as an external model; idr/IR/Flow.h includes what IdrFlow.td
-# generates, and IdrDialect.h includes none of it.
+# defines every op and type interface of the dialect but one: the flow
+# interface, which our ops declare in their ODS and whose edge vocabulary
+# idr/IR/FlowEdges.h holds, generated from IdrFlow.td and included there.
 set(LLVM_TARGET_DEFINITIONS IdrInterfaces.td)
 mlir_tablegen(IdrInterfaces.h.inc -gen-op-interface-decls)
 mlir_tablegen(IdrInterfaces.cpp.inc -gen-op-interface-defs)
+mlir_tablegen(IdrTypeInterfaces.h.inc -gen-type-interface-decls)
+mlir_tablegen(IdrTypeInterfaces.cpp.inc -gen-type-interface-defs)
 set(LLVM_TARGET_DEFINITIONS IdrFlow.td)
 mlir_tablegen(IdrFlow.h.inc -gen-op-interface-decls)
 mlir_tablegen(IdrFlow.cpp.inc -gen-op-interface-defs)

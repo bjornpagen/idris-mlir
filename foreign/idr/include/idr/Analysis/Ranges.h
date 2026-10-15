@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The ranges of the module's integers, bigs and naturals, as MLIR's integer
-// range analysis finds them across calls, a natural it cannot see computed
-// starting at 0. idr-narrow reads it; nothing else solves it.
+// The ranges of the program's integers, bigs and naturals, as MLIR's
+// integer range analysis finds them across calls, a natural it cannot see
+// computed starting at 0. idr-narrow reads it; nothing else solves it.
 #ifndef IDR_ANALYSIS_RANGES_H
 #define IDR_ANALYSIS_RANGES_H
 
@@ -16,7 +16,7 @@
 
 namespace idr {
 
-// One interprocedural solve of the module, kept for the passes that read
+// One interprocedural solve of the program, kept for the passes that read
 // it. It holds no IR beyond the pass that asked for it, since no pass that
 // rewrites preserves it; while it lives, several function passes may read
 // it at once, and none writes it.
@@ -32,8 +32,8 @@ public:
   // anything when it did not.
   bool valid() const { return solved; }
 
-  // Whether counting ran, which the grades say: a big taken in place of a
-  // word then holds a reference of its own.
+  // Whether counting ran, which the program's stage says: a big taken in
+  // place of a word then holds a reference of its own.
   bool counted() const { return owned; }
 
   // The range found for `value`; none where the analysis never reached it,

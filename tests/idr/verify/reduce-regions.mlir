@@ -15,8 +15,8 @@
 // CHECK: match %
 // CHECK: match_lit
 !T = !idr.data<"T", plain [@A(i64)]>
-module {
-  idr.func private @regions(%v: !T, %n: i64) -> (i64, i64) {
+idr.program @"reduce-regions" root(@root) stage(first) {
+  idr.func @regions(%v: !T, %n: i64) -> (i64, i64) {
     %m = idr.match %v : !T -> (i64) {
     case @A(%x: i64) {
       %y = arith.addi %x, %x : i64
@@ -34,5 +34,10 @@ module {
     }
     }
     return %m, %l : i64, i64
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
   }
 }

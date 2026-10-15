@@ -15,10 +15,11 @@
 # same copy of compiler/src (build/self/src), against the same prefix, so
 # that nothing differs between two stages but the compiler. STAGE (default
 # 3) is the last stage made; at 3, stages 2 and 3 must be the same, byte for
-# byte: the executable, its module and its Core. A closed call stays for
-# runtime. Each compile's output is kept in
-# build/self/stageN/stdout and stderr, which ends with its phases' times
-# (-mlir-timing) and its peak memory (time -l).
+# byte: the executable, its module (the bytecode idris-mlir hands its
+# pipeline) and its Core. A closed call stays for runtime. Each compile's
+# output is kept in build/self/stageN/stdout and stderr, which ends with
+# its phases' times (-mlir-timing), and its peak resident memory in KiB in
+# build/self/stageN/peak-kib.
 root=$(cd "$(dirname "$0")/.." && pwd)
 . "$root/tools/toolchain.sh"
 
@@ -40,12 +41,12 @@ stage() {
   mkdir -p "$out"
   echo "==> stage $n, compiled by ${compiler#"$root"/}"
   started=$(date +%s)
-  (cd "$self/src" && /usr/bin/time -l "$compiler" --prefix "$checkout_prefix" \
+  (cd "$self/src" && peak_memory "$out/peak-kib" "$compiler" --prefix "$checkout_prefix" \
      --num-threads="$ncpu" -p idris-compiler -mlir-timing \
      IdrisMLIR/Frontend/Driver.idr -o "$out/idris-mlir-front") \
     > "$out/stdout" 2> "$out/stderr"
   status=$?
-  echo "    exit $status in $(( $(date +%s) - started )) s"
+  echo "    exit $status in $(( $(date +%s) - started )) s, peak $(cat "$out/peak-kib" 2> /dev/null) KiB"
   if [ "$status" -ne 0 ]; then
     tail -30 "$out/stderr" >&2
     exit 1
@@ -60,7 +61,7 @@ while [ "$n" -le "$last" ]; do
 done
 
 if [ "$last" -ge 3 ]; then
-  for artifact in idris-mlir-front idris-mlir-front.mlir idris-mlir-front.core; do
+  for artifact in idris-mlir-front idris-mlir-front.mlirbc idris-mlir-front.core; do
     cmp "$self/stage2/$artifact" "$self/stage3/$artifact" ||
       { echo "error: stage 2 and stage 3 differ in $artifact" >&2; exit 1; }
   done

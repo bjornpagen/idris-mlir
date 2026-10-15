@@ -121,9 +121,9 @@ llvm::SmallVector<Site> accumulatorSites(FuncOp fn);
 // Which result of which lowered function is always one of its arguments.
 // Only a private func.func every use of which is a direct call is
 // eligible: its signature is the pass's to change. The greatest fixpoint
-// over every eligible function, computed once; a function's own rewrite
-// and its callers' read only this, by name, so none reads a sibling while
-// that sibling may be changing.
+// over every eligible function, computed once, callees first over the call
+// graph; a function's own rewrite and its callers' read only this, by name,
+// so none reads a sibling while that sibling may be changing.
 class Returned {
 public:
   // What a result is known to be: unconstrained yet (what every result

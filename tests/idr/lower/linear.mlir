@@ -1,11 +1,9 @@
-// RUN: idris-mlir-opt %s --idr-lower | FileCheck %s --implicit-check-not=idr.lin
+// RUN: idris-mlir-opt %s --idr-lower '--idr-expect=holds=lowered,signature=@pass:(i64)->i64,returns-argument=@pass:0' -o /dev/null
 // Linearity has no runtime form: a linear value is lowered as the value
-// itself, and entering or using one is nothing.
-// CHECK-LABEL: func.func private @pass(
-// CHECK-SAME: %[[X:.*]]: i64
-// CHECK: return %[[X]] : i64
-module {
-  idr.func private @pass(%x: !idr.lin<i64>) -> i64 {
+// itself, and entering or using one is nothing, so a function that uses
+// its linear parameter returns the parameter.
+idr.program @linear root(@Prog.main) stage(owned) {
+  idr.func @pass(%x: !idr.lin<i64>) -> i64 {
     %v = idr.lin.use %x : !idr.lin<i64>
     return %v : i64
   }

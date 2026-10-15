@@ -11,16 +11,16 @@
 // CHECK-LABEL: idr.func @Main.main(
 // CHECK: case @add(
 // CHECK: case @dbl(
-module {
-  idr.func private @add(%a: i64, %x: i64) -> i64 attributes {total} {
+idr.program @"block-argument" root(@Main.main) stage(higher) {
+  idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64
     return %y : i64
   }
-  idr.func private @dbl(%x: i64) -> i64 attributes {total} {
+  idr.func @dbl(%x: i64) -> i64 attributes {total} {
     %y = arith.addi %x, %x : i64
     return %y : i64
   }
-  idr.func private @pick(%b: i1, %n: i64) -> !idr.fn<(i64) -> (i64)> attributes {total} {
+  idr.func @pick(%b: i1, %n: i64) -> !idr.fn<(i64) -> (i64)> attributes {total} {
     %f = idr.closure @add(%n) : (i64) -> !idr.fn<(i64) -> (i64)>
     %g = idr.closure @dbl() : () -> !idr.fn<(i64) -> (i64)>
     cf.cond_br %b, ^join(%f : !idr.fn<(i64) -> (i64)>), ^join(%g : !idr.fn<(i64) -> (i64)>)

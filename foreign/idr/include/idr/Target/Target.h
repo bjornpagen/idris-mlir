@@ -23,6 +23,7 @@
 #include <vector>
 
 namespace llvm {
+class GlobalValue;
 class Module;
 class Target;
 class Triple;
@@ -102,6 +103,12 @@ public:
   llvm::Error extract(unsigned bin, llvm::Module &lazy) const;
 
 private:
+  // Every global value of `module`, by list: functions, variables, aliases,
+  // ifuncs, each in module order. A symbol is its place here. The bitcode
+  // writer writes each list in order and the reader appends in record
+  // order, so the module `extract` reads back has the places `of` numbered.
+  static std::vector<llvm::GlobalValue *> positions(llvm::Module &module);
+
   // A global value of the module, by its place in the module's lists.
   struct Symbol {
     // The bin that defines it, or none: a declaration, or a constant every

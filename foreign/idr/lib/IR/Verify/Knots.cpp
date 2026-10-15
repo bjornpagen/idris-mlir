@@ -7,7 +7,11 @@
 // else. An array, of any rank (an IORef is one of rank 0), is the one cell
 // written after it exists, so a knot needs an array whose element type can
 // reach the array again, and whether one can is a question of types,
-// answered once for the module by its type graph.
+// answered once for the program by its type graph. A knot is outside the
+// language this compiler implements, as a collector finalizer is: no count
+// frees it. So the rule `cycle` is of the category OutsideLanguage, not a
+// megamorphic construct; its refusal rests on the type graph's cycles, a
+// total analysis, and no count or budget enters it.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
@@ -15,7 +19,6 @@
 #include "idr/IR/TypeGraph.h"
 #include "idr/IR/Verify.h"
 
-#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Location.h"
@@ -53,16 +56,16 @@ void describe(InFlightDiagnostic &out, Type type) {
 // that makes one of its arrays; or else, when only a library makes them
 // (an IORef that base's newIORef makes), at the first constructor in the
 // program's own code of a type on the cycle, which is what closes the knot;
-// or else at the module.
-LogicalResult idr::verify::knots(ModuleOp module, const TypeGraph &graph) {
+// or else at the program.
+LogicalResult idr::verify::knots(ProgramOp program, const TypeGraph &graph) {
   SmallVector<SmallVector<unsigned>> knotted = graph.knots();
   if (knotted.empty())
     return success();
 
   // The array each message names: the one the first idr.array.new of the
-  // knot in the program's own code makes, else the knot's first. This runs
-  // before the ops are verified, so an array.new is read by the type of its
-  // result alone.
+  // knot in the program's own code makes, else the knot's first. The
+  // program's rules run once every op of it is verified, so an array.new
+  // is read through its own accessors.
   llvm::DenseMap<Type, std::pair<unsigned, unsigned>> knotOf;
   SmallVector<unsigned> named;
   SmallVector<Operation *> made(knotted.size(), nullptr);
@@ -72,13 +75,13 @@ LogicalResult idr::verify::knots(ModuleOp module, const TypeGraph &graph) {
         knotOf[graph.type(at)] = {static_cast<unsigned>(knot), at};
     named.push_back(*llvm::find_if(members, [&](unsigned at) { return graph.isArray(at); }));
   }
-  module.walk([&](Operation *op) {
-    if (!isa<ArrayNewOp>(op) || op->getNumResults() == 0 || !inSource(op->getLoc()))
+  program.walk([&](ArrayNewOp array) {
+    if (!inSource(array.getLoc()))
       return;
-    auto found = knotOf.find(unrestricted(op->getResult(0).getType()));
+    auto found = knotOf.find(unrestricted(array.getArray().getType()));
     if (found == knotOf.end() || made[found->second.first])
       return;
-    made[found->second.first] = op;
+    made[found->second.first] = array;
     named[found->second.first] = found->second.second;
   });
   llvm::DenseMap<DataType, unsigned> knotOfData;
@@ -86,7 +89,7 @@ LogicalResult idr::verify::knots(ModuleOp module, const TypeGraph &graph) {
     for (unsigned at : members)
       if (DataType data = graph.declaration(at))
         knotOfData[data] = static_cast<unsigned>(knot);
-  module.walk([&](ConOp con) {
+  program.walk([&](ConOp con) {
     if (!inSource(con.getLoc()))
       return;
     auto found = knotOfData.find(con.getDataType());
@@ -96,7 +99,7 @@ LogicalResult idr::verify::knots(ModuleOp module, const TypeGraph &graph) {
 
   for (auto [members, op, array] : llvm::zip_equal(knotted, made, named)) {
     SmallVector<unsigned> cycle = graph.cycle(array, members);
-    InFlightDiagnostic error = refuse(op ? op->getLoc() : module.getLoc(), Rule::Cycle);
+    InFlightDiagnostic error = refuse(op ? op->getLoc() : program.getLoc(), Rule::Cycle);
     // The lead names the array itself, by its rank: the path after it runs
     // from what the array holds, through any types between, to the array
     // and back.

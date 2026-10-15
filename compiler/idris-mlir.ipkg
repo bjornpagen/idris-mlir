@@ -14,7 +14,6 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Registry.Recognized
         , IdrisMLIR.Registry
         , IdrisMLIR.Facts
-        , IdrisMLIR.Graph
         , IdrisMLIR.Term
         , IdrisMLIR.MLIR.Text
         , IdrisMLIR.Syntax.Idr
@@ -24,7 +23,6 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Syntax.UB
         , IdrisMLIR.Syntax.MemRef
         , IdrisMLIR.Syntax.Tensor
-        , IdrisMLIR.Syntax.SCF
         , IdrisMLIR.MLIR
         , IdrisMLIR.MLIR.Bytecode
         , IdrisMLIR.Dialect.Idr
@@ -34,7 +32,6 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Dialect.UB
         , IdrisMLIR.Dialect.MemRef
         , IdrisMLIR.Dialect.Tensor
-        , IdrisMLIR.Dialect.SCF
         , IdrisMLIR.Emit.Index
         , IdrisMLIR.Emit.Monad
         , IdrisMLIR.Emit.Types
@@ -55,7 +52,6 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Frontend.Translate.Recursion
         , IdrisMLIR.Frontend.Translate.Instances
         , IdrisMLIR.Frontend.Translate.Primitives
-        , IdrisMLIR.Frontend.Translate.Hooks
         , IdrisMLIR.Frontend.Translate.Terms
         , IdrisMLIR.Frontend.Translate.Forced
         , IdrisMLIR.Frontend.Translate.Cases

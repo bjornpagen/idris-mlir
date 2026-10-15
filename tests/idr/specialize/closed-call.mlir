@@ -5,16 +5,16 @@
 // at a time, and a closed call runs at run time. @partial calls itself, so
 // it is never inlined either, and its call stays with its constants.
 // CHECK: call @partial(%{{.*}}, %{{.*}}) : (i64, i64) -> i64
-module {
-  idr.func private @partial(%a: i64, %b: i64) -> i64 {
+idr.program @"closed-call" root(@Main.main) stage(first) {
+  idr.func @partial(%a: i64, %b: i64) -> i64 {
     %c = idr.call @partial(%b, %a) : (i64, i64) -> i64
     return %c : i64
   }
-  idr.func private @total(%a: i64, %b: i64) -> i64 attributes {total} {
+  idr.func @total(%a: i64, %b: i64) -> i64 attributes {total} {
     %c = arith.addi %a, %b : i64
     return %c : i64
   }
-  idr.func private @use(%n: i64) -> i64 attributes {total} {
+  idr.func @use(%n: i64) -> i64 attributes {total} {
     %c3 = arith.constant 3 : i64
     %c4 = arith.constant 4 : i64
     %p = idr.call @partial(%c3, %c4) : (i64, i64) -> i64

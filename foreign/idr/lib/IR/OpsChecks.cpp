@@ -1,20 +1,19 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The guards: each folds to its operand where the operand shows that its
-// condition holds, and narrows the operand's range by the condition. And
-// what every folder of a total op and the six pure total ops ask of them:
-// whether a condition holds of constants, and when a pure total op may run
-// before the guard of its operand.
+// The guards: each decides its own condition, folds to its operand where
+// the operand shows that the condition holds, and narrows the operand's
+// range by it. And what the pure total ops ask of them: when such an op may
+// run before the guard its ODS names.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Fold.h"
 
 #include "mlir/IR/Matchers.h"
-#include "llvm/ADT/TypeSwitch.h"
 
 #include "idris_rt.h"
 
 #include <algorithm>
+#include <limits>
 
 using namespace mlir;
 using namespace idr;
@@ -25,57 +24,62 @@ using namespace idr;
 
 namespace {
 
-// The number of operands a guard of `kind` checks.
-size_t arity(CheckKind kind) {
-  switch (kind) {
-  case CheckKind::InBounds:
-    return 2;
-  case CheckKind::Range:
-    return 3;
-  case CheckKind::Nonzero:
-  case CheckKind::Nonempty:
-  case CheckKind::Byte:
-  case CheckKind::Finite:
-    return 1;
-  }
-  llvm_unreachable("a guard kind");
+// The integer constant at `at`, or null.
+IntegerAttr word(ArrayRef<Attribute> constants, size_t at) {
+  return dyn_cast_or_null<IntegerAttr>(constants[at]);
 }
 
 } // namespace
 
-bool idr::checkHolds(CheckKind kind, ArrayRef<Attribute> constants) {
-  if (constants.size() != arity(kind) || llvm::is_contained(constants, Attribute()))
+bool CheckNonzeroOp::holds(ArrayRef<Attribute> constants) {
+  if (constants.size() != 1)
     return false;
-  auto word = [&](size_t at) { return dyn_cast<IntegerAttr>(constants[at]); };
-  switch (kind) {
-  case CheckKind::Nonzero:
-    if (auto big = dyn_cast<BigAttr>(constants[0]))
-      return big.getValue() != "0";
-    return word(0) && !word(0).getValue().isZero();
-  case CheckKind::InBounds:
-    return word(0) && word(1) && !word(0).getValue().isNegative() &&
-           word(0).getValue().slt(word(1).getValue());
-  case CheckKind::Nonempty: {
-    auto str = dyn_cast<StringAttr>(constants[0]);
-    return str && !str.getValue().empty();
-  }
-  case CheckKind::Byte:
-    return word(0) && !word(0).getValue().isNegative() && word(0).getValue().isIntN(8);
-  case CheckKind::Finite: {
-    auto value = dyn_cast<FloatAttr>(constants[0]);
-    return value && value.getValue().isFinite();
-  }
-  case CheckKind::Range: {
-    if (!word(0) || !word(1) || !word(2))
-      return false;
-    APInt offset = word(0).getValue(), count = word(1).getValue();
-    bool overflow = false;
-    APInt end = offset.sadd_ov(count, overflow);
-    return !offset.isNegative() && !count.isNegative() && !overflow &&
-           end.sle(word(2).getValue());
-  }
-  }
-  llvm_unreachable("a guard kind");
+  if (auto big = dyn_cast_or_null<BigAttr>(constants[0]))
+    return !big.getValue().isZero();
+  return word(constants, 0) && !word(constants, 0).getValue().isZero();
+}
+
+// The length is the runtime's count of the string's characters, which is
+// what idr.str.length folds to.
+bool CheckInBoundsOp::holds(ArrayRef<Attribute> constants) {
+  if (constants.size() != 2)
+    return false;
+  IntegerAttr index = word(constants, 0);
+  auto text = dyn_cast_or_null<StringAttr>(constants[1]);
+  if (!index || !text || index.getValue().isNegative())
+    return false;
+  fold::Scope scope(text.getContext());
+  int64_t length = fold::runtime<StrLengthOp>(scope.str(text));
+  return index.getValue().slt(length);
+}
+
+bool CheckNonemptyOp::holds(ArrayRef<Attribute> constants) {
+  if (constants.size() != 1)
+    return false;
+  auto str = dyn_cast_or_null<StringAttr>(constants[0]);
+  return str && !str.getValue().empty();
+}
+
+bool CheckByteOp::holds(ArrayRef<Attribute> constants) {
+  return constants.size() == 1 && word(constants, 0) &&
+         !word(constants, 0).getValue().isNegative() && word(constants, 0).getValue().isIntN(8);
+}
+
+bool CheckFiniteOp::holds(ArrayRef<Attribute> constants) {
+  if (constants.size() != 1)
+    return false;
+  auto value = dyn_cast_or_null<FloatAttr>(constants[0]);
+  return value && value.getValue().isFinite();
+}
+
+bool CheckRangeOp::holds(ArrayRef<Attribute> constants) {
+  if (constants.size() != 3 || !word(constants, 0) || !word(constants, 1) || !word(constants, 2))
+    return false;
+  APInt offset = word(constants, 0).getValue(), count = word(constants, 1).getValue();
+  bool overflow = false;
+  APInt end = offset.sadd_ov(count, overflow);
+  return !offset.isNegative() && !count.isNegative() && !overflow &&
+         end.sle(word(constants, 2).getValue());
 }
 
 //===----------------------------------------------------------------------===//
@@ -85,49 +89,49 @@ bool idr::checkHolds(CheckKind kind, ArrayRef<Attribute> constants) {
 namespace {
 
 // Whether the value `op` checks is the result of a guard identical to it,
-// of its kind and with its other operands, which has checked it already.
-bool checkedBefore(GuardOpInterface op) {
-  auto before = op.getGuarded().getDefiningOp<GuardOpInterface>();
-  return before && before.getKind() == op.getKind() &&
+// the same guard with its other operands, which has checked it already.
+bool checkedBefore(Operation *op) {
+  Operation *before = op->getOperand(0).getDefiningOp();
+  return before && before->getName() == op->getName() &&
          llvm::equal(before->getOperands().drop_front(), op->getOperands().drop_front());
 }
 
 // The value `op` checks, where its condition holds of the constants that
-// folding or constant propagation knows its operands to be, where `known`
-// says it holds of the operand, or where an identical guard checked it.
-// Nothing otherwise: a guard that would crash keeps its crash.
-OpFoldResult foldCheck(GuardOpInterface op, ArrayRef<Attribute> constants, bool known) {
-  if (known || checkHolds(op.getKind(), constants) || checkedBefore(op))
-    return op.getGuarded();
+// folding or constant propagation knows its operands to be (`holds`),
+// where `known` says it holds of the operand, or where an identical guard
+// checked it. Nothing otherwise: a guard that would crash keeps its crash.
+OpFoldResult foldCheck(Operation *op, bool holds, bool known) {
+  if (holds || known || checkedBefore(op))
+    return op->getOperand(0);
   return {};
 }
 
 } // namespace
 
 OpFoldResult CheckNonzeroOp::fold(FoldAdaptor adaptor) {
-  return foldCheck(*this, adaptor.getOperands(), knownNonZero(getValue()));
+  return foldCheck(*this, holds(adaptor.getOperands()), knownNonZero(getValue()));
 }
 
 OpFoldResult CheckInBoundsOp::fold(FoldAdaptor adaptor) {
-  return foldCheck(*this, adaptor.getOperands(), false);
+  return foldCheck(*this, holds(adaptor.getOperands()), false);
 }
 
 // A string built with a character or a number in it is not empty, which
 // lets a head read the character off the string it was built from.
 OpFoldResult CheckNonemptyOp::fold(FoldAdaptor adaptor) {
-  return foldCheck(*this, adaptor.getOperands(), knownNonEmpty(getStr()));
+  return foldCheck(*this, holds(adaptor.getOperands()), knownNonEmpty(getStr()));
 }
 
 OpFoldResult CheckByteOp::fold(FoldAdaptor adaptor) {
-  return foldCheck(*this, adaptor.getOperands(), false);
+  return foldCheck(*this, holds(adaptor.getOperands()), false);
 }
 
 OpFoldResult CheckFiniteOp::fold(FoldAdaptor adaptor) {
-  return foldCheck(*this, adaptor.getOperands(), knownFinite(getValue()));
+  return foldCheck(*this, holds(adaptor.getOperands()), knownFinite(getValue()));
 }
 
 OpFoldResult CheckRangeOp::fold(FoldAdaptor adaptor) {
-  return foldCheck(*this, adaptor.getOperands(), false);
+  return foldCheck(*this, holds(adaptor.getOperands()), false);
 }
 
 //===----------------------------------------------------------------------===//
@@ -171,16 +175,14 @@ void CheckNonzeroOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
                                                          : range.smax()));
 }
 
-// At least 0, and below the length, which is at most its range's greatest
-// value.
-void CheckInBoundsOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
-                                        SetIntRangeFn setResultRange) {
-  const APInt &longest = ranges[1].smax();
-  if (longest.getBitWidth() != 64 || !longest.isStrictlyPositive()) {
-    setResultRange(getChecked(), ranges[0]);
+// At least 0, and below the length of what it indexes, which no range
+// states: a length is at most the largest i64.
+void CheckInBoundsOp::inferResultRangesFromOptional(ArrayRef<IntegerValueRange> ranges,
+                                                    SetIntLatticeFn setResultRange) {
+  if (ranges[0].isUninitialized())
     return;
-  }
-  setResultRange(getChecked(), within(ranges[0], 0, longest.getSExtValue() - 1));
+  setResultRange(getChecked(), IntegerValueRange(within(ranges[0].getValue(), 0,
+                                                        std::numeric_limits<int64_t>::max() - 1)));
 }
 
 void CheckByteOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
@@ -205,69 +207,24 @@ void CheckRangeOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
 // Speculation
 //===----------------------------------------------------------------------===//
 
-namespace {
-
-// The guard each pure total op takes on the operand it guards.
-std::optional<CheckKind> guardOf(Operation *op) {
-  return TypeSwitch<Operation *, std::optional<CheckKind>>(op)
-      .Case<DivOp, ModOp>([](auto) { return CheckKind::Nonzero; })
-      .Case([](ToByteOp) { return CheckKind::Byte; })
-      .Case([](ToIntOp) { return CheckKind::Finite; })
-      .Case([](StrIndexOp) { return CheckKind::InBounds; })
-      .Case([](StrHeadOp) { return CheckKind::Nonempty; })
-      .Default(std::nullopt);
-}
-
-// Whether `value`, the operand of `op` that its guard of `kind` checks, is
-// that guard's result. An index counts only past the guard against the
-// length of the op's own string: one against another string's length
-// proves nothing of this one.
-bool passedGuard(Operation *op, CheckKind kind, Value value) {
-  auto guard = value.getDefiningOp<GuardOpInterface>();
-  if (!guard || guard.getKind() != kind)
-    return false;
-  if (kind != CheckKind::InBounds)
-    return true;
-  auto index = dyn_cast<StrIndexOp>(op);
-  auto length =
-      cast<CheckInBoundsOp>(guard.getOperation()).getLength().getDefiningOp<StrLengthOp>();
-  return index && length && length.getStr() == index.getStr();
-}
-
-// The length of a constant string as the runtime counts it, which is what
-// idr.str.length folds to; null for any other string.
-Attribute constantLength(Value str) {
-  StringAttr text;
-  if (!matchPattern(str, m_Constant(&text)))
-    return {};
-  fold::Scope scope(str.getContext());
-  return fold::wrapped(IntegerType::get(str.getContext(), 64),
-                       idris_rt_str_length(scope.str(text)));
-}
-
-// The constants the guard of `kind` would check where `value` is the
-// operand of `op` it guards: the value, and for an index the length of the
-// op's string. A null one is not a constant.
-SmallVector<Attribute, 2> checkedConstants(Operation *op, CheckKind kind, Value value) {
-  Attribute constant;
-  matchPattern(value, m_Constant(&constant));
-  if (kind != CheckKind::InBounds)
-    return {constant};
-  auto index = dyn_cast<StrIndexOp>(op);
-  return {constant, index ? constantLength(index.getStr()) : Attribute()};
-}
-
-} // namespace
-
-Speculation::Speculatability idr::checkSpeculatability(Operation *op,
-                                                       ArrayRef<unsigned> guarded) {
-  std::optional<CheckKind> kind = guardOf(op);
-  if (!kind)
-    return Speculation::NotSpeculatable;
-  for (unsigned number : guarded) {
-    Value value = op->getOperand(number);
-    if (!passedGuard(op, *kind, value) && !checkHolds(*kind, checkedConstants(op, *kind, value)))
-      return Speculation::NotSpeculatable;
+// Past the guard: the value is the result of the guard, which checked it
+// against these operands. Or no guard is needed: the constants the value
+// and these operands are pass its condition. One rule for every guard; a
+// string index's string is the operand it is checked against.
+Speculation::Speculatability
+idr::guardedSpeculatability(Value guarded, ValueRange against,
+                            function_ref<bool(Operation *)> isGuard,
+                            function_ref<bool(ArrayRef<Attribute>)> holds) {
+  Operation *guard = guarded.getDefiningOp();
+  if (guard && isGuard(guard) && llvm::equal(guard->getOperands().drop_front(), against))
+    return Speculation::Speculatable;
+  SmallVector<Value, 2> operands{guarded};
+  llvm::append_range(operands, against);
+  SmallVector<Attribute, 2> constants;
+  for (Value operand : operands) {
+    Attribute constant;
+    matchPattern(operand, m_Constant(&constant));
+    constants.push_back(constant);
   }
-  return Speculation::Speculatable;
+  return holds(constants) ? Speculation::Speculatable : Speculation::NotSpeculatable;
 }

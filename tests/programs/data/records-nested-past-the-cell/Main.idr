@@ -3,10 +3,10 @@ module Main
 import Prelude
 
 -- Records nested three deep: H holds 16 M, M holds 16 L, and L holds 15
--- strings, so H spreads 3840 counted references over the cell of N.
--- idr-defunctionalize boxes the widest first: H, whose own cell then holds
--- 3840, then M, whose cell of 240 fits; L stays unboxed inside it. The
--- last string of the last L is read back from the first N.
+-- strings, so H spreads 3840 counted references over the cell of N, far
+-- more than a header counts: the cell's count is a word after its header,
+-- and no record is boxed to make it fit. The last string of the last L is
+-- read back from the first N.
 data L = MkL String String String String String String String String String String String String String String String
 
 data M = MkM L L L L L L L L L L L L L L L L

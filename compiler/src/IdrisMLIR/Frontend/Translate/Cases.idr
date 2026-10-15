@@ -164,6 +164,11 @@ export
 data Typed : Type where
   MkTyped : {0 sc : Scope} -> TT sc -> (Nat -> Maybe Nat) -> Typed
 
+||| A variable's type once `n` more variables are bound in front of the
+||| scope: the positions it names move back by `n`.
+shiftTyped : Nat -> Typed -> Typed
+shiftTyped n (MkTyped t at) = MkTyped t (map (+ n) . at)
+
 ||| The types of the first `k` binders of a telescope, in order, as the
 ||| first `k` positions of a scope: binder `p`'s variable `i` is binder
 ||| `p - 1 - i`.
@@ -301,10 +306,7 @@ alternativeTypes cn k scTy tys = do
               Just bs => fillDomains k scAt bs generic (type def)
               Nothing => generic)
     _ => pure generic
-  pure (args ++ map (map (shift k)) tys)
-  where
-    shift : Nat -> Typed -> Typed
-    shift n (MkTyped t at) = MkTyped t (map (+ n) . at)
+  pure (args ++ map (map (shiftTyped k)) tys)
 
 ||| The variables of the matched value's type that a constructor's type
 ||| equates with its arguments, as pairs of the variable's position and the
@@ -499,12 +501,9 @@ mutual
           (Nothing, Nothing) =>
             internal ctx.fc ("a match on " ++ show cn ++ " of a value whose type is not known")
 
-      -- A match on a runtime value, by what its alternatives match: a
-      -- natural's constructors, one runtime field's constructor, a
-      -- declaration's constructors, or literals.
-      runtime : Loc -> VarInfo (Fin nv) -> Fin nv -> Core (Term nv)
-      runtime loc v i =
-        if any isDelayCase alts then reject ctx.fc ctx.owner Laziness "a match on a lazy value" else
+      -- A match on a runtime value's constructors or literals.
+      matched : Loc -> VarInfo (Fin nv) -> Fin nv -> Core (Term nv)
+      matched loc v i =
         case mapMaybe conName alts of
           [] => literals loc i
           (cn :: _) => do
@@ -532,6 +531,24 @@ mutual
                                      _ => []
                      let absurd = map (\c => MkAlt c.id (fromList (map (\b => (shown "_", b)) c.fields)) (missingCase ctx loc)) missing
                      pure (Case loc i (conAlts ++ absurd) dflt)
+
+      -- A match on a runtime value, by what its alternatives match: a
+      -- suspension's form, a natural's constructors, one runtime field's
+      -- constructor, a declaration's constructors, or literals. A
+      -- suspension has one form, `Delay x`, so its match chooses nothing:
+      -- it is the force, whose value `x` binds, then the alternative's
+      -- tree, whose first variable is the value's type, erased.
+      runtime : Loc -> VarInfo (Fin nv) -> Fin nv -> Core (Term nv)
+      runtime loc v i = case find isDelayCase alts of
+        Just (DelayCase _ arg rhs) => do
+          let value = case (coreTyOf v, idrisTypeOf v) of
+                        (Just (LazyT t), Just (TDelayed _ _ ity)) => Runtime FZ (Just t) (Just ity)
+                        (Just (LazyT t), _) => Runtime FZ (Just t) Nothing
+                        _ => Runtime FZ Nothing Nothing
+          body <- tree ctx (under {k = 1} [TypeValue (Erased ctx.fc Placeholder), value] env)
+                       (Nothing :: Nothing :: map (map (shiftTyped 2)) tys) (underBinders 2 known) rhs
+          pure (Let loc (binderName arg) Many (Resume loc (Var loc i)) body)
+        _ => matched loc v i
 
       forced : List (CaseAlt vars) -> Core (Term nv)
       forced [ConCase cn _ args rhs] =
@@ -628,9 +645,17 @@ mutual
                ClosedTerm -> Maybe (Fin nv, Holes) ->
                List (CaseAlt vars) -> Core (Term nv)
   staticCase ctx env tys known idx t hole alts = do
-    Just (cn, cargs) <- whnf 64 t
-      | Nothing => do reject ctx.fc ctx.owner RuntimeClosure
-                        ("an implementation that does not reduce to its constructor: " ++ !(showTT t))
+    (Built cn cargs, _) <- whnf noPath t
+      | (Stuck on, _) => do
+          -- An implementation chosen by a runtime value, or computed by a
+          -- definition no compile-time reduction may run, is one whose set
+          -- of choices nothing bounds.
+          let rule = case on of
+                       OnRuntime _ => RuntimeClosure
+                       _ => StaticArgument
+          reject ctx.fc ctx.owner rule
+                 ("an implementation that does not reduce to its constructor: " ++ !(showTT t) ++
+                  ", stuck on " ++ !(stuckText on))
     cn <- toFullNames cn
     erased <- erasedArgs cn
     pick cn (zipWith info (erased ++ replicate (length cargs) False) cargs) alts
@@ -742,7 +767,7 @@ mutual
       d <- if built then Unreachable <$> toLoc ctx.fc else tree ctx env tys known rhs
       pure ([], Just d)
   conAlternatives ctx env tys known shape every built inst scTy idx (DelayCase {} :: _) =
-    reject ctx.fc ctx.owner Laziness "a match on a lazy value"
+    internal ctx.fc "a suspension's alternative in a constructor match"
   conAlternatives ctx env tys known shape every built inst scTy idx (ConstCase {} :: _) =
     internal ctx.fc "a constant alternative in a constructor match"
 

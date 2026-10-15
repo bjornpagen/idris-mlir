@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // What the owned stage's verifier and the ownership passes share: what a
-// use does with a reference, which values no count reaches, and whether a
-// function is in the owned stage. The grades are the stage: a value of
-// grade own or excl exists only after idr-rc gives one, so no attribute
-// restates it.
+// use does with a reference, and which values no count reaches. Whether a
+// function is in the owned stage is its program's stage (ProgramOp).
 #ifndef IDR_IR_OWNERSHIP_H
 #define IDR_IR_OWNERSHIP_H
 
@@ -48,10 +46,6 @@ bool reachesOnlyAtoms(mlir::Value view);
 // Whether `op`'s region is the body of a loop over indices, which runs once
 // per index it covers.
 bool isIndexLoop(mlir::Operation *op);
-
-// Whether `fn` is in the owned stage: a value of it, an argument of any of
-// its blocks or a result of any of its ops, is owned or exclusive.
-bool inOwnedStage(FuncOp fn);
 
 } // namespace idr::ownership
 

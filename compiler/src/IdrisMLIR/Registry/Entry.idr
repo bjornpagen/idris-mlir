@@ -12,6 +12,7 @@ import IdrisMLIR.Syntax.Idr
 import IdrisMLIR.Types
 
 import Data.List
+import Data.Maybe
 import Data.String
 
 %default total
@@ -194,8 +195,8 @@ data NatMeaning
     Clamped Prim
   | ||| The comparison of the arguments, as the library function that makes
     ||| a `Bool` of an `Int` gives it: `equalNat` is `intToBool` of `NatCompare
-    ||| CEq`.
-    Tested Cmp QName
+    ||| Eq`.
+    Tested CmpPredicate QName
   | ||| The library function on Integers, of the arguments' Integers:
     ||| `compareNat` is `compareInteger`.
     OnIntegers QName
@@ -205,7 +206,7 @@ data NatMeaning
 public export
 data ArrayPrim
   = AShape | ATabulate | AIndex | AUpdate | AFoldLast | AScanLast
-  | AReshape | ATake | ADrop | AConcat | APad
+  | AReshape | ATranspose | ATake | ADrop | AConcat | APad
   | AWithArray | ARead | AWrite | AThaw | ALShape | AGrow | ATabulateIO
 
 ||| A string `System.Info` substitutes from the compiler. `TargetOs` is the
@@ -249,13 +250,15 @@ data Hook
     ||| `ArrayPrim` names, in their sequential meaning; its body is not
     ||| translated. Handler: `Frontend.Translate.Terms.application`.
     Generating ArrayPrim
-  | ||| A constructor that plays a part a pass needs (`Term.Con.role`).
+  | ||| A constructor that plays a part a pass needs (`Term.Con.role`): the
+    ||| list's nil and cons, which the string builders take apart.
     ||| Handler: `Frontend.Translate.Types.dataInstance`.
-    Plays Role
-  | ||| A data type whose values keep a promise every program is checked
-    ||| against (`Term.Data.promise`). Handler:
+    Plays CtorRole
+  | ||| A data type that is a sum of this kind (`Term.Data.kind`): base's
+    ||| list, or a type whose cells every program is checked to rebuild in
+    ||| place and hold exclusive. Handler:
     ||| `Frontend.Translate.Types.dataInstance`.
-    Promises Promise
+    SumOf SumKind
   | ||| A `%foreign` definition whose calls are this primitive, pure, on the
     ||| call's runtime arguments: a buffer's size (`ArrayLength` of bytes).
     ||| Handler: `Frontend.Translate.application`.
@@ -337,7 +340,8 @@ kind (OrderedArrayType _ _) = Faster
 kind ArrayValueType = Faster
 kind (Generating _) = Faster
 kind (Plays _) = Faster
-kind (Promises _) = Stricter
+kind (SumOf SumKind.InPlace) = Stricter
+kind (SumOf _) = Faster
 kind (PrimCall _) = Faster
 kind (Handle _) = Faster
 kind (Builds _) = Faster
@@ -352,6 +356,78 @@ kind (Forbidden _) = Stricter
 kind (Deprecated _) = Stricter
 kind LibraryCrash = Faster
 
+||| What the registry says of one definition: one field per kind of hook,
+||| each the hook of the first entry of that kind that names it. A reader
+||| asks the field it handles, so a new kind of hook is one field.
+public export
+record Hooks where
+  constructor MkHooks
+  ioCall : Maybe (IdrPrim, List Lit)
+  arrayCall : Maybe IdrPrim
+  orderedArray : Maybe (List Dim, Maybe Ty)
+  valueArray : Bool
+  generating : Maybe ArrayPrim
+  plays : Maybe CtorRole
+  sumOf : Maybe SumKind
+  primCall : Maybe Prim
+  handle : Maybe Lit
+  wordType : Bool
+  builds : Maybe IdrPrim
+  alias : Maybe QName
+  identityOnLast : Bool
+  programRoot : Bool
+  natOperation : Maybe NatMeaning
+  exits : Maybe IdrPrim
+  systemInfo : Maybe SystemFact
+  forbidden : Maybe Rule
+  deprecated : Maybe String
+  libraryCrash : Bool
+
+||| A definition no entry names.
+export
+noHooks : Hooks
+noHooks = MkHooks Nothing Nothing Nothing False Nothing Nothing Nothing Nothing Nothing False Nothing Nothing
+                  False False Nothing Nothing Nothing Nothing Nothing False
+
+||| The hooks with one more entry's, after those already there: an earlier
+||| entry of the same kind stays.
+export
+withHook : Hooks -> Hook -> Hooks
+withHook hs h = case h of
+  IOCall p ls => { ioCall $= keep (p, ls) } hs
+  ArrayCall p => { arrayCall $= keep p } hs
+  OrderedArrayType ds e => { orderedArray $= keep (ds, e) } hs
+  ArrayValueType => { valueArray := True } hs
+  Generating g => { generating $= keep g } hs
+  Plays r => { plays $= keep r } hs
+  SumOf k => { sumOf $= keep k } hs
+  PrimCall p => { primCall $= keep p } hs
+  Handle l => { handle $= keep l } hs
+  WordType => { wordType := True } hs
+  Builds p => { builds $= keep p } hs
+  Alias q => { alias $= keep q } hs
+  IdentityOnLastArgument => { identityOnLast := True } hs
+  ProgramRoot => { programRoot := True } hs
+  NatOperation m => { natOperation $= keep m } hs
+  Exits p => { exits $= keep p } hs
+  SystemInfo f => { systemInfo $= keep f } hs
+  Forbidden r => { forbidden $= keep r } hs
+  Deprecated m => { deprecated $= keep m } hs
+  LibraryCrash => { libraryCrash := True } hs
+  where
+    keep : a -> Maybe a -> Maybe a
+    keep x Nothing = Just x
+    keep _ y = y
+
+||| Does the registry give a bodiless `%extern` its meaning: its calls are a
+||| primitive, an array operation, a string of `System.Info`, or the
+||| identity on its last runtime argument? Any other `%extern` is outside
+||| the language.
+export
+meansExtern : Hooks -> Bool
+meansExtern hs = isJust hs.ioCall || isJust hs.arrayCall || isJust hs.systemInfo || isJust hs.generating ||
+                 hs.identityOnLast
+
 ------------------------------------------------------------------------------
 -- Entries
 ------------------------------------------------------------------------------
@@ -361,6 +437,10 @@ public export
 data Expect : Key -> Type where
   ||| A definition, at the key's name, whose type has this shape.
   Typed : Shape -> Expect (Def q)
+  ||| A bodiless `%extern` declaration at the key's name: its own type is
+  ||| what its calls take and give, their arity, quantities and erasure,
+  ||| so the entry states none of it again.
+  Bodiless : Expect (Def q)
   ||| A definition, at this name, that declares the key's spec and whose type
   ||| has this shape.
   Declared : QName -> Shape -> Expect (Foreign s)
@@ -378,15 +458,22 @@ record Entry where
   hook : Hook
   rules : List Rule
 
-||| Where validation resolves an entry, and the shape it expects there; a
+||| What validation checks of the definition an entry resolves to: that its
+||| type has a shape, or that it is a bodiless `%extern`, whose type is
+||| its own.
+public export
+data SiteCheck = HasShape Shape | IsBodiless
+
+||| Where validation resolves an entry, and what it checks there; a
 ||| spelling is not resolved.
 export
-site : Entry -> Maybe (QName, Shape)
+site : Entry -> Maybe (QName, SiteCheck)
 site e = at e.key e.expect
   where
-    at : (k : Key) -> Expect k -> Maybe (QName, Shape)
-    at (Def q) (Typed s) = Just (q, s)
-    at (Foreign _) (Declared q s) = Just (q, s)
+    at : (k : Key) -> Expect k -> Maybe (QName, SiteCheck)
+    at (Def q) (Typed s) = Just (q, HasShape s)
+    at (Def q) Bodiless = Just (q, IsBodiless)
+    at (Foreign _) (Declared q s) = Just (q, HasShape s)
     at (Spelling _) Written = Nothing
 
 ||| What validation finds wrong with an entry whose definition is present.
@@ -400,6 +487,9 @@ data Mismatch
     DeclaredBy QName
   | ||| The definition's normalised type, which does not conform.
     Found Shape
+  | ||| A definition with a body, where the entry expects a bodiless
+    ||| `%extern`.
+    Bodied
 
 ||| The message of a shape mismatch: the entry, what it expects and what was
 ||| found, through one printer.
@@ -415,10 +505,12 @@ mismatch e m =
       _ => ""
     expected : String
     expected = case site e of
-      Just (q, s) => show q ++ " : " ++ showShape s ++ declaring
+      Just (q, HasShape s) => show q ++ " : " ++ showShape s ++ declaring
+      Just (q, IsBodiless) => "%extern " ++ show q
       Nothing => show e.key
     found : Mismatch -> String
     found Missing = "no such definition in its module"
     found Undeclared = "a definition that does not declare it"
     found (DeclaredBy q) = "it declared by " ++ show q
     found (Found s) = showShape s
+    found Bodied = "a definition with a body"

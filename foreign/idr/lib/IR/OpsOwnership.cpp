@@ -2,11 +2,10 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The ops of the owned stage: idr.dup, idr.drop, idr.reuse and idr.take,
 // the boundary of a buffer's grade with upstream's ops, idr.own.adopt and
-// idr.own.give, and what the constructors must be: one of the value's data type, read
-// from its body, and the types of the fields that move. That the module is
-// in the owned stage needs no check of its own: each of these ops has an
-// operand or result ODS declares owned, and an owned value is what puts a
-// module there.
+// idr.own.give, idr.borrow's view, and what the constructors must be: a tag
+// of the value's data type, read from its body, and the types of the
+// fields that move. That a program holding one is in the owned stage is
+// its stage's rule, which the function verifier holds.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
@@ -17,22 +16,6 @@ using namespace mlir;
 using namespace idr;
 
 namespace {
-
-// The constructor `ref` names, which must be one of `type`'s data type's,
-// or null after reporting why not.
-const Ctor *ctorOf(Operation *op, FlatSymbolRefAttr ref, Type type) {
-  DataType data = dataTypeOf(type);
-  if (!data || !data.hasBody()) {
-    op->emitOpError("names a constructor of ") << type << ", which has no body";
-    return nullptr;
-  }
-  std::optional<unsigned> tag = data.getTag(ref.getValue());
-  if (!tag) {
-    op->emitOpError("names ") << ref << ", which is not a constructor of " << type;
-    return nullptr;
-  }
-  return &data.getCtor(*tag);
-}
 
 // The type of a field that moves out of a cell, or into one: a field that
 // holds references is owned.
@@ -55,30 +38,45 @@ LogicalResult DupOp::verify() {
 }
 LogicalResult DropOp::verify() { return success(); }
 
-DataType ReuseOp::getDataType() { return dataTypeOf(getType()); }
-unsigned ReuseOp::getTag() { return *getDataType().getTag(getCtor()); }
+DataType ReuseOp::getDataType() { return dataTypeOf(getResult().getType()); }
 
-// The fields are the constructor's, owned where they hold references. That
-// the cell fits is the owned stage's rule, which knows the take the token
-// comes from.
+Value ReuseOp::getField(unsigned index) {
+  return idr::detail::givenField(getFields(), getHoles(), index);
+}
+Value ReuseOp::getDest(unsigned index) { return idr::detail::holeDest(getDests(), getHoles(), index); }
+
+void ReuseOp::build(OpBuilder &builder, OperationState &state, Type type, Value token,
+                    unsigned tag, ValueRange fields, ArrayRef<int32_t> holes) {
+  const Ctor &ctor = dataTypeOf(type).getCtor(tag);
+  SmallVector<Type> dests;
+  for (int32_t hole : holes)
+    dests.push_back(idr::detail::destOf(ctor, hole));
+  build(builder, state, type, dests, token, tag, fields, holes);
+}
+
+// The fields given are the constructor's, owned where they hold
+// references, the holes aside. That the cell fits is the owned stage's
+// rule, which knows the take the token comes from.
 LogicalResult ReuseOp::verify() {
-  const Ctor *ctor = ctorOf(*this, getCtorAttr(), getType());
+  const Ctor *ctor = idr::detail::ctorAt(*this, getResult().getType(), getTag());
   if (!ctor)
     return failure();
   if (ctor->fields.empty())
-    return emitOpError("builds ") << getCtorAttr() << ", which has no fields and is its atom";
-  if (ctor->fields.size() != getFields().size())
-    return emitOpError("expects ") << ctor->fields.size() << " fields";
-  for (auto [field, value] : llvm::zip(ctor->fields, getFields()))
-    if (Type expected = movedField(field); !movesAs(value.getType(), expected))
-      return emitOpError("field has type ") << value.getType() << ", expected " << expected;
-  if (!isOwned(getType()))
+    return emitOpError("builds constructor ")
+           << getTag() << ", which has no fields and is its atom";
+  if (failed(idr::detail::verifyHoles(*this, *ctor, getHoles(), getFields().size(),
+                                 getDests().getTypes())))
+    return failure();
+  for (unsigned index = 0, n = static_cast<unsigned>(ctor->fields.size()); index < n; ++index)
+    if (Value value = getField(index))
+      if (Type expected = movedField(ctor->fields[index]); !movesAs(value.getType(), expected))
+        return emitOpError("field has type ") << value.getType() << ", expected " << expected;
+  if (!isOwned(getResult().getType()))
     return emitOpError("builds a cell, which holds a reference: the result is owned");
   return success();
 }
 
 DataType TakeOp::getDataType() { return dataTypeOf(getValue().getType()); }
-unsigned TakeOp::getTag() { return *getDataType().getTag(getCtor()); }
 
 // A box's take yields its cell as a token, unless the constructor has no
 // fields: that value is the constructor's atom, which is nobody's to build
@@ -93,7 +91,7 @@ ResultRange TakeOp::getFields() { return getResults().drop_front(getToken() ? 1 
 // A token for a box with fields, then the constructor's fields, owned where
 // they hold references.
 LogicalResult TakeOp::verify() {
-  const Ctor *ctor = ctorOf(*this, getCtorAttr(), getValue().getType());
+  const Ctor *ctor = idr::detail::ctorAt(*this, getValue().getType(), getTag());
   if (!ctor)
     return failure();
   SmallVector<Type> expected;
@@ -106,7 +104,7 @@ LogicalResult TakeOp::verify() {
   if (expected.size() != getNumResults() ||
       !llvm::all_of(llvm::zip(getResultTypes(), expected),
                     [](auto pair) { return movesAs(std::get<0>(pair), std::get<1>(pair)); }))
-    return emitOpError("has results ") << getResultTypes() << ", but " << getCtorAttr()
+    return emitOpError("has results ") << getResultTypes() << ", but constructor " << getTag()
                                        << " takes apart into " << TypeRange(expected);
   return success();
 }
@@ -138,3 +136,6 @@ void OwnGiveOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
   consumedEffects(getOperation(), effects);
 }
+
+// A view is a view of the owned value it borrows.
+Value BorrowOp::getViewSource() { return getValue(); }

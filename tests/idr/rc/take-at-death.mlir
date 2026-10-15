@@ -11,9 +11,9 @@
 // reference of its own for the cell, and the take's copy of it is dropped.
 // The owned stage's verifier checks after idr-rc that the counts balance.
 !T = !idr.data<"T", plain [@L(), @N(!idr.box<!idr.data<"T">>, i64, !idr.box<!idr.data<"T">>)]>
-!List = !idr.data<"List", list [@Nil(), @Cons(i64, !idr.box<!idr.data<"List">>)]>
-module {
-  idr.func private @flip(%t: !idr.box<!T>) -> !idr.box<!T> {
+!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
+idr.program @"take-at-death" root(@root) stage(first) {
+  idr.func @flip(%t: !idr.box<!T>) -> !idr.box<!T> {
     %r = idr.match %t : !idr.box<!T> -> (!idr.box<!T>) {
     case @L() {
       idr.yield %t : !idr.box<!T>
@@ -21,21 +21,21 @@ module {
     case @N(%l: !idr.box<!T>, %x: i64, %rt: !idr.box<!T>) {
       %k = idr.tag %t : !idr.box<!T>
       %y = arith.addi %x, %k : i64
-      %n = idr.con @N(%rt, %y, %l) : (!idr.box<!T>, i64, !idr.box<!T>) -> !idr.box<!T>
+      %n = idr.con !idr.box<!T> @N(%rt : !idr.box<!T>, %y : i64, %l : !idr.box<!T>)
       idr.yield %n : !idr.box<!T>
     }
     }
     return %r : !idr.box<!T>
   }
-  idr.func private @keep(%p: !idr.box<!List>) -> !idr.box<!List> {
+  idr.func @keep(%p: !idr.box<!List>) -> !idr.box<!List> {
     %r = idr.match %p : !idr.box<!List> -> (!idr.box<!List>) {
     case @Nil() {
       idr.yield %p : !idr.box<!List>
     }
     case @Cons(%h: i64, %t: !idr.box<!List>) {
-      %kept = idr.con @Cons(%h, %t) : (i64, !idr.box<!List>) -> !idr.box<!List>
+      %kept = idr.con !idr.box<!List> @Cons(%h : i64, %t : !idr.box<!List>)
       %k = idr.tag %p : !idr.box<!List>
-      %n = idr.con @Cons(%k, %kept) : (i64, !idr.box<!List>) -> !idr.box<!List>
+      %n = idr.con !idr.box<!List> @Cons(%k : i64, %kept : !idr.box<!List>)
       idr.yield %n : !idr.box<!List>
     }
     }
@@ -45,9 +45,9 @@ module {
     %x = arith.constant 7 : i64
     %leaf = idr.constant #idr.con<@L, []> : !idr.box<!T>
     %nil = idr.constant #idr.con<@Nil, []> : !idr.box<!List>
-    %t = idr.con @N(%leaf, %x, %leaf) : (!idr.box<!T>, i64, !idr.box<!T>) -> !idr.box<!T>
+    %t = idr.con !idr.box<!T> @N(%leaf : !idr.box<!T>, %x : i64, %leaf : !idr.box<!T>)
     %f = idr.call @flip(%t) : (!idr.box<!T>) -> !idr.box<!T>
-    %l = idr.con @Cons(%x, %nil) : (i64, !idr.box<!List>) -> !idr.box<!List>
+    %l = idr.con !idr.box<!List> @Cons(%x : i64, %nil : !idr.box<!List>)
     %k = idr.call @keep(%l) : (!idr.box<!List>) -> !idr.box<!List>
     %a = idr.tag %f : !idr.box<!T>
     %b = idr.tag %k : !idr.box<!List>

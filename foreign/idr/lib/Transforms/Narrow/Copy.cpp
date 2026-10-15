@@ -98,8 +98,12 @@ bool Copy::fits(DataFlowSolver &solver) {
 // still finds the ranges of its operands), the solver told of the ops they
 // erase. No folding and no region simplification, as in upstream's own
 // int-range-optimizations: those can erase a block argument without a word
-// to the solver, and a new one at its address would take its range.
-LogicalResult Copy::narrow(DataFlowSolver &solver) {
+// to the solver, and a new one at its address would take its range. No
+// limit on the rounds either: every rewrite of the set narrows an op that
+// is wider than 32 bits or folds a pair of casts away, so the rewrites end
+// with the ops there are to narrow, and a count of rounds would only turn
+// a long copy into an error.
+void Copy::narrow(DataFlowSolver &solver) {
   struct Listener : RewriterBase::Listener {
     explicit Listener(DataFlowSolver &s) : solver(s) {}
     void notifyOperationErased(Operation *op) override {
@@ -111,13 +115,13 @@ LogicalResult Copy::narrow(DataFlowSolver &solver) {
   } listener(solver);
   RewritePatternSet patterns(module->getContext());
   arith::populateIntRangeNarrowingPatterns(patterns, solver, {32});
-  if (failed(applyPatternsGreedily(function.getBody(), FrozenRewritePatternSet(std::move(patterns)),
-                                   GreedyRewriteConfig()
-                                       .setUseTopDownTraversal(false)
-                                       .enableFolding(false)
-                                       .setRegionSimplificationLevel(GreedySimplifyRegionLevel::Disabled)
-                                       .setListener(&listener))))
-    return failure();
+  (void)applyPatternsGreedily(function.getBody(), FrozenRewritePatternSet(std::move(patterns)),
+                              GreedyRewriteConfig()
+                                  .setUseTopDownTraversal(false)
+                                  .enableFolding(false)
+                                  .setRegionSimplificationLevel(GreedySimplifyRegionLevel::Disabled)
+                                  .setMaxIterations(GreedyRewriteConfig::kNoLimit)
+                                  .setListener(&listener));
   // The narrowing widens a result back with arith.extui, and knows the word
   // it widens is non-negative (its range, kept on the cast); the flag says
   // so where LLVM reads it, so that the conversion to double of such a word
@@ -132,7 +136,6 @@ LogicalResult Copy::narrow(DataFlowSolver &solver) {
   });
   for (arith::ExtUIOp widen : nonNegative)
     widen.setNonNeg(true);
-  return success();
 }
 
 void Copy::cloneInto(OpBuilder &b, const SetVector<Value> &inputs) {

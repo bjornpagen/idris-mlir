@@ -14,18 +14,23 @@ using namespace mlir;
 
 namespace idr::expect {
 
-// No string is built only to be written: idr.io.put_str never writes what
-// idr.str.append, cons, from_char or show made.
-LogicalResult outputFused(ModuleOp module, AnalysisManager &, StringRef) {
+// No string is built only to be written, anywhere or in the function the
+// argument names: idr.io.put_str never writes what idr.str.append, cons,
+// from_char or show made.
+LogicalResult outputFused(ModuleOp module, AnalysisManager &, StringRef function) {
+  SmallVector<Operation *> roots = rootsOf(module, function, "output-fused");
+  if (roots.empty())
+    return failure();
   bool held = true;
-  module.walk([&](PutStrOp put) {
-    if (!writtenInPieces(put.getStr()))
-      return;
-    fail(put.getLoc(), "output-fused") << "idr.io.put_str writes what "
-                                       << put.getStr().getDefiningOp()->getName() << " built in "
-                                       << where(put);
-    held = false;
-  });
+  for (Operation *root : roots)
+    root->walk([&](PutStrOp put) {
+      if (!writtenInPieces(put.getStr()))
+        return;
+      fail(put.getLoc(), "output-fused") << "idr.io.put_str writes what "
+                                         << put.getStr().getDefiningOp()->getName() << " built in "
+                                         << where(put);
+      held = false;
+    });
   return success(held);
 }
 

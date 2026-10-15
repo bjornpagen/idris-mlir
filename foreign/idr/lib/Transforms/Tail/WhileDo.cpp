@@ -167,20 +167,14 @@ Operation *WhileDo::inlineRegion(Region &region, Scope scope) {
     Value scrutinee = in(sum.getScrutinee(), scope);
     rewriter.setInsertionPointToEnd(to);
     unsigned index = region.getRegionNumber();
-    FlatSymbolRefAttr ctor;
-    ArrayRef<Type> declared;
-    if (index < sum.getCases().size()) {
-      ctor = cast<FlatSymbolRefAttr>(sum.getCases()[index]);
-      declared = sum.getDataType().getCtor(sum.getCaseTag(index)).fields;
-    }
+    bool isCase = index < sum.getCases().size();
     for (BlockArgument field : from.getArguments()) {
       if (field.use_empty())
         continue;
       Value value = scrutinee;
-      if (ctor)
-        value = FieldOp::create(rewriter, field.getLoc(),
-                                fieldType(scrutinee.getType(), declared[field.getArgNumber()]), scrutinee,
-                                ctor, rewriter.getI64IntegerAttr(field.getArgNumber()));
+      if (isCase)
+        value = FieldOp::create(rewriter, field.getLoc(), scrutinee, sum.getCaseTag(index),
+                                field.getArgNumber());
       fields[field.getArgNumber()] = heldAs(rewriter, field.getLoc(), value, field.getType());
     }
   }

@@ -374,20 +374,15 @@ record Con where
   tag : Nat
   fields : List Binder
   loc : Loc
-  ||| The part the registry says this constructor plays, if any.
-  role : Maybe Role
-
-||| How a data instance is represented: an unboxed sum, or a box when its
-||| containment is recursive (every cycle passes through a box). Data
-||| holding closures is a sum like any other. Recursion is the frontend's
-||| only reason to box: whether a cell holding a record's values counts more
-||| references than a header can is a fact of the cell's layout, which
-||| idr-defunctionalize measures and boxes the record for.
-public export
-data Repr = Sop | Box
+  ||| The part the registry says this constructor plays: the dialect's own
+  ||| enum, `Plain` for one it names no part for.
+  role : CtorRole
 
 ||| A data instance. Its key is what it is an instance of, and its Idris
-||| name is the key's origin.
+||| name is the key's origin. It says nothing of how its values are laid
+||| out: whether a value is boxed is the dialect's decision, made once from
+||| the type graph. Its kind is the sum the registry says its type is, in the
+||| dialect's own enum, `Plain` for any other.
 public export
 record Data where
   constructor MkData
@@ -395,9 +390,7 @@ record Data where
   key : InstanceKey
   cons : List Con
   loc : Loc
-  repr : Repr
-  ||| The promise the registry says the type's values keep, if any.
-  promise : Maybe Promise
+  kind : SumKind
 
 ||| A function instance of full Core: its key, and its runtime parameters,
 ||| each with the name Idris gave it; a parameter Idris erased is not one.
@@ -427,9 +420,12 @@ record Source where
 ||| any, and when that print dropped part of the instance's identity, `;`
 ||| and the low 64 bits of the identity's hash as 16 hex digits. It is the
 ||| symbol of a function or data instance, in the Core dump and in the
-||| module alike, a function of the key alone (no other key changes it). No
-||| print ends in `;` and 16 hex digits: a print shows `;` only inside a
-||| string or character literal, which ends in its quote.
+||| module alike, a function of the key alone (no other key changes it). An
+||| argument is a position of the definition: one that keys nothing is `-`,
+||| which no compile-time value prints as, so two instances of a definition
+||| that key different positions never print alike. No print ends in `;`
+||| and 16 hex digits: a print shows `;` only inside a string or character
+||| literal, which ends in its quote.
 export
 keyText : InstanceKey -> String
 keyText k = printed ++ suffix k.print
@@ -552,14 +548,17 @@ showSource p =
   let names = sourceNames p
   in unlines (map (dataDecl names) p.datas ++ map (fnDecl names) p.fns ++ ["root " ++ names.fnName p.root])
   where
-    repr : Repr -> String
-    repr Sop = ""
-    repr Box = " (box)"
+    kindText : SumKind -> String
+    kindText SumKind.Plain = ""
+    kindText k = " (" ++ show k ++ ")"
+    roleText : CtorRole -> String
+    roleText CtorRole.Plain = ""
+    roleText r = " " ++ show r
     dataDecl : Names -> IdrisMLIR.Term.Data -> String
-    dataDecl names d = "data " ++ keyText d.key ++ repr d.repr ++ maybe "" (\p => " (" ++ show p ++ ")") d.promise ++
+    dataDecl names d = "data " ++ keyText d.key ++ kindText d.kind ++
                        concatMap (\c => "\n  " ++ show c.id ++ " tag " ++ show c.tag ++ " (" ++
                          joinBy ", " (map (binderText names.dataName) c.fields) ++ ")" ++
-                         maybe "" (\r => " " ++ show r) c.role) d.cons ++ "\n"
+                         roleText c.role) d.cons ++ "\n"
     fnDecl : Names -> TFn -> String
     fnDecl names f = keyText f.key ++ " " ++
                      concatMap (\(_, b) => "(" ++ binderText names.dataName b ++ ") ") (toList f.params) ++

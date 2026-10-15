@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The patterns of the ops that call the runtime (the CallsRuntime trait),
-// and of the comparisons whose runtime function orders its operands.
+// The patterns of the ops that call the runtime: each op the table
+// generated from the ops' marks pairs with its C functions
+// (IdrRuntimeAbi.inc), which says how each function takes the op's
+// operands and gives its result.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Layout.h"
-#include "idr/Conversion/Arrays.h"
 #include "idr/Conversion/IdrPattern.h"
 #include "idr/Conversion/Patterns.h"
 #include "idr/Conversion/Runtime.h"
@@ -22,47 +23,6 @@ using namespace mlir;
 namespace idr::conversion {
 
 namespace {
-
-// The operands of `op` as the runtime takes them, each its components in
-// order; a buffer is its cell, then its first byte, which no value holds
-// since it is always right after the cell's header, then its size.
-SmallVector<Value> flatten(OpBuilder &b, Location loc, Operation *op,
-                           ArrayRef<ValueRange> operands) {
-  SmallVector<Value> values;
-  for (auto [operand, components] : llvm::zip_equal(op->getOperands(), operands)) {
-    if (!isa<MemRefType>(unrestricted(operand.getType()))) {
-      llvm::append_range(values, components);
-      continue;
-    }
-    values.push_back(components.front());
-    values.push_back(elementsOf(b, loc, components.front()));
-    llvm::append_range(values, components.drop_front());
-  }
-  return values;
-}
-
-// The runtime function of an op is named after it, by its trait. Where
-// the op's signedness or operand type picks the function, the name ends in
-// _s, _u or _f64 and an integer is extended to 64 bits as the signedness
-// says. Ops whose result width varies get the result modulo 2^64 and
-// truncate it.
-template <typename OpT>
-constexpr bool returnsWord = llvm::is_one_of<OpT, ToIntOp, StrToIntOp>::value;
-
-// The ops with a lowering of their own: the bigs whose small case is inline,
-// which call the runtime only on their cold path, and the string builders
-// over lists, which walk the list there.
-template <typename OpT>
-constexpr bool ownLowering = llvm::is_one_of<OpT, BigAddOp, BigSubOp, BigMulOp, BigPredOp,
-                                             BigCmpOp, NatFromBigOp, BigFromIntOp, BigToIntOp,
-                                             StrPackOp, StrConcatOp>::value;
-
-template <typename OpT>
-std::optional<bool> signedness(OpT op) {
-  if constexpr (requires { op.getIsSigned(); })
-    return op.getIsSigned();
-  return std::nullopt;
-}
 
 // The range an op states for its result whatever its operands are, as
 // LLVM's `range`: the runtime keeps the op's meaning, so the call's result
@@ -87,66 +47,52 @@ std::optional<LLVM::ConstantRangeAttr> statedRange(Operation *op) {
   return LLVM::ConstantRangeAttr::get(op->getContext(), stated->umin(), stated->umax() + 1);
 }
 
+// The op's value from what its function gives. A wrapped integer is the
+// function's 64 bits, which the op wraps to its width; an order is the
+// function's three-way comparison, which the op compares with 0 by its
+// predicate; any other is the value itself, in the range the op states.
+template <typename OpT>
+Value resultOf(OpT op, const idr::runtime::Function &function, Value given, Type result,
+               ConversionPatternRewriter &rewriter) {
+  using idr::runtime::Kind;
+  Location loc = op.getLoc();
+  if (function.result == Kind::Wrapped)
+    return given.getType() == result ? given
+                                     : Value(arith::TruncIOp::create(rewriter, loc, result, given));
+  if (function.result == Kind::Order) {
+    if constexpr (requires { op.getPredicate(); }) {
+      Value zero = arith::ConstantIntOp::create(rewriter, loc, 0, 32);
+      return arith::CmpIOp::create(rewriter, loc, layout::signedPredicate(op.getPredicate()),
+                                   given, zero);
+    }
+  }
+  if (std::optional<LLVM::ConstantRangeAttr> range = statedRange(op))
+    given.getDefiningOp<LLVM::CallOp>().setResAttrsAttr(rewriter.getArrayAttr(
+        rewriter.getDictionaryAttr(rewriter.getNamedAttr(LLVM::LLVMDialect::getRangeAttrName(),
+                                                         *range))));
+  return given;
+}
+
 // An op's precondition (a divisor that is not zero, an index within the
 // string) is its guard's, tested before the op: the call is all the op
-// lowers to.
+// lowers to. The op's results are the world, which is nothing, and at most
+// one value, the function's.
 template <typename OpT>
 struct LowerRuntimeCall : IdrPattern<OpT> {
   using IdrPattern<OpT>::IdrPattern;
   LogicalResult matchAndRewrite(OpT op, typename IdrPattern<OpT>::OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-    std::string name = op.getHelper().str();
-    SmallVector<Value> args = flatten(rewriter, loc, op, adaptor.getOperands());
-    if (std::optional<bool> isSigned = signedness(op)) {
-      for (Value &arg : args) {
-        if (isa<FloatType>(arg.getType())) {
-          name += "_f64";
-        } else if (auto integer = dyn_cast<IntegerType>(arg.getType())) {
-          name += *isSigned ? "_s" : "_u";
-          Type i64 = rewriter.getI64Type();
-          if (integer.getWidth() < 64)
-            arg = *isSigned ? Value(arith::ExtSIOp::create(rewriter, loc, i64, arg))
-                            : Value(arith::ExtUIOp::create(rewriter, loc, i64, arg));
-        }
-      }
-    }
-    SmallVector<Type> results;
-    for (Type type : op->getResultTypes())
-      llvm::append_range(results, this->layouts.components(type));
-    Type result = results.empty() ? Type() : results.front();
-    if constexpr (returnsWord<OpT>)
-      result = rewriter.getI64Type();
-    Value value = this->runtime.call(rewriter, loc, name, result, args);
-    if constexpr (returnsWord<OpT>) {
-      if (results.front() != value.getType())
-        value = arith::TruncIOp::create(rewriter, loc, results.front(), value);
-    } else if (std::optional<LLVM::ConstantRangeAttr> range = statedRange(op)) {
-      auto call = value.getDefiningOp<LLVM::CallOp>();
-      call.setResAttrsAttr(rewriter.getArrayAttr(rewriter.getDictionaryAttr(
-          rewriter.getNamedAttr(LLVM::LLVMDialect::getRangeAttrName(), *range))));
-    }
+    const idr::runtime::Function &function = runtimeFunctionOf(op);
+    Value given = this->runtime.call(rewriter, op, function, adaptor.getOperands());
     SmallVector<SmallVector<Value>> out;
-    for (Type type : op->getResultTypes())
-      out.push_back(this->layouts.components(type).empty() ? SmallVector<Value>{}
-                                                           : SmallVector<Value>{value});
+    for (Type type : op->getResultTypes()) {
+      SmallVector<Type> components = this->layouts.components(type);
+      if (components.empty())
+        out.emplace_back();
+      else
+        out.push_back({resultOf(op, function, given, components.front(), rewriter)});
+    }
     rewriter.replaceOpWithMultiple(op, std::move(out));
-    return success();
-  }
-};
-
-// str.cmp: the runtime's three-way comparison against 0.
-template <typename OpT>
-struct LowerCompare : IdrPattern<OpT> {
-  using IdrPattern<OpT>::IdrPattern;
-  LogicalResult matchAndRewrite(OpT op, typename OpT::Adaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-    Value order = this->runtime.call(rewriter, loc, op.getHelper(), rewriter.getI32Type(),
-                                     ValueRange{adaptor.getLhs(), adaptor.getRhs()});
-    arith::CmpIPredicate predicate = layout::signedPredicate(op.getPredicate());
-    Value zero = arith::ConstantIntOp::create(rewriter, loc, 0, 32);
-    rewriter.replaceOpWithNewOp<arith::CmpIOp>(op, predicate, order, zero);
     return success();
   }
 };
@@ -155,11 +101,7 @@ template <typename... Ops>
 void addRuntimeCalls(RewritePatternSet &patterns, const TypeConverter &converter,
                      const Layouts &layouts, Runtime &runtime) {
   auto add = [&]<typename OpT>() {
-    if constexpr (!OpT::template hasTrait<CallsRuntime>() || ownLowering<OpT>)
-      return;
-    else if constexpr (requires(OpT op) { op.getPredicate(); })
-      patterns.add<LowerCompare<OpT>>(converter, patterns.getContext(), layouts, runtime);
-    else
+    if constexpr (requires { idr::runtime::Abi<OpT>::functions; })
       patterns.add<LowerRuntimeCall<OpT>>(converter, patterns.getContext(), layouts, runtime);
   };
   (add.template operator()<Ops>(), ...);
@@ -167,8 +109,9 @@ void addRuntimeCalls(RewritePatternSet &patterns, const TypeConverter &converter
 
 } // namespace
 
-// The patterns of the ops that call the runtime: every op with the trait,
-// which declares the op's runtime call; the op list is the dialect's own.
+// The patterns of the ops that call the runtime: every op the table pairs
+// with a function. A big op whose small case is inline has a pattern of its
+// own, ahead of this one.
 void populateRuntimeCallPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                                  const Layouts &layouts, Runtime &runtime) {
   addRuntimeCalls<

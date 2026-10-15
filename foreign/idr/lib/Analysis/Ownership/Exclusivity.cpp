@@ -9,26 +9,33 @@
 // every exclusive tree however many hold it (reachesOnlyAtoms).
 //
 // In the owned stage a reference is duplicated only by idr.dup, so
-// exclusivity is provenance: a value is exclusive when it is a constructor
-// whose box fields are exclusive, a field an exclusive value was taken
-// apart into (the token of that take too), a call's result that every
-// return makes exclusive, a parameter every caller passes exclusive, or a
-// copy of static data built only of atoms. So the pair of empty lists that
-// span and splitAt give at the end of their input joins the pair they
-// build around an exclusive one, and the join stays exclusive. Any other
-// dup or constant, a stack cell and a value from a caller the module does
-// not show are shared. The analysis is a sparse forward dataflow on MLIR's
-// solver, optimistic as SCCP is: a value is exclusive until a path shares
-// it, which is sound by induction on the run. It reads the dups placement
-// made, so it runs after placement; what it proves idr-rc writes into the
-// types (`!idr.excl<T>`), which every later pass keeps and the owned
-// stage's verifier checks.
+// exclusivity is provenance, read from the reference edges of each op
+// (idr/IR/Flow.h): a value is exclusive when its op makes it new and every
+// cell moved into a part of it is exclusive (a constructor of exclusive
+// fields), when a use of an exclusive value moves into it whole or out of
+// one of its parts (a change of quantity; a field an exclusive value was
+// taken apart into, and the token of that take), when it is a call's
+// result that every return makes exclusive or a parameter every caller
+// passes exclusive, or when it is a copy of static data built only of
+// atoms. So the pair of empty lists that span and splitAt give at the end
+// of their input joins the pair they build around an exclusive one, and
+// the join stays exclusive. Any other copy, a constant, a stack cell (the
+// frame's, so not new to anyone), a value no flow explains (a share's,
+// which forgets what its operand alone reached) and a value from a caller
+// the program does not show are shared, and so is every result of an op
+// that declares no flow. The analysis is a sparse forward dataflow on
+// MLIR's solver, optimistic as SCCP is: a value is exclusive until a path
+// shares it, which is sound by induction on the run. It reads the dups
+// placement made, so it runs after placement; what it proves idr-rc writes
+// into the types (`!idr.excl<T>`), which every later pass keeps and the
+// owned stage's verifier checks.
 //
 // The solver answers by program point and value, which the passes after
 // it ask of the function they rewrite; so its answers are copied into
 // tables and the solver is gone when the constructor returns.
 #include "idr/Analysis/Ownership.h"
 
+#include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ownership.h"
@@ -37,8 +44,6 @@
 #include "mlir/Analysis/DataFlow/DeadCodeAnalysis.h"
 #include "mlir/Analysis/DataFlow/SparseAnalysis.h"
 #include "mlir/Analysis/DataFlowFramework.h"
-#include "mlir/Dialect/UB/IR/UBOps.h"
-#include "mlir/IR/BuiltinOps.h"
 
 using namespace mlir;
 using namespace mlir::dataflow;
@@ -99,53 +104,61 @@ public:
   }
 };
 
+// The program is entered at its root, from outside: its callers are not
+// the program's to show. Every other function is private, entered only by
+// the calls the program makes.
+class Entry : public DataFlowAnalysis {
+public:
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(Entry)
+
+  Entry(DataFlowSolver &solver, FuncOp root) : DataFlowAnalysis(solver), root(root) {}
+
+  LogicalResult initialize(Operation *) override {
+    auto *callers = getOrCreate<PredecessorState>(getProgramPointAfter(root));
+    propagateIfChanged(callers, callers->setHasUnknownPredecessors());
+    return success();
+  }
+  LogicalResult visit(ProgramPoint *) override { return success(); }
+
+private:
+  FuncOp root;
+};
+
 class ExclusiveAnalysis : public SparseForwardDataFlowAnalysis<CellsLattice> {
 public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(ExclusiveAnalysis)
 
   using SparseForwardDataFlowAnalysis::SparseForwardDataFlowAnalysis;
 
+  // Each followed result is what reaches it whole (new, a use of a value
+  // moved into it or out of a part of one, a copy, a constant), joined with
+  // the cells moved into its parts; a result nothing reaches whole is not
+  // new to anyone, and shared.
   LogicalResult visitOperation(Operation *op, ArrayRef<const CellsLattice *> operands,
                                ArrayRef<CellsLattice *> results) override {
-    // A constructor reaches its box fields' cells; a stack cell is lent
-    // to whoever holds it, never theirs.
-    if (isa<ConOp, ReuseOp>(op)) {
-      auto con = dyn_cast<ConOp>(op);
-      Sharing sharing = con && con.getStack() ? Sharing::Shared : Sharing::Exclusive;
-      for (auto [operand, lattice] : llvm::zip(op->getOperands(), operands))
-        if (ownership::followed(operand) && !isa<TokenType>(unrestricted(operand.getType())))
-          sharing = std::max(sharing, held(lattice));
-      return set(results[0], sharing);
+    FlowEdges edges;
+    if (declaresFlow(op))
+      flowEdgesOf(op, edges);
+    for (auto [result, lattice] : llvm::zip(op->getResults(), results)) {
+      if (!ownership::followed(result))
+        continue;
+      Sharing whole = Sharing::Unknown, parts = Sharing::Unknown;
+      for (const FlowEdges::Edge &edge : edges.edges()) {
+        if (!edge.carries(Carrier::Reference) || edge.to.getValue() != result)
+          continue;
+        if (edge.to.kind == FlowPoint::Kind::Part) {
+          parts = std::max(parts, intoPart(edge.from, operands));
+          continue;
+        }
+        whole = std::max(whole, reaching(edge, operands));
+      }
+      Sharing sharing = whole == Sharing::Unknown ? Sharing::Shared : std::max(whole, parts);
+      propagateIfChanged(lattice, lattice->join(Cells::of(sharing)));
     }
-    // A copy of static data that reaches no cell but atoms is in every
-    // exclusive tree; any other copy shares its cells with the original.
-    if (auto dup = dyn_cast<DupOp>(op)) {
-      bool atoms = ownership::reachesOnlyAtoms(dup.getValue());
-      return set(results[0], atoms ? Sharing::Exclusive : Sharing::Shared);
-    }
-    // The fields of an exclusive value are exclusive: it alone reached
-    // them. So is the cell it leaves behind.
-    if (isa<TakeOp>(op)) {
-      Sharing sharing = held(operands[0]);
-      for (auto [result, lattice] : llvm::zip(op->getResults(), results))
-        if (ownership::followed(result))
-          propagateIfChanged(lattice, lattice->join(Cells::of(sharing)));
-      return success();
-    }
-    if (isa<LinEnterOp, LinUseOp>(op))
-      return set(results[0], held(operands[0]));
-    if (isa<ShareOp>(op))
-      return set(results[0], Sharing::Shared);
-    // Poison is no value: nothing reaches its cells.
-    if (isa<ub::PoisonOp>(op))
-      return set(results[0], Sharing::Exclusive);
-    for (auto [result, lattice] : llvm::zip(op->getResults(), results))
-      if (ownership::followed(result))
-        propagateIfChanged(lattice, lattice->join(Cells::of(Sharing::Shared)));
     return success();
   }
 
-  // A value the module does not show every source of is shared.
+  // A value the program does not show every source of is shared.
   void setToEntryState(CellsLattice *lattice) override {
     propagateIfChanged(lattice, lattice->join(Cells::of(Sharing::Shared)));
   }
@@ -157,21 +170,46 @@ private:
     return lattice->getValue().sharing == Sharing::Shared ? Sharing::Shared : Sharing::Exclusive;
   }
 
-  LogicalResult set(CellsLattice *lattice, Sharing sharing) {
-    propagateIfChanged(lattice, lattice->join(Cells::of(sharing)));
-    return success();
+  // What reaches a result whole along `edge`: a new value is exclusive; a
+  // use moved into it, whole or out of a part, brings what that value
+  // holds; a copy of a value read shares its cells, unless it is static
+  // data that reaches no cell but atoms, which no take hands out; a part
+  // read and a constant are shared.
+  static Sharing reaching(const FlowEdges::Edge &edge, ArrayRef<const CellsLattice *> operands) {
+    using Kind = FlowEdges::Edge::Kind;
+    if (edge.kind == Kind::Fresh)
+      return Sharing::Exclusive;
+    if (edge.kind != Kind::Flow)
+      return Sharing::Shared;
+    const FlowPoint &from = edge.from;
+    if (from.takes())
+      return held(operands[from.operand->getOperandNumber()]);
+    if (from.kind == FlowPoint::Kind::Value && ownership::reachesOnlyAtoms(from.value))
+      return Sharing::Exclusive;
+    return Sharing::Shared;
+  }
+
+  // What a cell moved into a part of a result brings: a followed use what
+  // it holds; anything else no cell a take could hand out.
+  static Sharing intoPart(const FlowPoint &from, ArrayRef<const CellsLattice *> operands) {
+    if (!from.takes())
+      return Sharing::Shared;
+    if (!ownership::followed(from.operand->get()))
+      return Sharing::Unknown;
+    return held(operands[from.operand->getOperandNumber()]);
   }
 };
 
 } // namespace
 
 Exclusivity::Exclusivity(Operation *op, AnalysisManager &) {
-  auto module = cast<ModuleOp>(op);
+  auto program = cast<ProgramOp>(op);
   DataFlowSolver solver(DataFlowConfig().setInterprocedural(true));
+  solver.load<Entry>(program.lookupRoot());
   solver.load<DeadCodeAnalysis>();
   solver.load<NoConstants>();
   solver.load<ExclusiveAnalysis>();
-  if (mlir::failed(solver.initializeAndRun(module))) {
+  if (mlir::failed(solver.initializeAndRun(program))) {
     unsolved = true;
     return;
   }
@@ -180,7 +218,7 @@ Exclusivity::Exclusivity(Operation *op, AnalysisManager &) {
         lattice && lattice->getValue().sharing != Sharing::Unknown)
       sharing[value] = lattice->getValue().sharing;
   };
-  module->walk([&](Block *block) {
+  program->walk([&](Block *block) {
     if (auto *state = solver.lookupState<Executable>(solver.getProgramPointBefore(block));
         state && state->isLive())
       liveBlocks.insert(block);
@@ -193,8 +231,8 @@ Exclusivity::Exclusivity(Operation *op, AnalysisManager &) {
   // A call's results join the callee's returns the solver reached, which
   // it records after the call; any one call of a function shows them.
   DenseMap<StringAttr, CallOp> callOf;
-  module.walk([&](CallOp call) { callOf.try_emplace(call.getCalleeAttr().getAttr(), call); });
-  for (FuncOp fn : module.getOps<FuncOp>()) {
+  program.walk([&](CallOp call) { callOf.try_emplace(call.getCalleeAttr().getAttr(), call); });
+  for (FuncOp fn : program.getOps<FuncOp>()) {
     if (auto *preds = solver.lookupState<PredecessorState>(solver.getProgramPointAfter(fn));
         preds && preds->allPredecessorsKnown())
       callersOf[fn].assign(preds->getKnownPredecessors().begin(),
@@ -218,17 +256,23 @@ Sharing Exclusivity::of(Value value) const {
   return it == sharing.end() ? Sharing::Unknown : it->second;
 }
 
-// A value whose type its own op derives from its operand's (a change of
-// quantity) follows the operand: a linear value of an exclusive one is
-// exclusive. A share forgets what its operand alone reached.
+// A value its op moves one of its uses into whole, at the use's carrier
+// (a change of quantity), is that use's value, and is proved as that is,
+// solved or made after the solve. A share's value is reached whole by
+// nothing, so the solve found it shared.
 bool Exclusivity::proves(Value value) const {
   if (!ownership::followed(value))
     return false;
-  Operation *def = value.getDefiningOp();
-  if (isa_and_nonnull<ShareOp>(def))
-    return false;
-  if (isa_and_nonnull<LinEnterOp, LinUseOp>(def))
-    return proves(def->getOperand(0));
+  if (auto flow = dyn_cast_or_null<FlowOpInterface>(value.getDefiningOp())) {
+    FlowEdges edges;
+    flow.getFlowEdges(edges);
+    for (const FlowEdges::Edge &edge : edges.edges())
+      if (edge.kind == FlowEdges::Edge::Kind::Flow && edge.carries(Carrier::Reference) &&
+          edge.from.kind == FlowPoint::Kind::Operand && edge.to.kind == FlowPoint::Kind::Value &&
+          edge.to.value == value &&
+          unrestricted(edge.from.operand->get().getType()) == unrestricted(value.getType()))
+        return proves(edge.from.operand->get());
+  }
   return of(value) == Sharing::Exclusive;
 }
 

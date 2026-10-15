@@ -23,24 +23,21 @@ namespace idr::conversion {
 
 namespace {
 
-// One more reference for each counted component. Static data holds no
-// count, so a reference to it is its address: nothing runs. The value is
-// read as lowered, since the constant that made it static is gone by now.
+// One more reference for each counted component; static data, which holds
+// no count, takes none (Runtime::inc).
 struct LowerDup : IdrPattern<DupOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(DupOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     ValueRange components = adaptor.getValue();
-    SmallVector<bool> counted = layouts.counted(op.getValue().getType());
-    for (auto [i, component] : llvm::enumerate(components))
-      counted[i] = counted[i] && !StaticData::isStatic(component);
-    runtime.inc(rewriter, op.getLoc(), components, counted);
+    runtime.inc(rewriter, op.getLoc(), components, layouts.counted(op.getValue().getType()));
     rewriter.replaceOpWithMultiple(op, {SmallVector<Value>(components)});
     return success();
   }
 };
 
-// One less for each counted component; a token's memory is freed.
+// One less for each counted component, and none for static data
+// (Runtime::dec); a token's memory is freed.
 struct LowerDrop : IdrPattern<DropOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(DropOp op, OneToNOpAdaptor adaptor,
@@ -56,10 +53,10 @@ struct LowerDrop : IdrPattern<DropOp> {
 };
 
 // The token's cell, or a new cell when the token is null, holding the
-// constructor. A reuse of the constructor its token's take took apart
-// finds the header in the cell already, and every field it gives back as
-// taken (Fields): those are stored into a new cell only, and the header is
-// left as it is.
+// constructor, and the destination of each of its holes. A reuse of the
+// constructor its token's take took apart finds the header in the cell
+// already, and every field it gives back as taken (Fields): those are
+// stored into a new cell only, and the header is left as it is.
 struct LowerReuse : IdrPattern<ReuseOp> {
   LowerReuse(const TypeConverter &converter, MLIRContext *ctx, const Layouts &layouts,
              Runtime &runtime, const Fields &fields)
@@ -68,14 +65,17 @@ struct LowerReuse : IdrPattern<ReuseOp> {
   LogicalResult matchAndRewrite(ReuseOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    const layout::Cell &layout = layouts.box(op.getDataType(), op.getTag());
+    unsigned tag = op.getTag();
+    const layout::Cell &layout = layouts.box(op.getDataType(), tag);
     layout::CellInfo info = layout.info;
     ArrayRef<bool> kept = fields.kept(op);
+    SmallVector<SmallVector<Value>> values =
+        fieldsOf(rewriter, loc, layout, op.getHoles(), adaptor.getFields());
     // The fields `cell` holds already when `held`, the others otherwise.
     auto store = [&](OpBuilder &b, Value cell, bool held) {
-      for (auto [index, slots, values] : llvm::enumerate(layout.fields, adaptor.getFields()))
+      for (auto [index, slots, field] : llvm::enumerate(layout.fields, values))
         if ((!kept.empty() && kept[index]) == held)
-          runtime.store(b, loc, cell, slots, values);
+          runtime.store(b, loc, cell, cellAlignment(), slots, field);
     };
     Value token = adaptor.getToken().front();
     Type ptr = token.getType();
@@ -83,7 +83,7 @@ struct LowerReuse : IdrPattern<ReuseOp> {
     if (isExclusive(op.getToken().getType())) {
       // An exclusive token is the cell, certainly: no test.
       if (kept.empty())
-        runtime.storeHeader(rewriter, loc, token, info);
+        runtime.storeHeader(rewriter, loc, token, layout, tag, info);
       where = token;
     } else {
       Value empty = LLVM::ICmpOp::create(rewriter, loc, LLVM::ICmpPredicate::eq, token,
@@ -92,17 +92,19 @@ struct LowerReuse : IdrPattern<ReuseOp> {
           scf::IfOp::create(rewriter, loc, TypeRange{ptr}, empty, /*withElseRegion=*/true);
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(choose.thenBlock());
-      Value fresh = runtime.allocate(rewriter, loc, layout.size, info);
+      Value fresh = runtime.allocate(rewriter, loc, layout, tag);
       store(rewriter, fresh, /*held=*/true);
       scf::YieldOp::create(rewriter, loc, fresh);
       rewriter.setInsertionPointToStart(choose.elseBlock());
       if (kept.empty())
-        runtime.storeHeader(rewriter, loc, token, info);
+        runtime.storeHeader(rewriter, loc, token, layout, tag, info);
       scf::YieldOp::create(rewriter, loc, token);
       where = choose.getResult(0);
     }
     store(rewriter, where, /*held=*/false);
-    rewriter.replaceOp(op, where);
+    SmallVector<SmallVector<Value>> out{{where}};
+    llvm::append_range(out, destsOf(rewriter, loc, where, layout, op.getHoles()));
+    rewriter.replaceOpWithMultiple(op, std::move(out));
     return success();
   }
 
@@ -151,7 +153,7 @@ struct LowerTake : IdrPattern<TakeOp> {
     SmallVector<bool> movingCounted, dyingCounted;
     ArrayRef<Type> fieldTypes = data.getCtor(tag).fields;
     for (auto [index, slots, fieldType] : llvm::enumerate(layout.fields, fieldTypes)) {
-      out.push_back(runtime.load(rewriter, loc, cell, slots));
+      out.push_back(runtime.load(rewriter, loc, cell, cellAlignment(), slots));
       bool dies = drops[index] != nullptr;
       llvm::append_range(dies ? dying : moving, out.back());
       llvm::append_range(dies ? dyingCounted : movingCounted, layouts.counted(fieldType));

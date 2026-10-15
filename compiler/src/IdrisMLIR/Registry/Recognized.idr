@@ -74,13 +74,13 @@ naturals =
   , natural types "plus" (binary nat) (Primitive (Op BigAdd))
   , natural types "mult" (binary nat) (Primitive (Op BigMul))
   , natural types "minus" (binary nat) (Clamped (Op BigSub))
-  , natural types "equalNat" (binary bool) (Tested CEq intToBool)
+  , natural types "equalNat" (binary bool) (Tested CmpPredicate.Eq intToBool)
   , natural types "compareNat" (binary (Head (Def (MkQName ["Prelude", "EqOrd"] "Ordering")) []))
             (OnIntegers (MkQName ["Prelude", "EqOrd"] "compareInteger"))
-  , natural ["Data", "Nat"] "lte" (binary bool) (Tested CLte intToBool)
-  , natural ["Data", "Nat"] "gte" (binary bool) (Tested CGte intToBool)
-  , natural ["Data", "Nat"] "lt" (binary bool) (Tested CLt intToBool)
-  , natural ["Data", "Nat"] "gt" (binary bool) (Tested CGt intToBool) ]
+  , natural ["Data", "Nat"] "lte" (binary bool) (Tested CmpPredicate.Lte intToBool)
+  , natural ["Data", "Nat"] "gte" (binary bool) (Tested CmpPredicate.Gte intToBool)
+  , natural ["Data", "Nat"] "lt" (binary bool) (Tested CmpPredicate.Lt intToBool)
+  , natural ["Data", "Nat"] "gt" (binary bool) (Tested CmpPredicate.Gt intToBool) ]
   where
     types : List String
     types = ["Prelude", "Types"]
@@ -101,66 +101,62 @@ export
 shapeType : Shape
 shapeType = Head (Def (MkQName ["Prelude", "Basics"] "SnocList")) [nat]
 
-||| A head of the array language applied to its two arguments, every one a
-||| hole: validation checks the head, the handler reads the types.
-arr, larr : Shape
-arr = Head (Def (MkQName arrayCore "Array")) [Hole, Hole]
-larr = Head (Def (MkQName arrayCore "LArray")) [Hole, Hole]
-
-ext, idx, cell : Shape
-ext = Head (Def (MkQName (arrayCore ++ ["Extents"]) "Extents")) [Hole]
-idx = Head (Def (MkQName (arrayCore ++ ["Index"]) "Index")) [Hole]
-cell = Head (Def (MkQName (arrayCore ++ ["Cell"]) "Cell")) [Hole]
-
 ||| `n` implicit arguments of quantity 0 before `rest`, each of any type.
 implicits : Nat -> Shape -> Shape
 implicits Z rest = rest
 implicits (S k) rest = Pi M0 Hole (implicits k rest)
 
-||| An explicit argument at quantity ω, and one at quantity 1.
-arg, lin : Shape -> Shape -> Shape
+||| An explicit argument at quantity ω.
+arg : Shape -> Shape -> Shape
 arg = Pi Mw
-lin = Pi M1
 
-||| A function of the generating set, by its name in `Array.Core`.
-generating : String -> Shape -> ArrayPrim -> Entry
-generating name shape p = MkEntry (Def (MkQName arrayCore name)) (Typed shape) (Generating p) [HookShape]
+||| The namespace of the linear arrays' functions, inside `Array.Core`,
+||| which tells them apart from the arrays' of the same name.
+larrayCore : List String
+larrayCore = arrayCore ++ ["LArray"]
 
-||| A function of the array language that is the identity on its array.
-identityOn : String -> Shape -> Entry
-identityOn name shape = MkEntry (Def (MkQName arrayCore name)) (Typed shape) IdentityOnLastArgument [IdentityHook]
+||| A function of the generating set, by its namespace and name: a bodiless
+||| `%extern`, whose own type says what its calls take and give.
+generating : List String -> String -> ArrayPrim -> Entry
+generating ns name p = MkEntry (Def (MkQName ns name)) Bodiless (Generating p) [HookShape]
 
-||| The array language's two value types, its generating set and the
-||| operations of its linear arrays, whose calls are the tensor operations
-||| of their sequential meaning; and base's `natToFinLT`, the identity on
-||| its natural, a `Fin` being one.
+||| A function of the array language that is the identity on its array: a
+||| bodiless `%extern` too, since only `Array.Core` sees how an array is held.
+identityOn : List String -> String -> Entry
+identityOn ns name = MkEntry (Def (MkQName ns name)) Bodiless IdentityOnLastArgument [IdentityHook]
+
+||| The array language's two value types, whose shape type the entries pin;
+||| its generating set and the operations of its linear arrays, whose calls
+||| are the tensor operations of their sequential meaning; and base's
+||| `natToFinLT`, the identity on its natural, a `Fin` being one.
 arrayLanguage : List Entry
 arrayLanguage =
   [ MkEntry (Def (MkQName arrayCore "Array")) (Typed (Pi M0 shapeType (Pi Mw TypeOfTypes TypeOfTypes)))
             ArrayValueType [HookShape]
   , MkEntry (Def (MkQName arrayCore "LArray")) (Typed (Pi M0 shapeType (Pi Mw TypeOfTypes TypeOfTypes)))
             ArrayValueType [HookShape]
-  , generating "shape" (implicits 2 (arg arr ext)) AShape
-  , generating "tabulate" (implicits 2 (arg ext (arg (arg idx Hole) arr))) ATabulate
-  , generating "!!" (implicits 2 (arg arr (arg idx Hole))) AIndex
-  , generating "update" (implicits 2 (arg arr (arg idx (arg Hole arr)))) AUpdate
-  , generating "foldLast" (implicits 4 (arg (arg Hole (arg Hole Hole)) (arg arr (arg arr arr)))) AFoldLast
-  , generating "scanLast" (implicits 4 (arg (arg Hole (arg Hole Hole)) (arg arr (arg arr arr)))) AScanLast
-  , identityOn "nest" (implicits 3 (arg cell (arg arr arr)))
-  , identityOn "merge" (implicits 3 (arg ext (arg arr arr)))
-  , generating "reshape" (implicits 3 (arg ext (Pi M0 Hole (arg arr arr)))) AReshape
-  , generating "take" (implicits 3 (arg nat (Pi M0 Hole (arg arr arr)))) ATake
-  , generating "drop" (implicits 3 (arg nat (Pi M0 Hole (arg arr arr)))) ADrop
-  , generating "++" (implicits 4 (arg arr (arg arr arr))) AConcat
-  , generating "pad" (implicits 3 (arg nat (arg nat (arg Hole (arg arr arr))))) APad
-  , generating "withArray" (implicits 3 (arg ext (arg Hole (arg (lin larr Hole) Hole)))) AWithArray
-  , generating "read" (implicits 2 (lin larr (arg idx Hole))) ARead
-  , generating "write" (implicits 2 (lin larr (arg idx (arg Hole larr)))) AWrite
-  , identityOn "freeze" (implicits 2 (lin larr Hole))
-  , generating "thaw" (implicits 3 (arg arr (arg (lin larr Hole) Hole))) AThaw
-  , generating "lshape" (implicits 2 (lin larr Hole)) ALShape
-  , generating "grow" (implicits 3 (arg nat (arg Hole (lin larr larr)))) AGrow
-  , generating "tabulateIO" (implicits 2 (arg ext (arg (arg idx Hole) Hole))) ATabulateIO
+  , generating arrayCore "shape" AShape
+  , generating arrayCore "tabulate" ATabulate
+  , generating arrayCore "!!" AIndex
+  , generating arrayCore "update" AUpdate
+  , generating arrayCore "foldLast" AFoldLast
+  , generating arrayCore "scanLast" AScanLast
+  , identityOn arrayCore "nest"
+  , identityOn arrayCore "merge"
+  , generating arrayCore "reshape" AReshape
+  , generating arrayCore "transpose" ATranspose
+  , generating arrayCore "take" ATake
+  , generating arrayCore "drop" ADrop
+  , generating arrayCore "++" AConcat
+  , generating arrayCore "pad" APad
+  , generating arrayCore "tabulateIO" ATabulateIO
+  , generating larrayCore "withArray" AWithArray
+  , generating larrayCore "read" ARead
+  , generating larrayCore "write" AWrite
+  , identityOn larrayCore "freeze"
+  , generating larrayCore "thaw" AThaw
+  , generating larrayCore "shape" ALShape
+  , generating larrayCore "grow" AGrow
   , MkEntry (Def (MkQName ["Data", "Fin"] "natToFinLT"))
             (Typed (arg nat (implicits 2 (Head (Def (MkQName ["Data", "Fin"] "Fin")) [Hole]))))
             IdentityOnLastArgument [IdentityHook] ]
@@ -169,13 +165,16 @@ arrayLanguage =
 -- What data plays and promises
 ------------------------------------------------------------------------------
 
-||| The list's nil and cons, which the string builders take apart: their
-||| role is the registry's, never guessed from their shape.
-listRoles : List Entry
-listRoles =
-  [ MkEntry (Def (MkQName ["Prelude", "Basics"] "Nil")) (Typed (implicits 1 (list Hole))) (Plays ListNil) [HookShape]
+||| Base's list, a sum whose nil and cons the string builders take apart:
+||| its kind and its constructors' parts are the registry's, never guessed
+||| from their shape.
+baseList : List Entry
+baseList =
+  [ MkEntry (Def (MkQName ["Prelude", "Basics"] "List")) (Typed (Pi Mw TypeOfTypes TypeOfTypes))
+            (SumOf BaseList) [HookShape]
+  , MkEntry (Def (MkQName ["Prelude", "Basics"] "Nil")) (Typed (implicits 1 (list Hole))) (Plays CtorRole.ListNil) [HookShape]
   , MkEntry (Def (MkQName ["Prelude", "Basics"] "::")) (Typed (implicits 1 (arg Hole (arg (list Hole) (list Hole)))))
-            (Plays ListCons) [HookShape] ]
+            (Plays CtorRole.ListCons) [HookShape] ]
   where
     list : Shape -> Shape
     list a = Head (Def (MkQName ["Prelude", "Basics"] "List")) [a]
@@ -186,8 +185,8 @@ listRoles =
 inPlace : List Entry
 inPlace =
   [ MkEntry (Def (MkQName ["Linear", "List"] "LList")) (Typed (Pi Mw TypeOfTypes TypeOfTypes))
-            (Promises InPlace) [HookShape]
-  , MkEntry (Def (MkQName ["Linear", "Nat"] "LNat")) (Typed TypeOfTypes) (Promises InPlace) [HookShape] ]
+            (SumOf InPlace) [HookShape]
+  , MkEntry (Def (MkQName ["Linear", "Nat"] "LNat")) (Typed TypeOfTypes) (SumOf InPlace) [HookShape] ]
 
 ------------------------------------------------------------------------------
 -- Pointers and the exit
@@ -287,7 +286,7 @@ outsideLanguage =
 export
 recognized : List Entry
 recognized =
-  naturals ++ arrayLanguage ++ listRoles ++ inPlace ++ outsideLanguage ++
+  naturals ++ arrayLanguage ++ baseList ++ inPlace ++ outsideLanguage ++
   [ identity "replace"
   , identity "rewrite__impl"
   , pointerCast "prim__castPtr" (Pi Mw anyPtr (ptr Hole))

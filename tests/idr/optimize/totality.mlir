@@ -1,23 +1,20 @@
-// RUN: awk '/^ *\/\/ CHAIN$/ { for (f = 1; f <= 12; f++) { printf "  idr.func private @f%d(%%x: i64) -> i64 attributes {total} {\n    %%v0 = arith.addi %%x, %%x : i64\n", f; for (i = 1; i < 2000; i++) printf "    %%v%d = arith.addi %%v%d, %%x : i64\n", i, i - 1; if (f < 12) printf "    %%r = idr.call @f%d(%%v1999) : (i64) -> i64\n    return %%r : i64\n  }\n", f + 1; else printf "    return %%v1999 : i64\n  }\n" } next } /^ *\/\/ REQUESTS$/ { for (k = 1; k <= 1025; k++) printf "    %%k%d = arith.constant %d : i64\n    %%a%d = idr.call @apply(%%k%d, %%n) : (i64, i64) -> i64\n    %%u%d = arith.addi %%u%d, %%a%d : i64\n", k, k, k, k, k, k - 1, k; next } { print }' %s > %t.budgets.mlir
+// RUN: awk '/^ *\/\/ CHAIN$/ { for (f = 1; f <= 12; f++) { printf "  idr.func @f%d(%%x: i64) -> i64 attributes {total} {\n    %%v0 = arith.addi %%x, %%x : i64\n", f; for (i = 1; i < 2000; i++) printf "    %%v%d = arith.addi %%v%d, %%x : i64\n", i, i - 1; if (f < 12) printf "    %%r = idr.call @f%d(%%v1999) : (i64) -> i64\n    return %%r : i64\n  }\n", f + 1; else printf "    return %%v1999 : i64\n  }\n" } next } /^ *\/\/ REQUESTS$/ { for (k = 1; k <= 1025; k++) printf "    %%k%d = arith.constant %d : i64\n    %%a%d = idr.call @apply(%%k%d, %%n) : (i64, i64) -> i64\n    %%u%d = arith.addi %%u%d, %%a%d : i64\n", k, k, k, k, k, k - 1, k; next } { print }' %s > %t.budgets.mlir
 // RUN: idris-mlir-opt %t.budgets.mlir --idr-optimize -o %t.mlir 2> %t.err
 // RUN: not grep -q unsupported %t.err
-// RUN: grep -c 'call @apply(' %t.mlir | grep -qx 2
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=largest-function=10000 -o /dev/null
-// NEEDS-ACCEPTANCE: that the 1,025th request is the one left a call (call-site order), and the run time of the module with 1,024 nodes.
-// No count refuses a program: a budget only stops optimizing. The module
-// spends both of the optimizer's budgets. The root asks @apply for 1,025
-// specializations, one per constant (the REQUESTS line), and a node may
-// ask one owner for 1,024 distinct keys: the 1,025th request is not made,
-// and its call stays a call of @apply itself, beside @apply's own call of
-// itself. The chain of the CHAIN line meets the per-caller cap. The
-// optimizer exits 0, says nothing of `unsupported`, and leaves every
-// function within the cap.
-module {
+// NEEDS-ACCEPTANCE: the run time of the module, whose 1,025 requests make as many copies as R08's rule over recursive components keys.
+// No count refuses a program: a size policy only stops optimizing, and
+// specialization stops by the request chain, never by a count of keys.
+// The root asks @apply for 1,025 specializations, one per constant (the
+// REQUESTS line), and the chain of the CHAIN line meets the inliner's
+// per-caller cap. The optimizer exits 0, says nothing of `unsupported`,
+// and leaves every function within the cap.
+idr.program @totality root(@Main.main) stage(first) {
   // CHAIN
   // @apply is on a cycle of its own, so it is never inlined; its first
   // parameter is passed itself at every call, so a constant there is
   // static, and each constant is its own key.
-  idr.func private @apply(%k: i64, %n: i64) -> i64 attributes {total} {
+  idr.func @apply(%k: i64, %n: i64) -> i64 attributes {total} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       idr.yield %k : i64

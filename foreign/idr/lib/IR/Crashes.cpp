@@ -15,13 +15,13 @@ using namespace idr;
 // folds away on it.
 bool idr::knownNonZero(Value value) {
   Attribute constant;
-  return matchPattern(value, m_Constant(&constant)) && checkHolds(CheckKind::Nonzero, constant);
+  return matchPattern(value, m_Constant(&constant)) && CheckNonzeroOp::holds(constant);
 }
 
 // A finite Double constant: a guard of a cast folds away on it.
 bool idr::knownFinite(Value value) {
   Attribute constant;
-  return matchPattern(value, m_Constant(&constant)) && checkHolds(CheckKind::Finite, constant);
+  return matchPattern(value, m_Constant(&constant)) && CheckFiniteOp::holds(constant);
 }
 
 // A string that cannot be empty: a non-empty constant, or a string built
@@ -38,7 +38,7 @@ bool idr::knownNonEmpty(Value value) {
       continue;
     Attribute constant;
     if (matchPattern(next, m_Constant(&constant))) {
-      if (checkHolds(CheckKind::Nonempty, constant))
+      if (CheckNonemptyOp::holds(constant))
         return true;
       continue;
     }

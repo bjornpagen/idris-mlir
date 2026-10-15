@@ -11,21 +11,21 @@
 // NEEDS-ACCEPTANCE: the sums' printed forms, as C01's printer writes them; @Act and @List are remade with the converted field types (C01's DataRemap).
 // CHECK-DAG: ![[L:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, memo [@running(), @forced({{.*}})]
 // CHECK-DAG: = !idr.data<{{[^,]*}}, closures []
-// CHECK-LABEL: idr.func private @first(
+// CHECK-LABEL: idr.func @first(
 // CHECK: force %{{.*}} : !idr.box<![[L]]> ->
 // CHECK: %[[P:.*]] = ub.poison : i64
 // CHECK: call @first(%{{.*}}, %[[P]])
 !Act = !idr.data<"Act", plain [@MkAct(!idr.fn<(i64) -> (i64)>)]>
-!List = !idr.data<"List", list [@Nil(), @Cons(!idr.lazy<!Act>, !idr.box<!idr.data<"List">>)]>
-module {
-  idr.func private @first(%l: !idr.box<!List>, %x: i64) -> i64 {
+!List = !idr.data<"List", list [@Nil() nil, @Cons(!idr.lazy<!Act>, !idr.box<!idr.data<"List">>) cons]>
+idr.program @"unreached-cell" root(@Prog.main) stage(higher) {
+  idr.func @first(%l: !idr.box<!List>, %x: i64) -> i64 {
     %r = idr.match %l : !idr.box<!List> -> (i64) {
     case @Nil() {
       idr.yield %x : i64
     }
     case @Cons(%h: !idr.lazy<!Act>, %t: !idr.box<!List>) {
       %a = idr.force %h : !idr.lazy<!Act> -> !Act
-      %f = idr.field %a[@MkAct, 0] : !Act -> !idr.fn<(i64) -> (i64)>
+      %f = idr.field %a : !Act @MkAct[0] -> !idr.fn<(i64) -> (i64)>
       %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
       %z = idr.call @first(%t, %y) : (!idr.box<!List>, i64) -> i64
       idr.yield %z : i64

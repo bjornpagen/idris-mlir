@@ -8,8 +8,8 @@
 // OUT: before
 // OUT-NOT: after
 // ERR: idris-mlir: unhandled input for Main.pick at Main.idr:7:1
-module {
-  idr.func private @pick(%n: i64) -> !idr.str {
+idr.program @crash root(@Prog.main) stage(higher) {
+  idr.func @pick(%n: i64) -> !idr.str {
     %r = idr.match_lit %n : i64 -> (!idr.str) {
     case 0 {
       %s = idr.constant "zero" : !idr.str

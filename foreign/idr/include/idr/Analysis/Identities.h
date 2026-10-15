@@ -7,8 +7,9 @@
 // Every function of the component starts out assumed to give back each
 // argument that could be its result: of the result's type at any quantity.
 // A function that does not, under what is assumed of the rest, loses the
-// assumption, and the functions that call it are checked again; what is
-// left when nothing changes is the greatest fixpoint, so the functions of a
+// assumption, and the functions that call it are checked again. Each check
+// can only drop an assumption, and there are finitely many, so the work
+// ends; what is left is the greatest fixpoint, so the functions of a
 // mutual recursion are found together, and whatever order the functions
 // are checked in finds the same ones. A callee outside the component is
 // final, and what it gives back is read frozen. Each function is walked
@@ -16,16 +17,15 @@
 // remains of the assumptions is read off that record, so the arguments
 // share one walk and a requeued caller is not walked again.
 //
-// A function in the owned stage (a reference in its signature) gives back
-// nothing, nor does one that takes a world, whose call is where its effects
-// are ordered.
+// A function of a program in the owned stage gives back nothing, since a
+// counted value there cannot stand for a fresh one; nor does one that takes
+// a world, whose call is where its effects are ordered.
 #ifndef IDR_ANALYSIS_IDENTITIES_H
 #define IDR_ANALYSIS_IDENTITIES_H
 
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/Pass/AnalysisManager.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
@@ -35,42 +35,23 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
-#include <shared_mutex>
 #include <tuple>
 
-namespace idr {
+namespace idr::identities {
 
-// What the functions of a run of idr-optimize give back, by name, filled one
-// component at a time. Built empty by the module's analysis manager; read
-// by idr-identity through its parent's cache, from any worker.
-class Identities {
-public:
-  Identities(mlir::Operation *module, mlir::AnalysisManager &am);
-  ~Identities();
-  bool isInvalidated(const mlir::AnalysisManager::PreservedAnalyses &pa) const;
-
-  // The greatest fixpoint inside `component`, what its callees outside it
-  // give back read frozen. Safe on disjoint components from different
-  // workers.
-  void solve(llvm::ArrayRef<FuncOp> component);
-
-  // The argument `function` gives back, if its component is solved and it
-  // gives one back.
-  std::optional<unsigned> givesBack(mlir::StringAttr function) const;
-
-private:
-  mutable std::shared_mutex mutex;
-  llvm::DenseMap<mlir::StringAttr, unsigned> found;
+// What the solve reads of a callee that is not in the component it solves:
+// what it gives back, frozen, and whether its `effects` say it returns.
+struct Callee {
+  std::optional<unsigned> givesBack;
+  bool returns = false;
 };
-
-namespace identities {
+using Outside = llvm::function_ref<Callee(mlir::StringAttr callee)>;
 
 // The argument each function of `component` gives back, if it gives one
 // back, in the order of `component`. `outside` answers for a callee that is
-// not in `component`: what it gives back, frozen.
-llvm::SmallVector<std::optional<unsigned>>
-givesBackOf(llvm::ArrayRef<FuncOp> component,
-            llvm::function_ref<std::optional<unsigned>(mlir::StringAttr)> outside);
+// not in `component`.
+llvm::SmallVector<std::optional<unsigned>> givesBackOf(llvm::ArrayRef<FuncOp> component,
+                                                      Outside outside);
 
 // The functions of the component, by name.
 using Members = llvm::DenseMap<mlir::StringAttr, FuncOp>;
@@ -78,9 +59,6 @@ using Members = llvm::DenseMap<mlir::StringAttr, FuncOp>;
 // The parameters of each function, by name, assumed to be given back.
 using Assumed = llvm::DenseMap<mlir::StringAttr, llvm::SmallVector<unsigned, 1>>;
 
-// Whether a value of `type` holds or borrows a reference: the owned stage,
-// where a counted value cannot stand for a fresh one.
-bool owns(mlir::Type type);
 // The arguments `fn` could give back.
 llvm::SmallVector<unsigned, 1> candidates(FuncOp fn);
 
@@ -95,9 +73,9 @@ llvm::SmallVector<unsigned, 1> candidates(FuncOp fn);
 // parts end: each step is a strictly smaller value, and a value is finite.
 struct Part {
   unsigned parent = 0;
-  // The field's constructor, by its name in its data type; none for the
+  // The field's constructor, by its tag in its data type; none for the
   // predecessor of a natural.
-  mlir::StringAttr ctor;
+  std::optional<unsigned> tag;
   unsigned field = 0;
   unsigned depth = 0;
   // The part's value, at no grade.
@@ -112,18 +90,21 @@ public:
 
   explicit Parts(mlir::Type argument);
   const Part &operator[](unsigned part) const { return parts[part]; }
-  // Field `index`, of type `type`, of the part `parent` built by `ctor`.
-  unsigned field(unsigned parent, mlir::StringAttr ctor, unsigned index, mlir::Type type) {
-    return step(parent, ctor, index, type);
+  // Field `index`, of type `type`, of the part `parent` built by the
+  // constructor of tag `tag`.
+  unsigned field(unsigned parent, unsigned tag, unsigned index, mlir::Type type) {
+    return step(parent, tag, index, type);
   }
   // The predecessor of the natural `parent`, which is not zero.
-  unsigned predecessor(unsigned parent) { return step(parent, {}, 0, parts[parent].type); }
+  unsigned predecessor(unsigned parent) {
+    return step(parent, std::nullopt, 0, parts[parent].type);
+  }
 
 private:
-  unsigned step(unsigned parent, mlir::StringAttr ctor, unsigned index, mlir::Type type);
+  unsigned step(unsigned parent, std::optional<unsigned> tag, unsigned index, mlir::Type type);
 
   llvm::SmallVector<Part> parts;
-  llvm::DenseMap<std::tuple<unsigned, mlir::StringAttr, unsigned>, unsigned> steps;
+  llvm::DenseMap<std::tuple<unsigned, std::optional<unsigned>, unsigned>, unsigned> steps;
 };
 
 // One walk of a function, for every argument it might give back
@@ -131,7 +112,7 @@ private:
 // assumptions, read off the walk (IdentitiesRebuilds.cpp).
 class Record {
 public:
-  Record(FuncOp fn, llvm::ArrayRef<unsigned> candidates, const Members &members);
+  Record(FuncOp fn, llvm::ArrayRef<unsigned> candidates, const Members &members, Outside outside);
 
   // The subset of `asked`, in that order, that the walk gives back under
   // `assumed`. When the calls this read last consulted still stand as they
@@ -140,18 +121,19 @@ public:
   llvm::SmallVector<unsigned, 1> givesBack(llvm::ArrayRef<unsigned> asked, const Assumed &assumed);
 
 private:
-  // What a part is known to be where a value stands for it: built by a
-  // constructor, a literal, or neither.
+  // What a part is known to be where a value stands for it: built by the
+  // constructor of a tag, a literal, or neither.
   struct Known {
-    mlir::StringAttr ctor;
+    std::optional<unsigned> tag;
     mlir::Attribute literal;
   };
-  // A match the use sits in, inner first, as knownAt walks parent regions.
+  // A match the use sits in, inner first, as knownAt walks parent regions:
+  // the constructor or the literal the region the use is in takes, when
+  // the region names one.
   struct Frame {
     int scrutinee = -1;
     bool lit = false;
-    bool named = false;
-    mlir::StringAttr ctor;
+    std::optional<unsigned> tag;
     mlir::Attribute literal;
   };
   // One region of a match: empty fails, unreachable is skipped, a yield
@@ -172,7 +154,9 @@ private:
     // Join: which result.
     unsigned arg = 0;
     int src = -1;
-    mlir::StringAttr ctor;
+    // MatchArg in a case, Field, Con and a constant of a constructor: the
+    // constructor's tag.
+    unsigned tag = 0;
     mlir::StringAttr callee;
     mlir::Type type;
     mlir::Attribute attr;
@@ -205,7 +189,7 @@ private:
 
   // The walk.
   static bool memoType(mlir::Type type);
-  static mlir::StringAttr remaining(MatchOp match);
+  static std::optional<unsigned> remaining(MatchOp match);
   int place(mlir::Value value, Node node);
   int intern(mlir::Value value);
   int internArg(mlir::BlockArgument arg);
@@ -224,7 +208,7 @@ private:
   void readCallee(mlir::StringAttr name);
   void fill(std::size_t node);
   std::optional<unsigned> partOf(int node, unsigned slot);
-  mlir::StringAttr singleCtor(mlir::Type type);
+  std::optional<unsigned> singleCtor(mlir::Type type);
   Known knownAt(unsigned part, llvm::ArrayRef<Frame> frames, unsigned slot);
   bool rebuilds(int node, unsigned part, llvm::ArrayRef<Frame> frames, unsigned slot);
   bool rebuildsCon(std::size_t node, unsigned part, llvm::ArrayRef<Frame> frames, unsigned slot);
@@ -237,6 +221,7 @@ private:
 
   FuncOp fn;
   const Members &members;
+  Outside outside;
   bool possible = true;
   llvm::SmallVector<unsigned, 1> arguments;
   llvm::DenseMap<unsigned, unsigned> index;
@@ -247,7 +232,7 @@ private:
   llvm::SmallVector<llvm::SmallVector<Arm, 2>, 1> joins;
   llvm::SmallVector<int, 2> reliant;
   llvm::SmallVector<Ret, 1> rets;
-  llvm::DenseMap<mlir::Type, mlir::StringAttr> oneCtor;
+  llvm::DenseMap<mlir::Type, std::optional<unsigned>> oneCtor;
 
   const Assumed *live = nullptr;
   bool cached = false;
@@ -257,7 +242,6 @@ private:
   llvm::DenseSet<mlir::StringAttr> consulted;
 };
 
-} // namespace identities
-} // namespace idr
+} // namespace idr::identities
 
 #endif // IDR_ANALYSIS_IDENTITIES_H

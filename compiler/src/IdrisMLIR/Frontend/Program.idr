@@ -78,12 +78,14 @@ writeModule fc path src = do
       internal fc ("Emit: " ++ msg)
 
 ||| Nanoseconds on the monotonic clock.
+export
 now : Core Integer
 now = toNano <$> coreLift (clockTime Monotonic)
 
-||| The compilation's phases and their milliseconds, one `phase<TAB>ms` line
-||| each, written at the path `--timing` names: what a compilation spends
-||| where, measured rather than guessed.
+||| A run's phases and their milliseconds, one `phase<TAB>ms` line each,
+||| written at the path `--timing` names: what a compilation or a package
+||| command spends where, measured rather than guessed.
+export
 reportTimes : Maybe String -> List (String, Integer) -> Core ()
 reportTimes Nothing _ = pure ()
 reportTimes (Just path) times =

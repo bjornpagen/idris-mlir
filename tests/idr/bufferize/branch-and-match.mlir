@@ -7,13 +7,13 @@
 // gives every wrapped value its buffer's type with its grade: the
 // argument and the match's result are !idr.lin<memref<...>>, and no
 // tensor type is left.
-// CHECK-LABEL: idr.func private @branchy(
+// CHECK-LABEL: idr.func @branchy(
 // CHECK: ^{{.*}}(%{{.*}}: !idr.lin<memref<?xi64>>):
 // CHECK: idr.match_lit %{{.*}} : i64 -> (!idr.lin<memref<?xi64>>)
 // CHECK-NOT: tensor<
 // CHECK: return
-module {
-  idr.func private @branchy(%a: !idr.lin<tensor<?xi64>>, %k: i64) -> !idr.lin<tensor<?xi64>> {
+idr.program @"branch-and-match" root(@root) stage(first) {
+  idr.func @branchy(%a: !idr.lin<tensor<?xi64>>, %k: i64) -> !idr.lin<tensor<?xi64>> {
     cf.br ^next(%a : !idr.lin<tensor<?xi64>>)
   ^next(%b: !idr.lin<tensor<?xi64>>):
     %r = idr.match_lit %k : i64 -> (!idr.lin<tensor<?xi64>>) {

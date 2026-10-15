@@ -13,16 +13,17 @@ include "idr/IR/IdrBigOps.td"
 // IO
 //===----------------------------------------------------------------------===//
 
-// Each IO op consumes one world and produces the next.
+// Each IO op consumes one world and produces the next, and calls the
+// runtime function its mnemonic names, `idris_rt_io_<mnemonic>`.
 class Idr_IOOp<string mnemonic, list<Trait> traits = []> : Idr_Op<"io." # mnemonic,
-    !listconcat(traits, [Idr_PerformsIO, Idr_ObservableIO, Idr_CallsRuntime,
+    !listconcat(traits, [Idr_PerformsIO, Idr_ObservableIO, Idr_Runtime<"idris_rt_io_" # mnemonic>,
                          MemoryEffects<[MemRead<Idr_IOResource>,
                                         MemWrite<Idr_IOResource>]>])>;
 
 def Idr_PutStrOp : Idr_IOOp<"put_str", [Idr_Primitive]> {
-  let arguments = (ins Idr_StrType:$str, Idr_WorldType:$world);
+  let arguments = (ins Idr_StrRead:$str, Idr_WorldType:$world);
   let results = (outs Idr_WorldType:$next);
-  let assemblyFormat = "$str `,` $world attr-dict";
+  let assemblyFormat = "custom<StrRead>($str, type($str)) `,` $world attr-dict";
   let hasCanonicalizer = 1;
 }
 
@@ -70,7 +71,8 @@ def Idr_GetLineOp : Idr_IOOp<"get_line", [Idr_Primitive]> {
 // i8) between it and a handle. The range lies in the buffer: idr.check.range
 // guards the offset. The op's effects are its own, as the array ops' are.
 class Idr_IOTransferOp<string mnemonic> : Idr_Op<"io." # mnemonic,
-    [Idr_PerformsIO, Idr_ObservableIO, Idr_CallsRuntime, Idr_Primitive,
+    [Idr_PerformsIO, Idr_ObservableIO, Idr_Runtime<"idris_rt_io_" # mnemonic>, Idr_Primitive,
+     Idr_Guarded<"offset, count, buffer", "InRange", "a byte range outside the buffer">,
      DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
   let arguments = (ins I64:$handle, Idr_Rank1ArrayValue:$buffer, I64:$offset, I64:$count,
                        Idr_WorldType:$world);
@@ -134,7 +136,14 @@ class Idr_BufferAccessOp<string mnemonic, list<Trait> traits = []>
         Idr_PerformsIO, Idr_Primitive,
         DeclareOpInterfaceMethods<MemoryEffectsOpInterface>])>;
 
-def Idr_BufferLoadOp : Idr_BufferAccessOp<"buffer_load"> {
+// A buffer op's span, of `buffer`'s bytes from `offset`, as many as `count`
+// gives (a count, the word a value is, or the bytes of a string), which
+// idr.check.range guards.
+class Idr_InBuffer<string offset, string count, string buffer>
+    : Idr_Guarded<offset # ", " # count # ", " # buffer, "InRange",
+                  "a byte range outside the buffer">;
+
+def Idr_BufferLoadOp : Idr_BufferAccessOp<"buffer_load", [Idr_InBuffer<"offset", "value", "buffer">]> {
   let summary = "a machine word read from a buffer at a byte offset";
   let arguments = (ins Idr_Rank1ArrayValue:$buffer, I64:$offset, Idr_WorldType:$world);
   let results = (outs AnyTypeOf<[I8, I16, I32, I64, F64]>:$value, Idr_WorldType:$next);
@@ -144,7 +153,7 @@ def Idr_BufferLoadOp : Idr_BufferAccessOp<"buffer_load"> {
   let hasVerifier = 1;
 }
 
-def Idr_BufferStoreOp : Idr_BufferAccessOp<"buffer_store"> {
+def Idr_BufferStoreOp : Idr_BufferAccessOp<"buffer_store", [Idr_InBuffer<"offset", "value", "buffer">]> {
   let summary = "a machine word written into a buffer at a byte offset";
   let arguments = (ins Idr_Rank1ArrayValue:$buffer, I64:$offset,
                        AnyTypeOf<[I8, I16, I32, I64, F64]>:$value, Idr_WorldType:$world);
@@ -158,7 +167,9 @@ def Idr_BufferStoreOp : Idr_BufferAccessOp<"buffer_store"> {
 // Bytes copied from one buffer into another. The two spans each lie in
 // their buffer, each guarded by idr.check.range. Overlap is allowed: the
 // copy is memmove.
-def Idr_BufferCopyOp : Idr_BufferAccessOp<"buffer_copy", [Idr_CallsRuntime]> {
+def Idr_BufferCopyOp : Idr_BufferAccessOp<"buffer_copy", [
+    Idr_Runtime<"idris_rt_io_buffer_copy">, Idr_InBuffer<"src_offset", "len", "src">,
+    Idr_InBuffer<"dst_offset", "len", "dst">]> {
   let summary = "bytes copied from one buffer into another";
   let arguments = (ins Idr_Rank1ArrayValue:$src, I64:$src_offset, I64:$len,
                        Idr_Rank1ArrayValue:$dst, I64:$dst_offset, Idr_WorldType:$world);
@@ -172,20 +183,22 @@ def Idr_BufferCopyOp : Idr_BufferAccessOp<"buffer_copy", [Idr_CallsRuntime]> {
 
 // A string's UTF-8 written at an offset. The span is the string's byte
 // length, interior zeros included, and lies in the buffer.
-def Idr_BufferSetStringOp : Idr_BufferAccessOp<"buffer_set_string", [Idr_CallsRuntime]> {
+def Idr_BufferSetStringOp : Idr_BufferAccessOp<"buffer_set_string", [
+    Idr_Runtime<"idris_rt_io_buffer_set_string">, Idr_InBuffer<"offset", "str", "buffer">]> {
   let summary = "a string's bytes written into a buffer";
-  let arguments = (ins Idr_Rank1ArrayValue:$buffer, I64:$offset, Idr_StrType:$str,
+  let arguments = (ins Idr_Rank1ArrayValue:$buffer, I64:$offset, Idr_StrRead:$str,
                        Idr_WorldType:$world);
   let results = (outs Idr_WorldType:$next);
   let assemblyFormat = [{
-    $buffer `[` $offset `]` `,` $str `,` $world attr-dict `:` type($buffer)
+    $buffer `[` $offset `]` `,` custom<StrRead>($str, type($str)) `,` $world attr-dict `:` type($buffer)
   }];
   let hasVerifier = 1;
 }
 
 // A buffer's bytes read as a string. Ill-formed UTF-8 is replaced as
 // idris_rt_str_from_bytes replaces it. A new string.
-def Idr_BufferGetStringOp : Idr_BufferAccessOp<"buffer_get_string", [Idr_CallsRuntime]> {
+def Idr_BufferGetStringOp : Idr_BufferAccessOp<"buffer_get_string", [
+    Idr_Runtime<"idris_rt_io_buffer_get_string">, Idr_InBuffer<"offset", "len", "buffer">]> {
   let summary = "a buffer's bytes read as a string";
   let arguments = (ins Idr_Rank1ArrayValue:$buffer, I64:$offset, I64:$len, Idr_WorldType:$world);
   let results = (outs Idr_StrValue:$str, Idr_WorldType:$next);

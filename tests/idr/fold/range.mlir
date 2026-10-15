@@ -1,64 +1,63 @@
-// RUN: idris-mlir-opt %s --int-range-optimizations | FileCheck %s
+// RUN: idris-mlir-opt %s --int-range-optimizations --idr-expect=holds=returns=@ranges:true/true/true/true/true/true,returns=@linear:true,returns=@field:_ -o /dev/null
 // Tags, characters and lengths have known ranges, which
 // upstream's integer range optimizations use.
 
 
-// CHECK-LABEL: idr.func private @ranges(
-// CHECK-DAG: %[[TRUE:.*]] = arith.constant true
-// CHECK: return %[[TRUE]], %[[TRUE]], %[[TRUE]], %[[TRUE]], %[[TRUE]], %[[TRUE]]
 !T = !idr.data<"T", plain [@A(), @B(), @C()]>
-!L = !idr.data<"L", list [@Nil(), @Cons(!idr.lin<i64>, !idr.lin<!idr.box<!idr.data<"L">>>)]>
-idr.func private @ranges(%t: !T, %x: i64, %u: i8, %d: f64, %s: !idr.str)
-    -> (i1, i1, i1, i1, i1, i1) {
-  %three = arith.constant 3 : i64
-  %tag = idr.tag %t : !T
-  %a = arith.cmpi ult, %tag, %three : i64
-  %max = arith.constant 1114111 : i32
-  %ch = idr.to_char signed %x : i64
-  %b = arith.cmpi ule, %ch, %max : i32
-  %zero = arith.constant 48 : i32
-  %minus = arith.constant 45 : i32
-  %ih = idr.int_head signed %x : i64
-  %c = arith.cmpi sge, %ih, %minus : i32
-  %uh = idr.int_head %u : i8
-  %e = arith.cmpi sge, %uh, %zero : i32
-  %dh = idr.double_head %d
-  %f = arith.cmpi sge, %dh, %minus : i32
-  %len = idr.str.length %s
-  %z = arith.constant 0 : i64
-  %g = arith.cmpi sge, %len, %z : i64
-  return %a, %b, %c, %e, %f, %g : i1, i1, i1, i1, i1, i1
-}
-
-// A grade is no barrier to the analysis: a linear tag entered and used has
-// the tag's range.
-// CHECK-LABEL: idr.func private @linear(
-// CHECK: %[[TRUE:.*]] = arith.constant true
-// CHECK: return %[[TRUE]]
-idr.func private @linear(%t: !T) -> i1 {
-  %three = arith.constant 3 : i64
-  %tag = idr.tag %t : !T
-  %l = idr.lin.enter %tag : !idr.lin<i64>
-  %u = idr.lin.use %l : !idr.lin<i64>
-  %a = arith.cmpi ult, %u, %three : i64
-  return %a : i1
-}
-
-// A linear field a match binds is a value the analysis never saw computed:
-// it may be any i64, and arithmetic on it keeps its own width.
-
-// CHECK-LABEL: idr.func private @field(
-// CHECK: arith.addi
-idr.func private @field(%acc: i64, %l: !idr.lin<!idr.box<!L>>) -> i64 {
-  %r = idr.match %l : !idr.lin<!idr.box<!L>> -> (i64) {
-  case @Nil() {
-    idr.yield %acc : i64
+!L = !idr.data<"L", list [@Nil() nil, @Cons(!idr.lin<i64>, !idr.lin<!idr.box<!idr.data<"L">>>) cons]>
+idr.program @range root(@root) stage(first) {
+  idr.func @ranges(%t: !T, %x: i64, %u: i8, %d: f64, %s: !idr.str)
+      -> (i1, i1, i1, i1, i1, i1) {
+    %three = arith.constant 3 : i64
+    %tag = idr.tag %t : !T
+    %a = arith.cmpi ult, %tag, %three : i64
+    %max = arith.constant 1114111 : i32
+    %ch = idr.to_char signed %x : i64
+    %b = arith.cmpi ule, %ch, %max : i32
+    %zero = arith.constant 48 : i32
+    %minus = arith.constant 45 : i32
+    %ih = idr.int_head signed %x : i64
+    %c = arith.cmpi sge, %ih, %minus : i32
+    %uh = idr.int_head %u : i8
+    %e = arith.cmpi sge, %uh, %zero : i32
+    %dh = idr.double_head %d
+    %f = arith.cmpi sge, %dh, %minus : i32
+    %len = idr.str.length %s
+    %z = arith.constant 0 : i64
+    %g = arith.cmpi sge, %len, %z : i64
+    return %a, %b, %c, %e, %f, %g : i1, i1, i1, i1, i1, i1
   }
-  case @Cons(%h: !idr.lin<i64>, %t: !idr.lin<!idr.box<!L>>) {
-    %x = idr.lin.use %h : !idr.lin<i64>
-    %s = arith.addi %acc, %x : i64
-    idr.yield %s : i64
+
+  // A grade is no barrier to the analysis: a linear tag entered and used has
+  // the tag's range.
+  idr.func @linear(%t: !T) -> i1 {
+    %three = arith.constant 3 : i64
+    %tag = idr.tag %t : !T
+    %l = idr.lin.enter %tag : !idr.lin<i64>
+    %u = idr.lin.use %l : !idr.lin<i64>
+    %a = arith.cmpi ult, %u, %three : i64
+    return %a : i1
   }
+
+  // A linear field a match binds is a value the analysis never saw computed:
+  // it may be any i64, and arithmetic on it keeps its own width.
+
+  idr.func @field(%acc: i64, %l: !idr.lin<!idr.box<!L>>) -> i64 {
+    %r = idr.match %l : !idr.lin<!idr.box<!L>> -> (i64) {
+    case @Nil() {
+      idr.yield %acc : i64
+    }
+    case @Cons(%h: !idr.lin<i64>, %t: !idr.lin<!idr.box<!L>>) {
+      %x = idr.lin.use %h : !idr.lin<i64>
+      %s = arith.addi %acc, %x : i64
+      idr.yield %s : i64
+    }
+    }
+    return %r : i64
   }
-  return %r : i64
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
 }

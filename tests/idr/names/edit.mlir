@@ -12,8 +12,8 @@
 // optimizer keeps or makes that is not @scale's, the specializations of
 // @apply among them, has the same name in both modules, since a name is a
 // function of its own key, never of the module around it.
-module {
-  idr.func private @apply(%k: i64, %n: i64) -> i64 attributes {total} {
+idr.program @edit root(@Main.main) stage(first) {
+  idr.func @apply(%k: i64, %n: i64) -> i64 attributes {total} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       idr.yield %k : i64
@@ -28,7 +28,7 @@ module {
     }
     return %r : i64
   }
-  idr.func private @scale(%k: i64, %n: i64) -> i64 attributes {total} {
+  idr.func @scale(%k: i64, %n: i64) -> i64 attributes {total} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       idr.yield %k : i64

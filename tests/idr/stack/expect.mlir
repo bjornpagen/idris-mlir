@@ -11,9 +11,9 @@
 // returns it, is not.
 // UNMARKED: error: expected no-heap-allocation: idr.con allocates in @unmarked
 // ESCAPES: error: expected no-heap-allocation: idr.con allocates in @escapes
-!List = !idr.data<"List", list [@Nil(), @Cons(i64, !idr.box<!idr.data<"List">>)]>
-module {
-  idr.func private @head(%l: !idr.box<!List>) -> i64 {
+!List = !idr.data<"List", list [@Nil() nil, @Cons(i64, !idr.box<!idr.data<"List">>) cons]>
+idr.program @expect root(@Prog.main) stage(first) {
+  idr.func @head(%l: !idr.box<!List>) -> i64 {
     %r = idr.match %l : !idr.box<!List> -> (i64) {
     case @Cons(%h: i64, %t: !idr.box<!List>) {
       idr.yield %h : i64
@@ -25,18 +25,18 @@ module {
     }
     return %r : i64
   }
-  idr.func private @marked(%x: i64, %t: !idr.box<!List>) -> i64 {
-    %c = idr.con @Cons(%x, %t) stack : (i64, !idr.box<!List>) -> !idr.box<!List>
+  idr.func @marked(%x: i64, %t: !idr.box<!List>) -> i64 {
+    %c = idr.con !idr.box<!List> @Cons(%x : i64, %t : !idr.box<!List>) stack
     %r = idr.call @head(%c) : (!idr.box<!List>) -> i64
     return %r : i64
   }
-  idr.func private @unmarked(%x: i64, %t: !idr.box<!List>) -> i64 {
-    %c = idr.con @Cons(%x, %t) : (i64, !idr.box<!List>) -> !idr.box<!List>
+  idr.func @unmarked(%x: i64, %t: !idr.box<!List>) -> i64 {
+    %c = idr.con !idr.box<!List> @Cons(%x : i64, %t : !idr.box<!List>)
     %r = idr.call @head(%c) : (!idr.box<!List>) -> i64
     return %r : i64
   }
-  idr.func private @escapes(%x: i64, %t: !idr.box<!List>) -> !idr.box<!List> {
-    %c = idr.con @Cons(%x, %t) : (i64, !idr.box<!List>) -> !idr.box<!List>
+  idr.func @escapes(%x: i64, %t: !idr.box<!List>) -> !idr.box<!List> {
+    %c = idr.con !idr.box<!List> @Cons(%x : i64, %t : !idr.box<!List>)
     return %c : !idr.box<!List>
   }
   idr.func @Prog.main() -> i64 {

@@ -1,65 +1,62 @@
-// RUN: idris-mlir-opt %s --idr-effects --cse --canonicalize | FileCheck %s
-// idr-effects writes on each call what its callee may do, and the call
-// answers MemoryEffectOpInterface from that, so the upstream passes treat
-// a call as they treat any op: cse merges two calls of a pure total
-// function on the same arguments, canonicalize erases a call whose results
-// are unused when it only computes, and a call of a function that may
-// crash, perform IO or not return stays, each time it is made. A
-// result that is not a scalar is a fresh value the call allocates: two
-// such calls stay apart (each makes its own cell) and an unused one goes.
-// CHECK-LABEL: idr.func private @main(
-// CHECK-SAME: %[[X:[^:]*]]: i64, %[[W:[^:]*]]: !idr.world
-// CHECK: %[[S:.*]] = call @square(%[[X]])
-// CHECK-NOT: call @square
-// CHECK-NOT: call @unused
-// CHECK: %[[B1:.*]] = call @boxes(%[[X]])
-// CHECK: %[[B2:.*]] = call @boxes(%[[X]])
-// CHECK: %[[C1:.*]] = call @crashes(%[[X]])
-// CHECK: %[[C2:.*]] = call @crashes(%[[X]])
-// CHECK: %[[P1:.*]] = call @partial(%[[X]])
-// CHECK: %[[P2:.*]] = call @partial(%[[X]])
-// CHECK: %[[W1:.*]] = call @writes(%[[X]], %[[W]])
-// CHECK: %[[W2:.*]] = call @writes(%[[X]], %[[W1]])
-// CHECK: return %[[S]], %[[S]], %[[B1]], %[[B2]], %[[C1]], %[[C2]], %[[P1]], %[[P2]], %[[W2]]
+// RUN: idris-mlir-opt %s --idr-effects --idr-expect=holds=effects=@square:none,effects=@boxes:none,effects=@crashes:crash,effects=@partial:diverge,effects=@writes:io,effects=@main:io+crash+diverge -o /dev/null
+// RUN: idris-mlir-opt %s --idr-effects --idr-expect=holds=facts-as-marked -o /dev/null
+// RUN: idris-mlir-opt %s --idr-effects --cse --canonicalize --idr-expect=holds=never-calls=@main:@unused -o /dev/null
+// NEEDS-ACCEPTANCE: a call's answers are its callee's effects, which idr.call's MemoryEffectOpInterface reports (R02) from what idr-effects found (R07).
+// idr-effects finds what each function may do, once, on the function: a
+// call carries no copy, and answers MemoryEffectOpInterface from its
+// callee's, so the upstream passes treat a call as they treat any op: two
+// calls of a pure total function on the same arguments are one value, a
+// call whose results are unused is dead code when it only computes, and a
+// call of a function that may crash, perform IO or not return is kept
+// each time it is made. A result that is not a scalar is a fresh value the
+// call allocates: two such calls are two values (each makes its own cell),
+// and an unused one is dead code.
 !Box = !idr.data<"Box", plain [@MkBox(i64)]>
-idr.func private @square(%x: i64) -> i64 attributes {total} {
-  %r = arith.muli %x, %x : i64
-  return %r : i64
-}
-idr.func private @unused(%x: i64) -> i64 attributes {total} {
-  %r = arith.addi %x, %x : i64
-  return %r : i64
-}
-idr.func private @boxes(%x: i64) -> !Box attributes {total} {
-  %b = idr.con @MkBox(%x) : (i64) -> !Box
-  return %b : !Box
-}
-idr.func private @crashes(%x: i64) -> i64 attributes {total} {
-  %y = idr.check.nonzero %x, "division by zero" : i64
-  %r = idr.div signed %x, %y : i64
-  return %r : i64
-}
-idr.func private @partial(%x: i64) -> i64 {
-  %r = arith.muli %x, %x : i64
-  return %r : i64
-}
-idr.func private @writes(%x: i64, %w: !idr.world) -> !idr.world attributes {total} {
-  %c = arith.constant 65 : i32
-  %w1 = idr.io.put_char %c, %w
-  return %w1 : !idr.world
-}
-idr.func private @main(%x: i64, %w: !idr.world) -> (i64, i64, !Box, !Box, i64, i64, i64, i64, !idr.world) {
-  %a = idr.call @square(%x) : (i64) -> i64
-  %b = idr.call @square(%x) : (i64) -> i64
-  %u = idr.call @unused(%x) : (i64) -> i64
-  %b1 = idr.call @boxes(%x) : (i64) -> !Box
-  %b2 = idr.call @boxes(%x) : (i64) -> !Box
-  %u2 = idr.call @boxes(%x) : (i64) -> !Box
-  %c1 = idr.call @crashes(%x) : (i64) -> i64
-  %c2 = idr.call @crashes(%x) : (i64) -> i64
-  %p1 = idr.call @partial(%x) : (i64) -> i64
-  %p2 = idr.call @partial(%x) : (i64) -> i64
-  %w1 = idr.call @writes(%x, %w) : (i64, !idr.world) -> !idr.world
-  %w2 = idr.call @writes(%x, %w1) : (i64, !idr.world) -> !idr.world
-  return %a, %b, %b1, %b2, %c1, %c2, %p1, %p2, %w2 : i64, i64, !Box, !Box, i64, i64, i64, i64, !idr.world
+idr.program @"call-effects" root(@root) stage(first) {
+  idr.func @square(%x: i64) -> i64 attributes {total} {
+    %r = arith.muli %x, %x : i64
+    return %r : i64
+  }
+  idr.func @unused(%x: i64) -> i64 attributes {total} {
+    %r = arith.addi %x, %x : i64
+    return %r : i64
+  }
+  idr.func @boxes(%x: i64) -> !Box attributes {total} {
+    %b = idr.con !Box @MkBox(%x : i64)
+    return %b : !Box
+  }
+  idr.func @crashes(%x: i64) -> i64 attributes {total} {
+    %y = idr.check.nonzero %x, "division by zero" : i64
+    %r = idr.div signed %x, %y : i64
+    return %r : i64
+  }
+  idr.func @partial(%x: i64) -> i64 {
+    %r = arith.muli %x, %x : i64
+    return %r : i64
+  }
+  idr.func @writes(%x: i64, %w: !idr.world) -> !idr.world attributes {total} {
+    %c = arith.constant 65 : i32
+    %w1 = idr.io.put_char %c, %w
+    return %w1 : !idr.world
+  }
+  idr.func @main(%x: i64, %w: !idr.world) -> (i64, i64, !Box, !Box, i64, i64, i64, i64, !idr.world) {
+    %a = idr.call @square(%x) {expect.facts = "move delay merge"} : (i64) -> i64
+    %b = idr.call @square(%x) {expect.facts = "move delay merge"} : (i64) -> i64
+    %u = idr.call @unused(%x) {expect.facts = "drop move delay merge"} : (i64) -> i64
+    %b1 = idr.call @boxes(%x) {expect.facts = "move delay"} : (i64) -> !Box
+    %b2 = idr.call @boxes(%x) {expect.facts = "move delay"} : (i64) -> !Box
+    %u2 = idr.call @boxes(%x) {expect.facts = "drop move delay"} : (i64) -> !Box
+    %c1 = idr.call @crashes(%x) {expect.facts = "delay"} : (i64) -> i64
+    %c2 = idr.call @crashes(%x) {expect.facts = "delay"} : (i64) -> i64
+    %p1 = idr.call @partial(%x) {expect.facts = "delay"} : (i64) -> i64
+    %p2 = idr.call @partial(%x) {expect.facts = "delay"} : (i64) -> i64
+    %w1 = idr.call @writes(%x, %w) {expect.facts = ""} : (i64, !idr.world) -> !idr.world
+    %w2 = idr.call @writes(%x, %w1) {expect.facts = ""} : (i64, !idr.world) -> !idr.world
+    return %a, %b, %b1, %b2, %c1, %c2, %p1, %p2, %w2 : i64, i64, !Box, !Box, i64, i64, i64, i64, !idr.world
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
 }

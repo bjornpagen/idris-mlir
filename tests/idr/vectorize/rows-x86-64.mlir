@@ -46,8 +46,8 @@
 // LLVM-NOT: vector.
 // LLVM-NOT: affine.
 // LLVM-NOT: linalg.
-module {
-  idr.func private @squares(%n: index) -> tensor<?xi64> attributes {total, no_inline} {
+idr.program @"rows-x86-64" root(@root) stage(higher) {
+  idr.func @squares(%n: index) -> tensor<?xi64> attributes {total, no_inline} {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %e = tensor.empty(%n) : tensor<?xi64>
@@ -59,7 +59,7 @@ module {
     }
     return %r : tensor<?xi64>
   }
-  idr.func private @ones(%n: index) -> tensor<?xf64> attributes {total, no_inline} {
+  idr.func @ones(%n: index) -> tensor<?xf64> attributes {total, no_inline} {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %one = arith.constant 1.0 : f64
@@ -70,7 +70,7 @@ module {
     }
     return %r : tensor<?xf64>
   }
-  idr.func private @rows(%n: index, %v: tensor<?xf64>) -> tensor<?xf64> attributes {total, no_inline} {
+  idr.func @rows(%n: index, %v: tensor<?xf64>) -> tensor<?xf64> attributes {total, no_inline} {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %zero = arith.constant 0.0 : f64
@@ -94,7 +94,7 @@ module {
     }
     return %r : tensor<?xf64>
   }
-  idr.func private @sumf(%v: tensor<?xf64>) -> f64 attributes {total, no_inline} {
+  idr.func @sumf(%v: tensor<?xf64>) -> f64 attributes {total, no_inline} {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %zero = arith.constant 0.0 : f64

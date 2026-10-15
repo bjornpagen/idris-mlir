@@ -31,12 +31,12 @@
 // LAMBDA: error: expected quantities-kept: parameter 0 of @lam.lambda has quantity w, and Idris proved 1
 // SPAN: error: expected quantities-kept: parameter 0 of @wide has quantity w, and Idris proved 1
 !Handle = !idr.data<"Handle", plain [@MkHandle(!idr.lin<i64>, i64)]>
-module {
-  idr.func private @consume(%h: !idr.lin<i64>) -> i64 {
+idr.program @quantities root(@root) stage(higher) {
+  idr.func @consume(%h: !idr.lin<i64>) -> i64 {
     %z = arith.constant 0 : i64
     return %z : i64
   }
-  idr.func private @open(%h: !idr.lin<!Handle>) -> i64 {
+  idr.func @open(%h: !idr.lin<!Handle>) -> i64 {
     %r = idr.match %h : !idr.lin<!Handle> -> (i64) {
     case @MkHandle(%a: !idr.lin<i64>, %b: i64) {
       idr.yield %b : i64
@@ -44,25 +44,30 @@ module {
     }
     return %r : i64
   }
-  idr.func private @keep(%x: i64) -> i64 {
+  idr.func @keep(%x: i64) -> i64 {
     %e = idr.lin.enter %x : !idr.lin<i64>
     %r = idr.call @consume(%e) : (!idr.lin<i64>) -> i64
     return %r : i64
   }
-  idr.func private @lam.lambda(%l: !idr.lin<i64>) -> i32 {
+  idr.func @lam.lambda(%l: !idr.lin<i64>) -> i32 {
     %u = idr.lin.use %l : !idr.lin<i64>
     %t = arith.trunci %u : i64 to i32
     return %t : i32
   }
-  idr.func private @lam() -> !idr.fn<(!idr.lin<i64>) -> i32> {
+  idr.func @lam() -> !idr.fn<(!idr.lin<i64>) -> i32> {
     %f = idr.closure @lam.lambda() : () -> !idr.fn<(!idr.lin<i64>) -> i32>
     return %f : !idr.fn<(!idr.lin<i64>) -> i32>
   }
-  idr.func private @build(%n: i64 loc("arg"("Main.idr":22:1 to :17))) -> i64 {
+  idr.func @build(%n: i64 loc("arg"("Main.idr":22:1 to :17))) -> i64 {
     return %n : i64
   }
-  idr.func private @build.trmc(%n: i64 loc("arg"("Main.idr":22:1 to :17)), %h: !idr.lin<i64> loc("build"("Main.idr":22:1 to :17))) -> i64 { return %n : i64 }
-  idr.func private @wide(%w: !idr.lin<i64> loc("t"("Main.idr":30:1 to :20)), %a: i64 loc("arg"("Main.idr":30:1 to :20))) -> i64 {
+  idr.func @build.trmc(%n: i64 loc("arg"("Main.idr":22:1 to :17)), %h: !idr.lin<i64> loc("build"("Main.idr":22:1 to :17))) -> i64 { return %n : i64 }
+  idr.func @wide(%w: !idr.lin<i64> loc("t"("Main.idr":30:1 to :20)), %a: i64 loc("arg"("Main.idr":30:1 to :20))) -> i64 {
     return %a : i64
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
   }
 }

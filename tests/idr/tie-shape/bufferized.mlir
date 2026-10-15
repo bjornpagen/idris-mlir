@@ -3,13 +3,13 @@
 // A tie is the same statement on the buffer as on the tensor, so value
 // bounds still relate the dimensions after bufferization; lowering drops
 // it, since a buffer's sizes are its components already, and leaves no op.
-// CHECK-LABEL: idr.func private @second(
+// CHECK-LABEL: idr.func @second(
 // CHECK: idr.tie_shape %{{.*}} dims(%{{.*}}) : memref<?xi64>
 // CHECK-NOT: tensor<
 // CHECK: return
 // LOWERED-NOT: idr.tie_shape
-module {
-  idr.func private @second(%x: tensor<?xi64>, %y: tensor<?xi64>) -> i64 {
+idr.program @bufferized root(@root) stage(first) {
+  idr.func @second(%x: tensor<?xi64>, %y: tensor<?xi64>) -> i64 {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %n = tensor.dim %x, %c0 : tensor<?xi64>

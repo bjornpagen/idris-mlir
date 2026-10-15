@@ -8,6 +8,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Layout.h"
+#include "idr/Conversion/Arrays.h"
 #include "idr/Conversion/IdrPattern.h"
 #include "idr/Conversion/Patterns.h"
 #include "idr/Conversion/Runtime.h"
@@ -23,8 +24,8 @@ namespace idr::conversion {
 
 namespace {
 
-// A guard's operands as the conversion gives them. Each is one value: an
-// integer, a double, a string's pointer or a big's word.
+// A guard's operands as the conversion gives them: an integer, a double, a
+// string's pointer or a big's word, or an array's components.
 template <typename OpT>
 using Converted = typename OpT::template GenericAdaptor<ArrayRef<ValueRange>>;
 
@@ -45,10 +46,17 @@ Value fails(CheckNonzeroOp op, Converted<CheckNonzeroOp> in, OpBuilder &b, Locat
   return compare(b, loc, arith::CmpIPredicate::eq, value, zero);
 }
 
-// An index from the length on; a negative index is a large unsigned one.
-Value fails(CheckInBoundsOp, Converted<CheckInBoundsOp> in, OpBuilder &b, Location loc, Runtime &) {
-  return compare(b, loc, arith::CmpIPredicate::uge, in.getIndex().front(),
-                 in.getLength().front());
+// An index from the length of what it indexes on: a string's characters,
+// which the runtime counts, or an array's size, which its value holds; a
+// negative index is a large unsigned one.
+Value fails(CheckInBoundsOp op, Converted<CheckInBoundsOp> in, OpBuilder &b, Location loc,
+            Runtime &runtime) {
+  Type indexed = unrestricted(op.getIndexed().getType());
+  ValueRange what = in.getIndexed();
+  auto array = dyn_cast<MemRefType>(indexed);
+  Value length = array ? asWord(b, loc, unpack(b, loc, array, what).sizes.front())
+                       : runtime.call(b, loc, "idris_rt_str_length", b.getI64Type(), what.front());
+  return compare(b, loc, arith::CmpIPredicate::uge, in.getIndex().front(), length);
 }
 
 // A string of no characters.

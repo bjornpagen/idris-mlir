@@ -16,13 +16,13 @@
 // KEPT: call @pow(
 // COUNTED: idr-specialize-clone{{ +}}: {{[{][1-9][0-9]*}},0,0}
 // SPEC-NOT: call @pow(
-module {
-  idr.func private @inc(%x: i64) -> i64 attributes {total} {
+idr.program @"debug-counter" root(@Main.main) stage(higher) {
+  idr.func @inc(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64
     %y = arith.addi %x, %c1 : i64
     return %y : i64
   }
-  idr.func private @pow(%f: !idr.fn<(i64) -> (i64)>, %n: i64, %x: i64) -> i64 attributes {total} {
+  idr.func @pow(%f: !idr.fn<(i64) -> (i64)>, %n: i64, %x: i64) -> i64 attributes {total} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       idr.yield %x : i64

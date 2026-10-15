@@ -7,11 +7,11 @@
 // copy of @first, which loops and so is never inlined, takes one
 // !idr.lin<i64> and one i64. A parameter the copy keeps, the world, keeps
 // its type too.
-// CHECK: idr.func private @{{first\.spec\.[0-9a-f]+}}(%{{[a-z0-9_]+}}: !idr.lin<i64>, %{{[a-z0-9_]+}}: i64, %{{[a-z0-9_]+}}: i64, %{{[a-z0-9_]+}}: !idr.world
+// CHECK: idr.func @{{first\.spec\.[0-9a-f]+}}(%{{[a-z0-9_]+}}: !idr.lin<i64>, %{{[a-z0-9_]+}}: i64, %{{[a-z0-9_]+}}: i64, %{{[a-z0-9_]+}}: !idr.world
 !P = !idr.data<"P", plain [@MkP(!idr.lin<i64>, i64)]>
-module {
+idr.program @quantity root(@Main.main) stage(first) {
   // Prints the pair's linear field once its counter is down to 0.
-  idr.func private @first(%p: !P, %n: i64, %w: !idr.world) -> !idr.world attributes {total} {
+  idr.func @first(%p: !P, %n: i64, %w: !idr.world) -> !idr.world attributes {total} {
     %r = idr.match_lit %n : i64 -> (!idr.world) {
     case 0 {
       %w1 = idr.match %p : !P -> (!idr.world) {
@@ -31,8 +31,8 @@ module {
     }
     return %r : !idr.world
   }
-  idr.func private @use(%a: !idr.lin<i64>, %b: i64, %n: i64, %w: !idr.world) -> !idr.world attributes {total} {
-    %p = idr.con @MkP(%a, %b) : (!idr.lin<i64>, i64) -> !P
+  idr.func @use(%a: !idr.lin<i64>, %b: i64, %n: i64, %w: !idr.world) -> !idr.world attributes {total} {
+    %p = idr.con !P @MkP(%a : !idr.lin<i64>, %b : i64)
     %r = idr.call @first(%p, %n, %w) : (!P, i64, !idr.world) -> !idr.world
     return %r : !idr.world
   }

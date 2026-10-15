@@ -5,4 +5,4 @@
 // and its key's hash.
 // This is tests/idr/raise/io-loop.mlir, from Idris.
 // CHECK: call @Main.countdown.raise.{{[^(]+}}(
-// CHECK: idr.func private @Main.countdown.raise.{{[^(]+}}({{.*}}!idr.world
+// CHECK: idr.func @Main.countdown.raise.{{[^(]+}}({{.*}}!idr.world

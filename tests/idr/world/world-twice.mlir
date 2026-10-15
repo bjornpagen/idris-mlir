@@ -2,8 +2,8 @@
 // A world used twice on one path is rejected, wherever the second use is.
 // Each idr.func verifies its own body.
 
-module {
-idr.func private @f(%w: !idr.world) -> !idr.world {
+idr.program @"world-twice" root(@root) stage(first) {
+idr.func @f(%w: !idr.world) -> !idr.world {
   %c = arith.constant 65 : i32
   %w1 = idr.io.put_char %c, %w
   // expected-error @+1 {{uses a world that is already used on the same path}}
@@ -18,9 +18,9 @@ idr.func @root() -> i64 {
 
 // -----
 
-module {
+idr.program @"world-twice" root(@root) stage(first) {
 // A world produced inside the function counts too.
-idr.func private @f(%w: !idr.world) -> !idr.world {
+idr.func @f(%w: !idr.world) -> !idr.world {
   %c = arith.constant 65 : i32
   %w1 = idr.io.put_char %c, %w
   %w2 = idr.io.put_char %c, %w1
@@ -36,9 +36,9 @@ idr.func @root() -> i64 {
 
 // -----
 
-module {
+idr.program @"world-twice" root(@root) stage(first) {
 // Returned and used: two uses.
-idr.func private @f(%w: !idr.world) -> (!idr.world, !idr.world) {
+idr.func @f(%w: !idr.world) -> (!idr.world, !idr.world) {
   // expected-error @+1 {{uses a world that is already used on the same path}}
   return %w, %w : !idr.world, !idr.world
 }
@@ -51,9 +51,9 @@ idr.func @root() -> i64 {
 // -----
 
 !B = !idr.data<"B", plain [@F(), @T()]>
-module {
+idr.program @"world-twice" root(@root) stage(first) {
 // A use in a region of a match, then one after the match, is one path.
-idr.func private @f(%b: !B,
+idr.func @f(%b: !B,
                      %w: !idr.world) -> !idr.world {
   %c = arith.constant 65 : i32
   %r = idr.match %b : !B -> (!idr.world) {
@@ -77,9 +77,9 @@ idr.func @root() -> i64 {
 
 // -----
 
-module {
+idr.program @"world-twice" root(@root) stage(first) {
 // Two uses within one region.
-idr.func private @f(%n: i64, %w: !idr.world) -> !idr.world {
+idr.func @f(%n: i64, %w: !idr.world) -> !idr.world {
   %c = arith.constant 65 : i32
   // expected-error @+1 {{uses a world that is already used on the same path}}
   %r = idr.match_lit %n : i64 -> (!idr.world) {
@@ -102,9 +102,9 @@ idr.func @root() -> i64 {
 
 // -----
 
-module {
+idr.program @"world-twice" root(@root) stage(first) {
 // A world from before a loop, used in its body, is used once per iteration.
-idr.func private @f(%w: !idr.world, %n: i64) -> i64 {
+idr.func @f(%w: !idr.world, %n: i64) -> i64 {
   %c = arith.constant 65 : i32
   // expected-error @+1 {{uses a world that is already used on the same path}}
   %r = scf.while (%i = %n) : (i64) -> i64 {

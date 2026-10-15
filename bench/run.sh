@@ -179,6 +179,9 @@ build() {
       printf '%s\t%s\n' "$name" "$(( $(now_ns) - compile_start ))" >> "$record/compile.tsv"
       ;;
     'Idris Chez')
+      # The array library's generating set means only what this compiler
+      # makes of it, so a program over it has no Chez column.
+      case " $packages " in *' -p mlir-array '*) missing=yes; return ;; esac
       idris_sources "$work/chez"
       # shellcheck disable=SC2086 # the packages are words
       (cd "$work/chez" && export IDRIS2_PREFIX="$idris_prefix" IDRIS2_PACKAGE_PATH="$host_packages" &&

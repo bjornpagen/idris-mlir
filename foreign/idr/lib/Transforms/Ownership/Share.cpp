@@ -3,7 +3,7 @@
 // The values a view of which takes a reference of its own, shared where
 // they are consumed, before exclusivity's solve. The taint crosses
 // calls: a callee that dups a parameter it borrows taints what its callers
-// pass there, so this is one walk of the module, made before any function
+// pass there, so this is one walk of the program, made before any function
 // is committed.
 #include "idr/Analysis/Ownership.h"
 #include "idr/IR/Grades.h"
@@ -24,10 +24,10 @@ namespace idr::ownership {
 // gets it shared (idr.share): the solver reads the shared value there, and
 // the value itself keeps what its provenance proves, which its callee's or
 // constructor's type must agree with.
-void shareTainted(ModuleOp module, SymbolTable &symbols) {
+void shareTainted(ProgramOp program, SymbolTable &symbols) {
   llvm::SetVector<Value> tainted;
   DenseMap<Operation *, SmallVector<unsigned>> borrowedRoots;
-  module.walk([&](DupOp dup) {
+  program.walk([&](DupOp dup) {
     Value root = viewRoot(dup.getValue());
     if (followed(root))
       tainted.insert(root);
@@ -36,7 +36,7 @@ void shareTainted(ModuleOp module, SymbolTable &symbols) {
     if (fn && !isOwned(arg.getType()))
       borrowedRoots[fn].push_back(arg.getArgNumber());
   });
-  module.walk([&](CallOp call) {
+  program.walk([&](CallOp call) {
     auto fn = symbols.lookup<FuncOp>(call.getCalleeAttr().getAttr());
     auto it = fn ? borrowedRoots.find(fn) : borrowedRoots.end();
     if (it == borrowedRoots.end())
@@ -52,7 +52,7 @@ void shareTainted(ModuleOp module, SymbolTable &symbols) {
     for (OpOperand &use : value.getUses())
       if (useOf(use, &symbols) == Use::Consume)
         consuming.push_back(&use);
-  IRRewriter rewriter(module.getContext());
+  IRRewriter rewriter(program.getContext());
   for (OpOperand *use : consuming) {
     Operation *owner = use->getOwner();
     rewriter.setInsertionPoint(owner);

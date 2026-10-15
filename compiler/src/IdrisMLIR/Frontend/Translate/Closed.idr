@@ -11,6 +11,7 @@ import Core.Core
 import Core.Env
 import Core.Normalise
 import Core.Options
+import Core.Termination
 import Core.TT
 import Libraries.Data.List.SizeOf
 
@@ -22,6 +23,8 @@ import IdrisMLIR.Types
 
 import Data.Fin
 import Data.List
+import Data.SortedSet
+import Data.String
 
 %default covering
 
@@ -303,17 +306,10 @@ holeMarker : Nat -> ClosedTerm
 
 ||| A closed term normalised by Idris's normaliser with its markers bound
 ||| as the variables of an environment, which no reduction looks into
-||| (`normaliseKeeping`, below with the markers).
-export
+||| (`normaliseKeeping`, below with the markers). It runs whatever the term
+||| refers to, so it is asked only of a term whose every definition Idris
+||| proves ends (`whnf`, `expandClosed`).
 normaliseKeeping : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core ClosedTerm
-
-||| A closed term expanded by Idris's normaliser, implementations unfolded
-||| to their constructors: the form a projection's field is taken from
-||| (`whnf`), in which an argument an implementation took erased can
-||| stand where its own blocks take it at runtime.
-export
-expandClosed : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core ClosedTerm
-expandClosed tm = normaliseKeeping tm
 
 ||| A projection: a definition that matches one of its parameters against
 ||| one constructor and returns one of that constructor's arguments, as
@@ -331,68 +327,218 @@ projection n = do
             if k < length cargs then Just (length pargs, idx, cn, k) else Nothing
           _ => Nothing)
 
-mutual
-  ||| The constructor a compile-time value reduces to, with its arguments.
-  ||| An implementation is a definition with one right-hand side, so it is
-  ||| unfolded by substituting its arguments, keeping the rest as written,
-  ||| whatever its visibility: one its module exports without its
-  ||| definition is a module boundary, not a value. Anything else goes to
-  ||| Idris's normaliser, which stops at such an implementation: a
-  ||| projection it leaves takes its field from the constructor the record
-  ||| reduces to here.
-  export
-  whnf : {auto c : Ref Ctxt Defs} -> Nat -> ClosedTerm -> Core (Maybe (Name, List ClosedTerm))
-  whnf Z tm = pure Nothing
-  whnf (S fuel) tm = case spineC tm [] of
-    (Ref _ (DataCon _ _) n, args) => pure (Just (n, args))
-    (Ref _ _ n, args) => do
+||| The outermost definition named in the string Idris gives a case or with
+||| block for its parent: `case block in f`, `with block in f`, or `f,go`
+||| for a block of `f`'s nested `go`.
+outermost : String -> String
+outermost s =
+  if isPrefixOf "case block in " s || isPrefixOf "with block in " s
+     then outermost (substr 14 (length s) s)
+     else pack (takeWhile (/= ',') (unpack s))
+
+||| The definition a case, with or nested block belongs to, through every
+||| block between: a case or with block's parent is a string, in the
+||| block's namespace; a nested function's parent is its place in the
+||| context.
+export
+rootOf : {auto c : Ref Ctxt Defs} -> Name -> Core Name
+rootOf (NS ns (CaseBlock outer _)) = pure (NS ns (UN (Basic (outermost outer))))
+rootOf (NS ns (WithBlock outer _)) = pure (NS ns (UN (Basic (outermost outer))))
+rootOf (NS _ (Nested (outer, _) _)) = rootOf !(toFullNames (Resolved outer))
+rootOf n = pure n
+
+||| Did Idris prove that every call of a definition ends? Idris's own
+||| termination check, which follows everything the definition calls, so
+||| a reduction through such a definition ends by Idris's proof. Idris
+||| checks a block as part of the definition it belongs to, whose calls
+||| the block's are, so a block ends when that definition does too.
+export
+terminates : {auto c : Ref Ctxt Defs} -> Name -> Core Bool
+terminates n = do
+  root <- rootOf !(toFullNames n)
+  defs <- get Ctxt
+  owner <- lookupCtxtExact root (gamma defs)
+  if not !(ends n) then pure False else maybe (pure True) (const (ends root)) owner
+  where
+    ends : Name -> Core Bool
+    ends m = do
+      verdict <- checkTerminating EmptyFC m
+      pure (case verdict of
+              IsTerminating => True
+              _ => False)
+
+||| The definitions a term refers to.
+functionsIn : TT vars -> List Name
+functionsIn tm = nub (go tm)
+  where
+    go : TT vs -> List Name
+    go (Ref _ Func n) = [n]
+    go (Bind _ _ b sc) = go (binderType b) ++ binderVal b ++ go sc
+      where
+        binderVal : TTBinder (TT vs) -> List Name
+        binderVal (Let _ _ v _) = go v
+        binderVal (PLet _ _ v _) = go v
+        binderVal _ = []
+    go (App _ f a) = go f ++ go a
+    go (As _ _ _ p) = go p
+    go (TDelayed _ _ t) = go t
+    go (TDelay _ _ t a) = go t ++ go a
+    go (TForce _ _ t) = go t
+    go (Meta _ _ _ args) = concatMap go args
+    go (Erased _ (Dotted t)) = go t
+    go _ = []
+
+||| The first definition a term refers to that Idris does not prove ends,
+||| if any. Idris's normaliser runs a term only when there is none: it
+||| normalises the whole term, so a definition anywhere in it is run.
+partialIn : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core (Maybe Name)
+partialIn tm = firstOf (functionsIn tm)
+  where
+    firstOf : List Name -> Core (Maybe Name)
+    firstOf [] = pure Nothing
+    firstOf (n :: ns) = do
       defs <- get Ctxt
       Just def <- lookupCtxtExact n (gamma defs)
-        | Nothing => pure Nothing
+        | Nothing => firstOf ns
+      if !(terminates n) then firstOf ns else pure (Just (fullname def))
+
+||| A closed term expanded by Idris's normaliser, implementations unfolded
+||| to their constructors: the form a projection's field is taken from
+||| (`whnf`), in which an argument an implementation took erased can
+||| stand where its own blocks take it at runtime. Nothing when the term
+||| refers to a definition Idris does not prove ends, which the normaliser
+||| would run.
+export
+expandClosed : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core (Maybe ClosedTerm)
+expandClosed tm = do
+  filled <- solved tm
+  Nothing <- partialIn filled
+    | Just _ => pure Nothing
+  Just <$> normaliseKeeping filled
+
+||| The definitions a reduction has unfolded on its way to the head it
+||| reached, of those Idris does not prove end, by `nameKey`: the head
+||| path. Such a definition is unfolded only while it is not on the path,
+||| so the definitions left to unfold are fewer at each unfolding and the
+||| reduction ends; one Idris proves ends is unfolded as often as it is
+||| met, and ends by Idris's proof.
+export
+Path : Type
+Path = SortedSet String
+
+||| The head path of a reduction that has unfolded nothing yet.
+export
+noPath : Path
+noPath = empty
+
+||| What a reduction is stuck on.
+public export
+data StuckOn
+  = ||| A runtime value: one an implementation closes over, a part of one
+    ||| its shape does not say, or a runtime variable.
+    OnRuntime ClosedTerm
+  | ||| A definition Idris does not prove ends, which the reduction would
+    ||| unfold again on its path, or which only Idris's normaliser runs.
+    OnPartial Name
+  | ||| A value that is no constructor application: a literal, a type, a
+    ||| function, a definition applied to fewer arguments than it takes.
+    OnValue ClosedTerm
+
+||| What a compile-time value is at its head: a constructor applied to its
+||| arguments, or the part its reduction is stuck on.
+public export
+data Head = Built Name (List ClosedTerm) | Stuck StuckOn
+
+mutual
+  ||| What a compile-time value reduces to at its head, and the head path
+  ||| after it. An implementation is a definition with one right-hand
+  ||| side, so it is unfolded by substituting its arguments, keeping the
+  ||| rest as written, whatever its visibility: one its module exports
+  ||| without its definition is a module boundary, not a value. Anything
+  ||| else goes to Idris's normaliser, when every definition the term
+  ||| refers to ends, which stops at such an implementation: a projection
+  ||| it leaves takes its field from the constructor the record reduces to
+  ||| here.
+  export
+  whnf : {auto c : Ref Ctxt Defs} -> Path -> ClosedTerm -> Core (Head, Path)
+  whnf path tm = case spineC tm [] of
+    (Ref _ (DataCon _ _) n, args) => pure (Built n args, path)
+    (Ref _ (TyCon _) _, _) => pure (Stuck (OnValue tm), path)
+    (Ref _ Bound _, _) => pure (Stuck (OnRuntime tm), path)
+    (Ref _ _ n, args) => do
+      defs <- get Ctxt
+      -- A reference to a definition that does not exist stands for what is
+      -- not known of a runtime value (`unknownPart`).
+      Just def <- lookupCtxtExact n (gamma defs)
+        | Nothing => pure (Stuck (OnRuntime tm), path)
       case definition def of
         PMDef _ pargs (STerm _ body) _ _ =>
-          if length args < length pargs then pure Nothing
-          else whnf fuel (betaAll (betaAll (wrapLams EmptyFC body) (reverse (take (length pargs) args)))
+          if length args < length pargs then pure (Stuck (OnValue tm), path) else do
+            ends <- terminates n
+            let key = nameKey (fullname def)
+            if not ends && contains key path
+               then pure (Stuck (OnPartial (fullname def)), path)
+               else whnf (if ends then path else insert key path)
+                         (betaAll (betaAll (wrapLams EmptyFC body) (reverse (take (length pargs) args)))
                                   (drop (length pargs) args))
         _ => do
-          Nothing <- normalised
-            | found => pure found
-          Just field <- projected fuel n args
-            | Nothing => pure Nothing
-          whnf fuel field
-    (Bind _ _ (Lam _ _ _ _) sc, a :: as) => whnf fuel (betaAll (subst a sc) as)
-    (Bind _ _ (Let _ _ v _) sc, []) => whnf fuel (subst v sc)
-    _ => normalised
+          (found, stuck) <- normalised
+          case found of
+            Just h => pure (h, path)
+            Nothing => do
+              Just (field, path') <- projected path n args
+                | Nothing => pure (Stuck stuck, path)
+              whnf path' field
+    (Bind _ _ (Lam _ _ _ _) sc, a :: as) => whnf path (betaAll (subst a sc) as)
+    (Bind _ _ (Let _ _ v _) sc, as) => whnf path (betaAll (subst v sc) as)
+    (Erased _ Impossible, _) => pure (Stuck (OnRuntime tm), path)
+    (Meta {}, _) => do
+      filled <- solved tm
+      if hasMeta filled then pure (Stuck (OnValue tm), path) else whnf path filled
+    _ => do
+      (found, stuck) <- normalised
+      pure (fromMaybe (Stuck stuck) found, path)
     where
       spineC : ClosedTerm -> List ClosedTerm -> (ClosedTerm, List ClosedTerm)
       spineC (App _ f a) as = spineC f (a :: as)
       spineC f as = (f, as)
-      normalised : Core (Maybe (Name, List ClosedTerm))
+
+      -- Idris's normaliser on the whole term, when every definition it
+      -- refers to ends: the constructor it reaches, and otherwise what the
+      -- reduction is stuck on.
+      normalised : Core (Maybe Head, StuckOn)
       normalised = do
-        tm' <- normaliseKeeping tm
-        pure (case spineC tm' [] of
-                (Ref _ (DataCon _ _) n, args) => Just (n, args)
-                _ => Nothing)
+        filled <- solved tm
+        Nothing <- partialIn filled
+          | Just n => pure (Nothing, OnPartial n)
+        nf <- normaliseKeeping filled
+        pure (case spineC nf [] of
+                (Ref _ (DataCon _ _) n, args) => (Just (Built n args), OnValue nf)
+                (Ref _ Bound _, _) => (Nothing, OnRuntime nf)
+                (Erased _ Impossible, _) => (Nothing, OnRuntime nf)
+                _ => (Nothing, OnValue nf))
 
   ||| A projection applied to arguments, when it applies to all of them: the
   ||| field it takes from the constructor its record reduces to, applied to
-  ||| the arguments past the projection's own.
+  ||| the arguments past the projection's own, and the head path after the
+  ||| record's reduction, which the field continues: what the field is was
+  ||| found by unfolding the definitions on it.
   export
-  projected : {auto c : Ref Ctxt Defs} -> Nat -> Name -> List ClosedTerm -> Core (Maybe ClosedTerm)
-  projected fuel n args = do
+  projected : {auto c : Ref Ctxt Defs} -> Path -> Name -> List ClosedTerm -> Core (Maybe (ClosedTerm, Path))
+  projected path n args = do
     Just (arity, idx, cn, k) <- projection n
       | Nothing => pure Nothing
     let True = length args >= arity
       | False => pure Nothing
     let Just whole = getAt idx args
       | Nothing => pure Nothing
-    Just (built, fields) <- whnf fuel whole
-      | Nothing => pure Nothing
+    (Built built fields, path') <- whnf path whole
+      | _ => pure Nothing
     let Just field = getAt k fields
       | Nothing => pure Nothing
     if !(toFullNames built) /= !(toFullNames cn)
        then pure Nothing
-       else pure (Just (foldl (App EmptyFC) field (drop arity args)))
+       else pure (Just (foldl (App EmptyFC) field (drop arity args), path'))
 
 ||| The implementation a written one stands for, so that two are compared
 ||| by what they are: the name of an implementation applied to its
@@ -400,18 +546,23 @@ mutual
 ||| leads to it is reduced: a projection of a constructor's argument (an
 ||| implementation's constraints, which Idris passes as one tuple, taken
 ||| apart with `fst` and `snd`; a parent taken from an implementation), a
-||| `let`, an applied lambda. The implementation itself is not unfolded.
+||| `let`, an applied lambda. The implementation itself is not unfolded. A
+||| projection's field continues the head path its record was reduced on,
+||| so a field that leads back to a definition already unfolded there stays
+||| as it is written.
 export
-implementationOf : {auto c : Ref Ctxt Defs} -> Nat -> ClosedTerm -> Core ClosedTerm
-implementationOf Z tm = pure tm
-implementationOf (S fuel) tm = case getFnArgs tm of
-  (Bind _ _ (Lam {}) sc, a :: as) => implementationOf fuel (betaAll (subst a sc) as)
-  (Bind fc _ (Let _ _ v _) sc, as) => implementationOf fuel (foldl (App fc) (subst v sc) as)
-  (f@(Ref fc _ n), args) => do
-    Just field <- projected fuel n args
-      | Nothing => foldl (App fc) f <$> traverse (implementationOf fuel) args
-    implementationOf fuel field
-  _ => pure tm
+implementationOf : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core ClosedTerm
+implementationOf = go noPath
+  where
+    go : Path -> ClosedTerm -> Core ClosedTerm
+    go path tm = case getFnArgs tm of
+      (Bind _ _ (Lam {}) sc, a :: as) => go path (betaAll (subst a sc) as)
+      (Bind fc _ (Let _ _ v _) sc, as) => go path (foldl (App fc) (subst v sc) as)
+      (f@(Ref fc _ n), args) => do
+        Just (field, path') <- projected path n args
+          | Nothing => foldl (App fc) f <$> traverse (go path) args
+        go path' field
+      _ => pure tm
 
 ||| Which arguments of a constructor are erased, by position.
 export
@@ -432,6 +583,14 @@ erasedArgs n = do
 export
 showTT : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core String
 showTT tm = show <$> toFullNames tm
+
+||| What a message says a reduction is stuck on: the value or the
+||| definition it names.
+export
+stuckText : {auto c : Ref Ctxt Defs} -> StuckOn -> Core String
+stuckText (OnRuntime tm) = ("the runtime value " ++) <$> showTT tm
+stuckText (OnPartial n) = pure (show !(toFullNames n) ++ ", which Idris does not prove ends")
+stuckText (OnValue tm) = ("the value " ++) <$> showTT tm
 
 ||| What a shape says a value was built with: a constructor, with the
 ||| shapes of its arguments. A shape that is no constructor application (an
@@ -485,7 +644,7 @@ export
 unknownPart : ClosedTerm
 unknownPart = Ref EmptyFC Func (MN "idris-mlir-unknown" 0)
 
--- The marker itself (declared with `expandClosed` above): a bound name
+-- The marker itself (declared with `normaliseKeeping` above): a bound name
 -- that no binder binds, which a translation of the implementation
 -- replaces with the value (`Terms.term`, by `refToLocal`, which takes
 -- bound names).
@@ -738,45 +897,52 @@ isRuntimeVariable _ = False
 ||| can only be stuck, or never end: a parser's, built of closures that call
 ||| one another, unfolds without end once normalised under them. A function
 ||| that does not match on its arguments runs nothing on the value
-||| (`(PiInfo . Term) vars`): it is unfolded, as far as a depth, and what it
-||| calls is cut in turn. A function
-||| whose result is a type (`IsNothing m = m = Nothing`) is no such
-||| computation: the type it gives is needed whatever the value, and is cut
-||| inside instead. Nor is a lambda applied to one, a type family at a
-||| value (`(\m => Vect m Int) n`), which is substituted. A value whose
-||| constructors are known (`Shaped`) is no runtime variable, and a type
-||| still reduces on it.
+||| (`(PiInfo . Term) vars`): it is unfolded, and what it calls is cut in
+||| turn, except a function already unfolded on the way to it, whose
+||| unfolding again would be a recursion that matches on nothing: that is
+||| cut, so that the functions left to unfold are fewer at each unfolding.
+||| The arguments are cut where they are written, before they are
+||| substituted, so a function they apply is not counted as the unfolded
+||| one's own. A function whose result is a type (`IsNothing m = m =
+||| Nothing`) is no such computation: the type it gives is needed whatever
+||| the value, and is cut inside instead. Nor is a lambda applied to one, a
+||| type family at a value (`(\m => Vect m Int) n`), which is substituted.
+||| A value whose constructors are known (`Shaped`) is no runtime variable,
+||| and a type still reduces on it.
 cutRuntime : {auto c : Ref Ctxt Defs} -> {vars : Scope} -> TT vars -> Core (TT vars)
-cutRuntime = cut 64
+cutRuntime = cut empty
   where
     typeFunction : Name -> Core Bool
 
     -- The definition of a function that does not match on its arguments,
-    -- as lambdas over them, and how many it takes.
-    plain : Name -> Core (Maybe (ClosedTerm, Nat))
+    -- as lambdas over them, how many it takes, and its full name.
+    plain : Name -> Core (Maybe (ClosedTerm, Nat, Name))
 
-    binder : {vs : Scope} -> Nat -> TTBinder (TT vs) -> Core (TTBinder (TT vs))
+    binder : {vs : Scope} -> SortedSet String -> TTBinder (TT vs) -> Core (TTBinder (TT vs))
 
-    cut : {vs : Scope} -> Nat -> TT vs -> Core (TT vs)
-    cut fuel tm =
+    -- The functions unfolded on the way to the term, by `nameKey`.
+    cut : {vs : Scope} -> SortedSet String -> TT vs -> Core (TT vs)
+    cut unfolded tm =
       if not (mentions isRuntimeVariable tm) then pure tm else case getFnArgs tm of
-        (Bind fc _ (Lam {}) sc, a :: as) => cut fuel (foldl (App fc) (subst a sc) as)
-        (Bind fc x b sc, []) => Bind fc x <$> binder fuel b <*> cut fuel sc
-        (TDelayed fc r t, []) => TDelayed fc r <$> cut fuel t
-        (h@(Ref fc (DataCon _ _) _), args) => foldl (App fc) h <$> traverse (cut fuel) args
-        (h@(Ref fc (TyCon _) _), args) => foldl (App fc) h <$> traverse (cut fuel) args
+        (Bind fc _ (Lam {}) sc, a :: as) => cut unfolded (foldl (App fc) (subst a sc) as)
+        (Bind fc x b sc, []) => Bind fc x <$> binder unfolded b <*> cut unfolded sc
+        (TDelayed fc r t, []) => TDelayed fc r <$> cut unfolded t
+        (h@(Ref fc (DataCon _ _) _), args) => foldl (App fc) h <$> traverse (cut unfolded) args
+        (h@(Ref fc (TyCon _) _), args) => foldl (App fc) h <$> traverse (cut unfolded) args
         (h@(Ref fc Func n), args) =>
           if !(typeFunction n)
-             then foldl (App fc) h <$> traverse (cut fuel) args
+             then foldl (App fc) h <$> traverse (cut unfolded) args
              -- A function that does not match on its arguments runs
              -- nothing on the value (`(.)` in `(PiInfo . Term) vars`): it
              -- is unfolded, and what it calls is cut in turn.
-             else case (fuel, !(plain n)) of
-               (S fuel', Just (body, arity)) =>
-                 if length args < arity then pure (Erased fc Placeholder)
-                 else cut fuel' (foldl (App fc) (embedClosed body)
-                                       (reverse (take arity args) ++ drop arity args))
-               _ => pure (Erased fc Placeholder)
+             else case !(plain n) of
+               Just (body, arity, full) =>
+                 let key = nameKey full in
+                 if length args < arity || contains key unfolded then pure (Erased fc Placeholder) else do
+                   given <- traverse (cut unfolded) args
+                   cut (insert key unfolded)
+                       (foldl (App fc) (embedClosed body) (reverse (take arity given) ++ drop arity given))
+               Nothing => pure (Erased fc Placeholder)
         _ => pure (Erased EmptyFC Placeholder)
 
     typeFunction n = do
@@ -790,15 +956,15 @@ cutRuntime = cut 64
       Just def <- lookupCtxtExact n (gamma defs)
         | Nothing => pure Nothing
       case definition def of
-        PMDef _ pargs (STerm _ body) _ _ => pure (Just (wrapLams EmptyFC body, length pargs))
+        PMDef _ pargs (STerm _ body) _ _ => pure (Just (wrapLams EmptyFC body, length pargs, fullname def))
         _ => pure Nothing
 
-    binder fuel (Lam bfc r p ty) = Lam bfc r p <$> cut fuel ty
-    binder fuel (Let bfc r val ty) = Let bfc r <$> cut fuel val <*> cut fuel ty
-    binder fuel (Pi bfc r p ty) = Pi bfc r p <$> cut fuel ty
-    binder fuel (PVar bfc r p ty) = PVar bfc r p <$> cut fuel ty
-    binder fuel (PLet bfc r val ty) = PLet bfc r <$> cut fuel val <*> cut fuel ty
-    binder fuel (PVTy bfc r ty) = PVTy bfc r <$> cut fuel ty
+    binder unfolded (Lam bfc r p ty) = Lam bfc r p <$> cut unfolded ty
+    binder unfolded (Let bfc r val ty) = Let bfc r <$> cut unfolded val <*> cut unfolded ty
+    binder unfolded (Pi bfc r p ty) = Pi bfc r p <$> cut unfolded ty
+    binder unfolded (PVar bfc r p ty) = PVar bfc r p <$> cut unfolded ty
+    binder unfolded (PLet bfc r val ty) = PLet bfc r <$> cut unfolded val <*> cut unfolded ty
+    binder unfolded (PVTy bfc r ty) = PVTy bfc r <$> cut unfolded ty
 
 ||| The closed normal form of a term in scope, with type variables replaced by
 ||| their known values and every runtime variable by `Erased`, once every

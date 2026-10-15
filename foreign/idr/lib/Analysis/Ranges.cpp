@@ -2,21 +2,17 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The seeded range analysis: MLIR's integer range analysis, seeing a natural
 // as at least 0 and the program's poison as any value, solved once over the
-// module across calls.
+// program across calls.
 
 #include "idr/Analysis/Ranges.h"
 
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Ownership.h"
 #include "idr/IR/Ranges.h"
 
 #include "mlir/Analysis/DataFlow/IntegerRangeAnalysis.h"
 #include "mlir/Analysis/DataFlow/Utils.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
-#include "mlir/IR/BuiltinOps.h"
 #include "mlir/Support/TypeID.h"
-
-#include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
 using namespace mlir::dataflow;
@@ -57,14 +53,13 @@ public:
 namespace idr {
 
 Ranges::Ranges(Operation *op) : dataflow(DataFlowConfig().setInterprocedural(true)) {
-  auto module = cast<ModuleOp>(op);
+  auto program = cast<ProgramOp>(op);
   // The integer range analysis is silent without dead code analysis, and
   // reads constants through constant propagation.
   loadBaselineAnalyses(dataflow);
   dataflow.load<NaturalRanges>();
-  solved = succeeded(dataflow.initializeAndRun(module));
-  owned = llvm::any_of(module.getOps<FuncOp>(),
-                       [](FuncOp fn) { return ownership::inOwnedStage(fn); });
+  solved = succeeded(dataflow.initializeAndRun(program));
+  owned = program.getStage() == Stage::Owned;
 }
 
 std::optional<ConstantIntRanges> Ranges::rangeOf(const DataFlowSolver &solver, Value value) {

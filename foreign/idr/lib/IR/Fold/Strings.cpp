@@ -1,17 +1,15 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The folders of the string ops: each calls the runtime's own C function on
-// its constant operands, as Fold.h says. Then the string a constant list of
-// characters packs to, or a constant list of strings concatenates to, which
-// the folders of idr.str.pack and idr.str.concat are. Last the folders of
-// double_head and int_head: the head of a number is the first character of
-// its text, a fact about the string the runtime shows it as, so they fold
-// beside the string ops.
+// The folders of the string ops: each calls the runtime's function of its
+// op on its constant operands, as Fold.h says. Then the string a constant
+// list of characters packs to, or a constant list of strings concatenates
+// to, which the folders of idr.str.pack and idr.str.concat are. Last the
+// folders of double_head and int_head: the head of a number is the first
+// character of its text, a fact about the string the runtime shows it as,
+// so they fold beside the string ops.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Fold.h"
-
-#include "idris_rt.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/STLExtras.h"
@@ -21,8 +19,8 @@ using namespace mlir;
 namespace idr {
 
 using fold::compared;
-using fold::extended;
 using fold::listElements;
+using fold::runtimeOfWord;
 using fold::Scope;
 using fold::strBinary;
 using fold::strUnary;
@@ -31,7 +29,7 @@ using fold::wrapped;
 OpFoldResult StrAppendOp::fold(FoldAdaptor adaptor) {
   return strBinary(getContext(), adaptor.getLhs(), adaptor.getRhs(),
                    [](Scope &scope, const idris_rt_str *a, const idris_rt_str *b) {
-                     return scope.attr(idris_rt_str_append(a, b));
+                     return scope.attr(fold::runtime<StrAppendOp>(a, b));
                    });
 }
 
@@ -41,7 +39,7 @@ OpFoldResult StrConsOp::fold(FoldAdaptor adaptor) {
   if (!c || !s)
     return {};
   Scope scope(getContext());
-  return scope.attr(idris_rt_str_cons(static_cast<int32_t>(c.getInt()), scope.str(s)));
+  return scope.attr(fold::runtime<StrConsOp>(static_cast<int32_t>(c.getInt()), scope.str(s)));
 }
 
 OpFoldResult StrFromCharOp::fold(FoldAdaptor adaptor) {
@@ -49,19 +47,21 @@ OpFoldResult StrFromCharOp::fold(FoldAdaptor adaptor) {
   if (!c)
     return {};
   Scope scope(getContext());
-  return scope.attr(idris_rt_str_from_char(static_cast<int32_t>(c.getInt())));
+  return scope.attr(fold::runtime<StrFromCharOp>(static_cast<int32_t>(c.getInt())));
 }
 
+// A Double, or an integer as the op reads it: the op has a function of the
+// runtime for each.
 OpFoldResult StrShowOp::fold(FoldAdaptor adaptor) {
-  Scope scope(getContext());
-  if (auto d = dyn_cast_or_null<FloatAttr>(adaptor.getValue()))
-    return scope.attr(idris_rt_str_show_f64(d.getValueAsDouble()));
+  if (auto d = dyn_cast_or_null<FloatAttr>(adaptor.getValue())) {
+    Scope scope(getContext());
+    return scope.attr(runtime::Abi<StrShowOp>::doubleFunction(d.getValueAsDouble()));
+  }
   auto n = dyn_cast_or_null<IntegerAttr>(adaptor.getValue());
   if (!n)
     return {};
-  int64_t value = extended(n, getIsSigned());
-  return scope.attr(getIsSigned() ? idris_rt_str_show_s(value)
-                                  : idris_rt_str_show_u(static_cast<uint64_t>(value)));
+  Scope scope(getContext());
+  return scope.attr(runtimeOfWord<StrShowOp>(n, getIsSigned()));
 }
 
 OpFoldResult StrSubstrOp::fold(FoldAdaptor adaptor) {
@@ -71,12 +71,12 @@ OpFoldResult StrSubstrOp::fold(FoldAdaptor adaptor) {
   if (!s || !start || !length)
     return {};
   Scope scope(getContext());
-  return scope.attr(idris_rt_str_substr(scope.str(s), start.getInt(), length.getInt()));
+  return scope.attr(fold::runtime<StrSubstrOp>(scope.str(s), start.getInt(), length.getInt()));
 }
 
 OpFoldResult StrReverseOp::fold(FoldAdaptor adaptor) {
   return strUnary(getContext(), adaptor.getStr(), [](Scope &scope, const idris_rt_str *s) {
-    return scope.attr(idris_rt_str_reverse(s));
+    return scope.attr(fold::runtime<StrReverseOp>(s));
   });
 }
 
@@ -86,7 +86,7 @@ namespace {
 // the program never takes its head or tail, since the guard crashes first.
 template <typename Fn>
 OpFoldResult strNonEmpty(MLIRContext *ctx, Attribute operand, Fn fn) {
-  if (!checkHolds(CheckKind::Nonempty, operand))
+  if (!CheckNonemptyOp::holds({operand}))
     return {};
   return strUnary(ctx, operand, fn);
 }
@@ -95,21 +95,21 @@ OpFoldResult strNonEmpty(MLIRContext *ctx, Attribute operand, Fn fn) {
 
 OpFoldResult StrTailOp::fold(FoldAdaptor adaptor) {
   return strNonEmpty(getContext(), adaptor.getStr(), [](Scope &scope, const idris_rt_str *s) {
-    return scope.attr(idris_rt_str_tail(s));
+    return scope.attr(fold::runtime<StrTailOp>(s));
   });
 }
 
 OpFoldResult StrLengthOp::fold(FoldAdaptor adaptor) {
   Type type = getType();
   return strUnary(getContext(), adaptor.getStr(), [&](Scope &, const idris_rt_str *s) {
-    return wrapped(type, idris_rt_str_length(s));
+    return wrapped(type, fold::runtime<StrLengthOp>(s));
   });
 }
 
 OpFoldResult StrBytesLengthOp::fold(FoldAdaptor adaptor) {
   Type type = getType();
   return strUnary(getContext(), adaptor.getStr(), [&](Scope &, const idris_rt_str *s) {
-    return wrapped(type, idris_rt_str_bytes_length(s));
+    return wrapped(type, fold::runtime<StrBytesLengthOp>(s));
   });
 }
 
@@ -133,7 +133,7 @@ OpFoldResult StrScalarAtOp::fold(FoldAdaptor adaptor) {
   Type type = getType();
   return strAtOffset(getContext(), adaptor.getStr(), adaptor.getOffset(),
                      [&](Scope &, const idris_rt_str *s, int64_t at) -> OpFoldResult {
-                       return wrapped(type, idris_rt_str_scalar_at(s, at));
+                       return wrapped(type, fold::runtime<StrScalarAtOp>(s, at));
                      });
 }
 
@@ -141,14 +141,14 @@ OpFoldResult StrScalarEndOp::fold(FoldAdaptor adaptor) {
   Type type = getType();
   return strAtOffset(getContext(), adaptor.getStr(), adaptor.getOffset(),
                      [&](Scope &, const idris_rt_str *s, int64_t at) -> OpFoldResult {
-                       return wrapped(type, idris_rt_str_scalar_end(s, at));
+                       return wrapped(type, fold::runtime<StrScalarEndOp>(s, at));
                      });
 }
 
 OpFoldResult StrDropBytesOp::fold(FoldAdaptor adaptor) {
   return strAtOffset(getContext(), adaptor.getStr(), adaptor.getOffset(),
                      [](Scope &scope, const idris_rt_str *s, int64_t at) -> OpFoldResult {
-                       return scope.attr(idris_rt_str_drop_bytes(s, at));
+                       return scope.attr(fold::runtime<StrDropBytesOp>(s, at));
                      });
 }
 
@@ -156,20 +156,19 @@ OpFoldResult StrDropBytesOp::fold(FoldAdaptor adaptor) {
 // program never reads.
 OpFoldResult StrIndexOp::fold(FoldAdaptor adaptor) {
   Attribute index = adaptor.getIndex();
-  Type type = getType(), word = getIndex().getType();
-  return strUnary(getContext(), adaptor.getStr(),
-                  [&](Scope &, const idris_rt_str *s) -> OpFoldResult {
-                    Attribute length = wrapped(word, idris_rt_str_length(s));
-                    if (!checkHolds(CheckKind::InBounds, {index, length}))
-                      return {};
-                    return wrapped(type, idris_rt_str_index(s, cast<IntegerAttr>(index).getInt()));
-                  });
+  if (!CheckInBoundsOp::holds({index, adaptor.getStr()}))
+    return {};
+  Type type = getType();
+  int64_t at = cast<IntegerAttr>(index).getInt();
+  return strUnary(getContext(), adaptor.getStr(), [&](Scope &, const idris_rt_str *s) {
+    return wrapped(type, fold::runtime<StrIndexOp>(s, at));
+  });
 }
 
 OpFoldResult StrHeadOp::fold(FoldAdaptor adaptor) {
   Type type = getType();
   return strNonEmpty(getContext(), adaptor.getStr(), [&](Scope &, const idris_rt_str *s) {
-    return wrapped(type, idris_rt_str_head(s));
+    return wrapped(type, fold::runtime<StrHeadOp>(s));
   });
 }
 
@@ -178,24 +177,27 @@ OpFoldResult StrCmpOp::fold(FoldAdaptor adaptor) {
   MLIRContext *ctx = getContext();
   return strBinary(ctx, adaptor.getLhs(), adaptor.getRhs(),
                    [&](Scope &, const idris_rt_str *a, const idris_rt_str *b) {
-                     return compared(ctx, predicate, idris_rt_str_cmp(a, b));
+                     return compared(ctx, predicate, fold::runtime<StrCmpOp>(a, b));
                    });
 }
 
 OpFoldResult StrToIntOp::fold(FoldAdaptor adaptor) {
   Type type = getType();
   return strUnary(getContext(), adaptor.getStr(), [&](Scope &, const idris_rt_str *s) {
-    return wrapped(type, idris_rt_str_to_int(s));
+    return wrapped(type, fold::runtime<StrToIntOp>(s));
   });
 }
 
 OpFoldResult StrToDoubleOp::fold(FoldAdaptor adaptor) {
   Type type = getType();
   return strUnary(getContext(), adaptor.getStr(), [&](Scope &, const idris_rt_str *s) {
-    return FloatAttr::get(type, idris_rt_str_to_double(s));
+    return FloatAttr::get(type, fold::runtime<StrToDoubleOp>(s));
   });
 }
 
+// The runtime packs a list of characters as the cons of each onto the rest,
+// from the empty string, and concatenates a list of strings as the append
+// of each, in order: the functions of str.cons and str.append.
 Attribute stringOfList(MLIRContext *ctx, Attribute list) {
   std::optional<SmallVector<Attribute>> elements = listElements(list);
   if (!elements)
@@ -204,13 +206,13 @@ Attribute stringOfList(MLIRContext *ctx, Attribute list) {
   const idris_rt_str *s = scope.str(StringAttr::get(ctx, ""));
   if (llvm::all_of(*elements, [](Attribute c) { return isa<IntegerAttr>(c); })) {
     for (Attribute c : llvm::reverse(*elements))
-      s = scope.keep(idris_rt_str_cons(static_cast<int32_t>(cast<IntegerAttr>(c).getInt()), s));
+      s = scope.keep(fold::runtime<StrConsOp>(static_cast<int32_t>(cast<IntegerAttr>(c).getInt()), s));
     return scope.attr(s);
   }
   if (!llvm::all_of(*elements, [](Attribute p) { return isa<StringAttr>(p); }))
     return {};
   for (Attribute p : *elements)
-    s = scope.keep(idris_rt_str_append(s, scope.str(cast<StringAttr>(p))));
+    s = scope.keep(fold::runtime<StrAppendOp>(s, scope.str(cast<StringAttr>(p))));
   return scope.attr(s);
 }
 
@@ -226,16 +228,14 @@ OpFoldResult DoubleHeadOp::fold(FoldAdaptor adaptor) {
   auto d = dyn_cast_or_null<FloatAttr>(adaptor.getValue());
   if (!d)
     return {};
-  return wrapped(getType(), idris_rt_double_head(d.getValueAsDouble()));
+  return wrapped(getType(), fold::runtime<DoubleHeadOp>(d.getValueAsDouble()));
 }
 
 OpFoldResult IntHeadOp::fold(FoldAdaptor adaptor) {
   auto n = dyn_cast_or_null<IntegerAttr>(adaptor.getValue());
   if (!n)
     return {};
-  int64_t value = extended(n, getIsSigned());
-  return wrapped(getType(), getIsSigned() ? idris_rt_int_head_s(value)
-                                          : idris_rt_int_head_u(static_cast<uint64_t>(value)));
+  return wrapped(getType(), runtimeOfWord<IntHeadOp>(n, getIsSigned()));
 }
 
 } // namespace idr

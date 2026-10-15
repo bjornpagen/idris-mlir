@@ -9,19 +9,19 @@
 !Unit = !idr.data<"Unit", plain [@MkUnit()]>
 !IORes = !idr.data<"IORes", plain [@MkIORes(!Unit, !idr.world)]>
 !IO = !idr.data<"IO", plain [@MkIO(!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)]>
-module {
-  idr.func private @put(%n: i64, %w: !idr.world) -> !IORes attributes {total} {
+idr.program @projection root(@Main.main) stage(higher) {
+  idr.func @put(%n: i64, %w: !idr.world) -> !IORes attributes {total} {
     %w1 = idr.io.put_int signed %n, %w : i64
-    %u = idr.con @MkUnit() : () -> !Unit
-    %r = idr.con @MkIORes(%u, %w1) : (!Unit, !idr.world) -> !IORes
+    %u = idr.con !Unit @MkUnit()
+    %r = idr.con !IORes @MkIORes(%u : !Unit, %w1 : !idr.world)
     return %r : !IORes
   }
-  idr.func private @done(%w: !idr.world) -> !IORes attributes {total} {
-    %u = idr.con @MkUnit() : () -> !Unit
-    %r = idr.con @MkIORes(%u, %w) : (!Unit, !idr.world) -> !IORes
+  idr.func @done(%w: !idr.world) -> !IORes attributes {total} {
+    %u = idr.con !Unit @MkUnit()
+    %r = idr.con !IORes @MkIORes(%u : !Unit, %w : !idr.world)
     return %r : !IORes
   }
-  idr.func private @greet(%n: i64) -> !IO attributes {total} {
+  idr.func @greet(%n: i64) -> !IO attributes {total} {
     %done = idr.constant #idr.con<@MkIO, [#idr.closure<@done, []>]> : !IO
     %r = idr.match_lit %n : i64 -> (!IO) {
     case 0 {
@@ -30,7 +30,7 @@ module {
     default {
       %k = idr.closure @put(%n) : (i64) -> !idr.fn<(!idr.world) -> (!IORes)>
       %k_lin = idr.lin.enter %k : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>
-      %io = idr.con @MkIO(%k_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>) -> !IO
+      %io = idr.con !IO @MkIO(%k_lin : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)
       idr.yield %io : !IO
     }
     }
@@ -40,7 +40,7 @@ module {
     %c, %w1 = idr.io.get_byte %w
     %n = arith.extui %c : i32 to i64
     %a = idr.call @greet(%n) : (i64) -> !IO
-    %f = idr.field %a[@MkIO, 0] : !IO -> !idr.fn<(!idr.world) -> (!IORes)>
+    %f = idr.field %a : !IO @MkIO[0] -> !idr.fn<(!idr.world) -> (!IORes)>
     %r = idr.apply %f(%w1) : !idr.fn<(!idr.world) -> (!IORes)>
     return %r : !IORes
   }

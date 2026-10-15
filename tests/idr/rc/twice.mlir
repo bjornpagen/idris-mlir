@@ -3,8 +3,13 @@
 // idr-rc counts a module once: in the owned stage its references are
 // explicit already.
 // CHECK: error: idr-rc: the module is already in the owned stage
-module {
-  idr.func private @f(%s: !idr.own<!idr.str>) -> !idr.own<!idr.str> {
+idr.program @twice root(@root) stage(owned) {
+  idr.func @f(%s: !idr.own<!idr.str>) -> !idr.own<!idr.str> {
     return %s : !idr.own<!idr.str>
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
   }
 }

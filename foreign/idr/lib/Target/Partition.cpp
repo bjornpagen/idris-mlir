@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The partition of the optimized program into the bins whose code is
-// generated at once. After O3 code generation is local to each function, so
+// generated at once, and the linkage the bins then read; reading one bin
+// back out of the bitcode is Extract.cpp's. After O3 code generation is local to each function, so
 // a bin holds whole components of the reference graph, each with the callee
 // of its musttail calls (no tail call crosses an object), its comdat and an
 // ifunc's resolver, grouped by the top-level namespace their names keep and
@@ -10,7 +11,6 @@
 
 #include "idr/Target/Target.h"
 
-#include "idr/IR/Symbols.h"
 #include "idr/Support/Scc.h"
 
 #include "llvm/ADT/DenseMap.h"
@@ -21,7 +21,6 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/IR/Constants.h"
-#include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalAlias.h"
 #include "llvm/IR/GlobalIFunc.h"
@@ -29,6 +28,9 @@
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
+#include "llvm/Support/Format.h"
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/xxhash.h"
 
 #include <bit>
 #include <cstdint>
@@ -55,16 +57,6 @@ static_assert(std::has_single_bit(binInstructions));
 constexpr std::uint64_t hashPerInstruction = ~std::uint64_t{0} / binInstructions + 1;
 
 Error internal(const Twine &what) { return createStringError("internal error: " + what); }
-
-// Every global value, by list: functions, variables, aliases, ifuncs, each
-// in module order. The bitcode writer writes each list in order and the
-// reader appends in record order, so a module read back has the same places.
-std::vector<GlobalValue *> positions(Module &module) {
-  std::vector<GlobalValue *> at;
-  for (GlobalValue &value : module.global_values())
-    at.push_back(&value);
-  return at;
-}
 
 // The global values `value` names, through every constant expression and
 // aggregate it holds.
@@ -107,10 +99,19 @@ StringRef namespaceOf(StringRef name) {
   return plain.contains('.') ? plain.take_front(plain.find('.')) : StringRef();
 }
 
-// C21's hash of a set of names, sorted, one per line.
-std::string nameOf(std::vector<StringRef> &names) {
+// The hash of a set of names, sorted, one per line: XXH3's 64 bits, which
+// decide a part's cut and, spelled in hex, name a bin.
+std::uint64_t hashOf(std::vector<StringRef> &names) {
   sort(names);
-  return idr::contentHash(join(names, "\n"));
+  return xxh3_64bits(arrayRefFromStringRef(join(names, "\n")));
+}
+
+// A bin's name: its hash in 16 lower-case hex digits, so that name order is
+// hash order.
+std::string nameOf(std::uint64_t hash) {
+  std::string name;
+  raw_string_ostream(name) << format_hex_no_prefix(hash, 16, /*Upper=*/false);
+  return name;
 }
 
 enum class Kind : unsigned char { Declared, Node, Copied, Alias };
@@ -126,6 +127,13 @@ struct Part {
 };
 
 } // namespace
+
+std::vector<GlobalValue *> Partition::positions(Module &module) {
+  std::vector<GlobalValue *> at;
+  for (GlobalValue &value : module.global_values())
+    at.push_back(&value);
+  return at;
+}
 
 Expected<Partition> Partition::of(Module &module) {
   for (GlobalVariable &variable : module.globals())
@@ -229,8 +237,7 @@ Expected<Partition> Partition::of(Module &module) {
       part.size += function->getInstructionCount();
   }
   for (Part &part : parts)
-    if (StringRef(nameOf(part.names)).getAsInteger(16, part.hash))
-      return internal("a content hash is not 16 hex digits");
+    part.hash = hashOf(part.names);
   std::vector<unsigned> order(parts.size());
   std::iota(order.begin(), order.end(), 0u);
   sort(order, [&](unsigned a, unsigned b) { return parts[a].order() < parts[b].order(); });
@@ -267,7 +274,7 @@ Expected<Partition> Partition::of(Module &module) {
       bin.instructions += parts[index].size;
       append_range(names, parts[index].names);
     }
-    bin.name = nameOf(names);
+    bin.name = nameOf(hashOf(names));
     named.emplace_back(std::move(bin), std::move(chosen));
   }
   sort(named, [](const auto &a, const auto &b) { return a.first.name < b.first.name; });
@@ -318,80 +325,4 @@ Expected<Partition> Partition::of(Module &module) {
     value->setDSOLocal(true);
   }
   return partition;
-}
-
-Error Partition::extract(unsigned bin, Module &module) const {
-  std::vector<GlobalValue *> at = positions(module);
-  if (at.size() != symbols.size())
-    return internal("bin " + binList[bin].name + " reads " + Twine(at.size()) +
-                    " symbols from the bitcode, and the partition was made of " + Twine(symbols.size()));
-  // What the bin defines, the constants it holds a copy of, and what they
-  // name of everything else, which it declares; the rest it drops.
-  enum class Role : unsigned char { Drop, Own, Hold, Declare };
-  std::vector<Role> role(at.size(), Role::Drop);
-  SmallVector<unsigned> work = to_vector(members[bin]);
-  for (unsigned symbol : work)
-    role[symbol] = Role::Own;
-  while (!work.empty())
-    for (unsigned named : symbols[work.pop_back_val()].refs)
-      if (role[named] == Role::Drop) {
-        role[named] = symbols[named].copied ? Role::Hold : Role::Declare;
-        if (role[named] == Role::Hold)
-          work.push_back(named);
-      }
-  // Bodies first: what the bin does not define becomes a declaration, so
-  // that materializing reads only the bin's own bodies. An alias or an ifunc
-  // cannot be a declaration: one the bin names gives its uses to a
-  // declaration of its value type under its name, and goes.
-  for (unsigned symbol = 0; symbol < at.size(); ++symbol) {
-    GlobalValue *value = at[symbol];
-    if (role[symbol] == Role::Own || role[symbol] == Role::Hold)
-      continue;
-    if (auto *function = dyn_cast<Function>(value)) {
-      if (!function->isDeclaration())
-        function->deleteBody();
-      function->setComdat(nullptr);
-      continue;
-    }
-    if (auto *variable = dyn_cast<GlobalVariable>(value)) {
-      if (variable->hasInitializer()) {
-        variable->setInitializer(nullptr);
-        variable->setComdat(nullptr);
-        variable->setLinkage(GlobalValue::ExternalLinkage);
-      }
-      continue;
-    }
-    if (role[symbol] == Role::Declare) {
-      std::string name = value->getName().str();
-      value->setName("");
-      GlobalValue *declared;
-      if (auto *type = dyn_cast<FunctionType>(value->getValueType()))
-        declared = Function::Create(type, GlobalValue::ExternalLinkage, value->getAddressSpace(),
-                                    name, &module);
-      else
-        declared = new GlobalVariable(module, value->getValueType(), false,
-                                      GlobalValue::ExternalLinkage, nullptr, name, nullptr,
-                                      value->getThreadLocalMode(), value->getAddressSpace());
-      declared->setVisibility(value->getVisibility());
-      declared->setDSOLocal(value->isDSOLocal());
-      value->replaceAllUsesWith(declared);
-      role[symbol] = Role::Drop;
-    }
-    value->dropAllReferences();
-  }
-  if (Error error = module.materializeAll())
-    return error;
-  for (unsigned symbol = 0; symbol < at.size(); ++symbol) {
-    if (role[symbol] != Role::Drop)
-      continue;
-    at[symbol]->removeDeadConstantUsers();
-    if (!at[symbol]->use_empty())
-      return internal("bin " + binList[bin].name + " still uses " + at[symbol]->getName() +
-                      ", which it neither defines nor declares");
-    at[symbol]->eraseFromParent();
-  }
-  // Module-level assembly is defined once, in the first bin.
-  if (bin != 0)
-    module.removeModuleInlineAsm();
-  return Error::success();
 }

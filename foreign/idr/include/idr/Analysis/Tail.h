@@ -37,15 +37,14 @@ mlir::Operation *tailMatch(mlir::Operation *terminator);
 bool isSelfCall(mlir::Operation *op, FuncOp fn);
 
 // A tail modulo constructor: the self call whose result is field `index`
-// of the constructor `built` (`field` is that operand of it), which the
-// block's terminator passes on. The result may enter or leave a grade on
-// its way to the field (`grades`, nearest the field first): a grade has no
-// runtime form, and goes with the call.
+// of the constructor `built` (an idr.con or idr.reuse of a box), which the
+// block's terminator passes on. The result may change its grade on its way
+// to the field (`grades`, nearest the field first): a grade has no runtime
+// form, and goes with the call.
 struct Modulo {
   CallOp call;
   mlir::Operation *built;
   unsigned index;
-  mlir::OpOperand *field;
   llvm::SmallVector<mlir::Operation *, 2> grades;
 };
 

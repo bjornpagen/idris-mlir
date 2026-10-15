@@ -6,12 +6,12 @@
 // not, where it is written: no pass meets a closure whose labels it cannot
 // follow. arith.select declares nothing, so a choice of two suspensions is
 // written as a match (defunc/lazy-choice.mlir), never as a select.
-module {
-  idr.func private @one() -> i64 attributes {total} {
+idr.program @flow root(@Main.main) stage(higher) {
+  idr.func @one() -> i64 attributes {total} {
     %c = arith.constant 1 : i64
     return %c : i64
   }
-  idr.func private @two() -> i64 attributes {total} {
+  idr.func @two() -> i64 attributes {total} {
     %c = arith.constant 2 : i64
     return %c : i64
   }
@@ -32,17 +32,24 @@ module {
 // -----
 
 // The same for a closure.
-idr.func private @inc(%x: i64) -> i64 attributes {total} {
-  %c1 = arith.constant 1 : i64
-  %y = arith.addi %x, %c1 : i64
-  return %y : i64
-}
-idr.func private @pick(%b: i1) -> !idr.fn<(i64) -> (i64)> {
-  %f = idr.closure @inc() : () -> !idr.fn<(i64) -> (i64)>
-  %g = idr.closure @inc() : () -> !idr.fn<(i64) -> (i64)>
-  // expected-error @+1 {{closure or suspension}}
-  %h = arith.select %b, %f, %g : !idr.fn<(i64) -> (i64)>
-  return %h : !idr.fn<(i64) -> (i64)>
+idr.program @flow root(@root) stage(higher) {
+  idr.func @inc(%x: i64) -> i64 attributes {total} {
+    %c1 = arith.constant 1 : i64
+    %y = arith.addi %x, %c1 : i64
+    return %y : i64
+  }
+  idr.func @pick(%b: i1) -> !idr.fn<(i64) -> (i64)> {
+    %f = idr.closure @inc() : () -> !idr.fn<(i64) -> (i64)>
+    %g = idr.closure @inc() : () -> !idr.fn<(i64) -> (i64)>
+    // expected-error @+1 {{closure or suspension}}
+    %h = arith.select %b, %f, %g : !idr.fn<(i64) -> (i64)>
+    return %h : !idr.fn<(i64) -> (i64)>
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
 }
 
 // -----
@@ -51,14 +58,21 @@ idr.func private @pick(%b: i1) -> !idr.fn<(i64) -> (i64)> {
 // without its outermost grade: a label that enters a key always fits it.
 // An evaluated suspension's value flows into the forced state of its lazy
 // type, so the two must be one carrier.
-idr.func private @inc(%x: i64) -> i64 attributes {total} {
-  %c1 = arith.constant 1 : i64
-  %y = arith.addi %x, %c1 : i64
-  return %y : i64
-}
-idr.func private @held() -> !idr.lazy<!idr.fn<(i32) -> (i32)>> {
-  %f = idr.closure @inc() : () -> !idr.fn<(i64) -> (i64)>
-  // expected-error @+1 {{carrier}}
-  %t = idr.delay %f : !idr.fn<(i64) -> (i64)> -> !idr.lazy<!idr.fn<(i32) -> (i32)>>
-  return %t : !idr.lazy<!idr.fn<(i32) -> (i32)>>
+idr.program @flow root(@root) stage(higher) {
+  idr.func @inc(%x: i64) -> i64 attributes {total} {
+    %c1 = arith.constant 1 : i64
+    %y = arith.addi %x, %c1 : i64
+    return %y : i64
+  }
+  idr.func @held() -> !idr.lazy<!idr.fn<(i32) -> (i32)>> {
+    %f = idr.closure @inc() : () -> !idr.fn<(i64) -> (i64)>
+    // expected-error @+1 {{carrier}}
+    %t = idr.delay %f : !idr.fn<(i64) -> (i64)> -> !idr.lazy<!idr.fn<(i32) -> (i32)>>
+    return %t : !idr.lazy<!idr.fn<(i32) -> (i32)>>
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
 }

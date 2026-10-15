@@ -281,7 +281,7 @@ classify fc owner (S k) (Bind bfc _ (Pi _ rig _ a) sc) vals = do
          -- What the function returns is then a compile-time value, seen
          -- once the projections and applications that lead to it are
          -- reduced; one that still needs the value is chosen at runtime.
-         val <- if !(runtimeDependent written) then implementationOf 64 written else pure written
+         val <- if !(runtimeDependent written) then implementationOf written else pure written
          -- One that a definition gives without matching on a runtime value
          -- it closes over (`{vars : _} -> Show (Term vars)`) is chosen now
          -- all the same, and only the value is passed at runtime. What
@@ -291,10 +291,12 @@ classify fc owner (S k) (Bind bfc _ (Pi _ rig _ a) sc) vals = do
          -- ordinary parameter (a case block of `Show (Term vars)` takes
          -- `vars` so), so dependence is judged on the expanded form too;
          -- an argument expansion keeps only in types (a grammar's
-         -- consumption index) is no dependence.
+         -- consumption index) is no dependence. A form no compile-time
+         -- reduction may expand, through a definition Idris does not prove
+         -- ends, is taken as dependent: what it would show is not known.
          dependent <- if !(runtimeDependent val) then pure True
                         else if hasRuntimePart written
-                               then runtimeDependent !(expandClosed written)
+                               then maybe (pure True) runtimeDependent !(expandClosed written)
                                else pure False
          hole <- the (Core (Maybe (ClosedTerm, List ClosedTerm))) (if dependent then v.holed else pure Nothing)
          -- The message is made in its own `do`: a `!` lifts to its
@@ -302,7 +304,7 @@ classify fc owner (S k) (Bind bfc _ (Pi _ rig _ a) sc) vals = do
          when (dependent && isNothing hole) $ do
            reject fc owner RuntimeClosure ("an implementation chosen at runtime: " ++ !(showTT val))
          key <- case hole of
-                  Just (shape, _) => implementationOf 64 shape
+                  Just (shape, _) => implementationOf shape
                   Nothing => pure val
          holes <- case hole of
                     Just (_, tys) => do

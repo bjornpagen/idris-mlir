@@ -141,7 +141,8 @@
    "foreign/idr/include/idr/Transforms/StructureLoops.h",
    "foreign/idr/include/idr/Transforms/Columns.h",
    "foreign/idr/lib/Transforms/StructureLoops/**",
-   "foreign/idr/lib/Transforms/Columns/**"
+   "foreign/idr/lib/Transforms/Columns/**",
+   "foreign/idr/include/idr/IR/Arrays.h"
   ],
   "R11": [
    "foreign/idr/include/idr/Transforms/Bufferize.h",

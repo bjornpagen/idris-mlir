@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // What a use does with a reference in the owned stage, which values no
-// count reaches, and the one predicate the stage is decided by: shared by
-// the owned walk and the ownership passes, so each has one meaning.
+// count reaches, and what a view was read from: shared by the owned walk
+// and the ownership passes, so each has one meaning.
 
-#include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
+#include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ownership.h"
 #include "idr/IR/Symbols.h"
 #include "idr/IR/Verify.h"
@@ -13,26 +13,34 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Matchers.h"
-#include "mlir/Interfaces/ControlFlowInterfaces.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "mlir/Interfaces/ViewLikeInterface.h"
 #include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
 using namespace idr;
 
 ownership::Use idr::ownership::useOf(OpOperand &operand, SymbolTable *symbols) {
-  if (isa<ForceOp>(operand.getOwner()))
-    return isOwned(operand.get().getType()) ? Use::Consume : Use::Borrow;
   return consumes(operand, symbols) ? Use::Consume : Use::Borrow;
 }
 
+// An op that allocates nothing and reads no reference makes its value from
+// nothing a count reaches: a constant, poison, a small big, a pending
+// field, a global's buffer. What is read from such a value, or is such a
+// value at another grade, is no more counted than it.
 bool idr::ownership::isStatic(Value value) {
-  for (; value; value = readFrom(value)) {
+  while (value) {
     Operation *def = value.getDefiningOp();
-    if (def && (def->hasTrait<OpTrait::ConstantLike>() || isa<ub::PoisonOp, BigSmallOp, PendingOp>(def)))
+    if (def && isPure(def) &&
+        llvm::none_of(def->getOperandTypes(), [](Type type) { return holdsReferences(type); }))
       return true;
+    if (Value from = readFrom(value)) {
+      value = from;
+      continue;
+    }
+    value = def && def->hasTrait<ResultCarriesOperand>() ? def->getOperand(0) : Value();
   }
   return false;
 }
@@ -41,13 +49,11 @@ Value idr::ownership::readFrom(Value value) {
   if (auto field = value.getDefiningOp<FieldOp>())
     return field.getValue();
   // A view of a buffer lives while the buffer it views does.
-  if (Operation *def = value.getDefiningOp();
-      isa_and_nonnull<memref::SubViewOp, memref::CastOp, memref::ReinterpretCastOp,
-                      memref::ExpandShapeOp, memref::CollapseShapeOp, memref::TransposeOp,
-                      TieShapeOp>(def))
-    return def->getOperand(0);
+  if (auto view = value.getDefiningOp<ViewLikeOpInterface>(); view && view.getViewDest() == value)
+    return view.getViewSource();
   // A counted element is read from its buffer, which holds its reference.
-  if (auto load = value.getDefiningOp<memref::LoadOp>(); load && holdsReferences(load.getType()))
+  if (auto load = value.getDefiningOp<memref::LoadOp>();
+      load && holdsReferences(load.getType()))
     return load.getMemref();
   auto arg = dyn_cast<BlockArgument>(value);
   if (!arg)
@@ -57,6 +63,10 @@ Value idr::ownership::readFrom(Value value) {
   return nullptr;
 }
 
+// A view's chain goes up through what each step was read from and through
+// the ops that only change a grade (a borrow, a linear position), to the
+// value as it was made. Each step is to a value defined before it, so the
+// chain ends.
 Value idr::ownership::viewRoot(Value value) {
   for (;;) {
     if (Value from = readFrom(value)) {
@@ -64,7 +74,7 @@ Value idr::ownership::viewRoot(Value value) {
       continue;
     }
     Operation *def = value.getDefiningOp();
-    if (!isa_and_nonnull<BorrowOp, LinEnterOp, LinUseOp>(def))
+    if (!def || !def->hasTrait<ResultCarriesOperand>())
       return value;
     value = def->getOperand(0);
   }
@@ -124,23 +134,4 @@ bool idr::ownership::isIndexLoop(Operation *op) {
     return true;
   auto structured = dyn_cast<linalg::LinalgOp>(op);
   return structured && structured.hasPureBufferSemantics();
-}
-
-// One walk, which stops at the first owned value.
-bool idr::ownership::inOwnedStage(FuncOp fn) {
-  return fn->walk([](Operation *op) {
-             return verify::definesOwned(op) ? WalkResult::interrupt() : WalkResult::advance();
-           })
-      .wasInterrupted();
-}
-
-bool idr::verify::definesOwned(Operation *op) {
-  auto owned = [](Value value) { return isOwned(value.getType()); };
-  if (llvm::any_of(op->getResults(), owned))
-    return true;
-  for (Region &region : op->getRegions())
-    for (Block &block : region)
-      if (llvm::any_of(block.getArguments(), owned))
-        return true;
-  return false;
 }

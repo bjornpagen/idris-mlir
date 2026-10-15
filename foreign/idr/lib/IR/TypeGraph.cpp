@@ -18,7 +18,9 @@
 // static cells, which are never counted. Before idr-defunctionalize a
 // closure's captures are not types yet, and a closure names nothing, so the
 // graph is partial until then. A value array (a tensor, or its buffer) is
-// written only before it is shared, so it closes no knot and is no node.
+// written only before it is shared, so it closes no knot and is no node;
+// but what its elements name is reached through it, so a knot that passes
+// through one is still a knot, and its elements are held out of place.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/TypeGraph.h"
@@ -29,11 +31,29 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SetVector.h"
 
 #include <algorithm>
 
 using namespace mlir;
+
+void idr::forEachNamed(Type type, function_ref<void(DataType, bool)> data,
+                       function_ref<void(MemRefType)> array, function_ref<void(Type)> leaf) {
+  type = unrestricted(type);
+  if (auto box = dyn_cast<BoxType>(type))
+    return data(box.getData(), /*inPlace=*/false);
+  if (auto held = dyn_cast<DataType>(type))
+    return data(held, /*inPlace=*/true);
+  if (idr::isArray(type))
+    return array(cast<MemRefType>(type));
+  // A value array's elements are its buffer's, held out of place.
+  if (auto values = dyn_cast<ShapedType>(type))
+    return forEachNamed(
+        values.getElementType(), [&](DataType element, bool) { data(element, false); }, array,
+        leaf);
+  leaf(type);
+}
 
 idr::TypeGraph::TypeGraph(Operation *module) {
   // Every data type a value, a field or an element is of, and how it is
@@ -52,7 +72,7 @@ idr::TypeGraph::TypeGraph(Operation *module) {
   walker.addWalk([&](DataType data) {
     found.insert(data);
     inPlaceSet.insert(data);
-    return WalkResult::advance();
+    return WalkResult::skip();
   });
   auto walk = [&](auto element) { walker.walk<WalkOrder::PreOrder>(element); };
   module->walk([&](Operation *op) {
@@ -77,16 +97,17 @@ idr::TypeGraph::TypeGraph(Operation *module) {
     heldBoxed[at] = boxedSet.contains(data);
     heldInPlace[at] = inPlaceSet.contains(data);
   }
+  // An array is inserted as it is met, so the list grows as it is read.
   for (unsigned at = 0; at < types.size(); ++at) {
     if (auto array = dyn_cast<MemRefType>(types[at])) {
-      edge(at, array.getElementType());
+      edges(at, array.getElementType());
       continue;
     }
     for (const Ctor &ctor : cast<DataType>(types[at]).getCtors())
       for (Type field : ctor.fields)
-        edge(at, field);
+        edges(at, field);
   }
-  parts = idr::components(edges);
+  parts = idr::components(successorsOf);
 }
 
 unsigned idr::TypeGraph::insert(Type type) {
@@ -95,29 +116,29 @@ unsigned idr::TypeGraph::insert(Type type) {
     types.push_back(type);
     heldBoxed.push_back(false);
     heldInPlace.push_back(false);
-    edges.emplace_back();
+    successorsOf.emplace_back();
     inPlace.emplace_back();
   }
   return it->second;
 }
 
-// An edge from `from` to what a field or an element of type `type` names,
-// seen through its grade: a data type, in place or in a box, or an array.
-// A field `!idr.lin<T>` stores T where the bare field would.
-void idr::TypeGraph::edge(unsigned from, Type type) {
-  type = unrestricted(type);
-  if (auto box = dyn_cast<BoxType>(type)) {
-    edges[from].push_back(insert(box.getData()));
-    return;
-  }
-  if (auto data = dyn_cast<DataType>(type)) {
-    unsigned to = insert(data);
-    edges[from].push_back(to);
-    inPlace[from].push_back(to);
-    return;
-  }
-  if (idr::isArray(type))
-    edges[from].push_back(insert(type));
+// The edges from `from` to what a field or an element of type `type` names
+// (forEachNamed). Each target is inserted before an edge to it is added, so
+// no reference into a list is held while the lists grow.
+void idr::TypeGraph::edges(unsigned from, Type type) {
+  forEachNamed(
+      type,
+      [&](DataType data, bool held) {
+        unsigned to = insert(data);
+        successorsOf[from].push_back(to);
+        if (held)
+          inPlace[from].push_back(to);
+      },
+      [&](MemRefType array) {
+        unsigned to = insert(array);
+        successorsOf[from].push_back(to);
+      },
+      [](Type) {});
 }
 
 std::optional<unsigned> idr::TypeGraph::node(Type type) const {
@@ -146,7 +167,7 @@ SmallVector<SmallVector<unsigned>> idr::TypeGraph::knots() const {
 }
 
 SmallVector<unsigned> idr::TypeGraph::cycle(unsigned array, ArrayRef<unsigned> component) const {
-  unsigned element = edges[array].front();
+  unsigned element = successorsOf[array].front();
   // A walk breadth first from the element: `unseen` is what of the
   // component it has not reached yet, `previous` the step that reached each
   // of the rest.
@@ -157,7 +178,7 @@ SmallVector<unsigned> idr::TypeGraph::cycle(unsigned array, ArrayRef<unsigned> c
   SmallVector<unsigned> previous(types.size());
   SmallVector<unsigned> queue{element};
   for (size_t at = 0; at < queue.size() && unseen.test(array); ++at)
-    for (unsigned next : edges[queue[at]])
+    for (unsigned next : successorsOf[queue[at]])
       if (unseen.test(next)) {
         unseen.reset(next);
         previous[next] = queue[at];

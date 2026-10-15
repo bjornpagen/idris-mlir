@@ -14,30 +14,41 @@
 // is in place. Inside a function the thread is a chain of destinations,
 // which the analysis puts in place because nothing reads an old version;
 // at the thread's boundaries (a call, a block, a cell) the chain passes
-// through an entry whose buffer a use began, a link, which must bufferize
-// in place. A copy there would be the compiler's, never the program's,
-// since a linear array aliases nothing by the library's construction. An
-// entry no use began (a fresh array, or an array thawed) is a thread's
-// head, a plain release, which copies when its meaning does.
+// through an entry whose buffer a use began and which nothing touches after
+// it, a link, which must bufferize in place. A copy there would be the
+// compiler's, never the program's. An entry that is not a link is a
+// thread's head, a plain release, which copies when its meaning does: a
+// fresh array, an array thawed, or the array of a use that is still read
+// after the entry, as when a frozen thread is thawed again.
 #include "idr/Transforms/BufferizeModels.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 
+#include "llvm/ADT/STLExtras.h"
+
 using namespace mlir;
 using namespace mlir::bufferization;
 
-bool idr::bufferize::isLink(idr::LinEnterOp enter, const AnalysisState &state) {
+bool idr::bufferize::isLink(idr::LinEnterOp enter, const BufferizationOptions &options) {
+  OpOperand &released = enter->getOpOperand(0);
+  if (!isa<TensorLikeType>(released.get().getType()))
+    return false;
+  AnalysisState state(options);
+
   // Through the destinations of the writes, which are the same buffer, and
   // no further: a slice of a thread is not the thread's buffer.
+  auto began = [](Value value) { return static_cast<bool>(value.getDefiningOp<LinUseOp>()); };
   TraversalConfig config;
-  config.alwaysIncludeLeaves = false;
   config.followEquivalentOnly = true;
-  return !state
-              .findValueInReverseUseDefChain(
-                  &enter->getOpOperand(0),
-                  [](Value value) { return static_cast<bool>(value.getDefiningOp<LinUseOp>()); },
-                  config)
-              .empty();
+  if (!llvm::all_of(state.findValueInReverseUseDefChain(&released, began, config), began))
+    return false;
+
+  for (Value sharer : sharers(released.get(), options))
+    for (OpOperand &use : sharer.getUses())
+      if ((state.bufferizesToMemoryRead(use) || state.bufferizesToMemoryWrite(use)) &&
+          mayRunAfter(use.getOwner(), enter, sharer, options))
+        return false;
+  return true;
 }
 
 namespace {
@@ -55,7 +66,7 @@ struct EnterModel : BufferizableOpInterface::ExternalModel<EnterModel, idr::LinE
   }
 
   bool mustBufferizeInPlace(Operation *op, OpOperand &, const AnalysisState &state) const {
-    return idr::bufferize::isLink(cast<idr::LinEnterOp>(op), state);
+    return idr::bufferize::isLink(cast<idr::LinEnterOp>(op), state.getOptions());
   }
 
   // A thread's buffer is a whole cell, so a link never reallocates; a head

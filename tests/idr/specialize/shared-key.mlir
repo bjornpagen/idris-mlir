@@ -14,18 +14,18 @@
 // CALLS-NEXT: call @[[ADD]](
 // CALLS-NEXT: call @[[SUB:applyN\.spec\.[0-9a-f]+]](
 // CALLS-NOT: call @[[ADD]](
-// NODES-COUNT-2: idr.func private @applyN.spec.
-// NODES-NOT: idr.func private @applyN.spec.
-module {
-  idr.func private @add(%a: i64, %x: i64) -> i64 attributes {total} {
+// NODES-COUNT-2: idr.func @applyN.spec.
+// NODES-NOT: idr.func @applyN.spec.
+idr.program @"shared-key" root(@Main.main) stage(higher) {
+  idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64
     return %y : i64
   }
-  idr.func private @sub(%a: i64, %x: i64) -> i64 attributes {total} {
+  idr.func @sub(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.subi %a, %x : i64
     return %y : i64
   }
-  idr.func private @applyN(%f: !idr.fn<(i64) -> (i64)>, %n: i64, %x: i64) -> i64 {
+  idr.func @applyN(%f: !idr.fn<(i64) -> (i64)>, %n: i64, %x: i64) -> i64 {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       idr.yield %x : i64

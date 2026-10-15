@@ -1,19 +1,16 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-//===- StructureLoops.h - Pure loops over tensors as linalg ops -----------===//
+//===- StructureLoops.h - The array ops, lowered once ---------------------===//
 //
-// idr-structure-loops chooses a loop's form by its body's effects. The
-// frontend writes each array loop's sequential meaning in scf and tensor;
-// once defunctionalization and the optimizer have made every body final, a
-// loop whose body only computes is made a linalg op, whose parallel
-// dimensions say that order is not observed, and every other loop stays in
-// order. A fold becomes a reduction only where its combiner is one
-// associative and commutative integer op, since a reduction iterator means
-// any order. The pass recognizes exactly the shapes the frontend writes: a
-// small inverse of a small emitter, not a general loop recognizer.
-//
-// One matcher decides, for the pass and for idr-expect alike: planAt reads a
-// loop into a Plan, build makes the linalg op the plan names.
+// idr-structure-loops is the one-to-one lowering of the array language's
+// generating set (idr.tabulate, idr.tabulate_io, idr.fold_last,
+// idr.scan_last, idr.transpose), once every call's callee has its final
+// effects. Each op says how it visits its domain (getIterations); what its
+// region does decides the rest. A region that does no more than compute
+// and crash, over arrays of words, keeps the op's parallel dimensions
+// parallel in a linalg op; every other op is an scf.for nest in its
+// row-major order. The decision reads the op alone, so it is made once and
+// held here, for the pass and for idr-expect alike.
 //
 //===----------------------------------------------------------------------===//
 
@@ -22,12 +19,12 @@
 
 #include "idr/IR/IdrDialect.h"
 
-#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -40,65 +37,87 @@ namespace idr {
 
 namespace idr::structure {
 
-// Whether idr-structure-loops rewrites `loop`, an scf.for: a nest it makes
-// one linalg op, or a fold it makes a reduction. False for any other op.
-bool structurable(mlir::Operation *loop);
-
-// What a loop becomes.
+// What an op of the generating set is lowered to.
 enum class Form {
-  // A nest that writes every element of its destination: one parallel op.
+  // One linalg op over the domain, every dimension parallel: a tabulation,
+  // or a transpose of words.
   Parallel,
-  // A nest whose element is a fold with one integer op for its combiner:
-  // one op, the nest's dimensions parallel and the fold's a reduction.
-  ReduceUnder,
-  // A nest whose element is any other fold over a bound fixed outside the
-  // nest: the fold's loop around one parallel op over the nest, each
-  // element combined in index order.
+  // One linalg op whose last dimension is a reduction: a fold whose every
+  // next accumulator is one associative and commutative integer op of its
+  // accumulator, which may then be combined in any order.
+  Reduction,
+  // The ordered dimension as an scf.for around one linalg op over the
+  // frame's parallel dimensions: a fold or a scan over words whose
+  // combiner is kept in index order, its frame computed on lanes.
   Interchange,
-  // A fold with one integer op for its combiner, under no nest that takes
-  // it: one reduction op.
-  Reduce,
+  // An scf.for nest in the op's row-major order, its region the body.
+  Ordered,
 };
 
-// A read of a tensor from outside that becomes an input of the op, at the
-// map from the op's dimensions to the read's indices.
+// Whether idr-structure-loops lowers `op`: an op of the generating set or
+// idr.transpose. None is left after it.
+bool structurable(mlir::Operation *op);
+
+// The form `op`, which idr-structure-loops lowers, takes. A callee's
+// effects are read through `symbols`.
+Form formOf(mlir::Operation *op, mlir::SymbolTableCollection &symbols);
+
+// A read of an array of words from outside an op, directly in its region,
+// at distinct indices of the op's domain, each as large as the dimension
+// of the domain it is read at: an input of the linalg op, at `map` from the
+// linalg op's dimensions.
 struct Read {
   mlir::tensor::ExtractOp op;
   mlir::AffineMap map;
 };
 
-// A loop read as the linalg op it becomes. The values it names are the
-// loop's own; build clones from them.
-struct Plan {
-  Form form = Form::Parallel;
-  // The nest's loops, outermost first; none for a lone fold.
-  llvm::SmallVector<mlir::scf::ForOp> nest;
-  // The tensor the nest writes every element of: its outermost loop's init.
-  mlir::Value destination;
-  // The fold whose result the nest inserts, or the lone fold.
-  mlir::scf::ForOp fold;
-  // The innermost body's read of the destination at the insert's indices,
-  // which the op's output element stands for, or null.
-  mlir::tensor::ExtractOp element;
-  // The reads that become inputs.
-  llvm::SmallVector<Read> reads;
-  // The nest's ops the body needs, in program order: those between its
-  // loops, then those of its innermost body; never the insert, the fold, the
-  // element or a read.
-  llvm::SmallVector<mlir::Operation *> clones;
-  // The nest's ops the fold's init needs, in program order, where the init
-  // is computed per element (ReduceUnder, Interchange).
-  llvm::SmallVector<mlir::Operation *> initClones;
-};
+// The reads of `op`'s region that become inputs of a linalg op whose
+// dimensions are the domain's first `dims`.
+llvm::SmallVector<Read> readsOf(mlir::Operation *op, unsigned dims);
 
-// The plan of the loop rooted at `loop`, or none: nests are tried as
-// ReduceUnder, Interchange, then Parallel; a loop that roots no nest as a
-// lone fold.
-std::optional<Plan> planAt(mlir::scf::ForOp loop);
+// Replaces `op` by its form.
+void lower(mlir::RewriterBase &rewriter, mlir::Operation *op, Form form);
 
-// Builds the op `plan` names before its root loop, and gives the value that
-// replaces the root loop's result.
-mlir::Value build(mlir::RewriterBase &rewriter, Plan &plan);
+// The forms, each replacing its op.
+void lowerParallel(mlir::RewriterBase &rewriter, mlir::Operation *op);
+void lowerReduction(mlir::RewriterBase &rewriter, FoldLastOp op);
+void lowerInterchange(mlir::RewriterBase &rewriter, mlir::Operation *op);
+void lowerOrdered(mlir::RewriterBase &rewriter, mlir::Operation *op);
+
+// What the forms share. The region of `op` moved before the rewriter's
+// insertion point, its arguments `args`, the insertion point left after it:
+// what its yield gives, or nothing where it ends in ub.unreachable, never
+// returning. The terminator is erased.
+std::optional<llvm::SmallVector<mlir::Value>> inlineRegion(mlir::RewriterBase &rewriter,
+                                                           mlir::Operation *op,
+                                                           mlir::ValueRange args);
+
+// The same, with the region copied, so that `op` keeps it.
+std::optional<llvm::SmallVector<mlir::Value>> cloneRegion(mlir::OpBuilder &b, mlir::Operation *op,
+                                                          mlir::ValueRange args);
+
+// The sizes of the first `dims` dimensions of `op`'s domain, and sizes as
+// values.
+llvm::SmallVector<mlir::OpFoldResult> extentsOf(mlir::OpBuilder &b, mlir::Operation *op,
+                                                unsigned dims);
+llvm::SmallVector<mlir::Value> valuesOf(mlir::OpBuilder &b, mlir::Location loc,
+                                        llvm::ArrayRef<mlir::OpFoldResult> sizes);
+
+// A new array of `type`, its dimensions `dims` (one per dimension; those
+// the type fixes are read from it).
+mlir::Value emptyOf(mlir::OpBuilder &b, mlir::Location loc, mlir::RankedTensorType type,
+                    llvm::ArrayRef<mlir::OpFoldResult> dims);
+
+// What `array` holds at `indices` of its leading dimensions, of type
+// `cell`: the element, or the cell of the dimensions after them (at no
+// index, the array itself).
+mlir::Value readCell(mlir::OpBuilder &b, mlir::Location loc, mlir::Value array,
+                     mlir::ValueRange indices, mlir::Type cell);
+
+// `array` with `cell`, an element or a cell, at `indices` of its leading
+// dimensions (at no index, the cell itself).
+mlir::Value writeCell(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell, mlir::Value array,
+                      mlir::ValueRange indices);
 
 } // namespace idr::structure
 

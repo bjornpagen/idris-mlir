@@ -24,21 +24,20 @@ namespace {
 
 class Reshape {
 public:
-  Reshape(RewriterBase &rewriter, FuncOp fn, Counted &counted, Classes &classes,
-          SymbolTable &symbols)
-      : rewriter(rewriter), fn(fn), counted(counted), classes(classes), symbols(symbols) {}
+  Reshape(RewriterBase &rewriter, FuncOp fn, Classes &classes, SymbolTable &symbols)
+      : rewriter(rewriter), fn(fn), classes(classes), symbols(symbols) {}
 
-  // The code this pass counts: regions of one block, whose ops are matches
-  // and the loops over indices (scf.for, linalg on buffers).
+  // The code this pass counts: regions of one block. Any op with regions
+  // is counted, as one that decides or one that holds what it uses inside
+  // for as long as it runs; a region of several blocks has paths that only
+  // its own branches say, which counting does not follow. The pipeline
+  // leaves none.
   LogicalResult check() {
     WalkResult result = fn.walk([&](Operation *op) -> WalkResult {
-      bool counts = op == fn.getOperation() || op->getNumRegions() == 0 ||
-                    isa<MatchOp, MatchLitOp>(op) || isIndexLoop(op);
-      if (!counts || llvm::any_of(op->getRegions(), [](Region &region) {
+      if (op != fn.getOperation() && llvm::any_of(op->getRegions(), [](Region &region) {
             return !region.empty() && !region.hasOneBlock();
           }))
-        return op->emitOpError("idr-rc: internal error: counts matches, scf.for and linalg ops "
-                               "on buffers, each of one block");
+        return op->emitOpError("idr-rc: internal error: counts regions of one block");
       return WalkResult::advance();
     });
     return failure(result.wasInterrupted());
@@ -69,8 +68,9 @@ public:
     }
   }
 
-  // An owned scrutinee that dies in a case region is taken apart where it
-  // dies: its fields move out of it instead of each taking one more
+  // An owned scrutinee that dies in a case region, and is no memo cell,
+  // whose constructor a force may change under the match, is taken apart
+  // where it dies: its fields move out of it instead of each taking one more
   // reference while it drops its own, which walks the cell's children to
   // drop theirs. Where the region begins when
   // nothing in it uses the box; else after its last use there, the
@@ -86,7 +86,8 @@ public:
     fn.walk([&](MatchOp match) { matches.push_back(match); });
     for (MatchOp match : matches) {
       Value value = match.getScrutinee();
-      if (classes.classOf(value) != Class::Owned || usedAfter(value, match))
+      if (classes.classOf(value) != Class::Owned || isMemoCell(value.getType()) ||
+          usedAfter(value, match))
         continue;
       DataType data = dataTypeOf(value.getType());
       for (unsigned caseIndex = 0, e = static_cast<unsigned>(match.getCases().size());
@@ -95,16 +96,15 @@ public:
         if (region.empty() || endsInCrash(region.front()))
           continue;
         if (!usedIn(value, region)) {
-          takeAtEntry(rewriter, match, caseIndex, counted);
+          takeAtEntry(rewriter, match, caseIndex);
           continue;
         }
         if (!isa<BoxType>(unrestricted(value.getType())))
           continue;
         unsigned tag = match.getCaseTag(caseIndex);
         whereDies(value, region.front(), &symbols, [&](Block &block, Block::iterator at) {
-          if (!endsInCrash(block) &&
-              keepsCountedField(value, data, tag, block, at, &region.front(), counted))
-            takeAt(rewriter, value, data, tag, block, at, &region.front(), counted);
+          if (!endsInCrash(block) && keepsCountedField(value, tag, block, at, &region.front()))
+            takeAt(rewriter, value, data, tag, block, at, &region.front());
         });
       }
       // The default region has the value itself back, not a view of it to
@@ -119,7 +119,8 @@ public:
   // A field that needs a reference of its own takes it where it is read:
   // an idr.dup of the field, which every use of the field then uses, and
   // which is placed as an owned value. So does every element read from a
-  // buffer, right after its load.
+  // buffer, right after its load; one that nothing reads, bufferForms
+  // erased.
   void ownFields() {
     SmallVector<Value> fields;
     fn.walk<WalkOrder::PreOrder>([&](Block *block) {
@@ -222,7 +223,7 @@ private:
       auto first = dyn_cast<FieldOp>(*value.getUsers().begin());
       if (!first || !llvm::all_of(value.getUsers(), [&](Operation *user) {
             auto read = dyn_cast<FieldOp>(user);
-            return read && read.getCtorAttr() == first.getCtorAttr();
+            return read && read.getTag() == first.getTag();
           }))
         return;
       if (classes.classOf(value) == Class::Owned)
@@ -237,10 +238,11 @@ private:
     for (Value value : llvm::reverse(sums)) {
       auto read = cast<FieldOp>(*value.getUsers().begin());
       classes.erase(value);
+      auto tag = static_cast<unsigned>(read.getTag());
       SmallVector<Type> fields;
-      for (Type field : read.getDataType().getCtor(read.getTag()).fields)
+      for (Type field : read.getDataType().getCtor(tag).fields)
         fields.push_back(fieldType(value.getType(), field));
-      takeFields(rewriter, value, read.getCtorAttr(), fields, counted);
+      takeFields(rewriter, value, tag, fields);
     }
   }
 
@@ -252,7 +254,8 @@ private:
   void takeReadBoxes() {
     SmallVector<std::pair<Value, FieldOp>> boxes;
     auto consider = [&](Value box) {
-      if (FieldOp first = onlyReads(box); first && classes.classOf(box) == Class::Owned)
+      if (FieldOp first = onlyReads(box);
+          first && !isMemoCell(box.getType()) && classes.classOf(box) == Class::Owned)
         boxes.emplace_back(box, first);
     };
     fn.walk<WalkOrder::PreOrder>([&](Block *block) {
@@ -264,10 +267,10 @@ private:
     });
     for (auto [box, first] : boxes) {
       DataType data = first.getDataType();
-      unsigned tag = first.getTag();
+      auto tag = static_cast<unsigned>(first.getTag());
       whereDies(box, *first->getBlock(), &symbols, [&](Block &block, Block::iterator at) {
-        if (!endsInCrash(block) && keepsCountedField(box, data, tag, block, at, nullptr, counted))
-          takeAt(rewriter, box, data, tag, block, at, nullptr, counted);
+        if (!endsInCrash(block) && keepsCountedField(box, tag, block, at, nullptr))
+          takeAt(rewriter, box, data, tag, block, at, nullptr);
       });
     }
   }
@@ -311,16 +314,14 @@ private:
 
   RewriterBase &rewriter;
   FuncOp fn;
-  Counted &counted;
   Classes &classes;
   SymbolTable &symbols;
 };
 
 } // namespace
 
-LogicalResult reshape(RewriterBase &rewriter, FuncOp fn, Counted &counted, Classes &classes,
-                      SymbolTable &symbols) {
-  Reshape reshaping(rewriter, fn, counted, classes, symbols);
+LogicalResult reshape(RewriterBase &rewriter, FuncOp fn, Classes &classes, SymbolTable &symbols) {
+  Reshape reshaping(rewriter, fn, classes, symbols);
   if (failed(reshaping.check()))
     return failure();
   reshaping.rewriteSelects();

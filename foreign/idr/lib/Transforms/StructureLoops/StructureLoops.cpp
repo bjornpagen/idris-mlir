@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idr-structure-loops: each loop of a function decided once, in one walk.
-// The walk visits a loop after the loops inside it, so a nest is decided
-// with its inner loops already made what they become, and a fold that a
-// nest around it takes is left to that nest (planAt says which). What a
-// rewrite makes is not visited again: one pass over each final body decides
-// every loop, and nothing is left that the pass would still take.
+// idr-structure-loops: each op of the generating set lowered once, in one
+// walk. The walk visits an op after the ops inside its region, so an op is
+// decided with what its region holds already lowered, and what a lowering
+// makes holds no op of the generating set: nothing is visited twice, and
+// nothing is left that the pass would still take.
 
 #include "idr/Transforms/StructureLoops.h"
 
-#include "mlir/Transforms/WalkPatternRewriteDriver.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Dialect/UB/IR/UBOps.h"
 
 namespace idr {
 #define GEN_PASS_DEF_IDRSTRUCTURELOOPS
@@ -20,44 +23,38 @@ using namespace mlir;
 
 namespace idr::structure {
 
-bool structurable(Operation *loop) {
-  auto counted = dyn_cast<scf::ForOp>(loop);
-  return counted && planAt(counted).has_value();
+void lower(RewriterBase &rewriter, Operation *op, Form form) {
+  switch (form) {
+  case Form::Parallel:
+    return lowerParallel(rewriter, op);
+  case Form::Reduction:
+    return lowerReduction(rewriter, cast<FoldLastOp>(op));
+  case Form::Interchange:
+    return lowerInterchange(rewriter, op);
+  case Form::Ordered:
+    return lowerOrdered(rewriter, op);
+  }
+  llvm_unreachable("every form is lowered");
 }
 
 namespace {
 
-// What the walk made, counted where the pass reports it.
-struct Counts {
-  unsigned parallel = 0;
-  unsigned reductions = 0;
-};
-
-struct Structure : OpRewritePattern<scf::ForOp> {
-  Structure(MLIRContext *ctx, Counts &counts) : OpRewritePattern(ctx), counts(counts) {}
-
-  LogicalResult matchAndRewrite(scf::ForOp loop, PatternRewriter &rewriter) const override {
-    std::optional<Plan> plan = planAt(loop);
-    if (!plan)
-      return failure();
-    Value made = build(rewriter, *plan);
-    rewriter.replaceOp(loop, made);
-    bool reduces = plan->form == Form::ReduceUnder || plan->form == Form::Reduce;
-    ++(reduces ? counts.reductions : counts.parallel);
-    return success();
-  }
-
-  Counts &counts;
-};
-
 struct StructureLoops : idr::impl::IdrStructureLoopsBase<StructureLoops> {
   void runOnOperation() override {
-    Counts counts;
-    RewritePatternSet patterns(&getContext());
-    patterns.add<Structure>(&getContext(), counts);
-    walkAndApplyPatterns(getOperation(), std::move(patterns));
-    numParallel += counts.parallel;
-    numReductions += counts.reductions;
+    SmallVector<Operation *> ops;
+    getOperation()->walk<WalkOrder::PostOrder>([&](Operation *op) {
+      if (structurable(op))
+        ops.push_back(op);
+    });
+    SymbolTableCollection symbols;
+    IRRewriter rewriter(&getContext());
+    for (Operation *op : ops) {
+      Form form = formOf(op, symbols);
+      lower(rewriter, op, form);
+      ++(form == Form::Reduction ? numReductions
+         : form == Form::Ordered ? numOrdered
+                                 : numParallel);
+    }
   }
 };
 

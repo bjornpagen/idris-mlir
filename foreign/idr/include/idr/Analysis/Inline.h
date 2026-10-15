@@ -35,7 +35,7 @@ inline constexpr int64_t kCallerCap = 10000;
 struct Facts {
   // inlineSize of the final body.
   int64_t size = 0;
-  // The module's idr.call sites naming the function when idr-optimize
+  // The program's idr.call sites naming the function when idr-optimize
   // began; 1 for a specialization node, one per request.
   unsigned calls = 0;
   // The final body holds no idr.call.

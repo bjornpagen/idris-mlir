@@ -1,59 +1,55 @@
-// RUN: idris-mlir-opt %s --canonicalize --cse --loop-invariant-code-motion | FileCheck %s
+// RUN: idris-mlir-opt %s --idr-expect=holds=facts-as-marked -o /dev/null
+// RUN: idris-mlir-opt %s --canonicalize --cse --idr-expect=holds=computes-nothing=@dead,crash-sites=@dead:1,returns-argument=@dead:0 -o /dev/null
 // A division is its divisor's guard, which may crash, and the division
 // itself, which only computes. A dead division goes, and its guard stays
-// unless the divisor is a nonzero constant. The guard is not speculated,
-// and the division never runs before it: it takes the guard's result. A
-// division by a nonzero constant needs no guard, and may move anywhere.
+// unless the divisor is a nonzero constant. The guard is not speculated:
+// it may be delayed but not moved, so it stays inside the branch or the
+// loop that runs it; and the division never runs before it, since it
+// takes the guard's result. A division by a nonzero constant needs no
+// guard, and may move anywhere, out of a loop that does not change it.
 
-// CHECK-LABEL: idr.func private @dead(
-// CHECK-SAME: %[[X:.*]]: i64, %[[Y:.*]]: i64)
-// CHECK-NEXT: idr.check.nonzero %[[Y]], "division by zero" : i64
-// CHECK-NEXT: return %[[X]]
-idr.func private @dead(%x: i64, %y: i64) -> i64 {
-  %c3 = arith.constant 3 : i64
-  %y1 = idr.check.nonzero %y, "division by zero" : i64
-  %q = idr.div signed %x, %y1 : i64
-  %c31 = idr.check.nonzero %c3, "division by zero" : i64
-  %s = idr.div signed %x, %c31 : i64
-  %c32 = idr.check.nonzero %c3, "division by zero" : i64
-  %r = idr.mod %x, %c32 : i64
-  return %x : i64
-}
-
-// CHECK-LABEL: idr.func private @guarded(
-// CHECK: scf.if
-// CHECK-NEXT: %[[G:.*]] = idr.check.nonzero
-// CHECK-NEXT: div signed %{{.*}}, %[[G]]
-idr.func private @guarded(%b: i1, %x: i64, %y: i64) -> i64 {
-  %r = scf.if %b -> i64 {
+idr.program @div root(@root) stage(first) {
+  idr.func @dead(%x: i64, %y: i64) -> i64 {
+    %c3 = arith.constant 3 : i64
     %y1 = idr.check.nonzero %y, "division by zero" : i64
     %q = idr.div signed %x, %y1 : i64
-    scf.yield %q : i64
-  } else {
-    scf.yield %x : i64
+    %c31 = idr.check.nonzero %c3, "division by zero" : i64
+    %s = idr.div signed %x, %c31 : i64
+    %c32 = idr.check.nonzero %c3, "division by zero" : i64
+    %r = idr.mod %x, %c32 : i64
+    return %x : i64
   }
-  return %r : i64
-}
 
-// A loop-invariant division leaves the loop only when it cannot crash.
-// CHECK-LABEL: idr.func private @invariant(
-// CHECK: div signed %{{.*}}, %{{.*}} : i64
-// CHECK: scf.for
-// CHECK: %[[G:.*]] = idr.check.nonzero
-// CHECK: mod signed %{{.*}}, %[[G]]
-// CHECK: scf.yield
-idr.func private @invariant(%x: i64, %y: i64, %n: index) -> i64 {
-  %c0 = arith.constant 0 : index
-  %c1 = arith.constant 1 : index
-  %c7 = arith.constant 7 : i64
-  %zero = arith.constant 0 : i64
-  %r = scf.for %i = %c0 to %n step %c1 iter_args(%acc = %zero) -> (i64) {
-    %q = idr.div signed %x, %c7 : i64
-    %y1 = idr.check.nonzero %y, "division by zero" : i64
-    %m = idr.mod signed %x, %y1 : i64
-    %s = arith.addi %q, %m : i64
-    %t = arith.addi %acc, %s : i64
-    scf.yield %t : i64
+  idr.func @guarded(%b: i1, %x: i64, %y: i64) -> i64 {
+    %r = scf.if %b -> i64 {
+      %y1 = idr.check.nonzero %y, "division by zero" {expect.facts = "delay"} : i64
+      %q = idr.div signed %x, %y1 {expect.facts = "move delay merge"} : i64
+      scf.yield %q : i64
+    } else {
+      scf.yield %x : i64
+    }
+    return %r : i64
   }
-  return %r : i64
+
+  // A loop-invariant division leaves the loop only when it cannot crash.
+  idr.func @invariant(%x: i64, %y: i64, %n: index) -> i64 {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %c7 = arith.constant 7 : i64
+    %zero = arith.constant 0 : i64
+    %r = scf.for %i = %c0 to %n step %c1 iter_args(%acc = %zero) -> (i64) {
+      %q = idr.div signed %x, %c7 {expect.facts = "move delay merge"} : i64
+      %y1 = idr.check.nonzero %y, "division by zero" {expect.facts = "delay"} : i64
+      %m = idr.mod signed %x, %y1 {expect.facts = "move delay merge"} : i64
+      %s = arith.addi %q, %m : i64
+      %t = arith.addi %acc, %s : i64
+      scf.yield %t : i64
+    }
+    return %r : i64
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
+  }
 }

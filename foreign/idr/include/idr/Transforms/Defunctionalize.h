@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // idr-defunctionalize: every closure and suspension becomes a constructor of
-// a sum, every apply a match over its callee's sum, by a conversion of each
-// function.
+// a sum, every apply a match over its callee's sum, every force a call of
+// its memo sum's dispatch function, by a conversion of each function.
 //
 // Sums are keyed by (carrier, label set): every slot that holds a closure or
 // a suspension (a value, a function's parameter or result, a field of a data
@@ -10,11 +10,16 @@
 // the key of its carrier and the labels the solve (idr::Labels) found for
 // it. Every key becomes a sum: a closure key one constructor per label,
 // holding its captures, none when no label reaches it; a lazy key a memo sum
-// of its labels and the cell's two states. A data type whose body holds a
-// slot is remade with the slots' sums. Every type is made, and every body
-// set, before any function is converted; the conversion of a function reads
-// that decision and a plan of its own values, so functions convert in
-// parallel.
+// of its labels and the cell's two states, and a dispatch function that
+// matches the cell's state, `<sum>.force`. A label's constructor names its
+// function, so what it runs is read from the constructor, never from a
+// name. Every sum is made with its body, and every dispatch function
+// defined, before any function is converted; the conversion of a function
+// reads that decision and a plan of its own values, so functions convert in
+// parallel, and it changes the type of a closure or a suspension alone.
+// Then one remap makes every data type whose body holds a slot anew with
+// the slots' sums, a sum whose captures hold one among them, and retypes
+// the program.
 #ifndef IDR_TRANSFORMS_DEFUNCTIONALIZE_H
 #define IDR_TRANSFORMS_DEFUNCTIONALIZE_H
 
@@ -22,6 +27,7 @@
 #include "idr/Analysis/Labels.h"
 #include "idr/IR/Symbols.h"
 
+#include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
@@ -50,7 +56,7 @@ namespace idr::defunctionalize {
 // nor a suspension.
 using Key = std::pair<mlir::Type, mlir::ArrayAttr>;
 
-// A function as the module declared it, and as its slots have it.
+// A function as the program declared it, and as its slots have it.
 struct Signature {
   mlir::FunctionType type;
   mlir::FunctionType converted;
@@ -59,25 +65,33 @@ struct Signature {
 
 // What the conversion of one function reads of its own values, made from
 // the decision before the function's conversion starts: the type and key
-// of each value it had and the slot each keyed operand moves its value
-// into. A value the conversion makes is in neither, and has its own type.
+// of each closure or suspension it had, and the slot each operand of one
+// moves its value into. Any other value keeps its type, and a value the
+// conversion makes has its own.
 struct Plan {
   llvm::DenseMap<mlir::Value, mlir::Type> types;
   llvm::DenseMap<mlir::Value, Key> keys;
   llvm::DenseMap<mlir::OpOperand *, Key> sinks;
 };
 
-// The decision: the key of every slot, the sum of every key, the remade
-// data types, every function's signature. Built whole, serially, and read
-// only afterwards, from any thread.
+// The decision: the key of every slot, the sum of every key, every
+// function's signature, every memo sum's dispatch function. Built whole,
+// serially, and read only afterwards, from any thread.
 class Slots {
 public:
-  Slots(mlir::ModuleOp module, Labels &labels, mlir::SymbolTable &symbols);
+  Slots(ProgramOp program, Labels &labels, mlir::SymbolTable &symbols);
 
-  // Makes every sum and every remade type and sets their bodies, a memo
-  // label `by_name` when `byName` says so. Fails, with an internal error,
-  // when two keys meet on one name.
+  // Makes every sum with its body, a memo label `by_name` when `byName`
+  // says so, and names each memo sum's dispatch function. Fails, with an
+  // internal error, when two keys meet on one name or a body is no sum.
   mlir::LogicalResult declare(llvm::function_ref<bool(FuncOp)> byName);
+  // Defines each memo sum's dispatch function and adds it to the program
+  // (Forces.cpp); after declare, before any function converts.
+  void defineForces();
+  // Once every function is converted: every data type whose body holds a
+  // slot made anew with the slots' sums, transitively, and the program
+  // retyped.
+  mlir::LogicalResult remake();
 
   static bool isLazy(const Key &key) { return key.first && llvm::isa<LazyType>(key.first); }
   // Whether no label reaches a slot of `key`: no value is ever in it.
@@ -88,6 +102,7 @@ public:
 
   // Keys (Keys.cpp).
   Key keyAt(const FlowPoint &point) const;
+  Key anchorKey(const FlowAnchor &anchor) const;
   Key keyOf(mlir::Value value) const;
   Key argumentKey(mlir::StringAttr fn, unsigned index) const;
   Key resultKey(mlir::StringAttr fn, unsigned index) const;
@@ -96,32 +111,40 @@ public:
   Key forcedKey(mlir::Type lazy) const;
 
   // Types (Declare.cpp). The value type of `key`'s sum; the type of a slot
-  // of `key` whose type was `type`; a type that names no slot, remade: one
-  // the module had, from the table the remap filled, and any other, one
-  // the conversion made, itself.
+  // of `key` whose type was `type`, which is `type` for a slot of no key.
   mlir::Type sumOf(const Key &key) const;
   mlir::Type typeOf(mlir::Type type, const Key &key) const;
-  mlir::Type mapped(mlir::Type type) const;
   const Signature &signature(mlir::StringAttr fn) const;
+  // The tag of the constructor of `label` in the sum of `key`: a key's
+  // labels, in name order, are its sum's first constructors, in tag order.
+  unsigned labelTag(const Key &key, mlir::FlatSymbolRefAttr label) const;
+  // The dispatch function of a lazy key's memo sum, by its symbol.
+  mlir::FlatSymbolRefAttr forceOf(const Key &key) const;
 
   // The plan of one function, made just before its conversion.
   Plan plan(FuncOp fn) const;
   // The value of `constant` converted to its slot, or null for a constant
-  // the module did not hold.
+  // the program did not hold.
   mlir::Attribute constantOf(mlir::Operation *constant) const { return constants.lookup(constant); }
 
   // What the statistics record (Decide.cpp).
   unsigned numSums() const { return static_cast<unsigned>(sums.size()); }
   unsigned numConstructors() const;
-  unsigned largestBoxedSum() const;
-  bool keyed() const { return !sums.empty(); }
 
 private:
+  // A key's sum: its name, made from the key's content, and the data type,
+  // once made.
+  struct Sum {
+    mlir::StringAttr name;
+    DataType type;
+  };
+
   Key keyWith(mlir::Type carrier, const FlowPoint &point) const;
 
-  // Every key the module may ask for (Keys.cpp).
+  // Every key the program may ask for (Keys.cpp).
   void noteValue(mlir::Value value);
   void noteType(mlir::Type type);
+  void noteData(DataType data);
   void noteKey(const Key &key);
   unsigned captures(mlir::StringAttr label, mlir::Type carrier) const;
 
@@ -129,21 +152,22 @@ private:
   void widen();
   Key sinkKey(mlir::OpOperand &use) const;
 
-  // The capture cycles and the names (Decide.cpp).
-  void holds(mlir::Type type, const Key &key, llvm::SmallVectorImpl<Key> &out,
-             llvm::DenseSet<DataType> &seen) const;
-  void decide();
+  // The names (Decide.cpp).
   mlir::LogicalResult name();
 
   // The bodies and the constants (Declare.cpp).
-  void remember(mlir::Type type);
-  llvm::SmallVector<Ctor> constructors(const Key &key,
-                                       llvm::function_ref<bool(FuncOp)> byName,
-                                       llvm::SmallVectorImpl<llvm::SmallVector<mlir::Type>> &fields) const;
+  DataType define(const Key &key, llvm::function_ref<bool(FuncOp)> byName);
+  mlir::Type slotType(mlir::Type type, const Key &key,
+                      llvm::function_ref<bool(FuncOp)> byName);
+  DataType::Body body(const Key &key, llvm::function_ref<bool(FuncOp)> byName,
+                      llvm::SmallVectorImpl<llvm::SmallVector<mlir::Type>> &fields);
   mlir::Attribute convertConstant(mlir::Attribute attr, const Key &slot);
   bool holdsClosure(mlir::Attribute attr);
 
-  mlir::ModuleOp module;
+  // The dispatch function of one memo sum (Forces.cpp).
+  FuncOp defineForce(const Key &key, DataType sum);
+
+  ProgramOp program;
   Labels &analysis;
   mlir::SymbolTable &table;
   mlir::MLIRContext *ctx;
@@ -151,17 +175,17 @@ private:
   // A closure, suspension or constant whose every use moves it into one
   // key that holds its own takes that key.
   llvm::DenseMap<mlir::Value, Key> widened;
-  // Every key, in the order met, with the data type its sum is.
-  llvm::MapVector<Key, DataType> sums;
-  llvm::DenseSet<Key> cyclic;
-  llvm::DenseSet<DataType> notedTypes;
-  std::optional<DataRemap> remap;
-  // Every type a value or a signature of the module had, remade: the remap
-  // is asked only while the decision is built, never while functions
-  // convert.
-  llvm::DenseMap<mlir::Type, mlir::Type> mappedTypes;
+  // Every key, in the order met, with its sum.
+  llvm::MapVector<Key, Sum> sums;
+  // Whether a sum's body was no sum: an internal error, reported by define.
+  bool broken = false;
+  // Every type met while the keys are noted, each looked into once: the
+  // data types' bodies, the shaped types' elements.
+  mlir::AttrTypeWalker types;
   llvm::DenseMap<mlir::StringAttr, Signature> signatures;
-  // Each constant of the module converted to its slot, and the parts of
+  // Each lazy key's dispatch function, by its symbol.
+  llvm::DenseMap<Key, mlir::FlatSymbolRefAttr> forces;
+  // Each constant of the program converted to its slot, and the parts of
   // constants already converted or looked into.
   llvm::DenseMap<mlir::Operation *, mlir::Attribute> constants;
   llvm::DenseMap<std::pair<mlir::Attribute, Key>, mlir::Attribute> convertedParts;

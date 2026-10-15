@@ -12,16 +12,16 @@
 // neither @pick nor the functions its closures name is called.
 // CHECK-LABEL: idr.func @Main.main(
 // CHECK: call @{{pick\.raise\.[0-9a-f]+}}(
-module {
-  idr.func private @add(%a: i64, %x: i64) -> i64 attributes {total} {
+idr.program @apply root(@Main.main) stage(higher) {
+  idr.func @add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64
     return %y : i64
   }
-  idr.func private @sub(%a: i64, %x: i64) -> i64 attributes {total} {
+  idr.func @sub(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.subi %a, %x : i64
     return %y : i64
   }
-  idr.func private @pick(%a: i64) -> !idr.fn<(i64) -> (i64)> {
+  idr.func @pick(%a: i64) -> !idr.fn<(i64) -> (i64)> {
     %r = idr.match_lit %a : i64 -> (!idr.fn<(i64) -> (i64)>) {
     case 0 {
       %f = idr.closure @sub(%a) : (i64) -> !idr.fn<(i64) -> (i64)>
@@ -40,7 +40,7 @@ module {
     }
     return %r : !idr.fn<(i64) -> (i64)>
   }
-  idr.func private @use(%n: i64, %x: i64) -> i64 {
+  idr.func @use(%n: i64, %x: i64) -> i64 {
     %f = idr.call @pick(%n) : (i64) -> !idr.fn<(i64) -> (i64)>
     %c1 = arith.constant 1 : i64
     %y = arith.addi %x, %c1 : i64

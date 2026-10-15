@@ -16,49 +16,49 @@
 // CHECK-NOT: !idr.fn
 // CHECK-NOT: {{(idr\.| )closure }}
 // CHECK-NOT: {{(idr\.| )apply }}
-// CHECK-LABEL: idr.func private @Main.twice(
+// CHECK-LABEL: idr.func @Main.twice(
 // CHECK-SAME: %{{.*}}: ![[F0]], %{{.*}}: ![[F0]], %{{.*}}: i64) -> i64
-// CHECK-LABEL: idr.func private @Main.seq(
+// CHECK-LABEL: idr.func @Main.seq(
 // CHECK-SAME: %{{.*}}: ![[F1]], %{{.*}}: ![[F2]], %{{.*}}: i64) -> i64
 // CHECK: match %{{.*}} : ![[F1]] -> (i64) {
 // CHECK-NEXT: case @Main.twice(%{{.*}}: ![[F0]], %{{.*}}: ![[F0]]) {
 // CHECK: match %{{.*}} : ![[F2]] -> (i64) {
 // CHECK-NEXT: case @Main.loop(%{{.*}}: i64) {
-// CHECK-LABEL: idr.func private @Main.run(
+// CHECK-LABEL: idr.func @Main.run(
 // CHECK-SAME: -> ![[F3]]
 // CHECK: constant #idr.con<@Main.twice, [#idr.con<@Main.tick, []>, #idr.con<@Main.tick, []>]> : ![[F1]]
-// CHECK: con @Main.done() : () -> ![[F3]]
-// CHECK: con @Main.loop(%{{.*}}) : (i64) -> ![[F2]]
-// CHECK: con @Main.seq(%{{.*}}, %{{.*}}) : (![[F1]], ![[F2]]) -> ![[F3]]
-module {
-  idr.func private @Main.tick(%s: i64) -> i64 attributes {total} {
+// CHECK: con ![[F3]] @Main.done()
+// CHECK: con ![[F2]] @Main.loop(%{{.*}} : i64)
+// CHECK: con ![[F3]] @Main.seq(%{{.*}} : ![[F1]], %{{.*}} : ![[F2]])
+idr.program @state root(@Main.main) stage(higher) {
+  idr.func @Main.tick(%s: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64
     %t = arith.addi %s, %c1 : i64
     return %t : i64
   }
-  idr.func private @Main.done(%s: i64) -> i64 attributes {total} {
+  idr.func @Main.done(%s: i64) -> i64 attributes {total} {
     return %s : i64
   }
   // twice m k = \s => k (m s), of two ticks.
-  idr.func private @Main.twice(%m: !idr.fn<(i64) -> (i64)>, %k: !idr.fn<(i64) -> (i64)>, %s: i64) -> i64 attributes {total} {
+  idr.func @Main.twice(%m: !idr.fn<(i64) -> (i64)>, %k: !idr.fn<(i64) -> (i64)>, %s: i64) -> i64 attributes {total} {
     %a = idr.apply %m(%s) : !idr.fn<(i64) -> (i64)>
     %b = idr.apply %k(%a) : !idr.fn<(i64) -> (i64)>
     return %b : i64
   }
   // seq m k = \s => k (m s), of a twice and the rest of the loop.
-  idr.func private @Main.seq(%m: !idr.fn<(i64) -> (i64)>, %k: !idr.fn<(i64) -> (i64)>, %s: i64) -> i64 {
+  idr.func @Main.seq(%m: !idr.fn<(i64) -> (i64)>, %k: !idr.fn<(i64) -> (i64)>, %s: i64) -> i64 {
     %a = idr.apply %m(%s) : !idr.fn<(i64) -> (i64)>
     %b = idr.apply %k(%a) : !idr.fn<(i64) -> (i64)>
     return %b : i64
   }
-  idr.func private @Main.loop(%n: i64, %s: i64) -> i64 {
+  idr.func @Main.loop(%n: i64, %s: i64) -> i64 {
     %c1 = arith.constant 1 : i64
     %m = arith.subi %n, %c1 : i64
     %r = idr.call @Main.run(%m) : (i64) -> !idr.fn<(i64) -> (i64)>
     %t = idr.apply %r(%s) : !idr.fn<(i64) -> (i64)>
     return %t : i64
   }
-  idr.func private @Main.run(%n: i64) -> !idr.fn<(i64) -> (i64)> {
+  idr.func @Main.run(%n: i64) -> !idr.fn<(i64) -> (i64)> {
     %twice = idr.constant #idr.closure<@Main.twice, [#idr.closure<@Main.tick, []>, #idr.closure<@Main.tick, []>]> : !idr.fn<(i64) -> (i64)>
     %r = idr.match_lit %n : i64 -> (!idr.fn<(i64) -> (i64)>) {
     case 0 {

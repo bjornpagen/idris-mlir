@@ -1,9 +1,10 @@
-// RUN: idris-mlir-opt %s --idr-tail-loops --idr-narrow -o %t.mlir
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-rc,idr.func(idr-tail-loops),idr-narrow))' -o %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=word-loop=@parity -o /dev/null
-// RUN: %status 1 idris-mlir-opt %s --idr-tail-loops --idr-expect=holds=word-loop=@parity -o /dev/null 2> %t.tagged.err
+// RUN: %status 1 idris-mlir-opt %s --pass-pipeline='builtin.module(idr.program(idr-rc,idr.func(idr-tail-loops)),idr-expect{holds=word-loop=@parity})' -o /dev/null 2> %t.tagged.err
 // RUN: FileCheck %s --check-prefix=TAGGED < %t.tagged.err
 // RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=word-loop=@count -o /dev/null 2> %t.count.err
 // RUN: FileCheck %s --check-prefix=COUNT < %t.count.err
+// NEEDS-ACCEPTANCE: the input is a program of the first stage, which idr-rc counts first: at the owned stage every reference of ours is graded (R04), so the checks are of the counted program; confirm them against it.
 // A loop whose natural only descends to zero is versioned: one test on
 // entry that the natural is small, then a loop on words alone, with no tag
 // test and no call on bigs in it. Before idr-narrow the loop computes on
@@ -11,10 +12,10 @@
 // stays a big, with its fast path inline.
 // TAGGED: error: expected word-loop: @parity computes on bigs in each of its loops
 // COUNT: error: expected word-loop: @count computes on bigs in each of its loops
-module {
-  idr.func private @parity(%n: !idr.nat, %odd: i1) -> i1 attributes {total} {
+idr.program @descending root(@root) stage(first) {
+  idr.func @parity(%n: !idr.nat, %odd: i1) -> i1 attributes {total} {
     %r = idr.match_lit %n : !idr.nat -> (i1) {
-    case #idr.big<"0"> {
+    case #idr.big<0> {
       idr.yield %odd : i1
     }
     default {
@@ -27,14 +28,14 @@ module {
     }
     return %r : i1
   }
-  idr.func private @count(%n: !idr.nat, %acc: !idr.nat) -> !idr.nat attributes {total} {
+  idr.func @count(%n: !idr.nat, %acc: !idr.nat) -> !idr.nat attributes {total} {
     %r = idr.match_lit %n : !idr.nat -> (!idr.nat) {
-    case #idr.big<"0"> {
+    case #idr.big<0> {
       idr.yield %acc : !idr.nat
     }
     default {
       %k = idr.big.pred %n
-      %two = idr.constant #idr.big<"2"> : !idr.nat
+      %two = idr.constant #idr.big<2> : !idr.nat
       %more = idr.big.add %acc, %two : !idr.nat
       %s = idr.call @count(%k, %more) : (!idr.nat, !idr.nat) -> !idr.nat
       idr.yield %s : !idr.nat
@@ -42,11 +43,16 @@ module {
     }
     return %r : !idr.nat
   }
-  idr.func private @Main.main(%n: !idr.nat) -> (i1, !idr.nat) {
+  idr.func @Main.main(%n: !idr.nat) -> (i1, !idr.nat) {
     %false = arith.constant false
     %p = idr.call @parity(%n, %false) : (!idr.nat, i1) -> i1
-    %zero = idr.constant #idr.big<"0"> : !idr.nat
+    %zero = idr.constant #idr.big<0> : !idr.nat
     %c = idr.call @count(%n, %zero) : (!idr.nat, !idr.nat) -> !idr.nat
     return %p, %c : i1, !idr.nat
+  }
+  // The program's root, which the functions above are no part of.
+  idr.func @root() -> i64 {
+    %zero = arith.constant 0 : i64
+    return %zero : i64
   }
 }
