@@ -278,7 +278,7 @@ is the order the work is done:
 - 0002: the cutover that executes 0001's stages C and H, committed;
   qualifying it is 0001 §6.1's first steps;
 - 0003's stage 1: the purge of today's array stack and its MLIR-first
-  rebuild, as one cutover, right after `make self`;
+  rebuild, in the same swarm wave as 0004's cutover;
 - 0005 and 0006: sharding (0005's P1, P2 and P4; 0006's S0, S1, S2 and
   S8);
 - then the array work: 0003's typed array language, with 0007's array

@@ -110,12 +110,13 @@ the new shape replaces (0002 D1): 0001 first (licensing, so every port
 after it is clean); then 0002's G1 on the tree before the cutover,
 beside 0004's lane L0 and on the commit L0 records its baseline on
 (0002 §3, D14);
-0004's cutover, once approved, before 0002's remaining self-host
-steps, because stage 1 cannot finish without it (it takes 0006's
-first S0 record, S1 and S2's first step); G1 again on the tree after
-it; 0002's self-host steps 4 and 5 (the diet and memory record, then
-`make self`); 0003's stage 1 (the array purge) right after `make
-self`, which 0002's step 6 (the test runner off Chez) does not gate;
+0004's cutover, approved, before 0002's remaining self-host steps,
+because stage 1 cannot finish without it (it takes 0006's first S0
+record, S1 and S2's first step), with 0003's stage 1 (the array purge)
+in the same swarm wave by the owner's decision of 2026-10-14; G1 again
+on the tree after it; 0002's self-host steps 4 and 5 (the diet and
+memory record, then `make self`), with step 6 (the test runner off
+Chez) after them;
 then sharding (0005's P1, P2 and P4 with 0006's S-stages). After them
 the array style is the organizing principle: 0003's stages 2 to 8,
 with 0007's interpreter, 0008's tables and 0009's layouts as its
@@ -137,11 +138,7 @@ Questions only the owner can settle, each with its default taken in
 the proposal that owns it: 0001 §5 (GMP's licence, with counsel) and
 0001 §9 (whether a port's changes note names only what changed, which
 amends his D1; default yes, path and revision in PINS.md alone), 0002
-§5 (where G1's x86_64 Linux leg runs), 0006 §12 (one fact, no meaning of ours on the Chez host
-that runs stage 0, with two consequences: the compiler's Idris half
-on 0005's shards, default processes; and 0007's A3 folds, default
-that from A3 stage 0 is the native frontend of the last commit before
-A3, which stock Idris on Chez builds) and 0007 §13 (the restated forms
+§5 (where G1's x86_64 Linux leg runs), and 0007 §13 (the restated forms
 of the owner's D3 and D5 for static normalization). Every other
 question in the queue is decided.
 
@@ -179,7 +176,7 @@ force.
   Every fact Idris proves about an array has one image in MLIR, the one
   upstream optimizes on. Stage 1 purges today's array stack (about
   6,300 lines, `idr-in-bounds` among them) and rebuilds it in one hard
-  cutover, after 0004's and right after `make self`; stages 2 to 7
+  cutover, in the same swarm wave as 0004's; stages 2 to 7
   follow sharding, and stage 8 needs 0005's P4. Decided 2026-10-12,
   reconciled with 0004 on 2026-10-14; design only.
 - [0004](0004-compile-time.md): whole-program facts, a fixed optimizer,
@@ -217,10 +214,11 @@ force.
   codegen after one whole-module O3), with four of its rules (D5, D11,
   D16, D20), which 0004 now states. S2's second step, the split before
   O3, follows the cutover; S3 to S6, S8 to S10 wait as the paragraph
-  above says. One question is the owner's (§12: what a registry
-  primitive means on the Chez host that runs stage 0, for the Idris
-  half on 0005's shards, default processes, and for 0007's A3 folds,
-  default a native stage 0 from A3).
+  above says. The owner closed §12: the compiler's Idris half is
+  single-threaded until 0005's typed shards exist and then runs on
+  them from stage 1; stage 0 on Chez stays single-threaded, and from
+  0007's A3 stage 0 is the native frontend of the last commit before
+  A3.
 - [0007](0007-array-interpreter.md): the array interpreter. Static
   normalization and the type checker's evaluator as one array program
   over a hash-consed term arena, which also holds the frontend's
@@ -246,8 +244,8 @@ force.
   fork, built on 0007's arena and machine: tabled instance search, the
   rewrite ladder, a separate kernel and parallel checking. T0 is
   recorded at `make self` with 0008's O0; T3 onward follows 0007's A2;
-  T7's shard step waits on 0006 §12 (under its default, processes, it
-  is not taken); T8 is parked with 0013.
+  T7 runs definitions on 0005's shards once they exist (0006 §12, the
+  owner's decision); T8 is parked with 0013.
 - [0011](0011-self-host-features.md): the compiler features
   self-hosting asked for, each compiled away on the whole program at
   no runtime price; only megamorphic constructs stay refused. May start

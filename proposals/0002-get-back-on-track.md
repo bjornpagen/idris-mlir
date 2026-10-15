@@ -122,8 +122,8 @@ tree after 0004's cutover.
    `tests/toolchain/static-linking` covering `idris-mlir-front`; and
    AGENTS.md's Chez exception narrowed to stage 0 and the bench's
    baseline (HANDOFF.md, the 2026-10-12 state). *Decision:* this step
-   follows step 5 and does not gate 0003's stage 1, which starts right
-   after `make self` as the queue says. Reason: the runner and the array
+   follows step 5 and does not gate 0003's stage 1, which lands in 0004's
+   swarm wave, before it. Reason: the runner and the array
    stack are disjoint trees, and nothing in 0003 needs the runner off
    Chez. *Decision:* the bench's Chez column is timing only: its output
    is never compared with the reference, which this compiler's output or
@@ -329,9 +329,9 @@ machine but `make check`):
 
 - D1 (owner): this proposal first; self-hosting follows; then
   sharding. Amended 2026-10-13 (compile time inserted) and 2026-10-14
-  (0003's stage 1 after `make self`, ahead of sharding; 0004's cutover
-  before the remaining self-host steps, because stage 1 cannot finish
-  without it; see the proposals index for the queue).
+  (0004's cutover before the remaining self-host steps, because stage 1
+  cannot finish without it, with 0003's stage 1 in the same swarm wave;
+  see the proposals index for the queue).
 - D2: `foreign/idr` is an in-tree MLIR dialect in upstream's layout,
   no C++20 modules. Built.
 - D3: every rewrite is a function pass under a nested pass manager;

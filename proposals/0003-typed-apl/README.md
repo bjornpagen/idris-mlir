@@ -3,11 +3,11 @@
 **Status:** decided by the owner 2026-10-12 (§19, §21), reconciled
 2026-10-14 with 0004's pipeline cutover; design only, nothing of it is
 coded (read: no `idr.tie_shape`, `LArray` or `libs/mlir-array` in the
-tree). Stage 1 is one hard cutover with no compatibility owed. In the
-queue (proposals/README.md) it lands after 0004's cutover, which it
-builds on and which awaits the owner's approval, and right after `make
-self` (0002 §2 step 5), ahead of sharding; stages 2 to 8 follow
-sharding, in order. The tree it starts from: the cutover 0002 designed
+tree). Stage 1 is one hard cutover with no compatibility owed. By the owner's
+decision of 2026-10-14, stage 1 lands in the same swarm wave as 0004's
+cutover, which it builds on and which the owner approved the same day:
+one wave, every lane started at once, against contracts both designs
+fix in the packet; stages 2 to 8 follow sharding, in order. The tree it starts from: the cutover 0002 designed
 is committed and builds on arm64 macOS. Its gate there was green before
 the opt-in SCC pipeline (7a27fd34: `make check` 26/26, `make test-idr`
 286/286, `make test` 415/415) and at 552d682a, which added that opt-in,
@@ -16,9 +16,8 @@ default off, with 0001's licenses gate (27/27, 286/286, 415/415);
 default path (read: HANDOFF.md, 0002's status). 0004's cutover deletes
 the opt-in and the rounds, and must reproduce the rounds' 415/415.
 `make check` is 27/27 at ccaba89c (*measured* on the typecheck machine,
-2026-10-14). x86_64 Linux is NotRun; `make self` is recorded on both
-targets before stage 1 starts (0002 §2 step 5), and stage 1, like every
-stage, is done only when it passes on both. Where 0004 now owns a topic
+2026-10-14). x86_64 Linux is NotRun; stage 1, like every stage, is done only when it
+passes on both targets. Where 0004 now owns a topic
 (the pipeline's order and how a function is cleaned, promises as facts
 of the library's types, names from content, refusals as structured
 data, budgets that never reject, measurement, the upstream queue), this

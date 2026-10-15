@@ -586,13 +586,21 @@ per worker at a memory cost nobody has measured, against a contention
 nobody has measured, and 0004's one context already runs every nested
 pipeline in parallel.
 
-**The Idris half (§12's open question; default taken):** parallel by
-processes the C++ driver starts, over the child-process boundary that
-exists today (`lib/Driver/Compile.cpp:3-4`, *read*: "the frontend and the
-link as child processes, the pipeline and LLVM in process"): one process
-per Idris module for phase 1 and, at S8, worker processes that take
-Translate's ranges longest first (§7, D18), the same at every stage of
-`make self`. Summaries and units cross as files: 0009's columnar
+**The Idris half (decided by the owner, 2026-10-14):** single-threaded
+until 0005's typed shard framework exists, then 0005's thread-per-core
+shards, the same architecture user programs get: one shard per core,
+each with its own heap and world, linear messages between them, no shared
+mutable state (0005 §1). It is not parallel by processes. Reason: one
+parallel model for programs and for the compiler, built on the linearity
+this compiler exists to exploit, rather than a second, process-based one
+only the compiler uses. Until the framework lands the frontend runs on
+one thread, at every stage of `make self`. Stage 0 runs the frontend on
+Chez (`tools/self.sh:13-14`), where a runtime primitive of ours has no
+meaning and AGENTS.md forbids shaping a feature for Chez, so stage 0
+stays single-threaded for good; the shards serve stage 1 and later,
+whose frontend this compiler built. Summaries and units still cross the
+child-process boundary to the C++ driver that exists today
+(`lib/Driver/Compile.cpp:3-4`, *read*) as files: 0009's columnar
 relations, whose id columns the reader checks once against their
 tables' extents (0009 D11), and MLIR bytecode; never packed buffers,
 whose offsets would need a checking walk. The boundary is one bytecode
@@ -602,7 +610,7 @@ text module.
 **Translation units at S8** (*decision*, D18). The frozen instance set,
 sorted by key, is cut into contiguous ranges of about 2^15 Core nodes
 each, sized by the subtree sizes 0008's tables store (0008 D8), so the
-count follows size and never the process count (D4). Each process
+count follows size and never the process count (D4). Each shard
 writes one bytecode file per range. The driver reads every file into
 the one `MLIRContext` without verifying it alone
 (`ParserConfig(context, verifyAfterParse = false)`,
@@ -631,8 +639,7 @@ the C++ half.
 
 ### 5.5 Large read-only facts across workers
 
-A worker shares no heap with another: 0005's shards have none, and
-processes have none. A large frozen table copied to every worker is
+A worker shares no heap with another: 0005's shards have none. A large frozen table copied to every worker is
 serial work on the sender, and 0005's `lent` waits on its measurement
 rule (0005 D10: built when detach walks exceed 5% of wall).
 **Decision (D8):** ship slices, not tables. Each unit carries only its
@@ -712,9 +719,9 @@ nothing hits (wpas §2).
 
 ## 7. Using 0003 and 0005 inside the compiler
 
-**0005's rules, applied to the compiler's workers** (processes by §12's
-default; the same rules hold for in-language shards if the owner
-chooses them):
+**0005's rules, applied to the compiler's workers** (0005's shards on
+the Idris side from stage 1, by the owner's decision in §12; the C++
+side's thread pool):
 
 - Pure work is deterministic and equal to the sequential run (0005 D2),
   which D1 needs: a worker's output is a function of its input files.
@@ -806,8 +813,8 @@ serial share; it is never lowered quietly.
   from run to run, and `--num-threads` is the one knob (0004 §6, Kept).
   This supersedes the earlier "randomized placement and message delays".
 - **Static linking, both targets, no new runtime library:** no OpenMP,
-  TBB or async runtime; processes on the Idris side, LLVM's thread pool
-  on the C++ side.
+  TBB or async runtime; 0005's shards on the Idris side, LLVM's thread
+  pool on the C++ side.
 - **Reject with a named rule:** refusals are decided in phase 2 by D2's
   rounds, each naming the least key its round rejects, so a refusal
   names the same cause on every schedule (D5).
@@ -897,39 +904,31 @@ stage keeps a differential mode or the replaced form in the binary.
   no rule with 0004's bins (D18).
 - **A schedule-perturbing mode in the compiler:** an option (0004 D2).
 
-## 12. Open question, with the defaults taken
+## 12. Questions closed by the owner
 
 1. **What a registry primitive means on the Chez host that runs stage
-   0.** `make self`'s stage 0 runs the frontend on Chez
-   (`tools/self.sh:13-14`), where a runtime primitive of ours has no
-   meaning, and AGENTS.md forbids shaping a feature so that Chez can run
-   it. The one fact has two consequences, so they are one question.
-   - *The compiler's Idris half on 0005's shards.* `libs/mlir-shard`'s
-     operations are runtime primitives of the registry with no Idris
-     body (0005 §7.1, D13), so the frontend's own source cannot call
-     them while stage 0 runs it. 0003's stage 1 does not meet the
+   0, and what follows from it.** Decided by the owner (2026-10-14): a
+   primitive of ours keeps no meaning on Chez, and nothing is shaped so
+   that Chez can run it. Its two consequences:
+   - *The compiler's Idris half runs on 0005's shards* (§5.4): single
+     threaded until 0005's typed shard framework exists, then on its
+     thread-per-core shards with linear messages, from stage 1 on.
+     Stage 0, on Chez, stays single-threaded. `libs/mlir-shard`'s
+     operations are runtime primitives of the registry with no Idris body
+     (0005 §7.1, D13), which is exactly why stage 0 cannot use them and
+     the self-hosted stages can. 0003's stage 1 does not meet the
      question: `LArray` has no primitive of its own, and the fork's
      `Table` moves onto base's `Data.IOArray` (0003 D37, D38).
-     **Default:** the Idris half is parallel by processes (§5.4), the
-     same at every stage, and in-language shards serve user programs
-     only.
    - *0007's A3 folds.* From A3 the frontend's normalizer folds a
      primitive by calling `runtime/` (0007 §5), which stage 0 on Chez
      cannot do, and a fold computed with Chez's meaning (upstream/18
      records `"+inf.0"` against the runtime's `inf`) would land in
      stage 1, against AGENTS.md's rule that a primitive's one meaning is
-     the runtime's. **Default:** from A3 on, `make self`'s stage 0 is
-     the native frontend built from the last commit before A3; stock
-     Idris on Chez builds only that commit's frontend, which then
-     compiles the current source natively, so no fold ever runs on Chez
-     and no host test enters the interpreter (0007 §7). Under this
-     default, stage 0 no longer runs the current source on Chez after
-     A3, so the first item's reason falls with it then; S8 may then use
-     0005's shards by the same rules (§7), in a change that records it.
-   The owner may instead decide that registry primitives get a meaning
-   on the Chez host for stage 0, which AGENTS.md would then have to
-   allow; S8 would then use 0005's shards with the same rules (§7), and
-   A3 would fold on the host's meaning.
+     the runtime's. So from A3 on, `make self`'s stage 0 is the native
+     frontend built from the last commit before A3; stock Idris on Chez
+     builds only that commit's frontend, which then compiles the current
+     source natively, so no fold ever runs on Chez and no host test
+     enters the interpreter (0007 §7).
 
 Closed since the earlier text: the hash and its width (D16, §4.5),
 memory per C++ worker (D7 and S6's rule), the largest SCC (24 of 28,276

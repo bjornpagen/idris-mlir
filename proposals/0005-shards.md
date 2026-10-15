@@ -17,9 +17,10 @@ there), so P2's epoll half targets a system that has not yet run it.
 
 Sharding follows 0003's stage 1, which follows self-hosting: P1, P2
 and P4 are that work, in order. 0006's S0, S1 and S2's first step are
-taken by 0004's cutover, before any of it. Whether the compiler's own
-Idris half runs on these shards is 0006's open question; its default is
-processes, so these stages serve user programs first (0006 §5.4, §12).
+taken by 0004's cutover, before any of it. The compiler's own Idris
+half runs on these shards too, by the owner's decision (0006 §5.4, §12):
+single-threaded until this framework exists, then on its shards from
+stage 1 of `make self`; stage 0 runs on Chez and stays single-threaded.
 P3 (asynchronous Rust) is parked with proposal 0013, which it needs. P5
 stays on its measurements. Runtime and compiler paths were re-read at
 3de67510 on 2026-10-14 and again at ccaba89c, where the code is
@@ -1229,5 +1230,7 @@ meaning, the runtime's, and an Idris body beside it would be a second
 meaning that differs wherever effects interleave. Consequence: no
 program runs these operations on a host without this runtime, Chez
 included, which AGENTS.md already says no feature is shaped for. The
-compiler's own Idris half is therefore parallel by processes until the
-owner decides otherwise (0006 §12, whose default that is).
+compiler's own Idris half is therefore single-threaded until these
+shards exist and then runs on them, from stage 1 of `make self`; stage
+0, on Chez, stays single-threaded (0006 §5.4, §12, the owner's
+decision).

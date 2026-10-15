@@ -22,10 +22,9 @@ a ratio to T0's elaboration figure, 0008's O0 takes that figure from
 it, and 0007 decides its TTC format on T0's share of TTC loading (0007
 §3). A0 needs only `make self` (0007's status). T3 onward builds on
 0007's A2 (the fork's checker on the machine), which in the queue
-follows sharding's first stages (proposals index). T7's last step,
-definitions on 0005's shards, is taken only if the owner decides 0006
-§12 for shards; under its default (processes) it is not, and
-definitions inside a module stay serial. T8 is parked with 0013.
+follows sharding's first stages (proposals index). T7 runs definitions on
+0005's shards once that framework exists (0006 §12, the owner's
+decision); until then elaboration is single-threaded. T8 is parked with 0013.
 
 **Goal.** The fork's elaborator (`compiler/idris`, upstream Idris 2's,
 now our code) becomes a type checker that is faster than Lean 4 and F*
@@ -373,36 +372,37 @@ the kernel checks.
 
 ### 2.7 Parallelism (adopted where independent; GPU rejected for now)
 
-- **What runs in parallel.**
-  - Modules check in dependency order, each in a process of its own.
-    The fork already builds each module from a cleared context that holds
-    only its imports (`buildMod`, `Idris/ModTree.idr:203-204`, a fresh
-    unification state at `:223`), and today checks a package's modules
-    one after another in one process (`buildMods`, `:243-252`), *read*.
-  - Definitions whose signatures are known check independently, on
-    0005's shards, if the owner decides 0006 §12 for them: the fork is
-    the compiler's Idris half, which 0006 §12's default (processes) and
-    0005 D13 keep off the shards, since stage 0 runs it on Chez, where a
-    shard primitive has no meaning. Under that default, definitions
-    inside a module stay serial.
-- **Who starts what** (*decision*). The module processes are started by
-  the C++ driver, which already runs the frontend as a child
-  (`foreign/idr/lib/Driver/Compile.cpp:50`, `llvm::sys::ExecuteAndWait`),
-  never by Idris code: process creation is outside the language
+- **What runs in parallel** (*decision*, the owner's, 0006 §12). The
+  fork is the compiler's Idris half, and the compiler's Idris half runs
+  on 0005's thread-per-core shards, with linear messages, once that typed
+  shard framework exists; until then elaboration is single-threaded.
+  Stage 0 runs the fork on Chez, where a shard primitive has no meaning
+  (0005 D13), so stage 0 stays single-threaded for good.
+  - Modules check in dependency order as shard work. The fork already
+    builds each module from a cleared context that holds only its imports
+    (`buildMod`, `Idris/ModTree.idr:203-204`, a fresh unification state
+    at `:223`), and today checks a package's modules one after another in
+    one process (`buildMods`, `:243-252`), *read*.
+  - Definitions whose signatures are known check independently, as
+    shard work, once generated names come from content (below).
+- **Who starts what** (*decision*). Nothing starts a process or a thread
+  but the runtime's shards: process creation is outside the language
   (`compiler/src/IdrisMLIR/Rule.idr:34-35`, AGENTS.md), and so are
-  threads (`Rule.idr:21-23`), which is why definitions wait for 0005's
+  threads (`Rule.idr:21-23`), which is why elaboration waits for 0005's
   shards, one single-threaded runtime per core, rather than run on
-  threads of one process.
+  threads of one process or on processes the C++ driver starts. The
+  driver still runs the frontend as one child
+  (`foreign/idr/lib/Driver/Compile.cpp:50`, `llvm::sys::ExecuteAndWait`).
 - **Names** (*decision*). The fork names what it generates (metas,
   case and with blocks, variables) from one counter (`nextName`,
   `Core/UnifyState.idr:102, 160-200`), saved in the TTC
   (`Core/Binary.idr:347`), *read*. The counter restarts for each module
   (`resetNextVar`, `Idris/ProcessIdr.idr:310`) and then takes the value
   its last import saved (`Core/Binary.idr:545`), so a module's names are
-  a function of its inputs and module processes leave TTCs byte for
+  a function of its inputs and modules checked in parallel leave TTCs byte for
   byte as they are. Definitions checked in parallel inside one module
-  would let the schedule reach names and TTC bytes. So T7, if it takes
-  the shard step, derives each generated name from its definition,
+  would let the schedule reach names and TTC bytes. So T7, before its
+  shard step, derives each generated name from its definition,
   never from a counter shared between definitions, before definitions
   run in parallel: 0004 §1's
   rule, names from content and never from counters, which holds in the
@@ -458,8 +458,8 @@ the kernel checks.
 - **No option selects behaviour** (0004 D2); a stage is measured old
   binary against new from the same inputs (0004 §10). `--timing` writes
   a record and selects nothing.
-- **No process or thread in Idris code** (AGENTS.md); parallelism is the
-  driver's processes and 0005's shards (§2.7).
+- **No process or thread in Idris code** (AGENTS.md); parallelism is
+  0005's shards (§2.7).
 - **Whole-program compilation,** and both targets.
 
 ## 4. Staged plan, each stage with its proof
@@ -472,13 +472,14 @@ the kernel checks.
 | T4 | the rewrite ladder (§2.4; no `Nat` normalisation) | upstream's rewrite failures listed in tests become passes; 0003's shape-equality corpus elaborates with the library tactic within 0003's 1 s per obligation; identical TTCs where upstream succeeds |
 | T5 | the kernel apart from elaboration, holding the one conversion | every TTC of base, `libs/`, the fork and the frontend re-checked by the kernel alone in under 10% of elaborating them on the same binary; a seeded ill-typed term per typing rule refused by name |
 | T6 | (moved: the interpreter's array path is 0007's A4) | |
-| T7 | parallel elaboration: modules on the driver's processes; then, only under 0006 §12's other answer, names per definition and definitions on 0005's shards | processes: TTCs byte-identical to T5's at 1, 2 and 8 processes, wall time on base recorded; names and shards, if taken: TTCs identical to the stage before's up to generated names, identical at 1, 2 and 8 shards, wall time on base ≤ 1.5 / cores of T5's |
+| T7 | parallel elaboration: names derived per definition, then definitions on 0005's shards once they exist (0006 §12, the owner's decision); single-threaded until then | names: TTCs identical to T5's up to generated names; shards: TTCs identical at 1, 2 and 8 shards, wall time on base ≤ 1.5 / cores of T5's |
 | T8 | certificates from SAT/SMT, checked as terms; parked with 0013 (§2.5) | a fixture where the search succeeds and the kernel checks the result |
 
-The order within T7 is a *decision*: module processes change no byte
-(§2.7, "Names"), so they land first, proved byte for byte, which is the
-order 0006's S8 reads (one process per module, "processes first"); the
-name change lands with the step that needs it.
+The order within T7 is a *decision*: generated names are derived from
+content first (§2.7, "Names"), proved by TTCs identical up to those
+names, so the shard step that follows cannot let the schedule reach
+names or TTC bytes; the shard step lands when 0005's typed shards
+exist, by the owner's decision (0006 §12).
 
 The headline target, *conjecture until measured*: faster elaboration
 than Lean 4 and F*, on the same machine on both targets, first on
@@ -537,11 +538,11 @@ language has no inductive types.
 - D3. Solvers search; the kernel checks; nothing is trusted.
 - D4. A separate small kernel, which re-checks every TTC apart from
   elaboration; no independent second checker (§2.6).
-- D5. Parallelism by modules on the driver's processes; by
-  definitions on 0005's shards, after names stop coming from a counter
-  shared between definitions, only if the owner decides 0006 §12 for
-  shards (its default, processes, keeps definitions serial); no process
-  or thread in Idris code; GPU deferred until measured (§2.7).
+- D5. Parallelism on 0005's shards, by the owner's decision (0006 §12):
+  modules, then definitions once names stop coming from a counter shared
+  between definitions; single-threaded until the shard framework exists,
+  and at stage 0 for good; no process or thread in Idris code; GPU
+  deferred until measured (§2.7).
 - D6. The relational core is proposal 0012's library, not a copy here;
   tabled search does not use it (§2.3).
 - D7. One language: conversion is upstream's; the elaborator may succeed
