@@ -1,25 +1,22 @@
-// RUN: rm -rf %t.kept %t.spec && mkdir -p %t.kept %t.spec
-// RUN: idris-mlir -c %s -o %t.kept.o --dump-dir=%t.kept --mlir-disable-threading -mlir-debug-counter=idr-specialize-clone-count=0 -mlir-print-debug-counter 2> %t.kept.err
-// RUN: cat %t.kept/*-idr-simplify.mlir | FileCheck %s --check-prefix=KEPT
+// RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize --mlir-disable-threading -mlir-debug-counter=idr-specialize-clone-count=0 -mlir-print-debug-counter -o %t.kept.mlir 2> %t.kept.err
+// RUN: FileCheck %s --check-prefix=KEPT < %t.kept.mlir
 // RUN: FileCheck %s --check-prefix=COUNTED < %t.kept.err
-// RUN: idris-mlir -c %s -o %t.spec.o --dump-dir=%t.spec
-// RUN: cat %t.spec/*-idr-simplify.mlir | FileCheck %s --check-prefix=SPEC
-// RUN: %cc %t.kept.o -o %t
-// RUN: echo -n a | %t | FileCheck %s --check-prefix=OUT
-// Specializing a call, its clone made or shared and the call redirected to
-// it, is the action idr-specialize-clone. With MLIR's debug counter at 0
-// every such action is skipped: the call of @pow on the closure of @inc
-// stays a call of @pow, and runs to the same result. Without the counter
-// it calls a clone. The function step of the simplify round redirects on
-// worker threads, and MLIR's debug counter counts on one thread only, so
-// the counter runs with threading off.
-// KEPT-NOT: .spec
+// RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.spec.mlir
+// RUN: FileCheck %s --check-prefix=SPEC < %t.spec.mlir
+// RUN: %status 2 idris-mlir -c %s -o %t.o -mlir-debug-counter=idr-specialize-clone-count=0
+// NEEDS-ACCEPTANCE: that skipping the action idr-specialize-clone (C09) leaves the call of @pow.
+// Making a specialization node, and redirecting a call to it, is the
+// action idr-specialize-clone. In idris-mlir-opt, where experiments live,
+// MLIR's debug counter at 0 skips every such action: the call of @pow on
+// the closure of @inc stays a call of @pow. Without the counter it calls
+// a copy. MLIR's debug counter counts on one thread only, so the counter
+// runs with threading off. idris-mlir has no debug counter: a counter that
+// skips actions would change the program it compiles, and the option is
+// unknown there.
 // KEPT: call @pow(
-// KEPT-NOT: .spec
 // COUNTED: idr-specialize-clone{{ +}}: {{[{][1-9][0-9]*}},0,0}
-// SPEC: call @pow.spec{{[0-9]+}}(
-// OUT: 194
-module attributes {idr.program} {
+// SPEC-NOT: call @pow(
+module {
   idr.func private @inc(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64
     %y = arith.addi %x, %c1 : i64

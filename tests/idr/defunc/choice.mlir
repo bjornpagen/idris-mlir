@@ -1,16 +1,14 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
+// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches, as C01's printer and C06's conversion write them.
 // A function picked at runtime between two labels, one with a capture: the
 // closure type becomes a sum with a constructor per label, whose fields are
 // the captures, and the application a match that calls the label. What is
 // left is no closure.
-// CHECK: idr.data @[[F0:fn\$[0-9]+]] closures {
-// CHECK-NEXT: idr.ctor @add (i64)
-// CHECK-NEXT: idr.ctor @dbl ()
-// CHECK-NEXT: }
+// CHECK: ![[F0:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@add(i64), @dbl()]
 // CHECK-NOT: !idr.fn
-module attributes {idr.program} {
+module {
   idr.func private @add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64
     return %y : i64
@@ -21,8 +19,8 @@ module attributes {idr.program} {
   }
   // CHECK-LABEL: idr.func private @pick(
   // CHECK-SAME: -> ![[F0]]
-  // CHECK: con @[[F0]]::@add(%{{.*}}) : (i64) -> ![[F0]]
-  // CHECK: con @[[F0]]::@dbl() : () -> ![[F0]]
+  // CHECK: con @add(%{{.*}}) : (i64) -> ![[F0]]
+  // CHECK: con @dbl() : () -> ![[F0]]
   idr.func private @pick(%n: i64) -> !idr.fn<(i64) -> (i64)> attributes {total} {
     %r = idr.match_lit %n : i64 -> (!idr.fn<(i64) -> (i64)>) {
     case 0 {

@@ -6,17 +6,12 @@
 // CHECK-DAG: llvm.mlir.constant(2 : i64) : i64
 // CHECK-DAG: llvm.mlir.constant(3 : i64) : i64
 // CHECK: return %{{.*}}, %{{.*}}, %{{.*}} : i8, i64, i64
-module attributes {idr.program} {
-  idr.data @Step {
-    idr.ctor @Done (i64)
-    idr.ctor @Bind (i64, i64)
-  }
-  idr.data @IO {
-    idr.ctor @MkIO (!idr.lin<!idr.data<@Step>>)
-  }
-  idr.func private @action() -> !idr.data<@IO> {
-    %c = idr.constant #idr.con<@IO::@MkIO, [#idr.con<@Step::@Bind, [2, 3]>]> : !idr.data<@IO>
-    return %c : !idr.data<@IO>
+!Step = !idr.data<"Step", plain [@Done(i64), @Bind(i64, i64)]>
+!IO = !idr.data<"IO", plain [@MkIO(!idr.lin<!Step>)]>
+module {
+  idr.func private @action() -> !IO {
+    %c = idr.constant #idr.con<@MkIO, [#idr.con<@Bind, [2, 3]>]> : !IO
+    return %c : !IO
   }
   idr.func @Prog.main() -> i64 {
     %z = arith.constant 0 : i64

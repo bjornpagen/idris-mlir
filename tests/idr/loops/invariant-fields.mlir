@@ -11,43 +11,37 @@
 // CHECK-NOT: {{(idr\.| )field }}
 // CHECK: scf.while
 // CHECK: } do {
-// CHECK: field %{{.*}}[@Big, 2] : !T -> i64
+// CHECK: field %{{.*}}[@Big, 2] : !idr.box<!T> -> i64
 // CHECK-LABEL: idr.func private @spinPair(
 // CHECK: field %{{.*}}[@MkP, 1] : !P -> i64
 // CHECK: scf.while
-module attributes {idr.program} {
-  idr.data @T box {
-    idr.ctor @Small ()
-    idr.ctor @Big (i64, i64, i64, !idr.box<@T>)
-  }
-  idr.data @P {
-    idr.ctor @NoP ()
-    idr.ctor @MkP (i64, i64)
-  }
+!T = !idr.data<"T", plain [@Small(), @Big(i64, i64, i64, !idr.box<!idr.data<"T">>)]>
+!P = !idr.data<"P", plain [@NoP(), @MkP(i64, i64)]>
+module {
   // Ends at once on Small; on a Big it goes round for ever, adding its
   // third field, which does not change from one round to the next.
-  idr.func private @spin(%t: !idr.box<@T>, %acc: i64) -> i64 {
-    %r = idr.match %t : !idr.box<@T> -> (i64) {
+  idr.func private @spin(%t: !idr.box<!T>, %acc: i64) -> i64 {
+    %r = idr.match %t : !idr.box<!T> -> (i64) {
     case @Small() {
       idr.yield %acc : i64
     }
-    case @Big(%a: i64, %b: i64, %c: i64, %rest: !idr.box<@T>) {
+    case @Big(%a: i64, %b: i64, %c: i64, %rest: !idr.box<!T>) {
       %s = arith.addi %acc, %c : i64
-      %n = idr.call @spin(%t, %s) : (!idr.box<@T>, i64) -> i64
+      %n = idr.call @spin(%t, %s) : (!idr.box<!T>, i64) -> i64
       idr.yield %n : i64
     }
     }
     return %r : i64
   }
   // The same on a sum.
-  idr.func private @spinPair(%p: !idr.data<@P>, %acc: i64) -> i64 {
-    %r = idr.match %p : !idr.data<@P> -> (i64) {
+  idr.func private @spinPair(%p: !P, %acc: i64) -> i64 {
+    %r = idr.match %p : !P -> (i64) {
     case @NoP() {
       idr.yield %acc : i64
     }
     case @MkP(%x: i64, %y: i64) {
       %s = arith.addi %acc, %y : i64
-      %n = idr.call @spinPair(%p, %s) : (!idr.data<@P>, i64) -> i64
+      %n = idr.call @spinPair(%p, %s) : (!P, i64) -> i64
       idr.yield %n : i64
     }
     }
@@ -55,10 +49,10 @@ module attributes {idr.program} {
   }
   idr.func @root(%w: !idr.world) -> !idr.world {
     %z = arith.constant 0 : i64
-    %small = idr.constant #idr.con<@T::@Small, []> : !idr.box<@T>
-    %s = idr.call @spin(%small, %z) : (!idr.box<@T>, i64) -> i64
-    %nop = idr.constant #idr.con<@P::@NoP, []> : !idr.data<@P>
-    %q = idr.call @spinPair(%nop, %z) : (!idr.data<@P>, i64) -> i64
+    %small = idr.constant #idr.con<@Small, []> : !idr.box<!T>
+    %s = idr.call @spin(%small, %z) : (!idr.box<!T>, i64) -> i64
+    %nop = idr.constant #idr.con<@NoP, []> : !P
+    %q = idr.call @spinPair(%nop, %z) : (!P, i64) -> i64
     %sq = arith.addi %s, %q : i64
     %w1 = idr.io.put_int signed %sq, %w : i64
     return %w1 : !idr.world

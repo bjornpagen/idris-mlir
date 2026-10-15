@@ -5,7 +5,7 @@
 // in the loop of a function that is not total, and nothing asserts forward
 // progress, so neither MLIR nor LLVM deletes it. The program is still
 // running when its time is up.
-module attributes {idr.program} {
+module {
   idr.func private @Prog.spin(%n: i64) -> i64 {
     %c1 = arith.constant 1 : i64
     %m = arith.addi %n, %c1 : i64

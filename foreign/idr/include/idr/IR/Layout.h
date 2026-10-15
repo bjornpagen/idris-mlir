@@ -2,9 +2,9 @@
 // Copyright (c) 2026 Bjorn Pagen
 // How idr values are represented at runtime, as the runtime (idris_rt.h)
 // reads them: the cells of boxes, memo sums and arrays and the slots of
-// unboxed sums, decided once per module for its target (Layouts); and the
-// boxes that make every cell's object slots fit its header (fit), which
-// idr-defunctionalize decides once the module's types are final.
+// sums held in place, decided once per module for its target (Layouts);
+// and the boxes that make every cell's object slots fit its header (fit),
+// which idr-defunctionalize decides once the module's types are final.
 
 #ifndef IDR_IR_LAYOUT_H
 #define IDR_IR_LAYOUT_H
@@ -15,15 +15,15 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/AnalysisManager.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
-#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/StringMap.h"
 
 #include "idris_rt.h"
 
 #include <expected>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -103,16 +103,17 @@ struct Element {
   CellInfo info;
 };
 
-// An unboxed sum spread over scalar slots. A slot that holds a counted
-// component in one constructor (a pointer to a cell, or a big) holds one in
-// every constructor that uses it, and null in those that do not, so that the
-// references of a sum are exactly its counted slots.
+// A sum held in place, spread over scalar slots. A slot that holds a
+// counted component in one constructor (a pointer to a cell, or a big)
+// holds one in every constructor that uses it, and null in those that do
+// not, so that the references of a sum are exactly its counted slots.
 struct SumLayout {
   mlir::Type tag; // null when the type has at most one constructor
   llvm::SmallVector<mlir::Type> slots;
   llvm::SmallVector<bool> counted; // for each slot
-  // For each constructor name: for each field, the slots of its components.
-  llvm::StringMap<llvm::SmallVector<llvm::SmallVector<unsigned>>> fields;
+  // For each constructor, by tag: for each field, the slots of its
+  // components.
+  llvm::SmallVector<llvm::SmallVector<llvm::SmallVector<unsigned>>> fields;
 
   // The tag, if any, then the slots.
   llvm::SmallVector<mlir::Type> types() const {
@@ -131,16 +132,18 @@ struct SumLayout {
 // The sums are computed as they are asked for, on one thread.
 class Components {
 public:
-  // The components of the values of `m`, by its declarations as they are
-  // now: a declaration that changes after this is not seen.
-  explicit Components(mlir::ModuleOp m);
-
-  // The declaration named `name`, or null.
-  DataOp declaration(mlir::StringAttr name) const;
+  // The components of the values of `m`. `boxed` are data types measured
+  // as if every value or field that holds one in place held a box of it
+  // instead: what fit weighs before it makes the boxes.
+  explicit Components(mlir::ModuleOp m, llvm::ArrayRef<DataType> boxed = {});
 
   // The runtime components of a value type: none for !idr.world, the slots
-  // of an unboxed sum, one pointer for strings, boxes (memo cells included)
-  // and reuse tokens, one i64 for bigs, the type itself for scalars. A
+  // of a sum held in place, one pointer for strings, boxes (memo cells
+  // included) and reuse tokens, one i64 for bigs, the type itself for
+  // scalars; for an array, the fields of its descriptor its type does not
+  // fix: the cell, then the offset of a strided layout's that is dynamic,
+  // each dynamic size, and each dynamic stride of a strided layout (the
+  // element-0 pointer is the cell's past its header, never carried). A
   // !idr.fn that idr-defunctionalize leaves is a value the program never
   // reaches, and it is still lowered, as one pointer.
   llvm::SmallVector<mlir::Type> components(mlir::Type type);
@@ -153,28 +156,26 @@ public:
   unsigned objects(mlir::Type type);
   unsigned objects(llvm::ArrayRef<mlir::Type> types);
 
-  // The layout of the unboxed sum named `name`, computed once.
-  const SumLayout &sum(mlir::StringAttr name);
+  // The layout of the sum `type` held in place, computed once.
+  const SumLayout &sum(DataType type);
 
   mlir::ModuleOp getModule() const;
 
 protected:
-  using SumOf = llvm::function_ref<const SumLayout &(mlir::StringAttr)>;
+  using SumOf = llvm::function_ref<const SumLayout &(DataType)>;
   // The answers of components and counted, each sum read from `sumOf`.
   llvm::SmallVector<mlir::Type> componentsWith(mlir::Type type, SumOf sumOf) const;
   llvm::SmallVector<bool> countedWith(mlir::Type type, SumOf sumOf) const;
-  // The layout of the sum named `name` if it has been computed, or null.
-  const SumLayout *computed(mlir::StringAttr name) const;
+  // The layout of the sum `type` if it has been computed, or null.
+  const SumLayout *computed(DataType type) const;
 
   mlir::ModuleOp module;
 
 private:
-  // Resolved once, so that measuring a module is linear in what it
-  // measures: a lookup in the module scans its body.
-  llvm::DenseMap<mlir::StringAttr, DataOp> decls;
+  llvm::DenseSet<DataType> asBoxes;
   // Each layout has its own allocation, so that a reference to one stays
   // valid while others are computed.
-  llvm::DenseMap<mlir::StringAttr, std::unique_ptr<SumLayout>> sums;
+  llvm::DenseMap<DataType, std::unique_ptr<SumLayout>> sums;
 };
 
 // Whether `data` may become a box without changing what an op already in
@@ -182,39 +183,42 @@ private:
 // the constructor it has, so the read stays within its own live cell
 // wherever it runs. A closure sum is made by idr-defunctionalize, which
 // reads it only through idr.match. A sum of several constructors may
-// already be read where its constructor is unknown (a read of an unboxed
-// sum may run anywhere), which a box would turn into a load past the end
-// of a smaller cell.
-bool boxable(DataOp data);
+// already be read where its constructor is unknown (a read of a sum held
+// in place may run anywhere), which a box would turn into a load past the
+// end of a smaller cell.
+bool boxable(DataType data);
 
 // The cells whose header counts the object slots of what they hold spread
-// over their own: each constructor of a box (a memo sum's states among
-// them), and each element of an array of an unboxed sum.
+// over their own: each constructor of a data type some value holds in a
+// box (a memo sum's states among them), and each element of an array of a
+// sum held in place.
 class Holders {
 public:
-  // The holders of `m`: its array element types are found once, here.
-  explicit Holders(mlir::ModuleOp m);
+  // The holders of `m`, found once, here; `boxed` are held in boxes too,
+  // as fit weighs them.
+  explicit Holders(mlir::ModuleOp m, llvm::ArrayRef<DataType> boxed = {});
 
   // Calls `each` with every holder whose cell counts more object slots
-  // than a header can, as `parts` measures the declarations now: the
-  // constructor or the element's declaration, what it holds, and how many
-  // object slots that takes.
+  // than a header can, as `parts` measures the types: the data type and
+  // the constructor's tag, or the element's data type and no tag, what it
+  // holds, and how many object slots that takes.
   void overflows(Components &parts,
-                 llvm::function_ref<void(mlir::Operation *at, llvm::ArrayRef<mlir::Type> held,
-                                         unsigned objects)>
+                 llvm::function_ref<void(DataType type, std::optional<unsigned> tag,
+                                         llvm::ArrayRef<mlir::Type> held, unsigned objects)>
                      each);
 
 private:
-  mlir::ModuleOp module;
-  // The declarations whose values are array elements.
-  llvm::SetVector<DataOp> elements;
+  // The data types some value holds in a box, in name order.
+  llvm::SmallVector<DataType> boxes;
+  // The data types whose values are array elements, in name order.
+  llvm::SmallVector<DataType> elements;
 };
 
-// Makes boxes of records and closure sums until no cell that holds one
-// counts more object slots than its header can, the widest first (ties by
-// name), and retypes their values in the module; returns how many it made.
-// A cell that still overflows does so by fields no box can shrink, which
-// Layouts reports.
+// Decides the boxes that make every cell fit its header, the widest first
+// (ties by name), each weighed as if the ones before were boxes already,
+// then makes them with one DataRemap of kind `box`, which retypes the
+// module; returns how many it made. A cell that still overflows does so by
+// fields no box can shrink, which Layouts reports.
 unsigned fit(mlir::ModuleOp module);
 
 // idr's comparison of two values held as words, as a signed comparison of
@@ -231,14 +235,14 @@ namespace idr {
 // in, and what the owned stage and idr-stack size cells by. Every sum and
 // every boxed constructor's cell is computed by the constructor, and
 // nothing changes after it, so passes running in parallel read it without
-// a lock. It holds while no idr.data changes.
+// a lock. A data type's body never changes, so it holds while the module's
+// values keep their types.
 class Layouts : public layout::Components {
 public:
   // The layouts of `module`, for the target its data layout describes
   // (dlti.dl_spec; MLIR's defaults without one). Every cell's header is
   // decided here, once: a cell that holds more than its header can describe
-  // gets an `unsupported (layout)` error at its constructor, and valid()
-  // fails. After idr-defunctionalize, every record or closure sum that
+  // is refused by the rule `layout`, and valid() fails. After idr-defunctionalize, every record or closure sum that
   // would make a cell holding it overflow is a box (fit), so such a cell
   // is a constructor's own fields, or the fields of a sum of several
   // constructors that it holds. A target whose pointers are not the
@@ -258,7 +262,7 @@ public:
   llvm::SmallVector<bool> counted(mlir::Type type) const;
   unsigned objects(mlir::Type type) const;
   unsigned objects(llvm::ArrayRef<mlir::Type> types) const;
-  const layout::SumLayout &sum(mlir::StringAttr name) const;
+  const layout::SumLayout &sum(DataType type) const;
 
   // The bytes a component of type `component` takes in a cell, and the
   // alignment it is placed at, as the target lays it out.
@@ -270,10 +274,11 @@ public:
   // cannot hold.
   std::expected<layout::Element, std::string> element(mlir::Type element) const;
 
-  // The cell of a boxed constructor. A memo sum's constructor gives the
-  // cell in that state, at the size of the sum's largest state, which every
-  // cell of the sum is allocated at.
-  const layout::Cell &box(CtorOp ctor) const;
+  // The cell of the constructor `tag` of `type`, a data type some value
+  // holds in a box. A memo sum's constructor gives the cell in that state,
+  // at the size of the sum's largest state, which every cell of the sum is
+  // allocated at.
+  const layout::Cell &box(DataType type, unsigned tag) const;
 
   // Whether `type` is a box of a memo sum, whose cell a force may write.
   bool isMemo(mlir::Type type) const;
@@ -287,11 +292,11 @@ private:
       const;
 
   bool fits = true;
-  // The size and alignment of every component type the declarations hold,
+  // The size and alignment of every component type the data types hold,
   // measured once with the module's data layout, whose own answers are
   // remembered as they are asked and so cannot be shared between threads.
   llvm::DenseMap<mlir::Type, std::pair<unsigned, unsigned>> measures;
-  llvm::DenseMap<mlir::Operation *, layout::Cell> boxes;
+  llvm::DenseMap<std::pair<DataType, unsigned>, layout::Cell> boxes;
 };
 
 } // namespace idr

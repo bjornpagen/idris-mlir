@@ -53,8 +53,7 @@ def Idr_MayLoopOp : Idr_Op<"may_loop", [MemoryEffects<[
 // place: the op stays below its check by data dependence, and a pass that
 // builds the op on an operand nothing proved builds the guard too. A proof
 // is the absence of the guard. A guard folds to its operand where the
-// operand shows its condition holds (lib/IR/OpsChecks.cpp), and
-// idr-in-bounds erases those it proves where they run. The result of a guard
+// operand shows its condition holds (lib/IR/OpsChecks.cpp). The result of a guard
 // with an integer range is the operand's range clamped by the condition.
 // `kind` is the guard's ::idr::CheckKind. The operand a guard guards is its
 // first, which its folder and its lowering give as its result.

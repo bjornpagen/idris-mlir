@@ -15,11 +15,11 @@ idr.func @proving() -> i64 {
   return %i : i64
 }
 
-// CHECK-LABEL: idr.func @failing(
+// CHECK-LABEL: idr.func private @failing(
 // CHECK: idr.check.finite %{{.*}}, "cast of a non-finite Double"
 // CHECK: idr.check.finite %{{.*}}, "cast of a non-finite Double"
 // CHECK: return
-idr.func @failing(%b: !idr.big) -> (i64, !idr.big) {
+idr.func private @failing(%b: !idr.big) -> (i64, !idr.big) {
   %nan = arith.constant 0x7FF8000000000000 : f64
   %g = idr.check.finite %nan, "cast of a non-finite Double"
   %i = idr.to_int %g : i64
@@ -29,7 +29,7 @@ idr.func @failing(%b: !idr.big) -> (i64, !idr.big) {
   return %i, %j : i64, !idr.big
 }
 
-// CHECK-LABEL: idr.func @again(
+// CHECK-LABEL: idr.func private @again(
 // CHECK-SAME: %[[D:[^:]*]]: f64)
 // CHECK: %[[G:.*]] = idr.check.finite %[[D]], "cast of a non-finite Double"
 // CHECK-NOT: idr.check.finite
@@ -38,7 +38,7 @@ idr.func @failing(%b: !idr.big) -> (i64, !idr.big) {
 // CHECK: idr.big.from_double %[[G]]
 // CHECK-NOT: idr.check.finite
 // CHECK: return
-idr.func @again(%d: f64) -> (i64, !idr.big) {
+idr.func private @again(%d: f64) -> (i64, !idr.big) {
   %g = idr.check.finite %d, "cast of a non-finite Double"
   %i = idr.to_int %g : i64
   %h = idr.check.finite %g, "cast of a non-finite Double"

@@ -1,11 +1,10 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
+// NEEDS-ACCEPTANCE: the text of a constant naming no constructor of its type, as C02 writes it.
 // The verifier errors that the custom syntax cannot produce, in the generic
 // form.
 
-idr.data @T {
-  idr.ctor @A ()
-}
-idr.func @f(%v: !idr.data<@T>) {
+!T = !idr.data<"T", plain [@A()]>
+idr.func private @f(%v: !T) {
   // expected-error @+1 {{expects one region per case and at most one default}}
   "idr.match"(%v) <{cases = [@A]}> ({
     "idr.yield"() : () -> ()
@@ -13,42 +12,38 @@ idr.func @f(%v: !idr.data<@T>) {
     "idr.yield"() : () -> ()
   }, {
     "idr.yield"() : () -> ()
-  }) : (!idr.data<@T>) -> ()
+  }) : (!T) -> ()
   return
 }
 
 // -----
 
-idr.data @T {
-  idr.ctor @A ()
-}
-idr.func @f(%v: !idr.data<@T>) {
+!T = !idr.data<"T", plain [@A()]>
+idr.func private @f(%v: !T) {
   // expected-error @+1 {{expects constructor names as cases, got 0 : i64}}
   "idr.match"(%v) <{cases = [0]}> ({
     "idr.yield"() : () -> ()
-  }) : (!idr.data<@T>) -> ()
+  }) : (!T) -> ()
   return
 }
 
 // -----
 
-idr.data @T {
-  idr.ctor @A ()
-}
-idr.func @f(%v: !idr.data<@T>) {
+!T = !idr.data<"T", plain [@A()]>
+idr.func private @f(%v: !T) {
   // expected-error @+1 {{expects a default region without arguments}}
   "idr.match"(%v) <{cases = [@A]}> ({
     "idr.yield"() : () -> ()
   }, {
   ^bb0(%x: i64):
     "idr.yield"() : () -> ()
-  }) : (!idr.data<@T>) -> ()
+  }) : (!T) -> ()
   return
 }
 
 // -----
 
-idr.func @f(%v: i64) {
+idr.func private @f(%v: i64) {
   // expected-error @+1 {{expects regions without arguments}}
   "idr.match_lit"(%v) <{cases = [0]}> ({
   ^bb0(%x: i64):
@@ -61,7 +56,7 @@ idr.func @f(%v: i64) {
 
 // -----
 
-idr.func @f(%v: i64) {
+idr.func private @f(%v: i64) {
   // expected-error @+1 {{has a key 0 : i32 that is not a literal of 'i64'}}
   "idr.match_lit"(%v) <{cases = [0 : i32]}> ({
     "idr.yield"() : () -> ()
@@ -73,7 +68,7 @@ idr.func @f(%v: i64) {
 
 // -----
 
-idr.func @f(%v: i64) {
+idr.func private @f(%v: i64) {
   // expected-error @+1 {{expects a non-empty block}}
   "idr.match_lit"(%v) <{cases = [0]}> ({
   ^bb0:
@@ -85,24 +80,18 @@ idr.func @f(%v: i64) {
 
 // -----
 
-idr.func @f() {
-  // expected-error @+1 {{has a constant of an undeclared type '!idr.data<@Nowhere>'}}
-  %c = idr.constant #idr.con<@Nowhere::@A, []> : !idr.data<@Nowhere>
-  return
-}
-
-// -----
-
-idr.func @f() {
-  // expected-error @+1 {{expects a constructor reference @T::@C, got @T}}
-  %c = idr.constant #idr.con<@T, []> : !idr.data<@T>
+// A constant names a constructor of its own type's body.
+!T = !idr.data<"T", plain [@C()]>
+idr.func private @f() {
+  // expected-error @+1 {{@D}}
+  %c = idr.constant #idr.con<@D, []> : !T
   return
 }
 
 // -----
 
 // Stored values are untyped: the type is the op's.
-idr.func @f() {
+idr.func private @f() {
   // expected-error @+1 {{cannot hold #idr.big<"1"> : !idr.big as '!idr.big'}}
   %c = "idr.constant"() <{value = #idr.big<"1"> : !idr.big}> : () -> !idr.big
   return

@@ -1,10 +1,8 @@
 compile: exit 0
-artifacts: prog.core prog.mlir prog.o prog
+artifacts: core module objects executable
 run: exit status as expected
 stdout: as expected
 stderr: empty
 object: no undefined symbol outside the allowed set
-budget: kept
 dumps: parse and verify
-simplify: idempotent
 quantities: kept

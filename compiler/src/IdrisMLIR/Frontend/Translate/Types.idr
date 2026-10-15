@@ -18,11 +18,12 @@ import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Hooks
 import IdrisMLIR.Frontend.Translate.Keys
+import IdrisMLIR.Frontend.Translate.Shapes
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
+import IdrisMLIR.MLIR
 import IdrisMLIR.Registry
-import IdrisMLIR.Rule
 import IdrisMLIR.Syntax.Idr
 import IdrisMLIR.Term
 import IdrisMLIR.Types
@@ -241,6 +242,44 @@ natLike def = case definition def of
     pure (not (null roles) && all isJust roles)
   _ => pure False
 
+||| An extent's dimension: static where its normal form is a literal, a
+||| `Nat`-like chain of successors ending at zero (read from Idris's flags,
+||| never from names) or a non-negative integer; dynamic otherwise, since
+||| an erased extent is the value's own, never a constant it is assumed to
+||| be.
+extentDim : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core Dim
+extentDim = go 0
+  where
+    go : Nat -> ClosedTerm -> Core Dim
+    go k tm = case getFnArgs tm of
+      (Ref _ (DataCon _ _) n, args) => do
+        defs <- get Ctxt
+        Just def <- lookupCtxtExact n (gamma defs)
+          | Nothing => pure Dynamic
+        case natRole def of
+          Just Zero => pure (Static k)
+          Just Succ => case last' args of
+            Just pred => go (S k) pred
+            Nothing => pure Dynamic
+          Nothing => pure Dynamic
+      (PrimVal _ c, []) => case constantLit c of
+        Just (LBig i) => pure (if i >= 0 then Static (k + integerToNat i) else Dynamic)
+        _ => pure Dynamic
+      _ => pure Dynamic
+
+||| The dimensions of a value array's shape at an instance, one per axis of
+||| its form, outermost first. A shape whose form is not known (a variable
+||| no instance fixes, a recursion that builds it deeper) has no rank, and
+||| a tensor has nothing else.
+export
+shapeDims : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+            FC -> String -> ClosedTerm -> Core (List Dim)
+shapeDims fc owner shape = do
+  shape' <- normaliseClosed shape
+  let Just extents = shapeSpine shape'
+    | Nothing => reject fc owner Polymorphism ("a shape whose rank no analysis fixes: " ++ !(showTT shape'))
+  traverse extentDim extents
+
 ||| What the translation reads of a type constructor's definition: its
 ||| parameters (`dataParams`), the type parameters among them
 ||| (`typeParams`), and whether it is `Nat`-like, found once per type
@@ -387,6 +426,46 @@ dictionaryBinder : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                    RigCount -> TT vars -> Core Bool
 dictionaryBinder rig ty = if isErased rig then pure False else implementationType ty
 
+||| Whether an array of this kind whose element is this data instance is
+||| held as one array per field (0003 D44): the instance is a record (one
+||| constructor of two fields or more), registered and not containing
+||| itself, and an array of this kind can hold each field as its element (a
+||| value array a field that is no array a world orders; an array a world
+||| orders a field that is no array at all, since a memref holds no shaped
+||| value). Any other element is one array of that element.
+columnar : {auto s : Ref TState TS} -> ArrayKind -> DataId -> Core Bool
+columnar kind r = do
+  st <- get TState
+  if contains r st.building || contains r st.reentered then pure False else
+    pure (case map (.cons) (lookup r st.datas) of
+            Just [con] => length con.fields >= 2 && all (holds kind . typeOf) con.fields
+            _ => False)
+  where
+    holds : ArrayKind -> Ty -> Bool
+    holds ValueArray (MemRefT _ _) = False
+    holds ValueArray (ColumnsT OrderedArray _ _) = False
+    holds ValueArray _ = True
+    holds OrderedArray (TensorT _ _) = False
+    holds OrderedArray (MemRefT _ _) = False
+    holds OrderedArray (ColumnsT _ _ _) = False
+    holds OrderedArray _ = True
+
+||| An array of a kind, of these dimensions, of this element: one array per
+||| field when the element is a record that splits, one array of the
+||| element otherwise; an array of value arrays is one, the element's
+||| dimensions after these.
+arrayOf : {auto s : Ref TState TS} -> ArrayKind -> List Dim -> Ty -> Core Ty
+arrayOf ValueArray ds (TensorT cs el) = pure (TensorT (ds ++ cs) el)
+arrayOf ValueArray ds (ColumnsT ValueArray cs r) = pure (ColumnsT ValueArray (ds ++ cs) r)
+arrayOf kind ds e@(DataT r) =
+  if !(columnar kind r) then pure (ColumnsT kind ds r) else pure (plain kind ds e)
+  where
+    plain : ArrayKind -> List Dim -> Ty -> Ty
+    plain ValueArray = TensorT
+    plain OrderedArray = MemRefT
+arrayOf ValueArray ds e = pure (TensorT ds e)
+arrayOf OrderedArray ds e = pure (MemRefT ds e)
+
 mutual
   ||| The Core type of a closed, normalised type. A type that has no runtime
   ||| representation is reported under `rule`: `ValueType`, or `DependentField`
@@ -413,25 +492,43 @@ mutual
          when !(erasedOutsideIndices owner rest) $
            reject fc owner rule "a function type that depends on its argument"
          rt <- coreType fc owner rule !(normaliseClosed rest)
-         pure (FunT arg rt)
+         -- A closure's type is one for every extent its values are made at.
+         pure (FunT ({ type $= dynamicDims } arg) (dynamicDims rt))
   -- `Inf` is a suspension like `Lazy`.
-  coreType fc owner rule (TDelayed _ _ t) = LazyT <$> coreType fc owner rule t
+  coreType fc owner rule (TDelayed _ _ t) = LazyT . dynamicDims <$> coreType fc owner rule t
   coreType fc owner rule tm = case getFnArgs tm of
     (Ref rfc (TyCon _) n, args) => do
       def <- lookupDef fc owner n
       -- A word type is a machine word whatever its arguments: what a
       -- `Ptr t` points to names what its handle holds, not its
       -- representation.
+      let hs = hooksOf (fullname def)
       if (!(tyConFacts def)).natLike
          then pure NatT
-         else if isWordType (hooksOf (fullname def))
+         else if isWordType hs
            then pure (IntT UInt64)
-         else case arrayElementOf (hooksOf (fullname def)) of
-           Just (r, Just e) => pure (ArrayT r e)
-           Just (r, Nothing) => case args of
-             [a] => ArrayT r <$> coreType fc owner rule !(normaliseClosed a)
+         else case orderedArrayOf hs of
+           Just (ds, Just e) => pure (MemRefT ds e)
+           Just (ds, Nothing) => case args of
+             [a] => do
+               e <- coreType fc owner rule !(normaliseClosed a)
+               case e of
+                 TensorT _ _ => reject fc owner rule ("an array a world orders holding an array value: " ++ !(showTT tm))
+                 ColumnsT ValueArray _ _ => reject fc owner rule ("an array a world orders holding an array value: " ++ !(showTT tm))
+                 _ => arrayOf OrderedArray ds e
              _ => internal fc "the array type without its one element type"
-           Nothing => snd <$> dataInstance fc owner n !(traverse normaliseClosed args)
+           Nothing =>
+             if isValueArray hs
+               then case args of
+                 [shape, a] => do
+                   ds <- shapeDims fc owner shape
+                   e <- coreType fc owner rule !(normaliseClosed a)
+                   case e of
+                     MemRefT _ _ => reject fc owner rule ("an array value holding an array a world orders: " ++ !(showTT tm))
+                     ColumnsT OrderedArray _ _ => reject fc owner rule ("an array value holding an array a world orders: " ++ !(showTT tm))
+                     _ => arrayOf ValueArray ds e
+                 _ => internal fc "a value array without its shape and element"
+               else snd <$> dataInstance fc owner n !(traverse normaliseClosed args)
     (TType _ _, _) => reject fc owner rule "Type in a runtime position"
     (Erased _ _, _) => reject fc owner rule "a type that depends on a runtime or erased value"
     _ => do reject fc owner rule ("unsupported runtime type " ++ !(showTT tm))
@@ -491,7 +588,8 @@ mutual
                 pure (inst, typeOf b)
               _ => do
                 update TState { building $= delete inst
-                              , datas $= insert inst (MkDecl inst key (map fst sorted) loc)
+                              , datas $= insert inst (MkDecl inst key (map fst sorted) loc
+                                                             (promiseOf (hooksOf (fullname def))))
                               , dataOrder $= (:< inst) }
                 pure (inst, DataT inst)
     where
@@ -532,11 +630,13 @@ mutual
                                    show (length layout))
         kinds <- walk cname (location def) targs 0 layout ty
         let con = MkCon (MkConId inst (shortName (fullname def))) (shown cname) (cast tag) (mapMaybe fieldBinder kinds) loc
+                        (roleOf (hooksOf (fullname def)))
         update TState { cons $= insert con.id (MkConLayout kinds (fullname def) con) }
         pure (con, kinds)
 
   ||| The data instance a closed, normalised type names, when it is a data
-  ||| type and not a natural, a machine word or an array: the instance, and
+  ||| type and not a natural, a machine word or an array of either kind: the
+  ||| instance, and
   ||| the type its values have, which is its field's for a type with one
   ||| runtime field.
   export
@@ -547,7 +647,7 @@ mutual
       def <- lookupDef fc owner n
       let hs = hooksOf (fullname def)
       natural <- (.natLike) <$> tyConFacts def
-      if natural || isWordType hs || isJust (arrayElementOf hs) then pure Nothing else do
+      if natural || isWordType hs || isJust (orderedArrayOf hs) || isValueArray hs then pure Nothing else do
         args' <- traverse normaliseClosed args
         Just <$> dataInstance fc owner n args'
     _ => pure Nothing

@@ -2,19 +2,16 @@
 // Tags, characters and lengths have known ranges, which
 // upstream's integer range optimizations use.
 
-idr.data @T {
-  idr.ctor @A ()
-  idr.ctor @B ()
-  idr.ctor @C ()
-}
 
-// CHECK-LABEL: idr.func @ranges(
+// CHECK-LABEL: idr.func private @ranges(
 // CHECK-DAG: %[[TRUE:.*]] = arith.constant true
 // CHECK: return %[[TRUE]], %[[TRUE]], %[[TRUE]], %[[TRUE]], %[[TRUE]], %[[TRUE]]
-idr.func @ranges(%t: !idr.data<@T>, %x: i64, %u: i8, %d: f64, %s: !idr.str)
+!T = !idr.data<"T", plain [@A(), @B(), @C()]>
+!L = !idr.data<"L", list [@Nil(), @Cons(!idr.lin<i64>, !idr.lin<!idr.box<!idr.data<"L">>>)]>
+idr.func private @ranges(%t: !T, %x: i64, %u: i8, %d: f64, %s: !idr.str)
     -> (i1, i1, i1, i1, i1, i1) {
   %three = arith.constant 3 : i64
-  %tag = idr.tag %t : !idr.data<@T>
+  %tag = idr.tag %t : !T
   %a = arith.cmpi ult, %tag, %three : i64
   %max = arith.constant 1114111 : i32
   %ch = idr.to_char signed %x : i64
@@ -35,12 +32,12 @@ idr.func @ranges(%t: !idr.data<@T>, %x: i64, %u: i8, %d: f64, %s: !idr.str)
 
 // A grade is no barrier to the analysis: a linear tag entered and used has
 // the tag's range.
-// CHECK-LABEL: idr.func @linear(
+// CHECK-LABEL: idr.func private @linear(
 // CHECK: %[[TRUE:.*]] = arith.constant true
 // CHECK: return %[[TRUE]]
-idr.func @linear(%t: !idr.data<@T>) -> i1 {
+idr.func private @linear(%t: !T) -> i1 {
   %three = arith.constant 3 : i64
-  %tag = idr.tag %t : !idr.data<@T>
+  %tag = idr.tag %t : !T
   %l = idr.lin.enter %tag : !idr.lin<i64>
   %u = idr.lin.use %l : !idr.lin<i64>
   %a = arith.cmpi ult, %u, %three : i64
@@ -49,19 +46,15 @@ idr.func @linear(%t: !idr.data<@T>) -> i1 {
 
 // A linear field a match binds is a value the analysis never saw computed:
 // it may be any i64, and arithmetic on it keeps its own width.
-idr.data @L box {
-  idr.ctor @Nil ()
-  idr.ctor @Cons (!idr.lin<i64>, !idr.lin<!idr.box<@L>>)
-}
 
-// CHECK-LABEL: idr.func @field(
+// CHECK-LABEL: idr.func private @field(
 // CHECK: arith.addi
-idr.func @field(%acc: i64, %l: !idr.lin<!idr.box<@L>>) -> i64 {
-  %r = idr.match %l : !idr.lin<!idr.box<@L>> -> (i64) {
+idr.func private @field(%acc: i64, %l: !idr.lin<!idr.box<!L>>) -> i64 {
+  %r = idr.match %l : !idr.lin<!idr.box<!L>> -> (i64) {
   case @Nil() {
     idr.yield %acc : i64
   }
-  case @Cons(%h: !idr.lin<i64>, %t: !idr.lin<!idr.box<@L>>) {
+  case @Cons(%h: !idr.lin<i64>, %t: !idr.lin<!idr.box<!L>>) {
     %x = idr.lin.use %h : !idr.lin<i64>
     %s = arith.addi %acc, %x : i64
     idr.yield %s : i64

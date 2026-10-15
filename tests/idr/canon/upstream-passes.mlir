@@ -7,11 +7,8 @@
 // following in a block that nothing reaches, but not into a match region,
 // which is one block (SingleBlock).
 
-module attributes {idr.program} {
-  idr.data @Maybe {
-    idr.ctor @Nothing ()
-    idr.ctor @Just (i64)
-  }
+!Maybe = !idr.data<"Maybe", plain [@Nothing(), @Just(i64)]>
+module {
   idr.func private @inc(%k: i64, %x: i64) -> i64
       attributes {total} {
     %r = arith.addi %k, %x : i64
@@ -28,9 +25,9 @@ module attributes {idr.program} {
   // RDV: default {
   // RDV-NEXT: call @fail()
   // RDV: return %[[R]] : i64
-  idr.func private @get(%m: !idr.data<@Maybe>, %d: i64,
+  idr.func private @get(%m: !Maybe, %d: i64,
                          %unused: i64) -> (i64, i64) {
-    %r, %s = idr.match %m : !idr.data<@Maybe> -> (i64, i64) {
+    %r, %s = idr.match %m : !Maybe -> (i64, i64) {
     case @Just(%x: i64) {
       %c = idr.closure @inc(%x) : (i64) -> !idr.fn<(i64) -> (i64)>
       %y = idr.apply %c(%d) : !idr.fn<(i64) -> (i64)>
@@ -50,8 +47,8 @@ module attributes {idr.program} {
   // RDV: call @get(%{{.*}}, %{{.*}}) : (!Maybe, i64) -> i64
   idr.func @main() -> i64 {
     %n = arith.constant 4 : i64
-    %m = idr.con @Maybe::@Just(%n) : (i64) -> !idr.data<@Maybe>
-    %r, %s = idr.call @get(%m, %n, %n) : (!idr.data<@Maybe>, i64, i64) -> (i64, i64)
+    %m = idr.con @Just(%n) : (i64) -> !Maybe
+    %r, %s = idr.call @get(%m, %n, %n) : (!Maybe, i64, i64) -> (i64, i64)
     return %r : i64
   }
 }
@@ -63,19 +60,19 @@ module {
     idr.crash "unhandled input for fail"
     ub.unreachable
   }
-  // INLINE-LABEL: idr.func @crash_inlined
+  // INLINE-LABEL: idr.func private @crash_inlined
   // INLINE: match_lit
   // INLINE: default {
   // INLINE-NEXT: call @fail(
   // INLINE-NEXT: idr.yield %{{.*}} : i64
-  // INLINE-LABEL: idr.func @crash_in_body
+  // INLINE-LABEL: idr.func private @crash_in_body
   // INLINE-NEXT: crash "unhandled input for fail"
   // INLINE-NEXT: ub.unreachable
   // INLINE-NEXT: }
-  // RDV-LABEL: idr.func @crash_inlined
+  // RDV-LABEL: idr.func private @crash_inlined
   // RDV: default {
   // RDV-NEXT: call @fail()
-  idr.func @crash_inlined(%x: i64) -> i64 {
+  idr.func private @crash_inlined(%x: i64) -> i64 {
     %r = idr.match_lit %x : i64 -> (i64) {
     case 0 {
       idr.yield %x : i64
@@ -87,7 +84,7 @@ module {
     }
     return %r : i64
   }
-  idr.func @crash_in_body(%x: i64) -> i64 {
+  idr.func private @crash_in_body(%x: i64) -> i64 {
     %f = idr.call @fail(%x) : (i64) -> i64
     %c1 = arith.constant 1 : i64
     %r = arith.addi %f, %c1 : i64

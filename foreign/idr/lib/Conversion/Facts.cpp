@@ -6,7 +6,6 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/Symbols.h"
-#include "idr/Analysis/References.h"
 #include "idr/Conversion/Facts.h"
 #include "idr/Conversion/Mangle.h"
 
@@ -41,9 +40,8 @@ SmallVector<NamedAttribute> cellFacts(Builder &b) {
 // The facts of each component of a value of `type`, in order: a cell's
 // pointer, and an unboxed sum's tag, which is below its number of
 // constructors.
-SmallVector<SmallVector<NamedAttribute>>
-componentFacts(Type type, bool mayBeNull, const Layouts &layouts,
-               const DenseMap<StringAttr, uint64_t> &constructors, Builder &b) {
+SmallVector<SmallVector<NamedAttribute>> componentFacts(Type type, bool mayBeNull,
+                                                        const Layouts &layouts, Builder &b) {
   SmallVector<SmallVector<NamedAttribute>> facts(layouts.components(type).size());
   if (isCell(type)) {
     if (!mayBeNull)
@@ -53,11 +51,11 @@ componentFacts(Type type, bool mayBeNull, const Layouts &layouts,
   auto data = dyn_cast<DataType>(unrestricted(type));
   if (!data)
     return facts;
-  const layout::SumLayout &layout = layouts.sum(data.getName().getAttr());
+  const layout::SumLayout &layout = layouts.sum(data);
   if (!layout.tag)
     return facts;
   unsigned width = layout.tag.getIntOrFloatBitWidth();
-  uint64_t count = constructors.lookup(data.getName().getAttr());
+  uint64_t count = data.getCtors().size();
   // A tag type that the constructors fill has no range to state.
   if (count != 0 && count < (uint64_t{1} << width))
     facts.front().push_back(b.getNamedAttr(
@@ -77,24 +75,25 @@ Facts::Facts(ModuleOp m, SymbolTable &symbols) : module(m) {
     mangled[fn] = name;
     signatures[name] = fn.getFunctionType();
   }
-  for (auto data : module.getOps<DataOp>())
-    constructors[data.getSymNameAttr()] = static_cast<uint64_t>(data.getCtors().size());
+  // A label's constructor is named by its function, which the force of a
+  // memo label calls with the constructor's fields.
+  auto labelFunction = [&](auto build) -> idr::FuncOp {
+    if (!build.getDataType().isLabel(build.getTag()))
+      return {};
+    return symbols.lookup<idr::FuncOp>(build.getCtor());
+  };
   module.walk([&](Operation *op) {
     idr::FuncOp callee;
     OperandRange passed = op->getOperands();
-    SymbolRefAttr label;
     if (auto call = dyn_cast<idr::CallOp>(op)) {
       callee = symbols.lookup<idr::FuncOp>(call.getCalleeAttr().getAttr());
     } else if (auto con = dyn_cast<ConOp>(op)) {
-      label = con.getCtor();
+      callee = labelFunction(con);
       passed = con.getFields();
     } else if (auto reuse = dyn_cast<ReuseOp>(op)) {
-      label = reuse.getCtor();
+      callee = labelFunction(reuse);
       passed = reuse.getFields();
     }
-    if (label)
-      if (StringAttr named = closureLabel(symbols, label))
-        callee = symbols.lookup<idr::FuncOp>(named);
     if (!callee)
       return;
     StringAttr name = mangled.lookup(callee);
@@ -115,7 +114,7 @@ void Facts::apply(const Layouts &layouts) {
     for (auto [index, type] : llvm::enumerate(before.getInputs())) {
       bool mayBeNull = poisoned.contains({it->first, static_cast<unsigned>(index)});
       for (const SmallVector<NamedAttribute> &facts :
-           componentFacts(type, mayBeNull, layouts, constructors, b)) {
+           componentFacts(type, mayBeNull, layouts, b)) {
         for (const NamedAttribute &fact : facts)
           fn.setArgAttr(at, fact.getName(), fact.getValue());
         ++at;

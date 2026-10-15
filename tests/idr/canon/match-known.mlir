@@ -4,18 +4,15 @@
 // scrutinee is a constant or built by idr.con, or one region is left. The
 // region's arguments become the constructor's fields.
 
-idr.data @Shape {
-  idr.ctor @Circle (f64)
-  idr.ctor @Rect (f64, f64)
-}
 
-// CHECK-LABEL: idr.func @of_con(
+// CHECK-LABEL: idr.func private @of_con(
 // CHECK-SAME: %[[W:.*]]: f64, %[[H:.*]]: f64)
 // CHECK-NEXT: %[[A:.*]] = arith.mulf %[[W]], %[[H]] : f64
 // CHECK-NEXT: return %[[A]]
-idr.func @of_con(%w: f64, %h: f64) -> f64 {
-  %s = idr.con @Shape::@Rect(%w, %h) : (f64, f64) -> !idr.data<@Shape>
-  %r = idr.match %s : !idr.data<@Shape> -> (f64) {
+!Shape = !idr.data<"Shape", plain [@Circle(f64), @Rect(f64, f64)]>
+idr.func private @of_con(%w: f64, %h: f64) -> f64 {
+  %s = idr.con @Rect(%w, %h) : (f64, f64) -> !Shape
+  %r = idr.match %s : !Shape -> (f64) {
   case @Circle(%x: f64) {
     %a = arith.mulf %x, %x : f64
     idr.yield %a : f64
@@ -28,12 +25,12 @@ idr.func @of_con(%w: f64, %h: f64) -> f64 {
   return %r : f64
 }
 
-// CHECK-LABEL: idr.func @of_constant(
+// CHECK-LABEL: idr.func private @of_constant(
 // CHECK-NEXT: %[[C:.*]] = arith.constant 4.000000e+00 : f64
 // CHECK-NEXT: return %[[C]]
-idr.func @of_constant() -> f64 {
-  %s = idr.constant #idr.con<@Shape::@Circle, [2.0 : f64]> : !idr.data<@Shape>
-  %r = idr.match %s : !idr.data<@Shape> -> (f64) {
+idr.func private @of_constant() -> f64 {
+  %s = idr.constant #idr.con<@Circle, [2.0 : f64]> : !Shape
+  %r = idr.match %s : !Shape -> (f64) {
   case @Circle(%x: f64) {
     %a = arith.mulf %x, %x : f64
     idr.yield %a : f64
@@ -47,12 +44,12 @@ idr.func @of_constant() -> f64 {
 }
 
 // A constructor without a case takes the default.
-// CHECK-LABEL: idr.func @to_default(
+// CHECK-LABEL: idr.func private @to_default(
 // CHECK-NEXT: %[[C:.*]] = arith.constant 0.000000e+00 : f64
 // CHECK-NEXT: return %[[C]]
-idr.func @to_default(%w: f64) -> f64 {
-  %s = idr.con @Shape::@Rect(%w, %w) : (f64, f64) -> !idr.data<@Shape>
-  %r = idr.match %s : !idr.data<@Shape> -> (f64) {
+idr.func private @to_default(%w: f64) -> f64 {
+  %s = idr.con @Rect(%w, %w) : (f64, f64) -> !Shape
+  %r = idr.match %s : !Shape -> (f64) {
   case @Circle(%x: f64) {
     idr.yield %x : f64
   }
@@ -66,13 +63,13 @@ idr.func @to_default(%w: f64) -> f64 {
 
 // One region left: the others are impossible, so it runs, and its fields
 // are read from the scrutinee.
-// CHECK-LABEL: idr.func @single(
+// CHECK-LABEL: idr.func private @single(
 // CHECK-SAME: %[[S:.*]]: !Shape)
 // CHECK-NEXT: %[[X:.*]] = {{(idr\.)?}}field %[[S]][@Circle, 0] : !Shape -> f64
 // CHECK-NEXT: %[[A:.*]] = arith.mulf %[[X]], %[[X]] : f64
 // CHECK-NEXT: return %[[A]]
-idr.func @single(%s: !idr.data<@Shape>) -> f64 {
-  %r = idr.match %s : !idr.data<@Shape> -> (f64) {
+idr.func private @single(%s: !Shape) -> f64 {
+  %r = idr.match %s : !Shape -> (f64) {
   case @Circle(%x: f64) {
     %a = arith.mulf %x, %x : f64
     idr.yield %a : f64
@@ -82,13 +79,13 @@ idr.func @single(%s: !idr.data<@Shape>) -> f64 {
 }
 
 // A region that crashes is never inlined into the middle of a block.
-// CHECK-LABEL: idr.func @crashes(
+// CHECK-LABEL: idr.func private @crashes(
 // CHECK: match
 // CHECK: crash "no"
 // CHECK-NEXT: ub.unreachable
-idr.func @crashes(%w: f64) -> f64 {
-  %s = idr.con @Shape::@Rect(%w, %w) : (f64, f64) -> !idr.data<@Shape>
-  %r = idr.match %s : !idr.data<@Shape> -> (f64) {
+idr.func private @crashes(%w: f64) -> f64 {
+  %s = idr.con @Rect(%w, %w) : (f64, f64) -> !Shape
+  %r = idr.match %s : !Shape -> (f64) {
   case @Circle(%x: f64) {
     idr.yield %x : f64
   }
@@ -101,13 +98,13 @@ idr.func @crashes(%w: f64) -> f64 {
 }
 
 // Literals: integers, strings and bigs.
-// CHECK-LABEL: idr.func @literals(
+// CHECK-LABEL: idr.func private @literals(
 // CHECK-DAG: %[[TWO:.*]] = arith.constant 2 : i64
 // CHECK-DAG: %[[THREE:.*]] = arith.constant 3 : i64
 // CHECK-DAG: %[[FOUR:.*]] = arith.constant 4 : i64
 // CHECK-NOT: {{(idr\.| )match_lit }}
 // CHECK: return %[[TWO]], %[[THREE]], %[[FOUR]]
-idr.func @literals() -> (i64, i64, i64) {
+idr.func private @literals() -> (i64, i64, i64) {
   %n = arith.constant 7 : i64
   %s = idr.constant "b" : !idr.str
   %g = idr.constant #idr.big<"99999999999999999999"> : !idr.big

@@ -21,11 +21,15 @@ namespace idr::driver {
 // frontend's to read or refuse.
 cl::opt<std::string> inputPath(cl::Positional,
                                cl::desc("<input: Idris source, or a module (.mlir, .mlirbc)>"));
-cl::opt<std::string> outputPath("o", cl::desc("Output: the executable, or with -c the object"),
+cl::opt<std::string> outputPath("o",
+                                cl::desc("Output: the executable, or with -c the archive of its "
+                                         "objects"),
                                 cl::init(""));
 // What the compilation makes: the executable, linked by the pinned clang
-// with the runtime, or with -c only the object it links.
-cl::opt<bool> objectOnly("c", cl::desc("Compile to an object (-o), without linking"),
+// with the runtime, or with -c only the objects it links, as one archive.
+cl::opt<bool> objectOnly("c",
+                         cl::desc("Compile to the archive of the program's objects (-o), "
+                                  "without linking"),
                          cl::init(false));
 // The frontend's options, for Idris source: where Idris finds packages,
 // which it loads, whether the Prelude is imported implicitly. The frontend
@@ -38,35 +42,12 @@ cl::opt<std::string> idrisPrefix("prefix",
                                  cl::init(IDRIS_MLIR_IDRIS_PREFIX));
 cl::opt<bool> noPrelude("no-prelude", cl::desc("Do not import the Prelude implicitly"),
                         cl::init(false));
-// A test hook (tests/registry): the frontend breaks the shape of the
-// registry's entry of this key, which the validation must then reject.
-cl::opt<std::string> breakShape("break-shape", cl::Hidden,
-                                cl::desc("Break the shape of the registry's entry of this key"),
-                                cl::init(""));
-cl::list<std::string> without(
-    "without", cl::CommaSeparated,
-    cl::desc("Leave out these passes of the pipeline (an idr-* pass other than idr-lower) or "
-             "these options of idr-rc and idr-demand (reuse, sink, in-place), to measure what "
-             "each one is worth"));
-// The promise idr-demand checks: a program that breaks it is rejected.
-// Without it, idr-demand checks nothing.
-cl::opt<bool> demandInPlace(
-    "demand-in-place",
-    cl::desc("Reject a program unless every call passes a parameter of quantity 1 that its "
-             "function rebuilds in place exclusive"),
-    cl::init(false));
 // Which actions -log-actions-to logs: otherwise every one, each pass
 // execution with the whole module.
 cl::list<std::string> logActionsTags(
     "log-actions-tags",
     cl::desc("With -log-actions-to, log only the actions of these tags, e.g. idr-specialize-clone"),
     cl::CommaSeparated);
-// The module after each pass of the pipeline, `<NN>-<pass>.mlir` in this
-// directory.
-cl::opt<std::string> dumpDir("dump-dir",
-                             cl::desc("Write the module after each pass of the pipeline into "
-                                      "this directory, as <NN>-<pass>.mlir"),
-                             cl::init(""));
 // The runtime, recorded at build time: the object --prepare-runtime wrote
 // from the runtime's archive, or that archive itself. Its bitcode joins the
 // program's module, and the same file is on every executable's link line
@@ -102,13 +83,13 @@ cl::opt<bool> printTargetTriple("print-target-triple",
                                 cl::desc("Print the target triple executables are linked for, "
                                          "and exit"),
                                 cl::init(false));
-// What links a program for the target entry, after its object, the runtime
-// and -o, one argument of the pinned C compiler per line: --target with the
+// What links a program for the target entry, after its objects, the
+// runtime and -o, one argument of the pinned C compiler per line: --target with the
 // triple, then the entry's executable and program link flags and GMP. The
 // link and the tests that link by hand use these.
 cl::opt<bool> printLinkFlags("print-link-flags",
                              cl::desc("Print the arguments that link a program for the target, "
-                                      "after its object, the runtime and -o, one per line, and "
+                                      "after its objects, the runtime and -o, one per line, and "
                                       "exit"),
                              cl::init(false));
 // What other compilers need to compile for the same machine, bench/run.sh's
@@ -116,14 +97,14 @@ cl::opt<bool> printLinkFlags("print-link-flags",
 cl::opt<bool> printTargetCpu("print-target-cpu",
                              cl::desc("Print the CPU code is compiled for, and exit"),
                              cl::init(false));
-// The size of the MLIR thread pool a compilation runs its function
-// passes on. Output bytes do not depend on it; it exists so a compile
+// The size of the thread pool a compilation runs its function passes and
+// its bins' code generation on. Output bytes do not depend on it; it exists so a compile
 // leaves the machine usable, and so a caller running compilations in
 // parallel can divide its own budget among them.
 cl::opt<unsigned> numThreads(
     "num-threads",
-    cl::desc("Threads for the pipeline's parallel function passes (default: every CPU); "
-             "output bytes do not depend on it"),
+    cl::desc("Threads for the pipeline's parallel function passes and the bins' code "
+             "generation (default: every CPU); output bytes do not depend on it"),
     cl::init(0));
 
 unsigned threadBudget() {

@@ -4,10 +4,12 @@
 # fails.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 
-# listed: the artifacts of Main under build/exec, on one line.
+# listed: the artifacts of the build Main left, of every kind
+# (lib/compile.sh), on one line.
 listed() {
-  find "$work/build/exec" -type f \( -name Main.core -o -name Main.mlir -o -name Main.o -o -name Main \) 2> /dev/null |
-    sed "s|^$work/||" | sort | tr '\n' ' ' | sed 's/ $//'
+  for listed_kind in $artifact_kinds; do
+    artifact_files "$work" Main "$listed_kind"
+  done | sed "s|^$work/||" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//'
 }
 
 cat > "$work/Main.idr" <<'IDRIS'
@@ -21,7 +23,7 @@ IDRIS
 compile_program "$work/Main.idr" "$work/build/exec/Main"
 say "compile: exit $compiled"
 [ "$compiled" -eq 0 ] || show "$work/compile.out" "$work/compile.err"
-say "artifacts: $(listed)"
+artifacts "$work" Main
 
 cat > "$work/Main.idr" <<'IDRIS'
 module Main

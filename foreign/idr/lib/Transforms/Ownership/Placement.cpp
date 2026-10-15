@@ -163,7 +163,7 @@ private:
     }
     for (auto [i, user] : llvm::enumerate(users)) {
       bool last = i + 1 == users.size() && !keep;
-      if (user->getNumRegions() != 0 && !isArrayLoop(user)) {
+      if (user->getNumRegions() != 0 && !isIndexLoop(user)) {
         // Each region takes the reference, or drops it on entry.
         for (Region &region : user->getRegions()) {
           if (region.empty())
@@ -183,7 +183,7 @@ private:
       // outside it holds its reference throughout, each use inside taking a
       // view (or a dup, to consume), and the loop reads the value for as
       // long as it runs.
-      if (isArrayLoop(user))
+      if (isIndexLoop(user))
         for (Region &region : user->getRegions())
           if (!region.empty() && usedIn(value, region)) {
             placeBorrowed(value, region.front(), nullptr);
@@ -218,7 +218,7 @@ private:
       for (Region &region : user->getRegions())
         if (!region.empty() && usedIn(value, region))
           placeBorrowed(value, region.front(), nullptr);
-      if (user->getNumRegions() == 0 || isArrayLoop(user))
+      if (user->getNumRegions() == 0 || isIndexLoop(user))
         incBeforeOp(user, value, usesBy(value, user).first);
     }
   }

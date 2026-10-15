@@ -1,5 +1,5 @@
 #!/bin/sh
 # tests/programs/data/rbtree, an IO program with data, specialization, TRMC and
-# reference counting, compiled twice.
+# reference counting, compiled at 1, 2 and 8 threads.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 determinism "$root/tests/programs/data/rbtree"

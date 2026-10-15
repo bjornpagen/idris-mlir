@@ -1,4 +1,4 @@
-// input: after idr-simplify
+// input: after idr-optimize
 // A closed call runs at run time, so the closed calls stay and run
 // at run time, Integer operations included. `fib n` stays a call whose
 // argument is read at run time. The values printed are the run's to check.

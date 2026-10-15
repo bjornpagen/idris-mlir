@@ -53,17 +53,6 @@ void idr::consumedEffects(
       effects.emplace_back(MemoryEffects::Free::get(), &operand, ReferenceResource::get());
 }
 
-// The IO of an op on a buffer or an array is in the world's order, as every
-// other IO op's.
-void idr::ioEffects(Value allocated,
-                    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  effects.emplace_back(MemoryEffects::Read::get(), IOResource::get());
-  effects.emplace_back(MemoryEffects::Write::get(), IOResource::get());
-  if (allocated)
-    effects.emplace_back(MemoryEffects::Allocate::get(), cast<OpResult>(allocated),
-                         SideEffects::DefaultResource::get());
-}
-
 namespace {
 
 // What `op` alone does, nested ops aside: nothing, when it has no effects

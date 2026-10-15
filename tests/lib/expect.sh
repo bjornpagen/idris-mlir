@@ -1,6 +1,6 @@
-# Properties of a module stated by name, as idr-expect checks them (its
-# description in Passes.td lists them): what a test says instead of
-# matching the ops that happen to show a property.
+# Properties of a module stated by name, as idr-expect checks them (each is
+# declared, with what it states, in idr/Transforms/Expect.h): what a test
+# says instead of matching the ops that happen to show a property.
 
 # expect_holds MODULE PROPERTY...: every PROPERTY (`name` or
 # `name=argument`) holds of MODULE; idr-expect's errors, one line for each
@@ -14,9 +14,10 @@ expect_holds() {
 }
 
 # An mlir.expect file lists, one line each, `<step>: <property>...`: the
-# properties that hold of the module after that step of idris-mlir's
-# pipeline, or of the module Emit wrote for the step `emitted`. Lines that
-# start with `#` explain.
+# properties that hold of the module after that top-level pass of
+# idris-mlir's pipeline (lib/mlir.sh, step_module), or of the module the
+# frontend handed the driver for the step `emitted`. Lines that start with
+# `#` explain.
 
 # check_expect FILE EMITTED DUMPS: every line of the mlir.expect FILE holds
 # of its step's module (step_module); one line, `mlir.expect: holds`, or a

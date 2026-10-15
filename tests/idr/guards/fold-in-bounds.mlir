@@ -4,12 +4,12 @@
 // character at it folds too. An index at the length, or below 0, keeps its
 // guard, to crash where it runs. A guard of what an identical guard, of the
 // same length, already checked folds too.
-// CHECK-LABEL: idr.func @proving(
+// CHECK-LABEL: idr.func private @proving(
 // CHECK-NOT: idr.check.in_bounds
 // CHECK-NOT: idr.str.index
 // CHECK: %[[C:.*]] = arith.constant 99 : i32
 // CHECK: return %[[C]]
-idr.func @proving() -> i32 {
+idr.func private @proving() -> i32 {
   %abc = idr.constant "abc" : !idr.str
   %two = arith.constant 2 : i64
   %n = idr.str.length %abc
@@ -18,11 +18,11 @@ idr.func @proving() -> i32 {
   return %c : i32
 }
 
-// CHECK-LABEL: idr.func @failing(
+// CHECK-LABEL: idr.func private @failing(
 // CHECK: idr.check.in_bounds %{{.*}}, %{{.*}}, "string index out of range"
 // CHECK: idr.check.in_bounds %{{.*}}, %{{.*}}, "string index out of range"
 // CHECK: return
-idr.func @failing() -> (i32, i32) {
+idr.func private @failing() -> (i32, i32) {
   %abc = idr.constant "abc" : !idr.str
   %three = arith.constant 3 : i64
   %below = arith.constant -1 : i64
@@ -34,7 +34,7 @@ idr.func @failing() -> (i32, i32) {
   return %c, %d : i32, i32
 }
 
-// CHECK-LABEL: idr.func @again(
+// CHECK-LABEL: idr.func private @again(
 // CHECK-SAME: %[[S:[^:]*]]: !idr.str, %[[I:[^:]*]]: i64)
 // CHECK: %[[N:.*]] = idr.str.length %[[S]]
 // CHECK: %[[G:.*]] = idr.check.in_bounds %[[I]], %[[N]], "string index out of range"
@@ -44,7 +44,7 @@ idr.func @failing() -> (i32, i32) {
 // CHECK: idr.str.index %[[S]], %[[G]]
 // CHECK-NOT: idr.check.in_bounds
 // CHECK: return
-idr.func @again(%s: !idr.str, %i: i64) -> (i32, i32) {
+idr.func private @again(%s: !idr.str, %i: i64) -> (i32, i32) {
   %n = idr.str.length %s
   %g = idr.check.in_bounds %i, %n, "string index out of range"
   %c = idr.str.index %s, %g

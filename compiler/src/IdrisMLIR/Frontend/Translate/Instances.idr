@@ -17,10 +17,13 @@ import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Keys
 import IdrisMLIR.Frontend.Translate.Recursion
+import IdrisMLIR.Frontend.Translate.Shapes
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Ids
-import IdrisMLIR.Rule
+import IdrisMLIR.Registry
+import IdrisMLIR.Syntax.Idr
+import IdrisMLIR.Term
 import IdrisMLIR.Types
 
 import Data.List
@@ -29,14 +32,6 @@ import Data.SortedSet
 import Data.String
 
 %default covering
-
-||| How many instances of one definition the translation makes before it
-||| gives up. Idris's size-change graphs rule out polymorphic recursion
-||| (`checkRecursion`), and `growing` a recursion that deepens a shape, so
-||| only a call Idris does not record (under `assert_total`, or through a
-||| local function) can reach it.
-instanceBudget : Nat
-instanceBudget = 4096
 
 ||| The name a definition's type gives its parameter at a position.
 parameterName : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
@@ -50,30 +45,70 @@ parameterName fc owner n i = do
     go (S k) (Bind _ _ (Pi {}) sc) = go k sc
     go _ _ = pure ("number " ++ show (S i))
 
-||| The shapes of the runtime arguments, by position: a hole where there is
-||| none.
-shapes : List PKind -> List ClosedTerm
-shapes = map shapeOf
-  where
-    shapeOf : PKind -> ClosedTerm
-    shapeOf (ValueParam _ (Just s) _) = s
-    shapeOf _ = Erased EmptyFC Placeholder
+mutual
+  ||| The size of a term, by which request chains compare static arguments:
+  ||| 1 plus the sizes of its parts, an integer literal 1 plus its magnitude
+  ||| and a string literal 1 plus its length, so that finitely many terms
+  ||| share a size.
+  termSize : TT vs -> Nat
+  termSize (App _ f a) = 1 + termSize f + termSize a
+  termSize (Bind _ _ b sc) = 1 + binderSize b + termSize sc
+  termSize (PrimVal _ c) = 1 + constantSize c
+  termSize (Meta _ _ _ args) = 1 + sum (map termSize args)
+  termSize (As _ _ a p) = 1 + termSize a + termSize p
+  termSize (TDelayed _ _ t) = 1 + termSize t
+  termSize (TDelay _ _ t a) = 1 + termSize t + termSize a
+  termSize (TForce _ _ t) = 1 + termSize t
+  termSize (Erased _ (Dotted t)) = 1 + termSize t
+  termSize _ = 1
 
-||| Refuses an instance whose argument at a runtime parameter has a deeper
-||| shape than at an instance of the same definition it comes from,
-||| directly or through other definitions. The definition's type needs that
-||| much of the value, so each instance would request one deeper again;
-||| only translating the instances would show whether a match ends it, so
-||| the first deeper one is refused.
-growing : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-          FC -> String -> Name -> String -> List PKind -> Core ()
-growing fc owner n base kinds = do
-  st <- get TState
-  from st.current
-  where
-    deeper : (Nat, ClosedTerm, ClosedTerm) -> Bool
-    deeper (_, before, after) = shapeDepth after > shapeDepth before
+  binderSize : TTBinder (TT vs) -> Nat
+  binderSize (Let _ _ v ty) = termSize v + termSize ty
+  binderSize (PLet _ _ v ty) = termSize v + termSize ty
+  binderSize b = termSize (binderType b)
 
+  ||| A constant measured on the literal it is (`constantLit`).
+  constantSize : Constant -> Nat
+  constantSize c = maybe 0 literalSize (constantLit c)
+
+  ||| An integer by its magnitude, a string by its length, any other literal
+  ||| by nothing more than itself.
+  literalSize : Lit -> Nat
+  literalSize (LInt _ n) = integerToNat (abs n)
+  literalSize (LBig n) = integerToNat (abs n)
+  literalSize (LNat n) = n
+  literalSize (LStr s) = length s
+  literalSize _ = 0
+
+||| The sizes of an instance's static arguments, one per parameter: 0 where
+||| a parameter keys nothing.
+staticSizes : List PKind -> List Nat
+staticSizes = map (\k => maybe 0 termSize (staticOf k))
+
+||| The first position at which `after` is larger than `before`, when it is
+||| smaller at none.
+growsAt : List Nat -> List Nat -> Maybe Nat
+growsAt before after =
+  let pairs = zip before after in
+  if all (\(b, a) => a >= b) pairs
+     then fst <$> find (\(_, (b, a)) => a > b) (zip [0 .. length pairs] pairs)
+     else Nothing
+
+||| Refuses a new instance whose static arguments grow against an instance
+||| of the same definition on its request chain (the instance requesting
+||| it, the one that requested that, back to `main`): smaller in no
+||| position and larger in one. On one chain the instances of one
+||| definition have distinct keys, and finitely many keys share a vector
+||| of sizes, so an infinite chain would have to grow somewhere (Dickson's
+||| lemma) and is refused there; the request tree, finitely branching, is
+||| then finite, and the worklist ends on every program. What is refused
+||| is the recursion that builds a larger static argument at each call, a
+||| construct no compile-time analysis bounds; anything else compiles,
+||| however many instances it makes.
+chainGrows : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+             FC -> String -> Name -> String -> InstanceKey -> List PKind -> Core ()
+chainGrows fc owner n base key kinds = from (!(get TState)).current
+  where
     from : Maybe FnId -> Core ()
     from Nothing = pure ()
     from (Just inst) = do
@@ -81,13 +116,13 @@ growing fc owner n base kinds = do
       let Just r = lookup inst st.requesters
         | Nothing => pure ()
       when (r.base == base) $
-        case find deeper (zip [0 .. length kinds] (zip (shapes r.kinds) (shapes kinds))) of
-          Just (i, before, after) => do
+        case growsAt (staticSizes r.kinds) (staticSizes kinds) of
+          Just i => do
             x <- parameterName fc owner n i
             reject fc owner Polymorphism
-                   ("polymorphic recursion: the type of " ++ base ++ " depends on its argument " ++ x ++
-                    ", which its recursion builds deeper at each call (" ++ !(showTT after) ++
-                    " after " ++ !(showTT before) ++ "), so that each instance would need another")
+                   ("polymorphic recursion: " ++ base ++ " requests itself with its argument " ++ x ++
+                    " larger, which its recursion builds deeper at each call (" ++ keyText key ++
+                    " after " ++ keyText r.key ++ "), so that each instance would need another")
           Nothing => pure ()
       from r.parent
 
@@ -95,7 +130,7 @@ growing fc owner n base kinds = do
 ||| gives them, and returns its identity. A new instance remembers how it came
 ||| to be: the chain leads back to the user definition a library instance
 ||| serves (`Dictionaries.chooser`), and through the instances of its own
-||| definition it comes from (`growing`).
+||| definition it comes from (`chainGrows`).
 export
 request : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
           FC -> String -> Name -> List PKind -> Core FnId
@@ -106,13 +141,9 @@ request fc owner n kinds = do
   st <- get TState
   unless (contains inst st.seen) $ do
     checkRecursion n
-    growing fc owner n base kinds
-    let count = fromMaybe 0 (lookup base st.perName)
-    when (count >= instanceBudget) $
-      reject fc owner CompileBudget ("more than " ++ show instanceBudget ++ " instances of " ++ base)
+    chainGrows fc owner n base key kinds
     update TState { seen $= insert inst
-                  , perName $= insert base (S count)
-                  , requesters $= insert inst (MkRequest n base st.current kinds)
+                  , requesters $= insert inst (MkRequest n base st.current kinds key)
                   , queue $= enqueue (MkPending n inst key kinds) }
   pure inst
 
@@ -154,6 +185,7 @@ givenArgs = map given
     given (DictParam t Nothing) = Just (known t True)
     given (DictParam t (Just h)) = Just ({ holed := pure (Just (t, h.types)) } (known t True))
     given ErasedParam = Nothing
+    given (FormParam f) = Just (known f False)
     given (ValueParam _ shape _) = (\t => known t False) <$> shape
 
 nextStatic : ArgValues -> (Maybe ArgValue, ArgValues)
@@ -219,8 +251,24 @@ classify fc owner (S k) (Bind bfc _ (Pi _ rig _ a) sc) vals = do
        pure (TypeParam val :: rest, res)
      else if isErased rig
        then do
-         (rest, res) <- classify fc owner k (subst (Erased bfc Placeholder) sc) (skip vals)
-         pure (ErasedParam :: rest, res)
+         -- An erased shape of the array language that a value array's type
+         -- needs is its form: a tensor's rank is its type, so it keys the
+         -- instance. Any other erased argument keys nothing.
+         needed <- if isShapeType (shapeOf !(toFullNames a'))
+                     then formNeeded (\x => subst x sc)
+                     else pure False
+         if needed
+            then do
+              let (Just v, vals') = nextStatic vals
+                | _ => reject fc owner StaticArgument "a shape that is not known statically"
+              shape <- v.normalised
+              let Just form = shapeForm shape
+                | Nothing => reject fc owner Polymorphism ("a shape whose rank no analysis fixes: " ++ !(showTT shape))
+              (rest, res) <- classify fc owner k !(normaliseClosed (subst form sc)) vals'
+              pure (FormParam form :: rest, res)
+            else do
+              (rest, res) <- classify fc owner k (subst (Erased bfc Placeholder) sc) (skip vals)
+              pure (ErasedParam :: rest, res)
      else if !(dictionaryBinder rig a') || maybe False (.dictionary) (fst (nextStatic vals))
        then do
          let (Just v, vals') = nextStatic vals

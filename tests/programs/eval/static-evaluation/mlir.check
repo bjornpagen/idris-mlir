@@ -1,4 +1,4 @@
-// input: after idr-simplify
+// input: after idr-optimize
 // FILECHECK-OPTIONS: --implicit-check-not=@Main.atLeast --implicit-check-not=@Main.firstIs --implicit-check-not=@Main.parens --implicit-check-not={{=.(idr[.])?big[.]}}
 // Nothing of the precedence test remains at runtime: `atLeast Low High` is
 // a closed call of a total function, evaluated to False, so `both` never

@@ -1,3 +1,5 @@
 # Every recursion of the program is a loop once idr-tail-loops has run:
-# the stack stays constant whatever the input.
-idr-tail-loops: constant-stack=@$idris-mlir.root
+# the stack stays constant whatever the input. idr-tail-loops runs over the
+# functions in a group, which dumps no module; idr-narrow, the next step,
+# is the first to show its loops.
+idr-narrow: constant-stack=@$idris-mlir.root

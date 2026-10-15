@@ -1,347 +1,268 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The labels each closure or suspension may hold, a sparse forward dataflow
-// analysis on MLIR's framework, interprocedural, that joins itself what the
-// framework does not follow: the captures of closures and suspensions and
-// the arguments of applies into a function's entry, the results of each
-// label an apply may call into the apply's, and those of each label a force
-// may run into the force's, the fields of constructors and the elements of
-// arrays of any rank (an IORef's one element among them).
+// The label solve: a worklist over the classes of a union-find, each class
+// holding its set of labels, the nodes its labels flow into and the
+// dispatches its labels run. A class sends only what it gained since it
+// last sent; a dispatch adds the edges of each label as it arrives; two
+// classes that hold one cell are merged, never coerced. The sets are the
+// least solution of the edges, so they do not depend on the walk's or the
+// worklist's order.
 
 #include "idr/Analysis/Labels.h"
 
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Symbols.h"
 
-#include "mlir/Analysis/DataFlow/SparseAnalysis.h"
-#include "mlir/Analysis/DataFlow/Utils.h"
-#include "mlir/Analysis/DataFlowFramework.h"
-#include "mlir/Dialect/UB/IR/UBOps.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/Interfaces/CallInterfaces.h"
-#include "mlir/Support/TypeID.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/SymbolTable.h"
 
 #include "llvm/ADT/STLExtras.h"
 
+#include <algorithm>
+
 using namespace mlir;
-using namespace mlir::dataflow;
 
-namespace idr {
-namespace {
+namespace idr::labels {
 
-// Calls `visit` for each idr.return of `fn`: the terminators of its body's
-// blocks, the only places a function returns from.
-void eachReturn(FuncOp fn, function_ref<void(ReturnOp)> visit) {
-  for (Block &block : fn.getBody())
-    if (auto ret = dyn_cast_or_null<ReturnOp>(block.empty() ? nullptr : &block.back()))
-      visit(ret);
+//===----------------------------------------------------------------------===//
+// Labels and sets
+//===----------------------------------------------------------------------===//
+
+// A label's number, given when it is first met.
+std::uint32_t Graph::labelId(FlatSymbolRefAttr label) {
+  auto [it, made] =
+      labelIds.try_emplace(label.getAttr(), static_cast<std::uint32_t>(labelNames.size()));
+  if (made)
+    labelNames.push_back(label);
+  return it->second;
 }
 
-class LabelAnalysis : public SparseForwardDataFlowAnalysis<LabelLattice> {
-public:
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(LabelAnalysis)
-
-  LabelAnalysis(DataFlowSolver &dataflow, const Labels &sites)
-      : SparseForwardDataFlowAnalysis(dataflow), sites(sites) {
-    registerAnchorKind<FieldAnchor>();
-    registerAnchorKind<ElementsAnchor>();
-  }
-
-  // Closures and suspensions stored in constants reach their fields before
-  // anything runs.
-  LogicalResult initialize(Operation *top) override {
-    top->walk([&](ConstantOp constant) {
-      constant.getValue().walk([&](ConAttr con) {
-        eachField(con, [&](Attribute field, unsigned i) {
-          auto closure = dyn_cast<ClosureAttr>(field);
-          if (!closure)
-            return;
-          Type declared = sites.fieldType(con.getCtor(), i);
-          if (declared && isKeyed(declared))
-            joinField(con.getCtor(), i, LabelSet::of(closure.getCallee().getAttr()));
-        });
-      });
-    });
-    return SparseForwardDataFlowAnalysis::initialize(top);
-  }
-
-  LogicalResult visitOperation(Operation *op, ArrayRef<const LabelLattice *> operands,
-                               ArrayRef<LabelLattice *> results) override {
-    if (auto closure = dyn_cast<ClosureOp>(op))
-      return set(results[0], LabelSet::of(closure.getCalleeAttr().getAttr()));
-    if (auto suspend = dyn_cast<SuspendOp>(op))
-      return set(results[0], LabelSet::of(suspend.getCalleeAttr().getAttr()));
-    if (auto constant = dyn_cast<ConstantOp>(op)) {
-      if (auto closure = dyn_cast<ClosureAttr>(constant.getValue());
-          closure && isKeyed(constant.getType()))
-        return set(results[0], LabelSet::of(closure.getCallee().getAttr()));
-      return success();
-    }
-    // A poison is no value the program computes, so it holds no label; an
-    // evaluated suspension holds its value, which runs no function.
-    if (isa<ub::PoisonOp, DelayOp>(op))
-      return success();
-    if (auto con = dyn_cast<ConOp>(op)) {
-      for (auto [i, field] : llvm::enumerate(operands))
-        if (isKeyed(con.getFields()[i].getType()))
-          joinField(con.getCtor(), static_cast<unsigned>(i), field->getValue());
-      return success();
-    }
-    // Entering or using a linear value keeps what it holds.
-    if (isa<LinEnterOp, LinUseOp>(op)) {
-      if (isKeyed(op->getResult(0).getType()))
-        return set(results[0], operands[0]->getValue());
-      return success();
-    }
-    if (auto field = dyn_cast<FieldOp>(op)) {
-      if (!isKeyed(field.getType()))
-        return success();
-      auto ref = SymbolRefAttr::get(getSumName(field.getValue().getType()).getAttr(),
-                                    {field.getCtorAttr()});
-      return set(results[0], readField(getProgramPointAfter(op), ref,
-                                       static_cast<unsigned>(field.getIndex())));
-    }
-    if (auto force = dyn_cast<ForceOp>(op))
-      return visitForce(force, operands[0]->getValue(), results[0]);
-    // The sizes and indices before the fill and the value are one per
-    // dimension, so the operand's lattice is found by its number.
-    if (auto made = dyn_cast<ArrayNewOp>(op))
-      return joinElements(made.getArrayType(), made.getFill().getType(),
-                          operands[made.getFillMutable().getOperandNumber()]->getValue());
-    if (auto stored = dyn_cast<ArraySetOp>(op))
-      return joinElements(stored.getArrayType(), stored.getValue().getType(),
-                          operands[stored.getValueMutable().getOperandNumber()]->getValue());
-    if (auto read = dyn_cast<ArrayGetOp>(op)) {
-      if (!isKeyed(read.getValue().getType()))
-        return success();
-      return set(results[0], readElements(getProgramPointAfter(op), read.getArrayType()));
-    }
-    for (auto [result, lattice] : llvm::zip(op->getResults(), results))
-      if (isKeyed(result.getType()))
-        setToEntryState(lattice);
-    return success();
-  }
-
-  // An idr.apply calls every label its callee may hold.
-  LogicalResult visitCallOperation(CallOpInterface call,
-                                   ArrayRef<const AbstractSparseLattice *> operands,
-                                   ArrayRef<AbstractSparseLattice *> results) override {
-    auto apply = dyn_cast<ApplyOp>(call.getOperation());
-    if (!apply)
-      return SparseForwardDataFlowAnalysis::visitCallOperation(call, operands, results);
-    const LabelSet &callee = static_cast<const LabelLattice *>(operands[0])->getValue();
-    ProgramPoint *point = getProgramPointAfter(apply);
-    if (callee.unknown) {
-      // Any label of the callee's type may be called, so every one of
-      // them takes the arguments.
-      for (StringAttr label : sites.labelsFor(cast<FnType>(apply.getCallee().getType())))
-        if (FuncOp fn = sites.function(label))
-          joinApplyArgs(apply, operands, fn);
-      AbstractSparseForwardDataFlowAnalysis::setAllToEntryStates(results);
-      return success();
-    }
-    for (StringAttr label : callee.names) {
-      FuncOp fn = sites.function(label);
-      if (!fn || fn.isExternal()) {
-        AbstractSparseForwardDataFlowAnalysis::setAllToEntryStates(results);
-        return success();
-      }
-      joinApplyArgs(apply, operands, fn);
-      eachReturn(fn, [&](ReturnOp ret) {
-        for (auto [operand, result] : llvm::zip(ret.getOperands(), results))
-          join(result, *getLatticeElementFor(point, operand));
-      });
-    }
-    return success();
-  }
-
-  // The entry arguments of a function: from its calls, its closures and
-  // suspensions. An idr.apply joins its own arguments into the entries
-  // of the labels its callee may hold, in visitCallOperation, which the
-  // solver revisits when the callee or an argument changes.
-  void visitCallableOperation(CallableOpInterface callable,
-                              ArrayRef<AbstractSparseLattice *> arguments) override {
-    auto fn = dyn_cast<FuncOp>(callable.getOperation());
-    if (!fn || sites.escapes(fn))
-      return AbstractSparseForwardDataFlowAnalysis::setAllToEntryStates(arguments);
-    Block *entry = &fn.getBody().front();
-    ProgramPoint *point = getProgramPointBefore(entry);
-    const auto *calls = getOrCreateFor<PredecessorState>(point, getProgramPointAfter(fn));
-    for (Operation *site : calls->getKnownPredecessors())
-      if (auto call = dyn_cast<CallOp>(site))
-        for (auto [operand, argument] : llvm::zip(call.getArgOperands(), arguments))
-          join(argument, *getLatticeElementFor(point, operand));
-
-    StringAttr name = fn.getSymNameAttr();
-    for (ClosureOp closure : sites.closures(name))
-      for (auto [capture, argument] : llvm::zip(closure.getCaptures(), arguments))
-        join(argument, *getLatticeElementFor(point, capture));
-    for (SuspendOp suspend : sites.suspensions(name))
-      for (auto [capture, argument] : llvm::zip(suspend.getCaptures(), arguments))
-        join(argument, *getLatticeElementFor(point, capture));
-    auto joinCaptures = [&](ArrayAttr captures) {
-      for (auto [capture, argument] : llvm::zip(captures, arguments))
-        if (auto closure = dyn_cast<ClosureAttr>(capture))
-          propagateIfChanged(argument, static_cast<LabelLattice *>(argument)->joinLabels(
-                                           LabelSet::of(closure.getCallee().getAttr())));
-    };
-    llvm::for_each(sites.closureConstants(name), joinCaptures);
-    llvm::for_each(sites.suspensionConstants(name), joinCaptures);
-  }
-
-  // The arguments of a case region of idr.match are the fields of its
-  // constructor, and the element a fold's body takes is one of the array's.
-  // A generate stores its fill and what its body yields as elements, which
-  // its results, an array and a world, do not carry.
-  void visitNonControlFlowArguments(Operation *op, const RegionSuccessor &successor,
-                                    ValueRange inputs,
-                                    ArrayRef<LabelLattice *> lattices) override {
-    if (auto generate = dyn_cast<ArrayGenerateOp>(op)) {
-      ProgramPoint *point = getProgramPointAfter(op);
-      SmallVector<Value> stored{generate.getFill()};
-      if (!generate.getBody().empty())
-        llvm::append_range(stored, generate.getBody().front().getTerminator()->getOperands());
-      for (Value element : stored)
-        (void)joinElements(generate.getArrayType(), element.getType(),
-                           getLatticeElementFor(point, element)->getValue());
-      return setAllToEntryStates(lattices);
-    }
-    Region *region = successor.getSuccessor();
-    if (auto fold = dyn_cast<ArrayFoldOp>(op); fold && region) {
-      ProgramPoint *point = getProgramPointBefore(&region->front());
-      for (auto [input, lattice] : llvm::zip(inputs, lattices))
-        if (isKeyed(input.getType()) && cast<BlockArgument>(input).getArgNumber() == 1)
-          propagateIfChanged(lattice, lattice->joinLabels(readElements(point, fold.getArrayType())));
-        else
-          setToEntryState(lattice);
-      return;
-    }
-    auto match = dyn_cast<MatchOp>(op);
-    if (!match || !region || region->getRegionNumber() >= match.getCases().size())
-      return setAllToEntryStates(lattices);
-    auto ctor = cast<FlatSymbolRefAttr>(match.getCases()[region->getRegionNumber()]);
-    auto ref = SymbolRefAttr::get(getSumName(match.getScrutinee().getType()).getAttr(), {ctor});
-    ProgramPoint *point = getProgramPointBefore(&region->front());
-    for (auto [input, lattice] : llvm::zip(inputs, lattices))
-      if (isKeyed(input.getType()))
-        propagateIfChanged(lattice, lattice->joinLabels(readField(
-                                        point, ref, cast<BlockArgument>(input).getArgNumber())));
-  }
-
-  void setToEntryState(LabelLattice *lattice) override {
-    propagateIfChanged(lattice, lattice->joinLabels(LabelSet::top()));
-  }
-
-private:
-  // The arguments of `apply` into the last arguments of `fn`, which take
-  // them after its captures. `operands` are the apply's lattices, its
-  // callee first. The entry lattices are written, not read for a
-  // dependency: their uses are revisited through the join's own
-  // propagation, and the apply is revisited through its operands.
-  void joinApplyArgs(ApplyOp apply, ArrayRef<const AbstractSparseLattice *> operands, FuncOp fn) {
-    if (fn.isExternal())
-      return;
-    ArrayRef<BlockArgument> entry = fn.getBody().front().getArguments();
-    size_t k = apply.getArgs().size();
-    if (entry.size() < k)
-      return;
-    for (auto [i, argument] : llvm::enumerate(entry.take_back(k)))
-      join(getLatticeElement(argument), *operands[1 + i]);
-  }
-
-  LogicalResult set(LabelLattice *lattice, const LabelSet &labels) {
-    propagateIfChanged(lattice, lattice->joinLabels(labels));
-    return success();
-  }
-
-  // A force gives what one of the labels its cell may hold returns.
-  LogicalResult visitForce(ForceOp force, const LabelSet &cell, LabelLattice *result) {
-    if (!isKeyed(force.getType()))
-      return success();
-    if (cell.unknown)
-      return set(result, LabelSet::top());
-    ProgramPoint *point = getProgramPointAfter(force);
-    for (StringAttr label : cell.names) {
-      FuncOp fn = sites.function(label);
-      if (!fn || fn.isExternal())
-        return set(result, LabelSet::top());
-      eachReturn(fn, [&](ReturnOp ret) {
-        if (ret.getNumOperands() == 1)
-          join(result, *getLatticeElementFor(point, ret.getOperand(0)));
-      });
-    }
-    return success();
-  }
-
-  FieldAnchor *anchor(SymbolRefAttr ctor, unsigned index) {
-    return getLatticeAnchor<FieldAnchor>(
-        std::make_tuple(ctor.getRootReference(), ctor.getLeafReference(), index));
-  }
-
-  void joinField(SymbolRefAttr ctor, unsigned index, const LabelSet &labels) {
-    auto *state = getOrCreate<FieldLabels>(anchor(ctor, index));
-    propagateIfChanged(state, state->join(labels));
-  }
-
-  const LabelSet &readField(ProgramPoint *point, SymbolRefAttr ctor, unsigned index) {
-    return getOrCreateFor<FieldLabels>(point, anchor(ctor, index))->value;
-  }
-
-  // An element of `type` stored in an array of `array`'s element type.
-  LogicalResult joinElements(MemRefType array, Type type, const LabelSet &labels) {
-    if (!isKeyed(type))
-      return success();
-    auto *state =
-        getOrCreate<FieldLabels>(getLatticeAnchor<ElementsAnchor>(array.getElementType()));
-    propagateIfChanged(state, state->join(labels));
-    return success();
-  }
-
-  const LabelSet &readElements(ProgramPoint *point, MemRefType array) {
-    return getOrCreateFor<FieldLabels>(point,
-                                       getLatticeAnchor<ElementsAnchor>(array.getElementType()))
-        ->value;
-  }
-
-  const Labels &sites;
-};
-
-} // namespace
-
-Labels::Labels(Operation *module, AnalysisManager &am)
-    : table(am.getAnalysis<SymbolTable>()),
-      solver(DataFlowConfig().setInterprocedural(true)) {
-  gather(module);
-  loadBaselineAnalyses(solver);
-  solver.load<LabelAnalysis>(*this);
-  diverged = mlir::failed(solver.initializeAndRun(module));
+// The set of `ids`, sorted, made once: two equal sets are one number.
+SetId Graph::intern(ArrayRef<std::uint32_t> ids) {
+  if (ids.empty())
+    return 0;
+  if (auto it = setIds.find(ids); it != setIds.end())
+    return it->second;
+  std::uint32_t *kept = storage.Allocate<std::uint32_t>(ids.size());
+  std::copy(ids.begin(), ids.end(), kept);
+  ArrayRef<std::uint32_t> made(kept, ids.size());
+  SetId id = static_cast<SetId>(sets.size());
+  sets.push_back(made);
+  setIds.try_emplace(made, id);
+  return id;
 }
 
-LabelSet Labels::labelsOf(Value value) const {
-  LabelSet out;
-  if (const auto *lattice = solver.lookupState<LabelLattice>(value))
-    out = lattice->getValue();
-  if (auto closure = value.getDefiningOp<ClosureOp>())
-    out = LabelSet::join(out, LabelSet::of(closure.getCalleeAttr().getAttr()));
-  if (auto suspend = value.getDefiningOp<SuspendOp>())
-    out = LabelSet::join(out, LabelSet::of(suspend.getCalleeAttr().getAttr()));
-  if (auto constant = value.getDefiningOp<ConstantOp>())
-    if (auto closure = dyn_cast<ClosureAttr>(constant.getValue()))
-      out = LabelSet::join(out, LabelSet::of(closure.getCallee().getAttr()));
+SetId Graph::join(SetId a, SetId b) {
+  if (a == b || b == 0)
+    return a;
+  if (a == 0)
+    return b;
+  auto key = a < b ? std::make_pair(a, b) : std::make_pair(b, a);
+  if (auto it = joins.find(key); it != joins.end())
+    return it->second;
+  SmallVector<std::uint32_t> merged;
+  std::set_union(sets[a].begin(), sets[a].end(), sets[b].begin(), sets[b].end(),
+                 std::back_inserter(merged));
+  SetId out = intern(merged);
+  joins.try_emplace(key, out);
   return out;
 }
 
-LabelSet Labels::fieldLabels(SymbolRefAttr ctor, unsigned index) {
-  auto *at = solver.getLatticeAnchor<FieldAnchor>(
-      std::make_tuple(ctor.getRootReference(), ctor.getLeafReference(), index));
-  const auto *state = solver.lookupState<FieldLabels>(at);
-  return state ? state->value : LabelSet();
+SetId Graph::minus(SetId a, SetId b) {
+  if (a == 0 || b == 0 || a == b)
+    return a == b ? 0 : a;
+  SmallVector<std::uint32_t> left;
+  std::set_difference(sets[a].begin(), sets[a].end(), sets[b].begin(), sets[b].end(),
+                      std::back_inserter(left));
+  return intern(left);
 }
 
-LabelSet Labels::elementLabels(Type element) {
-  const auto *state =
-      solver.lookupState<FieldLabels>(solver.getLatticeAnchor<ElementsAnchor>(element));
-  return state ? state->value : LabelSet();
+//===----------------------------------------------------------------------===//
+// The union-find and the edges
+//===----------------------------------------------------------------------===//
+
+Node Graph::find(Node node) const {
+  Node root = node;
+  while (parents[root] != root)
+    root = parents[root];
+  while (parents[node] != root) {
+    Node next = parents[node];
+    parents[node] = root;
+    node = next;
+  }
+  return root;
+}
+
+// A flow of a lazy carrier joins two points that hold one cell; any other
+// is an inclusion.
+void Graph::link(Node from, Node to, bool lazy) {
+  if (lazy)
+    unify(from, to);
+  else
+    include(from, to);
+}
+
+void Graph::include(Node from, Node to) {
+  Node source = find(from);
+  if (source == find(to))
+    return;
+  classes[source].successors.push_back(to);
+  addLabels(to, classes[source].set);
+}
+
+// One class for both. Each side's successors and dispatches have seen its
+// own set but what it had pending; the merged class owes each of them the
+// other's labels too, so it holds as pending everything only one side had
+// and both sides' pending. A receiver takes only what it lacks.
+void Graph::unify(Node a, Node b) {
+  Node x = find(a), y = find(b);
+  if (x == y)
+    return;
+  SetId owed = join(join(classes[x].pending, classes[y].pending),
+                    join(minus(classes[x].set, classes[y].set),
+                         minus(classes[y].set, classes[x].set)));
+  parents[y] = x;
+  Class &into = classes[x];
+  Class &from = classes[y];
+  into.set = join(into.set, from.set);
+  into.pending = owed;
+  llvm::append_range(into.successors, from.successors);
+  llvm::append_range(into.dispatches, from.dispatches);
+  from = Class();
+  if (into.pending && !into.queued) {
+    into.queued = true;
+    worklist.push_back(x);
+  }
+}
+
+void Graph::addLabels(Node to, SetId set) {
+  if (set == 0)
+    return;
+  Node root = find(to);
+  SetId added = minus(set, classes[root].set);
+  if (added == 0)
+    return;
+  Class &target = classes[root];
+  target.set = join(target.set, added);
+  target.pending = join(target.pending, added);
+  if (!target.queued) {
+    target.queued = true;
+    worklist.push_back(root);
+  }
+}
+
+// Each label of `set` the dispatch has not yet run takes the call's
+// arguments after its captures and gives its results to the call's.
+void Graph::fire(unsigned index, SetId set) {
+  for (std::uint32_t id : sets[set]) {
+    if (!dispatches[index].handled.insert(id).second)
+      continue;
+    CallOpInterface call = dispatches[index].call;
+    FlatSymbolRefAttr label = labelNames[id];
+    auto fn = table.lookup<FuncOp>(label.getAttr());
+    Operation::operand_range args = call.getArgOperands();
+    assert(fn && fn.getNumArguments() >= args.size() &&
+           "a label fits the carrier of the callee that holds it");
+    unsigned captures = fn.getNumArguments() - static_cast<unsigned>(args.size());
+    for (auto [i, arg] : llvm::enumerate(args))
+      if (isKeyed(arg.getType()))
+        link(nodeOf(FlowPoint::of(arg)),
+             nodeOf(FlowPoint::parameter(label, captures + static_cast<unsigned>(i))),
+             isLazyType(arg.getType()));
+    for (auto [j, result] : llvm::enumerate(call->getResults()))
+      if (isKeyed(result.getType()))
+        link(nodeOf(FlowPoint::result(label, static_cast<unsigned>(j))),
+             nodeOf(FlowPoint::of(result)), isLazyType(result.getType()));
+  }
+}
+
+void Graph::solve() {
+  while (!worklist.empty()) {
+    Node node = worklist.back();
+    worklist.pop_back();
+    // A class merged away handed its pending labels to its root, which was
+    // queued then.
+    if (find(node) != node)
+      continue;
+    classes[node].queued = false;
+    SetId sent = classes[node].pending;
+    classes[node].pending = 0;
+    if (sent == 0)
+      continue;
+    // The lists are walked as they were: a dispatch may merge this class
+    // into another, which then owes its lists what either side lacked, and
+    // what is added to them meanwhile was given the whole set when it was
+    // added.
+    SmallVector<Node> successors = llvm::to_vector(classes[node].successors);
+    SmallVector<unsigned> runs = llvm::to_vector(classes[node].dispatches);
+    for (Node next : successors)
+      addLabels(next, sent);
+    for (unsigned run : runs)
+      fire(run, sent);
+  }
+  freeze();
+}
+
+// Every node names its root, so a later find writes nothing; every root's
+// set, and the empty set, has its attribute, each labels in name order.
+void Graph::freeze() {
+  for (Node node = 0, n = static_cast<Node>(parents.size()); node < n; ++node)
+    parents[node] = find(node);
+  SmallVector<SetId> roots{0};
+  for (Node node = 0, n = static_cast<Node>(parents.size()); node < n; ++node)
+    if (parents[node] == node)
+      roots.push_back(classes[node].set);
+  for (SetId set : roots) {
+    if (attrs.count(set))
+      continue;
+    SmallVector<FlatSymbolRefAttr> names;
+    for (std::uint32_t id : sets[set])
+      names.push_back(labelNames[id]);
+    llvm::sort(names, [](FlatSymbolRefAttr a, FlatSymbolRefAttr b) {
+      return a.getValue() < b.getValue();
+    });
+    attrs.try_emplace(set,
+                      ArrayAttr::get(context, SmallVector<Attribute>(names.begin(), names.end())));
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// Answers
+//===----------------------------------------------------------------------===//
+
+// A set's labels in name order: one attribute per set, made when the solve
+// froze.
+ArrayAttr Graph::attrOf(SetId set) const {
+  auto it = attrs.find(set);
+  assert(it != attrs.end() && "every root's set has its attribute");
+  return it->second;
+}
+
+ArrayAttr Graph::labelsOf(const FlowPoint &point) const {
+  std::optional<Node> node = lookup(point);
+  return attrOf(node ? classes[find(*node)].set : 0);
+}
+
+} // namespace idr::labels
+
+namespace idr {
+
+Labels::Labels(Operation *module, AnalysisManager &am) : graph(am.getAnalysis<SymbolTable>()) {
+  graph.walk(module);
+  graph.solve();
+}
+
+ArrayAttr Labels::labelsOf(Value value) const {
+  return graph.labelsOf(FlowPoint::of(value));
+}
+
+ArrayAttr Labels::labelsOf(const FlowPoint &point) const { return graph.labelsOf(point); }
+
+ArrayAttr Labels::runs(Operation *op) const {
+  if (auto apply = dyn_cast<ApplyOp>(op))
+    return labelsOf(apply.getCallee());
+  if (auto force = dyn_cast<ForceOp>(op); force && isLazyType(force.getSuspension().getType()))
+    return labelsOf(force.getSuspension());
+  return graph.attrOf(0);
 }
 
 } // namespace idr

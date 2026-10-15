@@ -6,8 +6,8 @@ import Prelude
 import Linear.Notation
 import Linear.List
 
--- With the in-place promise, a function that rebuilds its linear list in
--- the list's own cells must be passed the list exclusive. Here the list is
+-- A linear list's type promises that a function that rebuilds it in its
+-- own cells is passed it exclusive, on every program. Here the list is
 -- read again after the call, so the call passes it shared, and the promise
 -- refuses the call.
 

@@ -15,12 +15,13 @@ import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Dictionaries
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Forced
+import IdrisMLIR.Frontend.Translate.Shapes
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Translate.Terms
 import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
-import IdrisMLIR.Rule
+import IdrisMLIR.Syntax.Idr
 import IdrisMLIR.Term
 import IdrisMLIR.Types
 
@@ -484,8 +485,16 @@ mutual
         case (fromCore, idrisTypeOf v) of
           (Just d, _) => pure d
           (Nothing, Just ity) => do
-            Just (inst, _) <- dataOf ctx.fc ctx.owner !(normaliseClosed ity)
-              | Nothing => internal ctx.fc ("a match on " ++ show cn ++ " at a type that is not data")
+            ity' <- normaliseClosed ity
+            Just (inst, _) <- dataOf ctx.fc ctx.owner ity'
+              | Nothing => do
+                  -- A value array is abstract: only the functions the
+                  -- registry knows open it, and their bodies are not
+                  -- translated.
+                  Just _ <- arrayShape ity'
+                    | Nothing => internal ctx.fc ("a match on " ++ show cn ++ " at a type that is not data")
+                  reject ctx.fc ctx.owner HookShape
+                         ("the array type of " ++ show cn ++ " is opaque: its constructor is matched")
             pure inst
           (Nothing, Nothing) =>
             internal ctx.fc ("a match on " ++ show cn ++ " of a value whose type is not known")

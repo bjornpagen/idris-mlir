@@ -1,12 +1,12 @@
 // RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
 module {
   // Finite constants truncate toward zero and wrap to the result width.
-  // CHECK-LABEL: idr.func @finite
+  // CHECK-LABEL: idr.func private @finite
   // CHECK-DAG: %[[A:.*]] = arith.constant -2 : i64
   // CHECK-DAG: %[[B:.*]] = arith.constant 44 : i8
   // CHECK-DAG: %[[C:.*]] = arith.constant -8446744073709551616 : i64
   // CHECK: return %[[A]], %[[B]], %[[C]]
-  idr.func @finite() -> (i64, i8, i64) {
+  idr.func private @finite() -> (i64, i8, i64) {
     %a = arith.constant -2.75 : f64
     %b = arith.constant 300.5 : f64
     %c = arith.constant 1.0e19 : f64

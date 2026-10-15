@@ -1,6 +1,6 @@
 // RUN: rm -rf %t.dumps && mkdir -p %t.dumps
-// RUN: idris-mlir -c %s -o %t.o --dump-dir=%t.dumps
-// RUN: sh -c 'for dump in %t.dumps/*; do last=$dump; done; cat "$last"' > %t.mlir
+// RUN: idris-mlir -c %s -o %t.o -mlir-print-ir-after-all -mlir-print-ir-tree-dir=%t.dumps
+// RUN: sh -c 'd=%t.dumps/builtin_module_no-symbol-name; cat "$d/$(ls "$d" | grep "[.]mlir$" | sort -n | tail -n 1)"' > %t.mlir
 // RUN: FileCheck %s --check-prefix=LEFT < %t.mlir
 // RUN: %cc %t.o -o %t
 // RUN: %t | FileCheck %s
@@ -9,7 +9,7 @@
 // CHECK: 3628800 x-x-x
 // LEFT: llvm.call @fact(
 // LEFT: llvm.call @dashes(
-module attributes {idr.program} {
+module {
   idr.func private @fact(%n: i64) -> i64 attributes {total, no_inline} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {

@@ -6,8 +6,8 @@
 module IdrisMLIR.Registry.Entry
 
 import IdrisMLIR.Dialect.Idr
+import IdrisMLIR.MLIR
 import IdrisMLIR.Registry.Name
-import IdrisMLIR.Rule
 import IdrisMLIR.Syntax.Idr
 import IdrisMLIR.Types
 
@@ -200,6 +200,14 @@ data NatMeaning
     ||| `compareNat` is `compareInteger`.
     OnIntegers QName
 
+||| A function of the array language's generating set, or of `LArray`'s
+||| operations, by what its calls are (`Frontend.Translate.Terms`).
+public export
+data ArrayPrim
+  = AShape | ATabulate | AIndex | AUpdate | AFoldLast | AScanLast
+  | AReshape | ATake | ADrop | AConcat | APad
+  | AWithArray | ARead | AWrite | AThaw | ALShape | AGrow | ATabulateIO
+
 ||| A string `System.Info` substitutes from the compiler. `TargetOs` is the
 ||| operating system the target triple names. `BackendName` is the name this
 ||| backend is registered under.
@@ -222,24 +230,35 @@ data Hook
     IOCall IdrPrim (List Lit)
   | ||| An array primitive of the backend contract, polymorphic in its
     ||| element: its calls are the op of this primitive (`ArrayNew`,
-    ||| `ArrayGet`, `ArraySet`) at the element type the call fixes, and at
-    ||| the rank of the array its types name, one size or index per
-    ||| dimension: an IORef's primitives are the array ops on its `Mut`,
-    ||| of rank 0, with none. Handler: `Frontend.Translate.application`.
+    ||| `ArrayGet`, `ArraySet`) at the element type the call fixes, one size
+    ||| or index per dimension of the array a world orders its types name:
+    ||| an IORef's primitives are the array ops on its `Mut`, of no
+    ||| dimension, with none. Handler: `Frontend.Translate.application`.
     ArrayCall IdrPrim
-  | ||| An external type that is an array of a rank: `ArrayData a`, of rank
-    ||| 1, or an IORef's `Mut a`, of rank 0, of the element its type
-    ||| argument names (`Nothing`), or `Buffer`, of rank 1 and of bytes
-    ||| (`Just` the element). Handler: `Frontend.Translate.Types.coreType`.
-    ArrayType Rank (Maybe Ty)
-  | ||| The length of an array: its calls are the array's dimension
-    ||| (`ArrayLength`) at the element type its call's type argument fixes.
-    ||| Handler: `Frontend.Translate.application`.
-    ArraySize
+  | ||| An external type that is an array a world orders, of the dimensions
+    ||| given: `ArrayData a` and `Buffer` of one, an IORef's `Mut a` of
+    ||| none; of the element its type argument names (`Nothing`), or of the
+    ||| one given (`Buffer`'s byte). Handler:
+    ||| `Frontend.Translate.Types.coreType`.
+    OrderedArrayType (List Dim) (Maybe Ty)
+  | ||| A type of the array language that is a value, `Array s a` or
+    ||| `LArray s a`: a tensor. Opaque: no constructor of it is matched or
+    ||| applied. Handler: `Frontend.Translate.Types.coreType`.
+    ArrayValueType
+  | ||| A function of the array language whose calls are the operation its
+    ||| `ArrayPrim` names, in their sequential meaning; its body is not
+    ||| translated. Handler: `Frontend.Translate.Terms.application`.
+    Generating ArrayPrim
+  | ||| A constructor that plays a part a pass needs (`Term.Con.role`).
+    ||| Handler: `Frontend.Translate.Types.dataInstance`.
+    Plays Role
+  | ||| A data type whose values keep a promise every program is checked
+    ||| against (`Term.Data.promise`). Handler:
+    ||| `Frontend.Translate.Types.dataInstance`.
+    Promises Promise
   | ||| A `%foreign` definition whose calls are this primitive, pure, on the
-    ||| call's runtime arguments: a buffer's size (`ArrayLength` of bytes),
-    ||| an index checked against a bound (`IndexBelow`). Handler:
-    ||| `Frontend.Translate.application`.
+    ||| call's runtime arguments: a buffer's size (`ArrayLength` of bytes).
+    ||| Handler: `Frontend.Translate.application`.
     PrimCall Prim
   | ||| A handle that is a foreign constant, as the literal it is: 0 for
     ||| input, 1 for output, 2 for errors, all ones for null, the one
@@ -261,9 +280,10 @@ data Hook
     ||| same type and meaning (`fastUnpack` for `unpack`): its calls are
     ||| calls of that function. Handler: `Frontend.Translate.application`.
     Alias QName
-  | ||| The identity on its last argument, its one runtime argument; the
-    ||| rest are proofs and types. Handler:
-    ||| `Frontend.Translate.application`.
+  | ||| The identity on its last runtime argument, wherever it stands among
+    ||| the proofs and types (`natToFinLT`'s precedes two erased ones); a
+    ||| runtime argument before it is not read (`nest`'s cell form,
+    ||| `merge`'s extents). Handler: `Frontend.Translate.application`.
     IdentityOnLastArgument
   | ||| The head of a program's root, `unsafePerformIO main`, which the
     ||| compiler writes as world-passing code. Handler:
@@ -273,13 +293,6 @@ data Hook
     ||| representation of `Nat`, in constant time and stack, instead of its
     ||| unary recursion. Handler: `Frontend.Translate.application`.
     NatOperation NatMeaning
-  | ||| A library loop over an array's index space (`Linear.Array`'s
-    ||| `prim__generate` and `prim__foldl`): its calls at a machine-word
-    ||| element (and accumulator) are the region primitive of that loop
-    ||| (`ArrayGenerate`, `ArrayFold`), whose body applies the function; at
-    ||| any other instance the definition compiles as written. Handler:
-    ||| `Frontend.Translate.application`.
-    ArrayLoop IdrRegionPrim
   | ||| A library function whose calls end the program with a status: the
     ||| IO primitive named, after which nothing runs (`ub.unreachable`).
     ||| `System.exitWith` is one: its body gives the `PrimIO ()` of
@@ -320,8 +333,11 @@ export
 kind : Hook -> Kind
 kind (IOCall _ _) = Faster
 kind (ArrayCall _) = Faster
-kind (ArrayType _ _) = Faster
-kind ArraySize = Faster
+kind (OrderedArrayType _ _) = Faster
+kind ArrayValueType = Faster
+kind (Generating _) = Faster
+kind (Plays _) = Faster
+kind (Promises _) = Stricter
 kind (PrimCall _) = Faster
 kind (Handle _) = Faster
 kind (Builds _) = Faster
@@ -330,7 +346,6 @@ kind WordType = Faster
 kind IdentityOnLastArgument = Faster
 kind ProgramRoot = Faster
 kind (NatOperation _) = Faster
-kind (ArrayLoop _) = Faster
 kind (Exits _) = Faster
 kind (SystemInfo _) = Faster
 kind (Forbidden _) = Stricter

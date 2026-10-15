@@ -2,10 +2,10 @@
 // Copyright (c) 2026 Bjorn Pagen
 // idr-stack: a box whose cell never leaves its frame is built on the stack.
 //
-// An idr.con of a box gets the dialect's `stack` mark when the escape
-// analysis proves that no reference to its cell outlives the frame of the
-// function that builds it, nor the loop iteration that builds it. idr-lower
-// then builds the cell in a slot of the function's entry block instead of
+// An idr.con of a box gets its `stack` property when the escape analysis
+// proves that no reference to its cell outlives the frame of the function
+// that builds it, nor the loop iteration that builds it. idr-lower then
+// builds the cell in a slot of the function's entry block instead of
 // calling the allocator: its header is count 1 with the stack mark
 // (IDRIS_RT_STACK_CELL), so counting works on it as on any cell, except
 // that when its count reaches 0 its fields are released and its memory is
@@ -17,15 +17,14 @@
 // function that is on a cycle of calls may have many frames live at once,
 // each with its slots, so its budget is much smaller.
 //
-// The marks are the pass's alone: every mark is decided again, and one the
-// decision does not keep is dropped.
+// The property is the pass's alone to set: every con is decided again, and
+// one the decision does not keep goes back to the heap.
 #include "idr/Transforms/Stack.h"
 
 #include "idr/Analysis/Escapes.h"
 #include "idr/Analysis/Holds.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
-#include "idr/IR/Symbols.h"
 #include "idr/IR/TypeGraph.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -53,16 +52,13 @@ struct Stack : idr::impl::IdrStackBase<Stack> {
     const idr::Layouts &layouts = getAnalysis<idr::Layouts>();
     if (failed(layouts.valid()))
       return signalPassFailure();
-    SymbolTable &symbols = getAnalysis<SymbolTable>();
     const idr::Escapes &escapes = getAnalysis<idr::Escapes>();
     if (failed(escapes.solved())) {
       module.emitError("internal error: idr-stack's escape analysis did not reach its fixpoint");
       return signalPassFailure();
     }
-    idr::IdrDialect::StackAttrHelper stack(&getContext());
-
-    // The decision, on the module as it stands: the cons whose mark is to
-    // change.
+    // The decision, on the module as it stands: the cons whose property is
+    // to change.
     SmallVector<std::pair<idr::ConOp, bool>> changes;
     for (idr::FuncOp fn : module.getOps<idr::FuncOp>()) {
       unsigned left = escapes.recursive(fn) ? recursiveFrameLimit : frameLimit;
@@ -71,7 +67,7 @@ struct Stack : idr::impl::IdrStackBase<Stack> {
         if (isa<idr::BoxType>(con.getType())) {
           ++numBoxes;
           if (!escapes.mayEscape(con)) {
-            unsigned size = layouts.box(idr::lookupCtor(symbols, con.getCtor())).size;
+            unsigned size = layouts.box(con.getDataType(), con.getTag()).size;
             if (size <= cellLimit && size <= left) {
               left -= size;
               marked = true;
@@ -79,7 +75,7 @@ struct Stack : idr::impl::IdrStackBase<Stack> {
             }
           }
         }
-        if (marked != stack.isAttrPresent(con))
+        if (marked != con.getStack())
           changes.emplace_back(con, marked);
       });
     }
@@ -87,16 +83,10 @@ struct Stack : idr::impl::IdrStackBase<Stack> {
       return markAllAnalysesPreserved();
 
     IRRewriter rewriter(&getContext());
-    UnitAttr unit = rewriter.getUnitAttr();
     for (auto [con, marked] : changes)
-      rewriter.modifyOpInPlace(con, [&] {
-        if (marked)
-          stack.setAttr(con, unit);
-        else
-          stack.removeAttr(con);
-      });
-    // A mark changes what a con does to memory, which the ownership
-    // analyses read, and nothing a declaration or a symbol says.
+      rewriter.modifyOpInPlace(con, [&] { con.setStack(marked); });
+    // The property changes what a con does to memory, which the ownership
+    // analyses read, and nothing a data type or a symbol says.
     markAnalysesPreserved<idr::Holds, idr::TypeGraph, idr::Layouts, SymbolTable>();
   }
 };

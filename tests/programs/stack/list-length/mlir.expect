@@ -1,3 +1,5 @@
 # length's addition of its own result is a loop, so the calls reachable
-# from the program do not grow the stack.
-idr-tail-loops: constant-stack=@$idris-mlir.root
+# from the program do not grow the stack. The loops are idr-tail-loops',
+# which runs over the functions in a group and dumps no module; idr-narrow,
+# the next step, is the first to show them.
+idr-narrow: constant-stack=@$idris-mlir.root

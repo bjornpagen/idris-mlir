@@ -41,9 +41,9 @@ class RewriterBase;
 
 namespace idr::ownership {
 
-// The nested passes, which idr-rc builds and no registry knows: placement
-// with idr-rc's options, and the commit of the excl grades.
-std::unique_ptr<mlir::Pass> createRcPlace(bool reuse, bool sink);
+// The nested passes, which idr-rc builds and no registry knows: placement,
+// and the commit of the excl grades.
+std::unique_ptr<mlir::Pass> createRcPlace();
 std::unique_ptr<mlir::Pass> createRcCommit();
 
 // The owned grades borrow inference decided, written into every signature:
@@ -56,17 +56,23 @@ void writeOwnedGrades(mlir::ModuleOp module, const Borrows &borrows);
 void shareTainted(mlir::ModuleOp module, mlir::SymbolTable &symbols);
 
 // The copies grade specialization made, by their original, in the order
-// it made them.
+// their keys appeared. A function has one key at most, its exclusive
+// context, so one copy, made once.
 struct Copies {
   llvm::MapVector<mlir::Operation *, FuncOp> of;
   llvm::DenseSet<mlir::Operation *> copies;
 };
 
-// Calls whose every followed argument is exclusive go to a copy of their
-// callee, where its other callers pass shared values. Whether any call was
-// redirected.
-bool specializeOnGrade(mlir::ModuleOp module, const Exclusivity &solved,
-                       mlir::SymbolTable &symbols, Copies &copies);
+// One round of grade specialization on what `solved` found: the keys of
+// the round first, a function whose live calls disagree (some give every
+// followed parameter an exclusive value where it takes one shared, some do
+// not), then each new key's copy, named from the key, then every such call
+// redirected to its callee's copy. Whether any call was redirected: a call
+// is redirected once and a key made once, so a round that redirects
+// nothing is the last.
+// A copy whose name another function holds is an internal error.
+mlir::FailureOr<bool> specializeOnGrade(mlir::ModuleOp module, const Exclusivity &solved,
+                                        mlir::SymbolTable &symbols, Copies &copies);
 
 // Every original none of whose uses is left, once its callers went to the
 // copy.
@@ -83,7 +89,10 @@ enum class Class { Untracked, Static, Borrowed, Owned };
 
 // The class of each value of a function, computed once. A parameter that
 // holds references is borrowed unless its grade, which the signature gave
-// it, is owned.
+// it, is owned. An element read from a buffer is owned: it takes a
+// reference of its own where it is read. A fresh allocation and the value
+// a give hands to a store are untracked: their boundary op moves their
+// reference.
 class Classes {
 public:
   Classes(FuncOp fn, Counted &counted) : fn(fn), counted(counted) {}
@@ -107,39 +116,48 @@ bool usedIn(mlir::Value value, mlir::Region &region);
 // Whether `block` ends in a crash, which counting leaves alone.
 bool endsInCrash(mlir::Block &block);
 
-// Takes the box `box`, built by `ctor`, apart at `at` in `block`: an
-// idr.take whose fields replace the reads of the box's fields from that
-// point on (the arguments of `fields`, the case region that bound them,
-// when one did, and idr.field).
-TakeOp takeAt(mlir::RewriterBase &rewriter, mlir::Value box, CtorOp ctor, mlir::Block &block,
-              mlir::Block::iterator at, mlir::Block *fields, Counted &counted);
+// Takes the box `box`, built by the constructor `tag` of `data`, apart at
+// `at` in `block`: an idr.take whose fields replace the reads of the box's
+// fields from that point on (the arguments of `fields`, the case region
+// that bound them, when one did, and idr.field).
+TakeOp takeAt(mlir::RewriterBase &rewriter, mlir::Value box, DataType data, unsigned tag,
+              mlir::Block &block, mlir::Block::iterator at, mlir::Block *fields,
+              Counted &counted);
 
 // Takes the scrutinee of `match` apart where its case region `index`
 // begins: an idr.take whose fields replace the region's arguments.
 TakeOp takeAtEntry(mlir::RewriterBase &rewriter, MatchOp match, unsigned index,
                    Counted &counted);
 
-// Takes the unboxed sum `value`, built by `ctor` whose fields have
-// `fieldTypes`, apart where it is defined, and gives each of its field
-// reads the field taken.
-TakeOp takeFields(mlir::RewriterBase &rewriter, mlir::Value value, mlir::SymbolRefAttr ctor,
+// Takes the unboxed sum `value`, built by the constructor `ctor` names
+// whose fields have `fieldTypes`, apart where it is defined, and gives each
+// of its field reads the field taken.
+TakeOp takeFields(mlir::RewriterBase &rewriter, mlir::Value value, mlir::FlatSymbolRefAttr ctor,
                   llvm::ArrayRef<mlir::Type> fieldTypes, Counted &counted);
 
-// Whether `box`, built by `ctor`, keeps a field that holds references past
-// `at` in `block`, where it dies.
-bool keepsCountedField(mlir::Value box, CtorOp ctor, mlir::Block &block, mlir::Block::iterator at,
-                       mlir::Block *fields, Counted &counted);
+// Whether `box`, built by the constructor `tag` of `data`, keeps a field
+// that holds references past `at` in `block`, where it dies.
+bool keepsCountedField(mlir::Value box, DataType data, unsigned tag, mlir::Block &block,
+                       mlir::Block::iterator at, mlir::Block *fields, Counted &counted);
 
 // The reuse rewrite of one function: at each site, in order, the take and
 // the reuses of its cell.
 void reuseAt(mlir::RewriterBase &rewriter, llvm::ArrayRef<Reuses::Site> sites, Counted &counted);
 
+// The buffers of one function in the form counting counts, before any
+// analysis of idr-rc reads them: a loop whose payload takes or yields an
+// element that holds references becomes its scf.for loops, whose loads and
+// stores counting grades; each memref.alloc's reference is taken over by an
+// idr.own.adopt, and each counted memref.store's value handed to it by an
+// idr.own.give. Writes nothing outside the function.
+mlir::LogicalResult bufferForms(FuncOp fn);
+
 // The code counting changes before it places a count, after it checked it
 // can count the function: selects, values taken apart where they die,
-// with `sink` consumers moved past the reads that follow them, and fields
+// consumers moved past the reads that follow them, and fields and elements
 // that take a reference of their own.
 mlir::LogicalResult reshape(mlir::RewriterBase &rewriter, FuncOp fn, Counted &counted,
-                            Classes &classes, mlir::SymbolTable &symbols, bool sink);
+                            Classes &classes, mlir::SymbolTable &symbols);
 
 // The counts of a function: the idr.dup, idr.drop and idr.borrow that make
 // every reference consumed exactly once on every path.

@@ -27,4 +27,12 @@ Prelude.EqOrd.Eq RoundingMode where
   RoundingMode.ToNearestAway == RoundingMode.ToNearestAway = True
   _ == _ = False
 
--- fingerprint: 17411290-802650 2742482857-1095
+export
+Show RoundingMode where
+  show RoundingMode.ToNearestEven = "to_nearest_even"
+  show RoundingMode.Downward = "downward"
+  show RoundingMode.Upward = "upward"
+  show RoundingMode.TowardZero = "toward_zero"
+  show RoundingMode.ToNearestAway = "to_nearest_away"
+
+-- fingerprint: 2519849132-808154 1045613996-1362

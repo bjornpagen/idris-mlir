@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// A machine word in a buffer of bytes. The buffer is the array cell and its
-// length. The word is at its offset from the first byte, where the op's guard
-// found its bytes within that length, or a proof did where it removed the
-// guard: the access tests nothing itself. The load and the store are the
-// target's own, at alignment 1: the endianness is the machine's, and the
-// offset need not be aligned.
+// A machine word in a buffer of bytes. The buffer is a memref of bytes a
+// world orders: its cell and its size (Arrays.h). The word is at its offset
+// from the first byte, right after the cell's header, where the op's guard
+// found its bytes within that size: the access tests nothing itself. The
+// load and the store are the target's own, at alignment 1: the endianness
+// is the machine's, and the offset need not be aligned.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Layout.h"
-#include "idr/Conversion/ArrayView.h"
+#include "idr/Conversion/Arrays.h"
 #include "idr/Conversion/IdrPattern.h"
 #include "idr/Conversion/Patterns.h"
 #include "idr/Conversion/Runtime.h"
@@ -25,11 +25,11 @@ namespace idr::conversion {
 
 namespace {
 
-// The address of the byte at `offset` in the buffer.
-Value byteAt(OpBuilder &b, Location loc, ValueRange buffer, Value offset) {
-  return LLVM::GEPOp::create(b, loc, ptrType(b.getContext()), b.getI8Type(),
-                             elementsOf(b, loc, buffer[0]), ArrayRef<LLVM::GEPArg>{offset},
-                             LLVM::GEPNoWrapFlags::inbounds);
+// The address of the byte at `offset` in the buffer `buffer`, whose
+// components are `components`.
+Value byteAt(OpBuilder &b, Location loc, Value buffer, ValueRange components, Value offset) {
+  auto type = cast<MemRefType>(unrestricted(buffer.getType()));
+  return elementAddress(b, loc, unpack(b, loc, type, components), offset, 1);
 }
 
 struct LowerBufferLoad : IdrPattern<BufferLoadOp> {
@@ -38,7 +38,8 @@ struct LowerBufferLoad : IdrPattern<BufferLoadOp> {
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     Type word = this->layouts.components(op.getValue().getType()).front();
-    Value addr = byteAt(rewriter, loc, adaptor.getBuffer(), adaptor.getOffset().front());
+    Value addr = byteAt(rewriter, loc, op.getBuffer(), adaptor.getBuffer(),
+                        adaptor.getOffset().front());
     Value loaded = LLVM::LoadOp::create(rewriter, loc, word, addr, /*alignment=*/1);
     rewriter.replaceOpWithMultiple(op, {SmallVector<Value>{loaded}, SmallVector<Value>{}});
     return success();
@@ -50,7 +51,8 @@ struct LowerBufferStore : IdrPattern<BufferStoreOp> {
   LogicalResult matchAndRewrite(BufferStoreOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    Value addr = byteAt(rewriter, loc, adaptor.getBuffer(), adaptor.getOffset().front());
+    Value addr = byteAt(rewriter, loc, op.getBuffer(), adaptor.getBuffer(),
+                        adaptor.getOffset().front());
     LLVM::StoreOp::create(rewriter, loc, adaptor.getValue().front(), addr, /*alignment=*/1);
     rewriter.replaceOpWithMultiple(op, {SmallVector<Value>{}});
     return success();

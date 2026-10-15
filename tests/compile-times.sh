@@ -1,9 +1,10 @@
 #!/bin/sh
 # The compile times the golden tests recorded (tests/lib/timing.sh,
 # `record_time`), each compilation broken down by idris-mlir's timing
-# report into the parse, idr-simplify with its round count, the verifier,
-# the analyses, LLVM and the rest; with --against, what changed since an
-# earlier record of the same breakdown. It reports; it gates nothing.
+# report into the parse, idr-optimize (the optimizer, its ready set and the
+# per-function pipeline it runs), the verifier, the analyses, LLVM and the
+# rest; with --against, what changed since an earlier record of the same
+# breakdown. It reports; it gates nothing.
 #
 #     tests/compile-times.sh [--timing DIR] [--record FILE] [--against OLD-FILE]
 #     tests/compile-times.sh --tree MODULE
@@ -11,8 +12,8 @@
 # The test records are in DIR (tests/build/timing), where every run of
 # `make test` (and of the other suites that compile) leaves one file per
 # test: `<ms> TAB <exit> TAB <what> TAB <module>` per compilation, the
-# module being the .mlir Emit wrote, kept so that it can be compiled again
-# here.
+# module being the one the frontend handed the driver, kept so that it can
+# be compiled again here.
 #
 # Each compilation that succeeded and kept its module is compiled again,
 # alone, with `idris-mlir -c MODULE -o OBJECT` and the options it was
@@ -21,43 +22,37 @@
 # --mlir-output-format=json). In that report a row is one line, a JSON
 # object with its "wall" duration and its "name"; a row with rows inside
 # it opens a "passes" list that a line of its own closes. A row's name is
-# MLIR's: a pass's name (IdrSimplify), a nested pipeline's, an analysis's
+# MLIR's: a pass's name (IdrOptimize), a nested pipeline's, an analysis's
 # with `(A) ` before it, VerifierPass for each verification, and the
 # driver's own rows (parse, LLVM) at the top. The columns, in seconds of
 # wall time:
 #
 #     total     the report's Total
 #     parse     the top-level parse row
-#     simplify  the idr-simplify rows (IdrSimplify), everything inside
-#               them included
-#     verify    every VerifierPass row, inside idr-simplify or not
+#     optimize  the idr-optimize row (IdrOptimize), everything inside it
+#               included
+#     verify    every VerifierPass row, inside idr-optimize or not
 #     analyses  every analysis row not inside another analysis row
 #     llvm      the top-level LLVM row
-#     rest      total less parse, simplify, llvm, and the verify and
-#               analyses rows outside idr-simplify
+#     rest      total less parse, optimize, llvm, and the verify and
+#               analyses rows outside idr-optimize
 #
-# The rounds are the simplify loop's, read off its fixpoint remark
-# (`fixpoint: round N changed nothing`), from idris-mlir-opt running the
-# pipeline on the same module (--idr-target --idr-pipeline
-# --remarks-filter-passed=idr-simplify): the driver prints no remarks. A
-# compilation whose report or remark is missing shows n/a in that column.
+# A compilation whose report is missing shows n/a in every column.
 #
 # Everything measured goes to FILE (tests/build/compile-times.tsv), one
 # line per compilation: `<test> TAB <n> TAB <what> TAB <recorded ms> TAB
-# <total> TAB <parse> TAB <simplify> TAB <rounds> TAB <verify> TAB
-# <analyses> TAB <llvm> TAB <rest>`, the nth compilation of the test. The
-# report on stdout gives the sum of each column, the ten slowest
-# compilations, and the rounds: how many compilations took each count, and
-# the ten that took the most.
+# <total> TAB <parse> TAB <optimize> TAB <verify> TAB <analyses> TAB
+# <llvm> TAB <rest>`, the nth compilation of the test. The report on
+# stdout gives the sum of each column and the ten slowest compilations.
 #
 # --against OLD-FILE compares with a FILE this script wrote earlier: a
 # compilation of the same test, the same compilation of its run, in both.
 # It prints each column's sum then and now, the ten whose total grew the
 # most among those that took a second or more in either, every compilation
 # that now takes over twice its earlier total (one of those is a bug of
-# ours, fixed before the change is done), and every compilation whose
-# round count grew. The times are wall times under the load of the machine
-# that measured them, so compare records taken alike, on the same machine.
+# ours, fixed before the change is done). FILE and OLD-FILE are records of
+# this layout. The times are wall times under the load of the machine that
+# measured them, so compare records taken alike, on the same machine.
 #
 # The record of the build before a change is taken before the change is
 # first built, while build/ and DIR are still that build's: copy DIR away
@@ -72,7 +67,7 @@
 #
 #     tests/compile-times.sh --against tests/build/compile-times-before.tsv
 #
-# The parse and LLVM rows, idr-simplify's and VerifierPass's are named
+# The parse and LLVM rows, idr-optimize's and VerifierPass's are named
 # alike in both builds, wherever the pipeline nests them, so the columns
 # compare across a change of the pipeline's shape.
 #
@@ -81,23 +76,21 @@
 # time, for what a change of the pipeline is measured by on a large
 # program (programs/prelude/every-interfaces-export's module):
 #
-#   - where each analysis is computed: every `(A)` row inside idr-simplify
-#     with the passes around it, and those outside their place, an
-#     analysis row being in its place under the pass nearest it that is no
-#     analysis: References under idr-effects, idr-inline or
-#     idr-specialize, Effects under idr-effects, Identities under
-#     idr-round-facts, CloneTable and BindingTimes under idr-round-facts or
-#     idr-specialize; and, anywhere, every `(A)` row under a function
-#     pass, which computes no analysis;
-#   - the verifier: the VerifierPass rows inside idr-simplify, and the one
+#   - where each analysis is computed: every `(A)` row inside idr-optimize
+#     with the passes around it, and, anywhere, every `(A)` row under a
+#     function pass, which computes no analysis and so is outside its
+#     place;
+#   - the verifier: the VerifierPass rows inside idr-optimize, and the one
 #     after idr-rc, each against the total;
-#   - the serial residue of the round: idr-simplify's own time (its row
-#     less the rows inside it), its VerifierPass rows' wall against user
-#     time, and its (A) CallGraph rows, each against idr-simplify's;
-#   - the Canonicalizer and CSE rows inside idr-inline.
+#   - the optimizer's serial part: idr-optimize's own time (its row less
+#     the rows inside it, the scheduler's), its VerifierPass rows' wall
+#     against user time, and its (A) CallGraph rows, each against
+#     idr-optimize's;
+#   - the Canonicalizer and CSE rows inside idr-optimize, its per-function
+#     pipeline's.
 #
-# MLIR's timing merges the rows of one pass's runs, so a round's rows are
-# the sum over the rounds; the round count is the fixpoint remark's.
+# MLIR's timing merges the rows of one pass's runs, so the per-function
+# pipeline's rows are the sum over the functions it ran on.
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 . "$root/tools/toolchain.sh"
@@ -157,7 +150,7 @@ limited() {
 }
 
 # breakdown REPORT: the columns of an idris-mlir timing report in MLIR's
-# JSON tree output, as `<total> <parse> <simplify> <verify> <analyses>
+# JSON tree output, as `<total> <parse> <optimize> <verify> <analyses>
 # <llvm> <rest>`, or nothing when it holds no Total.
 breakdown() {
   awk '
@@ -178,19 +171,19 @@ breakdown() {
       if (depth == 0 && key == "total") total = w
       else if (depth == 0 && (key == "parse" || key == "parser")) parse += w
       else if (depth == 0 && key == "llvm") llvm += w
-      else if (key == "idrsimplify" && insimplify == 0) { simplify += w; kind = "simplify" }
+      else if (key == "idroptimize" && inoptimize == 0) { optimize += w; kind = "optimize" }
       else if (name == "VerifierPass") {
         verify += w
-        if (insimplify == 0) outside += w
+        if (inoptimize == 0) outside += w
       } else if (substr(name, 1, 4) == "(A) " && inanalysis == 0) {
         analyses += w
-        if (insimplify == 0) outside += w
+        if (inoptimize == 0) outside += w
         kind = "analysis"
       }
       if ($0 ~ /"passes": *\[/) {
         depth++
         kinds[depth] = kind
-        if (kind == "simplify") insimplify++
+        if (kind == "optimize") inoptimize++
         if (substr(name, 1, 4) == "(A) ") inanalysis++
         named[depth] = name
       }
@@ -198,24 +191,16 @@ breakdown() {
     }
     /^[ \t]*(\{\})?\][}],?[ \t]*$/ {
       if (depth > 0) {
-        if (kinds[depth] == "simplify") insimplify--
+        if (kinds[depth] == "optimize") inoptimize--
         if (substr(named[depth], 1, 4) == "(A) ") inanalysis--
         depth--
       }
     }
     END {
       if (total == "") exit
-      printf "%.4f %.4f %.4f %.4f %.4f %.4f %.4f\n", total, parse, simplify, verify, analyses,
-        llvm, total - parse - simplify - llvm - outside
+      printf "%.4f %.4f %.4f %.4f %.4f %.4f %.4f\n", total, parse, optimize, verify, analyses,
+        llvm, total - parse - optimize - llvm - outside
     }' "$1"
-}
-
-# rounds MODULE: the simplify loop's round count on MODULE, or nothing.
-rounds() {
-  limited "$idris_mlir_opt" "$1" --idr-target --idr-pipeline \
-    --remarks-filter-passed=idr-simplify -o /dev/null > "$tmp/rounds.out" 2> "$tmp/rounds.err"
-  grep -ho 'round [0-9][0-9]* changed nothing' "$tmp/rounds.out" "$tmp/rounds.err" |
-    tail -n 1 | awk '{ print $2 }'
 }
 
 # rows REPORT: the rows of a JSON tree report, one per line, as `<id> TAB
@@ -259,10 +244,6 @@ tree_report() {
       for (i = parent[i]; i > 0; i = parent[i]) if (key(name[i]) == k) return 1
       return 0
     }
-    function nearest(i) {
-      for (i = parent[i]; i > 0 && analysis(i); i = parent[i]) {}
-      return i
-    }
     function underFunctionPass(i) {
       for (i = parent[i]; i > 0; i = parent[i])
         if (name[i] ~ /^'\''[^'\'']*'\'' Pipeline$/ && name[i] !~ /^'\''builtin\.module'\''/) return 1
@@ -272,39 +253,31 @@ tree_report() {
       n = $1; parent[n] = $2; name[n] = $3; wall[n] = $4; user[n] = $5
       children[$2] = children[$2] " " n
       if ($3 == "Total" && $2 == 0) total = $4
-      if (key($3) == "idrsimplify" && simplify == "") simplify = n
+      if (key($3) == "idroptimize" && optimize == "") optimize = n
     }
     END {
-      allowed["References"] = " idreffects idrinline idrspecialize "
-      allowed["Effects"] = " idreffects "
-      allowed["Identities"] = " idrroundfacts "
-      allowed["CloneTable"] = " idrroundfacts idrspecialize "
-      allowed["BindingTimes"] = " idrroundfacts idrspecialize "
       printf "%s: Total %.4f s wall\n\n", label, total
-      printf "Analyses inside idr-simplify, wall against user s:\n\n"
+      printf "Analyses inside idr-optimize, wall against user s:\n\n"
       for (i = 1; i <= n; i++) {
         if (!analysis(i)) continue
-        inside = simplify != "" && within(i, "idrsimplify")
-        p = nearest(i)
-        out = 0
-        if (underFunctionPass(i)) out = 1
-        else if (inside && (short(i) in allowed) && index(allowed[short(i)], " " key(name[p]) " ") == 0) out = 1
+        inside = optimize != "" && within(i, "idroptimize")
+        out = underFunctionPass(i)
         if (inside) printf "- %s: %.4f / %.4f%s\n", path(i), wall[i], user[i], (out ? "  OUTSIDE ITS PLACE" : "")
         else if (out) printf "- %s: %.4f / %.4f  OUTSIDE ITS PLACE\n", path(i), wall[i], user[i]
         if (out) misplaced++
       }
       printf "\n%d analysis rows outside their place.\n\n", misplaced
-      if (simplify == "") { print "No idr-simplify row."; exit }
+      if (optimize == "") { print "No idr-optimize row."; exit }
       inner = 0; verify = 0; verifyUser = 0; callgraph = 0
-      m = split(children[simplify], kids, " ")
+      m = split(children[optimize], kids, " ")
       for (j = 1; j <= m; j++) inner += wall[kids[j]]
       for (i = 1; i <= n; i++) {
-        if (!within(i, "idrsimplify")) continue
+        if (!within(i, "idroptimize")) continue
         if (name[i] == "VerifierPass") { verify += wall[i]; verifyUser += user[i] }
         if (analysis(i) && short(i) == "CallGraph") callgraph += wall[i]
       }
-      s = wall[simplify]
-      printf "idr-simplify: %.4f s wall, %.4f s user\n", s, user[simplify]
+      s = wall[optimize]
+      printf "idr-optimize: %.4f s wall, %.4f s user\n", s, user[optimize]
       printf "- its own time: %.4f s (%.1f%% of it)\n", s - inner, (s > 0 ? 100 * (s - inner) / s : 0)
       printf "- VerifierPass rows: %.4f s wall, %.4f s user (%.1f%% of it, %.1f%% of Total)\n",
         verify, verifyUser, (s > 0 ? 100 * verify / s : 0), (total > 0 ? 100 * verify / total : 0)
@@ -318,16 +291,14 @@ tree_report() {
             printf "VerifierPass after idr-rc: %.4f s wall, %.4f s user (%.1f%% of Total)\n",
               wall[kids[j + 1]], user[kids[j + 1]], (total > 0 ? 100 * wall[kids[j + 1]] / total : 0)
       }
-      printf "\nInside idr-inline:\n"
+      printf "\nInside idr-optimize:\n"
       for (i = 1; i <= n; i++)
-        if ((name[i] == "Canonicalizer" || name[i] == "CSE") && within(i, "idrinline"))
+        if ((name[i] == "Canonicalizer" || name[i] == "CSE") && within(i, "idroptimize"))
           printf "- %s: %.4f s wall, %.4f s user\n", path(i), wall[i], user[i]
     }' "$1"
 }
 
 if [ -n "$tree" ]; then
-  round=$(rounds "$tree")
-  echo "$tree: ${round:-n/a} rounds of the simplify loop."
   for threads in pool one; do
     flags=
     [ "$threads" = one ] && flags=--mlir-disable-threading
@@ -370,12 +341,10 @@ while IFS="$tab" read -r ms test status what module n; do
     --mlir-timing-display=tree --mlir-output-format=json > "$tmp/report" 2>&1
   columns=$(breakdown "$tmp/report")
   [ -n "$columns" ] || columns='n/a n/a n/a n/a n/a n/a n/a'
-  round=$(rounds "$module")
-  [ -n "$round" ] || round=n/a
   # shellcheck disable=SC2086 # the columns are words
   set -- $columns
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$test" "$n" "$what" "$ms" "$1" "$2" "$3" "$round" "$4" "$5" "$6" "$7" >> "$tmp/record"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$test" "$n" "$what" "$ms" "$1" "$2" "$3" "$4" "$5" "$6" "$7" >> "$tmp/record"
 done < "$tmp/records"
 cp "$tmp/record" "$record"
 
@@ -384,36 +353,22 @@ echo "$measured compilations measured, recorded in $record."
 echo
 awk -F'\t' '
   function add(i, v) { if (v != "n/a") sum[i] += v }
-  { for (i = 5; i <= 12; i++) if (i != 8) add(i, $i) }
+  { for (i = 5; i <= 11; i++) add(i, $i) }
   END {
-    printf "| s in all | total | parse | idr-simplify | verify | analyses | LLVM | rest |\n"
+    printf "| s in all | total | parse | idr-optimize | verify | analyses | LLVM | rest |\n"
     printf "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n"
     printf "| %d compilations | %.1f | %.1f | %.1f | %.1f | %.1f | %.1f | %.1f |\n",
-      NR, sum[5], sum[6], sum[7], sum[9], sum[10], sum[11], sum[12]
+      NR, sum[5], sum[6], sum[7], sum[8], sum[9], sum[10], sum[11]
   }' "$record"
 
 echo
 echo "The $top slowest, by idris-mlir -c's total:"
 echo
-echo "| test | compilation | recorded s | total s | parse s | idr-simplify s | rounds | verify s | analyses s | LLVM s | rest s |"
-echo "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
+echo "| test | compilation | recorded s | total s | parse s | idr-optimize s | verify s | analyses s | LLVM s | rest s |"
+echo "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
 awk -F'\t' '$5 != "n/a"' "$record" | sort -t "$tab" -k5,5gr | head -n "$top" |
-  awk -F'\t' '{ printf "| %s | %s | %.3f | %s | %s | %s | %s | %s | %s | %s | %s |\n",
-    $1, $3, $4 / 1000, $5, $6, $7, $8, $9, $10, $11, $12 }'
-
-echo
-echo "The rounds: how many compilations took each count."
-echo
-echo "| rounds | compilations |"
-echo "| ---: | ---: |"
-cut -f 8 "$record" | sort | uniq -c | sort -k2,2n | awk '{ printf "| %s | %d |\n", $2, $1 }'
-echo
-echo "The $top that took the most rounds:"
-echo
-echo "| test | compilation | rounds | idr-simplify s |"
-echo "| --- | --- | ---: | ---: |"
-awk -F'\t' '$8 != "n/a"' "$record" | sort -t "$tab" -k8,8nr | head -n "$top" |
-  awk -F'\t' '{ printf "| %s | %s | %s | %s |\n", $1, $3, $8, $7 }'
+  awk -F'\t' '{ printf "| %s | %s | %.3f | %s | %s | %s | %s | %s | %s | %s |\n",
+    $1, $3, $4 / 1000, $5, $6, $7, $8, $9, $10, $11 }'
 
 [ -n "$against" ] || exit 0
 # `<test> TAB <n> TAB <what>`, then each column then and now, for each
@@ -423,23 +378,23 @@ awk -F'\t' '
   ($1 "\t" $2 "\t" $3) in old {
     split(old[$1 "\t" $2 "\t" $3], o, "\t")
     line = $1 "\t" $2 "\t" $3
-    for (i = 4; i <= 12; i++) line = line "\t" o[i] "\t" $i
+    for (i = 4; i <= 11; i++) line = line "\t" o[i] "\t" $i
     print line
   }' "$against" "$record" > "$tmp/pairs"
-# In $tmp/pairs, the column c of the record (4 to 12) is then at 2c - 4
+# In $tmp/pairs, the column c of the record (4 to 11) is then at 2c - 4
 # and now at 2c - 3.
 echo
 awk -F'\t' -v against="$against" '
   function add(i, v) { if (v != "n/a") sum[i] += v }
-  { for (c = 5; c <= 12; c++) if (c != 8) { add("then" c, $(2 * c - 4)); add("now" c, $(2 * c - 3)) } }
+  { for (c = 5; c <= 11; c++) { add("then" c, $(2 * c - 4)); add("now" c, $(2 * c - 3)) } }
   END {
     printf "Against %s: %d compilations in both.\n\n", against, NR
-    printf "| s in all | total | parse | idr-simplify | verify | analyses | LLVM | rest |\n"
+    printf "| s in all | total | parse | idr-optimize | verify | analyses | LLVM | rest |\n"
     printf "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n"
     printf "| then | %.1f | %.1f | %.1f | %.1f | %.1f | %.1f | %.1f |\n",
-      sum["then5"], sum["then6"], sum["then7"], sum["then9"], sum["then10"], sum["then11"], sum["then12"]
+      sum["then5"], sum["then6"], sum["then7"], sum["then8"], sum["then9"], sum["then10"], sum["then11"]
     printf "| now | %.1f | %.1f | %.1f | %.1f | %.1f | %.1f | %.1f |\n",
-      sum["now5"], sum["now6"], sum["now7"], sum["now9"], sum["now10"], sum["now11"], sum["now12"]
+      sum["now5"], sum["now6"], sum["now7"], sum["now8"], sum["now9"], sum["now10"], sum["now11"]
   }' "$tmp/pairs"
 
 # `<ratio> TAB <test> TAB <what> TAB <then> TAB <now>` of the totals, for
@@ -458,10 +413,3 @@ echo "Over twice their earlier total:"
 echo
 awk -F'\t' '$1 > 2 { printf "- %s (%s): %s s then, %s s now\n", $2, $3, $4, $5; n++ }
   END { if (n == 0) print "none" }' "$tmp/ratios"
-echo
-echo "Whose round count grew:"
-echo
-# The rounds are the record's column 8: then at 12, now at 13.
-awk -F'\t' '$12 != "n/a" && $13 != "n/a" && $13 + 0 > $12 + 0 {
-    printf "- %s (%s): %s rounds then, %s now\n", $1, $3, $12, $13; n++ }
-  END { if (n == 0) print "none" }' "$tmp/pairs"

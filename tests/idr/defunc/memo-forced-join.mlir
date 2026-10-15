@@ -1,23 +1,21 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s --implicit-check-not='!idr.lazy' --implicit-check-not='!idr.fn' < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
+// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches, as C01's printer and C06's conversion write them.
 // Two suspensions of one Lazy slot whose labels return closures of
 // different labels: the cell's one forced field holds what either label
 // returns, so both labels return into the one slot, the join of their
 // labels, and the force gives that slot's sum.
-// CHECK: idr.data @[[F:fn\$[0-9]+]] closures {
-// CHECK-DAG: idr.ctor @inc ()
-// CHECK-DAG: idr.ctor @twice ()
-// CHECK: idr.data @[[L:lazy\$[0-9]+]] box memo labels [@give.inc, @give.twice] {
-// CHECK: idr.ctor @forced (![[F]])
+// CHECK: ![[F:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@inc(), @twice(){{.*}}]
+// CHECK: ![[L:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, memo [@give.inc(), @give.twice(), @running(), @forced(![[F]])]
 // CHECK: idr.func private @give.inc() -> ![[F]]
 // CHECK: idr.func private @give.twice() -> ![[F]]
 // CHECK-LABEL: idr.func @Main.main(
-// CHECK: force %{{.*}} : ![[L]] -> ![[F]]
+// CHECK: force %{{.*}} : !idr.box<![[L]]> -> ![[F]]
 // CHECK: match %{{.*}} : ![[F]] -> (i64) {
 // CHECK: case @inc() {
 // CHECK: case @twice() {
-module attributes {idr.program} {
+module {
   idr.func private @inc(%x: i64) -> i64 attributes {total} {
     %c = arith.constant 1 : i64
     %y = arith.addi %x, %c : i64

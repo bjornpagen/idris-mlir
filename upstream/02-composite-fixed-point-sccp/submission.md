@@ -7,14 +7,14 @@ No employer in the author name, the email, or the message. No
 `Co-authored-by`. No `@` mentions. Add `Assisted-by: <tool>` as the last line of the pull request body
 (llvm/docs/AIToolPolicy.md).
 
-The pull request is `llvm.patch` in this directory, as that one commit. It
+The pull request is `pull-request.diff` in this directory, as that one commit. It
 applies unchanged to llvm main at 7208ba24 and to llvmorg-23.1.2, so there
 is no separate trunk diff.
 
 Open the issue, then the pull request. The squash commit message is the
 pull request title, a blank line, and the pull request body. When the
 issue number exists, replace `#<issue>` in the last line of the pull
-request body (and of the commit message in `llvm.patch`) with it.
+request body (and of the commit message in `pull-request.diff`) with it.
 
 ## Issue title
 
@@ -127,4 +127,4 @@ Fixes #<issue>.
 
 ## Patch file
 
-`llvm.patch`
+`pull-request.diff`

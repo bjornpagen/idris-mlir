@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The checks of the dialect's attributes beyond their syntax: a big has one
-// spelling, and an instance key is text.
+// spelling, and an instance key is text. And refusals: the one place their
+// words are written, with the rule carried as data in the diagnostic.
 
 #include "idr/IR/IdrDialect.h"
 
@@ -30,4 +31,30 @@ LogicalResult InstanceAttr::verify(function_ref<InFlightDiagnostic()> emitError,
   if (!llvm::all_of(arguments, llvm::IsaPred<StringAttr>))
     return emitError() << "expects every argument of #idr.instance to be a string";
   return success();
+}
+
+std::string idr::refusalHead(Rule rule) {
+  return ("unsupported (" + stringifyRule(rule) + ")").str();
+}
+
+// The rule rides in the diagnostic's metadata, which no handler prints, so
+// the message reads as it always has and a handler reads the rule, never
+// the words.
+InFlightDiagnostic idr::refuse(Location loc, Rule rule) {
+  InFlightDiagnostic diagnostic = mlir::emitError(loc);
+  if (Diagnostic *underlying = diagnostic.getUnderlyingDiagnostic())
+    underlying->getMetadata().push_back(
+        DiagnosticArgument(RuleAttr::get(loc->getContext(), rule)));
+  diagnostic << refusalHead(rule) << ": ";
+  return diagnostic;
+}
+
+InFlightDiagnostic idr::refuse(Operation *op, Rule rule) { return refuse(op->getLoc(), rule); }
+
+std::optional<Rule> idr::refusalRule(Diagnostic &diagnostic) {
+  for (DiagnosticArgument &argument : diagnostic.getMetadata())
+    if (argument.getKind() == DiagnosticArgument::DiagnosticArgumentKind::Attribute)
+      if (auto rule = dyn_cast<RuleAttr>(argument.getAsAttribute()))
+        return rule.getValue();
+  return std::nullopt;
 }

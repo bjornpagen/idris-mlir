@@ -1,3 +1,4 @@
+NEEDS-ACCEPTANCE: rc.c gained twelve checks (a new array's slots NULL from birth, and idris_rt_memref_copy on views of boxes and of doubles); confirm every one passes and the total reads 85
 api: built
 rc: built
 api: exit 0
@@ -8,7 +9,7 @@ live cells once every result is released: 0
 3136 operations: the results expected-operations holds
 rc: exit 0
 stack: 256 KiB
-rc: 73 of 73 checks as idris_rt.h defines them
+rc: 85 of 85 checks as idris_rt.h defines them
 idris-rt: live cells 0
 rc leak, IDRIS_RT_LIVE=1: exit 0
   stderr | idris-rt: live cells 1

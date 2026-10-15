@@ -15,10 +15,10 @@ namespace idr::expect {
 // The function (or a clone of it) loops, and every loop it has counts to a
 // bound with a step: an scf.for, which says its trip count, and no
 // scf.while.
-LogicalResult countedLoop(ModuleOp module, AnalysisManager &analyses, StringRef function) {
+LogicalResult countedLoop(ModuleOp module, AnalysisManager &, StringRef function) {
   constexpr StringRef property = "counted-loop";
   SmallVector<FunctionOpInterface> functions =
-      named(module, analyses.getAnalysis<SymbolTable>(), function, property);
+      named(module, function, property);
   if (functions.empty())
     return failure();
   unsigned counted = 0;

@@ -11,15 +11,13 @@
 // CHECK: error: 'idr.field' op uses a value whose last reference is gone on this path
 // CHECK: error: 'idr.tag' op uses a value whose last reference is gone on this path
 
-module attributes {idr.program} {
-  idr.data @P box {
-    idr.ctor @P (i64, i64)
-  }
-  idr.func private @field(%b: i1, %p: !idr.own<!idr.box<@P>>) -> i64 {
-    %v = idr.borrow %p : !idr.own<!idr.box<@P>>
-    %x = idr.field %v[@P, 0] : !idr.box<@P> -> i64
-    %y = idr.field %v[@P, 1] : !idr.box<@P> -> i64
-    idr.drop %p : !idr.own<!idr.box<@P>>
+!P = !idr.data<"P", plain [@P(i64, i64)]>
+module {
+  idr.func private @field(%b: i1, %p: !idr.own<!idr.box<!P>>) -> i64 {
+    %v = idr.borrow %p : !idr.own<!idr.box<!P>>
+    %x = idr.field %v[@P, 0] : !idr.box<!P> -> i64
+    %y = idr.field %v[@P, 1] : !idr.box<!P> -> i64
+    idr.drop %p : !idr.own<!idr.box<!P>>
     %r = idr.match_lit %b : i1 -> (i64) {
     case true {
       idr.yield %x : i64
@@ -38,15 +36,13 @@ module attributes {idr.program} {
 
 // -----
 
-module attributes {idr.program} {
-  idr.data @P box {
-    idr.ctor @P (i64, i64)
-  }
-  idr.func private @tag(%b: i1, %p: !idr.own<!idr.box<@P>>) -> i64 {
-    %v = idr.borrow %p : !idr.own<!idr.box<@P>>
-    %t = idr.tag %v : !idr.box<@P>
-    %y = idr.field %v[@P, 1] : !idr.box<@P> -> i64
-    idr.drop %p : !idr.own<!idr.box<@P>>
+!P = !idr.data<"P", plain [@P(i64, i64)]>
+module {
+  idr.func private @tag(%b: i1, %p: !idr.own<!idr.box<!P>>) -> i64 {
+    %v = idr.borrow %p : !idr.own<!idr.box<!P>>
+    %t = idr.tag %v : !idr.box<!P>
+    %y = idr.field %v[@P, 1] : !idr.box<!P> -> i64
+    idr.drop %p : !idr.own<!idr.box<!P>>
     %r = idr.match_lit %b : i1 -> (i64) {
     case true {
       idr.yield %t : i64

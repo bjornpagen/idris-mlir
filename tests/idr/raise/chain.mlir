@@ -1,19 +1,13 @@
-// RUN: idris-mlir-opt %s --idr-specialize > %t.mlir
-// RUN: FileCheck %s < %t.mlir
-// RUN: idris-mlir-opt %t.mlir --idr-specialize > %t2.mlir
-// RUN: diff %t.mlir %t2.mlir
-// A call whose result is applied, and that result applied again: both
-// applies move into the callee in one run, so the call is one call of a
-// clone taking both arguments. One raise per run would leave the second
-// apply in the caller for the next run of the pass, and in the simplify
-// loop one apply per round.
-// CHECK-LABEL: idr.func private @use(
-// CHECK-SAME: %[[N:[a-z0-9_]+]]: i64, %[[X:[a-z0-9_]+]]: i64, %[[Y:[a-z0-9_]+]]: i64)
-// CHECK-NEXT: %[[R:.*]] = {{(idr\.)?}}call @[[MK:mk\.raise[0-9]+\.raise[0-9]+]](%[[N]], %[[X]], %[[Y]]) : (i64, i64, i64) -> i64
-// CHECK-NEXT: return %[[R]]
-// CHECK-NOT: {{(idr\.| )apply }}
-// CHECK: idr.func private @[[MK]](
-module attributes {idr.program} {
+// RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
+// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@mk,not-called=@curry,not-called=@add -o /dev/null
+// NEEDS-ACCEPTANCE: that the chain folds in the root, as C07's inlining and case of known constructor make it.
+// A call whose result is applied, and that result applied again. After
+// defunctionalization both applies are dispatches. The optimizer works
+// callee first, so @curry and @mk are final, and small, when the root
+// inlines them: each dispatch then meets the constructor the inlined body
+// built and folds to a direct call, inlined in turn. No call of the chain
+// is left.
+module {
   idr.func private @add(%a: i64, %x: i64) -> i64 attributes {total} {
     %y = arith.addi %a, %x : i64
     return %y : i64
@@ -27,14 +21,13 @@ module attributes {idr.program} {
     %f = idr.closure @curry(%a) : (i64) -> !idr.fn<(i64) -> !idr.fn<(i64) -> i64>>
     return %f : !idr.fn<(i64) -> !idr.fn<(i64) -> i64>>
   }
-  idr.func private @use(%n: i64, %x: i64, %y: i64) -> i64 attributes {total} {
+  idr.func @Main.main(%w: !idr.world) -> !idr.world {
+    %c, %w1 = idr.io.get_byte %w
+    %n = arith.extui %c : i32 to i64
     %f = idr.call @mk(%n) : (i64) -> !idr.fn<(i64) -> !idr.fn<(i64) -> i64>>
-    %g = idr.apply %f(%x) : !idr.fn<(i64) -> !idr.fn<(i64) -> i64>>
-    %r = idr.apply %g(%y) : !idr.fn<(i64) -> i64>
-    return %r : i64
-  }
-  idr.func @Main.main() -> i64 {
-    %c = arith.constant 0 : i64
-    return %c : i64
+    %g = idr.apply %f(%n) : !idr.fn<(i64) -> !idr.fn<(i64) -> i64>>
+    %r = idr.apply %g(%n) : !idr.fn<(i64) -> i64>
+    %w2 = idr.io.put_int signed %r, %w1 : i64
+    return %w2 : !idr.world
   }
 }

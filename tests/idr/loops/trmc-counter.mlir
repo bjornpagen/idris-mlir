@@ -6,56 +6,53 @@
 // idr-trmc moves no call past. Borrow inference counts such a call as the
 // tail call idr-trmc makes it, and the parameter is owned: both functions
 // become loops that write each cell to the destination they got.
-module attributes {idr.program} {
-  idr.data @List box {
-    idr.ctor @Nil ()
-    idr.ctor @Cons (i64, !idr.box<@List>)
-  }
-  idr.func private @replicate(%n: !idr.nat, %x: i64) -> !idr.box<@List> {
-    %nil = idr.constant #idr.con<@List::@Nil, []> : !idr.box<@List>
-    %r = idr.match_lit %n : !idr.nat -> (!idr.box<@List>) {
+!List = !idr.data<"List", list [@Nil(), @Cons(i64, !idr.box<!idr.data<"List">>)]>
+module {
+  idr.func private @replicate(%n: !idr.nat, %x: i64) -> !idr.box<!List> {
+    %nil = idr.constant #idr.con<@Nil, []> : !idr.box<!List>
+    %r = idr.match_lit %n : !idr.nat -> (!idr.box<!List>) {
     case #idr.big<"0"> {
-      idr.yield %nil : !idr.box<@List>
+      idr.yield %nil : !idr.box<!List>
     }
     default {
       %m = idr.big.pred %n
-      %t = idr.call @replicate(%m, %x) : (!idr.nat, i64) -> !idr.box<@List>
-      %c = idr.con @List::@Cons(%x, %t) : (i64, !idr.box<@List>) -> !idr.box<@List>
-      idr.yield %c : !idr.box<@List>
+      %t = idr.call @replicate(%m, %x) : (!idr.nat, i64) -> !idr.box<!List>
+      %c = idr.con @Cons(%x, %t) : (i64, !idr.box<!List>) -> !idr.box<!List>
+      idr.yield %c : !idr.box<!List>
     }
     }
-    return %r : !idr.box<@List>
+    return %r : !idr.box<!List>
   }
-  idr.func private @take(%n: !idr.nat, %l: !idr.box<@List>) -> !idr.box<@List> {
-    %nil = idr.constant #idr.con<@List::@Nil, []> : !idr.box<@List>
-    %r = idr.match_lit %n : !idr.nat -> (!idr.box<@List>) {
+  idr.func private @take(%n: !idr.nat, %l: !idr.box<!List>) -> !idr.box<!List> {
+    %nil = idr.constant #idr.con<@Nil, []> : !idr.box<!List>
+    %r = idr.match_lit %n : !idr.nat -> (!idr.box<!List>) {
     case #idr.big<"0"> {
-      idr.yield %nil : !idr.box<@List>
+      idr.yield %nil : !idr.box<!List>
     }
     default {
       %m = idr.big.pred %n
-      %s = idr.match %l : !idr.box<@List> -> (!idr.box<@List>) {
-      case @Cons(%h: i64, %rest: !idr.box<@List>) {
-        %t = idr.call @take(%m, %rest) : (!idr.nat, !idr.box<@List>) -> !idr.box<@List>
-        %c = idr.con @List::@Cons(%h, %t) : (i64, !idr.box<@List>) -> !idr.box<@List>
-        idr.yield %c : !idr.box<@List>
+      %s = idr.match %l : !idr.box<!List> -> (!idr.box<!List>) {
+      case @Cons(%h: i64, %rest: !idr.box<!List>) {
+        %t = idr.call @take(%m, %rest) : (!idr.nat, !idr.box<!List>) -> !idr.box<!List>
+        %c = idr.con @Cons(%h, %t) : (i64, !idr.box<!List>) -> !idr.box<!List>
+        idr.yield %c : !idr.box<!List>
       }
       default {
-        idr.yield %nil : !idr.box<@List>
+        idr.yield %nil : !idr.box<!List>
       }
       }
-      idr.yield %s : !idr.box<@List>
+      idr.yield %s : !idr.box<!List>
     }
     }
-    return %r : !idr.box<@List>
+    return %r : !idr.box<!List>
   }
   idr.func @Prog.main() -> i64 {
     %three = idr.constant #idr.big<"3"> : !idr.nat
     %one = arith.constant 1 : i64
-    %l = idr.call @replicate(%three, %one) : (!idr.nat, i64) -> !idr.box<@List>
-    %t = idr.call @take(%three, %l) : (!idr.nat, !idr.box<@List>) -> !idr.box<@List>
-    %n = idr.match %t : !idr.box<@List> -> (i64) {
-    case @Cons(%h: i64, %rest: !idr.box<@List>) {
+    %l = idr.call @replicate(%three, %one) : (!idr.nat, i64) -> !idr.box<!List>
+    %t = idr.call @take(%three, %l) : (!idr.nat, !idr.box<!List>) -> !idr.box<!List>
+    %n = idr.match %t : !idr.box<!List> -> (i64) {
+    case @Cons(%h: i64, %rest: !idr.box<!List>) {
       idr.yield %h : i64
     }
     default {

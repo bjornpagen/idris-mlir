@@ -1,5 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s --implicit-check-not='{{(idr\.| )apply }}' < %t.mlir
+// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
+// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches, as C01's printer and C06's conversion write them.
 // A closure no label reaches is a value the program never has: an apply of
 // it runs nowhere, and its results are poison. A curried apply, whose
 // result is applied in turn, gives a closure no label reaches either, so
@@ -7,7 +9,7 @@
 // CHECK-LABEL: idr.func private @both(
 // CHECK: %[[R:.*]] = ub.poison : i64
 // CHECK: return %[[R]] : i64
-module attributes {idr.program} {
+module {
   idr.func private @both(%f: !idr.fn<(i64) -> (!idr.fn<(i64) -> (i64)>)>, %x: i64, %y: i64) -> i64 {
     %g = idr.apply %f(%x) : !idr.fn<(i64) -> (!idr.fn<(i64) -> (i64)>)>
     %r = idr.apply %g(%y) : !idr.fn<(i64) -> (i64)>

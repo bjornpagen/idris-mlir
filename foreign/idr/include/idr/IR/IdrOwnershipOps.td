@@ -33,12 +33,13 @@ def Idr_TokenType : Idr_Type<"Token", "token", [
 }
 
 // The values that hold references: a string, a big or natural (a small one
-// holds none), a box, a closure, a token, an array, and an unboxed sum with
-// a slot of any of these; at any grade, since a linear field read from a
-// cell that lives on needs a reference of its own.
+// holds none), a box, a closure, a token, an array or a buffer of any rank,
+// extents and layout, and a sum held in place with a slot of any of these;
+// at any grade, since a linear field read from a cell that lives on needs a
+// reference of its own.
 def Idr_CountedValueType : AnyTypeOf<[Idr_DataType, Idr_BoxType, Idr_FnType, Idr_LazyType,
                                       Idr_StrType, Idr_BigType, Idr_NatType, Idr_TokenType,
-                                      Idr_ArrayType]>;
+                                      AnyMemRef]>;
 def Idr_CountedType : AnyTypeOf<[Idr_CountedValueType,
     Type<And<[CPred<"::llvm::isa<::idr::QType>($_self)">,
               SubstLeaves<"$_self", "::idr::unrestricted($_self)",
@@ -123,21 +124,26 @@ def Idr_OwnedToken : Type<And<[CPred<"::idr::isOwned($_self)">,
   let builderCall = "::idr::owned(::idr::TokenType::get($_builder.getContext()))";
 }
 
-def Idr_ReuseOp : Idr_OwnedOp<"reuse", [Idr_Consumes<"0, 1">,
-    DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
+// The constructor is named within the result's data type, as idr.con's.
+def Idr_ReuseOp : Idr_OwnedOp<"reuse", [Idr_Consumes<"0, 1">]> {
   let summary = "builds a boxed constructor in a token's cell, or in a new one when it is null";
-  let arguments = (ins Arg<Idr_OwnedToken, "", [MemWrite]>:$token, SymbolRefAttr:$ctor,
+  let arguments = (ins Arg<Idr_OwnedToken, "", [MemWrite]>:$token, FlatSymbolRefAttr:$ctor,
                        Variadic<AnyType>:$fields);
   let results = (outs Res<Idr_BoxValue, "", [MemAlloc]>:$result);
   let assemblyFormat = [{
     $token $ctor `(` $fields `)` attr-dict `:` functional-type(operands, $result)
   }];
+  let extraClassDeclaration = [{
+    // The data type of the result, and the constructor's tag in it.
+    ::idr::DataType getDataType();
+    unsigned getTag();
+  }];
 }
 
 // Where a match's scrutinee dies in one of its case regions, which knows
-// the constructor: the fields move out of it, so none is counted twice.
-def Idr_TakeOp : Idr_OwnedOp<"take", [Idr_Consumes<"0">,
-    DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
+// the constructor: the fields move out of it, so none is counted twice. The
+// constructor is named within the value's data type.
+def Idr_TakeOp : Idr_OwnedOp<"take", [Idr_Consumes<"0">]> {
   let summary = "consumes a constructor value, each of its fields keeping a reference of its own";
   let description = [{
     The results are the fields of `ctor`, which built the value, each with
@@ -149,14 +155,44 @@ def Idr_TakeOp : Idr_OwnedOp<"take", [Idr_Consumes<"0">,
     so taking it apart changes no count.
   }];
   let arguments = (ins Arg<Idr_OwnType, "", [MemRead, MemWrite, MemFree]>:$value,
-                       SymbolRefAttr:$ctor);
+                       FlatSymbolRefAttr:$ctor);
   let results = (outs Variadic<AnyType>:$results);
   let assemblyFormat = "$value $ctor attr-dict `:` type($value) `->` custom<ResultTypes>(type($results))";
   let extraClassDeclaration = [{
     // The token, for a box; null for an unboxed sum.
     ::mlir::Value getToken();
     ::mlir::ResultRange getFields();
+    // The data type of the value, and the constructor's tag in it.
+    ::idr::DataType getDataType();
+    unsigned getTag();
   }];
+}
+
+// Takes over the fresh reference of a buffer memref.alloc made, whose
+// result is a plain memref: the owned stage's one way into a grade for an
+// allocation of upstream's. Nothing at runtime.
+def Idr_OwnAdoptOp : Idr_Op<"own.adopt", [Pure,
+    TypesMatchWith<"the result is the buffer owned", "memref", "result",
+                   "::idr::owned($_self)">]> {
+  let summary = "takes over the fresh reference of a buffer memref.alloc made";
+  let arguments = (ins AnyMemRef:$memref);
+  let results = (outs Idr_OwnType:$result);
+  let assemblyFormat = "$memref attr-dict `:` type($memref)";
+  let hasVerifier = 1;
+}
+
+// Hands an owned value's reference to the memref.store that writes it,
+// whose value is the plain carrier. Nothing at runtime: the store releases
+// the element it overwrites and the value moves in.
+def Idr_OwnGiveOp : Idr_Op<"own.give", [Idr_Consumes<"0">,
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+    TypesMatchWith<"the result is the value without its reference", "value", "result",
+                   "::idr::view($_self)">]> {
+  let summary = "hands an owned value's reference to the store that writes it";
+  let arguments = (ins Idr_OwnType:$value);
+  let results = (outs AnyType:$result);
+  let assemblyFormat = "$value attr-dict `:` type($value)";
+  let hasVerifier = 1;
 }
 
 //===----------------------------------------------------------------------===//

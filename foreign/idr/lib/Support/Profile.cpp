@@ -2,8 +2,8 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The zones of passes and analyses, on LLVM's time trace: one MLIR pass
 // instrumentation on the manager of idris-mlir and of idris-mlir-opt,
-// which every nested and dynamic pipeline run under it (the round's, the
-// inliner's, a module pass's own) inherits, and one set of LLVM pass
+// which every nested and dynamic pipeline run under it (a module pass's
+// own, the one idr-optimize runs on each function) inherits, and one set of LLVM pass
 // instrumentation callbacks for the optimizer's pipeline, so every pass
 // and every analysis on either side gets its zone here and no pass adds
 // one for its run. A zone opened in a before-hook closes in the matching

@@ -1,16 +1,18 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s < %t.mlir
+// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
+// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches, as C01's printer and C06's conversion write them.
 // later 0 = Delay 1; later n = Delay (force (later (n - 1))): each level
 // suspends a computation that captures the suspension below, so the Lazy
 // type's key is on a cycle: it becomes a boxed sum, a suspension a cell,
 // and forcing a match that calls the suspended function.
-// CHECK: idr.data @[[F:fn\$[0-9]+]] box closures {
+// CHECK: ![[F:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [{{.*}}]
 // CHECK-NOT: !idr.fn
 // CHECK-NOT: {{(idr\.| )closure }}
 // CHECK-LABEL: idr.func private @Main.later(
-// CHECK-SAME: -> ![[F]]
-// CHECK: con @[[F]]::@Main.force(%{{.*}}) : (![[F]]) -> ![[F]]
-module attributes {idr.program} {
+// CHECK-SAME: -> !idr.box<![[F]]>
+// CHECK: con @Main.force(%{{.*}}) : (!idr.box<![[F]]>) -> !idr.box<![[F]]>
+module {
   idr.func private @Main.one() -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64
     return %c1 : i64

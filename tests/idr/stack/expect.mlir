@@ -11,14 +11,11 @@
 // returns it, is not.
 // UNMARKED: error: expected no-heap-allocation: idr.con allocates in @unmarked
 // ESCAPES: error: expected no-heap-allocation: idr.con allocates in @escapes
-module attributes {idr.program} {
-  idr.data @List box {
-    idr.ctor @Nil ()
-    idr.ctor @Cons (i64, !idr.box<@List>)
-  }
-  idr.func private @head(%l: !idr.box<@List>) -> i64 {
-    %r = idr.match %l : !idr.box<@List> -> (i64) {
-    case @Cons(%h: i64, %t: !idr.box<@List>) {
+!List = !idr.data<"List", list [@Nil(), @Cons(i64, !idr.box<!idr.data<"List">>)]>
+module {
+  idr.func private @head(%l: !idr.box<!List>) -> i64 {
+    %r = idr.match %l : !idr.box<!List> -> (i64) {
+    case @Cons(%h: i64, %t: !idr.box<!List>) {
       idr.yield %h : i64
     }
     default {
@@ -28,19 +25,19 @@ module attributes {idr.program} {
     }
     return %r : i64
   }
-  idr.func private @marked(%x: i64, %t: !idr.box<@List>) -> i64 {
-    %c = idr.con @List::@Cons(%x, %t) {idr.stack} : (i64, !idr.box<@List>) -> !idr.box<@List>
-    %r = idr.call @head(%c) : (!idr.box<@List>) -> i64
+  idr.func private @marked(%x: i64, %t: !idr.box<!List>) -> i64 {
+    %c = idr.con @Cons(%x, %t) stack : (i64, !idr.box<!List>) -> !idr.box<!List>
+    %r = idr.call @head(%c) : (!idr.box<!List>) -> i64
     return %r : i64
   }
-  idr.func private @unmarked(%x: i64, %t: !idr.box<@List>) -> i64 {
-    %c = idr.con @List::@Cons(%x, %t) : (i64, !idr.box<@List>) -> !idr.box<@List>
-    %r = idr.call @head(%c) : (!idr.box<@List>) -> i64
+  idr.func private @unmarked(%x: i64, %t: !idr.box<!List>) -> i64 {
+    %c = idr.con @Cons(%x, %t) : (i64, !idr.box<!List>) -> !idr.box<!List>
+    %r = idr.call @head(%c) : (!idr.box<!List>) -> i64
     return %r : i64
   }
-  idr.func private @escapes(%x: i64, %t: !idr.box<@List>) -> !idr.box<@List> {
-    %c = idr.con @List::@Cons(%x, %t) : (i64, !idr.box<@List>) -> !idr.box<@List>
-    return %c : !idr.box<@List>
+  idr.func private @escapes(%x: i64, %t: !idr.box<!List>) -> !idr.box<!List> {
+    %c = idr.con @Cons(%x, %t) : (i64, !idr.box<!List>) -> !idr.box<!List>
+    return %c : !idr.box<!List>
   }
   idr.func @Prog.main() -> i64 {
     %zero = arith.constant 0 : i64

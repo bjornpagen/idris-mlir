@@ -16,13 +16,15 @@ import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Forced
 import IdrisMLIR.Frontend.Translate.Instances
+import IdrisMLIR.Frontend.Translate.Shapes
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Translate.Terms
 import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Graph
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
-import IdrisMLIR.Rule
+import IdrisMLIR.MLIR
+import IdrisMLIR.Syntax.Idr
 import IdrisMLIR.Term
 import IdrisMLIR.Types
 
@@ -61,9 +63,18 @@ translateInstance p = do
   let env = environment (length params) 0 kinds
   when (length env /= length kinds) $
     internal fc "the runtime parameters of an instance numbered out of order"
-  body <- tree (MkCtx owner fc complete) env (telescope (length args) (type def))
-               (emptyKnown (length env)) treeCT
+  tree' <- tree (MkCtx owner fc complete) env (telescope (length args) (type def))
+                (emptyKnown (length env)) treeCT
   loc <- toLoc fc
+  -- Each array parameter's dimensions that a size variable fixes, stated
+  -- equal to the parameter or the runtime size that fixes it first; an
+  -- instance with no array parameter has none to state.
+  ties <- if any (isJust . (>>= valueDims) . map typeOf . runtimeBinder) kinds
+            then do
+              (sized, _) <- sizedTelescope (length args) (type def) kinds
+              entryWitnesses kinds sized
+            else pure []
+  let body = tied loc ties tree'
   -- Every loop through the definition terminates: its component was
   -- checked when the instance was requested (`Recursion`).
   let tot = fromMaybe False (lookup (nameKey (fullname def)) (!(get TState)).loops)
@@ -75,6 +86,20 @@ translateInstance p = do
     parameterNames : TT vs -> List Name
     parameterNames (Bind _ x (Pi {}) sc) = x :: parameterNames sc
     parameterNames _ = []
+
+    -- The body under one `let` per parameter with a tied dimension, in
+    -- parameter order: the parameter as its dimensions are stated, which
+    -- the body uses in its place.
+    tied : {n : Nat} -> Loc -> List (Nat, List (Maybe Witness)) -> Term n -> Term n
+    tied loc [] body = body
+    tied loc ((r, ws) :: rest) body = case natToFin r n of
+      Nothing => tied loc rest body
+      Just p =>
+        let params = map (\i => fromMaybe p (natToFin i n)) [0 .. minus n 1]
+            dims = map (\w => w >>= witnessTerm loc params) ws
+            inner = tied loc rest body
+        in Let loc (shown "tied") Many (Tie loc (Var loc p) dims)
+               (rename (\x => if x == p then FZ else FS x) inner)
 
     runtimeParams : List Name -> List PKind -> List (Shown, Binder)
     runtimeParams (x :: xs) (k :: ks) = case runtimeBinder k of
@@ -90,6 +115,7 @@ translateInstance p = do
     environment n i (TypeParam t :: ks) = TypeValue t :: environment n i ks
     environment n i (DictParam t Nothing :: ks) = Static t Nothing :: environment n i ks
     environment n i (ErasedParam :: ks) = TypeValue (Erased EmptyFC Placeholder) :: environment n i ks
+    environment n i (FormParam f :: ks) = TypeValue f :: environment n i ks
     environment n i (DictParam t (Just h) :: ks) = case natToFin i n of
       Just x => Static t (Just (x, h)) :: environment n (S i) ks
       Nothing => []
@@ -148,7 +174,7 @@ assemble root = do
   let contained = \d => maybe [] (\decl => concatMap (mapMaybe dataField . (.fields)) decl.cons)
                                  (lookup d st.datas)
   let boxes = cyclic contained (map (.id) decls)
-  let datas = map (\d : Decl => MkData d.id d.key d.cons d.loc (if contains d.id boxes then Box else Sop)) decls
+  let datas = map (\d : Decl => MkData d.id d.key d.cons d.loc (if contains d.id boxes then Box else Sop) d.promise) decls
   let fns = mapMaybe (\n => lookup n st.fns) (st.fnOrder <>> [])
   pure (MkSource datas fns root)
   where
@@ -179,10 +205,11 @@ translateIOProgram fc main = do
     | Nothing => internal fc "main was not translated"
   let FunT (MkBinder _ WorldT) res@(DataT _) = mainFn.result
     | _ => notIO
-  loc <- toLoc (location !(lookupDef fc owner main))
-  -- $world is the parameter; main's value is its action. The name is no
-  -- Idris binder's: a binder is known by its name over its definition's
-  -- span, and this synthetic one shares main's.
+  -- The root is code of no module, at the generated location: the world is
+  -- its parameter, and main's value its action. A binder is known by its
+  -- name over its own span, and this one has none, so it is no Idris
+  -- binder's whatever it is called.
+  let loc = noLoc
   let body : Term 1
       body = App loc (Call loc inst Nothing []) (Var loc FZ)
   let rootId = MkFnId "$idris-mlir.root"
@@ -191,6 +218,6 @@ translateIOProgram fc main = do
   -- facts are the registry's. It has no loop of its own; what main does is
   -- main's, which the passes find through the call.
   let facts = MkFacts True
-  let root = MkTFn rootId (MkInstanceKey rootId.name []) 1 [(shown "$world", MkBinder (quantityOf linear) WorldT)]
+  let root = MkTFn rootId (MkInstanceKey rootId.name [] Whole) 1 [(shown "world", MkBinder (quantityOf linear) WorldT)]
                    res body loc facts
   pure (Just ({ fns $= (++ [root]) } src))

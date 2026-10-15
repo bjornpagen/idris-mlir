@@ -13,7 +13,7 @@
 // CHECK-DAG: idr.func private @twice
 // CHECK-DAG: idr.func private @named
 // CHECK-DAG: idr.func private @lonely
-module attributes {idr.program} {
+module {
   idr.func private @step(%n: i64, %acc: i64) -> i64 {
     %c0 = arith.constant 0 : i64
     %done = arith.cmpi sle, %n, %c0 : i64

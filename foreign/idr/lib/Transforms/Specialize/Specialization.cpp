@@ -1,137 +1,68 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Specialization: a call is redirected to a clone of its callee in which
-// the static parts of its arguments are substituted, and whose parameters
-// are their runtime leaves, parameter p holding hole p of the key.
+// A specialization node's function: its owner's final body with the static
+// parts of the key substituted for its parameters, whose new parameters
+// are the key's holes, parameter i holding hole i.
 //
-// The key goes into the table before the clone is simplified, so the
-// clone's own calls with its key, a fixed parameter passed on unchanged,
-// become self calls: that, and the finite supply of keys the binding times
-// allow, is why a run ends.
+// It is built from the key and the owner alone, never from a call that
+// asked for it, so every schedule builds the same function: each op it
+// adds takes the location of the parameter it replaces. A call of the
+// owner in it with the node's own key, a fixed parameter passed on
+// unchanged, becomes the node's own call when the node's own redirect walk
+// runs, as it is built: that, and the finite supply of keys the binding
+// times allow, is why specialization ends.
 #include "idr/IR/IdrDialect.h"
-#include "idr/Analysis/Specialize.h"
 #include "idr/Transforms/Specialize.h"
 
-#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/Builders.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
 
-namespace idr::specialize {
+namespace idr::specialize::detail {
 
-namespace {
+FailureOr<idr::FuncOp> buildSpec(idr::FuncOp from, SpecKeyAttr key, StringAttr name) {
+  ArrayAttr patterns = key.getPatterns();
+  unsigned arity = from.getNumArguments();
+  if (patterns.size() != arity)
+    return from.emitError() << "internal error: a specialization key of @" << from.getSymName()
+                            << " has " << patterns.size() << " patterns for " << arity
+                            << " parameters";
 
-void count(Statistics &stats, BindingTime time) {
-  switch (time) {
-  case BindingTime::Free:
-    ++stats.free;
-    return;
-  case BindingTime::Fixed:
-    ++stats.fixed;
-    return;
-  case BindingTime::Decreasing:
-    ++stats.decreasing;
-    return;
-  case BindingTime::Bounded:
-    ++stats.bounded;
-    return;
-  case BindingTime::Other:
-    return;
-  }
-}
+  // The copy keeps the owner's location, instance and the facts Idris gave
+  // it; what it may do is written once its component is final.
+  auto clone = cast<idr::FuncOp>(from->clone());
+  clone.setSymName(name.getValue());
+  clone.setPrivate();
+  clone.removeEffectsAttr();
 
-} // namespace
-
-// Replaces each parameter of `clone` whose argument is static by that
-// argument's pattern, rebuilt over new parameters for its leaves. The new
-// parameters follow the holes in order, so parameter p holds hole p.
-void Specializer::substitute(idr::FuncOp clone, const Composed &composed) {
-  ArrayRef<Argument> args = composed.args;
-  unsigned arity = clone.getNumArguments();
   SmallVector<unsigned> positions;
   SmallVector<Type> types;
   SmallVector<Location> locs;
-  for (unsigned p = 0; p < arity; ++p) {
-    const Argument &arg = args[p];
-    if (arg.pattern.isHole()) {
+  for (auto [p, pattern] : llvm::enumerate(patterns)) {
+    BlockArgument param = clone.getArgument(static_cast<unsigned>(p));
+    unsigned before = static_cast<unsigned>(types.size());
+    holeTypes(pattern, param.getType(), types);
+    for (unsigned hole = before; hole < types.size(); ++hole) {
       positions.push_back(arity);
-      types.push_back(clone.getArgument(p).getType());
-      locs.push_back(clone.getArgument(p).getLoc());
-      continue;
-    }
-    // A leaf keeps its type, and with it how often it may be used.
-    for (Value leaf : arg.leaves) {
-      positions.push_back(arity);
-      types.push_back(leaf.getType());
-      locs.push_back(leaf.getLoc());
+      locs.push_back(param.getLoc());
     }
   }
   SmallVector<DictionaryAttr> attrs(positions.size(), DictionaryAttr());
   (void)clone.insertArguments(positions, types, attrs, locs);
 
   Block &entry = clone.getBody().front();
-  SmallVector<Value> holes(composed.values.size());
-  unsigned next = arity;
-  for (unsigned p = 0; p < arity; ++p)
-    for (unsigned hole : composed.held[p])
-      holes[hole] = entry.getArgument(next++);
-  rewriter.setInsertionPointToStart(&entry);
-  for (unsigned p = 0; p < arity; ++p)
-    rewriter.replaceAllUsesWith(entry.getArgument(p), rebuild(rewriter, args[p].pattern, holes));
+  SmallVector<Value> holes(entry.getArguments().drop_front(arity));
+  OpBuilder b = OpBuilder::atBlockBegin(&entry);
+  for (auto [p, pattern] : llvm::enumerate(patterns)) {
+    BlockArgument param = entry.getArgument(static_cast<unsigned>(p));
+    param.replaceAllUsesWith(rebuild(b, param.getLoc(), pattern, param.getType(), holes));
+  }
   llvm::BitVector originals(clone.getNumArguments());
   originals.set(0, arity);
   (void)clone.eraseArguments(originals);
+  return clone;
 }
 
-LogicalResult Specializer::specialize(idr::CallOp call, idr::FuncOp callee) {
-  if (!callee || callee.isExternal())
-    return success();
-  std::optional<Composed> composed = composeKey(call, clones, times);
-  if (!composed)
-    return success();
-
-  // Making the clone and calling it is one action, which a debug counter
-  // may skip: then there is no clone and the call stays.
-  LogicalResult result = success();
-  support::perform<SpecializeCloneAction>(call, [&] {
-    const Clone *clone = clones.lookup(composed->key);
-    if (clone) {
-      ++stats.shared;
-    } else {
-      FailureOr<idr::FuncOp> copy =
-          makeClone(rewriter, callee, composed->key.getOrigin(), CloneTable::Kind::Spec, call,
-                    symbols, clones);
-      if (failed(copy)) {
-        result = failure();
-        return;
-      }
-      changed = true;
-      substitute(*copy, *composed);
-      SmallVector<FlatSymbolRefAttr> named;
-      for (const Argument &arg : composed->args)
-        labels(arg.pattern, named);
-      SmallVector<idr::FuncOp> functions = llvm::map_to_vector(
-          named, [&](FlatSymbolRefAttr name) { return symbols.lookup<idr::FuncOp>(name.getAttr()); });
-      giveFirstFacts(*copy, callee, functions, holds);
-      bool unrolls = false;
-      for (const Argument &arg : composed->args) {
-        if (arg.pattern.isHole())
-          continue;
-        count(stats, arg.time);
-        unrolls |= arg.time == BindingTime::Decreasing;
-      }
-      ++stats.clones;
-      copy->setCloneAttr(CloneAttr::get(copy->getContext(),
-                                        FlatSymbolRefAttr::get(copy->getSymNameAttr()),
-                                        composed->key));
-      clone = &clones.add(*copy);
-      made.push_back({*copy, unrolls});
-    }
-    if (redirect(rewriter, call, *clone, composed->values, std::nullopt))
-      changed = true;
-  });
-  return result;
-}
-
-} // namespace idr::specialize
+} // namespace idr::specialize::detail

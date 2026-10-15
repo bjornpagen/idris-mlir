@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The verifier of a program: the module's rules, which the dialect runs
-// from `idr.program` before the ops inside are verified, and the rules of
-// one function, which idr.func's region verifier runs after its body's ops
-// are, in parallel with every other function's. Nothing here keeps a table
+// The verifier of a program: the module's rules, which the root's
+// symbol-use verifier runs once the module's ops are verified, and the rules
+// of one function, which idr.func's region verifier runs after its body's
+// ops are, in parallel with every other function's. Nothing here keeps a table
 // or an answer beyond one verify, so the verifiers of different functions
 // share nothing they write.
 #ifndef IDR_IR_VERIFY_H
@@ -33,9 +33,12 @@ class TypeGraph;
 
 namespace verify {
 
-// The rules of the module: one root, every sum or box type naming a
-// declaration of its kind, containment through unboxed sums acyclic, and
-// no array that can hold a reference to itself.
+// The rules of the module, which its root's symbol-use verifier runs: one
+// public function, the root; every data type a value or a body holds has a body; a box's
+// data type has at most IDRIS_RT_TAG_LIMIT constructors, else the refusal
+// `layout`; a memo sum is held only in a box; containment in place is
+// acyclic; and no array can hold a reference to itself, else the refusal
+// `cycle`.
 mlir::LogicalResult program(mlir::ModuleOp module);
 
 // No array can hold a reference to itself, by the cycles of `graph`.
@@ -77,9 +80,9 @@ mlir::LogicalResult owned(FuncOp fn);
 // The walk of one function in the owned stage: the references each value
 // in scope holds, followed along the ops, through the regions of a match
 // as alternatives that must agree where they meet again, and through the
-// loops over arrays and the scf loops idr-tail-loops makes. It lives for
-// one verify of one function, and so do its answers: each declaration it
-// needs is found once, and the cells' layouts are built at most once, at
+// loops over indices and the scf loops idr-tail-loops makes. It lives for
+// one verify of one function, and so do its answers: what it asks of each
+// type is asked once, and the cells' layouts are built at most once, at
 // the first reuse.
 class OwnedWalk {
 public:
@@ -95,9 +98,8 @@ private:
     std::optional<int> old;
   };
 
-  // What the walk asks of the module, once per type (Owned.cpp).
-  DataOp declaration(mlir::Type type);
-  CtorOp constructor(mlir::SymbolRefAttr ctor);
+  // Whether a value of `type` holds a reference, asked once per type
+  // (Owned.cpp).
   bool counts(mlir::Type type);
 
   // The references in scope (Owned.cpp).
@@ -124,9 +126,7 @@ private:
   mlir::FailureOr<bool> walk(mlir::Block &block);
   mlir::FailureOr<bool> walkRegions(mlir::Operation &op);
   mlir::FailureOr<bool> walkMatch(mlir::Operation &op, mlir::Value scrutinee);
-  mlir::FailureOr<bool> walkArrayLoop(mlir::Operation &op,
-                                      llvm::ArrayRef<std::pair<mlir::Value, bool>> operands,
-                                      mlir::Region &body, mlir::ValueRange results);
+  mlir::FailureOr<bool> walkIndexLoop(mlir::Operation &op);
 
   // The scf loops (OwnedLoops.cpp).
   mlir::Value slotOwner(mlir::Operation *loop, unsigned slot);
@@ -136,8 +136,6 @@ private:
   mlir::FailureOr<bool> walkFor(mlir::scf::ForOp loop);
 
   FuncOp fn;
-  IdrDialect::StackAttrHelper stack;
-  llvm::DenseMap<mlir::Type, DataOp> declarations;
   llvm::DenseMap<mlir::Type, bool> counted;
   std::optional<Layouts> layouts;
   llvm::DenseMap<mlir::Value, int> held;

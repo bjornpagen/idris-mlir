@@ -1,81 +1,72 @@
-// RUN: idris-mlir-opt %s --idr-simplify > %t.mlir
-// RUN: FileCheck %s < %t.mlir
-// The IO loop of io-loop.mlir, called with a literal. The call of the loop
-// breaker @countdown is closed, and stays a call: raising gives it the
-// world, which carries no value to specialize around, so the raised call
-// is closed too, and the partial loop is not unrolled at compile time one
-// clone per count; it runs as a loop.
-// CHECK-LABEL: idr.func @Main.main(
-// CHECK-SAME: %[[W:[a-z0-9_]+]]: !idr.world
-// CHECK: %[[C3:.*]] = arith.constant 3 : i64
-// CHECK: call @[[C:countdown\.raise[0-9]+]](%[[C3]], %[[W]])
-// CHECK: idr.func private @[[C]](
-// CHECK: call @[[C]](
-// CHECK-NOT: .spec
-module attributes {idr.program} {
-  idr.data @Unit {
-    idr.ctor @MkUnit ()
+// RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
+// RUN: FileCheck %s --implicit-check-not=.spec. < %t.mlir
+// RUN: idris-mlir-opt %t.mlir --pass-pipeline='builtin.module(idr.func(idr-tail-loops))' -o %t.loops.mlir
+// RUN: idris-mlir-opt %t.loops.mlir --idr-expect=holds=constant-stack=@Main.main -o /dev/null
+// NEEDS-ACCEPTANCE: that no specialization of the loop is made on the constructors the literal count builds, as C09's binding times decide.
+// The IO loop of io-loop.mlir, started with a literal. Each turn of the
+// loop builds the next actions anew, so no parameter of it is fixed, and
+// the loop is not unrolled at compile time one copy per count: no copy is
+// made, and the loop runs as a loop, with no recursion left that grows
+// the stack.
+// CHECK: idr.func @Main.main(
+!Unit = !idr.data<"Unit", plain [@MkUnit()]>
+!IORes = !idr.data<"IORes", plain [@MkIORes(!Unit, !idr.world)]>
+!IO = !idr.data<"IO", plain [@MkIO(!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)]>
+module {
+  idr.func private @put(%n: i64, %w: !idr.world) -> !IORes attributes {total} {
+    %w1 = idr.io.put_int signed %n, %w : i64
+    %u = idr.con @MkUnit() : () -> !Unit
+    %r = idr.con @MkIORes(%u, %w1) : (!Unit, !idr.world) -> !IORes
+    return %r : !IORes
   }
-  idr.data @IORes {
-    idr.ctor @MkIORes (!idr.data<@Unit>, !idr.world)
+  idr.func private @done(%w: !idr.world) -> !IORes attributes {total} {
+    %u = idr.con @MkUnit() : () -> !Unit
+    %r = idr.con @MkIORes(%u, %w) : (!Unit, !idr.world) -> !IORes
+    return %r : !IORes
   }
-  idr.data @IO {
-    idr.ctor @MkIO (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>)
-  }
-  idr.func private @countdown(%n: i64) -> !idr.data<@IO> attributes {no_inline} {
-    %r = idr.match_lit %n : i64 -> (!idr.data<@IO>) {
+  idr.func private @countdown(%n: i64) -> !IO {
+    %r = idr.match_lit %n : i64 -> (!IO) {
     case 0 {
-      %k = idr.closure @done() : () -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-      %k_lin = idr.lin.enter %k : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
-      %io = idr.con @IO::@MkIO(%k_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>) -> !idr.data<@IO>
-      idr.yield %io : !idr.data<@IO>
+      %k = idr.closure @done() : () -> !idr.fn<(!idr.world) -> (!IORes)>
+      %k_lin = idr.lin.enter %k : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>
+      %io = idr.con @MkIO(%k_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>) -> !IO
+      idr.yield %io : !IO
     }
     default {
-      %p = idr.closure @put(%n) : (i64) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-      %then = idr.closure @next(%n) : (i64) -> !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>
-      %p_lin = idr.lin.enter %p : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
-      %then_lin = idr.lin.enter %then : !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>
-      %k = idr.closure @bind(%p_lin, %then_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>, !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-      %k_lin = idr.lin.enter %k : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
-      %io = idr.con @IO::@MkIO(%k_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>) -> !idr.data<@IO>
-      idr.yield %io : !idr.data<@IO>
+      %p = idr.closure @put(%n) : (i64) -> !idr.fn<(!idr.world) -> (!IORes)>
+      %then = idr.closure @next(%n) : (i64) -> !idr.fn<(!Unit) -> (!IO)>
+      %p_lin = idr.lin.enter %p : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>
+      %then_lin = idr.lin.enter %then : !idr.lin<!idr.fn<(!Unit) -> (!IO)>>
+      %k = idr.closure @bind(%p_lin, %then_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>, !idr.lin<!idr.fn<(!Unit) -> (!IO)>>) -> !idr.fn<(!idr.world) -> (!IORes)>
+      %k_lin = idr.lin.enter %k : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>
+      %io = idr.con @MkIO(%k_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>) -> !IO
+      idr.yield %io : !IO
     }
     }
-    return %r : !idr.data<@IO>
+    return %r : !IO
   }
-  idr.func private @next(%n: i64, %u: !idr.data<@Unit>) -> !idr.data<@IO> {
+  idr.func private @next(%n: i64, %u: !Unit) -> !IO {
     %c1 = arith.constant 1 : i64
     %m = arith.subi %n, %c1 : i64
-    %a = idr.call @countdown(%m) : (i64) -> !idr.data<@IO>
-    return %a : !idr.data<@IO>
+    %a = idr.call @countdown(%m) : (i64) -> !IO
+    return %a : !IO
   }
-  idr.func private @bind(%a: !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>, %k: !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>, %w: !idr.world) -> !idr.data<@IORes> attributes {total} {
-    %a_use = idr.lin.use %a : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
-    %r = idr.apply %a_use(%w) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-    %u = idr.field %r[@MkIORes, 0] : !idr.data<@IORes> -> !idr.data<@Unit>
-    %w1 = idr.field %r[@MkIORes, 1] : !idr.data<@IORes> -> !idr.world
-    %k_use = idr.lin.use %k : !idr.lin<!idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>>
-    %io = idr.apply %k_use(%u) : !idr.fn<(!idr.data<@Unit>) -> (!idr.data<@IO>)>
-    %f = idr.field %io[@MkIO, 0] : !idr.data<@IO> -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-    %s = idr.apply %f(%w1) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-    return %s : !idr.data<@IORes>
+  idr.func private @bind(%a: !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>, %k: !idr.lin<!idr.fn<(!Unit) -> (!IO)>>, %w: !idr.world) -> !IORes attributes {total} {
+    %a_use = idr.lin.use %a : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>
+    %r = idr.apply %a_use(%w) : !idr.fn<(!idr.world) -> (!IORes)>
+    %u = idr.field %r[@MkIORes, 0] : !IORes -> !Unit
+    %w1 = idr.field %r[@MkIORes, 1] : !IORes -> !idr.world
+    %k_use = idr.lin.use %k : !idr.lin<!idr.fn<(!Unit) -> (!IO)>>
+    %io = idr.apply %k_use(%u) : !idr.fn<(!Unit) -> (!IO)>
+    %f = idr.field %io[@MkIO, 0] : !IO -> !idr.fn<(!idr.world) -> (!IORes)>
+    %s = idr.apply %f(%w1) : !idr.fn<(!idr.world) -> (!IORes)>
+    return %s : !IORes
   }
-  idr.func private @put(%n: i64, %w: !idr.world) -> !idr.data<@IORes> attributes {total} {
-    %w1 = idr.io.put_int signed %n, %w : i64
-    %u = idr.con @Unit::@MkUnit() : () -> !idr.data<@Unit>
-    %r = idr.con @IORes::@MkIORes(%u, %w1) : (!idr.data<@Unit>, !idr.world) -> !idr.data<@IORes>
-    return %r : !idr.data<@IORes>
-  }
-  idr.func private @done(%w: !idr.world) -> !idr.data<@IORes> attributes {total} {
-    %u = idr.con @Unit::@MkUnit() : () -> !idr.data<@Unit>
-    %r = idr.con @IORes::@MkIORes(%u, %w) : (!idr.data<@Unit>, !idr.world) -> !idr.data<@IORes>
-    return %r : !idr.data<@IORes>
-  }
-  idr.func @Main.main(%w: !idr.world) -> !idr.data<@IORes> {
+  idr.func @Main.main(%w: !idr.world) -> !IORes {
     %n = arith.constant 3 : i64
-    %a = idr.call @countdown(%n) : (i64) -> !idr.data<@IO>
-    %f = idr.field %a[@MkIO, 0] : !idr.data<@IO> -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-    %r = idr.apply %f(%w) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-    return %r : !idr.data<@IORes>
+    %a = idr.call @countdown(%n) : (i64) -> !IO
+    %f = idr.field %a[@MkIO, 0] : !IO -> !idr.fn<(!idr.world) -> (!IORes)>
+    %r = idr.apply %f(%w) : !idr.fn<(!idr.world) -> (!IORes)>
+    return %r : !IORes
   }
 }

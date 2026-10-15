@@ -30,14 +30,14 @@ void reuseAt(RewriterBase &rewriter, ArrayRef<Reuses::Site> sites, Counted &coun
     if (Operation *reuse = rebuiltOps.lookup(after))
       after = reuse;
     Block::iterator at = after ? std::next(after->getIterator()) : site.block->begin();
-    TakeOp take = takeAt(rewriter, box, site.ctor, *site.block, at, site.fields, counted);
+    TakeOp take =
+        takeAt(rewriter, box, site.data, site.tag, *site.block, at, site.fields, counted);
     takes.push_back(take);
     Value cell = take.getToken();
     for (ConOp con : site.cons) {
       rewriter.setInsertionPoint(con);
       auto reuse = ReuseOp::create(rewriter, con.getLoc(), con.getType(), cell, con.getCtor(),
                                    con.getFields());
-      reuse->setDiscardableAttrs(con->getDiscardableAttrDictionary());
       rebuiltValues[con.getResult()] = reuse.getResult();
       rebuiltOps[con] = reuse;
       rewriter.replaceOp(con, reuse.getResult());

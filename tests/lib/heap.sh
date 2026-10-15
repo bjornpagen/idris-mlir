@@ -54,18 +54,33 @@ allowed_symbols() {
   return 0
 }
 
-# object_imports OBJECT TEST: the object's undefined symbols (llvm-nm) are
-# among those allowed to the program of the test directory TEST.
+# object_imports TEST OBJECT...: the undefined symbols (llvm-nm) of the
+# objects a build wrote, one per bin, or the members of the archive -c
+# wrote, are among those allowed to the program of the test directory TEST.
+# A symbol one object defines and another uses is the program's own, so
+# what the objects import is what any of them leaves undefined, less what
+# any of them defines.
 object_imports() {
-  if ! "$llvm_bin/llvm-nm" --undefined-only --format=just-symbols "$1" > "$work/nm.raw" 2> "$work/nm.err"; then
+  object_test=$1
+  shift
+  if [ $# -eq 0 ]; then
+    say "object: none written"
+    return
+  fi
+  if ! "$llvm_bin/llvm-nm" --undefined-only --format=just-symbols "$@" > "$work/nm.raw" 2> "$work/nm.err" ||
+     ! "$llvm_bin/llvm-nm" --defined-only --extern-only --format=just-symbols "$@" > "$work/nm.defined" 2>> "$work/nm.err"; then
     say "object: llvm-nm failed"
     show "$work/nm.err"
     return
   fi
-  c_names < "$work/nm.raw" > "$work/nm.out"
-  object_allowed=" $(allowed_symbols "$2" | tr '\n' ' ') "
+  # With several files llvm-nm heads each one's symbols with its name, a
+  # line ending in a colon, and parts them with blank lines.
+  grep -v -e '^$' -e ':$' "$work/nm.defined" | c_names | LC_ALL=C sort -u > "$work/nm.own"
+  grep -v -e '^$' -e ':$' "$work/nm.raw" | c_names | LC_ALL=C sort -u |
+    LC_ALL=C comm -23 - "$work/nm.own" > "$work/nm.out"
+  object_allowed=" $(allowed_symbols "$object_test" | tr '\n' ' ') "
   object_extra=
-  for object_symbol in $(sort -u "$work/nm.out"); do
+  for object_symbol in $(cat "$work/nm.out"); do
     case $object_allowed in
       *" $object_symbol "*) ;;
       *) object_extra="$object_extra $object_symbol" ;;
@@ -84,14 +99,14 @@ heap_marked() {
 }
 
 # heap_free TEST DUMPS: for a marked test, nothing in the module that
-# idr-lower lowers, the last dumped before it in DUMPS, allocates a heap
-# cell; for any other, nothing.
+# idr-lower lowers, the last step dumped before it in DUMPS, allocates a
+# heap cell; for any other, nothing.
 heap_free() {
   heap_marked "$1" || return 0
   heap_module=
-  for heap_dump in "$2"/[0-9]*-*.mlir; do
-    case $heap_dump in *-idr-lower.mlir) break ;; esac
-    [ -f "$heap_dump" ] && heap_module=$heap_dump
+  for heap_dump in $(step_dumps "$2"); do
+    [ "$(step_of "$heap_dump")" = idr-lower ] && break
+    heap_module=$heap_dump
   done
   if [ -z "$heap_module" ]; then
     say "heap: no module was dumped before lowering"

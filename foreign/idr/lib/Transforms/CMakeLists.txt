@@ -4,9 +4,11 @@
 # last and checks the whole, and each area's says it lists only its own
 # (PARTIAL_SOURCES_INTENDED).
 
-# idr-effects: the effects of every function and call, from the Effects analysis.
+# idr-effects: the effects of every function and call, from the Effects
+# analysis; idr-constants: the constants each function's summary proves.
 add_mlir_library(IdrEffects
 	Effects/Effects.cpp
+	Effects/Constants.cpp
 
 	EXCLUDE_FROM_LIBMLIR
 	DISABLE_INSTALL
@@ -19,14 +21,18 @@ add_mlir_library(IdrEffects
 	LINK_LIBS PUBLIC
 	IdrIR
 	IdrAnalysis
+	IdrSupport
 	MLIRIR
 	MLIRPass
+	MLIRAnalysis
+	MLIRTransformUtils
+	MLIRSideEffectInterfaces
+	MLIRArithDialect
 )
 
-# idr-inline: the force preparation, then upstream's inliner by MLton's rule.
+# The inline step: upstream's inliner by MLton's rule on the callee's final size.
 add_mlir_library(IdrInline
 	Inline/Inline.cpp
-	Inline/Prepare.cpp
 
 	EXCLUDE_FROM_LIBMLIR
 	DISABLE_INSTALL
@@ -46,7 +52,7 @@ add_mlir_library(IdrInline
 	MLIRTransformUtils
 )
 
-# idr-specialize and idr-redirect: raising, cloning and the calls of a clone's key.
+# The specialization nodes, raising and idr-redirect: the calls of a node's key.
 add_mlir_library(IdrSpecialize
 	Specialize/Specialize.cpp
 	Specialize/Specialization.cpp
@@ -56,7 +62,6 @@ add_mlir_library(IdrSpecialize
 	Specialize/Redirect.cpp
 	Specialize/RedirectPass.cpp
 	Specialize/Patterns.cpp
-	Specialize/Clones.cpp
 	Specialize/Report.cpp
 
 	EXCLUDE_FROM_LIBMLIR
@@ -73,18 +78,19 @@ add_mlir_library(IdrSpecialize
 	IdrSupport
 	MLIRIR
 	MLIRPass
+	MLIRParser
 	MLIRRewrite
 	MLIRTransformUtils
 	MLIRArithDialect
 )
 
-# idr-stack, idr-identity, idr-isolate, idr-demand and idr-deduplicate.
+# idr-stack, idr-identity, idr-demand and idr-deduplicate.
 add_mlir_library(IdrSmallPasses
 	Stack/Stack.cpp
 	Identity/Identity.cpp
-	Isolate/Isolate.cpp
 	Demand/Demand.cpp
-	Deduplicate/Deduplicate.cpp
+	Deduplicate/EliminateDuplicateFunctions.cpp
+	Deduplicate/Equivalence.cpp
 
 	EXCLUDE_FROM_LIBMLIR
 	DISABLE_INSTALL
@@ -104,16 +110,14 @@ add_mlir_library(IdrSmallPasses
 	MLIRLLVMDialect
 )
 
-# idr-simplify, its round and its instrumentation; idr-round-facts, idr-loop-breakers
-# and idr-contify. It links the libraries whose constructors the round calls.
-add_mlir_library(IdrSimplify
-	Simplify/Simplify.cpp
-	Simplify/Round.cpp
-	Simplify/Scc.cpp
-	Simplify/Trace.cpp
-	Simplify/RoundFacts.cpp
-	Simplify/LoopBreakers.cpp
-	Simplify/Contify.cpp
+# idr-optimize, the ready set over the call graph's components, and
+# idr-contify. It links the libraries whose steps a function's pipeline runs.
+add_mlir_library(IdrOptimize
+	Optimize/Optimize.cpp
+	Optimize/ReadySet.cpp
+	Optimize/Component.cpp
+	Optimize/Waves.cpp
+	Optimize/Contify.cpp
 
 	EXCLUDE_FROM_LIBMLIR
 	DISABLE_INSTALL
@@ -133,6 +137,7 @@ add_mlir_library(IdrSimplify
 	IdrSpecialize
 	MLIRIR
 	MLIRPass
+	MLIRAnalysis
 	MLIRTransforms
 	MLIRTransformUtils
 	MLIRArithTransforms
@@ -148,7 +153,6 @@ add_mlir_library(IdrDefunctionalize
 	Defunctionalize/Converter.cpp
 	Defunctionalize/Patterns.cpp
 	Defunctionalize/PatternsCalls.cpp
-	Defunctionalize/ByName.cpp
 
 	EXCLUDE_FROM_LIBMLIR
 	DISABLE_INSTALL
@@ -179,6 +183,7 @@ add_mlir_library(IdrOwnership
 	Ownership/Take.cpp
 	Ownership/Classes.cpp
 	Ownership/Reshape.cpp
+	Ownership/Buffers.cpp
 	Ownership/Placement.cpp
 	Ownership/Commit.cpp
 
@@ -198,6 +203,9 @@ add_mlir_library(IdrOwnership
 	MLIRSideEffectInterfaces
 	MLIRArithDialect
 	MLIRUBDialect
+	MLIRMemRefDialect
+	MLIRLinalgDialect
+	MLIRLinalgTransforms
 )
 
 # idr-accumulate, idr-trmc, idr-tail-loops and idr-returned-arguments.
@@ -276,22 +284,14 @@ add_mlir_library(IdrNarrow
 	MLIRVectorDialect
 )
 
-# idr-in-bounds, with its nested proofs, and the Lengths it proves with.
-add_mlir_library(IdrInBounds
-	InBounds/InBounds.cpp
-	InBounds/Prove.cpp
-	InBounds/Lengths.cpp
-	InBounds/Relation.cpp
-	InBounds/Clamps.cpp
-	InBounds/Joins.cpp
-	InBounds/Returned.cpp
-	InBounds/Guards.cpp
-	InBounds/System.cpp
-	InBounds/Empty.cpp
-	InBounds/Paths.cpp
-	InBounds/Induction.cpp
-	InBounds/Quotients.cpp
-	InBounds/Masks.cpp
+# idr-bufferize: One-Shot bufferization of every idr.func, with the
+# bufferization models of the dialect's ops.
+add_mlir_library(IdrBufferize
+	Bufferize/Bufferize.cpp
+	Bufferize/Functions.cpp
+	Bufferize/Linear.cpp
+	Bufferize/Data.cpp
+	Bufferize/Values.cpp
 
 	EXCLUDE_FROM_LIBMLIR
 	DISABLE_INSTALL
@@ -303,49 +303,41 @@ add_mlir_library(IdrInBounds
 
 	LINK_LIBS PUBLIC
 	IdrIR
-	IdrAnalysis
 	MLIRIR
-	MLIRSupport
 	MLIRPass
-	MLIRPresburger
-	MLIRControlFlowInterfaces
-	MLIRFunctionInterfaces
-	MLIRInferIntRangeInterface
-	MLIRSCFDialect
-	MLIRArithDialect
+	MLIRBufferizationDialect
+	MLIRBufferizationTransforms
 	MLIRMemRefDialect
+	MLIRLinalgDialect
 	MLIRUBDialect
+	MLIRFunctionInterfaces
+	MLIRControlFlowInterfaces
 )
 
-# idr-vectorize, on each func.func after lowering.
-add_mlir_library(IdrVectorize
-	Vectorize/Vectorize.cpp
+# idr-structure-loops: an array's loops as linalg.generic and scf.
+add_mlir_library(IdrStructureLoops
+	StructureLoops/StructureLoops.cpp
+	StructureLoops/Plans.cpp
+	StructureLoops/Generics.cpp
 
 	EXCLUDE_FROM_LIBMLIR
 	DISABLE_INSTALL
 	PARTIAL_SOURCES_INTENDED
 
 	DEPENDS
+	IdrOpsIncGen
 	IdrPassesIncGen
 
 	LINK_LIBS PUBLIC
-	IdrTarget
+	IdrIR
 	MLIRIR
 	MLIRPass
-	MLIRRewrite
 	MLIRTransformUtils
-	MLIRTilingInterface
-	MLIRFuncDialect
-	MLIRAffineDialect
+	MLIRValueBoundsOpInterface
 	MLIRArithDialect
 	MLIRLinalgDialect
-	MLIRLinalgTransforms
-	MLIRLinalgUtils
-	MLIRMemRefDialect
 	MLIRSCFDialect
-	MLIRSCFTransforms
-	MLIRVectorDialect
-	MLIRVectorTransforms
+	MLIRTensorDialect
 )
 
 # idr-expect: the named properties tests state.
@@ -356,7 +348,6 @@ add_mlir_library(IdrExpect
 	Expect/Named.cpp
 	Expect/Cycles.cpp
 	Expect/Allocation.cpp
-	Expect/BreaksLast.cpp
 	Expect/CellsFit.cpp
 	Expect/Clones.cpp
 	Expect/Closures.cpp
@@ -364,20 +355,23 @@ add_mlir_library(IdrExpect
 	Expect/Continuations.cpp
 	Expect/CountedLoop.cpp
 	Expect/CountsNothing.cpp
-	Expect/EveryCycleHasBreaker.cpp
 	Expect/Facts.cpp
 	Expect/Folds.cpp
-	Expect/InBounds.cpp
+	Expect/Fused.cpp
+	Expect/Guards.cpp
+	Expect/InPlace.cpp
 	Expect/MovesOut.cpp
 	Expect/NarrowedLanes.cpp
 	Expect/NotCalled.cpp
 	Expect/Output.cpp
-	Expect/PureArrayLoops.cpp
 	Expect/Quantities.cpp
 	Expect/ResetsUnshared.cpp
 	Expect/ReusesEveryCell.cpp
 	Expect/ReusesInPlace.cpp
+	Expect/Sizes.cpp
+	Expect/StructuredLoops.cpp
 	Expect/TestsNothing.cpp
+	Expect/TypedReads.cpp
 	Expect/Vectorized.cpp
 	Expect/Words.cpp
 
@@ -393,8 +387,9 @@ add_mlir_library(IdrExpect
 	IdrIR
 	IdrAnalysis
 	IdrSupport
-	IdrInBounds
 	IdrNarrow
+	IdrBufferize
+	IdrStructureLoops
 	MLIRIR
 	MLIRPass
 	MLIRParser
@@ -412,6 +407,7 @@ add_mlir_library(IdrExpect
 	MLIRSCFDialect
 	MLIRLLVMDialect
 	MLIRLinalgDialect
+	MLIRTensorDialect
 	MLIRVectorDialect
 )
 
@@ -428,16 +424,16 @@ add_mlir_library(IdrPipeline
 	IdrPassesIncGen
 
 	LINK_LIBS PUBLIC
-	IdrSimplify
+	IdrOptimize
 	IdrInline
 	IdrSpecialize
 	IdrDefunctionalize
 	IdrOwnership
 	IdrTail
 	IdrNarrow
-	IdrInBounds
+	IdrBufferize
+	IdrStructureLoops
 	IdrSmallPasses
-	IdrVectorize
 	IdrExpect
 	IdrEffects
 	IdrConversion
@@ -447,6 +443,8 @@ add_mlir_library(IdrPipeline
 	MLIRPass
 	MLIRTransforms
 	MLIRLinalgTransforms
+	MLIRBufferizationTransforms
+	MLIRTransformDialectTransforms
 	MLIRVectorToSCF
 	MLIRMemRefTransforms
 	MLIRAffineToStandard

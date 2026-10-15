@@ -7,7 +7,7 @@
 // CHECK: match_lit
 // CHECK: call @spin.case1(
 // CHECK: idr.func private @spin.case1(
-module attributes {idr.program} {
+module {
   idr.func private @spin(%n: i64) -> i64 {
     %c0 = arith.constant 0 : i64
     %more = arith.cmpi sgt, %n, %c0 : i64

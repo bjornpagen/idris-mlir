@@ -13,7 +13,8 @@
 // The pass stays at the module: each clone is a new symbol in the module's
 // block, which no pass on one function may add. It plans and rewrites one
 // function at a time, in module order, and enters each clone in the table
-// it holds.
+// it holds, right after its function, under a name made from the
+// function's and the kind `acc`, so no order reaches the name.
 //
 //===----------------------------------------------------------------------===//
 
@@ -41,14 +42,14 @@ namespace idr::tail {
 namespace {
 
 // A call of `clone` in place of `call`, with `carried` after its arguments.
-// The clone is the same recursion with the same facts, so the call keeps
-// what the old one may do.
+// The clone is the same recursion with the same facts, so the call does
+// what the old one did: its effects are the clone's.
 CallOp retarget(RewriterBase &rewriter, CallOp call, FuncOp clone, Value carried) {
   SmallVector<Value> args(call.getArgs());
   args.push_back(carried);
   auto neu = CallOp::create(rewriter, call.getLoc(), clone.getResultTypes(),
                             FlatSymbolRefAttr::get(clone.getSymNameAttr()), args,
-                            /*arg_attrs=*/ArrayAttr(), call.getResAttrsAttr(), call.getEffectsAttr());
+                            /*arg_attrs=*/ArrayAttr(), call.getResAttrsAttr(), clone.getEffectsAttr());
   neu->setDiscardableAttrs(call->getDiscardableAttrDictionary());
   return neu;
 }
@@ -112,13 +113,15 @@ struct Accumulate : impl::IdrAccumulateBase<Accumulate> {
       SmallVector<Site> sites = accumulatorSites(fn);
       if (sites.empty())
         continue;
+      FailureOr<StringAttr> name = copyName(fn, "acc", symbols);
+      if (failed(name))
+        return signalPassFailure();
       changed = true;
       Type result = fn.getResultTypes()[0];
       IRMapping mapping;
       auto clone = cast<FuncOp>(fn->clone(mapping));
-      clone.setSymName((fn.getSymName() + ".acc").str());
+      clone.setSymNameAttr(*name);
       clone.setPrivate();
-      clone.removeCloneAttr();
       (void)clone.insertArgument(clone.getNumArguments(), result, DictionaryAttr(), fn.getLoc());
       symbols.insert(clone, std::next(fn->getIterator()));
       rewriteClone(rewriter, clone, sites, mapping, clone.getArguments().back());
@@ -137,7 +140,7 @@ struct Accumulate : impl::IdrAccumulateBase<Accumulate> {
       args.push_back(zero);
       auto call = CallOp::create(rewriter, fn.getLoc(), fn.getResultTypes(),
                                  FlatSymbolRefAttr::get(clone.getSymNameAttr()), args,
-                                 /*arg_attrs=*/ArrayAttr(), /*res_attrs=*/ArrayAttr(), fn.getEffectsAttr());
+                                 /*arg_attrs=*/ArrayAttr(), /*res_attrs=*/ArrayAttr(), clone.getEffectsAttr());
       ReturnOp::create(rewriter, fn.getLoc(), call.getResults());
     }
     if (!changed)

@@ -65,32 +65,45 @@ LogicalResult BufferCopyOp::verify() {
 LogicalResult WriteBytesOp::verify() { return verifyBuffer(*this, getBuffer()); }
 LogicalResult ReadBytesOp::verify() { return verifyBuffer(*this, getBuffer()); }
 
-// IO in the world's order, and for a string read its allocation.
-void BufferLoadOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  ioEffects(Value(), effects);
+// An op on a buffer reads or writes the buffer's own memory, which the
+// world's chain orders with every other access to it; a transfer to or from
+// a handle is IO besides. A string read from a buffer is a new one.
+namespace {
+
+using Effects = SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>;
+
+void reads(OpOperand &buffer, Effects &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(), &buffer, SideEffects::DefaultResource::get());
 }
-void BufferStoreOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  ioEffects(Value(), effects);
+
+void writes(OpOperand &buffer, Effects &effects) {
+  effects.emplace_back(MemoryEffects::Write::get(), &buffer, SideEffects::DefaultResource::get());
 }
-void BufferCopyOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  ioEffects(Value(), effects);
+
+void transfers(Effects &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(), IOResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), IOResource::get());
 }
-void BufferSetStringOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  ioEffects(Value(), effects);
+
+} // namespace
+
+void BufferLoadOp::getEffects(Effects &effects) { reads(getBufferMutable(), effects); }
+void BufferStoreOp::getEffects(Effects &effects) { writes(getBufferMutable(), effects); }
+void BufferCopyOp::getEffects(Effects &effects) {
+  reads(getSrcMutable(), effects);
+  writes(getDstMutable(), effects);
 }
-void BufferGetStringOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  ioEffects(getStr(), effects);
+void BufferSetStringOp::getEffects(Effects &effects) { writes(getBufferMutable(), effects); }
+void BufferGetStringOp::getEffects(Effects &effects) {
+  reads(getBufferMutable(), effects);
+  effects.emplace_back(MemoryEffects::Allocate::get(), cast<OpResult>(getStr()),
+                       SideEffects::DefaultResource::get());
 }
-void WriteBytesOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  ioEffects(Value(), effects);
+void WriteBytesOp::getEffects(Effects &effects) {
+  transfers(effects);
+  reads(getBufferMutable(), effects);
 }
-void ReadBytesOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  ioEffects(Value(), effects);
+void ReadBytesOp::getEffects(Effects &effects) {
+  transfers(effects);
+  writes(getBufferMutable(), effects);
 }

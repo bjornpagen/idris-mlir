@@ -1,17 +1,16 @@
-// RUN: idris-mlir-opt %s --idr-simplify --time-trace=%t.json > %t-traced.mlir
-// RUN: idris-mlir-opt %s --idr-simplify > %t-plain.mlir
+// RUN: idris-mlir-opt %s --idr-optimize --time-trace=%t.json > %t-traced.mlir
+// RUN: idris-mlir-opt %s --idr-optimize > %t-plain.mlir
 // RUN: diff %t-traced.mlir %t-plain.mlir
 // RUN: FileCheck %s --check-prefix=TRACE < %t.json
-// A time trace (--time-trace) records every pass and every analysis the
-// simplify loop runs, with what each ran on, and the end of each round;
-// writing one changes no byte of the module (the diff above).
+// NEEDS-ACCEPTANCE: the zone names of idr-optimize's nodes and of the inner pipeline's passes, as C07 writes them.
+// A time trace (--time-trace) records the optimizer and every pass of the
+// pipeline it runs on each function, with what each ran on; writing one
+// changes no byte of the module (the diff above).
 // TRACE: "traceEvents"
-// TRACE-DAG: "name":"Total IdrSimplify"
+// TRACE-DAG: "name":"Total IdrOptimize"
 // TRACE-DAG: "name":"Total CanonicalizerPass"
-// TRACE-DAG: "name":"Total idr::Effects"
 // TRACE-DAG: "detail":"idr.func @Main.main"
-// TRACE-DAG: "name":"round"
-module attributes {idr.program} {
+module {
   idr.func private @count(%acc: !idr.big, %n: i64) -> !idr.big attributes {total} {
     %r = idr.match_lit %n : i64 -> (!idr.big) {
     case 0 {

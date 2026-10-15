@@ -21,25 +21,19 @@
 // STREAM: llvm.mlir.addressof @__idr_caf_{{[0-9]+}} : !llvm.ptr
 // STREAM-NOT: llvm.mlir.global
 // STREAM: llvm.return
-module attributes {idr.program} {
-  idr.data @lazy$0 box memo labels [@ones] {
-    idr.ctor @ones ()
-    idr.ctor @running ()
-    idr.ctor @forced (!idr.box<@Stream>)
-  }
-  idr.data @Stream box {
-    idr.ctor @Cons (i64, !idr.box<@lazy$0>)
-  }
+!lazy$0 = !idr.data<"lazy$0", memo [@ones(), @running(), @forced(!idr.box<!idr.data<"Stream", plain [@Cons(i64, !idr.box<!idr.data<"lazy$0">>)]>>)]>
+!Stream = !idr.data<"Stream", plain [@Cons(i64, !idr.box<!idr.data<"lazy$0", memo [@ones(), @running(), @forced(!idr.box<!idr.data<"Stream">>)]>>)]>
+module {
   // ones = 1 :: ones: its tail is the thunk of the definition itself.
-  idr.func private @ones() -> !idr.box<@Stream> attributes {total} {
-    %s = idr.constant #idr.con<@Stream::@Cons, [1, #idr.con<@lazy$0::@ones, []>]> : !idr.box<@Stream>
-    return %s : !idr.box<@Stream>
+  idr.func private @ones() -> !idr.box<!Stream> attributes {total} {
+    %s = idr.constant #idr.con<@Cons, [1, #idr.con<@ones, []>]> : !idr.box<!Stream>
+    return %s : !idr.box<!Stream>
   }
   idr.func @Prog.main() -> i64 {
-    %s = idr.call @ones() : () -> !idr.box<@Stream>
-    %t = idr.field %s[@Cons, 1] : !idr.box<@Stream> -> !idr.box<@lazy$0>
-    %u = idr.force %t : !idr.box<@lazy$0> -> !idr.box<@Stream>
-    %h = idr.field %u[@Cons, 0] : !idr.box<@Stream> -> i64
+    %s = idr.call @ones() : () -> !idr.box<!Stream>
+    %t = idr.field %s[@Cons, 1] : !idr.box<!Stream> -> !idr.box<!lazy$0>
+    %u = idr.force %t : !idr.box<!lazy$0> -> !idr.box<!Stream>
+    %h = idr.field %u[@Cons, 0] : !idr.box<!Stream> -> i64
     return %h : i64
   }
 }

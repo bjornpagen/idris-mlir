@@ -28,7 +28,7 @@
 // CHECK: arith.divsi
 // CHECK-NOT: idris_rt_crash
 // CHECK: return
-module attributes {idr.program} {
+module {
   idr.func private @Main.name(%n: i64) -> !idr.str {
     %r = idr.match_lit %n : i64 -> (!idr.str) {
     case 1 {

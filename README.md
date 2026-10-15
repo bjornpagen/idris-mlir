@@ -59,9 +59,9 @@ Idris 2 programs over the stock Prelude and base, with `main : IO ()`:
 - files, directories, the standard streams, the environment, arguments,
   `System.Clock` and `exitWith`.
 
-Linear arrays, linear lists and a string iterator come from the
-compiler's own package, `libs/mlir-linear`, written in plain Idris over
-base's primitives. A construct whose runtime choices no compile-time
+Shaped and linear arrays come from the compiler's own package
+`libs/mlir-array`, and linear lists and a string iterator from
+`libs/mlir-linear`, both written in plain Idris over base's primitives. A construct whose runtime choices no compile-time
 analysis bounds is refused. So are `%foreign`, threads, signals and
 processes. Every primitive has one meaning, the runtime's, and each
 test's committed expected files are its specification.

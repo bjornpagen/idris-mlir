@@ -5,28 +5,30 @@ module Main
 -- (i + k)^2 at an offset k read at run time, each summed in index order.
 -- The compiler vectorizes each loop and gives it a version whose integer
 -- lanes compute in 32 bits while every size and offset it reads from
--- outside is at most a bound its body decides (2^10 for the cubes, 2^15
--- for the inverse squares and 2^14 for the squares, as the analysis bounds
--- them), and runs it on 64-bit lanes otherwise; a negative offset, read
--- unsigned, is above every bound. The same program is the fixture
--- linarray-lanes-narrow, with n below every bound, and linarray-lanes-wide,
--- with n above them all; each sums the squares at a positive and at a
--- negative offset, and neither n is a multiple of the lanes, so that the
--- last tile runs too. Either way the numbers are those of 64-bit lanes.
+-- outside is at most a bound its body decides, and runs it on 64-bit
+-- lanes otherwise; a negative offset, read unsigned, is above every bound.
+-- The same program is the fixture linarray-lanes-narrow, with n below
+-- every bound, and linarray-lanes-wide, with n above them all; each sums
+-- the squares at a positive and at a negative offset, and neither n is a
+-- multiple of the lanes, so that the last tile runs too. Either way the
+-- numbers are those of 64-bit lanes.
 
 import Prelude
 import Data.List
-import Linear.Notation
-import Linear.Array
+import Array
 
-cubes : Int -> Array Int
-cubes n = generate n (\i => (i + 1) * (i + 1) * (i + 1))
+-- A position as the Int the program computes with.
+at : Fin n -> Int
+at i = cast (finToNat i)
 
-inverseSquares : Int -> Array Double
-inverseSquares n = generate n (\i => 1.0 / cast ((i + 1) * (i + 1)))
+cubes : (n : Nat) -> Vector n Int
+cubes n = tabulate [<n] (\[<i] => (at i + 1) * (at i + 1) * (at i + 1))
 
-squares : Int -> Int -> Array Int
-squares k n = generate n (\i => (i + k) * (i + k))
+inverseSquares : (n : Nat) -> Vector n Double
+inverseSquares n = tabulate [<n] (\[<i] => 1.0 / cast ((at i + 1) * (at i + 1)))
+
+squares : Int -> (n : Nat) -> Vector n Int
+squares k n = tabulate [<n] (\[<i] => (at i + k) * (at i + k))
 
 -- x with d decimals, for a non-negative x.
 fixed : Nat -> Double -> String
@@ -50,11 +52,12 @@ readInt = do
 
 main : IO ()
 main = do
-  n <- readInt
+  count <- readInt
   k <- readInt
   m <- readInt
-  printLn (freeze (cubes n) Linear.Array.sum)
-  printLn (freeze (cubes n) (\a => iread a (n - 1)))
-  putStrLn (fixed 9 (freeze (inverseSquares n) Linear.Array.sum))
-  printLn (freeze (squares k n) Linear.Array.sum)
-  printLn (freeze (squares m n) Linear.Array.sum)
+  let n = cast {to = Nat} count
+  printLn (sum (cubes n))
+  printLn (fromMaybe 0 (cubes n !? [<natToInteger n - 1]))
+  putStrLn (fixed 9 (sum (inverseSquares n)))
+  printLn (sum (squares k n))
+  printLn (sum (squares m n))

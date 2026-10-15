@@ -23,7 +23,9 @@
 // it must.
 //
 // The pass stays at the module: each clone is a new symbol in the module's
-// block, which no pass on one function may add.
+// block, which no pass on one function may add. It goes right after its
+// function, under a name made from the function's and the kind `trmc`, so
+// no order reaches the name.
 //
 //===----------------------------------------------------------------------===//
 
@@ -51,18 +53,19 @@ using namespace mlir;
 namespace idr::tail {
 namespace {
 
-SymbolRefAttr ctorOf(Operation *op) {
+// The constructor `op` builds, named within its data type.
+FlatSymbolRefAttr ctorOf(Operation *op) {
   if (auto con = dyn_cast<ConOp>(op))
-    return con.getCtor();
-  return cast<ReuseOp>(op).getCtor();
+    return con.getCtorAttr();
+  return cast<ReuseOp>(op).getCtorAttr();
 }
 
 // A call of `clone` with `operands`, in place of `old`: the clone is the
-// same recursion with the same facts, so the call keeps what the old one
-// may do.
+// same recursion with the same facts, so the call does what the old one
+// did: its effects are the clone's.
 void callClone(RewriterBase &rewriter, CallOp old, FuncOp clone, ValueRange operands) {
   auto call = CallOp::create(rewriter, old.getLoc(), TypeRange(), FlatSymbolRefAttr::get(clone.getSymNameAttr()),
-                             operands, /*arg_attrs=*/ArrayAttr(), /*res_attrs=*/ArrayAttr(), old.getEffectsAttr());
+                             operands, /*arg_attrs=*/ArrayAttr(), /*res_attrs=*/ArrayAttr(), clone.getEffectsAttr());
   call->setDiscardableAttrs(old->getDiscardableAttrDictionary());
 }
 
@@ -96,8 +99,7 @@ void passDestination(RewriterBase &rewriter, const Modulo &tail, FuncOp clone, V
   // then moves on: into the hole it fills, or out of the function.
   Value seen = BorrowOp::create(rewriter, loc, cell);
   Value dest = DestOfOp::create(rewriter, loc, DestType::get(rewriter.getContext(), unrestricted(pending.getType())),
-                                seen, FlatSymbolRefAttr::get(ctorOf(tail.built).getLeafReference()),
-                                rewriter.getI64IntegerAttr(tail.index));
+                                seen, ctorOf(tail.built), rewriter.getI64IntegerAttr(tail.index));
   if (hole)
     DestWriteOp::create(rewriter, loc, hole, cell);
   SmallVector<Value> operands(call.getArgs());
@@ -150,7 +152,7 @@ struct Trmc : impl::IdrTrmcBase<Trmc> {
     IRRewriter rewriter(ctx);
     bool changed = false;
     for (FuncOp fn : llvm::make_early_inc_range(module.getOps<FuncOp>())) {
-      if (fn.isExternal() || fn.getNumResults() != 1 || !isa<BoxType>(unrestricted(fn.getResultTypes()[0])))
+      if (fn.getNumResults() != 1 || !isa<BoxType>(unrestricted(fn.getResultTypes()[0])))
         continue;
       SmallVector<Modulo> tails;
       forTails(fn.getBody().front(), [&](Block &block) {
@@ -159,14 +161,16 @@ struct Trmc : impl::IdrTrmcBase<Trmc> {
       });
       if (tails.empty())
         continue;
+      FailureOr<StringAttr> name = copyName(fn, "trmc", symbols);
+      if (failed(name))
+        return signalPassFailure();
       changed = true;
       ++numFunctions;
       numTails += tails.size();
 
       FuncOp clone = fn.clone();
-      clone.setSymName((fn.getSymName() + ".trmc").str());
+      clone.setSymNameAttr(*name);
       clone.setPrivate();
-      clone.removeCloneAttr();
       symbols.insert(clone, std::next(fn->getIterator()));
       auto dest = DestType::get(ctx, unrestricted(fn.getResultTypes()[0]));
       unsigned arity = clone.getNumArguments();

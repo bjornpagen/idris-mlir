@@ -3,8 +3,8 @@
 // The printer names a value for what it is: the world `w`, a string `s`,
 // an Integer or a natural `n`, a closure `f`, a suspension `lazy`, a token
 // `tok`, a graded value as its carrier; a constant by its kind or its
-// constructor, a constructor by its name, a closure `clo`, a lambda `lam`,
-// a suspension `thunk`, a forced value `forced`, an applied one `applied`,
+// constructor, a constructor by its name, a closure `clo`, a suspension
+// `thunk`, a forced value `forced`, an applied one `applied`,
 // a call's result by its callee's short name before its instance's
 // arguments, and a case's fields `f0`, `f1`, .... A value whose location
 // names the Idris binder it came from takes that name when the printer is
@@ -16,11 +16,10 @@
 // CHECK: %nat = constant #idr.big<"3"> : !idr.nat
 // CHECK: %clo = constant #idr.closure<@inc, []> : !idr.fn<(i64) -> i64>
 // CHECK: %thunk = constant #idr.closure<@later, []> : !idr.lazy<i64>
-// CHECK: %nothing = constant #idr.con<@"Prelude.Types.Maybe[Prelude.Types.Nat]"::@Nothing, []> : !Maybe_Nat
-// CHECK: %just = con @"Prelude.Types.Maybe[Prelude.Types.Nat]"::@Just(%[[N]])
+// CHECK: %nothing = constant #idr.con<@Nothing, []> : !Maybe_Nat
+// CHECK: %just = con @Just(%[[N]])
 // CHECK: %clo{{_[0-9]+}} = closure @inc()
-// CHECK: %lam = lambda
-// CHECK: %thunk{{_[0-9]+}} = delay
+// CHECK: %thunk{{_[0-9]+}} = delay %{{.*}} : i64 -> !idr.lazy<i64>
 // CHECK: %thunk{{_[0-9]+}} = suspend @later()
 // CHECK: %forced = force %lazy
 // CHECK: %applied = apply %f(%[[X]])
@@ -36,14 +35,12 @@
 // NAMED: match %{{.*}} : !Point -> (i64) {
 // NAMED-NEXT: case @MkPoint(%px: i64, %py: i64) {
 
-idr.data @"Prelude.Types.Maybe[Prelude.Types.Nat]" {
-  idr.ctor @Nothing ()
-  idr.ctor @Just (!idr.nat)
+!Prelude.Types.Maybe_Prelude.Types.Nat_ = !idr.data<"Prelude.Types.Maybe[Prelude.Types.Nat]", plain [@Nothing(), @Just(!idr.nat)]>
+!Main.Point = !idr.data<"Main.Point", plain [@MkPoint(i64, i64)]>
+idr.func private @"Prelude.Show.show[Prelude.Types.Nat]"(%a0: !idr.nat) -> !idr.str {
+  idr.crash "no body"
+  ub.unreachable
 }
-idr.data @Main.Point {
-  idr.ctor @MkPoint (i64, i64)
-}
-idr.func private @"Prelude.Show.show[Prelude.Types.Nat]"(!idr.nat) -> !idr.str
 idr.func private @inc(%x: i64) -> i64 {
   return %x : i64
 }
@@ -60,27 +57,21 @@ idr.func private @values(%w: !idr.world, %s: !idr.lin<!idr.str>, %b: !idr.big, %
   %c2 = idr.constant #idr.big<"3"> : !idr.nat
   %c3 = idr.constant #idr.closure<@inc, []> : !idr.fn<(i64) -> (i64)>
   %c4 = idr.constant #idr.closure<@later, []> : !idr.lazy<i64>
-  %c5 = idr.constant #idr.con<@"Prelude.Types.Maybe[Prelude.Types.Nat]"::@Nothing, []>
-      : !idr.data<@"Prelude.Types.Maybe[Prelude.Types.Nat]">
-  %v0 = idr.con @"Prelude.Types.Maybe[Prelude.Types.Nat]"::@Just(%n)
-      : (!idr.nat) -> !idr.data<@"Prelude.Types.Maybe[Prelude.Types.Nat]">
+  %c5 = idr.constant #idr.con<@Nothing, []>
+      : !Prelude.Types.Maybe_Prelude.Types.Nat_
+  %v0 = idr.con @Just(%n)
+      : (!idr.nat) -> !Prelude.Types.Maybe_Prelude.Types.Nat_
   %v1 = idr.closure @inc() : () -> !idr.fn<(i64) -> (i64)>
-  %v2 = idr.lambda : !idr.fn<(i64) -> (i64)> {
-  ^bb0(%y: i64):
-    idr.yield %y : i64
-  }
-  %v3 = idr.delay : !idr.lazy<i64> {
-    %one = arith.constant 1 : i64
-    idr.yield %one : i64
-  }
+  %one = arith.constant 1 : i64
+  %v3 = idr.delay %one : i64 -> !idr.lazy<i64>
   %v4 = idr.suspend @later() : () -> !idr.lazy<i64>
   %v5 = idr.force %l : !idr.lazy<i64> -> i64
   %v6 = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)> loc("result")
   %v7 = idr.lin.enter %x : !idr.lin<i64>
   %v8 = idr.call @"Prelude.Show.show[Prelude.Types.Nat]"(%n) : (!idr.nat) -> !idr.str
   %v9 = idr.call @inc(%x) : (i64) -> i64
-  %p = idr.con @Main.Point::@MkPoint(%x, %x) : (i64, i64) -> !idr.data<@Main.Point>
-  %r = idr.match %p : !idr.data<@Main.Point> -> (i64) {
+  %p = idr.con @MkPoint(%x, %x) : (i64, i64) -> !Main.Point
+  %r = idr.match %p : !Main.Point -> (i64) {
   case @MkPoint(%px: i64 loc("px"), %py: i64 loc("py")) {
     %sum = arith.addi %px, %py : i64
     idr.yield %sum : i64

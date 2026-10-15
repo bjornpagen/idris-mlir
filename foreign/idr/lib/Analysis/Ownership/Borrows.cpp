@@ -8,8 +8,7 @@
 // in the module, when it or a field read from it
 //   - is taken apart (its cell is reused only if it is owned);
 //   - is passed to an owned parameter of a call;
-//   - is itself stored in a constructor or a closure, or passed to the
-//     function of a closure, which takes every argument owned;
+//   - is itself stored in a constructor;
 //   - is returned, or yielded by a match, whose results are owned;
 // and when an owned value is passed to it by a tail call from the same
 // cycle of calls, which would otherwise have to drop its reference after
@@ -17,10 +16,9 @@
 // whose result a tail position puts in a constructor counts as one:
 // idr-trmc makes it a tail call that writes the field, unless a drop sits
 // between the call and the constructor.
-// The public root, and every function a closure names, keep their
-// parameters owned: their callers are not calls this analysis sees. A
-// parameter of quantity 1 is owned too: Idris proved the function uses it
-// once, so it moves to that use and is never counted.
+// The public root keeps its parameters owned: its caller is not a call
+// this analysis sees. A parameter of quantity 1 is owned too: Idris proved
+// the function uses it once, so it moves to that use and is never counted.
 //
 // The takes of reset/reuse are its decisions, not ops yet: each one owns
 // its box where the take will go, in the order a walk would meet it.
@@ -47,16 +45,15 @@ namespace idr {
 namespace {
 
 // What one function contributes before the fixpoint, found on its own: the
-// functions it names without calling them, and the ones it calls.
+// functions it calls.
 struct Local {
-  SmallVector<StringAttr> named;
   SmallVector<FuncOp> callees;
 };
 
 class Inference {
 public:
-  Inference(ModuleOp module, SymbolTable &symbols, const Reuses *reuses)
-      : module(module), symbols(symbols), counted(symbols), reuses(reuses) {}
+  Inference(ModuleOp module, SymbolTable &symbols, const Reuses &reuses)
+      : module(module), symbols(symbols), reuses(reuses) {}
 
   void run(DenseMap<Operation *, SmallVector<Borrows::Param>> &paramsOf,
            DenseMap<Operation *, SmallVector<bool>> &resultsOf, unsigned &borrowed) {
@@ -64,22 +61,13 @@ public:
     SmallVector<Local> locals(all.size());
     parallelForEach(module.getContext(), llvm::seq<size_t>(0, all.size()),
                     [&](size_t index) { locals[index] = local(all[index]); });
-    DenseSet<StringAttr> named;
-    // What sits beside the functions may name one too.
-    name(module, named);
-    for (Operation &op : module.getBody()->getOperations())
-      if (!isa<FuncOp>(op))
-        op.walk([&](Operation *inner) { name(inner, named); });
     for (auto [fn, found] : llvm::zip_equal(all, locals)) {
-      named.insert(found.named.begin(), found.named.end());
-      if (fn.isExternal())
-        continue;
       functions.push_back(fn);
       for (FuncOp g : found.callees)
         callers[g].insert(fn);
     }
     for (FuncOp fn : functions) {
-      bool fixed = fn.isPublic() || named.contains(fn.getSymNameAttr());
+      bool fixed = fn.isPublic();
       SmallVector<bool> params;
       for (Type type : fn.getArgumentTypes())
         params.push_back(fixed || !counted(type) || quantityOf(type) == Quantity::One);
@@ -119,29 +107,14 @@ public:
   }
 
 private:
-  static void name(Operation *op, DenseSet<StringAttr> &named) {
-    if (auto closure = dyn_cast<ClosureOp>(op))
-      named.insert(closure.getCalleeAttr().getAttr());
-    if (auto suspend = dyn_cast<SuspendOp>(op))
-      named.insert(suspend.getCalleeAttr().getAttr());
-    walkStoredAttributes(op, [&](Attribute nested) {
-      if (auto closure = dyn_cast<ClosureAttr>(nested))
-        named.insert(closure.getCallee().getAttr());
-    });
-  }
-
   // The part of the start state one function decides alone; it reads the
   // table, which no one writes while the workers run.
   Local local(FuncOp fn) {
     Local found;
-    DenseSet<StringAttr> named;
-    fn->walk([&](Operation *op) {
-      name(op, named);
-      if (auto call = dyn_cast<CallOp>(op))
-        if (auto g = symbols.lookup<FuncOp>(call.getCalleeAttr().getAttr()))
-          found.callees.push_back(g);
+    fn->walk([&](CallOp call) {
+      if (auto g = symbols.lookup<FuncOp>(call.getCalleeAttr().getAttr()))
+        found.callees.push_back(g);
     });
-    found.named.assign(named.begin(), named.end());
     return found;
   }
 
@@ -210,10 +183,9 @@ private:
     takenAtStart.clear();
     // A box a take of another site's field takes apart is that take's,
     // which owns it already.
-    if (reuses)
-      for (const Reuses::Site &site : reuses->sites(fn))
-        if (site.box)
-          (site.after ? takenAfter[site.after] : takenAtStart[site.block]).push_back(site.box);
+    for (const Reuses::Site &site : reuses.sites(fn))
+      if (site.box)
+        (site.after ? takenAfter[site.after] : takenAtStart[site.block]).push_back(site.box);
     for (Block &block : fn.getBody())
       visit(block);
   }
@@ -245,10 +217,7 @@ private:
         for (auto [index, arg] : llvm::enumerate(call.getArgOperands()))
           if (isOwned(arg))
             ownParam(g, static_cast<unsigned>(index));
-    } else if (auto apply = dyn_cast<ApplyOp>(op)) {
-      for (Value arg : apply.getArgs())
-        ownIfParam(arg);
-    } else if (isa<ConOp, ClosureOp, SuspendOp>(op)) {
+    } else if (isa<ConOp>(op)) {
       for (Value operand : op->getOperands())
         ownIfParam(operand);
     } else if (isa<ReturnOp, YieldOp>(op)) {
@@ -263,7 +232,7 @@ private:
   ModuleOp module;
   SymbolTable &symbols;
   Counted counted;
-  const Reuses *reuses;
+  const Reuses &reuses;
   SmallVector<FuncOp> functions;
   DenseMap<FuncOp, SmallVector<bool>> owned;
   DenseMap<FuncOp, unsigned> cycleOf;
@@ -278,9 +247,8 @@ private:
 } // namespace
 
 Borrows::Borrows(Operation *module, AnalysisManager &am) {
-  auto reuses = am.getCachedAnalysis<Reuses>();
-  Inference(cast<ModuleOp>(module), am.getAnalysis<SymbolTable>(),
-            reuses ? &reuses->get() : nullptr)
+  const Reuses &reuses = am.getAnalysis<Reuses>();
+  Inference(cast<ModuleOp>(module), am.getAnalysis<SymbolTable>(), reuses)
       .run(paramsOf, resultsOf, numBorrowed);
 }
 

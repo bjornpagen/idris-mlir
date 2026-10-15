@@ -6,10 +6,6 @@
 // wherever it is built, and a box constructor does not fold into static
 // data.
 
-idr.data @List box {
-  idr.ctor @Nil ()
-  idr.ctor @Cons (i32, !idr.box<@List>)
-}
 
 // Three choices, each consed onto the list the one before built, as a
 // generator unrolled at compile time conses its characters: each match
@@ -17,12 +13,13 @@ idr.data @List box {
 // Moving each constructor into the regions of its match would make the
 // next one a consumer of a match of lists, and so on: every region would
 // get a copy of the rest of the chain, twice the code at each choice.
-// CHECK-LABEL: idr.func @chain(
-// CHECK-NOT: -> (!List)
-// CHECK-COUNT-3: con @List::@Cons
+// CHECK-LABEL: idr.func private @chain(
+// CHECK-NOT: -> (!idr.box<!List>)
+// CHECK-COUNT-3: con @Cons
 // CHECK-NOT: {{(idr\.| )con }}
 // CHECK: return
-idr.func @chain(%a: i64, %b: i64, %c: i64, %tail: !idr.box<@List>) -> !idr.box<@List> {
+!List = !idr.data<"List", list [@Nil(), @Cons(i32, !idr.box<!idr.data<"List">>)]>
+idr.func private @chain(%a: i64, %b: i64, %c: i64, %tail: !idr.box<!List>) -> !idr.box<!List> {
   %x = idr.match_lit %a : i64 -> (i32) {
   case 0 {
     %k = arith.constant 97 : i32
@@ -33,7 +30,7 @@ idr.func @chain(%a: i64, %b: i64, %c: i64, %tail: !idr.box<@List>) -> !idr.box<@
     idr.yield %k : i32
   }
   }
-  %l1 = idr.con @List::@Cons(%x, %tail) : (i32, !idr.box<@List>) -> !idr.box<@List>
+  %l1 = idr.con @Cons(%x, %tail) : (i32, !idr.box<!List>) -> !idr.box<!List>
   %y = idr.match_lit %b : i64 -> (i32) {
   case 0 {
     %k = arith.constant 103 : i32
@@ -44,7 +41,7 @@ idr.func @chain(%a: i64, %b: i64, %c: i64, %tail: !idr.box<@List>) -> !idr.box<@
     idr.yield %k : i32
   }
   }
-  %l2 = idr.con @List::@Cons(%y, %l1) : (i32, !idr.box<@List>) -> !idr.box<@List>
+  %l2 = idr.con @Cons(%y, %l1) : (i32, !idr.box<!List>) -> !idr.box<!List>
   %z = idr.match_lit %c : i64 -> (i32) {
   case 0 {
     %k = arith.constant 97 : i32
@@ -55,20 +52,20 @@ idr.func @chain(%a: i64, %b: i64, %c: i64, %tail: !idr.box<@List>) -> !idr.box<@
     idr.yield %k : i32
   }
   }
-  %l3 = idr.con @List::@Cons(%z, %l2) : (i32, !idr.box<@List>) -> !idr.box<@List>
-  return %l3 : !idr.box<@List>
+  %l3 = idr.con @Cons(%z, %l2) : (i32, !idr.box<!List>) -> !idr.box<!List>
+  return %l3 : !idr.box<!List>
 }
 
 // A box constructor whose every field is a constant in each region stays
 // after the match: folded there it would be static data, which every holder
 // shares, so no consumer could take its cell over. One fresh cell is built.
-// CHECK-LABEL: idr.func @all_constant(
+// CHECK-LABEL: idr.func private @all_constant(
 // CHECK: %[[X:.*]] = {{(idr\.)?}}match_lit %{{.*}} : i64 -> (i32)
-// CHECK: con @List::@Cons(%[[X]], %{{.*}})
-// CHECK-NOT: #idr.con<@List::@Cons
+// CHECK: con @Cons(%[[X]], %{{.*}})
+// CHECK-NOT: #idr.con<@Cons
 // CHECK: return
-idr.func @all_constant(%a: i64) -> !idr.box<@List> {
-  %nil = idr.con @List::@Nil() : () -> !idr.box<@List>
+idr.func private @all_constant(%a: i64) -> !idr.box<!List> {
+  %nil = idr.con @Nil() : () -> !idr.box<!List>
   %x = idr.match_lit %a : i64 -> (i32) {
   case 0 {
     %k = arith.constant 97 : i32
@@ -79,52 +76,52 @@ idr.func @all_constant(%a: i64) -> !idr.box<@List> {
     idr.yield %k : i32
   }
   }
-  %l = idr.con @List::@Cons(%x, %nil) : (i32, !idr.box<@List>) -> !idr.box<@List>
-  return %l : !idr.box<@List>
+  %l = idr.con @Cons(%x, %nil) : (i32, !idr.box<!List>) -> !idr.box<!List>
+  return %l : !idr.box<!List>
 }
 
 // A cell only one region uses moves into it: it is built only on that
 // path, and nothing is copied.
-// CHECK-LABEL: idr.func @one_region(
+// CHECK-LABEL: idr.func private @one_region(
 // CHECK: match_lit
 // CHECK-NEXT: case 0 {
-// CHECK-NEXT: con @List::@Cons
-idr.func @one_region(%a: i64, %v: i32, %t: !idr.box<@List>) -> !idr.box<@List> {
-  %l = idr.con @List::@Cons(%v, %t) : (i32, !idr.box<@List>) -> !idr.box<@List>
-  %r = idr.match_lit %a : i64 -> (!idr.box<@List>) {
+// CHECK-NEXT: con @Cons
+idr.func private @one_region(%a: i64, %v: i32, %t: !idr.box<!List>) -> !idr.box<!List> {
+  %l = idr.con @Cons(%v, %t) : (i32, !idr.box<!List>) -> !idr.box<!List>
+  %r = idr.match_lit %a : i64 -> (!idr.box<!List>) {
   case 0 {
-    idr.yield %l : !idr.box<@List>
+    idr.yield %l : !idr.box<!List>
   }
   default {
-    idr.yield %t : !idr.box<@List>
+    idr.yield %t : !idr.box<!List>
   }
   }
-  return %r : !idr.box<@List>
+  return %r : !idr.box<!List>
 }
 
 // A cell is built where it is used, in each region that does: a copy is one
 // op, which nothing follows in.
-// CHECK-LABEL: idr.func @two_regions(
+// CHECK-LABEL: idr.func private @two_regions(
 // CHECK: match_lit
 // CHECK-NEXT: case 0 {
-// CHECK-NEXT: con @List::@Cons(%{{.*}}, %{{.*}})
+// CHECK-NEXT: con @Cons(%{{.*}}, %{{.*}})
 // CHECK: default {
-// CHECK-NEXT: con @List::@Cons(%{{.*}}, %{{.*}})
-idr.func @two_regions(%a: i64, %v: i32, %t: !idr.box<@List>) -> !idr.box<@List> {
-  %l = idr.con @List::@Cons(%v, %t) : (i32, !idr.box<@List>) -> !idr.box<@List>
-  %r = idr.match_lit %a : i64 -> (!idr.box<@List>) {
+// CHECK-NEXT: con @Cons(%{{.*}}, %{{.*}})
+idr.func private @two_regions(%a: i64, %v: i32, %t: !idr.box<!List>) -> !idr.box<!List> {
+  %l = idr.con @Cons(%v, %t) : (i32, !idr.box<!List>) -> !idr.box<!List>
+  %r = idr.match_lit %a : i64 -> (!idr.box<!List>) {
   case 0 {
     %k = arith.constant 97 : i32
-    %m = idr.con @List::@Cons(%k, %l) : (i32, !idr.box<@List>) -> !idr.box<@List>
-    idr.yield %m : !idr.box<@List>
+    %m = idr.con @Cons(%k, %l) : (i32, !idr.box<!List>) -> !idr.box<!List>
+    idr.yield %m : !idr.box<!List>
   }
   default {
     %k = arith.constant 99 : i32
-    %m = idr.con @List::@Cons(%k, %l) : (i32, !idr.box<@List>) -> !idr.box<@List>
-    idr.yield %m : !idr.box<@List>
+    %m = idr.con @Cons(%k, %l) : (i32, !idr.box<!List>) -> !idr.box<!List>
+    idr.yield %m : !idr.box<!List>
   }
   }
-  return %r : !idr.box<@List>
+  return %r : !idr.box<!List>
 }
 
 // A call that the constant each region yields closes moves into each, where
@@ -140,13 +137,13 @@ idr.func private @both(%x: i64, %y: i64) -> i64 attributes {total, effects = #id
   %r = arith.addi %x, %y : i64
   return %r : i64
 }
-// CHECK-LABEL: idr.func @closed_call(
+// CHECK-LABEL: idr.func private @closed_call(
 // CHECK: match_lit
 // CHECK-NEXT: case 0 {
 // CHECK-NEXT: call @twice
 // CHECK: default {
 // CHECK-NEXT: call @twice
-idr.func @closed_call(%a: i64) -> i64 {
+idr.func private @closed_call(%a: i64) -> i64 {
   %x = idr.match_lit %a : i64 -> (i64) {
   case 0 {
     %k = arith.constant 1 : i64
@@ -160,11 +157,11 @@ idr.func @closed_call(%a: i64) -> i64 {
   %y = idr.call @twice(%x) effects = <none> : (i64) -> i64
   return %y : i64
 }
-// CHECK-LABEL: idr.func @open_call(
+// CHECK-LABEL: idr.func private @open_call(
 // CHECK: %[[X:.*]] = {{(idr\.)?}}match_lit
 // CHECK-NOT: call
 // CHECK: call @both(%[[X]], %{{.*}})
-idr.func @open_call(%a: i64, %b: i64) -> i64 {
+idr.func private @open_call(%a: i64, %b: i64) -> i64 {
   %x = idr.match_lit %a : i64 -> (i64) {
   case 0 {
     %k = arith.constant 1 : i64

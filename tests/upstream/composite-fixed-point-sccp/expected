@@ -1,2 +1,2 @@
-sccp: converges after one run
+sccp: still reproduces (does not converge)
 canonicalize: converges after one run

@@ -1,4 +1,4 @@
-# Union-find over a linear array of records (Counting Immutable Beans'
+# Union-find over a growable linear vector of records (Counting Immutable Beans'
 # unionfind): the find with path compression, the merging passes and the
 # node setup change no count and allocate nothing; a record stored is its
 # two words. (union itself is inlined into the merging pass.)

@@ -11,7 +11,6 @@ import IdrisMLIR.Dialect.Idr
 import IdrisMLIR.Registry.Entry
 import IdrisMLIR.Registry.Name
 import IdrisMLIR.Registry.Primitives
-import IdrisMLIR.Rule
 import IdrisMLIR.Syntax.Idr
 import IdrisMLIR.Types
 
@@ -87,29 +86,108 @@ naturals =
     types = ["Prelude", "Types"]
 
 ------------------------------------------------------------------------------
--- Index spaces of the in-house array library
+-- The array language
 ------------------------------------------------------------------------------
 
-||| A loop over an array's index space, by its name in `Linear.Array`: the
-||| library's definition is the loop in Idris, and the compiler's op is the
-||| same loop as one linalg operation.
-indexSpace : String -> Shape -> IdrRegionPrim -> Entry
-indexSpace name shape p =
-  MkEntry (Def (MkQName ["Linear", "Array"] name)) (Typed shape) (ArrayLoop p) [HookShape]
+||| The module of the array language's types and generating set, in the
+||| package `mlir-array`.
+arrayCore : List String
+arrayCore = ["Array", "Core"]
 
-||| The two loops: `prim__generate : forall a . Int -> (Int -> a) -> PrimIO
-||| (ArrayData a)` and `prim__foldl : forall a, b . ArrayData a -> b -> (b
-||| -> Int -> a -> b) -> PrimIO b`.
-indexSpaces : List Entry
-indexSpaces =
-  [ indexSpace "prim__generate"
-      (Pi M0 TypeOfTypes (Pi Mw int (Pi Mw (Pi Mw int Hole) (Pi M1 world (ioRes (arrayData Hole))))))
-      ArrayGenerate
-  , indexSpace "prim__foldl"
-      (Pi M0 TypeOfTypes (Pi M0 TypeOfTypes
-        (Pi Mw (arrayData Hole) (Pi Mw Hole (Pi Mw (Pi Mw Hole (Pi Mw int (Pi Mw Hole Hole)))
-          (Pi M1 world (ioRes Hole)))))))
-      ArrayFold ]
+||| A shape: a snoc list of naturals, outermost axis first. The value-array
+||| entries pin the shape type, which is how a shape's form is read by the
+||| constructors of `SnocList` (`Frontend.Translate.Shapes`).
+export
+shapeType : Shape
+shapeType = Head (Def (MkQName ["Prelude", "Basics"] "SnocList")) [nat]
+
+||| A head of the array language applied to its two arguments, every one a
+||| hole: validation checks the head, the handler reads the types.
+arr, larr : Shape
+arr = Head (Def (MkQName arrayCore "Array")) [Hole, Hole]
+larr = Head (Def (MkQName arrayCore "LArray")) [Hole, Hole]
+
+ext, idx, cell : Shape
+ext = Head (Def (MkQName (arrayCore ++ ["Extents"]) "Extents")) [Hole]
+idx = Head (Def (MkQName (arrayCore ++ ["Index"]) "Index")) [Hole]
+cell = Head (Def (MkQName (arrayCore ++ ["Cell"]) "Cell")) [Hole]
+
+||| `n` implicit arguments of quantity 0 before `rest`, each of any type.
+implicits : Nat -> Shape -> Shape
+implicits Z rest = rest
+implicits (S k) rest = Pi M0 Hole (implicits k rest)
+
+||| An explicit argument at quantity ω, and one at quantity 1.
+arg, lin : Shape -> Shape -> Shape
+arg = Pi Mw
+lin = Pi M1
+
+||| A function of the generating set, by its name in `Array.Core`.
+generating : String -> Shape -> ArrayPrim -> Entry
+generating name shape p = MkEntry (Def (MkQName arrayCore name)) (Typed shape) (Generating p) [HookShape]
+
+||| A function of the array language that is the identity on its array.
+identityOn : String -> Shape -> Entry
+identityOn name shape = MkEntry (Def (MkQName arrayCore name)) (Typed shape) IdentityOnLastArgument [IdentityHook]
+
+||| The array language's two value types, its generating set and the
+||| operations of its linear arrays, whose calls are the tensor operations
+||| of their sequential meaning; and base's `natToFinLT`, the identity on
+||| its natural, a `Fin` being one.
+arrayLanguage : List Entry
+arrayLanguage =
+  [ MkEntry (Def (MkQName arrayCore "Array")) (Typed (Pi M0 shapeType (Pi Mw TypeOfTypes TypeOfTypes)))
+            ArrayValueType [HookShape]
+  , MkEntry (Def (MkQName arrayCore "LArray")) (Typed (Pi M0 shapeType (Pi Mw TypeOfTypes TypeOfTypes)))
+            ArrayValueType [HookShape]
+  , generating "shape" (implicits 2 (arg arr ext)) AShape
+  , generating "tabulate" (implicits 2 (arg ext (arg (arg idx Hole) arr))) ATabulate
+  , generating "!!" (implicits 2 (arg arr (arg idx Hole))) AIndex
+  , generating "update" (implicits 2 (arg arr (arg idx (arg Hole arr)))) AUpdate
+  , generating "foldLast" (implicits 4 (arg (arg Hole (arg Hole Hole)) (arg arr (arg arr arr)))) AFoldLast
+  , generating "scanLast" (implicits 4 (arg (arg Hole (arg Hole Hole)) (arg arr (arg arr arr)))) AScanLast
+  , identityOn "nest" (implicits 3 (arg cell (arg arr arr)))
+  , identityOn "merge" (implicits 3 (arg ext (arg arr arr)))
+  , generating "reshape" (implicits 3 (arg ext (Pi M0 Hole (arg arr arr)))) AReshape
+  , generating "take" (implicits 3 (arg nat (Pi M0 Hole (arg arr arr)))) ATake
+  , generating "drop" (implicits 3 (arg nat (Pi M0 Hole (arg arr arr)))) ADrop
+  , generating "++" (implicits 4 (arg arr (arg arr arr))) AConcat
+  , generating "pad" (implicits 3 (arg nat (arg nat (arg Hole (arg arr arr))))) APad
+  , generating "withArray" (implicits 3 (arg ext (arg Hole (arg (lin larr Hole) Hole)))) AWithArray
+  , generating "read" (implicits 2 (lin larr (arg idx Hole))) ARead
+  , generating "write" (implicits 2 (lin larr (arg idx (arg Hole larr)))) AWrite
+  , identityOn "freeze" (implicits 2 (lin larr Hole))
+  , generating "thaw" (implicits 3 (arg arr (arg (lin larr Hole) Hole))) AThaw
+  , generating "lshape" (implicits 2 (lin larr Hole)) ALShape
+  , generating "grow" (implicits 3 (arg nat (arg Hole (lin larr larr)))) AGrow
+  , generating "tabulateIO" (implicits 2 (arg ext (arg (arg idx Hole) Hole))) ATabulateIO
+  , MkEntry (Def (MkQName ["Data", "Fin"] "natToFinLT"))
+            (Typed (arg nat (implicits 2 (Head (Def (MkQName ["Data", "Fin"] "Fin")) [Hole]))))
+            IdentityOnLastArgument [IdentityHook] ]
+
+------------------------------------------------------------------------------
+-- What data plays and promises
+------------------------------------------------------------------------------
+
+||| The list's nil and cons, which the string builders take apart: their
+||| role is the registry's, never guessed from their shape.
+listRoles : List Entry
+listRoles =
+  [ MkEntry (Def (MkQName ["Prelude", "Basics"] "Nil")) (Typed (implicits 1 (list Hole))) (Plays ListNil) [HookShape]
+  , MkEntry (Def (MkQName ["Prelude", "Basics"] "::")) (Typed (implicits 1 (arg Hole (arg (list Hole) (list Hole)))))
+            (Plays ListCons) [HookShape] ]
+  where
+    list : Shape -> Shape
+    list a = Head (Def (MkQName ["Prelude", "Basics"] "List")) [a]
+
+||| The types of `mlir-linear` whose cells are rebuilt in place and held
+||| exclusive: a promise of the library's types, which every program that
+||| uses them is checked against, never a choice of the command line.
+inPlace : List Entry
+inPlace =
+  [ MkEntry (Def (MkQName ["Linear", "List"] "LList")) (Typed (Pi Mw TypeOfTypes TypeOfTypes))
+            (Promises InPlace) [HookShape]
+  , MkEntry (Def (MkQName ["Linear", "Nat"] "LNat")) (Typed TypeOfTypes) (Promises InPlace) [HookShape] ]
 
 ------------------------------------------------------------------------------
 -- Pointers and the exit
@@ -209,7 +287,7 @@ outsideLanguage =
 export
 recognized : List Entry
 recognized =
-  naturals ++ indexSpaces ++ outsideLanguage ++
+  naturals ++ arrayLanguage ++ listRoles ++ inPlace ++ outsideLanguage ++
   [ identity "replace"
   , identity "rewrite__impl"
   , pointerCast "prim__castPtr" (Pi Mw anyPtr (ptr Hole))

@@ -1,21 +1,14 @@
-// RUN: idris-mlir-opt %s --idr-simplify --remarks-filter-missed=idr-specialize > %t.mlir 2> %t.err
+// RUN: idris-mlir-opt %s --idr-optimize -o %t.mlir
+// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=one-clone=@count -o /dev/null
 // RUN: FileCheck %s < %t.mlir
-// RUN: FileCheck %s --check-prefix=REMARK --allow-empty < %t.err
-// RUN: idris-mlir-opt %t.mlir --idr-simplify --remarks-filter="idr-(simplify|specialize)" > %t2.mlir 2> %t2.err
-// RUN: FileCheck %s --check-prefix=AGAIN < %t2.err
-// An accumulator through the whole simplify loop: @count is called with a
-// constant Integer accumulator and a counter read at runtime. The
-// accumulator changes on every iteration, so it is no fixed parameter and
-// the call is not specialized on it: no clone, no remark, and a second run
-// changes nothing.
-// CHECK-NOT: .spec
+// An accumulator through the optimizer: @count is called with a constant
+// Integer accumulator and a counter read at runtime. The accumulator
+// changes on every iteration, so it is no static parameter and the call is
+// not specialized on it: @count is still called, and no copy of it is
+// made.
 // CHECK: call @count(
-// CHECK-NOT: .spec
-// REMARK-NOT: [Missed]
-// AGAIN-NOT: [Missed]
-// AGAIN: remark: [Passed] idr-simplify | Category:idr-simplify
-// AGAIN-SAME: fixpoint: round 1 changed nothing
-module attributes {idr.program} {
+// CHECK-NOT: @count.
+module {
   idr.func private @count(%acc: !idr.big, %n: i64) -> !idr.big attributes {total} {
     %r = idr.match_lit %n : i64 -> (!idr.big) {
     case 0 {

@@ -32,33 +32,26 @@
 // LL: call range(i32 0, 1114112) i32 @idris_rt_str_scalar_at
 // LL: call range(i64 0, -9223372036854775808) i64 @idris_rt_str_scalar_end
 // LL: attributes #[[COLD]] = { cold noreturn }
-module attributes {idr.program} {
-  idr.data @List box {
-    idr.ctor @Nil ()
-    idr.ctor @Cons (i64, !idr.box<@List>)
-  }
-  idr.data @Colour {
-    idr.ctor @Red ()
-    idr.ctor @Green ()
-    idr.ctor @Blue (f64)
-  }
+!List = !idr.data<"List", list [@Nil(), @Cons(i64, !idr.box<!idr.data<"List">>)]>
+!Colour = !idr.data<"Colour", plain [@Red(), @Green(), @Blue(f64)]>
+module {
   // The tail of a list that is not empty; a crash otherwise.
-  idr.func private @head(%l: !idr.box<@List>) -> !idr.box<@List> {
-    %r = idr.match %l : !idr.box<@List> -> (!idr.box<@List>) {
-    case @Cons(%x: i64, %t: !idr.box<@List>) {
+  idr.func private @head(%l: !idr.box<!List>) -> !idr.box<!List> {
+    %r = idr.match %l : !idr.box<!List> -> (!idr.box<!List>) {
+    case @Cons(%x: i64, %t: !idr.box<!List>) {
       %s = arith.addi %x, %x : i64
-      %c = idr.con @List::@Cons(%s, %t) : (i64, !idr.box<@List>) -> !idr.box<@List>
-      idr.yield %c : !idr.box<@List>
+      %c = idr.con @Cons(%s, %t) : (i64, !idr.box<!List>) -> !idr.box<!List>
+      idr.yield %c : !idr.box<!List>
     }
     default {
       idr.crash "unmatched case"
       ub.unreachable
     }
     }
-    return %r : !idr.box<@List>
+    return %r : !idr.box<!List>
   }
-  idr.func private @shade(%c: !idr.data<@Colour>) -> i64 {
-    %t = idr.tag %c : !idr.data<@Colour>
+  idr.func private @shade(%c: !Colour) -> i64 {
+    %t = idr.tag %c : !Colour
     return %t : i64
   }
   idr.func private @sign(%x: i64) -> i64 {
@@ -73,18 +66,18 @@ module attributes {idr.program} {
     %r = arith.addi %w, %e : i64
     return %r : i64
   }
-  idr.func private @unread(%l: !idr.box<@List>, %n: i64) -> i64 {
+  idr.func private @unread(%l: !idr.box<!List>, %n: i64) -> i64 {
     return %n : i64
   }
   idr.func @Prog.main() -> i64 {
     %n = arith.constant 3 : i64
-    %nil = idr.con @List::@Nil() : () -> !idr.box<@List>
-    %l = idr.con @List::@Cons(%n, %nil) : (i64, !idr.box<@List>) -> !idr.box<@List>
-    %h = idr.call @head(%l) : (!idr.box<@List>) -> !idr.box<@List>
-    %red = idr.con @Colour::@Red() : () -> !idr.data<@Colour>
-    %s = idr.call @shade(%red) : (!idr.data<@Colour>) -> i64
-    %p = ub.poison : !idr.box<@List>
-    %u = idr.call @unread(%p, %s) : (!idr.box<@List>, i64) -> i64
+    %nil = idr.con @Nil() : () -> !idr.box<!List>
+    %l = idr.con @Cons(%n, %nil) : (i64, !idr.box<!List>) -> !idr.box<!List>
+    %h = idr.call @head(%l) : (!idr.box<!List>) -> !idr.box<!List>
+    %red = idr.con @Red() : () -> !Colour
+    %s = idr.call @shade(%red) : (!Colour) -> i64
+    %p = ub.poison : !idr.box<!List>
+    %u = idr.call @unread(%p, %s) : (!idr.box<!List>, i64) -> i64
     %g = idr.call @sign(%u) : (i64) -> i64
     %str = idr.constant "h\C3\A9llo" : !idr.str
     %k = idr.call @walk(%str, %g) : (!idr.str, i64) -> i64

@@ -15,10 +15,10 @@ namespace idr::expect {
 
 // In the function the argument names and its clones, or anywhere, some
 // idr.array.get moves its element out.
-LogicalResult movesOut(ModuleOp module, AnalysisManager &analyses, StringRef function) {
+LogicalResult movesOut(ModuleOp module, AnalysisManager &, StringRef function) {
   constexpr StringRef property = "moves-out";
   SmallVector<Operation *> roots =
-      rootsOf(module, analyses.getAnalysis<SymbolTable>(), function, property);
+      rootsOf(module, function, property);
   if (roots.empty())
     return failure();
   bool moved = false;

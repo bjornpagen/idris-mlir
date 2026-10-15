@@ -92,12 +92,10 @@ void populate(RewritePatternSet &results, MLIRContext *context) {
 
 namespace idr::canon {
 
-// The region argument's type is already the declared field at the
-// scrutinee's grade, as MatchOp::verifySymbolUses checked it. Reading it
-// from the value seen through a linear position needs only that type: a
-// many-use source reads the field unrestricted, and a one-use source can
-// only be the scrutinee itself (in which case the argument's quantity is
-// the field's), except for the ambiguous grade change kept below.
+// A case's argument is the declared field at the scrutinee's grade; read
+// from the value seen through a linear position, it is the field at that
+// value's grade, which the scrutinee's data type says, and the read is then
+// held as the argument.
 Value readField(OpBuilder &builder, Location loc, Value value) {
   auto arg = cast<BlockArgument>(value);
   auto match = cast<MatchOp>(arg.getOwner()->getParentOp());
@@ -106,15 +104,8 @@ Value readField(OpBuilder &builder, Location loc, Value value) {
     return match.getScrutinee();
   auto ctor = cast<FlatSymbolRefAttr>(match.getCases()[region]);
   Value source = throughLinear(match.getScrutinee());
-  Type type = arg.getType();
-  if (!isWorld(type)) {
-    if (quantityOf(source.getType()) == Quantity::Many)
-      type = unrestricted(type);
-    else if (quantityOf(match.getScrutinee().getType()) != Quantity::One) {
-      CtorOp decl = lookupCtor(declarationOf(match, source.getType()), ctor.getValue());
-      type = fieldType(source.getType(), decl.getFieldType(arg.getArgNumber()));
-    }
-  }
+  const Ctor &declared = match.getDataType().getCtor(match.getCaseTag(region));
+  Type type = fieldType(source.getType(), declared.fields[arg.getArgNumber()]);
   Value field = FieldOp::create(builder, loc, type, source, ctor,
                                 builder.getI64IntegerAttr(arg.getArgNumber()));
   return heldAs(builder, loc, field, arg.getType());

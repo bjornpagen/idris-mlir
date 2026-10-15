@@ -14,7 +14,7 @@ idr.func private @twice(%w: !idr.world) -> !idr.world {
 
 // -----
 
-module attributes {idr.program} {
+module {
   idr.func @Prog.main(%w: !idr.world) -> !idr.world {
     %c = arith.constant 65 : i32
     %w1 = idr.io.put_char %c, %w

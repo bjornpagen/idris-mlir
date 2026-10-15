@@ -33,8 +33,9 @@ backported half of `int-range-narrowing-exactness` (main's 44a4dbf32).
 Retired with the same bump, which rebuilt stage 2:
 `llvm-force-enable-stats` (stage 2 is built with
 `LLVM_FORCE_ENABLE_STATS`, so the installed `llvm-config.h` says
-statistics count to every includer; the `static_assert` of
-foreign/idr/lib/Transforms/Simplify/Simplify.cpp stays as the check) and
+statistics count to every includer; a `static_assert(LLVM_ENABLE_STATS)` in
+idr-optimize's unit, foreign/idr/lib/Transforms/Optimize, stays as the
+check) and
 `llvm-cxx17-headers` (the stage-2 clang of 7208ba24 compiled every unit
 of `foreign/idr`, C++26 against libc++ over LLVM's C++17 headers, with no
 change for the headers). Retired because main fixed it:
@@ -57,6 +58,17 @@ and its UUID went), `no-stdexec`
 (nothing here would use senders, so there is no omission to record) and
 `versions-in-lock-file` (the lock as the one source of the accepted
 series is the configure gate's design, said below, not a workaround).
+Retired with the pipeline cutover (2026-10-14), because nothing in the
+tree reaches their bugs once the simplify rounds and their composite fixed
+point are gone: `simplify-structural-fixpoint`
+(`upstream/02-composite-fixed-point-sccp`),
+`remove-dead-values-unchanged-call`
+(`upstream/16-remove-dead-values-unchanged-call`) and
+`remove-dead-values-poison-operand`
+(`upstream/22-remove-dead-values-poison-operand`). Their reports stay as
+submissions, each with its pull request as `pull-request.diff`, which the
+bootstrap does not apply, and a check that the pin still has the bug
+(upstream/README.md, **When nothing reaches the bug**).
 Retired with the one recipe (2026-10-09): `stage2-thinlto`. Stage 2 is
 not LTO on any target: its libraries are native code that every build of
 our tools links as it is, a rebuild through the compiler cache relinks
@@ -85,15 +97,14 @@ which the top-level CMake configure gate reads.
   the null operand (`mlir/lib/Transforms/RemoveDeadValues.cpp:661` on main,
   the region-branch canonicalization at `:862`, `Matchers.h:491`). It drops
   the uses of a dead block argument and of a dead result the same way
-- sites: foreign/idr/lib/Transforms/Simplify/Simplify.cpp (idr-simplify
-  runs `remove-dead-values{canonicalize=false}` between its round
-  fixpoints); the patch itself has no other site
+- sites: foreign/idr/lib/Transforms/Pipeline.cpp (the pipeline runs
+  `remove-dead-values{canonicalize=false}` once, after idr-optimize); the
+  patch itself has no other site
 - workaround: `upstream/06-remove-dead-values-unreachable/llvm.patch`, the
   pull request: every value the pass erases (function argument, block
   argument, result, result of an erased op) gives its remaining uses a
   ub.poison at its definition, through one helper, `replaceUsesWithPoison`;
-  the pass drops no use. A call the pass erases no result of is
-  `remove-dead-values-unchanged-call`'s. Nothing of ours empties the code
+  the pass drops no use. Nothing of ours empties the code
   the analyses prove unreachable: the match canonicalization asks which
   regions a match can take (the one its constant scrutinee selects), so it
   cuts the code after a match whose other regions never complete without
@@ -105,52 +116,6 @@ which the top-level CMake configure gate reads.
   reported by others, #206920, #203226, open PR #208881); plan in its
   README: a new issue and a pull request against main for all four sites
 
-## remove-dead-values-unchanged-call
-
-- symptom: on main at 7208ba24, `remove-dead-values` replaces every call of
-  a private function that returns a value with an identical new call, even
-  when it erases none of its results: it lists each such call with the
-  results to erase (`mlir/lib/Transforms/RemoveDeadValues.cpp:362-376`),
-  and `RewriterBase::eraseOpResults` builds a new operation even for an
-  empty set (`mlir/lib/IR/PatternMatch.cpp:278-314`). The module prints the
-  same, but `OperationFingerPrint` changes, so a simplify round at its
-  fixpoint would never keep the fingerprint, and every program with such a
-  call would run to the round budget
-- sites: none in our code; the patch. idr-simplify runs
-  `remove-dead-values{canonicalize=false}` between its round fixpoints
-  and resumes the rounds only when the removal changed the module's
-  fingerprint (foreign/idr/lib/Transforms/Simplify/Simplify.cpp)
-- workaround: `upstream/16-remove-dead-values-unchanged-call/llvm.patch`, the
-  pull request: `eraseOpResults` returns the operation unchanged when it
-  erases no result, as `eraseOperands` does for operands
-- retire: drop the patch when the pin has the fix (in `eraseOpResults` or in
-  the pass); idr-simplify keeps running `remove-dead-values` as it is
-- upstream: upstream/16-remove-dead-values-unchanged-call (not filed;
-  `check-mlir` not run on main); plan in its README: an issue and a pull
-  request
-
-## remove-dead-values-poison-operand
-
-- symptom: on main at 7208ba24, `remove-dead-values` replaces an operand of
-  a region branch op (or its terminator) that it finds dead with a new
-  `ub.poison` even when the operand already is one
-  (`cleanUpDeadVals`, `mlir/lib/Transforms/RemoveDeadValues.cpp`). The
-  module prints the same, but `OperationFingerPrint` changes, and `cse`
-  merges the new poison back, so the simplify round never reaches its
-  fixpoint on a module with such a value: `tests/idr/vectorize/rows-aarch64`
-  ran to the round budget with 26 ops in every round
-- sites: none in our code; the patch. idr-simplify runs
-  `remove-dead-values{canonicalize=false}` between its round fixpoints
-  and the round runs `cse`
-  (foreign/idr/lib/Transforms/Simplify/Simplify.cpp,
-  foreign/idr/lib/Transforms/Simplify/Round.cpp)
-- workaround: `upstream/22-remove-dead-values-poison-operand/llvm.patch`,
-  the pull request: the cleanup keeps an operand defined by `ub.poison`
-- retire: drop the patch when the pin has the fix
-- upstream: upstream/22-remove-dead-values-poison-operand (not filed;
-  `check-mlir` not run on main); plan in its README: an issue and a pull
-  request
-
 ## cse-statistic-assignment
 
 - symptom: on main at 7208ba24, `CSE::runOnOperation`
@@ -160,9 +125,9 @@ which the top-level CMake configure gate reads.
   clone: `tests/determinism/threads-*` compare one module's statistics
   under one thread and under many and fail (234 under many, 0 under one,
   on rbtree), the module itself identical
-- sites: none in our code; the patch. CSE runs nested in the simplify
-  round and the pipeline's canonicalize step
-  (foreign/idr/lib/Transforms/Pipeline.cpp)
+- sites: none in our code; the patch. CSE runs nested in idr-optimize's
+  per-function pipeline (foreign/idr/lib/Transforms/Optimize) and in the
+  pipeline's cleans (foreign/idr/lib/Transforms/Pipeline.cpp)
 - workaround: `upstream/23-cse-statistic-assignment/llvm.patch`: CSE
   accumulates, with a test of the total under one thread and many
 - retire: drop the patch when the pin has the fix
@@ -273,10 +238,12 @@ which the top-level CMake configure gate reads.
 - sites: none in our code; the patch. A body that never returns (a crash,
   a body Idris proved impossible, a match none of whose regions returns)
   ends in `ub.unreachable`, as Emit writes it and idr-tail-loops and the
-  match canonicalization leave it. The match ops and the array
-  loops declare `SingleBlock`, which the inliner reads: it inlines such a
-  callee into a function body, and leaves a call of it in a match region a
-  call, since the block after it would be a second block of the region
+  match canonicalization leave it. idr-optimize inlines with upstream's
+  `mlir::inlineCall` (foreign/idr/lib/Transforms/Optimize), whose fast
+  path the patch fixes. The match ops declare `SingleBlock`, which the
+  inliner reads: such a callee is inlined into a function body, and a call
+  of it in a match region stays a call, since the block after it would be
+  a second block of the region
 - workaround: `upstream/07-inline-unreachable-terminator/llvm.patch`, the
   pull request: the hook is asked of the terminator's dialect, the `ub`
   dialect declines the fast path for `ub.unreachable` and keeps it as the
@@ -320,8 +287,8 @@ which the top-level CMake configure gate reads.
   refer to each other in a cycle (`AttrTypeReader::resolveEntry`,
   `mlir/lib/Bytecode/Reader/BytecodeReader.cpp:1371-1459`). A list
   constant of 20,000 elements took 45 s to read back
-- sites: none in our code; the patch. idris-mlir reads a `.mlirbc` module
-  as it reads text
+- sites: none in our code; the patch. The frontend hands idris-mlir its
+  module as bytecode, which the driver reads as it reads text
 - workaround: `upstream/03-bytecode-deferred-quadratic/llvm.patch`: the
   reader keeps the entries waiting on a deferred parse as a path, each
   waiting on the one above it, so a chain of n deferrals takes O(n) parses
@@ -331,57 +298,6 @@ which the top-level CMake configure gate reads.
 - upstream: upstream/03-bytecode-deferred-quadratic (not yet filed); plan in
   its README: an issue and a pull request against main, where the reader
   is unchanged
-
-## simplify-structural-fixpoint
-
-- symptom: `composite-fixed-point-pass` decides its fixpoint by
-  `OperationFingerPrint`, a hash of the addresses of the module's ops,
-  blocks and values (`mlir/lib/Transforms/CompositePass.cpp:69-103`,
-  `mlir/lib/IR/OperationSupport.cpp:986-1028`), and `sccp` erases every
-  constant it meets and makes an equal one, since its fresh
-  `OperationFolder` is never told about the constants the module has
-  (`mlir/lib/Transforms/SCCP.cpp:42-62, 77, 84-99`). A pipeline with `sccp`
-  in it never has the same fingerprint twice: on a module at its fixpoint
-  the composite pass runs the pipeline past `max-iterations`.
-  `-mlir-print-ir-after-change` prints after `sccp` for the same reason
-- sites: foreign/idr/lib/Transforms/Simplify/Simplify.cpp (`idr-simplify`,
-  whose loop is a `composite-fixed-point-pass` over the round)
-- workaround: `upstream/02-composite-fixed-point-sccp/llvm.patch` (the pull
-  request): `sccp` hands each constant it reaches to its `OperationFolder`
-  (`insertKnownConstant`) and leaves it, so a run that propagates nothing
-  keeps the module's fingerprint. `idr-simplify` runs
-  `composite-fixed-point-pass` over the round, with `max-iterations` its
-  `max-rounds`. A round at the fixpoint keeps the fingerprint: `sccp` no
-  longer remakes constants. Between round fixpoints a
-  `remove-dead-values` that erases nothing keeps it too: it keeps a call
-  it erases no result of (`remove-dead-values-unchanged-call`) and an
-  operand already poisoned (`remove-dead-values-poison-operand`)
-  (`tests/idr/canon/upstream-passes`, `tests/idr/loops/tail-loop`). The
-  upstream pass gives its caller no hook per iteration and, with
-  `on-convergence-failure=error`, an error of its own, which is not the
-  user error. So `idr-simplify` keeps what is its own around it:
-  `on-convergence-failure=silent`, and a pass instrumentation
-  (`idr::createSimplifyInstrumentation`, which the pass manager's owner
-  adds, the driver and idris-mlir-opt; `idr-simplify` fails under a
-  manager without it) that counts the rounds and emits the remarks and the
-  round's statistics. The pass runs the pipeline once more
-  past `max-iterations` before it stops and does not look at that run (its
-  own test expects `test.counter = 4` for `max-iterations=3`), so a loop
-  that closed more than `max-rounds` rounds ran out of its budget, which
-  is `unsupported (compile-time budget)` (`tests/idr/obs/budget`). A pass
-  that fails in a round, that extra one included, reports its own error,
-  and the loop adds none (`tests/idr/obs/round-failure`). The upstream
-  pass refuses a budget of 0 (`CompositePass.cpp:57-63`), so with
-  `max-rounds=0` `idr-simplify` runs no loop and reports the budget error.
-  A fixpoint within `max-rounds` rounds passes, as before; a module over
-  the budget costs a round more
-- retire: drop the patch when the pin's `sccp` keeps existing constants.
-  The instrumentation's count goes when `composite-fixed-point-pass` tells
-  its caller each iteration and lets it name its failure to converge
-  (neither is on main at 7208ba24)
-- upstream: upstream/02-composite-fixed-point-sccp (not yet filed; still
-  broken on main at 7208ba24); plan in its README: an issue and a pull
-  request
 
 ## vectorize-precondition-body
 
@@ -393,12 +309,15 @@ which the top-level CMake configure gate reads.
   main, `:1881-1898`). It accepts a reduction whose body holds an op that
   is not elementwise-mappable (a crash check's `scf.if`, a call), which
   `linalg::vectorize` then refuses (`:1380-1382`), after building part of
-  its vector code. idr-vectorize tiled such a loop before vectorizing it, and
-  its scalar tiles ran the body column by column within each group of rows
-- sites: none in our code; the patch. idr-vectorize decides with the
-  precondition alone (foreign/idr/lib/Transforms/Vectorize/Vectorize.cpp),
-  before it changes anything; a generic it refuses stays whole, and
-  convert-linalg-to-loops runs its body in the program's order
+  its vector code. A schedule that tiles such a loop before vectorizing it
+  leaves scalar tiles that run the body column by column within each group
+  of rows
+- sites: none in our code; the patch. The vectorization schedule's
+  `transform.idr.vectorize_lanes` decides with the precondition alone
+  (foreign/idr/lib/Target/Schedules.cpp), before it changes anything; a
+  generic it refuses stays whole, and convert-linalg-to-loops runs its
+  body in the program's order. A tile the precondition accepts and
+  `linalg::vectorize` then refuses would be an internal error there
 - workaround: `upstream/04-vectorize-precondition-body/llvm.patch`, the
   pull request: the precondition and `vectorizeOneOp` share one rule for a
   body op no hook takes (a constant or an ElementwiseMappable op), and the
@@ -468,9 +387,9 @@ which the top-level CMake configure gate reads.
   `parentTimerIndices`, where `runBeforePass` records adaptors alone
   (`mlir/lib/Pass/PassTiming.cpp:63-67`, `:93-94`). The pipeline's time is
   counted twice, and two pipelines on one op name, one run inside the
-  other, share one timer. idr-simplify, idr-inline, idr-rc, idr-narrow,
-  idr-in-bounds, idr-returned-arguments and idr-tail-calls run pipelines
-  so: without the patch, in `idris-mlir --mlir-timing`, their pipelines are
+  other, share one timer. idr-optimize (its per-function pipeline), idr-rc,
+  idr-narrow, idr-returned-arguments and idr-tail-calls run pipelines so:
+  without the patch, in `idris-mlir --mlir-timing`, their pipelines are
   rows beside the pass that runs them, and the rows add up to more than
   the pass
 - sites: none in our code; the patch. idris-mlir runs one pass manager
@@ -483,6 +402,71 @@ which the top-level CMake configure gate reads.
 - upstream: upstream/19-pass-timing-dynamic-pipeline (#169443; open pull
   request #169615, whose own test passes without its change); plan in its
   README: our test as a comment on #169615, not posted yet
+
+## one-shot-module-function-interface
+
+- symptom: on main at 7208ba24, One-Shot Module Bufferize knows only the
+  func dialect: it collects `func::FuncOp` and walks `func::CallOp`
+  (`mlir/lib/Dialect/Bufferization/Transforms/OneShotModuleBufferize.cpp:315-378`,
+  29 sites of `func::FuncOp`, none of `FunctionOpInterface`), keys
+  `FuncAnalysisState` by `func::FuncOp`
+  (`FuncBufferizableOpInterfaceImpl.h:57-70`), keeps the queries its models
+  read `static`, and its function-argument type converter takes a
+  `func::FuncOp` (`BufferizableOpInterface.h:271-273`). So no boundary of
+  an idr.func is analyzed, and a linear array threaded through a call
+  could not be written in place across it. It also refuses a function
+  none of whose blocks returns (`:139-145`), which every function that
+  only crashes is
+- sites: none in our code; the patch. idr-bufferize runs the module driver
+  on idr.func (foreign/idr/lib/Transforms/Bufferize), whose models of
+  idr.func, idr.call and idr.return read the boundary analysis through the
+  queries the patch exports; the pipeline's empty tensor elimination runs
+  its analysis on the module
+- workaround: `upstream/24-one-shot-module-function-interface/llvm.patch`,
+  the pull request, a reland of upstream's reverted #110322: the driver,
+  its analysis state and the type converter on `FunctionOpInterface` and
+  `CallOpInterface`, the functions limited to function ops with a
+  `BufferizableOpInterface` implementation (a `transform.named_sequence`,
+  the revert's cause, stays an other op), the queries exported, and a
+  function that never returns analyzed with no aliasing result
+- retire: drop the patch when the pin's driver takes `FunctionOpInterface`
+  and bufferizes a function that never returns
+  (`tests/upstream/one-shot-module-function-interface` then passes with
+  the pristine tools); the models stay
+- upstream: upstream/24-one-shot-module-function-interface (not filed;
+  not built; upstream main is the pin's at 2026-10-14); plan in its
+  README: one pull request, a reland of #110322
+
+## eliminate-duplicate-functions
+
+- symptom: upstream's `duplicate-function-elimination` works on
+  `func::FuncOp` alone and merges in one round, so callers that differ
+  only in which copy they call stay apart
+  (`mlir/lib/Dialect/Func/Transforms/DuplicateFunctionElimination.cpp:23-48`)
+- sites: foreign/idr/lib/Transforms/Deduplicate/EliminateDuplicateFunctions.cpp,
+  a port; foreign/idr/lib/Transforms/Deduplicate/Equivalence.cpp, ours, its
+  comparison
+- workaround: the port of Modular's
+  `Mojo/lib/Transforms/EliminateDuplicateFunctions.cpp`, taken at revision
+  `9211931` (`sources/code/modular`), Apache-2.0 WITH LLVM-exception, its
+  header kept. What changed: it runs on idr.func; KGEN's call graph
+  (Mojo's `CallGraphUtils.h`) is a graph of every symbol reference, and
+  AsyncRT's dependency chains are waves by height over the graph's
+  components (`llvm::scc_iterator`, as Modular's), renamed and hashed in
+  parallel on MLIR's thread pool, classes formed serially in module
+  order; its comparison is ours (the facts but the name and `instance`,
+  the body op for op, locations aside, a function that refers to itself
+  matched with one that does too); a function is merged only when every
+  use of it may be renamed, every use is renamed and the copies are
+  erased; the kept function takes every member's location. The
+  lexicographically smallest member kept and the external node that
+  reaches every function are Modular's
+- retire: when the pin carries upstream's `duplicate-function-elimination`
+  generalized to `FunctionOpInterface`, merging transitively in one pass,
+  with a hook for the facts that must match: then the port goes and the
+  pass runs upstream's. Re-read against Modular when the snapshot moves
+- upstream: the generalization is planned (proposal 0004 §7, item 1), not
+  written
 
 ## platform-gate-x86_64
 

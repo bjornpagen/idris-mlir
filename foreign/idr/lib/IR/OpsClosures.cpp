@@ -5,8 +5,8 @@
 // not run its function; idr.force reads that cell, and the first entry
 // computes the value and leaves it there. After idr-defunctionalize the cell
 // is a box of a memo sum, and a force reads its state. A suspension of a
-// value that already exists is evaluated where it is built: forcing it
-// computes nothing, and the force is the value.
+// value that already exists, idr.delay, is evaluated where it is built:
+// forcing it computes nothing, and the force is the value.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Canon.h"
@@ -84,53 +84,20 @@ struct ForceInOneCase : OpRewritePattern<SuspendOp> {
   }
 };
 
-// A suspension whose body only builds a cell from values that exist
-// already, constants and constructors of values from above, is built where
-// the suspension is: forcing it would compute nothing, and the cell is
-// then a value the delay yields from above. A constructor of a linear value
-// stays, since the linear value is the delay's to use once. A cell
-// idr-stack keeps in a frame is not moved out of the body it was kept for.
-// One application leaves the delay evaluated, which this pattern no longer
-// matches.
-struct EvaluateDelay : OpRewritePattern<DelayOp> {
-  using OpRewritePattern::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(DelayOp delay, PatternRewriter &rewriter) const override {
-    Block &body = delay.getBody().front();
-    if (body.empty() || !isa<YieldOp>(body.back()) || &body.front() == &body.back())
-      return failure();
-    auto *dialect = static_cast<IdrDialect *>(delay->getDialect());
-    SmallVector<Operation *> moved;
-    for (Operation &op : body.without_terminator()) {
-      auto con = dyn_cast<ConOp>(op);
-      bool constant = op.hasTrait<OpTrait::ConstantLike>() && op.getNumRegions() == 0;
-      if (!constant && (!con || dialect->getStackAttrHelper().isAttrPresent(con)))
-        return failure();
-      // The block takes no argument and every op before the yield moves, so
-      // an operand is defined above the delay or by an op moved before it.
-      if (llvm::any_of(op.getOperandTypes(), isLinear))
-        return failure();
-      moved.push_back(&op);
-    }
-    for (Operation *op : moved)
-      rewriter.moveOpBefore(op, delay);
-    return success();
-  }
-};
-
 } // namespace
 
-mlir::Value idr::evaluatedValue(DelayOp delay) {
-  if (delay.getBody().empty() || delay.getBody().front().empty())
-    return {};
-  auto yield = dyn_cast<YieldOp>(delay.getBody().front().front());
-  if (!yield || yield.getNumOperands() != 1)
-    return {};
-  return yield.getOperand(0);
-}
+//===----------------------------------------------------------------------===//
+// idr.delay
+//===----------------------------------------------------------------------===//
 
-void DelayOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRContext *context) {
-  results.add<EvaluateDelay>(context);
+// The cell holds the operand's value; a world is never held.
+LogicalResult DelayOp::verify() {
+  if (isWorld(getValue().getType()))
+    return emitOpError("holds a world; a world passes only as an argument or result");
+  Type value = cast<LazyType>(unrestricted(getResult().getType())).getValue();
+  if (unrestricted(value) != unrestricted(getValue().getType()))
+    return emitOpError("holds ") << getValue().getType() << " in " << getResult().getType();
+  return success();
 }
 
 //===----------------------------------------------------------------------===//
@@ -231,26 +198,20 @@ OpFoldResult SuspendOp::fold(FoldAdaptor adaptor) {
 // idr.force
 //===----------------------------------------------------------------------===//
 
-// The value a suspension holds. A memo sum's `forced` state holds it once
-// the cell is a box, which only its declaration says (verifySymbolUses).
+// The value a suspension holds; a memo sum's `forced` state holds it once
+// the cell is a box, which its type says.
 LogicalResult ForceOp::verify() {
-  auto lazy = dyn_cast<LazyType>(unrestricted(getSuspension().getType()));
-  if (lazy && unrestricted(getResult().getType()) != unrestricted(lazy.getValue()))
-    return emitOpError("forces ") << getSuspension().getType() << " to " << getResult().getType();
-  return success();
-}
-
-LogicalResult ForceOp::verifySymbolUses(SymbolTableCollection &symbols) {
   Type cell = unrestricted(getSuspension().getType());
-  if (isa<LazyType>(cell))
-    return success();
-  DataOp data = lookupData(symbols, *this, cell);
-  if (!data || !isMemo(data))
-    return emitOpError("forces ") << cell << ", which is not a memo sum";
-  CtorOp forced = lookupCtor(data, memoForced);
-  if (!forced || forced.getFieldTypes().size() != 1)
-    return emitOpError("forces ") << cell << ", whose forced state holds no value";
-  if (unrestricted(getResult().getType()) != unrestricted(forced.getFieldType(0)))
+  Type value;
+  if (auto lazy = dyn_cast<LazyType>(cell)) {
+    value = lazy.getValue();
+  } else {
+    DataType data = cast<BoxType>(cell).getData();
+    if (!data.isMemo())
+      return emitOpError("forces ") << cell << ", which is not a memo sum";
+    value = data.getCtor(data.getForcedTag()).fields[0];
+  }
+  if (unrestricted(getResult().getType()) != unrestricted(value))
     return emitOpError("forces ") << getSuspension().getType() << " to " << getResult().getType();
   return success();
 }
@@ -260,20 +221,15 @@ LogicalResult ForceOp::verifySymbolUses(SymbolTableCollection &symbols) {
 // force. The write that shares the value is the lowering of this op, not a
 // second effect. A force that takes its cell over, its operand owned, frees
 // it; a force of a sum with a `by_name` label may run that label's output,
-// and stays in order with output. Only a box, which exists after
-// idr-defunctionalize, has a declaration to read, with no table in hand: one
-// scan of the module's top level.
+// and stays in order with output, which the sum's type says.
 void ForceOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
   Type cell = getSuspension().getType();
   if (isOwned(cell))
     effects.emplace_back(MemoryEffects::Free::get(), &getSuspensionMutable(),
                          ReferenceResource::get());
-  if (!getSumName(cell))
-    return;
-  DataOp data = declarationOf(*this, cell);
-  if (data && llvm::any_of(data.getBody().front().getOps<CtorOp>(),
-                           [](CtorOp ctor) { return ctor.getByName(); }))
+  DataType data = dataTypeOf(cell);
+  if (data && llvm::any_of(data.getCtors(), [](const Ctor &ctor) { return ctor.byName; }))
     effects.emplace_back(MemoryEffects::Write::get(), IOResource::get());
 }
 
@@ -284,8 +240,8 @@ OpFoldResult ForceOp::fold(FoldAdaptor) {
   auto delay = getSuspension().getDefiningOp<DelayOp>();
   if (!delay)
     return {};
-  Value value = evaluatedValue(delay);
-  if (!value || value.getType() != getType())
+  Value value = delay.getValue();
+  if (value.getType() != getType())
     return {};
   if (quantityOf(value.getType()) == Quantity::One && !delay.getResult().hasOneUse())
     return {};
@@ -294,53 +250,4 @@ OpFoldResult ForceOp::fold(FoldAdaptor) {
 
 void ForceOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRContext *context) {
   results.add<ForceOfOneUse, ForceInOneCase>(context);
-}
-
-//===----------------------------------------------------------------------===//
-// idr.apply
-//===----------------------------------------------------------------------===//
-
-// `idr.apply` of `idr.closure @f(caps)` or of a constant `#idr.closure<@f,
-// [caps]>` is `idr.call @f(caps..., args...)`, as upstream's
-// CallIndirectOp::canonicalize turns an indirect call of a constant into a
-// direct call; `inline` does the rest. A closure made here moves its
-// captures into the call; one that captures a linear value has this apply
-// as its one use, as the verifier requires. A constant's captures are
-// built at the callee's parameter types, which only its signature says:
-// the one function this hook reads with no table in hand, a scan of the
-// module's top level, while no pass writes a signature. A cached table is
-// not the hook's to keep: canonicalization patterns are shared between
-// the threads a pass manager clones for and outlive the functions an
-// inliner erases between its iterations, so a table held here would be
-// raced on and stale. With no captures there is no signature to read.
-LogicalResult ApplyOp::canonicalize(ApplyOp apply, PatternRewriter &rewriter) {
-  Value closureValue = canon::closureOf(apply);
-  FlatSymbolRefAttr callee;
-  SmallVector<Value> operands;
-  if (auto closure = closureValue.getDefiningOp<ClosureOp>()) {
-    callee = closure.getCalleeAttr();
-    llvm::append_range(operands, closure.getCaptures());
-  } else if (ClosureAttr constant; matchPattern(closureValue, m_Constant(&constant))) {
-    callee = constant.getCallee();
-    if (!constant.getCaptures().empty()) {
-      auto fn = SymbolTable::lookupNearestSymbolFrom<FuncOp>(apply, callee.getAttr());
-      if (!fn || constant.getCaptures().size() > fn.getArgumentTypes().size())
-        return failure();
-      auto captures = llvm::zip(constant.getCaptures(), fn.getArgumentTypes());
-      if (!llvm::all_of(captures, [](auto capture) {
-            auto [value, type] = capture;
-            return canon::buildable(value, type);
-          }))
-        return failure();
-      for (auto [value, type] : captures)
-        operands.push_back(canon::materialize(rewriter, apply.getLoc(), value, type));
-    }
-  } else {
-    return failure();
-  }
-  llvm::append_range(operands, apply.getArgs());
-  rewriter.setInsertionPoint(apply);
-  CallOp call = callOf(rewriter, apply.getLoc(), callee, apply.getResultTypes(), operands);
-  rewriter.replaceOp(apply, call.getResults());
-  return success();
 }

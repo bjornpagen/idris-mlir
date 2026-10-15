@@ -20,7 +20,6 @@
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Symbols.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -63,9 +62,6 @@ private:
   FuncOp fn;
   Decision decision;
   RewriterBase &rewriter;
-  // The declaration of the scrutinee's type, when the decision is a match
-  // on a constructor: found once per loop built.
-  DataOp data;
   scf::WhileOp loop;
   // The arguments that change from one call to the next, by position.
   SmallVector<unsigned> carried;
@@ -152,12 +148,10 @@ Value WhileDo::continues() {
     return test(in(lit.getScrutinee(), Scope::Before), cast<IntegerAttr>(lit.getCases()[0]));
   // Region 0 is the case of a constructor; region 1 is the default, or the
   // last case, which idr-lower also takes for any constructor Idris proved
-  // impossible.
+  // impossible. The tag is the case's position in the scrutinee's type.
   auto sum = cast<MatchOp>(match);
   Value scrutinee = in(sum.getScrutinee(), Scope::Before);
-  auto name = cast<FlatSymbolRefAttr>(sum.getCases()[0]).getAttr();
-  CtorOp ctor = lookupCtor(data, name.getValue());
-  return test(TagOp::create(rewriter, loc, scrutinee), rewriter.getI64IntegerAttr(ctor.getTag()));
+  return test(TagOp::create(rewriter, loc, scrutinee), rewriter.getI64IntegerAttr(sum.getCaseTag(0)));
 }
 
 Operation *WhileDo::inlineRegion(Region &region, Scope scope) {
@@ -174,10 +168,10 @@ Operation *WhileDo::inlineRegion(Region &region, Scope scope) {
     rewriter.setInsertionPointToEnd(to);
     unsigned index = region.getRegionNumber();
     FlatSymbolRefAttr ctor;
-    CtorOp decl;
+    ArrayRef<Type> declared;
     if (index < sum.getCases().size()) {
       ctor = cast<FlatSymbolRefAttr>(sum.getCases()[index]);
-      decl = lookupCtor(data, ctor.getValue());
+      declared = sum.getDataType().getCtor(sum.getCaseTag(index)).fields;
     }
     for (BlockArgument field : from.getArguments()) {
       if (field.use_empty())
@@ -185,8 +179,8 @@ Operation *WhileDo::inlineRegion(Region &region, Scope scope) {
       Value value = scrutinee;
       if (ctor)
         value = FieldOp::create(rewriter, field.getLoc(),
-                                fieldType(scrutinee.getType(), decl.getFieldType(field.getArgNumber())),
-                                scrutinee, ctor, rewriter.getI64IntegerAttr(field.getArgNumber()));
+                                fieldType(scrutinee.getType(), declared[field.getArgNumber()]), scrutinee,
+                                ctor, rewriter.getI64IntegerAttr(field.getArgNumber()));
       fields[field.getArgNumber()] = heldAs(rewriter, field.getLoc(), value, field.getType());
     }
   }
@@ -197,11 +191,6 @@ Operation *WhileDo::inlineRegion(Region &region, Scope scope) {
 FailureOr<scf::WhileOp> WhileDo::build() {
   Block &entry = fn.getBody().front();
   Operation *match = decision.match;
-  if (auto sum = dyn_cast<MatchOp>(match)) {
-    data = declarationOf(sum, sum.getScrutinee().getType());
-    if (!data)
-      return failure();
-  }
   // An argument the call passes unchanged is not carried, unless the call
   // consumes a reference of it: then each iteration takes one, which the
   // yield to the next must consume as the call did.

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // Strongly connected components, for every graph of ours that must find its
-// cycles or be gone through callees first: the references among functions,
-// the containment among types, the keys of closure sums. The graphs are our
-// own (a reference by a closure is an edge, a loop breaker is none), not
-// MLIR's CallGraph, so they are handed to LLVM's iterative Tarjan as a graph
-// of indices: a chain of any depth takes no recursion.
+// cycles or be gone through callees first: the ready set's calls and
+// forces, the references among functions, the containment among types, the
+// keys of closure sums. Each graph is handed to LLVM's iterative Tarjan as a
+// graph of indices, so a chain of any depth takes no recursion, and the
+// components come out in an order fixed by the graph alone.
 #ifndef IDR_SUPPORT_SCC_H
 #define IDR_SUPPORT_SCC_H
 

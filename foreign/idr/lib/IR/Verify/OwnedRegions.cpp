@@ -54,28 +54,20 @@ FailureOr<bool> idr::verify::OwnedWalk::walkRegions(Operation &op) {
     return walkLoop(loop);
   if (auto loop = dyn_cast<scf::ForOp>(op))
     return walkFor(loop);
-  if (auto loop = dyn_cast<ArrayGenerateOp>(op))
-    return walkArrayLoop(op, {{loop.getFill(), true}}, loop.getBody(), loop.getResults());
-  if (auto loop = dyn_cast<ArrayFoldOp>(op))
-    return walkArrayLoop(op, {{loop.getArray(), false}, {loop.getInit(), true}}, loop.getBody(),
-                         loop.getResults());
+  if (ownership::isIndexLoop(&op))
+    return walkIndexLoop(op);
   return op.emitOpError("has regions, which the owned stage does not know how to count");
 }
 
-// A loop over an array (idr.array.generate, idr.array.fold): its body
-// runs once per index it covers, takes its arguments owned (the element as
-// array.get gives it, the accumulator as the init moved in), consumes
-// what its yield passes on, and leaves every value from outside as it
-// found it. The results are owned. `operands` are the loop's operands
-// that hold references, each with whether the loop consumes it.
-FailureOr<bool> idr::verify::OwnedWalk::walkArrayLoop(Operation &op,
-                                                      ArrayRef<std::pair<Value, bool>> operands,
-                                                      Region &body, ValueRange results) {
-  for (auto [value, consumed] : operands)
-    if (failed(consumed ? consume(op, value) : use(op, value)))
+// A structured op on buffers: its body runs once per index it covers, on
+// elements, and every buffer it reads or writes is borrowed for the whole
+// op, as a value from outside a loop is. It has no results.
+FailureOr<bool> idr::verify::OwnedWalk::walkIndexLoop(Operation &op) {
+  for (Value operand : op.getOperands())
+    if (failed(use(op, operand)))
       return failure();
   size_t mark = log.size();
-  Block &block = body.front();
+  Block &block = op.getRegion(0).front();
   for (BlockArgument arg : block.getArguments())
     if (tracked(arg))
       define(arg, 1);
@@ -91,9 +83,6 @@ FailureOr<bool> idr::verify::OwnedWalk::walkArrayLoop(Operation &op,
                   "changes the references of a value from outside the loop in its body");
   }
   undo(mark);
-  for (Value result : results)
-    if (tracked(result))
-      define(result, 1);
   return true;
 }
 

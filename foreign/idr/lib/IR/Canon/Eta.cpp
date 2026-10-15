@@ -6,7 +6,6 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Canon.h"
 #include "idr/IR/Grades.h"
-#include "idr/IR/Symbols.h"
 
 using namespace mlir;
 using namespace idr;
@@ -19,35 +18,32 @@ namespace {
 // match took a linear scrutinee apart: that value is used, and the
 // constructor rebuilt from its fields is a new one (in its cell, once the
 // owned stage reuses it).
-Value readOf(Value field, StringAttr ctor, unsigned index) {
+Value readOf(Value field, FlatSymbolRefAttr ctor, unsigned index) {
   if (quantityOf(field.getType()) == Quantity::One && !field.hasOneUse())
     return {};
   if (auto read = field.getDefiningOp<FieldOp>())
-    return read.getCtorAttr().getAttr() == ctor && read.getIndex() == index ? read.getValue()
-                                                                           : Value();
+    return read.getCtorAttr() == ctor && read.getIndex() == index ? read.getValue() : Value();
   auto arg = dyn_cast<BlockArgument>(field);
   auto match = arg ? dyn_cast_or_null<MatchOp>(arg.getOwner()->getParentOp()) : MatchOp();
   if (!match || arg.getArgNumber() != index ||
       quantityOf(match.getScrutinee().getType()) == Quantity::One)
     return {};
   unsigned region = arg.getOwner()->getParent()->getRegionNumber();
-  if (region >= match.getCases().size() ||
-      cast<FlatSymbolRefAttr>(match.getCases()[region]).getAttr() != ctor)
+  if (region >= match.getCases().size() || match.getCases()[region] != ctor)
     return {};
   return match.getScrutinee();
 }
 
 // Whether `value` is known to be built by the constructor `ctor` names
 // where `at` is, because `at` is in the case of a match on the value that
-// `ctor` takes: read from the match itself, with no declaration looked up.
-bool knownFromMatch(Value value, StringAttr ctor, Operation *at) {
+// `ctor` takes.
+bool knownFromMatch(Value value, FlatSymbolRefAttr ctor, Operation *at) {
   for (Region *region = at->getParentRegion(); region; region = region->getParentRegion()) {
     auto match = dyn_cast<MatchOp>(region->getParentOp());
     if (!match || throughLinear(match.getScrutinee()) != throughLinear(value))
       continue;
     unsigned index = region->getRegionNumber();
-    if (index < match.getCases().size() &&
-        cast<FlatSymbolRefAttr>(match.getCases()[index]).getAttr() == ctor)
+    if (index < match.getCases().size() && match.getCases()[index] == ctor)
       return true;
   }
   return false;
@@ -61,14 +57,11 @@ namespace idr::canon {
 // and the constructor is the one reader of each linear field. Those reads
 // then die with it, so each linear field of x is still taken once: by what
 // takes x in the constructor's place. Any other field is a value, which
-// other readers may share with x. An enclosing match that took x apart
-// proves C on its own, as MatchOp::verifySymbolUses checked its cases, so
-// the declaration is looked up, one scan of the module, only where no match
-// proves it, and only to ask whether the type has another constructor at
-// all: once every field reads the one source, either way.
+// other readers may share with x. x is known to be C where its type has no
+// other constructor, or where an enclosing match took x apart in C's case.
 Value eta(ConOp con) {
   auto fields = con.getFields();
-  StringAttr name = con.getCtor().getLeafReference();
+  FlatSymbolRefAttr name = con.getCtorAttr();
   Value source;
   for (auto [index, field] : llvm::enumerate(fields)) {
     Value read = readOf(field, name, static_cast<unsigned>(index));
@@ -78,10 +71,7 @@ Value eta(ConOp con) {
   }
   if (!source || source.getType() != con.getType())
     return {};
-  if (knownFromMatch(source, name, con))
-    return source;
-  CtorOp ctor = constructorOf(con, con.getCtor());
-  if (!ctor || cast<DataOp>(ctor->getParentOp()).getCtors().size() != 1)
+  if (con.getDataType().getCtors().size() != 1 && !knownFromMatch(source, name, con))
     return {};
   return source;
 }

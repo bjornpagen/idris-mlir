@@ -13,11 +13,9 @@
 // is stated once, by tests/toolchain/runtime-prepared.
 // CHECK: hello x y
 // CHECK-NEXT: -42 65535 255 1.5 1e22 inf
-module attributes {idr.program} {
-  idr.data @Unit {
-    idr.ctor @MkUnit ()
-  }
-  idr.func @Prog.main(%w: !idr.world) -> (!idr.data<@Unit>, !idr.world) attributes {total} {
+!Unit = !idr.data<"Unit", plain [@MkUnit()]>
+module {
+  idr.func @Prog.main(%w: !idr.world) -> (!Unit, !idr.world) attributes {total} {
     %s = idr.constant "hello " : !idr.str
     %w1 = idr.io.put_str %s, %w
     %c, %w2 = idr.io.get_byte %w1
@@ -46,7 +44,7 @@ module attributes {idr.program} {
     %inf = arith.constant 0x7FF0000000000000 : f64
     %w19 = idr.io.put_double %inf, %w18
     %w20 = idr.io.put_char %nl, %w19
-    %unit = idr.constant #idr.con<@Unit::@MkUnit, []> : !idr.data<@Unit>
-    return %unit, %w20 : !idr.data<@Unit>, !idr.world
+    %unit = idr.constant #idr.con<@MkUnit, []> : !Unit
+    return %unit, %w20 : !Unit, !idr.world
   }
 }

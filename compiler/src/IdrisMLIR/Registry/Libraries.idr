@@ -1,9 +1,9 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
 ||| The library table: where code comes from, and what each purpose of the
-||| compiler makes of each library. The purposes differ: only `Trusted` and
-||| `Admitted` cover base, `BreakLast` leaves out the Prelude, and `Admitted`
-||| covers `PrimIO` only for what it lists.
+||| compiler makes of each library. The purposes differ: `Admitted` covers
+||| `PrimIO` only for what it lists, and `ReportAtCaller` leaves out base
+||| and the packages this compiler ships.
 module IdrisMLIR.Registry.Libraries
 
 import IdrisMLIR.Registry.Name
@@ -12,7 +12,8 @@ import IdrisMLIR.Registry.Name
 
 ||| The libraries the compiler knows: `Builtin` and `PrimIO`, the rest of
 ||| the prelude, base, the packages this compiler ships itself (`libs/`:
-||| `mlir-linear`), which it implements in full, and `Compiler`, its own
+||| `mlir-linear` and `mlir-array`), which it implements in full, and
+||| `Compiler`, its own
 ||| fork of Idris's compiler (`compiler/idris`, the package
 ||| `idris-compiler`), which the frontend is written over, so that the
 ||| frontend compiles as a program. The compiler implements Idris 2 for
@@ -47,9 +48,6 @@ data Purpose
     Trusted
   | ||| Every definition of it is admitted.
     Admitted
-  | ||| A function of it is chosen as a loop breaker only when its cycle has
-    ||| no function from elsewhere.
-    BreakLast
   | ||| A diagnostic inside it is reported at the user's code that reached
     ||| it.
     ReportAtCaller
@@ -57,24 +55,23 @@ data Purpose
 ||| A library's cells, one per purpose.
 record Row where
   constructor MkRow
-  trusted, admitted, breakLast, reportAtCaller : Bool
+  trusted, admitted, reportAtCaller : Bool
 
 ||| The table, one row per library. `Admitted` is off for `PrimIO`, which
 ||| admits only what `admittedFromPrimIO` lists.
 |||
-|||                          trusted admitted break-last report
+|||                          trusted admitted report
 row : Lib -> Row
-row Builtin  = MkRow        True    True     True       True
-row PrimIO   = MkRow        True    False    True       True
-row Prelude  = MkRow        True    True     False      True
-row Base     = MkRow        True    True     False      False
-row InHouse  = MkRow        True    True     False      False
-row Compiler = MkRow        True    True     False      False
+row Builtin  = MkRow        True    True     True
+row PrimIO   = MkRow        True    False    True
+row Prelude  = MkRow        True    True     True
+row Base     = MkRow        True    True     False
+row InHouse  = MkRow        True    True     False
+row Compiler = MkRow        True    True     False
 
 column : Purpose -> Row -> Bool
 column Trusted = (.trusted)
 column Admitted = (.admitted)
-column BreakLast = (.breakLast)
 column ReportAtCaller = (.reportAtCaller)
 
 ||| Does a purpose cover code of this origin? The user's code and generated
@@ -100,6 +97,7 @@ moduleOrigin (Installed "prelude") ("PrimIO" :: _) = Library PrimIO
 moduleOrigin (Installed "prelude") _ = Library Prelude
 moduleOrigin (Installed "base") _ = Library Base
 moduleOrigin (Installed "mlir-linear") _ = Library InHouse
+moduleOrigin (Installed "mlir-array") _ = Library InHouse
 moduleOrigin (Installed "idris-compiler") _ = Library Compiler
 moduleOrigin _ _ = Untrusted
 

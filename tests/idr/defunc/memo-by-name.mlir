@@ -1,5 +1,6 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s --implicit-check-not='!idr.lazy' < %t.mlir
+// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
 // A trusted library's effect happens where its value is demanded, so a
 // label whose function reaches an effect the program's outside observes
 // (output here, as trace's) is `by_name`: its cell keeps no value, and
@@ -10,12 +11,13 @@
 // observes is the trait on their class, said once beside each op: a
 // clock reading is one, and an error's text, the same at every call, is
 // none, though both are IO in the world's order.
-// CHECK-DAG: idr.ctor @traced (i64) by_name{{$}}
-// CHECK-DAG: idr.ctor @sized (i64){{$}}
-// CHECK-DAG: idr.ctor @shout (){{$}}
-// CHECK-DAG: idr.ctor @clocked (i64) by_name{{$}}
-// CHECK-DAG: idr.ctor @errtext (i64){{$}}
-module attributes {idr.program} {
+// NEEDS-ACCEPTANCE: the memo sum's printed constructors, as C01's printer writes them.
+// CHECK-DAG: @traced(i64) by_name
+// CHECK-DAG: @sized(i64){{[],]}}
+// CHECK-DAG: @shout(){{[],]}}
+// CHECK-DAG: @clocked(i64) by_name
+// CHECK-DAG: @errtext(i64){{[],]}}
+module {
   idr.func private @traced(%x: i64) -> i64 attributes {total} {
     %w = idr.world.new
     %s = idr.constant "forced\0A" : !idr.str
@@ -25,9 +27,9 @@ module attributes {idr.program} {
   idr.func private @sized(%n: i64) -> i64 attributes {total} {
     %w = idr.world.new
     %z = arith.constant 0 : i64
-    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64>
+    %a, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<?xi64, #idr.world>
     %c0 = arith.constant 0 : index
-    %d = memref.dim %a, %c0 : memref<?xi64>
+    %d = memref.dim %a, %c0 : memref<?xi64, #idr.world>
     %l = arith.index_cast %d : index to i64
     return %l : i64
   }

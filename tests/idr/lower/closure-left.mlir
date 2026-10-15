@@ -4,7 +4,7 @@
 // one left is the compiler's error, not a program it lowers some other way.
 // CHECK: internal error: idr-lower: a closure is left after idr-defunctionalize
 // CHECK: internal error: idr-lower: a lazy value is left after idr-defunctionalize
-module attributes {idr.program} {
+module {
   idr.func private @add(%a: i64, %b: i64) -> i64 {
     %r = arith.addi %a, %b : i64
     return %r : i64
@@ -20,7 +20,7 @@ module attributes {idr.program} {
 
 // -----
 
-module attributes {idr.program} {
+module {
   idr.func private @two() -> i64 {
     %r = arith.constant 2 : i64
     return %r : i64

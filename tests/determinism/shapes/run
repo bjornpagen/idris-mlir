@@ -1,4 +1,4 @@
 #!/bin/sh
-# tests/programs/data/shapes, compiled twice.
+# tests/programs/data/shapes, compiled at 1, 2 and 8 threads.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 determinism "$root/tests/programs/data/shapes"

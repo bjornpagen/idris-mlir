@@ -2,14 +2,19 @@
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-deduplicate -o %t.again.mlir
 // RUN: diff %t.mlir %t.again.mlir
-// Private functions that are one function twice over become one: @B.inc is
-// @A.inc (and the one kept takes its no_inline), @B.id is @A.id, two
-// outlines of one body, and @B.down is @A.down though each calls itself
-// by its own name. A call, and a closure naming one of them, name the
-// one kept, and a second run changes nothing.
+// RUN: idris-mlir-opt %s --idr-deduplicate -mlir-print-debuginfo | FileCheck %s --check-prefix=LOC
+// NEEDS-ACCEPTANCE: how the kept functions' fused locations print with -mlir-print-debuginfo.
+// Private functions that are one function twice over become one, the
+// member with the smallest name kept: @B.inc is @A.inc, @B.id is @A.id,
+// two outlines of one body, and @B.down is @A.down though each calls
+// itself by its own name. Merging is transitive in one run: @B.twice
+// calls @B.inc where @A.twice calls @A.inc, so once those are one, so are
+// the two callers. A call, and a closure naming one of them, name the one
+// kept, whose location is the fusion of its members', and a second run
+// changes nothing.
 // CHECK-NOT: idr.func private @B
 // CHECK: idr.func private @A.inc(
-// CHECK-SAME: no_inline
+// CHECK: idr.func private @A.twice(
 // CHECK: idr.func private @A.id(
 // CHECK: idr.func private @A.down(
 // CHECK: idr.func @root(
@@ -18,16 +23,29 @@
 // CHECK: closure @A.inc(
 // CHECK: call @A.down(
 // CHECK: call @A.down(
+// CHECK: call @A.twice(
+// CHECK: call @A.twice(
+// LOC: loc(fused[
 module {
   idr.func private @A.inc(%x: i64) -> i64 attributes {total} {
     %c = arith.constant 1 : i64
     %y = arith.addi %x, %c : i64
     return %y : i64
   }
-  idr.func private @B.inc(%x: i64) -> i64 attributes {no_inline, total} {
+  idr.func private @B.inc(%x: i64) -> i64 attributes {total} {
     %c = arith.constant 1 : i64
     %y = arith.addi %x, %c : i64
     return %y : i64
+  }
+  idr.func private @A.twice(%x: i64) -> i64 attributes {total} {
+    %y = idr.call @A.inc(%x) : (i64) -> i64
+    %z = idr.call @A.inc(%y) : (i64) -> i64
+    return %z : i64
+  }
+  idr.func private @B.twice(%x: i64) -> i64 attributes {total} {
+    %y = idr.call @B.inc(%x) : (i64) -> i64
+    %z = idr.call @B.inc(%y) : (i64) -> i64
+    return %z : i64
   }
   idr.func private @A.id(%x: i64) -> i64 attributes {total} {
     return %x : i64
@@ -78,7 +96,9 @@ module {
     %c = idr.apply %f(%b) : !idr.fn<(i64) -> (i64)>
     %d = idr.call @B.id(%c) : (i64) -> i64
     %e = idr.call @A.down(%d, %z) : (i64, i64) -> i64
-    %r = idr.call @B.down(%e, %z) : (i64, i64) -> i64
+    %r0 = idr.call @B.down(%e, %z) : (i64, i64) -> i64
+    %r1 = idr.call @A.twice(%r0) : (i64) -> i64
+    %r = idr.call @B.twice(%r1) : (i64) -> i64
     %w2 = idr.io.put_int signed %r, %w : i64
     return %w2 : !idr.world
   }

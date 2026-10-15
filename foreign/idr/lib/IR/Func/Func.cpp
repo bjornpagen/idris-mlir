@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idr.func: its text, the shape of its clone fact, and the rules of one
-// function, which run after the ops of its body are verified and in
-// parallel with every other function's.
+// idr.func: its text, the closed program (every function defined, the one
+// public function the root), the module's rules, which the root's
+// symbol-use verifier runs, and the rules of one function, which run after
+// the ops of its body are verified and in parallel with every other
+// function's.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Flow.h"
+#include "idr/IR/Grades.h"
 #include "idr/IR/Verify.h"
 
 #include "mlir/IR/AttrTypeSubElements.h"
@@ -12,9 +16,6 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/Interfaces/FunctionImplementation.h"
-#include "llvm/ADT/BitVector.h"
-
-#include <optional>
 
 using namespace mlir;
 using namespace idr;
@@ -44,46 +45,45 @@ void idr::FuncOp::print(OpAsmPrinter &printer) {
                                            getResAttrsAttrName());
 }
 
-// A clone names itself, by the key every call of it was made for; a key
-// that specializes has one hole per parameter, since the hole of a
-// parameter is its position: its holes are 0 to n-1 for n parameters.
-// Only the op's own attributes are read.
+// Every function of the program is defined in it, and a public one is the
+// root, which takes a world or returns an i64. Only the op is read.
 LogicalResult idr::FuncOp::verify() {
-  CloneAttr clone = getCloneAttr();
-  if (!clone)
+  if (getBody().empty())
+    return emitOpError("expects a body: every function of the program is defined in it");
+  if (!isPublic())
     return success();
-  Attribute key = clone.getKey();
-  if (clone.getFunction().getAttr() != getSymNameAttr() ||
-      !isa<SpecKeyAttr, KeyApplyAttr, KeyApplyFieldAttr>(key))
-    return emitOpError("expects clone to name the function and its key");
-  auto spec = dyn_cast<SpecKeyAttr>(key);
-  if (!spec)
-    return success();
-  unsigned parameters = getNumArguments();
-  llvm::BitVector seen(parameters);
-  std::optional<unsigned> outside;
-  for (Attribute pattern : spec.getPatterns())
-    pattern.walk([&](KeyHoleAttr hole) {
-      if (hole.getIndex() < parameters)
-        seen.set(hole.getIndex());
-      else
-        outside = hole.getIndex();
-    });
-  if (outside)
-    return emitOpError("has a clone key with hole ")
-           << *outside << ", but takes " << parameters << " parameters";
-  if (!seen.all())
-    return emitOpError("has a clone key with no hole ")
-           << seen.find_first_unset() << ", but takes " << parameters << " parameters";
+  FunctionType type = getFunctionType();
+  Builder b(getContext());
+  bool intRoot = type.getInputs().empty() && type.getNumResults() == 1 &&
+                 type.getResult(0) == b.getI64Type();
+  bool ioRoot = type.getInputs().size() == 1 && isWorld(type.getInput(0));
+  if (!intRoot && !ioRoot)
+    return emitOpError("is the root, so its type must be () -> i64 or (!idr.world) -> (...), not ")
+           << type;
   return success();
+}
+
+// The root runs the module's rules once per verification of the module,
+// after every op of it is verified: MLIR calls this only from the module's
+// own verification, on one thread, so no pass manager verifying one
+// function meets the rules, nor reads a sibling another thread rewrites.
+LogicalResult idr::FuncOp::verifySymbolUses(SymbolTableCollection &) {
+  if (!isPublic())
+    return success();
+  auto module = dyn_cast_or_null<ModuleOp>((*this)->getParentOp());
+  return module ? verify::program(module) : success();
 }
 
 // The interface's own body check has matched the entry block to the type,
 // and the ops' verifiers have run: a match's regions and yields are well
-// formed. The stage is this function's, by its own grades.
+// formed. Every closure and suspension moves along an edge its op
+// declares; the stage is this function's, by its own grades.
 LogicalResult idr::FuncOp::verifyRegions() {
-  if (isExternal())
-    return success();
+  WalkResult flow = getBody().walk([](Operation *op) {
+    return failed(verifyFlow(op)) ? WalkResult::interrupt() : WalkResult::advance();
+  });
+  if (flow.wasInterrupted())
+    return failure();
   verify::Numbering numbering(*this);
   if (failed(verify::linearity(numbering)))
     return failure();

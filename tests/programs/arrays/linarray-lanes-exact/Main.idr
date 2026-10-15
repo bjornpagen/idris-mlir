@@ -9,11 +9,14 @@ module Main
 -- numbers are the 64-bit residues.
 
 import Prelude
-import Linear.Notation
-import Linear.Array
+import Array
 
-residues : Int -> Array Bits64
-residues n = generate n (\i => cast (i - 2) `mod` 7)
+-- A position as the Int the program computes with.
+at : Fin n -> Int
+at i = cast (finToNat i)
+
+residues : (n : Nat) -> Vector n Bits64
+residues n = tabulate [<n] (\[<i] => cast (at i - 2) `mod` 7)
 
 readInt : IO Int
 readInt = go 0
@@ -25,7 +28,8 @@ readInt = go 0
 
 main : IO ()
 main = do
-  n <- readInt
-  printLn (freeze (residues n) Linear.Array.sum)
-  printLn (freeze (residues n) (\a => iread a 0))
-  printLn (freeze (residues n) (\a => iread a 1))
+  k <- readInt
+  let n = cast {to = Nat} k
+  printLn (sum (residues n))
+  printLn (fromMaybe 0 (residues n !? [<0]))
+  printLn (fromMaybe 0 (residues n !? [<1]))

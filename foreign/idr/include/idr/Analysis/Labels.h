@@ -1,207 +1,43 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The labels (functions) each closure or suspension may hold, or unknown: a
-// sparse forward dataflow analysis on MLIR's framework, interprocedural,
-// solved once in the constructor. Values reach fields through one lattice
-// anchor per (data type, constructor, field), written by idr.con and
-// constants and read by idr.field and the regions of idr.match, and the
-// elements of arrays through one anchor per element type, written by
-// idr.array.new, idr.array.set and idr.array.generate and read by
-// idr.array.get and the body of idr.array.fold. The framework follows only
-// calls of symbols, so the analysis joins the rest itself: the entry
-// arguments of a function get the captures of its closures and suspensions
-// (idr.closure and idr.suspend ops and #idr.closure constants) and the
-// arguments of every idr.apply that may call it, an idr.apply gets the
-// results of every label it may call, and an idr.force those of every label
-// its cell may hold. An evaluated suspension holds its value and no label.
+// The labels (functions) each closure and suspension of the module may be:
+// MLton's 0CFA on the edges the ops declare through the flow interface,
+// solved once in the constructor.
+//
+// A point is a value of a closure or lazy carrier, a parameter or result of
+// a function, or an anchor (a field of a data type, the elements of a
+// shaped type, the forced state of a lazy type). Points are nodes of a
+// union-find; a class holds the set of labels its points may be, the
+// classes its labels flow into, and the dispatches its labels run. A set
+// is a sorted array of label numbers, made once per distinct content, and
+// only the difference between sets is propagated. There is no unknown: the
+// world is closed, every op that moves a closure declares how, and a set is
+// a finite set of the module's functions. A value of any other type has no
+// node and holds no label.
 //
 // The analysis changes nothing, and nothing in it is filled on first ask
-// but the anchors the solver uniques when one is read.
+// but each set's attribute.
 #ifndef IDR_ANALYSIS_LABELS_H
 #define IDR_ANALYSIS_LABELS_H
 
+#include "idr/IR/Flow.h"
 #include "idr/IR/IdrDialect.h"
 
-#include "mlir/Analysis/DataFlow/SparseAnalysis.h"
-#include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Pass/AnalysisManager.h"
-#include "mlir/Support/TypeID.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/Allocator.h"
 
-#include <algorithm>
-#include <iterator>
+#include <cstdint>
+#include <optional>
 #include <tuple>
+#include <vector>
 
 namespace idr {
-
-// The labels a value may hold, sorted by name; `unknown` is the top, and
-// the empty set, known, the bottom.
-struct LabelSet {
-  bool unknown = false;
-  llvm::SmallVector<mlir::StringAttr> names;
-
-  static LabelSet of(mlir::StringAttr name) {
-    LabelSet out;
-    out.names.push_back(name);
-    return out;
-  }
-
-  static LabelSet top() {
-    LabelSet out;
-    out.unknown = true;
-    return out;
-  }
-
-  static LabelSet join(const LabelSet &a, const LabelSet &b) {
-    if (a.unknown || b.unknown)
-      return top();
-    if (a.names.empty())
-      return b;
-    if (b.names.empty())
-      return a;
-    // One merge into a vector sized for both. A name both hold is one
-    // uniqued StringAttr, so it is met by identity and only a name held
-    // by one side pays the order's comparison: a join that adds nothing,
-    // the solver's common case at a fixpoint it rechecks, is a walk of
-    // pointer compares and one allocation, not a set_union growing by
-    // reallocation under string compares.
-    LabelSet out;
-    out.names.reserve(a.names.size() + b.names.size());
-    size_t i = 0, j = 0;
-    while (i < a.names.size() && j < b.names.size()) {
-      mlir::StringAttr x = a.names[i], y = b.names[j];
-      if (x == y) {
-        out.names.push_back(x);
-        ++i;
-        ++j;
-      } else if (x.getValue() < y.getValue()) {
-        out.names.push_back(x);
-        ++i;
-      } else {
-        out.names.push_back(y);
-        ++j;
-      }
-    }
-    out.names.append(a.names.begin() + static_cast<std::ptrdiff_t>(i), a.names.end());
-    out.names.append(b.names.begin() + static_cast<std::ptrdiff_t>(j), b.names.end());
-    return out;
-  }
-
-  bool mayHold(mlir::StringAttr name) const {
-    return unknown || llvm::is_contained(names, name);
-  }
-
-  // Whether joining `other` would add nothing: the same sorted walk as
-  // the merge, allocating nothing, so a lattice rechecked at its
-  // fixpoint answers NoChange without building the joined set (which
-  // the framework then joins twice more to check monotonicity).
-  bool contains(const LabelSet &other) const {
-    if (unknown)
-      return true;
-    if (other.unknown || other.names.size() > names.size())
-      return false;
-    size_t i = 0;
-    for (mlir::StringAttr y : other.names) {
-      while (i < names.size() && names[i] != y && names[i].getValue() < y.getValue())
-        ++i;
-      if (i == names.size() || names[i] != y)
-        return false;
-      ++i;
-    }
-    return true;
-  }
-
-  bool operator==(const LabelSet &other) const {
-    return unknown == other.unknown && names == other.names;
-  }
-
-  void print(llvm::raw_ostream &os) const {
-    if (unknown) {
-      os << "unknown";
-      return;
-    }
-    os << "{";
-    llvm::interleaveComma(names, os, [&](mlir::StringAttr name) { os << "@" << name.getValue(); });
-    os << "}";
-  }
-};
-
-struct LabelLattice : mlir::dataflow::Lattice<LabelSet> {
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(LabelLattice)
-  using Lattice::Lattice;
-  using Lattice::join;
-
-  // A join that adds nothing is answered by the subset walk alone; one
-  // that grows the set takes the framework's join, checks included.
-  mlir::ChangeResult join(const mlir::dataflow::AbstractSparseLattice &rhs) override {
-    if (getValue().contains(static_cast<const LabelLattice &>(rhs).getValue()))
-      return mlir::ChangeResult::NoChange;
-    return Lattice::join(rhs);
-  }
-
-  mlir::ChangeResult joinLabels(const LabelSet &rhs) {
-    if (getValue().contains(rhs))
-      return mlir::ChangeResult::NoChange;
-    return Lattice::join(rhs);
-  }
-};
-
-// A field of a constructor: (data type, constructor, index).
-struct FieldAnchor
-    : mlir::GenericLatticeAnchorBase<
-          FieldAnchor, std::tuple<mlir::StringAttr, mlir::StringAttr, unsigned>> {
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(FieldAnchor)
-  using Base::Base;
-  mlir::Location getLoc() const override {
-    return mlir::UnknownLoc::get(std::get<0>(getValue()).getContext());
-  }
-  void print(llvm::raw_ostream &os) const override {
-    auto [data, ctor, index] = getValue();
-    os << "@" << data.getValue() << "::@" << ctor.getValue() << "[" << index << "]";
-  }
-};
-
-// The elements of every array whose element type is this one: an array has
-// one slot, as a constructor has one per field, and its element type, not
-// the array value, names it, since a value of the type may be any array.
-// Its rank does not: an IORef's one element and the elements of an array
-// of the same type share the slot.
-struct ElementsAnchor : mlir::GenericLatticeAnchorBase<ElementsAnchor, mlir::Type> {
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(ElementsAnchor)
-  using Base::Base;
-  mlir::Location getLoc() const override { return mlir::UnknownLoc::get(getValue().getContext()); }
-  void print(llvm::raw_ostream &os) const override { os << "elements of " << getValue(); }
-};
-
-// The labels a field, or the elements of arrays, may hold.
-struct FieldLabels : mlir::AnalysisState {
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(FieldLabels)
-  using AnalysisState::AnalysisState;
-
-  mlir::ChangeResult join(const LabelSet &other) {
-    if (value.contains(other))
-      return mlir::ChangeResult::NoChange;
-    LabelSet joined = LabelSet::join(value, other);
-    if (joined == value)
-      return mlir::ChangeResult::NoChange;
-    value = std::move(joined);
-    return mlir::ChangeResult::Change;
-  }
-
-  void print(llvm::raw_ostream &os) const override { value.print(os); }
-
-  LabelSet value;
-};
-
-// Whether the analysis follows the labels of a slot of `type`: a closure or
-// a suspension, both of which name a function.
-inline bool isKeyed(mlir::Type type) { return isClosureType(type) || isLazyType(type); }
 
 // The index in its constructor of field `i` of a run's cell, which holds
 // every field but the spine.
@@ -225,6 +61,120 @@ inline void eachField(ConAttr con, llvm::function_ref<void(mlir::Attribute, unsi
   visit(con.getTail(), spine);
 }
 
+namespace labels {
+
+// A node of the graph: one per point.
+using Node = unsigned;
+// A set of labels, by its number among the distinct sets; 0 is the empty
+// set.
+using SetId = unsigned;
+
+// A dispatch: a call through a value, which runs each label its callee
+// holds. `handled` keeps a label's edges from being added twice.
+struct Dispatch {
+  mlir::CallOpInterface call;
+  llvm::DenseSet<std::uint32_t> handled;
+};
+
+// What a class of the union-find holds; only a root's is current.
+struct Class {
+  SetId set = 0;
+  // Labels in `set` not yet sent to `successors` and `dispatches`.
+  SetId pending = 0;
+  bool queued = false;
+  llvm::SmallVector<Node, 2> successors;
+  llvm::SmallVector<unsigned, 1> dispatches;
+};
+
+// The graph and its solver. The build (LabelSites.cpp) adds points and
+// edges as the ops declare them; the solver (Labels.cpp) runs the worklist
+// and answers.
+class Graph {
+public:
+  explicit Graph(mlir::SymbolTable &table)
+      : table(table), context(table.getOp()->getContext()) {
+    sets.push_back({});
+  }
+
+  // Building.
+  void add(const FlowEdges::Edge &edge);
+  void walk(mlir::Operation *module);
+
+  // Solving, then freezing: every path compressed and every set's
+  // attribute made, so the answers below read and never write, from any
+  // thread.
+  void solve();
+
+  // Answers.
+  mlir::ArrayAttr labelsOf(const FlowPoint &point) const;
+  mlir::ArrayAttr attrOf(SetId set) const;
+  std::optional<FlowPoint> sinkOf(mlir::OpOperand &operand) const;
+  llvm::ArrayRef<mlir::Operation *> dispatchOps() const { return dispatchList; }
+  FuncOp function(mlir::StringAttr label) const { return table.lookup<FuncOp>(label); }
+
+private:
+  // Points.
+  std::optional<Node> lookup(const FlowPoint &point) const;
+  Node nodeOf(const FlowPoint &point);
+  Node fresh();
+  Node find(Node node) const;
+
+  // Labels and sets.
+  void freeze();
+  std::uint32_t labelId(mlir::FlatSymbolRefAttr label);
+  SetId intern(llvm::ArrayRef<std::uint32_t> ids);
+  SetId join(SetId a, SetId b);
+  SetId minus(SetId a, SetId b);
+
+  // Edges.
+  void flow(const FlowPoint &from, const FlowPoint &to);
+  void link(Node from, Node to, bool lazy);
+  void include(Node from, Node to);
+  void unify(Node a, Node b);
+  void addLabels(Node to, SetId set);
+  void fire(unsigned dispatch, SetId set);
+  void expand(mlir::Attribute part, const FlowPoint &at, mlir::Type carrier);
+  bool holdsClosure(mlir::Attribute part);
+  mlir::Type carrierOf(const FlowPoint &point) const;
+
+  mlir::SymbolTable &table;
+  mlir::MLIRContext *context;
+
+  // The union-find, by node. Path compression writes only while solving;
+  // frozen, every node names its root.
+  mutable std::vector<Node> parents;
+  std::vector<Class> classes;
+
+  // The points that have nodes.
+  llvm::DenseMap<mlir::Value, Node> values;
+  llvm::DenseMap<std::pair<mlir::StringAttr, unsigned>, Node> results;
+  llvm::DenseMap<std::tuple<unsigned, mlir::Type, unsigned, unsigned>, Node> anchors;
+
+  // Labels by number, numbered as met; a set is sorted by number, and its
+  // attribute by name.
+  std::vector<mlir::FlatSymbolRefAttr> labelNames;
+  llvm::DenseMap<mlir::StringAttr, std::uint32_t> labelIds;
+  llvm::BumpPtrAllocator storage;
+  std::vector<llvm::ArrayRef<std::uint32_t>> sets;
+  llvm::DenseMap<llvm::ArrayRef<std::uint32_t>, SetId> setIds;
+  llvm::DenseMap<std::pair<SetId, SetId>, SetId> joins;
+  llvm::DenseMap<SetId, mlir::ArrayAttr> attrs;
+
+  // Each operand's one sink, the dispatches, and the constant parts
+  // already expanded at a point.
+  llvm::DenseMap<mlir::OpOperand *, FlowPoint> sinks;
+  std::vector<Dispatch> dispatches;
+  std::vector<mlir::Operation *> dispatchList;
+  llvm::DenseSet<std::pair<mlir::Attribute, Node>> expanded;
+  // Whether each part of the module's constants holds a closure, each part
+  // answered once.
+  llvm::DenseMap<mlir::Attribute, bool> holding;
+
+  std::vector<Node> worklist;
+};
+
+} // namespace labels
+
 class Labels {
 public:
   Labels(mlir::Operation *module, mlir::AnalysisManager &am);
@@ -233,85 +183,32 @@ public:
     return !pa.isPreserved<Labels>() || !pa.isPreserved<mlir::SymbolTable>();
   }
 
-  // Whether the solver did not reach its fixpoint, which leaves every
-  // answer below meaningless.
-  bool failed() const { return diverged; }
+  // The labels a closure or suspension at a point may be: a uniqued
+  // ArrayAttr of FlatSymbolRefAttr in name order, the empty ArrayAttr where
+  // no label reaches. A point whose carrier is not keyed holds the empty
+  // set. Two equal sets are one attribute.
+  mlir::ArrayAttr labelsOf(mlir::Value value) const;
+  mlir::ArrayAttr labelsOf(const FlowPoint &point) const;
 
-  // What the analysis found for `value`, with the label of the closure,
-  // suspension or constant that defines it.
-  LabelSet labelsOf(mlir::Value value) const;
-  // What field `index` of `ctor`, `@T::@C`, may hold.
-  LabelSet fieldLabels(mlir::SymbolRefAttr ctor, unsigned index);
-  // What the elements of arrays of `element` may hold.
-  LabelSet elementLabels(mlir::Type element);
+  // The labels `op` runs: an idr.apply those of its callee, an idr.force of
+  // a lazy cell those of its cell; the empty set for any other op.
+  mlir::ArrayAttr runs(mlir::Operation *op) const;
 
-  // Whether a closure is inside the constant `attr`. A constant shares its
-  // parts, so a tree may have far more paths than distinct parts: each part
-  // of the module's constants was looked at once, and a walk of a constant
-  // skips a part with no closure in it.
-  bool holdsClosure(mlir::Attribute attr) const;
-
-  // The sites the framework does not follow. The closure ops and closure
-  // constants (their captures) of each label; the suspensions, which name a
-  // function the way a closure does and whose captures flow into it, but
-  // whose function is not a label an apply may call: a force calls it.
-  llvm::ArrayRef<ClosureOp> closures(mlir::StringAttr label) const {
-    return find(closureOps, label);
-  }
-  llvm::ArrayRef<mlir::ArrayAttr> closureConstants(mlir::StringAttr label) const {
-    return find(constantClosures, label);
-  }
-  llvm::ArrayRef<SuspendOp> suspensions(mlir::StringAttr label) const {
-    return find(suspendOps, label);
-  }
-  llvm::ArrayRef<mlir::ArrayAttr> suspensionConstants(mlir::StringAttr label) const {
-    return find(suspendConstants, label);
-  }
-  llvm::ArrayRef<ApplyOp> applies() const { return applyOps; }
-  // The labels an apply of a callee of `type` may call, the functions of
-  // closure ops and closure constants: those whose signature without its
-  // captures is `type`. A suspension's function is no label. Only an
-  // apply whose callee's labels are unknown needs them; a known callee
-  // names its own.
-  llvm::ArrayRef<mlir::StringAttr> labelsFor(FnType type) const { return find(byType, type); }
-  // Whether `fn` is referenced other than by a call, a closure or a
-  // constant, or is public: whoever names it may call it with anything.
-  bool escapes(FuncOp fn) const {
-    return fn.isPublic() || escaping.contains(fn.getSymNameAttr());
+  // The one point `operand` moves its value into at its op, or nothing: an
+  // operand of a carrier that is not keyed, and the callee and the
+  // arguments of a dispatch, which move per label.
+  std::optional<FlowPoint> sinkOf(mlir::OpOperand &operand) const {
+    return graph.sinkOf(operand);
   }
 
-  FuncOp function(mlir::StringAttr name) const { return table.lookup<FuncOp>(name); }
-  // The type of field `index` of `ctor`, `@T::@C`, as declared, or null.
-  mlir::Type fieldType(mlir::SymbolRefAttr ctor, unsigned index) const;
+  // The dispatches of the module, in walk order.
+  llvm::ArrayRef<mlir::Operation *> dispatches() const { return graph.dispatchOps(); }
+
+  // The function of `label`, from the module's table.
+  FuncOp function(mlir::StringAttr label) const { return graph.function(label); }
 
 private:
-  template <typename Map>
-  static llvm::ArrayRef<typename Map::mapped_type::value_type>
-  find(const Map &map, typename Map::key_type key) {
-    auto it = map.find(key);
-    if (it == map.end())
-      return {};
-    return it->second;
-  }
-
-  void gather(mlir::Operation *module);
-  // Calls `visit(closure, type)` for each closure attribute inside `attr`, a
-  // constant of type `type`.
-  void closuresIn(mlir::Attribute attr, mlir::Type type,
-                  llvm::function_ref<void(ClosureAttr, mlir::Type)> visit) const;
-
-  mlir::SymbolTable &table;
-  llvm::DenseMap<mlir::StringAttr, llvm::SmallVector<ClosureOp>> closureOps;
-  llvm::DenseMap<mlir::StringAttr, llvm::SmallVector<mlir::ArrayAttr>> constantClosures;
-  llvm::DenseMap<mlir::StringAttr, llvm::SmallVector<SuspendOp>> suspendOps;
-  llvm::DenseMap<mlir::StringAttr, llvm::SmallVector<mlir::ArrayAttr>> suspendConstants;
-  llvm::SmallVector<ApplyOp> applyOps;
-  llvm::DenseMap<FnType, llvm::SmallVector<mlir::StringAttr>> byType;
-  llvm::DenseSet<mlir::StringAttr> escaping;
-  // holdsClosure's answers for every part of the module's constants.
-  llvm::DenseMap<mlir::Attribute, bool> closureFree;
-  mlir::DataFlowSolver solver;
-  bool diverged = false;
+  labels::Graph graph;
 };
 
 } // namespace idr

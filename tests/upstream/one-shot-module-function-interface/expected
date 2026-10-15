@@ -1,0 +1,3 @@
+named-sequence: the payload bufferizes and the sequence is left as it is
+no-return: a function that never returns bufferizes, and so does its caller
+idr-call: the callee writes its argument in place and neither function copies

@@ -24,19 +24,18 @@ changes, as any golden test's. No other implementation is asked.
 
 - `spec/`: the repository: pins, commands, source rules (`make check`).
 - `programs/<topic>/<name>/`: end-to-end programs, each compiled once,
-  with every top-level pass's module dumped, and run against its
-  expected output; one topic directory per subject (`semantics`, `basic`, `io`,
-  `prelude`, `interfaces`, `eval`, `partial`, `stack`, `nat`, `data`,
-  `linear`, `arrays`), one pool each in Main.idr. The `prim-*` tests of
-  `semantics` are generated (Sem.idr), their expected values computed from
-  what each primitive means.
+  with the module after every top-level pass dumped by upstream's IR tree
+  printer, and run against its expected output; one topic directory per
+  subject (`semantics`, `basic`, `io`, `prelude`, `interfaces`, `eval`,
+  `partial`, `stack`, `nat`, `data`, `linear`, `arrays`), one pool each in
+  Main.idr. The `prim-*` tests of `semantics` are generated (Sem.idr),
+  their expected values computed from what each primitive means.
 - `accept/<name>/`: programs the profile compiles; an `expected-stdout`
   or `expected-exit` beside one also runs it.
 - `reject/<name>/`: programs rejected with one `unsupported (<rule>)` on
   the line the header `-- expect: <rule>, line N` names; the name starts
   with the rule. A `packages` file beside a fixture of either kind names
-  the packages it compiles with, and a `demand-in-place` file makes the
-  in-place promise.
+  the packages it compiles with.
 - `compiler/`, `registry/`, `determinism/`, `toolchain/`, `fuzz/`,
   `two-levels/`, `bench/`: the other pools of `make test`, named for what
   they check.
@@ -55,4 +54,9 @@ as `expected`; read the transcript before accepting it. A program test
 also carries `expected-stdout`, and `stdin`, `expected-exit`,
 `expected-crash` or `packages` as it needs. Tests check behaviour, never
 clone numbers, function order or SSA names; a property of the compiled
-module is stated in `mlir.expect` (idr-expect) rather than by matching ops.
+module is stated in `mlir.expect` (idr-expect) rather than by matching ops,
+at a top-level pass of the pipeline (`idr-optimize`, `idr-rc`, ...), whose
+module the tree printer dumps; a pass nested in a group over functions
+dumps one function at a time and is no step. A function a property is
+stated of is named by its Idris definition, which names every copy made of
+it, never by a generated name.

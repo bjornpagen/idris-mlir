@@ -70,8 +70,8 @@ numbers.
   other packages shipped with Idris (contrib, linear,
   network, test) are no commitment: upstream itself plans to disband
   contrib for external packages. What they covered comes from the packages
-  this compiler ships in `libs/` (today `mlir-linear`: linear arrays and
-  linear data), written for this compiler's analyses in plain Idris over
+  this compiler ships in `libs/` (`mlir-array`: shaped arrays, linear
+  arrays and the growable vector; `mlir-linear`: linear data), written for this compiler's analyses in plain Idris over
   base's primitives. A trusted library may run an IO action for a pure
   value (`unsafePerformIO`, a forged world): its effects happen where the
   value is demanded, in program order with every other effect. User code

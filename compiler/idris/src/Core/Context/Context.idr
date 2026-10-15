@@ -339,10 +339,6 @@ findSetTotal [] = Nothing
 findSetTotal (SetTotal t :: _) = Just t
 findSetTotal (_ :: xs) = findSetTotal xs
 
--- Label for array references
-export
-data Arr : Type where
-
 -- A context entry. If it's never been looked up, we haven't decoded the
 -- binary blob yet, so decode it first time
 public export
@@ -398,7 +394,7 @@ record Context where
     -- high-water mark of nextEntry: restoring a saved Defs rolls nextEntry
     -- back while the table keeps its slots, and the indices from there on
     -- are handed out again.
-    content : Ref Arr (Table ContextEntry)
+    content : Table ContextEntry
     -- Branching depth, in a backtracking elaborator. 0 is top level; at lower
     -- levels we need to stage updates rather than add directly to the
     -- 'content' store

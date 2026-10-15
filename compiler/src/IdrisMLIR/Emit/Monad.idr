@@ -1,7 +1,8 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
-||| The emission monad: the operations of the region being written, and
-||| fresh SSA names.
+||| The emission monad: the operations of the region being written, fresh
+||| SSA names, and the functions the lambdas and delays of the function
+||| being written become.
 module IdrisMLIR.Emit.Monad
 
 import IdrisMLIR.Ids
@@ -11,6 +12,7 @@ import IdrisMLIR.Types
 
 import Control.Monad.State
 import Data.SnocList
+import Data.SortedMap
 
 %default total
 
@@ -21,6 +23,21 @@ record ES where
   next : Nat
   ||| The operations of the region being written.
   ops : SnocList Statement
+  ||| The symbol of the function of the program being written, which owns
+  ||| the functions its lambdas and delays become, and its Idris
+  ||| definition, where their code is from.
+  owner : String
+  definition : Shown
+  ||| Those functions, in the order their bodies were finished, and the key
+  ||| of each by its symbol: one function per key.
+  lifted : SnocList Statement
+  keys : SortedMap String String
+
+||| The state before the function of the program named `owner`, from the
+||| definition `definition`, is written.
+export
+initial : String -> Shown -> ES
+initial owner definition = MkES 0 [<] owner definition [<] empty
 
 public export
 E : Type -> Type
@@ -62,23 +79,31 @@ linear One WorldT = False
 linear One _ = True
 linear Many _ = False
 
-||| A value in scope: its SSA name, its type and how often it may be used;
-||| or, with `rebuild`, a constructor a match took apart, which a reference
-||| builds again from its fields as the region holds them. A match uses a
-||| linear scrutinee, so a variable naming it inside a case region names the
-||| constructor of the fields the region bound; its `name` is then a key no
-||| operation defines, which `matched` (Bodies) renames by.
-public export
-record Val where
-  constructor MkVal
-  name : String
-  type : Ty
-  use : Quantity
-  rebuild : Maybe (ConId, List Val)
+mutual
+  ||| How a value in scope is held: as the one SSA value its name names; as
+  ||| a constructor a match took apart, which a reference builds again from
+  ||| its fields as the region holds them; or, an array of records, as its
+  ||| columns, one value per field of the record, each an array of that
+  ||| field. A match uses a linear scrutinee, so a variable naming it inside
+  ||| a case region names the constructor of the fields the region bound.
+  ||| Taken apart or in columns, a value's `name` is a key no operation
+  ||| defines, which `matched` (Bodies) renames by.
+  public export
+  data Parts = Whole | Taken ConId (List Val) | Columns (List Val)
+
+  ||| A value in scope: its SSA name, its type, how often it may be used,
+  ||| and how it is held.
+  public export
+  record Val where
+    constructor MkVal
+    name : String
+    type : Ty
+    use : Quantity
+    parts : Parts
 
 export
 val : String -> Ty -> Quantity -> Val
-val name type use = MkVal name type use Nothing
+val name type use = MkVal name type use Whole
 
 ||| What the newest operation of the region defines, if it defines anything.
 export

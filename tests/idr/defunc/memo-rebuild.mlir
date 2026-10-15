@@ -1,24 +1,19 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s --implicit-check-not='!idr.lazy' < %t.mlir
-// A cell that moves into a slot with more labels is rebuilt in the larger
-// memo sum, and keeps its state: `running` and `forced` are constructors
-// of both sums, so a cell already forced is still forced, holding the same
-// value, and the force in @use does not run @one again. Here the cell of
-// @one is forced before it is passed where @two's cells go too.
-// CHECK-DAG: idr.data @[[A:lazy\$[0-9]+]] box memo labels [@one] {
-// CHECK-DAG: idr.data @[[B:lazy\$[0-9]+]] box memo labels [@one, @two] {
+// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
+// NEEDS-ACCEPTANCE: the memo sum's printed form, as C01's printer writes it.
+// A memo cell is shared, so the cells that may reach one slot share one
+// memo sum: lazy sets are unified, never coerced. Here the cell of @one is
+// forced before it is passed where @two's cell goes too: both are built in
+// the one sum of both labels, the cell is passed as it is, and keeps its
+// state, so the force in @use does not run @one again. No cell is rebuilt.
+// CHECK: ![[M:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, memo [@one(), @two(), @running(), @forced(i64)]
 // CHECK-LABEL: idr.func @Main.main(
-// CHECK: %[[CELL:.*]] = {{(idr\.)?}}con @[[A]]::@one() : () -> ![[A]]
-// CHECK: force %[[CELL]] : ![[A]] -> i64
-// CHECK: %[[AS:.*]] = {{(idr\.)?}}match %[[CELL]] : ![[A]] -> (![[B]]) {
-// CHECK-NEXT: case @one() {
-// CHECK-NEXT: con @[[B]]::@one() : () -> ![[B]]
-// CHECK: case @running() {
-// CHECK-NEXT: con @[[B]]::@running() : () -> ![[B]]
-// CHECK: case @forced(%[[V:[^:]*]]: i64) {
-// CHECK-NEXT: con @[[B]]::@forced(%[[V]]) : (i64) -> ![[B]]
-// CHECK: call @use(%[[AS]])
-module attributes {idr.program} {
+// CHECK: %[[CELL:.*]] = {{(idr\.)?}}con @one() : () -> !idr.box<![[M]]>
+// CHECK: force %[[CELL]] : !idr.box<![[M]]> -> i64
+// CHECK-NOT: case @running
+// CHECK: call @use(%[[CELL]])
+module {
   idr.func private @one() -> i64 attributes {total} {
     %c = arith.constant 1 : i64
     return %c : i64

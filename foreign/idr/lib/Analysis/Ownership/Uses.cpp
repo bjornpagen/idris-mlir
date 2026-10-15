@@ -63,7 +63,7 @@ bool usedAfter(Value value, Operation *op) {
     if (block == home || isa<FuncOp>(block->getParentOp()))
       return false;
     // The body of a loop runs again: the next iteration uses the value.
-    if (isArrayLoop(block->getParentOp()))
+    if (isIndexLoop(block->getParentOp()))
       return true;
   }
   return false;
@@ -89,9 +89,9 @@ void whereDies(ArrayRef<OpOperand *> uses, Block &block, SymbolTable *graded,
         return use->getOwner() == last && consumes(*use, graded);
       }))
     return;
-  // The body of a loop over an array runs once per element, and a value
-  // from outside it is alive throughout: the value dies after the loop.
-  if (last->getNumRegions() != 0 && !isArrayLoop(last)) {
+  // The body of a loop over indices runs once per index, and a value from
+  // outside it is alive throughout: the value dies after the loop.
+  if (last->getNumRegions() != 0 && !isIndexLoop(last)) {
     for (Region &region : last->getRegions())
       if (!region.empty())
         whereDies(uses, region.front(), graded, at);
@@ -115,13 +115,16 @@ bool fromPoint(Block &block, Block::iterator at, OpOperand &use) {
   return heldIn(block, use, after);
 }
 
-void eachField(ArrayRef<OpOperand *> uses, CtorOp ctor, Block *fields,
+void eachField(ArrayRef<OpOperand *> uses, DataType data, unsigned tag, Block *fields,
                function_ref<void(Value, unsigned)> f) {
   if (fields)
     for (BlockArgument arg : fields->getArguments())
       f(arg, arg.getArgNumber());
+  // A constructor's name is unique within its type's body.
+  mlir::StringAttr name = data.getCtor(tag).name;
   for (OpOperand *use : uses)
-    if (auto read = dyn_cast<FieldOp>(use->getOwner()); read && read.getCtor() == ctor.getSymName())
+    if (auto read = dyn_cast<FieldOp>(use->getOwner());
+        read && read.getCtorAttr().getAttr() == name)
       f(read.getResult(), static_cast<unsigned>(read.getIndex()));
 }
 

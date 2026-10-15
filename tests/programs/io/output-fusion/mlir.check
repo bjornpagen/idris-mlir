@@ -1,4 +1,4 @@
-// input: after idr-simplify
+// input: after idr-optimize
 // FILECHECK-OPTIONS: --implicit-check-not={{[[:space:]](idr[.])?str[.][a-z]}}
 // putStrLn of a string built from a runtime character becomes writes in
 // order: append becomes two writes, cons a put_char then a put_str, and

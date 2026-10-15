@@ -1,8 +1,10 @@
+NEEDS-ACCEPTANCE: how C01 prints an identified data type (an alias at the head of the module, whose body holds `instance`); the instance check reads that form
 compile: exit 0
 symbols: no code-point escape, and no name Idris made up for a block
 symbols: a case block is <parent>.case<k>, a with block <parent>.with<k>
 erased: nothing
 ops: no func.func, func.call or func.return
 parse: exit 0
-instances: every idr.func and idr.data names its own
+instances: every idr.func and data type names its own
+forms: no region closure or suspension, no data op, no discardable attribute
 locations: every op and block argument carries its own

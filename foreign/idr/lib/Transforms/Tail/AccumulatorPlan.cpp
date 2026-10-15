@@ -156,7 +156,7 @@ void clearBlock(RewriterBase &rewriter, Block &block) {
 // The constants may sit in the function or in the branch: simplification
 // lifts them out of the match.
 bool isCountdown(FuncOp fn) {
-  if (fn.isExternal() || !fn.getBody().hasOneBlock() || fn.getNumArguments() != 1 || fn.getNumResults() != 1)
+  if (!fn.getBody().hasOneBlock() || fn.getNumArguments() != 1 || fn.getNumResults() != 1)
     return false;
   BlockArgument arg = fn.getArgument(0);
   if (!isa<NatType>(arg.getType()) || !isa<NatType, BigType>(fn.getResultTypes()[0]))
@@ -204,7 +204,7 @@ void returnArgument(FuncOp fn, RewriterBase &rewriter) {
 }
 
 SmallVector<Site> accumulatorSites(FuncOp fn) {
-  if (fn.isExternal() || !fn.getBody().hasOneBlock() || fn.getNumResults() != 1 || !refersToItselfOnlyByCall(fn))
+  if (!fn.getBody().hasOneBlock() || fn.getNumResults() != 1 || !refersToItselfOnlyByCall(fn))
     return {};
   SmallVector<Site> sites;
   WalkResult walk = fn.walk([&](CallOp call) {

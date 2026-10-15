@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The references of every function, from one walk of each body. A
-// reference is what the body names that may run while it runs: the callee
-// of an idr.call, the label of an idr.closure or an idr.suspend, the label
-// of a closure constant, and the label of a constructor of a sum of
-// closures, made by idr.con or held in a constant. That last is how a body
-// makes a closure once idr-defunctionalize has turned closures into data,
-// so it is a reference as the closure was. An idr.apply calls something and
-// names no function, so it is not one.
+// reference is a symbol use the module's table resolves to an idr.func:
+// what a body may run while it runs, or names to be run later. A label
+// constructor is named by its function, so a closure or a suspension made
+// as data is a reference as it was before idr-defunctionalize; a plain
+// constructor's name is no module symbol's. An idr.apply calls something
+// and names no function, so it is not one.
 //
 // The bodies separate, so each is walked on a worker into its own slot:
 // a worker reads its own body and the symbol table and writes its slot
@@ -16,7 +15,6 @@
 #include "idr/Analysis/References.h"
 
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Symbols.h"
 #include "idr/Support/Scc.h"
 
 #include "mlir/IR/BuiltinOps.h"
@@ -38,48 +36,23 @@ struct BodySlot {
   SmallVector<unsigned> targets;
   int64_t ops = 0;
   bool hasCall = false;
-  bool callsUnknown = false;
 };
 
 void walkBody(idr::FuncOp fn, mlir::SymbolTable &symbols,
               const llvm::DenseMap<Operation *, unsigned> &positions, BodySlot &slot) {
-  if (fn.isExternal())
-    return;
   llvm::SmallDenseSet<unsigned, 8> seen;
-  auto name = [&](Operation *at, StringAttr symbol) {
-    auto target = symbols.lookup<idr::FuncOp>(symbol);
-    if (!target) {
-      slot.callsUnknown = true;
-      return;
-    }
-    slot.sites.push_back({target, at});
-    unsigned to = positions.lookup(target.getOperation());
-    if (seen.insert(to).second)
-      slot.targets.push_back(to);
-  };
-  auto label = [&](Operation *at, SymbolRefAttr ctor) {
-    if (StringAttr named = idr::closureLabel(symbols, ctor))
-      name(at, named);
-  };
   fn.getBody().walk([&](Operation *op) {
     ++slot.ops;
-    bool isCall = isa<CallOpInterface>(op);
-    slot.hasCall |= isCall;
-    if (auto call = dyn_cast<idr::CallOp>(op))
-      name(op, call.getCalleeAttr().getAttr());
-    else if (auto closure = dyn_cast<idr::ClosureOp>(op))
-      name(op, closure.getCalleeAttr().getAttr());
-    else if (auto suspend = dyn_cast<idr::SuspendOp>(op))
-      name(op, suspend.getCalleeAttr().getAttr());
-    else if (auto con = dyn_cast<idr::ConOp>(op))
-      label(op, con.getCtor());
-    else if (isCall && !isa<idr::ApplyOp>(op))
-      slot.callsUnknown = true;
+    slot.hasCall |= isa<CallOpInterface>(op);
     idr::walkStoredAttributes(op, [&](Attribute nested) {
-      if (auto closure = dyn_cast<idr::ClosureAttr>(nested))
-        name(op, closure.getCallee().getAttr());
-      else if (auto con = dyn_cast<idr::ConAttr>(nested))
-        label(op, con.getCtor());
+      auto ref = dyn_cast<FlatSymbolRefAttr>(nested);
+      auto target = ref ? symbols.lookup<idr::FuncOp>(ref.getAttr()) : idr::FuncOp();
+      if (!target)
+        return;
+      slot.sites.push_back({target, op});
+      unsigned to = positions.lookup(target.getOperation());
+      if (seen.insert(to).second)
+        slot.targets.push_back(to);
     });
   });
 }
@@ -100,7 +73,6 @@ idr::References::References(Operation *module, AnalysisManager &am) {
   offsets.reserve(n + 1);
   sizes.reserve(n);
   calls.resize(n);
-  unknown.resize(n);
   recursive.resize(n);
   SmallVector<SmallVector<unsigned>> edges(n);
   for (unsigned at = 0; at < n; ++at) {
@@ -110,8 +82,6 @@ idr::References::References(Operation *module, AnalysisManager &am) {
     sizes.push_back(slot.ops);
     if (slot.hasCall)
       calls.set(at);
-    if (slot.callsUnknown)
-      unknown.set(at);
     if (llvm::is_contained(slot.targets, at))
       recursive.set(at);
     edges[at] = std::move(slot.targets);
@@ -146,11 +116,6 @@ bool idr::References::hasCall(FuncOp fn) const {
   return at && calls.test(*at);
 }
 
-bool idr::References::callsUnknown(FuncOp fn) const {
-  std::optional<unsigned> at = position(fn);
-  return at && unknown.test(*at);
-}
-
 int64_t idr::References::ops(FuncOp fn) const {
   std::optional<unsigned> at = position(fn);
   return at ? sizes[*at] : 0;
@@ -169,20 +134,4 @@ void idr::walkStoredAttributes(Operation *op, function_ref<void(Attribute)> visi
   for (StringAttr name : op->getName().getAttributeNames())
     if (std::optional<Attribute> attr = op->getInherentAttr(name.getValue()); attr && *attr)
       attr->walk(each);
-}
-
-StringAttr idr::closureLabel(mlir::SymbolTable &symbols, SymbolRefAttr ctor) {
-  auto data = symbols.lookup<DataOp>(ctor.getRootReference());
-  if (!data)
-    return {};
-  if (data.getClosures())
-    return ctor.getLeafReference();
-  // A memo sum is the suspension as a closure sum is the closure: its label
-  // constructors, which `labels` names, are its functions; its two states
-  // are not, and `labels` does not name them.
-  if (isMemo(data) && data.getLabelsAttr())
-    for (auto label : data.getLabelsAttr().getAsRange<FlatSymbolRefAttr>())
-      if (label.getAttr() == ctor.getLeafReference())
-        return ctor.getLeafReference();
-  return {};
 }

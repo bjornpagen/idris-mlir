@@ -9,7 +9,7 @@
 // CHECK-NEXT: %[[P:.*]] = ub.poison : i64
 // CHECK-NEXT: %[[R:.*]] = call @f(%[[X]], %[[P]]) : (i64, i64) -> i64
 // CHECK-NEXT: return %[[R]]
-module attributes {idr.program} {
+module {
   idr.func private @f(%a: i64, %b: i64) -> i64 attributes {total} {
     return %a : i64
   }

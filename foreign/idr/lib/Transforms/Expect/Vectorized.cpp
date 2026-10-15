@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// vectorized: after idr-vectorize, some loop computes on vectors, and none
-// over words with a parallel dimension stays scalar.
+// vectorized: after the vectorization schedule, some loop computes on
+// vectors, and none over words with a parallel dimension stays scalar.
 
 #include "idr/Transforms/Expect.h"
 
@@ -31,13 +31,13 @@ bool wordsAlone(linalg::GenericOp op) {
 
 } // namespace
 
-// After idr-vectorize, in the function the argument names or anywhere, some
-// loop computes on vectors, and no linalg.generic with a parallel dimension
-// and a body of words alone is left scalar.
-LogicalResult vectorized(ModuleOp module, AnalysisManager &analyses, StringRef function) {
+// After the vectorization schedule, in the function the argument names or
+// anywhere, some loop computes on vectors, and no linalg.generic with a
+// parallel dimension and a body of words alone is left scalar.
+LogicalResult vectorized(ModuleOp module, AnalysisManager &, StringRef function) {
   constexpr StringRef property = "vectorized";
   SmallVector<Operation *> roots =
-      rootsOf(module, analyses.getAnalysis<SymbolTable>(), function, property);
+      rootsOf(module, function, property);
   if (roots.empty())
     return failure();
   bool held = true, vectors = false;

@@ -5,14 +5,14 @@ mlir_tablegen(IdrCanonicalize.inc -gen-rewriters)
 add_public_tablegen_target(IdrCanonicalizeIncGen)
 
 # The dialect: its types, attributes and ops with their hooks (verifiers,
-# folders, canonicalizations, effects, asm names), the rules of a function
-# and of the program, the grades, the layouts of cells and the type graph.
+# folders, canonicalizations, effects, asm names), the flow models of every
+# op, the rules of a function and of the program, the grades, the layouts
+# of cells and the type graph.
 # The folders and the tag limit call the runtime natively; the runtime's
 # headers reach every library that includes the dialect's.
 add_mlir_dialect_library(IdrIR
 	Dialect.cpp
 	Ops.cpp
-	OpsData.cpp
 	OpsCon.cpp
 	OpsMatch.cpp
 	OpsMatchSyntax.cpp
@@ -29,6 +29,7 @@ add_mlir_dialect_library(IdrIR
 	ConAttr.cpp
 	Grades.cpp
 	Effects.cpp
+	Flow.cpp
 	Crashes.cpp
 	Ranges.cpp
 	Asm.cpp
@@ -58,7 +59,6 @@ add_mlir_dialect_library(IdrIR
 	Canon/Output.cpp
 	Canon/PutList.cpp
 	Canon/Captures.cpp
-	Canon/ClosureOf.cpp
 	Fold/Scope.cpp
 	Fold/Values.cpp
 	Fold/Bigs.cpp
@@ -87,6 +87,9 @@ add_mlir_dialect_library(IdrIR
 	MLIRUBDialect
 	MLIRLLVMDialect
 	MLIRSCFDialect
+	MLIRTensorDialect
+	MLIRMemRefDialect
+	MLIRLinalgDialect
 	MLIRMemRefTransforms
 	MLIRFunctionInterfaces
 	MLIRCallInterfaces
@@ -94,6 +97,7 @@ add_mlir_dialect_library(IdrIR
 	MLIRInferIntRangeInterface
 	MLIRInferIntRangeCommon
 	MLIRInferTypeOpInterface
+	MLIRValueBoundsOpInterface
 	MLIRSideEffectInterfaces
 	MLIRDataLayoutInterfaces
 	MLIRBytecodeOpInterface

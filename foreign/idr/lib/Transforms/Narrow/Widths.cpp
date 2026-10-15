@@ -21,11 +21,13 @@ using namespace mlir;
 namespace idr::narrow {
 
 // A loop is vectorized when it computes on vectors, has no results (a loop
-// over buffers), and holds nothing but vector ops, the loops of its tiles
-// and ops with neither effects nor regions. A tile the vectorizer refused
-// keeps its linalg.generic, and a branch or a call keeps its scalar code,
-// so a loop holding one is not vectorized, nor is a loop around a
-// vectorized one that stores: the tile loops are the outermost such loops.
+// over buffers), and holds nothing but vector ops (a mask and the
+// transfers it holds included), the loops of its tiles and ops with
+// neither effects nor regions. A tile the vectorization schedule could not
+// vectorize keeps its linalg.generic, and a branch or a call keeps its
+// scalar code, so a loop holding one is not vectorized, nor is a loop
+// around a vectorized one that stores: the tile loops are the outermost
+// such loops.
 bool isVectorized(scf::ForOp loop) {
   if (loop->getNumResults() != 0)
     return false;
@@ -83,11 +85,51 @@ Width widthOf(Operation *op) {
   return width;
 }
 
-// Lanes of integers wider than 32 bits are what the narrowing is for.
+// The greatest set: an op reached from the argument stays while each use of
+// its results is the yield's operand that carries the argument round or an
+// op that stays. An op nothing reads is on no path to the yield.
+llvm::DenseSet<Operation *> accumulations(Operation *root) {
+  llvm::DenseSet<Operation *> carried;
+  root->walk([&](scf::ForOp loop) {
+    Operation *yield = loop.getBody()->getTerminator();
+    for (auto [index, arg] : llvm::enumerate(loop.getRegionIterArgs())) {
+      if (!isa<VectorType>(arg.getType()))
+        continue;
+      OpOperand &next = yield->getOpOperand(static_cast<unsigned>(index));
+      SetVector<Operation *> reached;
+      SmallVector<Value> work{arg};
+      while (!work.empty())
+        for (Operation *user : work.pop_back_val().getUsers())
+          if (user->hasTrait<OpTrait::Elementwise>() && reached.insert(user))
+            llvm::append_range(work, user->getResults());
+      llvm::DenseSet<Operation *> kept(reached.begin(), reached.end());
+      for (bool changed = true; changed;) {
+        changed = false;
+        for (Operation *op : reached) {
+          if (!kept.contains(op))
+            continue;
+          bool feeds = !op->use_empty() && llvm::all_of(op->getUses(), [&](OpOperand &use) {
+            return &use == &next || kept.contains(use.getOwner());
+          });
+          if (!feeds) {
+            kept.erase(op);
+            changed = true;
+          }
+        }
+      }
+      carried.insert(kept.begin(), kept.end());
+    }
+  });
+  return carried;
+}
+
+// Lanes of integers wider than 32 bits are what the narrowing is for, but
+// for an accumulation's.
 bool computesWideLanes(scf::ForOp loop) {
+  llvm::DenseSet<Operation *> carried = accumulations(loop);
   return loop
-      .walk([](Operation *op) {
-        return widthOf(op).lanes ? WalkResult::interrupt() : WalkResult::advance();
+      .walk([&](Operation *op) {
+        return widthOf(op).lanes && !carried.contains(op) ? WalkResult::interrupt() : WalkResult::advance();
       })
       .wasInterrupted();
 }

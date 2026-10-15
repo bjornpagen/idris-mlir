@@ -4,7 +4,7 @@
 // A self tail call of a function that is not total becomes a loop that
 // keeps idr.may_loop, the mark of a loop that may not end, down to the
 // object code.
-module attributes {idr.program} {
+module {
   idr.func private @count(%n: i64, %acc: i64) -> i64 {
     %zero = arith.constant 0 : i64
     %r = idr.match_lit %n : i64 -> (i64) {

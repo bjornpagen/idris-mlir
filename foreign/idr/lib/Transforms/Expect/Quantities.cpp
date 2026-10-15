@@ -2,8 +2,11 @@
 // Copyright (c) 2026 Bjorn Pagen
 // quantities-kept: no pass drops or widens a quantity Idris proved. A
 // quantity is a type's (quantityOf), one or many; a parameter of a
-// function or a lambda, a field a match binds or a constructor field the
-// emitted module declared keeps the quantity it had there. A binder is
+// function (a lambda is one) or a field a match binds keeps the quantity
+// it had in the emitted module. A constructor's fields are its data type's
+// body, set once, so their quantities are the type's for good: a pass that
+// would change one makes another type, and the emitted module, read into
+// the same context, names the same types. A binder is
 // known by its location: the name Emit gave it over the span of its
 // Idris definition, or what the parser gave a module written by hand
 // (the position of its name). The span alone is not the binder: every
@@ -23,7 +26,6 @@
 #include "mlir/IR/Location.h"
 #include "mlir/Parser/Parser.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/StringMap.h"
 #include "llvm/Support/ErrorHandling.h"
 
 #include <optional>
@@ -60,20 +62,18 @@ std::optional<Attribute> keyOf(Location loc) {
 }
 
 // Whether `block`'s arguments are binders Idris proved quantities of: a
-// function's parameters, a lambda's parameters (isolation lifts them to
-// a function's, so the emitted module must prove them under the same
-// key), and the fields a match's region binds (its default region's
+// function's parameters (a lambda's are its function's, as Emit writes
+// it), and the fields a match's region binds (its default region's
 // scrutinee too). A loop's iteration state is the pass's.
 bool bindsProved(Block &block) {
   Operation *parent = block.getParentOp();
   if (auto fn = dyn_cast<FuncOp>(parent))
     return &block == &fn.getBody().front();
-  return isa<MatchOp, MatchLitOp, LambdaOp>(parent);
+  return isa<MatchOp, MatchLitOp>(parent);
 }
 
 // The quantity of `arg`, a binder: a function parameter's from its
-// function's signature, a lambda parameter's or a bound field's from
-// its type.
+// function's signature, a bound field's from its type.
 Quantity quantityOfBinder(BlockArgument arg) {
   if (auto fn = dyn_cast<FuncOp>(arg.getOwner()->getParentOp()))
     return quantityOf(fn.getArgumentTypes()[arg.getArgNumber()]);
@@ -88,17 +88,6 @@ StringRef spelled(Quantity q) {
     return "w";
   }
   llvm_unreachable("a quantity is one or many");
-}
-
-std::string ctorName(CtorOp ctor) {
-  return (ctor->getParentOfType<DataOp>().getSymName() + "::@" + ctor.getSymName()).str();
-}
-
-SmallVector<Quantity> fieldQuantities(CtorOp ctor) {
-  SmallVector<Quantity> out;
-  for (Type type : ctor.getFieldTypes().getAsValueRange<TypeAttr>())
-    out.push_back(quantityOf(type));
-  return out;
 }
 
 } // namespace
@@ -126,9 +115,6 @@ LogicalResult quantitiesKept(ModuleOp module, AnalysisManager &, StringRef emitt
         at->second = std::nullopt;
     }
   });
-  llvm::StringMap<SmallVector<Quantity>> fields;
-  reference->walk([&](CtorOp ctor) { fields[ctorName(ctor)] = fieldQuantities(ctor); });
-
   bool held = true;
   module.walk([&](Block *block) {
     if (!bindsProved(*block))
@@ -148,14 +134,6 @@ LogicalResult quantitiesKept(ModuleOp module, AnalysisManager &, StringRef emitt
                                    << spelled(*was->second);
       held = false;
     }
-  });
-  module.walk([&](CtorOp ctor) {
-    std::string name = ctorName(ctor);
-    auto was = fields.find(name);
-    if (was == fields.end() || was->second == fieldQuantities(ctor))
-      return;
-    fail(ctor.getLoc(), property) << "the fields of @" << name << " have other quantities than Idris proved";
-    held = false;
   });
   return success(held);
 }

@@ -84,21 +84,8 @@ export
 inModules : List (List String) -> QName -> Bool
 inModules mods q = elem q.space mods
 
-||| The test hook of shape validation: the entries with the one whose key is
-||| shown as `name` expecting one more argument in front, a world at
-||| quantity ω, which no entry's definition takes. `Nothing` when no entry
-||| with a definition is shown so.
+||| Is a shape found the type of the array language's shapes, a snoc list of
+||| naturals? The frontend asks; the registry compares.
 export
-breaking : String -> List Entry -> Maybe (List Entry)
-breaking name es = if any named es then Just (map (\e => if named e then broken e else e) es) else Nothing
-  where
-    named : Entry -> Bool
-    named e = show e.key == name && isJust (site e)
-    wrong : Shape -> Shape
-    wrong = Pi Mw (Prim WorldP)
-    break : (k : Key) -> Expect k -> Expect k
-    break (Def _) (Typed s) = Typed (wrong s)
-    break (Foreign _) (Declared q s) = Declared q (wrong s)
-    break (Spelling _) Written = Written
-    broken : Entry -> Entry
-    broken e = MkEntry e.key (break e.key e.expect) e.hook e.rules
+isShapeType : Shape -> Bool
+isShapeType = conforms shapeType

@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What idr-lower adds to a module besides converted ops: calls of the
-// runtime's C functions, cells, counting, static data and crashes.
+// What idr-lower adds to a function besides converted ops: calls of the
+// runtime's C functions, cells, counting, static data and crashes. Each
+// worker of the lowering has its own Runtime and writes only into it and
+// into the function it converts; merge then brings the workers' functions
+// and globals into the module, in name order.
 
 #ifndef IDR_CONVERSION_RUNTIME_H
 #define IDR_CONVERSION_RUNTIME_H
@@ -13,33 +16,31 @@
 #include "mlir/Analysis/DataLayoutAnalysis.h"
 #include "mlir/Conversion/LLVMCommon/TypeConverter.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/SymbolTable.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/SmallVector.h"
 
 namespace idr::conversion {
 
 class Runtime {
 public:
-  // The runtime of `module`, whose symbols are `symbols`: the lowering's
-  // declarations are looked up there, and every function and global it
-  // adds is entered there. `dataLayouts` is the module's, which
-  // convert-to-llvm reads too.
-  Runtime(mlir::ModuleOp module, const Layouts &layouts, mlir::SymbolTable &symbols,
+  // A runtime for lowering the functions of `module`, which it never
+  // writes: merge does. `dataLayouts` is the module's, which convert-to-llvm
+  // reads too.
+  Runtime(mlir::ModuleOp module, const Layouts &layouts,
           const mlir::DataLayoutAnalysis &dataLayouts);
 
-  // The module's symbol table, which the patterns read declarations from.
-  mlir::SymbolTable &symbols() const { return statics.symbolTable(); }
-
-  // How convert-to-llvm will convert the memref types idr-lower leaves (an
-  // array's view of its elements): the same converter over the same data
+  // How convert-to-llvm will convert the memref types idr-lower leaves (a
+  // buffer of words a legal op holds): the same converter over the same data
   // layouts, so that a descriptor built here is the one it reads.
   const mlir::LLVMTypeConverter &llvmTypeConverter() const { return llvmTypes; }
 
   // Calls the runtime function `name` with `args`, returning `result` (or
-  // nothing when it is null). The declaration is added on first use.
+  // nothing when it is null). The call names its callee; merge declares it.
   mlir::Value call(mlir::OpBuilder &b, mlir::Location loc, llvm::StringRef name, mlir::Type result,
                    mlir::ValueRange args);
 
@@ -99,14 +100,24 @@ public:
   llvm::SmallVector<mlir::Value> constant(mlir::OpBuilder &b, mlir::Location loc,
                                           mlir::Attribute value, mlir::Type type);
 
-  // What idr-lower adds once every op is converted: @__idr_release_cafs,
-  // which releases what the module's static memo cells hold when the
-  // program ends. It names every static memo cell, so it is built after the
-  // last constant is lowered, once.
-  void finish();
+  // The static cell of the constant array `global`.
+  mlir::Value constantArray(mlir::OpBuilder &b, mlir::Location loc,
+                            mlir::memref::GlobalOp global);
+
+  // What every worker wrote, into `module` through `symbols`, once every
+  // function is lowered: one declaration per runtime function the functions
+  // call, in name order, then one global per name of static data, in name
+  // order, at the start of the module; then @__idr_release_cafs, which
+  // releases what the module's static memo cells hold when the program
+  // ends (idris_rt_caf_release on each, in name order), made in every module
+  // so that the entry calls it without asking. Fails, having reported it,
+  // when one function is called with two types or one name holds two
+  // contents.
+  static mlir::LogicalResult merge(mlir::ModuleOp module, mlir::SymbolTable &symbols,
+                                   llvm::ArrayRef<Runtime *> workers);
 
 private:
-  // The call of the runtime function `name`, declared on first use.
+  // The call of the runtime function `name`, by name.
   mlir::LLVM::CallOp callOp(mlir::OpBuilder &b, mlir::Location loc, llvm::StringRef name,
                             mlir::Type result, mlir::ValueRange args);
 
@@ -117,6 +128,9 @@ private:
   mlir::ModuleOp module;
   mlir::LLVMTypeConverter llvmTypes;
   StaticData statics;
+  // Each runtime function called, with the type its calls have.
+  llvm::StringMap<mlir::LLVM::LLVMFunctionType> called;
+  bool mistyped = false;
 };
 
 } // namespace idr::conversion

@@ -120,27 +120,6 @@ void printNatResult(OpAsmPrinter &printer, Operation *, Type type) {
   printResultAtGrade(printer, type, NatType::get(type.getContext()));
 }
 
-// The field types of a constructor: `(i64, f64)`.
-ParseResult parseFieldTypes(OpAsmParser &parser, ArrayAttr &fieldTypes) {
-  SmallVector<Attribute> types;
-  if (parser.parseCommaSeparatedList(OpAsmParser::Delimiter::Paren, [&] {
-        Type type;
-        if (parser.parseType(type))
-          return failure();
-        types.push_back(TypeAttr::get(type));
-        return success();
-      }))
-    return failure();
-  fieldTypes = parser.getBuilder().getArrayAttr(types);
-  return success();
-}
-
-void printFieldTypes(OpAsmPrinter &printer, Operation *, ArrayAttr fieldTypes) {
-  printer << '(';
-  llvm::interleaveComma(fieldTypes.getAsValueRange<TypeAttr>(), printer);
-  printer << ')';
-}
-
 //===----------------------------------------------------------------------===//
 // Division and shifts, shared through IdrScalarOps.td
 //===----------------------------------------------------------------------===//

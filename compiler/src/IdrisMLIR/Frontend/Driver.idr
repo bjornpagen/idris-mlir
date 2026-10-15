@@ -14,7 +14,7 @@
 |||
 ||| where TASK is one of
 |||
-|||     [--break-shape KEY] [--timing FILE] --core FILE -o FILE SOURCE
+|||     [--timing FILE] --core FILE -o FILE SOURCE
 |||                       the program whose main file is SOURCE
 |||     --check SOURCE    SOURCE and what it imports, built and checked
 |||     --build PACKAGE.ipkg, --install PACKAGE.ipkg, --typecheck
@@ -68,8 +68,8 @@ import System.File
 ||| What a run does.
 data Task
   = ||| The program whose main file is the source: its Core and its module
-    ||| written at these paths, the registry's entry the key names broken.
-    Compile (Maybe String) (Maybe String) String String String
+    ||| written at these paths, its phases' times at the first when given.
+    Compile (Maybe String) String String String
   | ||| A main file and what it imports, built and checked.
     Check String
   | ||| One of Idris's package commands on a package file.
@@ -84,7 +84,6 @@ record Arguments where
   packagePaths : List String
   packages : List String
   noPrelude : Bool
-  breakShape : Maybe String
   timing : Maybe String
   corePath : Maybe String
   output : Maybe String
@@ -94,7 +93,7 @@ record Arguments where
   sources : List String
 
 none : Arguments
-none = MkArguments Nothing [] [] False Nothing Nothing Nothing Nothing Nothing Nothing False []
+none = MkArguments Nothing [] [] False Nothing Nothing Nothing Nothing Nothing False []
 
 ||| What a run is given: the prefix, the rest of its session's arguments,
 ||| and its task.
@@ -107,7 +106,7 @@ record Run where
 synopsis : String
 synopsis = """
         usage: idris-mlir-front --prefix DIR [--package-path DIR]... [-p PACKAGE]... [--no-prelude] TASK
-          TASK: [--break-shape KEY] [--timing FILE] --core FILE -o FILE SOURCE
+          TASK: [--timing FILE] --core FILE -o FILE SOURCE
               | --check SOURCE
               | --build|--install|--typecheck|--clean PACKAGE.ipkg
               | --libdir
@@ -115,7 +114,7 @@ synopsis = """
 
 ||| The options that take a value.
 valued : List String
-valued = [ "--prefix", "--package-path", "-p", "--break-shape", "--timing", "--core", "-o", "--check"
+valued = [ "--prefix", "--package-path", "-p", "--timing", "--core", "-o", "--check"
          , "--build", "--install", "--typecheck", "--clean" ]
 
 once : String -> Maybe a -> a -> Either String (Maybe a)
@@ -137,9 +136,6 @@ parse a ("--prefix" :: d :: rest) = do
 parse a ("--package-path" :: d :: rest) = parse ({ packagePaths $= (++ [d]) } a) rest
 parse a ("-p" :: p :: rest) = parse ({ packages $= (++ [p]) } a) rest
 parse a ("--no-prelude" :: rest) = parse ({ noPrelude := True } a) rest
-parse a ("--break-shape" :: k :: rest) = do
-  b <- once "--break-shape" a.breakShape k
-  parse ({ breakShape := b } a) rest
 parse a ("--timing" :: f :: rest) = do
   t <- once "--timing" a.timing f
   parse ({ timing := t } a) rest
@@ -175,8 +171,8 @@ taskOf a = case (a.check, a.package, a.libDir) of
   where
     onlyFor : String -> Either String ()
     onlyFor task =
-      if isJust a.corePath || isJust a.output || isJust a.breakShape || not (null a.sources)
-        then Left (task ++ " takes no source, --core, -o or --break-shape")
+      if isJust a.corePath || isJust a.output || isJust a.timing || not (null a.sources)
+        then Left (task ++ " takes no source, --core, -o or --timing")
         else Right ()
     compile : Either String Task
     compile = do
@@ -185,7 +181,7 @@ taskOf a = case (a.check, a.package, a.libDir) of
       let Just out = a.output
         | Nothing => Left "no -o"
       case a.sources of
-        [source] => Right (Compile a.breakShape a.timing core out source)
+        [source] => Right (Compile a.timing core out source)
         [] => Left "no source file"
         _ => Left "more than one source file"
 
@@ -270,9 +266,9 @@ perform : {auto c : Ref Ctxt Defs} ->
           {auto s : Ref Syn SyntaxInfo} ->
           {auto o : Ref ROpts REPLOpts} ->
           Task -> Core ()
-perform (Compile breakShape timing core out source) = do
+perform (Compile timing core out source) = do
   mainModule <- built source
-  [] <- program mainModule breakShape timing core out
+  [] <- program mainModule timing core out
     | errs => do
         for_ errs $ \err => do
           showingItsSource err
@@ -293,7 +289,7 @@ frontend r = do
   -- executable does; checking and the package commands print Idris's
   -- progress and warnings too.
   let (mainFile, verbosity) = case r.task of
-        Compile _ _ _ _ source => (Just source, ErrorLvl)
+        Compile _ _ _ source => (Just source, ErrorLvl)
         Check source => (Just source, InfoLvl)
         _ => (Nothing, InfoLvl)
   o <- newRef ROpts (defaultOpts mainFile verbosity)

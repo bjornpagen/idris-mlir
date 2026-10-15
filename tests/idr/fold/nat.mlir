@@ -3,7 +3,7 @@
 // them at runtime, and the results stay naturals: a sum and a product; a
 // comparison; a predecessor (zero has none: on a path a match excludes, it
 // stays as it is); an Integer clamped at 0; a natural as an Integer.
-// CHECK-LABEL: idr.func @naturals(
+// CHECK-LABEL: idr.func private @naturals(
 // CHECK-DAG: %[[ZERO:.*]] = {{(idr\.)?}}constant #idr.big<"0"> : !idr.nat
 // CHECK-DAG: %[[SUM:.*]] = {{(idr\.)?}}constant #idr.big<"18446744073709551621"> : !idr.nat
 // CHECK-DAG: %[[PRODUCT:.*]] = {{(idr\.)?}}constant #idr.big<"92233720368547758080"> : !idr.nat
@@ -13,7 +13,7 @@
 // CHECK-DAG: %[[INTEGER:.*]] = {{(idr\.)?}}constant #idr.big<"5"> : !idr.big
 // CHECK: %[[NONE:.*]] = idr.big.pred %[[ZERO]]
 // CHECK: return %[[SUM]], %[[PRODUCT]], %[[TRUE]], %[[FOUR]], %[[NONE]], %[[ZERO]], %[[TWELVE]], %[[INTEGER]]
-idr.func @naturals() -> (!idr.nat, !idr.nat, i1, !idr.nat, !idr.nat, !idr.nat, !idr.nat, !idr.big) {
+idr.func private @naturals() -> (!idr.nat, !idr.nat, i1, !idr.nat, !idr.nat, !idr.nat, !idr.nat, !idr.big) {
   %five = idr.constant #idr.big<"5"> : !idr.nat
   %zero = idr.constant #idr.big<"0"> : !idr.nat
   %large = idr.constant #idr.big<"18446744073709551616"> : !idr.nat

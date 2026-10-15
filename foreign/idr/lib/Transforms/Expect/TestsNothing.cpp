@@ -14,10 +14,10 @@ namespace idr::expect {
 // The function the argument names tests no count and no null: every take
 // in it is of an exclusive value, every reuse builds in an exclusive
 // cell, and there is at least one take.
-LogicalResult testsNothing(ModuleOp module, AnalysisManager &analyses, StringRef function) {
+LogicalResult testsNothing(ModuleOp module, AnalysisManager &, StringRef function) {
   constexpr StringRef property = "tests-nothing";
   SmallVector<FunctionOpInterface> functions =
-      named(module, analyses.getAnalysis<SymbolTable>(), function, property);
+      named(module, function, property);
   if (functions.empty())
     return failure();
   bool held = true, taken = false;

@@ -1,18 +1,16 @@
-// RUN: idris-mlir-opt %s --idr-simplify --remarks-filter-passed=idr-simplify > %t.mlir 2> %t.err
+// RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
 // RUN: FileCheck %s < %t.mlir
-// RUN: FileCheck %s --check-prefix=ROUNDS < %t.err
+// NEEDS-ACCEPTANCE: that the whole chain unfolds in @Main.main, as C06's memo sums and C07's local loop make it.
 // A chain of statements linked the way `>>` links them once their thunks
 // are constants: each statement forces the next statement's constant
-// suspension. Only idr-inline's force preparation turns such a force
-// into a call, and inlining one statement exposes the next statement's
-// force, so the preparation and the inliner repeat together inside
-// idr-inline: the chain unfolds within three rounds however long it is,
-// not one statement per round.
+// suspension. Defunctionalization makes each suspension a constructor of
+// its memo sum, so each force is a case of a known constructor, which the
+// optimizer's cleanup turns into a call of the next statement, inlined in
+// the bounded loop that follows: the chain unfolds however long it is.
 // CHECK-LABEL: idr.func @Main.main(
 // CHECK-NOT: force
 // CHECK-NOT: call @s
-// ROUNDS: fixpoint: round {{[1-3]}} changed nothing
-module attributes {idr.program} {
+module {
   idr.func private @s1() -> i64 attributes {total} {
     %t = idr.constant #idr.closure<@s2, []> : !idr.lazy<i64>
     %v = idr.force %t : !idr.lazy<i64> -> i64

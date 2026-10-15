@@ -43,38 +43,18 @@ def Idr_SuspendOp : Idr_Op<"suspend", [Idr_ConsumesOnly<"0">,
   let hasVerifier = 1;
 }
 
-// What Emit writes for a lambda and for a delay: the body is the region, and
-// the captures are the values it uses from above. Building either runs
-// nothing, so the body's effects are not the op's, as they are not an
-// idr.closure's or an idr.suspend's. The lambda's block takes the parameters
-// of its !idr.fn type, the delay's none, and each ends in idr.yield of the
-// result, or in ub.unreachable. idr-isolate, the first step, makes each an
-// idr.closure or idr.suspend of a function of its own, the captures its
-// leading parameters, but an evaluated suspension: a delay whose body is
-// one idr.yield of a value from above. The dialect hoists a body of only
-// constants and idr.con of non-linear values from above out before the
-// delay, so it becomes one; a force of it folds to the value, and
-// idr-defunctionalize makes it idr.con of the memo sum's forced
-// constructor.
-def Idr_LambdaOp : Idr_Op<"lambda", [SingleBlock, Pure,
-    AutomaticAllocationScope, DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>]> {
-  let summary = "a closure whose body is its region; its captures are the values it uses from above";
-  let results = (outs Idr_FnType:$result);
-  let regions = (region SizedRegion<1>:$body);
-  let assemblyFormat = "attr-dict `:` qualified(type($result)) $body";
-  let hasVerifier = 1;
-  let hasRegionVerifier = 1;
-}
-
-def Idr_DelayOp : Idr_Op<"delay", [SingleBlock, Pure,
+// A suspension already evaluated: the cell holds its operand, forced, so
+// forcing it computes nothing and a force of it folds to the value. It
+// takes its operand over, as idr.suspend takes its captures; building it
+// runs nothing. idr-defunctionalize makes it idr.con of the memo sum's
+// forced state.
+def Idr_DelayOp : Idr_Op<"delay", [Idr_ConsumesOnly<"0">,
     DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>]> {
-  let summary = "a suspension whose body is its region; its captures are the values it uses from above";
+  let summary = "a suspension already evaluated: it holds its operand";
+  let arguments = (ins AnyType:$value);
   let results = (outs Idr_LazyValue:$result);
-  let regions = (region SizedRegion<1>:$body);
-  let assemblyFormat = "attr-dict `:` type($result) $body";
+  let assemblyFormat = "$value attr-dict `:` type($value) `->` type($result)";
   let hasVerifier = 1;
-  let hasRegionVerifier = 1;
-  let hasCanonicalizer = 1;
 }
 
 // Reads the cell: a suspension, or, after idr-defunctionalize, the box of a
@@ -82,15 +62,14 @@ def Idr_DelayOp : Idr_Op<"delay", [SingleBlock, Pure,
 // every use. A suspension with this one use is the call, at this point. Its
 // effects are the cell's: none for a view of a cell that memoizes, so an
 // unused force is erased; the cell freed when the force takes it over; the
-// IO resource when a label of its sum is `by_name`. Not speculatable, so one
-// is not hoisted into a path that did not force. Whether it takes its cell
-// over is where it is, its operand's last use, as for a match's scrutinee,
-// not a fact of the op, so it does not declare consumption. A force of an
-// evaluated suspension folds to its value where the types are equal. What
-// its operand's memo sum declares is a symbol-use rule.
+// IO resource when a label of its sum is `by_name`, which the sum's type
+// says. Not speculatable, so one is not hoisted into a path that did not
+// force. Whether it takes its cell over is where it is, its operand's last
+// use, as for a match's scrutinee, not a fact of the op, so it does not
+// declare consumption. A force of an evaluated suspension folds to its
+// value where the types are equal.
 def Idr_ForceOp : Idr_Op<"force", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-    DeclareOpInterfaceMethods<SymbolUserOpInterface>,
     DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>]> {
   let summary = "the value of a suspension, computed on the first force and shared";
   let arguments = (ins AnyTypeOf<[Idr_LazyValue, Idr_BoxValue]>:$suspension);
@@ -102,7 +81,8 @@ def Idr_ForceOp : Idr_Op<"force", [
 }
 
 // The callee is a value, so the effects are unknown. The arguments are
-// taken over, as a call's are.
+// taken over, as a call's are. idr-defunctionalize makes each a dispatch
+// on its key's sum, so none is left after it.
 def Idr_ApplyOp : Idr_Op<"apply", [CallOpInterface,
     TypesMatchWith<"callee input types match argument types", "callee", "args",
                    "::llvm::cast<FnType>($_self).getInputs()",
@@ -126,7 +106,6 @@ def Idr_ApplyOp : Idr_Op<"apply", [CallOpInterface,
     )
     attr-dict `:` qualified(type($callee))
   }];
-  let hasCanonicalizeMethod = 1;
   let extraClassDeclaration = [{
     ::mlir::CallInterfaceCallable getCallableForCallee() { return getCallee(); }
     void setCalleeFromCallable(::mlir::CallInterfaceCallable callee) {

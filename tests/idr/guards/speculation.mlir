@@ -10,22 +10,22 @@
 // the string it reads: the read may run anywhere, and leaves the loop.
 // @other's index went through a guard against another string's length,
 // which says nothing of this one: the read stays.
-// CHECK-LABEL: idr.func @proved(
+// CHECK-LABEL: idr.func private @proved(
 // CHECK: scf.while
 // CHECK: } do {
 // CHECK: idr.str.index
 // CHECK: scf.yield
-// CHECK-LABEL: idr.func @guarded(
+// CHECK-LABEL: idr.func private @guarded(
 // CHECK: idr.str.index
 // CHECK: scf.while
 // CHECK-NOT: idr.str.index
 // CHECK: return
-// CHECK-LABEL: idr.func @other(
+// CHECK-LABEL: idr.func private @other(
 // CHECK: scf.while
 // CHECK: } do {
 // CHECK: idr.str.index
 // CHECK: scf.yield
-idr.func @proved(%s: !idr.str, %i: i64, %n: i64) -> i32 {
+idr.func private @proved(%s: !idr.str, %i: i64, %n: i64) -> i32 {
   %zero = arith.constant 0 : i32
   %none = arith.constant 0 : i64
   %one = arith.constant 1 : i64
@@ -47,7 +47,7 @@ idr.func @proved(%s: !idr.str, %i: i64, %n: i64) -> i32 {
   return %r#1 : i32
 }
 
-idr.func @guarded(%s: !idr.str, %i: i64, %n: i64) -> i32 {
+idr.func private @guarded(%s: !idr.str, %i: i64, %n: i64) -> i32 {
   %zero = arith.constant 0 : i32
   %none = arith.constant 0 : i64
   %one = arith.constant 1 : i64
@@ -66,7 +66,7 @@ idr.func @guarded(%s: !idr.str, %i: i64, %n: i64) -> i32 {
   return %r#1 : i32
 }
 
-idr.func @other(%s: !idr.str, %t: !idr.str, %i: i64, %n: i64) -> i32 {
+idr.func private @other(%s: !idr.str, %t: !idr.str, %i: i64, %n: i64) -> i32 {
   %zero = arith.constant 0 : i32
   %none = arith.constant 0 : i64
   %one = arith.constant 1 : i64

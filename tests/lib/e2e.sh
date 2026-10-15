@@ -34,12 +34,9 @@ stdout_within_a_few_ulp() {
 # packages it uses. It runs on a 1 MiB stack, or with `default-stack`,
 # which says why, on the one programs get. With `constant-stack` its input
 # is its stdin many times over (`repeated`), so long that a loop growing
-# the stack by a frame per iteration exhausts the 1 MiB. With
-# `demand-in-place` the compilation makes the in-place promise: a call
-# passes what its callee rebuilds in place exclusive, or the program is
-# refused. With `live-cells` the first word is
-# how many cells may still be live at a normal exit; that count is taken
-# off stderr.
+# the stack by a frame per iteration exhausts the 1 MiB. With `live-cells`
+# the first word is how many cells may still be live at a normal exit;
+# that count is taken off stderr.
 e2e_io() {
   io_fixture=$(cd "$1" && pwd)
   io_stdin=/dev/null
@@ -60,22 +57,21 @@ e2e_io() {
     repeated "$io_stdin" "$(first_word "$io_fixture/constant-stack")" "$work/long-stdin" || return
     io_stdin=$work/long-stdin
   fi
-  io_promise=
-  [ -f "$io_fixture/demand-in-place" ] && io_promise='--demand-in-place'
-
-  # Every compilation dumps the module after each step: the checks of the
-  # fixture's modules read the dumps, and so do the properties of every
-  # compilation (compilation_properties).
+  # Every compilation prints the module after each step (dump_options):
+  # the checks of the fixture's modules read those dumps, and so do the
+  # properties of every compilation (compilation_properties).
   mkdir "$work/ours"
   copy_fixture "$io_fixture" "$work/ours"
-  compile_program $io_packages $io_promise --dump-dir="$work/ours/build/exec/prog.dump" \
-    "$work/ours/Main.idr" prog
+  io_dumps=$work/ours/build/exec/prog.dump
+  # shellcheck disable=SC2046 # the dump options are words
+  compile_program $io_packages $(dump_options "$io_dumps") "$work/ours/Main.idr" prog
   say "compile: exit $compiled"
   if [ "$compiled" -ne 0 ]; then
     show "$work/compile.out" "$work/compile.err"
     return
   fi
-  artifacts "$work/ours" prog.core prog.mlir prog.o prog
+  artifacts "$work/ours" prog
+  io_module=$(artifact_file "$work/ours" prog module)
   run_ours ours "$work/ours/build/exec/prog" "$io_stdin" $io_stack
   ours_status=$ran
   # A `live-cells` mark names how many cells a reference-count cycle keeps
@@ -123,10 +119,11 @@ e2e_io() {
     show "$work/ours.err"
   fi
 
-  object_imports "$work/ours/build/exec/prog.o" "$here"
-  heap_free "$io_fixture" "$work/ours/build/exec/prog.dump"
-  module_checks "$io_fixture" "$work/ours/build/exec/prog.mlir" "$work/ours/build/exec/prog.dump"
-  compilation_properties "$work/ours/build/exec/prog.mlir" "$work/ours/build/exec/prog.dump"
+  # shellcheck disable=SC2046 # one path per object, none with a space
+  object_imports "$here" $(artifact_files "$work/ours" prog objects)
+  heap_free "$io_fixture" "$io_dumps"
+  module_checks "$io_fixture" "$io_module" "$io_dumps" "$(artifact_file "$work/ours" prog core)"
+  compilation_properties "$io_module" "$io_dumps"
 }
 
 # sem_case NAME: the generated semantics test NAME, an e2e fixture built in
@@ -159,15 +156,15 @@ MAIN
   e2e_io "$work/sem"
 }
 
-# module_checks FIXTURE EMITTED DUMPS: every check of the compilation's
-# modules that the fixture holds: translate.check, FileChecked on full Core
-# (the .core beside the module); mlir.check (check_mlir); mlir.expect
-# (check_expect); covers, the prelude module whose every export the program
-# uses (covers_prelude, on the program's Core and its source).
+# module_checks FIXTURE EMITTED DUMPS CORE: every check of the
+# compilation's modules that the fixture holds: translate.check, FileChecked
+# on full Core (CORE); mlir.check (check_mlir); mlir.expect (check_expect);
+# covers, the prelude module whose every export the program uses
+# (covers_prelude, on the program's Core and its source).
 module_checks() {
-  [ -f "$1/translate.check" ] && filecheck "$1/translate.check" "${2%.mlir}.core"
+  [ -f "$1/translate.check" ] && filecheck "$1/translate.check" "$4"
   [ -f "$1/mlir.check" ] && check_mlir "$1/mlir.check" "$2" "$3"
   [ -f "$1/mlir.expect" ] && check_expect "$1/mlir.expect" "$2" "$3"
-  [ -f "$1/covers" ] && covers_prelude "$(first_word "$1/covers")" "${2%.mlir}.core" "$1"
+  [ -f "$1/covers" ] && covers_prelude "$(first_word "$1/covers")" "$4" "$1"
   return 0
 }

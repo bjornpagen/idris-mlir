@@ -36,7 +36,10 @@
 // attribute has no generic form, so it is written in the syntax ODS
 // declares for it, which the generated C++ parser reads; one whose syntax
 // ODS does not declare is left out, with the reason, at the end of the
-// syntax module.
+// syntax module. The one syntax of a type the generator knows by itself is
+// an identified type's (a TypeDef with MutableType), which no declarative
+// syntax can say: its name, then its body, which a type inside its own body
+// leaves out, as LLVM writes an identified struct.
 
 #include "mlir/TableGen/AttrOrTypeDef.h"
 #include "mlir/TableGen/Attribute.h"
@@ -230,6 +233,23 @@ Enum &useEnum(Enums &enums, const llvm::Record *def) {
   return enums.try_emplace(enumName(EnumInfo(def)), Enum{def}).first->second;
 }
 
+// `text` as MLIR's printer writes a keyword or a string where its parser
+// reads either: bare when it is a keyword (a letter or `_`, then letters,
+// digits, `_`, `$` and `.`), else a quoted string.
+std::string keywordOrString(StringRef text) {
+  auto start = [](char c) { return llvm::isAlpha(c) || c == '_'; };
+  auto rest = [](char c) { return llvm::isAlnum(c) || c == '_' || c == '$' || c == '.'; };
+  if (!text.empty() && start(text.front()) && llvm::all_of(text.drop_front(), rest))
+    return text.str();
+  std::string quoted = "\"";
+  for (char c : text) {
+    if (c == '"' || c == '\\')
+      quoted += '\\';
+    quoted += c;
+  }
+  return quoted + "\"";
+}
+
 // The cases of an enum the Idris side holds: every case of an enum; of a
 // bit enum, the bits, a set of which it gives as a list of them (the case of
 // no bits is the empty list, and a group is its bits).
@@ -267,15 +287,23 @@ void emitEnum(const Enum &used, llvm::raw_ostream &os) {
     os << "  " << qualified << " == " << qualified << " = True\n";
   }
   os << "  _ == _ = False\n\n";
+  // Each case shows as its ODS string, the one way a value of it reads.
+  os << "export\nShow " << name << " where\n";
+  for (const EnumCase &c : cases)
+    os << "  show " << name << "." << camel(c.getSymbol(), true) << " = " << literal(c.getStr())
+       << "\n";
+  os << "\n";
   if (!used.spellings)
     return;
-  // Private to the module, out of the way of whatever imports it.
+  // Private to the module, out of the way of whatever imports it. The
+  // syntax spells a case as MLIR's enum parser reads it
+  // (parseKeywordOrString): its string, quoted where it is no keyword.
   std::string lower = camel(name, false);
   os << "-- How the syntax below spells each " << name << ".\n"
      << lower << "Spelling : " << name << " -> String\n";
   for (const EnumCase &c : cases)
     os << lower << "Spelling " << name << "." << camel(c.getSymbol(), true) << " = "
-       << literal(c.getStr()) << "\n";
+       << literal(keywordOrString(c.getStr())) << "\n";
   os << "\n";
   if (!info.isBitEnum())
     return;
@@ -747,6 +775,10 @@ std::optional<Kind> valueKind(StringRef cpp) {
     if (std::optional<Kind> element = valueKind(cpp))
       return Kind{"List " + parenthesized(element->type),
                   "commaSeparated (map " + maker(element->text) + " {0})"};
+  // A type of a dialect's own class (a box's data type) is a type, which
+  // its C++ parser reads as any and checks.
+  if (cpp.starts_with("::") && cpp.ends_with("Type"))
+    return Kind{"ty", "t {0}"};
   return std::nullopt;
 }
 
@@ -1131,6 +1163,68 @@ std::optional<std::string> defOf(Enums &enums, const AttrOrTypeDef &def, bool is
   out.text = llvm::formatv("{0} = {1}", pattern, expression(pieces)).str();
   out.mnemonicName = mnemonic->str();
   return std::nullopt;
+}
+
+// The last name of a dotted module name.
+StringRef lastName(StringRef module) {
+  size_t dot = module.rfind('.');
+  return dot == StringRef::npos ? module : module.drop_front(dot + 1);
+}
+
+// Whether `record` is an identified type: a TypeDef with MutableType, a
+// name whose body is set once.
+bool isIdentified(const llvm::Record &record) {
+  return llvm::any_of(record.getValueAsListOfDefs("traits"),
+                      [](const llvm::Record *trait) { return trait->getName() == "MutableType"; });
+}
+
+// An identified type, as its C++ printer writes it: `<"name">` inside its
+// own body, `<"name", kind [@C(fields) by_name, ...] instance #d.instance<
+// origin, [arguments]>>` everywhere else. Its constructor holds the name
+// and, where it is written whole, the body: a record of the kind (the enum
+// its ODS names as `bodyKinds`), the constructors in tag order and the
+// instance. The records and the writer of a constructor are `preamble`,
+// which goes before the sum of types that holds them.
+void identifiedOf(Enums &enums, const AttrOrTypeDef &def, StringRef sum, Def &out,
+                  std::string &preamble) {
+  const llvm::Record *kinds = def.getDef()->getValueAsDef("bodyKinds");
+  useEnum(enums, kinds).spellings = true;
+  std::string kind = enumName(EnumInfo(kinds));
+  std::string dialect = def.getDialect().getName().str();
+  std::string module = lastName(moduleName).str();
+  std::string ctor = module + "Ctor", body = module + "Sum";
+  std::string ctorText = camel(dialect, false) + "CtorText";
+  std::string mnemonic = def.getMnemonic() ? def.getMnemonic()->str() : std::string();
+  std::string spelling = "!" + dialect + "." + mnemonic;
+  llvm::raw_string_ostream pre(preamble);
+  pre << "||| One constructor of a data type's body, as `" << spelling << "` writes it: its\n"
+      << "||| name, its fields' types, and whether every force of it runs it.\n"
+      << "public export\nrecord " << ctor << " ty where\n  constructor Mk" << ctor << "\n"
+      << "  name : String\n  fields : List ty\n  byName : Bool\n\n"
+      << "||| A data type's body, as `" << spelling << "` writes it: what sum it is, its\n"
+      << "||| constructors in tag order, and the Idris instance it is of, its origin\n"
+      << "||| and arguments.\n"
+      << "public export\nrecord " << body << " ty where\n  constructor Mk" << body << "\n"
+      << "  kind : " << kind << "\n  ctors : List (" << ctor << " ty)\n"
+      << "  instanceOf : Maybe (String, List String)\n\n"
+      << "-- How `" << spelling << "` writes a constructor of its body.\n"
+      << ctorText << " : (t : ty -> String) -> " << ctor << " ty -> String\n"
+      << ctorText << " t c = fastConcat [symbol c.name, \"(\", commaSeparated (map t c.fields), "
+      << "\")\", if c.byName then \" by_name\" else \"\"]\n\n";
+  std::string constructor = def.getCppClassName().str();
+  llvm::raw_string_ostream decl(out.constructor);
+  decl << "  ||| `" << spelling << "`" << summary(def.getSummary())
+       << "; written without its body inside its own body\n  " << constructor
+       << " : (name : String) -> (body : Maybe (" << body << " ty)) -> " << sum << " ty\n";
+  out.mnemonicName = mnemonic;
+  out.mnemonic = llvm::formatv("({0} _ _) = {1}", constructor, literal(mnemonic)).str();
+  out.text = llvm::formatv(
+                 "({0} name body) = fastConcat [{1}, utf8 name, maybe \"\" (\\b => fastConcat "
+                 "[\", \", {2}Spelling b.kind, \" [\", commaSeparated (map ({3} t) b.ctors), "
+                 "\"]\", maybe \"\" (\\i => fastConcat [\" instance #{4}.instance<\", utf8 (fst i), "
+                 "\", \", array utf8 (snd i), \">\"]) b.instanceOf]) body, \">\"]",
+                 constructor, literal(spelling + "<"), camel(kind, false), ctorText, dialect)
+                 .str();
 }
 
 //===----------------------------------------------------------------------===//
@@ -1677,15 +1771,11 @@ struct Vocabulary {
   std::optional<mlir::tblgen::Dialect> dialect;
   std::vector<Def> types, attrs;
   std::vector<std::string> omitted, generic;
+  // What the sum of types holds besides types: an identified type's body.
+  std::string typesPreamble;
   std::string ops, printer, primitives;
   Enums enums;
 };
-
-// The last name of a dotted module name.
-StringRef lastName(StringRef module) {
-  size_t dot = module.rfind('.');
-  return dot == StringRef::npos ? module : module.drop_front(dot + 1);
-}
 
 Vocabulary read(const llvm::RecordKeeper &records, StringRef generator) {
   if (dialectName.empty() || moduleName.empty())
@@ -1704,6 +1794,11 @@ Vocabulary read(const llvm::RecordKeeper &records, StringRef generator) {
         continue;
       bool isType = kind == "TypeDef";
       Def written;
+      if (isType && isIdentified(*record)) {
+        identifiedOf(v.enums, def, (module + "Type").str(), written, v.typesPreamble);
+        v.types.push_back(std::move(written));
+        continue;
+      }
       if (std::optional<std::string> why =
               defOf(v.enums, def, isType, (module + (isType ? "Type" : "Attr")).str(), written))
         v.omitted.push_back(llvm::formatv("{0} {1}: {2}", isType ? "type" : "attribute",
@@ -1777,6 +1872,7 @@ bool emitIdrisSyntax(const llvm::RecordKeeper &records, llvm::raw_ostream &os) {
   llvm::raw_string_ostream enumsOs(enumerations), typesOs(types), attrsOs(attrs);
   for (const auto &[name, used] : v.enums)
     emitEnum(used, enumsOs);
+  typesOs << v.typesPreamble;
   emitSum(v.types, true, typesOs);
   emitSum(v.attrs, false, attrsOs);
 

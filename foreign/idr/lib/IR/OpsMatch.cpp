@@ -2,8 +2,7 @@
 // Copyright (c) 2026 Bjorn Pagen
 // idr.match and idr.match_lit: their rules, the region each takes for a
 // known key, and their canonicalization. A case's fields are checked
-// against the scrutinee's declaration once per module verify, through the
-// collection the symbol-use walk hands over.
+// against the scrutinee's data type, whose body is in the type.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Canon.h"
@@ -72,16 +71,35 @@ Region *takenFromEnclosing(Match op) {
 
 } // namespace
 
+// Each case is a constructor of the scrutinee's data type, once, and its
+// region's arguments are that constructor's fields at the scrutinee's
+// grade: what the type's body says, read with the op and its regions'
+// arguments alone.
 LogicalResult MatchOp::verify() {
   size_t cases = getCases().size();
   if (getRegions().size() != cases && getRegions().size() != cases + 1)
     return emitOpError("expects one region per case and at most one default");
+  DataType data = getDataType();
+  if (!data || !data.hasBody())
+    return emitOpError("matches ") << getScrutinee().getType() << ", which has no body";
   llvm::SmallDenseSet<Attribute> seen;
-  for (Attribute name : getCases()) {
-    if (!isa<FlatSymbolRefAttr>(name))
+  for (auto [index, name] : llvm::enumerate(getCases())) {
+    auto ctor = dyn_cast<FlatSymbolRefAttr>(name);
+    if (!ctor)
       return emitOpError("expects constructor names as cases, got ") << name;
     if (!seen.insert(name).second)
       return emitOpError("has two cases for ") << name;
+    std::optional<unsigned> tag = data.getTag(ctor.getValue());
+    if (!tag)
+      return emitOpError("has a case for ")
+             << name << ", which is not a constructor of " << getScrutinee().getType();
+    SmallVector<Type> expected;
+    for (Type field : data.getCtor(*tag).fields)
+      expected.push_back(fieldType(getScrutinee().getType(), field));
+    TypeRange args = getCaseRegion(static_cast<unsigned>(index)).getArgumentTypes();
+    if (args != TypeRange(expected))
+      return emitOpError("case ") << name << " must take the constructor's fields at the "
+                                  << "scrutinee's grade, " << expected;
   }
   if (Region *fallback = getDefaultRegion()) {
     TypeRange args = fallback->getArgumentTypes();
@@ -94,42 +112,28 @@ LogicalResult MatchOp::verify() {
 
 LogicalResult MatchOp::verifyRegions() { return verifyMatchRegions(*this); }
 
-// Each case is a constructor of the scrutinee's type, and its region's
-// arguments are that constructor's fields at the scrutinee's grade.
-LogicalResult MatchOp::verifySymbolUses(SymbolTableCollection &symbols) {
-  DataOp data = lookupData(symbols, *this, getScrutinee().getType());
-  for (auto [index, name] : llvm::enumerate(getCases().getAsRange<FlatSymbolRefAttr>())) {
-    CtorOp ctor = lookupCtor(data, name.getValue());
-    if (!ctor)
-      return emitOpError("has a case for ")
-             << name << ", which is not a constructor of " << getScrutinee().getType();
-    SmallVector<Type> expected;
-    for (Type field : ctor.getFieldTypes().getAsValueRange<TypeAttr>())
-      expected.push_back(fieldType(getScrutinee().getType(), field));
-    TypeRange args = getCaseRegion(static_cast<unsigned>(index)).getArgumentTypes();
-    if (args != TypeRange(expected))
-      return emitOpError("case ") << name << " must take the constructor's fields at the "
-                                  << "scrutinee's grade, " << expected;
-  }
-  return success();
+DataType MatchOp::getDataType() { return dataTypeOf(getScrutinee().getType()); }
+
+unsigned MatchOp::getCaseTag(unsigned index) {
+  return *getDataType().getTag(cast<FlatSymbolRefAttr>(getCases()[index]).getValue());
 }
 
 // A constant constructor, or the constructor of the idr.con that built the
 // scrutinee, also through a linear position; else what an enclosing match
 // on the same value established.
 Region *MatchOp::getTakenRegion(Attribute value) {
-  SymbolRefAttr ctor;
+  FlatSymbolRefAttr ctor;
   Value source = throughLinear(getScrutinee());
   ConAttr constant;
   if (auto con = dyn_cast_or_null<ConAttr>(value))
     ctor = con.getCtor();
   else if (auto built = source.getDefiningOp<ConOp>())
-    ctor = built.getCtor();
+    ctor = built.getCtorAttr();
   else if (matchPattern(source, m_Constant(&constant)))
     ctor = constant.getCtor();
   if (!ctor)
     return takenFromEnclosing(*this);
-  return takenRegion(*this, FlatSymbolRefAttr::get(ctor.getLeafReference()));
+  return takenRegion(*this, ctor);
 }
 
 // Keys are distinct literals of the scrutinee's type, and a default is required.

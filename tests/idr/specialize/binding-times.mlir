@@ -1,6 +1,10 @@
-// RUN: idris-mlir-opt %s --idr-binding-times -o %t.mlir 2> %t.err
+// RUN: idris-mlir-opt %s --idr-defunctionalize --idr-binding-times -o %t.mlir 2> %t.err
 // RUN: FileCheck %s < %t.err
-// The binding time of each parameter, as idr-specialize decides on it.
+// NEEDS-ACCEPTANCE: the remark text of each binding time, as C09's nameOf gives it, after defunctionalization made each closure a constructor.
+// The binding time of each parameter, as the specialization requests read
+// it. Defunctionalization runs first: binding times are read over the
+// calls between the members of a cycle, and a closure is then a
+// constructor of its sum like any other value.
 // map f (x :: xs) = f x :: map f xs: f is fixed, xs decreasing.
 // CHECK-DAG: remark: @map: fixed, decreasing
 // count acc n = count (acc + 1) (n - 1): an accumulator and a counter.
@@ -14,36 +18,24 @@
 // even and odd, each taking the tail of its list to the other.
 // CHECK-DAG: remark: @even: decreasing
 // CHECK-DAG: remark: @odd: decreasing
-// A loop through a closure: @loop builds a closure of @again, which calls
-// @loop back with what it captured. Recursion through a closure counts, and
-// what the closure's applies pass may be anything.
-// CHECK-DAG: remark: @loop: fixed
-// CHECK-DAG: remark: @again: fixed, other
-// @loop's raised clone, which applies the closure @loop returns: on no
-// cycle, but @again's call of @loop, applied as the clone applies it,
-// becomes its call once inlining shows the apply. It recurses where @loop
-// does: @loop's parameter, then what the apply passes.
-// CHECK-DAG: remark: @loop.raise1: fixed, other
-// A function on no cycle specializes on anything.
-// CHECK-DAG: remark: @twice: free, free
-module attributes {idr.program} {
-  idr.data @L box {
-    idr.ctor @Nil ()
-    idr.ctor @Cons (i64, !idr.box<@L>)
-  }
-  idr.func private @map(%f: !idr.fn<(i64) -> (i64)>, %xs: !idr.box<@L>) -> !idr.box<@L> {
-    %r = idr.match %xs : !idr.box<@L> -> (!idr.box<@L>) {
+// A function on no cycle specializes on anything. (@twice is on one after
+// defunctionalization: the dispatch of its closure calls itself.)
+// CHECK-DAG: remark: @plus: free, free
+!L = !idr.data<"L", list [@Nil(), @Cons(i64, !idr.box<!idr.data<"L">>)]>
+module {
+  idr.func private @map(%f: !idr.fn<(i64) -> (i64)>, %xs: !idr.box<!L>) -> !idr.box<!L> {
+    %r = idr.match %xs : !idr.box<!L> -> (!idr.box<!L>) {
     case @Nil() {
-      idr.yield %xs : !idr.box<@L>
+      idr.yield %xs : !idr.box<!L>
     }
-    case @Cons(%h: i64, %t: !idr.box<@L>) {
+    case @Cons(%h: i64, %t: !idr.box<!L>) {
       %h2 = idr.apply %f(%h) : !idr.fn<(i64) -> (i64)>
-      %t2 = idr.call @map(%f, %t) : (!idr.fn<(i64) -> (i64)>, !idr.box<@L>) -> !idr.box<@L>
-      %c = idr.con @L::@Cons(%h2, %t2) : (i64, !idr.box<@L>) -> !idr.box<@L>
-      idr.yield %c : !idr.box<@L>
+      %t2 = idr.call @map(%f, %t) : (!idr.fn<(i64) -> (i64)>, !idr.box<!L>) -> !idr.box<!L>
+      %c = idr.con @Cons(%h2, %t2) : (i64, !idr.box<!L>) -> !idr.box<!L>
+      idr.yield %c : !idr.box<!L>
     }
     }
-    return %r : !idr.box<@L>
+    return %r : !idr.box<!L>
   }
   idr.func private @count(%acc: i64, %n: !idr.big) -> i64 {
     %r = idr.match_lit %n : !idr.big -> (i64) {
@@ -82,21 +74,21 @@ module attributes {idr.program} {
     }
     return %r : i64
   }
-  idr.func private @walk(%xs: !idr.box<@L>, %flag: i64) -> i64 {
+  idr.func private @walk(%xs: !idr.box<!L>, %flag: i64) -> i64 {
     %r = idr.match_lit %flag : i64 -> (i64) {
     case 0 {
       %c1 = arith.constant 1 : i64
-      %y = idr.call @walk(%xs, %c1) : (!idr.box<@L>, i64) -> i64
+      %y = idr.call @walk(%xs, %c1) : (!idr.box<!L>, i64) -> i64
       idr.yield %y : i64
     }
     default {
-      %s = idr.match %xs : !idr.box<@L> -> (i64) {
+      %s = idr.match %xs : !idr.box<!L> -> (i64) {
       case @Nil() {
         idr.yield %flag : i64
       }
-      case @Cons(%h: i64, %t: !idr.box<@L>) {
+      case @Cons(%h: i64, %t: !idr.box<!L>) {
         %c0 = arith.constant 0 : i64
-        %y = idr.call @walk(%t, %c0) : (!idr.box<@L>, i64) -> i64
+        %y = idr.call @walk(%t, %c0) : (!idr.box<!L>, i64) -> i64
         idr.yield %y : i64
       }
       }
@@ -105,36 +97,27 @@ module attributes {idr.program} {
     }
     return %r : i64
   }
-  idr.func private @even(%xs: !idr.box<@L>) -> i1 {
-    %r = idr.match %xs : !idr.box<@L> -> (i1) {
+  idr.func private @even(%xs: !idr.box<!L>) -> i1 {
+    %r = idr.match %xs : !idr.box<!L> -> (i1) {
     case @Nil() {
       %t = arith.constant true
       idr.yield %t : i1
     }
-    case @Cons(%h: i64, %t: !idr.box<@L>) {
-      %y = idr.call @odd(%t) : (!idr.box<@L>) -> i1
+    case @Cons(%h: i64, %t: !idr.box<!L>) {
+      %y = idr.call @odd(%t) : (!idr.box<!L>) -> i1
       idr.yield %y : i1
     }
     }
     return %r : i1
   }
-  idr.func private @odd(%xs: !idr.box<@L>) -> i1 {
-    %t = idr.field %xs[@Cons, 1] : !idr.box<@L> -> !idr.box<@L>
-    %y = idr.call @even(%t) : (!idr.box<@L>) -> i1
+  idr.func private @odd(%xs: !idr.box<!L>) -> i1 {
+    %t = idr.field %xs[@Cons, 1] : !idr.box<!L> -> !idr.box<!L>
+    %y = idr.call @even(%t) : (!idr.box<!L>) -> i1
     return %y : i1
   }
-  idr.func private @loop(%n: i64) -> !idr.fn<(i64) -> (i64)> {
-    %k = idr.closure @again(%n) : (i64) -> !idr.fn<(i64) -> (i64)>
-    return %k : !idr.fn<(i64) -> (i64)>
-  }
-  idr.func private @again(%n: i64, %x: i64) -> i64 {
-    %k = idr.call @loop(%n) : (i64) -> !idr.fn<(i64) -> (i64)>
-    %y = idr.apply %k(%x) : !idr.fn<(i64) -> (i64)>
-    return %y : i64
-  }
-  idr.func private @loop.raise1(%n: i64, %x: i64) -> i64 attributes {clone = #idr.clone<@loop.raise1, #idr.key_apply<"loop", 1>>} {
-    %y = idr.call @again(%n, %x) : (i64, i64) -> i64
-    return %y : i64
+  idr.func private @plus(%a: i64, %b: i64) -> i64 {
+    %c = arith.addi %a, %b : i64
+    return %c : i64
   }
   idr.func @Main.main() -> i64 {
     %c = arith.constant 0 : i64

@@ -6,16 +6,21 @@
 // them. Instead it is specialized on the grade, as the specializer
 // specializes on types: the calls whose every followed argument is
 // exclusive go to a copy of their own, whose parameters the next solve
-// proves exclusive. A call is redirected at most once, so the rounds end.
-// A function whose callers the solver does not all see (a closure's code)
-// keeps them, and a copy is never copied again.
+// proves exclusive. The copy's key is the function and the context it is
+// made for, every followed parameter exclusive; one function has one such
+// context, so one copy, made once and named from its key. A function whose
+// callers the solver does not all see keeps them, and a copy is never
+// copied again.
 #include "idr/Analysis/Ownership.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Symbols.h"
 #include "idr/Transforms/Ownership.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/SymbolTable.h"
 #include "llvm/Support/Debug.h"
+
+#include <string>
 
 #define DEBUG_TYPE "idr-rc"
 
@@ -40,17 +45,34 @@ bool improves(const Exclusivity &solved, FuncOp fn, CallOp call) {
   return gains;
 }
 
-// The copy of `fn`, made on first need right after it. It keeps every fact
-// of its original (its instance with them) but the clone, which names the
-// original's key and nothing after idr-rc reads. The table renames it if
-// the name is taken.
-FuncOp copyOf(FuncOp fn, SymbolTable &symbols, Copies &copies) {
+// The copy's name, from its key: the original, and the positions of the
+// parameters the copy takes exclusive, in order.
+std::string copyName(FuncOp fn) {
+  std::string key;
+  for (BlockArgument param : fn.getArguments()) {
+    if (!followed(param))
+      continue;
+    if (!key.empty())
+      key += ',';
+    key += std::to_string(param.getArgNumber());
+  }
+  return contentName(fn.getSymName(), "excl", key);
+}
+
+// The copy of `fn`, made on its key's first need, right after it. It keeps
+// every fact of its original, its instance with them. A name the table
+// already holds is another key's: two keys whose names meet are a
+// collision, never a renamed copy.
+FailureOr<FuncOp> copyOf(FuncOp fn, SymbolTable &symbols, Copies &copies) {
   if (FuncOp copy = copies.of.lookup(fn))
     return copy;
+  std::string name = copyName(fn);
+  if (symbols.lookup(name))
+    return fn.emitError("idr-rc: internal error: the name @")
+           << name << " of the exclusive copy of @" << fn.getSymName() << " is taken";
   FuncOp copy = fn.clone();
-  copy.setSymName((fn.getSymName() + ".excl").str());
+  copy.setSymName(name);
   copy.setPrivate();
-  copy.removeCloneAttr();
   symbols.insert(copy, std::next(fn->getIterator()));
   copies.of.insert({fn, copy});
   copies.copies.insert(copy);
@@ -59,12 +81,13 @@ FuncOp copyOf(FuncOp fn, SymbolTable &symbols, Copies &copies) {
 
 } // namespace
 
-bool specializeOnGrade(ModuleOp module, const Exclusivity &solved, SymbolTable &symbols,
-                       Copies &copies) {
-  SmallVector<FuncOp> fns(module.getOps<FuncOp>());
-  bool redirected = false;
-  for (FuncOp fn : fns) {
-    if (fn.isExternal() || fn.isPublic() || copies.copies.contains(fn))
+FailureOr<bool> specializeOnGrade(ModuleOp module, const Exclusivity &solved,
+                                  SymbolTable &symbols, Copies &copies) {
+  // The round's keys and the calls each takes, found on the module as the
+  // solve saw it, before anything changes.
+  SmallVector<std::pair<FuncOp, SmallVector<CallOp>>> keys;
+  for (FuncOp fn : module.getOps<FuncOp>()) {
+    if (fn.isPublic() || copies.copies.contains(fn))
       continue;
     std::optional<ArrayRef<Operation *>> callers = solved.callers(fn);
     if (!callers)
@@ -82,15 +105,19 @@ bool specializeOnGrade(ModuleOp module, const Exclusivity &solved, SymbolTable &
     }
     if (exclusiveCalls.empty() || !mixed)
       continue;
-    FuncOp copy = copyOf(fn, symbols, copies);
-    // The copy has its original's effects, which the call's contain.
-    for (CallOp call : exclusiveCalls)
-      call.setCalleeAttr(FlatSymbolRefAttr::get(copy.getSymNameAttr()));
-    LLVM_DEBUG(llvm::dbgs() << "idr-rc: " << exclusiveCalls.size() << " calls of @"
-                            << fn.getSymName() << " go to @" << copy.getSymName() << "\n");
-    redirected = true;
+    keys.emplace_back(fn, std::move(exclusiveCalls));
   }
-  return redirected;
+  for (auto &[fn, calls] : keys) {
+    FailureOr<FuncOp> copy = copyOf(fn, symbols, copies);
+    if (failed(copy))
+      return failure();
+    // The copy has its original's effects, which the call's equal.
+    for (CallOp call : calls)
+      call.setCalleeAttr(FlatSymbolRefAttr::get(copy->getSymNameAttr()));
+    LLVM_DEBUG(llvm::dbgs() << "idr-rc: " << calls.size() << " calls of @" << fn.getSymName()
+                            << " go to @" << copy->getSymName() << "\n");
+  }
+  return !keys.empty();
 }
 
 // A function every call of which went to its copy is unused. One map lists

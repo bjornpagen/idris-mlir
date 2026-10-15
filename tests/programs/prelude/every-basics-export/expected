@@ -1,11 +1,9 @@
 compile: exit 0
-artifacts: prog.core prog.mlir prog.o prog
+artifacts: core module objects executable
 run: exit status as expected
 stdout: as expected
 stderr: empty
 object: no undefined symbol outside the allowed set
 prelude Prelude.Basics: 34 exports, each used (9 compile-time only: Bool List Not SnocList cong cong2 depCong depCong2 irrelevantEq)
-budget: kept
 dumps: parse and verify
-simplify: idempotent
 quantities: kept

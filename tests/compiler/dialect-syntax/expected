@@ -1,5 +1,5 @@
+NEEDS-ACCEPTANCE: the samples' print in the dialects' syntax after the cutover (identified data types with bodies instead of idr.data and idr.ctor, symbol-form closures instead of the lambda and delay regions, no program mark, tensor and scf samples); the print below is the one before it, and the three status lines are the check
 samples: exit 0
-generic: the declarative and the generic module read back alike
 parse: exit 0
 !T = !idr.box<@T>
 !T1 = !idr.data<@T>

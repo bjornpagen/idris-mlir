@@ -25,7 +25,7 @@ class Idr_MatchOpBase<string mnemonic, list<Trait> traits = []>
   let hasVerifier = 1;
   let hasRegionVerifier = 1;
   let hasCanonicalizer = 1;
-  let extraClassDeclaration = [{
+  code matchClassDeclaration = [{
     // The region of case `index`, and the default region, if any.
     ::mlir::Region &getCaseRegion(unsigned index) { return getRegions()[index]; }
     ::mlir::Region *getDefaultRegion() {
@@ -35,12 +35,13 @@ class Idr_MatchOpBase<string mnemonic, list<Trait> traits = []>
     // for idr.match, when it is built by an idr.con), or null if unknown.
     ::mlir::Region *getTakenRegion(::mlir::Attribute value);
   }];
+  let extraClassDeclaration = matchClassDeclaration;
 }
 
 // A case's arguments are named by the pattern variables' locations, else
-// f0, f1, ... by position; the suggestion reads no declaration.
+// f0, f1, ... by position. A case names a constructor within the
+// scrutinee's data type, whose body the verifier reads.
 def Idr_MatchOp : Idr_MatchOpBase<"match", [
-    DeclareOpInterfaceMethods<SymbolUserOpInterface>,
     DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmBlockArgumentNames"]>]> {
   let summary = "branches on the constructor of a sum or box, taking it apart at its grade";
   let description = [{
@@ -51,6 +52,12 @@ def Idr_MatchOp : Idr_MatchOpBase<"match", [
     apart back at its type.
   }];
   let arguments = (ins Idr_SumView:$scrutinee, ArrayAttr:$cases);
+  let extraClassDeclaration = matchClassDeclaration # [{
+    // The data type of the scrutinee, and the tag of the constructor case
+    // `index` names.
+    ::idr::DataType getDataType();
+    unsigned getCaseTag(unsigned index);
+  }];
 }
 
 // A condition (i1) too: idr-rc makes a select of counted values a match
@@ -62,17 +69,13 @@ def Idr_MatchLitOp : Idr_MatchOpBase<"match_lit"> {
                        ArrayAttr:$cases);
 }
 
-// A match and an array loop branch into their regions, and the yield goes on
-// to what its parent says. A lambda or a delay does not: its body runs when
-// the closure is applied or the suspension forced, so the yield that ends it
-// has no region successor (lib/IR/Regions.cpp), where the interface's
-// default would ask the parent as a region branch, which it is not.
+// A match branches into its regions, and the yield goes on to the match's
+// results.
 def Idr_YieldOp : Idr_Op<"yield", [Idr_ConsumesOnly<"0">, ReturnLike, Terminator,
-    ParentOneOf<["MatchOp", "MatchLitOp", "ArrayGenerateOp", "ArrayFoldOp",
-                 "LambdaOp", "DelayOp"]>,
+    ParentOneOf<["MatchOp", "MatchLitOp"]>,
     DeclareOpInterfaceMethods<RegionBranchTerminatorOpInterface,
         ["getMutableSuccessorOperands", "getSuccessorRegions"]>]> {
-  let summary = "ends a region of a match, a lambda or a delay, or the body of an array loop, with its results";
+  let summary = "ends a region of a match with its results";
   let arguments = (ins Variadic<AnyType>:$results);
   let assemblyFormat = "attr-dict ($results^ `:` type($results))?";
 }

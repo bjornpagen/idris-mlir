@@ -7,41 +7,37 @@
 // of the two constructors it builds goes into one of the two cells that
 // died, and neither cell is freed (reuses-every-cell).
 // CHECK-LABEL: idr.func private @f(
-// CHECK-DAG: take %{{.*}} @P::@MkP
-// CHECK-DAG: take %{{.*}} @Q::@MkQ
-// CHECK-DAG: reuse %{{.*}} @Q::@MkQ(
-// CHECK-DAG: reuse %{{.*}} @P::@MkP(
+// CHECK-DAG: take %{{.*}} @MkP
+// CHECK-DAG: take %{{.*}} @MkQ
+// CHECK-DAG: reuse %{{.*}} @MkQ(
+// CHECK-DAG: reuse %{{.*}} @MkP(
 // CHECK-LABEL: idr.func @root(
-module attributes {idr.program} {
-  idr.data @Q box {
-    idr.ctor @MkQ (i64, i64)
-  }
-  idr.data @P box {
-    idr.ctor @MkP (i64, !idr.box<@Q>)
-  }
-  idr.func private @f(%p: !idr.box<@P>) -> !idr.box<@P> {
-    %r = idr.match %p : !idr.box<@P> -> (!idr.box<@P>) {
-    case @MkP(%x: i64, %q: !idr.box<@Q>) {
-      %a = idr.field %q[@MkQ, 0] : !idr.box<@Q> -> i64
-      %b = idr.field %q[@MkQ, 1] : !idr.box<@Q> -> i64
-      %q2 = idr.con @Q::@MkQ(%b, %a) : (i64, i64) -> !idr.box<@Q>
+!Q = !idr.data<"Q", plain [@MkQ(i64, i64)]>
+!P = !idr.data<"P", plain [@MkP(i64, !idr.box<!Q>)]>
+module {
+  idr.func private @f(%p: !idr.box<!P>) -> !idr.box<!P> {
+    %r = idr.match %p : !idr.box<!P> -> (!idr.box<!P>) {
+    case @MkP(%x: i64, %q: !idr.box<!Q>) {
+      %a = idr.field %q[@MkQ, 0] : !idr.box<!Q> -> i64
+      %b = idr.field %q[@MkQ, 1] : !idr.box<!Q> -> i64
+      %q2 = idr.con @MkQ(%b, %a) : (i64, i64) -> !idr.box<!Q>
       %one = arith.constant 1 : i64
       %x2 = arith.addi %x, %one : i64
-      %p2 = idr.con @P::@MkP(%x2, %q2) : (i64, !idr.box<@Q>) -> !idr.box<@P>
-      idr.yield %p2 : !idr.box<@P>
+      %p2 = idr.con @MkP(%x2, %q2) : (i64, !idr.box<!Q>) -> !idr.box<!P>
+      idr.yield %p2 : !idr.box<!P>
     }
     }
-    return %r : !idr.box<@P>
+    return %r : !idr.box<!P>
   }
   idr.func @root(%w: !idr.world) -> !idr.world {
     %c1 = arith.constant 1 : i64
     %c2 = arith.constant 2 : i64
-    %q = idr.con @Q::@MkQ(%c1, %c2) : (i64, i64) -> !idr.box<@Q>
-    %p = idr.con @P::@MkP(%c1, %q) : (i64, !idr.box<@Q>) -> !idr.box<@P>
-    %p2 = idr.call @f(%p) : (!idr.box<@P>) -> !idr.box<@P>
-    %s = idr.match %p2 : !idr.box<@P> -> (i64) {
-    case @MkP(%x: i64, %q2: !idr.box<@Q>) {
-      %a = idr.field %q2[@MkQ, 0] : !idr.box<@Q> -> i64
+    %q = idr.con @MkQ(%c1, %c2) : (i64, i64) -> !idr.box<!Q>
+    %p = idr.con @MkP(%c1, %q) : (i64, !idr.box<!Q>) -> !idr.box<!P>
+    %p2 = idr.call @f(%p) : (!idr.box<!P>) -> !idr.box<!P>
+    %s = idr.match %p2 : !idr.box<!P> -> (i64) {
+    case @MkP(%x: i64, %q2: !idr.box<!Q>) {
+      %a = idr.field %q2[@MkQ, 0] : !idr.box<!Q> -> i64
       %t = arith.addi %x, %a : i64
       idr.yield %t : i64
     }

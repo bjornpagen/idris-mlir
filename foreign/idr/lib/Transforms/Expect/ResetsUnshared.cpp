@@ -39,10 +39,10 @@ bool givenSecondReference(Value value) {
 // function with a body, tests a cell that its function never gives a
 // second reference: no idr.dup of a view of the box or of a value it was
 // read from.
-LogicalResult resetsUnshared(ModuleOp module, AnalysisManager &analyses, StringRef function) {
+LogicalResult resetsUnshared(ModuleOp module, AnalysisManager &, StringRef function) {
   constexpr StringRef property = "resets-unshared";
   SmallVector<Operation *> roots =
-      rootsOf(module, analyses.getAnalysis<SymbolTable>(), function, property);
+      rootsOf(module, function, property);
   if (roots.empty())
     return failure();
   bool held = true;

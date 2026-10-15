@@ -238,6 +238,26 @@ struct LowerBigToInt : IdrPattern<BigToIntOp> {
   }
 };
 
+// A natural as the extent of an array to be made: a small natural's value,
+// the word shifted right, which is below 2^62 and so fits an index; any
+// other natural is past every allocation, and crashes as the allocation
+// would.
+struct LowerNatToExtent : IdrPattern<NatToExtentOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(NatToExtentOp op, OpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Value word = adaptor.getNatural();
+    Value yes = arith::ConstantOp::create(rewriter, loc, rewriter.getBoolAttr(true));
+    Value large = arith::XOrIOp::create(rewriter, loc, lowBit(rewriter, loc, word), yes);
+    runtime.crashIf(rewriter, loc, large, *op.getCrashCause());
+    Value one = arith::ConstantIntOp::create(rewriter, loc, 1, 64);
+    Value value = arith::ShRUIOp::create(rewriter, loc, word, one);
+    rewriter.replaceOpWithNewOp<arith::IndexCastOp>(op, rewriter.getIndexType(), value);
+    return success();
+  }
+};
+
 } // namespace
 
 // The patterns of bigs and naturals, whose small case is inline.
@@ -245,7 +265,7 @@ void populateBigPatterns(RewritePatternSet &patterns, const TypeConverter &conve
                          const Layouts &layouts, Runtime &runtime) {
   patterns.add<LowerBigArith<BigAddOp>, LowerBigArith<BigSubOp>, LowerBigArith<BigMulOp>,
                LowerSmallUnary<BigPredOp>, LowerSmallUnary<NatFromBigOp>, LowerBigCmp,
-               LowerBigFromInt, LowerBigSmall, LowerBigToInt>(
+               LowerBigFromInt, LowerBigSmall, LowerBigToInt, LowerNatToExtent>(
       converter, patterns.getContext(), layouts, runtime);
 }
 

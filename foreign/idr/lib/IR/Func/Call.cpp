@@ -2,9 +2,8 @@
 // Copyright (c) 2026 Bjorn Pagen
 // idr.call and idr.return. A call's callee is read once per module verify,
 // from the collection MLIR shares among every symbol user, and nowhere
-// else: what a call may do is its own `effects`, which idr-effects writes
-// from its callee's and from what the closures it is given may do, and
-// what it takes over is its operands' grades, which the callee's
+// else: what a call may do is its own `effects`, a copy of its callee's,
+// and what it takes over is its operands' grades, which the callee's
 // parameters are. So canonicalize, CSE and remove-dead-values ask a call
 // from any thread, and the answer costs its operands and results.
 //
@@ -61,15 +60,16 @@ LogicalResult idr::CallOp::verifySymbolUses(SymbolTableCollection &symbols) {
     if (std::get<0>(pair) != std::get<1>(pair))
       return emitOpError("expects ") << std::get<0>(pair) << " as result " << index << " of "
                                      << name << ", which returns " << std::get<1>(pair);
-  // A call says at least what its callee may do: the callee's facts are
-  // the authority, the call's a copy that idr-effects keeps.
-  EffectAttr carried = getEffectsAttr();
-  if (!carried)
-    return success();
-  Effect callee = mayDo(fn.isExternal() ? EffectAttr() : fn.getEffectsAttr());
-  if (!bitEnumContainsAll(carried.getValue(), callee))
+  // A call says what its callee may do, no more and no less: the callee's
+  // facts are the authority, the call's a copy kept because an effect
+  // query has no symbol table. A closure passed to a call is none after
+  // idr-defunctionalize, so nothing else adds to it.
+  Effect carried = mayDo(getEffectsAttr());
+  Effect callee = mayDo(fn.getEffectsAttr());
+  if (carried != callee)
     return emitOpError("carries effects ")
-           << carried << ", but " << name << " may do " << EffectAttr::get(getContext(), callee);
+           << EffectAttr::get(getContext(), carried) << ", but " << name << " may do "
+           << EffectAttr::get(getContext(), callee);
   return success();
 }
 

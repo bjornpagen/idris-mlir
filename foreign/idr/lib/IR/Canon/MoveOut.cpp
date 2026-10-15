@@ -31,17 +31,21 @@ using namespace idr;
 
 namespace {
 
-// Whether `op` may read the array between the read and the write: it may
-// read the IO resource, what every array op reads and writes, or nothing
+// Whether `op` may read an array of type `array` between the read and the
+// write: it may read the IO resource (an IO op or a call may reach any cell
+// it is given), it reads or writes a value of the array's type, nothing
 // says what it does (an apply, an indirect call, an op without the
 // interface), or it holds a force anywhere inside.
-bool mayReadIO(Operation *op) {
+bool mayRead(Operation *op, Type array) {
   if (op->walk([](ForceOp) { return WalkResult::interrupt(); }).wasInterrupted())
     return true;
   std::optional<SmallVector<MemoryEffects::EffectInstance>> effects = getEffectsRecursively(op);
-  return !effects || llvm::any_of(*effects, [](const MemoryEffects::EffectInstance &effect) {
-    return isa<MemoryEffects::Read>(effect.getEffect()) &&
-           effect.getResource() == IOResource::get();
+  return !effects || llvm::any_of(*effects, [&](const MemoryEffects::EffectInstance &effect) {
+    if (isa<MemoryEffects::Read>(effect.getEffect()) && effect.getResource() == IOResource::get())
+      return true;
+    Value on = effect.getValue();
+    return isa<MemoryEffects::Read, MemoryEffects::Write>(effect.getEffect()) && on &&
+           unrestricted(on.getType()) == unrestricted(array);
   });
 }
 
@@ -57,14 +61,12 @@ struct MoveOutBeforeSet : OpRewritePattern<ArraySetOp> {
         get->getBlock() != set->getBlock() ||
         !sameElement(get.getArray(), get.getIndices(), set.getArray(), set.getIndices()))
       return failure();
-    for (Operation *op = get->getNextNode(); op != set.getOperation(); op = op->getNextNode())
-      if (mayReadIO(op))
-        return failure();
-    // An element that holds no reference has none to give up. Asked last:
-    // an unboxed sum answers through its declaration, a scan of the module.
-    if (!holdsReferences(get.getArrayType().getElementType(),
-                         [&](Type type) { return declarationOf(get, type); }))
+    // An element that holds no reference has none to give up.
+    if (!holdsReferences(get.getArrayType().getElementType()))
       return failure();
+    for (Operation *op = get->getNextNode(); op != set.getOperation(); op = op->getNextNode())
+      if (mayRead(op, get.getArray().getType()))
+        return failure();
     rewriter.modifyOpInPlace(get, [&] { get.setMoves(true); });
     return success();
   }

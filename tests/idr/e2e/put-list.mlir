@@ -11,15 +11,9 @@
 // OUT: [xé€😀] [xé€😀] 4
 // OUT-NEXT: [ab-x] [ab-x] 4
 // ERR: idris-mlir: done
-module attributes {idr.program} {
-  idr.data @Chars box {
-    idr.ctor @Nil ()
-    idr.ctor @Cons (i32, !idr.box<@Chars>)
-  }
-  idr.data @Strs box {
-    idr.ctor @Nil ()
-    idr.ctor @Cons (!idr.str, !idr.box<@Strs>)
-  }
+!Chars = !idr.data<"Chars", list [@Nil(), @Cons(i32, !idr.box<!idr.data<"Chars">>)]>
+!Strs = !idr.data<"Strs", list [@Nil(), @Cons(!idr.str, !idr.box<!idr.data<"Strs">>)]>
+module {
   idr.func private @pick(%c: i32) -> !idr.str {
     %r = idr.match_lit %c : i32 -> (!idr.str) {
     case 121 {
@@ -39,43 +33,43 @@ module attributes {idr.program} {
     %space = arith.constant 32 : i32
     %newline = arith.constant 10 : i32
     %x, %w1 = idr.io.get_byte %w
-    %cnil = idr.con @Chars::@Nil() : () -> !idr.box<@Chars>
+    %cnil = idr.con @Nil() : () -> !idr.box<!Chars>
     %grin = arith.constant 128512 : i32
     %euro = arith.constant 8364 : i32
     %e = arith.constant 233 : i32
-    %c3 = idr.con @Chars::@Cons(%grin, %cnil) : (i32, !idr.box<@Chars>) -> !idr.box<@Chars>
-    %c2 = idr.con @Chars::@Cons(%euro, %c3) : (i32, !idr.box<@Chars>) -> !idr.box<@Chars>
-    %c1 = idr.con @Chars::@Cons(%e, %c2) : (i32, !idr.box<@Chars>) -> !idr.box<@Chars>
-    %cs = idr.con @Chars::@Cons(%x, %c1) : (i32, !idr.box<@Chars>) -> !idr.box<@Chars>
+    %c3 = idr.con @Cons(%grin, %cnil) : (i32, !idr.box<!Chars>) -> !idr.box<!Chars>
+    %c2 = idr.con @Cons(%euro, %c3) : (i32, !idr.box<!Chars>) -> !idr.box<!Chars>
+    %c1 = idr.con @Cons(%e, %c2) : (i32, !idr.box<!Chars>) -> !idr.box<!Chars>
+    %cs = idr.con @Cons(%x, %c1) : (i32, !idr.box<!Chars>) -> !idr.box<!Chars>
     // Written as it is walked.
     %w2 = idr.io.put_char %open, %w1
-    %walked = idr.str.pack %cs : !idr.box<@Chars> -> !idr.str
+    %walked = idr.str.pack %cs : !idr.box<!Chars> -> !idr.str
     %w3 = idr.io.put_str %walked, %w2
     %w4 = idr.io.put_char %close, %w3
     %w5 = idr.io.put_char %space, %w4
     // Built, since its length is taken too.
     %w6 = idr.io.put_char %open, %w5
-    %built = idr.str.pack %cs : !idr.box<@Chars> -> !idr.str
+    %built = idr.str.pack %cs : !idr.box<!Chars> -> !idr.str
     %w7 = idr.io.put_str %built, %w6
     %w8 = idr.io.put_char %close, %w7
     %w9 = idr.io.put_char %space, %w8
     %n = idr.str.length %built
     %w10 = idr.io.put_int signed %n, %w9 : i64
     %w11 = idr.io.put_char %newline, %w10
-    %snil = idr.con @Strs::@Nil() : () -> !idr.box<@Strs>
+    %snil = idr.con @Nil() : () -> !idr.box<!Strs>
     %ab = idr.constant "ab" : !idr.str
     %dash = idr.constant "-" : !idr.str
     %xs = idr.str.from_char %x
-    %s3 = idr.con @Strs::@Cons(%xs, %snil) : (!idr.str, !idr.box<@Strs>) -> !idr.box<@Strs>
-    %s2 = idr.con @Strs::@Cons(%dash, %s3) : (!idr.str, !idr.box<@Strs>) -> !idr.box<@Strs>
-    %ss = idr.con @Strs::@Cons(%ab, %s2) : (!idr.str, !idr.box<@Strs>) -> !idr.box<@Strs>
+    %s3 = idr.con @Cons(%xs, %snil) : (!idr.str, !idr.box<!Strs>) -> !idr.box<!Strs>
+    %s2 = idr.con @Cons(%dash, %s3) : (!idr.str, !idr.box<!Strs>) -> !idr.box<!Strs>
+    %ss = idr.con @Cons(%ab, %s2) : (!idr.str, !idr.box<!Strs>) -> !idr.box<!Strs>
     %w12 = idr.io.put_char %open, %w11
-    %joined = idr.str.concat %ss : !idr.box<@Strs> -> !idr.str
+    %joined = idr.str.concat %ss : !idr.box<!Strs> -> !idr.str
     %w13 = idr.io.put_str %joined, %w12
     %w14 = idr.io.put_char %close, %w13
     %w15 = idr.io.put_char %space, %w14
     %w16 = idr.io.put_char %open, %w15
-    %kept = idr.str.concat %ss : !idr.box<@Strs> -> !idr.str
+    %kept = idr.str.concat %ss : !idr.box<!Strs> -> !idr.str
     %w17 = idr.io.put_str %kept, %w16
     %w18 = idr.io.put_char %close, %w17
     %w19 = idr.io.put_char %space, %w18

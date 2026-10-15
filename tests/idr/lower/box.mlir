@@ -23,18 +23,15 @@
 // CHECK: scf.index_switch
 // CHECK: llvm.getelementptr %[[F]][16] : (!llvm.ptr) -> !llvm.ptr, i8
 // CHECK: llvm.load %{{.*}} {{.*}}: !llvm.ptr -> i64
-module attributes {idr.program} {
-  idr.data @List box {
-    idr.ctor @Nil ()
-    idr.ctor @Cons (i64, !idr.box<@List>)
+!List = !idr.data<"List", list [@Nil(), @Cons(i64, !idr.box<!idr.data<"List">>)]>
+module {
+  idr.func private @push(%x: i64, %l: !idr.box<!List>) -> !idr.box<!List> {
+    %c = idr.con @Cons(%x, %l) : (i64, !idr.box<!List>) -> !idr.box<!List>
+    return %c : !idr.box<!List>
   }
-  idr.func private @push(%x: i64, %l: !idr.box<@List>) -> !idr.box<@List> {
-    %c = idr.con @List::@Cons(%x, %l) : (i64, !idr.box<@List>) -> !idr.box<@List>
-    return %c : !idr.box<@List>
-  }
-  idr.func private @first(%l: !idr.box<@List>) -> i64 {
-    %r = idr.match %l : !idr.box<@List> -> (i64) {
-    case @Cons(%h: i64, %t: !idr.box<@List>) {
+  idr.func private @first(%l: !idr.box<!List>) -> i64 {
+    %r = idr.match %l : !idr.box<!List> -> (i64) {
+    case @Cons(%h: i64, %t: !idr.box<!List>) {
       idr.yield %h : i64
     }
     default {
@@ -45,10 +42,10 @@ module attributes {idr.program} {
     return %r : i64
   }
   idr.func @Prog.main() -> i64 {
-    %n = idr.con @List::@Nil() : () -> !idr.box<@List>
+    %n = idr.con @Nil() : () -> !idr.box<!List>
     %one = arith.constant 1 : i64
-    %l = idr.call @push(%one, %n) : (i64, !idr.box<@List>) -> !idr.box<@List>
-    %h = idr.call @first(%l) : (!idr.box<@List>) -> i64
+    %l = idr.call @push(%one, %n) : (i64, !idr.box<!List>) -> !idr.box<!List>
+    %h = idr.call @first(%l) : (!idr.box<!List>) -> i64
     return %h : i64
   }
 }

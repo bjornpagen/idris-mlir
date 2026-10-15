@@ -21,9 +21,9 @@
 
 using namespace mlir;
 
-namespace idr {
+namespace idr::identities {
 
-bool Identities::Record::stable(const Assumed &assumed) const {
+bool Record::stable(const Assumed &assumed) const {
   if (!cached)
     return false;
   for (const Snapshot &snap : saved) {
@@ -37,7 +37,7 @@ bool Identities::Record::stable(const Assumed &assumed) const {
   return true;
 }
 
-void Identities::Record::readCallee(StringAttr name) {
+void Record::readCallee(StringAttr name) {
   if (!consulted.insert(name).second)
     return;
   auto it = live->find(name);
@@ -47,7 +47,7 @@ void Identities::Record::readCallee(StringAttr name) {
     saved.push_back({name, it->second});
 }
 
-void Identities::Record::fill(std::size_t node) {
+void Record::fill(std::size_t node) {
   if (memo[node].epoch == epoch)
     return;
   memo[node].epoch = epoch;
@@ -136,7 +136,7 @@ void Identities::Record::fill(std::size_t node) {
   }
 }
 
-std::optional<unsigned> Identities::Record::partOf(int node, unsigned slot) {
+std::optional<unsigned> Record::partOf(int node, unsigned slot) {
   if (node < 0)
     return std::nullopt;
   auto id = static_cast<std::size_t>(node);
@@ -144,20 +144,17 @@ std::optional<unsigned> Identities::Record::partOf(int node, unsigned slot) {
   return memo[id].parts[slot];
 }
 
-StringAttr Identities::Record::singleCtor(Type type) {
+StringAttr Record::singleCtor(Type type) {
   if (auto it = oneCtor.find(type); it != oneCtor.end())
     return it->second;
   StringAttr ctor;
-  if (DataOp data = lookupData(symbols, type)) {
-    SmallVector<CtorOp> ctors = data.getCtors();
-    if (ctors.size() == 1)
-      ctor = ctors.front().getSymNameAttr();
-  }
+  if (DataType data = dataTypeOf(type); data && data.getCtors().size() == 1)
+    ctor = data.getCtors().front().name;
   oneCtor[type] = ctor;
   return ctor;
 }
 
-Identities::Record::Known Identities::Record::knownAt(unsigned part, ArrayRef<Frame> frames,
+Record::Known Record::knownAt(unsigned part, ArrayRef<Frame> frames,
                                                       unsigned slot) {
   for (const Frame &frame : frames) {
     std::optional<unsigned> scrutinee = partOf(frame.scrutinee, slot);
@@ -170,7 +167,7 @@ Identities::Record::Known Identities::Record::knownAt(unsigned part, ArrayRef<Fr
   return {singleCtor(parts[slot][part].type), {}};
 }
 
-bool Identities::Record::rebuilds(int node, unsigned part, ArrayRef<Frame> frames, unsigned slot) {
+bool Record::rebuilds(int node, unsigned part, ArrayRef<Frame> frames, unsigned slot) {
   if (std::optional<unsigned> is = partOf(node, slot); is && *is == part)
     return true;
   auto id = static_cast<std::size_t>(node);
@@ -190,7 +187,7 @@ bool Identities::Record::rebuilds(int node, unsigned part, ArrayRef<Frame> frame
   }
 }
 
-bool Identities::Record::rebuildsCon(std::size_t node, unsigned part, ArrayRef<Frame> frames,
+bool Record::rebuildsCon(std::size_t node, unsigned part, ArrayRef<Frame> frames,
                                      unsigned slot) {
   const Node &con = nodes[node];
   if (con.memo || knownAt(part, frames, slot).ctor != con.ctor ||
@@ -206,14 +203,14 @@ bool Identities::Record::rebuildsCon(std::size_t node, unsigned part, ArrayRef<F
 
 // `S k` is n where k is n's predecessor: n is not zero, as the predecessor
 // op that k was read through shows by running at all.
-bool Identities::Record::rebuildsSuccessor(std::size_t node, unsigned part, ArrayRef<Frame> frames,
+bool Record::rebuildsSuccessor(std::size_t node, unsigned part, ArrayRef<Frame> frames,
                                            unsigned slot) {
   if (!isa<NatType>(parts[slot][part].type) || nodes[node].src < 0)
     return false;
   return rebuilds(nodes[node].src, parts[slot].predecessor(part), frames, slot);
 }
 
-bool Identities::Record::rebuildsJoin(std::size_t node, unsigned part, unsigned slot) {
+bool Record::rebuildsJoin(std::size_t node, unsigned part, unsigned slot) {
   unsigned side = nodes[node].side;
   unsigned result = nodes[node].arg;
   for (const Arm &arm : joins[side]) {
@@ -227,7 +224,7 @@ bool Identities::Record::rebuildsJoin(std::size_t node, unsigned part, unsigned 
   return true;
 }
 
-bool Identities::Record::rebuildsConstant(std::size_t node, unsigned part, ArrayRef<Frame> frames,
+bool Record::rebuildsConstant(std::size_t node, unsigned part, ArrayRef<Frame> frames,
                                           unsigned slot) {
   Known known = knownAt(part, frames, slot);
   if (known.literal)
@@ -238,7 +235,7 @@ bool Identities::Record::rebuildsConstant(std::size_t node, unsigned part, Array
   return nodes[node].fieldless;
 }
 
-void Identities::Record::evaluate(const Assumed &assumed) {
+void Record::evaluate(const Assumed &assumed) {
   live = &assumed;
   saved.clear();
   consulted.clear();
@@ -270,7 +267,7 @@ void Identities::Record::evaluate(const Assumed &assumed) {
   live = nullptr;
 }
 
-SmallVector<unsigned, 1> Identities::Record::givesBack(ArrayRef<unsigned> asked,
+SmallVector<unsigned, 1> Record::givesBack(ArrayRef<unsigned> asked,
                                                         const Assumed &assumed) {
   if (!cached || !stable(assumed))
     evaluate(assumed);
@@ -283,4 +280,4 @@ SmallVector<unsigned, 1> Identities::Record::givesBack(ArrayRef<unsigned> asked,
   return kept;
 }
 
-} // namespace idr
+} // namespace idr::identities

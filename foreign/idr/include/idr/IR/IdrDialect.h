@@ -2,8 +2,9 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The idr dialect: what TableGen generates from IdrOps.td, with what the
 // generated code needs declared around it, in the order it needs it: the
-// grades, the resources, the traits and the guards' vocabulary before the
-// generated attributes, types and interfaces, and those before the ops.
+// grades, the resources, the traits, the guards' vocabulary and a data
+// type's constructors before the generated attributes, types and
+// interfaces, and those before the ops.
 #ifndef IDR_IR_IDRDIALECT_H
 #define IDR_IR_IDRDIALECT_H
 
@@ -22,6 +23,7 @@
 #include "mlir/Interfaces/InferIntRangeInterface.h"
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "mlir/Interfaces/ValueBoundsOpInterface.h"
 
 #include <algorithm>
 #include <atomic>
@@ -73,12 +75,6 @@ bool consumes(mlir::OpOperand &operand, mlir::SymbolTable *symbols = nullptr);
 // A Free of ReferenceResource on each operand of `op` that `consumes`
 // names and whose grade is own or excl; nothing before idr-rc.
 void consumedEffects(mlir::Operation *op,
-    llvm::SmallVectorImpl<mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>> &effects);
-
-// What an op on a buffer or an array does besides computing: IO in the
-// world's order, and for a new array or string an allocation (`allocated`,
-// or null). A range or an index it reads is its guard's to check.
-void ioEffects(mlir::Value allocated,
     llvm::SmallVectorImpl<mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>> &effects);
 
 // Whether `op`, with everything in it, only computes: its effects are at
@@ -213,27 +209,6 @@ public:
   }
 };
 
-// The visibility of a declaration that is public, always
-// (`Idr_PublicSymbol`): the op stores none. No pass of ours hides a
-// declaration, so a request to is a broken invariant, which ends the run
-// rather than leaving an error the pass that asked cannot see.
-template <typename ConcreteType>
-class PublicSymbol : public mlir::OpTrait::TraitBase<ConcreteType, PublicSymbol> {
-public:
-  mlir::SymbolTable::Visibility getVisibility() { return mlir::SymbolTable::Visibility::Public; }
-  void setVisibility(mlir::SymbolTable::Visibility visibility) {
-    if (visibility != mlir::SymbolTable::Visibility::Public)
-      llvm::reportFatalInternalError(llvm::Twine("a pass asked to hide '") +
-                                     ConcreteType::getOperationName() +
-                                     "', a declaration, which is public, always");
-  }
-
-private:
-  PublicSymbol() = default;
-  friend ConcreteType;
-  template <typename, template <typename> class...> friend class mlir::Op;
-};
-
 // The facts that rule out a crash: a constant other than zero
 // (an integer or a big), a finite Double constant, and a string that cannot
 // be empty (a non-empty constant, or a string built with a character or a
@@ -265,6 +240,27 @@ mlir::Speculation::Speculatability checkSpeculatability(mlir::Operation *op,
 // a list packed or concatenated for that output alone.
 bool writtenInPieces(mlir::Value str);
 
+namespace detail {
+struct DataTypeStorage;
+} // namespace detail
+
+// A data type, which a constant constructor names before the types are
+// declared (IdrTypes.td).
+class DataType;
+
+// One constructor of a data type's body (DataType). Its tag is its
+// position in the body; its name is unique there, and for a label of a
+// closure or memo sum it is the label function's symbol. `byName`: a memo
+// sum's label whose function reaches an observable effect, so that the
+// effect happens where the value is demanded: its cell is never written,
+// and every force runs the function.
+struct Ctor {
+  mlir::StringAttr name;
+  llvm::ArrayRef<mlir::Type> fields;
+  bool byName = false;
+  bool operator==(const Ctor &) const = default;
+};
+
 } // namespace idr
 
 // The attributes come first: the dialect's helpers for its discardable
@@ -284,9 +280,10 @@ bool writtenInPieces(mlir::Value str);
 
 namespace idr {
 
-// The two constructors every memo sum has besides its labels: a suspension
+// The two constructors every memo sum has after its labels: a suspension
 // whose force is running, and a forced one, which holds its value. Every
-// pass that builds or reads them names them by these.
+// pass that builds a memo sum names them by these; a reader takes their
+// tags from the type (DataType::getRunningTag, getForcedTag).
 inline constexpr llvm::StringLiteral memoRunning = "running";
 inline constexpr llvm::StringLiteral memoForced = "forced";
 
@@ -297,12 +294,21 @@ inline constexpr llvm::StringLiteral memoForced = "forced";
 // the size and the speed.
 inline constexpr uint64_t constantBytes = uint64_t{1} << 20;
 
-// The value an evaluated suspension holds: the operand of the body's one
-// op when that op is an idr.yield of one value, which is then defined above
-// the delay; null for any other delay. Forcing such a suspension computes
-// nothing, so idr-isolate leaves it, defunctionalization builds its memo
-// cell forced, and a force of it folds to the value.
-mlir::Value evaluatedValue(DelayOp delay);
+// `unsupported (<phrase>)`: the words every refusal of a program begins
+// with, the phrase the rule's ODS case spells. The one place they are
+// written.
+std::string refusalHead(Rule rule);
+
+// A refusal of the program by `rule`: an error at `loc`, or at `op`, whose
+// message begins with refusalHead(rule) and ": ", the caller streaming what
+// was found after it. The rule is the diagnostic's metadata, data a handler
+// reads (refusalRule), not printed text.
+mlir::InFlightDiagnostic refuse(mlir::Location loc, Rule rule);
+mlir::InFlightDiagnostic refuse(mlir::Operation *op, Rule rule);
+
+// The rule a diagnostic refuses the program by; nothing for any other
+// diagnostic.
+std::optional<Rule> refusalRule(mlir::Diagnostic &diagnostic);
 
 namespace detail {
 // Adds the dialect's asm interface: the aliases of its data types and of

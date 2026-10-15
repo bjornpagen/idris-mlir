@@ -7,7 +7,8 @@
 ||| in the definition that holds it, and the arguments printed with every
 ||| binder named by its depth, so that one instance prints one way whatever
 ||| Idris called its binders and whatever counter it numbered its blocks
-||| with. Emit derives the symbol from the key.
+||| with. The symbol is the key printed (`Term.keyText`), with the hash of
+||| the identity where the print drops part of it.
 module IdrisMLIR.Frontend.Translate.Keys
 
 import Core.Case.CaseTree
@@ -24,6 +25,8 @@ import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Ids
+import IdrisMLIR.Types
+import IdrisMLIR.Term
 
 import Data.List
 import Data.SnocList
@@ -261,41 +264,79 @@ parensIf False s = s
 quantityPrefix : RigCount -> String
 quantityPrefix rig = if isErased rig then "0 " else if isLinear rig then "1 " else ""
 
+||| Does a name print with less than it is? A `DN` prints its inner name
+||| without its display, and a case or with block's name drops its number.
+dropsName : Name -> Bool
+dropsName (NS _ n) = dropsName n
+dropsName (DN _ _) = True
+dropsName (CaseBlock _ _) = True
+dropsName (WithBlock _ _) = True
+dropsName (Nested _ n) = dropsName n
+dropsName _ = False
+
+||| Does a constant print with less than it is? An integer prints its value
+||| and not its width, so `5` is an `Int` and a `Bits8` alike; read on the
+||| literal the constant is (`constantLit`).
+dropsWidth : Constant -> Bool
+dropsWidth c = case constantLit c of
+  Just (LInt _ _) => True
+  Just (LBig _) => True
+  _ => False
+
 mutual
   ||| A term at a depth of binders: a variable by its binder's depth, a
   ||| definition by its printed full name, an arrow whose result does not
   ||| mention its binder as `a -> b`, one whose does as `(x0 : a) -> b`,
-  ||| each with Idris's quantity and braces.
-  render : Nat -> Place -> TT vs -> String
-  render d _ (Local _ _ idx _) = binderAt (minus d (S idx))
-  render d _ (Ref _ _ n) = plainOrigin n
-  render d _ (Meta _ n _ _) = "?" ++ plainOrigin n
-  render d p (Bind _ _ (Pi _ rig info a) sc) = parensIf (notAlone p) (arrow d rig info a sc)
-  render d p (Bind _ _ (Lam {}) sc) = parensIf (notAlone p) ("\\" ++ binderAt d ++ " => " ++ render (S d) Alone sc)
+  ||| each with Idris's quantity and braces; and whether the print dropped
+  ||| part of what tells terms apart (`eqTerm`): an erased part that is not
+  ||| a placeholder, a metavariable's arguments, a name printed with less, a
+  ||| lambda's or a let's binder type and quantity, a binder printed
+  ||| through, a default implicit printed as implicit, an integer's width,
+  ||| a delay's type, an as-pattern's name.
+  render : Nat -> Place -> TT vs -> (String, Bool)
+  render d _ (Local _ _ idx _) = (binderAt (minus d (S idx)), False)
+  render d _ (Ref _ _ n) = (plainOrigin n, dropsName n)
+  render d _ (Meta _ n _ args) = ("?" ++ plainOrigin n, not (null args) || dropsName n)
+  render d p (Bind _ _ (Pi _ rig info a) sc) =
+    let (t, lost) = arrow d rig info a sc in (parensIf (notAlone p) t, lost)
+  render d p (Bind _ _ (Lam {}) sc) =
+    (parensIf (notAlone p) ("\\" ++ binderAt d ++ " => " ++ fst (render (S d) Alone sc)), True)
   render d p (Bind _ _ (Let _ _ v _) sc) =
-    parensIf (notAlone p) ("let " ++ binderAt d ++ " = " ++ render d Alone v ++ " in " ++ render (S d) Alone sc)
-  render d p (Bind _ _ _ sc) = render (S d) p sc
+    (parensIf (notAlone p) ("let " ++ binderAt d ++ " = " ++ fst (render d Alone v) ++ " in " ++
+                            fst (render (S d) Alone sc)), True)
+  render d p (Bind _ _ _ sc) = (fst (render (S d) p sc), True)
   render d p tm@(App {}) =
-    let (f, as) = getFnArgs tm in
-    parensIf (applied p) (joinBy " " (render d Applied f :: map (render d Applied) as))
-  render d _ (PrimVal _ c) = show c
-  render d _ (Erased _ _) = "_"
-  render d _ (TType _ _) = "Type"
-  render d p (TDelayed _ _ t) = parensIf (applied p) ("Lazy " ++ render d Applied t)
-  render d p (TDelay _ _ _ t) = parensIf (applied p) ("Delay " ++ render d Applied t)
-  render d p (TForce _ _ t) = parensIf (applied p) ("Force " ++ render d Applied t)
-  render d p (As _ _ _ pat) = render d p pat
+    let (f, as) = getFnArgs tm
+        parts = map (render d Applied) (f :: as)
+    in (parensIf (applied p) (joinBy " " (map fst parts)), any snd parts)
+  render d _ (PrimVal _ c) = (show c, dropsWidth c)
+  render d _ (Erased _ Placeholder) = ("_", False)
+  render d _ (Erased _ _) = ("_", True)
+  render d _ (TType _ _) = ("Type", False)
+  render d p (TDelayed _ _ t) = let (s, lost) = render d Applied t in (parensIf (applied p) ("Lazy " ++ s), lost)
+  render d p (TDelay _ _ _ t) = (parensIf (applied p) ("Delay " ++ fst (render d Applied t)), True)
+  render d p (TForce _ _ t) = let (s, lost) = render d Applied t in (parensIf (applied p) ("Force " ++ s), lost)
+  render d p (As _ _ _ pat) = (fst (render d p pat), True)
 
-  arrow : Nat -> RigCount -> PiInfo (TT vs) -> TT vs -> TT (x :: vs) -> String
+  arrow : Nat -> RigCount -> PiInfo (TT vs) -> TT vs -> TT (x :: vs) -> (String, Bool)
   arrow d rig info a sc =
     let dependent = isNothing (shrink sc (Drop Refl))
-        domain = if dependent then binderAt d ++ " : " ++ render d Alone a else render d Domain a
+        alone = render d Alone a
+        asDomain = render d Domain a
+        domain = if dependent then binderAt d ++ " : " ++ fst alone else fst asDomain
+        lostA = if dependent then snd alone else snd asDomain
         inner = quantityPrefix rig ++ domain
-        bound = case info of
-                  Explicit => parensIf dependent inner
-                  AutoImplicit => "{{" ++ inner ++ "}}"
-                  _ => "{" ++ inner ++ "}"
-    in bound ++ " -> " ++ render (S d) Alone sc
+        rest = render (S d) Alone sc
+    in (bound dependent inner info ++ " -> " ++ fst rest, lostA || defaulted info || snd rest)
+    where
+      bound : Bool -> String -> PiInfo (TT vs) -> String
+      bound dependent inner Explicit = parensIf dependent inner
+      bound _ inner AutoImplicit = "{{" ++ inner ++ "}}"
+      bound _ inner _ = "{" ++ inner ++ "}"
+      -- A default implicit prints as an implicit, without its default.
+      defaulted : PiInfo (TT vs) -> Bool
+      defaulted (DefImplicit _) = True
+      defaulted _ = False
 
   notAlone : Place -> Bool
   notAlone Alone = False
@@ -308,36 +349,137 @@ mutual
 ||| A compile-time argument as a key prints it, every name full and every
 ||| binder named by its depth, so that arguments that differ only by the
 ||| names of their binders, which are one instance, print alike, and no
-||| counter of Idris's reaches the text.
-argumentText : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core String
+||| counter of Idris's reaches the text; and whether the print dropped part
+||| of the argument's identity.
+argumentText : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core (String, Bool)
 argumentText tm = pure (render 0 Alone !(toFullNames tm))
+
+------------------------------------------------------------------------------
+-- The identity as text
+------------------------------------------------------------------------------
+
+||| A string with its length before it, so that no encoding is a prefix of
+||| another.
+counted : String -> String
+counted s = show (length s) ++ ":" ++ s
+
+quantityCode : RigCount -> String
+quantityCode rig = if isErased rig then "0" else if isLinear rig then "1" else "w"
+
+mutual
+  ||| A name by its structure, as Idris's `==` tells names apart: a `DN` by
+  ||| its inner name alone, and a block (case, with, nested) by the name of
+  ||| its place in the definition that holds it (`keyOrigin`), never by the
+  ||| counter Idris numbered it with, so an unrelated edit does not move it.
+  nameIdentity : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> Core String
+  nameIdentity n = case blockOf n of
+    Just _ => ("K" ++) . counted <$> keyOrigin n
+    Nothing => structural n
+    where
+      structural : Name -> Core String
+      structural (NS ns m) =
+        let parts = unsafeUnfoldNamespace ns in
+        (("N" ++ show (length parts) ++ ";" ++ concatMap counted parts) ++) <$> nameIdentity m
+      structural (UN (Basic x)) = pure ("U" ++ counted x)
+      structural (UN (Field x)) = pure ("V" ++ counted x)
+      structural (UN Underscore) = pure "_"
+      structural (MN x i) = pure ("M" ++ counted x ++ show i ++ ";")
+      structural (PV m i) = (\t => "P" ++ t ++ show i ++ ";") <$> nameIdentity m
+      structural (DN _ m) = nameIdentity m
+      structural (Resolved i) = pure ("R" ++ show i ++ ";")
+      structural other = pure ("O" ++ counted (show other))
+
+  ||| A term by its structure, as `eqTerm` tells terms apart: no location,
+  ||| no binder name, every constant with its constructor.
+  termIdentity : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> TT vs -> Core String
+  termIdentity (Local _ _ idx _) = pure ("L" ++ show idx ++ ";")
+  termIdentity (Ref _ _ n) = ("R" ++) <$> nameIdentity n
+  termIdentity (Meta _ n _ args) = do
+    nm <- nameIdentity n
+    as <- traverse termIdentity args
+    pure ("M" ++ nm ++ show (length args) ++ ";" ++ concat as)
+  termIdentity (Bind _ _ b sc) = (\bt, st => "B" ++ bt ++ st) <$> binderIdentity b <*> termIdentity sc
+  termIdentity (App _ f a) = (\ft, at => "A" ++ ft ++ at) <$> termIdentity f <*> termIdentity a
+  termIdentity (As _ _ a p) = (\at, pt => "S" ++ at ++ pt) <$> termIdentity a <*> termIdentity p
+  termIdentity (TDelayed _ _ t) = ("D" ++) <$> termIdentity t
+  termIdentity (TDelay _ _ t a) = (\tt, at => "Y" ++ tt ++ at) <$> termIdentity t <*> termIdentity a
+  termIdentity (TForce _ _ t) = ("F" ++) <$> termIdentity t
+  termIdentity (PrimVal _ c) = pure ("C" ++ counted (constantCode c))
+  termIdentity (Erased _ Placeholder) = pure "E_"
+  termIdentity (Erased _ Impossible) = pure "E!"
+  termIdentity (Erased _ (Dotted t)) = ("E." ++) <$> termIdentity t
+  termIdentity (TType _ _) = pure "T"
+
+  binderIdentity : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> TTBinder (TT vs) -> Core String
+  binderIdentity (Lam _ rig info ty) = (\i, t => "l" ++ quantityCode rig ++ i ++ t) <$> piIdentity info <*> termIdentity ty
+  binderIdentity (Let _ rig v ty) = (\vt, t => "e" ++ quantityCode rig ++ vt ++ t) <$> termIdentity v <*> termIdentity ty
+  binderIdentity (Pi _ rig info ty) = (\i, t => "p" ++ quantityCode rig ++ i ++ t) <$> piIdentity info <*> termIdentity ty
+  binderIdentity (PVar _ rig info ty) = (\i, t => "v" ++ quantityCode rig ++ i ++ t) <$> piIdentity info <*> termIdentity ty
+  binderIdentity (PLet _ rig v ty) = (\vt, t => "t" ++ quantityCode rig ++ vt ++ t) <$> termIdentity v <*> termIdentity ty
+  binderIdentity (PVTy _ rig ty) = (\t => "y" ++ quantityCode rig ++ t) <$> termIdentity ty
+
+  piIdentity : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> PiInfo (TT vs) -> Core String
+  piIdentity Implicit = pure "i"
+  piIdentity Explicit = pure "x"
+  piIdentity AutoImplicit = pure "a"
+  piIdentity (DefImplicit t) = ("d" ++) <$> termIdentity t
+
+  ||| A constant as the literal it is (`constantLit`), whose print keeps its
+  ||| width apart (`5:Int`, `5:Bits8`); a primitive type or the world, which
+  ||| is no literal, as Idris prints it.
+  constantCode : Constant -> String
+  constantCode c = maybe (show c) show (constantLit c)
+
+||| The identity of an instance as text: its definition and its
+||| compile-time arguments by their structure, a position that keys nothing
+||| written `-`. Two identities are one text exactly when Idris's `==`
+||| makes them one, but for the blocks, named by their place.
+export
+identityText : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+               Name -> List (Maybe ClosedTerm) -> Core String
+identityText n args = do
+  nm <- nameIdentity n
+  as <- traverse (maybe (pure "-") (map ("+" ++) . termIdentity)) args
+  pure (nm ++ "|" ++ show (length args) ++ ";" ++ concat as)
 
 ------------------------------------------------------------------------------
 -- Identities and keys
 ------------------------------------------------------------------------------
 
 ||| The identity and the key of the instance of a definition at its
-||| compile-time arguments (`Nothing` at a position that keys nothing).
-||| Instances are bucketed by a hash of their arguments, so a request
-||| compares its arguments with the few instances in its bucket, not with
-||| every instance of the definition; neither the comparison nor the hash
-||| sees a binder's name. Only a new instance is printed, since printing is
-||| the costly part and most requests are repeats. The identity is the
-||| bucket and the instance's place in it, which tells instances apart and
-||| says nothing to a reader.
+||| compile-time arguments (`Nothing` at a position that keys nothing). The
+||| identity is the instance's symbol, its key printed (`keyText`), which
+||| carries the low 64 bits of the identity's hash when the print drops
+||| part of the identity: a function of this key alone, interned once, two
+||| identities on one symbol being a broken invariant. Instances are
+||| bucketed by a hash of their arguments, so a request compares its
+||| arguments with the few instances in its bucket, not with every instance
+||| of the definition; neither the comparison nor the hash sees a binder's
+||| name. Only a new instance is printed, since printing is the costly part
+||| and most requests are repeats.
 export
 instanceKey : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
               Name -> List (Maybe ClosedTerm) -> Core (String, InstanceKey)
 instanceKey n args = do
   full <- toFullNames n
   args' <- traverse (traverseOpt toFullNames) args
-  let bucket = nameKey full ++ "#" ++ show (hash args')
+  let base = nameKey full
+  let bucket = base ++ "#" ++ show (hash args')
   let same = fromMaybe [] (lookup bucket (!(get TState)).named)
   case find ((== args') . fst) same of
     Just (_, found) => pure found
     Nothing => do
       origin <- keyOrigin full
-      texts <- traverse argumentText (catMaybes args')
-      let found = (bucket ++ "#" ++ show (length same), MkInstanceKey origin texts)
-      update TState { named $= insert bucket ((args', found) :: same) }
-      pure found
+      printed <- traverse argumentText (catMaybes args')
+      print <- if any snd printed
+                 then (\t => Lossy (xxh3_128 (utf8 t)).low) <$> identityText full args'
+                 else pure Whole
+      let key = MkInstanceKey origin (map fst printed) print
+      let symbol = keyText key
+      case lookup symbol (!(get TState)).symbols of
+        Just (b, as) => unless (b == base && as == args') $
+          internal EmptyFC ("two instances on the symbol " ++ symbol ++ ": " ++ b ++ " and " ++ base)
+        Nothing => pure ()
+      update TState { named $= insert bucket ((args', (symbol, key)) :: same)
+                    , symbols $= insert symbol (base, args') }
+      pure (symbol, key)

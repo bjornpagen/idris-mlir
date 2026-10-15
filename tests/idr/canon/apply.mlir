@@ -5,6 +5,7 @@
 // upstream's func.call_indirect of a constant becomes a direct call; the
 // inliner then removes the call.
 
+!S = !idr.data<"S", plain [@MkS(i64, !idr.str)]>
 idr.func private @add(%a: i64, %b: i64) -> i64 {
   %r = arith.addi %a, %b : i64
   return %r : i64
@@ -13,75 +14,72 @@ idr.func private @delayed(%a: i64) -> i64 {
   %r = arith.muli %a, %a : i64
   return %r : i64
 }
-idr.data @S {
-  idr.ctor @MkS (i64, !idr.str)
-}
-idr.func private @pick(%s: !idr.data<@S>, %t: !idr.str, %n: i64) -> i64 {
+idr.func private @pick(%s: !S, %t: !idr.str, %n: i64) -> i64 {
   return %n : i64
 }
 
-// CHECK-LABEL: idr.func @of_closure(
+// CHECK-LABEL: idr.func private @of_closure(
 // CHECK-SAME: %[[X:.*]]: i64, %[[Y:.*]]: i64)
 // CHECK-NEXT: %[[R:.*]] = call @add(%[[X]], %[[Y]]) : (i64, i64) -> i64
 // CHECK-NEXT: return %[[R]]
-// INLINE-LABEL: idr.func @of_closure(
+// INLINE-LABEL: idr.func private @of_closure(
 // INLINE-NEXT: arith.addi
-idr.func @of_closure(%x: i64, %y: i64) -> i64 {
+idr.func private @of_closure(%x: i64, %y: i64) -> i64 {
   %c = idr.closure @add(%x) : (i64) -> !idr.fn<(i64) -> (i64)>
   %r = idr.apply %c(%y) : !idr.fn<(i64) -> (i64)>
   return %r : i64
 }
 
 // A constant closure's captures become constants.
-// CHECK-LABEL: idr.func @of_constant(
+// CHECK-LABEL: idr.func private @of_constant(
 // CHECK-SAME: %[[Y:.*]]: i64)
 // CHECK: %[[C:.*]] = arith.constant 5 : i64
 // CHECK: %[[R:.*]] = call @add(%[[C]], %[[Y]]) : (i64, i64) -> i64
 // CHECK-NEXT: return %[[R]]
-idr.func @of_constant(%y: i64) -> i64 {
+idr.func private @of_constant(%y: i64) -> i64 {
   %c = idr.constant #idr.closure<@add, [5 : i64]> : !idr.fn<(i64) -> (i64)>
   %r = idr.apply %c(%y) : !idr.fn<(i64) -> (i64)>
   return %r : i64
 }
 
 // Captures of every kind of constant.
-// CHECK-LABEL: idr.func @of_constant_data(
-// CHECK-DAG: %[[S:.*]] = {{(idr\.)?}}constant #idr.con<@S::@MkS, [1, "a"]> : !S
+// CHECK-LABEL: idr.func private @of_constant_data(
+// CHECK-DAG: %[[S:.*]] = {{(idr\.)?}}constant #idr.con<@MkS, [1, "a"]> : !S
 // CHECK-DAG: %[[T:.*]] = {{(idr\.)?}}constant "b" : !idr.str
 // CHECK: call @pick(%[[S]], %[[T]], %{{.*}})
-idr.func @of_constant_data(%n: i64) -> i64 {
-  %c = idr.constant #idr.closure<@pick, [#idr.con<@S::@MkS, [1 : i64, "a"]>, "b"]>
+idr.func private @of_constant_data(%n: i64) -> i64 {
+  %c = idr.constant #idr.closure<@pick, [#idr.con<@MkS, [1 : i64, "a"]>, "b"]>
      : !idr.fn<(i64) -> (i64)>
   %r = idr.apply %c(%n) : !idr.fn<(i64) -> (i64)>
   return %r : i64
 }
 
 // Forcing a delayed value (a closure of no arguments).
-// CHECK-LABEL: idr.func @force(
+// CHECK-LABEL: idr.func private @force(
 // CHECK-SAME: %[[X:.*]]: i64)
 // CHECK-NEXT: %[[R:.*]] = call @delayed(%[[X]]) : (i64) -> i64
 // CHECK-NEXT: return %[[R]]
-idr.func @force(%x: i64) -> i64 {
+idr.func private @force(%x: i64) -> i64 {
   %d = idr.closure @delayed(%x) : (i64) -> !idr.fn<() -> (i64)>
   %r = idr.apply %d() : !idr.fn<() -> (i64)>
   return %r : i64
 }
 
 // An unknown closure stays applied.
-// CHECK-LABEL: idr.func @unknown(
+// CHECK-LABEL: idr.func private @unknown(
 // CHECK: apply
-idr.func @unknown(%c: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 {
+idr.func private @unknown(%c: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 {
   %r = idr.apply %c(%x) : !idr.fn<(i64) -> (i64)>
   return %r : i64
 }
 
 // An IO action is a linear closure: applying its one use, when it was
 // entered into its linear type from a known closure, calls the function.
-// CHECK-LABEL: idr.func @of_linear(
+// CHECK-LABEL: idr.func private @of_linear(
 // CHECK-SAME: %[[X:.*]]: i64, %[[Y:.*]]: i64)
 // CHECK-NEXT: %[[R:.*]] = call @add(%[[X]], %[[Y]]) : (i64, i64) -> i64
 // CHECK-NEXT: return %[[R]]
-idr.func @of_linear(%x: i64, %y: i64) -> i64 {
+idr.func private @of_linear(%x: i64, %y: i64) -> i64 {
   %c = idr.closure @add(%x) : (i64) -> !idr.fn<(i64) -> (i64)>
   %l = idr.lin.enter %c : !idr.lin<!idr.fn<(i64) -> (i64)>>
   %f = idr.lin.use %l : !idr.lin<!idr.fn<(i64) -> (i64)>>
@@ -96,11 +94,11 @@ idr.func private @once(%a: !idr.lin<i64>, %b: i64) -> i64 {
   %r = arith.addi %x, %b : i64
   return %r : i64
 }
-// CHECK-LABEL: idr.func @of_constant_linear(
+// CHECK-LABEL: idr.func private @of_constant_linear(
 // CHECK: %[[C:.*]] = arith.constant 5 : i64
 // CHECK: %[[L:.*]] = idr.lin.enter %[[C]] : !idr.lin<i64>
 // CHECK: call @once(%[[L]], %{{.*}})
-idr.func @of_constant_linear(%y: i64) -> i64 {
+idr.func private @of_constant_linear(%y: i64) -> i64 {
   %c = idr.constant #idr.closure<@once, [5 : i64]> : !idr.fn<(i64) -> (i64)>
   %r = idr.apply %c(%y) : !idr.fn<(i64) -> (i64)>
   return %r : i64

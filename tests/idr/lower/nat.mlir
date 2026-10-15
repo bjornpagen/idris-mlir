@@ -9,7 +9,7 @@
 // CHECK-LABEL: func.func {{.*}}@Prog.main(
 // CHECK-DAG: constant{{[( ]}}1 : i64
 // CHECK-DAG: constant{{[( ]}}3 : i64
-module attributes {idr.program} {
+module {
   idr.func private @naturals(%a: !idr.nat, %b: !idr.nat, %i: !idr.big)
       -> (!idr.nat, !idr.nat, i1, !idr.nat, !idr.nat, !idr.big) {
     %s = idr.big.add %a, %b : !idr.nat

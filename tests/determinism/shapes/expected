@@ -1,7 +1,8 @@
-compile 1: exit 0
-compile 2: exit 0
-core: identical
-mlir: identical
-object: identical
-executable: identical
-dumps: identical after every step
+compile at 1 thread: exit 0
+compile at 2 threads: exit 0
+compile at 8 threads: exit 0
+core: identical at 1, 2 and 8 threads
+module: identical at 1, 2 and 8 threads
+objects: identical at 1, 2 and 8 threads
+executable: identical at 1, 2 and 8 threads
+dumps: identical at 1, 2 and 8 threads

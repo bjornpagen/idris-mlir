@@ -42,8 +42,10 @@ find "$idr" -name build -prune -o -type f \( -name '*.cpp' -o -name '*.h' -o -na
 if [ -s "$work/units" ]; then say "units: found"; else say "units: none found"; fi
 
 # No module: no interface unit, and no unit that declares or imports one.
+# A declaration ends in `;`, which tells it from MLIR text a unit holds in
+# a string (`module attributes {...} {`).
 grep '\.cppm$' "$work/units" > "$work/modules"
-grep -v '\.cppm$' "$work/units" | xargs grep -HnE '^[[:space:]]*(export[[:space:]]+)?(module|import)[[:space:]]+[A-Za-z_.:<"]' \
+grep -v '\.cppm$' "$work/units" | xargs grep -HnE '^[[:space:]]*(export[[:space:]]+)?(module|import)([[:space:]]+[A-Za-z_.:<"][^;{]*)?;' \
   >> "$work/modules" 2> /dev/null
 if [ -s "$work/modules" ]; then
   say "C++20 modules under $idr:"
@@ -69,7 +71,7 @@ fi
 
 # The lists of the layout, and no other.
 sed 's|^\./||' "$work/lists" > "$work/found"
-for dir in "" include/idr include/idr/IR include/idr/Transforms lib lib/IR lib/Analysis lib/Transforms lib/Support lib/Target; do
+for dir in "" include/idr include/idr/IR include/idr/Transforms include/idr/Target lib lib/IR lib/Analysis lib/Transforms lib/Support lib/Target; do
   printf '%s\n' "$idr${dir:+/$dir}/CMakeLists.txt"
 done | sort > "$work/layout"
 comm -23 "$work/found" "$work/layout" > "$work/extra"

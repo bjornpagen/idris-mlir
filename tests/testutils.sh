@@ -33,10 +33,6 @@
 #                     stack it runs on; the file says what loops (e2e.sh)
 #     covers          the program uses every run-time export of the prelude
 #                     module the file names, as its Core shows (prelude.sh)
-#     demand-in-place the compilation makes the in-place promise
-#                     (--demand-in-place): a call passes what its
-#                     callee rebuilds in place exclusive, or the program is
-#                     refused (e2e.sh)
 #
 # The helpers are in tests/lib, one file per concern, sourced below after
 # the limits, each after what it uses:
@@ -45,16 +41,17 @@
 #     timing.sh        the record of every compilation's wall time
 #     compile.sh       compiling a program, and the artifacts it leaves
 #     run.sh           running a compiled program
-#     heap.sh          the C library calls an e2e program's object may make
-#     mlir.sh          FileCheck, and the module an mlir.check reads
+#     heap.sh          the C library calls an e2e program's objects may make
+#     mlir.sh          FileCheck, the modules a compilation dumps, and the
+#                      module an mlir.check reads
 #     expect.sh        properties of a module by name (idr-expect), mlir.expect
 #     prelude.sh       a prelude module whose every export a program uses
 #     e2e.sh           the end-to-end programs, each compiled once, and the
 #                      generated semantics tests
 #     properties.sh    what holds of every compilation, off its dumps
 #     profile.sh       the profile's accept and reject fixtures
-#     determinism.sh   two compilations, and one thread against the pool,
-#                      byte for byte
+#     determinism.sh   compilations at 1, 2 and 8 threads, and one thread
+#                      against the pool, byte for byte
 #     lit.sh           the dialect tests' RUN lines
 #     fuzz.sh          the fuzzer
 #     two-levels.sh    closed terms, compiled, against their recorded values

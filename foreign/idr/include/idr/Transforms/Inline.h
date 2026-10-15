@@ -1,44 +1,36 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idr-inline: the force preparation, then MLIR's inliner deciding as MLton
-// does. (`inline` is a keyword, so the area's namespace is `inlining`.)
-//
-// The preparation rewrites forces into calls and builds the functions the
-// rewrite needs before any decision or call graph is taken: a function
-// built later would be missing from the graph, and the inliner would erase
-// what its body still calls.
+// The inline step of idr-optimize: a function's calls into final callees,
+// inlined by the inline rule while the caller stays under its cap. (`inline`
+// is a keyword, so the area's namespace is `inlining`.)
 #ifndef IDR_TRANSFORMS_INLINE_H
 #define IDR_TRANSFORMS_INLINE_H
 
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/SymbolTable.h"
-#include "mlir/Pass/Pass.h"
-#include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/SmallVector.h"
+#include "idr/IR/IdrDialect.h"
 
-namespace idr {
+#include "mlir/IR/BuiltinAttributes.h"
+#include "llvm/ADT/STLFunctionalExtras.h"
 
-class FuncOp;
-class References;
+namespace idr::optimize {
+class Node;
+} // namespace idr::optimize
 
-#define GEN_PASS_DECL_IDRINLINE
-#include "idr/Transforms/Passes.h.inc"
+namespace idr::inlining {
 
-namespace inlining {
+// What one step did: the calls it inlined, and those the cap kept.
+struct Step {
+  unsigned inlined = 0;
+  unsigned capped = 0;
+};
 
-// The functions whose body only forces an argument and returns the value:
-// the wrappers ForceAtCapture sees through.
-llvm::SmallVector<idr::FuncOp> forceWrappers(mlir::ModuleOp module);
+// Inlines, in walk order, each idr.call `caller` holds when the step
+// starts whose callee's node, as `nodeOf` answers it, is final and worth
+// inlining, while the caller stays within the cap. A body that needs
+// blocks of its own goes nowhere a single block must hold it. The caller
+// loses Idris's proof of termination where it takes in a body without one.
+Step inlineCalls(idr::FuncOp caller,
+                 llvm::function_ref<const optimize::Node *(mlir::StringAttr)> nodeOf);
 
-// ForceAtCapture on every closure that names a wrapper; true when it rewrote.
-bool forceAtCapture(mlir::ModuleOp module, mlir::SymbolTable &symbols,
-                    llvm::ArrayRef<idr::FuncOp> wrappers);
-
-// ForceOfOneConstant on every force of a one-use closure constant the sites
-// list; true when it rewrote.
-bool forceOfOneConstant(mlir::ModuleOp module, const idr::References &references);
-
-} // namespace inlining
-} // namespace idr
+} // namespace idr::inlining
 
 #endif // IDR_TRANSFORMS_INLINE_H

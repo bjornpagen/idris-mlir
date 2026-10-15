@@ -32,6 +32,15 @@ namespace idr::conversion {
 
 namespace {
 
+// The list a builder or an output walks: base's list, which its type's
+// kind names (the ops' verifiers hold it to that), nil its constructor 0
+// and cons its constructor 1.
+DataType listOf(Type type) {
+  DataType list = dataTypeOf(type);
+  assert(list && list.getKind() == SumKind::BaseList && "a list op's list is base's list");
+  return list;
+}
+
 // The body of a walk: the head's components and the values the walk
 // carries, giving the carried values after this element.
 using Step = function_ref<SmallVector<Value>(OpBuilder &, Location, ValueRange head,
@@ -40,7 +49,7 @@ using Step = function_ref<SmallVector<Value>(OpBuilder &, Location, ValueRange h
 // Walks the list at `cell` while it is a cons, carrying `inits` through
 // `step`; gives the carried values at the nil.
 SmallVector<Value> walk(OpBuilder &b, Location loc, const Layouts &layouts, Runtime &runtime,
-                        CtorOp cons, Value cell, ValueRange inits, Step step) {
+                        DataType list, Value cell, ValueRange inits, Step step) {
   SmallVector<Type> types{cell.getType()};
   SmallVector<Value> operands{cell};
   for (Value init : inits) {
@@ -52,12 +61,12 @@ SmallVector<Value> walk(OpBuilder &b, Location loc, const Layouts &layouts, Runt
       [&](OpBuilder &before, Location l, ValueRange args) {
         Value tag = runtime.loadTag(before, l, args[0]);
         Value consTag = arith::ConstantOp::create(
-            before, l, before.getIntegerAttr(tag.getType(), static_cast<int64_t>(cons.getTag())));
+            before, l, before.getIntegerAttr(tag.getType(), int64_t{DataType::listCons}));
         Value isCons = arith::CmpIOp::create(before, l, arith::CmpIPredicate::eq, tag, consTag);
         scf::ConditionOp::create(before, l, isCons, args);
       },
       [&](OpBuilder &after, Location l, ValueRange args) {
-        const layout::Cell &layout = layouts.box(cons);
+        const layout::Cell &layout = layouts.box(list, DataType::listCons);
         SmallVector<Value> head = runtime.load(after, l, args[0], layout.fields[0]);
         SmallVector<Value> rest = runtime.load(after, l, args[0], layout.fields[1]);
         SmallVector<Value> carried = step(after, l, head, args.drop_front());
@@ -107,16 +116,12 @@ struct LowerStringOfList : IdrPattern<OpT> {
                                 ConversionPatternRewriter &rewriter) const override {
     constexpr bool packing = std::is_same_v<OpT, StrPackOp>;
     Location loc = op.getLoc();
-    Type element = packing ? Type(rewriter.getI32Type()) : Type(StrType::get(this->getContext()));
-    CtorOp cons = listCons(op, lookupData(this->runtime.symbols(), op.getList().getType()),
-                           op.getList().getType(), element);
-    if (!cons)
-      return failure();
+    DataType list = listOf(op.getList().getType());
     Value cell = adaptor.getList().front();
     Value yes = arith::ConstantOp::create(rewriter, loc, rewriter.getBoolAttr(true));
     Value zero = arith::ConstantIntOp::create(rewriter, loc, 0, 64);
     SmallVector<Value> counts =
-        walk(rewriter, loc, this->layouts, this->runtime, cons, cell, {zero, zero, yes},
+        walk(rewriter, loc, this->layouts, this->runtime, list, cell, {zero, zero, yes},
              [&](OpBuilder &b, Location l, ValueRange head, ValueRange carried) {
                Value item = head.front();
                Value bytes, scalars, ascii;
@@ -142,7 +147,7 @@ struct LowerStringOfList : IdrPattern<OpT> {
                return SmallVector<Value>{bytes, scalars, ascii};
              });
     Value s = allocate(rewriter, loc, this->runtime, counts[0], counts[1], counts[2]);
-    walk(rewriter, loc, this->layouts, this->runtime, cons, cell, {zero},
+    walk(rewriter, loc, this->layouts, this->runtime, list, cell, {zero},
          [&](OpBuilder &b, Location l, ValueRange head, ValueRange carried) {
            StringRef put = packing ? "idris_rt_str_put_char" : "idris_rt_str_put_str";
            Value next = this->runtime.call(b, l, put, b.getI64Type(),
@@ -162,13 +167,10 @@ struct LowerPutList : IdrPattern<PutListOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(PutListOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    DataOp data = lookupData(runtime.symbols(), op.getList().getType());
-    Type element = listElement(data);
-    CtorOp cons = listCons(op, data, op.getList().getType(), element);
-    if (!cons)
-      return failure();
-    StringRef put = isa<StrType>(element) ? "idris_rt_io_put_str" : "idris_rt_io_put_char";
-    walk(rewriter, op.getLoc(), layouts, runtime, cons, adaptor.getList().front(), {},
+    DataType list = listOf(op.getList().getType());
+    StringRef put = isa<StrType>(unrestricted(list.getListElement())) ? "idris_rt_io_put_str"
+                                                                       : "idris_rt_io_put_char";
+    walk(rewriter, op.getLoc(), layouts, runtime, list, adaptor.getList().front(), {},
          [&](OpBuilder &b, Location l, ValueRange head, ValueRange) {
            runtime.call(b, l, put, Type(), head.front());
            return SmallVector<Value>{};

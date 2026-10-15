@@ -1,20 +1,26 @@
 module Main
 
--- A generate whose function is a fold over a frozen array, which this
--- compiler makes one loop over rows and columns, with a fold step that
--- divides by values that reach zero at two places: the `mod` at row 1,
--- column 1, the `div` at row 2, column 0. In the program's order row 1 comes
--- first, so the program ends at the `mod`. The step crashes, so it is no
--- body the vectorizer takes, and the loop runs as the program does, row by
--- row; tiled four rows at a time, it would run column 0 of rows 0 to 3
--- first and end at the `div`.
+-- A vector tabulated over rows whose every element is a fold over another
+-- vector, with a fold step that divides by values that reach zero at two
+-- places: the `mod` at row 1, column 1, the `div` at row 2, column 0. In
+-- the program's order row 1 comes first, so the program ends at the
+-- `mod`. The step may crash, so the loop is no structured operation the
+-- compiler may reorder: it runs as the program does, row by row; tiled
+-- four rows at a time, it would run column 0 of rows 0 to 3 first and end
+-- at the `div`.
 
 import Prelude
-import Linear.Notation
-import Linear.Array
+import Array
 
-rows : Int -> IArray Int -> Array Int
-rows n v = generate n (\i => ifoldl (\acc, j, x => acc + ((x `div` (i * 10 + j - 20)) + (x `mod` (i * 10 + j - 11)))) 0 v)
+-- A position as the Int the program computes with.
+at : Fin n -> Int
+at i = cast (finToNat i)
+
+rows : (n : Nat) -> {m : Nat} -> Vector m Int -> Vector n Int
+rows n v =
+  tabulate [<n] (\[<i] =>
+    foldl (\acc, (j, x) => acc + ((x `div` (at i * 10 + j - 20)) + (x `mod` (at i * 10 + j - 11)))) 0
+          (tabulate [<m] (\[<j] => (at j, v !! [<j]))))
 
 readInt : IO Int
 readInt = go 0
@@ -29,5 +35,5 @@ main = do
   n <- readInt
   m <- readInt
   putStrLn "before"
-  printLn (freeze (generate m (\k => k + 100)) (\v => freeze (rows n v) Linear.Array.sum))
+  printLn (sum (rows (cast n) (tabulate [<cast m] (\[<k] => at k + 100))))
   putStrLn "after"

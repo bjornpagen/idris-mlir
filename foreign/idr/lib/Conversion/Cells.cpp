@@ -28,9 +28,8 @@ namespace {
 
 // A box's cell: count 1 and its info word, then its fields' components
 // stored at their offsets.
-Value buildBox(OpBuilder &b, Location loc, const Layouts &layouts, Runtime &runtime, CtorOp ctor,
+Value buildBox(OpBuilder &b, Location loc, Runtime &runtime, const layout::Cell &layout,
                Value cell, ArrayRef<ValueRange> fields) {
-  const layout::Cell &layout = layouts.box(ctor);
   if (!cell)
     cell = runtime.allocate(b, loc, layout.size, layout.info);
   for (auto [slots, values] : llvm::zip_equal(layout.fields, fields))
@@ -38,20 +37,20 @@ Value buildBox(OpBuilder &b, Location loc, const Layouts &layouts, Runtime &runt
   return cell;
 }
 
-// The cell of `con`, a box's constructor that idr-stack marked, before its
-// fields: a slot in the entry block of the function that holds it, one slot
-// per con, allocated once per frame however often the con runs, so LLVM may
-// keep it in registers when it stays in the function. Its header, written
+// The cell of `con`, a box's constructor idr-stack put on the stack (its
+// `stack` property), before its fields: a slot in the entry block of the
+// function that holds it, one slot per con, allocated once per frame however
+// often the con runs, so LLVM may keep it in registers when it stays in the
+// function. Its header, written
 // where the con runs, is count 1 and the box's info with the stack mark
 // (IDRIS_RT_STACK_CELL): counting works on it as on any cell, but when its
 // count reaches 0 its memory is not freed, and it is never exclusive, so no
-// reset reuses it for a value that could outlive the frame. Null when the
-// con is not marked.
-Value stackCell(OpBuilder &b, Location loc, ConOp con, CtorOp ctor, const Layouts &layouts,
+// reset reuses it for a value that could outlive the frame. Null for a
+// con on the heap.
+Value stackCell(OpBuilder &b, Location loc, ConOp con, const layout::Cell &layout,
                 Runtime &runtime) {
-  if (!IdrDialect::StackAttrHelper(con->getContext()).isAttrPresent(con))
+  if (!con.getStack())
     return {};
-  const layout::Cell &layout = layouts.box(ctor);
   Value slot;
   {
     OpBuilder::InsertionGuard guard(b);
@@ -75,25 +74,25 @@ struct LowerCon : IdrPattern<ConOp> {
   LogicalResult matchAndRewrite(ConOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    CtorOp ctor = lookupCtor(runtime.symbols(), op.getCtor());
-    if (isa<BoxType>(unrestricted(op.getType()))) {
+    DataType data = op.getDataType();
+    unsigned tag = op.getTag();
+    if (isBoxed(op.getType())) {
       // idr-stack: a cell that never outlives its frame is a slot of it.
-      Value cell = stackCell(rewriter, loc, op, ctor, layouts, runtime);
-      Value box = buildBox(rewriter, loc, layouts, runtime, ctor, cell, adaptor.getFields());
+      const layout::Cell &cell = layouts.box(data, tag);
+      Value slot = stackCell(rewriter, loc, op, cell, runtime);
+      Value box = buildBox(rewriter, loc, runtime, cell, slot, adaptor.getFields());
       rewriter.replaceOp(op, box);
       return success();
     }
-    const layout::SumLayout &layout =
-        layouts.sum(cast<DataType>(unrestricted(op.getType())).getName().getAttr());
+    const layout::SumLayout &layout = layouts.sum(data);
     SmallVector<Value> slots(layout.slots.size());
-    const auto &fields = layout.fields.find(ctor.getSymName())->second;
-    for (auto [field, values] : llvm::zip_equal(fields, adaptor.getFields()))
+    for (auto [field, values] : llvm::zip_equal(layout.fields[tag], adaptor.getFields()))
       for (auto [slot, value] : llvm::zip_equal(field, values))
         slots[slot] = value;
     SmallVector<Value> out;
     if (layout.tag)
-      out.push_back(arith::ConstantIntOp::create(rewriter, loc, layout.tag,
-                                                 static_cast<int64_t>(ctor.getTag())));
+      out.push_back(
+          arith::ConstantIntOp::create(rewriter, loc, layout.tag, static_cast<int64_t>(tag)));
     for (auto [slot, value] : llvm::enumerate(slots))
       out.push_back(value ? value
                           : LLVM::ZeroOp::create(rewriter, loc, layout.slots[slot]).getResult());
@@ -110,13 +109,12 @@ struct LowerTag : IdrPattern<TagOp> {
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     auto i64 = rewriter.getI64Type();
-    if (isa<BoxType>(unrestricted(op.getValue().getType()))) {
+    if (isBoxed(op.getValue().getType())) {
       Value tag = runtime.loadTag(rewriter, loc, adaptor.getValue().front());
       rewriter.replaceOpWithNewOp<arith::ExtUIOp>(op, i64, tag);
       return success();
     }
-    const layout::SumLayout &layout =
-        layouts.sum(cast<DataType>(unrestricted(op.getValue().getType())).getName().getAttr());
+    const layout::SumLayout &layout = layouts.sum(dataTypeOf(op.getValue().getType()));
     if (!layout.tag)
       rewriter.replaceOpWithNewOp<arith::ConstantIntOp>(op, 0, 64);
     else
@@ -132,18 +130,17 @@ struct LowerField : IdrPattern<FieldOp> {
   LogicalResult matchAndRewrite(FieldOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     auto index = static_cast<unsigned>(op.getIndex());
-    Type type = unrestricted(op.getValue().getType());
-    if (isa<BoxType>(type)) {
-      CtorOp ctor = lookupCtor(lookupData(runtime.symbols(), type), op.getCtor());
+    DataType data = op.getDataType();
+    if (isBoxed(op.getValue().getType())) {
       rewriter.replaceOpWithMultiple(
           op, {runtime.load(rewriter, op.getLoc(), adaptor.getValue().front(),
-                            layouts.box(ctor).fields[index])});
+                            layouts.box(data, op.getTag()).fields[index])});
       return success();
     }
-    const layout::SumLayout &layout = layouts.sum(cast<DataType>(type).getName().getAttr());
+    const layout::SumLayout &layout = layouts.sum(data);
     ValueRange values = adaptor.getValue();
     SmallVector<Value> out;
-    for (unsigned slot : layout.fields.find(op.getCtor())->second[index])
+    for (unsigned slot : layout.fields[op.getTag()][index])
       out.push_back(values[layout.offset() + slot]);
     rewriter.replaceOpWithMultiple(op, {out});
     return success();
@@ -183,9 +180,8 @@ struct LowerDestOf : IdrPattern<DestOfOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(DestOfOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    CtorOp ctor =
-        lookupCtor(lookupData(runtime.symbols(), op.getValue().getType()), op.getCtor());
-    const auto &slots = layouts.box(ctor).fields[static_cast<unsigned>(op.getIndex())];
+    const auto &slots =
+        layouts.box(op.getDataType(), op.getTag()).fields[static_cast<unsigned>(op.getIndex())];
     rewriter.replaceOp(op, at(rewriter, op.getLoc(), adaptor.getValue().front(),
                               slots.front().offset));
     return success();

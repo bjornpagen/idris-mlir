@@ -10,12 +10,8 @@
 // CHECK: llvm.call @idris_rt_inc(%[[S]])
 // CHECK: call @shout(%[[S]]) : (!llvm.ptr) -> i64
 // CHECK: return
+!lazy$0 = !idr.data<"lazy$0", memo [@shout(!idr.str) by_name, @running(), @forced(i64)]>
 module {
-  idr.data @lazy$0 box memo labels [@shout] {
-    idr.ctor @shout (!idr.str) by_name
-    idr.ctor @running ()
-    idr.ctor @forced (i64)
-  }
   idr.func private @shout(%s: !idr.own<!idr.str>) -> i64 attributes {total} {
     %w = idr.world.new
     %v = idr.borrow %s : !idr.own<!idr.str>
@@ -24,8 +20,8 @@ module {
     %c = arith.constant 1 : i64
     return %c : i64
   }
-  idr.func private @loud(%t: !idr.box<@lazy$0>) -> i64 {
-    %v = idr.force %t : !idr.box<@lazy$0> -> i64
+  idr.func private @loud(%t: !idr.box<!lazy$0>) -> i64 {
+    %v = idr.force %t : !idr.box<!lazy$0> -> i64
     return %v : i64
   }
 }

@@ -95,8 +95,7 @@ bool checkedBefore(GuardOpInterface op) {
 // The value `op` checks, where its condition holds of the constants that
 // folding or constant propagation knows its operands to be, where `known`
 // says it holds of the operand, or where an identical guard checked it.
-// Nothing otherwise: a guard that would crash keeps its crash, and what
-// only an analysis proves is idr-in-bounds's to remove.
+// Nothing otherwise: a guard that would crash keeps its crash.
 OpFoldResult foldCheck(GuardOpInterface op, ArrayRef<Attribute> constants, bool known) {
   if (known || checkHolds(op.getKind(), constants) || checkedBefore(op))
     return op.getGuarded();

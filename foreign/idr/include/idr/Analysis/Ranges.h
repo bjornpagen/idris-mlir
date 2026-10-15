@@ -2,8 +2,7 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The ranges of the module's integers, bigs and naturals, as MLIR's integer
 // range analysis finds them across calls, a natural it cannot see computed
-// starting at 0. idr-narrow and idr-in-bounds read it; nothing else solves
-// it.
+// starting at 0. idr-narrow reads it; nothing else solves it.
 #ifndef IDR_ANALYSIS_RANGES_H
 #define IDR_ANALYSIS_RANGES_H
 

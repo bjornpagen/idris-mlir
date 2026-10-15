@@ -1,0 +1,4 @@
+flags: found
+flags: every one an input, an output, a resource or a query
+pass options: idr-expect's holds alone
+idris-mlir registers no debug counter

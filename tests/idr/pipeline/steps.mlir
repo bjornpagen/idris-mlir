@@ -1,42 +1,23 @@
 // RUN: rm -rf %t.dir && mkdir -p %t.dir
-// RUN: idris-mlir -c %s -o %t.o --dump-dir=%t.dir
-// RUN: ls %t.dir > %t.dumps
-// RUN: awk '!/^[0-9][0-9]-[a-z][a-z0-9-]*[.]mlir$/ { exit 1 } $0 + 0 != NR { exit 1 } END { if (NR < 2) exit 1 }' %t.dumps
-// RUN: head -n 1 %t.dumps | grep -qx 01-idr-target.mlir
+// RUN: idris-mlir -c %s -o %t.o -mlir-print-ir-after-all -mlir-print-ir-tree-dir=%t.dir
+// RUN: ls %t.dir/builtin_module_no-symbol-name | grep '[.]mlir$' | sort -n > %t.dumps
+// RUN: awk '!/^[0-9]+_[a-z][a-z0-9-]*[.]mlir$/ { exit 1 } $0 + 0 != NR - 1 { exit 1 } END { if (NR < 2) exit 1 }' %t.dumps
+// RUN: head -n 1 %t.dumps | grep -qx 0_idr-target.mlir
 // RUN: idris-mlir-opt %s --idr-target --idr-pipeline -o %t.pipeline.mlir
-// RUN: sh -c 'for dump in %t.dir/*; do last=$dump; done; idris-mlir-opt "$last" -o %t.last.mlir'
+// RUN: sh -c 'idris-mlir-opt "%t.dir/builtin_module_no-symbol-name/$(tail -n 1 %t.dumps)" -o %t.last.mlir'
 // RUN: idris-mlir-opt %t.pipeline.mlir -o %t.again.mlir
 // RUN: cmp %t.last.mlir %t.again.mlir
-// RUN: rm -rf %t.without && mkdir -p %t.without
-// RUN: idris-mlir -c %s -o %t.without.o --without=idr-returned-arguments,idr-stack,sink,reuse --dump-dir=%t.without
-// RUN: ls %t.without | not grep -q 'idr-returned-arguments\|idr-stack'
-// RUN: ls %t.without | grep -q 'idr-rc'
-// RUN: %status 2 idris-mlir -c %s -o %t.bad.o --without=idr-lower
-// RUN: %status 2 idris-mlir -c %s -o %t.bad.o --without=idr-sinking
-// RUN: %status 2 idris-mlir -c %s -o %t.bad.o --without=idr-redirect
-// RUN: %status 2 idris-mlir -c %s -o %t.bad.o --without=idr-rc-place
-// RUN: %status 2 idris-mlir -c %s -o %t.bad.o --demand-in-place --without=idr-demand 2> %t.demand.err
-// RUN: FileCheck --check-prefix=DEMAND %s < %t.demand.err
-// RUN: %status 2 idris-mlir -c %s -o %t.bad.o --demand-in-place --without=in-place 2> %t.inplace.err
-// RUN: FileCheck --check-prefix=INPLACE %s < %t.inplace.err
-// RUN: idris-mlir -c %s -o %t.without.o --without=idr-demand
-// idris-mlir dumps the module after each pass its manager runs, one file
-// per pass, `<NN>-<pass>.mlir` numbered in order from 01, the first
-// idr-target, which sets the build's target (a nested group is named by
-// the first pass it ran); and idris-mlir-opt's
-// idr-pipeline is that same pipeline, on the module idr-target has given
-// the build's target, as idris-mlir gives it: the module it ends with is
-// the one idris-mlir dumped last. Which steps there are, and their order, are
-// the pipeline's own business. --without leaves named steps out (and turns
-// idr-rc's mechanisms off), for measuring what each is worth; a name that
-// is no step, or idr-lower, is a usage error, and so is a pass of the
-// simplify round or one a step runs nested inside itself. Asking
-// --demand-in-place of the checker --without leaves out is a usage error
-// too, never a promise kept by not looking; leaving idr-demand out
-// without asking is a measurement like any other.
-// DEMAND: idris-mlir: --demand-in-place with --without idr-demand
-// INPLACE: idris-mlir: --demand-in-place with --without in-place
-module attributes {idr.program} {
+// NEEDS-ACCEPTANCE: the tree printer's directory for the module (builtin_module_no-symbol-name) and its file names (<n>_<pass>.mlir), as the pinned MLIR writes them.
+// idris-mlir prints the module after each pass its manager runs through
+// upstream's IR printer, into a tree of files: the module's own passes as
+// `<n>_<pass>.mlir`, numbered in order from 0, the first idr-target, which
+// sets the build's target; a pass run on every function prints into each
+// function's directory below. idris-mlir-opt's idr-pipeline is that same
+// pipeline, on the module idr-target has given the build's target, as
+// idris-mlir gives it: the module it ends with is the one idris-mlir
+// printed last. Which steps there are, and their order, are the
+// pipeline's own business; no option of the compiler leaves one out.
+module {
   idr.func @Prog.main() -> i64 {
     %c = arith.constant 42 : i64
     return %c : i64

@@ -1,13 +1,12 @@
 package mlir-linear
 version = 0.1.0
 
-brief = "Linear arrays, linear data and a linear string iterator for idris-mlir, in Idris over base's primitives and a few of the compiler's own"
+brief = "Linear data and a linear string iterator for idris-mlir, in Idris over base's primitives and a few of the compiler's own"
 authors = "idris-mlir"
 
 depends = base
 
-modules = Linear.Array,
-          Linear.List,
+modules = Linear.List,
           Linear.Nat,
           Linear.Notation,
           Linear.String.Iterator

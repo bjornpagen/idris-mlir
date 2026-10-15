@@ -1,7 +1,8 @@
 /* Reference counting against cells built by hand as idr-lower lays them out:
  * counts, saturation, freeing (a structure of any depth, under the small
  * stack the run script gives, and arrays whose elements hold objects),
- * reuse, stack cells, and the live-cell count.
+ * arrays born with NULL slots, the copy of a memref's view, reuse, stack
+ * cells, and the live-cell count.
  * A failed check prints a line to standard error. The summary goes through
  * the runtime's output buffer, which idris_rt_main_return must flush; then
  * main returns as @main does.
@@ -249,6 +250,124 @@ static void arrays(void) {
   check(live() == before, "nothing of the box or its array is left");
 }
 
+/* A new array's object slots hold NULL from birth, before any store, so the
+ * runtime may release every slot of any cell it frees: one never written
+ * releases nothing. */
+static void zeroedSlots(void) {
+  uint64_t before = live();
+  idris_rt_array *a = idris_rt_array_new(5, idris_rt_info(16, 1, IDRIS_RT_KIND_ARRAY));
+  int null = 1;
+  for (size_t i = 0; i < 5; ++i)
+    null = null && *(void **)((char *)a + sizeof(idris_rt_array) + 16 * i) == NULL;
+  check(null, "a new array's object slots hold NULL before any store");
+  check(a->length == 5 && count(a) == 1, "a new array holds its count of elements and one reference");
+  idris_rt_dec(a);
+  check(live() == before, "an array never stored into is freed with nothing to release");
+}
+
+/* Descriptors as LLVM lays one out: idris_rt_memref's three words, then the
+ * sizes, then the strides, in elements. */
+typedef struct {
+  idris_rt_memref m;
+  int64_t sizes[1], strides[1];
+} memref1;
+typedef struct {
+  idris_rt_memref m;
+  int64_t sizes[2], strides[2];
+} memref2;
+
+static char *elements(idris_rt_array *a) { return (char *)a + sizeof(idris_rt_array); }
+static void **boxAt(idris_rt_array *a, size_t i) { return (void **)(elements(a) + 8 * i); }
+static double *doubleAt(idris_rt_array *a, size_t i) { return (double *)(void *)(elements(a) + 8 * i); }
+
+static memref2 rows(idris_rt_array *a, int64_t rowsOf, int64_t cols) {
+  memref2 d = {{a, elements(a), 0}, {rowsOf, cols}, {cols, 1}};
+  return d;
+}
+
+/* An array of `n` elements that are each one object slot, a box. */
+static idris_rt_array *boxCells(size_t n) {
+  return idris_rt_array_new(n, idris_rt_info(8, 1, IDRIS_RT_KIND_ARRAY));
+}
+
+/* idris_rt_memref_copy, the copy bufferization makes: each element of one
+ * view assigned to the same place of another, each object slot copied
+ * gaining a reference before the slot it overwrites loses one. */
+static void memrefCopies(void) {
+  uint64_t before = live();
+  idris_rt_array *from = boxCells(6);
+  for (size_t i = 0; i < 6; ++i)
+    *boxAt(from, i) = cons((int64_t)i, NULL);
+
+  idris_rt_array *fresh = boxCells(6);
+  memref2 source = rows(from, 2, 3), target = rows(fresh, 2, 3);
+  idris_rt_memref_copy(2, &source.m, &target.m);
+  int counted = 1, same = 1;
+  for (size_t i = 0; i < 6; ++i) {
+    counted = counted && count(*boxAt(from, i)) == 2;
+    same = same && *boxAt(fresh, i) == *boxAt(from, i);
+  }
+  check(counted, "a 2x3 view of boxes copied onto a fresh cell gives each box one more reference");
+  check(same, "the fresh cell's six slots are the source's");
+
+  idris_rt_array *held = boxCells(6);
+  for (size_t i = 0; i < 6; ++i)
+    *boxAt(held, i) = cons(100 + (int64_t)i, NULL);
+  uint64_t full = live();
+  memref2 live2 = rows(held, 2, 3);
+  idris_rt_memref_copy(2, &source.m, &live2.m);
+  counted = 1;
+  for (size_t i = 0; i < 6; ++i)
+    counted = counted && count(*boxAt(from, i)) == 3 && *boxAt(held, i) == *boxAt(from, i);
+  check(counted && live() == full - 6,
+        "a copy onto a live cell releases each box it overwrites once, and holds the source's");
+
+  idris_rt_memref_copy(2, &source.m, &source.m);
+  counted = 1;
+  for (size_t i = 0; i < 6; ++i)
+    counted = counted && count(*boxAt(from, i)) == 3;
+  check(counted && live() == full - 6, "a view copied onto itself keeps every count");
+
+  memref2 empty = {{from, elements(from), 0}, {0, 3}, {3, 1}};
+  memref2 emptyTarget = {{fresh, elements(fresh), 0}, {0, 3}, {3, 1}};
+  idris_rt_memref_copy(2, &empty.m, &emptyTarget.m);
+  counted = 1;
+  for (size_t i = 0; i < 6; ++i)
+    counted = counted && count(*boxAt(from, i)) == 3 && *boxAt(fresh, i) == *boxAt(from, i);
+  check(counted && live() == full - 6, "a copy with a size of 0 touches nothing");
+
+  idris_rt_array *one = boxCells(1);
+  idris_rt_memref scalarFrom = {from, elements(from), 4}, scalarTo = {one, elements(one), 0};
+  idris_rt_memref_copy(0, &scalarFrom, &scalarTo);
+  check(*boxAt(one, 0) == *boxAt(from, 4) && count(*boxAt(from, 4)) == 4,
+        "a rank-0 copy assigns one element");
+
+  idris_rt_array *grid = idris_rt_array_new(9, idris_rt_info(8, 0, IDRIS_RT_KIND_ARRAY));
+  idris_rt_array *column = idris_rt_array_new(3, idris_rt_info(8, 0, IDRIS_RT_KIND_ARRAY));
+  for (size_t i = 0; i < 9; ++i)
+    *doubleAt(grid, i) = (double)i;
+  memref1 middle = {{grid, elements(grid), 1}, {3}, {3}};
+  memref1 contiguous = {{column, elements(column), 0}, {3}, {1}};
+  idris_rt_memref_copy(1, &middle.m, &contiguous.m);
+  check(*doubleAt(column, 0) == 1.0 && *doubleAt(column, 1) == 4.0 && *doubleAt(column, 2) == 7.0,
+        "doubles copied from a column view (stride 3) land in row-major order");
+  for (size_t i = 0; i < 3; ++i)
+    *doubleAt(column, i) = 10.0 + (double)i;
+  memref1 last = {{grid, elements(grid), 2}, {3}, {3}};
+  idris_rt_memref_copy(1, &contiguous.m, &last.m);
+  check(*doubleAt(grid, 2) == 10.0 && *doubleAt(grid, 5) == 11.0 && *doubleAt(grid, 8) == 12.0 &&
+            *doubleAt(grid, 1) == 1.0 && *doubleAt(grid, 4) == 4.0,
+        "doubles copied onto a column view (stride 3) land in its column alone");
+
+  idris_rt_dec(grid);
+  idris_rt_dec(column);
+  idris_rt_dec(one);
+  idris_rt_dec(held);
+  idris_rt_dec(fresh);
+  idris_rt_dec(from);
+  check(live() == before, "every cell and box of the copies is freed once its last owner lets go");
+}
+
 static void stringsAndBignums(void) {
   uint64_t before = live();
   const idris_rt_str *a = text("héllo"), *b = text(" wörld"), *ascii = text("ascii");
@@ -413,6 +532,8 @@ int main(int argc, char **argv) {
   trees();
   thunks();
   arrays();
+  zeroedSlots();
+  memrefCopies();
   stringsAndBignums();
   tokens();
   stackCells();

@@ -4,5 +4,4 @@ hello: exit 0, the Core and the module written
 hello: nothing else written
 nested: exit 0, the directories made and both written
 undefined: exit 3, says Undefined name
-no-entry: exit 1, says internal error
 idris-option: exit 2, says unknown option --cg

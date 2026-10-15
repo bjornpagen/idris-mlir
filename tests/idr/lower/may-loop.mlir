@@ -8,7 +8,7 @@
 // CHECK: } do {
 // CHECK: llvm.call_intrinsic "llvm.sideeffect"()
 // CHECK: scf.yield
-module attributes {idr.program} {
+module {
   idr.func private @spin(%n: i64) {
     %r = scf.while (%x = %n) : (i64) -> i64 {
       %zero = arith.constant 0 : i64

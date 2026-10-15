@@ -12,9 +12,9 @@
 module IdrisMLIR.Registry.Primitives
 
 import IdrisMLIR.Dialect.Idr
+import IdrisMLIR.MLIR
 import IdrisMLIR.Registry.Entry
 import IdrisMLIR.Registry.Name
-import IdrisMLIR.Rule
 import IdrisMLIR.Syntax.Idr
 import IdrisMLIR.Types
 
@@ -412,41 +412,23 @@ primitives =
   , ioPrimitive (MkSpec "C" "idris2_getStr") "prim__getStr"
                 (Pi M1 world (ioRes (Prim StringP))) GetLine
   , MkEntry (Def (MkQName arrayPrims "ArrayData")) (Typed (Pi Mw TypeOfTypes TypeOfTypes))
-            (ArrayType Rank1 Nothing) [IOPrimitive]
+            (OrderedArrayType [Dynamic] Nothing) [IOPrimitive]
   , arrayPrimitive "prim__newArray"
                    (Pi Mw int (Pi Mw Hole (Pi M1 world (ioRes (arrayData Hole))))) ArrayNew
   , arrayPrimitive "prim__arrayGet"
                    (Pi Mw (arrayData Hole) (Pi Mw int (Pi M1 world (ioRes Hole)))) ArrayGet
   , arrayPrimitive "prim__arraySet"
                    (Pi Mw (arrayData Hole) (Pi Mw int (Pi Mw Hole (Pi M1 world (ioRes unit))))) ArraySet
-  -- An IORef is an array of rank 0: `Mut a` is `memref<E>`, its one
+  -- An IORef is an array of no dimension: `Mut a` is `memref<E>`, its one
   -- element the value, made, read and written through the world as an
   -- array's elements are, with no size and no index. Control.Monad.ST's
   -- references are IORefs, run by base's unsafePerformIO.
   , MkEntry (Def (MkQName iorefModule "Mut")) (Typed (Pi Mw TypeOfTypes TypeOfTypes))
-            (ArrayType Rank0 Nothing) [IOPrimitive]
+            (OrderedArrayType [] Nothing) [IOPrimitive]
   , cellPrimitive iorefModule "prim__newIORef" (Pi Mw Hole (Pi M1 world (ioRes (mut Hole)))) ArrayNew
   , cellPrimitive iorefModule "prim__readIORef" (Pi Mw (mut Hole) (Pi M1 world (ioRes Hole))) ArrayGet
   , cellPrimitive iorefModule "prim__writeIORef"
                   (Pi Mw (mut Hole) (Pi Mw Hole (Pi M1 world (ioRes unit)))) ArraySet
-  -- The length of an array, which the backend contract lacks: the in-house
-  -- linear array library declares it by Chez's spec, `vector-length` of the
-  -- vector `ArrayData` is there (after the erased type argument Chez passes
-  -- a Scheme foreign function), and the compiler gives that spec its one
-  -- meaning, the memref's dimension.
-  , MkEntry (Foreign (MkSpec "scheme" "(lambda (ty v) (vector-length v))"))
-            (Declared (MkQName ["Linear", "Array"] "prim__arraySize")
-                      (Pi M0 TypeOfTypes (Pi Mw (arrayData Hole) int)))
-            ArraySize [Primitive]
-  -- An index checked against a bound, which the backend contract lacks:
-  -- the in-house linear array library checks each index against its
-  -- array's size with it, by Chez's spec, and the compiler gives that spec
-  -- its one meaning, the guard of an index against that integer. The spec
-  -- is the key, so it must be the library's byte for byte; it holds no
-  -- comma, at which a spec's function ends.
-  , MkEntry (Foreign (MkSpec "scheme" "(lambda (i n) (if (and (<= 0 i) (< i n)) i (error #f \"array index out of bounds\")))"))
-            (Declared (MkQName ["Linear", "Array"] "prim__index") (Pi Mw int (Pi Mw int int)))
-            (PrimCall IndexBelow) [Primitive]
   -- base's Data.Buffer is an array of bytes. A new one is a new array, of
   -- zero bytes: the fill is the zero byte, which base's call does not
   -- pass. Its size is the array's length. A byte is that element
@@ -455,7 +437,7 @@ primitives =
   -- and bufferData are deprecated names: a program that calls one is
   -- rejected, and the message names the replacement. They share Chez's
   -- byte spec with the Bits8 operations; the declared name picks the entry.
-  , MkEntry (Def (MkQName bufferModule "Buffer")) (Typed TypeOfTypes) (ArrayType Rank1 (Just byte)) [IOPrimitive]
+  , MkEntry (Def (MkQName bufferModule "Buffer")) (Typed TypeOfTypes) (OrderedArrayType [Dynamic] (Just byte)) [IOPrimitive]
   , MkEntry (Foreign (MkSpec "scheme" "blodwen-new-buffer"))
             (Declared (MkQName bufferModule "prim__newBuffer") (Pi Mw int (Pi M1 world (ioRes buffer))))
             (IOCall ArrayNew [LInt UInt8 0]) [IOPrimitive]

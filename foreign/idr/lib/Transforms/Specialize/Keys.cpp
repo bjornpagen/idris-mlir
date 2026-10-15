@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The key of a call: a clone is keyed by its owner (the function it was
-// first cloned from) and the patterns of the owner's parameters, so that
-// keys made at calls of the owner and of its clones compare.
+// The key of a call: a node is keyed by its owner (the function it is
+// cloned from) and the patterns of the owner's parameters, so that keys
+// made at calls of the owner and of its nodes compare.
 //
 // A call specializes on an argument only when the parameter's binding time
 // allows it: anything static when the callee is on no cycle, and otherwise
@@ -10,25 +10,26 @@
 // value is small. Every other argument is a runtime leaf, however static. A
 // world carries no value to specialize around.
 //
-// Inside a chain of clones, a clone's parameter specializes again only when
-// it is a closure: a closure static at a later call is new knowledge, where
-// data would re-abstract what the key already fixed.
+// Inside a chain of nodes, a node's parameter specializes again only on a
+// closure, a constructor of a sum defunctionalization made: a closure
+// static at a later call is new knowledge, where data would re-abstract
+// what the key already fixed.
 //
-// The key is composed from the call alone: the callee's name, and its
-// parameters as the call's operands, whose types verifySymbolUses makes
-// the callee's. So a function pass composes it without resolving the
-// callee.
+// The key is composed from the call alone, its callee's binding times and,
+// for a node, its key: the callee's parameters are the call's operands,
+// whose types the callee's are. A pattern's type is its position's, so the
+// key holds none.
 #include "idr/IR/IdrDialect.h"
-#include "idr/Analysis/Specialize.h"
-#include "idr/Transforms/Specialize.h"
 #include "idr/IR/Grades.h"
+#include "idr/IR/Symbols.h"
+#include "idr/Transforms/Specialize.h"
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
 
-namespace idr::specialize {
+namespace idr::specialize::detail {
 
 namespace {
 
@@ -37,48 +38,68 @@ namespace {
 // the heap (`Vect 3 Double`); a larger value stays data.
 constexpr uint64_t kUnrollLimit = 32;
 
-// A constant as a key: constructors and closures as the nodes they fold
-// from. Each shared part is keyed once, in `keys`. A run is keyed as the
-// constructors it stands for, from its tail back to its first cell, so that
-// each cell is read once.
-Attribute keyOfConstant(Attribute value, llvm::DenseMap<Attribute, Attribute> &keys) {
-  if (Attribute known = keys.lookup(value))
+using ConstantKeys = llvm::DenseMap<std::pair<Attribute, Type>, Attribute>;
+
+// The index in its constructor of field `i` of a run's cell, which holds
+// every field but the spine.
+unsigned fieldOfCell(unsigned i, unsigned spine) { return i < spine ? i : i + 1; }
+
+// A constant at a position of `type`, as a key: a constructor as the node
+// it folds from, over its fields at their declared types. Each shared part
+// is keyed once per type, in `keys`. A run is keyed as the constructors it
+// stands for, from its tail back to its first cell, so that each cell is
+// read once.
+Attribute keyOfConstant(Attribute value, Type type, ConstantKeys &keys) {
+  type = unrestricted(type);
+  if (Attribute known = keys.lookup({value, type}))
     return known;
-  MLIRContext *ctx = value.getContext();
-  auto keysOf = [&](ArrayAttr parts) {
-    return llvm::map_to_vector(parts, [&](Attribute part) { return keyOfConstant(part, keys); });
-  };
   Attribute key = value;
-  if (auto con = dyn_cast<ConAttr>(value)) {
-    StringAttr data = con.getCtor().getRootReference();
-    StringAttr ctor = con.getCtor().getLeafReference();
+  auto con = dyn_cast<ConAttr>(value);
+  DataType data = con ? dataTypeOf(type) : DataType();
+  std::optional<unsigned> tag =
+      data ? data.getTag(con.getCtor().getValue()) : std::optional<unsigned>();
+  if (tag) {
+    MLIRContext *ctx = value.getContext();
+    ArrayRef<Type> types = data.getCtor(*tag).fields;
+    StringAttr name = StringAttr::get(ctx, data.getName());
+    StringAttr ctor = con.getCtor().getAttr();
     if (!con.isRun()) {
-      key = KeyConAttr::get(ctx, data, ctor, ArrayAttr::get(ctx, keysOf(con.getFields())));
+      SmallVector<Attribute> fields;
+      for (auto [field, fieldType] : llvm::zip_equal(con.getFields(), types))
+        fields.push_back(keyOfConstant(field, fieldType, keys));
+      key = KeyConAttr::get(ctx, name, ctor, ArrayAttr::get(ctx, fields));
     } else {
-      key = keyOfConstant(con.getTail(), keys);
+      unsigned spine = con.getSpine();
+      key = keyOfConstant(con.getTail(), type, keys);
       for (ArrayAttr cell : llvm::reverse(con.getRunCells())) {
-        auto fields = keysOf(cell);
-        fields.insert(fields.begin() + con.getSpine(), key);
-        key = KeyConAttr::get(ctx, data, ctor, ArrayAttr::get(ctx, fields));
+        SmallVector<Attribute> fields;
+        for (auto [i, field] : llvm::enumerate(cell))
+          fields.push_back(
+              keyOfConstant(field, types[fieldOfCell(static_cast<unsigned>(i), spine)], keys));
+        fields.insert(fields.begin() + spine, key);
+        key = KeyConAttr::get(ctx, name, ctor, ArrayAttr::get(ctx, fields));
       }
     }
-  } else if (auto closure = dyn_cast<ClosureAttr>(value)) {
-    key = KeyClosureAttr::get(ctx, closure.getCallee().getAttr(),
-                              ArrayAttr::get(ctx, keysOf(closure.getCaptures())));
   }
-  return keys[value] = key;
+  return keys[{value, type}] = key;
 }
 
-Attribute keyOfConstant(Attribute value) {
-  llvm::DenseMap<Attribute, Attribute> keys;
-  return keyOfConstant(value, keys);
+Attribute keyOfConstant(Attribute value, Type type) {
+  ConstantKeys keys;
+  return keyOfConstant(value, type, keys);
+}
+
+// Whether a value of `type` is a closure: a constructor of a sum
+// defunctionalization made.
+bool isClosureValue(Type type) {
+  DataType data = dataTypeOf(type);
+  return data && data.isClosures();
 }
 
 // Whether a call specializes on a static argument of a parameter of
-// binding time `time`: inside a chain of clones only on a closure, which is
-// new knowledge where data would re-abstract what the key already fixed.
-bool specializesOn(BindingTime time, bool intoClone, Type type) {
-  return time != BindingTime::Other && (!intoClone || isClosureType(type));
+// binding time `time`: inside a chain of nodes only on a closure.
+bool specializesOn(BindingTime time, bool intoNode, Type type) {
+  return time != BindingTime::Other && (!intoNode || isClosureValue(type));
 }
 
 // Appends argument `arg` to `out` as the key's next holes, and returns its
@@ -93,81 +114,71 @@ Attribute append(Argument &arg, SmallVector<unsigned> &held, Composed &out) {
   return keyOf(arg.pattern);
 }
 
-// `part` of a clone's key with each hole filled with the pattern of the
-// argument at its position: hole i of a clone's key is its parameter i.
+// `part` of a node's key with each hole filled with the pattern of the
+// argument at its position: hole i of a node's key is its parameter i.
 Attribute fill(Attribute part, Composed &out) {
   MLIRContext *ctx = part.getContext();
   if (auto hole = dyn_cast<KeyHoleAttr>(part)) {
     unsigned p = hole.getIndex();
     return append(out.args[p], out.held[p], out);
   }
-  auto parts = [&](ArrayAttr from) {
-    return ArrayAttr::get(ctx, llvm::map_to_vector(from, [&](Attribute inner) {
-                            return fill(inner, out);
-                          }));
-  };
   if (auto con = dyn_cast<KeyConAttr>(part))
-    return KeyConAttr::get(ctx, con.getData(), con.getCtor(), parts(con.getFields()));
-  if (auto closure = dyn_cast<KeyClosureAttr>(part))
-    return KeyClosureAttr::get(ctx, closure.getCallee(), parts(closure.getCaptures()));
+    return KeyConAttr::get(ctx, con.getData(), con.getCtor(),
+                           ArrayAttr::get(ctx, llvm::map_to_vector(con.getFields(),
+                                                                   [&](Attribute inner) {
+                                                                     return fill(inner, out);
+                                                                   })));
   return part;
 }
 
 } // namespace
 
-// The pattern as a key: a typed attribute, whose labels are names and not
-// symbol uses, so that a key keeps no function alive. A constructor or
-// closure constant is keyed as the node it folds from, so that both key the
-// same clone.
+// The pattern as a key: a dialect attribute, whose constructors are names
+// and not symbol uses, so that a key keeps no function alive. A constructor
+// constant is keyed as the node it folds from, so that both key the same
+// node. A value entered into a linear type is keyed as the value: the type
+// of its position says it is linear.
 Attribute keyOf(const Pattern &pattern) {
   MLIRContext *ctx = pattern.type.getContext();
-  auto keysOf = [&](const std::vector<Pattern> &parts) {
-    return ArrayAttr::get(ctx, llvm::map_to_vector(parts, [](const Pattern &part) {
-                            return keyOf(part);
-                          }));
-  };
   return std::visit(
       Match{[&](const Hole &hole) -> Attribute { return KeyHoleAttr::get(ctx, hole.index); },
-            [](const Constant &c) { return keyOfConstant(c.value); },
+            [&](const Constant &c) { return keyOfConstant(c.value, pattern.type); },
             [&](const Con &con) -> Attribute {
-              return KeyConAttr::get(ctx, con.ctor.getRootReference(),
-                                     con.ctor.getLeafReference(), keysOf(con.fields));
+              DataType data = dataTypeOf(pattern.type);
+              SmallVector<Attribute> fields =
+                  llvm::map_to_vector(con.fields, [](const Pattern &part) { return keyOf(part); });
+              return KeyConAttr::get(ctx, StringAttr::get(ctx, data.getName()),
+                                     con.ctor.getAttr(), ArrayAttr::get(ctx, fields));
             },
-            [&](const Closure &closure) -> Attribute {
-              return KeyClosureAttr::get(ctx, closure.callee.getAttr(), keysOf(closure.captures));
-            },
-            // The type of the position says the value is linear.
             [](const Linear &linear) { return keyOf(linear.value.front()); }},
       pattern.node);
 }
 
-std::optional<Composed> composeKey(idr::CallOp call, const CloneTable &clones,
-                                   const BindingTimes &times) {
+std::optional<Composed> composeKey(idr::CallOp call, SpecKeyAttr own, const BindingTimes &times) {
   // A closed call is left to run at run time.
   if (llvm::all_of(call.getArgs(), [](Value v) { return isWorld(v.getType()) || isClosed(v); }))
     return std::nullopt;
   StringAttr callee = call.getCalleeAttr().getAttr();
-  const Clone *own = clones.specialization(callee);
+  SmallVector<BindingTime> given = times.of(callee);
+  // A final callee has its binding times; one without them is no final one.
+  if (given.size() != call.getArgs().size())
+    return std::nullopt;
 
   Composed composed;
   bool any = false;
   for (auto [i, operand] : llvm::enumerate(call.getArgs())) {
-    std::optional<BindingTime> time = times.of(callee, static_cast<unsigned>(i));
-    // A function made since the binding times were found has none until
-    // they are found again.
-    if (!time)
-      return std::nullopt;
-    Argument &arg = composed.args.emplace_back(Argument{leafOf(operand, 0), {operand}, *time});
-    if (!specializesOn(*time, own, operand.getType()))
+    BindingTime time = given[i];
+    Argument &arg = composed.args.emplace_back(Argument{leafOf(operand, 0), {operand}, time});
+    if (!specializesOn(time, static_cast<bool>(own), operand.getType()))
       continue;
     SmallVector<Value> leaves;
     Pattern shape = shapeOf(operand, leaves);
     // An unrolling parameter counts down scalars too (a Nat), but only as
     // far as the value is small.
-    bool unrolls = *time == BindingTime::Decreasing || *time == BindingTime::Bounded;
+    bool unrolls = time == BindingTime::Decreasing || time == BindingTime::Bounded;
     if (shape.isHole() || (unrolls ? unrollSize(shape) > kUnrollLimit : !hasStructure(shape)))
       continue;
-    // A linear leaf moves into the clone's call, so the shape that held it
+    // A linear leaf moves into the node's call, so the shape that held it
     // must die with the call it feeds: else the leaf is used twice.
     if (llvm::any_of(leaves, [](Value leaf) { return isLinear(leaf.getType()); }) &&
         !usedOnce(operand))
@@ -183,15 +194,15 @@ std::optional<Composed> composeKey(idr::CallOp call, const CloneTable &clones,
   composed.held.resize(composed.args.size());
   SmallVector<Attribute> patterns;
   if (own) {
-    for (Attribute part : cast<SpecKeyAttr>(own->key).getPatterns())
+    for (Attribute part : own.getPatterns())
       patterns.push_back(fill(part, composed));
   } else {
     for (unsigned p = 0; p < composed.args.size(); ++p)
       patterns.push_back(append(composed.args[p], composed.held[p], composed));
   }
-  composed.key =
-      SpecKeyAttr::get(ctx, clones.ownerOf(callee), ArrayAttr::get(ctx, patterns));
+  StringAttr owner = own ? own.getOrigin() : callee;
+  composed.key = SpecKeyAttr::get(ctx, owner, ArrayAttr::get(ctx, patterns));
   return composed;
 }
 
-} // namespace idr::specialize
+} // namespace idr::specialize::detail

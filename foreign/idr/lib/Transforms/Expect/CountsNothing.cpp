@@ -14,10 +14,10 @@ namespace idr::expect {
 
 // The function the argument names counts no reference: no idr.dup, no
 // idr.drop.
-LogicalResult countsNothing(ModuleOp module, AnalysisManager &analyses, StringRef function) {
+LogicalResult countsNothing(ModuleOp module, AnalysisManager &, StringRef function) {
   constexpr StringRef property = "counts-nothing";
   SmallVector<FunctionOpInterface> functions =
-      named(module, analyses.getAnalysis<SymbolTable>(), function, property);
+      named(module, function, property);
   if (functions.empty())
     return failure();
   bool held = true;

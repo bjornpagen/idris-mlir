@@ -4,7 +4,7 @@
 // CHECK-LABEL: func.func private @pass(
 // CHECK-SAME: %[[X:.*]]: i64
 // CHECK: return %[[X]] : i64
-module attributes {idr.program} {
+module {
   idr.func private @pass(%x: !idr.lin<i64>) -> i64 {
     %v = idr.lin.use %x : !idr.lin<i64>
     return %v : i64

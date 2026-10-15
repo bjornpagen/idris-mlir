@@ -7,7 +7,6 @@ sourcedir = "src"
 modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Registry.Libraries
         , IdrisMLIR.Loc
-        , IdrisMLIR.Rule
         , IdrisMLIR.Ids
         , IdrisMLIR.Types
         , IdrisMLIR.Registry.Entry
@@ -24,25 +23,32 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Syntax.Math
         , IdrisMLIR.Syntax.UB
         , IdrisMLIR.Syntax.MemRef
+        , IdrisMLIR.Syntax.Tensor
+        , IdrisMLIR.Syntax.SCF
         , IdrisMLIR.MLIR
+        , IdrisMLIR.MLIR.Bytecode
         , IdrisMLIR.Dialect.Idr
         , IdrisMLIR.Dialect.Builtin
         , IdrisMLIR.Dialect.Arith
         , IdrisMLIR.Dialect.Math
         , IdrisMLIR.Dialect.UB
         , IdrisMLIR.Dialect.MemRef
+        , IdrisMLIR.Dialect.Tensor
+        , IdrisMLIR.Dialect.SCF
         , IdrisMLIR.Emit.Index
         , IdrisMLIR.Emit.Monad
         , IdrisMLIR.Emit.Types
+        , IdrisMLIR.Emit.Tensors
+        , IdrisMLIR.Emit.Closures
         , IdrisMLIR.Emit.Operations
         , IdrisMLIR.Emit.Bodies
         , IdrisMLIR.Emit.Declarations
         , IdrisMLIR.Emit
         , IdrisMLIR.Frontend.Resolve
-        , IdrisMLIR.Frontend.Translate.Prof
         , IdrisMLIR.Frontend.Translate.State
         , IdrisMLIR.Frontend.Translate.Errors
         , IdrisMLIR.Frontend.Translate.Closed
+        , IdrisMLIR.Frontend.Translate.Shapes
         , IdrisMLIR.Frontend.Translate.Keys
         , IdrisMLIR.Frontend.Translate.Dictionaries
         , IdrisMLIR.Frontend.Translate.Types

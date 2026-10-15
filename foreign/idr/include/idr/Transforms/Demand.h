@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idr-demand: the promise a program can be asked to keep, checked on the
-// grades idr-rc wrote.
+// idr-demand: the in-place promise a type makes, checked on the grades
+// idr-rc wrote.
 #ifndef IDR_TRANSFORMS_DEMAND_H
 #define IDR_TRANSFORMS_DEMAND_H
 

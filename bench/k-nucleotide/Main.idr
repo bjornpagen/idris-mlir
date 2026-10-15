@@ -8,12 +8,18 @@ module Main
 -- slot is a zero key, and the same hash as the C (`key ^ (key >> 15)`).
 -- The table holds twice as many slots as there are fragments to count, or
 -- twice the 4^k possible keys when that is fewer: a 1-mer has four keys.
+-- The table is a linear array (Array's LArray) threaded through the counting
+-- loop at quantity 1 and frozen for the lookups; the sequence is an array
+-- copied once out of the input buffer. A slot or a position the program
+-- computes is checked against its array where it is used; the program keeps
+-- every one inside it.
 
 import Prelude
 import Data.Bits
 import Data.Buffer
 import Data.List
-import Linear.Array
+import Linear.Notation
+import Array
 import System.File
 
 record Slot where
@@ -137,57 +143,81 @@ capacity nfrag k =
 slotOf : Int -> Int -> Int
 slotOf key mask = (key `xor` (key `shiftR` 15)) .&. mask
 
+-- Position i of an array of cap, when it is one.
+position : (cap : Nat) -> Int -> Maybe (Fin cap)
+position cap i = if i < 0 then Nothing else checkIndex cap (cast i)
+
+Slots : Nat -> Type
+Slots cap = LArray [<cap] Slot
+
+-- The slot at i, with the table given back (an empty slot past the end).
+slotAt : {cap : Nat} -> (1 _ : Slots cap) -> Int -> Res Slot (const (Slots cap))
+slotAt t i = case position cap i of
+  Just j => read t [<j]
+  Nothing => MkSlot 0 0 # t
+
+-- The table with s at i (unchanged past the end).
+store : {cap : Nat} -> (1 _ : Slots cap) -> Int -> Slot -> Slots cap
+store t i s = case position cap i of
+  Just j => write t [<j] s
+  Nothing => t
+
 -- `frag` is stored as frag + 1, so a zero key is the empty slot.
-bump : Array Slot -> Int -> Int -> Int -> Array Slot
+bump : {cap : Nat} -> (1 _ : Slots cap) -> Int -> Int -> Int -> Slots cap
 bump a mask frag i =
-  let s # a1 = read a i in
-  if s.k == 0 then write a1 i (MkSlot (frag + 1) 1)
-    else if s.k == frag + 1 then write a1 i (MkSlot (frag + 1) (s.n + 1))
+  let s # a1 = slotAt a i in
+  if s.k == 0 then store a1 i (MkSlot (frag + 1) 1)
+    else if s.k == frag + 1 then store a1 i (MkSlot (frag + 1) (s.n + 1))
     else bump a1 mask frag ((i + 1) .&. mask)
 
--- One copy out of the IO buffer, then the counts are a pure loop over it:
--- a buffer carried through the loop would be retained and released on
--- every nucleotide.
-asArray : Buffer -> Int -> IO (IArray Bits8)
-asArray buf len = do
-  filled <- go (mkArray len 0) 0
-  pure (freeze filled id)
-  where
-    go : Array Bits8 -> Int -> IO (Array Bits8)
-    go a i =
-      if i >= len then pure a
-      else do
-        b <- getBits8 buf i
-        go (write a i b) (i + 1)
+-- The counts of one fragment length: the frozen table, its size and its
+-- mask.
+record Counts where
+  constructor MkCounts
+  size : Nat
+  slots : Vector size Slot
+  mask : Int
 
-count : IArray Bits8 -> Int -> Int -> (IArray Slot, Int)
-count codes len k =
-  let nfrag = if len >= k then len - k + 1 else 0
+-- The counting loop over the sequence: its own test of the position
+-- against the sequence's length gives the position it reads.
+roll : {n, cap : Nat} -> Vector n Bits8 -> Int -> (1 _ : Slots cap) -> Int -> Int -> Int -> Nat -> Slots cap
+roll codes k table mask keyMask key i =
+  case checkIndex n i of
+    Nothing => table
+    Just j =>
+      let c : Int = cast (codes !! [<j])
+          key' = ((key `shiftL` 2) .|. c) .&. keyMask
+          table' = if cast i >= k - 1
+                      then bump table mask key' (slotOf key' mask)
+                      else table
+      in roll codes k table' mask keyMask key' (S i)
+
+-- The counts of the fragments of length k: a fresh table threaded through
+-- the counting loop, then frozen. The sequence is a value, so the loop is
+-- pure, and the buffer it came from is not carried through it, where it
+-- would be retained and released on every nucleotide.
+tally : {n : Nat} -> Vector n Bits8 -> Int -> Counts
+tally codes k =
+  let len = cast {to = Int} n
+      nfrag = if len >= k then len - k + 1 else 0
       cap = capacity nfrag k
       mask = cap - 1
       keyMask = fragments k - 1
-  in (freeze (roll codes (mkArray cap (MkSlot 0 0)) mask keyMask 0 0) id, mask)
-  where
-    roll : IArray Bits8 -> Array Slot -> Int -> Int -> Int -> Int -> Array Slot
-    roll codes table mask keyMask key i =
-      if i >= len then table
-      else
-        let c : Int = cast (iread codes i)
-            key' = ((key `shiftL` 2) .|. c) .&. keyMask
-            table' = if i >= k - 1
-                        then bump table mask key' (slotOf key' mask)
-                        else table
-        in roll codes table' mask keyMask key' (i + 1)
+      size = cast {to = Nat} cap
+      frozen = unrestricted (withArray [<size] (MkSlot 0 0) (\t => freeze (roll codes k t mask keyMask 0 0)))
+  in MkCounts size frozen mask
 
-found : IArray Slot -> Int -> Int -> Int
-found t mask frag = go (slotOf frag mask)
+found : Counts -> Int -> Int
+found (MkCounts size t mask) frag = go (slotOf frag mask)
   where
     go : Int -> Int
-    go i =
-      let s = iread t i in
-      if s.k == 0 then 0
-        else if s.k == frag + 1 then s.n
-        else go ((i + 1) .&. mask)
+    go i = case position size i of
+      Nothing => 0
+      Just j =>
+        let s = t !! [<j] in
+        if s.k == 0 then 0
+          else if s.k == frag + 1 then s.n
+          else go ((i + 1) .&. mask)
 
 letter : Int -> Char
 letter 0 = 'A'
@@ -220,27 +250,28 @@ byFrequency (k1, c1) (k2, c2) = case compare c2 c1 of
   EQ => compare k1 k2
   o => o
 
-frequencies : IArray Bits8 -> Int -> Int -> IO ()
-frequencies seq len k = do
-  let (t, mask) = count seq len k
-  let counts = map (\key => (name k key, found t mask key)) [0 .. fragments k - 1]
-  let denom = cast (len - k + 1)
+frequencies : {n : Nat} -> Vector n Bits8 -> Int -> IO ()
+frequencies seq k = do
+  let t = tally seq k
+  let counts = map (\key => (name k key, found t key)) [0 .. fragments k - 1]
+  let denom = cast (cast n - k + 1)
   traverse_ (\(key, c) => putStrLn (key ++ " " ++ fixed 3 (100.0 * cast c / denom)))
     (sortBy byFrequency counts)
   putStrLn ""
 
-fragment : IArray Bits8 -> Int -> String -> IO ()
-fragment seq len frag = do
+fragment : {n : Nat} -> Vector n Bits8 -> String -> IO ()
+fragment seq frag = do
   let k = cast (length frag)
-      (t, mask) = count seq len k
-  putStrLn (show (found t mask (packed frag)) ++ "\t" ++ frag)
+      t = tally seq k
+  putStrLn (show (found t (packed frag)) ++ "\t" ++ frag)
 
 main : IO ()
 main = do
   (input, len) <- readAll
   from <- findThree input len
   (seq, n) <- codesOf input len from
-  codes <- asArray seq n
-  frequencies codes n 1
-  frequencies codes n 2
-  traverse_ (fragment codes n) ["GGT", "GGTA", "GGTATT", "GGTATTTTAATT", "GGTATTTTAATTTATAGT"]
+  -- One copy out of the IO buffer, then the counts are pure loops over it.
+  codes <- tabulateIO [<cast n] (\[<i] => getBits8 seq (cast (finToNat i)))
+  frequencies codes 1
+  frequencies codes 2
+  traverse_ (fragment codes) ["GGT", "GGTA", "GGTATT", "GGTATTTTAATT", "GGTATTTTAATTTATAGT"]

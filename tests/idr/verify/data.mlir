@@ -1,69 +1,69 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
+// NEEDS-ACCEPTANCE: the texts of a body's errors, as C01's setBody and type parser write them.
+// A data type is identified by its name and carries its body, its
+// constructors in tag order, set once: a body that breaks a rule of its
+// kind is refused where the type is written, and so is a second body for
+// a name that has one.
 
 // A field's quantity is its type: linear fields are !idr.lin.
-idr.data @T {
-  idr.ctor @A (!idr.lin<i64>, i64)
+!T = !idr.data<"T", plain [@A(!idr.lin<i64>, i64)]>
+idr.func private @f(%t: !T) -> !T {
+  return %t : !T
 }
 
 // -----
 
-idr.data @T {
-  // expected-error @+1 {{expects a grade of a plain type, got one of '!idr.lin<i64>'}}
-  idr.ctor @A (!idr.lin<!idr.lin<i64>>)
-}
+// expected-error @+1 {{expects a grade of a plain type, got one of '!idr.lin<i64>'}}
+!T = !idr.data<"T", plain [@A(!idr.lin<!idr.lin<i64>>)]>
 
 // -----
 
-idr.data @T {
-  // expected-error @+1 {{has a field of unsupported type 'f32'}}
-  idr.ctor @A (f32)
-}
+// expected-error @+1 {{has a field of unsupported type 'f32'}}
+!T = !idr.data<"T", plain [@A(f32)]>
 
 // -----
 
-idr.data @T {
-  // expected-error @+1 {{has a field of unsupported type 'i1'}}
-  idr.ctor @A (i1)
-}
+// expected-error @+1 {{has a field of unsupported type 'i1'}}
+!T = !idr.data<"T", plain [@A(i1)]>
 
 // -----
 
-idr.data @T {
-  // expected-error @+1 {{has a field of unsupported type 'index'}}
-  idr.ctor @A (index)
-}
+// expected-error @+1 {{has a field of unsupported type 'index'}}
+!T = !idr.data<"T", plain [@A(index)]>
 
 // -----
 
-idr.data @T {
-  // expected-note @+1 {{see existing symbol definition here}}
-  idr.ctor @A ()
-  // expected-error @+1 {{redefinition of symbol named 'A'}}
-  idr.ctor @A ()
-}
+// Constructor names are distinct: a tag is a position, a name its key.
+// expected-error @+1 {{has two constructors named @A}}
+!T = !idr.data<"T", plain [@A(), @A()]>
 
 // -----
 
-idr.data @T {
-  // expected-error @+1 {{is not allowed inside idr.data}}
-  %c = arith.constant 0 : i64
-}
+// Only a memo sum's label is ever forced by name.
+// expected-error @+1 {{by_name}}
+!T = !idr.data<"T", plain [@A() by_name]>
 
 // -----
 
-idr.func @f() {
-  // expected-error @+1 {{expects parent op 'builtin.module'}}
-  idr.data @T {
-  }
-  return
-}
+// A memo sum ends in its two states: running, then forced with the value.
+// expected-error @+1 {{running}}
+!M = !idr.data<"M", memo [@f(), @forced(i64)]>
 
 // -----
 
-// A memo sum's checks read its constructors, so they wait until each is
-// verified: this one lacks its field types, and is rejected for that before
-// the memo sum reads them.
-idr.data @M box memo {
-  // expected-error @+1 {{requires attribute 'field_types'}}
-  "idr.ctor"() <{sym_name = "running"}> : () -> ()
-}
+// Base's list: nil, then a cons of an element and a box of the list.
+// expected-error @+1 {{list}}
+!L = !idr.data<"L", list [@Nil(), @Cons(i64)]>
+
+// -----
+
+// A body is set once: the same name with another body is refused.
+!T = !idr.data<"T", plain [@A(i64)]>
+// expected-error @+1 {{already has a body}}
+!U = !idr.data<"T", plain [@B()]>
+
+// -----
+
+// The name alone is the type only inside its own body.
+// expected-error @+1 {{a data type is written without its body only inside its own body}}
+!T = !idr.data<"T">

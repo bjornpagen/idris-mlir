@@ -1,30 +1,28 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idr-effects: `effects` on every idr.func, from the Effects analysis, and
-// on every idr.call, from its callee's and from what the closures it is
-// given may do when applied. A call carries its own fact for two reasons.
-// What MLIR asks of a call (whether canonicalize may erase it, CSE merge
-// it, LICM hoist it) is asked of the op alone, with no symbol table in
-// hand, so the callee's fact must already be on it. And a closure's effect
-// counts where it is passed as well as where it is made: a call of a total,
-// pure function given a closure that crashes may crash, which the callee's
-// fact cannot say.
+// idr-effects: `effects` on every idr.func and every idr.call of a
+// defunctionalized module, written as the ready set of idr-optimize writes
+// them, component by component, callees first, with nothing optimized
+// between: a component's calls out of it take their callees' entries, then
+// its members their entry and the calls between them that entry. A call
+// carries its callee's fact because what MLIR asks of a call (whether
+// canonicalize may erase it, CSE merge it) is asked of the op alone, with
+// no symbol table in hand.
 //
-// The full set is never written: an absent fact means it. The calls are the
-// References' sites, so no body is walked here. The functions separate,
-// each written by a worker of its own that reads only the analyses and its
-// own ops, so the IR left is the same for every thread count.
-#include "idr/IR/IdrDialect.h"
+// Only defunctionalization's label solve knows what an apply runs, or a
+// force of a suspension, so a module that still holds one is refused here
+// rather than summarized as if it ran nothing.
 #include "idr/Transforms/Effects.h"
+
 #include "idr/Analysis/Effects.h"
 #include "idr/Analysis/Holds.h"
-#include "idr/Analysis/References.h"
-#include "idr/IR/Layout.h"
-#include "idr/IR/TypeGraph.h"
+#include "idr/IR/Grades.h"
+#include "idr/IR/IdrDialect.h"
+#include "idr/Support/Scc.h"
 
-#include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/SymbolTable.h"
-#include "mlir/IR/Threading.h"
+#include "llvm/ADT/STLExtras.h"
 
 namespace idr {
 #define GEN_PASS_DEF_IDREFFECTS
@@ -35,86 +33,64 @@ using namespace mlir;
 
 namespace {
 
-// What one worker did to its function.
-struct Slot {
-  unsigned io = 0;
-  unsigned crash = 0;
-  unsigned diverge = 0;
-  bool changed = false;
-};
-
-// Gives `op` the fact `effect`, from the values built before the workers
-// started; the full set is the attribute's absence. Whether it changed.
-template <typename OpT>
-bool record(IRRewriter &rewriter, OpT op, idr::Effect effect, ArrayRef<idr::EffectAttr> values) {
-  idr::EffectAttr want =
-      effect == idr::anyEffect ? idr::EffectAttr() : values[static_cast<uint32_t>(effect)];
-  if (op.getEffectsAttr() == want)
-    return false;
-  rewriter.modifyOpInPlace(op, [&] {
-    if (want)
-      op.setEffectsAttr(want);
-    else
-      op.removeEffectsAttr();
+// The first op that runs a closure or a suspension, or null in a
+// defunctionalized module.
+Operation *runsUnconverted(ModuleOp module) {
+  Operation *found = nullptr;
+  module.walk([&](Operation *op) {
+    auto force = dyn_cast<idr::ForceOp>(op);
+    if (!isa<idr::ApplyOp>(op) && !(force && idr::isLazyType(force.getSuspension().getType())))
+      return WalkResult::advance();
+    found = op;
+    return WalkResult::interrupt();
   });
-  return true;
+  return found;
 }
 
 struct IdrEffectsPass : idr::impl::IdrEffectsBase<IdrEffectsPass> {
   void runOnOperation() override {
-    MLIRContext *context = &getContext();
-    const idr::Effects &effects = getAnalysis<idr::Effects>();
-    const idr::References &references = getAnalysis<idr::References>();
-
-    // Every value below the full set, made here: a worker makes no
-    // attribute.
-    SmallVector<idr::EffectAttr> values;
-    for (uint32_t bits = 0; bits < static_cast<uint32_t>(idr::anyEffect); ++bits)
-      values.push_back(idr::EffectAttr::get(context, static_cast<idr::Effect>(bits)));
-
-    ArrayRef<idr::FuncOp> fns = references.functions();
-    SmallVector<Slot> slots(fns.size());
-    parallelFor(context, 0, fns.size(), [&](size_t at) {
-      idr::FuncOp fn = fns[at];
-      Slot &slot = slots[at];
-      IRRewriter rewriter(context);
-      idr::Effect own = effects.of(fn);
-      slot.io = idr::bitEnumContainsAny(own, idr::Effect::io);
-      slot.crash = idr::bitEnumContainsAny(own, idr::Effect::crash);
-      slot.diverge = idr::bitEnumContainsAny(own, idr::Effect::diverge);
-      slot.changed |= record(rewriter, fn, own, values);
-      // An op's sites are consecutive, and an idr.call's own is its first.
-      Operation *previous = nullptr;
-      for (const idr::References::Site &site : references.of(fn)) {
-        if (site.at == previous)
-          continue;
-        previous = site.at;
-        auto call = dyn_cast<idr::CallOp>(site.at);
-        if (!call)
-          continue;
-        idr::Effect given = effects.of(site.target);
-        for (Value arg : call.getArgs()) {
-          if (given == idr::anyEffect)
-            break;
-          given |= effects.passed(arg);
-        }
-        slot.changed |= record(rewriter, call, given, values);
-      }
-    });
-
-    bool changed = false;
-    for (const Slot &slot : slots) {
-      numIO += slot.io;
-      numCrash += slot.crash;
-      numDiverge += slot.diverge;
-      changed |= slot.changed;
+    ModuleOp module = getOperation();
+    if (Operation *op = runsUnconverted(module)) {
+      op->emitError("idr-effects runs on a defunctionalized module, and this op still runs a "
+                    "closure or a suspension");
+      return signalPassFailure();
     }
-    // Every function and call already carried these effects.
-    if (!changed)
-      return markAllAnalysesPreserved();
-    // Only facts on functions and calls changed, which none of these reads.
-    markAnalysesPreserved<idr::References, idr::Effects, idr::Holds, idr::TypeGraph, idr::Layouts,
-                          SymbolTable>();
+    const idr::Holds &holds = getAnalysis<idr::Holds>();
+    const SymbolTable &symbols = getAnalysis<SymbolTable>();
+
+    SmallVector<idr::FuncOp> fns(module.getOps<idr::FuncOp>());
+    llvm::DenseMap<Operation *, unsigned> positions;
+    for (auto [at, fn] : llvm::enumerate(fns))
+      positions.try_emplace(fn.getOperation(), static_cast<unsigned>(at));
+    SmallVector<SmallVector<unsigned>> successors(fns.size());
+    for (auto [at, fn] : llvm::enumerate(fns)) {
+      SmallVector<idr::FuncOp> runs;
+      fn.getBody().walk([&](Operation *op) {
+        if (auto call = dyn_cast<idr::CallOp>(op))
+          runs.push_back(symbols.lookup<idr::FuncOp>(call.getCalleeAttr().getAttr()));
+        else if (auto force = dyn_cast<idr::ForceOp>(op))
+          idr::forcedLabels(force, symbols, runs);
+      });
+      for (idr::FuncOp target : runs)
+        successors[at].push_back(positions.lookup(target.getOperation()));
+    }
+
+    for (const SmallVector<unsigned> &component : idr::components(successors)) {
+      SmallVector<idr::FuncOp> members;
+      for (unsigned at : component)
+        members.push_back(fns[at]);
+      idr::writeCallEffectsOnReady(members, symbols);
+      idr::writeEntriesOnFinal(members, holds, symbols);
+    }
+
+    for (idr::FuncOp fn : fns) {
+      idr::Effect entry = fn.getEffectsAttr() ? fn.getEffectsAttr().getValue() : idr::anyEffect;
+      numIO += idr::bitEnumContainsAny(entry, idr::Effect::io);
+      numCrash += idr::bitEnumContainsAny(entry, idr::Effect::crash);
+      numDiverge += idr::bitEnumContainsAny(entry, idr::Effect::diverge);
+    }
+    // Only facts on functions and calls changed.
+    markAnalysesPreserved<SymbolTable>();
   }
 };
 

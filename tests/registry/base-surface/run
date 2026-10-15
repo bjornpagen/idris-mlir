@@ -5,39 +5,44 @@
 # an environment variable, an error number), a clock by its Chez spec,
 # which is the one a clock declares, a pointer operation by its spec or as
 # the identity on its handle, the exit by name, and a definition outside
-# the language by name (a signal, a thread, a process). The test hook
-# `--break-shape=<key>` breaks one entry's shape at a time; the
-# compilation must then fail with a shape mismatch that shows the entry,
-# the shape expected and the shape found, and leave no artifact. Unbroken,
-# the program compiles.
+# the language by name (a signal, a thread, a process). Each case is a
+# program whose own module, named as the module an entry resolves to, is
+# the pinned module with that definition at another shape, or, for an
+# entry that names a definition and fixes no shape, without it: the
+# compilation must then fail with a hook error that shows the entry, what
+# it expects and what was found, and leave no artifact. Unbroken, the
+# program compiles.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+base=third_party/Idris2/libs/base
+prelude=third_party/Idris2/libs/prelude
 
-broken() {
-  mkdir "$work/$2"
-  copy_fixture . "$work/$2"
-  compile_program --break-shape="$1" "$work/$2/Main.idr" prog
-  say "$1 broken: exit $compiled"
-  if grep -qF "unsupported (hook): the registry's entry $1 (" "$work/compile.out" "$work/compile.err" &&
-     grep -q "expects .* : (_ : %World) -> .*, but found " "$work/compile.out" "$work/compile.err"; then
-    say "$1 broken: the error shows the entry, the shape expected and the shape found"
-  else
-    say "$1 broken: no hook error for the entry"
-    show "$work/compile.out" "$work/compile.err"
-  fi
-  no_artifacts "$work/$2"
+# loading MODULE: a program over the Prelude that loads MODULE.
+loading() {
+  printf '%s\n' 'module Main' '' 'import Prelude' "import $1" '' 'main : IO ()' 'main = putStrLn "hello"'
 }
 
-broken C:idris2_openFile file
-broken C:idris2_nextDirEntry directory
-broken C:getenv environment
-broken C:idris2_getErrno errno
-broken scheme:blodwen-clock-time-monotonic clock
-broken C:idris2_getString string
-broken PrimIO.prim__castPtr cast
-broken System.exitWith exit
-broken System.Signal.collectSignal signal
-broken System.Concurrency.makeMutex threads
-broken System.system process
+registry_shadowed C:idris2_openFile file "$base/System/File/Handle.idr" System/File/Handle.idr \
+  prim__open shape "$(loading System.File.Handle)"
+registry_shadowed C:idris2_nextDirEntry directory "$base/System/Directory.idr" System/Directory.idr \
+  prim__dirEntry shape "$(loading System.Directory)"
+registry_shadowed C:getenv environment "$base/System.idr" System.idr \
+  prim__getEnv shape "$(loading System)"
+registry_shadowed C:idris2_getErrno errno "$base/System/Errno.idr" System/Errno.idr \
+  prim__getErrno shape "$(loading System.Errno)"
+registry_shadowed scheme:blodwen-clock-time-monotonic clock "$base/System/Clock.idr" System/Clock.idr \
+  prim__clockTimeMonotonic shape "$(loading System.Clock)"
+registry_shadowed C:idris2_getString string "$prelude/Prelude/IO.idr" Prelude/IO.idr \
+  prim__getString shape "$(printf '%s\n' 'module Main' '' 'import Prelude.IO' '' 'main : IO ()' 'main = putStr "hello"')"
+registry_shadowed PrimIO.prim__castPtr cast "$prelude/PrimIO.idr" PrimIO.idr \
+  prim__castPtr shape "$(printf '%s\n' 'module Main' '' 'import Builtin' 'import PrimIO' '' 'main : Unit' 'main = MkUnit')"
+registry_shadowed System.exitWith exit "$base/System.idr" System.idr \
+  exitWith shape "$(loading System)"
+registry_shadowed System.Signal.collectSignal signal "$base/System/Signal.idr" System/Signal.idr \
+  collectSignal gone "$(loading System.Signal)"
+registry_shadowed System.Concurrency.makeMutex threads "$base/System/Concurrency.idr" System/Concurrency.idr \
+  makeMutex gone "$(loading System.Concurrency)"
+registry_shadowed System.Escaped.system process "$base/System.idr" System.idr \
+  system gone "$(loading System)"
 
 mkdir "$work/unbroken"
 copy_fixture . "$work/unbroken"

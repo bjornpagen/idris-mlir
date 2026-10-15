@@ -5,83 +5,78 @@
 // constructor's case, from two values, or with its fields swapped, a
 // constructor stays.
 
-idr.data @Pair {
-  idr.ctor @Left (i64, i64)
-  idr.ctor @Right (i64, i64)
-}
-idr.data @One {
-  idr.ctor @Only (i64)
-}
 
 // In the case that matched it, a value rebuilt from the case's reads of it
 // is the value; with the fields swapped it is a new one.
-// CHECK-LABEL: idr.func @in_case(
+// CHECK-LABEL: idr.func private @in_case(
 // CHECK-SAME: %[[P:.*]]: !Pair)
 // CHECK: {{(idr\.)?}}match %[[P]]
 // CHECK: case @Left(
 // CHECK-NOT: {{(idr\.| )con }}
 // CHECK: idr.yield %[[P]]
 // CHECK: case @Right(%[[A:.*]]: i64, %[[B:.*]]: i64)
-// CHECK: %[[S:.*]] = {{(idr\.)?}}con @Pair::@Left(%[[B]], %[[A]])
+// CHECK: %[[S:.*]] = {{(idr\.)?}}con @Left(%[[B]], %[[A]])
 // CHECK: idr.yield %[[S]]
-idr.func @in_case(%p: !idr.data<@Pair>) -> !idr.data<@Pair> {
-  %r = idr.match %p : !idr.data<@Pair> -> (!idr.data<@Pair>) {
+!Pair = !idr.data<"Pair", plain [@Left(i64, i64), @Right(i64, i64)]>
+!One = !idr.data<"One", plain [@Only(i64)]>
+idr.func private @in_case(%p: !Pair) -> !Pair {
+  %r = idr.match %p : !Pair -> (!Pair) {
   case @Left(%a: i64, %b: i64) {
-    %x = idr.field %p[@Left, 0] : !idr.data<@Pair> -> i64
-    %y = idr.field %p[@Left, 1] : !idr.data<@Pair> -> i64
-    %c = idr.con @Pair::@Left(%x, %y) : (i64, i64) -> !idr.data<@Pair>
-    idr.yield %c : !idr.data<@Pair>
+    %x = idr.field %p[@Left, 0] : !Pair -> i64
+    %y = idr.field %p[@Left, 1] : !Pair -> i64
+    %c = idr.con @Left(%x, %y) : (i64, i64) -> !Pair
+    idr.yield %c : !Pair
   }
   case @Right(%a: i64, %b: i64) {
-    %c = idr.con @Pair::@Left(%b, %a) : (i64, i64) -> !idr.data<@Pair>
-    idr.yield %c : !idr.data<@Pair>
+    %c = idr.con @Left(%b, %a) : (i64, i64) -> !Pair
+    idr.yield %c : !Pair
   }
   }
-  return %r : !idr.data<@Pair>
+  return %r : !Pair
 }
 
 // In the other constructor's case the value is not known to be what the
 // rebuild builds, and the type has another constructor: it stays.
-// CHECK-LABEL: idr.func @wrong_case(
+// CHECK-LABEL: idr.func private @wrong_case(
 // CHECK-SAME: %[[P:.*]]: !Pair)
 // CHECK: case @Right(
 // CHECK-DAG: %{{.*}} = {{(idr\.)?}}field %[[P]][@Left, 0]
 // CHECK-DAG: %{{.*}} = {{(idr\.)?}}field %[[P]][@Left, 1]
-// CHECK: %[[C:.*]] = {{(idr\.)?}}con @Pair::@Left(
+// CHECK: %[[C:.*]] = {{(idr\.)?}}con @Left(
 // CHECK: idr.yield %[[C]]
-idr.func @wrong_case(%p: !idr.data<@Pair>) -> !idr.data<@Pair> {
-  %r = idr.match %p : !idr.data<@Pair> -> (!idr.data<@Pair>) {
+idr.func private @wrong_case(%p: !Pair) -> !Pair {
+  %r = idr.match %p : !Pair -> (!Pair) {
   case @Left(%a: i64, %b: i64) {
-    idr.yield %p : !idr.data<@Pair>
+    idr.yield %p : !Pair
   }
   case @Right(%a: i64, %b: i64) {
-    %x = idr.field %p[@Left, 0] : !idr.data<@Pair> -> i64
-    %y = idr.field %p[@Left, 1] : !idr.data<@Pair> -> i64
-    %c = idr.con @Pair::@Left(%x, %y) : (i64, i64) -> !idr.data<@Pair>
-    idr.yield %c : !idr.data<@Pair>
+    %x = idr.field %p[@Left, 0] : !Pair -> i64
+    %y = idr.field %p[@Left, 1] : !Pair -> i64
+    %c = idr.con @Left(%x, %y) : (i64, i64) -> !Pair
+    idr.yield %c : !Pair
   }
   }
-  return %r : !idr.data<@Pair>
+  return %r : !Pair
 }
 
 // A type of one constructor needs no match: the value is that constructor.
-// CHECK-LABEL: idr.func @singleton(
+// CHECK-LABEL: idr.func private @singleton(
 // CHECK-SAME: %[[O:.*]]: !One)
 // CHECK-NOT: {{(idr\.| )con }}
 // CHECK: return %[[O]]
-idr.func @singleton(%o: !idr.data<@One>) -> !idr.data<@One> {
-  %f = idr.field %o[@Only, 0] : !idr.data<@One> -> i64
-  %c = idr.con @One::@Only(%f) : (i64) -> !idr.data<@One>
-  return %c : !idr.data<@One>
+idr.func private @singleton(%o: !One) -> !One {
+  %f = idr.field %o[@Only, 0] : !One -> i64
+  %c = idr.con @Only(%f) : (i64) -> !One
+  return %c : !One
 }
 
 // Fields read from two values rebuild neither.
-// CHECK-LABEL: idr.func @two_sources(
-// CHECK: %[[C:.*]] = {{(idr\.)?}}con @Pair::@Left(
+// CHECK-LABEL: idr.func private @two_sources(
+// CHECK: %[[C:.*]] = {{(idr\.)?}}con @Left(
 // CHECK: return %[[C]]
-idr.func @two_sources(%p: !idr.data<@Pair>, %q: !idr.data<@Pair>) -> !idr.data<@Pair> {
-  %x = idr.field %p[@Left, 0] : !idr.data<@Pair> -> i64
-  %y = idr.field %q[@Left, 1] : !idr.data<@Pair> -> i64
-  %c = idr.con @Pair::@Left(%x, %y) : (i64, i64) -> !idr.data<@Pair>
-  return %c : !idr.data<@Pair>
+idr.func private @two_sources(%p: !Pair, %q: !Pair) -> !Pair {
+  %x = idr.field %p[@Left, 0] : !Pair -> i64
+  %y = idr.field %q[@Left, 1] : !Pair -> i64
+  %c = idr.con @Left(%x, %y) : (i64, i64) -> !Pair
+  return %c : !Pair
 }

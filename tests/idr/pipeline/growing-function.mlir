@@ -1,13 +1,11 @@
-// RUN: idris-mlir-opt %s --idr-simplify -o %t.mlir
-// RUN: FileCheck %s < %t.mlir
+// RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
+// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=one-clone=@Main.iter -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@Main.iter -o /dev/null
 // iter f n x = if n == 0 then f x else iter (\y => f y + 1) (n - 1) x:
-// the closure grows on every iteration, so f is no fixed parameter of
+// the closure grows on every iteration, so f is no static parameter of
 // @iter, and the loop is not specialized on it however static the first
-// closure is: the simplify loop ends with one @iter, which takes closures.
-// CHECK-NOT: .spec
-// CHECK: idr.func private @Main.iter(%{{[a-z0-9_]+}}: !idr.fn<(i64) -> i64>
-// CHECK-NOT: .spec
-module attributes {idr.program} {
+// closure is: @iter is still called, and every call reaches one function.
+module {
   idr.func private @Main.inc(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64
     %y = arith.addi %x, %c1 : i64

@@ -5,12 +5,12 @@
 //
 // Region simplification is disabled. The greedy driver would otherwise
 // re-simplify the region tree (dead block arguments, dead blocks, block
-// merging at its aggressive level) after every pattern iteration, on
-// every function, in every round and every inlining iteration; its cost
-// grows with the region tree the earlier rounds built, and the passes
-// around the canonicalizer (CSE, remove-dead-values, the next round)
-// already remove what it would. Nothing here changes which patterns run
-// or what they may rewrite: no pattern, fold or constant is skipped.
+// merging at its aggressive level) after every pattern iteration, on every
+// function, each time idr-optimize's inner pipeline runs on it; its cost
+// grows with the bodies inlining builds, and the passes around the
+// canonicalizer (CSE, remove-dead-values) already remove what it would.
+// Nothing here changes which patterns run or what they may rewrite: no
+// pattern, fold or constant is skipped.
 //
 // The rest restates the canonicalizer pass's own defaults, because a
 // default GreedyRewriteConfig does not have them: the pass seeds its
@@ -28,8 +28,9 @@
 
 namespace idr {
 
-// The configuration of every canonicalizer pass built below, and of any
-// greedy rewrite that must agree with one.
+// The configuration of every canonicalizer pass built below, idr-optimize's
+// inner pipeline's among them, and of any greedy rewrite that must agree
+// with one.
 inline mlir::GreedyRewriteConfig canonicalizerConfig() {
   return mlir::GreedyRewriteConfig()
       .setUseTopDownTraversal()

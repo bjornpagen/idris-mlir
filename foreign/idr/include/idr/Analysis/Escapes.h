@@ -50,16 +50,15 @@ public:
   bool recursive(FuncOp fn) const;
 
 private:
-  // The cycles of calls among the module's functions with bodies: a call
-  // names its callee, and an idr.apply may call any function whose address
-  // is taken. Each function's component, and the functions on a cycle.
+  // The cycles of calls among the module's functions: a call names its
+  // callee. Each function's component, and the functions on a cycle.
   void findCycles(mlir::ModuleOp module, mlir::SymbolTable &symbols);
 
   mlir::Operation *module;
   llvm::DenseMap<mlir::Operation *, unsigned> component;
   llvm::DenseSet<mlir::Operation *> onCycle;
   // The collection the backward base is built with. idr.call reaches the
-  // base never and idr.apply resolves to no callable, so it stays empty.
+  // base never, so it stays empty.
   mlir::SymbolTableCollection unresolved;
   mlir::DataFlowSolver solver;
   mlir::LogicalResult status = mlir::failure();

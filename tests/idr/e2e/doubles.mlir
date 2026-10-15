@@ -16,7 +16,7 @@
 // CHECK-NEXT: nan
 // CHECK-NEXT: -inf
 // CHECK-NEXT: -2 0 7
-module attributes {idr.program} {
+module {
   idr.func private @line(%x: f64, %w: !idr.world) -> !idr.world {
     %w1 = idr.io.put_double %x, %w
     %nl = arith.constant 10 : i32

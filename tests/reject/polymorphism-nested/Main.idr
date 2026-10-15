@@ -1,4 +1,4 @@
--- expect: polymorphism, line 6
+-- expect: polymorphism, line 8
 module Main
 
 import Prelude

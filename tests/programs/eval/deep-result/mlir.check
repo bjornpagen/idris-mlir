@@ -1,4 +1,4 @@
-// input: after idr-simplify
+// input: after idr-optimize
 // A closed call runs at run time, so `build 20000` stays a call
 // and runs at run time. The walk's print is the run's to check.
 // CHECK: call @Main.build

@@ -11,8 +11,9 @@ now_ms() {
 
 # The timing record of this test: tests/build/timing/<test path, / as __>.tsv,
 # one line per compilation, `<ms> TAB <exit> TAB <what> TAB <module>`, where
-# <module> is the emitted .mlir kept next to it (or -), so that
-# tests/compile-times.sh can run idris-mlir --mlir-timing on it again.
+# <module> is the module the frontend handed the driver, kept next to it
+# (or -), so that tests/compile-times.sh can run idris-mlir --mlir-timing on
+# it again.
 timing_dir=$root/tests/build/timing
 case $here in
   "$root/tests/"*) timing_id=$(printf '%s' "${here#"$root/tests/"}" | sed 's|/|__|g') ;;
@@ -21,8 +22,9 @@ esac
 timing_count=0
 
 # record_time MS COMPILE-ARGUMENTS...: one line of the timing record. What
-# was compiled is named by the options that change the compilation: not the
-# packages, nor where the dumps go.
+# was compiled is named by the options that change what is compiled, and
+# there are none: not the packages, nor the threads, nor what is printed
+# where.
 record_time() {
   record_ms=$1
   shift
@@ -30,7 +32,7 @@ record_time() {
   while [ $# -gt 2 ]; do
     case $1 in
       -p) shift ;;
-      --dump-dir=*) ;;
+      --num-threads=* | --mlir-print-*) ;;
       *) record_what="$record_what $1" ;;
     esac
     shift
@@ -40,15 +42,15 @@ record_time() {
   mkdir -p "$timing_dir" 2> /dev/null || return 0
   if [ "$timing_count" -eq 0 ]; then
     : > "$timing_dir/$timing_id.tsv"
-    rm -f "$timing_dir/$timing_id".*.mlir
+    rm -f "$timing_dir/$timing_id".[0-9]*.*
   fi
   timing_count=$((timing_count + 1))
   record_module=-
   if [ "$compiled" -eq 0 ]; then
-    record_dir=$(dirname "$record_source")
-    record_found=$record_dir/build/exec/${record_output##*/}.mlir
+    record_found=$(artifact_file "$(dirname "$record_source")" "${record_output##*/}" module)
     if [ -n "$record_found" ] && [ -f "$record_found" ]; then
-      record_module=$timing_dir/$timing_id.$timing_count.mlir
+      # The module keeps its extension, which tells idris-mlir what it reads.
+      record_module=$timing_dir/$timing_id.$timing_count.${record_found##*.}
       cp "$record_found" "$record_module" 2> /dev/null || record_module=-
     fi
   fi

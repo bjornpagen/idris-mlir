@@ -22,19 +22,76 @@ class Idr_Type<string name, string typeMnemonic, list<Trait> traits = []>
 // value is commonly of suggests the printer a name for it (getAsmName): `w`
 // the world, `s` a string, `n` an Integer or natural, `f` a closure, `lazy`
 // a suspension, `tok` a token; a grade suggests its carrier's.
-def Idr_DataType : Idr_Type<"Data", "data", [MemRefElementTypeInterface]> {
-  let summary = "a value of the unboxed sum declared by idr.data";
-  let parameters = (ins "::mlir::FlatSymbolRefAttr":$name);
-  let assemblyFormat = "`<` $name `>`";
+
+// A data type, identified by its name, whose body is its declaration: the
+// kind of sum it is, its constructors in tag order (each a name and its
+// fields' types, and for a memo sum's label whether every force runs it),
+// and the Idris instance it is of. The body is set once, when the type is
+// made, as an LLVM identified struct's is: every fact in it is decided
+// before then, and a pass that would change one makes a new type
+// (DataRemap). So a pattern or a verifier reads the type, never the module,
+// and the type is an atom to upstream's walkers: its body holds the types
+// of its fields, not sub-elements of its own. Written
+// `!idr.data<"T", kind [@C(fields), ...] instance #idr.instance<...>>`, and
+// `!idr.data<"T">` only inside its own body (lib/IR/Types.cpp).
+def Idr_DataType : Idr_Type<"Data", "data", [MutableType, MemRefElementTypeInterface]> {
+  let summary = "a data type, identified by its name, whose body is its constructors";
+  let parameters = (ins StringRefParameter<"the data type's identifier">:$name);
+  // The kinds of sum a body says it is, which idris-mlir-tblgen writes the
+  // body's syntax with.
+  I32EnumAttr bodyKinds = Idr_SumKind;
+  let storageClass = "DataTypeStorage";
+  let genStorageClass = 0;
+  let skipDefaultBuilders = 1;
+  let hasCustomAssemblyFormat = 1;
+  let extraClassDeclaration = [{
+    // The data type named `name`, made without a body if the context has
+    // none of that name: the same type for the context's whole life.
+    static DataType get(::mlir::MLIRContext *context, ::llvm::StringRef identifier);
+    static DataType getChecked(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+                               ::mlir::MLIRContext *context, ::llvm::StringRef identifier);
+    // Sets the body, once: the same body again succeeds; another one, or
+    // one that is no well-formed sum, fails with `emitError`'s error.
+    ::mlir::LogicalResult setBody(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+                                  ::idr::SumKind kind, ::llvm::ArrayRef<::idr::Ctor> ctors,
+                                  ::idr::InstanceAttr instance);
+    bool hasBody() const;
+    ::idr::SumKind getKind() const;
+    // In tag order; empty without a body.
+    ::llvm::ArrayRef<::idr::Ctor> getCtors() const;
+    const ::idr::Ctor &getCtor(unsigned tag) const;
+    ::idr::InstanceAttr getInstance() const;
+    // The tag of the constructor named `name`, or nothing.
+    std::optional<unsigned> getTag(::llvm::StringRef ctor) const;
+    bool isMemo() const { return hasBody() && getKind() == ::idr::SumKind::Memo; }
+    bool isClosures() const { return hasBody() && getKind() == ::idr::SumKind::Closures; }
+    // A label's constructor: each of a closure sum's, each of a memo sum's
+    // but its two states.
+    bool isLabel(unsigned tag) const;
+    // A memo sum's states: its last two constructors.
+    unsigned getRunningTag() const { return static_cast<unsigned>(getCtors().size()) - 2; }
+    unsigned getForcedTag() const { return static_cast<unsigned>(getCtors().size()) - 1; }
+    // Base's list: nil, then cons of an element and the list.
+    static constexpr unsigned listNil = 0, listCons = 1;
+    ::mlir::Type getListElement() const { return getCtor(listCons).fields[0]; }
+  }];
 }
 
-// A value of a boxed type, declared `idr.data @T box`: recursive, or a
-// record whose values would make the cells holding them count more
-// references than a header can (idr-defunctionalize decides those).
+// A value of a data type held through a cell: a reference to the cell,
+// which holds the constructor's tag in its header. Boxing is the value's
+// type alone, never a fact of the data type: a type that contains itself is
+// held through a box somewhere on the way, and a record or closure sum
+// whose values would make the cells holding them count more references
+// than a header can is boxed where it is held (layout::fit).
 def Idr_BoxType : Idr_Type<"Box", "box", [MemRefElementTypeInterface]> {
-  let summary = "a value of the boxed type declared by idr.data ... box";
-  let parameters = (ins "::mlir::FlatSymbolRefAttr":$name);
-  let assemblyFormat = "`<` $name `>`";
+  let summary = "a reference to a cell that holds a value of a data type";
+  let parameters = (ins "::idr::DataType":$data);
+  let assemblyFormat = "`<` qualified($data) `>`";
+  let builders = [
+    TypeBuilderWithInferredContext<(ins "::idr::DataType":$data), [{
+      return $_get(data.getContext(), data);
+    }]>
+  ];
 }
 
 // `!idr.fn<(A...) -> R>`: the closure's signature is a function type, held
@@ -61,7 +118,7 @@ def Idr_FnType : Idr_Type<"Fn", "fn", [MemRefElementTypeInterface,
 }
 
 // One cell, shared by every reference to it. idr-defunctionalize makes each
-// lazy type a memo sum (an idr.data with `memo`, always a box): the
+// lazy type a memo sum (a data type of kind `memo`, held in a box): the
 // constructor the cell holds is its state, one per label until it is
 // forced, `running` while its force runs, and `forced` with the value after.
 // A flag beside the payload could disagree with the state; the constructor

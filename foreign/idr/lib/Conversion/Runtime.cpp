@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The runtime's C functions as idr-lower calls them, and the crashes it
-// reports through them.
+// The runtime's C functions as idr-lower calls them, the crashes it
+// reports through them, and the merge of what the workers wrote.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
@@ -9,9 +9,12 @@
 #include "idr/Conversion/StaticData.h"
 #include "idr/Conversion/Words.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Location.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/Twine.h"
 
 // The runtime's C ABI: the size of its words and the stack mark of a cell's
@@ -52,42 +55,35 @@ std::string crashMessage(Location loc, StringRef cause) {
 
 } // namespace
 
-Runtime::Runtime(ModuleOp m, const Layouts &l, SymbolTable &symbols,
-                 const DataLayoutAnalysis &dataLayouts)
+Runtime::Runtime(ModuleOp m, const Layouts &l, const DataLayoutAnalysis &dataLayouts)
     : module(m),
       llvmTypes(m.getContext(), LowerToLLVMOptions(m.getContext(), dataLayouts.getAtOrAbove(m)),
                 &dataLayouts),
-      statics(m, l, symbols) {}
+      statics(m, l) {}
 
 Value Runtime::call(OpBuilder &b, Location loc, StringRef name, Type result, ValueRange args) {
   LLVM::CallOp op = callOp(b, loc, name, result, args);
   return result ? op.getResult() : Value();
 }
 
+// The call names its callee, which no worker declares: two workers would
+// declare it twice, and a declaration made while functions are converted
+// lands in the order they are. One function has one type, whichever call
+// is the first to name it.
 LLVM::CallOp Runtime::callOp(OpBuilder &b, Location loc, StringRef name, Type result,
                              ValueRange args) {
-  SymbolTable &table = symbols();
-  auto callee = table.lookup<LLVM::LLVMFuncOp>(name);
-  if (!callee) {
-    OpBuilder::InsertionGuard guard(b);
-    b.setInsertionPointToStart(module.getBody());
-    Type returns = result ? result : LLVM::LLVMVoidType::get(b.getContext());
-    auto type = LLVM::LLVMFunctionType::get(returns, llvm::to_vector(args.getTypes()));
-    callee = LLVM::LLVMFuncOp::create(b, module.getLoc(), name, type);
-    table.insert(callee);
-    // The C ABI has the caller extend an argument narrower than 32 bits, and
-    // the runtime's narrow parameters are unsigned (a byte): without
-    // zeroext, a caller would pass garbage in the upper bits.
-    for (auto [i, arg] : llvm::enumerate(args.getTypes()))
-      if (auto integer = dyn_cast<IntegerType>(arg); integer && integer.getWidth() < 32)
-        callee.setArgAttr(static_cast<unsigned>(i), LLVM::LLVMDialect::getZExtAttrName(),
-                          b.getUnitAttr());
-    // A crash or an exit does not return, which lets LLVM treat what
-    // follows as unreachable.
-    if (name == "idris_rt_crash" || name == "idris_rt_crash_str" || name == "idris_rt_io_exit")
-      callee.setNoreturn(true);
+  Type returns = result ? result : LLVM::LLVMVoidType::get(b.getContext());
+  auto type = LLVM::LLVMFunctionType::get(returns, llvm::to_vector(args.getTypes()));
+  auto [it, inserted] = called.try_emplace(name, type);
+  if (!inserted && it->second != type) {
+    emitError(loc) << "internal error: idr-lower: the runtime function " << name
+                   << " is called as " << type << " and as " << it->second;
+    mistyped = true;
   }
-  return LLVM::CallOp::create(b, loc, callee, args);
+  SmallVector<Type, 1> results;
+  if (result)
+    results.push_back(result);
+  return LLVM::CallOp::create(b, loc, results, name, args);
 }
 
 void Runtime::crash(OpBuilder &b, Location loc, StringRef cause) {
@@ -179,9 +175,114 @@ SmallVector<Value> Runtime::constant(OpBuilder &b, Location loc, Attribute value
   return statics.constant(b, loc, value, type);
 }
 
-void Runtime::finish() {
+Value Runtime::constantArray(OpBuilder &b, Location loc, memref::GlobalOp global) {
+  return statics.constantArray(b, loc, global);
+}
+
+namespace {
+
+// The declaration of the runtime function `name` of type `type`, detached.
+// The C ABI has the caller extend an argument narrower than 32 bits, and the
+// runtime's narrow parameters are unsigned (a byte): without zeroext, a
+// caller would pass garbage in the upper bits. A crash or an exit does not
+// return, which lets LLVM treat what follows as unreachable.
+LLVM::LLVMFuncOp declaration(ModuleOp module, StringRef name, LLVM::LLVMFunctionType type) {
   OpBuilder b(module.getContext());
-  statics.emitReleaseCafs(b);
+  auto callee = LLVM::LLVMFuncOp::create(b, module.getLoc(), name, type);
+  for (auto [i, arg] : llvm::enumerate(type.getParams()))
+    if (auto integer = dyn_cast<IntegerType>(arg); integer && integer.getWidth() < 32)
+      callee.setArgAttr(static_cast<unsigned>(i), LLVM::LLVMDialect::getZExtAttrName(),
+                        b.getUnitAttr());
+  if (name == "idris_rt_crash" || name == "idris_rt_crash_str" || name == "idris_rt_io_exit")
+    callee.setNoreturn(true);
+  return callee;
+}
+
+} // namespace
+
+LogicalResult Runtime::merge(ModuleOp module, SymbolTable &symbols, ArrayRef<Runtime *> workers) {
+  MLIRContext *ctx = module.getContext();
+  Location loc = module.getLoc();
+  bool merged = true;
+  llvm::StringMap<LLVM::LLVMFunctionType> functions;
+  auto require = [&](StringRef name, LLVM::LLVMFunctionType type) {
+    auto [it, inserted] = functions.try_emplace(name, type);
+    if (!inserted && it->second != type) {
+      emitError(loc) << "internal error: idr-lower: the runtime function " << name
+                     << " is called as " << type << " and as " << it->second;
+      merged = false;
+    }
+  };
+  // Equal names are equal contents, by how names are made: one global of
+  // each name is kept, the others go with their worker.
+  llvm::StringMap<StaticData::Written> data;
+  llvm::StringSet<> memoCells;
+  for (Runtime *worker : workers) {
+    merged = merged && !worker->mistyped && !worker->statics.collided();
+    for (const auto &entry : worker->called)
+      require(entry.getKey(), entry.getValue());
+    for (const auto &entry : worker->statics.written()) {
+      auto [it, inserted] = data.try_emplace(entry.getKey(), entry.getValue());
+      if (!inserted && it->second.key != entry.getValue().key) {
+        emitError(loc) << "internal error: two keys name " << entry.getKey() << ": "
+                       << it->second.key << " and " << entry.getValue().key;
+        merged = false;
+      }
+    }
+    for (const auto &name : worker->statics.memoCells())
+      memoCells.insert(name.getKey());
+  }
+  Type ptr = LLVM::LLVMPointerType::get(ctx);
+  StringRef cafRelease = "idris_rt_caf_release";
+  if (!memoCells.empty())
+    require(cafRelease, LLVM::LLVMFunctionType::get(LLVM::LLVMVoidType::get(ctx), ptr));
+  if (!merged)
+    return failure();
+
+  // Each before the module's first op, so in the order inserted.
+  Block *body = module.getBody();
+  Block::iterator first = body->begin();
+  auto enter = [&](Operation *op, StringRef name) {
+    if (symbols.lookup(name)) {
+      op->erase();
+      emitError(loc) << "internal error: idr-lower: @" << name
+                     << ", which the lowering writes, names another symbol";
+      merged = false;
+      return;
+    }
+    symbols.insert(op, first);
+  };
+  auto sorted = [](const auto &map) {
+    SmallVector<StringRef> names;
+    for (const auto &entry : map)
+      names.push_back(entry.getKey());
+    llvm::sort(names);
+    return names;
+  };
+  for (StringRef name : sorted(functions))
+    enter(declaration(module, name, functions.lookup(name)), name);
+  for (StringRef name : sorted(data)) {
+    LLVM::GlobalOp global = data.lookup(name).global;
+    global->remove();
+    enter(global, name);
+  }
+  if (!merged)
+    return failure();
+
+  OpBuilder b = OpBuilder::atBlockEnd(body);
+  StringRef releaseName = "__idr_release_cafs";
+  if (symbols.lookup(releaseName))
+    return emitError(loc) << "internal error: idr-lower: @" << releaseName
+                          << ", which the lowering writes, names another symbol";
+  auto release = func::FuncOp::create(b, loc, releaseName, b.getFunctionType({}, {}));
+  release.setPrivate();
+  symbols.insert(release);
+  b.setInsertionPointToStart(release.addEntryBlock());
+  for (StringRef name : sorted(memoCells))
+    LLVM::CallOp::create(b, loc, TypeRange{}, cafRelease,
+                         ValueRange{LLVM::AddressOfOp::create(b, loc, ptr, name)});
+  func::ReturnOp::create(b, loc);
+  return success();
 }
 
 void Runtime::countEach(OpBuilder &b, Location loc, StringRef name, ValueRange components,

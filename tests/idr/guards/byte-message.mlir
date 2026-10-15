@@ -11,7 +11,7 @@
 // CHECK: scf.if %[[OUT]] {
 // CHECK: llvm.call @idris_rt_crash(
 // CHECK: return %[[X]] : i64
-module attributes {idr.program} {
+module {
   idr.func private @byte(%x: i64) -> i64 {
     %y = idr.check.byte %x, "a byte outside 0 to 255" loc("Prog.idr":6:1)
     return %y : i64

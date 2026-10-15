@@ -42,13 +42,16 @@ record Holes where
 ||| other binds as its binder says, with its closed Idris type, which tells
 ||| a function-typed value's erased arguments from its runtime ones; when
 ||| the rest of the type depends on its value, the shape of its argument
-||| keys the instance too. The kinds stay positional, one per parameter of
-||| the definition's type, as the case tree's scope has one variable per
-||| parameter.
+||| keys the instance too. An erased shape of the array language that a
+||| value array's type needs is its form, the spine with every extent
+||| erased: it keys the instance, since a tensor's rank is its type. The
+||| kinds stay positional, one per parameter of the definition's type, as
+||| the case tree's scope has one variable per parameter.
 public export
 data PKind = TypeParam ClosedTerm
            | DictParam ClosedTerm (Maybe Holes)
            | ErasedParam
+           | FormParam ClosedTerm
            | ValueParam Binder (Maybe ClosedTerm) ClosedTerm
 
 ||| What a parameter binds at runtime, if it is a parameter at runtime.
@@ -64,6 +67,7 @@ staticOf : PKind -> Maybe ClosedTerm
 staticOf (TypeParam t) = Just t
 staticOf (DictParam t _) = Just t
 staticOf ErasedParam = Nothing
+staticOf (FormParam f) = Just f
 staticOf (ValueParam _ shape _) = shape
 
 ||| A full name, printed so that different names print differently: Idris's
@@ -80,7 +84,8 @@ nameKey n = show n
 
 ||| How a function instance came to be: its definition (with the full name
 ||| as `nameKey` prints it), the instance whose translation requested it
-||| first, and its parameters as that call classified them.
+||| first, its parameters as that call classified them, and its key, which
+||| a refusal of the chain names.
 public export
 record Request where
   constructor MkRequest
@@ -88,6 +93,7 @@ record Request where
   base : String
   parent : Maybe FnId
   kinds : List PKind
+  key : InstanceKey
 
 ||| Instances waiting to be translated, first in first out: the front in
 ||| order and the back as requested. Requesting is constant time, and
@@ -180,6 +186,8 @@ record Decl where
   key : InstanceKey
   cons : List Con
   loc : Loc
+  ||| The promise its type's values keep, which the registry names.
+  promise : Maybe Promise
 
 ||| What the translation reads of a type constructor's definition: its
 ||| parameters, the type parameters among them that a value represents, and
@@ -214,8 +222,6 @@ record TS where
   seen : SortedSet FnId
   queue : Queue Pending
   moduleFC : FC
-  ||| Instances per definition, which only an assertion bounds.
-  perName : SortedMap String Nat
   ||| The definitions whose component of the call graph has been checked
   ||| (`Recursion`), by `nameKey`, each with whether every loop through it
   ||| terminates.
@@ -224,6 +230,10 @@ record TS where
   ||| of binders (`(x : a) -> b` and `a -> b` are one type), bucketed by a
   ||| hash of the arguments: each with its identity and its key.
   named : SortedMap String (List (List (Maybe ClosedTerm), (String, InstanceKey)))
+  ||| Each symbol made, with the identity it names: the definition, by
+  ||| `nameKey`, and its arguments. A symbol is a function of its key, so
+  ||| two identities on one are a broken invariant, found here.
+  symbols : SortedMap String (String, List (Maybe ClosedTerm))
   ||| What each case, with and nested block is called, `<parent>.case<k>`,
   ||| by `nameKey`, and every definition whose blocks are named, by its own
   ||| origin (`Keys`). A block's name depends only on the definitions, so

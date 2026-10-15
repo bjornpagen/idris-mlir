@@ -6,6 +6,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/Symbols.h"
+#include "idr/IR/TypeGraph.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Interfaces/DataLayoutInterfaces.h"
@@ -54,55 +55,58 @@ Layouts::Layouts(Operation *op) : Components(cast<ModuleOp>(op)) {
     fits = false;
     return;
   }
-  // The scalars an element or a field may be, and every component a
-  // declaration holds, so that no query after this one needs the data
-  // layout's own memory.
+  // The scalars an element or a field may be, and every component a data
+  // type holds, so that no query after this one needs the data layout's own
+  // memory.
   for (Type scalar : {pointer, Type(IntegerType::get(ctx, 1)), Type(IntegerType::get(ctx, 8)),
                       Type(IntegerType::get(ctx, 16)), Type(IntegerType::get(ctx, 32)),
                       Type(IntegerType::get(ctx, 64)), Type(Float32Type::get(ctx)),
                       Type(Float64Type::get(ctx))})
     record(scalar);
-  SmallVector<DataOp> decls = llvm::to_vector(m.getOps<DataOp>());
-  // Every unboxed sum, the only kind of declaration a value type names by
-  // its data type: a box's values are pointers to its cells.
-  for (DataOp data : decls)
-    if (!data.getBox())
-      for (Type component : Components::sum(data.getSymNameAttr()).types())
-        record(component);
-  for (DataOp data : decls)
-    for (CtorOp ctor : data.getCtors())
-      for (Attribute field : ctor.getFieldTypes())
-        for (Type component : components(cast<TypeAttr>(field).getValue()))
+  // Every data type a value or a body holds, with how it is held: the
+  // sums held in place are slots, and the data types held in a box are
+  // cells.
+  TypeGraph graph(m.getOperation());
+  SmallVector<DataType> types;
+  for (unsigned at = 0, n = graph.size(); at < n; ++at)
+    if (DataType data = graph.declaration(at))
+      types.push_back(data);
+  for (DataType data : types)
+    for (Type component : Components::sum(data).types())
+      record(component);
+  for (DataType data : types)
+    for (const Ctor &ctor : data.getCtors())
+      for (Type field : ctor.fields)
+        for (Type component : components(field))
           record(component);
 
-  for (DataOp data : decls) {
-    if (!data.getBox())
+  for (unsigned at = 0, n = graph.size(); at < n; ++at) {
+    DataType data = graph.declaration(at);
+    if (!data || !graph.boxed(at))
       continue;
     // A memo cell is allocated in one state and written into another, the
     // value a force stores over the captures it took, so every state's
     // cell is as large as the largest.
-    bool memo = idr::isMemo(data);
+    bool memo = data.isMemo();
     unsigned size = 0;
-    SmallVector<CtorOp> ctors = data.getCtors();
-    for (auto [tag, ctor] : llvm::enumerate(ctors)) {
-      SmallVector<Type> fields;
-      for (Attribute field : ctor.getFieldTypes())
-        fields.push_back(cast<TypeAttr>(field).getValue());
-      std::expected<layout::Cell, std::string> cell = cellOf(fields, [&](unsigned objs) {
+    for (auto [tag, ctor] : llvm::enumerate(data.getCtors())) {
+      std::expected<layout::Cell, std::string> cell = cellOf(ctor.fields, [&](unsigned objs) {
         return memo ? layout::CellInfo::thunk(tag, objs) : layout::CellInfo::box(tag, objs);
       });
       if (!cell) {
-        ctor.emitError() << "unsupported (layout): a cell of the constructor @" << ctor.getSymName()
-                         << " cannot be built: " << cell.error();
+        refuse(m, Rule::Layout) << "a cell of the constructor @" << ctor.name.getValue()
+                                << " of \"" << data.getName()
+                                << "\" cannot be built: " << cell.error();
         fits = false;
         continue;
       }
       size = std::max(size, cell->size);
-      boxes.try_emplace(ctor, std::move(*cell));
+      boxes.try_emplace({data, static_cast<unsigned>(tag)}, std::move(*cell));
     }
     if (memo)
-      for (CtorOp ctor : ctors)
-        if (auto it = boxes.find(ctor); it != boxes.end())
+      for (unsigned tag = 0, count = static_cast<unsigned>(data.getCtors().size()); tag < count;
+           ++tag)
+        if (auto it = boxes.find({data, tag}); it != boxes.end())
           it->second.size = size;
   }
 }
@@ -110,11 +114,11 @@ Layouts::Layouts(Operation *op) : Components(cast<ModuleOp>(op)) {
 LogicalResult Layouts::valid() const { return success(fits); }
 
 SmallVector<Type> Layouts::components(Type type) const {
-  return componentsWith(type, [&](StringAttr name) -> const layout::SumLayout & { return sum(name); });
+  return componentsWith(type, [&](DataType data) -> const layout::SumLayout & { return sum(data); });
 }
 
 SmallVector<bool> Layouts::counted(Type type) const {
-  return countedWith(type, [&](StringAttr name) -> const layout::SumLayout & { return sum(name); });
+  return countedWith(type, [&](DataType data) -> const layout::SumLayout & { return sum(data); });
 }
 
 unsigned Layouts::objects(Type type) const {
@@ -128,11 +132,11 @@ unsigned Layouts::objects(ArrayRef<Type> types) const {
   return all;
 }
 
-const layout::SumLayout &Layouts::sum(StringAttr name) const {
-  if (const layout::SumLayout *known = computed(name))
+const layout::SumLayout &Layouts::sum(DataType type) const {
+  if (const layout::SumLayout *known = computed(type))
     return *known;
-  llvm::reportFatalInternalError("no layout of the sum @" + name.getValue() +
-                                 ", which the module did not declare when its layouts were "
+  llvm::reportFatalInternalError("no layout of the sum \"" + type.getName() +
+                                 "\", which no value of the module held when its layouts were "
                                  "computed");
 }
 
@@ -149,9 +153,8 @@ unsigned Layouts::alignmentOf(Type component) const {
 }
 
 bool Layouts::isMemo(Type type) const {
-  FlatSymbolRefAttr name = getSumName(type);
-  DataOp data = name ? declaration(name.getAttr()) : DataOp();
-  return data && idr::isMemo(data);
+  DataType data = dataTypeOf(type);
+  return isBoxed(type) && data && data.isMemo();
 }
 
 // An element is laid out as a cell of one field, less the header: the
@@ -228,12 +231,13 @@ Layouts::cellOf(ArrayRef<Type> fieldTypes,
                       std::move(order), *header};
 }
 
-const layout::Cell &Layouts::box(CtorOp ctor) const {
-  if (auto it = boxes.find(ctor); it != boxes.end())
+const layout::Cell &Layouts::box(DataType type, unsigned tag) const {
+  if (auto it = boxes.find({type, tag}); it != boxes.end())
     return it->second;
-  llvm::reportFatalInternalError("no cell of the constructor @" + ctor.getSymName() +
-                                 ", which the module did not declare boxed when its layouts "
-                                 "were computed");
+  llvm::reportFatalInternalError("no cell of the constructor " + llvm::Twine(tag) + " of \"" +
+                                 type.getName() +
+                                 "\", which no value of the module held in a box when its "
+                                 "layouts were computed");
 }
 
 arith::CmpIPredicate layout::signedPredicate(CmpPredicate predicate) {

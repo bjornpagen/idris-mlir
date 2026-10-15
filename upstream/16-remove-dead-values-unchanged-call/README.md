@@ -94,9 +94,22 @@ the tree check for an empty set before they call it
 (`mlir/lib/Interfaces/ControlFlowInterfaces.cpp:953`,
 `mlir/lib/Dialect/SCF/IR/SCF.cpp:1583`).
 
-## Patch
+## Why there is no patch
 
-`llvm.patch` is the pull request, a `git diff` against 7208ba24, the pin.
+There is no `llvm.patch`, and there is no `PINS.md` entry. The compiler
+met this bug through one loop: the simplify rounds ran
+`composite-fixed-point-pass`, whose fixpoint is an `OperationFingerPrint`,
+and read the rebuilt call as a change. The pipeline cutover of 2026-10-14
+deleted the rounds; nothing in the tree runs a composite fixed point now,
+and the dead values are removed once, after the optimizer, where an
+identical new call changes nothing a pass of ours reads. So nothing in the
+tree reaches the bug, and the patch goes (AGENTS.md); the report stays a
+submission, with the pull request as `pull-request.diff`, which this
+repository does not apply.
+
+## The fix
+
+`pull-request.diff` is the pull request, a `git diff` against 7208ba24, the pin.
 `RewriterBase::eraseOpResults` returns `op` unchanged when `eraseIndices`
 selects no result, as `eraseOperands` does for operands, and its comment
 in `PatternMatch.h` says so. Nothing else in the tree asks it for an empty
@@ -156,24 +169,23 @@ and linked against the static `libMLIR*.a` and `libLLVM*.a` of
 
 `check-mlir` has not run with this patch.
 
-## Our workaround, which this replaces
+## What it replaced
 
 `idr-dead-values` ran `remove-dead-values` on a copy of the module and kept
-the module when the copy hashed the same up to operation identity. With the
-patch, the simplify round runs `remove-dead-values{canonicalize=false}`
-itself, and the loop's fingerprint repeats at its fixpoint (`PINS.md`:
-`remove-dead-values-unchanged-call`).
+the module when the copy hashed the same up to operation identity. The
+patch let the simplify round run `remove-dead-values{canonicalize=false}`
+itself; the rounds are gone, and so is the need.
 
 ## Upstreaming plan
 
-Status: not filed. `check-mlir` not run on main. Whether main past
+Status: not filed; not carried. `check-mlir` not run on main. Whether main past
 7208ba24 fixes it is not known: it was read at the pin only, from a host
 without network access.
 
 - Where: a GitHub issue (the reproducer: `remove-dead-values` replaces a
   call it erases nothing from, and `composite-fixed-point-pass` over it does
   not converge) and a pull request against llvm main, one commit,
-  `llvm.patch`. Before filing: search llvm/llvm-project for
+  `pull-request.diff`. Before filing: search llvm/llvm-project for
   `eraseOpResults` and `remove-dead-values` fixed-point issues; check that
   the diff applies to then-current main and is clang-format clean, and that
   the new test fails with the `PatternMatch.cpp` change reverted (shown at
@@ -183,6 +195,6 @@ without network access.
 - Upstream test: `mlir/test/Transforms/remove-dead-values-fixed-point.mlir`.
 - Independent of 06 (`remove-dead-values-unreachable`): neither changes a
   file the other changes, and either can land first.
-- The patch is dropped when the pin includes the fix (or an equivalent one
-  in the pass); then this directory, its check and its `PINS.md` entry go,
-  and the simplify round keeps running `remove-dead-values` as it is.
+- When the pin includes the fix (or an equivalent one in the pass),
+  `tests/upstream/remove-dead-values-unchanged-call` fails, and this
+  directory and that check go.

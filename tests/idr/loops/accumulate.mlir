@@ -7,6 +7,7 @@
 // RUN: FileCheck %s --check-prefix=BOTH < %t.both.err
 // RUN: %status 1 idris-mlir-opt %t.acc.mlir --idr-tail-loops --idr-expect=holds=constant-stack=@depth -o /dev/null 2> %t.depth.err
 // RUN: FileCheck %s --check-prefix=DEPTH < %t.depth.err
+// NEEDS-ACCEPTANCE: the copies are named <owner>.acc.<16 hex digits> from their keys (C21); check that the patterns match them.
 // A tail that adds its own result carries the sum. @length adds one,
 // @steps adds an argument: each calls a clone with zero and the clone adds
 // before the call, which idr-tail-loops makes a loop. @count already adds
@@ -15,20 +16,20 @@
 // grows with the call.
 // CHECK-LABEL: idr.func private @length(
 // CHECK: %[[Z:.*]] = {{(idr\.)?}}constant #idr.big<"0">
-// CHECK: %[[R:.*]] = call @length.acc(%{{[^,]+}}, %[[Z]])
+// CHECK: %[[R:.*]] = call @{{length\.acc\.[0-9a-f]+}}(%{{[^,]+}}, %[[Z]])
 // CHECK: return %[[R]]
-// CHECK-LABEL: idr.func private @length.acc(
+// CHECK-LABEL: idr.func private @{{length\.acc\.[0-9a-f]+}}(
 // CHECK-SAME: %[[ACC:[[:alnum:]_]+]]: !idr.nat)
 // CHECK: case @Nil()
 // CHECK: idr.yield %[[ACC]]
 // CHECK: %[[S:.*]] = idr.big.add %[[ACC]], %{{[^:]+}} : !idr.nat
-// CHECK: %[[C:.*]] = {{(idr\.)?}}call @length.acc(%{{[^,]+}}, %[[S]])
+// CHECK: %[[C:.*]] = {{(idr\.)?}}call @{{length\.acc\.[0-9a-f]+}}(%{{[^,]+}}, %[[S]])
 // CHECK: idr.yield %[[C]]
 // CHECK-LABEL: idr.func private @steps(
-// CHECK: call @steps.acc(
-// CHECK-LABEL: idr.func private @steps.acc(
+// CHECK: call @{{steps\.acc\.[0-9a-f]+}}(
+// CHECK-LABEL: idr.func private @{{steps\.acc\.[0-9a-f]+}}(
 // CHECK: idr.big.add
-// CHECK: call @steps.acc(
+// CHECK: call @{{steps\.acc\.[0-9a-f]+}}(
 // CHECK-NOT: @count.acc
 // CHECK-LABEL: idr.func private @count(
 // CHECK: call @count(
@@ -44,8 +45,8 @@
 // CHECK-SAME: %[[N:[[:alnum:]_]+]]: !idr.nat
 // CHECK-NEXT: return %[[N]]
 // CHECK-LABEL: idr.func private @twos(
-// CHECK: call @twos.acc(
-// CHECK-LABEL: idr.func private @twos.acc(
+// CHECK: call @{{twos\.acc\.[0-9a-f]+}}(
+// CHECK-LABEL: idr.func private @{{twos\.acc\.[0-9a-f]+}}(
 // CHECK: idr.big.add
 // The same countdown after simplification has lifted the constants out of
 // the branches. A sum of big ones is the argument as an Integer.
@@ -58,21 +59,18 @@
 // CHECK-NEXT: return %[[I]]
 // BOTH: expected constant-stack: the stack grows with the recursion of @both
 // DEPTH: expected constant-stack: the stack grows with the recursion of @depth
+!List = !idr.data<"List", list [@Nil(), @Cons(i64, !idr.box<!idr.data<"List">>)]>
 module {
-  idr.data @List box {
-    idr.ctor @Nil ()
-    idr.ctor @Cons (i64, !idr.box<@List>)
-  }
 
-  idr.func private @length(%xs: !idr.box<@List>) -> !idr.nat attributes {total} {
+  idr.func private @length(%xs: !idr.box<!List>) -> !idr.nat attributes {total} {
     %one = idr.constant #idr.big<"1"> : !idr.nat
     %zero = idr.constant #idr.big<"0"> : !idr.nat
-    %r = idr.match %xs : !idr.box<@List> -> (!idr.nat) {
+    %r = idr.match %xs : !idr.box<!List> -> (!idr.nat) {
     case @Nil() {
       idr.yield %zero : !idr.nat
     }
-    case @Cons(%x: i64, %rest: !idr.box<@List>) {
-      %n = idr.call @length(%rest) : (!idr.box<@List>) -> !idr.nat
+    case @Cons(%x: i64, %rest: !idr.box<!List>) {
+      %n = idr.call @length(%rest) : (!idr.box<!List>) -> !idr.nat
       %s = idr.big.add %n, %one : !idr.nat
       idr.yield %s : !idr.nat
     }
@@ -129,15 +127,15 @@ module {
     return %r : !idr.nat
   }
 
-  idr.func private @depth(%xs: !idr.box<@List>) -> !idr.nat attributes {total} {
+  idr.func private @depth(%xs: !idr.box<!List>) -> !idr.nat attributes {total} {
     %zero = idr.constant #idr.big<"0"> : !idr.nat
     %one = idr.constant #idr.big<"1"> : !idr.nat
-    %r = idr.match %xs : !idr.box<@List> -> (!idr.nat) {
+    %r = idr.match %xs : !idr.box<!List> -> (!idr.nat) {
     case @Nil() {
       idr.yield %zero : !idr.nat
     }
-    case @Cons(%x: i64, %rest: !idr.box<@List>) {
-      %n = idr.call @depth(%rest) : (!idr.box<@List>) -> !idr.nat
+    case @Cons(%x: i64, %rest: !idr.box<!List>) {
+      %n = idr.call @depth(%rest) : (!idr.box<!List>) -> !idr.nat
       %s = idr.match_lit %n : !idr.nat -> (!idr.nat) {
       case #idr.big<"0"> {
         idr.yield %zero : !idr.nat

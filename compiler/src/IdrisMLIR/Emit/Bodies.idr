@@ -1,14 +1,17 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
 ||| Function bodies: the algebra of the fold that writes a term, its
-||| matches, lambdas, delays and loops as regions.
+||| matches as regions, its lambdas and delays as functions of their own
+||| (Emit.Closures) and its arrays as loops (Emit.Tensors).
 module IdrisMLIR.Emit.Bodies
 
 import IdrisMLIR.Dialect.Idr as Idr
 import IdrisMLIR.Dialect.UB as UB
 import IdrisMLIR.Emit.Index
+import IdrisMLIR.Emit.Closures
 import IdrisMLIR.Emit.Monad
 import IdrisMLIR.Emit.Operations
+import IdrisMLIR.Emit.Tensors
 import IdrisMLIR.Emit.Types
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
@@ -49,7 +52,7 @@ operands ix l env [] _ = pure (Just [])
 operands ix l env (a :: as) slots = do
   Just v <- a.result env (typeOf <$> head' slots)
     | Nothing => pure Nothing
-  v' <- coerce ix l (maybe Many (\b => b.quantity) (head' slots)) v
+  v' <- coerce ix l (maybe Many (\b => b.quantity) (head' slots)) !(fit ix l (typeOf <$> head' slots) v)
   map (map (v' ::)) (operands ix l env as (drop 1 slots))
 
 ||| A value as a region or a function returns it: as itself, never linear.
@@ -106,23 +109,30 @@ yielding ix l (Just v) = pure [MkStatement Nothing (Idr.yieldOp [!(operand ix v)
 
 ||| A match, from its arms, with the builder of its op over its keys,
 ||| regions and results: results when an arm yields, and none, followed by
-||| `ub.unreachable`, when no arm returns.
-match : Index -> Loc -> (List MlirAttr -> List MLIR.Region -> List MlirType -> Op) -> List Arm -> E (Maybe Val)
-match ix l build arms = do
-  regions <- traverse close arms
+||| `ub.unreachable`, when no arm returns. The arms join at the type the
+||| context expects, else the first arm's; an arm's array of another
+||| static shape is cast to it.
+match : Index -> Loc -> Maybe Ty -> (List MlirAttr -> List MLIR.Region -> List MlirType -> Op) -> List Arm
+     -> E (Maybe Val)
+match ix l expected build arms = do
   let keys = mapMaybe (.key) arms
-  case map (.type) (head' (mapMaybe (.result) arms)) of
-    Just t => do
+  case expected <|> map (.type) (head' (mapMaybe (.result) arms)) of
+    Just t => if all (\a => isNothing a.result) arms then never keys else do
+      regions <- traverse (close t) arms
       r <- fresh
       append (MkStatement (Just r) (build keys regions [!(mlirType ix t)]) (At l))
       pure (Just (val r t Many))
-    Nothing => do
-      statement l (build keys regions [])
+    Nothing => never keys
+  where
+    close : Ty -> Arm -> E MLIR.Region
+    close t a = do
+      (v, cast) <- collect (traverse (fit ix l (Just t)) a.result)
+      pure (MkRegion a.arguments (a.statements ++ cast ++ !(yielding ix l v)))
+    never : List MlirAttr -> E (Maybe Val)
+    never keys = do
+      statement l (build keys !(traverse (\a => pure (MkRegion a.arguments a.statements)) arms) [])
       statement l UB.unreachableOp
       pure Nothing
-  where
-    close : Arm -> E MLIR.Region
-    close a = pure (MkRegion a.arguments (a.statements ++ !(yielding ix l a.result)))
 
 ||| A literal as a key of `idr.match_lit`.
 key : Lit -> MlirAttr
@@ -157,26 +167,54 @@ epilogue ix l rt Nothing ops =
     endsUnreachable (s :: _) = s.op.name == UB.unreachableOp.name
     endsUnreachable [] = False
 
-||| The region of a lambda's or a `Delay`'s body, whose block takes
-||| `arguments`, and the type of the body's value: its operations, ending in
-||| the yield of that value, or, for a body that never returns, in
-||| `ub.unreachable`, the type then being the one the context expects.
-deferred : Index -> Loc -> String -> List Argument -> Maybe Ty -> E (Maybe Val) -> E (MLIR.Region, Ty)
-deferred ix l what arguments expected body = do
-  (r, ops) <- collect (plain ix l body)
-  Just t <- pure (map (.type) r <|> expected)
-    | Nothing => internal ("the result type of " ++ what ++ " whose body never returns")
-  yields <- yielding ix l r
-  pure (MkRegion arguments (ops ++ yields), t)
+mutual
+  ||| A value held plainly, and, if it is a constructor a match took apart,
+  ||| rebuilt from plain values into fields none of which is linear.
+  plainHeld : Index -> Val -> Bool
+  plainHeld ix (MkVal _ t u Nothing) = not (linear u t)
+  plainHeld ix (MkVal _ t u (Just (c, fs))) =
+    not (linear u t) && plainFields && allPlain ix fs
+    where
+      plainFields : Bool
+      plainFields = case lookup c ix.cons of
+        Just k => all (\f => f.quantity == Many) k.fields
+        Nothing => False
 
-||| What a region primitive takes and gives at the types its call fixes:
-||| its operands' types, its block arguments' (a generated array's index;
-||| a fold's accumulator, element and index), the type its body yields,
-||| and its result's besides the next world.
-regionSignature : IdrRegionPrim -> List Ty -> Maybe (List Ty, List Ty, Ty, Ty)
-regionSignature ArrayGenerate [e] = Just ([IntT IdrisInt, e, WorldT], [IntT IdrisInt], e, ArrayT Rank1 e)
-regionSignature ArrayFold [e, t] = Just ([ArrayT Rank1 e, t, WorldT], [t, e, IntT IdrisInt], t, t)
-regionSignature _ _ = Nothing
+  allPlain : Index -> List Val -> Bool
+  allPlain ix [] = True
+  allPlain ix (v :: vs) = plainHeld ix v && allPlain ix vs
+
+mutual
+  ||| Whether a suspended term is a value already, so that forcing it would
+  ||| compute nothing: a literal; a variable whose value is not linear, its
+  ||| constructor rebuilt, if a match took it apart, from fields none of
+  ||| which is linear; or a constructor of such values, none of its fields
+  ||| linear. Its ops are then only constants and constructors of plain
+  ||| values, and the suspension holds the value itself.
+  evaluated : Index -> (Fin n -> Val) -> Term n -> Bool
+  evaluated ix env (Var _ x) = plainHeld ix (env x)
+  evaluated ix env (Literal _ _) = True
+  evaluated ix env (ConApp _ c as) = case lookup c ix.cons of
+    Just k => all (\f => f.quantity == Many) k.fields && allEvaluated ix env as
+    Nothing => False
+  evaluated ix env _ = False
+
+  allEvaluated : Index -> (Fin n -> Val) -> List (Term n) -> Bool
+  allEvaluated ix env [] = True
+  allEvaluated ix env (t :: ts) = evaluated ix env t && allEvaluated ix env ts
+
+||| A closure or a suspension of a function, made by `build` at type `t`
+||| over `captures`. One that holds a linear value is used once, as what it
+||| holds: it is entered into its linear type at once.
+holding : Index -> Loc -> Ty -> List Value -> (MlirType -> Op) -> E Val
+holding ix l t captures build = do
+  made <- value ix l t build
+  if any linearType captures then coerce ix l One made else pure made
+  where
+    linearType : Value -> Bool
+    linearType v = case v.type of
+      Idr (QType One _ _) => True
+      _ => False
 
 ||| A call, a constructor application or a case passes as many values as
 ||| what it applies or takes apart takes. A count that differs is a
@@ -187,8 +225,9 @@ saturated ix l term what given taken =
     internal (fastConcat [show l, ": ", what, " passes ", show given, " values; it takes ",
                           show taken, ": ", showBody (names ix) term 0])
 
-||| The algebra: one layer of `Term` to its emitter.
-export
+||| The algebra: one layer of `Term` to its emitter. It is covering because a
+||| lifted function's key is its text, and a type's text is (MLIR.typeText).
+export covering
 alg : {0 nv : Nat} -> Index -> TermF (Sub Em) nv -> Em nv
 alg ix (VarF l x) env _ = Just <$> force ix l (env x)
 alg ix (LiteralF l x) env _ = Just <$> literal ix l x
@@ -263,7 +302,7 @@ alg ix (CaseF l x alts def) env expected = do
     [] => do
       statement l UB.unreachableOp
       pure Nothing
-    arms => match ix l (Idr.matchOp !(operand ix scrut)) arms
+    arms => match ix l expected (Idr.matchOp !(operand ix scrut)) arms
   where
     -- Each field is a block argument at its pattern variable's name.
     alternative : Val -> Val -> AltF (Sub Em) nv -> E Arm
@@ -304,7 +343,7 @@ alg ix (CaseLitF l x alts def) env expected = do
                           (res, ops) <- collect (plain ix l (c.result inner expected))
                           pure (MkArm (Just (key k)) [] res ops)) cases
       (res, ops) <- collect (plain ix l (e.result inner expected))
-      match ix l (Idr.matchLitOp !(operand ix scrut)) (arms ++ [MkArm Nothing [] res ops])
+      match ix l expected (Idr.matchLitOp !(operand ix scrut)) (arms ++ [MkArm Nothing [] res ops])
 -- The predecessor exists only where the value is not zero: the successor's
 -- region computes it, and only it binds it.
 alg ix (CaseNatF l x z predName s) env expected =
@@ -318,7 +357,7 @@ alg ix (CaseNatF l x z predName s) env expected =
       n <- coerce ix l Many !(force ix l (env x))
       (zr, zops) <- collect (plain ix l (z.result env expected))
       (sr, sops) <- collect (plain ix l (successor n))
-      match ix l (Idr.matchLitOp !(operand ix n))
+      match ix l expected (Idr.matchLitOp !(operand ix n))
             [MkArm (Just (key (LNat 0))) [] zr zops, MkArm Nothing [] sr sops]
   where
     successor : Val -> E (Maybe Val)
@@ -327,18 +366,23 @@ alg ix (CaseNatF l x z predName s) env expected =
       p <- value ix l NatT (Idr.bigPredOp !(operand ix n))
       atBinder predName before p
       s.result (bind [p] env) expected
--- A lambda and a `Delay` are regions whose bodies use the values of their
--- scope where they are, and run only when the closure is applied or the
--- suspension forced.
+-- A lambda is a closure of a function of its own, and a `Delay` a
+-- suspension of one, each over the values its body uses from where it is
+-- written: the body is written first, as a region, and the function made
+-- of it. A suspension of a value is that value held, `idr.delay %v`.
 alg ix (LamF l name b body) env expected = do
   let result = case expected of
                  Just (FunT _ r) => Just r
                  _ => Nothing
   p <- val <$> fresh <*> pure (typeOf b) <*> pure b.quantity
   param <- operand ix p
-  (region, t) <- deferred ix l "a lambda" [MkArgument param (Named name l)] result
-                          (body.result (bind [p] env) result)
-  Just <$> value ix l (FunT b t) (Idr.lambdaOp region)
+  (r, ops) <- collect (plain ix l (body.result (bind [p] env) result) >>= traverse (fit ix l result))
+  Just t <- pure (result <|> map (.type) r)
+    | Nothing => internal "the result type of a lambda whose body never returns"
+  rt <- mlirType ix t
+  ops' <- epilogue ix l rt r ops
+  (sym, captures) <- lift l "lam" [MkArgument param (Named name l)] ops' [rt]
+  Just <$> holding ix l (FunT b t) captures (Idr.closureOp sym captures)
 alg ix (AppF l f x) env expected = do
   Just fv <- plain ix l (f.result env Nothing)
     | Nothing => pure Nothing
@@ -346,7 +390,7 @@ alg ix (AppF l f x) env expected = do
     | t => internal ("an application of a value of type " ++ show t)
   Just v <- x.result env (Just (typeOf a))
     | Nothing => pure Nothing
-  xv <- coerce ix l a.quantity v
+  xv <- coerce ix l a.quantity !(fit ix l (Just (typeOf a)) v)
   callee <- operand ix fv
   arg <- operand ix xv
   Just <$> value ix l r (\rt => Idr.applyOp callee [arg] [rt])
@@ -354,8 +398,19 @@ alg ix (SuspendF l body) env expected = do
   let result = case expected of
                  Just (LazyT r) => Just r
                  _ => Nothing
-  (region, t) <- deferred ix l "a Delay" [] result (body.result env result)
-  Just <$> value ix l (LazyT t) (Idr.delayOp region)
+  if evaluated ix env body.term
+    then do
+      Just v <- plain ix l (body.result env result)
+        | Nothing => internal "a suspended value that never returns"
+      Just <$> value ix l (LazyT v.type) (Idr.delayOp !(operand ix v))
+    else do
+      (r, ops) <- collect (plain ix l (body.result env result) >>= traverse (fit ix l result))
+      Just t <- pure (result <|> map (.type) r)
+        | Nothing => internal "the result type of a Delay whose body never returns"
+      rt <- mlirType ix t
+      ops' <- epilogue ix l rt r ops
+      (sym, captures) <- lift l "delay" [] ops' [rt]
+      Just <$> holding ix l (LazyT t) captures (Idr.suspendOp sym captures)
 alg ix (ResumeF l e) env expected = do
   Just ev <- plain ix l (e.result env Nothing)
     | Nothing => pure Nothing
@@ -363,27 +418,55 @@ alg ix (ResumeF l e) env expected = do
     | t => internal ("a force of a value of type " ++ show t)
   callee <- operand ix ev
   Just <$> value ix l r (Idr.forceOp callee)
--- A region primitive's body is a region taking the block arguments the
--- primitive declares, which yields its value; a body that never returns
--- ends in ub.unreachable, as a match region does. IO: the world is the
--- last operand, and the next world the last result.
-alg ix (RegionF {k} l p tys as body res) env _ = do
-  Just (takes, binds, yielded, gives) <- pure (regionSignature p tys)
-    | Nothing => internal ("a region primitive at the types " ++ show tys)
-  Just argTys <- pure (toVect k binds)
-    | Nothing => internal ("a region primitive whose body binds " ++ show k ++ " values")
-  Just vs <- operands ix l env as (map (MkBinder Many) takes)
+-- The array language: each operand bound once, in order, by the frontend;
+-- each body a region of the loops Emit.Tensors writes.
+alg ix (TensorF l op rt as) env _ = do
+  Just vs <- operands ix l env as []
     | Nothing => pure Nothing
-  args <- traverse (\t => val <$> fresh <*> pure t <*> pure Many) argTys
-  (r, ops) <- collect (plain ix l (body.result (bind args env) (Just yielded)))
-  yields <- yielding ix l r
-  arguments <- traverse (\v => (\o => MkArgument o (At l)) <$> operand ix v) (toList args)
-  let region = MkRegion arguments (ops ++ yields)
-  out <- fresh
-  append (MkStatement (Just out)
-           (Idr.regionOp p !(traverse (operand ix) vs) region [!(mlirType ix gives), !(mlirType ix WorldT)])
-           (At l))
-  Just <$> ioResult ix l res (val (out ++ "#0") gives Many) (val (out ++ "#1") WorldT Many)
+  Just <$> tensorOp ix l op rt vs
+alg ix (TabulateF {k} l rt es body) env _ = do
+  Just extents <- operands ix l env (toList es) []
+    | Nothing => pure Nothing
+  Just ev <- pure (toVect k extents)
+    | Nothing => internal "a tabulation of fewer extents than it binds"
+  tabulate ix l rt ev (\coords => plain ix l (body.result (bind coords env) Nothing))
+alg ix (ReduceF l r acc el rt z x body) env _ = do
+  Just [zv, xv] <- operands ix l env [z, x] []
+    | Nothing => pure Nothing
+    | Just _ => internal "a reduction of other than its accumulators and its array"
+  reduce ix l r acc el rt zv xv (\a, e => plain ix l (body.result (bind [a, e] env) (Just acc)))
+alg ix (TieF l x ds) env _ = do
+  Just xv <- plain ix l (x.result env Nothing)
+    | Nothing => pure Nothing
+  Just dims <- statedAll ds
+    | Nothing => pure Nothing
+  Just <$> tie ix l xv dims
+  where
+    -- A size an array's extent gives is exact; any other natural is
+    -- converted as an extent.
+    stated : Sub Em nv -> E (Maybe Stated)
+    stated d = do
+      Just v <- plain ix l (d.result env (Just NatT))
+        | Nothing => pure Nothing
+      pure (Just (case d.term of
+                    Tensor _ (Extent _) _ _ => OfArray v
+                    _ => OfNatural v))
+    statedAll : List (Maybe (Sub Em nv)) -> E (Maybe (List (Maybe Stated)))
+    statedAll [] = pure (Just [])
+    statedAll (Nothing :: rest) = map (Nothing ::) <$> statedAll rest
+    statedAll (Just d :: rest) = do
+      Just s <- stated d
+        | Nothing => pure Nothing
+      map (Just s ::) <$> statedAll rest
+alg ix (TabulateIOF {k} l rt es w body step done) env _ = do
+  Just extents <- operands ix l env (toList es) []
+    | Nothing => pure Nothing
+  Just ev <- pure (toVect k extents)
+    | Nothing => internal "a tabulation of fewer extents than it binds"
+  Just world <- w.result env (Just WorldT)
+    | Nothing => pure Nothing
+  tabulateIO ix l rt ev world
+             (\coords, wv => plain ix l (body.result (bind (snoc coords wv) env) Nothing)) step done
 alg ix (UnreachableF l) env _ = do
   statement l UB.unreachableOp
   pure Nothing

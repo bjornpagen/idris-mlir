@@ -1,4 +1,4 @@
 #!/bin/sh
-# tests/programs/basic/hello, an IO program, compiled twice.
+# tests/programs/basic/hello, an IO program, compiled at 1, 2 and 8 threads.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 determinism "$root/tests/programs/basic/hello"

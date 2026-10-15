@@ -25,11 +25,7 @@ extern llvm::cl::list<std::string> packages;
 extern llvm::cl::list<std::string> packagePath;
 extern llvm::cl::opt<std::string> idrisPrefix;
 extern llvm::cl::opt<bool> noPrelude;
-extern llvm::cl::opt<std::string> breakShape;
-extern llvm::cl::list<std::string> without;
-extern llvm::cl::opt<bool> demandInPlace;
 extern llvm::cl::list<std::string> logActionsTags;
-extern llvm::cl::opt<std::string> dumpDir;
 extern llvm::cl::opt<std::string> runtimePath;
 extern llvm::cl::opt<std::string> runtimeBitcodeSection;
 extern llvm::cl::opt<bool> printRuntime;
@@ -47,7 +43,7 @@ unsigned threadBudget();
 
 // Exit statuses, the frontend's too: an internal error or a contract
 // violation is 1, a usage error 2, and any error of the program's 3: a
-// rejection (`unsupported (<reason>)`) on either side, or any error Idris
+// refusal, which names its rule, on either side, or any error Idris
 // reports.
 inline constexpr int ok = 0, failure = 1, usage = 2, rejected = 3;
 

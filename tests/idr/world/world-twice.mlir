@@ -2,7 +2,7 @@
 // A world used twice on one path is rejected, wherever the second use is.
 // Each idr.func verifies its own body.
 
-module attributes {idr.program} {
+module {
 idr.func private @f(%w: !idr.world) -> !idr.world {
   %c = arith.constant 65 : i32
   %w1 = idr.io.put_char %c, %w
@@ -18,7 +18,7 @@ idr.func @root() -> i64 {
 
 // -----
 
-module attributes {idr.program} {
+module {
 // A world produced inside the function counts too.
 idr.func private @f(%w: !idr.world) -> !idr.world {
   %c = arith.constant 65 : i32
@@ -36,7 +36,7 @@ idr.func @root() -> i64 {
 
 // -----
 
-module attributes {idr.program} {
+module {
 // Returned and used: two uses.
 idr.func private @f(%w: !idr.world) -> (!idr.world, !idr.world) {
   // expected-error @+1 {{uses a world that is already used on the same path}}
@@ -50,16 +50,13 @@ idr.func @root() -> i64 {
 
 // -----
 
-module attributes {idr.program} {
+!B = !idr.data<"B", plain [@F(), @T()]>
+module {
 // A use in a region of a match, then one after the match, is one path.
-idr.data @B {
-  idr.ctor @F ()
-  idr.ctor @T ()
-}
-idr.func private @f(%b: !idr.data<@B>,
+idr.func private @f(%b: !B,
                      %w: !idr.world) -> !idr.world {
   %c = arith.constant 65 : i32
-  %r = idr.match %b : !idr.data<@B> -> (!idr.world) {
+  %r = idr.match %b : !B -> (!idr.world) {
   case @F() {
     %w1 = idr.io.put_char %c, %w
     idr.yield %w1 : !idr.world
@@ -80,7 +77,7 @@ idr.func @root() -> i64 {
 
 // -----
 
-module attributes {idr.program} {
+module {
 // Two uses within one region.
 idr.func private @f(%n: i64, %w: !idr.world) -> !idr.world {
   %c = arith.constant 65 : i32
@@ -105,7 +102,7 @@ idr.func @root() -> i64 {
 
 // -----
 
-module attributes {idr.program} {
+module {
 // A world from before a loop, used in its body, is used once per iteration.
 idr.func private @f(%w: !idr.world, %n: i64) -> i64 {
   %c = arith.constant 65 : i32

@@ -2,28 +2,23 @@
 // RUN: FileCheck %s < %t.stats
 // RUN: idris-mlir -c %s -o %t.quiet.o 2> %t.quiet
 // RUN: FileCheck %s --check-prefix=QUIET --allow-empty < %t.quiet
-// RUN: idris-mlir-opt %s --idr-contify --idr-simplify --remarks-filter=idr-simplify -o /dev/null 2> %t.remarks
-// RUN: FileCheck %s --check-prefix=ROUND < %t.remarks
+// NEEDS-ACCEPTANCE: the statistics' descriptions, as C12 declares them.
 // --stats prints the statistics of every pass of the driver's manager: the
-// rounds of the simplify loop under IdrSimplify, the functions contified
-// under IdrContify, the keys under IdrDefunctionalize. The passes a round
-// runs are not the manager's, so it never prints theirs: the loop's
-// statistics remark reports them after the rounds it ran, each as
-// `<pass>.<statistic>=<total>`. Without --stats, nothing.
+// functions contified under IdrContify, the calls inlined and the nodes
+// made under IdrOptimize, the sums under IdrDefunctionalize. Without
+// --stats, nothing.
 // CHECK: Pass statistics report
 // CHECK-DAG: IdrContify
-// CHECK-DAG: (S) {{ *[0-9]+}} contified - Functions inlined into their one caller
-// CHECK-DAG: IdrSimplify
-// CHECK-DAG: (S) {{ *[1-9][0-9]*}} rounds - Rounds run
+// CHECK-DAG: (S) {{ *[0-9]+}} contified -
+// CHECK-DAG: IdrOptimize
+// CHECK-DAG: (S) {{ *[0-9]+}} inlined -
+// CHECK-DAG: (S) {{ *[0-9]+}} nodes -
 // CHECK-DAG: IdrDefunctionalize
-// CHECK-DAG: (S) {{ *[0-9]+}} boxed - Records and closure sums made boxes so that the cells holding them fit
-// CHECK-DAG: (S) {{ *[0-9]+}} closures - Keys whose closures stay closures
-// CHECK-DAG: (S) {{ *[0-9]+}} sums - Keys whose closures became sums
+// CHECK-DAG: (S) {{ *[0-9]+}} boxed -
+// CHECK-DAG: (S) {{ *[0-9]+}} sums -
 // QUIET-NOT: statistics
-// ROUND: remark: [Analysis] statistics {{.*}}Category:idr-simplify
-// ROUND-SAME: idr-loop-breakers.breakers={{[0-9]+}}
-module attributes {idr.program} {
-  idr.func private @fact(%n: i64) -> i64 attributes {total, no_inline} {
+module {
+  idr.func private @fact(%n: i64) -> i64 attributes {total} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
       %one = arith.constant 1 : i64

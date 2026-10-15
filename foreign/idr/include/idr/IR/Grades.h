@@ -138,14 +138,17 @@ bool sameCarriers(Expected &&expected, Actual &&actual) {
   });
 }
 
-// The types a field of a constructor may have.
+// The types a field of a constructor may have: the world, a word, a
+// runtime type of ours, an array a world orders, and a value array, a
+// ranked tensor or, after bufferization, its buffer.
 bool isFieldType(mlir::Type type);
 
-// An array: `memref<?xE>`, or `memref<E>` (an IORef), of a field type E at
-// no grade (Idr_ArrayType).
+// An array a world orders: `memref<?xE, #idr.world>`, or `memref<E,
+// #idr.world>` (an IORef), of a field type E at no grade (Idr_ArrayType).
 bool isArray(mlir::Type type);
 
-// An array of one dimension, `memref<?xE>`: one that has a length.
+// An array a world orders of one dimension, `memref<?xE, #idr.world>`: one
+// that has a length.
 bool isRank1Array(mlir::Type type);
 
 } // namespace idr

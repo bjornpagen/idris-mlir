@@ -170,6 +170,31 @@ Value idr::heldAs(OpBuilder &b, Location loc, Value value, Type type) {
   return LinUseOp::create(b, loc, type, value);
 }
 
+namespace {
+
+// An element of an array: a field type at no grade, and not the world,
+// which has no runtime form to store.
+bool isElementType(Type element) {
+  return !isa<QType>(element) && !isWorld(element) && isFieldType(element);
+}
+
+// A value array: a ranked tensor without an encoding, of any rank and
+// extents. After bufferization, its buffer: a memref in the default memory
+// space, in the identity layout, of any rank and extents. Its element is
+// no shaped value: an array of arrays is one array of a higher rank.
+bool isValueArray(Type type) {
+  auto shaped = dyn_cast<ShapedType>(type);
+  if (!shaped || isa<ShapedType>(shaped.getElementType()) ||
+      !isElementType(shaped.getElementType()))
+    return false;
+  if (auto tensor = dyn_cast<RankedTensorType>(type))
+    return !tensor.getEncoding();
+  auto memref = dyn_cast<MemRefType>(type);
+  return memref && !memref.getMemorySpace() && memref.getLayout().isIdentity();
+}
+
+} // namespace
+
 bool idr::isFieldType(Type type) {
   if (isWorld(type))
     return true;
@@ -177,21 +202,21 @@ bool idr::isFieldType(Type type) {
   if (auto integer = dyn_cast<IntegerType>(type))
     return integer.isSignless() && llvm::is_contained({8u, 16u, 32u, 64u}, integer.getWidth());
   return isa<Float64Type, DataType, BoxType, FnType, LazyType, StrType, BigType, NatType>(type) ||
-         isArray(type);
+         isArray(type) || isValueArray(type);
 }
 
-// At most one dimension, each dynamic, in the identity layout: the shapes
-// the runtime's array cell has (a length, then the elements in order), an
-// IORef being the cell of one element, whose length is 1 and no value
-// carries. An element is a field type at no grade, and not the world,
-// which has no runtime form to store.
+// An array a world orders: at most one dimension, each dynamic, in the
+// identity layout, in the world's memory, the shapes the runtime's array
+// cell has (a length, then the elements in order), an IORef being the cell
+// of one element, whose length is 1 and no value carries. The memory space
+// tells it from a value buffer of the same element, which a cell may hold
+// after it is shared and so cannot be written.
 bool idr::isArray(Type type) {
   auto memref = dyn_cast<MemRefType>(type);
   if (!memref || memref.getRank() > 1 || !llvm::all_of(memref.getShape(), ShapedType::isDynamic) ||
-      !memref.getLayout().isIdentity() || memref.getMemorySpace())
+      !memref.getLayout().isIdentity() || !isa_and_nonnull<WorldSpaceAttr>(memref.getMemorySpace()))
     return false;
-  Type element = memref.getElementType();
-  return !isa<QType>(element) && !isWorld(element) && isFieldType(element);
+  return isElementType(memref.getElementType());
 }
 
 bool idr::isRank1Array(Type type) {

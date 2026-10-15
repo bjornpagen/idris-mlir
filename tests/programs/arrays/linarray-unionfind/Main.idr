@@ -3,14 +3,15 @@ module Main
 -- Union-find with path compression and union by rank over an array of
 -- records: Lean's `unionfind.lean` (Counting Immutable Beans), which
 -- threads the array through a state monad and updates it in place while
--- unshared. Here the array is a linear array (Linear.Array) of records,
--- threaded at quantity 1 through every find and union: pure code, each
--- update a store of a freshly built record, as in Lean. Prints "ok" and the
--- number of nodes that are not roots.
+-- unshared. Here the array is a growable linear vector (Linear.Vec) of
+-- records, threaded at quantity 1 through every find and union: pure code,
+-- each update a store of a freshly built record, as in Lean. Prints "ok"
+-- and the number of nodes that are not roots.
 
 import Prelude
 import Linear.Notation
-import Linear.Array
+import Array
+import Linear.Vec
 
 record NodeData where
   constructor MkNodeData
@@ -18,7 +19,7 @@ record NodeData where
   rank : Int
 
 Arr : Type
-Arr = Array NodeData
+Arr = Vec NodeData
 
 -- The entry of n's root, found with at most fuel steps; every entry on the
 -- path is replaced by the root's. A node out of range, or a chain longer
@@ -28,10 +29,10 @@ findEntryAux s cap fuel n =
   if fuel == 0 then MkNodeData (-1) 0 # s
   else if n < 0 || n >= cap then MkNodeData (-2) 0 # s
   else
-    let e # s1 = read s n in
+    let e # s1 = Vec.read s (cast n) in
     if e.find == n then e # s1
     else let e1 # s2 = findEntryAux s1 cap (fuel - 1) e.find
-         in e1 # write s2 n e1
+         in e1 # Vec.write s2 (cast n) e1
 
 findEntry : (1 _ : Arr) -> Int -> Int -> Res NodeData (const Arr)
 findEntry s cap n = findEntryAux s cap cap n
@@ -41,13 +42,13 @@ union s cap n1 n2 =
   let r1 # s1 = findEntry s cap n1
       r2 # s2 = findEntry s1 cap n2
   in if r1.find == r2.find then s2
-     else if r1.rank < r2.rank then write s2 r1.find (MkNodeData r2.find 0)
+     else if r1.rank < r2.rank then Vec.write s2 (cast r1.find) (MkNodeData r2.find 0)
      else if r1.rank == r2.rank
-       then write (write s2 r1.find (MkNodeData r2.find 0)) r2.find (MkNodeData r2.find (r2.rank + 1))
-       else write s2 r2.find (MkNodeData r1.find 0)
+       then Vec.write (Vec.write s2 (cast r1.find) (MkNodeData r2.find 0)) (cast r2.find) (MkNodeData r2.find (r2.rank + 1))
+       else Vec.write s2 (cast r2.find) (MkNodeData r1.find 0)
 
 mkNodes : (1 _ : Arr) -> Int -> Int -> Arr
-mkNodes s cap n = if n < cap then mkNodes (write s n (MkNodeData n 1)) cap (n + 1) else s
+mkNodes s cap n = if n < cap then mkNodes (Vec.write s (cast n) (MkNodeData n 1)) cap (n + 1) else s
 
 mergePackAux : (1 _ : Arr) -> Int -> Int -> Int -> Int -> Arr
 mergePackAux s cap fuel n d =
@@ -67,15 +68,14 @@ numEqsAux s cap fuel n r =
   else r # s
 
 discard : (1 _ : Arr) -> ()
-discard a = freeze a (\_ => ())
+discard a = let MkBang _ = Vec.freeze a in ()
 
 test : Int -> Int
-test n =
-  let 1 s = mkArray n (MkNodeData 0 0)
-      1 s1 = mergePack (mergePack (mergePack (mergePack (mkNodes s n 0) n 50000) n 10000) n 5000) n 1000
+test n = unrestricted $ withVec (cast n) (MkNodeData 0 0) (\s =>
+  let 1 s1 = mergePack (mergePack (mergePack (mergePack (mkNodes s n 0) n 50000) n 10000) n 5000) n 1000
       v # s2 = numEqsAux s1 n n 0 0
       () = discard s2
-  in v
+  in MkBang v)
 
 readInt : IO Int
 readInt = go 0

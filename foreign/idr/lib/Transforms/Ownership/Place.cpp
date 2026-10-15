@@ -23,8 +23,6 @@ namespace {
 struct RcPlace : PassWrapper<RcPlace, OperationPass<FuncOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(RcPlace)
 
-  RcPlace(bool reuse, bool sink) : reuse(reuse), sink(sink) {}
-
   StringRef getArgument() const override { return "idr-rc-place"; }
   StringRef getDescription() const override {
     return "Reuse dead cells and place the counts of one function";
@@ -32,37 +30,25 @@ struct RcPlace : PassWrapper<RcPlace, OperationPass<FuncOp>> {
 
   void runOnOperation() override {
     FuncOp fn = getOperation();
-    if (fn.isExternal())
-      return markAllAnalysesPreserved();
     auto symbols = getCachedParentAnalysis<SymbolTable>();
-    if (!symbols) {
-      fn.emitError("idr-rc-place: internal error: the module's SymbolTable was not computed");
+    auto reuses = getCachedParentAnalysis<Reuses>();
+    if (!symbols || !reuses) {
+      fn.emitError("idr-rc-place: internal error: the module's SymbolTable or Reuses was not "
+                   "computed");
       return signalPassFailure();
     }
     IRRewriter rewriter(fn.getContext());
-    Counted counted(symbols->get());
-    if (reuse) {
-      auto reuses = getCachedParentAnalysis<Reuses>();
-      if (!reuses) {
-        fn.emitError("idr-rc-place: internal error: the module's Reuses was not computed");
-        return signalPassFailure();
-      }
-      reuseAt(rewriter, reuses->get().sites(fn), counted);
-    }
+    Counted counted;
+    reuseAt(rewriter, reuses->get().sites(fn), counted);
     Classes classes(fn, counted);
-    if (failed(reshape(rewriter, fn, counted, classes, symbols->get(), sink)))
+    if (failed(reshape(rewriter, fn, counted, classes, symbols->get())))
       return signalPassFailure();
     place(rewriter, fn, classes, symbols->get());
   }
-
-  bool reuse;
-  bool sink;
 };
 
 } // namespace
 
-std::unique_ptr<Pass> createRcPlace(bool reuse, bool sink) {
-  return std::make_unique<RcPlace>(reuse, sink);
-}
+std::unique_ptr<Pass> createRcPlace() { return std::make_unique<RcPlace>(); }
 
 } // namespace idr::ownership

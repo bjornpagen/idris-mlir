@@ -27,6 +27,14 @@ Prelude.EqOrd.Eq CmpPredicate where
   CmpPredicate.Gte == CmpPredicate.Gte = True
   _ == _ = False
 
+export
+Show CmpPredicate where
+  show CmpPredicate.Eq = "eq"
+  show CmpPredicate.Lt = "lt"
+  show CmpPredicate.Lte = "lte"
+  show CmpPredicate.Gt = "gt"
+  show CmpPredicate.Gte = "gte"
+
 namespace Effect
   ||| what a call of a function may do
   public export
@@ -38,6 +46,12 @@ Prelude.EqOrd.Eq Effect where
   Effect.Crash == Effect.Crash = True
   Effect.Diverge == Effect.Diverge = True
   _ == _ = False
+
+export
+Show Effect where
+  show Effect.Io = "io"
+  show Effect.Crash = "crash"
+  show Effect.Diverge = "diverge"
 
 -- How the syntax below spells each Effect.
 effectSpelling : Effect -> String
@@ -63,6 +77,13 @@ Prelude.EqOrd.Eq Permission where
   Permission.Excl == Permission.Excl = True
   _ == _ = False
 
+export
+Show Permission where
+  show Permission.Plain = "plain"
+  show Permission.Borrow = "borrow"
+  show Permission.Own = "own"
+  show Permission.Excl = "excl"
+
 -- How the syntax below spells each Permission.
 permissionSpelling : Permission -> String
 permissionSpelling Permission.Plain = "plain"
@@ -81,14 +102,180 @@ Prelude.EqOrd.Eq Quantity where
   Quantity.Many == Quantity.Many = True
   _ == _ = False
 
+export
+Show Quantity where
+  show Quantity.One = "one"
+  show Quantity.Many = "many"
+
 -- How the syntax below spells each Quantity.
 quantitySpelling : Quantity -> String
 quantitySpelling Quantity.One = "one"
 quantitySpelling Quantity.Many = "many"
 
+namespace Rule
+  ||| the rule a refusal of a program names
+  public export
+  data Rule = ProgramShape | TrustedLibrary | WorldUse | IOPrimitive | ValueType | DependentField | DictionaryField | DataType | DefinitionShape | Match | StaticArgument | Polymorphism | Laziness | Primitive | StringPrimitive | RuntimeClosure | EscapeHatch | UserPragma | Threads | Finalizer | RawPointer | Signal | Process | CompiledModule | IdentityHook | HookShape | Deprecated | Layout | Uniqueness | Cycle | Runtime
+
+export
+Prelude.EqOrd.Eq Rule where
+  Rule.ProgramShape == Rule.ProgramShape = True
+  Rule.TrustedLibrary == Rule.TrustedLibrary = True
+  Rule.WorldUse == Rule.WorldUse = True
+  Rule.IOPrimitive == Rule.IOPrimitive = True
+  Rule.ValueType == Rule.ValueType = True
+  Rule.DependentField == Rule.DependentField = True
+  Rule.DictionaryField == Rule.DictionaryField = True
+  Rule.DataType == Rule.DataType = True
+  Rule.DefinitionShape == Rule.DefinitionShape = True
+  Rule.Match == Rule.Match = True
+  Rule.StaticArgument == Rule.StaticArgument = True
+  Rule.Polymorphism == Rule.Polymorphism = True
+  Rule.Laziness == Rule.Laziness = True
+  Rule.Primitive == Rule.Primitive = True
+  Rule.StringPrimitive == Rule.StringPrimitive = True
+  Rule.RuntimeClosure == Rule.RuntimeClosure = True
+  Rule.EscapeHatch == Rule.EscapeHatch = True
+  Rule.UserPragma == Rule.UserPragma = True
+  Rule.Threads == Rule.Threads = True
+  Rule.Finalizer == Rule.Finalizer = True
+  Rule.RawPointer == Rule.RawPointer = True
+  Rule.Signal == Rule.Signal = True
+  Rule.Process == Rule.Process = True
+  Rule.CompiledModule == Rule.CompiledModule = True
+  Rule.IdentityHook == Rule.IdentityHook = True
+  Rule.HookShape == Rule.HookShape = True
+  Rule.Deprecated == Rule.Deprecated = True
+  Rule.Layout == Rule.Layout = True
+  Rule.Uniqueness == Rule.Uniqueness = True
+  Rule.Cycle == Rule.Cycle = True
+  Rule.Runtime == Rule.Runtime = True
+  _ == _ = False
+
+export
+Show Rule where
+  show Rule.ProgramShape = "program"
+  show Rule.TrustedLibrary = "library"
+  show Rule.WorldUse = "world"
+  show Rule.IOPrimitive = "io primitive"
+  show Rule.ValueType = "type"
+  show Rule.DependentField = "dependent field"
+  show Rule.DictionaryField = "dictionary field"
+  show Rule.DataType = "data type"
+  show Rule.DefinitionShape = "definition"
+  show Rule.Match = "match"
+  show Rule.StaticArgument = "static argument"
+  show Rule.Polymorphism = "polymorphism"
+  show Rule.Laziness = "laziness"
+  show Rule.Primitive = "primitive"
+  show Rule.StringPrimitive = "string primitive"
+  show Rule.RuntimeClosure = "runtime closure"
+  show Rule.EscapeHatch = "escape hatch"
+  show Rule.UserPragma = "pragma"
+  show Rule.Threads = "threads"
+  show Rule.Finalizer = "finalizer"
+  show Rule.RawPointer = "raw pointer"
+  show Rule.Signal = "signal"
+  show Rule.Process = "process"
+  show Rule.CompiledModule = "compiled module"
+  show Rule.IdentityHook = "identity hook"
+  show Rule.HookShape = "hook"
+  show Rule.Deprecated = "deprecated"
+  show Rule.Layout = "layout"
+  show Rule.Uniqueness = "uniqueness"
+  show Rule.Cycle = "cycle"
+  show Rule.Runtime = "runtime"
+
+-- How the syntax below spells each Rule.
+ruleSpelling : Rule -> String
+ruleSpelling Rule.ProgramShape = "program"
+ruleSpelling Rule.TrustedLibrary = "library"
+ruleSpelling Rule.WorldUse = "world"
+ruleSpelling Rule.IOPrimitive = "\"io primitive\""
+ruleSpelling Rule.ValueType = "type"
+ruleSpelling Rule.DependentField = "\"dependent field\""
+ruleSpelling Rule.DictionaryField = "\"dictionary field\""
+ruleSpelling Rule.DataType = "\"data type\""
+ruleSpelling Rule.DefinitionShape = "definition"
+ruleSpelling Rule.Match = "match"
+ruleSpelling Rule.StaticArgument = "\"static argument\""
+ruleSpelling Rule.Polymorphism = "polymorphism"
+ruleSpelling Rule.Laziness = "laziness"
+ruleSpelling Rule.Primitive = "primitive"
+ruleSpelling Rule.StringPrimitive = "\"string primitive\""
+ruleSpelling Rule.RuntimeClosure = "\"runtime closure\""
+ruleSpelling Rule.EscapeHatch = "\"escape hatch\""
+ruleSpelling Rule.UserPragma = "pragma"
+ruleSpelling Rule.Threads = "threads"
+ruleSpelling Rule.Finalizer = "finalizer"
+ruleSpelling Rule.RawPointer = "\"raw pointer\""
+ruleSpelling Rule.Signal = "signal"
+ruleSpelling Rule.Process = "process"
+ruleSpelling Rule.CompiledModule = "\"compiled module\""
+ruleSpelling Rule.IdentityHook = "\"identity hook\""
+ruleSpelling Rule.HookShape = "hook"
+ruleSpelling Rule.Deprecated = "deprecated"
+ruleSpelling Rule.Layout = "layout"
+ruleSpelling Rule.Uniqueness = "uniqueness"
+ruleSpelling Rule.Cycle = "cycle"
+ruleSpelling Rule.Runtime = "runtime"
+
+namespace SumKind
+  ||| what sum a data type is
+  public export
+  data SumKind = Plain | BaseList | InPlace | Closures | Memo
+
+export
+Prelude.EqOrd.Eq SumKind where
+  SumKind.Plain == SumKind.Plain = True
+  SumKind.BaseList == SumKind.BaseList = True
+  SumKind.InPlace == SumKind.InPlace = True
+  SumKind.Closures == SumKind.Closures = True
+  SumKind.Memo == SumKind.Memo = True
+  _ == _ = False
+
+export
+Show SumKind where
+  show SumKind.Plain = "plain"
+  show SumKind.BaseList = "list"
+  show SumKind.InPlace = "in_place"
+  show SumKind.Closures = "closures"
+  show SumKind.Memo = "memo"
+
+-- How the syntax below spells each SumKind.
+sumKindSpelling : SumKind -> String
+sumKindSpelling SumKind.Plain = "plain"
+sumKindSpelling SumKind.BaseList = "list"
+sumKindSpelling SumKind.InPlace = "in_place"
+sumKindSpelling SumKind.Closures = "closures"
+sumKindSpelling SumKind.Memo = "memo"
+
 ------------------------------------------------------------------------------
 -- Types
 ------------------------------------------------------------------------------
+
+||| One constructor of a data type's body, as `!idr.data` writes it: its
+||| name, its fields' types, and whether every force of it runs it.
+public export
+record IdrCtor ty where
+  constructor MkIdrCtor
+  name : String
+  fields : List ty
+  byName : Bool
+
+||| A data type's body, as `!idr.data` writes it: what sum it is, its
+||| constructors in tag order, and the Idris instance it is of, its origin
+||| and arguments.
+public export
+record IdrSum ty where
+  constructor MkIdrSum
+  kind : SumKind
+  ctors : List (IdrCtor ty)
+  instanceOf : Maybe (String, List String)
+
+-- How `!idr.data` writes a constructor of its body.
+idrCtorText : (t : ty -> String) -> IdrCtor ty -> String
+idrCtorText t c = fastConcat [symbol c.name, "(", commaSeparated (map t c.fields), ")", if c.byName then " by_name" else ""]
 
 ||| The idr dialect's types, one constructor each, named
 ||| after its C++ class; `ty` is the type of the types they hold.
@@ -96,10 +283,10 @@ public export
 data IdrType : (ty : Type) -> Type where
   ||| `!idr.big`: an Integer
   BigType : IdrType ty
-  ||| `!idr.box`: a value of the boxed type declared by idr.data ... box
-  BoxType : (name : String) -> IdrType ty
-  ||| `!idr.data`: a value of the unboxed sum declared by idr.data
-  DataType : (name : String) -> IdrType ty
+  ||| `!idr.box`: a reference to a cell that holds a value of a data type
+  BoxType : (data' : ty) -> IdrType ty
+  ||| `!idr.data`: a data type, identified by its name, whose body is its constructors; written without its body inside its own body
+  DataType : (name : String) -> (body : Maybe (IdrSum ty)) -> IdrType ty
   ||| `!idr.dest`: a field of a cell built without it, to be written exactly once
   DestType : (value : ty) -> IdrType ty
   ||| `!idr.fn`: a closure
@@ -127,7 +314,7 @@ export
 idrTypeMnemonic : IdrType ty -> String
 idrTypeMnemonic BigType = "big"
 idrTypeMnemonic (BoxType _) = "box"
-idrTypeMnemonic (DataType _) = "data"
+idrTypeMnemonic (DataType _ _) = "data"
 idrTypeMnemonic (DestType _) = "dest"
 idrTypeMnemonic (FnType _) = "fn"
 idrTypeMnemonic (LazyType _) = "lazy"
@@ -142,8 +329,8 @@ idrTypeMnemonic WorldType = "world_carrier"
 export
 idrTypeText : (t : ty -> String) -> IdrType ty -> String
 idrTypeText t BigType = "!idr.big"
-idrTypeText t (BoxType name) = fastConcat ["!idr.box<", (symbol name), ">"]
-idrTypeText t (DataType name) = fastConcat ["!idr.data<", (symbol name), ">"]
+idrTypeText t (BoxType data') = fastConcat ["!idr.box<", (t data'), ">"]
+idrTypeText t (DataType name body) = fastConcat ["!idr.data<", utf8 name, maybe "" (\b => fastConcat [", ", sumKindSpelling b.kind, " [", commaSeparated (map (idrCtorText t) b.ctors), "]", maybe "" (\i => fastConcat [" instance #idr.instance<", utf8 (fst i), ", ", array utf8 (snd i), ">"]) b.instanceOf]) body, ">"]
 idrTypeText t (DestType value) = fastConcat ["!idr.dest<", (t value), ">"]
 idrTypeText t (FnType functionType) = fastConcat ["!idr.fn<", (signature t functionType), ">"]
 idrTypeText t (LazyType value) = fastConcat ["!idr.lazy<", (t value), ">"]
@@ -164,65 +351,61 @@ public export
 data IdrAttr : (ty : Type) -> (at : Type) -> Type where
   ||| `#idr.big`: an integer of any size, in canonical decimal
   BigAttr : (value : String) -> IdrAttr ty at
-  ||| `#idr.clone`: a clone, named, and the key it is the function of
-  CloneAttr : (function : String) -> (key : at) -> IdrAttr ty at
   ||| `#idr.closure`: a closure of a function with its captures as attributes
   ClosureAttr : (callee : String) -> (captures : List at) -> IdrAttr ty at
   ||| `#idr.con`: a constructor of a sum or box, its fields as attributes, a list's cells flat
-  ConAttr : (ctor : SymbolRef) -> (cells : List (List at)) -> (tail : Maybe at) -> (spine : Nat) -> IdrAttr ty at
+  ConAttr : (data' : ty) -> (ctor : String) -> (cells : List (List at)) -> (tail : Maybe at) -> (spine : Nat) -> IdrAttr ty at
   ||| `#idr.effects`: what a call of a function may do
   EffectAttr : (value : List Effect) -> IdrAttr ty at
   ||| `#idr.instance`: the Idris definition and arguments a function or data type is an instance of
   InstanceAttr : (origin : String) -> (arguments : List at) -> IdrAttr ty at
-  ||| `#idr.key_apply`: the key of a clone that applies its callee's result
-  KeyApplyAttr : (callee : String) -> (arity : Nat) -> IdrAttr ty at
-  ||| `#idr.key_apply_field`: the key of a clone that applies field `index` of `ctor` of its callee's result
-  KeyApplyFieldAttr : (callee : String) -> (arity : Nat) -> (ctor : String) -> (index : Nat) -> IdrAttr ty at
-  ||| `#idr.key_closure`: a closure of `callee` in a key, over the patterns of its captures
-  KeyClosureAttr : (callee : String) -> (captures : List at) -> IdrAttr ty at
-  ||| `#idr.key_con`: a constructor `@data::@ctor` in a key, over the patterns of its fields
+  ||| `#idr.key_con`: a constructor `@ctor` of the data type `data` in a key, over the patterns of its fields
   KeyConAttr : (data' : String) -> (ctor : String) -> (fields : List at) -> IdrAttr ty at
   ||| `#idr.key_hole`: a runtime leaf of a key: the clone's parameter that holds it
   KeyHoleAttr : (index : Nat) -> IdrAttr ty at
+  ||| `#idr.key_raise`: the key of a clone that dispatches on its callee's result
+  KeyRaiseAttr : (callee : String) -> (consumer : String) -> IdrAttr ty at
+  ||| `#idr.rule`: the rule a refusal of a program names
+  RuleAttr : (value : Rule) -> IdrAttr ty at
   ||| `#idr.spec_key`: the key of a clone that specializes
   SpecKeyAttr : (origin : String) -> (patterns : List at) -> IdrAttr ty at
+  ||| `#idr.world`: the memory of an array a world orders
+  WorldSpaceAttr : IdrAttr ty at
 
 ||| The mnemonics of the idr dialect's attributes.
 export
 idrAttrMnemonics : List String
-idrAttrMnemonics = ["big", "clone", "closure", "con", "effects", "instance", "key_apply", "key_apply_field", "key_closure", "key_con", "key_hole", "spec_key"]
+idrAttrMnemonics = ["big", "closure", "con", "effects", "instance", "key_con", "key_hole", "key_raise", "rule", "spec_key", "world"]
 
 ||| The mnemonic of each of the idr dialect's attributes.
 export
 idrAttrMnemonic : IdrAttr ty at -> String
 idrAttrMnemonic (BigAttr _) = "big"
-idrAttrMnemonic (CloneAttr _ _) = "clone"
 idrAttrMnemonic (ClosureAttr _ _) = "closure"
-idrAttrMnemonic (ConAttr _ _ _ _) = "con"
+idrAttrMnemonic (ConAttr _ _ _ _ _) = "con"
 idrAttrMnemonic (EffectAttr _) = "effects"
 idrAttrMnemonic (InstanceAttr _ _) = "instance"
-idrAttrMnemonic (KeyApplyAttr _ _) = "key_apply"
-idrAttrMnemonic (KeyApplyFieldAttr _ _ _ _) = "key_apply_field"
-idrAttrMnemonic (KeyClosureAttr _ _) = "key_closure"
 idrAttrMnemonic (KeyConAttr _ _ _) = "key_con"
 idrAttrMnemonic (KeyHoleAttr _) = "key_hole"
+idrAttrMnemonic (KeyRaiseAttr _ _) = "key_raise"
+idrAttrMnemonic (RuleAttr _) = "rule"
 idrAttrMnemonic (SpecKeyAttr _ _) = "spec_key"
+idrAttrMnemonic WorldSpaceAttr = "world"
 
 ||| The text of each of the idr dialect's attributes, the types it
 ||| holds written by `t`, the attributes by `a`.
 export
 idrAttrText : (t : ty -> String) -> (a : at -> String) -> IdrAttr ty at -> String
 idrAttrText t a (BigAttr value) = fastConcat ["#idr.big<", (utf8 value), ">"]
-idrAttrText t a (CloneAttr function key) = fastConcat ["#idr.clone<", (symbol function), ", ", (a key), ">"]
 idrAttrText t a (ClosureAttr callee captures) = fastConcat ["#idr.closure<", (symbol callee), ", ", (array a captures), ">"]
-idrAttrText t a (ConAttr ctor cells tail spine) = fastConcat ["#idr.con<", (symbolRef ctor), ", ", (commaSeparated (map (\v => array a v) cells)), maybe "" (\tail => fastConcat [" tail ", (a tail)]) tail, " along ", (show spine), ">"]
+idrAttrText t a (ConAttr data' ctor cells tail spine) = fastConcat ["#idr.con<", (t data'), ", ", (symbol ctor), ", ", (commaSeparated (map (\v => array a v) cells)), maybe "" (\tail => fastConcat [" tail ", (a tail)]) tail, " along ", (show spine), ">"]
 idrAttrText t a (EffectAttr value) = fastConcat ["#idr.effects<", (effectSpellings value), ">"]
 idrAttrText t a (InstanceAttr origin arguments) = fastConcat ["#idr.instance<", (utf8 origin), ", ", (array a arguments), ">"]
-idrAttrText t a (KeyApplyAttr callee arity) = fastConcat ["#idr.key_apply<", (utf8 callee), ", ", (show arity), ">"]
-idrAttrText t a (KeyApplyFieldAttr callee arity ctor index) = fastConcat ["#idr.key_apply_field<", (utf8 callee), ", ", (show arity), ", ", (utf8 ctor), ", ", (show index), ">"]
-idrAttrText t a (KeyClosureAttr callee captures) = fastConcat ["#idr.key_closure<", (utf8 callee), ", ", (array a captures), ">"]
 idrAttrText t a (KeyConAttr data' ctor fields) = fastConcat ["#idr.key_con<", (utf8 data'), ", ", (utf8 ctor), ", ", (array a fields), ">"]
 idrAttrText t a (KeyHoleAttr index) = fastConcat ["#idr.key_hole<", (show index), ">"]
+idrAttrText t a (KeyRaiseAttr callee consumer) = fastConcat ["#idr.key_raise<", (utf8 callee), ", ", (utf8 consumer), ">"]
+idrAttrText t a (RuleAttr value) = fastConcat ["#idr.rule<", (ruleSpelling value), ">"]
 idrAttrText t a (SpecKeyAttr origin patterns) = fastConcat ["#idr.spec_key<", (utf8 origin), ", ", (array a patterns), ">"]
+idrAttrText t a WorldSpaceAttr = "#idr.world"
 
--- fingerprint: 683772573-1171112 3264077907-10630
+-- fingerprint: 245922103-1212111 1902801198-17134

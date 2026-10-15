@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idr-lower, which takes idr to func, arith, math, scf, ub and llvm: phase
-// 0 (the program's functions as func.func under their mangled names, once
-// the facts handed to LLVM are read), phase 1 (matches and loops over
-// arrays, on idr types), then phase 2, the conversion of every idr op and
-// type into the layouts of Layouts, then the facts at function boundaries.
+// idr-lower, which takes idr and the memrefs of bufferization to func,
+// arith, math, scf, ub and llvm. Phase 0, on the module: the program's
+// functions as func.func under their mangled names, once the facts handed
+// to LLVM are read. Then each function on its own, in parallel: phase 1, its
+// matches as scf and its views of memrefs as offsets, sizes and strides,
+// still on idr types; phase 2, the conversion of every idr op and type and
+// every memref into the layouts of Layouts. Then, on the module, what the
+// functions' lowering wrote (the runtime's declarations and the static
+// data), in name order, and the facts at function boundaries.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Layout.h"
-#include "idr/Conversion/ArrayLoops.h"
-#include "idr/Conversion/ArrayView.h"
+#include "idr/Conversion/Arrays.h"
 #include "idr/Conversion/Facts.h"
 #include "idr/Conversion/Fields.h"
 #include "idr/Conversion/FuncToFunc.h"
@@ -21,6 +24,7 @@
 #include "idr/Support/Profile.h"
 
 #include "mlir/Analysis/DataLayoutAnalysis.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -29,16 +33,22 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/MemRef/Transforms/Transforms.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/Transforms/Patterns.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/SymbolTable.h"
+#include "mlir/IR/Threading.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/WalkPatternRewriteDriver.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/Sequence.h"
+
+#include <algorithm>
+#include <memory>
 
 namespace idr {
 #define GEN_PASS_DEF_IDRLOWER
@@ -71,8 +81,7 @@ bool functionClosure(Attribute value, DenseSet<Attribute> &seen) {
 }
 
 // idr-defunctionalize has made every closure and every suspension of the
-// program a sum, and reported as unsupported each one it could not follow:
-// one left here is one a pass after it made.
+// program a sum: one left here is one a pass after it made.
 LogicalResult checkNoClosures(ModuleOp module) {
   DenseSet<Attribute> seen;
   // A lazy type anywhere in a type (an array of lazy values too), and in a
@@ -99,71 +108,107 @@ LogicalResult checkNoClosures(ModuleOp module) {
   return failure(result.wasInterrupted());
 }
 
-// Phase 2: every idr op and type, taken apart into the layouts. A legal op
-// that still holds an array of words (a linalg op over it, made by phase 1)
-// gets the array's view of its cell and sizes.
-LogicalResult convert(ModuleOp module, const Layouts &layouts, Runtime &runtime,
-                      const Fields &fields) {
-  IDR_ZONE_IN("idr-lower phase 2", Conversion);
-  MLIRContext *ctx = module.getContext();
+// What converts one run of the module's functions in phase 2, in module
+// order: everything a conversion writes outside its function goes into the
+// Runtime, which is the worker's own.
+struct Worker {
+  Worker(ModuleOp module, const Layouts &layouts, const DataLayoutAnalysis &dataLayouts,
+         const Fields &fields, const Memos &memos,
+         const DenseMap<StringAttr, memref::GlobalOp> &globals);
+
+  Runtime runtime;
   TypeConverter converter;
+  ConversionTarget target;
+  FrozenRewritePatternSet patterns;
+};
+
+// Every idr op and type and every memref, taken apart into the layouts.
+// Upstream keeps what it lowers and vectorizes: the reads and writes of
+// words in buffers, and the linalg ops over words, which get a buffer's
+// memref from its components. Every other op of a function is one of the
+// dialects the lowering gives, or the conversion fails, the compiler's
+// error.
+Worker::Worker(ModuleOp module, const Layouts &layouts, const DataLayoutAnalysis &dataLayouts,
+               const Fields &fields, const Memos &memos,
+               const DenseMap<StringAttr, memref::GlobalOp> &globals)
+    : runtime(module, layouts, dataLayouts), target(*module.getContext()) {
+  MLIRContext *ctx = module.getContext();
   converter.addConversion([](Type type) { return type; });
   converter.addConversion(
-      [&](Type type, SmallVectorImpl<Type> &out) -> std::optional<LogicalResult> {
+      [&layouts](Type type, SmallVectorImpl<Type> &out) -> std::optional<LogicalResult> {
         if (type.getDialect().getNamespace() != IdrDialect::getDialectNamespace() &&
-            !isArray(type))
+            !isa<MemRefType>(type))
           return std::nullopt;
         llvm::append_range(out, layouts.components(type));
         return success();
       });
   converter.addSourceMaterialization(
-      [&](OpBuilder &b, Type type, ValueRange inputs, Location loc) -> Value {
-        if (!isArray(type) || inputs.size() != layouts.components(type).size())
-          return nullptr;
-        return arrayView(b, loc, runtime, cast<MemRefType>(type), inputs);
+      [this](OpBuilder &b, Type type, ValueRange inputs, Location loc) -> Value {
+        auto memref = dyn_cast<MemRefType>(type);
+        return memref ? toMemref(b, loc, runtime, memref, inputs) : Value();
       });
 
-  ConversionTarget target(*ctx);
-  target.addIllegalDialect<IdrDialect>();
+  target.addIllegalDialect<IdrDialect, memref::MemRefDialect>();
   target.addLegalDialect<arith::ArithDialect, math::MathDialect, LLVM::LLVMDialect,
-                         cf::ControlFlowDialect, memref::MemRefDialect, linalg::LinalgDialect>();
-  // The one memref op idr hands the lowering, an array's length, becomes
-  // the length beside the cell; the loads and stores the lowering itself
-  // makes on an array's view stay for convert-to-llvm.
-  target.addIllegalOp<memref::DimOp>();
-  target.addLegalOp<UnrealizedConversionCastOp, ub::UnreachableOp>();
-  // The declarations are erased after the conversion.
-  target.addLegalOp<DataOp, CtorOp>();
+                         cf::ControlFlowDialect, scf::SCFDialect, ub::UBDialect,
+                         affine::AffineDialect>();
+  target.addLegalOp<UnrealizedConversionCastOp>();
+  target.addDynamicallyLegalOp<memref::LoadOp>(
+      [](memref::LoadOp op) { return holdsWords(op.getMemRefType()); });
+  target.addDynamicallyLegalOp<memref::StoreOp>(
+      [](memref::StoreOp op) { return holdsWords(op.getMemRefType()); });
+  target.addDynamicallyLegalDialect<linalg::LinalgDialect>([](Operation *op) {
+    return llvm::all_of(op->getOperandTypes(), [](Type type) {
+      auto memref = dyn_cast<MemRefType>(type);
+      return !memref || holdsWords(memref);
+    });
+  });
   target.addDynamicallyLegalOp<ub::PoisonOp>(
-      [&](ub::PoisonOp op) { return converter.isLegal(op.getType()); });
+      [this](ub::PoisonOp op) { return converter.isLegal(op.getType()); });
   target.addDynamicallyLegalOp<arith::SelectOp>(
-      [&](arith::SelectOp op) { return converter.isLegal(op.getType()); });
-  target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
-    return converter.isSignatureLegal(op.getFunctionType()) &&
-           converter.isLegal(&op.getBody());
+      [this](arith::SelectOp op) { return converter.isLegal(op.getType()); });
+  target.addDynamicallyLegalOp<func::FuncOp>([this](func::FuncOp op) {
+    return converter.isSignatureLegal(op.getFunctionType()) && converter.isLegal(&op.getBody());
   });
   target.addDynamicallyLegalOp<func::CallOp, func::ReturnOp>(
-      [&](Operation *op) { return converter.isLegal(op); });
+      [this](Operation *op) { return converter.isLegal(op); });
 
-  RewritePatternSet patterns(ctx);
-  populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(patterns, converter);
-  populateCallOpTypeConversionPattern(patterns, converter);
-  populateReturnOpTypeConversionPattern(patterns, converter);
-  scf::populateSCFStructuralTypeConversionsAndLegality(converter, patterns, target);
-  populateCountingPatterns(patterns, converter, layouts, runtime, fields);
-  populateBigPatterns(patterns, converter, layouts, runtime);
-  populateArrayPatterns(patterns, converter, layouts, runtime);
-  populateBufferPatterns(patterns, converter, layouts, runtime);
-  populateStringPatterns(patterns, converter, layouts, runtime);
-  populateCellPatterns(patterns, converter, layouts, runtime);
-  populateScalarPatterns(patterns, converter, layouts, runtime);
-  populateRuntimeCallPatterns(patterns, converter, layouts, runtime);
-  populateCheckPatterns(patterns, converter, layouts, runtime);
-  populateLazyPatterns(patterns, converter, layouts, runtime);
+  RewritePatternSet set(ctx);
+  populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(set, converter);
+  populateCallOpTypeConversionPattern(set, converter);
+  populateReturnOpTypeConversionPattern(set, converter);
+  scf::populateSCFStructuralTypeConversionsAndLegality(converter, set, target);
+  populateCountingPatterns(set, converter, layouts, runtime, fields);
+  populateBigPatterns(set, converter, layouts, runtime);
+  populateArrayPatterns(set, converter, layouts, runtime, globals);
+  populateMemrefPatterns(set, converter, layouts, runtime);
+  populateBufferPatterns(set, converter, layouts, runtime);
+  populateStringPatterns(set, converter, layouts, runtime);
+  populateCellPatterns(set, converter, layouts, runtime);
+  populateScalarPatterns(set, converter, layouts, runtime);
+  populateRuntimeCallPatterns(set, converter, layouts, runtime);
+  populateCheckPatterns(set, converter, layouts, runtime);
+  populateLazyPatterns(set, converter, layouts, runtime, memos);
+  patterns = FrozenRewritePatternSet(std::move(set));
+}
 
-  ConversionConfig config;
-  config.allowPatternRollback = false;
-  return applyPartialConversion(module, target, std::move(patterns), config);
+// Phases 1 and 2 of one function. The views of memrefs become an offset,
+// sizes and strides read from their source, in upstream's terms (its
+// metadata expansion, with folding, merged constants and region
+// simplification off, so that nothing but the views changes), which phase 2
+// then takes apart like any memref.
+LogicalResult lowerFunction(func::FuncOp fn, const FrozenRewritePatternSet &matches,
+                            const FrozenRewritePatternSet &views, Worker &worker) {
+  IDR_ZONE_IN("idr-lower function", Conversion);
+  walkAndApplyPatterns(fn, matches);
+  GreedyRewriteConfig config;
+  config.enableFolding(false).enableConstantCSE(false).setRegionSimplificationLevel(
+      GreedySimplifyRegionLevel::Disabled);
+  if (failed(applyPatternsGreedily(fn, views, config)))
+    return fn.emitError("internal error: idr-lower: the views of memrefs did not settle");
+  ConversionConfig conversion;
+  conversion.allowPatternRollback = false;
+  return applyFullConversion(fn, worker.target, worker.patterns, conversion);
 }
 
 struct Lower : idr::impl::IdrLowerBase<Lower> {
@@ -174,49 +219,66 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
     MLIRContext *ctx = &getContext();
     if (failed(checkNoClosures(module)))
       return signalPassFailure();
-    // Every lookup of a declaration, and every symbol the lowering adds,
-    // goes through this one table: phase 0 renames each function in it,
-    // and the runtime enters each declaration and global it writes.
+    // Every symbol the lowering adds goes through this one table, after
+    // the functions are converted: phase 0 renames each function in it, and
+    // the merge enters each declaration and global. While the functions are
+    // converted nothing writes it.
     SymbolTable &symbols = getAnalysis<SymbolTable>();
     const Layouts &layouts = getAnalysis<Layouts>();
     if (failed(layouts.valid()))
       return signalPassFailure();
-    Runtime runtime(module, layouts, symbols, getAnalysis<DataLayoutAnalysis>());
+    const DataLayoutAnalysis &dataLayouts = getAnalysis<DataLayoutAnalysis>();
     Facts facts(module, symbols);
 
-    // Phase 0, then phase 1.
-    RewritePatternSet functions(ctx);
-    populateFuncToFuncPatterns(functions, symbols);
-    walkAndApplyPatterns(module, std::move(functions));
-    RewritePatternSet matches(ctx);
-    populateMatchPatterns(matches, symbols);
-    walkAndApplyPatterns(module, std::move(matches));
-    RewritePatternSet loops(ctx);
-    populateArrayLoopPatterns(loops);
-    // Only these two rewrites, outermost first: no folding, no merged
-    // constants, no region simplification. A loop the driver left would be
-    // an idr op phase 2 refuses.
-    (void)applyPatternsGreedily(module, std::move(loops),
-                                GreedyRewriteConfig()
-                                    .setUseTopDownTraversal()
-                                    .enableFolding(false)
-                                    .enableConstantCSE(false)
-                                    .setRegionSimplificationLevel(
-                                        GreedySimplifyRegionLevel::Disabled));
-    // Read from the ops as the conversion will meet them.
+    // Phase 0.
+    RewritePatternSet functionSet(ctx);
+    populateFuncToFuncPatterns(functionSet, symbols);
+    walkAndApplyPatterns(module, std::move(functionSet));
+
     Fields fields(module);
-    if (failed(convert(module, layouts, runtime, fields)))
+    FailureOr<Memos> memos = readMemos(module, symbols);
+    if (failed(memos))
+      return signalPassFailure();
+    DenseMap<StringAttr, memref::GlobalOp> globals;
+    for (auto global : module.getOps<memref::GlobalOp>())
+      globals[global.getSymNameAttr()] = global;
+    RewritePatternSet matchSet(ctx);
+    populateMatchPatterns(matchSet);
+    FrozenRewritePatternSet matches(std::move(matchSet));
+    RewritePatternSet viewSet(ctx);
+    memref::populateExpandStridedMetadataPatterns(viewSet);
+    FrozenRewritePatternSet views(std::move(viewSet));
+
+    // The functions in module order, cut into one run per thread the pool
+    // has, each run lowered by a worker of its own, so which worker lowers a
+    // function is a fact of the module and nothing is claimed.
+    SmallVector<func::FuncOp> functions(module.getOps<func::FuncOp>());
+    size_t threads = ctx->isMultithreadingEnabled() ? ctx->getThreadPool().getMaxConcurrency() : 1;
+    size_t runs = std::max<size_t>(1, std::min(threads, functions.size()));
+    SmallVector<std::unique_ptr<Worker>> workers(runs);
+    LogicalResult lowered =
+        failableParallelForEach(ctx, llvm::seq<size_t>(0, runs), [&](size_t run) {
+          profile::ThreadTrace trace;
+          workers[run] =
+              std::make_unique<Worker>(module, layouts, dataLayouts, fields, *memos, globals);
+          size_t first = run * functions.size() / runs;
+          size_t last = (run + 1) * functions.size() / runs;
+          for (func::FuncOp fn : ArrayRef(functions).slice(first, last - first))
+            if (failed(lowerFunction(fn, matches, views, *workers[run])))
+              return failure();
+          return success();
+        });
+    if (failed(lowered))
       return signalPassFailure();
 
-    runtime.finish();
-    for (auto data : llvm::make_early_inc_range(module.getOps<DataOp>()))
-      symbols.erase(data);
-    // The program's mark has served its purpose; LLVM's translation refuses
-    // an attribute of a dialect it cannot translate. Phase 0 and phase 2 left
-    // no other: the facts went with idr.func, a stack mark with its idr.con.
-    IdrDialect::ProgramAttrHelper program(ctx);
-    if (program.isAttrPresent(module))
-      program.removeAttr(module);
+    SmallVector<Runtime *> runtimes;
+    for (const std::unique_ptr<Worker> &worker : workers)
+      runtimes.push_back(&worker->runtime);
+    if (failed(Runtime::merge(module, symbols, runtimes)))
+      return signalPassFailure();
+    // A constant array is static data now, under its content's name.
+    for (auto global : llvm::make_early_inc_range(module.getOps<memref::GlobalOp>()))
+      symbols.erase(global);
     facts.apply(layouts);
   }
 };

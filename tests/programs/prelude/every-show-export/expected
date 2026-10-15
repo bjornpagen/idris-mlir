@@ -1,11 +1,9 @@
 compile: exit 0
-artifacts: prog.core prog.mlir prog.o prog
+artifacts: core module objects executable
 run: exit status as expected
 stdout: as expected
 stderr: empty
 object: no undefined symbol outside the allowed set
 prelude Prelude.Show: 16 exports, each used (3 compile-time only: MkShow Prec Show)
-budget: kept
 dumps: parse and verify
-simplify: idempotent
 quantities: kept

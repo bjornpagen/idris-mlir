@@ -2,10 +2,12 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The conversion's patterns for idr.call and idr.return: each moves its
 // values between its own slots and those of the function it calls or
-// returns from, which are keyed by the function, not by its types.
+// returns from, which are keyed by the function, not by its types, and
+// read from the decision's signature table.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/Analysis/Labels.h"
+#include "idr/IR/Flow.h"
 #include "idr/Transforms/Defunctionalize.h"
 
 #include "mlir/Transforms/DialectConversion.h"
@@ -27,25 +29,19 @@ struct CallPattern : SlotPattern<CallOp> {
 
   LogicalResult matchAndRewrite(CallOp call, OpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    Slots &keys = slots();
-    StringAttr callee = call.getCalleeAttr().getAttr();
+    const Signature &sig = slots().signature(call.getCalleeAttr().getAttr());
     SmallVector<Value> operands;
     if (failed(converter().coerceOperands(rewriter, call, adaptor.getOperands(), operands)))
       return failure();
-    SmallVector<Type> types;
-    for (auto [j, result] : llvm::enumerate(call.getResults()))
-      types.push_back(
-          keys.typeOf(result.getType(), keys.resultKey(callee, static_cast<unsigned>(j))));
-    auto made = CallOp::create(rewriter, call.getLoc(), types, call.getCalleeAttr(), operands,
-                               call.getArgAttrsAttr(), call.getResAttrsAttr(),
-                               call.getEffectsAttr());
+    auto made = CallOp::create(rewriter, call.getLoc(), sig.converted.getResults(),
+                               call.getCalleeAttr(), operands, call.getArgAttrsAttr(),
+                               call.getResAttrsAttr(), call.getEffectsAttr());
     SmallVector<Value> results;
     for (auto [j, result] : llvm::enumerate(call.getResults())) {
       Value value = made.getResult(static_cast<unsigned>(j));
       if (isKeyed(result.getType())) {
-        value = converter().coerce(rewriter, call.getLoc(), value,
-                                   keys.resultKey(callee, static_cast<unsigned>(j)),
-                                   keys.keyOf(result), keys.typeOf(result));
+        value = converter().coerce(rewriter, call.getLoc(), value, sig.results[j],
+                                   converter().keyOf(result), converter().typeOf(result));
         if (!value)
           return failure();
       }
@@ -57,8 +53,8 @@ struct CallPattern : SlotPattern<CallOp> {
 };
 
 // A return moves each value into its function's result slot. It is made
-// anew rather than changed in place: only the uses of the module as it was
-// owe a move, so the new op is legal once it has its operands.
+// anew rather than changed in place: only the uses the function had owe a
+// move, so the new op is legal once it has its operands.
 struct ReturnPattern : SlotPattern<ReturnOp> {
   using SlotPattern::SlotPattern;
 

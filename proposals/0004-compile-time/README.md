@@ -116,8 +116,9 @@ byte-identical at every thread count.
   on LLVM's own thread pool and writes objects that link as today.
 - *An upstream bug is fixed upstream, and a patch goes when the pin
   moves past upstream's fix*: §7's patches each carry a report, a
-  reproducer and a `tests/upstream` check, and 02, 16 and 22 stay
-  carried after their site in our code goes (D23).
+  reproducer and a `tests/upstream` check; 02, 16 and 22 go once their
+  site in our code goes, their reports kept as submissions, as AGENTS.md
+  allows when nothing in the tree reaches a bug (D23).
 - *Tests check behaviour*: brittle fixtures become properties (L8), and
   every claim of output identity is checked binary against binary (§10).
 
@@ -1266,7 +1267,7 @@ replaces it with a better branch.
 | The driver's decision by message prefix `"unsupported ("` | `Run.cpp:248-254`; `tests/upstream-idris/common.sh:115-127`'s `rejection_skip`, which matches the same text | A refusal recognized by its text | A refusal carries its rule as structured data on the diagnostic, which the driver reads (D42), and `rejection_skip` reads the rule (L8). The four parts of a precise rejection the owner asked for (what was found, where, why, what form compiles) are fields 0002 adds to this data after the cutover, since they change the reject tests' expected text, which D42's proof holds fixed (0002 D17) |
 | The test hook `--break-shape` | `lib/Driver/Options.cpp:41-45`; `Compile.cpp:41-42`; `Main.cpp:160`; the frontend's own option, `compiler/src/IdrisMLIR/Frontend/Driver.idr:17, 87, 110, 118, 140-142, 178-179, 188, 273-275`; `Frontend/Resolve.idr:216-230`; `Frontend/Program.idr:93-99, 142-144`; its tests, `tests/registry/broken-entry/run:3, 14`, `string-iterator/run:4, 13`, `base-surface/run:9-18` and `tests/compiler/frontend-command-line/run:70`; documented at `tests/lib/compile.sh:6` and `tools/compile.sh:13` | A hidden option makes the frontend break a registry entry so that the registry tests can see the validation refuse it: a behaviour the compiler has only for a test | The tests give the validation an input it refuses (D43); the research's inventory missed this option |
 | `idr-rc`'s exclusivity loop | `Transforms/Ownership/Rc.cpp:79-99` | Bounded by the number of calls, with an internal error if it "did not settle" | Each function's grade contexts computed as a key set first, then each copy made once |
-| `InBounds/Empty.cpp` | `Transforms/InBounds/Empty.cpp` | Integer emptiness reimplemented because upstream's exact search was slow (qsort, 180 s) | An upstream Presburger patch with its reproducer (§7); the in-bounds stack itself goes in 0003's purge, and the patch stays carried until the pin carries upstream's fix (AGENTS.md) |
+| `InBounds/Empty.cpp` | `Transforms/InBounds/Empty.cpp` | Integer emptiness reimplemented because upstream's exact search was slow (qsort, 180 s) | Nothing: the in-bounds stack goes whole in 0003's purge, which lands in this wave, so no code of ours reaches the slow exact search and no Presburger patch is written. Its report is §7's, kept for upstream |
 | `Frontend/Translate/Prof.idr` | `compiler/src/IdrisMLIR/Frontend/Translate/Prof.idr:58-66, 224, 240-313`; `compiler/idris-mlir.ipkg:42` | A profiling module "never committed", committed with e569ea3f: eight environment variables, five behaviour toggles, global IORef memo tables; nothing imports it | Deleted |
 | The `$world` rename and the hole sentinel | `Translate/Programs.idr:182-194`; `Translate/Closed.idr:173, 287-295, 471-476` | Binder facts keyed by (name, span); a marker name captured by Idris's normaliser | Binder identity; open-term normalisation under an environment that binds the holes (§4.1) |
 
@@ -1296,16 +1297,16 @@ operands) were found because the composite's fingerprint loop reads
 "the module prints the same, but OperationFingerPrint changes" as a change
 (`PINS.md:108-152, 335ff`, casework-audit §1.B). With the loop gone our
 code no longer meets them, but the bugs are still in the pinned LLVM.
-*Decision* (D23): each stays carried, its `llvm.patch`, `tests/upstream`
-check and PINS entry unchanged, until the pin moves past upstream's fix,
-as AGENTS.md binds ("a patch goes when the pin moves past upstream's
-fix") and `upstream/README.md`'s retirement rule says ("The patch stays
-until the pin moves past the merged commit"). The earlier text dropped
-them at the cutover, citing 08 and 17 as precedent; those two were never
-carried at all (`upstream/README.md:36-37, 82`), so they are none. PINS.md's
-entries for the three are restated by L6 to say that nothing in the tree
-reaches the bug after the cutover, which is a fact of the entry, not a
-reason to drop it.
+*Decision* (D23, restated after the owner's amendment of AGENTS.md on
+2026-10-14): none of the three is carried after the cutover. AGENTS.md
+now says a patch goes "when the pin moves past upstream's fix, or when
+nothing in the tree reaches the bug any more, its report kept as a
+submission", and `upstream/README.md`'s **When nothing reaches the bug**
+says how: each report stays as a submission, with its pull request as
+`pull-request.diff`, which the bootstrap does not apply, and a
+`tests/upstream` check that the pin still has the bug. PINS.md lists the
+three as retired with the cutover. The first version of this decision
+kept them carried, because AGENTS.md then allowed only the pin's move.
 
 **Kept:** `--num-threads` (a resource; output does not depend on it);
 `--time-trace` and `--log-actions-tags` (observation, which changes no
@@ -1492,7 +1493,7 @@ disjoint-write table and its validator.
 | L3, the first-order optimizer | `lib/Transforms/Simplify/`, `Inline/`, `Specialize/`, `Effects/`, `Identity/`; `lib/Transforms/Defunctionalize/ByName.cpp`; `lib/Analysis/Inline.cpp`, `References.cpp`, `BindingTimes.cpp`, `Specialize.cpp`, `Effects.cpp`, `Holds.cpp`, `Identities*.cpp` with their headers; `include/idr/Transforms/Canonicalize.h`; `include/idr/Support/`; the constants summary (new) | The ready set as `idr-optimize` (D13; §6's registry table); decisions with the caller cap (D14, D25), `calls(f)` frozen with one call per specialization request (§4 stage 7); the inner pipeline once and the bounded local loop; one canonicalization configuration and one pattern set collected once (§6); specialization nodes (D15), the clone budget per requesting node (D39); the homes of RoundFacts' facts: `Holds` frozen, `Identities` a stage-9 summary per SCC, `BindingTimes` per SCC when ready (§4 stage 6); contification (§4 stage 5); the effects summary with its observable bit, first called by L2's pass (D34), and the constants summary (D16); call-site effects written once, at the caller's readiness for callees outside its SCC (D38); dead values once; delete the rounds and every row of §6 that §4 deletes, LoopBreakers and its readers in `Inline/` among them, and `SimplifyInstrumentation`'s registration in `Run.cpp:120` and `tools/idris-mlir-opt.cpp` (L4 writes those lines) | suites green; stage 0's optimizer under the threshold below; D25's record; the calls left after the optimizer, old binary against new, on the corpus and stage 0 (§4 stage 9); determinism 1/2/8 |
 | L4, the driver and options | `lib/Driver/` but `Artifacts.cpp`; `lib/Transforms/Pipeline.cpp`; `include/idr/Transforms/Passes.td`, `Demand.h`, `Pipeline.h`, `CMakeLists.txt`; `include/idr/Driver/`; `lib/Transforms/CMakeLists.txt`, `lib/Analysis/CMakeLists.txt`; `lib/Transforms/Demand/`; `tools/idris-mlir.cpp`, `idris-mlir-opt.cpp`, `idris-mlir-reduce.cpp`; `tools/compile.sh`; `bench/README.md` | Delete `--without`, `--dump-dir`, the toggles, `--demand-in-place` (idr-demand then reads the type fact) and `--break-shape` (D43), and the debug counter's registration in `idris-mlir` (`Main.cpp:99`, kept in `idris-mlir-opt`); structured refusals (D42); the pass registry of §6's table; the pipeline's order as §4 gives it, written as each lane lands its stage; `tools/compile.sh:12-13` and `bench/README.md`'s ablation section (`:156` on) restated without the deleted options | suites green; no option selects behaviour (a spec check over `Passes.td` and `Options.cpp`) |
 | L5, IR facts | `include/idr/IR/` and `lib/IR/` but L2's flow files; `tools/idris-mlir-tblgen.cpp`; `compiler/src/IdrisMLIR/Rule.idr`, `Dialect/` and `Syntax/` (generated from L5's ODS, checked by `tests/spec/dialects-current`) | `idr.stack` inherent; the root as the one public function, the module rules from its verifier, no external `idr.func`, no `idr.program` (D28, D31); identified types with bodies and every lookup they delete, the `idr.data` and `idr.ctor` ops deleted, the generator taught the types for the Idris side (D29); `break_last` deleted from `idr.func` (§6); `listElement`'s role; `idr.delay %value` (D37); the call-site effects verifier checking equality (D38); the rule enum, its Idris `Rule` generated and `Rule.idr` deleted (D42); the interface declarations L2 lists; the generated modules regenerated | suites green; no discardable attribute declared (`IdrBase.td:58` empty) and no declaration lookup on a data type left in `lib/` (spec checks) |
-| L6, ports and upstream | `upstream/`, `PINS.md`, `lib/Transforms/Deduplicate/` with `include/idr/Transforms/Deduplicate.h` | EliminateDuplicateFunctions ported (§8 rank 4), with the `instance` refusal and the `break_last` comparison deleted once L8's `idr-expect` finds functions by structure; 02, 16 and 22 kept carried, their PINS entries restated to say nothing in the tree reaches the bug after the cutover (D23); the Presburger patch that replaces `Empty.cpp` (L9 deletes the file and calls the patched API) and the region-simplifier report (§7) | `tests/upstream` green; `tests/spec/licenses` green |
+| L6, ports and upstream | `upstream/`, `PINS.md`, `lib/Transforms/Deduplicate/` with `include/idr/Transforms/Deduplicate.h` | EliminateDuplicateFunctions ported (§8 rank 4), with the `instance` refusal and the `break_last` comparison deleted once L8's `idr-expect` finds functions by structure; 02, 16 and 22 retired, their reports kept as submissions with `pull-request.diff` and their PINS entries moved to the retired list (D23); the Presburger patch that replaces `Empty.cpp` (L9 deletes the file and calls the patched API) and the region-simplifier report (§7) | `tests/upstream` green; `tests/spec/licenses` green |
 | L7, code generation | `lib/Target/`, `include/idr/Target/`; `lib/Driver/Artifacts.cpp` | §5's partitioning (D20, D26, D41), dotless names in one namespace group (§5.3 item 2), and S2's split code generation (D21); the archive for `-c` (D32); tail calls (D33) and inline assembly checked on both targets; the call from `Run.cpp`'s LLVM half into it (L4 writes that line) | executables byte-identical at 1, 2 and 8 threads; bench compile times and each corpus program's bin count recorded; the edit fixture of D41 |
 | L8, tests | `tests/`; `lib/Transforms/Expect/` with `include/idr/Transforms/Expect.h` | Delete the tests of deleted mechanisms: `tests/idr/obs/budget.mlir`, `round-failure.mlir`, `round-trace.mlir`, `tests/idr/specialize/budget.mlir` (it becomes a test that specialization stops and the program runs), `tests/idr/pipeline/steps.mlir`'s usage errors, the do-block A/B lines, the `--demand-in-place` fixture files with `tests/lib/e2e.sh:38, 64` and `tests/lib/profile.sh:38, 47`, the `breaks-last` and `every-cycle-has-breaker` properties and their tests (§6); move every `--dump-dir` reader to `-mlir-print-ir-tree-dir` (§6's row) and `tests/idr/obs/debug-counter.mlir` to `idris-mlir-opt`; restate every test that runs `idr-simplify`, `idr-inline` or `idr-specialize` on `idr-optimize` (§6's registry table), and brittle fixtures as properties; the 82 fragments with several public functions and the 15 files with bodiless functions rewritten for D28 before L5's verifier lands; the registry tests (`broken-entry`, `string-iterator`, `base-surface`) and `tests/compiler/frontend-command-line` on D43's fixtures; a fixture for a partially applied `castPtr` (0002 D18); `tests/upstream-idris/common.sh`'s `rejection_skip` reading the refusal's rule instead of its text (D42, 0002 §3); the `-c` readers of D32; `idr-expect` finding functions by structure and facts, not names; the name-stability edit fixture of 0006 S1 (one definition edited, every other symbol unchanged); the totality fixtures and the determinism checks at 1, 2 and 8 threads | the suites themselves |
 | L9, memory and lowering | `lib/Transforms/Ownership/`, `Stack/`, `Tail/`, `InBounds/`, `Narrow/`, `Vectorize/` with their headers; `lib/Analysis/Ownership/`, `Escapes*.cpp`, `Ranges.cpp`, `Tail.cpp`; `lib/Conversion/`, `include/idr/Conversion/` | Stages 11 and 12: `idr-rc`'s grade contexts as a key set, each copy made once (§6); `.acc`, `.trmc` and `.excl` named from their keys, and the static-data globals named by content under `__idr.` (D18, §6); the readers of `idr.stack` on L5's property; the lowering per function, the runtime's declarations created up front from the decided set; `InBounds/Empty.cpp` replaced by L6's Presburger patch; the `isExternal()` tests of these passes deleted (D7) | suites green; determinism 1/2/8; the tail's timings on stage 0 recorded |
@@ -1598,13 +1599,12 @@ kept beside the old form.
   declarations; no LLVM summary-based importer.
 - D22. Measurement is by binary from a saved module, time-boxed and
   observable, on performance cores.
-- D23. Upstream patches 02, 16 and 22 stay carried after the cutover,
-  until the pin moves past upstream's fix; their PINS entries say that
-  nothing in the tree reaches the bug any more (§6). Reason: AGENTS.md
-  binds ("a patch goes when the pin moves past upstream's fix"), the bugs
-  are still in the pinned LLVM, and 08 and 17, the earlier text's
-  precedent, were never carried. This supersedes the earlier "no longer
-  carried", which would have needed the owner to amend AGENTS.md.
+- D23. Upstream patches 02, 16 and 22 are retired with the cutover, each
+  report kept as a submission with its `pull-request.diff` and a check
+  that the pin still has the bug (§6). Reason: nothing in the tree reaches
+  their bugs once the composite fixed point is gone, and AGENTS.md, as the
+  owner amended it on 2026-10-14, lets a patch go then. This supersedes
+  the first version, which kept them carried under the earlier rule.
 - D24. From Modular: rebuild the ready set, the inline driver, specialization
   nodes, the codegen baseline and the summaries on its design; port
   EliminateDuplicateFunctions; never AsyncRT, MCLinker or

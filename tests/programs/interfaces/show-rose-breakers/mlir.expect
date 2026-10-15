@@ -1,3 +1,0 @@
-# Every cycle the rounds cut breaks at a function that does not break last
-# when it holds one.
-idr-simplify: every-cycle-has-breaker breaks-last

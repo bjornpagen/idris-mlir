@@ -36,50 +36,41 @@
 // CHECK: llvm.call @idris_rt_io_put_char(
 // CHECK-NOT: scf.while
 // CHECK-NOT: idris_rt_str_alloc
-module attributes {idr.program} {
-  idr.data @Chars box {
-    idr.ctor @Nil ()
-    idr.ctor @Cons (i32, !idr.box<@Chars>)
-  }
-  idr.data @Strs box {
-    idr.ctor @Nil ()
-    idr.ctor @Cons (!idr.str, !idr.box<@Strs>)
-  }
-  idr.data @RevChars box {
-    idr.ctor @Cons (i32, !idr.box<@RevChars>)
-    idr.ctor @Nil ()
-  }
+!Chars = !idr.data<"Chars", list [@Nil(), @Cons(i32, !idr.box<!idr.data<"Chars">>)]>
+!Strs = !idr.data<"Strs", list [@Nil(), @Cons(!idr.str, !idr.box<!idr.data<"Strs">>)]>
+!RevChars = !idr.data<"RevChars", plain [@Cons(i32, !idr.box<!idr.data<"RevChars">>), @Nil()]>
+module {
   idr.func @root(%w: !idr.world) -> !idr.world {
-    %cs = idr.constant #idr.con<@Chars::@Nil, []> : !idr.box<@Chars>
-    %ss = idr.constant #idr.con<@Strs::@Nil, []> : !idr.box<@Strs>
-    %a = idr.call @pack(%cs) : (!idr.box<@Chars>) -> !idr.own<!idr.str>
-    %b = idr.call @concat(%ss) : (!idr.box<@Strs>) -> !idr.own<!idr.str>
+    %cs = idr.constant #idr.con<@Nil, []> : !idr.box<!Chars>
+    %ss = idr.constant #idr.con<@Nil, []> : !idr.box<!Strs>
+    %a = idr.call @pack(%cs) : (!idr.box<!Chars>) -> !idr.own<!idr.str>
+    %b = idr.call @concat(%ss) : (!idr.box<!Strs>) -> !idr.own<!idr.str>
     idr.drop %a : !idr.own<!idr.str>
     idr.drop %b : !idr.own<!idr.str>
-    %rs = idr.constant #idr.con<@RevChars::@Nil, []> : !idr.box<@RevChars>
-    %w1 = idr.call @write_chars(%cs, %w) : (!idr.box<@Chars>, !idr.world) -> !idr.world
-    %w2 = idr.call @write_strs(%ss, %w1) : (!idr.box<@Strs>, !idr.world) -> !idr.world
-    %w3 = idr.call @write_rev(%rs, %w2) : (!idr.box<@RevChars>, !idr.world) -> !idr.world
+    %rs = idr.constant #idr.con<@Nil, []> : !idr.box<!RevChars>
+    %w1 = idr.call @write_chars(%cs, %w) : (!idr.box<!Chars>, !idr.world) -> !idr.world
+    %w2 = idr.call @write_strs(%ss, %w1) : (!idr.box<!Strs>, !idr.world) -> !idr.world
+    %w3 = idr.call @write_rev(%rs, %w2) : (!idr.box<!RevChars>, !idr.world) -> !idr.world
     return %w3 : !idr.world
   }
-  idr.func private @pack(%xs: !idr.box<@Chars>) -> !idr.own<!idr.str> {
-    %s = idr.str.pack %xs : !idr.box<@Chars> -> !idr.own<!idr.str>
+  idr.func private @pack(%xs: !idr.box<!Chars>) -> !idr.own<!idr.str> {
+    %s = idr.str.pack %xs : !idr.box<!Chars> -> !idr.own<!idr.str>
     return %s : !idr.own<!idr.str>
   }
-  idr.func private @concat(%xs: !idr.box<@Strs>) -> !idr.own<!idr.str> {
-    %s = idr.str.concat %xs : !idr.box<@Strs> -> !idr.own<!idr.str>
+  idr.func private @concat(%xs: !idr.box<!Strs>) -> !idr.own<!idr.str> {
+    %s = idr.str.concat %xs : !idr.box<!Strs> -> !idr.own<!idr.str>
     return %s : !idr.own<!idr.str>
   }
-  idr.func private @write_chars(%xs: !idr.box<@Chars>, %w: !idr.world) -> !idr.world {
-    %w1 = idr.io.put_list %xs, %w : !idr.box<@Chars>
+  idr.func private @write_chars(%xs: !idr.box<!Chars>, %w: !idr.world) -> !idr.world {
+    %w1 = idr.io.put_list %xs, %w : !idr.box<!Chars>
     return %w1 : !idr.world
   }
-  idr.func private @write_strs(%xs: !idr.box<@Strs>, %w: !idr.world) -> !idr.world {
-    %w1 = idr.io.put_list %xs, %w : !idr.box<@Strs>
+  idr.func private @write_strs(%xs: !idr.box<!Strs>, %w: !idr.world) -> !idr.world {
+    %w1 = idr.io.put_list %xs, %w : !idr.box<!Strs>
     return %w1 : !idr.world
   }
-  idr.func private @write_rev(%xs: !idr.box<@RevChars>, %w: !idr.world) -> !idr.world {
-    %w1 = idr.io.put_list %xs, %w : !idr.box<@RevChars>
+  idr.func private @write_rev(%xs: !idr.box<!RevChars>, %w: !idr.world) -> !idr.world {
+    %w1 = idr.io.put_list %xs, %w : !idr.box<!RevChars>
     return %w1 : !idr.world
   }
 }

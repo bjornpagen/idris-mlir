@@ -11,9 +11,8 @@
 // op; the regions and the loops are OwnedRegions.cpp and OwnedLoops.cpp.
 //
 // The walk runs in idr.func's region verifier, on one of the verifier's
-// threads, so what it asks of the module it asks by a scan of the module's
-// top level, once per distinct type, and keeps the answer for this verify
-// only.
+// threads; what it asks of a type it reads from the type, once per
+// distinct type, and keeps the answer for this verify only.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
@@ -23,6 +22,7 @@
 #include "idr/IR/Verify.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "llvm/ADT/DenseSet.h"
@@ -31,13 +31,11 @@ using namespace mlir;
 using namespace idr;
 
 LogicalResult idr::verify::owned(FuncOp fn) {
-  if (fn.isExternal())
-    return success();
   OwnedWalk walk(fn);
   return walk.check();
 }
 
-idr::verify::OwnedWalk::OwnedWalk(FuncOp fn) : fn(fn), stack(fn.getContext()) {}
+idr::verify::OwnedWalk::OwnedWalk(FuncOp fn) : fn(fn) {}
 
 LogicalResult idr::verify::OwnedWalk::check() {
   Block &entry = fn.getBody().front();
@@ -50,25 +48,10 @@ LogicalResult idr::verify::OwnedWalk::check() {
   return failure(failed(walk(entry)));
 }
 
-DataOp idr::verify::OwnedWalk::declaration(Type type) {
-  auto [it, fresh] = declarations.try_emplace(type);
-  if (fresh)
-    it->second = declarationOf(fn, type);
-  return it->second;
-}
-
-// `@T::@C` within the declaration of T, which depends on the name alone.
-CtorOp idr::verify::OwnedWalk::constructor(SymbolRefAttr ctor) {
-  if (ctor.getNestedReferences().size() != 1)
-    return nullptr;
-  Type data = DataType::get(fn.getContext(), FlatSymbolRefAttr::get(ctor.getRootReference()));
-  return lookupCtor(declaration(data), ctor.getLeafReference().getValue());
-}
-
 bool idr::verify::OwnedWalk::counts(Type type) {
   auto [it, fresh] = counted.try_emplace(type, false);
   if (fresh)
-    it->second = holdsReferences(type, [&](Type sum) { return declaration(sum); });
+    it->second = holdsReferences(type);
   return it->second;
 }
 
@@ -179,13 +162,32 @@ LogicalResult idr::verify::OwnedWalk::settled(Block &block, Operation &at) {
 }
 
 bool idr::verify::OwnedWalk::reachesOnlyAtoms(Value value) {
-  return ownership::reachesOnlyAtoms(value, [&](Type type) { return declaration(type); });
+  return ownership::reachesOnlyAtoms(value);
 }
 
 LogicalResult idr::verify::OwnedWalk::visit(Operation &op) {
   if (auto select = dyn_cast<arith::SelectOp>(op); select && tracked(select))
     return op.emitOpError("selects between values that hold references; in the owned "
                           "stage a match does");
+  // Upstream's buffer ops see plain carriers, so a grade starts and ends
+  // beside them: an allocation's reference is taken over at once, a counted
+  // element loaded is given a reference of its own at once, and one stored
+  // is handed over by the one op that gives it up.
+  if (auto alloc = dyn_cast<memref::AllocOp>(op);
+      alloc && !(alloc->hasOneUse() && isa<OwnAdoptOp>(*alloc->user_begin())))
+    return op.emitOpError("allocates a buffer whose one use is not the idr.own.adopt that takes "
+                          "its reference over");
+  if (auto load = dyn_cast<memref::LoadOp>(op); load && counts(load.getType())) {
+    auto dup = dyn_cast_or_null<DupOp>(op.getNextNode());
+    if (!load->hasOneUse() || !dup || dup.getValue() != load.getResult())
+      return op.emitOpError("loads a counted element, whose one use is the idr.dup right "
+                            "after it");
+  }
+  if (auto store = dyn_cast<memref::StoreOp>(op); store && counts(store.getValueToStore().getType())) {
+    auto give = store.getValueToStore().getDefiningOp<OwnGiveOp>();
+    if (!give || !give->hasOneUse())
+      return op.emitOpError("stores a counted element that no idr.own.give hands over");
+  }
   // An exclusive value alone reaches its cells: no view of it (or of
   // what was read from it) takes a reference of its own, and an
   // exclusive constructor is built of exclusive fields, on the heap. A
@@ -205,7 +207,7 @@ LogicalResult idr::verify::OwnedWalk::visit(Operation &op) {
                                 "owned)");
   }
   if (isa<ConOp, ReuseOp>(op) && isExclusive(op.getResult(0).getType())) {
-    if (stack.isAttrPresent(&op))
+    if (auto con = dyn_cast<ConOp>(op); con && con.getStack())
       return op.emitOpError("builds an exclusive value in the stack frame, whose cell is lent");
     for (Value field : op.getOperands()) {
       auto dup = field.getDefiningOp<DupOp>();
@@ -290,24 +292,20 @@ ownership::Use idr::verify::OwnedWalk::useKind(OpOperand &operand) {
 }
 
 // The token of an idr.reuse comes from an idr.take of a cell of the same
-// size. A constructor the module lacks leaves nothing to compare, and the
-// module's rules report the type that names it.
+// size; the op verifiers made both constructors their types'.
 LogicalResult idr::verify::OwnedWalk::fits(ReuseOp reuse) {
   auto take = dyn_cast_or_null<TakeOp>(reuse.getToken().getDefiningOp());
   if (!take)
     return reuse.emitOpError("builds in a token that no idr.take made");
-  SymbolRefAttr cell = take.getCtorAttr();
-  CtorOp from = constructor(cell);
-  CtorOp to = constructor(reuse.getCtorAttr());
-  if (!from || !to)
-    return success();
+  FlatSymbolRefAttr cell = take.getCtorAttr();
   // Only a reuse needs the sizes of cells. Layouts that cannot be built
   // have said why, cell by cell, as they were built.
   if (!layouts)
     layouts.emplace(fn->getParentOfType<ModuleOp>().getOperation());
   if (failed(layouts->valid()))
     return failure();
-  unsigned have = layouts->box(from).size, need = layouts->box(to).size;
+  unsigned have = layouts->box(take.getDataType(), take.getTag()).size;
+  unsigned need = layouts->box(reuse.getDataType(), reuse.getTag()).size;
   if (have != need)
     return reuse.emitOpError("builds a cell of ")
            << need << " bytes in the " << have << "-byte cell of " << cell;

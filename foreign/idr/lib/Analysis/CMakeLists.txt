@@ -5,7 +5,7 @@ add_mlir_library(IdrAnalysis
 	Effects.cpp
 	Holds.cpp
 	Inline.cpp
-	Specialize.cpp
+	Constants.cpp
 	BindingTimes.cpp
 	Labels.cpp
 	LabelSites.cpp

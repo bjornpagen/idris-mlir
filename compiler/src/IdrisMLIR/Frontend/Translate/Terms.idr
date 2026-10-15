@@ -23,13 +23,15 @@ import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Hooks
 import IdrisMLIR.Frontend.Translate.Instances
 import IdrisMLIR.Frontend.Translate.Primitives
+import IdrisMLIR.Frontend.Translate.Shapes
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
+import IdrisMLIR.MLIR
 import IdrisMLIR.Registry
 import IdrisMLIR.Registry.Libraries
-import IdrisMLIR.Rule
+import IdrisMLIR.Syntax.Idr
 import IdrisMLIR.Term
 import IdrisMLIR.Types
 
@@ -47,23 +49,6 @@ record Ctx where
   fc : FC
   complete : Bool     -- Idris found no missing case
 
-export
-constantLit : Constant -> Maybe Lit
-constantLit (I x) = Just (LInt IdrisInt (cast x))
-constantLit (I8 x) = Just (LInt SInt8 (cast x))
-constantLit (I16 x) = Just (LInt SInt16 (cast x))
-constantLit (I32 x) = Just (LInt SInt32 (cast x))
-constantLit (I64 x) = Just (LInt SInt64 (cast x))
-constantLit (B8 x) = Just (LInt UInt8 (cast x))
-constantLit (B16 x) = Just (LInt UInt16 (cast x))
-constantLit (B32 x) = Just (LInt UInt32 (cast x))
-constantLit (B64 x) = Just (LInt UInt64 (cast x))
-constantLit (Ch x) = Just (LChar (cast (ord x)))
-constantLit (Str x) = Just (LStr x)
-constantLit (Db x) = Just (LDouble x)
-constantLit (BI x) = Just (LBig x)
-constantLit _ = Nothing
-
 bestFC : Ctx -> FC -> FC
 bestFC ctx fc = if isEmptyFC fc then ctx.fc else fc
 
@@ -80,6 +65,51 @@ binders : TT vars -> Nat
 binders (Bind _ _ (Pi {}) sc) = S (binders sc)
 binders _ = Z
 
+||| The position of the last argument a type takes at runtime, among its
+||| binders.
+runtimeAt : TT vars -> Maybe Nat
+runtimeAt (Bind _ _ (Pi _ rig _ _) sc) = case runtimeAt sc of
+  Just i => Just (S i)
+  Nothing => if isErased rig then Nothing else Just 0
+runtimeAt _ = Nothing
+
+||| The axes of a rank, outermost first.
+axesOf : Nat -> List Nat
+axesOf = go 0
+  where
+    go : Nat -> Nat -> List Nat
+    go i Z = []
+    go i (S k) = i :: go (S i) k
+
+||| Is a dimension one the value carries rather than its type?
+dynamicDim : Dim -> Bool
+dynamicDim Dynamic = True
+dynamicDim (Static _) = False
+
+||| The rank a type gives the tensor that holds it.
+rank : Ty -> Nat
+rank t = length (tensorDims t)
+
+||| A snoc list of naturals built from its empty constructor and its snoc,
+||| outermost first: an `Extents` or an `Index` value.
+snocValue : {0 m : Nat} -> Loc -> Con -> Con -> List (Term m) -> Term m
+snocValue loc lin snoc ns = foldl (\acc, n => ConApp loc snoc.id [acc, n]) (ConApp loc lin.id []) ns
+
+||| A snoc list of naturals (extents or coordinates) taken apart into its
+||| last `r` naturals, outermost first, by its snoc constructor, whose two
+||| fields are the rest and the natural; the body is built over them, with
+||| the renaming of the scope outside.
+apart : {0 m : Nat} -> Loc -> Con -> Nat -> Fin m ->
+        ({0 p : Nat} -> (Fin m -> Fin p) -> List (Fin p) -> Term p) -> Term m
+apart loc snoc Z x k = k id []
+apart loc snoc (S r) x k = case snoc.fields of
+  [rest, n] =>
+    Case loc x [MkAlt snoc.id [(shown "rest", rest), (shown "n", n)]
+                  (apart loc snoc r (Bound {k = 2} FZ)
+                         (\ren, ns => k (ren . Free {k = 2}) (ns ++ [ren (Bound {k = 2} (FS FZ))])))]
+         (Just (Unreachable loc))
+  _ => Unreachable loc
+
 ||| Eta-expands a known head applied to too few arguments over its missing
 ||| runtime parameters, one closure each, as the curried type of the
 ||| result requires: `\x => .. => head(args ++ xs)`.
@@ -93,6 +123,7 @@ etaExpand loc (b :: rest) mk given =
 compileTimeArg : PKind -> ClosedTerm
 compileTimeArg (TypeParam t) = t
 compileTimeArg (DictParam t _) = t
+compileTimeArg (FormParam f) = f
 compileTimeArg _ = Erased EmptyFC Placeholder
 
 ||| Is an argument a type or a compile-time value, which exists only where
@@ -179,24 +210,6 @@ valueType fc env tm = case getFnArgs tm of
         Bind _ _ (Pi _ rig _ dom) sc =>
           after (subst (if isErased rig || isTypeLike dom then closeWritten fc env a else Erased fc Placeholder) sc) as
         _ => pure Nothing
-
-||| The term of an array loop's op over its runtime operands (`Hook.ArrayLoop`),
-||| at the types its call fixes: a generated array of `n` elements, the
-||| function at the index (`Bound 0`), and at 0 as the fill base's
-||| primitive needs, which the library's definition applies first too; a
-||| fold of `arr` from `z`, the function at the accumulator, the index and
-||| the element (`Bound 0`, `Bound 2`, `Bound 1`). The operands are as
-||| `finish` gives them, one per runtime parameter, the world last.
-loopTerm : Loc -> IdrRegionPrim -> List Ty -> DataId -> {0 m : Nat} -> List (Term m) -> Term m
-loopTerm loc ArrayGenerate tys res [n, f, w] =
-  Region {k = regionArity ArrayGenerate} loc ArrayGenerate tys
-         [n, App loc f (Literal loc (LInt IdrisInt 0)), w]
-         (App loc (weakenUnder 1 f) (Var loc FZ)) res
-loopTerm loc ArrayFold tys res [arr, z, f, w] =
-  Region {k = regionArity ArrayFold} loc ArrayFold tys [arr, z, w]
-         (App loc (App loc (App loc (weakenUnder 3 f) (Var loc FZ)) (Var loc (FS (FS FZ))))
-              (Var loc (FS FZ))) res
-loopTerm loc _ _ _ _ = Unreachable loc
 
 ||| The runtime values an implementation closes over, as `holed` finds them:
 ||| the variable that holds each, when one does, its type, and its
@@ -356,18 +369,13 @@ mutual
       PMDef _ params _ _ _ => case deprecatedOf (hooksOf full) of
         Just msg => reject fc ctx.owner Deprecated msg
         Nothing => case (natOperationOf (hooksOf full), builderOf (hooksOf full),
-                         arrayLoopOf (hooksOf full)) of
+                         generatingOf (hooksOf full)) of
           (Just m, _, _) => natOperation fc loc lowered m (length params) (type def) args
           (_, Just p, _) => builderCall fc loc lowered (length params) p (type def) args
-          (_, _, Just loop) => arrayLoop fc loc loop full (length params) (type def) args
+          (_, _, Just g) => generating fc loc g (binders (type def)) (type def) args
           _ =>
-            if identityOnLast (hooksOf full) && length args >= binders (type def)
-               then do
-                 let (now, rest) = splitAt (binders (type def)) args
-                 let Just value = last' now
-                   | Nothing => internal fc ("the identity " ++ show full ++ " without an argument")
-                 v <- term ctx env value
-                 applyOver ctx env fc loc (pure (show full)) v !(typeAfter (type def) now) rest
+            if identityOnLast (hooksOf full)
+               then identity fc loc (type def) args
                else do
                  exiting <- exitCast def
                  if exiting
@@ -380,7 +388,6 @@ mutual
       -- its spec and an `%extern` one by its name.
       ForeignDef arity specs => case foreignHookOf full specs of
         Just (Right (IOCall p lits)) => ioCall fc loc lowered arity p lits (type def) args
-        Just (Right ArraySize) => arraySize fc loc lowered arity (type def) args
         Just (Right (PrimCall p)) => primCall fc loc lowered arity p (type def) args
         Just (Right (Handle h)) => applyOver ctx env fc loc (pure (show full)) (Literal loc h) (Just (type def)) args
         Just (Right (Builds p)) => builderCall fc loc lowered arity p (type def) args
@@ -673,6 +680,7 @@ mutual
           isStatic : PKind -> Bool
           isStatic (TypeParam _) = True
           isStatic (DictParam _ _) = True
+          isStatic (FormParam _) = True
           isStatic _ = False
 
       -- A method or a parent taken from an implementation the call fixes:
@@ -714,6 +722,21 @@ mutual
           replaceAt (S i) v (y :: ys) = y :: replaceAt i v ys
           replaceAt _ _ ys = ys
 
+      -- A call whose result is an array: its dimensions that an argument
+      -- fixes (a natural, or a dimension of an array argument) stated equal
+      -- to it, the arguments bound once.
+      tiedCall : FC -> Loc -> FnId -> Maybe Shown -> Nat -> ClosedTerm -> List PKind -> ClosedTerm ->
+                 Core ({0 m : Nat} -> List (Term m) -> Term m)
+      tiedCall fc loc inst lowered arity ty kinds resTy = do
+        Just _ <- arrayShape resTy
+          | Nothing => pure (Call loc inst lowered)
+        (sized, res) <- sizedTelescope arity ty kinds
+        rt <- coreType fc ctx.owner ValueType resTy
+        ws <- resultWitnesses kinds sized res rt
+        if not (any isJust ws) then pure (Call loc inst lowered) else
+          pure (\ys => bindAll loc ys (\ren, vs =>
+                  Tie loc (Call loc inst lowered (map (Var loc) vs)) (map (\w => w >>= witnessTerm loc vs) ws)))
+
       call : FC -> Loc -> Name -> Maybe Shown -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term nv)
       call fc loc n lowered arity ty xs = do
         (kinds, resTy) <- classify fc ctx.owner arity ty (argValues (take arity xs))
@@ -721,7 +744,30 @@ mutual
           | Just resolved => pure resolved
         inst <- request fc ctx.owner n kinds
         given <- arguments loc kinds (take arity xs)
-        finish loc kinds arity given (Call loc inst lowered) resTy xs
+        mk <- tiedCall fc loc inst lowered arity ty kinds resTy
+        finish loc kinds arity given mk resTy xs
+
+      -- The identity on the last runtime argument, wherever it stands among
+      -- the proofs and types (a cell's form or a frame's extents before it
+      -- are not read); below its arity a closure over its missing
+      -- parameters, whose body is the saturated identity, as every hook is
+      -- below its arity.
+      identity : FC -> Loc -> ClosedTerm -> List (TT vars) -> Core (Term nv)
+      identity fc loc ty xs = do
+        let arity = binders ty
+        let Just at = runtimeAt ty
+          | Nothing => internal fc ("the identity " ++ show name ++ " without a runtime argument")
+        if length xs >= arity
+           then do
+             let (now, rest) = splitAt arity xs
+             let Just value = getAt at now
+               | Nothing => internal fc ("the identity " ++ show name ++ " without its argument")
+             v <- term ctx env value
+             applyOver ctx env fc loc (pure (show name)) v !(typeAfter ty now) rest
+           else do
+             (kinds, resTy) <- classify fc ctx.owner arity ty (argValues xs)
+             given <- arguments loc kinds xs
+             finish loc kinds arity given (\ys => fromMaybe (Unreachable loc) (last' ys)) resTy xs
 
       -- Is the definition being translated one whose calls end the program
       -- (`Hook.Exits`, `System.exitWith`)? Its `believe_me` gives the
@@ -766,7 +812,7 @@ mutual
         where
           exits : {0 m : Nat} -> List (Term m) -> Term m
           exits ns = case last' ns of
-            Just act => Lam loc (shown "$world") (MkBinder (quantityOf linear) WorldT)
+            Just act => Lam noLoc (shown "world") (MkBinder (quantityOf linear) WorldT)
                           (Let loc (shown "exited") (quantityOf top) (App loc (weakenUnder 1 act) (Var loc FZ))
                                (Unreachable loc))
             Nothing => Unreachable loc
@@ -835,7 +881,14 @@ mutual
           Just role => natConstructor fc loc role kinds arity given resTy xs
           Nothing => do
             Just (inst, _) <- dataOf fc ctx.owner !(normaliseClosed resTy)
-              | Nothing => internal fc "a constructor of a type that is not data"
+              | Nothing => do
+                  -- A value array is abstract: only the functions the
+                  -- registry knows open it, and their bodies are not
+                  -- translated.
+                  Just _ <- arrayShape !(normaliseClosed resTy)
+                    | Nothing => internal fc "a constructor of a type that is not data"
+                  reject fc (show (fullname def)) HookShape
+                         ("the array type of " ++ show (fullname def) ++ " is opaque: its constructor is applied")
             st <- get TState
             let cid = MkConId inst (shortName (fullname def))
             let Just info = lookup cid st.cons
@@ -954,7 +1007,8 @@ mutual
           operandType _ = Nothing
 
           arrayElement : Ty -> Maybe Ty
-          arrayElement (ArrayT _ e) = Just e
+          arrayElement (MemRefT _ e) = Just e
+          arrayElement (ColumnsT OrderedArray _ r) = Just (DataT r)
           arrayElement _ = Nothing
 
           element : List PKind -> ClosedTerm -> Core (List Ty)
@@ -977,6 +1031,12 @@ mutual
           wordOf ArraySet kinds result = element kinds result
           wordOf _ _ _ = pure []
 
+      -- The type arguments of a call, in order.
+      typeParams : List PKind -> List ClosedTerm
+      typeParams (TypeParam t :: ks) = t :: typeParams ks
+      typeParams (_ :: ks) = typeParams ks
+      typeParams [] = []
+
       -- A function over arrays is polymorphic in its element (and a fold
       -- in its accumulator), so its type arguments fix the operation's
       -- types, and only its runtime arguments are the operation's
@@ -989,11 +1049,6 @@ mutual
         tys <- traverse (coreType fc ctx.owner ValueType) (typeParams kinds)
         given <- arguments loc kinds (take arity xs)
         pure (kinds, tys, given, resTy)
-        where
-          typeParams : List PKind -> List ClosedTerm
-          typeParams (TypeParam t :: ks) = t :: typeParams ks
-          typeParams (_ :: ks) = typeParams ks
-          typeParams [] = []
 
       -- An array operation: IO, in the world's order.
       arrayCall : FC -> Loc -> Nat -> IdrPrim -> ClosedTerm -> List (TT vars) -> Core (Term nv)
@@ -1004,34 +1059,6 @@ mutual
           | _ => internal fc "an array primitive with an unexpected type"
         finish loc kinds arity given (\ys => Effect loc p [el] ys res) resTy xs
 
-      -- A library loop over an array's index space (the registry's
-      -- `ArrayLoop`): the op of that loop, its body applying the function,
-      -- when the element and a fold's accumulator are machine words, which
-      -- a memref holds and a vector lane computes; at any other instance a
-      -- call of the library's definition, the same loop in Idris. IO, in
-      -- the world's order, like the array primitives.
-      arrayLoop : FC -> Loc -> IdrRegionPrim -> Name -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term nv)
-      arrayLoop fc loc loop n arity ty xs = do
-        (kinds, tys, given, resTy) <- arrayOperands fc loc arity ty xs
-        DataT res <- coreType fc ctx.owner ValueType !(normaliseClosed resTy)
-          | _ => internal fc "an array loop with an unexpected type"
-        if all word tys
-           then finish loc kinds arity given (loopTerm loc loop tys res) resTy xs
-           else call fc loc n Nothing arity ty xs
-        where
-          word : Ty -> Bool
-          word (IntT _) = True
-          word CharT = True
-          word DoubleT = True
-          word _ = False
-
-      -- The length of an array, at the element its type argument fixes.
-      arraySize : FC -> Loc -> Maybe Shown -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term nv)
-      arraySize fc loc lowered arity ty xs = do
-        (kinds, [el], given, resTy) <- arrayOperands fc loc arity ty xs
-          | _ => internal fc "an array's length without its one element type"
-        finish loc kinds arity given (PrimApp loc (ArrayLength el) lowered) resTy xs
-
       -- A pure primitive on the call's runtime arguments, which its type
       -- fixes: a buffer's length, an index checked against a bound.
       primCall : FC -> Loc -> Maybe Shown -> Nat -> Prim -> ClosedTerm -> List (TT vars) -> Core (Term nv)
@@ -1039,6 +1066,212 @@ mutual
         (kinds, resTy) <- classify fc ctx.owner arity ty []
         given <- arguments loc kinds (take arity xs)
         finish loc kinds arity given (PrimApp loc p lowered) resTy xs
+
+      -- The two constructors of a snoc list of naturals (`Extents`,
+      -- `Index`), the empty one (tag 0) and the snoc (tag 1), by the order
+      -- the library declares them in.
+      snocCons : FC -> Ty -> Core (Con, Con)
+      snocCons fc (DataT inst) = do
+        st <- get TState
+        let Just decl = lookup inst st.datas
+          | Nothing => internal fc ("extents or coordinates of an undeclared type " ++ show inst)
+        case decl.cons of
+          [lin, snoc] =>
+            if lin.tag == 0 && snoc.tag == 1 && length snoc.fields == 2 then pure (lin, snoc)
+              else internal fc ("extents or coordinates of " ++ show inst ++ ", which is not a snoc list of naturals")
+          _ => internal fc ("extents or coordinates of " ++ show inst ++ ", which is not a snoc list of naturals")
+      snocCons fc t = internal fc ("extents or coordinates of type " ++ show t)
+
+      -- Does a new array of this type hold a dynamic dimension past its
+      -- first `r` axes, in its cells or in the columns of its records? A
+      -- tabulation is given the extents of the axes it tabulates, and the
+      -- extents of its cells only by their types: nothing else holds them
+      -- before the first cell is made, nor when the array is empty.
+      dynamicCells : Nat -> Ty -> Core Bool
+      dynamicCells r (TensorT ds _) = pure (any dynamicDim (drop r ds))
+      dynamicCells r (ColumnsT ValueArray ds rec) =
+        if any dynamicDim (drop r ds) then pure True else do
+          st <- get TState
+          case map (.cons) (lookup rec st.datas) of
+            Just [con] => anyCells (map typeOf con.fields)
+            _ => pure False
+        where
+          anyCells : List Ty -> Core Bool
+          anyCells [] = pure False
+          anyCells (t :: ts) = if !(dynamicCells 0 t) then pure True else anyCells ts
+      dynamicCells _ _ = pure False
+
+      -- A tabulation of cells whose extents no type fixes is refused by
+      -- name: the cells' extents would have to come from a cell.
+      cellsFixed : FC -> Ty -> Nat -> Core ()
+      cellsFixed fc t r = when !(dynamicCells r t) $
+        reject fc ctx.owner ValueType ("an array of cells whose extents no type fixes: " ++ show t)
+
+      -- The one constructor of a data type (`Res`, `IORes`).
+      onlyCon : FC -> Ty -> Core Con
+      onlyCon fc (DataT inst) = do
+        st <- get TState
+        let Just decl = lookup inst st.datas
+          | Nothing => internal fc ("a result of an undeclared type " ++ show inst)
+        let [con] = decl.cons
+          | _ => internal fc ("a result of " ++ show inst ++ ", which has not one constructor")
+        pure con
+      onlyCon fc t = internal fc ("a result of type " ++ show t)
+
+      arrayTerm : FC -> Loc -> ArrayPrim -> Ty -> List Ty -> List Ty -> Core ({0 m : Nat} -> List (Term m) -> Term m)
+      arrayTerm fc loc g rt tys typeArgs = case (g, tys) of
+        (AShape, [xTy]) => do
+          a <- theElement
+          (lin, snoc) <- snocCons fc rt
+          let r = minus (rank xTy) (rank a)
+          pure (\ys => bindAll loc ys (\ren, vs => case vs of
+                  [x] => snocValue loc lin snoc (map (\j => Tensor loc (Extent j) NatT [Var loc x]) (axesOf r))
+                  _ => Unreachable loc))
+        (ATabulate, [eTy, FunT (MkBinder _ idxTy) bTy]) => do
+          (_, eSnoc) <- snocCons fc eTy
+          (iLin, iSnoc) <- snocCons fc idxTy
+          let r = minus (rank rt) (rank bTy)
+          cellsFixed fc rt r
+          pure (\ys => bindAll loc ys (\ren, vs => case vs of
+                  [e, f] => apart loc eSnoc r e (\ren', ds =>
+                              Tabulate loc rt (map (Var loc) (fromList ds))
+                                (App loc (Var loc (Free {k = length ds} (ren' f)))
+                                         (snocValue loc iLin iSnoc (map (Var loc . Bound) (toList (Data.Vect.allFins (length ds)))))))
+                  _ => Unreachable loc))
+        (AIndex, [xTy, iTy]) => do
+          (_, iSnoc) <- snocCons fc iTy
+          let r = minus (rank xTy) (rank rt)
+          pure (\ys => bindAll loc ys (\ren, vs => case vs of
+                  [x, i] => apart loc iSnoc r i (\ren', cs => Tensor loc Extract rt (Var loc (ren' x) :: map (Var loc) cs))
+                  _ => Unreachable loc))
+        (AUpdate, [xTy, iTy, vTy]) => insert xTy iTy vTy
+        (AWrite, [xTy, iTy, vTy]) => insert xTy iTy vTy
+        (AFoldLast, [FunT (MkBinder _ accTy) (FunT (MkBinder _ elTy) _), _, _]) => pure (reduce FoldLast accTy elTy)
+        (AScanLast, [FunT (MkBinder _ accTy) (FunT (MkBinder _ elTy) _), _, _]) => pure (reduce ScanLast accTy elTy)
+        (AReshape, [eTy, _]) => do
+          a <- theElement
+          (_, eSnoc) <- snocCons fc eTy
+          let r = minus (rank rt) (rank a)
+          pure (\ys => bindAll loc ys (\ren, vs => case vs of
+                  [e, x] => apart loc eSnoc r e (\ren', es => Tensor loc Reshape rt (Var loc (ren' x) :: map (Var loc) es))
+                  _ => Unreachable loc))
+        (ATake, [_, xTy]) => do
+          a <- theElement
+          pure (operation (Take (lastAxis xTy a)))
+        (ADrop, [_, xTy]) => do
+          a <- theElement
+          pure (operation (Drop (lastAxis xTy a)))
+        (AConcat, [xTy, _]) => do
+          a <- theElement
+          pure (operation (Concat (lastAxis xTy a)))
+        (APad, [_, _, vTy, xTy]) => pure (operation (Pad (lastAxis xTy vTy)))
+        (AWithArray, [eTy, vTy, FunT (MkBinder _ arrTy) _]) => do
+          (_, eSnoc) <- snocCons fc eTy
+          let r = minus (rank arrTy) (rank vTy)
+          cellsFixed fc arrTy r
+          pure (\ys => bindAll loc ys (\ren, vs => case vs of
+                  [e, v, k] => apart loc eSnoc r e (\ren', ds =>
+                                 App loc (Var loc (ren' k))
+                                     (Tabulate loc arrTy (map (Var loc) (fromList ds))
+                                               (Var loc (Free {k = length ds} (ren' v)))))
+                  _ => Unreachable loc))
+        (ARead, [lTy, iTy]) => do
+          a <- theElement
+          (_, iSnoc) <- snocCons fc iTy
+          res <- onlyCon fc rt
+          let r = minus (rank lTy) (rank a)
+          pure (\ys => bindAll loc ys (\ren, vs => case vs of
+                  [l, i] => apart loc iSnoc r i (\ren', cs =>
+                              ConApp loc res.id [ Tensor loc Extract a (Var loc (ren' l) :: map (Var loc) cs)
+                                                , Var loc (ren' l) ])
+                  _ => Unreachable loc))
+        (AThaw, [_, _]) =>
+          pure (\ys => bindAll loc ys (\ren, vs => case vs of
+                  [x, k] => App loc (Var loc k) (Var loc x)
+                  _ => Unreachable loc))
+        (ALShape, [lTy]) => do
+          res <- onlyCon fc rt
+          Just (MkBinder _ extTy) <- pure (head' res.fields)
+            | Nothing => internal fc "the extents of a linear array in a result with no field"
+          a <- theElement
+          (lin, snoc) <- snocCons fc extTy
+          let r = minus (rank lTy) (rank a)
+          pure (\ys => bindAll loc ys (\ren, vs => case vs of
+                  [l] => ConApp loc res.id [ snocValue loc lin snoc (map (\j => Tensor loc (Extent j) NatT [Var loc l]) (axesOf r))
+                                           , Var loc l ]
+                  _ => Unreachable loc))
+        (AGrow, [_, vTy, lTy]) =>
+          pure (\ys => bindAll loc ys (\ren, vs => case vs of
+                  [k, v, l] => Tensor loc (Pad (lastAxis lTy vTy)) rt
+                                 [Literal loc (LNat 0), Var loc k, Var loc v, Var loc l]
+                  _ => Unreachable loc))
+        (ATabulateIO, [eTy, FunT (MkBinder _ idxTy) (FunT (MkBinder _ WorldT) (DataT step))]) => do
+          FunT _ (DataT done) <- pure rt
+            | _ => internal fc "a world-ordered tabulation whose result is no action"
+          doneCon <- onlyCon fc (DataT done)
+          Just (MkBinder _ arrTy) <- pure (head' doneCon.fields)
+            | Nothing => internal fc "a world-ordered tabulation whose result holds no array"
+          a <- theElement
+          (_, eSnoc) <- snocCons fc eTy
+          (iLin, iSnoc) <- snocCons fc idxTy
+          let r = minus (rank arrTy) (rank a)
+          cellsFixed fc arrTy r
+          pure (\ys => bindAll loc ys (\ren, vs => case vs of
+                  [e, act] => apart loc eSnoc r e (\ren', ds =>
+                                Lam noLoc (shown "world") (MkBinder (quantityOf linear) WorldT)
+                                  (TabulateIO loc arrTy (map (Var loc . FS) (fromList ds)) (Var loc FZ)
+                                     (App loc (App loc (Var loc (Free {k = S (length ds)} (FS (ren' act))))
+                                                       (snocValue loc iLin iSnoc
+                                                          (map (Var loc . Bound . weaken) (toList (Data.Vect.allFins (length ds))))))
+                                              (Var loc (Bound (last {n = length ds}))))
+                                     step done))
+                  _ => Unreachable loc))
+        _ => internal fc ("the array language's " ++ show name ++ " at operand types it does not have")
+        where
+          -- The one type argument of a call that has one: the element or
+          -- the cell.
+          theElement : Core Ty
+          theElement = case typeArgs of
+            [a] => pure a
+            _ => internal fc ("the array language's " ++ show name ++ " without its one type argument")
+
+          -- The shape's last axis of an array whose cell has the type given.
+          lastAxis : Ty -> Ty -> Nat
+          lastAxis xTy cellTy = minus (minus (rank xTy) 1) (rank cellTy)
+
+          operation : TensorOp -> {0 m : Nat} -> List (Term m) -> Term m
+          operation op ys = bindAll loc ys (\ren, vs => Tensor loc op rt (map (Var loc) vs))
+
+          insert : Ty -> Ty -> Ty -> Core ({0 m : Nat} -> List (Term m) -> Term m)
+          insert xTy iTy vTy = do
+            (_, iSnoc) <- snocCons fc iTy
+            let r = minus (rank xTy) (rank vTy)
+            pure (\ys => bindAll loc ys (\ren, vs => case vs of
+                    [x, i, v] => apart loc iSnoc r i (\ren', cs =>
+                                   Tensor loc Insert rt (Var loc (ren' x) :: Var loc (ren' v) :: map (Var loc) cs))
+                    _ => Unreachable loc))
+
+          reduce : Reduction -> Ty -> Ty -> {0 m : Nat} -> List (Term m) -> Term m
+          reduce red accTy elTy ys = bindAll loc ys (\ren, vs => case vs of
+            [g, z, x] => Reduce loc red accTy elTy rt (Var loc z) (Var loc x)
+                           (App loc (App loc (Var loc (Free {k = 2} g)) (Var loc (Bound {k = 2} FZ)))
+                                    (Var loc (Bound {k = 2} (FS FZ))))
+            _ => Unreachable loc)
+      -- A function of the array language: the tensor operations of its
+      -- sequential meaning, over its runtime arguments bound once each in
+      -- order; below its arity, a closure over the missing ones. A rank is
+      -- read from the types of the operands and the result, never from the
+      -- order of the implicits.
+      generating : FC -> Loc -> ArrayPrim -> Nat -> ClosedTerm -> List (TT vars) -> Core (Term nv)
+      generating fc loc g arity ty xs = do
+        (kinds, resTy) <- classify fc ctx.owner arity ty (argValues (take arity xs))
+        given <- arguments loc kinds (take arity xs)
+        rt <- coreType fc ctx.owner ValueType !(normaliseClosed resTy)
+        let tys = map typeOf (mapMaybe runtimeBinder kinds)
+        typeArgs <- traverse (\t => coreType fc ctx.owner ValueType !(normaliseClosed t)) (typeParams kinds)
+        mk <- arrayTerm fc loc g rt tys typeArgs
+        finish loc kinds arity given mk resTy xs
+
   -- Anything else at the head: a solved metavariable, a variable, or a
   -- lambda. A lambda applied to its argument right away is a `let` of the
   -- argument, which the `let` translation would move into a `Delay` its

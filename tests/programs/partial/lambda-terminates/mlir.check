@@ -1,9 +1,10 @@
-// input: after idr-isolate
-// main is not total; each function idr-isolate outlines from it is, since
-// its own body has no loop: whether a call of it may diverge is what it
-// reaches (idr-effects). The outlined functions are found by name, in
-// whatever order the pass inserts them. main's only fact is the Idris
+// input: emitted
+// main is not total; each function the frontend writes for one of its
+// lambdas is, since its own body has no loop: whether a call of it may
+// diverge is what it reaches (idr-effects). A lambda's function is named
+// main's, its kind (`lam`) and its key's hash, found here by the name, in
+// whatever order the frontend writes them. main's only fact is the Idris
 // definition it is an instance of.
 // CHECK-DAG: idr.func private @Main.main() -> {{.*}} attributes {instance = #idr.instance<"Main.main", []>} {
-// CHECK-DAG: idr.func private @Main.main.lam{{[0-9]+}}({{.*}}) -> {{.*}} attributes {{[{].*}}total{{.*}} {
-// CHECK-DAG: idr.func private @Main.main.lam{{[0-9]+}}({{.*}}) -> {{.*}} attributes {{[{].*}}total{{.*}} {
+// CHECK-DAG: idr.func private @Main.main.lam.{{[^(]+}}({{.*}}) -> {{.*}} attributes {{[{].*}}total{{.*}} {
+// CHECK-DAG: idr.func private @Main.main.lam.{{[^(]+}}({{.*}}) -> {{.*}} attributes {{[{].*}}total{{.*}} {

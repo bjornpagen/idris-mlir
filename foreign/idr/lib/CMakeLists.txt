@@ -16,17 +16,16 @@ add_mlir_library(IdrConversion
 	Conversion/Lower.cpp
 	Conversion/Facts.cpp
 	Conversion/Matches.cpp
-	Conversion/ArrayLoops.cpp
-	Conversion/ArrayLoopReads.cpp
 	Conversion/Words.cpp
 	Conversion/Runtime.cpp
 	Conversion/StaticData.cpp
-	Conversion/ArrayView.cpp
+	Conversion/StaticNames.cpp
 	Conversion/Cells.cpp
 	Conversion/Counting.cpp
 	Conversion/Fields.cpp
 	Conversion/Force.cpp
 	Conversion/Arrays.cpp
+	Conversion/Memrefs.cpp
 	Conversion/Buffers.cpp
 	Conversion/Bigs.cpp
 	Conversion/Strings.cpp
@@ -70,7 +69,10 @@ add_mlir_library(IdrConversion
 	MLIRSCFTransforms
 	MLIRControlFlowDialect
 	MLIRUBDialect
+	MLIRAffineDialect
 	MLIRMemRefDialect
+	MLIRMemRefTransforms
+	MLIRMemRefUtils
 	MLIRLinalgDialect
 	MLIRLLVMDialect
 	# The memref descriptor an array's view is.
@@ -90,7 +92,6 @@ add_subdirectory(Transforms)
 add_mlir_library(IdrDriver
 	Driver/Artifacts.cpp
 	Driver/Compile.cpp
-	Driver/Dump.cpp
 	Driver/LinkRuntime.cpp
 	Driver/Main.cpp
 	Driver/Options.cpp
@@ -107,7 +108,6 @@ add_mlir_library(IdrDriver
 
 	LINK_LIBS PUBLIC
 	IdrPipeline
-	IdrSimplify
 	IdrTarget
 	IdrIR
 	IdrSupport
@@ -120,6 +120,8 @@ add_mlir_library(IdrDriver
 	MLIRDebug
 	MLIRTargetLLVMIRExport
 	MLIRBuiltinToLLVMIRTranslation
+	MLIRTensorDialect
+	MLIRSCFDialect
 	MLIRLLVMToLLVMIRTranslation
 	MLIRRegisterAllDialects
 	MLIRRegisterAllExtensions
@@ -129,6 +131,9 @@ add_mlir_library(IdrDriver
 	MLIRUBDialect
 	MLIRMemRefDialect
 	MLIRLLVMDialect
+	LLVMObject
+	LLVMBitReader
+	LLVMBitWriter
 	${IDR_LLVM_CODEGEN_LIBS}
 )
 target_compile_definitions(IdrDriver PRIVATE ${IDR_DRIVER_DEFINITIONS} ${IDR_TARGET_DEFINITIONS})

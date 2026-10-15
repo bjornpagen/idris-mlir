@@ -10,53 +10,47 @@
 // the list dies: the tail is borrowed from the list there, so it gets a
 // reference of its own for the cell, and the take's copy of it is dropped.
 // The owned stage's verifier checks after idr-rc that the counts balance.
-module attributes {idr.program} {
-  idr.data @T box {
-    idr.ctor @L ()
-    idr.ctor @N (!idr.box<@T>, i64, !idr.box<@T>)
-  }
-  idr.data @List box {
-    idr.ctor @Nil ()
-    idr.ctor @Cons (i64, !idr.box<@List>)
-  }
-  idr.func private @flip(%t: !idr.box<@T>) -> !idr.box<@T> {
-    %r = idr.match %t : !idr.box<@T> -> (!idr.box<@T>) {
+!T = !idr.data<"T", plain [@L(), @N(!idr.box<!idr.data<"T">>, i64, !idr.box<!idr.data<"T">>)]>
+!List = !idr.data<"List", list [@Nil(), @Cons(i64, !idr.box<!idr.data<"List">>)]>
+module {
+  idr.func private @flip(%t: !idr.box<!T>) -> !idr.box<!T> {
+    %r = idr.match %t : !idr.box<!T> -> (!idr.box<!T>) {
     case @L() {
-      idr.yield %t : !idr.box<@T>
+      idr.yield %t : !idr.box<!T>
     }
-    case @N(%l: !idr.box<@T>, %x: i64, %rt: !idr.box<@T>) {
-      %k = idr.tag %t : !idr.box<@T>
+    case @N(%l: !idr.box<!T>, %x: i64, %rt: !idr.box<!T>) {
+      %k = idr.tag %t : !idr.box<!T>
       %y = arith.addi %x, %k : i64
-      %n = idr.con @T::@N(%rt, %y, %l) : (!idr.box<@T>, i64, !idr.box<@T>) -> !idr.box<@T>
-      idr.yield %n : !idr.box<@T>
+      %n = idr.con @N(%rt, %y, %l) : (!idr.box<!T>, i64, !idr.box<!T>) -> !idr.box<!T>
+      idr.yield %n : !idr.box<!T>
     }
     }
-    return %r : !idr.box<@T>
+    return %r : !idr.box<!T>
   }
-  idr.func private @keep(%p: !idr.box<@List>) -> !idr.box<@List> {
-    %r = idr.match %p : !idr.box<@List> -> (!idr.box<@List>) {
+  idr.func private @keep(%p: !idr.box<!List>) -> !idr.box<!List> {
+    %r = idr.match %p : !idr.box<!List> -> (!idr.box<!List>) {
     case @Nil() {
-      idr.yield %p : !idr.box<@List>
+      idr.yield %p : !idr.box<!List>
     }
-    case @Cons(%h: i64, %t: !idr.box<@List>) {
-      %kept = idr.con @List::@Cons(%h, %t) : (i64, !idr.box<@List>) -> !idr.box<@List>
-      %k = idr.tag %p : !idr.box<@List>
-      %n = idr.con @List::@Cons(%k, %kept) : (i64, !idr.box<@List>) -> !idr.box<@List>
-      idr.yield %n : !idr.box<@List>
+    case @Cons(%h: i64, %t: !idr.box<!List>) {
+      %kept = idr.con @Cons(%h, %t) : (i64, !idr.box<!List>) -> !idr.box<!List>
+      %k = idr.tag %p : !idr.box<!List>
+      %n = idr.con @Cons(%k, %kept) : (i64, !idr.box<!List>) -> !idr.box<!List>
+      idr.yield %n : !idr.box<!List>
     }
     }
-    return %r : !idr.box<@List>
+    return %r : !idr.box<!List>
   }
   idr.func @root(%w: !idr.world) -> !idr.world {
     %x = arith.constant 7 : i64
-    %leaf = idr.constant #idr.con<@T::@L, []> : !idr.box<@T>
-    %nil = idr.constant #idr.con<@List::@Nil, []> : !idr.box<@List>
-    %t = idr.con @T::@N(%leaf, %x, %leaf) : (!idr.box<@T>, i64, !idr.box<@T>) -> !idr.box<@T>
-    %f = idr.call @flip(%t) : (!idr.box<@T>) -> !idr.box<@T>
-    %l = idr.con @List::@Cons(%x, %nil) : (i64, !idr.box<@List>) -> !idr.box<@List>
-    %k = idr.call @keep(%l) : (!idr.box<@List>) -> !idr.box<@List>
-    %a = idr.tag %f : !idr.box<@T>
-    %b = idr.tag %k : !idr.box<@List>
+    %leaf = idr.constant #idr.con<@L, []> : !idr.box<!T>
+    %nil = idr.constant #idr.con<@Nil, []> : !idr.box<!List>
+    %t = idr.con @N(%leaf, %x, %leaf) : (!idr.box<!T>, i64, !idr.box<!T>) -> !idr.box<!T>
+    %f = idr.call @flip(%t) : (!idr.box<!T>) -> !idr.box<!T>
+    %l = idr.con @Cons(%x, %nil) : (i64, !idr.box<!List>) -> !idr.box<!List>
+    %k = idr.call @keep(%l) : (!idr.box<!List>) -> !idr.box<!List>
+    %a = idr.tag %f : !idr.box<!T>
+    %b = idr.tag %k : !idr.box<!List>
     %s = arith.addi %a, %b : i64
     %w2 = idr.io.put_int signed %s, %w : i64
     return %w2 : !idr.world

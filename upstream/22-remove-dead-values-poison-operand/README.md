@@ -59,9 +59,22 @@ Two steps of the cleanup each put a new `ub.poison` where one already is:
   cleanup's seventh step replaces the remaining uses of an op it erases
   with a new `ub.poison` before erasing it.
 
-## Patch
+## Why there is no patch
 
-`llvm.patch` is the pull request, a `git diff` against 7208ba24, the pin.
+There is no `llvm.patch`, and there is no `PINS.md` entry. The compiler
+met this bug through one loop: the simplify rounds ran
+`composite-fixed-point-pass`, whose fixpoint is an `OperationFingerPrint`,
+and read the new poison as a change. The pipeline cutover of 2026-10-14
+deleted the rounds; nothing in the tree runs a composite fixed point now,
+and the dead values are removed once, after the optimizer, where a new
+poison changes nothing a pass of ours reads. So nothing in the tree
+reaches the bug, and the patch goes (AGENTS.md); the report stays a
+submission, with the pull request as `pull-request.diff`, which this
+repository does not apply.
+
+## The fix
+
+`pull-request.diff` is the pull request, a `git diff` against 7208ba24, the pin.
 The first step keeps an operand defined by `ub.poison`, and the seventh
 keeps a `ub.poison` that operands still use, erasing it after the poison
 cleanup (step 8) only if its users are gone by then. Test: a new file,
@@ -73,12 +86,13 @@ after the other patches (06 and 16 touch the same file, other hunks).
 
 ## Upstreaming plan
 
-Status: not filed; carried as `llvm.patch`.
+Status: not filed; not carried (`pull-request.diff`).
 
 - Where: an issue (the reproducer, the composite pass's error) and a pull
   request against main, one commit, this patch.
 - Before filing: the patch applied to then-current main, `check-mlir` left
   to LLVM's pre-merge CI; search the tracker for remove-dead-values and
   fixed points (06's #208881 is near).
-- When it goes: when the pin has the fix; then this report, the PINS.md
-  entry `remove-dead-values-poison-operand` and its check go.
+- When it goes: when the pin has the fix,
+  `tests/upstream/remove-dead-values-poison-operand` fails, and this
+  report and that check go.

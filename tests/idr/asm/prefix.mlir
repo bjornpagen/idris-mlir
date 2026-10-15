@@ -12,7 +12,7 @@
 // CHECK-NEXT: {{^ *}}%{{[^ ]+}} = match %{{[^ ]+}} : !M -> (i64) {
 // CHECK-NEXT: case @Just(%f0: i64) {
 // CHECK-NEXT: {{^ *}}%[[INC:.*]] = idr.call @inc(%f0) : (i64) -> i64
-// CHECK-NEXT: {{^ *}}%[[JUST:.*]] = idr.con @M::@Just(%[[INC]]) : (i64) -> !M
+// CHECK-NEXT: {{^ *}}%[[JUST:.*]] = idr.con @Just(%[[INC]]) : (i64) -> !M
 // CHECK-NEXT: {{^ *}}idr.yield %[[INC]] : i64
 // CHECK-NEXT: }
 // CHECK-NEXT: default {
@@ -23,22 +23,19 @@
 // CHECK-NEXT: {{^ *}}%[[OUT:.*]] = call @inc(%applied) : (i64) -> i64
 // CHECK-NEXT: {{^ *}}return %[[OUT]], %{{[^ ]+}} : i64, !idr.world
 
-idr.data @M {
-  idr.ctor @Nothing ()
-  idr.ctor @Just (i64)
-}
+!M = !idr.data<"M", plain [@Nothing(), @Just(i64)]>
 idr.func private @inc(%x: i64) -> i64 {
   return %x : i64
 }
-idr.func private @prefix(%m: !idr.data<@M>, %x: i64, %s: !idr.str, %w: !idr.world)
+idr.func private @prefix(%m: !M, %x: i64, %s: !idr.str, %w: !idr.world)
     -> (i64, !idr.world) {
   %c = idr.closure @inc() : () -> !idr.fn<(i64) -> (i64)>
   %a = idr.apply %c(%x) : !idr.fn<(i64) -> (i64)>
   %n = idr.str.length %s
-  %r = idr.match %m : !idr.data<@M> -> (i64) {
+  %r = idr.match %m : !M -> (i64) {
   case @Just(%v: i64) {
     %i = idr.call @inc(%v) : (i64) -> i64
-    %k = idr.con @M::@Just(%i) : (i64) -> !idr.data<@M>
+    %k = idr.con @Just(%i) : (i64) -> !M
     idr.yield %i : i64
   }
   default {

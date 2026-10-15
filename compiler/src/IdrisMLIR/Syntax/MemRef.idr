@@ -38,4 +38,23 @@ Prelude.EqOrd.Eq AtomicRMWKind where
   AtomicRMWKind.Xori == AtomicRMWKind.Xori = True
   _ == _ = False
 
--- fingerprint: 313934406-985741 1444926775-1757
+export
+Show AtomicRMWKind where
+  show AtomicRMWKind.Addf = "addf"
+  show AtomicRMWKind.Addi = "addi"
+  show AtomicRMWKind.Andi = "andi"
+  show AtomicRMWKind.Assign = "assign"
+  show AtomicRMWKind.Maximumf = "maximumf"
+  show AtomicRMWKind.Maxnumf = "maxnumf"
+  show AtomicRMWKind.Maxs = "maxs"
+  show AtomicRMWKind.Maxu = "maxu"
+  show AtomicRMWKind.Minimumf = "minimumf"
+  show AtomicRMWKind.Minnumf = "minnumf"
+  show AtomicRMWKind.Mins = "mins"
+  show AtomicRMWKind.Minu = "minu"
+  show AtomicRMWKind.Mulf = "mulf"
+  show AtomicRMWKind.Muli = "muli"
+  show AtomicRMWKind.Ori = "ori"
+  show AtomicRMWKind.Xori = "xori"
+
+-- fingerprint: 1039227403-991245 40391193-2380

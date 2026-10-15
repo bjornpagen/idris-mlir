@@ -1,74 +1,59 @@
-// RUN: idris-mlir-opt %s --idr-simplify | FileCheck %s
-// The result of a call used once in each region of a match, applied there
-// through the field of MkIO, is raised in each: the call moves into the
-// regions (only one runs, so it still runs once) and meets its apply, so
-// each region calls the clone that takes the world, and the clone is
-// shared, as its key is the callee and the elimination. In @Main.main the
-// world each region applies differs, output having been done in one; the
-// call, which is total and does no IO, moves past that output.
-// CHECK-LABEL: idr.func @Main.main(
-// CHECK: match_lit
-// CHECK: case 0 {
-// CHECK-NEXT: %[[A:.*]] = {{(idr\.)?}}call @[[C:greet\.raise[0-9]+]](%{{.*}}, %{{.*}}) {{.*}}: (i64, !idr.world) -> !IORes
-// CHECK-NEXT: idr.yield %[[A]]
-// CHECK: default {
-// CHECK: %[[W:.*]] = idr.io.put_int
-// CHECK-NEXT: %[[B:.*]] = {{(idr\.)?}}call @[[C]](%{{.*}}, %[[W]]) {{.*}}: (i64, !idr.world) -> !IORes
-// CHECK-NEXT: idr.yield %[[B]]
-// CHECK-NOT: {{(idr\.| )apply }}
-module attributes {idr.program} {
-  idr.data @Unit {
-    idr.ctor @MkUnit ()
-  }
-  idr.data @IORes {
-    idr.ctor @MkIORes (!idr.data<@Unit>, !idr.world)
-  }
-  idr.data @IO {
-    idr.ctor @MkIO (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>)
-  }
-  idr.func private @put(%n: i64, %w: !idr.world) -> !idr.data<@IORes> attributes {effects = #idr.effects<io>, total} {
+// RUN: idris-mlir-opt %s --idr-defunctionalize --idr-optimize -o %t.mlir
+// RUN: idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@greet,not-called=@put,not-called=@done -o /dev/null
+// NEEDS-ACCEPTANCE: that each region's dispatch meets the constructors @greet builds once it is inlined, as C07's inner pipeline folds them.
+// The result of a call used in each region of a match, applied there
+// through the field of MkIO. @greet is small and final when the root is
+// cleaned, so the root inlines it; each region's dispatch then meets the
+// constructor of the action @greet built (case of case brings it in) and
+// folds to a direct call of @put or @done, inlined in turn, after the
+// output the other region does. Nothing is called.
+!Unit = !idr.data<"Unit", plain [@MkUnit()]>
+!IORes = !idr.data<"IORes", plain [@MkIORes(!Unit, !idr.world)]>
+!IO = !idr.data<"IO", plain [@MkIO(!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>)]>
+module {
+  idr.func private @put(%n: i64, %w: !idr.world) -> !IORes attributes {total} {
     %w1 = idr.io.put_int signed %n, %w : i64
-    %u = idr.con @Unit::@MkUnit() : () -> !idr.data<@Unit>
-    %r = idr.con @IORes::@MkIORes(%u, %w1) : (!idr.data<@Unit>, !idr.world) -> !idr.data<@IORes>
-    return %r : !idr.data<@IORes>
+    %u = idr.con @MkUnit() : () -> !Unit
+    %r = idr.con @MkIORes(%u, %w1) : (!Unit, !idr.world) -> !IORes
+    return %r : !IORes
   }
-  idr.func private @done(%w: !idr.world) -> !idr.data<@IORes> attributes {effects = #idr.effects<none>, total} {
-    %u = idr.con @Unit::@MkUnit() : () -> !idr.data<@Unit>
-    %r = idr.con @IORes::@MkIORes(%u, %w) : (!idr.data<@Unit>, !idr.world) -> !idr.data<@IORes>
-    return %r : !idr.data<@IORes>
+  idr.func private @done(%w: !idr.world) -> !IORes attributes {total} {
+    %u = idr.con @MkUnit() : () -> !Unit
+    %r = idr.con @MkIORes(%u, %w) : (!Unit, !idr.world) -> !IORes
+    return %r : !IORes
   }
-  idr.func private @greet(%n: i64) -> !idr.data<@IO> attributes {effects = #idr.effects<none>, total, no_inline} {
-    %done = idr.constant #idr.con<@IO::@MkIO, [#idr.closure<@done, []>]> : !idr.data<@IO>
-    %r = idr.match_lit %n : i64 -> (!idr.data<@IO>) {
+  idr.func private @greet(%n: i64) -> !IO attributes {total} {
+    %done = idr.constant #idr.con<@MkIO, [#idr.closure<@done, []>]> : !IO
+    %r = idr.match_lit %n : i64 -> (!IO) {
     case 0 {
-      idr.yield %done : !idr.data<@IO>
+      idr.yield %done : !IO
     }
     default {
-      %k = idr.closure @put(%n) : (i64) -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-      %k_lin = idr.lin.enter %k : !idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>
-      %io = idr.con @IO::@MkIO(%k_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!idr.data<@IORes>)>>) -> !idr.data<@IO>
-      idr.yield %io : !idr.data<@IO>
+      %k = idr.closure @put(%n) : (i64) -> !idr.fn<(!idr.world) -> (!IORes)>
+      %k_lin = idr.lin.enter %k : !idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>
+      %io = idr.con @MkIO(%k_lin) : (!idr.lin<!idr.fn<(!idr.world) -> (!IORes)>>) -> !IO
+      idr.yield %io : !IO
     }
     }
-    return %r : !idr.data<@IO>
+    return %r : !IO
   }
-  idr.func @Main.main(%w: !idr.world) -> !idr.data<@IORes> attributes {effects = #idr.effects<io>} {
+  idr.func @Main.main(%w: !idr.world) -> !IORes {
     %c, %w1 = idr.io.get_byte %w
     %n = arith.extui %c : i32 to i64
-    %a = idr.call @greet(%n) : (i64) -> !idr.data<@IO>
-    %r = idr.match_lit %n : i64 -> (!idr.data<@IORes>) {
+    %a = idr.call @greet(%n) : (i64) -> !IO
+    %r = idr.match_lit %n : i64 -> (!IORes) {
     case 0 {
-      %f = idr.field %a[@MkIO, 0] : !idr.data<@IO> -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-      %s = idr.apply %f(%w1) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-      idr.yield %s : !idr.data<@IORes>
+      %f = idr.field %a[@MkIO, 0] : !IO -> !idr.fn<(!idr.world) -> (!IORes)>
+      %s = idr.apply %f(%w1) : !idr.fn<(!idr.world) -> (!IORes)>
+      idr.yield %s : !IORes
     }
     default {
       %w2 = idr.io.put_int signed %n, %w1 : i64
-      %f = idr.field %a[@MkIO, 0] : !idr.data<@IO> -> !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-      %s = idr.apply %f(%w2) : !idr.fn<(!idr.world) -> (!idr.data<@IORes>)>
-      idr.yield %s : !idr.data<@IORes>
+      %f = idr.field %a[@MkIO, 0] : !IO -> !idr.fn<(!idr.world) -> (!IORes)>
+      %s = idr.apply %f(%w2) : !idr.fn<(!idr.world) -> (!IORes)>
+      idr.yield %s : !IORes
     }
     }
-    return %r : !idr.data<@IORes>
+    return %r : !IORes
   }
 }

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The attributes of the idr dialect: its constants, what a call may do,
-// the keys of clones and the instances a declaration is of.
+// the keys of specializations, the instances a function or data type is
+// of, and the rule a refusal names.
 
 #ifndef IDR_ATTRS
 #define IDR_ATTRS
@@ -38,34 +39,47 @@ class Idr_Attr<string name, string attrMnemonic, dag params = (ins)>
 // canonicalizing, so it can make a run that is not canonical, which the
 // verifier rejects.
 //
+// The constructor is named within its data type, which the attribute holds:
+// a constant is untyped, and the cells of a run are one type's, so two
+// constructors of one name in two types (the `Just` of a `Maybe (Maybe
+// Int)` and of its `Maybe Int`) never join. The name is a flat reference,
+// as every op's, so a constant of a label's constructor is a use of the
+// label. The type is the constant's identity, held in place: a value of the
+// type may be a box of it.
+//
 // It is written as it is stored: a plain constructor as its one cell,
-// `<@T::@C, [fields]>`, and a run as its cells, its tail and the field it
-// runs along, `<@T::@C, [a], [b] tail t along 1>`, `along 0` left out. Each
+// `<!T, @C, [fields]>`, and a run as its cells, its tail and the field it
+// runs along, `<!T, @C, [a], [b] tail t along 1>`, `along 0` left out. Each
 // optional group starts with its keyword, so the parser tries the keyword
 // and not the attribute after it, and the cells, a list without brackets,
 // end at it. The generated parser builds through the getChecked below,
 // which gives the attribute `get` gives for the same value, however it was
 // written.
 def Idr_ConAttr : Idr_Attr<"Con", "con",
-    (ins "::mlir::SymbolRefAttr":$ctor, ArrayRefParameter<"::mlir::ArrayAttr">:$cells,
+    (ins "::idr::DataType":$data, "::mlir::FlatSymbolRefAttr":$ctor,
+         ArrayRefParameter<"::mlir::ArrayAttr">:$cells,
          OptionalParameter<"::mlir::Attribute">:$tail,
          DefaultValuedParameter<"unsigned", "0">:$spine)> {
   let summary = "a constructor of a sum or box, its fields as attributes, a list's cells flat";
-  let assemblyFormat = "`<` $ctor `,` $cells (`tail` $tail^)? (`along` $spine^)? `>`";
+  let assemblyFormat =
+      "`<` qualified($data) `,` $ctor `,` $cells (`tail` $tail^)? (`along` $spine^)? `>`";
   let genVerifyDecl = 1;
   let skipDefaultBuilders = 1;
   let builders = [
     // A run when one field is a run of `ctor` along that field, or the
     // second cell of one; otherwise the plain con.
-    AttrBuilder<(ins "::mlir::SymbolRefAttr":$ctor, "::mlir::ArrayAttr":$fields)>
+    AttrBuilder<(ins "::idr::DataType":$data, "::mlir::FlatSymbolRefAttr":$ctor,
+                     "::mlir::ArrayAttr":$fields)>
   ];
   let extraClassDeclaration = [{
     // What repeated `get` gives for the cells `cells` (each one's fields
     // without the spine field) linked through field `spine` and ending in
     // `tail`, built in O(n).
-    static ConAttr getRun(::mlir::MLIRContext *context, ::mlir::SymbolRefAttr ctor,
-                          unsigned spine, ::llvm::ArrayRef<::mlir::ArrayAttr> cells,
-                          ::mlir::Attribute tail);
+    static ConAttr getRun(::mlir::MLIRContext *context, ::idr::DataType data,
+                          ::mlir::FlatSymbolRefAttr ctor, unsigned spine,
+                          ::llvm::ArrayRef<::mlir::ArrayAttr> cells, ::mlir::Attribute tail);
+    // The constructor's tag in its data type.
+    unsigned getTag() const;
     // A run has a tail; a plain con has none.
     bool isRun() const { return static_cast<bool>(getTail()); }
     // The number of cells: 1 for a plain con.
@@ -85,34 +99,38 @@ def Idr_ConAttr : Idr_Attr<"Con", "con",
     // the generated parser reads them: what `get` gives for the value they
     // say, a run where its cells form one, or null after an error.
     static ConAttr getChecked(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-                              ::mlir::MLIRContext *context, ::mlir::SymbolRefAttr ctor,
+                              ::mlir::MLIRContext *context, ::idr::DataType data,
+                              ::mlir::FlatSymbolRefAttr ctor,
                               ::llvm::ArrayRef<::mlir::ArrayAttr> cells, ::mlir::Attribute tail,
                               unsigned spine, ::mlir::Type type);
   private:
     // The attribute of stored parameters that get, getRun and the parser
     // have made canonical. ODS completes the storage only in the unit that
     // registers it, so these reach Base::get and Base::getChecked there.
-    static ConAttr getStored(::mlir::MLIRContext *context, ::mlir::SymbolRefAttr ctor,
+    static ConAttr getStored(::mlir::MLIRContext *context, ::idr::DataType data,
+                             ::mlir::FlatSymbolRefAttr ctor,
                              ::llvm::ArrayRef<::mlir::ArrayAttr> cells, ::mlir::Attribute tail,
                              unsigned spine, ::mlir::Type type);
     static ConAttr getStoredChecked(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-                                    ::mlir::MLIRContext *context, ::mlir::SymbolRefAttr ctor,
+                                    ::mlir::MLIRContext *context, ::idr::DataType data,
+                                    ::mlir::FlatSymbolRefAttr ctor,
                                     ::llvm::ArrayRef<::mlir::ArrayAttr> cells,
                                     ::mlir::Attribute tail, unsigned spine, ::mlir::Type type);
   public:
   }];
   let extraClassDefinition = [{
-    $cppClass $cppClass::getStored(::mlir::MLIRContext *context, ::mlir::SymbolRefAttr ctor,
+    $cppClass $cppClass::getStored(::mlir::MLIRContext *context, ::idr::DataType data,
+                                   ::mlir::FlatSymbolRefAttr ctor,
                                    ::llvm::ArrayRef<::mlir::ArrayAttr> cells,
                                    ::mlir::Attribute tail, unsigned spine, ::mlir::Type type) {
-      return Base::get(context, ctor, cells, tail, spine, type);
+      return Base::get(context, data, ctor, cells, tail, spine, type);
     }
     $cppClass $cppClass::getStoredChecked(
         ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
-        ::mlir::MLIRContext *context, ::mlir::SymbolRefAttr ctor,
+        ::mlir::MLIRContext *context, ::idr::DataType data, ::mlir::FlatSymbolRefAttr ctor,
         ::llvm::ArrayRef<::mlir::ArrayAttr> cells, ::mlir::Attribute tail, unsigned spine,
         ::mlir::Type type) {
-      return Base::getChecked(emitError, context, ctor, cells, tail, spine, type);
+      return Base::getChecked(emitError, context, data, ctor, cells, tail, spine, type);
     }
   }];
 }
@@ -154,14 +172,13 @@ def Idr_CmpPredicate : I64EnumAttr<"CmpPredicate",
 
 // What a call of a function may do besides computing its results, as
 // idr-effects finds it: `io`, perform IO, which takes a world, so only a
-// function that takes one can, or anything at all, as a function without
-// a body may; `crash`, end the program with a crash; `diverge`, never
-// return, which a function may where its own body loops without Idris's
-// proof (no `total`) or where it reaches one that may. It is the `effects`
-// of every idr.func and of every idr.call, which idr-effects writes each
-// round. Simplification only removes what a function reaches, so a stale
-// value says too much, never too little; a function or call without it may
-// do anything.
+// function that takes one can; `crash`, end the program with a crash;
+// `diverge`, never return, which a function may where its own body loops
+// without Idris's proof (no `total`) or where it reaches one that may. It
+// is the `effects` of every idr.func and of every idr.call, whose own is
+// its callee's. Optimization only removes what a function reaches, so a
+// stale value says too much, never too little; a function or call without
+// it may do anything.
 def Idr_Effect : I32BitEnumAttr<"Effect", "what a call of a function may do", [
       I32BitEnumAttrCaseNone<"none">,
       I32BitEnumAttrCaseBit<"io", 0>,
@@ -178,10 +195,9 @@ def Idr_EffectAttr : EnumAttr<Idr_Dialect, Idr_Effect, "effects">;
 // Specialization keys
 //===----------------------------------------------------------------------===//
 
-// idr-specialize keeps the key of each clone it makes in the clone's
-// `clone` attribute, so that its later runs share the clone. The labels in
-// a key are names, not symbol uses: a key keeps no function alive and
-// refers to none.
+// The keys of the functions specialization makes, which a pass prints
+// into a name from content. The labels in a key are names, not symbol
+// uses: a key keeps no function alive and refers to none.
 class Idr_KeyAttr<string name, string attrMnemonic> : AttrDef<Idr_Dialect, name> {
   let mnemonic = attrMnemonic;
 }
@@ -193,60 +209,34 @@ def Idr_KeyHoleAttr : Idr_KeyAttr<"KeyHole", "key_hole"> {
 }
 
 def Idr_KeyConAttr : Idr_KeyAttr<"KeyCon", "key_con"> {
-  let summary = "a constructor `@data::@ctor` in a key, over the patterns of its fields";
+  let summary = "a constructor `@ctor` of the data type `data` in a key, over the patterns of its fields";
   let parameters = (ins "::mlir::StringAttr":$data, "::mlir::StringAttr":$ctor,
                         "::mlir::ArrayAttr":$fields);
   let assemblyFormat = "`<` $data `,` $ctor `,` $fields `>`";
 }
 
-def Idr_KeyClosureAttr : Idr_KeyAttr<"KeyClosure", "key_closure"> {
-  let summary = "a closure of `callee` in a key, over the patterns of its captures";
-  let parameters = (ins "::mlir::StringAttr":$callee, "::mlir::ArrayAttr":$captures);
-  let assemblyFormat = "`<` $callee `,` $captures `>`";
-}
-
 // A clone that specializes: the patterns of its origin's parameters, a key
-// hole, constructor or closure, or a constant.
+// hole or constructor, or a constant.
 def Idr_SpecKeyAttr : Idr_KeyAttr<"SpecKey", "spec_key"> {
   let summary = "the key of a clone that specializes";
   let parameters = (ins "::mlir::StringAttr":$origin, "::mlir::ArrayAttr":$patterns);
   let assemblyFormat = "`<` $origin `,` $patterns `>`";
 }
 
-// A clone made by raising, by its callee and what consumes the callee's
-// result. The callee's arity is part of the key: remove-dead-values may
-// erase parameters later, and the holes of a clone count them.
-def Idr_KeyApplyAttr : Idr_KeyAttr<"KeyApply", "key_apply"> {
-  let summary = "the key of a clone that applies its callee's result";
-  let parameters = (ins "::mlir::StringAttr":$callee, "unsigned":$arity);
-  let assemblyFormat = "`<` $callee `,` $arity `>`";
-}
-
-def Idr_KeyApplyFieldAttr : Idr_KeyAttr<"KeyApplyField", "key_apply_field"> {
-  let summary = "the key of a clone that applies field `index` of `ctor` of its callee's result";
-  let parameters = (ins "::mlir::StringAttr":$callee, "unsigned":$arity,
-                        "::mlir::StringAttr":$ctor, "unsigned":$index);
-  let assemblyFormat = "`<` $callee `,` $arity `,` $ctor `,` $index `>`";
-}
-
-// A clone: the function every call of its key calls, those idr-specialize
-// makes in later rounds too. So the clone names itself: MLIR's
-// interprocedural analyses take a reference that is no call for callers
-// they cannot see, and fold nothing its present callers pass into its body
-// (sccp), prune nothing only they leave unreachable (dead code), and keep
-// its parameters (remove-dead-values), which later callers fill.
-def Idr_CloneAttr : AttrDef<Idr_Dialect, "Clone"> {
-  let mnemonic = "clone";
-  let summary = "a clone, named, and the key it is the function of";
-  let parameters = (ins "::mlir::FlatSymbolRefAttr":$function, "::mlir::Attribute":$key);
-  let assemblyFormat = "`<` $function `,` $key `>`";
+// A clone made by raising: its callee and the dispatch that consumes the
+// callee's result, by the match's printed form, which says what each case
+// does with the label it takes.
+def Idr_KeyRaiseAttr : Idr_KeyAttr<"KeyRaise", "key_raise"> {
+  let summary = "the key of a clone that dispatches on its callee's result";
+  let parameters = (ins "::mlir::StringAttr":$callee, "::mlir::StringAttr":$consumer);
+  let assemblyFormat = "`<` $callee `,` $consumer `>`";
 }
 
 //===----------------------------------------------------------------------===//
 // Instances
 //===----------------------------------------------------------------------===//
 
-// What a function or a data declaration is an instance of, as the frontend
+// What a function or a data type is an instance of, as the frontend
 // decided it: the Idris definition and the compile-time values it was
 // instantiated at (types, implementations, shapes), each the
 // alpha-normalized text the frontend prints. Names, not symbol uses, as
@@ -260,5 +250,13 @@ def Idr_InstanceAttr : AttrDef<Idr_Dialect, "Instance"> {
   let assemblyFormat = "`<` $origin `,` $arguments `>`";
   let genVerifyDecl = 1;
 }
+
+//===----------------------------------------------------------------------===//
+// Refusals
+//===----------------------------------------------------------------------===//
+
+// The rule a refusal names, held in the refusal's diagnostic as data
+// (idr::refuse), so the driver reads the rule and never the text.
+def Idr_RuleAttr : EnumAttr<Idr_Dialect, Idr_Rule, "rule">;
 
 #endif // IDR_ATTRS

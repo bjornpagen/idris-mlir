@@ -17,13 +17,8 @@
 // CHECK: llvm.load
 // CHECK: llvm.call @idris_rt_free_cell(
 // CHECK: return
+!lazy$0 = !idr.data<"lazy$0", memo [@one(), @plus(i64), @running(), @forced(i64)]>
 module {
-  idr.data @lazy$0 box memo labels [@one, @plus] {
-    idr.ctor @one ()
-    idr.ctor @plus (i64)
-    idr.ctor @running ()
-    idr.ctor @forced (i64)
-  }
   idr.func private @one() -> i64 attributes {total} {
     %c = arith.constant 1 : i64
     return %c : i64
@@ -33,8 +28,8 @@ module {
     %y = arith.addi %x, %c : i64
     return %y : i64
   }
-  idr.func private @once(%t: !idr.excl<!idr.box<@lazy$0>>) -> i64 {
-    %v = idr.force %t : !idr.excl<!idr.box<@lazy$0>> -> i64
+  idr.func private @once(%t: !idr.excl<!idr.box<!lazy$0>>) -> i64 {
+    %v = idr.force %t : !idr.excl<!idr.box<!lazy$0>> -> i64
     return %v : i64
   }
 }

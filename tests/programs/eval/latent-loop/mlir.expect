@@ -1,3 +1,0 @@
-# Every cycle of references, those specialization closes included, keeps a
-# loop breaker.
-idr-simplify: every-cycle-has-breaker

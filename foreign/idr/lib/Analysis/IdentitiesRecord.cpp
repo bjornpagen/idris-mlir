@@ -24,9 +24,9 @@
 //
 // The walk leaves the part each value is of every candidate argument, and
 // the calls whose result is an operand while the callee is assumed to give
-// that operand back. It reads the function's own body, the symbol table and
-// the declarations, and writes nothing outside the record, so the walks of
-// a module's functions run at once.
+// that operand back. It reads the function's own body, the data types its
+// values are of, and the entries of the component's members, and writes
+// nothing outside the record.
 #include "idr/Analysis/Identities.h"
 
 #include "idr/IR/Grades.h"
@@ -39,7 +39,7 @@
 
 using namespace mlir;
 
-namespace idr {
+namespace idr::identities {
 
 namespace {
 
@@ -55,8 +55,8 @@ StringAttr caseCtor(MatchOp match, unsigned region) {
 
 } // namespace
 
-Identities::Record::Record(FuncOp fn, ArrayRef<unsigned> candidates, SymbolTable &symbols)
-    : fn(fn), symbols(symbols) {
+Record::Record(FuncOp fn, ArrayRef<unsigned> candidates, const Members &members)
+    : fn(fn), members(members) {
   for (unsigned argument : candidates) {
     index.try_emplace(argument, static_cast<unsigned>(arguments.size()));
     arguments.push_back(argument);
@@ -77,29 +77,29 @@ Identities::Record::Record(FuncOp fn, ArrayRef<unsigned> candidates, SymbolTable
   }
 }
 
-bool Identities::Record::memoType(Type type) {
-  DataOp data = lookupData(symbols, type);
-  return data && isMemo(data);
+bool Record::memoType(Type type) {
+  DataType data = dataTypeOf(type);
+  return data && data.isMemo();
 }
 
 // The one constructor of the scrutinee's type that no case of `match`
 // names, which its default region therefore takes, if there is one.
-StringAttr Identities::Record::remaining(MatchOp match) {
-  DataOp data = lookupData(symbols, match.getScrutinee().getType());
+StringAttr Record::remaining(MatchOp match) {
+  DataType data = dataTypeOf(match.getScrutinee().getType());
   if (!data)
     return {};
-  SmallVector<CtorOp> ctors = data.getCtors();
+  ArrayRef<Ctor> ctors = data.getCtors();
   if (ctors.size() != match.getCases().size() + 1)
     return {};
-  for (CtorOp ctor : ctors)
+  for (const Ctor &ctor : ctors)
     if (llvm::none_of(match.getCases(), [&](Attribute named) {
-          return cast<FlatSymbolRefAttr>(named).getAttr() == ctor.getSymNameAttr();
+          return cast<FlatSymbolRefAttr>(named).getAttr() == ctor.name;
         }))
-      return ctor.getSymNameAttr();
+      return ctor.name;
   return {};
 }
 
-int Identities::Record::place(Value value, Node node) {
+int Record::place(Value value, Node node) {
   int id = static_cast<int>(nodes.size());
   nodes.push_back(std::move(node));
   memo.emplace_back();
@@ -107,7 +107,7 @@ int Identities::Record::place(Value value, Node node) {
   return id;
 }
 
-int Identities::Record::intern(Value value) {
+int Record::intern(Value value) {
   if (auto it = ids.find(value); it != ids.end())
     return it->second;
   if (auto arg = dyn_cast<BlockArgument>(value))
@@ -115,7 +115,7 @@ int Identities::Record::intern(Value value) {
   return internResult(cast<OpResult>(value));
 }
 
-int Identities::Record::internArg(BlockArgument arg) {
+int Record::internArg(BlockArgument arg) {
   Node node;
   Block *block = arg.getOwner();
   if (block == &fn.getBody().front()) {
@@ -136,18 +136,18 @@ int Identities::Record::internArg(BlockArgument arg) {
   return place(arg, std::move(node));
 }
 
-int Identities::Record::defineCall(CallOp call) {
+int Record::defineCall(CallOp call) {
   for (Value result : call.getResults())
     if (auto it = ids.find(result); it != ids.end())
       return it->second;
   Node node;
   node.kind = Node::Call;
   node.callee = call.getCalleeAttr().getAttr();
-  // A function the module lacks, one without a body, or one without effects
-  // may do anything, so it is not known to return.
-  auto callee = symbols.lookup<FuncOp>(node.callee);
-  std::optional<Effect> effects =
-      callee && !callee.isExternal() ? callee.getEffects() : std::optional<Effect>();
+  // A callee of the component is known by its own entry; any other by the
+  // call's, which it was given when the component became ready. Without
+  // one it may do anything, so it is not known to return.
+  FuncOp member = members.lookup(node.callee);
+  std::optional<Effect> effects = member ? member.getEffects() : call.getEffects();
   node.returns = effects && !bitEnumContainsAny(*effects, Effect::diverge);
   node.allocates = onlyAllocates(call);
   for (Value operand : call.getArgs())
@@ -160,7 +160,7 @@ int Identities::Record::defineCall(CallOp call) {
   return id;
 }
 
-void Identities::Record::encodeConst(Node &node, Value value, Attribute constant) {
+void Record::encodeConst(Node &node, Value value, Attribute constant) {
   node.kind = Node::Const;
   node.attr = constant;
   node.type = value.getType();
@@ -171,12 +171,13 @@ void Identities::Record::encodeConst(Node &node, Value value, Attribute constant
   node.conRun = con.isRun();
   if (node.conRun)
     return;
-  node.ctor = con.getCtor().getLeafReference();
-  CtorOp ctor = lookupCtor(symbols, con.getCtor());
-  node.fieldless = ctor && ctor.getFieldTypes().empty();
+  node.ctor = con.getCtor().getAttr();
+  DataType data = dataTypeOf(value.getType());
+  std::optional<unsigned> tag = data ? data.getTag(node.ctor.getValue()) : std::nullopt;
+  node.fieldless = tag && data.getCtor(*tag).fields.empty();
 }
 
-int Identities::Record::internJoin(Operation *op, unsigned number) {
+int Record::internJoin(Operation *op, unsigned number) {
   unsigned side = static_cast<unsigned>(joins.size());
   joins.push_back(armsOf(op));
   int wanted = -1;
@@ -192,7 +193,7 @@ int Identities::Record::internJoin(Operation *op, unsigned number) {
   return wanted;
 }
 
-SmallVector<Identities::Record::Arm, 2> Identities::Record::armsOf(Operation *op) {
+SmallVector<Record::Arm, 2> Record::armsOf(Operation *op) {
   SmallVector<Arm, 2> arms;
   for (Region &region : op->getRegions()) {
     Arm arm;
@@ -217,7 +218,7 @@ SmallVector<Identities::Record::Arm, 2> Identities::Record::armsOf(Operation *op
   return arms;
 }
 
-int Identities::Record::internResult(OpResult result) {
+int Record::internResult(OpResult result) {
   Operation *op = result.getOwner();
   if (isa<MatchOp, MatchLitOp>(op))
     return internJoin(op, result.getResultNumber());
@@ -239,7 +240,7 @@ int Identities::Record::internResult(OpResult result) {
     node.src = intern(pred.getValue());
   } else if (auto con = dyn_cast<ConOp>(op)) {
     node.kind = Node::Con;
-    node.ctor = con.getCtor().getLeafReference();
+    node.ctor = con.getCtorAttr().getAttr();
     node.type = con.getType();
     node.memo = memoType(con.getType());
     for (Value field : con.getFields()) {
@@ -260,7 +261,7 @@ int Identities::Record::internResult(OpResult result) {
   return place(result, std::move(node));
 }
 
-SmallVector<Identities::Record::Frame, 2> Identities::Record::framesAt(Operation *at) {
+SmallVector<Record::Frame, 2> Record::framesAt(Operation *at) {
   SmallVector<Frame, 2> frames;
   for (Region *region = at->getParentRegion(); region; region = region->getParentRegion()) {
     Operation *parent = region->getParentOp();
@@ -292,7 +293,7 @@ SmallVector<Identities::Record::Frame, 2> Identities::Record::framesAt(Operation
   return frames;
 }
 
-bool Identities::Record::record(ReturnOp ret) {
+bool Record::record(ReturnOp ret) {
   if (ret.getNumOperands() != 1)
     return false;
   rets.push_back({intern(ret.getOperand(0)), framesAt(ret.getOperation())});
@@ -302,7 +303,7 @@ bool Identities::Record::record(ReturnOp ret) {
 // The one descent. Match regions are part of what only computes; a call
 // that does not only allocate is kept to be justified from the record; any
 // other op must only allocate, and is not opened again.
-bool Identities::Record::scan(Region &region) {
+bool Record::scan(Region &region) {
   for (Block &block : region) {
     if (llvm::any_of(block.getArgumentTypes(), owns))
       return false;
@@ -315,7 +316,7 @@ bool Identities::Record::scan(Region &region) {
   return true;
 }
 
-bool Identities::Record::accept(Operation &op) {
+bool Record::accept(Operation &op) {
   if (llvm::any_of(op.getResultTypes(), owns))
     return false;
   if (op.hasTrait<OpTrait::IsTerminator>()) {
@@ -346,4 +347,4 @@ bool Identities::Record::accept(Operation &op) {
   return true;
 }
 
-} // namespace idr
+} // namespace idr::identities

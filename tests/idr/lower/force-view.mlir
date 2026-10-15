@@ -27,13 +27,8 @@
 // CHECK-NOT: call
 // CHECK-NOT: scf.index_switch
 // CHECK: return
-module attributes {idr.program} {
-  idr.data @lazy$0 box memo labels [@one, @plus] {
-    idr.ctor @one ()
-    idr.ctor @plus (i64)
-    idr.ctor @running ()
-    idr.ctor @forced (i64)
-  }
+!lazy$0 = !idr.data<"lazy$0", memo [@one(), @plus(i64), @running(), @forced(i64)]>
+module {
   idr.func private @one() -> i64 attributes {total} {
     %c = arith.constant 1 : i64
     return %c : i64
@@ -43,14 +38,14 @@ module attributes {idr.program} {
     %y = arith.addi %x, %c : i64
     return %y : i64
   }
-  idr.func private @view(%t: !idr.box<@lazy$0>) -> i64 {
-    %v = idr.force %t : !idr.box<@lazy$0> -> i64 loc("Main.idr":9:3)
+  idr.func private @view(%t: !idr.box<!lazy$0>) -> i64 {
+    %v = idr.force %t : !idr.box<!lazy$0> -> i64 loc("Main.idr":9:3)
     return %v : i64
   }
   idr.func @Main.main() -> i64 {
     %two = arith.constant 2 : i64
-    %t = idr.con @lazy$0::@plus(%two) : (i64) -> !idr.box<@lazy$0>
-    %v = idr.call @view(%t) : (!idr.box<@lazy$0>) -> i64
+    %t = idr.con @plus(%two) : (i64) -> !idr.box<!lazy$0>
+    %v = idr.call @view(%t) : (!idr.box<!lazy$0>) -> i64
     return %v : i64
   }
 }

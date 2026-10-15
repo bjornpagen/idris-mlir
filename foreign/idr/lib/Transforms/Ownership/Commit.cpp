@@ -3,8 +3,8 @@
 // idr-rc-commit: what exclusivity's solve proved, written into one
 // function's types once idr-rc has written it into every signature: the
 // values it proved exclusive get the grade, and where an exclusive value
-// meets a position typed owned (a call's argument, a return, a yield, a
-// suspension's capture), it is shared into it.
+// meets a position typed owned (a call's argument, a return, a yield), it
+// is shared into it.
 #include "idr/Analysis/Ownership.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
@@ -77,11 +77,6 @@ LogicalResult commit(FuncOp fn, const Exclusivity &solved, SymbolTable &symbols)
       take(ret->getOpOperands(), fn.getResultTypes());
     } else if (auto yield = dyn_cast<YieldOp>(op)) {
       take(yield->getOpOperands(), yield->getParentOp()->getResultTypes());
-    } else if (auto suspend = dyn_cast<SuspendOp>(op)) {
-      // A capture is the function's parameter. An exclusive value is
-      // shared into that owned parameter, as a call's argument is.
-      if (auto callee = symbols.lookup<FuncOp>(suspend.getCalleeAttr().getAttr()))
-        take(suspend.getCapturesMutable(), callee.getArgumentTypes());
     }
   });
   IRRewriter rewriter(fn.getContext());
@@ -110,8 +105,6 @@ struct RcCommit : PassWrapper<RcCommit, OperationPass<FuncOp>> {
 
   void runOnOperation() override {
     FuncOp fn = getOperation();
-    if (fn.isExternal())
-      return markAllAnalysesPreserved();
     auto solved = getCachedParentAnalysis<Exclusivity>();
     auto symbols = getCachedParentAnalysis<SymbolTable>();
     if (!solved || !symbols) {

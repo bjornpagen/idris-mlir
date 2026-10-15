@@ -73,7 +73,7 @@ LogicalResult constantStack(ModuleOp module, AnalysisManager &analyses, StringRe
   constexpr StringRef property = "constant-stack";
   SymbolTable &symbols = analyses.getAnalysis<SymbolTable>();
   SmallVector<Operation *> reached = llvm::map_to_vector(
-      named(module, symbols, function, property),
+      named(module, function, property),
       [](FunctionOpInterface fn) -> Operation * { return fn; });
   if (reached.empty())
     return failure();

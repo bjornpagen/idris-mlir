@@ -10,24 +10,19 @@
 // ONE-NOT: error:
 // ALL: error: expected no-heap-allocation: idr.con allocates in @cons
 // ALL-NOT: error:
+!Pair = !idr.data<"Pair", plain [@MkPair(i64, i64)]>
+!List = !idr.data<"List", list [@Nil(), @Cons(i64, !idr.box<!idr.data<"List">>)]>
 module {
-  idr.data @Pair {
-    idr.ctor @MkPair (i64, i64)
+  idr.func private @scalar(%x: i64) -> !Pair {
+    %p = idr.con @MkPair(%x, %x) : (i64, i64) -> !Pair
+    return %p : !Pair
   }
-  idr.data @List box {
-    idr.ctor @Nil ()
-    idr.ctor @Cons (i64, !idr.box<@List>)
+  idr.func private @cons(%x: i64, %l: !idr.box<!List>) -> !idr.box<!List> {
+    %r = idr.con @Cons(%x, %l) : (i64, !idr.box<!List>) -> !idr.box<!List>
+    return %r : !idr.box<!List>
   }
-  idr.func @scalar(%x: i64) -> !idr.data<@Pair> {
-    %p = idr.con @Pair::@MkPair(%x, %x) : (i64, i64) -> !idr.data<@Pair>
-    return %p : !idr.data<@Pair>
-  }
-  idr.func private @cons(%x: i64, %l: !idr.box<@List>) -> !idr.box<@List> {
-    %r = idr.con @List::@Cons(%x, %l) : (i64, !idr.box<@List>) -> !idr.box<@List>
-    return %r : !idr.box<@List>
-  }
-  idr.func @boxes(%x: i64, %l: !idr.box<@List>) -> !idr.box<@List> {
-    %r = idr.call @cons(%x, %l) : (i64, !idr.box<@List>) -> !idr.box<@List>
-    return %r : !idr.box<@List>
+  idr.func private @boxes(%x: i64, %l: !idr.box<!List>) -> !idr.box<!List> {
+    %r = idr.call @cons(%x, %l) : (i64, !idr.box<!List>) -> !idr.box<!List>
+    return %r : !idr.box<!List>
   }
 }

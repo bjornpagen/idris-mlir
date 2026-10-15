@@ -20,11 +20,8 @@
 // KEPT: may_loop
 // KEPT-NOT: {{(idr\.| )may_loop }}
 // KEPT: call @fib
-module attributes {idr.program} {
-  idr.data @List box {
-    idr.ctor @Nil ()
-    idr.ctor @Cons (i64, !idr.box<@List>)
-  }
+!List = !idr.data<"List", list [@Nil(), @Cons(i64, !idr.box<!idr.data<"List">>)]>
+module {
   idr.func private @count(%acc: i64, %n: i64) -> i64 attributes {total} {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {
@@ -84,14 +81,14 @@ module attributes {idr.program} {
     return %r : i64
   }
   // sum acc (x :: xs) = sum (acc + x) xs
-  idr.func private @sum(%acc: i64, %xs: !idr.box<@List>) -> i64 attributes {total} {
-    %r = idr.match %xs : !idr.box<@List> -> (i64) {
+  idr.func private @sum(%acc: i64, %xs: !idr.box<!List>) -> i64 attributes {total} {
+    %r = idr.match %xs : !idr.box<!List> -> (i64) {
     case @Nil() {
       idr.yield %acc : i64
     }
-    case @Cons(%x: i64, %rest: !idr.box<@List>) {
+    case @Cons(%x: i64, %rest: !idr.box<!List>) {
       %a = arith.addi %acc, %x : i64
-      %s = idr.call @sum(%a, %rest) : (i64, !idr.box<@List>) -> i64
+      %s = idr.call @sum(%a, %rest) : (i64, !idr.box<!List>) -> i64
       idr.yield %s : i64
     }
     }
@@ -136,15 +133,15 @@ module attributes {idr.program} {
     return %r : i64
   }
   idr.func @Main.main(%w: !idr.world) -> (i64, i64, i64, !idr.world) {
-    %nil = idr.con @List::@Nil() : () -> !idr.box<@List>
+    %nil = idr.con @Nil() : () -> !idr.box<!List>
     %c7 = arith.constant 7 : i64
-    %xs = idr.con @List::@Cons(%c7, %nil) : (i64, !idr.box<@List>) -> !idr.box<@List>
+    %xs = idr.con @Cons(%c7, %nil) : (i64, !idr.box<!List>) -> !idr.box<!List>
     %c0 = arith.constant 0 : i64
     %c9 = arith.constant 9 : i64
     %a = idr.call @count(%c0, %c9) : (i64, i64) -> i64
     %u = idr.call @upto(%c0, %c9, %c0) : (i64, i64, i64) -> i64
     %b = idr.call @spin(%c0) : (i64) -> i64
-    %s = idr.call @sum(%c0, %xs) : (i64, !idr.box<@List>) -> i64
+    %s = idr.call @sum(%c0, %xs) : (i64, !idr.box<!List>) -> i64
     %w1 = idr.call @echo(%c9, %w) : (i64, !idr.world) -> !idr.world
     %c = idr.call @fib(%c9) : (i64) -> i64
     return %u, %s, %c, %w1 : i64, i64, i64, !idr.world

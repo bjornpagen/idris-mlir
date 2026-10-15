@@ -1,9 +1,9 @@
-// input: after idr-simplify
-// ack's m counts down from 3: calls of ack are calls of a clone for one m.
-// The generic function stays. countUp's counter starts too far up to
-// unroll. `count 3` is a call of the clone that runs the action it returns,
-// with the world.
-// CHECK-DAG: call @Main.ack.spec{{[0-9]+}}(%{{.*}}){{.*}}: (i64) -> i64
+// input: after idr-optimize
+// ack's m counts down from 3: calls of ack are calls of a copy for one m,
+// whose name is ack's, its kind (`spec`) and its key's hash. The generic
+// function stays. countUp's counter starts too far up to unroll. `count 3`
+// is a call of the copy that runs the action it returns, with the world.
+// CHECK-DAG: call @Main.ack.spec.{{[^(]+}}(%{{.*}}){{.*}}: (i64) -> i64
 // CHECK-DAG: idr.func private @Main.ack(
 // CHECK-DAG: call @Main.countUp(
-// CHECK-DAG: call @Main.count.raise{{[0-9]+}}(%{{.*}}, %{{.*}}){{.*}}: (i64, !idr.world)
+// CHECK-DAG: call @Main.count.raise.{{[^(]+}}(%{{.*}}, %{{.*}}){{.*}}: (i64, !idr.world)

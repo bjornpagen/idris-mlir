@@ -15,10 +15,10 @@ namespace idr::expect {
 // The function the argument names and its clones together: at least one
 // of them builds in the cell of a box that died (idr.reuse), and none
 // gives a box a fresh cell.
-LogicalResult reusesInPlace(ModuleOp module, AnalysisManager &analyses, StringRef function) {
+LogicalResult reusesInPlace(ModuleOp module, AnalysisManager &, StringRef function) {
   constexpr StringRef property = "reuses-in-place";
   SmallVector<FunctionOpInterface> functions =
-      named(module, analyses.getAnalysis<SymbolTable>(), function, property);
+      named(module, function, property);
   if (functions.empty())
     return failure();
   bool held = true, reused = false;

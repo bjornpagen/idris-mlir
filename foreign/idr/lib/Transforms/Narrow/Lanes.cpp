@@ -1,20 +1,23 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // idr-narrow-lanes: the integer lanes of a vectorized loop compute in 32
-// bits under a runtime bound on its index space. A loop over an array
-// computes its indices as the 64-bit Int the program wrote (idr-lower
-// casts linalg.index to the word), and the target's lanes pay for it:
-// neither x86-64-v3 nor NEON has a 64-bit vector multiply, and x86-64-v3
-// has no int64-to-double conversion, so LLVM emulates the one and
-// scalarizes the other, where 32-bit lanes have both. Each vectorized loop
-// that computes on lanes of integers wider than 32 bits becomes two
-// versions: where every integer it reads from outside (the sizes, the tile
-// bound) is at most B, a copy in which every integer op that integer range
-// analysis proves fits 32 bits is narrowed by upstream's
-// arith-int-range-narrowing; otherwise the loop as it was. A loop that
-// runs at most once, as upstream's value bounds see its bounds (the loop
-// of a peeled tile loop's last tile), stays as it is: its version would
-// never pay for the code it adds.
+// bits under a runtime bound on its index space. The vectorization
+// schedule leaves a loop over an array computing on its coordinates, which
+// are index, 64 bits once lowered, and on the 64-bit Int the program wrote
+// from them, and the target's lanes pay for it: neither x86-64-v3 nor NEON
+// has a 64-bit vector multiply, and x86-64-v3 has no int64-to-double
+// conversion, so LLVM emulates the one and scalarizes the other, where
+// 32-bit lanes have both. Upstream's narrowing reaches an index lane
+// through index casts, as it reaches a word. Each vectorized loop that
+// computes on lanes of integers wider than 32 bits, outside the
+// accumulations it carries round (a sum is as wide as the program made
+// it), becomes two versions: where every integer it reads from outside
+// (the sizes, the tile bound) is at most B, a copy in which every integer
+// op that integer range analysis proves fits 32 bits is narrowed by
+// upstream's arith-int-range-narrowing; otherwise the loop as it was. A
+// loop that runs at most once, as upstream's value bounds see its bounds
+// (the loop of a peeled tile loop's last tile), stays as it is: its
+// version would never pay for the code it adds.
 //
 // The bound is an SSA fact, since the analysis reads no branch condition:
 // in the copy each such input stands behind arith.minui of itself and B,
@@ -23,14 +26,15 @@
 // inputs as arguments and tried at powers of two from 2^31 down (a binary
 // search over the exponent: a smaller bound fits whatever a larger one
 // does), the analysis run on it each time, and the largest B kept at which
-// every elementwise integer op in it wider than 32 bits fits. Interval
-// arithmetic over the body is what the analysis computes, so the body's
-// own arithmetic decides the bound. The narrowing then runs on that copy
-// under the analysis of the chosen B, and leaves wide an op whose 32-bit
-// form would compute something else (a shift by 32 or more, a signed
-// remainder that may see INT32_MIN % -1, an op that reads a negative word
-// unsigned); the copy is cloned into the version, and the function itself
-// is never analysed.
+// every elementwise integer op in it wider than 32 bits, but an
+// accumulation, fits. Interval arithmetic over the body is what the
+// analysis computes, so the body's own arithmetic decides the bound. The
+// narrowing then runs on that copy under the analysis of the chosen B, and
+// leaves wide an op whose 32-bit form would compute something else (a
+// shift by 32 or more, a signed remainder that may see INT32_MIN % -1, an
+// op that reads a negative word unsigned) and an accumulation, whose range
+// no bound narrows; the copy is cloned into the version, and the function
+// itself is never analysed.
 
 #include "idr/Transforms/Narrow.h"
 

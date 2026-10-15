@@ -8,17 +8,20 @@
 # compiler never does:
 # the columns compare compilers, not instruction sets or rounding. Prints
 # what it ran on (the host, its CPU, the stack limit and every compiler's
-# version) on stderr, checks that the outputs agree, and then prints
-# bench/report.sh's results: the best of several wall-clock times per
-# compiler and the wall-clock time this compiler took to compile each
-# program.
+# version) on stderr, checks that this compiler's and clang's outputs agree
+# with the reference, and then prints bench/report.sh's results: the best
+# of several wall-clock times per compiler and the wall-clock time this
+# compiler took to compile each program. The Chez column is a time and
+# nothing more: its output is never compared, since what Chez prints is no
+# specification of a program (a value Chez prints otherwise, "+inf.0"
+# against the runtime's "inf", is no failure of anything here).
 #
 #     bench/run.sh [--runs N] [--record DIR] [name ...]
 #
 # With --record, the run's record (every timed run, the compile times and
 # what it ran on; bench/report.sh describes it) is kept in DIR, with the
-# results and charts made from it, once every output has agreed: a run
-# that fails leaves no record.
+# results and charts made from it, once every compared output has agreed: a
+# run that fails leaves no record.
 #
 # Times come from now_ns (tools/host.sh). Every program runs with the
 # largest stack the system allows (stack_max: unlimited on Linux, the hard
@@ -42,6 +45,10 @@ fi
 host_packages=$(IDRIS2_PREFIX=$host_prefix "$idris2" --libdir) || exit 1
 bench=$root/bench
 labels='this compiler|Idris Chez|clang -O2'
+# The columns whose output is held to the reference: a compiler of the
+# program's meaning (this one) and the rebuild of the program in C. The
+# Chez column is timed only.
+compared='this compiler|clang -O2'
 
 # A benchmark is a directory bench/<name>/ holding Main.idr and one of
 #   input       its stdin, given literally (a number, usually);
@@ -52,7 +59,7 @@ labels='this compiler|Idris Chez|clang -O2'
 #   compare     "bytes" when every output must equal the reference byte
 #               for byte; otherwise they must print the same numbers;
 #   libs        linker flags the C version needs (-lgmp);
-#   packages    installed Idris packages the program uses (mlir-linear),
+#   packages    installed Idris packages the program uses (those of libs/),
 #               for this compiler and for Chez alike;
 #   reference   the name of another benchmark whose C version is this one's
 #               reference (fannkuch-linear's is fannkuch-redux);
@@ -277,6 +284,9 @@ for name in $names; do
   reference="$work/this compiler.out"
   [ -f "$reference" ] || reference="$work/clang -O2.out"
   [ -f "$reference" ] || die "$name: neither this compiler nor clang built anything to compare with"
+  IFS='|'
+  set -- $compared
+  unset IFS
   for label; do
     out=$work/$label.out
     [ -f "$out" ] || continue
@@ -286,17 +296,17 @@ for name in $names; do
       cmp -s "$out" "$reference" ||
         die "$name: $label's output differs from the reference: $(cmp "$out" "$reference" | head -n 1)"
     else
-      # Every compiler is held to the numbers alone: a run needs programs
-      # that compute the same thing, and whether a text is right is for
-      # the tests to say.
+      # Each compared column is held to the numbers alone: a run needs
+      # programs that compute the same thing, and whether a text is right
+      # is for the tests to say.
       agree "$out" "$reference" ||
         die "$name: $label printed $(head -c 200 "$out"), the reference $(head -c 200 "$reference")"
     fi
   done
 done
 
-# Every output agreed: the record is complete, and what it shows is
-# bench/report.sh's.
+# Every compared output agreed: the record is complete, and what it shows
+# is bench/report.sh's.
 sh "$bench/report.sh" "$record" > /dev/null || die "bench/report.sh failed on the record"
 if [ -n "$keep" ]; then
   mkdir -p "$keep" && cp "$record"/* "$keep"/ || die "cannot keep the record in $keep"

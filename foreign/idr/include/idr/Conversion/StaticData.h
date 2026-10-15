@@ -1,44 +1,49 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The constants idr-lower writes as globals of the module, each written
-// once: strings, bigs outside the small range, boxes, among them the memo
-// cells of constant thunks, and the messages of crashes; and
-// @__idr_release_cafs, which releases what those memo cells hold.
+// The constants idr-lower writes as globals: strings, bigs outside the
+// small range, boxes, among them the memo cells of constant thunks, the
+// messages of crashes, and the cells of constant arrays. Each
+// is named from its content, `__idr.<kind>.<hash>`, so a name says what the
+// global holds and never when it was written: two functions lowered on two
+// threads that write the same constant write the same global, and the
+// module keeps one.
 
 #ifndef IDR_CONVERSION_STATICDATA_H
 #define IDR_CONVERSION_STATICDATA_H
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
+#include "idr/IR/Symbols.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/OwningOpRef.h"
 #include "mlir/IR/SymbolTable.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/ADT/StringSet.h"
 
-#include <optional>
+#include <string>
 #include <utility>
 
 namespace idr::conversion {
 
 class StaticData {
 public:
-  // Every declaration and global is entered in `symbols`, the module's
-  // table, which the lowering reads its declarations from too.
-  StaticData(mlir::ModuleOp module, const Layouts &layouts, mlir::SymbolTable &symbols);
-
-  mlir::SymbolTable &symbolTable() const { return symbols; }
+  // The globals are built in a module of their own, never in `module`, so
+  // that one function's lowering touches nothing outside it; Runtime::merge
+  // moves them into `module` once every function is lowered.
+  StaticData(mlir::ModuleOp module, const Layouts &layouts);
 
   // Whether a lowered component is static data, which holds no count: the
   // address of a global, or a constant word.
   static bool isStatic(mlir::Value component);
 
-  // The address of the bytes of `text`, written once however many crashes
-  // report it.
+  // The address of the bytes of `text`.
   mlir::Value message(mlir::OpBuilder &b, mlir::Location loc, llvm::StringRef text);
 
   // The components of the constant `value` of type `type`: scalars as LLVM
@@ -47,28 +52,65 @@ public:
   llvm::SmallVector<mlir::Value> constant(mlir::OpBuilder &b, mlir::Location loc,
                                           mlir::Attribute value, mlir::Type type);
 
-  // @__idr_release_cafs, which the program's entry calls when the program
-  // ends: idris_rt_caf_release on each static memo cell, which releases
-  // what its first force stored there. A module without one has it too,
-  // empty, so that the entry calls it without asking. Built once, after the
-  // last constant is lowered.
-  void emitReleaseCafs(mlir::OpBuilder &b);
+  // The static cell of the constant array `global`: its header, then its
+  // data.
+  mlir::Value constantArray(mlir::OpBuilder &b, mlir::Location loc,
+                            mlir::memref::GlobalOp global);
+
+  // What Runtime::merge reads: the globals written, by name, each with the
+  // content its name was made from; and the names of the static memo cells.
+  struct Written {
+    mlir::LLVM::GlobalOp global;
+    std::string key;
+  };
+  const llvm::StringMap<Written> &written() const { return globals; }
+  const llvm::StringSet<> &memoCells() const { return cafs; }
+
+  // Whether two contents met under one name, which was reported at the op.
+  bool collided() const { return collision; }
 
 private:
+  // A datum's name and the content it is made from.
+  struct Named {
+    std::string name;
+    std::string key;
+  };
+  // The name of a datum of `kind` whose content is `key`, interned: a name
+  // already given to another content is reported at `loc`.
+  Named intern(mlir::Location loc, llvm::StringRef kind, std::string key);
+  // The name of the box `con` of `type`.
+  Named boxName(mlir::Location loc, ConAttr con, mlir::Type type);
+  // The names of the cells of the run `con` of `type`, first to last.
+  llvm::SmallVector<Named> runNames(mlir::Location loc, ConAttr con, mlir::Type type);
+  // "caf" for a static memo cell of constructor `tag` of `data`, "box" for
+  // any other.
+  llvm::StringRef kindOf(DataType data, unsigned tag) const;
+  // What a field of `type` holding `value` contributes to its cell's content:
+  // a scalar as it prints, an unboxed sum as its constructor and fields, a
+  // reference as the name of what it points at.
+  std::string fieldKey(mlir::Location loc, mlir::Attribute value, mlir::Type type);
+  // An attribute's or a type's text, a key's words.
+  static std::string printed(mlir::Attribute attr);
+  static std::string printed(mlir::Type type);
+  // A cell's content: its type, its constructor and its fields' contents.
+  static std::string cellKey(mlir::Type type, const Ctor &ctor,
+                             llvm::ArrayRef<std::string> fields);
+
   llvm::SmallVector<mlir::Value> unboxed(mlir::OpBuilder &b, mlir::Location loc, ConAttr con,
                                          DataType data);
-  mlir::LLVM::GlobalOp box(mlir::OpBuilder &b, mlir::Location loc, ConAttr con, mlir::Type type);
-  mlir::LLVM::GlobalOp run(mlir::OpBuilder &b, mlir::Location loc, ConAttr con, CtorOp ctor);
+  mlir::LLVM::GlobalOp box(mlir::Location loc, ConAttr con, mlir::Type type);
+  mlir::LLVM::GlobalOp run(mlir::Location loc, ConAttr con, mlir::Type type);
   static bool isMemoCell(const layout::Cell &cell);
-  mlir::LLVM::LLVMFuncOp cafRelease(mlir::OpBuilder &b);
-  mlir::LLVM::GlobalOp global(mlir::OpBuilder &b, mlir::Location loc, llvm::StringRef prefix,
-                              mlir::Type type, bool isConstant,
+  // The global `name` holding `key`'s content, or null when it is not yet
+  // written.
+  mlir::LLVM::GlobalOp find(llvm::StringRef name) const;
+  mlir::LLVM::GlobalOp global(llvm::StringRef name, llvm::StringRef key, mlir::Type type,
+                              bool isConstant, unsigned alignment,
                               llvm::function_ref<mlir::Value(mlir::OpBuilder &)> init);
-  mlir::Value addressOf(mlir::OpBuilder &b, mlir::Location loc, mlir::LLVM::GlobalOp global);
   mlir::Value pack(mlir::OpBuilder &b, mlir::Location loc, mlir::Type structType,
                    mlir::ValueRange members);
   mlir::LLVM::GlobalOp
-  staticCell(mlir::OpBuilder &b, mlir::Location loc, CtorOp ctor,
+  staticCell(const Named &named, const layout::Cell &cell,
              llvm::function_ref<llvm::SmallVector<mlir::Value>(mlir::OpBuilder &, unsigned field)>
                  components);
   mlir::Value string(mlir::OpBuilder &b, mlir::Location loc, llvm::StringRef bytes);
@@ -76,12 +118,16 @@ private:
 
   mlir::ModuleOp module;
   const Layouts &layouts;
-  mlir::SymbolTable &symbols;
-  unsigned globals = 0;
-  llvm::DenseMap<std::pair<mlir::Attribute, mlir::Type>, mlir::LLVM::GlobalOp> statics;
-  llvm::StringMap<mlir::LLVM::GlobalOp> messages;
-  // The static memo cells, in the order they were written.
-  llvm::SmallVector<mlir::LLVM::GlobalOp> cafs;
+  // Where the globals are built until the merge.
+  mlir::OwningOpRef<mlir::ModuleOp> scratch;
+  // Each name given, with the content it was made from.
+  ContentNames names;
+  // The boxes already named, since a box's name reaches every datum it
+  // holds.
+  llvm::DenseMap<std::pair<mlir::Attribute, mlir::Type>, Named> boxNames;
+  llvm::StringMap<Written> globals;
+  llvm::StringSet<> cafs;
+  bool collision = false;
 };
 
 } // namespace idr::conversion

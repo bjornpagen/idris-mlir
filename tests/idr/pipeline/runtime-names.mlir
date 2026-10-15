@@ -15,7 +15,7 @@
 // module before linking, naming the symbol, whether the runtime defines it
 // (one of its functions) or only calls it (the C library's write); under a
 // name of its own the same program compiles and runs.
-module attributes {idr.program} {
+module {
   idr.func private @Prog.count(%n: i64) -> i64 {
     %r = idr.match_lit %n : i64 -> (i64) {
     case 0 {

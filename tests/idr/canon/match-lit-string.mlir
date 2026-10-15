@@ -2,12 +2,12 @@
 // RUN: idris-mlir-opt %s --canonicalize=test-convergence=true -o /dev/null
 // A string that cannot be empty never takes the case "".
 
-// CHECK-LABEL: idr.func @nonempty(
+// CHECK-LABEL: idr.func private @nonempty(
 // CHECK-SAME: %[[X:.*]]: i64, %[[C:.*]]: i32, %[[S:.*]]: !idr.str)
 // CHECK-DAG: %[[ONE:.*]] = arith.constant 1 : i64
 // CHECK-NOT: {{(idr\.| )match_lit }}
 // CHECK: return %[[ONE]], %[[ONE]], %[[ONE]]
-idr.func @nonempty(%x: i64, %c: i32, %s: !idr.str) -> (i64, i64, i64) {
+idr.func private @nonempty(%x: i64, %c: i32, %s: !idr.str) -> (i64, i64, i64) {
   %zero = arith.constant 0 : i64
   %one = arith.constant 1 : i64
   %shown = idr.str.show signed %x : i64
@@ -42,14 +42,14 @@ idr.func @nonempty(%x: i64, %c: i32, %s: !idr.str) -> (i64, i64, i64) {
 }
 
 // Any other string may be empty; other keys stay.
-// CHECK-LABEL: idr.func @maybe_empty(
+// CHECK-LABEL: idr.func private @maybe_empty(
 // CHECK: match_lit %{{.*}} : !idr.str -> (i64) {
 // CHECK-NEXT: case "" {
 // CHECK: match_lit %{{.*}} : !idr.str -> (i64) {
 // CHECK-NEXT: case "1" {
 // CHECK-NOT: case ""
 // CHECK: default
-idr.func @maybe_empty(%x: i64, %s: !idr.str) -> (i64, i64) {
+idr.func private @maybe_empty(%x: i64, %s: !idr.str) -> (i64, i64) {
   %zero = arith.constant 0 : i64
   %one = arith.constant 1 : i64
   %a = idr.match_lit %s : !idr.str -> (i64) {

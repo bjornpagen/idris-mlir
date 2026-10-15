@@ -68,8 +68,7 @@ struct LowerReuse : IdrPattern<ReuseOp> {
   LogicalResult matchAndRewrite(ReuseOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    CtorOp ctor = lookupCtor(runtime.symbols(), op.getCtor());
-    const layout::Cell &layout = layouts.box(ctor);
+    const layout::Cell &layout = layouts.box(op.getDataType(), op.getTag());
     layout::CellInfo info = layout.info;
     ArrayRef<bool> kept = fields.kept(op);
     // The fields `cell` holds already when `held`, the others otherwise.
@@ -123,13 +122,13 @@ struct LowerTake : IdrPattern<TakeOp> {
   LogicalResult matchAndRewrite(TakeOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    Type type = unrestricted(op.getValue().getType());
-    CtorOp ctor = lookupCtor(runtime.symbols(), op.getCtor());
+    DataType data = op.getDataType();
+    unsigned tag = op.getTag();
     ValueRange value = adaptor.getValue();
     SmallVector<SmallVector<Value>> out;
-    if (auto data = dyn_cast<DataType>(type)) {
-      const layout::SumLayout &layout = layouts.sum(data.getName().getAttr());
-      for (const auto &slots : layout.fields.find(ctor.getSymName())->second)
+    if (!isBoxed(op.getValue().getType())) {
+      const layout::SumLayout &layout = layouts.sum(data);
+      for (const auto &slots : layout.fields[tag])
         out.push_back(llvm::map_to_vector(
             slots, [&](unsigned slot) { return value[layout.offset() + slot]; }));
       rewriter.replaceOpWithMultiple(op, std::move(out));
@@ -142,7 +141,7 @@ struct LowerTake : IdrPattern<TakeOp> {
       rewriter.eraseOp(op);
       return success();
     }
-    const layout::Cell &layout = layouts.box(ctor);
+    const layout::Cell &layout = layouts.box(data, tag);
     SmallVector<DropOp> drops;
     for (Value field : op.getFields())
       drops.push_back(field.hasOneUse() ? dyn_cast<DropOp>(*field.user_begin()) : DropOp());
@@ -150,8 +149,8 @@ struct LowerTake : IdrPattern<TakeOp> {
     // here, each with whether it is counted.
     SmallVector<Value> moving, dying;
     SmallVector<bool> movingCounted, dyingCounted;
-    for (auto [index, slots, fieldType] :
-         llvm::enumerate(layout.fields, ctor.getFieldTypes().getAsValueRange<TypeAttr>())) {
+    ArrayRef<Type> fieldTypes = data.getCtor(tag).fields;
+    for (auto [index, slots, fieldType] : llvm::enumerate(layout.fields, fieldTypes)) {
       out.push_back(runtime.load(rewriter, loc, cell, slots));
       bool dies = drops[index] != nullptr;
       llvm::append_range(dies ? dying : moving, out.back());
@@ -192,8 +191,11 @@ struct LowerTake : IdrPattern<TakeOp> {
 void populateCountingPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                               const Layouts &layouts, Runtime &runtime, const Fields &fields) {
   MLIRContext *ctx = patterns.getContext();
-  patterns.add<LowerDup, LowerDrop, LowerTake, LowerAsItself<BorrowOp>, LowerAsItself<ShareOp>>(
-      converter, ctx, layouts, runtime);
+  // A cell an allocation gave, adopted as owned, and an owned value given to
+  // a store, change no count: each is its operand.
+  patterns.add<LowerDup, LowerDrop, LowerTake, LowerAsItself<BorrowOp>, LowerAsItself<ShareOp>,
+               LowerAsItself<OwnAdoptOp>, LowerAsItself<OwnGiveOp>>(converter, ctx, layouts,
+                                                                     runtime);
   patterns.add<LowerReuse>(converter, ctx, layouts, runtime, fields);
 }
 

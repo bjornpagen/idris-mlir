@@ -23,14 +23,17 @@ else
   say "Idris's error: not reported"
   show "$work/compile.log"
 fi
-if [ -e "$work/build/exec/prog.mlir" ] || grep -qF 'unsupported (' "$work/compile.log"; then
+if [ -n "$(artifact_file "$work" prog module)" ] || grep -qF 'unsupported (' "$work/compile.log"; then
   say "pipeline: ran"
   show "$work/compile.log"
 else
   say "pipeline: did not run"
 fi
-if [ -e "$work/build/exec/prog" ] || [ -e "$work/build/exec/prog.o" ] ||
-   [ -e "$work/build/exec/prog.core" ]; then
+written=
+for kind in $artifact_kinds; do
+  [ -z "$(artifact_file "$work" prog "$kind")" ] || written=yes
+done
+if [ -n "$written" ]; then
   say "artifacts: written"
 else
   say "artifacts: none"

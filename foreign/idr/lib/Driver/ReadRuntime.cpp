@@ -7,6 +7,7 @@
 #include "idr/Driver/Options.h"
 #include "idr/Driver/Report.h"
 #include "idr/Driver/Runtime.h"
+#include "idr/IR/IdrDialect.h"
 
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringRef.h"
@@ -158,7 +159,7 @@ static bool prepareMember(llvm::Module &member, llvm::StringRef name) {
       global->eraseFromParent();
   for (const llvm::GlobalVariable &global : member.globals())
     if (global.hasAppendingLinkage()) {
-      Report() << "unsupported (runtime): runtime member " << name
+      Report() << idr::refusalHead(idr::Rule::Runtime) << ": runtime member " << name
                << " defines the appending global " << global.getName();
       return false;
     }

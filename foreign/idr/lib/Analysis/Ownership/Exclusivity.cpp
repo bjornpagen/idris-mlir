@@ -32,7 +32,6 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ownership.h"
-#include "idr/IR/Symbols.h"
 
 #include "mlir/Analysis/DataFlow/ConstantPropagationAnalysis.h"
 #include "mlir/Analysis/DataFlow/DeadCodeAnalysis.h"
@@ -104,16 +103,15 @@ class ExclusiveAnalysis : public SparseForwardDataFlowAnalysis<CellsLattice> {
 public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(ExclusiveAnalysis)
 
-  ExclusiveAnalysis(DataFlowSolver &solver, SymbolTable &symbols)
-      : SparseForwardDataFlowAnalysis(solver), symbols(symbols),
-        stack(symbols.getOp()->getContext()) {}
+  using SparseForwardDataFlowAnalysis::SparseForwardDataFlowAnalysis;
 
   LogicalResult visitOperation(Operation *op, ArrayRef<const CellsLattice *> operands,
                                ArrayRef<CellsLattice *> results) override {
     // A constructor reaches its box fields' cells; a stack cell is lent
     // to whoever holds it, never theirs.
     if (isa<ConOp, ReuseOp>(op)) {
-      Sharing sharing = stack.isAttrPresent(op) ? Sharing::Shared : Sharing::Exclusive;
+      auto con = dyn_cast<ConOp>(op);
+      Sharing sharing = con && con.getStack() ? Sharing::Shared : Sharing::Exclusive;
       for (auto [operand, lattice] : llvm::zip(op->getOperands(), operands))
         if (ownership::followed(operand) && !isa<TokenType>(unrestricted(operand.getType())))
           sharing = std::max(sharing, held(lattice));
@@ -122,8 +120,7 @@ public:
     // A copy of static data that reaches no cell but atoms is in every
     // exclusive tree; any other copy shares its cells with the original.
     if (auto dup = dyn_cast<DupOp>(op)) {
-      bool atoms = ownership::reachesOnlyAtoms(
-          dup.getValue(), [&](Type type) { return lookupData(symbols, type); });
+      bool atoms = ownership::reachesOnlyAtoms(dup.getValue());
       return set(results[0], atoms ? Sharing::Exclusive : Sharing::Shared);
     }
     // The fields of an exclusive value are exclusive: it alone reached
@@ -164,20 +161,16 @@ private:
     propagateIfChanged(lattice, lattice->join(Cells::of(sharing)));
     return success();
   }
-
-  SymbolTable &symbols;
-  IdrDialect::StackAttrHelper stack;
 };
 
 } // namespace
 
-Exclusivity::Exclusivity(Operation *op, AnalysisManager &am) {
+Exclusivity::Exclusivity(Operation *op, AnalysisManager &) {
   auto module = cast<ModuleOp>(op);
-  SymbolTable &symbols = am.getAnalysis<SymbolTable>();
   DataFlowSolver solver(DataFlowConfig().setInterprocedural(true));
   solver.load<DeadCodeAnalysis>();
   solver.load<NoConstants>();
-  solver.load<ExclusiveAnalysis>(symbols);
+  solver.load<ExclusiveAnalysis>();
   if (mlir::failed(solver.initializeAndRun(module))) {
     unsolved = true;
     return;

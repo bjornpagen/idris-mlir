@@ -21,13 +21,14 @@ LogicalResult cellsFit(ModuleOp module, AnalysisManager &analyses, StringRef) {
   Layouts &layouts = analyses.getAnalysis<Layouts>();
   bool held = succeeded(layouts.valid());
   layout::Holders holders(module);
-  holders.overflows(layouts, [&](Operation *at, ArrayRef<Type>, unsigned objects) {
-    InFlightDiagnostic diag = fail(at->getLoc(), property);
-    if (auto ctor = dyn_cast<CtorOp>(at))
-      diag << "the cell of @" << ctor->getParentOfType<DataOp>().getSymName() << "::@"
-           << ctor.getSymName();
+  holders.overflows(layouts, [&](DataType type, std::optional<unsigned> tag, ArrayRef<Type>,
+                                 unsigned objects) {
+    InFlightDiagnostic diag = fail(module.getLoc(), property);
+    if (tag)
+      diag << "the cell of @" << type.getCtor(*tag).name.getValue() << " of \"" << type.getName()
+           << "\"";
     else
-      diag << "an element of an array of @" << cast<DataOp>(at).getSymName();
+      diag << "an element of an array of \"" << type.getName() << "\"";
     diag << " holds " << objects << " counted references, and a header counts at most "
          << layout::mostObjects;
     held = false;

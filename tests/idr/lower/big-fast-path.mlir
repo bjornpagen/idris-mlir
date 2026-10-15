@@ -28,28 +28,28 @@
 // CHECK: call {{.*}} @idris_rt_big_add(
 // CHECK: ret
 module {
-  idr.func @sum(%x: i32, %y: i32) -> i64 {
+  idr.func private @sum(%x: i32, %y: i32) -> i64 {
     %a = idr.big.from_int signed %x : i32
     %b = idr.big.from_int signed %y : i32
     %s = idr.big.add %a, %b
     %r = idr.big.to_int %s : i64
     return %r : i64
   }
-  idr.func @difference(%x: i32, %y: i8) -> i64 {
+  idr.func private @difference(%x: i32, %y: i8) -> i64 {
     %a = idr.big.from_int signed %x : i32
     %b = idr.big.from_int %y : i8
     %s = idr.big.sub %a, %b
     %r = idr.big.to_int %s : i64
     return %r : i64
   }
-  idr.func @product(%x: i32, %y: i16) -> i64 {
+  idr.func private @product(%x: i32, %y: i16) -> i64 {
     %a = idr.big.from_int signed %x : i32
     %b = idr.big.from_int signed %y : i16
     %s = idr.big.mul %a, %b
     %r = idr.big.to_int %s : i64
     return %r : i64
   }
-  idr.func @compared(%x: i32, %y: i32) -> i1 {
+  idr.func private @compared(%x: i32, %y: i32) -> i1 {
     %a = idr.big.from_int signed %x : i32
     %b = idr.big.from_int signed %y : i32
     %lt = idr.big.cmp lt %a, %b
@@ -58,7 +58,7 @@ module {
     return %r : i1
   }
   // The clamp of an Integer, one more, and its predecessor: all natural.
-  idr.func @naturals(%x: i32) -> i64 {
+  idr.func private @naturals(%x: i32) -> i64 {
     %a = idr.big.from_int signed %x : i32
     %n = idr.nat.from_big %a
     %one = idr.constant #idr.big<"1"> : !idr.nat
@@ -68,7 +68,7 @@ module {
     %r = idr.big.to_int %i : i64
     return %r : i64
   }
-  idr.func @unknown(%a: !idr.big, %b: !idr.big) -> !idr.big {
+  idr.func private @unknown(%a: !idr.big, %b: !idr.big) -> !idr.big {
     %s = idr.big.add %a, %b
     return %s : !idr.big
   }

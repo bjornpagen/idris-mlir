@@ -22,7 +22,7 @@
 // CHECK: llvm.call @idris_rt_big_cmp(%{{.*}}, %[[Z]]) : (i64, i64) -> i32
 // CHECK: scf.if
 // CHECK: llvm.call @idris_rt_big_sub
-module attributes {idr.program} {
+module {
   idr.func private @byte(%b: i8) -> i64 {
     %r = idr.match_lit %b : i8 -> (i64) {
     case 1 {

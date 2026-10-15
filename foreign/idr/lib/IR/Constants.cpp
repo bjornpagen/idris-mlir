@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idr.constant: the dialect's values, stored untyped, and the check of
-// every symbol a constant names, through its fields and captures, once per
+// idr.constant: the dialect's values, stored untyped, and the check of a
+// constant through its fields and captures: a constructor against its data
+// type's body, and a closure against its function's signature, once per
 // module verify through the collection the symbol-use walk hands over.
 
 #include "idr/IR/IdrDialect.h"
@@ -24,9 +25,9 @@ Attribute untyped(Attribute value) {
   return TypeSwitch<Attribute, Attribute>(value)
       .Case([&](ConAttr con) {
         if (con.isRun())
-          return ConAttr::getRun(ctx, con.getCtor(), con.getSpine(), con.getRunCells(),
-                                 con.getTail());
-        return ConAttr::get(ctx, con.getCtor(), con.getFields());
+          return ConAttr::getRun(ctx, con.getData(), con.getCtor(), con.getSpine(),
+                                 con.getRunCells(), con.getTail());
+        return ConAttr::get(ctx, con.getData(), con.getCtor(), con.getFields());
       })
       .Case([&](ClosureAttr closure) {
         return ClosureAttr::get(ctx, closure.getCallee(), closure.getCaptures());
@@ -113,14 +114,14 @@ LogicalResult verifyConstant(Operation *op, SymbolTableCollection &symbols, Attr
     auto con = dyn_cast<ConAttr>(value);
     if (!con)
       return verifyClosure(op, symbols, value, type, checked);
-    auto data = symbols.lookupNearestSymbolFrom<DataOp>(
-        op, FlatSymbolRefAttr::get(con.getCtor().getRootReference()));
-    if (!data || data.getValueType() != type)
-      return op->emitOpError("has a constant of an undeclared type ") << type;
-    CtorOp ctor = lookupCtor(data, con.getCtor().getLeafReference());
-    if (!ctor)
-      return op->emitOpError("has a constant of an unknown constructor ") << con.getCtor();
-    SmallVector<Type> fields(ctor.getFieldTypes().getAsValueRange<TypeAttr>());
+    DataType data = con.getData();
+    if (!data.hasBody())
+      return op->emitOpError("has a constant of \"") << data.getName() << "\", which has no body";
+    std::optional<unsigned> tag = data.getTag(con.getCtor().getValue());
+    if (!tag)
+      return op->emitOpError("has a constant of ")
+             << con.getCtor() << ", which is not a constructor of \"" << data.getName() << "\"";
+    SmallVector<Type> fields(data.getCtor(*tag).fields);
     if (!con.isRun())
       return verifyConstants(op, symbols, con.getFields(), fields, checked);
     // Each cell after the first is the field along the spine of the one
@@ -147,10 +148,8 @@ LogicalResult verifyConstant(Operation *op, SymbolTableCollection &symbols, Attr
 bool ConstantOp::isBuildableWith(Attribute value, Type type) {
   if (untyped(value) != value || type != unrestricted(type))
     return false;
-  if (auto con = dyn_cast<ConAttr>(value)) {
-    FlatSymbolRefAttr name = getSumName(type);
-    return name && name.getAttr() == con.getCtor().getRootReference();
-  }
+  if (auto con = dyn_cast<ConAttr>(value))
+    return dataTypeOf(type) == con.getData();
   return (isa<ClosureAttr>(value) && (isa<FnType>(type) || isa<LazyType>(type))) ||
          (isa<BigAttr>(value) && isa<BigType>(type)) ||
          // A natural constant is never negative: the type proves it.

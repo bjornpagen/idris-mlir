@@ -2,7 +2,7 @@
 # Emit writes ops of the contract's dialects only, each through the builder
 # generated from the op's ODS (IdrisMLIR.Dialect.*, tools/dialects.sh):
 # idris-mlir parses with a registry of exactly idr, arith, math, ub,
-# memref and builtin. So
+# memref, tensor, scf and builtin. So
 #   - each generated module builds ops of one dialect of the contract, and
 #     the contract's dialects each have one;
 #   - no other module builds an op (`MkOp`), other than MLIR.idr, which
@@ -20,7 +20,7 @@
 #     each through the sum's list of mnemonics.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 cd "$root" || exit 1
-contract='idr arith math ub memref builtin'
+contract='idr arith math ub memref tensor scf builtin'
 src=compiler/src/IdrisMLIR
 
 : > "$work/built"

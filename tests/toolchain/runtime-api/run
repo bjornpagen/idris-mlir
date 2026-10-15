@@ -4,7 +4,9 @@
 # idris_rt.h, every double's text reads back as it, bytes from outside
 # become a string as idris_rt.h says, and every operation returns a result
 # its caller owns. Reference counting frees what it counts, a structure of
-# any depth on a small stack, and a program that returns reports its live
+# any depth on a small stack; a new array's object slots are NULL from
+# birth; a copy of a memref's view counts each object it copies before it
+# releases what it overwrites; and a program that returns reports its live
 # cells when IDRIS_RT_LIVE is 1.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 # The runtime archive the build made, linked natively with GMP.

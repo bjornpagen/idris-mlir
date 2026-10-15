@@ -38,8 +38,6 @@ static int frontend(llvm::StringRef frontendPath, llvm::StringRef source,
     args.insert(args.end(), {"--package-path", directory});
   for (const std::string &package : packages)
     args.insert(args.end(), {"-p", package});
-  if (!breakShape.empty())
-    args.insert(args.end(), {"--break-shape", breakShape.getValue()});
   if (noPrelude)
     args.emplace_back("--no-prelude");
   args.insert(args.end(),
@@ -62,12 +60,13 @@ static int frontend(llvm::StringRef frontendPath, llvm::StringRef source,
   return failure;
 }
 
-// The pinned clang links the program's one object and the runtime's (what
-// the program did not inline resolves there) into an executable for the
-// target the object was compiled for.
+// The pinned clang links the objects of the program's bins, in their
+// order, and the runtime's (what the program did not inline resolves
+// there) into an executable for the target the objects were compiled for.
 static int link(const Artifacts &artifacts) {
-  std::vector<llvm::StringRef> argv{pinnedCc, artifacts.objectPath, runtimePath.getValue(), "-o",
-                                    artifacts.executablePath};
+  std::vector<llvm::StringRef> argv{pinnedCc};
+  argv.insert(argv.end(), artifacts.objects.begin(), artifacts.objects.end());
+  argv.insert(argv.end(), {runtimePath.getValue(), "-o", artifacts.executablePath});
   argv.insert(argv.end(), std::begin(linkFlags), std::end(linkFlags));
   std::string error;
   bool notRun = false;
@@ -100,7 +99,7 @@ int idr::driver::compile(llvm::StringRef frontendPath, Input kind, Artifacts &ar
     if (int status = frontend(frontendPath, inputPath, artifacts))
       return status;
   }
-  if (int status = run(artifacts.modulePath, artifacts.objectPath, rootTiming))
+  if (int status = run(artifacts, rootTiming))
     return status;
   if (!objectOnly) {
     IDR_ZONE_IN("link", Link);

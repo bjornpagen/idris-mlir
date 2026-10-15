@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The idr dialect and the enums every other part of its ODS names: the
-// halves of a grade.
+// halves of a grade, the kinds of sum a data type is, and the rules a
+// refusal of a program names.
 
 #ifndef IDR_BASE
 #define IDR_BASE
@@ -30,6 +31,8 @@ def Idr_Dialect : Dialect {
   let extraClassDeclaration = [{
     ::mlir::Type parseType(::mlir::DialectAsmParser &parser) const override;
     void printType(::mlir::Type type, ::mlir::DialectAsmPrinter &printer) const override;
+    // The types, registered where their storage is complete (lib/IR/Types.cpp).
+    void registerTypes();
 
     // The runtime cells the folders left live on this context, summed over
     // every thread that folded. Per context, because a context is one
@@ -46,16 +49,10 @@ def Idr_Dialect : Dialect {
   // Upstream's patterns on other dialects' ops over this dialect's values:
   // the dimension of an array (lib/IR/Dialect.cpp).
   let hasCanonicalizer = 1;
-  // The module's rules under `program`, the place of `stack`, and no other
-  // idr.* attribute on an op or an argument.
+  // No idr.* attribute on an op or an argument: every fact is an op's own
+  // property or a type, where no pass drops it silently.
   let hasOperationAttrVerify = 1;
   let hasRegionArgAttrVerify = 1;
-  // The dialect's two discardable attributes: the module is a whole
-  // program (`program`, on the module), and idr-stack's box whose cell never
-  // leaves its frame (`stack`, on an idr.con), each read and written only
-  // through its generated helper. A function's facts are idr.func's own
-  // attributes, and a fact Idris proved is never one of these: it is a type.
-  let discardableAttrs = (ins "::mlir::UnitAttr":$program, "::mlir::UnitAttr":$stack);
   // Constants of scalars, regions ending in ub.unreachable, the branch the
   // inliner's block form of idr.return becomes, and the layouts of cells,
   // whose sizes the owned stage checks, which are LLVM's. No idr op or
@@ -85,6 +82,85 @@ def Idr_Permission : I32EnumAttr<"Permission", "what a value owns", [
     I32EnumAttrCase<"Own", 2, "own">, I32EnumAttrCase<"Excl", 3, "excl">]> {
   let cppNamespace = "::idr";
   let genSpecializedAttr = 0;
+}
+
+//===----------------------------------------------------------------------===//
+// Data types
+//===----------------------------------------------------------------------===//
+
+// What sum a data type is, said once in its body: an Idris data type;
+// base's list, nil and then cons, which the string ops walk and build; one
+// of mlir-linear's, rebuilt in place and held alone, as the registry names
+// it; a sum idr-defunctionalize makes of closures, a constructor per label
+// whose fields are its captures; or one it makes of a lazy type, its labels
+// and then the states a force writes a cell into, `running` and `forced`.
+def Idr_SumKind : I32EnumAttr<"SumKind", "what sum a data type is", [
+    I32EnumAttrCase<"Plain", 0, "plain">, I32EnumAttrCase<"BaseList", 1, "list">,
+    I32EnumAttrCase<"InPlace", 2, "in_place">, I32EnumAttrCase<"Closures", 3, "closures">,
+    I32EnumAttrCase<"Memo", 4, "memo">]> {
+  let cppNamespace = "::idr";
+  let genSpecializedAttr = 0;
+}
+
+//===----------------------------------------------------------------------===//
+// Refusals
+//===----------------------------------------------------------------------===//
+
+// The rules a refusal of a program names, each with the phrase it is shown
+// as, `unsupported (<phrase>): ...`. The frontend's and the pipeline's are
+// one list: C++ reads it from here, and idris-mlir-tblgen writes the Idris
+// side's `Rule` from it. A phrase of two words is no keyword, so the
+// attribute writes it as a string.
+def Idr_Rule : I32EnumAttr<"Rule", "the rule a refusal of a program names", [
+    I32EnumAttrCase<"ProgramShape", 0, "program">,
+    I32EnumAttrCase<"TrustedLibrary", 1, "library">,
+    I32EnumAttrCase<"WorldUse", 2, "world">,
+    I32EnumAttrCase<"IOPrimitive", 3, "io primitive">,
+    I32EnumAttrCase<"ValueType", 4, "type">,
+    I32EnumAttrCase<"DependentField", 5, "dependent field">,
+    I32EnumAttrCase<"DictionaryField", 6, "dictionary field">,
+    I32EnumAttrCase<"DataType", 7, "data type">,
+    I32EnumAttrCase<"DefinitionShape", 8, "definition">,
+    I32EnumAttrCase<"Match", 9, "match">,
+    I32EnumAttrCase<"StaticArgument", 10, "static argument">,
+    I32EnumAttrCase<"Polymorphism", 11, "polymorphism">,
+    I32EnumAttrCase<"Laziness", 12, "laziness">,
+    I32EnumAttrCase<"Primitive", 13, "primitive">,
+    I32EnumAttrCase<"StringPrimitive", 14, "string primitive">,
+    I32EnumAttrCase<"RuntimeClosure", 15, "runtime closure">,
+    I32EnumAttrCase<"EscapeHatch", 16, "escape hatch">,
+    I32EnumAttrCase<"UserPragma", 17, "pragma">,
+    // Threads (`fork`, `threadWait`): no scheduler, and shared mutable
+    // state the counting heap does not have.
+    I32EnumAttrCase<"Threads", 18, "threads">,
+    // A collector finalizer (`onCollect`). Release is the counting walk;
+    // nothing runs at collection.
+    I32EnumAttrCase<"Finalizer", 19, "finalizer">,
+    // Raw memory (`System.FFI`'s `malloc` and its kin). A pointer of base
+    // is a handle of the runtime's, and references the compiler keeps are
+    // heap values it accounts for.
+    I32EnumAttrCase<"RawPointer", 20, "raw pointer">,
+    // A signal handler, which runs an effect at a time the world does not
+    // name.
+    I32EnumAttrCase<"Signal", 21, "signal">,
+    // Process creation (`system`, `popen`), outside the language for now.
+    I32EnumAttrCase<"Process", 22, "process">,
+    I32EnumAttrCase<"CompiledModule", 23, "compiled module">,
+    I32EnumAttrCase<"IdentityHook", 24, "identity hook">,
+    I32EnumAttrCase<"HookShape", 25, "hook">,
+    // A name Idris has deprecated. The message names its replacement.
+    I32EnumAttrCase<"Deprecated", 26, "deprecated">,
+    // A cell the runtime's header cannot describe.
+    I32EnumAttrCase<"Layout", 27, "layout">,
+    // A value passed shared where the in-place promise needs it alone.
+    I32EnumAttrCase<"Uniqueness", 28, "uniqueness">,
+    // An array that can reach itself, which counting cannot free.
+    I32EnumAttrCase<"Cycle", 29, "cycle">,
+    // A runtime the compiler cannot link as it is.
+    I32EnumAttrCase<"Runtime", 30, "runtime">]> {
+  let cppNamespace = "::idr";
+  let genSpecializedAttr = 0;
+  let parameterPrinter = "$_printer.printKeywordOrString(::idr::stringifyRule($_self))";
 }
 
 #endif // IDR_BASE

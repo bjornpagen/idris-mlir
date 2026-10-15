@@ -35,8 +35,7 @@ profile_prepare() {
 }
 
 # profile_compile: $work/fixture/Main.idr to build/exec/Main, with the
-# installed packages its `packages` names; with `demand-in-place` it makes
-# the in-place promise, which a program can break.
+# installed packages its `packages` names.
 profile_compile() {
   profile_options=
   if [ -f "$work/fixture/packages" ]; then
@@ -44,8 +43,7 @@ profile_compile() {
       profile_options="$profile_options -p $profile_package"
     done
   fi
-  [ -f "$work/fixture/demand-in-place" ] && profile_options="$profile_options --demand-in-place"
-  # shellcheck disable=SC2086 # the packages and the promise are words
+  # shellcheck disable=SC2086 # the packages are words
   compile_program $profile_options "$work/fixture/Main.idr" Main
 }
 
@@ -117,7 +115,7 @@ profile_accept() {
     show "$work/compile.out" "$work/compile.err"
     return
   fi
-  artifacts "$work/fixture" Main.core Main.mlir Main.o Main
+  artifacts "$work/fixture" Main
   [ -f "$accept_fixture/expected-stdout" ] || [ -f "$accept_fixture/expected-exit" ] || return 0
   run_ours accept "$work/fixture/build/exec/Main" /dev/null
   accept_exit=0
@@ -136,4 +134,63 @@ profile_accept() {
     diff "$work/accept.expected" "$work/accept.out" | head -n 20 | sed 's/^/  | /'
   fi
   empty stderr "$work/accept.err"
+}
+
+# registry_shadowed KEY CASE SOURCE MODULE NAME EDIT MAIN [OPTION...]: an
+# input the registry's validation refuses, for its entry KEY. The fixture
+# $work/CASE holds MAIN as its Main.idr and, as its own module MODULE (a
+# path such as System/Clock.idr), the pinned SOURCE (a path under the
+# repository) with one edit to NAME, the definition the entry resolves to:
+# `shape` gives its first declaration a leading argument that every use
+# fills by default, so the module still checks but NAME has another shape;
+# `gone` takes away the paragraph that holds its last declaration (its
+# documentation, modifiers and clauses, up to a blank line), for an entry
+# that names a definition and fixes no shape.
+# The validation reads only the loaded context, so the fixture's own module
+# is what it meets. Compiled with OPTION..., the program must stop at the
+# entry, with the hook rule, the entry, what it expects and what was found,
+# and leave no artifact.
+registry_shadowed() {
+  rs_key=$1
+  rs_case=$2
+  rs_source=$root/$3
+  rs_module=$4
+  rs_name=$5
+  rs_edit=$6
+  rs_main=$7
+  shift 7
+  mkdir -p "$work/$rs_case/$(dirname "$rs_module")"
+  printf '%s\n' "$rs_main" > "$work/$rs_case/Main.idr"
+  case $rs_edit in
+    shape)
+      awk -v name="$rs_name" '
+        !done && ($1 == name || ($1 == "%extern" && $2 == name)) && index($0, name " : ") {
+          i = index($0, name " : ") + length(name " : ")
+          $0 = substr($0, 1, i - 1) "{default MkUnit shadowed : Unit} -> " substr($0, i)
+          done = 1
+        }
+        { print }
+        END { if (!done) exit 1 }' "$rs_source" > "$work/$rs_case/$rs_module" ;;
+    gone)
+      awk -v name="$rs_name" '
+        NR == FNR {
+          if (/^[[:space:]]*$/) start = FNR + 1
+          if ($1 == name && $2 == ":") { from = start; at = FNR }
+          next
+        }
+        FNR == from { gone = 1 }
+        gone && FNR > at && /^[[:space:]]*$/ { gone = 0 }
+        !gone { print }
+        END { if (!at) exit 1 }' "$rs_source" "$rs_source" > "$work/$rs_case/$rs_module" ;;
+  esac || { say "$rs_key broken: $rs_name not found in $3"; return; }
+  compile_program "$@" "$work/$rs_case/Main.idr" prog
+  say "$rs_key broken: exit $compiled"
+  if grep -qF "unsupported (hook): the registry's entry $rs_key (" "$work/compile.out" "$work/compile.err" &&
+     grep -q "expects .*, but found " "$work/compile.out" "$work/compile.err"; then
+    say "$rs_key broken: the error shows the entry, what it expects and what was found"
+  else
+    say "$rs_key broken: no hook error for the entry"
+    show "$work/compile.out" "$work/compile.err"
+  fi
+  no_artifacts "$work/$rs_case"
 }

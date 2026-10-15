@@ -6,7 +6,7 @@
 // the length and the characters of a string picked at runtime, and a match
 // on it.
 // CHECK: 3 98 é 2
-module attributes {idr.program} {
+module {
   idr.func private @word(%c: i32) -> !idr.str {
     %r = idr.match_lit %c : i32 -> (!idr.str) {
     case 97 {

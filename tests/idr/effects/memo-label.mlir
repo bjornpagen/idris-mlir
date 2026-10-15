@@ -6,14 +6,10 @@
 // holds a value already made, and the maker does no more than its own
 // body does.
 
-idr.data @lazy$0 box memo labels [@divides] {
-  idr.ctor @divides (i64)
-  idr.ctor @running ()
-  idr.ctor @forced (i64)
-}
 
 // CHECK-LABEL: idr.func private @divides(
 // CHECK-SAME: effects = #idr.effects<crash>
+!lazy$0 = !idr.data<"lazy$0", memo [@divides(i64), @running(), @forced(i64)]>
 idr.func private @divides(%x: i64) -> i64 attributes {total} {
   %y = idr.check.nonzero %x, "division by zero" : i64
   %r = idr.div signed %x, %y : i64
@@ -22,14 +18,14 @@ idr.func private @divides(%x: i64) -> i64 attributes {total} {
 
 // CHECK-LABEL: idr.func private @makes(
 // CHECK-SAME: effects = #idr.effects<crash>
-idr.func private @makes(%x: i64) -> !idr.box<@lazy$0> attributes {total} {
-  %t = idr.con @lazy$0::@divides(%x) : (i64) -> !idr.box<@lazy$0>
-  return %t : !idr.box<@lazy$0>
+idr.func private @makes(%x: i64) -> !idr.box<!lazy$0> attributes {total} {
+  %t = idr.con @divides(%x) : (i64) -> !idr.box<!lazy$0>
+  return %t : !idr.box<!lazy$0>
 }
 
 // CHECK-LABEL: idr.func private @done(
 // CHECK-SAME: effects = #idr.effects<none>
-idr.func private @done(%x: i64) -> !idr.box<@lazy$0> attributes {total} {
-  %t = idr.con @lazy$0::@forced(%x) : (i64) -> !idr.box<@lazy$0>
-  return %t : !idr.box<@lazy$0>
+idr.func private @done(%x: i64) -> !idr.box<!lazy$0> attributes {total} {
+  %t = idr.con @forced(%x) : (i64) -> !idr.box<!lazy$0>
+  return %t : !idr.box<!lazy$0>
 }

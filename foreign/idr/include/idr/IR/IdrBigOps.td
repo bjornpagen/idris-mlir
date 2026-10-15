@@ -231,10 +231,11 @@ def Idr_BigFromStrOp : Idr_Op<"big.from_str", [Idr_CallsRuntime, Idr_Primitive]>
 }
 
 def Idr_ArrayValue : Type<CPred<"::idr::isArray(::idr::unrestricted($_self))">,
-                          "an array of rank 0 or 1 at any grade", "::mlir::Type">;
-// What has a length: an array of one dimension, as a buffer and the index
-// space of a loop are.
+                          "an array a world orders, memref<?xE, #idr.world> or memref<E, #idr.world>, at any grade",
+                          "::mlir::Type">;
+// What has a length: an array a world orders of one dimension, as a buffer is.
 def Idr_Rank1ArrayValue : Type<CPred<"::idr::isRank1Array(::idr::unrestricted($_self))">,
-                               "an array of one dimension at any grade", "::mlir::Type">;
+                               "an array a world orders of one dimension at any grade",
+                               "::mlir::Type">;
 
 #endif // IDR_BIG_OPS

@@ -11,7 +11,7 @@
 // error, which leaves every file as it was.
 // FRONT: idris-mlir: {{.*}}the frontend's, for Idris source
 // SAME: idris-mlir: -o names outputs that collide
-module attributes {idr.program} {
+module {
   idr.func @Prog.main() -> i64 {
     %c = arith.constant 0 : i64
     return %c : i64

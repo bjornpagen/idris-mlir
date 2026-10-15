@@ -1,19 +1,17 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
-||| MLIR's textual form, as `Emit` writes it. A type and an attribute are
-||| data: the builtin ones the frontend uses are constructors here, and each
-||| dialect's are the constructors of the sums generated from the dialect's
-||| ODS (IdrisMLIR.Syntax.*), which this module's types and attributes hold;
-||| each is written in the syntax ODS declares for it, which the dialect's
-||| generated C++ parser reads. An op is written in its dialect's declarative
-||| format where the dialect's generated printer has one for it (a
-||| `Format`), its regions and location appended here; otherwise in MLIR's
-||| generic form, which every op has and which ODS says whole: its name,
-||| operands, inherent attributes (its properties), regions, discardable
-||| attributes, types and location. The generated builders make the ops
-||| (IdrisMLIR.Dialect.*). An op's custom syntax is C++ (custom directives,
-||| hand-written parsers), which nothing generated from ODS can know, so
-||| such an op is written generic.
+||| MLIR's ops, types and attributes, as `Emit` makes them. A type and an
+||| attribute are data: the builtin ones the frontend uses are constructors
+||| here, and each dialect's are the constructors of the sums generated from
+||| the dialect's ODS (IdrisMLIR.Syntax.*), which this module's types and
+||| attributes hold; each is written in the syntax ODS declares for it,
+||| which the dialect's generated C++ parser reads. The handoff is MLIR
+||| bytecode (IdrisMLIR.MLIR.Bytecode), which keeps every attribute and type
+||| as that text, the bytecode's own encoding of one a dialect gives no
+||| other, and every op as its parts: name, operands, inherent attributes
+||| (its properties), regions, discardable attributes, result types and
+||| location. The generated builders make the ops (IdrisMLIR.Dialect.*). An
+||| op's text, in MLIR's generic form, is only what a content key hashes.
 module IdrisMLIR.MLIR
 
 import public IdrisMLIR.MLIR.Text
@@ -34,33 +32,39 @@ import Data.String
 ------------------------------------------------------------------------------
 
 namespace MlirType
+  ||| A dimension of a shaped type: an extent the type fixes, or one the
+  ||| value carries, written `?`.
+  public export
+  data Dim = Static Nat | Dynamic
+
+export
+Eq Dim where
+  Static a == Static b = a == b
+  Dynamic == Dynamic = True
+  _ == _ = False
+
+namespace MlirAttr
+  ||| An attribute, defined below: a memref's memory space is one, so the
+  ||| types hold attributes as the attributes hold types.
+  public export
+  data MlirAttr : Type
+
+namespace MlirType
   ||| A type: a builtin one, or a dialect's, which holds types of its own.
-  ||| A signless integer type, `i64`, is read as an op that reads it says;
-  ||| an array of elements of a type is a memref of as many dimensions as
-  ||| it has, each dynamic: of none, the memref of one element.
+  ||| A signless integer type, `i64`, is read as an op that reads it says.
+  ||| A ranked tensor's and a memref's dimensions are outermost first; a
+  ||| tensor has no encoding, and a memref the identity layout and the
+  ||| memory space given, the default one when none is.
   public export
   data MlirType
     = IntegerType Nat
     | F64Type
     | IndexType
     | NoneType
-    | MemRefType Nat MlirType
+    | RankedTensorType (List Dim) MlirType
+    | MemRefType (List Dim) MlirType (Maybe MlirAttr)
     | FunctionType (Signature MlirType)
     | Idr (IdrType MlirType)
-
-||| A type's text. A dialect's type writes the types it holds by this
-||| function, so each is a part of the type it is in: a recursion through a
-||| function the dialect's syntax is given, which the totality checker does
-||| not follow, so this and what prints with it are covering.
-export covering
-typeText : MlirType -> String
-typeText (IntegerType w) = "i" ++ show w
-typeText F64Type = "f64"
-typeText IndexType = "index"
-typeText NoneType = "none"
-typeText (MemRefType dynamic e) = "memref<" ++ concat (replicate dynamic "?x") ++ typeText e ++ ">"
-typeText (FunctionType s) = signature typeText s
-typeText (Idr x) = idrTypeText typeText x
 
 ------------------------------------------------------------------------------
 -- Attributes
@@ -71,7 +75,9 @@ namespace MlirAttr
   ||| attributes of its own. An integer is of an integer type or of `index`,
   ||| a float of a float type; a string is written as its UTF-8 bytes; the
   ||| dense array of `i32` is the number of values in each group of an op's
-  ||| operands or results, where more than one group may vary in length.
+  ||| operands or results, where more than one group may vary in length, and
+  ||| that of `i64` the static entries of an op's mixed index lists; a
+  ||| dictionary is an op's attributes of one kind, by name.
   public export
   data MlirAttr
     = UnitAttr
@@ -83,26 +89,79 @@ namespace MlirAttr
     | TypeAttr MlirType
     | ArrayAttr (List MlirAttr)
     | DenseI32ArrayAttr (List Nat)
+    | DenseI64ArrayAttr (List Integer)
+    | DictionaryAttr (List (String, MlirAttr))
     | Idr (IdrAttr MlirType MlirAttr)
     | Arith (ArithAttr MlirType MlirAttr)
     | UB (UBAttr MlirType MlirAttr)
 
-||| An attribute's text, each attribute it holds written by this function.
-export covering
-attrText : MlirAttr -> String
-attrText UnitAttr = "unit"
-attrText (BoolAttr b) = if b then "true" else "false"
-attrText (IntegerAttr n t) = show n ++ " : " ++ typeText t
-attrText (FloatAttr d t) = floatLiteral d ++ " : " ++ typeText t
-attrText (StringAttr s) = utf8 s
-attrText (SymbolRefAttr r) = symbolRef r
-attrText (TypeAttr t) = typeText t
-attrText (ArrayAttr as) = array attrText as
-attrText (DenseI32ArrayAttr []) = "array<i32>"
-attrText (DenseI32ArrayAttr ns) = "array<i32: " ++ commaSeparated (map show ns) ++ ">"
-attrText (Idr x) = idrAttrText typeText attrText x
-attrText (Arith x) = arithAttrText typeText attrText x
-attrText (UB x) = ubAttrText typeText attrText x
+||| The entry of a static index list that an operand gives: MLIR's
+||| `ShapedType::kDynamic`, the least 64-bit integer.
+export
+dynamicExtent : Integer
+dynamicExtent = -9223372036854775808
+
+||| A dimension as a shaped type writes it, with the `x` after it.
+dimText : Dim -> String
+dimText (Static n) = show n ++ "x"
+dimText Dynamic = "?x"
+
+mutual
+  ||| A type's text. A dialect's type writes the types it holds by this
+  ||| function, so each is a part of the type it is in: a recursion through
+  ||| a function the dialect's syntax is given, which the totality checker
+  ||| does not follow, so this and what prints with it are covering.
+  export covering
+  typeText : MlirType -> String
+  typeText (IntegerType w) = "i" ++ show w
+  typeText F64Type = "f64"
+  typeText IndexType = "index"
+  typeText NoneType = "none"
+  typeText (RankedTensorType ds e) = fastConcat ("tensor<" :: map dimText ds ++ [typeText e, ">"])
+  typeText (MemRefType ds e space) =
+    fastConcat ("memref<" :: map dimText ds ++ [typeText e, maybe "" (\a => ", " ++ attrText a) space, ">"])
+  typeText (FunctionType s) = signature typeText s
+  typeText (Idr x) = idrTypeText typeText x
+
+  ||| An attribute's text, each attribute it holds written by this function.
+  export covering
+  attrText : MlirAttr -> String
+  attrText UnitAttr = "unit"
+  attrText (BoolAttr b) = if b then "true" else "false"
+  attrText (IntegerAttr n t) = show n ++ " : " ++ typeText t
+  attrText (FloatAttr d t) = floatLiteral d ++ " : " ++ typeText t
+  attrText (StringAttr s) = Text.utf8 s
+  attrText (SymbolRefAttr r) = symbolRef r
+  attrText (TypeAttr t) = typeText t
+  attrText (ArrayAttr as) = array attrText as
+  attrText (DenseI32ArrayAttr []) = "array<i32>"
+  attrText (DenseI32ArrayAttr ns) = "array<i32: " ++ commaSeparated (map show ns) ++ ">"
+  attrText (DenseI64ArrayAttr []) = "array<i64>"
+  attrText (DenseI64ArrayAttr ns) = "array<i64: " ++ commaSeparated (map show ns) ++ ">"
+  attrText (DictionaryAttr as) = "{" ++ commaSeparated (map entryText as) ++ "}"
+  attrText (Idr x) = idrAttrText typeText attrText x
+  attrText (Arith x) = arithAttrText typeText attrText x
+  attrText (UB x) = ubAttrText typeText attrText x
+
+  ||| An entry of a dictionary: a unit attribute is its name alone.
+  covering
+  entryText : (String, MlirAttr) -> String
+  entryText (name, UnitAttr) = name
+  entryText (name, a) = name ++ " = " ++ attrText a
+
+||| The dialect a type is of, by its constructor.
+export
+typeDialect : MlirType -> String
+typeDialect (Idr _) = "idr"
+typeDialect _ = "builtin"
+
+||| The dialect an attribute is of, by its constructor.
+export
+attrDialect : MlirAttr -> String
+attrDialect (Idr _) = "idr"
+attrDialect (Arith _) = "arith"
+attrDialect (UB _) = "ub"
+attrDialect _ = "builtin"
 
 ||| An attribute of an op's: its name, and itself.
 public export
@@ -118,6 +177,14 @@ unitIf name set = if set then [(name, UnitAttr)] else []
 export
 attrIf : String -> (a -> MlirAttr) -> Maybe a -> List NamedAttr
 attrIf name make = maybe [] (\x => [(name, make x)])
+
+||| An attribute dictionary between `opening` and `closing`, after a space,
+||| if it has any entries. The generated printers write an op's `attr-dict`
+||| with it.
+export covering
+dictionary : String -> String -> List NamedAttr -> String
+dictionary opening closing [] = ""
+dictionary opening closing as = " " ++ opening ++ commaSeparated (map entryText as) ++ closing
 
 ------------------------------------------------------------------------------
 -- Locations
@@ -151,6 +218,7 @@ span l =
 wrapped : Loc -> String -> String
 wrapped l inner = "loc(" ++ (if inLibrary l then "fused<\"library\">[" ++ inner ++ "]" else inner) ++ ")"
 
+||| A location as an attribute's text, `loc(...)`.
 export
 location : Location -> String
 location (At l) = wrapped l (span l)
@@ -204,33 +272,71 @@ mutual
     op : Op
     at : Location
 
-||| How an op's dialect writes it: its text in the dialect's declarative
-||| format up to its regions, which the format puts last, or Nothing for an
-||| op written generic.
+||| The names a statement binds its results to: its name for one result,
+||| `name#i` for each of several, as an op's operands name them.
+export
+boundNames : Statement -> List String
+boundNames s = case (s.result, s.op.results) of
+  (Just r, [_]) => [r]
+  (Just r, ts) => zipWith (\i, _ => r ++ "#" ++ show i) [0 .. length ts] ts
+  (Nothing, _) => []
+
+------------------------------------------------------------------------------
+-- Values
+------------------------------------------------------------------------------
+
+||| What a walk of a region meets of its values, in order: each block's
+||| arguments, then, for each statement, the values its op uses, then the
+||| statement's name and the names its results are bound to (`boundNames`),
+||| then what the op's regions hold.
 public export
-Format : Type
-Format = Op -> Maybe String
+data Occurrence = Uses Value | Binds Value | Defines String (List String)
+
+mutual
+  ||| A fold over a region's values, in the order `Occurrence` says.
+  export
+  walkRegion : (a -> Occurrence -> a) -> a -> Region -> a
+  walkRegion f acc (MkRegion args ss) = walkStatements f (foldl (\x, g => f x (Binds g.value)) acc args) ss
+
+  walkStatements : (a -> Occurrence -> a) -> a -> List Statement -> a
+  walkStatements f acc [] = acc
+  walkStatements f acc (MkStatement r (MkOp n operands props regions attrs results) at :: ss) =
+    let used = foldl (\x, v => f x (Uses v)) acc operands
+        named = case r of
+          Just name => f used (Defines name (boundNames (MkStatement r (MkOp n operands props regions attrs results) at)))
+          Nothing => used
+    in walkStatements f (walkRegions f named regions) ss
+
+  walkRegions : (a -> Occurrence -> a) -> a -> List Region -> a
+  walkRegions f acc [] = acc
+  walkRegions f acc (r :: rs) = walkRegions f (walkRegion f acc r) rs
+
+mutual
+  ||| A region with every value renamed by `f`, where it is defined and
+  ||| where it is used: block arguments, statements' names, operands. A
+  ||| use of one of several results is renamed as itself, `name#i`.
+  export
+  renameRegion : (String -> String) -> Region -> Region
+  renameRegion f (MkRegion args ss) =
+    MkRegion (map (\a => { value.name $= f } a) args) (renameStatements f ss)
+
+  renameStatements : (String -> String) -> List Statement -> List Statement
+  renameStatements f [] = []
+  renameStatements f (MkStatement r (MkOp n operands props regions attrs results) at :: ss) =
+    MkStatement (map f r)
+                (MkOp n (map (\v => { name $= f } v) operands) props (renameRegions f regions) attrs results) at
+      :: renameStatements f ss
+
+  renameRegions : (String -> String) -> List Region -> List Region
+  renameRegions f [] = []
+  renameRegions f (r :: rs) = renameRegion f r :: renameRegions f rs
+
+------------------------------------------------------------------------------
+-- The generic form
+------------------------------------------------------------------------------
 
 indent : Nat -> String
 indent d = replicate (2 * d) ' '
-
-||| An attribute dictionary between `opening` and `closing`, after a space,
-||| if it has any entries; a unit attribute is its name alone. The generated
-||| printers write an op's `attr-dict` with it.
-export covering
-dictionary : String -> String -> List NamedAttr -> String
-dictionary opening closing [] = ""
-dictionary opening closing as = " " ++ opening ++ commaSeparated (map entry as) ++ closing
-  where
-    entry : NamedAttr -> String
-    entry (name, UnitAttr) = name
-    entry (name, a) = name ++ " = " ++ attrText a
-
-||| A block argument with its type and location: `%3: i64 loc(...)`, as
-||| MLIR's own printer writes a block argument's location.
-covering
-argumentText : Argument -> String
-argumentText a = fastConcat [a.value.name, ": ", typeText a.value.type, " ", location a.at]
 
 ||| The name of an op's results, as its statement binds them.
 named : Maybe String -> Nat -> String
@@ -238,92 +344,52 @@ named (Just r) (S (S k)) = r ++ ":" ++ show (S (S k)) ++ " = "
 named (Just r) _ = r ++ " = "
 named Nothing _ = ""
 
-||| What an op's text puts around its regions: before the first, between
-||| two, and after the last. In the declarative form the head is the
-||| dialect's and each region follows after a space; in the generic form
-||| `"dialect.op"(operands) <{properties}> (` comes before them and
-||| `) {attributes} : type` after.
-covering
-frame : Format -> Op -> (String, String, String)
-frame format o = case format o of
-  Just declared => case o.regions of
-    [] => (declared, "", "")
-    _ => (declared ++ " ", " ", "")
-  Nothing =>
+-- The text is written as pieces, each function's before the `rest` it is
+-- given, and joined once: appending two strings copies both, so building
+-- an op's text from its regions' texts would copy every statement once
+-- per region around it, which grows with the square of the op.
+mutual
+  ||| An op in the generic form, its regions indented by `d`:
+  ||| `"dialect.op"(operands) <{properties}> ({regions}) {attributes} : type`.
+  covering
+  opText : Nat -> Op -> List String -> List String
+  opText d o rest =
     let start = fastConcat [quoted o.name, "(", commaSeparated (map (.name) o.operands), ")",
                             dictionary "<{" "}>" o.properties]
         end = fastConcat [dictionary "{" "}" o.attributes, " : ",
                           signature typeText (MkSignature (map (.type) o.operands) o.results)]
     in case o.regions of
-         [] => (start ++ end, "", "")
-         _ => (start ++ " (", ", ", ")" ++ end)
-
-||| The opening of a region's one block, indented by `d`. The block is
-||| labelled even when it has no arguments: the generic form reads `{}` as
-||| a region of no blocks, and a block of no ops is one only by its label.
-covering
-blockOpening : Nat -> List Argument -> String
-blockOpening d [] = fastConcat ["{\n", indent d, "^bb0:\n"]
-blockOpening d arguments =
-  fastConcat ["{\n", indent d, "^bb0(", commaSeparated (map argumentText arguments), "):\n"]
-
--- The text is written as pieces, each function's before the `rest` it is
--- given, and joined once per top-level op: appending two strings copies
--- both, so building an op's text from its regions' texts would copy every
--- statement once per region around it and once per statement after it in
--- its block, which grows with the square of the op.
-mutual
-  ||| An op, its regions indented by `d`.
-  covering
-  opText : Nat -> Format -> Op -> List String -> List String
-  opText d format o rest =
-    let (before, between, after) = frame format o
-    in before :: regionsText d format between o.regions (after :: rest)
+         [] => start :: end :: rest
+         rs => start :: " (" :: regionsText d rs (")" :: end :: rest)
 
   covering
-  regionsText : Nat -> Format -> String -> List Region -> List String -> List String
-  regionsText d format between [] rest = rest
-  regionsText d format between [r] rest = regionText d format r rest
-  regionsText d format between (r :: rs) rest =
-    regionText d format r (between :: regionsText d format between rs rest)
+  regionsText : Nat -> List Region -> List String -> List String
+  regionsText d [] rest = rest
+  regionsText d [r] rest = regionText d r rest
+  regionsText d (r :: rs) rest = regionText d r (", " :: regionsText d rs rest)
+
+  ||| A region's one block, labelled even when it has no arguments: the
+  ||| generic form reads `{}` as a region of no blocks.
+  covering
+  regionText : Nat -> Region -> List String -> List String
+  regionText d (MkRegion arguments statements) rest =
+    fastConcat ["{\n", indent d, "^bb0", argumentsText arguments, ":\n"] ::
+    statementsText (S d) statements (indent d :: "}" :: rest)
 
   covering
-  regionText : Nat -> Format -> Region -> List String -> List String
-  regionText d format (MkRegion arguments statements) rest =
-    blockOpening d arguments ::
-    statementsText (S d) format statements (indent d :: "}" :: rest)
+  argumentsText : List Argument -> String
+  argumentsText [] = ""
+  argumentsText as =
+    "(" ++ commaSeparated (map (\a => a.value.name ++ ": " ++ typeText a.value.type) as) ++ ")"
 
   covering
-  statementsText : Nat -> Format -> List Statement -> List String -> List String
-  statementsText d format [] rest = rest
-  statementsText d format (s :: ss) rest = statementText d format s (statementsText d format ss rest)
+  statementsText : Nat -> List Statement -> List String -> List String
+  statementsText d [] rest = rest
+  statementsText d (MkStatement result op _ :: ss) rest =
+    indent d :: named result (length op.results) :: opText d op ("\n" :: statementsText d ss rest)
 
-  covering
-  statementText : Nat -> Format -> Statement -> List String -> List String
-  statementText d format (MkStatement result op at) rest =
-    indent d :: named result (length op.results) ::
-    opText d format op (" " :: location at :: "\n" :: rest)
-
-||| A module written whole: its op, with what it holds, at its location.
-||| MLIR reads a location after the top-level op as it reads one after any
-||| other, and the module keeps it: a diagnostic about the whole module is
-||| reported there.
+||| An op in MLIR's generic form without the locations of what it holds:
+||| what the op is, wherever it stands. A content key hashes it.
 export covering
-showModule : Format -> Location -> Op -> String
-showModule format at m = fastConcat (opText 0 format m [" ", location at, "\n"])
-
-||| A module written one top-level op at a time, so that the text of the
-||| whole module is never held: the text before the statements of its one
-||| region and the text after them, with the module's location. The
-||| statements of `m`'s region are not written; the caller writes each
-||| between the two by `topLevel`.
-export covering
-moduleText : Format -> Location -> Op -> (String, String)
-moduleText format at m =
-  let (before, _, after) = frame format m
-  in (before ++ blockOpening 0 [], fastConcat ["}", after, " ", location at, "\n"])
-
-||| A top-level op of a module written by `moduleText`, with its location.
-export covering
-topLevel : Format -> Statement -> String
-topLevel format s = fastConcat (statementText 1 format s [])
+genericForm : Op -> String
+genericForm o = fastConcat (opText 0 o [])

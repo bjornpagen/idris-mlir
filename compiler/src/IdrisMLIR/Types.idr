@@ -13,6 +13,8 @@ import IdrisMLIR.Dialect.Idr
 import IdrisMLIR.Ids
 import IdrisMLIR.MLIR
 
+import Data.String
+
 %default total
 
 ------------------------------------------------------------------------------
@@ -77,23 +79,16 @@ signed _ = True
 -- Types
 ------------------------------------------------------------------------------
 
-||| The rank of an array, the dimensions of its memref, each dynamic: `Rank0`
-||| holds one element (`Data.IORef`'s `Mut`, an IORef), `Rank1` as many as
-||| it was made with (`ArrayData`, `Buffer`).
+||| How an array is held: a value of the array language, a tensor, or an
+||| array a world orders, a memref.
 public export
-data Rank = Rank0 | Rank1
+data ArrayKind = ValueArray | OrderedArray
 
-public export
-Eq Rank where
-  Rank0 == Rank0 = True
-  Rank1 == Rank1 = True
+export
+Eq ArrayKind where
+  ValueArray == ValueArray = True
+  OrderedArray == OrderedArray = True
   _ == _ = False
-
-||| The dimensions of an array of a rank.
-public export
-dimensions : Rank -> Nat
-dimensions Rank0 = 0
-dimensions Rank1 = 1
 
 mutual
   ||| The types of Core. `BigT` is `Integer`; `NatT` is `Nat` and every
@@ -101,16 +96,28 @@ mutual
   ||| big at runtime; `FunT` is a closure, binding its argument as a lambda
   ||| does; `LazyT` is a suspension, one cell whose value is shared by every
   ||| force; `DataT` is a data instance, whose declaration says
-  ||| whether it is an unboxed sum or a box; `ArrayT` is a mutable array of
-  ||| its element type at a rank, read and written through the world: of
-  ||| rank 1 `Data.IOArray.Prims.ArrayData` and `Buffer`, of rank 0 the
-  ||| one cell of an IORef.
+  ||| whether it is an unboxed sum or a box. `TensorT` is a value of the
+  ||| array language (`Array s a`, `LArray s a`): a ranked tensor of its
+  ||| element, one dimension per axis of the form of `s`, outermost first,
+  ||| static where the shape's normal form at the instance is a literal; an
+  ||| array of arrays is one tensor, the element's dimensions after the
+  ||| shape's, so its element is never a tensor or a memref. `MemRefT` is an
+  ||| array a world orders, read and written through the world: base's
+  ||| `ArrayData` and `Buffer`, of one dynamic dimension, and the one cell of
+  ||| an IORef, of none; its element is never a tensor. `ColumnsT` is an
+  ||| array of either kind whose element is a record (one constructor of
+  ||| two fields or more, not containing itself): one array per field, in
+  ||| field order, each of the array's kind and dimensions and of its
+  ||| field's type, a field that is a value array adding its dimensions
+  ||| after the array's (0003 D44).
   public export
   data Ty = IntT IntTy | CharT | DoubleT | StrT | BigT | NatT | WorldT
           | DataT DataId
           | FunT Binder Ty
           | LazyT Ty
-          | ArrayT Rank Ty
+          | TensorT (List Dim) Ty
+          | MemRefT (List Dim) Ty
+          | ColumnsT ArrayKind (List Dim) DataId
 
   ||| What a parameter, a lambda, an arrow or a constructor field binds: a
   ||| value of a type, used as Idris proved. A binder of quantity zero binds
@@ -138,7 +145,9 @@ mutual
   sameTy (DataT a) (DataT b) = a == b
   sameTy (FunT a r) (FunT a' r') = sameBinder a a' && sameTy r r'
   sameTy (LazyT a) (LazyT b) = sameTy a b
-  sameTy (ArrayT r a) (ArrayT s b) = r == s && sameTy a b
+  sameTy (TensorT ds a) (TensorT es b) = ds == es && sameTy a b
+  sameTy (MemRefT ds a) (MemRefT es b) = ds == es && sameTy a b
+  sameTy (ColumnsT k ds r) (ColumnsT k' es r') = k == k' && ds == es && r == r'
   sameTy _ _ = False
 
   sameBinder : Binder -> Binder -> Bool
@@ -168,8 +177,22 @@ mutual
   tyText name (DataT d) = name d
   tyText name (FunT a r) = "((" ++ binderText name a ++ ") -> " ++ tyText name r ++ ")"
   tyText name (LazyT a) = "Lazy (" ++ tyText name a ++ ")"
-  tyText name (ArrayT Rank1 a) = "Array (" ++ tyText name a ++ ")"
-  tyText name (ArrayT Rank0 a) = "Mut (" ++ tyText name a ++ ")"
+  tyText name (TensorT ds a) = "Tensor [<" ++ joinBy ", " (map dimText ds) ++ "] (" ++ tyText name a ++ ")"
+    where
+      dimText : Dim -> String
+      dimText (Static n) = show n
+      dimText Dynamic = "?"
+  tyText name (MemRefT [] a) = "Mut (" ++ tyText name a ++ ")"
+  tyText name (MemRefT _ a) = "Array (" ++ tyText name a ++ ")"
+  tyText name (ColumnsT k ds r) =
+    "Columns " ++ kindText k ++ " [<" ++ joinBy ", " (map dimText ds) ++ "] (" ++ name r ++ ")"
+    where
+      kindText : ArrayKind -> String
+      kindText ValueArray = "value"
+      kindText OrderedArray = "ordered"
+      dimText : Dim -> String
+      dimText (Static n) = show n
+      dimText Dynamic = "?"
 
   ||| `1 T` or `w T`, as the Core dump writes a binder.
   export
@@ -183,6 +206,128 @@ Show Ty where
 export
 Show Binder where
   show = binderText show
+
+||| The dimensions a type contributes to a tensor that holds it: a tensor's
+||| own, none for anything else.
+public export
+tensorDims : Ty -> List Dim
+tensorDims (TensorT ds _) = ds
+tensorDims (ColumnsT ValueArray ds _) = ds
+tensorDims _ = []
+
+||| A type as a closure's binder or result, or a suspension's value, holds
+||| it: every tensor dimension in it dynamic, so that one closure type
+||| serves every extent its values are made at.
+export
+dynamicDims : Ty -> Ty
+dynamicDims (TensorT ds e) = TensorT (map (const Dynamic) ds) e
+dynamicDims (ColumnsT k ds r) = ColumnsT k (map (const Dynamic) ds) r
+dynamicDims (FunT (MkBinder q a) r) = FunT (MkBinder q (dynamicDims a)) (dynamicDims r)
+dynamicDims (LazyT a) = LazyT (dynamicDims a)
+dynamicDims t = t
+
+------------------------------------------------------------------------------
+-- The array language
+------------------------------------------------------------------------------
+
+||| An operation of the array language on tensors (`Term.Tensor`). An axis
+||| is counted from 0, outermost first; the axis of `Take`, `Drop`, `Concat`
+||| and `Pad` is the shape's last, before the cell's.
+public export
+data TensorOp
+  = ||| [x]: the extent of axis k of x, a natural.
+    Extent Nat
+  | ||| (x :: coords): the element of x at the coordinates (naturals, one
+    ||| per leading axis), or the cell there when the result is a tensor.
+    Extract
+  | ||| (x :: v :: coords): x with v, an element or a cell, at the
+    ||| coordinates.
+    Insert
+  | ||| [k, x]: the first k along the axis.
+    Take Nat
+  | ||| [k, x]: all but the first k along the axis.
+    Drop Nat
+  | ||| [x, y]: x then y along the axis.
+    Concat Nat
+  | ||| (x :: extents): x's elements in row-major order at the result's
+    ||| shape, its extents given outermost first; the result's dimensions
+    ||| after them are the cell's.
+    Reshape
+  | ||| [lo, hi, v, x]: x along the axis with lo copies of the cell v before
+    ||| and hi after.
+    Pad Nat
+
+export
+Eq TensorOp where
+  Extent a == Extent b = a == b
+  Extract == Extract = True
+  Insert == Insert = True
+  Take a == Take b = a == b
+  Drop a == Drop b = a == b
+  Concat a == Concat b = a == b
+  Reshape == Reshape = True
+  Pad a == Pad b = a == b
+  _ == _ = False
+
+export
+Show TensorOp where
+  show (Extent k) = "extent" ++ show k
+  show Extract = "extract"
+  show Insert = "insert"
+  show (Take a) = "take" ++ show a
+  show (Drop a) = "drop" ++ show a
+  show (Concat a) = "concat" ++ show a
+  show Reshape = "reshape"
+  show (Pad a) = "pad" ++ show a
+
+||| How a reduction along an axis keeps its accumulators (`Term.Reduce`):
+||| the last ones, or every one along the axis.
+public export
+data Reduction = FoldLast | ScanLast
+
+export
+Eq Reduction where
+  FoldLast == FoldLast = True
+  ScanLast == ScanLast = True
+  _ == _ = False
+
+export
+Show Reduction where
+  show FoldLast = "fold_last"
+  show ScanLast = "scan_last"
+
+------------------------------------------------------------------------------
+-- What the registry says of data
+------------------------------------------------------------------------------
+
+||| The part a constructor plays that a pass needs and cannot read off its
+||| shape: the list's nil and cons, which the string builders take apart.
+public export
+data Role = ListNil | ListCons
+
+export
+Eq Role where
+  ListNil == ListNil = True
+  ListCons == ListCons = True
+  _ == _ = False
+
+export
+Show Role where
+  show ListNil = "list_nil"
+  show ListCons = "list_cons"
+
+||| A promise a library type makes of its values, which every program is
+||| checked against: its cells are rebuilt in place and held exclusive.
+public export
+data Promise = InPlace
+
+export
+Eq Promise where
+  InPlace == InPlace = True
+
+export
+Show Promise where
+  show InPlace = "in_place"
 
 ------------------------------------------------------------------------------
 -- Literals
@@ -242,8 +387,8 @@ data Scalar = SInt IntTy | SChar | SDouble
 ||| names as a primitive (`Op`), which has no attribute; an operation its
 ||| types choose, by the signedness and width of fixed-width integers,
 ||| characters and doubles, among `arith`'s, `math`'s and the dialect's ops
-||| with an attribute; a comparison, by its predicate; or an array's length,
-||| or an index checked against a bound.
+||| with an attribute; a comparison, by its predicate; or the length of an
+||| array a world orders.
 public export
 data Prim
   = IntOp ArithOp IntTy | IntShift Shift IntTy | FloatOp FArith | Negate | Math MathFn
@@ -256,15 +401,9 @@ data Prim
   | BigCompare Cmp
   | ToBig Scalar | FromBig Scalar
   | NatCompare Cmp
-  | ||| The number of elements of an array of this element type: the
-    ||| dimension of its memref.
+  | ||| The number of elements of an array a world orders, of this element
+    ||| type: the dimension of its memref.
     ArrayLength Ty
-  | ||| An index, once it is at least 0 and below the bound: the guard of an
-    ||| index against an integer (`idr.check.in_bounds`), which crashes as
-    ||| an access outside an array does. The bound is a size, never negative
-    ||| (the one caller, Linear.Array, keeps it so), since the guard checks
-    ||| it as it checks a length.
-    IndexBelow
   | ||| The op of a primitive of the dialect, on its operands in the op's
     ||| order, each at its own type.
     Op IdrPrim
@@ -338,7 +477,6 @@ Show Prim where
   show (FromBig s) = "cast_Integer" ++ show s
   show (NatCompare op) = show op ++ "_Nat"
   show (ArrayLength e) = "arraySize<" ++ show e ++ ">"
-  show IndexBelow = "indexBelow"
   show (Op p) = (primOp p [] []).name
 
 public export
@@ -367,6 +505,5 @@ primArgs (BigCompare _) = [BigT, BigT]
 primArgs (ToBig s) = [scalarTy s]
 primArgs (FromBig _) = [BigT]
 primArgs (NatCompare _) = [NatT, NatT]
-primArgs (ArrayLength e) = [ArrayT Rank1 e]
-primArgs IndexBelow = [IntT IdrisInt, IntT IdrisInt]
+primArgs (ArrayLength e) = [MemRefT [Dynamic] e]
 primArgs (Op _) = []

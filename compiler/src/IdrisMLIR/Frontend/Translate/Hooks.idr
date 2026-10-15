@@ -4,6 +4,7 @@
 module IdrisMLIR.Frontend.Translate.Hooks
 
 import IdrisMLIR.Dialect.Idr
+import IdrisMLIR.MLIR
 import IdrisMLIR.Registry
 import IdrisMLIR.Types
 
@@ -41,12 +42,41 @@ arrayCallOf = firstOf (\h => case h of
   ArrayCall p => Just p
   _ => Nothing)
 
-||| The rank and the element of an external type that is an array: the
-||| element `Nothing` when its type argument names it, `Just` a fixed one.
+||| The dimensions and the element of an external type that is an array a
+||| world orders: the element `Nothing` when its type argument names it,
+||| `Just` a fixed one.
 export
-arrayElementOf : List Hook -> Maybe (Rank, Maybe Ty)
-arrayElementOf = firstOf (\h => case h of
-  ArrayType r e => Just (r, e)
+orderedArrayOf : List Hook -> Maybe (List Dim, Maybe Ty)
+orderedArrayOf = firstOf (\h => case h of
+  OrderedArrayType ds e => Just (ds, e)
+  _ => Nothing)
+
+||| Is a type constructor a value of the array language, a tensor?
+export
+isValueArray : List Hook -> Bool
+isValueArray = isJust . firstOf (\h => case h of
+  ArrayValueType => Just ()
+  _ => Nothing)
+
+||| The operation of the array language a definition's calls are, if any.
+export
+generatingOf : List Hook -> Maybe ArrayPrim
+generatingOf = firstOf (\h => case h of
+  Generating p => Just p
+  _ => Nothing)
+
+||| The part a constructor plays, if the registry names one.
+export
+roleOf : List Hook -> Maybe Role
+roleOf = firstOf (\h => case h of
+  Plays r => Just r
+  _ => Nothing)
+
+||| The promise a data type's values keep, if the registry names one.
+export
+promiseOf : List Hook -> Maybe Promise
+promiseOf = firstOf (\h => case h of
+  Promises p => Just p
   _ => Nothing)
 
 ||| The primitive that builds the string a definition's calls build from
@@ -69,14 +99,6 @@ export
 natOperationOf : List Hook -> Maybe NatMeaning
 natOperationOf = firstOf (\h => case h of
   NatOperation m => Just m
-  _ => Nothing)
-
-||| The region primitive of the loop over an array's index space a
-||| definition is, if the registry knows it as one.
-export
-arrayLoopOf : List Hook -> Maybe IdrRegionPrim
-arrayLoopOf = firstOf (\h => case h of
-  ArrayLoop p => Just p
   _ => Nothing)
 
 ||| The primitive that ends the program, if a definition's calls do.

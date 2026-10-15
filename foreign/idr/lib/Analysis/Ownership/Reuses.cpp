@@ -17,8 +17,8 @@
 // done first, so that their scrutinees, which die later, get the
 // constructors built after them.
 //
-// A box that is static, borrowed or built in the stack frame
-// (`idr.stack`) is left alone: its cell is not the program's to reuse.
+// A box that is static, borrowed or built in the stack frame (its con's
+// `stack`) is left alone: its cell is not the program's to reuse.
 //
 // Each decision is taken on the function as the takes before it leave it:
 // a take gives the reads of the box's fields after it fields of its own,
@@ -63,9 +63,7 @@ struct Virtual {
 
 class Decider {
 public:
-  Decider(FuncOp fn, SymbolTable &symbols, const Layouts &layouts,
-          IdrDialect::StackAttrHelper stack)
-      : fn(fn), symbols(symbols), layouts(layouts), stack(stack) {}
+  Decider(FuncOp fn, const Layouts &layouts) : fn(fn), layouts(layouts) {}
 
   SmallVector<Site> run() {
     SmallVector<MatchOp> matches;
@@ -75,12 +73,12 @@ public:
       if (!isa<BoxType>(unrestricted(box.getType())) || !reusable(Held{box}) ||
           usedAfter(box, match))
         continue;
-      DataOp data = lookupData(symbols, box.getType());
-      for (auto [index, name] : llvm::enumerate(match.getCases().getAsRange<FlatSymbolRefAttr>())) {
-        CtorOp ctor = data ? lookupCtor(data, name.getValue()) : CtorOp();
-        Region &region = match.getCaseRegion(static_cast<unsigned>(index));
-        if (ctor && !region.empty())
-          dies(Held{box}, ctor, region.front(), &region.front());
+      DataType data = dataTypeOf(box.getType());
+      for (unsigned index = 0, e = static_cast<unsigned>(match.getCases().size()); index < e;
+           ++index) {
+        Region &region = match.getCaseRegion(index);
+        if (!region.empty())
+          dies(Held{box}, data, match.getCaseTag(index), region.front(), &region.front());
       }
     }
     readBoxes();
@@ -100,11 +98,8 @@ private:
           .push_back(index);
     for (Block &block : fn.getBody())
       visit(block);
-    for (auto [box, first] : boxes) {
-      auto name = SymbolRefAttr::get(getSumName(typeOf(box)).getAttr(), {first.getCtorAttr()});
-      if (CtorOp ctor = lookupCtor(symbols, name))
-        dies(box, ctor, *first->getBlock(), nullptr);
-    }
+    for (auto [box, first] : boxes)
+      dies(box, first.getDataType(), first.getTag(), *first->getBlock(), nullptr);
   }
 
   // Each value of `block` as a post-order walk meets it, a take's fields
@@ -128,7 +123,8 @@ private:
   }
 
   void considerTake(unsigned site) {
-    for (unsigned field = 0, e = static_cast<unsigned>(sites[site].ctor.getFieldTypes().size());
+    const Site &taken = sites[site];
+    for (unsigned field = 0, e = static_cast<unsigned>(taken.data.getCtor(taken.tag).fields.size());
          field < e; ++field)
       if (auto it = virtualOf.find({site, field}); it != virtualOf.end())
         consider(Held{nullptr, it->second});
@@ -160,46 +156,46 @@ private:
     for (Value value = box.value; value; value = readFrom(value)) {
       if (isStatic(value))
         return false;
-      if (auto con = value.getDefiningOp<ConOp>(); con && stack.isAttrPresent(con))
+      if (auto con = value.getDefiningOp<ConOp>(); con && con.getStack())
         return false;
     }
     return true;
   }
 
-  // Where `box`, built by `ctor`, whose fields `fields` binds (when a match
-  // region does), dies on each path of `block`, the first constructor after
-  // that point whose cell fits gets the box's cell.
-  void dies(Held box, CtorOp ctor, Block &block, Block *fields) {
+  // Where `box`, built by the constructor `tag` of `data`, whose fields
+  // `fields` binds (when a match region does), dies on each path of
+  // `block`, the first constructor after that point whose cell fits gets
+  // the box's cell.
+  void dies(Held box, DataType data, unsigned tag, Block &block, Block *fields) {
     // A constructor without fields is its atom: it has no cell, so its
     // take would hand out no token for a reuse to build in.
-    if (ctor.getFieldTypes().empty())
+    if (data.getCtor(tag).fields.empty())
       return;
     SmallVector<OpOperand *> uses = usesOf(box);
-    unsigned size = layouts.box(ctor).size;
+    unsigned size = layouts.box(data, tag).size;
     whereDies(uses, block, /*graded=*/nullptr, [&](Block &where, Block::iterator at) {
       SmallVector<ConOp> found;
       if (fits(size, where, at, found))
-        record(box, ctor, where, at, fields, std::move(found), uses);
+        record(box, data, tag, where, at, fields, std::move(found), uses);
     });
   }
 
   // The first constructor on each path from `at` whose cell fits, or
-  // false when there is none. The body of a loop over an array runs once
-  // per element, so a constructor in it cannot take the one cell. A
+  // false when there is none. The body of a loop over indices runs once
+  // per index, so a constructor in it cannot take the one cell. A
   // constructor an earlier take has is a reuse already, and passed over.
   bool fits(unsigned size, Block &block, Block::iterator at, SmallVectorImpl<ConOp> &found) {
     for (Operation &op : llvm::make_range(at, block.end())) {
       if (auto con = dyn_cast<ConOp>(op)) {
         if (!claimed.contains(con) && isa<BoxType>(unrestricted(con.getType())) &&
-            !stack.isAttrPresent(con))
-          if (CtorOp ctor = lookupCtor(symbols, con.getCtor());
-              ctor && !ctor.getFieldTypes().empty() && layouts.box(ctor).size == size) {
-            found.push_back(con);
-            return true;
-          }
+            !con.getStack() && !con.getDataType().getCtor(con.getTag()).fields.empty() &&
+            layouts.box(con.getDataType(), con.getTag()).size == size) {
+          found.push_back(con);
+          return true;
+        }
         continue;
       }
-      if (op.getNumRegions() == 0 || isArrayLoop(&op))
+      if (op.getNumRegions() == 0 || isIndexLoop(&op))
         continue;
       bool any = false;
       for (Region &region : op.getRegions())
@@ -213,8 +209,8 @@ private:
 
   // A take of `box` at `at`, for the constructors `found`: the site, and
   // the uses of its fields from that point on, which it will move.
-  void record(Held box, CtorOp ctor, Block &where, Block::iterator at, Block *fields,
-              SmallVector<ConOp> found, ArrayRef<OpOperand *> uses) {
+  void record(Held box, DataType data, unsigned tag, Block &where, Block::iterator at,
+              Block *fields, SmallVector<ConOp> found, ArrayRef<OpOperand *> uses) {
     auto index = static_cast<unsigned>(sites.size());
     Site site;
     site.box = box.value;
@@ -222,7 +218,8 @@ private:
       site.from = virtuals[box.virt].site;
       site.field = virtuals[box.virt].field;
     }
-    site.ctor = ctor;
+    site.data = data;
+    site.tag = tag;
     site.block = &where;
     site.after = at == where.begin() ? nullptr : &*std::prev(at);
     site.fields = fields;
@@ -230,8 +227,9 @@ private:
     site.cons = std::move(found);
     sites.push_back(std::move(site));
     Type boxType = typeOf(box);
-    eachField(uses, ctor, fields, [&](Value field, unsigned number) {
-      unsigned virt = virtualFor(index, number, fieldType(boxType, ctor.getFieldType(number)));
+    ArrayRef<Type> fieldTypes = data.getCtor(tag).fields;
+    eachField(uses, data, tag, fields, [&](Value field, unsigned number) {
+      unsigned virt = virtualFor(index, number, fieldType(boxType, fieldTypes[number]));
       for (OpOperand &use : field.getUses())
         if (!moved.contains(&use) && fromPoint(where, at, use)) {
           moved[&use] = virt;
@@ -248,9 +246,7 @@ private:
   }
 
   FuncOp fn;
-  SymbolTable &symbols;
   const Layouts &layouts;
-  IdrDialect::StackAttrHelper stack;
   SmallVector<Site> sites;
   // The constructors a site builds in its cell.
   DenseSet<Operation *> claimed;
@@ -265,21 +261,16 @@ private:
 
 } // namespace
 
-// Each function's sites depend on its body, the declarations and the
+// Each function's sites depend on its body, the data types and the
 // layouts alone, so they are found in parallel, one slot per function.
 Reuses::Reuses(Operation *module, AnalysisManager &am) {
-  SymbolTable &symbols = am.getAnalysis<SymbolTable>();
   const Layouts &layouts = am.getAnalysis<Layouts>();
   if (failed(layouts.valid()))
     return;
-  IdrDialect::StackAttrHelper stack(module->getContext());
-  SmallVector<FuncOp> functions;
-  for (FuncOp fn : cast<ModuleOp>(module).getOps<FuncOp>())
-    if (!fn.isExternal())
-      functions.push_back(fn);
+  SmallVector<FuncOp> functions(cast<ModuleOp>(module).getOps<FuncOp>());
   SmallVector<SmallVector<Site>> slots(functions.size());
   parallelForEach(module->getContext(), llvm::seq<size_t>(0, functions.size()), [&](size_t index) {
-    slots[index] = Decider(functions[index], symbols, layouts, stack).run();
+    slots[index] = Decider(functions[index], layouts).run();
   });
   for (auto [fn, found] : llvm::zip_equal(functions, slots))
     if (!found.empty())

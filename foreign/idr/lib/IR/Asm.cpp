@@ -74,25 +74,22 @@ bool larger(Attribute value, unsigned &budget) {
 }
 
 // A data type is written by its short name, defined once at the top of
-// the text: the symbol itself is as long as the instance it names. A
-// constant whose parts are shared has the size of its distinct parts in
-// memory, where attributes are uniqued, but a text that spells each part
-// out wherever it occurs is the size of its tree, exponentially larger: a
-// large one is written once, by name.
+// the text with its body: its name is as long as the instance it names,
+// and its body would be spelled out wherever it occurs. A box is its data
+// type's alias in a box. A constant whose parts are shared has the size of
+// its distinct parts in memory, where attributes are uniqued, but a text
+// that spells each part out wherever it occurs is the size of its tree,
+// exponentially larger: a large one is written once, by name.
 struct IdrAsmInterface : OpAsmDialectInterface {
   using OpAsmDialectInterface::OpAsmDialectInterface;
 
   AliasResult getAlias(Type type, raw_ostream &os) const override {
-    FlatSymbolRefAttr name;
-    if (auto data = dyn_cast<DataType>(type))
-      name = data.getName();
-    else if (auto box = dyn_cast<BoxType>(type))
-      name = box.getName();
-    if (!name)
+    auto data = dyn_cast<DataType>(type);
+    if (!data)
       return AliasResult::NoAlias;
     SmallString<32> alias;
     llvm::raw_svector_ostream out(alias);
-    shortName(name.getValue(), out);
+    shortName(data.getName(), out);
     if (alias.empty())
       return AliasResult::NoAlias;
     os << alias;
@@ -108,8 +105,8 @@ struct IdrAsmInterface : OpAsmDialectInterface {
   }
 };
 
-// The leaf of a constructor reference in lower case: `@List::@Nil` is `nil`.
-std::string ctorName(SymbolRefAttr ctor) { return ctor.getLeafReference().getValue().lower(); }
+// A constructor's name in lower case: `@Nil` is `nil`.
+std::string ctorName(FlatSymbolRefAttr ctor) { return ctor.getValue().lower(); }
 
 } // namespace
 
@@ -131,7 +128,7 @@ void ConstantOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
 }
 
 void ConOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
-  setNameFn(getResult(), ctorName(getCtor()));
+  setNameFn(getResult(), ctorName(getCtorAttr()));
 }
 
 void ClosureOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
@@ -144,10 +141,6 @@ void SuspendOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
 
 void DelayOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
   setNameFn(getResult(), "thunk");
-}
-
-void LambdaOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {
-  setNameFn(getResult(), "lam");
 }
 
 void LinEnterOp::getAsmResultNames(OpAsmSetValueNameFn setNameFn) {

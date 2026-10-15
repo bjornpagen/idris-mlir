@@ -1,22 +1,23 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Whether a value of a type may hold a world or a closure, for every
-// declaration at once. A declaration may hold one when a field of one of
-// its constructors is one, seen through its grade, when it is a sum of
-// closures, or when a declaration a field names may: the least fixpoint
-// over the containment among declarations, which one pass over its
-// components, callees first, reaches. A cycle of data holds nothing beyond
-// what its members hold.
+// Whether a value of a type may hold a world or a closure, for every data
+// type at once. A data type may hold one when a field of one of its
+// constructors is one, seen through its grade, when it is a sum of
+// closures, or when a data type a field names may: the least fixpoint over
+// the containment among data types, which one pass over its components,
+// callees first, reaches. A cycle of data holds nothing beyond what its
+// members hold.
 //
 // The walk stops at an array: what its elements may hold is not followed.
-// A verified module has no array on a cycle, so every component is declarations only or one
-// array, and skipping the arrays leaves each component's answer exactly
-// what its declarations reach; were an array on one, its declarations would
-// answer for what they reach through it too: more than they hold, never
-// less.
+// A verified module has no array on a cycle, so every component is data
+// types only or one array, and skipping the arrays leaves each component's
+// answer exactly what its data types reach; were an array on one, its data
+// types would answer for what they reach through it too: more than they
+// hold, never less.
 #include "idr/Analysis/Holds.h"
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Symbols.h"
 #include "idr/IR/TypeGraph.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
@@ -48,22 +49,22 @@ idr::Holds::Holds(Operation *, AnalysisManager &am) {
   for (const SmallVector<unsigned> &component : graph.components()) {
     uint8_t held = 0;
     for (unsigned at : component) {
-      DataOp data = graph.declaration(at);
+      DataType data = graph.declaration(at);
       if (!data)
         continue;
-      if (data.getClosures())
+      if (data.isClosures())
         held |= holdsClosure;
-      for (CtorOp ctor : data.getBody().getOps<CtorOp>())
-        for (Type field : ctor.getFieldTypes().getAsValueRange<TypeAttr>())
+      for (const Ctor &ctor : data.getCtors())
+        for (Type field : ctor.fields)
           held |= leaf(field);
       for (unsigned next : graph.successors(at))
         if (!graph.isArray(next) && graph.declaration(next))
           held |= found[next];
     }
     for (unsigned at : component) {
-      if (DataOp data = graph.declaration(at)) {
+      if (DataType data = graph.declaration(at)) {
         found[at] = held;
-        bits[data.getSymNameAttr()] = held;
+        bits[data] = held;
       }
     }
   }
@@ -74,13 +75,10 @@ bool idr::Holds::isInvalidated(const AnalysisManager::PreservedAnalyses &pa) con
 }
 
 uint8_t idr::Holds::bitsOf(Type type) const {
-  type = unrestricted(type);
   if (uint8_t own = leaf(type))
     return own;
-  if (auto data = dyn_cast<DataType>(type))
-    return bits.lookup(data.getName().getAttr());
-  if (auto box = dyn_cast<BoxType>(type))
-    return bits.lookup(box.getName().getAttr());
+  if (DataType data = dataTypeOf(type))
+    return bits.lookup(data);
   return 0;
 }
 

@@ -1,0 +1,3 @@
+C++: the refusal phrase rendered in lib/IR/Attrs.cpp alone
+frontend: the refusal phrase rendered in one place
+rules: no hand-written Rule module

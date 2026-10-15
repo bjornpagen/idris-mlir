@@ -1,41 +1,38 @@
-// RUN: awk '/^ *\/\/ CLONES$/ { for (n = 1; n <= 1024; n++) printf "  idr.func private @apply.spec%d(%%x: i64) -> i64 attributes {clone = #idr.clone<@apply.spec%d, #idr.spec_key<\"apply\", [#idr.key_closure<\"add\", [%d : i64]>, #idr.key_hole<0>]>>, total} {\n    %%k = arith.constant %d : i64\n    %%y = arith.addi %%k, %%x : i64\n    idr.return %%y : i64\n  }\n", n, n, n, n; next } { print }' %s > %t.clones.mlir
-// RUN: %status 1 idris-mlir-opt %t.clones.mlir --idr-specialize -o %t.mlir 2> %t.err
-// RUN: FileCheck %s < %t.err
-// The clones of one function are bounded by a budget, an assertion that the
-// construction is finite: going past it is the error `unsupported
-// (compile-time budget)`, which names the function. The clones are counted
-// from the clone facts the module holds, over the whole compilation, so a
-// module that already holds as many clones of @apply as the budget allows
-// (each for a closure of @add over another constant, which the first RUN
-// line writes where the CLONES line stands) has none left for the closure
-// of @neg.
-// CHECK: error: unsupported (compile-time budget): specializing @apply made more than {{[0-9]+}} clones of it
-// CHECK-NOT: error:
-module attributes {idr.program} {
-  idr.func private @add(%a: i64, %x: i64) -> i64 attributes {total} {
-    %y = arith.addi %a, %x : i64
-    idr.return %y : i64
-  }
-  idr.func private @neg(%x: i64) -> i64 attributes {total} {
-    %z = arith.constant 0 : i64
-    %y = arith.subi %z, %x : i64
-    idr.return %y : i64
-  }
-  idr.func private @apply(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 attributes {total} {
-    %y = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
-    idr.return %y : i64
-  }
-  // CLONES
-  idr.func private @use(%x: i64) -> i64 attributes {total} {
-    %f = idr.closure @neg() : () -> !idr.fn<(i64) -> (i64)>
-    %r = idr.call @apply(%f, %x) : (!idr.fn<(i64) -> (i64)>, i64) -> i64
-    idr.return %r : i64
+// RUN: awk '/^ *\/\/ REQUESTS$/ { for (n = 1; n <= 1025; n++) printf "    %%k%d = arith.constant %d : i64\n    %%r%d = idr.call @loop(%%k%d, %%x) : (i64, i64) -> i64\n    %%a%d = arith.addi %%a%d, %%r%d : i64\n", n, n, n, n, n, n - 1, n; next } { print }' %s > %t.requests.mlir
+// RUN: idris-mlir-opt %t.requests.mlir --idr-optimize -o %t.mlir 2> %t.err
+// RUN: not grep -q unsupported %t.err
+// RUN: %status 1 idris-mlir-opt %t.mlir --idr-expect=holds=not-called=@loop -o /dev/null
+// RUN: idris-mlir -c %t.requests.mlir -o %t.o
+// NEEDS-ACCEPTANCE: that the one call left of @loop is the 1,025th, by call-site order, and the compile's time under the suite's bound.
+// Specialization has a budget, which stops it and never refuses the
+// program: one function asks one owner for at most 1,024 distinct keys.
+// The root here asks @loop, which is on a cycle and so never inlined, for
+// 1,025, one per constant (the first RUN line writes the calls where the
+// REQUESTS line stands): the module compiles, nothing is unsupported, and
+// the request past the budget is not made, so a call of @loop itself is
+// left. The program is the same program, less specialized.
+module {
+  idr.func private @loop(%k: i64, %n: i64) -> i64 {
+    %r = idr.match_lit %n : i64 -> (i64) {
+    case 0 {
+      idr.yield %k : i64
+    }
+    default {
+      %c1 = arith.constant 1 : i64
+      %m = arith.subi %n, %c1 : i64
+      %y = idr.call @loop(%k, %m) : (i64, i64) -> i64
+      %z = arith.addi %y, %k : i64
+      idr.yield %z : i64
+    }
+    }
+    return %r : i64
   }
   idr.func @Main.main(%w: !idr.world) -> !idr.world {
     %c, %w1 = idr.io.get_byte %w
     %x = arith.extui %c : i32 to i64
-    %s = idr.call @use(%x) : (i64) -> i64
-    %w2 = idr.io.put_int signed %s, %w1 : i64
-    idr.return %w2 : !idr.world
+    %a0 = arith.constant 0 : i64
+    // REQUESTS
+    %w2 = idr.io.put_int signed %a1025, %w1 : i64
+    return %w2 : !idr.world
   }
 }

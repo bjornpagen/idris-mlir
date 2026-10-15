@@ -17,14 +17,12 @@
 //     reference too, is reachable from the constructor's value;
 //   - taken apart by a match of quantity one: the match leaves the cell to
 //     build in again, so its own reference goes with it;
-//   - passed to a call of a function with a body: it escapes when that
-//     parameter's summary does. A cell passed to a parameter that does not
-//     escape is live only while the call runs, inside the caller's frame;
-//   - returned, captured by a closure, applied (idr.apply), passed to a
-//     function without a body, or used by any op this analysis does not
-//     know: it escapes. A returned cell is in a frame that is gone whatever
-//     the caller does with it, so the return is never the callers' to
-//     decide.
+//   - passed to a call: it escapes when that parameter's summary does. A
+//     cell passed to a parameter that does not escape is live only while
+//     the call runs, inside the caller's frame;
+//   - returned, or used by any op this analysis does not know: it escapes.
+//     A returned cell is in a frame that is gone whatever the caller does
+//     with it, so the return is never the callers' to decide.
 //
 // The cell an idr.con builds lives in one stack slot per con, in its
 // function's entry block. So it also escapes when the con may run again in
@@ -319,20 +317,17 @@ void Flow::visitCallOperand(OpOperand &operand) {
     setToExitState(getLatticeElement(operand.get()));
 }
 
+// Every callee is a function of the module with a body: a call's symbol
+// use is verified, and no function is without one.
 void Flow::visitCall(CallOp call) {
   auto callee = symbols.lookup<FuncOp>(call.getCalleeAttr().getAttr());
-  bool known = callee && !callee.isExternal();
-  bool ends = known && tail::inTailPosition(call) &&
+  bool ends = tail::inTailPosition(call) &&
               together(component, call->getParentOfType<FuncOp>(), callee);
   ProgramPoint *after = getProgramPointAfter(call);
   for (auto [index, operand] : llvm::enumerate(call.getArgs())) {
     if (!holdsCells(operand.getType()))
       continue;
     EscapeLattice *lattice = getLatticeElement(operand);
-    if (!known) {
-      setToExitState(lattice);
-      continue;
-    }
     // The parameter's state is its summary; the solver visits the call
     // again when it grows.
     BlockArgument param = callee.getArgument(static_cast<unsigned>(index));

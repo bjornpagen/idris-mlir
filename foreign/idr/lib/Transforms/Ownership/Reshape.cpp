@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The code counting changes before it places a count: what it cannot
-// count, selects, values taken apart where they die, fields that take a
-// reference of their own, and consumers moved past the reads that follow
-// them.
+// The code counting changes in one function before it places a count:
+// what it cannot count, selects, values taken apart where they die, fields
+// and elements that take a reference of their own, and consumers moved
+// past the reads that follow them.
 #include "idr/Analysis/Ownership.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
@@ -28,18 +28,17 @@ public:
           SymbolTable &symbols)
       : rewriter(rewriter), fn(fn), counted(counted), classes(classes), symbols(symbols) {}
 
-  // The code this pass counts: blocks of one region each, with matches and
-  // the loops over arrays as the only region ops.
+  // The code this pass counts: regions of one block, whose ops are matches
+  // and the loops over indices (scf.for, linalg on buffers).
   LogicalResult check() {
     WalkResult result = fn.walk([&](Operation *op) -> WalkResult {
-      for (Region &region : op->getRegions())
-        if (!region.empty() && !region.hasOneBlock())
-          return op->emitOpError("idr-rc counts regions of one block only");
-      if (op->getNumRegions() != 0 && op != fn.getOperation() &&
-          !isa<MatchOp, MatchLitOp>(op) && !isArrayLoop(op))
-        return op->emitOpError("idr-rc counts functional code, where matches and the loops "
-                               "over arrays are the only ops with regions; it runs before "
-                               "idr-tail-loops");
+      bool counts = op == fn.getOperation() || op->getNumRegions() == 0 ||
+                    isa<MatchOp, MatchLitOp>(op) || isIndexLoop(op);
+      if (!counts || llvm::any_of(op->getRegions(), [](Region &region) {
+            return !region.empty() && !region.hasOneBlock();
+          }))
+        return op->emitOpError("idr-rc: internal error: counts matches, scf.for and linalg ops "
+                               "on buffers, each of one block");
       return WalkResult::advance();
     });
     return failure(result.wasInterrupted());
@@ -89,9 +88,9 @@ public:
       Value value = match.getScrutinee();
       if (classes.classOf(value) != Class::Owned || usedAfter(value, match))
         continue;
-      DataOp data = lookupData(symbols, value.getType());
-      for (auto [index, name] : llvm::enumerate(match.getCases().getAsRange<FlatSymbolRefAttr>())) {
-        auto caseIndex = static_cast<unsigned>(index);
+      DataType data = dataTypeOf(value.getType());
+      for (unsigned caseIndex = 0, e = static_cast<unsigned>(match.getCases().size());
+           caseIndex < e; ++caseIndex) {
         Region &region = match.getCaseRegion(caseIndex);
         if (region.empty() || endsInCrash(region.front()))
           continue;
@@ -99,13 +98,13 @@ public:
           takeAtEntry(rewriter, match, caseIndex, counted);
           continue;
         }
-        CtorOp ctor = data ? lookupCtor(data, name.getValue()) : CtorOp();
-        if (!ctor || !isa<BoxType>(unrestricted(value.getType())))
+        if (!isa<BoxType>(unrestricted(value.getType())))
           continue;
+        unsigned tag = match.getCaseTag(caseIndex);
         whereDies(value, region.front(), &symbols, [&](Block &block, Block::iterator at) {
           if (!endsInCrash(block) &&
-              keepsCountedField(value, ctor, block, at, &region.front(), counted))
-            takeAt(rewriter, value, ctor, block, at, &region.front(), counted);
+              keepsCountedField(value, data, tag, block, at, &region.front(), counted))
+            takeAt(rewriter, value, data, tag, block, at, &region.front(), counted);
         });
       }
       // The default region has the value itself back, not a view of it to
@@ -119,7 +118,8 @@ public:
 
   // A field that needs a reference of its own takes it where it is read:
   // an idr.dup of the field, which every use of the field then uses, and
-  // which is placed as an owned value.
+  // which is placed as an owned value. So does every element read from a
+  // buffer, right after its load.
   void ownFields() {
     SmallVector<Value> fields;
     fn.walk<WalkOrder::PreOrder>([&](Block *block) {
@@ -236,16 +236,11 @@ private:
     // the outer one apart replaces, and erases, the read that defines it.
     for (Value value : llvm::reverse(sums)) {
       auto read = cast<FieldOp>(*value.getUsers().begin());
-      auto ctor = SymbolRefAttr::get(getSumName(value.getType()).getAttr(), {read.getCtorAttr()});
-      CtorOp decl = lookupCtor(symbols, ctor);
-      if (!decl)
-        continue;
       classes.erase(value);
       SmallVector<Type> fields;
-      for (unsigned index = 0, e = static_cast<unsigned>(decl.getFieldTypes().size()); index < e;
-           ++index)
-        fields.push_back(fieldType(value.getType(), decl.getFieldType(index)));
-      takeFields(rewriter, value, ctor, fields, counted);
+      for (Type field : read.getDataType().getCtor(read.getTag()).fields)
+        fields.push_back(fieldType(value.getType(), field));
+      takeFields(rewriter, value, read.getCtorAttr(), fields, counted);
     }
   }
 
@@ -268,13 +263,11 @@ private:
           consider(result);
     });
     for (auto [box, first] : boxes) {
-      auto name = SymbolRefAttr::get(getSumName(box.getType()).getAttr(), {first.getCtorAttr()});
-      CtorOp ctor = lookupCtor(symbols, name);
-      if (!ctor)
-        continue;
+      DataType data = first.getDataType();
+      unsigned tag = first.getTag();
       whereDies(box, *first->getBlock(), &symbols, [&](Block &block, Block::iterator at) {
-        if (!endsInCrash(block) && keepsCountedField(box, ctor, block, at, nullptr, counted))
-          takeAt(rewriter, box, ctor, block, at, nullptr, counted);
+        if (!endsInCrash(block) && keepsCountedField(box, data, tag, block, at, nullptr, counted))
+          takeAt(rewriter, box, data, tag, block, at, nullptr, counted);
       });
     }
   }
@@ -326,7 +319,7 @@ private:
 } // namespace
 
 LogicalResult reshape(RewriterBase &rewriter, FuncOp fn, Counted &counted, Classes &classes,
-                      SymbolTable &symbols, bool sink) {
+                      SymbolTable &symbols) {
   Reshape reshaping(rewriter, fn, counted, classes, symbols);
   if (failed(reshaping.check()))
     return failure();
@@ -335,8 +328,7 @@ LogicalResult reshape(RewriterBase &rewriter, FuncOp fn, Counted &counted, Class
   // Consumers move past the reads that follow them before a field takes
   // a reference of its own: moved, the consumer is what keeps the field's
   // root alive at those reads, so the field needs none.
-  if (sink)
-    reshaping.sinkConsumers();
+  reshaping.sinkConsumers();
   reshaping.ownFields();
   return success();
 }

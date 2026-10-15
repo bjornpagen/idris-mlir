@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Patterns: taking a value's shape, rebuilding the value a shape stands
-// for, what a key asks of a shape, and erasing a shape a call no longer
-// reads.
+// Patterns: taking a value's shape, what a key asks of a shape, rebuilding
+// the value a key's pattern stands for, and erasing a shape a call no
+// longer reads.
 #include "idr/IR/IdrDialect.h"
-#include "idr/Analysis/Specialize.h"
+#include "idr/IR/Grades.h"
+#include "idr/IR/Symbols.h"
 #include "idr/Transforms/Specialize.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -16,19 +17,19 @@
 
 using namespace mlir;
 
-namespace idr::specialize {
+namespace idr::specialize::detail {
 
 namespace {
 
-// A constant the clone builds again as it was built here: the value of an
+// A constant the node builds again as it was built here: the value of an
 // op the dialect materializes, as rebuild does.
 bool constant(Value value, Attribute &out) {
   return isa_and_nonnull<ConstantOp, arith::ConstantOp>(value.getDefiningOp()) &&
          matchPattern(value, m_Constant(&out));
 }
 
-// A chain of clones counts a big down by one at a time; past this it is
-// too long to unroll anyway, so the exact count does not matter.
+// A chain of nodes counts a big down by one at a time; past this it is too
+// long to unroll anyway, so the exact count does not matter.
 constexpr uint64_t countless = uint64_t(1) << 32;
 
 // The size of `value` as a tree, up to countless. A constant shares its
@@ -51,8 +52,6 @@ uint64_t constantSize(Attribute value, llvm::DenseMap<Attribute, uint64_t> &size
       size = std::min(countless, size + sum(cell));
   } else if (con) {
     size = sum(con.getFields());
-  } else if (auto closure = dyn_cast<ClosureAttr>(value)) {
-    size = sum(closure.getCaptures());
   } else if (auto big = dyn_cast<BigAttr>(value)) {
     StringRef digits = big.getValue();
     digits.consume_front("-");
@@ -77,30 +76,32 @@ uint64_t sizeOf(const Pattern &pattern) {
   return std::visit(Match{[](const Hole &) { return uint64_t(0); },
                           [](const Constant &c) { return constantSize(c.value); },
                           [&](const Con &con) { return sum(con.fields); },
-                          [&](const Closure &closure) { return sum(closure.captures); },
                           [](const Linear &linear) { return sizeOf(linear.value.front()); }},
                     pattern.node);
 }
 
-// Whether `op` builds part of a shape, which the clone's call takes apart.
-bool isShapeOp(Operation *op) { return isa_and_nonnull<ConOp, ClosureOp, LinEnterOp>(op); }
+// Whether `op` builds part of a shape, which the node's call takes apart.
+bool isShapeOp(Operation *op) { return isa_and_nonnull<ConOp, LinEnterOp>(op); }
 
-// Where `value` was built, which the ops that rebuild it report: its
-// defining op, or the value itself.
-LocationAttr builtAt(Value value) {
-  Operation *def = value.getDefiningOp();
-  return def ? LocationAttr(def->getLoc()) : LocationAttr(value.getLoc());
+// The field types of constructor `ctor` of the data type a value of `type`
+// is of.
+ArrayRef<Type> fieldTypes(Type type, StringAttr ctor) {
+  DataType data = dataTypeOf(type);
+  std::optional<unsigned> tag = data ? data.getTag(ctor.getValue()) : std::nullopt;
+  return tag ? data.getCtor(*tag).fields : ArrayRef<Type>();
 }
+
+// Whether a position of `type` is linear: a value there entered a linear
+// type, which a rebuilt value enters again.
+bool isLinearPosition(Type type) { return unrestricted(type) != type; }
 
 } // namespace
 
 // The leaf `value` as hole `index`.
-Pattern leafOf(Value value, unsigned index) {
-  return {Hole{index}, value.getType(), builtAt(value)};
-}
+Pattern leafOf(Value value, unsigned index) { return {Hole{index}, value.getType()}; }
 
 // The pattern of `value`: its runtime leaves are appended to `leaves`, and
-// its holes numbered from the size `leaves` had. A constant the clone would
+// its holes numbered from the size `leaves` had. A constant the node would
 // not build again is a leaf, as is a linear value, whose shape its one use
 // keeps.
 Pattern shapeOf(Value value, SmallVectorImpl<Value> &leaves) {
@@ -112,52 +113,18 @@ Pattern shapeOf(Value value, SmallVectorImpl<Value> &leaves) {
   };
   Attribute known;
   if (constant(value, known))
-    return {Constant{known}, value.getType(), builtAt(value)};
+    return {Constant{known}, value.getType()};
   if (auto con = value.getDefiningOp<ConOp>())
-    return {Con{con.getCtorAttr(), shapesOf(con.getFields())}, value.getType(), builtAt(value)};
-  if (auto closure = value.getDefiningOp<ClosureOp>())
-    return {Closure{closure.getCalleeAttr(), shapesOf(closure.getCaptures())}, value.getType(),
-            builtAt(value)};
+    return {Con{con.getCtorAttr(), shapesOf(con.getFields())}, value.getType()};
   if (auto enter = value.getDefiningOp<LinEnterOp>()) {
     Pattern inner = shapeOf(enter.getValue(), leaves);
     if (!inner.isHole())
-      return {Linear{{std::move(inner)}}, value.getType(), builtAt(value)};
+      return {Linear{{std::move(inner)}}, value.getType()};
     // A leaf that entered is a leaf itself: the entry stays with the caller.
     leaves.pop_back();
   }
   leaves.push_back(value);
   return leafOf(value, static_cast<unsigned>(leaves.size() - 1));
-}
-
-// The value `pattern` stands for, rebuilt at `b`, each hole taken from
-// `holes` by its number.
-Value rebuild(OpBuilder &b, const Pattern &pattern, ArrayRef<Value> holes) {
-  Location loc(pattern.loc);
-  auto rebuildAll = [&](const std::vector<Pattern> &parts) {
-    SmallVector<Value> values;
-    for (const Pattern &part : parts)
-      values.push_back(rebuild(b, part, holes));
-    return values;
-  };
-  return std::visit(
-      Match{[&](const Hole &hole) { return holes[hole.index]; },
-            [&](const Constant &c) -> Value {
-              // shapeOf() took the constant from a constant op of this type.
-              Dialect *idr = b.getContext()->getLoadedDialect<IdrDialect>();
-              return idr->materializeConstant(b, c.value, pattern.type, loc)->getResult(0);
-            },
-            [&](const Con &con) -> Value {
-              return ConOp::create(b, loc, pattern.type, con.ctor, rebuildAll(con.fields));
-            },
-            [&](const Closure &closure) -> Value {
-              return ClosureOp::create(b, loc, pattern.type, closure.callee,
-                                       rebuildAll(closure.captures));
-            },
-            [&](const Linear &linear) -> Value {
-              return LinEnterOp::create(b, loc, pattern.type,
-                                        rebuild(b, linear.value.front(), holes));
-            }},
-      pattern.node);
 }
 
 // `pattern` with its holes numbered from `next`, which advances past them.
@@ -167,49 +134,25 @@ void renumber(Pattern &pattern, unsigned &next) {
                      for (Pattern &field : con.fields)
                        renumber(field, next);
                    },
-                   [&](Closure &closure) {
-                     for (Pattern &capture : closure.captures)
-                       renumber(capture, next);
-                   },
                    [&](Linear &linear) { renumber(linear.value.front(), next); }},
              pattern.node);
 }
 
-// The functions `pattern` names as closure labels.
-void labels(const Pattern &pattern, SmallVectorImpl<FlatSymbolRefAttr> &out) {
-  std::visit(Match{[](const Hole &) {},
-                   [&](const Constant &c) {
-                     Attribute(c.value).walk(
-                         [&](ClosureAttr closure) { out.push_back(closure.getCallee()); });
-                   },
-                   [&](const Con &con) {
-                     for (const Pattern &field : con.fields)
-                       labels(field, out);
-                   },
-                   [&](const Closure &closure) {
-                     out.push_back(closure.callee);
-                     for (const Pattern &capture : closure.captures)
-                       labels(capture, out);
-                   },
-                   [&](const Linear &linear) { labels(linear.value.front(), out); }},
-             pattern.node);
-}
-
-// Whether `pattern` has structure: a constructor or a closure, as a node
-// or as a constant. A lone scalar is none: a number specialized on would
-// make a clone per value, where LLVM weighs constant arguments better.
+// Whether `pattern` has structure: a constructor, as a node or as a
+// constant. A lone scalar is none: a number specialized on would make a
+// node per value, where LLVM weighs constant arguments better.
 bool hasStructure(const Pattern &pattern) {
   return std::visit(Match{[](const Hole &) { return false; },
-                          [](const Constant &c) { return isa<ConAttr, ClosureAttr>(c.value); },
-                          [](const Con &) { return true; }, [](const Closure &) { return true; },
+                          [](const Constant &c) { return isa<ConAttr>(c.value); },
+                          [](const Con &) { return true; },
                           [](const Linear &l) { return hasStructure(l.value.front()); }},
                     pattern.node);
 }
 
-// How long a chain of clones that each take a proper part of the value can
-// be: its constructors and closures, the value of a big, which counts down
-// by one, and a lone machine integer, a counter; a negative one has no end.
-// Scalars inside a structure take no part apart.
+// How long a chain of nodes that each take a proper part of the value can
+// be: its constructors, the value of a big, which counts down by one, and a
+// lone machine integer, a counter; a negative one has no end. Scalars
+// inside a structure take no part apart.
 uint64_t unrollSize(const Pattern &pattern) {
   // A machine integer on its own is a counter, counted down to zero; one
   // below zero only goes on. Inside a structure it is an element.
@@ -221,13 +164,12 @@ uint64_t unrollSize(const Pattern &pattern) {
   return sizeOf(pattern);
 }
 
-// Whether `value` is closed: a constant, or a constructor or closure of
-// closed values.
+// Whether `value` is closed: a constant, or a constructor of closed values.
 bool isClosed(Value value) {
   if (matchPattern(value, m_Constant()))
     return true;
   Operation *def = value.getDefiningOp();
-  return isa_and_nonnull<ConOp, ClosureOp>(def) && llvm::all_of(def->getOperands(), isClosed);
+  return isa_and_nonnull<ConOp>(def) && llvm::all_of(def->getOperands(), isClosed);
 }
 
 // Whether the shape of `value` has no use but the one that reads it: each
@@ -241,7 +183,7 @@ bool usedOnce(Value value) {
 }
 
 // Erases the operations that built the shapes of `values` once nothing
-// uses them. They hold the leaves, which the clone's call now takes itself:
+// uses them. They hold the leaves, which the node's call now takes itself:
 // a linear leaf used by both would be used twice. The set holds operations,
 // not values: a value passed twice names one operation, erased once.
 void eraseUnused(RewriterBase &rewriter, ArrayRef<Value> values) {
@@ -260,4 +202,49 @@ void eraseUnused(RewriterBase &rewriter, ArrayRef<Value> values) {
   }
 }
 
-} // namespace idr::specialize
+// A key's pattern rebuilt at a position of `type`: a hole is the parameter
+// that holds it, a linear position enters what is rebuilt inside it, a
+// constructor is built over its fields at their declared types, and a
+// scalar is the constant the dialect materializes.
+Value rebuild(OpBuilder &b, Location loc, Attribute pattern, Type type, ArrayRef<Value> holes) {
+  if (auto hole = dyn_cast<KeyHoleAttr>(pattern))
+    return holes[hole.getIndex()];
+  if (isLinearPosition(type))
+    return LinEnterOp::create(b, loc, type, rebuild(b, loc, pattern, unrestricted(type), holes));
+  if (auto con = dyn_cast<KeyConAttr>(pattern)) {
+    ArrayRef<Type> types = fieldTypes(type, con.getCtor());
+    SmallVector<Value> fields;
+    for (auto [field, fieldType] : llvm::zip_equal(con.getFields(), types))
+      fields.push_back(rebuild(b, loc, field, fieldType, holes));
+    return ConOp::create(b, loc, type, FlatSymbolRefAttr::get(con.getCtor()), fields);
+  }
+  Dialect *idr = b.getContext()->getLoadedDialect<IdrDialect>();
+  return idr->materializeConstant(b, pattern, type, loc)->getResult(0);
+}
+
+void holeTypes(Attribute pattern, Type type, SmallVectorImpl<Type> &out) {
+  if (isa<KeyHoleAttr>(pattern)) {
+    out.push_back(type);
+    return;
+  }
+  auto con = dyn_cast<KeyConAttr>(pattern);
+  if (!con)
+    return;
+  ArrayRef<Type> types = fieldTypes(unrestricted(type), con.getCtor());
+  for (auto [field, fieldType] : llvm::zip_equal(con.getFields(), types))
+    holeTypes(field, fieldType, out);
+}
+
+unsigned countHoles(Attribute pattern) {
+  if (isa<KeyHoleAttr>(pattern))
+    return 1;
+  auto con = dyn_cast<KeyConAttr>(pattern);
+  if (!con)
+    return 0;
+  unsigned holes = 0;
+  for (Attribute field : con.getFields())
+    holes += countHoles(field);
+  return holes;
+}
+
+} // namespace idr::specialize::detail

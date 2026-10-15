@@ -6,10 +6,11 @@
 // and printer recurse over are bounded by memory, not by the process's
 // stack. PIN(mlir-recursion)
 
+#include "idr/IR/Flow.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Profile.h"
+#include "idr/Target/Target.h"
 #include "idr/Transforms/Pipeline.h"
-#include "idr/Transforms/Simplify.h"
 
 #include "idris_rt.h"
 
@@ -50,17 +51,19 @@ void optMain(void *argument) {
   mlir::registerAllDialects(registry);
   mlir::registerAllExtensions(registry);
   registry.insert<idr::IdrDialect>();
+  // How a closure moves through the upstream ops that can hold one, and
+  // the schedules the pipeline's interpreter runs, loaded with the
+  // transform dialect, in every context made from this registry.
+  idr::registerFlowInterfaceExternalModels(registry);
+  idr::target::registerScheduleLibrary(registry);
   auto [inputPath, outputPath] = mlir::registerAndParseCLIOptions(
       invocation.argc, invocation.argv, "idris-mlir-opt: the idr dialect\n", registry);
   // --time-trace, when it named a file: written as this returns.
   idr::profile::Trace trace("idris-mlir-opt");
-  // idr-simplify counts its rounds through an instrumentation of the manager
-  // that runs it, so every manager this tool runs carries one, ahead of the
-  // pipeline the command line gives, and the profile's zones, as
-  // idris-mlir's manager does.
+  // Every manager this tool runs carries the profile's zones, ahead of the
+  // pipeline the command line gives, as idris-mlir's manager does.
   mlir::MlirOptMainConfig config = mlir::MlirOptMainConfig::createFromCLOptions();
   config.setPassPipelineSetupFn([parsed = config](mlir::PassManager &pm) {
-    pm.addInstrumentation(idr::createSimplifyInstrumentation());
     idr::profile::addInstrumentation(pm);
     return parsed.setupPassPipeline(pm);
   });

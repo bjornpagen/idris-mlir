@@ -1,134 +1,62 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Symbol lookup: from the table a pass holds, from the collection a
-// symbol-use verifier is handed, or, for code MLIR calls with no table in
-// hand, by a scan of the nearest symbol table's top level. A pass never
-// scans: it holds the SymbolTable analysis, which answers in O(1). A hook
-// with no table scans only at the few sites that run it once per op they
-// rewrite, so its cost is bounded by the module's top level per call, and
-// it keeps nothing a sibling could read. And the questions answered from a
-// declaration once it is found.
+// What a data type's body says, read from a value's type; the elimination
+// of a value at one of its uses; the data types a pass remakes where a body
+// would change, since a body is set once; and the names generated from
+// content.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
 
+#include "mlir/IR/BuiltinOps.h"
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SetVector.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include "llvm/Support/Format.h"
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/xxhash.h"
 
 using namespace mlir;
 using namespace idr;
 
-FlatSymbolRefAttr idr::getSumName(Type type) {
-  return TypeSwitch<Type, FlatSymbolRefAttr>(unrestricted(type))
-      .Case<DataType, BoxType>([](auto sum) { return sum.getName(); })
-      .Default([](Type) { return nullptr; });
+DataType idr::dataTypeOf(Type type) {
+  return TypeSwitch<Type, DataType>(unrestricted(type))
+      .Case([](DataType data) { return data; })
+      .Case([](BoxType box) { return box.getData(); })
+      .Default([](Type) { return DataType(); });
 }
 
-DataOp idr::lookupData(SymbolTable &symbols, Type type) {
-  FlatSymbolRefAttr name = getSumName(type);
-  return name ? symbols.lookup<DataOp>(name.getAttr()) : nullptr;
-}
-
-CtorOp idr::lookupCtor(SymbolTable &symbols, SymbolRefAttr ctor) {
-  if (ctor.getNestedReferences().size() != 1)
-    return nullptr;
-  return lookupCtor(symbols.lookup<DataOp>(ctor.getRootReference()), ctor.getLeafReference());
-}
-
-DataOp idr::lookupData(SymbolTableCollection &symbols, Operation *from, Type type) {
-  FlatSymbolRefAttr name = getSumName(type);
-  return name ? symbols.lookupNearestSymbolFrom<DataOp>(from, name) : nullptr;
-}
-
-// A declaration's constructors are few, and its own symbol table is never
-// built: they are read in place.
-CtorOp idr::lookupCtor(DataOp data, StringRef ctor) {
-  if (!data)
-    return nullptr;
-  return dyn_cast_or_null<CtorOp>(SymbolTable::lookupSymbolIn(data, ctor));
-}
-
-DataOp idr::declarationOf(Operation *from, Type type) {
-  FlatSymbolRefAttr name = getSumName(type);
-  if (!name)
-    return nullptr;
-  return SymbolTable::lookupNearestSymbolFrom<DataOp>(from, name.getAttr());
-}
-
-CtorOp idr::constructorOf(Operation *from, SymbolRefAttr ctor) {
-  if (ctor.getNestedReferences().size() != 1)
-    return nullptr;
-  auto data = SymbolTable::lookupNearestSymbolFrom<DataOp>(from, ctor.getRootReference());
-  return lookupCtor(data, ctor.getLeafReference());
-}
-
-Type idr::listElement(DataOp data) {
-  if (!data)
-    return {};
-  for (CtorOp ctor : data.getBody().front().getOps<CtorOp>())
-    if (ctor.getFieldTypes().size() == 2)
-      return ctor.getFieldType(0);
-  return {};
-}
-
-// The list is a box of two constructors, a nil without fields and a cons
-// of an `element` and the list itself.
-CtorOp idr::listCons(Operation *op, DataOp data, Type list, Type element) {
-  CtorOp ctors[2];
-  unsigned count = 0;
-  if (data)
-    for (CtorOp ctor : data.getBody().front().getOps<CtorOp>()) {
-      if (count < 2)
-        ctors[count] = ctor;
-      ++count;
-    }
-  if (!isa<BoxType>(unrestricted(list)) || count != 2) {
-    op->emitOpError("walks a list, a box of a nil and a cons, not ") << list;
-    return nullptr;
-  }
-  CtorOp cons = ctors[0].getFieldTypes().size() == 2 ? ctors[0] : ctors[1];
-  CtorOp nil = cons == ctors[0] ? ctors[1] : ctors[0];
-  if (!nil.getFieldTypes().empty() || cons.getFieldTypes().size() != 2 ||
-      cons.getFieldType(0) != element ||
-      unrestricted(cons.getFieldType(1)) != unrestricted(list)) {
-    op->emitOpError("walks a list of ") << element << ", not " << list;
-    return nullptr;
-  }
-  return cons;
-}
+bool idr::isBoxed(Type type) { return isa<BoxType>(unrestricted(type)); }
 
 namespace {
 
 // `visited`: the unboxed sums already asked about. Containment through
 // them is acyclic, so one met again is one the verifier has yet to reject,
 // or one whose answer is no (a yes ends the walk).
-bool holds(Type type, function_ref<DataOp(Type)> declaration,
-           llvm::SmallPtrSetImpl<Operation *> &visited) {
+bool holds(Type type, llvm::SmallPtrSetImpl<const void *> &visited) {
   // A linear value holds what the value it is holds: its quantity decides
   // only how it is used.
   type = unrestricted(type);
-  if (isa<StrType, BigType, NatType, BoxType, FnType, LazyType, idr::TokenType>(type) ||
-      isArray(type))
+  if (isa<StrType, BigType, NatType, BoxType, FnType, LazyType, idr::TokenType, ShapedType>(type))
     return true;
-  // An unboxed sum has no cell: it holds what its slots hold, which only
-  // its declaration says, since the type is a name.
-  if (!isa<DataType>(type))
+  auto data = dyn_cast<DataType>(type);
+  if (!data || !visited.insert(data.getAsOpaquePointer()).second)
     return false;
-  DataOp decl = declaration(type);
-  if (!decl || !visited.insert(decl).second)
-    return false;
-  for (CtorOp ctor : decl.getBody().front().getOps<CtorOp>())
-    for (Type field : ctor.getFieldTypes().getAsValueRange<TypeAttr>())
-      if (holds(field, declaration, visited))
+  for (const Ctor &ctor : data.getCtors())
+    for (Type field : ctor.fields)
+      if (holds(field, visited))
         return true;
   return false;
 }
 
 } // namespace
 
-bool idr::holdsReferences(Type type, function_ref<DataOp(Type)> declaration) {
-  llvm::SmallPtrSet<Operation *, 4> visited;
-  return holds(type, declaration, visited);
+bool idr::holdsReferences(Type type) {
+  llvm::SmallPtrSet<const void *, 4> visited;
+  return holds(type, visited);
 }
 
 std::optional<idr::Elimination> idr::eliminationAt(OpOperand &use) {
@@ -147,8 +75,268 @@ std::optional<idr::Elimination> idr::eliminationAt(OpOperand &use) {
     user = next(value = e.field.getResult());
   if ((e.use = dyn_cast_or_null<LinUseOp>(user)))
     user = next(value = e.use.getResult());
-  e.apply = dyn_cast_or_null<ApplyOp>(user);
-  if (!e.apply || e.apply.getCallee() != value)
+  e.dispatch = dyn_cast_or_null<MatchOp>(user);
+  if (!e.dispatch || e.dispatch.getScrutinee() != value || !e.dispatch.getDataType().isClosures())
     return std::nullopt;
   return e;
+}
+
+//===----------------------------------------------------------------------===//
+// Remaking data types
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+// A type written for a key: as MLIR writes it, but every data type by its
+// name alone, which is what identifies it, so a key is short and needs no
+// name that is still to be made.
+void describe(Type type, raw_ostream &os) {
+  auto list = [&](TypeRange types) {
+    os << '(';
+    llvm::interleaveComma(types, os, [&](Type t) { describe(t, os); });
+    os << ')';
+  };
+  TypeSwitch<Type>(type)
+      .Case([&](DataType data) { os << "!idr.data<\"" << data.getName() << "\">"; })
+      .Case([&](BoxType box) {
+        os << "!idr.box<";
+        describe(box.getData(), os);
+        os << '>';
+      })
+      .Case([&](QType q) {
+        os << "!idr.q<" << stringifyQuantity(q.getQuantity()) << ", "
+           << stringifyPermission(q.getPermission()) << ", ";
+        describe(q.getValue(), os);
+        os << '>';
+      })
+      .Case([&](FnType fn) {
+        os << "!idr.fn<";
+        list(fn.getInputs());
+        os << " -> ";
+        list(fn.getResults());
+        os << '>';
+      })
+      .Case([&](LazyType lazy) {
+        os << "!idr.lazy<";
+        describe(lazy.getValue(), os);
+        os << '>';
+      })
+      .Case([&](DestType dest) {
+        os << "!idr.dest<";
+        describe(dest.getValue(), os);
+        os << '>';
+      })
+      .Case([&](FunctionType fn) {
+        list(fn.getInputs());
+        os << " -> ";
+        list(fn.getResults());
+      })
+      .Case([&](ShapedType shaped) {
+        os << (isa<MemRefType>(shaped) ? "memref<" : "tensor<");
+        for (int64_t extent : shaped.getShape())
+          os << (ShapedType::isDynamic(extent) ? std::string("?") : std::to_string(extent)) << 'x';
+        describe(shaped.getElementType(), os);
+        if (auto memref = dyn_cast<MemRefType>(shaped)) {
+          if (!memref.getLayout().isIdentity())
+            os << ", " << memref.getLayout();
+          if (Attribute space = memref.getMemorySpace())
+            os << ", " << space;
+        }
+        os << '>';
+      })
+      .Default([&](Type other) { os << other; });
+}
+
+} // namespace
+
+// The replacement of every type at a place: a box of its data's new type,
+// a data type's new type (a box of it where it is held outside one), a
+// leaf's at that place; the parts of anything else. What a leaf gives is
+// looked inside, so a data type a leaf's replacement holds is remade too. A
+// constant constructor names its data type as its identity, never boxed,
+// and its cells are values met anywhere but in a body.
+void DataRemap::addReplacements(AttrTypeReplacer &into, Place place) {
+  into.addReplacement([this](ConAttr con) -> std::optional<std::pair<Attribute, WalkResult>> {
+    MLIRContext *context = con.getContext();
+    SmallVector<ArrayAttr> cells;
+    for (ArrayAttr cell : con.getCells())
+      cells.push_back(cast<ArrayAttr>(replacer.replace(cell)));
+    DataType data = mapData(con.getData());
+    Attribute rebuilt =
+        con.isRun() ? Attribute(ConAttr::getRun(context, data, con.getCtor(), con.getSpine(),
+                                                cells, replacer.replace(con.getTail())))
+                    : Attribute(ConAttr::get(context, data, con.getCtor(), cells.front()));
+    return std::make_pair(rebuilt, WalkResult::skip());
+  });
+  into.addReplacement([this, place](Type type) -> std::optional<std::pair<Type, WalkResult>> {
+    if (auto box = dyn_cast<BoxType>(type))
+      return std::make_pair(Type(BoxType::get(mapData(box.getData()))), WalkResult::skip());
+    if (auto data = dyn_cast<DataType>(type)) {
+      DataType mapped = mapData(data);
+      if (boxed.contains(data))
+        return std::make_pair(Type(BoxType::get(mapped)), WalkResult::skip());
+      return std::make_pair(Type(mapped), WalkResult::skip());
+    }
+    if (std::optional<Type> replaced = leafAt(type, place))
+      return std::make_pair(*replaced, WalkResult::advance());
+    return std::nullopt;
+  });
+}
+
+DataRemap::DataRemap(ModuleOp module, StringRef kind, Leaf leafFn, ArrayRef<DataType> boxedTypes)
+    : leaf(std::move(leafFn)), boxed(boxedTypes.begin(), boxedTypes.end()) {
+  // Every data type the module's values can be of, and each one's bodies'.
+  llvm::SetVector<DataType> types;
+  AttrTypeWalker walker;
+  walker.addWalk([&](DataType data) { types.insert(data); });
+  module.walk([&](Operation *op) {
+    walker.walk(op->getAttrDictionary());
+    for (Type type : op->getResultTypes())
+      walker.walk(type);
+    for (Region &region : op->getRegions())
+      for (Block &block : region)
+        for (Type type : block.getArgumentTypes())
+          walker.walk(type);
+  });
+  for (size_t at = 0; at < types.size(); ++at)
+    for (const Ctor &ctor : types[at].getCtors())
+      for (Type field : ctor.fields)
+        walker.walk(field);
+
+  // A type changes where a field does: a leaf replaced at the field, a type
+  // of `boxed` held outside a box, or a data type that changes. `holders`
+  // is the reverse of "a body holds", along which a change spreads.
+  llvm::DenseMap<DataType, SmallVector<DataType>> holders;
+  SmallVector<DataType> changing;
+  llvm::DenseSet<DataType> changed;
+  for (DataType data : types) {
+    bool direct = false;
+    for (auto [tag, ctor] : llvm::enumerate(data.getCtors()))
+      for (auto [index, field] : llvm::enumerate(ctor.fields)) {
+        Place place{data, static_cast<unsigned>(tag), static_cast<unsigned>(index)};
+        AttrTypeWalker fields;
+        fields.addWalk([&](Type part) -> WalkResult {
+          if (auto box = dyn_cast<BoxType>(part)) {
+            holders[box.getData()].push_back(data);
+            return WalkResult::skip();
+          }
+          if (auto inner = dyn_cast<DataType>(part)) {
+            holders[inner].push_back(data);
+            direct |= boxed.contains(inner);
+            return WalkResult::skip();
+          }
+          if (leafAt(part, place)) {
+            direct = true;
+            return WalkResult::skip();
+          }
+          return WalkResult::advance();
+        });
+        fields.walk<WalkOrder::PreOrder>(field);
+      }
+    if (direct && changed.insert(data).second)
+      changing.push_back(data);
+  }
+  for (size_t at = 0; at < changing.size(); ++at)
+    for (DataType holder : holders.lookup(changing[at]))
+      if (changed.insert(holder).second)
+        changing.push_back(holder);
+  llvm::sort(changing, [](DataType a, DataType b) { return a.getName() < b.getName(); });
+
+  addReplacements(replacer, Place{});
+
+  // Every new type is named before any body is set, each from its new body
+  // with the old names, so a cycle of new types needs no name first.
+  MLIRContext *context = module.getContext();
+  for (DataType data : changing) {
+    std::string key;
+    llvm::raw_string_ostream os(key);
+    for (auto [tag, ctor] : llvm::enumerate(data.getCtors())) {
+      os << '@' << ctor.name.getValue() << '(';
+      for (auto [index, field] : llvm::enumerate(ctor.fields)) {
+        if (index != 0)
+          os << ", ";
+        Place place{data, static_cast<unsigned>(tag), static_cast<unsigned>(index)};
+        auto inner = dyn_cast<DataType>(unrestricted(field));
+        bool boxes = inner && boxed.contains(inner);
+        std::optional<Type> replaced = leafAt(field, place);
+        os << (boxes ? "!idr.box<" : "");
+        describe(replaced ? *replaced : field, os);
+        os << (boxes ? ">" : "");
+      }
+      os << ')';
+    }
+    DataType made = DataType::get(context, contentName(data.getName(), kind, key));
+    next[data] = made;
+    pairs.push_back({data, made});
+  }
+  for (auto [old, made] : pairs) {
+    SmallVector<SmallVector<Type>> fields;
+    for (auto [tag, ctor] : llvm::enumerate(old.getCtors())) {
+      SmallVector<Type> mapped;
+      for (auto [index, field] : llvm::enumerate(ctor.fields)) {
+        // A field's leaves are keyed by the field, so each field has a
+        // replacer of its own.
+        AttrTypeReplacer atField;
+        addReplacements(atField, Place{old, static_cast<unsigned>(tag), static_cast<unsigned>(index)});
+        mapped.push_back(atField.replace(field));
+      }
+      fields.push_back(std::move(mapped));
+    }
+    SmallVector<Ctor> ctors;
+    for (auto [ctor, mapped] : llvm::zip_equal(old.getCtors(), fields))
+      ctors.push_back({ctor.name, mapped, ctor.byName});
+    if (mlir::failed(made.setBody(
+            [&] {
+              return module.emitError()
+                     << "internal error: remaking the data type \"" << old.getName() << "\": ";
+            },
+            old.getKind(), ctors, old.getInstance())))
+      broken = true;
+  }
+}
+
+// Each type's leaf is asked once at each place.
+std::optional<Type> DataRemap::leafAt(Type type, Place place) {
+  auto [it, fresh] = leaves.try_emplace({type, place.owner, place.tag, place.field});
+  if (fresh)
+    it->second = leaf(type, place.owner, place.tag, place.field);
+  return it->second;
+}
+
+DataType DataRemap::mapData(DataType type) {
+  DataType made = next.lookup(type);
+  return made ? made : type;
+}
+
+Type DataRemap::map(Type type) { return replacer.replace(type); }
+
+void DataRemap::retype(Operation *root) {
+  replacer.recursivelyReplaceElementsIn(root, /*replaceAttrs=*/true, /*replaceLocs=*/false,
+                                        /*replaceTypes=*/true);
+}
+
+//===----------------------------------------------------------------------===//
+// Names from content
+//===----------------------------------------------------------------------===//
+
+std::string idr::contentHash(StringRef key) {
+  llvm::XXH128_hash_t hash = llvm::xxh3_128bits(llvm::arrayRefFromStringRef(key));
+  std::string text;
+  llvm::raw_string_ostream os(text);
+  os << llvm::format_hex_no_prefix(hash.low64, 16, /*Upper=*/false);
+  return text;
+}
+
+std::string idr::contentName(StringRef owner, StringRef kind, StringRef key) {
+  return (owner + "." + kind + "." + contentHash(key)).str();
+}
+
+FailureOr<StringAttr> ContentNames::intern(Location at, StringRef owner, StringRef kind,
+                                           StringRef key) {
+  std::string name = contentName(owner, kind, key);
+  auto [it, fresh] = keys.try_emplace(name, key.str());
+  if (!fresh && it->second != key)
+    return emitError(at) << "internal error: two keys name " << name << ": " << it->second
+                         << " and " << key;
+  return StringAttr::get(at->getContext(), name);
 }

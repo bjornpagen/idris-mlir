@@ -9,8 +9,6 @@
 #include "idr/IR/Ownership.h"
 #include "idr/IR/Symbols.h"
 
-#include "mlir/IR/SymbolTable.h"
-
 using namespace mlir;
 
 namespace idr::ownership {
@@ -25,7 +23,7 @@ bool followed(Value value) {
 bool Counted::operator()(Type type) {
   auto [known, fresh] = answers.try_emplace(type, false);
   if (fresh)
-    known->second = holdsReferences(type, [&](Type sum) { return lookupData(symbols, sum); });
+    known->second = holdsReferences(type);
   return known->second;
 }
 

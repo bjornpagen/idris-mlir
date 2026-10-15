@@ -112,7 +112,15 @@ struct Width {
   bool lanes = false;
 };
 Width widthOf(mlir::Operation *op);
-// Whether `loop` computes on lanes of integers wider than 32 bits.
+// The ops of `root` that only combine into a vector a loop in it carries
+// round: each elementwise op the loop's iteration argument of vector type
+// reaches whose results go only to one another and to the yield that
+// carries that argument. Their width is the program's, as a sum is as wide
+// as the program made it, so no bound on the sizes makes them fit, and
+// they are no lane the narrowing is for.
+llvm::DenseSet<mlir::Operation *> accumulations(mlir::Operation *root);
+// Whether `loop` computes on lanes of integers wider than 32 bits outside
+// its accumulations.
 bool computesWideLanes(mlir::scf::ForOp loop);
 
 // Whether `loop` runs at most once, as upstream's value bounds see its

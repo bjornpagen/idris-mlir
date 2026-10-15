@@ -1,16 +1,16 @@
 #!/bin/sh
-# The text Emit writes is MLIR the dialects read back without loss: each op
-# in its dialect's syntax where the dialect's format allows and in the
-# generic form elsewhere, a mix the parser reads. For each program below,
-# idris-mlir-opt parses the emitted module and prints it, then parses that
-# print and prints it again: the two prints are byte-identical. And the
-# print says what the emitted text says: both, printed again in the generic
-# form, every location in place, are byte-identical, so the dialects'
-# syntax that the first print chose lost or added nothing Emit wrote.
+# The module the frontend hands the driver is MLIR the dialects read back
+# without loss, in bytecode, whose types and attributes are written as
+# their assembly. For each program below, idris-mlir-opt reads the emitted
+# module and prints it, then parses that print and prints it again: the
+# two prints are byte-identical. And the print says what the emitted module
+# says: both, printed again in the generic form, every location in place,
+# are byte-identical, so the dialects' syntax that the first print chose
+# lost or added nothing the frontend wrote.
 #
 # The programs: data and its matches, specialization and reference counts
 # (data/rbtree), constructors, literal matches and erased arguments
-# (data/shapes), and linear arrays, generated and folded
+# (data/shapes), and arrays, tabulated and folded
 # (arrays/linarray-combinators).
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 
@@ -44,7 +44,7 @@ round_trip() {
     show "$work/compile.out" "$work/compile.err"
     return
   fi
-  rt_emitted=$rt_dir/build/exec/prog.mlir
+  rt_emitted=$(artifact_file "$rt_dir" prog module)
   opt_print "$rt_name" "$rt_emitted" "$rt_dir/printed.mlir" || return
   opt_print "$rt_name" "$rt_dir/printed.mlir" "$rt_dir/reprinted.mlir" || return
   if cmp -s "$rt_dir/printed.mlir" "$rt_dir/reprinted.mlir"; then
@@ -56,9 +56,9 @@ round_trip() {
   opt_print "$rt_name" "$rt_emitted" "$rt_dir/emitted-generic.mlir" --mlir-print-op-generic || return
   opt_print "$rt_name" "$rt_dir/printed.mlir" "$rt_dir/printed-generic.mlir" --mlir-print-op-generic || return
   if cmp -s "$rt_dir/emitted-generic.mlir" "$rt_dir/printed-generic.mlir"; then
-    say "$rt_name: the emitted text and its print, in the generic form, the same bytes"
+    say "$rt_name: the emitted module and its print, in the generic form, the same bytes"
   else
-    say "$rt_name: the emitted text and its print differ in the generic form"
+    say "$rt_name: the emitted module and its print differ in the generic form"
     diff "$rt_dir/emitted-generic.mlir" "$rt_dir/printed-generic.mlir" | head -n 20 | sed 's/^/  | /'
   fi
 }

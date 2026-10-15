@@ -107,7 +107,7 @@ set(IDR_TOOLS idris-mlir idris-mlir-opt idris-mlir-reduce)
 set(IDR_TOOL_LINKS_idris-mlir IdrDriver)
 set(IDR_TOOL_LINKS_idris-mlir-opt
 	IdrPipeline
-	IdrSimplify
+	IdrTarget
 	IdrIR
 	IdrSupport
 	idris_rt
@@ -121,6 +121,7 @@ set(IDR_TOOL_LINKS_idris-mlir-opt
 )
 set(IDR_TOOL_LINKS_idris-mlir-reduce
 	IdrPipeline
+	IdrTarget
 	IdrIR
 	MLIRIR
 	MLIRReduceLib

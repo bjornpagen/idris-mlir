@@ -1,6 +1,6 @@
 // RUN: idris-mlir-opt %s -split-input-file -verify-diagnostics
 
-idr.func @f(%d: f64) {
+idr.func private @f(%d: f64) {
   // expected-error @+1 {{shows a Double, which has no signedness}}
   %s = idr.str.show signed %d : f64
   return
@@ -8,7 +8,7 @@ idr.func @f(%d: f64) {
 
 // -----
 
-idr.func @f(%x: i1) {
+idr.func private @f(%x: i1) {
   // expected-error @+1 {{operand #0 must be}}
   %s = idr.str.show %x : i1
   return
@@ -17,7 +17,7 @@ idr.func @f(%x: i1) {
 // -----
 
 // idr.big.cmp has no `ne`, as Idris's Integer primitives have none.
-idr.func @f(%x: !idr.big) {
+idr.func private @f(%x: !idr.big) {
   // expected-error @+1 {{'predicate'}}
   %b = idr.big.cmp ne %x, %x
   return
@@ -26,41 +26,38 @@ idr.func @f(%x: !idr.big) {
 // -----
 
 // put_list writes characters or strings, as pack and concat build them.
-idr.data @Ints box {
-  idr.ctor @Nil ()
-  idr.ctor @Cons (i64, !idr.box<@Ints>)
-}
-idr.func @f(%xs: !idr.box<@Ints>, %w: !idr.world) -> !idr.world {
+!Ints = !idr.data<"Ints", list [@Nil(), @Cons(i64, !idr.box<!idr.data<"Ints">>)]>
+idr.func private @f(%xs: !idr.box<!Ints>, %w: !idr.world) -> !idr.world {
   // expected-error @+1 {{writes a list of characters or of strings}}
-  %w1 = idr.io.put_list %xs, %w : !idr.box<@Ints>
+  %w1 = idr.io.put_list %xs, %w : !idr.box<!Ints>
   return %w1 : !idr.world
 }
 
 // -----
 
 // A new array takes one size per dimension: an IORef's, of rank 0, none.
-idr.func @f(%n: i64, %z: i64, %w: !idr.world) -> !idr.world {
+idr.func private @f(%n: i64, %z: i64, %w: !idr.world) -> !idr.world {
   // expected-error @+1 {{takes 1 sizes for an array of rank 0}}
-  %r, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<i64>
+  %r, %w1 = idr.array.new [%n], %z, %w : i64 -> memref<i64, #idr.world>
   return %w1 : !idr.world
 }
 
 // -----
 
 // An access takes one index per dimension.
-idr.func @f(%a: memref<?xi64>, %w: !idr.world) -> !idr.world {
+idr.func private @f(%a: memref<?xi64, #idr.world>, %w: !idr.world) -> !idr.world {
   // expected-error @+1 {{takes 0 indices for an array of rank 1}}
-  %x, %w1 = idr.array.get %a[], %w : memref<?xi64> -> i64
+  %x, %w1 = idr.array.get %a[], %w : memref<?xi64, #idr.world> -> i64
   return %w1 : !idr.world
 }
 
 // -----
 
 // A word holds no reference, so there is nothing to move out.
-idr.func @f(%r: memref<i64>, %w: !idr.world) -> !idr.world {
+idr.func private @f(%r: memref<i64, #idr.world>, %w: !idr.world) -> !idr.world {
   // expected-error @+1 {{moves out a machine word, which holds no reference}}
-  %x, %w1 = idr.array.get %r[], %w moves : memref<i64> -> i64
-  %w2 = idr.array.set %r[], %x, %w1 : memref<i64>, i64
+  %x, %w1 = idr.array.get %r[], %w moves : memref<i64, #idr.world> -> i64
+  %w2 = idr.array.set %r[], %x, %w1 : memref<i64, #idr.world>, i64
   return %w2 : !idr.world
 }
 
@@ -68,11 +65,11 @@ idr.func @f(%r: memref<i64>, %w: !idr.world) -> !idr.world {
 
 // The next IO after a read that moves its element out writes that element:
 // output between would come before the place is filled again.
-idr.func @f(%r: memref<!idr.str>, %s: !idr.str, %w: !idr.world) -> !idr.world {
+idr.func private @f(%r: memref<!idr.str, #idr.world>, %s: !idr.str, %w: !idr.world) -> !idr.world {
   // expected-error @+1 {{moves its element out, but its world does not go next to a write of that element in its block}}
-  %x, %w1 = idr.array.get %r[], %w moves : memref<!idr.str> -> !idr.str
+  %x, %w1 = idr.array.get %r[], %w moves : memref<!idr.str, #idr.world> -> !idr.str
   %w2 = idr.io.put_str %s, %w1
-  %w3 = idr.array.set %r[], %x, %w2 : memref<!idr.str>, !idr.str
+  %w3 = idr.array.set %r[], %x, %w2 : memref<!idr.str, #idr.world>, !idr.str
   return %w3 : !idr.world
 }
 
@@ -80,19 +77,19 @@ idr.func @f(%r: memref<!idr.str>, %s: !idr.str, %w: !idr.world) -> !idr.world {
 
 // The write that follows writes another element, and the one moved out
 // would stay empty.
-idr.func @f(%a: memref<?x!idr.str>, %i: i64, %j: i64, %s: !idr.str, %w: !idr.world) -> !idr.world {
+idr.func private @f(%a: memref<?x!idr.str, #idr.world>, %i: i64, %j: i64, %s: !idr.str, %w: !idr.world) -> !idr.world {
   // expected-error @+1 {{moves its element out, but its world does not go next to a write of that element in its block}}
-  %x, %w1 = idr.array.get %a[%i], %w moves : memref<?x!idr.str> -> !idr.str
-  %w2 = idr.array.set %a[%j], %s, %w1 : memref<?x!idr.str>, !idr.str
+  %x, %w1 = idr.array.get %a[%i], %w moves : memref<?x!idr.str, #idr.world> -> !idr.str
+  %w2 = idr.array.set %a[%j], %s, %w1 : memref<?x!idr.str, #idr.world>, !idr.str
   return %w2 : !idr.world
 }
 
 // -----
 
 // A world that goes nowhere fills nothing again.
-idr.func @f(%r: memref<!idr.str>, %w: !idr.world) -> !idr.str {
+idr.func private @f(%r: memref<!idr.str, #idr.world>, %w: !idr.world) -> !idr.str {
   // expected-error @+1 {{moves its element out, but its world does not go next to a write of that element in its block}}
-  %x, %w1 = idr.array.get %r[], %w moves : memref<!idr.str> -> !idr.str
+  %x, %w1 = idr.array.get %r[], %w moves : memref<!idr.str, #idr.world> -> !idr.str
   return %x : !idr.str
 }
 
@@ -101,11 +98,11 @@ idr.func @f(%r: memref<!idr.str>, %w: !idr.world) -> !idr.str {
 // Two constants of one value are one index: a pass that puts a constant in
 // place of each guard whose range it knows makes one per use, and the
 // write still fills the place the read emptied.
-idr.func @f(%a: memref<?x!idr.str>, %s: !idr.str, %w: !idr.world) -> (!idr.str, !idr.world) {
+idr.func private @f(%a: memref<?x!idr.str, #idr.world>, %s: !idr.str, %w: !idr.world) -> (!idr.str, !idr.world) {
   %i = arith.constant 0 : i64
   %j = arith.constant 0 : i64
-  %x, %w1 = idr.array.get %a[%i], %w moves : memref<?x!idr.str> -> !idr.str
-  %w2 = idr.array.set %a[%j], %s, %w1 : memref<?x!idr.str>, !idr.str
+  %x, %w1 = idr.array.get %a[%i], %w moves : memref<?x!idr.str, #idr.world> -> !idr.str
+  %w2 = idr.array.set %a[%j], %s, %w1 : memref<?x!idr.str, #idr.world>, !idr.str
   return %x, %w2 : !idr.str, !idr.world
 }
 
@@ -114,12 +111,9 @@ idr.func @f(%a: memref<?x!idr.str>, %s: !idr.str, %w: !idr.world) -> (!idr.str, 
 // An element that holds no reference but is no word may be read moving:
 // defunctionalization makes the closures of a read that moved into a sum
 // whose labels capture only words, and the read then empties nothing.
-idr.data @Op {
-  idr.ctor @Inc ()
-  idr.ctor @Add (i64)
-}
-idr.func @f(%r: memref<!idr.data<@Op>>, %o: !idr.data<@Op>, %w: !idr.world) -> (!idr.data<@Op>, !idr.world) {
-  %x, %w1 = idr.array.get %r[], %w moves : memref<!idr.data<@Op>> -> !idr.data<@Op>
-  %w2 = idr.array.set %r[], %o, %w1 : memref<!idr.data<@Op>>, !idr.data<@Op>
-  return %x, %w2 : !idr.data<@Op>, !idr.world
+!Op = !idr.data<"Op", plain [@Inc(), @Add(i64)]>
+idr.func private @f(%r: memref<!Op, #idr.world>, %o: !Op, %w: !idr.world) -> (!Op, !idr.world) {
+  %x, %w1 = idr.array.get %r[], %w moves : memref<!Op, #idr.world> -> !Op
+  %w2 = idr.array.set %r[], %o, %w1 : memref<!Op, #idr.world>, !Op
+  return %x, %w2 : !Op, !idr.world
 }

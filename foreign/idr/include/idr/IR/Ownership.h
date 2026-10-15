@@ -12,7 +12,6 @@
 
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Value.h"
-#include "llvm/ADT/STLFunctionalExtras.h"
 
 namespace idr::ownership {
 
@@ -32,8 +31,10 @@ Use useOf(mlir::OpOperand &operand, mlir::SymbolTable *symbols = nullptr);
 // Whether `value` is static: a constant, poison, or a field read from one.
 bool isStatic(mlir::Value value);
 
-// The value a field was read from: the operand of an idr.field, or the
-// scrutinee of the match whose region binds it; null for any other value.
+// The value a field was read from: the operand of an idr.field, the
+// scrutinee of the match whose region binds it, the source of a view of a
+// buffer, or the buffer a counted element is loaded from; null for any
+// other value.
 mlir::Value readFrom(mlir::Value value);
 
 // The owned value a view was read from: through idr.borrow, idr.field,
@@ -41,13 +42,12 @@ mlir::Value readFrom(mlir::Value value);
 mlir::Value viewRoot(mlir::Value value);
 
 // Whether `view` is static data that reaches no cell but atoms, which is in
-// every exclusive tree. `declaration` finds the declaration a constant
-// constructor's type names, from whatever the caller holds.
-bool reachesOnlyAtoms(mlir::Value view, llvm::function_ref<DataOp(mlir::Type)> declaration);
+// every exclusive tree.
+bool reachesOnlyAtoms(mlir::Value view);
 
-// Whether `op`'s region is the body of a loop over an array, which runs
-// once per index it covers.
-bool isArrayLoop(mlir::Operation *op);
+// Whether `op`'s region is the body of a loop over indices, which runs once
+// per index it covers.
+bool isIndexLoop(mlir::Operation *op);
 
 // Whether `fn` is in the owned stage: a value of it, an argument of any of
 // its blocks or a result of any of its ops, is owned or exclusive.

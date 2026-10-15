@@ -1,37 +1,26 @@
-// RUN: idris-mlir-opt %s --idr-inline | FileCheck %s
-// RUN: idris-mlir-opt %s --canonicalize | FileCheck %s --check-prefix=CANON
+// RUN: idris-mlir-opt %s --canonicalize | FileCheck %s
 // RUN: idris-mlir-opt %s --canonicalize=test-convergence=true -o /dev/null
 // A constant suspension is one cell in static data, whose force runs its
-// label once. A force of it that nothing else uses becomes a call of the
-// label, unless the function holding the force may run while the label
-// does: in a knot, the label's own constant, or one a function it calls
-// holds, the call would recurse where the cell's running state ends the
-// program. That force stays. A label that reaches nothing holding its
-// constant is called. Whether a function may be running is a question of
-// the references among functions, which idr-inline's preparation answers
-// before it inlines; canonicalize, which has no table, leaves every force
-// of a constant. Every function here is no_inline, so the inliner that
-// follows the preparation leaves the calls it made.
-// CHECK-LABEL: idr.func private @knot(
+// label once. Every force of it stays a force: a call of the label in its
+// place would run the label again at each force, and in a knot (the
+// label's own constant, or one a function it calls holds) would recurse
+// where the cell's running state ends the program. So canonicalize leaves
+// every force of a constant, whatever the label reaches.
+// CHECK-LABEL: @knot(
 // CHECK: force
 // CHECK-NOT: call @knot
 // CHECK: return
-// CHECK-LABEL: idr.func private @mid(
+// CHECK-LABEL: @mid(
 // CHECK: force
 // CHECK-NOT: call @label
 // CHECK: return
-// CHECK-LABEL: idr.func private @other(
-// CHECK-NOT: {{(idr\.| )force }}
-// CHECK: call @leaf()
-// CHECK-NOT: {{(idr\.| )force }}
+// CHECK-LABEL: @other(
+// CHECK: force
+// CHECK-NOT: call @leaf
 // CHECK: return
-// CANON-LABEL: idr.func private @other(
-// CANON: force
-// CANON-NOT: call @leaf
-// CANON: return
 
 // The label forces its own constant.
-idr.func private @knot() -> i64 attributes {no_inline} {
+idr.func private @knot() -> i64 {
   %c = idr.constant #idr.closure<@knot, []> : !idr.lazy<i64>
   %v = idr.force %c : !idr.lazy<i64> -> i64
   %one = arith.constant 1 : i64
@@ -40,30 +29,23 @@ idr.func private @knot() -> i64 attributes {no_inline} {
 }
 
 // The label calls the function that forces its constant.
-idr.func private @label() -> i64 attributes {no_inline} {
+idr.func private @label() -> i64 {
   %r = idr.call @mid() : () -> i64
   return %r : i64
 }
-idr.func private @mid() -> i64 attributes {no_inline} {
+idr.func private @mid() -> i64 {
   %c = idr.constant #idr.closure<@label, []> : !idr.lazy<i64>
   %v = idr.force %c : !idr.lazy<i64> -> i64
   return %v : i64
 }
 
 // The label reaches nothing that holds its constant.
-idr.func private @leaf() -> i64 attributes {no_inline, total} {
+idr.func private @leaf() -> i64 attributes {total} {
   %c = arith.constant 7 : i64
   return %c : i64
 }
-idr.func private @other() -> i64 attributes {no_inline} {
+idr.func private @other() -> i64 {
   %c = idr.constant #idr.closure<@leaf, []> : !idr.lazy<i64>
   %v = idr.force %c : !idr.lazy<i64> -> i64
   return %v : i64
-}
-
-idr.func @main() -> (i64, i64, i64) {
-  %a = idr.call @knot() : () -> i64
-  %b = idr.call @label() : () -> i64
-  %c = idr.call @other() : () -> i64
-  return %a, %b, %c : i64, i64, i64
 }

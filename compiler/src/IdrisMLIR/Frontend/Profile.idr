@@ -25,7 +25,7 @@ import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.Registry
 import IdrisMLIR.Registry.Libraries
-import IdrisMLIR.Rule
+import IdrisMLIR.Syntax.Idr
 import IdrisMLIR.Types
 
 import Data.List
@@ -62,12 +62,13 @@ exclusion Signal n = n ++ " handles or sends a signal, which is outside the lang
 exclusion Process n = n ++ " runs another process, which is outside the language this compiler implements"
 exclusion _ n = "uses " ++ n
 
-||| Does a hook answer for a definition's body? The identity on the last
-||| argument is never translated, and the exit's `believe_me` is translated
-||| as an action that does not return: the escape hatch in either body is
-||| the hook's, not the program's.
+||| Does a hook answer for a definition's body? The identity on its runtime
+||| argument and a function of the array language are never translated, at
+||| any arity (a call below it is a closure over the saturated call), and
+||| the exit's `believe_me` is translated as an action that does not
+||| return: the escape hatch in each body is the hook's, not the program's.
 answersForBody : List Hook -> Bool
-answersForBody hs = identityOnLast hs || isJust (exitOf hs)
+answersForBody hs = identityOnLast hs || isJust (exitOf hs) || isJust (generatingOf hs)
 
 ||| The first of the definitions a user definition refers to that the
 ||| registry forbids in the user's code, with its rule.

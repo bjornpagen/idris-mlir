@@ -1,0 +1,21 @@
+#!/bin/sh
+# The frontend's hash, IdrisMLIR.Ids.xxh3_128, the one every name it
+# generates is made from, checked against the published values: the
+# reference's sanity buffer at each length its own test reads, and three
+# texts as their UTF-8 bytes. The module is the frontend's own source,
+# compiled into a program that prints each hash; the expected lines are
+# the published values.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+mkdir -p "$work/hash/IdrisMLIR"
+cp "$here/Main.idr" "$work/hash/"
+cp "$root/compiler/src/IdrisMLIR/Ids.idr" "$work/hash/IdrisMLIR/"
+compile_program "$work/hash/Main.idr" prog
+say "compile: exit $compiled"
+if [ "$compiled" -ne 0 ]; then
+  show "$work/compile.out" "$work/compile.err"
+  exit 0
+fi
+run_ours hash "$work/hash/build/exec/prog" /dev/null
+say "run: exit $ran"
+cat "$work/hash.out"
+empty stderr "$work/hash.err"

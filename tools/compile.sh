@@ -9,9 +9,10 @@
 # idris-mlir runs in SOURCE's directory, the root of the program's modules,
 # with --no-prelude, the one CPU budget as --num-threads (tools/host.sh:
 # IDRIS_MLIR_NCPU, else every CPU; an OPTION naming --num-threads comes
-# later and wins) and OPTION... as given (-p PACKAGE, --demand-in-place,
-# --dump-dir=DIR, --break-shape=KEY). It leaves the executable in
-# build/exec/<name of OUTPUT> there, with its .core, .mlir and .o beside it;
+# later and wins) and OPTION... as given (-p PACKAGE, or any other option of
+# idris-mlir's, -mlir-print-ir-tree-dir=DIR among them). It leaves the
+# executable in build/exec/<name of OUTPUT> there, with the files the
+# compilation keeps beside it (idr/Driver/Artifacts.h names them);
 # idris-mlir makes build/exec. Its output passes through, and the exit
 # status is idris-mlir's (3 for an error of the program's); on success the
 # executable's path is printed last. The idris-mlir it runs is the one

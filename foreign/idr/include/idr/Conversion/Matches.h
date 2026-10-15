@@ -6,7 +6,6 @@
 #define IDR_CONVERSION_MATCHES_H
 
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/IR/SymbolTable.h"
 
 namespace idr::conversion {
 
@@ -15,10 +14,10 @@ namespace idr::conversion {
 // and a chain of scf.if on string or big comparisons. A region that ends in
 // ub.unreachable (after idr.crash) yields poison instead, which the crash
 // before it makes unreachable. The structural conversion of scf then takes
-// the types apart. The declarations are read from `symbols`, the module's.
-// Applied by the walk driver, which visits a region before its op: nested
-// matches lower first, and the bodies move whole.
-void populateMatchPatterns(mlir::RewritePatternSet &patterns, mlir::SymbolTable &symbols);
+// the types apart. A constructor's tag and fields are read from the
+// scrutinee's type. Applied by the walk driver, which visits a region before
+// its op: nested matches lower first, and the bodies move whole.
+void populateMatchPatterns(mlir::RewritePatternSet &patterns);
 
 } // namespace idr::conversion
 

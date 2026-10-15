@@ -1,13 +1,11 @@
-// RUN: idris-mlir-opt %s --idr-specialize > %t.mlir
-// RUN: FileCheck %s < %t.mlir
+// RUN: idris-mlir-opt %s --idr-optimize -o %t.mlir
+// RUN: FileCheck %s --implicit-check-not=@count.spec. < %t.mlir
 // An accumulator and a counter are never specialized on, static as they
-// are: each clone would take the next value, one clone per iteration. The
-// call of @count keeps its constants and runs as a loop.
-// CHECK-NOT: .spec
-// CHECK-LABEL: idr.func private @use(
+// are: each copy would take the next value, one copy per iteration. The
+// call of @count, which is on a cycle and so never inlined, keeps its
+// constant and runs as a loop.
 // CHECK: call @count(%{{.*}}, %{{.*}}) : (i64, !idr.big) -> i64
-// CHECK-NOT: .spec
-module attributes {idr.program} {
+module {
   idr.func private @count(%acc: i64, %n: !idr.big) -> i64 attributes {total} {
     %r = idr.match_lit %n : !idr.big -> (i64) {
     case #idr.big<"0"> {
@@ -29,8 +27,11 @@ module attributes {idr.program} {
     %r = idr.call @count(%acc, %c100) : (i64, !idr.big) -> i64
     return %r : i64
   }
-  idr.func @Main.main() -> i64 {
-    %c = arith.constant 0 : i64
-    return %c : i64
+  idr.func @Main.main(%w: !idr.world) -> !idr.world {
+    %c, %w1 = idr.io.get_byte %w
+    %x = arith.extui %c : i32 to i64
+    %r = idr.call @use(%x) : (i64) -> i64
+    %w2 = idr.io.put_int signed %r, %w1 : i64
+    return %w2 : !idr.world
   }
 }

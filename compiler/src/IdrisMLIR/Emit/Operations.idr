@@ -48,12 +48,40 @@ export
 statement : Loc -> Op -> E ()
 statement l o = append (MkStatement Nothing o (At l))
 
+||| An op, and the names of its results, one per result type.
+export
+resultNames : Loc -> Op -> E (List String)
+resultNames l o = case o.results of
+  [] => [] <$ statement l o
+  [_] => do
+    r <- fresh
+    append (MkStatement (Just r) o (At l))
+    pure [r]
+  ts => do
+    r <- fresh
+    append (MkStatement (Just r) o (At l))
+    pure (zipWith (\i, _ => r ++ "#" ++ show i) [0 .. length ts] ts)
+
+||| An op whose results are a value of a Core type, held as itself: one
+||| result, or one per column of an array of records.
+export
+values : Index -> Loc -> Ty -> (List MlirType -> Op) -> E Val
+values ix l t build = do
+  names <- resultNames l (build !(heldTypes ix Many t))
+  fst <$> fromNames ix t Many names
+
 ||| A value where the contract expects it used as `use`. A linear value
 ||| where a plain one is expected is used (`idr.lin.use`), its one use; a
 ||| plain value in a linear position enters it (`idr.lin.enter`), as Idris
 ||| lets any value fill a binder of quantity 1.
+||| An array of records is held as its columns, each used or entered.
 export
 coerce : Index -> Loc -> Quantity -> Val -> E Val
+coerce ix l use (MkVal n t u (Columns ps)) = (\ps' => MkVal n t use (Columns ps')) <$> coerceAll ps
+  where
+    coerceAll : List Val -> E (List Val)
+    coerceAll [] = pure []
+    coerceAll (p :: rest) = (::) <$> coerce ix l use p <*> coerceAll rest
 coerce ix l use v = case (linear v.use v.type, linear use v.type) of
   (True, False) => value ix l v.type (Idr.linUseOp !(operand ix v))
   (False, True) => do
@@ -154,8 +182,10 @@ intLike SDouble = Nothing
 -- Guards
 ------------------------------------------------------------------------------
 
-||| The length of an array: its memref's dimension, an index, as an `Int`.
+||| The length of an array: its memref's dimension, an index, as an `Int`;
+||| an array of records has its first column's.
 arrayLength : Index -> Loc -> Val -> E Val
+arrayLength ix l (MkVal _ _ _ (Columns (c :: _))) = arrayLength ix l c
 arrayLength ix l a = do
   zero <- mlirValue l IndexType (Arith.constantOp (IntegerAttr 0 IndexType))
   n <- mlirValue l IndexType (MemRef.dimOp !(operand ix a) zero)
@@ -168,10 +198,9 @@ data Count = CountAt Nat | WordSize | BytesOf Nat
 
 ||| What a guard (`idr.check.*`) checks of the operand it guards, with the
 ||| other operands it reads by their index among the primitive's: an index
-||| below the length of the string or array at an index, an index below the
-||| integer at an index, or an offset whose bytes lie in the buffer at an
-||| index.
-data Guard = Nonzero | Nonempty | Byte | Finite | IndexIn Nat | Below Nat | RangeIn Count Nat
+||| below the length of the string or array at an index, or an offset whose
+||| bytes lie in the buffer at an index.
+data Guard = Nonzero | Nonempty | Byte | Finite | IndexIn Nat | RangeIn Count Nat
 
 divisionByZero, nonFinite, outOfBounds, outsideBuffer : String
 divisionByZero = "division by zero"
@@ -179,11 +208,14 @@ nonFinite = "cast of a non-finite Double"
 outOfBounds = "array index out of bounds"
 outsideBuffer = "a byte range outside the buffer"
 
-||| An array access's guard: its index below the length of the array before
-||| it, for an array of rank 1. An IORef's one element has no index.
+||| An access of an array a world orders keeps its guard, the runtime's
+||| meaning of an index outside the array: its index below the length of
+||| the array before it, for an array of one dimension. An IORef's one
+||| element has no index.
 indexGuards : List Val -> List (Guard, Nat, String)
 indexGuards (a :: _) = case a.type of
-  ArrayT Rank1 _ => [(IndexIn 0, 1, outOfBounds)]
+  MemRefT [_] _ => [(IndexIn 0, 1, outOfBounds)]
+  ColumnsT OrderedArray [_] _ => [(IndexIn 0, 1, outOfBounds)]
   _ => []
 indexGuards [] = []
 
@@ -211,7 +243,6 @@ guardOf (Op BufferStore) _ = [(RangeIn WordSize 0, 1, outsideBuffer)]
 guardOf (Op BufferSetString) _ = [(RangeIn (BytesOf 2) 0, 1, outsideBuffer)]
 guardOf (Op BufferCopy) _ =
   [(RangeIn (CountAt 2) 0, 1, outsideBuffer), (RangeIn (CountAt 2) 3, 4, outsideBuffer)]
-guardOf IndexBelow _ = [(Below 1, 0, outOfBounds)]
 guardOf _ _ = []
 
 ||| The bytes of a machine word a buffer stores or loads.
@@ -240,7 +271,8 @@ guarded ix l p types vs = foldlM checkOne vs (guardOf p vs)
     lengthOf : Val -> E Val
     lengthOf s = case s.type of
       StrT => value ix l (IntT IdrisInt) (Idr.strLengthOp !(operand ix s))
-      ArrayT _ _ => arrayLength ix l s
+      MemRefT _ _ => arrayLength ix l s
+      ColumnsT OrderedArray _ _ => arrayLength ix l s
       t => internal ("the length of a value of type " ++ show t)
 
     countOf : List Val -> Count -> E Val
@@ -263,7 +295,6 @@ guarded ix l p types vs = foldlM checkOne vs (guardOf p vs)
         IndexIn s => do
           n <- lengthOf !(operandAt ws s)
           pure (Idr.checkInBoundsOp x !(operand ix n) cause)
-        Below s => pure (Idr.checkInBoundsOp x !(operand ix !(operandAt ws s)) cause)
         RangeIn c b => do
           n <- countOf ws c
           size <- arrayLength ix l !(operandAt ws b)
@@ -397,40 +428,34 @@ prim ix l (FromBig SChar) [b] = do
 prim ix l (NatCompare c) [a, b] =
   extend ix l !(mlirValue l bool (Idr.bigCmpOp (predicate c) !(operand ix a) !(operand ix b)))
 prim ix l (ArrayLength _) [a] = arrayLength ix l a
--- The index, checked: what the guard gives is the primitive's value.
-prim ix l IndexBelow vs = do
-  [i, _] <- guarded ix l IndexBelow [] vs
-    | _ => internal "an index checked against a bound without its index and bound"
-  pure i
 prim ix l p vs = internal ("the primitive " ++ show p ++ " with " ++ show (length vs) ++ " operands")
 
 ||| A constructor application (`idr.con`); a box's allocates. The
-||| constructor is named in its data instance by its own name.
+||| constructor is named by its name within its value's type.
 export
 con : Index -> Loc -> Con -> List Val -> E Val
 con ix l c vs0 = do
   vs <- traverse (\(f, v) => coerce ix l f.quantity v) (zip c.fields vs0)
-  sym <- dataSymbol ix c.id.dataId
-  value ix l (DataT c.id.dataId)
-        (Idr.conOp (MkSymbolRef sym [c.id.name]) !(traverse (operand ix) vs))
+  value ix l (DataT c.id.dataId) (Idr.conOp c.id.name (concat !(traverse (operandsOf ix) vs)))
 
 mutual
   ||| The value a variable names: itself, or the constructor a match took
-  ||| apart, built again from its fields as the region holds them
-  ||| (`Val.rebuild`); in the owned stage the cell it came from is reused.
+  ||| apart, built again from its fields as the region holds them; in the
+  ||| owned stage the cell it came from is reused. Columns stay columns.
   export
   force : Index -> Loc -> Val -> E Val
-  force ix l (MkVal n t u Nothing) = pure (MkVal n t u Nothing)
-  force ix l (MkVal n t u (Just (c, fs))) = do
+  force ix l (MkVal n t u (Taken c fs)) = do
     Just k <- pure (lookup c ix.cons)
       | Nothing => internal ("the constructor " ++ show c ++ ", which is not declared")
     con ix l k !(forceAll ix l fs)
+  force ix l v = pure v
 
   forceAll : Index -> Loc -> List Val -> E (List Val)
   forceAll ix l [] = pure []
   forceAll ix l (v :: vs) = (::) <$> force ix l v <*> forceAll ix l vs
 
 ||| The one constructor of a data instance.
+export
 only : Index -> DataId -> E Con
 only ix d = case (.cons) <$> lookup d ix.datas of
   Just [c] => pure c
@@ -447,19 +472,6 @@ unitOf ix (DataT d) = case (.cons) <$> lookup d ix.datas of
   Just [c] => if null c.fields then Just c else Nothing
   _ => Nothing
 unitOf ix _ = Nothing
-
-||| An op, and the names of its results, one per result type.
-resultNames : Loc -> Op -> E (List String)
-resultNames l o = case o.results of
-  [] => [] <$ statement l o
-  [_] => do
-    r <- fresh
-    append (MkStatement (Just r) o (At l))
-    pure [r]
-  ts => do
-    r <- fresh
-    append (MkStatement (Just r) o (At l))
-    pure (zipWith (\i, _ => r ++ "#" ++ show i) [0 .. length ts] ts)
 
 ||| An effect: the primitive `p`, which performs IO, on its operands, after
 ||| its guards, and the `IORes` instance `res` of its value and the next

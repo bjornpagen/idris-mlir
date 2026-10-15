@@ -1,6 +1,9 @@
 # The residues' loop computes from the index alone, so its body only
-# computes, and after idr-vectorize it runs on the target's lanes; that
-# idr-narrow-lanes leaves those lanes 64-bit is what the output shows: the
-# 64-bit residues expected-stdout holds.
-idr-rc: pure-array-loops
-idr-vectorize: vectorized
+# computes and it is structured; after the vectorization it runs on the
+# target's lanes, and that idr-narrow-lanes leaves those lanes 64-bit is
+# what the output shows: the 64-bit residues expected-stdout holds. The
+# structuring and the vectorization each run over the functions in a
+# group, which dumps no module: each property is read at the first step
+# after its group.
+eliminate-empty-tensors: structured-loops
+idr-returned-arguments: vectorized

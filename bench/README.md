@@ -3,9 +3,10 @@
 `make bench` runs `bench/run.sh`, which builds each program three ways and
 runs it on one input (`make bench ARGS='--runs 3 fib tak'` runs fewer):
 this compiler on `bench/<name>/Main.idr` (ordinary Idris over the stock
-Prelude and base, or over `Linear.Array` of `libs/mlir-linear` where
-`bench/<name>/packages` says so); the same source through the stock Chez
-backend; and the pinned clang at `-O2` on `bench/c/<name>.c`, linked
+Prelude and base, or over the typed arrays of `libs/mlir-array`, `Array`
+and the growable `Linear.Vec`, where `bench/<name>/packages` says so); the
+same source through the stock Chez backend; and the pinned clang at `-O2`
+on `bench/c/<name>.c`, linked
 as `idris-mlir --print-link-flags` says the target links a program (a
 static PIE on musl, a dynamic executable on Darwin), for this
 compiler's target CPU without floating-point contraction, as our programs
@@ -14,11 +15,14 @@ are built. Every program runs with the largest stack the system allows
 it fits). The output starts with what it ran on: the host, its CPU, that
 stack limit and each compiler's version.
 
-The script checks that every program prints the same numbers (to 1e-9),
-or the same bytes where the game compares bytes, and reports the best of
-the runs in wall-clock seconds, process start included (about a
-millisecond). The last column is clang's time over this compiler's: above
-1, this compiler is faster.
+The script checks that this compiler's program and clang's print the same
+numbers (to 1e-9), or the same bytes where the game compares bytes, and
+reports the best of the runs in wall-clock seconds, process start included
+(about a millisecond). The Chez column is a time and nothing more: its
+output is never compared, since what Idris's Chez backend prints is no
+specification of a program, and a program it does not run as written reads
+n/a. The last column is clang's time over this compiler's: above 1, this
+compiler is faster.
 
 ## Results
 
@@ -67,12 +71,12 @@ counts points of the set; the game's program is `mandelbrot-pbm`, which
 writes the bitmap. **The Benchmarks Game**, below: the ten programs the
 game measures now, at the size it measures, plus `fasta-redux` from the
 retired set. `fannkuch-linear` and `spectral-norm-linear` are the same two
-programs over `Linear.Array`, at the same size. **Counting Immutable
-Beans' programs** (rbtree, rbtree-ck, cfold, deriv, nqueens, binary-trees,
-qsort, unionfind): the Perceus and Lean papers' benchmarks, written in
-Idris from the papers' repositories; qsort and unionfind over
-`Linear.Array`. `binary-trees` is both: the game's program, and that
-literature's.
+programs over the typed arrays (`Linear.Vec` and `Array`), at the same
+size. **Counting Immutable Beans' programs** (rbtree, rbtree-ck, cfold,
+deriv, nqueens, binary-trees, qsort, unionfind): the Perceus and Lean
+papers' benchmarks, written in Idris from the papers' repositories; qsort
+and unionfind over `Linear.Vec`. `binary-trees` is both: the game's
+program, and that literature's.
 
 ### The Benchmarks Game
 
@@ -147,15 +151,18 @@ shrunk.
   same time with Idris's range tests (0.253 s) as without (0.256 s), and
   with the `Maybe` cells alone 0.314 s: the tags are the whole remaining
   gap, the range tests nothing measurable, and `Int` has no spare value
-  for `Nothing` that a layout could use. The linear version is filled at
-  creation and proved exclusive, so its loops are loads and stores with no
-  count changed and nothing allocated (the `linarray-*` and
-  `ioarray-fannkuch` fixtures state those properties). There is no
-  copying array to turn off: a linear array is mutable by construction on
-  every backend. What can be turned off is each compiler mechanism:
-- **Ablation.** `idris-mlir --without=STEP,...` leaves pipeline steps
-  out, or idr-rc's mechanisms (`reuse`, `sink`). fannkuch-linear and
-  unionfind, best of 3, each variant compiled and run alone:
+  for `Nothing` that a layout could use. The linear version is a
+  `Linear.Vec`, born fresh, whose writes One-Shot bufferization puts in
+  place, so its loops are loads and stores with no count changed and
+  nothing allocated (the `linarray-*` and `ioarray-fannkuch` fixtures
+  state those properties).
+- **Ablation**, as the 2026-10-13 record measured it, when the compiler
+  could leave a pipeline step out, or idr-rc's mechanisms (`reuse`,
+  `sink`), from its command line. It no longer can: it has one pipeline,
+  and a mechanism's worth is now measured binary against binary, the
+  commit with it against a commit without it, under the same conditions.
+  fannkuch-linear and unionfind, best of 3, each variant compiled and run
+  alone:
 
   | left out | fannkuch-linear | unionfind |
   | --- | ---: | ---: |
@@ -171,17 +178,19 @@ shrunk.
   | idr-trmc | 0.198 | 0.177 |
   | idr-narrow | 0.197 | 0.167 |
 
-  The linear library is plain Idris: `read` and `write` wrap base's array
-  primitive in `unsafePerformIO` and rebuild the record through `Res`
-  pairs. Without the simplify loop (inlining, specialization, compile-time
+  The linear library that record measured was plain Idris: `read` and
+  `write` wrapped base's array primitive in `unsafePerformIO` and rebuilt
+  the record through `Res` pairs. Without the simplify loop of that
+  compiler, its optimizer then (inlining, specialization, compile-time
   evaluation, the dialect's canonicalizations) fannkuch-linear takes 23x
   longer and unionfind 9x: that is the compiler's work, not the program's.
   After it, consumer sinking is worth 15% on fannkuch (a dup and a drop per
   swap otherwise), and on unionfind the returned argument 1.45x, reuse and
   the stack 1.3x each, the loops 1.2x; the rest is within the spread.
-- **spectral-norm** (lists) and **spectral-norm-linear**: the linear one
-  is written over `Linear.Array`'s loops over an index space (`generate`,
-  `ifoldl`), and idr-vectorize runs each product with A as one loop nest
+- **spectral-norm** (lists) and **spectral-norm-linear**: the typed one
+  is written over `Array`'s generating set (`tabulate` and a fold over each
+  row). In the 2026-10-13 record, over the linear arrays it was written on
+  then, the compiler ran each product with A as one loop nest
   computing four rows at a time on vector lanes, each row's sum in index
   order (the C sums in index order too, so clang does not vectorize it).
   The body's index arithmetic is the program's 64-bit `Int`; the C
@@ -190,7 +199,7 @@ shrunk.
   analysis of the body's own arithmetic finds, which is where its lead
   over C comes from. The list one rebuilds its lists in their own cells
   and pays for it. The input is the game's 5500.
-- **qsort** (parity with C): over `Linear.Array`, so the partition writes
+- **qsort** (parity with C): over `Linear.Vec`, so the partition writes
   in place.
 - **rbtree, rbtree-ck, cfold, deriv, nqueens:** persistent trees and terms
   rebuilt on every step, in the cells of the values that die (reset/reuse),

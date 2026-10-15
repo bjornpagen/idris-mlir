@@ -1,14 +1,12 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
+// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches, as C01's printer and C06's conversion write them.
 // A Lazy value picked at runtime, stored in a field and forced later: the
 // suspensions become constructors of a sum, the field's type follows, and
 // forcing is a match that calls the suspended function.
-// CHECK: idr.data @[[F0:fn\$[0-9]+]] closures {
-// CHECK-NEXT: idr.ctor @later (i64)
-// CHECK-NEXT: idr.ctor @now ()
-// CHECK: idr.data @Box {
-// CHECK-NEXT: idr.ctor @MkBox (![[F0]])
+// CHECK: ![[F0:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@later(i64), @now(){{.*}}]
+// CHECK: !{{[A-Za-z0-9_$.]+}} = !idr.data<"Box"{{.*}}[@MkBox(![[F0]]){{.*}}]
 // CHECK-NOT: !idr.fn
 // CHECK-LABEL: idr.func @Main.main(
 // CHECK: %[[L:.*]] = {{(idr\.)?}}field %{{.*}}[@MkBox, 0] : !Box -> ![[F0]]
@@ -17,10 +15,8 @@
 // CHECK-NEXT: call @later(%[[X]]) : (i64) -> i64
 // CHECK: case @now() {
 // CHECK-NEXT: call @now() : () -> i64
-module attributes {idr.program} {
-  idr.data @Box {
-    idr.ctor @MkBox (!idr.fn<() -> (i64)>)
-  }
+!Box = !idr.data<"Box", plain [@MkBox(!idr.fn<() -> (i64)>)]>
+module {
   idr.func private @now() -> i64 attributes {total} {
     %c = arith.constant 7 : i64
     return %c : i64
@@ -42,8 +38,8 @@ module attributes {idr.program} {
       idr.yield %b : !idr.fn<() -> (i64)>
     }
     }
-    %box = idr.con @Box::@MkBox(%s) : (!idr.fn<() -> (i64)>) -> !idr.data<@Box>
-    %l = idr.field %box[@MkBox, 0] : !idr.data<@Box> -> !idr.fn<() -> (i64)>
+    %box = idr.con @MkBox(%s) : (!idr.fn<() -> (i64)>) -> !Box
+    %l = idr.field %box[@MkBox, 0] : !Box -> !idr.fn<() -> (i64)>
     %r = idr.apply %l() : !idr.fn<() -> (i64)>
     %w2 = idr.io.put_int signed %r, %w1 : i64
     return %w2 : !idr.world

@@ -14,12 +14,8 @@
 // CHECK-LABEL: func.func @Prog.main(
 // CHECK: call @Main.pair$91$Prelude.Types.Nat$44$$32$Prelude.Types.Nat$93$(
 // CHECK: call @Main.caf$233$(
-module attributes {idr.program} {
-  idr.data @lazy$0 box memo labels [@"Main.go'"] {
-    idr.ctor @"Main.go'" (i64)
-    idr.ctor @running ()
-    idr.ctor @forced (i64)
-  }
+!lazy$0 = !idr.data<"lazy$0", memo [@"Main.go'"(i64), @running(), @forced(i64)]>
+module {
   idr.func private @"Main.show[Prelude.Types.Nat]"(%n: i64) -> i64 attributes {total} {
     %r = arith.addi %n, %n : i64
     return %r : i64
@@ -34,15 +30,15 @@ module attributes {idr.program} {
     %r = arith.addi %x, %one : i64
     return %r : i64
   }
-  idr.func private @"Main.café"(%t: !idr.box<@lazy$0>) -> i64 {
-    %v = idr.force %t : !idr.box<@lazy$0> -> i64
+  idr.func private @"Main.café"(%t: !idr.box<!lazy$0>) -> i64 {
+    %v = idr.force %t : !idr.box<!lazy$0> -> i64
     return %v : i64
   }
   idr.func @Prog.main() -> i64 {
     %two = arith.constant 2 : i64
     %p = idr.call @"Main.pair[Prelude.Types.Nat, Prelude.Types.Nat]"(%two, %two) : (i64, i64) -> i64
-    %t = idr.con @lazy$0::@"Main.go'"(%p) : (i64) -> !idr.box<@lazy$0>
-    %v = idr.call @"Main.café"(%t) : (!idr.box<@lazy$0>) -> i64
+    %t = idr.con @"Main.go'"(%p) : (i64) -> !idr.box<!lazy$0>
+    %v = idr.call @"Main.café"(%t) : (!idr.box<!lazy$0>) -> i64
     return %v : i64
   }
 }

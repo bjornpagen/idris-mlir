@@ -24,20 +24,6 @@ cmpPredicateValue CmpPredicate.Gt = 3
 cmpPredicateValue CmpPredicate.Gte = 4
 
 ------------------------------------------------------------------------------
--- Discardable attributes
-------------------------------------------------------------------------------
-
-||| The discardable attribute `idr.program`.
-export
-programDiscardable : NamedAttr
-programDiscardable = ("idr.program", UnitAttr)
-
-||| The discardable attribute `idr.stack`.
-export
-stackDiscardable : NamedAttr
-stackDiscardable = ("idr.stack", UnitAttr)
-
-------------------------------------------------------------------------------
 -- Ops
 ------------------------------------------------------------------------------
 
@@ -46,18 +32,6 @@ export
 applyOp : {default Nothing argAttrs : Maybe (List MlirAttr)} -> {default Nothing resAttrs : Maybe (List MlirAttr)} -> (callee : Value) -> (args : List Value) -> (results : List MlirType) -> Op
 applyOp callee args results =
   MkOp "idr.apply" (concat [[callee], args]) (attrIf "arg_attrs" ArrayAttr argAttrs ++ attrIf "res_attrs" ArrayAttr resAttrs) [] [] results
-
-||| `idr.array.fold`: an array folded from the left in index order
-export
-arrayFoldOp : (array' : Value) -> (init : Value) -> (world : Value) -> (body : Region) -> (result : MlirType) -> (next : MlirType) -> Op
-arrayFoldOp array' init world body result next =
-  MkOp "idr.array.fold" [array', init, world] [] [body] [] [result, next]
-
-||| `idr.array.generate`: a new array of the body's value at each index
-export
-arrayGenerateOp : (size : Value) -> (fill : Value) -> (world : Value) -> (body : Region) -> (array' : MlirType) -> (next : MlirType) -> Op
-arrayGenerateOp size fill world body array' next =
-  MkOp "idr.array.generate" [size, fill, world] [] [body] [] [array', next]
 
 ||| `idr.array.get`: the element of an array at an index
 export
@@ -253,9 +227,9 @@ closureOp callee captures result =
 
 ||| `idr.con`: builds a constructor value
 export
-conOp : (ctor : SymbolRef) -> (fields : List Value) -> (result : MlirType) -> Op
+conOp : {default False stack : Bool} -> (ctor : String) -> (fields : List Value) -> (result : MlirType) -> Op
 conOp ctor fields result =
-  MkOp "idr.con" fields [("ctor", SymbolRefAttr ctor)] [] [] [result]
+  MkOp "idr.con" fields ([("ctor", SymbolRefAttr (MkSymbolRef ctor []))] ++ unitIf "stack" stack) [] [] [result]
 
 ||| `idr.constant`: a constant: a constructor, closure, string or big
 export
@@ -275,23 +249,11 @@ crashStrOp : (message : Value) -> Op
 crashStrOp message =
   MkOp "idr.crash_str" [message] [] [] [] []
 
-||| `idr.ctor`: declares one constructor of an idr.data type
+||| `idr.delay`: a suspension already evaluated: it holds its operand
 export
-ctorOp : {default False byName : Bool} -> (symName : String) -> (fieldTypes : List MlirType) -> Op
-ctorOp symName fieldTypes =
-  MkOp "idr.ctor" [] ([("sym_name", StringAttr symName), ("field_types", ArrayAttr (map TypeAttr fieldTypes))] ++ unitIf "by_name" byName) [] [] []
-
-||| `idr.data`: declares a monomorphic data type, unboxed or boxed
-export
-dataOp : {default False box : Bool} -> {default False closures : Bool} -> {default False memo : Bool} -> {default Nothing labels : Maybe (List MlirAttr)} -> {default Nothing instance : Maybe MlirAttr} -> (symName : String) -> (body : Region) -> Op
-dataOp symName body =
-  MkOp "idr.data" [] ([("sym_name", StringAttr symName)] ++ unitIf "box" box ++ unitIf "closures" closures ++ unitIf "memo" memo ++ attrIf "labels" ArrayAttr labels ++ attrIf "instance" id instance) [body] [] []
-
-||| `idr.delay`: a suspension whose body is its region; its captures are the values it uses from above
-export
-delayOp : (body : Region) -> (result : MlirType) -> Op
-delayOp body result =
-  MkOp "idr.delay" [] [] [body] [] [result]
+delayOp : (value : Value) -> (result : MlirType) -> Op
+delayOp value result =
+  MkOp "idr.delay" [value] [] [] [] [result]
 
 ||| `idr.dest.of`: the destination that is a pending field of a cell just built
 export
@@ -349,9 +311,9 @@ forceOp suspension result =
 
 ||| `idr.func`: a function of the program, with the facts known of it
 export
-funcOp : {default Nothing symVisibility : Maybe String} -> {default Nothing argAttrs : Maybe (List MlirAttr)} -> {default Nothing resAttrs : Maybe (List MlirAttr)} -> {default False total' : Bool} -> {default False breakLast : Bool} -> {default False noInline : Bool} -> {default Nothing effects : Maybe MlirAttr} -> {default Nothing instance : Maybe MlirAttr} -> {default Nothing clone : Maybe MlirAttr} -> (symName : String) -> (functionType : MlirType) -> (body : Region) -> Op
+funcOp : {default Nothing symVisibility : Maybe String} -> {default Nothing argAttrs : Maybe (List MlirAttr)} -> {default Nothing resAttrs : Maybe (List MlirAttr)} -> {default False total' : Bool} -> {default False noInline : Bool} -> {default Nothing effects : Maybe MlirAttr} -> {default Nothing instance : Maybe MlirAttr} -> (symName : String) -> (functionType : MlirType) -> (body : Region) -> Op
 funcOp symName functionType body =
-  MkOp "idr.func" [] ([("sym_name", StringAttr symName), ("function_type", TypeAttr functionType)] ++ attrIf "sym_visibility" StringAttr symVisibility ++ attrIf "arg_attrs" ArrayAttr argAttrs ++ attrIf "res_attrs" ArrayAttr resAttrs ++ unitIf "total" total' ++ unitIf "break_last" breakLast ++ unitIf "no_inline" noInline ++ attrIf "effects" id effects ++ attrIf "instance" id instance ++ attrIf "clone" id clone) [body] [] []
+  MkOp "idr.func" [] ([("sym_name", StringAttr symName), ("function_type", TypeAttr functionType)] ++ attrIf "sym_visibility" StringAttr symVisibility ++ attrIf "arg_attrs" ArrayAttr argAttrs ++ attrIf "res_attrs" ArrayAttr resAttrs ++ unitIf "total" total' ++ unitIf "no_inline" noInline ++ attrIf "effects" id effects ++ attrIf "instance" id instance) [body] [] []
 
 ||| `idr.handle.is_null`: 1 when a handle is null, else 0
 export
@@ -809,12 +771,6 @@ ioWriteBytesOp : (handle : Value) -> (buffer : Value) -> (offset : Value) -> (co
 ioWriteBytesOp handle buffer offset count world written next =
   MkOp "idr.io.write_bytes" [handle, buffer, offset, count, world] [] [] [] [written, next]
 
-||| `idr.lambda`: a closure whose body is its region; its captures are the values it uses from above
-export
-lambdaOp : (body : Region) -> (result : MlirType) -> Op
-lambdaOp body result =
-  MkOp "idr.lambda" [] [] [body] [] [result]
-
 ||| `idr.lin.enter`: a value handed to a linear position
 export
 linEnterOp : (value : Value) -> (result : MlirType) -> Op
@@ -863,11 +819,29 @@ natToBigOp : (value : Value) -> (result : MlirType) -> Op
 natToBigOp value result =
   MkOp "idr.nat.to_big" [value] [] [] [] [result]
 
+||| `idr.nat.to_extent`: a natural as the extent of an array to be made
+export
+natToExtentOp : (natural : Value) -> (extent : MlirType) -> Op
+natToExtentOp natural extent =
+  MkOp "idr.nat.to_extent" [natural] [] [] [] [extent]
+
 ||| `idr.os`: the operating system the target triple names
 export
 osOp : (result : MlirType) -> Op
 osOp result =
   MkOp "idr.os" [] [] [] [] [result]
+
+||| `idr.own.adopt`: takes over the fresh reference of a buffer memref.alloc made
+export
+ownAdoptOp : (memref : Value) -> (result : MlirType) -> Op
+ownAdoptOp memref result =
+  MkOp "idr.own.adopt" [memref] [] [] [] [result]
+
+||| `idr.own.give`: hands an owned value's reference to the store that writes it
+export
+ownGiveOp : (value : Value) -> (result : MlirType) -> Op
+ownGiveOp value result =
+  MkOp "idr.own.give" [value] [] [] [] [result]
 
 ||| `idr.return`: returns from a function
 export
@@ -877,9 +851,9 @@ returnOp operands =
 
 ||| `idr.reuse`: builds a boxed constructor in a token's cell, or in a new one when it is null
 export
-reuseOp : (token : Value) -> (ctor : SymbolRef) -> (fields : List Value) -> (result : MlirType) -> Op
+reuseOp : (token : Value) -> (ctor : String) -> (fields : List Value) -> (result : MlirType) -> Op
 reuseOp token ctor fields result =
-  MkOp "idr.reuse" (concat [[token], fields]) [("ctor", SymbolRefAttr ctor)] [] [] [result]
+  MkOp "idr.reuse" (concat [[token], fields]) [("ctor", SymbolRefAttr (MkSymbolRef ctor []))] [] [] [result]
 
 ||| `idr.share`: gives an owned value on as owned, whatever it alone reached
 export
@@ -1027,9 +1001,15 @@ tagOp value result =
 
 ||| `idr.take`: consumes a constructor value, each of its fields keeping a reference of its own
 export
-takeOp : (value : Value) -> (ctor : SymbolRef) -> (results : List MlirType) -> Op
+takeOp : (value : Value) -> (ctor : String) -> (results : List MlirType) -> Op
 takeOp value ctor results =
-  MkOp "idr.take" [value] [("ctor", SymbolRefAttr ctor)] [] [] results
+  MkOp "idr.take" [value] [("ctor", SymbolRefAttr (MkSymbolRef ctor []))] [] [] results
+
+||| `idr.tie_shape`: an array whose dynamic dimensions are the given sizes
+export
+tieShapeOp : (value : Value) -> (dims : List Value) -> (result : MlirType) -> Op
+tieShapeOp value dims result =
+  MkOp "idr.tie_shape" (concat [[value], dims]) [] [] [] [result]
 
 ||| `idr.to_byte`: an Int from 0 to 255 as a byte
 export
@@ -1055,7 +1035,7 @@ worldNewOp : (world : MlirType) -> Op
 worldNewOp world =
   MkOp "idr.world.new" [] [] [] [] [world]
 
-||| `idr.yield`: ends a region of a match, a lambda or a delay, or the body of an array loop, with its results
+||| `idr.yield`: ends a region of a match with its results
 export
 yieldOp : (results : List Value) -> Op
 yieldOp results =
@@ -1169,9 +1149,9 @@ printOp (MkOp "idr.closure" o0 props [] attrs [r0]) = do
   pure (fastConcat ["idr.closure ", bare a0, "(", commaSeparated (map (.name) o0), ")", dictionary "{" "}" attrs, " : ", signature typeText (MkSignature (map (.type) o0) ([r0]))])
 
 printOp (MkOp "idr.con" o0 props [] attrs [r0]) = do
-  guard (all (\p => elem (fst p) ["ctor"]) props)
+  guard (all (\p => elem (fst p) ["ctor", "stack"]) props)
   a0 <- lookup "ctor" props
-  pure (fastConcat ["idr.con ", bare a0, "(", commaSeparated (map (.name) o0), ")", dictionary "{" "}" attrs, " : ", signature typeText (MkSignature (map (.type) o0) ([r0]))])
+  pure (fastConcat ["idr.con ", bare a0, "(", commaSeparated (map (.name) o0), ")", (if isJust (lookup "stack" props) then " stack" else ""), dictionary "{" "}" attrs, " : ", signature typeText (MkSignature (map (.type) o0) ([r0]))])
 
 printOp (MkOp "idr.crash" [] props [] attrs []) = do
   guard (all (\p => elem (fst p) ["message"]) props)
@@ -1182,14 +1162,9 @@ printOp (MkOp "idr.crash_str" [o0] props [] attrs []) = do
   guard (null props)
   pure (fastConcat ["idr.crash_str ", o0.name, dictionary "{" "}" attrs])
 
-printOp (MkOp "idr.data" [] props [_] attrs []) = do
-  guard (all (\p => elem (fst p) ["sym_name", "box", "closures", "memo", "labels", "instance"]) props)
-  a0 <- lookup "sym_name" props
-  pure (fastConcat ["idr.data ", symbolName a0, (if isJust (lookup "box" props) then " box" else ""), (if isJust (lookup "closures" props) then " closures" else ""), (if isJust (lookup "memo" props) then " memo" else ""), maybe "" (\a1 => fastConcat [" labels ", bare a1]) (lookup "labels" props), maybe "" (\a2 => fastConcat [" instance ", attrText a2]) (lookup "instance" props), dictionary "attributes {" "}" attrs])
-
-printOp (MkOp "idr.delay" [] props [_] attrs [r0]) = do
+printOp (MkOp "idr.delay" [o0] props [] attrs [r0]) = do
   guard (null props)
-  pure (fastConcat ["idr.delay", dictionary "{" "}" attrs, " : ", typeText r0])
+  pure (fastConcat ["idr.delay ", o0.name, dictionary "{" "}" attrs, " : ", typeText o0.type, " -> ", typeText r0])
 
 printOp (MkOp "idr.dest.of" [o0] props [] attrs [r0]) = do
   guard (all (\p => elem (fst p) ["ctor", "index"]) props)
@@ -1499,10 +1474,6 @@ printOp (MkOp "idr.io.write_bytes" [o0, o1, o2, o3, o4] props [] attrs [r0, r1])
   guard (null props)
   pure (fastConcat ["idr.io.write_bytes ", o0.name, ", ", o1.name, "[", o2.name, ", ", o3.name, "], ", o4.name, dictionary "{" "}" attrs, " : ", typeText o1.type])
 
-printOp (MkOp "idr.lambda" [] props [_] attrs [r0]) = do
-  guard (null props)
-  pure (fastConcat ["idr.lambda", dictionary "{" "}" attrs, " : ", typeText r0])
-
 printOp (MkOp "idr.lin.enter" [o0] props [] attrs [r0]) = do
   guard (null props)
   pure (fastConcat ["idr.lin.enter ", o0.name, dictionary "{" "}" attrs, " : ", typeText r0])
@@ -1514,6 +1485,18 @@ printOp (MkOp "idr.lin.use" [o0] props [] attrs [r0]) = do
 printOp (MkOp "idr.may_loop" [] props [] attrs []) = do
   guard (null props)
   pure (fastConcat ["idr.may_loop", dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.nat.to_extent" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.nat.to_extent ", o0.name, dictionary "{" "}" attrs])
+
+printOp (MkOp "idr.own.adopt" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.own.adopt ", o0.name, dictionary "{" "}" attrs, " : ", typeText o0.type])
+
+printOp (MkOp "idr.own.give" [o0] props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.own.give ", o0.name, dictionary "{" "}" attrs, " : ", typeText o0.type])
 
 printOp (MkOp "idr.return" o0 props [] attrs []) = do
   guard (null props)
@@ -1579,6 +1562,10 @@ printOp (MkOp "idr.tag" [o0] props [] attrs [r0]) = do
   guard (null props)
   pure (fastConcat ["idr.tag ", o0.name, dictionary "{" "}" attrs, " : ", typeText o0.type])
 
+printOp (MkOp "idr.tie_shape" (o0 :: o1) props [] attrs [r0]) = do
+  guard (null props)
+  pure (fastConcat ["idr.tie_shape ", o0.name, " dims (", commaSeparated (map (.name) o1), ")", dictionary "{" "}" attrs, " : ", typeText o0.type])
+
 printOp (MkOp "idr.to_byte" [o0] props [] attrs [r0]) = do
   guard (null props)
   pure (fastConcat ["idr.to_byte ", o0.name, dictionary "{" "}" attrs])
@@ -1599,8 +1586,6 @@ printOp _ = Nothing
 
 -- Written in the generic form:
 -- op idr.apply: its syntax has the directive `oilist`
--- op idr.array.fold: its syntax is C++
--- op idr.array.generate: its syntax is C++
 -- op idr.big.add: its syntax has the directive `custom`
 -- op idr.big.and: its syntax has the directive `custom`
 -- op idr.big.cmp: its syntax has the directive `custom`
@@ -1620,7 +1605,6 @@ printOp _ = Nothing
 -- op idr.big.to_int: its syntax has the directive `custom`
 -- op idr.big.xor: its syntax has the directive `custom`
 -- op idr.constant: its syntax is C++
--- op idr.ctor: its syntax has the directive `custom`
 -- op idr.div: its syntax has the directive `custom`
 -- op idr.dup: its syntax has the directive `custom`
 -- op idr.func: its syntax is C++
@@ -2023,23 +2007,4 @@ primOp HandleIsNull operands results = MkOp "idr.handle.is_null" operands [] [] 
 primOp HandleString operands results = MkOp "idr.handle.string" operands [] [] [] results
 primOp HandleFree operands results = MkOp "idr.io.handle_free" operands [] [] [] results
 
-||| The dialect's region primitives.
-public export
-data IdrRegionPrim
-  = ArrayGenerate
-  | ArrayFold
-
-||| The block arguments a region primitive's body takes.
-public export
-regionArity : IdrRegionPrim -> Nat
-regionArity ArrayGenerate = 1
-regionArity ArrayFold = 3
-
-||| The operation of a region primitive on operands and its body, with
-||| its result types.
-export
-regionOp : IdrRegionPrim -> List Value -> Region -> List MlirType -> Op
-regionOp ArrayGenerate operands body results = MkOp "idr.array.generate" operands [] [body] [] results
-regionOp ArrayFold operands body results = MkOp "idr.array.fold" operands [] [body] [] results
-
--- fingerprint: 683772573-1171112 1571912246-92710
+-- fingerprint: 245922103-1212111 337292318-90592

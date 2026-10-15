@@ -6,7 +6,7 @@
 // CHECK: llvm.call @idris_rt_io_put_char
 // CHECK-NOT: world
 // CHECK: return
-module attributes {idr.program} {
+module {
   idr.func @root(%w: !idr.world) -> !idr.world {
     %c = arith.constant 65 : i32
     idr.call @f(%c) : (i32) -> ()

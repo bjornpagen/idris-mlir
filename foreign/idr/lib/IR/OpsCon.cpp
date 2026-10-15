@@ -3,9 +3,9 @@
 // A constructor value and what reads it: idr.con, which allocates a box's
 // cell, idr.field, idr.tag and idr.dest.of, the destination of a field a
 // cell was built without. Their folds and canonicalizations are here
-// beside them. A tag's folder and ranges run with no table in hand, so
-// each reads the value's declaration with one scan of the module's top
-// level per call.
+// beside them. Each names a constructor within its value's data type, whose
+// body says the constructor's tag and fields, so nothing here reads the
+// module.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Canon.h"
@@ -25,7 +25,7 @@ using namespace idr;
 
 // A box's constructor allocates its cell, so CSE never merges two of them;
 // an unused one is still dead code (wouldOpBeTriviallyDead). A cell
-// idr-stack keeps in its frame (`idr.stack`) is stack memory, the resource
+// idr-stack keeps in its frame (`stack`) is stack memory, the resource
 // MLIR's allocas use. In the owned stage the constructor also takes over
 // the references of the fields it is given owned, which it reports as a
 // free of each: no pass drops or merges it then, since that would leave
@@ -33,11 +33,10 @@ using namespace idr;
 void ConOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
   if (isa<BoxType>(unrestricted(getType()))) {
-    auto *dialect = static_cast<IdrDialect *>((*this)->getDialect());
-    SideEffects::DefaultResource *memory =
-        dialect->getStackAttrHelper().isAttrPresent(*this)
-            ? SideEffects::AutomaticAllocationScopeResource::get()
-            : SideEffects::DefaultResource::get();
+    SideEffects::Resource *memory = getStack()
+                                        ? static_cast<SideEffects::Resource *>(
+                                              SideEffects::AutomaticAllocationScopeResource::get())
+                                        : SideEffects::DefaultResource::get();
     effects.emplace_back(MemoryEffects::Allocate::get(), getOperation()->getOpResult(0), memory);
   }
   consumedEffects(getOperation(), effects);
@@ -56,23 +55,42 @@ Speculation::Speculatability ConOp::getSpeculatability() {
   return Speculation::Speculatable;
 }
 
-LogicalResult ConOp::verifySymbolUses(SymbolTableCollection &symbols) {
-  SymbolRefAttr ref = getCtor();
-  if (ref.getNestedReferences().size() != 1)
-    return emitOpError("expects a constructor reference @T::@C");
-  auto data = symbols.lookupNearestSymbolFrom<DataOp>(
-      *this, FlatSymbolRefAttr::get(ref.getRootReference()));
-  CtorOp ctor = lookupCtor(data, ref.getLeafReference());
+DataType ConOp::getDataType() { return dataTypeOf(getType()); }
+unsigned ConOp::getTag() { return *getDataType().getTag(getCtor()); }
+
+namespace {
+
+// The constructor `ctor` of the data type of a value of `type`, or null
+// after an error at `op`: the type has a body, and the constructor is in it.
+const Ctor *ctorOf(Operation *op, Type type, FlatSymbolRefAttr ctor) {
+  DataType data = dataTypeOf(type);
+  if (!data || !data.hasBody()) {
+    op->emitOpError("names a constructor of ") << type << ", which has no body";
+    return nullptr;
+  }
+  std::optional<unsigned> tag = data.getTag(ctor.getValue());
+  if (!tag) {
+    op->emitOpError("names ") << ctor << ", which is not a constructor of \"" << data.getName()
+                              << "\"";
+    return nullptr;
+  }
+  return &data.getCtor(*tag);
+}
+
+} // namespace
+
+// The constructor is one of the result's type, and the fields are its: in
+// the owned stage a field that holds references is owned (or exclusive),
+// and moves into the cell. A cell idr-stack keeps in its frame is a box's.
+LogicalResult ConOp::verify() {
+  if (getStack() && !isa<BoxType>(unrestricted(getType())))
+    return emitOpError("is kept on the stack, which only a box's cell is");
+  const Ctor *ctor = ctorOf(*this, getType(), getCtorAttr());
   if (!ctor)
-    return emitOpError("refers to an unknown constructor ") << ref;
-  if (data.getValueType() != unrestricted(getType()))
-    return emitOpError("builds ") << ref << " but has type " << getType();
-  auto types = ctor.getFieldTypes();
-  if (types.size() != getFields().size())
-    return emitOpError("expects ") << types.size() << " fields";
-  // In the owned stage a field that holds references is owned (or
-  // exclusive): it moves into the cell.
-  for (auto [expected, value] : llvm::zip(types.getAsValueRange<TypeAttr>(), getFields()))
+    return failure();
+  if (ctor->fields.size() != getFields().size())
+    return emitOpError("expects ") << ctor->fields.size() << " fields";
+  for (auto [expected, value] : llvm::zip(ctor->fields, getFields()))
     if (expected != value.getType() && !(isOwned(value.getType()) && view(value.getType()) == expected))
       return emitOpError("field has type ") << value.getType() << ", expected " << expected;
   return success();
@@ -90,7 +108,8 @@ OpFoldResult ConOp::fold(FoldAdaptor adaptor) {
   for (auto [field, operand] : llvm::zip_equal(adaptor.getFields(), getFields()))
     if (!field || !canon::buildable(field, operand.getType()))
       return {};
-  return ConAttr::get(getContext(), getCtor(), ArrayAttr::get(getContext(), adaptor.getFields()));
+  return ConAttr::get(getContext(), getDataType(), getCtorAttr(),
+                      ArrayAttr::get(getContext(), adaptor.getFields()));
 }
 
 //===----------------------------------------------------------------------===//
@@ -106,14 +125,17 @@ Speculation::Speculatability FieldOp::getSpeculatability() {
                                                          : Speculation::Speculatable;
 }
 
-LogicalResult FieldOp::verifySymbolUses(SymbolTableCollection &symbols) {
-  CtorOp ctor = lookupCtor(lookupData(symbols, *this, getValue().getType()), getCtor());
+DataType FieldOp::getDataType() { return dataTypeOf(getValue().getType()); }
+unsigned FieldOp::getTag() { return *getDataType().getTag(getCtor()); }
+
+LogicalResult FieldOp::verify() {
+  const Ctor *ctor = ctorOf(*this, getValue().getType(), getCtorAttr());
   if (!ctor)
-    return emitOpError("refers to an unknown constructor ") << getCtorAttr();
-  if (getIndex() >= ctor.getFieldTypes().size())
+    return failure();
+  if (getIndex() >= ctor->fields.size())
     return emitOpError("field index out of range");
   // A field is read at the value's grade times its own, as a match binds it.
-  Type expected = fieldType(getValue().getType(), ctor.getFieldType(static_cast<unsigned>(getIndex())));
+  Type expected = fieldType(getValue().getType(), ctor->fields[static_cast<unsigned>(getIndex())]);
   if (expected != getType())
     return emitOpError("has result ") << getType() << ", but the field of a "
                                       << getValue().getType() << " is read as " << expected;
@@ -130,7 +152,7 @@ OpFoldResult FieldOp::fold(FoldAdaptor adaptor) {
   auto index = static_cast<unsigned>(getIndex());
   Value source = throughLinear(getValue());
   if (auto con = source.getDefiningOp<ConOp>())
-    if (con.getCtor().getLeafReference() == getCtorAttr().getAttr()) {
+    if (con.getCtorAttr() == getCtorAttr()) {
       // A field read at another grade than the constructor took it is
       // the canonicalizer's, which holds it as read.
       Value field = con.getFields()[index];
@@ -143,7 +165,7 @@ OpFoldResult FieldOp::fold(FoldAdaptor adaptor) {
   auto con = dyn_cast_or_null<ConAttr>(adaptor.getValue());
   if (!con)
     matchPattern(source, m_Constant(&con));
-  if (con && con.getCtor().getLeafReference() == getCtorAttr().getAttr()) {
+  if (con && con.getCtor() == getCtorAttr()) {
     // One field of the first cell, read in place: off a run's spine that
     // costs nothing however long the run is, where listing every field
     // would build the rest of the run. A run's cells hold all the fields
@@ -169,7 +191,7 @@ LogicalResult FieldOp::canonicalize(FieldOp field, PatternRewriter &rewriter) {
   // out, so only the one read takes it; a pending operand (a field the
   // constructor was built without) is no value yet, and is never read.
   if (auto built = throughLinear(field.getValue()).getDefiningOp<ConOp>();
-      built && built.getCtor().getLeafReference() == field.getCtorAttr().getAttr()) {
+      built && built.getCtorAttr() == field.getCtorAttr()) {
     auto index = static_cast<unsigned>(field.getIndex());
     Value operand = built.getFields()[index];
     if (operand.getDefiningOp<PendingOp>() || operand.getType() == type ||
@@ -192,7 +214,7 @@ LogicalResult FieldOp::canonicalize(FieldOp field, PatternRewriter &rewriter) {
     unsigned index = region->getRegionNumber();
     if (index >= outer.getCases().size())
       continue;
-    if (cast<FlatSymbolRefAttr>(outer.getCases()[index]).getAttr() != field.getCtorAttr().getAttr())
+    if (outer.getCases()[index] != field.getCtorAttr())
       break;
     Value argument = region->front().getArgument(static_cast<unsigned>(field.getIndex()));
     if (quantityOf(type) == Quantity::One && !argument.use_empty())
@@ -202,7 +224,7 @@ LogicalResult FieldOp::canonicalize(FieldOp field, PatternRewriter &rewriter) {
   }
   ConAttr con;
   if (!isLinear(type) || !matchPattern(throughLinear(field.getValue()), m_Constant(&con)) ||
-      con.getCtor().getLeafReference() != field.getCtorAttr().getAttr())
+      con.getCtor() != field.getCtorAttr())
     return failure();
   Attribute value = con.getFields()[static_cast<unsigned>(field.getIndex())];
   Dialect *dialect = rewriter.getContext()->getLoadedDialect<IdrDialect>();
@@ -218,37 +240,33 @@ LogicalResult FieldOp::canonicalize(FieldOp field, PatternRewriter &rewriter) {
 //===----------------------------------------------------------------------===//
 
 // The tag of a known constructor, built by idr.con or constant, or 0 for a
-// type of one constructor. The declaration is read once, and the
-// constructor found within it.
+// type of one constructor, read from the value's data type.
 OpFoldResult TagOp::fold(FoldAdaptor adaptor) {
+  DataType data = dataTypeOf(getValue().getType());
+  if (!data || !data.hasBody())
+    return {};
   Value source = throughLinear(getValue());
-  SymbolRefAttr known;
+  FlatSymbolRefAttr known;
   if (auto con = source.getDefiningOp<ConOp>()) {
-    known = con.getCtor();
+    known = con.getCtorAttr();
   } else {
     auto constant = dyn_cast_or_null<ConAttr>(adaptor.getValue());
     if (constant || matchPattern(source, m_Constant(&constant)))
       known = constant.getCtor();
   }
-  DataOp data = declarationOf(*this, getValue().getType());
-  if (!data)
+  std::optional<unsigned> tag;
+  if (known)
+    tag = data.getTag(known.getValue());
+  else if (data.getCtors().size() == 1)
+    tag = 0;
+  if (!tag)
     return {};
-  CtorOp ctor;
-  if (known) {
-    ctor = lookupCtor(data, known.getLeafReference());
-  } else {
-    auto ctors = data.getBody().front().getOps<CtorOp>();
-    if (!ctors.empty() && std::next(ctors.begin()) == ctors.end())
-      ctor = *ctors.begin();
-  }
-  if (!ctor)
-    return {};
-  return IntegerAttr::get(getType(), static_cast<int64_t>(ctor.getTag()));
+  return IntegerAttr::get(getType(), static_cast<int64_t>(*tag));
 }
 
 void TagOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn setResultRange) {
-  DataOp data = declarationOf(*this, getValue().getType());
-  size_t count = data ? llvm::range_size(data.getBody().front().getOps<CtorOp>()) : 0;
+  DataType data = dataTypeOf(getValue().getType());
+  size_t count = data ? data.getCtors().size() : 0;
   unsigned width = getType().getIntOrFloatBitWidth();
   setResultRange(getResult(), count == 0 ? ConstantIntRanges::maxRange(width)
                                          : idr::ranges::nonNegative(width, 0, count - 1));
@@ -258,40 +276,39 @@ void TagOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn setResu
 // idr.dest.of
 //===----------------------------------------------------------------------===//
 
-LogicalResult DestOfOp::verifySymbolUses(SymbolTableCollection &symbols) {
-  CtorOp ctor = lookupCtor(lookupData(symbols, *this, getValue().getType()), getCtor());
-  if (!ctor)
-    return emitOpError("refers to an unknown constructor ") << getCtorAttr();
-  if (getIndex() >= ctor.getFieldTypes().size())
-    return emitOpError("field index out of range");
-  // A destination is the field's word, whatever grade the field is held at.
-  if (unrestricted(ctor.getFieldType(static_cast<unsigned>(getIndex()))) != getType().getValue())
-    return emitOpError("destination type does not match the field type");
-  return success();
-}
+DataType DestOfOp::getDataType() { return dataTypeOf(getValue().getType()); }
+unsigned DestOfOp::getTag() { return *getDataType().getTag(getCtor()); }
 
 // The cell was built here, by an idr.con or idr.reuse of the constructor,
 // with the field pending: a destination names a field that has no value
 // yet, and nothing else does. In the owned stage the cell is owned and
-// the destination reads it through a view.
+// the destination reads it through a view. A destination is the field's
+// word, whatever grade the field is held at.
 LogicalResult DestOfOp::verify() {
+  const Ctor *field = ctorOf(*this, getValue().getType(), getCtorAttr());
+  if (!field)
+    return failure();
+  if (getIndex() >= field->fields.size())
+    return emitOpError("field index out of range");
+  if (unrestricted(field->fields[static_cast<unsigned>(getIndex())]) != getType().getValue())
+    return emitOpError("destination type does not match the field type");
   Value cell = getValue();
   if (auto borrow = cell.getDefiningOp<BorrowOp>())
     cell = borrow.getValue();
   Operation *made = cell.getDefiningOp();
   ValueRange fields;
-  SymbolRefAttr ctor;
+  FlatSymbolRefAttr ctor;
   if (auto con = dyn_cast_or_null<ConOp>(made)) {
     fields = con.getFields();
-    ctor = con.getCtor();
+    ctor = con.getCtorAttr();
   } else if (auto reuse = dyn_cast_or_null<ReuseOp>(made)) {
     fields = reuse.getFields();
-    ctor = reuse.getCtor();
+    ctor = reuse.getCtorAttr();
   } else {
     return emitOpError("expects the cell of an idr.con or idr.reuse");
   }
   auto index = static_cast<unsigned>(getIndex());
-  if (ctor.getLeafReference() != getCtorAttr().getAttr())
+  if (ctor != getCtorAttr())
     return emitOpError("names a field of ") << getCtorAttr() << ", which did not build the cell";
   if (index >= fields.size() || !fields[index].getDefiningOp<PendingOp>())
     return emitOpError("names a field the cell was built with");

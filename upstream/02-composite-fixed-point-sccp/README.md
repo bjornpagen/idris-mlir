@@ -104,23 +104,23 @@ it is a note here, not sent (see the plan).
    use as an identity check, which the greedy driver's and the dialect
    conversion's expensive checks rely on.
 
-## Our workaround
+## Why there is no patch
 
-`PINS.md`: `simplify-structural-fixpoint`. `idr-simplify`
-(`foreign/idr/lib/Simplify/Pass.cc`) runs `composite-fixed-point-pass` over
-its round, so the fixpoint is that pass's `OperationFingerPrint`. The patch
-stops `sccp` remaking constants. `remove-dead-values`, with
-`upstream/16-remove-dead-values-unchanged-call/llvm.patch`, keeps a call it
-erases no result of, so a round at the fixpoint keeps the fingerprint (`tests/idr/canon/upstream-passes`,
-`tests/idr/loops/tail-loop`). Without the patch every module would run to
-the round budget and fail.
+There is no `llvm.patch`, and there is no `PINS.md` entry. The compiler
+met this bug through one loop: the simplify rounds ran
+`composite-fixed-point-pass`, whose fixpoint is an `OperationFingerPrint`,
+and read `sccp` remaking a constant as a change. The pipeline cutover of
+2026-10-14 deleted the rounds; nothing in the tree runs a composite fixed
+point now, and no pass of ours compares a module before and after `sccp`.
+So nothing in the tree reaches the bug, and the patch goes (AGENTS.md);
+the report stays a submission, with the pull request as
+`pull-request.diff`, which this repository does not apply.
 
-## Patch
+## The fix
 
-`llvm.patch` is part 1: in `rewrite` (`SCCP.cpp`), an operation that
+`pull-request.diff` is part 1: in `rewrite` (`SCCP.cpp`), an operation that
 matches `m_Constant` is given to the folder with `insertKnownConstant` and
-skipped. The same diff applies to llvm main, so there is no separate
-`pull-request.diff`. The skip is the one branch, and it is honest: a
+skipped. The same diff applies to llvm main. The skip is the one branch, and it is honest: a
 constant is the form the rewrite produces, and routing it through
 `getOrCreateConstant` would erase its location. The fix stays in `sccp`
 rather than in `OperationFolder`: the folder uniques the constants its
@@ -180,7 +180,7 @@ ones included.
 
 ## Upstreaming plan
 
-Status: file upstream. Still broken on llvm main at 7208ba24 (2026-10-08):
+Status: file upstream; not carried. Still broken on llvm main at 7208ba24 (2026-10-08):
 `SCCP.cpp`, `FoldUtils.cpp` and the composite pass's fingerprint check are
 unchanged from llvmorg-23.1.2, and no issue or pull request addresses it
 (searched llvm/llvm-project for sccp, insertKnownConstant and
@@ -190,7 +190,7 @@ pass's convergence failure configurable).
 
 - Where: a GitHub issue and a pull request to llvm/llvm-project. Not
   Bugzilla. The text to paste is `submission.md`. The issue is the `sccp`
-  bug only; the pull request is one commit, `llvm.patch`, which applies
+  bug only; the pull request is one commit, `pull-request.diff`, which applies
   unchanged to main (the pin), and its body is the squash commit
   message, ending `Fixes #<issue>`. Part 2 is not in the issue: with
   `sccp` fixed, nothing in the tree is known to need it, and it changes
@@ -198,4 +198,6 @@ pass's convergence failure configurable).
   found that remakes an operation in place.
 - Upstream test: the second RUN line in `mlir/test/Transforms/sccp.mlir`
   (see Testing on main).
-- Dropped when the pin includes the fix to `sccp`.
+- When the pin includes the fix to `sccp`,
+  `tests/upstream/composite-fixed-point-sccp` fails, and this directory
+  and that check go.

@@ -1,4 +1,6 @@
-# fannkuch-redux over linear arrays: the reversal, the flip count and the
-# rotation are loops of loads and stores on arrays moved along their
-# threads, with no count changed and nothing allocated.
+# fannkuch-redux over linear vectors: the reversal, the flip count and the
+# rotation are loops of loads and stores on vectors moved along their
+# threads, with no count changed and nothing allocated; and bufferization
+# writes each of their arrays in place, copying none.
+idr-bufferize: in-place=@Main.rev in-place=@Main.flips in-place=@Main.shift in-place=@Main.copy
 idr-rc: counts-nothing=@Main.rev counts-nothing=@Main.flips counts-nothing=@Main.shift counts-nothing=@Main.copy counts-nothing=@Main.iota no-heap-allocation=@Main.rev no-heap-allocation=@Main.flips no-heap-allocation=@Main.shift no-heap-allocation=@Main.copy

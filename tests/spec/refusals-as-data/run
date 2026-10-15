@@ -1,0 +1,35 @@
+#!/bin/sh
+# A refusal names its rule as data: one enum of rules, declared in the
+# dialect's ODS, its C++ generated from it and its Idris module generated
+# by idris-mlir-tblgen, so the rules are held once. A refusal is a
+# diagnostic that carries its rule, which the driver reads; the phrase
+# `unsupported (<rule>)` is rendered from the enum in one place on each
+# side, never written beside the rule at a site, and never matched by its
+# text. So the phrase's opening is inside a string literal of one C++ file
+# and of one Idris file, and the hand-written Rule module is gone. The
+# phrase is spelled in pieces so this test is not its own hit.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+cd "$root" || exit 1
+opening='"[^"]*unsupported'' \('
+find foreign/idr -type f \( -name '*.cpp' -o -name '*.h' \) | LC_ALL=C sort |
+  xargs grep -lE "$opening" 2> /dev/null > "$work/cpp"
+find compiler/src -type f -name '*.idr' ! -path '*/build/*' | LC_ALL=C sort |
+  xargs grep -lE "$opening" 2> /dev/null > "$work/idris"
+# The C++ side's one place is the dialect's attribute code, beside the
+# enum's other generated helpers.
+if [ "$(cat "$work/cpp")" = foreign/idr/lib/IR/Attrs.cpp ]; then
+  say "C++: the refusal phrase rendered in lib/IR/Attrs.cpp alone"
+else
+  say "C++: the refusal phrase written outside lib/IR/Attrs.cpp, or nowhere:"
+  cat "$work/cpp"
+fi
+case $(wc -l < "$work/idris" | tr -d ' ') in
+  1) say "frontend: the refusal phrase rendered in one place" ;;
+  0) say "frontend: the refusal phrase rendered nowhere" ;;
+  *) say "frontend: the refusal phrase written in several places:"; cat "$work/idris" ;;
+esac
+if [ -e compiler/src/IdrisMLIR/Rule.idr ]; then
+  say "rules: the hand-written compiler/src/IdrisMLIR/Rule.idr remains"
+else
+  say "rules: no hand-written Rule module"
+fi

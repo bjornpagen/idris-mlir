@@ -10,6 +10,9 @@
 #include "idr/IR/Symbols.h"
 #include "idr/IR/Verify.h"
 
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Matchers.h"
@@ -37,6 +40,15 @@ bool idr::ownership::isStatic(Value value) {
 Value idr::ownership::readFrom(Value value) {
   if (auto field = value.getDefiningOp<FieldOp>())
     return field.getValue();
+  // A view of a buffer lives while the buffer it views does.
+  if (Operation *def = value.getDefiningOp();
+      isa_and_nonnull<memref::SubViewOp, memref::CastOp, memref::ReinterpretCastOp,
+                      memref::ExpandShapeOp, memref::CollapseShapeOp, memref::TransposeOp,
+                      TieShapeOp>(def))
+    return def->getOperand(0);
+  // A counted element is read from its buffer, which holds its reference.
+  if (auto load = value.getDefiningOp<memref::LoadOp>(); load && holdsReferences(load.getType()))
+    return load.getMemref();
   auto arg = dyn_cast<BlockArgument>(value);
   if (!arg)
     return nullptr;
@@ -60,61 +72,58 @@ Value idr::ownership::viewRoot(Value value) {
 
 namespace {
 
-// Whether the constant `attr` reaches no cell but atoms: a box constructor
-// without fields, a constructor of an unboxed sum whose fields reach none
-// either, or a value that is no box or sum at all (a number, a static
-// string or big, which nothing takes apart). A closure is a cell. A run is
-// read cell by cell and then its tail, never field by field along its
-// spine, which would rebuild the rest of the run at every step: its cells
-// hold every field but the one that links them.
-bool onlyAtoms(Attribute attr, function_ref<DataOp(Type)> declaration) {
+// Whether the constant `attr`, held as `type`, reaches no cell but atoms: a
+// box constructor without fields, a constructor held in place whose fields
+// reach none either, or a value that is no box or sum at all (a number, a
+// static string or big, which nothing takes apart). A closure is a cell. A
+// run is read cell by cell and then its tail, never field by field along
+// its spine, which would rebuild the rest of the run at every step: its
+// cells hold every field but the one that links them, and its tail is held
+// as the run is.
+bool onlyAtoms(Attribute attr, Type type) {
   if (isa<ClosureAttr>(attr))
     return false;
   auto con = dyn_cast<ConAttr>(attr);
   if (!con)
     return true;
-  // The declaration depends on the name alone, so the type asked for is the
-  // unboxed one whether the constructor's values are boxed or not.
-  MLIRContext *ctx = attr.getContext();
-  DataOp data = declaration(
-      DataType::get(ctx, FlatSymbolRefAttr::get(con.getCtor().getRootReference())));
-  if (!data)
-    return false;
+  DataType data = con.getData();
   // The cells of a run have at least the field that links them. A memo
   // cell is written by its first force, so it is never an atom, even in a
   // state without fields.
-  if (data.getBox())
-    return !isMemo(data) && !con.isRun() && con.getFields().empty();
-  auto atoms = [&](ArrayAttr fields) {
-    return llvm::all_of(fields, [&](Attribute field) { return onlyAtoms(field, declaration); });
+  if (isBoxed(type))
+    return !data.isMemo() && !con.isRun() && con.getFields().empty();
+  SmallVector<Type> fields(data.getCtor(con.getTag()).fields);
+  if (con.isRun())
+    fields.erase(fields.begin() + con.getSpine());
+  auto atoms = [&](ArrayAttr cell) {
+    return llvm::all_of(llvm::zip_equal(cell, fields), [](auto field) {
+      return onlyAtoms(std::get<0>(field), std::get<1>(field));
+    });
   };
-  return llvm::all_of(con.getCells(), atoms) && (!con.isRun() || onlyAtoms(con.getTail(), declaration));
+  return llvm::all_of(con.getCells(), atoms) && (!con.isRun() || onlyAtoms(con.getTail(), type));
 }
 
 } // namespace
 
 // A constant nullary constructor (an atom, a static cell with no fields),
-// or a constant unboxed sum, which has no cell, whose fields reach none
-// either (a pair of empty lists). No take hands out a cell of it, since an
-// atom has no fields to take and a sum no cell; no count reaches it,
-// nothing frees or writes it. So whoever else holds it changes nothing a
-// consumer of exclusivity does. A static box with fields is not: a take of
-// it would hand out its cell as a token to build in.
-bool idr::ownership::reachesOnlyAtoms(Value view, function_ref<DataOp(Type)> declaration) {
+// or a constant sum held in place, which has no cell, whose fields reach
+// none either (a pair of empty lists). No take hands out a cell of it,
+// since an atom has no fields to take and a sum no cell; no count reaches
+// it, nothing frees or writes it. So whoever else holds it changes nothing
+// a consumer of exclusivity does. A static box with fields is not: a take
+// of it would hand out its cell as a token to build in.
+bool idr::ownership::reachesOnlyAtoms(Value view) {
   Attribute attr;
-  return matchPattern(view, m_Constant(&attr)) && onlyAtoms(attr, declaration);
+  return matchPattern(view, m_Constant(&attr)) && onlyAtoms(attr, unrestricted(view.getType()));
 }
 
-// The body says that it runs again by being its own successor. A body that
-// only crashes has no such edge, because ub.unreachable is not a
-// region-branch terminator, and still covers each index up to the crash.
-bool idr::ownership::isArrayLoop(Operation *op) {
-  if (!isa<ArrayGenerateOp, ArrayFoldOp>(op) || op->getRegion(0).empty())
-    return false;
-  Block &body = op->getRegion(0).front();
-  if (!body.empty() && isa<ub::UnreachableOp>(body.getTerminator()))
+// A loop over indices runs its body once per index: an scf.for, and a
+// structured op on buffers.
+bool idr::ownership::isIndexLoop(Operation *op) {
+  if (isa<scf::ForOp>(op))
     return true;
-  return cast<RegionBranchOpInterface>(op).isRepetitiveRegion(0);
+  auto structured = dyn_cast<linalg::LinalgOp>(op);
+  return structured && structured.hasPureBufferSemantics();
 }
 
 // One walk, which stops at the first owned value.

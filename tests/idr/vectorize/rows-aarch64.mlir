@@ -1,90 +1,119 @@
-// RUN: idris-mlir-opt %s --idr-target --idr-lower --idr-vectorize --idr-expect=holds=vectorized -o /dev/null
-// RUN: idris-mlir-opt %s --idr-target --idr-lower --idr-vectorize --canonicalize --cse | FileCheck %s
+// RUN: rm -rf %t.d && mkdir -p %t.d
+// RUN: idris-mlir -c %s -o %t.o --mlir-disable-threading -mlir-print-ir-module-scope -mlir-print-ir-after-all -mlir-print-ir-tree-dir=%t.d
+// RUN: sh -c 'cp %t.d/builtin_module_no-symbol-name/func_func_squares/*_transform-interpreter.mlir %t.squares.mlir && cp %t.d/builtin_module_no-symbol-name/func_func_rows/*_transform-interpreter.mlir %t.rows.mlir && cp %t.d/builtin_module_no-symbol-name/func_func_sumf/*_transform-interpreter.mlir %t.sumf.mlir'
+// RUN: idris-mlir-opt %t.squares.mlir --idr-expect=holds=vectorized=@squares -o /dev/null
+// RUN: idris-mlir-opt %t.rows.mlir --idr-expect=holds=vectorized=@rows -o /dev/null
+// RUN: FileCheck %s --check-prefix=SQUARES < %t.squares.mlir
+// RUN: FileCheck %s --check-prefix=ROWS < %t.rows.mlir
+// RUN: FileCheck %s --check-prefix=SUMF < %t.sumf.mlir
 // RUN: idris-mlir-opt %s --idr-target --idr-pipeline | FileCheck %s --check-prefix=LLVM
-// The arm64 counterpart of rows-x86-64: the same loop over an array with a
-// parallel dimension, on the arm64 target entry's CPU (apple-m1), whose
-// cache line and vector width are one 128-bit NEON register: four lanes of
-// a 32-bit element, two of a 64-bit one, so the f64 row loop steps by two
-// lanes. A row reduction keeps its reduction dimension at one lane and
-// still adds each lane's row in index order. The whole pipeline reaches
-// the LLVM dialect with vector loads and stores and no vector or affine op
-// left.
-// CHECK-LABEL: func.func private @squares(
-// CHECK: scf.for %{{.*}} = %{{.*}} to %{{.*}} step %[[C2:.*]] {
-// CHECK: vector.transfer_write %{{.*}} : vector<2xi64>
-// CHECK-NOT: linalg.generic
-// CHECK: return
-// CHECK-LABEL: func.func private @total(
-// CHECK-NOT: vector.
-// CHECK: linalg.generic
-// CHECK-SAME: iterator_types = ["reduction"]
-// CHECK: return
-// CHECK-LABEL: func.func private @rows(
-// CHECK-NOT: vector.multi_reduction
-// CHECK-NOT: vector.reduction
-// CHECK-NOT: vector<2x1x
-// CHECK: scf.for
-// CHECK: scf.for
-// CHECK: vector.transfer_read {{.*}} : memref<{{.*}}f64{{.*}}>, vector<2xf64>
-// CHECK: arith.divf %{{.*}} : vector<2xf64>
-// CHECK: arith.addf %{{.*}} : vector<2xf64>
-// CHECK: vector.transfer_write %{{.*}} : vector<2xf64>
-// CHECK-NOT: vector.multi_reduction
-// CHECK-NOT: vector.reduction
-// CHECK-NOT: vector<2x1x
-// CHECK: return
+// NEEDS-ACCEPTANCE: the vectorized loops' printed form after the vectorization schedule (C13 section 4) and the tree printer's file names for a function (func_func_<symbol>/<n>_<m>_<pass>.mlir).
+// The arm64 counterpart of rows-x86-64: the same loops on the arm64 target
+// entry's CPU (apple-m1), whose vector register is one 128-bit NEON
+// register, so a loop of 64-bit words steps by two lanes. A float fold
+// over each row still adds each lane's row in index order, and a lone
+// float fold computes on no vector. The whole pipeline reaches the LLVM
+// dialect with vector stores and no vector, affine or linalg op left.
+// SQUARES-LABEL: func.func private @squares(
+// SQUARES: scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
+// SQUARES: vector.transfer_write %{{.*}} : vector<2xi64>
+// SQUARES-NOT: linalg.generic
+// SQUARES: return
+// ROWS-LABEL: func.func private @rows(
+// ROWS-NOT: vector.multi_reduction
+// ROWS-NOT: vector.reduction
+// ROWS: scf.for
+// ROWS: arith.divf %{{.*}} : vector<2xf64>
+// ROWS: arith.addf %{{.*}} : vector<2xf64>
+// ROWS: vector.transfer_write %{{.*}} : vector<2xf64>
+// ROWS-NOT: vector.multi_reduction
+// ROWS-NOT: vector.reduction
+// ROWS: return
+// SUMF-LABEL: func.func private @sumf(
+// SUMF-NOT: vector<
+// SUMF: return
 // LLVM-NOT: vector.
 // LLVM-NOT: affine.
 // LLVM-NOT: linalg.
-// LLVM: llvm.store %{{.*}} : vector<2xf64>, !llvm.ptr
+// LLVM-DAG: llvm.store %{{.*}} : vector<2xi64>, !llvm.ptr
+// LLVM-DAG: llvm.store %{{.*}} : vector<2xf64>, !llvm.ptr
 // LLVM-NOT: vector.
 // LLVM-NOT: affine.
 // LLVM-NOT: linalg.
-module attributes {idr.program} {
-  idr.func @root(%w: !idr.world) -> !idr.world {
-    %n = arith.constant 7 : i64
-    %a, %w1 = idr.call @squares(%n, %w) : (i64, !idr.world) -> (memref<?xi64>, !idr.world)
-    %s, %w2 = idr.call @total(%a, %w1) : (memref<?xi64>, !idr.world) -> (i64, !idr.world)
-    %v, %w3 = idr.call @ones(%n, %w2) : (i64, !idr.world) -> (memref<?xf64>, !idr.world)
-    %r, %w4 = idr.call @rows(%n, %v, %w3) : (i64, memref<?xf64>, !idr.world) -> (memref<?xf64>, !idr.world)
-    return %w4 : !idr.world
-  }
-  idr.func private @squares(%n: i64, %w: !idr.world) -> (memref<?xi64>, !idr.world) {
-    %zero = arith.constant 0 : i64
-    %a, %w1 = idr.array.generate %n, %zero, %w : i64 -> memref<?xi64> (%i: i64) {
-      %sq = arith.muli %i, %i : i64
-      idr.yield %sq : i64
+module {
+  idr.func private @squares(%n: index) -> tensor<?xi64> attributes {total, no_inline} {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %e = tensor.empty(%n) : tensor<?xi64>
+    %r = scf.for %i = %c0 to %n step %c1 iter_args(%a = %e) -> (tensor<?xi64>) {
+      %x = arith.index_cast %i : index to i64
+      %sq = arith.muli %x, %x : i64
+      %a1 = tensor.insert %sq into %a[%i] : tensor<?xi64>
+      scf.yield %a1 : tensor<?xi64>
     }
-    return %a, %w1 : memref<?xi64>, !idr.world
+    return %r : tensor<?xi64>
   }
-  idr.func private @total(%a: memref<?xi64>, %w: !idr.world) -> (i64, !idr.world) {
-    %zero = arith.constant 0 : i64
-    %s, %w1 = idr.array.fold %a, %zero, %w : memref<?xi64>, i64 -> i64 (%acc: i64, %x: i64, %i: i64) {
-      %t = arith.addi %acc, %x : i64
-      idr.yield %t : i64
-    }
-    return %s, %w1 : i64, !idr.world
-  }
-  idr.func private @ones(%n: i64, %w: !idr.world) -> (memref<?xf64>, !idr.world) {
+  idr.func private @ones(%n: index) -> tensor<?xf64> attributes {total, no_inline} {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
     %one = arith.constant 1.0 : f64
-    %a, %w1 = idr.array.new [%n], %one, %w : f64 -> memref<?xf64>
-    return %a, %w1 : memref<?xf64>, !idr.world
+    %e = tensor.empty(%n) : tensor<?xf64>
+    %r = scf.for %i = %c0 to %n step %c1 iter_args(%a = %e) -> (tensor<?xf64>) {
+      %a1 = tensor.insert %one into %a[%i] : tensor<?xf64>
+      scf.yield %a1 : tensor<?xf64>
+    }
+    return %r : tensor<?xf64>
   }
-  idr.func private @rows(%n: i64, %v: memref<?xf64>, %w: !idr.world) -> (memref<?xf64>, !idr.world) {
+  idr.func private @rows(%n: index, %v: tensor<?xf64>) -> tensor<?xf64> attributes {total, no_inline} {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
     %zero = arith.constant 0.0 : f64
     %one = arith.constant 1 : i64
-    %r, %w1 = idr.array.generate %n, %zero, %w : f64 -> memref<?xf64> (%i: i64) {
-      %w0 = idr.world.new
-      %i1 = arith.addi %i, %one : i64
-      %s, %w2 = idr.array.fold %v, %zero, %w0 : memref<?xf64>, f64 -> f64 (%acc: f64, %x: f64, %j: i64) {
-        %ij = arith.addi %i1, %j : i64
+    %m = tensor.dim %v, %c0 : tensor<?xf64>
+    %e = tensor.empty(%n) : tensor<?xf64>
+    %r = scf.for %i = %c0 to %n step %c1 iter_args(%a = %e) -> (tensor<?xf64>) {
+      %ii = arith.index_cast %i : index to i64
+      %i1 = arith.addi %ii, %one : i64
+      %s = scf.for %j = %c0 to %m step %c1 iter_args(%acc = %zero) -> (f64) {
+        %x = tensor.extract %v[%j] : tensor<?xf64>
+        %jj = arith.index_cast %j : index to i64
+        %ij = arith.addi %i1, %jj : i64
         %d = arith.sitofp %ij : i64 to f64
-        %m = arith.divf %x, %d : f64
-        %t = arith.addf %acc, %m : f64
-        idr.yield %t : f64
+        %q = arith.divf %x, %d : f64
+        %t = arith.addf %acc, %q : f64
+        scf.yield %t : f64
       }
-      idr.yield %s : f64
+      %a1 = tensor.insert %s into %a[%i] : tensor<?xf64>
+      scf.yield %a1 : tensor<?xf64>
     }
-    return %r, %w1 : memref<?xf64>, !idr.world
+    return %r : tensor<?xf64>
+  }
+  idr.func private @sumf(%v: tensor<?xf64>) -> f64 attributes {total, no_inline} {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %zero = arith.constant 0.0 : f64
+    %m = tensor.dim %v, %c0 : tensor<?xf64>
+    %s = scf.for %j = %c0 to %m step %c1 iter_args(%acc = %zero) -> (f64) {
+      %x = tensor.extract %v[%j] : tensor<?xf64>
+      %t = arith.addf %acc, %x : f64
+      scf.yield %t : f64
+    }
+    return %s : f64
+  }
+  idr.func @root(%w: !idr.world) -> !idr.world {
+    %c0 = arith.constant 0 : index
+    %b, %w1 = idr.io.get_byte %w
+    %b64 = arith.extui %b : i32 to i64
+    %n = arith.index_cast %b64 : i64 to index
+    %sq = idr.call @squares(%n) : (index) -> tensor<?xi64>
+    %s0 = tensor.extract %sq[%c0] : tensor<?xi64>
+    %w2 = idr.io.put_int signed %s0, %w1 : i64
+    %v = idr.call @ones(%n) : (index) -> tensor<?xf64>
+    %r = idr.call @rows(%n, %v) : (index, tensor<?xf64>) -> tensor<?xf64>
+    %r0 = tensor.extract %r[%c0] : tensor<?xf64>
+    %w3 = idr.io.put_double %r0, %w2
+    %t = idr.call @sumf(%v) : (tensor<?xf64>) -> f64
+    %w4 = idr.io.put_double %t, %w3
+    return %w4 : !idr.world
   }
 }

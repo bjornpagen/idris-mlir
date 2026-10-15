@@ -10,7 +10,7 @@
 // list borrows it (a plain parameter, a view of the caller's), and counts
 // nothing; neither do worlds and scalars.
 // CHECK-LABEL: idr.func private @sum(
-// CHECK-SAME: %{{.*}}: !L, %{{.*}}: i64)
+// CHECK-SAME: %{{.*}}: !idr.box<!L>, %{{.*}}: i64)
 // CHECK-LABEL: idr.func private @both(
 
 // A string consumed twice is owned, and the first consuming use takes a
@@ -21,46 +21,41 @@
 // CHECK-NOT: {{(idr\.| )dup }}
 // CHECK-NOT: {{(idr\.| )drop }}%[[B]]
 // CHECK-LABEL: idr.func private @scalars(
-module attributes {idr.program} {
-  idr.data @L box {
-    idr.ctor @N ()
-    idr.ctor @C (i64, !idr.box<@L>)
-  }
-  idr.data @Two {
-    idr.ctor @Two (!idr.str, !idr.str)
-  }
-  idr.func private @map(%l: !idr.box<@L>) -> !idr.box<@L> {
-    %n = idr.constant #idr.con<@L::@N, []> : !idr.box<@L>
-    %r = idr.match %l : !idr.box<@L> -> (!idr.box<@L>) {
+!L = !idr.data<"L", list [@N(), @C(i64, !idr.box<!idr.data<"L">>)]>
+!Two = !idr.data<"Two", plain [@Two(!idr.str, !idr.str)]>
+module {
+  idr.func private @map(%l: !idr.box<!L>) -> !idr.box<!L> {
+    %n = idr.constant #idr.con<@N, []> : !idr.box<!L>
+    %r = idr.match %l : !idr.box<!L> -> (!idr.box<!L>) {
     case @N() {
-      idr.yield %n : !idr.box<@L>
+      idr.yield %n : !idr.box<!L>
     }
-    case @C(%h: i64, %t: !idr.box<@L>) {
+    case @C(%h: i64, %t: !idr.box<!L>) {
       %h2 = arith.muli %h, %h : i64
-      %t2 = idr.call @map(%t) : (!idr.box<@L>) -> !idr.box<@L>
-      %c = idr.con @L::@C(%h2, %t2) : (i64, !idr.box<@L>) -> !idr.box<@L>
-      idr.yield %c : !idr.box<@L>
+      %t2 = idr.call @map(%t) : (!idr.box<!L>) -> !idr.box<!L>
+      %c = idr.con @C(%h2, %t2) : (i64, !idr.box<!L>) -> !idr.box<!L>
+      idr.yield %c : !idr.box<!L>
     }
     }
-    return %r : !idr.box<@L>
+    return %r : !idr.box<!L>
   }
-  idr.func private @sum(%l: !idr.box<@L>, %acc: i64) -> i64 {
-    %r = idr.match %l : !idr.box<@L> -> (i64) {
+  idr.func private @sum(%l: !idr.box<!L>, %acc: i64) -> i64 {
+    %r = idr.match %l : !idr.box<!L> -> (i64) {
     case @N() {
       idr.yield %acc : i64
     }
-    case @C(%h: i64, %t: !idr.box<@L>) {
+    case @C(%h: i64, %t: !idr.box<!L>) {
       %a = arith.addi %acc, %h : i64
-      %s = idr.call @sum(%t, %a) : (!idr.box<@L>, i64) -> i64
+      %s = idr.call @sum(%t, %a) : (!idr.box<!L>, i64) -> i64
       idr.yield %s : i64
     }
     }
     return %r : i64
   }
-  idr.func private @both(%a: !idr.str, %b: !idr.str) -> (!idr.data<@Two>, i64) {
-    %p = idr.con @Two::@Two(%a, %a) : (!idr.str, !idr.str) -> !idr.data<@Two>
+  idr.func private @both(%a: !idr.str, %b: !idr.str) -> (!Two, i64) {
+    %p = idr.con @Two(%a, %a) : (!idr.str, !idr.str) -> !Two
     %n = idr.str.length %b
-    return %p, %n : !idr.data<@Two>, i64
+    return %p, %n : !Two, i64
   }
   idr.func private @scalars(%w: !idr.world, %x: i64) -> !idr.world {
     %w2 = idr.io.put_int signed %x, %w : i64
@@ -68,11 +63,11 @@ module attributes {idr.program} {
   }
   idr.func @root(%w: !idr.world) -> !idr.world {
     %c = idr.constant "x" : !idr.str
-    %p:2 = idr.call @both(%c, %c) : (!idr.str, !idr.str) -> (!idr.data<@Two>, i64)
-    %l = idr.constant #idr.con<@L::@N, []> : !idr.box<@L>
-    %m = idr.call @map(%l) : (!idr.box<@L>) -> !idr.box<@L>
+    %p:2 = idr.call @both(%c, %c) : (!idr.str, !idr.str) -> (!Two, i64)
+    %l = idr.constant #idr.con<@N, []> : !idr.box<!L>
+    %m = idr.call @map(%l) : (!idr.box<!L>) -> !idr.box<!L>
     %z = arith.constant 0 : i64
-    %s = idr.call @sum(%m, %z) : (!idr.box<@L>, i64) -> i64
+    %s = idr.call @sum(%m, %z) : (!idr.box<!L>, i64) -> i64
     %w2 = idr.io.put_int signed %s, %w : i64
     %w3 = idr.call @scalars(%w2, %s) : (!idr.world, i64) -> !idr.world
     return %w3 : !idr.world

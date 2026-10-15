@@ -14,14 +14,12 @@
 // that array, and the program is refused.
 // CHECK: error: unsupported (cycle): an array of {{.*}} can hold a reference to itself through
 
-module attributes {idr.program} {
-  idr.data @Node box {
-    idr.ctor @MkNode (memref<?x!idr.box<@Node>>)
-  }
-  idr.func private @grow(%node: !idr.box<@Node>, %w: !idr.world) -> !idr.world {
+!Node = !idr.data<"Node", plain [@MkNode(memref<?x!idr.box<!idr.data<"Node">>, #idr.world>)]>
+module {
+  idr.func private @grow(%node: !idr.box<!Node>, %w: !idr.world) -> !idr.world {
     %one = arith.constant 1 : i64
     // expected-error @+1 {{unsupported (cycle): an array of Node can hold a reference to itself through Node -> array of Node -> Node}}
-    %a, %w1 = idr.array.new [%one], %node, %w : !idr.box<@Node> -> memref<?x!idr.box<@Node>>
+    %a, %w1 = idr.array.new [%one], %node, %w : !idr.box<!Node> -> memref<?x!idr.box<!Node>, #idr.world>
     return %w1 : !idr.world
   }
   idr.func @Prog.main() -> i64 {
@@ -34,13 +32,11 @@ module attributes {idr.program} {
 
 // An IORef is an array of rank 0: a node that holds one can be written
 // into it.
-module attributes {idr.program} {
-  idr.data @Node box {
-    idr.ctor @MkNode (memref<!idr.box<@Node>>)
-  }
-  idr.func private @knot(%node: !idr.box<@Node>, %w: !idr.world) -> !idr.world {
+!Node = !idr.data<"Node", plain [@MkNode(memref<!idr.box<!idr.data<"Node">>, #idr.world>)]>
+module {
+  idr.func private @knot(%node: !idr.box<!Node>, %w: !idr.world) -> !idr.world {
     // expected-error @+1 {{unsupported (cycle): an IORef of Node can hold a reference to itself through Node -> IORef of Node -> Node}}
-    %r, %w1 = idr.array.new [], %node, %w : !idr.box<@Node> -> memref<!idr.box<@Node>>
+    %r, %w1 = idr.array.new [], %node, %w : !idr.box<!Node> -> memref<!idr.box<!Node>, #idr.world>
     return %w1 : !idr.world
   }
   idr.func @Prog.main() -> i64 {
@@ -55,14 +51,12 @@ module attributes {idr.program} {
 // prefix installs no library sources. A knot whose array only a library
 // makes, as base's newIORef makes an IORef, is reported at the program's
 // own type on the cycle, which closes the knot.
-module attributes {idr.program} {
+!Node = !idr.data<"Node", plain [@MkNode(memref<!idr.box<!idr.data<"Node">>, #idr.world>)]>
+module {
   // expected-error @+1 {{unsupported (cycle): an IORef of Node can hold a reference to itself through Node -> IORef of Node -> Node}}
-  idr.data @Node box {
-    idr.ctor @MkNode (memref<!idr.box<@Node>>)
-  }
-  idr.func private @newIORef(%node: !idr.box<@Node>, %w: !idr.world) -> (memref<!idr.box<@Node>>, !idr.world) {
-    %r, %w1 = idr.array.new [], %node, %w : !idr.box<@Node> -> memref<!idr.box<@Node>> loc(unknown)
-    return %r, %w1 : memref<!idr.box<@Node>>, !idr.world
+  idr.func private @newIORef(%node: !idr.box<!Node>, %w: !idr.world) -> (memref<!idr.box<!Node>, #idr.world>, !idr.world) {
+    %r, %w1 = idr.array.new [], %node, %w : !idr.box<!Node> -> memref<!idr.box<!Node>, #idr.world> loc(unknown)
+    return %r, %w1 : memref<!idr.box<!Node>, #idr.world>, !idr.world
   } loc("Data.IORef.newIORef")
   idr.func @Prog.main() -> i64 {
     %zero = arith.constant 0 : i64
@@ -72,81 +66,65 @@ module attributes {idr.program} {
 
 // -----
 
-module attributes {idr.program} {
-  idr.data @A box {
-    idr.ctor @MkA (memref<?x!idr.box<@B>>)
-  }
-  idr.data @B box {
-    idr.ctor @Leaf ()
-    idr.ctor @MkB (!idr.box<@A>)
-  }
+!A = !idr.data<"A", plain [@MkA(memref<?x!idr.box<!idr.data<"B", plain [@Leaf(), @MkB(!idr.box<!idr.data<"A">>)]>>, #idr.world>)]>
+!B = !idr.data<"B", plain [@Leaf(), @MkB(!idr.box<!idr.data<"A", plain [@MkA(memref<?x!idr.box<!idr.data<"B">>, #idr.world>)]>>)]>
+module {
   idr.func @Prog.main(%w: !idr.world) -> !idr.world {
     %zero = arith.constant 0 : i64
-    %leaf = idr.con @B::@Leaf() : () -> !idr.box<@B>
+    %leaf = idr.con @Leaf() : () -> !idr.box<!B>
     // expected-error @+1 {{unsupported (cycle): an array of B can hold a reference to itself through B -> A -> array of B -> B}}
-    %a, %w1 = idr.array.new [%zero], %leaf, %w : !idr.box<@B> -> memref<?x!idr.box<@B>>
+    %a, %w1 = idr.array.new [%zero], %leaf, %w : !idr.box<!B> -> memref<?x!idr.box<!B>, #idr.world>
     return %w1 : !idr.world
   }
 }
 
 // -----
 
-module attributes {idr.program} {
-  idr.data @Grid box {
-    idr.ctor @MkGrid (memref<?xmemref<?xi64>>)
-  }
-  idr.data @List box {
-    idr.ctor @Nil ()
-    idr.ctor @Cons (i64, !idr.box<@List>)
-  }
+!Grid = !idr.data<"Grid", plain [@MkGrid(memref<?xmemref<?xi64, #idr.world>, #idr.world>)]>
+!List = !idr.data<"List", list [@Nil(), @Cons(i64, !idr.box<!idr.data<"List">>)]>
+module {
   idr.func @Prog.main(%w: !idr.world) -> !idr.world {
     %two = arith.constant 2 : i64
     %zero = arith.constant 0 : i64
-    %row, %w1 = idr.array.new [%two], %zero, %w : i64 -> memref<?xi64>
-    %rows, %w2 = idr.array.new [%two], %row, %w1 : memref<?xi64> -> memref<?xmemref<?xi64>>
-    %g = idr.con @Grid::@MkGrid(%rows) : (memref<?xmemref<?xi64>>) -> !idr.box<@Grid>
-    %l = idr.constant #idr.con<@List::@Cons, [1, #idr.con<@List::@Nil, []>]> : !idr.box<@List>
+    %row, %w1 = idr.array.new [%two], %zero, %w : i64 -> memref<?xi64, #idr.world>
+    %rows, %w2 = idr.array.new [%two], %row, %w1 : memref<?xi64, #idr.world> -> memref<?xmemref<?xi64, #idr.world>, #idr.world>
+    %g = idr.con @MkGrid(%rows) : (memref<?xmemref<?xi64, #idr.world>, #idr.world>) -> !idr.box<!Grid>
+    %l = idr.constant #idr.con<@Cons, [1, #idr.con<@Nil, []>]> : !idr.box<!List>
     return %w2 : !idr.world
   }
 }
 
 // -----
 
-module attributes {idr.program} {
-  idr.data @lazy$0 box memo labels [@ones] {
-    idr.ctor @ones ()
-    idr.ctor @running ()
-    idr.ctor @forced (!idr.box<@Stream>)
-  }
-  idr.data @Stream box {
-    idr.ctor @Cons (i64, !idr.box<@lazy$0>)
-  }
-  idr.func private @ones() -> !idr.box<@Stream> attributes {total} {
-    %s = idr.constant #idr.con<@Stream::@Cons, [1, #idr.con<@lazy$0::@ones, []>]> : !idr.box<@Stream>
-    return %s : !idr.box<@Stream>
+!lazy$0 = !idr.data<"lazy$0", memo [@ones(), @running(), @forced(!idr.box<!idr.data<"Stream", plain [@Cons(i64, !idr.box<!idr.data<"lazy$0">>)]>>)]>
+!Stream = !idr.data<"Stream", plain [@Cons(i64, !idr.box<!idr.data<"lazy$0", memo [@ones(), @running(), @forced(!idr.box<!idr.data<"Stream">>)]>>)]>
+module {
+  idr.func private @ones() -> !idr.box<!Stream> attributes {total} {
+    %s = idr.constant #idr.con<@Cons, [1, #idr.con<@ones, []>]> : !idr.box<!Stream>
+    return %s : !idr.box<!Stream>
   }
   idr.func @Prog.main() -> i64 {
-    %s = idr.call @ones() : () -> !idr.box<@Stream>
-    %h = idr.field %s[@Cons, 0] : !idr.box<@Stream> -> i64
+    %s = idr.call @ones() : () -> !idr.box<!Stream>
+    %h = idr.field %s[@Cons, 0] : !idr.box<!Stream> -> i64
     return %h : i64
   }
 }
 
 // -----
 
-module attributes {idr.program} {
+module {
   idr.func private @zero() -> i64 attributes {total} {
     %c = arith.constant 0 : i64
     return %c : i64
   }
-  idr.func private @first(%a: memref<?x!idr.fn<() -> (i64)>>) -> i64 attributes {total} {
+  idr.func private @first(%a: memref<?x!idr.fn<() -> (i64)>, #idr.world>) -> i64 attributes {total} {
     %w = idr.world.new
     %z = arith.constant 0 : i64
     %c0 = arith.constant 0 : index
-    %d = memref.dim %a, %c0 : memref<?x!idr.fn<() -> (i64)>>
+    %d = memref.dim %a, %c0 : memref<?x!idr.fn<() -> (i64)>, #idr.world>
     %n = arith.index_cast %d : index to i64
     %i = idr.check.in_bounds %z, %n, "array index out of bounds"
-    %f, %w1 = idr.array.get %a[%i], %w : memref<?x!idr.fn<() -> (i64)>> -> !idr.fn<() -> (i64)>
+    %f, %w1 = idr.array.get %a[%i], %w : memref<?x!idr.fn<() -> (i64)>, #idr.world> -> !idr.fn<() -> (i64)>
     %r = idr.apply %f() : !idr.fn<() -> (i64)>
     return %r : i64
   }
@@ -154,14 +132,14 @@ module attributes {idr.program} {
     %one = arith.constant 1 : i64
     %z = arith.constant 0 : i64
     %k = idr.closure @zero() : () -> !idr.fn<() -> (i64)>
-    %a, %w1 = idr.array.new [%one], %k, %w : !idr.fn<() -> (i64)> -> memref<?x!idr.fn<() -> (i64)>>
-    %c = idr.closure @first(%a) : (memref<?x!idr.fn<() -> (i64)>>) -> !idr.fn<() -> (i64)>
+    %a, %w1 = idr.array.new [%one], %k, %w : !idr.fn<() -> (i64)> -> memref<?x!idr.fn<() -> (i64)>, #idr.world>
+    %c = idr.closure @first(%a) : (memref<?x!idr.fn<() -> (i64)>, #idr.world>) -> !idr.fn<() -> (i64)>
     %c0 = arith.constant 0 : index
-    %d = memref.dim %a, %c0 : memref<?x!idr.fn<() -> (i64)>>
+    %d = memref.dim %a, %c0 : memref<?x!idr.fn<() -> (i64)>, #idr.world>
     %n = arith.index_cast %d : index to i64
     %i = idr.check.in_bounds %z, %n, "array index out of bounds"
-    %w2 = idr.array.set %a[%i], %c, %w1 : memref<?x!idr.fn<() -> (i64)>>, !idr.fn<() -> (i64)>
-    %r = idr.call @first(%a) : (memref<?x!idr.fn<() -> (i64)>>) -> i64
+    %w2 = idr.array.set %a[%i], %c, %w1 : memref<?x!idr.fn<() -> (i64)>, #idr.world>, !idr.fn<() -> (i64)>
+    %r = idr.call @first(%a) : (memref<?x!idr.fn<() -> (i64)>, #idr.world>) -> i64
     %w3 = idr.io.put_int signed %r, %w2 : i64
     return %w3 : !idr.world
   }

@@ -10,6 +10,7 @@
 #include "idr/IR/Ownership.h"
 #include "idr/Transforms/Ownership.h"
 
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "llvm/ADT/STLExtras.h"
 
@@ -18,7 +19,12 @@ using namespace mlir;
 namespace idr::ownership {
 
 Class Classes::classOf(Value value) {
-  if (!counted(value.getType()))
+  // A reference crossing a boundary between counting and upstream's buffer
+  // ops: a fresh allocation's, which its idr.own.adopt takes over, and the
+  // one an idr.own.give hands to the store that consumes it. Counting
+  // places nothing for either; the boundary op is its one use.
+  if (!counted(value.getType()) ||
+      isa_and_nonnull<mlir::memref::AllocOp, OwnGiveOp>(value.getDefiningOp()))
     return Class::Untracked;
   if (isStatic(value))
     return Class::Static;
@@ -26,7 +32,11 @@ Class Classes::classOf(Value value) {
   if (known != classes.end())
     return known->second;
   Class result = Class::Owned;
-  if (Value from = readFrom(value)) {
+  // An element of a buffer may be written while a view of it would still
+  // be read, which a field of a cell never is: it takes a reference of its
+  // own where it is read.
+  bool element = bool(value.getDefiningOp<mlir::memref::LoadOp>());
+  if (Value from = readFrom(value); from && !element) {
     if (llvm::all_of(value.getUsers(), [&](Operation *user) { return aliveAt(from, user); }))
       result = Class::Borrowed;
   } else if (auto arg = dyn_cast<BlockArgument>(value);

@@ -19,8 +19,8 @@
 |||
 ||| A lambda's or a `Delay`'s body stays in the scope it is written in, as a
 ||| `let`'s does: renaming enters it, and the variables of that scope it
-||| uses are its captures. `Emit` writes it as a region, and `idr-isolate`
-||| makes that region a function of its own.
+||| uses are its captures. `Emit` writes it as a function of its own, which
+||| the closure or the suspension names with its captures.
 module IdrisMLIR.Term
 
 import IdrisMLIR.Dialect.Idr
@@ -121,13 +121,34 @@ mutual
     NewWorld : Loc -> Term n
     ||| The operating system the target triple names, `System.Info.os`.
     SystemOs : Loc -> Term n
-    ||| A region op of the dialect (an `IdrRegionPrim`) applied to operands,
-    ||| its body binding the block arguments the primitive declares, and
-    ||| its results the `IORes` instance named. `k` is `regionArity prim`,
-    ||| and `types` are the types its call fixes: an array's element, and
-    ||| a fold's accumulator.
-    Region : {k : Nat} -> Loc -> (prim : IdrRegionPrim) -> (types : List Ty)
-          -> List (Term n) -> Term (Under k n) -> DataId -> Term n
+    ||| An operation of the array language on its operands, giving a value
+    ||| of `result`.
+    Tensor : Loc -> TensorOp -> (result : Ty) -> List (Term n) -> Term n
+    ||| A new array of `result` (a `TensorT`) of the extents given
+    ||| (naturals, one per axis of the shape tabulated, outermost first),
+    ||| each element or cell the body's value; the body binds the
+    ||| coordinates, coordinate j (outermost first) being `Bound j`, a
+    ||| natural.
+    Tabulate : {k : Nat} -> Loc -> (result : Ty) -> Vect k (Term n) -> Term (Under k n) -> Term n
+    ||| A new array of `result` (a `TensorT`) of the extents given, made in
+    ||| the world's order: the body binds the coordinates (`Bound 0` to
+    ||| `Bound (k - 1)`, outermost first) and the world before it (`Bound
+    ||| k`), and gives the `IORes` (instance `step`) of the element and the
+    ||| world after it, once per index in row-major order, never when the
+    ||| array is empty. Its value is the `IORes` (instance `done`) of the
+    ||| array and the last world; `world` is the first.
+    TabulateIO : {k : Nat} -> Loc -> (result : Ty) -> Vect k (Term n) -> (world : Term n)
+              -> Term (Under (S k) n) -> (step, done : DataId) -> Term n
+    ||| A reduction of `x` along its axis after the frame of `z`, from
+    ||| `z`'s accumulators, left to right in index order; the body binds
+    ||| the accumulator (`Bound 0`) and the element or cell (`Bound 1`).
+    ||| `FoldLast` gives the last accumulators (`z`'s type), `ScanLast`
+    ||| every one, along that axis.
+    Reduce : Loc -> Reduction -> (acc, elem, result : Ty) -> (z, x : Term n) -> Term (Under 2 n) -> Term n
+    ||| The array, its dynamic dimensions stated equal to the naturals
+    ||| given: one entry per dimension of its type, outermost first,
+    ||| `Nothing` where nothing is stated, a static dimension among them.
+    Tie : Loc -> Term n -> List (Maybe (Term n)) -> Term n
 
   ||| A constructor alternative binds the constructor's fields (not its
   ||| parameters), each with the name of its pattern variable: field `i` is
@@ -160,11 +181,25 @@ mutual
   rename f (Crash l m) = Crash l m
   rename f (NewWorld l) = NewWorld l
   rename f (SystemOs l) = SystemOs l
-  rename f (Region {k} l p tys as body res) = Region l p tys (renameAll f as) (rename (liftRen {k} f) body) res
+  rename f (Tensor l op ty as) = Tensor l op ty (renameAll f as)
+  rename f (Tabulate {k} l ty es body) = Tabulate l ty (renameVect f es) (rename (liftRen {k} f) body)
+  rename f (TabulateIO {k} l ty es w body step done) =
+    TabulateIO l ty (renameVect f es) (rename f w) (rename (liftRen {k = S k} f) body) step done
+  rename f (Reduce l r acc el ty z x body) = Reduce l r acc el ty (rename f z) (rename f x) (rename (liftRen {k = 2} f) body)
+  rename f (Tie l x ds) = Tie l (rename f x) (renameDims f ds)
 
   renameAll : (Fin n -> Fin m) -> List (Term n) -> List (Term m)
   renameAll f [] = []
   renameAll f (t :: ts) = rename f t :: renameAll f ts
+
+  renameVect : (Fin n -> Fin m) -> Vect k (Term n) -> Vect k (Term m)
+  renameVect f [] = []
+  renameVect f (t :: ts) = rename f t :: renameVect f ts
+
+  renameDims : (Fin n -> Fin m) -> List (Maybe (Term n)) -> List (Maybe (Term m))
+  renameDims f [] = []
+  renameDims f (Nothing :: ds) = Nothing :: renameDims f ds
+  renameDims f (Just t :: ds) = Just (rename f t) :: renameDims f ds
 
   renameDefault : (Fin n -> Fin m) -> Maybe (Term n) -> Maybe (Term m)
   renameDefault f Nothing = Nothing
@@ -214,7 +249,11 @@ mutual
     CrashF : Loc -> String -> TermF f n
     NewWorldF : Loc -> TermF f n
     SystemOsF : Loc -> TermF f n
-    RegionF : {k : Nat} -> Loc -> IdrRegionPrim -> List Ty -> List (f n) -> f (Under k n) -> DataId -> TermF f n
+    TensorF : Loc -> TensorOp -> Ty -> List (f n) -> TermF f n
+    TabulateF : {k : Nat} -> Loc -> Ty -> Vect k (f n) -> f (Under k n) -> TermF f n
+    TabulateIOF : {k : Nat} -> Loc -> Ty -> Vect k (f n) -> f n -> f (Under (S k) n) -> DataId -> DataId -> TermF f n
+    ReduceF : Loc -> Reduction -> Ty -> Ty -> Ty -> f n -> f n -> f (Under 2 n) -> TermF f n
+    TieF : Loc -> f n -> List (Maybe (f n)) -> TermF f n
 
   public export
   data AltF : (Nat -> Type) -> Nat -> Type where
@@ -248,7 +287,11 @@ hmap h (UnreachableF l) = UnreachableF l
 hmap h (CrashF l m) = CrashF l m
 hmap h (NewWorldF l) = NewWorldF l
 hmap h (SystemOsF l) = SystemOsF l
-hmap h (RegionF l p tys as body res) = RegionF l p tys (map h as) (h body) res
+hmap h (TensorF l op ty as) = TensorF l op ty (map h as)
+hmap h (TabulateF l ty es body) = TabulateF l ty (map h es) (h body)
+hmap h (TabulateIOF l ty es w body step done) = TabulateIOF l ty (map h es) (h w) (h body) step done
+hmap h (ReduceF l r acc el ty z x body) = ReduceF l r acc el ty (h z) (h x) (h body)
+hmap h (TieF l x ds) = TieF l (h x) (map (map h) ds)
 
 mutual
   ||| The paramorphism: each layer with its subterms as they were and as the
@@ -273,7 +316,12 @@ mutual
   para alg (Crash l m) = alg (CrashF l m)
   para alg (NewWorld l) = alg (NewWorldF l)
   para alg (SystemOs l) = alg (SystemOsF l)
-  para alg (Region l p tys as body res) = alg (RegionF l p tys (paraAll alg as) (sub alg body) res)
+  para alg (Tensor l op ty as) = alg (TensorF l op ty (paraAll alg as))
+  para alg (Tabulate l ty es body) = alg (TabulateF l ty (paraVect alg es) (sub alg body))
+  para alg (TabulateIO l ty es w body step done) =
+    alg (TabulateIOF l ty (paraVect alg es) (sub alg w) (sub alg body) step done)
+  para alg (Reduce l r acc el ty z x body) = alg (ReduceF l r acc el ty (sub alg z) (sub alg x) (sub alg body))
+  para alg (Tie l x ds) = alg (TieF l (sub alg x) (paraDims alg ds))
 
   sub : {0 f : Nat -> Type} -> ({0 m : Nat} -> TermF (Sub f) m -> f m) -> Term n -> Sub f n
   sub alg t = MkSub t (para alg t)
@@ -287,6 +335,16 @@ mutual
               Maybe (Term n) -> Maybe (Sub f n)
   paraMaybe alg Nothing = Nothing
   paraMaybe alg (Just t) = Just (sub alg t)
+
+  paraVect : {0 f : Nat -> Type} -> ({0 m : Nat} -> TermF (Sub f) m -> f m) ->
+             Vect k (Term n) -> Vect k (Sub f n)
+  paraVect alg [] = []
+  paraVect alg (t :: ts) = sub alg t :: paraVect alg ts
+
+  paraDims : {0 f : Nat -> Type} -> ({0 m : Nat} -> TermF (Sub f) m -> f m) ->
+             List (Maybe (Term n)) -> List (Maybe (Sub f n))
+  paraDims alg [] = []
+  paraDims alg (d :: ds) = paraMaybe alg d :: paraDims alg ds
 
   paraLits : {0 f : Nat -> Type} -> ({0 m : Nat} -> TermF (Sub f) m -> f m) ->
              List (Lit, Term n) -> List (Lit, Sub f n)
@@ -316,6 +374,8 @@ record Con where
   tag : Nat
   fields : List Binder
   loc : Loc
+  ||| The part the registry says this constructor plays, if any.
+  role : Maybe Role
 
 ||| How a data instance is represented: an unboxed sum, or a box when its
 ||| containment is recursive (every cycle passes through a box). Data
@@ -336,6 +396,8 @@ record Data where
   cons : List Con
   loc : Loc
   repr : Repr
+  ||| The promise the registry says the type's values keep, if any.
+  promise : Maybe Promise
 
 ||| A function instance of full Core: its key, and its runtime parameters,
 ||| each with the name Idris gave it; a parameter Idris erased is not one.
@@ -362,13 +424,23 @@ record Source where
   root : FnId
 
 ||| A key printed: its origin, then its arguments in brackets when it has
-||| any. It is the readable name of a function or data instance, in the
-||| Core dump and in the module's symbols alike.
+||| any, and when that print dropped part of the instance's identity, `;`
+||| and the low 64 bits of the identity's hash as 16 hex digits. It is the
+||| symbol of a function or data instance, in the Core dump and in the
+||| module alike, a function of the key alone (no other key changes it). No
+||| print ends in `;` and 16 hex digits: a print shows `;` only inside a
+||| string or character literal, which ends in its quote.
 export
 keyText : InstanceKey -> String
-keyText k = case k.arguments of
-  [] => k.origin
-  as => fastConcat [k.origin, "[", joinBy ", " as, "]"]
+keyText k = printed ++ suffix k.print
+  where
+    printed : String
+    printed = case k.arguments of
+      [] => k.origin
+      as => fastConcat [k.origin, "[", joinBy ", " as, "]"]
+    suffix : KeyPrint -> String
+    suffix Whole = ""
+    suffix (Lossy h) = ";" ++ hex16 h
 
 ------------------------------------------------------------------------------
 -- Printing
@@ -415,11 +487,6 @@ typeArgs : Names -> List Ty -> String
 typeArgs names [] = ""
 typeArgs names ts = "<" ++ joinBy ", " (map (tyText names.dataName) ts) ++ ">"
 
-||| A region primitive by its constructor's name, as the dump writes it.
-regionName : IdrRegionPrim -> String
-regionName ArrayGenerate = "ArrayGenerate"
-regionName ArrayFold = "ArrayFold"
-
 printer : Names -> TermF Printed n -> Printed n
 printer names (VarF _ x) ix d = "#" ++ show (ix x)
 printer names (LiteralF _ x) ix d = show x
@@ -455,9 +522,23 @@ printer names (UnreachableF _) ix d = "unreachable"
 printer names (CrashF _ m) ix d = "crash " ++ show m
 printer names (NewWorldF _) ix d = "new-world"
 printer names (SystemOsF _) ix d = "os"
-printer names (RegionF {k} _ p tys as body _) ix d =
-  "io." ++ regionName p ++ typeArgs names tys ++ "(" ++ joinBy ", " (map (\a => a ix d) as) ++ ")/" ++
+printer names (TensorF _ op ty as) ix d =
+  "tensor." ++ show op ++ typeArgs names [ty] ++ "(" ++ joinBy ", " (map (\a => a ix d) as) ++ ")"
+printer names (TabulateF {k} _ ty es body) ix d =
+  "tabulate" ++ typeArgs names [ty] ++ "(" ++ joinBy ", " (map (\e => e ix d) (toList es)) ++ ")/" ++
   show k ++ " => " ++ body (under {k} ix) d
+printer names (TabulateIOF {k} _ ty es w body _ _) ix d =
+  "io.tabulate" ++ typeArgs names [ty] ++ "(" ++ joinBy ", " (map (\e => e ix d) (toList es)) ++ "; " ++
+  w ix d ++ ")/" ++ show (S k) ++ " => " ++ body (under {k = S k} ix) d
+printer names (ReduceF _ r acc el ty z x body) ix d =
+  show r ++ typeArgs names [acc, el, ty] ++ "(" ++ z ix d ++ ", " ++ x ix d ++ ")/2 => " ++
+  body (under {k = 2} ix) d
+printer names (TieF _ x ds) ix d =
+  "tie(" ++ x ix d ++ "; " ++ joinBy ", " (map dim ds) ++ ")"
+  where
+    dim : Maybe (Printed n) -> String
+    dim Nothing = "_"
+    dim (Just e) = e ix d
 
 ||| A function body, parameter `i` being `#i`, each function and data
 ||| instance named by `names`.
@@ -475,9 +556,10 @@ showSource p =
     repr Sop = ""
     repr Box = " (box)"
     dataDecl : Names -> IdrisMLIR.Term.Data -> String
-    dataDecl names d = "data " ++ keyText d.key ++ repr d.repr ++
+    dataDecl names d = "data " ++ keyText d.key ++ repr d.repr ++ maybe "" (\p => " (" ++ show p ++ ")") d.promise ++
                        concatMap (\c => "\n  " ++ show c.id ++ " tag " ++ show c.tag ++ " (" ++
-                         joinBy ", " (map (binderText names.dataName) c.fields) ++ ")") d.cons ++ "\n"
+                         joinBy ", " (map (binderText names.dataName) c.fields) ++ ")" ++
+                         maybe "" (\r => " " ++ show r) c.role) d.cons ++ "\n"
     fnDecl : Names -> TFn -> String
     fnDecl names f = keyText f.key ++ " " ++
                      concatMap (\(_, b) => "(" ++ binderText names.dataName b ++ ") ") (toList f.params) ++

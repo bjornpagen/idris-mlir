@@ -140,7 +140,7 @@ suites =
       , pool "programs/nat: natural numbers" ["programs/nat"]
       , pool "programs/data: data and records at runtime" ["programs/data"]
       , pool "programs/linear: linear values, the linear library's lists and its string iterator" ["programs/linear"]
-      , pool "programs/arrays: linear arrays, IOArray, IORef, ST and Buffer" ["programs/arrays"]
+      , pool "programs/arrays: typed arrays and growable linear vectors (libs/mlir-array), IOArray, IORef, ST and Buffer" ["programs/arrays"]
       , pool "determinism: byte-identical artifacts" ["determinism"]
       , pool "registry: privileged knowledge of library definitions" ["registry"]
       , pool "toolchain: the pinned toolchain and what it builds" ["toolchain"]

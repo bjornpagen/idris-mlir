@@ -18,14 +18,13 @@ using namespace mlir;
 namespace idr::expect {
 
 // The users are counted as idr-contify counts them, by upstream's map of
-// symbol users. A clone names itself, so its own op is one of its users and
-// it is never taken for a continuation, as idr-contify never takes it.
+// symbol users.
 LogicalResult contified(ModuleOp module, AnalysisManager &, StringRef) {
   SymbolTableCollection tables;
   SymbolUserMap users(tables, module);
   bool held = true;
   for (FuncOp fn : module.getOps<FuncOp>()) {
-    if (fn.isPublic() || fn.isExternal())
+    if (fn.isPublic())
       continue;
     ArrayRef<Operation *> uses = users.getUsers(fn);
     if (uses.size() != 1)

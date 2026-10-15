@@ -1,30 +1,36 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
 ||| One sample of every type and attribute of the dialects' generated
-||| syntax (IdrisMLIR.Syntax.*), and of every directive of the ops'
-||| declarative syntax the generated printers write (IdrisMLIR.Dialect.*),
-||| written as the frontend writes them: a module whose discardable
-||| attributes hold the type and attribute samples and whose region holds
-||| two data declarations and three functions of op samples. It is written
-||| twice, to the two files its command line names: each op through its
-||| dialect's printer, and each op in the generic form. The round trip
-||| (tests/compiler/dialect-syntax) has idris-mlir-opt read both and print
-||| them back, so that what the Idris printers write is what the C++ parsers
-||| read, and the two are one module, so that the declarative text leaves
-||| out nothing the generic text says. Every grade a frontend writes long is
-||| sampled, the ones the dialect spells shorter among them, and a
-||| constructor's cells nested as Idris writes them, which the parser reads
-||| as a run.
+||| syntax (IdrisMLIR.Syntax.*) and of the builtin ones the frontend writes
+||| (IdrisMLIR.MLIR), and ops of every shape the frontend's builders make
+||| (IdrisMLIR.Dialect.*), written as the frontend writes them: one MLIR
+||| bytecode file (IdrisMLIR.MLIR.Bytecode), at the path its command line
+||| names. The module's discardable attributes hold the type and attribute
+||| samples, each kept as its text, which the dialects' C++ parsers read;
+||| its region holds functions of op samples: properties of each kind,
+||| absent and present, variadic operands of several groups, several
+||| results, regions nested in regions using the values around them, block
+||| arguments, closures and suspensions of functions, a suspended value, an
+||| array built and read, and a loop. The round trip
+||| (tests/compiler/dialect-syntax) has idris-mlir-opt read the file and
+||| print it, so that what the Idris side writes is what MLIR reads. Every
+||| grade a frontend writes long is sampled, the ones the dialect spells
+||| shorter among them, and a constructor's cells nested as Idris writes
+||| them, which the parser reads as a run.
 |||
 ||| A generated sum that gains a constructor gains a mnemonic: this program
 ||| exits 1, naming every mnemonic of a sum MLIR.idr holds that no sample
 ||| has, and writes nothing.
 module IdrisMLIR.SyntaxSamples
 
+import IdrisMLIR.Dialect.Arith as Arith
 import IdrisMLIR.Dialect.Builtin as Builtin
 import IdrisMLIR.Dialect.Idr as Idr
+import IdrisMLIR.Dialect.SCF as SCF
+import IdrisMLIR.Dialect.Tensor as Tensor
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
+import IdrisMLIR.MLIR.Bytecode
 import IdrisMLIR.Syntax.Arith
 import IdrisMLIR.Syntax.UB
 
@@ -41,31 +47,48 @@ str = Idr StrType
 big : MlirType
 big = Idr BigType
 
-box : MlirType
-box = Idr (BoxType "T")
-
 i64 : MlirType
 i64 = IntegerType 64
 
 world : MlirType
 world = Idr (QType One Plain (Idr WorldType))
 
+||| A list of naturals: base's list, recursive through a box of itself,
+||| which its own body names by its name alone.
+natList : MlirType
+natList =
+  Idr (DataType "List[Nat]"
+        (Just (MkIdrSum BaseList
+                 [ MkIdrCtor "Nil" [] False
+                 , MkIdrCtor "Cons" [Idr NatType, Idr (BoxType (Idr (DataType "List[Nat]" Nothing)))] False ]
+                 (Just ("Prelude.Types.List", ["Prelude.Types.Nat"])))))
+
+||| A plain sum of two constructors, one holding a list: another type's
+||| body spelled whole inside it.
 dataT : MlirType
-dataT = Idr (DataType "T")
+dataT =
+  Idr (DataType "T" (Just (MkIdrSum Plain [MkIdrCtor "A" [i64, natList] False, MkIdrCtor "Nil" [] False]
+                                    Nothing)))
+
+||| Each kind of sum the dialect has.
+kinds : List MlirType
+kinds =
+  [ Idr (DataType "Pairs" (Just (MkIdrSum InPlace [MkIdrCtor "P" [Idr (QType One Plain i64)] False] Nothing)))
+  , Idr (DataType "fn$sample" (Just (MkIdrSum Closures [MkIdrCtor "callee" [i64] False] Nothing)))
+  , Idr (DataType "lazy$sample"
+          (Just (MkIdrSum Memo [ MkIdrCtor "callee" [] True, MkIdrCtor "running" [] False
+                               , MkIdrCtor "forced" [i64] False ] Nothing)))
+  ]
 
 int : Integer -> MlirAttr
 int n = IntegerAttr n i64
 
-||| A constructor of `List`, by name.
-list : String -> SymbolRef
-list c = MkSymbolRef "List" [c]
-
 nil : MlirAttr
-nil = Idr (ConAttr (list "Nil") [[]] Nothing 0)
+nil = Idr (ConAttr "Nil" [[]] Nothing 0)
 
-||| `Cons x xs`, a plain constructor of one cell.
+||| `Cons x xs`, a plain constructor of one cell, named within its type.
 cons : MlirAttr -> MlirAttr -> MlirAttr
-cons x xs = Idr (ConAttr (list "Cons") [[x, xs]] Nothing 0)
+cons x xs = Idr (ConAttr "Cons" [[x, xs]] Nothing 0)
 
 ||| What a declaration is an instance of: an Idris definition at a type.
 maybeNat : MlirAttr
@@ -74,9 +97,10 @@ maybeNat = Idr (InstanceAttr "Maybe" [StringAttr "Nat"])
 types : List MlirType
 types =
   [ big
-  , box
+  , natList
+  , Idr (BoxType natList)
   , dataT
-  , Idr (DestType box)
+  , Idr (DestType (Idr (BoxType natList)))
   , Idr (FnType (MkSignature [] []))
   , Idr (FnType (MkSignature [i64] [i64]))
   , Idr (FnType (MkSignature [i64] [i64, i64]))
@@ -85,14 +109,21 @@ types =
   , Idr NatType
   , Idr (QType One Plain str)
   , Idr (QType Many Own big)
-  , Idr (QType Many Excl box)
+  , Idr (QType Many Excl (Idr (BoxType natList)))
   , world
   , Idr (QType One Own str)
   , Idr (QType Many Borrow str)
   , str
   , Idr TokenType
   , Idr WorldType
-  ]
+  , RankedTensorType [Dynamic, Static 3] F64Type
+  , RankedTensorType [] i64
+  , RankedTensorType [Dynamic] (Idr NatType)
+  , Idr (QType One Plain (RankedTensorType [Dynamic] i64))
+  , MemRefType [Dynamic] (IntegerType 8) (Just (Idr WorldSpaceAttr))
+  , MemRefType [] i64 (Just (Idr WorldSpaceAttr))
+  , IndexType
+  ] ++ kinds
 
 key : MlirAttr
 key = Idr (SpecKeyAttr "f" [Idr (KeyHoleAttr 0), int 7])
@@ -100,24 +131,33 @@ key = Idr (SpecKeyAttr "f" [Idr (KeyHoleAttr 0), int 7])
 attrs : List MlirAttr
 attrs =
   [ Idr (BigAttr "-12345678901234567890")
-  , Idr (CloneAttr "f_clone" key)
   , Idr (ClosureAttr "g" [int 1, StringAttr "two"])
   , nil
   , cons (int 1) (cons (int 2) (cons (int 3) nil))
-  , Idr (ConAttr (list "Cons") [[int 1], [int 2]] (Just nil) 1)
+  , Idr (ConAttr "Cons" [[int 1], [int 2]] (Just nil) 1)
   , Idr (EffectAttr [])
   , Idr (EffectAttr [Io, Crash])
   , maybeNat
-  , Idr (KeyApplyAttr "f" 2)
-  , Idr (KeyApplyFieldAttr "f" 2 "Cons" 1)
-  , Idr (KeyClosureAttr "g" [Idr (KeyHoleAttr 1)])
+  , Idr (KeyRaiseAttr "f" "idr.match")
   , Idr (KeyConAttr "List" "Cons" [Idr (KeyHoleAttr 2), Idr (KeyConAttr "List" "Nil" [])])
   , Idr (KeyHoleAttr 3)
   , key
+  , Idr WorldSpaceAttr
   , Arith (FastMathFlagsAttr [])
   , Arith (FastMathFlagsAttr [Nnan, Ninf])
   , Arith (IntegerOverflowFlagsAttr [Nsw, Nuw])
   , UB PoisonAttr
+  , UnitAttr
+  , BoolAttr True
+  , FloatAttr 0.5 F64Type
+  , StringAttr "a string with \"quotes\" and \x00e9"
+  , SymbolRefAttr (MkSymbolRef "T" ["A"])
+  , TypeAttr dataT
+  , ArrayAttr [int 1, StringAttr "b"]
+  , DenseI32ArrayAttr [1, 0, 2]
+  , DenseI64ArrayAttr [0, dynamicExtent, 4]
+  , DenseI64ArrayAttr []
+  , DictionaryAttr [("a", int 1), ("b", UnitAttr)]
   ]
 
 ||| The mnemonics of the generated sums that no sample has, each with its
@@ -170,23 +210,11 @@ stmt o = MkStatement Nothing o (At noLoc)
 block : List Value -> List Statement -> Region
 block vs ss = MkRegion (map (\v => MkArgument v (At noLoc)) vs) ss
 
-||| `@T`, a sum of two constructors, with a discardable attribute: a symbol
-||| name, `attr-dict-with-keyword`, and a region. The constructors are
-||| written generic: their syntax has a custom directive.
-sumDecl : Statement
-sumDecl =
-  stmt ({ attributes := [("sample.x", int 1)] }
-         (Idr.dataOp "T" (block [] [stmt (Idr.ctorOp "A" [i64]), stmt (Idr.ctorOp "Nil" [])])))
+index : Integer -> Op
+index n = Arith.constantOp (IntegerAttr n IndexType) IndexType
 
-||| A box that is an instance of an Idris type: an optional group on a unit
-||| attribute, one on an optional attribute, which is a dialect attribute
-||| written qualified, and a symbol name that must be quoted.
-boxDecl : Statement
-boxDecl =
-  stmt (Idr.dataOp {box = True} {instance = Just maybeNat} "Maybe[Nat]"
-         (block [] [stmt (Idr.ctorOp "Just" [i64])]))
-
-||| One op of each directive, in a function of the values they use.
+||| One op of each shape, in a function of the values they use. Every
+||| function is private: the samples are a fragment, no program's root.
 sample : Statement
 sample =
   let v = MkValue "%v" dataT
@@ -195,58 +223,82 @@ sample =
       w0 = MkValue "%w0" world
       x = MkValue "%x" i64
       lin = Idr (QType One Plain i64)
-  in stmt (Idr.funcOp "sample" (FunctionType (MkSignature [dataT, i64, str, world] [i64, world]))
+      fn = Idr (FnType (MkSignature [i64] [i64]))
+      lazy = Idr (LazyType i64)
+      vec = RankedTensorType [Dynamic] i64
+      c0 = MkValue "%c0" IndexType
+      c1 = MkValue "%c1" IndexType
+      c4 = MkValue "%c4" IndexType
+  in stmt (Idr.funcOp {symVisibility = Just "private", instance = Just maybeNat} "sample"
+            (FunctionType (MkSignature [dataT, i64, str, world] [i64, world]))
             (block [v, n, s, w0]
-               [ -- An operand, and the type directive of one.
-                 binding "%tag" (Idr.tagOp v i64)
-                 -- A symbol reference, an integer without its type, and two
-                 -- type directives.
+               [ binding "%tag" (Idr.tagOp v i64)
                , binding "%field" (Idr.fieldOp v "A" 0 i64)
-                 -- A variadic operand, and `functional-type` of it.
-               , binding "%a" (Idr.conOp (MkSymbolRef "T" ["A"]) [n] dataT)
-                 -- The variadic operand empty.
-               , binding "%nil" (Idr.conOp (MkSymbolRef "T" ["Nil"]) [] dataT)
-                 -- A string attribute.
+                 -- A constructor named within its type, of none and of
+                 -- fields, one of another type.
+               , binding "%nil" (Idr.conOp "Nil" [] natList)
+               , binding "%a" (Idr.conOp "A" [n, MkValue "%nil" natList] dataT)
                , binding "%checked" (Idr.checkNonzeroOp n "div" i64)
-                 -- An integer enum by its keyword, and every type buildable.
                , binding "%cmp" (Idr.strCmpOp CmpPredicate.Lt s s (IntegerType 1))
-                 -- `qualified`, into a linear position and out of it once.
                , binding "%lin" (Idr.linEnterOp n lin)
                , binding "%used" (Idr.linUseOp (MkValue "%lin" lin) i64)
-                 -- A region last, and an optional group on a variadic
-                 -- operand, there, with the type directive of it.
-               , binding "%lam" (Idr.lambdaOp (block [x] [stmt (Idr.yieldOp [x, x])])
-                                           (Idr (FnType (MkSignature [i64] [i64, i64]))))
-                 -- The optional group absent.
-               , binding "%unit" (Idr.lambdaOp (block [] [stmt (Idr.yieldOp [])])
-                                            (Idr (FnType (MkSignature [] []))))
-                 -- A region that uses a value from above.
-               , binding "%lazy" (Idr.delayOp (block [] [stmt (Idr.yieldOp [n])])
-                                             (Idr (LazyType i64)))
-                 -- Operands of buildable types, the world threaded.
+                 -- A closure and a suspension of functions, and a value
+                 -- suspended.
+               , binding "%f" (Idr.closureOp "callee" [] fn)
+               , binding "%lazy" (Idr.suspendOp "thunk" [n] lazy)
+               , binding "%held" (Idr.delayOp n lazy)
+               , binding "%applied" (Idr.applyOp (MkValue "%f" fn) [n] [i64])
+                 -- A match whose region uses a value from above and holds a
+                 -- match of its own.
+               , binding "%m" (Idr.matchOp v [SymbolRefAttr (MkSymbolRef "A" []), SymbolRefAttr (MkSymbolRef "Nil" [])]
+                                 [ block [MkValue "%y" i64, MkValue "%ys" natList]
+                                     [ binding "%inner" (Idr.matchLitOp n [int 0]
+                                         [ block [] [stmt (Idr.yieldOp [MkValue "%y" i64])]
+                                         , block [] [stmt (Idr.yieldOp [n])] ] [i64])
+                                     , stmt (Idr.yieldOp [MkValue "%inner" i64]) ]
+                                 , block [] [stmt (Idr.yieldOp [MkValue "%checked" i64])] ] [i64])
+                 -- An array made, written, read and looped over.
+               , binding "%c0" (index 0)
+               , binding "%c1" (index 1)
+               , binding "%c4" (index 4)
+               , binding "%t" (Tensor.emptyOp [c4] vec)
+               , binding "%t1" (Tensor.insertOp n (MkValue "%t" vec) [c0] vec)
+               , binding "%e" (Tensor.extractOp (MkValue "%t1" vec) [c1] i64)
+               , binding "%slice" (Tensor.extractSliceOp (MkValue "%t1" vec) [] [] [] (DenseI64ArrayAttr [1])
+                                     (DenseI64ArrayAttr [2]) (DenseI64ArrayAttr [1]) (RankedTensorType [Static 2] i64))
+               , binding "%sum" (SCF.forOp c0 c4 c1 [n]
+                                   (block [MkValue "%i" IndexType, MkValue "%acc" i64]
+                                      [ binding "%el" (Tensor.extractOp (MkValue "%t1" vec) [MkValue "%i" IndexType] i64)
+                                      , binding "%acc1" (Arith.addiOp (MkValue "%acc" i64) (MkValue "%el" i64) i64)
+                                      , stmt (SCF.yieldOp [MkValue "%acc1" i64]) ]) [i64])
+                 -- Operands and results of the world, two results.
                , binding "%w1" (Idr.ioPutStrOp s w0 world)
-                 -- Two results.
                , binding "%b" (Idr.ioGetByteOp (MkValue "%w1" world) (IntegerType 32) world)
-                 -- A call, `functional-type` of variadic results.
                , binding "%r" (Idr.callOp "callee" [n] [i64])
-                 -- `attr-dict` holding a unit attribute, of an op of no
-                 -- operands and no results.
+                 -- A discardable attribute, on an op of no operands and no
+                 -- results.
                , stmt ({ attributes := [("sample.y", UnitAttr)] } Idr.mayLoopOp)
                , stmt (Idr.returnOp [MkValue "%r" i64, MkValue "%b#1" world])
                ]))
 
-||| A function called by `@sample`.
+||| A function called and closed over by `@sample`.
 callee : Statement
 callee =
   let a = MkValue "%a" i64
-  in stmt (Idr.funcOp "callee" (FunctionType (MkSignature [i64] [i64]))
-            (block [a] [stmt (Idr.returnOp [a])]))
+  in stmt (Idr.funcOp {symVisibility = Just "private", total' = True} "callee"
+            (FunctionType (MkSignature [i64] [i64])) (block [a] [stmt (Idr.returnOp [a])]))
 
-||| A function that returns nothing: the optional group of `idr.return`
-||| absent.
+||| A function `@sample` suspends.
+thunk : Statement
+thunk =
+  let a = MkValue "%a" i64
+  in stmt (Idr.funcOp {symVisibility = Just "private", noInline = True} "thunk"
+            (FunctionType (MkSignature [i64] [i64])) (block [a] [stmt (Idr.returnOp [a])]))
+
+||| A function that returns nothing.
 nothing : Statement
 nothing =
-  stmt (Idr.funcOp "nothing" (FunctionType (MkSignature [] []))
+  stmt (Idr.funcOp {symVisibility = Just "private"} "nothing" (FunctionType (MkSignature [] []))
          (block [] [stmt (Idr.returnOp [])]))
 
 ||| The module: the type and attribute samples as its discardable
@@ -254,32 +306,29 @@ nothing =
 sampleModule : Op
 sampleModule =
   { attributes := named "sample.t" (map TypeAttr types) ++ named "sample.a" attrs }
-    (Builtin.moduleOp (block [] [sumDecl, boxDecl, sample, callee, nothing]))
+    (Builtin.moduleOp (block [] []))
 
-||| Each op through its dialect's printer, which writes it generic where its
-||| syntax is not one the printer writes.
+||| Writes the samples to `path`.
 covering
-declarative : Format
-declarative o = Idr.printOp o <|> Builtin.printOp o
-
-||| Each op generic.
-generic : Format
-generic _ = Nothing
-
-||| Writes the module to `path`, each op as `format` writes it.
-covering
-writeSamples : String -> Format -> IO ()
-writeSamples path format = do
-  Right () <- writeFile path (showModule format (At noLoc) sampleModule)
+writeSamples : String -> IO ()
+writeSamples path = do
+  Right w <- newWriter
+    | Left e => die ("syntax-samples: " ++ e)
+  for_ [sample, callee, thunk, nothing] $ \s => do
+    Right () <- writeTopLevel w s
+      | Left e => die ("syntax-samples: " ++ e)
+    pure ()
+  Right h <- openFile path WriteTruncate
     | Left e => die ("syntax-samples: writing " ++ path ++ ": " ++ show e)
-  pure ()
+  Right () <- finish w h (At noLoc) sampleModule
+    | Left e => die ("syntax-samples: " ++ e)
+  closeFile h
 
 covering
 main : IO ()
 main = do
   let missed = unsampled
   unless (null missed) $ die ("syntax-samples: no sample of " ++ joinBy ", " missed)
-  [_, declared, plain] <- getArgs
-    | _ => die "usage: syntax-samples DECLARATIVE GENERIC"
-  writeSamples declared declarative
-  writeSamples plain generic
+  [_, path] <- getArgs
+    | _ => die "usage: syntax-samples OUT.mlirbc"
+  writeSamples path

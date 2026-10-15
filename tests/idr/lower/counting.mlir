@@ -42,72 +42,66 @@
 // CHECK-NEXT: scf.yield %[[W]]
 // CHECK-NOT: llvm.store
 // CHECK: return
-module attributes {idr.program} {
-  idr.data @L box {
-    idr.ctor @N ()
-    idr.ctor @C (i64, !idr.box<@L>)
-  }
-  idr.data @S {
-    idr.ctor @A (!idr.str)
-    idr.ctor @B (i64)
-  }
-  idr.func private @counts(%s: !idr.str, %d: !idr.own<!idr.data<@S>>, %b: !idr.own<!idr.big>) -> !idr.own<!idr.str> {
+!L = !idr.data<"L", list [@N(), @C(i64, !idr.box<!idr.data<"L">>)]>
+!S = !idr.data<"S", plain [@A(!idr.str), @B(i64)]>
+module {
+  idr.func private @counts(%s: !idr.str, %d: !idr.own<!S>, %b: !idr.own<!idr.big>) -> !idr.own<!idr.str> {
     %o = idr.dup %s : !idr.str
-    idr.drop %d : !idr.own<!idr.data<@S>>
+    idr.drop %d : !idr.own<!S>
     idr.drop %b : !idr.own<!idr.big>
     return %o : !idr.own<!idr.str>
   }
-  idr.func private @unused(%x: i64) -> !idr.own<!idr.data<@S>> {
-    %d = idr.con @S::@B(%x) : (i64) -> !idr.own<!idr.data<@S>>
-    return %d : !idr.own<!idr.data<@S>>
+  idr.func private @unused(%x: i64) -> !idr.own<!S> {
+    %d = idr.con @B(%x) : (i64) -> !idr.own<!S>
+    return %d : !idr.own<!S>
   }
-  idr.func private @drop(%l: !idr.own<!idr.box<@L>>) -> i64 {
-    %v = idr.borrow %l : !idr.own<!idr.box<@L>>
-    %r = idr.match %v : !idr.box<@L> -> (i64) {
-    case @C(%h: i64, %t: !idr.box<@L>) {
-      %w:3 = idr.take %l @L::@C : !idr.own<!idr.box<@L>> -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<@L>>)
-      idr.drop %w#2 : !idr.own<!idr.box<@L>>
+  idr.func private @drop(%l: !idr.own<!idr.box<!L>>) -> i64 {
+    %v = idr.borrow %l : !idr.own<!idr.box<!L>>
+    %r = idr.match %v : !idr.box<!L> -> (i64) {
+    case @C(%h: i64, %t: !idr.box<!L>) {
+      %w:3 = idr.take %l @C : !idr.own<!idr.box<!L>> -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<!L>>)
+      idr.drop %w#2 : !idr.own<!idr.box<!L>>
       idr.drop %w#0 : !idr.own<!idr.token>
       idr.yield %h : i64
     }
     default {
-      idr.drop %l : !idr.own<!idr.box<@L>>
+      idr.drop %l : !idr.own<!idr.box<!L>>
       %z = arith.constant 0 : i64
       idr.yield %z : i64
     }
     }
     return %r : i64
   }
-  idr.func private @static(%x: i64) -> (!idr.own<!idr.box<@L>>, !idr.own<!idr.str>) {
-    %n = idr.constant #idr.con<@L::@N, []> : !idr.box<@L>
+  idr.func private @static(%x: i64) -> (!idr.own<!idr.box<!L>>, !idr.own<!idr.str>) {
+    %n = idr.constant #idr.con<@N, []> : !idr.box<!L>
     %s = idr.constant "static" : !idr.str
-    %r = idr.match_lit %x : i64 -> (!idr.own<!idr.box<@L>>) {
+    %r = idr.match_lit %x : i64 -> (!idr.own<!idr.box<!L>>) {
     case 0 {
-      %o = idr.dup %n : !idr.box<@L>
-      idr.yield %o : !idr.own<!idr.box<@L>>
+      %o = idr.dup %n : !idr.box<!L>
+      idr.yield %o : !idr.own<!idr.box<!L>>
     }
     default {
-      %o = idr.dup %n : !idr.box<@L>
-      %c = idr.con @L::@C(%x, %o) : (i64, !idr.own<!idr.box<@L>>) -> !idr.own<!idr.box<@L>>
-      idr.yield %c : !idr.own<!idr.box<@L>>
+      %o = idr.dup %n : !idr.box<!L>
+      %c = idr.con @C(%x, %o) : (i64, !idr.own<!idr.box<!L>>) -> !idr.own<!idr.box<!L>>
+      idr.yield %c : !idr.own<!idr.box<!L>>
     }
     }
     %t = idr.dup %s : !idr.str
-    return %r, %t : !idr.own<!idr.box<@L>>, !idr.own<!idr.str>
+    return %r, %t : !idr.own<!idr.box<!L>>, !idr.own<!idr.str>
   }
-  idr.func private @rebuild(%l: !idr.own<!idr.box<@L>>) -> !idr.own<!idr.box<@L>> {
-    %v = idr.borrow %l : !idr.own<!idr.box<@L>>
-    %r = idr.match %v : !idr.box<@L> -> (!idr.own<!idr.box<@L>>) {
-    case @C(%h: i64, %t: !idr.box<@L>) {
-      %w:3 = idr.take %l @L::@C : !idr.own<!idr.box<@L>> -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<@L>>)
-      %c = idr.reuse %w#0 @L::@C(%w#1, %w#2) : (!idr.own<!idr.token>, i64, !idr.own<!idr.box<@L>>) -> !idr.own<!idr.box<@L>>
-      idr.yield %c : !idr.own<!idr.box<@L>>
+  idr.func private @rebuild(%l: !idr.own<!idr.box<!L>>) -> !idr.own<!idr.box<!L>> {
+    %v = idr.borrow %l : !idr.own<!idr.box<!L>>
+    %r = idr.match %v : !idr.box<!L> -> (!idr.own<!idr.box<!L>>) {
+    case @C(%h: i64, %t: !idr.box<!L>) {
+      %w:3 = idr.take %l @C : !idr.own<!idr.box<!L>> -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<!L>>)
+      %c = idr.reuse %w#0 @C(%w#1, %w#2) : (!idr.own<!idr.token>, i64, !idr.own<!idr.box<!L>>) -> !idr.own<!idr.box<!L>>
+      idr.yield %c : !idr.own<!idr.box<!L>>
     }
     default {
-      idr.yield %l : !idr.own<!idr.box<@L>>
+      idr.yield %l : !idr.own<!idr.box<!L>>
     }
     }
-    return %r : !idr.own<!idr.box<@L>>
+    return %r : !idr.own<!idr.box<!L>>
   }
   idr.func @Prog.main() -> i64 {
     %z = arith.constant 0 : i64

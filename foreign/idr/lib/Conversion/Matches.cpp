@@ -4,7 +4,6 @@
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
-#include "idr/IR/Symbols.h"
 #include "idr/Conversion/Matches.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -39,20 +38,20 @@ void moveBody(RewriterBase &rewriter, Region &from, Block *into, ValueRange args
 }
 
 // What a case region's arguments stand for, read at the end of `into`: the
-// fields of `ctor` read from the scrutinee's value, each held as the region
-// binds it, or for the default region (no `ctor`) the scrutinee itself.
-// `data` declares the scrutinee's type.
+// fields of the constructor `ctor` names (its tag `tag`) read from the
+// scrutinee's value, each held as the region binds it, or for the default
+// region (no `ctor`) the scrutinee itself. `data` is the scrutinee's type.
 SmallVector<Value> readFields(RewriterBase &rewriter, Region &region, Block *into, Value value,
-                              DataOp data, FlatSymbolRefAttr ctor) {
+                              DataType data, FlatSymbolRefAttr ctor, unsigned tag) {
   rewriter.setInsertionPointToEnd(into);
-  CtorOp decl = ctor ? lookupCtor(data, ctor.getValue()) : CtorOp();
   SmallVector<Value> fields;
   for (BlockArgument field : region.front().getArguments()) {
     Value read = value;
+    unsigned index = field.getArgNumber();
     if (ctor)
       read = FieldOp::create(rewriter, field.getLoc(),
-                             fieldType(value.getType(), decl.getFieldType(field.getArgNumber())),
-                             value, ctor, rewriter.getI64IntegerAttr(field.getArgNumber()));
+                             fieldType(value.getType(), data.getCtor(tag).fields[index]), value,
+                             ctor, rewriter.getI64IntegerAttr(index));
     fields.push_back(heldAs(rewriter, field.getLoc(), read, field.getType()));
   }
   return fields;
@@ -60,36 +59,38 @@ SmallVector<Value> readFields(RewriterBase &rewriter, Region &region, Block *int
 
 // The tag selects the case; the default is the match's default or, when
 // Idris proved the other constructors impossible, its last case.
-void lowerMatch(RewriterBase &rewriter, SymbolTable &symbols, MatchOp op) {
+void lowerMatch(RewriterBase &rewriter, MatchOp op) {
   Location loc = op.getLoc();
   // A linear scrutinee is used here, once, and its regions read the value.
   rewriter.setInsertionPoint(op);
   Value scrutinee =
       heldAs(rewriter, loc, op.getScrutinee(), unrestricted(op.getScrutinee().getType()));
-  DataOp data = lookupData(symbols, scrutinee.getType());
+  DataType data = op.getDataType();
   auto names = llvm::to_vector(op.getCases().getAsRange<FlatSymbolRefAttr>());
   unsigned cases = static_cast<unsigned>(names.size());
   Region *fallback = op.getDefaultRegion();
   FlatSymbolRefAttr fallbackCtor;
+  unsigned fallbackTag = 0;
   if (!fallback) {
     fallback = &op.getCaseRegion(--cases);
     fallbackCtor = names[cases];
+    fallbackTag = op.getCaseTag(cases);
   }
   SmallVector<int64_t> tags;
   for (unsigned i = 0; i < cases; ++i)
-    tags.push_back(static_cast<int64_t>(lookupCtor(data, names[i].getValue()).getTag()));
+    tags.push_back(static_cast<int64_t>(op.getCaseTag(i)));
   Value tag = TagOp::create(rewriter, loc, scrutinee);
   Value index = arith::IndexCastOp::create(rewriter, loc, rewriter.getIndexType(), tag);
   TypeRange results = op.getResultTypes();
   auto switchOp = scf::IndexSwitchOp::create(rewriter, loc, results, index, tags, cases);
-  auto move = [&](Region &from, Region &to, FlatSymbolRefAttr ctor) {
+  auto move = [&](Region &from, Region &to, FlatSymbolRefAttr ctor, unsigned tag) {
     Block *into = rewriter.createBlock(&to);
-    SmallVector<Value> fields = readFields(rewriter, from, into, scrutinee, data, ctor);
+    SmallVector<Value> fields = readFields(rewriter, from, into, scrutinee, data, ctor, tag);
     moveBody(rewriter, from, into, fields, results);
   };
   for (unsigned i = 0; i < cases; ++i)
-    move(op.getCaseRegion(i), switchOp.getCaseRegions()[i], names[i]);
-  move(*fallback, switchOp.getDefaultRegion(), fallbackCtor);
+    move(op.getCaseRegion(i), switchOp.getCaseRegions()[i], names[i], op.getCaseTag(i));
+  move(*fallback, switchOp.getDefaultRegion(), fallbackCtor, fallbackTag);
   rewriter.replaceOp(op, switchOp.getResults());
 }
 
@@ -156,12 +157,11 @@ void lowerMatchLit(RewriterBase &rewriter, MatchLitOp op) {
 }
 
 struct LowerMatch : OpRewritePattern<MatchOp> {
-  LowerMatch(MLIRContext *ctx, SymbolTable &symbols) : OpRewritePattern(ctx), symbols(symbols) {}
+  using OpRewritePattern::OpRewritePattern;
   LogicalResult matchAndRewrite(MatchOp op, PatternRewriter &rewriter) const override {
-    lowerMatch(rewriter, symbols, op);
+    lowerMatch(rewriter, op);
     return success();
   }
-  SymbolTable &symbols;
 };
 
 struct LowerMatchLit : OpRewritePattern<MatchLitOp> {
@@ -174,9 +174,8 @@ struct LowerMatchLit : OpRewritePattern<MatchLitOp> {
 
 } // namespace
 
-void populateMatchPatterns(RewritePatternSet &patterns, SymbolTable &symbols) {
-  patterns.add<LowerMatch>(patterns.getContext(), symbols);
-  patterns.add<LowerMatchLit>(patterns.getContext());
+void populateMatchPatterns(RewritePatternSet &patterns) {
+  patterns.add<LowerMatch, LowerMatchLit>(patterns.getContext());
 }
 
 } // namespace idr::conversion

@@ -4,14 +4,14 @@
 // with a character or a number in it. The head of a string built with a
 // character is then that character. On "" the guard stays, to crash where
 // it runs. A guard of what an identical guard already checked folds too.
-// CHECK-LABEL: idr.func @proving(
+// CHECK-LABEL: idr.func private @proving(
 // CHECK-SAME: %[[C:[^:]*]]: i32, %[[S:[^:]*]]: !idr.str, %[[X:[^:]*]]: i64)
 // CHECK-NOT: idr.check.nonempty
 // CHECK-NOT: idr.str.head
 // CHECK: idr.str.tail
 // CHECK-NOT: idr.check.nonempty
 // CHECK: return %[[C]],
-idr.func @proving(%c: i32, %s: !idr.str, %x: i64) -> (i32, !idr.str, !idr.str, !idr.str) {
+idr.func private @proving(%c: i32, %s: !idr.str, %x: i64) -> (i32, !idr.str, !idr.str, !idr.str) {
   %t = idr.str.cons %c, %s
   %g = idr.check.nonempty %t, "head of an empty string" : !idr.str
   %h = idr.str.head %g
@@ -27,17 +27,17 @@ idr.func @proving(%c: i32, %s: !idr.str, %x: i64) -> (i32, !idr.str, !idr.str, !
   return %h, %bc, %rest, %more : i32, !idr.str, !idr.str, !idr.str
 }
 
-// CHECK-LABEL: idr.func @failing(
+// CHECK-LABEL: idr.func private @failing(
 // CHECK: idr.check.nonempty %{{.*}}, "head of an empty string" : !idr.str
 // CHECK: return
-idr.func @failing() -> i32 {
+idr.func private @failing() -> i32 {
   %empty = idr.constant "" : !idr.str
   %g = idr.check.nonempty %empty, "head of an empty string" : !idr.str
   %h = idr.str.head %g
   return %h : i32
 }
 
-// CHECK-LABEL: idr.func @again(
+// CHECK-LABEL: idr.func private @again(
 // CHECK-SAME: %[[S:[^:]*]]: !idr.str)
 // CHECK: %[[G:.*]] = idr.check.nonempty %[[S]], "head of an empty string" : !idr.str
 // CHECK-NOT: idr.check.nonempty
@@ -46,7 +46,7 @@ idr.func @failing() -> i32 {
 // CHECK: idr.str.tail %[[G]]
 // CHECK-NOT: idr.check.nonempty
 // CHECK: return
-idr.func @again(%s: !idr.str) -> (i32, !idr.str) {
+idr.func private @again(%s: !idr.str) -> (i32, !idr.str) {
   %g = idr.check.nonempty %s, "head of an empty string" : !idr.str
   %h = idr.str.head %g
   %g1 = idr.check.nonempty %g, "tail of an empty string" : !idr.str

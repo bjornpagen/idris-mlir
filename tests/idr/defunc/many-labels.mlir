@@ -1,32 +1,17 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
+// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches, as C01's printer and C06's conversion write them.
 // Eight labels reach one closure type: some by a direct yield, the rest
 // through the field of a box, whose own four labels are a subset. The
 // analysis joins the overlapping sets until they stop growing; each sum
 // holds every label that reaches it once, in name order, whatever order
 // the program met them in.
-// CHECK: idr.data @[[F0:fn\$[0-9]+]] closures {
-// CHECK-NEXT: idr.ctor @bb (i64)
-// CHECK-NEXT: idr.ctor @cc ()
-// CHECK-NEXT: idr.ctor @ff ()
-// CHECK-NEXT: idr.ctor @mid ()
-// CHECK-NEXT: }
-// CHECK: idr.data @[[F1:fn\$[0-9]+]] closures {
-// CHECK-NEXT: idr.ctor @aa ()
-// CHECK-NEXT: idr.ctor @bb (i64)
-// CHECK-NEXT: idr.ctor @cc ()
-// CHECK-NEXT: idr.ctor @dd ()
-// CHECK-NEXT: idr.ctor @ee (i64)
-// CHECK-NEXT: idr.ctor @ff ()
-// CHECK-NEXT: idr.ctor @mid ()
-// CHECK-NEXT: idr.ctor @zz ()
-// CHECK-NEXT: }
+// CHECK: ![[F0:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@bb(i64), @cc(), @ff(), @mid()]
+// CHECK: ![[F1:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@aa(), @bb(i64), @cc(), @dd(), @ee(i64), @ff(), @mid(), @zz()]
 // CHECK-NOT: !idr.fn
-module attributes {idr.program} {
-  idr.data @Box {
-    idr.ctor @Box(!idr.fn<(i64) -> (i64)>)
-  }
+!Box = !idr.data<"Box", plain [@Box(!idr.fn<(i64) -> (i64)>)]>
+module {
   idr.func private @zz(%x: i64) -> i64 attributes {total} {
     return %x : i64
   }
@@ -64,8 +49,8 @@ module attributes {idr.program} {
     }
     case 1 {
       %f = idr.closure @mid() : () -> !idr.fn<(i64) -> (i64)>
-      %b = idr.con @Box::@Box(%f) : (!idr.fn<(i64) -> (i64)>) -> !idr.data<@Box>
-      %g = idr.field %b[@Box, 0] : !idr.data<@Box> -> !idr.fn<(i64) -> (i64)>
+      %b = idr.con @Box(%f) : (!idr.fn<(i64) -> (i64)>) -> !Box
+      %g = idr.field %b[@Box, 0] : !Box -> !idr.fn<(i64) -> (i64)>
       idr.yield %g : !idr.fn<(i64) -> (i64)>
     }
     case 2 {
@@ -74,14 +59,14 @@ module attributes {idr.program} {
     }
     case 3 {
       %f = idr.closure @ff() : () -> !idr.fn<(i64) -> (i64)>
-      %b = idr.con @Box::@Box(%f) : (!idr.fn<(i64) -> (i64)>) -> !idr.data<@Box>
-      %g = idr.field %b[@Box, 0] : !idr.data<@Box> -> !idr.fn<(i64) -> (i64)>
+      %b = idr.con @Box(%f) : (!idr.fn<(i64) -> (i64)>) -> !Box
+      %g = idr.field %b[@Box, 0] : !Box -> !idr.fn<(i64) -> (i64)>
       idr.yield %g : !idr.fn<(i64) -> (i64)>
     }
     case 4 {
       %f = idr.closure @bb(%c1) : (i64) -> !idr.fn<(i64) -> (i64)>
-      %b = idr.con @Box::@Box(%f) : (!idr.fn<(i64) -> (i64)>) -> !idr.data<@Box>
-      %g = idr.field %b[@Box, 0] : !idr.data<@Box> -> !idr.fn<(i64) -> (i64)>
+      %b = idr.con @Box(%f) : (!idr.fn<(i64) -> (i64)>) -> !Box
+      %g = idr.field %b[@Box, 0] : !Box -> !idr.fn<(i64) -> (i64)>
       idr.yield %g : !idr.fn<(i64) -> (i64)>
     }
     case 5 {
@@ -90,8 +75,8 @@ module attributes {idr.program} {
     }
     case 6 {
       %f = idr.closure @cc() : () -> !idr.fn<(i64) -> (i64)>
-      %b = idr.con @Box::@Box(%f) : (!idr.fn<(i64) -> (i64)>) -> !idr.data<@Box>
-      %g = idr.field %b[@Box, 0] : !idr.data<@Box> -> !idr.fn<(i64) -> (i64)>
+      %b = idr.con @Box(%f) : (!idr.fn<(i64) -> (i64)>) -> !Box
+      %g = idr.field %b[@Box, 0] : !Box -> !idr.fn<(i64) -> (i64)>
       idr.yield %g : !idr.fn<(i64) -> (i64)>
     }
     default {

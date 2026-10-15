@@ -3,7 +3,9 @@
 // idris-mlir-reduce: mlir-reduce with the idr dialect and passes registered,
 // for shrinking a module that makes a pass fail.
 
+#include "idr/IR/Flow.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Target/Target.h"
 #include "idr/Transforms/Pipeline.h"
 
 #include "mlir/IR/DialectRegistry.h"
@@ -21,6 +23,11 @@ int main(int argc, char **argv) {
   mlir::registerAllDialects(registry);
   mlir::registerAllExtensions(registry);
   registry.insert<idr::IdrDialect>();
+  // How a closure moves through the upstream ops that can hold one, and
+  // the schedules the pipeline's interpreter runs, loaded with the
+  // transform dialect.
+  idr::registerFlowInterfaceExternalModels(registry);
+  idr::target::registerScheduleLibrary(registry);
   mlir::MLIRContext context(registry);
   return mlir::failed(mlir::mlirReduceMain(argc, argv, context)) ? 1 : 0;
 }

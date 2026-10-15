@@ -2,9 +2,8 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The string ops: the builders that walk a list, the rules and ranges of
 // the others, when an index or a head may run before its guard, and the
-// output and head canonicalizations. What a list op's own types say is its
-// verify(); what its declaration says is a symbol use, checked once per
-// module verify.
+// output and head canonicalizations. A list op's list is base's, whose
+// shape its data type says.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Canon.h"
@@ -20,43 +19,33 @@ using namespace idr;
 
 namespace {
 
-// A list the builders walk is a box: its declaration then says the rest.
-LogicalResult verifyListBox(Operation *op, Value list) {
-  if (!isa<BoxType>(unrestricted(list.getType())))
-    return op->emitOpError("walks a list, a box of a nil and a cons, not ") << list.getType();
+// A list the builders walk is base's list in a box, whose data type is of
+// kind `list` and so a nil and then a cons of an element and the list; its
+// element is one of `elements`.
+LogicalResult verifyList(Operation *op, Value list, ArrayRef<Type> elements) {
+  DataType data = dataTypeOf(list.getType());
+  if (!isBoxed(list.getType()) || !data || !data.hasBody() || data.getKind() != SumKind::BaseList)
+    return op->emitOpError("walks base's list, a box of a nil and a cons, not ") << list.getType();
+  if (!llvm::is_contained(elements, data.getListElement()))
+    return op->emitOpError("walks a list of ") << data.getListElement() << ", not of "
+                                               << elements;
   return success();
 }
 
 } // namespace
 
-LogicalResult StrPackOp::verify() { return verifyListBox(*this, getList()); }
-
-LogicalResult StrPackOp::verifySymbolUses(SymbolTableCollection &symbols) {
-  Type list = getList().getType();
-  return listCons(*this, lookupData(symbols, *this, list), list, IntegerType::get(getContext(), 32))
-             ? success()
-             : failure();
+LogicalResult StrPackOp::verify() {
+  return verifyList(*this, getList(), {IntegerType::get(getContext(), 32)});
 }
 
-LogicalResult StrConcatOp::verify() { return verifyListBox(*this, getList()); }
-
-LogicalResult StrConcatOp::verifySymbolUses(SymbolTableCollection &symbols) {
-  Type list = getList().getType();
-  return listCons(*this, lookupData(symbols, *this, list), list, StrType::get(getContext()))
-             ? success()
-             : failure();
+LogicalResult StrConcatOp::verify() {
+  return verifyList(*this, getList(), {StrType::get(getContext())});
 }
-
-LogicalResult PutListOp::verify() { return verifyListBox(*this, getList()); }
 
 // A list pack or concat walks.
-LogicalResult PutListOp::verifySymbolUses(SymbolTableCollection &symbols) {
-  Type list = getList().getType();
-  DataOp data = lookupData(symbols, *this, list);
-  Type element = listElement(data);
-  if (!isa_and_nonnull<StrType>(element) && element != IntegerType::get(getContext(), 32))
-    return emitOpError("writes a list of characters or of strings, not ") << list;
-  return listCons(*this, data, list, element) ? success() : failure();
+LogicalResult PutListOp::verify() {
+  return verifyList(*this, getList(),
+                    {IntegerType::get(getContext(), 32), StrType::get(getContext())});
 }
 
 LogicalResult StrShowOp::verify() {

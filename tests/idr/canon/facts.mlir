@@ -9,10 +9,7 @@
 // callee says nothing, and the call of @applies, which is given a closure
 // nothing is known of.
 
-idr.data @Maybe {
-  idr.ctor @Nothing ()
-  idr.ctor @Just (i64)
-}
+!Maybe = !idr.data<"Maybe", plain [@Nothing(), @Just(i64)]>
 idr.func private @square(%x: i64) -> i64 attributes {total, effects = #idr.effects<none>} {
   %r = arith.muli %x, %x : i64
   return %r : i64
@@ -36,13 +33,13 @@ idr.func private @applies(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 attribute
 
 // Unused calls go exactly when their effects say they may be dropped
 // (effects/queries.mlir states the answers).
-// CHECK-LABEL: idr.func @unused(
+// CHECK-LABEL: idr.func private @unused(
 // CHECK-NOT: call @square
 // CHECK: call @unknown
 // CHECK: call @partial
 // CHECK: call @crashes
 // CHECK-NOT: call @square
-idr.func @unused(%x: i64) {
+idr.func private @unused(%x: i64) {
   %a = idr.call @square(%x) effects = <none> : (i64) -> i64
   %b = idr.call @unknown(%x) : (i64) -> i64
   %c = idr.call @partial(%x) effects = <diverge> : (i64) -> i64
@@ -53,11 +50,11 @@ idr.func @unused(%x: i64) {
 // Case-of-case moves output into a match across a call that only
 // computes, where it writes the number one region shows; the match itself
 // may crash, so it cannot move down instead.
-// CHECK-LABEL: idr.func @across_computing(
+// CHECK-LABEL: idr.func private @across_computing(
 // CHECK: match_lit
 // CHECK-NEXT: case 0 {
 // CHECK-NEXT: idr.io.put_int
-idr.func @across_computing(%n: i64, %x: i64, %w: !idr.world) -> (!idr.world, i64) {
+idr.func private @across_computing(%n: i64, %x: i64, %w: !idr.world) -> (!idr.world, i64) {
   %s = idr.match_lit %n : i64 -> (!idr.str) {
   case 0 {
     %t = idr.str.show signed %x : i64
@@ -79,10 +76,10 @@ idr.func @across_computing(%n: i64, %x: i64, %w: !idr.world) -> (!idr.world, i64
 
 // Output stays after a call that may crash, or that applies a closure it
 // is given, which may.
-// CHECK-LABEL: idr.func @across_crashing(
+// CHECK-LABEL: idr.func private @across_crashing(
 // CHECK: call @crashes
 // CHECK-NEXT: idr.io.put_str
-idr.func @across_crashing(%n: i64, %x: i64, %w: !idr.world) -> (!idr.world, i64) {
+idr.func private @across_crashing(%n: i64, %x: i64, %w: !idr.world) -> (!idr.world, i64) {
   %s = idr.match_lit %n : i64 -> (!idr.str) {
   case 0 {
     %t = idr.str.show signed %x : i64
@@ -101,10 +98,10 @@ idr.func @across_crashing(%n: i64, %x: i64, %w: !idr.world) -> (!idr.world, i64)
   %w1 = idr.io.put_str %s, %w
   return %w1, %q : !idr.world, i64
 }
-// CHECK-LABEL: idr.func @across_given(
+// CHECK-LABEL: idr.func private @across_given(
 // CHECK: call @applies
 // CHECK-NEXT: idr.io.put_str
-idr.func @across_given(%n: i64, %g: !idr.fn<(i64) -> (i64)>, %x: i64, %w: !idr.world) -> (!idr.world, i64) {
+idr.func private @across_given(%n: i64, %g: !idr.fn<(i64) -> (i64)>, %x: i64, %w: !idr.world) -> (!idr.world, i64) {
   %s = idr.match_lit %n : i64 -> (!idr.str) {
   case 0 {
     %t = idr.str.show signed %x : i64
@@ -127,7 +124,7 @@ idr.func @across_given(%n: i64, %g: !idr.fn<(i64) -> (i64)>, %x: i64, %w: !idr.w
 // A match that may crash, which every region of a later match uses, moves
 // into each of them, where a match of it meets its constructor: it still
 // runs on every path, before anything it could hide.
-// CHECK-LABEL: idr.func @delayed_crash(
+// CHECK-LABEL: idr.func private @delayed_crash(
 // CHECK-SAME: %[[C:[^:]*]]: i64, %[[N:[^:]*]]: i64)
 // CHECK-NOT: {{(idr\.| )match_lit }}%[[C]]
 // CHECK: match_lit %[[N]]
@@ -135,11 +132,11 @@ idr.func @across_given(%n: i64, %g: !idr.fn<(i64) -> (i64)>, %x: i64, %w: !idr.w
 // CHECK: crash
 // CHECK: default {
 // CHECK: crash
-idr.func @delayed_crash(%c: i64, %n: i64) -> i64 {
-  %p = idr.match_lit %c : i64 -> (!idr.data<@Maybe>) {
+idr.func private @delayed_crash(%c: i64, %n: i64) -> i64 {
+  %p = idr.match_lit %c : i64 -> (!Maybe) {
   case 0 {
-    %j = idr.con @Maybe::@Just(%n) : (i64) -> !idr.data<@Maybe>
-    idr.yield %j : !idr.data<@Maybe>
+    %j = idr.con @Just(%n) : (i64) -> !Maybe
+    idr.yield %j : !Maybe
   }
   default {
     idr.crash "no"
@@ -148,7 +145,7 @@ idr.func @delayed_crash(%c: i64, %n: i64) -> i64 {
   }
   %r = idr.match_lit %n : i64 -> (i64) {
   case 0 {
-    %a = idr.match %p : !idr.data<@Maybe> -> (i64) {
+    %a = idr.match %p : !Maybe -> (i64) {
     case @Nothing() {
       %one = arith.constant 1 : i64
       idr.yield %one : i64
@@ -160,7 +157,7 @@ idr.func @delayed_crash(%c: i64, %n: i64) -> i64 {
     idr.yield %a : i64
   }
   default {
-    %b = idr.match %p : !idr.data<@Maybe> -> (i64) {
+    %b = idr.match %p : !Maybe -> (i64) {
     case @Nothing() {
       %two = arith.constant 2 : i64
       idr.yield %two : i64

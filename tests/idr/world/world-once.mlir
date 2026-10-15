@@ -1,16 +1,11 @@
 // RUN: idris-mlir-opt %s | FileCheck %s
 // Worlds used once on each path are accepted.
 
-idr.data @B {
-  idr.ctor @F ()
-  idr.ctor @T ()
-}
-idr.data @IORes {
-  idr.ctor @MkIORes (i64, !idr.world)
-}
 
 // A chain of IO ops.
 // CHECK-LABEL: idr.func private @chain
+!B = !idr.data<"B", plain [@F(), @T()]>
+!IORes = !idr.data<"IORes", plain [@MkIORes(i64, !idr.world)]>
 idr.func private @chain(%w: !idr.world) -> !idr.world {
   %c = arith.constant 65 : i32
   %w1 = idr.io.put_char %c, %w
@@ -20,10 +15,10 @@ idr.func private @chain(%w: !idr.world) -> !idr.world {
 
 // One use in each region of a match is one use on each path.
 // CHECK-LABEL: idr.func private @branches
-idr.func private @branches(%b: !idr.data<@B>,
+idr.func private @branches(%b: !B,
                             %w: !idr.world) -> !idr.world {
   %c = arith.constant 65 : i32
-  %r = idr.match %b : !idr.data<@B> -> (!idr.world) {
+  %r = idr.match %b : !B -> (!idr.world) {
   case @F() {
     %w1 = idr.io.put_char %c, %w
     idr.yield %w1 : !idr.world
@@ -58,10 +53,10 @@ idr.func private @crash(%n: i64, %w: !idr.world) -> !idr.world {
 
 // A world stored in a constructor and returned is used once.
 // CHECK-LABEL: idr.func private @stored
-idr.func private @stored(%w: !idr.world) -> !idr.data<@IORes> {
+idr.func private @stored(%w: !idr.world) -> !IORes {
   %z = arith.constant 0 : i64
-  %r = idr.con @IORes::@MkIORes(%z, %w) : (i64, !idr.world) -> !idr.data<@IORes>
-  return %r : !idr.data<@IORes>
+  %r = idr.con @MkIORes(%z, %w) : (i64, !idr.world) -> !IORes
+  return %r : !IORes
 }
 
 // A loop carries the world from one iteration to the next.

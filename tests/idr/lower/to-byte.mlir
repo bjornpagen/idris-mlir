@@ -18,7 +18,7 @@
 // FOLD-NOT: {{(idr\.| )to_byte }}
 // FOLD: %[[C:.*]] = arith.constant -56 : i8
 // FOLD: return %[[C]]
-module attributes {idr.program} {
+module {
   idr.func @root(%w: !idr.world) -> !idr.world {
     %in, %w1 = idr.io.get_byte %w
     %x = arith.extui %in : i32 to i64

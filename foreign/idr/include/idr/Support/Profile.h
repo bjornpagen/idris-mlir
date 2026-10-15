@@ -42,10 +42,13 @@ struct Trace {
 };
 
 // A worker thread's share of the trace, for a thread a tool spawns and
-// joins itself (the driver's large-stack thread): the profiler's state
-// is a thread's own, so a thread begins its own and finishes it before
-// it is joined, and the process's Trace writes them all. Threads the
-// pass manager runs on are addInstrumentation's.
+// joins itself (the driver's large-stack thread) and for a task a pass or
+// the driver runs on a pool itself (a function of idr-optimize's ready
+// set, a bin's code generation), constructed at the task's top: the
+// profiler's state is a thread's own, and no pool begins it, so a task
+// begins its thread's where it has none and finishes only what it began,
+// and the process's Trace writes them all. The pipelines the pass manager
+// runs on its threads are addInstrumentation's.
 struct ThreadTrace {
   ThreadTrace();
   ~ThreadTrace();
@@ -76,8 +79,8 @@ llvm::PassInstrumentationCallbacks *llvmCallbacks();
 #define IDR_ZONE_EXPAND(name, line) IDR_ZONE_INNER(name, line)
 #define IDR_ZONE(name) IDR_ZONE_EXPAND(name, __LINE__)
 #define IDR_ZONE_IN(name, subsystem) IDR_ZONE(name)
-// A point in a trace, where one stage of a thing (a compilation, a
-// round of idr-simplify) ends: the format's instant event.
+// A point in a trace, where one stage of a thing (a compilation) ends:
+// the format's instant event.
 #define IDR_INSTANT(name) llvm::timeTraceAddInstantEvent(name, [] { return std::string(); })
 
 #endif // IDR_SUPPORT_PROFILE_H

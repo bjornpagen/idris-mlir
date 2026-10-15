@@ -6,18 +6,17 @@
 #include "idr/Transforms/Expect.h"
 
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Symbols.h"
 
 using namespace mlir;
 
 namespace idr::expect {
 
 // In the function the argument names, every cell a take yields for a
-// constructor with fields is reused: no idr.drop frees one.
-LogicalResult reusesEveryCell(ModuleOp module, AnalysisManager &analyses, StringRef function) {
+// constructor with fields is reused: no idr.drop frees one. The fields are
+// the take's data type's, read from its body.
+LogicalResult reusesEveryCell(ModuleOp module, AnalysisManager &, StringRef function) {
   constexpr StringRef property = "reuses-every-cell";
-  SymbolTable &symbols = analyses.getAnalysis<SymbolTable>();
-  SmallVector<FunctionOpInterface> functions = named(module, symbols, function, property);
+  SmallVector<FunctionOpInterface> functions = named(module, function, property);
   if (functions.empty())
     return failure();
   bool held = true;
@@ -26,12 +25,11 @@ LogicalResult reusesEveryCell(ModuleOp module, AnalysisManager &analyses, String
       auto take = drop.getValue().getDefiningOp<TakeOp>();
       if (!take || drop.getValue() != take.getToken())
         return;
-      SymbolRefAttr ctor = take.getCtor();
       // A constructor without fields is a static cell, never the program's
       // to reuse.
-      if (CtorOp decl = lookupCtor(symbols, ctor); decl && decl.getFieldTypes().empty())
+      if (take.getDataType().getCtor(take.getTag()).fields.empty())
         return;
-      fail(drop.getLoc(), property) << "the cell of " << ctor << " is freed, not reused, in "
+      fail(drop.getLoc(), property) << "the cell of " << take.getCtor() << " is freed, not reused, in "
                                     << where(drop);
       held = false;
     });

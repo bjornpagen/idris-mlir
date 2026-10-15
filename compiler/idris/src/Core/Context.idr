@@ -50,7 +50,7 @@ initSize = 10000
 export
 initCtxtS : Int -> Core Context
 initCtxtS s
-    = do aref <- newRef Arr (newTable s)
+    = do aref <- coreLift (newTable s)
          pure $ MkContext
             { firstEntry = 0
             , nextEntry = 0
@@ -96,7 +96,7 @@ newEntry n ctxt
     = do let idx = nextEntry ctxt
          -- An index a restored Defs hands out again keeps its slot; a
          -- fresh one is one past the last.
-         threadRef Arr @{content ctxt} (\t => () # claimSlot idx t)
+         coreLift (claimSlot idx (content ctxt))
          pure (idx, { nextEntry := idx + 1,
                       resolvedAs $= insert n idx,
                       possibles $= addPossible n idx
@@ -106,13 +106,13 @@ newEntry n ctxt
 ||| one made and not yet written.
 export
 entryAt : Context -> Int -> Core (Maybe ContextEntry)
-entryAt ctxt idx = threadRef Arr @{content ctxt} (lookupSlot idx)
+entryAt ctxt idx = coreLift (lookupSlot idx (content ctxt))
 
 ||| `entry` at `idx`, an index the context has made.
 export
 setEntry : Context -> Int -> ContextEntry -> Core ()
 setEntry ctxt idx entry
-    = threadRef Arr @{content ctxt} (\t => () # setSlot idx entry t)
+    = coreLift (setSlot idx entry (content ctxt))
 
 -- Get the position of the next entry in the context array, growing the
 -- array if it's out of bounds.

@@ -1,6 +1,7 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
+// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches, as C01's printer and C06's conversion write them.
 // A state monad's shape (tests/programs/basic/state-monad):
 // run n = if n == 0 then done else seq twice (loop n), where every value is
 // a state transformer of the one type T = i64 -> i64. seq's closure
@@ -8,19 +9,10 @@
 // tick, so the labels never lead back to seq: each (T, labels) gets its own
 // sum, and no closure is left. Keying by the type alone would have called T
 // infinite.
-// CHECK: idr.data @[[F0:fn\$[0-9]+]] closures {
-// CHECK-NEXT: idr.ctor @Main.tick ()
-// CHECK-NEXT: }
-// CHECK: idr.data @[[F1:fn\$[0-9]+]] closures {
-// CHECK-NEXT: idr.ctor @Main.twice (![[F0]], ![[F0]])
-// CHECK-NEXT: }
-// CHECK: idr.data @[[F2:fn\$[0-9]+]] closures {
-// CHECK-NEXT: idr.ctor @Main.loop (i64)
-// CHECK-NEXT: }
-// CHECK: idr.data @[[F3:fn\$[0-9]+]] closures {
-// CHECK-NEXT: idr.ctor @Main.done ()
-// CHECK-NEXT: idr.ctor @Main.seq (![[F1]], ![[F2]])
-// CHECK-NEXT: }
+// CHECK: ![[F0:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@Main.tick()]
+// CHECK: ![[F1:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@Main.twice(![[F0]], ![[F0]])]
+// CHECK: ![[F2:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@Main.loop(i64)]
+// CHECK: ![[F3:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@Main.done(), @Main.seq(![[F1]], ![[F2]])]
 // CHECK-NOT: !idr.fn
 // CHECK-NOT: {{(idr\.| )closure }}
 // CHECK-NOT: {{(idr\.| )apply }}
@@ -34,11 +26,11 @@
 // CHECK-NEXT: case @Main.loop(%{{.*}}: i64) {
 // CHECK-LABEL: idr.func private @Main.run(
 // CHECK-SAME: -> ![[F3]]
-// CHECK: constant #idr.con<@[[F1]]::@Main.twice, [#idr.con<@[[F0]]::@Main.tick, []>, #idr.con<@[[F0]]::@Main.tick, []>]> : ![[F1]]
-// CHECK: con @[[F3]]::@Main.done() : () -> ![[F3]]
-// CHECK: con @[[F2]]::@Main.loop(%{{.*}}) : (i64) -> ![[F2]]
-// CHECK: con @[[F3]]::@Main.seq(%{{.*}}, %{{.*}}) : (![[F1]], ![[F2]]) -> ![[F3]]
-module attributes {idr.program} {
+// CHECK: constant #idr.con<@Main.twice, [#idr.con<@Main.tick, []>, #idr.con<@Main.tick, []>]> : ![[F1]]
+// CHECK: con @Main.done() : () -> ![[F3]]
+// CHECK: con @Main.loop(%{{.*}}) : (i64) -> ![[F2]]
+// CHECK: con @Main.seq(%{{.*}}, %{{.*}}) : (![[F1]], ![[F2]]) -> ![[F3]]
+module {
   idr.func private @Main.tick(%s: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64
     %t = arith.addi %s, %c1 : i64

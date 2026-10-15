@@ -13,20 +13,17 @@
 // CHECK: scf.if
 // CHECK: idris_rt_inc
 // CHECK: idris_rt_cell
-module attributes {idr.program} {
-  idr.data @L box {
-    idr.ctor @N ()
-    idr.ctor @C (i64, !idr.box<@L>)
+!L = !idr.data<"L", list [@N(), @C(i64, !idr.box<!idr.data<"L">>)]>
+module {
+  idr.func private @exclusive(%l: !idr.excl<!idr.box<!L>>, %x: i64) -> !idr.excl<!idr.box<!L>> {
+    %w:3 = idr.take %l @C : !idr.excl<!idr.box<!L>> -> (!idr.excl<!idr.token>, i64, !idr.excl<!idr.box<!L>>)
+    %c = idr.reuse %w#0 @C(%x, %w#2) : (!idr.excl<!idr.token>, i64, !idr.excl<!idr.box<!L>>) -> !idr.excl<!idr.box<!L>>
+    return %c : !idr.excl<!idr.box<!L>>
   }
-  idr.func private @exclusive(%l: !idr.excl<!idr.box<@L>>, %x: i64) -> !idr.excl<!idr.box<@L>> {
-    %w:3 = idr.take %l @L::@C : !idr.excl<!idr.box<@L>> -> (!idr.excl<!idr.token>, i64, !idr.excl<!idr.box<@L>>)
-    %c = idr.reuse %w#0 @L::@C(%x, %w#2) : (!idr.excl<!idr.token>, i64, !idr.excl<!idr.box<@L>>) -> !idr.excl<!idr.box<@L>>
-    return %c : !idr.excl<!idr.box<@L>>
-  }
-  idr.func private @owned(%l: !idr.own<!idr.box<@L>>, %x: i64) -> !idr.own<!idr.box<@L>> {
-    %w:3 = idr.take %l @L::@C : !idr.own<!idr.box<@L>> -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<@L>>)
-    %c = idr.reuse %w#0 @L::@C(%x, %w#2) : (!idr.own<!idr.token>, i64, !idr.own<!idr.box<@L>>) -> !idr.own<!idr.box<@L>>
-    return %c : !idr.own<!idr.box<@L>>
+  idr.func private @owned(%l: !idr.own<!idr.box<!L>>, %x: i64) -> !idr.own<!idr.box<!L>> {
+    %w:3 = idr.take %l @C : !idr.own<!idr.box<!L>> -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<!L>>)
+    %c = idr.reuse %w#0 @C(%x, %w#2) : (!idr.own<!idr.token>, i64, !idr.own<!idr.box<!L>>) -> !idr.own<!idr.box<!L>>
+    return %c : !idr.own<!idr.box<!L>>
   }
   idr.func @Prog.main() -> i64 {
     %z = arith.constant 0 : i64

@@ -6,7 +6,6 @@
 #include "idr/Analysis/Ownership.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Symbols.h"
 #include "idr/Transforms/Ownership.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
@@ -34,21 +33,19 @@ Type taken(Type field, Counted &counted) { return counted(field) ? owned(field) 
 // taking one of its own where the box reads it, only for the box to drop
 // it again. Reads before the take are borrowed from the box, which is
 // still alive there.
-TakeOp takeAt(RewriterBase &rewriter, Value box, CtorOp ctor, Block &block, Block::iterator at,
-              Block *fields, Counted &counted) {
+TakeOp takeAt(RewriterBase &rewriter, Value box, DataType data, unsigned tag, Block &block,
+              Block::iterator at, Block *fields, Counted &counted) {
   rewriter.setInsertionPoint(&block, at);
   Location loc = at == block.end() ? block.getParentOp()->getLoc() : at->getLoc();
-  auto name = SymbolRefAttr::get(ctor->getParentOfType<DataOp>().getSymNameAttr(),
-                                 {FlatSymbolRefAttr::get(ctor.getSymNameAttr())});
+  const Ctor &ctor = data.getCtor(tag);
   SmallVector<Type> results;
   // A constructor without fields is its atom, which is nobody's to build in.
-  if (!ctor.getFieldTypes().empty())
-    results.push_back(owned(TokenType::get(ctor.getContext())));
-  for (unsigned index = 0, e = static_cast<unsigned>(ctor.getFieldTypes().size()); index < e;
-       ++index)
-    results.push_back(taken(fieldType(box.getType(), ctor.getFieldType(index)), counted));
-  auto take = TakeOp::create(rewriter, loc, results, box, name);
-  eachField(usesOf(box), ctor, fields, [&](Value field, unsigned index) {
+  if (!ctor.fields.empty())
+    results.push_back(owned(TokenType::get(box.getContext())));
+  for (Type field : ctor.fields)
+    results.push_back(taken(fieldType(box.getType(), field), counted));
+  auto take = TakeOp::create(rewriter, loc, results, box, FlatSymbolRefAttr::get(ctor.name));
+  eachField(usesOf(box), data, tag, fields, [&](Value field, unsigned index) {
     rewriter.replaceUsesWithIf(field, take.getFields()[index],
                                [&](OpOperand &use) { return fromPoint(block, at, use); });
   });
@@ -58,9 +55,7 @@ TakeOp takeAt(RewriterBase &rewriter, Value box, CtorOp ctor, Block &block, Bloc
 TakeOp takeAtEntry(RewriterBase &rewriter, MatchOp match, unsigned index, Counted &counted) {
   Block &block = match.getCaseRegion(index).front();
   Value value = match.getScrutinee();
-  auto data = getSumName(value.getType());
-  auto ctor =
-      SymbolRefAttr::get(data.getAttr(), {cast<FlatSymbolRefAttr>(match.getCases()[index])});
+  auto ctor = cast<FlatSymbolRefAttr>(match.getCases()[index]);
   SmallVector<Type> results;
   // A constructor without fields is its atom, which is nobody's to build in.
   if (isa<BoxType>(unrestricted(value.getType())) && block.getNumArguments() != 0)
@@ -73,7 +68,7 @@ TakeOp takeAtEntry(RewriterBase &rewriter, MatchOp match, unsigned index, Counte
   return take;
 }
 
-TakeOp takeFields(RewriterBase &rewriter, Value value, SymbolRefAttr ctor,
+TakeOp takeFields(RewriterBase &rewriter, Value value, FlatSymbolRefAttr ctor,
                   ArrayRef<Type> fieldTypes, Counted &counted) {
   rewriter.setInsertionPointAfterValue(value);
   SmallVector<Type> results;
@@ -91,10 +86,10 @@ TakeOp takeFields(RewriterBase &rewriter, Value value, SymbolRefAttr ctor,
 // unshared cell instead of taking a reference of its own while the box
 // drops the cell's. A field that dies with the box is dropped either way,
 // and one that holds no reference has nothing to move.
-bool keepsCountedField(Value box, CtorOp ctor, Block &block, Block::iterator at, Block *fields,
-                       Counted &counted) {
+bool keepsCountedField(Value box, DataType data, unsigned tag, Block &block, Block::iterator at,
+                       Block *fields, Counted &counted) {
   bool kept = false;
-  eachField(usesOf(box), ctor, fields, [&](Value field, unsigned) {
+  eachField(usesOf(box), data, tag, fields, [&](Value field, unsigned) {
     kept = kept || (counted(field.getType()) &&
                     llvm::any_of(field.getUses(),
                                  [&](OpOperand &use) { return fromPoint(block, at, use); }));

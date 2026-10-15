@@ -5,10 +5,8 @@
 // checked by idr.func's own verifier, so it holds in a module that is no
 // whole program as in one that is.
 
-module attributes {idr.program} {
-idr.data @Box {
-  idr.ctor @MkBox (!idr.lin<i64>)
-}
+!Box = !idr.data<"Box", plain [@MkBox(!idr.lin<i64>)]>
+module {
 idr.func private @take(%x: !idr.lin<i64>) -> i64 {
   %v = idr.lin.use %x : !idr.lin<i64>
   return %v : i64
@@ -28,10 +26,10 @@ idr.func private @branch(%b: i64, %x: !idr.lin<i64>) -> i64 {
   return %r : i64
 }
 // A field of a linear type holds the value itself.
-idr.func private @boxed(%x: i64) -> !idr.data<@Box> {
+idr.func private @boxed(%x: i64) -> !Box {
   %e = idr.lin.enter %x : !idr.lin<i64>
-  %c = idr.con @Box::@MkBox(%e) : (!idr.lin<i64>) -> !idr.data<@Box>
-  return %c : !idr.data<@Box>
+  %c = idr.con @MkBox(%e) : (!idr.lin<i64>) -> !Box
+  return %c : !Box
 }
 idr.func @root() -> i64 {
   %z = arith.constant 0 : i64
@@ -52,7 +50,7 @@ idr.func private @twice(%x: !idr.lin<i64>) -> i64 {
 // -----
 
 // Entered once, a value is linear from then on.
-module attributes {idr.program} {
+module {
 idr.func private @take(%x: !idr.lin<i64>) -> i64 {
   %v = idr.lin.use %x : !idr.lin<i64>
   return %v : i64
@@ -85,26 +83,23 @@ idr.func private @f(%w: !idr.lin<!idr.world>) {
 // linear value, as the constructor holds the field; of a value used many
 // times, as used many times. A default region gets a linear value it did
 // not take apart back.
-module attributes {idr.program} {
-idr.data @P {
-  idr.ctor @MkP (i64, !idr.lin<i64>)
-  idr.ctor @Empty ()
-}
-idr.func private @snd(%p: !idr.lin<!idr.data<@P>>) -> i64 {
-  %r = idr.match %p : !idr.lin<!idr.data<@P>> -> (i64) {
+!P = !idr.data<"P", plain [@MkP(i64, !idr.lin<i64>), @Empty()]>
+module {
+idr.func private @snd(%p: !idr.lin<!P>) -> i64 {
+  %r = idr.match %p : !idr.lin<!P> -> (i64) {
   case @MkP(%a: i64, %b: !idr.lin<i64>) {
     %x = idr.lin.use %b : !idr.lin<i64>
     idr.yield %x : i64
   }
-  default(%q: !idr.lin<!idr.data<@P>>) {
-    %s = idr.call @snd(%q) : (!idr.lin<!idr.data<@P>>) -> i64
+  default(%q: !idr.lin<!P>) {
+    %s = idr.call @snd(%q) : (!idr.lin<!P>) -> i64
     idr.yield %s : i64
   }
   }
   return %r : i64
 }
-idr.func private @shared(%p: !idr.data<@P>) -> i64 {
-  %r = idr.match %p : !idr.data<@P> -> (i64) {
+idr.func private @shared(%p: !P) -> i64 {
+  %r = idr.match %p : !P -> (i64) {
   case @MkP(%a: i64, %b: i64) {
     %x = arith.addi %b, %b : i64
     idr.yield %x : i64
@@ -124,12 +119,10 @@ idr.func @root() -> i64 {
 
 // -----
 
-idr.data @P {
-  idr.ctor @MkP (!idr.lin<i64>)
-}
-idr.func private @f(%p: !idr.data<@P>) -> i64 {
+!P = !idr.data<"P", plain [@MkP(!idr.lin<i64>)]>
+idr.func private @f(%p: !P) -> i64 {
   // expected-error @+1 {{case @MkP must take the constructor's fields at the scrutinee's grade, 'i64'}}
-  %r = idr.match %p : !idr.data<@P> -> (i64) {
+  %r = idr.match %p : !P -> (i64) {
   case @MkP(%a: !idr.lin<i64>) {
     %z = arith.constant 0 : i64
     idr.yield %z : i64
@@ -140,16 +133,14 @@ idr.func private @f(%p: !idr.data<@P>) -> i64 {
 
 // -----
 
-idr.data @P {
-  idr.ctor @MkP (i64)
-}
-idr.func private @f(%p: !idr.lin<!idr.data<@P>>) -> i64 {
+!P = !idr.data<"P", plain [@MkP(i64)]>
+idr.func private @f(%p: !idr.lin<!P>) -> i64 {
   // expected-error @+1 {{expects a default region without arguments, or one that takes the scrutinee back at its type}}
-  %r = idr.match %p : !idr.lin<!idr.data<@P>> -> (i64) {
+  %r = idr.match %p : !idr.lin<!P> -> (i64) {
   case @MkP(%a: i64) {
     idr.yield %a : i64
   }
-  default(%q: !idr.data<@P>) {
+  default(%q: !P) {
     %z = arith.constant 0 : i64
     idr.yield %z : i64
   }
@@ -161,7 +152,7 @@ idr.func private @f(%p: !idr.lin<!idr.data<@P>>) -> i64 {
 
 // A closure holding a linear value is linear too: it is applied where it
 // is made, or entered into a linear type and used once from there.
-module attributes {idr.program} {
+module {
 idr.func private @add(%x: !idr.lin<i64>, %y: i64) -> i64 {
   %v = idr.lin.use %x : !idr.lin<i64>
   %s = arith.addi %v, %y : i64
@@ -185,7 +176,7 @@ idr.func @root() -> i64 {
 
 // -----
 
-module attributes {idr.program} {
+module {
 idr.func private @add(%x: !idr.lin<i64>, %y: i64) -> i64 {
   %v = idr.lin.use %x : !idr.lin<i64>
   %s = arith.addi %v, %y : i64
@@ -207,7 +198,7 @@ idr.func @root() -> i64 {
 
 // -----
 
-module attributes {idr.program} {
+module {
 idr.func private @add(%x: !idr.lin<i64>, %y: i64) -> i64 {
   %v = idr.lin.use %x : !idr.lin<i64>
   %s = arith.addi %v, %y : i64

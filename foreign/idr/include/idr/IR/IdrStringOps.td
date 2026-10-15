@@ -42,18 +42,16 @@ def Idr_StrFromCharOp : Idr_StrBuilderOp<"from_char", [Idr_Primitive]> {
 // time: pack over a List Char, concat over a List String. The list is a
 // box of a nil without fields and a cons of the element and the rest; the
 // op walks it twice, once for the size of the result and once to write it.
-// What the list's declaration must be is a symbol-use rule; verify() keeps
-// what the op's own types say.
-def Idr_StrPackOp : Idr_StrBuilderOp<"pack", [Idr_Primitive,
-    DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
+// The list is base's: a box of a data type of kind `list`, whose body says
+// its shape.
+def Idr_StrPackOp : Idr_StrBuilderOp<"pack", [Idr_Primitive]> {
   let summary = "the string of a list of characters, built once";
   let arguments = (ins Idr_SumValue:$list);
   let assemblyFormat = "$list attr-dict `:` type($list) `->` type($result)";
   let hasVerifier = 1;
 }
 
-def Idr_StrConcatOp : Idr_StrBuilderOp<"concat", [Idr_Primitive,
-    DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
+def Idr_StrConcatOp : Idr_StrBuilderOp<"concat", [Idr_Primitive]> {
   let summary = "the concatenation of a list of strings, built once";
   let arguments = (ins Idr_SumValue:$list);
   let assemblyFormat = "$list attr-dict `:` type($list) `->` type($result)";
@@ -68,11 +66,10 @@ def Idr_StrConcatOp : Idr_StrBuilderOp<"concat", [Idr_Primitive,
 // the walk: the nil writes nothing, and a cell writes its element before
 // the rest, so a cell built only to be written is not built. It is IO, as
 // the idr.io ops are, but calls no runtime function named after it: its
-// lowering walks the list (lib/Conversion). What the list's declaration must
-// be is a symbol-use rule.
+// lowering walks the list (lib/Conversion). The list is base's, as pack's
+// and concat's are.
 def Idr_PutListOp : Idr_Op<"io.put_list", [Idr_PerformsIO, Idr_ObservableIO, Idr_Primitive,
-    MemoryEffects<[MemRead<Idr_IOResource>, MemWrite<Idr_IOResource>]>,
-    DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
+    MemoryEffects<[MemRead<Idr_IOResource>, MemWrite<Idr_IOResource>]>]> {
   let summary = "writes the characters or the strings of a list, in order";
   let arguments = (ins Idr_SumValue:$list, Idr_WorldType:$world);
   let results = (outs Idr_WorldType:$next);

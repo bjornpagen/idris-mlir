@@ -38,6 +38,25 @@ Prelude.EqOrd.Eq CmpFPredicate where
   CmpFPredicate.AlwaysTrue == CmpFPredicate.AlwaysTrue = True
   _ == _ = False
 
+export
+Show CmpFPredicate where
+  show CmpFPredicate.AlwaysFalse = "false"
+  show CmpFPredicate.OEQ = "oeq"
+  show CmpFPredicate.OGT = "ogt"
+  show CmpFPredicate.OGE = "oge"
+  show CmpFPredicate.OLT = "olt"
+  show CmpFPredicate.OLE = "ole"
+  show CmpFPredicate.ONE = "one"
+  show CmpFPredicate.ORD = "ord"
+  show CmpFPredicate.UEQ = "ueq"
+  show CmpFPredicate.UGT = "ugt"
+  show CmpFPredicate.UGE = "uge"
+  show CmpFPredicate.ULT = "ult"
+  show CmpFPredicate.ULE = "ule"
+  show CmpFPredicate.UNE = "une"
+  show CmpFPredicate.UNO = "uno"
+  show CmpFPredicate.AlwaysTrue = "true"
+
 namespace CmpIPredicate
   ||| allowed 64-bit signless integer cases: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
   public export
@@ -57,6 +76,19 @@ Prelude.EqOrd.Eq CmpIPredicate where
   CmpIPredicate.Uge == CmpIPredicate.Uge = True
   _ == _ = False
 
+export
+Show CmpIPredicate where
+  show CmpIPredicate.Eq = "eq"
+  show CmpIPredicate.Ne = "ne"
+  show CmpIPredicate.Slt = "slt"
+  show CmpIPredicate.Sle = "sle"
+  show CmpIPredicate.Sgt = "sgt"
+  show CmpIPredicate.Sge = "sge"
+  show CmpIPredicate.Ult = "ult"
+  show CmpIPredicate.Ule = "ule"
+  show CmpIPredicate.Ugt = "ugt"
+  show CmpIPredicate.Uge = "uge"
+
 namespace FastMathFlags
   ||| Floating point fast math flags
   public export
@@ -72,6 +104,16 @@ Prelude.EqOrd.Eq FastMathFlags where
   FastMathFlags.Contract == FastMathFlags.Contract = True
   FastMathFlags.Afn == FastMathFlags.Afn = True
   _ == _ = False
+
+export
+Show FastMathFlags where
+  show FastMathFlags.Reassoc = "reassoc"
+  show FastMathFlags.Nnan = "nnan"
+  show FastMathFlags.Ninf = "ninf"
+  show FastMathFlags.Nsz = "nsz"
+  show FastMathFlags.Arcp = "arcp"
+  show FastMathFlags.Contract = "contract"
+  show FastMathFlags.Afn = "afn"
 
 -- How the syntax below spells each FastMathFlags.
 fastMathFlagsSpelling : FastMathFlags -> String
@@ -99,6 +141,11 @@ Prelude.EqOrd.Eq IntegerOverflowFlags where
   IntegerOverflowFlags.Nuw == IntegerOverflowFlags.Nuw = True
   _ == _ = False
 
+export
+Show IntegerOverflowFlags where
+  show IntegerOverflowFlags.Nsw = "nsw"
+  show IntegerOverflowFlags.Nuw = "nuw"
+
 -- How the syntax below spells each IntegerOverflowFlags.
 integerOverflowFlagsSpelling : IntegerOverflowFlags -> String
 integerOverflowFlagsSpelling IntegerOverflowFlags.Nsw = "nsw"
@@ -122,6 +169,14 @@ Prelude.EqOrd.Eq RoundingMode where
   RoundingMode.TowardZero == RoundingMode.TowardZero = True
   RoundingMode.ToNearestAway == RoundingMode.ToNearestAway = True
   _ == _ = False
+
+export
+Show RoundingMode where
+  show RoundingMode.ToNearestEven = "to_nearest_even"
+  show RoundingMode.Downward = "downward"
+  show RoundingMode.Upward = "upward"
+  show RoundingMode.TowardZero = "toward_zero"
+  show RoundingMode.ToNearestAway = "to_nearest_away"
 
 ------------------------------------------------------------------------------
 -- Attributes
@@ -155,4 +210,4 @@ arithAttrText : (t : ty -> String) -> (a : at -> String) -> ArithAttr ty at -> S
 arithAttrText t a (FastMathFlagsAttr value) = fastConcat ["#arith.fastmath<", (fastMathFlagsSpellings value), ">"]
 arithAttrText t a (IntegerOverflowFlagsAttr value) = fastConcat ["#arith.overflow<", (integerOverflowFlagsSpellings value), ">"]
 
--- fingerprint: 531768337-947900 1564307273-6560
+-- fingerprint: 1506889107-953404 4259437528-8173

@@ -112,18 +112,29 @@ skip_reason() {
   printf '%s\n' "$skip_found"
 }
 
-# rejection_skip TEXT: threads, finalizer or raw pointer when the compiler
-# already refused the program with that reason, which is not a failure of
-# a program outside the language. unsafePerformIO comes back as
-# unsupported (world).
+# The rules of what is outside the language: a program the compiler
+# refused under one of them is not a failure of this compiler but a test
+# of something it does not implement (unsafePerformIO and forged worlds
+# are the world rule's).
+outside_rules='threads|finalizer|raw pointer|world'
+
+# rejection_skip TEXT: the rule of the compiler's first refusal in TEXT,
+# the phrase of `unsupported (<rule>)` rendered from the rule, when it is
+# one of outside_rules; nothing otherwise. Only the rule is read, never
+# the message after it.
 rejection_skip() {
-  case $1 in
-    *'unsupported (threads)'*) printf '%s\n' threads ;;
-    *'unsupported (finalizer)'*) printf '%s\n' finalizer ;;
-    *'unsupported (raw pointer)'*) printf '%s\n' "raw pointer" ;;
-    *'unsupported (world)'*unsafePerformIO* | *unsafePerformIO*'unsupported (world)'*)
-      printf '%s\n' unsafePerformIO ;;
-  esac
+  rs_rule=$(printf '%s\n' "$1" | grep -o 'unsupported ([a-z][a-z -]*)' | head -n 1 |
+    sed 's/^unsupported (//; s/)$//')
+  [ -n "$rs_rule" ] || return 0
+  rs_rules=$outside_rules
+  while [ -n "$rs_rules" ]; do
+    rs_one=${rs_rules%%|*}
+    if [ "$rs_one" = "$rs_rule" ]; then
+      printf '%s\n' "$rs_rule"
+      return 0
+    fi
+    case $rs_rules in *'|'*) rs_rules=${rs_rules#*|} ;; *) rs_rules= ;; esac
+  done
 }
 
 # one_line TEXT: TEXT as a single field, truncated.

@@ -3,7 +3,7 @@
 ||| The nodes on a cycle of a finite graph, in a deterministic order, so the
 ||| output does not depend on map iteration: which data instances are
 ||| recursive, and so boxes (`Term.Repr`). The program's call graph is
-||| MLIR's (`idr-loop-breakers`, `idr-effects`).
+||| MLIR's (`idr-optimize`, `idr-effects`).
 module IdrisMLIR.Graph
 
 import Data.List

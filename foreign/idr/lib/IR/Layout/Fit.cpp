@@ -1,18 +1,20 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The boxes that make cells fit their headers. A cell's header counts its
-// object slots in a few bits, and an unboxed sum spreads its slots over
-// every cell that holds it, so a record nested in a record can make a cell
-// that no header counts. Boxing the record leaves one pointer in its place:
-// the type decides how a value is flattened, so making a declaration a box
-// and retyping its values is the whole change, which every later pass and
-// the lowering follow as they follow any box.
+// object slots in a few bits, and a sum held in place spreads its slots
+// over every cell that holds it, so a record nested in a record can make a
+// cell that no header counts. Holding the record in a box leaves one
+// pointer in its place: the type of a value decides how it is flattened,
+// so boxing a data type where it is held is the whole change, which every
+// later pass and the lowering follow as they follow any box. A body is set
+// once, so the types whose bodies held the record in place are remade.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Layout.h"
+#include "idr/IR/Symbols.h"
+#include "idr/IR/TypeGraph.h"
 
-#include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/MapVector.h"
@@ -23,133 +25,104 @@ using namespace mlir;
 
 namespace idr::layout {
 
-bool boxable(DataOp data) {
-  if (data.getBox())
-    return false;
+bool boxable(DataType data) {
   size_t ctors = data.getCtors().size();
-  return ctors == 1 || (data.getClosures() && ctors <= IDRIS_RT_TAG_LIMIT);
+  return ctors == 1 || (data.isClosures() && ctors <= IDRIS_RT_TAG_LIMIT);
 }
 
-Holders::Holders(ModuleOp m) : module(m) {
-  Components parts(m);
-  AttrTypeWalker walker;
-  walker.addWalk([&](MemRefType array) {
-    if (auto data = dyn_cast<DataType>(unrestricted(array.getElementType())))
-      if (DataOp decl = parts.declaration(data.getName().getAttr()))
-        elements.insert(decl);
-  });
-  m.walk([&](Operation *op) {
-    walker.walk(op->getAttrDictionary());
-    for (Type type : op->getResultTypes())
-      walker.walk(type);
-    for (Region &region : op->getRegions())
-      for (Block &block : region)
-        for (Type type : block.getArgumentTypes())
-          walker.walk(type);
-  });
+Holders::Holders(ModuleOp m, ArrayRef<DataType> boxed) {
+  TypeGraph graph(m.getOperation());
+  llvm::DenseSet<DataType> asBoxes(boxed.begin(), boxed.end());
+  for (unsigned at = 0, n = graph.size(); at < n; ++at)
+    if (DataType data = graph.declaration(at); data && (graph.boxed(at) || asBoxes.contains(data)))
+      boxes.push_back(data);
+  llvm::SetVector<DataType> held;
+  for (unsigned at = 0, n = graph.size(); at < n; ++at)
+    if (graph.isArray(at))
+      if (auto data = dyn_cast<DataType>(
+              unrestricted(cast<MemRefType>(graph.type(at)).getElementType())))
+        held.insert(data);
+  elements = held.takeVector();
+  llvm::sort(elements, [](DataType a, DataType b) { return a.getName() < b.getName(); });
 }
 
 void Holders::overflows(
     Components &parts,
-    function_ref<void(Operation *at, ArrayRef<Type> held, unsigned objects)> each) {
-  for (DataOp data : module.getOps<DataOp>()) {
-    if (!data.getBox())
-      continue;
-    for (CtorOp ctor : data.getCtors()) {
-      SmallVector<Type> fields = llvm::to_vector(ctor.getFieldTypes().getAsValueRange<TypeAttr>());
-      if (unsigned n = parts.objects(fields); n > mostObjects)
-        each(ctor, fields, n);
-    }
-  }
+    function_ref<void(DataType type, std::optional<unsigned> tag, ArrayRef<Type> held,
+                      unsigned objects)>
+        each) {
+  for (DataType data : boxes)
+    for (auto [tag, ctor] : llvm::enumerate(data.getCtors()))
+      if (unsigned n = parts.objects(ctor.fields); n > mostObjects)
+        each(data, static_cast<unsigned>(tag), ctor.fields, n);
   // An element of a box is one pointer.
-  for (DataOp decl : elements) {
-    if (decl.getBox())
-      continue;
-    Type value = decl.getValueType();
-    if (unsigned n = parts.objects(value); n > mostObjects)
-      each(decl, value, n);
-  }
+  for (DataType data : elements)
+    if (unsigned n = parts.objects(Type(data)); n > mostObjects)
+      each(data, std::nullopt, Type(data), n);
 }
 
 namespace {
 
-// The boxable declarations of two or more object slots that a holder
-// holds by `type`, looking through the unboxed sums that are not boxable,
-// whose slots it holds too. Boxing one of fewer slots shrinks no cell.
-void candidates(Components &parts, Type type, llvm::MapVector<DataOp, unsigned> &out,
-                DenseSet<DataOp> &seen) {
+// The boxable data types of two or more object slots that a holder holds
+// in place by `type`, looking through the sums held in place that are not
+// boxable, whose slots it holds too. Boxing one of fewer slots shrinks no
+// cell. A type already chosen is one pointer, and nothing to look through.
+void candidates(Components &parts, Type type, const llvm::DenseSet<DataType> &chosen,
+                llvm::MapVector<DataType, unsigned> &out, llvm::DenseSet<DataType> &seen) {
   auto data = dyn_cast<DataType>(unrestricted(type));
-  if (!data)
+  if (!data || chosen.contains(data) || !seen.insert(data).second)
     return;
-  DataOp decl = parts.declaration(data.getName().getAttr());
-  if (!decl || !seen.insert(decl).second)
-    return;
-  if (boxable(decl)) {
-    if (unsigned n = parts.objects(data); n >= 2)
-      out.insert({decl, n});
+  if (boxable(data)) {
+    if (unsigned n = parts.objects(Type(data)); n >= 2)
+      out.insert({data, n});
     return;
   }
-  for (CtorOp ctor : decl.getCtors())
-    for (Type field : ctor.getFieldTypes().getAsValueRange<TypeAttr>())
-      candidates(parts, field, out, seen);
-}
-
-// Retypes the values of the declarations `boxed` names to their boxes, in
-// `roots` and everything nested in them: attributes (a function's type, a
-// constructor's fields), results and block arguments. Only the carrier
-// changes, so a grade around it stays. A replacer caches what it replaced,
-// so each retype makes its own: an answer cached before a decision would
-// be stale after it.
-void retype(ArrayRef<Operation *> roots, const DenseSet<StringAttr> &boxed) {
-  AttrTypeReplacer replacer;
-  replacer.addReplacement([&](DataType data) -> std::optional<Type> {
-    if (!boxed.contains(data.getName().getAttr()))
-      return std::nullopt;
-    return BoxType::get(data.getContext(), data.getName());
-  });
-  for (Operation *root : roots)
-    replacer.recursivelyReplaceElementsIn(root, /*replaceAttrs=*/true, /*replaceLocs=*/false,
-                                          /*replaceTypes=*/true);
+  for (const Ctor &ctor : data.getCtors())
+    for (Type field : ctor.fields)
+      candidates(parts, field, chosen, out, seen);
 }
 
 } // namespace
 
 unsigned fit(ModuleOp module) {
-  Holders holders(module);
-  DenseSet<StringAttr> boxed;
+  SmallVector<DataType> chosen;
+  llvm::DenseSet<DataType> chosenSet;
   while (true) {
-    // Measured afresh: the last box changed the shapes.
-    Components parts(module);
-    llvm::MapVector<DataOp, unsigned> wide;
-    DenseSet<DataOp> seen;
-    holders.overflows(parts, [&](Operation *, ArrayRef<Type> held, unsigned) {
+    // Measured afresh, as if the boxes chosen so far were made: the last
+    // box changed the shapes.
+    Components parts(module, chosen);
+    Holders holders(module, chosen);
+    llvm::MapVector<DataType, unsigned> wide;
+    llvm::DenseSet<DataType> seen;
+    holders.overflows(parts, [&](DataType, std::optional<unsigned>, ArrayRef<Type> held, unsigned) {
       for (Type type : held)
-        candidates(parts, type, wide, seen);
+        candidates(parts, type, chosenSet, wide, seen);
     });
     // The widest takes the most object slots out of every cell that holds
     // it, so the fewest types become boxes; an outer record goes before
     // its parts, and a part only when the outer one's own cell then
     // overflows. Ties go to the smaller name, so the choice is the
     // module's alone.
-    DataOp widest;
+    DataType widest;
     unsigned most = 0;
-    for (auto [decl, n] : wide)
-      if (n > most || (n == most && decl.getSymName() < widest.getSymName())) {
-        widest = decl;
+    for (auto [data, n] : wide)
+      if (n > most || (n == most && data.getName() < widest.getName())) {
+        widest = data;
         most = n;
       }
     if (!widest)
       break;
-    widest.setBox(true);
-    boxed.insert(widest.getSymNameAttr());
-    // The declarations are what the next measure reads.
-    retype(llvm::map_to_vector(module.getOps<DataOp>(),
-                               [](DataOp data) { return data.getOperation(); }),
-           boxed);
+    chosen.push_back(widest);
+    chosenSet.insert(widest);
   }
-  if (!boxed.empty())
-    retype(module.getOperation(), boxed);
-  return static_cast<unsigned>(boxed.size());
+  if (chosen.empty())
+    return 0;
+  DataRemap remap(
+      module, "box",
+      [](Type, DataType, unsigned, unsigned) -> std::optional<Type> { return std::nullopt; },
+      chosen);
+  remap.retype(module.getOperation());
+  return static_cast<unsigned>(chosen.size());
 }
 
 } // namespace idr::layout

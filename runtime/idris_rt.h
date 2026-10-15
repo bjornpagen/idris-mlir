@@ -149,20 +149,41 @@ typedef struct idris_rt_bignum {
   int64_t size;
 } idris_rt_bignum;
 
-/* An array (idr.array.new): the header (kind IDRIS_RT_KIND_ARRAY; its tag
- * is the size of an element in bytes, its objs the number of object slots
- * each element starts with), the number of elements, then the elements, each
- * laid out as idr-lower lays out a cell's fields (object slots first), in the
- * same cell. An element is read and written through the array, in the order
- * of the world, so the array itself is never exclusive: the cell holds its
- * elements' references for as long as it lives, except that a read whose
- * next IO writes the same element takes that element's reference over and
- * leaves its counted slots NULL until the write. An array of rank 0 (an
- * IORef) is this cell with length 1. */
+/* An array cell, the memory behind every memref: the header (kind
+ * IDRIS_RT_KIND_ARRAY; its tag is the size of an element in bytes, its objs
+ * the number of object slots each element starts with), the number of
+ * elements the cell holds, then the elements, each laid out as idr-lower
+ * lays out a cell's fields (object slots first). An IORef is a cell of one
+ * element.
+ *
+ * The length is the cell's own: written once, when the cell is made, and read
+ * only by the runtime, to release each element's object slots when a counted
+ * cell dies. The shape of a memref is its descriptor's (idris_rt_memref),
+ * which may view part of a cell, and compiled code never reads the length.
+ * Every object slot of every element holds NULL, an odd word or a counted
+ * reference for as long as the cell lives: a store into an element releases
+ * what the slot held, and so does the cell's death.
+ *
+ * A constant array is one static cell laid out as every other: a persistent
+ * header (count 0), its length the number of elements, then its data. Its
+ * elements hold no object. No entry point writes a header whose count is 0,
+ * so the whole cell may be read-only. */
 typedef struct idris_rt_array {
   idris_rt_header header;
   uint64_t length;
 } idris_rt_array;
+
+/* A memref's descriptor, as LLVM lays one out for a memref of rank R: the
+ * allocated pointer, the cell; the aligned pointer, always the cell's first
+ * element, right after its header; the offset of the view's first element
+ * from the aligned pointer; then R sizes and R strides, int64_t each, right
+ * after these three words. The offset, the sizes and the strides count
+ * elements. */
+typedef struct idris_rt_memref {
+  idris_rt_array *allocated;
+  char *aligned;
+  int64_t offset;
+} idris_rt_memref;
 
 /* A box is the header (kind IDRIS_RT_KIND_BOX, the constructor's tag), then
  * the constructor's fields, object slots first. A thunk is the same with kind
@@ -205,11 +226,24 @@ void idris_rt_free(void *block);
  * the process with a crash. */
 void *idris_rt_cell(size_t size, uint32_t info);
 
-/* A new array of `length` elements (a negative length is 0) with the
- * header `info` (kind IDRIS_RT_KIND_ARRAY), counted as idris_rt_cell counts
- * a cell; its elements are not written. Exhausted memory, and a length whose
- * cell would not fit the address space, end the process with a crash. */
-idris_rt_array *idris_rt_array_new(int64_t length, uint32_t info);
+/* A new array cell of `count` elements with the header `info` (kind
+ * IDRIS_RT_KIND_ARRAY), counted as idris_rt_cell counts a cell. When its
+ * elements hold objects, every byte of them is 0, so every object slot is
+ * NULL until a store; otherwise they are not written. The first element is
+ * aligned to IDRIS_RT_WORD_BYTES. Exhausted memory, and a count whose cell
+ * would not fit the address space (UINT64_MAX, for an element of a byte or
+ * more), end the process with a crash. */
+idris_rt_array *idris_rt_array_new(uint64_t count, uint32_t info);
+
+/* memref.copy, where idr-lower does not copy the bytes itself: each element
+ * of the view `from` assigned to the same place of the view `to`, in
+ * row-major order. Both have rank `rank` and from's sizes. The element is
+ * the one to's cell describes, and from's cell holds the same: each object
+ * slot copied gains one reference, then the slot it overwrites loses one,
+ * then the element's bytes are moved. So a cell fresh from
+ * idris_rt_array_new may be the target as it is, and a view copied onto
+ * itself, the one overlap allowed, is left as it was. */
+void idris_rt_memref_copy(int64_t rank, const idris_rt_memref *from, const idris_rt_memref *to);
 
 /* One more owned reference; a count that would reach UINT32_MAX saturates
  * there. */
@@ -296,19 +330,22 @@ int32_t idris_rt_io_get_byte(void);
  * the end of input. The bytes are decoded as idris_rt_str_from_bytes
  * decodes them. A new string. */
 const idris_rt_str *idris_rt_io_get_line(void);
+/* A byte array (a Data.Buffer) is passed as its cell, its first byte (the
+ * cell's first element, which idr-lower computes at the call) and its size.
+ * Only the first byte is read: every span lies in the array, since
+ * idr.check.range tests it against the size before the call, and an address
+ * in the array is `bytes + offset`, which need not be aligned. */
 /* Bytes [offset, offset + count) of a byte array to a handle: 1 is standard
  * output, through the output buffer and in order with every other write to
  * it; 2 is standard error; any other is a file the program opened
- * (idris_rt_io_file_open). The range lies in the array's `length` bytes:
- * idr.check.range tests it before the call. Gives the count written. */
-int64_t idris_rt_io_write_bytes(int64_t handle, idris_rt_array *bytes, int64_t length,
-                                int64_t offset, int64_t count);
+ * (idris_rt_io_file_open). Gives the count written. */
+int64_t idris_rt_io_write_bytes(int64_t handle, idris_rt_array *cell, const char *bytes,
+                                int64_t size, int64_t offset, int64_t count);
 /* Bytes from a handle into [offset, offset + count) of a byte array: 0 is
  * standard input, through the input buffer idris_rt_io_get_line reads too,
  * and any other a file the program opened. Gives the count read, 0 at the
- * end of input. The range lies in the array: idr.check.range tests it before
- * the call. */
-int64_t idris_rt_io_read_bytes(int64_t handle, idris_rt_array *bytes, int64_t length,
+ * end of input. */
+int64_t idris_rt_io_read_bytes(int64_t handle, idris_rt_array *cell, char *bytes, int64_t size,
                                int64_t offset, int64_t count);
 /* 1 once a read on the handle met the end of its input, as C's feof reports
  * it, else 0: standard input, or a file the program opened. */
@@ -316,25 +353,19 @@ int64_t idris_rt_io_eof(int64_t handle);
 /* How many processors are online, read when asked. -1 when the system does
  * not say, which System.Info.getNProcessors turns into Nothing. */
 int64_t idris_rt_io_n_processors(void);
-/* The address of [offset, offset + bytes) in a byte array, a span that lies
- * in the array's `length` bytes: idr.check.range tests it before the call.
- * A zero-length span at `length` is in range. The pointer is the first byte
- * of the span, which need not be aligned: a load or a store through it uses
- * the target's own endianness. */
-char *idris_rt_buffer_at(idris_rt_array *buf, int64_t length, int64_t offset, int64_t bytes);
-/* Copies `n` bytes from one byte array to another. Each span must lie in
- * its array. The ranges may overlap. */
-void idris_rt_io_buffer_copy(idris_rt_array *src, int64_t src_len, int64_t src_off, int64_t n,
-                             idris_rt_array *dst, int64_t dst_len, int64_t dst_off);
+/* Copies `n` bytes from one byte array to another. The ranges may
+ * overlap. */
+void idris_rt_io_buffer_copy(idris_rt_array *src_cell, const char *src, int64_t src_size,
+                             int64_t src_offset, int64_t n, idris_rt_array *dst_cell, char *dst,
+                             int64_t dst_size, int64_t dst_offset);
 /* Writes a string's bytes at `offset`. The span is the string's byte
- * length and must lie in the array. */
-void idris_rt_io_buffer_set_string(idris_rt_array *buf, int64_t length, int64_t offset,
-                                   const idris_rt_str *str);
+ * length. */
+void idris_rt_io_buffer_set_string(idris_rt_array *cell, char *bytes, int64_t size,
+                                   int64_t offset, const idris_rt_str *str);
 /* The bytes [offset, offset + n) of a byte array as a string. Ill-formed
- * UTF-8 is replaced as idris_rt_str_from_bytes replaces it. A new string.
- * The span must lie in the array. */
-const idris_rt_str *idris_rt_io_buffer_get_string(idris_rt_array *buf, int64_t length,
-                                                  int64_t offset, int64_t n);
+ * UTF-8 is replaced as idris_rt_str_from_bytes replaces it. A new string. */
+const idris_rt_str *idris_rt_io_buffer_get_string(idris_rt_array *cell, const char *bytes,
+                                                  int64_t size, int64_t offset, int64_t n);
 
 /* Base's files, directories, process, terminal, errors and clocks
  * (System.File, System.Directory, System, System.Term, System.Errno,

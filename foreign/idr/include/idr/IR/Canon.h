@@ -3,7 +3,7 @@
 // The canonicalizations of the dialect's ops besides their members: the
 // patterns of idr.match and idr.match_lit (a match rebuilt, the values a
 // consumer folds against, merging, case-of-case and sinking), the helpers
-// of the apply, constructor and field hooks, and output's patterns. The
+// of the constructor and field hooks, and output's patterns. The
 // hooks that add or call them (MatchOp::getCanonicalizationPatterns, ...)
 // are one line each. No pattern here keeps anything between attempts:
 // upstream's pass shares one frozen set among every function it runs on at
@@ -45,13 +45,6 @@ mlir::LogicalResult readsPlainValue(mlir::Operation *op);
 mlir::Value eta(ConOp con);
 // Whether `materialize` can build `value` for a parameter of `type`.
 bool buildable(mlir::Attribute value, mlir::Type type);
-// A constant capture, as the parameter it fills takes it: a linear
-// parameter takes the constant entered into its linear type.
-mlir::Value materialize(mlir::PatternRewriter &rewriter, mlir::Location loc,
-                        mlir::Attribute value, mlir::Type type);
-// The closure an apply runs: its callee, or the closure a linear pair only
-// passes through on its way there.
-mlir::Value closureOf(ApplyOp apply);
 
 // Whether the consumer holding `use` folds or canonicalizes, or is raised
 // or specialized, once the operand it holds there is `value`; not whether

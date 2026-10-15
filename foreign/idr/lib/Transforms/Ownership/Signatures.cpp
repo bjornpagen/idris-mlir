@@ -21,8 +21,6 @@ namespace idr::ownership {
 // the caller's value.
 void writeOwnedGrades(ModuleOp module, const Borrows &borrows) {
   for (FuncOp fn : module.getOps<FuncOp>()) {
-    if (fn.isExternal())
-      continue;
     SmallVector<Type> params(fn.getArgumentTypes());
     for (auto [index, param] : llvm::enumerate(borrows.params(fn))) {
       if (param != Borrows::Param::Owned)
@@ -43,8 +41,6 @@ void writeOwnedGrades(ModuleOp module, const Borrows &borrows) {
 // every return the solve reached makes it so.
 void writeExclusiveGrades(ModuleOp module, const Exclusivity &solved, SymbolTable &symbols) {
   for (FuncOp fn : module.getOps<FuncOp>()) {
-    if (fn.isExternal())
-      continue;
     for (BlockArgument arg : fn.getArguments())
       if (solved.proves(arg))
         arg.setType(exclusive(arg.getType()));

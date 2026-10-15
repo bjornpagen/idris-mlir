@@ -11,6 +11,7 @@
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
+#include "idr/IR/Symbols.h"
 #include "idr/IR/TypeGraph.h"
 #include "idr/IR/Verify.h"
 
@@ -32,16 +33,14 @@ namespace {
 // diagnostic there would point nowhere the user can look.
 bool inSource(Location loc) { return static_cast<bool>(loc->findInstanceOf<FileLineColRange>()); }
 
-// A type as the message names it: a declaration by its symbol, an array by
+// A type as the message names it: a data type by its name, an array by
 // what it holds, an array of rank 0 as the IORef it is.
 void describe(InFlightDiagnostic &out, Type type) {
   if (auto array = dyn_cast<MemRefType>(type)) {
     out << (array.getRank() == 0 ? "IORef of " : "array of ");
     describe(out, array.getElementType());
-  } else if (auto data = dyn_cast<DataType>(type)) {
-    out << data.getName().getValue();
-  } else if (auto box = dyn_cast<BoxType>(type)) {
-    out << box.getName().getValue();
+  } else if (DataType data = dataTypeOf(type)) {
+    out << data.getName();
   } else {
     out << type;
   }
@@ -52,8 +51,9 @@ void describe(InFlightDiagnostic &out, Type type) {
 // Each cycle is reported once, with the types on it, where the program's
 // source shows it: at the first idr.array.new in the program's own code
 // that makes one of its arrays; or else, when only a library makes them
-// (an IORef that base's newIORef makes), at a type on the cycle that the
-// program declares, which is what closes the knot; or else at the module.
+// (an IORef that base's newIORef makes), at the first constructor in the
+// program's own code of a type on the cycle, which is what closes the knot;
+// or else at the module.
 LogicalResult idr::verify::knots(ModuleOp module, const TypeGraph &graph) {
   SmallVector<SmallVector<unsigned>> knotted = graph.knots();
   if (knotted.empty())
@@ -81,23 +81,26 @@ LogicalResult idr::verify::knots(ModuleOp module, const TypeGraph &graph) {
     made[found->second.first] = op;
     named[found->second.first] = found->second.second;
   });
-  for (auto [knot, members] : llvm::enumerate(knotted)) {
-    if (made[knot])
-      continue;
+  llvm::DenseMap<DataType, unsigned> knotOfData;
+  for (auto [knot, members] : llvm::enumerate(knotted))
     for (unsigned at : members)
-      if (DataOp data = graph.declaration(at); data && inSource(data.getLoc())) {
-        made[knot] = data;
-        break;
-      }
-  }
+      if (DataType data = graph.declaration(at))
+        knotOfData[data] = static_cast<unsigned>(knot);
+  module.walk([&](ConOp con) {
+    if (!inSource(con.getLoc()))
+      return;
+    auto found = knotOfData.find(con.getDataType());
+    if (found != knotOfData.end() && !made[found->second])
+      made[found->second] = con;
+  });
 
   for (auto [members, op, array] : llvm::zip_equal(knotted, made, named)) {
     SmallVector<unsigned> cycle = graph.cycle(array, members);
-    InFlightDiagnostic error = op ? op->emitError() : module.emitError();
+    InFlightDiagnostic error = refuse(op ? op->getLoc() : module.getLoc(), Rule::Cycle);
     // The lead names the array itself, by its rank: the path after it runs
     // from what the array holds, through any types between, to the array
     // and back.
-    error << "unsupported (cycle): an ";
+    error << "an ";
     describe(error, graph.type(array));
     error << " can hold a reference to itself through ";
     for (auto [step, at] : llvm::enumerate(cycle)) {

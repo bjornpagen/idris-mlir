@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // What a value of a type may hold: a world, or a closure, through the
-// fields of the data it is. Two bits per declaration, computed for every
-// declaration at once in the constructor and never changed afterwards, so
-// function passes may ask from any thread.
+// fields of the data it is. Two bits per data type, computed for every data
+// type at once in the constructor and never changed afterwards, so function
+// passes may ask from any thread; idr-optimize takes it before its first
+// task and reads it frozen.
 #ifndef IDR_ANALYSIS_HOLDS_H
 #define IDR_ANALYSIS_HOLDS_H
 
@@ -34,8 +35,8 @@ public:
 private:
   uint8_t bitsOf(mlir::Type type) const;
 
-  // By the declaration's symbol name.
-  llvm::DenseMap<mlir::StringAttr, uint8_t> bits;
+  // By data type, which a value's type names through its box and grade.
+  llvm::DenseMap<mlir::Type, uint8_t> bits;
 };
 
 } // namespace idr

@@ -22,9 +22,9 @@
 // otherwise be trivially dead upstream. Nothing here adds a progress
 // guarantee.
 //
-// The pass reads its own function and nothing else but the declaration of
-// a scrutinee's type, which no pass running beside it changes, and builds
-// the loop inside the body without changing the function's type.
+// The pass reads its own function and nothing else: a scrutinee's type
+// carries its constructors. It builds the loop inside the body without
+// changing the function's type.
 //
 //===----------------------------------------------------------------------===//
 
@@ -33,6 +33,7 @@
 #include "idr/Analysis/Tail.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Symbols.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -76,6 +77,15 @@ bool reachesTailCall(Block &block, FuncOp fn) {
   });
 }
 
+FailureOr<StringAttr> copyName(FuncOp fn, StringRef kind, SymbolTable &symbols) {
+  auto name = StringAttr::get(fn.getContext(), contentName(fn.getSymName(), kind, ""));
+  if (!symbols.lookup(name))
+    return name;
+  fn.emitError() << "internal error: the name " << name.getValue() << " of the " << kind << " copy of @"
+                 << fn.getSymName() << " is taken";
+  return failure();
+}
+
 namespace {
 
 // The decision that `fn`'s body is, or none.
@@ -115,7 +125,7 @@ bool invariantCode(Operation *op) {
 struct TailLoops : impl::IdrTailLoopsBase<TailLoops> {
   void runOnOperation() override {
     FuncOp fn = getOperation();
-    if (fn.isExternal() || !reachesTailCall(fn.getBody().front(), fn))
+    if (!reachesTailCall(fn.getBody().front(), fn))
       return markAllAnalysesPreserved();
     ++numLoops;
     IRRewriter rewriter(fn.getContext());

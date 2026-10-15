@@ -1,22 +1,16 @@
 // RUN: idris-mlir-opt %s --idr-defunctionalize > %t.mlir
 // RUN: FileCheck %s < %t.mlir
 // RUN: idris-mlir-opt %t.mlir --idr-expect=holds=no-closures -o /dev/null
+// NEEDS-ACCEPTANCE: the sums' printed forms and the dispatches, as C01's printer and C06's conversion write them.
 // Values of one closure type with different sets of labels: mkInc returns
 // only @Main.inc and mkAdd only @Main.add, while @Main.use and the join of
 // the match take either. Each (type, labels) is its own sum, and where a
 // value moves into a slot with more labels, at the calls of @Main.use and
 // at the yields of the match, a match rebuilds its constructor in the
 // larger sum.
-// CHECK: idr.data @[[F0:fn\$[0-9]+]] closures {
-// CHECK-NEXT: idr.ctor @Main.inc ()
-// CHECK-NEXT: }
-// CHECK: idr.data @[[F1:fn\$[0-9]+]] closures {
-// CHECK-NEXT: idr.ctor @Main.add (i64)
-// CHECK-NEXT: }
-// CHECK: idr.data @[[F2:fn\$[0-9]+]] closures {
-// CHECK-NEXT: idr.ctor @Main.add (i64)
-// CHECK-NEXT: idr.ctor @Main.inc ()
-// CHECK-NEXT: }
+// CHECK: ![[F0:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@Main.inc()]
+// CHECK: ![[F1:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@Main.add(i64)]
+// CHECK: ![[F2:[A-Za-z0-9_$.]+]] = !idr.data<{{[^,]*}}, closures [@Main.add(i64), @Main.inc()]
 // CHECK-NOT: !idr.fn
 // CHECK-LABEL: idr.func private @Main.mkInc()
 // CHECK-SAME: -> ![[F0]]
@@ -30,12 +24,12 @@
 // The calls:
 // CHECK: %[[I2:.*]] = {{(idr\.)?}}match %[[I]] : ![[F0]] -> (![[F2]]) {
 // CHECK-NEXT: case @Main.inc() {
-// CHECK-NEXT: %[[C:.*]] = {{(idr\.)?}}con @[[F2]]::@Main.inc() : () -> ![[F2]]
+// CHECK-NEXT: %[[C:.*]] = {{(idr\.)?}}con @Main.inc() : () -> ![[F2]]
 // CHECK-NEXT: idr.yield %[[C]] : ![[F2]]
 // CHECK: call @Main.use(%[[I2]], %{{.*}}) : (![[F2]], i64) -> i64
 // CHECK: %[[A2:.*]] = {{(idr\.)?}}match %[[A]] : ![[F1]] -> (![[F2]]) {
 // CHECK-NEXT: case @Main.add(%[[X:.*]]: i64) {
-// CHECK-NEXT: %[[D:.*]] = {{(idr\.)?}}con @[[F2]]::@Main.add(%[[X]]) : (i64) -> ![[F2]]
+// CHECK-NEXT: %[[D:.*]] = {{(idr\.)?}}con @Main.add(%[[X]]) : (i64) -> ![[F2]]
 // CHECK-NEXT: idr.yield %[[D]] : ![[F2]]
 // CHECK: call @Main.use(%[[A2]], %{{.*}}) : (![[F2]], i64) -> i64
 // The join:
@@ -46,7 +40,7 @@
 // CHECK: default {
 // CHECK-NEXT: %[[K:.*]] = {{(idr\.)?}}match %[[A]] : ![[F1]] -> (![[F2]]) {
 // CHECK: idr.yield %[[K]] : ![[F2]]
-module attributes {idr.program} {
+module {
   idr.func private @Main.inc(%x: i64) -> i64 attributes {total} {
     %c1 = arith.constant 1 : i64
     %y = arith.addi %x, %c1 : i64

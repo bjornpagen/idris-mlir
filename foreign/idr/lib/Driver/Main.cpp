@@ -17,7 +17,6 @@
 #include "idris_rt.h"
 
 #include "mlir/Debug/CLOptionsSetup.h"
-#include "mlir/Debug/Counter.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/InitAllPasses.h"
@@ -89,14 +88,15 @@ int idr::driver::main(int argc, char **argv) {
   mlir::registerAllPasses();
   idr::registerIdrPasses();
   // MLIR's own options, as mlir-opt has them: the pass manager's (IR
-  // printing, statistics, crash reproducers), timing, the context's, the
-  // printer's, action logging and debug counters.
+  // printing, the module after each pass, statistics, crash reproducers),
+  // timing, the context's, the printer's and action logging. Not a debug
+  // counter: one that skips an action changes what is compiled, and the
+  // compiler has one pipeline. idris-mlir-opt keeps upstream's.
   mlir::registerAsmPrinterCLOptions();
   mlir::registerMLIRContextCLOptions();
   mlir::registerPassManagerCLOptions();
   mlir::registerDefaultTimingManagerCLOptions();
   mlir::tracing::DebugConfig::registerCLOptions();
-  mlir::tracing::DebugCounter::registerCLOptions();
   // LLVM's -stats, which LLVM prints at exit, also prints the statistics of
   // the pipeline's passes.
   if (llvm::cl::Option *stats = llvm::cl::getRegisteredOptions().lookup("stats")) {
@@ -156,11 +156,10 @@ int idr::driver::main(int argc, char **argv) {
   }
   Input kind = inputKind(inputPath);
   bool frontendOptions = packages.getNumOccurrences() || packagePath.getNumOccurrences() ||
-                         idrisPrefix.getNumOccurrences() || noPrelude.getNumOccurrences() ||
-                         breakShape.getNumOccurrences();
+                         idrisPrefix.getNumOccurrences() || noPrelude.getNumOccurrences();
   if (kind == Input::Module && frontendOptions) {
-    Report() << "-p, --package-path, --prefix, --no-prelude and --break-shape are the "
-                "frontend's, for Idris source, not for a module";
+    Report() << "-p, --package-path, --prefix and --no-prelude are the frontend's, for Idris "
+                "source, not for a module";
     return usage;
   }
   // Nothing is removed before the artifacts are armed: a usage error leaves

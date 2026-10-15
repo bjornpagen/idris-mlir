@@ -2,15 +2,20 @@
 // Copyright (c) 2026 Bjorn Pagen
 // idr-rc: every reference made explicit. Five steps, each on what the one
 // before left:
-//   1. a module already in the owned stage is refused;
+//   1. a module already in the owned stage is refused; every loop over
+//      buffers whose elements hold references becomes scf.for loops, and
+//      the boundaries with upstream's buffer ops are marked (an adopt after
+//      each allocation, a give before each counted store);
 //   2. reset/reuse decides where dead boxes are taken apart, and borrow
 //      inference, which keeps every parameter a reuse takes apart owned,
 //      writes the owned grades into every signature;
 //   3. each function is placed, nested: the reuse rewrite, then the counts,
 //      which read the grades of its own signature and its callees';
-//   4. exclusivity, which reads the dups placement made, is solved, a
-//      function is copied where its callers disagree on a grade until the
-//      solve settles, and the excl grades go into every signature;
+//   4. exclusivity, which reads the dups placement made, is solved; each
+//      round gathers the functions whose callers disagree on a grade as
+//      keys, makes each key's copy once and sends it the calls that agree,
+//      until a round sends none; then the excl grades go into every
+//      signature;
 //   5. each function is committed, nested, and the originals nothing calls
 //      any more are erased.
 // Steps 2 and 4 write signatures; steps 3 and 5 rewrite bodies, while no
@@ -27,6 +32,7 @@
 
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/SymbolTable.h"
+#include "mlir/IR/Threading.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 
@@ -51,49 +57,45 @@ struct Rc : idr::impl::IdrRcBase<Rc> {
       module.emitError("idr-rc: the module is already in the owned stage");
       return signalPassFailure();
     }
+    // Each function on its own, in parallel: what reset/reuse and borrow
+    // inference read below is the form placement counts.
+    SmallVector<idr::FuncOp> fns(module.getOps<idr::FuncOp>());
+    if (failed(failableParallelForEach(&getContext(), fns, own::bufferForms)))
+      return signalPassFailure();
 
-    if (reuse) {
-      if (failed(getAnalysis<idr::Layouts>().valid()))
-        return signalPassFailure();
-      getAnalysis<idr::Reuses>();
-    }
+    if (failed(getAnalysis<idr::Layouts>().valid()))
+      return signalPassFailure();
+    getAnalysis<idr::Reuses>();
     idr::Borrows &borrows = getAnalysis<idr::Borrows>();
     numBorrowed += borrows.borrowed();
     own::writeOwnedGrades(module, borrows);
 
     // What the nested placement reads is computed here, right before it.
     getAnalysis<SymbolTable>();
-    if (failed(runNested(own::createRcPlace(reuse, sink))))
+    if (failed(runNested(own::createRcPlace())))
       return signalPassFailure();
 
     SymbolTable &symbols = getAnalysis<SymbolTable>();
-    // A clone names itself without calling it, which the solver would take
-    // for a caller it cannot see; nothing after idr-rc reads it.
-    for (idr::FuncOp fn : module.getOps<idr::FuncOp>())
-      fn.removeCloneAttr();
     own::shareTainted(module, symbols);
-    // Every round redirects a call for good, so the rounds are bounded by
-    // the calls; a round past that is a bug here. A round's copies change
-    // what the solve sees, so it is solved again, the table kept: the
-    // copies went in through it.
-    unsigned calls = 0;
-    module.walk([&](idr::CallOp) { ++calls; });
+    // A round's copies change what the solve sees, so it is solved again,
+    // the table kept: the copies went in through it. A call is redirected
+    // once and each key's copy made once, so the rounds end with the first
+    // that redirects nothing.
     AnalysisManager::PreservedAnalyses kept;
     kept.preserve<SymbolTable>();
     own::Copies copies;
-    for (unsigned round = 0;; ++round) {
+    for (;;) {
       idr::Exclusivity &solved = getAnalysis<idr::Exclusivity>();
       if (solved.failed()) {
         module.emitError("idr-rc: internal error: the exclusivity solve failed");
         return signalPassFailure();
       }
-      if (!own::specializeOnGrade(module, solved, symbols, copies)) {
+      FailureOr<bool> redirected = own::specializeOnGrade(module, solved, symbols, copies);
+      if (failed(redirected))
+        return signalPassFailure();
+      if (!*redirected) {
         own::writeExclusiveGrades(module, solved, symbols);
         break;
-      }
-      if (round == calls) {
-        module.emitError("idr-rc: specializing on exclusivity did not settle");
-        return signalPassFailure();
       }
       getAnalysisManager().invalidate(kept);
     }
@@ -102,7 +104,7 @@ struct Rc : idr::impl::IdrRcBase<Rc> {
       return signalPassFailure();
     own::eraseUnusedOriginals(module, getAnalysis<SymbolTable>(), copies);
     count(module);
-    // No idr.data changed, and every symbol came and went through the table.
+    // No data type changed, and every symbol came and went through the table.
     markAnalysesPreserved<idr::Holds, idr::TypeGraph, idr::Layouts, SymbolTable>();
   }
 

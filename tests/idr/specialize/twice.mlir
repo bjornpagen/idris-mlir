@@ -1,25 +1,34 @@
-// RUN: idris-mlir-opt %s --idr-specialize > %t.mlir
+// RUN: idris-mlir-opt %s --idr-optimize -o %t.mlir
 // RUN: FileCheck %s < %t.mlir
-// One pair passed as both arguments: the clone takes its leaves once per
-// parameter, and the pair, which nothing else reads, goes with the call it
-// fed, once.
-// CHECK-LABEL: idr.func private @use(
+// NEEDS-ACCEPTANCE: that the call is specialized on both shapes, as C09 composes the key.
+// One pair passed as both arguments of @sumN, which loops and so is never
+// inlined: the copy takes the pair's leaves once per parameter, and the
+// pair, which nothing else reads, goes with the call it fed, once.
+// CHECK-LABEL: idr.func @Main.main(
 // CHECK-NOT: {{(idr\.| )con }}
-// CHECK: call @[[S:sum\.spec[0-9]+]](
-// CHECK: idr.func private @[[S]](
-module attributes {idr.program} {
-  idr.data @P {
-    idr.ctor @MkP (i64, i64)
-  }
-  idr.func private @sum(%p: !idr.data<@P>, %q: !idr.data<@P>) -> i64 {
-    %a = idr.field %p[@MkP, 0] : !idr.data<@P> -> i64
-    %b = idr.field %q[@MkP, 1] : !idr.data<@P> -> i64
-    %r = arith.addi %a, %b : i64
+// CHECK: call @{{sumN\.spec\.[0-9a-f]+}}(
+!P = !idr.data<"P", plain [@MkP(i64, i64)]>
+module {
+  idr.func private @sumN(%p: !P, %q: !P, %n: i64) -> i64 {
+    %r = idr.match_lit %n : i64 -> (i64) {
+    case 0 {
+      %a = idr.field %p[@MkP, 0] : !P -> i64
+      %b = idr.field %q[@MkP, 1] : !P -> i64
+      %s = arith.addi %a, %b : i64
+      idr.yield %s : i64
+    }
+    default {
+      %c1 = arith.constant 1 : i64
+      %m = arith.subi %n, %c1 : i64
+      %y = idr.call @sumN(%p, %q, %m) : (!P, !P, i64) -> i64
+      idr.yield %y : i64
+    }
+    }
     return %r : i64
   }
   idr.func private @use(%a: i64, %b: i64) -> i64 {
-    %p = idr.con @P::@MkP(%a, %b) : (i64, i64) -> !idr.data<@P>
-    %r = idr.call @sum(%p, %p) : (!idr.data<@P>, !idr.data<@P>) -> i64
+    %p = idr.con @MkP(%a, %b) : (i64, i64) -> !P
+    %r = idr.call @sumN(%p, %p, %a) : (!P, !P, i64) -> i64
     return %r : i64
   }
   idr.func @Main.main(%w: !idr.world) -> !idr.world {

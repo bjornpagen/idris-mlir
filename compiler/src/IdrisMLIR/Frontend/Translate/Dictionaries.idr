@@ -43,7 +43,7 @@ import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.Registry.Libraries
-import IdrisMLIR.Rule
+import IdrisMLIR.Syntax.Idr
 
 import Data.List
 import Data.SortedMap

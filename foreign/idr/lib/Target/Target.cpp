@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// MLIR's side of the target: idr-target, which decides it once, and what
-// later passes read of it. The triple and the CPU are the build's (the
-// runtime is built for the triple, and its bitcode joins the program);
-// LLVM derives the rest, so the features the CPU name stands for and the
-// data layout are LLVM's own.
+// MLIR's side of the target: idr-target, which decides it once. The triple
+// and the CPU are the build's (the runtime is built for the triple, and its
+// bitcode joins the program); LLVM derives the rest, so the features the
+// CPU name stands for, the data layout and the width of the vector
+// registers are LLVM's own, and nothing about a target is decided here.
 
 #include "idr/Target/Target.h"
 
@@ -13,10 +13,17 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/Interfaces/DataLayoutInterfaces.h"
 #include "mlir/Target/LLVMIR/Import.h"
 #include "mlir/Target/LLVMIR/Transforms/TargetUtils.h"
 
 #include "llvm/ADT/SmallVectorExtras.h"
+#include "llvm/Analysis/TargetTransformInfo.h"
+#include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/Function.h"
+#include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/Module.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/TargetParser/Triple.h"
 
@@ -28,6 +35,23 @@ namespace idr {
 } // namespace idr
 
 namespace {
+
+// The width in bits of the machine's fixed vector registers, as LLVM's
+// cost model answers it for the machine's CPU and features: asked of a
+// function with no attributes of its own, which the machine's subtarget
+// then describes.
+std::uint64_t vectorWidth(const llvm::TargetMachine &machine) {
+  llvm::LLVMContext context;
+  llvm::Module scratch("idr-target", context);
+  scratch.setTargetTriple(machine.getTargetTriple());
+  scratch.setDataLayout(machine.createDataLayout());
+  llvm::Function *function =
+      llvm::Function::Create(llvm::FunctionType::get(llvm::Type::getVoidTy(context), false),
+                             llvm::GlobalValue::ExternalLinkage, "f", scratch);
+  return machine.getTargetTransformInfo(*function)
+      .getRegisterBitWidth(llvm::TargetTransformInfo::RGK_FixedWidthVector)
+      .getFixedValue();
+}
 
 struct TargetPass : idr::impl::IdrTargetBase<TargetPass> {
   using IdrTargetBase::IdrTargetBase;
@@ -69,19 +93,18 @@ struct TargetPass : idr::impl::IdrTargetBase<TargetPass> {
     if (auto existing = module->getAttrOfType<DataLayoutSpecInterface>(DLTIDialect::kDataLayoutAttrName))
       spec = existing.combineWith({spec});
     module->setAttr(DLTIDialect::kDataLayoutAttrName, spec);
+
+    // The facts the schedules read, held once, in the module: the CPU's
+    // vector width, which the lanes of a loop over an array follow.
+    auto width = DataLayoutEntryAttr::get(
+        StringAttr::get(ctx, idr::target::vectorWidthKey),
+        IntegerAttr::get(IntegerType::get(ctx, 64),
+                         static_cast<std::int64_t>(vectorWidth(**machine))));
+    auto cpu = DataLayoutEntryAttr::get(StringAttr::get(ctx, idr::target::cpuDevice),
+                                        TargetDeviceSpecAttr::get(ctx, {width}));
+    module->setAttr(DLTIDialect::kTargetSystemDescAttrName, TargetSystemSpecAttr::get(ctx, {cpu}));
     markAllAnalysesPreserved();
   }
 };
 
 } // namespace
-
-unsigned idr::target::vectorBits(ModuleOp module) {
-  auto target = module->getAttrOfType<LLVM::TargetAttr>(LLVM::LLVMDialect::getTargetAttrName());
-  if (!target)
-    return 128;
-  LLVM::TargetFeaturesAttr features = target.getFeatures();
-  auto has = [&](StringRef feature) { return features && features.contains(feature); };
-  if (llvm::Triple(target.getTriple().getValue()).isX86())
-    return has("+avx512f") ? 512 : has("+avx") ? 256 : 128;
-  return 128;
-}

@@ -6,20 +6,16 @@
 // match, and a field it reads of the value is the enclosing region's own
 // argument.
 
-idr.data @Shape {
-  idr.ctor @Circle (f64)
-  idr.ctor @Rect (f64, f64)
-  idr.ctor @Point ()
-}
 
 // The inner match on the same literal takes the enclosing case: one test
 // of %n is left, and nothing else is tested.
-// CHECK-LABEL: idr.func @lit_in_case(
+// CHECK-LABEL: idr.func private @lit_in_case(
 // CHECK-SAME: %[[N:.*]]: i64)
 // CHECK: match_lit %[[N]]
 // CHECK-NOT: {{(idr\.| )match_lit }}
 // CHECK: return
-idr.func @lit_in_case(%n: i64) -> i64 {
+!Shape = !idr.data<"Shape", plain [@Circle(f64), @Rect(f64, f64), @Point()]>
+idr.func private @lit_in_case(%n: i64) -> i64 {
   %r = idr.match_lit %n : i64 -> (i64) {
   case 0 {
     %s = idr.match_lit %n : i64 -> (i64) {
@@ -45,11 +41,11 @@ idr.func @lit_in_case(%n: i64) -> i64 {
 // In the enclosing default the value is none of its cases, so an inner
 // match with only those cases takes its own default: the inner cases are
 // gone, and only the outer two tests remain.
-// CHECK-LABEL: idr.func @lit_in_default(
+// CHECK-LABEL: idr.func private @lit_in_default(
 // CHECK: match_lit
 // CHECK-NOT: {{(idr\.| )match_lit }}
 // CHECK: return
-idr.func @lit_in_default(%n: i64) -> i64 {
+idr.func private @lit_in_default(%n: i64) -> i64 {
   %r = idr.match_lit %n : i64 -> (i64) {
   case 0 {
     %zero = arith.constant 0 : i64
@@ -78,11 +74,11 @@ idr.func @lit_in_default(%n: i64) -> i64 {
 
 // The enclosing default rules out 0 only: an inner match with a case of
 // its own stays, since %n may still be 7.
-// CHECK-LABEL: idr.func @lit_in_default_unknown(
+// CHECK-LABEL: idr.func private @lit_in_default_unknown(
 // CHECK: match_lit
 // CHECK: match_lit
 // CHECK: case 7
-idr.func @lit_in_default_unknown(%n: i64) -> i64 {
+idr.func private @lit_in_default_unknown(%n: i64) -> i64 {
   %r = idr.match_lit %n : i64 -> (i64) {
   case 0 {
     %zero = arith.constant 0 : i64
@@ -106,10 +102,10 @@ idr.func @lit_in_default_unknown(%n: i64) -> i64 {
 }
 
 // Another value tells nothing: both matches stay.
-// CHECK-LABEL: idr.func @lit_other_value(
+// CHECK-LABEL: idr.func private @lit_other_value(
 // CHECK: match_lit
 // CHECK: match_lit
-idr.func @lit_other_value(%n: i64, %m: i64) -> i64 {
+idr.func private @lit_other_value(%n: i64, %m: i64) -> i64 {
   %r = idr.match_lit %n : i64 -> (i64) {
   case 0 {
     %s = idr.match_lit %m : i64 -> (i64) {
@@ -135,7 +131,7 @@ idr.func @lit_other_value(%n: i64, %m: i64) -> i64 {
 // An inner match on the same data value takes the enclosing case, and its
 // fields are the enclosing region's arguments: no second match, no read of
 // a field.
-// CHECK-LABEL: idr.func @data_in_case(
+// CHECK-LABEL: idr.func private @data_in_case(
 // CHECK-SAME: %[[S:.*]]: !Shape)
 // CHECK: match %[[S]]
 // CHECK: case @Rect(%[[W:.*]]: f64, %[[H:.*]]: f64) {
@@ -143,10 +139,10 @@ idr.func @lit_other_value(%n: i64, %m: i64) -> i64 {
 // CHECK-NOT: {{(idr\.| )field }}
 // CHECK: %[[A:.*]] = arith.mulf %[[W]], %[[H]] : f64
 // CHECK: idr.yield %[[A]]
-idr.func @data_in_case(%s: !idr.data<@Shape>) -> f64 {
-  %r = idr.match %s : !idr.data<@Shape> -> (f64) {
+idr.func private @data_in_case(%s: !Shape) -> f64 {
+  %r = idr.match %s : !Shape -> (f64) {
   case @Rect(%w: f64, %h: f64) {
-    %a = idr.match %s : !idr.data<@Shape> -> (f64) {
+    %a = idr.match %s : !Shape -> (f64) {
     case @Circle(%x: f64) {
       %c = arith.mulf %x, %x : f64
       idr.yield %c : f64
@@ -172,12 +168,12 @@ idr.func @data_in_case(%s: !idr.data<@Shape>) -> f64 {
 
 // In the enclosing default the value is neither a circle nor a rectangle:
 // an inner match of those two cases and a default takes the default.
-// CHECK-LABEL: idr.func @data_in_default(
+// CHECK-LABEL: idr.func private @data_in_default(
 // CHECK: match
 // CHECK-NOT: {{(idr\.| )match }}
 // CHECK: return
-idr.func @data_in_default(%s: !idr.data<@Shape>) -> f64 {
-  %r = idr.match %s : !idr.data<@Shape> -> (f64) {
+idr.func private @data_in_default(%s: !Shape) -> f64 {
+  %r = idr.match %s : !Shape -> (f64) {
   case @Circle(%x: f64) {
     idr.yield %x : f64
   }
@@ -185,7 +181,7 @@ idr.func @data_in_default(%s: !idr.data<@Shape>) -> f64 {
     idr.yield %w : f64
   }
   default {
-    %a = idr.match %s : !idr.data<@Shape> -> (f64) {
+    %a = idr.match %s : !Shape -> (f64) {
     case @Circle(%x: f64) {
       %c = arith.mulf %x, %x : f64
       idr.yield %c : f64
@@ -207,18 +203,18 @@ idr.func @data_in_default(%s: !idr.data<@Shape>) -> f64 {
 
 // A field read in the case of a match on the value is the region's
 // argument, wherever in the region it is.
-// CHECK-LABEL: idr.func @field_in_case(
+// CHECK-LABEL: idr.func private @field_in_case(
 // CHECK-SAME: %[[S:.*]]: !Shape, %[[B:.*]]: i64)
 // CHECK: case @Rect(%[[W:.*]]: f64, %[[H:.*]]: f64) {
 // CHECK-NOT: {{(idr\.| )field }}
 // CHECK: arith.addf %[[W]], %[[H]] : f64
-idr.func @field_in_case(%s: !idr.data<@Shape>, %b: i64) -> f64 {
-  %r = idr.match %s : !idr.data<@Shape> -> (f64) {
+idr.func private @field_in_case(%s: !Shape, %b: i64) -> f64 {
+  %r = idr.match %s : !Shape -> (f64) {
   case @Rect(%w: f64, %h: f64) {
     %a = idr.match_lit %b : i64 -> (f64) {
     case 0 {
-      %x = idr.field %s[@Rect, 0] : !idr.data<@Shape> -> f64
-      %y = idr.field %s[@Rect, 1] : !idr.data<@Shape> -> f64
+      %x = idr.field %s[@Rect, 0] : !Shape -> f64
+      %y = idr.field %s[@Rect, 1] : !Shape -> f64
       %c = arith.addf %x, %y : f64
       idr.yield %c : f64
     }
@@ -239,13 +235,13 @@ idr.func @field_in_case(%s: !idr.data<@Shape>, %b: i64) -> f64 {
 // A match on a linear value takes it apart, and a field of the value it
 // was entered from is a second read, which the region's argument cannot
 // stand in for: the read stays as it is.
-// CHECK-LABEL: idr.func @field_of_linear_match(
+// CHECK-LABEL: idr.func private @field_of_linear_match(
 // CHECK: field
-idr.func @field_of_linear_match(%s: !idr.data<@Shape>) -> f64 {
-  %l = idr.lin.enter %s : !idr.lin<!idr.data<@Shape>>
-  %r = idr.match %l : !idr.lin<!idr.data<@Shape>> -> (f64) {
+idr.func private @field_of_linear_match(%s: !Shape) -> f64 {
+  %l = idr.lin.enter %s : !idr.lin<!Shape>
+  %r = idr.match %l : !idr.lin<!Shape> -> (f64) {
   case @Rect(%w: f64, %h: f64) {
-    %x = idr.field %s[@Rect, 0] : !idr.data<@Shape> -> f64
+    %x = idr.field %s[@Rect, 0] : !Shape -> f64
     %c = arith.addf %x, %h : f64
     idr.yield %c : f64
   }

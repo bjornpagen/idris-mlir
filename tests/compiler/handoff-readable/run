@@ -6,10 +6,11 @@
 # after it, `<parent>.case<k>` or `<parent>.with<k>`; nothing Idris erased
 # is written (no `!idr.erased`, no `#idr.erased`); the functions are
 # idr.func, their calls and returns idr.call and idr.return, and nothing of
-# the func dialect is there before lowering; every idr.func and idr.data
-# names the Idris instance it is (`instance`); and every op and block
-# argument carries the location of the Idris code it came from, so that no
-# location, read back, is a position in the module's own text.
+# the func dialect is there before lowering; every idr.func, and every data
+# type, whose body is its declaration, names the Idris instance it is
+# (`instance`); and every op and block argument carries the location of
+# the Idris code it came from, never an unknown one. The module is
+# bytecode, so it is read through idris-mlir-opt's print of it.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 cat > "$work/Main.idr" <<'IDRIS'
 module Main
@@ -45,7 +46,16 @@ if [ "$compiled" -ne 0 ]; then
   show "$work/compile.out" "$work/compile.err"
   exit 0
 fi
-emitted=$work/build/exec/Main.mlir
+# The emitted module as idris-mlir-opt prints it, its aliases and its
+# dialects' syntax kept, which is what every check below but the last
+# reads.
+if ! bounded "$idris_mlir_opt" --mlir-disable-threading "$(artifact_file "$work" Main module)" \
+     -o "$work/emitted.mlir" > "$work/print.err" 2>&1; then
+  say "print: the emitted module does not parse and verify"
+  show "$work/print.err"
+  exit 0
+fi
+emitted=$work/emitted.mlir
 
 # Every symbol the module names, defined or used, one per line as written:
 # `@` and a bare identifier, or `@` and a quoted name.
@@ -81,23 +91,22 @@ else
 fi
 
 # The rest reads the module back, every op in the generic form and every
-# location in place: an op whose text carried no location gets its position
-# in the emitted file, which is what the check looks for.
+# location in place.
 if ! bounded "$idris_mlir_opt" --mlir-disable-threading --mlir-print-op-generic \
-     --mlir-print-debuginfo --mlir-print-local-scope "$emitted" -o "$work/generic.mlir" \
-     > "$work/parse.err" 2>&1; then
+     --mlir-print-debuginfo --mlir-print-local-scope "$(artifact_file "$work" Main module)" \
+     -o "$work/generic.mlir" > "$work/parse.err" 2>&1; then
   say "parse: the emitted module does not parse and verify"
   show "$work/parse.err"
   exit 0
 fi
 say "parse: exit 0"
 
-# Each idr.func and idr.data whose instance is missing, by its first line:
-# an op is its first line and, when it has regions, the line that closes
-# them, the next one at its own indentation that starts with `})`, which
-# holds the attributes printed after the regions.
+# Each idr.func whose instance is missing, by its first line: an op is its
+# first line and, when it has regions, the line that closes them, the next
+# one at its own indentation that starts with `})`, which holds the
+# attributes printed after the regions.
 awk '
-  open == "" && /"idr\.(func|data)"\(/ {
+  open == "" && /"idr\.func"\(/ {
     match($0, /^ */); indent = RLENGTH; head = $0
     if ($0 ~ /\(\{$/) { open = head; next }
     if (head !~ /instance = #idr\.instance</) print head
@@ -110,15 +119,30 @@ awk '
       open = ""
     }
   }' "$work/generic.mlir" > "$work/no-instance"
+# Each data type whose body names no instance: a type's body is printed
+# once, where its alias is defined at the head of the module.
+grep -E '^![^ ]+ = !idr\.data<' "$emitted" | grep -v 'instance' >> "$work/no-instance"
 if [ -s "$work/no-instance" ]; then
-  say "instances: some idr.func or idr.data carry none"
+  say "instances: some idr.func or data type carries none"
   cut -c 1-200 "$work/no-instance" | show
 else
-  say "instances: every idr.func and idr.data names its own"
+  say "instances: every idr.func and data type names its own"
 fi
-if grep -qF "\"$emitted\":" "$work/generic.mlir"; then
+# The forms the module no longer has: a closure or a suspension as a region
+# (each is a function, named by idr.closure or idr.suspend), a data type
+# declared by an op (its type's body declares it), and a discardable
+# attribute (a fact is a type or an op's own property).
+grep -nE '"idr\.lambda"|"idr\.delay"\([^)]*\) \(\{|"idr\.(data|ctor)"|idr\.(program|stack)' \
+  "$work/generic.mlir" | cut -c 1-200 > "$work/old-forms"
+if [ -s "$work/old-forms" ]; then
+  say "forms: a region closure or suspension, a data op or a discardable attribute"
+  show "$work/old-forms"
+else
+  say "forms: no region closure or suspension, no data op, no discardable attribute"
+fi
+if grep -qF 'loc(unknown)' "$work/generic.mlir"; then
   say "locations: some op or block argument carries none of its own"
-  grep -F "\"$emitted\":" "$work/generic.mlir" | cut -c 1-200 | show
+  grep -F 'loc(unknown)' "$work/generic.mlir" | cut -c 1-200 | show
 else
   say "locations: every op and block argument carries its own"
 fi

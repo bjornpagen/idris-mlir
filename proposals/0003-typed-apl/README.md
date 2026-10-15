@@ -516,12 +516,21 @@ for that reason.
 export
 data LArray : (0 s : Shape) -> Type -> Type
 
-withArray : Extents s -> a -> ((1 _ : LArray s a) -> Ur b) -> b
+withArray : Extents s -> a -> (1 _ : (1 _ : LArray s a) -> !* b) -> !* b
 read      : (1 _ : LArray s a) -> Index s -> Res a (const (LArray s a))
 write     : (1 _ : LArray s a) -> Index s -> a -> LArray s a
-freeze    : (1 _ : LArray s a) -> Ur (Array s a)
-thaw      : Array s a -> ((1 _ : LArray s a) -> Ur b) -> b
+freeze    : (1 _ : LArray s a) -> !* (Array s a)
+thaw      : Array s a -> (1 _ : (1 _ : LArray s a) -> !* b) -> !* b
 ```
+
+The continuation is linear and returns `!* b`, Linear Haskell's
+`alloc :: Int -> a -> (Array a %1 -> Ur b) %1 -> Ur b`. Typechecking the
+ports with the pinned Idris *measured* why: with an unrestricted
+continuation returning a bare `b`, no program can hold two linear arrays
+at once. A second `withArray` inside the first's continuation returns `b`
+where `!* b` is needed, and an unrestricted continuation cannot capture
+the first array. The only `!* b` a continuation can build is `MkBang`,
+whose field is unrestricted, so no linear array leaves in it.
 
 **Linearity is not ownership.** A quantity-1 argument promises not to be
 shared in the future, not that it was never shared (read:
@@ -1432,29 +1441,35 @@ Each consumer is assigned to dense, sparse or 0012, honestly.
 of a closed total computation that static normalization (0007) produces,
 is `arith.constant dense<...> : tensor<...>` for word and float
 elements, which bufferizes to a non-writable `memref.global` (read: the
-Arith bufferization model). It is immortal: its descriptor's allocated
-pointer is a static cell header of the runtime's persistent kind (count
-0, never freed; read: `runtime/idris_rt.h`), placed beside the data and
-not in front of it, and its aligned pointer the global's data. Counting
-treats it as it treats every persistent cell, and a write copies it,
-which is the value meaning. A constant of any other element is built at
-startup. The earlier `idr.array.constant` op is deleted: the header
-need not be in front of the data, because the runtime reads it through
-the allocated pointer (read: `Conversion/ArrayView.cpp`, "The
-descriptor's allocated pointer is the cell"). That `memref.get_global`
-lowering, which sets the two pointers, is the one pattern of ours it
-needs (conjecture, checked in stage 2). **decision** (D40) Constants
-land at stage 2, not stage 1: a dense constant needs a static shape
-(read: `DenseTypedElementsAttr::getRaw` asserts one,
-`M/lib/IR/BuiltinAttributes.cpp:1219`), stage 1's dimensions are all
-dynamic (§4.3's static extents are stage 2), and the frontend writes no
-constant tensor (§4.1), whose ops fold to none (read: `InsertOp::fold`
-returns only an unchanged splat destination,
-`M/lib/Dialect/Tensor/IR/TensorOps.cpp:1659-1667`). So before stage 2
-the pattern would have nothing to lower. Its producer is 0007's static
-normalization, whose closed array results of words need stage 2 first;
-until both exist, a closed array result is built at startup, as a
-constant of any other element is.
+Arith bufferization model). It is immortal: one global, named from its
+content (`__idr.array.<hash>`), holds a static cell header of the
+runtime's persistent kind (count 0, never freed; read:
+`runtime/idris_rt.h`) in front of the data, where every array cell holds
+its header. So a constant is a cell like any other, and an array's
+lowered value is one pointer: its components are the cell, then the
+dynamic offset if the memref is strided, the dynamic sizes, and the
+dynamic strides if strided. The first element is always the cell plus
+the header, computed where a use needs it and never carried, so no
+descriptor holds two pointers that could disagree (amended in the
+cutover; the first version put the header beside the data and carried
+both pointers). Counting treats a constant as it treats every persistent
+cell, and a write copies it, which is the value meaning. A constant of
+any other element is built at startup. The earlier `idr.array.constant`
+op is deleted. The `memref.get_global` lowering to the static cell
+(`Conversion/Arrays.cpp`) is the one pattern of ours a constant needs.
+**decision** (D40, amended in the cutover) Constants land at stage 1.
+A dense constant needs a static shape (read:
+`DenseTypedElementsAttr::getRaw` asserts one,
+`M/lib/IR/BuiltinAttributes.cpp:1219`), and stage 1 has them: an extent
+whose normal form at the instance is a literal is a static dimension of
+the type (0004's C20), since the fact is a type. `tensor.from_elements`
+of constants folds to a dense constant (read: `FromElementsOp::fold`,
+`M/lib/Dialect/Tensor/IR/TensorOps.cpp:1480`), so a stage-1 program holds
+constants and the lowering has something to lower. A literal extent
+that Idris's normaliser leaves unreduced stays dynamic: correct, and
+optimized less. 0007's static normalization is the later producer of
+closed array results; until it exists, any other closed array result is
+built at startup, as a constant of any other element is.
 
 Static normalization itself is 0007's: no array operation runs at
 compile time until it exists, and then it runs as this lowering compiles
@@ -1652,9 +1667,10 @@ SuiteSparse matrix vendored under `sources/`).
    schedule must keep (1.90x C on the 2026-10-13 record); the arrays
    stage's wall and the self-compile's wall on the self-host module
    recorded, and no bench program's compile time up by more than 5%.
-2. **Static extents.** The literal and specialized cases of §4.3 with
-   D39's key, the cast propagation measured, `vectorizeNDExtract` on in
-   the vectorization schedule, and the immortal constants of §12 (D40).
+2. **Static extents.** The specialized case of §4.3 with D39's key, the
+   cast propagation measured, and `vectorizeNDExtract` on in the
+   vectorization schedule. The literal case and the immortal constants of
+   §12 landed at stage 1, with the cutover (D40).
    Proof: a fixture whose expected module has
    static dimensions through a specialization node; `vectorized` on the
    static programs without masks; `spectral-norm-dense` at least at
@@ -1840,7 +1856,8 @@ Decided by the owner, 2026-10-12.
 - **D22.** A relational plan that fits the sparse subset is a sparse
   array program; everything else is 0012's (§10).
 - **D23.** Constants are `arith.constant dense`, an immortal
-  `memref.global` with the header beside it (§12).
+  `memref.global` with the header in front of the data, and an array's
+  lowered value is one pointer, its cell (§12; amended in the cutover).
 - **D24.** World-ordered arrays declare their effects on their memref
   (§13).
 - **D25.** A rank no analysis fixes is refused; the segment scheme is
@@ -1925,9 +1942,11 @@ text had left open or got wrong:
   binding-time rules; a clone the budget does not make leaves the extent
   dynamic. Reason: the fact is already a type, and a budget never
   rejects (§4.3; 0004 §2.5).
-- **D40.** The immortal-constant lowering lands at stage 2. Reason: a
-  dense constant needs a static shape, which stage 2 brings, and no
-  stage-1 program holds one (§12).
+- **D40.** The immortal-constant lowering lands at stage 1 (amended in
+  the cutover; first decided for stage 2). Reason: a dense constant needs
+  a static shape, and stage 1 makes an extent static wherever its normal
+  form is a literal, because the fact belongs in the type. Folding
+  `tensor.from_elements` then gives stage-1 programs constants (§12).
 - **D41.** A closure carried by a frontend loop flows along `scf`'s
   region edges, read through upstream's `RegionBranchOpInterface` by
   0004's flow rule; no model of ours. Reason: upstream already declares
@@ -1974,6 +1993,13 @@ text had left open or got wrong:
 | `shard.grid` | the grid and running index of 0005 §8's fork-and-join lowering of `scf.forall` (§14); `sharding-propagation` and `shard-partition` only if 0005's P5 replaces that lowering whole |
 
 **Gaps filled by ours**, each to go when upstream fills it:
+`transform.idr.vectorize_lanes`, the vectorization schedule's one op
+(the pinned transform dialect cannot express it: a transform param
+admits no arithmetic, so the lane count `W / widest` cannot be computed
+from `transform.dlti.query`'s answer; `structured.vectorize` takes one
+size param per dimension, not one per op's widest word; and
+`dlti.query` stops at the data layout spec, not the target system spec's
+`max_vector_op_width`; read in the cutover by 0004's C13 §4),
 `idr.tie_shape` (no op ties dynamic dimensions across calls),
 `idr.scan` (no region-combiner scan), `idr.scatter` (no combining scatter
 with a bufferization model), `idr-structure-loops` (no pass of the pin

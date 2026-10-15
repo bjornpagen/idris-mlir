@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The ops of the idr dialect on arrays, and the loops over them.
+// The ops of the idr dialect on arrays a world orders, the extent of an
+// array to be made, and the tie of an array's dimensions to the sizes Idris
+// proved them equal to. An array the program computes as a value is a
+// builtin tensor, which the frontend writes with upstream's tensor and scf
+// ops: no op here makes or reads one but the tie.
 
 #ifndef IDR_ARRAY_OPS
 #define IDR_ARRAY_OPS
@@ -8,30 +12,45 @@
 include "idr/IR/IdrAttrs.td"
 include "idr/IR/IdrInterfaces.td"
 include "idr/IR/IdrBigOps.td"
-include "idr/IR/IdrIOOps.td"
+include "mlir/Interfaces/ValueBoundsOpInterface.td"
 
 //===----------------------------------------------------------------------===//
-// Arrays
+// Arrays a world orders
 //===----------------------------------------------------------------------===//
 
-// An array is a builtin memref of rank 0 or 1, each dimension dynamic,
-// over a field type E at no grade: the type the memref and bufferization
-// passes know, so no array type of our own. `memref<?xE>` (ArrayData,
-// Buffer) holds as many elements as it was made with, `memref<E>` (an
-// IORef's Mut) holds one. The ops take one size or one index per
-// dimension, as memref.alloc and memref.load do, so an IORef's ops are the
-// array ops at none. Its cell holds its elements like a constructor's
-// fields, so the array is a counted value, an element moves into it with
-// its reference, and an element read takes one of its own
-// (lib/Conversion, runtime idris_rt_array).
+// The memory of an array a world orders: base's IOArray, Buffer and IORef,
+// written after they are shared, in the world's order. A value array's
+// buffer, which bufferization makes of a tensor, is in the default memory
+// space, so no type is both: what the type graph asks of a cell written
+// after it exists, and what the lowering asks of an array's layout, the
+// type answers.
+def Idr_WorldSpaceAttr : AttrDef<Idr_Dialect, "WorldSpace"> {
+  let mnemonic = "world";
+  let summary = "the memory of an array a world orders";
+}
+
+// An array a world orders is a builtin memref of rank 0 or 1, each
+// dimension dynamic, in that memory space, over a field type E at no grade:
+// the type the memref passes know, so no array type of our own.
+// `memref<?xE, #idr.world>` (ArrayData, Buffer) holds as many elements as
+// it was made with, `memref<E, #idr.world>` (an IORef's Mut) holds one. The
+// ops take one size or one index per dimension, as memref.alloc and
+// memref.load do, so an IORef's ops are the array ops at none. Its cell
+// holds its elements like a constructor's fields, so the array is a counted
+// value, an element moves into it with its reference, and an element read
+// takes one of its own (lib/Conversion, runtime idris_rt_array).
 def Idr_ArrayType : Type<CPred<"::idr::isArray($_self)">,
-                         "an array, memref<?xE> or memref<E> of a field type E",
+                         "an array a world orders, memref<?xE, #idr.world> or "
+                         "memref<E, #idr.world> of a field type E",
                          "::mlir::MemRefType">;
-// The array ops are IO: each takes the world and gives the next, and
-// reads or writes the array's cell in that order. Their effects are their
-// own (not Idr_IOOp's, whose runtime call they do not make): the IO
-// resource, and an allocation for a new array. An element moves in with its
-// reference, which the op takes over.
+// The array ops are IO: each takes the world and gives the next, and reads
+// or writes the array's cell in that order. Their effects are on the array
+// they touch, not on the IO resource: the world operand already orders them
+// with every other effect, and an effect on the array lets alias reasoning
+// tell two arrays apart. An element moves in with its reference, which the
+// op takes over. An element that is a closure or a suspension moves in and
+// out through the elements of every array of its type: the flow model of
+// these ops is in lib/IR/Flow.cpp, as every op's is.
 class Idr_ArrayOp<string mnemonic, list<Trait> traits = []>
     : Idr_Op<"array." # mnemonic, !listconcat(traits, [Idr_PerformsIO, Idr_Primitive,
         DeclareOpInterfaceMethods<MemoryEffectsOpInterface>])>;
@@ -60,11 +79,11 @@ def Idr_ArrayNewOp : Idr_ArrayOp<"new", [Idr_Consumes<"1">,
 
 // An access (get, set) reads its index within the array: an
 // idr.check.in_bounds of the index against the array's length guards it,
-// and is the access's own check. A proof is the guard's absence:
-// idr-in-bounds erases the guards it proves, and a rewrite that builds a new
-// access on an index nothing proved builds the guard too, so no pass can
-// leave an access that rests on a fact it did not keep. An array of rank 0
-// has one element and no index, so its accesses have nothing to guard.
+// the primitive's own meaning of an index outside the array. A proof is the
+// guard's absence, and a rewrite that builds a new access on an index
+// nothing proved builds the guard too, so no pass can leave an access that
+// rests on a fact it did not keep. An array of rank 0 has one element and
+// no index, so its accesses have nothing to guard.
 
 // The element at `indices`, one per dimension, which are within the array.
 // One that `moves` gives the element with the reference the array held,
@@ -112,76 +131,48 @@ def Idr_ArraySetOp : Idr_ArrayOp<"set", [Idr_Consumes<"2">]> {
   }];
 }
 
-// The two loops over an array's index space, graded region ops: the body
-// runs once per index it covers, in index order, and what its ops perform
-// the loop performs (RecursiveMemoryEffects). The body is its own
-// successor, as an scf.for body's is, so a pass that asks which regions
-// run again sees the loop instead of a list of op names. A fold forwards
-// its accumulator along both edges (the init into the body, and into the
-// result when the array is empty; the yield back into the body and out as
-// the result). A generate forwards nothing: the yielded word is stored in
-// the new array, not passed as an SSA value. Their elements are machine
-// words (an integer or a float type), which a memref holds and a vector
-// lane computes; the frontend emits them only then, and the library's own
-// definition compiles as written for any other element. Lowering makes
-// each a linalg.generic over the array's memory (lib/Conversion), and a
-// generate whose body is a fold one generic of two dimensions.
+//===----------------------------------------------------------------------===//
+// The extent of an array to be made
+//===----------------------------------------------------------------------===//
 
-// The body of a region primitive: one block, whose entry block takes
-// `numArguments` arguments, as SizedRegion's `blocks` counts the blocks it
-// checks. idris-mlir-tblgen reads `arguments` for the Idris side's
-// regionArity.
-class Idr_BodyRegion<int numArguments> : Region<
-    And<[CPred<"::llvm::hasNItems($_self, 1)">,
-         CPred<"$_self.front().getNumArguments() == " # numArguments>]>,
-    "region with 1 block of " # numArguments # " arguments"> {
-  int blocks = 1;
-  int arguments = numArguments;
+// A natural becomes an index in two places. A coordinate, at its access,
+// is below an extent by its type, so its conversion is exact and needs no
+// op of its own (idr.big.to_int, then arith.index_castui). An extent, at
+// the allocation it sizes, has no such bound: this op is its conversion.
+// A small natural is itself; one that is not small is past every
+// allocation either target can make, so it is the allocation's failure,
+// here, where the extent is made.
+def Idr_NatToExtentOp : Idr_Op<"nat.to_extent", [Idr_MayCrash<>,
+    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>]> {
+  let summary = "a natural as the extent of an array to be made";
+  let arguments = (ins Idr_NatType:$natural);
+  let results = (outs Index:$extent);
+  let assemblyFormat = "$natural attr-dict";
+  let hasFolder = 1;
 }
 
-// A new array of `size` elements: element 0 is `fill`, and element `i` from
-// 1 on the body at `i` (an i64). So the library's loop makes it: base's
-// primitive fills the new array with the function at 0, and the loop
-// applies the function at each index from 1 on, never at 0 again. `fill`
-// moves in as array.new's does. A negative size, the least included, is an
-// empty array, and the array's shape is known from its size, as
-// array.new's.
-def Idr_ArrayGenerateOp : Idr_ArrayOp<"generate", [Idr_Consumes<"1">, RecursiveMemoryEffects, SingleBlock,
-    DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getEntrySuccessorOperands"]>,
-    DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>]> {
-  let summary = "a new array of the body's value at each index";
-  let arguments = (ins I64:$size, AnyType:$fill, Idr_WorldType:$world);
-  let results = (outs Idr_Rank1ArrayValue:$array, Idr_WorldType:$next);
-  let regions = (region Idr_BodyRegion<1>:$body);
-  let hasCustomAssemblyFormat = 1;
-  let hasVerifier = 1;
-  let hasRegionVerifier = 1;
-  let extraClassDeclaration = [{
-    ::mlir::MemRefType getArrayType() {
-      return ::llvm::cast<::mlir::MemRefType>(::idr::unrestricted(getArray().getType()));
-    }
-  }];
-}
+//===----------------------------------------------------------------------===//
+// Dimensions across calls
+//===----------------------------------------------------------------------===//
 
-// The elements folded from the left in index order: the body takes the
-// accumulator (`init` first, which moves in), the element (as array.get
-// gives it) and the index (an i64), and yields the next accumulator; the
-// result is the last.
-def Idr_ArrayFoldOp : Idr_ArrayOp<"fold", [Idr_Consumes<"1">, RecursiveMemoryEffects, SingleBlock,
-    DeclareOpInterfaceMethods<RegionBranchOpInterface, [
-        "getEntrySuccessorOperands", "getSuccessorInputs", "areTypesCompatible"]>]> {
-  let summary = "an array folded from the left in index order";
-  let arguments = (ins Idr_Rank1ArrayValue:$array, AnyType:$init, Idr_WorldType:$world);
-  let results = (outs AnyType:$result, Idr_WorldType:$next);
-  let regions = (region Idr_BodyRegion<3>:$body);
-  let hasCustomAssemblyFormat = 1;
+// An array whose dynamic dimensions are the given sizes, in order: the
+// identity, saying what Idris proved of arrays indexed by one size
+// variable. Upstream relates a dynamic dimension only through the op that
+// made it, and a function's parameter or a call's result has none, so the
+// frontend ties them at a function's entry and at a call. Value bounds and
+// the folding of a dimension then cross the call. Folding the op away loses
+// an optimization, never a meaning: the equality is Idris's and holds
+// whether or not the op is there. An array a world orders is never tied:
+// its length is its own, read with memref.dim.
+def Idr_TieShapeOp : Idr_Op<"tie_shape", [Pure, AllTypesMatch<["value", "result"]>,
+    DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
+    DeclareOpInterfaceMethods<ValueBoundsOpInterface, ["populateBoundsForShapedValueDim"]>]> {
+  let summary = "an array whose dynamic dimensions are the given sizes";
+  let arguments = (ins AnyTypeOf<[AnyRankedTensor, AnyMemRef]>:$value, Variadic<Index>:$dims);
+  let results = (outs AnyTypeOf<[AnyRankedTensor, AnyMemRef]>:$result);
+  let assemblyFormat = "$value `dims` `(` $dims `)` attr-dict `:` type($value)";
   let hasVerifier = 1;
-  let hasRegionVerifier = 1;
-  let extraClassDeclaration = [{
-    ::mlir::MemRefType getArrayType() {
-      return ::llvm::cast<::mlir::MemRefType>(::idr::unrestricted(getArray().getType()));
-    }
-  }];
+  let hasFolder = 1;
 }
 
 #endif // IDR_ARRAY_OPS

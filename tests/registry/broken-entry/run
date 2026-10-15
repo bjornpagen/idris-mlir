@@ -1,30 +1,27 @@
 #!/bin/sh
 # The registry validates every entry against the loaded context before
-# anything uses it. The test hook `--break-shape=<key>` gives one
-# entry a shape no definition has; the compilation must then fail with a
-# shape mismatch, showing the entry, the shape expected and the shape found,
-# and leave no artifact. An entry keyed
-# by a definition and one keyed by a %foreign spec are broken in turn;
-# unbroken, the program compiles.
+# anything uses it. Each case is a program whose own module, named as the
+# module an entry resolves to, is the pinned module with that entry's
+# definition at another shape: the compilation must then fail with a shape
+# mismatch, showing the entry, the shape expected and the shape found, and
+# leave no artifact. An entry keyed by a definition and one keyed by a
+# %foreign spec are broken in turn; unbroken, the program compiles.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 
-broken() {
-  mkdir "$work/$2"
-  copy_fixture . "$work/$2"
-  compile_program --break-shape="$1" "$work/$2/Main.idr" prog
-  say "$1 broken: exit $compiled"
-  if grep -qF "unsupported (hook): the registry's entry $1 (" "$work/compile.out" "$work/compile.err" &&
-     grep -q "expects .* : (_ : %World) -> .*, but found " "$work/compile.out" "$work/compile.err"; then
-    say "$1 broken: the error shows the entry, the shape expected and the shape found"
-  else
-    say "$1 broken: no hook error for the entry"
-    show "$work/compile.out" "$work/compile.err"
-  fi
-  no_artifacts "$work/$2"
-}
+registry_shadowed Builtin.replace definition third_party/Idris2/libs/prelude/Builtin.idr \
+  Builtin.idr replace shape 'module Main
 
-broken Builtin.replace definition
-broken C:idris2_putStr spec
+import Builtin
+
+main : Unit
+main = MkUnit'
+registry_shadowed C:idris2_putStr spec third_party/Idris2/libs/prelude/Prelude/IO.idr \
+  Prelude/IO.idr prim__putStr shape 'module Main
+
+import Prelude.IO
+
+main : IO ()
+main = putStr "hello"'
 
 mkdir "$work/unbroken"
 copy_fixture . "$work/unbroken"

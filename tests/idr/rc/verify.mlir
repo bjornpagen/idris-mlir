@@ -8,7 +8,7 @@
 
 // A value that holds references and is consumed once on every path, read
 // through views where it is only read: accepted.
-module attributes {idr.program} {
+module {
   idr.func private @use(%s: !idr.own<!idr.str>) -> i64 {
     %v = idr.borrow %s : !idr.own<!idr.str>
     %n = idr.str.length %v
@@ -32,7 +32,7 @@ module attributes {idr.program} {
 
 // -----
 
-module attributes {idr.program} {
+module {
   // expected-note @+1 {{the value is defined here}}
   idr.func private @twice(%s: !idr.own<!idr.str>) -> (!idr.own<!idr.str>, !idr.own<!idr.str>) {
     // expected-error @+1 {{consumes a reference that the value does not hold here}}
@@ -46,7 +46,7 @@ module attributes {idr.program} {
 
 // -----
 
-module attributes {idr.program} {
+module {
   // expected-note @+1 {{the value is defined here}}
   idr.func private @leak(%s: !idr.own<!idr.str>) -> i64 {
     %v = idr.borrow %s : !idr.own<!idr.str>
@@ -62,7 +62,7 @@ module attributes {idr.program} {
 
 // -----
 
-module attributes {idr.program} {
+module {
   // expected-note @+1 {{the value is defined here}}
   idr.func private @late(%s: !idr.own<!idr.str>) -> i64 {
     idr.drop %s : !idr.own<!idr.str>
@@ -83,15 +83,13 @@ module attributes {idr.program} {
 // of a constructor) takes a reference of its own, never a view. (An owned
 // value read directly is a type error already: the reading ops take plain
 // values.)
-module attributes {idr.program} {
-  idr.data @P {
-    idr.ctor @P (!idr.str)
-  }
+!P = !idr.data<"P", plain [@P(!idr.str)]>
+module {
   // expected-note @+1 {{the value is defined here}}
-  idr.func private @give(%s: !idr.str) -> !idr.own<!idr.data<@P>> {
+  idr.func private @give(%s: !idr.str) -> !idr.own<!P> {
     // expected-error @+1 {{consumes a view, which holds no reference}}
-    %p = idr.con @P::@P(%s) : (!idr.str) -> !idr.own<!idr.data<@P>>
-    return %p : !idr.own<!idr.data<@P>>
+    %p = idr.con @P(%s) : (!idr.str) -> !idr.own<!P>
+    return %p : !idr.own<!P>
   }
   idr.func @Prog.main() -> i64 {
     %z = arith.constant 0 : i64
@@ -102,7 +100,7 @@ module attributes {idr.program} {
 // -----
 
 // The regions of a match are alternatives, and must agree where they meet.
-module attributes {idr.program} {
+module {
   // expected-note @+1 {{the value is defined here}}
   idr.func private @branch(%b: i1, %s: !idr.own<!idr.str>) -> i64 {
     %z = arith.constant 0 : i64
@@ -129,15 +127,13 @@ module attributes {idr.program} {
 
 // A field is a view that lives as long as the value it was read from,
 // unless it takes a reference of its own.
-module attributes {idr.program} {
-  idr.data @P {
-    idr.ctor @P (!idr.str)
-  }
-  idr.func private @field(%p: !idr.own<!idr.data<@P>>) -> !idr.own<!idr.str> {
-    %v = idr.borrow %p : !idr.own<!idr.data<@P>>
-    %s = idr.field %v[@P, 0] : !idr.data<@P> -> !idr.str
+!P = !idr.data<"P", plain [@P(!idr.str)]>
+module {
+  idr.func private @field(%p: !idr.own<!P>) -> !idr.own<!idr.str> {
+    %v = idr.borrow %p : !idr.own<!P>
+    %s = idr.field %v[@P, 0] : !P -> !idr.str
     %t = idr.dup %s : !idr.str
-    idr.drop %p : !idr.own<!idr.data<@P>>
+    idr.drop %p : !idr.own<!P>
     return %t : !idr.own<!idr.str>
   }
   idr.func @Prog.main() -> i64 {
@@ -148,15 +144,13 @@ module attributes {idr.program} {
 
 // -----
 
-module attributes {idr.program} {
-  idr.data @P {
-    idr.ctor @P (!idr.str)
-  }
-  idr.func private @field(%p: !idr.own<!idr.data<@P>>) -> i64 {
-    %v = idr.borrow %p : !idr.own<!idr.data<@P>>
+!P = !idr.data<"P", plain [@P(!idr.str)]>
+module {
+  idr.func private @field(%p: !idr.own<!P>) -> i64 {
+    %v = idr.borrow %p : !idr.own<!P>
     // expected-note @+1 {{the value is defined here}}
-    %s = idr.field %v[@P, 0] : !idr.data<@P> -> !idr.str
-    idr.drop %p : !idr.own<!idr.data<@P>>
+    %s = idr.field %v[@P, 0] : !P -> !idr.str
+    idr.drop %p : !idr.own<!P>
     // expected-error @+1 {{uses a value whose last reference is gone on this path}}
     %n = idr.str.length %s
     return %n : i64
@@ -170,27 +164,23 @@ module attributes {idr.program} {
 // -----
 
 // A reuse builds in a cell of its own size.
-module attributes {idr.program} {
-  idr.data @L box {
-    idr.ctor @N ()
-    idr.ctor @C (i64, !idr.box<@L>)
-    idr.ctor @One (i64)
-  }
-  idr.func private @swap(%l: !idr.own<!idr.box<@L>>) -> !idr.own<!idr.box<@L>> {
-    %v = idr.borrow %l : !idr.own<!idr.box<@L>>
-    %r = idr.match %v : !idr.box<@L> -> (!idr.own<!idr.box<@L>>) {
-    case @C(%h: i64, %t: !idr.box<@L>) {
-      %w:3 = idr.take %l @L::@C : !idr.own<!idr.box<@L>> -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<@L>>)
-      // expected-error @+1 {{builds a cell of 16 bytes in the 24-byte cell of @L::@C}}
-      %o = idr.reuse %w#0 @L::@One(%w#1) : (!idr.own<!idr.token>, i64) -> !idr.own<!idr.box<@L>>
-      idr.drop %w#2 : !idr.own<!idr.box<@L>>
-      idr.yield %o : !idr.own<!idr.box<@L>>
+!L = !idr.data<"L", plain [@N(), @C(i64, !idr.box<!idr.data<"L">>), @One(i64)]>
+module {
+  idr.func private @swap(%l: !idr.own<!idr.box<!L>>) -> !idr.own<!idr.box<!L>> {
+    %v = idr.borrow %l : !idr.own<!idr.box<!L>>
+    %r = idr.match %v : !idr.box<!L> -> (!idr.own<!idr.box<!L>>) {
+    case @C(%h: i64, %t: !idr.box<!L>) {
+      %w:3 = idr.take %l @C : !idr.own<!idr.box<!L>> -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<!L>>)
+      // expected-error @+1 {{builds a cell of 16 bytes in the 24-byte cell of @C}}
+      %o = idr.reuse %w#0 @One(%w#1) : (!idr.own<!idr.token>, i64) -> !idr.own<!idr.box<!L>>
+      idr.drop %w#2 : !idr.own<!idr.box<!L>>
+      idr.yield %o : !idr.own<!idr.box<!L>>
     }
     default {
-      idr.yield %l : !idr.own<!idr.box<@L>>
+      idr.yield %l : !idr.own<!idr.box<!L>>
     }
     }
-    return %r : !idr.own<!idr.box<@L>>
+    return %r : !idr.own<!idr.box<!L>>
   }
   idr.func @Prog.main() -> i64 {
     %z = arith.constant 0 : i64
@@ -202,22 +192,19 @@ module attributes {idr.program} {
 
 // A take consumes its value and gives each field a reference of its own,
 // which is then consumed once like any other.
-module attributes {idr.program} {
-  idr.data @L box {
-    idr.ctor @N ()
-    idr.ctor @C (i64, !idr.box<@L>)
-  }
-  idr.func private @head(%l: !idr.own<!idr.box<@L>>) -> i64 {
-    %v = idr.borrow %l : !idr.own<!idr.box<@L>>
-    %r = idr.match %v : !idr.box<@L> -> (i64) {
-    case @C(%h: i64, %t: !idr.box<@L>) {
-      %w, %h2, %t2 = idr.take %l @L::@C : !idr.own<!idr.box<@L>> -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<@L>>)
+!L = !idr.data<"L", list [@N(), @C(i64, !idr.box<!idr.data<"L">>)]>
+module {
+  idr.func private @head(%l: !idr.own<!idr.box<!L>>) -> i64 {
+    %v = idr.borrow %l : !idr.own<!idr.box<!L>>
+    %r = idr.match %v : !idr.box<!L> -> (i64) {
+    case @C(%h: i64, %t: !idr.box<!L>) {
+      %w, %h2, %t2 = idr.take %l @C : !idr.own<!idr.box<!L>> -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<!L>>)
       idr.drop %w : !idr.own<!idr.token>
-      idr.drop %t2 : !idr.own<!idr.box<@L>>
+      idr.drop %t2 : !idr.own<!idr.box<!L>>
       idr.yield %h2 : i64
     }
     default {
-      idr.drop %l : !idr.own<!idr.box<@L>>
+      idr.drop %l : !idr.own<!idr.box<!L>>
       %z = arith.constant 0 : i64
       idr.yield %z : i64
     }
@@ -232,23 +219,20 @@ module attributes {idr.program} {
 
 // -----
 
-module attributes {idr.program} {
-  idr.data @L box {
-    idr.ctor @N ()
-    idr.ctor @C (i64, !idr.box<@L>)
-  }
-  idr.func private @head(%l: !idr.own<!idr.box<@L>>) -> i64 {
-    %v = idr.borrow %l : !idr.own<!idr.box<@L>>
-    %r = idr.match %v : !idr.box<@L> -> (i64) {
-    case @C(%h: i64, %t: !idr.box<@L>) {
+!L = !idr.data<"L", list [@N(), @C(i64, !idr.box<!idr.data<"L">>)]>
+module {
+  idr.func private @head(%l: !idr.own<!idr.box<!L>>) -> i64 {
+    %v = idr.borrow %l : !idr.own<!idr.box<!L>>
+    %r = idr.match %v : !idr.box<!L> -> (i64) {
+    case @C(%h: i64, %t: !idr.box<!L>) {
       // expected-note @+1 {{the value is defined here}}
-      %w, %h2, %t2 = idr.take %l @L::@C : !idr.own<!idr.box<@L>> -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<@L>>)
+      %w, %h2, %t2 = idr.take %l @C : !idr.own<!idr.box<!L>> -> (!idr.own<!idr.token>, i64, !idr.own<!idr.box<!L>>)
       idr.drop %w : !idr.own<!idr.token>
       // expected-error @+1 {{ends a path on which a value still holds a reference}}
       idr.yield %h2 : i64
     }
     default {
-      idr.drop %l : !idr.own<!idr.box<@L>>
+      idr.drop %l : !idr.own<!idr.box<!L>>
       %z = arith.constant 0 : i64
       idr.yield %z : i64
     }
@@ -265,17 +249,14 @@ module attributes {idr.program} {
 
 // A string builder walks the cells of its list, a view, so it is refused
 // once the reference the view borrows is gone, as a field read is.
-module attributes {idr.program} {
-  idr.data @Chars box {
-    idr.ctor @Nil ()
-    idr.ctor @Cons (i32, !idr.box<@Chars>)
-  }
-  idr.func private @pack(%l: !idr.own<!idr.box<@Chars>>) -> !idr.own<!idr.str> {
+!Chars = !idr.data<"Chars", list [@Nil(), @Cons(i32, !idr.box<!idr.data<"Chars">>)]>
+module {
+  idr.func private @pack(%l: !idr.own<!idr.box<!Chars>>) -> !idr.own<!idr.str> {
     // expected-note @+1 {{the value is defined here}}
-    %v = idr.borrow %l : !idr.own<!idr.box<@Chars>>
-    idr.drop %l : !idr.own<!idr.box<@Chars>>
+    %v = idr.borrow %l : !idr.own<!idr.box<!Chars>>
+    idr.drop %l : !idr.own<!idr.box<!Chars>>
     // expected-error @+1 {{uses a value whose last reference is gone on this path}}
-    %s = idr.str.pack %v : !idr.box<@Chars> -> !idr.own<!idr.str>
+    %s = idr.str.pack %v : !idr.box<!Chars> -> !idr.own<!idr.str>
     return %s : !idr.own<!idr.str>
   }
   idr.func @Prog.main() -> i64 {
@@ -290,25 +271,20 @@ module attributes {idr.program} {
 // a pair of empty lists has no cell a take would hand out. One to static
 // data holding a cell with fields is not: it shares that cell with every
 // other copy, and a take of it would hand the cell out to build in.
-module attributes {idr.program} {
-  idr.data @L box {
-    idr.ctor @N ()
-    idr.ctor @C (i64, !idr.box<@L>)
+!L = !idr.data<"L", list [@N(), @C(i64, !idr.box<!idr.data<"L">>)]>
+!P = !idr.data<"P", plain [@MkPair(!idr.box<!L>, !idr.box<!L>)]>
+module {
+  idr.func private @empty() -> !idr.excl<!P> {
+    %c = idr.constant #idr.con<@MkPair, [#idr.con<@N, []>, #idr.con<@N, []>]> : !P
+    %p = idr.dup %c : !P -> !idr.excl<!P>
+    return %p : !idr.excl<!P>
   }
-  idr.data @P {
-    idr.ctor @MkPair (!idr.box<@L>, !idr.box<@L>)
-  }
-  idr.func private @empty() -> !idr.excl<!idr.data<@P>> {
-    %c = idr.constant #idr.con<@P::@MkPair, [#idr.con<@L::@N, []>, #idr.con<@L::@N, []>]> : !idr.data<@P>
-    %p = idr.dup %c : !idr.data<@P> -> !idr.excl<!idr.data<@P>>
-    return %p : !idr.excl<!idr.data<@P>>
-  }
-  idr.func private @one() -> !idr.excl<!idr.data<@P>> {
+  idr.func private @one() -> !idr.excl<!P> {
     // expected-note @+1 {{the value is defined here}}
-    %c = idr.constant #idr.con<@P::@MkPair, [#idr.con<@L::@C, [1 : i64, #idr.con<@L::@N, []>]>, #idr.con<@L::@N, []>]> : !idr.data<@P>
+    %c = idr.constant #idr.con<@MkPair, [#idr.con<@C, [1 : i64, #idr.con<@N, []>]>, #idr.con<@N, []>]> : !P
     // expected-error @+1 {{takes an exclusive reference to a value that reaches cells other than atoms, which it shares}}
-    %p = idr.dup %c : !idr.data<@P> -> !idr.excl<!idr.data<@P>>
-    return %p : !idr.excl<!idr.data<@P>>
+    %p = idr.dup %c : !P -> !idr.excl<!P>
+    return %p : !idr.excl<!P>
   }
   idr.func @Prog.main() -> i64 {
     %z = arith.constant 0 : i64

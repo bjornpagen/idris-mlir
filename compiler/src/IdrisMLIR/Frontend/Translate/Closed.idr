@@ -16,7 +16,7 @@ import Libraries.Data.List.SizeOf
 
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.State
-import IdrisMLIR.Rule
+import IdrisMLIR.Syntax.Idr
 import IdrisMLIR.Term
 import IdrisMLIR.Types
 
@@ -97,6 +97,26 @@ anyErased = mentions erasedTerm
     erasedTerm : TT vs -> Bool
     erasedTerm (Erased _ _) = True
     erasedTerm _ = False
+
+||| An Idris constant as the middle end's literal, one to one: the one place
+||| the translation reads Idris's constants. A primitive type or the world
+||| is no literal.
+export
+constantLit : Constant -> Maybe Lit
+constantLit (I x) = Just (LInt IdrisInt (cast x))
+constantLit (I8 x) = Just (LInt SInt8 (cast x))
+constantLit (I16 x) = Just (LInt SInt16 (cast x))
+constantLit (I32 x) = Just (LInt SInt32 (cast x))
+constantLit (I64 x) = Just (LInt SInt64 (cast x))
+constantLit (B8 x) = Just (LInt UInt8 (cast x))
+constantLit (B16 x) = Just (LInt UInt16 (cast x))
+constantLit (B32 x) = Just (LInt UInt32 (cast x))
+constantLit (B64 x) = Just (LInt UInt64 (cast x))
+constantLit (Ch x) = Just (LChar (cast (ord x)))
+constantLit (Str x) = Just (LStr x)
+constantLit (Db x) = Just (LDouble x)
+constantLit (BI x) = Just (LBig x)
+constantLit _ = Nothing
 
 ||| Abstracts every variable in scope with a lambda, giving a closed term whose
 ||| outermost lambda binds the last variable of `vars`.
@@ -281,7 +301,8 @@ normaliseClosed tm = do
 export
 holeMarker : Nat -> ClosedTerm
 
-||| A closed term normalised by Idris's normaliser, its markers kept
+||| A closed term normalised by Idris's normaliser with its markers bound
+||| as the variables of an environment, which no reduction looks into
 ||| (`normaliseKeeping`, below with the markers).
 export
 normaliseKeeping : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core ClosedTerm
@@ -470,11 +491,6 @@ unknownPart = Ref EmptyFC Func (MN "idris-mlir-unknown" 0)
 -- bound names).
 holeMarker i = Ref EmptyFC Bound (MN "idris-mlir-hole" (cast i))
 
-||| A marker as normalisation is given it: a function reference to a name
-||| no definition has, which quoting leaves as it is at any depth.
-heldMarker : Nat -> ClosedTerm
-heldMarker i = Ref EmptyFC Func (MN "idris-mlir-hole-held" (cast i))
-
 ||| The numbers of the markers a term holds.
 holeIndices : TT vars -> List Nat
 holeIndices tm = nub (go tm)
@@ -496,14 +512,22 @@ holeIndices tm = nub (go tm)
     go (Erased _ (Dotted t)) = go t
     go _ = []
 
--- Normalised with markers kept (declared above): each renamed to what
--- normalisation leaves standing, and back.
+-- Normalised with its markers bound (declared above): the open term, each
+-- marker a variable of an environment that binds it as a pattern variable,
+-- is what Idris's normaliser is given, and the markers stand for the
+-- variables again in its normal form.
 normaliseKeeping tm = do
   defs <- get Ctxt
-  let is = holeIndices tm
-  let renamed = foldl (\t, i => substName (MN "idris-mlir-hole" (cast i)) (heldMarker i) t) tm is
-  nf <- normalise defs [] renamed
-  pure (foldl (\t, i => substName (MN "idris-mlir-hole-held" (cast i)) (holeMarker i) t) nf is)
+  let holes = map (\i => MN "idris-mlir-hole" (cast i)) (holeIndices tm)
+  nf <- normalise defs (mkEnv EmptyFC (holes ++ Scope.empty)) (refsToLocals (bound holes) tm)
+  pure (substs (mkSizeOf holes) (markers holes) nf)
+  where
+    bound : (ns : List Name) -> Bounds ns
+    bound [] = None
+    bound (n :: ns) = Add n n (bound ns)
+    markers : (ns : List Name) -> SubstEnv ns Scope.empty
+    markers [] = []
+    markers (n :: ns) = Ref EmptyFC Bound n :: markers ns
 
 ||| Replaces each marker of the values an implementation closes over with
 ||| the term for its value, by number.

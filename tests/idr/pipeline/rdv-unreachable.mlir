@@ -18,7 +18,7 @@
 // CANON-LABEL: idr.func @Main.main(
 // CANON-NOT: {{(idr\.| )match_lit }}
 // CANON: return
-module attributes {idr.program} {
+module {
   idr.func private @g(%x: i64) -> i64 {
     %r = idr.match_lit %x : i64 -> (i64) {
     case 7 {

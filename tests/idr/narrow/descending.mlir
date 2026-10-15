@@ -42,7 +42,7 @@ module {
     }
     return %r : !idr.nat
   }
-  idr.func @Main.main(%n: !idr.nat) -> (i1, !idr.nat) {
+  idr.func private @Main.main(%n: !idr.nat) -> (i1, !idr.nat) {
     %false = arith.constant false
     %p = idr.call @parity(%n, %false) : (!idr.nat, i1) -> i1
     %zero = idr.constant #idr.big<"0"> : !idr.nat

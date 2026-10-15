@@ -8,7 +8,7 @@
 // CHECK-DAG: error: expected no-closures: a closure is applied in @use
 // CHECK-DAG: error: expected no-closures: a closure is a constant in @known
 // CLEAN: module {
-// CLEAN:   idr.func @main(%x: i64) -> i64 {
+// CLEAN:   idr.func private @main(%x: i64) -> i64 {
 // CLEAN:     %one = arith.constant 1 : i64
 // CLEAN:     %r = arith.addi %x, %one : i64
 // CLEAN:     return %r : i64
@@ -19,15 +19,15 @@ module {
     %r = arith.addi %x, %y : i64
     return %r : i64
   }
-  idr.func @make(%x: i64) -> !idr.fn<(i64) -> (i64)> {
+  idr.func private @make(%x: i64) -> !idr.fn<(i64) -> (i64)> {
     %f = idr.closure @add(%x) : (i64) -> !idr.fn<(i64) -> (i64)>
     return %f : !idr.fn<(i64) -> (i64)>
   }
-  idr.func @use(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 {
+  idr.func private @use(%f: !idr.fn<(i64) -> (i64)>, %x: i64) -> i64 {
     %r = idr.apply %f(%x) : !idr.fn<(i64) -> (i64)>
     return %r : i64
   }
-  idr.func @known() -> !idr.fn<(i64, i64) -> (i64)> {
+  idr.func private @known() -> !idr.fn<(i64, i64) -> (i64)> {
     %f = idr.constant #idr.closure<@add, []> : !idr.fn<(i64, i64) -> (i64)>
     return %f : !idr.fn<(i64, i64) -> (i64)>
   }

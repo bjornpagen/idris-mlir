@@ -1,26 +1,31 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The cycles of the graphs the properties of recursion are stated over:
-// references among functions, as the loop breakers and the inliner see
-// them, or symbol uses after lowering.
+// The graphs the properties of reach and recursion are stated over: the
+// functions a body names by symbol, whatever op names them, before
+// lowering and after it.
 
 #include "idr/Transforms/Expect.h"
 
-#include "idr/Analysis/References.h"
-#include "idr/IR/IdrDialect.h"
 #include "idr/Support/Scc.h"
 
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SetVector.h"
 
 using namespace mlir;
 
 namespace idr::expect {
 
-SmallVector<Operation *> referencedBy(References &references, Operation *fn) {
-  SmallVector<Operation *> out;
-  for (const References::Site &site : references.of(cast<FuncOp>(fn)))
-    out.push_back(site.target);
-  return out;
+// What a function's own attributes name is no use by its body, so only
+// the uses inside the body count.
+SmallVector<Operation *> callees(SymbolTable &symbols, Operation *fn) {
+  llvm::SetVector<Operation *, SmallVector<Operation *>> out;
+  Region &body = cast<FunctionOpInterface>(fn).getFunctionBody();
+  if (std::optional<SymbolTable::UseRange> uses = SymbolTable::getSymbolUses(&body))
+    for (const SymbolTable::SymbolUse &use : *uses)
+      if (Operation *target = symbols.lookup(use.getSymbolRef().getRootReference());
+          isa_and_nonnull<FunctionOpInterface>(target))
+        out.insert(target);
+  return out.takeVector();
 }
 
 SmallVector<SmallVector<Operation *>>

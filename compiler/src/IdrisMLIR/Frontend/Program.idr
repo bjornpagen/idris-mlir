@@ -14,7 +14,7 @@ import Idris.Syntax
 
 import IdrisMLIR.Emit
 import IdrisMLIR.Ids
-import IdrisMLIR.Rule
+import IdrisMLIR.Syntax.Idr
 import IdrisMLIR.Term
 import IdrisMLIR.Frontend.Profile
 import IdrisMLIR.Frontend.Resolve
@@ -90,13 +90,11 @@ reportTimes (Just path) times =
   write path (concatMap (\(name, ns) => name ++ "\t" ++ show (ns `div` 1000000) ++ "\n") times)
 
 ||| The registry's entries against the loaded context, once, before
-||| anything uses them; `--break-shape` breaks the one it names.
-validated : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-            Maybe String -> FC -> Core ()
-validated breakShape fc = case !(validate breakShape) of
+||| anything uses them.
+validated : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Core ()
+validated = case !validate of
   Valid => pure ()
   Wrong at owner msg => reject at owner HookShape msg
-  NoSuchEntry name => internal fc ("--break-shape=" ++ name ++ " names no entry of the registry")
 
 isUser : Origin -> Bool
 isUser User = True
@@ -139,9 +137,9 @@ entryPoint = do
 ||| is thrown.
 export
 program : {auto c : Ref Ctxt Defs} -> {auto syn : Ref Syn SyntaxInfo} ->
-          (mainFile : ModuleIdent) -> (breakShape : Maybe String) ->
-          (timing : Maybe String) -> (corePath, mlirPath : String) -> Core (List Error)
-program mainFile breakShape timing corePath mlirPath = do
+          (mainFile : ModuleIdent) -> (timing : Maybe String) ->
+          (corePath, mlirPath : String) -> Core (List Error)
+program mainFile timing corePath mlirPath = do
   t0 <- now
   -- The interfaces of every module Idris loaded for the program, which
   -- Idris keeps with their syntax rather than with their definitions.
@@ -154,7 +152,7 @@ program mainFile breakShape timing corePath mlirPath = do
     | Nothing => internal EmptyFC "main has no definition"
   let fc = location mainDef
   put TState (initState interfaces fc)
-  validated breakShape fc
+  validated
   -- Every module of the project's is one with source, whose pragmas are
   -- checked. The main file's module is loaded from its TTC as the module of
   -- no name, and Idris is in its namespace. Library modules outside the

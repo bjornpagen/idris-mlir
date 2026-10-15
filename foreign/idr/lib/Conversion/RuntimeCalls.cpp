@@ -6,6 +6,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Layout.h"
+#include "idr/Conversion/Arrays.h"
 #include "idr/Conversion/IdrPattern.h"
 #include "idr/Conversion/Patterns.h"
 #include "idr/Conversion/Runtime.h"
@@ -22,10 +23,21 @@ namespace idr::conversion {
 
 namespace {
 
-SmallVector<Value> flatten(ArrayRef<ValueRange> operands) {
+// The operands of `op` as the runtime takes them, each its components in
+// order; a buffer is its cell, then its first byte, which no value holds
+// since it is always right after the cell's header, then its size.
+SmallVector<Value> flatten(OpBuilder &b, Location loc, Operation *op,
+                           ArrayRef<ValueRange> operands) {
   SmallVector<Value> values;
-  for (ValueRange operand : operands)
-    llvm::append_range(values, operand);
+  for (auto [operand, components] : llvm::zip_equal(op->getOperands(), operands)) {
+    if (!isa<MemRefType>(unrestricted(operand.getType()))) {
+      llvm::append_range(values, components);
+      continue;
+    }
+    values.push_back(components.front());
+    values.push_back(elementsOf(b, loc, components.front()));
+    llvm::append_range(values, components.drop_front());
+  }
   return values;
 }
 
@@ -85,7 +97,7 @@ struct LowerRuntimeCall : IdrPattern<OpT> {
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     std::string name = op.getHelper().str();
-    SmallVector<Value> args = flatten(adaptor.getOperands());
+    SmallVector<Value> args = flatten(rewriter, loc, op, adaptor.getOperands());
     if (std::optional<bool> isSigned = signedness(op)) {
       for (Value &arg : args) {
         if (isa<FloatType>(arg.getType())) {

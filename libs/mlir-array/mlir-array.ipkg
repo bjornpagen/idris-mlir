@@ -1,0 +1,11 @@
+package mlir-array
+version = 0.1.0
+
+brief = "Typed arrays for idris-mlir: shapes in the type, a generating set the compiler lowers to MLIR's tensors, linear arrays and a growable vector, in plain Idris over base's primitives"
+authors = "idris-mlir"
+
+depends = base, mlir-linear
+
+modules = Array,
+          Array.Core,
+          Linear.Vec

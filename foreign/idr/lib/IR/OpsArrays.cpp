@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The ops on arrays: new, get, set, and the loops generate and fold, with
-// their rules, their syntax, their shapes and their effects. How control
-// enters and leaves a loop's body is the region ops' unit's.
+// The ops on arrays a world orders (new, get, set), with their rules, their
+// shapes and their effects; the extent of an array to be made; and the tie
+// of an array's dimensions to sizes, with what value bounds and the folding
+// of a dimension read from it.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Canon.h"
+#include "idr/IR/Ranges.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/Matchers.h"
-#include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Interfaces/ValueBoundsOpInterface.h"
 
 using namespace mlir;
 using namespace idr;
@@ -34,39 +35,6 @@ LogicalResult verifyElement(Operation *op, StringRef what, Type type, MemRefType
     return op->emitOpError() << what << " has type " << type << ", but the array holds "
                              << array.getElementType();
   return success();
-}
-
-// An element a vector lane computes: an integer or a float.
-LogicalResult verifyWord(Operation *op, StringRef what, Type type) {
-  if (!isa<IntegerType, FloatType>(type))
-    return op->emitOpError() << what << " is " << type
-                             << ", and a loop over an array computes machine words: integers "
-                                "and floats";
-  return success();
-}
-
-// The body of a loop over an array ends in idr.yield, or in ub.unreachable
-// after a crash.
-LogicalResult verifyLoopEnd(Operation *op, Region &body) {
-  if (isa<YieldOp, ub::UnreachableOp>(body.front().getTerminator()))
-    return success();
-  return op->emitOpError("expects its body to end in idr.yield or ub.unreachable");
-}
-
-// `(%x: T, ...)` and the region they are the arguments of.
-ParseResult parseLoopBody(OpAsmParser &parser, OperationState &result) {
-  SmallVector<OpAsmParser::Argument> args;
-  if (parser.parseArgumentList(args, OpAsmParser::Delimiter::Paren, /*allowType=*/true))
-    return failure();
-  return parser.parseRegion(*result.addRegion(), args);
-}
-
-void printLoopBody(OpAsmPrinter &printer, Region &body) {
-  printer << " (";
-  llvm::interleaveComma(body.getArguments(), printer,
-                        [&](BlockArgument arg) { printer.printRegionArgument(arg); });
-  printer << ") ";
-  printer.printRegion(body, /*printEntryBlockArgs=*/false);
 }
 
 // An index as its access's guard was given it: the guard's result is the
@@ -106,9 +74,8 @@ LogicalResult ArrayNewOp::verify() {
 // A read that moves its element out leaves the element's place empty, so
 // the next IO on its world, its world's one use, is the write that fills
 // that place again, in its block: anything else between would see the
-// empty place. A machine word is never counted and is read as a memref's
-// element, which a loop may take over, so it does not move. Whether an
-// element of any other type holds a reference may change as passes run
+// empty place. A machine word is never counted and does not move. Whether
+// an element of any other type holds a reference may change as passes run
 // (defunctionalization makes a closure a sum, of captured words only, say),
 // so it is MoveOutBeforeSet's to ask, and a read that moves an element
 // holding none only empties nothing.
@@ -155,143 +122,105 @@ LogicalResult ArrayNewOp::reifyResultShapes(OpBuilder &b,
   return success();
 }
 
-// IO in the world's order, and for a new array its allocation. An access
-// crashes on no index: the index is its guard's to check.
+// Each op's effects are on the array it touches, in the default resource:
+// a new array is allocated and written with its fill, a read reads it (and
+// writes it when it empties the element's place), and a write reads the
+// old element, to release it, and writes the new one. The world orders
+// them with every other effect; an access crashes on no index, the index
+// being its guard's to check.
 void ArrayNewOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  ioEffects(getArray(), effects);
+  auto array = cast<OpResult>(getArray());
+  effects.emplace_back(MemoryEffects::Allocate::get(), array, SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), array, SideEffects::DefaultResource::get());
 }
 void ArrayGetOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  ioEffects(Value(), effects);
+  OpOperand *array = &getArrayMutable();
+  effects.emplace_back(MemoryEffects::Read::get(), array, SideEffects::DefaultResource::get());
+  if (getMoves())
+    effects.emplace_back(MemoryEffects::Write::get(), array, SideEffects::DefaultResource::get());
 }
 void ArraySetOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  ioEffects(Value(), effects);
+  OpOperand *array = &getArrayMutable();
+  effects.emplace_back(MemoryEffects::Read::get(), array, SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), array, SideEffects::DefaultResource::get());
 }
 
-// `idr.array.generate %n, %fill, %w : E -> memref<?xE> (%i: i64) {...}`
-ParseResult ArrayGenerateOp::parse(OpAsmParser &parser, OperationState &result) {
-  OpAsmParser::UnresolvedOperand size, fill, worldOperand;
-  Type fillType, arrayType;
-  if (parser.parseOperand(size) || parser.parseComma() || parser.parseOperand(fill) ||
-      parser.parseComma() || parser.parseOperand(worldOperand) ||
-      parser.parseOptionalAttrDict(result.attributes) || parser.parseColon() ||
-      parser.parseType(fillType) || parser.parseArrow() || parser.parseType(arrayType) ||
-      parseLoopBody(parser, result))
-    return failure();
-  Builder &b = parser.getBuilder();
-  Type worldType = world(b.getContext());
-  if (parser.resolveOperand(size, b.getI64Type(), result.operands) ||
-      parser.resolveOperand(fill, fillType, result.operands) ||
-      parser.resolveOperand(worldOperand, worldType, result.operands))
-    return failure();
-  result.addTypes({arrayType, worldType});
+// Any natural may be past the small range, so the conversion may always
+// fail: as the allocation of that many elements would.
+std::optional<StringRef> NatToExtentOp::getCrashCause() { return StringRef("array too large"); }
+
+// A constant natural that is small is its extent. One that is not stays,
+// to fail where it runs.
+OpFoldResult NatToExtentOp::fold(FoldAdaptor adaptor) {
+  auto big = dyn_cast_or_null<BigAttr>(adaptor.getNatural());
+  int64_t value = 0;
+  if (!big || big.getValue().getAsInteger(10, value) || value < 0 ||
+      value > idr::ranges::smallMax)
+    return {};
+  return IntegerAttr::get(IndexType::get(getContext()), value);
+}
+
+// The natural's range, within what the op lets through: 0 to the largest
+// small.
+void NatToExtentOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
+                                      SetIntRangeFn setResultRange) {
+  idr::ranges::Bounds bounds = idr::ranges::boundsOf(ranges[0]);
+  int64_t lo = std::max<int64_t>(bounds.lo.value_or(0), 0);
+  int64_t hi = std::min<int64_t>(bounds.hi.value_or(idr::ranges::smallMax), idr::ranges::smallMax);
+  if (hi < lo)
+    hi = lo;
+  setResultRange(getResult(), ConstantIntRanges::fromSigned(
+                                  APInt(64, static_cast<uint64_t>(lo), /*isSigned=*/true),
+                                  APInt(64, static_cast<uint64_t>(hi), /*isSigned=*/true)));
+}
+
+// One size per dynamic dimension. A world-ordered array's length is its
+// own, so it is never tied.
+LogicalResult TieShapeOp::verify() {
+  auto type = cast<ShapedType>(getType());
+  if (getDims().size() != static_cast<size_t>(type.getNumDynamicDims()))
+    return emitOpError("takes ") << getDims().size() << " sizes for " << type
+                                 << ", which has " << type.getNumDynamicDims()
+                                 << " dynamic dimensions";
+  if (auto memref = dyn_cast<MemRefType>(type);
+      memref && isa_and_present<WorldSpaceAttr>(memref.getMemorySpace()))
+    return emitOpError("ties ") << type << ", an array a world orders, whose length is its own";
   return success();
 }
 
-void ArrayGenerateOp::print(OpAsmPrinter &printer) {
-  printer << ' ' << getSize() << ", " << getFill() << ", " << getWorld();
-  printer.printOptionalAttrDict((*this)->getAttrs());
-  printer << " : " << getFill().getType() << " -> " << getArray().getType();
-  printLoopBody(printer, getBody());
+// No dynamic dimension, nothing to say; the same sizes said twice, once.
+OpFoldResult TieShapeOp::fold(FoldAdaptor) {
+  if (getDims().empty())
+    return getValue();
+  if (auto inner = getValue().getDefiningOp<TieShapeOp>(); inner && inner.getDims() == getDims())
+    return getValue();
+  return {};
 }
 
-// The body takes the index, an i64.
-LogicalResult ArrayGenerateOp::verify() {
-  Type element = getArrayType().getElementType();
-  if (failed(verifyWord(*this, "the element", element)) ||
-      failed(verifyElement(*this, "the fill", getFill().getType(), getArrayType())))
-    return failure();
-  Type index = IntegerType::get(getContext(), 64);
-  TypeRange args = getBody().front().getArgumentTypes();
-  if (args != TypeRange(index))
-    return emitOpError("expects its body to take ") << TypeRange(index) << ", not " << args;
+// Each dimension: a static one's size, a dynamic one's operand.
+LogicalResult TieShapeOp::reifyResultShapes(OpBuilder &b, ReifiedRankedShapedTypeDims &shapes) {
+  auto type = cast<ShapedType>(getType());
+  SmallVector<OpFoldResult> dims;
+  unsigned next = 0;
+  for (int64_t size : type.getShape())
+    dims.push_back(ShapedType::isDynamic(size) ? OpFoldResult(getDims()[next++])
+                                               : OpFoldResult(b.getIndexAttr(size)));
+  shapes.push_back(std::move(dims));
   return success();
 }
 
-// The body yields the element at its index, at any grade. The loop stores
-// it and forwards nothing, so no RegionBranchOpInterface edge checks it.
-LogicalResult ArrayGenerateOp::verifyRegions() {
-  if (failed(verifyLoopEnd(*this, getBody())))
-    return failure();
-  Type element = getArrayType().getElementType();
-  auto yield = dyn_cast<YieldOp>(getBody().front().getTerminator());
-  if (yield &&
-      (yield.getNumOperands() != 1 || unrestricted(yield.getOperand(0).getType()) != element))
-    return yield.emitOpError("yields ")
-           << yield.getOperandTypes() << ", but the loop's body gives " << element;
-  return success();
-}
-
-// `idr.array.fold %a, %init, %w : memref<?xE>, T -> T (%acc: T, %x: E, %i: i64) {...}`
-ParseResult ArrayFoldOp::parse(OpAsmParser &parser, OperationState &result) {
-  OpAsmParser::UnresolvedOperand array, init, worldOperand;
-  Type arrayType, initType, resultType;
-  if (parser.parseOperand(array) || parser.parseComma() || parser.parseOperand(init) ||
-      parser.parseComma() || parser.parseOperand(worldOperand) ||
-      parser.parseOptionalAttrDict(result.attributes) || parser.parseColon() ||
-      parser.parseType(arrayType) || parser.parseComma() || parser.parseType(initType) ||
-      parser.parseArrow() || parser.parseType(resultType) || parseLoopBody(parser, result))
-    return failure();
-  Type worldType = world(parser.getBuilder().getContext());
-  if (parser.resolveOperand(array, arrayType, result.operands) ||
-      parser.resolveOperand(init, initType, result.operands) ||
-      parser.resolveOperand(worldOperand, worldType, result.operands))
-    return failure();
-  result.addTypes({resultType, worldType});
-  return success();
-}
-
-void ArrayFoldOp::print(OpAsmPrinter &printer) {
-  printer << ' ' << getArray() << ", " << getInit() << ", " << getWorld();
-  printer.printOptionalAttrDict((*this)->getAttrs());
-  printer << " : " << getArray().getType() << ", " << getInit().getType() << " -> "
-          << getResult().getType();
-  printLoopBody(printer, getBody());
-}
-
-LogicalResult ArrayFoldOp::verify() {
-  Type element = getArrayType().getElementType();
-  Type acc = unrestricted(getInit().getType());
-  if (failed(verifyWord(*this, "the element", element)) ||
-      failed(verifyWord(*this, "the accumulator", acc)))
-    return failure();
-  if (unrestricted(getResult().getType()) != acc)
-    return emitOpError("gives ") << getResult().getType() << ", but folds an accumulator of "
-                                 << acc;
-  // The body's three arguments are its region's constraint, which the
-  // generated verifier checks before this one.
-  Block &block = getBody().front();
-  TypeRange args = block.getArgumentTypes();
-  if (unrestricted(args[0]) != acc || unrestricted(args[1]) != element || !args[2].isInteger(64))
-    return emitOpError("expects its body to take the accumulator (")
-           << acc << "), the element (" << element << ") and the index (i64), not " << args;
-  return success();
-}
-
-// The body yields the next accumulator, which RegionBranchOpInterface
-// checks along the yield's edges, back into the body and out to the result.
-LogicalResult ArrayFoldOp::verifyRegions() { return verifyLoopEnd(*this, getBody()); }
-
-// As a new array's: its size clamped at 0, as an index.
-LogicalResult ArrayGenerateOp::reifyResultShapes(OpBuilder &b,
-                                                 ReifiedRankedShapedTypeDims &shapes) {
-  Location loc = getLoc();
-  Value zero = arith::ConstantOp::create(b, loc, b.getI64IntegerAttr(0));
-  Value length = arith::MaxSIOp::create(b, loc, getSize(), zero);
-  Value index = arith::IndexCastOp::create(b, loc, b.getIndexType(), length);
-  shapes.push_back({OpFoldResult(index)});
-  return success();
-}
-
-// The loop's own effects: IO in the world's order, and for a generate the
-// new array; its body's ops carry theirs (RecursiveMemoryEffects).
-void ArrayGenerateOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  ioEffects(getArray(), effects);
-}
-void ArrayFoldOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  ioEffects(Value(), effects);
+// The result's dimension is its size, and is the operand's: so two arrays
+// tied to one size have one dimension, wherever each came from.
+void TieShapeOp::populateBoundsForShapedValueDim(Value value, int64_t dim,
+                                                 ValueBoundsConstraintSet &cstr) {
+  auto type = cast<ShapedType>(getType());
+  auto at = static_cast<unsigned>(dim);
+  if (type.isDynamicDim(at))
+    cstr.bound(value)[dim] == OpFoldResult(getDims()[type.getDynamicDimIndex(at)]);
+  else
+    cstr.bound(value)[dim] == type.getDimSize(at);
+  cstr.bound(value)[dim] == cstr.getExpr(getValue(), dim);
 }

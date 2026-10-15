@@ -1,173 +1,199 @@
-// RUN: idris-mlir-opt %s --idr-target --idr-lower --idr-vectorize --idr-narrow-lanes --canonicalize --cse | FileCheck %s
-// RUN: idris-mlir-opt %s --idr-target --idr-lower --idr-vectorize --idr-narrow-lanes --idr-expect=holds=narrowed-lanes=@rows,narrowed-lanes=@squares -o /dev/null
-// RUN: %status 1 idris-mlir-opt %s --idr-target --idr-lower --idr-vectorize --idr-narrow-lanes --idr-expect=holds=narrowed-lanes=@eighth -o /dev/null 2> %t.err
+// RUN: rm -rf %t.d && mkdir -p %t.d
+// RUN: idris-mlir -c %s -o %t.o --mlir-disable-threading -mlir-print-ir-module-scope -mlir-print-ir-after-all -mlir-print-ir-tree-dir=%t.d
+// RUN: sh -c 'for f in squares eighth inexact rows; do cp %t.d/builtin_module_no-symbol-name/func_func_$f/*_idr-narrow-lanes.mlir %t.$f.mlir || exit 1; done'
+// RUN: idris-mlir-opt %t.squares.mlir --idr-expect=holds=narrowed-lanes=@squares -o /dev/null
+// RUN: idris-mlir-opt %t.rows.mlir --idr-expect=holds=narrowed-lanes=@rows -o /dev/null
+// RUN: %status 1 idris-mlir-opt %t.eighth.mlir --idr-expect=holds=narrowed-lanes=@eighth -o /dev/null 2> %t.err
 // RUN: FileCheck %s --check-prefix=WIDE < %t.err
-// RUN: %status 1 idris-mlir-opt %s --idr-target --idr-lower --idr-vectorize --idr-narrow-lanes --idr-expect=holds=narrowed-lanes=@inexact -o /dev/null 2> %t.inexact
+// RUN: %status 1 idris-mlir-opt %t.inexact.mlir --idr-expect=holds=narrowed-lanes=@inexact -o /dev/null 2> %t.inexact
 // RUN: FileCheck %s --check-prefix=INEXACT < %t.inexact
+// RUN: FileCheck %s --check-prefix=SQUARES < %t.squares.mlir
+// RUN: FileCheck %s --check-prefix=EIGHTH < %t.eighth.mlir
+// RUN: FileCheck %s --check-prefix=ROWS < %t.rows.mlir
 // RUN: idris-mlir-opt %s --idr-target --idr-pipeline | FileCheck %s --check-prefix=LLVM
+// NEEDS-ACCEPTANCE: the versioned loops' printed form after idr-narrow-lanes on the vectorization schedule's loops (C13 section 4, U09), and the tree printer's file names for a function.
 // After idr-narrow-lanes a vectorized loop whose body computes on the
 // 64-bit index has two versions: when the sizes it reads are at most a
 // bound (one test on entry), a copy whose integer lanes are i32, the
-// sizes behind arith.minui so that the analysis knows the bound, its
-// conversion to double from the i32 word and marked non-negative (the
-// signed conversion is the one the target has for 32-bit lanes);
+// sizes behind arith.minui so that the analysis knows the bound;
 // otherwise the loop as it was, on i64 lanes (and the loop of the last
 // tile, which runs once, keeps its i64 lanes). The bound is the body's:
 // the squares fit i32 below 2^15, the rows' (i + j) * (i + j + 1) below
-// 2^14, its division by 2 floored as Idris's `div` is (a signed
-// remainder by 2 included). A body no bound above 2^8 makes fit (the
-// eighth power) stays one loop on 64-bit lanes. An op whose 32-bit form
-// would compute something else keeps its 64-bit lanes, in a version or
-// not, whatever the ops around it do (@inexact): a shift by up to 40,
-// poison on i32; a signed remainder that sees INT32_MIN % -1 at index 1
-// (the loop's first, element 0 being the fill), which overflows on i32;
-// an unsigned remainder of a word that is negative at index 1, read as
-// another number on i32. The whole
-// pipeline reaches the LLVM dialect with the 32-bit lanes in it. The lanes
-// are x86-64-v3's four, the x86-64 target entry's CPU.
-// CHECK-LABEL: func.func private @squares(
-// CHECK: arith.cmpi ule
-// CHECK: scf.if
-// CHECK: arith.minui
-// CHECK: scf.for
-// CHECK-NOT: arith.muli {{.*}} : vector<4xi64>
-// CHECK: arith.muli {{.*}} : vector<4xi32>
-// CHECK: arith.extui {{.*}} nneg : vector<4xi32> to vector<4xi64>
-// CHECK: vector.transfer_write {{.*}} : vector<4xi64>
-// CHECK-NOT: arith.muli {{.*}} : vector<4xi64>
-// CHECK: } else {
-// CHECK: scf.for
-// CHECK: arith.muli {{.*}} : vector<4xi64>
-// CHECK: return
-// CHECK-LABEL: func.func private @eighth(
-// CHECK-NOT: scf.if
-// CHECK: arith.muli {{.*}} : vector<4xi64>
-// CHECK-NOT: scf.if
-// CHECK: return
-// CHECK-LABEL: func.func private @inexact(
-// CHECK-NOT: arith.shrui {{.*}} : vector<4xi32>
-// CHECK: arith.shrui {{.*}} : vector<4xi64>
-// CHECK-NOT: arith.shrui {{.*}} : vector<4xi32>
-// CHECK-NOT: arith.remsi {{.*}} : vector<4xi32>
-// CHECK: arith.remsi {{.*}} : vector<4xi64>
-// CHECK-NOT: arith.remsi {{.*}} : vector<4xi32>
-// CHECK-NOT: arith.remui {{.*}} : vector<4xi32>
-// CHECK: arith.remui {{.*}} : vector<4xi64>
-// CHECK-NOT: arith.remui {{.*}} : vector<4xi32>
-// CHECK: return
-// CHECK-LABEL: func.func private @rows(
-// CHECK: arith.cmpi ule
-// CHECK: scf.if
-// CHECK: arith.minui
-// CHECK: scf.for
-// CHECK: scf.for
-// CHECK-NOT: arith.muli {{.*}} : vector<4xi64>
-// CHECK: arith.muli {{.*}} : vector<4xi32>
-// CHECK: arith.remsi {{.*}} : vector<4xi32>
-// CHECK: arith.uitofp {{.*}} nneg : vector<4xi32> to vector<4xf64>
-// CHECK: arith.divf {{.*}} : vector<4xf64>
-// CHECK-NOT: arith.muli {{.*}} : vector<4xi64>
-// CHECK: } else {
-// CHECK: scf.for
-// CHECK: scf.for
-// CHECK: arith.muli {{.*}} : vector<4xi64>
-// CHECK: arith.sitofp {{.*}} : vector<4xi64> to vector<4xf64>
-// CHECK: return
+// 2^14, its division by 2 floored as Idris's `div` is. A body no bound
+// above 2^8 makes fit (the eighth power) stays one loop on 64-bit lanes.
+// An op whose 32-bit form would compute something else keeps its 64-bit
+// lanes, in a version or not, whatever the ops around it do (@inexact): a
+// shift by up to 40, poison on i32; a signed remainder that sees
+// INT32_MIN % -1, which overflows on i32; an unsigned remainder of a word
+// that is negative, read as another number on i32. Each function keeps
+// its own body (no_inline), read in the module printed after
+// idr-narrow-lanes ran on it. The whole pipeline reaches the LLVM dialect
+// with the 32-bit lanes in it. The lanes are x86-64-v3's four, the x86-64
+// target entry's CPU.
+// SQUARES-LABEL: func.func private @squares(
+// SQUARES: arith.cmpi ule
+// SQUARES: scf.if
+// SQUARES: arith.minui
+// SQUARES: scf.for
+// SQUARES: arith.muli {{.*}} : vector<4xi32>
+// SQUARES: } else {
+// SQUARES: scf.for
+// SQUARES: arith.muli {{.*}} : vector<4xi64>
+// SQUARES: return
+// EIGHTH-LABEL: func.func private @eighth(
+// EIGHTH-NOT: scf.if
+// EIGHTH: arith.muli {{.*}} : vector<4xi64>
+// EIGHTH-NOT: scf.if
+// EIGHTH: return
+// ROWS-LABEL: func.func private @rows(
+// ROWS: arith.cmpi ule
+// ROWS: scf.if
+// ROWS: arith.minui
+// ROWS: arith.muli {{.*}} : vector<4xi32>
+// ROWS: arith.divf {{.*}} : vector<4xf64>
+// ROWS: } else {
+// ROWS: arith.muli {{.*}} : vector<4xi64>
+// ROWS: return
 // WIDE: error: expected narrowed-lanes: a loop computes integer lanes of 64 bits with no 32-bit version in @eighth
 // INEXACT: error: expected narrowed-lanes: a loop computes integer lanes of 64 bits with no 32-bit version in @inexact
 // LLVM-NOT: vector.
 // LLVM-NOT: affine.
 // LLVM-NOT: linalg.
 // LLVM: llvm.mul %{{.*}} : vector<4xi32>
-// LLVM: llvm.uitofp nneg %{{.*}} : vector<4xi32> to vector<4xf64>
-// LLVM: llvm.store %{{.*}} : vector<4xf64>, !llvm.ptr
 // LLVM-NOT: vector.
 // LLVM-NOT: affine.
 // LLVM-NOT: linalg.
-module attributes {idr.program} {
-  idr.func @root(%w: !idr.world) -> !idr.world {
-    %n = arith.constant 7 : i64
-    %a, %w1 = idr.call @squares(%n, %w) : (i64, !idr.world) -> (memref<?xi64>, !idr.world)
-    %b, %w2 = idr.call @eighth(%n, %w1) : (i64, !idr.world) -> (memref<?xi64>, !idr.world)
-    %c, %w3 = idr.call @inexact(%n, %w2) : (i64, !idr.world) -> (memref<?xi64>, !idr.world)
-    %v, %w4 = idr.call @ones(%n, %w3) : (i64, !idr.world) -> (memref<?xf64>, !idr.world)
-    %r, %w5 = idr.call @rows(%n, %v, %w4) : (i64, memref<?xf64>, !idr.world) -> (memref<?xf64>, !idr.world)
-    return %w5 : !idr.world
-  }
-  idr.func private @squares(%n: i64, %w: !idr.world) -> (memref<?xi64>, !idr.world) {
-    %zero = arith.constant 0 : i64
-    %a, %w1 = idr.array.generate %n, %zero, %w : i64 -> memref<?xi64> (%i: i64) {
-      %sq = arith.muli %i, %i : i64
-      idr.yield %sq : i64
+module {
+  idr.func private @squares(%n: index) -> tensor<?xi64> attributes {total, no_inline} {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %e = tensor.empty(%n) : tensor<?xi64>
+    %r = scf.for %i = %c0 to %n step %c1 iter_args(%a = %e) -> (tensor<?xi64>) {
+      %x = arith.index_cast %i : index to i64
+      %sq = arith.muli %x, %x : i64
+      %a1 = tensor.insert %sq into %a[%i] : tensor<?xi64>
+      scf.yield %a1 : tensor<?xi64>
     }
-    return %a, %w1 : memref<?xi64>, !idr.world
+    return %r : tensor<?xi64>
   }
-  idr.func private @eighth(%n: i64, %w: !idr.world) -> (memref<?xi64>, !idr.world) {
-    %zero = arith.constant 0 : i64
-    %a, %w1 = idr.array.generate %n, %zero, %w : i64 -> memref<?xi64> (%i: i64) {
-      %sq = arith.muli %i, %i : i64
+  idr.func private @eighth(%n: index) -> tensor<?xi64> attributes {total, no_inline} {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %e = tensor.empty(%n) : tensor<?xi64>
+    %r = scf.for %i = %c0 to %n step %c1 iter_args(%a = %e) -> (tensor<?xi64>) {
+      %x = arith.index_cast %i : index to i64
+      %sq = arith.muli %x, %x : i64
       %fourth = arith.muli %sq, %sq : i64
       %eighth = arith.muli %fourth, %fourth : i64
-      idr.yield %eighth : i64
+      %a1 = tensor.insert %eighth into %a[%i] : tensor<?xi64>
+      scf.yield %a1 : tensor<?xi64>
     }
-    return %a, %w1 : memref<?xi64>, !idr.world
+    return %r : tensor<?xi64>
   }
-  idr.func private @inexact(%n: i64, %w: !idr.world) -> (memref<?xi64>, !idr.world) {
+  idr.func private @inexact(%n: index) -> (tensor<?xi64>, tensor<?xi64>, tensor<?xi64>) attributes {total, no_inline} {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
     %zero = arith.constant 0 : i64
     %c41 = arith.constant 41 : i64
     %below = arith.constant -2147483649 : i64
     %two = arith.constant 2 : i64
     %seven = arith.constant 7 : i64
-    %a, %w1 = idr.array.generate %n, %zero, %w : i64 -> memref<?xi64> (%i: i64) {
-      %s = arith.remui %i, %c41 : i64
-      %r = arith.shrui %i, %s : i64
-      idr.yield %r : i64
+    %e1 = tensor.empty(%n) : tensor<?xi64>
+    %r1 = scf.for %i = %c0 to %n step %c1 iter_args(%a = %e1) -> (tensor<?xi64>) {
+      %x = arith.index_cast %i : index to i64
+      %s = arith.remui %x, %c41 : i64
+      %y = arith.shrui %x, %s : i64
+      %a1 = tensor.insert %y into %a[%i] : tensor<?xi64>
+      scf.yield %a1 : tensor<?xi64>
     }
-    %b, %w2 = idr.array.generate %n, %zero, %w1 : i64 -> memref<?xi64> (%i: i64) {
-      %x = arith.addi %i, %below : i64
-      %d = arith.subi %zero, %i : i64
-      %r = arith.remsi %x, %d : i64
-      idr.yield %r : i64
+    %e2 = tensor.empty(%n) : tensor<?xi64>
+    %r2 = scf.for %i = %c0 to %n step %c1 iter_args(%a = %e2) -> (tensor<?xi64>) {
+      %x = arith.index_cast %i : index to i64
+      %p = arith.addi %x, %below : i64
+      %d = arith.subi %zero, %x : i64
+      %y = arith.remsi %p, %d : i64
+      %a1 = tensor.insert %y into %a[%i] : tensor<?xi64>
+      scf.yield %a1 : tensor<?xi64>
     }
-    %c, %w3 = idr.array.generate %n, %zero, %w2 : i64 -> memref<?xi64> (%i: i64) {
-      %x = arith.subi %i, %two : i64
-      %r = arith.remui %x, %seven : i64
-      idr.yield %r : i64
+    %e3 = tensor.empty(%n) : tensor<?xi64>
+    %r3 = scf.for %i = %c0 to %n step %c1 iter_args(%a = %e3) -> (tensor<?xi64>) {
+      %x = arith.index_cast %i : index to i64
+      %p = arith.subi %x, %two : i64
+      %y = arith.remui %p, %seven : i64
+      %a1 = tensor.insert %y into %a[%i] : tensor<?xi64>
+      scf.yield %a1 : tensor<?xi64>
     }
-    return %c, %w3 : memref<?xi64>, !idr.world
+    return %r1, %r2, %r3 : tensor<?xi64>, tensor<?xi64>, tensor<?xi64>
   }
-  idr.func private @ones(%n: i64, %w: !idr.world) -> (memref<?xf64>, !idr.world) {
+  idr.func private @ones(%n: index) -> tensor<?xf64> attributes {total, no_inline} {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
     %one = arith.constant 1.0 : f64
-    %a, %w1 = idr.array.new [%n], %one, %w : f64 -> memref<?xf64>
-    return %a, %w1 : memref<?xf64>, !idr.world
+    %e = tensor.empty(%n) : tensor<?xf64>
+    %r = scf.for %i = %c0 to %n step %c1 iter_args(%a = %e) -> (tensor<?xf64>) {
+      %a1 = tensor.insert %one into %a[%i] : tensor<?xf64>
+      scf.yield %a1 : tensor<?xf64>
+    }
+    return %r : tensor<?xf64>
   }
-  idr.func private @rows(%n: i64, %v: memref<?xf64>, %w: !idr.world) -> (memref<?xf64>, !idr.world) {
+  idr.func private @rows(%n: index, %v: tensor<?xf64>) -> tensor<?xf64> attributes {total, no_inline} {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
     %zero = arith.constant 0.0 : f64
     %zeroi = arith.constant 0 : i64
     %one = arith.constant 1 : i64
     %two = arith.constant 2 : i64
     %unit = arith.constant 1.0 : f64
-    %r, %w1 = idr.array.generate %n, %zero, %w : f64 -> memref<?xf64> (%i: i64) {
-      %w0 = idr.world.new
-      %i1 = arith.addi %i, %one : i64
-      %s, %w2 = idr.array.fold %v, %zero, %w0 : memref<?xf64>, f64 -> f64 (%acc: f64, %x: f64, %j: i64) {
-        %ij = arith.addi %i, %j : i64
+    %m = tensor.dim %v, %c0 : tensor<?xf64>
+    %e = tensor.empty(%n) : tensor<?xf64>
+    %r = scf.for %i = %c0 to %n step %c1 iter_args(%a = %e) -> (tensor<?xf64>) {
+      %ii = arith.index_cast %i : index to i64
+      %i1 = arith.addi %ii, %one : i64
+      %s = scf.for %j = %c0 to %m step %c1 iter_args(%acc = %zero) -> (f64) {
+        %x = tensor.extract %v[%j] : tensor<?xf64>
+        %jj = arith.index_cast %j : index to i64
+        %ij = arith.addi %ii, %jj : i64
         %ij1 = arith.addi %ij, %one : i64
         %p = arith.muli %ij, %ij1 : i64
         %q = arith.divsi %p, %two : i64
         %rem = arith.remsi %p, %two : i64
-        %below = arith.cmpi slt, %rem, %zeroi : i64
+        %neg = arith.cmpi slt, %rem, %zeroi : i64
         %down = arith.subi %q, %one : i64
-        %h = arith.select %below, %down, %q : i64
+        %h = arith.select %neg, %down, %q : i64
         %k = arith.addi %h, %i1 : i64
         %d = arith.sitofp %k : i64 to f64
-        %e = arith.divf %unit, %d : f64
-        %m = arith.mulf %e, %x : f64
-        %t = arith.addf %acc, %m : f64
-        idr.yield %t : f64
+        %f = arith.divf %unit, %d : f64
+        %g = arith.mulf %f, %x : f64
+        %t = arith.addf %acc, %g : f64
+        scf.yield %t : f64
       }
-      idr.yield %s : f64
+      %a1 = tensor.insert %s into %a[%i] : tensor<?xf64>
+      scf.yield %a1 : tensor<?xf64>
     }
-    return %r, %w1 : memref<?xf64>, !idr.world
+    return %r : tensor<?xf64>
+  }
+  idr.func @root(%w: !idr.world) -> !idr.world {
+    %c0 = arith.constant 0 : index
+    %b, %w1 = idr.io.get_byte %w
+    %b64 = arith.extui %b : i32 to i64
+    %n = arith.index_cast %b64 : i64 to index
+    %sq = idr.call @squares(%n) : (index) -> tensor<?xi64>
+    %e8 = idr.call @eighth(%n) : (index) -> tensor<?xi64>
+    %x:3 = idr.call @inexact(%n) : (index) -> (tensor<?xi64>, tensor<?xi64>, tensor<?xi64>)
+    %v = idr.call @ones(%n) : (index) -> tensor<?xf64>
+    %r = idr.call @rows(%n, %v) : (index, tensor<?xf64>) -> tensor<?xf64>
+    %s0 = tensor.extract %sq[%c0] : tensor<?xi64>
+    %w2 = idr.io.put_int signed %s0, %w1 : i64
+    %s1 = tensor.extract %e8[%c0] : tensor<?xi64>
+    %w3 = idr.io.put_int signed %s1, %w2 : i64
+    %s2 = tensor.extract %x#0[%c0] : tensor<?xi64>
+    %w4 = idr.io.put_int signed %s2, %w3 : i64
+    %s3 = tensor.extract %x#1[%c0] : tensor<?xi64>
+    %w5 = idr.io.put_int signed %s3, %w4 : i64
+    %s4 = tensor.extract %x#2[%c0] : tensor<?xi64>
+    %w6 = idr.io.put_int signed %s4, %w5 : i64
+    %r0 = tensor.extract %r[%c0] : tensor<?xf64>
+    %w7 = idr.io.put_double %r0, %w6
+    return %w7 : !idr.world
   }
 }

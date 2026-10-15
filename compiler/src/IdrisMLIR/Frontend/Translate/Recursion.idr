@@ -2,12 +2,9 @@
 -- Copyright (c) 2026 Bjorn Pagen
 ||| The components of the call graph, found in the size-change graphs that
 ||| Idris's termination checker keeps for every definition (`sizeChange`),
-||| and what each says of its recursion. A call in a recursive component
-||| that gives a callee's type or implementation argument anything but one
-||| of the caller's own arguments, unchanged, would ask for instances at
-||| ever larger types: polymorphic recursion. And every loop through a
-||| definition terminates when the graphs of the calls in its component
-||| decrease some argument each time round, which is what the definition's
+||| and what each says of its loops. Every loop through a definition
+||| terminates when the graphs of the calls in its component decrease some
+||| argument each time round, which is what the definition's
 ||| `terminating` fact says (`Facts`): a loop never leaves its component.
 ||| Idris folds a case block's calls into its parent's graph, so the
 ||| definitions here are the ones Idris checks.
@@ -19,14 +16,10 @@ import Core.TT
 import Core.Termination.SizeChange
 import Libraries.Data.SparseMatrix
 
-import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.State
-import IdrisMLIR.Frontend.Translate.Types
-import IdrisMLIR.Rule
 
 import Data.List
-import Data.List1
 import Data.SortedMap
 import Data.SortedSet
 
@@ -97,36 +90,10 @@ mutual
       lower : String -> Nat -> Search -> Search
       lower k n st = { low $= \m => insert k (min n (fromMaybe n (lookup k m))) m } st
 
-||| The positions of a definition's type or implementation arguments, which
-||| key its instances.
-staticPositions : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> Core (List Nat)
-staticPositions n = do
-  defs <- get Ctxt
-  Just def <- lookupCtxtExact n (gamma defs)
-    | Nothing => pure []
-  go 0 (type def)
-  where
-    go : Nat -> TT vars -> Core (List Nat)
-    go i (Bind _ _ (Pi _ rig _ a) sc) = do
-      -- As `classify` decides: an erased argument is a compile-time value
-      -- only when it is a type, any other only when it is an
-      -- implementation.
-      static <- if isErased rig then pure (isTypeLike a) else dictionaryBinder rig a
-      rest <- go (S i) sc
-      pure (if static then i :: rest else rest)
-    go _ _ = pure []
-
-||| Is argument `i` of a call one of the caller's own, unchanged?
-same : Nat -> SCCall -> Bool
-same i call = case Data.List.lookup i call.fnArgs of
-  Just row => any (\(_, change) => change == Same) (forget row)
-  Nothing => False
-
 ||| Checks one component: whether every loop through each of its
-||| definitions terminates, and, for a recursive one, that it passes on a
-||| type or an implementation only as the caller got it. Each call that
-||| does not is rejected, and the whole component is refused: its
-||| instances would never end, so the translation leaves them out.
+||| definitions terminates, which its definitions' `terminating` fact says.
+||| Whether its recursion asks for ever more instances is the request
+||| chains' to say (`Instances.request`), on the instances themselves.
 checkComponent : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                  SortedMap String Node -> List String -> Core ()
 checkComponent nodes members = do
@@ -136,20 +103,6 @@ checkComponent nodes members = do
               | caller <- callers, call <- caller.calls, contains (nameKey call.fnCall) inside ]
   let verdicts = loopsTerminate calls (map (.name) callers)
   update TState { loops $= \m => foldl (\m', (n, v) => insert (nameKey n) v m') m verdicts }
-  let recursive = case members of
-                    [one] => maybe False (any (\call => nameKey call.fnCall == one) . (.calls)) (lookup one nodes)
-                    _ => True
-  when recursive $ do
-    wrong <- for callers $ \caller =>
-      for (filter (\call => contains (nameKey call.fnCall) inside) caller.calls) $ \call => do
-        positions <- staticPositions call.fnCall
-        if all (\i => same i call) positions then pure False else do
-          noted $ reject caller.location (show caller.name) Polymorphism
-                    ("polymorphic recursion: " ++ show caller.name ++ " calls " ++ show call.fnCall ++
-                     " with a type or an implementation that is not its own, unchanged")
-          pure True
-    when (any (any id) wrong) $
-      update TState { refused $= \r => foldl (\r', caller => insert (nameKey caller.name) r') r callers }
 
 ||| Checks the component of a definition, and of every definition it
 ||| reaches, once each.

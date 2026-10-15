@@ -52,6 +52,16 @@ void forTails(mlir::Block &block, llvm::function_ref<void(mlir::Block &)> f);
 bool reachesTailCall(mlir::Block &block, FuncOp fn);
 
 //===----------------------------------------------------------------------===//
+// Copies
+//===----------------------------------------------------------------------===//
+
+// The name of the copy of `fn` of kind `kind` (`acc`, `trmc`), from content:
+// a function has at most one copy of each kind, and both are in the name,
+// so the key is empty. A symbol of that name in `symbols` is something
+// else, which is an internal error at `fn`, reported here.
+mlir::FailureOr<mlir::StringAttr> copyName(FuncOp fn, llvm::StringRef kind, mlir::SymbolTable &symbols);
+
+//===----------------------------------------------------------------------===//
 // Loops
 //===----------------------------------------------------------------------===//
 

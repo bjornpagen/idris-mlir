@@ -1,0 +1,34 @@
+#!/bin/sh
+# Acceptance is a property of the program, never of the optimizer: no
+# count, round, fixpoint or budget refuses a program. A budget stops an
+# optimization and leaves the program less optimized; a broken
+# termination argument is an internal error. So the refusal a budget used
+# to give is spelled in no source of the compiler, its rule in neither
+# half, and the frontend keeps no count of the instances of a definition:
+# its request chains decide finiteness. The names are spelled in pieces so
+# this test is not its own hit.
+. "$IDRIS_MLIR_ROOT/tests/testutils.sh"
+cd "$root" || exit 1
+phrase='compile-time ''budget'
+rule='Compile''Budget'
+bound='instance''Budget'
+sources() {
+  find foreign/idr runtime -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.td' \) ! -path '*/build/*'
+  find compiler/src -type f -name '*.idr' ! -path '*/build/*'
+}
+sources | LC_ALL=C sort > "$work/sources"
+if grep -q '^compiler/src/' "$work/sources" && grep -q '^foreign/idr/' "$work/sources"; then
+  say "sources: the dialect's, the runtime's and the frontend's searched"
+else
+  say "sources: none found"
+fi
+: > "$work/counted"
+while IFS= read -r file; do
+  grep -nF -e "$phrase" -e "$rule" -e "$bound" "$file" | sed "s|^|$file:|" >> "$work/counted"
+done < "$work/sources"
+if [ -s "$work/counted" ]; then
+  say "a refusal by count remains:"
+  cat "$work/counted"
+else
+  say "refusals: none by count, round or budget"
+fi

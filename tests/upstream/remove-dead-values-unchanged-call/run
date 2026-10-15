@@ -1,14 +1,11 @@
 #!/bin/sh
-# The pinned mlir-opt, with upstream/16-remove-dead-values-unchanged-call/llvm.patch,
-# no longer shows the bug: remove-dead-values, on a module from which it
-# erases nothing, leaves the call of a private function as it is, so
-# composite-fixed-point-pass over it converges after one run, with the
-# pass's canonicalization and without. An unpatched mlir-opt (main at
-# 7208ba24) replaces the call with an identical one, which the composite
-# pass's fingerprint counts as a change. When the pin's eraseOpResults
-# keeps an operation it erases no result of, the patch goes, and with it
-# the PINS.md entry remove-dead-values-unchanged-call, the report and this
-# test (upstream/README.md).
+# The upstream bug upstream/16-remove-dead-values-unchanged-call still
+# reproduces with the pinned mlir-opt: remove-dead-values, on a module from
+# which it erases nothing, replaces the call of a private function with an
+# identical one, so composite-fixed-point-pass over it does not converge
+# after one run, with the pass's canonicalization and without. This
+# repository carries no patch for it (the README says why). When this
+# fails, the bug is fixed: the report and this test go (upstream/README.md).
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 input=$root/upstream/16-remove-dead-values-unchanged-call/unchanged-call.mlir
 # The pass has nothing to erase: it prints the module as it was.
@@ -25,9 +22,11 @@ for canonicalize in true false; do
     > /dev/null 2> "$work/err"
   status=$?
   if [ "$status" -eq 0 ]; then
-    say "canonicalize=$canonicalize: no longer rebuilds (converges after one run)"
+    say "canonicalize=$canonicalize: no longer reproduces (converges after one run)"
+  elif grep -q "didn't converge" "$work/err"; then
+    say "canonicalize=$canonicalize: still reproduces (rebuilds the call)"
   else
-    say "canonicalize=$canonicalize: rebuilds the call (exit $status)"
+    say "canonicalize=$canonicalize: mlir-opt failed (exit $status), which is not this bug"
     show "$work/err"
   fi
 done

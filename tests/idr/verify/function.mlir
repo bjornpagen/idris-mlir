@@ -44,6 +44,6 @@ idr.func private @f(%x: i64 {sample.x}) -> i64 {
 
 // The facts a function may carry.
 idr.func private @f(%x: !idr.lin<i64>, %y: i64)
-    attributes {total, break_last, effects = #idr.effects<io, crash>, no_inline} {
+    attributes {total, effects = #idr.effects<io, crash>, no_inline} {
   return
 }

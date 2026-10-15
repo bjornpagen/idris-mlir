@@ -2,8 +2,9 @@
 # idris-mlir-front's own command line, which idris-mlir gives it: the
 # prefix is required, the program's Core and module are written where
 # --core and -o say and nowhere else, in directories made for them when
-# they do not exist, and the exit status is idris-mlir's:
-# 2 for a usage error, 3 for the program's error, 1 for the compiler's own.
+# they do not exist, and the exit status is idris-mlir's: 2 for a usage
+# error, 3 for the program's error. The compiler's own error, 1, is a
+# broken invariant, which no input a test can give reaches.
 # Idris prints its errors on stdout, so what it printed is read from both
 # streams.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
@@ -67,8 +68,5 @@ else
 fi
 front undefined "$work/bad" --prefix "$checkout_prefix" --no-prelude --core m.core -o m.mlir Main.idr
 says undefined 'Undefined name'
-front no-entry "$work" --prefix "$checkout_prefix" --no-prelude --break-shape no.such.Key \
-  --core m.core -o m.mlir Main.idr
-says no-entry 'internal error'
 front idris-option "$work" --prefix "$checkout_prefix" --cg mlir --core m.core -o m.mlir Main.idr
 says idris-option 'unknown option --cg'

@@ -73,7 +73,7 @@
 // CHECK: arith.trunci %[[I]] : i64 to i8
 // CHECK: llvm.call @idris_rt_double_head(%[[D]]) {{.*}}: (f64) -> {{.*}}i32
 // CHECK: llvm.call @idris_rt_int_head_s(
-module attributes {idr.program} {
+module {
   idr.func private @strings(%s: !idr.str, %i: i64, %c: i32, %n: i32, %d: f64) -> (!idr.str, !idr.str,
       !idr.str, !idr.str, !idr.str, !idr.str, i32, i32, !idr.str, !idr.str, !idr.str, i1, i16, f64) {
     %a = idr.str.append %s, %s

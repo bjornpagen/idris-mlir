@@ -34,8 +34,9 @@ Each `NN-<bug>/` is one bug. `NN` is the order to file in: lower first.
   its own code (its README). Nothing goes to Idris (**Idris** under
   **Rules for sending**).
 - `pull-request.diff`: for LLVM, the pull request for a change this
-  repository does not carry as a patch (08, 17), which the bootstrap
-  therefore never applies; apply it with `git apply`, and take the commit
+  repository does not carry as a patch (08, 17, and since the pipeline
+  cutover 02, 16 and 22, **When nothing reaches the bug** below), which
+  the bootstrap therefore never applies; apply it with `git apply`, and take the commit
   message from `submission.md`, never from the file's header. For Idris
   (18, 20, 21), the change the fork carries as its own code, laid out
   against third_party/Idris2's pin with the test upstream's suite would
@@ -69,7 +70,7 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | NN | bug | what goes out | status |
 | -- | --- | ------------- | ------ |
 | 01 | remove-dead-values-address-taken | a test, as a comment on #208881 (approved, unmerged) | posted 2026-10-08 (https://github.com/llvm/llvm-project/pull/208881#issuecomment-6073061698); wait for #208881 |
-| 02 | composite-fixed-point-sccp | issue + PR: SCCP keeps existing constants | send next |
+| 02 | composite-fixed-point-sccp | issue + PR: SCCP keeps existing constants | send next; not carried since the pipeline cutover (nothing in the tree reaches it) |
 | 03 | bytecode-deferred-quadratic | issue + PR: deferred entries resolved along a path; cycle is an error | ready; overlaps open #229910 |
 | 04 | vectorize-precondition-body | issue + PR: precondition checks every body op | ready |
 | 05 | forward-dataflow-callee-lookup | PR: solver owns one SymbolTableCollection per run | ready |
@@ -78,13 +79,14 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 08 | execution-engine-process-symbols | PR: process symbols optional, one JITDylib | ready; the compiler no longer runs a JIT, so nothing here needs it |
 | 09 | int-range-narrowing-exactness | issue + PR: remsi and the unsigned ops keep their width when narrowing changes them | carried, the remainders only (the pin has 44a4dbf32, the shift); both still broken on main at 7208ba24; no submission.md text yet |
 | 10 | recursive-attribute-parser | an RFC on Discourse first | not ready; no patch; still reproduces at 7208ba24 (arm64 macOS) |
-| 16 | remove-dead-values-unchanged-call | issue + PR: `eraseOpResults` keeps an op it erases no result of, as `eraseOperands` does | carried (0451b1b8); not filed; `check-mlir` not run on main; the toolchain is not yet rebuilt with it |
+| 16 | remove-dead-values-unchanged-call | issue + PR: `eraseOpResults` keeps an op it erases no result of, as `eraseOperands` does | not filed; not carried since the pipeline cutover (nothing in the tree reaches it); `check-mlir` not run on main |
 | 17 | sccp-revert-unset-property | PR: sccp copies the properties storage around a simulated fold, so it reverts a property the fold set on an op that had none | not ready: not carried (the compiler is not affected); no `mlir-opt` with it built; `check-mlir` not run |
 | 18 | elaboration-primitive-folding | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | 19 | pass-timing-dynamic-pipeline | a test, as a comment on #169615 (open; its own test passes without its change) | ready, not posted; carried: #169615's change and our test; still broken on main at 626eeb8e; the toolchain is not yet rebuilt with it |
 | 20 | evaluator-char-text | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | 21 | termination-closure | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
-| 22 | remove-dead-values-poison-operand | issue + PR: the cleanup keeps an operand that is already poison | carried; not filed; `check-mlir` not run on main |
+| 22 | remove-dead-values-poison-operand | issue + PR: the cleanup keeps an operand that is already poison | not filed; not carried since the pipeline cutover (nothing in the tree reaches it); `check-mlir` not run on main |
+| 24 | one-shot-module-function-interface | PR: One-Shot Module Bufferize on `FunctionOpInterface`, and a function that never returns (a reland of #110322, reverted by #113124) | carried; not filed; not built; `check-mlir` not run |
 
 Gone when the pin moved from llvmorg-23.1.2 to main at 7208ba24, each
 with its check and its PINS.md entry: 13 (uplift-final-counter) and 14
@@ -191,6 +193,24 @@ does: delete `NN-<bug>/llvm.patch` (or the directory, with its
 `tests/upstream/<bug>/` check and PINS.md entry, if nothing else is
 left), and rebuild the toolchain (`tools/bootstrap.sh llvm`).
 
+## When nothing reaches the bug
+
+A patch also goes when nothing in the tree reaches its bug any more
+(AGENTS.md), as 02, 16 and 22 went when the pipeline cutover deleted the
+simplify rounds, the one loop of ours that met them. The report stays, as
+a submission:
+- `llvm.patch` becomes `pull-request.diff` (`mv`, the same bytes), so the
+  bootstrap no longer applies it and the pull request is still the diff
+  to send;
+- the README's `## Patch` becomes `## The fix`, and a `## Why there is no
+  patch` says what reached the bug and why nothing does now;
+- the `PINS.md` entry goes, since nothing of ours stands in for the
+  patch;
+- `tests/upstream/<bug>/` stays, turned to check that the pinned tools
+  still have the bug, as 17's does: when the pin has the fix it fails,
+  and the directory and the check go;
+- the toolchain is rebuilt without the patch (`tools/bootstrap.sh llvm`).
+
 ## Adding a bug
 
 A new bug gets a directory numbered by when it should be filed; renumber
@@ -210,7 +230,7 @@ library, the runtimes and stage 2, into `.toolchain/llvm`) applies every
 `upstream/*/llvm.patch` in name order, and stage 2's stamp records each by
 SHA-256. The pin was first built on arm64 macOS, with 02-07 and 09 among its
 patches, by the bootstrap's earlier one-stage Darwin recipe. No toolchain is built
-yet with the patches the tree carries now (02-07, 09, 16 and 19 for
+yet with the patches the tree carries now (03-07, 09, 19, 23 and 24 for
 LLVM; none for Idris), on either target, and `make build` refuses until one
 is. That is this repository's build, not a precondition for sending
 anything upstream.

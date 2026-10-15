@@ -1,30 +1,25 @@
 #!/bin/sh
 # The entries of the string iterator's primitives, which the in-house
 # library declares %extern, are validated like base's once a program loads
-# their module: each broken in turn by `--break-shape=<key>`
-# stops the compilation with a shape mismatch that shows the entry, the
-# shape expected and the shape found, and leaves no artifact; unbroken,
-# the program compiles.
+# their module: each case is a program whose own Linear.String.Iterator is
+# the library's with one primitive at another shape, which stops the
+# compilation with a shape mismatch that shows the entry, the shape
+# expected and the shape found, and leaves no artifact; unbroken, the
+# program compiles.
 . "$IDRIS_MLIR_ROOT/tests/testutils.sh"
 
-broken() {
-  mkdir "$work/$2"
-  copy_fixture . "$work/$2"
-  compile_program -p mlir-linear --break-shape="$1" "$work/$2/Main.idr" prog
-  say "$1 broken: exit $compiled"
-  if grep -qF "unsupported (hook): the registry's entry $1 (" "$work/compile.out" "$work/compile.err" &&
-     grep -q "expects .* : (_ : %World) -> .*, but found " "$work/compile.out" "$work/compile.err"; then
-    say "$1 broken: the error shows the entry, the shape expected and the shape found"
-  else
-    say "$1 broken: no hook error for the entry"
-    show "$work/compile.out" "$work/compile.err"
-  fi
-  no_artifacts "$work/$2"
-}
+main='module Main
 
-broken Linear.String.Iterator.prim__scalarAt scalar-at
-broken Linear.String.Iterator.prim__scalarEnd scalar-end
-broken Linear.String.Iterator.prim__dropBytes drop-bytes
+import Prelude
+import Linear.String.Iterator
+
+main : IO ()
+main = putStrLn (show (Iterator.foldl (\n, _ => n + 1) (the Int 0) "héllo"))'
+for case in prim__scalarAt:scalar-at prim__scalarEnd:scalar-end prim__dropBytes:drop-bytes; do
+  registry_shadowed "Linear.String.Iterator.${case%%:*}" "${case#*:}" \
+    libs/mlir-linear/Linear/String/Iterator.idr Linear/String/Iterator.idr "${case%%:*}" shape \
+    "$main" -p mlir-linear
+done
 
 mkdir "$work/unbroken"
 copy_fixture . "$work/unbroken"

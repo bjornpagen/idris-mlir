@@ -45,16 +45,14 @@ int64_t readBytes(int64_t handle, char *p, size_t n) {
 
 } // namespace rt::io
 
-extern "C" int64_t idris_rt_io_write_bytes(int64_t handle, idris_rt_array *bytes, int64_t length,
-                                           int64_t offset, int64_t count) {
-  const char *p = idris_rt_buffer_at(bytes, length, offset, count);
-  int64_t written = rt::io::writeBytes(handle, p, static_cast<size_t>(count));
+extern "C" int64_t idris_rt_io_write_bytes(int64_t handle, idris_rt_array *, const char *bytes,
+                                           int64_t, int64_t offset, int64_t count) {
+  int64_t written = rt::io::writeBytes(handle, bytes + offset, static_cast<size_t>(count));
   return written < 0 ? 0 : written;
 }
 
-extern "C" int64_t idris_rt_io_read_bytes(int64_t handle, idris_rt_array *bytes, int64_t length,
+extern "C" int64_t idris_rt_io_read_bytes(int64_t handle, idris_rt_array *, char *bytes, int64_t,
                                           int64_t offset, int64_t count) {
-  char *p = idris_rt_buffer_at(bytes, length, offset, count);
-  int64_t got = rt::io::readBytes(handle, p, static_cast<size_t>(count));
+  int64_t got = rt::io::readBytes(handle, bytes + offset, static_cast<size_t>(count));
   return got < 0 ? 0 : got;
 }

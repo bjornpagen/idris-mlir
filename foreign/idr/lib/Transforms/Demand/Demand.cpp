@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idr-demand: the promise a program can be asked to keep, checked on the
-// grades idr-rc wrote, when it is asked to; it changes nothing.
+// idr-demand: the in-place promise a type makes, checked on the grades
+// idr-rc wrote, on every program; it changes nothing.
 //
-// in-place: a function that takes a parameter of quantity 1 apart and
-// builds in its cell rebuilds it in place with no runtime test only when it
+// A type whose body is of kind in_place promises that its values are
+// rebuilt in place with no runtime test: a function that takes a parameter
+// of quantity 1 of it apart and builds in its cell does so only when it
 // holds that cell alone. Linearity says the function uses the value once,
 // not that its caller held it alone; that is each call's to keep, and the
-// grade idr-rc proved at the call says whether it does.
+// grade idr-rc proved at the call says whether it does. A type that makes
+// no promise is rebuilt in place where its cell is unshared, and tested.
 #include "idr/Transforms/Demand.h"
 
 #include "idr/IR/Grades.h"
@@ -47,15 +49,24 @@ Value itself(Value value) {
   }
 }
 
-// The parameters `fn` rebuilds in place: those of quantity 1 whose cell an
-// idr.reuse builds in, with the token of an idr.take of the parameter.
+// Whether a value of `type` makes the promise: its data type's body is of
+// kind in_place.
+bool promises(Type type) {
+  idr::DataType data = idr::dataTypeOf(type);
+  return data && data.hasBody() && data.getKind() == idr::SumKind::InPlace;
+}
+
+// The parameters `fn` promises to rebuild in place: those of quantity 1 of
+// a type that makes the promise whose cell an idr.reuse builds in, with the
+// token of an idr.take of the parameter.
 SmallVector<unsigned> rebuilt(idr::FuncOp fn) {
   SmallVector<unsigned> params;
   Block *entry = &fn.getBody().front();
   fn.walk([&](idr::ReuseOp reuse) {
     auto take = reuse.getToken().getDefiningOp<idr::TakeOp>();
     auto param = take ? dyn_cast<BlockArgument>(itself(take.getValue())) : BlockArgument();
-    if (!param || param.getOwner() != entry || !idr::isLinear(param.getType()))
+    if (!param || param.getOwner() != entry || !idr::isLinear(param.getType()) ||
+        !promises(param.getType()))
       return;
     if (!llvm::is_contained(params, param.getArgNumber()))
       params.push_back(param.getArgNumber());
@@ -75,24 +86,23 @@ struct Broken {
 
 void report(Broken broken) {
   Value value = broken.call.getArgs()[broken.index];
-  InFlightDiagnostic error = broken.call.emitError();
-  error << "unsupported (uniqueness): @" << broken.caller.getSymName() << " passes a shared "
-        << idr::getSumName(value.getType()).getValue() << " to @" << broken.call.getCallee()
+  InFlightDiagnostic error = idr::refuse(broken.call, idr::Rule::Uniqueness);
+  error << "@" << broken.caller.getSymName() << " passes a shared "
+        << idr::dataTypeOf(value.getType()).getName() << " to @" << broken.call.getCallee()
         << ", which rebuilds it in place";
   if (broken.dup)
     error.attachNote(broken.dup.getLoc()) << "shared here";
 }
 
-// Every call of a function passes each parameter the function rebuilds in
-// place exclusive (`!idr.excl<T>`): an error at each call that shares it
-// (passes what an idr.dup made), with a note at the idr.dup, or, when none
-// does, at each call that passes it owned or as a view.
+// Every call of a function passes each parameter the function promises to
+// rebuild in place exclusive (`!idr.excl<T>`): a refusal at each call that
+// shares it (passes what an idr.dup made), with a note at the idr.dup, or,
+// when none does, at each call that passes it owned or as a view.
 LogicalResult checkInPlace(ModuleOp module) {
   DenseMap<StringAttr, SmallVector<unsigned>> promised;
   for (idr::FuncOp fn : module.getOps<idr::FuncOp>())
-    if (!fn.isExternal())
-      if (SmallVector<unsigned> params = rebuilt(fn); !params.empty())
-        promised[fn.getSymNameAttr()] = std::move(params);
+    if (SmallVector<unsigned> params = rebuilt(fn); !params.empty())
+      promised[fn.getSymNameAttr()] = std::move(params);
   if (promised.empty())
     return success();
 
@@ -122,11 +132,9 @@ LogicalResult checkInPlace(ModuleOp module) {
 }
 
 struct Demand : idr::impl::IdrDemandBase<Demand> {
-  using IdrDemandBase::IdrDemandBase;
-
   void runOnOperation() override {
     markAllAnalysesPreserved();
-    if (inPlace && failed(checkInPlace(getOperation())))
+    if (failed(checkInPlace(getOperation())))
       signalPassFailure();
   }
 };

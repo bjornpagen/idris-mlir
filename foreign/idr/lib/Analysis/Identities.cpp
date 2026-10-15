@@ -1,27 +1,30 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The functions that give back an argument: the candidates, the walks, and
-// the greatest fixpoint over them. IdentitiesRecord.cpp walks a function;
-// IdentitiesRebuilds.cpp says why the assumptions that are left hold.
+// The functions of a component that give back an argument: the candidates,
+// the walks, and the greatest fixpoint over them. IdentitiesRecord.cpp walks
+// a function; IdentitiesRebuilds.cpp says why the assumptions that are left
+// hold.
 #include "idr/Analysis/Identities.h"
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/Threading.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
+
+#include <mutex>
 
 using namespace mlir;
 
 namespace idr {
 
-bool Identities::owns(Type type) { return gradeOf(type).permission != Permission::Plain; }
+namespace identities {
 
-SmallVector<unsigned, 1> Identities::candidates(FuncOp fn) {
+bool owns(Type type) { return gradeOf(type).permission != Permission::Plain; }
+
+SmallVector<unsigned, 1> candidates(FuncOp fn) {
   SmallVector<unsigned, 1> found;
-  if (fn.isExternal() || fn.getNumResults() != 1)
+  if (fn.getNumResults() != 1)
     return found;
   ArrayRef<Type> arguments = fn.getArgumentTypes();
   Type result = fn.getResultTypes().front();
@@ -34,9 +37,9 @@ SmallVector<unsigned, 1> Identities::candidates(FuncOp fn) {
   return found;
 }
 
-Identities::Parts::Parts(Type argument) { parts.push_back({0, {}, 0, 0, unrestricted(argument)}); }
+Parts::Parts(Type argument) { parts.push_back({0, {}, 0, 0, unrestricted(argument)}); }
 
-unsigned Identities::Parts::step(unsigned parent, StringAttr ctor, unsigned index, Type type) {
+unsigned Parts::step(unsigned parent, StringAttr ctor, unsigned index, Type type) {
   auto [it, inserted] = steps.try_emplace(std::make_tuple(parent, ctor, index),
                                           static_cast<unsigned>(parts.size()));
   if (inserted)
@@ -44,52 +47,70 @@ unsigned Identities::Parts::step(unsigned parent, StringAttr ctor, unsigned inde
   return it->second;
 }
 
-Identities::Identities(Operation *op, AnalysisManager &am) {
-  SymbolTable &symbols = am.getAnalysis<SymbolTable>();
+SmallVector<std::optional<unsigned>>
+givesBackOf(ArrayRef<FuncOp> component,
+            llvm::function_ref<std::optional<unsigned>(StringAttr)> outside) {
+  Members members;
+  for (FuncOp fn : component)
+    members[fn.getSymNameAttr()] = fn;
+
+  // The members' candidates, then what each callee outside the component
+  // gives back, which no drop below ever touches: it is final.
   Assumed assumed;
-  SmallVector<FuncOp> functions;
-  for (FuncOp fn : cast<ModuleOp>(op).getOps<FuncOp>()) {
+  SmallVector<unsigned> walkable;
+  for (auto [at, each] : llvm::enumerate(component)) {
+    FuncOp fn = each;
     SmallVector<unsigned, 1> cands = candidates(fn);
     if (cands.empty())
       continue;
     assumed[fn.getSymNameAttr()] = std::move(cands);
-    functions.push_back(fn);
+    walkable.push_back(static_cast<unsigned>(at));
   }
+  for (unsigned at : walkable)
+    FuncOp(component[at]).walk([&](CallOp call) {
+      StringAttr callee = call.getCalleeAttr().getAttr();
+      if (members.contains(callee) || assumed.contains(callee))
+        return;
+      if (std::optional<unsigned> given = outside(callee))
+        assumed[callee] = {*given};
+    });
 
-  // One walk of each function, all at once: each reads its own body, the
-  // table and the declarations, and writes only its own slot. The fixpoint
-  // reads the walks; it does not walk a function again.
+  // One walk of each member with candidates; the fixpoint reads the walks
+  // and does not walk a function again.
   struct Walked {
     std::optional<Record> record;
-    // The functions it calls, which an assumption about may decide its
-    // check.
+    // The members it calls, which an assumption about may decide its check.
     SmallVector<StringAttr> callees;
   };
-  SmallVector<Walked, 0> walked(functions.size());
-  parallelFor(op->getContext(), 0, functions.size(), [&](size_t at) {
-    FuncOp fn = functions[at];
-    walked[at].record.emplace(fn, assumed.find(fn.getSymNameAttr())->second, symbols);
-    fn.walk([&](CallOp call) { walked[at].callees.push_back(call.getCalleeAttr().getAttr()); });
-  });
+  SmallVector<Walked, 0> walked(walkable.size());
+  for (auto [slot, at] : llvm::enumerate(walkable)) {
+    FuncOp fn = component[at];
+    walked[slot].record.emplace(fn, assumed.find(fn.getSymNameAttr())->second, members);
+    fn.walk([&](CallOp call) {
+      StringAttr callee = call.getCalleeAttr().getAttr();
+      if (members.contains(callee))
+        walked[slot].callees.push_back(callee);
+    });
+  }
 
   DenseMap<StringAttr, llvm::SetVector<unsigned>> callers;
-  for (auto [at, each] : llvm::enumerate(walked))
+  for (auto [slot, each] : llvm::enumerate(walked))
     for (StringAttr callee : each.callees)
       if (assumed.contains(callee))
-        callers[callee].insert(static_cast<unsigned>(at));
+        callers[callee].insert(static_cast<unsigned>(slot));
 
   // Assumptions are only ever dropped, so the worklist ends at the greatest
   // fixpoint.
   llvm::SetVector<unsigned> work;
-  for (unsigned at = 0, n = static_cast<unsigned>(functions.size()); at < n; ++at)
-    work.insert(at);
+  for (unsigned slot = 0, n = static_cast<unsigned>(walked.size()); slot < n; ++slot)
+    work.insert(slot);
   while (!work.empty()) {
-    unsigned at = work.pop_back_val();
-    StringAttr name = functions[at].getSymNameAttr();
+    unsigned slot = work.pop_back_val();
+    StringAttr name = FuncOp(component[walkable[slot]]).getSymNameAttr();
     auto it = assumed.find(name);
     if (it == assumed.end())
       continue;
-    SmallVector<unsigned, 1> kept = walked[at].record->givesBack(it->second, assumed);
+    SmallVector<unsigned, 1> kept = walked[slot].record->givesBack(it->second, assumed);
     if (kept.size() == it->second.size())
       continue;
     if (kept.empty())
@@ -100,16 +121,40 @@ Identities::Identities(Operation *op, AnalysisManager &am) {
       for (unsigned caller : calling->second)
         work.insert(caller);
   }
-  for (FuncOp fn : functions)
-    if (auto it = assumed.find(fn.getSymNameAttr()); it != assumed.end())
-      found[fn.getSymNameAttr()] = it->second.front();
+
+  SmallVector<std::optional<unsigned>> out(component.size());
+  for (unsigned at : walkable)
+    if (auto it = assumed.find(FuncOp(component[at]).getSymNameAttr()); it != assumed.end())
+      out[at] = it->second.front();
+  return out;
 }
 
+} // namespace identities
+
+Identities::Identities(Operation *, AnalysisManager &) {}
+
+Identities::~Identities() = default;
+
 bool Identities::isInvalidated(const AnalysisManager::PreservedAnalyses &pa) const {
-  return !pa.isPreserved<Identities>() || !pa.isPreserved<SymbolTable>();
+  return !pa.isPreserved<Identities>();
+}
+
+void Identities::solve(ArrayRef<FuncOp> component) {
+  auto outside = [&](StringAttr callee) -> std::optional<unsigned> {
+    std::shared_lock lock(mutex);
+    if (auto it = found.find(callee); it != found.end())
+      return it->second;
+    return std::nullopt;
+  };
+  SmallVector<std::optional<unsigned>> given = identities::givesBackOf(component, outside);
+  std::unique_lock lock(mutex);
+  for (auto [fn, each] : llvm::zip_equal(component, given))
+    if (each)
+      found[FuncOp(fn).getSymNameAttr()] = *each;
 }
 
 std::optional<unsigned> Identities::givesBack(StringAttr function) const {
+  std::shared_lock lock(mutex);
   if (auto it = found.find(function); it != found.end())
     return it->second;
   return std::nullopt;
