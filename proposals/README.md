@@ -125,7 +125,8 @@ Stages that wait on something besides the queue, each with its rule in
 its proposal: 0007's S3 to S6, each taken when S0's second record (from
 the cutover's integration builds) shows its part above 5% of
 one-worker wall; 0007's S9 (the cache) after S2's second step; 0007's
-S8 and S10 (the Idris half in parallel) after 0009's O3; 0006's P5,
+S8 and S10 (the Idris half in parallel, on 0006's shards) after
+0006's P4 and 0009's O3; 0006's P5,
 each item on its measurement. Parked, with the reason in each status
 line: 0013, until its first consumer starts, which is 0009's O3 (R1
 and R2 are built before it); 0014, which nothing before the array work
@@ -171,11 +172,12 @@ force.
   6 are recorded in HANDOFF.md (D13).
 - [0003](0003-typed-apl/README.md): a typed array language, MLIR first.
   Every fact Idris proves about an array has one image in MLIR, the one
-  upstream optimizes on. Stage 1 purges today's array stack (about
-  6,300 lines, `idr-in-bounds` among them) and rebuilds it in one hard
-  cutover, in the same swarm wave as 0004's; stages 2 to 7
-  follow sharding, and stage 8 needs 0006's P4. Decided 2026-10-12,
-  reconciled with 0004 on 2026-10-14; design only.
+  upstream optimizes on. Stage 1, which purged the array stack before
+  it (about 6,300 lines, `idr-in-bounds` among them) and rebuilt it in
+  one hard cutover, is coded and integrated with 0004's (c7aa7b62,
+  5d5f3312), its proof owed on the owner's machine; 0005 D6 reverses
+  its D13. Stages 2 to 7 follow sharding, and stage 8 needs 0006's P4.
+  Decided 2026-10-12, reconciled with 0004 on 2026-10-14.
 - [0004](0004-compile-time/README.md): whole-program facts, a fixed optimizer,
   parallel code generation. The pipeline cutover, coded and integrated
   with 0003's stage 1 (c7aa7b62, 5d5f3312), its proof owed on the owner's
@@ -198,7 +200,7 @@ force.
   that wait, a reactor per shard, values crossing only inside messages.
   Its decisions are taken (D1 the owner's, D2 to D12 on his
   delegation, D13 from AGENTS.md); nothing is built. P1, P2 and P4
-  follow 0003's stage 1; P3 is parked with 0014; P5 waits on its
+  follow `make self`; P3 is parked with 0014; P5 waits on its
   measurements.
 - [0007](0007-sharded-whole-program-compiler.md): a sharded
   whole-program compiler. Summaries per module, guarantee facts from
@@ -220,8 +222,10 @@ force.
   normalization and the type checker's evaluator as one array program
   over a hash-consed term arena, which also holds the frontend's
   interned names. In the queue after sharding's first stages; A0 to A3
-  need only `make self` (A3's dense array constants wait on 0003's
-  stage 2), A4 waits on 0003's stage 1, A5 on its stage 5, A6 on 0006's
+  need only `make self` (A3's dense array constants use the lowering
+  0003's stage 1 brought, 0003 D40; 0008 stays the producer of closed
+  array results), A4 waits on 0003's stage 1, which has landed, A5 on
+  its stage 5, A6 on 0006's
   P4, and A7, the interactive loop, on A0. Its one question restates
   two of the owner's rulings (§13: D3 and D5; default: the restated
   forms); what A3's folds mean on the Chez host is 0007 §12's.
@@ -245,10 +249,11 @@ force.
   owner's decision); T8 is parked with 0014.
 - [0012](0012-self-host-features.md): the compiler features
   self-hosting asked for, each compiled away on the whole program at
-  no runtime price; only megamorphic constructs stay refused. May start
-  after `make self`; nothing waits on it. Its one question is 0004's
-  (when the instance budget goes; default: with feature 2, after
-  `make self`).
+  no runtime price; only megamorphic constructs stay refused. Feature
+  2, the request-chain rule, landed with 0004's cutover, which deleted
+  the instance budget (0004 D40); the other five may start after `make
+  self`, and nothing waits on them. Its one question, when the budget
+  goes, was the owner's and is decided: in the cutover.
 - [0013](0013-relational-core.md): the relational core,
   `libs/mlir-relational`. Parked until its first consumer, 0009's O3,
   starts; R1 and R2 are built before it.

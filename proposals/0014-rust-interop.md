@@ -153,7 +153,7 @@ in counted foreign cells. Ownership maps onto the existing grades:
 - `&T` is a view, a borrow;
 - `T` by value is a consumed owned reference;
 - `&mut T` is a quantity-1 thread of a mutable handle, in the style of
-  `Linear.Array` (`libs/mlir-linear/Linear/Array.idr:135-144`);
+  `LArray`'s `read` and `write` (`libs/mlir-array/Array/Core.idr`);
 - a value frozen into `Shared` gets a read-only API, and a borrow taken
   from it holds a counted reference to it, so the count is the borrow
   checker.
@@ -472,7 +472,7 @@ archive has a dot in its name.
 ### 7.1 Handles
 
 A Rust value of a non-copied type lives behind a handle. Two handle types
-exist, after `Linear.Array`'s `Array` and `IArray` (**decision**):
+exist, after `libs/mlir-array`'s `LArray` and `Array` (**decision**):
 
 ```idris
 ||| Rust.Core. A Rust value of type t (an [external] phantom naming it),
@@ -538,7 +538,8 @@ For each parameter and receiver (**decision**):
 | `&mut T`, `&mut self` | `(1 _ : Rust t)`, given back | a view whose aliasing is checked (§8.3) |
 
 A `&self` method on a mutable type is generated twice, once on each
-handle, as `Linear.Array` has `read` and `iread`:
+handle, as `libs/mlir-array` has `read` on an `LArray` and `(!!)` on an
+`Array`:
 
 ```idris
 ||| Rust.Std.WordCounts, generated from HashMap<String, i64>::get.
@@ -977,7 +978,7 @@ verifier demands a body of every `idr.func`, 0004 D7 and §4 stage 2):
   an effectful binding is called only from IO with the program's world,
   and a pure one is the manifest's claim that nothing outside observes
   it (§16 item 1), so a memo label that reaches a pure binding memoizes,
-  as one that reaches `Linear.Array`'s operations does
+  as one that reaches an `IOArray`'s operations does
   (`IdrArrayOps.td:36`; `IdrInterfaces.td:76-82`).
 - **Ownership:** idr-rc sees its operands through the signature's
   grades, as it sees a call's through its callee's (`consumesOperand`,
@@ -991,8 +992,9 @@ verifier demands a body of every `idr.func`, 0004 D7 and §4 stage 2):
   (§8.3).
 
 The world: pure bindings run their calls under `unsafePerformIO` inside
-the trusted package, as `Linear.Array` does
-(`libs/mlir-linear/Linear/Array.idr:124-144`). The forged world orders
+the trusted package, as `Linear.Array` did before 0003's stage 1
+replaced it with `libs/mlir-array`, whose pure operations are bodiless
+`%extern`s instead (`Array/Core.idr`; 0005 D5). The forged world orders
 them with every other effect.
 
 ### 9.3 Linking

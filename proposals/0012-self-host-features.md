@@ -2,10 +2,13 @@
 
 **Status:** approved with the queue on 2026-10-14 (proposals index).
 Written 2026-10-10 as a sketch; fleshed out and decided 2026-10-14
-against 0004's pipeline cutover, every question decided. Feature 2 lands
-in 0004's cutover (lane L1), ahead of the others, by the owner's ruling
-that a count never decides acceptance (0004 D40). Nothing of the six
-features is built.
+against 0004's pipeline cutover, every question decided. Feature 2
+landed in 0004's cutover (lane L1), ahead of the others, by the owner's
+ruling that a count never decides acceptance (0004 D40): its
+request-chain rule is `chainGrows`, called from `request`
+(`compiler/src/IdrisMLIR/Frontend/Translate/Instances.idr`), and the
+instance budget is gone; 0005 D4 applies the same rule to
+specialization keys. The other five features are not built.
 
 The tree (*measured*, HANDOFF.md, 0002): the cutover of 0002 is
 committed and builds on arm64 macOS, where `make test` was 415/415 at
@@ -229,19 +232,20 @@ Steps 4 to 6 follow the cutover: the diet and the memory (a record),
 `make self` (stage 2 byte-identical to stage 3; `tests/determinism` at
 1, 2 and 8 threads on every suite run, and step 5's one self-compile at
 three thread counts, 0002 D16), and the test runner off Chez. Then, in queue order,
-0003's stage 1 and sharding. None of that needs a feature here: the fork
+sharding; 0003's stage 1 landed before all of it, with the cutover
+(c7aa7b62, 5d5f3312). None of that needs a feature here: the fork
 compiles as rewritten.
 
 *Decision:* this proposal's stages may start any time after `make self`
 (0002 §2 step 5), as 0002 and the proposals index say; nothing waits on
 them. Each lands only if the native self-compile is no slower for it,
 by the bar below. A
-change that edits what 0003's stage-1 cutover edits waits for that
-cutover, which is one change with `make self` green across it; of this
-file's work that is only the Levenshtein row (the context table's move
-onto base's `Data.IOArray` is 0003's own, its D38). The six features edit the frontend's translation of instances, types,
+change that edits what 0003's stage-1 cutover edited waited for that
+cutover, which has landed; of this file's work that was only the
+Levenshtein row (the context table's move onto base's `Data.IOArray`
+is 0003's own, its D38). The six features edit the frontend's translation of instances, types,
 dictionaries and matches, beside the array translation 0003's stage 1
-replaces (0003 §15). Feature 6 does not wait for 0008's interned names
+replaced (0003 §15). Feature 6 does not wait for 0008's interned names
 (D8).
 
 ## The bar: no runtime price, decided at compile time

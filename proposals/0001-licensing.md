@@ -9,8 +9,12 @@ again, `spec/licenses` among them (*measured* on the typecheck machine
 2026-10-14); the one failure at 3de67510, `spec/time-trace` finding the
 culled profiler's name in a verbatim research note under `sources/`,
 was fixed there by 0002 §3. x86_64 Linux has run nothing of this tree,
-so the gate is NotRun there. No port has landed: the gate prints
-"ports: none yet". What remains is L5 (§6: the dialect generator writes
+so the gate is NotRun there. One port has landed, with 0004's cutover:
+Modular's `EliminateDuplicateFunctions.cpp` at `9211931`, Apache-2.0
+WITH LLVM-exception, as
+`foreign/idr/lib/Transforms/Deduplicate/EliminateDuplicateFunctions.cpp`,
+its header kept and its PINS.md entry `eliminate-duplicate-functions`
+written; the gate prints "ports: 1 ported files". What remains is L5 (§6: the dialect generator writes
 its own SPDX line, so the generated modules lose their exclusion) and
 L6 (§6: the sweep's scope is the whole tree less one listed exclusion
 set, and the gate reads its three facts from the data that holds them);
@@ -279,8 +283,9 @@ Decisions taken here:
    for the owner's question in §9: the earlier text also wrote path and
    revision into the note, which held the fact twice (beside PINS.md)
    and made a comment cite a document, which AGENTS.md says comments
-   never do; no port has landed, so nothing in the tree changes either
-   way.
+   never do. The one port landed so far writes the revision in its note
+   too ("from Modular's 9211931"), so the default, if the owner keeps
+   it, drops the revision from that one note.
 3. Record the port in PINS.md like every other deliberate
    deviation: what, from where, at what revision, what changed.
    A port is a pin: when upstream moves, the port is re-read

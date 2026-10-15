@@ -336,9 +336,11 @@ the compiler's decision, made from facts only the compiler has.
   `papers/yang-2015-compact-normal-forms`). The send check is unchanged: a
   region holds no mutable cell.
 - **The compiler's own process boundary carries columns, never packed
-  buffers** (*decision*). 0007 runs the compiler's Idris half as
-  processes and passes summaries between them as files (0007 §5.4), so
-  it is the one place a layout of this proposal could be read from a
+  buffers** (*decision*). 0007 runs the compiler's Idris half on 0006's
+  thread-per-core shards, not as processes (0007 §5.4, §12), and its
+  summaries and units cross the one process boundary left, from the
+  frontend's child process to the C++ driver, as files (0007 §5.4), so
+  that is the one place a layout of this proposal could be read from a
   file. A summary is a
   set of columnar relations (0007 §3.1), and its reader checks every id
   column once against the extent of the table it indexes, which turns
@@ -462,8 +464,9 @@ macOS (*read* through `packed-trees.md` §11).
   the other layouts 0004 decides before lowering; placement is
   unchanged, and the commit folds the tree's drops into one.
 - D11. Packed data is built only by the program; nothing loads it from
-  outside. The compiler's own files between its processes carry
-  columns, whose ids the reader checks once against their tables.
+  outside. The compiler's own files, from its Idris half (on 0006's
+  shards, 0007 §5.4) to the C++ driver, carry columns, whose ids the
+  reader checks once against their tables.
 - D12. Columns for a collection that is not an array are chosen right
   before 0003's arrays stage (0003 D26), so its passes see them as
   tensors.

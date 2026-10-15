@@ -358,8 +358,9 @@ Each round:
 
 "Reachable" (4.2 s) is the same query without substitution.
 
-The refusal of an unbounded instance set is decided per request today,
-before the request joins (*read*). `checkRecursion` refuses a recursive
+The refusal of an unbounded instance set is decided per request, before
+the request joins (*read*). Before 0004's cutover three checks made it
+(*read* at ccaba89c). `checkRecursion` refuses a recursive
 component that passes a type or an implementation other than its own,
 unchanged, judged on Idris's size-change graphs (`checkComponent`,
 `Translate/Recursion.idr:130-165`). `growing` refuses an instance whose
@@ -372,34 +373,29 @@ definition in its requester chain, and names the parameter
 backstop for calls Idris's size-change graphs do not record (under
 `assert_total`, or through a local function).
 
-Two other proposals own what replaces them. 0012's feature 2 makes one
-rule on request chains, which `growing` becomes: a new instance is
-refused when, against an ancestor instance of the same definition on
-its chain, its static arguments are smaller in no position and larger in
-one; the rule names the definition, the argument and both keys, and it
-deletes `checkComponent`'s blanket refusal, `growing` as a check of its
-own, and the count with its rule (0012 D4). Its argument for ending
-without a count is Dickson's lemma on each chain and König's on the
-finitely branching request tree (*conjecture* there, checked by its
-stage's tests). 0004's cutover leaves the count in place until that rule
-lands, because the rule changes which programs are accepted, which the
-cutover's proof does not cover; whether the cutover takes it anyway is
-0004's one open question (0004 §2.5, D40, §11).
+0004's cutover replaced them with 0012's feature 2 (0004 D40): one
+rule on request chains, which `growing` became
+(`chainGrows`, called from `request`, `Translate/Instances.idr`): a new
+instance is refused when, against an ancestor instance of the same
+definition on its chain, its static arguments are smaller in no
+position and larger in one; the rule names the definition, the
+argument and both keys, and it deleted `checkComponent`'s blanket
+refusal, `growing` as a check of its own, and the count with its rule
+(0012 D4). Its argument for ending without a count is Dickson's lemma
+on each chain and König's on the finitely branching request tree
+(*conjecture* there, checked by its stage's tests).
 
 *Decision:* O3 changes no acceptance. In the semi-naive form the
 frontend's refusals, as they stand when O3 lands, are filters on the
 delta, applied to each new row against its requester chain, so a refusal
 still names the site and the value that grows, as AGENTS.md requires of
-a megamorphic construct. After 0012's feature 2 that is the request-chain
-rule alone, and the fixpoint has no count, since the rule's argument is
-what ends it; if O3 lands first, it carries the count unchanged as a
-check on the delta, and feature 2 deletes it there. Reason: the count is
-a rule of the language the frontend accepts, which 0012 owns, and a
+a megamorphic construct. Since 0004's cutover took 0012's feature 2,
+that is the request-chain rule alone, and the fixpoint has no count,
+since the rule's argument is what ends it. Reason: what is refused is a
+rule of the language the frontend accepts, which 0012 owns, and a
 representation change proved by identical Core (D5) cannot also change
-what is accepted. This makes the earlier "O3's fixpoint has no count"
-conditional on 0012's feature 2, whose argument is what lets the
-fixpoint end without one; on its own it left nothing to end a fixpoint
-the filters did not bound.
+what is accepted. The earlier "O3's fixpoint has no count" rests on
+feature 2, whose argument is what lets the fixpoint end without one.
 
 ### 4.9 Emission is bytecode serialization
 0004 decides the handoff: the frontend writes MLIR bytecode, the driver
@@ -605,7 +601,9 @@ emitted (D5).
   roles; quantities stay in the types.
 - **No refusal by budget** (0004 D17): a megamorphic construct is refused
   by a rule that names the site and the growing value. The frontend's
-  last count goes with 0012's feature 2, not with a stage here (§4.8).
+  instance count went with 0012's feature 2, in 0004's cutover (0004
+  D40), and its fuel (`whnf 64`, `implementationOf 64`) goes in 0005
+  (its D4), not with a stage here (§4.8).
 - **Deterministic, byte-identical outputs;** both targets.
 
 ## 8. Staged plan, ordered by measured cost
@@ -678,7 +676,8 @@ emission (O2), then the rest (*conjecture* until O0).
 - D3. Translate is a semi-naive fixpoint over the instance table; its
   refusals, as they stand when O3 lands, are filters on the delta that
   name the site and the growing value; O3 changes no acceptance, and
-  after 0012's feature 2 the fixpoint has no count.
+  the fixpoint has no count, since 0012's feature 2 landed with 0004's
+  cutover.
 - D4. Emission writes 0004's bytecode from an ops table by a size scan
   and a scatter; every attribute and type is one textual entry of its
   section (0004 §4.1), printed once, a data type's body with it.

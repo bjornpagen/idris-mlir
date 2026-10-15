@@ -24,8 +24,9 @@ Licensing (0001) is built but for its L5 and L6, which land before
 0004's swarm packet fixes its disjoint writes. G0 is taken as 0004's
 F0. Self-hosting (§2)
 is not done: stage 1 has never finished, and its remaining steps run
-after 0004's pipeline cutover, which is designed and awaits the
-owner's approval (0004 §0, §10). Claims are marked: *read* (the path),
+after 0004's pipeline cutover, which is coded and integrated with
+0003's stage 1 (c7aa7b62, 5d5f3312), its proof owed on the owner's
+machine (0004 §0, §10). Claims are marked: *read* (the path),
 *measured* (the record), *recalled*, *conjecture*, *decision*.
 
 **The one sentence.** The wall is 0004's cutover, and sharding (0007)
@@ -122,8 +123,8 @@ tree after 0004's cutover.
    `tests/toolchain/static-linking` covering `idris-mlir-front`; and
    AGENTS.md's Chez exception narrowed to stage 0 and the bench's
    baseline (HANDOFF.md, the 2026-10-12 state). *Decision:* this step
-   follows step 5 and does not gate 0003's stage 1, which lands in 0004's
-   swarm wave, before it. Reason: the runner and the array
+   follows step 5 and does not gate 0003's stage 1, which landed in
+   0004's swarm wave, before it. Reason: the runner and the array
    stack are disjoint trees, and nothing in 0003 needs the runner off
    Chez. *Decision:* the bench's Chez column is timing only: its output
    is never compared with the reference, which this compiler's output or
@@ -154,10 +155,11 @@ files, which the cutover's proof holds fixed, so the two cannot be one
 change; the representation comes first because the fields need a place
 to live.
 
-Then, in queue order: 0003's stage 1 (the array purge as one hard
-cutover; `make self` stays green across it, its fork users ported in
-the same change), then sharding: 0007's stages with 0006's P1, P2 and
-P4. 0012's features may start any time after step 5.
+Then, in queue order: sharding, 0007's stages with 0006's P1, P2 and
+P4. 0003's stage 1 (the array purge as one hard cutover, its fork
+users ported in the same change) is not on this road any more: it
+landed with 0004's cutover, before `make self` (c7aa7b62, 5d5f3312).
+0012's features may start any time after step 5.
 
 ## 3. G1: what the tree still owes on both targets
 
@@ -291,9 +293,11 @@ machine but `make check`):
   function, and a `generate` or `fold` body that never returns lowers
   to the program's crash (`tests/idr/lower/array-never-returns.mlir:2-5,
   35`, *read*), so the seam may no longer exist. *Decision:* it is not
-  re-run here; it moves to 0003's stage 1, whose purge deletes
-  `idr.array.new` (0003 §15, `proposals/0003-typed-apl/README.md:1501`),
-  and any fixture for it goes with the purge's tests.
+  re-run here; it moved to 0003's stage 1, whose purge was to delete
+  `idr.array.new` (0003 §15) but kept it as the world-ordered array's
+  allocation (`foreign/idr/include/idr/IR/IdrArrayOps.td`); 0005's
+  lane R10, which owns the array ops, decides it, and any fixture for
+  it goes with that lane's tests.
 - **A partially applied `castPtr`.** The identity hook applies only at
   full arity (`compiler/src/IdrisMLIR/Frontend/Translate/Terms.idr:364-370`);
   below it the call goes to the definition, `prim__castPtr = believe_me`

@@ -100,12 +100,14 @@ What happens to a call, by how much of it is static:
   idr-lower writes as static cells at the runtime's persistent count 0,
   never counted and never freed (`lib/Conversion/StaticData.cpp`;
   `runtime/idris_rt.h:30-33`). An array of words or floats is a dense
-  constant, an immortal `memref.global` (0003 §12, D23), from 0003's
-  stage 2, which brings the static shape a dense constant needs and its
-  lowering (0003 D40); before it, and for an array of any other element,
-  a closed array result is built at startup from its elements'
+  constant, an immortal `memref.global` (0003 §12, D23): the static
+  shape it needs and its lowering came with 0003's stage 1, in the
+  cutover (0003 D40; `LowerGetGlobal`,
+  `foreign/idr/lib/Conversion/Arrays.cpp`). For an array of any other
+  element, a closed array result is built at startup from its elements'
   constants (same section), which cannot fail, since every element is
-  already a value. A function is an `#idr.closure` (`IdrAttrs.td:120`)
+  already a value. This proposal remains the producer of closed array
+  results (0003 §12). A function is an `#idr.closure` (`IdrAttrs.td:120`)
   naming an `idr.func` that the frontend writes in symbol form, with a
   name derived from content (0004 §4.1); defunctionalization treats it
   as any closure constant.
@@ -509,7 +511,7 @@ beside the form it replaces.
 | A0 | interned names and the hash-consed term arena in the fork, typed ids, its two lifetimes and its 128-bit `hash` column; the fork's evaluator (`Core/Normalise/Eval.idr`, `Quote.idr`, `Convert.idr`) reads terms from the arena, its strategy unchanged; the frontend reads TT from it; TTCs keep their tree format (§3) | identical TTCs and corpus; elaboration of base and the frontend ≥ 1.5× faster than 0011's T0 record; peak resident memory of elaborating them no higher than T0's |
 | A1 | the wavefront machine replaces A0's evaluator in one change: weak head normal form and the read-back the checker needs | **the gate,** A1's binary against A0's on the checker's own normalizations (base, the frontend, smalltt's benchmark set), best of five: at most 2% slower where one row is live, and more than 2% faster where many are (a `tabulate` corpus); 2% is 0004 §10's runtime margin applied to the checker as a program (0003 D35 on why not the run-to-run spread). A machine that misses either is reworked before it lands, and until then A0's evaluator is the only one |
 | A2 | glued values, the caches of §3, approximate conversion, on the machine | smalltt's benchmark set within 1.5× of smalltt; ≥ 2× over A0 on conversion-heavy files |
-| A3 | static normalization in the frontend: closed total calls to values, the frontend's share of control-steering specialization (§2), the counted budget, first-demand constants beyond it; closed array results built at startup until 0003's stage 2, dense constants after it (§2); §9's rules; stage 0 from the last commit before A3 (§7, default of 0007 §12) | `tests/programs/eval` and the corpus unchanged in output; every test of static normalization holds its computations closed and on input (D5); byte-identical across thread counts; `make self` green from the native stage 0; no bench program's runtime or peak resident memory worse than the stage before by more than 2% |
+| A3 | static normalization in the frontend: closed total calls to values, the frontend's share of control-steering specialization (§2), the counted budget, first-demand constants beyond it; closed array results of words or floats as dense constants, through the lowering 0003's stage 1 brought, and of other elements built at startup (§2); §9's rules; stage 0 from the last commit before A3 (§7, default of 0007 §12) | `tests/programs/eval` and the corpus unchanged in output; every test of static normalization holds its computations closed and on input (D5); byte-identical across thread counts; `make self` green from the native stage 0; no bench program's runtime or peak resident memory worse than the stage before by more than 2% |
 | A4 | arrays in interpreted code as wide wavefronts (§5), after 0003's stage 1 | a table of 10⁶ words built by array operations normalizes within the budget; reflection benchmarks ≥ 10× over A2 where they use arrays |
 | A5 | the kernels as 0003 programs, after its stage 5 (§6) | `fused` holds on every kernel whose steps are elementwise; wide-wavefront benchmarks faster than A4 |
 | A6 | segments across shards, after 0006's P4 | identical results at every shard count; wall time on the A1 corpus recorded |
@@ -622,10 +624,12 @@ memory bar is one too: the arena exists to cut memory as well as time
 - D17. The interactive loop is stage A7, after A0, with the latency
   rule deciding the resident frontend in that stage. Reason: the
   latency is mostly loading, which A0 changes (§8).
-- D18. A3's closed array results of words or floats become dense
-  constants only from 0003's stage 2; before it every closed array
-  result is built at startup. Reason: a dense constant needs a static
-  shape and 0003 §12's lowering, both stage 2's (0003 D40).
+- D18. A3's closed array results of words or floats are dense
+  constants; a closed array result of any other element is built at
+  startup. Reason: a dense constant needs a static shape and 0003 §12's
+  lowering, which 0003 D40 moved to its stage 1, so both landed with
+  the cutover (`LowerGetGlobal`, `Conversion/Arrays.cpp`); this
+  proposal remains the producer of closed array results (0003 §12).
 - D19. From A3, `make self`'s stage 0 is the native frontend of the
   last commit before A3, by the default of 0007 §12's owner question.
   Reason: a fold calls `runtime/`, which has no meaning on Chez, and a

@@ -200,8 +200,10 @@ plan:
 - `linalg` fusion merges each pipeline into one loop nest (0003 §7.2):
   the first Futamura projection.
 
-Each step is optimization. `kClonesPerOwner`, `kUnrollLimit` and the
-per-caller cap stop it (0004 §2.5, D17, D25, D39), and a plan past
+Each step is optimization. The request-chain rule over specialization
+keys (0005 D4, which deletes `kClonesPerOwner`, built as
+`kKeysPerOwner`, and replaces `kUnrollLimit`, 0005 M16) and the
+per-caller cap stop it (0004 §2.5, D17, D25), and a plan past
 0008's budget is a first-demand constant (0008 §2) on which nothing is
 specialized. Either way the query runs the interpreter, specialized or
 not, and means the same. Ad-hoc queries run the interpreter, which is

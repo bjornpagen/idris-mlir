@@ -1,13 +1,15 @@
 # 0003: a typed array language, MLIR first
 
 **Status:** decided by the owner 2026-10-12 (§19, §21), reconciled
-2026-10-14 with 0004's pipeline cutover; design only, nothing of it is
-coded (read: no `idr.tie_shape`, `LArray` or `libs/mlir-array` in the
-tree). Stage 1 is one hard cutover with no compatibility owed. By the owner's
-decision of 2026-10-14, stage 1 lands in the same swarm wave as 0004's
-cutover, which it builds on and which the owner approved the same day:
-one wave, every lane started at once, against contracts both designs
-fix in the packet; stages 2 to 8 follow sharding, in order. The tree it starts from: the cutover 0002 designed
+2026-10-14 with 0004's pipeline cutover. Stage 1 is coded and
+integrated: by the owner's decision of 2026-10-14 it landed as one
+hard cutover, with no compatibility owed, in the same swarm wave as
+0004's cutover, which it builds on (c7aa7b62, 5d5f3312), so
+`idr.tie_shape` (`foreign/idr/include/idr/IR/IdrArrayOps.td`), `LArray`
+and `libs/mlir-array` are in the tree (*read*); its proof, like the
+cutover's, is owed on the owner's machine (HANDOFF.md). 0005 reverses
+its D13 (0005 D6). Stages 2 to 8 follow sharding, in order. The tree
+it started from: the cutover 0002 designed
 is committed and builds on arm64 macOS. Its gate there was green before
 the opt-in SCC pipeline (7a27fd34: `make check` 26/26, `make test-idr`
 286/286, `make test` 415/415) and at 552d682a, which added that opt-in,
@@ -619,9 +621,9 @@ to 0008 (§8 there), which owns it.
 
 ### 4.1 What the frontend emits
 
-**decision** (D13) The frontend writes each primitive's
-sequential meaning in upstream ops, and nothing of ours but the grade
-casts and `idr.tie_shape`:
+**decision** (D13, reversed by 0005 D6; §19 says why) The frontend
+writes each primitive's sequential meaning in upstream ops, and nothing
+of ours but the grade casts and `idr.tie_shape`:
 
 | primitive | emitted |
 |---|---|
@@ -721,9 +723,12 @@ the callee's parameter, MLIR's call typing makes the frontend write a
 `tensor.cast` to the parameter's type at the call, and the cast's source
 type is the argument's pattern, under the same binding-time rules as any
 static value. The fact is already in a type, so the key reads it and
-nothing records it again. A clone the budget does not make
-(`kClonesPerOwner`) leaves the extent dynamic: the same program, less
-optimized, never a refusal (0004 §2.5). The clone's entry
+nothing records it again. A clone specialization does not make leaves
+the extent dynamic: the same program, less optimized, never a refusal
+(0004 §2.5). What stops it was the budget `kClonesPerOwner`, which the
+cutover built as `kKeysPerOwner` and 0005 D4 deletes for the
+request-chain rule over specialization keys: a new key is not made
+when it embeds an ancestor key on its request chain. The clone's entry
 casts its array arguments to the static type with `tensor.cast`, and
 upstream's cast-folding canonicalizations, run by 0004's inner
 per-function pipeline, carry the static type into the destination-style
@@ -1598,8 +1603,9 @@ rewritten to the new ops.
 Every stage passes `make check`, `make build`, `make test`, `make
 test-idr` and `make test-mlir-tools` on both targets, and
 `tests/determinism` at 1, 2 and 8 threads, and runs `bench/` on both, on
-the owner's machine as 0004 §10 lays out. Stage 1 lands after 0004's
-cutover and right after `make self` (0002 §2 step 5), ahead of sharding;
+the owner's machine as 0004 §10 lays out. Stage 1 landed with 0004's
+cutover, in its swarm wave (c7aa7b62, 5d5f3312), before `make self`
+(0002 §2 step 5) and sharding; its proof is owed with the cutover's;
 stages 2 to 7 follow sharding (0006's P1, P2 and P4 with 0007's
 S-stages), in order, and stage 8 needs 0006's P4.
 
@@ -1828,7 +1834,12 @@ Decided by the owner, 2026-10-12.
 - **D12.** Literal size mismatches are reported as the literals, by a
   fix in the fork recorded in `PINS.md` (§3.9).
 - **D13.** The frontend writes each primitive's sequential meaning in
-  upstream `scf` and `tensor` ops (§4.1).
+  upstream `scf` and `tensor` ops (§4.1). *Reversed by 0005 D6:* the
+  frontend writes `idr.tabulate`, `idr.fold_last`, `idr.scan_last` and
+  `idr.tabulate_io`, which `idr-structure-loops` lowers one to one once
+  effects are final, because an `scf.for` nest that a recognizer then
+  reads back as linalg holds each loop twice, the emitter's and its
+  inverse's.
 - **D14.** `idr.tie_shape` ties dynamic dimensions across calls through
   `ValueBoundsOpInterface`; sizes are `arith` or `affine` on `index`
   (§4.3).
@@ -1939,7 +1950,8 @@ text had left open or got wrong:
   §13's case (§3.8).
 - **D39.** The static pattern of an array argument is the source type of
   the `tensor.cast` the frontend writes at the call, under today's
-  binding-time rules; a clone the budget does not make leaves the extent
+  binding-time rules; a clone specialization does not make (by 0005 D4's
+  request-chain rule, which deletes the budget) leaves the extent
   dynamic. Reason: the fact is already a type, and a budget never
   rejects (§4.3; 0004 §2.5).
 - **D40.** The immortal-constant lowering lands at stage 1 (amended in
@@ -2057,7 +2069,10 @@ policy as `upstream/README.md` requires. They share one queue with
    rebuilt in one cutover; the fork's `Table`, `IORef` and `Buffer`
    users are ported in it, and `make self` stays green across it. (How,
    reconciled 2026-10-14: `Table` onto base's `IOArray`, D38; the
-   `IORef` and `Buffer` users unchanged in source, §13.)
+   `IORef` and `Buffer` users unchanged in source, §13. When, amended
+   by the owner on 2026-10-14: in 0004's swarm wave, with the cutover
+   and before `make self`, where it landed, c7aa7b62 and 5d5f3312; so
+   `make self` first runs on the tree after it.)
 2. **One path for counted elements** (D17). A regression stage 1
    measures is a reason to make the counted copy faster, not to keep a
    second path.

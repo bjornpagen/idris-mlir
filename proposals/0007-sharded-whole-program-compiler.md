@@ -2,9 +2,9 @@
 
 **Status:** proposed 2026-10-10; reprioritized 2026-10-12; reconciled
 2026-10-14 with 0004's pipeline cutover, which it consumes unchanged,
-and with 0006. Design only: every question is decided but one, which
-needs the owner (§12). Built so far, by the 0002 cutover and 0004's
-first compile-time round: MLIR threading on, every rewrite a function
+and with 0006. Design only: every question is decided, the one that
+needed the owner closed by him (§12). Built so far, by the 0002
+cutover and 0004's first compile-time round: MLIR threading on, every rewrite a function
 pass under a nested pass manager (0002 D3), deduplication by content,
 IntRange per function, RemoveDeadValues once at the fixpoint, labels in
 one walk (0004 §3.1). The cutover 0002 designed is committed and builds
@@ -26,10 +26,12 @@ L7). S2's second step, the split before O3, follows the cutover in
 0004's order (§10 there). What remains here is the sharded form of the
 same pipeline: the whole-program parts sharded where the post-cutover
 record shows them serial, the compiler's Idris half in parallel, and a
-persistent cache with early cutoff. It follows 0003's stage 1, which
-follows `make self` (proposals/README.md). S3 to S6 are each taken by
+persistent cache with early cutoff. It follows `make self`
+(proposals/README.md); 0003's stage 1 landed before both, with 0004's
+cutover (c7aa7b62, 5d5f3312). S3 to S6 are each taken by
 the measurement rule §10 names, judged on S0's second record; S9
-follows S2's second step; S8 and S10 wait on 0009's O3, which takes
+follows S2's second step; S8 and S10 wait on 0006's shards (its P4,
+§5.4) and on 0009's O3, which takes
 0013 out of parking and needs its R1 and R2 first (0009's status and
 D12; 0013 §0). No C++ stage waits on 0013 (D13). Four rules this
 proposal decided are run by 0004's cutover itself, so 0004 states them
@@ -175,7 +177,7 @@ the facts 0004 leaves without one, D19 and D20):
 
 | 0004 stage | Whole-program part (phase 2: decided once, read frozen) | Per-unit part (phase 3) |
 | --- | --- | --- |
-| 1, reachability and monomorphisation (`compiler/src/IdrisMLIR/Frontend/Translate/Instances.idr`) | the instance set from the root; the refusals of a megamorphic construct, today `checkRecursion` (`Translate/Recursion.idr:130-165`) and `growing` (`Instances.idr:68-93`), with the instance budget until 0012's feature 2 replaces all three with its request-chain rule (0012 D4; 0004 D40), as filters on each round's delta (0009 §4.8, D3), the least rejected key reported (D5) | translating each instance's body; emitting closures and suspensions in symbol form with names from content (0004 §4 stage 1) |
+| 1, reachability and monomorphisation (`compiler/src/IdrisMLIR/Frontend/Translate/Instances.idr`) | the instance set from the root; the refusal of a megamorphic construct, 0012's feature 2's request-chain rule (`chainGrows`, called from `request` in `Instances.idr`), which replaced `checkComponent`'s blanket refusal, `growing` and the instance budget in 0004's cutover (0012 D4; 0004 D40), as a filter on each round's delta (0009 §4.8, D3), the least rejected key reported (D5) | translating each instance's body; emitting closures and suspensions in symbol form with names from content (0004 §4 stage 1) |
 | 1, dictionary fields (`Translate/Dictionaries.idr`) | the one implementation per field over all construction sites: a monotone set, two after freeze a refusal (`Dictionaries.idr:136-154`) | none: the late-site restart (`Translate/Programs.idr:126-136`) disappears, since facts only grow (0012 D6) |
 | 1, box or unboxed (`Translate/Programs.idr:138-157`) | SCCs of the data containment graph | none |
 | 2, closed-world verification | one public root of the two root types (`lib/IR/Verify/Program.cpp:25-40`), no external `idr.func` (0004 D7); the type graph without a knot or an unboxed cycle (`Verify/Program.cpp:92-100`, `Verify/Knots.cpp:3-10`) | every closure- or lazy-typed operand on an op with the flow interface (0004 D8); quantities, linearity and the stage read from types (0004 D19), each op's own verifier, re-run per unit after every pass |
@@ -215,12 +217,12 @@ each fact then has exactly the scope it quantifies over.
 0003's stage 1 deletes them (0003 §15), and what replaces them carries
 its facts in types (0003 §2). This supersedes the earlier row that
 computed in-bounds length relations in phase 2. The 4096-instance count
-(`Instances.idr:33-39, 110-112`), which reports `unsupported
-(compile-time budget)` (`IdrisMLIR/Rule.idr:37, 69`), survives 0004's
-cutover (0004 D40) and is gone once 0012's feature 2 lands (0012 D4);
-if 0009's O3 lands first it carries the count unchanged as a check on
-the delta (0009 D3), and S8 shards it with the other refusals. This
-supersedes the earlier row that decided that count in phase 2.
+(`Instances.idr:33-39, 110-112` before the cutover), which reported
+`unsupported (compile-time budget)`, is deleted: 0004's cutover took
+0012's feature 2 (0004 D40, 0012 D4), whose request-chain rule 0009's
+O3 carries as a check on the delta (0009 D3) and S8 shards with the
+other refusals. This supersedes the earlier row that decided that count
+in phase 2.
 
 The global column is each stage's summaries and fixpoints; the local
 column is work over one unit's bodies. That is GCC's IPA protocol made
@@ -527,13 +529,19 @@ counts, and D11 and D5 make them functions of content:
   would have held the binding-time rule twice and lost the bound 0004
   keeps; and the count read owner-wide, which 0004's earlier text
   implied and which a parallel ready set would read in arrival order.
+  The cutover built the budget as `kKeysPerOwner`
+  (`include/idr/Transforms/Specialize.h`), and 0005 D4 deletes it:
+  specialization stops by the request-chain rule over specialization
+  keys (a new key is not made when it embeds an ancestor key on its
+  request chain), a function of each node's own chain, so D5 holds
+  with no count at all.
 
 A spent bound stops optimizing and never refuses a program (0004 §2.5,
 D17). The refusals that remain are the frontend's: a megamorphic
-recursion (`checkRecursion`, `growing`), a second dictionary
-implementation, and, until 0012 D4 lands, the instance budget (0004
-D40). Decided in phase 2 by D2's rounds, each names the least
-key its round rejects, so it names the same site on every schedule
+recursion, by the request-chain rule (`chainGrows`; 0012 D4), which
+replaced `growing` and the instance budget in 0004's cutover (0004
+D40), and a second dictionary implementation. Decided in phase 2 by
+D2's rounds, each names the least key its round rejects, so it names the same site on every schedule
 (D5). A clone is a GCC-style virtual clone, a descriptor (owner,
 pattern key) that the owner's unit materializes (wpas §2), now made on
 demand when its node is first requested.
@@ -610,14 +618,14 @@ text module.
 **Translation units at S8** (*decision*, D18). The frozen instance set,
 sorted by key, is cut into contiguous ranges of about 2^15 Core nodes
 each, sized by the subtree sizes 0009's tables store (0009 D8), so the
-count follows size and never the process count (D4). Each shard
+count follows size and never the shard count (D4). Each shard
 writes one bytecode file per range. The driver reads every file into
 the one `MLIRContext` without verifying it alone
 (`ParserConfig(context, verifyAfterParse = false)`,
 `M/include/mlir/IR/AsmState.h:472-486`, since a unit names symbols other
 units define), moves the top-level ops into one module, orders them by
 symbol name and verifies the module once. So the module, and everything
-after it, is the same for every cut and every process count, and the
+after it, is the same for every cut and every shard count, and the
 cut needs no edit stability: no cache keys on it. A data type a unit
 uses is written in that unit with its body, as 0004's identified types
 carry it (0004 D29); identified types are uniqued by name in the
@@ -692,7 +700,7 @@ Cases.idr:95-96`, *read*), and the driver writes no debug information
 under the build directory, named by their hash, and an index that is one
 sorted table from key to blob, written by the C++ driver; the frontend's
 summaries are blobs of the same store, which the driver hands to its
-child processes by path. It is Mojo's
+frontend child, whose shards read them, by path. It is Mojo's
 `Cache/` design rebuilt on `llvm/Support/xxhash.h` in about 200 lines,
 as 0004 §8 plans (mojo §4: content-addressed blobs behind a chain of
 backends, keyed by a 128-bit xxhash, whole-module only there). Neither
@@ -804,8 +812,9 @@ serial share; it is never lowered quietly.
 - **Determinism:** byte-identical outputs for every shard count, worker
   count and schedule (D1). `tests/lib/determinism.sh`, which today
   compares two compilations and one thread against the pool, gains
-  worker counts 1, 2 and 8 (0004 §4) and, at S8, process counts 1, 2 and
-  8 for the Idris half. Its per-step dumps, taken today with
+  worker counts 1, 2 and 8 (0004 §4) and, at S8, shard counts 1, 2 and
+  8 for the Idris half, which runs on 0006's thread-per-core shards
+  (§5.4). Its per-step dumps, taken today with
   `--dump-dir` (`tests/lib/determinism.sh:19`), move to upstream's
   `-mlir-print-ir-tree-dir` when 0004 deletes the option (0004 §6, lane
   L8). There is no schedule-perturbing mode: a mode is
@@ -842,9 +851,9 @@ stage keeps a differential mode or the replaced form in the binary.
 | S5 | exclusivity and borrow grades as monotone duals (§4.3) | by S3's rule, for these facts | `idr-demand`'s verdicts and the module byte-identical |
 | S6 | the stages before lowering on per-worker contexts or processes, units as bytecode (codegen units have their own contexts from S2's second step, D7) | when S0's second record shows the one context's shared state (the uniquer, the serial `am.nest` of each nested pipeline, `M/lib/Pass/Pass.cpp:950-977`) above 5% of one-worker wall | byte-identical at 1, 2 and 8 workers; memory per worker recorded |
 | S7 | MLIR threading over nested pipelines (done by the 0002 cutover) and the ready set drained by the thread pool (taken by 0004's L3) | done and the cutover | `tests/determinism` across thread counts (0004 §4) |
-| S8 | the Idris half in parallel: phase 1 one process per module (elaboration is 0011's T7, processes first), 0009's Translate fixpoint sharded by §4, Translate per range writing per-unit bytecode that the driver merges in symbol order (D18) | after 0003's stage 1 and 0009's O3 (which needs 0013's R1 and R2) | determinism across process counts 1, 2 and 8; phase 1 and frontend-fact speedups recorded; the ranges' count and fixed cost recorded |
+| S8 | the Idris half in parallel on 0006's thread-per-core shards, one model for programs and the compiler (§5.4, §12): phase 1 a module per shard task (elaboration is 0011's T7, on the same shards), 0009's Translate fixpoint sharded by §4, Translate per range writing per-unit bytecode that the driver merges in symbol order (D18); from stage 1 of `make self`, stage 0 on Chez staying single-threaded | after 0006's P4 and 0009's O3 (which needs 0013's R1 and R2) | determinism across shard counts 1, 2 and 8; phase 1 and frontend-fact speedups recorded; the ranges' count and fixed cost recorded |
 | S9 | the persistent cache and early cutoff at four levels, locations outside every key (§6, D15, D17) | after S2's second step | a no-op rebuild compiles zero units; a one-definition edit recompiles only the nodes and bins whose keys changed; a line added at the top of a module recompiles nothing below its summary and leaves every object byte unchanged |
-| S10 | balance of the Idris half's processes: longest-first placement; D9's measurement on the compiler's own run; GLB-style stealing only if D9's rule fires and it is still not enough (the C++ side's pool already balances, §7) | with S8 | idle time at the last join below a tenth of workers × wall |
+| S10 | balance of the Idris half's work across its shards: longest-first placement; D9's measurement on the compiler's own run; GLB-style stealing only if D9's rule fires and it is still not enough (the C++ side's pool already balances, §7) | with S8 | idle time at the last join below a tenth of workers × wall |
 
 ## 11. Rejected alternatives
 
@@ -956,8 +965,10 @@ per-SCC liveness lives (D19), and where RoundFacts' facts go (D20).
   size, a caller's own size, a node's own requests); a spent bound stops
   optimizing and never refuses (0004 D17). `kClonesPerOwner` (0004 D39)
   is counted per requesting node, over the distinct keys it requests of
-  one owner in call-site order. The frontend's refusals are decided in
-  phase 2 by D2's rounds, each naming the least key its round rejects.
+  one owner in call-site order; built as `kKeysPerOwner`, it is deleted
+  by 0005 D4 for the request-chain rule over specialization keys. The
+  frontend's refusals are decided in phase 2 by D2's rounds, each
+  naming the least key its round rejects.
 - D6. Static normalization (total code only, 0008 D1) runs in phase 1;
   phases 2 to 4 never run program code.
 - D7. The C++ half runs in one process on MLIR's thread pool. The
@@ -981,8 +992,9 @@ per-SCC liveness lives (D19), and where RoundFacts' facts go (D20).
 - D13. Whole-program facts are computed on the side that owns them: the
   frontend's in Idris, the dialect's in C++ in `foreign/idr`; 0013
   serves the Idris side only.
-- D14. Determinism is checked across worker and process counts 1, 2 and
-  8; there is no schedule-perturbing mode.
+- D14. Determinism is checked across worker counts 1, 2 and 8 on the
+  C++ side and shard counts 1, 2 and 8 on the Idris half (§5.4); there
+  is no schedule-perturbing mode.
 - D15. The cache is content-addressed blobs and one sorted index under
   the build directory, written by the C++ driver, at four levels:
   summary, fact slice, node and object (§6). It lands as one stage after

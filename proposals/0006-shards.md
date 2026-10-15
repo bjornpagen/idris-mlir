@@ -15,8 +15,9 @@ the opt-in SCC pipeline of 552d682a ran in one lit test only, and 0004
 deletes it). x86_64 Linux has not run this tree (0002's G1 is NotRun
 there), so P2's epoll half targets a system that has not yet run it.
 
-Sharding follows 0003's stage 1, which follows self-hosting: P1, P2
-and P4 are that work, in order. 0007's S0, S1 and S2's first step are
+Sharding follows self-hosting (0002 §2's step 5, `make self`); 0003's
+stage 1, which it builds on, landed before both, with 0004's cutover
+(c7aa7b62, 5d5f3312). P1, P2 and P4 are that work, in order. 0007's S0, S1 and S2's first step are
 taken by 0004's cutover, before any of it. The compiler's own Idris
 half runs on these shards too, by the owner's decision (0007 §5.4, §12):
 single-threaded until this framework exists, then on its shards from
