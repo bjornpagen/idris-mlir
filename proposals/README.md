@@ -189,10 +189,8 @@ Questions only the owner can settle, each with its default taken in the
 proposal that owns it: 0001 §3 (GMP's licence, with counsel) and 0001 §4
 (whether a port's changes note names only what changed, which amends his
 D1; default yes, path and revision in PINS.md alone), 0002 §5 (where
-G1's x86_64 Linux leg runs), 0004 §5 item 3 (whether the request
-relation refuses a chain that grows once and stops; default: the rule as
-built, 0011's feature 2) and item 9 (the ryu pin, which has no release
-since v2.0; default: stay), and 0007 §13 (the restated forms of the
+G1's x86_64 Linux leg runs), 0004 §5's ryu pin (no release since
+v2.0; default: stay), and 0007 §13 (the restated forms of the
 owner's D3 and D5 for static normalization). Every other question in the
 queue is decided.
 
@@ -261,8 +259,7 @@ entries, `bench/runs/`, `sources/`) keep the numbering then in force.
   typecheck only, with the bugs review found (older and introduced) in
   its §4.3. What remains (§5): the owner's build and acceptance, the
   toolchain bump ([toolchain-bump.md](0004-total/toolchain-bump.md)),
-  the owner's two questions (the polymorphic-recursion whistle and the
-  ryu pin), the dictionary passes' proof, the rest of Host's trust, the
+  the ryu pin (the owner's), the dictionary passes' proof, the rest of Host's trust, the
   translation of applications made total, four deferred designs
   (data-type bodies that hold buffers first), typed identities in place
   of strings that stand for things (which the dictionary passes' proof

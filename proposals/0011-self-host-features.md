@@ -381,12 +381,13 @@ more values known in the frontend, where the instance is decided.
      static arguments. This file once cited Sørensen, Glück and Jones
      (`papers/sorensen-1996-positive-supercompiler`) for it; a search of
      that paper's text finds no such test, and the citation is replaced.
-     *Reopened for the owner* (0004 §5): such a chain grows once and
-     stops (`g Int` asks for `g (List Int)`, which asks for nothing), so
-     its set is bounded and the refusal's message, that the recursion
-     builds deeper at each call, is false for it; the option is to
-     refuse only a repeated growth, which is still almost full. Default:
-     the rule as built.
+     *Decided by the owner* (2026-10-15): a chain that grows once and
+     stops (`g Int` asks for `g (List Int)`, which asks for nothing)
+     stays refused. Its set is bounded, but the compiler's subset is
+     deliberate: it accepts what it compiles well, refuses the rest with
+     a message naming it (now worded as what the check detects, a
+     request larger than an earlier one on its chain), and programs and
+     libraries are written for it.
    - Not a reason to bring back the frontend's nested `Term a`: its
      `Fin n` form is the better representation (the ledger).
 3. **A result or field type computed from a runtime value**

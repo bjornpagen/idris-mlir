@@ -531,14 +531,13 @@ Each item with where it goes next.
    to main 89ba32eb alone; then CMake 4.4.4 and LLVM main 7a83be39
    together, rebasing 06, refreshing 07 and retiring 01. Chez stays on
    v10.4.1 until 10.5.0 is tagged. Next after the owner's build.
-3. **The polymorphic-recursion whistle** (the owner's decision): the
-   relation refuses a chain that grows once and stops (`g Int` asks for
-   `g (List Int)`, which asks for nothing), and its message then says the
-   recursion builds deeper at each call. The option: refuse only on
-   repeated growth, which is still almost full. Default: the rule as
-   built. 0011's feature 2 owns the rule (its bounded case is reopened
-   there), and taking the option changes it and `Proof.Requests`
-   together.
+3. **The polymorphic-recursion rule stays as built** (decided by the
+   owner, 2026-10-15). The relation refuses a chain that grows once and
+   stops (`g Int` asks for `g (List Int)`, which asks for nothing), and
+   that is the intended subset: the compiler accepts what it can compile
+   well and refuses the rest with a message naming it, and programs and
+   our libraries are written for it, as the size-indexed `Linear.Vec`
+   was. Relaxing it to refuse only repeated growth is not planned.
 4. **The dictionary passes, proved** (§4.4): the finite universe of
    learnable fields built from the request tree (König's lemma, the fan
    theorem), then a pigeonhole measure over the growing set replaces the
@@ -566,11 +565,13 @@ Each item with where it goes next.
    `normalisedBy host.normaliseAll`, its runtime arguments stood for
    numbered hole markers mapped back to their thunks, and its normal form
    is translated in a phase that cannot evaluate again; metavariables are
-   entered once on a path (`Walk`). Open for the owner: `normalisedBy`'s
-   guard refuses an implementation that refers to a definition Idris does
-   not prove total, which today is unfolded and translated as calls, so
-   (b) keeps a structural path for that case or it would refuse programs
-   that compile now. Next after the owner's build, before 0002's G1.
+   entered once on a path (`Walk`). `normalisedBy`'s guard refuses an
+   implementation that refers to a definition Idris does not prove total
+   (today unfolded and translated as calls), and that refusal stands
+   (decided by the owner, 2026-10-15: the same subset as item 3); it is
+   an explicit `unsupported` naming the implementation and the
+   definition, which a program fixes by making that definition total.
+   Next after the owner's build, before 0002's G1.
 7. **Deferred designs:**
    - **Data-type bodies that hold buffers.** A constructor's field that
      holds an array is `tensor<…>` or `!idr.lin<tensor<…>>` in its data

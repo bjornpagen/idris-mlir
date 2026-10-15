@@ -67,10 +67,11 @@ Owed on the owner's machine, before anything else:
    bench, x86_64 Linux) and `make self`.
 
 Open (the record's §5):
-- The owner's: whether the request relation refuses a chain that grows
-  once and stops (`g Int` asks for `g (List Int)`, which asks for
-  nothing; option: refuse only repeated growth, still almost full); the
-  ryu pin (no release since v2.0); filing the submissions ready to go
+- Decided by the owner: the request relation keeps refusing a chain that
+  grows once and stops, and the total translation of applications
+  refuses an implementation that refers to a definition Idris does not
+  prove total; the compiler's subset is deliberate, and programs and
+  libraries are written for it. Still the owner's: the ryu pin (no release since v2.0); filing the submissions ready to go
   (01 test-only, 02, 16, 22, 23, 25; 48 and 49 need a human author).
 - the dictionary passes' proof (a finite universe of learnable fields,
   then a pigeonhole measure), which waits on typed identities in place of
