@@ -1,4 +1,4 @@
--- expect: cycle, line 16
+-- expect: cycle, line 18
 -- message: an IORef of
 module Main
 
@@ -9,8 +9,8 @@ import Data.IORef
 -- rank 0, a cell written after it is made, so the IORef can then hold the
 -- node that holds it: written into itself, it is a knot that counting
 -- would never free, and the type is refused. Base's newIORef makes the
--- IORef, and base's code has no place in this program's source, so the
--- refusal is at the program's own type on the cycle, which closes the knot.
+-- IORef, and a type has no place in the module, so the refusal is at the
+-- first value of a type on the cycle this program builds: the Nothing.
 data Node = MkNode (IORef (Maybe Node))
 
 main : IO ()

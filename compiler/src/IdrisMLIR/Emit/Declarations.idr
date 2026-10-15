@@ -40,15 +40,16 @@ export covering
 function : Index -> FnId -> TFn -> E (List Statement)
 function ix root f = do
   sym <- fnSymbol ix f.id
-  ((params, res), ops) <- inFunction $ do
-    params <- traverse (\(_, b) => (\r => val r (typeOf b) b.quantity) <$> fresh) f.params
-    res <- plain' (para alg' f.body (\i => index i params) (Just f.result))
+  -- A parameter that is an array of records is an argument per column.
+  ((args, res), ops) <- inFunction $ do
+    bound <- traverse (\(_, b) => freshVal ix (typeOf b) b.quantity) f.params
+    res <- plain' (para alg' f.body (\i => fst (index i bound)) (Just f.result))
     res' <- traverse (fit ix f.loc (Just f.result)) res
-    pure (params, res')
-  rt <- mlirType ix f.result
-  args <- traverse (\((name, _), p) => (\o => MkArgument o (Named name f.loc)) <$> operand ix p)
-                   (toList (zip f.params params))
-  body <- epilogue ix f.loc rt res ops
+    let args = concatMap (\((name, _), (_, vs)) => map (\o => MkArgument o (Named name f.loc)) vs)
+                         (toList (zip f.params bound))
+    pure (args, res')
+  rts <- heldTypes ix Many f.result
+  body <- epilogue ix f.loc res ops
   -- One cell for a lazy constant. Inlining the function that builds it
   -- would build a fresh cell at every use, and each force would run the
   -- body again.
@@ -58,7 +59,7 @@ function ix root f = do
                        noInline = shared,
                        instance = Just (instanceAttr f.key)}
                       sym
-                      (FunctionType (MkSignature (map (\a : Argument => a.value.type) args) [rt]))
+                      (FunctionType (MkSignature (map (\a : Argument => a.value.type) args) rts))
                       (MkRegion args body)
   lifted <- gets (.lifted)
   pure (MkStatement Nothing fn (Named (shown f.key.origin) f.loc) :: (lifted <>> []))

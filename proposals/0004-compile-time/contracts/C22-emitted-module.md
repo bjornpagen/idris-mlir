@@ -353,9 +353,27 @@ generates both: `Dialect.Tensor` has `emptyOp`, `extractOp`, `insertOp`,
 - A cell whose size its type leaves dynamic has no size before the first
   cell is made: a `Tabulate` or `TabulateIO` of such cells is an internal
   error until C20 gives the cell's extents (a seam, reported).
-- An array of records is what C20's terms and types make of it (0003 D44
-  is decided in translation); emission adds no form of its own and
-  writes the tensors C20 names, field by field where its terms do.
+- An array of records (C20's `ColumnsT k ds r`, 0003 D44) is written
+  one-to-N, as C20 §10 states: one value per field of `r`'s constructor,
+  in field order, nested columns flattened depth first, wherever the type
+  stands (parameters, results, block and region arguments, constructor
+  fields, captures, operands, loop-carried values); a value of quantity
+  one is each column at quantity one. In Emit a value is held whole, as a
+  constructor a match took apart, or as its columns (`Monad.Parts`:
+  `Whole | Taken ConId (List Val) | Columns (List Val)`), and
+  `Types.heldTypes`, `operandsOf`, `fromNames` and `freshVal` give its
+  types, operands, and values from result or argument names. A read
+  gathers (one `tensor.extract` or slice per column, then `idr.con`); a
+  write scatters (the record's fields, by `idr.field` or as a match took
+  them apart, each into its column); an extent is the first column's;
+  take, drop, join, reshape and pad act on every column (pad's cell taken
+  apart); a tie ties every column's leading dimensions to the same sizes;
+  a new array is a `tensor.empty` per column. An ordered array of records
+  is one memref per column: a new one fills each with its field of the
+  fill, a get loads each and builds the record, a set stores each field,
+  the world threaded through them, the guard checked once on the first
+  column. A suspension of an array of records has no type
+  (`!idr.lazy` holds one value): an internal error, C20 permitting one.
 - World-ordered arrays (`MemRefT`) are written as today
   (`Emit/Operations.idr:157-273`), their guards kept (0003 §13).
 

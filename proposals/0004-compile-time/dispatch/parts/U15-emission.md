@@ -172,7 +172,10 @@ Nothing is deleted whole.
     a bound by 1 with iter args; a body that never returns yields
     `ub.poison`), and `fit` (`tensor.cast` at a slot that differs only in
     static dimensions, then `coerce`). `Bodies.alg` calls them for C20's
-    `Tensor`, `Tabulate`, `TabulateIO`, `Reduce` and `Tie`.
+    `Tensor`, `Tabulate`, `TabulateIO`, `Reduce` and `Tie`. An array of
+    records (`ColumnsT`) is held as its columns (`Monad.Parts`), one
+    value per field, and every one of these acts on each column as C20
+    §10 states; `Operations.effect` does the same for ordered ones.
 11. **The samples.** `syntax-samples OUT` writes one file. The op samples
     keep one op per generated builder shape the frontend uses, and add an
     `idr.closure`, an `idr.suspend`, an `idr.delay %v` and a tensor op;

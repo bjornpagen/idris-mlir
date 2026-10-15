@@ -1,3 +1,80 @@
+# Checkpoint (2026-10-14, late, the cutover wave integrated on the typecheck machine)
+
+Proposal 0004 (the pipeline cutover) and 0003's stage 1 (the MLIR-first
+array rebuild) landed as one swarm wave of 19 lanes on disjoint files
+(proposals/0004-compile-time/: ownership.json, swarm.md, the 24
+contracts, each lane's part). It is the last wave: everything after
+it is ordinary work on main. Integrated at c7aa7b62 and the commits
+after it, on the typecheck machine, which builds no LLVM.
+
+What the tree is now:
+- Defunctionalization is total by analysis: every op holds the flow
+  interface as an external model (lib/IR/Flow.cpp); a 0CFA label solve
+  with no unknown element; every key a sum named from its content.
+- `idr-optimize` is the ready set: call-graph components run bottom-up
+  in deterministic waves (`failableParallelForEach`, nodes inserted
+  between waves), with MLton's inline rule on final sizes and a caller
+  cap that stops and never rejects. Specialization nodes are
+  content-keyed and stop at a per-owner limit. The frontend's instance
+  budget is gone for 0011's request-chain rule. AGENTS.md makes
+  acceptance a property of the program, and spec/totality holds that
+  no refusal by count, round or budget remains.
+- Data types are identified types (`!idr.data<"T", kind [...] ...>`,
+  body set once; `idr.data`/`idr.ctor` deleted; `#idr.con` carries its
+  type). Stack, effects and the in-place promise are inherent facts.
+  Refusals are one `Rule` enum in ODS, generated into Syntax/Idr.idr
+  (Rule.idr deleted). Names come from content (XXH3-128 in C++ and Idris).
+- Arrays are tensors: `idr.tie_shape`, `#idr.world` memory, literal
+  extents static, `idr-structure-loops` into linalg/scf, One-Shot
+  bufferization on idr.func through patch 24. An array's lowered value
+  is one pointer, its cell; a constant is one global with the header in
+  front. libs/mlir-array replaces Linear.Array; the fork's context table
+  is an IOArray. Deleted: the InBounds stack, idr-vectorize (now the
+  transform schedule, `transform.idr.vectorize_lanes`), Simplify and its
+  rounds, Isolate, Prof, the break shape, `break_last`.
+- Code generation partitions the program into size-balanced bins for
+  parallel LLVM (lib/Target/Partition.cpp, `writeObjects`). The frontend
+  hands over MLIR bytecode (`.mlirbc`).
+- Patches 02, 16 and 22 retired as submissions; 24 added; Modular's
+  EliminateDuplicateFunctions ported (Apache-2.0 WITH LLVM-exception).
+
+Verified here: `make typecheck` configure, tblgen, cxx (every C++ unit
+of the dialect and tools), dialects, libs and fork; `make check` 32/32.
+The frontend typechecks too (`idris-mlir.ipkg`, 60 modules, and
+`syntax-samples`), so `make typecheck` passes every part. The Idris
+XXH3-128 reproduces all 13 of LLVM's published vectors and C21's text
+vector. Known gaps, each an internal error by C20's shapes, never a
+miscompile: a suspension of an array of records (`!idr.lazy` holds one
+value, the record array N columns), and a tabulated cell whose own
+dimensions are dynamic (the frontend refuses that as `unsupported
+(type)` first, so it should not be reached).
+
+Not run, because this machine builds no LLVM, and owed on the owner's
+machine before anything else (AGENTS.md's checks):
+1. `make bootstrap` (patch set changed: 24 in, 02/16/22 out), then
+   `make build`.
+2. `make test`, `make test-idr`, `make test-mlir-tools`. 106 expected
+   files carry a `NEEDS-ACCEPTANCE:` first line (`git grep -l
+   NEEDS-ACCEPTANCE -- tests`): 96 in tests/idr (27 defunc, 10 raise, 8
+   specialize, 7 bufferize, ...), the dialect-syntax and handoff tests,
+   the registry three, runtime-api, data/shapes, and the two cycle
+   rejects, whose location moves because a type has no location. Each
+   line says what to confirm; accept by replacing the file with the
+   output, the line removed, when the output says it.
+3. Determinism at 1, 2 and 8 threads over dumps, objects and the
+   executable; the three two-bin partition tests of C13.
+4. The bench against the 2026-10-13 record within 0003 D35's 2%:
+   spectral-norm-linear's vectors (now the transform schedule), the IO
+   loop (tests/idr/raise/io-loop ending in scf.while), the five ports
+   to mlir-array.
+5. The optimizer's wall on stage 0 against 0004 §10's margin (under
+   600 s), and the bytecode read time against the 11.7 s text parse.
+6. x86_64 Linux: the same, NotRun as before.
+
+Owner questions still open, each with its default taken: GMP's licence
+(0001 §5); a port's changes note (0001 §9); G1's Linux leg (0002 §5);
+0006 §12's host question; 0007 §13's restated D3 and D5.
+
 # Checkpoint (2026-10-14 night, the pipeline cutover designed and the queue reconciled)
 
 Proposal 0004 is rewritten as the pipeline cutover (3de67510) and

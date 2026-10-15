@@ -398,7 +398,7 @@ utf8 s = concatMap encode (unpack s)
 ||| first.
 export
 hex16 : Bits64 -> String
-hex16 x = pack (map digit [15, 14 .. 0])
+hex16 x = pack (map digit (reverse [0 .. 15]))
   where
     digit : Nat -> Char
     digit i =

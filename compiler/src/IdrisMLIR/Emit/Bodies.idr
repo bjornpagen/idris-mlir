@@ -47,6 +47,7 @@ bind vs env v = case splitUnder {k} v of
 
 ||| Operands, left to right, each checked against the type its position
 ||| expects and held as it binds them; `Nothing` once one never returns.
+covering
 operands : Index -> Loc -> (Fin nv -> Val) -> List (Sub Em nv) -> List Binder -> E (Maybe (List Val))
 operands ix l env [] _ = pure (Just [])
 operands ix l env (a :: as) slots = do
@@ -61,15 +62,16 @@ plain : Index -> Loc -> E (Maybe Val) -> E (Maybe Val)
 plain ix l act = act >>= traverse (coerce ix l Many)
 
 mutual
-  ||| `v`, with every value named as `before` is, itself or a field of a
-  ||| rebuilt constructor, replaced by `after`.
+  ||| `v`, with every value named as `before` is, itself or a part of it,
+  ||| replaced by `after`.
   renamed : (before, after : Val) -> Val -> Val
   renamed before after (MkVal n t u r) =
     if n == before.name then after else MkVal n t u (renamedIn before after r)
 
-  renamedIn : (before, after : Val) -> Maybe (ConId, List Val) -> Maybe (ConId, List Val)
-  renamedIn before after Nothing = Nothing
-  renamedIn before after (Just (c, fs)) = Just (c, renamedAll before after fs)
+  renamedIn : (before, after : Val) -> Parts -> Parts
+  renamedIn before after Whole = Whole
+  renamedIn before after (Taken c fs) = Taken c (renamedAll before after fs)
+  renamedIn before after (Columns ps) = Columns (renamedAll before after ps)
 
   renamedAll : (before, after : Val) -> List Val -> List Val
   renamedAll before after [] = []
@@ -105,13 +107,14 @@ record Arm where
 ||| returns has ended in `ub.unreachable` already.
 yielding : Index -> Loc -> Maybe Val -> E (List Statement)
 yielding ix l Nothing = pure []
-yielding ix l (Just v) = pure [MkStatement Nothing (Idr.yieldOp [!(operand ix v)]) (At l)]
+yielding ix l (Just v) = pure [MkStatement Nothing (Idr.yieldOp !(operandsOf ix v)) (At l)]
 
 ||| A match, from its arms, with the builder of its op over its keys,
 ||| regions and results: results when an arm yields, and none, followed by
 ||| `ub.unreachable`, when no arm returns. The arms join at the type the
 ||| context expects, else the first arm's; an arm's array of another
 ||| static shape is cast to it.
+covering
 match : Index -> Loc -> Maybe Ty -> (List MlirAttr -> List MLIR.Region -> List MlirType -> Op) -> List Arm
      -> E (Maybe Val)
 match ix l expected build arms = do
@@ -119,11 +122,10 @@ match ix l expected build arms = do
   case expected <|> map (.type) (head' (mapMaybe (.result) arms)) of
     Just t => if all (\a => isNothing a.result) arms then never keys else do
       regions <- traverse (close t) arms
-      r <- fresh
-      append (MkStatement (Just r) (build keys regions [!(mlirType ix t)]) (At l))
-      pure (Just (val r t Many))
+      Just <$> values ix l t (build keys regions)
     Nothing => never keys
   where
+    covering
     close : Ty -> Arm -> E MLIR.Region
     close t a = do
       (v, cast) <- collect (traverse (fit ix l (Just t)) a.result)
@@ -154,12 +156,12 @@ inFunction act = do
   modify { next := st.next, ops := st.ops }
   pure (x, inner <>> [])
 
-||| The end of a function's body, of result type `rt`: its value, returned,
-||| or, for a body that never returns, `ub.unreachable`, once.
+||| The end of a function's body: its value, returned, or, for a body that
+||| never returns, `ub.unreachable`, once.
 export
-epilogue : Index -> Loc -> MlirType -> Maybe Val -> List Statement -> E (List Statement)
-epilogue ix l rt (Just v) ops = pure (ops ++ [MkStatement Nothing (Idr.returnOp [!(operand ix v)]) (At l)])
-epilogue ix l rt Nothing ops =
+epilogue : Index -> Loc -> Maybe Val -> List Statement -> E (List Statement)
+epilogue ix l (Just v) ops = pure (ops ++ [MkStatement Nothing (Idr.returnOp !(operandsOf ix v)) (At l)])
+epilogue ix l Nothing ops =
   pure (if endsUnreachable (reverse ops) then ops
         else ops ++ [MkStatement Nothing UB.unreachableOp (At l)])
   where
@@ -171,8 +173,9 @@ mutual
   ||| A value held plainly, and, if it is a constructor a match took apart,
   ||| rebuilt from plain values into fields none of which is linear.
   plainHeld : Index -> Val -> Bool
-  plainHeld ix (MkVal _ t u Nothing) = not (linear u t)
-  plainHeld ix (MkVal _ t u (Just (c, fs))) =
+  plainHeld ix (MkVal _ t u Whole) = not (linear u t)
+  plainHeld ix (MkVal _ t u (Columns _)) = False
+  plainHeld ix (MkVal _ t u (Taken c fs)) =
     not (linear u t) && plainFields && allPlain ix fs
     where
       plainFields : Bool
@@ -256,8 +259,8 @@ alg ix (CallF l fn stands as) env _ = do
   saturated ix l (Call l fn stands (map (.term) as)) ("a call of " ++ sym) (length as) f.arity
   Just vs <- operands ix l env as (map snd (toList f.params))
     | Nothing => pure Nothing
-  args <- traverse (operand ix) vs
-  Just <$> value ix l f.result (\rt => Idr.callOp sym args [rt])
+  args <- concat <$> traverse (operandsOf ix) vs
+  Just <$> values ix l f.result (Idr.callOp sym args)
 alg ix (ConAppF l c as) env _ = do
   Just k <- pure (lookup c ix.cons)
     | Nothing => internal ("the constructor " ++ show c ++ " of " ++ show c.dataId ++ ", which is not declared")
@@ -312,16 +315,18 @@ alg ix (CaseF l x alts def) env expected = do
       saturated ix l body.term ("a case of " ++ show c) k (length ctor.fields)
       let takenApart = linear scrut.use scrut.type
       let use = if takenApart then (\b : Binder => b.quantity) else const Many
-      vals <- traverse (\(_, f) => (\r => val r (typeOf f) (use f)) <$> fresh) fs
-      args <- traverse (\(field, v) => (\o => MkArgument o (Named (fst field) l)) <$> operand ix v)
-                       (zip fs vals)
+      -- A field that is an array of records is a block argument per column.
+      bound <- traverse (\(_, f) => freshVal ix (typeOf f) (use f)) fs
+      let vals = map fst bound
+      let args = concatMap (\((field, _), (_, vs)) => map (\o => MkArgument o (Named field l)) vs)
+                           (toList (zip fs bound))
       -- Inside a case of a linear scrutinee, the scrutinee is the
       -- constructor of the fields the case bound.
       inner <- if takenApart
-        then (\r => matched before (MkVal r scrut.type Many (Just (c, toList vals))) env) <$> fresh
+        then (\r => matched before (MkVal r scrut.type Many (Taken c (toList vals))) env) <$> fresh
         else pure env
       (res, ops) <- collect (plain ix l (body.result (bind vals inner) expected))
-      pure (MkArm (Just (SymbolRefAttr (MkSymbolRef c.name []))) (toList args) res ops)
+      pure (MkArm (Just (SymbolRefAttr (MkSymbolRef c.name []))) args res ops)
 alg ix (CaseLitF l x alts def) env expected = do
   let live = filter (not . excluded . snd) alts
   -- A default Idris proved impossible is left out: the last possible
@@ -374,14 +379,13 @@ alg ix (LamF l name b body) env expected = do
   let result = case expected of
                  Just (FunT _ r) => Just r
                  _ => Nothing
-  p <- val <$> fresh <*> pure (typeOf b) <*> pure b.quantity
-  param <- operand ix p
+  (p, params) <- freshVal ix (typeOf b) b.quantity
   (r, ops) <- collect (plain ix l (body.result (bind [p] env) result) >>= traverse (fit ix l result))
   Just t <- pure (result <|> map (.type) r)
     | Nothing => internal "the result type of a lambda whose body never returns"
-  rt <- mlirType ix t
-  ops' <- epilogue ix l rt r ops
-  (sym, captures) <- lift l "lam" [MkArgument param (Named name l)] ops' [rt]
+  rts <- heldTypes ix Many t
+  ops' <- epilogue ix l r ops
+  (sym, captures) <- lift l "lam" (map (\o => MkArgument o (Named name l)) params) ops' rts
   Just <$> holding ix l (FunT b t) captures (Idr.closureOp sym captures)
 alg ix (AppF l f x) env expected = do
   Just fv <- plain ix l (f.result env Nothing)
@@ -392,8 +396,8 @@ alg ix (AppF l f x) env expected = do
     | Nothing => pure Nothing
   xv <- coerce ix l a.quantity !(fit ix l (Just (typeOf a)) v)
   callee <- operand ix fv
-  arg <- operand ix xv
-  Just <$> value ix l r (\rt => Idr.applyOp callee [arg] [rt])
+  args <- operandsOf ix xv
+  Just <$> values ix l r (Idr.applyOp callee args)
 alg ix (SuspendF l body) env expected = do
   let result = case expected of
                  Just (LazyT r) => Just r
@@ -408,7 +412,7 @@ alg ix (SuspendF l body) env expected = do
       Just t <- pure (result <|> map (.type) r)
         | Nothing => internal "the result type of a Delay whose body never returns"
       rt <- mlirType ix t
-      ops' <- epilogue ix l rt r ops
+      ops' <- epilogue ix l r ops
       (sym, captures) <- lift l "delay" [] ops' [rt]
       Just <$> holding ix l (LazyT t) captures (Idr.suspendOp sym captures)
 alg ix (ResumeF l e) env expected = do

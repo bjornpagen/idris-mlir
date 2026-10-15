@@ -83,12 +83,22 @@ kinds =
 int : Integer -> MlirAttr
 int n = IntegerAttr n i64
 
-nil : MlirAttr
-nil = Idr (ConAttr "Nil" [[]] Nothing 0)
+||| A list of integers, whose constants the constructor samples are.
+intList : MlirType
+intList =
+  Idr (DataType "List[Int]"
+        (Just (MkIdrSum BaseList
+                 [ MkIdrCtor "Nil" [] False
+                 , MkIdrCtor "Cons" [i64, Idr (BoxType (Idr (DataType "List[Int]" Nothing)))] False ]
+                 (Just ("Prelude.Types.List", ["Prelude.Types.Int"])))))
 
-||| `Cons x xs`, a plain constructor of one cell, named within its type.
+nil : MlirAttr
+nil = Idr (ConAttr intList "Nil" [[]] Nothing 0)
+
+||| `Cons x xs`, a plain constructor of one cell, of its data type and
+||| named within it.
 cons : MlirAttr -> MlirAttr -> MlirAttr
-cons x xs = Idr (ConAttr "Cons" [[x, xs]] Nothing 0)
+cons x xs = Idr (ConAttr intList "Cons" [[x, xs]] Nothing 0)
 
 ||| What a declaration is an instance of: an Idris definition at a type.
 maybeNat : MlirAttr
@@ -134,11 +144,12 @@ attrs =
   , Idr (ClosureAttr "g" [int 1, StringAttr "two"])
   , nil
   , cons (int 1) (cons (int 2) (cons (int 3) nil))
-  , Idr (ConAttr "Cons" [[int 1], [int 2]] (Just nil) 1)
+  , Idr (ConAttr intList "Cons" [[int 1], [int 2]] (Just nil) 1)
   , Idr (EffectAttr [])
   , Idr (EffectAttr [Io, Crash])
   , maybeNat
   , Idr (KeyRaiseAttr "f" "idr.match")
+  , Idr (RuleAttr Rule.Layout)
   , Idr (KeyConAttr "List" "Cons" [Idr (KeyHoleAttr 2), Idr (KeyConAttr "List" "Nil" [])])
   , Idr (KeyHoleAttr 3)
   , key

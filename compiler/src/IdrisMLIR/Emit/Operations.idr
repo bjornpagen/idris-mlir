@@ -466,6 +466,29 @@ export
 ioResult : Index -> Loc -> DataId -> Val -> Val -> E Val
 ioResult ix l res x w = con ix l !(only ix res) [x, w]
 
+||| The fields of a value of a record: those a match took apart, or each
+||| read by `idr.field` from the value held plainly, at the types a plain
+||| record gives them; a field that is an array of records is read as its
+||| columns, which follow one another among the record's values.
+export
+fieldsOf : Index -> Loc -> Val -> E (List Val)
+fieldsOf ix l (MkVal _ _ _ (Taken _ fs)) = pure fs
+fieldsOf ix l v = case v.type of
+  DataT r => do
+    c <- only ix r
+    src <- operand ix !(coerce ix l Many v)
+    fields c src 0 c.fields
+  t => internal ("the fields of a value of type " ++ show t)
+  where
+    fields : Con -> Value -> Nat -> List Binder -> E (List Val)
+    fields c src at [] = pure []
+    fields c src at (b :: bs) = do
+      ts <- heldTypes ix Many b.type
+      names <- traverse (\(i, t) => (.name) <$> mlirValue l t (Idr.fieldOp src c.id.name (cast i)))
+                        (zip [at .. at + length ts] ts)
+      (f, _) <- fromNames ix b.type Many names
+      (f ::) <$> fields c src (at + length ts) bs
+
 ||| The unit of a data instance whose one constructor has no fields.
 unitOf : Index -> Ty -> Maybe Con
 unitOf ix (DataT d) = case (.cons) <$> lookup d ix.datas of
@@ -488,21 +511,78 @@ effect ix l p types vs res = do
   mk <- only ix res
   [x, _] <- pure (map typeOf mk.fields)
     | _ => internal (show res ++ " does not hold a value and a world")
-  args <- traverse (operand ix) !(guarded ix l (Op p) types vs)
-  let unit = unitOf ix x
-  -- `idr.array.get` always yields the element: its type has a value
-  -- result even when the element is a unit, which carries nothing. Other
-  -- effects build that unit after the op and give no result for it.
-  gives <- case (p, unit) of
-    (ArrayGet, _) => (\t => [t]) <$> mlirType ix x
-    (_, Just _) => pure []
-    (_, Nothing) => (\t => [t]) <$> mlirType ix x
-  names <- resultNames l (primOp p args (gives ++ [!(mlirType ix WorldT)]))
-  v <- case (p, unit, head' names) of
-    (ArrayGet, _, Just n) => pure (val n x Many)
-    (_, Just u, _) => con ix l u []
-    (_, Nothing, Just n) => pure (val n x Many)
-    _ => internal (show (Op p) ++ " without its value")
-  Just w <- pure (last' names)
-    | Nothing => internal (show (Op p) ++ " without the next world")
-  Just <$> con ix l mk [v, val w WorldT Many]
+  case (p, x, map (.parts) (head' vs)) of
+    (ArrayNew, ColumnsT OrderedArray ds r, _) => Just <$> newColumns mk x ds r
+    (ArrayGet, _, Just (Columns cols)) => Just <$> getColumns mk x cols
+    (ArraySet, _, Just (Columns cols)) => Just <$> setColumns mk x cols
+    _ => whole mk x
+  where
+    world : E MlirType
+    world = mlirType ix WorldT
+    -- An array of records a world orders is one array per column, each
+    -- made, read and written in turn, the world threaded through them; an
+    -- access is checked once, against the first column's length.
+    newColumns : Con -> Ty -> List Dim -> DataId -> E Val
+    newColumns mk x ds r = do
+      let (sizes, rest) = splitAt (minus (length vs) 2) vs
+      [fill, w0] <- pure rest
+        | _ => internal "a new array of records without its fill and world"
+      sizeOps <- traverse (operand ix) sizes
+      fields <- fieldsOf ix l fill
+      cols <- columnsOf ix OrderedArray ds r
+      (made, w) <- foldlM (\(acc, w), (t, f) => do
+                             [a, w'] <- resultNames l (primOp ArrayNew (sizeOps ++ [!(operand ix f), !(operand ix w)])
+                                                         [!(mlirType ix t), !world])
+                               | _ => internal "a new column without its array and world"
+                             pure (acc :< val a t Many, val w' WorldT Many))
+                          ([<], w0) (zip cols fields)
+      key <- fresh
+      con ix l mk [MkVal key x Many (Columns (made <>> [])), w]
+    getColumns : Con -> Ty -> List Val -> E Val
+    getColumns mk x cols = do
+      [_, i, w0] <- guarded ix l (Op p) types vs
+        | _ => internal "a read of an array of records without its index and world"
+      DataT r <- pure x
+        | t => internal ("a read of an array of records giving " ++ show t)
+      c <- only ix r
+      (elems, w) <- foldlM (\(acc, w), (col, f) => do
+                              [e, w'] <- resultNames l (primOp ArrayGet [!(operand ix col), !(operand ix i), !(operand ix w)]
+                                                          [!(heldType ix Many f.type), !world])
+                                | _ => internal "a read of a column without its element and world"
+                              pure (acc :< val e f.type Many, val w' WorldT Many))
+                           ([<], w0) (zip cols c.fields)
+      con ix l mk [!(con ix l c (elems <>> [])), w]
+    setColumns : Con -> Ty -> List Val -> E Val
+    setColumns mk x cols = do
+      [_, i, v, w0] <- guarded ix l (Op p) types vs
+        | _ => internal "a write of an array of records without its index, value and world"
+      fields <- fieldsOf ix l v
+      w <- foldlM (\w, (col, f) => do
+                     [w'] <- resultNames l (primOp ArraySet [!(operand ix col), !(operand ix i), !(operand ix f), !(operand ix w)]
+                                              [!world])
+                       | _ => internal "a write of a column without the next world"
+                     pure (val w' WorldT Many))
+                  w0 (zip cols fields)
+      Just u <- pure (unitOf ix x)
+        | Nothing => internal "a write of an array whose value is not a unit"
+      con ix l mk [!(con ix l u []), w]
+    whole : Con -> Ty -> E (Maybe Val)
+    whole mk x = do
+      args <- traverse (operand ix) !(guarded ix l (Op p) types vs)
+      let unit = unitOf ix x
+      -- `idr.array.get` always yields the element: its type has a value
+      -- result even when the element is a unit, which carries nothing. Other
+      -- effects build that unit after the op and give no result for it.
+      gives <- case (p, unit) of
+        (ArrayGet, _) => (\t => [t]) <$> mlirType ix x
+        (_, Just _) => pure []
+        (_, Nothing) => (\t => [t]) <$> mlirType ix x
+      names <- resultNames l (primOp p args (gives ++ [!(mlirType ix WorldT)]))
+      v <- case (p, unit, head' names) of
+        (ArrayGet, _, Just n) => pure (val n x Many)
+        (_, Just u, _) => con ix l u []
+        (_, Nothing, Just n) => pure (val n x Many)
+        _ => internal (show (Op p) ++ " without its value")
+      Just w <- pure (last' names)
+        | Nothing => internal (show (Op p) ++ " without the next world")
+      Just <$> con ix l mk [v, val w WorldT Many]
