@@ -8,7 +8,9 @@ the sweep, `tools/licenses.sh`, `tests/spec/licenses`). At 552d682a
 again, `spec/licenses` among them (*measured* on the typecheck machine
 2026-10-14); the one failure at 3de67510, `spec/time-trace` finding the
 culled profiler's name in a verbatim research note under `sources/`,
-was fixed there by 0002 §3. x86_64 Linux has run nothing of this tree,
+was fixed there by 0002 §3. At bfdcac70, after 0004's cutover and 0005,
+`make check` is 32/32 on the same machine, `spec/licenses` among them.
+x86_64 Linux has run nothing of this tree,
 so the gate is NotRun there. One port has landed, with 0004's cutover:
 Modular's `EliminateDuplicateFunctions.cpp` at `9211931`, Apache-2.0
 WITH LLVM-exception, as
@@ -18,10 +20,11 @@ written; the gate prints "ports: 1 ported files". What remains is L5 (§6: the d
 its own SPDX line, so the generated modules lose their exclusion) and
 L6 (§6: the sweep's scope is the whole tree less one listed exclusion
 set, and the gate reads its three facts from the data that holds them);
-both are to be built, and proved by `make check`, on the typecheck
-machine, before 0004's swarm packet fixes its disjoint writes, since
-they touch `foreign/idr/tools/idris-mlir-tblgen.cpp` and
-`tests/spec/licenses`, which 0004's lanes L5 and L8 own. §5's GMP
+neither is built (`tools/licenses.sh` still excludes the generated
+modules, *read*). They were to land before 0004's swarm packet fixed
+its disjoint writes (D12); 0004's wave and 0005's both ran without
+them, so they are now ordinary work on `main`, any time, proved by
+`make check` on the typecheck machine. §5's GMP
 question is the owner's with counsel and has its default taken; §4's
 changes note is the owner's too, since it amends his D1, and has its
 default taken (§9). §7's rename is decided against. This proposal is
@@ -302,8 +305,9 @@ What is ported from Modular, at what size and against which LLVM
 (Modular builds at LLVM `8d4fc8f1` with its own patches,
 `bazel/public-patches/llvm_source.bzl:7, 12-54`, *read*), is 0004
 §8's: one port (EliminateDuplicateFunctions, 301 lines, `wc`) and five
-rebuilds. 0004's lane L6 lands the port under this protocol, with
-`tests/spec/licenses` as its proof (0004 §10).
+rebuilds. 0004's lane L6 landed the port under this protocol, with
+`tests/spec/licenses` as its proof (0004 §10), green in `make check`
+on the typecheck machine.
 
 ## 5. The inventory and the GMP question
 
@@ -330,7 +334,8 @@ Whether a program that never uses `Integer` carries any GMP code is
 *conjecture*: an archive links only the members a reference pulls, and
 the driver internalizes the runtime and runs O3 before the link, so
 none is expected. `llvm-nm` on such a program's executable settles it
-at the first build after 0004's cutover; the kit below is owed only by
+at the first build after 0004's cutover, which the owner's machine has
+not yet run; the kit below is owed only by
 a binary that contains GMP. The repository distributes source only:
 `tools/bootstrap.sh` and `make` build every binary on the user's
 machine, so nothing is owed by us until a binary ships.
@@ -424,10 +429,12 @@ kind without a line fails it; a compound identifier without its text
 fails it). L5 and L6 change no build output, so the typecheck machine
 proves them with `make check`.
 
-**Ports.** None has landed. The opt-in SCC pipeline of 552d682a was
-our own code under upstream's inliner, not a Mojo port, and 0004's
-cutover deletes it (0004 §3.3, §6). 0004 §8 ranks what the cutover
-ports and rebuilds, and its lane L6 lands the one port under §4.
+**Ports.** One has landed, with 0004's cutover: Modular's
+`EliminateDuplicateFunctions.cpp`, as the status says, its PINS.md
+entry `eliminate-duplicate-functions` written. The opt-in SCC pipeline
+of 552d682a was our own code under upstream's inliner, not a Mojo port,
+and 0004's cutover deleted it (0004 §3.3, §6). 0004 §8 ranks what the
+cutover ported and rebuilt.
 
 ## 7. The layout the licenses live in
 
@@ -506,6 +513,9 @@ of a provenance question nobody can answer in a year.
 - D12: L5 and L6 land before 0004's swarm packet fixes its disjoint
   writes (status). Reason: they touch `idris-mlir-tblgen.cpp` and
   `tests/spec/licenses`, which the packet gives to 0004's L5 and L8.
+  *Overtaken:* both swarm waves (0004's and 0005's) ran without them
+  and are integrated, so no lane owns those files any more; L5 and L6
+  are ordinary work on `main`.
 
 **Open, for the owner** (besides §5's GMP question, with counsel):
 whether a port's changes note names only what changed, as §1 words it,

@@ -2,18 +2,29 @@
 
 **Status:** proposed 2026-10-10; reprioritized 2026-10-12; reconciled
 2026-10-14 with 0004's pipeline cutover, which it consumes unchanged,
-and with 0006. Design only: every question is decided, the one that
-needed the owner closed by him (§12). Built so far, by the 0002
-cutover and 0004's first compile-time round: MLIR threading on, every rewrite a function
-pass under a nested pass manager (0002 D3), deduplication by content,
-IntRange per function, RemoveDeadValues once at the fixpoint, labels in
-one walk (0004 §3.1). The cutover 0002 designed is committed and builds
+and with 0006; 0004's cutover and 0005 are coded and integrated
+(c7aa7b62, 5d5f3312, bfdcac70), none built. Design only: every
+question is decided, the one that needed the owner closed by him
+(§12). Built so far, by the 0002 cutover and 0004's first compile-time
+round: MLIR threading on, every rewrite a function pass under a nested
+pass manager (0002 D3), deduplication by content, labels in one walk
+(0004 §3.1); IntRange per function and RemoveDeadValues at the rounds'
+fixpoint were built then too, and since the cutover RemoveDeadValues
+runs once after the optimizer and 0005 dropped IntRange from the inner
+pipeline (0005 M8). The cutover 0002 designed is committed and builds
 on arm64 macOS: `make build` clean, `make check` 27/27, `make test-idr`
 286/286, `make test` 415/415 (*measured* 2026-10-14 at `NCPU=6`, at
 552d682a and its file-size split df5d8742, on the rounds, the default).
 The opt-in SCC pipeline of 552d682a ran in one lit test only, and 0004
-deletes it (§3.3 there). x86_64 Linux has not run this tree: 0002's G1
-is NotRun there.
+deleted it (§3.3 there). x86_64 Linux has not run this tree: 0002's G1
+is NotRun there. 0005 changed six mechanisms this file reads, each said
+where it is read: the program's root and stage are the `idr.program`
+op's (0005 D3); boxing is fit's, in idr-defunctionalize, not the
+frontend's (D11); a force is a call (D2); effects, `givesBack`, binding
+times, constants and inline facts are one summary per function, and a
+call holds no effects (D13); `Holds` is a view of the value-facts type
+interface (D8); and specialization stops by the request-chain rule with
+binding-time keys, no budget (D4).
 
 0004 is the pipeline this proposal shards. Its stages are this
 proposal's stages, its per-function passes and ready-set nodes are this
@@ -179,15 +190,14 @@ the facts 0004 leaves without one, D19 and D20):
 | --- | --- | --- |
 | 1, reachability and monomorphisation (`compiler/src/IdrisMLIR/Frontend/Translate/Instances.idr`) | the instance set from the root; the refusal of a megamorphic construct, 0012's feature 2's request-chain rule (`chainGrows`, called from `request` in `Instances.idr`), which replaced `checkComponent`'s blanket refusal, `growing` and the instance budget in 0004's cutover (0012 D4; 0004 D40), as a filter on each round's delta (0009 §4.8, D3), the least rejected key reported (D5) | translating each instance's body; emitting closures and suspensions in symbol form with names from content (0004 §4 stage 1) |
 | 1, dictionary fields (`Translate/Dictionaries.idr`) | the one implementation per field over all construction sites: a monotone set, two after freeze a refusal (`Dictionaries.idr:136-154`) | none: the late-site restart (`Translate/Programs.idr:126-136`) disappears, since facts only grow (0012 D6) |
-| 1, box or unboxed (`Translate/Programs.idr:138-157`) | SCCs of the data containment graph | none |
-| 2, closed-world verification | one public root of the two root types (`lib/IR/Verify/Program.cpp:25-40`), no external `idr.func` (0004 D7); the type graph without a knot or an unboxed cycle (`Verify/Program.cpp:92-100`, `Verify/Knots.cpp:3-10`) | every closure- or lazy-typed operand on an op with the flow interface (0004 D8); quantities, linearity and the stage read from types (0004 D19), each op's own verifier, re-run per unit after every pass |
+| 2, closed-world verification | the program's root of the two root types, held by the `idr.program` op, no external `idr.func` (0004 D7; 0005 D3); the type graph without a knot or an unboxed cycle (`Verify/Program.cpp:92-100`, `Verify/Knots.cpp:3-10`) | every closure- or lazy-typed operand on an op with the flow interface (0004 D8, 0005 D7); quantities and linearity from types, the stage the program op's (0005 D3), each op's own verifier, re-run per unit after every pass |
 | 3, deduplication | classes by content, merged bottom-up so that merging is transitive, the lexicographically smallest member kept (0004 §4 stage 3; mojo §4) | hashing each body; renaming call sites to representatives |
-| 4, defunctionalization | the label solve in MLton's representation, under 10 s on stage 0 (0004 §2.8); one sum per label set, constructors in label-name order (§5.2); the first effects summary, over the call graph in which an apply calls every label of its key (0004 D34); at 0006's P4, the send check over the decided sums (0006 §7.3) | the conversion, per function (0004 §2.7) |
+| 4, defunctionalization | box or unboxed: fit, from the SCCs of the type graph (0005 D11; the frontend decides no box since 0005); each force a call of its memo sum's dispatch (0005 D2); the label solve in MLton's representation, under 10 s on stage 0 (0004 §2.8); one sum per label set, constructors in label-name order (§5.2); the first effects summary, over the call graph in which an apply calls every label of its key (0004 D34); at 0006's P4, the send check over the decided sums (0006 §7.3) | the conversion, per function (0004 §2.7) |
 | 5, contification | MLton's dominator analysis over the call graph (0004 §4 stage 5) | the rewrite into the caller |
 | 6 to 8, the optimizer | the call graph's SCCs; each function's call count, frozen when the optimizer starts (D11); nothing else is decided up front, and each SCC's binding times are computed from its own bodies when it is ready (D20) | the ready set: decisions at each callee's finality, `mlir::inlineCall`, the inner pipeline once, the bounded local loop, specialization nodes (0004 §4.6 to §4.8) |
-| 9, constants, effects and identities | bottom-up SCC summaries, callee first, applied through upstream's `visitExternalCall` (0004 §4.9; upstream-mlir-llvm §4) | each function's solve with interprocedural mode off |
+| 9, constants, effects and identities | bottom-up SCC summaries, callee first, applied through upstream's `visitExternalCall` (0004 §4.9; upstream-mlir-llvm §4), held as one `idr::Summary` per function and read at each call from its callee (0005 D13) | each function's solve with interprocedural mode off |
 | 10, dead values | RemoveDeadValues and SymbolDCE once (0004 §4.10); their liveness a least fixpoint, sharded by §4 only by S3's rule (D19) | none |
-| 10a, the arrays stage, from 0003's stage 1 (0003 §7, D26) | One-Shot's module analysis, whole-program and serial upstream (0003 §7); the columns choice for collections that are not arrays, right before the stage (0010 D12) | structuring, fusion, the schedules and the clean, per function |
+| 10a, the arrays stage, from 0003's stage 1 (0003 §7, D26) | One-Shot's module analysis, whole-program and serial upstream (0003 §7); the columns choice for collections that are not arrays, before `idr-columns` (0010 D12) | `idr-columns`, right after the optimizer (0005 D20); structuring, fusion, the schedules and the clean, per function |
 | 11, memory and loops (`idr-stack`, `idr-accumulate`, `idr-rc`, `idr-demand`, `idr-trmc`, `idr-tail-loops`, `idr-narrow`) | escape summaries; exclusivity as the complement of "shared somewhere" (§4.3) and borrow grades, each function's grade contexts as a key set (0004 §4 stage 11); `idr-demand`'s verdicts on the in-place type fact; ranges | placement and commit of counts (already nested, `lib/Transforms/Ownership/Rc.cpp:66, 101`); the rewrites |
 | 12, lowering | layouts, every cell header once; the runtime's declarations from the decided set; the tail-call cycle plan of `idr-tail-calls` (`Pipeline.cpp:172`, `include/idr/Conversion/TailCallPlan.h`), one module plan (0004 §4 stage 12) | the conversion, per function |
 | 13, LLVM | at S2's first step: translation, the runtime linked in, internalization and one O3, whole (0004 §4 stage 13); at its second, the facts LLVM would lose across units, written as attributes on cross-unit declarations (0004 §5.4) | at the second step: the lowering tail, translation and O3, per codegen unit, each in its own `MLIRContext` and `LLVMContext` (0004 D30) |
@@ -211,7 +221,10 @@ that SCC's own bodies when it is ready; `CloneTable` goes with the
 key-named nodes (0004 §6); the symbol table is the ready set's driver's,
 a module pass (0004 §4.6). Reason: RoundFacts exists only because a
 nested pass manager drops module analyses (upstream-mlir-llvm §3), and
-each fact then has exactly the scope it quantifies over.
+each fact then has exactly the scope it quantifies over. Since 0005,
+`Holds` is a view of the value-facts type interface, each data type's
+answers computed once when its body is set (0005 D8), and identities
+and binding times are fields of the one per-function summary (D13).
 
 `idr-in-bounds` and `idr-vectorize` are gone before sharding starts:
 0003's stage 1 deletes them (0003 §15), and what replaces them carries
@@ -364,8 +377,9 @@ visibility, `dso_local` and its content-derived name under a reserved
 prefix, which avoids the static-link collision `SplitModule`'s FIXME
 warns of (`L/include/llvm/Transforms/Utils/SplitModule.h:32-38`); every
 other symbol is internal; objects are linked in bin-name order.
-Whole-program internalization survives as a fact (one public root, 0004
-D7), applied per unit as hidden visibility.
+Whole-program internalization survives as a fact (the program's root,
+the one function whose visibility is public, derived from it; 0004 D7,
+0005 D3), applied per unit as hidden visibility.
 
 The runtime is linked as today at S2's first step, into the one module
 before O3 (`Run.cpp:184-192`; 0004 §5.3 item 3): when the prepared
@@ -530,11 +544,12 @@ counts, and D11 and D5 make them functions of content:
   keeps; and the count read owner-wide, which 0004's earlier text
   implied and which a parallel ready set would read in arrival order.
   The cutover built the budget as `kKeysPerOwner`
-  (`include/idr/Transforms/Specialize.h`), and 0005 D4 deletes it:
+  (`include/idr/Transforms/Specialize.h`), and 0005 D4 deleted it:
   specialization stops by the request-chain rule over specialization
   keys (a new key is not made when it embeds an ancestor key on its
-  request chain), a function of each node's own chain, so D5 holds
-  with no count at all.
+  request chain), a function of each node's own chain, and inside a
+  recursive component a key holds only the parameters passed on
+  unchanged (0005 §11), so D5 holds with no count at all.
 
 A spent bound stops optimizing and never refuses a program (0004 §2.5,
 D17). The refusals that remain are the frontend's: a megamorphic
@@ -843,7 +858,7 @@ stage keeps a differential mode or the replaced form in the binary.
 
 | Stage | Content | When | Proof |
 | --- | --- | --- | --- |
-| S0 | measure, in two records: F0 (`bench/profiles/2026-10-14-f0-stage0.md`, before the cutover), and a record taken from the binary 0004's integration builds, on the post-contify stage-0 module and the bench, under 0004 §10's conditions: `-mlir-timing` per pass and LLVM's scopes (`translate`, `link runtime`, `optimize`, `codegen`, `Run.cpp:143-202`), each stage's wall split into its module-level steps and its per-unit work, the ready set's depth and largest node, and LLVM's share at stage-0 scale for the first time | F0 taken; the second with 0004's integration | both committed under `bench/profiles/`; the second fires the rules of S3 to S6 |
+| S0 | measure, in two records: F0 (`bench/profiles/2026-10-14-f0-stage0.md`, before the cutover), and a record taken from the binary of 0004's cutover with 0005, first built in the owner's machine's qualification (the integration ran on the typecheck machine, which builds no LLVM), on the post-contify stage-0 module and the bench, under 0004 §10's conditions: `-mlir-timing` per pass and LLVM's scopes (`translate`, `link runtime`, `optimize`, `codegen`, `Run.cpp:143-202`), each stage's wall split into its module-level steps and its per-unit work, the ready set's depth and largest node, and LLVM's share at stage-0 scale for the first time | F0 taken; the second at the qualification of 0004 and 0005 | both committed under `bench/profiles/`; the second fires the rules of S3 to S6 |
 | S1 | content names (taken by 0004: D18, lanes L1 to L3 and L9): generated names from the key's hash at D16's width, instance symbols made injective by 0009 D7's suffix, a rule of the key alone (0009 §4.10) | the cutover | corpus outputs unchanged (0004 L1); names stable under an unrelated edit: a fixture that edits one definition and checks every other symbol unchanged, carried by 0004's L8 |
 | S2 | split code generation in 0004 §5.4's two steps: first, the whole-module O3 kept and codegen split per bin, each bin materialized lazily from the optimized module's bitcode (0004 L7, D21); then the bins cut on the lowered MLIR module, each lowered, translated and optimized in contexts of its own, with the whole-program facts as attributes on cross-unit declarations (0004 D30) | the first with the cutover; the second next after it (0004 §10) | executables byte-identical at 1, 2 and 8 threads, bench compile times recorded (0004 L7); an edit fixture whose unrelated bins keep their members, and from the second step their bytes, since before it the whole-module O3 may change any bin (§6; 0004 D41); at the second step also the bench runtime within 2% of the first step's (0004 §10), which prices whole-module LLVM optimization |
 | S3 | the cheap global parts in parallel: the closed-world module rule, the type graph and `Holds`, layouts, deduplication's classes, contification's analysis, the tail-call plan; liveness, a least fixpoint, sharded by §4's recipe in place of the one serial solve (D19); and One-Shot's module analysis in the arrays stage, judged on 0003 stage 1's record of that stage's wall (0003 §17) with the columns choice beside it (0010 D12). The summaries of 0004 stage 9 are not here: the ready set runs them in parallel from the cutover (S7) | for each part, when S0's second record shows it above 5% of one-worker wall, or the parts together above it | the compiled module byte-identical to the previous binary's on the corpus and stage 0 |
@@ -965,7 +980,7 @@ per-SCC liveness lives (D19), and where RoundFacts' facts go (D20).
   size, a caller's own size, a node's own requests); a spent bound stops
   optimizing and never refuses (0004 D17). `kClonesPerOwner` (0004 D39)
   is counted per requesting node, over the distinct keys it requests of
-  one owner in call-site order; built as `kKeysPerOwner`, it is deleted
+  one owner in call-site order; built as `kKeysPerOwner`, it was deleted
   by 0005 D4 for the request-chain rule over specialization keys. The
   frontend's refusals are decided in phase 2 by D2's rounds, each
   naming the least key its round rejects.
@@ -1032,4 +1047,6 @@ per-SCC liveness lives (D19), and where RoundFacts' facts go (D20).
   fact frozen in phase 2, `Identities` a stage-9 summary with its
   greatest fixpoint inside each SCC, `BindingTimes` per SCC from its own
   bodies when it is ready, `CloneTable` gone with the key-named nodes,
-  the symbol table the ready set's driver's.
+  the symbol table the ready set's driver's. Restated by 0005: `Holds`
+  a view of the value-facts type interface (D8), identities and binding
+  times fields of the one per-function summary (D13).

@@ -16,9 +16,10 @@ The tree it would build on (*measured*, 0002 and 0004 §0): the cutover
 0002 designed is committed and builds on arm64 macOS, where `make test`
 was 415/415 at 7a27fd34, before the opt-in SCC pipeline, and again at
 552d682a with it off by default; both runs took the Simplify rounds,
-which 0004's cutover deletes together with that pipeline. x86_64 Linux
-is NotRun (0002 §3). `make self` has never finished; 0004's cutover is
-what it waits on.
+which 0004's cutover deleted together with that pipeline. x86_64 Linux
+is NotRun (0002 §3). `make self` has never finished; it waits on the qualification of
+0004's cutover and 0005, coded and integrated (c7aa7b62, 5d5f3312,
+bfdcac70) but not yet built (proposals/README.md).
 
 Amended 2026-10-14, for 0004's cutover (each item decided in §17):
 
@@ -696,7 +697,8 @@ generic `F: Fn(A) -> B` takes an Idris function `A -> B` (or
   registry entry names", which would be a public function beside the
   root and break 0004's closed world, D7 there):
   - `idr.rust.call` implements 0004's one flow interface (0004 §2.2,
-    D8): each closure operand has a declared edge into a callback key of
+    D8), declared in its own ODS as every op of ours declares it (0005
+    D7): each closure operand has a declared edge into a callback key of
     its own, so the label solve sees every label that reaches Rust, and
     the verifier's rule that a closure-typed operand sits on an op with
     the interface holds (0004 §4 stage 2).
@@ -704,11 +706,13 @@ generic `F: Fn(A) -> B` takes an Idris function `A -> B` (or
     and for each such key one dispatch function: a case over the key's
     constructors, each arm a direct call, private, named from the key
     (0004 D18), with the runtime's ABI (§9.2). The op then carries the
-    sum, boxed (`!idr.box`, so boxing is the value's type, 0004 D29) so
-    that it crosses as one counted word, and a symbol use of the
+    sum, boxed (`!idr.box`, so boxing is the value's type, 0004 D29;
+    since 0005 D11 every box is fit's, decided once from the type graph,
+    so how this sum gets its box is settled with fit when this proposal
+    is taken up) so that it crosses as one counted word, and a symbol use of the
     dispatch function, whose address the lowering passes to the shim.
   - The dispatch function is kept by that symbol use, as a label's
-    function is kept by the constructors that name it (0004 D29), and is
+    function is kept by the label constructor holding it (0005 D1), and is
     never inlined, since nothing in the module calls it. Its signature is
     the shim's ABI, so the dead-value removal (0004 §4 stage 10) must
     leave it whole: upstream RemoveDeadValues treats a function with a
@@ -910,8 +914,10 @@ type in the program's one crate graph (§5).
 `ForeignT ForeignId`. `coreType` (`Frontend/Translate/Types.idr:396`)
 maps a `Foreign t` whose `t` is a binding's `[external]` phantom to it,
 through a new hook, `ForeignType`, which the frontend asks for as it
-asks `isWordType` (`Frontend/Translate/Hooks.idr:60-65`), one case of
-`firstOf` (`:14-20`).
+asks `wordType`: one more field of the registry's `Hooks` record, one
+field per kind of hook (`compiler/src/IdrisMLIR/Registry/Entry.idr`,
+0005 D20, which replaced `Frontend/Translate/Hooks.idr`'s `firstOf`
+projections).
 
 ### 9.2 The call
 

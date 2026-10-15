@@ -9,9 +9,10 @@ here is built. The tree today (*measured*, 0002 and 0004 §0): the
 cutover 0002 designed is committed and builds on arm64 macOS, where
 `make test` was 415/415 at 7a27fd34, before the opt-in SCC pipeline,
 and again at 552d682a with it off by default; both runs took the
-Simplify rounds, and 0004's cutover deletes the rounds and that
-pipeline together. x86_64 Linux is NotRun. `make self` has never
-finished; 0004's cutover is what it waits on. Compile-time evaluation
+Simplify rounds, and 0004's cutover deleted the rounds and that
+pipeline together. x86_64 Linux is NotRun. `make self` has never finished; it waits on the qualification of
+0004's cutover and 0005, coded and integrated (c7aa7b62, 5d5f3312,
+bfdcac70) but not yet built (proposals/README.md). Compile-time evaluation
 is already gone: `idr-eval`, its JIT and its forked child left the C++
 side, the runtime's evaluation entries left `runtime/`, and MLIR
 threading is on (*read*: AGENTS.md, "A closed call runs at run time";

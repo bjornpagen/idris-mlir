@@ -1,5 +1,7 @@
 # The cutover swarm: 0004's pipeline and 0003's stage 1, one wave
 
+*Executed and integrated (c7aa7b62, 5d5f3312); kept as the execution record. 0005 (bfdcac70) superseded parts of these contracts (among them C01 to C05, C09, C10, C11, C20 and C22): `../0005-representation/README.md` §4 and §11 hold the tree's form.*
+
 **What this is.** The executable packet for one hard cutover that lands
 0004's design (`README.md` here) and 0003's stage 1 (`../0003-typed-apl/README.md`)
 together, by the owner's decision of 2026-10-14. It is the last wave: every

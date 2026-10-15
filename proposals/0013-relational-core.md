@@ -15,9 +15,10 @@ The tree it would build on (*measured*, 0002 and 0004 §0): the cutover
 0002 designed is committed and builds on arm64 macOS, where `make test`
 was 415/415 at 7a27fd34, before the opt-in SCC pipeline, and again at
 552d682a with it off by default; both runs took the Simplify rounds,
-which 0004's cutover deletes together with that pipeline. x86_64 Linux
-is NotRun (0002 §3). `make self` has never finished; 0004's cutover is
-what it waits on.
+which 0004's cutover deleted together with that pipeline. x86_64 Linux
+is NotRun (0002 §3). `make self` has never finished; it waits on the qualification of
+0004's cutover and 0005, coded and integrated (c7aa7b62, 5d5f3312,
+bfdcac70) but not yet built (proposals/README.md).
 
 It is the library 0011 D6 names and 0009 D12 builds on. On this side it
 takes over §4.5 of bumbledb's port proposal
@@ -201,9 +202,10 @@ plan:
   the first Futamura projection.
 
 Each step is optimization. The request-chain rule over specialization
-keys (0005 D4, which deletes `kClonesPerOwner`, built as
-`kKeysPerOwner`, and replaces `kUnrollLimit`, 0005 M16) and the
-per-caller cap stop it (0004 §2.5, D17, D25), and a plan past
+keys (0005 D4, which deleted `kClonesPerOwner`, built as
+`kKeysPerOwner`, and replaced `kUnrollLimit`, 0005 M16; inside a
+recursive component a key holds only parameters passed on unchanged,
+0005 §11) and the per-caller cap stop it (0004 §2.5, D17, D25), and a plan past
 0008's budget is a first-demand constant (0008 §2) on which nothing is
 specialized. Either way the query runs the interpreter, specialized or
 not, and means the same. Ad-hoc queries run the interpreter, which is

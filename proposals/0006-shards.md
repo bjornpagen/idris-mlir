@@ -12,10 +12,15 @@ on arm64 macOS: `make build` clean, `make check` 27/27, `make test-idr`
 286/286, `make test` 415/415 (*measured* 2026-10-14 at `NCPU=6`, at
 552d682a and its file-size split df5d8742, on the rounds, the default;
 the opt-in SCC pipeline of 552d682a ran in one lit test only, and 0004
-deletes it). x86_64 Linux has not run this tree (0002's G1 is NotRun
-there), so P2's epoll half targets a system that has not yet run it.
+deleted it). 0004's cutover, 0003's stage 1 and 0005 are coded and
+integrated on top of it (c7aa7b62, 5d5f3312, bfdcac70; `make check`
+32/32 on the typecheck machine), none built yet. x86_64 Linux has not
+run this tree (0002's G1 is NotRun there), so P2's epoll half targets a
+system that has not yet run it.
 
-Sharding follows self-hosting (0002 §2's step 5, `make self`); 0003's
+Sharding follows self-hosting (0002 §2's step 5, `make self`), then
+x86_64 Linux, 0002's step 6 and 0004 §5.4's split before O3, in the
+chain proposals/README.md gives; 0003's
 stage 1, which it builds on, landed before both, with 0004's cutover
 (c7aa7b62, 5d5f3312). P1, P2 and P4 are that work, in order. 0007's S0, S1 and S2's first step are
 taken by 0004's cutover, before any of it. The compiler's own Idris
@@ -25,7 +30,12 @@ stage 1 of `make self`; stage 0 runs on Chez and stays single-threaded.
 P3 (asynchronous Rust) is parked with proposal 0014, which it needs. P5
 stays on its measurements. Runtime and compiler paths were re-read at
 3de67510 on 2026-10-14 and again at ccaba89c, where the code is
-unchanged; `M/` and `L/` are the pinned MLIR and LLVM trees under
+unchanged; the cutover and 0005 have moved code since, and 0005 changed
+four mechanisms this file builds on: the effects summary has no
+call-site copy (0005 D13), the flow interface is declared in each op's
+ODS (D7), `Holds` is a view of the value-facts type interface (D8), and
+a force is a call of its sum's dispatch function (D2); the texts below
+that read them say so; `M/` and `L/` are the pinned MLIR and LLVM trees under
 `.toolchain/build/llvm-project/`, and `SDK/` is the macOS SDK the
 pinned clang compiles against on arm64 macOS, the one `xcrun
 --show-sdk-path` names (`tools/bootstrap.sh:190`; here
@@ -131,8 +141,10 @@ where it was paused.
 | Crosses shards | as a value: copied | as a value: copied | never |
 
 Closures and thunks are done: defunctionalization makes
-them sums (read: `foreign/idr/lib/Transforms/Defunctionalize/Pass.cpp`,
-`foreign/idr/lib/Conversion/Force.cpp`), and after 0004's cutover it
+them sums (read: `foreign/idr/lib/Transforms/Defunctionalize/Pass.cpp`;
+since 0005 D2 a force is a call of its memo sum's dispatch function,
+`Defunctionalize/Forces.cpp`, and the memo cell's header writes lower in
+`Conversion/MemoCells.cpp`), and after 0004's cutover it
 does so for every closed, monomorphic program, by analysis alone (0004
 §2.4). So every value a message can hold has a sum type, a fact this
 design's send check reads (§7.3). This proposal adds the third.
@@ -243,8 +255,10 @@ compiler colours, as little as it can.
 adds (0004 D34). After 0004's cutover the effects are one bottom-up SCC
 summary, callee first: first computed right after the label solve, over
 the call graph in which an apply calls every label of its key, then
-recomputed once per function when it is final, which can only shrink it, with the call-site `effects` cache
-written once from it (0004 §4 stages 4 and 9, D16, D34). `wait` is one
+recomputed once per function when it is final, which can only shrink it,
+and held in the function's one summary, which every call reads from its
+callee, since a call holds no effects (0004 §4 stages 4 and 9, D16, D34;
+0005 D13). `wait` is one
 more bit of that summary, never a second analysis, and it shrinks as the
 others do: inlining and cleanup can remove a wait and never add one.
 idr-lower reads the final bit. It is computed like the others from the
@@ -475,10 +489,12 @@ memo K = Delayed_L1 caps1 | ... | Delayed_Ln capsn
   order (`foreign/idr/lib/Conversion/StaticData.cpp:189-191, 246-247`),
   a name 0004's content naming replaces (0004 D18).
 - **The force's match gains one arm:** `Static i -> force slot i of the
-  running shard's table`. Only keys that have a top-level constant have
+  running shard's table` (since 0005 D2 that match is the memo sum's
+  dispatch function, which every force calls). Only keys that have a top-level constant have
   it, as only pipes have `pipe_next` (D7). Which keys those are is the
   label solve's: a top-level constant's suspension names its label and
-  declares its edge through 0004's flow interface (0004 D8), so the keys
+  declares its edge through 0004's flow interface (0004 D8, declared in
+  ODS by 0005 D7), so the keys
   it reaches are known when the sums are decided, and `Static i` is one
   more constructor of those sums, never a test beside them.
 - **A shard's end releases its table's forced slots**: the compiler-made
@@ -672,11 +688,13 @@ walk of the types an `idr.fork`'s operands and result reach sees every
 path a message can take. It rejects a mutable cell (`IOArray`, `IORef`,
 `Buffer`), a world, `Here`, a `Join`, and a lazy key whose memo sum can
 hold `pipe_next`. The walk is one more question of the type graph that
-`Holds` already answers per declaration ("may hold a world", "may hold a
-closure", two bits computed once and read from any thread; read:
-`foreign/idr/include/idr/Analysis/Holds.h:3-6, 19-30`): a third bit,
-"may hold what may not cross", so the type graph is walked by one
-analysis, never by a second one of the send check's own. The rejection
+the value-facts type interface already answers per type (`holdsWorld`,
+`holdsClosure`, `holdsReferences`, `isCounted`, each data type's answers
+computed once when its body is set and read from any thread; read:
+`foreign/idr/include/idr/IR/IdrInterfaces.td`, 0005 D8, with `Holds` now
+a view of it): one more method, "may hold what may not cross", so the
+type graph is walked by one analysis, never by a second one of the send
+check's own. The rejection
 is `unsupported (send)`, naming the type and the path, as structured
 data on the diagnostic that the driver reads (0004 §6 deletes the
 driver's match on the message prefix). After the check, `idr.fork`'s
@@ -882,7 +900,8 @@ measurement.
 - **Change:** `libs/mlir-shard`, its operations registry primitives
   (D13), `Local` a word naming a slot (§7.1); `idr.fork` and `idr.join`
   with 0004's flow interface; `shard.grid`; the send check right after
-  defunctionalization, as `Holds`' third bit, and the detach walk
+  defunctionalization, as one more method of the value-facts type
+  interface (0005 D8), and the detach walk
   (§7.3, §5.1); the helping join; the standard streams on every shard
   and handles hopping home (D3, D4); process state under the platform
   lock (D5); `Static i` and the per-shard constant tables (D6);
@@ -974,7 +993,8 @@ before:
   runs once after defunctionalization and the verifier keeps its result
   (§7.3).
 - **A walk of its own for the send check:** the type graph already has
-  one analysis, `Holds`, and the check is its third bit (§7.3).
+  one analysis, the value-facts type interface (0005 D8), and the check
+  is one more of its methods (§7.3).
 - **A `Local` checked against the destination when it is sent:** its
   index is quantity 0 and erased, so nothing at run time could read it;
   it crosses as the integer it is and its types keep its uses home

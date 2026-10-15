@@ -18,8 +18,30 @@ the drafts themselves.
 32/32 on the typecheck machine, which builds no LLVM, so nothing of it
 has been built or run. Its proof (bootstrap, build, the three suites,
 determinism at 1, 2 and 8 threads, the bench, `make self`; §10) is
-owed on the owner's machine (HANDOFF.md). 0005 executes on top of it
-and reverses D28 and D31 (§11). What follows is the tree before it.
+owed on the owner's machine (HANDOFF.md), now together with 0005's.
+
+**What 0005 changed.** 0005 is coded and integrated on top of this
+cutover (bfdcac70; `make typecheck` every part, `make check` 32/32, on
+the same machine, nothing built), and several mechanisms this file
+describes are no longer the tree's: the root and the stage are the
+`idr.program` op's (reversing D28 and D31; an `idr.func`'s visibility
+is derived from the root); a constructor is its tag and a label holds
+its function, so no op names a constructor by name (D29); a force is a
+call of its sum's dispatch, so no forced-label edge remains (D34); a
+call holds no effects, and an inner-pipeline step, `idr-pure-calls`,
+reads the callee's summary instead (reversing D38); effects,
+`givesBack`, binding times, constants and inline facts are one
+`idr::Summary` per function (D16, D47); the flow interface is declared in each op's ODS and covers
+suspensions and counted references too (D8); boxing is decided once, by
+fit in idr-defunctionalize, never by the frontend (D29); the header's
+2^16 tags are lifted by a two-level sum, so `unsupported (layout)` is
+gone and defunctionalization refuses nothing (D48, §2.4 step 5, §2.5);
+`kKeysPerOwner` and the 32-step unroll limit are deleted for the
+request-chain rule and binding-time keys (D39); and the frontend emits
+array ops, not `scf.for` nests, so the structuring lowers them one to
+one (0003 D13). Where §2, §4 and §6 describe these, 0005 §4 and its
+§11 hold the tree's form; §11 below marks each decision. What follows
+in this section is the tree before the cutover.
 The cutover of 0002 is committed and builds on
 arm64 macOS. Its gate was green there at 552d682a and its file-size
 split df5d8742: `make build` clean, `make check` 27/27, `make test-idr`
@@ -273,7 +295,9 @@ tests):
    boxed type past it is refused, `IR/OpsData.cpp:93-98`, *read*), so a
    key on a capture cycle with more labels than that is refused as
    `unsupported (layout)`: a representation limit, not a count, and the
-   one limit this argument leaves (§2.5). An empty
+   one limit this argument leaves (§2.5). *Lifted by 0005 D4:* past
+   2^16 constructors a sum is two-level (an outer tag picks a group of
+   at most 2^16), and `Rule::Layout` is gone, so no step refuses. An empty
    set means no value ever reaches the key; its applies are unreachable and
    lower to `ub.unreachable`. Today an empty closure key is refused
    (`convertible`, `Decide.cpp:42-43`); that line goes with the rest.
@@ -314,6 +338,9 @@ budget (casework-audit §2).
   every boxed sum. No program is known to reach it; lane L2 records the
   largest boxed closure sum on the corpus and stage 0, and lifting the
   limit belongs to 0010, which records it, if a record ever names it.
+  *Superseded by 0005 D4:* the limit is lifted by a two-level sum, and
+  the counted-field and stride limits by a count word and a boxed
+  element; no representation limit refuses a program (AGENTS.md).
 - **A broken invariant is an internal error**, never `unsupported`: a
   verifier failure after a pass, a lattice that reached a state the
   argument rules out, a termination argument that does not hold.
@@ -322,7 +349,8 @@ budget (casework-audit §2).
   `Specialize/Keys.cpp:38`) and the clone budget
   (`kClonesPerOwner = 1024`, `include/idr/Analysis/Specialize.h:59`, spent
   at `Clones.cpp:30-33`, counted per requesting node after the cutover,
-  §4 stage 8; built as `kKeysPerOwner`, which 0005 D4 deletes, D39)
+  §4 stage 8; built as `kKeysPerOwner`, D39; 0005 D4 deleted it and the
+  unroll limit, for the request-chain rule and binding-time keys)
   bound work and code size; reaching one leaves the
   program less optimized and never rejects it. `unsupported (compile-time
   budget)` is deleted from its three C++ sites (`Simplify.cpp:207-209`,
@@ -680,7 +708,11 @@ callees are final.
 ## 4. The pipeline after the cutover
 
 Each stage says what is whole-program (decided once, read frozen) and what
-runs per unit. *Decision* for every stage unless marked.
+runs per unit. *Decision* for every stage unless marked. This is the
+design the cutover built; §0's "What 0005 changed" lists where the tree
+now differs (stage 1's emission, stage 2's root, stage 4's forces and
+boxing, stage 8's budget, stage 9's call-site effects), and 0005 §4 and
+§11 give the tree's form.
 
 1. **Frontend** (Idris; whole-program by nature: monomorphization, the
    instance set, representations).
@@ -792,7 +824,8 @@ runs per unit. *Decision* for every stage unless marked.
    `idr.func` is unexpressible (the function verifier demands a body), the
    flow rule is each op's own verifier's, and the root's verifier runs the
    module rule (D28). So it holds after every pass the verifier runs after,
-   and a pass that broke it is an internal error.
+   and a pass that broke it is an internal error. *0005 D3:* the root is
+   the `idr.program` op's, whose verifier runs the program rules.
 3. **Deduplication** (whole-program by content; hashing per function in
    parallel): Mojo's EliminateDuplicateFunctions design, bottom-up over a
    ready set so that merging is transitive in one pass, with the
@@ -926,8 +959,11 @@ runs per unit. *Decision* for every stage unless marked.
    and enters the ready set below the requesting caller, the way Mojo's
    elaborator creates instantiation nodes keyed by content and resumes waiters
    (`code/modular/Mojo/lib/Elaborator/Elaborator.cpp:1675-1693, 1746-1756,
-   2944-2989`, mojo §4). `kClonesPerOwner` (built as `kKeysPerOwner`,
-   which 0005 D4 deletes, D39) stays as a budget that stops
+   2944-2989`, mojo §4). *Superseded by 0005 D4 (and its §11):* no
+   budget remains; inside a recursive component a key holds only the
+   parameters passed on unchanged, and the request-chain rule ends
+   specialization. As the cutover built it, `kClonesPerOwner` (built as
+   `kKeysPerOwner`, D39) stayed as a budget that stops
    specializing, never as a check that refuses (D39, §2.5), counted per
    requesting node (*decision*, as 0007 D5 decided): the distinct keys
    one node requests of one owner, in its call-site order, an
@@ -979,7 +1015,10 @@ runs per unit. *Decision* for every stage unless marked.
    (the comment at `IdrOps.td:59-61` joins in "the closures it is
    given"): the copy is kept only because `getEffects` has no symbol
    table, and its verifier checks equality with the callee's, not
-   containment (D38).
+   containment (D38). *Reversed by 0005 D13:* the copy is gone; a call's
+   effects are read from its callee through the symbol table
+   (`idr::effectsOf`), and `idr-pure-calls` does for calls what
+   canonicalize and CSE cannot.
 10. **Dead values once:** upstream RemoveDeadValues and SymbolDCE at the end of
     the optimizer, once (65 s and 7.65 GB on the round-16 module, *measured*).
     Liveness is a least fixpoint, which 0007 shards by its S3 rule and
@@ -1559,9 +1598,14 @@ kept beside the old form.
 - D7. Closed world is a verified invariant (no external `idr.func`, one
   public root), held by the verifier after every pass (§4 stage 2, D28).
   Reason: it removes the external and escaping sources of unknown (§2.2),
-  and with them the `isExternal()` tests through the analyses.
+  and with them the `isExternal()` tests through the analyses. *Restated
+  by 0005 D3:* the root is the `idr.program` op's property, and the one
+  public function is derived from it, not counted.
 - D8. One flow interface, read by the label analysis and the slots alike, and
   enforced by the verifier. Reason: closure flow had two tables that disagreed.
+  *Extended by 0005 D7:* declared in the ODS of each of our ops (external
+  models only for upstream ops), for closures, suspensions and counted
+  references, and read by escapes, exclusivity and `consumes` too.
 - D9. A forced-state anchor keyed by the lazy value's type. Reason: it removes
   the evaluated-delay gap and the lazy-return refusal.
 - D10. `LabelSet` has no unknown element; reaching one is an internal error.
@@ -1589,6 +1633,9 @@ kept beside the old form.
   named from their key. Reason: one scheduler, order-free names.
 - D16. Interprocedural constants and effects are bottom-up SCC summaries
   through upstream's `visitExternalCall`; effects are computed once.
+  *Superseded in form by 0005 D13:* one `idr::Summary` per function
+  holds them with `givesBack`, binding times and inline facts, solved
+  once over the call graph and published at the wave barrier.
 - D17. Budgets stop optimizing and never reject; `unsupported (compile-time
   budget)` is deleted from the C++ pipeline, and the frontend's instance
   bound with it (D40): after the cutover no count refuses a program.
@@ -1601,7 +1648,9 @@ kept beside the old form.
   content under `__idr.` (§4 stage 1, §6). Reason: creation order must
   not reach output, and one width is what 0007's sharding needs.
 - D19. Facts live in types and inherent properties: `idr.stack` inherent, the
-  stage read from types, the in-place promise a type fact.
+  stage read from types, the in-place promise a type fact. *The stage is
+  the `idr.program` op's inherent `stage` by 0005 D3,* not read from
+  types.
 - D20. Codegen units are size-balanced bins of SCCs grouped by top-level
   namespace, cut by content hash, their count from size, never from threads.
 - D21. S2 first (whole-module O3, then split codegen), built on the LTO
@@ -1671,9 +1720,11 @@ homes of RoundFacts' facts and the header's tag limit.
   turns them off silently. Checked: L8 rewrites the fragments first (§2.9);
   a fixture with two public functions and no mark is refused; the corpus
   and stage 0 verify. *Reversed by 0005 D3:* the program is an
-  `idr.program` op holding its root and its stage, every `idr.func` in
-  it private; this decision's reason, that publicity already holds the
-  root, no longer stands once publicity holds nothing.
+  `idr.program` op holding its root and its stage, and no `idr.func`
+  stores a visibility: it is derived, Public exactly for the root, so
+  upstream passes still see the entry (0005 §11); this decision's
+  reason, that publicity already holds the root, no longer stands once
+  publicity is read from the root.
 - D29. A data type is an identified type with a body set once, LLVM's
   identified-struct mechanism; the body is the declaration (constructors in
   tag order with field types and facts, the sum's kind, `instance`, the
@@ -1685,7 +1736,11 @@ homes of RoundFacts' facts and the header's tag limit.
   body is set (§4 stage 1). Reason: a pattern reads a type, never the
   module; the declaration is held once; the box flag stops being said twice.
   Checked: corpus output unchanged (L1); no declaration lookup on a data
-  type left in `lib/` (L5's spec check).
+  type left in `lib/` (L5's spec check). *Superseded in part by 0005:* an
+  op names a constructor by its tag, printed by name, and each
+  constructor carries its role, a label its function (D1); boxing is
+  decided once, by fit from the type graph, and the frontend emits every
+  type in place (D11).
 - D30. No two translations share an `MLIRContext`. S2 translates once, on
   the whole module; at the second step each unit is written as bytecode on
   the main thread and translated and optimized in an `MLIRContext` and an
@@ -1701,8 +1756,8 @@ homes of RoundFacts' facts and the header's tag limit.
   property of an op every module must hold, answered a case the code does
   not have. Checked by L5's spec check that the dialect declares no
   discardable attribute. *Reversed by 0005 D3* with D28: the stage is
-  the `idr.program` op's inherent `stage`, set by idr-defunctionalize
-  and idr-rc, because the walks that re-derived it (`inOwnedStage`,
+  the `idr.program` op's inherent `stage`, set by idr-defunctionalize,
+  idr-rc and idr-lower (`first`, `owned`, `lowered`), because the walks that re-derived it (`inOwnedStage`,
   `definesOwned`) held the fact by convention.
 - D32. With `-c` the driver writes the bin objects, in bin-name order, as one
   archive at the path `-o` names, in LLVM's deterministic archive mode, for
@@ -1723,7 +1778,8 @@ homes of RoundFacts' facts and the header's tag limit.
   `markByName`'s walk goes (§2.7). Reason: D29 sets a body once, and the
   graph is the one the conversion makes direct. Checked by the same
   `by_name` marks, old binary against new, both ways, and the laziness and
-  output tests' bytes.
+  output tests' bytes. *0005 D2:* each force is then a call of its memo
+  sum's dispatch function, so the graph needs no forced-label edges.
 - D35. Polyvariance is not built. Reason: defunctionalization's
   acceptance never depends on it (§2.4; MLton's closure conversion is
   exact with it off, `xml/polyvariance.fun:433-436`), and from 0006's P4
@@ -1759,7 +1815,10 @@ homes of RoundFacts' facts and the header's tag limit.
   as the earlier text had it, came after the one pipeline that could
   use it. Checked by the verifier on the corpus, and by a fixture in
   which a call to a pure callee whose result is unused is gone after
-  `idr-optimize`.
+  `idr-optimize`. *Reversed by 0005 D13:* a call holds no effects; its
+  effects are its callee's (`idr::effectsOf`), and the inner pipeline's
+  `idr-pure-calls` erases and merges calls of pure callees from the
+  callee's summary, so the fixture's property holds without a copy.
 - D39. `kClonesPerOwner` is a budget that stops specializing, not a check of
   the finiteness argument its comment names (`Specialize.h:56-58`),
   counted per requesting node: the distinct keys one node requests of one
@@ -1772,10 +1831,12 @@ homes of RoundFacts' facts and the header's tag limit.
   `tests/idr/specialize/budget.mlir` restated: the program past the
   budget compiles and runs (L8); and by determinism at 1, 2 and 8
   threads. The cutover built it as `kKeysPerOwner`
-  (`include/idr/Transforms/Specialize.h`); 0005 D4 deletes it for the
+  (`include/idr/Transforms/Specialize.h`); 0005 D4 deleted it for the
   request-chain rule over specialization keys (a new key is not made
   when it embeds an ancestor key on its request chain), 0012's feature
-  2 applied to specialization: a well-quasi-order, not a count.
+  2 applied to specialization: a well-quasi-order, not a count. Inside
+  a recursive component a key holds only the parameters every recursive
+  call passes on unchanged, and a lone number never keys (0005 §11).
 - D40. The cutover deletes the frontend's instance bound
   (`Instances.idr:38-39, 110-112`) and `checkComponent`'s blanket refusal:
   lane L1 lands 0012 D4's request-chain rule, which refuses only a chain
@@ -1807,7 +1868,8 @@ homes of RoundFacts' facts and the header's tag limit.
   driver's handler reads instead of matching `"unsupported ("`
   (`Run.cpp:248-254`); the phrase is rendered from the enum in one place.
   After the cutover the C++ rules are `layout`, `uniqueness`, `cycle` and
-  `runtime` (*read*, a search of `foreign/idr/lib`). Reason: the reasons for
+  `runtime` (*read*, a search of `foreign/idr/lib`); 0005 D4 deleted
+  `layout`, and every rule carries its category in ODS. Reason: the reasons for
   a rejection are one concept held in two places today. Checked by every
   reject test's expected text, unchanged, and a spec check that no
   `"unsupported ("` literal is left in `foreign/idr` outside that one place.
@@ -1840,7 +1902,9 @@ homes of RoundFacts' facts and the header's tag limit.
   and `idr-defunctionalize` stay as entries of one stage or step each.
   Reason: a registered pass that runs part of the ready set alone would
   need its own driver, a second path; one that is a step of the one
-  pipeline is a test entry and nothing more.
+  pipeline is a test entry and nothing more. 0005 added `idr-pure-calls`,
+  a step of the inner pipeline, and `idr-columns`, right after
+  `idr-optimize` (0005 §11).
 - D46. `idris-mlir` registers no debug counter; `idris-mlir-opt` keeps
   upstream's, and `tests/idr/obs/debug-counter.mlir` moves there. Reason:
   a counter that skips actions changes the output, so in the compiler it
@@ -1851,14 +1915,19 @@ homes of RoundFacts' facts and the header's tag limit.
   fixpoint inside each SCC, `BindingTimes` per SCC when the SCC is
   ready, `CloneTable` gone, the symbol table the driver's (as 0007 D20
   decided; §4 stage 6). Reason: each fact then has the scope it
-  quantifies over, and nothing is recomputed per nest.
+  quantifies over, and nothing is recomputed per nest. *Restated by
+  0005:* `Holds` is a view of the value-facts type interface, each data
+  type's answers computed once when its body is set (D8), and
+  `Identities` and `BindingTimes` are fields of the one per-function
+  summary (D13).
 - D48. The one representation limit the totality argument leaves is the
   runtime header's 2^16 tags for a boxed sum, refused as `unsupported
   (layout)`; L2 records the largest boxed closure sum on stage 0 (§2.4
   step 5, §2.5). Reason: it is a limit of the cell's representation,
   which 0010 records for every boxed sum (0012 D3), not a count of
   anything the optimizer does; lifting it is 0010's if a record names
-  it.
+  it. *Reversed by 0005 D4:* the limit is lifted by a two-level sum,
+  not refused, and `unsupported (layout)` is deleted.
 
 **No question is left for the owner.** The one this section held,
 whether the cutover takes 0012 D4 and deletes the instance bound, the

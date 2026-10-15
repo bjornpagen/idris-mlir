@@ -7,9 +7,19 @@ hard cutover, with no compatibility owed, in the same swarm wave as
 0004's cutover, which it builds on (c7aa7b62, 5d5f3312), so
 `idr.tie_shape` (`foreign/idr/include/idr/IR/IdrArrayOps.td`), `LArray`
 and `libs/mlir-array` are in the tree (*read*); its proof, like the
-cutover's, is owed on the owner's machine (HANDOFF.md). 0005 reverses
-its D13 (0005 D6). Stages 2 to 8 follow sharding, in order. The tree
-it started from: the cutover 0002 designed
+cutover's, is owed on the owner's machine (HANDOFF.md). 0005, coded and
+integrated on top of it (bfdcac70), changed four of its mechanisms:
+the frontend writes array ops (`idr.tabulate`, `tabulate_io`,
+`fold_last`, `scan_last`, `transpose`), which `idr-structure-loops`
+lowers one to one, never `scf.for` nests a recognizer reads back
+(reversing D13; 0005 D6); the generating set is bodiless `%extern`s in
+`Array.Core`, its registry shapes and evaluator deleted (0005 D5); a
+record array is a tensor of records until `idr-columns`, right after
+the optimizer, splits it by the one-to-N conversion (0005 D20); and a
+call's effects are its callee's summary, not a copy on the call (0005
+D13). §1's "What it changes", §4.1, §4.4, §4.5 and §5 below say where;
+0005 §4 and §11 hold the tree's form. Stages 2 to 8 follow sharding, in
+order. The tree it started from: the cutover 0002 designed
 is committed and builds on arm64 macOS. Its gate there was green before
 the opt-in SCC pipeline (7a27fd34: `make check` 26/26, `make test-idr`
 286/286, `make test` 415/415) and at 552d682a, which added that opt-in,
@@ -17,8 +27,8 @@ default off, with 0001's licenses gate (27/27, 286/286, 415/415);
 *measured* 2026-10-14 at `NCPU=6`, both on the Simplify rounds, the
 default path (read: HANDOFF.md, 0002's status). 0004's cutover deletes
 the opt-in and the rounds, and must reproduce the rounds' 415/415.
-`make check` is 27/27 at ccaba89c (*measured* on the typecheck machine,
-2026-10-14). x86_64 Linux is NotRun; stage 1, like every stage, is done only when it
+`make check` was 27/27 at ccaba89c and is 32/32 at bfdcac70 (*measured*
+on the typecheck machine). x86_64 Linux is NotRun; stage 1, like every stage, is done only when it
 passes on both targets. Where 0004 now owns a topic
 (the pipeline's order and how a function is cleaned, promises as facts
 of the library's types, names from content, refusals as structured
@@ -78,10 +88,14 @@ upstream has none, and each one names the upstream gap it fills (§20).
   The in-place promise is a fact of `LArray`'s type, as 0004 makes every
   promise a fact of the library's types: each link of a thread must
   bufferize in place, by the analysis's own check, every time (§8).
-- **Loops are upstream ops from the start.** The frontend writes each
-  array loop's sequential meaning in `scf` and `tensor`; a body without
-  effects is structured as `linalg`, where upstream fuses, tiles and
-  vectorizes it (§4, §5). Our own loop ops on memrefs go.
+- **Loops are upstream ops once effects are final.** The frontend writes
+  each generating function as one op of ours on tensors (`idr.tabulate`,
+  `fold_last`, `scan_last`, `tabulate_io`, with its region), and
+  `idr-structure-loops` lowers each one to one: a body without effects
+  becomes `linalg`, where upstream fuses, tiles and vectorizes it, any
+  other an ordered `scf.for` nest (0005 D6, which reversed this
+  section's first form, `scf` from the frontend; §4, §5). Our own loop
+  ops on memrefs go.
 - **Order is a fact of the representation.** A `linalg` reduction means
   any order; an ordered fold is an `scf.for` (§6). The one-lane rule
   that today keeps float sums in order goes.
@@ -274,7 +288,13 @@ construction.
 `mlir-linear`, a trusted library as `mlir-linear` is (**decision**,
 D1). Read as written, every definition is the meaning; the
 compiler knows a generating set by name and lowers it to upstream ops
-with the same meaning (§4). Modules: `Array` (types, generating set,
+with the same meaning (§4). *Since 0005 D5* the generating set, `LArray`'s
+operations among it, is bodiless `%extern` declarations in `Array.Core`,
+as `mlir-linear`'s primitives are, `Array` and `LArray` are exported
+without constructors, and the rest of the library is plain Idris over
+them; the registry reads each entry's arity, quantities and erasure from
+the declaration's own type, and no Idris body or evaluator restates
+them. Modules: `Array` (types, generating set,
 vocabulary, interfaces), `Array.IndexSet`, `Array.Shape` (lemmas, views,
 the solver of §3.7), `Array.Ragged`, `Array.Sparse` (§9), `Array.Display`.
 
@@ -553,6 +573,12 @@ array of twice the capacity and one `insert_slice`. Its `%foreign
 these programs on Chez, and AGENTS.md says not to shape a feature so
 that Chez can run it.
 
+*Superseded by 0005 D5:* `LArray`'s operations (`withArray`, `read`,
+`write`, `freeze`, `thaw`, `shape`, `grow`) are bodiless `%extern`s
+whose one meaning is the compiler's lowering, so no body over
+`Data.IOArray.Prims` is left and no Chez backend runs an array program;
+the extents argument below stands. The first form follows, as decided.
+
 **No primitive of its own** (**decision**, D37). The earlier text made
 the library's two primitives declared runtime primitives of the
 registry; the typed design supersedes both. `prim__index`, the bounds
@@ -620,6 +646,15 @@ to 0008 (§8 there), which owns it.
 ## 4. The generating set, as upstream ops
 
 ### 4.1 What the frontend emits
+
+*Reversed by 0005 D6, which the tree now is:* the frontend writes
+`idr.tabulate`, `idr.fold_last`, `idr.scan_last`, `idr.tabulate_io` and
+`idr.transpose` (`foreign/idr/include/idr/IR/IdrArrayOps.td`), each with
+its region, iterator kinds and row-major order, and `idr-structure-loops`
+lowers each one to one once effects are final; the table's `scf.for`
+rows are that lowering's ordered form, no longer the frontend's output,
+and the recognizer this section implies is deleted. The first form
+follows, as decided.
 
 **decision** (D13, reversed by 0005 D6; §19 says why) The frontend
 writes each primitive's sequential meaning in upstream ops, and nothing
@@ -725,10 +760,11 @@ type is the argument's pattern, under the same binding-time rules as any
 static value. The fact is already in a type, so the key reads it and
 nothing records it again. A clone specialization does not make leaves
 the extent dynamic: the same program, less optimized, never a refusal
-(0004 §2.5). What stops it was the budget `kClonesPerOwner`, which the
-cutover built as `kKeysPerOwner` and 0005 D4 deletes for the
+(0004 §2.5). What stopped it was the budget `kClonesPerOwner`, which the
+cutover built as `kKeysPerOwner` and 0005 D4 deleted for the
 request-chain rule over specialization keys: a new key is not made
-when it embeds an ancestor key on its request chain. The clone's entry
+when it embeds an ancestor key on its request chain; inside a recursive
+component only a parameter passed on unchanged keys (0005 §11). The clone's entry
 casts its array arguments to the static type with `tensor.cast`, and
 upstream's cast-folding canonicalizations, run by 0004's inner
 per-function pipeline, carry the static type into the destination-style
@@ -789,7 +825,8 @@ a scatter with a combiner and a scan with a region combiner; then they
 go.
 
 **decision** Like the generics, `idr.scan` and `idr.scatter` are made by
-`idr-structure-loops` from the frontend's loops (§5), never written by
+`idr-structure-loops` from the frontend's loops (§5; since 0005 D6 those
+are its array ops, §4.1), never written by
 the frontend (D13), and only for a combiner of §6's case 1, one integer
 op, which the structuring reads off the body, or for the one scatter
 without a combiner that `filter` writes: a write guarded by a flag, at
@@ -838,7 +875,9 @@ fact an image.
   `RegionBranchOpInterface` (read: `M/include/mlir/Dialect/SCF/IR/SCFOps.td:167`,
   and `:1240`, `ReturnLike`) and 0004's flow rule reads as it reads a
   match's (0004 §2.2), so the loops need no model of ours (**decision**,
-  D41). So 0004's verifier, which refuses a closure- or lazy-typed
+  D41). Since 0005 the frontend's loops are its array ops, which
+  implement `RegionBranchOpInterface` themselves, and the forwarding is
+  derived once from that interface (0005 D6, D7). So 0004's verifier, which refuses a closure- or lazy-typed
   operand on an op without the interface (0004 §2.2), accepts every
   array program, and closure flow is still held once.
 - **A counted element** is a tensor element too, with one path, not two
@@ -853,7 +892,10 @@ fact an image.
   conversion (`ConversionPatternRewriter::replaceOpWithMultiple`, 1:N
   `TypeConverter`), and a loop over it is a multi-result
   `linalg.generic`. This is the one representation of columns: 0010's
-  `!idr.columns<@T>` is replaced by it (0010 is updated). A record that
+  `!idr.columns<@T>` is replaced by it (0010 is updated). The conversion
+  is `idr-columns` (0005 D20): the frontend writes a tensor of records
+  (`tensor<…x!idr.data<r>>`, no columns type in its Core), and the pass
+  splits it right after `idr-optimize`. A record that
   holds an array holds its tensor, split into its fields before
   bufferization, so bufferization never sees through our records.
 - **A sum element** is decided by 0010's layouts, in these terms: a tag
@@ -873,7 +915,13 @@ unobservable, true by representation, and every upstream transform that
 reorders a parallel or reduction dimension is legal on it. A call's
 `effects` are the verified cache of its callee's summary, written once
 by 0004's bottom-up summaries (0004 §4.9; `IdrOps.td:59-75`), so the
-structuring reads a fact, never an analysis of its own.
+structuring reads a fact, never an analysis of its own. *Since 0005:*
+the structuring takes the frontend's array ops, not `scf.for`, and
+lowers each one to one (a body with no effect beyond Crash over word
+elements to `linalg.generic`, any other to an ordered `scf.for` nest;
+D6); and a call holds no effects, so it reads the callee's summary
+through the symbol table (D13). The recognizer described next is
+deleted.
 
 The structuring is a pattern set of ours, `idr-structure-loops`, run
 once per function, in parallel, in the arrays stage that follows 0004's
@@ -986,11 +1034,12 @@ Each line of ours names the stage of §17 that adds it.
   defunctionalization, total, before the optimizer  (closure elements, §4.5)
   the ready set, each function cleaned once by 0004's inner pipeline
   specialization nodes                    (a constant extent is static, §4.3)
-  SCC summaries                           (each call's effects, read by §5)
+  SCC summaries                           (each callee's effects, read by §5)
+  idr-columns, then canonicalize, cse      (0005 D20: record tensors to columns)
   remove-dead-values, symbol-dce, once
 the arrays stage:
   nested idr.func, in parallel:
-    idr-structure-loops            stage 1   pure loops to linalg (§5)
+    idr-structure-loops            stage 1   each array op lowered one to one (§5; 0005 D6)
     linalg-generalize-named-ops    stage 3
     linalg-fuse-elementwise-ops    stage 3   upstream's control function (§7.2)
     transform-interpreter          stage 3   the tile-and-fuse schedule (§7.1)
@@ -1605,7 +1654,8 @@ test-idr` and `make test-mlir-tools` on both targets, and
 `tests/determinism` at 1, 2 and 8 threads, and runs `bench/` on both, on
 the owner's machine as 0004 §10 lays out. Stage 1 landed with 0004's
 cutover, in its swarm wave (c7aa7b62, 5d5f3312), before `make self`
-(0002 §2 step 5) and sharding; its proof is owed with the cutover's;
+(0002 §2 step 5) and sharding, and 0005 reshaped it as the status says
+(bfdcac70); its proof is owed with the cutover's and 0005's;
 stages 2 to 7 follow sharding (0006's P1, P2 and P4 with 0007's
 S-stages), in order, and stage 8 needs 0006's P4.
 
@@ -1811,7 +1861,8 @@ SuiteSparse matrix vendored under `sources/`).
 Decided by the owner, 2026-10-12.
 
 - **D1.** The library is `libs/mlir-array`, plain Idris over base and
-  `mlir-linear`, trusted (§3).
+  `mlir-linear`, trusted (§3). Its generating set is bodiless `%extern`s
+  since 0005 D5.
 - **D2.** Shapes are snoc lists; rank is the form of the shape (§3.1).
 - **D3.** Primitives act on trailing cells; agreement is prefix
   agreement, as an indexing map (§3.1, §3.4).
@@ -1943,6 +1994,10 @@ text had left open or got wrong:
   earlier text's "declared runtime primitives of the registry". Reason:
   the backing's length cannot give a shape of rank above one, and the
   frontend's host build on Chez then needs no meaning of ours (§3.8).
+  *Superseded in part by 0005 D5:* `LArray`'s operations are bodiless
+  `%extern`s of `Array.Core` with no Idris body (the compiler's own Idris
+  imports no `mlir-array`, so stage 0 is unaffected); `Linear.Vec` stays
+  plain Idris over them, and the extents and typed indices stand.
 - **D38.** The fork's `Table` moves onto base's `Data.IOArray` with its
   doubling growth, and the fork's `mlir-linear` dependency goes.
   Reason: the table lives in a `Ref`, no unrestricted `LArray` exists
@@ -1951,7 +2006,7 @@ text had left open or got wrong:
 - **D39.** The static pattern of an array argument is the source type of
   the `tensor.cast` the frontend writes at the call, under today's
   binding-time rules; a clone specialization does not make (by 0005 D4's
-  request-chain rule, which deletes the budget) leaves the extent
+  request-chain rule, which deleted the budget) leaves the extent
   dynamic. Reason: the fact is already a type, and a budget never
   rejects (§4.3; 0004 §2.5).
 - **D40.** The immortal-constant lowering lands at stage 1 (amended in

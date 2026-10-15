@@ -13,27 +13,29 @@ The gate on arm64 macOS (*measured*, `NCPU=6`, HANDOFF.md): at
 `make test-idr` 286/286, `make test` 415/415; at 552d682a, which added
 that opt-in (default off) and 0001's licenses gate, `make check` 27/27,
 `make test-idr` 286/286, `make test` 415/415. `make test-mlir-tools`
-was last recorded 17/17 on 2026-10-13. 0004's cutover deletes the
+was last recorded 17/17 on 2026-10-13. 0004's cutover deleted the
 opt-in, so the gate the cutover must reproduce is the rounds' 415/415.
 At ccaba89c `make check` is 27/27 (*measured* on the typecheck machine
 2026-10-14): the one failure at 3de67510, `spec/time-trace` finding the
 culled profiler's name in a verbatim research note, is fixed (§3).
+At bfdcac70 `make check` is 32/32 on the typecheck machine.
 x86_64 Linux is NotRun: nothing of this tree has been built there.
 
-Licensing (0001) is built but for its L5 and L6, which land before
-0004's swarm packet fixes its disjoint writes. G0 is taken as 0004's
-F0. Self-hosting (§2)
-is not done: stage 1 has never finished, and its remaining steps run
-after 0004's pipeline cutover, which is coded and integrated with
-0003's stage 1 (c7aa7b62, 5d5f3312), its proof owed on the owner's
-machine (0004 §0, §10). Claims are marked: *read* (the path),
-*measured* (the record), *recalled*, *conjecture*, *decision*.
+Licensing (0001) is built but for its L5 and L6, now ordinary work on
+`main` (0001 D12). G0 is taken as 0004's F0. Self-hosting (§2) is not
+done: stage 1 has never finished, and its remaining steps run after
+the qualification of 0004's pipeline cutover with 0003's stage 1
+(c7aa7b62, 5d5f3312) and of 0005 on top of it (bfdcac70), all coded and
+integrated on the typecheck machine and none built; that proof is owed
+on the owner's machine (HANDOFF.md; 0004 §0, §10; 0005 §10). G1's run
+before the cutover was not taken (§3). Claims are marked: *read* (the
+path), *measured* (the record), *recalled*, *conjecture*, *decision*.
 
-**The one sentence.** The wall is 0004's cutover, and sharding (0007)
-comes after it: the whole program stays the unit of meaning and stops
-being the unit of work. This proposal holds the gate that proves the
-tree on both targets, before that cutover and after it, and the road
-from the cutover to a compiler that compiles itself.
+**The one sentence.** The wall was the rounds, which 0004's cutover
+deleted, and sharding (0007) comes after it: the whole program stays
+the unit of meaning and stops being the unit of work. This proposal
+holds the gate that proves the tree on both targets after that cutover
+and 0005, and the road from there to a compiler that compiles itself.
 
 ## 1. Stages
 
@@ -41,13 +43,14 @@ from the cutover to a compiler that compiles itself.
 | --- | --- |
 | C1 to C5, H1, H2 (the cutover) | done: committed, builds on arm64 macOS, gate above |
 | G0 (baseline record) | done, as 0004's F0 (`bench/profiles/2026-10-14-f0-stage0.md`) |
-| G1 (both targets, §3) | remains, run twice: on the tree before 0004's cutover, beside its lane L0 (the baseline on both targets), and after it (the cutover's proof on both) |
-| S (self-hosting, §2) | remains: steps 1 and 2 done, step 3's record taken; the wall is 0004's cutover (its §3 is the record, §10 the plan); steps 4 to 6 follow it |
+| G1 (both targets, §3) | remains: the run before 0004's cutover, beside its lane L0, was not taken; G1 runs on the tree after the cutover and 0005, as their proof on both targets |
+| S (self-hosting, §2) | remains: steps 1 and 2 done, step 3's record taken; the wall was the rounds, which 0004's cutover deleted (its §3 is the record, §10 the plan); step 3 is done at stage 0's first run through the new pipeline, and steps 4 to 6 follow; all wait on the qualification on the owner's machine |
 
 ## 2. Self-hosting
 
 Each step is measured before the next starts. Steps 4 to 6 run on the
-tree after 0004's cutover.
+tree after 0004's cutover and 0005, once the owner's machine has
+qualified it (proposals/README.md, the next chain).
 
 1. **Integrate.** Done; the tree is one tree and the gate above is its
    record.
@@ -92,17 +95,18 @@ tree after 0004's cutover.
    and a reduction that blocks nothing belongs to the proposal that
    owns the design. *Decision:* peak memory is measured by one function
    of the host layer, `tools/host.sh`, which `tools/self.sh` and G1's
-   bounded-memory check (§3) both call. Today `tools/self.sh` runs each
-   stage under `/usr/bin/time -l` (`tools/self.sh:21, 43`), macOS's
-   flag; GNU time takes `-v` for the same report (*recalled*), so the
-   script assumes one host outside the one place that knows hosts
-   (`tools/host.sh`, where `memory_used_kib` already reads
-   `/proc/meminfo` or `vm_stat`, `:118-132`). Reason: AGENTS.md's rule
-   that per-target cases outside the target's one place are bugs, and
-   step 5 is recorded on both targets.
+   bounded-memory check (§3) both call. Built by 0005's lane R17:
+   `tools/host.sh`'s `peak_memory` runs a command and records its peak
+   resident set from `getrusage`, its unit decided there per host, and
+   `tools/self.sh` calls it for each stage, writing
+   `build/self/stageN/peak-kib` (*read*), in place of the
+   `/usr/bin/time -l` it ran, macOS's flag alone. Reason: AGENTS.md's
+   rule that per-target cases outside the target's one place are bugs,
+   and step 5 is recorded on both targets.
 5. **`make self`.** Stages 1 to 3 on the self-compiled frontend
    (`make self`, `tools/self.sh`, 1ce907d3): stage 2 byte-identical to
-   stage 3 (the executable, the module and the Core), recorded in
+   stage 3 (the executable, the module, now the `.mlirbc` the frontend
+   hands the pipeline, and the Core), recorded in
    HANDOFF.md on arm64 macOS and on x86_64 Linux. *Decision:* `make
    self` checks stage 2 against stage 3 at the default thread count, as
    it does today (`tools/self.sh:44`, `--num-threads="$ncpu"`); thread
@@ -113,9 +117,8 @@ tree after 0004's cutover.
    (0004 §4), which the suite checks on every run; repeating the
    self-compile at three thread counts in every `make self` triples its
    cost for a property the suite already holds. `tests/determinism`
-   today compares one thread against the pool
-   (`tests/lib/determinism.sh:87-89`); 0004's lane L8 makes it 1, 2 and
-   8 threads (0004 §4, §10).
+   compiles at 1, 2 and 8 threads since 0004's lane L8
+   (`tests/lib/determinism.sh:7`, *read*; not yet run).
 6. **The test runner off Chez.** The runner compiled by the
    self-hosted compiler, so `make test` needs no Chez at all: its
    orchestration in sh, its generators compiled by idris-mlir, an
@@ -155,8 +158,9 @@ files, which the cutover's proof holds fixed, so the two cannot be one
 change; the representation comes first because the fields need a place
 to live.
 
-Then, in queue order: sharding, 0007's stages with 0006's P1, P2 and
-P4. 0003's stage 1 (the array purge as one hard cutover, its fork
+Then, in queue order (proposals/README.md, the next chain): x86_64
+Linux, step 6, 0004 §5.4's split before O3, then sharding, 0007's
+stages with 0006's P1, P2 and P4. 0003's stage 1 (the array purge as one hard cutover, its fork
 users ported in the same change) is not on this road any more: it
 landed with 0004's cutover, before `make self` (c7aa7b62, 5d5f3312).
 0012's features may start any time after step 5.
@@ -180,6 +184,16 @@ name one old binary. Reason: 0004 §10 measures old binary against new,
 and two baselines from two commits would leave a threshold comparing
 against a binary no record names.
 
+*What happened:* the run before the cutover was not taken. 0004's
+cutover and 0005 were coded and integrated on the typecheck machine,
+which builds no LLVM, before the owner's machine ran anything, so G1
+runs once, on the tree after both, as their proof. HANDOFF.md's list
+reads the bench against the one record kept,
+`bench/runs/2026-10-13-9a1b7b1-darwin-arm64`, and stage 0's optimizer
+against 0004 §10's margin (under 600 s of wall). D14's commit was never recorded, so
+this file names no old binary for a threshold that compares old against
+new; the Linux leg has no baseline but the one it records.
+
 **Closed since the last trim.**
 
 - **`spec/time-trace`.** At 3de67510 it found the culled profiler's
@@ -198,22 +212,21 @@ against a binary no record names.
   platform layer's Linux branches and the Linux check of the
   retirements PINS.md records, observed on arm64 only. A failure that
   reproduces with upstream dialects and tools is a patch in
-  `upstream/`; any other is ours, fixed in the tree. Before its run
-  after the cutover, `tools/self.sh`'s peak-memory measure moves into
-  `tools/host.sh` (§2 step 4), or step 5's Linux record cannot be taken.
+  `upstream/`; any other is ours, fixed in the tree. `tools/self.sh`'s
+  peak-memory measure is now `tools/host.sh`'s (§2 step 4), so step
+  5's Linux record can be taken.
 - **The bench.** `bench/run.sh --record` on each target. On arm64 it
   is read against the one record kept,
   `bench/runs/2026-10-13-9a1b7b1-darwin-arm64`, by each program's
   ratio to its own C, and a ratio worse by more than 2%, best of five,
   is a regression, bisected and fixed (0004 §10's runtime margin; 0003
   D35 and D36 measured the five-run spread at up to 97%, so the spread
-  bounds nothing). Linux records a fresh baseline. The run before
-  the cutover is, on each target, the old binary 0004 §10's thresholds
-  compare against. Before that run, `bench/run.sh` stops comparing the
-  Chez column's output with the reference (`bench/run.sh:277-294`
-  compares every column's, Chez's among them, and dies on a
-  difference): AGENTS.md's no-oracle rule binds now, and step 6
-  decides the column's role (§2).
+  bounds nothing). Linux records a fresh baseline. The run before the
+  cutover, which was to be each target's old binary for 0004 §10's
+  thresholds, was not taken ("What happened", above). `bench/run.sh`
+  no longer compares the Chez column's output with the reference: only
+  this compiler's and clang's are held to it, and Chez is timed only
+  (`bench/run.sh:11-17, 48-51`, *read*; D20).
 - **The other presets.** `release` and `hardened` configure and build,
   and `lint` runs its clang-tidy build (the presets beside `base`,
   `dev` and `typecheck`, `CMakePresets.json`). The `profile` preset the
@@ -233,16 +246,18 @@ against a binary no record names.
   refusal stays a skip through `rejection_skip`
   (`common.sh:115-127`): System.FFI's `malloc` is still
   `unsupported (raw pointer)` (`Recognized.idr:205`), since raw
-  pointers are outside the language. `rejection_skip` matches the
-  refusal's text; once 0004's lane L4 makes a refusal's rule structured
-  data (D42), its lane L8 makes `rejection_skip` read the rule instead
-  (0004 §6, §10).
+  pointers are outside the language. The scan is still in the tree
+  (`common.sh:94-97`, *read*). `rejection_skip` now reads the refusal's
+  rule and skips only one whose category is outside the language
+  (`common.sh:117-127`; `tests/lib/rules.sh` reads the rule list the
+  generator writes from ODS; 0004 D42, 0005 D4), never its message.
 
 **Not proved.**
 
 - **Compile times.** *Decision:* G1's run before the cutover runs
   `tests/compile-times.sh` on both targets and commits the record under
-  `bench/profiles/`; that record is the baseline. The 2026-10-13 figure
+  `bench/profiles/`; that record is the baseline. That run was not
+  taken, so no baseline is committed; `bench/profiles/` holds F0 alone. The 2026-10-13 figure
   (167.9 s over 429 compilations after the first compile-time round) is
   *recalled*: it is in no file and no commit message, and HANDOFF's
   2026-10-13 entry counts 490 compilations in a `/tmp` record since lost
@@ -271,8 +286,9 @@ in-place promise becomes a fact of `mlir-linear`'s types that the
 frontend emits and `idr-demand` checks every time (0004 §4.1, lanes L1
 and L4), and the bench condition is 0004 §10's runtime threshold.
 
-**Seams** (re-read 2026-10-14 at ccaba89c; nothing was run on this
-machine but `make check`):
+**Seams** (re-read 2026-10-14 at ccaba89c, and their state checked
+against bfdcac70 on 2026-10-15; nothing was run on this machine but
+`make check`):
 
 - **Which memo labels are `by_name`.** Closed in part: `markByName`
   reads the `ObservableIO` trait, so which op is an observable effect
@@ -282,10 +298,12 @@ machine but `make check`):
   three effects computations 0004 replaces with one summary, computed
   right after the label solve and before the conversion, which puts each
   memo sum's `by_name` labels in its body when the type is made;
-  `markByName`'s walk goes (0004 §2.7, D34, D29; §4 stage 4, §6). What
-  remains is 0004's lane L3's, not G1's.
-- **`closureLabel` and memo labels.** Closed: it returns a memo sum's
-  label constructors (`foreign/idr/lib/Analysis/References.cpp:174-188`).
+  `markByName`'s walk goes (0004 §2.7, D34, D29; §4 stage 4, §6).
+  Closed by the cutover: `ByName.cpp` is gone (*read*), unrun.
+- **`closureLabel` and memo labels.** Closed: it returned a memo sum's
+  label constructors (`foreign/idr/lib/Analysis/References.cpp:174-188`),
+  and 0005 D21 deleted that file as dead code, a label now holding its
+  function (0005 D1).
 - **An `array.new` fill function that never returns** was an internal
   error, which refuses and does not miscompile (*recalled*: the
   qualification record of d8d23404, written against the tree before
@@ -296,8 +314,9 @@ machine but `make check`):
   re-run here; it moved to 0003's stage 1, whose purge was to delete
   `idr.array.new` (0003 §15) but kept it as the world-ordered array's
   allocation (`foreign/idr/include/idr/IR/IdrArrayOps.td`); 0005's
-  lane R10, which owns the array ops, decides it, and any fixture for
-  it goes with that lane's tests.
+  lane R10 decided it: `idr.array.new` stays, with its fill value,
+  because an empty slot is a state an IOArray must not hold (0005 §11),
+  so no fill function exists to diverge.
 - **A partially applied `castPtr`.** The identity hook applies only at
   full arity (`compiler/src/IdrisMLIR/Frontend/Translate/Terms.idr:364-370`);
   below it the call goes to the definition, `prim__castPtr = believe_me`
@@ -312,16 +331,18 @@ machine but `make check`):
   whose body is the saturated call, and the profile's assumption holds
   everywhere. It is emission's work, in 0004's lane L1, which owns
   `Frontend/Translate` and writes closures in symbol form (0004 §4.1,
-  §10).
+  §10). Built (`Terms.idr`'s identity hook, below its arity a closure
+  over its missing parameters; fixture
+  `tests/programs/basic/partial-cast-pointer`, *read*), unrun.
 - **`--demand-in-place` against `--without`.** Closed 2026-10-14 as a
   usage error (`tests/idr/pipeline/steps.mlir:18-21, 34-36`, 44495199);
-  both options go in 0004's lane L4, and that test with them (0004 §6).
+  both options went in 0004's lane L4, and that test with them (0004 §6).
 
 ## 4. Measures
 
-- The suite's compile-time record, total and the ten slowest: taken
-  and committed before the cutover as the baseline (D19), after it
-  against that old binary.
+- The suite's compile-time record, total and the ten slowest: to be
+  taken before the cutover as the baseline (D19), which was not done;
+  it is first taken on the tree after the cutover and 0005.
 - The stage-0 handoff: functions, operations, bytes.
 - The pipeline on the stage-0 module: wall and user time per pass and
   per analysis, and peak resident memory, by binary from the saved
@@ -356,19 +377,23 @@ machine but `make check`):
 - D8 (owner): profiling is LLVM's time trace through the pass
   manager; Tracy is out of the tree. Built (the `profile` preset went
   at 5677cd90); `tests/spec/time-trace` checks it.
-- D9: G1 runs before 0004's cutover and after it (§3, "When").
+- D9: G1 runs before 0004's cutover and after it (§3, "When"). The
+  run before was not taken; G1 runs after the cutover and 0005 (§3,
+  "What happened").
 - D10: §2's step 4 is a record, not a gate, unless a stage does not fit
   the owner's machine.
 - D11: §2's step 6 follows step 5 and does not gate 0003's stage 1.
 - D12: the upstream-Idris raw-pointer source scan goes; the compiler's
-  own refusal stays a skip (§3).
+  own refusal stays a skip (§3). The skip by rule is built; the scan is
+  not yet removed.
 - D13: this proposal is deleted when G1 is green on both targets after
   0004's cutover, §2's steps 5 and 6 are recorded in HANDOFF.md, and
   the precise rejection messages (D17) have landed.
 - D14: G1's run before the cutover is on the commit 0004's L0 records,
-  one old binary for every baseline (§3, "When").
+  one old binary for every baseline (§3, "When"). Not taken: L0
+  recorded no commit.
 - D15: peak memory is one function of `tools/host.sh`, used by `make
-  self` and G1 alike (§2 step 4).
+  self` and G1 alike (§2 step 4). Built (0005's R17).
 - D16: `make self` compares stage 2 with stage 3 at the default thread
   count; thread independence is step 5's one record at 1, 2 and 8
   threads and `tests/determinism`'s on every suite run (§2 step 5).
@@ -378,13 +403,14 @@ machine but `make check`):
   and not the cutover's, whose proof holds that text fixed (§2).
 - D18: a hook applied below its arity is eta-expanded by emission, in
   0004's L1, with a fixture for a partially applied `castPtr` in its L8
-  (§3, seams; 0004 §4 stage 1, §10).
+  (§3, seams; 0004 §4 stage 1, §10). Built, unrun.
 - D19: G1's compile-time baseline is the record its run before the
   cutover commits under `bench/profiles/`; the 2026-10-13 figure is
   recalled, not a baseline (§3).
 - D20: the bench's Chez column is timing only; `bench/run.sh` compares
   only this compiler's and clang's outputs with the reference, from
   before G1's run (§2 step 6, §3). Reason: AGENTS.md's no-oracle rule.
+  Built (`bench/run.sh`'s `compared` columns).
 
 **Open, for the owner:** where G1's x86_64 Linux leg runs. Default: a
 native x86_64 Linux machine of the owner's, since the bench needs the

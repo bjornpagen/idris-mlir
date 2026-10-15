@@ -6,9 +6,10 @@ Nothing here is built. The tree today (*measured*, 0002 and 0004 §0):
 the cutover 0002 designed is committed and builds on arm64 macOS, where
 `make test` was 415/415 at 7a27fd34, before the opt-in SCC pipeline,
 and again at 552d682a with it off by default; both runs took the
-Simplify rounds, and 0004's cutover deletes the rounds and that
-pipeline together. x86_64 Linux is NotRun. `make self` has never
-finished; 0004's cutover is what it waits on.
+Simplify rounds, and 0004's cutover deleted the rounds and that
+pipeline together. x86_64 Linux is NotRun. `make self` has never finished; it waits on the qualification of
+0004's cutover and 0005, coded and integrated (c7aa7b62, 5d5f3312,
+bfdcac70) but not yet built (proposals/README.md).
 
 It is one of the three consumers of 0003's array style, with 0009's
 tables and 0008's interpreter: the layouts it chooses are how their
@@ -18,8 +19,10 @@ representation of an array of records, one tensor per field (0003 §4.5);
 this proposal decides what 0003 §4.5 leaves to it (an array of sums),
 adds the packed layout, and makes the measured choice for collections
 that are not arrays. It builds on 0004's data types that carry their
-constructors (0004 §4.1, D29), which 0004's lanes L5 and L1 land
-together (0004 §10).
+constructors (0004 §4.1, D29), which 0004's lanes L5 and L1 landed
+together (0004 §10), and on 0005's form of them: a constructor is its
+tag with a role, a data type is defined with its body, and the layout
+limits are representations (0005 D1, D4, D16).
 
 **Sources.** `sources/notes/flattened-data/`, which read the stored
 papers and code and cite them by section and line:
@@ -47,10 +50,16 @@ declaration from the type's shape (*read*):
   cell with a reference count, object slots first, reused in place when
   unique (`foreign/idr/include/idr/IR/IdrTypes.td:30-38`;
   `IdrOps.td:117-160`). A header counts at most 255 object slots and
-  65,536 tags (`runtime/idris_rt.h:106-107`), and Fit boxes records to fit
+  65,536 tags (`runtime/idris_rt.h:106-107`), and Fit boxed records to fit
   it (`lib/IR/Layout/Fit.cpp:1-9`). After 0004's cutover boxing is the
   value's type alone, `!idr.box` around the identified type, and no
-  longer a flag of the declaration as well (0004 D29).
+  longer a flag of the declaration as well (0004 D29). Since 0005 the
+  frontend emits every type in place and fit, run in
+  idr-defunctionalize, boxes only what holds itself in place, from the
+  type graph (0005 D11); and the header's limits refuse nothing: past
+  2^16 constructors a sum is two-level, past 255 counted fields a cell
+  carries a count word after its header, and an element stride past
+  64 KiB is a boxed element (0005 D4).
 - `!idr.data<@T>` for any other type: an unboxed sum, a tag of 8, 16 or
   32 bits, then slots shared between constructors, each component taking
   the first free slot of its type and countedness, spread over whatever
@@ -155,9 +164,10 @@ the cell layout decides, with no measurement.
 - A boxed type's column is a tensor of boxes, a counted element with one
   path (0003 D17).
 
-The one-to-N conversion of 0003 §4.5 takes `SumLayout::types()`
-(`Layout.h:117-124`) as its N, so records and sums go through one
-converter. The counted-slot invariant carries over: a counted column is
+The one-to-N conversion of 0003 §4.5, built as `idr-columns` (0005
+D20, right after `idr-optimize`, for records today), takes
+`SumLayout::types()` (`Layout.h:117-124`) as its N, so records and sums
+go through one converter. The counted-slot invariant carries over: a counted column is
 null wherever its constructor does not use it, so releasing an array's
 references scans the counted columns with no tag dispatch (`columnar.md`
 §8.2). The tag column keeps the cell's tag type: a one-bit tag tensor
@@ -229,6 +239,9 @@ elementwise `linalg.generic` (`Columnar.rst:874-889`).
   tensor, which the arrays stage's structuring, fusion and One-Shot
   Bufferize must see, while packing is a cell layout that idr-rc's
   commit must see; each choice sits before the passes that read it.
+  Since 0005, `idr-columns` splits record arrays right after
+  `idr-optimize`, ahead of dead-value removal, so the step must precede
+  it too (D12).
 - **The measurement rule.** The automatic choice for anything that is not
   an array covers a case only once a fixture proves it at least 1.3×
   over the cell layout, on the benchmark set below. The case is then
@@ -469,7 +482,10 @@ macOS (*read* through `packed-trees.md` §11).
   reader checks once against their tables.
 - D12. Columns for a collection that is not an array are chosen right
   before 0003's arrays stage (0003 D26), so its passes see them as
-  tensors.
+  tensors. Since 0005 the one-to-N conversion, `idr-columns`, runs
+  right after `idr-optimize` and before dead-value removal (0005 §11),
+  so this choice must come before `idr-columns` for its arrays of
+  records to become columns; where exactly is F3's to settle.
 - D13. A proved automatic case is part of the compiler's rule; an
   unproved one stays in cells unless the program writes `Packed t`.
   There is no option.

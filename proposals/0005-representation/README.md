@@ -1,10 +1,16 @@
 # 0005: one representation for every fact, and no fuel
 
-Status: decided 2026-10-15 and executing as one swarm wave of eighteen
-lanes on disjoint files (`ownership.json`), on the typecheck machine, on
-top of the cutover (0004 and 0003's stage 1, commits c7aa7b62 and
-5d5f3312). Every question is decided below; the owner's open questions are
-§9's, each with its default taken.
+Status: decided 2026-10-15; **coded and integrated** the same day, as one
+swarm wave of eighteen lanes on disjoint files (`ownership.json`), on top
+of the cutover (0004 and 0003's stage 1, c7aa7b62 and 5d5f3312), in
+bfdcac70: `make typecheck` passes every part and `make check` is 32/32 on
+the typecheck machine, which builds no LLVM, so nothing of it has been
+built or run anywhere. What the owner's machine owes is §10's list
+(HANDOFF.md); x86_64 Linux is NotRun. The §7 bugs are fixed by reading,
+none of them run. §11 records what execution decided, and §4 is
+corrected to it; §12 states what totality rests on, which is argued, not
+machine-proven. The owner's questions are §9's, each implemented at its
+default.
 
 ## 1. Why
 
@@ -69,24 +75,25 @@ validates and discards, a fact in a discardable attribute, or fuel.
 `mlir::CallGraph` with `llvm::scc_iterator` (one call graph for every pass,
 complete once forces are calls); `RegionBranchOpInterface`/`BranchOpInterface`
 for region forwarding; `ViewLikeOpInterface` and our existing
-`ResultCarriesOperand` trait for grade-only ops; `TensorLikeType`/
-`BufferLikeType` (`Bufferization/IR/BufferizationTypeInterfaces.td`) for
-`!idr.lin<T>`; upstream's memref-to-LLVM patterns on a descriptor built at
-the use; one-to-N type conversion for record elements; `APIntParameter` for
+`ResultCarriesOperand` trait for grade-only ops; One-Shot's function
+models over `FunctionOpInterface`/`CallOpInterface` (D18; `TensorLikeType`/
+`BufferLikeType` for `!idr.lin<T>` was withdrawn, §11); upstream's
+memref-to-LLVM patterns on a descriptor built at the use; one-to-N type conversion for record elements; `APIntParameter` for
 big constants; `matchPattern(m_One())`; `walkAndApplyPatterns` where a
 greedy driver's iteration count could fail.
 
 ## 4. Decisions
 
-Each names its lane (§6) and the API the other lanes write against. Lanes
-implement against these names whether or not the owner has landed them.
+Each names its lane (§6) and the API the other lanes wrote against. Where
+execution ruled otherwise, the text below is corrected to the tree's form
+and §11 gives the ruling with its reason.
 
 **D1. A constructor is its tag** (R01; users everywhere).
 - The data body's record becomes
   `struct Ctor { mlir::StringAttr name; llvm::ArrayRef<mlir::Type> fields; bool byName; CtorRole role; mlir::FlatSymbolRefAttr fn; }`.
-- `CtorRole` is one ODS enum in IdrAttrs.td, `Plain | Nil | Cons | Label | Running | Forced`, generated into Idris. It replaces U14's `Con.role`, the memo states found by position or by the strings "running"/"forced", and `isLabel`.
+- `CtorRole` is one ODS enum (IdrBase.td), `Plain | ListNil | ListCons | Label | Running | Forced`, generated into Idris (the list cases are not `Nil`/`Cons`, so no generated name shadows the Prelude's, §11). It replaces U14's `Con.role`, the memo states found by position or by the strings "running"/"forced", and `isLabel`.
 - `fn` is set exactly when `role == Label`: the label's function. A label is never found by name again.
-- Every op that names a constructor (`idr.con`, `idr.match` cases, `idr.field`, `idr.take`, the reuse forms) holds `tag : I32Prop`, printed and parsed by name through `custom<CtorRef>(type($x), $tag)`. R01 writes `parseCtorRef`/`printCtorRef` in lib/IR/Asm.cpp; `#idr.con` holds tags the same way.
+- Every op that names a constructor (`idr.con`, `idr.match` cases, `idr.field`, `idr.take`, the reuse forms) holds its tag as an attribute-backed property (`tag : I32Attr`; a match's cases and a constructor's holes `DenseI32ArrayAttr`, §11), printed and parsed by name through `custom<CtorRef>(type($x), $tag)`. R01 writes `parseCtorRef`/`printCtorRef` in lib/IR/Asm.cpp; `#idr.con` holds tags the same way.
 - `DataType::getTag(StringRef)` survives only in the parser and printer.
 
 **D2. A force is a call** (R06 emits; R02 defines ops; R12 lowers; R07 reads the graph).
@@ -99,18 +106,19 @@ implement against these names whether or not the owner has landed them.
 - With D1's `fn` the call graph is complete: `forcedLabels`, every hand-built call graph, and the label-equals-function convention go. Deduplication renames labels freely with `SymbolTable::replaceAllSymbolUses`.
 
 **D3. The program and its stage are an op** (R02 defines; R04 verifies; R17 nests the pipeline; R15 emits; every pass lane re-anchors).
-- `idr.program @name root(@f) stage(higher|first|owned|lowered) { idr.func ... }` has `SymbolTable`, `IsolatedFromAbove`, `SingleBlock` and `NoTerminator`. Every `idr.func` inside is private. The root is the property, not publicity, so "one public function" and the root count go. This reverses 0004 D28, whose reason (publicity already holds the root) no longer stands once publicity holds nothing.
+- `idr.program @name root(@f) stage(higher|first|owned|lowered) { idr.func ... }` has `SymbolTable`, `IsolatedFromAbove`, `SingleBlock` and `NoTerminator`. The root is the property; no `idr.func` stores a visibility: it is derived, Public exactly for its program's root, so upstream passes, which cannot read the property, see the root as the entry point (§11). "One public function" as a rule and the root count go. This reverses 0004 D28, whose reason (publicity already holds the root) no longer stands once publicity is derived from the root.
 - `ProgramOp` API: `getRoot()`, `getStage()`, `setStage(Stage)`, the symbol table.
-- idr-defunctionalize sets `first`, idr-rc sets `owned`, and idr-lower lowers the functions in place and sets `lowered` (the root renamed to its mangled `func.func`); idr-entry moves the program's contents into the `builtin.module` and erases the op. An `idr.func`'s visibility is derived, not stored: Public exactly for its program's root, so upstream passes see the root as the entry point.
+- idr-defunctionalize sets `first`, idr-rc sets `owned`, and idr-lower lowers the functions in place and sets `lowered`, the fourth stage (the root renamed to its mangled `func.func`, §11); idr-entry moves the program's contents into the `builtin.module` and erases the op.
 - R04's region verifier makes:
   - `!idr.fn`, `!idr.lazy`, `idr.apply` and `idr.force` illegal past `higher`;
+  - in-place containment acyclic from `first` on, since the frontend holds every type in place and fit, run in idr-defunctionalize, boxes the cycles (D11, §11);
   - own and excl grades illegal before `owned`;
-  - a plain counted reference illegal at `owned` (a borrow is the explicit view grade).
+  - a plain counted reference illegal at `owned` (a borrow is the explicit view grade; a field of a graded scrutinee is a view, Borrow for our types, §11).
 - Deleted: `inOwnedStage`, `definesOwned`, `checkNoClosures` (Lower.cpp), the root count, and the null-symbol-table test in `consumes`.
 - Passes.td: every pass anchored on `::mlir::ModuleOp` that reads the idr program is anchored on `::idr::ProgramOp`; function passes nest under it.
 
 **D4. No fuel, no count refusals** (R14 frontend; R01 layout; R08 specialization; R12 lowering; R18 spec).
-- **Frontend `whnf`/`implementationOf`:** unfold a head definition only while it is not already on the head path being unfolded. Termination comes from the shrinking set of unvisited definitions. Idris's normaliser is asked only for definitions Idris proved total, so its termination is Idris's proof.
+- **Frontend `whnf`/`implementationOf`:** unfold a head definition only while it is not already on the head path being unfolded. Termination comes from the shrinking set of unvisited definitions. Idris's normaliser is asked only for definitions Idris proved total, so its termination is Idris's proof. The head-path argument is informal: `Closed.idr` is `%default covering`, as the whole of Frontend/Translate is, and making it Idris's proof is §12's next step.
 - **What the frontend's reduction returns:** a constructor with its arguments, or `Stuck on x`, naming the runtime binder or the definition that is not total. A stuck implementation is the refusal AGENTS.md describes, naming the value. The fuel arguments at the sites §1 lists are deleted.
 - **Graph.idr and Emit/Types.idr** lose their `fuel` parameters for well-founded recursion on the unvisited set.
 - **The `Laziness` refusal** ("a match on a lazy value") becomes a force followed by the match: it is neither megamorphic nor outside the language.
@@ -119,7 +127,8 @@ implement against these names whether or not the owner has landed them.
   - more than 255 counted fields becomes a cell with a count word after its header;
   - an element stride over 64 KiB becomes a boxed element.
   - The `Rule::Layout` refusals for counts are deleted. `tests/reject/layout-*-counted-fields` become programs that compile.
-- **Specialization stops by the request-chain rule, not `kKeysPerOwner`** (R08): a new key is not made when it embeds an ancestor key on its request chain. That's 0012's feature 2, the frontend's own rule over instance keys, here over specialization keys. A well-quasi-order, not a count. `kKeysPerOwner` is deleted.
+- **Specialization stops by the request-chain rule, not `kKeysPerOwner`** (R08): a new key is not made when it embeds an ancestor key on its request chain. That's 0012's feature 2, the frontend's own rule over instance keys, here over specialization keys. A well-quasi-order, not a count. `kKeysPerOwner` is deleted, and the 32-step unroll limit with it (M16).
+- **What a key holds** (R08, §11): inside a recursive component a call keys only the parameters every recursive call passes on unchanged (the binding times, `Analysis/BindingTimes.cpp`); a call entering the component keys its static arguments once per entry; a lone scalar is never a key position. So counters and static tables do not unroll, with no budget.
 - **The inliner's 10,000-op caller cap stays:** a size policy that only stops inlining.
 - **Lowering** (R12): `walkAndApplyPatterns`, or no iteration limit, where a greedy driver's default of 10 could report an internal error.
 - **Rule categories:** each `Rule` case carries its category in ODS, `Megamorphic | OutsideLanguage` (R01 defines; R13 generates into Idris and into the tests' rule list).
@@ -130,7 +139,7 @@ implement against these names whether or not the owner has landed them.
 
 **D5. The array generating set is declared once** (R16 library; R14 registry).
 - `Array.Core`'s generating functions become bodiless `%extern` declarations, as mlir-linear's primitives already are (`Linear/String/Iterator.idr:27-29`). The types `Array`/`LArray` are exported without constructors, and everything else in the library is code over them.
-- R14 derives each registry entry's arity, quantities and erasure from the declaration's own type in the context. That deletes the restated shapes (`Registry/Recognized.idr:140-160`), `ArrayPrim` (`Entry.idr:197`) and the evaluator over it (`Terms.idr:1121-1240`, `Types.idr:237-286`). A static extent is read from the type's normal form, never by evaluation.
+- R14 derives each registry entry's arity, quantities and erasure from the declaration's own type in the context. That deletes the restated shapes (`Registry/Recognized.idr:140-160`; each generating entry is now `Bodiless`, validated as a `SiteCheck`'s `IsBodiless`, §11) and the evaluator over `ArrayPrim` (`Terms.idr:1121-1240`, `Types.idr:237-286`). As built, `ArrayPrim` stays only as the `Generating` hook's tag, naming which operation a call is. A static extent is read from the type's normal form, never by evaluation.
 - The compiler's own Idris imports no mlir-array (checked), so stage 0 on Chez is unaffected. No Chez backend runs array programs, which AGENTS.md wants.
 
 **D6. Arrays are ops from end to end** (R10 ops and lowering; R15 emits).
@@ -155,7 +164,7 @@ implement against these names whether or not the owner has landed them.
 - It replaces:
   - `holds()` (`Symbols.cpp:39-60`);
   - `Idr_CountedValueType`'s list (it becomes a constraint calling `isCounted`);
-  - the ladders in `Components.cpp:92-145`, `Grades.cpp:204` and `Conversion/Facts.cpp:31-60`;
+  - the ladders in `Components.cpp:92-145`, `Grades.cpp:204` and `Conversion/Facts.cpp:31-60`, but for Facts.cpp's non-null test, which stays because a value fact cannot say non-null (§11);
   - OwnedWalk's cache.
 - It fixes `Holds` stopping at arrays, where `mayHoldWorld` misses a world held in an array's elements.
 
@@ -166,12 +175,12 @@ implement against these names whether or not the owner has landed them.
 - A mismatch between ODS and the runtime becomes a compile error of the runtime.
 
 **D10. Guards are a trait** (R01 defines; R02 attaches; R13 generates; R15 reads).
-- `class Idr_Guarded<string operand, string kind, string cause>` on each partial op. `CheckKind` is an ODS enum, and the string mirror (`IdrCheckOps.td:60-71`) goes.
+- `class Idr_Guarded<string operand, string kind, string cause>` on each partial op. `CheckKind` is an ODS enum (its range case `InRange`, not `Range`, §11), and the string mirror (`IdrCheckOps.td:60-71`) goes.
 - Guard ops implement `holds()`. The string index guard takes the string, not a bare length, so `OpsChecks.cpp:229-237` goes.
 - R13 generates `guardsOf : IdrOp -> List Guard` into Idris, and Emit's `guardOf` (`Operations.idr:197-247`) is deleted.
 
 **D11. Boxing is decided once, in C++** (R01 Fit; R14 and R15 delete).
-- The frontend emits every data instance as `!idr.data`, with no box choice. `layout::fit` boxes by the type graph's components and remakes types through `DataRemap`.
+- The frontend emits every data instance as `!idr.data`, with no box choice. `layout::fit`, run in idr-defunctionalize, boxes by the type graph's components and remakes types through `DataRemap` (§11).
 - Deleted: the frontend's cycle finding for boxing (`Graph.idr`'s use there, `Translate/Programs.idr:176-177`) and Emit's `BoxType` choice.
 
 **D12. Grade-only ops are asked, not listed** (R02, R05, R09, R07).
@@ -181,8 +190,9 @@ implement against these names whether or not the owner has landed them.
 - One `idr::Summary` on the ready set's node holds effects, `givesBack`, binding times, constants and inline facts. It replaces the four stores with their four mutexes (`Identities.h`, `Analysis/Specialize.h`, `Constants.h`, `Inline.h`); the wave barrier orders the reads.
 - Effects are solved once over the call graph.
 - `idr.call` holds no effects: a call's effects are its callee's (`idr::effectsOf(CallOpInterface, SymbolTableCollection&)`, in Func.h, R02). C02's call-site copy and "absent means everything" go.
+- Canonicalize and CSE then see every call as effectful, so the inner pipeline has a step of its own after canonicalize, `idr-pure-calls` (`Optimize/PureCalls.cpp`): a call of a pure callee whose result is unused is erased, and two equal ones merge, read from the callee's summary (§11).
 
-**D14. idr-rc decides its key set first and clones once** (R09): the `for(;;)` re-solve (`Rc.cpp:82-101`) goes, as 0004 §6 already said.
+**D14. idr-rc makes one exclusive copy per function** (R09): every parameter it follows is exclusive in the one copy, made once and named from its key (§11), so the `for(;;)` re-solve (`Rc.cpp:82-101`) goes, as 0004 §6 already said.
 
 **D15. No intermediate state the IR can hold** (R02, R10).
 - `idr.con` and its reuse form return their destinations as results. The destination-placeholder peeling (`OpsCon.cpp:287-315`) and its readers' special cases go.
@@ -200,7 +210,7 @@ implement against these names whether or not the owner has landed them.
 **D18. Bufferization through upstream's own models** (R11).
 - Patch 24 is extended upstream: One-Shot's function-boundary models become written over `FunctionOpInterface`/`CallOpInterface`, not `func::CallOp`. The patch, its report, reproducer, `tests/upstream` check and PINS entry are updated in this change.
 - `Bufferize/Functions.cpp`'s re-implementation goes.
-- Not adopted (lane R11's finding): `!idr.lin<T>` as `TensorLikeType`/`BufferLikeType`. Type interfaces attach per class, and `QType` is also the world and every linear scalar, so the world would become a tensor to One-Shot. 0003 rejected this already (§8, §18). The grade stays opaque to One-Shot, and the one post-bufferization `DataRemap` stays, its status checked, as the retyping of block arguments, iteration arguments and bodies that One-Shot cannot do.
+- Withdrawn (lane R11's finding, §11): `!idr.lin<T>` as `TensorLikeType`/`BufferLikeType`. Type interfaces attach per class, and `QType` is also the world and every linear scalar, so the world would become a tensor to One-Shot. 0003 rejected this already (§8, §18). The grade stays opaque to One-Shot, and the one post-bufferization `DataRemap` stays, its status checked, as the retyping of block arguments, iteration arguments and bodies that One-Shot cannot do.
 
 **D19. A big op names its word op in ODS** (R02 marks; R13 generates): one `bigToWord` table replaces `Narrow/Ops.cpp:69-110,163-164`, `Conversion/Bigs.cpp:266` and `RuntimeCalls.cpp:56`.
 
@@ -208,7 +218,7 @@ implement against these names whether or not the owner has landed them.
 - `Cmp` is the generated `CmpPredicate`.
 - Hooks become a record with one field per hook kind, not `List Hook` read through `firstOf` projections (`Hooks.idr:16-130`, `Terms.idr:369-405`, `Profile.idr:71,282`).
 - `ColumnsT` leaves `Ty`. A record array's Core type is `TensorT ds (DataT r)`, and Emit writes `tensor<...x!idr.data<r>>`.
-- R10 adds `idr-columns`, which decomposes a tensor of records into one tensor per field by upstream's one-to-N type conversion (signatures, calls, block arguments, the D6 ops, ties) before bufferization. That is the mechanism 0003 D44 named.
+- R10 adds `idr-columns`, which decomposes a tensor of records into one tensor per field by upstream's one-to-N type conversion (signatures, calls, block arguments, the D6 ops, ties). That is the mechanism 0003 D44 named. It runs right after idr-optimize, then a function canonicalize and CSE fold what it leaves, before remove-dead-values, so a column nothing reads goes with the rest of what no caller reads (§11).
 - Emit's columns machinery (`Emit/Monad.idr`'s column holding, `fieldsOf`, the per-column cases of `Emit/Tensors.idr`) and the frontend's per-column ties go.
 
 **D21. Dead code and stringly values go:** `Analysis/References.{h,cpp}` and `Holds::mayHoldClosure` (R07, R01); `BigAttr` becomes an `APIntParameter` (R01); `isOne`'s text comparison becomes `m_One()` (R07).
@@ -353,15 +363,69 @@ R16 fixes what D5 lets it fix: a linear traverse and fold over the generating se
 
 ## 9. The owner's questions, each with its default taken
 
+The tree implements both defaults: Cycle and Uniqueness are
+`OutsideLanguage` in ODS and AGENTS.md admits them as the two refusals of
+constructs outside the language's memory model, each on a total analysis;
+and the fill value stays.
+
 1. **C++ refusals.** AGENTS.md says the only refusals are the frontend's, but `Rule::Cycle` (`Verify/Knots.cpp:99`, a reference knot that counting would never free) and `Rule::Uniqueness` (`Demand.cpp:89`, a library's in-place promise that exclusivity cannot meet) are refused in C++, each by a total analysis and not by a count. Default: keep both, with category `OutsideLanguage` (D4), and say so in AGENTS.md at integration.
 2. **The fill value at size 0** (R16): default, keep it. An uninitialized slot is a state the representation should not hold.
 
 ## 10. Gate
 
-On this machine: `make typecheck` every part and `make check` green, at integration. On the owner's machine, HANDOFF's list, now against this wave's tree:
+On this machine: `make typecheck` every part and `make check` green, at integration. Met at bfdcac70 (`make check` 32/32). On the owner's machine, HANDOFF's list, now against this wave's tree, none of it run:
 - bootstrap (patch 24 changed);
 - build;
-- the three suites, with the NEEDS-ACCEPTANCE files;
+- `make test`, `make test-idr` and `make test-mlir-tools`, with the NEEDS-ACCEPTANCE files accepted where the output says what their marker asks (134 by HANDOFF.md's count; `git grep -l NEEDS-ACCEPTANCE -- tests` lists 145 at bfdcac70);
 - determinism at 1, 2 and 8 threads;
 - the bench;
 - `make self`.
+
+x86_64 Linux: the same list, NotRun.
+
+## 11. What execution decided
+
+Rulings taken while the lanes ran and at integration (2026-10-15), each
+with its reason. §4 is corrected to them.
+
+- **Visibility is derived.** An `idr.func`'s visibility is Public exactly for its program's root, and none is stored: upstream passes (remove-dead-values, symbol-dce) cannot see the program's `root` property and read publicity as the entry.
+- **A fourth stage, `lowered`.** idr-lower lowers the functions in place, renames the root to its mangled `func.func` and sets `lowered`; idr-entry takes the program apart: the program holds upstream's functions between the two, and its stage says so, so no verifier guesses it from what the functions hold.
+- **Every inherent value is an attribute-backed property** (`I32Attr` for a tag, `DenseI32ArrayAttr` for cases and holes, an enum attribute for the stage), and the generator refuses any other kind the Idris side would have to write (a property that is no attribute and has no default; one with a default is a pass's own, written at it): the bytecode's dictionary encoding (B1) drops any other property silently.
+- **D18's third bullet is withdrawn** (`!idr.lin<T>` as `TensorLikeType`/`BufferLikeType`): a type interface attaches per class, and `QType` is also the world, which would become a tensor to One-Shot.
+- **Specialization keys by binding times.** Inside a recursive component a call keys only the parameters every recursive call passes on unchanged, and a lone number is never a key: counters and static tables do not unroll, with no budget (D4).
+- **`idr-pure-calls`.** An inner-pipeline step after canonicalize erases unread calls of pure callees and merges equal ones, from the callee's summary: calls hold no effects (D13), so canonicalize and CSE cannot.
+- **In-place containment from `first` on.** The verifier's containment rule applies from stage `first`: the frontend holds every type in place, and fit, run in idr-defunctionalize, boxes the cycles there (D11).
+- **A field of a graded scrutinee is a view.** `fieldType` gives Borrow for our types once the scrutinee is graded: a plain counted reference is illegal at `owned` (D3), so the field carries the view grade.
+- **No generated Idris name shadows the Prelude.** `CtorRole`'s list cases are `ListNil`/`ListCons` and `CheckKind`'s range case is `InRange`, and the generator refuses a constructor name that is the Prelude's: in its own namespace it would still be found where the Prelude's is meant.
+- **The registry's validation type is `SiteCheck`** (`HasShape` or `IsBodiless`, `Registry/Entry.idr`): a registry entry now checks either a shape or a bodiless `%extern` (D5), one type for both.
+- **B1's report is `upstream/25-bytecode-unregistered-properties`**, never carried and kept as a submission: nothing in the tree reaches the bug once the writer uses the dictionary encoding. Its pull request passes the writer's flag through to the properties reader instead of making the dead branch live as `*wasRegistered`, which would break every unregistered operation that round-trips upstream today.
+- **`idr.array.new` stays**: an empty slot is a state an IOArray must not hold, so the world-ordered array is allocated filled (§9 question 2).
+- **Facts.cpp keeps its non-null test**: a value fact cannot say non-null, so the cell pointer's LLVM attributes stay the lowering's (D8).
+- **The stalled R05 lane** (canon-fold) was finished by a replacement, so every lane's files landed in the one integration.
+- **idr-columns' place**: right after idr-optimize, with a function canonicalize and CSE before remove-dead-values, so the conversion's leftovers fold and a column nothing reads goes with the dead values (D20).
+- **idr-rc makes one exclusive copy per function**: every followed parameter exclusive, decided on one solve before anything changes (D14).
+
+## 12. Totality: what is proved and what is argued
+
+"Acceptance never depends on an optimizer count" holds by construction
+and is checked by `tests/spec/totality`, which reads structure (no fuel
+parameter, no `Rule` without a category, the lifted limits compiling).
+It is not machine-proven:
+- **C++:** every pass terminates by structure (a bottom-up order over the
+  call graph, a shrinking worklist, one walk), argued in each file's
+  comments.
+- **Idris:** Idris proves termination in 38 of compiler/src's 57 modules
+  (`%default total`) and in every module of `libs/`; the 57th,
+  `Frontend/Translate.idr`, only re-exports.
+- **Covering, not total:** the 18 Frontend/Translate and driver modules
+  are `%default covering`, `Translate/Closed.idr`, the fuel-free
+  reduction, among them; its head-path argument (D4) is informal.
+- **Two `assert_total`s:** `compiler/src/IdrisMLIR/Ids.idr:311`
+  (`mids`, stepping by 32 up to a bound) and
+  `libs/mlir-array/Linear/Vec.idr:58`, the crash path of an index out of
+  bounds.
+
+Next step, owed and small: the frontend's modules made `%default total`,
+the head-path rule written as well-founded recursion over the unvisited
+definitions (as `Emit/Index.idr` already does with `Accessible`), and
+`Ids.idr`'s `assert_total` replaced by structural recursion.

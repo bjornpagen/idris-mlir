@@ -12,8 +12,9 @@ parallel checking and, parked, certificates from solvers.
 The tree it starts from (*measured*, HANDOFF.md, 0002): the cutover of
 0002 is committed and builds on arm64 macOS, where `make test` was
 415/415 at 7a27fd34, before the opt-in SCC pipeline that 0004's cutover
-deletes. x86_64 Linux is NotRun. `make self` has never finished; 0004's
-pipeline cutover is what it waits on. The fork's elaborator is
+deleted. x86_64 Linux is NotRun. `make self` has never finished; it waits on the qualification of
+0004's cutover and 0005, coded and integrated (c7aa7b62, 5d5f3312,
+bfdcac70) but not yet built (proposals/README.md). The fork's elaborator is
 upstream's, and nothing of it has been measured on this tree.
 
 **Where it sits** (*decision*). T0 is recorded at `make self` (0002 §2
@@ -387,8 +388,9 @@ the kernel checks.
     shard work, once generated names come from content (below).
 - **Who starts what** (*decision*). Nothing starts a process or a thread
   but the runtime's shards: process creation is outside the language
-  (`compiler/src/IdrisMLIR/Rule.idr:34-35`, AGENTS.md), and so are
-  threads (`Rule.idr:21-23`), which is why elaboration waits for 0006's
+  (the `Process` rule, `foreign/idr/include/idr/IR/IdrBase.td:199`,
+  `OutsideLanguage`; AGENTS.md), and so are threads (`Threads`, `:187`),
+  which is why elaboration waits for 0006's
   shards, one single-threaded runtime per core, rather than run on
   threads of one process or on processes the C++ driver starts. The
   driver still runs the frontend as one child

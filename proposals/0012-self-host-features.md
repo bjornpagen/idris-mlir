@@ -7,15 +7,19 @@ landed in 0004's cutover (lane L1), ahead of the others, by the owner's
 ruling that a count never decides acceptance (0004 D40): its
 request-chain rule is `chainGrows`, called from `request`
 (`compiler/src/IdrisMLIR/Frontend/Translate/Instances.idr`), and the
-instance budget is gone; 0005 D4 applies the same rule to
-specialization keys. The other five features are not built.
+instance budget is gone; 0005 D4 (integrated, bfdcac70) applied the
+same rule to specialization keys and compiled a match on `Delay` as a
+force, one part of feature 1's stage. The other five features are not
+built.
 
 The tree (*measured*, HANDOFF.md, 0002): the cutover of 0002 is
 committed and builds on arm64 macOS, where `make test` was 415/415 at
-7a27fd34, before the opt-in SCC pipeline that 0004 deletes. x86_64 Linux
+7a27fd34, before the opt-in SCC pipeline that 0004 deleted. x86_64 Linux
 is NotRun. Stage 0 compiled the frontend on Chez (c50d176d: 58,305
-functions in 137 s at 9.1 GB peak); stage 1 has never finished, and
-0004's cutover is what it waits on (0004 §3.1). The ledger below is the
+functions in 137 s at 9.1 GB peak); stage 1 has never finished, and it
+waits on the qualification of 0004's cutover and 0005, coded and
+integrated (c7aa7b62, 5d5f3312, bfdcac70) but not yet built (0004
+§3.1; proposals/README.md). The ledger below is the
 rewrites self-hosting forced. This proposal is not on the self-host
 path: "Where it sits" says what the plan needs from it. Claims are
 marked: *read*, *measured*, *recalled*, *conjecture*, *decision*.
@@ -92,46 +96,47 @@ summarizes as the frontend's megamorphic refusals:
   set to a `case` with one arm per lambda, with no cap, no refusal and no
   boxed fallback (0004 §2.3).
 
-Two counts still refuse today. 0004's cutover deletes the pipeline's
-`unsupported (compile-time budget)` from its three sites (0004 §2.5,
-§6); the frontend's `instanceBudget` is a fourth (`Translate/
-Instances.idr:34-39, 110-112`), which feature 2 deletes inside the
-cutover (0004 D40), so after it no count refuses a program. The other is the
-runtime's cell header (below), a representation limit.
+No count refuses a program in the tree as coded. 0004's cutover
+deleted the pipeline's `unsupported (compile-time budget)` from its
+three sites (0004 §2.5, §6) and the frontend's `instanceBudget`, a
+fourth, by feature 2 (0004 D40); 0005 deleted the frontend's fuel
+(`whnf 64`, `implementationOf 64`) and lifted the runtime's cell-header
+limits by representations (0005 D4, below).
 
 The C++ side's `unsupported (runtime closure)` and `unsupported
-(laziness)`, which defunctionalize reports today
-(`foreign/idr/lib/Transforms/Defunctionalize/Pass.cpp:43-50, 96-101`),
-go with 0004's cutover, whose label sets have no unknown element (0004
-§2.2, §6). The frontend's rules of the same names, below, are other
-refusals: an implementation closing over runtime values in a
-constructor, and a match on `Delay`.
+(laziness)`, which defunctionalize reported, went with 0004's cutover,
+whose label sets have no unknown element (0004 §2.2, §6). The frontend's
+rules of the same names, below, were other refusals: an implementation
+closing over runtime values in a constructor, which stays, and a match
+on `Delay`, which 0005 D4 compiles as a force bound to the pattern's
+variable, so the `laziness` rule is gone.
 
-The pipeline's other refusals are about representation limits and the
-program's own promises, not constructs, and are not this proposal's
-(*read*): a cell past its header's counted slots or tags
-(`unsupported (layout)`, `foreign/idr/lib/IR/Layout/Layouts.cpp:95`,
-`lib/IR/OpsData.cpp:93-98` until 0004 D29 moves it to the identified
-type's verifier, `lib/IR/Layout/CellInfo.cpp:20-25`), a limit
-of the runtime's header (`runtime/idris_rt.h:106-107`) that 0010 records
-(its "What it changes") and no proposal yet lifts; a knot through a
-mutable cell (`unsupported (cycle)`, `lib/IR/Verify/Knots.cpp:100`; the
+The pipeline's other refusals are about the program's own promises,
+not constructs, and are not this proposal's (*read*): a knot through a
+mutable cell (`unsupported (cycle)`, `lib/IR/Verify/Knots.cpp`; the
 acyclic heap); and a broken in-place promise (`unsupported
-(uniqueness)`, `lib/Transforms/Demand/Demand.cpp:79`; a fact of
-`mlir-linear`'s types after 0004 §4.1). None of them is a budget the
+(uniqueness)`, `lib/Transforms/Demand/Demand.cpp`; a fact of
+`mlir-linear`'s types after 0004 §4.1), both `OutsideLanguage`, each on
+a total analysis (AGENTS.md). A cell past its header's counted slots or
+tags was a third, `unsupported (layout)`, a limit of the runtime's
+header (`runtime/idris_rt.h:106-107`); 0005 D4 lifted it by
+representations (a two-level tag, a count word after the header, a
+boxed element) and deleted the rule. None of them is a budget the
 compiler sets.
 
 Every other refusal the frontend makes today, on a construct inside the
 language, is a missing feature (*read*: the rules are
-`compiler/src/IdrisMLIR/Rule.idr:11-39`; the sites and fixtures below):
+ODS's `Idr_Rule`, `foreign/idr/include/idr/IR/IdrBase.td:166-211`, generated as
+`Rule` into `compiler/src/IdrisMLIR/Syntax/Idr.idr`; the sites and fixtures below,
+as read before 0004's cutover):
 
 | Refusal today, `unsupported (<rule>)` | Where | Fixture | Removed by |
 | --- | --- | --- | --- |
 | `match`: a match on an erased value, between constructors a runtime index tells apart | `Translate/Cases.idr:534-539` | none yet; the fork's `shuffleVars`, `updateLocal` and `removeArgVars` were rewritten around it | 1 |
-| `laziness`: a match on `Delay` (not asked by self-hosting; taken so the end state holds) | `Cases.idr:498, 736` | none | 1's stage: a force bound to the pattern's variable, as upstream compiles `DelayCase` (`third_party/Idris2/src/Compiler/CompileExpr.idr:322-327`, *read*) |
+| `laziness`: a match on `Delay` (not asked by self-hosting; taken so the end state holds) | gone: 0005 D4 compiled it as a force bound to the pattern's variable, as upstream compiles `DelayCase` (`third_party/Idris2/src/Compiler/CompileExpr.idr:322-327`, *read*), in `Translate/Cases.idr` | none | done, ahead of 1's stage |
 | `primitive`: a match on a `Double` literal (not asked by self-hosting; taken so the end state holds) | `Cases.idr:749` | `primitive-double-match` | 1's stage: the runtime's `Double` equality tested against each literal in the alternatives' order (D13) |
 | `polymorphism`: a recursive component that passes a type or implementation other than its own, unchanged, even when the set it reaches is finite | `Translate/Recursion.idr:142-153` | none for the bounded case | 2 |
-| `compile-time budget`: more than 4,096 instances of one definition | `Translate/Instances.idr:34-39, 110-112` | none | 2, whose termination argument deletes it |
+| `compile-time budget`: more than 4,096 instances of one definition | gone with 0004's cutover | none | 2, which landed in the cutover and deleted it (0004 D40) |
 | `type`: a type computed from a runtime value, or `Type` in a runtime position | `Translate/Types.idr:435-437`; `Terms.idr:137, 318` | `type-dependent` | 3 (a computed type), 5 (a type held) |
 | `string primitive`: a match on a constant with no literal, a primitive type such as `Int` held as a value | `Cases.idr:747`; `Terms.idr:51-65` | none | 5 (a type held at runtime) |
 | `dependent field`: a field whose type depends on another field, a `Type` field among them | `Types.idr:509-512` | `dependent-field-type-field` | 3, 5 |
@@ -225,10 +230,12 @@ emitted any more):
 ## Where it sits in the self-host plan
 
 Self-hosting comes first (0002 §2). Steps 1 and 2 are done; step 3's
-record is 0004's F0, and the wall is 0004's pipeline cutover, which takes
-0007's S2's first step (code generation split after one whole-module
-O3) inside it, its lane L7; the split before O3 follows (0004 §5.4).
-Steps 4 to 6 follow the cutover: the diet and the memory (a record),
+record is 0004's F0, and the wall was the rounds, which 0004's pipeline
+cutover deleted, taking 0007's S2's first step (code generation split
+after one whole-module O3) inside it, its lane L7; the split before O3
+follows (0004 §5.4). The cutover and 0005 are coded and integrated, not
+yet built. Steps 4 to 6 follow their qualification on the owner's
+machine: the diet and the memory (a record),
 `make self` (stage 2 byte-identical to stage 3; `tests/determinism` at
 1, 2 and 8 threads on every suite run, and step 5's one self-compile at
 three thread counts, 0002 D16), and the test runner off Chez. Then, in queue order,
@@ -290,9 +297,9 @@ more values known in the frontend, where the instance is decided.
    in base, the fork and the corpus). *Decision:* once the stage's check
    holds, a match that is not told apart is an internal error, a broken
    invariant (0004 §2.5), not a refusal; until then it stays the `match`
-   refusal, which names the runtime value to match on. The same stage
-   compiles a match on `Delay` as a force bound to its variable, which is
-   upstream's meaning of it, and a match on a `Double` literal as the
+   refusal, which names the runtime value to match on. A match on
+   `Delay` is already a force bound to its variable, upstream's meaning
+   of it (0005 D4). The same stage compiles a match on a `Double` literal as the
    runtime's `Double` equality tested against each literal in the
    alternatives' order, which is the meaning the checker's own evaluator
    gives it: it matches a constant alternative by `==` on constants
@@ -481,7 +488,7 @@ more values known in the frontend, where the instance is decided.
      `Bits8`, the language's cast, where base leaves a value outside 0 to
      255 to each backend ("Assumes val is in the range 0-255",
      `third_party/Idris2/libs/base/Data/Buffer.idr:61`). The `deprecated`
-     rule goes with them (`Rule.idr:38-39`).
+     rule goes with them (the `Deprecated` case, `IdrBase.td:204`).
 
 ## Staged plan
 
@@ -515,8 +522,8 @@ deprecated entries and the fork's equality code. Each stage has:
   feature against the code it replaces; the bar is the staged plan's,
   0004 §10's margins (2% runtime, 5% compile time, best of five).
 - Compile time: the extra instances and sum variants each feature makes,
-  and the largest boxed sum it builds against the header's 2^16 tags,
-  recorded per stage (a record, never a refusal), and the native
+  and the largest boxed sum it builds (past the header's 2^16 tags it is
+  two-level, 0005 D4), recorded per stage (a record, never a refusal), and the native
   self-compile's wall time and peak resident memory, first recorded at
   `make self`. No native figure exists yet. The Chez stage-0 run (137 s
   at 9.1 GB peak, c50d176d; about 140 s in 0004's F0) measures Chez and is
@@ -533,12 +540,10 @@ deprecated entries and the fork's equality code. Each stage has:
   refused; what is outside the language stays out; a primitive the
   runtime does not define is a runtime addition, not a feature (D15). No
   bound on a sum's variants is set here. The runtime header's 2^16 tags
-  for a boxed sum (`runtime/idris_rt.h:106`, refused today at
-  `OpsData.cpp:93-98`, the `idr.data` verifier, and after 0004 D29 by
-  the identified type's verifier) are a representation limit that 0010
-  records and no proposal yet lifts, the one 0004 D48 names for closure
-  sums too; each stage records its largest boxed sum against it
-  (Measures).
+  for a boxed sum (`runtime/idris_rt.h:106`), the limit 0004 D48 named
+  for closure sums too, were refused until 0005 D4 lifted them: past
+  2^16 constructors a sum is two-level, so no sum's size refuses a
+  program; each stage still records its largest boxed sum (Measures).
 - D4. Feature 2's rule on request chains, which `growing` becomes; it
   deletes `checkComponent`'s blanket refusal, `growing` as a check of its
   own, and the instance budget with its `compile-time budget` rule.
@@ -567,7 +572,7 @@ deprecated entries and the fork's equality code. Each stage has:
 - D13. A match on a `Double` literal is the runtime's `Double` equality
   tested against each literal in the alternatives' order, the meaning the
   checker's own evaluator gives the pattern; it lands in feature 1's
-  stage, beside the match on `Delay`.
+  stage. The match on `Delay` it was to sit beside landed in 0005 (D4).
 - D14. Base's three deprecated buffer names compile as base defines
   them, in feature 6's stage, and the `deprecated` rule goes. Reason:
   Idris warns and accepts, and D1 refuses no bounded construct.

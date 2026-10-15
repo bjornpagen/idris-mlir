@@ -6,9 +6,10 @@ decided the same day. Nothing here is built. The tree today
 (*measured*, 0002 and 0004 §0): the cutover 0002 designed is committed
 and builds on arm64 macOS, where `make test` was 415/415 at 7a27fd34,
 before the opt-in SCC pipeline, and again at 552d682a with it off by
-default; both runs took the Simplify rounds, and 0004's cutover deletes
-the rounds and that pipeline together. x86_64 Linux is NotRun. `make
-self` has never finished; 0004's cutover is what it waits on.
+default; both runs took the Simplify rounds, and 0004's cutover deleted
+the rounds and that pipeline together. x86_64 Linux is NotRun. `make self` has never finished; it waits on the qualification of
+0004's cutover and 0005, coded and integrated (c7aa7b62, 5d5f3312,
+bfdcac70) but not yet built (proposals/README.md).
 
 The interned names (once part of O1) and the hash-consed term arena
 (once O4) moved to 0008, which owns them; this proposal builds the rest
@@ -19,13 +20,20 @@ follows 0008. O0 is taken at `make self` with 0011's T0, before 0008's
 A0, whose proof is a ratio to that record; O1 onward start after A0,
 each with the further needs §8 names.
 
-0004's cutover changes emission first, in its lane L1: closures and
+0004's cutover changed emission first, in its lane L1: closures and
 suspensions in symbol form, names derived from content, binder identity,
-data types that carry their constructors, the root as the module's one
-public function with no mark, the in-place promise as a type fact and
-the bytecode handoff (0004 §4.1, D28, D29, D36). L1 makes them on today's trees. This proposal consumes
-those changes and decides how its tables hold each one (§4.10); its O2
-writes 0004's bytecode from an ops table. O3 is the relational core's
+data types that carry their constructors, the in-place promise as a type
+fact and the bytecode handoff (0004 §4.1, D29, D36). 0005 then changed
+it again (its R14 and R15): the program is an `idr.program` op holding
+its root and stage, every function's visibility derived from the root
+(0005 D3, reversing 0004 D28); an op names a constructor by its tag
+(D1); every data type is emitted in place, boxing being fit's (D11);
+arrays are ops end to end and a record array a tensor of records (D6,
+D20); the frontend's reduction runs on no fuel (D4); and every inherent
+value is an attribute in the bytecode's dictionary (0005 §11). Both are
+on today's trees, coded and integrated, not yet built. This proposal
+consumes those changes and decides how its tables hold each one
+(§4.10); its O2 writes 0004's bytecode from an ops table. O3 is the relational core's
 first consumer (0013's R3), so 0013, parked until a consumer starts
 (0013 §0), is taken up for it: R1 and R2 are built before O3. O5's
 interval join, O7's constraint store and O8's laws are 0013's too
@@ -429,9 +437,10 @@ cost.
 
 ### 4.10 What 0004's emission asks of the tables
 Each change 0004 makes to emission (0004 §4.1, §6) has one form in the
-tables (*decision* for each). 0004's L1 makes them on today's trees
-first; the tables re-express them without changing a byte of what is
-emitted (D5).
+tables (*decision* for each). 0004's L1 made them on today's trees,
+and 0005's R14 and R15 changed several (the root, constructors by tag,
+boxing, arrays; this file's status); the tables re-express them without
+changing a byte of what is emitted (D5).
 
 - **Closures and suspensions in symbol form.** Emit writes each lambda
   and delay as an `idr.func` and names it in `idr.closure` or
@@ -531,17 +540,15 @@ emitted (D5).
   frontend knows of library definitions and which 0004 makes name the
   types rebuilt in place and exclusive (`Registry/Libraries.idr`;
   0004 §4.1); `idr-demand` checks it on every program.
-- **The root.** The root is the module's one public `idr.func`, as the
-  module rules already find it; 0004 adds no `root` property, which
-  would hold publicity twice, and stops writing the discardable
-  `idr.program` mark (0004 §4.1, D28; written today at
-  `Dialect/Idr.idr:30-33`). Full Core already holds the root as one
-  function id (`Source.root`, `IdrisMLIR/Term.idr:354-362`), named
-  `$idris-mlir.root`, a fixed name and no counter
-  (`Translate/Programs.idr:188`). In the tables it is that id, a single
-  value beside the function table rather than a column, and the ops
-  table writes that function's op public and every other private, as
-  Emit does today (`Emit/Declarations.idr:71`).
+- **The root.** The root is the `idr.program` op's `root` property,
+  and a function's visibility is derived from it, Public exactly for the
+  root (0005 D3, which reversed 0004 D28's root as the one public
+  function). Full Core already holds the root as one function id
+  (`Source.root`, `IdrisMLIR/Term.idr`), named `$idris-mlir.root`, a
+  fixed name and no counter (`Translate/Programs.idr`). In the tables
+  it is that id, a single value beside the function table rather than a
+  column, and the ops table writes it as the program op's root, storing
+  no visibility, as Emit does today.
 
 ## 5. What appears once the state is tables
 
@@ -602,8 +609,10 @@ emitted (D5).
 - **No refusal by budget** (0004 D17): a megamorphic construct is refused
   by a rule that names the site and the growing value. The frontend's
   instance count went with 0012's feature 2, in 0004's cutover (0004
-  D40), and its fuel (`whnf 64`, `implementationOf 64`) goes in 0005
-  (its D4), not with a stage here (§4.8).
+  D40), and its fuel (`whnf 64`, `implementationOf 64`) went in 0005
+  (its D4, bfdcac70), not with a stage here (§4.8): the reduction
+  unfolds a head only while it is off the head path, an informal
+  argument in a `%default covering` module until 0005 §12's next step.
 - **Deterministic, byte-identical outputs;** both targets.
 
 ## 8. Staged plan, ordered by measured cost
