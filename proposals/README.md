@@ -179,7 +179,7 @@ force.
   cutover, in the same swarm wave as 0004's; stages 2 to 7
   follow sharding, and stage 8 needs 0005's P4. Decided 2026-10-12,
   reconciled with 0004 on 2026-10-14; design only.
-- [0004](0004-compile-time.md): whole-program facts, a fixed optimizer,
+- [0004](0004-compile-time/README.md): whole-program facts, a fixed optimizer,
   parallel code generation. The pipeline cutover, design only and
   awaiting the owner's approval: defunctionalization total by analysis
   (a verified closed world, one flow interface, a forced-state anchor,
