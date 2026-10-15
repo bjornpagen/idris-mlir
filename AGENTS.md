@@ -43,6 +43,14 @@ numbers.
   heap-free check, lowering) are C++ in `foreign/idr/`, an in-tree MLIR
   dialect in upstream's layout and conventions; `PINS.md` records every
   deliberate deviation from it and every pinned workaround.
+- The Idris side compiles under two hosts, always: upstream's Idris on Chez
+  Scheme, which may compile it however it chooses but must compile and run
+  it, and idris-mlir itself. This holds for the frontend, the fork, `libs/`
+  and the Idris test machinery, so all of it is written in the subset
+  idris-mlir compiles and uses nothing only one host has. Linearity is a
+  performance property, never a correctness one: a linear program means the
+  same under both hosts, and idris-mlir's optimizations of it (update in
+  place, no counting) only make it faster.
 - One thing, one representation. A concept the compiler holds twice (the
   dialect's ops, types or primitives mirrored on the Idris side, a fact kept
   in a type and again in an attribute, one analysis computed in two places)
